@@ -1,0 +1,13 @@
+[package]
+name = "rumors"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+proptest = ["dep:proptest"]
+
+[dependencies]
+proptest = { version = "1", optional = true }
+
+[dev-dependencies]
+proptest = "1"
