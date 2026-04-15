@@ -194,6 +194,14 @@ impl<'a, P> LeafEntry<'a, P> {
 }
 
 impl<'a, P: Clone> VacantEntry<'a, P> {
+    /// The dispatch byte that produced this vacancy.
+    pub fn byte(&self) -> u8 {
+        match &self.inner {
+            Vacant::InPrefix { byte, .. } => *byte,
+            Vacant::InBranch { map_vacant, .. } => *map_vacant.key(),
+        }
+    }
+
     /// Splice a new leaf into the tree at this vacant slot, returning a mutable
     /// reference to the freshly inserted leaf data.
     ///
@@ -268,14 +276,6 @@ impl<'a, P: Clone> VacantEntry<'a, P> {
                     Children::Branch(_) => unreachable!("just constructed Leaf"),
                 }
             }
-        }
-    }
-
-    /// The dispatch byte that produced this vacancy.
-    pub fn byte(&self) -> u8 {
-        match &self.inner {
-            Vacant::InPrefix { byte, .. } => *byte,
-            Vacant::InBranch { map_vacant, .. } => *map_vacant.key(),
         }
     }
 }
