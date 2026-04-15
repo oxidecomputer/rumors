@@ -30,7 +30,7 @@ use super::{Children, Leaf, Node};
 
 /// Either an existing position in the tree or an empty slot at which a leaf can
 /// be inserted. Returned from [`InteriorEntry::descend`].
-pub(super) enum Entry<'a, P> {
+pub enum Entry<'a, P> {
     Occupied(OccupiedEntry<'a, P>),
     Vacant(VacantEntry<'a, P>),
 }
@@ -39,7 +39,7 @@ pub(super) enum Entry<'a, P> {
 /// a terminal leaf. Splitting these into separate variants lets
 /// [`InteriorEntry::descend`] be callable only where further descent makes
 /// sense, and the leaf accessors only where a leaf actually exists.
-pub(super) enum OccupiedEntry<'a, P> {
+pub enum OccupiedEntry<'a, P> {
     Interior(InteriorEntry<'a, P>),
     Leaf(LeafEntry<'a, P>),
 }
@@ -49,7 +49,7 @@ pub(super) enum OccupiedEntry<'a, P> {
 /// branching map. The internal representation tracks which of those two
 /// situations we are in, so neither operation needs to inspect a [`Children`]
 /// variant it does not own.
-pub(super) struct InteriorEntry<'a, P> {
+pub struct InteriorEntry<'a, P> {
     inner: Interior<'a, P>,
 }
 
@@ -70,7 +70,7 @@ enum Interior<'a, P> {
 /// consumed and the leaf's data can be read or modified, but no further descent
 /// is possible. The leaf reference is held directly, without any `Children`
 /// indirection.
-pub(super) struct LeafEntry<'a, P> {
+pub struct LeafEntry<'a, P> {
     leaf: &'a mut Leaf<P>,
 }
 
@@ -79,7 +79,7 @@ pub(super) struct LeafEntry<'a, P> {
 /// prefix (when the vacancy sits inside it) or appends to the branching map
 /// (when it sits at the branching level). The internal representation tracks
 /// which case applies.
-pub(super) struct VacantEntry<'a, P> {
+pub struct VacantEntry<'a, P> {
     inner: Vacant<'a, P>,
 }
 
@@ -106,7 +106,7 @@ impl<P> Node<P> {
     /// descent. The variant returned reflects whether the node is already at a
     /// terminal leaf (`prefix == []` and `children` is a `Leaf`) or still has
     /// structure to descend into.
-    pub(super) fn root_entry(&mut self) -> OccupiedEntry<'_, P> {
+    pub fn walk(&mut self) -> OccupiedEntry<'_, P> {
         classify(self, 0)
     }
 }
@@ -116,7 +116,7 @@ impl<P> InteriorEntry<'_, P> {
     /// modify the subtree at or below this entry should call this before
     /// descending further; the cache will be repopulated on the next
     /// `Node::hash()` call.
-    pub(super) fn invalidate_hash(&mut self) {
+    pub fn invalidate_hash(&mut self) {
         match &mut self.inner {
             Interior::InPrefix { node, .. } => node.hash.reset(),
             Interior::AtBranch { parent_hash, .. } => parent_hash.reset(),
@@ -134,7 +134,7 @@ impl<'a, P: Clone> InteriorEntry<'a, P> {
     /// looked up in the map: a hit returns the appropriate `OccupiedEntry` for
     /// the child, and a miss returns a `VacantEntry` that will splice into the
     /// map on commit.
-    pub(super) fn child(&mut self, byte: u8) -> Entry<'_, P> {
+    pub fn child(&mut self, byte: u8) -> Entry<'_, P> {
         match &mut self.inner {
             Interior::InPrefix { node, depth } => {
                 let expected = node.prefix[node.prefix.len() - 1 - *depth];
@@ -170,7 +170,7 @@ impl<P> OccupiedEntry<'_, P> {
     /// Mark the surrounding node's cached hash as dirty, no-op for a terminal
     /// leaf (whose hash depends only on its position, not on the stored leaf
     /// data).
-    pub(super) fn invalidate_hash(&mut self) {
+    pub fn invalidate_hash(&mut self) {
         match self {
             OccupiedEntry::Interior(interior) => interior.invalidate_hash(),
             OccupiedEntry::Leaf(_) => {}
@@ -180,7 +180,7 @@ impl<P> OccupiedEntry<'_, P> {
 
 impl<'a, P> LeafEntry<'a, P> {
     /// Borrow the leaf data immutably.
-    pub(super) fn leaf(&self) -> &Leaf<P> {
+    pub fn leaf(&self) -> &Leaf<P> {
         self.leaf
     }
 
@@ -188,7 +188,7 @@ impl<'a, P> LeafEntry<'a, P> {
     /// merkle hash depends only on its position in the tree, not on the stored
     /// party/version/value, so updating those fields does not invalidate any
     /// cached hashes.
-    pub(super) fn leaf_mut(&mut self) -> &mut Leaf<P> {
+    pub fn leaf_mut(&mut self) -> &mut Leaf<P> {
         self.leaf
     }
 }
@@ -202,7 +202,7 @@ impl<'a, P: Clone> VacantEntry<'a, P> {
     /// (the old subtree with a shorter prefix, and the new leaf with
     /// `remaining_path` as its compressed prefix) sit on the two sides of the
     /// divergence. Otherwise the new leaf is appended to the branching map.
-    pub(super) fn insert_leaf(
+    pub fn insert_leaf(
         self,
         remaining_path: Vec<u8>,
         party: P,
@@ -272,7 +272,7 @@ impl<'a, P: Clone> VacantEntry<'a, P> {
     }
 
     /// The dispatch byte that produced this vacancy.
-    pub(super) fn byte(&self) -> u8 {
+    pub fn byte(&self) -> u8 {
         match &self.inner {
             Vacant::InPrefix { byte, .. } => *byte,
             Vacant::InBranch { map_vacant, .. } => *map_vacant.key(),

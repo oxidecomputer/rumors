@@ -4,7 +4,7 @@ use proptest::prelude::*;
 
 use super::*;
 
-/// Compute the root hash of the fully-expanded (un-path-compressed) 256-ary
+/// Compute the root hash of the fully-expanded (uVn-path-compressed) 256-ary
 /// trie over the given set of values. For every unique blake3 path, a leaf
 /// sentinel of all-0xff bytes sits at depth 32; at each level above, a 256-way
 /// branch hashes its child slots (0x00-filled where absent, recursive hash
@@ -55,6 +55,14 @@ fn reference_hash(values: &[Vec<u8>]) -> blake3::Hash {
     *current
         .get(&Vec::<u8>::new())
         .expect("exactly one root entry")
+}
+
+/// Derive a deterministic `path_len`-byte path from arbitrary input bytes by
+/// taking a prefix of `blake3(raw)`. Distinct inputs almost always map to
+/// distinct paths, but collisions just mean re-insertion at the same address
+/// (which is fine because the stored value also derives from the path).
+fn derive_path(raw: &[u8], path_len: usize) -> Vec<u8> {
+    blake3::hash(raw).as_bytes()[..path_len].to_vec()
 }
 
 /// A value inserted into an empty tree produces a leaf that hashes without
@@ -161,34 +169,4 @@ proptest! {
         let reverse_hash = reverse.root.hash();
         prop_assert_eq!(forward_hash.as_bytes(), reverse_hash.as_bytes());
     }
-}
-
-/// Derive a deterministic `path_len`-byte path from arbitrary input bytes by
-/// taking a prefix of `blake3(raw)`. Distinct inputs almost always map to
-/// distinct paths, but collisions just mean re-insertion at the same address
-/// (which is fine because the stored value also derives from the path).
-fn derive_path(raw: &[u8], path_len: usize) -> Vec<u8> {
-    blake3::hash(raw).as_bytes()[..path_len].to_vec()
-}
-
-/// Return `true` if no node in the tree violates path compression: branches
-/// must have at least two children (except an empty branch at the root,
-/// which is the empty-tree representation), and there are no one-child
-/// branches anywhere.
-fn is_max_compressed<P>(root: &Node<P>) -> bool {
-    fn check<P>(node: &Node<P>, is_root: bool) -> bool {
-        match &node.children {
-            Children::Leaf(_) => true,
-            Children::Branch(map) => {
-                if map.len() == 1 {
-                    return false;
-                }
-                if !is_root && map.is_empty() {
-                    return false;
-                }
-                map.values().all(|arc| check(arc, false))
-            }
-        }
-    }
-    check(root, true)
 }
