@@ -1,33 +1,35 @@
 use std::collections::BTreeMap;
+use std::hash::Hash;
 use std::sync::Arc;
 
 use bytes::Bytes;
 
-mod cached_hash;
+use crate::Version;
+
+mod cached;
 mod entry;
 
-use cached_hash::CachedHash;
+use cached::Cached;
 pub use entry::{Entry, InteriorEntry, LeafEntry, OccupiedEntry, VacantEntry};
 
-#[cfg(test)]
-mod test;
-
 #[derive(Clone)]
-pub struct Node<P> {
+pub struct Node<P: Hash + Eq> {
     /// Compressed path above this node's own branching level, stored with the
     /// deepest byte at index 0 and the shallowest byte at the last index. An
     /// empty prefix means the node is not path-compressed above its level.
     prefix: Vec<u8>,
     /// The cached hash of this node, invalidated when any change occurs in or
     /// beneath it.
-    hash: CachedHash,
+    hash: Cached<blake3::Hash>,
+    /// The maximum of all versions beneath this node, cached to allow efficient causal merging of trees.
+    version: Cached<Version<P>>,
     /// The children of this node: either a leaf, or a branch point.
     children: Children<P>,
 }
 
 /// The children of a node.
 #[derive(Clone)]
-enum Children<P> {
+enum Children<P: Hash + Eq> {
     /// A direct leaf, at the true bottom of the tree.
     Leaf(Leaf<P>),
     /// A materialized branch point, with the invariant that there are always >=
@@ -37,7 +39,7 @@ enum Children<P> {
 
 /// A leaf at the bottom of the tree, holding the value payload.
 #[derive(Clone)]
-struct Leaf<P> {
+struct Leaf<P: Hash + Eq> {
     /// The party which originally inserted this leaf into the set.
     pub party: P,
     /// That party's local version scalar at the time of insertion.
@@ -46,7 +48,7 @@ struct Leaf<P> {
     pub value: Bytes,
 }
 
-impl<P> Node<P> {
+impl<P: Hash + Eq> Node<P> {
     /// Hash the subtree rooted at this node, using the merkle-trie convention:
     /// a leaf's "branching" layer is the distinguished sentinel `[0xff; 32]`, a
     /// branch's is 256 concatenated child hashes (with `[0x00; 32]` in empty
@@ -86,11 +88,12 @@ impl<P> Node<P> {
     }
 }
 
-impl<P> Default for Node<P> {
+impl<P: Hash + Eq + Clone> Default for Node<P> {
     fn default() -> Self {
         Self {
-            prefix: Vec::new(),
-            hash: CachedHash::default(),
+            prefix: Default::default(),
+            hash: Default::default(),
+            version: Default::default(),
             children: Children::Branch(BTreeMap::new()),
         }
     }
@@ -100,8 +103,8 @@ impl<P> Default for Node<P> {
 /// must have at least two children (except an empty branch at the root,
 /// which is the empty-tree representation), and there are no one-child
 /// branches anywhere.
-fn is_max_compressed<P>(root: &Node<P>) -> bool {
-    fn check<P>(node: &Node<P>, is_root: bool) -> bool {
+fn is_max_compressed<P: Hash + Eq>(root: &Node<P>) -> bool {
+    fn check<P: Hash + Eq>(node: &Node<P>, is_root: bool) -> bool {
         match &node.children {
             Children::Leaf(_) => true,
             Children::Branch(map) => {

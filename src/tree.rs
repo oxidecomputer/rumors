@@ -12,7 +12,7 @@ pub struct Tree<P: Hash + Eq> {
     root: Node<P>,
 }
 
-impl<P: Hash + Eq> Default for Tree<P> {
+impl<P: Hash + Eq + Clone> Default for Tree<P> {
     fn default() -> Self {
         Self {
             version: Version::default(),
@@ -52,7 +52,7 @@ impl<P: Clone + Hash + Eq> Tree<P> {
 /// and is asserted explicitly here.
 ///
 /// Returns `true` if there already was a value at this path.
-fn insert_at<P: Clone>(
+fn insert_at<P: Hash + Eq + Clone>(
     node: &mut OccupiedEntry<'_, P>,
     mut path: Vec<u8>,
     party: P,

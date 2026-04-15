@@ -20,17 +20,20 @@
 
 use std::collections::BTreeMap;
 use std::collections::btree_map;
+use std::hash::Hash;
 use std::mem;
 use std::sync::Arc;
 
 use bytes::Bytes;
 
-use super::cached_hash::CachedHash;
+use crate::Version;
+
+use super::cached::Cached;
 use super::{Children, Leaf, Node};
 
 /// Either an existing position in the tree or an empty slot at which a leaf can
 /// be inserted. Returned from [`InteriorEntry::descend`].
-pub enum Entry<'a, P> {
+pub enum Entry<'a, P: Hash + Eq + Clone> {
     Occupied(OccupiedEntry<'a, P>),
     Vacant(VacantEntry<'a, P>),
 }
@@ -39,7 +42,7 @@ pub enum Entry<'a, P> {
 /// a terminal leaf. Splitting these into separate variants lets
 /// [`InteriorEntry::descend`] be callable only where further descent makes
 /// sense, and the leaf accessors only where a leaf actually exists.
-pub enum OccupiedEntry<'a, P> {
+pub enum OccupiedEntry<'a, P: Hash + Eq + Clone> {
     Interior(InteriorEntry<'a, P>),
     Leaf(LeafEntry<'a, P>),
 }
@@ -49,11 +52,11 @@ pub enum OccupiedEntry<'a, P> {
 /// branching map. The internal representation tracks which of those two
 /// situations we are in, so neither operation needs to inspect a [`Children`]
 /// variant it does not own.
-pub struct InteriorEntry<'a, P> {
+pub struct InteriorEntry<'a, P: Hash + Eq + Clone> {
     inner: Interior<'a, P>,
 }
 
-enum Interior<'a, P> {
+enum Interior<'a, P: Hash + Eq + Clone> {
     /// Inside a compressed prefix. `depth` bytes have already been virtually
     /// consumed from the shallow end and `depth < node.prefix.len()`.
     InPrefix { node: &'a mut Node<P>, depth: usize },
@@ -62,7 +65,8 @@ enum Interior<'a, P> {
     /// descent needs no further `Children` inspection.
     AtBranch {
         map: &'a mut BTreeMap<u8, Arc<Node<P>>>,
-        parent_hash: &'a mut CachedHash,
+        parent_hash: &'a mut Cached<blake3::Hash>,
+        parent_version: &'a mut Cached<Version<P>>,
     },
 }
 
@@ -70,7 +74,7 @@ enum Interior<'a, P> {
 /// consumed and the leaf's data can be read or modified, but no further descent
 /// is possible. The leaf reference is held directly, without any `Children`
 /// indirection.
-pub struct LeafEntry<'a, P> {
+pub struct LeafEntry<'a, P: Hash + Eq + Clone> {
     leaf: &'a mut Leaf<P>,
 }
 
@@ -79,11 +83,11 @@ pub struct LeafEntry<'a, P> {
 /// prefix (when the vacancy sits inside it) or appends to the branching map
 /// (when it sits at the branching level). The internal representation tracks
 /// which case applies.
-pub struct VacantEntry<'a, P> {
+pub struct VacantEntry<'a, P: Hash + Eq + Clone> {
     inner: Vacant<'a, P>,
 }
 
-enum Vacant<'a, P> {
+enum Vacant<'a, P: Hash + Eq + Clone> {
     /// Vacancy inside a compressed prefix: the next prefix byte at this virtual
     /// level disagrees with the dispatch byte. Committing requires splitting
     /// the node's prefix.
@@ -97,11 +101,12 @@ enum Vacant<'a, P> {
     /// `btree_map::VacantEntry`, with no `Children` inspection needed.
     InBranch {
         map_vacant: btree_map::VacantEntry<'a, u8, Arc<Node<P>>>,
-        parent_hash: &'a mut CachedHash,
+        parent_hash: &'a mut Cached<blake3::Hash>,
+        parent_version: &'a mut Cached<Version<P>>,
     },
 }
 
-impl<P> Node<P> {
+impl<P: Hash + Eq + Clone> Node<P> {
     /// Open an [`OccupiedEntry`] at this node's outermost position, before any
     /// descent. The variant returned reflects whether the node is already at a
     /// terminal leaf (`prefix == []` and `children` is a `Leaf`) or still has
@@ -111,20 +116,27 @@ impl<P> Node<P> {
     }
 }
 
-impl<P> InteriorEntry<'_, P> {
+impl<P: Hash + Eq + Clone> InteriorEntry<'_, P> {
     /// Mark the surrounding node's cached hash as dirty. Algorithms that may
     /// modify the subtree at or below this entry should call this before
     /// descending further; the cache will be repopulated on the next
     /// `Node::hash()` call.
     pub fn invalidate_hash(&mut self) {
         match &mut self.inner {
-            Interior::InPrefix { node, .. } => node.hash.reset(),
-            Interior::AtBranch { parent_hash, .. } => parent_hash.reset(),
+            Interior::InPrefix { node, .. } => node.hash.invalidate(),
+            Interior::AtBranch { parent_hash, .. } => parent_hash.invalidate(),
+        }
+    }
+
+    fn invalidate_version(&mut self) {
+        match &mut self.inner {
+            Interior::InPrefix { node, .. } => node.version.invalidate(),
+            Interior::AtBranch { parent_version, .. } => parent_version.invalidate(),
         }
     }
 }
 
-impl<'a, P: Clone> InteriorEntry<'a, P> {
+impl<'a, P: Hash + Eq + Clone> InteriorEntry<'a, P> {
     /// Step one logical level down by dispatching on `byte`.
     ///
     /// Inside the compressed prefix, the byte is matched against the next
@@ -150,7 +162,11 @@ impl<'a, P: Clone> InteriorEntry<'a, P> {
                     })
                 }
             }
-            Interior::AtBranch { map, parent_hash } => match map.entry(byte) {
+            Interior::AtBranch {
+                map,
+                parent_hash,
+                parent_version,
+            } => match map.entry(byte) {
                 btree_map::Entry::Occupied(occupied) => {
                     let arc = occupied.into_mut();
                     Entry::Occupied(classify(Arc::make_mut(arc), 0))
@@ -159,6 +175,7 @@ impl<'a, P: Clone> InteriorEntry<'a, P> {
                     inner: Vacant::InBranch {
                         map_vacant,
                         parent_hash,
+                        parent_version,
                     },
                 }),
             },
@@ -166,7 +183,7 @@ impl<'a, P: Clone> InteriorEntry<'a, P> {
     }
 }
 
-impl<P> OccupiedEntry<'_, P> {
+impl<P: Hash + Eq + Clone> OccupiedEntry<'_, P> {
     /// Mark the surrounding node's cached hash as dirty, no-op for a terminal
     /// leaf (whose hash depends only on its position, not on the stored leaf
     /// data).
@@ -176,9 +193,17 @@ impl<P> OccupiedEntry<'_, P> {
             OccupiedEntry::Leaf(_) => {}
         }
     }
+
+    // Mark the surrounding node's cached version as dirty.
+    pub fn invalidate_version(&mut self) {
+        match self {
+            OccupiedEntry::Interior(interior) => interior.invalidate_version(),
+            OccupiedEntry::Leaf(_) => {}
+        }
+    }
 }
 
-impl<'a, P> LeafEntry<'a, P> {
+impl<'a, P: Hash + Eq + Clone> LeafEntry<'a, P> {
     /// Borrow the leaf data immutably.
     pub fn leaf(&self) -> &Leaf<P> {
         self.leaf
@@ -193,7 +218,7 @@ impl<'a, P> LeafEntry<'a, P> {
     }
 }
 
-impl<'a, P: Clone> VacantEntry<'a, P> {
+impl<'a, P: Hash + Eq + Clone> VacantEntry<'a, P> {
     /// The dispatch byte that produced this vacancy.
     pub fn byte(&self) -> u8 {
         match &self.inner {
@@ -219,7 +244,8 @@ impl<'a, P: Clone> VacantEntry<'a, P> {
     ) -> &'a mut Leaf<P> {
         let new_leaf_node = Node {
             prefix: remaining_path,
-            hash: CachedHash::default(),
+            hash: Cached::default(),
+            version: Cached::default(),
             children: Children::Leaf(Leaf {
                 party,
                 version,
@@ -238,7 +264,7 @@ impl<'a, P: Clone> VacantEntry<'a, P> {
                 let old_div_byte = old.prefix[div_idx];
                 let shared: Vec<u8> = old.prefix[div_idx + 1..].to_vec();
                 old.prefix.truncate(div_idx);
-                old.hash.reset();
+                old.hash.invalidate();
 
                 let mut map = BTreeMap::new();
                 map.insert(old_div_byte, Arc::new(old));
@@ -246,7 +272,8 @@ impl<'a, P: Clone> VacantEntry<'a, P> {
 
                 *node = Node {
                     prefix: shared,
-                    hash: CachedHash::default(),
+                    hash: Cached::default(),
+                    version: Cached::default(),
                     children: Children::Branch(map),
                 };
 
@@ -268,9 +295,11 @@ impl<'a, P: Clone> VacantEntry<'a, P> {
             Vacant::InBranch {
                 map_vacant,
                 parent_hash,
+                parent_version,
             } => {
                 let arc = map_vacant.insert(Arc::new(new_leaf_node));
-                parent_hash.reset();
+                parent_hash.invalidate();
+                parent_version.invalidate();
                 match &mut Arc::make_mut(arc).children {
                     Children::Leaf(leaf) => leaf,
                     Children::Branch(_) => unreachable!("just constructed Leaf"),
@@ -283,7 +312,7 @@ impl<'a, P: Clone> VacantEntry<'a, P> {
 /// Classify a `(node, depth)` pair into the appropriate `OccupiedEntry`
 /// variant, decomposing the node into the disjoint sub-borrows each variant
 /// requires. The returned entry's invariants therefore hold by construction.
-fn classify<'a, P>(node: &'a mut Node<P>, depth: usize) -> OccupiedEntry<'a, P> {
+fn classify<'a, P: Hash + Eq + Clone>(node: &'a mut Node<P>, depth: usize) -> OccupiedEntry<'a, P> {
     if depth < node.prefix.len() {
         return OccupiedEntry::Interior(InteriorEntry {
             inner: Interior::InPrefix { node, depth },
@@ -293,13 +322,19 @@ fn classify<'a, P>(node: &'a mut Node<P>, depth: usize) -> OccupiedEntry<'a, P> 
     // depth == node.prefix.len(): split the node into disjoint &mut hash and
     // &mut children borrows so the Branch arm can hand both to
     // `Interior::AtBranch` without re-matching on `Children` later.
-    let Node { hash, children, .. } = node;
+    let Node {
+        hash,
+        version,
+        children,
+        ..
+    } = node;
     match children {
         Children::Leaf(leaf) => OccupiedEntry::Leaf(LeafEntry { leaf }),
         Children::Branch(map) => OccupiedEntry::Interior(InteriorEntry {
             inner: Interior::AtBranch {
                 map,
                 parent_hash: hash,
+                parent_version: version,
             },
         }),
     }
