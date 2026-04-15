@@ -1,5 +1,6 @@
 use std::sync::Mutex;
 
+#[derive(Debug)]
 pub struct Cached<T>(Mutex<Option<T>>);
 
 impl<T: Clone> Cached<T> {
