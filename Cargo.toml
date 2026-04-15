@@ -9,7 +9,9 @@ proptest = ["dep:proptest"]
 [dependencies]
 proptest = { version = "1", optional = true }
 imbl = "7"
+generic-array = "1"
 bytes = "1"
+blake3 = "1.8"
 
 [dev-dependencies]
 proptest = "1"

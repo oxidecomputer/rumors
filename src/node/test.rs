@@ -1,605 +1,194 @@
-use std::collections::BTreeSet;
-use std::ops::RangeInclusive;
+use std::collections::{BTreeSet, HashMap};
 
-use bytes::Bytes;
 use proptest::prelude::*;
 
 use super::*;
-use crate::version::Version;
 
-/// Party type for tests. `u8` keeps the version-vector search space small.
-type P = u8;
+/// Compute the root hash of the fully-expanded (un-path-compressed) 256-ary
+/// trie over the given set of values. For every unique blake3 path, a leaf
+/// sentinel of all-0xff bytes sits at depth 32; at each level above, a 256-way
+/// branch hashes its child slots (0x00-filled where absent, recursive hash
+/// where present). This is the ground truth that the compressed tree's root
+/// hash must match.
+fn reference_hash(values: &[Vec<u8>]) -> blake3::Hash {
+    const LEAF_SENTINEL: [u8; 32] = [0xff; 32];
+    const ZERO: [u8; 32] = [0x00; 32];
 
-/// Reverse a forward-order path into the pop-order that both `Node::insert`
-/// consumes and `Node::path` stores.
-fn rev(path: &[u8]) -> Vec<u8> {
-    let mut v = path.to_vec();
-    v.reverse();
-    v
-}
-
-/// Build a `Version` by recording one event per (party, count) pair.
-fn ver(events: &[(P, u64)]) -> Version<P> {
-    let mut v = Version::<P>::default();
-    for &(p, n) in events {
-        for _ in 0..n {
-            v.event(p);
+    let hash_branch = |children: &HashMap<u8, blake3::Hash>| -> blake3::Hash {
+        let mut hasher = blake3::Hasher::new();
+        for i in u8::MIN..=u8::MAX {
+            match children.get(&i) {
+                Some(h) => hasher.update(h.as_bytes()),
+                None => hasher.update(&ZERO),
+            };
         }
+        hasher.finalize()
+    };
+
+    // Level 32 (the value level): every distinct path maps to the sentinel.
+    let paths: BTreeSet<[u8; 32]> = values.iter().map(|v| *blake3::hash(v).as_bytes()).collect();
+
+    if paths.is_empty() {
+        return hash_branch(&HashMap::new());
     }
-    v
+
+    let mut current: HashMap<Vec<u8>, blake3::Hash> = paths
+        .into_iter()
+        .map(|p| (p.to_vec(), LEAF_SENTINEL.into()))
+        .collect();
+
+    // Fold upward one level at a time: group entries by the prefix they share
+    // at the next-shallower depth, then hash each group as a 256-way branch.
+    for level in (0..32).rev() {
+        let mut groups: HashMap<Vec<u8>, HashMap<u8, blake3::Hash>> = HashMap::new();
+        for (prefix, hash) in current {
+            let new_prefix = prefix[..level].to_vec();
+            let byte = prefix[level];
+            groups.entry(new_prefix).or_default().insert(byte, hash);
+        }
+        current = groups
+            .into_iter()
+            .map(|(prefix, children)| (prefix, hash_branch(&children)))
+            .collect();
+    }
+
+    *current
+        .get(&Vec::<u8>::new())
+        .expect("exactly one root entry")
 }
 
-/// A flat description of every leaf reachable from `node`: its full path from
-/// the root, the bytes at that leaf, and the leaf's version.
-fn leaves<Q: Ord + Clone>(node: &Node<Q>) -> Vec<(Vec<u8>, Bytes, Version<Q>)> {
-    fn walk<Q: Ord + Clone>(
-        node: &Node<Q>,
-        prefix: &mut Vec<u8>,
-        out: &mut Vec<(Vec<u8>, Bytes, Version<Q>)>,
+/// A value inserted into an empty tree produces a leaf that hashes without
+/// panicking. This exercises the Vacant-branch case, which previously panicked
+/// on the first insert.
+#[test]
+fn single_insert_does_not_panic() {
+    let mut tree: Tree<u64> = Tree::default();
+    tree.insert(0, 1, Bytes::from_static(b"hello"));
+    let _ = tree.root.hash();
+}
+
+/// Reinserting the same (party, value) at an older version must be a no-op:
+/// the stored leaf keeps its newer version, and the tree shape is unchanged.
+#[test]
+fn older_reinsert_is_skipped() {
+    let mut tree: Tree<u64> = Tree::default();
+    tree.insert(0, 5, Bytes::from_static(b"hello"));
+    let before = tree.root.hash();
+    tree.insert(0, 3, Bytes::from_static(b"hello"));
+    let after = tree.root.hash();
+    assert_eq!(before.as_bytes(), after.as_bytes());
+}
+
+/// An empty tree's root hash must match the reference (256 zero slots).
+#[test]
+fn empty_tree_hash_matches_reference() {
+    let tree: Tree<u64> = Tree::default();
+    let tree_hash = tree.root.hash();
+    let reference = reference_hash(&[]);
+    assert_eq!(tree_hash.as_bytes(), reference.as_bytes());
+}
+
+/// A single inserted value must hash identically to the uncompressed trie
+/// containing just that value. This exercises Leaf::hash path compression
+/// with a maximal 31-byte leaf prefix.
+#[test]
+fn single_value_hash_matches_reference() {
+    let value = b"hello".to_vec();
+    let mut tree: Tree<u64> = Tree::default();
+    tree.insert(0, 1, Bytes::copy_from_slice(&value));
+    let tree_hash = tree.root.hash();
+    let reference = reference_hash(&[value]);
+    assert_eq!(tree_hash.as_bytes(), reference.as_bytes());
+}
+
+proptest! {
+    /// The compressed tree's root hash must equal the hash computed over the
+    /// fully-expanded uncompressed trie, for any set of inserted values. This
+    /// is the ground-truth invariant for path compression: the hash depends
+    /// on the set of leaves, not on how the tree chooses to compress them.
+    #[test]
+    fn compressed_hash_matches_reference(
+        values in proptest::collection::vec(any::<Vec<u8>>(), 0..16),
     ) {
-        let saved = prefix.len();
-        // `node.path` is stored in reverse descent order; reverse it back
-        // onto the running forward-order prefix.
-        prefix.extend(node.path.iter().rev());
+        let uniques: Vec<Vec<u8>> =
+            values.into_iter().collect::<BTreeSet<_>>().into_iter().collect();
+
+        let mut tree: Tree<u64> = Tree::default();
+        for (i, v) in uniques.iter().enumerate() {
+            tree.insert(0, (i as u64) + 1, Bytes::copy_from_slice(v));
+        }
+        let tree_hash = tree.root.hash();
+        let reference = reference_hash(&uniques);
+        prop_assert_eq!(tree_hash.as_bytes(), reference.as_bytes());
+    }
+
+    /// Inserting any sequence of values under a single party with strictly
+    /// increasing versions must not panic, and the resulting root hash must
+    /// be computable. A regression guard against the empty-branch descent bug.
+    #[test]
+    fn insert_sequence_does_not_panic(
+        values in proptest::collection::vec(any::<Vec<u8>>(), 0..32),
+    ) {
+        let mut tree: Tree<u64> = Tree::default();
+        for (i, v) in values.iter().enumerate() {
+            tree.insert(0, (i as u64) + 1, Bytes::copy_from_slice(v));
+        }
+        let _ = tree.root.hash();
+    }
+
+    /// For a fixed set of distinct values inserted under a single party, the
+    /// root hash is determined by the set, not the insertion order: every
+    /// value occupies a path uniquely determined by its blake3 hash, so
+    /// reordering inserts must yield the same shape and the same root hash.
+    #[test]
+    fn insert_is_order_independent(
+        values in proptest::collection::vec(any::<Vec<u8>>(), 0..32),
+    ) {
+        let uniques: Vec<Vec<u8>> =
+            values.into_iter().collect::<BTreeSet<_>>().into_iter().collect();
+
+        let mut forward: Tree<u64> = Tree::default();
+        for (i, v) in uniques.iter().enumerate() {
+            forward.insert(0, (i as u64) + 1, Bytes::copy_from_slice(v));
+        }
+
+        let mut reverse: Tree<u64> = Tree::default();
+        for (i, v) in uniques.iter().rev().enumerate() {
+            reverse.insert(0, (i as u64) + 1, Bytes::copy_from_slice(v));
+        }
+
+        let forward_hash = forward.root.hash();
+        let reverse_hash = reverse.root.hash();
+        prop_assert_eq!(forward_hash.as_bytes(), reverse_hash.as_bytes());
+    }
+}
+
+/// Derive a deterministic `path_len`-byte path from arbitrary input bytes by
+/// taking a prefix of `blake3(raw)`. Distinct inputs almost always map to
+/// distinct paths, but collisions just mean re-insertion at the same address
+/// (which is fine because the stored value also derives from the path).
+fn derive_path(raw: &[u8], path_len: usize) -> Vec<u8> {
+    blake3::hash(raw).as_bytes()[..path_len].to_vec()
+}
+
+/// Return `true` if no node in the tree violates path compression: branches
+/// must have at least two children (except an empty branch at the root,
+/// which is the empty-tree representation), and there are no one-child
+/// branches anywhere.
+fn is_max_compressed<P>(root: &Node<P>) -> bool {
+    fn check<P>(node: &Node<P>, is_root: bool) -> bool {
         match &node.children {
-            Children::Leaf(b) => {
-                out.push((prefix.clone(), b.clone(), node.version.clone()));
-            }
-            Children::Branch(m) => {
-                for (byte, child) in m {
-                    prefix.push(*byte);
-                    walk(child, prefix, out);
-                    prefix.pop();
+            Children::Leaf(_) => true,
+            Children::Branch(map) => {
+                if map.len() == 1 {
+                    return false;
                 }
-            }
-        }
-        prefix.truncate(saved);
-    }
-    let mut out = Vec::new();
-    walk(node, &mut Vec::new(), &mut out);
-    out
-}
-
-/// Recursively count nodes that violate the "branches have 2+ live children
-/// unless tombstones justify staying a branch" invariant. Pure-insert trees
-/// have no tombstones, so every branch must have at least 2 live children.
-fn undersized_branches_without_tombstones<Q: Ord>(node: &Node<Q>) -> usize {
-    let mut bad = 0;
-    fn walk<Q: Ord>(node: &Node<Q>, bad: &mut usize) {
-        if let Children::Branch(m) = &node.children {
-            if m.len() < 2 && node.deleted.is_empty() {
-                *bad += 1;
-            }
-            for child in m.values() {
-                walk(child, bad);
-            }
-        }
-    }
-    walk(node, &mut bad);
-    bad
-}
-
-/// Join all leaf versions in the subtree rooted at `node`.
-fn leaves_version_join<Q: Ord + Clone>(node: &Node<Q>) -> Version<Q> {
-    Version::new(leaves(node).into_iter().map(|(_, _, v)| v))
-}
-
-/// A root freshly built with the empty state absorbs the first insert: its
-/// path becomes the full inserted path, its children become a single leaf,
-/// and its version becomes the inserted version.
-#[test]
-fn insert_into_empty_node_absorbs_as_leaf() {
-    let mut n = Node::<P>::new();
-    let v = ver(&[(1, 1)]);
-    let applied = n.insert(v.clone(), rev(&[10, 20, 30]), Bytes::from_static(b"x"));
-    assert!(applied);
-    assert_eq!(n.path, rev(&[10, 20, 30]));
-    assert_eq!(n.version, v);
-    assert!(n.deleted.is_empty());
-    assert!(matches!(&n.children, Children::Leaf(b) if b.as_ref() == b"x"));
-}
-
-/// Reinserting the same path with a concurrent version replaces the leaf
-/// bytes (debug_assert ensures they match) and joins the versions at the
-/// leaf.
-#[test]
-fn insert_replaces_leaf_and_joins_version() {
-    let mut n = Node::<P>::new();
-    let v1 = ver(&[(1, 1)]);
-    let v2 = ver(&[(2, 1)]);
-    assert!(n.insert(v1.clone(), rev(&[0, 1, 2]), Bytes::from_static(b"v")));
-    assert!(n.insert(v2.clone(), rev(&[0, 1, 2]), Bytes::from_static(b"v")));
-    assert_eq!(n.version, v1 | v2);
-    assert!(matches!(&n.children, Children::Leaf(b) if b.as_ref() == b"v"));
-}
-
-/// When a second insert diverges at the last byte of an existing leaf's
-/// path, the node splits into a branch whose compressed path is the common
-/// prefix and whose two leaf children carry empty paths.
-#[test]
-fn insert_splits_at_last_byte() {
-    let mut n = Node::<P>::new();
-    let va = ver(&[(1, 1)]);
-    let vb = ver(&[(2, 1)]);
-    n.insert(va.clone(), rev(&[1, 2, 3]), Bytes::from_static(b"a"));
-    n.insert(vb.clone(), rev(&[1, 2, 4]), Bytes::from_static(b"b"));
-
-    assert_eq!(n.path, rev(&[1, 2]));
-    assert_eq!(n.version, va.clone() | vb.clone());
-    let Children::Branch(m) = &n.children else {
-        panic!("expected branch");
-    };
-    assert_eq!(m.len(), 2);
-    let c3 = m.get(&3).expect("child at 3");
-    let c4 = m.get(&4).expect("child at 4");
-    assert!(c3.path.is_empty());
-    assert!(c4.path.is_empty());
-    assert!(matches!(&c3.children, Children::Leaf(b) if b.as_ref() == b"a"));
-    assert!(matches!(&c4.children, Children::Leaf(b) if b.as_ref() == b"b"));
-    assert_eq!(c3.version, va);
-    assert_eq!(c4.version, vb);
-}
-
-/// Splitting in the middle of a compressed path leaves each child with a
-/// non-empty suffix of the original path.
-#[test]
-fn insert_splits_mid_path_preserves_suffixes() {
-    let mut n = Node::<P>::new();
-    n.insert(
-        ver(&[(1, 1)]),
-        rev(&[1, 2, 3, 4, 5]),
-        Bytes::from_static(b"a"),
-    );
-    n.insert(
-        ver(&[(2, 1)]),
-        rev(&[1, 2, 7, 8, 9]),
-        Bytes::from_static(b"b"),
-    );
-
-    assert_eq!(n.path, rev(&[1, 2]));
-    let Children::Branch(m) = &n.children else {
-        panic!("expected branch");
-    };
-    let c3 = m.get(&3).expect("child at 3");
-    let c7 = m.get(&7).expect("child at 7");
-    assert_eq!(c3.path, rev(&[4, 5]));
-    assert_eq!(c7.path, rev(&[8, 9]));
-}
-
-/// A tombstone that strictly dominates the incoming version drops the insert
-/// and leaves the node untouched.
-#[test]
-fn tombstone_dominated_insert_dropped() {
-    let v_del = ver(&[(1, 3)]);
-    let v_ins = ver(&[(1, 1)]);
-    let mut n = Node::<P> {
-        path: rev(&[1, 2]),
-        version: v_del.clone(),
-        deleted: vec![(RangeInclusive::new(0u8, 255u8), v_del.clone())],
-        children: Children::Branch(BTreeMap::new()),
-    };
-    let applied = n.insert(v_ins, rev(&[1, 2, 3]), Bytes::from_static(b"x"));
-    assert!(!applied);
-    assert!(matches!(&n.children, Children::Branch(m) if m.is_empty()));
-    assert_eq!(n.deleted.len(), 1);
-    assert_eq!(n.version, v_del);
-}
-
-/// A tombstone concurrent with the incoming version does not block the
-/// insert, and the tombstone itself is preserved verbatim so gossip peers
-/// that missed the delete can still learn about it.
-#[test]
-fn tombstone_concurrent_insert_survives_tombstone_intact() {
-    let v_del = ver(&[(1, 1)]);
-    let v_ins = ver(&[(2, 1)]);
-    let tombstone = (RangeInclusive::new(0u8, 255u8), v_del.clone());
-    let mut n = Node::<P> {
-        path: rev(&[1, 2]),
-        version: v_del.clone(),
-        deleted: vec![tombstone.clone()],
-        children: Children::Branch(BTreeMap::new()),
-    };
-    let applied = n.insert(v_ins.clone(), rev(&[1, 2, 7]), Bytes::from_static(b"x"));
-    assert!(applied);
-    assert_eq!(n.deleted, vec![tombstone]);
-    assert_eq!(n.version, v_del | v_ins);
-    let Children::Branch(m) = &n.children else {
-        panic!("expected branch");
-    };
-    assert!(m.contains_key(&7));
-}
-
-/// A tombstone strictly dominated by the incoming version does not block the
-/// insert, and the tombstone is preserved intact.
-#[test]
-fn tombstone_newer_insert_survives_tombstone_intact() {
-    let v_del = ver(&[(1, 1)]);
-    let mut v_ins = v_del.clone();
-    v_ins.event(1);
-    let tombstone = (RangeInclusive::new(0u8, 255u8), v_del.clone());
-    let mut n = Node::<P> {
-        path: rev(&[1, 2]),
-        version: v_del.clone(),
-        deleted: vec![tombstone.clone()],
-        children: Children::Branch(BTreeMap::new()),
-    };
-    assert!(n.insert(v_ins.clone(), rev(&[1, 2, 7]), Bytes::from_static(b"x")));
-    assert_eq!(n.deleted, vec![tombstone]);
-    assert_eq!(n.version, v_del | v_ins);
-}
-
-/// A tombstone whose range excludes the insert byte never blocks the insert,
-/// regardless of its version.
-#[test]
-fn tombstone_range_excluding_byte_does_not_block() {
-    let v_del = ver(&[(1, 5)]);
-    let v_ins = ver(&[(1, 1)]);
-    let tombstone = (RangeInclusive::new(100u8, 200u8), v_del.clone());
-    let mut n = Node::<P> {
-        path: rev(&[1, 2]),
-        version: v_del.clone(),
-        deleted: vec![tombstone.clone()],
-        children: Children::Branch(BTreeMap::new()),
-    };
-    assert!(n.insert(v_ins.clone(), rev(&[1, 2, 50]), Bytes::from_static(b"x")));
-    assert_eq!(n.deleted, vec![tombstone]);
-    assert_eq!(n.version, v_del | v_ins);
-}
-
-fn arb_version() -> impl Strategy<Value = Version<P>> {
-    prop::collection::vec((any::<P>(), 0u64..=3), 0..4).prop_map(|events| ver(&events))
-}
-
-/// Fixed-length paths keep every leaf at the same depth. Four bytes is
-/// enough to exercise splits and descents without blowing up the search
-/// space.
-const PATH_LEN: usize = 4;
-
-fn arb_insert() -> impl Strategy<Value = (Version<P>, [u8; PATH_LEN], u8)> {
-    (arb_version(), any::<[u8; PATH_LEN]>(), any::<u8>())
-}
-
-fn arb_inserts() -> impl Strategy<Value = Vec<(Version<P>, [u8; PATH_LEN], u8)>> {
-    prop::collection::vec(arb_insert(), 0..12)
-}
-
-/// Apply a sequence of inserts to a fresh node. Because the hash-derived
-/// path is a function of the value in the real API, test inputs with the
-/// same path but different `tag` bytes represent a (hypothetical) collision;
-/// the insert contract says same-path values are structurally equal, so we
-/// derive the value bytes from the path alone, reusing `tag` only as extra
-/// entropy on the path itself.
-type InsertLog = Vec<(Vec<u8>, Version<P>)>;
-
-fn apply_inserts(inserts: &[(Version<P>, [u8; PATH_LEN], u8)]) -> (Node<P>, InsertLog) {
-    let mut n = Node::<P>::new();
-    let mut applied_log: InsertLog = Vec::new();
-    for (v, path, _tag) in inserts {
-        let value = Bytes::copy_from_slice(path);
-        let ok = n.insert(v.clone(), rev(path), value);
-        assert!(
-            ok,
-            "insert with no tombstones present must never be dropped",
-        );
-        applied_log.push((path.to_vec(), v.clone()));
-    }
-    (n, applied_log)
-}
-
-proptest! {
-    /// Every leaf sits at exactly `PATH_LEN` bytes from the root, regardless
-    /// of how many splits and descents the insert sequence triggers.
-    #[test]
-    fn leaves_are_at_fixed_depth(seq in arb_inserts()) {
-        let (n, _) = apply_inserts(&seq);
-        for (p, _, _) in leaves(&n) {
-            prop_assert_eq!(p.len(), PATH_LEN);
-        }
-    }
-
-    /// With pure inserts (no deletions), every branch node has at least two
-    /// live children: one-child branches would have been path-compressed
-    /// into their parent. The empty tree (no inserts) is exempt: its root
-    /// is a zero-child branch until the first value arrives.
-    #[test]
-    fn pure_inserts_produce_no_singleton_branches(seq in arb_inserts()) {
-        prop_assume!(!seq.is_empty());
-        let (n, _) = apply_inserts(&seq);
-        prop_assert_eq!(undersized_branches_without_tombstones(&n), 0);
-    }
-
-    /// A leaf's recorded path matches the path at which it was inserted;
-    /// a leaf's bytes match the value inserted at that path; duplicate
-    /// inserts at the same path collapse to one leaf carrying the joined
-    /// version.
-    #[test]
-    fn inserted_leaves_round_trip(seq in arb_inserts()) {
-        let (n, log) = apply_inserts(&seq);
-
-        let mut expected: std::collections::BTreeMap<Vec<u8>, Version<P>> =
-            std::collections::BTreeMap::new();
-        for (p, v) in log {
-            expected
-                .entry(p)
-                .and_modify(|acc| *acc |= v.clone())
-                .or_insert(v);
-        }
-
-        let ls: std::collections::BTreeMap<Vec<u8>, (Bytes, Version<P>)> = leaves(&n)
-            .into_iter()
-            .map(|(p, b, v)| (p, (b, v)))
-            .collect();
-
-        prop_assert_eq!(ls.len(), expected.len());
-        for (p, v) in expected {
-            let (b, lv) = ls.get(&p).expect("leaf present for inserted path");
-            prop_assert_eq!(b.as_ref(), p.as_slice());
-            prop_assert_eq!(lv, &v);
-        }
-    }
-
-    /// Every node's version is exactly the join of its live descendants'
-    /// versions. "Join" here is the version-vector upper bound taken over
-    /// every leaf reachable from the node.
-    #[test]
-    fn subtree_version_equals_leaf_join(seq in arb_inserts()) {
-        let (n, _) = apply_inserts(&seq);
-        fn check(node: &Node<P>) -> Result<(), TestCaseError> {
-            let expected = leaves_version_join(node);
-            prop_assert_eq!(&node.version, &expected);
-            if let Children::Branch(m) = &node.children {
-                for child in m.values() {
-                    check(child)?;
+                if !is_root && map.is_empty() {
+                    return false;
                 }
+                map.values().all(|arc| check(arc, false))
             }
-            Ok(())
-        }
-        check(&n)?;
-    }
-
-    /// The set of leaf paths held by the tree equals the set of distinct
-    /// inserted paths, regardless of insert order or duplication.
-    #[test]
-    fn leaf_path_set_matches_distinct_insert_paths(seq in arb_inserts()) {
-        let (n, log) = apply_inserts(&seq);
-        let got: BTreeSet<Vec<u8>> = leaves(&n).into_iter().map(|(p, _, _)| p).collect();
-        let want: BTreeSet<Vec<u8>> = log.into_iter().map(|(p, _)| p).collect();
-        prop_assert_eq!(got, want);
-    }
-}
-
-type InsertSeq = Vec<(Version<P>, [u8; PATH_LEN], u8)>;
-
-/// A sequence of inserts paired with a random permutation of its own
-/// indices. The pair feeds commutativity/permutation tests: inserting
-/// `seq` into one node and the permuted sequence into another must yield
-/// identical leaf state.
-fn arb_inserts_and_permutation() -> impl Strategy<Value = (InsertSeq, InsertSeq)> {
-    arb_inserts().prop_flat_map(|seq| {
-        let n = seq.len();
-        prop::collection::vec(any::<u32>(), n).prop_map(move |keys| {
-            // Sort indices by the generated keys to obtain a uniformly
-            // random permutation of 0..n.
-            let mut indices: Vec<usize> = (0..n).collect();
-            indices.sort_by_key(|&i| keys[i]);
-            let permuted: Vec<_> = indices.into_iter().map(|i| seq[i].clone()).collect();
-            (seq.clone(), permuted)
-        })
-    })
-}
-
-proptest! {
-    /// Insertion order is irrelevant to the final state: any permutation of
-    /// the same insert sequence yields the same tree, down to the structural
-    /// representation.
-    #[test]
-    fn permutation_invariance((seq_a, seq_b) in arb_inserts_and_permutation()) {
-        let (a, _) = apply_inserts(&seq_a);
-        let (b, _) = apply_inserts(&seq_b);
-        prop_assert_eq!(a, b);
-    }
-
-    /// Inserting into a clone never mutates the original: `Arc::make_mut`
-    /// clones every descent-path node that was shared with the original, so
-    /// structural sharing keeps the original byte-for-byte intact regardless
-    /// of what the clone does afterwards.
-    #[test]
-    fn clone_and_insert_leaves_original_intact(
-        (base, extra) in (arb_inserts(), arb_inserts()),
-    ) {
-        let (original, _) = apply_inserts(&base);
-        let snapshot = original.clone();
-        let mut clone = original.clone();
-        for (v, path, _) in &extra {
-            let _ = clone.insert(v.clone(), rev(path), Bytes::copy_from_slice(path));
-        }
-        prop_assert_eq!(original, snapshot);
-    }
-
-    /// An insert strictly dominated by a tombstone is a pure no-op: it
-    /// returns `false` and leaves the node byte-for-byte unchanged. No
-    /// partial mutation (child creation, version bump, tombstone edit) may
-    /// occur before the drop decision.
-    #[test]
-    fn dominated_inserts_are_noops(
-        seq in prop::collection::vec((0u64..10, any::<[u8; PATH_LEN]>()), 0..10),
-    ) {
-        // Tombstone version strictly dominates any v_ins with count < 10
-        // on the same party and zero elsewhere.
-        let v_t = ver(&[(1, 10)]);
-        let seed = Node::<P> {
-            path: Vec::new(),
-            version: Version::default(),
-            deleted: vec![(RangeInclusive::new(0u8, 255u8), v_t.clone())],
-            children: Children::Branch(BTreeMap::new()),
-        };
-        let mut n = seed.clone();
-        for (count, path) in seq {
-            let v_ins = ver(&[(1, count)]);
-            let applied = n.insert(v_ins, rev(&path), Bytes::copy_from_slice(&path));
-            prop_assert!(!applied);
-            prop_assert_eq!(&n, &seed);
         }
     }
-
-    /// Inserts never retract versions: after applying further inserts, every
-    /// leaf path that already existed still exists and carries a version
-    /// greater than or equal to its prior value under the vector-clock
-    /// partial order.
-    #[test]
-    fn inserts_do_not_decrease_leaf_versions(
-        (base, extra) in (arb_inserts(), arb_inserts()),
-    ) {
-        let (mut n, _) = apply_inserts(&base);
-        let before: std::collections::BTreeMap<Vec<u8>, Version<P>> = leaves(&n)
-            .into_iter()
-            .map(|(p, _, v)| (p, v))
-            .collect();
-        for (v, path, _) in &extra {
-            let _ = n.insert(v.clone(), rev(path), Bytes::copy_from_slice(path));
-        }
-        let after: std::collections::BTreeMap<Vec<u8>, Version<P>> = leaves(&n)
-            .into_iter()
-            .map(|(p, _, v)| (p, v))
-            .collect();
-        for (p, v_old) in before {
-            let v_new = after.get(&p).expect(
-                "pre-existing leaf path must survive further inserts (insert never deletes)",
-            );
-            prop_assert!(
-                matches!(v_old.partial_cmp(v_new), Some(Ordering::Less | Ordering::Equal)),
-                "version decreased at path {:?}: {:?} -> {:?}",
-                p,
-                v_old,
-                v_new,
-            );
-        }
-    }
-}
-
-/// When a split rearranges a node's compressed path, its tombstones travel
-/// with the old contents (which become the old-child under the separator
-/// edge), not with the new intermediate. The intermediate is fresh
-/// structure representing a split point; it has no deletion history of its
-/// own.
-#[test]
-fn split_carries_tombstones_to_old_child() {
-    let v_node = ver(&[(1, 1)]);
-    let v_ins = ver(&[(2, 1)]);
-    let v_ts = ver(&[(3, 1)]);
-    let tombstone = (RangeInclusive::new(10u8, 20u8), v_ts);
-
-    // Seed a branch with compressed path [1, 2], a lone live child at byte
-    // 5, and a tombstone. A single-child branch is permitted here because
-    // the tombstone justifies staying a branch (it carries history we must
-    // preserve).
-    let child_leaf = Node::<P> {
-        path: rev(&[100]),
-        version: v_node.clone(),
-        deleted: Vec::new(),
-        children: Children::Leaf(Bytes::from_static(b"original")),
-    };
-    let mut map = BTreeMap::new();
-    map.insert(5u8, Arc::new(child_leaf));
-    let mut n = Node::<P> {
-        path: rev(&[1, 2]),
-        version: v_node.clone(),
-        deleted: vec![tombstone.clone()],
-        children: Children::Branch(map),
-    };
-
-    // Insert at forward path [1, 9, 99] diverges at index 1 of self.path
-    // (byte 2 vs byte 9), forcing a split: common prefix [1], old child
-    // moves under byte 2 with empty residual path, new leaf at byte 9.
-    assert!(n.insert(v_ins.clone(), rev(&[1, 9, 99]), Bytes::from_static(b"new")));
-
-    assert_eq!(n.path, rev(&[1]));
-    assert!(
-        n.deleted.is_empty(),
-        "the new intermediate must not inherit tombstones",
-    );
-    assert_eq!(n.version, v_node.clone() | v_ins.clone());
-
-    let Children::Branch(m) = &n.children else {
-        panic!("expected branch after split");
-    };
-    assert_eq!(m.len(), 2);
-
-    let old_child = m.get(&2).expect("old contents moved under byte 2");
-    assert!(old_child.path.is_empty());
-    assert_eq!(
-        old_child.deleted,
-        vec![tombstone],
-        "tombstones stay with the old child",
-    );
-    assert_eq!(old_child.version, v_node);
-    let Children::Branch(old_map) = &old_child.children else {
-        panic!("old child should still be a branch");
-    };
-    assert!(old_map.contains_key(&5));
-
-    let new_leaf = m.get(&9).expect("new leaf at byte 9");
-    assert_eq!(new_leaf.path, rev(&[99]));
-    assert!(new_leaf.deleted.is_empty());
-    assert_eq!(new_leaf.version, v_ins);
-    assert!(matches!(&new_leaf.children, Children::Leaf(b) if b.as_ref() == b"new"));
-}
-
-/// Multiple disjoint tombstone ranges each arbitrate inserts in their own
-/// range independently. An insert in the gap between ranges is unaffected;
-/// an insert dominated by one tombstone is dropped regardless of its
-/// relation to other tombstones; an insert concurrent with a tombstone
-/// survives regardless of other tombstones.
-#[test]
-fn multiple_tombstone_ranges_arbitrate_independently() {
-    let v_t1 = ver(&[(1, 3)]);
-    let v_t2 = ver(&[(2, 3)]);
-    let ts1 = (RangeInclusive::new(10u8, 20u8), v_t1.clone());
-    let ts2 = (RangeInclusive::new(100u8, 200u8), v_t2.clone());
-    let v_cmp1 = ver(&[(1, 1)]); // < v_t1, concurrent with v_t2
-    let v_cmp2 = ver(&[(2, 1)]); // < v_t2, concurrent with v_t1
-
-    let seed = Node::<P> {
-        path: Vec::new(),
-        version: v_t1.clone() | v_t2.clone(),
-        deleted: vec![ts1.clone(), ts2.clone()],
-        children: Children::Branch(BTreeMap::new()),
-    };
-
-    // Byte 15 falls in ts1's range; v_cmp1 < v_t1: dropped.
-    let mut n = seed.clone();
-    assert!(!n.insert(v_cmp1.clone(), rev(&[15]), Bytes::from_static(b"a")));
-    assert_eq!(n, seed);
-
-    // Byte 15 with v_cmp2 (concurrent with v_t1): survives; tombstones
-    // remain intact.
-    assert!(n.insert(v_cmp2.clone(), rev(&[15]), Bytes::from_static(b"b")));
-    assert_eq!(n.deleted, seed.deleted);
-    let Children::Branch(m) = &n.children else {
-        panic!("expected branch")
-    };
-    assert!(m.contains_key(&15));
-
-    // Byte 150 falls in ts2's range; v_cmp2 < v_t2: dropped, even though
-    // byte 15 is already live.
-    let before = n.clone();
-    assert!(!n.insert(v_cmp2.clone(), rev(&[150]), Bytes::from_static(b"c")));
-    assert_eq!(n, before);
-
-    // Byte 150 with v_cmp1 (concurrent with v_t2): survives.
-    assert!(n.insert(v_cmp1.clone(), rev(&[150]), Bytes::from_static(b"d")));
-    assert_eq!(n.deleted, seed.deleted);
-    let Children::Branch(m) = &n.children else {
-        panic!("expected branch")
-    };
-    assert!(m.contains_key(&150));
-
-    // Byte 50 sits in the gap between ranges: every insert here goes
-    // through regardless of version, and tombstones remain intact.
-    assert!(n.insert(v_cmp1.clone(), rev(&[50]), Bytes::from_static(b"e")));
-    assert_eq!(n.deleted, seed.deleted);
-    let Children::Branch(m) = &n.children else {
-        panic!("expected branch")
-    };
-    assert!(m.contains_key(&50));
+    check(root, true)
 }
