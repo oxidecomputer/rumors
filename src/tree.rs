@@ -2,20 +2,16 @@ use std::hash::Hash;
 
 use bytes::Bytes;
 
-use crate::version::Version;
-
 mod node;
 use node::{Entry, InteriorEntry, LeafEntry, Node, OccupiedEntry, VacantEntry};
 
 pub struct Tree<P: Hash + Eq> {
-    version: Version<P>,
     root: Node<P>,
 }
 
 impl<P: Hash + Eq + Clone> Default for Tree<P> {
     fn default() -> Self {
         Self {
-            version: Version::default(),
             root: Node::default(),
         }
     }
@@ -23,12 +19,6 @@ impl<P: Hash + Eq + Clone> Default for Tree<P> {
 
 impl<P: Clone + Hash + Eq> Tree<P> {
     pub fn insert(&mut self, party: P, version: u64, value: Bytes) {
-        // Don't bother inserting the value if we know it already was inserted,
-        // due to having been strictly posterior to the current version
-        if version < self.version.for_party(&party) {
-            return;
-        }
-
         insert_at(
             &mut self.root.walk(),
             path_for(&value),
@@ -36,9 +26,12 @@ impl<P: Clone + Hash + Eq> Tree<P> {
             version,
             value,
         );
-
-        self.version |= Version::from((party, version));
     }
+}
+
+struct InsertStatus {
+    already_inserted: bool,
+    same_version: bool,
 }
 
 /// Tree-walk algorithm: descend from `entry` by popping one byte off the
@@ -58,9 +51,14 @@ fn insert_at<P: Hash + Eq + Clone>(
     party: P,
     version: u64,
     value: Bytes,
-) -> bool {
+) -> InsertStatus {
     use Entry::*;
     use OccupiedEntry::*;
+
+    let mut status = InsertStatus {
+        already_inserted: false,
+        same_version: false,
+    };
 
     if let Some(byte) = path.pop() {
         // We still have to descend further into the tree structure, because
@@ -70,19 +68,15 @@ fn insert_at<P: Hash + Eq + Clone>(
         let Interior(interior) = node else {
             panic!("insert path still has bytes left at a terminal leaf")
         };
-        let existed = match interior.child(byte) {
-            Occupied(mut node) => insert_at(&mut node, path, party, version, value),
+        match interior.child(byte) {
+            Occupied(mut node) => {
+                // Recursively report our status:
+                status = insert_at(&mut node, path, party, version, value);
+            }
             Vacant(vacant) => {
                 vacant.insert_leaf(path, party, version, value);
-
-                // We inserted a new leaf, so we should report this:
-                false
             }
         };
-        if !existed {
-            node.invalidate_hash();
-        }
-        existed
     } else {
         // We have reached the end of the path without encountering any vacant
         // nodes; this means that we should expect an existing leaf to be here,
@@ -92,15 +86,29 @@ fn insert_at<P: Hash + Eq + Clone>(
             panic!("insert path exhausted at an interior position")
         };
         let leaf = leaf.leaf_mut();
+
+        // Report our status:
+        status.already_inserted = true;
+        if leaf.party == party || leaf.version == version {
+            status.same_version = true;
+        }
+
+        // Set the new values in the leaf:
         debug_assert_eq!(leaf.value, value, "leaf values at the same path must match");
         leaf.party = party;
         leaf.version = version;
         leaf.value = value;
-
-        // Because we did not insert a new leaf but rather updated an existing
-        // one, we should report this:
-        true
     }
+
+    // Based on the insertion status, invalidate caches:
+    if !status.already_inserted {
+        node.invalidate_hash();
+    }
+    if !status.same_version {
+        node.invalidate_version();
+    }
+
+    status
 }
 
 /// Compute the path used to address a value in the trie: the bytes of

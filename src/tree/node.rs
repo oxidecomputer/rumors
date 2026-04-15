@@ -39,7 +39,7 @@ enum Children<P: Hash + Eq> {
 
 /// A leaf at the bottom of the tree, holding the value payload.
 #[derive(Clone)]
-struct Leaf<P: Hash + Eq> {
+pub struct Leaf<P: Hash + Eq> {
     /// The party which originally inserted this leaf into the set.
     pub party: P,
     /// That party's local version scalar at the time of insertion.
