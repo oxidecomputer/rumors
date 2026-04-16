@@ -1,9 +1,10 @@
 use super::*;
 
-/// Perform a batch lookup of paths in the tree, returning the leaf at each
-/// path (or `None` if no leaf exists there).
+/// Perform a batch lookup of paths in the tree, returning a list of [`Bytes`]
+/// which are stored at these paths.
 ///
-/// Results are returned in the same order as the input paths.
+/// Values are returned in arbitrary order, not necessarily in the order of the
+/// specified paths.
 pub fn get<P, H: Get>(node: Option<&Node<P, H>>, paths: Vec<Path<H>>) -> Vec<Bytes>
 where
     P: Clone + Hash + Eq,
