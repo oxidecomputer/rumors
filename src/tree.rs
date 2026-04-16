@@ -1,8 +1,10 @@
-use std::{hash::Hash, sync::LazyLock};
+use std::hash::Hash;
 
 use bytes::Bytes;
 
 mod typed;
+
+pub use Action::*;
 
 /// A sparse Merkle trie with transparent path compression, whose leaves store
 /// versioned blobs of [`Bytes`].
@@ -65,6 +67,17 @@ impl<P: Clone + Hash + Eq> Tree<P> {
         }
     }
 
+    /// Get all the values stored at a list of hash paths in the tree.
+    pub fn get<I>(&self, paths: I) -> Vec<Bytes>
+    where
+        I: IntoIterator<Item = [u8; 32]>,
+    {
+        typed::traverse::get(
+            self.root.as_ref(),
+            paths.into_iter().map(typed::Path::from).collect(),
+        )
+    }
+
     /// Apply the specified actions as a batch to the tree.
     ///
     /// If multiple actions refer to the same leaf of the tree, the last
@@ -85,10 +98,8 @@ impl<P: Clone + Hash + Eq> Tree<P> {
         let actions = i
             .into_iter()
             .map(|op| match op {
-                Action::Delete { hash } => {
-                    (typed::Path::from(hash), typed::traverse::Action::Delete)
-                }
-                Action::Insert {
+                Delete { hash } => (typed::Path::from(hash), typed::traverse::Action::Delete),
+                Insert {
                     party,
                     version,
                     value,

@@ -3,9 +3,10 @@ use std::marker::PhantomData;
 use super::height::{Height, Root, S};
 
 /// A typed path through the tree which is always the right height.
+#[repr(transparent)]
 pub struct Path<H: Height> {
     height: PhantomData<H>,
-    hash: blake3::Hash,
+    hash: [u8; 32],
 }
 
 impl Path<Root> {
@@ -13,13 +14,8 @@ impl Path<Root> {
     pub fn for_bytes(bytes: &[u8]) -> Self {
         Self {
             height: PhantomData,
-            hash: blake3::hash(bytes),
+            hash: *blake3::hash(bytes).as_bytes(),
         }
-    }
-
-    /// Get a path for the supplied hash.
-    pub fn for_hash(hash: blake3::Hash) -> Self {
-        hash.into()
     }
 }
 
@@ -30,7 +26,7 @@ where
     /// Pop one hash byte off the path, yielding the byte and the remainder of
     /// the path.
     pub fn pop(self) -> (u8, Path<H>) {
-        let byte = self.hash.as_bytes()[32 - S::<H>::HEIGHT];
+        let byte = self.hash[32 - S::<H>::HEIGHT];
         (
             byte,
             Path {
@@ -56,19 +52,19 @@ impl<H: Height> Clone for Path<H> {
 
 impl<H: Height> PartialEq for Path<H> {
     fn eq(&self, other: &Self) -> bool {
-        self.hash.as_bytes()[32 - H::HEIGHT..].eq(&other.hash.as_bytes()[32 - H::HEIGHT..])
+        self.hash[32 - H::HEIGHT..].eq(&other.hash[32 - H::HEIGHT..])
     }
 }
 
 impl<H: Height> PartialOrd for Path<H> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.hash.as_bytes()[32 - H::HEIGHT..].partial_cmp(&other.hash.as_bytes()[32 - H::HEIGHT..])
+        self.hash[32 - H::HEIGHT..].partial_cmp(&other.hash[32 - H::HEIGHT..])
     }
 }
 
 impl<H: Height> Ord for Path<H> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.hash.as_bytes()[32 - H::HEIGHT..].cmp(&other.hash.as_bytes()[32 - H::HEIGHT..])
+        self.hash[32 - H::HEIGHT..].cmp(&other.hash[32 - H::HEIGHT..])
     }
 }
 
@@ -80,7 +76,7 @@ impl From<blake3::Hash> for Path<Root> {
     fn from(hash: blake3::Hash) -> Self {
         Self {
             height: PhantomData,
-            hash,
+            hash: *hash.as_bytes(),
         }
     }
 }
@@ -89,7 +85,7 @@ impl From<[u8; 32]> for Path<Root> {
     fn from(bytes: [u8; 32]) -> Self {
         Self {
             height: PhantomData,
-            hash: blake3::Hash::from(bytes),
+            hash: bytes,
         }
     }
 }
