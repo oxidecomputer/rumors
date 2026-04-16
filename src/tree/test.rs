@@ -35,6 +35,11 @@ fn reference_hash(values: &[Bytes]) -> blake3::Hash {
     const LEAF_SENTINEL: [u8; 32] = [0xff; 32];
     const ZERO: [u8; 32] = [0x00; 32];
 
+    // The empty tree has the hash of an empty node
+    if values.is_empty() {
+        return ZERO.into();
+    }
+
     let hash_branch = |children: &HashMap<u8, blake3::Hash>| -> blake3::Hash {
         let mut hasher = blake3::Hasher::new();
         for i in u8::MIN..=u8::MAX {
