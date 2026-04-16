@@ -1,10 +1,45 @@
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap};
 
 use bytes::Bytes;
 use proptest::prelude::*;
 
 use super::typed::Path;
 use super::*;
+
+/// Generate a vector of distinct `Bytes`, deduplicated so every element maps
+/// to a unique leaf path when inserted under the same party and version. Many
+/// of the hash-invariance properties below are only meaningful when no two
+/// inserts collide by path; collision semantics are exercised separately.
+fn distinct_bytes(max: usize) -> impl Strategy<Value = Vec<Bytes>> {
+    proptest::collection::hash_set(any::<Vec<u8>>(), 0..=max)
+        .prop_map(|s| s.into_iter().map(Bytes::from).collect())
+}
+
+/// Generate a vector of distinct `Bytes` along with a permutation of itself,
+/// so tests can assert that the tree is invariant under the order in which
+/// actions are supplied.
+fn distinct_bytes_and_permutation(max: usize) -> impl Strategy<Value = (Vec<Bytes>, Vec<Bytes>)> {
+    distinct_bytes(max)
+        .prop_flat_map(|base| {
+            let n = base.len();
+            (Just(base), proptest::collection::vec(any::<u64>(), n))
+        })
+        .prop_map(|(base, keys)| {
+            let mut pairs: Vec<_> = base.clone().into_iter().zip(keys).collect();
+            pairs.sort_by_key(|(_, k)| *k);
+            let shuffled = pairs.into_iter().map(|(b, _)| b).collect();
+            (base, shuffled)
+        })
+}
+
+/// Build a [`Reaction::Insert`] whose leaf path matches what `act` would
+/// have computed for the given party and scalar version. The absolute-path
+/// shape of `Reaction` requires callers to spell this out; wrapping the
+/// boilerplate keeps the test bodies focused on the property under test.
+fn insert_at<P: AsRef<[u8]>>(party: &P, scalar: u64, value: Bytes) -> Reaction {
+    let path: [u8; 32] = Path::for_leaf(party, scalar, &value).into();
+    Reaction::Insert(path, value)
+}
 
 /// Compute the root hash of the fully-expanded (uVn-path-compressed) 256-ary
 /// trie over the given set of values. For every unique blake3 path, a leaf
@@ -89,30 +124,561 @@ fn single_value_hash_matches_reference() {
     assert_eq!(&tree_hash, reference.as_bytes());
 }
 
-// proptest! {
-//     /// The compressed tree's root hash must equal the hash computed over the
-//     /// fully-expanded uncompressed trie, for any set of inserted values. This
-//     /// is the ground-truth invariant for path compression: the hash depends on
-//     /// the set of leaves, not on how the tree chooses to compress them.
-//     #[test]
-//     fn compressed_hash_matches_reference(
-//         values in proptest::collection::vec(any::<Vec<u8>>(), 0..16)
-//             .prop_map(|v| v.into_iter().map(Bytes::from).collect::<Vec<_>>()),
-//     ) {
-//         let uniques: Vec<(String, Bytes)> =
-//             values
-//                 .into_iter()
-//                 .enumerate()
-//                 .map(|(v, value)| ("P".to_string(), value))
-//                 .collect::<BTreeSet<_>>().into_iter().collect();
+proptest! {
+    /// The compressed tree's root hash must equal the hash computed over the
+    /// fully-expanded uncompressed trie, for any set of inserted values. This
+    /// is the ground-truth invariant for path compression: the hash depends on
+    /// the set of leaves, not on how the tree chooses to compress them.
+    #[test]
+    fn compressed_hash_matches_reference(
+        values in proptest::collection::vec(any::<Vec<u8>>(), 0..16)
+            .prop_map(|v| v.into_iter().map(Bytes::from).collect::<Vec<_>>()),
+    ) {
+        let mut tree: Tree<String> = Tree::for_party("P".to_string());
+        tree.act(values.iter().cloned().map(Action::Insert));
+        let reference_input: Vec<_> =
+            values.into_iter().map(|v| ("P".to_string(), 1, v)).collect();
+        let reference = reference_hash(&reference_input);
+        prop_assert_eq!(&tree.hash(), reference.as_bytes());
+    }
 
-//         let mut tree: Tree<String> = Tree::default();
-//         for (party, value) in uniques.iter().cloned() {
-//             tree.act(&party, [Action::Insert(value)]);
-//         }
-//         let tree_hash = tree.hash();
+    /// The hash of a tree populated by a single `act` call must not depend on
+    /// the order in which the insert actions are supplied. All inserts share
+    /// the single version bump produced by one `act`, so the leaf multiset is
+    /// identical across permutations.
+    #[test]
+    fn batch_order_independent(
+        (base, shuffled) in distinct_bytes_and_permutation(16),
+    ) {
+        let mut t_base: Tree<String> = Tree::for_party("P".to_string());
+        t_base.act(base.into_iter().map(Action::Insert));
+        let mut t_shuf: Tree<String> = Tree::for_party("P".to_string());
+        t_shuf.act(shuffled.into_iter().map(Action::Insert));
+        prop_assert_eq!(t_base.hash(), t_shuf.hash());
+        prop_assert_eq!(t_base.version(), t_shuf.version());
+    }
 
-//         let reference = reference_hash(&uniques);
-//         prop_assert_eq!(&tree_hash, reference.as_bytes());
-//     }
-// }
+    /// A list of versioned actions applied through `react` must produce the
+    /// same tree hash regardless of how the list is partitioned across react
+    /// calls. This is the batching-transparency claim in `react`'s doc: the
+    /// "single traversal" optimization is only a speedup, not a semantic
+    /// change.
+    #[test]
+    fn react_batch_partitioning_preserves_hash(
+        bytes in distinct_bytes(16),
+        breaks in proptest::collection::vec(any::<bool>(), 0..16),
+    ) {
+        let party = "P".to_string();
+        let version = Version::from((party.clone(), 1u64));
+
+        let mut all_in_one: Tree<String> = Tree::for_party(party.clone());
+        all_in_one.react(
+            bytes
+                .iter()
+                .cloned()
+                .map(|b| (&version, insert_at(&party, 1, b))),
+        );
+
+        let mut partitioned: Tree<String> = Tree::for_party(party.clone());
+        let mut chunk: Vec<Bytes> = Vec::new();
+        for (i, b) in bytes.iter().cloned().enumerate() {
+            chunk.push(b);
+            let at_boundary =
+                breaks.get(i).copied().unwrap_or(false) || i + 1 == bytes.len();
+            if at_boundary {
+                let batch: Vec<_> = std::mem::take(&mut chunk)
+                    .into_iter()
+                    .map(|b| (&version, insert_at(&party, 1, b)))
+                    .collect();
+                partitioned.react(batch);
+            }
+        }
+
+        prop_assert_eq!(all_in_one.hash(), partitioned.hash());
+    }
+
+    /// Two action sequences that end with the same set of leaves must produce
+    /// the same root hash. Concretely, a sequence of individual `act` calls
+    /// (each bumping the scalar version) must agree with a single `react`
+    /// call that re-presents those same inserts at the versions `act`
+    /// implicitly assigned them.
+    #[test]
+    fn act_sequence_equals_react_with_explicit_versions(
+        bytes in distinct_bytes(16),
+    ) {
+        let mut t_act: Tree<String> = Tree::for_party("P".to_string());
+        for b in &bytes {
+            t_act.act([Action::Insert(b.clone())]);
+        }
+
+        let party = "P".to_string();
+        let versions: Vec<Version<String>> = (1..=bytes.len())
+            .map(|i| Version::from((party.clone(), i as u64)))
+            .collect();
+
+        let mut t_react: Tree<String> = Tree::for_party(party.clone());
+        t_react.react(
+            versions
+                .iter()
+                .zip(bytes.iter().cloned())
+                .enumerate()
+                .map(|(i, (v, b))| (v, insert_at(&party, (i + 1) as u64, b))),
+        );
+
+        prop_assert_eq!(t_act.hash(), t_react.hash());
+        prop_assert_eq!(t_act.version(), t_react.version());
+    }
+
+    /// Inserting a value and then deleting its leaf path via two separate
+    /// `act` calls must leave the tree empty (zero root hash) with the
+    /// version bumped exactly twice.
+    #[test]
+    fn insert_then_delete_is_empty(value in any::<Vec<u8>>()) {
+        let party = "P".to_string();
+        let value = Bytes::from(value);
+        let leaf_path: [u8; 32] = Path::for_leaf(&party, 1, &value).into();
+
+        let mut tree: Tree<String> = Tree::for_party(party.clone());
+        tree.act([Action::Insert(value)]);
+        tree.act([Action::Delete(leaf_path)]);
+
+        prop_assert_eq!(tree.hash(), [0u8; 32]);
+        prop_assert_eq!(tree.version().for_party(&party), 2);
+    }
+
+    /// Inserting a value and deleting its leaf path within the same `act`
+    /// batch must leave the tree empty with the version bumped exactly once.
+    /// Actions in one batch share a single version, and the "last action on
+    /// a given path wins" rule makes the delete prevail.
+    #[test]
+    fn insert_and_delete_same_batch_is_empty(value in any::<Vec<u8>>()) {
+        let party = "P".to_string();
+        let value = Bytes::from(value);
+        let leaf_path: [u8; 32] = Path::for_leaf(&party, 1, &value).into();
+
+        let mut tree: Tree<String> = Tree::for_party(party.clone());
+        tree.act([Action::Insert(value), Action::Delete(leaf_path)]);
+
+        prop_assert_eq!(tree.hash(), [0u8; 32]);
+        prop_assert_eq!(tree.version().for_party(&party), 1);
+    }
+
+    /// Deleting a path that is not present in the tree must not change the
+    /// root hash. The version vector still advances because `act` always
+    /// bumps, but the leaf multiset is identical, so the hash is unchanged.
+    #[test]
+    fn delete_absent_path_preserves_hash(
+        bytes in distinct_bytes(8),
+        nuke in any::<[u8; 32]>(),
+    ) {
+        let party = "P".to_string();
+        let present: BTreeSet<[u8; 32]> = bytes
+            .iter()
+            .map(|b| Path::for_leaf(&party, 1, b).into())
+            .collect();
+        prop_assume!(!present.contains(&nuke));
+
+        let mut t_before: Tree<String> = Tree::for_party(party.clone());
+        t_before.act(bytes.into_iter().map(Action::Insert));
+        let mut t_after = t_before.clone();
+        t_after.act([Action::Delete(nuke)]);
+
+        prop_assert_eq!(t_before.hash(), t_after.hash());
+    }
+
+    /// A fresh tree returns no values for any requested paths: no leaves are
+    /// present, so every lookup misses.
+    #[test]
+    fn get_on_empty_tree_is_empty(
+        paths in proptest::collection::vec(any::<[u8; 32]>(), 0..8),
+    ) {
+        let tree: Tree<String> = Tree::for_party("P".to_string());
+        prop_assert!(tree.get(paths).is_empty());
+    }
+
+    /// After inserting a set of distinct values via `act`, looking up the
+    /// corresponding leaf paths must return the same multiset of values.
+    /// Returned order is arbitrary per `get`'s contract, so we compare as
+    /// sorted multisets.
+    #[test]
+    fn get_after_insert_returns_same_multiset(
+        bytes in distinct_bytes(16),
+    ) {
+        let party = "P".to_string();
+        let mut tree: Tree<String> = Tree::for_party(party.clone());
+        tree.act(bytes.iter().cloned().map(Action::Insert));
+
+        let paths: Vec<[u8; 32]> = bytes
+            .iter()
+            .map(|b| Path::for_leaf(&party, 1, b).into())
+            .collect();
+
+        let mut got = tree.get(paths);
+        got.sort();
+        let mut expected: Vec<Bytes> = bytes;
+        expected.sort();
+        prop_assert_eq!(got, expected);
+    }
+
+    /// Requesting a mix of present and absent paths returns exactly the
+    /// values for the present ones. Absent paths contribute nothing.
+    #[test]
+    fn get_filters_absent_paths(
+        bytes in distinct_bytes(8),
+        extra in proptest::collection::vec(any::<[u8; 32]>(), 0..8),
+    ) {
+        let party = "P".to_string();
+        let mut tree: Tree<String> = Tree::for_party(party.clone());
+        tree.act(bytes.iter().cloned().map(Action::Insert));
+
+        let present_paths: BTreeSet<[u8; 32]> = bytes
+            .iter()
+            .map(|b| Path::for_leaf(&party, 1, b).into())
+            .collect();
+        // Exclude any "extra" paths that happen to collide with a real leaf.
+        let absent: Vec<[u8; 32]> = extra
+            .into_iter()
+            .filter(|p| !present_paths.contains(p))
+            .collect();
+
+        let all_paths: Vec<[u8; 32]> =
+            present_paths.iter().copied().chain(absent).collect();
+
+        let mut got = tree.get(all_paths);
+        got.sort();
+        let mut expected: Vec<Bytes> = bytes;
+        expected.sort();
+        prop_assert_eq!(got, expected);
+    }
+
+    /// Every `act` call with a non-empty batch increments the owning party's
+    /// scalar version by exactly one. The internal version tracks the number
+    /// of batches the party has applied, regardless of batch size.
+    #[test]
+    fn act_bumps_self_party_by_one_per_nonempty_batch(
+        prior_batches in 0usize..4,
+        batch_size in 1usize..8,
+    ) {
+        let party = "P".to_string();
+        let mut tree: Tree<String> = Tree::for_party(party.clone());
+        for i in 0..prior_batches {
+            tree.act([Action::Insert(Bytes::from(
+                format!("prior-{i}").into_bytes(),
+            ))]);
+        }
+        let before = tree.version().for_party(&party);
+        let party_before = tree.party().clone();
+
+        let actions: Vec<Action> = (0..batch_size)
+            .map(|i| {
+                Action::Insert(Bytes::from(format!("batch-{i}").into_bytes()))
+            })
+            .collect();
+        tree.act(actions);
+
+        prop_assert_eq!(tree.version().for_party(&party), before + 1);
+        prop_assert_eq!(tree.party(), &party_before);
+    }
+
+    /// An empty `act` batch leaves the version vector completely unchanged.
+    /// There are no actions to observe, so there is nothing to mark as seen.
+    #[test]
+    fn empty_act_is_a_version_noop(prior_batches in 0usize..4) {
+        let party = "P".to_string();
+        let mut tree: Tree<String> = Tree::for_party(party.clone());
+        for i in 0..prior_batches {
+            tree.act([Action::Insert(Bytes::from(
+                format!("prior-{i}").into_bytes(),
+            ))]);
+        }
+        let before = tree.version().clone();
+        tree.act(std::iter::empty());
+        prop_assert_eq!(tree.version(), &before);
+    }
+
+    /// After `react(versions)`, the tree's version vector is exactly the
+    /// join (pointwise max) of its prior version with every incoming
+    /// version. In particular, it never decreases any component: a tree
+    /// that has observed an action is forever causally downstream of it.
+    #[test]
+    fn react_joins_incoming_versions(
+        prior_batches in 0usize..3,
+        incoming in proptest::collection::vec(
+            (prop::sample::select(vec!["A".to_string(), "B".to_string(), "C".to_string()]),
+             1u64..5u64),
+            0..8,
+        ),
+    ) {
+        let party = "P".to_string();
+        let mut tree: Tree<String> = Tree::for_party(party.clone());
+        for i in 0..prior_batches {
+            tree.act([Action::Insert(Bytes::from(
+                format!("prior-{i}").into_bytes(),
+            ))]);
+        }
+        let before = tree.version().clone();
+        let party_before = tree.party().clone();
+
+        let versions: Vec<Version<String>> = incoming
+            .iter()
+            .map(|(p, s)| Version::from((p.clone(), *s)))
+            .collect();
+
+        let mut expected = before.clone();
+        for v in &versions {
+            expected |= v.clone();
+        }
+
+        // Use deletes on random unrelated paths so the actions never
+        // disturb pre-existing leaves; we are testing version bookkeeping,
+        // not tree mutation.
+        tree.react(
+            versions
+                .iter()
+                .enumerate()
+                .map(|(i, v)| (v, Reaction::Delete([i as u8; 32]))),
+        );
+
+        prop_assert_eq!(tree.version(), &expected);
+        prop_assert!(tree.version() >= &before);
+        prop_assert_eq!(tree.party(), &party_before);
+    }
+
+    /// Two disjoint batches of versioned inserts applied via `react` must
+    /// commute: the order in which the batches are applied does not change
+    /// the resulting tree. "Disjoint" here is ensured by giving the two
+    /// batches different scalar versions, which produces different leaf
+    /// paths regardless of any overlap in values.
+    #[test]
+    fn react_commutative(
+        bytes_a in distinct_bytes(8),
+        bytes_b in distinct_bytes(8),
+    ) {
+        let party = "P".to_string();
+        let v_a = Version::from((party.clone(), 1u64));
+        let v_b = Version::from((party.clone(), 2u64));
+
+        let mut t_ab: Tree<String> = Tree::for_party(party.clone());
+        t_ab.react(
+            bytes_a.iter().cloned().map(|b| (&v_a, insert_at(&party, 1, b))),
+        );
+        t_ab.react(
+            bytes_b.iter().cloned().map(|b| (&v_b, insert_at(&party, 2, b))),
+        );
+
+        let mut t_ba: Tree<String> = Tree::for_party(party.clone());
+        t_ba.react(
+            bytes_b.iter().cloned().map(|b| (&v_b, insert_at(&party, 2, b))),
+        );
+        t_ba.react(
+            bytes_a.iter().cloned().map(|b| (&v_a, insert_at(&party, 1, b))),
+        );
+
+        prop_assert_eq!(t_ab, t_ba);
+    }
+
+    /// `react` is idempotent: applying the same batch twice is identical to
+    /// applying it once. This is the CRDT property that lets us re-deliver
+    /// messages safely in the face of retries or out-of-order transport.
+    #[test]
+    fn react_idempotent(bytes in distinct_bytes(16)) {
+        let party = "P".to_string();
+        let v = Version::from((party.clone(), 1u64));
+
+        let mut t_once: Tree<String> = Tree::for_party(party.clone());
+        t_once.react(
+            bytes.iter().cloned().map(|b| (&v, insert_at(&party, 1, b))),
+        );
+
+        let mut t_twice: Tree<String> = Tree::for_party(party.clone());
+        t_twice.react(
+            bytes.iter().cloned().map(|b| (&v, insert_at(&party, 1, b))),
+        );
+        t_twice.react(
+            bytes.iter().cloned().map(|b| (&v, insert_at(&party, 1, b))),
+        );
+
+        prop_assert_eq!(t_once, t_twice);
+    }
+
+    /// Replaying a history of versioned actions in any order produces the
+    /// same tree, as long as the actions do not conflict on a path. Giving
+    /// every action a unique scalar version makes every leaf path unique,
+    /// so no last-writer-wins tie-breaking can mask a reordering bug.
+    #[test]
+    fn react_replay_order_invariant(
+        (base, shuffled) in distinct_bytes_and_permutation(12),
+    ) {
+        let party = "P".to_string();
+        // One distinct version per element so paths are always distinct.
+        let versions: Vec<Version<String>> = (1..=base.len())
+            .map(|i| Version::from((party.clone(), i as u64)))
+            .collect();
+
+        // Mapping from each value to the (version, scalar) it was "produced"
+        // at, so that any permutation of (value, version) pairs addresses
+        // the same leaves.
+        let meta_by_value: HashMap<Bytes, (Version<String>, u64)> = base
+            .iter()
+            .cloned()
+            .zip(versions.iter().cloned().enumerate().map(|(i, v)| (v, (i + 1) as u64)))
+            .collect();
+
+        let mut t_base: Tree<String> = Tree::for_party(party.clone());
+        t_base.react(base.iter().cloned().map(|b| {
+            let (v, scalar) = meta_by_value.get(&b).unwrap();
+            (v, insert_at(&party, *scalar, b))
+        }));
+
+        let mut t_shuf: Tree<String> = Tree::for_party(party.clone());
+        t_shuf.react(shuffled.iter().cloned().map(|b| {
+            let (v, scalar) = meta_by_value.get(&b).unwrap();
+            (v, insert_at(&party, *scalar, b))
+        }));
+
+        prop_assert_eq!(t_base, t_shuf);
+    }
+
+    /// Strong eventual consistency: if two parties each apply their own
+    /// actions locally and then cross-react to each other's recorded event
+    /// history, their trees converge to the same leaf multiset (and thus
+    /// the same root hash and version vector). Different parties keep
+    /// distinct `party` fields, so we can't use `Tree`'s full structural
+    /// equality, but the observable invariants — `hash()` and `version()`
+    /// — must agree.
+    #[test]
+    fn two_party_sec_cross_replay(
+        a_inserts in distinct_bytes(4),
+        b_inserts in distinct_bytes(4),
+    ) {
+        let a_id = "A".to_string();
+        let b_id = "B".to_string();
+
+        // Each party `act`s locally and simultaneously records the
+        // absolute-form `Reaction` (path + value) that another party would
+        // need to replay the event. This is the information a real
+        // synchronization protocol would put on the wire.
+        let mut tree_a: Tree<String> = Tree::for_party(a_id.clone());
+        let mut a_events: Vec<(Version<String>, Reaction)> = Vec::new();
+        for (i, value) in a_inserts.iter().enumerate() {
+            let scalar = (i + 1) as u64;
+            let mut recorded = tree_a.version().clone();
+            recorded.event(&a_id);
+            tree_a.act([Action::Insert(value.clone())]);
+            a_events.push((recorded, insert_at(&a_id, scalar, value.clone())));
+        }
+
+        let mut tree_b: Tree<String> = Tree::for_party(b_id.clone());
+        let mut b_events: Vec<(Version<String>, Reaction)> = Vec::new();
+        for (i, value) in b_inserts.iter().enumerate() {
+            let scalar = (i + 1) as u64;
+            let mut recorded = tree_b.version().clone();
+            recorded.event(&b_id);
+            tree_b.act([Action::Insert(value.clone())]);
+            b_events.push((recorded, insert_at(&b_id, scalar, value.clone())));
+        }
+
+        tree_a.react(b_events.iter().map(|(v, r)| (v, r.clone())));
+        tree_b.react(a_events.iter().map(|(v, r)| (v, r.clone())));
+
+        prop_assert_eq!(tree_a.version(), tree_b.version());
+        prop_assert_eq!(tree_a.hash(), tree_b.hash());
+    }
+
+    /// A tree remembers the party it was built for: `for_party(p).party()`
+    /// is `&p`, and no sequence of `act`/`react` changes that.
+    #[test]
+    fn party_is_remembered_across_mutation(
+        acts in distinct_bytes(6),
+        reacts in proptest::collection::vec(1u64..5u64, 0..6),
+    ) {
+        let party = "P".to_string();
+        let mut tree: Tree<String> = Tree::for_party(party.clone());
+        prop_assert_eq!(tree.party(), &party);
+
+        tree.act(acts.into_iter().map(Action::Insert));
+        prop_assert_eq!(tree.party(), &party);
+
+        let versions: Vec<Version<String>> = reacts
+            .iter()
+            .map(|s| Version::from((party.clone(), *s)))
+            .collect();
+        tree.react(
+            versions
+                .iter()
+                .enumerate()
+                .map(|(i, v)| (v, Reaction::Delete([i as u8; 32]))),
+        );
+        prop_assert_eq!(tree.party(), &party);
+    }
+
+    /// `Clone` yields a tree that is structurally indistinguishable: equal
+    /// under `Eq`, same party, same version, same hash. Cloning is a pure
+    /// copy, not a semantic operation.
+    #[test]
+    fn clone_preserves_all_observables(acts in distinct_bytes(8)) {
+        let party = "P".to_string();
+        let mut tree: Tree<String> = Tree::for_party(party.clone());
+        tree.act(acts.into_iter().map(Action::Insert));
+        let cloned = tree.clone();
+
+        prop_assert_eq!(cloned.party(), tree.party());
+        prop_assert_eq!(cloned.version(), tree.version());
+        prop_assert_eq!(cloned.hash(), tree.hash());
+        prop_assert_eq!(cloned, tree);
+    }
+
+    /// Structural equality implies hash equality. `Eq` compares root nodes
+    /// directly, so if two trees are `Eq` their root hashes — a pure
+    /// function of the root node — must agree. Two independently-built
+    /// trees that applied the same batch of actions are expected to be
+    /// structurally equal.
+    #[test]
+    fn eq_implies_same_hash(acts in distinct_bytes(8)) {
+        let party = "P".to_string();
+        let mut t1: Tree<String> = Tree::for_party(party.clone());
+        t1.act(acts.iter().cloned().map(Action::Insert));
+        let mut t2: Tree<String> = Tree::for_party(party.clone());
+        t2.act(acts.into_iter().map(Action::Insert));
+
+        prop_assert_eq!(&t1, &t2);
+        prop_assert_eq!(t1.hash(), t2.hash());
+    }
+
+    /// Inserting the same value under different parties produces different
+    /// leaf paths, and therefore different root hashes. Party identity
+    /// participates in the path derivation precisely so two parties can
+    /// concurrently write the same value without colliding.
+    #[test]
+    fn same_value_different_parties_differ(value in any::<Vec<u8>>()) {
+        let value = Bytes::from(value);
+        let mut t_a: Tree<String> = Tree::for_party("A".to_string());
+        let mut t_b: Tree<String> = Tree::for_party("B".to_string());
+        t_a.act([Action::Insert(value.clone())]);
+        t_b.act([Action::Insert(value)]);
+
+        prop_assert_ne!(t_a.hash(), t_b.hash());
+    }
+
+    /// Inserting the same value twice under the same party via two `act`
+    /// calls produces two distinct leaves: the scalar version participates
+    /// in the path, so the second insert does not overwrite the first.
+    /// Both leaves hold the same value, and both are retrievable by their
+    /// respective paths.
+    #[test]
+    fn same_value_different_versions_produce_two_leaves(value in any::<Vec<u8>>()) {
+        let party = "P".to_string();
+        let value = Bytes::from(value);
+        let mut tree: Tree<String> = Tree::for_party(party.clone());
+        tree.act([Action::Insert(value.clone())]);
+        tree.act([Action::Insert(value.clone())]);
+
+        let path_v1: [u8; 32] = Path::for_leaf(&party, 1, &value).into();
+        let path_v2: [u8; 32] = Path::for_leaf(&party, 2, &value).into();
+
+        prop_assert_ne!(path_v1, path_v2);
+        let got = tree.get([path_v1, path_v2]);
+        prop_assert_eq!(got.len(), 2);
+        prop_assert!(got.iter().all(|b| b == &value));
+    }
+}
