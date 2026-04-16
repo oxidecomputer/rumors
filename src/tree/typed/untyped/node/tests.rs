@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::hash::Hash;
 use std::sync::Arc;
 
@@ -5,6 +6,8 @@ use bytes::Bytes;
 use imbl::OrdMap;
 use proptest::collection::{btree_set, vec};
 use proptest::prelude::*;
+
+use crate::Version;
 
 use super::{Children, Node};
 
@@ -84,12 +87,15 @@ fn clear_hash_cache<P: Hash + Eq + Clone + AsRef<[u8]>>(node: &mut Node<P>) {
 }
 
 /// Walk a tree via the public `into_children` API and collect every
-/// (path, leaf) pair. Paths list the child indices from shallowest to
-/// deepest, matching the order in which `into_children` yields them.
+/// (path, version, leaf) triple. Paths list the child indices from
+/// shallowest to deepest, matching the order in which `into_children`
+/// yields them. The version is the leaf's own version as recorded by
+/// `Node::leaf`, and is preserved across path compression because
+/// `into_children` never mutates `version` — only `prefix` and `hash`.
 fn enumerate_leaves<P: Hash + Eq + Clone + AsRef<[u8]>>(
     node: Node<P>,
     path: Vec<u8>,
-) -> Vec<(Vec<u8>, Bytes)> {
+) -> Vec<(Vec<u8>, Version<P>, Bytes)> {
     match node.into_children() {
         Ok(children) => children
             .into_iter()
@@ -100,12 +106,55 @@ fn enumerate_leaves<P: Hash + Eq + Clone + AsRef<[u8]>>(
             })
             .collect(),
         Err(leaf_node) => {
+            let version = leaf_node.version().clone();
+            let leaf = leaf_node
+                .as_leaf()
+                .expect("into_children returned Err only for leaves")
+                .clone();
+            vec![(path, version, leaf)]
+        }
+    }
+}
+
+/// Recursively traverse a tree via the public smart constructors, mapping
+/// each leaf's bytes through `f` and rebuilding the tree bottom-up. With
+/// `f = |b| b.clone()` this is an identity functor that decomposes and
+/// rebuilds; with a constant `f` it swaps every leaf's payload. The
+/// branching structure and every node's `version` are preserved exactly:
+/// leaves pass their original version back into `Node::leaf`, and branch
+/// versions are recomputed by `Node::branch` from the same per-child
+/// versions we started with.
+fn rebuild_with<P, F>(node: Node<P>, f: &F) -> Node<P>
+where
+    P: Hash + Eq + Clone + AsRef<[u8]>,
+    F: Fn(&Bytes) -> Bytes,
+{
+    let version = node.version().clone();
+    match node.into_children() {
+        Err(leaf_node) => {
             let leaf = leaf_node
                 .as_leaf()
                 .expect("into_children returned Err only for leaves");
-            vec![(path, leaf.clone())]
+            Node::leaf(version, f(leaf))
+        }
+        Ok(children) => {
+            let rebuilt: OrdMap<u8, Node<P>> = children
+                .into_iter()
+                .map(|(k, v)| (k, rebuild_with(v, f)))
+                .collect();
+            Node::branch(rebuilt).expect("non-empty")
         }
     }
+}
+
+/// A branch with zero children is not a legal node: the smart constructor
+/// must reject it rather than materialize an empty `Branch`. This is the
+/// "no empty nodes anywhere" half of the path-compression invariant; the
+/// one-child case is handled by `beneath`-collapse instead.
+#[test]
+fn empty_branch_is_none() {
+    let empty: OrdMap<u8, Node<String>> = OrdMap::new();
+    assert!(Node::branch(empty).is_none());
 }
 
 proptest! {
@@ -116,5 +165,146 @@ proptest! {
         tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|depth| arb_tree::<String>(depth, TREE_LEAF_BUDGET)),
     ) {
         prop_assert!(tree.is_max_compressed());
+    }
+
+    /// The cached hash must agree with a fresh recomputation from scratch.
+    /// After computing `hash()` to populate every node's cache, recursively
+    /// invalidating that cache, and recomputing, both values must match.
+    /// This witnesses that the cached blake3 is a pure function of the
+    /// node's structure — no stale entry can survive invalidation and no
+    /// compute path disagrees with the cache it populates.
+    #[test]
+    fn hash_unchanged_by_cache_clear(
+        tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree::<String>(d, TREE_LEAF_BUDGET)),
+    ) {
+        let cached = tree.hash();
+        let mut tree = tree;
+        clear_hash_cache(&mut tree);
+        let fresh = tree.hash();
+        prop_assert_eq!(cached, fresh);
+    }
+
+    /// Decomposing a tree into its leaves via `into_children` and rebuilding
+    /// bottom-up with `Node::leaf` + `Node::branch` must produce a tree
+    /// with the same root hash and the same root version as the original.
+    /// This is the strongest statement that hash and version are pure
+    /// functions of the public structural API: any node we can take apart,
+    /// we can put back together, and the observable invariants are the
+    /// same. Path-compressed single-child branches round-trip through
+    /// `branch`→`beneath`, so this also exercises the compression path.
+    #[test]
+    fn decompose_and_rebuild_preserves_hash_and_version(
+        tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree::<String>(d, TREE_LEAF_BUDGET)),
+    ) {
+        let hash_before = tree.hash();
+        let version_before = tree.version().clone();
+        let rebuilt = rebuild_with(tree, &|b| b.clone());
+        prop_assert_eq!(rebuilt.hash(), hash_before);
+        prop_assert_eq!(rebuilt.version(), &version_before);
+    }
+
+    /// Enumerating a generated tree's leaves via the public API yields
+    /// exactly as many leaves as the tree holds, every leaf sits at path
+    /// length equal to the generated depth, and no two leaves share a
+    /// path. This pins down three independent claims in one place: that
+    /// `into_children` unpacks exactly one prefix byte per step, that all
+    /// leaves live at a common depth (the `arb_tree` contract), and that
+    /// branch indices are distinct so leaf paths are unique.
+    #[test]
+    fn leaf_enumeration_has_expected_shape(
+        (depth, tree) in (0..=MAX_TEST_DEPTH)
+            .prop_flat_map(|d| (Just(d), arb_tree::<String>(d, TREE_LEAF_BUDGET))),
+    ) {
+        let leaves = enumerate_leaves(tree, Vec::new());
+        prop_assert!(!leaves.is_empty());
+        for (path, _, _) in &leaves {
+            prop_assert_eq!(path.len(), depth);
+        }
+        let distinct: BTreeSet<Vec<u8>> =
+            leaves.iter().map(|(p, _, _)| p.clone()).collect();
+        prop_assert_eq!(distinct.len(), leaves.len());
+    }
+
+    /// Every node's `version` is the pointwise-max join of its descendant
+    /// leaves' versions. At the root this means: (a) every leaf's version
+    /// is ≤ the root version, and (b) the root version is exactly the
+    /// join of all leaf versions — no component is larger, so the root
+    /// never over-reports causality. `Node::branch` computes this via
+    /// `Version::new(children.versions)` and `beneath` leaves it alone,
+    /// so the invariant has to hold at every layer of the construction.
+    #[test]
+    fn version_is_join_of_leaf_versions(
+        tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree::<String>(d, TREE_LEAF_BUDGET)),
+    ) {
+        let root_version = tree.version().clone();
+        let leaves = enumerate_leaves(tree, Vec::new());
+
+        for (_, v, _) in &leaves {
+            prop_assert!(v <= &root_version);
+        }
+
+        let joined = Version::new(leaves.iter().map(|(_, v, _)| v.clone()));
+        prop_assert_eq!(joined, root_version);
+    }
+
+    /// A tree's hash depends only on its branching structure, not on any
+    /// leaf's `Bytes` payload. Replacing every leaf's value with an
+    /// arbitrary other byte string — while keeping shape, indices, and
+    /// versions fixed — must leave the root hash unchanged. This is the
+    /// direct behavioural statement of the `Children::Leaf(_) => [0xff;
+    /// 32]` convention: the payload participates in the leaf's stored
+    /// value (so `as_leaf` can retrieve it) but not in the hash.
+    #[test]
+    fn hash_independent_of_leaf_payload(
+        tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree::<String>(d, TREE_LEAF_BUDGET)),
+        replacement in any::<Vec<u8>>(),
+    ) {
+        let original = tree.hash();
+        let replacement = Bytes::from(replacement);
+        let swapped = rebuild_with(tree, &|_| replacement.clone());
+        prop_assert_eq!(original, swapped.hash());
+    }
+
+    /// A single top-level `into_children` → `Node::branch` round-trip
+    /// preserves the tree's hash and version. Strictly subsumed by the
+    /// recursive decompose/rebuild property above, but localizes failures
+    /// to the top-level merge step: if this fails while the full rebuild
+    /// passes, the bug is in how `Node::branch` reconstructs a branch
+    /// from a children map, not in recursion.
+    #[test]
+    fn branch_into_children_round_trips(
+        tree in (1..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree::<String>(d, TREE_LEAF_BUDGET)),
+    ) {
+        let hash_before = tree.hash();
+        let version_before = tree.version().clone();
+        let children = tree
+            .into_children()
+            .expect("depth >= 1 so the tree is not a bare leaf");
+        let rebuilt = Node::branch(children).expect("children map is non-empty");
+        prop_assert_eq!(rebuilt.hash(), hash_before);
+        prop_assert_eq!(rebuilt.version(), &version_before);
+    }
+
+    /// A one-child branch at index `i` hashes as a "virtual" 256-slot
+    /// branch with slot `i` holding the child's hash and every other
+    /// slot holding `[0x00; 32]`. `Node::branch` collapses the one-child
+    /// case into `beneath`, which path-compresses by pushing a byte onto
+    /// the child's prefix rather than materializing a branch node. The
+    /// hash-computation loop must unwind that prefix byte-by-byte to
+    /// produce the same result a materialized single-child branch would.
+    #[test]
+    fn singleton_branch_matches_virtual_branch_hash(
+        index in any::<u8>(),
+        child in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree::<String>(d, TREE_LEAF_BUDGET)),
+    ) {
+        let child_hash = child.hash();
+        let wrapped = Node::branch(OrdMap::from_iter([(index, child)]))
+            .expect("one-child branch is non-empty");
+
+        let mut buf = [0u8; 256 * 32];
+        buf[index as usize * 32..][..32].copy_from_slice(child_hash.as_bytes());
+        let expected = blake3::hash(&buf);
+
+        prop_assert_eq!(wrapped.hash(), expected);
     }
 }
