@@ -63,11 +63,11 @@ impl Get for Z {
             return Vec::new();
         };
 
-        let leaf = node.as_leaf().clone();
+        let leaf = node.value().clone();
         if paths.is_empty() {
             vec![]
         } else {
-            vec![leaf.value.clone()]
+            vec![leaf.clone()]
         }
     }
 }

@@ -4,10 +4,10 @@ use imbl::OrdMap;
 
 use bytes::Bytes;
 
+use crate::Version;
+
 use super::height::{self, Height, S, Z};
 use super::untyped;
-
-pub use untyped::Leaf;
 
 /// The typed node with a height of 32; the root of the tree.
 pub type Root<P> = Node<P, height::Root>;
@@ -25,6 +25,11 @@ pub struct Node<P: Clone + Eq + Hash + AsRef<[u8]>, H: Height> {
 }
 
 impl<P: Clone + Eq + Hash + AsRef<[u8]>, H: Height> Node<P, H> {
+    /// Get the version of this node.
+    pub fn version(&self) -> &Version<P> {
+        self.inner.version()
+    }
+
     /// Hash the subtree rooted at this node.
     ///
     /// Hashes are lazily computed and cached until the tree structure changes
@@ -74,15 +79,15 @@ where
 
 impl<P: Clone + Eq + Hash + AsRef<[u8]>> Node<P, Z> {
     /// Construct a new leaf node.
-    pub fn leaf(party: P, version: u64, value: Bytes) -> Self {
+    pub fn leaf(version: Version<P>, value: Bytes) -> Self {
         Self {
             height: PhantomData,
-            inner: untyped::Node::leaf(party, version, value),
+            inner: untyped::Node::leaf(version, value),
         }
     }
 
     /// Get a reference to the leaf at this node.
-    pub fn as_leaf(&self) -> &Leaf<P> {
+    pub fn value(&self) -> &Bytes {
         self.inner
             .as_leaf()
             .expect("typed leaf failed to be a leaf")

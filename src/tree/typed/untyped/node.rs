@@ -1,14 +1,14 @@
-use std::collections::HashSet;
 use std::hash::Hash;
 use std::mem;
 use std::sync::Arc;
 
 use bytes::Bytes;
 use imbl::OrdMap;
-use itertools::Itertools;
 
 mod cached;
 use cached::Cached;
+
+use crate::Version;
 
 #[derive(Clone, Debug)]
 pub struct Node<P: Hash + Eq + AsRef<[u8]>> {
@@ -24,6 +24,8 @@ struct NodeInner<P: Hash + Eq + AsRef<[u8]>> {
     /// The cached hash of this node, invalidated when any change occurs in or
     /// beneath it.
     hash: Cached<blake3::Hash>,
+    /// The maximal version of any child of this node.
+    version: Version<P>,
     /// The children of this node: either a leaf, or a branch point.
     children: Children<P>,
 }
@@ -32,36 +34,10 @@ struct NodeInner<P: Hash + Eq + AsRef<[u8]>> {
 #[derive(Clone, Debug)]
 enum Children<P: Hash + Eq + AsRef<[u8]>> {
     /// A direct leaf, at the true bottom of the tree.
-    Leaf(Leaf<P>),
+    Leaf(Bytes),
     /// A materialized branch point, with the invariant that there are always >=
     /// 2 branches (or else they should be path-compressed away).
-    Branch(Branch<P>),
-}
-
-/// A branch in the middle of the tree.
-#[derive(Clone, Debug)]
-pub struct Branch<P: Hash + Eq + AsRef<[u8]>> {
-    /// The children of this branch.
-    children: OrdMap<u8, Node<P>>,
-}
-
-impl<P: Clone + Hash + Eq + AsRef<[u8]>> Default for Branch<P> {
-    fn default() -> Self {
-        Self {
-            children: OrdMap::new(),
-        }
-    }
-}
-
-/// A leaf at the bottom of the tree, holding the value payload.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Leaf<P: Hash + Eq> {
-    /// The party which originally inserted this leaf into the set.
-    pub party: P,
-    /// That party's local version scalar at the time of insertion.
-    pub version: u64,
-    /// The value inserted, whose hash is the path in the tree.
-    pub value: Bytes,
+    Branch(OrdMap<u8, Node<P>>),
 }
 
 impl<P: Hash + Eq + Clone + AsRef<[u8]>> Node<P> {
@@ -80,7 +56,8 @@ impl<P: Hash + Eq + Clone + AsRef<[u8]>> Node<P> {
                 inner: Arc::new(NodeInner {
                     prefix: Vec::new(),
                     hash: Cached::new(),
-                    children: Children::Branch(Branch { children }),
+                    version: Version::new(children.values().map(|n| n.version().clone())),
+                    children: Children::Branch(children),
                 }),
             }),
         }
@@ -110,29 +87,26 @@ impl<P: Hash + Eq + Clone + AsRef<[u8]>> Node<P> {
                     let Children::Branch(branch) = &mut inner.children else {
                         unreachable!("just matched Branch")
                     };
-                    Ok(mem::take(&mut branch.children))
+                    Ok(mem::take(branch))
                 }
             }
         }
     }
 
     /// Construct a new leaf node.
-    pub fn leaf(party: P, version: u64, value: Bytes) -> Self {
+    pub fn leaf(version: Version<P>, value: Bytes) -> Self {
         Node {
             inner: Arc::new(NodeInner {
                 prefix: Vec::new(),
                 hash: Cached::new(),
-                children: Children::Leaf(Leaf {
-                    party,
-                    version,
-                    value,
-                }),
+                version,
+                children: Children::Leaf(value),
             }),
         }
     }
 
     /// Get a reference to the leaf at this node, if it is a leaf.
-    pub fn as_leaf(&self) -> Option<&Leaf<P>> {
+    pub fn as_leaf(&self) -> Option<&Bytes> {
         match &self.inner.children {
             Children::Leaf(leaf) => Some(leaf),
             _ => None,
@@ -155,7 +129,7 @@ impl<P: Hash + Eq + Clone + AsRef<[u8]>> Node<P> {
                 Children::Leaf(_) => [0xff; 32].into(),
                 Children::Branch(branch) => {
                     let mut buf = [0u8; 256 * 32];
-                    for (&i, child) in branch.children.iter() {
+                    for (&i, child) in branch.iter() {
                         buf[i as usize * 32..][..32].copy_from_slice(child.hash().as_bytes());
                     }
                     blake3::hash(&buf)
@@ -177,6 +151,11 @@ impl<P: Hash + Eq + Clone + AsRef<[u8]>> Node<P> {
         })
     }
 
+    /// Get the version of this node (the maximal version of all children).
+    pub fn version(&self) -> &Version<P> {
+        &self.inner.version
+    }
+
     /// Place a node beneath the given child index, increasing its height by one.
     fn beneath(mut self, index: u8) -> Node<P> {
         let inner = Arc::make_mut(&mut self.inner);
@@ -194,7 +173,7 @@ impl<P: Hash + Eq + Clone + AsRef<[u8]>> Node<P> {
         match &self.inner.children {
             Children::Leaf(_) => true,
             Children::Branch(branch) => {
-                branch.children.len() >= 2 && branch.children.values().all(Self::is_max_compressed)
+                branch.len() >= 2 && branch.values().all(Self::is_max_compressed)
             }
         }
     }

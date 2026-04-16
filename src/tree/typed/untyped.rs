@@ -1,2 +1,2 @@
 mod node;
-pub use node::{Leaf, Node};
+pub use node::Node;

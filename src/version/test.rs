@@ -19,7 +19,7 @@ fn empty_equal() {
 fn empty_less_than_event() {
     let a = Version::<u64>::default();
     let mut b = Version::<u64>::default();
-    b.event(1);
+    b.event(&1);
     assert_eq!(a.partial_cmp(&b), Some(Ordering::Less));
     assert_eq!(b.partial_cmp(&a), Some(Ordering::Greater));
 }
@@ -29,8 +29,8 @@ fn empty_less_than_event() {
 fn concurrent_events_incomparable() {
     let mut a = Version::<u64>::default();
     let mut b = Version::<u64>::default();
-    a.event(1);
-    b.event(2);
+    a.event(&1);
+    b.event(&2);
     assert_eq!(a.partial_cmp(&b), None);
     assert_eq!(b.partial_cmp(&a), None);
 }
@@ -39,10 +39,10 @@ fn concurrent_events_incomparable() {
 #[test]
 fn extension_is_greater() {
     let mut a = Version::<u64>::default();
-    a.event(1);
-    a.event(2);
+    a.event(&1);
+    a.event(&2);
     let mut b = a.clone();
-    b.event(1);
+    b.event(&1);
     assert_eq!(a.partial_cmp(&b), Some(Ordering::Less));
     assert_eq!(b.partial_cmp(&a), Some(Ordering::Greater));
 }
@@ -51,12 +51,12 @@ fn extension_is_greater() {
 #[test]
 fn bitor_assign_takes_max() {
     let mut a = Version::<u64>::default();
-    a.event(1);
-    a.event(1);
-    a.event(2);
+    a.event(&1);
+    a.event(&1);
+    a.event(&2);
     let mut b = Version::<u64>::default();
-    b.event(1);
-    b.event(3);
+    b.event(&1);
+    b.event(&3);
     let expected = a.clone() | b.clone();
     a |= b;
     assert_eq!(a, expected);
@@ -67,7 +67,7 @@ fn arb_version() -> impl Strategy<Value = Version<u8>> {
         let mut v = Version::<u8>::default();
         for (p, n) in pairs {
             for _ in 0..n {
-                v.event(p);
+                v.event(&p);
             }
         }
         v
@@ -185,7 +185,7 @@ fn run_trace(trace: Vec<Op>) -> Result<(), TestCaseError> {
             Op::Event(i) => {
                 let i = i % branches.len();
                 let party = branches[i].0;
-                branches[i].1.event(party);
+                branches[i].1.event(&party);
                 branches[i].2.insert(next_event);
                 next_event += 1;
             }

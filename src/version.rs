@@ -32,11 +32,11 @@ impl<P: Hash + Eq> Version<P> {
     }
 
     /// Record an event for some party, incrementing its version.
-    pub fn event(&mut self, party: P)
+    pub fn event(&mut self, party: &P)
     where
         P: Clone,
     {
-        *self.versions.entry(party).or_default() += 1;
+        *self.versions.entry(party.clone()).or_default() += 1;
     }
 
     /// Get the version for a particular party.

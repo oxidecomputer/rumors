@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use bytes::Bytes;
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use rumors::{Action, Tree};
+use rumors::{Action, Tree, Version};
 
 fn make_values(n: usize) -> Vec<Bytes> {
     (0..n)
@@ -13,16 +13,8 @@ fn make_values(n: usize) -> Vec<Bytes> {
         .collect()
 }
 
-fn make_inserts(values: &[Bytes]) -> Vec<Action<String>> {
-    values
-        .iter()
-        .enumerate()
-        .map(|(i, v)| Action::Insert {
-            party: "".to_string(),
-            version: i as u64,
-            value: v.clone(),
-        })
-        .collect()
+fn make_inserts(values: &[Bytes]) -> Vec<Action> {
+    values.iter().cloned().map(|v| Action::Insert(v)).collect()
 }
 
 fn bench_act_insert_batch(c: &mut Criterion) {
@@ -39,8 +31,9 @@ fn bench_act_insert_batch(c: &mut Criterion) {
         });
 
         group.bench_with_input(BenchmarkId::from_parameter(n), &actions, |b, actions| {
+            let party = "".to_string();
             b.iter(|| {
-                let mut tree = Tree::<String>::default();
+                let mut tree = Tree::for_party(party.clone());
                 tree.act(actions.iter().cloned());
                 tree
             });
@@ -55,22 +48,19 @@ fn bench_act_insert_one_by_one(c: &mut Criterion) {
 
     for n in [1, 10, 100, 1_000, 10_000, 100_000, 1_000_000] {
         let values = make_values(n);
-        let actions: Vec<Vec<Action<String>>> = values
+        let actions: Vec<Vec<Action>> = values
             .iter()
-            .enumerate()
-            .map(|(i, v)| {
-                vec![Action::Insert {
-                    party: "".to_string(),
-                    version: i as u64,
-                    value: v.clone(),
-                }]
-            })
+            .cloned()
+            .map(|v| vec![Action::Insert(v)])
             .collect();
 
         group.bench_with_input(BenchmarkId::from_parameter(n), &actions, |b, actions| {
             b.iter(|| {
-                let mut tree = Tree::<String>::default();
+                let party = "".to_string();
+                let mut version = Version::new([]);
+                let mut tree = Tree::for_party("P".to_string());
                 for batch in actions {
+                    version.event(&party);
                     tree.act(batch.iter().cloned());
                 }
                 tree
@@ -85,9 +75,12 @@ fn bench_act_insert_into_populated(c: &mut Criterion) {
     let mut group = c.benchmark_group("act/insert_batch_into_populated");
 
     for existing in [100, 1_000, 10_000] {
+        let party = "".to_string();
+        let mut version = Version::new([]);
+        version.event(&party);
         let base_values = make_values(existing);
         let base_actions = make_inserts(&base_values);
-        let mut base_tree = Tree::<String>::default();
+        let mut base_tree = Tree::for_party(party.clone());
         base_tree.act(base_actions);
 
         let new_values = make_values(100);
@@ -100,6 +93,7 @@ fn bench_act_insert_into_populated(c: &mut Criterion) {
                 b.iter_batched(
                     || tree.clone(),
                     |mut tree| {
+                        version.event(&party);
                         tree.act(actions.iter().cloned());
                         tree
                     },

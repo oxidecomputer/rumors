@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::Arc;
 
@@ -7,7 +6,7 @@ use imbl::OrdMap;
 use proptest::collection::{btree_set, vec};
 use proptest::prelude::*;
 
-use super::{Children, Leaf, Node};
+use super::{Children, Node};
 
 /// Upper bound on the depth of trees generated in property tests. Each test
 /// samples a depth in `0..=MAX_TEST_DEPTH` so that proptest shrinks tree
@@ -45,7 +44,7 @@ where
         // Bytes payload is not examined at this abstraction layer, so we
         // stuff in a fixed empty value rather than generating one.
         (any::<P>(), any::<u64>())
-            .prop_map(|(party, version)| Node::leaf(party, version, Bytes::new()))
+            .prop_map(|(party, version)| Node::leaf((party, version).into(), Bytes::new()))
             .boxed()
     } else {
         let max_n = MAX_BRANCHING.min(budget);
@@ -76,9 +75,9 @@ fn clear_hash_cache<P: Hash + Eq + Clone + AsRef<[u8]>>(node: &mut Node<P>) {
     if let Children::Branch(branch) = &mut inner.children {
         // Collect keys first so the iteration doesn't alias `branch.children`
         // while we recurse through `get_mut`.
-        let keys: Vec<u8> = branch.children.keys().copied().collect();
+        let keys: Vec<u8> = branch.keys().copied().collect();
         for k in keys {
-            let child = branch.children.get_mut(&k).expect("key from keys()");
+            let child = branch.get_mut(&k).expect("key from keys()");
             clear_hash_cache(child);
         }
     }
@@ -90,7 +89,7 @@ fn clear_hash_cache<P: Hash + Eq + Clone + AsRef<[u8]>>(node: &mut Node<P>) {
 fn enumerate_leaves<P: Hash + Eq + Clone + AsRef<[u8]>>(
     node: Node<P>,
     path: Vec<u8>,
-) -> Vec<(Vec<u8>, Leaf<P>)> {
+) -> Vec<(Vec<u8>, Bytes)> {
     match node.into_children() {
         Ok(children) => children
             .into_iter()
