@@ -1,6 +1,12 @@
+use std::hash::Hash;
+
+use bytes::Bytes;
+use itertools::Itertools;
+
 use crate::Version;
 
-use super::*;
+use super::typed::*;
+use height::{Height, S, Z};
 
 /// An action to perform at a particular [`Path`].
 pub enum Action {
@@ -11,10 +17,7 @@ pub enum Action {
 }
 
 /// Perform a sequence of actions (insertions or deletions) on this node.
-pub fn act<P, H: Act>(
-    node: Option<Node<P, H>>,
-    actions: Vec<(Path<H>, &Version<P>, Action)>,
-) -> Option<Node<P, H>>
+pub fn act<P>(node: Option<Node<P>>, actions: Vec<(Path, &Version<P>, Action)>) -> Option<Node<P>>
 where
     P: Clone + Hash + Eq + AsRef<[u8]>,
 {

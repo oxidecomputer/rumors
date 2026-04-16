@@ -1,7 +1,8 @@
-use std::{hash::Hash, mem};
+use std::hash::Hash;
 
 use bytes::Bytes;
 
+mod traverse;
 mod typed;
 
 use crate::Version;
@@ -24,22 +25,51 @@ pub struct Tree<P: Clone + Hash + Eq + AsRef<[u8]> = Bytes> {
     root: Option<typed::node::Root<P>>,
 }
 
+/// An identifier for a unique item in the tree.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[repr(transparent)]
+pub struct Id(pub [u8; 32]);
+
+impl From<[u8; 32]> for Id {
+    fn from(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+}
+
+impl From<Id> for [u8; 32] {
+    fn from(id: Id) -> Self {
+        id.0
+    }
+}
+
+impl From<typed::Path> for Id {
+    fn from(path: typed::Path) -> Self {
+        <[u8; 32]>::from(path).into()
+    }
+}
+
+impl From<Id> for typed::Path {
+    fn from(id: Id) -> Self {
+        typed::Path::from(id.0)
+    }
+}
+
 /// An action to perform on the tree, locally.
 #[derive(Clone, Debug)]
 pub enum Action {
     /// Insert some value, tagged at the current version by your own party.
     Insert(Bytes),
     /// Delete the value corresponding to a hash.
-    Delete([u8; 32]),
+    Delete(Id),
 }
 
 /// An action to replay on the tree, originating from another party.
 #[derive(Clone, Debug)]
 pub enum Reaction {
     /// Insert some value, tagged at a version by the inserting party.
-    Insert([u8; 32], Bytes),
+    Insert(Id, Bytes),
     /// Delete the value corresponding to a hash.
-    Delete([u8; 32]),
+    Delete(Id),
 }
 
 impl<P: Clone + Hash + Eq + AsRef<[u8]>> Tree<P> {
@@ -76,16 +106,29 @@ impl<P: Clone + Hash + Eq + AsRef<[u8]>> Tree<P> {
     /// Get all the values stored at a list of hash paths in the tree.
     pub fn get<I>(&self, paths: I) -> Vec<Bytes>
     where
-        I: IntoIterator<Item = [u8; 32]>,
+        I: IntoIterator<Item = Id>,
     {
         if let Some(root) = &self.root {
-            typed::traverse::get(
+            traverse::get(
                 Some(&root),
-                paths.into_iter().map(typed::Path::from).collect(),
+                paths
+                    .into_iter()
+                    .map(|i| i.0)
+                    .map(typed::Path::from)
+                    .collect(),
             )
         } else {
             Vec::new()
         }
+    }
+
+    /// Get all the values in this tree which are unknown relative to the given
+    /// version vector.
+    pub fn unknown(&self, version: Version<P>) -> Vec<(Id, Version<P>, Bytes)> {
+        traverse::unknown(self.root.as_ref(), &version)
+            .into_iter()
+            .map(|(i, v, b)| (i.into(), v, b))
+            .collect()
     }
 
     /// Apply the specified actions as a batch to the tree, incrementing its
@@ -159,22 +202,20 @@ impl<P: Clone + Hash + Eq + AsRef<[u8]>> Tree<P> {
                 self.version |= version.clone();
 
                 match op {
-                    Reaction::Delete(hash) => (
-                        typed::Path::from(hash),
-                        version,
-                        typed::traverse::Action::Delete,
-                    ),
+                    Reaction::Delete(hash) => {
+                        (typed::Path::from(hash), version, traverse::Action::Delete)
+                    }
                     Reaction::Insert(hash, value) => (
                         typed::Path::from(hash),
                         version,
-                        typed::traverse::Action::Insert(value),
+                        traverse::Action::Insert(value),
                     ),
                 }
             })
             .collect();
 
         // Traverse the tree from the root, batch-applying the actions
-        self.root = typed::traverse::act(self.root.take(), actions);
+        self.root = traverse::act(self.root.take(), actions);
     }
 }
 

@@ -19,7 +19,7 @@ pub type Children<P, H> = OrdMap<u8, Node<P, H>>;
 /// at compile-time.
 #[derive(Clone, Debug)]
 #[repr(transparent)]
-pub struct Node<P: Clone + Eq + Hash + AsRef<[u8]>, H: Height> {
+pub struct Node<P: Clone + Eq + Hash + AsRef<[u8]>, H: Height = height::Root> {
     height: PhantomData<H>,
     inner: untyped::Node<P>,
 }

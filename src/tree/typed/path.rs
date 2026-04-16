@@ -6,7 +6,7 @@ use super::height::{Height, Root, S};
 
 /// A typed path through the tree which is always the right height.
 #[repr(transparent)]
-pub struct Path<H: Height> {
+pub struct Path<H: Height = Root> {
     height: PhantomData<H>,
     hash: [u8; 32],
 }

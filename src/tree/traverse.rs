@@ -4,13 +4,15 @@
 //! they are implemented using polymorphic recursion through traits.
 
 use super::*;
-use height::*;
 
 mod act;
 pub use act::{Action, act};
 
 mod get;
 pub use get::get;
+
+mod unknown;
+pub use unknown::unknown;
 
 mod sync;
 pub use sync::sync;

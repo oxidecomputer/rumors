@@ -1,11 +1,17 @@
-use super::*;
+use std::hash::Hash;
+
+use bytes::Bytes;
+use itertools::Itertools;
+
+use super::typed::*;
+use height::{Height, S, Z};
 
 /// Perform a batch lookup of paths in the tree, returning a list of [`Bytes`]
 /// which are stored at these paths.
 ///
 /// Values are returned in arbitrary order, not necessarily in the order of the
 /// specified paths.
-pub fn get<P, H: Get>(node: Option<&Node<P, H>>, paths: Vec<Path<H>>) -> Vec<Bytes>
+pub fn get<P>(node: Option<&Node<P>>, paths: Vec<Path>) -> Vec<Bytes>
 where
     P: Clone + Hash + Eq + AsRef<[u8]>,
 {

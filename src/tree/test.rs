@@ -6,6 +6,15 @@ use proptest::prelude::*;
 use super::typed::Path;
 use super::*;
 
+impl Arbitrary for Id {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Id>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        any::<[u8; 32]>().prop_map(Id).boxed()
+    }
+}
+
 /// Generate a vector of distinct `Bytes`, deduplicated so every element maps
 /// to a unique leaf path when inserted under the same party and version. Many
 /// of the hash-invariance properties below are only meaningful when no two
@@ -37,8 +46,55 @@ fn distinct_bytes_and_permutation(max: usize) -> impl Strategy<Value = (Vec<Byte
 /// shape of `Reaction` requires callers to spell this out; wrapping the
 /// boilerplate keeps the test bodies focused on the property under test.
 fn insert_at<P: AsRef<[u8]>>(party: &P, scalar: u64, value: Bytes) -> Reaction {
-    let path: [u8; 32] = Path::for_leaf(party, scalar, &value).into();
+    let path: Id = Path::for_leaf(party, scalar, &value).into();
     Reaction::Insert(path, value)
+}
+
+/// Perform one full bidirectional synchronization step between two trees
+/// using `unknown`: both sides snapshot their version vectors up front,
+/// each asks the other for everything unknown relative to that snapshot,
+/// and each replays the received leaves via `react`. Because the snapshots
+/// are taken before any reaction, the two directions are independent and
+/// can be applied in either order. Absent deletions, this is the entire
+/// protocol needed for two parties to converge.
+fn sync_via_unknown<P: Clone + Hash + Eq + AsRef<[u8]>>(a: &mut Tree<P>, b: &mut Tree<P>) {
+    let v_a = a.version().clone();
+    let v_b = b.version().clone();
+    let from_a = a.unknown(v_b);
+    let from_b = b.unknown(v_a);
+    a.react(
+        from_b
+            .iter()
+            .map(|(path, v, value)| (v, Reaction::Insert(*path, value.clone()))),
+    );
+    b.react(
+        from_a
+            .iter()
+            .map(|(path, v, value)| (v, Reaction::Insert(*path, value.clone()))),
+    );
+}
+
+/// One step in an interleaved two-party simulation: either party applies a
+/// local batch of inserts, or the two parties perform a full bidirectional
+/// sync via `unknown`. Generated as a uniform mix so the random
+/// interleaving exercises every sequencing of local mutation and remote
+/// exchange.
+#[derive(Debug, Clone)]
+enum SyncOp {
+    ActA(Vec<Bytes>),
+    ActB(Vec<Bytes>),
+    Sync,
+}
+
+fn sync_ops_strategy(max_ops: usize, max_batch: usize) -> impl Strategy<Value = Vec<SyncOp>> {
+    proptest::collection::vec(
+        prop_oneof![
+            distinct_bytes(max_batch).prop_map(SyncOp::ActA),
+            distinct_bytes(max_batch).prop_map(SyncOp::ActB),
+            Just(SyncOp::Sync),
+        ],
+        0..=max_ops,
+    )
 }
 
 /// Compute the root hash of the fully-expanded (uVn-path-compressed) 256-ary
@@ -68,7 +124,7 @@ fn reference_hash<P: AsRef<[u8]>>(values: &[(P, u64, Bytes)]) -> blake3::Hash {
     };
 
     // Level 32 (the value level): every distinct path maps to the sentinel.
-    let paths: BTreeSet<[u8; 32]> = values
+    let paths: BTreeSet<Id> = values
         .iter()
         .map(|(party, version, value)| Path::for_leaf(party, *version, value).into())
         .collect();
@@ -79,7 +135,7 @@ fn reference_hash<P: AsRef<[u8]>>(values: &[(P, u64, Bytes)]) -> blake3::Hash {
 
     let mut current: HashMap<Vec<u8>, blake3::Hash> = paths
         .into_iter()
-        .map(|p| (p.to_vec(), LEAF_SENTINEL.into()))
+        .map(|p| (<[u8; 32]>::from(p).to_vec(), LEAF_SENTINEL.into()))
         .collect();
 
     // Fold upward one level at a time: group entries by the prefix they share
@@ -236,7 +292,7 @@ proptest! {
     fn insert_then_delete_is_empty(value in any::<Vec<u8>>()) {
         let party = "P".to_string();
         let value = Bytes::from(value);
-        let leaf_path: [u8; 32] = Path::for_leaf(&party, 1, &value).into();
+        let leaf_path: Id = Path::for_leaf(&party, 1, &value).into();
 
         let mut tree: Tree<String> = Tree::for_party(party.clone());
         tree.act([Action::Insert(value)]);
@@ -254,7 +310,7 @@ proptest! {
     fn insert_and_delete_same_batch_is_empty(value in any::<Vec<u8>>()) {
         let party = "P".to_string();
         let value = Bytes::from(value);
-        let leaf_path: [u8; 32] = Path::for_leaf(&party, 1, &value).into();
+        let leaf_path: Id = Path::for_leaf(&party, 1, &value).into();
 
         let mut tree: Tree<String> = Tree::for_party(party.clone());
         tree.act([Action::Insert(value), Action::Delete(leaf_path)]);
@@ -269,10 +325,10 @@ proptest! {
     #[test]
     fn delete_absent_path_preserves_hash(
         bytes in distinct_bytes(8),
-        nuke in any::<[u8; 32]>(),
+        nuke in any::<Id>(),
     ) {
         let party = "P".to_string();
-        let present: BTreeSet<[u8; 32]> = bytes
+        let present: BTreeSet<Id> = bytes
             .iter()
             .map(|b| Path::for_leaf(&party, 1, b).into())
             .collect();
@@ -290,7 +346,7 @@ proptest! {
     /// present, so every lookup misses.
     #[test]
     fn get_on_empty_tree_is_empty(
-        paths in proptest::collection::vec(any::<[u8; 32]>(), 0..8),
+        paths in proptest::collection::vec(any::<Id>(), 0..8),
     ) {
         let tree: Tree<String> = Tree::for_party("P".to_string());
         prop_assert!(tree.get(paths).is_empty());
@@ -308,7 +364,7 @@ proptest! {
         let mut tree: Tree<String> = Tree::for_party(party.clone());
         tree.act(bytes.iter().cloned().map(Action::Insert));
 
-        let paths: Vec<[u8; 32]> = bytes
+        let paths: Vec<Id> = bytes
             .iter()
             .map(|b| Path::for_leaf(&party, 1, b).into())
             .collect();
@@ -325,23 +381,23 @@ proptest! {
     #[test]
     fn get_filters_absent_paths(
         bytes in distinct_bytes(8),
-        extra in proptest::collection::vec(any::<[u8; 32]>(), 0..8),
+        extra in proptest::collection::vec(any::<Id>(), 0..8),
     ) {
         let party = "P".to_string();
         let mut tree: Tree<String> = Tree::for_party(party.clone());
         tree.act(bytes.iter().cloned().map(Action::Insert));
 
-        let present_paths: BTreeSet<[u8; 32]> = bytes
+        let present_paths: BTreeSet<Id> = bytes
             .iter()
             .map(|b| Path::for_leaf(&party, 1, b).into())
             .collect();
         // Exclude any "extra" paths that happen to collide with a real leaf.
-        let absent: Vec<[u8; 32]> = extra
+        let absent: Vec<Id> = extra
             .into_iter()
             .filter(|p| !present_paths.contains(p))
             .collect();
 
-        let all_paths: Vec<[u8; 32]> =
+        let all_paths: Vec<Id> =
             present_paths.iter().copied().chain(absent).collect();
 
         let mut got = tree.get(all_paths);
@@ -436,7 +492,7 @@ proptest! {
             versions
                 .iter()
                 .enumerate()
-                .map(|(i, v)| (v, Reaction::Delete([i as u8; 32]))),
+                .map(|(i, v)| (v, Reaction::Delete([i as u8; 32].into()))),
         );
 
         prop_assert_eq!(tree.version(), &expected);
@@ -607,7 +663,7 @@ proptest! {
             versions
                 .iter()
                 .enumerate()
-                .map(|(i, v)| (v, Reaction::Delete([i as u8; 32]))),
+                .map(|(i, v)| (v, Reaction::Delete([i as u8; 32].into()))),
         );
         prop_assert_eq!(tree.party(), &party);
     }
@@ -660,6 +716,181 @@ proptest! {
         prop_assert_ne!(t_a.hash(), t_b.hash());
     }
 
+    /// `unknown` relative to a tree's own version is always empty: every
+    /// leaf's version is a subvector of the tree's version by construction
+    /// (the tree's version vector is the join of every leaf's version plus
+    /// every version observed via `react`), so the owner never holds a
+    /// leaf that dominates its own version vector.
+    #[test]
+    fn unknown_relative_to_self_is_empty(
+        batches in proptest::collection::vec(distinct_bytes(6), 0..4),
+    ) {
+        let party = "P".to_string();
+        let mut tree: Tree<String> = Tree::for_party(party.clone());
+        for batch in batches {
+            tree.act(batch.into_iter().map(Action::Insert));
+        }
+        prop_assert!(tree.unknown(tree.version().clone()).is_empty());
+    }
+
+    /// `unknown` relative to the default (empty) version enumerates every
+    /// leaf in the tree, each labeled with the exact version vector and
+    /// value it was inserted at. This is the "full state transfer" case:
+    /// a peer with no prior knowledge receives the entire leaf set.
+    #[test]
+    fn unknown_relative_to_empty_is_everything(bytes in distinct_bytes(16)) {
+        let party = "P".to_string();
+        let mut tree: Tree<String> = Tree::for_party(party.clone());
+        tree.act(bytes.iter().cloned().map(Action::Insert));
+
+        let got = tree.unknown(Version::default());
+        let v1 = Version::from((party.clone(), 1u64));
+
+        let got_paths: BTreeSet<Id> = got.iter().map(|(p, _, _)| *p).collect();
+        let expected_paths: BTreeSet<Id> = bytes
+            .iter()
+            .map(|b| Path::for_leaf(&party, 1, b).into())
+            .collect();
+        prop_assert_eq!(got_paths, expected_paths);
+
+        for (_, v, _) in &got {
+            prop_assert_eq!(v, &v1);
+        }
+
+        let mut got_values: Vec<Bytes> = got.into_iter().map(|(_, _, b)| b).collect();
+        got_values.sort();
+        let mut expected_values = bytes;
+        expected_values.sort();
+        prop_assert_eq!(got_values, expected_values);
+    }
+
+    /// Two parties that each apply local inserts and then perform one full
+    /// bidirectional sync via `unknown` must converge: the same leaf
+    /// multiset (equal root hash) and the same observed version vector.
+    /// This is the minimal form of the synchronization invariant, without
+    /// any interleaving or prior history.
+    #[test]
+    fn sync_converges_after_independent_acts(
+        a_inserts in distinct_bytes(6),
+        b_inserts in distinct_bytes(6),
+    ) {
+        let mut tree_a: Tree<String> = Tree::for_party("A".to_string());
+        let mut tree_b: Tree<String> = Tree::for_party("B".to_string());
+        tree_a.act(a_inserts.into_iter().map(Action::Insert));
+        tree_b.act(b_inserts.into_iter().map(Action::Insert));
+
+        sync_via_unknown(&mut tree_a, &mut tree_b);
+
+        prop_assert_eq!(tree_a.hash(), tree_b.hash());
+        prop_assert_eq!(tree_a.version(), tree_b.version());
+    }
+
+    /// A second sync immediately after a first is a complete no-op: the
+    /// two parties already agree, so each side's `unknown` relative to the
+    /// other's version is empty and neither tree changes. This rules out
+    /// any "every sync shuffles state" bug and witnesses that `unknown`
+    /// precisely characterizes the causal delta.
+    #[test]
+    fn sync_is_idempotent(
+        a_inserts in distinct_bytes(6),
+        b_inserts in distinct_bytes(6),
+    ) {
+        let mut tree_a: Tree<String> = Tree::for_party("A".to_string());
+        let mut tree_b: Tree<String> = Tree::for_party("B".to_string());
+        tree_a.act(a_inserts.into_iter().map(Action::Insert));
+        tree_b.act(b_inserts.into_iter().map(Action::Insert));
+
+        sync_via_unknown(&mut tree_a, &mut tree_b);
+
+        let hash_a = tree_a.hash();
+        let hash_b = tree_b.hash();
+        let version_a = tree_a.version().clone();
+        let version_b = tree_b.version().clone();
+
+        // The deltas in both directions must now be empty.
+        prop_assert!(tree_a.unknown(version_b.clone()).is_empty());
+        prop_assert!(tree_b.unknown(version_a.clone()).is_empty());
+
+        // And a second sync must leave both trees bit-identical.
+        sync_via_unknown(&mut tree_a, &mut tree_b);
+        prop_assert_eq!(tree_a.hash(), hash_a);
+        prop_assert_eq!(tree_b.hash(), hash_b);
+        prop_assert_eq!(tree_a.version(), &version_a);
+        prop_assert_eq!(tree_b.version(), &version_b);
+    }
+
+    /// A one-way delivery of A's `unknown(V_B)` to B — only half of a
+    /// full sync — makes B a causal superset of A: B's version dominates
+    /// A's, and every leaf A holds (at the paths `act` would have written)
+    /// is retrievable from B. This isolates the "receiver gains" half of
+    /// the bidirectional invariant.
+    #[test]
+    fn one_way_sync_makes_receiver_superset(
+        a_inserts in distinct_bytes(6),
+        b_inserts in distinct_bytes(6),
+    ) {
+        let a_id = "A".to_string();
+        let b_id = "B".to_string();
+        let mut tree_a: Tree<String> = Tree::for_party(a_id.clone());
+        let mut tree_b: Tree<String> = Tree::for_party(b_id.clone());
+        tree_a.act(a_inserts.iter().cloned().map(Action::Insert));
+        tree_b.act(b_inserts.iter().cloned().map(Action::Insert));
+
+        let v_b = tree_b.version().clone();
+        let from_a = tree_a.unknown(v_b);
+        tree_b.react(
+            from_a
+                .iter()
+                .map(|(path, v, value)| (v, Reaction::Insert(*path, value.clone()))),
+        );
+
+        prop_assert!(tree_b.version() >= tree_a.version());
+
+        let a_paths: Vec<Id> = a_inserts
+            .iter()
+            .map(|b| Path::for_leaf(&a_id, 1, b).into())
+            .collect();
+        let mut got = tree_b.get(a_paths);
+        got.sort();
+        let mut expected: Vec<Bytes> = a_inserts;
+        expected.sort();
+        prop_assert_eq!(got, expected);
+    }
+
+    /// Arbitrary interleavings of local `act` batches and bidirectional
+    /// `unknown`-driven syncs converge at every sync step — not just at
+    /// the end. After each sync, the two parties must agree on both hash
+    /// and version vector; a final sync after the last op guarantees
+    /// convergence regardless of whether the trace happened to end with
+    /// a sync.
+    #[test]
+    fn interleaved_acts_and_syncs_converge_at_every_sync(
+        ops in sync_ops_strategy(20, 4),
+    ) {
+        let mut tree_a: Tree<String> = Tree::for_party("A".to_string());
+        let mut tree_b: Tree<String> = Tree::for_party("B".to_string());
+
+        for op in ops {
+            match op {
+                SyncOp::ActA(values) => {
+                    tree_a.act(values.into_iter().map(Action::Insert));
+                }
+                SyncOp::ActB(values) => {
+                    tree_b.act(values.into_iter().map(Action::Insert));
+                }
+                SyncOp::Sync => {
+                    sync_via_unknown(&mut tree_a, &mut tree_b);
+                    prop_assert_eq!(tree_a.hash(), tree_b.hash());
+                    prop_assert_eq!(tree_a.version(), tree_b.version());
+                }
+            }
+        }
+
+        sync_via_unknown(&mut tree_a, &mut tree_b);
+        prop_assert_eq!(tree_a.hash(), tree_b.hash());
+        prop_assert_eq!(tree_a.version(), tree_b.version());
+    }
+
     /// Inserting the same value twice under the same party via two `act`
     /// calls produces two distinct leaves: the scalar version participates
     /// in the path, so the second insert does not overwrite the first.
@@ -673,8 +904,8 @@ proptest! {
         tree.act([Action::Insert(value.clone())]);
         tree.act([Action::Insert(value.clone())]);
 
-        let path_v1: [u8; 32] = Path::for_leaf(&party, 1, &value).into();
-        let path_v2: [u8; 32] = Path::for_leaf(&party, 2, &value).into();
+        let path_v1: Id = Path::for_leaf(&party, 1, &value).into();
+        let path_v2: Id = Path::for_leaf(&party, 2, &value).into();
 
         prop_assert_ne!(path_v1, path_v2);
         let got = tree.get([path_v1, path_v2]);
