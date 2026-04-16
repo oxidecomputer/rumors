@@ -3,6 +3,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use bytes::Bytes;
+use imbl::OrdMap;
 use proptest::collection::{btree_set, vec};
 use proptest::prelude::*;
 
@@ -58,7 +59,7 @@ where
                 (Just(indices), subtrees)
             })
             .prop_map(|(indices, subtrees)| {
-                let pairs: Vec<(u8, Node<P>)> = indices.into_iter().zip(subtrees).collect();
+                let pairs: OrdMap<u8, Node<P>> = indices.into_iter().zip(subtrees).collect();
                 Node::branch(pairs).expect("branch input has >= 1 child")
             })
             .boxed()

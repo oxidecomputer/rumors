@@ -3,7 +3,6 @@ use std::marker::PhantomData;
 use super::height::{Height, Root, S};
 
 /// A typed path through the tree which is always the right height.
-#[derive(Clone, Copy)]
 pub struct Path<H: Height> {
     height: PhantomData<H>,
     hash: blake3::Hash,
@@ -31,7 +30,7 @@ where
     /// Pop one hash byte off the path, yielding the byte and the remainder of
     /// the path.
     pub fn pop(self) -> (u8, Path<H>) {
-        let byte = self.hash.as_bytes()[32 - H::HEIGHT];
+        let byte = self.hash.as_bytes()[32 - S::<H>::HEIGHT];
         (
             byte,
             Path {
@@ -39,6 +38,16 @@ where
                 hash: self.hash,
             },
         )
+    }
+}
+
+// Manual copy/clone impls so we don't require unnecessary bounds on `H`:
+
+impl<H: Height> Copy for Path<H> {}
+
+impl<H: Height> Clone for Path<H> {
+    fn clone(&self) -> Self {
+        *self
     }
 }
 
@@ -84,3 +93,6 @@ impl From<[u8; 32]> for Path<Root> {
         }
     }
 }
+
+#[cfg(test)]
+mod test;

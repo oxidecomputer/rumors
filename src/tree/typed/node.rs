@@ -12,6 +12,9 @@ pub use untyped::Leaf;
 /// The typed node with a height of 32; the root of the tree.
 pub type Root<P> = Node<P, height::Root>;
 
+/// The type of children of a given height.
+pub type Children<P, H> = OrdMap<u8, Node<P, H>>;
+
 /// A typed node which enforces the structural validity of the constructed tree
 /// at compile-time.
 #[derive(Clone, Debug)]
@@ -55,15 +58,19 @@ impl<P: Clone + Eq + Hash, H: Height> Node<P, S<H>>
 where
     S<H>: Height,
 {
-    /// Construct a new branch node from a list of children (inverse to
+    /// Construct a new branch node from a map of children (inverse to
     /// [`Node::into_children`]).
-    pub fn branch<I>(i: I) -> Option<Self>
-    where
-        I: IntoIterator<Item = (u8, Node<P, H>)>,
-    {
+    pub fn branch(children: OrdMap<u8, Node<P, H>>) -> Option<Self> {
+        // Transmute the map of children from typed nodes with the correct
+        // height into untyped nodes.
+        //
+        // SAFETY: TypedNode is #[repr(transparent)] and `OrdMap` treats values
+        // in the map parametrically (i.e. no use of `TypeId`, etc.)
+        let children = unsafe { mem::transmute(children) };
+
         Some(Node {
             height: PhantomData,
-            inner: untyped::Node::branch(i.into_iter().map(|(i, t)| (i, t.inner)))?,
+            inner: untyped::Node::branch(children)?,
         })
     }
 
@@ -93,5 +100,13 @@ impl<P: Clone + Eq + Hash> Node<P, Z> {
         self.inner
             .as_leaf()
             .expect("typed leaf failed to be a leaf")
+    }
+}
+
+impl<P: Clone + Eq + Hash, H: Height> Eq for Node<P, H> {}
+
+impl<P: Clone + Eq + Hash, H: Height> PartialEq for Node<P, H> {
+    fn eq(&self, other: &Self) -> bool {
+        self.inner == other.inner
     }
 }

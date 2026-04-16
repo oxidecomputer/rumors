@@ -65,13 +65,23 @@ pub struct Leaf<P: Hash + Eq> {
 }
 
 impl<P: Hash + Eq + Clone> Node<P> {
-    /// Construct a new branch node from a list of children (inverse to
-    /// [`Node::into_children`]).
-    pub fn branch<I>(i: I) -> Option<Self>
-    where
-        I: IntoIterator<Item = (u8, Node<P>)>,
-    {
-        Node::unions(i.into_iter().map(|(i, node)| node.beneath(i)))
+    /// Construct a new branch node from a list of children with distinct
+    /// indices (inverse to [`Node::into_children`]).
+    pub fn branch(children: OrdMap<u8, Node<P>>) -> Option<Self> {
+        match children.len() {
+            0 => None,
+            1 => {
+                let (index, node) = children.into_iter().next().unwrap();
+                Some(node.beneath(index))
+            }
+            _ => Some(Node {
+                inner: Arc::new(NodeInner {
+                    prefix: Vec::new(),
+                    hash: Cached::new(),
+                    children: Children::Branch(Branch { children }),
+                }),
+            }),
+        }
     }
 
     /// Convert a node into a map from child index to child node (inverse to
@@ -142,28 +152,25 @@ impl<P: Hash + Eq + Clone> Node<P> {
             let mut hash: blake3::Hash = match &self.inner.children {
                 Children::Leaf(_) => [0xff; 32].into(),
                 Children::Branch(branch) => {
-                    let mut hasher = blake3::Hasher::new();
-                    for i in u8::MIN..=u8::MAX {
-                        match branch.children.get(&i) {
-                            None => hasher.update(&[0x00; 32]),
-                            Some(child) => hasher.update(child.hash().as_bytes()),
-                        };
+                    let mut buf = [0u8; 256 * 32];
+                    for (&i, child) in branch.children.iter() {
+                        buf[i as usize * 32..][..32]
+                            .copy_from_slice(child.hash().as_bytes());
                     }
-                    hasher.finalize()
+                    blake3::hash(&buf)
                 }
             };
             // Wrap with the compressed prefix bottom-up: prefix[0] is the
             // deepest byte, applied first; prefix[last] is the shallowest byte,
             // applied last (producing the hash at this node's own level).
+            //
+            // Each virtual branch is 256 × 32 = 8192 bytes: all zero-slots
+            // except for the one occupied child. We build the full buffer
+            // contiguously to avoid 256 separate tiny update calls per byte.
             for &byte in &self.inner.prefix {
-                let mut hasher = blake3::Hasher::new();
-                for i in u8::MIN..=u8::MAX {
-                    match byte == i {
-                        false => hasher.update(&[0x00; 32]),
-                        true => hasher.update(hash.as_bytes()),
-                    };
-                }
-                hash = hasher.finalize();
+                let mut buf = [0u8; 256 * 32];
+                buf[byte as usize * 32..][..32].copy_from_slice(hash.as_bytes());
+                hash = blake3::hash(&buf);
             }
             hash
         })
@@ -232,9 +239,7 @@ impl<P: Hash + Eq + Clone> Node<P> {
 
                 // At least one index group exists because we have >= 2
                 // non-empty children maps. One group means path-compress via
-                // `beneath`; two or more means build a branch directly
-                // (manually, because `Node::branch` is defined in terms of
-                // `Node::unions`).
+                // `beneath`; two or more means build a branch directly.
                 let (child_1, node_1) = children.next()?;
                 Some(match children.next() {
                     None => node_1.beneath(child_1),
@@ -280,6 +285,7 @@ impl<P: Hash + Eq + Clone> Node<P> {
     /// branch must have at least two children. The empty tree is represented by
     /// the absence of a root, so empty and one-child branches are never valid
     /// anywhere in the tree.
+    #[cfg(test)]
     fn is_max_compressed(&self) -> bool {
         match &self.inner.children {
             Children::Leaf(_) => true,
@@ -287,6 +293,14 @@ impl<P: Hash + Eq + Clone> Node<P> {
                 branch.children.len() >= 2 && branch.children.values().all(Self::is_max_compressed)
             }
         }
+    }
+}
+
+impl<P: Hash + Eq + Clone> Eq for Node<P> {}
+
+impl<P: Hash + Eq + Clone> PartialEq for Node<P> {
+    fn eq(&self, other: &Self) -> bool {
+        self.hash() == other.hash()
     }
 }
 
