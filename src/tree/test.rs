@@ -3,7 +3,6 @@ use std::collections::{BTreeSet, HashMap};
 use bytes::Bytes;
 use proptest::prelude::*;
 
-use super::typed::{Path, height::Root};
 use super::*;
 
 /// An action drawn from a small pool of fixed values. Both inserts and

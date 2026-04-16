@@ -60,7 +60,7 @@ where
 {
     /// Construct a new branch node from a map of children (inverse to
     /// [`Node::into_children`]).
-    pub fn branch(children: OrdMap<u8, Node<P, H>>) -> Option<Self> {
+    pub fn branch(children: Children<P, H>) -> Option<Self> {
         // Transmute the map of children from typed nodes with the correct
         // height into untyped nodes.
         //
@@ -76,7 +76,7 @@ where
 
     /// Convert a node into a map from child index to child node (inverse to
     /// [`Node::branch`]).
-    pub fn into_children(self) -> OrdMap<u8, Node<P, H>> {
+    pub fn into_children(self) -> Children<P, H> {
         // Transmute the map of children into typed nodes with the correct
         // height, to recursively enforce type-safe height.
         //

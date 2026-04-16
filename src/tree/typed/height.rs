@@ -47,14 +47,6 @@ pub type Root =
 //  0 1 2 3 4 5 6 7 8 9 a b c d e f
     Z>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>;
 
-#[rustfmt::skip]
-pub const ROOT: Root =
-// Laid out for your counting convenience in two rows of 16:
-    S(S(S(S(S(S(S(S(S(S(S(S(S(S(S(S( // 0
-    S(S(S(S(S(S(S(S(S(S(S(S(S(S(S(S( // 1
-//  0 1 2 3 4 5 6 7 8 9 a b c d e f
-    Z))))))))))))))))))))))))))))))));
-
 mod sealed {
     pub trait Sealed {}
 }
@@ -74,7 +66,6 @@ mod test {
     fn zero_size_val() {
         static_assertions::assert_eq_size_val!(Z, ());
         static_assertions::assert_eq_size_val!(S(Z), ());
-        static_assertions::assert_eq_size_val!(ROOT, ());
     }
 
     #[test]
