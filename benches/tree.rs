@@ -13,12 +13,12 @@ fn make_values(n: usize) -> Vec<Bytes> {
         .collect()
 }
 
-fn make_inserts(values: &[Bytes]) -> Vec<Action<u64>> {
+fn make_inserts(values: &[Bytes]) -> Vec<Action<String>> {
     values
         .iter()
         .enumerate()
         .map(|(i, v)| Action::Insert {
-            party: 0,
+            party: "".to_string(),
             version: i as u64,
             value: v.clone(),
         })
@@ -40,7 +40,7 @@ fn bench_act_insert_batch(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::from_parameter(n), &actions, |b, actions| {
             b.iter(|| {
-                let mut tree = Tree::<u64>::default();
+                let mut tree = Tree::<String>::default();
                 tree.act(actions.iter().cloned());
                 tree
             });
@@ -55,12 +55,12 @@ fn bench_act_insert_one_by_one(c: &mut Criterion) {
 
     for n in [1, 10, 100, 1_000, 10_000, 100_000, 1_000_000] {
         let values = make_values(n);
-        let actions: Vec<Vec<Action<u64>>> = values
+        let actions: Vec<Vec<Action<String>>> = values
             .iter()
             .enumerate()
             .map(|(i, v)| {
                 vec![Action::Insert {
-                    party: 0,
+                    party: "".to_string(),
                     version: i as u64,
                     value: v.clone(),
                 }]
@@ -69,7 +69,7 @@ fn bench_act_insert_one_by_one(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::from_parameter(n), &actions, |b, actions| {
             b.iter(|| {
-                let mut tree = Tree::<u64>::default();
+                let mut tree = Tree::<String>::default();
                 for batch in actions {
                     tree.act(batch.iter().cloned());
                 }
@@ -87,7 +87,7 @@ fn bench_act_insert_into_populated(c: &mut Criterion) {
     for existing in [100, 1_000, 10_000] {
         let base_values = make_values(existing);
         let base_actions = make_inserts(&base_values);
-        let mut base_tree = Tree::<u64>::default();
+        let mut base_tree = Tree::<String>::default();
         base_tree.act(base_actions);
 
         let new_values = make_values(100);

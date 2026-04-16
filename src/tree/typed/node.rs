@@ -19,12 +19,12 @@ pub type Children<P, H> = OrdMap<u8, Node<P, H>>;
 /// at compile-time.
 #[derive(Clone, Debug)]
 #[repr(transparent)]
-pub struct Node<P: Clone + Eq + Hash, H: Height> {
+pub struct Node<P: Clone + Eq + Hash + AsRef<[u8]>, H: Height> {
     height: PhantomData<H>,
     inner: untyped::Node<P>,
 }
 
-impl<P: Clone + Eq + Hash, H: Height> Node<P, H> {
+impl<P: Clone + Eq + Hash + AsRef<[u8]>, H: Height> Node<P, H> {
     /// Hash the subtree rooted at this node.
     ///
     /// Hashes are lazily computed and cached until the tree structure changes
@@ -54,7 +54,7 @@ impl<P: Clone + Eq + Hash, H: Height> Node<P, H> {
     }
 }
 
-impl<P: Clone + Eq + Hash, H: Height> Node<P, S<H>>
+impl<P: Clone + Eq + Hash + AsRef<[u8]>, H: Height> Node<P, S<H>>
 where
     S<H>: Height,
 {
@@ -86,7 +86,7 @@ where
     }
 }
 
-impl<P: Clone + Eq + Hash> Node<P, Z> {
+impl<P: Clone + Eq + Hash + AsRef<[u8]>> Node<P, Z> {
     /// Construct a new leaf node.
     pub fn leaf(party: P, version: u64, value: Bytes) -> Self {
         Self {
@@ -103,9 +103,9 @@ impl<P: Clone + Eq + Hash> Node<P, Z> {
     }
 }
 
-impl<P: Clone + Eq + Hash, H: Height> Eq for Node<P, H> {}
+impl<P: Clone + Eq + Hash + AsRef<[u8]>, H: Height> Eq for Node<P, H> {}
 
-impl<P: Clone + Eq + Hash, H: Height> PartialEq for Node<P, H> {
+impl<P: Clone + Eq + Hash + AsRef<[u8]>, H: Height> PartialEq for Node<P, H> {
     fn eq(&self, other: &Self) -> bool {
         self.inner == other.inner
     }

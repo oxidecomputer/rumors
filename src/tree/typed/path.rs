@@ -1,5 +1,7 @@
 use std::marker::PhantomData;
 
+use bytes::Bytes;
+
 use super::height::{Height, Root, S};
 
 /// A typed path through the tree which is always the right height.
@@ -11,11 +13,28 @@ pub struct Path<H: Height> {
 
 impl Path<Root> {
     /// Get a path for the given bytes by taking their hash.
-    pub fn for_bytes(bytes: &[u8]) -> Self {
+    fn for_bytes(bytes: &[u8]) -> Self {
         Self {
             height: PhantomData,
             hash: *blake3::hash(bytes).as_bytes(),
         }
+    }
+
+    /// Get a path for the given leaf, incorporating its party, version, and value.
+    pub fn for_leaf<P: AsRef<[u8]>>(party: &P, version: u64, value: &Bytes) -> Self {
+        // We form the hash for a value as the ternary depth-1 merkle tree of
+        // party, version, value. This ensures no length malleability issues.
+
+        let party_hash = blake3::hash(party.as_ref());
+        let version_hash = blake3::hash(&version.to_le_bytes());
+        let value_hash = blake3::hash(value.as_ref());
+
+        let mut bytes = Vec::with_capacity(32 * 3);
+        bytes.extend_from_slice(party_hash.as_bytes());
+        bytes.extend_from_slice(version_hash.as_bytes());
+        bytes.extend_from_slice(value_hash.as_bytes());
+
+        Self::for_bytes(&bytes)
     }
 }
 
@@ -81,12 +100,24 @@ impl From<blake3::Hash> for Path<Root> {
     }
 }
 
+impl From<Path<Root>> for blake3::Hash {
+    fn from(path: Path<Root>) -> Self {
+        blake3::Hash::from_bytes(path.hash)
+    }
+}
+
 impl From<[u8; 32]> for Path<Root> {
     fn from(bytes: [u8; 32]) -> Self {
         Self {
             height: PhantomData,
             hash: bytes,
         }
+    }
+}
+
+impl From<Path<Root>> for [u8; 32] {
+    fn from(path: Path<Root>) -> Self {
+        path.hash
     }
 }
 

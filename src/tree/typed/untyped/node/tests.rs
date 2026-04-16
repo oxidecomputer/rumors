@@ -39,7 +39,7 @@ const TREE_LEAF_BUDGET: usize = 16;
 /// `Node::unions`. `budget` must be at least 1.
 fn arb_tree<P>(depth: usize, budget: usize) -> BoxedStrategy<Node<P>>
 where
-    P: Arbitrary + Hash + Eq + Clone + 'static,
+    P: Arbitrary + Hash + Eq + Clone + AsRef<[u8]> + 'static,
 {
     if depth == 0 {
         // Bytes payload is not examined at this abstraction layer, so we
@@ -70,7 +70,7 @@ where
 /// runs, `hash()` must recompute from scratch; comparing the pre-clear and
 /// post-clear results is how we catch hash-invalidation bugs. Uses private
 /// field access (only available to test code in this child module).
-fn clear_hash_cache<P: Hash + Eq + Clone>(node: &mut Node<P>) {
+fn clear_hash_cache<P: Hash + Eq + Clone + AsRef<[u8]>>(node: &mut Node<P>) {
     let inner = Arc::make_mut(&mut node.inner);
     inner.hash.invalidate();
     if let Children::Branch(branch) = &mut inner.children {
@@ -87,7 +87,10 @@ fn clear_hash_cache<P: Hash + Eq + Clone>(node: &mut Node<P>) {
 /// Walk a tree via the public `into_children` API and collect every
 /// (path, leaf) pair. Paths list the child indices from shallowest to
 /// deepest, matching the order in which `into_children` yields them.
-fn enumerate_leaves<P: Hash + Eq + Clone>(node: Node<P>, path: Vec<u8>) -> Vec<(Vec<u8>, Leaf<P>)> {
+fn enumerate_leaves<P: Hash + Eq + Clone + AsRef<[u8]>>(
+    node: Node<P>,
+    path: Vec<u8>,
+) -> Vec<(Vec<u8>, Leaf<P>)> {
     match node.into_children() {
         Ok(children) => children
             .into_iter()
@@ -111,7 +114,7 @@ proptest! {
     /// path-compression invariant: every branch has at least two children.
     #[test]
     fn arbitrary_tree_is_max_compressed(
-        tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|depth| arb_tree::<u8>(depth, TREE_LEAF_BUDGET)),
+        tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|depth| arb_tree::<String>(depth, TREE_LEAF_BUDGET)),
     ) {
         prop_assert!(tree.is_max_compressed());
     }
@@ -121,7 +124,7 @@ proptest! {
     #[test]
     fn unions_preserves_max_compression(
         trees in (0..=MAX_TEST_DEPTH)
-            .prop_flat_map(|depth| vec(arb_tree::<u8>(depth, TREE_LEAF_BUDGET), 1..=5)),
+            .prop_flat_map(|depth| vec(arb_tree::<String>(depth, TREE_LEAF_BUDGET), 1..=5)),
     ) {
         let result = Node::unions(trees).expect("at least one input");
         prop_assert!(result.is_max_compressed());
@@ -133,19 +136,19 @@ proptest! {
     #[test]
     fn unions_is_last_wins(
         trees in (0..=MAX_TEST_DEPTH)
-            .prop_flat_map(|depth| vec(arb_tree::<u8>(depth, TREE_LEAF_BUDGET), 1..=5)),
+            .prop_flat_map(|depth| vec(arb_tree::<String>(depth, TREE_LEAF_BUDGET), 1..=5)),
     ) {
         // Fold a reference leaf-table by inserting each tree's leaves in
         // order: later inserts overwrite earlier ones at shared paths,
         // giving exactly the last-wins expectation.
-        let expected: HashMap<Vec<u8>, Leaf<u8>> = trees
+        let expected: HashMap<Vec<u8>, Leaf<String>> = trees
             .iter()
             .cloned()
             .flat_map(|t| enumerate_leaves(t, vec![]))
             .collect();
 
         let result = Node::unions(trees).expect("at least one input");
-        let actual: HashMap<Vec<u8>, Leaf<u8>> =
+        let actual: HashMap<Vec<u8>, Leaf<String>> =
             enumerate_leaves(result, vec![]).into_iter().collect();
 
         prop_assert_eq!(actual, expected);
@@ -158,7 +161,7 @@ proptest! {
     #[test]
     fn unions_hash_invalidation_is_correct(
         trees in (0..=MAX_TEST_DEPTH)
-            .prop_flat_map(|depth| vec(arb_tree::<u8>(depth, TREE_LEAF_BUDGET), 1..=5)),
+            .prop_flat_map(|depth| vec(arb_tree::<String>(depth, TREE_LEAF_BUDGET), 1..=5)),
     ) {
         let mut result = Node::unions(trees).expect("at least one input");
         let cached = result.hash();

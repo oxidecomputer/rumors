@@ -5,3 +5,6 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 0661bdbb81a108e59b11ebd252b48f2ae2ad3844c8d28e9209af626daf5ccd7d # shrinks to values = []
+cc 437470cf4f7daa4a841fe7327abc91a6a3171cb2ce06b1f37232451bb2e384d6 # shrinks to values = [[]]
+cc a2fb0f6067a04efb3ad3403e60b06ad53685e3c890125c5eb7b159f80c1fff62 # shrinks to values = [[], [0]]
+cc 2c4a19eaa6ce7eb83594b778e8f638c25cb2a152dcd6ff462acab015c3519087 # shrinks to actions = [Insert { party: "", version: 0, value: b"\x01\x01\x01\x01" }, Insert { party: "", version: 1, value: b"\x01\x01\x01\x01" }]

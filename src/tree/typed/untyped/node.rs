@@ -11,12 +11,12 @@ mod cached;
 use cached::Cached;
 
 #[derive(Clone, Debug)]
-pub struct Node<P: Hash + Eq> {
+pub struct Node<P: Hash + Eq + AsRef<[u8]>> {
     inner: Arc<NodeInner<P>>,
 }
 
 #[derive(Clone, Debug)]
-struct NodeInner<P: Hash + Eq> {
+struct NodeInner<P: Hash + Eq + AsRef<[u8]>> {
     /// Compressed path above this node's own branching level, stored with the
     /// deepest byte at index 0 and the shallowest byte at the last index. An
     /// empty prefix means the node is not path-compressed above its level.
@@ -30,7 +30,7 @@ struct NodeInner<P: Hash + Eq> {
 
 /// The children of a node.
 #[derive(Clone, Debug)]
-enum Children<P: Hash + Eq> {
+enum Children<P: Hash + Eq + AsRef<[u8]>> {
     /// A direct leaf, at the true bottom of the tree.
     Leaf(Leaf<P>),
     /// A materialized branch point, with the invariant that there are always >=
@@ -40,12 +40,12 @@ enum Children<P: Hash + Eq> {
 
 /// A branch in the middle of the tree.
 #[derive(Clone, Debug)]
-pub struct Branch<P: Hash + Eq> {
+pub struct Branch<P: Hash + Eq + AsRef<[u8]>> {
     /// The children of this branch.
     children: OrdMap<u8, Node<P>>,
 }
 
-impl<P: Clone + Hash + Eq> Default for Branch<P> {
+impl<P: Clone + Hash + Eq + AsRef<[u8]>> Default for Branch<P> {
     fn default() -> Self {
         Self {
             children: OrdMap::new(),
@@ -64,7 +64,7 @@ pub struct Leaf<P: Hash + Eq> {
     pub value: Bytes,
 }
 
-impl<P: Hash + Eq + Clone> Node<P> {
+impl<P: Hash + Eq + Clone + AsRef<[u8]>> Node<P> {
     /// Construct a new branch node from a list of children with distinct
     /// indices (inverse to [`Node::into_children`]).
     pub fn branch(children: OrdMap<u8, Node<P>>) -> Option<Self> {
@@ -281,9 +281,9 @@ impl<P: Hash + Eq + Clone> Node<P> {
     }
 }
 
-impl<P: Hash + Eq + Clone> Eq for Node<P> {}
+impl<P: Hash + Eq + Clone + AsRef<[u8]>> Eq for Node<P> {}
 
-impl<P: Hash + Eq + Clone> PartialEq for Node<P> {
+impl<P: Hash + Eq + Clone + AsRef<[u8]>> PartialEq for Node<P> {
     fn eq(&self, other: &Self) -> bool {
         self.hash() == other.hash()
     }

@@ -1,16 +1,9 @@
 use super::*;
 
 /// An action to perform at a particular [`Path`].
-pub enum Action<P> {
+pub enum Action {
     /// Insert a value tagged by a version at a party.
-    Insert {
-        /// The party who is writing this value.
-        party: P,
-        /// The version local to the party who is writing it.
-        version: u64,
-        /// The value being written.
-        value: Bytes,
-    },
+    Insert(Bytes),
     /// Delete a value at this path.
     Delete,
 }
@@ -18,23 +11,27 @@ pub enum Action<P> {
 /// Perform a sequence of actions (insertions or deletions) on this node.
 pub fn act<P, H: Act>(
     node: Option<Node<P, H>>,
-    actions: Vec<(Path<H>, Action<P>)>,
+    party: &P,
+    version: u64,
+    actions: Vec<(Path<H>, Action)>,
 ) -> Option<Node<P, H>>
 where
-    P: Clone + Hash + Eq,
+    P: Clone + Hash + Eq + AsRef<[u8]>,
 {
-    Act::act(node, actions)
+    Act::act(node, party, version, actions)
 }
 
-// The internal implementation of the
+// The internal implementation of the traversal as a polymorphic-recursive
 
 pub trait Act: Height {
     fn act<P>(
         node: Option<Node<P, Self>>,
-        actions: Vec<(Path<Self>, Action<P>)>,
+        party: &P,
+        version: u64,
+        actions: Vec<(Path<Self>, Action)>,
     ) -> Option<Node<P, Self>>
     where
-        P: Clone + Hash + Eq;
+        P: Clone + Hash + Eq + AsRef<[u8]>;
 }
 
 impl<H: Act> Act for S<H>
@@ -43,10 +40,12 @@ where
 {
     fn act<P>(
         node: Option<Node<P, S<H>>>,
-        actions: Vec<(Path<Self>, Action<P>)>,
+        party: &P,
+        version: u64,
+        actions: Vec<(Path<Self>, Action)>,
     ) -> Option<Node<P, S<H>>>
     where
-        P: Clone + Hash + Eq,
+        P: Clone + Hash + Eq + AsRef<[u8]>,
     {
         // Group the paths by their first element
         let by_radix = actions
@@ -70,7 +69,7 @@ where
                 let insertions: Vec<_> = i.map(|(_, path, operation)| (path, operation)).collect();
                 Some((
                     radix,
-                    Act::act(existing_children.remove(&radix), insertions)?,
+                    Act::act(existing_children.remove(&radix), party, version, insertions)?,
                 ))
             })
             .collect();
@@ -83,21 +82,19 @@ where
 impl Act for Z {
     fn act<P>(
         mut node: Option<Node<P, Z>>,
-        actions: Vec<(Path<Self>, Action<P>)>,
+        party: &P,
+        version: u64,
+        actions: Vec<(Path<Self>, Action)>,
     ) -> Option<Node<P, Z>>
     where
-        P: Clone + Hash + Eq,
+        P: Clone + Hash + Eq + AsRef<[u8]>,
     {
         // Sequentially apply the operations pertaining to this node; the last
         // operation wins
         for (_, operation) in actions {
             node = match operation {
                 Action::Delete => None,
-                Action::Insert {
-                    party,
-                    version,
-                    value,
-                } => Some(Node::leaf(party, version, value)),
+                Action::Insert(value) => Some(Node::leaf(party.clone(), version, value)),
             };
         }
 

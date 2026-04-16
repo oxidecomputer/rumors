@@ -18,19 +18,19 @@ pub use Action::*;
 /// This is resolved at the synchronization protocol level, and is not a concern
 /// of the tree structure.
 #[derive(Clone, Debug)]
-pub struct Tree<P: Clone + Hash + Eq> {
+pub struct Tree<P: Clone + Hash + Eq + AsRef<[u8]> = Bytes> {
     root: Option<typed::node::Root<P>>,
 }
 
-impl<P: Clone + Hash + Eq> Eq for Tree<P> {}
+impl<P: Clone + Hash + Eq + AsRef<[u8]>> Eq for Tree<P> {}
 
-impl<P: Clone + Hash + Eq> PartialEq for Tree<P> {
+impl<P: Clone + Hash + Eq + AsRef<[u8]>> PartialEq for Tree<P> {
     fn eq(&self, other: &Self) -> bool {
         self.root == other.root
     }
 }
 
-impl<P: Hash + Eq + Clone> Default for Tree<P> {
+impl<P: Hash + Eq + Clone + AsRef<[u8]>> Default for Tree<P> {
     fn default() -> Self {
         Self { root: None }
     }
@@ -38,24 +38,14 @@ impl<P: Hash + Eq + Clone> Default for Tree<P> {
 
 /// An action to perform on the tree.
 #[derive(Clone, Debug)]
-pub enum Action<P> {
+pub enum Action {
     /// Insert some value, tagged at a version by the inserting party.
-    Insert {
-        /// The party who inserted the value.
-        party: P,
-        /// Their local version scalar at time of insertion.
-        version: u64,
-        /// The value itself.
-        value: Bytes,
-    },
+    Insert(Bytes),
     /// Delete the value corresponding to a hash.
-    Delete {
-        /// The hash whose value we should delete.
-        hash: [u8; 32],
-    },
+    Delete([u8; 32]),
 }
 
-impl<P: Clone + Hash + Eq> Tree<P> {
+impl<P: Clone + Hash + Eq + AsRef<[u8]>> Tree<P> {
     /// Get the root hash for the tree.
     pub fn hash(&self) -> [u8; 32] {
         // The root hash of an empty tree is "00000..."
@@ -89,33 +79,25 @@ impl<P: Clone + Hash + Eq> Tree<P> {
     /// tree in a single traversal. Theoretically, this gives an O(log n)
     /// speedup relative to one-by-one insertion operations, but since the log
     /// base is 256, in practice this is about 2-3x.
-    pub fn act<I>(&mut self, i: I)
+    pub fn act<I>(&mut self, party: &P, version: u64, i: I)
     where
-        I: IntoIterator<Item = Action<P>>,
+        I: IntoIterator<Item = Action>,
     {
         // Convert the specified actions into the action specification required
         // by the inductive traversal of the tree
         let actions = i
             .into_iter()
             .map(|op| match op {
-                Delete { hash } => (typed::Path::from(hash), typed::traverse::Action::Delete),
-                Insert {
-                    party,
-                    version,
-                    value,
-                } => (
-                    typed::Path::for_bytes(&value),
-                    typed::traverse::Action::Insert {
-                        party,
-                        version,
-                        value,
-                    },
+                Delete(hash) => (typed::Path::from(hash), typed::traverse::Action::Delete),
+                Insert(value) => (
+                    typed::Path::for_leaf(&party, version, &value),
+                    typed::traverse::Action::Insert(value),
                 ),
             })
             .collect();
 
         // Traverse the tree from the root, batch-applying the actions
-        self.root = typed::traverse::act(self.root.take(), actions)
+        self.root = typed::traverse::act(self.root.take(), party, version, actions)
     }
 }
 

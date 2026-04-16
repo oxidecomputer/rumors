@@ -7,7 +7,7 @@ use super::*;
 /// specified paths.
 pub fn get<P, H: Get>(node: Option<&Node<P, H>>, paths: Vec<Path<H>>) -> Vec<Bytes>
 where
-    P: Clone + Hash + Eq,
+    P: Clone + Hash + Eq + AsRef<[u8]>,
 {
     Get::get(node, paths)
 }
@@ -15,7 +15,7 @@ where
 pub trait Get: Height {
     fn get<P>(node: Option<&Node<P, Self>>, paths: Vec<Path<Self>>) -> Vec<Bytes>
     where
-        P: Clone + Hash + Eq;
+        P: Clone + Hash + Eq + AsRef<[u8]>;
 }
 
 impl<H: Get> Get for S<H>
@@ -24,7 +24,7 @@ where
 {
     fn get<P>(node: Option<&Node<P, Self>>, paths: Vec<Path<Self>>) -> Vec<Bytes>
     where
-        P: Clone + Hash + Eq,
+        P: Clone + Hash + Eq + AsRef<[u8]>,
     {
         let Some(node) = node else {
             return Vec::new();
@@ -57,7 +57,7 @@ where
 impl Get for Z {
     fn get<P>(node: Option<&Node<P, Self>>, paths: Vec<Path<Self>>) -> Vec<Bytes>
     where
-        P: Clone + Hash + Eq,
+        P: Clone + Hash + Eq + AsRef<[u8]>,
     {
         let Some(node) = node else {
             return Vec::new();
