@@ -38,20 +38,6 @@ impl<P: Clone + Eq + Hash + AsRef<[u8]>, H: Height> Node<P, H> {
     pub fn hash(&self) -> blake3::Hash {
         self.inner.hash()
     }
-
-    /// Merge an iterator of nodes of the same height, taking the union of their
-    /// leaves. Returns `None` if the iterator is empty.
-    ///
-    /// If a leaf appears simultaneously in multiple nodes, the last one wins.
-    pub fn unions<I>(nodes: I) -> Option<Self>
-    where
-        I: IntoIterator<Item = Self>,
-    {
-        Some(Self {
-            height: PhantomData,
-            inner: untyped::Node::unions(nodes.into_iter().map(|t| t.inner))?,
-        })
-    }
 }
 
 impl<P: Clone + Eq + Hash + AsRef<[u8]>, H: Height> Node<P, S<H>>
