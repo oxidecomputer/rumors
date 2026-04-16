@@ -1,4 +1,4 @@
-use std::hash::Hash;
+use std::{hash::Hash, sync::Arc};
 
 use bytes::Bytes;
 
@@ -19,10 +19,10 @@ use crate::Version;
 /// This is resolved at the synchronization protocol level, and is not a concern
 /// of the tree structure.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Tree<P: Clone + Hash + Eq + AsRef<[u8]> = Bytes> {
-    party: P,
-    version: Version<P>,
-    root: Option<typed::node::Root<P>>,
+pub struct Tree {
+    party: Bytes,
+    version: Version,
+    root: Option<typed::node::Root>,
 }
 
 /// An identifier for a unique item in the tree.
@@ -72,24 +72,24 @@ pub enum Reaction {
     Delete(Id),
 }
 
-impl<P: Clone + Hash + Eq + AsRef<[u8]>> Tree<P> {
+impl Tree {
     /// Create a new tree which represents the perspective of the given party.
-    pub fn for_party(party: P) -> Tree<P> {
+    pub fn for_party(party: impl AsRef<[u8]>) -> Tree {
         Tree {
-            party,
+            party: Bytes::copy_from_slice(&blake3::hash(party.as_ref()).as_bytes()[..]),
             version: Version::default(),
             root: None,
         }
     }
 
-    /// Find out which party created this tree.
-    pub fn party(&self) -> &P {
-        &self.party
+    /// Get the version for the tree.
+    pub fn version(&self) -> &Version {
+        &self.version
     }
 
-    /// Get the version for the tree.
-    pub fn version(&self) -> &Version<P> {
-        &self.version
+    /// Get the pre-hashed local party identifier this tree was created for.
+    pub fn party(&self) -> &Bytes {
+        &self.party
     }
 
     /// Get the root hash for the tree.
@@ -124,7 +124,7 @@ impl<P: Clone + Hash + Eq + AsRef<[u8]>> Tree<P> {
 
     /// Get all the values in this tree which are unknown relative to the given
     /// version vector.
-    pub fn unknown(&self, version: Version<P>) -> Vec<(Id, Version<P>, Bytes)> {
+    pub fn unknown(&self, version: Version) -> Vec<(Id, Version, Bytes)> {
         traverse::unknown(self.root.as_ref(), &version)
             .into_iter()
             .map(|(i, v, b)| (i.into(), v, b))
@@ -190,8 +190,7 @@ impl<P: Clone + Hash + Eq + AsRef<[u8]>> Tree<P> {
     /// base is 256, in practice this is about 2-3x.
     pub fn react<'a, I>(&mut self, i: I)
     where
-        P: 'a,
-        I: IntoIterator<Item = (&'a Version<P>, Reaction)>,
+        I: IntoIterator<Item = (&'a Version, Reaction)>,
     {
         // Convert the specified actions into the action specification required
         // by the inductive traversal of the tree

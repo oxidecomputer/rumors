@@ -3,11 +3,12 @@ use std::hash::Hash;
 use std::mem;
 use std::ops::{BitOr, BitOrAssign};
 
+use bytes::Bytes;
 use imbl::HashMap;
 
 /// A sparse copy-on-write version vector amongst parties of type `P`.
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct Version<P: Hash + Eq> {
+pub struct Version<P: Hash + Eq = Bytes> {
     versions: HashMap<P, u64>,
 }
 

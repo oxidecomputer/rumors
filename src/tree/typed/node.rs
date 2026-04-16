@@ -10,7 +10,7 @@ use super::height::{self, Height, S, Z};
 use super::untyped;
 
 /// The typed node with a height of 32; the root of the tree.
-pub type Root<P> = Node<P, height::Root>;
+pub type Root<P = Bytes> = Node<P, height::Root>;
 
 /// The type of children of a given height.
 pub type Children<P, H> = OrdMap<u8, Node<P, H>>;

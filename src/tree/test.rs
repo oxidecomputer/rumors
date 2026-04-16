@@ -41,13 +41,37 @@ fn distinct_bytes_and_permutation(max: usize) -> impl Strategy<Value = (Vec<Byte
         })
 }
 
+/// Pre-hash a human-readable party label into the `Bytes` form that `Tree`
+/// stores internally. `Tree::for_party` blake3-hashes its input once, so any
+/// test that wants to address the tree by its original label must apply the
+/// same hash before comparing version vectors, computing leaf paths, or
+/// constructing reactions.
+fn hashed_party(party: impl AsRef<[u8]>) -> Bytes {
+    Bytes::copy_from_slice(&blake3::hash(party.as_ref()).as_bytes()[..])
+}
+
+/// Build a [`Version`] keyed by the pre-hashed form of a human-readable
+/// party label. This is the `Version<Bytes>` that `Tree::react` accepts
+/// after the tree started pre-hashing its own party.
+fn version_for(party: impl AsRef<[u8]>, scalar: u64) -> Version {
+    Version::from((hashed_party(party), scalar))
+}
+
+/// Compute the leaf-path `Id` that `Tree::act` would assign for an insert of
+/// `value` at scalar version `scalar` under the given party label. The
+/// party is pre-hashed first so the resulting path matches the one the tree
+/// derives internally.
+fn leaf_path(party: impl AsRef<[u8]>, scalar: u64, value: &Bytes) -> Id {
+    Path::for_leaf(&hashed_party(party), scalar, value).into()
+}
+
 /// Build a [`Reaction::Insert`] whose leaf path matches what `act` would
-/// have computed for the given party and scalar version. The absolute-path
-/// shape of `Reaction` requires callers to spell this out; wrapping the
-/// boilerplate keeps the test bodies focused on the property under test.
-fn insert_at<P: AsRef<[u8]>>(party: &P, scalar: u64, value: Bytes) -> Reaction {
-    let path: Id = Path::for_leaf(party, scalar, &value).into();
-    Reaction::Insert(path, value)
+/// have computed for the given party label and scalar version. The
+/// absolute-path shape of `Reaction` requires callers to spell this out;
+/// wrapping the boilerplate keeps the test bodies focused on the property
+/// under test.
+fn insert_at(party: impl AsRef<[u8]>, scalar: u64, value: Bytes) -> Reaction {
+    Reaction::Insert(leaf_path(party, scalar, &value), value)
 }
 
 /// Perform one full bidirectional synchronization step between two trees
@@ -57,7 +81,7 @@ fn insert_at<P: AsRef<[u8]>>(party: &P, scalar: u64, value: Bytes) -> Reaction {
 /// are taken before any reaction, the two directions are independent and
 /// can be applied in either order. Absent deletions, this is the entire
 /// protocol needed for two parties to converge.
-fn sync_via_unknown<P: Clone + Hash + Eq + AsRef<[u8]>>(a: &mut Tree<P>, b: &mut Tree<P>) {
+fn sync_via_unknown(a: &mut Tree, b: &mut Tree) {
     let v_a = a.version().clone();
     let v_b = b.version().clone();
     let from_a = a.unknown(v_b);
@@ -103,7 +127,7 @@ fn sync_ops_strategy(max_ops: usize, max_batch: usize) -> impl Strategy<Value = 
 /// branch hashes its child slots (0x00-filled where absent, recursive hash
 /// where present). This is the ground truth that the compressed tree's root
 /// hash must match.
-fn reference_hash<P: AsRef<[u8]>>(values: &[(P, u64, Bytes)]) -> blake3::Hash {
+fn reference_hash(values: &[(Bytes, u64, Bytes)]) -> blake3::Hash {
     const LEAF_SENTINEL: [u8; 32] = [0xff; 32];
     const ZERO: [u8; 32] = [0x00; 32];
 
@@ -161,9 +185,9 @@ fn reference_hash<P: AsRef<[u8]>>(values: &[(P, u64, Bytes)]) -> blake3::Hash {
 /// An empty tree's root hash must match the reference (256 zero slots).
 #[test]
 fn empty_tree_hash_matches_reference() {
-    let tree: Tree<String> = Tree::for_party("P".to_string());
+    let tree = Tree::for_party("P".to_string());
     let tree_hash = tree.hash();
-    let reference = reference_hash::<String>(&[]);
+    let reference = reference_hash(&[]);
     assert_eq!(&tree_hash, reference.as_bytes());
 }
 
@@ -173,10 +197,10 @@ fn empty_tree_hash_matches_reference() {
 #[test]
 fn single_value_hash_matches_reference() {
     let value = Bytes::from(&b"hello"[..]);
-    let mut tree: Tree<String> = Tree::for_party("P".to_string());
+    let mut tree = Tree::for_party("P".to_string());
     tree.act([Action::Insert(Bytes::copy_from_slice(&value))]);
     let tree_hash = tree.hash();
-    let reference = reference_hash(&[("P".to_string(), 1, value)]);
+    let reference = reference_hash(&[(hashed_party("P"), 1, value)]);
     assert_eq!(&tree_hash, reference.as_bytes());
 }
 
@@ -190,10 +214,10 @@ proptest! {
         values in proptest::collection::vec(any::<Vec<u8>>(), 0..16)
             .prop_map(|v| v.into_iter().map(Bytes::from).collect::<Vec<_>>()),
     ) {
-        let mut tree: Tree<String> = Tree::for_party("P".to_string());
+        let mut tree = Tree::for_party("P".to_string());
         tree.act(values.iter().cloned().map(Action::Insert));
         let reference_input: Vec<_> =
-            values.into_iter().map(|v| ("P".to_string(), 1, v)).collect();
+            values.into_iter().map(|v| (hashed_party("P"), 1, v)).collect();
         let reference = reference_hash(&reference_input);
         prop_assert_eq!(&tree.hash(), reference.as_bytes());
     }
@@ -206,9 +230,9 @@ proptest! {
     fn batch_order_independent(
         (base, shuffled) in distinct_bytes_and_permutation(16),
     ) {
-        let mut t_base: Tree<String> = Tree::for_party("P".to_string());
+        let mut t_base = Tree::for_party("P".to_string());
         t_base.act(base.into_iter().map(Action::Insert));
-        let mut t_shuf: Tree<String> = Tree::for_party("P".to_string());
+        let mut t_shuf = Tree::for_party("P".to_string());
         t_shuf.act(shuffled.into_iter().map(Action::Insert));
         prop_assert_eq!(t_base.hash(), t_shuf.hash());
         prop_assert_eq!(t_base.version(), t_shuf.version());
@@ -225,9 +249,9 @@ proptest! {
         breaks in proptest::collection::vec(any::<bool>(), 0..16),
     ) {
         let party = "P".to_string();
-        let version = Version::from((party.clone(), 1u64));
+        let version = version_for(&party, 1);
 
-        let mut all_in_one: Tree<String> = Tree::for_party(party.clone());
+        let mut all_in_one = Tree::for_party(party.clone());
         all_in_one.react(
             bytes
                 .iter()
@@ -235,7 +259,7 @@ proptest! {
                 .map(|b| (&version, insert_at(&party, 1, b))),
         );
 
-        let mut partitioned: Tree<String> = Tree::for_party(party.clone());
+        let mut partitioned = Tree::for_party(party.clone());
         let mut chunk: Vec<Bytes> = Vec::new();
         for (i, b) in bytes.iter().cloned().enumerate() {
             chunk.push(b);
@@ -262,17 +286,17 @@ proptest! {
     fn act_sequence_equals_react_with_explicit_versions(
         bytes in distinct_bytes(16),
     ) {
-        let mut t_act: Tree<String> = Tree::for_party("P".to_string());
+        let mut t_act = Tree::for_party("P".to_string());
         for b in &bytes {
             t_act.act([Action::Insert(b.clone())]);
         }
 
         let party = "P".to_string();
-        let versions: Vec<Version<String>> = (1..=bytes.len())
-            .map(|i| Version::from((party.clone(), i as u64)))
+        let versions: Vec<Version> = (1..=bytes.len())
+            .map(|i| version_for(&party, i as u64))
             .collect();
 
-        let mut t_react: Tree<String> = Tree::for_party(party.clone());
+        let mut t_react = Tree::for_party(party.clone());
         t_react.react(
             versions
                 .iter()
@@ -292,14 +316,14 @@ proptest! {
     fn insert_then_delete_is_empty(value in any::<Vec<u8>>()) {
         let party = "P".to_string();
         let value = Bytes::from(value);
-        let leaf_path: Id = Path::for_leaf(&party, 1, &value).into();
+        let path = leaf_path(&party, 1, &value);
 
-        let mut tree: Tree<String> = Tree::for_party(party.clone());
+        let mut tree = Tree::for_party(party.clone());
         tree.act([Action::Insert(value)]);
-        tree.act([Action::Delete(leaf_path)]);
+        tree.act([Action::Delete(path)]);
 
         prop_assert_eq!(tree.hash(), [0u8; 32]);
-        prop_assert_eq!(tree.version().for_party(&party), 2);
+        prop_assert_eq!(tree.version().for_party(&hashed_party(&party)), 2);
     }
 
     /// Inserting a value and deleting its leaf path within the same `act`
@@ -310,13 +334,13 @@ proptest! {
     fn insert_and_delete_same_batch_is_empty(value in any::<Vec<u8>>()) {
         let party = "P".to_string();
         let value = Bytes::from(value);
-        let leaf_path: Id = Path::for_leaf(&party, 1, &value).into();
+        let path = leaf_path(&party, 1, &value);
 
-        let mut tree: Tree<String> = Tree::for_party(party.clone());
-        tree.act([Action::Insert(value), Action::Delete(leaf_path)]);
+        let mut tree = Tree::for_party(party.clone());
+        tree.act([Action::Insert(value), Action::Delete(path)]);
 
         prop_assert_eq!(tree.hash(), [0u8; 32]);
-        prop_assert_eq!(tree.version().for_party(&party), 1);
+        prop_assert_eq!(tree.version().for_party(&hashed_party(&party)), 1);
     }
 
     /// Deleting a path that is not present in the tree must not change the
@@ -330,11 +354,11 @@ proptest! {
         let party = "P".to_string();
         let present: BTreeSet<Id> = bytes
             .iter()
-            .map(|b| Path::for_leaf(&party, 1, b).into())
+            .map(|b| leaf_path(&party, 1, b))
             .collect();
         prop_assume!(!present.contains(&nuke));
 
-        let mut t_before: Tree<String> = Tree::for_party(party.clone());
+        let mut t_before = Tree::for_party(party.clone());
         t_before.act(bytes.into_iter().map(Action::Insert));
         let mut t_after = t_before.clone();
         t_after.act([Action::Delete(nuke)]);
@@ -348,7 +372,7 @@ proptest! {
     fn get_on_empty_tree_is_empty(
         paths in proptest::collection::vec(any::<Id>(), 0..8),
     ) {
-        let tree: Tree<String> = Tree::for_party("P".to_string());
+        let tree = Tree::for_party("P".to_string());
         prop_assert!(tree.get(paths).is_empty());
     }
 
@@ -361,12 +385,12 @@ proptest! {
         bytes in distinct_bytes(16),
     ) {
         let party = "P".to_string();
-        let mut tree: Tree<String> = Tree::for_party(party.clone());
+        let mut tree = Tree::for_party(party.clone());
         tree.act(bytes.iter().cloned().map(Action::Insert));
 
         let paths: Vec<Id> = bytes
             .iter()
-            .map(|b| Path::for_leaf(&party, 1, b).into())
+            .map(|b| leaf_path(&party, 1, b))
             .collect();
 
         let mut got = tree.get(paths);
@@ -384,12 +408,12 @@ proptest! {
         extra in proptest::collection::vec(any::<Id>(), 0..8),
     ) {
         let party = "P".to_string();
-        let mut tree: Tree<String> = Tree::for_party(party.clone());
+        let mut tree = Tree::for_party(party.clone());
         tree.act(bytes.iter().cloned().map(Action::Insert));
 
         let present_paths: BTreeSet<Id> = bytes
             .iter()
-            .map(|b| Path::for_leaf(&party, 1, b).into())
+            .map(|b| leaf_path(&party, 1, b))
             .collect();
         // Exclude any "extra" paths that happen to collide with a real leaf.
         let absent: Vec<Id> = extra
@@ -416,13 +440,13 @@ proptest! {
         batch_size in 1usize..8,
     ) {
         let party = "P".to_string();
-        let mut tree: Tree<String> = Tree::for_party(party.clone());
+        let mut tree = Tree::for_party(party.clone());
         for i in 0..prior_batches {
             tree.act([Action::Insert(Bytes::from(
                 format!("prior-{i}").into_bytes(),
             ))]);
         }
-        let before = tree.version().for_party(&party);
+        let before = tree.version().for_party(&hashed_party(&party));
         let party_before = tree.party().clone();
 
         let actions: Vec<Action> = (0..batch_size)
@@ -432,7 +456,7 @@ proptest! {
             .collect();
         tree.act(actions);
 
-        prop_assert_eq!(tree.version().for_party(&party), before + 1);
+        prop_assert_eq!(tree.version().for_party(&hashed_party(&party)), before + 1);
         prop_assert_eq!(tree.party(), &party_before);
     }
 
@@ -441,7 +465,7 @@ proptest! {
     #[test]
     fn empty_act_is_a_version_noop(prior_batches in 0usize..4) {
         let party = "P".to_string();
-        let mut tree: Tree<String> = Tree::for_party(party.clone());
+        let mut tree = Tree::for_party(party.clone());
         for i in 0..prior_batches {
             tree.act([Action::Insert(Bytes::from(
                 format!("prior-{i}").into_bytes(),
@@ -466,7 +490,7 @@ proptest! {
         ),
     ) {
         let party = "P".to_string();
-        let mut tree: Tree<String> = Tree::for_party(party.clone());
+        let mut tree = Tree::for_party(party.clone());
         for i in 0..prior_batches {
             tree.act([Action::Insert(Bytes::from(
                 format!("prior-{i}").into_bytes(),
@@ -475,9 +499,9 @@ proptest! {
         let before = tree.version().clone();
         let party_before = tree.party().clone();
 
-        let versions: Vec<Version<String>> = incoming
+        let versions: Vec<Version> = incoming
             .iter()
-            .map(|(p, s)| Version::from((p.clone(), *s)))
+            .map(|(p, s)| version_for(p, *s))
             .collect();
 
         let mut expected = before.clone();
@@ -511,10 +535,10 @@ proptest! {
         bytes_b in distinct_bytes(8),
     ) {
         let party = "P".to_string();
-        let v_a = Version::from((party.clone(), 1u64));
-        let v_b = Version::from((party.clone(), 2u64));
+        let v_a = version_for(&party, 1);
+        let v_b = version_for(&party, 2);
 
-        let mut t_ab: Tree<String> = Tree::for_party(party.clone());
+        let mut t_ab = Tree::for_party(party.clone());
         t_ab.react(
             bytes_a.iter().cloned().map(|b| (&v_a, insert_at(&party, 1, b))),
         );
@@ -522,7 +546,7 @@ proptest! {
             bytes_b.iter().cloned().map(|b| (&v_b, insert_at(&party, 2, b))),
         );
 
-        let mut t_ba: Tree<String> = Tree::for_party(party.clone());
+        let mut t_ba = Tree::for_party(party.clone());
         t_ba.react(
             bytes_b.iter().cloned().map(|b| (&v_b, insert_at(&party, 2, b))),
         );
@@ -539,14 +563,14 @@ proptest! {
     #[test]
     fn react_idempotent(bytes in distinct_bytes(16)) {
         let party = "P".to_string();
-        let v = Version::from((party.clone(), 1u64));
+        let v = version_for(&party, 1);
 
-        let mut t_once: Tree<String> = Tree::for_party(party.clone());
+        let mut t_once = Tree::for_party(party.clone());
         t_once.react(
             bytes.iter().cloned().map(|b| (&v, insert_at(&party, 1, b))),
         );
 
-        let mut t_twice: Tree<String> = Tree::for_party(party.clone());
+        let mut t_twice = Tree::for_party(party.clone());
         t_twice.react(
             bytes.iter().cloned().map(|b| (&v, insert_at(&party, 1, b))),
         );
@@ -567,26 +591,26 @@ proptest! {
     ) {
         let party = "P".to_string();
         // One distinct version per element so paths are always distinct.
-        let versions: Vec<Version<String>> = (1..=base.len())
-            .map(|i| Version::from((party.clone(), i as u64)))
+        let versions: Vec<Version> = (1..=base.len())
+            .map(|i| version_for(&party, i as u64))
             .collect();
 
         // Mapping from each value to the (version, scalar) it was "produced"
         // at, so that any permutation of (value, version) pairs addresses
         // the same leaves.
-        let meta_by_value: HashMap<Bytes, (Version<String>, u64)> = base
+        let meta_by_value: HashMap<Bytes, (Version, u64)> = base
             .iter()
             .cloned()
             .zip(versions.iter().cloned().enumerate().map(|(i, v)| (v, (i + 1) as u64)))
             .collect();
 
-        let mut t_base: Tree<String> = Tree::for_party(party.clone());
+        let mut t_base = Tree::for_party(party.clone());
         t_base.react(base.iter().cloned().map(|b| {
             let (v, scalar) = meta_by_value.get(&b).unwrap();
             (v, insert_at(&party, *scalar, b))
         }));
 
-        let mut t_shuf: Tree<String> = Tree::for_party(party.clone());
+        let mut t_shuf = Tree::for_party(party.clone());
         t_shuf.react(shuffled.iter().cloned().map(|b| {
             let (v, scalar) = meta_by_value.get(&b).unwrap();
             (v, insert_at(&party, *scalar, b))
@@ -614,22 +638,22 @@ proptest! {
         // absolute-form `Reaction` (path + value) that another party would
         // need to replay the event. This is the information a real
         // synchronization protocol would put on the wire.
-        let mut tree_a: Tree<String> = Tree::for_party(a_id.clone());
-        let mut a_events: Vec<(Version<String>, Reaction)> = Vec::new();
+        let mut tree_a = Tree::for_party(a_id.clone());
+        let mut a_events: Vec<(Version, Reaction)> = Vec::new();
         for (i, value) in a_inserts.iter().enumerate() {
             let scalar = (i + 1) as u64;
             let mut recorded = tree_a.version().clone();
-            recorded.event(&a_id);
+            recorded.event(&hashed_party(&a_id));
             tree_a.act([Action::Insert(value.clone())]);
             a_events.push((recorded, insert_at(&a_id, scalar, value.clone())));
         }
 
-        let mut tree_b: Tree<String> = Tree::for_party(b_id.clone());
-        let mut b_events: Vec<(Version<String>, Reaction)> = Vec::new();
+        let mut tree_b = Tree::for_party(b_id.clone());
+        let mut b_events: Vec<(Version, Reaction)> = Vec::new();
         for (i, value) in b_inserts.iter().enumerate() {
             let scalar = (i + 1) as u64;
             let mut recorded = tree_b.version().clone();
-            recorded.event(&b_id);
+            recorded.event(&hashed_party(&b_id));
             tree_b.act([Action::Insert(value.clone())]);
             b_events.push((recorded, insert_at(&b_id, scalar, value.clone())));
         }
@@ -649,15 +673,16 @@ proptest! {
         reacts in proptest::collection::vec(1u64..5u64, 0..6),
     ) {
         let party = "P".to_string();
-        let mut tree: Tree<String> = Tree::for_party(party.clone());
-        prop_assert_eq!(tree.party(), &party);
+        let hashed = hashed_party(&party);
+        let mut tree = Tree::for_party(party.clone());
+        prop_assert_eq!(tree.party(), &hashed);
 
         tree.act(acts.into_iter().map(Action::Insert));
-        prop_assert_eq!(tree.party(), &party);
+        prop_assert_eq!(tree.party(), &hashed);
 
-        let versions: Vec<Version<String>> = reacts
+        let versions: Vec<Version> = reacts
             .iter()
-            .map(|s| Version::from((party.clone(), *s)))
+            .map(|s| version_for(&party, *s))
             .collect();
         tree.react(
             versions
@@ -665,7 +690,7 @@ proptest! {
                 .enumerate()
                 .map(|(i, v)| (v, Reaction::Delete([i as u8; 32].into()))),
         );
-        prop_assert_eq!(tree.party(), &party);
+        prop_assert_eq!(tree.party(), &hashed);
     }
 
     /// `Clone` yields a tree that is structurally indistinguishable: equal
@@ -674,7 +699,7 @@ proptest! {
     #[test]
     fn clone_preserves_all_observables(acts in distinct_bytes(8)) {
         let party = "P".to_string();
-        let mut tree: Tree<String> = Tree::for_party(party.clone());
+        let mut tree = Tree::for_party(party.clone());
         tree.act(acts.into_iter().map(Action::Insert));
         let cloned = tree.clone();
 
@@ -692,9 +717,9 @@ proptest! {
     #[test]
     fn eq_implies_same_hash(acts in distinct_bytes(8)) {
         let party = "P".to_string();
-        let mut t1: Tree<String> = Tree::for_party(party.clone());
+        let mut t1 = Tree::for_party(party.clone());
         t1.act(acts.iter().cloned().map(Action::Insert));
-        let mut t2: Tree<String> = Tree::for_party(party.clone());
+        let mut t2 = Tree::for_party(party.clone());
         t2.act(acts.into_iter().map(Action::Insert));
 
         prop_assert_eq!(&t1, &t2);
@@ -708,8 +733,8 @@ proptest! {
     #[test]
     fn same_value_different_parties_differ(value in any::<Vec<u8>>()) {
         let value = Bytes::from(value);
-        let mut t_a: Tree<String> = Tree::for_party("A".to_string());
-        let mut t_b: Tree<String> = Tree::for_party("B".to_string());
+        let mut t_a = Tree::for_party("A".to_string());
+        let mut t_b = Tree::for_party("B".to_string());
         t_a.act([Action::Insert(value.clone())]);
         t_b.act([Action::Insert(value)]);
 
@@ -726,7 +751,7 @@ proptest! {
         batches in proptest::collection::vec(distinct_bytes(6), 0..4),
     ) {
         let party = "P".to_string();
-        let mut tree: Tree<String> = Tree::for_party(party.clone());
+        let mut tree = Tree::for_party(party.clone());
         for batch in batches {
             tree.act(batch.into_iter().map(Action::Insert));
         }
@@ -740,16 +765,16 @@ proptest! {
     #[test]
     fn unknown_relative_to_empty_is_everything(bytes in distinct_bytes(16)) {
         let party = "P".to_string();
-        let mut tree: Tree<String> = Tree::for_party(party.clone());
+        let mut tree = Tree::for_party(party.clone());
         tree.act(bytes.iter().cloned().map(Action::Insert));
 
         let got = tree.unknown(Version::default());
-        let v1 = Version::from((party.clone(), 1u64));
+        let v1 = version_for(&party, 1);
 
         let got_paths: BTreeSet<Id> = got.iter().map(|(p, _, _)| *p).collect();
         let expected_paths: BTreeSet<Id> = bytes
             .iter()
-            .map(|b| Path::for_leaf(&party, 1, b).into())
+            .map(|b| leaf_path(&party, 1, b))
             .collect();
         prop_assert_eq!(got_paths, expected_paths);
 
@@ -774,8 +799,8 @@ proptest! {
         a_inserts in distinct_bytes(6),
         b_inserts in distinct_bytes(6),
     ) {
-        let mut tree_a: Tree<String> = Tree::for_party("A".to_string());
-        let mut tree_b: Tree<String> = Tree::for_party("B".to_string());
+        let mut tree_a = Tree::for_party("A".to_string());
+        let mut tree_b = Tree::for_party("B".to_string());
         tree_a.act(a_inserts.into_iter().map(Action::Insert));
         tree_b.act(b_inserts.into_iter().map(Action::Insert));
 
@@ -795,8 +820,8 @@ proptest! {
         a_inserts in distinct_bytes(6),
         b_inserts in distinct_bytes(6),
     ) {
-        let mut tree_a: Tree<String> = Tree::for_party("A".to_string());
-        let mut tree_b: Tree<String> = Tree::for_party("B".to_string());
+        let mut tree_a = Tree::for_party("A".to_string());
+        let mut tree_b = Tree::for_party("B".to_string());
         tree_a.act(a_inserts.into_iter().map(Action::Insert));
         tree_b.act(b_inserts.into_iter().map(Action::Insert));
 
@@ -831,8 +856,8 @@ proptest! {
     ) {
         let a_id = "A".to_string();
         let b_id = "B".to_string();
-        let mut tree_a: Tree<String> = Tree::for_party(a_id.clone());
-        let mut tree_b: Tree<String> = Tree::for_party(b_id.clone());
+        let mut tree_a = Tree::for_party(a_id.clone());
+        let mut tree_b = Tree::for_party(b_id.clone());
         tree_a.act(a_inserts.iter().cloned().map(Action::Insert));
         tree_b.act(b_inserts.iter().cloned().map(Action::Insert));
 
@@ -848,7 +873,7 @@ proptest! {
 
         let a_paths: Vec<Id> = a_inserts
             .iter()
-            .map(|b| Path::for_leaf(&a_id, 1, b).into())
+            .map(|b| leaf_path(&a_id, 1, b))
             .collect();
         let mut got = tree_b.get(a_paths);
         got.sort();
@@ -867,8 +892,8 @@ proptest! {
     fn interleaved_acts_and_syncs_converge_at_every_sync(
         ops in sync_ops_strategy(20, 4),
     ) {
-        let mut tree_a: Tree<String> = Tree::for_party("A".to_string());
-        let mut tree_b: Tree<String> = Tree::for_party("B".to_string());
+        let mut tree_a = Tree::for_party("A".to_string());
+        let mut tree_b = Tree::for_party("B".to_string());
 
         for op in ops {
             match op {
@@ -900,12 +925,12 @@ proptest! {
     fn same_value_different_versions_produce_two_leaves(value in any::<Vec<u8>>()) {
         let party = "P".to_string();
         let value = Bytes::from(value);
-        let mut tree: Tree<String> = Tree::for_party(party.clone());
+        let mut tree = Tree::for_party(party.clone());
         tree.act([Action::Insert(value.clone())]);
         tree.act([Action::Insert(value.clone())]);
 
-        let path_v1: Id = Path::for_leaf(&party, 1, &value).into();
-        let path_v2: Id = Path::for_leaf(&party, 2, &value).into();
+        let path_v1 = leaf_path(&party, 1, &value);
+        let path_v2 = leaf_path(&party, 2, &value);
 
         prop_assert_ne!(path_v1, path_v2);
         let got = tree.get([path_v1, path_v2]);
