@@ -71,7 +71,9 @@ impl<P: Hash + Eq + Clone> Node<P> {
         match children.len() {
             0 => None,
             1 => {
-                let (index, node) = children.into_iter().next().unwrap();
+                let Some((index, node)) = children.into_iter().next() else {
+                    unreachable!("a map with 1 element cannot fail to iterate");
+                };
                 Some(node.beneath(index))
             }
             _ => Some(Node {
@@ -154,8 +156,7 @@ impl<P: Hash + Eq + Clone> Node<P> {
                 Children::Branch(branch) => {
                     let mut buf = [0u8; 256 * 32];
                     for (&i, child) in branch.children.iter() {
-                        buf[i as usize * 32..][..32]
-                            .copy_from_slice(child.hash().as_bytes());
+                        buf[i as usize * 32..][..32].copy_from_slice(child.hash().as_bytes());
                     }
                     blake3::hash(&buf)
                 }
@@ -219,7 +220,7 @@ impl<P: Hash + Eq + Clone> Node<P> {
 
                 // For each child index, dedup by hash with last-wins
                 // (preserving input order) and recurse.
-                let mut children = grouped_by_index.into_iter().filter_map(|(child, nodes)| {
+                let children = grouped_by_index.into_iter().filter_map(|(child, nodes)| {
                     let mut deduped: Vec<Node<P>> = nodes.map(|(_, n)| n).collect();
 
                     // In-place dedup by hash with last-wins, preserving input
@@ -237,26 +238,10 @@ impl<P: Hash + Eq + Clone> Node<P> {
                     Some((child, Node::unions(deduped)?))
                 });
 
-                // At least one index group exists because we have >= 2
-                // non-empty children maps. One group means path-compress via
-                // `beneath`; two or more means build a branch directly.
-                let (child_1, node_1) = children.next()?;
-                Some(match children.next() {
-                    None => node_1.beneath(child_1),
-                    Some((child_2, node_2)) => Node {
-                        inner: Arc::new(NodeInner {
-                            prefix: Vec::new(),
-                            hash: Cached::default(),
-                            children: Children::Branch(Branch {
-                                children: OrdMap::from_iter(
-                                    [(child_1, node_1), (child_2, node_2)]
-                                        .into_iter()
-                                        .chain(children),
-                                ),
-                            }),
-                        }),
-                    },
-                })
+                // We now know that the child indices are unique, which means we
+                // do not lose any information re-assembling them back into a
+                // map and reconstructing the branch:
+                Node::branch(OrdMap::from_iter(children))
             }
             (Err(_), Err(second_leaf)) => {
                 // Leaf level: last wins. The first leaf is superseded by the
