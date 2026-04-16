@@ -57,14 +57,7 @@ impl<P: Clone + Hash + Eq> Tree<P> {
     /// Get the root hash for the tree.
     pub fn hash(&self) -> [u8; 32] {
         // The root hash of an empty tree is "00000..."
-        static EMPTY_ROOT_HASH: LazyLock<blake3::Hash> = LazyLock::new(|| {
-            // let mut hasher = blake3::Hasher::new();
-            // for _ in u8::MIN..=u8::MAX {
-            //     hasher.update(&[0x00; 32]);
-            // }
-            // hasher.finalize()
-            [0x00; 32].into()
-        });
+        const EMPTY_ROOT_HASH: blake3::Hash = blake3::Hash::from_bytes([0x00; 32]);
 
         match &self.root {
             None => *EMPTY_ROOT_HASH.as_bytes(),
