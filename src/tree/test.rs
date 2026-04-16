@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use bytes::Bytes;
 use proptest::prelude::*;
@@ -85,7 +85,7 @@ fn single_value_hash_matches_reference() {
     let mut tree: Tree<String> = Tree::default();
     tree.act(
         &"P".to_string(),
-        1,
+        &("P".to_string(), 1).into(),
         [Action::Insert(Bytes::copy_from_slice(&value))],
     );
     let tree_hash = tree.hash();
@@ -109,12 +109,18 @@ proptest! {
                 .enumerate()
                 .map(|(v, value)| ("P".to_string(), v as u64, value))
                 .collect::<BTreeSet<_>>().into_iter().collect();
+        let uniques_with_full_version: Vec<(String, Version<String>, Bytes)> =
+            uniques
+                .iter()
+                .map(|(party, version, value)| (party.clone(), (party.clone(), *version).into(), value.clone()))
+                .collect();
 
         let mut tree: Tree<String> = Tree::default();
-        for (party, version, value) in uniques.iter().cloned() {
-            tree.act(&party, version, [Action::Insert(value)]);
+        for (party, version, value) in uniques_with_full_version.iter().cloned() {
+            tree.act(&party, &version, [Action::Insert(value)]);
         }
         let tree_hash = tree.hash();
+
         let reference = reference_hash(&uniques);
         prop_assert_eq!(&tree_hash, reference.as_bytes());
     }
@@ -133,15 +139,20 @@ proptest! {
                 .into_iter()
                 .map(|(party, version, value)| (party, version, value.into()))
                 .collect::<BTreeSet<_>>().into_iter().collect();
+        let uniques: Vec<(String, Version<String>, Bytes)> =
+            uniques
+                .into_iter()
+                .map(|(party, version, value)| (party.clone(), (party, version).into(), value))
+                .collect();
 
         let mut forward: Tree<String> = Tree::default();
         for (party, version, value) in uniques.iter().cloned() {
-            forward.act(&party, version, [Action::Insert(value)]);
+            forward.act(&party, &version, [Action::Insert(value)]);
         }
 
         let mut reverse: Tree<String> = Tree::default();
         for (party, version, value) in uniques.iter().cloned() {
-            reverse.act(&party, version, [Action::Insert(value)]);
+            reverse.act(&party, &version, [Action::Insert(value)]);
         }
 
         let forward_hash = forward.hash();

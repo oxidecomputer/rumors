@@ -6,6 +6,8 @@ mod typed;
 
 pub use Action::*;
 
+use crate::Version;
+
 /// A sparse Merkle trie with transparent path compression, whose leaves store
 /// versioned blobs of [`Bytes`].
 ///
@@ -79,7 +81,7 @@ impl<P: Clone + Hash + Eq + AsRef<[u8]>> Tree<P> {
     /// tree in a single traversal. Theoretically, this gives an O(log n)
     /// speedup relative to one-by-one insertion operations, but since the log
     /// base is 256, in practice this is about 2-3x.
-    pub fn act<I>(&mut self, party: &P, version: u64, i: I)
+    pub fn act<I>(&mut self, party: &P, version: &Version<P>, i: I)
     where
         I: IntoIterator<Item = Action>,
     {
@@ -90,7 +92,7 @@ impl<P: Clone + Hash + Eq + AsRef<[u8]>> Tree<P> {
             .map(|op| match op {
                 Delete(hash) => (typed::Path::from(hash), typed::traverse::Action::Delete),
                 Insert(value) => (
-                    typed::Path::for_leaf(&party, version, &value),
+                    typed::Path::for_leaf(&party, version.for_party(party), &value),
                     typed::traverse::Action::Insert(value),
                 ),
             })

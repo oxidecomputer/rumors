@@ -1,3 +1,5 @@
+use crate::Version;
+
 use super::*;
 
 /// An action to perform at a particular [`Path`].
@@ -12,7 +14,7 @@ pub enum Action {
 pub fn act<P, H: Act>(
     node: Option<Node<P, H>>,
     party: &P,
-    version: u64,
+    version: &Version<P>,
     actions: Vec<(Path<H>, Action)>,
 ) -> Option<Node<P, H>>
 where
@@ -27,7 +29,7 @@ pub trait Act: Height {
     fn act<P>(
         node: Option<Node<P, Self>>,
         party: &P,
-        version: u64,
+        version: &Version<P>,
         actions: Vec<(Path<Self>, Action)>,
     ) -> Option<Node<P, Self>>
     where
@@ -41,7 +43,7 @@ where
     fn act<P>(
         node: Option<Node<P, S<H>>>,
         party: &P,
-        version: u64,
+        version: &Version<P>,
         actions: Vec<(Path<Self>, Action)>,
     ) -> Option<Node<P, S<H>>>
     where
@@ -83,7 +85,7 @@ impl Act for Z {
     fn act<P>(
         mut node: Option<Node<P, Z>>,
         party: &P,
-        version: u64,
+        version: &Version<P>,
         actions: Vec<(Path<Self>, Action)>,
     ) -> Option<Node<P, Z>>
     where
@@ -94,7 +96,9 @@ impl Act for Z {
         for (_, operation) in actions {
             node = match operation {
                 Action::Delete => None,
-                Action::Insert(value) => Some(Node::leaf(party.clone(), version, value)),
+                Action::Insert(value) => {
+                    Some(Node::leaf(party.clone(), version.for_party(party), value))
+                }
             };
         }
 
