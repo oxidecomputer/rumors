@@ -1,11 +1,12 @@
-use std::{hash::Hash, sync::Arc};
-
 use bytes::Bytes;
 
+mod id;
 mod traverse;
 mod typed;
 
 use crate::Version;
+
+pub use id::Id;
 
 /// A sparse Merkle trie with transparent path compression, whose leaves store
 /// versioned blobs of [`Bytes`].
@@ -23,35 +24,6 @@ pub struct Tree {
     party: Bytes,
     version: Version,
     root: Option<typed::node::Root>,
-}
-
-/// An identifier for a unique item in the tree.
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
-#[repr(transparent)]
-pub struct Id(pub [u8; 32]);
-
-impl From<[u8; 32]> for Id {
-    fn from(bytes: [u8; 32]) -> Self {
-        Self(bytes)
-    }
-}
-
-impl From<Id> for [u8; 32] {
-    fn from(id: Id) -> Self {
-        id.0
-    }
-}
-
-impl From<typed::Path> for Id {
-    fn from(path: typed::Path) -> Self {
-        <[u8; 32]>::from(path).into()
-    }
-}
-
-impl From<Id> for typed::Path {
-    fn from(id: Id) -> Self {
-        typed::Path::from(id.0)
-    }
 }
 
 /// An action to perform on the tree, locally.
@@ -145,9 +117,10 @@ impl Tree {
     ///
     /// While [`Tree::react`] is associative, this function is not: each batch
     /// receives a unique incrementing version, tracked internally.
-    pub fn act<I>(&mut self, i: I)
+    pub fn act<I, O>(&mut self, i: I, mut o: O)
     where
         I: IntoIterator<Item = Action>,
+        O: FnMut(&Reaction),
     {
         // Get the tree's current version, incrementing the local scalar by one.
         let mut new_version = self.version().clone();
@@ -168,6 +141,7 @@ impl Tree {
                     value,
                 ),
             };
+            o(&reaction);
             (&new_version, reaction)
         });
         self.react(reactions);
