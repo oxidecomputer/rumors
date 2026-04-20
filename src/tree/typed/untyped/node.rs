@@ -1,20 +1,18 @@
-use std::hash::Hash;
 use std::mem;
 use std::sync::Arc;
 
-use bytes::Bytes;
 use imbl::OrdMap;
 
 use crate::cached::Cached;
 use crate::{Message, Version};
 
 #[derive(Clone, Debug)]
-pub struct Node<P: Hash + Eq + AsRef<[u8]>, T> {
+pub struct Node<P: Ord + AsRef<[u8]>, T> {
     inner: Arc<NodeInner<P, T>>,
 }
 
 #[derive(Clone, Debug)]
-struct NodeInner<P: Hash + Eq + AsRef<[u8]>, T> {
+struct NodeInner<P: Ord + AsRef<[u8]>, T> {
     /// Compressed path above this node's own branching level, stored with the
     /// deepest byte at index 0 and the shallowest byte at the last index. An
     /// empty prefix means the node is not path-compressed above its level.
@@ -30,7 +28,7 @@ struct NodeInner<P: Hash + Eq + AsRef<[u8]>, T> {
 
 /// The children of a node.
 #[derive(Clone, Debug)]
-enum Children<P: Hash + Eq + AsRef<[u8]>, T> {
+enum Children<P: Ord + AsRef<[u8]>, T> {
     /// A direct leaf, at the true bottom of the tree.
     Leaf(Message<T>),
     /// A materialized branch point, with the invariant that there are always >=
@@ -38,7 +36,7 @@ enum Children<P: Hash + Eq + AsRef<[u8]>, T> {
     Branch(OrdMap<u8, Node<P, T>>),
 }
 
-impl<P: Hash + Eq + Clone + AsRef<[u8]>, T: Clone> Node<P, T> {
+impl<P: Ord + Clone + AsRef<[u8]>, T: Clone> Node<P, T> {
     /// Construct a new branch node from a list of children with distinct
     /// indices (inverse to [`Node::into_children`]).
     pub fn branch(children: OrdMap<u8, Node<P, T>>) -> Option<Self> {
@@ -177,9 +175,9 @@ impl<P: Hash + Eq + Clone + AsRef<[u8]>, T: Clone> Node<P, T> {
     }
 }
 
-impl<P: Hash + Eq + Clone + AsRef<[u8]>, T: Clone> Eq for Node<P, T> {}
+impl<P: Ord + Clone + AsRef<[u8]>, T: Clone> Eq for Node<P, T> {}
 
-impl<P: Hash + Eq + Clone + AsRef<[u8]>, T: Clone> PartialEq for Node<P, T> {
+impl<P: Ord + Clone + AsRef<[u8]>, T: Clone> PartialEq for Node<P, T> {
     fn eq(&self, other: &Self) -> bool {
         self.hash() == other.hash()
     }

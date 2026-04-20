@@ -6,5 +6,3 @@ mod version;
 pub use message::Message;
 pub use tree::{Action, Key, Reaction, Tree};
 pub use version::Version;
-
-use cached::Cached;

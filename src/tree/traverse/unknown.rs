@@ -1,5 +1,3 @@
-use std::hash::Hash;
-
 use crate::{Message, Version};
 
 use super::typed::*;
@@ -19,7 +17,7 @@ pub fn unknown<P, T>(
 ) -> Vec<([u8; 32], Version<P>, Message<T>)>
 where
     T: Clone,
-    P: Clone + Hash + Eq + AsRef<[u8]>,
+    P: Clone + Ord + AsRef<[u8]>,
 {
     Unknown::unknown(node, Prefix::new(), known)
 }
@@ -32,7 +30,7 @@ pub trait Unknown: Height {
     ) -> Vec<([u8; 32], Version<P>, Message<T>)>
     where
         T: Clone,
-        P: Clone + Hash + Eq + AsRef<[u8]>;
+        P: Clone + Ord + AsRef<[u8]>;
 }
 
 impl<H: Unknown> Unknown for S<H>
@@ -46,7 +44,7 @@ where
     ) -> Vec<([u8; 32], Version<P>, Message<T>)>
     where
         T: Clone,
-        P: Clone + Hash + Eq + AsRef<[u8]>,
+        P: Clone + Ord + AsRef<[u8]>,
     {
         // If the node doesn't exist, we can't return information about it
         let Some(node) = node else {
@@ -78,7 +76,7 @@ impl Unknown for Z {
     ) -> Vec<([u8; 32], Version<P>, Message<T>)>
     where
         T: Clone,
-        P: Clone + Hash + Eq + AsRef<[u8]>,
+        P: Clone + Ord + AsRef<[u8]>,
     {
         // If the node doesn't exist, we can't return information about it
         let Some(node) = node else {

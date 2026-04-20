@@ -1,3 +1,4 @@
+use borsh::{BorshDeserialize, BorshSerialize};
 use bytes::Bytes;
 
 mod key;
@@ -27,7 +28,7 @@ pub struct Tree<T: Clone> {
 }
 
 /// An action to perform on the tree, locally.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub enum Action<T> {
     /// Insert some value, tagged at the current version by your own party.
     Insert(Message<T>),
@@ -36,7 +37,7 @@ pub enum Action<T> {
 }
 
 /// An action to replay on the tree, originating from another party.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub enum Reaction<T> {
     /// Insert some value, tagged at a version by the inserting party.
     Insert(Key, Message<T>),
@@ -109,6 +110,12 @@ impl<T: Clone> Tree<T> {
     /// If multiple actions refer to the same leaf of the tree, the last
     /// specified action wins.
     ///
+    /// Upon insertion or deletion, the corresponding [`Reaction`] to the
+    /// specified [`Action`] is provided to the given closure, so that the
+    /// caller can (at their discretion) inspect the items inserted/deleted from
+    /// the tree. These [`Reaction`]s can be replayed on another tree using
+    /// [`Tree::react`] to identical effect.
+    ///
     /// It is more efficient to apply a batch of actions all at once, compared
     /// to applying them one at a time. This is because all actions in a batch
     /// are applied to the tree in a single traversal. Theoretically, this gives
@@ -120,7 +127,7 @@ impl<T: Clone> Tree<T> {
     pub fn act<I, O>(&mut self, i: I, mut o: O)
     where
         I: IntoIterator<Item = Action<T>>,
-        O: FnMut(&Reaction<T>),
+        O: FnMut(&Version, &Reaction<T>),
     {
         // Get the tree's current version, incrementing the local scalar by one.
         let mut new_version = self.version().clone();
@@ -142,7 +149,7 @@ impl<T: Clone> Tree<T> {
                     value,
                 ),
             };
-            o(&reaction);
+            o(&new_version, &reaction);
             (&new_version, reaction)
         });
         self.react(reactions);

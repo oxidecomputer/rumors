@@ -1,5 +1,4 @@
 use std::collections::BTreeSet;
-use std::hash::Hash;
 use std::sync::Arc;
 
 use imbl::OrdMap;
@@ -40,7 +39,7 @@ const TREE_LEAF_BUDGET: usize = 16;
 /// `Node::unions`. `budget` must be at least 1.
 fn arb_tree<P>(depth: usize, budget: usize) -> BoxedStrategy<Node<P, ()>>
 where
-    P: Arbitrary + Hash + Eq + Clone + AsRef<[u8]> + 'static,
+    P: Arbitrary + Ord + Clone + AsRef<[u8]> + 'static,
 {
     if depth == 0 {
         // Bytes payload is not examined at this abstraction layer, so we
@@ -71,7 +70,7 @@ where
 /// runs, `hash()` must recompute from scratch; comparing the pre-clear and
 /// post-clear results is how we catch hash-invalidation bugs. Uses private
 /// field access (only available to test code in this child module).
-fn clear_hash_cache<P: Hash + Eq + Clone + AsRef<[u8]>>(node: &mut Node<P, ()>) {
+fn clear_hash_cache<P: Ord + Clone + AsRef<[u8]>>(node: &mut Node<P, ()>) {
     let inner = Arc::make_mut(&mut node.inner);
     inner.hash.invalidate();
     if let Children::Branch(branch) = &mut inner.children {
@@ -91,7 +90,7 @@ fn clear_hash_cache<P: Hash + Eq + Clone + AsRef<[u8]>>(node: &mut Node<P, ()>) 
 /// yields them. The version is the leaf's own version as recorded by
 /// `Node::leaf`, and is preserved across path compression because
 /// `into_children` never mutates `version` — only `prefix` and `hash`.
-fn enumerate_leaves<P: Hash + Eq + Clone + AsRef<[u8]>>(
+fn enumerate_leaves<P: Ord + Clone + AsRef<[u8]>>(
     node: Node<P, ()>,
     path: Vec<u8>,
 ) -> Vec<(Vec<u8>, Version<P>, Message<()>)> {
@@ -125,7 +124,7 @@ fn enumerate_leaves<P: Hash + Eq + Clone + AsRef<[u8]>>(
 /// versions we started with.
 fn rebuild_with<P, F>(node: Node<P, ()>, f: &F) -> Node<P, ()>
 where
-    P: Hash + Eq + Clone + AsRef<[u8]>,
+    P: Ord + Clone + AsRef<[u8]>,
     F: Fn(&Message<()>) -> Message<()>,
 {
     let version = node.version().clone();

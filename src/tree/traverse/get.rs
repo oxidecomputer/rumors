@@ -1,6 +1,3 @@
-use std::hash::Hash;
-
-use bytes::Bytes;
 use itertools::Itertools;
 
 use crate::Message;
@@ -16,7 +13,7 @@ use height::{Height, Root, S, Z};
 pub fn get<P, T>(node: Option<&Node<P, T, Root>>, paths: Vec<Path>) -> Vec<Message<T>>
 where
     T: Clone,
-    P: Clone + Hash + Eq + AsRef<[u8]>,
+    P: Clone + Ord + AsRef<[u8]>,
 {
     Get::get(node, paths)
 }
@@ -25,7 +22,7 @@ pub trait Get: Height {
     fn get<P, T>(node: Option<&Node<P, T, Self>>, paths: Vec<Path<Self>>) -> Vec<Message<T>>
     where
         T: Clone,
-        P: Clone + Hash + Eq + AsRef<[u8]>;
+        P: Clone + Ord + AsRef<[u8]>;
 }
 
 impl<H: Get> Get for S<H>
@@ -35,7 +32,7 @@ where
     fn get<P, T>(node: Option<&Node<P, T, Self>>, paths: Vec<Path<Self>>) -> Vec<Message<T>>
     where
         T: Clone,
-        P: Clone + Hash + Eq + AsRef<[u8]>,
+        P: Clone + Ord + AsRef<[u8]>,
     {
         let Some(node) = node else {
             return Vec::new();
@@ -69,7 +66,7 @@ impl Get for Z {
     fn get<P, T>(node: Option<&Node<P, T, Self>>, paths: Vec<Path<Self>>) -> Vec<Message<T>>
     where
         T: Clone,
-        P: Clone + Hash + Eq + AsRef<[u8]>,
+        P: Clone + Ord + AsRef<[u8]>,
     {
         let Some(node) = node else {
             return Vec::new();

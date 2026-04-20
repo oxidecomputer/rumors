@@ -1,4 +1,4 @@
-use std::{hash::Hash, marker::PhantomData, mem};
+use std::{marker::PhantomData, mem};
 
 use imbl::OrdMap;
 
@@ -17,12 +17,12 @@ pub type Children<P, T, H> = OrdMap<u8, Node<P, T, H>>;
 /// at compile-time.
 #[derive(Clone, Debug)]
 #[repr(transparent)]
-pub struct Node<P: Clone + Eq + Hash + AsRef<[u8]>, T, H: Height> {
+pub struct Node<P: Clone + Ord + AsRef<[u8]>, T, H: Height> {
     height: PhantomData<H>,
     inner: untyped::Node<P, T>,
 }
 
-impl<P: Clone + Eq + Hash + AsRef<[u8]>, T: Clone, H: Height> Node<P, T, H> {
+impl<P: Clone + Ord + AsRef<[u8]>, T: Clone, H: Height> Node<P, T, H> {
     /// Get the version of this node.
     pub fn version(&self) -> &Version<P> {
         self.inner.version()
@@ -43,7 +43,7 @@ impl<P: Clone + Eq + Hash + AsRef<[u8]>, T: Clone, H: Height> Node<P, T, H> {
     }
 }
 
-impl<P: Clone + Eq + Hash + AsRef<[u8]>, T: Clone, H: Height> Node<P, T, S<H>>
+impl<P: Clone + Ord + AsRef<[u8]>, T: Clone, H: Height> Node<P, T, S<H>>
 where
     S<H>: Height,
 {
@@ -75,7 +75,7 @@ where
     }
 }
 
-impl<P: Clone + Eq + Hash + AsRef<[u8]>, T: Clone> Node<P, T, Z> {
+impl<P: Clone + Ord + AsRef<[u8]>, T: Clone> Node<P, T, Z> {
     /// Construct a new leaf node.
     pub fn leaf(version: Version<P>, value: Message<T>) -> Self {
         Self {
@@ -92,9 +92,9 @@ impl<P: Clone + Eq + Hash + AsRef<[u8]>, T: Clone> Node<P, T, Z> {
     }
 }
 
-impl<P: Clone + Eq + Hash + AsRef<[u8]>, T: Clone + Eq, H: Height> Eq for Node<P, T, H> {}
+impl<P: Clone + Ord + AsRef<[u8]>, T: Clone + Eq, H: Height> Eq for Node<P, T, H> {}
 
-impl<P: Clone + Eq + Hash + AsRef<[u8]>, T: Clone + PartialEq, H: Height> PartialEq
+impl<P: Clone + Ord + AsRef<[u8]>, T: Clone + PartialEq, H: Height> PartialEq
     for Node<P, T, H>
 {
     fn eq(&self, other: &Self) -> bool {

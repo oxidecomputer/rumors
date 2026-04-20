@@ -1,18 +1,20 @@
 use std::cmp::Ordering;
-use std::hash::Hash;
 use std::mem;
 use std::ops::{BitOr, BitOrAssign};
 
+use borsh::{BorshDeserialize, BorshSerialize};
 use bytes::Bytes;
-use imbl::HashMap;
+use imbl::OrdMap;
 
-/// A sparse copy-on-write version vector amongst parties of type `P`.
+/// A sparse copy-on-write version vector amongst parties of type `P`. Backed
+/// by an `OrdMap` so iteration is ordered by party, which makes canonical
+/// borsh serialization (and any future lockstep comparison logic) cheap.
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct Version<P: Hash + Eq = Bytes> {
-    versions: HashMap<P, u64>,
+pub struct Version<P: Ord = Bytes> {
+    versions: OrdMap<P, u64>,
 }
 
-impl<P: Hash + Eq> Default for Version<P> {
+impl<P: Ord> Default for Version<P> {
     fn default() -> Self {
         Self {
             versions: Default::default(),
@@ -20,7 +22,7 @@ impl<P: Hash + Eq> Default for Version<P> {
     }
 }
 
-impl<P: Hash + Eq> Version<P> {
+impl<P: Ord> Version<P> {
     /// Construct a version vector from any number of other version vectors.
     pub fn new<I>(i: I) -> Self
     where
@@ -28,7 +30,7 @@ impl<P: Hash + Eq> Version<P> {
         I: IntoIterator<Item = Self>,
     {
         Self {
-            versions: HashMap::unions_with(i.into_iter().map(|v| v.versions), u64::max),
+            versions: OrdMap::unions_with(i.into_iter().map(|v| v.versions), u64::max),
         }
     }
 
@@ -50,7 +52,7 @@ impl<P: Hash + Eq> Version<P> {
 /// at most the corresponding count in `b` (missing entries count as 0). If one
 /// side is pointwise-less on some party and pointwise-greater on another, the
 /// versions are concurrent and incomparable, so `partial_cmp` returns `None`.
-impl<P: Hash + Eq> PartialOrd for Version<P> {
+impl<P: Ord> PartialOrd for Version<P> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         // Fold one party's comparison into the running product-order verdict.
         // An `Equal` observation leaves the verdict unchanged; a non-equal
@@ -88,14 +90,14 @@ impl<P: Hash + Eq> PartialOrd for Version<P> {
     }
 }
 
-impl<P: Hash + Eq + Clone> BitOrAssign for Version<P> {
+impl<P: Ord + Clone> BitOrAssign for Version<P> {
     fn bitor_assign(&mut self, rhs: Self) {
         let lhs = mem::take(&mut self.versions);
         self.versions = lhs.union_with(rhs.versions, u64::max);
     }
 }
 
-impl<P: Hash + Eq + Clone> BitOr for Version<P> {
+impl<P: Ord + Clone> BitOr for Version<P> {
     type Output = Version<P>;
 
     fn bitor(mut self, rhs: Self) -> Self::Output {
@@ -104,11 +106,65 @@ impl<P: Hash + Eq + Clone> BitOr for Version<P> {
     }
 }
 
-impl<P: Clone + Hash + Eq> From<(P, u64)> for Version<P> {
+impl<P: Ord + Clone> From<(P, u64)> for Version<P> {
     fn from(value: (P, u64)) -> Self {
         let mut result = Self::default();
         result.versions.insert(value.0, value.1);
         result
+    }
+}
+
+/// Canonical, bijective borsh encoding. Entries are emitted as a
+/// length-prefixed run sorted by party in strictly-ascending order, so every
+/// `Version<P>` value has exactly one valid serialization: the backing `OrdMap`
+/// iterates in key order, and duplicates or out-of-order entries on the wire
+/// are rejected on deserialization.
+impl<P: Ord + BorshSerialize> BorshSerialize for Version<P> {
+    fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
+        let len: u32 = self.versions.len().try_into().map_err(|_| {
+            borsh::io::Error::new(
+                borsh::io::ErrorKind::InvalidData,
+                "Version entry count exceeds u32",
+            )
+        })?;
+        len.serialize(writer)?;
+        for (party, version) in &self.versions {
+            party.serialize(writer)?;
+            version.serialize(writer)?;
+        }
+        Ok(())
+    }
+}
+
+impl<P: Ord + Clone + BorshDeserialize> BorshDeserialize for Version<P> {
+    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
+        let len = u32::deserialize_reader(reader)?;
+        let mut versions = OrdMap::new();
+        let mut prev: Option<P> = None;
+        for _ in 0..len {
+            let party = P::deserialize_reader(reader)?;
+            let version = u64::deserialize_reader(reader)?;
+            if let Some(prev) = &prev {
+                match prev.cmp(&party) {
+                    Ordering::Less => {}
+                    Ordering::Equal => {
+                        return Err(borsh::io::Error::new(
+                            borsh::io::ErrorKind::InvalidData,
+                            "Version contains duplicate party",
+                        ));
+                    }
+                    Ordering::Greater => {
+                        return Err(borsh::io::Error::new(
+                            borsh::io::ErrorKind::InvalidData,
+                            "Version parties out of order",
+                        ));
+                    }
+                }
+            }
+            prev = Some(party.clone());
+            versions.insert(party, version);
+        }
+        Ok(Self { versions })
     }
 }
 

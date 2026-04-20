@@ -141,6 +141,97 @@ proptest! {
     fn partial_ord_matches_causality(trace in arb_trace()) {
         run_trace(trace)?;
     }
+
+    /// Borsh round-trips a `Version<u64>` faithfully: deserializing the bytes
+    /// produced by `serialize` yields a value equal to the original.
+    #[test]
+    fn borsh_round_trip(
+        entries in prop::collection::vec((any::<u64>(), any::<u64>()), 0..16),
+    ) {
+        let mut v = Version::<u64>::default();
+        for (p, s) in entries {
+            // Insert directly so the property holds even on pathological inputs
+            // like `(p, 0)` that `event` would never produce.
+            v.versions.insert(p, s);
+        }
+        let bytes = borsh::to_vec(&v).expect("serialize");
+        let back: Version<u64> = borsh::from_slice(&bytes).expect("deserialize");
+        prop_assert_eq!(v, back);
+    }
+
+    /// Borsh serialization is canonical: two `Version` values that are equal —
+    /// regardless of the order in which their entries were inserted into the
+    /// backing map — serialize to byte-identical outputs.
+    #[test]
+    fn borsh_canonical(
+        entries in prop::collection::vec((any::<u64>(), any::<u64>()), 0..16),
+        permutation in any::<u64>(),
+    ) {
+        // Deduplicate to avoid the "last insert wins" asymmetry: a value
+        // inserted twice under the same key overwrites, so two orderings with
+        // duplicates can produce genuinely different maps.
+        let mut dedup: Vec<(u64, u64)> = {
+            use std::collections::BTreeMap;
+            let mut m = BTreeMap::new();
+            for (p, s) in entries { m.insert(p, s); }
+            m.into_iter().collect()
+        };
+        let canonical: Version<u64> = dedup.iter().copied().fold(
+            Version::default(),
+            |mut v, (p, s)| { v.versions.insert(p, s); v },
+        );
+
+        // Permute with a deterministic LCG so the two paths differ only in
+        // insertion order, not content.
+        let mut rng = permutation;
+        for i in (1..dedup.len()).rev() {
+            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let j = (rng as usize) % (i + 1);
+            dedup.swap(i, j);
+        }
+        let shuffled: Version<u64> = dedup.iter().copied().fold(
+            Version::default(),
+            |mut v, (p, s)| { v.versions.insert(p, s); v },
+        );
+
+        prop_assert_eq!(&canonical, &shuffled);
+        prop_assert_eq!(
+            borsh::to_vec(&canonical).expect("serialize"),
+            borsh::to_vec(&shuffled).expect("serialize"),
+        );
+    }
+
+    /// Deserialization rejects non-canonical wire forms: entries that are
+    /// out of order, or that repeat a party, must fail rather than silently
+    /// producing a `Version` that would re-serialize to different bytes.
+    #[test]
+    fn borsh_rejects_non_canonical(
+        a in any::<u64>(),
+        b in any::<u64>(),
+        sa in any::<u64>(),
+        sb in any::<u64>(),
+    ) {
+        prop_assume!(a != b);
+        let (lo, hi) = if a < b { (a, b) } else { (b, a) };
+
+        // Out of order: [hi, lo].
+        let mut out_of_order = Vec::new();
+        2u32.serialize(&mut out_of_order).unwrap();
+        hi.serialize(&mut out_of_order).unwrap();
+        sa.serialize(&mut out_of_order).unwrap();
+        lo.serialize(&mut out_of_order).unwrap();
+        sb.serialize(&mut out_of_order).unwrap();
+        prop_assert!(borsh::from_slice::<Version<u64>>(&out_of_order).is_err());
+
+        // Duplicate party: [lo, lo].
+        let mut duplicate = Vec::new();
+        2u32.serialize(&mut duplicate).unwrap();
+        lo.serialize(&mut duplicate).unwrap();
+        sa.serialize(&mut duplicate).unwrap();
+        lo.serialize(&mut duplicate).unwrap();
+        sb.serialize(&mut duplicate).unwrap();
+        prop_assert!(borsh::from_slice::<Version<u64>>(&duplicate).is_err());
+    }
 }
 
 /// An operation in a simulated history: forking creates a new branch with a
