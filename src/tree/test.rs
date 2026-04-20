@@ -6,12 +6,12 @@ use proptest::prelude::*;
 use super::typed::Path;
 use super::*;
 
-impl Arbitrary for Id {
+impl Arbitrary for Key {
     type Parameters = ();
-    type Strategy = BoxedStrategy<Id>;
+    type Strategy = BoxedStrategy<Key>;
 
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
-        any::<[u8; 32]>().prop_map(Id).boxed()
+        any::<[u8; 32]>().prop_map(Key).boxed()
     }
 }
 
@@ -61,7 +61,7 @@ fn version_for(party: impl AsRef<[u8]>, scalar: u64) -> Version {
 /// `value` at scalar version `scalar` under the given party label. The
 /// party is pre-hashed first so the resulting path matches the one the tree
 /// derives internally.
-fn leaf_path(party: impl AsRef<[u8]>, scalar: u64, value: &Bytes) -> Id {
+fn leaf_path(party: impl AsRef<[u8]>, scalar: u64, value: &Bytes) -> Key {
     Path::for_leaf(&hashed_party(party), scalar, value).into()
 }
 
@@ -148,7 +148,7 @@ fn reference_hash(values: &[(Bytes, u64, Bytes)]) -> blake3::Hash {
     };
 
     // Level 32 (the value level): every distinct path maps to the sentinel.
-    let paths: BTreeSet<Id> = values
+    let paths: BTreeSet<Key> = values
         .iter()
         .map(|(party, version, value)| Path::for_leaf(party, *version, value).into())
         .collect();
@@ -349,10 +349,10 @@ proptest! {
     #[test]
     fn delete_absent_path_preserves_hash(
         bytes in distinct_bytes(8),
-        nuke in any::<Id>(),
+        nuke in any::<Key>(),
     ) {
         let party = "P".to_string();
-        let present: BTreeSet<Id> = bytes
+        let present: BTreeSet<Key> = bytes
             .iter()
             .map(|b| leaf_path(&party, 1, b))
             .collect();
@@ -370,7 +370,7 @@ proptest! {
     /// present, so every lookup misses.
     #[test]
     fn get_on_empty_tree_is_empty(
-        paths in proptest::collection::vec(any::<Id>(), 0..8),
+        paths in proptest::collection::vec(any::<Key>(), 0..8),
     ) {
         let tree = Tree::for_party("P".to_string());
         prop_assert!(tree.get(paths).is_empty());
@@ -388,7 +388,7 @@ proptest! {
         let mut tree = Tree::for_party(party.clone());
         tree.act(bytes.iter().cloned().map(Action::Insert), |_| {});
 
-        let paths: Vec<Id> = bytes
+        let paths: Vec<Key> = bytes
             .iter()
             .map(|b| leaf_path(&party, 1, b))
             .collect();
@@ -405,23 +405,23 @@ proptest! {
     #[test]
     fn get_filters_absent_paths(
         bytes in distinct_bytes(8),
-        extra in proptest::collection::vec(any::<Id>(), 0..8),
+        extra in proptest::collection::vec(any::<Key>(), 0..8),
     ) {
         let party = "P".to_string();
         let mut tree = Tree::for_party(party.clone());
         tree.act(bytes.iter().cloned().map(Action::Insert), |_| {});
 
-        let present_paths: BTreeSet<Id> = bytes
+        let present_paths: BTreeSet<Key> = bytes
             .iter()
             .map(|b| leaf_path(&party, 1, b))
             .collect();
         // Exclude any "extra" paths that happen to collide with a real leaf.
-        let absent: Vec<Id> = extra
+        let absent: Vec<Key> = extra
             .into_iter()
             .filter(|p| !present_paths.contains(p))
             .collect();
 
-        let all_paths: Vec<Id> =
+        let all_paths: Vec<Key> =
             present_paths.iter().copied().chain(absent).collect();
 
         let mut got = tree.get(all_paths);
@@ -771,8 +771,8 @@ proptest! {
         let got = tree.unknown(Version::default());
         let v1 = version_for(&party, 1);
 
-        let got_paths: BTreeSet<Id> = got.iter().map(|(p, _, _)| *p).collect();
-        let expected_paths: BTreeSet<Id> = bytes
+        let got_paths: BTreeSet<Key> = got.iter().map(|(p, _, _)| *p).collect();
+        let expected_paths: BTreeSet<Key> = bytes
             .iter()
             .map(|b| leaf_path(&party, 1, b))
             .collect();
@@ -871,7 +871,7 @@ proptest! {
 
         prop_assert!(tree_b.version() >= tree_a.version());
 
-        let a_paths: Vec<Id> = a_inserts
+        let a_paths: Vec<Key> = a_inserts
             .iter()
             .map(|b| leaf_path(&a_id, 1, b))
             .collect();
@@ -949,7 +949,7 @@ proptest! {
     fn act_observer_mirrors_actions(
         prior_batches in 0usize..3,
         inserts in distinct_bytes(6),
-        deletes in proptest::collection::vec(any::<Id>(), 0..4),
+        deletes in proptest::collection::vec(any::<Key>(), 0..4),
         interleave in any::<u64>(),
     ) {
         let party = "P".to_string();
@@ -1029,7 +1029,7 @@ proptest! {
     #[test]
     fn act_observer_reactions_replay_to_equal_tree(
         inserts in distinct_bytes(8),
-        deletes in proptest::collection::vec(any::<Id>(), 0..4),
+        deletes in proptest::collection::vec(any::<Key>(), 0..4),
     ) {
         let party = "P".to_string();
         let mut original = Tree::for_party(party.clone());

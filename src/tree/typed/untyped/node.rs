@@ -5,10 +5,8 @@ use std::sync::Arc;
 use bytes::Bytes;
 use imbl::OrdMap;
 
-mod cached;
-use cached::Cached;
-
 use crate::Version;
+use crate::cached::Cached;
 
 #[derive(Clone, Debug)]
 pub struct Node<P: Hash + Eq + AsRef<[u8]>> {
@@ -124,7 +122,7 @@ impl<P: Hash + Eq + Clone + AsRef<[u8]>> Node<P> {
     /// compression; we ensure this by hashing "virtual" nodes as we traverse up
     /// a compressed path.
     pub fn hash(&self) -> blake3::Hash {
-        self.inner.hash.get(|| {
+        self.inner.hash.clone_or_compute(|| {
             let mut hash: blake3::Hash = match &self.inner.children {
                 Children::Leaf(_) => [0xff; 32].into(),
                 Children::Branch(branch) => {

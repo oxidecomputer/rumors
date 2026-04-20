@@ -6,7 +6,7 @@ mod typed;
 
 use crate::Version;
 
-pub use id::Id;
+pub use id::Key;
 
 /// A sparse Merkle trie with transparent path compression, whose leaves store
 /// versioned blobs of [`Bytes`].
@@ -32,16 +32,16 @@ pub enum Action {
     /// Insert some value, tagged at the current version by your own party.
     Insert(Bytes),
     /// Delete the value corresponding to a hash.
-    Delete(Id),
+    Delete(Key),
 }
 
 /// An action to replay on the tree, originating from another party.
 #[derive(Clone, Debug)]
 pub enum Reaction {
     /// Insert some value, tagged at a version by the inserting party.
-    Insert(Id, Bytes),
+    Insert(Key, Bytes),
     /// Delete the value corresponding to a hash.
-    Delete(Id),
+    Delete(Key),
 }
 
 impl Tree {
@@ -78,7 +78,7 @@ impl Tree {
     /// Get all the values stored at a list of hash paths in the tree.
     pub fn get<I>(&self, paths: I) -> Vec<Bytes>
     where
-        I: IntoIterator<Item = Id>,
+        I: IntoIterator<Item = Key>,
     {
         if let Some(root) = &self.root {
             traverse::get(
@@ -96,7 +96,7 @@ impl Tree {
 
     /// Get all the values in this tree which are unknown relative to the given
     /// version vector.
-    pub fn unknown(&self, version: Version) -> Vec<(Id, Version, Bytes)> {
+    pub fn unknown(&self, version: Version) -> Vec<(Key, Version, Bytes)> {
         traverse::unknown(self.root.as_ref(), &version)
             .into_iter()
             .map(|(i, v, b)| (i.into(), v, b))

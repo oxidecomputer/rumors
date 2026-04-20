@@ -1,22 +1,23 @@
-use std::sync::Mutex;
+use std::sync::RwLock;
 
 #[derive(Debug)]
-pub struct Cached<T>(Mutex<Option<T>>);
+pub struct Cached<T>(RwLock<Option<T>>);
 
-impl<T: Clone> Cached<T> {
+impl<T> Cached<T> {
     pub fn new() -> Self {
-        Self(Mutex::new(None))
+        Self(RwLock::new(None))
     }
 
     pub fn invalidate(&mut self) {
-        *self.0.lock().unwrap() = None;
+        *self.0.write().unwrap() = None;
     }
 
-    pub fn get<F>(&self, compute: F) -> T
+    pub fn clone_or_compute<F>(&self, compute: F) -> T
     where
+        T: Clone,
         F: FnOnce() -> T,
     {
-        let stored = &mut *self.0.lock().unwrap();
+        let stored = &mut *self.0.write().unwrap();
         match stored {
             Some(stored) => stored.clone(),
             None => {
@@ -28,7 +29,13 @@ impl<T: Clone> Cached<T> {
     }
 }
 
-impl<T: Clone> Default for Cached<T> {
+impl<T> From<T> for Cached<T> {
+    fn from(value: T) -> Self {
+        Self(RwLock::new(Some(value)))
+    }
+}
+
+impl<T> Default for Cached<T> {
     fn default() -> Self {
         Self::new()
     }
@@ -36,6 +43,6 @@ impl<T: Clone> Default for Cached<T> {
 
 impl<T: Clone> Clone for Cached<T> {
     fn clone(&self) -> Self {
-        Self(Mutex::new(self.0.lock().unwrap().clone()))
+        Self(RwLock::new(self.0.read().unwrap().clone()))
     }
 }
