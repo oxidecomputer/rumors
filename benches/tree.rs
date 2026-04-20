@@ -38,7 +38,7 @@ fn bench_act_insert_batch(c: &mut Criterion) {
             let party = "".to_string();
             b.iter(|| {
                 let mut tree = Tree::for_party(party.clone());
-                tree.act(actions.iter().cloned(), |_, _| {});
+                tree.act(actions.iter().cloned(), |_, _, _| {});
                 tree
             });
         });
@@ -65,7 +65,7 @@ fn bench_act_insert_one_by_one(c: &mut Criterion) {
                 let mut tree = Tree::for_party("P".to_string());
                 for batch in actions {
                     version.event(&party);
-                    tree.act(batch.iter().cloned(), |_, _| {});
+                    tree.act(batch.iter().cloned(), |_, _, _| {});
                 }
                 tree
             });
@@ -85,7 +85,7 @@ fn bench_act_insert_into_populated(c: &mut Criterion) {
         let base_values = make_values(existing);
         let base_actions = make_inserts(&base_values);
         let mut base_tree = Tree::for_party(party.clone());
-        base_tree.act(base_actions, |_, _| {});
+        base_tree.act(base_actions, |_, _, _| {});
 
         let new_values = make_values(100);
         let new_actions = make_inserts(&new_values);
@@ -98,7 +98,7 @@ fn bench_act_insert_into_populated(c: &mut Criterion) {
                     || tree.clone(),
                     |mut tree| {
                         version.event(&party);
-                        tree.act(actions.iter().cloned(), |_, _| {});
+                        tree.act(actions.iter().cloned(), |_, _, _| {});
                         tree
                     },
                     criterion::BatchSize::SmallInput,

@@ -33,17 +33,8 @@ pub struct Tree<T: Clone> {
 pub enum Action<T> {
     /// Insert some value, tagged at the current version by your own party.
     Insert(Message<T>),
-    /// Delete the value corresponding to a hash.
-    Delete(Key),
-}
-
-/// An action to replay on the tree, originating from another party.
-#[derive(Clone, Debug, BorshSerialize, BorshDeserialize)]
-pub enum Reaction<T> {
-    /// Insert some value, tagged at a version by the inserting party.
-    Insert(Key, Message<T>),
-    /// Delete the value corresponding to a hash.
-    Delete(Key),
+    /// Forget the value corresponding to a hash.
+    Forget(Key),
 }
 
 impl<T: Clone> Tree<T> {
@@ -58,14 +49,14 @@ impl<T: Clone> Tree<T> {
     }
 
     /// Get the version for the tree.
-    pub fn version(&self) -> &Version {
-        &self.version
+    pub fn version(&self) -> Version {
+        self.version.clone()
     }
 
     /// Get the *deleted* version for the tree (the version vector for all
     /// deletion operations applied to it).
-    pub fn deleted(&self) -> &Version {
-        &self.deleted
+    pub fn deleted(&self) -> Version {
+        self.deleted.clone()
     }
 
     /// Get the pre-hashed local party identifier this tree was created for.
@@ -135,7 +126,7 @@ impl<T: Clone> Tree<T> {
     pub fn act<I, O>(&mut self, i: I, mut o: O)
     where
         I: IntoIterator<Item = Action<T>>,
-        O: FnMut(&Version, &Reaction<T>),
+        O: FnMut(&Version, &Key, &Option<Message<T>>),
     {
         // Get the tree's current version, incrementing the local scalar by one.
         let mut new_version = self.version().clone();
@@ -149,22 +140,23 @@ impl<T: Clone> Tree<T> {
         let reactions = i.into_iter().map(|action| {
             // Convert unversioned, unlocalized actions into `Reaction`s
             // which are independent of our local party and current version:
-            let reaction = match action {
-                Action::Delete(hash) => Reaction::Delete(hash),
-                Action::Insert(value) => Reaction::Insert(
+            let (key, value) = match action {
+                Action::Forget(hash) => (hash, None),
+                Action::Insert(value) => (
                     typed::Path::for_leaf(&party, new_version.for_party(&party), value.bytes())
                         .into(),
-                    value,
+                    Some(value),
                 ),
             };
-            o(&new_version, &reaction);
-            (new_version.clone(), reaction)
+            o(&new_version, &key, &value);
+            (new_version.clone(), key, value)
         });
         self.react(reactions);
     }
 
     /// Apply the specified *versioned* actions as a batch to the tree without
-    /// incrementing its internal version vector.
+    /// incrementing its internal version vector. In the specified iterator,
+    /// `Some(message)` indicates an insert, and `None` indicates a delete.
     ///
     /// If multiple actions refer to the same leaf of the tree, the causally
     /// latest action wins, with order of specification breaking concurrency and
@@ -178,25 +170,26 @@ impl<T: Clone> Tree<T> {
     /// tree in a single traversal. Theoretically, this gives an O(log n)
     /// speedup relative to one-by-one insertion operations, but since the log
     /// base is 256, in practice this is about 2-3x.
-    pub fn react<'a, I>(&mut self, i: I)
+    pub fn react<'a, M, I>(&mut self, i: I)
     where
-        I: IntoIterator<Item = (Version, Reaction<T>)>,
+        M: Into<Option<Message<T>>>,
+        I: IntoIterator<Item = (Version, Key, M)>,
     {
         // Convert the specified actions into the action specification required
         // by the inductive traversal of the tree
         let actions = i
             .into_iter()
-            .map(|(version, op)| {
+            .map(|(version, key, message)| {
                 // Join the version on all operations: delete and insert
                 self.version |= version.clone();
-                match op {
-                    Reaction::Delete(hash) => {
+                match message.into() {
+                    None => {
                         // Only join the deleted version on delete operations
                         self.deleted |= version.clone();
-                        (typed::Path::from(hash), version, traverse::Action::Delete)
+                        (typed::Path::from(key), version, traverse::Action::Delete)
                     }
-                    Reaction::Insert(hash, value) => (
-                        typed::Path::from(hash),
+                    Some(value) => (
+                        typed::Path::from(key),
                         version,
                         traverse::Action::Insert(value),
                     ),
