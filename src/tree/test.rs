@@ -329,9 +329,9 @@ proptest! {
         prop_assert_eq!(t_act.version(), t_react.version());
     }
 
-    /// Inserting a value and then deleting its leaf path via two separate
-    /// `act` calls must leave the tree empty (zero root hash) with the
-    /// version bumped exactly twice.
+    /// Inserting a value and then deleting its leaf path via two separate `act`
+    /// calls must leave the tree empty (zero root hash) with the version bumped
+    /// exactly twice and the deleted version bumped exactly twice also.
     #[test]
     fn insert_then_delete_is_empty(value in any::<Vec<u8>>()) {
         let party = "P".to_string();
@@ -344,6 +344,7 @@ proptest! {
 
         prop_assert_eq!(tree.hash(), [0u8; 32]);
         prop_assert_eq!(tree.version().for_party(&hashed_party(&party)), 2);
+        prop_assert_eq!(tree.deleted().for_party(&hashed_party(&party)), 2);
     }
 
     /// Inserting a value and deleting its leaf path within the same `act`

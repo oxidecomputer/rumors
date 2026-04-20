@@ -24,6 +24,7 @@ pub use key::Key;
 pub struct Tree<T: Clone> {
     party: Bytes,
     version: Version,
+    deleted: Version,
     root: Option<typed::node::Root<Bytes, T>>,
 }
 
@@ -51,6 +52,7 @@ impl<T: Clone> Tree<T> {
         Tree {
             party: Bytes::copy_from_slice(&blake3::hash(party.as_ref()).as_bytes()[..]),
             version: Version::default(),
+            deleted: Version::default(),
             root: None,
         }
     }
@@ -58,6 +60,12 @@ impl<T: Clone> Tree<T> {
     /// Get the version for the tree.
     pub fn version(&self) -> &Version {
         &self.version
+    }
+
+    /// Get the *deleted* version for the tree (the version vector for all
+    /// deletion operations applied to it).
+    pub fn deleted(&self) -> &Version {
+        &self.deleted
     }
 
     /// Get the pre-hashed local party identifier this tree was created for.
@@ -179,11 +187,12 @@ impl<T: Clone> Tree<T> {
         let actions = i
             .into_iter()
             .map(|(version, op)| {
-                // Mark that we have seen this operation's version:
+                // Join the version on all operations: delete and insert
                 self.version |= version.clone();
-
                 match op {
                     Reaction::Delete(hash) => {
+                        // Only join the deleted version on delete operations
+                        self.deleted |= version.clone();
                         (typed::Path::from(hash), version, traverse::Action::Delete)
                     }
                     Reaction::Insert(hash, value) => (

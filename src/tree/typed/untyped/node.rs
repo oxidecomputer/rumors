@@ -184,4 +184,4 @@ impl<P: Ord + Clone + AsRef<[u8]>, T: Clone> PartialEq for Node<P, T> {
 }
 
 #[cfg(test)]
-mod tests;
+mod test;
