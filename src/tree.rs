@@ -1,12 +1,12 @@
 use bytes::Bytes;
 
-mod id;
+mod key;
 mod traverse;
 mod typed;
 
 use crate::{Message, Version};
 
-pub use id::Key;
+pub use key::Key;
 
 /// A sparse Merkle trie with transparent path compression, whose leaves store
 /// versioned blobs of [`Bytes`].
