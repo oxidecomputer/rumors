@@ -3,24 +3,28 @@ use std::hash::Hash;
 use bytes::Bytes;
 use itertools::Itertools;
 
+use crate::Message;
+
 use super::typed::*;
-use height::{Height, S, Z};
+use height::{Height, Root, S, Z};
 
 /// Perform a batch lookup of paths in the tree, returning a list of [`Bytes`]
 /// which are stored at these paths.
 ///
 /// Values are returned in arbitrary order, not necessarily in the order of the
 /// specified paths.
-pub fn get<P>(node: Option<&Node<P>>, paths: Vec<Path>) -> Vec<Bytes>
+pub fn get<P, T>(node: Option<&Node<P, T, Root>>, paths: Vec<Path>) -> Vec<Message<T>>
 where
+    T: Clone,
     P: Clone + Hash + Eq + AsRef<[u8]>,
 {
     Get::get(node, paths)
 }
 
 pub trait Get: Height {
-    fn get<P>(node: Option<&Node<P, Self>>, paths: Vec<Path<Self>>) -> Vec<Bytes>
+    fn get<P, T>(node: Option<&Node<P, T, Self>>, paths: Vec<Path<Self>>) -> Vec<Message<T>>
     where
+        T: Clone,
         P: Clone + Hash + Eq + AsRef<[u8]>;
 }
 
@@ -28,8 +32,9 @@ impl<H: Get> Get for S<H>
 where
     S<H>: Height,
 {
-    fn get<P>(node: Option<&Node<P, Self>>, paths: Vec<Path<Self>>) -> Vec<Bytes>
+    fn get<P, T>(node: Option<&Node<P, T, Self>>, paths: Vec<Path<Self>>) -> Vec<Message<T>>
     where
+        T: Clone,
         P: Clone + Hash + Eq + AsRef<[u8]>,
     {
         let Some(node) = node else {
@@ -61,8 +66,9 @@ where
 }
 
 impl Get for Z {
-    fn get<P>(node: Option<&Node<P, Self>>, paths: Vec<Path<Self>>) -> Vec<Bytes>
+    fn get<P, T>(node: Option<&Node<P, T, Self>>, paths: Vec<Path<Self>>) -> Vec<Message<T>>
     where
+        T: Clone,
         P: Clone + Hash + Eq + AsRef<[u8]>,
     {
         let Some(node) = node else {

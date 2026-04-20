@@ -1,11 +1,9 @@
 use std::hash::Hash;
 
-use crate::Version;
-
-use bytes::Bytes;
+use crate::{Message, Version};
 
 use super::typed::*;
-use height::{Height, S, Z};
+use height::{Height, Root, S, Z};
 use prefix::Prefix;
 
 /// Perform a batch lookup in the tree by version vector, returning a list of
@@ -15,20 +13,25 @@ use prefix::Prefix;
 /// The unknown set is the set of leaves necessary to communicate to a
 /// counterparty who has this version vector, so that their tree will become a
 /// (non-strict) superset of yours.
-pub fn unknown<P>(node: Option<&Node<P>>, known: &Version<P>) -> Vec<([u8; 32], Version<P>, Bytes)>
+pub fn unknown<P, T>(
+    node: Option<&Node<P, T, Root>>,
+    known: &Version<P>,
+) -> Vec<([u8; 32], Version<P>, Message<T>)>
 where
+    T: Clone,
     P: Clone + Hash + Eq + AsRef<[u8]>,
 {
     Unknown::unknown(node, Prefix::new(), known)
 }
 
 pub trait Unknown: Height {
-    fn unknown<P>(
-        node: Option<&Node<P, Self>>,
+    fn unknown<P, T>(
+        node: Option<&Node<P, T, Self>>,
         prefix: Prefix<Self>,
         known: &Version<P>,
-    ) -> Vec<([u8; 32], Version<P>, Bytes)>
+    ) -> Vec<([u8; 32], Version<P>, Message<T>)>
     where
+        T: Clone,
         P: Clone + Hash + Eq + AsRef<[u8]>;
 }
 
@@ -36,12 +39,13 @@ impl<H: Unknown> Unknown for S<H>
 where
     S<H>: Height,
 {
-    fn unknown<P>(
-        node: Option<&Node<P, Self>>,
+    fn unknown<P, T>(
+        node: Option<&Node<P, T, Self>>,
         prefix: Prefix<Self>,
         known: &Version<P>,
-    ) -> Vec<([u8; 32], Version<P>, Bytes)>
+    ) -> Vec<([u8; 32], Version<P>, Message<T>)>
     where
+        T: Clone,
         P: Clone + Hash + Eq + AsRef<[u8]>,
     {
         // If the node doesn't exist, we can't return information about it
@@ -67,12 +71,13 @@ where
 }
 
 impl Unknown for Z {
-    fn unknown<P>(
-        node: Option<&Node<P, Self>>,
+    fn unknown<P, T>(
+        node: Option<&Node<P, T, Self>>,
         prefix: Prefix,
         known: &Version<P>,
-    ) -> Vec<([u8; 32], Version<P>, Bytes)>
+    ) -> Vec<([u8; 32], Version<P>, Message<T>)>
     where
+        T: Clone,
         P: Clone + Hash + Eq + AsRef<[u8]>,
     {
         // If the node doesn't exist, we can't return information about it

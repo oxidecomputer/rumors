@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use bytes::Bytes;
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use rumors::{Action, Tree, Version};
+use rumors::{Action, Message, Tree, Version};
 
 fn make_values(n: usize) -> Vec<Bytes> {
     (0..n)
@@ -13,8 +13,12 @@ fn make_values(n: usize) -> Vec<Bytes> {
         .collect()
 }
 
-fn make_inserts(values: &[Bytes]) -> Vec<Action> {
-    values.iter().cloned().map(|v| Action::Insert(v)).collect()
+fn make_inserts(values: &[Bytes]) -> Vec<Action<Bytes>> {
+    values
+        .iter()
+        .cloned()
+        .map(|v| Action::Insert(Message::new(v)))
+        .collect()
 }
 
 fn bench_act_insert_batch(c: &mut Criterion) {
@@ -48,10 +52,10 @@ fn bench_act_insert_one_by_one(c: &mut Criterion) {
 
     for n in [1, 10, 100, 1_000, 10_000, 100_000, 1_000_000] {
         let values = make_values(n);
-        let actions: Vec<Vec<Action>> = values
+        let actions: Vec<Vec<Action<Bytes>>> = values
             .iter()
             .cloned()
-            .map(|v| vec![Action::Insert(v)])
+            .map(|v| vec![Action::Insert(Message::new(v))])
             .collect();
 
         group.bench_with_input(BenchmarkId::from_parameter(n), &actions, |b, actions| {

@@ -4,7 +4,7 @@ mod id;
 mod traverse;
 mod typed;
 
-use crate::Version;
+use crate::{Message, Version};
 
 pub use id::Key;
 
@@ -20,33 +20,33 @@ pub use id::Key;
 /// This is resolved at the synchronization protocol level, and is not a concern
 /// of the tree structure.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Tree {
+pub struct Tree<T: Clone> {
     party: Bytes,
     version: Version,
-    root: Option<typed::node::Root>,
+    root: Option<typed::node::Root<Bytes, T>>,
 }
 
 /// An action to perform on the tree, locally.
 #[derive(Clone, Debug)]
-pub enum Action {
+pub enum Action<T> {
     /// Insert some value, tagged at the current version by your own party.
-    Insert(Bytes),
+    Insert(Message<T>),
     /// Delete the value corresponding to a hash.
     Delete(Key),
 }
 
 /// An action to replay on the tree, originating from another party.
 #[derive(Clone, Debug)]
-pub enum Reaction {
+pub enum Reaction<T> {
     /// Insert some value, tagged at a version by the inserting party.
-    Insert(Key, Bytes),
+    Insert(Key, Message<T>),
     /// Delete the value corresponding to a hash.
     Delete(Key),
 }
 
-impl Tree {
+impl<T: Clone> Tree<T> {
     /// Create a new tree which represents the perspective of the given party.
-    pub fn for_party(party: impl AsRef<[u8]>) -> Tree {
+    pub fn for_party(party: impl AsRef<[u8]>) -> Self {
         Tree {
             party: Bytes::copy_from_slice(&blake3::hash(party.as_ref()).as_bytes()[..]),
             version: Version::default(),
@@ -76,7 +76,7 @@ impl Tree {
     }
 
     /// Get all the values stored at a list of hash paths in the tree.
-    pub fn get<I>(&self, paths: I) -> Vec<Bytes>
+    pub fn get<I>(&self, paths: I) -> Vec<Message<T>>
     where
         I: IntoIterator<Item = Key>,
     {
@@ -96,7 +96,7 @@ impl Tree {
 
     /// Get all the values in this tree which are unknown relative to the given
     /// version vector.
-    pub fn unknown(&self, version: Version) -> Vec<(Key, Version, Bytes)> {
+    pub fn unknown(&self, version: Version) -> Vec<(Key, Version, Message<T>)> {
         traverse::unknown(self.root.as_ref(), &version)
             .into_iter()
             .map(|(i, v, b)| (i.into(), v, b))
@@ -119,8 +119,8 @@ impl Tree {
     /// receives a unique incrementing version, tracked internally.
     pub fn act<I, O>(&mut self, i: I, mut o: O)
     where
-        I: IntoIterator<Item = Action>,
-        O: FnMut(&Reaction),
+        I: IntoIterator<Item = Action<T>>,
+        O: FnMut(&Reaction<T>),
     {
         // Get the tree's current version, incrementing the local scalar by one.
         let mut new_version = self.version().clone();
@@ -137,7 +137,8 @@ impl Tree {
             let reaction = match action {
                 Action::Delete(hash) => Reaction::Delete(hash),
                 Action::Insert(value) => Reaction::Insert(
-                    typed::Path::for_leaf(&party, new_version.for_party(&party), &value).into(),
+                    typed::Path::for_leaf(&party, new_version.for_party(&party), value.bytes())
+                        .into(),
                     value,
                 ),
             };
@@ -164,7 +165,7 @@ impl Tree {
     /// base is 256, in practice this is about 2-3x.
     pub fn react<'a, I>(&mut self, i: I)
     where
-        I: IntoIterator<Item = (&'a Version, Reaction)>,
+        I: IntoIterator<Item = (&'a Version, Reaction<T>)>,
     {
         // Convert the specified actions into the action specification required
         // by the inductive traversal of the tree

@@ -1,24 +1,28 @@
 use std::hash::Hash;
 
-use bytes::Bytes;
+use borsh::BorshSerialize;
 use itertools::Itertools;
 
-use crate::Version;
+use crate::{Message, Version};
 
 use super::typed::*;
-use height::{Height, S, Z};
+use height::{Height, Root, S, Z};
 
 /// An action to perform at a particular [`Path`].
-pub enum Action {
+pub enum Action<T> {
     /// Insert a value tagged by a version at a party.
-    Insert(Bytes),
+    Insert(Message<T>),
     /// Delete a value at this path.
     Delete,
 }
 
 /// Perform a sequence of actions (insertions or deletions) on this node.
-pub fn act<P>(node: Option<Node<P>>, actions: Vec<(Path, &Version<P>, Action)>) -> Option<Node<P>>
+pub fn act<P, T>(
+    node: Option<Node<P, T, Root>>,
+    actions: Vec<(Path, &Version<P>, Action<T>)>,
+) -> Option<Node<P, T, Root>>
 where
+    T: Clone,
     P: Clone + Hash + Eq + AsRef<[u8]>,
 {
     Act::act(node, actions)
@@ -27,11 +31,12 @@ where
 // The internal implementation of the traversal as a polymorphic-recursive
 
 pub trait Act: Height {
-    fn act<P>(
-        node: Option<Node<P, Self>>,
-        actions: Vec<(Path<Self>, &Version<P>, Action)>,
-    ) -> Option<Node<P, Self>>
+    fn act<P, T>(
+        node: Option<Node<P, T, Self>>,
+        actions: Vec<(Path<Self>, &Version<P>, Action<T>)>,
+    ) -> Option<Node<P, T, Self>>
     where
+        T: Clone,
         P: Clone + Hash + Eq + AsRef<[u8]>;
 }
 
@@ -39,11 +44,12 @@ impl<H: Act> Act for S<H>
 where
     S<H>: Height,
 {
-    fn act<P>(
-        node: Option<Node<P, S<H>>>,
-        actions: Vec<(Path<Self>, &Version<P>, Action)>,
-    ) -> Option<Node<P, S<H>>>
+    fn act<P, T>(
+        node: Option<Node<P, T, S<H>>>,
+        actions: Vec<(Path<Self>, &Version<P>, Action<T>)>,
+    ) -> Option<Node<P, T, S<H>>>
     where
+        T: Clone,
         P: Clone + Hash + Eq + AsRef<[u8]>,
     {
         // Group the paths by their first element
@@ -94,11 +100,12 @@ where
 }
 
 impl Act for Z {
-    fn act<P>(
-        mut node: Option<Node<P, Z>>,
-        actions: Vec<(Path<Self>, &Version<P>, Action)>,
-    ) -> Option<Node<P, Z>>
+    fn act<P, T>(
+        mut node: Option<Node<P, T, Z>>,
+        actions: Vec<(Path<Self>, &Version<P>, Action<T>)>,
+    ) -> Option<Node<P, T, Z>>
     where
+        T: Clone,
         P: Clone + Hash + Eq + AsRef<[u8]>,
     {
         // Sequentially apply the operations pertaining to this node; the

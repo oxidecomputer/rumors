@@ -67,13 +67,13 @@ impl<T> Message<T> {
     }
 
     /// Get the serialized bytes corresponding to this message.
-    pub fn bytes(&self) -> &[u8] {
+    pub fn as_slice(&self) -> &[u8] {
         self.serialized.as_ref()
     }
 
     /// Get a cheaply-clonable handle to the shared serialized bytes.
-    pub fn shared_bytes(&self) -> Bytes {
-        self.serialized.clone()
+    pub fn bytes(&self) -> &Bytes {
+        &self.serialized
     }
 
     /// Borrow the inner object mutably through a guard that recomputes the

@@ -2,29 +2,27 @@ use std::{hash::Hash, marker::PhantomData, mem};
 
 use imbl::OrdMap;
 
-use bytes::Bytes;
-
-use crate::Version;
+use crate::{Message, Version};
 
 use super::height::{self, Height, S, Z};
 use super::untyped;
 
 /// The typed node with a height of 32; the root of the tree.
-pub type Root<P = Bytes> = Node<P, height::Root>;
+pub type Root<P, T> = Node<P, T, height::Root>;
 
 /// The type of children of a given height.
-pub type Children<P, H> = OrdMap<u8, Node<P, H>>;
+pub type Children<P, T, H> = OrdMap<u8, Node<P, T, H>>;
 
 /// A typed node which enforces the structural validity of the constructed tree
 /// at compile-time.
 #[derive(Clone, Debug)]
 #[repr(transparent)]
-pub struct Node<P: Clone + Eq + Hash + AsRef<[u8]>, H: Height = height::Root> {
+pub struct Node<P: Clone + Eq + Hash + AsRef<[u8]>, T, H: Height> {
     height: PhantomData<H>,
-    inner: untyped::Node<P>,
+    inner: untyped::Node<P, T>,
 }
 
-impl<P: Clone + Eq + Hash + AsRef<[u8]>, H: Height> Node<P, H> {
+impl<P: Clone + Eq + Hash + AsRef<[u8]>, T: Clone, H: Height> Node<P, T, H> {
     /// Get the version of this node.
     pub fn version(&self) -> &Version<P> {
         self.inner.version()
@@ -45,13 +43,13 @@ impl<P: Clone + Eq + Hash + AsRef<[u8]>, H: Height> Node<P, H> {
     }
 }
 
-impl<P: Clone + Eq + Hash + AsRef<[u8]>, H: Height> Node<P, S<H>>
+impl<P: Clone + Eq + Hash + AsRef<[u8]>, T: Clone, H: Height> Node<P, T, S<H>>
 where
     S<H>: Height,
 {
     /// Construct a new branch node from a map of children (inverse to
     /// [`Node::into_children`]).
-    pub fn branch(children: Children<P, H>) -> Option<Self> {
+    pub fn branch(children: Children<P, T, H>) -> Option<Self> {
         // Transmute the map of children from typed nodes with the correct
         // height into untyped nodes.
         //
@@ -67,7 +65,7 @@ where
 
     /// Convert a node into a map from child index to child node (inverse to
     /// [`Node::branch`]).
-    pub fn into_children(self) -> Children<P, H> {
+    pub fn into_children(self) -> Children<P, T, H> {
         // Transmute the map of children into typed nodes with the correct
         // height, to recursively enforce type-safe height.
         //
@@ -77,9 +75,9 @@ where
     }
 }
 
-impl<P: Clone + Eq + Hash + AsRef<[u8]>> Node<P, Z> {
+impl<P: Clone + Eq + Hash + AsRef<[u8]>, T: Clone> Node<P, T, Z> {
     /// Construct a new leaf node.
-    pub fn leaf(version: Version<P>, value: Bytes) -> Self {
+    pub fn leaf(version: Version<P>, value: Message<T>) -> Self {
         Self {
             height: PhantomData,
             inner: untyped::Node::leaf(version, value),
@@ -87,16 +85,18 @@ impl<P: Clone + Eq + Hash + AsRef<[u8]>> Node<P, Z> {
     }
 
     /// Get a reference to the leaf at this node.
-    pub fn value(&self) -> &Bytes {
+    pub fn value(&self) -> &Message<T> {
         self.inner
             .as_leaf()
             .expect("typed leaf failed to be a leaf")
     }
 }
 
-impl<P: Clone + Eq + Hash + AsRef<[u8]>, H: Height> Eq for Node<P, H> {}
+impl<P: Clone + Eq + Hash + AsRef<[u8]>, T: Clone + Eq, H: Height> Eq for Node<P, T, H> {}
 
-impl<P: Clone + Eq + Hash + AsRef<[u8]>, H: Height> PartialEq for Node<P, H> {
+impl<P: Clone + Eq + Hash + AsRef<[u8]>, T: Clone + PartialEq, H: Height> PartialEq
+    for Node<P, T, H>
+{
     fn eq(&self, other: &Self) -> bool {
         self.inner == other.inner
     }

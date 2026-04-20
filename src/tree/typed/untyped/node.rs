@@ -5,16 +5,16 @@ use std::sync::Arc;
 use bytes::Bytes;
 use imbl::OrdMap;
 
-use crate::Version;
 use crate::cached::Cached;
+use crate::{Message, Version};
 
 #[derive(Clone, Debug)]
-pub struct Node<P: Hash + Eq + AsRef<[u8]>> {
-    inner: Arc<NodeInner<P>>,
+pub struct Node<P: Hash + Eq + AsRef<[u8]>, T> {
+    inner: Arc<NodeInner<P, T>>,
 }
 
 #[derive(Clone, Debug)]
-struct NodeInner<P: Hash + Eq + AsRef<[u8]>> {
+struct NodeInner<P: Hash + Eq + AsRef<[u8]>, T> {
     /// Compressed path above this node's own branching level, stored with the
     /// deepest byte at index 0 and the shallowest byte at the last index. An
     /// empty prefix means the node is not path-compressed above its level.
@@ -25,23 +25,23 @@ struct NodeInner<P: Hash + Eq + AsRef<[u8]>> {
     /// The maximal version of any child of this node.
     version: Version<P>,
     /// The children of this node: either a leaf, or a branch point.
-    children: Children<P>,
+    children: Children<P, T>,
 }
 
 /// The children of a node.
 #[derive(Clone, Debug)]
-enum Children<P: Hash + Eq + AsRef<[u8]>> {
+enum Children<P: Hash + Eq + AsRef<[u8]>, T> {
     /// A direct leaf, at the true bottom of the tree.
-    Leaf(Bytes),
+    Leaf(Message<T>),
     /// A materialized branch point, with the invariant that there are always >=
     /// 2 branches (or else they should be path-compressed away).
-    Branch(OrdMap<u8, Node<P>>),
+    Branch(OrdMap<u8, Node<P, T>>),
 }
 
-impl<P: Hash + Eq + Clone + AsRef<[u8]>> Node<P> {
+impl<P: Hash + Eq + Clone + AsRef<[u8]>, T: Clone> Node<P, T> {
     /// Construct a new branch node from a list of children with distinct
     /// indices (inverse to [`Node::into_children`]).
-    pub fn branch(children: OrdMap<u8, Node<P>>) -> Option<Self> {
+    pub fn branch(children: OrdMap<u8, Node<P, T>>) -> Option<Self> {
         match children.len() {
             0 => None,
             1 => {
@@ -65,7 +65,7 @@ impl<P: Hash + Eq + Clone + AsRef<[u8]>> Node<P> {
     /// [`Node::branch`]).
     ///
     /// If `self` is a leaf node, returns `Err(self)`.
-    pub fn into_children(mut self) -> Result<OrdMap<u8, Node<P>>, Node<P>> {
+    pub fn into_children(mut self) -> Result<OrdMap<u8, Node<P, T>>, Node<P, T>> {
         if !self.inner.prefix.is_empty() {
             // Path-compressed: pop the top byte and rewrap self under
             // it. The caller observes self with a shortened prefix,
@@ -92,7 +92,7 @@ impl<P: Hash + Eq + Clone + AsRef<[u8]>> Node<P> {
     }
 
     /// Construct a new leaf node.
-    pub fn leaf(version: Version<P>, value: Bytes) -> Self {
+    pub fn leaf(version: Version<P>, value: Message<T>) -> Self {
         Node {
             inner: Arc::new(NodeInner {
                 prefix: Vec::new(),
@@ -104,7 +104,7 @@ impl<P: Hash + Eq + Clone + AsRef<[u8]>> Node<P> {
     }
 
     /// Get a reference to the leaf at this node, if it is a leaf.
-    pub fn as_leaf(&self) -> Option<&Bytes> {
+    pub fn as_leaf(&self) -> Option<&Message<T>> {
         match &self.inner.children {
             Children::Leaf(leaf) => Some(leaf),
             _ => None,
@@ -155,7 +155,7 @@ impl<P: Hash + Eq + Clone + AsRef<[u8]>> Node<P> {
     }
 
     /// Place a node beneath the given child index, increasing its height by one.
-    fn beneath(mut self, index: u8) -> Node<P> {
+    fn beneath(mut self, index: u8) -> Node<P, T> {
         let inner = Arc::make_mut(&mut self.inner);
         inner.hash.invalidate();
         inner.prefix.push(index);
@@ -177,9 +177,9 @@ impl<P: Hash + Eq + Clone + AsRef<[u8]>> Node<P> {
     }
 }
 
-impl<P: Hash + Eq + Clone + AsRef<[u8]>> Eq for Node<P> {}
+impl<P: Hash + Eq + Clone + AsRef<[u8]>, T: Clone> Eq for Node<P, T> {}
 
-impl<P: Hash + Eq + Clone + AsRef<[u8]>> PartialEq for Node<P> {
+impl<P: Hash + Eq + Clone + AsRef<[u8]>, T: Clone> PartialEq for Node<P, T> {
     fn eq(&self, other: &Self) -> bool {
         self.hash() == other.hash()
     }
