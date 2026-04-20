@@ -97,10 +97,10 @@ impl<T: Clone> Tree<T> {
 
     /// Get all the values in this tree which are unknown relative to the given
     /// version vector.
-    pub fn unknown(&self, version: Version) -> Vec<(Key, Version, Message<T>)> {
+    pub fn unknown(&self, version: Version) -> Vec<(Version, Key, Message<T>)> {
         traverse::unknown(self.root.as_ref(), &version)
             .into_iter()
-            .map(|(i, v, b)| (i.into(), v, b))
+            .map(|(v, i, b)| (v, i.into(), b))
             .collect()
     }
 
@@ -150,7 +150,7 @@ impl<T: Clone> Tree<T> {
                 ),
             };
             o(&new_version, &reaction);
-            (&new_version, reaction)
+            (new_version.clone(), reaction)
         });
         self.react(reactions);
     }
@@ -172,7 +172,7 @@ impl<T: Clone> Tree<T> {
     /// base is 256, in practice this is about 2-3x.
     pub fn react<'a, I>(&mut self, i: I)
     where
-        I: IntoIterator<Item = (&'a Version, Reaction<T>)>,
+        I: IntoIterator<Item = (Version, Reaction<T>)>,
     {
         // Convert the specified actions into the action specification required
         // by the inductive traversal of the tree

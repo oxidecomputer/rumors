@@ -104,13 +104,13 @@ fn sync_via_unknown(a: &mut Tree<Bytes>, b: &mut Tree<Bytes>) {
     let from_b = b.unknown(v_a);
     a.react(
         from_b
-            .iter()
-            .map(|(path, v, value)| (v, Reaction::Insert(*path, value.clone()))),
+            .into_iter()
+            .map(|(v, path, value)| (v, Reaction::Insert(path, value.clone()))),
     );
     b.react(
         from_a
-            .iter()
-            .map(|(path, v, value)| (v, Reaction::Insert(*path, value.clone()))),
+            .into_iter()
+            .map(|(v, path, value)| (v, Reaction::Insert(path, value.clone()))),
     );
 }
 
@@ -276,7 +276,7 @@ proptest! {
             bytes
                 .iter()
                 .cloned()
-                .map(|b| (&version, insert_at(&party, 1, b))),
+                .map(|b| (version.clone(), insert_at(&party, 1, b))),
         );
 
         let mut partitioned = Tree::for_party(party.clone());
@@ -288,7 +288,7 @@ proptest! {
             if at_boundary {
                 let batch: Vec<_> = std::mem::take(&mut chunk)
                     .into_iter()
-                    .map(|b| (&version, insert_at(&party, 1, b)))
+                    .map(|b| (version.clone(), insert_at(&party, 1, b)))
                     .collect();
                 partitioned.react(batch);
             }
@@ -319,7 +319,7 @@ proptest! {
         let mut t_react = Tree::for_party(party.clone());
         t_react.react(
             versions
-                .iter()
+                .into_iter()
                 .zip(bytes.iter().cloned())
                 .enumerate()
                 .map(|(i, (v, b))| (v, insert_at(&party, (i + 1) as u64, b))),
@@ -539,7 +539,7 @@ proptest! {
         // not tree mutation.
         tree.react(
             versions
-                .iter()
+                .into_iter()
                 .enumerate()
                 .map(|(i, v)| (v, Reaction::Delete([i as u8; 32].into()))),
         );
@@ -565,18 +565,18 @@ proptest! {
 
         let mut t_ab = Tree::for_party(party.clone());
         t_ab.react(
-            bytes_a.iter().cloned().map(|b| (&v_a, insert_at(&party, 1, b))),
+            bytes_a.iter().cloned().map(|b| (v_a.clone(), insert_at(&party, 1, b))),
         );
         t_ab.react(
-            bytes_b.iter().cloned().map(|b| (&v_b, insert_at(&party, 2, b))),
+            bytes_b.iter().cloned().map(|b| (v_b.clone(), insert_at(&party, 2, b))),
         );
 
         let mut t_ba = Tree::for_party(party.clone());
         t_ba.react(
-            bytes_b.iter().cloned().map(|b| (&v_b, insert_at(&party, 2, b))),
+            bytes_b.iter().cloned().map(|b| (v_b.clone(), insert_at(&party, 2, b))),
         );
         t_ba.react(
-            bytes_a.iter().cloned().map(|b| (&v_a, insert_at(&party, 1, b))),
+            bytes_a.iter().cloned().map(|b| (v_a.clone(), insert_at(&party, 1, b))),
         );
 
         prop_assert_eq!(t_ab, t_ba);
@@ -592,15 +592,15 @@ proptest! {
 
         let mut t_once = Tree::for_party(party.clone());
         t_once.react(
-            bytes.iter().cloned().map(|b| (&v, insert_at(&party, 1, b))),
+            bytes.iter().cloned().map(|b| (v.clone(), insert_at(&party, 1, b))),
         );
 
         let mut t_twice = Tree::for_party(party.clone());
         t_twice.react(
-            bytes.iter().cloned().map(|b| (&v, insert_at(&party, 1, b))),
+            bytes.iter().cloned().map(|b| (v.clone(), insert_at(&party, 1, b))),
         );
         t_twice.react(
-            bytes.iter().cloned().map(|b| (&v, insert_at(&party, 1, b))),
+            bytes.iter().cloned().map(|b| (v.clone(), insert_at(&party, 1, b))),
         );
 
         prop_assert_eq!(t_once, t_twice);
@@ -632,13 +632,13 @@ proptest! {
         let mut t_base = Tree::for_party(party.clone());
         t_base.react(base.iter().cloned().map(|b| {
             let (v, scalar) = meta_by_value.get(&b).unwrap();
-            (v, insert_at(&party, *scalar, b))
+            (v.clone(), insert_at(&party, *scalar, b))
         }));
 
         let mut t_shuf = Tree::for_party(party.clone());
         t_shuf.react(shuffled.iter().cloned().map(|b| {
             let (v, scalar) = meta_by_value.get(&b).unwrap();
-            (v, insert_at(&party, *scalar, b))
+            (v.clone(), insert_at(&party, *scalar, b))
         }));
 
         prop_assert_eq!(t_base, t_shuf);
@@ -683,8 +683,8 @@ proptest! {
             b_events.push((recorded, insert_at(&b_id, scalar, value.clone())));
         }
 
-        tree_a.react(b_events.iter().map(|(v, r)| (v, r.clone())));
-        tree_b.react(a_events.iter().map(|(v, r)| (v, r.clone())));
+        tree_a.react(b_events.iter().map(|(v, r)| (v.clone(), r.clone())));
+        tree_b.react(a_events.iter().map(|(v, r)| (v.clone(), r.clone())));
 
         prop_assert_eq!(tree_a.version(), tree_b.version());
         prop_assert_eq!(tree_a.hash(), tree_b.hash());
@@ -713,7 +713,7 @@ proptest! {
             versions
                 .iter()
                 .enumerate()
-                .map(|(i, v)| (v, Reaction::Delete([i as u8; 32].into()))),
+                .map(|(i, v)| (v.clone(), Reaction::Delete([i as u8; 32].into()))),
         );
         prop_assert_eq!(tree.party(), &hashed);
     }
@@ -796,14 +796,14 @@ proptest! {
         let got = tree.unknown(Version::default());
         let v1 = version_for(&party, 1);
 
-        let got_paths: BTreeSet<Key> = got.iter().map(|(p, _, _)| *p).collect();
+        let got_paths: BTreeSet<Key> = got.iter().map(|(_, p, _)| *p).collect();
         let expected_paths: BTreeSet<Key> = bytes
             .iter()
             .map(|b| leaf_path(&party, 1, b))
             .collect();
         prop_assert_eq!(got_paths, expected_paths);
 
-        for (_, v, _) in &got {
+        for (v, _, _) in &got {
             prop_assert_eq!(v, &v1);
         }
 
@@ -892,7 +892,7 @@ proptest! {
         tree_b.react(
             from_a
                 .iter()
-                .map(|(path, v, value)| (v, Reaction::Insert(*path, value.clone()))),
+                .map(|(v, path, value)| (v.clone(), Reaction::Insert(*path, value.clone()))),
         );
 
         prop_assert!(tree_b.version() >= tree_a.version());
@@ -1079,7 +1079,7 @@ proptest! {
         let version = version_for(&party, scalar);
 
         let mut replay = Tree::for_party(party.clone());
-        replay.react(captured.iter().map(|r| (&version, r.clone())));
+        replay.react(captured.iter().map(|r| (version.clone(), r.clone())));
 
         prop_assert_eq!(original, replay);
     }

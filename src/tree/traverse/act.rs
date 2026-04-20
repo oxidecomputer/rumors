@@ -16,7 +16,7 @@ pub enum Action<T> {
 /// Perform a sequence of actions (insertions or deletions) on this node.
 pub fn act<P, T>(
     node: Option<Node<P, T, Root>>,
-    actions: Vec<(Path, &Version<P>, Action<T>)>,
+    actions: Vec<(Path, Version<P>, Action<T>)>,
 ) -> Option<Node<P, T, Root>>
 where
     T: Clone,
@@ -30,7 +30,7 @@ where
 pub trait Act: Height {
     fn act<P, T>(
         node: Option<Node<P, T, Self>>,
-        actions: Vec<(Path<Self>, &Version<P>, Action<T>)>,
+        actions: Vec<(Path<Self>, Version<P>, Action<T>)>,
     ) -> Option<Node<P, T, Self>>
     where
         T: Clone,
@@ -43,7 +43,7 @@ where
 {
     fn act<P, T>(
         node: Option<Node<P, T, S<H>>>,
-        actions: Vec<(Path<Self>, &Version<P>, Action<T>)>,
+        actions: Vec<(Path<Self>, Version<P>, Action<T>)>,
     ) -> Option<Node<P, T, S<H>>>
     where
         T: Clone,
@@ -99,7 +99,7 @@ where
 impl Act for Z {
     fn act<P, T>(
         mut node: Option<Node<P, T, Z>>,
-        actions: Vec<(Path<Self>, &Version<P>, Action<T>)>,
+        actions: Vec<(Path<Self>, Version<P>, Action<T>)>,
     ) -> Option<Node<P, T, Z>>
     where
         T: Clone,
@@ -111,8 +111,8 @@ impl Act for Z {
         for (_, version, action) in actions {
             // Skip updates that are strictly causally prior to the current
             // version at this node
-            if version
-                < node
+            if &version
+                < &node
                     .as_ref()
                     .map(|n| n.version())
                     .unwrap_or(&Version::default())

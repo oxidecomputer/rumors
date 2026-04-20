@@ -14,7 +14,7 @@ use prefix::Prefix;
 pub fn unknown<P, T>(
     node: Option<&Node<P, T, Root>>,
     known: &Version<P>,
-) -> Vec<([u8; 32], Version<P>, Message<T>)>
+) -> Vec<(Version<P>, [u8; 32], Message<T>)>
 where
     T: Clone,
     P: Clone + Ord + AsRef<[u8]>,
@@ -27,7 +27,7 @@ pub trait Unknown: Height {
         node: Option<&Node<P, T, Self>>,
         prefix: Prefix<Self>,
         known: &Version<P>,
-    ) -> Vec<([u8; 32], Version<P>, Message<T>)>
+    ) -> Vec<(Version<P>, [u8; 32], Message<T>)>
     where
         T: Clone,
         P: Clone + Ord + AsRef<[u8]>;
@@ -41,7 +41,7 @@ where
         node: Option<&Node<P, T, Self>>,
         prefix: Prefix<Self>,
         known: &Version<P>,
-    ) -> Vec<([u8; 32], Version<P>, Message<T>)>
+    ) -> Vec<(Version<P>, [u8; 32], Message<T>)>
     where
         T: Clone,
         P: Clone + Ord + AsRef<[u8]>,
@@ -73,7 +73,7 @@ impl Unknown for Z {
         node: Option<&Node<P, T, Self>>,
         prefix: Prefix,
         known: &Version<P>,
-    ) -> Vec<([u8; 32], Version<P>, Message<T>)>
+    ) -> Vec<(Version<P>, [u8; 32], Message<T>)>
     where
         T: Clone,
         P: Clone + Ord + AsRef<[u8]>,
@@ -91,8 +91,8 @@ impl Unknown for Z {
 
         // Otherwise, the node is causally unknown, so return its information
         vec![(
-            Path::from(prefix).into(),
             node.version().clone(),
+            Path::from(prefix).into(),
             node.value().clone(),
         )]
     }
