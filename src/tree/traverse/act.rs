@@ -10,7 +10,7 @@ pub enum Action<T> {
     /// Insert a value tagged by a version at a party.
     Insert(Message<T>),
     /// Delete a value at this path.
-    Delete,
+    Forget,
 }
 
 /// Perform a sequence of actions (insertions or deletions) on this node.
@@ -79,7 +79,7 @@ where
                 if existing_child.is_none()
                     && actions
                         .iter()
-                        .all(|(_, _, action)| matches!(action, Action::Delete))
+                        .all(|(_, _, action)| matches!(action, Action::Forget))
                 {
                     return None;
                 }
@@ -121,7 +121,7 @@ impl Act for Z {
             }
 
             node = match action {
-                Action::Delete => None,
+                Action::Forget => None,
                 Action::Insert(value) => Some(Node::leaf(version.clone(), value)),
             };
         }

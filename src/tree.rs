@@ -24,7 +24,7 @@ pub use key::Key;
 pub struct Tree<T: Clone> {
     party: Bytes,
     version: Version,
-    deleted: Version,
+    forgotten: Version,
     root: Option<typed::node::Root<Bytes, T>>,
 }
 
@@ -43,7 +43,7 @@ impl<T: Clone> Tree<T> {
         Tree {
             party: Bytes::copy_from_slice(&blake3::hash(party.as_ref()).as_bytes()[..]),
             version: Version::default(),
-            deleted: Version::default(),
+            forgotten: Version::default(),
             root: None,
         }
     }
@@ -53,10 +53,10 @@ impl<T: Clone> Tree<T> {
         self.version.clone()
     }
 
-    /// Get the *deleted* version for the tree (the version vector for all
-    /// deletion operations applied to it).
-    pub fn deleted(&self) -> Version {
-        self.deleted.clone()
+    /// Get the *forgotten* version for the tree (the version vector for all
+    /// [`Action::Forget`] operations applied to it, by any party).
+    pub fn forgotten(&self) -> Version {
+        self.forgotten.clone()
     }
 
     /// Get the pre-hashed local party identifier this tree was created for.
@@ -111,8 +111,8 @@ impl<T: Clone> Tree<T> {
     ///
     /// Upon insertion or deletion, the corresponding [`Reaction`] to the
     /// specified [`Action`] is provided to the given closure, so that the
-    /// caller can (at their discretion) inspect the items inserted/deleted from
-    /// the tree. These [`Reaction`]s can be replayed on another tree using
+    /// caller can (at their discretion) inspect the items inserted/forgotten
+    /// from the tree. These [`Reaction`]s can be replayed on another tree using
     /// [`Tree::react`] to identical effect.
     ///
     /// It is more efficient to apply a batch of actions all at once, compared
@@ -156,7 +156,8 @@ impl<T: Clone> Tree<T> {
 
     /// Apply the specified *versioned* actions as a batch to the tree without
     /// incrementing its internal version vector. In the specified iterator,
-    /// `Some(message)` indicates an insert, and `None` indicates a delete.
+    /// `Some(message)` indicates an insert, and `None` indicates that the key
+    /// should be forgotten.
     ///
     /// If multiple actions refer to the same leaf of the tree, the causally
     /// latest action wins, with order of specification breaking concurrency and
@@ -180,13 +181,13 @@ impl<T: Clone> Tree<T> {
         let actions = i
             .into_iter()
             .map(|(version, key, message)| {
-                // Join the version on all operations: delete and insert
+                // Join the version on all operations: forget and insert
                 self.version |= version.clone();
                 match message.into() {
                     None => {
-                        // Only join the deleted version on delete operations
-                        self.deleted |= version.clone();
-                        (typed::Path::from(key), version, traverse::Action::Delete)
+                        // Only join the forgotten version on forget operations
+                        self.forgotten |= version.clone();
+                        (typed::Path::from(key), version, traverse::Action::Forget)
                     }
                     Some(value) => (
                         typed::Path::from(key),
