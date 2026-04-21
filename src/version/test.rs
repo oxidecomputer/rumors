@@ -62,6 +62,16 @@ fn bitor_assign_takes_max() {
     assert_eq!(a, expected);
 }
 
+/// Serializing a `Version<()>` fails fast: zero-sized party keys would let a
+/// tiny payload inflate into a giant collection on deserialize, so borsh
+/// forbids them for `BTreeMap` and we match that guarantee here.
+#[test]
+fn borsh_rejects_unit_party_on_serialize() {
+    let v = Version::<()>::default();
+    let err = borsh::to_vec(&v).expect_err("serializing ZST-keyed Version must fail");
+    assert_eq!(err.kind(), borsh::io::ErrorKind::InvalidData);
+}
+
 fn arb_version() -> impl Strategy<Value = Version<u8>> {
     prop::collection::vec((any::<u8>(), 0u64..=4), 0..8).prop_map(|pairs| {
         let mut v = Version::<u8>::default();
@@ -199,6 +209,48 @@ proptest! {
             borsh::to_vec(&canonical).expect("serialize"),
             borsh::to_vec(&shuffled).expect("serialize"),
         );
+    }
+
+    /// The ZST guard fires on both ends: a `Version` keyed by a zero-sized
+    /// type refuses to serialize or deserialize, matching borsh's own
+    /// `BTreeMap` behavior.
+    #[test]
+    fn borsh_rejects_zst_keys(dummy in any::<u8>()) {
+        let _ = dummy;
+        let v = Version::<()>::default();
+        prop_assert!(borsh::to_vec(&v).is_err());
+        // Any byte sequence must be rejected; a length-zero prefix is the
+        // least suspicious candidate and still has to fail.
+        let bytes = 0u32.to_le_bytes();
+        prop_assert!(borsh::from_slice::<Version<()>>(&bytes).is_err());
+    }
+
+    /// Wire format matches `BTreeMap<P, u64>`: for the same set of entries,
+    /// `Version` serializes to the exact same bytes borsh would produce for a
+    /// `BTreeMap`, and the bytes round-trip through both impls.
+    #[test]
+    fn borsh_matches_btreemap(
+        entries in prop::collection::vec((any::<u64>(), any::<u64>()), 0..16),
+    ) {
+        use std::collections::BTreeMap;
+        let mut map = BTreeMap::<u64, u64>::new();
+        for (p, s) in &entries { map.insert(*p, *s); }
+        let version: Version<u64> = map.iter().fold(
+            Version::default(),
+            |mut v, (p, s)| { v.versions.insert(*p, *s); v },
+        );
+
+        let version_bytes = borsh::to_vec(&version).expect("serialize Version");
+        let map_bytes = borsh::to_vec(&map).expect("serialize BTreeMap");
+        prop_assert_eq!(&version_bytes, &map_bytes);
+
+        // Cross-deserialize: each impl accepts the other's output.
+        let from_map: Version<u64> =
+            borsh::from_slice(&map_bytes).expect("Version from BTreeMap bytes");
+        let from_version: BTreeMap<u64, u64> =
+            borsh::from_slice(&version_bytes).expect("BTreeMap from Version bytes");
+        prop_assert_eq!(from_map, version);
+        prop_assert_eq!(from_version, map);
     }
 
     /// Deserialization rejects non-canonical wire forms: entries that are

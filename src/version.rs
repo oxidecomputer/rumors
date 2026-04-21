@@ -114,6 +114,20 @@ impl<P: Ord + Clone> From<(P, u64)> for Version<P> {
     }
 }
 
+/// Matches borsh's own guard against zero-sized keys: deserializing a
+/// `u32`-prefixed run of ZST entries would let a tiny payload allocate an
+/// enormous collection. Mirrors `borsh::error::check_zst`, which is private,
+/// so `Version` keeps parity with `BTreeMap`'s impl.
+fn check_zst<T>() -> borsh::io::Result<()> {
+    if mem::size_of::<T>() == 0 {
+        return Err(borsh::io::Error::new(
+            borsh::io::ErrorKind::InvalidData,
+            "Collections of zero-sized types are not allowed due to deny-of-service concerns on deserialization.",
+        ));
+    }
+    Ok(())
+}
+
 /// Canonical, bijective borsh encoding. Entries are emitted as a
 /// length-prefixed run sorted by party in strictly-ascending order, so every
 /// `Version<P>` value has exactly one valid serialization: the backing `OrdMap`
@@ -121,6 +135,7 @@ impl<P: Ord + Clone> From<(P, u64)> for Version<P> {
 /// are rejected on deserialization.
 impl<P: Ord + BorshSerialize> BorshSerialize for Version<P> {
     fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
+        check_zst::<P>()?;
         let len: u32 = self.versions.len().try_into().map_err(|_| {
             borsh::io::Error::new(
                 borsh::io::ErrorKind::InvalidData,
@@ -138,6 +153,7 @@ impl<P: Ord + BorshSerialize> BorshSerialize for Version<P> {
 
 impl<P: Ord + Clone + BorshDeserialize> BorshDeserialize for Version<P> {
     fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
+        check_zst::<P>()?;
         let len = u32::deserialize_reader(reader)?;
         let mut versions = OrdMap::new();
         let mut prev: Option<P> = None;
