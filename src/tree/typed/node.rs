@@ -30,14 +30,14 @@ impl<P: Clone + Ord + AsRef<[u8]>, T: Clone, H: Height> Node<P, T, H> {
 
     /// Hash the subtree rooted at this node.
     ///
-    /// Hashes are lazily computed and cached until the tree structure changes
-    /// to invalidate them.
+    /// Hashes are computed eagerly at node construction and stored, so this
+    /// is an O(1) field read.
     ///
     /// The hashing convention: a leaf's "hash" is the distinguished sentinel
     /// `[0xff; 32]`, a branch's is the hash of 256 concatenated child hashes
-    /// (with `[0x00; 32]` in empty slots). Hashing should not depend on path
-    /// compression; we ensure this by hashing "virtual" nodes as we traverse up
-    /// a compressed path.
+    /// (with `[0x00; 32]` in empty slots). Hashing does not depend on path
+    /// compression: a one-child branch and a node path-compressed by one byte
+    /// produce identical hashes.
     pub fn hash(&self) -> blake3::Hash {
         self.inner.hash()
     }
@@ -94,9 +94,7 @@ impl<P: Clone + Ord + AsRef<[u8]>, T: Clone> Node<P, T, Z> {
 
 impl<P: Clone + Ord + AsRef<[u8]>, T: Clone + Eq, H: Height> Eq for Node<P, T, H> {}
 
-impl<P: Clone + Ord + AsRef<[u8]>, T: Clone + PartialEq, H: Height> PartialEq
-    for Node<P, T, H>
-{
+impl<P: Clone + Ord + AsRef<[u8]>, T: Clone + PartialEq, H: Height> PartialEq for Node<P, T, H> {
     fn eq(&self, other: &Self) -> bool {
         self.inner == other.inner
     }

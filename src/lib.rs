@@ -1,4 +1,3 @@
-mod cached;
 mod message;
 mod tree;
 mod version;
