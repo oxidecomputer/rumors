@@ -66,13 +66,18 @@ where
     }
 }
 
-/// Recursively clear the cached hash at every node in the tree. After this
-/// runs, `hash()` must recompute from scratch; comparing the pre-clear and
-/// post-clear results is how we catch hash-invalidation bugs. Uses private
+/// Recursively clear every cached hash in the tree: the children-level hash
+/// at each node, and every intermediate prefix-level hash along compressed
+/// paths. After this runs, `hash()` must recompute from scratch; comparing
+/// the pre-clear and post-clear results is how we catch hash-invalidation
+/// bugs (including stale intermediate caches along a prefix). Uses private
 /// field access (only available to test code in this child module).
 fn clear_hash_cache<P: Ord + Clone + AsRef<[u8]>>(node: &mut Node<P, ()>) {
     let inner = Arc::make_mut(&mut node.inner);
-    inner.hash.invalidate();
+    inner.children_hash.invalidate();
+    for (_, cached) in &mut inner.prefix {
+        cached.invalidate();
+    }
     if let Children::Branch(branch) = &mut inner.children {
         // Collect keys first so the iteration doesn't alias `branch.children`
         // while we recurse through `get_mut`.
@@ -263,6 +268,96 @@ proptest! {
         let rebuilt = Node::branch(children).expect("children map is non-empty");
         prop_assert_eq!(rebuilt.hash(), hash_before);
         prop_assert_eq!(rebuilt.version(), &version_before);
+    }
+
+    /// Wrapping a child in N nested singleton branches accumulates an
+    /// N-byte compressed prefix above it. The observable hash must equal
+    /// the result of N successive virtual-branch wraps of the child's
+    /// hash, and every traversal of that prefix — first-call (cold cache,
+    /// populates intermediates), repeat-call (hot cache hits at every
+    /// level), and post-clear (re-populates intermediates from scratch) —
+    /// must return the exact same value. Targets the intermediate
+    /// prefix-cache populate-and-reuse path that doesn't fire when prefix
+    /// length is at most 1.
+    #[test]
+    fn nested_singleton_wraps_match_repeated_virtual_branch_hash(
+        indices in vec(any::<u8>(), 2..=8),
+        child in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree::<String>(d, TREE_LEAF_BUDGET)),
+    ) {
+        let mut expected = child.hash();
+        for &index in &indices {
+            let mut buf = [0u8; 256 * 32];
+            buf[index as usize * 32..][..32].copy_from_slice(expected.as_bytes());
+            expected = blake3::hash(&buf);
+        }
+
+        let mut wrapped = child;
+        for &index in &indices {
+            wrapped = Node::branch(OrdMap::from_iter([(index, wrapped)]))
+                .expect("one-child branch is non-empty");
+        }
+
+        // Cold-cache traversal: every prefix entry's intermediate cache
+        // is empty, so each level computes-and-populates.
+        prop_assert_eq!(wrapped.hash(), expected);
+        // Hot-cache traversal: every prefix entry's intermediate cache
+        // is populated, so each level should be a clean read.
+        prop_assert_eq!(wrapped.hash(), expected);
+        // Post-clear traversal: reset every cache (children-level and
+        // every intermediate) and recompute from scratch. If any cache
+        // were storing the wrong intermediate value or were re-used
+        // without proper invalidation, this would diverge.
+        let mut cleared = wrapped.clone();
+        clear_hash_cache(&mut cleared);
+        prop_assert_eq!(cleared.hash(), expected);
+    }
+
+    /// Popping the topmost compressed-prefix byte (via `into_children`)
+    /// must produce a node whose hash matches a freshly-built node with
+    /// the same children and the shortened prefix. With intermediate
+    /// hash caching, the surviving prefix entries' caches must remain
+    /// valid across the pop: their byte sequence and the children
+    /// underneath are unchanged. If any surviving intermediate were
+    /// stale, the recomputed top hash would diverge from the reference.
+    #[test]
+    fn pop_top_byte_preserves_intermediate_cache_validity(
+        indices in btree_set(any::<u8>(), 2..=8),
+        child in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree::<String>(d, TREE_LEAF_BUDGET)),
+    ) {
+        let indices: Vec<u8> = indices.into_iter().collect();
+
+        // Build the wrapped node and force every intermediate cache to
+        // populate by computing the hash once.
+        let mut wrapped = child.clone();
+        for &index in &indices {
+            wrapped = Node::branch(OrdMap::from_iter([(index, wrapped)]))
+                .expect("one-child branch is non-empty");
+        }
+        let _ = wrapped.hash();
+
+        // Pop the topmost byte. The returned map has exactly one entry
+        // because `wrapped` was a singleton-branch chain; the entry's
+        // key is the popped byte and its value is the same node with a
+        // one-shorter prefix and intermediate caches still populated.
+        let mut popped_children = wrapped.into_children().expect("non-empty");
+        prop_assert_eq!(popped_children.len(), 1);
+        let (popped_byte, popped) = popped_children
+            .iter()
+            .next()
+            .map(|(k, v)| (*k, v.clone()))
+            .expect("singleton");
+        popped_children.remove(&popped_byte);
+        prop_assert_eq!(popped_byte, *indices.last().expect("non-empty indices"));
+
+        // Build a reference node with the same children but the shortened
+        // prefix from scratch (no shared cache state).
+        let mut reference = child;
+        for &index in &indices[..indices.len() - 1] {
+            reference = Node::branch(OrdMap::from_iter([(index, reference)]))
+                .expect("one-child branch is non-empty");
+        }
+
+        prop_assert_eq!(popped.hash(), reference.hash());
     }
 
     /// A one-child branch at index `i` hashes as a "virtual" 256-slot
