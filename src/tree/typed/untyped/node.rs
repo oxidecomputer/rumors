@@ -46,15 +46,6 @@ enum Children<P: Ord + AsRef<[u8]>, T> {
 /// hash as `[0x00; 32]`, the natural zero-init of the staging buffer.
 const LEAF_SENTINEL: [u8; 32] = [0xff; 32];
 
-/// Wrap a child-level hash into the level produced by sitting in slot `index`
-/// of an otherwise-empty 256-slot virtual branch. Used both for path
-/// compression and (with the empty-slot fill) for materialized branches.
-fn wrap(child: &blake3::Hash, index: u8) -> blake3::Hash {
-    let mut buf = [0u8; 256 * 32];
-    buf[index as usize * 32..][..32].copy_from_slice(child.as_bytes());
-    blake3::hash(&buf)
-}
-
 impl<P: Ord + Clone + AsRef<[u8]>, T: Clone> Node<P, T> {
     /// Construct a new branch node from a list of children with distinct
     /// indices (inverse to [`Node::into_children`]).
@@ -161,7 +152,9 @@ impl<P: Ord + Clone + AsRef<[u8]>, T: Clone> Node<P, T> {
     /// one. Eagerly computes the new top-of-prefix hash by wrapping the old
     /// observable hash through one virtual-branch level.
     fn beneath(mut self, index: u8) -> Node<P, T> {
-        let new_top = wrap(&self.hash(), index);
+        let mut buf = [0u8; 256 * 32];
+        buf[index as usize * 32..][..32].copy_from_slice(self.hash().as_bytes());
+        let new_top = blake3::hash(&buf);
         let inner = Arc::make_mut(&mut self.inner);
         inner.prefix.push((index, new_top));
         self
