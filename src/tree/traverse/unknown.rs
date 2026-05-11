@@ -1,4 +1,4 @@
-use crate::{Message, Version};
+use crate::{Key, Message, Version};
 
 use super::typed::*;
 use height::{Height, Root, S, Z};
@@ -12,22 +12,24 @@ use prefix::Prefix;
 /// counterparty who has this version vector, so that their tree will become a
 /// (non-strict) superset of yours.
 pub fn unknown<P, T>(
-    node: Option<&Node<P, T, Root>>,
+    node: Option<Node<P, T, Root>>,
     known: &Version<P>,
-) -> Vec<(Version<P>, [u8; 32], Message<T>)>
+    with_unknown: &mut impl FnMut(&Version<P>, Key, &Message<T>),
+) -> Option<Node<P, T, Root>>
 where
     T: Clone,
     P: Clone + Ord + AsRef<[u8]>,
 {
-    Unknown::unknown(node, Prefix::new(), known)
+    Unknown::unknown(node, Prefix::new(), known, with_unknown)
 }
 
 pub trait Unknown: Height {
     fn unknown<P, T>(
-        node: Option<&Node<P, T, Self>>,
+        node: Option<Node<P, T, Self>>,
         prefix: Prefix<Self>,
         known: &Version<P>,
-    ) -> Vec<(Version<P>, [u8; 32], Message<T>)>
+        with_unknown: &mut impl FnMut(&Version<P>, Key, &Message<T>),
+    ) -> Option<Node<P, T, Self>>
     where
         T: Clone,
         P: Clone + Ord + AsRef<[u8]>;
@@ -38,62 +40,64 @@ where
     S<H>: Height,
 {
     fn unknown<P, T>(
-        node: Option<&Node<P, T, Self>>,
+        node: Option<Node<P, T, Self>>,
         prefix: Prefix<Self>,
         known: &Version<P>,
-    ) -> Vec<(Version<P>, [u8; 32], Message<T>)>
+        with_unknown: &mut impl FnMut(&Version<P>, Key, &Message<T>),
+    ) -> Option<Node<P, T, Self>>
     where
         T: Clone,
         P: Clone + Ord + AsRef<[u8]>,
     {
         // If the node doesn't exist, we can't return information about it
         let Some(node) = node else {
-            return Vec::new();
+            return None;
         };
 
         // If the node is causally prior or at the known version vector, it's
         // already known (and so are all its children, since they are always in
         // the causal past or present of their parent), so don't return anything
         if node.version() <= known {
-            return Vec::new();
+            return None;
         }
 
-        // Recursively process each child, concatenating their results
-        node.clone()
-            .into_children()
-            .into_iter()
-            .map(|(radix, child)| Unknown::unknown(Some(&child), prefix.clone().push(radix), known))
-            .flatten()
-            .collect()
+        // Recursively process each child, re-assembling only the unknown children
+        Node::branch(
+            node.into_children()
+                .into_iter()
+                .flat_map(|(radix, child)| {
+                    Unknown::unknown(Some(child), prefix.clone().push(radix), known, with_unknown)
+                        .map(|child| (radix, child))
+                })
+                .collect(),
+        )
     }
 }
 
 impl Unknown for Z {
     fn unknown<P, T>(
-        node: Option<&Node<P, T, Self>>,
+        node: Option<Node<P, T, Self>>,
         prefix: Prefix,
         known: &Version<P>,
-    ) -> Vec<(Version<P>, [u8; 32], Message<T>)>
+        with_unknown: &mut impl FnMut(&Version<P>, Key, &Message<T>),
+    ) -> Option<Node<P, T, Self>>
     where
         T: Clone,
         P: Clone + Ord + AsRef<[u8]>,
     {
         // If the node doesn't exist, we can't return information about it
         let Some(node) = node else {
-            return Vec::new();
+            return None;
         };
 
         // If the node is causally prior or at the known version vector, it's
         // already known, so don't return anything
         if node.version() <= known {
-            return Vec::new();
+            return None;
         }
 
         // Otherwise, the node is causally unknown, so return its information
-        vec![(
-            node.version().clone(),
-            Path::from(prefix).into(),
-            node.value().clone(),
-        )]
+        with_unknown(node.version(), Path::from(prefix).into(), node.value());
+        Some(node)
     }
 }

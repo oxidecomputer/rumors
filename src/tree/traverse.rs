@@ -14,5 +14,5 @@ pub use get::get;
 mod unknown;
 pub use unknown::unknown;
 
-mod sync;
-pub use sync::sync;
+mod mirror;
+pub use mirror::mirror;

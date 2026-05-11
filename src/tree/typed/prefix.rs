@@ -62,7 +62,9 @@ impl<H: Height> Prefix<H> {
     }
 }
 
-// Manual clone impl so we don't require unnecessary bounds on `H`:
+// Manual clone/comparison impls so we don't require unnecessary bounds on `H`.
+// Comparison refers only to the accumulated path bytes; the phantom height is
+// already pinned by the type.
 
 impl<H: Height> Clone for Prefix<H> {
     fn clone(&self) -> Self {
@@ -70,5 +72,25 @@ impl<H: Height> Clone for Prefix<H> {
             height: PhantomData,
             hash: self.hash.clone(),
         }
+    }
+}
+
+impl<H: Height> PartialEq for Prefix<H> {
+    fn eq(&self, other: &Self) -> bool {
+        self.hash == other.hash
+    }
+}
+
+impl<H: Height> Eq for Prefix<H> {}
+
+impl<H: Height> PartialOrd for Prefix<H> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<H: Height> Ord for Prefix<H> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.hash.cmp(&other.hash)
     }
 }

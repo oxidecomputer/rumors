@@ -7,3 +7,4 @@ mod untyped;
 
 pub use node::Node;
 pub use path::Path;
+pub use prefix::Prefix;

@@ -21,45 +21,83 @@ const MAX_TEST_DEPTH: usize = 4;
 const MAX_BRANCHING: usize = 256;
 
 /// Upper bound on the number of leaves in any generated tree, used as a
-/// branching budget. The budget is split across the children of each branch
-/// (roughly `budget / n` per child), so branches that try to fan out wide
-/// quickly run the budget down to 1 — at which point further branches are
+/// branching budget. Each branch divides its budget randomly across its
+/// children — every child gets at least 1, and the parts sum to the parent's
+/// budget — so a branch that fans out as wide as its budget forces every
+/// child down to a single leaf, and any deeper branch beneath such a child is
 /// forced to be single-child and path-compress into a chain. The actual
 /// branching factor at any node is capped at `min(MAX_BRANCHING, budget)`,
 /// so to exercise very wide branches the budget must be at least that wide.
 const TREE_LEAF_BUDGET: usize = 16;
 
+/// Upper bound on the number of (party, count) entries in a generated
+/// `Version` vector. Forgotten-versions are exercised by sprinkling small
+/// vectors of these across every branch in the tree; capped low so that
+/// the per-branch join is small and shrinking stays tractable.
+const MAX_VERSION_ENTRIES: usize = 3;
+
+/// Generate an arbitrary `Version<P>`. Used both for leaf versions and as
+/// the `forgotten` argument supplied at every branch by `arb_tree`. The
+/// upper bound on entries is deliberately small so that the cumulative
+/// join across a deep tree still has bounded width.
+fn arb_version<P>() -> BoxedStrategy<Version<P>>
+where
+    P: Arbitrary + Ord + Clone + 'static,
+{
+    vec((any::<P>(), any::<u64>()), 0..=MAX_VERSION_ENTRIES)
+        .prop_map(|pairs| Version::new(pairs.into_iter().map(Version::from)))
+        .boxed()
+}
+
 /// Generate an arbitrary tree of uniform depth `depth` with at most `budget`
-/// leaves, constructed only via the public smart constructors `Node::leaf`
-/// and `Node::branch`. At depth 0 the strategy produces a bare leaf; at
-/// depth N > 0 it produces a branch of 1..=min(MAX_BRANCHING, budget)
-/// children at distinct indices, each recursively budgeted. This guarantees
-/// all leaves sit at a common depth, which is the precondition for
-/// `Node::unions`. `budget` must be at least 1.
+/// leaves, constructed only via the public smart constructors `Node::leaf` and
+/// `Node::branch`. At depth 0 the strategy produces a bare leaf; at depth N > 0
+/// it produces a branch with 1..=min(MAX_BRANCHING, budget) children at
+/// distinct indices, the parent's budget divided randomly among them (each
+/// child gets at least 1 and the shares sum to the parent's budget). This
+/// guarantees all leaves sit at a common depth, and no more than `budget`
+/// leaves are generated. `budget` must be at least 1.
 fn arb_tree<P>(depth: usize, budget: usize) -> BoxedStrategy<Node<P, ()>>
 where
     P: Arbitrary + Ord + Clone + AsRef<[u8]> + 'static,
 {
     if depth == 0 {
-        // Bytes payload is not examined at this abstraction layer, so we
-        // stuff in a fixed empty value rather than generating one.
-        (any::<P>(), any::<u64>())
-            .prop_map(|(party, version)| Node::leaf((party, version).into(), Message::new(())))
+        // The leaf payload is not examined at this abstraction layer, so we
+        // stuff in a fixed empty value rather than generating one; only the
+        // version is varied.
+        arb_version::<P>()
+            .prop_map(|version| Node::leaf(version, Message::new(())))
             .boxed()
     } else {
+        // A branch fans out to between 1 and `min(MAX_BRANCHING, budget)`
+        // children at distinct byte indices. Capping the count at `budget`
+        // leaves at least one unit of budget for every child.
         let max_n = MAX_BRANCHING.min(budget);
         btree_set(any::<u8>(), 1..=max_n)
             .prop_flat_map(move |indices| {
                 let n = indices.len();
-                // Split the budget across children; with `n <= budget`, the
-                // per-child budget is always at least 1.
-                let per_child_budget = budget / n;
-                let subtrees = vec(arb_tree::<P>(depth - 1, per_child_budget), n);
+                // Give every child a baseline of 1, then scatter the
+                // remaining `budget - n` leaves across children at random:
+                // each token bumps one child's share by 1. The shares always
+                // sum to exactly `budget`, so no layer can exceed it, and the
+                // randomness diversifies the shapes of deeper subtrees.
+                let extra = budget - n;
+                (Just(indices), vec(0..n, extra))
+            })
+            .prop_flat_map(move |(indices, tokens)| {
+                let mut per_child = vec![1usize; indices.len()];
+                for child in tokens {
+                    per_child[child] += 1;
+                }
+                let subtrees: Vec<_> = per_child
+                    .into_iter()
+                    .map(|child_budget| arb_tree::<P>(depth - 1, child_budget))
+                    .collect();
                 (Just(indices), subtrees)
             })
             .prop_map(|(indices, subtrees)| {
-                let pairs: OrdMap<u8, Node<P, ()>> = indices.into_iter().zip(subtrees).collect();
-                Node::branch(pairs).expect("branch input has >= 1 child")
+                let children: OrdMap<u8, Node<P, ()>> = indices.into_iter().zip(subtrees).collect();
+                Node::branch(children).expect("branch input has >= 1 child")
             })
             .boxed()
     }
@@ -207,26 +245,6 @@ proptest! {
 
         let joined = Version::new(leaves.iter().map(|(_, v, _)| v.clone()));
         prop_assert_eq!(joined, root_version);
-    }
-
-    /// A single top-level `into_children` → `Node::branch` round-trip
-    /// preserves the tree's hash and version. Strictly subsumed by the
-    /// recursive decompose/rebuild property above, but localizes failures
-    /// to the top-level merge step: if this fails while the full rebuild
-    /// passes, the bug is in how `Node::branch` reconstructs a branch
-    /// from a children map, not in recursion.
-    #[test]
-    fn branch_into_children_round_trips(
-        tree in (1..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree::<String>(d, TREE_LEAF_BUDGET)),
-    ) {
-        let hash_before = tree.hash();
-        let version_before = tree.version().clone();
-        let children = tree
-            .into_children()
-            .expect("depth >= 1 so the tree is not a bare leaf");
-        let rebuilt = Node::branch(children).expect("children map is non-empty");
-        prop_assert_eq!(rebuilt.hash(), hash_before);
-        prop_assert_eq!(rebuilt.version(), &version_before);
     }
 
     /// Wrapping a child in N nested singleton branches accumulates an

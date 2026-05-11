@@ -97,10 +97,11 @@ impl<T: Clone> Tree<T> {
     /// Get all the values in this tree which are unknown relative to the given
     /// version vector.
     pub fn unknown(&self, version: Version) -> Vec<(Version, Key, Message<T>)> {
-        traverse::unknown(self.root.as_ref(), &version)
-            .into_iter()
-            .map(|(v, i, b)| (v, i.into(), b))
-            .collect()
+        let mut unknown = Vec::new();
+        traverse::unknown(self.root.clone(), &version, &mut |v, i, b| {
+            unknown.push((v.clone(), i.into(), b.clone()))
+        });
+        unknown
     }
 
     /// Apply the specified actions as a batch to the tree, incrementing its
@@ -185,7 +186,6 @@ impl<T: Clone> Tree<T> {
                 self.version |= version.clone();
                 match message.into() {
                     None => {
-                        // Only join the forgotten version on forget operations
                         self.forgotten |= version.clone();
                         (typed::Path::from(key), version, traverse::Action::Forget)
                     }

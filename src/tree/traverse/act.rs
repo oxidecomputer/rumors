@@ -91,7 +91,7 @@ where
             })
             .collect();
 
-        // Re-assemble: updated children + untouched existing children
+        // Re-assemble: updated children + untouched existing children.
         Node::branch(updated.into_iter().chain(existing_children).collect())
     }
 }

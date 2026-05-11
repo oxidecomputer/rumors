@@ -15,12 +15,17 @@ where
     T: Clone,
     P: Clone + Ord + AsRef<[u8]>,
 {
-    Get::get(node, paths)
+    let mut gotten = Vec::new();
+    Get::get(node, paths, &mut |message| gotten.push(message.clone()));
+    gotten
 }
 
 pub trait Get: Height {
-    fn get<P, T>(node: Option<&Node<P, T, Self>>, paths: Vec<Path<Self>>) -> Vec<Message<T>>
-    where
+    fn get<P, T>(
+        node: Option<&Node<P, T, Self>>,
+        paths: Vec<Path<Self>>,
+        with_gotten: &mut impl FnMut(&Message<T>),
+    ) where
         T: Clone,
         P: Clone + Ord + AsRef<[u8]>;
 }
@@ -29,13 +34,16 @@ impl<H: Get> Get for S<H>
 where
     S<H>: Height,
 {
-    fn get<P, T>(node: Option<&Node<P, T, Self>>, paths: Vec<Path<Self>>) -> Vec<Message<T>>
-    where
+    fn get<P, T>(
+        node: Option<&Node<P, T, Self>>,
+        paths: Vec<Path<Self>>,
+        with_gotten: &mut impl FnMut(&Message<T>),
+    ) where
         T: Clone,
         P: Clone + Ord + AsRef<[u8]>,
     {
         let Some(node) = node else {
-            return Vec::new();
+            return;
         };
 
         // Group the paths by their first element
@@ -52,31 +60,31 @@ where
         let children = node.clone().into_children();
 
         // Recursively look up each radix group in the corresponding child
-        by_radix
-            .into_iter()
-            .flat_map(|(radix, group)| {
-                let child_paths: Vec<_> = group.map(|(_, path)| path).collect();
-                Get::get(children.get(&radix), child_paths)
-            })
-            .collect()
+        for (radix, group) in by_radix.into_iter() {
+            let child_paths: Vec<_> = group.map(|(_, path)| path).collect();
+            Get::get(children.get(&radix), child_paths, with_gotten);
+        }
     }
 }
 
 impl Get for Z {
-    fn get<P, T>(node: Option<&Node<P, T, Self>>, paths: Vec<Path<Self>>) -> Vec<Message<T>>
-    where
+    fn get<P, T>(
+        node: Option<&Node<P, T, Self>>,
+        paths: Vec<Path<Self>>,
+        with_gotten: &mut impl FnMut(&Message<T>),
+    ) where
         T: Clone,
         P: Clone + Ord + AsRef<[u8]>,
     {
         let Some(node) = node else {
-            return Vec::new();
+            return;
         };
 
-        let leaf = node.value().clone();
+        let leaf = node.value();
         if paths.is_empty() {
-            vec![]
+            return;
         } else {
-            vec![leaf.clone()]
+            with_gotten(leaf);
         }
     }
 }

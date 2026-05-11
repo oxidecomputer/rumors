@@ -16,10 +16,8 @@ struct NodeInner<P: Ord + AsRef<[u8]>, T> {
     /// deepest byte at index 0 and the shallowest byte at the last index. An
     /// empty prefix means the node is not path-compressed above its level.
     ///
-    /// Each entry pairs a path byte with the hash of the virtual node produced
-    /// by wrapping the children-level hash through `prefix[0..=i]` — computed
-    /// once at construction. `prefix.last().1`, when present, is therefore the
-    /// node's observable hash.
+    /// Each entry pairs a path byte with the precomputed hash for the virtual
+    /// node sitting at that level.
     prefix: Vec<(u8, blake3::Hash)>,
     /// Hash of this node's children (the leaf sentinel or the branch-level
     /// hash), independent of any compressed prefix above it. Computed once at
@@ -64,11 +62,12 @@ impl<P: Ord + Clone + AsRef<[u8]>, T: Clone> Node<P, T> {
                     buf[i as usize * 32..][..32].copy_from_slice(child.hash().as_bytes());
                 }
                 let children_hash = blake3::hash(&buf);
+                let version = Version::new(children.values().map(|n| n.version().clone()));
                 Some(Node {
                     inner: Arc::new(NodeInner {
                         prefix: Vec::new(),
                         children_hash,
-                        version: Version::new(children.values().map(|n| n.version().clone())),
+                        version,
                         children: Children::Branch(children),
                     }),
                 })
@@ -83,10 +82,11 @@ impl<P: Ord + Clone + AsRef<[u8]>, T: Clone> Node<P, T> {
     pub fn into_children(mut self) -> Result<OrdMap<u8, Node<P, T>>, Node<P, T>> {
         if !self.inner.prefix.is_empty() {
             // Path-compressed: pop the top byte and rewrap self under it. The
-            // popped entry's precomputed hash is dropped; every shorter
-            // prefix-level hash and the children-level hash are still valid
-            // because the children and the surviving byte sequence are
-            // unchanged.
+            // popped entry's precomputed hash and cumulative forgotten are
+            // dropped; every shorter prefix-level's stored hash and
+            // cumulative forgotten remain valid because they were computed
+            // independently of the popped level, and the children and the
+            // surviving byte sequence are unchanged.
             let inner = Arc::make_mut(&mut self.inner);
             let (index, _hash) = inner.prefix.pop().expect("non-empty prefix");
             Ok(OrdMap::from_iter([(index, self)]))
@@ -94,9 +94,9 @@ impl<P: Ord + Clone + AsRef<[u8]>, T: Clone> Node<P, T> {
             match &self.inner.children {
                 Children::Leaf(_) => Err(self),
                 Children::Branch(_) => {
-                    // Extract the children map; self is dropped, so leaving its
-                    // precomputed hash referencing the now-vacated branch is
-                    // harmless.
+                    // Extract the children map; self is dropped, so leaving
+                    // its precomputed metadata referencing the now-vacated
+                    // branch is harmless.
                     let inner = Arc::make_mut(&mut self.inner);
                     let Children::Branch(branch) = &mut inner.children else {
                         unreachable!("just matched Branch")
@@ -154,9 +154,9 @@ impl<P: Ord + Clone + AsRef<[u8]>, T: Clone> Node<P, T> {
     fn beneath(mut self, index: u8) -> Node<P, T> {
         let mut buf = [0u8; 256 * 32];
         buf[index as usize * 32..][..32].copy_from_slice(self.hash().as_bytes());
-        let new_top = blake3::hash(&buf);
+        let new_top_hash = blake3::hash(&buf);
         let inner = Arc::make_mut(&mut self.inner);
-        inner.prefix.push((index, new_top));
+        inner.prefix.push((index, new_top_hash));
         self
     }
 
@@ -168,8 +168,8 @@ impl<P: Ord + Clone + AsRef<[u8]>, T: Clone> Node<P, T> {
     fn is_max_compressed(&self) -> bool {
         match &self.inner.children {
             Children::Leaf(_) => true,
-            Children::Branch(branch) => {
-                branch.len() >= 2 && branch.values().all(Self::is_max_compressed)
+            Children::Branch(children) => {
+                children.len() >= 2 && children.values().all(Self::is_max_compressed)
             }
         }
     }
