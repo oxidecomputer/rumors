@@ -100,8 +100,14 @@ where
 
         let mut down = down(known_there, here, changed_there);
 
-        down.changed =
-            Mirror::mirror(known_there, down.unknown.clone(), down.changed, other).await?;
+        // Only recur when there are non-disjoint differences to resolve:
+        if !down.changed.is_empty() {
+            down.changed =
+                Mirror::mirror(known_there, down.unknown.clone(), down.changed, other).await?;
+        } else {
+            // Otherwise complete by sending what we know the other party doesn't know:
+            other.complete(down.unknown.clone()).await?;
+        }
 
         Ok(up(down, unknown_here))
     }
@@ -133,7 +139,7 @@ impl Mirror for Z {
             .await?;
 
         let bottom = bottom(known_there, here, changed_there, unknown_here);
-        other.finalize(bottom.unknown).await?;
+        other.complete(bottom.unknown).await?;
         Ok(bottom.mirrored)
     }
 }
@@ -163,11 +169,12 @@ pub trait Counterparty<P, T> {
         S<H>: Height,
         H: Height;
 
-    async fn finalize(
+    async fn complete<H>(
         &mut self,
-        unknown_there: OrdMap<Prefix<Z>, Node<P, T, Z>>,
+        unknown_there: OrdMap<Prefix<H>, Node<P, T, H>>,
     ) -> Result<(), Self::Error>
     where
+        H: Height,
         P: Clone + Ord + AsRef<[u8]>;
 }
 
@@ -181,7 +188,7 @@ pub struct Bottom<P: Clone + Ord + AsRef<[u8]>, T> {
 /// counterparty's, reassemble in one step. Returns the reconciled leaf map and
 /// the leaves we hold that the counterparty doesn't know: the leaf-level
 /// analogue of every recursive level's `unknown` set, which has no next round's
-/// [`Request`] to ride on and so gets shipped via [`Counterparty::finalize`].
+/// [`Request`] to ride on and so gets shipped via [`Counterparty::complete`].
 fn bottom<P, T>(
     known_there: &Version<P>,
     here: OrdMap<Prefix<Z>, Node<P, T, Z>>,
@@ -204,7 +211,12 @@ where
             // The counterparty has a leaf here too. By leaf-uniqueness it is
             // byte-for-byte ours (both hashes are the leaf sentinel, hence the
             // equality `down` would test holds trivially); keep it.
-            Both((prefix, here), _) => {
+            Both((prefix, here), (_, there)) => {
+                debug_assert_eq!(
+                    here.hash(),
+                    there,
+                    "leaf uniqueness: a shared path is the same leaf, hence the same hash",
+                );
                 mirrored.insert(prefix, here);
             }
             // We have a leaf the counterparty doesn't. `Unknown::unknown` at Z
@@ -226,10 +238,19 @@ where
         }
     }
 
-    Bottom {
-        mirrored: mirrored.union(unknown.clone()).union(unknown_here),
-        unknown,
-    }
+    // matched / our-unknown / their-unknown leaves are over disjoint prefixes:
+    // each prefix is classified once, and a well-behaved counterparty never
+    // sends us (in `unknown_here`) a leaf in our own frontier, i.e. one we
+    // already hold. An entry lost to the unions below means it did.
+    let distinct = mirrored.len() + unknown.len() + unknown_here.len();
+    let mirrored = mirrored.union(unknown.clone()).union(unknown_here);
+    debug_assert_eq!(
+        mirrored.len(),
+        distinct,
+        "matched / our-unknown / their-unknown leaves overlap: a leaf we already hold was re-sent",
+    );
+
+    Bottom { mirrored, unknown }
 }
 
 pub struct Down<P: Clone + Ord + AsRef<[u8]>, T, H: Height>
@@ -315,9 +336,18 @@ where
     T: Clone,
     P: Clone + Ord + AsRef<[u8]>,
 {
-    // Combine the matched, remote-unknown, and local-unknown fields, which
-    // should all be disjoint
+    // Combine the matched, remote-unknown, and local-unknown fields. They are
+    // over disjoint prefixes: `down` classifies each prefix once, and a
+    // well-behaved counterparty never sends us (in `unknown_here`) a subtree in
+    // our own frontier, i.e. one we already hold. An entry lost to the unions
+    // means it did.
+    let distinct = matched.len() + unknown_there.len() + unknown_here.len();
     let mut here = matched.union(unknown_there).union(unknown_here);
+    debug_assert_eq!(
+        here.len(),
+        distinct,
+        "matched / our-unknown / their-unknown subtrees overlap: a subtree we already hold was re-sent",
+    );
 
     // Bucket each rebuilt child under its parent's prefix, recovering the radix
     // it hangs off by popping the deepest byte of its own prefix.
@@ -335,10 +365,21 @@ where
     // re-derive the parent node from the merged child map.
     let mut rebuilt = OrdMap::new();
     for (parent_prefix, new_children) in by_parent {
-        let old_children = here
-            .remove(&parent_prefix)
-            .map(Node::into_children)
-            .unwrap_or_default();
+        debug_assert!(
+            !new_children.is_empty(),
+            "every reassembly bucket holds at least one rebuilt child",
+        );
+        // A prefix we descended into (its hashes differed) is neither matched
+        // nor among the unknown subtrees on either side, so this `remove` is a
+        // no-op; if it ever isn't, the counterparty re-sent a subtree we
+        // already hold. (A release build still keeps what was displaced, but
+        // prefers the freshly reconciled children on conflict.)
+        let displaced = here.remove(&parent_prefix);
+        debug_assert!(
+            displaced.is_none(),
+            "a descended-into prefix also appeared among the matched/unknown subtrees: it was re-sent",
+        );
+        let old_children = displaced.map(Node::into_children).unwrap_or_default();
         if let Some(node) = Node::branch(new_children.union(old_children)) {
             rebuilt.insert(parent_prefix, node);
         }
