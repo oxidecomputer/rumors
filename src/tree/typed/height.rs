@@ -12,8 +12,15 @@ pub trait Height: Debug + Clone + Default + sealed::Sealed {
     const HEIGHT: usize;
 }
 
+/// The predecessor of a nonzero height: `S<T>` has predecessor `T`. Deliberately
+/// not implemented for `Z`, so a `Pred` bound witnesses that a height is nonzero.
+pub trait Pred: Height {
+    type Pred: Height;
+}
+
 /// Enumerate `Height` (and its `Sealed` supertrait) for the Peano numbers
 /// `Z`, `S<Z>`, ..., `S^N<Z>`, where `N` is the count of `_` tokens passed.
+/// Each successor also gets a `Pred` impl pointing back at its predecessor.
 macro_rules! impl_heights {
     (@emit $t:ty, $n:expr;) => {
         impl sealed::Sealed for $t {}
@@ -22,6 +29,7 @@ macro_rules! impl_heights {
     (@emit $t:ty, $n:expr; $head:tt $($tail:tt)*) => {
         impl sealed::Sealed for $t {}
         impl Height for $t { const HEIGHT: usize = $n; }
+        impl Pred for S<$t> { type Pred = $t; }
         impl_heights!(@emit S<$t>, $n + 1; $($tail)*);
     };
     ($($tok:tt)*) => {
@@ -52,26 +60,4 @@ mod sealed {
 }
 
 #[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn zero_size() {
-        static_assertions::assert_eq_size!(Z, ());
-        static_assertions::assert_eq_size!(S<Z>, ());
-        static_assertions::assert_eq_size!(Root, ());
-    }
-
-    #[test]
-    fn zero_size_val() {
-        static_assertions::assert_eq_size_val!(Z, ());
-        static_assertions::assert_eq_size_val!(S(Z), ());
-    }
-
-    #[test]
-    fn one_align() {
-        static_assertions::assert_eq_align!(Z, ());
-        static_assertions::assert_eq_align!(S<Z>, ());
-        static_assertions::assert_eq_align!(Root, ());
-    }
-}
+mod test;
