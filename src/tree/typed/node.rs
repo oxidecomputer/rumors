@@ -5,6 +5,7 @@ use imbl::OrdMap;
 use crate::{Message, Version};
 
 use super::height::{self, Height, S, Z};
+use super::levels::{Top, levels};
 use super::untyped;
 
 /// The typed node with a height of 32; the root of the tree.
@@ -89,6 +90,16 @@ impl<P: Clone + Ord + AsRef<[u8]>, T: Clone> Node<P, T, Z> {
         self.inner
             .as_leaf()
             .expect("typed leaf failed to be a leaf")
+    }
+}
+
+impl<P, T> Node<P, T, height::Root>
+where
+    P: Clone + Ord + AsRef<[u8]>,
+    T: Clone,
+{
+    pub fn levels(self) -> Top<P, T> {
+        levels(self)
     }
 }
 

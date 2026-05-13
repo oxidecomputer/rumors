@@ -15,4 +15,3 @@ mod unknown;
 pub use unknown::unknown;
 
 mod mirror;
-pub use mirror::mirror_async;

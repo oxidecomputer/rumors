@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{fmt::Debug, marker::PhantomData};
 
 use super::height::{Height, Root, S, Z};
 use super::path::Path;
@@ -92,5 +92,11 @@ impl<H: Height> PartialOrd for Prefix<H> {
 impl<H: Height> Ord for Prefix<H> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.hash.cmp(&other.hash)
+    }
+}
+
+impl<H: Height> Debug for Prefix<H> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.hash.fmt(f)
     }
 }
