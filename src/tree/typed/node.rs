@@ -99,7 +99,7 @@ where
     T: Clone,
 {
     pub fn levels(self) -> Top<P, T> {
-        levels(self)
+        levels(Some(self))
     }
 }
 

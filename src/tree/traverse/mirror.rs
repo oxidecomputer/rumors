@@ -22,3 +22,26 @@ use crate::{
         },
     },
 };
+
+fn start<P, T, H: Mirror>(node: Node<P, T, H>) -> (H::Next, H::Request)
+where
+    P: Clone + Ord + AsRef<[u8]>,
+    T: Clone,
+{
+    todo!()
+}
+
+pub trait Mirror: Height {
+    type Request;
+    type Response;
+    type Next;
+
+    fn reply<P, T>(
+        other_version: &Version<P>,
+        levels: impl Levels<P, T, Height = Self>,
+        request: Self::Request,
+    ) -> (Self::Next, Self::Response)
+    where
+        P: Clone + Ord + AsRef<[u8]>,
+        T: Clone;
+}

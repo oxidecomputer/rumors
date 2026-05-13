@@ -7,13 +7,13 @@ use crate::tree::typed::{
 };
 
 /// Create a new [`Levels`] from the root of a tree.
-pub(super) fn levels<P, T>(root: Node<P, T, Root>) -> Top<P, T>
+pub fn levels<P, T>(root: Option<Node<P, T, Root>>) -> Top<P, T>
 where
     P: Clone + Ord + AsRef<[u8]>,
     T: Clone,
 {
     Top {
-        root: OrdMap::from_iter([(Prefix::new(), root)]),
+        root: OrdMap::from_iter(root.map(|root| (Prefix::new(), root))),
     }
 }
 
