@@ -6,13 +6,15 @@ use proptest::prelude::*;
 use crate::tree::arb::arb_root_tree;
 use crate::tree::traverse::{Action, act};
 use crate::tree::typed::{Node, Path, height::Root};
-use crate::{Message, Version};
+use crate::{Key, Message, Version};
 
 use super::*;
 
 fn mirror_direct<P, T>(
     a: Option<Node<P, T, Root>>,
     b: Option<Node<P, T, Root>>,
+    a_to_b: impl FnMut(&Version<P>, Key, &Message<T>),
+    b_to_a: impl FnMut(&Version<P>, Key, &Message<T>),
 ) -> Option<Node<P, T, Root>>
 where
     P: Clone + Ord + AsRef<[u8]>,
@@ -22,8 +24,8 @@ where
         let version_a = a.as_ref().map(|n| n.version().clone()).unwrap_or_default();
         let version_b = b.as_ref().map(|n| n.version().clone()).unwrap_or_default();
 
-        let (m, a) = exchange::initiator(a, &version_b, |_, _, _| {});
-        let (m, b) = exchange::responder(b, &version_a, |_, _, _| {}, m);
+        let (m, a) = exchange::initiator(a, &version_b, b_to_a);
+        let (m, b) = exchange::responder(b, &version_a, a_to_b, m);
 
         // The initiator cannot know whether it's done yet at first, so it
         // doesn't return a `Result`, but we want one for uniformity in the
@@ -46,12 +48,15 @@ where
     }
 }
 
+fn null<P: Ord, T>(v: &Version<P>, k: Key, m: &Message<T>) {}
+
 proptest! {
+
     /// Mirroring a node with itself is a no-op: the two replicas have
     /// identical content and versions, so the reconciled tree is unchanged.
     #[test]
     fn idempotent(a in arb_root_tree("a", 0..=8)) {
-        prop_assert_eq!(mirror_direct(a.clone(), a.clone()), a);
+        prop_assert_eq!(mirror_direct(a.clone(), a.clone(), null, null), a);
     }
 
     /// The reconciled tree is the same regardless of which replica
@@ -62,8 +67,8 @@ proptest! {
         b in arb_root_tree("b", 0..=8),
     ) {
         prop_assert_eq!(
-            mirror_direct(a.clone(), b.clone()),
-            mirror_direct(b, a),
+            mirror_direct(a.clone(), b.clone(), null, null),
+            mirror_direct(b, a, null, null),
         );
     }
 
@@ -74,8 +79,8 @@ proptest! {
         a in arb_root_tree("a", 0..=8),
         b in arb_root_tree("b", 0..=8),
     ) {
-        let ab = mirror_direct(a, b.clone());
-        prop_assert_eq!(mirror_direct(ab.clone(), b), ab);
+        let ab = mirror_direct(a, b.clone(), null, null);
+        prop_assert_eq!(mirror_direct(ab.clone(), b, null, null), ab);
     }
 
     /// Three-way mirror is order-independent: syncing (a,b) then c
@@ -86,8 +91,8 @@ proptest! {
         b in arb_root_tree("b", 0..=4),
         c in arb_root_tree("c", 0..=4),
     ) {
-        let ab_c = mirror_direct(mirror_direct(a.clone(), b.clone()), c.clone());
-        let a_bc = mirror_direct(a, mirror_direct(b, c));
+        let ab_c = mirror_direct(mirror_direct(a.clone(), b.clone(), null, null), c.clone(), null, null);
+        let a_bc = mirror_direct(a, mirror_direct(b, c, null, null), null, null);
         prop_assert_eq!(ab_c, a_bc);
     }
 
@@ -121,7 +126,7 @@ proptest! {
         let node_a = act(None, actions_a.clone());
         let node_b = act(None, actions_b.clone());
 
-        let mirrored = mirror_direct(node_a, node_b);
+        let mirrored = mirror_direct(node_a, node_b, null, null);
 
         let mut all_actions = actions_a;
         all_actions.extend(actions_b);

@@ -316,27 +316,6 @@ where
     }
 
     /// The responder's end of the protocol.
-    pub fn complete_initiator<T>(
-        mut self,
-        message::Complete { providing }: message::Complete<P, T>,
-    ) -> Result<Infallible, Option<Node<P, T, Root>>>
-    where
-        L: Levels<P, T, Height = Z>,
-        P: Clone + Ord + AsRef<[u8]>,
-        T: Clone,
-    {
-        // The current level of our traversal through the tree:
-        let level = self.levels.level_mut();
-
-        // 1. Insert all the provided previously-unknown nodes into our level.
-        for (prefix, node) in providing {
-            level.insert(prefix, node);
-        }
-
-        Err(self.levels.collapse())
-    }
-
-    /// The responder's end of the protocol.
     pub fn complete_responder<T>(
         mut self,
         message::Exchange {
@@ -408,5 +387,26 @@ where
         }
 
         (message::Complete { providing }, Err(self.levels.collapse()))
+    }
+
+    /// The initiator's end of the protocol.
+    pub fn complete_initiator<T>(
+        mut self,
+        message::Complete { providing }: message::Complete<P, T>,
+    ) -> Result<Infallible, Option<Node<P, T, Root>>>
+    where
+        L: Levels<P, T, Height = Z>,
+        P: Clone + Ord + AsRef<[u8]>,
+        T: Clone,
+    {
+        // The current level of our traversal through the tree:
+        let level = self.levels.level_mut();
+
+        // 1. Insert all the provided previously-unknown nodes into our level.
+        for (prefix, node) in providing {
+            level.insert(prefix, node);
+        }
+
+        Err(self.levels.collapse())
     }
 }
