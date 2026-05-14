@@ -8,7 +8,7 @@ mod typed;
 #[cfg(test)]
 mod arb;
 
-use crate::{Message, Version};
+use crate::{Message, Version, tree::typed::Node};
 
 pub use key::Key;
 
@@ -69,13 +69,7 @@ impl<T: Clone> Tree<T> {
 
     /// Get the root hash for the tree.
     pub fn hash(&self) -> [u8; 32] {
-        // The root hash of an empty tree is "00000..."
-        const EMPTY_ROOT_HASH: blake3::Hash = blake3::Hash::from_bytes([0x00; 32]);
-
-        match &self.root {
-            None => *EMPTY_ROOT_HASH.as_bytes(),
-            Some(root) => *root.hash().as_bytes(),
-        }
+        Node::root_hash(&self.root).into()
     }
 
     /// Get all the values stored at a list of hash paths in the tree.

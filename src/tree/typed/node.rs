@@ -98,8 +98,18 @@ where
     P: Clone + Ord + AsRef<[u8]>,
     T: Clone,
 {
-    pub fn levels(self) -> Top<P, T> {
-        levels(Some(self))
+    pub fn levels(node: Option<Root<P, T>>) -> Top<P, T> {
+        levels(node)
+    }
+
+    pub fn root_hash(node: &Option<Root<P, T>>) -> blake3::Hash
+    where
+        P: Clone + Ord + AsRef<[u8]>,
+        T: Clone,
+    {
+        node.as_ref()
+            .map(|n| n.hash())
+            .unwrap_or_else(|| [0; 32].into())
     }
 }
 

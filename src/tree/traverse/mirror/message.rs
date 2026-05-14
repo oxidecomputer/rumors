@@ -5,15 +5,27 @@ use crate::tree::typed::{
     height::{Height, S, Z},
 };
 
+#[derive(Clone)]
 pub struct Start {
     /// The root hash of our tree; we do not know whether it matches the other
     /// party's root hash.
-    pub uncertain: blake3::Hash,
+    pub root: blake3::Hash,
 }
 
-pub struct Exchange<P: Clone + Ord + AsRef<[u8]>, T, H: Height>
+impl Default for Start {
+    fn default() -> Self {
+        Self {
+            root: [0; 32].into(),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct Exchange<P, T, H>
 where
+    P: Clone + Ord + AsRef<[u8]>,
     S<H>: Height,
+    H: Height,
 {
     /// Nodes which we know the other party does not have, since they
     /// `requested` them in the previous round, which we are now sending to them
@@ -37,8 +49,35 @@ where
     pub uncertain: OrdMap<Prefix<H>, blake3::Hash>,
 }
 
+impl<P, T, H> Default for Exchange<P, T, H>
+where
+    P: Clone + Ord + AsRef<[u8]>,
+    S<H>: Height,
+    H: Height,
+{
+    fn default() -> Self {
+        Self {
+            providing: Default::default(),
+            requested: Default::default(),
+            uncertain: Default::default(),
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct Complete<P: Clone + Ord + AsRef<[u8]>, T> {
     /// The final set of nodes which we know the other party does not have,
     /// based on their having requested these prefixes in the previous round.
     pub providing: OrdMap<Prefix<Z>, Node<P, T, Z>>,
+}
+
+impl<P, T> Default for Complete<P, T>
+where
+    P: Clone + Ord + AsRef<[u8]>,
+{
+    fn default() -> Self {
+        Self {
+            providing: Default::default(),
+        }
+    }
 }

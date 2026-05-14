@@ -18,10 +18,7 @@ where
 }
 
 /// An abstract type which represents a multi-zipper into a tree.
-///
-/// The concrete types which provide the functionality are un-nameable
-/// outside this module.
-pub trait Levels<P, T>: Clone + sealed::Sealed {
+pub trait Levels<P, T>: Default + Clone + sealed::Sealed {
     /// The height of the bottom-most level.
     type Height: Height;
 
@@ -66,6 +63,17 @@ where
     root: OrdMap<Prefix<Root>, Node<P, T, Root>>,
 }
 
+impl<P, T> Default for Top<P, T>
+where
+    P: Clone + Ord + AsRef<[u8]>,
+{
+    fn default() -> Self {
+        Self {
+            root: Default::default(),
+        }
+    }
+}
+
 impl<P, T> Levels<P, T> for Top<P, T>
 where
     T: Clone,
@@ -97,6 +105,21 @@ where
     above: A,
 }
 
+impl<P, T, H, A> Default for Below<P, T, H, A>
+where
+    A: Default,
+    Self: Levels<P, T, Height = H>,
+    H: Height,
+    P: Clone + Ord + AsRef<[u8]>,
+{
+    fn default() -> Self {
+        Self {
+            here: Default::default(),
+            above: Default::default(),
+        }
+    }
+}
+
 impl<P, T, H, A> Levels<P, T> for Below<P, T, H, A>
 where
     A: Levels<P, T, Height = S<H>>,
@@ -113,7 +136,7 @@ where
         // Pop each child's prefix to get its radix and parent prefix. OrdMap
         // iteration is sorted, so siblings are adjacent.
         let siblings = self.here.into_iter().map(|(prefix, node)| {
-            let (radix, parent_prefix) = prefix.pop();
+            let (parent_prefix, radix) = prefix.pop();
             (parent_prefix, radix, node)
         });
 

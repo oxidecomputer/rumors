@@ -22,8 +22,8 @@ where
         let version_a = a.as_ref().map(|n| n.version().clone()).unwrap_or_default();
         let version_b = b.as_ref().map(|n| n.version().clone()).unwrap_or_default();
 
-        let (m, a) = exchange::initiator(a, version_b);
-        let (m, b) = exchange::responder(b, version_a, m);
+        let (m, a) = exchange::initiator(a, &version_b, |_, _, _| {});
+        let (m, b) = exchange::responder(b, &version_a, |_, _, _| {}, m);
 
         // The initiator cannot know whether it's done yet at first, so it
         // doesn't return a `Result`, but we want one for uniformity in the
@@ -35,9 +35,11 @@ where
             let (m, b) = b?.exchange(m);
         });
 
-        let (m, node_a) = a?.complete_initiator(m);
-        let _node_b = b?.complete_responder(m);
+        let (m, a) = a?.exchange(m);
+        let (m, b) = b?.complete_responder(m);
 
+        let node_a = a?.complete_initiator(m);
+        b?;
         node_a
     })() {
         Err(node_a) => node_a,

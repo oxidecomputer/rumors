@@ -80,9 +80,7 @@ proptest! {
         decisions in vec(any::<bool>(), 0..=512),
     ) {
         let before = tree.clone();
-        if let Some(tree) = tree {
-            let after = Descend::descend_and_collapse(tree.levels(), &mut decisions.into_iter());
-            prop_assert_eq!(before, after);
-        }
+        let after = Descend::descend_and_collapse(Node::levels(tree), &mut decisions.into_iter());
+        prop_assert_eq!(before, after);
     }
 }

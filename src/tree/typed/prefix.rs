@@ -15,7 +15,7 @@ impl Prefix<Root> {
     pub fn new() -> Self {
         Prefix {
             height: PhantomData,
-            hash: Vec::new(),
+            hash: Vec::with_capacity(32),
         }
     }
 }
@@ -44,7 +44,7 @@ where
 impl<H: Height> Prefix<H> {
     /// Pop one hash byte off the end of the prefix, yielding the byte and the
     /// remainder of the prefix.
-    pub fn pop(mut self) -> (u8, Prefix<S<H>>)
+    pub fn pop(mut self) -> (Prefix<S<H>>, u8)
     where
         S<H>: Height,
     {
@@ -53,11 +53,11 @@ impl<H: Height> Prefix<H> {
             .pop()
             .expect("internal vector cannot be non-empty");
         (
-            byte,
             Prefix {
                 height: PhantomData,
                 hash: self.hash,
             },
+            byte,
         )
     }
 }
