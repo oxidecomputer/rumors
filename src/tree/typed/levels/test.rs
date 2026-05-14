@@ -2,30 +2,11 @@ use imbl::OrdMap;
 use proptest::collection::vec;
 use proptest::prelude::*;
 
-use crate::tree::traverse::{Action, act};
+use crate::tree::arb::arb_root_tree;
 use crate::tree::typed::height::{Height, Root, S, Z};
-use crate::tree::typed::{Node, Path, Prefix};
-use crate::{Message, Version};
+use crate::tree::typed::{Node, Prefix};
 
 use super::Levels;
-
-/// Build a typed root tree by inserting random leaves via `act`.
-fn arb_root_tree() -> BoxedStrategy<Option<Node<String, (), Root>>> {
-    vec(any::<[u8; 32]>(), 0..=16)
-        .prop_map(|paths| {
-            let actions: Vec<_> = paths
-                .into_iter()
-                .enumerate()
-                .map(|(i, bytes)| {
-                    let path = Path::from(bytes);
-                    let version = Version::from(("a".to_string(), i as u64 + 1));
-                    (path, version, Action::Insert(Message::new(())))
-                })
-                .collect();
-            act(None, actions)
-        })
-        .boxed()
-}
 
 /// Polymorphic-recursive random descent through the height levels.
 ///
@@ -95,7 +76,7 @@ proptest! {
     /// then folding back via `collapse`, recovers the original tree.
     #[test]
     fn collapse_inverts_down(
-        tree in arb_root_tree(),
+        tree in arb_root_tree("a", 0..=16),
         decisions in vec(any::<bool>(), 0..=512),
     ) {
         let before = tree.clone();

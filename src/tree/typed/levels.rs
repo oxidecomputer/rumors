@@ -89,6 +89,7 @@ where
 #[derive(Clone)]
 pub struct Below<P, T, H, A>
 where
+    Self: Levels<P, T, Height = H>,
     H: Height,
     P: Clone + Ord + AsRef<[u8]>,
 {
@@ -150,11 +151,16 @@ where
 }
 
 mod sealed {
-    use super::{Below, Height, Top};
+    use super::{Below, Height, Levels, S, Top};
 
     pub trait Sealed {}
     impl<P: Clone + Ord + AsRef<[u8]>, T> Sealed for Top<P, T> {}
-    impl<P: Clone + Ord + AsRef<[u8]>, H: Height, T, A: Sealed> Sealed for Below<P, T, H, A> {}
+    impl<P: Clone + Ord + AsRef<[u8]>, H: Height, T: Clone, A: Levels<P, T, Height = S<H>> + Sealed>
+        Sealed for Below<P, T, H, A>
+    where
+        S<H>: Height,
+    {
+    }
 }
 
 #[cfg(test)]

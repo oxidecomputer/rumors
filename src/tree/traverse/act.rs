@@ -6,6 +6,7 @@ use super::typed::*;
 use height::{Height, Root, S, Z};
 
 /// An action to perform at a particular [`Path`].
+#[derive(Debug, Clone)]
 pub enum Action<T> {
     /// Insert a value tagged by a version at a party.
     Insert(Message<T>),

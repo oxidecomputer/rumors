@@ -8,8 +8,14 @@ pub struct S<T>(pub T);
 #[repr(C)]
 pub struct Z;
 
-pub trait Height: Send + Sync + Debug + Clone + Default + sealed::Sealed {
+pub trait Height: Debug + Clone + Default + sealed::Sealed {
     const HEIGHT: usize;
+}
+
+/// The predecessor of a nonzero height: `S<T>` has predecessor `T`. Deliberately
+/// not implemented for `Z`, so a `Pred` bound witnesses that a height is nonzero.
+pub trait Pred: Height {
+    type Pred: Height;
 }
 
 /// Enumerate `Height` (and its `Sealed` supertrait) for the Peano numbers
@@ -23,6 +29,7 @@ macro_rules! impl_heights {
     (@emit $t:ty, $n:expr; $head:tt $($tail:tt)*) => {
         impl sealed::Sealed for $t {}
         impl Height for $t { const HEIGHT: usize = $n; }
+        impl Pred for S<$t> { type Pred = $t; }
         impl_heights!(@emit S<$t>, $n + 1; $($tail)*);
     };
     ($($tok:tt)*) => {

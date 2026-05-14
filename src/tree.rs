@@ -5,6 +5,9 @@ mod key;
 mod traverse;
 mod typed;
 
+#[cfg(test)]
+mod arb;
+
 use crate::{Message, Version};
 
 pub use key::Key;
