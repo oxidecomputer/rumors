@@ -27,20 +27,23 @@ where
         let (m, a) = exchange::initiator(a, &version_b, b_to_a);
         let (m, b) = exchange::responder(b, &version_a, a_to_b, m);
 
-        // The initiator cannot know whether it's done yet at first, so it
-        // doesn't return a `Result`, but we want one for uniformity in the
-        // templated iteration below:
-        let a = Ok::<_, Node<P, T, Root>>(a);
+        // The initiator's first round is `open` (consuming the responder's
+        // `Opening`); the next 14 rounds are alternating `exchange`s; the
+        // initiator's last round is `close_initiator` (emitting `Closing`);
+        // the responder closes with `complete_responder`.
+        let (m, a) = a.open_initiator(m);
 
-        seq_macro::seq!(_ in 0..15 {
-            let (m, a) = a?.exchange(m);
+        seq_macro::seq!(_ in 0..14 {
             let (m, b) = b?.exchange(m);
+            let (m, a) = a?.exchange(m);
         });
 
-        let (m, a) = a?.exchange(m);
-        let (m, b) = b?.complete_responder(m);
+        let (m, b) = b?.exchange(m);
+        let (m, a) = a?.close_initiator(m);
 
+        let (m, b) = b?.complete_responder(m);
         let node_a = a?.complete_initiator(m);
+
         b?;
         node_a
     })() {

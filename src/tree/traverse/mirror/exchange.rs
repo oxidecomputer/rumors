@@ -1,3 +1,63 @@
+//! Two replicas reconcile their trees while honoring deletions: leaves one side
+//! has and the other has merely *forgotten* (their version is `<=` the other's
+//! version vector) vanish; leaves never seen are transmitted. The protocol
+//! recurses down the *disjoint frontier* of the two trees, alternating sender
+//! each message, so it costs `O(log n)` round-trips and never re-sends a hash
+//! the other side can already infer.
+//!
+//! # State machine
+//!
+//! Each side keeps a [`Levels`](crate::tree::typed::Levels) zipper: a stack of
+//! level maps from `Root` down to the height currently under comparison. In one
+//! round, the sender examines its zipper's bottom level, sends a message, and
+//! pushes two new (mostly empty) levels onto the bottom; the receiver's next
+//! round operates on its own zipper, offset by one height. Heights on which the
+//! parties have agreed end up nearer the top of the zipper; heights still in
+//! dispute live at the bottom. After roughly 16 rounds, both bottoms have
+//! reached `Z` (leaf height) and the zippers collapse back to roots.
+//!
+//! The wire conversation:
+//!
+//!   1. Initiator sends [`message::Initiate`] (a single hash at the empty
+//!      prefix: our root hash).
+//!   2. Responder either declares the trees equal, or replies with
+//!      [`message::Opening`] enumerating the hashes of *every* child of its
+//!      root.
+//!   3. Both sides alternately send [`message::Exchange`]s, each round
+//!      descending the sender's zipper by two heights.
+//!   4. The initiator's last outgoing message is [`message::Closing`] in
+//!      lieu of an `Exchange` at leaf height (whose `uncertain` would be
+//!      vacuous); the responder replies with [`message::Complete`] carrying
+//!      only the final `providing`; the initiator absorbs that and is done.
+//!
+//! # Three channels
+//!
+//! The wire format has three independent flows of information. Each message
+//! type carries the subset of fields that are non-vacuous for its role:
+//! `Initiate` and `Opening` carry only `uncertain`; `Complete` only
+//! `providing`; `Closing` carries `providing` and `requested`; the
+//! steady-state `Exchange` carries all three.
+//!
+//! | Field       | Sender's claim                                 | Receiver's action            |
+//! |-------------|------------------------------------------------|------------------------------|
+//! | `uncertain` | "I have these hashes at this height"           | compare against my own       |
+//! | `requested` | "your last `uncertain` listed hashes I lack"   | answer via `providing` next  |
+//! | `providing` | "you asked for these, or I know you lack them" | insert into my zipper        |
+//!
+//! # Asymmetry matrix
+//!
+//! For every prefix at the current comparison height there are four cases,
+//! depending on whether each side has the node. The protocol is correct iff
+//! every case routes its information to some channel:
+//!
+//! |                | counterparty has it                                  | counterparty lacks it                         |
+//! |----------------|------------------------------------------------------|-----------------------------------------------|
+//! | **we have it** | hashes match: drop; hashes differ: recurse one finer | we `provide`                                  |
+//! | **we lack it** | we `request`                                         | (impossible: neither side would mention it)   |
+//!
+//! Each cell is realized by one arm of the `merge_join_by` inside
+//! [`Exchange::partition_uncertain`].
+
 use std::convert::Infallible;
 
 use imbl::{OrdMap, OrdSet};
@@ -15,52 +75,74 @@ use crate::{
     },
 };
 
-use super::message;
+use super::message::{self, UnderRoot};
 
-/// The height just under the root, i.e. 31.
-type UnderRoot = <Root as Pred>::Pred;
-
-/// An in-progress mirror synchronization.
+/// An in-progress mirror synchronization on one side of the wire.
+///
+/// `L` is our zipper, parameterised by the height of its bottom level; as the
+/// protocol descends, each [`Self::exchange`] call returns a new `Exchange`
+/// whose `L` is two heights below the previous one.
 pub struct Exchange<'v, P, F, L>
 where
     P: Clone + Ord + AsRef<[u8]>,
 {
+    /// Our multi-level zipper: agreed heights live near the top, the height
+    /// currently under comparison lives at the bottom.
     levels: L,
-    other_version: &'v Version<P>,
-    with_message: F,
+    /// The counterparty's version vector, used to honor their deletions: any
+    /// node of ours at or causally prior to this version that they lack must
+    /// have been forgotten on their side.
+    their_version: &'v Version<P>,
+    /// Invoked whenever the version-vector filter discovers a leaf the
+    /// counterparty does not yet know about; lets the embedding code stream out
+    /// leaf-level observations as they're discovered.
+    on_message: F,
 }
 
-/// The initiator's start of the protocol.
+/// Begin the protocol as the initiator.
+///
+/// Returns the opening [`message::Initiate`] (just our root hash) and an
+/// `Exchange` whose zipper is at `Top` (height `Root`). The initiator's next
+/// call is [`Exchange::open_initiator`], processing the responder's
+/// [`message::Opening`].
 pub fn initiator<P, F, T>(
     node: Option<Node<P, T, Root>>,
-    other_version: &Version<P>,
-    with_message: F,
-) -> (message::Start, Exchange<'_, P, F, Top<P, T>>)
+    their_version: &Version<P>,
+    on_unknown_leaf: F,
+) -> (message::Initiate, Exchange<'_, P, F, Top<P, T>>)
 where
     F: FnMut(&Version<P>, Key, &Message<T>),
     P: Clone + Ord + AsRef<[u8]>,
     T: Clone,
 {
     (
-        message::Start {
-            root: Node::root_hash(&node),
+        message::Initiate {
+            uncertain: node.iter().map(|n| (Prefix::new(), n.hash())).collect(),
         },
         Exchange {
             levels: Node::levels(node),
-            other_version,
-            with_message,
+            their_version,
+            on_message: on_unknown_leaf,
         },
     )
 }
 
-/// The responder's start of the protocol.
+/// Begin the protocol as the responder, processing the initiator's
+/// [`message::Initiate`].
+///
+/// If our root hash matches the initiator's, we short-circuit: the trees are
+/// already equal, so we return `Err(our_root)` and an empty `Opening` to signal
+/// completion. Otherwise we explode our root one level down into an
+/// [`UnderRoot`]-height zipper and emit its children's hashes as the
+/// `Opening`'s `uncertain` set -- unconditionally, since we haven't yet learned
+/// what the initiator has.
 pub fn responder<P, T, F>(
     node: Option<Node<P, T, Root>>,
-    other_version: &Version<P>,
-    with_message: F,
-    message::Start { root }: message::Start,
+    their_version: &Version<P>,
+    on_unknown_leaf: F,
+    message::Initiate { uncertain }: message::Initiate,
 ) -> (
-    message::Exchange<P, T, UnderRoot>,
+    message::Opening,
     Result<Exchange<'_, P, F, Below<P, T, UnderRoot, Top<P, T>>>, Option<Node<P, T, Root>>>,
 )
 where
@@ -68,15 +150,24 @@ where
     P: Clone + Ord + AsRef<[u8]>,
     T: Clone,
 {
+    // `Initiate.uncertain` is structurally a single entry at the empty root
+    // prefix. Treat absence as "empty tree" and let the equality check below
+    // handle the symmetric "both empty" case.
+    let their_root = uncertain
+        .get(&Prefix::new())
+        .copied()
+        .unwrap_or_else(|| [0; 32].into());
+
     // If the initiator has the same root hash, our trees must be equal, so
     // there's no need to continue the protocol; however, we need to signal back
     // to the initiator that we're finished.
-    if root == Node::root_hash(&node) {
-        return (message::Exchange::default(), Err(node));
+    if their_root == Node::root_hash(&node) {
+        return (message::Opening::default(), Err(node));
     }
 
-    // If the root hashes mismatch, we need to explode out the root node into
-    // the level below it and send those hashes back to the initiator.
+    // If the root hashes mismatch, explode our root one level down. The
+    // resulting `uncertain` is all the hashes at that level -- we don't yet
+    // know which of them the initiator also has.
     let levels = Node::levels(None).down(
         node.map(|n| {
             n.into_children()
@@ -87,11 +178,7 @@ where
         .unwrap_or_default(),
     );
     (
-        message::Exchange {
-            providing: Default::default(), // Can't have been asked for anything yet
-            requested: Default::default(), // Can't have learned about an unknown child yet
-            // We're uncertain about all the children of the root node, which
-            // are all at this level:
+        message::Opening {
             uncertain: levels
                 .level()
                 .into_iter()
@@ -100,19 +187,336 @@ where
         },
         Ok(Exchange {
             levels,
-            other_version,
-            with_message,
+            their_version,
+            on_message: on_unknown_leaf,
         }),
     )
+}
+
+/// The output of [`Exchange::partition_uncertain`], one field per outgoing
+/// channel in the asymmetry matrix.
+struct Partition<P, T, H>
+where
+    P: Clone + Ord + AsRef<[u8]>,
+    S<H>: Height,
+    H: Height,
+{
+    /// Left-case subtrees (we have them, the counterparty does not). The caller
+    /// will combine these with `answer_requested`'s output to form the final
+    /// outgoing `providing`.
+    providing: OrdMap<Prefix<S<H>>, Node<P, T, S<H>>>,
+    /// Right-case prefixes (the counterparty has them, we do not): the outgoing
+    /// `requested`.
+    requested: OrdSet<Prefix<S<H>>>,
+    /// `Both`-case children whose hashes agreed, plus Left-case children we
+    /// kept locally. Become the new level immediately above the bottom.
+    matched: OrdMap<Prefix<S<H>>, Node<P, T, S<H>>>,
+    /// `Both`-case grandchildren of children whose hashes disagreed. Become the
+    /// new bottom of the zipper, and next round's outgoing `uncertain`.
+    exploded: OrdMap<Prefix<H>, Node<P, T, H>>,
 }
 
 impl<'v, P, F, L> Exchange<'v, P, F, L>
 where
     P: Clone + Ord + AsRef<[u8]>,
 {
-    /// The symmetric middle of the protocol.
-    pub fn exchange<H, T>(
+    /// Insert nodes the counterparty has just sent us (because we requested
+    /// them last round, or because they unilaterally knew we lacked them) into
+    /// our zipper's bottom level.
+    fn absorb_providing<H, T>(&mut self, providing: OrdMap<Prefix<H>, Node<P, T, H>>)
+    where
+        L: Levels<P, T, Height = H>,
+        H: Height,
+        T: Clone,
+    {
+        let frontier = self.levels.level_mut();
+        for (prefix, node) in providing {
+            frontier.insert(prefix, node);
+        }
+    }
+
+    /// Answer the counterparty's `requested` set by exploding each requested
+    /// node into its children, filtered against the counterparty's version so
+    /// that any subtrees they have deleted disappear locally too. Returns the
+    /// outgoing `providing` map, one height below the frontier.
+    fn answer_requested<CH, T>(
+        &mut self,
+        requested: OrdSet<Prefix<S<CH>>>,
+    ) -> OrdMap<Prefix<CH>, Node<P, T, CH>>
+    where
+        L: Levels<P, T, Height = S<CH>>,
+        F: FnMut(&Version<P>, Key, &Message<T>),
+        S<CH>: Unknown,
+        CH: Height,
+        T: Clone,
+    {
+        let frontier = self.levels.level_mut();
+        let mut providing = OrdMap::default();
+        for prefix in requested {
+            if let Some(node) = frontier.remove(&prefix) {
+                // Filter against the counterparty's version: anything causally
+                // prior to it that they lack, they have already deleted -- so
+                // we should too. The surviving subtree (if any) goes back into
+                // our frontier; its children are sent out as `providing`.
+                if let Some(node) = Unknown::unknown(
+                    Some(node),
+                    prefix.clone(),
+                    self.their_version,
+                    &mut self.on_message,
+                ) {
+                    frontier.insert(prefix.clone(), node.clone());
+                    for (radix, child) in node.into_children() {
+                        providing.insert(prefix.clone().push(radix), child);
+                    }
+                }
+            } else {
+                // The counterparty should only request prefixes we previously
+                // listed as `uncertain`; otherwise either the counterparty is
+                // misbehaving, or we are.
+                #[cfg(debug_assertions)]
+                panic!("counterparty requested unknown prefix {:?}", prefix);
+            }
+        }
+        providing
+    }
+
+    /// Partition the counterparty's `uncertain` hashes against our own tree by
+    /// cell of the asymmetry matrix (see module docs). The returned
+    /// [`Partition`] names one output per cell; the caller folds them into the
+    /// outgoing message and the zipper's next two levels.
+    ///
+    /// Shared by [`Self::open_initiator`], [`Self::exchange`], and
+    /// [`Self::close_initiator`]. The "we lack the parent" branch is reachable
+    /// only from `open_initiator` (where the responder lists children of our
+    /// absent root unconditionally); the debug-assertion guards against a
+    /// steady-state caller silently triggering it at any incorrect height.
+    fn partition_uncertain<H, T>(
+        &mut self,
+        uncertain: OrdMap<Prefix<S<H>>, blake3::Hash>,
+    ) -> Partition<P, T, H>
+    where
+        L: Levels<P, T, Height = S<S<H>>>,
+        F: FnMut(&Version<P>, Key, &Message<T>),
+        S<S<H>>: Height,
+        S<H>: Height,
+        H: Height + Unknown,
+        T: Clone,
+    {
+        let frontier = self.levels.level_mut();
+        let mut providing = OrdMap::default();
+        let mut requested = OrdSet::default();
+        let mut matched = OrdMap::default();
+        let mut exploded = OrdMap::default();
+
+        // Group the uncertain prefixes by their parent, so we pull each parent
+        // out of the frontier at most once.
+        for (parent_prefix, uncertain_children) in uncertain
+            .into_iter()
+            .map(|(prefix, hash)| {
+                let (parent_prefix, radix) = prefix.pop();
+                (parent_prefix, radix, hash)
+            })
+            .chunk_by(|(parent_prefix, _, _)| parent_prefix.clone())
+            .into_iter()
+        {
+            if let Some(parent) = frontier.remove(&parent_prefix) {
+                // Merge-join our children against theirs by radix. Each cell of
+                // the asymmetry matrix from the module docs corresponds to
+                // exactly one arm below: `Left` is (we have, they lack), `Both`
+                // is (we have, they have), `Right` is (we lack, they have). The
+                // fourth cell (we lack, they lack) is unreachable: neither side
+                // would have mentioned it.
+                for cell in parent.into_children().into_iter().merge_join_by(
+                    uncertain_children,
+                    |(child_radix, _), (_, hash_radix, _)| child_radix.cmp(hash_radix),
+                ) {
+                    use EitherOrBoth::*;
+                    match cell {
+                        // We have it, they lack it: provide the surviving
+                        // subtree (filtered against their version to honor
+                        // their deletions) and keep a local copy.
+                        Left((child_radix, ours)) => {
+                            let child_prefix = parent_prefix.clone().push(child_radix);
+                            if let Some(ours) = Unknown::unknown(
+                                Some(ours),
+                                child_prefix.clone(),
+                                self.their_version,
+                                &mut self.on_message,
+                            ) {
+                                providing.insert(child_prefix.clone(), ours.clone());
+                                matched.insert(child_prefix, ours);
+                            }
+                        }
+                        // We both have it: drop on hash match, otherwise
+                        // recurse one level finer by exploding our copy into
+                        // the bottom-most level for the next round.
+                        Both((child_radix, ours), (parent_prefix, _, theirs)) => {
+                            let child_prefix = parent_prefix.push(child_radix);
+                            if ours.hash() == theirs {
+                                matched.insert(child_prefix, ours);
+                            } else {
+                                for (grandchild_radix, grandchild) in ours.into_children() {
+                                    let grandchild_prefix =
+                                        child_prefix.clone().push(grandchild_radix);
+                                    exploded.insert(grandchild_prefix, grandchild);
+                                }
+                            }
+                        }
+                        // We lack it, they have it: request it.
+                        Right((parent_prefix, hash_radix, _)) => {
+                            requested.insert(parent_prefix.push(hash_radix));
+                        }
+                    }
+                }
+            } else {
+                debug_assert_eq!(
+                    <L::Height as Height>::HEIGHT,
+                    <Root as Height>::HEIGHT,
+                    "counterparty indicated uncertainty about unknown parent \
+                    prefix {:?} outside of the initiator's first round",
+                    parent_prefix,
+                );
+                for (parent, hash_radix, _) in uncertain_children {
+                    requested.insert(parent.push(hash_radix));
+                }
+            }
+        }
+
+        Partition {
+            providing,
+            requested,
+            matched,
+            exploded,
+        }
+    }
+
+    /// Run a steady-state round end-to-end: absorb the incoming `providing`,
+    /// answer the incoming `requested`, partition the incoming `uncertain`, and
+    /// descend the zipper by two heights. Returns the next-level-up outgoing
+    /// `providing` / `requested` and a descended [`Exchange`] from which the
+    /// caller derives the outgoing `uncertain` (or omits it).
+    ///
+    /// Shared by [`Self::exchange`] and [`Self::close_initiator`]; they differ
+    /// only in how they assemble the outgoing message and detect completion.
+    fn step<H, T>(
         mut self,
+        providing: OrdMap<Prefix<S<S<H>>>, Node<P, T, S<S<H>>>>,
+        requested: OrdSet<Prefix<S<S<H>>>>,
+        uncertain: OrdMap<Prefix<S<H>>, blake3::Hash>,
+    ) -> (
+        OrdMap<Prefix<S<H>>, Node<P, T, S<H>>>,
+        OrdSet<Prefix<S<H>>>,
+        OrdMap<Prefix<H>, blake3::Hash>,
+        Exchange<'v, P, F, Below<P, T, H, Below<P, T, S<H>, L>>>,
+    )
+    where
+        F: FnMut(&Version<P>, Key, &Message<T>),
+        L: Levels<P, T, Height = S<S<H>>>,
+        S<S<H>>: Height,
+        S<H>: Height,
+        H: Height + Unknown,
+        T: Clone,
+    {
+        // Phase 1: absorb the counterparty's `providing` into our frontier.
+        self.absorb_providing(providing);
+
+        // Phase 2: answer the counterparty's `requested` set, building the
+        // outgoing `providing` map (which Phase 3 may extend with Left-case
+        // nodes -- subtrees only we have at the current height).
+        let mut providing = self.answer_requested(requested);
+
+        // Phase 3: partition the counterparty's `uncertain` set by cell of
+        // the asymmetry matrix, then merge its Left-case `providing` with
+        // the Phase 2 output.
+        let Partition {
+            providing: providing_from_left,
+            requested,
+            matched,
+            exploded,
+        } = self.partition_uncertain(uncertain);
+        providing.extend(providing_from_left);
+
+        // Descend the zipper by two heights: matched children at S<H>, then
+        // exploded grandchildren at H.
+        let levels = self.levels.down(matched).down(exploded);
+        let next = Exchange {
+            levels,
+            their_version: self.their_version,
+            on_message: self.on_message,
+        };
+
+        // Compute the hashes of the level returned at the bottom of `next`;
+        // these are the children we are uncertain about now.
+        let uncertain: OrdMap<_, _> = next
+            .levels
+            .level()
+            .iter()
+            .map(|(prefix, node)| (prefix.clone(), node.hash()))
+            .collect();
+
+        (providing, requested, uncertain, next)
+    }
+
+    /// Process the initiator's first round, applied to the responder's
+    /// [`message::Opening`].
+    ///
+    /// Distinct from [`Self::exchange`] because the opening carries only
+    /// `uncertain`, never `providing` or `requested`: the responder enumerates
+    /// every child of its root before learning what the initiator has. The
+    /// responder may therefore list hashes whose parent (our empty root prefix)
+    /// we lack entirely -- a normal case here, but one that would indicate a
+    /// protocol bug if it recurred in `Self::exchange`.
+    pub fn open_initiator<T>(
+        self,
+        message::Opening { uncertain }: message::Opening,
+    ) -> (
+        message::Exchange<P, T, <UnderRoot as Pred>::Pred>,
+        Result<
+            Exchange<'v, P, F, Below<P, T, <UnderRoot as Pred>::Pred, Below<P, T, UnderRoot, L>>>,
+            Option<Node<P, T, Root>>,
+        >,
+    )
+    where
+        F: FnMut(&Version<P>, Key, &Message<T>),
+        L: Levels<P, T, Height = Root>,
+        T: Clone,
+    {
+        // `Opening` carries only `uncertain`: pass empty `providing` and
+        // `requested` to `step`, reducing its absorb/answer phases to no-ops
+        // and leaving just `partition_uncertain` + the two-level descent. From
+        // there, the assembly mirrors `Self::exchange`: derive the outgoing
+        // `uncertain` from the new bottom level and decide whether we're done.
+        let (providing, requested, uncertain, next) = self.step::<<UnderRoot as Pred>::Pred, T>(
+            OrdMap::default(),
+            OrdSet::default(),
+            uncertain,
+        );
+
+        let finished = uncertain.is_empty() && requested.is_empty();
+        let next = if finished {
+            Err(next.levels.collapse())
+        } else {
+            Ok(next)
+        };
+
+        let message = message::Exchange {
+            providing,
+            requested,
+            uncertain,
+        };
+
+        (message, next)
+    }
+
+    /// Process one round of the protocol's steady state, as either party.
+    ///
+    /// Each call moves our zipper down by two heights and emits the next
+    /// outgoing message. The returned `Result` is `Err(final_tree)` once we
+    /// have nothing left to ask about and nothing left in dispute -- but the
+    /// outgoing message is sent unconditionally, because the counterparty may
+    /// still need its contents to converge.
+    pub fn exchange<H, T>(
+        self,
         message::Exchange {
             providing,
             requested,
@@ -130,182 +534,21 @@ where
         H: Height + Unknown,
         T: Clone,
     {
-        // The current level of our traversal through the tree:
-        let level = self.levels.level_mut();
+        let (providing, requested, uncertain, next) = self.step(providing, requested, uncertain);
 
-        // 1. Insert all the provided previously-unknown nodes into our level.
-        for (prefix, node) in providing {
-            level.insert(prefix, node);
-        }
-
-        // 2. Look up all the requested prefixes and split them into all their
-        // children (filtered by those children being unknown relative to the
-        // other's version), to slot into the other's tree.
-        let mut providing = OrdMap::default();
-        for prefix in requested {
-            if let Some(node) = level.remove(&prefix) {
-                // Filter children by whether they are unknown to the other
-                // party: we should take note of this filtration locally as
-                // well, because the other party lacking a node means that
-                // anything strictly causally prior to their version which we
-                // still have was deleted already on their side.
-                if let Some(node) = Unknown::unknown(
-                    Some(node),
-                    prefix.clone(),
-                    &self.other_version,
-                    &mut self.with_message,
-                ) {
-                    // Re-insert the filtered node back into the level.
-                    level.insert(prefix.clone(), node.clone());
-
-                    // Explode the node into its children and return them to the
-                    // other party as requested.
-                    for (radix, child) in node.into_children() {
-                        providing.insert(prefix.clone().push(radix), child);
-                    }
-                }
-            } else {
-                // The counterparty should only request prefixes that we
-                // provided to it; if not, either the counterparty is
-                // misbehaving, or we are.
-                #[cfg(debug_assertions)]
-                panic!("counterparty requested unknown prefix {:?}", prefix);
-            }
-        }
-
-        // 3. Partition the uncertain hashes into:
-        //
-        //   (a) those whose prefixes are unknown to us (request entire subtree),
-        //   (b) those whose prefixes are known and hashes match (don't touch), and
-        //   (c) those whose prefixes are known and hashes don't match (uncertain).
-        //
-        // For nodes about which we are uncertain (i.e. nodes which we've
-        // learned are *not* on the disjoint or matching frontier), we send all
-        // the children hashes to the other party so they can make the same
-        // determination, two levels down from their previous position.
-        let mut requested = OrdSet::default();
-        let mut below = OrdMap::default();
-        let mut below_below = OrdMap::default();
-
-        // Chunk the uncertain prefixes by which parent they belong to, and pull
-        // the parent for modification only once per parent prefix:
-        for (parent_prefix, chunk) in uncertain
-            .into_iter()
-            .map(|(prefix, hash)| {
-                let (parent_prefix, radix) = prefix.pop();
-                (parent_prefix, radix, hash)
-            })
-            .chunk_by(|(parent_prefix, _, _)| parent_prefix.clone())
-            .into_iter()
-        {
-            // For each parent, process the uncertain prefixes which pass through it:
-            if let Some(parent) = level.remove(&parent_prefix) {
-                // Across the intersection of the uncertain hashes and the
-                // children of the parent:
-                for point in parent
-                    .into_children()
-                    .into_iter()
-                    .merge_join_by(chunk, |(child_radix, _), (_, hash_radix, _)| {
-                        child_radix.cmp(hash_radix)
-                    })
-                {
-                    use EitherOrBoth::*;
-                    match point {
-                        Left((child_radix, child)) => {
-                            // We have a child the counterparty did not list as
-                            // uncertain: they cannot have it, since they
-                            // enumerate all of their children's hashes when
-                            // they are uncertain about a parent. Filter the
-                            // node against their version to honor any
-                            // deletions, then send the surviving subtree to
-                            // them via `providing` (and retain a copy below).
-                            let child_prefix = parent_prefix.clone().push(child_radix);
-                            if let Some(child) = Unknown::unknown(
-                                Some(child),
-                                child_prefix.clone(),
-                                self.other_version,
-                                &mut self.with_message,
-                            ) {
-                                providing.insert(child_prefix.clone(), child.clone());
-                                below.insert(child_prefix, child);
-                            }
-                        }
-                        Both((child_radix, child), (parent_prefix, _, hash)) => {
-                            let child_prefix = parent_prefix.push(child_radix);
-                            if child.hash() == hash {
-                                // The hashes match so there's no more work to
-                                // do; keep this child unmodified
-                                below.insert(child_prefix, child);
-                            } else {
-                                // The hashes don't match, so we need to further
-                                // process this child; insert its children at
-                                // the absolute bottom-most level
-                                for (grandchild_radix, grandchild) in child.into_children() {
-                                    let grandchild_prefix =
-                                        child_prefix.clone().push(grandchild_radix);
-                                    below_below.insert(grandchild_prefix, grandchild);
-                                }
-                            }
-                        }
-                        Right((parent_prefix, hash_radix, _)) => {
-                            // The counterparty was uncertain about this child,
-                            // but we don't have it at all; this means we need
-                            // to request it from them
-                            requested.insert(parent_prefix.push(hash_radix));
-                        }
-                    }
-                }
-            } else {
-                // We don't have the parent at all. This is only reachable when
-                // the counterparty enumerated children of a prefix without
-                // knowing whether we had it -- which, in a correct protocol
-                // run, only happens on the responder's opening message (where
-                // it lists every child of its root unconditionally). The
-                // initiator processes that message as its very first
-                // `exchange`, at which point its level is still at `Top`
-                // (`Height = Root`); any other call site reaching this branch
-                // indicates a misbehaving counterparty or a protocol bug.
-                debug_assert_eq!(
-                    <L::Height as Height>::HEIGHT,
-                    <Root as Height>::HEIGHT,
-                    "counterparty indicated uncertainty about unknown parent \
-                    prefix {:?} outside of the initiator's first round",
-                    parent_prefix,
-                );
-                for (parent, hash_radix, _) in chunk {
-                    requested.insert(parent.push(hash_radix));
-                }
-            }
-        }
-
-        // The new bottom of our level is two below where we started:
-        let levels = self.levels.down(below).down(below_below);
-        let uncertain: OrdMap<_, _> = levels
-            .level()
-            .iter()
-            .map(|(prefix, node)| (prefix.clone(), node.hash()))
-            .collect();
-
-        // Determine whether we're finished, by examining our situation
-        let next = if uncertain.is_empty() && requested.is_empty() {
-            // If we are no longer uncertain about any children and we have not
-            // requested any that we're aware we're lacking, then we must be
-            // finished. At this point, the bottom-most level we just created
-            // should by definition be empty (but it is not the case conversely
-            // that if the level is empty, we're finished -- consider the
-            // situation when uncertain is empty but requested is not!).
-            Err(levels.collapse())
+        // We are finished only when we have nothing left to ask about and
+        // nothing left in dispute. (The converse does not hold: an empty new
+        // bottom level alone does not mean we're done -- we might still have
+        // outstanding `requested` prefixes whose answers we need.)
+        let finished = uncertain.is_empty() && requested.is_empty();
+        let next = if finished {
+            Err(next.levels.collapse())
         } else {
-            // Otherwise, we should continue onwards!
-            Ok(Exchange {
-                levels,
-                with_message: self.with_message,
-                other_version: self.other_version,
-            })
+            Ok(next)
         };
 
-        // The message we send to our counterparty (unconditionally regardless
-        // of whether we're ourselves finished internally):
+        // We send our outgoing message regardless of whether we ourselves are
+        // finished: the counterparty may still need its contents to converge.
         let message = message::Exchange {
             providing,
             requested,
@@ -315,14 +558,72 @@ where
         (message, next)
     }
 
-    /// The responder's end of the protocol.
-    pub fn complete_responder<T>(
-        mut self,
+    /// The initiator's last sending round, descending the zipper from
+    /// `S<S<Z>>` to `Z` and emitting [`message::Closing`].
+    ///
+    /// Like [`Self::exchange`] internally, but emits `Closing` rather than
+    /// `Exchange<_, _, Z>`: the leaf-height `uncertain` that the steady-state
+    /// path would produce is structurally vacuous (leaves all hash to the
+    /// same all-ones sentinel, so any "Both"-case is necessarily a match),
+    /// so we omit it from the wire. This lets [`Self::complete_responder`]
+    /// consume `Closing` directly, without a runtime check that a
+    /// well-behaved peer would never trip.
+    pub fn close_initiator<T>(
+        self,
         message::Exchange {
             providing,
             requested,
             uncertain,
-        }: message::Exchange<P, T, Z>,
+        }: message::Exchange<P, T, S<Z>>,
+    ) -> (
+        message::Closing<P, T>,
+        Result<Exchange<'v, P, F, Below<P, T, Z, Below<P, T, S<Z>, L>>>, Option<Node<P, T, Root>>>,
+    )
+    where
+        F: FnMut(&Version<P>, Key, &Message<T>),
+        L: Levels<P, T, Height = S<S<Z>>>,
+        T: Clone,
+    {
+        let (providing, requested, uncertain, next) = self.step(providing, requested, uncertain);
+
+        // We know that the uncertain set should be empty, because we should
+        // never be uncertain about a leaf hash; after all, leaf hashes are
+        // always 0xff...
+        debug_assert!(
+            uncertain.is_empty(),
+            "uncertain set non-empty when closing initiator"
+        );
+
+        // No outgoing `uncertain` (omitted from `Closing`). We are finished
+        // only when we have nothing left to ask about.
+        let finished = requested.is_empty();
+        let next = if finished {
+            Err(next.levels.collapse())
+        } else {
+            Ok(next)
+        };
+
+        let message = message::Closing {
+            providing,
+            requested,
+        };
+
+        (message, next)
+    }
+
+    /// The responder's final round, processing the initiator's
+    /// [`message::Closing`].
+    ///
+    /// We absorb the initiator's last batch of nodes, answer any final
+    /// `requested` set, and collapse our zipper back to a root. The returned
+    /// [`message::Complete`] carries our last outgoing `providing` for the
+    /// initiator to absorb in [`Self::complete_initiator`].
+    pub fn complete_responder<T>(
+        mut self,
+        message::Closing {
+            providing,
+            requested,
+        }: message::Closing<P, T>,
     ) -> (
         message::Complete<P, T>,
         Result<Infallible, Option<Node<P, T, Root>>>,
@@ -330,66 +631,19 @@ where
     where
         F: FnMut(&Version<P>, Key, &Message<T>),
         L: Levels<P, T, Height = S<Z>>,
-        P: Clone + Ord + AsRef<[u8]>,
         T: Clone,
     {
-        // At the final stage, the initiator cannot be uncertain about a leaf:
-        // either it has it (in which case the hash is the same: 0xff...), or it
-        // doesn't (in which case it should be requested, not uncertain). No
-        // well-behaved initiator will ever specify a non-empty uncertain.
-        debug_assert!(
-            uncertain.is_empty(),
-            "initiator supplied non-empty uncertain set: {:?}",
-            uncertain
-        );
-
-        // The current level of our traversal through the tree:
-        let level = self.levels.level_mut();
-
-        // 1. Insert all the provided previously-unknown nodes into our level.
-        for (prefix, node) in providing {
-            level.insert(prefix, node);
-        }
-
-        // 2. Look up all the requested prefixes and split them into all their
-        // children (filtered by those children being unknown relative to the
-        // other's version), to slot into the other's tree.
-        let mut providing = OrdMap::default();
-        for prefix in requested {
-            if let Some(node) = level.remove(&prefix) {
-                // Filter children by whether they are unknown to the other
-                // party: we should take note of this filtration locally as
-                // well, because the other party lacking a node means that
-                // anything strictly causally prior to their version which we
-                // still have was deleted already on their side.
-                if let Some(node) = Unknown::unknown(
-                    Some(node),
-                    prefix.clone(),
-                    &self.other_version,
-                    &mut self.with_message,
-                ) {
-                    // Re-insert the filtered node back into the level.
-                    level.insert(prefix.clone(), node.clone());
-
-                    // Explode the node into its children and return them to the
-                    // other party as requested.
-                    for (radix, child) in node.into_children() {
-                        providing.insert(prefix.clone().push(radix), child);
-                    }
-                }
-            } else {
-                // The counterparty should only request prefixes that we
-                // provided to it; if not, either the counterparty is
-                // misbehaving, or we are.
-                #[cfg(debug_assertions)]
-                panic!("counterparty requested unknown prefix {:?}", prefix);
-            }
-        }
-
+        self.absorb_providing(providing);
+        let providing = self.answer_requested(requested);
         (message::Complete { providing }, Err(self.levels.collapse()))
     }
 
-    /// The initiator's end of the protocol.
+    /// The initiator's final round.
+    ///
+    /// Absorbs the responder's last batch of `providing` (from
+    /// [`message::Complete`]) and collapses our zipper back to a root. There
+    /// is no outgoing message: any `requested` we would have made went out
+    /// in our prior [`Self::close_initiator`] call.
     pub fn complete_initiator<T>(
         mut self,
         message::Complete { providing }: message::Complete<P, T>,
@@ -399,14 +653,7 @@ where
         P: Clone + Ord + AsRef<[u8]>,
         T: Clone,
     {
-        // The current level of our traversal through the tree:
-        let level = self.levels.level_mut();
-
-        // 1. Insert all the provided previously-unknown nodes into our level.
-        for (prefix, node) in providing {
-            level.insert(prefix, node);
-        }
-
+        self.absorb_providing(providing);
         Err(self.levels.collapse())
     }
 }
