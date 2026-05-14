@@ -21,26 +21,36 @@ where
     T: Clone,
 {
     match (|| -> Result<Infallible, Option<Node<P, T, Root>>> {
+        // Before the exchange protocol, the parties exchange the version
+        // vectors of their root nodes; this may be done simultaneously, whereas
+        // the remainder of the protocol is sequential and alternating.
         let version_a = a.as_ref().map(|n| n.version().clone()).unwrap_or_default();
         let version_b = b.as_ref().map(|n| n.version().clone()).unwrap_or_default();
 
+        // The initiator's first round is `initiator`, which both constructs the
+        // state needed for mirroring and emits its first message; this message
+        // is consumed by `responder` to initialize its own side and produce its
+        // own first message.
         let (m, a) = exchange::initiator(a, &version_b, b_to_a);
         let (m, b) = exchange::responder(b, &version_a, a_to_b, m);
 
-        // The initiator's first round is `open` (consuming the responder's
-        // `Opening`); the next 14 rounds are alternating `exchange`s; the
-        // initiator's last round is `close_initiator` (emitting `Closing`);
-        // the responder closes with `complete_responder`.
+        // The initiator's second round is `open_initiator` (consuming the
+        // responder's `Opening`).
         let (m, a) = a.open_initiator(m);
 
+        // The next 14 rounds are alternating `exchange`s.
         seq_macro::seq!(_ in 0..14 {
             let (m, b) = b?.exchange(m);
             let (m, a) = a?.exchange(m);
         });
 
+        // The initiator's penultimate round is `close_initiator` (emitting
+        // `Closing`).
         let (m, b) = b?.exchange(m);
         let (m, a) = a?.close_initiator(m);
 
+        // The responder closes with `complete_responder`, which is locally
+        // consumed by the initiator using `complete_initiator`.
         let (m, b) = b?.complete_responder(m);
         let node_a = a?.complete_initiator(m);
 
