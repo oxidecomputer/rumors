@@ -76,21 +76,6 @@ impl<T> Message<T> {
         &self.serialized
     }
 
-    /// Borrow the inner object mutably through a guard that recomputes the
-    /// cached serialization when dropped.
-    ///
-    /// # Panics
-    ///
-    /// The returned guard panics on drop if reserializing the mutated value
-    /// fails. Recovering the old serialization isn't meaningful, since it no
-    /// longer matches the object, so there's no way to recover except to panic.
-    pub fn as_mut(&mut self) -> MessageMut<'_, T>
-    where
-        T: BorshSerialize,
-    {
-        MessageMut { message: self }
-    }
-
     /// Consume the message and return the inner object, dropping the cached
     /// serialization.
     pub fn into_inner(self) -> T {
@@ -113,34 +98,6 @@ impl<T: BorshSerialize> From<T> for Message<T> {
 impl<T> AsRef<T> for Message<T> {
     fn as_ref(&self) -> &T {
         &self.message
-    }
-}
-
-/// RAII guard returned by [`Message::as_mut`]. Dereferences to the inner `T`
-/// and recomputes the cached serialization when dropped.
-pub struct MessageMut<'a, T: BorshSerialize> {
-    message: &'a mut Message<T>,
-}
-
-impl<T: BorshSerialize> Deref for MessageMut<'_, T> {
-    type Target = T;
-    fn deref(&self) -> &T {
-        &self.message.message
-    }
-}
-
-impl<T: BorshSerialize> DerefMut for MessageMut<'_, T> {
-    fn deref_mut(&mut self) -> &mut T {
-        &mut self.message.message
-    }
-}
-
-impl<T: BorshSerialize> Drop for MessageMut<'_, T> {
-    fn drop(&mut self) {
-        match borsh::to_vec(&self.message.message) {
-            Ok(bytes) => self.message.serialized = bytes.into(),
-            Err(e) => panic!("failed to reserialize Message on drop: {e}"),
-        }
     }
 }
 

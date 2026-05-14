@@ -113,20 +113,6 @@ proptest! {
         }
     }
 
-    /// `as_mut` restores the cache invariant: after the guard drops, the
-    /// cached bytes match a fresh serialization of the mutated value.
-    #[test]
-    fn as_mut_restores_cache(p in payload(), q in payload()) {
-        let mut m = Message::new(p);
-        {
-            let mut guard = m.as_mut();
-            *guard = q.clone();
-        }
-        let expected = borsh::to_vec(&q).unwrap();
-        prop_assert_eq!(m.message(), &q);
-        prop_assert_eq!(m.bytes(), expected.as_slice());
-    }
-
     /// Equal `Message<T>` values hash identically, so `Hash` agrees with
     /// `PartialEq` as required by the standard library contract.
     #[test]
