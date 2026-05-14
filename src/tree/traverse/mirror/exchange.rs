@@ -212,10 +212,23 @@ where
                     use EitherOrBoth::*;
                     match point {
                         Left((child_radix, child)) => {
-                            // The counterparty was not uncertain about this
-                            // child, so we should keep it unmodified
+                            // We have a child the counterparty did not list as
+                            // uncertain: they cannot have it, since they
+                            // enumerate all of their children's hashes when
+                            // they are uncertain about a parent. Filter the
+                            // node against their version to honor any
+                            // deletions, then send the surviving subtree to
+                            // them via `providing` (and retain a copy below).
                             let child_prefix = parent_prefix.clone().push(child_radix);
-                            below.insert(child_prefix, child);
+                            if let Some(child) = Unknown::unknown(
+                                Some(child),
+                                child_prefix.clone(),
+                                self.other_version,
+                                &mut self.with_message,
+                            ) {
+                                providing.insert(child_prefix.clone(), child.clone());
+                                below.insert(child_prefix, child);
+                            }
                         }
                         Both((child_radix, child), (parent_prefix, _, hash)) => {
                             let child_prefix = parent_prefix.push(child_radix);
@@ -243,18 +256,25 @@ where
                     }
                 }
             } else {
-                // The counterparty shouldn't indicate uncertainty about the
-                // child of a prefix that we don't have; if we don't have
-                // it, they should have discovered this and requested it,
-                // rather than indicating uncertainty. Uncertainty about
-                // what? If we don't have the parent, then the child hash
-                // cannot "mismatch" with anything!
-                #[cfg(debug_assertions)]
-                panic!(
-                    "counterparty indicated uncertainty about unknown parent
-                    prefix {:?}",
-                    parent_prefix
-                )
+                // We don't have the parent at all. This is only reachable when
+                // the counterparty enumerated children of a prefix without
+                // knowing whether we had it -- which, in a correct protocol
+                // run, only happens on the responder's opening message (where
+                // it lists every child of its root unconditionally). The
+                // initiator processes that message as its very first
+                // `exchange`, at which point its level is still at `Top`
+                // (`Height = Root`); any other call site reaching this branch
+                // indicates a misbehaving counterparty or a protocol bug.
+                debug_assert_eq!(
+                    <L::Height as Height>::HEIGHT,
+                    <Root as Height>::HEIGHT,
+                    "counterparty indicated uncertainty about unknown parent \
+                    prefix {:?} outside of the initiator's first round",
+                    parent_prefix,
+                );
+                for (parent, hash_radix, _) in chunk {
+                    requested.insert(parent.push(hash_radix));
+                }
             }
         }
 
