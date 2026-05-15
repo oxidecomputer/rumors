@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, mem};
+use std::{fmt::Debug, marker::PhantomData, mem};
 
 use imbl::OrdMap;
 
@@ -16,11 +16,22 @@ pub type Children<P, T, H> = OrdMap<u8, Node<P, T, H>>;
 
 /// A typed node which enforces the structural validity of the constructed tree
 /// at compile-time.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 #[repr(transparent)]
-pub struct Node<P: Clone + Ord + AsRef<[u8]>, T, H: Height> {
+pub struct Node<P: Ord + AsRef<[u8]>, T, H: Height> {
     height: PhantomData<H>,
     inner: untyped::Node<P, T>,
+}
+
+impl<P, T, H> Debug for Node<P, T, H>
+where
+    P: Debug + Ord + AsRef<[u8]>,
+    T: Debug,
+    H: Height,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.inner.fmt(f)
+    }
 }
 
 impl<P: Clone + Ord + AsRef<[u8]>, T: Clone, H: Height> Node<P, T, H> {

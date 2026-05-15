@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::mem;
 use std::sync::Arc;
 
@@ -5,12 +6,12 @@ use imbl::OrdMap;
 
 use crate::{Message, Version};
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Node<P: Ord + AsRef<[u8]>, T> {
     inner: Arc<NodeInner<P, T>>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct NodeInner<P: Ord + AsRef<[u8]>, T> {
     /// Compressed path above this node's own branching level, stored with the
     /// deepest byte at index 0 and the shallowest byte at the last index. An
@@ -27,6 +28,17 @@ struct NodeInner<P: Ord + AsRef<[u8]>, T> {
     version: Version<P>,
     /// The children of this node: either a leaf, or a branch point.
     children: Children<P, T>,
+}
+
+impl<P: Debug + Ord + AsRef<[u8]>, T: Debug> Debug for Node<P, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Node")
+            .field("prefix", &self.inner.prefix.iter().map(|(b, _)| b))
+            .field("hash", &self.inner.children_hash)
+            .field("version", &self.inner.version)
+            .field("children", &self.inner.children)
+            .finish()
+    }
 }
 
 /// The children of a node.
