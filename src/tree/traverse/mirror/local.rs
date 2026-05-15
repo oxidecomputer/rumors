@@ -76,23 +76,25 @@ use crate::{
 };
 
 use super::message::{self, UnderRoot, UnderUnderRoot};
+use super::protocol;
 
 /// An in-progress mirror synchronization on one side of the wire.
 ///
 /// `L` is our zipper, parameterised by the height of its bottom level; as the
 /// protocol descends, each [`Self::exchange`] call returns a new `Exchange`
 /// whose `L` is two heights below the previous one.
-pub struct Exchange<'v, Party, OnRecv, OnSend, Levels>
+pub struct Exchange<'v, OnRecv, OnSend, L>
 where
-    Party: Clone + Ord + AsRef<[u8]>,
+    L: Levels,
+    L::Party: Clone + Ord + AsRef<[u8]>,
 {
     /// Our multi-level zipper: agreed heights live near the top, the height
     /// currently under comparison lives at the bottom.
-    levels: Levels,
+    levels: L,
     /// The counterparty's version vector, used to honor their deletions: any
     /// node of ours at or causally prior to this version that they lack must
     /// have been forgotten on their side.
-    their_version: &'v Version<Party>,
+    their_version: &'v Version<L::Party>,
     /// Invoked whenever we discover a leaf that was previously unknown to us;
     /// lets the calling code stream out leaf-level observations as we find
     /// out about them.
@@ -103,115 +105,238 @@ where
     on_send: OnSend,
 }
 
-/// Begin the protocol as the initiator.
-///
-/// Returns the opening [`message::Initiate`] (just our root hash) and an
-/// `Exchange` whose zipper is at `Top` (height `Root`). The initiator's next
-/// call is [`Exchange::open_initiator`], processing the responder's
-/// [`message::Opening`].
-pub fn initiator<'v, P, OnRecv, OnSend, T>(
-    node: Option<Node<P, T, Root>>,
-    their_version: &'v Version<P>,
-    on_recv: OnRecv,
-    on_send: OnSend,
-) -> (
-    message::Initiate,
-    Exchange<'v, P, OnRecv, OnSend, Top<P, T>>,
-)
+// We define a local `Exchage`'s participation in the protocol as such:
+
+impl<'v, OnRecv, OnSend, L> protocol::Stage for Exchange<'v, OnRecv, OnSend, L>
 where
-    OnRecv: FnMut(&Version<P>, Key, &Message<T>),
-    OnSend: FnMut(&Version<P>, Key, &Message<T>),
-    P: Clone + Ord + AsRef<[u8]>,
-    T: Clone,
+    L: Levels,
+    L::Party: Clone + Ord + AsRef<[u8]>,
+    L::Message: Clone,
+    OnRecv: FnMut(&Version<L::Party>, Key, &Message<L::Message>),
+    OnSend: FnMut(&Version<L::Party>, Key, &Message<L::Message>),
 {
-    let message = message::Initiate {
-        uncertain: node.iter().map(|n| (Prefix::new(), n.hash())).collect(),
-    };
-
-    let next = Exchange {
-        levels: Node::levels(node),
-        their_version,
-        on_recv,
-        on_send,
-    };
-
-    (message, next)
+    type Height = L::Height;
 }
 
-/// Begin the protocol as the responder, processing the initiator's
-/// [`message::Initiate`].
-///
-/// If our root hash matches the initiator's, we short-circuit: the trees are
-/// already equal, so we return `Err(our_root)` and an empty `Opening` to signal
-/// completion. Otherwise we explode our root one level down into an
-/// [`UnderRoot`]-height zipper and emit its children's hashes as the
-/// `Opening`'s `uncertain` set -- unconditionally, since we haven't yet learned
-/// what the initiator has.
-pub fn responder<P, OnRecv, OnSend, T>(
-    node: Option<Node<P, T, Root>>,
-    their_version: &Version<P>,
-    on_recv: OnRecv,
-    on_send: OnSend,
-    request: message::Initiate,
-) -> (
-    message::Opening,
-    Result<
-        Exchange<'_, P, OnRecv, OnSend, Below<P, T, UnderRoot, Top<P, T>>>,
-        Option<Node<P, T, Root>>,
-    >,
-)
+impl<'v, P, T, OnRecv, OnSend> protocol::Initiator<'v, P, T, OnRecv, OnSend>
+    for Exchange<'v, OnRecv, OnSend, Top<P, T>>
 where
-    OnRecv: FnMut(&Version<P>, Key, &Message<T>),
-    OnSend: FnMut(&Version<P>, Key, &Message<T>),
     P: Clone + Ord + AsRef<[u8]>,
     T: Clone,
+    OnRecv: FnMut(&Version<P>, Key, &Message<T>),
+    OnSend: FnMut(&Version<P>, Key, &Message<T>),
 {
-    // `Initiate.uncertain` is structurally a single entry at the empty root
-    // prefix. Treat absence as "empty tree" and let the equality check below
-    // handle the symmetric "both empty" case.
-    let their_root = request
-        .uncertain
-        .get(&Prefix::new())
-        .copied()
-        .unwrap_or_else(|| [0; 32].into());
+    type Next = Exchange<'v, OnRecv, OnSend, Top<P, T>>;
 
-    // If the initiator has the same root hash, our trees must be equal, so
-    // there's no need to continue the protocol; however, we need to signal back
-    // to the initiator that we're finished.
-    if their_root == Node::root_hash(&node) {
-        return (message::Opening::default(), Err(node));
+    fn initiator(
+        node: Option<Node<P, T, Root>>,
+        their_version: &'v Version<P>,
+        on_recv: OnRecv,
+        on_send: OnSend,
+    ) -> (message::Initiate, Self::Next) {
+        let message = message::Initiate {
+            uncertain: node.iter().map(|n| (Prefix::new(), n.hash())).collect(),
+        };
+
+        let next = Exchange {
+            levels: Node::levels(node),
+            their_version,
+            on_recv,
+            on_send,
+        };
+
+        (message, next)
     }
-
-    // If the root hashes mismatch, explode our root one level down. The
-    // resulting `uncertain` is all the hashes at that level -- we don't yet
-    // know which of them the initiator also has.
-    let levels = Node::levels(None).down(
-        node.map(|n| {
-            n.into_children()
-                .into_iter()
-                .map(|(radix, child)| (Prefix::new().push(radix), child))
-                .collect()
-        })
-        .unwrap_or_default(),
-    );
-
-    let message = message::Opening {
-        uncertain: levels
-            .level()
-            .into_iter()
-            .map(|(prefix, child)| (prefix.clone(), child.hash()))
-            .collect(),
-    };
-
-    let next = Ok(Exchange {
-        levels,
-        their_version,
-        on_recv,
-        on_send,
-    });
-
-    (message, next)
 }
+
+impl<'v, P, T, OnRecv, OnSend> protocol::Responder<'v, P, T, OnRecv, OnSend>
+    for Exchange<'v, OnRecv, OnSend, Below<UnderRoot, Top<P, T>>>
+where
+    P: Clone + Ord + AsRef<[u8]>,
+    T: Clone,
+    OnRecv: FnMut(&Version<P>, Key, &Message<T>),
+    OnSend: FnMut(&Version<P>, Key, &Message<T>),
+{
+    type Next = Exchange<'v, OnRecv, OnSend, Below<UnderRoot, Top<P, T>>>;
+
+    fn responder(
+        node: Option<Node<P, T, Root>>,
+        their_version: &'v Version<P>,
+        on_recv: OnRecv,
+        on_send: OnSend,
+        request: message::Initiate,
+    ) -> (
+        message::Opening,
+        Result<Self::Next, Option<Node<P, T, Root>>>,
+    ) {
+        // `Initiate.uncertain` is structurally a single entry at the empty root
+        // prefix. Treat absence as "empty tree" and let the equality check below
+        // handle the symmetric "both empty" case.
+        let their_root = request
+            .uncertain
+            .get(&Prefix::new())
+            .copied()
+            .unwrap_or_else(|| [0; 32].into());
+
+        // If the initiator has the same root hash, our trees must be equal, so
+        // there's no need to continue the protocol; however, we need to signal back
+        // to the initiator that we're finished.
+        if their_root == Node::root_hash(&node) {
+            return (message::Opening::default(), Err(node));
+        }
+
+        // If the root hashes mismatch, explode our root one level down. The
+        // resulting `uncertain` is all the hashes at that level -- we don't yet
+        // know which of them the initiator also has.
+        let levels = Node::levels(None).down(
+            node.map(|n| {
+                n.into_children()
+                    .into_iter()
+                    .map(|(radix, child)| (Prefix::new().push(radix), child))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        );
+
+        let message = message::Opening {
+            uncertain: levels
+                .level()
+                .into_iter()
+                .map(|(prefix, child)| (prefix.clone(), child.hash()))
+                .collect(),
+        };
+
+        let next = Ok(Exchange {
+            levels,
+            their_version,
+            on_recv,
+            on_send,
+        });
+
+        (message, next)
+    }
+}
+
+impl<'v, P, T, OnRecv, OnSend, L> protocol::OpenInitiator<'v, P, T, OnRecv, OnSend>
+    for Exchange<'v, OnRecv, OnSend, L>
+where
+    P: Clone + Ord + AsRef<[u8]>,
+    T: Clone,
+    OnRecv: FnMut(&Version<P>, Key, &Message<T>),
+    OnSend: FnMut(&Version<P>, Key, &Message<T>),
+    L: Levels<Party = P, Message = T, Height = Root>,
+{
+    type Next = Exchange<'v, OnRecv, OnSend, Below<UnderUnderRoot, Below<UnderRoot, L>>>;
+
+    fn open_initiator(
+        self,
+        request: message::Opening,
+    ) -> (
+        message::Exchange<P, T, UnderUnderRoot>,
+        Result<Self::Next, Option<Node<P, T, Root>>>,
+    ) {
+        self.reply(request)
+    }
+}
+
+impl<'v, P, T, H, OnRecv, OnSend, L> protocol::Exchange<'v, P, T, H, OnRecv, OnSend>
+    for Exchange<'v, OnRecv, OnSend, L>
+where
+    P: Clone + Ord + AsRef<[u8]>,
+    T: Clone,
+    OnRecv: FnMut(&Version<P>, Key, &Message<T>),
+    OnSend: FnMut(&Version<P>, Key, &Message<T>),
+    L: Levels<Party = P, Message = T, Height = S<S<H>>>,
+    S<S<H>>: Height,
+    S<H>: Height,
+    H: Height + Unknown + Get,
+    // Assumed at impl-validation time so we don't have to case-analyze `H`
+    // here: at use sites `H` is concrete and one of the three blanket impls
+    // discharges it.
+    Exchange<'v, OnRecv, OnSend, Below<H, Below<S<H>, L>>>:
+        protocol::AfterExchange<'v, P, T, OnRecv, OnSend, H>,
+{
+    type Next = Exchange<'v, OnRecv, OnSend, Below<H, Below<S<H>, L>>>;
+
+    fn exchange(
+        self,
+        request: message::Exchange<P, T, S<H>>,
+    ) -> (
+        message::Exchange<P, T, H>,
+        Result<Self::Next, Option<Node<P, T, Root>>>,
+    )
+    where
+        H: Height,
+        S<H>: Height,
+        S<S<H>>: Height,
+    {
+        self.reply(request)
+    }
+}
+
+impl<'v, P, T, OnRecv, OnSend, L> protocol::CloseInitiator<'v, P, T, OnRecv, OnSend>
+    for Exchange<'v, OnRecv, OnSend, L>
+where
+    P: Clone + Ord + AsRef<[u8]>,
+    T: Clone,
+    OnRecv: FnMut(&Version<P>, Key, &Message<T>),
+    OnSend: FnMut(&Version<P>, Key, &Message<T>),
+    L: Levels<Party = P, Message = T, Height = S<S<Z>>>,
+{
+    type Next = Exchange<'v, OnRecv, OnSend, Below<Z, Below<S<Z>, L>>>;
+
+    fn close_initiator(
+        self,
+        request: message::Exchange<P, T, S<Z>>,
+    ) -> (
+        message::Closing<P, T>,
+        Result<Self::Next, Option<Node<P, T, Root>>>,
+    ) {
+        self.reply(request)
+    }
+}
+
+impl<'v, P, T, OnRecv, OnSend, L> protocol::CompleteResponder<P, T>
+    for Exchange<'v, OnRecv, OnSend, L>
+where
+    P: Clone + Ord + AsRef<[u8]>,
+    T: Clone,
+    OnRecv: FnMut(&Version<P>, Key, &Message<T>),
+    OnSend: FnMut(&Version<P>, Key, &Message<T>),
+    L: Levels<Party = P, Message = T, Height = S<Z>>,
+{
+    fn complete_responder(
+        mut self,
+        request: message::Closing<P, T>,
+    ) -> (
+        message::Complete<P, T>,
+        Result<Infallible, Option<Node<P, T, Root>>>,
+    ) {
+        self.absorb_providing(request.providing);
+        let providing = self.answer_requested(request.requested);
+        (message::Complete { providing }, Err(self.levels.collapse()))
+    }
+}
+
+impl<'v, P, T, OnRecv, OnSend, L> protocol::CompleteInitiator<P, T, OnRecv>
+    for Exchange<'v, OnRecv, OnSend, L>
+where
+    P: Clone + Ord + AsRef<[u8]>,
+    T: Clone,
+    OnRecv: FnMut(&Version<P>, Key, &Message<T>),
+    OnSend: FnMut(&Version<P>, Key, &Message<T>),
+    L: Levels<Party = P, Message = T, Height = Z>,
+{
+    fn complete_initiator(
+        mut self,
+        request: message::Complete<P, T>,
+    ) -> Result<Infallible, Option<Node<P, T, Root>>> {
+        self.absorb_providing(request.providing);
+        Err(self.levels.collapse())
+    }
+}
+
+// Internal implementation of methods on `Exchange` involved in the protocol:
 
 /// The output of [`Exchange::partition_uncertain`], one field per outgoing
 /// channel in the asymmetry matrix.
@@ -236,28 +361,20 @@ where
     exploded: OrdMap<Prefix<H>, Node<P, T, H>>,
 }
 
-/// The type of replies internally in the main interactive process.
-type Reply<'v, H, Response, OnRecv, OnSend, P, T, L> = (
-    Response,
-    Result<
-        Exchange<'v, P, OnRecv, OnSend, Below<P, T, H, Below<P, T, S<H>, L>>>,
-        Option<Node<P, T, Root>>,
-    >,
-);
-
-impl<'v, P, OnSend, OnRecv, L> Exchange<'v, P, OnRecv, OnSend, L>
+impl<'v, OnSend, OnRecv, L> Exchange<'v, OnRecv, OnSend, L>
 where
-    P: Clone + Ord + AsRef<[u8]>,
+    L: Levels,
+    L::Party: Clone + Ord + AsRef<[u8]>,
+    L::Message: Clone,
 {
     /// Insert nodes the counterparty has just sent us (because we requested
     /// them last round, or because they unilaterally knew we lacked them) into
     /// our zipper's bottom level.
-    fn absorb_providing<H, T>(&mut self, providing: OrdMap<Prefix<H>, Node<P, T, H>>)
+    fn absorb_providing<H>(&mut self, providing: OrdMap<Prefix<H>, Node<L::Party, L::Message, H>>)
     where
-        OnRecv: FnMut(&Version<P>, Key, &Message<T>),
-        L: Levels<P, T, Height = H>,
+        OnRecv: FnMut(&Version<L::Party>, Key, &Message<L::Message>),
+        L: Levels<Height = H>,
         H: Height + Get,
-        T: Clone,
     {
         let frontier = self.levels.level_mut();
         for (prefix, node) in providing {
@@ -275,16 +392,15 @@ where
     /// node into its children, filtered against the counterparty's version so
     /// that any subtrees they have deleted disappear locally too. Returns the
     /// outgoing `providing` map, one height below the frontier.
-    fn answer_requested<H, T>(
+    fn answer_requested<H>(
         &mut self,
         requested: OrdSet<Prefix<S<H>>>,
-    ) -> OrdMap<Prefix<H>, Node<P, T, H>>
+    ) -> OrdMap<Prefix<H>, Node<L::Party, L::Message, H>>
     where
-        OnSend: FnMut(&Version<P>, Key, &Message<T>),
-        L: Levels<P, T, Height = S<H>>,
+        L: Levels<Height = S<H>>,
+        OnSend: FnMut(&Version<L::Party>, Key, &Message<L::Message>),
         S<H>: Unknown,
         H: Height,
-        T: Clone,
     {
         let frontier = self.levels.level_mut();
         let mut providing = OrdMap::default();
@@ -326,17 +442,16 @@ where
     /// only from `open_initiator` (where the responder lists children of our
     /// absent root unconditionally); the debug-assertion guards against a
     /// steady-state caller silently triggering it at any incorrect height.
-    fn partition_uncertain<H, T>(
+    fn partition_uncertain<H>(
         &mut self,
         uncertain: OrdMap<Prefix<S<H>>, blake3::Hash>,
-    ) -> Partition<P, T, H>
+    ) -> Partition<L::Party, L::Message, H>
     where
-        OnSend: FnMut(&Version<P>, Key, &Message<T>),
-        L: Levels<P, T, Height = S<S<H>>>,
+        OnSend: FnMut(&Version<L::Party>, Key, &Message<L::Message>),
+        L: Levels<Height = S<S<H>>>,
         S<S<H>>: Height,
         S<H>: Height,
         H: Height + Unknown,
-        T: Clone,
     {
         let frontier = self.levels.level_mut();
         let mut providing = OrdMap::default();
@@ -433,20 +548,25 @@ where
     ///
     /// Shared by [`Self::exchange`] and [`Self::close_initiator`]; they differ
     /// only in how they assemble the outgoing message and detect completion.
-    fn reply<Request, Response, H, T>(
+    fn reply<Request, Response, H>(
         mut self,
         request: Request,
-    ) -> Reply<'v, H, Response, OnRecv, OnSend, P, T, L>
+    ) -> (
+        Response,
+        Result<
+            Exchange<'v, OnRecv, OnSend, Below<H, Below<S<H>, L>>>,
+            Option<Node<L::Party, L::Message, Root>>,
+        >,
+    )
     where
-        Request: Into<message::Exchange<P, T, S<H>>>,
-        Response: From<message::Exchange<P, T, H>>,
-        OnRecv: FnMut(&Version<P>, Key, &Message<T>),
-        OnSend: FnMut(&Version<P>, Key, &Message<T>),
-        L: Levels<P, T, Height = S<S<H>>>,
+        Request: Into<message::Exchange<L::Party, L::Message, S<H>>>,
+        Response: From<message::Exchange<L::Party, L::Message, H>>,
+        OnRecv: FnMut(&Version<L::Party>, Key, &Message<L::Message>),
+        OnSend: FnMut(&Version<L::Party>, Key, &Message<L::Message>),
+        L: Levels<Height = S<S<H>>>,
         S<S<H>>: Height,
         S<H>: Height,
         H: Height + Unknown + Get,
-        T: Clone,
     {
         let message::Exchange {
             providing,
@@ -502,118 +622,5 @@ where
         };
 
         (response.into(), next)
-    }
-
-    /// Process the initiator's first round, applied to the responder's
-    /// [`message::Opening`].
-    ///
-    /// Distinct from [`Self::exchange`] because the opening carries only
-    /// `uncertain`, never `providing` or `requested`: the responder enumerates
-    /// every child of its root before learning what the initiator has. The
-    /// responder may therefore list hashes whose parent (our empty root prefix)
-    /// we lack entirely -- a normal case here, but one that would indicate a
-    /// protocol bug if it recurred in `Self::exchange`.
-    pub fn open_initiator<T>(
-        self,
-        request: message::Opening,
-    ) -> Reply<'v, UnderUnderRoot, message::Exchange<P, T, UnderUnderRoot>, OnRecv, OnSend, P, T, L>
-    where
-        OnRecv: FnMut(&Version<P>, Key, &Message<T>),
-        OnSend: FnMut(&Version<P>, Key, &Message<T>),
-        L: Levels<P, T, Height = Root>,
-        T: Clone,
-    {
-        self.reply(request)
-    }
-
-    /// Process one round of the protocol's steady state, as either party.
-    ///
-    /// Each call moves our zipper down by two heights and emits the next
-    /// outgoing message. The returned `Result` is `Err(final_tree)` once we
-    /// have nothing left to ask about and nothing left in dispute -- but the
-    /// outgoing message is sent unconditionally, because the counterparty may
-    /// still need its contents to converge.
-    pub fn exchange<H, T>(
-        self,
-        request: message::Exchange<P, T, S<H>>,
-    ) -> Reply<'v, H, message::Exchange<P, T, H>, OnRecv, OnSend, P, T, L>
-    where
-        OnRecv: FnMut(&Version<P>, Key, &Message<T>),
-        OnSend: FnMut(&Version<P>, Key, &Message<T>),
-        L: Levels<P, T, Height = S<S<H>>>,
-        S<S<H>>: Height,
-        S<H>: Height,
-        H: Height + Unknown + Get,
-        T: Clone,
-    {
-        self.reply(request)
-    }
-
-    /// The initiator's last sending round, descending the zipper from
-    /// `S<S<Z>>` to `Z` and emitting [`message::Closing`].
-    ///
-    /// Like [`Self::exchange`] internally, but emits `Closing` rather than
-    /// `Exchange<_, _, Z>`: the leaf-height `uncertain` that the steady-state
-    /// path would produce is structurally vacuous (leaves all hash to the
-    /// same all-ones sentinel, so any "Both"-case is necessarily a match),
-    /// so we omit it from the wire. This lets [`Self::complete_responder`]
-    /// consume `Closing` directly, without a runtime check that a
-    /// well-behaved peer would never trip.
-    pub fn close_initiator<T>(
-        self,
-        request: message::Exchange<P, T, S<Z>>,
-    ) -> Reply<'v, Z, message::Closing<P, T>, OnRecv, OnSend, P, T, L>
-    where
-        OnRecv: FnMut(&Version<P>, Key, &Message<T>),
-        OnSend: FnMut(&Version<P>, Key, &Message<T>),
-        L: Levels<P, T, Height = S<S<Z>>>,
-        T: Clone,
-    {
-        self.reply(request)
-    }
-
-    /// The responder's final round, processing the initiator's
-    /// [`message::Closing`].
-    ///
-    /// We absorb the initiator's last batch of nodes, answer any final
-    /// `requested` set, and collapse our zipper back to a root. The returned
-    /// [`message::Complete`] carries our last outgoing `providing` for the
-    /// initiator to absorb in [`Self::complete_initiator`].
-    pub fn complete_responder<T>(
-        mut self,
-        request: message::Closing<P, T>,
-    ) -> (
-        message::Complete<P, T>,
-        Result<Infallible, Option<Node<P, T, Root>>>,
-    )
-    where
-        OnRecv: FnMut(&Version<P>, Key, &Message<T>),
-        OnSend: FnMut(&Version<P>, Key, &Message<T>),
-        L: Levels<P, T, Height = S<Z>>,
-        T: Clone,
-    {
-        self.absorb_providing(request.providing);
-        let providing = self.answer_requested(request.requested);
-        (message::Complete { providing }, Err(self.levels.collapse()))
-    }
-
-    /// The initiator's final round.
-    ///
-    /// Absorbs the responder's last batch of `providing` (from
-    /// [`message::Complete`]) and collapses our zipper back to a root. There
-    /// is no outgoing message: any `requested` we would have made went out
-    /// in our prior [`Self::close_initiator`] call.
-    pub fn complete_initiator<T>(
-        mut self,
-        request: message::Complete<P, T>,
-    ) -> Result<Infallible, Option<Node<P, T, Root>>>
-    where
-        OnRecv: FnMut(&Version<P>, Key, &Message<T>),
-        L: Levels<P, T, Height = Z>,
-        P: Clone + Ord + AsRef<[u8]>,
-        T: Clone,
-    {
-        self.absorb_providing(request.providing);
-        Err(self.levels.collapse())
     }
 }

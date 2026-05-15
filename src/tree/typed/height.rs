@@ -14,8 +14,12 @@ pub trait Height: Debug + Clone + Default + sealed::Sealed {
 
 /// The predecessor of a nonzero height: `S<T>` has predecessor `T`. Deliberately
 /// not implemented for `Z`, so a `Pred` bound witnesses that a height is nonzero.
-pub trait Pred: Height {
+pub trait Pred: sealed::Sealed {
     type Pred: Height;
+}
+
+impl<H: Height> Pred for S<H> {
+    type Pred = H;
 }
 
 /// Enumerate `Height` (and its `Sealed` supertrait) for the Peano numbers
@@ -23,13 +27,10 @@ pub trait Pred: Height {
 /// Each successor also gets a `Pred` impl pointing back at its predecessor.
 macro_rules! impl_heights {
     (@emit $t:ty, $n:expr;) => {
-        impl sealed::Sealed for $t {}
         impl Height for $t { const HEIGHT: usize = $n; }
     };
     (@emit $t:ty, $n:expr; $head:tt $($tail:tt)*) => {
-        impl sealed::Sealed for $t {}
         impl Height for $t { const HEIGHT: usize = $n; }
-        impl Pred for S<$t> { type Pred = $t; }
         impl_heights!(@emit S<$t>, $n + 1; $($tail)*);
     };
     ($($tok:tt)*) => {
@@ -56,7 +57,10 @@ pub type Root =
     Z>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>;
 
 mod sealed {
+    use super::*;
     pub trait Sealed {}
+    impl Sealed for Z {}
+    impl<H: Sealed> Sealed for S<H> {}
 }
 
 #[cfg(test)]

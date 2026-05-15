@@ -15,23 +15,25 @@ use super::Levels;
 /// the boolean iterator. When the iterator is exhausted, all
 /// remaining nodes stay (biasing toward shallow descent on shrink).
 trait Descend: Height {
-    fn descend_and_collapse<P, T>(
-        levels: impl Levels<P, T, Height = Self>,
+    fn descend_and_collapse<L>(
+        levels: L,
         decisions: &mut impl Iterator<Item = bool>,
-    ) -> Option<Node<P, T, Root>>
+    ) -> Option<Node<L::Party, L::Message, Root>>
     where
-        P: Clone + Ord + AsRef<[u8]> + Send + Sync,
-        T: Clone + Send + Sync;
+        L: Levels<Height = Self>,
+        L::Party: Clone + Ord + AsRef<[u8]> + Send + Sync,
+        L::Message: Clone + Send + Sync;
 }
 
 impl Descend for Z {
-    fn descend_and_collapse<P, T>(
-        levels: impl Levels<P, T, Height = Z>,
+    fn descend_and_collapse<L>(
+        levels: L,
         _decisions: &mut impl Iterator<Item = bool>,
-    ) -> Option<Node<P, T, Root>>
+    ) -> Option<Node<L::Party, L::Message, Root>>
     where
-        P: Clone + Ord + AsRef<[u8]> + Send + Sync,
-        T: Clone + Send + Sync,
+        L: Levels<Height = Self>,
+        L::Party: Clone + Ord + AsRef<[u8]> + Send + Sync,
+        L::Message: Clone + Send + Sync,
     {
         levels.collapse()
     }
@@ -42,18 +44,19 @@ where
     S<H>: Height,
     H: Height,
 {
-    fn descend_and_collapse<P, T>(
-        mut levels: impl Levels<P, T, Height = S<H>>,
+    fn descend_and_collapse<L>(
+        mut levels: L,
         decisions: &mut impl Iterator<Item = bool>,
-    ) -> Option<Node<P, T, Root>>
+    ) -> Option<Node<L::Party, L::Message, Root>>
     where
-        P: Clone + Ord + AsRef<[u8]> + Send + Sync,
-        T: Clone + Send + Sync,
+        L: Levels<Height = Self>,
+        L::Party: Clone + Ord + AsRef<[u8]> + Send + Sync,
+        L::Message: Clone + Send + Sync,
     {
         let current = std::mem::take(levels.level_mut());
 
         let mut stay = OrdMap::new();
-        let mut below: OrdMap<Prefix<H>, Node<P, T, H>> = OrdMap::new();
+        let mut below: OrdMap<Prefix<H>, Node<L::Party, L::Message, H>> = OrdMap::new();
 
         for (prefix, node) in current {
             if decisions.next().unwrap_or(false) {

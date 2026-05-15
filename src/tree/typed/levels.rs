@@ -3,7 +3,7 @@ use itertools::Itertools;
 
 use crate::tree::typed::{
     Node, Prefix,
-    height::{Height, Root, S},
+    height::{Height, Pred, Root, S},
 };
 
 /// Create a new [`Levels`] from the root of a tree.
@@ -18,35 +18,40 @@ where
 }
 
 /// An abstract type which represents a multi-zipper into a tree.
-pub trait Levels<P, T>: Default + Clone + sealed::Sealed {
+pub trait Levels: Default + Clone + sealed::Sealed {
+    /// The party type of the underlying nodes.
+    type Party: Clone + Ord + AsRef<[u8]>;
+
+    /// The message type of the underlying nodes.
+    type Message: Clone;
+
     /// The height of the bottom-most level.
     type Height: Height;
 
     /// Collapse a [`Levels`] back to a node by folding all the levels together.
-    fn collapse(self) -> Option<Node<P, T, Root>>
-    where
-        P: Clone + Ord + AsRef<[u8]>;
+    fn collapse(self) -> Option<Node<Self::Party, Self::Message, Root>>;
 
     /// Get an immutable reference to the bottom-most level.
-    fn level(&self) -> &OrdMap<Prefix<Self::Height>, Node<P, T, Self::Height>>
-    where
-        P: Clone + Ord + AsRef<[u8]>;
+    fn level(
+        &self,
+    ) -> &OrdMap<Prefix<Self::Height>, Node<Self::Party, Self::Message, Self::Height>>;
 
     /// Get a mutable reference to the bottom-most level.
-    fn level_mut(&mut self) -> &mut OrdMap<Prefix<Self::Height>, Node<P, T, Self::Height>>
-    where
-        P: Clone + Ord + AsRef<[u8]>;
+    fn level_mut(
+        &mut self,
+    ) -> &mut OrdMap<Prefix<Self::Height>, Node<Self::Party, Self::Message, Self::Height>>;
 
     /// Tack a new level onto the bottom of this [`Levels`], decreasing its height by one.
     ///
     /// This can only be called on a [`Levels`] whose height is more than zero.
-    fn down<H>(self, below: OrdMap<Prefix<H>, Node<P, T, H>>) -> Below<P, T, H, Self>
+    fn down<H>(
+        self,
+        below: OrdMap<Prefix<H>, Node<Self::Party, Self::Message, H>>,
+    ) -> Below<H, Self>
     where
         S<H>: Height,
         H: Height,
-        P: Clone + Ord + AsRef<[u8]>,
-        T: Clone,
-        Self: Levels<P, T, Height = S<H>> + Sized,
+        Self: Levels<Height = S<H>> + Sized,
     {
         Below {
             above: self,
@@ -74,11 +79,13 @@ where
     }
 }
 
-impl<P, T> Levels<P, T> for Top<P, T>
+impl<P, T> Levels for Top<P, T>
 where
     T: Clone,
     P: Clone + Ord + AsRef<[u8]>,
 {
+    type Party = P;
+    type Message = T;
     type Height = Root;
 
     fn collapse(mut self) -> Option<Node<P, T, Root>> {
@@ -95,22 +102,19 @@ where
 }
 
 #[derive(Clone)]
-pub struct Below<P, T, H, A>
+pub struct Below<H, A>
 where
-    Self: Levels<P, T, Height = H>,
+    A: Levels<Height = S<H>>,
     H: Height,
-    P: Clone + Ord + AsRef<[u8]>,
 {
-    here: OrdMap<Prefix<H>, Node<P, T, H>>,
+    here: OrdMap<Prefix<H>, Node<A::Party, A::Message, H>>,
     above: A,
 }
 
-impl<P, T, H, A> Default for Below<P, T, H, A>
+impl<H, A> Default for Below<H, A>
 where
-    A: Default,
-    Self: Levels<P, T, Height = H>,
+    A: Levels<Height = S<H>>,
     H: Height,
-    P: Clone + Ord + AsRef<[u8]>,
 {
     fn default() -> Self {
         Self {
@@ -120,17 +124,17 @@ where
     }
 }
 
-impl<P, T, H, A> Levels<P, T> for Below<P, T, H, A>
+impl<H, A> Levels for Below<H, A>
 where
-    A: Levels<P, T, Height = S<H>>,
+    A: Levels<Height = S<H>>,
     S<H>: Height,
     H: Height,
-    T: Clone,
-    P: Clone + Ord + AsRef<[u8]>,
 {
-    type Height = H;
+    type Party = A::Party;
+    type Message = A::Message;
+    type Height = <A::Height as Pred>::Pred;
 
-    fn collapse(mut self) -> Option<Node<P, T, Root>> {
+    fn collapse(mut self) -> Option<Node<A::Party, A::Message, Root>> {
         let above = self.above.level_mut();
 
         // Pop each child's prefix to get its radix and parent prefix. OrdMap
@@ -164,26 +168,23 @@ where
         self.above.collapse()
     }
 
-    fn level(&self) -> &OrdMap<Prefix<Self::Height>, Node<P, T, Self::Height>> {
+    fn level(&self) -> &OrdMap<Prefix<Self::Height>, Node<A::Party, A::Message, Self::Height>> {
         &self.here
     }
 
-    fn level_mut(&mut self) -> &mut OrdMap<Prefix<Self::Height>, Node<P, T, Self::Height>> {
+    fn level_mut(
+        &mut self,
+    ) -> &mut OrdMap<Prefix<Self::Height>, Node<A::Party, A::Message, Self::Height>> {
         &mut self.here
     }
 }
 
 mod sealed {
-    use super::{Below, Height, Levels, S, Top};
+    use super::{Below, Height, Levels, Pred, S, Top};
 
     pub trait Sealed {}
     impl<P: Clone + Ord + AsRef<[u8]>, T> Sealed for Top<P, T> {}
-    impl<P: Clone + Ord + AsRef<[u8]>, H: Height, T: Clone, A: Levels<P, T, Height = S<H>> + Sealed>
-        Sealed for Below<P, T, H, A>
-    where
-        S<H>: Height,
-    {
-    }
+    impl<A: Levels<Height = S<H>> + Sealed, H: Height> Sealed for Below<H, A> where A::Height: Pred {}
 }
 
 #[cfg(test)]

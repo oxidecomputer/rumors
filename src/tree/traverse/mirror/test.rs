@@ -8,8 +8,16 @@ use crate::tree::traverse::{Action, act};
 use crate::tree::typed::{Node, Path, height::Root};
 use crate::{Key, Message, Version};
 
+use super::protocol::{
+    CloseInitiator as _, CompleteInitiator as _, CompleteResponder as _, Exchange as _,
+    Initiator as _, OpenInitiator as _, Responder as _,
+};
 use super::*;
 
+/// Drive the mirror protocol entirely through the abstract trait family in
+/// [`super::protocol`]. Every step calls a trait method --- the inherent
+/// methods on `local::Exchange` are private, so the only way this driver
+/// could compile and converge is if the trait abstraction is faithful.
 fn mirror_direct<P, T>(
     a: Option<Node<P, T, Root>>,
     b: Option<Node<P, T, Root>>,
@@ -29,15 +37,17 @@ where
         let version_a = a.as_ref().map(|n| n.version().clone()).unwrap_or_default();
         let version_b = b.as_ref().map(|n| n.version().clone()).unwrap_or_default();
 
-        // The initiator's first round is `initiator`, which both constructs the
-        // state needed for mirroring and emits its first message; this message
-        // is consumed by `responder` to initialize its own side and produce its
-        // own first message.
-        let (m, a) = local::initiator(a, &version_b, a_send, a_recv);
-        let (m, b) = local::responder(b, &version_a, b_send, b_recv, m);
+        // The initiator's first round constructs its state via
+        // `Initiator::initiator` and emits the opening message; the responder
+        // consumes it via `Responder::responder`. Each constructor's `Self`
+        // type is deduced by the compiler from the argument types and the
+        // single applicable `Initiator` / `Responder` impl on `local::Exchange`.
+        let (m, a) = local::Exchange::initiator(a, &version_b, a_send, a_recv);
+        let (m, b) = local::Exchange::responder(b, &version_a, b_send, b_recv, m);
 
-        // The initiator's second round is `open_initiator` (consuming the
-        // responder's `Opening`).
+        // From here every step is a trait method on the state value. Method
+        // syntax resolves to the trait because the inherent methods on
+        // `local::Exchange` are private and the traits are in scope above.
         let (m, a) = a.open_initiator(m);
 
         // The next 14 rounds are alternating `exchange`s.
