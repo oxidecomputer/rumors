@@ -1,6 +1,6 @@
 //! Bidirectional alternating mirror-sync between two replicas of the typed tree.
 
-mod exchange;
+mod local;
 mod message;
 
 #[cfg(test)]

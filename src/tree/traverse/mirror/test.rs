@@ -31,8 +31,8 @@ where
         // state needed for mirroring and emits its first message; this message
         // is consumed by `responder` to initialize its own side and produce its
         // own first message.
-        let (m, a) = exchange::initiator(a, &version_b, b_to_a);
-        let (m, b) = exchange::responder(b, &version_a, a_to_b, m);
+        let (m, a) = local::initiator(a, &version_b, b_to_a);
+        let (m, b) = local::responder(b, &version_a, a_to_b, m);
 
         // The initiator's second round is `open_initiator` (consuming the
         // responder's `Opening`).

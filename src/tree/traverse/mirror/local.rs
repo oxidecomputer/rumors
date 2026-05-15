@@ -105,11 +105,11 @@ where
 /// `Exchange` whose zipper is at `Top` (height `Root`). The initiator's next
 /// call is [`Exchange::open_initiator`], processing the responder's
 /// [`message::Opening`].
-pub fn initiator<P, F, T>(
+pub fn initiator<'v, P, F, T>(
     node: Option<Node<P, T, Root>>,
-    their_version: &Version<P>,
-    on_unknown_leaf: F,
-) -> (message::Initiate, Exchange<'_, P, F, Top<P, T>>)
+    their_version: &'v Version<P>,
+    on_message: F,
+) -> (message::Initiate, Exchange<'v, P, F, Top<P, T>>)
 where
     F: FnMut(&Version<P>, Key, &Message<T>),
     P: Clone + Ord + AsRef<[u8]>,
@@ -122,7 +122,7 @@ where
         Exchange {
             levels: Node::levels(node),
             their_version,
-            on_message: on_unknown_leaf,
+            on_message,
         },
     )
 }
@@ -139,7 +139,7 @@ where
 pub fn responder<P, T, F>(
     node: Option<Node<P, T, Root>>,
     their_version: &Version<P>,
-    on_unknown_leaf: F,
+    on_message: F,
     message::Initiate { uncertain }: message::Initiate,
 ) -> (
     message::Opening,
@@ -188,7 +188,7 @@ where
         Ok(Exchange {
             levels,
             their_version,
-            on_message: on_unknown_leaf,
+            on_message,
         }),
     )
 }
