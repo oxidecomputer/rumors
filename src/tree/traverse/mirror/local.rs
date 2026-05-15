@@ -116,24 +116,28 @@ where
     OnSend: FnMut(&Version<L::Party>, Key, &Message<L::Message>),
 {
     type Height = L::Height;
+    type Output = Option<Node<L::Party, L::Message, Root>>;
 }
 
-impl<'v, P, T, OnRecv, OnSend> protocol::Initiator<'v, P, T, OnRecv, OnSend>
-    for Exchange<'v, OnRecv, OnSend, Top<P, T>>
+impl<P, T, OnRecv, OnSend> protocol::Initiator<P, T, OnRecv, OnSend>
+    for Exchange<'_, OnRecv, OnSend, Top<P, T>>
 where
     P: Clone + Ord + AsRef<[u8]>,
     T: Clone,
     OnRecv: FnMut(&Version<P>, Key, &Message<T>),
     OnSend: FnMut(&Version<P>, Key, &Message<T>),
 {
-    type Next = Exchange<'v, OnRecv, OnSend, Top<P, T>>;
+    type Next<'v>
+        = Exchange<'v, OnRecv, OnSend, Top<P, T>>
+    where
+        P: 'v;
 
-    fn initiator(
+    fn initiator<'v>(
         node: Option<Node<P, T, Root>>,
         their_version: &'v Version<P>,
         on_recv: OnRecv,
         on_send: OnSend,
-    ) -> (message::Initiate, Self::Next) {
+    ) -> (message::Initiate, Self::Next<'v>) {
         let message = message::Initiate {
             uncertain: node.iter().map(|n| (Prefix::new(), n.hash())).collect(),
         };
@@ -149,17 +153,20 @@ where
     }
 }
 
-impl<'v, P, T, OnRecv, OnSend> protocol::Responder<'v, P, T, OnRecv, OnSend>
-    for Exchange<'v, OnRecv, OnSend, Below<UnderRoot, Top<P, T>>>
+impl<P, T, OnRecv, OnSend> protocol::Responder<P, T, OnRecv, OnSend>
+    for Exchange<'_, OnRecv, OnSend, Below<UnderRoot, Top<P, T>>>
 where
     P: Clone + Ord + AsRef<[u8]>,
     T: Clone,
     OnRecv: FnMut(&Version<P>, Key, &Message<T>),
     OnSend: FnMut(&Version<P>, Key, &Message<T>),
 {
-    type Next = Exchange<'v, OnRecv, OnSend, Below<UnderRoot, Top<P, T>>>;
+    type Next<'v>
+        = Exchange<'v, OnRecv, OnSend, Below<UnderRoot, Top<P, T>>>
+    where
+        P: 'v;
 
-    fn responder(
+    fn responder<'v>(
         node: Option<Node<P, T, Root>>,
         their_version: &'v Version<P>,
         on_recv: OnRecv,
@@ -167,7 +174,7 @@ where
         request: message::Initiate,
     ) -> (
         message::Opening,
-        Result<Self::Next, Option<Node<P, T, Root>>>,
+        Result<Self::Next<'v>, Option<Node<P, T, Root>>>,
     ) {
         // `Initiate.uncertain` is structurally a single entry at the empty root
         // prefix. Treat absence as "empty tree" and let the equality check below
@@ -239,7 +246,7 @@ where
     }
 }
 
-impl<'v, P, T, H, OnRecv, OnSend, L> protocol::Exchange<'v, P, T, H, OnRecv, OnSend>
+impl<'v, P, T, H, OnRecv, OnSend, L> protocol::Exchange<'v, P, T, OnRecv, OnSend>
     for Exchange<'v, OnRecv, OnSend, L>
 where
     P: Clone + Ord + AsRef<[u8]>,
@@ -264,12 +271,7 @@ where
     ) -> (
         message::Exchange<P, T, H>,
         Result<Self::Next, Option<Node<P, T, Root>>>,
-    )
-    where
-        H: Height,
-        S<H>: Height,
-        S<S<H>>: Height,
-    {
+    ) {
         self.reply(request)
     }
 }

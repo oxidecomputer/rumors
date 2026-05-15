@@ -8,25 +8,26 @@ use crate::tree::traverse::{Action, act};
 use crate::tree::typed::{Node, Path, height::Root};
 use crate::{Key, Message, Version};
 
-use super::protocol::{
-    CloseInitiator as _, CompleteInitiator as _, CompleteResponder as _, Exchange as _,
-    Initiator as _, OpenInitiator as _, Responder as _,
-};
+use super::protocol::*;
 use super::*;
 
 /// Drive the mirror protocol entirely through the abstract trait family in
 /// [`super::protocol`]. Every step calls a trait method --- the inherent
 /// methods on `local::Exchange` are private, so the only way this driver
 /// could compile and converge is if the trait abstraction is faithful.
-fn mirror_direct<P, T>(
+fn mirror_direct<P, T, ASend, ARecv, BSend, BRecv>(
     a: Option<Node<P, T, Root>>,
     b: Option<Node<P, T, Root>>,
-    a_send: impl FnMut(&Version<P>, Key, &Message<T>),
-    a_recv: impl FnMut(&Version<P>, Key, &Message<T>),
-    b_send: impl FnMut(&Version<P>, Key, &Message<T>),
-    b_recv: impl FnMut(&Version<P>, Key, &Message<T>),
+    a_send: ASend,
+    a_recv: ARecv,
+    b_send: BSend,
+    b_recv: BRecv,
 ) -> Option<Node<P, T, Root>>
 where
+    ASend: FnMut(&Version<P>, Key, &Message<T>),
+    ARecv: FnMut(&Version<P>, Key, &Message<T>),
+    BSend: FnMut(&Version<P>, Key, &Message<T>),
+    BRecv: FnMut(&Version<P>, Key, &Message<T>),
     P: Clone + Ord + AsRef<[u8]>,
     T: Clone,
 {

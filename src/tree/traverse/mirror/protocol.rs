@@ -1,43 +1,41 @@
 //! Trait-family abstraction of the mirror protocol.
 //!
-//! Each public step of the [`super::local`] protocol is named by a trait.
-//! Each trait carries a `Next` associated type bounded by the trait that
-//! describes the only legal *following* call — so the protocol's allowed
-//! transitions are encoded at the type level and the chain of calls is
-//! statically forced into the right order.
+//! Each public step of the [`super::local`] protocol is named by a trait. Each
+//! trait carries a `Next` associated type bounded by the trait that describes
+//! the only legal *following* call, so the protocol's allowed transitions are
+//! encoded at the type level and the chain of calls is statically forced into
+//! the right order.
 //!
 //! The traits are deliberately silent about how a step is implemented:
-//! [`super::local::Exchange`] fulfills them by delegating to its existing
-//! inherent methods, but a remote proxy that forwards each call over the wire
+//! [`super::local::Exchange`] fulfills them by traversing an inner data
+//! structure locally, but a remote proxy that forwards each call over the wire
 //! (and carries only a phantom `Height`) can fulfill them just as easily.
 //!
 //! # Trait family
 //!
-//! | Trait               | Wire input               | Wire output                       | `Next`                                |
-//! |---------------------|--------------------------|-----------------------------------|---------------------------------------|
-//! | [`Initiator`]       | --                       | [`message::Initiate`]             | [`OpenInitiator`]                     |
-//! | [`Responder`]       | [`message::Initiate`]    | [`message::Opening`]              | [`Exchange`] (first steady round)     |
-//! | [`OpenInitiator`]   | [`message::Opening`]     | [`message::Exchange<_, _, U^2>`]  | [`Exchange`] (first steady round)     |
-//! | [`Exchange`]        | [`message::Exchange`]    | [`message::Exchange`]             | [`AfterExchange<H>`] (see below)      |
-//! | [`CloseInitiator`]  | [`message::Exchange<_,_,S<Z>>`] | [`message::Closing`]       | [`CompleteInitiator`]                 |
-//! | [`CompleteResponder`] | [`message::Closing`]   | [`message::Complete`]             | terminal                              |
-//! | [`CompleteInitiator`] | [`message::Complete`]  | --                                | terminal                              |
+//! | Trait                 | Wire input                      | Wire output                       | `Next`                                |
+//! |-----------------------|---------------------------------|-----------------------------------|---------------------------------------|
+//! | [`Initiator`]         | --                              | [`message::Initiate`]             | [`OpenInitiator`]                     |
+//! | [`Responder`]         | [`message::Initiate`]           | [`message::Opening`]              | [`Exchange`] (first steady round)     |
+//! | [`OpenInitiator`]     | [`message::Opening`]            | [`message::Exchange<_, _, U^2>`]  | [`Exchange`] (first steady round)     |
+//! | [`Exchange`]          | [`message::Exchange`]           | [`message::Exchange`]             | [`AfterExchange<H>`] (see below)      |
+//! | [`CloseInitiator`]    | [`message::Exchange<_,_,S<Z>>`] | [`message::Closing`]              | [`CompleteInitiator`]                 |
+//! | [`CompleteResponder`] | [`message::Closing`]            | [`message::Complete`]             | terminal                              |
+//! | [`CompleteInitiator`] | [`message::Complete`]           | --                                | terminal                              |
 //!
 //! # The `Exchange<H>::Next` ambiguity
 //!
 //! After an [`Exchange::exchange`] call at height `H`, the *next* legal call
 //! depends on `H`:
 //!
-//! | `H` after `exchange` | Next legal call    |
-//! |----------------------|--------------------|
-//! | `S<Z>`               | `complete_responder` |
-//! | `S<S<Z>>`            | `close_initiator`  |
-//! | `S<S<S<_>>>`         | `exchange` again, two heights finer |
+//! | `H` after `exchange` | Next legal call                     |
+//! |----------------------|-------------------------------------|
+//! | `S<Z>`               | `complete_responder`                |
+//! | `S<S<Z>>`            | `close_initiator`                   |
+//! | `S<S<S<_>>>`         | `exchange` again, two heights lower |
 //!
 //! The helper trait [`AfterExchange<H>`] partitions `H` and dispatches to the
-//! correct follow-up trait via three non-overlapping blanket impls; a single
-//! bound `Next: AfterExchange<Self::H>` on [`Exchange`] then expresses the
-//! tight chain without conditional `where` clauses.
+//! correct follow-up trait via three non-overlapping blanket impls.
 
 use std::convert::Infallible;
 
@@ -51,26 +49,21 @@ use crate::{
 
 use super::message::{self, UnderRoot, UnderUnderRoot};
 
-/// The height of the next [`Exchange::H`] reached after the responder's first
-/// [`Responder::responder`] call: two heights below [`UnderRoot`].
-pub type AfterResponderH = <<UnderRoot as Pred>::Pred as Pred>::Pred;
-
-/// The height of the next [`Exchange::H`] reached after the initiator's
-/// [`OpenInitiator::open_initiator`] call: two heights below [`UnderUnderRoot`].
-pub type AfterOpenInitiatorH = <<UnderUnderRoot as Pred>::Pred as Pred>::Pred;
-
 /// Any stage in the protocol is identified by this trait, and must declare its
 /// height as an associated type.
 pub trait Stage {
     /// The height in the protocol, starting at the root.
     type Height: Height;
+
+    /// The end result of the protocol.
+    type Output;
 }
 
 /// Start the protocol as the initiator.
 ///
 /// The trait is implemented by the state type that the constructor produces;
 /// `Self::Next == Self` for any straightforward implementation.
-pub trait Initiator<'v, P, T, OnRecv, OnSend>: Stage<Height = Root> + Sized
+pub trait Initiator<P, T, OnRecv, OnSend>: Stage<Height = Root> + Sized
 where
     P: Clone + Ord + AsRef<[u8]>,
     T: Clone,
@@ -78,7 +71,10 @@ where
     OnSend: FnMut(&Version<P>, Key, &Message<T>),
 {
     /// The state that consumes the responder's [`message::Opening`].
-    type Next: OpenInitiator<'v, P, T, OnRecv, OnSend>;
+    type Next<'v>: OpenInitiator<'v, P, T, OnRecv, OnSend>
+        + Stage<Output = Self::Output, Height = Root>
+    where
+        P: 'v;
 
     /// Begin the protocol as the initiator.
     ///
@@ -86,12 +82,12 @@ where
     /// `Exchange` whose zipper is at `Top` (height `Root`). The initiator's
     /// next call is [`Exchange::open_initiator`], processing the responder's
     /// [`message::Opening`].
-    fn initiator(
+    fn initiator<'v>(
         node: Option<Node<P, T, Root>>,
         their_version: &'v Version<P>,
         on_recv: OnRecv,
         on_send: OnSend,
-    ) -> (message::Initiate, Self::Next);
+    ) -> (message::Initiate, Self::Next<'v>);
 }
 
 /// Start the protocol as the responder.
@@ -99,7 +95,7 @@ where
 /// `Err(node)` from this call indicates that the initiator's root hash matched
 /// ours: the trees are already equal, the protocol short-circuits, and the
 /// caller receives the unchanged root.
-pub trait Responder<'v, P, T, OnRecv, OnSend>: Stage<Height = UnderRoot> + Sized
+pub trait Responder<P, T, OnRecv, OnSend>: Stage<Height = UnderRoot> + Sized
 where
     P: Clone + Ord + AsRef<[u8]>,
     T: Clone,
@@ -107,7 +103,10 @@ where
     OnSend: FnMut(&Version<P>, Key, &Message<T>),
 {
     /// The first steady-state [`Exchange`] from the responder's side.
-    type Next: Exchange<'v, P, T, AfterResponderH, OnRecv, OnSend>;
+    type Next<'v>: Exchange<'v, P, T, OnRecv, OnSend>
+        + Stage<Output = Self::Output, Height = UnderRoot>
+    where
+        P: 'v;
 
     /// Begin the protocol as the responder, processing the initiator's
     /// [`message::Initiate`].
@@ -118,16 +117,13 @@ where
     /// an [`UnderRoot`]-height zipper and emit its children's hashes as the
     /// `Opening`'s `uncertain` set -- unconditionally, since we haven't yet
     /// learned what the initiator has.
-    fn responder(
+    fn responder<'v>(
         node: Option<Node<P, T, Root>>,
         their_version: &'v Version<P>,
         on_recv: OnRecv,
         on_send: OnSend,
         request: message::Initiate,
-    ) -> (
-        message::Opening,
-        Result<Self::Next, Option<Node<P, T, Root>>>,
-    );
+    ) -> (message::Opening, Result<Self::Next<'v>, Self::Output>);
 }
 
 /// Process the responder's [`message::Opening`].
@@ -143,7 +139,8 @@ where
     OnSend: FnMut(&Version<P>, Key, &Message<T>),
 {
     /// The first steady-state [`Exchange`] from the initiator's side.
-    type Next: Exchange<'v, P, T, AfterOpenInitiatorH, OnRecv, OnSend>;
+    type Next: Exchange<'v, P, T, OnRecv, OnSend>
+        + Stage<Output = Self::Output, Height = UnderUnderRoot>;
 
     /// Process the initiator's first round, applied to the responder's
     /// [`message::Opening`].
@@ -159,28 +156,31 @@ where
         request: message::Opening,
     ) -> (
         message::Exchange<P, T, UnderUnderRoot>,
-        Result<Self::Next, Option<Node<P, T, Root>>>,
+        Result<Self::Next, Self::Output>,
     );
 }
 
 /// One steady-state round, as either party.
 ///
-/// `H` is the height of the outgoing message's `uncertain` map (one less than
-/// the incoming message's). It is an associated type rather than a trait
-/// parameter because a given state type implements [`Exchange`] at exactly one
-/// `H`, and the chain bound [`Self::Next`]`: `[`AfterExchange`]`<Self::H>`
-/// requires `H` to be referenceable on the trait body.
-pub trait Exchange<'v, P, T, H, OnRecv, OnSend>: Stage<Height = S<S<H>>> + Sized
+/// The outgoing message's height is `Self::Height − 2` (and the incoming
+/// message's is `Self::Height − 1`); both are recovered from `Stage::Height`
+/// via `Pred` projections, so each implementing type's exchange height is
+/// determined by its `Stage::Height` alone.
+pub trait Exchange<'v, P, T, OnRecv, OnSend>: Stage + Sized
 where
     P: Clone + Ord + AsRef<[u8]>,
     T: Clone,
-    H: Height,
     OnRecv: FnMut(&Version<P>, Key, &Message<T>),
     OnSend: FnMut(&Version<P>, Key, &Message<T>),
+    Self::Height: Pred,
+    <Self::Height as Pred>::Pred: Pred,
+    S<<Self::Height as Pred>::Pred>: Height,
+    S<<<Self::Height as Pred>::Pred as Pred>::Pred>: Height,
 {
     /// Whichever of [`Exchange`], [`CloseInitiator`], or [`CompleteResponder`]
-    /// is appropriate at this height. See [`AfterExchange`].
-    type Next: AfterExchange<'v, P, T, OnRecv, OnSend, H>;
+    /// is appropriate at the outgoing message's height. See [`AfterExchange`].
+    type Next: AfterExchange<'v, P, T, OnRecv, OnSend, <<Self::Height as Pred>::Pred as Pred>::Pred>
+        + Stage<Output = Self::Output, Height = <<Self::Height as Pred>::Pred as Pred>::Pred>;
 
     /// Process one round of the protocol's steady state, as either party.
     ///
@@ -191,15 +191,11 @@ where
     /// still need its contents to converge.
     fn exchange(
         self,
-        request: message::Exchange<P, T, S<H>>,
+        request: message::Exchange<P, T, <Self::Height as Pred>::Pred>,
     ) -> (
-        message::Exchange<P, T, H>,
-        Result<Self::Next, Option<Node<P, T, Root>>>,
-    )
-    where
-        H: Height,
-        S<H>: Height,
-        S<S<H>>: Height;
+        message::Exchange<P, T, <<Self::Height as Pred>::Pred as Pred>::Pred>,
+        Result<Self::Next, Self::Output>,
+    );
 }
 
 /// The initiator's final sending round; emits [`message::Closing`] instead of
@@ -212,7 +208,7 @@ where
     OnSend: FnMut(&Version<P>, Key, &Message<T>),
 {
     /// The terminal initiator state.
-    type Next: CompleteInitiator<P, T, OnRecv>;
+    type Next: CompleteInitiator<P, T, OnRecv> + Stage<Output = Self::Output, Height = Z>;
 
     /// The initiator's last sending round, descending the zipper from
     /// `S<S<Z>>` to `Z` and emitting [`message::Closing`].
@@ -227,10 +223,7 @@ where
     fn close_initiator(
         self,
         request: message::Exchange<P, T, S<Z>>,
-    ) -> (
-        message::Closing<P, T>,
-        Result<Self::Next, Option<Node<P, T, Root>>>,
-    );
+    ) -> (message::Closing<P, T>, Result<Self::Next, Self::Output>);
 }
 
 /// The responder's terminal round; absorbs the initiator's [`message::Closing`]
@@ -250,10 +243,7 @@ where
     fn complete_responder(
         self,
         request: message::Closing<P, T>,
-    ) -> (
-        message::Complete<P, T>,
-        Result<Infallible, Option<Node<P, T, Root>>>,
-    );
+    ) -> (message::Complete<P, T>, Result<Infallible, Self::Output>);
 }
 
 /// The initiator's terminal round; absorbs the responder's [`message::Complete`].
@@ -272,10 +262,10 @@ where
     fn complete_initiator(
         self,
         request: message::Complete<P, T>,
-    ) -> Result<Infallible, Option<Node<P, T, Root>>>;
+    ) -> Result<Infallible, Self::Output>;
 }
 
-/// Marker trait keyed by the height `H` just produced by an
+/// Blanket marker trait keyed by the height `H` just produced by an
 /// [`Exchange::exchange`] call. A state type satisfying `AfterExchange<H>` is
 /// "the right kind of state to follow an exchange that ended at height `H`":
 ///
@@ -324,6 +314,6 @@ where
     S<H>: Height,
     S<S<H>>: Height,
     S<S<S<H>>>: Height,
-    X: Exchange<'v, P, T, S<H>, OnRecv, OnSend>,
+    X: Exchange<'v, P, T, OnRecv, OnSend> + Stage<Height = S<S<S<H>>>>,
 {
 }
