@@ -70,6 +70,18 @@ where
     pub uncertain: OrdMap<Prefix<H>, blake3::Hash>,
 }
 
+impl<P, T> From<Opening> for Exchange<P, T, UnderRoot>
+where
+    P: Clone + Ord + AsRef<[u8]>,
+{
+    fn from(Opening { uncertain }: Opening) -> Self {
+        Exchange {
+            uncertain,
+            ..Default::default()
+        }
+    }
+}
+
 impl<P, T, H> Default for Exchange<P, T, H>
 where
     P: Clone + Ord + AsRef<[u8]>,
@@ -99,6 +111,24 @@ where
 pub struct Closing<P: Clone + Ord + AsRef<[u8]>, T> {
     pub providing: OrdMap<Prefix<S<Z>>, Node<P, T, S<Z>>>,
     pub requested: OrdSet<Prefix<S<Z>>>,
+}
+
+impl<P, T> From<Exchange<P, T, Z>> for Closing<P, T>
+where
+    P: Clone + Ord + AsRef<[u8]>,
+{
+    fn from(
+        Exchange {
+            providing,
+            requested,
+            uncertain: _,
+        }: Exchange<P, T, Z>,
+    ) -> Self {
+        Closing {
+            providing,
+            requested,
+        }
+    }
 }
 
 impl<P, T> Default for Closing<P, T>
@@ -138,3 +168,6 @@ where
 /// The height just under the root, i.e. 31. The responder's opening message
 /// carries hashes at this height -- one for each child of its root.
 pub type UnderRoot = <Root as Pred>::Pred;
+
+/// The height two levels under the root, i.e. 30.
+pub type UnderUnderRoot = <UnderRoot as Pred>::Pred;

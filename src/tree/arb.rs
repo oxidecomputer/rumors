@@ -31,15 +31,3 @@ pub fn arb_root_tree(
         })
         .boxed()
 }
-
-/// Like [`arb_root_tree`], but guarantees the tree is non-empty.
-///
-/// Pass a range starting at 1 (e.g. `1..=8`) to avoid filter rejections.
-pub fn arb_root_node(
-    party: impl Into<String>,
-    leaves: impl Into<proptest::collection::SizeRange>,
-) -> BoxedStrategy<Node<String, (), Root>> {
-    arb_root_tree(party, leaves)
-        .prop_filter_map("non-empty tree", |t| t)
-        .boxed()
-}

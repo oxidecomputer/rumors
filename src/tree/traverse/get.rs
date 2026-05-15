@@ -1,30 +1,42 @@
 use itertools::Itertools;
 
-use crate::Message;
+use crate::{Key, Message, Version};
 
 use super::typed::*;
 use height::{Height, Root, S, Z};
 
-/// Perform a batch lookup of paths in the tree, returning a list of [`Bytes`]
-/// which are stored at these paths.
+#[derive(Clone, Debug)]
+pub enum Paths<H = Root>
+where
+    H: Height,
+{
+    All,
+    Selected(Vec<Path<H>>),
+}
+
+/// Perform a batch lookup of paths in the tree, returning a list of versioned,
+/// keyed messages which are stored at these paths.
 ///
 /// Values are returned in arbitrary order, not necessarily in the order of the
 /// specified paths.
-pub fn get<P, T>(node: Option<&Node<P, T, Root>>, paths: Vec<Path>) -> Vec<Message<T>>
+pub fn get<P, T>(node: Option<Node<P, T, Root>>, paths: Paths) -> Vec<(Version<P>, Key, Message<T>)>
 where
     T: Clone,
     P: Clone + Ord + AsRef<[u8]>,
 {
     let mut gotten = Vec::new();
-    Get::get(node, paths, &mut |message| gotten.push(message.clone()));
+    Get::get(node, Prefix::new(), paths, &mut |v, k, m| {
+        gotten.push((v.clone(), k, m.clone()))
+    });
     gotten
 }
 
 pub trait Get: Height {
     fn get<P, T>(
-        node: Option<&Node<P, T, Self>>,
-        paths: Vec<Path<Self>>,
-        with_gotten: &mut impl FnMut(&Message<T>),
+        node: Option<Node<P, T, Self>>,
+        prefix: Prefix<Self>,
+        paths: Paths<Self>,
+        with_gotten: &mut impl FnMut(&Version<P>, Key, &Message<T>),
     ) where
         T: Clone,
         P: Clone + Ord + AsRef<[u8]>;
@@ -35,9 +47,10 @@ where
     S<H>: Height,
 {
     fn get<P, T>(
-        node: Option<&Node<P, T, Self>>,
-        paths: Vec<Path<Self>>,
-        with_gotten: &mut impl FnMut(&Message<T>),
+        node: Option<Node<P, T, Self>>,
+        prefix: Prefix<Self>,
+        paths: Paths<Self>,
+        with_gotten: &mut impl FnMut(&Version<P>, Key, &Message<T>),
     ) where
         T: Clone,
         P: Clone + Ord + AsRef<[u8]>,
@@ -46,32 +59,50 @@ where
             return;
         };
 
-        // Group the paths by their first element
-        let by_radix = paths
-            .into_iter()
-            .map(|path| {
-                let (child, path) = path.pop();
-                (child, path)
-            })
-            .sorted_by_key(|(child, _)| *child)
-            .chunk_by(|(child, _)| *child);
+        if let Paths::Selected(paths) = paths {
+            // Group the paths by their first element
+            let by_radix = paths
+                .into_iter()
+                .map(|path| {
+                    let (child, path) = path.pop();
+                    (child, path)
+                })
+                .sorted_by_key(|(child, _)| *child)
+                .chunk_by(|(child, _)| *child);
 
-        // Decompose the node into its children
-        let children = node.clone().into_children();
+            // Decompose the node into its children
+            let mut children = node.into_children();
 
-        // Recursively look up each radix group in the corresponding child
-        for (radix, group) in by_radix.into_iter() {
-            let child_paths: Vec<_> = group.map(|(_, path)| path).collect();
-            Get::get(children.get(&radix), child_paths, with_gotten);
+            // Recursively look up each radix group in the corresponding child
+            for (radix, group) in by_radix.into_iter() {
+                let child_paths: Vec<_> = group.map(|(_, path)| path).collect();
+                Get::get(
+                    children.remove(&radix),
+                    prefix.clone().push(radix),
+                    Paths::Selected(child_paths),
+                    with_gotten,
+                );
+            }
+        } else {
+            // Get all the paths
+            for (radix, child) in node.into_children() {
+                Get::get(
+                    Some(child),
+                    prefix.clone().push(radix),
+                    Paths::All,
+                    with_gotten,
+                )
+            }
         }
     }
 }
 
 impl Get for Z {
     fn get<P, T>(
-        node: Option<&Node<P, T, Self>>,
-        paths: Vec<Path<Self>>,
-        with_gotten: &mut impl FnMut(&Message<T>),
+        node: Option<Node<P, T, Self>>,
+        prefix: Prefix<Self>,
+        paths: Paths<Self>,
+        with_gotten: &mut impl FnMut(&Version<P>, Key, &Message<T>),
     ) where
         T: Clone,
         P: Clone + Ord + AsRef<[u8]>,
@@ -80,11 +111,12 @@ impl Get for Z {
             return;
         };
 
-        let leaf = node.value();
-        if paths.is_empty() {
+        if let Paths::Selected(paths) = paths
+            && paths.is_empty()
+        {
             return;
         } else {
-            with_gotten(leaf);
+            with_gotten(node.version(), prefix.into(), node.message());
         }
     }
 }

@@ -123,7 +123,7 @@ impl Act for Z {
 
             node = match action {
                 Action::Forget => None,
-                Action::Insert(value) => Some(Node::leaf(version.clone(), value)),
+                Action::Insert(value) => Some(Node::leaf(version, value)),
             };
         }
 

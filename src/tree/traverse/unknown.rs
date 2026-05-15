@@ -97,7 +97,7 @@ impl Unknown for Z {
         }
 
         // Otherwise, the node is causally unknown, so return its information
-        with_unknown(node.version(), Path::from(prefix).into(), node.value());
+        with_unknown(node.version(), Path::from(prefix).into(), node.message());
         Some(node)
     }
 }

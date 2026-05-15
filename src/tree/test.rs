@@ -417,7 +417,10 @@ proptest! {
             .collect();
 
         let mut got: Vec<Bytes> =
-            tree.get(paths).into_iter().map(Message::into_inner).collect();
+            tree.get(paths).into_iter()
+                .map(|(_, _, m)| m)
+                .map(Message::into_inner)
+                .collect();
         got.sort();
         let mut expected: Vec<Bytes> = bytes;
         expected.sort();
@@ -451,6 +454,7 @@ proptest! {
         let mut got: Vec<Bytes> = tree
             .get(all_paths)
             .into_iter()
+            .map(|(_, _, m)| m)
             .map(Message::into_inner)
             .collect();
         got.sort();
@@ -901,6 +905,7 @@ proptest! {
         let mut got: Vec<Bytes> = tree_b
             .get(a_paths)
             .into_iter()
+            .map(|(_, _, m)| m)
             .map(Message::into_inner)
             .collect();
         got.sort();
@@ -962,7 +967,7 @@ proptest! {
         prop_assert_ne!(path_v1, path_v2);
         let got = tree.get([path_v1, path_v2]);
         prop_assert_eq!(got.len(), 2);
-        prop_assert!(got.iter().all(|b| b.message() == &value));
+        prop_assert!(got.iter().all(|b| b.2.message() == &value));
     }
 
     /// `act`'s observer closure fires exactly once per supplied action, in
@@ -1012,7 +1017,7 @@ proptest! {
 
         let expected_actions = actions.clone();
         let mut captured: Vec<(Key, Option<Message<Bytes>>)> = Vec::new();
-        tree.act(actions, |_, k, m| captured.push((*k, m.clone())));
+        tree.act(actions, |_, k, m| captured.push((k, m.clone())));
 
         prop_assert_eq!(captured.len(), expected_actions.len());
         for ((path, message), action) in captured.iter().zip(expected_actions.iter()) {
@@ -1068,7 +1073,7 @@ proptest! {
             .collect();
 
         let mut captured: Vec<(Key, Option<Message<Bytes>>)> = Vec::new();
-        original.act(actions, |_, k, m| captured.push((*k, m.clone())));
+        original.act(actions, |_, k, m| captured.push((k, m.clone())));
 
         // `act` bumps this party's scalar by one exactly when the batch
         // is non-empty; the captured reactions share that single version.

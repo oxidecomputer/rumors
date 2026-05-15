@@ -77,16 +77,16 @@ where
 }
 
 impl<P: Clone + Ord + AsRef<[u8]>, T: Clone> Node<P, T, Z> {
-    /// Construct a new leaf node.
-    pub fn leaf(version: Version<P>, value: Message<T>) -> Self {
+    /// Construct a new leaf node from a versioned message.
+    pub fn leaf(version: Version<P>, message: Message<T>) -> Self {
         Self {
             height: PhantomData,
-            inner: untyped::Node::leaf(version, value),
+            inner: untyped::Node::leaf(version, message),
         }
     }
 
-    /// Get a reference to the leaf at this node.
-    pub fn value(&self) -> &Message<T> {
+    /// Get a reference to the message at this leaf node.
+    pub fn message(&self) -> &Message<T> {
         self.inner
             .as_leaf()
             .expect("typed leaf failed to be a leaf")

@@ -13,8 +13,10 @@ use super::*;
 fn mirror_direct<P, T>(
     a: Option<Node<P, T, Root>>,
     b: Option<Node<P, T, Root>>,
-    a_to_b: impl FnMut(&Version<P>, Key, &Message<T>),
-    b_to_a: impl FnMut(&Version<P>, Key, &Message<T>),
+    a_send: impl FnMut(&Version<P>, Key, &Message<T>),
+    a_recv: impl FnMut(&Version<P>, Key, &Message<T>),
+    b_send: impl FnMut(&Version<P>, Key, &Message<T>),
+    b_recv: impl FnMut(&Version<P>, Key, &Message<T>),
 ) -> Option<Node<P, T, Root>>
 where
     P: Clone + Ord + AsRef<[u8]>,
@@ -31,8 +33,8 @@ where
         // state needed for mirroring and emits its first message; this message
         // is consumed by `responder` to initialize its own side and produce its
         // own first message.
-        let (m, a) = local::initiator(a, &version_b, b_to_a);
-        let (m, b) = local::responder(b, &version_a, a_to_b, m);
+        let (m, a) = local::initiator(a, &version_b, a_send, a_recv);
+        let (m, b) = local::responder(b, &version_a, b_send, b_recv, m);
 
         // The initiator's second round is `open_initiator` (consuming the
         // responder's `Opening`).
@@ -61,7 +63,8 @@ where
     }
 }
 
-fn null<P: Ord, T>(v: &Version<P>, k: Key, m: &Message<T>) {}
+/// When we're not monitoring messages, this placeholder function eats them.
+fn x<P: Ord, T>(_v: &Version<P>, _k: Key, _m: &Message<T>) {}
 
 proptest! {
 
@@ -69,7 +72,7 @@ proptest! {
     /// identical content and versions, so the reconciled tree is unchanged.
     #[test]
     fn idempotent(a in arb_root_tree("a", 0..=8)) {
-        prop_assert_eq!(mirror_direct(a.clone(), a.clone(), null, null), a);
+        prop_assert_eq!(mirror_direct(a.clone(), a.clone(), x, x, x, x), a);
     }
 
     /// The reconciled tree is the same regardless of which replica
@@ -80,8 +83,8 @@ proptest! {
         b in arb_root_tree("b", 0..=8),
     ) {
         prop_assert_eq!(
-            mirror_direct(a.clone(), b.clone(), null, null),
-            mirror_direct(b, a, null, null),
+            mirror_direct(a.clone(), b.clone(), x, x, x, x),
+            mirror_direct(b, a, x, x, x, x),
         );
     }
 
@@ -92,8 +95,8 @@ proptest! {
         a in arb_root_tree("a", 0..=8),
         b in arb_root_tree("b", 0..=8),
     ) {
-        let ab = mirror_direct(a, b.clone(), null, null);
-        prop_assert_eq!(mirror_direct(ab.clone(), b, null, null), ab);
+        let ab = mirror_direct(a, b.clone(), x, x, x, x);
+        prop_assert_eq!(mirror_direct(ab.clone(), b, x, x, x, x), ab);
     }
 
     /// Three-way mirror is order-independent: syncing (a,b) then c
@@ -104,8 +107,8 @@ proptest! {
         b in arb_root_tree("b", 0..=4),
         c in arb_root_tree("c", 0..=4),
     ) {
-        let ab_c = mirror_direct(mirror_direct(a.clone(), b.clone(), null, null), c.clone(), null, null);
-        let a_bc = mirror_direct(a, mirror_direct(b, c, null, null), null, null);
+        let ab_c = mirror_direct(mirror_direct(a.clone(), b.clone(), x, x, x, x), c.clone(), x, x, x, x);
+        let a_bc = mirror_direct(a, mirror_direct(b, c, x, x, x, x), x, x, x, x);
         prop_assert_eq!(ab_c, a_bc);
     }
 
@@ -139,7 +142,7 @@ proptest! {
         let node_a = act(None, actions_a.clone());
         let node_b = act(None, actions_b.clone());
 
-        let mirrored = mirror_direct(node_a, node_b, null, null);
+        let mirrored = mirror_direct(node_a, node_b, x, x, x, x);
 
         let mut all_actions = actions_a;
         all_actions.extend(actions_b);

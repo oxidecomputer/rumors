@@ -1,5 +1,7 @@
 use std::{fmt::Debug, marker::PhantomData};
 
+use crate::Key;
+
 use super::height::{Height, Root, S, Z};
 use super::path::Path;
 
@@ -24,6 +26,12 @@ impl From<Prefix> for Path {
     fn from(value: Prefix) -> Self {
         let array: [u8; 32] = value.hash.try_into().expect("vector must be 32 bytes");
         array.into()
+    }
+}
+
+impl From<Prefix> for Key {
+    fn from(value: Prefix) -> Self {
+        Path::from(value).into()
     }
 }
 

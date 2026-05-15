@@ -255,7 +255,7 @@ proptest! {
     /// produces byte-for-byte; otherwise either `beneath`'s wrap function
     /// or its bookkeeping is wrong.
     #[test]
-    fn nested_singleton_wraps_match_repeated_virtual_branch_hash(
+    fn nested_singleton_wraps_match_repeated_branch_hash(
         indices in vec(any::<u8>(), 2..=8),
         child in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree::<String>(d, TREE_LEAF_BUDGET)),
     ) {

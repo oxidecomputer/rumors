@@ -8,7 +8,10 @@ mod typed;
 #[cfg(test)]
 mod arb;
 
-use crate::{Message, Version, tree::typed::Node};
+use crate::{
+    Message, Version,
+    tree::{traverse::Paths, typed::Node},
+};
 
 pub use key::Key;
 
@@ -73,18 +76,20 @@ impl<T: Clone> Tree<T> {
     }
 
     /// Get all the values stored at a list of hash paths in the tree.
-    pub fn get<I>(&self, paths: I) -> Vec<Message<T>>
+    pub fn get<I>(&self, paths: I) -> Vec<(Version, Key, Message<T>)>
     where
         I: IntoIterator<Item = Key>,
     {
         if let Some(root) = &self.root {
             traverse::get(
-                Some(&root),
-                paths
-                    .into_iter()
-                    .map(|i| i.0)
-                    .map(typed::Path::from)
-                    .collect(),
+                Some(root.clone()),
+                Paths::Selected(
+                    paths
+                        .into_iter()
+                        .map(|i| i.0)
+                        .map(typed::Path::from)
+                        .collect(),
+                ),
             )
         } else {
             Vec::new()
@@ -124,7 +129,7 @@ impl<T: Clone> Tree<T> {
     pub fn act<I, O>(&mut self, i: I, mut o: O)
     where
         I: IntoIterator<Item = Action<T>>,
-        O: FnMut(&Version, &Key, &Option<Message<T>>),
+        O: FnMut(&Version, Key, &Option<Message<T>>),
     {
         // Get the tree's current version, incrementing the local scalar by one.
         let mut new_version = self.version().clone();
@@ -146,7 +151,7 @@ impl<T: Clone> Tree<T> {
                     Some(value),
                 ),
             };
-            o(&new_version, &key, &value);
+            o(&new_version, key, &value);
             (new_version.clone(), key, value)
         });
         self.react(reactions);

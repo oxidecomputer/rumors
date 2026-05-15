@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{fmt::Debug, marker::PhantomData};
 
 use bytes::Bytes;
 
@@ -88,6 +88,12 @@ impl<H: Height> Ord for Path<H> {
 }
 
 impl<H: Height> Eq for Path<H> {}
+
+impl<H: Height> Debug for Path<H> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.hash.fmt(f)
+    }
+}
 
 // We can convert any hash and any hash-sized array of bytes into a Path:
 
