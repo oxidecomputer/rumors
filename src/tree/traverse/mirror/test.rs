@@ -5,7 +5,8 @@ use proptest::prelude::*;
 
 use crate::tree::arb::arb_root_tree;
 use crate::tree::traverse::{Action, act};
-use crate::tree::typed::{Node, Path, height::Root};
+use crate::tree::typed::height::Root;
+use crate::tree::typed::{Node, Path};
 use crate::{Key, Message, Version};
 
 use super::protocol::*;

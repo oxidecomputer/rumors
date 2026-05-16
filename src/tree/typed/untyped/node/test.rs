@@ -263,7 +263,7 @@ proptest! {
         for &index in &indices {
             let mut buf = [0u8; 256 * 32];
             buf[index as usize * 32..][..32].copy_from_slice(expected.as_bytes());
-            expected = blake3::hash(&buf);
+            expected = super::Hash::hash(&buf);
         }
 
         let mut wrapped = child;
@@ -339,7 +339,7 @@ proptest! {
 
         let mut buf = [0u8; 256 * 32];
         buf[index as usize * 32..][..32].copy_from_slice(child_hash.as_bytes());
-        let expected = blake3::hash(&buf);
+        let expected = super::Hash::hash(&buf);
 
         prop_assert_eq!(wrapped.hash(), expected);
     }

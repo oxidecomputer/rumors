@@ -2,6 +2,7 @@ use std::{fmt::Debug, marker::PhantomData};
 
 use bytes::Bytes;
 
+use super::hash::{Hash, Hasher};
 use super::height::{Height, Root, S};
 
 /// A typed path through the tree which is always the right height.
@@ -12,29 +13,20 @@ pub struct Path<H: Height = Root> {
 }
 
 impl Path<Root> {
-    /// Get a path for the given bytes by taking their hash.
-    fn for_bytes(bytes: &[u8]) -> Self {
-        Self {
-            height: PhantomData,
-            hash: *blake3::hash(bytes).as_bytes(),
-        }
-    }
-
     /// Get a path for the given leaf, incorporating its party, version, and value.
     pub fn for_leaf<P: AsRef<[u8]>>(party: &P, version: u64, value: &Bytes) -> Self {
         // We form the hash for a value as the ternary depth-1 merkle tree of
         // party, version, value. This ensures no length malleability issues.
 
-        let party_hash = blake3::hash(party.as_ref());
-        let version_hash = blake3::hash(&version.to_le_bytes());
-        let value_hash = blake3::hash(value.as_ref());
+        let mut hasher = Hasher::new();
+        hasher.update(Hash::hash(party.as_ref()).as_bytes());
+        hasher.update(Hash::hash(&version.to_le_bytes()).as_bytes());
+        hasher.update(Hash::hash(value.as_ref()).as_bytes());
 
-        let mut bytes = Vec::with_capacity(32 * 3);
-        bytes.extend_from_slice(party_hash.as_bytes());
-        bytes.extend_from_slice(version_hash.as_bytes());
-        bytes.extend_from_slice(value_hash.as_bytes());
-
-        Self::for_bytes(&bytes)
+        Self {
+            height: PhantomData,
+            hash: hasher.finalize().into(),
+        }
     }
 }
 
@@ -95,22 +87,7 @@ impl<H: Height> Debug for Path<H> {
     }
 }
 
-// We can convert any hash and any hash-sized array of bytes into a Path:
-
-impl From<blake3::Hash> for Path<Root> {
-    fn from(hash: blake3::Hash) -> Self {
-        Self {
-            height: PhantomData,
-            hash: *hash.as_bytes(),
-        }
-    }
-}
-
-impl From<Path<Root>> for blake3::Hash {
-    fn from(path: Path<Root>) -> Self {
-        blake3::Hash::from_bytes(path.hash)
-    }
-}
+// We can convert any hash-sized array of bytes into a Path:
 
 impl From<[u8; 32]> for Path<Root> {
     fn from(bytes: [u8; 32]) -> Self {

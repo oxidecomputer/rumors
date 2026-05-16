@@ -3,7 +3,7 @@ use std::collections::{BTreeSet, HashMap};
 use bytes::Bytes;
 use proptest::prelude::*;
 
-use super::typed::Path;
+use super::typed::{Hash, Hasher, Path};
 use super::*;
 use crate::Message;
 
@@ -56,12 +56,12 @@ fn distinct_bytes_and_permutation(max: usize) -> impl Strategy<Value = (Vec<Byte
 }
 
 /// Pre-hash a human-readable party label into the `Bytes` form that `Tree`
-/// stores internally. `Tree::for_party` blake3-hashes its input once, so any
+/// stores internally. `Tree::for_party` hashes its input once, so any
 /// test that wants to address the tree by its original label must apply the
 /// same hash before comparing version vectors, computing leaf paths, or
 /// constructing reactions.
 fn hashed_party(party: impl AsRef<[u8]>) -> Bytes {
-    Bytes::copy_from_slice(&blake3::hash(party.as_ref()).as_bytes()[..])
+    Bytes::copy_from_slice(&Hash::hash(party.as_ref()).as_bytes()[..])
 }
 
 /// Build a [`Version`] keyed by the pre-hashed form of a human-readable
@@ -140,22 +140,22 @@ fn sync_ops_strategy(max_ops: usize, max_batch: usize) -> impl Strategy<Value = 
 }
 
 /// Compute the root hash of the fully-expanded (uVn-path-compressed) 256-ary
-/// trie over the given set of values. For every unique blake3 path, a leaf
+/// trie over the given set of values. For every unique hash path, a leaf
 /// sentinel of all-0xff bytes sits at depth 32; at each level above, a 256-way
 /// branch hashes its child slots (0x00-filled where absent, recursive hash
 /// where present). This is the ground truth that the compressed tree's root
 /// hash must match.
-fn reference_hash(values: &[(Bytes, u64, Bytes)]) -> blake3::Hash {
+fn reference_hash(values: &[(Bytes, u64, Bytes)]) -> Hash {
     const LEAF_SENTINEL: [u8; 32] = [0xff; 32];
     const ZERO: [u8; 32] = [0x00; 32];
 
     // The empty tree has the hash of an empty node
     if values.is_empty() {
-        return ZERO.into();
+        return Hash::default();
     }
 
-    let hash_branch = |children: &HashMap<u8, blake3::Hash>| -> blake3::Hash {
-        let mut hasher = blake3::Hasher::new();
+    let hash_branch = |children: &HashMap<u8, Hash>| -> Hash {
+        let mut hasher = Hasher::new();
         for i in u8::MIN..=u8::MAX {
             match children.get(&i) {
                 Some(h) => hasher.update(h.as_bytes()),
@@ -179,15 +179,15 @@ fn reference_hash(values: &[(Bytes, u64, Bytes)]) -> blake3::Hash {
         return hash_branch(&HashMap::new());
     }
 
-    let mut current: HashMap<Vec<u8>, blake3::Hash> = paths
+    let mut current: HashMap<Vec<u8>, Hash> = paths
         .into_iter()
-        .map(|p| (<[u8; 32]>::from(p).to_vec(), LEAF_SENTINEL.into()))
+        .map(|p| (<[u8; 32]>::from(p).to_vec(), Hash(LEAF_SENTINEL)))
         .collect();
 
     // Fold upward one level at a time: group entries by the prefix they share
     // at the next-shallower depth, then hash each group as a 256-way branch.
     for level in (0..32).rev() {
-        let mut groups: HashMap<Vec<u8>, HashMap<u8, blake3::Hash>> = HashMap::new();
+        let mut groups: HashMap<Vec<u8>, HashMap<u8, Hash>> = HashMap::new();
         for (prefix, hash) in current {
             let new_prefix = prefix[..level].to_vec();
             let byte = prefix[level];

@@ -1,5 +1,6 @@
 use std::{fmt::Debug, marker::PhantomData};
 
+use borsh::{BorshDeserialize, BorshSerialize};
 use tinyvec::ArrayVec;
 
 use crate::Key;
@@ -106,5 +107,34 @@ impl<H: Height> Ord for Prefix<H> {
 impl<H: Height> Debug for Prefix<H> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.hash.fmt(f)
+    }
+}
+
+/// On the wire a `Prefix<H>` is exactly `32 - H::HEIGHT` raw bytes. The height
+/// is pinned by the type, so no length prefix is transmitted: deserialization
+/// reads exactly the byte count the type demands.
+impl<H: Height> BorshSerialize for Prefix<H> {
+    fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
+        let expected = 32 - H::HEIGHT;
+        debug_assert_eq!(
+            self.hash.len(),
+            expected,
+            "Prefix<H> byte count does not match H::HEIGHT",
+        );
+        writer.write_all(&self.hash)
+    }
+}
+
+impl<H: Height> BorshDeserialize for Prefix<H> {
+    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
+        let len = 32 - H::HEIGHT;
+        let mut hash: ArrayVec<[u8; 32]> = ArrayVec::new();
+        // Reserve `len` zero slots so we can read directly into the buffer.
+        hash.set_len(len);
+        reader.read_exact(&mut hash[..len])?;
+        Ok(Prefix {
+            height: PhantomData,
+            hash,
+        })
     }
 }

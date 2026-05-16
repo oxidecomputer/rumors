@@ -1,7 +1,11 @@
+use borsh::{BorshDeserialize, BorshSerialize};
 use imbl::{OrdMap, OrdSet};
 
+use crate::imbl_borsh::{
+    deserialize_ordmap, deserialize_ordset, serialize_ordmap, serialize_ordset,
+};
 use crate::tree::typed::{
-    Node, Prefix,
+    Hash, Node, Prefix,
     height::{Height, Pred, Root, S, Z},
 };
 
@@ -12,9 +16,13 @@ use crate::tree::typed::{
 /// populated with one entry. Distinct from `Opening` only by height -- and from
 /// [`Exchange`] by the absence of `providing` / `requested`, which can't be
 /// populated until at least one round has passed.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, BorshSerialize, BorshDeserialize)]
 pub struct Initiate {
-    pub uncertain: OrdMap<Prefix<Root>, blake3::Hash>,
+    #[borsh(
+        serialize_with = "crate::imbl_borsh::serialize_ordmap",
+        deserialize_with = "crate::imbl_borsh::deserialize_ordmap"
+    )]
+    pub uncertain: OrdMap<Prefix<Root>, Hash>,
 }
 
 /// The responder's opening message: one hash per child of the responder's root,
@@ -28,9 +36,13 @@ pub struct Initiate {
 /// ([`super::exchange::Exchange::open_initiator`]) a separate entry point from
 /// the steady-state `exchange`, so the latter can assume every uncertain hash
 /// describes a parent the receiver has already acknowledged.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, BorshSerialize, BorshDeserialize)]
 pub struct Opening {
-    pub uncertain: OrdMap<Prefix<UnderRoot>, blake3::Hash>,
+    #[borsh(
+        serialize_with = "crate::imbl_borsh::serialize_ordmap",
+        deserialize_with = "crate::imbl_borsh::deserialize_ordmap"
+    )]
+    pub uncertain: OrdMap<Prefix<UnderRoot>, Hash>,
 }
 
 /// The steady-state message: carries all three channels (see the
@@ -59,7 +71,47 @@ where
     /// Hashes of our subtrees at this round's frontier, for the counterparty
     /// to compare against their own. Each entry routes to one cell of the
     /// asymmetry matrix on the receiving side.
-    pub uncertain: OrdMap<Prefix<H>, blake3::Hash>,
+    pub uncertain: OrdMap<Prefix<H>, Hash>,
+}
+
+impl<P, T, H> BorshSerialize for Exchange<P, T, H>
+where
+    P: Clone + Ord + AsRef<[u8]> + BorshSerialize,
+    T: Clone,
+    S<H>: Height,
+    H: Height,
+{
+    fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
+        serialize_ordmap(&self.providing, writer)?;
+        serialize_ordset(&self.requested, writer)?;
+        serialize_ordmap(&self.uncertain, writer)?;
+        Ok(())
+    }
+}
+
+// `Node<P, T, S<H>>: BorshDeserialize` reduces inductively to
+// `Node<P, T, H>: BorshDeserialize` and bottoms at `Z`, so with `H` left
+// generic the proof obligation doesn't terminate during inference. We
+// thread `Node<P, T, S<H>>: BorshDeserialize` through as an explicit
+// bound so the caller — who knows `H` concretely — discharges it.
+impl<P, T, H> BorshDeserialize for Exchange<P, T, H>
+where
+    P: Clone + Ord + AsRef<[u8]> + BorshDeserialize,
+    T: Clone + BorshDeserialize,
+    S<H>: Height,
+    H: Height,
+    Node<P, T, S<H>>: BorshDeserialize,
+{
+    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
+        let providing = deserialize_ordmap(reader)?;
+        let requested = deserialize_ordset(reader)?;
+        let uncertain = deserialize_ordmap(reader)?;
+        Ok(Self {
+            providing,
+            requested,
+            uncertain,
+        })
+    }
 }
 
 impl<P, T> From<Opening> for Exchange<P, T, UnderRoot>
@@ -105,6 +157,33 @@ pub struct Closing<P: Clone + Ord + AsRef<[u8]>, T> {
     pub requested: OrdSet<Prefix<S<Z>>>,
 }
 
+impl<P, T> BorshSerialize for Closing<P, T>
+where
+    P: Clone + Ord + AsRef<[u8]> + BorshSerialize,
+    T: Clone,
+{
+    fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
+        serialize_ordmap(&self.providing, writer)?;
+        serialize_ordset(&self.requested, writer)?;
+        Ok(())
+    }
+}
+
+impl<P, T> BorshDeserialize for Closing<P, T>
+where
+    P: Clone + Ord + AsRef<[u8]> + BorshDeserialize,
+    T: Clone + BorshDeserialize,
+{
+    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
+        let providing = deserialize_ordmap(reader)?;
+        let requested = deserialize_ordset(reader)?;
+        Ok(Self {
+            providing,
+            requested,
+        })
+    }
+}
+
 impl<P, T> From<Exchange<P, T, Z>> for Closing<P, T>
 where
     P: Clone + Ord + AsRef<[u8]>,
@@ -144,6 +223,27 @@ where
 #[derive(Clone)]
 pub struct Complete<P: Clone + Ord + AsRef<[u8]>, T> {
     pub providing: OrdMap<Prefix<Z>, Node<P, T, Z>>,
+}
+
+impl<P, T> BorshSerialize for Complete<P, T>
+where
+    P: Clone + Ord + AsRef<[u8]> + BorshSerialize,
+    T: Clone,
+{
+    fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
+        serialize_ordmap(&self.providing, writer)
+    }
+}
+
+impl<P, T> BorshDeserialize for Complete<P, T>
+where
+    P: Clone + Ord + AsRef<[u8]> + BorshDeserialize,
+    T: Clone + BorshDeserialize,
+{
+    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
+        let providing = deserialize_ordmap(reader)?;
+        Ok(Self { providing })
+    }
 }
 
 impl<P, T> Default for Complete<P, T>

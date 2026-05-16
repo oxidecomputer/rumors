@@ -1,0 +1,5 @@
+---
+source: src/tree/traverse/mirror/wire_snapshot.rs
+expression: "snap(&Prefix::<Root>::new())"
+---
+(empty)

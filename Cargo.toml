@@ -20,6 +20,7 @@ tinyvec = { version = "1.11", features = ["alloc"] }
 [dev-dependencies]
 proptest = "1"
 criterion = { version = "0.5", features = ["html_reports"] }
+insta = "1.47"
 
 [[bench]]
 name = "tree"

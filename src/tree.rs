@@ -10,7 +10,10 @@ mod arb;
 
 use crate::{
     Message, Version,
-    tree::{traverse::Paths, typed::Node},
+    tree::{
+        traverse::Paths,
+        typed::{Hash, Node},
+    },
 };
 
 pub use key::Key;
@@ -47,7 +50,7 @@ impl<T: Clone> Tree<T> {
     /// Create a new tree which represents the perspective of the given party.
     pub fn for_party(party: impl AsRef<[u8]>) -> Self {
         Tree {
-            party: Bytes::copy_from_slice(&blake3::hash(party.as_ref()).as_bytes()[..]),
+            party: Bytes::copy_from_slice(&Hash::hash(party.as_ref()).as_bytes()[..]),
             version: Version::default(),
             forgotten: Version::default(),
             root: None,

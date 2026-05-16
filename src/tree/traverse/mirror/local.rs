@@ -68,7 +68,7 @@ use crate::{
     tree::{
         traverse::{Paths, get::Get, unknown::Unknown},
         typed::{
-            Levels, Node, Prefix,
+            Hash, Levels, Node, Prefix,
             height::{Height, Root, S, Z},
             levels::{Below, Top},
         },
@@ -448,7 +448,7 @@ where
     /// steady-state caller silently triggering it at any incorrect height.
     fn partition_uncertain<H>(
         &mut self,
-        uncertain: OrdMap<Prefix<S<H>>, blake3::Hash>,
+        uncertain: OrdMap<Prefix<S<H>>, Hash>,
     ) -> Partition<L::Party, L::Message, H>
     where
         OnSend: FnMut(&Version<L::Party>, Key, &Message<L::Message>),

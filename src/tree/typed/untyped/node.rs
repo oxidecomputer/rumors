@@ -2,9 +2,10 @@ use std::fmt::Debug;
 use std::mem;
 use std::sync::Arc;
 
+use borsh::BorshSerialize;
 use imbl::OrdMap;
 
-use crate::{Message, Version};
+use crate::{Message, Version, tree::typed::Hash};
 
 #[derive(Clone)]
 pub struct Node<P: Ord + AsRef<[u8]>, T> {
@@ -19,11 +20,11 @@ struct NodeInner<P: Ord + AsRef<[u8]>, T> {
     ///
     /// Each entry pairs a path byte with the precomputed hash for the virtual
     /// node sitting at that level.
-    prefix: Vec<(u8, blake3::Hash)>,
+    prefix: Vec<(u8, Hash)>,
     /// Hash of this node's children (the leaf sentinel or the branch-level
     /// hash), independent of any compressed prefix above it. Computed once at
     /// construction.
-    children_hash: blake3::Hash,
+    children_hash: Hash,
     /// The maximal version of any child of this node.
     version: Version<P>,
     /// The children of this node: either a leaf, or a branch point.
@@ -73,7 +74,7 @@ impl<P: Ord + Clone + AsRef<[u8]>, T: Clone> Node<P, T> {
                 for (&i, child) in children.iter() {
                     buf[i as usize * 32..][..32].copy_from_slice(child.hash().as_bytes());
                 }
-                let children_hash = blake3::hash(&buf);
+                let children_hash = Hash::hash(&buf);
                 let version = Version::new(children.values().map(|n| n.version().clone()));
                 Some(Node {
                     inner: Arc::new(NodeInner {
@@ -124,7 +125,7 @@ impl<P: Ord + Clone + AsRef<[u8]>, T: Clone> Node<P, T> {
         Node {
             inner: Arc::new(NodeInner {
                 prefix: Vec::new(),
-                children_hash: LEAF_SENTINEL.into(),
+                children_hash: Hash(LEAF_SENTINEL),
                 version,
                 children: Children::Leaf(value),
             }),
@@ -147,7 +148,7 @@ impl<P: Ord + Clone + AsRef<[u8]>, T: Clone> Node<P, T> {
     /// hashes (with `[0x00; 32]` in empty slots). Hashing does not depend on
     /// path compression: a one-child branch and a node path-compressed by one
     /// byte produce identical hashes.
-    pub fn hash(&self) -> blake3::Hash {
+    pub fn hash(&self) -> Hash {
         self.inner
             .prefix
             .last()
@@ -160,13 +161,84 @@ impl<P: Ord + Clone + AsRef<[u8]>, T: Clone> Node<P, T> {
         &self.inner.version
     }
 
+    /// Number of path-compressed prefix bytes carried on this node — i.e.,
+    /// the count of virtual-branch levels collapsed above the node's actual
+    /// content. Zero for a leaf or a non-compressed branch.
+    pub fn compressed_prefix_len(&self) -> usize {
+        self.inner.prefix.len()
+    }
+
+    /// Borsh-serialize the node in its in-memory layout. This is the
+    /// canonical encoder: the typed `BorshSerialize` impl is a thin
+    /// delegate over it, and on the decode side the same shape is
+    /// reconstructed via the chain-reader trick that synthesizes per-level
+    /// `prefix_len` bytes (see the module docs on
+    /// [`crate::tree::traverse::mirror`] for the full wire-format spec).
+    ///
+    /// The encoded shape, in order, is:
+    ///
+    /// 1. `prefix_len: u8` — the path-compressed prefix's byte count;
+    /// 2. `prefix_len` head bytes, shallowest first (decoders peel from the
+    ///    outermost compressed level inward);
+    /// 3. the body, dispatched on `children`:
+    ///    - [`Children::Leaf`]: `version: Version<P>`, then `message: Message<T>`;
+    ///    - [`Children::Branch`]: `count_minus_two: u8`, then for each
+    ///      child (in canonical `OrdMap` key order): `radix: u8`,
+    ///      `serialize_to(child)`.
+    ///
+    /// Leaf-vs-branch is **not** tagged on the wire: at the receiver, the
+    /// typed height and the running `prefix_len` together name the body's
+    /// shape. Multi-child branches always carry at least two children, by
+    /// the path-compression invariant.
+    pub fn serialize_to<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()>
+    where
+        P: BorshSerialize,
+    {
+        let prefix_len = u8::try_from(self.inner.prefix.len()).map_err(|_| {
+            borsh::io::Error::new(
+                borsh::io::ErrorKind::InvalidData,
+                "node prefix length does not fit in a u8",
+            )
+        })?;
+        prefix_len.serialize(writer)?;
+        // Wire order is shallowest-first; the in-memory `prefix` stores the
+        // shallowest byte at the last index, so iterate in reverse.
+        for (byte, _hash) in self.inner.prefix.iter().rev() {
+            byte.serialize(writer)?;
+        }
+        match &self.inner.children {
+            Children::Leaf(msg) => {
+                self.inner.version.serialize(writer)?;
+                msg.serialize(writer)?;
+            }
+            Children::Branch(children) => {
+                debug_assert!(
+                    (2..=256).contains(&children.len()),
+                    "multi-child branch must have 2..=256 children",
+                );
+                let count_minus_two = u8::try_from(children.len() - 2).map_err(|_| {
+                    borsh::io::Error::new(
+                        borsh::io::ErrorKind::InvalidData,
+                        "branch children count does not fit in count_minus_two: u8",
+                    )
+                })?;
+                count_minus_two.serialize(writer)?;
+                for (radix, child) in children {
+                    radix.serialize(writer)?;
+                    child.serialize_to(writer)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Place a node beneath the given child index, increasing its height by
     /// one. Eagerly computes the new top-of-prefix hash by wrapping the old
     /// observable hash through one virtual-branch level.
-    fn beneath(mut self, index: u8) -> Node<P, T> {
+    pub fn beneath(mut self, index: u8) -> Node<P, T> {
         let mut buf = [0u8; 256 * 32];
         buf[index as usize * 32..][..32].copy_from_slice(self.hash().as_bytes());
-        let new_top_hash = blake3::hash(&buf);
+        let new_top_hash = Hash::hash(&buf);
         let inner = Arc::make_mut(&mut self.inner);
         inner.prefix.push((index, new_top_hash));
         self

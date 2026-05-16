@@ -1,0 +1,6 @@
+---
+source: src/tree/traverse/mirror/wire_snapshot.rs
+expression: snap(&v)
+---
+0000: 02 00 00 00 01 00 00 00 61 01 00 00 00 00 00 00
+0010: 00 01 00 00 00 62 02 00 00 00 00 00 00 00
