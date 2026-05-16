@@ -38,13 +38,19 @@ where
         let version_a = a.as_ref().map(|n| n.version().clone()).unwrap_or_default();
         let version_b = b.as_ref().map(|n| n.version().clone()).unwrap_or_default();
 
+        // Initialize each side of the protocol -- these are inherent methods,
+        // not part of the protocol specification, because the protocol does not
+        // necessarily specify how a counterparty is initialized.
+        let a = local::Exchange::new(a, &version_b, a_send, a_recv);
+        let b = local::Exchange::new(b, &version_a, b_send, b_recv);
+
         // The initiator's first round constructs its state via
         // `Initiator::initiator` and emits the opening message; the responder
         // consumes it via `Responder::responder`. Each constructor's `Self`
         // type is deduced by the compiler from the argument types and the
         // single applicable `Initiator` / `Responder` impl on `local::Exchange`.
-        let (m, a) = local::Exchange::initiator(a, &version_b, a_send, a_recv);
-        let (m, b) = local::Exchange::responder(b, &version_a, b_send, b_recv, m);
+        let (m, a) = a.initiator();
+        let (m, b) = b.responder(m);
 
         // From here every step is a trait method on the state value. Method
         // syntax resolves to the trait because the inherent methods on

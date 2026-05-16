@@ -63,18 +63,13 @@ pub trait Stage {
 ///
 /// The trait is implemented by the state type that the constructor produces;
 /// `Self::Next == Self` for any straightforward implementation.
-pub trait Initiator<P, T, OnRecv, OnSend>: Stage<Height = Root> + Sized
+pub trait Initiator<P, T>: Stage<Height = Root> + Sized
 where
     P: Clone + Ord + AsRef<[u8]>,
     T: Clone,
-    OnRecv: FnMut(&Version<P>, Key, &Message<T>),
-    OnSend: FnMut(&Version<P>, Key, &Message<T>),
 {
     /// The state that consumes the responder's [`message::Opening`].
-    type Next<'v>: OpenInitiator<'v, P, T, OnRecv, OnSend>
-        + Stage<Output = Self::Output, Height = Root>
-    where
-        P: 'v;
+    type Next: OpenInitiator<P, T> + Stage<Output = Self::Output, Height = Root>;
 
     /// Begin the protocol as the initiator.
     ///
@@ -82,12 +77,7 @@ where
     /// `Exchange` whose zipper is at `Top` (height `Root`). The initiator's
     /// next call is [`Exchange::open_initiator`], processing the responder's
     /// [`message::Opening`].
-    fn initiator<'v>(
-        node: Option<Node<P, T, Root>>,
-        their_version: &'v Version<P>,
-        on_recv: OnRecv,
-        on_send: OnSend,
-    ) -> (message::Initiate, Self::Next<'v>);
+    fn initiator(self) -> (message::Initiate, Self::Next);
 }
 
 /// Start the protocol as the responder.
@@ -95,18 +85,13 @@ where
 /// `Err(node)` from this call indicates that the initiator's root hash matched
 /// ours: the trees are already equal, the protocol short-circuits, and the
 /// caller receives the unchanged root.
-pub trait Responder<P, T, OnRecv, OnSend>: Stage<Height = UnderRoot> + Sized
+pub trait Responder<P, T>: Stage<Height = Root> + Sized
 where
     P: Clone + Ord + AsRef<[u8]>,
     T: Clone,
-    OnRecv: FnMut(&Version<P>, Key, &Message<T>),
-    OnSend: FnMut(&Version<P>, Key, &Message<T>),
 {
     /// The first steady-state [`Exchange`] from the responder's side.
-    type Next<'v>: Exchange<'v, P, T, OnRecv, OnSend>
-        + Stage<Output = Self::Output, Height = UnderRoot>
-    where
-        P: 'v;
+    type Next: Exchange<P, T> + Stage<Output = Self::Output, Height = UnderRoot>;
 
     /// Begin the protocol as the responder, processing the initiator's
     /// [`message::Initiate`].
@@ -117,13 +102,10 @@ where
     /// an [`UnderRoot`]-height zipper and emit its children's hashes as the
     /// `Opening`'s `uncertain` set -- unconditionally, since we haven't yet
     /// learned what the initiator has.
-    fn responder<'v>(
-        node: Option<Node<P, T, Root>>,
-        their_version: &'v Version<P>,
-        on_recv: OnRecv,
-        on_send: OnSend,
+    fn responder(
+        self,
         request: message::Initiate,
-    ) -> (message::Opening, Result<Self::Next<'v>, Self::Output>);
+    ) -> (message::Opening, Result<Self::Next, Self::Output>);
 }
 
 /// Process the responder's [`message::Opening`].
@@ -131,16 +113,13 @@ where
 /// Distinct from [`Exchange`] because the opening carries only `uncertain`,
 /// and the responder may list children of the initiator's absent root --- a
 /// case the steady-state [`Exchange`] is allowed to debug-assert against.
-pub trait OpenInitiator<'v, P, T, OnRecv, OnSend>: Stage<Height = Root> + Sized
+pub trait OpenInitiator<P, T>: Stage<Height = Root> + Sized
 where
     P: Clone + Ord + AsRef<[u8]>,
     T: Clone,
-    OnRecv: FnMut(&Version<P>, Key, &Message<T>),
-    OnSend: FnMut(&Version<P>, Key, &Message<T>),
 {
     /// The first steady-state [`Exchange`] from the initiator's side.
-    type Next: Exchange<'v, P, T, OnRecv, OnSend>
-        + Stage<Output = Self::Output, Height = UnderUnderRoot>;
+    type Next: Exchange<P, T> + Stage<Output = Self::Output, Height = UnderUnderRoot>;
 
     /// Process the initiator's first round, applied to the responder's
     /// [`message::Opening`].
@@ -167,12 +146,10 @@ where
 /// message's is `Self::Height − 1`); both are recovered from `Stage::Height`
 /// via `Pred` projections, so each implementing type's exchange height is
 /// determined by its `Stage::Height` alone.
-pub trait Exchange<'v, P, T, OnRecv, OnSend>: Stage + Sized
+pub trait Exchange<P, T>: Stage + Sized
 where
     P: Clone + Ord + AsRef<[u8]>,
     T: Clone,
-    OnRecv: FnMut(&Version<P>, Key, &Message<T>),
-    OnSend: FnMut(&Version<P>, Key, &Message<T>),
     Self::Height: Pred,
     <Self::Height as Pred>::Pred: Pred,
     S<<Self::Height as Pred>::Pred>: Height,
@@ -180,7 +157,7 @@ where
 {
     /// Whichever of [`Exchange`], [`CloseInitiator`], or [`CompleteResponder`]
     /// is appropriate at the outgoing message's height. See [`AfterExchange`].
-    type Next: AfterExchange<'v, P, T, OnRecv, OnSend, <<Self::Height as Pred>::Pred as Pred>::Pred>
+    type Next: AfterExchange<P, T, <<Self::Height as Pred>::Pred as Pred>::Pred>
         + Stage<Output = Self::Output, Height = <<Self::Height as Pred>::Pred as Pred>::Pred>;
 
     /// Process one round of the protocol's steady state, as either party.
@@ -202,15 +179,13 @@ where
 
 /// The initiator's final sending round; emits [`message::Closing`] instead of
 /// the vacuous leaf-height [`message::Exchange`].
-pub trait CloseInitiator<'v, P, T, OnRecv, OnSend>: Stage<Height = S<S<Z>>> + Sized
+pub trait CloseInitiator<P, T>: Stage<Height = S<S<Z>>> + Sized
 where
     P: Clone + Ord + AsRef<[u8]>,
     T: Clone,
-    OnRecv: FnMut(&Version<P>, Key, &Message<T>),
-    OnSend: FnMut(&Version<P>, Key, &Message<T>),
 {
     /// The terminal initiator state.
-    type Next: CompleteInitiator<P, T, OnRecv> + Stage<Output = Self::Output, Height = Z>;
+    type Next: CompleteInitiator<P, T> + Stage<Output = Self::Output, Height = Z>;
 
     /// The initiator's last sending round, descending the zipper from
     /// `S<S<Z>>` to `Z` and emitting [`message::Closing`].
@@ -249,11 +224,10 @@ where
 }
 
 /// The initiator's terminal round; absorbs the responder's [`message::Complete`].
-pub trait CompleteInitiator<P, T, OnRecv>: Stage<Height = Z> + Sized
+pub trait CompleteInitiator<P, T>: Stage<Height = Z> + Sized
 where
     P: Clone + Ord + AsRef<[u8]>,
     T: Clone,
-    OnRecv: FnMut(&Version<P>, Key, &Message<T>),
 {
     /// The initiator's final round.
     ///
@@ -280,7 +254,7 @@ where
 ///
 /// Height `Z` is never reached as the result of an exchange (the leaf-height
 /// uncertain map would be vacuous), so there is no `AfterExchange<Z>` impl.
-pub trait AfterExchange<'v, P, T, OnRecv, OnSend, H>: Sized
+pub trait AfterExchange<P, T, H>: Sized
 where
     P: Clone + Ord + AsRef<[u8]>,
     T: Clone,
@@ -288,7 +262,7 @@ where
 {
 }
 
-impl<'v, P, T, OnRecv, OnSend, X> AfterExchange<'v, P, T, OnRecv, OnSend, S<Z>> for X
+impl<P, T, X> AfterExchange<P, T, S<Z>> for X
 where
     P: Clone + Ord + AsRef<[u8]>,
     T: Clone,
@@ -296,26 +270,22 @@ where
 {
 }
 
-impl<'v, P, T, OnRecv, OnSend, X> AfterExchange<'v, P, T, OnRecv, OnSend, S<S<Z>>> for X
+impl<P, T, X> AfterExchange<P, T, S<S<Z>>> for X
 where
     P: Clone + Ord + AsRef<[u8]>,
     T: Clone,
-    OnRecv: FnMut(&Version<P>, Key, &Message<T>),
-    OnSend: FnMut(&Version<P>, Key, &Message<T>),
-    X: CloseInitiator<'v, P, T, OnRecv, OnSend>,
+    X: CloseInitiator<P, T>,
 {
 }
 
-impl<'v, P, T, OnRecv, OnSend, H, X> AfterExchange<'v, P, T, OnRecv, OnSend, S<S<S<H>>>> for X
+impl<P, T, H, X> AfterExchange<P, T, S<S<S<H>>>> for X
 where
     P: Clone + Ord + AsRef<[u8]>,
     T: Clone,
-    OnRecv: FnMut(&Version<P>, Key, &Message<T>),
-    OnSend: FnMut(&Version<P>, Key, &Message<T>),
     H: Height,
     S<H>: Height,
     S<S<H>>: Height,
     S<S<S<H>>>: Height,
-    X: Exchange<'v, P, T, OnRecv, OnSend> + Stage<Height = S<S<S<H>>>>,
+    X: Exchange<P, T> + Stage<Height = S<S<S<H>>>>,
 {
 }

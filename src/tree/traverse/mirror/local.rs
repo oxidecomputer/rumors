@@ -105,6 +105,26 @@ where
     on_send: OnSend,
 }
 
+impl<'v, OnRecv, OnSend, P, T> Exchange<'v, OnRecv, OnSend, Top<P, T>>
+where
+    P: Clone + Ord + AsRef<[u8]>,
+    T: Clone,
+{
+    pub fn new(
+        node: Option<Node<P, T, Root>>,
+        their_version: &'v Version<P>,
+        on_recv: OnRecv,
+        on_send: OnSend,
+    ) -> Self {
+        Self {
+            levels: Node::levels(node),
+            their_version,
+            on_recv,
+            on_send,
+        }
+    }
+}
+
 // We define a local `Exchage`'s participation in the protocol as such:
 
 impl<'v, OnRecv, OnSend, L> protocol::Stage for Exchange<'v, OnRecv, OnSend, L>
@@ -119,62 +139,44 @@ where
     type Output = Option<Node<L::Party, L::Message, Root>>;
 }
 
-impl<P, T, OnRecv, OnSend> protocol::Initiator<P, T, OnRecv, OnSend>
-    for Exchange<'_, OnRecv, OnSend, Top<P, T>>
+impl<'v, P, T, OnRecv, OnSend> protocol::Initiator<P, T> for Exchange<'v, OnRecv, OnSend, Top<P, T>>
 where
     P: Clone + Ord + AsRef<[u8]>,
     T: Clone,
     OnRecv: FnMut(&Version<P>, Key, &Message<T>),
     OnSend: FnMut(&Version<P>, Key, &Message<T>),
 {
-    type Next<'v>
-        = Exchange<'v, OnRecv, OnSend, Top<P, T>>
-    where
-        P: 'v;
+    type Next = Exchange<'v, OnRecv, OnSend, Top<P, T>>;
 
-    fn initiator<'v>(
-        node: Option<Node<P, T, Root>>,
-        their_version: &'v Version<P>,
-        on_recv: OnRecv,
-        on_send: OnSend,
-    ) -> (message::Initiate, Self::Next<'v>) {
+    fn initiator(self) -> (message::Initiate, Self::Next) {
         let message = message::Initiate {
-            uncertain: node.iter().map(|n| (Prefix::new(), n.hash())).collect(),
+            uncertain: self
+                .levels
+                .level()
+                .iter()
+                .map(|(prefix, node)| (*prefix, node.hash()))
+                .collect(),
         };
 
-        let next = Exchange {
-            levels: Node::levels(node),
-            their_version,
-            on_recv,
-            on_send,
-        };
-
-        (message, next)
+        (message, self)
     }
 }
 
-impl<P, T, OnRecv, OnSend> protocol::Responder<P, T, OnRecv, OnSend>
-    for Exchange<'_, OnRecv, OnSend, Below<UnderRoot, Top<P, T>>>
+impl<'v, P, T, OnRecv, OnSend> protocol::Responder<P, T> for Exchange<'v, OnRecv, OnSend, Top<P, T>>
 where
     P: Clone + Ord + AsRef<[u8]>,
     T: Clone,
     OnRecv: FnMut(&Version<P>, Key, &Message<T>),
     OnSend: FnMut(&Version<P>, Key, &Message<T>),
 {
-    type Next<'v>
-        = Exchange<'v, OnRecv, OnSend, Below<UnderRoot, Top<P, T>>>
-    where
-        P: 'v;
+    type Next = Exchange<'v, OnRecv, OnSend, Below<UnderRoot, Top<P, T>>>;
 
-    fn responder<'v>(
-        node: Option<Node<P, T, Root>>,
-        their_version: &'v Version<P>,
-        on_recv: OnRecv,
-        on_send: OnSend,
+    fn responder(
+        mut self,
         request: message::Initiate,
     ) -> (
         message::Opening,
-        Result<Self::Next<'v>, Option<Node<P, T, Root>>>,
+        Result<Self::Next, Option<Node<P, T, Root>>>,
     ) {
         // `Initiate.uncertain` is structurally a single entry at the empty root
         // prefix. Treat absence as "empty tree" and let the equality check below
@@ -185,24 +187,36 @@ where
             .copied()
             .unwrap_or_else(|| [0; 32].into());
 
+        // We're at the top-most level, so we can use a similar trick to identify
+        // our own root hash as the singular inhabitant of the level, if any:
+        let our_root = self
+            .levels
+            .level()
+            .get(&Prefix::new())
+            .map(Node::hash)
+            .unwrap_or_else(|| [0; 32].into());
+
         // If the initiator has the same root hash, our trees must be equal, so
         // there's no need to continue the protocol; however, we need to signal back
         // to the initiator that we're finished.
-        if their_root == Node::root_hash(&node) {
-            return (message::Opening::default(), Err(node));
+        if their_root == our_root {
+            return (message::Opening::default(), Err(self.levels.collapse()));
         }
 
         // If the root hashes mismatch, explode our root one level down. The
         // resulting `uncertain` is all the hashes at that level -- we don't yet
         // know which of them the initiator also has.
         let levels = Node::levels(None).down(
-            node.map(|n| {
-                n.into_children()
-                    .into_iter()
-                    .map(|(radix, child)| (Prefix::new().push(radix), child))
-                    .collect()
-            })
-            .unwrap_or_default(),
+            self.levels
+                .level_mut()
+                .remove(&Prefix::new())
+                .map(|n| {
+                    n.into_children()
+                        .into_iter()
+                        .map(|(radix, child)| (Prefix::new().push(radix), child))
+                        .collect()
+                })
+                .unwrap_or_default(),
         );
 
         let message = message::Opening {
@@ -215,17 +229,16 @@ where
 
         let next = Ok(Exchange {
             levels,
-            their_version,
-            on_recv,
-            on_send,
+            their_version: self.their_version,
+            on_recv: self.on_recv,
+            on_send: self.on_send,
         });
 
         (message, next)
     }
 }
 
-impl<'v, P, T, OnRecv, OnSend, L> protocol::OpenInitiator<'v, P, T, OnRecv, OnSend>
-    for Exchange<'v, OnRecv, OnSend, L>
+impl<'v, P, T, OnRecv, OnSend, L> protocol::OpenInitiator<P, T> for Exchange<'v, OnRecv, OnSend, L>
 where
     P: Clone + Ord + AsRef<[u8]>,
     T: Clone,
@@ -246,8 +259,7 @@ where
     }
 }
 
-impl<'v, P, T, H, OnRecv, OnSend, L> protocol::Exchange<'v, P, T, OnRecv, OnSend>
-    for Exchange<'v, OnRecv, OnSend, L>
+impl<'v, P, T, H, OnRecv, OnSend, L> protocol::Exchange<P, T> for Exchange<'v, OnRecv, OnSend, L>
 where
     P: Clone + Ord + AsRef<[u8]>,
     T: Clone,
@@ -260,8 +272,7 @@ where
     // Assumed at impl-validation time so we don't have to case-analyze `H`
     // here: at use sites `H` is concrete and one of the three blanket impls
     // discharges it.
-    Exchange<'v, OnRecv, OnSend, Below<H, Below<S<H>, L>>>:
-        protocol::AfterExchange<'v, P, T, OnRecv, OnSend, H>,
+    Exchange<'v, OnRecv, OnSend, Below<H, Below<S<H>, L>>>: protocol::AfterExchange<P, T, H>,
 {
     type Next = Exchange<'v, OnRecv, OnSend, Below<H, Below<S<H>, L>>>;
 
@@ -276,8 +287,7 @@ where
     }
 }
 
-impl<'v, P, T, OnRecv, OnSend, L> protocol::CloseInitiator<'v, P, T, OnRecv, OnSend>
-    for Exchange<'v, OnRecv, OnSend, L>
+impl<'v, P, T, OnRecv, OnSend, L> protocol::CloseInitiator<P, T> for Exchange<'v, OnRecv, OnSend, L>
 where
     P: Clone + Ord + AsRef<[u8]>,
     T: Clone,
@@ -320,7 +330,7 @@ where
     }
 }
 
-impl<'v, P, T, OnRecv, OnSend, L> protocol::CompleteInitiator<P, T, OnRecv>
+impl<'v, P, T, OnRecv, OnSend, L> protocol::CompleteInitiator<P, T>
     for Exchange<'v, OnRecv, OnSend, L>
 where
     P: Clone + Ord + AsRef<[u8]>,
