@@ -113,7 +113,7 @@ impl Act for Z {
             // Skip updates that are strictly causally prior to the current
             // version at this node
             if &version
-                < &node
+                < node
                     .as_ref()
                     .map(|n| n.version())
                     .unwrap_or(&Version::default())

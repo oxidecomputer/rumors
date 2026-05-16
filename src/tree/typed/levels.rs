@@ -32,11 +32,13 @@ pub trait Levels: Default + Clone + sealed::Sealed {
     fn collapse(self) -> Option<Node<Self::Party, Self::Message, Root>>;
 
     /// Get an immutable reference to the bottom-most level.
+    #[allow(clippy::type_complexity)]
     fn level(
         &self,
     ) -> &OrdMap<Prefix<Self::Height>, Node<Self::Party, Self::Message, Self::Height>>;
 
     /// Get a mutable reference to the bottom-most level.
+    #[allow(clippy::type_complexity)]
     fn level_mut(
         &mut self,
     ) -> &mut OrdMap<Prefix<Self::Height>, Node<Self::Party, Self::Message, Self::Height>>;
@@ -146,7 +148,7 @@ where
 
         // Group siblings so each parent is deconstructed and reconstructed
         // exactly once.
-        for (parent_prefix, group) in &siblings.chunk_by(|(pp, _, _)| pp.clone()) {
+        for (parent_prefix, group) in &siblings.chunk_by(|(pp, _, _)| *pp) {
             // Disassemble the existing parent (if any) into its children
             let mut children = above
                 .remove(&parent_prefix)

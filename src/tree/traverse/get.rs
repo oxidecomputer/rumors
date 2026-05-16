@@ -78,7 +78,7 @@ where
                 let child_paths: Vec<_> = group.map(|(_, path)| path).collect();
                 Get::get(
                     children.remove(&radix),
-                    prefix.clone().push(radix),
+                    prefix.push(radix),
                     Paths::Selected(child_paths),
                     with_gotten,
                 );
@@ -86,12 +86,7 @@ where
         } else {
             // Get all the paths
             for (radix, child) in node.into_children() {
-                Get::get(
-                    Some(child),
-                    prefix.clone().push(radix),
-                    Paths::All,
-                    with_gotten,
-                )
+                Get::get(Some(child), prefix.push(radix), Paths::All, with_gotten)
             }
         }
     }
@@ -114,7 +109,7 @@ impl Get for Z {
         if let Paths::Selected(paths) = paths
             && paths.is_empty()
         {
-            return;
+            // Do nothing if the path doesn't match
         } else {
             with_gotten(node.version(), prefix.into(), node.message());
         }

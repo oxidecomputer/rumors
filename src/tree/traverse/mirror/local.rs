@@ -209,7 +209,7 @@ where
             uncertain: levels
                 .level()
                 .into_iter()
-                .map(|(prefix, child)| (prefix.clone(), child.hash()))
+                .map(|(prefix, child)| (*prefix, child.hash()))
                 .collect(),
         };
 
@@ -380,12 +380,7 @@ where
     {
         let frontier = self.levels.level_mut();
         for (prefix, node) in providing {
-            Get::get(
-                Some(node.clone()),
-                prefix.clone(),
-                Paths::All,
-                &mut self.on_recv,
-            );
+            Get::get(Some(node.clone()), prefix, Paths::All, &mut self.on_recv);
             frontier.insert(prefix, node);
         }
     }
@@ -412,15 +407,12 @@ where
                 // prior to it that they lack, they have already deleted -- so
                 // we should too. The surviving subtree (if any) goes back into
                 // our frontier; its children are sent out as `providing`.
-                if let Some(node) = Unknown::unknown(
-                    Some(node),
-                    prefix.clone(),
-                    self.their_version,
-                    &mut self.on_send,
-                ) {
-                    frontier.insert(prefix.clone(), node.clone());
+                if let Some(node) =
+                    Unknown::unknown(Some(node), prefix, self.their_version, &mut self.on_send)
+                {
+                    frontier.insert(prefix, node.clone());
                     for (radix, child) in node.into_children() {
-                        providing.insert(prefix.clone().push(radix), child);
+                        providing.insert(prefix.push(radix), child);
                     }
                 }
             } else {
@@ -469,7 +461,7 @@ where
                 let (parent_prefix, radix) = prefix.pop();
                 (parent_prefix, radix, hash)
             })
-            .chunk_by(|(parent_prefix, _, _)| parent_prefix.clone())
+            .chunk_by(|(parent_prefix, _, _)| *parent_prefix)
             .into_iter()
         {
             if let Some(parent) = frontier.remove(&parent_prefix) {
@@ -489,14 +481,14 @@ where
                         // subtree (filtered against their version to honor
                         // their deletions) and keep a local copy.
                         Left((child_radix, ours)) => {
-                            let child_prefix = parent_prefix.clone().push(child_radix);
+                            let child_prefix = parent_prefix.push(child_radix);
                             if let Some(ours) = Unknown::unknown(
                                 Some(ours),
-                                child_prefix.clone(),
+                                child_prefix,
                                 self.their_version,
                                 &mut self.on_send,
                             ) {
-                                providing.insert(child_prefix.clone(), ours.clone());
+                                providing.insert(child_prefix, ours.clone());
                                 matched.insert(child_prefix, ours);
                             }
                         }
@@ -509,8 +501,7 @@ where
                                 matched.insert(child_prefix, ours);
                             } else {
                                 for (grandchild_radix, grandchild) in ours.into_children() {
-                                    let grandchild_prefix =
-                                        child_prefix.clone().push(grandchild_radix);
+                                    let grandchild_prefix = child_prefix.push(grandchild_radix);
                                     exploded.insert(grandchild_prefix, grandchild);
                                 }
                             }
@@ -550,6 +541,7 @@ where
     ///
     /// Shared by [`Self::exchange`] and [`Self::close_initiator`]; they differ
     /// only in how they assemble the outgoing message and detect completion.
+    #[allow(clippy::type_complexity)]
     fn reply<Request, Response, H>(
         mut self,
         request: Request,
@@ -606,7 +598,7 @@ where
             .levels
             .level()
             .iter()
-            .map(|(prefix, node)| (prefix.clone(), node.hash()))
+            .map(|(prefix, node)| (*prefix, node.hash()))
             .collect();
 
         let response = message::Exchange {

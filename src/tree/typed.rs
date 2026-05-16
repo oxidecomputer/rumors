@@ -6,7 +6,7 @@ pub mod prefix;
 
 mod untyped;
 
-pub use levels::{Levels, levels};
+pub use levels::Levels;
 pub use node::Node;
 pub use path::Path;
 pub use prefix::Prefix;

@@ -151,6 +151,7 @@ where
     /// responder may therefore list hashes whose parent (our empty root prefix)
     /// we lack entirely -- a normal case here, but one that would indicate a
     /// protocol bug if it recurred in `Self::exchange`.
+    #[allow(clippy::type_complexity)]
     fn open_initiator(
         self,
         request: message::Opening,
@@ -189,6 +190,7 @@ where
     /// have nothing left to ask about and nothing left in dispute -- but the
     /// outgoing message is sent unconditionally, because the counterparty may
     /// still need its contents to converge.
+    #[allow(clippy::type_complexity)]
     fn exchange(
         self,
         request: message::Exchange<P, T, <Self::Height as Pred>::Pred>,

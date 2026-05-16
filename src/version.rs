@@ -44,7 +44,7 @@ impl<P: Ord> Version<P> {
 
     /// Get the version for a particular party.
     pub fn for_party(&self, party: &P) -> u64 {
-        *self.versions.get(&party).unwrap_or(&0)
+        *self.versions.get(party).unwrap_or(&0)
     }
 }
 

@@ -12,17 +12,9 @@ use crate::tree::typed::{
 /// populated with one entry. Distinct from `Opening` only by height -- and from
 /// [`Exchange`] by the absence of `providing` / `requested`, which can't be
 /// populated until at least one round has passed.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Initiate {
     pub uncertain: OrdMap<Prefix<Root>, blake3::Hash>,
-}
-
-impl Default for Initiate {
-    fn default() -> Self {
-        Self {
-            uncertain: Default::default(),
-        }
-    }
 }
 
 /// The responder's opening message: one hash per child of the responder's root,

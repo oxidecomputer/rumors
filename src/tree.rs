@@ -100,8 +100,8 @@ impl<T: Clone> Tree<T> {
     /// version vector.
     pub fn unknown(&self, version: Version) -> Vec<(Version, Key, Message<T>)> {
         let mut unknown = Vec::new();
-        traverse::unknown(self.root.clone(), &version, &mut |v, i, b| {
-            unknown.push((v.clone(), i.into(), b.clone()))
+        traverse::unknown(self.root.clone(), &version, &mut |v, k, m| {
+            unknown.push((v.clone(), k, m.clone()))
         });
         unknown
     }
@@ -174,7 +174,7 @@ impl<T: Clone> Tree<T> {
     /// tree in a single traversal. Theoretically, this gives an O(log n)
     /// speedup relative to one-by-one insertion operations, but since the log
     /// base is 256, in practice this is about 2-3x.
-    pub fn react<'a, M, I>(&mut self, i: I)
+    pub fn react<M, I>(&mut self, i: I)
     where
         M: Into<Option<Message<T>>>,
         I: IntoIterator<Item = (Version, Key, M)>,

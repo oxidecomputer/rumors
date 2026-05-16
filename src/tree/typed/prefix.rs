@@ -75,12 +75,11 @@ impl<H: Height> Prefix<H> {
 // Comparison refers only to the accumulated path bytes; the phantom height is
 // already pinned by the type.
 
+impl<H: Height> Copy for Prefix<H> {}
+
 impl<H: Height> Clone for Prefix<H> {
     fn clone(&self) -> Self {
-        Prefix {
-            height: PhantomData,
-            hash: self.hash.clone(),
-        }
+        *self
     }
 }
 

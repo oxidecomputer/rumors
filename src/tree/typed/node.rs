@@ -67,7 +67,9 @@ where
         //
         // SAFETY: TypedNode is #[repr(transparent)] and `OrdMap` treats values
         // in the map parametrically (i.e. no use of `TypeId`, etc.)
-        let children = unsafe { mem::transmute(children) };
+        let children = unsafe {
+            mem::transmute::<OrdMap<u8, Node<P, T, H>>, OrdMap<u8, untyped::Node<P, T>>>(children)
+        };
 
         Some(Node {
             height: PhantomData,

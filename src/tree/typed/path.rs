@@ -77,7 +77,7 @@ impl<H: Height> PartialEq for Path<H> {
 
 impl<H: Height> PartialOrd for Path<H> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.hash[32 - H::HEIGHT..].partial_cmp(&other.hash[32 - H::HEIGHT..])
+        Some(self.cmp(other))
     }
 }
 

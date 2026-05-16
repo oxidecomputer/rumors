@@ -50,9 +50,7 @@ where
         P: Clone + Ord + AsRef<[u8]>,
     {
         // If the node doesn't exist, we can't return information about it
-        let Some(node) = node else {
-            return None;
-        };
+        let node = node?;
 
         // If the node is causally prior or at the known version vector, it's
         // already known (and so are all its children, since they are always in
@@ -66,7 +64,7 @@ where
             node.into_children()
                 .into_iter()
                 .flat_map(|(radix, child)| {
-                    Unknown::unknown(Some(child), prefix.clone().push(radix), known, with_unknown)
+                    Unknown::unknown(Some(child), prefix.push(radix), known, with_unknown)
                         .map(|child| (radix, child))
                 })
                 .collect(),
@@ -86,9 +84,7 @@ impl Unknown for Z {
         P: Clone + Ord + AsRef<[u8]>,
     {
         // If the node doesn't exist, we can't return information about it
-        let Some(node) = node else {
-            return None;
-        };
+        let node = node?;
 
         // If the node is causally prior or at the known version vector, it's
         // already known, so don't return anything
