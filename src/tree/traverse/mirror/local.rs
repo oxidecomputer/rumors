@@ -1,6 +1,6 @@
 //! Two replicas reconcile their trees while honoring deletions: leaves one side
-//! has and the other has merely *forgotten* (their version is `<=` the other's
-//! version vector) vanish; leaves never seen are transmitted. The protocol
+//! has and the other has since *forgotten* (their version is `<=` the other's
+//! version vector) vanish; leaves not yet seen are transmitted. The protocol
 //! recurses down the *disjoint frontier* of the two trees, alternating sender
 //! each message, so it costs `O(log n)` round-trips and never re-sends a hash
 //! the other side can already infer.
@@ -13,7 +13,7 @@
 //! pushes two new (mostly empty) levels onto the bottom; the receiver's next
 //! round operates on its own zipper, offset by one height. Heights on which the
 //! parties have agreed end up nearer the top of the zipper; heights still in
-//! dispute live at the bottom. After roughly 16 rounds, both bottoms have
+//! dispute live at the bottom. After max 16 rounds (likely fewer), both have
 //! reached `Z` (leaf height) and the zippers collapse back to roots.
 //!
 //! The wire conversation:
@@ -50,10 +50,10 @@
 //! depending on whether each side has the node. The protocol is correct iff
 //! every case routes its information to some channel:
 //!
-//! |                | counterparty has it                                  | counterparty lacks it                         |
-//! |----------------|------------------------------------------------------|-----------------------------------------------|
-//! | **we have it** | hashes match: drop; hashes differ: recurse one finer | we `provide`                                  |
-//! | **we lack it** | we `request`                                         | (impossible: neither side would mention it)   |
+//! |                | counterparty has it                                 | counterparty lacks it                         |
+//! |----------------|-----------------------------------------------------|-----------------------------------------------|
+//! | **we have it** | hashes match: no action; hashes differ: recur below | we `provide`                                  |
+//! | **we lack it** | we `request`                                        | (impossible: neither side would mention it)   |
 //!
 //! Each cell is realized by one arm of the `merge_join_by` inside
 //! [`Exchange::partition_uncertain`].
