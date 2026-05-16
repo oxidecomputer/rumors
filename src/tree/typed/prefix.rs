@@ -1,5 +1,7 @@
 use std::{fmt::Debug, marker::PhantomData};
 
+use tinyvec::ArrayVec;
+
 use crate::Key;
 
 use super::height::{Height, Root, S, Z};
@@ -9,7 +11,7 @@ use super::path::Path;
 #[repr(transparent)]
 pub struct Prefix<H: Height = Z> {
     height: PhantomData<H>,
-    hash: Vec<u8>,
+    hash: ArrayVec<[u8; 32]>,
 }
 
 impl Prefix<Root> {
@@ -17,19 +19,18 @@ impl Prefix<Root> {
     pub fn new() -> Self {
         Prefix {
             height: PhantomData,
-            hash: Vec::with_capacity(32),
+            hash: ArrayVec::new(),
         }
     }
 }
 
-impl From<Prefix> for Path {
+impl From<Prefix<Z>> for Path {
     fn from(value: Prefix) -> Self {
-        let array: [u8; 32] = value.hash.try_into().expect("vector must be 32 bytes");
-        array.into()
+        value.hash.into_inner().into()
     }
 }
 
-impl From<Prefix> for Key {
+impl From<Prefix<Z>> for Key {
     fn from(value: Prefix) -> Self {
         Path::from(value).into()
     }
