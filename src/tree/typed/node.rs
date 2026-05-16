@@ -45,6 +45,7 @@ impl<P: Clone + Ord + AsRef<[u8]>, T: Clone, H: Height> Node<P, T, H> {
     /// Number of path-compressed prefix bytes on this node — i.e., the
     /// count of singleton virtual-branch levels collapsed above the node's
     /// actual content. Zero for a leaf or a non-compressed branch.
+    #[cfg(test)]
     pub fn compressed_prefix_len(&self) -> usize {
         self.inner.compressed_prefix_len()
     }

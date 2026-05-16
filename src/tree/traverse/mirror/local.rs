@@ -137,6 +137,8 @@ where
 {
     type Height = L::Height;
     type Output = Option<Node<L::Party, L::Message, Root>>;
+    /// A purely in-memory traversal cannot fail.
+    type Error = Infallible;
 }
 
 impl<'v, P, T, OnRecv, OnSend> protocol::Initiator<P, T> for Exchange<'v, OnRecv, OnSend, Top<P, T>>
@@ -148,8 +150,10 @@ where
 {
     type Next = Exchange<'v, OnRecv, OnSend, Top<P, T>>;
 
-    fn initiator(self) -> (message::Initiate, Self::Next) {
-        let message = message::Initiate {
+    fn initiator(
+        self,
+    ) -> Result<protocol::Step<message::Initiate, Self::Next, Infallible>, Infallible> {
+        let msg = message::Initiate {
             uncertain: self
                 .levels
                 .level()
@@ -158,7 +162,7 @@ where
                 .collect(),
         };
 
-        (message, self)
+        Ok(protocol::Step::Continue { msg, next: self })
     }
 }
 
@@ -174,10 +178,8 @@ where
     fn responder(
         mut self,
         request: message::Initiate,
-    ) -> (
-        message::Opening,
-        Result<Self::Next, Option<Node<P, T, Root>>>,
-    ) {
+    ) -> Result<protocol::Step<message::Opening, Self::Next, Option<Node<P, T, Root>>>, Infallible>
+    {
         // `Initiate.uncertain` is structurally a single entry at the empty root
         // prefix. Treat absence as "empty tree" and let the equality check below
         // handle the symmetric "both empty" case.
@@ -200,7 +202,10 @@ where
         // there's no need to continue the protocol; however, we need to signal back
         // to the initiator that we're finished.
         if their_root == our_root {
-            return (message::Opening::default(), Err(self.levels.collapse()));
+            return Ok(protocol::Step::Done {
+                msg: message::Opening::default(),
+                output: self.levels.collapse(),
+            });
         }
 
         // If the root hashes mismatch, explode our root one level down. The
@@ -219,7 +224,7 @@ where
                 .unwrap_or_default(),
         );
 
-        let message = message::Opening {
+        let msg = message::Opening {
             uncertain: levels
                 .level()
                 .into_iter()
@@ -227,14 +232,14 @@ where
                 .collect(),
         };
 
-        let next = Ok(Exchange {
+        let next = Exchange {
             levels,
             their_version: self.their_version,
             on_recv: self.on_recv,
             on_send: self.on_send,
-        });
+        };
 
-        (message, next)
+        Ok(protocol::Step::Continue { msg, next })
     }
 }
 
@@ -251,11 +256,15 @@ where
     fn open_initiator(
         self,
         request: message::Opening,
-    ) -> (
-        message::Exchange<P, T, UnderUnderRoot>,
-        Result<Self::Next, Option<Node<P, T, Root>>>,
-    ) {
-        self.reply(request)
+    ) -> Result<
+        protocol::Step<
+            message::Exchange<P, T, UnderUnderRoot>,
+            Self::Next,
+            Option<Node<P, T, Root>>,
+        >,
+        Infallible,
+    > {
+        Ok(self.reply(request))
     }
 }
 
@@ -279,11 +288,11 @@ where
     fn exchange(
         self,
         request: message::Exchange<P, T, S<H>>,
-    ) -> (
-        message::Exchange<P, T, H>,
-        Result<Self::Next, Option<Node<P, T, Root>>>,
-    ) {
-        self.reply(request)
+    ) -> Result<
+        protocol::Step<message::Exchange<P, T, H>, Self::Next, Option<Node<P, T, Root>>>,
+        Infallible,
+    > {
+        Ok(self.reply(request))
     }
 }
 
@@ -300,11 +309,11 @@ where
     fn close_initiator(
         self,
         request: message::Exchange<P, T, S<Z>>,
-    ) -> (
-        message::Closing<P, T>,
-        Result<Self::Next, Option<Node<P, T, Root>>>,
-    ) {
-        self.reply(request)
+    ) -> Result<
+        protocol::Step<message::Closing<P, T>, Self::Next, Option<Node<P, T, Root>>>,
+        Infallible,
+    > {
+        Ok(self.reply(request))
     }
 }
 
@@ -320,13 +329,16 @@ where
     fn complete_responder(
         mut self,
         request: message::Closing<P, T>,
-    ) -> (
-        message::Complete<P, T>,
-        Result<Infallible, Option<Node<P, T, Root>>>,
-    ) {
+    ) -> Result<
+        protocol::Step<message::Complete<P, T>, Infallible, Option<Node<P, T, Root>>>,
+        Infallible,
+    > {
         self.absorb_providing(request.providing);
         let providing = self.answer_requested(request.requested);
-        (message::Complete { providing }, Err(self.levels.collapse()))
+        Ok(protocol::Step::Done {
+            msg: message::Complete { providing },
+            output: self.levels.collapse(),
+        })
     }
 }
 
@@ -342,9 +354,9 @@ where
     fn complete_initiator(
         mut self,
         request: message::Complete<P, T>,
-    ) -> Result<Infallible, Option<Node<P, T, Root>>> {
+    ) -> Result<Option<Node<P, T, Root>>, Infallible> {
         self.absorb_providing(request.providing);
-        Err(self.levels.collapse())
+        Ok(self.levels.collapse())
     }
 }
 
@@ -547,21 +559,22 @@ where
     /// Run a steady-state round end-to-end: absorb the incoming `providing`,
     /// answer the incoming `requested`, partition the incoming `uncertain`, and
     /// descend the zipper by two heights. Returns the next-level outgoing
-    /// `providing` / `requested` / `uncertain` and a descended [`Exchange`].
+    /// `providing` / `requested` / `uncertain` and a descended [`Exchange`],
+    /// wrapped in [`protocol::Step::Continue`] or [`protocol::Step::Done`]
+    /// according to whether the outgoing message has anything left to
+    /// negotiate.
     ///
     /// Shared by [`Self::exchange`] and [`Self::close_initiator`]; they differ
-    /// only in how they assemble the outgoing message and detect completion.
+    /// only in how they assemble the outgoing message.
     #[allow(clippy::type_complexity)]
     fn reply<Request, Response, H>(
         mut self,
         request: Request,
-    ) -> (
+    ) -> protocol::Step<
         Response,
-        Result<
-            Exchange<'v, OnRecv, OnSend, Below<H, Below<S<H>, L>>>,
-            Option<Node<L::Party, L::Message, Root>>,
-        >,
-    )
+        Exchange<'v, OnRecv, OnSend, Below<H, Below<S<H>, L>>>,
+        Option<Node<L::Party, L::Message, Root>>,
+    >
     where
         Request: Into<message::Exchange<L::Party, L::Message, S<H>>>,
         Response: From<message::Exchange<L::Party, L::Message, H>>,
@@ -617,14 +630,20 @@ where
             uncertain,
         };
 
-        // Determine if we are finished
+        // Convergence: nothing left to ask, nothing left in dispute. The
+        // outgoing message is still meaningful (it may carry `providing`), so
+        // the caller still needs to deliver it.
         let finished = response.requested.is_empty() && response.uncertain.is_empty();
-        let next = if finished {
-            Err(next.levels.collapse())
+        if finished {
+            protocol::Step::Done {
+                msg: response.into(),
+                output: next.levels.collapse(),
+            }
         } else {
-            Ok(next)
-        };
-
-        (response.into(), next)
+            protocol::Step::Continue {
+                msg: response.into(),
+                next,
+            }
+        }
     }
 }

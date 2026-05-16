@@ -61,7 +61,7 @@ fn distinct_bytes_and_permutation(max: usize) -> impl Strategy<Value = (Vec<Byte
 /// same hash before comparing version vectors, computing leaf paths, or
 /// constructing reactions.
 fn hashed_party(party: impl AsRef<[u8]>) -> Bytes {
-    Bytes::copy_from_slice(&Hash::hash(party.as_ref()).as_bytes()[..])
+    Bytes::copy_from_slice(&Hash::of(party.as_ref()).as_bytes()[..])
 }
 
 /// Build a [`Version`] keyed by the pre-hashed form of a human-readable

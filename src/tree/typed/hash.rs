@@ -25,7 +25,7 @@ pub struct Hash(pub [u8; 32]);
 
 impl Hash {
     /// One-shot hash of a contiguous byte slice.
-    pub fn hash(bytes: &[u8]) -> Self {
+    pub fn of(bytes: &[u8]) -> Self {
         Hash(*blake3::hash(bytes).as_bytes())
     }
 

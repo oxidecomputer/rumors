@@ -74,7 +74,7 @@ impl<P: Ord + Clone + AsRef<[u8]>, T: Clone> Node<P, T> {
                 for (&i, child) in children.iter() {
                     buf[i as usize * 32..][..32].copy_from_slice(child.hash().as_bytes());
                 }
-                let children_hash = Hash::hash(&buf);
+                let children_hash = Hash::of(&buf);
                 let version = Version::new(children.values().map(|n| n.version().clone()));
                 Some(Node {
                     inner: Arc::new(NodeInner {
@@ -164,6 +164,7 @@ impl<P: Ord + Clone + AsRef<[u8]>, T: Clone> Node<P, T> {
     /// Number of path-compressed prefix bytes carried on this node — i.e.,
     /// the count of virtual-branch levels collapsed above the node's actual
     /// content. Zero for a leaf or a non-compressed branch.
+    #[cfg(test)]
     pub fn compressed_prefix_len(&self) -> usize {
         self.inner.prefix.len()
     }
@@ -238,7 +239,7 @@ impl<P: Ord + Clone + AsRef<[u8]>, T: Clone> Node<P, T> {
     pub fn beneath(mut self, index: u8) -> Node<P, T> {
         let mut buf = [0u8; 256 * 32];
         buf[index as usize * 32..][..32].copy_from_slice(self.hash().as_bytes());
-        let new_top_hash = Hash::hash(&buf);
+        let new_top_hash = Hash::of(&buf);
         let inner = Arc::make_mut(&mut self.inner);
         inner.prefix.push((index, new_top_hash));
         self

@@ -39,24 +39,41 @@
 
 use std::convert::Infallible;
 
-use crate::{
-    Key, Message, Version,
-    tree::typed::{
-        Node,
-        height::{Height, Pred, Root, S, Z},
-    },
-};
+use crate::tree::typed::height::{Height, Pred, Root, S, Z};
 
 use super::message::{self, UnderRoot, UnderUnderRoot};
 
-/// Any stage in the protocol is identified by this trait, and must declare its
-/// height as an associated type.
+/// One step in a protocol session.
+///
+/// Returned by every protocol method that exchanges a wire message. `Continue`
+/// advances to `next` after sending `msg`; `Done` terminates the session, but
+/// `msg` is still a real message the driver may need to deliver so the
+/// counterparty can absorb its `providing` before terminating itself.
+#[derive(Debug)]
+pub enum Step<Msg, Next, Output> {
+    /// Continue the session: send `msg`, then transition to `next`.
+    Continue { msg: Msg, next: Next },
+    /// Terminate the session. `msg` is the implementation's final outgoing
+    /// frame (it may carry non-vacuous `providing` that the peer still needs);
+    /// `output` is the implementation's final value (the reconciled root for
+    /// `local`, `()` for `remote`).
+    Done { msg: Msg, output: Output },
+}
+
+/// Any stage in the protocol is identified by this trait. Each stage declares
+/// its height, its end-of-protocol output, and the error type its methods may
+/// raise. `local::Exchange` sets `Error = Infallible` (a purely in-memory
+/// traversal cannot fail); wire-bound implementations (`remote::Exchange`) set
+/// `Error` to a concrete type covering I/O and framing failures.
 pub trait Stage {
     /// The height in the protocol, starting at the root.
     type Height: Height;
 
     /// The end result of the protocol.
     type Output;
+
+    /// The error type raised by this stage's protocol methods.
+    type Error;
 }
 
 /// Start the protocol as the initiator.
@@ -69,7 +86,8 @@ where
     T: Clone,
 {
     /// The state that consumes the responder's [`message::Opening`].
-    type Next: OpenInitiator<P, T> + Stage<Output = Self::Output, Height = Root>;
+    type Next: OpenInitiator<P, T>
+        + Stage<Output = Self::Output, Height = Root, Error = Self::Error>;
 
     /// Begin the protocol as the initiator.
     ///
@@ -77,7 +95,11 @@ where
     /// `Exchange` whose zipper is at `Top` (height `Root`). The initiator's
     /// next call is [`Exchange::open_initiator`], processing the responder's
     /// [`message::Opening`].
-    fn initiator(self) -> (message::Initiate, Self::Next);
+    ///
+    /// Always yields [`Step::Continue`]: a side opening the protocol cannot
+    /// have converged yet. The [`Step::Done`]'s `Output` slot is
+    /// [`Infallible`] to encode that impossibility in the type system.
+    fn initiator(self) -> Result<Step<message::Initiate, Self::Next, Infallible>, Self::Error>;
 }
 
 /// Start the protocol as the responder.
@@ -91,21 +113,22 @@ where
     T: Clone,
 {
     /// The first steady-state [`Exchange`] from the responder's side.
-    type Next: Exchange<P, T> + Stage<Output = Self::Output, Height = UnderRoot>;
+    type Next: Exchange<P, T>
+        + Stage<Output = Self::Output, Height = UnderRoot, Error = Self::Error>;
 
     /// Begin the protocol as the responder, processing the initiator's
     /// [`message::Initiate`].
     ///
-    /// If our root hash matches the initiator's, we short-circuit: the trees
-    /// are already equal, so we return `Err(our_root)` and an empty `Opening`
-    /// to signal completion. Otherwise we explode our root one level down into
-    /// an [`UnderRoot`]-height zipper and emit its children's hashes as the
-    /// `Opening`'s `uncertain` set -- unconditionally, since we haven't yet
-    /// learned what the initiator has.
+    /// If our root hash matches the initiator's, we short-circuit with
+    /// [`Step::Done`] and an empty `Opening`: the trees are already equal.
+    /// Otherwise we yield [`Step::Continue`], explode our root one level down
+    /// into an [`UnderRoot`]-height zipper, and emit its children's hashes as
+    /// the `Opening`'s `uncertain` set -- unconditionally, since we haven't
+    /// yet learned what the initiator has.
     fn responder(
         self,
         request: message::Initiate,
-    ) -> (message::Opening, Result<Self::Next, Self::Output>);
+    ) -> Result<Step<message::Opening, Self::Next, Self::Output>, Self::Error>;
 }
 
 /// Process the responder's [`message::Opening`].
@@ -119,7 +142,8 @@ where
     T: Clone,
 {
     /// The first steady-state [`Exchange`] from the initiator's side.
-    type Next: Exchange<P, T> + Stage<Output = Self::Output, Height = UnderUnderRoot>;
+    type Next: Exchange<P, T>
+        + Stage<Output = Self::Output, Height = UnderUnderRoot, Error = Self::Error>;
 
     /// Process the initiator's first round, applied to the responder's
     /// [`message::Opening`].
@@ -134,10 +158,7 @@ where
     fn open_initiator(
         self,
         request: message::Opening,
-    ) -> (
-        message::Exchange<P, T, UnderUnderRoot>,
-        Result<Self::Next, Self::Output>,
-    );
+    ) -> Result<Step<message::Exchange<P, T, UnderUnderRoot>, Self::Next, Self::Output>, Self::Error>;
 }
 
 /// One steady-state round, as either party.
@@ -158,23 +179,31 @@ where
     /// Whichever of [`Exchange`], [`CloseInitiator`], or [`CompleteResponder`]
     /// is appropriate at the outgoing message's height. See [`AfterExchange`].
     type Next: AfterExchange<P, T, <<Self::Height as Pred>::Pred as Pred>::Pred>
-        + Stage<Output = Self::Output, Height = <<Self::Height as Pred>::Pred as Pred>::Pred>;
+        + Stage<
+            Output = Self::Output,
+            Height = <<Self::Height as Pred>::Pred as Pred>::Pred,
+            Error = Self::Error,
+        >;
 
     /// Process one round of the protocol's steady state, as either party.
     ///
     /// Each call moves our zipper down by two heights and emits the next
-    /// outgoing message. The returned `Result` is `Err(final_tree)` once we
-    /// have nothing left to ask about and nothing left in dispute -- but the
-    /// outgoing message is sent unconditionally, because the counterparty may
-    /// still need its contents to converge.
+    /// outgoing message. Yields [`Step::Done`] once we have nothing left to
+    /// ask about and nothing left in dispute -- but the outgoing message is
+    /// emitted unconditionally, because the counterparty may still need its
+    /// contents to converge.
     #[allow(clippy::type_complexity)]
     fn exchange(
         self,
         request: message::Exchange<P, T, <Self::Height as Pred>::Pred>,
-    ) -> (
-        message::Exchange<P, T, <<Self::Height as Pred>::Pred as Pred>::Pred>,
-        Result<Self::Next, Self::Output>,
-    );
+    ) -> Result<
+        Step<
+            message::Exchange<P, T, <<Self::Height as Pred>::Pred as Pred>::Pred>,
+            Self::Next,
+            Self::Output,
+        >,
+        Self::Error,
+    >;
 }
 
 /// The initiator's final sending round; emits [`message::Closing`] instead of
@@ -185,7 +214,8 @@ where
     T: Clone,
 {
     /// The terminal initiator state.
-    type Next: CompleteInitiator<P, T> + Stage<Output = Self::Output, Height = Z>;
+    type Next: CompleteInitiator<P, T>
+        + Stage<Output = Self::Output, Height = Z, Error = Self::Error>;
 
     /// The initiator's last sending round, descending the zipper from
     /// `S<S<Z>>` to `Z` and emitting [`message::Closing`].
@@ -197,10 +227,11 @@ where
     /// so we omit it from the wire. This lets [`Self::complete_responder`]
     /// consume `Closing` directly, without a runtime check that a
     /// well-behaved peer would never trip.
+    #[allow(clippy::type_complexity)]
     fn close_initiator(
         self,
         request: message::Exchange<P, T, S<Z>>,
-    ) -> (message::Closing<P, T>, Result<Self::Next, Self::Output>);
+    ) -> Result<Step<message::Closing<P, T>, Self::Next, Self::Output>, Self::Error>;
 }
 
 /// The responder's terminal round; absorbs the initiator's [`message::Closing`]
@@ -217,10 +248,15 @@ where
     /// `requested` set, and collapse our zipper back to a root. The returned
     /// [`message::Complete`] carries our last outgoing `providing` for the
     /// initiator to absorb in [`Self::complete_initiator`].
+    ///
+    /// Always yields [`Step::Done`]: the responder's session ends here. The
+    /// `Next` slot is [`Infallible`] to encode the impossibility of
+    /// `Continue` in the type system.
+    #[allow(clippy::type_complexity)]
     fn complete_responder(
         self,
         request: message::Closing<P, T>,
-    ) -> (message::Complete<P, T>, Result<Infallible, Self::Output>);
+    ) -> Result<Step<message::Complete<P, T>, Infallible, Self::Output>, Self::Error>;
 }
 
 /// The initiator's terminal round; absorbs the responder's [`message::Complete`].
@@ -234,11 +270,14 @@ where
     /// Absorbs the responder's last batch of `providing` (from
     /// [`message::Complete`]) and collapses our zipper back to a root. There is
     /// no outgoing message: any `requested` we would have made went out in our
-    /// prior [`Self::close_initiator`] call.
+    /// prior [`Self::close_initiator`] call. Returns the reconciled root
+    /// directly -- no [`Step`] wrapper, since there is neither a message nor
+    /// a continuation.
+    #[allow(clippy::type_complexity)]
     fn complete_initiator(
         self,
         request: message::Complete<P, T>,
-    ) -> Result<Infallible, Self::Output>;
+    ) -> Result<Self::Output, Self::Error>;
 }
 
 /// Blanket marker trait keyed by the height `H` just produced by an

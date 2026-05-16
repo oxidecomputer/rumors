@@ -12,6 +12,18 @@ use crate::{Key, Message, Version};
 use super::protocol::*;
 use super::*;
 
+/// Split a [`Step`] into its outgoing message and a `Result<Next, Output>`
+/// that mirrors the pre-Step return shape. Lets us preserve the original
+/// driver's `?`-based short-circuit: the message is always extracted (so the
+/// next call delivers it to the other side), and the side's continuation /
+/// terminal output drives the early exit.
+fn split<M, N, O>(step: Step<M, N, O>) -> (M, Result<N, O>) {
+    match step {
+        Step::Continue { msg, next } => (msg, Ok(next)),
+        Step::Done { msg, output } => (msg, Err(output)),
+    }
+}
+
 /// Drive the mirror protocol entirely through the abstract trait family in
 /// [`super::protocol`]. Every step calls a trait method --- the inherent
 /// methods on `local::Exchange` are private, so the only way this driver
@@ -32,6 +44,15 @@ where
     P: Clone + Ord + AsRef<[u8]>,
     T: Clone,
 {
+    // `local::Exchange`'s protocol methods all use `Error = Infallible`, so
+    // unwrapping the outer `Result` is well-typed and zero-cost here. The
+    // protocol's own `Step::Done` signal drives the closure's early exit.
+    fn ok<T>(r: Result<T, Infallible>) -> T {
+        match r {
+            Ok(t) => t,
+        }
+    }
+
     match (|| -> Result<Infallible, Option<Node<P, T, Root>>> {
         // Before the exchange protocol, the parties exchange the version
         // vectors of their root nodes; this may be done simultaneously, whereas
@@ -50,32 +71,35 @@ where
         // consumes it via `Responder::responder`. Each constructor's `Self`
         // type is deduced by the compiler from the argument types and the
         // single applicable `Initiator` / `Responder` impl on `local::Exchange`.
-        let (m, a) = a.initiator();
-        let (m, b) = b.responder(m);
+        // `Initiator::initiator` is statically `Step::Continue` (its `Output`
+        // slot is `Infallible`), so the destructure is exhaustive.
+        let Step::Continue { msg: m, next: a } = ok(a.initiator());
+        // `a` and `b` are both still bare state values here; only once a side
+        // has been driven through a fallible step does it become a
+        // `Result<Next, Output>` that subsequent rounds short-circuit via `?`.
+        let (m, b) = split(ok(b.responder(m)));
+        let (m, a) = split(ok(a.open_initiator(m)));
 
-        // From here every step is a trait method on the state value. Method
-        // syntax resolves to the trait because the inherent methods on
-        // `local::Exchange` are private and the traits are in scope above.
-        let (m, a) = a.open_initiator(m);
-
-        // The next 14 rounds are alternating `exchange`s.
+        // The next 14 rounds are alternating `exchange`s. From here on each
+        // side's variable is a `Result<Next, Output>`, so `?` exits the
+        // closure with the converged tree once either side yields `Done`.
         seq_macro::seq!(_ in 0..14 {
-            let (m, b) = b?.exchange(m);
-            let (m, a) = a?.exchange(m);
+            let (m, b) = split(ok(b?.exchange(m)));
+            let (m, a) = split(ok(a?.exchange(m)));
         });
 
         // The initiator's penultimate round is `close_initiator` (emitting
         // `Closing`).
-        let (m, b) = b?.exchange(m);
-        let (m, a) = a?.close_initiator(m);
+        let (m, b) = split(ok(b?.exchange(m)));
+        let (m, a) = split(ok(a?.close_initiator(m)));
 
-        // The responder closes with `complete_responder`, which is locally
-        // consumed by the initiator using `complete_initiator`.
-        let (m, b) = b?.complete_responder(m);
-        let node_a = a?.complete_initiator(m);
-
-        b?;
-        node_a
+        // The responder closes with `complete_responder`; the initiator
+        // consumes the resulting `Complete` via `complete_initiator`.
+        // `CompleteResponder` is statically `Step::Done` (its `Next` slot is
+        // `Infallible`), so `split` here yields `Err(output)` unconditionally
+        // -- we drop the result and use `m` directly.
+        let (m, _) = split(ok(b?.complete_responder(m)));
+        Err(ok(a?.complete_initiator(m)))
     })() {
         Err(node_a) => node_a,
     }

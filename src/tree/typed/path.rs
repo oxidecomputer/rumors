@@ -19,9 +19,9 @@ impl Path<Root> {
         // party, version, value. This ensures no length malleability issues.
 
         let mut hasher = Hasher::new();
-        hasher.update(Hash::hash(party.as_ref()).as_bytes());
-        hasher.update(Hash::hash(&version.to_le_bytes()).as_bytes());
-        hasher.update(Hash::hash(value.as_ref()).as_bytes());
+        hasher.update(Hash::of(party.as_ref()).as_bytes());
+        hasher.update(Hash::of(&version.to_le_bytes()).as_bytes());
+        hasher.update(Hash::of(value.as_ref()).as_bytes());
 
         Self {
             height: PhantomData,
