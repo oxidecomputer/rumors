@@ -270,14 +270,12 @@ where
     /// Absorbs the responder's last batch of `providing` (from
     /// [`message::Complete`]) and collapses our zipper back to a root. There is
     /// no outgoing message: any `requested` we would have made went out in our
-    /// prior [`Self::close_initiator`] call. Returns the reconciled root
-    /// directly -- no [`Step`] wrapper, since there is neither a message nor
-    /// a continuation.
+    /// prior [`Self::close_initiator`] call.
     #[allow(clippy::type_complexity)]
     fn complete_initiator(
         self,
         request: message::Complete<P, T>,
-    ) -> Result<Self::Output, Self::Error>;
+    ) -> Result<Step<(), Infallible, Self::Output>, Self::Error>;
 }
 
 /// Blanket marker trait keyed by the height `H` just produced by an

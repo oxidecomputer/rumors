@@ -110,7 +110,7 @@ where
     P: Clone + Ord + AsRef<[u8]>,
     T: Clone,
 {
-    pub fn new(
+    pub fn start(
         node: Option<Node<P, T, Root>>,
         their_version: &'v Version<P>,
         on_recv: OnRecv,
@@ -354,9 +354,12 @@ where
     fn complete_initiator(
         mut self,
         request: message::Complete<P, T>,
-    ) -> Result<Option<Node<P, T, Root>>, Infallible> {
+    ) -> Result<protocol::Step<(), Infallible, Self::Output>, Infallible> {
         self.absorb_providing(request.providing);
-        Ok(self.levels.collapse())
+        Ok(protocol::Step::Done {
+            msg: (),
+            output: self.levels.collapse(),
+        })
     }
 }
 
