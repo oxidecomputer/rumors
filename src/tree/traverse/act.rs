@@ -20,7 +20,6 @@ pub fn act<P, T>(
     actions: Vec<(Path, Version<P>, Action<T>)>,
 ) -> Option<Node<P, T, Root>>
 where
-    T: Clone,
     P: Clone + Ord + AsRef<[u8]>,
 {
     Act::act(node, actions)
@@ -34,7 +33,6 @@ pub trait Act: Height {
         actions: Vec<(Path<Self>, Version<P>, Action<T>)>,
     ) -> Option<Node<P, T, Self>>
     where
-        T: Clone,
         P: Clone + Ord + AsRef<[u8]>;
 }
 
@@ -47,7 +45,6 @@ where
         actions: Vec<(Path<Self>, Version<P>, Action<T>)>,
     ) -> Option<Node<P, T, S<H>>>
     where
-        T: Clone,
         P: Clone + Ord + AsRef<[u8]>,
     {
         // Group the paths by their first element
@@ -103,7 +100,6 @@ impl Act for Z {
         actions: Vec<(Path<Self>, Version<P>, Action<T>)>,
     ) -> Option<Node<P, T, Z>>
     where
-        T: Clone,
         P: Clone + Ord + AsRef<[u8]>,
     {
         // Sequentially apply the operations pertaining to this node; the

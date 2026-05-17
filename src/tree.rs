@@ -30,7 +30,7 @@ pub use key::Key;
 /// This is resolved at the synchronization protocol level, and is not a concern
 /// of the tree structure.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Tree<T: Clone> {
+pub struct Tree<T> {
     party: Bytes,
     version: Version,
     forgotten: Version,
@@ -46,7 +46,7 @@ pub enum Action<T> {
     Forget(Key),
 }
 
-impl<T: Clone> Tree<T> {
+impl<T> Tree<T> {
     /// Create a new tree which represents the perspective of the given party.
     pub fn for_party(party: impl AsRef<[u8]>) -> Self {
         Tree {

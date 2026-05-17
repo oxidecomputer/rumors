@@ -18,11 +18,19 @@ pub type Children<P, T, H> = OrdMap<u8, Node<P, T, H>>;
 
 /// A typed node which enforces the structural validity of the constructed tree
 /// at compile-time.
-#[derive(Clone)]
 #[repr(transparent)]
 pub struct Node<P: Ord + AsRef<[u8]>, T, H: Height> {
     height: PhantomData<H>,
     inner: untyped::Node<P, T>,
+}
+
+impl<P: Ord + AsRef<[u8]>, T, H: Height> Clone for Node<P, T, H> {
+    fn clone(&self) -> Self {
+        Self {
+            height: self.height.clone(),
+            inner: self.inner.clone(),
+        }
+    }
 }
 
 impl<P, T, H> Debug for Node<P, T, H>
@@ -36,7 +44,7 @@ where
     }
 }
 
-impl<P: Clone + Ord + AsRef<[u8]>, T: Clone, H: Height> Node<P, T, H> {
+impl<P: Clone + Ord + AsRef<[u8]>, T, H: Height> Node<P, T, H> {
     /// Get the version of this node.
     pub fn version(&self) -> &Version<P> {
         self.inner.version()
@@ -65,7 +73,7 @@ impl<P: Clone + Ord + AsRef<[u8]>, T: Clone, H: Height> Node<P, T, H> {
     }
 }
 
-impl<P: Clone + Ord + AsRef<[u8]>, T: Clone, H: Height> Node<P, T, S<H>>
+impl<P: Clone + Ord + AsRef<[u8]>, T, H: Height> Node<P, T, S<H>>
 where
     S<H>: Height,
 {
@@ -111,7 +119,7 @@ where
     }
 }
 
-impl<P: Clone + Ord + AsRef<[u8]>, T: Clone> Node<P, T, Z> {
+impl<P: Clone + Ord + AsRef<[u8]>, T> Node<P, T, Z> {
     /// Construct a new leaf node from a versioned message.
     pub fn leaf(version: Version<P>, message: Message<T>) -> Self {
         Self {
@@ -131,7 +139,6 @@ impl<P: Clone + Ord + AsRef<[u8]>, T: Clone> Node<P, T, Z> {
 impl<P, T> Node<P, T, height::Root>
 where
     P: Clone + Ord + AsRef<[u8]>,
-    T: Clone,
 {
     pub fn levels(node: Option<Root<P, T>>) -> Top<P, T> {
         levels(node)
@@ -140,15 +147,14 @@ where
     pub fn root_hash(node: &Option<Root<P, T>>) -> Hash
     where
         P: Clone + Ord + AsRef<[u8]>,
-        T: Clone,
     {
         node.as_ref().map(|n| n.hash()).unwrap_or_default()
     }
 }
 
-impl<P: Clone + Ord + AsRef<[u8]>, T: Clone + Eq, H: Height> Eq for Node<P, T, H> {}
+impl<P: Clone + Ord + AsRef<[u8]>, T: Eq, H: Height> Eq for Node<P, T, H> {}
 
-impl<P: Clone + Ord + AsRef<[u8]>, T: Clone + PartialEq, H: Height> PartialEq for Node<P, T, H> {
+impl<P: Clone + Ord + AsRef<[u8]>, T: PartialEq, H: Height> PartialEq for Node<P, T, H> {
     fn eq(&self, other: &Self) -> bool {
         self.inner == other.inner
     }
@@ -176,7 +182,6 @@ impl<P: Clone + Ord + AsRef<[u8]>, T: Clone + PartialEq, H: Height> PartialEq fo
 impl<P, T, H> BorshSerialize for Node<P, T, H>
 where
     P: Clone + Ord + AsRef<[u8]> + BorshSerialize,
-    T: Clone,
     H: Height,
 {
     fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
@@ -187,7 +192,7 @@ where
 impl<P, T> BorshDeserialize for Node<P, T, Z>
 where
     P: Clone + Ord + AsRef<[u8]> + BorshDeserialize,
-    T: Clone + BorshDeserialize,
+    T: BorshDeserialize,
 {
     fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
         let prefix_len = u8::deserialize_reader(reader)?;
@@ -206,7 +211,7 @@ where
 impl<P, T, H> BorshDeserialize for Node<P, T, S<H>>
 where
     P: Clone + Ord + AsRef<[u8]> + BorshDeserialize,
-    T: Clone + BorshDeserialize,
+    T: BorshDeserialize,
     H: Height,
     S<H>: Height,
     Node<P, T, H>: BorshDeserialize,

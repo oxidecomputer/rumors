@@ -83,7 +83,6 @@ pub trait Stage {
 pub trait Initiator<P, T>: Stage<Height = Root> + Sized
 where
     P: Clone + Ord + AsRef<[u8]>,
-    T: Clone,
 {
     /// The state that consumes the responder's [`message::Opening`].
     type Next: OpenInitiator<P, T>
@@ -110,7 +109,6 @@ where
 pub trait Responder<P, T>: Stage<Height = Root> + Sized
 where
     P: Clone + Ord + AsRef<[u8]>,
-    T: Clone,
 {
     /// The first steady-state [`Exchange`] from the responder's side.
     type Next: Exchange<P, T>
@@ -139,7 +137,6 @@ where
 pub trait OpenInitiator<P, T>: Stage<Height = Root> + Sized
 where
     P: Clone + Ord + AsRef<[u8]>,
-    T: Clone,
 {
     /// The first steady-state [`Exchange`] from the initiator's side.
     type Next: Exchange<P, T>
@@ -170,7 +167,6 @@ where
 pub trait Exchange<P, T>: Stage + Sized
 where
     P: Clone + Ord + AsRef<[u8]>,
-    T: Clone,
     Self::Height: Pred,
     <Self::Height as Pred>::Pred: Pred,
     S<<Self::Height as Pred>::Pred>: Height,
@@ -211,7 +207,6 @@ where
 pub trait CloseInitiator<P, T>: Stage<Height = S<S<Z>>> + Sized
 where
     P: Clone + Ord + AsRef<[u8]>,
-    T: Clone,
 {
     /// The terminal initiator state.
     type Next: CompleteInitiator<P, T>
@@ -239,7 +234,6 @@ where
 pub trait CompleteResponder<P, T>: Stage<Height = S<Z>> + Sized
 where
     P: Clone + Ord + AsRef<[u8]>,
-    T: Clone,
 {
     /// The responder's final round, processing the initiator's
     /// [`message::Closing`].
@@ -263,7 +257,6 @@ where
 pub trait CompleteInitiator<P, T>: Stage<Height = Z> + Sized
 where
     P: Clone + Ord + AsRef<[u8]>,
-    T: Clone,
 {
     /// The initiator's final round.
     ///
@@ -294,7 +287,6 @@ where
 pub trait AfterExchange<P, T, H>: Sized
 where
     P: Clone + Ord + AsRef<[u8]>,
-    T: Clone,
     H: Height,
 {
 }
@@ -302,7 +294,6 @@ where
 impl<P, T, X> AfterExchange<P, T, S<Z>> for X
 where
     P: Clone + Ord + AsRef<[u8]>,
-    T: Clone,
     X: CompleteResponder<P, T>,
 {
 }
@@ -310,7 +301,6 @@ where
 impl<P, T, X> AfterExchange<P, T, S<S<Z>>> for X
 where
     P: Clone + Ord + AsRef<[u8]>,
-    T: Clone,
     X: CloseInitiator<P, T>,
 {
 }
@@ -318,11 +308,118 @@ where
 impl<P, T, H, X> AfterExchange<P, T, S<S<S<H>>>> for X
 where
     P: Clone + Ord + AsRef<[u8]>,
-    T: Clone,
     H: Height,
     S<H>: Height,
     S<S<H>>: Height,
     S<S<S<H>>>: Height,
     X: Exchange<P, T> + Stage<Height = S<S<S<H>>>>,
 {
+}
+
+/// Declare the [`Peer`] trait and its blanket impl with the long `::Next`
+/// chains spelled out as nested associated-type bounds in supertrait
+/// position. The macro emits the chains tt-munched ahead of time: the
+/// initiator side wraps `$init_terminal` in N `Exchange<P, T, Next: …>`
+/// layers (where N is the count of `_` tokens in `init: […]`), and the
+/// responder side does the same for `$resp_terminal`.
+///
+/// Plain `where`-clauses on a trait definition don't propagate to callers,
+/// but `Trait<AssocType: Bound>` in supertrait position does --- which is
+/// why we go through the trouble of expressing the entire chain at the
+/// supertrait level rather than as a `where` predicate.
+macro_rules! define_peer {
+    (
+        init: [$($init_count:tt)*],
+        init_terminal: $init_terminal:path,
+        resp: [$($resp_count:tt)*],
+        resp_terminal: $resp_terminal:path $(,)?
+    ) => {
+        define_peer!(@step
+            init: [$($init_count)*],
+            resp: [$($resp_count)*],
+            init_chain: ($init_terminal),
+            resp_chain: ($resp_terminal),
+        );
+    };
+
+    // Wrap one `Exchange<P, T, Next: …>` around the init-chain accumulator
+    // until the init-side counter is exhausted.
+    (@step
+        init: [_ $($init_rest:tt)*],
+        resp: [$($resp_count:tt)*],
+        init_chain: ($($init_chain:tt)*),
+        resp_chain: ($($resp_chain:tt)*) $(,)?
+    ) => {
+        define_peer!(@step
+            init: [$($init_rest)*],
+            resp: [$($resp_count)*],
+            init_chain: (Exchange<P, T, Next: $($init_chain)*>),
+            resp_chain: ($($resp_chain)*),
+        );
+    };
+
+    // Init side done; munch the resp-side counter the same way.
+    (@step
+        init: [],
+        resp: [_ $($resp_rest:tt)*],
+        init_chain: ($($init_chain:tt)*),
+        resp_chain: ($($resp_chain:tt)*) $(,)?
+    ) => {
+        define_peer!(@step
+            init: [],
+            resp: [$($resp_rest)*],
+            init_chain: ($($init_chain)*),
+            resp_chain: (Exchange<P, T, Next: $($resp_chain)*>),
+        );
+    };
+
+    // Both counters exhausted: emit the trait and blanket impl with the
+    // fully-built chain expressions inlined.
+    (@step
+        init: [],
+        resp: [],
+        init_chain: ($($init_chain:tt)*),
+        resp_chain: ($($resp_chain:tt)*) $(,)?
+    ) => {
+        /// A type that can play either side of the mirror protocol: it
+        /// implements both [`Initiator`] and [`Responder`] at the root, and
+        /// in either role the entire chain of `::Next` projections that the
+        /// drivers [`super::initiator`] / [`super::responder`] walk
+        /// implements the right protocol trait at every height.
+        ///
+        /// Both `local::Exchange` and `remote::Exchange` pick this up for
+        /// free via the blanket impl below; downstream call sites take a
+        /// single `Peer<P, T>` bound on each argument and the chain bounds
+        /// propagate.
+        pub trait Peer<P, T>:
+            Initiator<P, T, Next: OpenInitiator<P, T, Next: $($init_chain)*>>
+            + Responder<P, T, Next: $($resp_chain)*>
+        where
+            P: Clone + Ord + AsRef<[u8]>,
+        {
+        }
+
+        impl<X, P, T> Peer<P, T> for X
+        where
+            P: Clone + Ord + AsRef<[u8]>,
+            X: Initiator<P, T, Next: OpenInitiator<P, T, Next: $($init_chain)*>>
+                + Responder<P, T, Next: $($resp_chain)*>,
+        {
+        }
+    };
+}
+
+// The initiator chain visits 14 `Exchange` levels (heights `S^30 → S^28 →
+// … → S^4`) before terminating in `CloseInitiator` at `S<S<Z>>`. The
+// terminal `CompleteInitiator` after `CloseInitiator` is already implied
+// by `CloseInitiator::Next`'s own trait bound, so it doesn't need
+// re-stating here.
+//
+// The responder chain visits 15 `Exchange` levels (heights `S^31 → S^29
+// → … → S^3`) before terminating in `CompleteResponder` at `S<Z>`.
+define_peer! {
+    init: [_ _ _ _ _ _ _ _ _ _ _ _ _ _],
+    init_terminal: CloseInitiator<P, T>,
+    resp: [_ _ _ _ _ _ _ _ _ _ _ _ _ _ _],
+    resp_terminal: CompleteResponder<P, T>,
 }

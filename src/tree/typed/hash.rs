@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 
 /// 32-byte hash newtype. Wraps a fixed-size byte array so we can derive borsh
@@ -8,20 +10,16 @@ use borsh::{BorshDeserialize, BorshSerialize};
 /// callers should reach for [`Hash::hash`] or [`Hasher`] and never touch the
 /// `blake3` types directly.
 #[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    Copy,
-    Clone,
-    Eq,
-    PartialEq,
-    Ord,
-    PartialOrd,
-    Hash,
-    Debug,
-    Default,
+    BorshSerialize, BorshDeserialize, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Default,
 )]
 #[repr(transparent)]
 pub struct Hash(pub [u8; 32]);
+
+impl Debug for Hash {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        hex::encode(self.0).fmt(f)
+    }
+}
 
 impl Hash {
     /// One-shot hash of a contiguous byte slice.

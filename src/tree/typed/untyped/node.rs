@@ -7,12 +7,18 @@ use imbl::OrdMap;
 
 use crate::{Message, Version, tree::typed::Hash};
 
-#[derive(Clone)]
 pub struct Node<P: Ord + AsRef<[u8]>, T> {
     inner: Arc<NodeInner<P, T>>,
 }
 
-#[derive(Clone)]
+impl<P: Ord + AsRef<[u8]>, T> Clone for Node<P, T> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
 struct NodeInner<P: Ord + AsRef<[u8]>, T> {
     /// Compressed path above this node's own branching level, stored with the
     /// deepest byte at index 0 and the shallowest byte at the last index. An
@@ -31,19 +37,40 @@ struct NodeInner<P: Ord + AsRef<[u8]>, T> {
     children: Children<P, T>,
 }
 
+impl<P: Clone + Ord + AsRef<[u8]>, T> Clone for NodeInner<P, T> {
+    fn clone(&self) -> Self {
+        Self {
+            prefix: self.prefix.clone(),
+            children_hash: self.children_hash.clone(),
+            version: self.version.clone(),
+            children: self.children.clone(),
+        }
+    }
+}
+
 impl<P: Debug + Ord + AsRef<[u8]>, T: Debug> Debug for Node<P, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Node")
-            .field("prefix", &self.inner.prefix.iter().map(|(b, _)| b))
-            .field("hash", &self.inner.children_hash)
-            .field("version", &self.inner.version)
+        let mut s = f.debug_struct("Node");
+        s.field(
+            "prefix",
+            &hex::encode(
+                self.inner
+                    .prefix
+                    .iter()
+                    .map(|(b, _)| *b)
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+            ),
+        );
+
+        s.field("version", &self.inner.version)
             .field("children", &self.inner.children)
             .finish()
     }
 }
 
 /// The children of a node.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 enum Children<P: Ord + AsRef<[u8]>, T> {
     /// A direct leaf, at the true bottom of the tree.
     Leaf(Message<T>),
@@ -52,12 +79,21 @@ enum Children<P: Ord + AsRef<[u8]>, T> {
     Branch(OrdMap<u8, Node<P, T>>),
 }
 
+impl<P: Clone + Ord + AsRef<[u8]>, T> Clone for Children<P, T> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Leaf(l) => Self::Leaf(l.clone()),
+            Self::Branch(b) => Self::Branch(b.clone()),
+        }
+    }
+}
+
 /// Sentinel hash used as a leaf's "hash" so leaves are distinguishable from
 /// any branch (which always hashes a 256-slot buffer). Empty branch slots
 /// hash as `[0x00; 32]`, the natural zero-init of the staging buffer.
 const LEAF_SENTINEL: [u8; 32] = [0xff; 32];
 
-impl<P: Ord + Clone + AsRef<[u8]>, T: Clone> Node<P, T> {
+impl<P: Ord + Clone + AsRef<[u8]>, T> Node<P, T> {
     /// Construct a new branch node from a list of children with distinct
     /// indices (inverse to [`Node::into_children`]).
     pub fn branch(children: OrdMap<u8, Node<P, T>>) -> Option<Self> {
@@ -260,9 +296,9 @@ impl<P: Ord + Clone + AsRef<[u8]>, T: Clone> Node<P, T> {
     }
 }
 
-impl<P: Ord + Clone + AsRef<[u8]>, T: Clone> Eq for Node<P, T> {}
+impl<P: Ord + Clone + AsRef<[u8]>, T> Eq for Node<P, T> {}
 
-impl<P: Ord + Clone + AsRef<[u8]>, T: Clone> PartialEq for Node<P, T> {
+impl<P: Ord + Clone + AsRef<[u8]>, T> PartialEq for Node<P, T> {
     fn eq(&self, other: &Self) -> bool {
         self.hash() == other.hash()
     }

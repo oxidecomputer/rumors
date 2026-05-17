@@ -122,7 +122,7 @@ impl<P, T, R, W, H: Height> protocol::Stage for Exchange<P, T, R, W, H> {
 impl<P, T, R, W> protocol::Initiator<P, T> for Exchange<P, T, R, W, Root>
 where
     P: Clone + Ord + AsRef<[u8]> + BorshSerialize + BorshDeserialize,
-    T: Clone + BorshDeserialize,
+    T: BorshDeserialize,
     R: Read,
     W: Write,
     Node<P, T, UnderRoot>: BorshDeserialize,
@@ -145,7 +145,7 @@ where
 impl<P, T, R, W> protocol::Responder<P, T> for Exchange<P, T, R, W, Root>
 where
     P: Clone + Ord + AsRef<[u8]> + BorshSerialize + BorshDeserialize,
-    T: Clone + BorshDeserialize,
+    T: BorshDeserialize,
     R: Read,
     W: Write,
     Node<P, T, UnderRoot>: BorshDeserialize,
@@ -159,37 +159,23 @@ where
         request.serialize(&mut self.writer).map_err(Error::Io)?;
         self.writer.flush().map_err(Error::Io)?;
 
-        // If the message we just sent will cause the other party to be done,
-        // they won't ever respond, so don't await their response.
-        if request.uncertain.is_empty() {
-            return Ok(Step::Done {
-                msg: message::Opening::default(),
-                output: (),
-            });
-        }
-
+        // The responder always emits an `Opening`, possibly empty. We can no
+        // longer infer termination from an empty `Opening` alone: it can mean
+        // either "the trees are equal" or "the responder has no children but
+        // we (the initiator) might still have data to provide." Always
+        // `Continue` and let the next stage's `open_initiator` decide.
         let response = message::Opening::deserialize_reader(&mut self.reader).map_err(Error::Io)?;
-
-        // The responder converged iff their `Opening.uncertain` is empty:
-        // matching root hashes short-circuit the protocol immediately.
-        if response.uncertain.is_empty() {
-            Ok(Step::Done {
-                msg: response,
-                output: (),
-            })
-        } else {
-            Ok(Step::Continue {
-                msg: response,
-                next: Exchange::new(self.reader, self.writer),
-            })
-        }
+        Ok(Step::Continue {
+            msg: response,
+            next: Exchange::new(self.reader, self.writer),
+        })
     }
 }
 
 impl<P, T, R, W> protocol::OpenInitiator<P, T> for Exchange<P, T, R, W, Root>
 where
     P: Clone + Ord + AsRef<[u8]> + BorshSerialize + BorshDeserialize,
-    T: Clone + BorshDeserialize,
+    T: BorshDeserialize,
     R: Read,
     W: Write,
     Node<P, T, UnderRoot>: BorshDeserialize,
@@ -203,15 +189,9 @@ where
         request.serialize(&mut self.writer).map_err(Error::Io)?;
         self.writer.flush().map_err(Error::Io)?;
 
-        // If the message we just sent will cause the other party to be done,
-        // they won't ever respond, so don't await their response.
-        if request.uncertain.is_empty() {
-            return Ok(Step::Done {
-                msg: message::Exchange::default(),
-                output: (),
-            });
-        }
-
+        // We always await a response: even an empty `Opening` can prompt the
+        // counterparty to send back a non-trivial `providing` (the "we have,
+        // they lack" Left case when we are the empty side).
         let response =
             message::Exchange::<P, T, UnderUnderRoot>::deserialize_reader(&mut self.reader)
                 .map_err(Error::Io)?;
@@ -233,7 +213,7 @@ where
 impl<P, T, R, W, H> protocol::Exchange<P, T> for Exchange<P, T, R, W, S<S<H>>>
 where
     P: Clone + Ord + AsRef<[u8]> + BorshSerialize + BorshDeserialize,
-    T: Clone + BorshDeserialize,
+    T: BorshDeserialize,
     R: Read,
     W: Write,
     H: Height,
@@ -283,7 +263,7 @@ where
 impl<P, T, R, W> protocol::CloseInitiator<P, T> for Exchange<P, T, R, W, S<S<Z>>>
 where
     P: Clone + Ord + AsRef<[u8]> + BorshSerialize + BorshDeserialize,
-    T: Clone + BorshDeserialize,
+    T: BorshDeserialize,
     R: Read,
     W: Write,
 {
@@ -319,7 +299,7 @@ where
 impl<P, T, R, W> protocol::CompleteResponder<P, T> for Exchange<P, T, R, W, S<Z>>
 where
     P: Clone + Ord + AsRef<[u8]> + BorshSerialize + BorshDeserialize,
-    T: Clone + BorshDeserialize,
+    T: BorshDeserialize,
     R: Read,
     W: Write,
 {
@@ -354,7 +334,6 @@ where
 impl<P, T, R, W> protocol::CompleteInitiator<P, T> for Exchange<P, T, R, W, Z>
 where
     P: Clone + Ord + AsRef<[u8]> + BorshSerialize,
-    T: Clone,
     R: Read,
     W: Write,
 {

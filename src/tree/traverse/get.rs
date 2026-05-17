@@ -21,7 +21,6 @@ where
 /// specified paths.
 pub fn get<P, T>(node: Option<Node<P, T, Root>>, paths: Paths) -> Vec<(Version<P>, Key, Message<T>)>
 where
-    T: Clone,
     P: Clone + Ord + AsRef<[u8]>,
 {
     let mut gotten = Vec::new();
@@ -38,7 +37,6 @@ pub trait Get: Height {
         paths: Paths<Self>,
         with_gotten: &mut impl FnMut(&Version<P>, Key, &Message<T>),
     ) where
-        T: Clone,
         P: Clone + Ord + AsRef<[u8]>;
 }
 
@@ -52,7 +50,6 @@ where
         paths: Paths<Self>,
         with_gotten: &mut impl FnMut(&Version<P>, Key, &Message<T>),
     ) where
-        T: Clone,
         P: Clone + Ord + AsRef<[u8]>,
     {
         let Some(node) = node else {
@@ -99,7 +96,6 @@ impl Get for Z {
         paths: Paths<Self>,
         with_gotten: &mut impl FnMut(&Version<P>, Key, &Message<T>),
     ) where
-        T: Clone,
         P: Clone + Ord + AsRef<[u8]>,
     {
         let Some(node) = node else {

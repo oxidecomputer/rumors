@@ -133,7 +133,6 @@ where
 impl<P, T, H> BorshSerialize for Exchange<P, T, H>
 where
     P: Clone + Ord + AsRef<[u8]> + BorshSerialize,
-    T: Clone,
     S<H>: Height,
     H: Height,
 {
@@ -153,7 +152,7 @@ where
 impl<P, T, H> BorshDeserialize for Exchange<P, T, H>
 where
     P: Clone + Ord + AsRef<[u8]> + BorshDeserialize,
-    T: Clone + BorshDeserialize,
+    T: BorshDeserialize,
     S<H>: Height,
     H: Height,
     Node<P, T, S<H>>: BorshDeserialize,
@@ -216,7 +215,6 @@ pub struct Closing<P: Clone + Ord + AsRef<[u8]>, T> {
 impl<P, T> BorshSerialize for Closing<P, T>
 where
     P: Clone + Ord + AsRef<[u8]> + BorshSerialize,
-    T: Clone,
 {
     fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
         serialize_ordmap(&self.providing, writer)?;
@@ -228,7 +226,7 @@ where
 impl<P, T> BorshDeserialize for Closing<P, T>
 where
     P: Clone + Ord + AsRef<[u8]> + BorshDeserialize,
-    T: Clone + BorshDeserialize,
+    T: BorshDeserialize,
 {
     fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
         let providing = deserialize_ordmap(reader)?;
@@ -284,7 +282,6 @@ pub struct Complete<P: Clone + Ord + AsRef<[u8]>, T> {
 impl<P, T> BorshSerialize for Complete<P, T>
 where
     P: Clone + Ord + AsRef<[u8]> + BorshSerialize,
-    T: Clone,
 {
     fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
         serialize_ordmap(&self.providing, writer)
@@ -294,7 +291,7 @@ where
 impl<P, T> BorshDeserialize for Complete<P, T>
 where
     P: Clone + Ord + AsRef<[u8]> + BorshDeserialize,
-    T: Clone + BorshDeserialize,
+    T: BorshDeserialize,
 {
     fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
         let providing = deserialize_ordmap(reader)?;

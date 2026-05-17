@@ -16,6 +16,8 @@ itertools = "0.14"
 borsh = { version = "1.6", features = ["bytes", "derive"] }
 seq-macro = "0.3"
 tinyvec = { version = "1.11", features = ["alloc"] }
+thiserror = "2.0"
+hex = "0.4"
 
 [dev-dependencies]
 proptest = "1"

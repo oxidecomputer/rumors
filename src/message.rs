@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::ops::{Deref, DerefMut};
+use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytes::Bytes;
@@ -14,10 +14,18 @@ use bytes::Bytes;
 ///
 /// It is assumed that all messages of type `T` are serializable; methods that
 /// attempt serialization will panic in the event that serialization fails.
-#[derive(Clone)]
 pub struct Message<T> {
-    message: T,
+    message: Arc<T>,
     serialized: Bytes,
+}
+
+impl<T> Clone for Message<T> {
+    fn clone(&self) -> Self {
+        Self {
+            message: self.message.clone(),
+            serialized: self.serialized.clone(),
+        }
+    }
 }
 
 impl<T> Message<T> {
@@ -33,7 +41,7 @@ impl<T> Message<T> {
     {
         Message {
             serialized: Bytes::from(borsh::to_vec(&message).unwrap()),
-            message,
+            message: Arc::new(message),
         }
     }
 
@@ -44,7 +52,7 @@ impl<T> Message<T> {
         T: BorshDeserialize,
     {
         Ok(Message {
-            message: borsh::from_slice(bytes)?,
+            message: Arc::new(borsh::from_slice(bytes)?),
             serialized: Bytes::copy_from_slice(bytes),
         })
     }
@@ -56,7 +64,7 @@ impl<T> Message<T> {
         T: BorshDeserialize,
     {
         Ok(Message {
-            message: borsh::from_slice(bytes.as_ref())?,
+            message: Arc::new(borsh::from_slice(bytes.as_ref())?),
             serialized: bytes,
         })
     }
@@ -78,14 +86,20 @@ impl<T> Message<T> {
 
     /// Consume the message and return the inner object, dropping the cached
     /// serialization.
-    pub fn into_inner(self) -> T {
-        self.message
+    pub fn into_inner(self) -> T
+    where
+        T: Clone,
+    {
+        Arc::unwrap_or_clone(self.message)
     }
 
     /// Consume the message and return the inner object along with the shared
     /// serialized bytes.
-    pub fn into_parts(self) -> (T, Bytes) {
-        (self.message, self.serialized)
+    pub fn into_parts(self) -> (T, Bytes)
+    where
+        T: Clone,
+    {
+        (Arc::unwrap_or_clone(self.message), self.serialized)
     }
 }
 
@@ -158,7 +172,7 @@ impl<T: BorshDeserialize> BorshDeserialize for Message<T> {
             inner: reader,
             buf: &mut captured,
         };
-        let message = T::deserialize_reader(&mut tee)?;
+        let message = Arc::new(T::deserialize_reader(&mut tee)?);
         Ok(Message {
             message,
             serialized: captured.into(),

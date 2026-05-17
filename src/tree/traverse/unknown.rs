@@ -17,7 +17,6 @@ pub fn unknown<P, T>(
     with_unknown: &mut impl FnMut(&Version<P>, Key, &Message<T>),
 ) -> Option<Node<P, T, Root>>
 where
-    T: Clone,
     P: Clone + Ord + AsRef<[u8]>,
 {
     Unknown::unknown(node, Prefix::new(), known, with_unknown)
@@ -31,7 +30,6 @@ pub trait Unknown: Height {
         with_unknown: &mut impl FnMut(&Version<P>, Key, &Message<T>),
     ) -> Option<Node<P, T, Self>>
     where
-        T: Clone,
         P: Clone + Ord + AsRef<[u8]>;
 }
 
@@ -46,7 +44,6 @@ where
         with_unknown: &mut impl FnMut(&Version<P>, Key, &Message<T>),
     ) -> Option<Node<P, T, Self>>
     where
-        T: Clone,
         P: Clone + Ord + AsRef<[u8]>,
     {
         // If the node doesn't exist, we can't return information about it
@@ -80,7 +77,6 @@ impl Unknown for Z {
         with_unknown: &mut impl FnMut(&Version<P>, Key, &Message<T>),
     ) -> Option<Node<P, T, Self>>
     where
-        T: Clone,
         P: Clone + Ord + AsRef<[u8]>,
     {
         // If the node doesn't exist, we can't return information about it

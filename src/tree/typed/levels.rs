@@ -10,7 +10,6 @@ use crate::tree::typed::{
 pub fn levels<P, T>(root: Option<Node<P, T, Root>>) -> Top<P, T>
 where
     P: Clone + Ord + AsRef<[u8]>,
-    T: Clone,
 {
     Top {
         root: OrdMap::from_iter(root.map(|root| (Prefix::new(), root))),
@@ -23,7 +22,7 @@ pub trait Levels: Default + Clone + sealed::Sealed {
     type Party: Clone + Ord + AsRef<[u8]>;
 
     /// The message type of the underlying nodes.
-    type Message: Clone;
+    type Message;
 
     /// The height of the bottom-most level.
     type Height: Height;
@@ -62,12 +61,19 @@ pub trait Levels: Default + Clone + sealed::Sealed {
     }
 }
 
-#[derive(Clone)]
 pub struct Top<P, T>
 where
     P: Clone + Ord + AsRef<[u8]>,
 {
     root: OrdMap<Prefix<Root>, Node<P, T, Root>>,
+}
+
+impl<P: Clone + Ord + AsRef<[u8]>, T> Clone for Top<P, T> {
+    fn clone(&self) -> Self {
+        Self {
+            root: self.root.clone(),
+        }
+    }
 }
 
 impl<P, T> Default for Top<P, T>
@@ -83,7 +89,6 @@ where
 
 impl<P, T> Levels for Top<P, T>
 where
-    T: Clone,
     P: Clone + Ord + AsRef<[u8]>,
 {
     type Party = P;
@@ -103,7 +108,6 @@ where
     }
 }
 
-#[derive(Clone)]
 pub struct Below<H, A>
 where
     A: Levels<Height = S<H>>,
@@ -111,6 +115,19 @@ where
 {
     here: OrdMap<Prefix<H>, Node<A::Party, A::Message, H>>,
     above: A,
+}
+
+impl<H, A> Clone for Below<H, A>
+where
+    A: Levels<Height = S<H>>,
+    H: Height,
+{
+    fn clone(&self) -> Self {
+        Self {
+            here: self.here.clone(),
+            above: self.above.clone(),
+        }
+    }
 }
 
 impl<H, A> Default for Below<H, A>

@@ -119,7 +119,9 @@ impl<H: Height> BorshSerialize for Prefix<H> {
         debug_assert_eq!(
             self.hash.len(),
             expected,
-            "Prefix<H> byte count does not match H::HEIGHT",
+            "Prefix<{}> byte count does not match {}::HEIGHT",
+            H::HEIGHT,
+            H::HEIGHT,
         );
         writer.write_all(&self.hash)
     }

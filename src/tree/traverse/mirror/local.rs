@@ -58,7 +58,7 @@
 //! Each cell is realized by one arm of the `merge_join_by` inside
 //! [`Exchange::partition_uncertain`].
 
-use std::convert::Infallible;
+use std::{convert::Infallible, mem};
 
 use imbl::{OrdMap, OrdSet};
 use itertools::{EitherOrBoth, Itertools};
@@ -108,7 +108,6 @@ where
 impl<'v, OnRecv, OnSend, P, T> Exchange<'v, OnRecv, OnSend, Top<P, T>>
 where
     P: Clone + Ord + AsRef<[u8]>,
-    T: Clone,
 {
     pub fn start(
         node: Option<Node<P, T, Root>>,
@@ -131,7 +130,6 @@ impl<'v, OnRecv, OnSend, L> protocol::Stage for Exchange<'v, OnRecv, OnSend, L>
 where
     L: Levels,
     L::Party: Clone + Ord + AsRef<[u8]>,
-    L::Message: Clone,
     OnRecv: FnMut(&Version<L::Party>, Key, &Message<L::Message>),
     OnSend: FnMut(&Version<L::Party>, Key, &Message<L::Message>),
 {
@@ -144,7 +142,6 @@ where
 impl<'v, P, T, OnRecv, OnSend> protocol::Initiator<P, T> for Exchange<'v, OnRecv, OnSend, Top<P, T>>
 where
     P: Clone + Ord + AsRef<[u8]>,
-    T: Clone,
     OnRecv: FnMut(&Version<P>, Key, &Message<T>),
     OnSend: FnMut(&Version<P>, Key, &Message<T>),
 {
@@ -169,7 +166,6 @@ where
 impl<'v, P, T, OnRecv, OnSend> protocol::Responder<P, T> for Exchange<'v, OnRecv, OnSend, Top<P, T>>
 where
     P: Clone + Ord + AsRef<[u8]>,
-    T: Clone,
     OnRecv: FnMut(&Version<P>, Key, &Message<T>),
     OnSend: FnMut(&Version<P>, Key, &Message<T>),
 {
@@ -177,40 +173,17 @@ where
 
     fn responder(
         mut self,
-        request: message::Initiate,
+        _request: message::Initiate,
     ) -> Result<protocol::Step<message::Opening, Self::Next, Option<Node<P, T, Root>>>, Infallible>
     {
-        // `Initiate.uncertain` is structurally a single entry at the empty root
-        // prefix. Treat absence as "empty tree" and let the equality check below
-        // handle the symmetric "both empty" case.
-        let their_root = request
-            .uncertain
-            .get(&Prefix::new())
-            .copied()
-            .unwrap_or_else(|| [0; 32].into());
-
-        // We're at the top-most level, so we can use a similar trick to identify
-        // our own root hash as the singular inhabitant of the level, if any:
-        let our_root = self
-            .levels
-            .level()
-            .get(&Prefix::new())
-            .map(Node::hash)
-            .unwrap_or_else(|| [0; 32].into());
-
-        // If the initiator has the same root hash, our trees must be equal, so
-        // there's no need to continue the protocol; however, we need to signal back
-        // to the initiator that we're finished.
-        if their_root == our_root {
-            return Ok(protocol::Step::Done {
-                msg: message::Opening::default(),
-                output: self.levels.collapse(),
-            });
-        }
-
-        // If the root hashes mismatch, explode our root one level down. The
-        // resulting `uncertain` is all the hashes at that level -- we don't yet
-        // know which of them the initiator also has.
+        // Always explode our root one level down and enumerate the resulting
+        // children, regardless of the initiator's root hash. We deliberately do
+        // *not* short-circuit on matched roots: an empty `Opening` is the
+        // unambiguous "responder has no children" signal that drives the
+        // initiator's [`Self::open_initiator`] "we have, they lack" Left case
+        // when the responder is empty. Pushing the matched case through the
+        // steady-state pipeline costs one round's worth of child hashes
+        // (~16 entries) but keeps a single termination path on the wire.
         let levels = Node::levels(None).down(
             self.levels
                 .level_mut()
@@ -246,7 +219,6 @@ where
 impl<'v, P, T, OnRecv, OnSend, L> protocol::OpenInitiator<P, T> for Exchange<'v, OnRecv, OnSend, L>
 where
     P: Clone + Ord + AsRef<[u8]>,
-    T: Clone,
     OnRecv: FnMut(&Version<P>, Key, &Message<T>),
     OnSend: FnMut(&Version<P>, Key, &Message<T>),
     L: Levels<Party = P, Message = T, Height = Root>,
@@ -271,7 +243,6 @@ where
 impl<'v, P, T, H, OnRecv, OnSend, L> protocol::Exchange<P, T> for Exchange<'v, OnRecv, OnSend, L>
 where
     P: Clone + Ord + AsRef<[u8]>,
-    T: Clone,
     OnRecv: FnMut(&Version<P>, Key, &Message<T>),
     OnSend: FnMut(&Version<P>, Key, &Message<T>),
     L: Levels<Party = P, Message = T, Height = S<S<H>>>,
@@ -299,7 +270,6 @@ where
 impl<'v, P, T, OnRecv, OnSend, L> protocol::CloseInitiator<P, T> for Exchange<'v, OnRecv, OnSend, L>
 where
     P: Clone + Ord + AsRef<[u8]>,
-    T: Clone,
     OnRecv: FnMut(&Version<P>, Key, &Message<T>),
     OnSend: FnMut(&Version<P>, Key, &Message<T>),
     L: Levels<Party = P, Message = T, Height = S<S<Z>>>,
@@ -321,7 +291,6 @@ impl<'v, P, T, OnRecv, OnSend, L> protocol::CompleteResponder<P, T>
     for Exchange<'v, OnRecv, OnSend, L>
 where
     P: Clone + Ord + AsRef<[u8]>,
-    T: Clone,
     OnRecv: FnMut(&Version<P>, Key, &Message<T>),
     OnSend: FnMut(&Version<P>, Key, &Message<T>),
     L: Levels<Party = P, Message = T, Height = S<Z>>,
@@ -346,7 +315,6 @@ impl<'v, P, T, OnRecv, OnSend, L> protocol::CompleteInitiator<P, T>
     for Exchange<'v, OnRecv, OnSend, L>
 where
     P: Clone + Ord + AsRef<[u8]>,
-    T: Clone,
     OnRecv: FnMut(&Version<P>, Key, &Message<T>),
     OnSend: FnMut(&Version<P>, Key, &Message<T>),
     L: Levels<Party = P, Message = T, Height = Z>,
@@ -392,7 +360,6 @@ impl<'v, OnSend, OnRecv, L> Exchange<'v, OnRecv, OnSend, L>
 where
     L: Levels,
     L::Party: Clone + Ord + AsRef<[u8]>,
-    L::Message: Clone,
 {
     /// Insert nodes the counterparty has just sent us (because we requested
     /// them last round, or because they unilaterally knew we lacked them) into
@@ -457,10 +424,13 @@ where
     /// outgoing message and the zipper's next two levels.
     ///
     /// Shared by [`Self::open_initiator`], [`Self::exchange`], and
-    /// [`Self::close_initiator`]. The "we lack the parent" branch is reachable
-    /// only from `open_initiator` (where the responder lists children of our
-    /// absent root unconditionally); the debug-assertion guards against a
-    /// steady-state caller silently triggering it at any incorrect height.
+    /// [`Self::close_initiator`]. The two "asymmetric root" branches — `else`
+    /// (we lack the parent) and the post-loop drain (we have a parent the
+    /// counterparty never mentioned) — are reachable only from
+    /// `open_initiator`: in steady-state both sides' frontiers were
+    /// constructed by Both-case matches in the previous round and therefore
+    /// agree on every parent. The debug-assertions guard against a
+    /// steady-state caller silently triggering either branch.
     fn partition_uncertain<H>(
         &mut self,
         uncertain: OrdMap<Prefix<S<H>>, Hash>,
@@ -469,7 +439,7 @@ where
         OnSend: FnMut(&Version<L::Party>, Key, &Message<L::Message>),
         L: Levels<Height = S<S<H>>>,
         S<S<H>>: Height,
-        S<H>: Height,
+        S<H>: Height + Unknown,
         H: Height + Unknown,
     {
         let frontier = self.levels.level_mut();
@@ -547,6 +517,37 @@ where
                 );
                 for (parent, hash_radix, _) in uncertain_children {
                     requested.insert(parent.push(hash_radix));
+                }
+            }
+        }
+
+        // Symmetric counterpart of the `else` branch above: any parent still
+        // sitting in our frontier is one the counterparty never mentioned.
+        // From their omission we infer they lack it entirely, so every one of
+        // its children is a "Left" case (we have, they lack).
+        //
+        // Same reachability restriction as the `else` branch: only the
+        // initiator's first round can drive this. In steady-state both sides'
+        // frontiers were constructed from the previous round's Both-case
+        // matches, so the counterparty would always have mentioned every
+        // parent we hold. The Root-height guard is *load-bearing*, not just an
+        // assertion: at lower heights the same frontier entries are normal,
+        // expected leftovers (e.g., responder children we've just re-inserted
+        // via `answer_requested`), and turning them into Left cases would
+        // re-emit data we already sent.
+        if <L::Height as Height>::HEIGHT == <Root as Height>::HEIGHT {
+            for (parent_prefix, parent) in mem::replace(frontier, OrdMap::default()).into_iter() {
+                for (child_radix, ours) in parent.into_children() {
+                    let child_prefix = parent_prefix.push(child_radix);
+                    if let Some(ours) = Unknown::unknown(
+                        Some(ours),
+                        child_prefix,
+                        self.their_version,
+                        &mut self.on_send,
+                    ) {
+                        providing.insert(child_prefix, ours.clone());
+                        matched.insert(child_prefix, ours);
+                    }
                 }
             }
         }
