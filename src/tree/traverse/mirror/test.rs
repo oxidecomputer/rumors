@@ -95,7 +95,7 @@ where
                 let peer = s.spawn(move || {
                     let local_b = local::Exchange::start(b, &version_a_for_peer, x, x);
                     let remote_a = remote::Exchange::start(b_r, b_w);
-                    mirror(local_b, remote_a).expect("peer responder").0
+                    mirror(remote_a, local_b).expect("peer responder").1
                 });
                 let local_a = local::Exchange::start(a, &version_b, x, x);
                 let remote_b = remote::Exchange::start(a_r, a_w);
@@ -113,7 +113,7 @@ where
                 let peer = s.spawn(move || {
                     let local_a = local::Exchange::start(a, &version_b_for_peer, x, x);
                     let remote_b = remote::Exchange::start(a_r, a_w);
-                    mirror(remote_b, local_a).expect("peer initiator").1
+                    mirror(local_a, remote_b).expect("peer initiator").0
                 });
                 let local_b = local::Exchange::start(b, &version_a, x, x);
                 let remote_a = remote::Exchange::start(b_r, b_w);
