@@ -29,12 +29,23 @@ pub use key::Key;
 /// collision) are in the event multiple different parties write the same value.
 /// This is resolved at the synchronization protocol level, and is not a concern
 /// of the tree structure.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct Tree<T> {
     party: Bytes,
     version: Version,
     forgotten: Version,
     root: Option<typed::node::Root<Bytes, T>>,
+}
+
+impl<T> Clone for Tree<T> {
+    fn clone(&self) -> Self {
+        Self {
+            party: self.party.clone(),
+            version: self.version.clone(),
+            forgotten: self.forgotten.clone(),
+            root: self.root.clone(),
+        }
+    }
 }
 
 /// An action to perform on the tree, locally.

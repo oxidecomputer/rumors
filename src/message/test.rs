@@ -130,7 +130,7 @@ proptest! {
         let m = Message::new(p.clone());
         let expected_bytes = m.bytes().to_vec();
         let (inner, bytes) = m.into_parts();
-        prop_assert_eq!(inner, p);
+        prop_assert_eq!(&*inner, &p);
         prop_assert_eq!(bytes.as_ref(), expected_bytes.as_slice());
     }
 }

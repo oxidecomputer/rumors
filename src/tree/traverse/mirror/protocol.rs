@@ -330,15 +330,14 @@ where
 macro_rules! define_peer {
     (
         init: [$($init_count:tt)*],
-        init_terminal: $init_terminal:path,
         resp: [$($resp_count:tt)*],
-        resp_terminal: $resp_terminal:path $(,)?
+        $(,)?
     ) => {
         define_peer!(@step
             init: [$($init_count)*],
             resp: [$($resp_count)*],
-            init_chain: ($init_terminal),
-            resp_chain: ($resp_terminal),
+            init_chain: (CloseInitiator<P, T>),
+            resp_chain: (CompleteResponder<P, T>),
         );
     };
 
@@ -419,7 +418,5 @@ macro_rules! define_peer {
 // → … → S^3`) before terminating in `CompleteResponder` at `S<Z>`.
 define_peer! {
     init: [_ _ _ _ _ _ _ _ _ _ _ _ _ _],
-    init_terminal: CloseInitiator<P, T>,
     resp: [_ _ _ _ _ _ _ _ _ _ _ _ _ _ _],
-    resp_terminal: CompleteResponder<P, T>,
 }

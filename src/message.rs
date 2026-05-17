@@ -86,7 +86,13 @@ impl<T> Message<T> {
 
     /// Consume the message and return the inner object, dropping the cached
     /// serialization.
-    pub fn into_inner(self) -> T
+    pub fn into_inner(self) -> Arc<T> {
+        self.message
+    }
+
+    /// Consume the message and return the inner object, dropping the cached
+    /// serialization and cloning the inner object if necessary.
+    pub fn clone_into_inner(self) -> T
     where
         T: Clone,
     {
@@ -95,11 +101,11 @@ impl<T> Message<T> {
 
     /// Consume the message and return the inner object along with the shared
     /// serialized bytes.
-    pub fn into_parts(self) -> (T, Bytes)
+    pub fn into_parts(self) -> (Arc<T>, Bytes)
     where
         T: Clone,
     {
-        (Arc::unwrap_or_clone(self.message), self.serialized)
+        (self.message, self.serialized)
     }
 }
 

@@ -419,7 +419,7 @@ proptest! {
         let mut got: Vec<Bytes> =
             tree.get(paths).into_iter()
                 .map(|(_, _, m)| m)
-                .map(Message::into_inner)
+                .map(Message::clone_into_inner)
                 .collect();
         got.sort();
         let mut expected: Vec<Bytes> = bytes;
@@ -455,7 +455,7 @@ proptest! {
             .get(all_paths)
             .into_iter()
             .map(|(_, _, m)| m)
-            .map(Message::into_inner)
+            .map(Message::clone_into_inner)
             .collect();
         got.sort();
         let mut expected: Vec<Bytes> = bytes;
@@ -815,7 +815,7 @@ proptest! {
         }
 
         let mut got_values: Vec<Bytes> =
-            got.into_iter().map(|(_, _, b)| b.into_inner()).collect();
+            got.into_iter().map(|(_, _, b)| b.clone_into_inner()).collect();
         got_values.sort();
         let mut expected_values = bytes;
         expected_values.sort();
@@ -906,7 +906,7 @@ proptest! {
             .get(a_paths)
             .into_iter()
             .map(|(_, _, m)| m)
-            .map(Message::into_inner)
+            .map(Message::clone_into_inner)
             .collect();
         got.sort();
         let mut expected: Vec<Bytes> = a_inserts;

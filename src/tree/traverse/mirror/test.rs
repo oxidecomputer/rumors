@@ -8,7 +8,7 @@ use crate::tree::typed::height::Root;
 use crate::tree::typed::{Node, Path};
 use crate::{Key, Message, Version};
 
-use super::{initiator, local, remote, responder};
+use super::{local, mirror, remote};
 
 /// Which mirror-protocol arrangement to drive: the cardinal product of
 /// `{local, remote}` for the initiator side and the responder side.
@@ -83,7 +83,7 @@ where
         Scenario::LocalLocal => {
             let local_a = local::Exchange::start(a, &version_b, x, x);
             let local_b = local::Exchange::start(b, &version_a, x, x);
-            initiator(local_a, local_b).expect("local-local mirror")
+            mirror(local_a, local_b).expect("local-local mirror").0
         }
 
         Scenario::LocalRemote => {
@@ -95,11 +95,11 @@ where
                 let peer = s.spawn(move || {
                     let local_b = local::Exchange::start(b, &version_a_for_peer, x, x);
                     let remote_a = remote::Exchange::start(b_r, b_w);
-                    responder(local_b, remote_a).expect("peer responder")
+                    mirror(local_b, remote_a).expect("peer responder").0
                 });
                 let local_a = local::Exchange::start(a, &version_b, x, x);
                 let remote_b = remote::Exchange::start(a_r, a_w);
-                let out = initiator(local_a, remote_b).expect("test initiator");
+                let out = mirror(local_a, remote_b).expect("test initiator").0;
                 let peer_out = peer.join().expect("peer thread joined");
                 assert_eq!(out, peer_out, "local-remote endpoints should converge");
                 out
@@ -113,7 +113,7 @@ where
                 let peer = s.spawn(move || {
                     let local_a = local::Exchange::start(a, &version_b_for_peer, x, x);
                     let remote_b = remote::Exchange::start(a_r, a_w);
-                    initiator(local_a, remote_b).expect("peer initiator")
+                    mirror(remote_b, local_a).expect("peer initiator").1
                 });
                 let local_b = local::Exchange::start(b, &version_a, x, x);
                 let remote_a = remote::Exchange::start(b_r, b_w);
@@ -121,7 +121,7 @@ where
                 // the initiator-side is the wire proxy `remote_a`. The
                 // matching driver here is `responder`, whose first arg
                 // is the responder side.
-                responder(local_b, remote_a).expect("test responder");
+                mirror(remote_a, local_b).expect("test responder").1;
                 peer.join().expect("peer thread joined")
             })
         }
@@ -139,12 +139,12 @@ where
                 let peer_a = s.spawn(move || {
                     let local_a = local::Exchange::start(a, &version_b_for_a, x, x);
                     let remote_relay = remote::Exchange::start(a_r, a_w);
-                    initiator(local_a, remote_relay).expect("peer A initiator")
+                    mirror(local_a, remote_relay).expect("peer A initiator").0
                 });
                 let peer_b = s.spawn(move || {
                     let local_b = local::Exchange::start(b, &version_a_for_b, x, x);
                     let remote_relay = remote::Exchange::start(b_r, b_w);
-                    responder(local_b, remote_relay).expect("peer B responder")
+                    mirror(remote_relay, local_b).expect("peer B responder").1
                 });
                 let remote_a = remote::Exchange::<P, T, _, _, Root>::start(a_relay_r, a_relay_w);
                 let remote_b = remote::Exchange::<P, T, _, _, Root>::start(b_relay_r, b_relay_w);
@@ -153,7 +153,7 @@ where
                 // forwarding through `remote_b`) and as the initiator
                 // toward peer B. `initiator(remote_a, remote_b)` is
                 // exactly that.
-                initiator(remote_a, remote_b).expect("relay");
+                mirror(remote_a, remote_b).expect("relay");
                 let out_a = peer_a.join().expect("peer A joined");
                 let out_b = peer_b.join().expect("peer B joined");
                 assert_eq!(out_a, out_b, "relay endpoints should converge");
