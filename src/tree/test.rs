@@ -346,7 +346,6 @@ proptest! {
 
         prop_assert_eq!(tree.hash(), [0u8; 32]);
         prop_assert_eq!(tree.version().for_party(&hashed_party(&party)), 2);
-        prop_assert_eq!(tree.forgotten().for_party(&hashed_party(&party)), 2);
     }
 
     /// Inserting a value and deleting its leaf path within the same `act`

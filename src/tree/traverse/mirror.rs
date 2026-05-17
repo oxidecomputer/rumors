@@ -80,6 +80,8 @@ pub enum Error<I, R> {
     Responder(R),
 }
 
+/// Drive two synchronous mirror peers against one another
+/// to bring them into synchronization.
 pub fn mirror<I, R, P, T>(i: I, r: R) -> Result<(I::Output, R::Output), Error<I::Error, R::Error>>
 where
     P: Clone + Ord + AsRef<[u8]>,

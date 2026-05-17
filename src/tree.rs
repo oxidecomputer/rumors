@@ -33,7 +33,6 @@ pub use key::Key;
 pub struct Tree<T> {
     party: Bytes,
     version: Version,
-    forgotten: Version,
     root: Option<typed::node::Root<Bytes, T>>,
 }
 
@@ -42,7 +41,6 @@ impl<T> Clone for Tree<T> {
         Self {
             party: self.party.clone(),
             version: self.version.clone(),
-            forgotten: self.forgotten.clone(),
             root: self.root.clone(),
         }
     }
@@ -63,7 +61,6 @@ impl<T> Tree<T> {
         Tree {
             party: Bytes::copy_from_slice(&Hash::of(party.as_ref()).as_bytes()[..]),
             version: Version::default(),
-            forgotten: Version::default(),
             root: None,
         }
     }
@@ -71,12 +68,6 @@ impl<T> Tree<T> {
     /// Get the version for the tree.
     pub fn version(&self) -> Version {
         self.version.clone()
-    }
-
-    /// Get the *forgotten* version for the tree (the version vector for all
-    /// [`Action::Forget`] operations applied to it, by any party).
-    pub fn forgotten(&self) -> Version {
-        self.forgotten.clone()
     }
 
     /// Get the pre-hashed local party identifier this tree was created for.
@@ -140,7 +131,7 @@ impl<T> Tree<T> {
     ///
     /// While [`Tree::react`] is associative, this function is not: each batch
     /// receives a unique incrementing version, tracked internally.
-    pub fn act<I, O>(&mut self, i: I, mut o: O)
+    pub fn act<I, O>(&mut self, actions: I, mut react: O)
     where
         I: IntoIterator<Item = Action<T>>,
         O: FnMut(&Version, Key, &Option<Message<T>>),
@@ -154,7 +145,7 @@ impl<T> Tree<T> {
 
         // Now apply all the actions in this batch with an identical version,
         // delegating to the logic in `react`:
-        let reactions = i.into_iter().map(|action| {
+        let reactions = actions.into_iter().map(|action| {
             // Convert unversioned, unlocalized actions into `Reaction`s
             // which are independent of our local party and current version:
             let (key, value) = match action {
@@ -165,7 +156,7 @@ impl<T> Tree<T> {
                     Some(value),
                 ),
             };
-            o(&new_version, key, &value);
+            react(&new_version, key, &value);
             (new_version.clone(), key, value)
         });
         self.react(reactions);
@@ -188,23 +179,20 @@ impl<T> Tree<T> {
     /// tree in a single traversal. Theoretically, this gives an O(log n)
     /// speedup relative to one-by-one insertion operations, but since the log
     /// base is 256, in practice this is about 2-3x.
-    pub fn react<M, I>(&mut self, i: I)
+    pub fn react<M, I>(&mut self, reactions: I)
     where
         M: Into<Option<Message<T>>>,
         I: IntoIterator<Item = (Version, Key, M)>,
     {
         // Convert the specified actions into the action specification required
         // by the inductive traversal of the tree
-        let actions = i
+        let actions = reactions
             .into_iter()
             .map(|(version, key, message)| {
                 // Join the version on all operations: forget and insert
                 self.version |= version.clone();
                 match message.into() {
-                    None => {
-                        self.forgotten |= version.clone();
-                        (typed::Path::from(key), version, traverse::Action::Forget)
-                    }
+                    None => (typed::Path::from(key), version, traverse::Action::Forget),
                     Some(value) => (
                         typed::Path::from(key),
                         version,
