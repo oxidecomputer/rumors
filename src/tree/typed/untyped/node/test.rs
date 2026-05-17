@@ -4,7 +4,7 @@ use imbl::OrdMap;
 use proptest::collection::{btree_set, vec};
 use proptest::prelude::*;
 
-use crate::{Message, Version};
+use crate::{message::Message, version::Version};
 
 use super::Node;
 

@@ -4,7 +4,7 @@ use proptest::prelude::*;
 use crate::tree::traverse::{Action, act};
 use crate::tree::typed::height::Root;
 use crate::tree::typed::{Node, Path};
-use crate::{Message, Version};
+use crate::{message::Message, version::Version};
 
 /// Build a typed root tree by inserting random leaves via `act`.
 ///

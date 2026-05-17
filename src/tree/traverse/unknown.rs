@@ -1,4 +1,4 @@
-use crate::{Key, Message, Version};
+use crate::{message::Message, tree::key::Key, version::Version};
 
 use super::typed::*;
 use height::{Height, Root, S, Z};

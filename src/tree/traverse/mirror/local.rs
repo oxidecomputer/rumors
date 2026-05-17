@@ -64,8 +64,9 @@ use imbl::{OrdMap, OrdSet};
 use itertools::{EitherOrBoth, Itertools};
 
 use crate::{
-    Key, Message, Version,
+    message::Message,
     tree::{
+        key::Key,
         traverse::{Paths, get::Get, unknown::Unknown},
         typed::{
             Hash, Levels, Node, Prefix,
@@ -73,6 +74,7 @@ use crate::{
             levels::{Below, Top},
         },
     },
+    version::Version,
 };
 
 use super::message::{self, UnderRoot, UnderUnderRoot};

@@ -9,11 +9,12 @@ mod typed;
 mod arb;
 
 use crate::{
-    Message, Version,
+    message::Message,
     tree::{
         traverse::Paths,
         typed::{Hash, Node},
     },
+    version::Version,
 };
 
 pub use key::Key;

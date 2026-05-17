@@ -13,7 +13,7 @@ use proptest::prelude::*;
 use crate::tree::arb::arb_root_tree;
 use crate::tree::typed::height::{Height, Root, S, Z};
 use crate::tree::typed::{Hash, Node, Prefix};
-use crate::{Message, Version};
+use crate::{message::Message, version::Version};
 
 use super::message;
 

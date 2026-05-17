@@ -5,7 +5,7 @@ use proptest::prelude::*;
 
 use super::typed::{Hash, Hasher, Path};
 use super::*;
-use crate::Message;
+use crate::message::Message;
 
 impl Arbitrary for Key {
     type Parameters = ();

@@ -6,7 +6,7 @@ use crate::tree::arb::arb_root_tree;
 use crate::tree::traverse::{Action, act};
 use crate::tree::typed::height::Root;
 use crate::tree::typed::{Node, Path};
-use crate::{Key, Message, Version};
+use crate::{message::Message, tree::key::Key, version::Version};
 
 use super::{local, mirror, remote};
 

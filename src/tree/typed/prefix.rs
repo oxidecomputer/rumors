@@ -3,7 +3,7 @@ use std::{fmt::Debug, marker::PhantomData};
 use borsh::{BorshDeserialize, BorshSerialize};
 use tinyvec::ArrayVec;
 
-use crate::Key;
+use crate::tree::Key;
 
 use super::height::{Height, Root, S, Z};
 use super::path::Path;

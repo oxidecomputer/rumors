@@ -10,7 +10,7 @@ use imbl::{OrdMap, OrdSet};
 use super::message;
 use crate::tree::typed::height::{Height, Root, S, Z};
 use crate::tree::typed::{Hash, Node, Prefix};
-use crate::{Message, Version};
+use crate::{message::Message, version::Version};
 
 fn hex_dump(bytes: &[u8]) -> String {
     if bytes.is_empty() {

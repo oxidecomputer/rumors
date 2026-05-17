@@ -5,7 +5,7 @@ use std::sync::Arc;
 use borsh::BorshSerialize;
 use imbl::OrdMap;
 
-use crate::{Message, Version, tree::typed::Hash};
+use crate::{message::Message, version::Version, tree::typed::Hash};
 
 pub struct Node<P: Ord + AsRef<[u8]>, T> {
     inner: Arc<NodeInner<P, T>>,
