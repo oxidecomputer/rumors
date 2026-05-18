@@ -181,7 +181,12 @@ fn reference_hash(values: &[(Bytes, u64, Bytes)]) -> Hash {
 
     let mut current: HashMap<Vec<u8>, Hash> = paths
         .into_iter()
-        .map(|p| (<[u8; 32]>::from(p).to_vec(), Hash(LEAF_SENTINEL)))
+        .map(|p| {
+            (
+                <[u8; 32]>::from(typed::Path::from(p)).to_vec(),
+                Hash(LEAF_SENTINEL),
+            )
+        })
         .collect();
 
     // Fold upward one level at a time: group entries by the prefix they share
@@ -547,7 +552,7 @@ proptest! {
             versions
                 .into_iter()
                 .enumerate()
-                .map(|(i, v)| delete_at(v, [i as u8; 32].into())),
+                .map(|(i, v)| delete_at(v, typed::Path::from([i as u8; 32]).into())),
         );
 
         prop_assert_eq!(tree.version(), expected);
@@ -719,7 +724,7 @@ proptest! {
             versions
                 .iter()
                 .enumerate()
-                .map(|(i, v)| delete_at(v.clone(), [i as u8; 32].into())),
+                .map(|(i, v)| delete_at(v.clone(), typed::Path::from([i as u8; 32]).into())),
         );
         prop_assert_eq!(tree.party(), &hashed);
     }

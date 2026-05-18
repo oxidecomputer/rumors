@@ -37,7 +37,7 @@ pub use traverse::mirror;
 #[derive(Debug, Eq, PartialEq)]
 pub struct Tree<T> {
     party: Bytes,
-    root: Root<Bytes, T>,
+    pub(crate) root: Root<Bytes, T>,
 }
 
 #[derive(Debug, Eq, PartialEq)]

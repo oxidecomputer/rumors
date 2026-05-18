@@ -84,7 +84,7 @@ pub enum Error<C, S> {
 pub async fn mirror<C, S, P, T>(
     c: C,
     s: S,
-) -> Result<(Version<P>, C::Output, S::Output), Error<C::Error, S::Error>>
+) -> Result<(C::Output, S::Output), Error<C::Error, S::Error>>
 where
     P: Clone + Ord + AsRef<[u8]>,
     C: Client<P, T>,
@@ -122,7 +122,7 @@ where
                         client_version == server_version,
                         "server and client must agree on version to quit early"
                     );
-                    return Ok((client_version, client_output, server_output));
+                    return Ok((client_output, server_output));
                 }
             };
         }
@@ -172,5 +172,5 @@ where
         Ordering::Equal => unreachable!("server and client must bail early if versions match"),
     }?;
 
-    Ok((client_version | server_version, c, s))
+    Ok((c, s))
 }

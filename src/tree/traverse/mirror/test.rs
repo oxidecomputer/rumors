@@ -102,8 +102,8 @@ where
                 // Both sides poll on the same current-thread task; no
                 // spawning, no Send bound, no thread handoff.
                 let (client_result, server_result) = tokio::join!(client, server);
-                let out = client_result.expect("test client").1;
-                let peer_out = server_result.expect("peer server").1;
+                let out = client_result.expect("test client").0;
+                let peer_out = server_result.expect("peer server").0;
                 assert_eq!(out, peer_out, "local-remote endpoints should converge");
                 out
             }
