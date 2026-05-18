@@ -66,6 +66,7 @@ use itertools::{EitherOrBoth, Itertools};
 use crate::{
     message::Message,
     tree::{
+        self,
         key::Key,
         traverse::{Paths, get::Get, unknown::Unknown},
         typed::{
@@ -82,17 +83,22 @@ use super::protocol;
 
 /// The version state for an [`Exchange`] which has just been initialized but
 /// has not yet connected.
-pub struct Start;
+pub struct Start<P: Ord> {
+    our_version: Version<P>,
+}
 
 /// The version state for an [`Exchange`] which has sent its version to its peer
 /// but has not yet received its peer's version.
-pub struct Connecting;
+pub struct Connecting<P: Ord> {
+    our_version: Version<P>,
+}
 
 /// The version state for an [`Exchange`] which has sent and received versions
 /// with its peer, and so can proceed to the rest of the protocol.
-pub struct Connected<P>(Version<P>)
-where
-    P: Clone + Ord + AsRef<[u8]>;
+pub struct Connected<P: Ord> {
+    our_version: Version<P>,
+    their_version: Version<P>,
+}
 
 /// An in-progress mirror synchronization on one side of the wire.
 ///
@@ -110,7 +116,7 @@ where
     /// The counterparty's version vector, used to honor their deletions: any
     /// node of ours at or causally prior to this version that they lack must
     /// have been forgotten on their side.
-    their_version: V,
+    versions: V,
     /// Invoked whenever we discover a leaf that was previously unknown to us;
     /// lets the calling code stream out leaf-level observations as we find
     /// out about them.
@@ -121,14 +127,16 @@ where
     on_send: OnSend,
 }
 
-impl<OnSend, OnRecv, P, T> Exchange<OnSend, OnRecv, Start, Top<P, T>>
+impl<OnSend, OnRecv, P, T> Exchange<OnSend, OnRecv, Start<P>, Top<P, T>>
 where
     P: Clone + Ord + AsRef<[u8]>,
 {
-    pub fn start(node: Option<Node<P, T, Root>>, on_send: OnSend, on_recv: OnRecv) -> Self {
+    pub fn start(node: tree::Root<P, T>, on_send: OnSend, on_recv: OnRecv) -> Self {
         Self {
-            levels: Node::levels(node),
-            their_version: Start,
+            versions: Start {
+                our_version: node.version.clone(),
+            },
+            levels: Node::levels(Option::from(node)),
             on_recv,
             on_send,
         }
@@ -145,30 +153,28 @@ where
     OnSend: FnMut(&Version<L::Party>, Key, &Message<L::Message>),
 {
     type Height = L::Height;
-    type Output = Option<Node<L::Party, L::Message, Root>>;
+    type Output = tree::Root<L::Party, L::Message>;
     type Error = Infallible;
 }
 
-impl<P, T, OnSend, OnRecv> protocol::Connect<P, T> for Exchange<OnSend, OnRecv, Start, Top<P, T>>
+impl<P, T, OnSend, OnRecv> protocol::Connect<P, T> for Exchange<OnSend, OnRecv, Start<P>, Top<P, T>>
 where
     P: Clone + Ord + AsRef<[u8]>,
     OnRecv: FnMut(&Version<P>, Key, &Message<T>),
     OnSend: FnMut(&Version<P>, Key, &Message<T>),
 {
-    type Next = Exchange<OnSend, OnRecv, Connecting, Top<P, T>>;
+    type Next = Exchange<OnSend, OnRecv, Connecting<P>, Top<P, T>>;
 
-    fn connect(self) -> Result<protocol::Step<Version<P>, Self::Next, Infallible>, Self::Error> {
-        let our_version = self
-            .levels
-            .level()
-            .get(&Prefix::new())
-            .map(Node::version)
-            .cloned()
-            .unwrap_or_default();
+    async fn connect(
+        self,
+    ) -> Result<protocol::Step<Version<P>, Self::Next, Infallible>, Self::Error> {
+        let our_version = self.versions.our_version;
 
         let next = Exchange {
             levels: self.levels,
-            their_version: Connecting,
+            versions: Connecting {
+                our_version: our_version.clone(),
+            },
             on_recv: self.on_recv,
             on_send: self.on_send,
         };
@@ -181,7 +187,7 @@ where
 }
 
 impl<P, T, OnSend, OnRecv> protocol::CompleteConnect<P, T>
-    for Exchange<OnSend, OnRecv, Connecting, Top<P, T>>
+    for Exchange<OnSend, OnRecv, Connecting<P>, Top<P, T>>
 where
     P: Clone + Ord + AsRef<[u8]>,
     OnRecv: FnMut(&Version<P>, Key, &Message<T>),
@@ -189,29 +195,29 @@ where
 {
     type Next = Exchange<OnSend, OnRecv, Connected<P>, Top<P, T>>;
 
-    fn complete_connect(
+    async fn complete_connect(
         self,
         their_version: Version<P>,
     ) -> Result<protocol::Step<(), Self::Next, Self::Output>, Self::Error> {
-        let our_version = self
-            .levels
-            .level()
-            .get(&Prefix::new())
-            .map(Node::version)
-            .cloned()
-            .unwrap_or_default();
+        let our_version = self.versions.our_version;
 
         // If the two versions are the same, both sides are immediately done
         if our_version == their_version {
             return Ok(protocol::Step::Done {
                 msg: (),
-                output: self.levels.collapse(),
+                output: tree::Root {
+                    version: our_version,
+                    root: self.levels.collapse(),
+                },
             });
         }
 
         let next = Exchange {
             levels: self.levels,
-            their_version: Connected(their_version),
+            versions: Connected {
+                our_version,
+                their_version,
+            },
             on_recv: self.on_recv,
             on_send: self.on_send,
         };
@@ -220,7 +226,7 @@ where
     }
 }
 
-impl<P, T, OnSend, OnRecv> protocol::Accept<P, T> for Exchange<OnSend, OnRecv, Start, Top<P, T>>
+impl<P, T, OnSend, OnRecv> protocol::Accept<P, T> for Exchange<OnSend, OnRecv, Start<P>, Top<P, T>>
 where
     P: Clone + Ord + AsRef<[u8]>,
     OnRecv: FnMut(&Version<P>, Key, &Message<T>),
@@ -228,29 +234,29 @@ where
 {
     type Next = Exchange<OnSend, OnRecv, Connected<P>, Top<P, T>>;
 
-    fn accept(
+    async fn accept(
         self,
         their_version: Version<P>,
     ) -> Result<protocol::Step<Version<P>, Self::Next, Self::Output>, Self::Error> {
-        let our_version = self
-            .levels
-            .level()
-            .get(&Prefix::new())
-            .map(Node::version)
-            .cloned()
-            .unwrap_or_default();
+        let our_version = self.versions.our_version;
 
         // If the two versions are the same, both sides are immediately done
         if our_version == their_version {
             return Ok(protocol::Step::Done {
-                msg: our_version,
-                output: self.levels.collapse(),
+                msg: our_version.clone(),
+                output: tree::Root {
+                    version: our_version.clone(),
+                    root: self.levels.collapse(),
+                },
             });
         }
 
         let next = Exchange {
             levels: self.levels,
-            their_version: Connected(their_version),
+            versions: Connected {
+                our_version: our_version.clone(),
+                their_version,
+            },
             on_recv: self.on_recv,
             on_send: self.on_send,
         };
@@ -271,7 +277,7 @@ where
 {
     type Next = Exchange<OnSend, OnRecv, Connected<P>, Top<P, T>>;
 
-    fn initiator(
+    async fn initiator(
         self,
     ) -> Result<protocol::Step<message::Initiate, Self::Next, Infallible>, Infallible> {
         let msg = message::Initiate {
@@ -296,11 +302,10 @@ where
 {
     type Next = Exchange<OnSend, OnRecv, Connected<P>, Below<UnderRoot, Top<P, T>>>;
 
-    fn responder(
+    async fn responder(
         mut self,
         _request: message::Initiate,
-    ) -> Result<protocol::Step<message::Opening, Self::Next, Option<Node<P, T, Root>>>, Infallible>
-    {
+    ) -> Result<protocol::Step<message::Opening, Self::Next, Self::Output>, Infallible> {
         // Always explode our root one level down and enumerate the resulting
         // children, regardless of the initiator's root hash. We deliberately do
         // *not* short-circuit on matched roots: an empty `Opening` is the
@@ -332,7 +337,7 @@ where
 
         let next = Exchange {
             levels,
-            their_version: self.their_version,
+            versions: self.versions,
             on_recv: self.on_recv,
             on_send: self.on_send,
         };
@@ -351,15 +356,11 @@ where
 {
     type Next = Exchange<OnSend, OnRecv, Connected<P>, Below<UnderUnderRoot, Below<UnderRoot, L>>>;
 
-    fn open_initiator(
+    async fn open_initiator(
         self,
         request: message::Opening,
     ) -> Result<
-        protocol::Step<
-            message::Exchange<P, T, UnderUnderRoot>,
-            Self::Next,
-            Option<Node<P, T, Root>>,
-        >,
+        protocol::Step<message::Exchange<P, T, UnderUnderRoot>, Self::Next, Self::Output>,
         Infallible,
     > {
         Ok(self.reply(request))
@@ -384,13 +385,11 @@ where
 {
     type Next = Exchange<OnSend, OnRecv, Connected<P>, Below<H, Below<S<H>, L>>>;
 
-    fn exchange(
+    async fn exchange(
         self,
         request: message::Exchange<P, T, S<H>>,
-    ) -> Result<
-        protocol::Step<message::Exchange<P, T, H>, Self::Next, Option<Node<P, T, Root>>>,
-        Infallible,
-    > {
+    ) -> Result<protocol::Step<message::Exchange<P, T, H>, Self::Next, Self::Output>, Infallible>
+    {
         Ok(self.reply(request))
     }
 }
@@ -405,13 +404,10 @@ where
 {
     type Next = Exchange<OnSend, OnRecv, Connected<P>, Below<Z, Below<S<Z>, L>>>;
 
-    fn close_initiator(
+    async fn close_initiator(
         self,
         request: message::Exchange<P, T, S<Z>>,
-    ) -> Result<
-        protocol::Step<message::Closing<P, T>, Self::Next, Option<Node<P, T, Root>>>,
-        Infallible,
-    > {
+    ) -> Result<protocol::Step<message::Closing<P, T>, Self::Next, Self::Output>, Infallible> {
         Ok(self.reply(request))
     }
 }
@@ -424,18 +420,18 @@ where
     OnSend: FnMut(&Version<P>, Key, &Message<T>),
     L: Levels<Party = P, Message = T, Height = S<Z>>,
 {
-    fn complete_responder(
+    async fn complete_responder(
         mut self,
         request: message::Closing<P, T>,
-    ) -> Result<
-        protocol::Step<message::Complete<P, T>, Infallible, Option<Node<P, T, Root>>>,
-        Infallible,
-    > {
+    ) -> Result<protocol::Step<message::Complete<P, T>, Infallible, Self::Output>, Infallible> {
         self.absorb_providing(request.providing);
         let providing = self.answer_requested(request.requested);
         Ok(protocol::Step::Done {
             msg: message::Complete { providing },
-            output: self.levels.collapse(),
+            output: tree::Root {
+                version: self.versions.our_version | self.versions.their_version,
+                root: self.levels.collapse(),
+            },
         })
     }
 }
@@ -448,14 +444,17 @@ where
     OnSend: FnMut(&Version<P>, Key, &Message<T>),
     L: Levels<Party = P, Message = T, Height = Z>,
 {
-    fn complete_initiator(
+    async fn complete_initiator(
         mut self,
         request: message::Complete<P, T>,
     ) -> Result<protocol::Step<(), Infallible, Self::Output>, Infallible> {
         self.absorb_providing(request.providing);
         Ok(protocol::Step::Done {
             msg: (),
-            output: self.levels.collapse(),
+            output: tree::Root {
+                version: self.versions.our_version | self.versions.their_version,
+                root: self.levels.collapse(),
+            },
         })
     }
 }
@@ -528,9 +527,12 @@ where
                 // prior to it that they lack, they have already deleted -- so
                 // we should too. The surviving subtree (if any) goes back into
                 // our frontier; its children are sent out as `providing`.
-                if let Some(node) =
-                    Unknown::unknown(Some(node), prefix, &self.their_version.0, &mut self.on_send)
-                {
+                if let Some(node) = Unknown::unknown(
+                    Some(node),
+                    prefix,
+                    &self.versions.their_version,
+                    &mut self.on_send,
+                ) {
                     frontier.insert(prefix, node.clone());
                     for (radix, child) in node.into_children() {
                         providing.insert(prefix.push(radix), child);
@@ -609,7 +611,7 @@ where
                             if let Some(ours) = Unknown::unknown(
                                 Some(ours),
                                 child_prefix,
-                                &self.their_version.0,
+                                &self.versions.their_version,
                                 &mut self.on_send,
                             ) {
                                 providing.insert(child_prefix, ours.clone());
@@ -671,7 +673,7 @@ where
                     if let Some(ours) = Unknown::unknown(
                         Some(ours),
                         child_prefix,
-                        &self.their_version.0,
+                        &self.versions.their_version,
                         &mut self.on_send,
                     ) {
                         providing.insert(child_prefix, ours.clone());
@@ -706,7 +708,7 @@ where
     ) -> protocol::Step<
         Response,
         Exchange<OnSend, OnRecv, Connected<L::Party>, Below<H, Below<S<H>, L>>>,
-        Option<Node<L::Party, L::Message, Root>>,
+        tree::Root<L::Party, L::Message>,
     >
     where
         Request: Into<message::Exchange<L::Party, L::Message, S<H>>>,
@@ -743,7 +745,7 @@ where
         let levels = self.levels.down(partition.matched).down(partition.exploded);
         let next = Exchange {
             levels,
-            their_version: self.their_version,
+            versions: self.versions,
             on_send: self.on_send,
             on_recv: self.on_recv,
         };
@@ -770,7 +772,10 @@ where
         if finished {
             protocol::Step::Done {
                 msg: response.into(),
-                output: next.levels.collapse(),
+                output: tree::Root {
+                    version: next.versions.our_version | next.versions.their_version,
+                    root: next.levels.collapse(),
+                },
             }
         } else {
             protocol::Step::Continue {

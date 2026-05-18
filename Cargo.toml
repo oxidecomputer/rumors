@@ -18,8 +18,12 @@ seq-macro = "0.3"
 tinyvec = { version = "1.11", features = ["alloc"] }
 thiserror = "2.0"
 hex = "0.4"
+tokio = { version = "1", default-features = false }
+tokio-util = { version = "0.7", default-features = false, features = ["codec"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 
 [dev-dependencies]
 proptest = "1"
 criterion = { version = "0.5", features = ["html_reports"] }
 insta = "1.47"
+tokio = { version = "1", features = ["rt", "macros", "io-util"] }

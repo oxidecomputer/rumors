@@ -28,12 +28,12 @@ macro_rules! x {
         let Step::Continue {
             msg: $msg,
             next: $remote,
-        } = $remote.$remote_method($($arg)*).map_err(Error::Client)?;
+        } = $remote.$remote_method($($arg)*).await.map_err(Error::Client)?;
     };
     ($remote:ident . $remote_method:ident == $msg:ident => $local:ident . $local_method:ident) => {
         #[allow(unused)]
         let ($msg, $local, $remote) =
-            match $remote.$remote_method($msg).map_err(Error::Client)? {
+            match $remote.$remote_method($msg).await.map_err(Error::Client)? {
                 Step::Continue { msg, next } => (msg, $local, next),
                 Step::Done {
                     msg,
@@ -43,7 +43,7 @@ macro_rules! x {
                     let Step::Done {
                         output: local_output,
                         ..
-                    } = $local.$local_method(msg).map_err(Error::Server)?
+                    } = $local.$local_method(msg).await.map_err(Error::Server)?
                     else {
                         unreachable!("initiator did not finish after responder was finished")
                     };
@@ -53,7 +53,7 @@ macro_rules! x {
     };
     ($remote:ident . $remote_method:ident <= $msg:ident == $local:ident . $local_method:ident) => {
         #[allow(unused)]
-        let ($msg, $remote, $local) = match $local.$local_method($msg).map_err(Error::Server)? {
+        let ($msg, $remote, $local) = match $local.$local_method($msg).await.map_err(Error::Server)? {
             Step::Continue { msg, next } => (msg, $remote, next),
             Step::Done {
                 msg,
@@ -63,7 +63,7 @@ macro_rules! x {
                 let Step::Done {
                     output: remote_output,
                     ..
-                } = $remote.$remote_method(msg).map_err(Error::Client)?
+                } = $remote.$remote_method(msg).await.map_err(Error::Client)?
                 else {
                     unreachable!("responder did not finish after initiator was finished");
                 };
@@ -81,7 +81,7 @@ pub enum Error<C, S> {
 }
 
 /// Drive a mirror protocol client against a server to synchronize both of them.
-pub fn mirror<C, S, P, T>(
+pub async fn mirror<C, S, P, T>(
     c: C,
     s: S,
 ) -> Result<(Version<P>, C::Output, S::Output), Error<C::Error, S::Error>>
@@ -95,10 +95,10 @@ where
     let client_version = x.clone();
 
     // Send the client's version to the server and get the server's version
-    let (c, s, server_version) = match s.accept(x).map_err(Error::Server)? {
+    let (c, s, server_version) = match s.accept(x).await.map_err(Error::Server)? {
         Step::Continue { msg: x, next: s } => {
             let server_version = x.clone();
-            match c.complete_connect(x).map_err(Error::Client)? {
+            match c.complete_connect(x).await.map_err(Error::Client)? {
                 Step::Continue { msg: (), next: c } => (c, s, server_version),
                 Step::Done { .. } => {
                     unreachable!("client and server disagree about whether versions match")
@@ -110,7 +110,7 @@ where
             output: server_output,
         } => {
             let server_version = x.clone();
-            match c.complete_connect(x).map_err(Error::Client)? {
+            match c.complete_connect(x).await.map_err(Error::Client)? {
                 Step::Continue { .. } => {
                     unreachable!("client and server disagree about whether versions match")
                 }
@@ -135,7 +135,7 @@ where
 
     // The inner mirror protocol, between an initiator and a responder (who may or
     // may not correspond with the original client/server distinction).
-    fn mirror_connected<I, R, P, T>(
+    async fn mirror_connected<I, R, P, T>(
         i: I,
         r: R,
     ) -> Result<(I::Output, R::Output), Error<I::Error, R::Error>>
@@ -160,9 +160,9 @@ where
 
     let (c, s) = match server_version.versions().cmp(client_version.versions()) {
         // If the server version is less, the client is the initiator:
-        Ordering::Less => mirror_connected(c, s),
+        Ordering::Less => mirror_connected(c, s).await,
         // When running the server as the initiator, rearrange the result:
-        Ordering::Greater => match mirror_connected(s, c) {
+        Ordering::Greater => match mirror_connected(s, c).await {
             Ok((s, c)) => Ok((c, s)),
             Err(e) => Err(match e {
                 Error::Server(c) => Error::Client(c),

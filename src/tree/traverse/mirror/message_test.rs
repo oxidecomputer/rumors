@@ -10,7 +10,7 @@ use imbl::{OrdMap, OrdSet};
 use proptest::collection::vec;
 use proptest::prelude::*;
 
-use crate::tree::arb::arb_root_tree;
+use crate::tree::arb::arb_root_node;
 use crate::tree::typed::height::{Height, Root, S, Z};
 use crate::tree::typed::{Hash, Node, Prefix};
 use crate::{message::Message, version::Version};
@@ -81,7 +81,7 @@ proptest! {
     #[test]
     fn exchange_borsh_round_trip(
         providing_entries in vec(
-            (arb_prefix::<Root>(), arb_root_tree("p", 1..=4).prop_filter("non-empty", |n| n.is_some())),
+            (arb_prefix::<Root>(), arb_root_node("p", 1..=4).prop_filter("non-empty", |n| n.is_some())),
             0..=2,
         ),
         requested in vec(arb_prefix::<Root>(), 0..=4),

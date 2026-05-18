@@ -1,3 +1,5 @@
+use std::mem;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytes::Bytes;
 
@@ -11,13 +13,15 @@ mod arb;
 use crate::{
     message::Message,
     tree::{
-        traverse::{Paths, mirror},
+        traverse::Paths,
         typed::{Hash, Node},
     },
     version::Version,
 };
 
 pub use key::Key;
+
+pub use traverse::mirror;
 
 /// A sparse Merkle trie with transparent path compression, whose leaves store
 /// versioned blobs of [`Bytes`].
@@ -33,15 +37,34 @@ pub use key::Key;
 #[derive(Debug, Eq, PartialEq)]
 pub struct Tree<T> {
     party: Bytes,
-    version: Version,
-    root: Option<typed::node::Root<Bytes, T>>,
+    root: Root<Bytes, T>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct Root<P: Clone + Ord + AsRef<[u8]>, T> {
+    version: Version<P>,
+    root: Option<typed::node::Root<P, T>>,
+}
+
+impl<P: Clone + Ord + AsRef<[u8]>, T> From<Root<P, T>> for Option<typed::node::Root<P, T>> {
+    fn from(value: Root<P, T>) -> Self {
+        value.root
+    }
+}
+
+impl<P: Clone + Ord + AsRef<[u8]>, T> Clone for Root<P, T> {
+    fn clone(&self) -> Self {
+        Self {
+            version: self.version.clone(),
+            root: self.root.clone(),
+        }
+    }
 }
 
 impl<T> Clone for Tree<T> {
     fn clone(&self) -> Self {
         Self {
             party: self.party.clone(),
-            version: self.version.clone(),
             root: self.root.clone(),
         }
     }
@@ -61,14 +84,16 @@ impl<T> Tree<T> {
     pub fn for_party(party: impl AsRef<[u8]>) -> Self {
         Tree {
             party: Bytes::copy_from_slice(&Hash::of(party.as_ref()).as_bytes()[..]),
-            version: Version::default(),
-            root: None,
+            root: Root {
+                version: Version::default(),
+                root: None,
+            },
         }
     }
 
     /// Get the version for the tree.
     pub fn version(&self) -> Version {
-        self.version.clone()
+        self.root.version.clone()
     }
 
     /// Get the pre-hashed local party identifier this tree was created for.
@@ -78,7 +103,7 @@ impl<T> Tree<T> {
 
     /// Get the root hash for the tree.
     pub fn hash(&self) -> [u8; 32] {
-        Node::root_hash(&self.root).into()
+        Node::root_hash(&self.root.clone().into()).into()
     }
 
     /// Get all the values stored at a list of hash paths in the tree.
@@ -86,7 +111,7 @@ impl<T> Tree<T> {
     where
         I: IntoIterator<Item = Key>,
     {
-        if let Some(root) = &self.root {
+        if let Some(root) = &self.root.root {
             traverse::get(
                 Some(root.clone()),
                 Paths::Selected(
@@ -106,29 +131,10 @@ impl<T> Tree<T> {
     /// version vector.
     pub fn unknown(&self, version: Version) -> Vec<(Version, Key, Message<T>)> {
         let mut unknown = Vec::new();
-        traverse::unknown(self.root.clone(), &version, &mut |v, k, m| {
+        traverse::unknown(self.root.clone().into(), &version, &mut |v, k, m| {
             unknown.push((v.clone(), k, m.clone()))
         });
         unknown
-    }
-
-    pub fn mirror<S, OnSend, OnRecv>(
-        &mut self,
-        remote: S,
-        on_send: OnSend,
-        on_recv: OnRecv,
-    ) -> Result<(), S::Error>
-    where
-        S: mirror::protocol::Server<Bytes, T>,
-        OnRecv: FnMut(&Version, Key, &Message<T>),
-        OnSend: FnMut(&Version, Key, &Message<T>),
-    {
-        let local = mirror::local::Exchange::start(self.root.take(), on_send, on_recv);
-        (self.version, self.root, _) = mirror(local, remote).map_err(|e| match e {
-            mirror::Error::Client(e) => match e {},
-            mirror::Error::Server(e) => e,
-        })?;
-        Ok(())
     }
 
     /// Apply the specified actions as a batch to the tree, incrementing its
@@ -204,13 +210,15 @@ impl<T> Tree<T> {
         M: Into<Option<Message<T>>>,
         I: IntoIterator<Item = (Version, Key, M)>,
     {
+        let mut tree_version = self.version();
+
         // Convert the specified actions into the action specification required
         // by the inductive traversal of the tree
         let actions = reactions
             .into_iter()
             .map(|(version, key, message)| {
                 // Join the version on all operations: forget and insert
-                self.version |= version.clone();
+                tree_version |= version.clone();
                 match message.into() {
                     None => (typed::Path::from(key), version, traverse::Action::Forget),
                     Some(value) => (
@@ -223,7 +231,8 @@ impl<T> Tree<T> {
             .collect();
 
         // Traverse the tree from the root, batch-applying the actions
-        self.root = traverse::act(self.root.take(), actions);
+        self.root.root = traverse::act(self.root.root.take().into(), actions);
+        self.root.version = tree_version;
     }
 }
 

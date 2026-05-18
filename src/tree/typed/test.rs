@@ -1,7 +1,7 @@
 use borsh::BorshDeserialize;
 use proptest::prelude::*;
 
-use crate::tree::arb::arb_root_tree;
+use crate::tree::arb::arb_root_node;
 use crate::tree::typed::height::{Height, Root, S, Z};
 use crate::tree::typed::{Hash, Node, Prefix};
 
@@ -71,7 +71,7 @@ fn prefix_root_serializes_to_empty() {
 // would fail here.
 proptest! {
     #[test]
-    fn typed_root_node_borsh_round_trip(node in arb_root_tree("p", 0..=8)) {
+    fn typed_root_node_borsh_round_trip(node in arb_root_node("p", 0..=8)) {
         let serialized = borsh::to_vec(&node).unwrap();
         let deserialized: Option<Node<String, (), Root>> =
             Option::try_from_slice(&serialized).unwrap();

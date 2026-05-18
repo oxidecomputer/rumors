@@ -12,27 +12,17 @@
 //!
 //! When the local responder calls `b.exchange(m)` on its remote-initiator
 //! proxy `b`, the `request` `m` is *our* outgoing message --- written to the
-//! wire --- and the return is the remote initiator's response, read back. The
-//! per-trait table:
+//! wire --- and the return is the remote initiator's response, read back.
 //!
-//! | Trait                 | Self height | Writes to wire       | Reads from wire      |
-//! |-----------------------|-------------|----------------------|----------------------|
-//! | [`Initiator`]         | `Root`      | --                   | [`Initiate`]         |
-//! | [`Responder`]         | `Root`      | [`Initiate`]         | [`Opening`]          |
-//! | [`OpenInitiator`]     | `Root`      | [`Opening`]          | [`Exchange<U^2>`]    |
-//! | [`Exchange`]          | `S<S<H>>`   | [`Exchange<S<H>>`]   | [`Exchange<H>`]      |
-//! | [`CloseInitiator`]    | `S<S<Z>>`   | [`Exchange<S<Z>>`]   | [`Closing`]          |
-//! | [`CompleteResponder`] | `S<Z>`      | [`Closing`]          | [`Complete`]         |
-//! | [`CompleteInitiator`] | `Z`         | [`Complete`]         | --                   |
+//! # Framing
 //!
-//! [`Initiate`]: message::Initiate
-//! [`Opening`]: message::Opening
-//! [`Exchange<U^2>`]: message::Exchange
-//! [`Exchange<S<H>>`]: message::Exchange
-//! [`Exchange<H>`]: message::Exchange
-//! [`Exchange<S<Z>>`]: message::Exchange
-//! [`Closing`]: message::Closing
-//! [`Complete`]: message::Complete
+//! Each borsh-encoded message is shipped as a single length-delimited frame
+//! via [`tokio_util::codec::LengthDelimitedCodec`] (4-byte big-endian length
+//! prefix). The codec's `max_frame_length` is raised to `usize::MAX` so that
+//! arbitrarily large subtrees can travel in one frame; the protocol's height
+//! schedule still names the type each side expects next, and the frame
+//! boundary now lets the async reader know exactly how many bytes belong to
+//! that next message.
 //!
 //! # In-band termination
 //!
@@ -47,7 +37,11 @@
 use std::convert::Infallible;
 use std::marker::PhantomData;
 
-use borsh::io::{Read, Write};
+use bytes::Bytes;
+use futures_util::{SinkExt, StreamExt};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
+
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::tree::typed::{
@@ -94,31 +88,44 @@ where
 pub struct Connected;
 
 /// A wire-bound proxy of the counterparty at protocol height `H`. Holds the
-/// underlying reader/writer and a phantom tag pinning the height; the
-/// counterparty's actual zipper lives on the far side of the wire.
+/// underlying reader/writer (each wrapped in a length-delimited codec) and a
+/// phantom tag pinning the height; the counterparty's actual zipper lives on
+/// the far side of the wire.
 pub struct Exchange<P, T, R, W, V, H: Height> {
-    reader: R,
-    writer: W,
+    reader: FramedRead<R, LengthDelimitedCodec>,
+    writer: FramedWrite<W, LengthDelimitedCodec>,
     #[allow(clippy::type_complexity)]
     _phantom: PhantomData<fn() -> (P, T, V, H)>,
 }
 
+/// Construct a length-delimited codec with the frame-length cap raised to
+/// `usize::MAX`. The protocol can ship whole subtrees in a single frame, and
+/// we don't want the default 8 MiB cap to fail those legitimately.
+fn make_codec() -> LengthDelimitedCodec {
+    let mut codec = LengthDelimitedCodec::new();
+    codec.set_max_frame_length(usize::MAX);
+    codec
+}
+
 impl<P, T, R, W> Exchange<P, T, R, W, Start, Root> {
-    /// Wrap a `(reader, writer)` pair as a [`Exchange`], ready to start
+    /// Wrap a `(reader, writer)` pair as an [`Exchange`], ready to start
     /// the protocol.
     pub fn start(reader: R, writer: W) -> Self {
         Self {
-            reader,
-            writer,
+            reader: FramedRead::new(reader, make_codec()),
+            writer: FramedWrite::new(writer, make_codec()),
             _phantom: PhantomData,
         }
     }
 }
 
 impl<P, T, R, W, H: Height> Exchange<P, T, R, W, Connected, H> {
-    /// Wrap a `(reader, writer)` pair as a [`Exchange`], ready to start
-    /// the protocol.
-    fn connected(reader: R, writer: W) -> Self {
+    /// Construct a [`Connected`]-state [`Exchange`] from already-framed
+    /// reader/writer halves, threading them through from a predecessor stage.
+    fn connected(
+        reader: FramedRead<R, LengthDelimitedCodec>,
+        writer: FramedWrite<W, LengthDelimitedCodec>,
+    ) -> Self {
         Self {
             reader,
             writer,
@@ -134,31 +141,73 @@ impl<P, T, R, W, V, H: Height> protocol::Stage for Exchange<P, T, R, W, V, H> {
     type Error = Error;
 }
 
+/// Borsh-encode `msg` into a single length-delimited frame and ship it.
+///
+/// `SinkExt::send` calls `poll_ready`, `start_send`, and `poll_flush` in
+/// sequence, so on a clean return the bytes have reached the underlying
+/// writer's flush boundary (typically the OS write buffer).
+async fn send_msg<M, W>(
+    writer: &mut FramedWrite<W, LengthDelimitedCodec>,
+    msg: &M,
+) -> Result<(), Error>
+where
+    W: AsyncWrite + Unpin,
+    M: BorshSerialize,
+{
+    let mut buf = Vec::new();
+    msg.serialize(&mut buf).map_err(Error::Io)?;
+    writer.send(Bytes::from(buf)).await.map_err(Error::Io)?;
+    Ok(())
+}
+
+/// Pull one length-delimited frame off the wire and borsh-decode it as `M`.
+///
+/// A clean end-of-stream (peer closed before sending the expected message) is
+/// surfaced as an [`UnexpectedEof`](borsh::io::ErrorKind::UnexpectedEof)
+/// borsh I/O error, matching what the synchronous predecessor would have
+/// raised mid-`deserialize_reader`.
+async fn recv_msg<M, R>(reader: &mut FramedRead<R, LengthDelimitedCodec>) -> Result<M, Error>
+where
+    R: AsyncRead + Unpin,
+    M: BorshDeserialize,
+{
+    let frame = reader
+        .next()
+        .await
+        .ok_or_else(|| {
+            borsh::io::Error::new(
+                borsh::io::ErrorKind::UnexpectedEof,
+                "peer closed before sending expected message",
+            )
+        })
+        .map_err(Error::Io)?
+        .map_err(Error::Io)?;
+    M::try_from_slice(&frame).map_err(Error::Io)
+}
+
 // One protocol-trait impl block per trait, each at the specific height it
 // pertains to. Together with the [`protocol::AfterExchange`] blanket impls,
 // they discharge every transition in the protocol's height schedule.
 
 impl<P, T, R, W> protocol::Accept<P, T> for Exchange<P, T, R, W, Start, Root>
 where
-    R: Read,
-    W: Write,
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
     T: BorshSerialize + BorshDeserialize,
     P: BorshSerialize + BorshDeserialize + Clone + Ord + AsRef<[u8]>,
 {
     type Next = Exchange<P, T, R, W, Connected, Root>;
 
-    fn accept(
+    async fn accept(
         mut self,
         their_version: Version<P>,
     ) -> Result<protocol::Step<Version<P>, Self::Next, Self::Output>, Self::Error> {
-        // Send their version and receive our version back
-        their_version
-            .serialize(&mut self.writer)
-            .map_err(Error::Io)?;
-        self.writer.flush().map_err(Error::Io)?;
-        let our_version = Version::deserialize_reader(&mut self.reader).map_err(Error::Io)?;
+        // Ship the version we just received from our local caller across to
+        // the remote accepter, then read the remote's reply.
+        send_msg(&mut self.writer, &their_version).await?;
+        let our_version: Version<P> = recv_msg(&mut self.reader).await?;
 
-        // If the two versions are the same, both sides are immediately done
+        // If the two versions are the same, both sides are immediately done.
         if our_version == their_version {
             return Ok(protocol::Step::Done {
                 msg: our_version,
@@ -177,16 +226,16 @@ impl<P, T, R, W> protocol::Initiator<P, T> for Exchange<P, T, R, W, Connected, R
 where
     P: Clone + Ord + AsRef<[u8]> + BorshSerialize + BorshDeserialize,
     T: BorshDeserialize,
-    R: Read,
-    W: Write,
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
     Node<P, T, UnderRoot>: BorshDeserialize,
 {
     type Next = Exchange<P, T, R, W, Connected, Root>;
 
-    fn initiator(mut self) -> Result<Step<message::Initiate, Self::Next, Infallible>, Error> {
+    async fn initiator(mut self) -> Result<Step<message::Initiate, Self::Next, Infallible>, Error> {
         // No write: the real initiator (on the far side of the wire) has
         // already shipped its `Initiate` and we are reading it now.
-        let msg = message::Initiate::deserialize_reader(&mut self.reader).map_err(Error::Io)?;
+        let msg: message::Initiate = recv_msg(&mut self.reader).await?;
         // `Initiator::initiator` is statically `Continue`: the `Output` slot
         // is `Infallible`, so `Done` is uninhabitable here.
         Ok(Step::Continue {
@@ -200,25 +249,24 @@ impl<P, T, R, W> protocol::Responder<P, T> for Exchange<P, T, R, W, Connected, R
 where
     P: Clone + Ord + AsRef<[u8]> + BorshSerialize + BorshDeserialize,
     T: BorshDeserialize,
-    R: Read,
-    W: Write,
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
     Node<P, T, UnderRoot>: BorshDeserialize,
 {
     type Next = Exchange<P, T, R, W, Connected, UnderRoot>;
 
-    fn responder(
+    async fn responder(
         mut self,
         request: message::Initiate,
     ) -> Result<Step<message::Opening, Self::Next, ()>, Error> {
-        request.serialize(&mut self.writer).map_err(Error::Io)?;
-        self.writer.flush().map_err(Error::Io)?;
+        send_msg(&mut self.writer, &request).await?;
 
         // The responder always emits an `Opening`, possibly empty. We can no
         // longer infer termination from an empty `Opening` alone: it can mean
         // either "the trees are equal" or "the responder has no children but
         // we (the initiator) might still have data to provide." Always
         // `Continue` and let the next stage's `open_initiator` decide.
-        let response = message::Opening::deserialize_reader(&mut self.reader).map_err(Error::Io)?;
+        let response: message::Opening = recv_msg(&mut self.reader).await?;
         Ok(Step::Continue {
             msg: response,
             next: Exchange::connected(self.reader, self.writer),
@@ -230,25 +278,22 @@ impl<P, T, R, W> protocol::OpenInitiator<P, T> for Exchange<P, T, R, W, Connecte
 where
     P: Clone + Ord + AsRef<[u8]> + BorshSerialize + BorshDeserialize,
     T: BorshDeserialize,
-    R: Read,
-    W: Write,
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
     Node<P, T, UnderRoot>: BorshDeserialize,
 {
     type Next = Exchange<P, T, R, W, Connected, UnderUnderRoot>;
 
-    fn open_initiator(
+    async fn open_initiator(
         mut self,
         request: message::Opening,
     ) -> Result<Step<message::Exchange<P, T, UnderUnderRoot>, Self::Next, ()>, Error> {
-        request.serialize(&mut self.writer).map_err(Error::Io)?;
-        self.writer.flush().map_err(Error::Io)?;
+        send_msg(&mut self.writer, &request).await?;
 
         // We always await a response: even an empty `Opening` can prompt the
         // counterparty to send back a non-trivial `providing` (the "we have,
         // they lack" Left case when we are the empty side).
-        let response =
-            message::Exchange::<P, T, UnderUnderRoot>::deserialize_reader(&mut self.reader)
-                .map_err(Error::Io)?;
+        let response: message::Exchange<P, T, UnderUnderRoot> = recv_msg(&mut self.reader).await?;
 
         if response.requested.is_empty() && response.uncertain.is_empty() {
             Ok(Step::Done {
@@ -268,8 +313,8 @@ impl<P, T, R, W, H> protocol::Exchange<P, T> for Exchange<P, T, R, W, Connected,
 where
     P: Clone + Ord + AsRef<[u8]> + BorshSerialize + BorshDeserialize,
     T: BorshDeserialize,
-    R: Read,
-    W: Write,
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
     H: Height,
     S<H>: Height,
     S<S<H>>: Height,
@@ -281,24 +326,24 @@ where
 {
     type Next = Exchange<P, T, R, W, Connected, H>;
 
-    fn exchange(
+    async fn exchange(
         mut self,
         request: message::Exchange<P, T, S<H>>,
     ) -> Result<Step<message::Exchange<P, T, H>, Self::Next, ()>, Error> {
-        request.serialize(&mut self.writer).map_err(Error::Io)?;
-        self.writer.flush().map_err(Error::Io)?;
-
         // If the message we just sent will cause the other party to be done,
         // they won't ever respond, so don't await their response.
-        if request.requested.is_empty() && request.uncertain.is_empty() {
+        let counterparty_finished = request.requested.is_empty() && request.uncertain.is_empty();
+
+        send_msg(&mut self.writer, &request).await?;
+
+        if counterparty_finished {
             return Ok(Step::Done {
                 msg: message::Exchange::default(),
                 output: (),
             });
         }
 
-        let response = message::Exchange::<P, T, H>::deserialize_reader(&mut self.reader)
-            .map_err(Error::Io)?;
+        let response: message::Exchange<P, T, H> = recv_msg(&mut self.reader).await?;
 
         if response.requested.is_empty() && response.uncertain.is_empty() {
             Ok(Step::Done {
@@ -318,29 +363,29 @@ impl<P, T, R, W> protocol::CloseInitiator<P, T> for Exchange<P, T, R, W, Connect
 where
     P: Clone + Ord + AsRef<[u8]> + BorshSerialize + BorshDeserialize,
     T: BorshDeserialize,
-    R: Read,
-    W: Write,
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
 {
     type Next = Exchange<P, T, R, W, Connected, Z>;
 
-    fn close_initiator(
+    async fn close_initiator(
         mut self,
         request: message::Exchange<P, T, S<Z>>,
     ) -> Result<Step<message::Closing<P, T>, Self::Next, ()>, Error> {
-        request.serialize(&mut self.writer).map_err(Error::Io)?;
-        self.writer.flush().map_err(Error::Io)?;
-
         // If the message we just sent will cause the other party to be done,
         // they won't ever respond, so don't await their response.
-        if request.requested.is_empty() && request.uncertain.is_empty() {
+        let counterparty_finished = request.requested.is_empty() && request.uncertain.is_empty();
+
+        send_msg(&mut self.writer, &request).await?;
+
+        if counterparty_finished {
             return Ok(Step::Done {
                 msg: message::Closing::default(),
                 output: (),
             });
         }
 
-        let response =
-            message::Closing::<P, T>::deserialize_reader(&mut self.reader).map_err(Error::Io)?;
+        let response: message::Closing<P, T> = recv_msg(&mut self.reader).await?;
 
         // `CloseInitiator` is the protocol's natural endgame: always `Done`.
         Ok(Step::Done {
@@ -354,27 +399,27 @@ impl<P, T, R, W> protocol::CompleteResponder<P, T> for Exchange<P, T, R, W, Conn
 where
     P: Clone + Ord + AsRef<[u8]> + BorshSerialize + BorshDeserialize,
     T: BorshDeserialize,
-    R: Read,
-    W: Write,
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
 {
-    fn complete_responder(
+    async fn complete_responder(
         mut self,
         request: message::Closing<P, T>,
     ) -> Result<Step<message::Complete<P, T>, Infallible, ()>, Error> {
-        request.serialize(&mut self.writer).map_err(Error::Io)?;
-        self.writer.flush().map_err(Error::Io)?;
-
         // If the message we just sent will cause the other party to be done,
         // they won't ever respond, so don't await their response.
-        if request.requested.is_empty() {
+        let counterparty_finished = request.requested.is_empty();
+
+        send_msg(&mut self.writer, &request).await?;
+
+        if counterparty_finished {
             return Ok(Step::Done {
                 msg: message::Complete::default(),
                 output: (),
             });
         }
 
-        let response =
-            message::Complete::<P, T>::deserialize_reader(&mut self.reader).map_err(Error::Io)?;
+        let response: message::Complete<P, T> = recv_msg(&mut self.reader).await?;
 
         // `CompleteResponder` is statically `Done`: the `Next` slot is
         // `Infallible`, so `Continue` is uninhabitable here.
@@ -388,16 +433,15 @@ where
 impl<P, T, R, W> protocol::CompleteInitiator<P, T> for Exchange<P, T, R, W, Connected, Z>
 where
     P: Clone + Ord + AsRef<[u8]> + BorshSerialize,
-    R: Read,
-    W: Write,
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
 {
-    fn complete_initiator(
+    async fn complete_initiator(
         mut self,
         request: message::Complete<P, T>,
     ) -> Result<Step<(), Infallible, Self::Output>, Error> {
         // Final write; the real initiator absorbs this and is done.
-        request.serialize(&mut self.writer).map_err(Error::Io)?;
-        self.writer.flush().map_err(Error::Io)?;
+        send_msg(&mut self.writer, &request).await?;
         Ok(Step::Done {
             msg: (),
             output: (),

@@ -2,7 +2,7 @@ use imbl::OrdMap;
 use proptest::collection::vec;
 use proptest::prelude::*;
 
-use crate::tree::arb::arb_root_tree;
+use crate::tree::arb::arb_root_node;
 use crate::tree::typed::height::{Height, Root, S, Z};
 use crate::tree::typed::{Node, Prefix};
 
@@ -79,7 +79,7 @@ proptest! {
     /// then folding back via `collapse`, recovers the original tree.
     #[test]
     fn collapse_inverts_down(
-        tree in arb_root_tree("a", 0..=16),
+        tree in arb_root_node("a", 0..=16),
         decisions in vec(any::<bool>(), 0..=512),
     ) {
         let before = tree.clone();

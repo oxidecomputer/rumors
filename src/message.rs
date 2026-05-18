@@ -121,6 +121,12 @@ impl<T> AsRef<T> for Message<T> {
     }
 }
 
+impl<T> AsRef<Arc<T>> for Message<T> {
+    fn as_ref(&self) -> &Arc<T> {
+        &self.message
+    }
+}
+
 // Manual trait implementations that treat `Message<T>` as a transparent wrapper
 // around `T`, ignoring the cached serialized bytes. Two messages holding equal
 // `T` values compare equal even if their cached bytes differ (e.g. produced by

@@ -89,7 +89,7 @@ where
     type Next: CompleteConnect<P, T>
         + Stage<Output = Self::Output, Height = Root, Error = Self::Error>;
 
-    fn connect(self) -> Result<Step<Version<P>, Self::Next, Infallible>, Self::Error>;
+    async fn connect(self) -> Result<Step<Version<P>, Self::Next, Infallible>, Self::Error>;
 }
 
 pub trait CompleteConnect<P, T>: Stage<Height = Root> + Sized
@@ -100,7 +100,7 @@ where
         + Responder<P, T>
         + Stage<Output = Self::Output, Height = Root, Error = Self::Error>;
 
-    fn complete_connect(
+    async fn complete_connect(
         self,
         their_version: Version<P>,
     ) -> Result<Step<(), Self::Next, Self::Output>, Self::Error>;
@@ -114,7 +114,7 @@ where
         + Responder<P, T>
         + Stage<Output = Self::Output, Height = Root, Error = Self::Error>;
 
-    fn accept(
+    async fn accept(
         self,
         their_version: Version<P>,
     ) -> Result<Step<Version<P>, Self::Next, Self::Output>, Self::Error>;
@@ -142,7 +142,9 @@ where
     /// Always yields [`Step::Continue`]: a side opening the protocol cannot
     /// have converged yet. The [`Step::Done`]'s `Output` slot is
     /// [`Infallible`] to encode that impossibility in the type system.
-    fn initiator(self) -> Result<Step<message::Initiate, Self::Next, Infallible>, Self::Error>;
+    async fn initiator(
+        self,
+    ) -> Result<Step<message::Initiate, Self::Next, Infallible>, Self::Error>;
 }
 
 /// Continue the protocol as the responder.
@@ -167,7 +169,7 @@ where
     /// into an [`UnderRoot`]-height zipper, and emit its children's hashes as
     /// the `Opening`'s `uncertain` set -- unconditionally, since we haven't
     /// yet learned what the initiator has.
-    fn responder(
+    async fn responder(
         self,
         request: message::Initiate,
     ) -> Result<Step<message::Opening, Self::Next, Self::Output>, Self::Error>;
@@ -196,7 +198,7 @@ where
     /// we lack entirely -- a normal case here, but one that would indicate a
     /// protocol bug if it recurred in `Self::exchange`.
     #[allow(clippy::type_complexity)]
-    fn open_initiator(
+    async fn open_initiator(
         self,
         request: message::Opening,
     ) -> Result<Step<message::Exchange<P, T, UnderUnderRoot>, Self::Next, Self::Output>, Self::Error>;
@@ -233,7 +235,7 @@ where
     /// emitted unconditionally, because the counterparty may still need its
     /// contents to converge.
     #[allow(clippy::type_complexity)]
-    fn exchange(
+    async fn exchange(
         self,
         request: message::Exchange<P, T, <Self::Height as Pred>::Pred>,
     ) -> Result<
@@ -267,7 +269,7 @@ where
     /// consume `Closing` directly, without a runtime check that a
     /// well-behaved peer would never trip.
     #[allow(clippy::type_complexity)]
-    fn close_initiator(
+    async fn close_initiator(
         self,
         request: message::Exchange<P, T, S<Z>>,
     ) -> Result<Step<message::Closing<P, T>, Self::Next, Self::Output>, Self::Error>;
@@ -291,7 +293,7 @@ where
     /// `Next` slot is [`Infallible`] to encode the impossibility of
     /// `Continue` in the type system.
     #[allow(clippy::type_complexity)]
-    fn complete_responder(
+    async fn complete_responder(
         self,
         request: message::Closing<P, T>,
     ) -> Result<Step<message::Complete<P, T>, Infallible, Self::Output>, Self::Error>;
@@ -309,7 +311,7 @@ where
     /// no outgoing message: any `requested` we would have made went out in our
     /// prior [`Self::close_initiator`] call.
     #[allow(clippy::type_complexity)]
-    fn complete_initiator(
+    async fn complete_initiator(
         self,
         request: message::Complete<P, T>,
     ) -> Result<Step<(), Infallible, Self::Output>, Self::Error>;
