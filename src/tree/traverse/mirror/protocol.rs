@@ -15,6 +15,9 @@
 //!
 //! | Trait                 | Wire input                      | Wire output                       | `Next`                                |
 //! |-----------------------|---------------------------------|-----------------------------------|---------------------------------------|
+//! | [`Connect`]           | --                              | [`Version`]                       | [`CompleteConnect`]                   |
+//! | [`CompleteConnect`]   | [`Version`]                     | --                                | [`Initiator`] or [`Responder`]        |
+//! | [`Accept`]            | [`Version`]                     | [`Version`]                       | [`Initiator`] or [`Responder`]        |
 //! | [`Initiator`]         | --                              | [`message::Initiate`]             | [`OpenInitiator`]                     |
 //! | [`Responder`]         | [`message::Initiate`]           | [`message::Opening`]              | [`Exchange`] (first steady round)     |
 //! | [`OpenInitiator`]     | [`message::Opening`]            | [`message::Exchange<_, _, U^2>`]  | [`Exchange`] (first steady round)     |
@@ -39,7 +42,10 @@
 
 use std::convert::Infallible;
 
-use crate::tree::typed::height::{Height, Pred, Root, S, Z};
+use crate::{
+    tree::typed::height::{Height, Pred, Root, S, Z},
+    version::Version,
+};
 
 use super::message::{self, UnderRoot, UnderUnderRoot};
 
@@ -76,7 +82,45 @@ pub trait Stage {
     type Error;
 }
 
-/// Start the protocol as the initiator.
+pub trait Connect<P, T>: Stage<Height = Root> + Sized
+where
+    P: Clone + Ord + AsRef<[u8]>,
+{
+    type Next: CompleteConnect<P, T>
+        + Stage<Output = Self::Output, Height = Root, Error = Self::Error>;
+
+    fn connect(self) -> Result<Step<Version<P>, Self::Next, Infallible>, Self::Error>;
+}
+
+pub trait CompleteConnect<P, T>: Stage<Height = Root> + Sized
+where
+    P: Clone + Ord + AsRef<[u8]>,
+{
+    type Next: Initiator<P, T>
+        + Responder<P, T>
+        + Stage<Output = Self::Output, Height = Root, Error = Self::Error>;
+
+    fn complete_connect(
+        self,
+        their_version: Version<P>,
+    ) -> Result<Step<(), Self::Next, Self::Output>, Self::Error>;
+}
+
+pub trait Accept<P, T>: Stage<Height = Root> + Sized
+where
+    P: Clone + Ord + AsRef<[u8]>,
+{
+    type Next: Initiator<P, T>
+        + Responder<P, T>
+        + Stage<Output = Self::Output, Height = Root, Error = Self::Error>;
+
+    fn accept(
+        self,
+        their_version: Version<P>,
+    ) -> Result<Step<Version<P>, Self::Next, Self::Output>, Self::Error>;
+}
+
+/// Continue the protocol as the initiator.
 ///
 /// The trait is implemented by the state type that the constructor produces;
 /// `Self::Next == Self` for any straightforward implementation.
@@ -101,7 +145,7 @@ where
     fn initiator(self) -> Result<Step<message::Initiate, Self::Next, Infallible>, Self::Error>;
 }
 
-/// Start the protocol as the responder.
+/// Continue the protocol as the responder.
 ///
 /// `Err(node)` from this call indicates that the initiator's root hash matched
 /// ours: the trees are already equal, the protocol short-circuits, and the
@@ -391,8 +435,7 @@ macro_rules! define_peer {
         /// single `Peer<P, T>` bound on each argument and the chain bounds
         /// propagate.
         pub trait Peer<P, T>:
-            Initiator<P, T, Next: OpenInitiator<P, T, Next: $($init_chain)*>>
-            + Responder<P, T, Next: $($resp_chain)*>
+            Initiator<P, T, Next: OpenInitiator<P, T, Next: $($init_chain)*>> + Responder<P, T, Next: $($resp_chain)*>
         where
             P: Clone + Ord + AsRef<[u8]>,
         {
@@ -401,10 +444,38 @@ macro_rules! define_peer {
         impl<X, P, T> Peer<P, T> for X
         where
             P: Clone + Ord + AsRef<[u8]>,
-            X: Initiator<P, T, Next: OpenInitiator<P, T, Next: $($init_chain)*>>
-                + Responder<P, T, Next: $($resp_chain)*>,
+            X: Initiator<P, T, Next: OpenInitiator<P, T, Next: $($init_chain)*>> + Responder<P, T, Next: $($resp_chain)*>
         {
         }
+
+        pub trait Server<P, T>:
+            Accept<P, T, Next: Initiator<P, T, Next: OpenInitiator<P, T, Next: $($init_chain)*>> + Responder<P, T, Next: $($resp_chain)*>>
+        where
+            P: Clone + Ord + AsRef<[u8]>,
+        {
+        }
+
+        impl<X, P, T> Server<P, T> for X
+        where
+            P: Clone + Ord + AsRef<[u8]>,
+            X: Accept<P, T, Next: Initiator<P, T, Next: OpenInitiator<P, T, Next: $($init_chain)*>> + Responder<P, T, Next: $($resp_chain)*>>
+        {
+        }
+
+        pub trait Client<P, T>:
+            Connect<P, T, Next: CompleteConnect<P, T, Next: Initiator<P, T, Next: OpenInitiator<P, T, Next: $($init_chain)*>> + Responder<P, T, Next: $($resp_chain)*>>>
+        where
+            P: Clone + Ord + AsRef<[u8]>,
+        {
+        }
+
+        impl<X, P, T> Client<P, T> for X
+        where
+            P: Clone + Ord + AsRef<[u8]>,
+            X: Connect<P, T, Next: CompleteConnect<P, T, Next: Initiator<P, T, Next: OpenInitiator<P, T, Next: $($init_chain)*>> + Responder<P, T, Next: $($resp_chain)*>>>
+        {
+        }
+
     };
 }
 

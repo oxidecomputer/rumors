@@ -55,6 +55,11 @@ impl<P: Ord> Version<P> {
     pub fn for_party(&self, party: &P) -> u64 {
         *self.versions.get(party).unwrap_or(&0)
     }
+
+    /// Get a reference to the underlying version vector.
+    pub(crate) fn versions(&self) -> &OrdMap<P, u64> {
+        &self.versions
+    }
 }
 
 /// Version vector partial ordering: `a <= b` iff every party's count in `a` is

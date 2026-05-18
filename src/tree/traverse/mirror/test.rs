@@ -33,12 +33,6 @@ enum Scenario {
     /// (driving the initiator role through a wire proxy); peer thread
     /// calls `initiator(local_a, remote_b)`.
     RemoteLocal,
-    /// Both sides' state live on peer threads; test thread is a pure
-    /// relay over two duplex pipes. Test thread calls
-    /// `initiator(remote_a, remote_b)`; one peer thread runs
-    /// `initiator(local_a, remote_relay)`, the other
-    /// `responder(local_b, remote_relay)`.
-    RemoteRemote,
 }
 
 /// Two `(reader, writer)` halves of a full-duplex byte channel: the
@@ -76,13 +70,10 @@ where
 {
     fn x<P: Ord, T>(_v: &Version<P>, _k: Key, _m: &Message<T>) {}
 
-    let version_a = a.as_ref().map(|n| n.version().clone()).unwrap_or_default();
-    let version_b = b.as_ref().map(|n| n.version().clone()).unwrap_or_default();
-
     match scenario {
         Scenario::LocalLocal => {
-            let local_a = local::Exchange::start(a, &version_b, x, x);
-            let local_b = local::Exchange::start(b, &version_a, x, x);
+            let local_a = local::Exchange::start(a, x, x);
+            let local_b = local::Exchange::start(b, x, x);
             mirror(local_a, local_b).expect("local-local mirror").0
         }
 
@@ -90,14 +81,13 @@ where
             let ((a_r, a_w), (b_r, b_w)) = duplex();
             // Move owned versions into each closure so neither side
             // borrows across thread boundaries.
-            let version_a_for_peer = version_a.clone();
             std::thread::scope(|s| {
                 let peer = s.spawn(move || {
-                    let local_b = local::Exchange::start(b, &version_a_for_peer, x, x);
+                    let local_b = local::Exchange::start(b, x, x);
                     let remote_a = remote::Exchange::start(b_r, b_w);
-                    mirror(remote_a, local_b).expect("peer responder").1
+                    mirror(local_b, remote_a).expect("peer responder").0
                 });
-                let local_a = local::Exchange::start(a, &version_b, x, x);
+                let local_a = local::Exchange::start(a, x, x);
                 let remote_b = remote::Exchange::start(a_r, a_w);
                 let out = mirror(local_a, remote_b).expect("test initiator").0;
                 let peer_out = peer.join().expect("peer thread joined");
@@ -108,56 +98,20 @@ where
 
         Scenario::RemoteLocal => {
             let ((a_r, a_w), (b_r, b_w)) = duplex();
-            let version_b_for_peer = version_b.clone();
             std::thread::scope(|s| {
                 let peer = s.spawn(move || {
-                    let local_a = local::Exchange::start(a, &version_b_for_peer, x, x);
+                    let local_a = local::Exchange::start(a, x, x);
                     let remote_b = remote::Exchange::start(a_r, a_w);
                     mirror(local_a, remote_b).expect("peer initiator").0
                 });
-                let local_b = local::Exchange::start(b, &version_a, x, x);
+                let local_b = local::Exchange::start(b, x, x);
                 let remote_a = remote::Exchange::start(b_r, b_w);
                 // Test thread plays the responder role on `local_b`;
                 // the initiator-side is the wire proxy `remote_a`. The
                 // matching driver here is `responder`, whose first arg
                 // is the responder side.
-                mirror(remote_a, local_b).expect("test responder").1;
+                mirror(local_b, remote_a).expect("test responder").1;
                 peer.join().expect("peer thread joined")
-            })
-        }
-
-        Scenario::RemoteRemote => {
-            // Three threads: peer A holds tree `a` and drives the
-            // initiator role; peer B holds tree `b` and drives the
-            // responder role; the test thread is a pure relay between
-            // the two via two duplex pipes.
-            let ((a_relay_r, a_relay_w), (a_r, a_w)) = duplex();
-            let ((b_relay_r, b_relay_w), (b_r, b_w)) = duplex();
-            let version_a_for_b = version_a.clone();
-            let version_b_for_a = version_b.clone();
-            std::thread::scope(|s| {
-                let peer_a = s.spawn(move || {
-                    let local_a = local::Exchange::start(a, &version_b_for_a, x, x);
-                    let remote_relay = remote::Exchange::start(a_r, a_w);
-                    mirror(local_a, remote_relay).expect("peer A initiator").0
-                });
-                let peer_b = s.spawn(move || {
-                    let local_b = local::Exchange::start(b, &version_a_for_b, x, x);
-                    let remote_relay = remote::Exchange::start(b_r, b_w);
-                    mirror(remote_relay, local_b).expect("peer B responder").1
-                });
-                let remote_a = remote::Exchange::<P, T, _, _, Root>::start(a_relay_r, a_relay_w);
-                let remote_b = remote::Exchange::<P, T, _, _, Root>::start(b_relay_r, b_relay_w);
-                // Test thread relays: it acts as the responder toward
-                // peer A (reading initiator messages off `remote_a`,
-                // forwarding through `remote_b`) and as the initiator
-                // toward peer B. `initiator(remote_a, remote_b)` is
-                // exactly that.
-                mirror(remote_a, remote_b).expect("relay");
-                let out_a = peer_a.join().expect("peer A joined");
-                let out_b = peer_b.join().expect("peer B joined");
-                assert_eq!(out_a, out_b, "relay endpoints should converge");
-                out_a
             })
         }
     }
@@ -173,7 +127,6 @@ proptest! {
             Scenario::LocalLocal,
             Scenario::LocalRemote,
             Scenario::RemoteLocal,
-            Scenario::RemoteRemote,
         ] {
             prop_assert_eq!(mirror_via(a.clone(), a.clone(), scenario), a.clone());
         }
@@ -190,7 +143,6 @@ proptest! {
             Scenario::LocalLocal,
             Scenario::LocalRemote,
             Scenario::RemoteLocal,
-            Scenario::RemoteRemote,
         ] {
             prop_assert_eq!(
                 mirror_via(a.clone(), b.clone(), scenario),
@@ -210,7 +162,6 @@ proptest! {
             Scenario::LocalLocal,
             Scenario::LocalRemote,
             Scenario::RemoteLocal,
-            Scenario::RemoteRemote,
         ] {
             let ab = mirror_via(a.clone(), b.clone(), scenario);
             prop_assert_eq!(mirror_via(ab.clone(), b.clone(), scenario), ab);
@@ -229,7 +180,6 @@ proptest! {
             Scenario::LocalLocal,
             Scenario::LocalRemote,
             Scenario::RemoteLocal,
-            Scenario::RemoteRemote,
         ] {
             let ab_c = mirror_via(
                 mirror_via(a.clone(), b.clone(), scenario),
@@ -283,7 +233,6 @@ proptest! {
             Scenario::LocalLocal,
             Scenario::LocalRemote,
             Scenario::RemoteLocal,
-            Scenario::RemoteRemote,
         ] {
             let mirrored = mirror_via(node_a.clone(), node_b.clone(), scenario);
             prop_assert_eq!(mirrored, expected.clone());

@@ -54,6 +54,7 @@ use crate::tree::typed::{
     Node,
     height::{Height, Root, S, Z},
 };
+use crate::version::Version;
 
 use super::message::{self, UnderRoot, UnderUnderRoot};
 use super::protocol::{self, Step};
@@ -75,17 +76,34 @@ impl From<borsh::io::Error> for Error {
     }
 }
 
+/// The version state for an [`Exchange`] which has just been initialized but
+/// has not yet connected.
+pub struct Start;
+
+/// The version state for an [`Exchange`] which has sent its version to its peer
+/// but has not yet received its peer's version.
+pub struct Connecting<P>
+where
+    P: Clone + Ord + AsRef<[u8]>,
+{
+    our_version: Version<P>,
+}
+
+/// The version state for an [`Exchange`] which has sent and received versions
+/// with its peer, and so can proceed to the rest of the protocol.
+pub struct Connected;
+
 /// A wire-bound proxy of the counterparty at protocol height `H`. Holds the
 /// underlying reader/writer and a phantom tag pinning the height; the
 /// counterparty's actual zipper lives on the far side of the wire.
-pub struct Exchange<P, T, R, W, H: Height> {
+pub struct Exchange<P, T, R, W, V, H: Height> {
     reader: R,
     writer: W,
     #[allow(clippy::type_complexity)]
-    _phantom: PhantomData<fn() -> (P, T, H)>,
+    _phantom: PhantomData<fn() -> (P, T, V, H)>,
 }
 
-impl<P, T, R, W> Exchange<P, T, R, W, Root> {
+impl<P, T, R, W> Exchange<P, T, R, W, Start, Root> {
     /// Wrap a `(reader, writer)` pair as a [`Exchange`], ready to start
     /// the protocol.
     pub fn start(reader: R, writer: W) -> Self {
@@ -97,9 +115,10 @@ impl<P, T, R, W> Exchange<P, T, R, W, Root> {
     }
 }
 
-impl<P, T, R, W, H: Height> Exchange<P, T, R, W, H> {
-    /// Wrap a `(reader, writer)` pair as a [`Exchange`].
-    fn new(reader: R, writer: W) -> Self {
+impl<P, T, R, W, H: Height> Exchange<P, T, R, W, Connected, H> {
+    /// Wrap a `(reader, writer)` pair as a [`Exchange`], ready to start
+    /// the protocol.
+    fn connected(reader: R, writer: W) -> Self {
         Self {
             reader,
             writer,
@@ -108,7 +127,7 @@ impl<P, T, R, W, H: Height> Exchange<P, T, R, W, H> {
     }
 }
 
-impl<P, T, R, W, H: Height> protocol::Stage for Exchange<P, T, R, W, H> {
+impl<P, T, R, W, V, H: Height> protocol::Stage for Exchange<P, T, R, W, V, H> {
     type Height = H;
     /// The reconciled tree lives on the local side; the proxy yields no value.
     type Output = ();
@@ -119,7 +138,42 @@ impl<P, T, R, W, H: Height> protocol::Stage for Exchange<P, T, R, W, H> {
 // pertains to. Together with the [`protocol::AfterExchange`] blanket impls,
 // they discharge every transition in the protocol's height schedule.
 
-impl<P, T, R, W> protocol::Initiator<P, T> for Exchange<P, T, R, W, Root>
+impl<P, T, R, W> protocol::Accept<P, T> for Exchange<P, T, R, W, Start, Root>
+where
+    R: Read,
+    W: Write,
+    T: BorshSerialize + BorshDeserialize,
+    P: BorshSerialize + BorshDeserialize + Clone + Ord + AsRef<[u8]>,
+{
+    type Next = Exchange<P, T, R, W, Connected, Root>;
+
+    fn accept(
+        mut self,
+        their_version: Version<P>,
+    ) -> Result<protocol::Step<Version<P>, Self::Next, Self::Output>, Self::Error> {
+        // Send their version and receive our version back
+        their_version
+            .serialize(&mut self.writer)
+            .map_err(Error::Io)?;
+        self.writer.flush().map_err(Error::Io)?;
+        let our_version = Version::deserialize_reader(&mut self.reader).map_err(Error::Io)?;
+
+        // If the two versions are the same, both sides are immediately done
+        if our_version == their_version {
+            return Ok(protocol::Step::Done {
+                msg: our_version,
+                output: (),
+            });
+        }
+
+        Ok(protocol::Step::Continue {
+            msg: our_version,
+            next: Exchange::connected(self.reader, self.writer),
+        })
+    }
+}
+
+impl<P, T, R, W> protocol::Initiator<P, T> for Exchange<P, T, R, W, Connected, Root>
 where
     P: Clone + Ord + AsRef<[u8]> + BorshSerialize + BorshDeserialize,
     T: BorshDeserialize,
@@ -127,7 +181,7 @@ where
     W: Write,
     Node<P, T, UnderRoot>: BorshDeserialize,
 {
-    type Next = Exchange<P, T, R, W, Root>;
+    type Next = Exchange<P, T, R, W, Connected, Root>;
 
     fn initiator(mut self) -> Result<Step<message::Initiate, Self::Next, Infallible>, Error> {
         // No write: the real initiator (on the far side of the wire) has
@@ -137,12 +191,12 @@ where
         // is `Infallible`, so `Done` is uninhabitable here.
         Ok(Step::Continue {
             msg,
-            next: Exchange::new(self.reader, self.writer),
+            next: Exchange::connected(self.reader, self.writer),
         })
     }
 }
 
-impl<P, T, R, W> protocol::Responder<P, T> for Exchange<P, T, R, W, Root>
+impl<P, T, R, W> protocol::Responder<P, T> for Exchange<P, T, R, W, Connected, Root>
 where
     P: Clone + Ord + AsRef<[u8]> + BorshSerialize + BorshDeserialize,
     T: BorshDeserialize,
@@ -150,7 +204,7 @@ where
     W: Write,
     Node<P, T, UnderRoot>: BorshDeserialize,
 {
-    type Next = Exchange<P, T, R, W, UnderRoot>;
+    type Next = Exchange<P, T, R, W, Connected, UnderRoot>;
 
     fn responder(
         mut self,
@@ -167,12 +221,12 @@ where
         let response = message::Opening::deserialize_reader(&mut self.reader).map_err(Error::Io)?;
         Ok(Step::Continue {
             msg: response,
-            next: Exchange::new(self.reader, self.writer),
+            next: Exchange::connected(self.reader, self.writer),
         })
     }
 }
 
-impl<P, T, R, W> protocol::OpenInitiator<P, T> for Exchange<P, T, R, W, Root>
+impl<P, T, R, W> protocol::OpenInitiator<P, T> for Exchange<P, T, R, W, Connected, Root>
 where
     P: Clone + Ord + AsRef<[u8]> + BorshSerialize + BorshDeserialize,
     T: BorshDeserialize,
@@ -180,7 +234,7 @@ where
     W: Write,
     Node<P, T, UnderRoot>: BorshDeserialize,
 {
-    type Next = Exchange<P, T, R, W, UnderUnderRoot>;
+    type Next = Exchange<P, T, R, W, Connected, UnderUnderRoot>;
 
     fn open_initiator(
         mut self,
@@ -204,13 +258,13 @@ where
         } else {
             Ok(Step::Continue {
                 msg: response,
-                next: Exchange::new(self.reader, self.writer),
+                next: Exchange::connected(self.reader, self.writer),
             })
         }
     }
 }
 
-impl<P, T, R, W, H> protocol::Exchange<P, T> for Exchange<P, T, R, W, S<S<H>>>
+impl<P, T, R, W, H> protocol::Exchange<P, T> for Exchange<P, T, R, W, Connected, S<S<H>>>
 where
     P: Clone + Ord + AsRef<[u8]> + BorshSerialize + BorshDeserialize,
     T: BorshDeserialize,
@@ -223,9 +277,9 @@ where
     // Assumed at impl-validation time so we don't have to case-analyze `H`
     // here: at use sites `H` is concrete and one of the three blanket impls
     // in `super::protocol` discharges it.
-    Exchange<P, T, R, W, H>: protocol::AfterExchange<P, T, H>,
+    Exchange<P, T, R, W, Connected, H>: protocol::AfterExchange<P, T, H>,
 {
-    type Next = Exchange<P, T, R, W, H>;
+    type Next = Exchange<P, T, R, W, Connected, H>;
 
     fn exchange(
         mut self,
@@ -254,20 +308,20 @@ where
         } else {
             Ok(Step::Continue {
                 msg: response,
-                next: Exchange::new(self.reader, self.writer),
+                next: Exchange::connected(self.reader, self.writer),
             })
         }
     }
 }
 
-impl<P, T, R, W> protocol::CloseInitiator<P, T> for Exchange<P, T, R, W, S<S<Z>>>
+impl<P, T, R, W> protocol::CloseInitiator<P, T> for Exchange<P, T, R, W, Connected, S<S<Z>>>
 where
     P: Clone + Ord + AsRef<[u8]> + BorshSerialize + BorshDeserialize,
     T: BorshDeserialize,
     R: Read,
     W: Write,
 {
-    type Next = Exchange<P, T, R, W, Z>;
+    type Next = Exchange<P, T, R, W, Connected, Z>;
 
     fn close_initiator(
         mut self,
@@ -296,7 +350,7 @@ where
     }
 }
 
-impl<P, T, R, W> protocol::CompleteResponder<P, T> for Exchange<P, T, R, W, S<Z>>
+impl<P, T, R, W> protocol::CompleteResponder<P, T> for Exchange<P, T, R, W, Connected, S<Z>>
 where
     P: Clone + Ord + AsRef<[u8]> + BorshSerialize + BorshDeserialize,
     T: BorshDeserialize,
@@ -331,7 +385,7 @@ where
     }
 }
 
-impl<P, T, R, W> protocol::CompleteInitiator<P, T> for Exchange<P, T, R, W, Z>
+impl<P, T, R, W> protocol::CompleteInitiator<P, T> for Exchange<P, T, R, W, Connected, Z>
 where
     P: Clone + Ord + AsRef<[u8]> + BorshSerialize,
     R: Read,
