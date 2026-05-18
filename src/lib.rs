@@ -18,7 +18,7 @@ mod tree;
 mod version;
 
 /// A local set of rumors, which we can add to, remove from, and gossip to peers.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Local<T>(Tree<T>);
 
 /// A remote connection to another peer in the gossip network.
@@ -43,7 +43,9 @@ pub use mirror::remote::Error;
 pub use tree::Key;
 pub use version::Version;
 
-impl<T: BorshDeserialize + BorshSerialize> Local<T> {
+pub use borsh;
+
+impl<T> Local<T> {
     /// Create a new set of rumors, localized to the given party.
     ///
     /// It is assumed that parties are *globally unique* within the context
@@ -65,6 +67,7 @@ impl<T: BorshDeserialize + BorshSerialize> Local<T> {
     /// correspond to the order of the messages*.
     pub fn message<OnMessage, I>(&mut self, messages: I, mut on_message: OnMessage)
     where
+        T: BorshSerialize,
         I: IntoIterator<Item = T>,
         OnMessage: FnMut(Key, &Version, &Arc<T>),
     {

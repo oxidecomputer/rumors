@@ -2,7 +2,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use super::typed;
 
-/// An identifier for a unique item in the tree.
+/// An opaque identifier for a message in a local rumor set.
 #[derive(
     Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash, BorshSerialize, BorshDeserialize,
 )]
