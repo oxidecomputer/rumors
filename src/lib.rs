@@ -341,6 +341,24 @@ pub use version::Version;
 /// ```
 pub use borsh;
 
+/// A placeholder `on_message` callback that discards every observation.
+///
+/// Useful when calling [`Local::message`], [`Local::redact`],
+/// [`Local::process`], [`Remote::gossip`], or [`Sync::gossip`] purely for
+/// their side-effects on the rumor set, with no need to observe individual
+/// messages as they arrive.
+///
+/// # Example
+///
+/// ```
+/// use rumors::{Local, ignore};
+///
+/// let mut alice: Local<String> = Local::for_party("alice");
+/// // Drop every observation rather than passing an `|_, _, _| {}` closure.
+/// alice.message(["hello".to_string(), "world".to_string()], ignore);
+/// ```
+pub fn ignore<T>(_key: Key, _version: &Version, _message: &Arc<T>) {}
+
 impl<T> Local<T> {
     /// Create a new set of rumors, localized to the given party.
     ///
