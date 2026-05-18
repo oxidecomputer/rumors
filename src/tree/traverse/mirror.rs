@@ -4,10 +4,13 @@ use std::cmp::Ordering;
 
 use seq_macro::seq;
 
-mod local;
-mod message;
+use crate::version::Version;
+
+pub mod local;
 pub mod protocol;
 pub mod remote;
+
+mod message;
 
 #[cfg(test)]
 mod message_test;
@@ -78,7 +81,10 @@ pub enum Error<C, S> {
 }
 
 /// Drive a mirror protocol client against a server to synchronize both of them.
-pub fn mirror<C, S, P, T>(c: C, s: S) -> Result<(C::Output, S::Output), Error<C::Error, S::Error>>
+pub fn mirror<C, S, P, T>(
+    c: C,
+    s: S,
+) -> Result<(Version<P>, C::Output, S::Output), Error<C::Error, S::Error>>
 where
     P: Clone + Ord + AsRef<[u8]>,
     C: Client<P, T>,
@@ -102,15 +108,24 @@ where
         Step::Done {
             msg: x,
             output: server_output,
-        } => match c.complete_connect(x).map_err(Error::Client)? {
-            Step::Continue { .. } => {
-                unreachable!("client and server disagree about whether versions match")
-            }
-            Step::Done {
-                msg: (),
-                output: client_output,
-            } => return Ok((client_output, server_output)),
-        },
+        } => {
+            let server_version = x.clone();
+            match c.complete_connect(x).map_err(Error::Client)? {
+                Step::Continue { .. } => {
+                    unreachable!("client and server disagree about whether versions match")
+                }
+                Step::Done {
+                    msg: (),
+                    output: client_output,
+                } => {
+                    debug_assert!(
+                        client_version == server_version,
+                        "server and client must agree on version to quit early"
+                    );
+                    return Ok((client_version, client_output, server_output));
+                }
+            };
+        }
     };
 
     // We know at this point that the client and server versions are different;
@@ -143,7 +158,7 @@ where
         match r {}
     }
 
-    match server_version.versions().cmp(client_version.versions()) {
+    let (c, s) = match server_version.versions().cmp(client_version.versions()) {
         // If the server version is less, the client is the initiator:
         Ordering::Less => mirror_connected(c, s),
         // When running the server as the initiator, rearrange the result:
@@ -155,5 +170,7 @@ where
             }),
         },
         Ordering::Equal => unreachable!("server and client must bail early if versions match"),
-    }
+    }?;
+
+    Ok((client_version | server_version, c, s))
 }

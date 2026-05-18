@@ -14,4 +14,5 @@ pub use get::{Paths, get};
 mod unknown;
 pub use unknown::unknown;
 
-mod mirror;
+pub mod mirror;
+pub use mirror::mirror;

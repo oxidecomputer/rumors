@@ -99,7 +99,7 @@ where
 /// `L` is our zipper, parameterised by the height of its bottom level; as the
 /// protocol descends, each [`Self::exchange`] call returns a new `Exchange`
 /// whose `L` is two heights below the previous one.
-pub struct Exchange<OnRecv, OnSend, V, L>
+pub struct Exchange<OnSend, OnRecv, V, L>
 where
     L: Levels,
     L::Party: Clone + Ord + AsRef<[u8]>,
@@ -121,11 +121,11 @@ where
     on_send: OnSend,
 }
 
-impl<OnRecv, OnSend, P, T> Exchange<OnRecv, OnSend, Start, Top<P, T>>
+impl<OnSend, OnRecv, P, T> Exchange<OnSend, OnRecv, Start, Top<P, T>>
 where
     P: Clone + Ord + AsRef<[u8]>,
 {
-    pub fn start(node: Option<Node<P, T, Root>>, on_recv: OnRecv, on_send: OnSend) -> Self {
+    pub fn start(node: Option<Node<P, T, Root>>, on_send: OnSend, on_recv: OnRecv) -> Self {
         Self {
             levels: Node::levels(node),
             their_version: Start,
@@ -137,7 +137,7 @@ where
 
 // We define a local `Exchage`'s participation in the protocol as such:
 
-impl<OnRecv, OnSend, V, L> protocol::Stage for Exchange<OnRecv, OnSend, V, L>
+impl<OnSend, OnRecv, V, L> protocol::Stage for Exchange<OnSend, OnRecv, V, L>
 where
     L: Levels,
     L::Party: Clone + Ord + AsRef<[u8]>,
@@ -149,13 +149,13 @@ where
     type Error = Infallible;
 }
 
-impl<P, T, OnRecv, OnSend> protocol::Connect<P, T> for Exchange<OnRecv, OnSend, Start, Top<P, T>>
+impl<P, T, OnSend, OnRecv> protocol::Connect<P, T> for Exchange<OnSend, OnRecv, Start, Top<P, T>>
 where
     P: Clone + Ord + AsRef<[u8]>,
     OnRecv: FnMut(&Version<P>, Key, &Message<T>),
     OnSend: FnMut(&Version<P>, Key, &Message<T>),
 {
-    type Next = Exchange<OnRecv, OnSend, Connecting, Top<P, T>>;
+    type Next = Exchange<OnSend, OnRecv, Connecting, Top<P, T>>;
 
     fn connect(self) -> Result<protocol::Step<Version<P>, Self::Next, Infallible>, Self::Error> {
         let our_version = self
@@ -180,14 +180,14 @@ where
     }
 }
 
-impl<P, T, OnRecv, OnSend> protocol::CompleteConnect<P, T>
-    for Exchange<OnRecv, OnSend, Connecting, Top<P, T>>
+impl<P, T, OnSend, OnRecv> protocol::CompleteConnect<P, T>
+    for Exchange<OnSend, OnRecv, Connecting, Top<P, T>>
 where
     P: Clone + Ord + AsRef<[u8]>,
     OnRecv: FnMut(&Version<P>, Key, &Message<T>),
     OnSend: FnMut(&Version<P>, Key, &Message<T>),
 {
-    type Next = Exchange<OnRecv, OnSend, Connected<P>, Top<P, T>>;
+    type Next = Exchange<OnSend, OnRecv, Connected<P>, Top<P, T>>;
 
     fn complete_connect(
         self,
@@ -220,13 +220,13 @@ where
     }
 }
 
-impl<P, T, OnRecv, OnSend> protocol::Accept<P, T> for Exchange<OnRecv, OnSend, Start, Top<P, T>>
+impl<P, T, OnSend, OnRecv> protocol::Accept<P, T> for Exchange<OnSend, OnRecv, Start, Top<P, T>>
 where
     P: Clone + Ord + AsRef<[u8]>,
     OnRecv: FnMut(&Version<P>, Key, &Message<T>),
     OnSend: FnMut(&Version<P>, Key, &Message<T>),
 {
-    type Next = Exchange<OnRecv, OnSend, Connected<P>, Top<P, T>>;
+    type Next = Exchange<OnSend, OnRecv, Connected<P>, Top<P, T>>;
 
     fn accept(
         self,
@@ -262,14 +262,14 @@ where
     }
 }
 
-impl<P, T, OnRecv, OnSend> protocol::Initiator<P, T>
-    for Exchange<OnRecv, OnSend, Connected<P>, Top<P, T>>
+impl<P, T, OnSend, OnRecv> protocol::Initiator<P, T>
+    for Exchange<OnSend, OnRecv, Connected<P>, Top<P, T>>
 where
     P: Clone + Ord + AsRef<[u8]>,
     OnRecv: FnMut(&Version<P>, Key, &Message<T>),
     OnSend: FnMut(&Version<P>, Key, &Message<T>),
 {
-    type Next = Exchange<OnRecv, OnSend, Connected<P>, Top<P, T>>;
+    type Next = Exchange<OnSend, OnRecv, Connected<P>, Top<P, T>>;
 
     fn initiator(
         self,
@@ -287,14 +287,14 @@ where
     }
 }
 
-impl<P, T, OnRecv, OnSend> protocol::Responder<P, T>
-    for Exchange<OnRecv, OnSend, Connected<P>, Top<P, T>>
+impl<P, T, OnSend, OnRecv> protocol::Responder<P, T>
+    for Exchange<OnSend, OnRecv, Connected<P>, Top<P, T>>
 where
     P: Clone + Ord + AsRef<[u8]>,
     OnRecv: FnMut(&Version<P>, Key, &Message<T>),
     OnSend: FnMut(&Version<P>, Key, &Message<T>),
 {
-    type Next = Exchange<OnRecv, OnSend, Connected<P>, Below<UnderRoot, Top<P, T>>>;
+    type Next = Exchange<OnSend, OnRecv, Connected<P>, Below<UnderRoot, Top<P, T>>>;
 
     fn responder(
         mut self,
@@ -341,15 +341,15 @@ where
     }
 }
 
-impl<P, T, OnRecv, OnSend, L> protocol::OpenInitiator<P, T>
-    for Exchange<OnRecv, OnSend, Connected<P>, L>
+impl<P, T, OnSend, OnRecv, L> protocol::OpenInitiator<P, T>
+    for Exchange<OnSend, OnRecv, Connected<P>, L>
 where
     P: Clone + Ord + AsRef<[u8]>,
     OnRecv: FnMut(&Version<P>, Key, &Message<T>),
     OnSend: FnMut(&Version<P>, Key, &Message<T>),
     L: Levels<Party = P, Message = T, Height = Root>,
 {
-    type Next = Exchange<OnRecv, OnSend, Connected<P>, Below<UnderUnderRoot, Below<UnderRoot, L>>>;
+    type Next = Exchange<OnSend, OnRecv, Connected<P>, Below<UnderUnderRoot, Below<UnderRoot, L>>>;
 
     fn open_initiator(
         self,
@@ -366,8 +366,8 @@ where
     }
 }
 
-impl<P, T, H, OnRecv, OnSend, L> protocol::Exchange<P, T>
-    for Exchange<OnRecv, OnSend, Connected<P>, L>
+impl<P, T, H, OnSend, OnRecv, L> protocol::Exchange<P, T>
+    for Exchange<OnSend, OnRecv, Connected<P>, L>
 where
     P: Clone + Ord + AsRef<[u8]>,
     OnRecv: FnMut(&Version<P>, Key, &Message<T>),
@@ -379,10 +379,10 @@ where
     // Assumed at impl-validation time so we don't have to case-analyze `H`
     // here: at use sites `H` is concrete and one of the three blanket impls
     // discharges it.
-    Exchange<OnRecv, OnSend, Connected<P>, Below<H, Below<S<H>, L>>>:
+    Exchange<OnSend, OnRecv, Connected<P>, Below<H, Below<S<H>, L>>>:
         protocol::AfterExchange<P, T, H>,
 {
-    type Next = Exchange<OnRecv, OnSend, Connected<P>, Below<H, Below<S<H>, L>>>;
+    type Next = Exchange<OnSend, OnRecv, Connected<P>, Below<H, Below<S<H>, L>>>;
 
     fn exchange(
         self,
@@ -395,15 +395,15 @@ where
     }
 }
 
-impl<P, T, OnRecv, OnSend, L> protocol::CloseInitiator<P, T>
-    for Exchange<OnRecv, OnSend, Connected<P>, L>
+impl<P, T, OnSend, OnRecv, L> protocol::CloseInitiator<P, T>
+    for Exchange<OnSend, OnRecv, Connected<P>, L>
 where
     P: Clone + Ord + AsRef<[u8]>,
     OnRecv: FnMut(&Version<P>, Key, &Message<T>),
     OnSend: FnMut(&Version<P>, Key, &Message<T>),
     L: Levels<Party = P, Message = T, Height = S<S<Z>>>,
 {
-    type Next = Exchange<OnRecv, OnSend, Connected<P>, Below<Z, Below<S<Z>, L>>>;
+    type Next = Exchange<OnSend, OnRecv, Connected<P>, Below<Z, Below<S<Z>, L>>>;
 
     fn close_initiator(
         self,
@@ -416,8 +416,8 @@ where
     }
 }
 
-impl<P, T, OnRecv, OnSend, L> protocol::CompleteResponder<P, T>
-    for Exchange<OnRecv, OnSend, Connected<P>, L>
+impl<P, T, OnSend, OnRecv, L> protocol::CompleteResponder<P, T>
+    for Exchange<OnSend, OnRecv, Connected<P>, L>
 where
     P: Clone + Ord + AsRef<[u8]>,
     OnRecv: FnMut(&Version<P>, Key, &Message<T>),
@@ -440,8 +440,8 @@ where
     }
 }
 
-impl<P, T, OnRecv, OnSend, L> protocol::CompleteInitiator<P, T>
-    for Exchange<OnRecv, OnSend, Connected<P>, L>
+impl<P, T, OnSend, OnRecv, L> protocol::CompleteInitiator<P, T>
+    for Exchange<OnSend, OnRecv, Connected<P>, L>
 where
     P: Clone + Ord + AsRef<[u8]>,
     OnRecv: FnMut(&Version<P>, Key, &Message<T>),
@@ -485,7 +485,7 @@ where
     exploded: OrdMap<Prefix<H>, Node<P, T, H>>,
 }
 
-impl<OnSend, OnRecv, L> Exchange<OnRecv, OnSend, Connected<L::Party>, L>
+impl<OnSend, OnRecv, L> Exchange<OnSend, OnRecv, Connected<L::Party>, L>
 where
     L: Levels,
     L::Party: Clone + Ord + AsRef<[u8]>,
@@ -705,7 +705,7 @@ where
         request: Request,
     ) -> protocol::Step<
         Response,
-        Exchange<OnRecv, OnSend, Connected<L::Party>, Below<H, Below<S<H>, L>>>,
+        Exchange<OnSend, OnRecv, Connected<L::Party>, Below<H, Below<S<H>, L>>>,
         Option<Node<L::Party, L::Message, Root>>,
     >
     where

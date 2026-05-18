@@ -11,7 +11,7 @@ mod arb;
 use crate::{
     message::Message,
     tree::{
-        traverse::Paths,
+        traverse::{Paths, mirror},
         typed::{Hash, Node},
     },
     version::Version,
@@ -110,6 +110,25 @@ impl<T> Tree<T> {
             unknown.push((v.clone(), k, m.clone()))
         });
         unknown
+    }
+
+    pub fn mirror<S, OnSend, OnRecv>(
+        &mut self,
+        remote: S,
+        on_send: OnSend,
+        on_recv: OnRecv,
+    ) -> Result<(), S::Error>
+    where
+        S: mirror::protocol::Server<Bytes, T>,
+        OnRecv: FnMut(&Version, Key, &Message<T>),
+        OnSend: FnMut(&Version, Key, &Message<T>),
+    {
+        let local = mirror::local::Exchange::start(self.root.take(), on_send, on_recv);
+        (self.version, self.root, _) = mirror(local, remote).map_err(|e| match e {
+            mirror::Error::Client(e) => match e {},
+            mirror::Error::Server(e) => e,
+        })?;
+        Ok(())
     }
 
     /// Apply the specified actions as a batch to the tree, incrementing its

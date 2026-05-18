@@ -13,26 +13,17 @@ use super::{local, mirror, remote};
 /// Which mirror-protocol arrangement to drive: the cardinal product of
 /// `{local, remote}` for the initiator side and the responder side.
 ///
-/// In every variant, "A" is the initiator (holds tree `a`) and "B" is the
-/// responder (holds tree `b`). What varies is which side's state the *test
+/// In every variant, "A" is the client (holds tree `a`) and "B" is the
+/// server (holds tree `b`). What varies is which side's state the *test
 /// thread* holds directly (`Local`) versus accesses via a wire proxy
-/// (`Remote`). The variants exercise all four `(local::Exchange,
-/// remote::Exchange)` pairings of arguments to `initiator` /
-/// `responder` so the `Peer<P, T>` bound is checked under every concrete
-/// type combination.
+/// (`Remote`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Scenario {
     /// Single-threaded, all in-memory: `initiator(local_a, local_b)`.
     LocalLocal,
     /// Test thread holds A locally; B runs on a peer thread reachable
-    /// over a duplex pipe. Test thread calls `initiator(local_a,
-    /// remote_b)`; peer thread calls `responder(local_b, remote_a)`.
+    /// over a duplex pipe.
     LocalRemote,
-    /// Symmetric to [`LocalRemote`]: test thread holds B locally; A runs
-    /// on a peer thread. Test thread calls `initiator(remote_a, local_b)`
-    /// (driving the initiator role through a wire proxy); peer thread
-    /// calls `initiator(local_a, remote_b)`.
-    RemoteLocal,
 }
 
 /// Two `(reader, writer)` halves of a full-duplex byte channel: the
@@ -74,7 +65,10 @@ where
         Scenario::LocalLocal => {
             let local_a = local::Exchange::start(a, x, x);
             let local_b = local::Exchange::start(b, x, x);
-            mirror(local_a, local_b).expect("local-local mirror").0
+            match mirror(local_a, local_b) {
+                Err(e) => match e {},
+                Ok(result) => result.1,
+            }
         }
 
         Scenario::LocalRemote => {
@@ -85,37 +79,20 @@ where
                 let peer = s.spawn(move || {
                     let local_b = local::Exchange::start(b, x, x);
                     let remote_a = remote::Exchange::start(b_r, b_w);
-                    mirror(local_b, remote_a).expect("peer responder").0
+                    mirror(local_b, remote_a).expect("peer server").1
                 });
                 let local_a = local::Exchange::start(a, x, x);
                 let remote_b = remote::Exchange::start(a_r, a_w);
-                let out = mirror(local_a, remote_b).expect("test initiator").0;
+                let out = mirror(local_a, remote_b).expect("test client").1;
                 let peer_out = peer.join().expect("peer thread joined");
                 assert_eq!(out, peer_out, "local-remote endpoints should converge");
                 out
             })
         }
-
-        Scenario::RemoteLocal => {
-            let ((a_r, a_w), (b_r, b_w)) = duplex();
-            std::thread::scope(|s| {
-                let peer = s.spawn(move || {
-                    let local_a = local::Exchange::start(a, x, x);
-                    let remote_b = remote::Exchange::start(a_r, a_w);
-                    mirror(local_a, remote_b).expect("peer initiator").0
-                });
-                let local_b = local::Exchange::start(b, x, x);
-                let remote_a = remote::Exchange::start(b_r, b_w);
-                // Test thread plays the responder role on `local_b`;
-                // the initiator-side is the wire proxy `remote_a`. The
-                // matching driver here is `responder`, whose first arg
-                // is the responder side.
-                mirror(local_b, remote_a).expect("test responder").1;
-                peer.join().expect("peer thread joined")
-            })
-        }
     }
 }
+
+const SCENARIOS: [Scenario; 2] = [Scenario::LocalLocal, Scenario::LocalRemote];
 
 proptest! {
 
@@ -123,11 +100,7 @@ proptest! {
     /// identical content and versions, so the reconciled tree is unchanged.
     #[test]
     fn idempotent(a in arb_root_tree("a", 0..=8)) {
-        for scenario in [
-            Scenario::LocalLocal,
-            Scenario::LocalRemote,
-            Scenario::RemoteLocal,
-        ] {
+        for scenario in SCENARIOS {
             prop_assert_eq!(mirror_via(a.clone(), a.clone(), scenario), a.clone());
         }
     }
@@ -139,11 +112,7 @@ proptest! {
         a in arb_root_tree("a", 0..=8),
         b in arb_root_tree("b", 0..=8),
     ) {
-        for scenario in [
-            Scenario::LocalLocal,
-            Scenario::LocalRemote,
-            Scenario::RemoteLocal,
-        ] {
+        for scenario in SCENARIOS {
             prop_assert_eq!(
                 mirror_via(a.clone(), b.clone(), scenario),
                 mirror_via(b.clone(), a.clone(), scenario),
@@ -158,11 +127,7 @@ proptest! {
         a in arb_root_tree("a", 0..=8),
         b in arb_root_tree("b", 0..=8),
     ) {
-        for scenario in [
-            Scenario::LocalLocal,
-            Scenario::LocalRemote,
-            Scenario::RemoteLocal,
-        ] {
+        for scenario in SCENARIOS {
             let ab = mirror_via(a.clone(), b.clone(), scenario);
             prop_assert_eq!(mirror_via(ab.clone(), b.clone(), scenario), ab);
         }
@@ -176,11 +141,7 @@ proptest! {
         b in arb_root_tree("b", 0..=4),
         c in arb_root_tree("c", 0..=4),
     ) {
-        for scenario in [
-            Scenario::LocalLocal,
-            Scenario::LocalRemote,
-            Scenario::RemoteLocal,
-        ] {
+        for scenario in SCENARIOS {
             let ab_c = mirror_via(
                 mirror_via(a.clone(), b.clone(), scenario),
                 c.clone(),
@@ -229,11 +190,7 @@ proptest! {
         all_actions.extend(actions_b);
         let expected = act(None, all_actions);
 
-        for scenario in [
-            Scenario::LocalLocal,
-            Scenario::LocalRemote,
-            Scenario::RemoteLocal,
-        ] {
+        for scenario in SCENARIOS {
             let mirrored = mirror_via(node_a.clone(), node_b.clone(), scenario);
             prop_assert_eq!(mirrored, expected.clone());
         }
