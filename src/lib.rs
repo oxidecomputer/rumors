@@ -63,30 +63,29 @@ impl<T: BorshDeserialize + BorshSerialize> Local<T> {
     ///
     /// The order of execution for `on_message` is *arbitrary* and *does not
     /// correspond to the order of the messages*.
-    pub fn message(
-        &mut self,
-        messages: impl IntoIterator<Item = T>,
-        mut on_message: impl FnMut(Key, &Version, &Arc<T>),
-    ) {
+    pub fn message<OnMessage, I>(&mut self, messages: I, mut on_message: OnMessage)
+    where
+        I: IntoIterator<Item = T>,
+        OnMessage: FnMut(Key, &Version, &Arc<T>),
+    {
         self.0.act(
             messages.into_iter().map(Message::from).map(Action::Insert),
             |v, k, m| m.as_ref().iter().for_each(|m| on_message(k, v, m.as_ref())),
         );
     }
 
-    /// Garbage-collect a set of message keys so that they will no longer be
-    /// gossiped to other peers.
+    /// Redact a set of message keys so that they will no longer be gossiped to
+    /// other peers, and those peers we gossip with will in turn redact them.
     ///
-    /// The [`Key`] required to garbage-collect a message is provided originally
-    /// to whichever `on_message` closure observed the message during insertion,
+    /// The [`Key`] required to redact a message is provided originally to
+    /// whichever `on_message` closure observed the message during insertion,
     /// in one of [`Local::message`], [`Local::process`], or [`Remote::gossip`].
     ///
-    /// Once a message key is garbage-collected by one peer, this is
-    /// contagious to all other peers without them needing to garbage-collect
-    /// the message themselves.
-    pub fn garbage(&mut self, garbage: impl IntoIterator<Item = Key>) {
+    /// Once a message key is redacted by one peer, this is contagious to all
+    /// other peers without them needing to redact the message themselves.
+    pub fn redact<I: IntoIterator<Item = Key>>(&mut self, redacted: I) {
         self.0
-            .act(garbage.into_iter().map(Action::Forget), |_, _, _| {});
+            .act(redacted.into_iter().map(Action::Forget), |_, _, _| {});
     }
 
     /// Local rumor sets can be trivially cloned to allow concurrent gossiping;
