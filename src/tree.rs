@@ -1,5 +1,3 @@
-use std::mem;
-
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytes::Bytes;
 
@@ -97,16 +95,19 @@ impl<T> Tree<T> {
     }
 
     /// Get the pre-hashed local party identifier this tree was created for.
+    #[allow(unused)]
     pub fn party(&self) -> &Bytes {
         &self.party
     }
 
     /// Get the root hash for the tree.
+    #[allow(unused)]
     pub fn hash(&self) -> [u8; 32] {
         Node::root_hash(&self.root.clone().into()).into()
     }
 
     /// Get all the values stored at a list of hash paths in the tree.
+    #[allow(unused)]
     pub fn get<I>(&self, paths: I) -> Vec<(Version, Key, Message<T>)>
     where
         I: IntoIterator<Item = Key>,
@@ -129,6 +130,7 @@ impl<T> Tree<T> {
 
     /// Get all the values in this tree which are unknown relative to the given
     /// version vector.
+    #[allow(unused)]
     pub fn unknown(&self, version: Version) -> Vec<(Version, Key, Message<T>)> {
         let mut unknown = Vec::new();
         traverse::unknown(self.root.clone().into(), &version, &mut |v, k, m| {
@@ -137,11 +139,16 @@ impl<T> Tree<T> {
         unknown
     }
 
-    /// Apply the specified actions as a batch to the tree, incrementing its
-    /// internal version vector.
+    /// Apply the specified actions as a batch to the tree, advancing its
+    /// internal version vector once per insert.
     ///
-    /// If multiple actions refer to the same leaf of the tree, the last
-    /// specified action wins.
+    /// Each [`Action::Insert`] advances the local party's component of the
+    /// version vector by one before the leaf's path is derived; the inserts
+    /// in a batch are therefore assigned strictly-increasing versions in the
+    /// order they appear, and two content-identical messages within a batch
+    /// receive distinct keys. [`Action::Forget`]s do not advance the version,
+    /// and a forget that targets a key derived from an earlier insert in the
+    /// same batch overrides that insert (last action on a path wins).
     ///
     /// Upon insertion or deletion, the corresponding [`Reaction`] to the
     /// specified [`Action`] is provided to the given closure, so that the
@@ -155,32 +162,40 @@ impl<T> Tree<T> {
     /// an O(log n) speedup relative to one-by-one insertion operations, but
     /// since the log base is 256, in practice this is about 2-3x.
     ///
-    /// While [`Tree::react`] is associative, this function is not: each batch
-    /// receives a unique incrementing version, tracked internally.
+    /// Like [`Tree::react`], this function is associative: partitioning a
+    /// sequence of actions across multiple `act` calls produces the same tree
+    /// as a single `act` over their concatenation. The version each insert
+    /// claims depends only on the number of preceding inserts in the running
+    /// sequence, not on which call wrote it.
     pub fn act<I, O>(&mut self, actions: I, mut react: O)
     where
         I: IntoIterator<Item = Action<T>>,
         O: FnMut(&Version, Key, &Option<Message<T>>),
     {
-        // Get the tree's current version, incrementing the local scalar by one.
-        let mut new_version = self.version().clone();
-        new_version.event(&self.party);
-
         // Get the local party.
         let party = self.party.clone();
 
-        // Now apply all the actions in this batch with an identical version,
-        // delegating to the logic in `react`:
-        let reactions = actions.into_iter().map(|action| {
+        // Track the running version vector across the batch, advancing it once
+        // per insert so that content-identical messages produce distinct keys
+        // even when submitted together. Forgets carry the current running
+        // version but do not advance it; an empty batch is a complete no-op.
+        let mut new_version = self.version();
+
+        let reactions = actions.into_iter().map(move |action| {
             // Convert unversioned, unlocalized actions into `Reaction`s
             // which are independent of our local party and current version:
             let (key, value) = match action {
                 Action::Forget(hash) => (hash, None),
-                Action::Insert(value) => (
-                    typed::Path::for_leaf(&party, new_version.for_party(&party), value.bytes())
-                        .into(),
-                    Some(value),
-                ),
+                Action::Insert(value) => {
+                    new_version.event(&party);
+                    let key = typed::Path::for_leaf(
+                        &party,
+                        new_version.for_party(&party),
+                        value.bytes(),
+                    )
+                    .into();
+                    (key, Some(value))
+                }
             };
             react(&new_version, key, &value);
             (new_version.clone(), key, value)

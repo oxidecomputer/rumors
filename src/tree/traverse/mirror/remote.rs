@@ -74,16 +74,7 @@ impl From<borsh::io::Error> for Error {
 /// has not yet connected.
 pub struct Start;
 
-/// The version state for an [`Exchange`] which has sent its version to its peer
-/// but has not yet received its peer's version.
-pub struct Connecting<P>
-where
-    P: Clone + Ord + AsRef<[u8]>,
-{
-    our_version: Version<P>,
-}
-
-/// The version state for an [`Exchange`] which has sent and received versions
+/// The version state for an [`Exchange`] which has received and sent versions
 /// with its peer, and so can proceed to the rest of the protocol.
 pub struct Connected;
 

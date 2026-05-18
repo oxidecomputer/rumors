@@ -4,8 +4,6 @@ use std::cmp::Ordering;
 
 use seq_macro::seq;
 
-use crate::version::Version;
-
 pub mod local;
 pub mod protocol;
 pub mod remote;

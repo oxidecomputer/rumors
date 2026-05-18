@@ -3,7 +3,7 @@ use std::collections::{BTreeSet, HashMap};
 use bytes::Bytes;
 use proptest::prelude::*;
 
-use super::typed::{Hash, Hasher, Path};
+use super::typed::{Hash, Path, hash::Hasher};
 use super::*;
 use crate::message::Message;
 
@@ -233,9 +233,11 @@ fn single_value_hash_matches_reference() {
 
 proptest! {
     /// The compressed tree's root hash must equal the hash computed over the
-    /// fully-expanded uncompressed trie, for any set of inserted values. This
-    /// is the ground-truth invariant for path compression: the hash depends on
-    /// the set of leaves, not on how the tree chooses to compress them.
+    /// fully-expanded uncompressed trie, for any sequence of inserted values.
+    /// This is the ground-truth invariant for path compression: the hash
+    /// depends on the set of leaves, not on how the tree chooses to compress
+    /// them. Each insert in the batch claims a fresh scalar version, so the
+    /// reference input must mirror that per-insert numbering.
     #[test]
     fn compressed_hash_matches_reference(
         values in proptest::collection::vec(any::<Vec<u8>>(), 0..16)
@@ -243,26 +245,68 @@ proptest! {
     ) {
         let mut tree = Tree::for_party("P".to_string());
         tree.act(values.iter().cloned().map(insert_action), |_, _, _| {});
-        let reference_input: Vec<_> =
-            values.into_iter().map(|v| (hashed_party("P"), 1, v)).collect();
+        let reference_input: Vec<_> = values
+            .into_iter()
+            .enumerate()
+            .map(|(i, v)| (hashed_party("P"), (i + 1) as u64, v))
+            .collect();
         let reference = reference_hash(&reference_input);
         prop_assert_eq!(&tree.hash(), reference.as_bytes());
     }
 
-    /// The hash of a tree populated by a single `act` call must not depend on
-    /// the order in which the insert actions are supplied. All inserts share
-    /// the single version bump produced by one `act`, so the leaf multiset is
-    /// identical across permutations.
+    /// `act` is associative under partitioning: splitting a sequence of
+    /// actions across multiple `act` calls produces a structurally-equal
+    /// tree to a single `act` over their concatenation. With per-insert
+    /// versioning each insert's claimed version depends only on the number
+    /// of preceding inserts in the running sequence, so the partition is
+    /// observable only as a batching optimization, not a semantic change.
     #[test]
-    fn batch_order_independent(
-        (base, shuffled) in distinct_bytes_and_permutation(16),
+    fn act_partitioning_preserves_tree(
+        inserts in distinct_bytes(8),
+        deletes in proptest::collection::vec(any::<Key>(), 0..4),
+        interleave in any::<u64>(),
+        breaks in proptest::collection::vec(any::<bool>(), 0..16),
     ) {
-        let mut t_base = Tree::for_party("P".to_string());
-        t_base.act(base.into_iter().map(insert_action), |_, _, _| {});
-        let mut t_shuf = Tree::for_party("P".to_string());
-        t_shuf.act(shuffled.into_iter().map(insert_action), |_, _, _| {});
-        prop_assert_eq!(t_base.hash(), t_shuf.hash());
-        prop_assert_eq!(t_base.version(), t_shuf.version());
+        let party = "P".to_string();
+
+        // Deterministically interleave inserts and forgets, matching the
+        // mixing pattern used by `act_observer_mirrors_actions`.
+        let mut actions: Vec<Action<Bytes>> = Vec::new();
+        let mut ins = inserts.into_iter();
+        let mut del = deletes.into_iter();
+        let mut rng = interleave;
+        loop {
+            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let prefer_insert = rng & 1 == 0;
+            let has_ins = ins.clone().next().is_some();
+            let has_del = del.clone().next().is_some();
+            match (prefer_insert, has_ins, has_del) {
+                (true, true, _) | (false, true, false) => {
+                    actions.push(insert_action(ins.next().unwrap()));
+                }
+                (false, _, true) | (true, false, true) => {
+                    actions.push(Action::Forget(del.next().unwrap()));
+                }
+                _ => break,
+            }
+        }
+        let n = actions.len();
+
+        let mut all_in_one = Tree::for_party(party.clone());
+        all_in_one.act(actions.clone(), |_, _, _| {});
+
+        let mut partitioned = Tree::for_party(party.clone());
+        let mut chunk: Vec<Action<Bytes>> = Vec::new();
+        for (i, a) in actions.into_iter().enumerate() {
+            chunk.push(a);
+            let at_boundary =
+                breaks.get(i).copied().unwrap_or(false) || i + 1 == n;
+            if at_boundary {
+                partitioned.act(std::mem::take(&mut chunk), |_, _, _| {});
+            }
+        }
+
+        prop_assert_eq!(all_in_one, partitioned);
     }
 
     /// A list of versioned actions applied through `react` must produce the
@@ -337,8 +381,9 @@ proptest! {
     }
 
     /// Inserting a value and then deleting its leaf path via two separate `act`
-    /// calls must leave the tree empty (zero root hash) with the version bumped
-    /// exactly twice and the deleted version bumped exactly twice also.
+    /// calls must leave the tree empty (zero root hash). The insert advances
+    /// the party's scalar version by one; the subsequent forget-only batch
+    /// does not advance it further, since only inserts claim fresh versions.
     #[test]
     fn insert_then_delete_is_empty(value in any::<Vec<u8>>()) {
         let party = "P".to_string();
@@ -350,7 +395,7 @@ proptest! {
         tree.act([Action::Forget(path)], |_, _, _| {});
 
         prop_assert_eq!(tree.hash(), [0u8; 32]);
-        prop_assert_eq!(tree.version().for_party(&hashed_party(&party)), 2);
+        prop_assert_eq!(tree.version().for_party(&hashed_party(&party)), 1);
     }
 
     /// Inserting a value and deleting its leaf path within the same `act`
@@ -405,8 +450,9 @@ proptest! {
 
     /// After inserting a set of distinct values via `act`, looking up the
     /// corresponding leaf paths must return the same multiset of values.
-    /// Returned order is arbitrary per `get`'s contract, so we compare as
-    /// sorted multisets.
+    /// Each insert in the batch claims its own scalar version, so we derive
+    /// each path with its position-based version. Returned order is arbitrary
+    /// per `get`'s contract, so we compare as sorted multisets.
     #[test]
     fn get_after_insert_returns_same_multiset(
         bytes in distinct_bytes(16),
@@ -417,7 +463,8 @@ proptest! {
 
         let paths: Vec<Key> = bytes
             .iter()
-            .map(|b| leaf_path(&party, 1, b))
+            .enumerate()
+            .map(|(i, b)| leaf_path(&party, (i + 1) as u64, b))
             .collect();
 
         let mut got: Vec<Bytes> =
@@ -432,7 +479,9 @@ proptest! {
     }
 
     /// Requesting a mix of present and absent paths returns exactly the
-    /// values for the present ones. Absent paths contribute nothing.
+    /// values for the present ones. Absent paths contribute nothing. As with
+    /// the all-present case, each insert claims its own version, so we
+    /// derive each present path with its position-based version.
     #[test]
     fn get_filters_absent_paths(
         bytes in distinct_bytes(8),
@@ -444,7 +493,8 @@ proptest! {
 
         let present_paths: BTreeSet<Key> = bytes
             .iter()
-            .map(|b| leaf_path(&party, 1, b))
+            .enumerate()
+            .map(|(i, b)| leaf_path(&party, (i + 1) as u64, b))
             .collect();
         // Exclude any "extra" paths that happen to collide with a real leaf.
         let absent: Vec<Key> = extra
@@ -467,17 +517,18 @@ proptest! {
         prop_assert_eq!(got, expected);
     }
 
-    /// Every `act` call with a non-empty batch increments the owning party's
-    /// scalar version by exactly one. The internal version tracks the number
-    /// of batches the party has applied, regardless of batch size.
+    /// Every `act` call advances the owning party's scalar version by exactly
+    /// the number of [`Action::Insert`]s in the batch: each insert claims a
+    /// fresh version so that content-identical messages produce distinct keys.
+    /// Forgets do not advance the version.
     #[test]
-    fn act_bumps_self_party_by_one_per_nonempty_batch(
-        prior_batches in 0usize..4,
+    fn act_bumps_self_party_by_number_of_inserts(
+        prior_inserts in 0usize..4,
         batch_size in 1usize..8,
     ) {
         let party = "P".to_string();
         let mut tree = Tree::for_party(party.clone());
-        for i in 0..prior_batches {
+        for i in 0..prior_inserts {
             tree.act([insert_action(Bytes::from(
                 format!("prior-{i}").into_bytes(),
             ))], |_, _, _| {});
@@ -492,7 +543,10 @@ proptest! {
             .collect();
         tree.act(actions, |_, _, _| {});
 
-        prop_assert_eq!(tree.version().for_party(&hashed_party(&party)), before + 1);
+        prop_assert_eq!(
+            tree.version().for_party(&hashed_party(&party)),
+            before + batch_size as u64,
+        );
         prop_assert_eq!(tree.party(), &party_before);
     }
 
@@ -797,7 +851,9 @@ proptest! {
     /// `unknown` relative to the default (empty) version enumerates every
     /// leaf in the tree, each labeled with the exact version vector and
     /// value it was inserted at. This is the "full state transfer" case:
-    /// a peer with no prior knowledge receives the entire leaf set.
+    /// a peer with no prior knowledge receives the entire leaf set. Each
+    /// insert in the batch claims its own scalar version, so the returned
+    /// versions span `1..=N` rather than all sharing a single value.
     #[test]
     fn unknown_relative_to_empty_is_everything(bytes in distinct_bytes(16)) {
         let party = "P".to_string();
@@ -805,18 +861,22 @@ proptest! {
         tree.act(bytes.iter().cloned().map(insert_action), |_, _, _| {});
 
         let got = tree.unknown(Version::default());
-        let v1 = version_for(&party, 1);
 
         let got_paths: BTreeSet<Key> = got.iter().map(|(_, p, _)| *p).collect();
         let expected_paths: BTreeSet<Key> = bytes
             .iter()
-            .map(|b| leaf_path(&party, 1, b))
+            .enumerate()
+            .map(|(i, b)| leaf_path(&party, (i + 1) as u64, b))
             .collect();
         prop_assert_eq!(got_paths, expected_paths);
 
-        for (v, _, _) in &got {
-            prop_assert_eq!(v, &v1);
-        }
+        let mut got_scalars: Vec<u64> = got
+            .iter()
+            .map(|(v, _, _)| v.for_party(&hashed_party(&party)))
+            .collect();
+        got_scalars.sort();
+        let expected_scalars: Vec<u64> = (1..=bytes.len() as u64).collect();
+        prop_assert_eq!(got_scalars, expected_scalars);
 
         let mut got_values: Vec<Bytes> =
             got.into_iter().map(|(_, _, b)| b.clone_into_inner()).collect();
@@ -904,7 +964,8 @@ proptest! {
 
         let a_paths: Vec<Key> = a_inserts
             .iter()
-            .map(|b| leaf_path(&a_id, 1, b))
+            .enumerate()
+            .map(|(i, b)| leaf_path(&a_id, (i + 1) as u64, b))
             .collect();
         let mut got: Vec<Bytes> = tree_b
             .get(a_paths)
@@ -977,10 +1038,11 @@ proptest! {
     /// `act`'s observer closure fires exactly once per supplied action, in
     /// the order the actions were presented, and each emitted `Reaction`
     /// structurally mirrors its originating `Action`: an insert yields an
-    /// `Insert(path, value)` whose path is the leaf path `act` assigned
-    /// for this party at the implicitly-bumped scalar and whose value is
-    /// byte-identical to the original; a delete yields a `Delete(id)`
-    /// with the same id passed through verbatim.
+    /// `Insert(path, value)` whose path is the leaf path `act` assigned at
+    /// the scalar produced by advancing the party's version vector once per
+    /// insert so far, and whose value is byte-identical to the original; a
+    /// forget yields a `(path, None)` reaction with the same id passed
+    /// through verbatim and without advancing the scalar.
     #[test]
     fn act_observer_mirrors_actions(
         prior_batches in 0usize..3,
@@ -996,8 +1058,9 @@ proptest! {
                 |_, _, _| {},
             );
         }
-        // Scalar version that `act` will assign to every action in this batch.
-        let scalar = tree.version().for_party(&hashed_party(&party)) + 1;
+        // Scalar the next insert in the batch will claim; advances by one
+        // for every insert observed and stays put for every forget.
+        let mut running_scalar = tree.version().for_party(&hashed_party(&party));
 
         // Deterministically interleave inserts and deletes so the proptest
         // exercises many orderings without giving up reproducibility.
@@ -1027,8 +1090,12 @@ proptest! {
         for ((path, message), action) in captured.iter().zip(expected_actions.iter()) {
             match (message, action) {
                 (Some(v), Action::Insert(value)) => {
+                    running_scalar += 1;
                     prop_assert_eq!(v, value);
-                    prop_assert_eq!(*path, leaf_path(&party, scalar, value.message()));
+                    prop_assert_eq!(
+                        *path,
+                        leaf_path(&party, running_scalar, value.message()),
+                    );
                 }
                 (None, Action::Forget(id)) => {
                     prop_assert_eq!(path, id);
@@ -1058,8 +1125,8 @@ proptest! {
 
     /// The reactions surfaced through `act`'s observer are exactly the
     /// payload a peer needs to reproduce the batch: replaying them via
-    /// `react` on a fresh tree for the same party — paired with the
-    /// version `act` implicitly bumped to — yields a structurally equal
+    /// `react` on a fresh tree for the same party — each reaction paired
+    /// with the version `act` assigned it — yields a structurally equal
     /// tree. This is the contract that makes the observer usable as the
     /// wire-format outbox for a synchronization protocol.
     #[test]
@@ -1076,19 +1143,17 @@ proptest! {
             .chain(deletes.iter().copied().map(Action::Forget))
             .collect();
 
-        let mut captured: Vec<(Key, Option<Message<Bytes>>)> = Vec::new();
-        original.act(actions, |_, k, m| captured.push((k, m.clone())));
-
-        // `act` bumps this party's scalar by one exactly when the batch
-        // is non-empty; the captured reactions share that single version.
-        let scalar = if captured.is_empty() { 0 } else { 1 };
-        let version = version_for(&party, scalar);
+        // Capture the version `act` assigned to each reaction; with per-insert
+        // versioning each insert gets a distinct vector and forgets share the
+        // running vector at their position.
+        let mut captured: Vec<(Version, Key, Option<Message<Bytes>>)> = Vec::new();
+        original.act(actions, |v, k, m| captured.push((v.clone(), k, m.clone())));
 
         let mut replay = Tree::for_party(party.clone());
         replay.react(
             captured
                 .iter()
-                .map(|(k, m)| (version.clone(), *k, m.clone())),
+                .map(|(v, k, m)| (v.clone(), *k, m.clone())),
         );
 
         prop_assert_eq!(original, replay);

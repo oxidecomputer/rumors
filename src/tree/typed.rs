@@ -10,7 +10,7 @@ mod untyped;
 #[cfg(test)]
 mod test;
 
-pub use hash::{Hash, Hasher};
+pub use hash::Hash;
 pub use levels::Levels;
 pub use node::Node;
 pub use path::Path;
