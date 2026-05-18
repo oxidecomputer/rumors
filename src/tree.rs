@@ -1,4 +1,3 @@
-use borsh::{BorshDeserialize, BorshSerialize};
 use bytes::Bytes;
 
 mod key;
@@ -81,7 +80,7 @@ impl<T> PartialEq for Tree<T> {
 }
 
 /// An action to perform on the tree, locally.
-#[derive(Clone, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug)]
 pub enum Action<T> {
     /// Insert some value, tagged at the current version by your own party.
     Insert(Message<T>),
@@ -158,9 +157,9 @@ impl<T> Tree<T> {
     /// version vector by one before the leaf's path is derived; the inserts
     /// in a batch are therefore assigned strictly-increasing versions in the
     /// order they appear, and two content-identical messages within a batch
-    /// receive distinct keys. [`Action::Forget`]s do not advance the version,
-    /// and a forget that targets a key derived from an earlier insert in the
-    /// same batch overrides that insert (last action on a path wins).
+    /// receive distinct keys. A forget that targets a key derived from an
+    /// earlier insert in the same batch overrides that insert (last action
+    /// on a path wins).
     ///
     /// Upon insertion or deletion, the corresponding [`Reaction`] to the
     /// specified [`Action`] is provided to the given closure, so that the
@@ -188,18 +187,26 @@ impl<T> Tree<T> {
         let party = self.party.clone();
 
         // Track the running version vector across the batch, advancing it once
-        // per insert so that content-identical messages produce distinct keys
-        // even when submitted together. Forgets carry the current running
-        // version but do not advance it; an empty batch is a complete no-op.
+        // per action so that (a) content-identical messages produce distinct
+        // keys even when submitted together, and (b) forgets carry a version
+        // strictly greater than any prior insert at this party — load-bearing
+        // for the mirror protocol's deletion-honoring inference, which cannot
+        // distinguish "forgot it" from "never had it" when version vectors are
+        // equal. An empty batch is a complete no-op.
         let mut new_version = self.version();
 
         let reactions = actions.into_iter().map(move |action| {
+            // Record a new event in the version vector -- it is *load-bearing*
+            // that this be unique for every action applied to the tree. If not,
+            // then the mirror-sync protocol incorrectly concludes that it can
+            // early-abort when version vectors are equal.
+            new_version.event(&party);
+
             // Convert unversioned, unlocalized actions into `Reaction`s
             // which are independent of our local party and current version:
             let (key, value) = match action {
                 Action::Forget(hash) => (hash, None),
                 Action::Insert(value) => {
-                    new_version.event(&party);
                     let key =
                         typed::Path::for_leaf(&party, new_version.for_party(&party), value.bytes())
                             .into();

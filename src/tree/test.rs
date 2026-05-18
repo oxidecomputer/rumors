@@ -381,9 +381,10 @@ proptest! {
     }
 
     /// Inserting a value and then deleting its leaf path via two separate `act`
-    /// calls must leave the tree empty (zero root hash). The insert advances
-    /// the party's scalar version by one; the subsequent forget-only batch
-    /// does not advance it further, since only inserts claim fresh versions.
+    /// calls must leave the tree empty (zero root hash). Each `act` batch
+    /// advances the party's scalar version by one — inserts and forgets
+    /// both claim a fresh version, so that the mirror protocol can
+    /// distinguish "I forgot this" from "I never knew about it."
     #[test]
     fn insert_then_delete_is_empty(value in any::<Vec<u8>>()) {
         let party = "P".to_string();
@@ -395,13 +396,13 @@ proptest! {
         tree.act([Action::Forget(path)], |_, _, _| {});
 
         prop_assert_eq!(tree.hash(), [0u8; 32]);
-        prop_assert_eq!(tree.version().for_party(&hashed_party(&party)), 1);
+        prop_assert_eq!(tree.version().for_party(&hashed_party(&party)), 2);
     }
 
     /// Inserting a value and deleting its leaf path within the same `act`
-    /// batch must leave the tree empty with the version bumped exactly once.
-    /// Actions in one batch share a single version, and the "last action on
-    /// a given path wins" rule makes the delete prevail.
+    /// batch must leave the tree empty with the version bumped twice (once
+    /// per action). The "last action on a given path wins" rule makes the
+    /// delete prevail.
     #[test]
     fn insert_and_delete_same_batch_is_empty(value in any::<Vec<u8>>()) {
         let party = "P".to_string();
@@ -412,7 +413,7 @@ proptest! {
         tree.act([insert_action(value), Action::Forget(path)], |_, _, _| {});
 
         prop_assert_eq!(tree.hash(), [0u8; 32]);
-        prop_assert_eq!(tree.version().for_party(&hashed_party(&party)), 1);
+        prop_assert_eq!(tree.version().for_party(&hashed_party(&party)), 2);
     }
 
     /// Deleting a path that is not present in the tree must not change the
@@ -1088,9 +1089,12 @@ proptest! {
 
         prop_assert_eq!(captured.len(), expected_actions.len());
         for ((path, message), action) in captured.iter().zip(expected_actions.iter()) {
+            // Every action — Insert or Forget — bumps the local
+            // party's scalar version once, so the next leaf-path
+            // computation reflects the post-bump value.
+            running_scalar += 1;
             match (message, action) {
                 (Some(v), Action::Insert(value)) => {
-                    running_scalar += 1;
                     prop_assert_eq!(v, value);
                     prop_assert_eq!(
                         *path,
