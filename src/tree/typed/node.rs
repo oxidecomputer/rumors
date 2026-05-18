@@ -152,9 +152,9 @@ where
     }
 }
 
-impl<P: Clone + Ord + AsRef<[u8]>, T: Eq, H: Height> Eq for Node<P, T, H> {}
+impl<P: Clone + Ord + AsRef<[u8]>, T, H: Height> Eq for Node<P, T, H> {}
 
-impl<P: Clone + Ord + AsRef<[u8]>, T: PartialEq, H: Height> PartialEq for Node<P, T, H> {
+impl<P: Clone + Ord + AsRef<[u8]>, T, H: Height> PartialEq for Node<P, T, H> {
     fn eq(&self, other: &Self) -> bool {
         self.inner == other.inner
     }

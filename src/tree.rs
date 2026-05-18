@@ -32,13 +32,13 @@ pub use traverse::mirror;
 /// collision) are in the event multiple different parties write the same value.
 /// This is resolved at the synchronization protocol level, and is not a concern
 /// of the tree structure.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq)]
 pub struct Tree<T> {
     party: Bytes,
     pub(crate) root: Root<Bytes, T>,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq)]
 pub struct Root<P: Clone + Ord + AsRef<[u8]>, T> {
     version: Version<P>,
     root: Option<typed::node::Root<P, T>>,
@@ -59,12 +59,24 @@ impl<P: Clone + Ord + AsRef<[u8]>, T> Clone for Root<P, T> {
     }
 }
 
+impl<P: Clone + Ord + AsRef<[u8]>, T> PartialEq for Root<P, T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.version == other.version && self.root == other.root
+    }
+}
+
 impl<T> Clone for Tree<T> {
     fn clone(&self) -> Self {
         Self {
             party: self.party.clone(),
             root: self.root.clone(),
         }
+    }
+}
+
+impl<T> PartialEq for Tree<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.party == other.party && self.root == other.root
     }
 }
 
@@ -188,12 +200,9 @@ impl<T> Tree<T> {
                 Action::Forget(hash) => (hash, None),
                 Action::Insert(value) => {
                     new_version.event(&party);
-                    let key = typed::Path::for_leaf(
-                        &party,
-                        new_version.for_party(&party),
-                        value.bytes(),
-                    )
-                    .into();
+                    let key =
+                        typed::Path::for_leaf(&party, new_version.for_party(&party), value.bytes())
+                            .into();
                     (key, Some(value))
                 }
             };

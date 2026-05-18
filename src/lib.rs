@@ -96,6 +96,7 @@
 use std::{
     io::{Read, Write},
     marker::PhantomData,
+    ops::{Add, AddAssign},
     sync::Arc,
 };
 
@@ -137,8 +138,20 @@ mod version;
 /// // gossips with.
 /// alice.redact([keys[0]]);
 /// ```
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq)]
 pub struct Local<T>(Tree<T>);
+
+impl<T> Clone for Local<T> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<T> PartialEq for Local<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
 
 /// A remote connection to another peer in the gossip network.
 ///
@@ -627,6 +640,21 @@ impl<T, R, W> Sync<T, R, W> {
             AllowStdIo::new(write).compat_write(),
         );
         pollster::block_on(new.gossip(old, on_message))
+    }
+}
+
+impl<T> Add for Local<T> {
+    type Output = Local<T>;
+
+    fn add(mut self, rhs: Self) -> Self::Output {
+        self.process(rhs, |_, _, _| {});
+        self
+    }
+}
+
+impl<T> AddAssign for Local<T> {
+    fn add_assign(&mut self, rhs: Self) {
+        *self = self.clone().add(rhs);
     }
 }
 

@@ -47,7 +47,11 @@ pub fn arb_tree_root(
             // it as authoritative for "what we have seen." Fold the root
             // node's own version in so a generated `Root` always satisfies
             // that invariant, regardless of `extra`.
-            let inner = node.as_ref().map(Node::version).cloned().unwrap_or_default();
+            let inner = node
+                .as_ref()
+                .map(Node::version)
+                .cloned()
+                .unwrap_or_default();
             crate::tree::Root {
                 version: extra | inner,
                 root: node,
