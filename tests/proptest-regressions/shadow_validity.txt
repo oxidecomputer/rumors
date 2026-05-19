@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 86723fa839f009875eafd473501eceafe68d5e6b00c28572965fb6fa4da8a381 # shrinks to (schedule, shadow_observed) = (Schedule { n_peers: 3, events: [Insert { peer: 0, value: 0 }, Gossip { a: 1, b: 0 }, Redact { peer: 0, target_event_idx: 0 }, Gossip { a: 2, b: 0 }, Gossip { a: 2, b: 1 }] }, [[0], [0], [0]])

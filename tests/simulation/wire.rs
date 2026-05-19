@@ -1,7 +1,10 @@
 //! Wire-equivalence helper: drive `Remote::gossip` over an in-memory
 //! `tokio::io::duplex` pipe on a current-thread runtime. Used by
-//! invariant B4 to assert that the wire protocol produces the same
-//! per-peer state as bidirectional `Local::process`.
+//! [`pairwise::process_matches_wire_gossip`] to assert that the wire
+//! protocol produces the same per-peer state as bidirectional
+//! `Local::process`.
+//!
+//! [`pairwise::process_matches_wire_gossip`]: crate::pairwise
 
 use std::cell::OnceCell;
 use std::future::Future;
@@ -11,8 +14,9 @@ use rumors::{Local, Remote};
 use tokio::runtime::Runtime;
 
 thread_local! {
-    /// One current-thread tokio runtime per test thread. Mirrors the
-    /// pattern at `src/tree/traverse/mirror/test.rs:16-35`.
+    /// One current-thread tokio runtime per test thread, reused
+    /// across cases so proptest doesn't pay the cost of spinning a
+    /// runtime up per generated example.
     static RT: OnceCell<Runtime> = const { OnceCell::new() };
 }
 

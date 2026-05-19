@@ -1,10 +1,12 @@
-//! Spec-shaped oracle for the gossip-set semantics, plus a readout lens
-//! that projects a `Local<T>` back into a multiset of currently-live
-//! values.
+//! Spec-shaped oracle for the gossip-set semantics, plus a `readout`
+//! lens that projects a `Local<T>` back into its currently-live
+//! `(Key, T)` map.
 //!
-//! The oracle holds only sets and maps — no `Local`, no `process`, no
-//! `+` — so a bug in the CRDT's join cannot silently corrupt the
-//! reference state.
+//! The oracle holds only `BTreeMap`s and `BTreeSet`s — no `Local`, no
+//! `process`, no `+` — so a bug in the live merge primitives cannot
+//! silently corrupt the reference state. It records each insert by
+//! the schedule's [`EventIdx`] so the oracle and the live executor
+//! agree on identity without ever consulting the live `Key`s.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -12,44 +14,35 @@ use std::sync::Arc;
 use borsh::{BorshDeserialize, BorshSerialize};
 use rumors::{Key, Local};
 
-pub type PartyId = String;
-
-/// Index of an `Insert` event in a schedule's flat event vector. The
-/// oracle and the simulator agree on this identifier so the oracle can
-/// record redactions by `InsertId` while the simulator looks up the
-/// actual `Key` for the same event.
-pub type InsertId = usize;
+use crate::schedule::EventIdx;
 
 pub struct Oracle<T> {
-    versions: BTreeMap<PartyId, u64>,
-    inserts: BTreeMap<InsertId, (PartyId, u64, T)>,
-    redacted: BTreeSet<InsertId>,
+    values: BTreeMap<EventIdx, T>,
+    redacted: BTreeSet<EventIdx>,
 }
 
-impl<T: Clone + Ord> Oracle<T> {
-    pub fn new() -> Self {
+impl<T> Default for Oracle<T> {
+    fn default() -> Self {
         Self {
-            versions: BTreeMap::new(),
-            inserts: BTreeMap::new(),
+            values: BTreeMap::new(),
             redacted: BTreeSet::new(),
         }
     }
+}
 
-    pub fn insert(&mut self, id: InsertId, party: PartyId, value: T) {
-        let counter = self.versions.entry(party.clone()).or_insert(0);
-        *counter += 1;
-        let v = *counter;
-        self.inserts.insert(id, (party, v, value));
+impl<T: Clone + Ord> Oracle<T> {
+    pub fn insert(&mut self, id: EventIdx, value: T) {
+        self.values.insert(id, value);
     }
 
-    pub fn redact(&mut self, id: InsertId) {
+    pub fn redact(&mut self, id: EventIdx) {
         self.redacted.insert(id);
     }
 
-    /// Multiset of currently-live message values across the whole network.
+    /// Multiset of currently-live message values across the network.
     pub fn expected_live(&self) -> BTreeMap<T, usize> {
         let mut out = BTreeMap::new();
-        for (id, (_, _, value)) in &self.inserts {
+        for (id, value) in &self.values {
             if !self.redacted.contains(id) {
                 *out.entry(value.clone()).or_insert(0) += 1;
             }
@@ -57,14 +50,16 @@ impl<T: Clone + Ord> Oracle<T> {
         out
     }
 
-    /// Every `(InsertId, value)` pair the oracle has seen, redacted or
-    /// not. Used by tests that want to inspect the schedule's full set
-    /// of inserts.
-    pub fn all_inserts(&self) -> &BTreeMap<InsertId, (PartyId, u64, T)> {
-        &self.inserts
+    /// Every insert the oracle has seen, redacted or not, as
+    /// `EventIdx → value`. Used by [`multi_peer::keys_stable_across_peers`]
+    /// to build the canonical `Key → value` map.
+    ///
+    /// [`multi_peer::keys_stable_across_peers`]: crate::multi_peer
+    pub fn all_inserts(&self) -> &BTreeMap<EventIdx, T> {
+        &self.values
     }
 
-    pub fn is_redacted(&self, id: InsertId) -> bool {
+    pub fn is_redacted(&self, id: EventIdx) -> bool {
         self.redacted.contains(&id)
     }
 }
@@ -74,15 +69,17 @@ impl<T: Clone + Ord> Oracle<T> {
 /// fire `on_message` (their paths carry forget tombstones, not
 /// messages), so they are naturally excluded.
 ///
-/// The lens uses `Local::process` purely as an enumeration mechanism
-/// against an empty baseline; it never accumulates state that anything
-/// else depends on.
+/// `Local::process` is used here purely as an enumeration mechanism
+/// against an empty baseline; the throwaway lens never feeds back into
+/// anything.
 pub fn readout<T>(peer: &Local<T>) -> BTreeMap<Key, T>
 where
     T: Clone + Ord + BorshSerialize + BorshDeserialize,
 {
     let mut out = BTreeMap::new();
-    let mut lens = Local::<T>::for_party("__readout__");
+    // Non-ASCII magic bytes: cannot collide with any test party id,
+    // which are all human-readable ASCII strings.
+    let mut lens = Local::<T>::for_party(b"\x00READOUT\x00");
     lens.process(peer.clone(), |k, _v, m: &Arc<T>| {
         out.insert(k, T::clone(m));
     });

@@ -4,4 +4,4 @@
 #
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
-cc 2707974f83425f49f5b4814fea8534620a1660c68aec894ea91a6b3ab88849dc # shrinks to original_values = [], clone_a_values = [0], clone_b_values = [0]
+cc ab247db406cc9ac69aded581aa35ba9770855db5d2ab5f9d3609ef922a3d05e6 # shrinks to value = 0

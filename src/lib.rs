@@ -32,7 +32,7 @@
 //! Once a peer decides that a message is no longer needed, it can [`redact`]
 //! the corresponding [`Key`], and the redaction propagates contagiously to
 //! every other peer it gossips with. This is the mechanism by which the
-//! network-wide rumor set is garbage-collected: any peer's local "we're done
+//! network-wide rumor set is redacted: any peer's local "we're done
 //! with this" decision triggers global cleanup, without requiring consensus.
 //!
 //! [`redact`]: Local::redact
@@ -381,7 +381,7 @@ impl<T> Local<T> {
     /// each new message as it is processed into the set.
     ///
     /// The closure receives an opaque [`Key`] which can be used to later
-    /// [`garbage`](Self::garbage)-collect the corresponding message from the
+    /// [`redact`](Self::redact) the corresponding message from the
     /// set of rumors, as well as the causal [`Version`]-vector of the message,
     /// and an [`Arc<T>`](Arc) holding the original message.
     ///
@@ -424,7 +424,7 @@ impl<T> Local<T> {
     ///
     /// Once a message key is redacted by one peer, this is contagious to all
     /// other peers without them needing to redact the message themselves.
-    /// This is how the rumor set is garbage-collected network-wide: any peer
+    /// This is how the rumor set is redacted network-wide: any peer
     /// can locally decide that a message is no longer needed, and the rest
     /// of the network will follow.
     ///
@@ -449,7 +449,7 @@ impl<T> Local<T> {
     /// after this is done, they may be merged back together using this method.
     ///
     /// The closure receives an opaque [`Key`] which can be used to later
-    /// [`garbage`](Self::garbage)-collect the corresponding message from the
+    /// [`redact`](Self::redact) the corresponding message from the
     /// set of rumors, as well as the causal [`Version`]-vector of the message,
     /// and an [`Arc<T>`](Arc) holding the original message.
     ///
@@ -527,7 +527,7 @@ impl<R, W, T> Remote<T, R, W> {
     /// whenever we learn of a new message.
     ///
     /// The closure receives an opaque [`Key`] which can be used to later
-    /// [`garbage`](Self::garbage)-collect the corresponding message from the
+    /// [`redact`](Self::redact) the corresponding message from the
     /// set of rumors, as well as the causal [`Version`]-vector of the message,
     /// and an [`Arc<T>`](Arc) holding the original message.
     ///
@@ -603,7 +603,7 @@ impl<T, R, W> Sync<T, R, W> {
     /// whenever we learn of a new message.
     ///
     /// The closure receives an opaque [`Key`] which can be used to later
-    /// [`garbage`](Self::garbage)-collect the corresponding message from the
+    /// [`redact`](Self::redact) the corresponding message from the
     /// set of rumors, as well as the causal [`Version`]-vector of the message,
     /// and an [`Arc<T>`](Arc) holding the original message.
     ///
