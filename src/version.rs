@@ -120,6 +120,7 @@ impl<P: Ord + Clone> BitOr for Version<P> {
     }
 }
 
+#[cfg(test)]
 impl<P: Ord + Clone> From<(P, u64)> for Version<P> {
     fn from(value: (P, u64)) -> Self {
         let mut result = Self::default();
