@@ -1,6 +1,6 @@
 use itertools::Itertools;
 
-use crate::{message::Message, version::Version};
+use crate::{Key, message::Message, version::Version};
 
 use super::typed::*;
 use height::{Height, Root, S, Z};
@@ -18,11 +18,12 @@ pub enum Action<T> {
 pub fn act<P, T>(
     node: Option<Node<P, T, Root>>,
     actions: Vec<(Path, Version<P>, Action<T>)>,
+    mut on_action: impl FnMut(&Version<P>, Key, Option<&Message<T>>),
 ) -> Option<Node<P, T, Root>>
 where
     P: Clone + Ord + AsRef<[u8]>,
 {
-    Act::act(node, actions)
+    Act::act(node, Prefix::new(), actions, &mut on_action)
 }
 
 // The internal implementation of the traversal as a polymorphic-recursive
@@ -30,7 +31,9 @@ where
 pub trait Act: Height {
     fn act<P, T>(
         node: Option<Node<P, T, Self>>,
+        prefix: Prefix<Self>,
         actions: Vec<(Path<Self>, Version<P>, Action<T>)>,
+        on_action: &mut impl FnMut(&Version<P>, Key, Option<&Message<T>>),
     ) -> Option<Node<P, T, Self>>
     where
         P: Clone + Ord + AsRef<[u8]>;
@@ -42,7 +45,9 @@ where
 {
     fn act<P, T>(
         node: Option<Node<P, T, S<H>>>,
+        prefix: Prefix<Self>,
         actions: Vec<(Path<Self>, Version<P>, Action<T>)>,
+        on_action: &mut impl FnMut(&Version<P>, Key, Option<&Message<T>>),
     ) -> Option<Node<P, T, S<H>>>
     where
         P: Clone + Ord + AsRef<[u8]>,
@@ -84,7 +89,7 @@ where
 
                 // Recursively apply the actions to the existing child (if any)
                 // or its absent slot (if missing):
-                let child = Act::act(existing_child, actions)?;
+                let child = Act::act(existing_child, prefix.push(radix), actions, on_action)?;
                 Some((radix, child))
             })
             .collect();
@@ -96,16 +101,23 @@ where
 
 impl Act for Z {
     fn act<P, T>(
-        mut node: Option<Node<P, T, Z>>,
+        mut node: Option<Node<P, T, Self>>,
+        prefix: Prefix<Self>,
         actions: Vec<(Path<Self>, Version<P>, Action<T>)>,
+        on_action: &mut impl FnMut(&Version<P>, Key, Option<&Message<T>>),
     ) -> Option<Node<P, T, Z>>
     where
         P: Clone + Ord + AsRef<[u8]>,
     {
+        let existed_before = node.is_some();
+        let mut greatest_version = Version::default();
+
         // Sequentially apply the operations pertaining to this node; the
         // causally posterior operation wins, with concurrent or equal actions
         // biasing towards the last in the sequence
         for (_, version, action) in actions {
+            greatest_version |= version.clone();
+
             // Skip updates that are strictly causally prior to the current
             // version at this node
             if &version
@@ -117,10 +129,22 @@ impl Act for Z {
                 continue;
             }
 
+            // Set the node
             node = match action {
                 Action::Forget => None,
-                Action::Insert(value) => Some(Node::leaf(version, value)),
+                Action::Insert(value) => Some(Node::leaf(greatest_version.clone(), value)),
             };
+        }
+
+        // Log the action, provided that the net action wasn't nil
+        match (existed_before, &node) {
+            // The node stayed empty
+            (false, None) => {}
+            (_, node) => on_action(
+                &greatest_version,
+                prefix.into(),
+                node.as_ref().map(|n| n.message()),
+            ),
         }
 
         node

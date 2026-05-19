@@ -178,10 +178,10 @@ impl<T> Tree<T> {
     /// as a single `act` over their concatenation. The version each insert
     /// claims depends only on the number of preceding inserts in the running
     /// sequence, not on which call wrote it.
-    pub fn act<I, O>(&mut self, actions: I, mut react: O)
+    pub fn act<I, O>(&mut self, actions: I, react: O)
     where
         I: IntoIterator<Item = Action<T>>,
-        O: FnMut(&Version, Key, &Option<Message<T>>),
+        O: FnMut(&Version, Key, Option<&Message<T>>),
     {
         // Get the local party.
         let party = self.party.clone();
@@ -213,10 +213,9 @@ impl<T> Tree<T> {
                     (key, Some(value))
                 }
             };
-            react(&new_version, key, &value);
             (new_version.clone(), key, value)
         });
-        self.react(reactions);
+        self.react(reactions, react);
     }
 
     /// Apply the specified *versioned* actions as a batch to the tree without
@@ -236,20 +235,19 @@ impl<T> Tree<T> {
     /// tree in a single traversal. Theoretically, this gives an O(log n)
     /// speedup relative to one-by-one insertion operations, but since the log
     /// base is 256, in practice this is about 2-3x.
-    pub fn react<M, I>(&mut self, reactions: I)
+    pub fn react<M, I, O>(&mut self, reactions: I, react: O)
     where
         M: Into<Option<Message<T>>>,
         I: IntoIterator<Item = (Version, Key, M)>,
+        O: FnMut(&Version, Key, Option<&Message<T>>),
     {
-        let mut tree_version = self.version();
-
         // Convert the specified actions into the action specification required
         // by the inductive traversal of the tree
         let actions = reactions
             .into_iter()
             .map(|(version, key, message)| {
                 // Join the version on all operations: forget and insert
-                tree_version |= version.clone();
+                self.root.version |= version.clone();
                 match message.into() {
                     None => (typed::Path::from(key), version, traverse::Action::Forget),
                     Some(value) => (
@@ -262,8 +260,7 @@ impl<T> Tree<T> {
             .collect();
 
         // Traverse the tree from the root, batch-applying the actions
-        self.root.root = traverse::act(self.root.root.take().into(), actions);
-        self.root.version = tree_version;
+        self.root.root = traverse::act(self.root.root.take().into(), actions, react);
     }
 }
 

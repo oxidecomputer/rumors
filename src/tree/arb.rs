@@ -27,7 +27,7 @@ pub fn arb_root_node(
                     (path, version, Action::Insert(Message::new(())))
                 })
                 .collect();
-            act(None, actions)
+            act(None, actions, |_, _, _| {})
         })
         .boxed()
 }
