@@ -33,7 +33,7 @@ impl<P: Ord + Debug> Debug for Version<P> {
 
 impl<P: Ord> Version<P> {
     /// Construct a version vector from any number of other version vectors.
-    pub fn new<I>(i: I) -> Self
+    pub(crate) fn new<I>(i: I) -> Self
     where
         P: Clone,
         I: IntoIterator<Item = Self>,
@@ -44,7 +44,7 @@ impl<P: Ord> Version<P> {
     }
 
     /// Record an event for some party, incrementing its version.
-    pub fn event(&mut self, party: &P)
+    pub(crate) fn event(&mut self, party: &P)
     where
         P: Clone,
     {
@@ -52,7 +52,7 @@ impl<P: Ord> Version<P> {
     }
 
     /// Get the version for a particular party.
-    pub fn for_party(&self, party: &P) -> u64 {
+    pub(crate) fn for_party(&self, party: &P) -> u64 {
         *self.versions.get(party).unwrap_or(&0)
     }
 
