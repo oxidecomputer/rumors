@@ -226,7 +226,7 @@ pub struct Remote<T, R, W> {
 /// });
 ///
 /// // Alice has a single rumor and gossips it across.
-/// let mut alice_peer = Sync(Remote::<String, _, _>::new(b_to_a_r, a_to_b_w));
+/// let mut alice_peer = Sync(Remote::new(b_to_a_r, a_to_b_w));
 /// let mut alice: Local<String> = Local::for_party("alice");
 /// alice.message(["hello".to_string()], |_, _, _| {});
 /// alice_peer.gossip(alice, |_, _, _| {}).unwrap();
@@ -261,14 +261,13 @@ pub use mirror::remote::Error;
 ///
 /// Keys are produced by the `on_message` callbacks of [`Local::message`],
 /// [`Local::process`], and [`Remote::gossip`]. They are stable across peers:
-/// the key for any given message is the same on every peer that observes it,
-/// so a key obtained from one peer can be used to redact the message on any
-/// other.
+/// the key for any given message is the same on every peer that observes it, so
+/// a key obtained from one peer can be used to redact the message on any other.
 ///
-/// Two *content-identical* messages always receive distinct keys — every
-/// insert advances the local party's version vector before its key is
-/// derived, so even repeated submission of the same value within a single
-/// [`Local::message`] batch yields distinct keys.
+/// Two *content-identical* messages always receive distinct keys — every insert
+/// advances the local party's version vector before its key is derived, so even
+/// repeated submission of the same value within a single [`Local::message`]
+/// batch yields distinct keys.
 ///
 /// # Example
 ///
@@ -292,8 +291,8 @@ pub use tree::Key;
 ///
 /// Versions are surfaced to the `on_message` callbacks of [`Local::message`],
 /// [`Local::process`], and [`Remote::gossip`]. They implement a [`PartialOrd`]
-/// that captures causal ordering: `a <= b` iff every party's counter in `a`
-/// is at most the corresponding counter in `b`. Two versions produced by
+/// that captures causal ordering: `a <= b` iff every party's counter in `a` is
+/// at most the corresponding counter in `b`. Two versions produced by
 /// concurrent events are incomparable, so `partial_cmp` returns `None`.
 ///
 /// # Example
@@ -316,9 +315,9 @@ pub use version::Version;
 ///
 /// Messages are serialized with borsh, so message types must implement both
 /// [`BorshSerialize`](borsh::BorshSerialize) and
-/// [`BorshDeserialize`](borsh::BorshDeserialize). Re-exporting borsh here
-/// means callers can derive those traits without taking a separate
-/// dependency on borsh themselves.
+/// [`BorshDeserialize`](borsh::BorshDeserialize). Re-exporting borsh here means
+/// callers can derive those traits without taking a separate dependency on
+/// borsh themselves.
 ///
 /// # Example
 ///
@@ -344,9 +343,9 @@ pub use borsh;
 /// A placeholder `on_message` callback that discards every observation.
 ///
 /// Useful when calling [`Local::message`], [`Local::redact`],
-/// [`Local::process`], [`Remote::gossip`], or [`Sync::gossip`] purely for
-/// their side-effects on the rumor set, with no need to observe individual
-/// messages as they arrive.
+/// [`Local::process`], [`Remote::gossip`], or [`Sync::gossip`] purely for their
+/// side-effects on the rumor set, with no need to observe individual messages
+/// as they arrive.
 ///
 /// # Example
 ///
@@ -362,9 +361,9 @@ pub fn ignore<T>(_key: Key, _version: &Version, _message: &Arc<T>) {}
 impl<T> Local<T> {
     /// Create a new set of rumors, localized to the given party.
     ///
-    /// It is assumed that parties are *globally unique* within the context
-    /// of the gossip protocol. If multiple peers identify as the same party,
-    /// then unintuitive behavior, including missed messages, may occur.
+    /// It is assumed that parties are *globally unique* within the context of
+    /// the gossip protocol. If multiple peers identify as the same party, then
+    /// unintuitive behavior, including missed messages, may occur.
     ///
     /// # Example
     ///
@@ -381,9 +380,9 @@ impl<T> Local<T> {
     /// each new message as it is processed into the set.
     ///
     /// The closure receives an opaque [`Key`] which can be used to later
-    /// [`redact`](Self::redact) the corresponding message from the
-    /// set of rumors, as well as the causal [`Version`]-vector of the message,
-    /// and an [`Arc<T>`](Arc) holding the original message.
+    /// [`redact`](Self::redact) the corresponding message from the set of
+    /// rumors, as well as the causal [`Version`]-vector of the message, and an
+    /// [`Arc<T>`](Arc) holding the original message.
     ///
     /// The order of execution for `on_message` is *arbitrary* and *does not
     /// correspond to the order of the messages*.
@@ -550,15 +549,15 @@ impl<R, W, T> Remote<T, R, W> {
     /// let mut alice: Local<String> = Local::for_party("alice");
     /// alice.message(["hello".to_string()], |_, _, _| {});
     ///
-    /// let mut alice_peer = Remote::new(a_r, a_w);
-    /// let mut bob_peer = Remote::new(b_r, b_w);
+    /// let mut alice_peer = Remote::<String, _, _>::new(a_r, a_w);
+    /// let mut bob_peer = Remote::<String, _, _>::new(b_r, b_w);
     ///
     /// // Both ends drive the protocol concurrently. Bob learns "hello".
     /// let mut bob_learned: Vec<String> = Vec::new();
     /// let (alice, bob) = tokio::join!(
     ///     alice_peer.gossip(alice, |_, _, _| {}),
     ///     bob_peer.gossip(
-    ///         Local::<String>::for_party("bob"),
+    ///         Local::for_party("bob"),
     ///         |_, _, m| bob_learned.push(m.as_ref().clone()),
     ///     ),
     /// );
@@ -634,7 +633,7 @@ impl<T, R, W> Sync<T, R, W> {
     ///     learned
     /// });
     ///
-    /// let mut alice_peer = Sync(Remote::<String, _, _>::new(b_to_a_r, a_to_b_w));
+    /// let mut alice_peer = Sync(Remote::new(b_to_a_r, a_to_b_w));
     /// let mut alice: Local<String> = Local::for_party("alice");
     /// alice.message(["hello".to_string()], |_, _, _| {});
     /// alice_peer.gossip(alice, |_, _, _| {}).unwrap();

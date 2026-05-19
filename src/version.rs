@@ -9,9 +9,6 @@ use imbl::OrdMap;
 
 use crate::imbl_borsh::{deserialize_ordmap, serialize_ordmap};
 
-/// A sparse copy-on-write version vector amongst parties of type `P`. Backed
-/// by an `OrdMap` so iteration is ordered by party, which makes canonical
-/// borsh serialization (and any future lockstep comparison logic) cheap.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Version<P: Ord = Bytes> {
     versions: OrdMap<P, u64>,
