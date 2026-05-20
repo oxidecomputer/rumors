@@ -161,12 +161,6 @@ impl<T> Tree<T> {
     /// earlier insert in the same batch overrides that insert (last action
     /// on a path wins).
     ///
-    /// Upon insertion or deletion, the corresponding [`Reaction`] to the
-    /// specified [`Action`] is provided to the given closure, so that the
-    /// caller can (at their discretion) inspect the items inserted/forgotten
-    /// from the tree. These [`Reaction`]s can be replayed on another tree using
-    /// [`Tree::react`] to identical effect.
-    ///
     /// It is more efficient to apply a batch of actions all at once, compared
     /// to applying them one at a time. This is because all actions in a batch
     /// are applied to the tree in a single traversal. Theoretically, this gives
@@ -235,7 +229,7 @@ impl<T> Tree<T> {
     /// tree in a single traversal. Theoretically, this gives an O(log n)
     /// speedup relative to one-by-one insertion operations, but since the log
     /// base is 256, in practice this is about 2-3x.
-    pub fn react<M, I, O>(&mut self, reactions: I, react: O)
+    pub fn react<M, I, O>(&mut self, reactions: I, mut react: O)
     where
         M: Into<Option<Message<T>>>,
         I: IntoIterator<Item = (Version, Key, M)>,
@@ -245,22 +239,25 @@ impl<T> Tree<T> {
         // by the inductive traversal of the tree
         let actions = reactions
             .into_iter()
-            .map(|(version, key, message)| {
-                // Join the version on all operations: forget and insert
-                self.root.version |= version.clone();
-                match message.into() {
-                    None => (typed::Path::from(key), version, traverse::Action::Forget),
-                    Some(value) => (
-                        typed::Path::from(key),
-                        version,
-                        traverse::Action::Insert(value),
-                    ),
-                }
+            .map(|(version, key, message)| match message.into() {
+                None => (typed::Path::from(key), version, traverse::Action::Forget),
+                Some(value) => (
+                    typed::Path::from(key),
+                    version,
+                    traverse::Action::Insert(value),
+                ),
             })
             .collect();
 
-        // Traverse the tree from the root, batch-applying the actions
-        self.root.root = traverse::act(self.root.root.take().into(), actions, react);
+        // Traverse the tree from the root, batch-applying the actions.
+        // The version join is deferred to the observer callback so that
+        // zero-effect actions (e.g. forgetting a nonexistent key) do not
+        // bump the root version.
+        let root_version = &mut self.root.version;
+        self.root.root = traverse::act(self.root.root.take().into(), actions, |v, k, m| {
+            *root_version |= v.clone();
+            react(v, k, m);
+        });
     }
 }
 

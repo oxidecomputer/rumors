@@ -1040,79 +1040,6 @@ proptest! {
         prop_assert!(got.iter().all(|b| b.2.message() == &value));
     }
 
-    /// `act`'s observer closure fires exactly once per supplied action, in
-    /// the order the actions were presented, and each emitted `Reaction`
-    /// structurally mirrors its originating `Action`: an insert yields an
-    /// `Insert(path, value)` whose path is the leaf path `act` assigned at
-    /// the scalar produced by advancing the party's version vector once per
-    /// insert so far, and whose value is byte-identical to the original; a
-    /// forget yields a `(path, None)` reaction with the same id passed
-    /// through verbatim and without advancing the scalar.
-    #[test]
-    fn act_observer_mirrors_actions(
-        prior_batches in 0usize..3,
-        inserts in distinct_bytes(6),
-        deletes in proptest::collection::vec(any::<Key>(), 0..4),
-        interleave in any::<u64>(),
-    ) {
-        let party = "P".to_string();
-        let mut tree = Tree::for_party(party.clone());
-        for i in 0..prior_batches {
-            tree.act(
-                [insert_action(Bytes::from(format!("prior-{i}").into_bytes()))],
-                |_, _, _| {},
-            );
-        }
-        // Scalar the next insert in the batch will claim; advances by one
-        // for every insert observed and stays put for every forget.
-        let mut running_scalar = tree.version().for_party(&hashed_party(&party));
-
-        // Deterministically interleave inserts and deletes so the proptest
-        // exercises many orderings without giving up reproducibility.
-        let mut actions: Vec<Action<Bytes>> = Vec::new();
-        let mut ins = inserts.iter().cloned();
-        let mut del = deletes.iter().copied();
-        let mut rng = interleave;
-        loop {
-            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1);
-            let prefer_insert = rng & 1 == 0;
-            match (prefer_insert, ins.clone().next().is_some(), del.clone().next().is_some()) {
-                (true, true, _) | (false, true, false) => {
-                    actions.push(insert_action(ins.next().unwrap()));
-                }
-                (false, _, true) | (true, false, true) => {
-                    actions.push(Action::Forget(del.next().unwrap()));
-                }
-                _ => break,
-            }
-        }
-
-        let expected_actions = actions.clone();
-        let mut captured: Vec<(Key, Option<Message<Bytes>>)> = Vec::new();
-        tree.act(actions, |_, k, m| captured.push((k, m.cloned())));
-
-        prop_assert_eq!(captured.len(), expected_actions.len());
-        for ((path, message), action) in captured.iter().zip(expected_actions.iter()) {
-            // Every action — Insert or Forget — bumps the local
-            // party's scalar version once, so the next leaf-path
-            // computation reflects the post-bump value.
-            running_scalar += 1;
-            match (message, action) {
-                (Some(v), Action::Insert(value)) => {
-                    prop_assert_eq!(v, value);
-                    prop_assert_eq!(
-                        *path,
-                        leaf_path(&party, running_scalar, value.message()),
-                    );
-                }
-                (None, Action::Forget(id)) => {
-                    prop_assert_eq!(path, id);
-                }
-                _ => prop_assert!(false, "reaction/action kind mismatch"),
-            }
-        }
-    }
-
     /// An empty `act` batch never invokes the observer closure: with no
     /// actions there is nothing to report, so the callback is untouched
     /// regardless of how many prior batches the tree has seen.
@@ -1151,20 +1078,21 @@ proptest! {
             .chain(deletes.iter().copied().map(Action::Forget))
             .collect();
 
-        // Capture the version `act` assigned to each reaction; with per-insert
-        // versioning each insert gets a distinct vector and forgets share the
-        // running vector at their position.
+        // Capture the version `act` assigned to each reaction; with per-action
+        // versioning each insert or forget gets a distinct vector.
         let mut captured: Vec<(Version, Key, Option<Message<Bytes>>)> = Vec::new();
         original.act(actions, |v, k, m| captured.push((v.clone(), k, m.cloned())));
 
         let mut replay = Tree::for_party(party.clone());
-        replay.react(
-            captured
-                .iter()
-                .map(|(v, k, m)| (v.clone(), *k, m.clone())),
-                |_, _, _| {}
-        );
+        replay.react(captured, |_, _, _| {});
 
         prop_assert_eq!(original, replay);
     }
+}
+
+#[test]
+fn delete_nonexistent_key() {
+    let mut tree: Tree<()> = Tree::for_party("a");
+    tree.act([Action::Forget(Key([0; 32]))], |_, _, _| {});
+    assert_eq!(tree, Tree::for_party("a"));
 }

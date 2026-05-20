@@ -6,6 +6,7 @@
 
 use std::collections::BTreeSet;
 
+use imbl::OrdMap;
 use proptest::collection::vec;
 use proptest::prelude::*;
 use rumors::{Key, Local, Version};
@@ -55,14 +56,25 @@ proptest! {
         batches in vec(vec(any::<u64>(), 1..=8), 1..=8),
     ) {
         let mut peer: Local<u64> = Local::for_party("alice");
-        let mut all_versions: Vec<Version> = Vec::new();
+
+        // Values in the order of insertion
+        let mut values = Vec::new();
+
+        // Map of each value to the version assigned it
+        let mut all_versions: OrdMap<u64, Version> = OrdMap::new();
+
+        // Process the batches, tracking values and versions
         for batch in &batches {
-            peer.message(batch.clone(), |_, v, _| all_versions.push(v.clone()));
+            values.extend(batch.clone());
+            peer.message(batch.clone(), |_, v, m| { all_versions.insert(**m, v.clone()); });
         }
-        for w in all_versions.windows(2) {
+
+        // Ensure that for any two consecutive values, their
+        // corresponding versions are ordered
+        for window in values.windows(2) {
             prop_assert!(
-                w[0] < w[1],
-                "{:?} must strictly precede {:?}", w[0], w[1],
+                all_versions.get(&window[0]) < all_versions.get(&window[1]),
+                "{:?} must strictly precede {:?}", window[0], window[1],
             );
         }
     }
