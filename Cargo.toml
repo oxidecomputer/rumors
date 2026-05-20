@@ -29,3 +29,13 @@ proptest = "1"
 criterion = { version = "0.5", features = ["html_reports"] }
 insta = "1.47"
 tokio = { version = "1", features = ["rt", "macros", "io-util"] }
+clap = { version = "4", features = ["derive"] }
+csv = "1"
+indicatif = { version = "0.17", features = ["rayon"] }
+rayon = "1"
+rand = { version = "0.8", features = ["small_rng"] }
+zstd = "0.13"
+
+[[example]]
+name = "network_profile"
+path = "examples/network_profile.rs"
