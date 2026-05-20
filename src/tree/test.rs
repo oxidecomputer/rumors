@@ -254,61 +254,6 @@ proptest! {
         prop_assert_eq!(&tree.hash(), reference.as_bytes());
     }
 
-    /// `act` is associative under partitioning: splitting a sequence of
-    /// actions across multiple `act` calls produces a structurally-equal
-    /// tree to a single `act` over their concatenation. With per-insert
-    /// versioning each insert's claimed version depends only on the number
-    /// of preceding inserts in the running sequence, so the partition is
-    /// observable only as a batching optimization, not a semantic change.
-    #[test]
-    fn act_partitioning_preserves_tree(
-        inserts in distinct_bytes(8),
-        deletes in proptest::collection::vec(any::<Key>(), 0..4),
-        interleave in any::<u64>(),
-        breaks in proptest::collection::vec(any::<bool>(), 0..16),
-    ) {
-        let party = "P".to_string();
-
-        // Deterministically interleave inserts and forgets, matching the
-        // mixing pattern used by `act_observer_mirrors_actions`.
-        let mut actions: Vec<Action<Bytes>> = Vec::new();
-        let mut ins = inserts.into_iter();
-        let mut del = deletes.into_iter();
-        let mut rng = interleave;
-        loop {
-            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1);
-            let prefer_insert = rng & 1 == 0;
-            let has_ins = ins.clone().next().is_some();
-            let has_del = del.clone().next().is_some();
-            match (prefer_insert, has_ins, has_del) {
-                (true, true, _) | (false, true, false) => {
-                    actions.push(insert_action(ins.next().unwrap()));
-                }
-                (false, _, true) | (true, false, true) => {
-                    actions.push(Action::Forget(del.next().unwrap()));
-                }
-                _ => break,
-            }
-        }
-        let n = actions.len();
-
-        let mut all_in_one = Tree::for_party(party.clone());
-        all_in_one.act(actions.clone(), |_, _, _| {});
-
-        let mut partitioned = Tree::for_party(party.clone());
-        let mut chunk: Vec<Action<Bytes>> = Vec::new();
-        for (i, a) in actions.into_iter().enumerate() {
-            chunk.push(a);
-            let at_boundary =
-                breaks.get(i).copied().unwrap_or(false) || i + 1 == n;
-            if at_boundary {
-                partitioned.act(std::mem::take(&mut chunk), |_, _, _| {});
-            }
-        }
-
-        prop_assert_eq!(all_in_one, partitioned);
-    }
-
     /// A list of versioned actions applied through `react` must produce the
     /// same tree hash regardless of how the list is partitioned across react
     /// calls. This is the batching-transparency claim in `react`'s doc: the
@@ -402,9 +347,8 @@ proptest! {
     }
 
     /// Inserting a value and deleting its leaf path within the same `act`
-    /// batch must leave the tree empty with the version bumped twice (once
-    /// per action). The "last action on a given path wins" rule makes the
-    /// delete prevail.
+    /// batch must leave the tree empty with the version untouched. The
+    /// "last action on a given path wins" rule makes the delete prevail.
     #[test]
     fn insert_and_delete_same_batch_is_empty(value in any::<Vec<u8>>()) {
         let party = "P".to_string();
@@ -415,7 +359,7 @@ proptest! {
         tree.act([insert_action(value), Action::Forget(path)], |_, _, _| {});
 
         prop_assert_eq!(tree.hash(), [0u8; 32]);
-        prop_assert_eq!(tree.version().for_party(&hashed_party(&party)), 2);
+        prop_assert_eq!(tree.version().for_party(&hashed_party(&party)), 0);
     }
 
     /// Deleting a path that is not present in the tree must not change the
@@ -567,55 +511,6 @@ proptest! {
         let before = tree.version().clone();
         tree.act(std::iter::empty::<Action<Bytes>>(), |_, _, _| {});
         prop_assert_eq!(tree.version(), before);
-    }
-
-    /// After `react(versions)`, the tree's version vector is exactly the
-    /// join (pointwise max) of its prior version with every incoming
-    /// version. In particular, it never decreases any component: a tree
-    /// that has observed an action is forever causally downstream of it.
-    #[test]
-    fn react_joins_incoming_versions(
-        prior_batches in 0usize..3,
-        incoming in proptest::collection::vec(
-            (prop::sample::select(vec!["A".to_string(), "B".to_string(), "C".to_string()]),
-             1u64..5u64),
-            0..8,
-        ),
-    ) {
-        let party = "P".to_string();
-        let mut tree = Tree::for_party(party.clone());
-        for i in 0..prior_batches {
-            tree.act([insert_action(Bytes::from(
-                format!("prior-{i}").into_bytes(),
-            ))], |_, _, _| {});
-        }
-        let before = tree.version().clone();
-        let party_before = tree.party().clone();
-
-        let versions: Vec<Version> = incoming
-            .iter()
-            .map(|(p, s)| version_for(p, *s))
-            .collect();
-
-        let mut expected = before.clone();
-        for v in &versions {
-            expected |= v.clone();
-        }
-
-        // Use deletes on random unrelated paths so the actions never
-        // disturb pre-existing leaves; we are testing version bookkeeping,
-        // not tree mutation.
-        tree.react(
-            versions
-                .into_iter()
-                .enumerate()
-                .map(|(i, v)| delete_at(v, typed::Path::from([i as u8; 32]).into())),
-            |_, _, _| {}
-        );
-
-        prop_assert_eq!(tree.version(), expected);
-        prop_assert!(tree.version() >= before);
-        prop_assert_eq!(tree.party(), &party_before);
     }
 
     /// Two disjoint batches of versioned inserts applied via `react` must

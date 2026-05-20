@@ -167,11 +167,12 @@ impl<T> Tree<T> {
     /// an O(log n) speedup relative to one-by-one insertion operations, but
     /// since the log base is 256, in practice this is about 2-3x.
     ///
-    /// Like [`Tree::react`], this function is associative: partitioning a
-    /// sequence of actions across multiple `act` calls produces the same tree
-    /// as a single `act` over their concatenation. The version each insert
-    /// claims depends only on the number of preceding inserts in the running
-    /// sequence, not on which call wrote it.
+    /// This function is "morally associative": partitioning a sequence of actions
+    /// across multiple `act` calls produces the same tree as a single `act` over
+    /// their concatenation, modulo the tree's version, which may differ in the
+    /// case of multiple actions which address the same key. In this case, the
+    /// version is only incremented once for every changed key, regardless of
+    /// how many actions pertain to it.
     pub fn act<I, O>(&mut self, actions: I, react: O)
     where
         I: IntoIterator<Item = Action<T>>,
