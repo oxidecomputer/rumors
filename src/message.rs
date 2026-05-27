@@ -6,11 +6,14 @@ use std::sync::Arc;
 use borsh::{BorshDeserialize, BorshSerialize};
 use bytes::Bytes;
 
-/// A message paired with its cached serialization, to avoid roundtripping
-/// repeatedly through serialization/deserialization.
+/// A message of type `T` paired with its cached serialization, to avoid
+/// roundtripping repeatedly through serialization/deserialization. A
+/// `Message<T>` will always serialize identically to a `T`.
 ///
-/// If it is cheap to clone `T`, then it is also cheap to clone `Message<T>`,
-/// because the serialized bytes are shared.
+/// It is always cheap to clone `Message<T>`, because the serialized bytes are
+/// shared, and the message is enclosed in an `Arc<T>`.
+///
+/// # Panics
 ///
 /// It is assumed that all messages of type `T` are serializable; methods that
 /// attempt serialization will panic in the event that serialization fails.

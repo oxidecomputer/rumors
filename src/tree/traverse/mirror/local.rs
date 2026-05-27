@@ -666,7 +666,7 @@ where
         // via `answer_requested`), and turning them into Left cases would
         // re-emit data we already sent.
         if <L::Height as Height>::HEIGHT == <Root as Height>::HEIGHT {
-            for (parent_prefix, parent) in mem::replace(frontier, OrdMap::default()).into_iter() {
+            for (parent_prefix, parent) in mem::take(frontier).into_iter() {
                 for (child_radix, ours) in parent.into_children() {
                     let child_prefix = parent_prefix.push(child_radix);
                     if let Some(ours) = Unknown::unknown(

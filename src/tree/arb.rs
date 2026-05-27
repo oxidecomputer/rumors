@@ -27,7 +27,7 @@ pub fn arb_root_node(
                     (path, version, Action::Insert(Message::new(())))
                 })
                 .collect();
-            act(None, actions, |_, _, _| {})
+            pollster::block_on(act(None, actions, async |_, _, _| {}))
         })
         .boxed()
 }

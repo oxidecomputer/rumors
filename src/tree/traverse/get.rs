@@ -75,21 +75,33 @@ where
             // Decompose the node into its children
             let mut children = node.into_children();
 
-            // Recursively look up each radix group in the corresponding child
+            // Recursively look up each radix group in the corresponding
+            // child. See `act.rs` for why the recursive future is always
+            // boxed: polymorphic recursion over `H` builds a 32-level
+            // nested type chain that both pressures the stack in debug
+            // and pushes downstream crates' `recursion_limit` over its
+            // default in release. Boxing breaks both at the cost of ~32
+            // small heap allocations per top-level call.
             for (radix, group) in by_radix.into_iter() {
                 let child_paths: Vec<_> = group.map(|(_, path)| path).collect();
-                Get::get(
+                Box::pin(Get::get(
                     children.remove(&radix),
                     prefix.push(radix),
                     Paths::Selected(child_paths),
                     with_gotten,
-                )
+                ))
                 .await;
             }
         } else {
             // Get all the paths
             for (radix, child) in node.into_children() {
-                Get::get(Some(child), prefix.push(radix), Paths::All, with_gotten).await
+                Box::pin(Get::get(
+                    Some(child),
+                    prefix.push(radix),
+                    Paths::All,
+                    with_gotten,
+                ))
+                .await;
             }
         }
     }

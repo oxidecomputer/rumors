@@ -1,11 +1,10 @@
 //! Borsh helpers for [`imbl`] containers.
 //!
 //! `imbl::OrdMap` and `imbl::OrdSet` don't ship with `borsh` impls, but they
-//! have a canonical (key-sorted) iteration order that pairs naturally with
-//! the borsh convention already used for [`crate::Version`]'s `OrdMap`
-//! field. The helpers here factor that convention out so message types can
-//! `#[derive(BorshSerialize, BorshDeserialize)]` and pin the encoding of
-//! each container via `#[borsh(serialize_with = ..., deserialize_with = ...)]`.
+//! have a canonical (key-sorted) iteration order, perfectly suited for borsh.
+//! The helpers here factor that convention out so message types can
+//! `#[derive(BorshSerialize, BorshDeserialize)]` and pin the encoding of each
+//! container via `#[borsh(serialize_with = ..., deserialize_with = ...)]`.
 //!
 //! Wire format (shared by `OrdMap` and `OrdSet`):
 //!

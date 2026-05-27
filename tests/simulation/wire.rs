@@ -1,8 +1,12 @@
-//! Wire-equivalence helper: drive `Remote::gossip` over an in-memory
+//! Wire-equivalence helper: drive `Local::gossip` over an in-memory
 //! `tokio::io::duplex` pipe on a current-thread runtime. Used by
 //! [`pairwise::process_matches_wire_gossip`] to assert that the wire
 //! protocol produces the same per-peer state as bidirectional
 //! `Local::process`.
+//!
+//! Inputs and outputs are [`rumors::sync::Local`] so the helper plugs
+//! into the rest of the simulation suite, which is built around the
+//! synchronous surface; the bridge to the async wire happens inside.
 //!
 //! [`pairwise::process_matches_wire_gossip`]: crate::pairwise
 
@@ -10,7 +14,8 @@ use std::cell::OnceCell;
 use std::future::Future;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use rumors::{Local, Remote};
+use rumors::ignore;
+use rumors::sync::Local;
 use tokio::runtime::Runtime;
 
 thread_local! {
@@ -37,27 +42,26 @@ fn block_on<F: Future>(fut: F) -> F::Output {
 /// is sufficient and naturally exercises backpressure.
 const DUPLEX_BUF: usize = 8 * 1024;
 
-/// Gossip two `Local`s through the on-wire protocol and return the
-/// reconciled pair. After this returns, the two `Local`s are equal.
+/// Gossip two `sync::Local`s through the on-wire protocol and return
+/// the reconciled pair. After this returns, the two `Local`s are equal.
 pub fn wire_gossip<T>(a: Local<T>, b: Local<T>) -> (Local<T>, Local<T>)
 where
     T: Clone + BorshSerialize + BorshDeserialize + Send + 'static,
 {
     block_on(async move {
         let (a_side, b_side) = tokio::io::duplex(DUPLEX_BUF);
-        let (a_r, a_w) = tokio::io::split(a_side);
-        let (b_r, b_w) = tokio::io::split(b_side);
+        let (mut a_r, mut a_w) = tokio::io::split(a_side);
+        let (mut b_r, mut b_w) = tokio::io::split(b_side);
 
-        let mut peer_a = Remote::<T, _, _>::new(a_r, a_w);
-        let mut peer_b = Remote::<T, _, _>::new(b_r, b_w);
-
+        // Bridge sync::Local -> async Local for the wire, then wrap back
+        // into sync::Local on the way out.
         let (a_result, b_result) = tokio::join!(
-            peer_a.gossip(a, |_, _, _| {}),
-            peer_b.gossip(b, |_, _, _| {}),
+            a.0.gossip(&mut a_r, &mut a_w, ignore),
+            b.0.gossip(&mut b_r, &mut b_w, ignore),
         );
         (
-            a_result.expect("wire gossip A"),
-            b_result.expect("wire gossip B"),
+            Local(a_result.expect("wire gossip A")),
+            Local(b_result.expect("wire gossip B")),
         )
     })
 }

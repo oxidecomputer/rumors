@@ -12,7 +12,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use rumors::{Key, Local};
+use rumors::Key;
+use rumors::sync::Local;
 
 use crate::schedule::EventIdx;
 

@@ -6,9 +6,6 @@ mod key;
 mod traverse;
 mod typed;
 
-#[cfg(test)]
-mod arb;
-
 use crate::{
     message::Message,
     tree::{
@@ -175,10 +172,10 @@ impl<T> Tree<T> {
     /// case of multiple actions which address the same key. In this case, the
     /// version is only incremented once for every changed key, regardless of
     /// how many actions pertain to it.
-    pub fn act<I, O>(&mut self, actions: I, react: O)
+    pub async fn act<I, O>(&mut self, actions: I, react: O)
     where
         I: IntoIterator<Item = Action<T>>,
-        O: FnMut(Key, &Version, Option<&Message<T>>),
+        O: AsyncFnMut(Key, &Version, Option<&Message<T>>),
     {
         // Get the local party.
         let party = self.party.clone();
@@ -212,7 +209,7 @@ impl<T> Tree<T> {
             };
             (key, new_version.clone(), value)
         });
-        self.react(reactions, react);
+        self.react(reactions, react).await;
     }
 
     /// Apply the specified *versioned* actions as a batch to the tree without
@@ -232,11 +229,11 @@ impl<T> Tree<T> {
     /// tree in a single traversal. Theoretically, this gives an O(log n)
     /// speedup relative to one-by-one insertion operations, but since the log
     /// base is 256, in practice this is about 2-3x.
-    pub fn react<M, I, O>(&mut self, reactions: I, mut react: O)
+    pub async fn react<M, I, O>(&mut self, reactions: I, mut react: O)
     where
         M: Into<Option<Message<T>>>,
         I: IntoIterator<Item = (Key, Version, M)>,
-        O: FnMut(Key, &Version, Option<&Message<T>>),
+        O: AsyncFnMut(Key, &Version, Option<&Message<T>>),
     {
         // Convert the specified actions into the action specification required
         // by the inductive traversal of the tree
@@ -257,12 +254,16 @@ impl<T> Tree<T> {
         // zero-effect actions (e.g. forgetting a nonexistent key) do not
         // bump the root version.
         let root_version = &mut self.root.version;
-        self.root.root = traverse::act(self.root.root.take().into(), actions, |k, v, m| {
+        self.root.root = traverse::act(self.root.root.take(), actions, async |k, v, m| {
             *root_version |= v.clone();
-            react(k, v, m);
-        });
+            react(k, v, m).await;
+        })
+        .await;
     }
 }
+
+#[cfg(test)]
+mod arb;
 
 #[cfg(test)]
 mod test;

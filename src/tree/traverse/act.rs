@@ -15,25 +15,36 @@ pub enum Action<T> {
 }
 
 /// Perform a sequence of actions (insertions or deletions) on this node.
-pub fn act<P, T>(
+///
+/// Type-erased via `Pin<Box<dyn Future>>` so the deep `S<S<…<Z>>>` chain
+/// produced by recursive `Act` trait dispatch doesn't leak into the
+/// layout queries of every public API that drives the tree — otherwise
+/// downstream crates would need to bump their `recursion_limit`.
+pub async fn act<'a, P, T, F>(
     node: Option<Node<P, T, Root>>,
     actions: Vec<(Path, Version<P>, Action<T>)>,
-    mut on_action: impl FnMut(Key, &Version<P>, Option<&Message<T>>),
+    on_action: F,
 ) -> Option<Node<P, T, Root>>
 where
-    P: Clone + Ord + AsRef<[u8]>,
+    P: Clone + Ord + AsRef<[u8]> + 'a,
+    T: 'a,
+    F: AsyncFnMut(Key, &Version<P>, Option<&Message<T>>) + 'a,
 {
-    Act::act(node, Prefix::new(), actions, &mut on_action)
+    Box::pin(async move {
+        let mut on_action = on_action;
+        Act::act(node, Prefix::new(), actions, &mut on_action).await
+    })
+    .await
 }
 
 // The internal implementation of the traversal as a polymorphic-recursive
 
 pub trait Act: Height {
-    fn act<P, T>(
+    async fn act<P, T>(
         node: Option<Node<P, T, Self>>,
         prefix: Prefix<Self>,
         actions: Vec<(Path<Self>, Version<P>, Action<T>)>,
-        on_action: &mut impl FnMut(Key, &Version<P>, Option<&Message<T>>),
+        on_action: &mut impl AsyncFnMut(Key, &Version<P>, Option<&Message<T>>),
     ) -> Option<Node<P, T, Self>>
     where
         P: Clone + Ord + AsRef<[u8]>;
@@ -43,11 +54,11 @@ impl<H: Act> Act for S<H>
 where
     S<H>: Height,
 {
-    fn act<P, T>(
+    async fn act<P, T>(
         node: Option<Node<P, T, S<H>>>,
         prefix: Prefix<Self>,
         actions: Vec<(Path<Self>, Version<P>, Action<T>)>,
-        on_action: &mut impl FnMut(Key, &Version<P>, Option<&Message<T>>),
+        on_action: &mut impl AsyncFnMut(Key, &Version<P>, Option<&Message<T>>),
     ) -> Option<Node<P, T, S<H>>>
     where
         P: Clone + Ord + AsRef<[u8]>,
@@ -68,31 +79,36 @@ where
         // Recursively apply each radix group into the corresponding child of
         // the original node, pulling each existing child out of the original
         // map exploded from the node
-        let updated: Vec<_> = by_radix
-            .into_iter()
-            .filter_map(|(radix, i)| {
-                // Collect all the actions for this radix group, and mutably
-                // pull the existing child out of the parent:
-                let actions: Vec<_> = i
-                    .map(|(_, path, version, action)| (path, version, action))
-                    .collect();
-                let existing_child = existing_children.remove(&radix);
+        let mut updated: Vec<_> = Vec::new();
+        for (radix, group) in by_radix.into_iter() {
+            // Collect all the actions for this radix group, and mutably
+            // pull the existing child out of the parent:
+            let actions: Vec<_> = group
+                .map(|(_, path, version, action)| (path, version, action))
+                .collect();
+            let existing_child = existing_children.remove(&radix);
 
-                // Short-circuit when solely trying to delete from a non-existent child:
-                if existing_child.is_none()
-                    && actions
-                        .iter()
-                        .all(|(_, _, action)| matches!(action, Action::Forget))
-                {
-                    return None;
-                }
+            // Short-circuit when solely trying to delete from a non-existent child:
+            if existing_child.is_none()
+                && actions
+                    .iter()
+                    .all(|(_, _, action)| matches!(action, Action::Forget))
+            {
+                continue;
+            }
 
-                // Recursively apply the actions to the existing child (if any)
-                // or its absent slot (if missing):
-                let child = Act::act(existing_child, prefix.push(radix), actions, on_action)?;
-                Some((radix, child))
-            })
-            .collect();
+            // We box the future to avoid having an enormous future due to recursion.
+            let recursed = Box::pin(Act::act(
+                existing_child,
+                prefix.push(radix),
+                actions,
+                on_action,
+            ))
+            .await;
+            if let Some(child) = recursed {
+                updated.push((radix, child));
+            }
+        }
 
         // Re-assemble: updated children + untouched existing children.
         Node::branch(updated.into_iter().chain(existing_children).collect())
@@ -100,11 +116,11 @@ where
 }
 
 impl Act for Z {
-    fn act<P, T>(
+    async fn act<P, T>(
         mut node: Option<Node<P, T, Self>>,
         prefix: Prefix<Self>,
         actions: Vec<(Path<Self>, Version<P>, Action<T>)>,
-        on_action: &mut impl FnMut(Key, &Version<P>, Option<&Message<T>>),
+        on_action: &mut impl AsyncFnMut(Key, &Version<P>, Option<&Message<T>>),
     ) -> Option<Node<P, T, Z>>
     where
         P: Clone + Ord + AsRef<[u8]>,
@@ -140,11 +156,14 @@ impl Act for Z {
         match (existed_before, &node) {
             // The node stayed empty
             (false, None) => {}
-            (_, node) => on_action(
-                prefix.into(),
-                &greatest_version,
-                node.as_ref().map(|n| n.message()),
-            ),
+            (_, node) => {
+                on_action(
+                    prefix.into(),
+                    &greatest_version,
+                    node.as_ref().map(|n| n.message()),
+                )
+                .await
+            }
         }
 
         node

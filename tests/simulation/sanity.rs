@@ -3,7 +3,7 @@
 
 use proptest::collection::vec;
 use proptest::prelude::*;
-use rumors::Local;
+use rumors::sync::{Local, ignore};
 
 use crate::oracle::readout_multiset;
 use crate::peer::{Peer, quiesce};
@@ -35,15 +35,15 @@ proptest! {
         helper_values in vec(any::<u64>(), 0..=MAX_CLONE_VALUES),
     ) {
         let mut base: Local<u64> = Local::for_party("alice");
-        base.message(original_values.clone(), |_, _, _| {});
+        base.message(original_values.clone(), ignore);
 
         let mut helper = base.clone();
-        helper.message(helper_values.clone(), |_, _, _| {});
+        helper.message(helper_values.clone(), ignore);
 
         let recombined = base.clone() + helper;
 
         let mut direct = base;
-        direct.message(helper_values, |_, _, _| {});
+        direct.message(helper_values, ignore);
 
         prop_assert_eq!(
             readout_multiset(&recombined),

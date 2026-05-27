@@ -41,7 +41,7 @@ impl<P: Clone + Ord + AsRef<[u8]>, T> Clone for NodeInner<P, T> {
     fn clone(&self) -> Self {
         Self {
             prefix: self.prefix.clone(),
-            children_hash: self.children_hash.clone(),
+            children_hash: self.children_hash,
             version: self.version.clone(),
             children: self.children.clone(),
         }

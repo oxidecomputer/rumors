@@ -4,7 +4,8 @@
 //! point).
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use rumors::{Key, Local, Version};
+use rumors::sync::Local;
+use rumors::{Key, Version};
 
 /// One simulated peer.
 pub struct Peer<T> {

@@ -2,11 +2,12 @@ use std::fmt::Debug;
 
 use super::typed;
 
-/// An opaque identifier for a message in a local rumor set.
 #[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[repr(transparent)]
 pub struct Key(pub(crate) [u8; 32]);
 
+/// Hex-encodes the 32-byte key as a lowercase string, with no surrounding
+/// punctuation. Convenient in logs and assertion messages.
 impl Debug for Key {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         hex::encode(self.0).fmt(f)

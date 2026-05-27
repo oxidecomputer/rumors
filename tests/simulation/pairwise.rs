@@ -1,7 +1,7 @@
 //! Pairwise gossip semantics for `Local::process` (and its alias `+`).
 //!
 //! Covers convergence, symmetry, idempotence, the algebraic laws of
-//! `+`, and equivalence with `Remote::gossip` over a real
+//! `+`, and equivalence with `Local::gossip` over a real
 //! `tokio::io::duplex` channel.
 //!
 //! Post-gossip equality is asserted against *readouts*, not `Local`s
@@ -12,7 +12,7 @@
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use proptest::prelude::*;
-use rumors::Local;
+use rumors::sync::{Local, ignore};
 
 use crate::action::{arb_local_actions, arb_string_actions, build_local};
 use crate::oracle::readout;
@@ -27,8 +27,8 @@ where
 {
     let a_snapshot = a.clone();
     let b_snapshot = b.clone();
-    a.process(b_snapshot, |_, _, _| {});
-    b.process(a_snapshot, |_, _, _| {});
+    a.process(b_snapshot, ignore);
+    b.process(a_snapshot, ignore);
 }
 
 proptest! {
@@ -98,7 +98,7 @@ proptest! {
 
     /// Bidirectional `Local::process` produces the same final
     /// `(a, b)` as driving the same two `Local`s through
-    /// `Remote::gossip` over `tokio::io::duplex` — proving the wire
+    /// `Local::gossip` over `tokio::io::duplex` — proving the wire
     /// protocol is faithful to the in-process merge.
     #[test]
     fn process_matches_wire_gossip(

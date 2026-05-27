@@ -74,7 +74,7 @@
 //!           <->  wire-layer counter      <->  std::io::pipe
 //! ```
 //!
-//! The protocol uses `Sync(Remote::new(read, write))` so we drive synchronous
+//! The protocol uses `rumors::sync::Local::gossip` so we drive synchronous
 //! `Read` + `Write` halves of a `std::io::pipe`; one helper thread runs bob's
 //! side per sample, alice's runs on the rayon worker thread. zstd's
 //! `Encoder::auto_finish` writes a closing block on drop so the peer's decoder
@@ -214,7 +214,8 @@ use clap::{Parser, ValueEnum};
 use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
 use rand::{Rng, SeedableRng, rngs::SmallRng};
 use rayon::prelude::*;
-use rumors::{Key, Local, Remote, Sync};
+use rumors::Key;
+use rumors::sync::{Local, ignore};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -419,8 +420,8 @@ fn build_pair(
             let count = (base + if i < remainder { 1 } else { 0 }) as usize;
             let mut bg: Local<()> = Local::for_party(&name);
             bg.message(std::iter::repeat_n((), count), |k, _, _| keys.push(k));
-            alice.process(bg.clone(), |_, _, _| {});
-            bob.process(bg, |_, _, _| {});
+            alice.process(bg.clone(), ignore);
+            bob.process(bg, ignore);
         }
     }
 
@@ -430,10 +431,10 @@ fn build_pair(
     let redact_b: Vec<Key> = keys[s + ra..].to_vec();
 
     alice.redact(redact_a);
-    alice.message(std::iter::repeat_n((), distinct_a as usize), |_, _, _| {});
+    alice.message(std::iter::repeat_n((), distinct_a as usize), ignore);
 
     bob.redact(redact_b);
-    bob.message(std::iter::repeat_n((), distinct_b as usize), |_, _, _| {});
+    bob.message(std::iter::repeat_n((), distinct_b as usize), ignore);
 
     (alice, bob)
 }
@@ -536,7 +537,11 @@ fn predict(
     // the test-rig construction: a background party with ≥ 1 insert appears
     // in both alice's and bob's version; one with zero inserts is invisible.
     let total_ancestor = shared + redacted_a + redacted_b;
-    let effective_parties = if total_ancestor == 0 { 0 } else { parties.min(total_ancestor) };
+    let effective_parties = if total_ancestor == 0 {
+        0
+    } else {
+        parties.min(total_ancestor)
+    };
     let np_a = effective_parties + u32::from(redacted_a + distinct_a > 0);
     let np_b = effective_parties + u32::from(redacted_b + distinct_b > 0);
 
@@ -549,7 +554,12 @@ fn predict(
 
     // EXACT: matching versions cause both sides to bail after the connect exchange.
     if !any_diff {
-        return Prediction { bytes_a: ver_a, bytes_b: ver_b, rounds_a: 0.5, rounds_b: 0.5 };
+        return Prediction {
+            bytes_a: ver_a,
+            bytes_b: ver_b,
+            rounds_a: 0.5,
+            rounds_b: 0.5,
+        };
     }
 
     // EXACT structural per-leaf-version cost: each leaf in `providing` carries
@@ -577,8 +587,8 @@ fn predict(
     // main structural terms. Empirically they each contribute < 6 bytes; we
     // keep them so the model nails the asymmetric cells.
     const SMALL_OTHER_PER_DISTINCT: f64 = 2.0; // per element on the OTHER side
-    const SMALL_OWN_REDACT: f64 = 1.0;          // per own redaction announced
-    const PRESENCE_BUMP: f64 = 5.0;             // when an indicator subtree opens
+    const SMALL_OWN_REDACT: f64 = 1.0; // per own redaction announced
+    const PRESENCE_BUMP: f64 = 5.0; // when an indicator subtree opens
 
     let proto_a = PROTO_BASE
         + da * (leaf_ver_a + PER_LEAF_OVERHEAD)
@@ -607,10 +617,10 @@ fn predict(
     let quiet_a = distinct_a == 0 && redacted_b == 0;
     let quiet_b = distinct_b == 0 && redacted_a == 0;
 
-    let rounds_a = ROUNDS_BASE + ROUNDS_PER_LEVEL * log256
-        - if quiet_a { QUIET_DISCOUNT } else { 0.0 };
-    let rounds_b = ROUNDS_BASE + ROUNDS_PER_LEVEL * log256
-        - if quiet_b { QUIET_DISCOUNT } else { 0.0 };
+    let rounds_a =
+        ROUNDS_BASE + ROUNDS_PER_LEVEL * log256 - if quiet_a { QUIET_DISCOUNT } else { 0.0 };
+    let rounds_b =
+        ROUNDS_BASE + ROUNDS_PER_LEVEL * log256 - if quiet_b { QUIET_DISCOUNT } else { 0.0 };
 
     Prediction {
         bytes_a: ver_a + proto_a,
@@ -636,7 +646,9 @@ fn build_io_stack(
     stats: &StatsHandle,
     zstd_level: i32,
 ) -> io::Result<(
-    CountingRead<zstd::stream::read::Decoder<'static, io::BufReader<CountingRead<std::io::PipeReader>>>>,
+    CountingRead<
+        zstd::stream::read::Decoder<'static, io::BufReader<CountingRead<std::io::PipeReader>>>,
+    >,
     CountingWrite<zstd::stream::AutoFinishEncoder<'static, CountingWrite<std::io::PipeWriter>>>,
 )> {
     // Read path (bottom up): raw pipe -> wire counter -> zstd decoder -> protocol counter
@@ -699,10 +711,12 @@ impl BobWorker {
             while let Ok(job) = job_rx.recv() {
                 let stats: StatsHandle = Rc::new(RefCell::new(SideStats::default()));
                 {
-                    let (r, w) = build_io_stack(job.read, job.write, &stats, job.zstd_level)
-                        .expect("build bob stack");
-                    let mut peer = Sync(Remote::<(), _, _>::new(r, w));
-                    peer.gossip(job.bob, |_, _, _| {}).expect("sync gossip bob");
+                    let (mut r, mut w) =
+                        build_io_stack(job.read, job.write, &stats, job.zstd_level)
+                            .expect("build bob stack");
+                    job.bob
+                        .gossip(&mut r, &mut w, ignore)
+                        .expect("sync gossip bob");
                 }
                 let result = *stats.borrow();
                 // Recv side will be dropped on shutdown; ignore that error.
@@ -736,7 +750,9 @@ fn run_sample(
     zstd_level: i32,
     mode: Mode,
 ) -> Measure {
-    let (alice, bob) = build_pair(rng, parties, shared, distinct_a, distinct_b, redacted_a, redacted_b);
+    let (alice, bob) = build_pair(
+        rng, parties, shared, distinct_a, distinct_b, redacted_a, redacted_b,
+    );
 
     let (a_to_b_r, a_to_b_w) = pipe().expect("pipe a->b");
     let (b_to_a_r, b_to_a_w) = pipe().expect("pipe b->a");
@@ -748,10 +764,10 @@ fn run_sample(
         Mode::Spawn => BobHandle::Spawn(thread::spawn(move || -> SideStats {
             let stats: StatsHandle = Rc::new(RefCell::new(SideStats::default()));
             {
-                let (r, w) = build_io_stack(a_to_b_r, b_to_a_w, &stats, zstd_level)
+                let (mut r, mut w) = build_io_stack(a_to_b_r, b_to_a_w, &stats, zstd_level)
                     .expect("build bob stack");
-                let mut peer = Sync(Remote::<(), _, _>::new(r, w));
-                peer.gossip(bob, |_, _, _| {}).expect("sync gossip bob");
+                bob.gossip(&mut r, &mut w, ignore)
+                    .expect("sync gossip bob");
             }
             *stats.borrow()
         })),
@@ -771,10 +787,11 @@ fn run_sample(
     // Alice's stack: reads from b_to_a, writes to a_to_b.
     let stats_a: StatsHandle = Rc::new(RefCell::new(SideStats::default()));
     {
-        let (r, w) = build_io_stack(b_to_a_r, a_to_b_w, &stats_a, zstd_level)
-            .expect("build alice stack");
-        let mut peer = Sync(Remote::<(), _, _>::new(r, w));
-        let _alice_out = peer.gossip(alice, |_, _, _| {}).expect("sync gossip alice");
+        let (mut r, mut w) =
+            build_io_stack(b_to_a_r, a_to_b_w, &stats_a, zstd_level).expect("build alice stack");
+        let _alice_out = alice
+            .gossip(&mut r, &mut w, ignore)
+            .expect("sync gossip alice");
     }
     let sa = *stats_a.borrow();
 
@@ -889,8 +906,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         const BUF_CAPACITY: usize = 256 * 1024;
         const FLUSH_EVERY: usize = 1024;
         let file = File::create(&output_path)?;
-        let mut csv_writer =
-            csv::Writer::from_writer(BufWriter::with_capacity(BUF_CAPACITY, file));
+        let mut csv_writer = csv::Writer::from_writer(BufWriter::with_capacity(BUF_CAPACITY, file));
         csv_writer.write_record(header).map_err(io::Error::other)?;
         csv_writer.flush()?;
         let mut since_flush = 0usize;
@@ -918,38 +934,50 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .flat_map(|i| (0..args.samples).map(move |s| (i, s)))
         .collect();
 
-    jobs.par_iter().progress_with(pb).for_each(|&(cell_idx, sample_idx)| {
-        let (parties, s, da, db, ra, rb) = cells[cell_idx];
-        let mut rng = SmallRng::seed_from_u64(job_seed(seed, cell_idx, sample_idx));
-        let m = run_sample(&mut rng, parties, s, da, db, ra, rb, args.zstd_level, args.mode);
-        let rounds_a = m.transitions_a as f64 / 2.0;
-        let rounds_b = m.transitions_b as f64 / 2.0;
-        let p = predict(parties, s, da, db, ra, rb);
+    jobs.par_iter()
+        .progress_with(pb)
+        .for_each(|&(cell_idx, sample_idx)| {
+            let (parties, s, da, db, ra, rb) = cells[cell_idx];
+            let mut rng = SmallRng::seed_from_u64(job_seed(seed, cell_idx, sample_idx));
+            let m = run_sample(
+                &mut rng,
+                parties,
+                s,
+                da,
+                db,
+                ra,
+                rb,
+                args.zstd_level,
+                args.mode,
+            );
+            let rounds_a = m.transitions_a as f64 / 2.0;
+            let rounds_b = m.transitions_b as f64 / 2.0;
+            let p = predict(parties, s, da, db, ra, rb);
 
-        row_tx
-            .send([
-                parties.to_string(),
-                s.to_string(),
-                da.to_string(),
-                db.to_string(),
-                ra.to_string(),
-                rb.to_string(),
-                sample_idx.to_string(),
-                m.proto_bytes_a.to_string(),
-                m.proto_bytes_b.to_string(),
-                m.wire_bytes_a.to_string(),
-                m.wire_bytes_b.to_string(),
-                m.transitions_a.to_string(),
-                m.transitions_b.to_string(),
-                rounds_a.to_string(),
-                rounds_b.to_string(),
-                format!("{:.3}", p.bytes_a),
-                format!("{:.3}", p.bytes_b),
-                format!("{:.4}", p.rounds_a),
-                format!("{:.4}", p.rounds_b),
-            ])
-            .expect("send row to writer thread");
-    });
+            row_tx
+                .send([
+                    parties.to_string(),
+                    s.to_string(),
+                    da.to_string(),
+                    db.to_string(),
+                    ra.to_string(),
+                    rb.to_string(),
+                    sample_idx.to_string(),
+                    m.proto_bytes_a.to_string(),
+                    m.proto_bytes_b.to_string(),
+                    m.wire_bytes_a.to_string(),
+                    m.wire_bytes_b.to_string(),
+                    m.transitions_a.to_string(),
+                    m.transitions_b.to_string(),
+                    rounds_a.to_string(),
+                    rounds_b.to_string(),
+                    format!("{:.3}", p.bytes_a),
+                    format!("{:.3}", p.bytes_b),
+                    format!("{:.4}", p.rounds_a),
+                    format!("{:.4}", p.rounds_b),
+                ])
+                .expect("send row to writer thread");
+        });
 
     // Drop the producer so the writer thread sees the channel close, then
     // join it to surface any I/O errors.

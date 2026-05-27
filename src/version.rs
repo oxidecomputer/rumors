@@ -14,6 +14,8 @@ pub struct Version<P: Ord = Bytes> {
     versions: OrdMap<P, u64>,
 }
 
+/// The empty version: no party has been observed yet. Pointwise-less than
+/// or equal to every other version under [`PartialOrd`].
 impl<P: Ord> Default for Version<P> {
     fn default() -> Self {
         Self {
@@ -101,6 +103,9 @@ impl<P: Ord> PartialOrd for Version<P> {
     }
 }
 
+/// Join: take the pointwise maximum of two version vectors. The result is
+/// the least upper bound under [`PartialOrd`] — equal to either operand if
+/// it dominates, otherwise strictly greater than both.
 impl<P: Ord + Clone> BitOrAssign for Version<P> {
     fn bitor_assign(&mut self, rhs: Self) {
         let lhs = mem::take(&mut self.versions);
@@ -108,6 +113,7 @@ impl<P: Ord + Clone> BitOrAssign for Version<P> {
     }
 }
 
+/// Join: pointwise maximum. See [`BitOrAssign`].
 impl<P: Ord + Clone> BitOr for Version<P> {
     type Output = Version<P>;
 

@@ -9,7 +9,8 @@ use std::collections::BTreeSet;
 use imbl::OrdMap;
 use proptest::collection::vec;
 use proptest::prelude::*;
-use rumors::{Key, Local, Version};
+use rumors::sync::{Local, ignore};
+use rumors::{Key, Version};
 
 proptest! {
     /// Every value passed to `Local::message` fires `on_message`
@@ -113,9 +114,9 @@ proptest! {
         };
 
         let mut a: Local<u64> = Local::for_party("alice");
-        a.message(values, |_, _, _| {});
+        a.message(values, ignore);
         let mut b: Local<u64> = Local::for_party("alice");
-        b.message(shuffled, |_, _, _| {});
+        b.message(shuffled, ignore);
 
         // Live content (value multiset) must match, even though the
         // per-value `Key`s differ — different version-counter

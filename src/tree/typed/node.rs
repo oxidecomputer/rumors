@@ -27,7 +27,7 @@ pub struct Node<P: Ord + AsRef<[u8]>, T, H: Height> {
 impl<P: Ord + AsRef<[u8]>, T, H: Height> Clone for Node<P, T, H> {
     fn clone(&self) -> Self {
         Self {
-            height: self.height.clone(),
+            height: self.height,
             inner: self.inner.clone(),
         }
     }

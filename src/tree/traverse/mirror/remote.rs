@@ -53,14 +53,12 @@ use crate::version::Version;
 use super::message::{self, UnderRoot, UnderUnderRoot};
 use super::protocol::{self, Step};
 
-/// Errors raised by [`Exchange`]'s protocol-trait impls. Covers both I/O
-/// failures on the underlying reader/writer and framing errors surfaced by
-/// borsh during deserialization (out-of-range counts, non-canonical orderings,
-/// etc.).
-#[derive(Debug)]
+#[non_exhaustive]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// An underlying reader/writer error, or a borsh framing error encountered
     /// while parsing a message off the wire.
+    #[error(transparent)]
     Io(borsh::io::Error),
 }
 

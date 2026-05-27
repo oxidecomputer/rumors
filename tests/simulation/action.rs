@@ -6,7 +6,8 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use proptest::collection::vec;
 use proptest::prelude::*;
-use rumors::{Key, Local};
+use rumors::Key;
+use rumors::sync::Local;
 
 const MAX_ACTIONS: usize = 16;
 

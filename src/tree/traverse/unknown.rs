@@ -66,9 +66,15 @@ where
         Node::branch({
             let mut children = OrdMap::new();
             for (radix, child) in node.into_children() {
-                if let Some(child) =
-                    Unknown::unknown(Some(child), prefix.push(radix), known, with_unknown).await
-                {
+                // We box the future to avoid making a giant future.
+                let recursed = Box::pin(Unknown::unknown(
+                    Some(child),
+                    prefix.push(radix),
+                    known,
+                    with_unknown,
+                ))
+                .await;
+                if let Some(child) = recursed {
                     children.insert(radix, child);
                 }
             }
