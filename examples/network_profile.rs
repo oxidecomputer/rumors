@@ -200,15 +200,17 @@
 //! into effectively `O(payload + small constant)`.
 
 use std::{
+    cell::RefCell,
     fs::File,
     io::{self, BufWriter, Read, Write, pipe},
     path::PathBuf,
-    sync::{Arc, Mutex},
+    rc::Rc,
+    sync::mpsc,
     thread,
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
 use rand::{Rng, SeedableRng, rngs::SmallRng};
 use rayon::prelude::*;
@@ -256,11 +258,31 @@ struct Args {
     /// CLI default and trades CPU for ratio in the usual sweet spot.
     #[arg(long, default_value_t = 3)]
     zstd_level: i32,
+
+    /// Threading strategy for the per-sample peer (bob).
+    ///
+    /// `spawn`: `thread::spawn` a fresh OS thread per sample (one-shot).
+    /// `pool`: reuse a long-lived bob worker per rayon worker via thread-local
+    /// channels. Avoids per-sample thread creation/teardown.
+    #[arg(long, value_enum, default_value_t = Mode::Pool)]
+    mode: Mode,
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum Mode {
+    /// Fresh `thread::spawn` per sample.
+    Spawn,
+    /// Long-lived bob worker per rayon thread, fed via channels.
+    Pool,
 }
 
 /// Per-side measurement state. Tracks bytes at both the protocol (uncompressed)
 /// and wire (compressed) layers, plus phase transitions on the protocol layer.
-#[derive(Default)]
+///
+/// Only ever touched by a single thread (the rayon worker for alice, the bob
+/// worker for bob), so we hand it around as `Rc<RefCell<…>>` rather than
+/// `Arc<Mutex<…>>` — no atomics, no lock acquisitions on the per-byte hot path.
+#[derive(Default, Clone, Copy)]
 struct SideStats {
     proto_bytes_read: u64,
     proto_bytes_written: u64,
@@ -269,6 +291,10 @@ struct SideStats {
     transitions: u64,
     last_op: Option<Op>,
 }
+
+/// Single-threaded shared handle to one side's stats. The two counting wrappers
+/// (read + write) and the rig that reads the final counters hold clones.
+type StatsHandle = Rc<RefCell<SideStats>>;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 enum Op {
@@ -286,14 +312,14 @@ enum Layer {
 
 struct CountingRead<R> {
     inner: R,
-    stats: Arc<Mutex<SideStats>>,
+    stats: StatsHandle,
     layer: Layer,
 }
 
 impl<R: Read> Read for CountingRead<R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let n = self.inner.read(buf)?;
-        let mut s = self.stats.lock().unwrap();
+        let mut s = self.stats.borrow_mut();
         match self.layer {
             Layer::Protocol => {
                 if matches!(s.last_op, Some(Op::Write)) {
@@ -312,14 +338,14 @@ impl<R: Read> Read for CountingRead<R> {
 
 struct CountingWrite<W> {
     inner: W,
-    stats: Arc<Mutex<SideStats>>,
+    stats: StatsHandle,
     layer: Layer,
 }
 
 impl<W: Write> Write for CountingWrite<W> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let n = self.inner.write(buf)?;
-        let mut s = self.stats.lock().unwrap();
+        let mut s = self.stats.borrow_mut();
         match self.layer {
             Layer::Protocol => {
                 if matches!(s.last_op, Some(Op::Read)) {
@@ -607,7 +633,7 @@ struct Prediction {
 fn build_io_stack(
     raw_read: std::io::PipeReader,
     raw_write: std::io::PipeWriter,
-    stats: Arc<Mutex<SideStats>>,
+    stats: &StatsHandle,
     zstd_level: i32,
 ) -> io::Result<(
     CountingRead<zstd::stream::read::Decoder<'static, io::BufReader<CountingRead<std::io::PipeReader>>>>,
@@ -637,11 +663,66 @@ fn build_io_stack(
     let encoder = zstd::stream::write::Encoder::new(wire_write, zstd_level)?.auto_finish();
     let proto_write = CountingWrite {
         inner: encoder,
-        stats,
+        stats: stats.clone(),
         layer: Layer::Protocol,
     };
 
     Ok((proto_read, proto_write))
+}
+
+/// Work item handed to a long-lived bob worker. Bob's stats are constructed
+/// *inside* the worker thread (so they can live in an `Rc<RefCell<…>>`) and
+/// shipped back via the done channel.
+struct BobJob {
+    bob: Local<()>,
+    read: std::io::PipeReader,
+    write: std::io::PipeWriter,
+    zstd_level: i32,
+}
+
+/// Long-lived bob worker: one OS thread, fed by an mpsc channel. The worker
+/// loops until the sender is dropped (i.e. the owning rayon thread exits and
+/// its thread-local store is torn down).
+///
+/// Submit-and-wait is split into two methods so the caller can run alice
+/// concurrently with the bob worker in between.
+struct BobWorker {
+    job_tx: mpsc::Sender<BobJob>,
+    done_rx: mpsc::Receiver<SideStats>,
+}
+
+impl BobWorker {
+    fn new() -> Self {
+        let (job_tx, job_rx) = mpsc::channel::<BobJob>();
+        let (done_tx, done_rx) = mpsc::channel::<SideStats>();
+        thread::spawn(move || {
+            while let Ok(job) = job_rx.recv() {
+                let stats: StatsHandle = Rc::new(RefCell::new(SideStats::default()));
+                {
+                    let (r, w) = build_io_stack(job.read, job.write, &stats, job.zstd_level)
+                        .expect("build bob stack");
+                    let mut peer = Sync(Remote::<(), _, _>::new(r, w));
+                    peer.gossip(job.bob, |_, _, _| {}).expect("sync gossip bob");
+                }
+                let result = *stats.borrow();
+                // Recv side will be dropped on shutdown; ignore that error.
+                let _ = done_tx.send(result);
+            }
+        });
+        Self { job_tx, done_rx }
+    }
+
+    fn submit(&self, job: BobJob) {
+        self.job_tx.send(job).expect("submit bob job");
+    }
+
+    fn wait(&self) -> SideStats {
+        self.done_rx.recv().expect("wait bob done")
+    }
+}
+
+thread_local! {
+    static BOB_WORKER: BobWorker = BobWorker::new();
 }
 
 fn run_sample(
@@ -653,33 +734,55 @@ fn run_sample(
     redacted_a: u32,
     redacted_b: u32,
     zstd_level: i32,
+    mode: Mode,
 ) -> Measure {
     let (alice, bob) = build_pair(rng, parties, shared, distinct_a, distinct_b, redacted_a, redacted_b);
 
     let (a_to_b_r, a_to_b_w) = pipe().expect("pipe a->b");
     let (b_to_a_r, b_to_a_w) = pipe().expect("pipe b->a");
 
-    let stats_a = Arc::new(Mutex::new(SideStats::default()));
-    let stats_b = Arc::new(Mutex::new(SideStats::default()));
-
-    // Bob's stack: reads from a_to_b, writes to b_to_a.
-    let stats_b_for_thread = stats_b.clone();
-    let bob_thread = thread::spawn(move || {
-        let (r, w) = build_io_stack(a_to_b_r, b_to_a_w, stats_b_for_thread, zstd_level)
-            .expect("build bob stack");
-        let mut peer = Sync(Remote::<(), _, _>::new(r, w));
-        peer.gossip(bob, |_, _, _| {}).expect("sync gossip bob")
-    });
+    // Hand bob's half off to a peer thread. Alice runs on the current
+    // (rayon worker) thread; we then wait for bob to finish. Bob's stats are
+    // constructed on the bob thread (Rc is !Send) and shipped back.
+    let bob_handle: BobHandle = match mode {
+        Mode::Spawn => BobHandle::Spawn(thread::spawn(move || -> SideStats {
+            let stats: StatsHandle = Rc::new(RefCell::new(SideStats::default()));
+            {
+                let (r, w) = build_io_stack(a_to_b_r, b_to_a_w, &stats, zstd_level)
+                    .expect("build bob stack");
+                let mut peer = Sync(Remote::<(), _, _>::new(r, w));
+                peer.gossip(bob, |_, _, _| {}).expect("sync gossip bob");
+            }
+            *stats.borrow()
+        })),
+        Mode::Pool => {
+            BOB_WORKER.with(|w| {
+                w.submit(BobJob {
+                    bob,
+                    read: a_to_b_r,
+                    write: b_to_a_w,
+                    zstd_level,
+                });
+            });
+            BobHandle::Pool
+        }
+    };
 
     // Alice's stack: reads from b_to_a, writes to a_to_b.
-    let (r, w) = build_io_stack(b_to_a_r, a_to_b_w, stats_a.clone(), zstd_level)
-        .expect("build alice stack");
-    let mut peer = Sync(Remote::<(), _, _>::new(r, w));
-    let _alice_out = peer.gossip(alice, |_, _, _| {}).expect("sync gossip alice");
-    let _bob_out = bob_thread.join().expect("bob thread join");
+    let stats_a: StatsHandle = Rc::new(RefCell::new(SideStats::default()));
+    {
+        let (r, w) = build_io_stack(b_to_a_r, a_to_b_w, &stats_a, zstd_level)
+            .expect("build alice stack");
+        let mut peer = Sync(Remote::<(), _, _>::new(r, w));
+        let _alice_out = peer.gossip(alice, |_, _, _| {}).expect("sync gossip alice");
+    }
+    let sa = *stats_a.borrow();
 
-    let sa = stats_a.lock().unwrap();
-    let sb = stats_b.lock().unwrap();
+    let sb = match bob_handle {
+        BobHandle::Spawn(h) => h.join().expect("bob thread join"),
+        BobHandle::Pool => BOB_WORKER.with(|w| w.wait()),
+    };
+
     Measure {
         proto_bytes_a: sa.proto_bytes_written,
         proto_bytes_b: sb.proto_bytes_written,
@@ -688,6 +791,11 @@ fn run_sample(
         transitions_a: sa.transitions,
         transitions_b: sb.transitions,
     }
+}
+
+enum BobHandle {
+    Spawn(thread::JoinHandle<SideStats>),
+    Pool,
 }
 
 /// Deterministically derive a per-job 64-bit seed from the run seed and
@@ -744,36 +852,59 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         n_cells, args.samples, total_samples, seed,
     );
 
-    // Wrap a BufWriter so each row's small writes don't translate to many
-    // tiny write(2) syscalls; flush after every record for streaming.
-    let file = File::create(&args.output)?;
-    let csv_writer = csv::Writer::from_writer(BufWriter::new(file));
-    let writer = Arc::new(Mutex::new(csv_writer));
-    {
-        let mut w = writer.lock().unwrap();
-        w.write_record([
-            "parties",
-            "shared",
-            "distinct_a",
-            "distinct_b",
-            "redacted_a",
-            "redacted_b",
-            "sample_idx",
-            "bytes_a",
-            "bytes_b",
-            "bytes_a_compressed",
-            "bytes_b_compressed",
-            "transitions_a",
-            "transitions_b",
-            "rounds_a",
-            "rounds_b",
-            "pred_bytes_a",
-            "pred_bytes_b",
-            "pred_rounds_a",
-            "pred_rounds_b",
-        ])?;
-        w.flush()?;
-    }
+    // Dedicated writer thread, fed by an mpsc channel. Per-row mutex
+    // contention on the BufWriter (and the flush(2) syscall held under that
+    // lock) is the main remaining serialization point for the par_iter; with
+    // a single owner thread the rayon workers just enqueue and move on. Each
+    // row is sent as a pre-formatted `[String; 19]` so all string formatting
+    // happens in parallel on the producer side.
+    let header: [&'static str; 19] = [
+        "parties",
+        "shared",
+        "distinct_a",
+        "distinct_b",
+        "redacted_a",
+        "redacted_b",
+        "sample_idx",
+        "bytes_a",
+        "bytes_b",
+        "bytes_a_compressed",
+        "bytes_b_compressed",
+        "transitions_a",
+        "transitions_b",
+        "rounds_a",
+        "rounds_b",
+        "pred_bytes_a",
+        "pred_bytes_b",
+        "pred_rounds_a",
+        "pred_rounds_b",
+    ];
+    let (row_tx, row_rx) = mpsc::channel::<[String; 19]>();
+    let output_path = args.output.clone();
+    let writer_thread: thread::JoinHandle<io::Result<()>> = thread::spawn(move || {
+        // 256 KiB BufWriter holds ~1500 rows at typical row widths, so a flush
+        // cycle becomes one write(2) instead of one per row. FLUSH_EVERY caps
+        // tail-visibility lag at ~a second of throughput on a fast run while
+        // still amortizing the syscall over a meaningful batch.
+        const BUF_CAPACITY: usize = 256 * 1024;
+        const FLUSH_EVERY: usize = 1024;
+        let file = File::create(&output_path)?;
+        let mut csv_writer =
+            csv::Writer::from_writer(BufWriter::with_capacity(BUF_CAPACITY, file));
+        csv_writer.write_record(header).map_err(io::Error::other)?;
+        csv_writer.flush()?;
+        let mut since_flush = 0usize;
+        while let Ok(record) = row_rx.recv() {
+            csv_writer.write_record(&record).map_err(io::Error::other)?;
+            since_flush += 1;
+            if since_flush >= FLUSH_EVERY {
+                csv_writer.flush()?;
+                since_flush = 0;
+            }
+        }
+        csv_writer.flush()?;
+        Ok(())
+    });
 
     let pb = ProgressBar::new(total_samples);
     pb.set_style(
@@ -790,42 +921,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     jobs.par_iter().progress_with(pb).for_each(|&(cell_idx, sample_idx)| {
         let (parties, s, da, db, ra, rb) = cells[cell_idx];
         let mut rng = SmallRng::seed_from_u64(job_seed(seed, cell_idx, sample_idx));
-        let m = run_sample(&mut rng, parties, s, da, db, ra, rb, args.zstd_level);
+        let m = run_sample(&mut rng, parties, s, da, db, ra, rb, args.zstd_level, args.mode);
         let rounds_a = m.transitions_a as f64 / 2.0;
         let rounds_b = m.transitions_b as f64 / 2.0;
         let p = predict(parties, s, da, db, ra, rb);
 
-        let mut w = writer.lock().unwrap();
-        w.write_record([
-            parties.to_string(),
-            s.to_string(),
-            da.to_string(),
-            db.to_string(),
-            ra.to_string(),
-            rb.to_string(),
-            sample_idx.to_string(),
-            m.proto_bytes_a.to_string(),
-            m.proto_bytes_b.to_string(),
-            m.wire_bytes_a.to_string(),
-            m.wire_bytes_b.to_string(),
-            m.transitions_a.to_string(),
-            m.transitions_b.to_string(),
-            rounds_a.to_string(),
-            rounds_b.to_string(),
-            format!("{:.3}", p.bytes_a),
-            format!("{:.3}", p.bytes_b),
-            format!("{:.4}", p.rounds_a),
-            format!("{:.4}", p.rounds_b),
-        ])
-        .expect("csv write_record");
-        w.flush().expect("csv flush");
+        row_tx
+            .send([
+                parties.to_string(),
+                s.to_string(),
+                da.to_string(),
+                db.to_string(),
+                ra.to_string(),
+                rb.to_string(),
+                sample_idx.to_string(),
+                m.proto_bytes_a.to_string(),
+                m.proto_bytes_b.to_string(),
+                m.wire_bytes_a.to_string(),
+                m.wire_bytes_b.to_string(),
+                m.transitions_a.to_string(),
+                m.transitions_b.to_string(),
+                rounds_a.to_string(),
+                rounds_b.to_string(),
+                format!("{:.3}", p.bytes_a),
+                format!("{:.3}", p.bytes_b),
+                format!("{:.4}", p.rounds_a),
+                format!("{:.4}", p.rounds_b),
+            ])
+            .expect("send row to writer thread");
     });
 
-    // Drop the Arc<Mutex<Writer>> via unwrap so the inner Writer flushes
-    // and closes the underlying File cleanly.
-    let writer = Arc::try_unwrap(writer)
-        .map_err(|_| "writer still has outstanding references")?
-        .into_inner()?;
-    writer.into_inner()?.flush()?;
+    // Drop the producer so the writer thread sees the channel close, then
+    // join it to surface any I/O errors.
+    drop(row_tx);
+    writer_thread
+        .join()
+        .map_err(|_| "writer thread panicked")??;
     Ok(())
 }
