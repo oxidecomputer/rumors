@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use bytes::Bytes;
 
 mod key;
@@ -119,7 +121,7 @@ impl<T> Tree<T> {
 
     /// Get all the values stored at a list of hash paths in the tree.
     #[allow(unused)]
-    pub fn get<I>(&self, paths: I) -> Vec<(Version, Key, Message<T>)>
+    pub fn get<I>(&self, paths: I) -> Vec<(Key, Version, Arc<T>)>
     where
         I: IntoIterator<Item = Key>,
     {
@@ -142,10 +144,10 @@ impl<T> Tree<T> {
     /// Get all the values in this tree which are unknown relative to the given
     /// version vector.
     #[allow(unused)]
-    pub fn unknown(&self, version: Version) -> Vec<(Version, Key, Message<T>)> {
+    pub fn unknown(&self, version: Version) -> Vec<(Key, Version, Message<T>)> {
         let mut unknown = Vec::new();
-        traverse::unknown(self.root.clone().into(), &version, &mut |v, k, m| {
-            unknown.push((v.clone(), k, m.clone()))
+        traverse::unknown(self.root.clone().into(), &version, &mut |k, v, m| {
+            unknown.push((k, v.clone(), m.clone()))
         });
         unknown
     }
@@ -176,7 +178,7 @@ impl<T> Tree<T> {
     pub fn act<I, O>(&mut self, actions: I, react: O)
     where
         I: IntoIterator<Item = Action<T>>,
-        O: FnMut(&Version, Key, Option<&Message<T>>),
+        O: FnMut(Key, &Version, Option<&Message<T>>),
     {
         // Get the local party.
         let party = self.party.clone();
@@ -208,7 +210,7 @@ impl<T> Tree<T> {
                     (key, Some(value))
                 }
             };
-            (new_version.clone(), key, value)
+            (key, new_version.clone(), value)
         });
         self.react(reactions, react);
     }
@@ -233,14 +235,14 @@ impl<T> Tree<T> {
     pub fn react<M, I, O>(&mut self, reactions: I, mut react: O)
     where
         M: Into<Option<Message<T>>>,
-        I: IntoIterator<Item = (Version, Key, M)>,
-        O: FnMut(&Version, Key, Option<&Message<T>>),
+        I: IntoIterator<Item = (Key, Version, M)>,
+        O: FnMut(Key, &Version, Option<&Message<T>>),
     {
         // Convert the specified actions into the action specification required
         // by the inductive traversal of the tree
         let actions = reactions
             .into_iter()
-            .map(|(version, key, message)| match message.into() {
+            .map(|(key, version, message)| match message.into() {
                 None => (typed::Path::from(key), version, traverse::Action::Forget),
                 Some(value) => (
                     typed::Path::from(key),
@@ -255,9 +257,9 @@ impl<T> Tree<T> {
         // zero-effect actions (e.g. forgetting a nonexistent key) do not
         // bump the root version.
         let root_version = &mut self.root.version;
-        self.root.root = traverse::act(self.root.root.take().into(), actions, |v, k, m| {
+        self.root.root = traverse::act(self.root.root.take().into(), actions, |k, v, m| {
             *root_version |= v.clone();
-            react(v, k, m);
+            react(k, v, m);
         });
     }
 }

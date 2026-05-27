@@ -90,16 +90,16 @@ fn insert_at(
     party: impl AsRef<[u8]>,
     scalar: u64,
     value: Bytes,
-) -> (Version, Key, Message<Bytes>) {
-    (version, leaf_path(party, scalar, &value), msg(value))
+) -> (Key, Version, Message<Bytes>) {
+    (leaf_path(party, scalar, &value), version, msg(value))
 }
 
 /// Build a versioned delete triple of the shape `Tree::react` expects:
 /// `(version, key, None)`. Pairs with [`insert_at`] when a test needs to
 /// mix inserts and deletes, though it is useful on its own for tests that
 /// care only about deletion bookkeeping.
-fn delete_at(version: Version, id: Key) -> (Version, Key, Option<Message<Bytes>>) {
-    (version, id, None)
+fn delete_at(version: Version, id: Key) -> (Key, Version, Option<Message<Bytes>>) {
+    (id, version, None)
 }
 
 /// Perform one full bidirectional synchronization step between two trees
@@ -416,8 +416,7 @@ proptest! {
 
         let mut got: Vec<Bytes> =
             tree.get(paths).into_iter()
-                .map(|(_, _, m)| m)
-                .map(Message::clone_into_inner)
+                .map(|(_, _, m)| m.as_ref().clone())
                 .collect();
         got.sort();
         let mut expected: Vec<Bytes> = bytes;
@@ -455,8 +454,7 @@ proptest! {
         let mut got: Vec<Bytes> = tree
             .get(all_paths)
             .into_iter()
-            .map(|(_, _, m)| m)
-            .map(Message::clone_into_inner)
+            .map(|(_, _, m)| m.as_ref().clone())
             .collect();
         got.sort();
         let mut expected: Vec<Bytes> = bytes;
@@ -628,7 +626,7 @@ proptest! {
         // replay the event. This is the information a real synchronization
         // protocol would put on the wire.
         let mut tree_a: Tree<Bytes> = Tree::for_party(a_id.clone());
-        let mut a_events: Vec<(Version, Key, Message<Bytes>)> = Vec::new();
+        let mut a_events: Vec<(Key, Version, Message<Bytes>)> = Vec::new();
         for (i, value) in a_inserts.iter().enumerate() {
             let scalar = (i + 1) as u64;
             let mut recorded = tree_a.version().clone();
@@ -638,7 +636,7 @@ proptest! {
         }
 
         let mut tree_b: Tree<Bytes> = Tree::for_party(b_id.clone());
-        let mut b_events: Vec<(Version, Key, Message<Bytes>)> = Vec::new();
+        let mut b_events: Vec<(Key, Version, Message<Bytes>)> = Vec::new();
         for (i, value) in b_inserts.iter().enumerate() {
             let scalar = (i + 1) as u64;
             let mut recorded = tree_b.version().clone();
@@ -647,8 +645,8 @@ proptest! {
             b_events.push(insert_at(recorded, &b_id, scalar, value.clone()));
         }
 
-        tree_a.react(b_events.iter().map(|(v, k, m)| (v.clone(), *k, m.clone())), |_, _, _| {});
-        tree_b.react(a_events.iter().map(|(v, k, m)| (v.clone(), *k, m.clone())), |_, _, _| {});
+        tree_a.react(b_events.iter().map(|(k, v, m)| (*k, v.clone(), m.clone())), |_, _, _| {});
+        tree_b.react(a_events.iter().map(|(k, v, m)| (*k, v.clone(), m.clone())), |_, _, _| {});
 
         prop_assert_eq!(tree_a.version(), tree_b.version());
         prop_assert_eq!(tree_a.hash(), tree_b.hash());
@@ -762,7 +760,7 @@ proptest! {
 
         let got = tree.unknown(Version::default());
 
-        let got_paths: BTreeSet<Key> = got.iter().map(|(_, p, _)| *p).collect();
+        let got_paths: BTreeSet<Key> = got.iter().map(|(p, _, _)| *p).collect();
         let expected_paths: BTreeSet<Key> = bytes
             .iter()
             .enumerate()
@@ -772,7 +770,7 @@ proptest! {
 
         let mut got_scalars: Vec<u64> = got
             .iter()
-            .map(|(v, _, _)| v.for_party(&hashed_party(&party)))
+            .map(|(_, v, _)| v.for_party(&hashed_party(&party)))
             .collect();
         got_scalars.sort();
         let expected_scalars: Vec<u64> = (1..=bytes.len() as u64).collect();
@@ -870,8 +868,7 @@ proptest! {
         let mut got: Vec<Bytes> = tree_b
             .get(a_paths)
             .into_iter()
-            .map(|(_, _, m)| m)
-            .map(Message::clone_into_inner)
+            .map(|(_, _, m)| m.as_ref().clone())
             .collect();
         got.sort();
         let mut expected: Vec<Bytes> = a_inserts;
@@ -932,7 +929,7 @@ proptest! {
         prop_assert_ne!(path_v1, path_v2);
         let got = tree.get([path_v1, path_v2]);
         prop_assert_eq!(got.len(), 2);
-        prop_assert!(got.iter().all(|b| b.2.message() == &value));
+        prop_assert!(got.iter().all(|b| b.2.as_ref() == &value));
     }
 
     /// An empty `act` batch never invokes the observer closure: with no
@@ -975,8 +972,8 @@ proptest! {
 
         // Capture the version `act` assigned to each reaction; with per-action
         // versioning each insert or forget gets a distinct vector.
-        let mut captured: Vec<(Version, Key, Option<Message<Bytes>>)> = Vec::new();
-        original.act(actions, |v, k, m| captured.push((v.clone(), k, m.cloned())));
+        let mut captured: Vec<(Key, Version, Option<Message<Bytes>>)> = Vec::new();
+        original.act(actions, |k, v, m| captured.push((k, v.clone(), m.cloned())));
 
         let mut replay = Tree::for_party(party.clone());
         replay.react(captured, |_, _, _| {});

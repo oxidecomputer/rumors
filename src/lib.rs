@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 //! Unordered gossip with redaction.
 //!
 //! `rumors` is a CRDT-backed gossip set: each peer holds a [`Local<T>`] rumor
@@ -356,7 +357,7 @@ pub use borsh;
 /// // Drop every observation rather than passing an `|_, _, _| {}` closure.
 /// alice.message(["hello".to_string(), "world".to_string()], ignore);
 /// ```
-pub fn ignore<T>(_key: Key, _version: &Version, _message: &Arc<T>) {}
+pub async fn ignore<T>(_key: Key, _version: &Version, _message: &Arc<T>) {}
 
 impl<T> Local<T> {
     /// Create a new set of rumors, localized to the given party.
@@ -410,7 +411,7 @@ impl<T> Local<T> {
     {
         self.0.act(
             messages.into_iter().map(Message::from).map(Action::Insert),
-            |v, k, m| m.as_ref().iter().for_each(|m| on_message(k, v, m.as_ref())),
+            |k, v, m| m.as_ref().iter().for_each(|m| on_message(k, v, m.as_ref())),
         );
     }
 
@@ -478,22 +479,16 @@ impl<T> Local<T> {
     /// alice.process(helper, |_, _, m| learned.push(m.as_ref().clone()));
     /// assert_eq!(learned, vec!["new rumor".to_string()]);
     /// ```
-    pub fn process<OnMessage>(&mut self, new: Local<T>, mut on_message: OnMessage)
+    pub async fn process<OnMessage>(&mut self, new: Local<T>, on_message: OnMessage)
     where
-        OnMessage: FnMut(Key, &Version, &Arc<T>),
+        OnMessage: AsyncFnMut(Key, &Version, &Arc<T>),
     {
-        // Do nothing on the given message
-        let x = message_fn(|_, _, _| {});
-
-        // Process the given message as instructed by the caller
-        let on_message = message_fn(|v, k, m| on_message(k, v, Message::as_ref(m)));
-
         // Instantiate the two sides of the mirror exchange, both local
-        let l = mirror::local::Exchange::start(self.0.root.clone(), x, on_message);
-        let r = mirror::local::Exchange::start(new.0.root, x, x);
+        let l = mirror::local::Exchange::start(self.0.root.clone(), ignore, on_message);
+        let r = mirror::local::Exchange::start(new.0.root, ignore, ignore);
 
         // Drive them to completion: we know they don't need a "real" executor
-        Ok((self.0.root, _)) = pollster::block_on(mirror(l, r));
+        Ok((self.0.root, _)) = mirror(l, r).await;
     }
 }
 
@@ -568,22 +563,16 @@ impl<R, W, T> Remote<T, R, W> {
     pub async fn gossip<OnMessage>(
         &mut self,
         mut old: Local<T>,
-        mut on_message: OnMessage,
+        on_message: OnMessage,
     ) -> Result<Local<T>, Error>
     where
         T: BorshDeserialize + BorshSerialize,
         R: AsyncRead + Unpin,
         W: AsyncWrite + Unpin,
-        OnMessage: FnMut(Key, &Version, &Arc<T>),
+        OnMessage: AsyncFnMut(Key, &Version, &Arc<T>),
     {
-        // Do nothing on the given message
-        let x = message_fn(|_, _, _| {});
-
-        // Process the given message as instructed by the caller
-        let on_message = message_fn(|v, k, m| on_message(k, v, Message::as_ref(m)));
-
         // Instantiate the two sides of the mirror exchange: local and remote
-        let l = mirror::local::Exchange::start(old.0.root, x, on_message);
+        let l = mirror::local::Exchange::start(old.0.root, ignore, on_message);
         let r = mirror::remote::Exchange::start(&mut self.read, &mut self.write);
 
         // Drive them to completion against each other
@@ -649,7 +638,7 @@ impl<T, R, W> Sync<T, R, W> {
         T: BorshDeserialize + BorshSerialize,
         R: Read + Unpin,
         W: Write + Unpin,
-        OnMessage: FnMut(Key, &Version, &Arc<T>),
+        OnMessage: AsyncFnMut(Key, &Version, &Arc<T>),
     {
         let Remote { read, write, .. } = &mut self.0;
         let mut new = Remote::new(
@@ -664,7 +653,7 @@ impl<T> Add for Local<T> {
     type Output = Local<T>;
 
     fn add(mut self, rhs: Self) -> Self::Output {
-        self.process(rhs, |_, _, _| {});
+        pollster::block_on(self.process(rhs, async |_, _, _| {}));
         self
     }
 }
@@ -673,12 +662,4 @@ impl<T> AddAssign for Local<T> {
     fn add_assign(&mut self, rhs: Self) {
         *self = self.clone().add(rhs);
     }
-}
-
-// Coerce the type into the correct HRTB shape to preserve inference
-fn message_fn<T, F>(f: F) -> F
-where
-    F: for<'a, 'b> FnMut(&'a Version, Key, &'b Message<T>),
-{
-    f
 }

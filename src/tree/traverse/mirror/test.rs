@@ -1,5 +1,6 @@
 use std::cell::OnceCell;
 use std::future::Future;
+use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use proptest::collection::vec;
@@ -69,7 +70,7 @@ where
     P: Clone + Ord + AsRef<[u8]> + std::fmt::Debug + BorshSerialize + BorshDeserialize,
     T: PartialEq + std::fmt::Debug + BorshSerialize + BorshDeserialize,
 {
-    fn x<P: Ord, T>(_v: &Version<P>, _k: Key, _m: &Message<T>) {}
+    async fn x<P: Ord, T>(_k: Key, _v: &Version<P>, _m: &Arc<T>) {}
 
     block_on(async move {
         match scenario {

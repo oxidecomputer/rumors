@@ -1,6 +1,8 @@
+use std::sync::Arc;
+
 use itertools::Itertools;
 
-use crate::{message::Message, tree::key::Key, version::Version};
+use crate::{tree::key::Key, version::Version};
 
 use super::typed::*;
 use height::{Height, Root, S, Z};
@@ -19,23 +21,26 @@ where
 ///
 /// Values are returned in arbitrary order, not necessarily in the order of the
 /// specified paths.
-pub fn get<P, T>(node: Option<Node<P, T, Root>>, paths: Paths) -> Vec<(Version<P>, Key, Message<T>)>
+pub fn get<P, T>(node: Option<Node<P, T, Root>>, paths: Paths) -> Vec<(Key, Version<P>, Arc<T>)>
 where
     P: Clone + Ord + AsRef<[u8]>,
 {
-    let mut gotten = Vec::new();
-    Get::get(node, Prefix::new(), paths, &mut |v, k, m| {
-        gotten.push((v.clone(), k, m.clone()))
-    });
-    gotten
+    pollster::block_on(async {
+        let mut gotten = Vec::new();
+        Get::get(node, Prefix::new(), paths, &mut async |k, v, m| {
+            gotten.push((k, v.clone(), m.clone()))
+        })
+        .await;
+        gotten
+    })
 }
 
 pub trait Get: Height {
-    fn get<P, T>(
+    async fn get<P, T>(
         node: Option<Node<P, T, Self>>,
         prefix: Prefix<Self>,
         paths: Paths<Self>,
-        with_gotten: &mut impl FnMut(&Version<P>, Key, &Message<T>),
+        with_gotten: &mut impl AsyncFnMut(Key, &Version<P>, &Arc<T>),
     ) where
         P: Clone + Ord + AsRef<[u8]>;
 }
@@ -44,11 +49,11 @@ impl<H: Get> Get for S<H>
 where
     S<H>: Height,
 {
-    fn get<P, T>(
+    async fn get<P, T>(
         node: Option<Node<P, T, Self>>,
         prefix: Prefix<Self>,
         paths: Paths<Self>,
-        with_gotten: &mut impl FnMut(&Version<P>, Key, &Message<T>),
+        with_gotten: &mut impl AsyncFnMut(Key, &Version<P>, &Arc<T>),
     ) where
         P: Clone + Ord + AsRef<[u8]>,
     {
@@ -78,23 +83,24 @@ where
                     prefix.push(radix),
                     Paths::Selected(child_paths),
                     with_gotten,
-                );
+                )
+                .await;
             }
         } else {
             // Get all the paths
             for (radix, child) in node.into_children() {
-                Get::get(Some(child), prefix.push(radix), Paths::All, with_gotten)
+                Get::get(Some(child), prefix.push(radix), Paths::All, with_gotten).await
             }
         }
     }
 }
 
 impl Get for Z {
-    fn get<P, T>(
+    async fn get<P, T>(
         node: Option<Node<P, T, Self>>,
         prefix: Prefix<Self>,
         paths: Paths<Self>,
-        with_gotten: &mut impl FnMut(&Version<P>, Key, &Message<T>),
+        with_gotten: &mut impl AsyncFnMut(Key, &Version<P>, &Arc<T>),
     ) where
         P: Clone + Ord + AsRef<[u8]>,
     {
@@ -107,7 +113,7 @@ impl Get for Z {
         {
             // Do nothing if the path doesn't match
         } else {
-            with_gotten(node.version(), prefix.into(), node.message());
+            with_gotten(prefix.into(), node.version(), node.message().as_ref()).await;
         }
     }
 }

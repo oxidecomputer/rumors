@@ -18,7 +18,7 @@ pub enum Action<T> {
 pub fn act<P, T>(
     node: Option<Node<P, T, Root>>,
     actions: Vec<(Path, Version<P>, Action<T>)>,
-    mut on_action: impl FnMut(&Version<P>, Key, Option<&Message<T>>),
+    mut on_action: impl FnMut(Key, &Version<P>, Option<&Message<T>>),
 ) -> Option<Node<P, T, Root>>
 where
     P: Clone + Ord + AsRef<[u8]>,
@@ -33,7 +33,7 @@ pub trait Act: Height {
         node: Option<Node<P, T, Self>>,
         prefix: Prefix<Self>,
         actions: Vec<(Path<Self>, Version<P>, Action<T>)>,
-        on_action: &mut impl FnMut(&Version<P>, Key, Option<&Message<T>>),
+        on_action: &mut impl FnMut(Key, &Version<P>, Option<&Message<T>>),
     ) -> Option<Node<P, T, Self>>
     where
         P: Clone + Ord + AsRef<[u8]>;
@@ -47,7 +47,7 @@ where
         node: Option<Node<P, T, S<H>>>,
         prefix: Prefix<Self>,
         actions: Vec<(Path<Self>, Version<P>, Action<T>)>,
-        on_action: &mut impl FnMut(&Version<P>, Key, Option<&Message<T>>),
+        on_action: &mut impl FnMut(Key, &Version<P>, Option<&Message<T>>),
     ) -> Option<Node<P, T, S<H>>>
     where
         P: Clone + Ord + AsRef<[u8]>,
@@ -104,7 +104,7 @@ impl Act for Z {
         mut node: Option<Node<P, T, Self>>,
         prefix: Prefix<Self>,
         actions: Vec<(Path<Self>, Version<P>, Action<T>)>,
-        on_action: &mut impl FnMut(&Version<P>, Key, Option<&Message<T>>),
+        on_action: &mut impl FnMut(Key, &Version<P>, Option<&Message<T>>),
     ) -> Option<Node<P, T, Z>>
     where
         P: Clone + Ord + AsRef<[u8]>,
@@ -141,8 +141,8 @@ impl Act for Z {
             // The node stayed empty
             (false, None) => {}
             (_, node) => on_action(
-                &greatest_version,
                 prefix.into(),
+                &greatest_version,
                 node.as_ref().map(|n| n.message()),
             ),
         }

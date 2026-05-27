@@ -69,6 +69,17 @@ impl<T> Message<T> {
         })
     }
 
+    /// Create a new `Message` from an existing [`Arc`], without copying.
+    pub fn from_arc(arc: Arc<T>) -> Self
+    where
+        T: BorshSerialize,
+    {
+        Message {
+            serialized: Bytes::from(borsh::to_vec(&*arc).unwrap()),
+            message: arc,
+        }
+    }
+
     /// Get a reference to the object represented by this message.
     pub fn message(&self) -> &T {
         &self.message
