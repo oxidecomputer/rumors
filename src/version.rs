@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::mem;
+use std::num::NonZeroU64;
 use std::ops::{BitOr, BitOrAssign};
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -11,8 +12,12 @@ use crate::imbl_borsh::{deserialize_ordmap, serialize_ordmap};
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Version<P: Ord = Bytes> {
-    versions: OrdMap<P, u64>,
+    versions: OrdMap<P, NonZeroU64>,
 }
+
+/// `NonZeroU64::new(1)`, evaluated at compile time. Used by [`Version::event`]
+/// to seed an entry for a party observing its first event.
+const ONE: NonZeroU64 = NonZeroU64::new(1).expect("1 is non-zero");
 
 /// The empty version: no party has been observed yet. Pointwise-less than
 /// or equal to every other version under [`PartialOrd`].
@@ -38,7 +43,7 @@ impl<P: Ord> Version<P> {
         I: IntoIterator<Item = Self>,
     {
         Self {
-            versions: OrdMap::unions_with(i.into_iter().map(|v| v.versions), u64::max),
+            versions: OrdMap::unions_with(i.into_iter().map(|v| v.versions), |a, b| a.max(b)),
         }
     }
 
@@ -47,16 +52,22 @@ impl<P: Ord> Version<P> {
     where
         P: Clone,
     {
-        *self.versions.entry(party.clone()).or_default() += 1;
+        if let Some(v) = self.versions.get_mut(party) {
+            *v = v.checked_add(1).expect("version counter overflow");
+        } else {
+            self.versions.insert(party.clone(), ONE);
+        }
     }
 
-    /// Get the version for a particular party.
+    /// Get the version for a particular party. Absent parties report `0`.
     pub(crate) fn for_party(&self, party: &P) -> u64 {
-        *self.versions.get(party).unwrap_or(&0)
+        self.versions.get(party).map(|v| v.get()).unwrap_or(0)
     }
 
-    /// Get a reference to the underlying version vector.
-    pub(crate) fn versions(&self) -> &OrdMap<P, u64> {
+    /// Get a reference to the underlying version vector. The inner counter
+    /// is [`NonZeroU64`] because an entry with value `0` is structurally
+    /// identical to an absent entry under [`for_party`](Self::for_party).
+    pub(crate) fn versions(&self) -> &OrdMap<P, NonZeroU64> {
         &self.versions
     }
 }
@@ -87,15 +98,17 @@ impl<P: Ord> PartialOrd for Version<P> {
         // `other`, treating an absent counterpart as zero.
         let mut verdict = Ordering::Equal;
         for (party, &left) in &self.versions {
-            let right = other.versions.get(party).copied().unwrap_or(0);
-            verdict = refine(verdict, left.cmp(&right))?;
+            let right = other.versions.get(party).map(|v| v.get()).unwrap_or(0);
+            verdict = refine(verdict, left.get().cmp(&right))?;
         }
 
         // Parties present only in `other` contribute with an implicit zero on
-        // the left; parties present in both were already handled above.
-        for (party, &right) in &other.versions {
+        // the left; parties present in both were already handled above. Every
+        // entry in `other.versions` has a non-zero count, so the implicit
+        // left-side zero is always strictly less than the right.
+        for (party, _) in &other.versions {
             if !self.versions.contains_key(party) {
-                verdict = refine(verdict, 0u64.cmp(&right))?;
+                verdict = refine(verdict, Ordering::Less)?;
             }
         }
 
@@ -109,7 +122,7 @@ impl<P: Ord> PartialOrd for Version<P> {
 impl<P: Ord + Clone> BitOrAssign for Version<P> {
     fn bitor_assign(&mut self, rhs: Self) {
         let lhs = mem::take(&mut self.versions);
-        self.versions = lhs.union_with(rhs.versions, u64::max);
+        self.versions = lhs.union_with(rhs.versions, |a, b| a.max(b));
     }
 }
 
@@ -123,11 +136,15 @@ impl<P: Ord + Clone> BitOr for Version<P> {
     }
 }
 
-#[cfg(test)]
 impl<P: Ord + Clone> From<(P, u64)> for Version<P> {
     fn from(value: (P, u64)) -> Self {
         let mut result = Self::default();
-        result.versions.insert(value.0, value.1);
+        // A 0 count is structurally absent: `for_party` reports 0 for any
+        // unrecorded party, and the inner map's `NonZeroU64` enforces that
+        // distinction.
+        if let Some(count) = NonZeroU64::new(value.1) {
+            result.versions.insert(value.0, count);
+        }
         result
     }
 }

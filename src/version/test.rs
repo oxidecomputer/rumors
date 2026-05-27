@@ -156,13 +156,13 @@ proptest! {
     /// produced by `serialize` yields a value equal to the original.
     #[test]
     fn borsh_round_trip(
-        entries in prop::collection::vec((any::<u64>(), any::<u64>()), 0..16),
+        entries in prop::collection::vec((any::<u64>(), 1u64..), 0..16),
     ) {
         let mut v = Version::<u64>::default();
         for (p, s) in entries {
-            // Insert directly so the property holds even on pathological inputs
-            // like `(p, 0)` that `event` would never produce.
-            v.versions.insert(p, s);
+            // Insert directly so the property exercises arbitrary keys; the
+            // scalar range starts at 1 because `NonZeroU64` rejects 0.
+            v.versions.insert(p, NonZeroU64::new(s).unwrap());
         }
         let bytes = borsh::to_vec(&v).expect("serialize");
         let back: Version<u64> = borsh::from_slice(&bytes).expect("deserialize");
@@ -174,16 +174,16 @@ proptest! {
     /// backing map — serialize to byte-identical outputs.
     #[test]
     fn borsh_canonical(
-        entries in prop::collection::vec((any::<u64>(), any::<u64>()), 0..16),
+        entries in prop::collection::vec((any::<u64>(), 1u64..), 0..16),
         permutation in any::<u64>(),
     ) {
         // Deduplicate to avoid the "last insert wins" asymmetry: a value
         // inserted twice under the same key overwrites, so two orderings with
         // duplicates can produce genuinely different maps.
-        let mut dedup: Vec<(u64, u64)> = {
+        let mut dedup: Vec<(u64, NonZeroU64)> = {
             use std::collections::BTreeMap;
             let mut m = BTreeMap::new();
-            for (p, s) in entries { m.insert(p, s); }
+            for (p, s) in entries { m.insert(p, NonZeroU64::new(s).unwrap()); }
             m.into_iter().collect()
         };
         let canonical: Version<u64> = dedup.iter().copied().fold(
@@ -227,17 +227,19 @@ proptest! {
 
     /// Wire format matches `BTreeMap<P, u64>`: for the same set of entries,
     /// `Version` serializes to the exact same bytes borsh would produce for a
-    /// `BTreeMap`, and the bytes round-trip through both impls.
+    /// `BTreeMap`, and the bytes round-trip through both impls. Scalars are
+    /// drawn from `1..` because `NonZeroU64` makes 0 unrepresentable; the
+    /// dedicated `borsh_rejects_zero_scalar` test covers 0 separately.
     #[test]
     fn borsh_matches_btreemap(
-        entries in prop::collection::vec((any::<u64>(), any::<u64>()), 0..16),
+        entries in prop::collection::vec((any::<u64>(), 1u64..), 0..16),
     ) {
         use std::collections::BTreeMap;
         let mut map = BTreeMap::<u64, u64>::new();
         for (p, s) in &entries { map.insert(*p, *s); }
         let version: Version<u64> = map.iter().fold(
             Version::default(),
-            |mut v, (p, s)| { v.versions.insert(*p, *s); v },
+            |mut v, (p, s)| { v.versions.insert(*p, NonZeroU64::new(*s).unwrap()); v },
         );
 
         let version_bytes = borsh::to_vec(&version).expect("serialize Version");
@@ -256,12 +258,14 @@ proptest! {
     /// Deserialization rejects non-canonical wire forms: entries that are
     /// out of order, or that repeat a party, must fail rather than silently
     /// producing a `Version` that would re-serialize to different bytes.
+    /// Scalars are non-zero so the test isolates the canonical-form check
+    /// from the separate zero-scalar rejection covered below.
     #[test]
     fn borsh_rejects_non_canonical(
         a in any::<u64>(),
         b in any::<u64>(),
-        sa in any::<u64>(),
-        sb in any::<u64>(),
+        sa in 1u64..,
+        sb in 1u64..,
     ) {
         prop_assume!(a != b);
         let (lo, hi) = if a < b { (a, b) } else { (b, a) };
@@ -283,6 +287,19 @@ proptest! {
         lo.serialize(&mut duplicate).unwrap();
         sb.serialize(&mut duplicate).unwrap();
         prop_assert!(borsh::from_slice::<Version<u64>>(&duplicate).is_err());
+    }
+
+    /// Deserialization rejects a 0 scalar: the inner counter type is
+    /// `NonZeroU64`, so a wire entry with count 0 has no valid in-memory
+    /// representation. This rules out two encodings of the CRDT-empty state
+    /// (`{}` and `{p: 0}`) at the wire boundary.
+    #[test]
+    fn borsh_rejects_zero_scalar(party in any::<u64>()) {
+        let mut bytes = Vec::new();
+        1u32.serialize(&mut bytes).unwrap();
+        party.serialize(&mut bytes).unwrap();
+        0u64.serialize(&mut bytes).unwrap();
+        prop_assert!(borsh::from_slice::<Version<u64>>(&bytes).is_err());
     }
 }
 

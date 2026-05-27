@@ -215,7 +215,7 @@ use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
 use rand::{Rng, SeedableRng, rngs::SmallRng};
 use rayon::prelude::*;
 use rumors::Key;
-use rumors::sync::{Local, ignore};
+use rumors::sync::{Local, Original, ignore};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -399,12 +399,12 @@ fn build_pair(
     distinct_b: u32,
     redacted_a: u32,
     redacted_b: u32,
-) -> (Local<()>, Local<()>) {
+) -> (Local<(), Original>, Local<(), Original>) {
     let a_party = random_party(rng);
     let b_party = random_party(rng);
 
-    let mut alice: Local<()> = Local::for_party(&a_party);
-    let mut bob: Local<()> = Local::for_party(&b_party);
+    let mut alice: Local<(), Original> = Local::for_party(&a_party, 0).expect("alice for_party");
+    let mut bob: Local<(), Original> = Local::for_party(&b_party, 0).expect("bob for_party");
 
     let total_ancestor = shared + redacted_a + redacted_b;
     let mut keys: Vec<Key> = Vec::with_capacity(total_ancestor as usize);
@@ -418,10 +418,13 @@ fn build_pair(
         for i in 0..effective {
             let name = random_party(rng);
             let count = (base + if i < remainder { 1 } else { 0 }) as usize;
-            let mut bg: Local<()> = Local::for_party(&name);
+            let mut bg: Local<(), Original> =
+                Local::for_party(&name, 0).expect("background for_party");
             bg.message(std::iter::repeat_n((), count), |k, _, _| keys.push(k));
-            alice.process(bg.clone(), ignore);
-            bob.process(bg, ignore);
+            // bg is the singleton Original for this background party; fork it
+            // into alice and bob (and let bg drop, freeing the party slot).
+            alice.process(bg.fork(), ignore);
+            bob.process(bg.fork(), ignore);
         }
     }
 
@@ -686,7 +689,7 @@ fn build_io_stack(
 /// *inside* the worker thread (so they can live in an `Rc<RefCell<…>>`) and
 /// shipped back via the done channel.
 struct BobJob {
-    bob: Local<()>,
+    bob: Local<(), Original>,
     read: std::io::PipeReader,
     write: std::io::PipeWriter,
     zstd_level: i32,
@@ -766,8 +769,7 @@ fn run_sample(
             {
                 let (mut r, mut w) = build_io_stack(a_to_b_r, b_to_a_w, &stats, zstd_level)
                     .expect("build bob stack");
-                bob.gossip(&mut r, &mut w, ignore)
-                    .expect("sync gossip bob");
+                bob.gossip(&mut r, &mut w, ignore).expect("sync gossip bob");
             }
             *stats.borrow()
         })),

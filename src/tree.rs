@@ -89,11 +89,14 @@ pub enum Action<T> {
 
 impl<T> Tree<T> {
     /// Create a new tree which represents the perspective of the given party.
-    pub fn for_party(party: impl AsRef<[u8]>) -> Self {
+    ///
+    /// The `start` parameter determines the starting local version scalar for the party.
+    pub fn for_party(party: impl AsRef<[u8]>, start: u64) -> Self {
+        let party = Bytes::copy_from_slice(&Hash::of(party.as_ref()).as_bytes()[..]);
         Tree {
-            party: Bytes::copy_from_slice(&Hash::of(party.as_ref()).as_bytes()[..]),
+            party: party.clone(),
             root: Root {
-                version: Version::default(),
+                version: (party, start).into(),
                 root: None,
             },
         }

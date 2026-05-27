@@ -18,8 +18,9 @@
 //! # #[tokio::main(flavor = "current_thread")]
 //! # async fn main() {
 //! // A peer is identified by an arbitrary byte string; the caller must
-//! // keep party identifiers globally unique.
-//! let mut alice: Local<String> = Local::for_party("alice");
+//! // keep party identifiers globally unique. `start` is the local event
+//! // counter to resume from (0 for a fresh party); see [`Local::for_party`].
+//! let mut alice = Local::for_party("alice", 0).unwrap();
 //!
 //! // The callback fires once per newly-observed message with an opaque
 //! // `Key` (used later for redaction), the causal `Version`, and the value.
@@ -43,7 +44,7 @@
 //!
 //! # #[tokio::main(flavor = "current_thread")]
 //! # async fn main() {
-//! let mut alice: Local<String> = Local::for_party("alice");
+//! let mut alice = Local::for_party("alice", 0).unwrap();
 //! let mut keys: Vec<Key> = Vec::new();
 //! alice.message(
 //!     ["stale rumor".to_string()],
@@ -55,10 +56,15 @@
 //!
 //! # Concurrent rumor sets
 //!
-//! [`Local`] is cheap to clone: the underlying tree is structurally shared and
-//! copy-on-write. Clones can mutate independently on separate threads/tasks and
-//! recombine via [`Local::process`], which also backs the [`Add`] /
-//! [`AddAssign`] operators.
+//! A [`Local`] is either an [`Original`] (returned by [`Local::for_party`], one
+//! per party per process) or a [`Forked`] copy made with [`Local::fork`]. Only
+//! the [`Original`] may originate new [`message`](Local::message)s or
+//! [`redact`](Local::redact)ions; [`Forked`] clones are cheap (the underlying
+//! tree is structurally shared and copy-on-write) and exist to be mutated
+//! concurrently against peers, then folded back in via [`Local::process`] (or
+//! the [`Add`] / [`AddAssign`] operators). This split enforces at the type
+//! level that every party acts as a single sequential process. See the
+//! [`Local`] docs for the full discussion.
 //!
 //! # Gossiping with peers on the network
 //!
@@ -75,9 +81,9 @@
 //! let (mut a_r, mut a_w) = tokio::io::split(a);
 //! let (mut b_r, mut b_w) = tokio::io::split(b);
 //!
-//! let mut alice: Local<String> = Local::for_party("alice");
+//! let mut alice: Local<String, _> = Local::for_party("alice", 0).unwrap();
 //! alice.message(["hello".to_string()], ignore).await;
-//! let bob: Local<String> = Local::for_party("bob");
+//! let bob: Local<String, _> = Local::for_party("bob", 0).unwrap();
 //!
 //! // Drive both ends concurrently; bob learns "hello".
 //! let (alice, bob) = tokio::join!(
@@ -98,14 +104,13 @@
 
 use std::{
     ops::{Add, AddAssign},
-    sync::Arc,
+    sync::{Arc, LazyLock, Mutex, Weak},
 };
 
 use borsh::{BorshDeserialize, BorshSerialize};
-
-use message::Message;
+use bytes::Bytes;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tree::{Action, Tree, mirror};
+use weak_table2::WeakHashSet;
 
 mod imbl_borsh;
 mod message;
@@ -113,12 +118,37 @@ pub mod sync;
 mod tree;
 mod version;
 
+use message::Message;
+use tree::{Action, Tree, mirror};
+
 /// A local set of rumors: add to it, redact from it, gossip with peers.
 ///
-/// Cheap to clone (structurally shared, copy-on-write); concurrent code
-/// typically holds one clone per thread or task and recombines them via
+/// These are cheap to clone (structurally shared, copy-on-write); concurrent
+/// code typically holds one clone per thread or task and recombines them via
 /// [`Local::process`]. Methods take `AsyncFnMut` callbacks; for synchronous
-/// callbacks, see [`sync::Local`].
+/// I/O and callbacks, see [`sync::Local`].
+///
+/// # Uniqueness of parties
+///
+/// It is *required* that each party's [`Local::message`] and [`Local::redact`]
+/// actions are causally sequential. This is enforced locally within a given
+/// process: [`Local::for_party`] returns a type-tagged `Local<T, Original>` (or
+/// [`Err(AlreadyExists)`](AlreadyExists) if there is an extant original
+/// [`Local`] for this party in the current process). Subsequently,
+/// [`Local::fork`] can duplicate an [`Original`] [`Local`] into a [`Forked`]
+/// [`Local`], which can still participate in [`gossip`](Local::gossip) and can
+/// still [`process`](Local::process) other [`Forked`] [`Local`]s into itself,
+/// but crucially which *cannot* originate new messages and redactions: these
+/// may only be performed on the original singleton `Local<T, Original>`.
+///
+/// While these checks enforce consistency within a single process, it is the
+/// responsibility of the programmer to ensure that parties act as sequential
+/// processes across the network. In particular, if an [`Original`] [`Local`]
+/// is ever dropped and then recreated for the same party (e.g. across process
+/// restarts), the `start` parameter passed to [`Local::for_party`] must be
+/// greater than or equal to the last observable [`event`](Local::event) of the
+/// prior instantiation. Persist `event()` durably between runs and feed it back
+/// in as `start` to uphold this invariant.
 ///
 /// # Example
 ///
@@ -127,7 +157,7 @@ mod version;
 ///
 /// # #[tokio::main(flavor = "current_thread")]
 /// # async fn main() {
-/// let mut alice: Local<String> = Local::for_party("alice");
+/// let mut alice = Local::for_party("alice", 0).unwrap();
 /// let mut keys: Vec<Key> = Vec::new();
 /// alice.message(
 ///     ["hello".to_string(), "world".to_string()],
@@ -137,17 +167,66 @@ mod version;
 /// # }
 /// ```
 #[derive(Debug, Eq)]
-pub struct Local<T>(pub(crate) Tree<T>);
+pub struct Local<T, Identity = Forked> {
+    tree: Tree<T>,
+    identity: Identity,
+}
 
+/// Marker type indicating that this [`Local`] is the original created by
+/// [`Local::for_party`], empowering it to be used for adding new
+/// [`message`](Local::message)s and [`redact`](Local::redact)ions.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Original(Arc<Bytes>);
+
+/// Marker type indicating that this [`Local`] is a fork of another, meaning it
+/// can only be used for [`process`](Local::process)ing and
+/// [`gossip`](Local::gossip)ing about messages and redactions originated by
+/// other [`Original`] [`Local`]s in the system.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct Forked(());
+
+/// Error returned from [`Local::for_party`] when an [`Original`] [`Local`]
+/// already exists for that party in the current process.
+///
+/// The check is intentionally per-process: it enforces locally that there is
+/// only one [`Original`] per party at any moment. Releasing the [`Original`]
+/// (dropping it) frees the party identifier; reusing the identifier on a fresh
+/// [`Local::for_party`] call is allowed but the new `start` must be `>=` the
+/// dropped party's last observable [`event`](Local::event).
+///
+/// # Example
+///
+/// ```
+/// use rumors::{Local, AlreadyExists};
+///
+/// let alice: Local<String, _> = Local::for_party("solo", 0).unwrap();
+/// // A second Original for the same party would violate uniqueness.
+/// let result: Result<Local<String, _>, _> = Local::for_party("solo", 0);
+/// assert!(matches!(result.unwrap_err(), AlreadyExists { .. }));
+///
+/// // Dropping the Original frees the party slot.
+/// drop(alice);
+/// let _alice_again: Local<String, _> = Local::for_party("solo", 0).unwrap();
+/// ```
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, thiserror::Error)]
+#[error("original local rumor set for this party already exists")]
+pub struct AlreadyExists {}
+
+/// Only forked `Local`s can be cloned using [`Clone`]; to clone an original
+/// `Local` into a non-original one, use [`Local::fork`].
 impl<T> Clone for Local<T> {
     fn clone(&self) -> Self {
-        Self(self.0.clone())
+        Self {
+            tree: self.tree.clone(),
+            identity: self.identity,
+        }
     }
 }
 
-impl<T> PartialEq for Local<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
+impl<T, Identity, Other> PartialEq<Local<T, Other>> for Local<T, Identity> {
+    fn eq(&self, other: &Local<T, Other>) -> bool {
+        self.tree == other.tree
     }
 }
 
@@ -173,7 +252,7 @@ pub use mirror::remote::Error;
 ///
 /// # #[tokio::main(flavor = "current_thread")]
 /// # async fn main() {
-/// let mut alice: Local<String> = Local::for_party("alice");
+/// let mut alice = Local::for_party("alice", 0).unwrap();
 /// let mut keys: Vec<Key> = Vec::new();
 /// alice.message(
 ///     ["echo".to_string(), "echo".to_string()],
@@ -199,7 +278,7 @@ pub use tree::Key;
 ///
 /// # #[tokio::main(flavor = "current_thread")]
 /// # async fn main() {
-/// let mut alice: Local<String> = Local::for_party("alice");
+/// let mut alice = Local::for_party("alice", 0).unwrap();
 /// let mut versions: Vec<Version> = Vec::new();
 /// alice.message(
 ///     ["first".to_string(), "second".to_string()],
@@ -227,7 +306,7 @@ pub use version::Version;
 ///
 /// # #[tokio::main(flavor = "current_thread")]
 /// # async fn main() {
-/// let mut alice: Local<Rumor> = Local::for_party("alice");
+/// let mut alice = Local::for_party("alice", 0).unwrap();
 /// alice.message(
 ///     [Rumor { subject: "weather".into(), count: 3 }],
 ///     ignore,
@@ -249,34 +328,63 @@ pub use ::borsh;
 ///
 /// # #[tokio::main(flavor = "current_thread")]
 /// # async fn main() {
-/// let mut alice: Local<String> = Local::for_party("alice");
+/// let mut alice = Local::for_party("alice", 0).unwrap();
 /// alice.message(["hello".to_string(), "world".to_string()], ignore).await;
 /// # }
 /// ```
 pub async fn ignore<T>(_key: Key, _version: &Version, _message: &Arc<T>) {}
 
-impl<T> Local<T> {
+impl<T> Local<T, Original> {
     /// Create an empty rumor set tagged with the given party identifier.
     ///
-    /// Party identifiers must be *globally unique* across the gossip
-    /// network; reusing one across peers causes missed messages and other
-    /// undefined behavior.
+    /// Party identifiers must be *globally unique* across the gossip network;
+    /// reusing one across peers causes missed messages and other undefined
+    /// behavior. If a party identifier is ever reused, its `start` must be
+    /// greater than or equal to the last observable [`event`](Local::event) of
+    /// the last instantiation of that party.
     ///
     /// # Example
     ///
     /// ```
     /// use rumors::Local;
     ///
-    /// let _alice: Local<String> = Local::for_party("alice");
+    /// let _alice: Local<String, _> = Local::for_party("alice", 0).unwrap();
     /// ```
-    pub fn for_party(party: impl AsRef<[u8]>) -> Self {
-        Local(Tree::for_party(party))
+    pub fn for_party(party: impl AsRef<[u8]>, start: u64) -> Result<Self, AlreadyExists> {
+        // Weak pointers to all the parties which have been created.
+        static PARTIES: LazyLock<Mutex<WeakHashSet<Weak<Bytes>>>> =
+            LazyLock::new(|| Mutex::new(WeakHashSet::new()));
+
+        let tree = Tree::for_party(party, start);
+        let identity = Original(Arc::new(tree.party().clone()));
+
+        // Ensure this party isn't live right now, then track it.
+        let mut parties = PARTIES.lock().unwrap();
+        if !parties.contains(&*identity.0) {
+            parties.insert(identity.0.clone());
+            Ok(Self { identity, tree })
+        } else {
+            Err(AlreadyExists {})
+        }
+    }
+
+    /// Get this party's local event counter: the count of all operations ever
+    /// applied by this party.
+    ///
+    /// Persist this value durably between process runs and pass it back as the
+    /// `start` argument to [`Local::for_party`] on the next invocation. If a
+    /// party name is reused, `start >= self.event()` of the prior instantiation
+    /// is *required*; violating this invariant can lead to arbitrary and
+    /// contagious corruption of the rumor set network-wide.
+    pub fn event(&self) -> u64 {
+        self.tree.version().for_party(self.tree.party())
     }
 
     /// Insert messages into the rumor set, invoking `on_message` once per
     /// newly-observed message.
     ///
     /// The callback receives:
+    ///
     /// - an opaque [`Key`], usable later with [`redact`](Self::redact);
     /// - the causal [`Version`] at which the message was observed;
     /// - an [`Arc<T>`](Arc) holding the message itself.
@@ -290,7 +398,7 @@ impl<T> Local<T> {
     ///
     /// # #[tokio::main(flavor = "current_thread")]
     /// # async fn main() {
-    /// let mut alice: Local<String> = Local::for_party("alice");
+    /// let mut alice = Local::for_party("alice", 0).unwrap();
     /// let mut observed = Vec::new();
     /// alice.message(
     ///     ["hello".to_string(), "world".to_string()],
@@ -307,7 +415,7 @@ impl<T> Local<T> {
         I: IntoIterator<Item = T>,
         OnMessage: AsyncFnMut(Key, &Version, &Arc<T>),
     {
-        self.0
+        self.tree
             .act(
                 messages.into_iter().map(Message::from).map(Action::Insert),
                 async |k, v, m| {
@@ -334,7 +442,7 @@ impl<T> Local<T> {
     ///
     /// # #[tokio::main(flavor = "current_thread")]
     /// # async fn main() {
-    /// let mut alice: Local<String> = Local::for_party("alice");
+    /// let mut alice = Local::for_party("alice", 0).unwrap();
     /// let mut keys: Vec<Key> = Vec::new();
     /// alice.message(
     ///     ["transient announcement".to_string()],
@@ -345,18 +453,22 @@ impl<T> Local<T> {
     /// ```
     pub fn redact<I: IntoIterator<Item = Key>>(&mut self, redacted: I) {
         pollster::block_on(
-            self.0
+            self.tree
                 .act(redacted.into_iter().map(Action::Forget), async |_, _, _| {}),
         );
     }
+}
 
-    /// Merge `new` into `self`, invoking `on_message` for each message in
-    /// `new` that `self` had not already observed.
+impl<T, Identity> Local<T, Identity> {
+    /// Duplicate a rumor set into a [`Forked`] [`Local`] usable concurrently.
     ///
-    /// The canonical use is recombining clones that gossiped independently
-    /// against different peers. The callback signature matches
-    /// [`Local::message`]; messages present in `self` but missing from `new`
-    /// do not fire it.
+    /// Forks share their underlying tree structurally (copy-on-write), so this
+    /// is cheap. The fork may [`gossip`](Local::gossip) and merge other forks
+    /// into itself via [`process`](Local::process) or `+`, but it *cannot*
+    /// originate new [`message`](Local::message)s or [`redact`](Local::redact)
+    /// keys; only the singleton [`Original`] for the party can. The fork can
+    /// later be folded back in with `original.process(fork)`. See the
+    /// [`Local`] docs for why this split exists.
     ///
     /// # Example
     ///
@@ -365,29 +477,62 @@ impl<T> Local<T> {
     ///
     /// # #[tokio::main(flavor = "current_thread")]
     /// # async fn main() {
-    /// let mut alice: Local<String> = Local::for_party("alice");
-    /// let mut helper = alice.clone();
+    /// let mut alice = Local::for_party("alice", 0).unwrap();
+    /// alice.message(["hello".to_string()], ignore).await;
     ///
-    /// // Suppose `helper` learned a new rumor on another task.
-    /// helper.message(["new rumor".to_string()], ignore).await;
-    ///
-    /// let mut learned = Vec::new();
-    /// alice.process(helper, async |_, _, m| {
-    ///     learned.push(m.as_ref().clone())
-    /// }).await;
-    /// assert_eq!(learned, vec!["new rumor".to_string()]);
+    /// // A fork can be moved to another task; only the Original can mutate.
+    /// let snapshot = alice.fork();
+    /// assert_eq!(alice, snapshot);
     /// # }
     /// ```
-    pub async fn process<OnMessage>(&mut self, new: Local<T>, on_message: OnMessage)
+    pub fn fork(&self) -> Local<T, Forked> {
+        Local {
+            tree: self.tree.clone(),
+            identity: Forked(()),
+        }
+    }
+
+    /// Merge `new` into `self`, invoking `on_message` for each message in
+    /// `new` that `self` had not already observed.
+    ///
+    /// `new` must be [`Forked`]: only the [`Original`] for a party can
+    /// originate messages, but any number of [`Forked`] copies can carry
+    /// observations between peers and recombine. The callback signature
+    /// matches [`Local::message`]; messages present in `self` but missing from
+    /// `new` do not fire it.
+    ///
+    /// # Example
+    ///
+    /// Two parties, each holding their own [`Original`], can exchange state
+    /// by forking and processing:
+    ///
+    /// ```
+    /// use rumors::{Local, ignore};
+    ///
+    /// # #[tokio::main(flavor = "current_thread")]
+    /// # async fn main() {
+    /// let mut alice = Local::for_party("alice", 0).unwrap();
+    /// let mut bob = Local::for_party("bob", 0).unwrap();
+    /// bob.message(["news from bob".to_string()], ignore).await;
+    ///
+    /// // `bob.fork()` produces a Forked copy that alice can absorb.
+    /// let mut learned = Vec::new();
+    /// alice.process(bob.fork(), async |_, _, m| {
+    ///     learned.push(m.as_ref().clone())
+    /// }).await;
+    /// assert_eq!(learned, vec!["news from bob".to_string()]);
+    /// # }
+    /// ```
+    pub async fn process<OnMessage>(&mut self, new: Local<T, Forked>, on_message: OnMessage)
     where
         OnMessage: AsyncFnMut(Key, &Version, &Arc<T>),
     {
         // Instantiate the two sides of the mirror exchange, both local
-        let l = mirror::local::Exchange::start(self.0.root.clone(), ignore, on_message);
-        let r = mirror::local::Exchange::start(new.0.root, ignore, ignore);
+        let l = mirror::local::Exchange::start(self.tree.root.clone(), ignore, on_message);
+        let r = mirror::local::Exchange::start(new.tree.root, ignore, ignore);
 
         // Drive them to completion: we know they don't need a "real" executor
-        Ok((self.0.root, _)) = mirror(l, r).await;
+        Ok((self.tree.root, _)) = mirror(l, r).await;
     }
 
     /// Synchronize rumor sets with a remote peer, invoking `on_message` for
@@ -409,9 +554,9 @@ impl<T> Local<T> {
     /// let (mut a_r, mut a_w) = tokio::io::split(a);
     /// let (mut b_r, mut b_w) = tokio::io::split(b);
     ///
-    /// let mut alice: Local<String> = Local::for_party("alice");
+    /// let mut alice: Local<String, _> = Local::for_party("alice", 0).unwrap();
     /// alice.message(["hello".to_string()], ignore).await;
-    /// let bob: Local<String> = Local::for_party("bob");
+    /// let bob: Local<String, _> = Local::for_party("bob", 0).unwrap();
     ///
     /// let mut bob_learned: Vec<String> = Vec::new();
     /// let (alice, bob) = tokio::join!(
@@ -437,11 +582,11 @@ impl<T> Local<T> {
         OnMessage: AsyncFnMut(Key, &Version, &Arc<T>),
     {
         // Instantiate the two sides of the mirror exchange: local and remote
-        let l = mirror::local::Exchange::start(self.0.root, ignore, on_message);
+        let l = mirror::local::Exchange::start(self.tree.root, ignore, on_message);
         let r = mirror::remote::Exchange::start(read, write);
 
         // Drive them to completion against each other
-        (self.0.root, _) = mirror(l, r).await.map_err(|e| {
+        (self.tree.root, _) = mirror(l, r).await.map_err(|e| {
             // The only possible error is a server error
             let mirror::Error::Server(e) = e;
             e
@@ -452,8 +597,8 @@ impl<T> Local<T> {
 }
 
 /// Combine two rumor sets via [`Local::process`].
-impl<T> Add for Local<T> {
-    type Output = Local<T>;
+impl<T> Add for Local<T, Forked> {
+    type Output = Local<T, Forked>;
 
     fn add(mut self, rhs: Self) -> Self::Output {
         pollster::block_on(self.process(rhs, async |_, _, _| {}));
@@ -462,7 +607,7 @@ impl<T> Add for Local<T> {
 }
 
 /// Absorb `rhs` into `self` via [`Local::process`].
-impl<T> AddAssign for Local<T> {
+impl<T> AddAssign for Local<T, Forked> {
     fn add_assign(&mut self, rhs: Self) {
         *self = self.clone().add(rhs);
     }

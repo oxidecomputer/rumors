@@ -584,6 +584,12 @@ dependencies = [
 
 [[package]]
 name = "hashbrown"
+version = "0.16.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "841d1cc9bed7f9236f321df977030373f4a4163ae1a7dbfe1a51a2c1a51d9100"
+
+[[package]]
+name = "hashbrown"
 version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4f467dd6dccf739c208452f8014c75c18bb8301b050ad1cfb27153803edb0f51"
@@ -1086,6 +1092,7 @@ dependencies = [
  "tinyvec",
  "tokio",
  "tokio-util",
+ "weak-table2",
  "zstd",
 ]
 
@@ -1520,6 +1527,15 @@ dependencies = [
  "hashbrown 0.15.5",
  "indexmap",
  "semver",
+]
+
+[[package]]
+name = "weak-table2"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5682865c8ed3c11f4d38df75276af32307f86ecd2734ee64a9e063a9e7d8e9c0"
+dependencies = [
+ "hashbrown 0.16.1",
 ]
 
 [[package]]
