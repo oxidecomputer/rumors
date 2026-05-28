@@ -200,12 +200,10 @@
 //! into effectively `O(payload + small constant)`.
 
 use std::{
-    cell::RefCell,
     fs::File,
     io::{self, BufWriter, Read, Write, pipe},
     path::PathBuf,
-    rc::Rc,
-    sync::mpsc,
+    sync::{Arc, Mutex, mpsc},
     thread,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -281,8 +279,11 @@ enum Mode {
 /// and wire (compressed) layers, plus phase transitions on the protocol layer.
 ///
 /// Only ever touched by a single thread (the rayon worker for alice, the bob
-/// worker for bob), so we hand it around as `Rc<RefCell<…>>` rather than
-/// `Arc<Mutex<…>>` — no atomics, no lock acquisitions on the per-byte hot path.
+/// worker for bob), but the wrapped handle has to be `Send` because
+/// [`rumors::sync::Local::gossip`]'s `R`/`W` parameters require it. We use
+/// `Arc<Mutex<…>>`: in single-threaded use the mutex is always uncontended,
+/// so each lock is a single uncontended atomic op — measurably negligible
+/// against the I/O the example is profiling.
 #[derive(Default, Clone, Copy)]
 struct SideStats {
     proto_bytes_read: u64,
@@ -293,9 +294,9 @@ struct SideStats {
     last_op: Option<Op>,
 }
 
-/// Single-threaded shared handle to one side's stats. The two counting wrappers
-/// (read + write) and the rig that reads the final counters hold clones.
-type StatsHandle = Rc<RefCell<SideStats>>;
+/// Shared handle to one side's stats. The two counting wrappers (read + write)
+/// and the rig that reads the final counters hold clones.
+type StatsHandle = Arc<Mutex<SideStats>>;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 enum Op {
@@ -320,7 +321,7 @@ struct CountingRead<R> {
 impl<R: Read> Read for CountingRead<R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let n = self.inner.read(buf)?;
-        let mut s = self.stats.borrow_mut();
+        let mut s = self.stats.lock().unwrap();
         match self.layer {
             Layer::Protocol => {
                 if matches!(s.last_op, Some(Op::Write)) {
@@ -346,7 +347,7 @@ struct CountingWrite<W> {
 impl<W: Write> Write for CountingWrite<W> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let n = self.inner.write(buf)?;
-        let mut s = self.stats.borrow_mut();
+        let mut s = self.stats.lock().unwrap();
         match self.layer {
             Layer::Protocol => {
                 if matches!(s.last_op, Some(Op::Read)) {
@@ -712,7 +713,7 @@ impl BobWorker {
         let (done_tx, done_rx) = mpsc::channel::<SideStats>();
         thread::spawn(move || {
             while let Ok(job) = job_rx.recv() {
-                let stats: StatsHandle = Rc::new(RefCell::new(SideStats::default()));
+                let stats: StatsHandle = Arc::new(Mutex::new(SideStats::default()));
                 {
                     let (mut r, mut w) =
                         build_io_stack(job.read, job.write, &stats, job.zstd_level)
@@ -721,7 +722,7 @@ impl BobWorker {
                         .gossip(&mut r, &mut w, ignore)
                         .expect("sync gossip bob");
                 }
-                let result = *stats.borrow();
+                let result = *stats.lock().unwrap();
                 // Recv side will be dropped on shutdown; ignore that error.
                 let _ = done_tx.send(result);
             }
@@ -765,13 +766,13 @@ fn run_sample(
     // constructed on the bob thread (Rc is !Send) and shipped back.
     let bob_handle: BobHandle = match mode {
         Mode::Spawn => BobHandle::Spawn(thread::spawn(move || -> SideStats {
-            let stats: StatsHandle = Rc::new(RefCell::new(SideStats::default()));
+            let stats: StatsHandle = Arc::new(Mutex::new(SideStats::default()));
             {
                 let (mut r, mut w) = build_io_stack(a_to_b_r, b_to_a_w, &stats, zstd_level)
                     .expect("build bob stack");
                 bob.gossip(&mut r, &mut w, ignore).expect("sync gossip bob");
             }
-            *stats.borrow()
+            *stats.lock().unwrap()
         })),
         Mode::Pool => {
             BOB_WORKER.with(|w| {
@@ -787,7 +788,7 @@ fn run_sample(
     };
 
     // Alice's stack: reads from b_to_a, writes to a_to_b.
-    let stats_a: StatsHandle = Rc::new(RefCell::new(SideStats::default()));
+    let stats_a: StatsHandle = Arc::new(Mutex::new(SideStats::default()));
     {
         let (mut r, mut w) =
             build_io_stack(b_to_a_r, a_to_b_w, &stats_a, zstd_level).expect("build alice stack");
@@ -795,7 +796,7 @@ fn run_sample(
             .gossip(&mut r, &mut w, ignore)
             .expect("sync gossip alice");
     }
-    let sa = *stats_a.borrow();
+    let sa = *stats_a.lock().unwrap();
 
     let sb = match bob_handle {
         BobHandle::Spawn(h) => h.join().expect("bob thread join"),

@@ -46,7 +46,7 @@ const DUPLEX_BUF: usize = 8 * 1024;
 /// the reconciled pair. After this returns, the two `Local`s are equal.
 pub fn wire_gossip<T>(a: Local<T>, b: Local<T>) -> (Local<T>, Local<T>)
 where
-    T: Clone + BorshSerialize + BorshDeserialize + Send + 'static,
+    T: Clone + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
 {
     block_on(async move {
         let (a_side, b_side) = tokio::io::duplex(DUPLEX_BUF);

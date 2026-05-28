@@ -175,10 +175,11 @@ impl<T> Tree<T> {
     /// case of multiple actions which address the same key. In this case, the
     /// version is only incremented once for every changed key, regardless of
     /// how many actions pertain to it.
-    pub async fn act<I, O>(&mut self, actions: I, react: O)
+    pub async fn act<I, O, Fut>(&mut self, actions: I, react: O)
     where
         I: IntoIterator<Item = Action<T>>,
-        O: AsyncFnMut(Key, &Version, Option<&Message<T>>),
+        O: FnMut(Key, &Version, Option<&Message<T>>) -> Fut,
+        Fut: Future<Output = ()>,
     {
         // Get the local party.
         let party = self.party.clone();
@@ -232,11 +233,12 @@ impl<T> Tree<T> {
     /// tree in a single traversal. Theoretically, this gives an O(log n)
     /// speedup relative to one-by-one insertion operations, but since the log
     /// base is 256, in practice this is about 2-3x.
-    pub async fn react<M, I, O>(&mut self, reactions: I, mut react: O)
+    pub async fn react<M, I, O, Fut>(&mut self, reactions: I, mut react: O)
     where
         M: Into<Option<Message<T>>>,
         I: IntoIterator<Item = (Key, Version, M)>,
-        O: AsyncFnMut(Key, &Version, Option<&Message<T>>),
+        O: FnMut(Key, &Version, Option<&Message<T>>) -> Fut,
+        Fut: Future<Output = ()>,
     {
         // Convert the specified actions into the action specification required
         // by the inductive traversal of the tree
@@ -257,16 +259,33 @@ impl<T> Tree<T> {
         // zero-effect actions (e.g. forgetting a nonexistent key) do not
         // bump the root version.
         let root_version = &mut self.root.version;
-        self.root.root = traverse::act(self.root.root.take(), actions, async |k, v, m| {
-            *root_version |= v.clone();
-            react(k, v, m).await;
-        })
+        self.root.root = traverse::act(
+            self.root.root.take(),
+            actions,
+            move |k: Key, v: &Version, m: Option<&Message<T>>| {
+                *root_version |= v.clone();
+                react(k, v, m)
+            },
+        )
         .await;
     }
 }
 
 #[cfg(test)]
 mod arb;
+
+/// Test-only no-op callback for [`Tree::act`] / [`Tree::react`]; drops every
+/// observation and returns an already-ready future. Counterpart to the
+/// public-API `rumors::ignore`, but with the tree's callback signature
+/// (`Option<&Message<T>>` rather than `&Arc<T>`).
+#[cfg(test)]
+pub(crate) fn ignore<P: Ord, T>(
+    _: Key,
+    _: &Version<P>,
+    _: Option<&Message<T>>,
+) -> std::future::Ready<()> {
+    std::future::ready(())
+}
 
 #[cfg(test)]
 mod test;

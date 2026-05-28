@@ -6,14 +6,16 @@
 //! These tests target the redaction-specific corners with smaller,
 //! more legible schedules.
 
+mod common;
+
 use std::collections::BTreeMap;
 
 use proptest::collection::vec;
 use proptest::prelude::*;
 use rumors::Key;
 
-use crate::oracle::readout_multiset;
-use crate::peer::{Peer, gossip_step, quiesce};
+use crate::common::oracle::readout_multiset;
+use crate::common::peer::{Peer, gossip_step, quiesce};
 
 proptest! {
     /// A redaction issued by *any* peer propagates contagiously to

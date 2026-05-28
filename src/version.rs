@@ -154,6 +154,13 @@ impl<P: Ord + Clone> From<(P, u64)> for Version<P> {
 /// run sorted by party in strictly-ascending order, so every `Version<P>`
 /// value has exactly one valid serialization, and duplicates or out-of-order
 /// entries on the wire are rejected on deserialization.
+///
+/// This encoding appears on the wire during every gossip exchange (the
+/// mirror protocol's connect, accept, and complete steps each ship a
+/// [`Version<P>`] frame). Party identifiers are inline and repeated across
+/// frames, so the byte stream is the primary compressibility target — see
+/// the crate-level `# Compression` section and the
+/// [`compress`](crate::guide::compress) how-to.
 impl<P: Ord + BorshSerialize> BorshSerialize for Version<P> {
     fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
         serialize_ordmap(&self.versions, writer)

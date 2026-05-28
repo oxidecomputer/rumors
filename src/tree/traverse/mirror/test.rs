@@ -210,7 +210,7 @@ proptest! {
             version: actions
                 .iter()
                 .fold(Version::default(), |acc, (_, v, _)| acc | v.clone()),
-            root: pollster::block_on(act(None, actions.to_vec(), async |_, _, _| {})),
+            root: pollster::block_on(act(None, actions.to_vec(), crate::tree::ignore)),
         };
 
         let tree_a = wrap(&actions_a);

@@ -15,7 +15,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use rumors::Key;
 use rumors::sync::Local;
 
-use crate::schedule::EventIdx;
+use super::schedule::EventIdx;
 
 pub struct Oracle<T> {
     values: BTreeMap<EventIdx, T>,
@@ -73,22 +73,22 @@ impl<T: Clone + Ord> Oracle<T> {
 /// `Local::process` is used here purely as an enumeration mechanism
 /// against an empty baseline; the throwaway lens never feeds back into
 /// anything.
-pub fn readout<T>(peer: &Local<T>) -> BTreeMap<Key, T>
+pub fn readout<T, Id>(peer: &Local<T, Id>) -> BTreeMap<Key, T>
 where
     T: Clone + Ord + BorshSerialize + BorshDeserialize,
 {
     let mut out = BTreeMap::new();
     // Non-ASCII magic bytes: cannot collide with any test party id,
     // which are all human-readable ASCII strings.
-    let mut lens = Local::<T>::for_party(b"\x00READOUT\x00");
-    lens.process(peer.clone(), |k, _v, m: &Arc<T>| {
+    let mut lens = Local::<T, _>::for_party(b"\x00READOUT\x00", 0).unwrap();
+    lens.process(peer.fork(), |k, _v, m: &Arc<T>| {
         out.insert(k, T::clone(m));
     });
     out
 }
 
 /// Multiset (value → count) of a peer's currently-live messages.
-pub fn readout_multiset<T>(peer: &Local<T>) -> BTreeMap<T, usize>
+pub fn readout_multiset<T, Id>(peer: &Local<T, Id>) -> BTreeMap<T, usize>
 where
     T: Clone + Ord + BorshSerialize + BorshDeserialize,
 {

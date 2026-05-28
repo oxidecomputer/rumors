@@ -1,13 +1,15 @@
 //! Sanity checks: panic-freedom, clone independence, degenerate
 //! inputs.
 
+mod common;
+
 use proptest::collection::vec;
 use proptest::prelude::*;
 use rumors::sync::{Local, ignore};
 
-use crate::oracle::readout_multiset;
-use crate::peer::{Peer, quiesce};
-use crate::schedule::{arb_schedule, execute_and_quiesce};
+use crate::common::oracle::readout_multiset;
+use crate::common::peer::{Peer, quiesce};
+use crate::common::schedule::{arb_schedule, execute_and_quiesce};
 
 const N_PEERS: std::ops::RangeInclusive<usize> = 2..=8;
 const MAX_EVENTS: usize = 50;
@@ -24,26 +26,28 @@ proptest! {
         let _ = execute_and_quiesce(&schedule);
     }
 
-    /// Cloning is non-destructive: a clone that ingests new values,
-    /// recombined with the original via `+`, yields the same content
-    /// multiset as the original ingesting those values directly. This
-    /// is the documented use case — clones drive remote gossip in
-    /// parallel; mutation happens on one side and recombines.
+    /// Forking is non-destructive: merging a peer's fork into an
+    /// independent peer reaches the same multiset as processing that
+    /// peer in directly. This is the documented gossip pattern —
+    /// forks carry observations between Originals.
     #[test]
-    fn clone_then_merge_matches_direct_ingest(
-        original_values in vec(any::<u64>(), 0..=MAX_CLONE_VALUES),
-        helper_values in vec(any::<u64>(), 0..=MAX_CLONE_VALUES),
+    fn fork_then_merge_matches_direct_process(
+        alice_values in vec(any::<u64>(), 0..=MAX_CLONE_VALUES),
+        bob_values in vec(any::<u64>(), 0..=MAX_CLONE_VALUES),
     ) {
-        let mut base: Local<u64> = Local::for_party("alice");
-        base.message(original_values.clone(), ignore);
+        let mut alice = Local::<u64, _>::for_party("alice", 0).unwrap();
+        alice.message(alice_values, ignore);
 
-        let mut helper = base.clone();
-        helper.message(helper_values.clone(), ignore);
+        let mut bob = Local::<u64, _>::for_party("bob", 0).unwrap();
+        bob.message(bob_values, ignore);
 
-        let recombined = base.clone() + helper;
+        // Recombine alice with bob's fork via `+` on a fork of alice.
+        let bob_fork = bob.fork();
+        let recombined = alice.fork() + bob_fork.clone();
 
-        let mut direct = base;
-        direct.message(helper_values, ignore);
+        // Direct: process bob's fork straight into alice.
+        let mut direct = alice;
+        direct.process(bob_fork, ignore);
 
         prop_assert_eq!(
             readout_multiset(&recombined),
@@ -63,7 +67,7 @@ fn quiesce_handles_zero_or_one_peer() {
 
     let mut peer = Peer::<u64>::new("alone");
     peer.insert_one(42);
-    let local_before = peer.local.clone();
+    let local_before = peer.local.fork();
     let obs_before = peer.observations.clone();
 
     let mut one = vec![peer];

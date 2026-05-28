@@ -8,6 +8,35 @@
 //! tag pinning the protocol height: all of the actual state lives on the
 //! counterparty's side of the wire.
 //!
+//! # Handshake
+//!
+//! Every gossip session begins with an 8-byte preamble, exchanged
+//! concurrently by both sides before any framed traffic:
+//!
+//! ```text
+//! [ R U M R | version: u16 (big-endian) | reserved: u16 (big-endian) ]
+//!    magic                  2B                      2B
+//!     4B
+//! ```
+//!
+//! - **Magic** is [`crate::PROTOCOL_MAGIC`] (`b"RUMR"`). A peer that opens
+//!   the connection with anything else is rejected as
+//!   [`Error::MagicMismatch`] — it isn't speaking the `rumors` protocol
+//!   at all.
+//! - **Version** is [`crate::PROTOCOL_VERSION`], a monotonic `u16`. Patch
+//!   versions of `rumors` never change it; minor versions are forward-
+//!   compatible (additive wire changes, both sides downgrade to
+//!   `min(local, remote)`); major versions may bump it incompatibly and
+//!   surface as [`Error::VersionMismatch`].
+//! - **Reserved** is `0` in v1. Future minor versions may give it
+//!   meaning (e.g. a `min_compatible_version` field for negotiating
+//!   downgrades).
+//!
+//! Both sides drive the write and the read concurrently via
+//! [`futures_util::future::try_join`]; a peer that reads before writing
+//! would deadlock against another peer doing the same on a connection
+//! with a tiny kernel write buffer.
+//!
 //! # Direction
 //!
 //! When the local responder calls `b.exchange(m)` on its remote-initiator
@@ -16,13 +45,13 @@
 //!
 //! # Framing
 //!
-//! Each borsh-encoded message is shipped as a single length-delimited frame
-//! via [`tokio_util::codec::LengthDelimitedCodec`] (4-byte big-endian length
-//! prefix). The codec's `max_frame_length` is raised to `usize::MAX` so that
-//! arbitrarily large subtrees can travel in one frame; the protocol's height
-//! schedule still names the type each side expects next, and the frame
-//! boundary now lets the async reader know exactly how many bytes belong to
-//! that next message.
+//! After the handshake, each borsh-encoded message is shipped as a single
+//! length-delimited frame via [`tokio_util::codec::LengthDelimitedCodec`]
+//! (4-byte big-endian length prefix). The codec's `max_frame_length` is
+//! raised to `usize::MAX` so that arbitrarily large subtrees can travel
+//! in one frame; the protocol's height schedule still names the type
+//! each side expects next, and the frame boundary now lets the async
+//! reader know exactly how many bytes belong to that next message.
 //!
 //! # In-band termination
 //!
@@ -39,7 +68,7 @@ use std::marker::PhantomData;
 
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -60,12 +89,78 @@ pub enum Error {
     /// while parsing a message off the wire.
     #[error(transparent)]
     Io(borsh::io::Error),
+
+    /// The peer's handshake preamble did not begin with [`PROTOCOL_MAGIC`]:
+    /// the connection is not speaking the `rumors` protocol at all.
+    ///
+    /// [`PROTOCOL_MAGIC`]: crate::PROTOCOL_MAGIC
+    #[error("peer is not a rumors stream (remote magic: {remote_magic:x?})")]
+    MagicMismatch { remote_magic: [u8; 4] },
+
+    /// The peer's handshake magic matched but its protocol version is
+    /// incompatible with ours. See [`PROTOCOL_VERSION`].
+    ///
+    /// [`PROTOCOL_VERSION`]: crate::PROTOCOL_VERSION
+    #[error(
+        "peer speaks rumors protocol version {remote_version}, we speak {}",
+        crate::PROTOCOL_VERSION
+    )]
+    VersionMismatch { remote_version: u16 },
 }
 
 impl From<borsh::io::Error> for Error {
     fn from(e: borsh::io::Error) -> Self {
         Error::Io(e)
     }
+}
+
+/// Exchange the 8-byte protocol handshake with a peer.
+///
+/// The local side writes `[magic(4) | version(u16 BE) | reserved(u16 BE)=0]`
+/// while concurrently reading the same shape from the peer. The concurrent
+/// drive is required: a peer that reads before writing deadlocks against a
+/// peer that does the same when the kernel write buffer is smaller than
+/// 8 bytes (rare but possible on heavily-tuned sockets).
+///
+/// Returns [`Error::MagicMismatch`] when the peer's first four bytes are not
+/// [`crate::PROTOCOL_MAGIC`], or [`Error::VersionMismatch`] when the magic
+/// matches but the version does not. The two reserved bytes are ignored in
+/// v1; future minor versions may give them meaning.
+pub async fn handshake<R, W>(read: &mut R, write: &mut W) -> Result<(), Error>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    let v = crate::PROTOCOL_VERSION.to_be_bytes();
+    let m = crate::PROTOCOL_MAGIC;
+    let local: [u8; 8] = [m[0], m[1], m[2], m[3], v[0], v[1], 0, 0];
+
+    let mut remote = [0u8; 8];
+    let write_fut = async {
+        write
+            .write_all(&local)
+            .await
+            .map_err(borsh::io::Error::from)
+            .map_err(Error::Io)
+    };
+    let read_fut = async {
+        read.read_exact(&mut remote)
+            .await
+            .map(|_| ())
+            .map_err(borsh::io::Error::from)
+            .map_err(Error::Io)
+    };
+    futures_util::future::try_join(write_fut, read_fut).await?;
+
+    let remote_magic: [u8; 4] = remote[..4].try_into().expect("4 bytes");
+    if remote_magic != crate::PROTOCOL_MAGIC {
+        return Err(Error::MagicMismatch { remote_magic });
+    }
+    let remote_version = u16::from_be_bytes([remote[4], remote[5]]);
+    if remote_version != crate::PROTOCOL_VERSION {
+        return Err(Error::VersionMismatch { remote_version });
+    }
+    Ok(())
 }
 
 /// The version state for an [`Exchange`] which has just been initialized but

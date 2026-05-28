@@ -17,7 +17,7 @@ proptest! {
     /// exactly once: no duplicates, no omissions.
     #[test]
     fn insert_fires_once_per_value(values in vec(any::<u64>(), 0..=32)) {
-        let mut peer: Local<u64> = Local::for_party("alice");
+        let mut peer = Local::<u64, _>::for_party("alice", 0).unwrap();
         let mut observed = 0usize;
         peer.message(values.clone(), |_, _, _| observed += 1);
         prop_assert_eq!(observed, values.len());
@@ -27,7 +27,7 @@ proptest! {
     /// distinct, even when several values in the batch are equal.
     #[test]
     fn distinct_keys_per_batch(values in vec(any::<u64>(), 1..=32)) {
-        let mut peer: Local<u64> = Local::for_party("alice");
+        let mut peer = Local::<u64, _>::for_party("alice", 0).unwrap();
         let mut keys: Vec<Key> = Vec::new();
         peer.message(values.clone(), |k, _, _| keys.push(k));
         prop_assert_eq!(keys.len(), values.len());
@@ -39,7 +39,7 @@ proptest! {
     /// `n` distinct `Key`s — content equality does not collapse keys.
     #[test]
     fn duplicate_values_get_distinct_keys(n in 1usize..=16, value in any::<u64>()) {
-        let mut peer: Local<u64> = Local::for_party("alice");
+        let mut peer = Local::<u64, _>::for_party("alice", 0).unwrap();
         let mut keys: Vec<Key> = Vec::new();
         peer.message(std::iter::repeat_n(value, n), |k, _, _| keys.push(k));
         prop_assert_eq!(keys.len(), n);
@@ -56,7 +56,7 @@ proptest! {
     fn local_versions_strictly_increasing(
         batches in vec(vec(any::<u64>(), 1..=8), 1..=8),
     ) {
-        let mut peer: Local<u64> = Local::for_party("alice");
+        let mut peer = Local::<u64, _>::for_party("alice", 0).unwrap();
 
         // Values in the order of insertion
         let mut values = Vec::new();
@@ -113,22 +113,24 @@ proptest! {
             v
         };
 
-        let mut a: Local<u64> = Local::for_party("alice");
-        a.message(values, ignore);
-        let mut b: Local<u64> = Local::for_party("alice");
-        b.message(shuffled, ignore);
-
-        // Live content (value multiset) must match, even though the
-        // per-value `Key`s differ — different version-counter
-        // positions assigned by `message`.
-        let multiset_of = |peer: &Local<u64>| -> BTreeMap<u64, usize> {
+        // `Local::for_party` is one-per-party-per-process, so we
+        // can't hold both "alice"s alive simultaneously. Take each
+        // peer's multiset readout in turn, then compare.
+        //
+        // `start` >= prior `event()` is the public-API contract for
+        // reuse across drops; we use 0 here because the test never
+        // gossips between the two `alice`s and so cannot witness any
+        // version-vector corruption that might result.
+        let multiset_of = |values: Vec<u64>| -> BTreeMap<u64, usize> {
+            let mut peer = Local::<u64, _>::for_party("alice", 0).unwrap();
+            peer.message(values, ignore);
             let mut out = BTreeMap::new();
-            let mut lens: Local<u64> = Local::for_party(b"\x00READOUT\x00");
-            lens.process(peer.clone(), |_, _, v| {
+            let mut lens = Local::<u64, _>::for_party(b"\x00READOUT\x00", 0).unwrap();
+            lens.process(peer.fork(), |_, _, v| {
                 *out.entry(**v).or_insert(0) += 1;
             });
             out
         };
-        prop_assert_eq!(multiset_of(&a), multiset_of(&b));
+        prop_assert_eq!(multiset_of(values), multiset_of(shuffled));
     }
 }

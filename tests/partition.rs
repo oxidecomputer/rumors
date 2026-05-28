@@ -17,11 +17,13 @@
 //! *self-consistency*, not equality with a hypothetical
 //! un-partitioned twin.
 
+mod common;
+
 use proptest::prelude::*;
 
-use crate::oracle::readout_multiset;
-use crate::peer::quiesce;
-use crate::schedule::{arb_schedule, execute_with};
+use crate::common::oracle::readout_multiset;
+use crate::common::peer::quiesce;
+use crate::common::schedule::{arb_schedule, execute_with};
 
 const N_PEERS: std::ops::RangeInclusive<usize> = 3..=8;
 const MAX_EVENTS: usize = 50;

@@ -5,11 +5,11 @@
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use rumors::sync::Local;
-use rumors::{Key, Version};
+use rumors::{Key, Original, Version};
 
 /// One simulated peer.
 pub struct Peer<T> {
-    pub local: Local<T>,
+    pub local: Local<T, Original>,
     /// All observations this peer has accumulated, across `message`,
     /// `redact`, and `process` calls. The public API contract says
     /// callback order within a batch is arbitrary; in practice it is
@@ -18,10 +18,10 @@ pub struct Peer<T> {
     pub observations: Vec<(Key, Version, T)>,
 }
 
-impl<T: Clone + BorshSerialize + BorshDeserialize> Peer<T> {
+impl<T: Clone + BorshSerialize + BorshDeserialize + Send + Sync + 'static> Peer<T> {
     pub fn new(party: impl AsRef<[u8]>) -> Self {
         Self {
-            local: Local::for_party(party),
+            local: Local::for_party(party, 0).expect("party name must be unique within a test case"),
             observations: Vec::new(),
         }
     }
@@ -47,10 +47,10 @@ impl<T: Clone + BorshSerialize + BorshDeserialize> Peer<T> {
 /// `a.local == b.local`.
 pub fn gossip_step<T>(a: &mut Peer<T>, b: &mut Peer<T>)
 where
-    T: Clone + BorshSerialize + BorshDeserialize,
+    T: Clone + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
 {
-    let a_snapshot = a.local.clone();
-    let b_snapshot = b.local.clone();
+    let a_snapshot = a.local.fork();
+    let b_snapshot = b.local.fork();
 
     let obs_a = &mut a.observations;
     a.local.process(b_snapshot, |k, v, m| {
@@ -70,7 +70,7 @@ where
 /// the test should catch).
 pub fn quiesce<T>(peers: &mut [Peer<T>])
 where
-    T: Clone + Eq + BorshSerialize + BorshDeserialize,
+    T: Clone + Eq + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
 {
     let n = peers.len();
     if n < 2 {
@@ -79,7 +79,7 @@ where
 
     let max_rounds = MAX_QUIESCE_ROUNDS_PER_PEER * n;
     for _ in 0..max_rounds {
-        let snapshot: Vec<Local<T>> = peers.iter().map(|p| p.local.clone()).collect();
+        let snapshot: Vec<Local<T>> = peers.iter().map(|p| p.local.fork()).collect();
 
         for i in 0..n {
             for j in (i + 1)..n {

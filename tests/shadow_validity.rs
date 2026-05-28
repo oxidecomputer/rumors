@@ -21,13 +21,15 @@
 //! Comparison is set-wise: callback order within a batch is
 //! unspecified, so a sequence-wise comparison would over-constrain.
 
+mod common;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use proptest::prelude::*;
 use rumors::Key;
 
-use crate::oracle::readout;
-use crate::schedule::{EventIdx, arb_schedule_with_shadow, execute_with};
+use crate::common::oracle::readout;
+use crate::common::schedule::{EventIdx, arb_schedule_with_shadow, execute_with};
 
 const N_PEERS: std::ops::RangeInclusive<usize> = 2..=8;
 const MAX_EVENTS: usize = 50;

@@ -44,7 +44,7 @@ fn gossip_future_fits_budget() {
     let (mut a_r, mut a_w) = tokio::io::split(a);
     drop(b);
 
-    let alice: Local<()> = Local::for_party("alice");
+    let alice: Local<(), _> = Local::for_party("alice", 0).unwrap();
     let fut = alice.gossip(&mut a_r, &mut a_w, ignore);
     let size = size_of_val(&fut);
 
@@ -61,8 +61,8 @@ fn gossip_future_fits_budget() {
 /// erasure boundary as `gossip` via `mirror()`.
 #[test]
 fn process_future_fits_budget() {
-    let mut alice: Local<()> = Local::for_party("alice");
-    let helper = alice.clone();
+    let mut alice: Local<(), _> = Local::for_party("alice", 0).unwrap();
+    let helper = alice.fork();
     let fut = alice.process(helper, ignore);
     let size = size_of_val(&fut);
 
@@ -78,7 +78,7 @@ fn process_future_fits_budget() {
 /// internal `Pin<Box<dyn Future>>`.
 #[test]
 fn message_future_fits_budget() {
-    let mut alice: Local<()> = Local::for_party("alice");
+    let mut alice: Local<(), _> = Local::for_party("alice", 0).unwrap();
     let fut = alice.message([()], ignore);
     let size = size_of_val(&fut);
 

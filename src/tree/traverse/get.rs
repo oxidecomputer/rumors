@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::sync::Arc;
 
 use itertools::Itertools;
@@ -27,8 +28,9 @@ where
 {
     pollster::block_on(async {
         let mut gotten = Vec::new();
-        Get::get(node, Prefix::new(), paths, &mut async |k, v, m| {
-            gotten.push((k, v.clone(), m.clone()))
+        Get::get(node, Prefix::new(), paths, &mut |k, v: &Version<P>, m: &Arc<T>| {
+            gotten.push((k, v.clone(), m.clone()));
+            std::future::ready(())
         })
         .await;
         gotten
@@ -36,54 +38,58 @@ where
 }
 
 pub trait Get: Height {
-    async fn get<P, T>(
+    async fn get<P, T, F, Fut>(
         node: Option<Node<P, T, Self>>,
         prefix: Prefix<Self>,
         paths: Paths<Self>,
-        with_gotten: &mut impl AsyncFnMut(Key, &Version<P>, &Arc<T>),
+        with_gotten: &mut F,
     ) where
-        P: Clone + Ord + AsRef<[u8]>;
+        P: Clone + Ord + AsRef<[u8]>,
+        F: FnMut(Key, &Version<P>, &Arc<T>) -> Fut,
+        Fut: Future<Output = ()>;
 }
 
 impl<H: Get> Get for S<H>
 where
     S<H>: Height,
 {
-    async fn get<P, T>(
+    async fn get<P, T, F, Fut>(
         node: Option<Node<P, T, Self>>,
         prefix: Prefix<Self>,
         paths: Paths<Self>,
-        with_gotten: &mut impl AsyncFnMut(Key, &Version<P>, &Arc<T>),
+        with_gotten: &mut F,
     ) where
         P: Clone + Ord + AsRef<[u8]>,
+        F: FnMut(Key, &Version<P>, &Arc<T>) -> Fut,
+        Fut: Future<Output = ()>,
     {
         let Some(node) = node else {
             return;
         };
 
         if let Paths::Selected(paths) = paths {
-            // Group the paths by their first element
-            let by_radix = paths
+            // Group the paths by their first element. Collected eagerly into
+            // an owned `Vec` before the recursive await loop: `ChunkBy`'s
+            // interior `RefCell`/`Cell` would otherwise make the surrounding
+            // `async fn`'s state machine `!Send`. See `act.rs` for the same
+            // pattern (and for the boxed-recursion comment that applies here
+            // too).
+            let by_radix: Vec<(u8, Vec<_>)> = paths
                 .into_iter()
                 .map(|path| {
                     let (child, path) = path.pop();
                     (child, path)
                 })
                 .sorted_by_key(|(child, _)| *child)
-                .chunk_by(|(child, _)| *child);
+                .chunk_by(|(child, _)| *child)
+                .into_iter()
+                .map(|(radix, group)| (radix, group.map(|(_, path)| path).collect()))
+                .collect();
 
             // Decompose the node into its children
             let mut children = node.into_children();
 
-            // Recursively look up each radix group in the corresponding
-            // child. See `act.rs` for why the recursive future is always
-            // boxed: polymorphic recursion over `H` builds a 32-level
-            // nested type chain that both pressures the stack in debug
-            // and pushes downstream crates' `recursion_limit` over its
-            // default in release. Boxing breaks both at the cost of ~32
-            // small heap allocations per top-level call.
-            for (radix, group) in by_radix.into_iter() {
-                let child_paths: Vec<_> = group.map(|(_, path)| path).collect();
+            for (radix, child_paths) in by_radix {
                 Box::pin(Get::get(
                     children.remove(&radix),
                     prefix.push(radix),
@@ -108,13 +114,15 @@ where
 }
 
 impl Get for Z {
-    async fn get<P, T>(
+    async fn get<P, T, F, Fut>(
         node: Option<Node<P, T, Self>>,
         prefix: Prefix<Self>,
         paths: Paths<Self>,
-        with_gotten: &mut impl AsyncFnMut(Key, &Version<P>, &Arc<T>),
+        with_gotten: &mut F,
     ) where
         P: Clone + Ord + AsRef<[u8]>,
+        F: FnMut(Key, &Version<P>, &Arc<T>) -> Fut,
+        Fut: Future<Output = ()>,
     {
         let Some(node) = node else {
             return;

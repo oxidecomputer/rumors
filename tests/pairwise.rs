@@ -10,13 +10,15 @@
 //! equal. The publicly meaningful equality is "live content multiset
 //! with consistent `Key`s," which is exactly what `readout` returns.
 
+mod common;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use proptest::prelude::*;
 use rumors::sync::{Local, ignore};
 
-use crate::action::{arb_local_actions, arb_string_actions, build_local};
-use crate::oracle::readout;
-use crate::wire::wire_gossip;
+use crate::common::action::{arb_local_actions, arb_string_actions, build_local};
+use crate::common::oracle::readout;
+use crate::common::wire::wire_gossip;
 
 /// Bidirectional gossip between two raw `Local`s, discarding
 /// observation callbacks. Used by the algebraic tests below, which
@@ -181,7 +183,7 @@ proptest! {
     fn process_empty_source_is_noop(actions in arb_local_actions()) {
         let original = build_local("alice", &actions);
         let mut subject = original.clone();
-        let empty = Local::<u64>::for_party("ghost");
+        let empty = Local::<u64, _>::for_party("ghost", 0).unwrap().fork();
 
         let mut callbacks = 0usize;
         subject.process(empty, |_, _, _| callbacks += 1);
@@ -224,8 +226,8 @@ proptest! {
     ) {
         use rumors::Version;
 
-        let mut alice: Local<u64> = Local::for_party("alice");
-        let mut bob: Local<u64> = Local::for_party("bob");
+        let mut alice = Local::<u64, _>::for_party("alice", 0).unwrap();
+        let mut bob = Local::<u64, _>::for_party("bob", 0).unwrap();
 
         let mut va: Option<Version> = None;
         let mut vb: Option<Version> = None;

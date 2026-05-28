@@ -18,7 +18,7 @@ use std::ops::RangeInclusive;
 use proptest::collection::vec;
 use proptest::prelude::*;
 
-use crate::schedule::events::{Event, EventIdx, Schedule};
+use super::events::{Event, EventIdx, Schedule};
 
 /// Strategy: every emitted schedule has only causally-valid events.
 ///

@@ -82,17 +82,20 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use futures::io::AllowStdIo;
 use tokio_util::compat::{FuturesAsyncReadCompatExt, FuturesAsyncWriteCompatExt};
 
-pub use crate::mirror::remote::Error;
-pub use crate::tree::Key;
-pub use crate::version::Version;
-pub use crate::{AlreadyExists, Forked, Original};
+pub use crate::{
+    AlreadyExists, Error, Forked, Key, Original, PROTOCOL_MAGIC, PROTOCOL_VERSION, Version,
+};
 pub use ::borsh;
 
 /// A local set of rumors: add to it, redact from it, gossip with peers.
 ///
-/// [`Forked`] copies are cheap to clone (structurally shared, copy-on-write);
-/// concurrent code typically holds one clone per thread and recombines them
-/// via [`Local::process`].
+/// [`Local<T, Forked>`](Local) is cheap to clone (structurally shared,
+/// copy-on-write); concurrent code holds one fork per thread and
+/// recombines them via [`Local::process`]. [`Local<T, Original>`](Local)
+/// deliberately does *not* implement [`Clone`]: only the singleton
+/// original may originate new messages and redactions, and duplicating one
+/// must be explicit. Use [`Local::fork`] to obtain a [`Forked`] view that
+/// can be cloned and moved across threads.
 ///
 /// # Uniqueness of parties
 ///
@@ -206,7 +209,9 @@ impl<T> Local<T, Original> {
     /// - the causal [`Version`] at which the message was observed;
     /// - an [`Arc<T>`](Arc) holding the message itself.
     ///
-    /// Callback order is unspecified and need not match the insertion order.
+    /// Callback order is unspecified and need not match insertion order. If
+    /// your application needs an ordering, sort by the [`Version`] threaded
+    /// through the callback.
     ///
     /// # Example
     ///
@@ -225,14 +230,18 @@ impl<T> Local<T, Original> {
     /// ```
     pub fn message<OnMessage, I>(&mut self, messages: I, mut on_message: OnMessage)
     where
-        T: BorshSerialize,
-        I: IntoIterator<Item = T>,
-        OnMessage: FnMut(Key, &Version, &Arc<T>),
+        T: BorshSerialize + Send + Sync + 'static,
+        I: IntoIterator<Item = T> + Send,
+        I::IntoIter: Send,
+        OnMessage: FnMut(Key, &Version, &Arc<T>) + Send + 'static,
     {
-        pollster::block_on(
-            self.0
-                .message(messages, async |k, v, m| on_message(k, v, m)),
-        );
+        // Wrap the sync `FnMut` into the `FnMut(...) -> Send + 'static future`
+        // shape the async message wants. The body runs synchronously; the
+        // returned `Ready` future resolves immediately.
+        pollster::block_on(self.0.message(messages, move |k, v, m| {
+            on_message(k, v, m);
+            std::future::ready(())
+        }));
     }
 
     /// Redact the given keys: stop gossiping the corresponding messages, and
@@ -253,7 +262,10 @@ impl<T> Local<T, Original> {
     /// alice.message(["transient".to_string()], |k, _, _| keys.push(k));
     /// alice.redact(keys);
     /// ```
-    pub fn redact<I: IntoIterator<Item = Key>>(&mut self, redacted: I) {
+    pub fn redact<I: IntoIterator<Item = Key>>(&mut self, redacted: I)
+    where
+        T: Send + Sync + 'static,
+    {
         self.0.redact(redacted);
     }
 }
@@ -294,6 +306,13 @@ impl<T, Identity> Local<T, Identity> {
     /// matches [`Local::message`]; messages present in `self` but missing
     /// from `new` do not fire it.
     ///
+    /// **Delivery is unordered**: callbacks fire in arbitrary order,
+    /// including orderings that violate the causal precedence captured by
+    /// each message's [`Version`]. `rumors` is not a causal-delivery
+    /// primitive; if your application requires causal or insertion
+    /// ordering, sort the observations by [`Version`] before consuming
+    /// them.
+    ///
     /// # Example
     ///
     /// Two parties, each holding their own [`Original`], can exchange state
@@ -312,9 +331,14 @@ impl<T, Identity> Local<T, Identity> {
     /// ```
     pub fn process<OnMessage>(&mut self, new: Local<T, Forked>, mut on_message: OnMessage)
     where
-        OnMessage: FnMut(Key, &Version, &Arc<T>),
+        T: Send + Sync + 'static,
+        Identity: Send,
+        OnMessage: FnMut(Key, &Version, &Arc<T>) + Send + 'static,
     {
-        pollster::block_on(self.0.process(new.0, async |k, v, m| on_message(k, v, m)));
+        pollster::block_on(self.0.process(new.0, move |k, v, m| {
+            on_message(k, v, m);
+            std::future::ready(())
+        }));
     }
 
     /// Synchronize rumor sets with a remote peer, invoking `on_message` for
@@ -323,6 +347,16 @@ impl<T, Identity> Local<T, Identity> {
     /// `read` and `write` must implement [`Read`] / [`Write`]; both ends of
     /// the connection must drive `gossip` concurrently (typically on
     /// separate threads). The callback signature matches [`Local::message`].
+    ///
+    /// The session begins with the 8-byte protocol handshake described in
+    /// the crate-level `# Stability` section; a peer with the wrong
+    /// [`PROTOCOL_MAGIC`] or [`PROTOCOL_VERSION`] is rejected as
+    /// [`Error::MagicMismatch`] or [`Error::VersionMismatch`] before any
+    /// rumor-set state is touched. After the handshake, message delivery
+    /// is **unordered**: callbacks fire in arbitrary order, including
+    /// orderings that violate the causal precedence captured by each
+    /// message's [`Version`]. Sort by [`Version`] if your application
+    /// needs causal or insertion ordering.
     ///
     /// # Example
     ///
@@ -342,26 +376,33 @@ impl<T, Identity> Local<T, Identity> {
         mut on_message: OnMessage,
     ) -> Result<Self, Error>
     where
-        T: BorshDeserialize + BorshSerialize,
-        R: Read + Unpin,
-        W: Write + Unpin,
-        OnMessage: FnMut(Key, &Version, &Arc<T>),
+        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
+        R: Read + Unpin + Send,
+        W: Write + Unpin + Send,
+        OnMessage: FnMut(Key, &Version, &Arc<T>) + Send + 'static,
+        Identity: Send,
     {
         // Bridge the synchronous reader/writer to the async I/O the protocol
         // expects: `AllowStdIo` adapts `Read`/`Write` to `futures::io`'s async
         // traits, and the tokio-compat layer adapts those to `tokio::io`'s.
         let mut read = AllowStdIo::new(read).compat();
         let mut write = AllowStdIo::new(write).compat_write();
-        pollster::block_on(
-            self.0
-                .gossip(&mut read, &mut write, async |k, v, m| on_message(k, v, m)),
-        )
+        // Wrap the sync `FnMut` into the `FnMut(...) -> Send + 'static future`
+        // shape the async gossip wants. The body runs synchronously; the
+        // returned `Ready` future resolves immediately.
+        pollster::block_on(self.0.gossip(&mut read, &mut write, move |k, v, m| {
+            on_message(k, v, m);
+            std::future::ready(())
+        }))
         .map(Local)
     }
 }
 
 /// Combine two rumor sets via [`Local::process`].
-impl<T> Add for Local<T, Forked> {
+impl<T> Add for Local<T, Forked>
+where
+    T: Send + Sync + 'static,
+{
     type Output = Local<T, Forked>;
 
     fn add(mut self, rhs: Self) -> Self::Output {
@@ -371,7 +412,10 @@ impl<T> Add for Local<T, Forked> {
 }
 
 /// Absorb `rhs` into `self` via [`Local::process`].
-impl<T> AddAssign for Local<T, Forked> {
+impl<T> AddAssign for Local<T, Forked>
+where
+    T: Send + Sync + 'static,
+{
     fn add_assign(&mut self, rhs: Self) {
         *self = self.clone().add(rhs);
     }

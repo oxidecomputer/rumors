@@ -1,3 +1,5 @@
+use std::future::Future;
+
 use crate::{message::Message, tree::key::Key, version::Version};
 
 use super::typed::*;
@@ -24,33 +26,40 @@ where
         node,
         Prefix::new(),
         known,
-        &mut async |k, v, m| with_unknown(k, v, m),
+        &mut |k, v: &Version<P>, m: &Message<T>| {
+            with_unknown(k, v, m);
+            std::future::ready(())
+        },
     ))
 }
 
 pub trait Unknown: Height {
-    async fn unknown<P, T>(
+    async fn unknown<P, T, F, Fut>(
         node: Option<Node<P, T, Self>>,
         prefix: Prefix<Self>,
         known: &Version<P>,
-        with_unknown: &mut impl AsyncFnMut(Key, &Version<P>, &Message<T>),
+        with_unknown: &mut F,
     ) -> Option<Node<P, T, Self>>
     where
-        P: Clone + Ord + AsRef<[u8]>;
+        P: Clone + Ord + AsRef<[u8]>,
+        F: FnMut(Key, &Version<P>, &Message<T>) -> Fut,
+        Fut: Future<Output = ()>;
 }
 
 impl<H: Unknown> Unknown for S<H>
 where
     S<H>: Height,
 {
-    async fn unknown<P, T>(
+    async fn unknown<P, T, F, Fut>(
         node: Option<Node<P, T, Self>>,
         prefix: Prefix<Self>,
         known: &Version<P>,
-        with_unknown: &mut impl AsyncFnMut(Key, &Version<P>, &Message<T>),
+        with_unknown: &mut F,
     ) -> Option<Node<P, T, Self>>
     where
         P: Clone + Ord + AsRef<[u8]>,
+        F: FnMut(Key, &Version<P>, &Message<T>) -> Fut,
+        Fut: Future<Output = ()>,
     {
         // If the node doesn't exist, we can't return information about it
         let node = node?;
@@ -84,14 +93,16 @@ where
 }
 
 impl Unknown for Z {
-    async fn unknown<P, T>(
+    async fn unknown<P, T, F, Fut>(
         node: Option<Node<P, T, Self>>,
         prefix: Prefix,
         known: &Version<P>,
-        with_unknown: &mut impl AsyncFnMut(Key, &Version<P>, &Message<T>),
+        with_unknown: &mut F,
     ) -> Option<Node<P, T, Self>>
     where
         P: Clone + Ord + AsRef<[u8]>,
+        F: FnMut(Key, &Version<P>, &Message<T>) -> Fut,
+        Fut: Future<Output = ()>,
     {
         // If the node doesn't exist, we can't return information about it
         let node = node?;

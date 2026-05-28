@@ -58,7 +58,7 @@
 //! Each cell is realized by one arm of the `merge_join_by` inside
 //! [`Exchange::partition_uncertain`].
 
-use std::{convert::Infallible, mem, sync::Arc};
+use std::{convert::Infallible, future::Future, mem, sync::Arc};
 
 use imbl::{OrdMap, OrdSet};
 use itertools::{EitherOrBoth, Itertools};
@@ -150,11 +150,13 @@ where
     type Error = Infallible;
 }
 
-impl<P, T, OnSend, OnRecv> protocol::Connect<P, T> for Exchange<OnSend, OnRecv, Start<P>, Top<P, T>>
+impl<P, T, OnSend, OnSendFut, OnRecv, OnRecvFut> protocol::Connect<P, T> for Exchange<OnSend, OnRecv, Start<P>, Top<P, T>>
 where
     P: Clone + Ord + AsRef<[u8]>,
-    OnRecv: AsyncFnMut(Key, &Version<P>, &Arc<T>),
-    OnSend: AsyncFnMut(Key, &Version<P>, &Arc<T>),
+    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut,
+    OnRecvFut: Future<Output = ()> + Send + 'static,
+    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut,
+    OnSendFut: Future<Output = ()> + Send + 'static,
 {
     type Next = Exchange<OnSend, OnRecv, Connecting<P>, Top<P, T>>;
 
@@ -179,12 +181,14 @@ where
     }
 }
 
-impl<P, T, OnSend, OnRecv> protocol::CompleteConnect<P, T>
+impl<P, T, OnSend, OnSendFut, OnRecv, OnRecvFut> protocol::CompleteConnect<P, T>
     for Exchange<OnSend, OnRecv, Connecting<P>, Top<P, T>>
 where
     P: Clone + Ord + AsRef<[u8]>,
-    OnRecv: AsyncFnMut(Key, &Version<P>, &Arc<T>),
-    OnSend: AsyncFnMut(Key, &Version<P>, &Arc<T>),
+    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut,
+    OnRecvFut: Future<Output = ()> + Send + 'static,
+    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut,
+    OnSendFut: Future<Output = ()> + Send + 'static,
 {
     type Next = Exchange<OnSend, OnRecv, Connected<P>, Top<P, T>>;
 
@@ -219,11 +223,13 @@ where
     }
 }
 
-impl<P, T, OnSend, OnRecv> protocol::Accept<P, T> for Exchange<OnSend, OnRecv, Start<P>, Top<P, T>>
+impl<P, T, OnSend, OnSendFut, OnRecv, OnRecvFut> protocol::Accept<P, T> for Exchange<OnSend, OnRecv, Start<P>, Top<P, T>>
 where
     P: Clone + Ord + AsRef<[u8]>,
-    OnRecv: AsyncFnMut(Key, &Version<P>, &Arc<T>),
-    OnSend: AsyncFnMut(Key, &Version<P>, &Arc<T>),
+    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut,
+    OnRecvFut: Future<Output = ()> + Send + 'static,
+    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut,
+    OnSendFut: Future<Output = ()> + Send + 'static,
 {
     type Next = Exchange<OnSend, OnRecv, Connected<P>, Top<P, T>>;
 
@@ -261,12 +267,14 @@ where
     }
 }
 
-impl<P, T, OnSend, OnRecv> protocol::Initiator<P, T>
+impl<P, T, OnSend, OnSendFut, OnRecv, OnRecvFut> protocol::Initiator<P, T>
     for Exchange<OnSend, OnRecv, Connected<P>, Top<P, T>>
 where
     P: Clone + Ord + AsRef<[u8]>,
-    OnRecv: AsyncFnMut(Key, &Version<P>, &Arc<T>),
-    OnSend: AsyncFnMut(Key, &Version<P>, &Arc<T>),
+    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut,
+    OnRecvFut: Future<Output = ()> + Send + 'static,
+    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut,
+    OnSendFut: Future<Output = ()> + Send + 'static,
 {
     type Next = Exchange<OnSend, OnRecv, Connected<P>, Top<P, T>>;
 
@@ -286,12 +294,14 @@ where
     }
 }
 
-impl<P, T, OnSend, OnRecv> protocol::Responder<P, T>
+impl<P, T, OnSend, OnSendFut, OnRecv, OnRecvFut> protocol::Responder<P, T>
     for Exchange<OnSend, OnRecv, Connected<P>, Top<P, T>>
 where
     P: Clone + Ord + AsRef<[u8]>,
-    OnRecv: AsyncFnMut(Key, &Version<P>, &Arc<T>),
-    OnSend: AsyncFnMut(Key, &Version<P>, &Arc<T>),
+    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut,
+    OnRecvFut: Future<Output = ()> + Send + 'static,
+    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut,
+    OnSendFut: Future<Output = ()> + Send + 'static,
 {
     type Next = Exchange<OnSend, OnRecv, Connected<P>, Below<UnderRoot, Top<P, T>>>;
 
@@ -339,12 +349,14 @@ where
     }
 }
 
-impl<P, T, OnSend, OnRecv, L> protocol::OpenInitiator<P, T>
+impl<P, T, OnSend, OnSendFut, OnRecv, OnRecvFut, L> protocol::OpenInitiator<P, T>
     for Exchange<OnSend, OnRecv, Connected<P>, L>
 where
     P: Clone + Ord + AsRef<[u8]>,
-    OnRecv: AsyncFnMut(Key, &Version<P>, &Arc<T>),
-    OnSend: AsyncFnMut(Key, &Version<P>, &Arc<T>),
+    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut,
+    OnRecvFut: Future<Output = ()> + Send + 'static,
+    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut,
+    OnSendFut: Future<Output = ()> + Send + 'static,
     L: Levels<Party = P, Message = T, Height = Root>,
 {
     type Next = Exchange<OnSend, OnRecv, Connected<P>, Below<UnderUnderRoot, Below<UnderRoot, L>>>;
@@ -360,12 +372,14 @@ where
     }
 }
 
-impl<P, T, H, OnSend, OnRecv, L> protocol::Exchange<P, T>
+impl<P, T, H, OnSend, OnSendFut, OnRecv, OnRecvFut, L> protocol::Exchange<P, T>
     for Exchange<OnSend, OnRecv, Connected<P>, L>
 where
     P: Clone + Ord + AsRef<[u8]>,
-    OnRecv: AsyncFnMut(Key, &Version<P>, &Arc<T>),
-    OnSend: AsyncFnMut(Key, &Version<P>, &Arc<T>),
+    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut,
+    OnRecvFut: Future<Output = ()> + Send + 'static,
+    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut,
+    OnSendFut: Future<Output = ()> + Send + 'static,
     L: Levels<Party = P, Message = T, Height = S<S<H>>>,
     S<S<H>>: Height,
     S<H>: Height,
@@ -387,12 +401,14 @@ where
     }
 }
 
-impl<P, T, OnSend, OnRecv, L> protocol::CloseInitiator<P, T>
+impl<P, T, OnSend, OnSendFut, OnRecv, OnRecvFut, L> protocol::CloseInitiator<P, T>
     for Exchange<OnSend, OnRecv, Connected<P>, L>
 where
     P: Clone + Ord + AsRef<[u8]>,
-    OnRecv: AsyncFnMut(Key, &Version<P>, &Arc<T>),
-    OnSend: AsyncFnMut(Key, &Version<P>, &Arc<T>),
+    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut,
+    OnRecvFut: Future<Output = ()> + Send + 'static,
+    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut,
+    OnSendFut: Future<Output = ()> + Send + 'static,
     L: Levels<Party = P, Message = T, Height = S<S<Z>>>,
 {
     type Next = Exchange<OnSend, OnRecv, Connected<P>, Below<Z, Below<S<Z>, L>>>;
@@ -405,12 +421,14 @@ where
     }
 }
 
-impl<P, T, OnSend, OnRecv, L> protocol::CompleteResponder<P, T>
+impl<P, T, OnSend, OnSendFut, OnRecv, OnRecvFut, L> protocol::CompleteResponder<P, T>
     for Exchange<OnSend, OnRecv, Connected<P>, L>
 where
     P: Clone + Ord + AsRef<[u8]>,
-    OnRecv: AsyncFnMut(Key, &Version<P>, &Arc<T>),
-    OnSend: AsyncFnMut(Key, &Version<P>, &Arc<T>),
+    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut,
+    OnRecvFut: Future<Output = ()> + Send + 'static,
+    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut,
+    OnSendFut: Future<Output = ()> + Send + 'static,
     L: Levels<Party = P, Message = T, Height = S<Z>>,
 {
     async fn complete_responder(
@@ -429,12 +447,14 @@ where
     }
 }
 
-impl<P, T, OnSend, OnRecv, L> protocol::CompleteInitiator<P, T>
+impl<P, T, OnSend, OnSendFut, OnRecv, OnRecvFut, L> protocol::CompleteInitiator<P, T>
     for Exchange<OnSend, OnRecv, Connected<P>, L>
 where
     P: Clone + Ord + AsRef<[u8]>,
-    OnRecv: AsyncFnMut(Key, &Version<P>, &Arc<T>),
-    OnSend: AsyncFnMut(Key, &Version<P>, &Arc<T>),
+    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut,
+    OnRecvFut: Future<Output = ()> + Send + 'static,
+    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut,
+    OnSendFut: Future<Output = ()> + Send + 'static,
     L: Levels<Party = P, Message = T, Height = Z>,
 {
     async fn complete_initiator(
@@ -485,11 +505,12 @@ where
     /// Insert nodes the counterparty has just sent us (because we requested
     /// them last round, or because they unilaterally knew we lacked them) into
     /// our zipper's bottom level.
-    async fn absorb_providing<H>(
+    async fn absorb_providing<H, OnRecvFut>(
         &mut self,
         providing: OrdMap<Prefix<H>, Node<L::Party, L::Message, H>>,
     ) where
-        OnRecv: AsyncFnMut(Key, &Version<L::Party>, &Arc<L::Message>),
+        OnRecv: FnMut(Key, &Version<L::Party>, &Arc<L::Message>) -> OnRecvFut,
+        OnRecvFut: Future<Output = ()> + Send + 'static,
         L: Levels<Height = H>,
         H: Height + Get,
     {
@@ -504,13 +525,14 @@ where
     /// node into its children, filtered against the counterparty's version so
     /// that any subtrees they have deleted disappear locally too. Returns the
     /// outgoing `providing` map, one height below the frontier.
-    async fn answer_requested<H>(
+    async fn answer_requested<H, OnSendFut>(
         &mut self,
         requested: OrdSet<Prefix<S<H>>>,
     ) -> OrdMap<Prefix<H>, Node<L::Party, L::Message, H>>
     where
         L: Levels<Height = S<H>>,
-        OnSend: AsyncFnMut(Key, &Version<L::Party>, &Arc<L::Message>),
+        OnSend: FnMut(Key, &Version<L::Party>, &Arc<L::Message>) -> OnSendFut,
+        OnSendFut: Future<Output = ()> + Send + 'static,
         S<H>: Unknown,
         H: Height,
     {
@@ -526,7 +548,7 @@ where
                     Some(node),
                     prefix,
                     &self.versions.their_version,
-                    &mut async |k, v, m| (self.on_send)(k, v, m.as_ref()).await,
+                    &mut |k, v, m| (self.on_send)(k, v, m.as_ref()),
                 )
                 .await
                 {
@@ -559,12 +581,13 @@ where
     /// constructed by Both-case matches in the previous round and therefore
     /// agree on every parent. The debug-assertions guard against a
     /// steady-state caller silently triggering either branch.
-    async fn partition_uncertain<H>(
+    async fn partition_uncertain<H, OnSendFut>(
         &mut self,
         uncertain: OrdMap<Prefix<S<H>>, Hash>,
     ) -> Partition<L::Party, L::Message, H>
     where
-        OnSend: AsyncFnMut(Key, &Version<L::Party>, &Arc<L::Message>),
+        OnSend: FnMut(Key, &Version<L::Party>, &Arc<L::Message>) -> OnSendFut,
+        OnSendFut: Future<Output = ()> + Send + 'static,
         L: Levels<Height = S<S<H>>>,
         S<S<H>>: Height,
         S<H>: Height + Unknown,
@@ -577,8 +600,11 @@ where
         let mut exploded = OrdMap::default();
 
         // Group the uncertain prefixes by their parent, so we pull each parent
-        // out of the frontier at most once.
-        for (parent_prefix, uncertain_children) in uncertain
+        // out of the frontier at most once. We collect into an owned `Vec`
+        // before iterating: `itertools::ChunkBy` uses interior `RefCell`/
+        // `Cell` state, which is `!Sync` and would otherwise make the
+        // surrounding `async fn`'s state machine `!Send`.
+        let by_parent: Vec<(_, Vec<_>)> = uncertain
             .into_iter()
             .map(|(prefix, hash)| {
                 let (parent_prefix, radix) = prefix.pop();
@@ -586,7 +612,9 @@ where
             })
             .chunk_by(|(parent_prefix, _, _)| *parent_prefix)
             .into_iter()
-        {
+            .map(|(parent_prefix, group)| (parent_prefix, group.collect()))
+            .collect();
+        for (parent_prefix, uncertain_children) in by_parent {
             if let Some(parent) = frontier.remove(&parent_prefix) {
                 // Merge-join our children against theirs by radix. Each cell of
                 // the asymmetry matrix from the module docs corresponds to
@@ -609,7 +637,7 @@ where
                                 Some(ours),
                                 child_prefix,
                                 &self.versions.their_version,
-                                &mut async |k, v, m| (self.on_send)(k, v, m.as_ref()).await,
+                                &mut |k, v, m| (self.on_send)(k, v, m.as_ref()),
                             )
                             .await
                             {
@@ -673,7 +701,7 @@ where
                         Some(ours),
                         child_prefix,
                         &self.versions.their_version,
-                        &mut async |k, v, m| (self.on_send)(k, v, m.as_ref()).await,
+                        &mut |k, v, m| (self.on_send)(k, v, m.as_ref()),
                     )
                     .await
                     {
@@ -703,7 +731,7 @@ where
     /// Shared by [`Self::exchange`] and [`Self::close_initiator`]; they differ
     /// only in how they assemble the outgoing message.
     #[allow(clippy::type_complexity)]
-    async fn reply<Request, Response, H>(
+    async fn reply<Request, Response, H, OnRecvFut, OnSendFut>(
         mut self,
         request: Request,
     ) -> protocol::Step<
@@ -714,8 +742,10 @@ where
     where
         Request: Into<message::Exchange<L::Party, L::Message, S<H>>>,
         Response: From<message::Exchange<L::Party, L::Message, H>>,
-        OnRecv: AsyncFnMut(Key, &Version<L::Party>, &Arc<L::Message>),
-        OnSend: AsyncFnMut(Key, &Version<L::Party>, &Arc<L::Message>),
+        OnRecv: FnMut(Key, &Version<L::Party>, &Arc<L::Message>) -> OnRecvFut,
+        OnRecvFut: Future<Output = ()> + Send + 'static,
+        OnSend: FnMut(Key, &Version<L::Party>, &Arc<L::Message>) -> OnSendFut,
+        OnSendFut: Future<Output = ()> + Send + 'static,
         L: Levels<Height = S<S<H>>>,
         S<S<H>>: Height,
         S<H>: Height,

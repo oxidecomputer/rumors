@@ -1,3 +1,5 @@
+use std::future::Future;
+
 use itertools::Itertools;
 
 use crate::{Key, message::Message, version::Version};
@@ -20,7 +22,7 @@ pub enum Action<T> {
 /// produced by recursive `Act` trait dispatch doesn't leak into the
 /// layout queries of every public API that drives the tree — otherwise
 /// downstream crates would need to bump their `recursion_limit`.
-pub async fn act<'a, P, T, F>(
+pub async fn act<'a, P, T, F, Fut>(
     node: Option<Node<P, T, Root>>,
     actions: Vec<(Path, Version<P>, Action<T>)>,
     on_action: F,
@@ -28,7 +30,8 @@ pub async fn act<'a, P, T, F>(
 where
     P: Clone + Ord + AsRef<[u8]> + 'a,
     T: 'a,
-    F: AsyncFnMut(Key, &Version<P>, Option<&Message<T>>) + 'a,
+    F: FnMut(Key, &Version<P>, Option<&Message<T>>) -> Fut + 'a,
+    Fut: Future<Output = ()> + 'a,
 {
     Box::pin(async move {
         let mut on_action = on_action;
@@ -40,38 +43,57 @@ where
 // The internal implementation of the traversal as a polymorphic-recursive
 
 pub trait Act: Height {
-    async fn act<P, T>(
+    async fn act<P, T, F, Fut>(
         node: Option<Node<P, T, Self>>,
         prefix: Prefix<Self>,
         actions: Vec<(Path<Self>, Version<P>, Action<T>)>,
-        on_action: &mut impl AsyncFnMut(Key, &Version<P>, Option<&Message<T>>),
+        on_action: &mut F,
     ) -> Option<Node<P, T, Self>>
     where
-        P: Clone + Ord + AsRef<[u8]>;
+        P: Clone + Ord + AsRef<[u8]>,
+        F: FnMut(Key, &Version<P>, Option<&Message<T>>) -> Fut,
+        Fut: Future<Output = ()>;
 }
 
 impl<H: Act> Act for S<H>
 where
     S<H>: Height,
 {
-    async fn act<P, T>(
+    async fn act<P, T, F, Fut>(
         node: Option<Node<P, T, S<H>>>,
         prefix: Prefix<Self>,
         actions: Vec<(Path<Self>, Version<P>, Action<T>)>,
-        on_action: &mut impl AsyncFnMut(Key, &Version<P>, Option<&Message<T>>),
+        on_action: &mut F,
     ) -> Option<Node<P, T, S<H>>>
     where
         P: Clone + Ord + AsRef<[u8]>,
+        F: FnMut(Key, &Version<P>, Option<&Message<T>>) -> Fut,
+        Fut: Future<Output = ()>,
     {
-        // Group the paths by their first element
-        let by_radix = actions
+        // Group the paths by their first element. We collect eagerly into a
+        // `Vec<(radix, group)>` (rather than holding the lazy `ChunkBy`
+        // iterator across the recursive await below): `itertools::ChunkBy`
+        // uses interior `RefCell`/`Cell` state, which is `!Sync` and would
+        // make the surrounding async fn's future `!Send` for callers that
+        // want to `tokio::spawn` it on a multi-threaded runtime.
+        let by_radix: Vec<(u8, Vec<(Path<H>, Version<P>, Action<T>)>)> = actions
             .into_iter()
             .map(|(path, version, action)| {
                 let (child, path) = path.pop();
                 (child, path, version, action)
             })
             .sorted_by_key(|(child, _, _, _)| *child)
-            .chunk_by(|(child, _, _, _)| *child);
+            .chunk_by(|(child, _, _, _)| *child)
+            .into_iter()
+            .map(|(radix, group)| {
+                (
+                    radix,
+                    group
+                        .map(|(_, path, version, action)| (path, version, action))
+                        .collect(),
+                )
+            })
+            .collect();
 
         // Explode the node into its children
         let mut existing_children = node.map(|n| n.into_children()).unwrap_or_default();
@@ -80,12 +102,8 @@ where
         // the original node, pulling each existing child out of the original
         // map exploded from the node
         let mut updated: Vec<_> = Vec::new();
-        for (radix, group) in by_radix.into_iter() {
-            // Collect all the actions for this radix group, and mutably
-            // pull the existing child out of the parent:
-            let actions: Vec<_> = group
-                .map(|(_, path, version, action)| (path, version, action))
-                .collect();
+        for (radix, actions) in by_radix {
+            // Mutably pull the existing child out of the parent:
             let existing_child = existing_children.remove(&radix);
 
             // Short-circuit when solely trying to delete from a non-existent child:
@@ -116,14 +134,16 @@ where
 }
 
 impl Act for Z {
-    async fn act<P, T>(
+    async fn act<P, T, F, Fut>(
         mut node: Option<Node<P, T, Self>>,
         prefix: Prefix<Self>,
         actions: Vec<(Path<Self>, Version<P>, Action<T>)>,
-        on_action: &mut impl AsyncFnMut(Key, &Version<P>, Option<&Message<T>>),
+        on_action: &mut F,
     ) -> Option<Node<P, T, Z>>
     where
         P: Clone + Ord + AsRef<[u8]>,
+        F: FnMut(Key, &Version<P>, Option<&Message<T>>) -> Fut,
+        Fut: Future<Output = ()>,
     {
         let existed_before = node.is_some();
         let mut greatest_version = Version::default();

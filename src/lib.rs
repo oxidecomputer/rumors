@@ -101,9 +101,43 @@
 //! Messages are serialized with [`borsh`], which is re-exported so callers
 //! can derive [`BorshSerialize`] / [`BorshDeserialize`] on their message
 //! types without taking a separate dependency.
+//!
+//! # Stability
+//!
+//! Pre-1.0. The on-the-wire protocol is part of the public API:
+//!
+//! - **Patch versions** are wire-identical: two peers on the same minor
+//!   version, regardless of patch, always interoperate.
+//! - **Minor versions** are forward-compatible. Wire changes between
+//!   minor versions are strictly additive, and the version negotiated by
+//!   the handshake is `min(local, remote)`, so a peer on a newer minor
+//!   version can gossip with a peer on an older one.
+//! - **Major versions** may break the wire incompatibly. The handshake
+//!   surfaces such mismatches as [`Error::VersionMismatch`] before any
+//!   rumor-set state is touched.
+//!
+//! Every connection begins with an 8-byte preamble: [`PROTOCOL_MAGIC`]
+//! (`b"RUMR"`), [`PROTOCOL_VERSION`] as a big-endian `u16`, and a
+//! reserved `u16` (zero in v1). Reading bytes that don't start with
+//! `RUMR` surfaces as [`Error::MagicMismatch`]; the connection is not a
+//! `rumors` stream at all.
+//!
+//! # Compression
+//!
+//! The wire protocol implemented in this crate is uncompressed. Party
+//! identifiers appear inline in every version vector exchanged during gossip,
+//! and version vectors are exchanged frequently: this metadata channel is
+//! highly redundant and compresses easily. Payload bytes (Blake3 hashes, your
+//! borsh-encoded messages) generally do not compress further. We do not
+//! compress internally because the best algorithm could depend on the content
+//! of gossiped messages; however, **compressing the wire is strongly
+//! recommended** and is the caller's responsibility. See the
+//! [`compress`](crate::guide::compress) how-to for a working recipe.
 
 use std::{
+    future::Future,
     ops::{Add, AddAssign},
+    pin::Pin,
     sync::{Arc, LazyLock, Mutex, Weak},
 };
 
@@ -112,21 +146,48 @@ use bytes::Bytes;
 use tokio::io::{AsyncRead, AsyncWrite};
 use weak_table2::WeakHashSet;
 
+pub mod explanation;
+pub mod guide;
+pub mod sync;
+pub mod tutorial;
+
 mod imbl_borsh;
 mod message;
-pub mod sync;
 mod tree;
 mod version;
 
 use message::Message;
 use tree::{Action, Tree, mirror};
 
+/// Magic bytes that prefix every `rumors` gossip session: `b"RUMR"`.
+///
+/// Sent as the first four bytes of the [handshake](Local::gossip), a peer
+/// whose preamble starts with anything else is rejected with
+/// [`Error::MagicMismatch`] before any rumor-set state is touched.
+pub const PROTOCOL_MAGIC: [u8; 4] = *b"RUMR";
+
+/// On-the-wire protocol version, exchanged in the [handshake](Local::gossip)
+/// right after [`PROTOCOL_MAGIC`].
+///
+/// Bumped whenever the wire format changes. Patch versions of `rumors` never
+/// change this; minor versions may bump it but remain wire-compatible
+/// downstream (see the crate-level `# Stability` section); major versions
+/// may bump it incompatibly, in which case a peer running an incompatible
+/// version is rejected with [`Error::VersionMismatch`].
+pub const PROTOCOL_VERSION: u16 = 1;
+
 /// A local set of rumors: add to it, redact from it, gossip with peers.
 ///
-/// These are cheap to clone (structurally shared, copy-on-write); concurrent
-/// code typically holds one clone per thread or task and recombines them via
-/// [`Local::process`]. Methods take `AsyncFnMut` callbacks; for synchronous
-/// I/O and callbacks, see [`sync::Local`].
+/// [`Local<T, Forked>`](Local) is cheap to clone (structurally shared,
+/// copy-on-write); concurrent code holds one fork per thread or task and
+/// recombines them via [`Local::process`]. [`Local<T, Original>`](Local)
+/// deliberately does *not* implement [`Clone`]: only the singleton
+/// original may originate new messages and redactions, and duplicating one
+/// must be explicit. Use [`Local::fork`] to obtain a [`Forked`] view that
+/// can be cloned and moved across tasks.
+///
+/// Methods take `AsyncFnMut` callbacks; for synchronous I/O and callbacks,
+/// see [`sync::Local`].
 ///
 /// # Uniqueness of parties
 ///
@@ -321,6 +382,10 @@ pub use ::borsh;
 /// inspecting individual messages. See [`sync::ignore`] for the sync
 /// equivalent.
 ///
+/// Returns [`std::future::Ready<()>`], a concrete `Send + 'static` future,
+/// so it satisfies the `OnMessage: FnMut(...) -> _ + Send + 'static`
+/// bound that [`Local::gossip`] requires.
+///
 /// # Example
 ///
 /// ```
@@ -332,7 +397,9 @@ pub use ::borsh;
 /// alice.message(["hello".to_string(), "world".to_string()], ignore).await;
 /// # }
 /// ```
-pub async fn ignore<T>(_key: Key, _version: &Version, _message: &Arc<T>) {}
+pub fn ignore<T>(_key: Key, _version: &Version, _message: &Arc<T>) -> std::future::Ready<()> {
+    std::future::ready(())
+}
 
 impl<T> Local<T, Original> {
     /// Create an empty rumor set tagged with the given party identifier.
@@ -389,7 +456,9 @@ impl<T> Local<T, Original> {
     /// - the causal [`Version`] at which the message was observed;
     /// - an [`Arc<T>`](Arc) holding the message itself.
     ///
-    /// Callback order is unspecified and need not match the insertion order.
+    /// Callback order is unspecified and need not match insertion order. If
+    /// your application needs an ordering, sort by the [`Version`] threaded
+    /// through the callback.
     ///
     /// # Example
     ///
@@ -409,22 +478,35 @@ impl<T> Local<T, Original> {
     /// assert_eq!(observed.len(), 2);
     /// # }
     /// ```
-    pub async fn message<OnMessage, I>(&mut self, messages: I, mut on_message: OnMessage)
-    where
-        T: BorshSerialize,
-        I: IntoIterator<Item = T>,
-        OnMessage: AsyncFnMut(Key, &Version, &Arc<T>),
+    pub async fn message<OnMessage, OnMessageFut, I>(
+        &mut self,
+        messages: I,
+        mut on_message: OnMessage,
+    ) where
+        T: BorshSerialize + Send + Sync + 'static,
+        I: IntoIterator<Item = T> + Send,
+        I::IntoIter: Send,
+        OnMessage: FnMut(Key, &Version, &Arc<T>) -> OnMessageFut + Send + 'static,
+        OnMessageFut: Future<Output = ()> + Send + 'static,
     {
-        self.tree
-            .act(
-                messages.into_iter().map(Message::from).map(Action::Insert),
-                async |k, v, m| {
-                    if let Some(m) = m {
-                        on_message(k, v, AsRef::<Arc<T>>::as_ref(m)).await;
-                    }
-                },
-            )
-            .await;
+        // Box-and-Send-erase the protocol future at the API boundary so the
+        // auto-trait check is discharged here (under the lib's
+        // `#![recursion_limit]`) rather than at every call site.
+        let fut: Pin<Box<dyn Future<Output = ()> + Send + '_>> = Box::pin(async move {
+            self.tree
+                .act(
+                    messages.into_iter().map(Message::from).map(Action::Insert),
+                    move |k: Key, v: &Version, m: Option<&Message<T>>|
+                        -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
+                        match m {
+                            Some(m) => Box::pin(on_message(k, v, m.as_ref())),
+                            None => Box::pin(std::future::ready(())),
+                        }
+                    },
+                )
+                .await;
+        });
+        fut.await
     }
 
     /// Redact the given keys: stop gossiping the corresponding messages, and
@@ -451,10 +533,15 @@ impl<T> Local<T, Original> {
     /// alice.redact(keys);
     /// # }
     /// ```
-    pub fn redact<I: IntoIterator<Item = Key>>(&mut self, redacted: I) {
+    pub fn redact<I: IntoIterator<Item = Key>>(&mut self, redacted: I)
+    where
+        T: Send + Sync + 'static,
+    {
         pollster::block_on(
             self.tree
-                .act(redacted.into_iter().map(Action::Forget), async |_, _, _| {}),
+                .act(redacted.into_iter().map(Action::Forget), |_, _, _| {
+                    std::future::ready(())
+                }),
         );
     }
 }
@@ -501,6 +588,13 @@ impl<T, Identity> Local<T, Identity> {
     /// matches [`Local::message`]; messages present in `self` but missing from
     /// `new` do not fire it.
     ///
+    /// **Delivery is unordered**: callbacks fire in arbitrary order,
+    /// including orderings that violate the causal precedence captured by
+    /// each message's [`Version`]. `rumors` is not a causal-delivery
+    /// primitive; if your application requires causal or insertion
+    /// ordering, sort the observations by [`Version`] before consuming
+    /// them.
+    ///
     /// # Example
     ///
     /// Two parties, each holding their own [`Original`], can exchange state
@@ -523,16 +617,28 @@ impl<T, Identity> Local<T, Identity> {
     /// assert_eq!(learned, vec!["news from bob".to_string()]);
     /// # }
     /// ```
-    pub async fn process<OnMessage>(&mut self, new: Local<T, Forked>, on_message: OnMessage)
-    where
-        OnMessage: AsyncFnMut(Key, &Version, &Arc<T>),
+    pub async fn process<OnMessage, OnMessageFut>(
+        &mut self,
+        new: Local<T, Forked>,
+        on_message: OnMessage,
+    ) where
+        T: Send + Sync + 'static,
+        Identity: Send,
+        OnMessage: FnMut(Key, &Version, &Arc<T>) -> OnMessageFut + Send + 'static,
+        OnMessageFut: std::future::Future<Output = ()> + Send + 'static,
     {
-        // Instantiate the two sides of the mirror exchange, both local
-        let l = mirror::local::Exchange::start(self.tree.root.clone(), ignore, on_message);
-        let r = mirror::local::Exchange::start(new.tree.root, ignore, ignore);
+        // Box-and-Send-erase the protocol future at the API boundary so the
+        // auto-trait check is discharged here (under the lib's
+        // `#![recursion_limit]`) rather than at every call site.
+        let fut: Pin<Box<dyn Future<Output = ()> + Send + '_>> = Box::pin(async move {
+            // Instantiate the two sides of the mirror exchange, both local
+            let l = mirror::local::Exchange::start(self.tree.root.clone(), ignore, on_message);
+            let r = mirror::local::Exchange::start(new.tree.root, ignore, ignore);
 
-        // Drive them to completion: we know they don't need a "real" executor
-        Ok((self.tree.root, _)) = mirror(l, r).await;
+            // Drive them to completion: we know they don't need a "real" executor
+            Ok((self.tree.root, _)) = mirror(l, r).await;
+        });
+        fut.await
     }
 
     /// Synchronize rumor sets with a remote peer, invoking `on_message` for
@@ -542,6 +648,16 @@ impl<T, Identity> Local<T, Identity> {
     /// both ends of the connection must drive `gossip` concurrently. The
     /// callback signature matches [`Local::message`]. For synchronous I/O,
     /// use [`sync::Local::gossip`].
+    ///
+    /// The session begins with the 8-byte protocol handshake described in
+    /// the crate-level `# Stability` section; a peer with the wrong
+    /// [`PROTOCOL_MAGIC`] or [`PROTOCOL_VERSION`] is rejected as
+    /// [`Error::MagicMismatch`] or [`Error::VersionMismatch`] before any
+    /// rumor-set state is touched. After the handshake, message delivery
+    /// is **unordered**: callbacks fire in arbitrary order, including
+    /// orderings that violate the causal precedence captured by each
+    /// message's [`Version`]. Sort by [`Version`] if your application
+    /// needs causal or insertion ordering.
     ///
     /// # Example
     ///
@@ -569,45 +685,65 @@ impl<T, Identity> Local<T, Identity> {
     /// assert_eq!(bob_learned, vec!["hello".to_string()]);
     /// # }
     /// ```
-    pub async fn gossip<OnMessage, R, W>(
+    pub async fn gossip<OnMessage, OnMessageFut, R, W>(
         mut self,
         read: &mut R,
         write: &mut W,
         on_message: OnMessage,
     ) -> Result<Self, Error>
     where
-        T: BorshDeserialize + BorshSerialize,
-        R: AsyncRead + Unpin,
-        W: AsyncWrite + Unpin,
-        OnMessage: AsyncFnMut(Key, &Version, &Arc<T>),
+        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
+        R: AsyncRead + Unpin + Send,
+        W: AsyncWrite + Unpin + Send,
+        OnMessage: FnMut(Key, &Version, &Arc<T>) -> OnMessageFut + Send + 'static,
+        OnMessageFut: Future<Output = ()> + Send + 'static,
+        Identity: Send,
     {
-        // Instantiate the two sides of the mirror exchange: local and remote
-        let l = mirror::local::Exchange::start(self.tree.root, ignore, on_message);
-        let r = mirror::remote::Exchange::start(read, write);
+        // Box-and-Send-erase the protocol future at the API boundary so the
+        // auto-trait check is discharged here (under the lib's
+        // `#![recursion_limit]`) rather than at every call site.
+        let fut: Pin<Box<dyn Future<Output = Result<Self, Error>> + Send + '_>> =
+            Box::pin(async move {
+                // Protocol-version handshake: both sides exchange a fixed
+                // 8-byte preamble before any other traffic. An incompatible
+                // peer is rejected here without touching the local rumor set.
+                mirror::remote::handshake(read, write).await?;
 
-        // Drive them to completion against each other
-        (self.tree.root, _) = mirror(l, r).await.map_err(|e| {
-            // The only possible error is a server error
-            let mirror::Error::Server(e) = e;
-            e
-        })?;
+                // Instantiate the two sides of the mirror exchange: local and remote
+                let l = mirror::local::Exchange::start(self.tree.root, ignore, on_message);
+                let r = mirror::remote::Exchange::start(read, write);
 
-        Ok(self)
+                // Drive them to completion against each other
+                (self.tree.root, _) = mirror(l, r).await.map_err(|e| {
+                    // The only possible error is a server error
+                    let mirror::Error::Server(e) = e;
+                    e
+                })?;
+
+                Ok(self)
+            });
+        fut.await
     }
 }
 
 /// Combine two rumor sets via [`Local::process`].
-impl<T> Add for Local<T, Forked> {
+impl<T> Add for Local<T, Forked>
+where
+    T: Send + Sync + 'static,
+{
     type Output = Local<T, Forked>;
 
     fn add(mut self, rhs: Self) -> Self::Output {
-        pollster::block_on(self.process(rhs, async |_, _, _| {}));
+        pollster::block_on(self.process(rhs, |_, _, _| std::future::ready(())));
         self
     }
 }
 
 /// Absorb `rhs` into `self` via [`Local::process`].
-impl<T> AddAssign for Local<T, Forked> {
+impl<T> AddAssign for Local<T, Forked>
+where
+    T: Send + Sync + 'static,
+{
     fn add_assign(&mut self, rhs: Self) {
         *self = self.clone().add(rhs);
     }

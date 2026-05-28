@@ -10,9 +10,9 @@ use std::collections::BTreeMap;
 use borsh::{BorshDeserialize, BorshSerialize};
 use rumors::Key;
 
-use crate::oracle::Oracle;
-use crate::peer::{Peer, gossip_step, quiesce};
-use crate::schedule::events::{Event, EventIdx, Schedule};
+use super::events::{Event, EventIdx, Schedule};
+use crate::common::oracle::Oracle;
+use crate::common::peer::{Peer, gossip_step, quiesce};
 
 pub struct ExecutionResult<T> {
     pub peers: Vec<Peer<T>>,

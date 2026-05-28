@@ -50,9 +50,9 @@ pub fn arb_string_actions() -> impl Strategy<Value = Vec<LocalAction<String>>> {
 /// `party`, returning the result.
 pub fn build_local<T>(party: &str, actions: &[LocalAction<T>]) -> Local<T>
 where
-    T: Clone + BorshSerialize + BorshDeserialize,
+    T: Send + Sync + Clone + BorshSerialize + BorshDeserialize + 'static,
 {
-    let mut local: Local<T> = Local::for_party(party);
+    let mut local = Local::for_party(party, 0).unwrap();
     let mut keys: Vec<Key> = Vec::new();
     for a in actions {
         match a {
@@ -67,5 +67,5 @@ where
             }
         }
     }
-    local
+    local.fork()
 }

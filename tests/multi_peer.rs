@@ -5,16 +5,18 @@
 //! agrees with every other and with the oracle's projection of the
 //! same schedule.
 //!
-//! [`Schedule`]: crate::schedule::Schedule
+//! [`Schedule`]: crate::common::schedule::Schedule
+
+mod common;
 
 use std::collections::BTreeMap;
 
 use proptest::prelude::*;
 use rumors::Key;
 
-use crate::oracle::{readout, readout_multiset};
-use crate::peer::gossip_step;
-use crate::schedule::{Schedule, arb_schedule, execute_and_quiesce};
+use crate::common::oracle::{readout, readout_multiset};
+use crate::common::peer::gossip_step;
+use crate::common::schedule::{Schedule, arb_schedule, execute_and_quiesce};
 
 const N_PEERS: std::ops::RangeInclusive<usize> = 2..=8;
 const MAX_EVENTS: usize = 50;
@@ -126,8 +128,8 @@ proptest! {
         }).prop_filter("distinct peers", |(_, a, b)| a != b),
     ) {
         let mut result = execute_and_quiesce(&schedule);
-        let before_a = result.peers[a].local.clone();
-        let before_b = result.peers[b].local.clone();
+        let before_a = result.peers[a].local.fork();
+        let before_b = result.peers[b].local.fork();
         let obs_a_before = result.peers[a].observations.len();
         let obs_b_before = result.peers[b].observations.len();
 
