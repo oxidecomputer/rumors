@@ -12,9 +12,15 @@
 
 mod common;
 
+use std::sync::{Arc, Mutex};
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use proptest::prelude::*;
 use rumors::sync::{Local, ignore};
+
+// Closures handed to the sync API satisfy `Send + 'static`, so locally
+// owned mutable state is routed through `Arc<Mutex<_>>` clones rather
+// than captured by reference.
 
 use crate::common::action::{arb_local_actions, arb_string_actions, build_local};
 use crate::common::oracle::readout;
@@ -25,7 +31,7 @@ use crate::common::wire::wire_gossip;
 /// care about final content but not about which keys fired callbacks.
 fn gossip_step_local<T>(a: &mut Local<T>, b: &mut Local<T>)
 where
-    T: Clone + BorshSerialize + BorshDeserialize,
+    T: Clone + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
 {
     let a_snapshot = a.clone();
     let b_snapshot = b.clone();
@@ -87,13 +93,19 @@ proptest! {
         let a_before = a.clone();
         let b_before = b.clone();
 
-        let mut observed = 0usize;
+        let observed = Arc::new(Mutex::new(0usize));
         let a_snap = a.clone();
         let b_snap = b.clone();
-        a.process(b_snap, |_, _, _| observed += 1);
-        b.process(a_snap, |_, _, _| observed += 1);
+        {
+            let observed_in = Arc::clone(&observed);
+            a.process(b_snap, move |_, _, _| *observed_in.lock().unwrap() += 1);
+        }
+        {
+            let observed_in = Arc::clone(&observed);
+            b.process(a_snap, move |_, _, _| *observed_in.lock().unwrap() += 1);
+        }
 
-        prop_assert_eq!(observed, 0, "no new observations on second gossip");
+        prop_assert_eq!(*observed.lock().unwrap(), 0, "no new observations on second gossip");
         prop_assert_eq!(&a, &a_before);
         prop_assert_eq!(&b, &b_before);
     }
@@ -185,10 +197,11 @@ proptest! {
         let mut subject = original.clone();
         let empty = Local::<u64, _>::for_party("ghost", 0).unwrap().fork();
 
-        let mut callbacks = 0usize;
-        subject.process(empty, |_, _, _| callbacks += 1);
+        let callbacks = Arc::new(Mutex::new(0usize));
+        let callbacks_in = Arc::clone(&callbacks);
+        subject.process(empty, move |_, _, _| *callbacks_in.lock().unwrap() += 1);
 
-        prop_assert_eq!(callbacks, 0);
+        prop_assert_eq!(*callbacks.lock().unwrap(), 0);
         prop_assert_eq!(&subject, &original);
     }
 
@@ -229,13 +242,19 @@ proptest! {
         let mut alice = Local::<u64, _>::for_party("alice", 0).unwrap();
         let mut bob = Local::<u64, _>::for_party("bob", 0).unwrap();
 
-        let mut va: Option<Version> = None;
-        let mut vb: Option<Version> = None;
-        alice.message([a_value], |_, v, _| va = Some(v.clone()));
-        bob.message([b_value], |_, v, _| vb = Some(v.clone()));
+        let va: Arc<Mutex<Option<Version>>> = Arc::new(Mutex::new(None));
+        let vb: Arc<Mutex<Option<Version>>> = Arc::new(Mutex::new(None));
+        {
+            let va_in = Arc::clone(&va);
+            alice.message([a_value], move |_, v, _| *va_in.lock().unwrap() = Some(v.clone()));
+        }
+        {
+            let vb_in = Arc::clone(&vb);
+            bob.message([b_value], move |_, v, _| *vb_in.lock().unwrap() = Some(v.clone()));
+        }
 
-        let va = va.expect("alice's insert must fire on_message");
-        let vb = vb.expect("bob's insert must fire on_message");
+        let va = va.lock().unwrap().clone().expect("alice's insert must fire on_message");
+        let vb = vb.lock().unwrap().clone().expect("bob's insert must fire on_message");
         prop_assert_eq!(va.partial_cmp(&vb), None);
     }
 
@@ -281,10 +300,11 @@ proptest! {
         let readout_before = readout(&original);
 
         let mut subject = original.clone();
-        let mut callbacks = 0usize;
-        subject.process(original, |_, _, _| callbacks += 1);
+        let callbacks = Arc::new(Mutex::new(0usize));
+        let callbacks_in = Arc::clone(&callbacks);
+        subject.process(original, move |_, _, _| *callbacks_in.lock().unwrap() += 1);
 
-        prop_assert_eq!(callbacks, 0);
+        prop_assert_eq!(*callbacks.lock().unwrap(), 0);
         prop_assert_eq!(readout(&subject), readout_before);
     }
 }

@@ -277,8 +277,8 @@ impl<P, T, R, W> protocol::Accept<P, T> for Exchange<P, T, R, W, Start, Root>
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
-    T: BorshSerialize + BorshDeserialize,
-    P: BorshSerialize + BorshDeserialize + Clone + Ord + AsRef<[u8]>,
+    T: BorshSerialize + BorshDeserialize + Send + Sync,
+    P: BorshSerialize + BorshDeserialize + Clone + Ord + AsRef<[u8]> + Send + Sync,
 {
     type Next = Exchange<P, T, R, W, Connected, Root>;
 
@@ -308,8 +308,8 @@ where
 
 impl<P, T, R, W> protocol::Initiator<P, T> for Exchange<P, T, R, W, Connected, Root>
 where
-    P: Clone + Ord + AsRef<[u8]> + BorshSerialize + BorshDeserialize,
-    T: BorshDeserialize,
+    P: Clone + Ord + AsRef<[u8]> + BorshSerialize + BorshDeserialize + Send + Sync,
+    T: BorshDeserialize + Send + Sync,
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
     Node<P, T, UnderRoot>: BorshDeserialize,
@@ -331,8 +331,8 @@ where
 
 impl<P, T, R, W> protocol::Responder<P, T> for Exchange<P, T, R, W, Connected, Root>
 where
-    P: Clone + Ord + AsRef<[u8]> + BorshSerialize + BorshDeserialize,
-    T: BorshDeserialize,
+    P: Clone + Ord + AsRef<[u8]> + BorshSerialize + BorshDeserialize + Send + Sync,
+    T: BorshDeserialize + Send + Sync,
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
     Node<P, T, UnderRoot>: BorshDeserialize,
@@ -360,8 +360,8 @@ where
 
 impl<P, T, R, W> protocol::OpenInitiator<P, T> for Exchange<P, T, R, W, Connected, Root>
 where
-    P: Clone + Ord + AsRef<[u8]> + BorshSerialize + BorshDeserialize,
-    T: BorshDeserialize,
+    P: Clone + Ord + AsRef<[u8]> + BorshSerialize + BorshDeserialize + Send + Sync,
+    T: BorshDeserialize + Send + Sync,
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
     Node<P, T, UnderRoot>: BorshDeserialize,
@@ -395,8 +395,8 @@ where
 
 impl<P, T, R, W, H> protocol::Exchange<P, T> for Exchange<P, T, R, W, Connected, S<S<H>>>
 where
-    P: Clone + Ord + AsRef<[u8]> + BorshSerialize + BorshDeserialize,
-    T: BorshDeserialize,
+    P: Clone + Ord + AsRef<[u8]> + BorshSerialize + BorshDeserialize + Send + Sync,
+    T: BorshDeserialize + Send + Sync,
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
     H: Height,
@@ -445,8 +445,8 @@ where
 
 impl<P, T, R, W> protocol::CloseInitiator<P, T> for Exchange<P, T, R, W, Connected, S<S<Z>>>
 where
-    P: Clone + Ord + AsRef<[u8]> + BorshSerialize + BorshDeserialize,
-    T: BorshDeserialize,
+    P: Clone + Ord + AsRef<[u8]> + BorshSerialize + BorshDeserialize + Send + Sync,
+    T: BorshDeserialize + Send + Sync,
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
@@ -481,8 +481,8 @@ where
 
 impl<P, T, R, W> protocol::CompleteResponder<P, T> for Exchange<P, T, R, W, Connected, S<Z>>
 where
-    P: Clone + Ord + AsRef<[u8]> + BorshSerialize + BorshDeserialize,
-    T: BorshDeserialize,
+    P: Clone + Ord + AsRef<[u8]> + BorshSerialize + BorshDeserialize + Send + Sync,
+    T: BorshDeserialize + Send + Sync,
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
@@ -516,7 +516,8 @@ where
 
 impl<P, T, R, W> protocol::CompleteInitiator<P, T> for Exchange<P, T, R, W, Connected, Z>
 where
-    P: Clone + Ord + AsRef<[u8]> + BorshSerialize,
+    P: Clone + Ord + AsRef<[u8]> + BorshSerialize + Send + Sync,
+    T: Send + Sync,
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {

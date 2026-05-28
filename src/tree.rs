@@ -123,6 +123,7 @@ impl<T> Tree<T> {
     #[allow(unused)]
     pub fn get<I>(&self, paths: I) -> Vec<(Key, Version, Arc<T>)>
     where
+        T: Send + Sync,
         I: IntoIterator<Item = Key>,
     {
         if let Some(root) = &self.root.root {
@@ -144,7 +145,10 @@ impl<T> Tree<T> {
     /// Get all the values in this tree which are unknown relative to the given
     /// version vector.
     #[allow(unused)]
-    pub fn unknown(&self, version: Version) -> Vec<(Key, Version, Message<T>)> {
+    pub fn unknown(&self, version: Version) -> Vec<(Key, Version, Message<T>)>
+    where
+        T: Send + Sync,
+    {
         let mut unknown = Vec::new();
         traverse::unknown(self.root.clone().into(), &version, &mut |k, v, m| {
             unknown.push((k, v.clone(), m.clone()))
@@ -177,9 +181,10 @@ impl<T> Tree<T> {
     /// how many actions pertain to it.
     pub async fn act<I, O, Fut>(&mut self, actions: I, react: O)
     where
+        T: Send + Sync,
         I: IntoIterator<Item = Action<T>>,
-        O: FnMut(Key, &Version, Option<&Message<T>>) -> Fut,
-        Fut: Future<Output = ()>,
+        O: FnMut(Key, &Version, Option<&Message<T>>) -> Fut + Send,
+        Fut: Future<Output = ()> + Send,
     {
         // Get the local party.
         let party = self.party.clone();
@@ -235,10 +240,11 @@ impl<T> Tree<T> {
     /// base is 256, in practice this is about 2-3x.
     pub async fn react<M, I, O, Fut>(&mut self, reactions: I, mut react: O)
     where
+        T: Send + Sync,
         M: Into<Option<Message<T>>>,
         I: IntoIterator<Item = (Key, Version, M)>,
-        O: FnMut(Key, &Version, Option<&Message<T>>) -> Fut,
-        Fut: Future<Output = ()>,
+        O: FnMut(Key, &Version, Option<&Message<T>>) -> Fut + Send,
+        Fut: Future<Output = ()> + Send,
     {
         // Convert the specified actions into the action specification required
         // by the inductive traversal of the tree

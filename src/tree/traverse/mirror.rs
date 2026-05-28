@@ -21,6 +21,20 @@ mod wire_snapshot;
 
 use protocol::*;
 
+/// Test-only no-op `on_send` / `on_recv` callback for the mirror exchange
+/// types. Counterpart to [`crate::tree::ignore`] but matching the mirror
+/// callback signature (`&Arc<T>` rather than `Option<&Message<T>>`); a
+/// non-async `fn` returning `Ready<()>` so the resulting future has no
+/// captures and is unconditionally `Send`.
+#[cfg(test)]
+pub(crate) fn ignore<P: Ord, T>(
+    _: crate::tree::Key,
+    _: &crate::version::Version<P>,
+    _: &std::sync::Arc<T>,
+) -> std::future::Ready<()> {
+    std::future::ready(())
+}
+
 // This macro allows defining one communication step of the inner protocol
 // between initiator <==> responder (once the client and server have determined
 // who plays which role).
@@ -114,7 +128,8 @@ async fn mirror_connected<I, R, P, T>(
     r: R,
 ) -> Result<(I::Output, R::Output), Error<I::Error, R::Error>>
 where
-    P: Clone + Ord + AsRef<[u8]>,
+    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+    T: Send + Sync,
     I: Peer<P, T>,
     R: Peer<P, T>,
 {
@@ -145,8 +160,8 @@ pub async fn mirror<'a, C, S, P, T>(
     s: S,
 ) -> Result<(C::Output, S::Output), Error<C::Error, S::Error>>
 where
-    P: Clone + Ord + AsRef<[u8]> + 'a,
-    T: 'a,
+    P: Clone + Ord + AsRef<[u8]> + Send + Sync + 'a,
+    T: Send + Sync + 'a,
     C: Client<P, T> + 'a,
     S: Server<P, T> + 'a,
 {

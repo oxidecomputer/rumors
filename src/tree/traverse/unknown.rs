@@ -1,4 +1,5 @@
 use std::future::Future;
+use std::pin::Pin;
 
 use crate::{message::Message, tree::key::Key, version::Version};
 
@@ -17,10 +18,11 @@ use prefix::Prefix;
 pub fn unknown<P, T>(
     node: Option<Node<P, T, Root>>,
     known: &Version<P>,
-    with_unknown: &mut impl FnMut(Key, &Version<P>, &Message<T>),
+    with_unknown: &mut (impl FnMut(Key, &Version<P>, &Message<T>) + Send),
 ) -> Option<Node<P, T, Root>>
 where
-    P: Clone + Ord + AsRef<[u8]>,
+    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+    T: Send + Sync,
 {
     pollster::block_on(Unknown::unknown(
         node,
@@ -34,16 +36,23 @@ where
 }
 
 pub trait Unknown: Height {
-    async fn unknown<P, T, F, Fut>(
+    // Declared as `-> impl Future + Send` (rather than `async fn`) so that
+    // implementors produce `Send` futures. The recursive `Box::pin` inside
+    // the inductive `Unknown::<S<H>>::unknown` body coerces to
+    // `Pin<Box<dyn Future + Send + '_>>`; the coercion requires the source
+    // state machine to be `Send`, which is what these `Send + Sync` /
+    // `Send` bounds discharge.
+    fn unknown<P, T, F, Fut>(
         node: Option<Node<P, T, Self>>,
         prefix: Prefix<Self>,
         known: &Version<P>,
         with_unknown: &mut F,
-    ) -> Option<Node<P, T, Self>>
+    ) -> impl Future<Output = Option<Node<P, T, Self>>> + Send
     where
-        P: Clone + Ord + AsRef<[u8]>,
-        F: FnMut(Key, &Version<P>, &Message<T>) -> Fut,
-        Fut: Future<Output = ()>;
+        P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+        T: Send + Sync,
+        F: FnMut(Key, &Version<P>, &Message<T>) -> Fut + Send,
+        Fut: Future<Output = ()> + Send;
 }
 
 impl<H: Unknown> Unknown for S<H>
@@ -57,9 +66,10 @@ where
         with_unknown: &mut F,
     ) -> Option<Node<P, T, Self>>
     where
-        P: Clone + Ord + AsRef<[u8]>,
-        F: FnMut(Key, &Version<P>, &Message<T>) -> Fut,
-        Fut: Future<Output = ()>,
+        P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+        T: Send + Sync,
+        F: FnMut(Key, &Version<P>, &Message<T>) -> Fut + Send,
+        Fut: Future<Output = ()> + Send,
     {
         // If the node doesn't exist, we can't return information about it
         let node = node?;
@@ -75,14 +85,16 @@ where
         Node::branch({
             let mut children = OrdMap::new();
             for (radix, child) in node.into_children() {
-                // We box the future to avoid making a giant future.
-                let recursed = Box::pin(Unknown::unknown(
-                    Some(child),
-                    prefix.push(radix),
-                    known,
-                    with_unknown,
-                ))
-                .await;
+                // Box-and-Send-erase the recursive future; see the matching
+                // comment in `act.rs`.
+                let fut: Pin<Box<dyn Future<Output = Option<Node<P, T, H>>> + Send + '_>> =
+                    Box::pin(Unknown::unknown(
+                        Some(child),
+                        prefix.push(radix),
+                        known,
+                        with_unknown,
+                    ));
+                let recursed = fut.await;
                 if let Some(child) = recursed {
                     children.insert(radix, child);
                 }
@@ -100,9 +112,10 @@ impl Unknown for Z {
         with_unknown: &mut F,
     ) -> Option<Node<P, T, Self>>
     where
-        P: Clone + Ord + AsRef<[u8]>,
-        F: FnMut(Key, &Version<P>, &Message<T>) -> Fut,
-        Fut: Future<Output = ()>,
+        P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+        T: Send + Sync,
+        F: FnMut(Key, &Version<P>, &Message<T>) -> Fut + Send,
+        Fut: Future<Output = ()> + Send,
     {
         // If the node doesn't exist, we can't return information about it
         let node = node?;

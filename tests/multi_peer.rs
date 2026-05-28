@@ -102,7 +102,7 @@ proptest! {
         let result = execute_and_quiesce(&schedule);
         for (i, peer) in result.peers.iter().enumerate() {
             let mut counts: BTreeMap<Key, usize> = BTreeMap::new();
-            for (k, _, _) in &peer.observations {
+            for (k, _, _) in peer.observations.lock().unwrap().iter() {
                 *counts.entry(*k).or_insert(0) += 1;
             }
             for (k, c) in &counts {
@@ -130,8 +130,8 @@ proptest! {
         let mut result = execute_and_quiesce(&schedule);
         let before_a = result.peers[a].local.fork();
         let before_b = result.peers[b].local.fork();
-        let obs_a_before = result.peers[a].observations.len();
-        let obs_b_before = result.peers[b].observations.len();
+        let obs_a_before = result.peers[a].observations.lock().unwrap().len();
+        let obs_b_before = result.peers[b].observations.lock().unwrap().len();
 
         let (lo, hi) = if a < b { (a, b) } else { (b, a) };
         let (left, right) = result.peers.split_at_mut(hi);
@@ -139,8 +139,8 @@ proptest! {
 
         prop_assert_eq!(&result.peers[a].local, &before_a);
         prop_assert_eq!(&result.peers[b].local, &before_b);
-        prop_assert_eq!(result.peers[a].observations.len(), obs_a_before);
-        prop_assert_eq!(result.peers[b].observations.len(), obs_b_before);
+        prop_assert_eq!(result.peers[a].observations.lock().unwrap().len(), obs_a_before);
+        prop_assert_eq!(result.peers[b].observations.lock().unwrap().len(), obs_b_before);
     }
 
     /// String-T variant of `readout_matches_oracle_after_quiesce`,

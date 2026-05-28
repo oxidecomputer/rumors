@@ -68,11 +68,11 @@ fn quiesce_handles_zero_or_one_peer() {
     let mut peer = Peer::<u64>::new("alone");
     peer.insert_one(42);
     let local_before = peer.local.fork();
-    let obs_before = peer.observations.clone();
+    let obs_before = peer.observations();
 
     let mut one = vec![peer];
     quiesce(&mut one);
 
     assert_eq!(one[0].local, local_before);
-    assert_eq!(one[0].observations, obs_before);
+    assert_eq!(one[0].observations(), obs_before);
 }

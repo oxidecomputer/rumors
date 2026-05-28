@@ -1,8 +1,69 @@
 use std::fmt::Debug;
+use std::marker::PhantomData;
 
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Default)]
+/// Peano successor: `S<H>` represents one level above `H`.
+///
+/// The inner marker is `PhantomData<fn() -> T>` rather than `T` (or
+/// `PhantomData<T>`) so the auto-trait check on `S<T>` does not descend
+/// into `T`. Without this, proving `S<S<…S<Z>…>>: Sync` recurses 32
+/// levels deep — far past the default `recursion_limit = 128` — every
+/// time a downstream crate asks an auto-trait question about a type
+/// that names `Root`. Function pointers are unconditionally
+/// `Send + Sync` regardless of their return type, so this marker
+/// short-circuits the recursion without unsafe `Send` / `Sync` impls.
 #[repr(C)]
-pub struct S<T>(pub T);
+pub struct S<T>(PhantomData<fn() -> T>);
+
+// Hand-rolled trait impls below rather than `#[derive(...)]` because each
+// derived impl would carry an inherited `T: Trait` bound (e.g.
+// `#[derive(Clone)]` expands to `impl<T: Clone> Clone for S<T>`), which
+// would defeat the whole point of the `fn() -> T` phantom — that bound
+// forces the recursive auto-trait walk on every `Clone` / `Debug` query
+// against the deep height chain.
+
+impl<T> Copy for S<T> {}
+
+impl<T> Clone for S<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> Default for S<T> {
+    fn default() -> Self {
+        S(PhantomData)
+    }
+}
+
+impl<T> Debug for S<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("S").finish()
+    }
+}
+
+impl<T> std::hash::Hash for S<T> {
+    fn hash<H: std::hash::Hasher>(&self, _state: &mut H) {}
+}
+
+impl<T> PartialEq for S<T> {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl<T> Eq for S<T> {}
+
+impl<T> PartialOrd for S<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<T> Ord for S<T> {
+    fn cmp(&self, _other: &Self) -> std::cmp::Ordering {
+        std::cmp::Ordering::Equal
+    }
+}
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Default)]
 #[repr(C)]

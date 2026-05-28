@@ -50,6 +50,8 @@ proptest! {
         for (p, peer) in result.peers.iter().enumerate() {
             let live_observed: BTreeSet<EventIdx> = peer
                 .observations
+                .lock()
+                .unwrap()
                 .iter()
                 .map(|(k, _, _)| key_to_event_idx[k])
                 .collect();

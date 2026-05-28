@@ -18,9 +18,19 @@ pub type Children<P, T, H> = OrdMap<u8, Node<P, T, H>>;
 
 /// A typed node which enforces the structural validity of the constructed tree
 /// at compile-time.
+///
+/// The height marker is held as `PhantomData<fn() -> H>` rather than
+/// `PhantomData<H>`. Function pointers are unconditionally `Send + Sync`,
+/// so the auto-trait check on `Node` does not descend into the
+/// `S<S<S<...S<Z>...>>>` peano-style height chain. Without this, the
+/// `SharedPointer<...>: Send` obligation imposed by `imbl` (which
+/// requires its contents to be `Sync`) recursively walks 32 levels of
+/// `S<…>: Sync` and trips `recursion_limit = 128` in downstream crates,
+/// even though the type variable `H` itself is purely phantom and never
+/// constructs anything that could fail to be `Send`/`Sync`.
 #[repr(transparent)]
 pub struct Node<P: Ord + AsRef<[u8]>, T, H: Height> {
-    height: PhantomData<H>,
+    height: PhantomData<fn() -> H>,
     inner: untyped::Node<P, T>,
 }
 

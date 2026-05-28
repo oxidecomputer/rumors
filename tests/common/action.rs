@@ -3,6 +3,8 @@
 //! exercise the same shapes of input — including redactions, which
 //! the original String-T and Sync wire tests skipped.
 
+use std::sync::{Arc, Mutex};
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use proptest::collection::vec;
 use proptest::prelude::*;
@@ -53,15 +55,20 @@ where
     T: Send + Sync + Clone + BorshSerialize + BorshDeserialize + 'static,
 {
     let mut local = Local::for_party(party, 0).unwrap();
-    let mut keys: Vec<Key> = Vec::new();
+    // `Arc<Mutex<_>>` rather than `&mut keys`: the sync API's callback
+    // bound is `Send + 'static`, which a borrow can't satisfy.
+    let keys: Arc<Mutex<Vec<Key>>> = Arc::new(Mutex::new(Vec::new()));
     for a in actions {
         match a {
             LocalAction::Insert(v) => {
-                local.message([v.clone()], |k, _, _| keys.push(k));
+                let keys_in = Arc::clone(&keys);
+                local.message([v.clone()], move |k, _, _| keys_in.lock().unwrap().push(k));
             }
             LocalAction::Redact(idx) => {
-                if !keys.is_empty() {
-                    let k = keys[idx % keys.len()];
+                let keys_guard = keys.lock().unwrap();
+                if !keys_guard.is_empty() {
+                    let k = keys_guard[idx % keys_guard.len()];
+                    drop(keys_guard);
                     local.redact([k]);
                 }
             }

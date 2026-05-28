@@ -6,9 +6,15 @@ use super::hash::{Hash, Hasher};
 use super::height::{Height, Root, S};
 
 /// A typed path through the tree which is always the right height.
+///
+/// The height marker is `PhantomData<fn() -> H>` rather than
+/// `PhantomData<H>` for the same auto-trait reason as
+/// [`super::node::Node`]: function pointers are unconditionally
+/// `Send + Sync`, so the recursive `S<S<…>>` chain never opens up
+/// during auto-trait dispatch on consumers.
 #[repr(transparent)]
 pub struct Path<H: Height = Root> {
-    height: PhantomData<H>,
+    height: PhantomData<fn() -> H>,
     hash: [u8; 32],
 }
 

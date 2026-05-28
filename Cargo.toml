@@ -36,6 +36,7 @@ indicatif = { version = "0.17", features = ["rayon"] }
 rayon = "1"
 rand = { version = "0.8", features = ["small_rng"] }
 zstd = "0.13"
+async-compression = { version = "0.4", features = ["tokio", "zstd"] }
 
 [profile.dev]
 debug = "line-tables-only"

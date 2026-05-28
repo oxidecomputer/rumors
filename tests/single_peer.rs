@@ -5,6 +5,7 @@
 //! local party's component of each emitted `Version`.
 
 use std::collections::BTreeSet;
+use std::sync::{Arc, Mutex};
 
 use imbl::OrdMap;
 use proptest::collection::vec;
@@ -12,15 +13,21 @@ use proptest::prelude::*;
 use rumors::sync::{Local, ignore};
 use rumors::{Key, Version};
 
+// The sync API's callback bound is `FnMut(...) + Send + 'static` (so the
+// caller can drive gossip on a spawned thread); test helpers therefore
+// can't capture `&mut` of locally-owned state and instead route their
+// observation logs through `Arc<Mutex<_>>` clones.
+
 proptest! {
     /// Every value passed to `Local::message` fires `on_message`
     /// exactly once: no duplicates, no omissions.
     #[test]
     fn insert_fires_once_per_value(values in vec(any::<u64>(), 0..=32)) {
         let mut peer = Local::<u64, _>::for_party("alice", 0).unwrap();
-        let mut observed = 0usize;
-        peer.message(values.clone(), |_, _, _| observed += 1);
-        prop_assert_eq!(observed, values.len());
+        let observed = Arc::new(Mutex::new(0usize));
+        let observed_in = Arc::clone(&observed);
+        peer.message(values.clone(), move |_, _, _| *observed_in.lock().unwrap() += 1);
+        prop_assert_eq!(*observed.lock().unwrap(), values.len());
     }
 
     /// All `Key`s emitted within a single `Local::message` call are
@@ -28,8 +35,10 @@ proptest! {
     #[test]
     fn distinct_keys_per_batch(values in vec(any::<u64>(), 1..=32)) {
         let mut peer = Local::<u64, _>::for_party("alice", 0).unwrap();
-        let mut keys: Vec<Key> = Vec::new();
-        peer.message(values.clone(), |k, _, _| keys.push(k));
+        let keys: Arc<Mutex<Vec<Key>>> = Arc::new(Mutex::new(Vec::new()));
+        let keys_in = Arc::clone(&keys);
+        peer.message(values.clone(), move |k, _, _| keys_in.lock().unwrap().push(k));
+        let keys = keys.lock().unwrap();
         prop_assert_eq!(keys.len(), values.len());
         let unique: BTreeSet<_> = keys.iter().copied().collect();
         prop_assert_eq!(unique.len(), keys.len(), "keys must be distinct");
@@ -40,8 +49,10 @@ proptest! {
     #[test]
     fn duplicate_values_get_distinct_keys(n in 1usize..=16, value in any::<u64>()) {
         let mut peer = Local::<u64, _>::for_party("alice", 0).unwrap();
-        let mut keys: Vec<Key> = Vec::new();
-        peer.message(std::iter::repeat_n(value, n), |k, _, _| keys.push(k));
+        let keys: Arc<Mutex<Vec<Key>>> = Arc::new(Mutex::new(Vec::new()));
+        let keys_in = Arc::clone(&keys);
+        peer.message(std::iter::repeat_n(value, n), move |k, _, _| keys_in.lock().unwrap().push(k));
+        let keys = keys.lock().unwrap();
         prop_assert_eq!(keys.len(), n);
         prop_assert_eq!(keys.iter().copied().collect::<BTreeSet<_>>().len(), n);
     }
@@ -62,16 +73,20 @@ proptest! {
         let mut values = Vec::new();
 
         // Map of each value to the version assigned it
-        let mut all_versions: OrdMap<u64, Version> = OrdMap::new();
+        let all_versions: Arc<Mutex<OrdMap<u64, Version>>> = Arc::new(Mutex::new(OrdMap::new()));
 
         // Process the batches, tracking values and versions
         for batch in &batches {
             values.extend(batch.clone());
-            peer.message(batch.clone(), |_, v, m| { all_versions.insert(**m, v.clone()); });
+            let all_versions_in = Arc::clone(&all_versions);
+            peer.message(batch.clone(), move |_, v, m| {
+                all_versions_in.lock().unwrap().insert(**m, v.clone());
+            });
         }
 
         // Ensure that for any two consecutive values, their
         // corresponding versions are ordered
+        let all_versions = all_versions.lock().unwrap();
         for window in values.windows(2) {
             prop_assert!(
                 all_versions.get(&window[0]) < all_versions.get(&window[1]),
@@ -124,12 +139,16 @@ proptest! {
         let multiset_of = |values: Vec<u64>| -> BTreeMap<u64, usize> {
             let mut peer = Local::<u64, _>::for_party("alice", 0).unwrap();
             peer.message(values, ignore);
-            let mut out = BTreeMap::new();
+            let out: Arc<Mutex<BTreeMap<u64, usize>>> = Arc::new(Mutex::new(BTreeMap::new()));
+            let out_in = Arc::clone(&out);
             let mut lens = Local::<u64, _>::for_party(b"\x00READOUT\x00", 0).unwrap();
-            lens.process(peer.fork(), |_, _, v| {
-                *out.entry(**v).or_insert(0) += 1;
+            lens.process(peer.fork(), move |_, _, v| {
+                *out_in.lock().unwrap().entry(**v).or_insert(0) += 1;
             });
-            out
+            Arc::try_unwrap(out)
+                .expect("callback closure dropped after `process` returns")
+                .into_inner()
+                .unwrap()
         };
         prop_assert_eq!(multiset_of(values), multiset_of(shuffled));
     }

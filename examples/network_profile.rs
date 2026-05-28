@@ -408,7 +408,12 @@ fn build_pair(
     let mut bob: Local<(), Original> = Local::for_party(&b_party, 0).expect("bob for_party");
 
     let total_ancestor = shared + redacted_a + redacted_b;
-    let mut keys: Vec<Key> = Vec::with_capacity(total_ancestor as usize);
+    // `bg.message`'s `on_message` callback is bounded `Send + 'static` (the
+    // sync API ferries it through the underlying async one), so we can't
+    // capture a `&mut Vec` here. Share the accumulator via `Arc<Mutex>`
+    // and unwrap it back into a plain `Vec` after the loop.
+    let keys: Arc<Mutex<Vec<Key>>> =
+        Arc::new(Mutex::new(Vec::with_capacity(total_ancestor as usize)));
 
     if total_ancestor > 0 {
         // Cap effective parties to total_ancestor: a party with 0 inserts is
@@ -421,7 +426,10 @@ fn build_pair(
             let count = (base + if i < remainder { 1 } else { 0 }) as usize;
             let mut bg: Local<(), Original> =
                 Local::for_party(&name, 0).expect("background for_party");
-            bg.message(std::iter::repeat_n((), count), |k, _, _| keys.push(k));
+            let keys_in = Arc::clone(&keys);
+            bg.message(std::iter::repeat_n((), count), move |k, _, _| {
+                keys_in.lock().unwrap().push(k)
+            });
             // bg is the singleton Original for this background party; fork it
             // into alice and bob (and let bg drop, freeing the party slot).
             alice.process(bg.fork(), ignore);
@@ -429,6 +437,10 @@ fn build_pair(
         }
     }
 
+    let keys = Arc::try_unwrap(keys)
+        .expect("keys outlived bg closures")
+        .into_inner()
+        .expect("keys mutex poisoned");
     let s = shared as usize;
     let ra = redacted_a as usize;
     let redact_a: Vec<Key> = keys[s..s + ra].to_vec();

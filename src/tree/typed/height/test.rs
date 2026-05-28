@@ -10,7 +10,7 @@ fn zero_size() {
 #[test]
 fn zero_size_val() {
     static_assertions::assert_eq_size_val!(Z, ());
-    static_assertions::assert_eq_size_val!(S(Z), ());
+    static_assertions::assert_eq_size_val!(S::<Z>::default(), ());
 }
 
 #[test]

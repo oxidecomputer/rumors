@@ -3,11 +3,20 @@
 //! `Local::process`, `quiesce` for full-mesh convergence to a fixed
 //! point).
 
+use std::sync::{Arc, Mutex};
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use rumors::sync::Local;
 use rumors::{Key, Original, Version};
 
 /// One simulated peer.
+///
+/// The observation log is held behind an `Arc<Mutex<_>>` because the
+/// sync API's callback bounds are `FnMut(...) + Send + 'static` (so the
+/// caller can drive gossip on a spawned thread). A `&mut self.observations`
+/// borrow would force a `'static` reference, which `&mut` can't satisfy;
+/// each helper instead clones the `Arc` into its closure and locks it on
+/// each callback invocation.
 pub struct Peer<T> {
     pub local: Local<T, Original>,
     /// All observations this peer has accumulated, across `message`,
@@ -15,26 +24,44 @@ pub struct Peer<T> {
     /// callback order within a batch is arbitrary; in practice it is
     /// deterministic across runs because the underlying tree is an
     /// `imbl::OrdMap`, so the log is reproducible inside a counterexample.
-    pub observations: Vec<(Key, Version, T)>,
+    pub observations: Arc<Mutex<Vec<(Key, Version, T)>>>,
 }
 
 impl<T: Clone + BorshSerialize + BorshDeserialize + Send + Sync + 'static> Peer<T> {
     pub fn new(party: impl AsRef<[u8]>) -> Self {
         Self {
-            local: Local::for_party(party, 0).expect("party name must be unique within a test case"),
-            observations: Vec::new(),
+            local: Local::for_party(party, 0)
+                .expect("party name must be unique within a test case"),
+            observations: Arc::new(Mutex::new(Vec::new())),
         }
+    }
+
+    /// Snapshot of the observation log, in insertion order. Convenience
+    /// for tests that read out `peer.observations` for assertions.
+    pub fn observations(&self) -> Vec<(Key, Version, T)> {
+        self.observations.lock().unwrap().clone()
     }
 
     /// Insert a single value, returning the `Key` minted for it.
     pub fn insert_one(&mut self, value: T) -> Key {
-        let mut produced: Option<Key> = None;
-        let obs = &mut self.observations;
-        self.local.message([value], |k, v, m| {
-            obs.push((k, v.clone(), T::clone(m)));
-            produced = Some(k);
+        // Both the observation log and the produced `Key` cross into the
+        // `Send + 'static` callback via `Arc<Mutex<_>>` clones; the outer
+        // function unwraps the single remaining reference after the call
+        // returns.
+        let produced: Arc<Mutex<Option<Key>>> = Arc::new(Mutex::new(None));
+        let observations = Arc::clone(&self.observations);
+        let produced_in = Arc::clone(&produced);
+        self.local.message([value], move |k, v, m| {
+            observations
+                .lock()
+                .unwrap()
+                .push((k, v.clone(), T::clone(m)));
+            *produced_in.lock().unwrap() = Some(k);
         });
-        produced.expect("Local::message must fire on_message for every inserted value")
+        produced
+            .lock()
+            .unwrap()
+            .expect("Local::message must fire on_message for every inserted value")
     }
 
     pub fn redact_one(&mut self, key: Key) {
@@ -52,14 +79,14 @@ where
     let a_snapshot = a.local.fork();
     let b_snapshot = b.local.fork();
 
-    let obs_a = &mut a.observations;
-    a.local.process(b_snapshot, |k, v, m| {
-        obs_a.push((k, v.clone(), T::clone(m)));
+    let obs_a = Arc::clone(&a.observations);
+    a.local.process(b_snapshot, move |k, v, m| {
+        obs_a.lock().unwrap().push((k, v.clone(), T::clone(m)));
     });
 
-    let obs_b = &mut b.observations;
-    b.local.process(a_snapshot, |k, v, m| {
-        obs_b.push((k, v.clone(), T::clone(m)));
+    let obs_b = Arc::clone(&b.observations);
+    b.local.process(a_snapshot, move |k, v, m| {
+        obs_b.lock().unwrap().push((k, v.clone(), T::clone(m)));
     });
 }
 

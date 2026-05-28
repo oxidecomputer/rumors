@@ -84,7 +84,8 @@ pub trait Stage {
 
 pub trait Connect<P, T>: Stage<Height = Root> + Sized
 where
-    P: Clone + Ord + AsRef<[u8]>,
+    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+    T: Send + Sync,
 {
     type Next: CompleteConnect<P, T>
         + Stage<Output = Self::Output, Height = Root, Error = Self::Error>;
@@ -94,7 +95,8 @@ where
 
 pub trait CompleteConnect<P, T>: Stage<Height = Root> + Sized
 where
-    P: Clone + Ord + AsRef<[u8]>,
+    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+    T: Send + Sync,
 {
     type Next: Initiator<P, T>
         + Responder<P, T>
@@ -108,7 +110,8 @@ where
 
 pub trait Accept<P, T>: Stage<Height = Root> + Sized
 where
-    P: Clone + Ord + AsRef<[u8]>,
+    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+    T: Send + Sync,
 {
     type Next: Initiator<P, T>
         + Responder<P, T>
@@ -126,7 +129,8 @@ where
 /// `Self::Next == Self` for any straightforward implementation.
 pub trait Initiator<P, T>: Stage<Height = Root> + Sized
 where
-    P: Clone + Ord + AsRef<[u8]>,
+    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+    T: Send + Sync,
 {
     /// The state that consumes the responder's [`message::Opening`].
     type Next: OpenInitiator<P, T>
@@ -154,7 +158,8 @@ where
 /// caller receives the unchanged root.
 pub trait Responder<P, T>: Stage<Height = Root> + Sized
 where
-    P: Clone + Ord + AsRef<[u8]>,
+    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+    T: Send + Sync,
 {
     /// The first steady-state [`Exchange`] from the responder's side.
     type Next: Exchange<P, T>
@@ -182,7 +187,8 @@ where
 /// case the steady-state [`Exchange`] is allowed to debug-assert against.
 pub trait OpenInitiator<P, T>: Stage<Height = Root> + Sized
 where
-    P: Clone + Ord + AsRef<[u8]>,
+    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+    T: Send + Sync,
 {
     /// The first steady-state [`Exchange`] from the initiator's side.
     type Next: Exchange<P, T>
@@ -212,7 +218,8 @@ where
 /// determined by its `Stage::Height` alone.
 pub trait Exchange<P, T>: Stage + Sized
 where
-    P: Clone + Ord + AsRef<[u8]>,
+    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+    T: Send + Sync,
     Self::Height: Pred,
     <Self::Height as Pred>::Pred: Pred,
     S<<Self::Height as Pred>::Pred>: Height,
@@ -252,7 +259,8 @@ where
 /// the vacuous leaf-height [`message::Exchange`].
 pub trait CloseInitiator<P, T>: Stage<Height = S<S<Z>>> + Sized
 where
-    P: Clone + Ord + AsRef<[u8]>,
+    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+    T: Send + Sync,
 {
     /// The terminal initiator state.
     type Next: CompleteInitiator<P, T>
@@ -279,7 +287,8 @@ where
 /// and emits [`message::Complete`].
 pub trait CompleteResponder<P, T>: Stage<Height = S<Z>> + Sized
 where
-    P: Clone + Ord + AsRef<[u8]>,
+    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+    T: Send + Sync,
 {
     /// The responder's final round, processing the initiator's
     /// [`message::Closing`].
@@ -302,7 +311,8 @@ where
 /// The initiator's terminal round; absorbs the responder's [`message::Complete`].
 pub trait CompleteInitiator<P, T>: Stage<Height = Z> + Sized
 where
-    P: Clone + Ord + AsRef<[u8]>,
+    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+    T: Send + Sync,
 {
     /// The initiator's final round.
     ///
@@ -332,28 +342,32 @@ where
 /// uncertain map would be vacuous), so there is no `AfterExchange<Z>` impl.
 pub trait AfterExchange<P, T, H>: Sized
 where
-    P: Clone + Ord + AsRef<[u8]>,
+    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+    T: Send + Sync,
     H: Height,
 {
 }
 
 impl<P, T, X> AfterExchange<P, T, S<Z>> for X
 where
-    P: Clone + Ord + AsRef<[u8]>,
+    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+    T: Send + Sync,
     X: CompleteResponder<P, T>,
 {
 }
 
 impl<P, T, X> AfterExchange<P, T, S<S<Z>>> for X
 where
-    P: Clone + Ord + AsRef<[u8]>,
+    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+    T: Send + Sync,
     X: CloseInitiator<P, T>,
 {
 }
 
 impl<P, T, H, X> AfterExchange<P, T, S<S<S<H>>>> for X
 where
-    P: Clone + Ord + AsRef<[u8]>,
+    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+    T: Send + Sync,
     H: Height,
     S<H>: Height,
     S<S<H>>: Height,
@@ -439,13 +453,15 @@ macro_rules! define_peer {
         pub trait Peer<P, T>:
             Initiator<P, T, Next: OpenInitiator<P, T, Next: $($init_chain)*>> + Responder<P, T, Next: $($resp_chain)*>
         where
-            P: Clone + Ord + AsRef<[u8]>,
+            P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+            T: Send + Sync,
         {
         }
 
         impl<X, P, T> Peer<P, T> for X
         where
-            P: Clone + Ord + AsRef<[u8]>,
+            P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+            T: Send + Sync,
             X: Initiator<P, T, Next: OpenInitiator<P, T, Next: $($init_chain)*>> + Responder<P, T, Next: $($resp_chain)*>
         {
         }
@@ -453,13 +469,15 @@ macro_rules! define_peer {
         pub trait Server<P, T>:
             Accept<P, T, Next: Initiator<P, T, Next: OpenInitiator<P, T, Next: $($init_chain)*>> + Responder<P, T, Next: $($resp_chain)*>>
         where
-            P: Clone + Ord + AsRef<[u8]>,
+            P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+            T: Send + Sync,
         {
         }
 
         impl<X, P, T> Server<P, T> for X
         where
-            P: Clone + Ord + AsRef<[u8]>,
+            P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+            T: Send + Sync,
             X: Accept<P, T, Next: Initiator<P, T, Next: OpenInitiator<P, T, Next: $($init_chain)*>> + Responder<P, T, Next: $($resp_chain)*>>
         {
         }
@@ -467,13 +485,15 @@ macro_rules! define_peer {
         pub trait Client<P, T>:
             Connect<P, T, Next: CompleteConnect<P, T, Next: Initiator<P, T, Next: OpenInitiator<P, T, Next: $($init_chain)*>> + Responder<P, T, Next: $($resp_chain)*>>>
         where
-            P: Clone + Ord + AsRef<[u8]>,
+            P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+            T: Send + Sync,
         {
         }
 
         impl<X, P, T> Client<P, T> for X
         where
-            P: Clone + Ord + AsRef<[u8]>,
+            P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+            T: Send + Sync,
             X: Connect<P, T, Next: CompleteConnect<P, T, Next: Initiator<P, T, Next: OpenInitiator<P, T, Next: $($init_chain)*>> + Responder<P, T, Next: $($resp_chain)*>>>
         {
         }

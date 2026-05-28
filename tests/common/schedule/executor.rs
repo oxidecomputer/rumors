@@ -25,7 +25,7 @@ pub struct ExecutionResult<T> {
 /// `Oracle<T>`, allowing every gossip event.
 pub fn execute<T>(schedule: &Schedule<T>) -> ExecutionResult<T>
 where
-    T: Clone + Ord + BorshSerialize + BorshDeserialize,
+    T: Clone + Ord + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
 {
     execute_with(schedule, |_, _, _| true)
 }
@@ -35,7 +35,7 @@ where
 /// every other and match the oracle's projection.
 pub fn execute_and_quiesce<T>(schedule: &Schedule<T>) -> ExecutionResult<T>
 where
-    T: Clone + Eq + Ord + BorshSerialize + BorshDeserialize,
+    T: Clone + Eq + Ord + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
 {
     let mut result = execute(schedule);
     quiesce(&mut result.peers);
@@ -57,7 +57,7 @@ where
 /// handed.
 pub fn execute_with<T, F>(schedule: &Schedule<T>, allow_gossip: F) -> ExecutionResult<T>
 where
-    T: Clone + Ord + BorshSerialize + BorshDeserialize,
+    T: Clone + Ord + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
     F: Fn(usize, usize, EventIdx) -> bool,
 {
     let mut peers: Vec<Peer<T>> = (0..schedule.n_peers)
@@ -78,7 +78,12 @@ where
                 target_event_idx,
             } => {
                 let key = resolved_keys[target_event_idx];
-                let observed_locally = peers[*peer].observations.iter().any(|(k, _, _)| *k == key);
+                let observed_locally = peers[*peer]
+                    .observations
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .any(|(k, _, _)| *k == key);
                 if observed_locally {
                     peers[*peer].redact_one(key);
                     oracle.redact(*target_event_idx);

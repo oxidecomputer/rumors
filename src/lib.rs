@@ -13,6 +13,7 @@
 //! # Quickstart
 //!
 //! ```
+//! use std::sync::{Arc, Mutex};
 //! use rumors::Local;
 //!
 //! # #[tokio::main(flavor = "current_thread")]
@@ -24,12 +25,19 @@
 //!
 //! // The callback fires once per newly-observed message with an opaque
 //! // `Key` (used later for redaction), the causal `Version`, and the value.
-//! let mut observed = 0;
+//! // Callbacks satisfy `Send + 'static` so they can ride along a
+//! // `tokio::spawn`'d task; locally-owned counters and logs therefore
+//! // travel through an `Arc<Mutex<_>>` clone rather than a borrow.
+//! let observed = Arc::new(Mutex::new(0usize));
+//! let observed_in = Arc::clone(&observed);
 //! alice.message(
 //!     ["hello".to_string(), "world".to_string()],
-//!     async |_key, _version, _message| observed += 1,
+//!     move |_key, _version, _message| {
+//!         *observed_in.lock().unwrap() += 1;
+//!         std::future::ready(())
+//!     },
 //! ).await;
-//! assert_eq!(observed, 2);
+//! assert_eq!(*observed.lock().unwrap(), 2);
 //! # }
 //! ```
 //!
@@ -40,17 +48,22 @@
 //! local decision evicts the message network-wide.
 //!
 //! ```
+//! use std::sync::{Arc, Mutex};
 //! use rumors::{Local, Key};
 //!
 //! # #[tokio::main(flavor = "current_thread")]
 //! # async fn main() {
 //! let mut alice = Local::for_party("alice", 0).unwrap();
-//! let mut keys: Vec<Key> = Vec::new();
+//! let keys: Arc<Mutex<Vec<Key>>> = Arc::new(Mutex::new(Vec::new()));
+//! let keys_in = Arc::clone(&keys);
 //! alice.message(
 //!     ["stale rumor".to_string()],
-//!     async |k, _, _| keys.push(k),
+//!     move |k, _, _| {
+//!         keys_in.lock().unwrap().push(k);
+//!         std::future::ready(())
+//!     },
 //! ).await;
-//! alice.redact(keys);
+//! alice.redact(Arc::try_unwrap(keys).unwrap().into_inner().unwrap());
 //! # }
 //! ```
 //!
@@ -89,7 +102,10 @@
 //! let (alice, bob) = tokio::join!(
 //!     alice.gossip(&mut a_r, &mut a_w, ignore),
 //!     bob.gossip(&mut b_r, &mut b_w,
-//!         async |_, _, m| assert_eq!(m.as_ref(), "hello"),
+//!         move |_, _, m: &std::sync::Arc<String>| {
+//!             assert_eq!(m.as_ref(), "hello");
+//!             std::future::ready(())
+//!         },
 //!     ),
 //! );
 //! let (_alice, _bob) = (alice.unwrap(), bob.unwrap());
@@ -214,17 +230,22 @@ pub const PROTOCOL_VERSION: u16 = 1;
 /// # Example
 ///
 /// ```
+/// use std::sync::{Arc, Mutex};
 /// use rumors::{Local, Key};
 ///
 /// # #[tokio::main(flavor = "current_thread")]
 /// # async fn main() {
 /// let mut alice = Local::for_party("alice", 0).unwrap();
-/// let mut keys: Vec<Key> = Vec::new();
+/// let keys: Arc<Mutex<Vec<Key>>> = Arc::new(Mutex::new(Vec::new()));
+/// let keys_in = Arc::clone(&keys);
 /// alice.message(
 ///     ["hello".to_string(), "world".to_string()],
-///     async |key, _, _| keys.push(key),
+///     move |key, _, _| {
+///         keys_in.lock().unwrap().push(key);
+///         std::future::ready(())
+///     },
 /// ).await;
-/// alice.redact([keys[0]]);
+/// alice.redact([keys.lock().unwrap()[0]]);
 /// # }
 /// ```
 #[derive(Debug, Eq)]
@@ -309,16 +330,22 @@ pub use mirror::remote::Error;
 /// # Example
 ///
 /// ```
+/// use std::sync::{Arc, Mutex};
 /// use rumors::{Local, Key};
 ///
 /// # #[tokio::main(flavor = "current_thread")]
 /// # async fn main() {
 /// let mut alice = Local::for_party("alice", 0).unwrap();
-/// let mut keys: Vec<Key> = Vec::new();
+/// let keys: Arc<Mutex<Vec<Key>>> = Arc::new(Mutex::new(Vec::new()));
+/// let keys_in = Arc::clone(&keys);
 /// alice.message(
 ///     ["echo".to_string(), "echo".to_string()],
-///     async |k, _, _| keys.push(k),
+///     move |k, _, _| {
+///         keys_in.lock().unwrap().push(k);
+///         std::future::ready(())
+///     },
 /// ).await;
+/// let keys = keys.lock().unwrap();
 /// assert_ne!(keys[0], keys[1]);
 /// # }
 /// ```
@@ -335,17 +362,23 @@ pub use tree::Key;
 /// # Example
 ///
 /// ```
+/// use std::sync::{Arc, Mutex};
 /// use rumors::{Local, Version};
 ///
 /// # #[tokio::main(flavor = "current_thread")]
 /// # async fn main() {
 /// let mut alice = Local::for_party("alice", 0).unwrap();
-/// let mut versions: Vec<Version> = Vec::new();
+/// let versions: Arc<Mutex<Vec<Version>>> = Arc::new(Mutex::new(Vec::new()));
+/// let versions_in = Arc::clone(&versions);
 /// alice.message(
 ///     ["first".to_string(), "second".to_string()],
-///     async |_, v, _| versions.push(v.clone()),
+///     move |_, v, _| {
+///         versions_in.lock().unwrap().push(v.clone());
+///         std::future::ready(())
+///     },
 /// ).await;
 /// // Successive messages from the same party are causally ordered.
+/// let versions = versions.lock().unwrap();
 /// assert!(versions[0] < versions[1]);
 /// # }
 /// ```
@@ -463,19 +496,26 @@ impl<T> Local<T, Original> {
     /// # Example
     ///
     /// ```
-    /// use rumors::Local;
+    /// use std::sync::{Arc, Mutex};
+    /// use rumors::{Local, Key, Version};
     ///
     /// # #[tokio::main(flavor = "current_thread")]
     /// # async fn main() {
     /// let mut alice = Local::for_party("alice", 0).unwrap();
-    /// let mut observed = Vec::new();
+    /// let observed: Arc<Mutex<Vec<(Key, Version, String)>>> =
+    ///     Arc::new(Mutex::new(Vec::new()));
+    /// let observed_in = Arc::clone(&observed);
     /// alice.message(
     ///     ["hello".to_string(), "world".to_string()],
-    ///     async |key, version, message| {
-    ///         observed.push((key, version.clone(), message.as_ref().clone()));
+    ///     move |key, version, message| {
+    ///         observed_in
+    ///             .lock()
+    ///             .unwrap()
+    ///             .push((key, version.clone(), message.as_ref().clone()));
+    ///         std::future::ready(())
     ///     },
     /// ).await;
-    /// assert_eq!(observed.len(), 2);
+    /// assert_eq!(observed.lock().unwrap().len(), 2);
     /// # }
     /// ```
     pub async fn message<OnMessage, OnMessageFut, I>(
@@ -520,17 +560,22 @@ impl<T> Local<T, Original> {
     /// # Example
     ///
     /// ```
+    /// use std::sync::{Arc, Mutex};
     /// use rumors::{Local, Key};
     ///
     /// # #[tokio::main(flavor = "current_thread")]
     /// # async fn main() {
     /// let mut alice = Local::for_party("alice", 0).unwrap();
-    /// let mut keys: Vec<Key> = Vec::new();
+    /// let keys: Arc<Mutex<Vec<Key>>> = Arc::new(Mutex::new(Vec::new()));
+    /// let keys_in = Arc::clone(&keys);
     /// alice.message(
     ///     ["transient announcement".to_string()],
-    ///     async |k, _, _| keys.push(k),
+    ///     move |k, _, _| {
+    ///         keys_in.lock().unwrap().push(k);
+    ///         std::future::ready(())
+    ///     },
     /// ).await;
-    /// alice.redact(keys);
+    /// alice.redact(Arc::try_unwrap(keys).unwrap().into_inner().unwrap());
     /// # }
     /// ```
     pub fn redact<I: IntoIterator<Item = Key>>(&mut self, redacted: I)
@@ -601,6 +646,7 @@ impl<T, Identity> Local<T, Identity> {
     /// by forking and processing:
     ///
     /// ```
+    /// use std::sync::{Arc, Mutex};
     /// use rumors::{Local, ignore};
     ///
     /// # #[tokio::main(flavor = "current_thread")]
@@ -610,11 +656,13 @@ impl<T, Identity> Local<T, Identity> {
     /// bob.message(["news from bob".to_string()], ignore).await;
     ///
     /// // `bob.fork()` produces a Forked copy that alice can absorb.
-    /// let mut learned = Vec::new();
-    /// alice.process(bob.fork(), async |_, _, m| {
-    ///     learned.push(m.as_ref().clone())
+    /// let learned: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    /// let learned_in = Arc::clone(&learned);
+    /// alice.process(bob.fork(), move |_, _, m| {
+    ///     learned_in.lock().unwrap().push(m.as_ref().clone());
+    ///     std::future::ready(())
     /// }).await;
-    /// assert_eq!(learned, vec!["news from bob".to_string()]);
+    /// assert_eq!(*learned.lock().unwrap(), vec!["news from bob".to_string()]);
     /// # }
     /// ```
     pub async fn process<OnMessage, OnMessageFut>(
@@ -662,6 +710,7 @@ impl<T, Identity> Local<T, Identity> {
     /// # Example
     ///
     /// ```
+    /// use std::sync::{Arc, Mutex};
     /// use rumors::{Local, ignore};
     ///
     /// # #[tokio::main(flavor = "current_thread")]
@@ -674,15 +723,19 @@ impl<T, Identity> Local<T, Identity> {
     /// alice.message(["hello".to_string()], ignore).await;
     /// let bob: Local<String, _> = Local::for_party("bob", 0).unwrap();
     ///
-    /// let mut bob_learned: Vec<String> = Vec::new();
+    /// let bob_learned: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    /// let bob_learned_in = Arc::clone(&bob_learned);
     /// let (alice, bob) = tokio::join!(
     ///     alice.gossip(&mut a_r, &mut a_w, ignore),
     ///     bob.gossip(&mut b_r, &mut b_w,
-    ///         async |_, _, m| bob_learned.push(m.as_ref().clone()),
+    ///         move |_, _, m: &Arc<String>| {
+    ///             bob_learned_in.lock().unwrap().push(m.as_ref().clone());
+    ///             std::future::ready(())
+    ///         },
     ///     ),
     /// );
     /// let (_alice, _bob) = (alice.unwrap(), bob.unwrap());
-    /// assert_eq!(bob_learned, vec!["hello".to_string()]);
+    /// assert_eq!(*bob_learned.lock().unwrap(), vec!["hello".to_string()]);
     /// # }
     /// ```
     pub async fn gossip<OnMessage, OnMessageFut, R, W>(

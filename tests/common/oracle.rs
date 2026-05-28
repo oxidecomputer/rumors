@@ -9,7 +9,7 @@
 //! agree on identity without ever consulting the live `Key`s.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use rumors::Key;
@@ -75,22 +75,30 @@ impl<T: Clone + Ord> Oracle<T> {
 /// anything.
 pub fn readout<T, Id>(peer: &Local<T, Id>) -> BTreeMap<Key, T>
 where
-    T: Clone + Ord + BorshSerialize + BorshDeserialize,
+    T: Clone + Ord + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
 {
-    let mut out = BTreeMap::new();
+    // The sync API's callback bound is `Send + 'static`; route the
+    // observation map through an `Arc<Mutex<_>>` clone and unwrap the
+    // sole remaining reference once `process` returns.
+    let out: Arc<Mutex<BTreeMap<Key, T>>> = Arc::new(Mutex::new(BTreeMap::new()));
+    let out_in = Arc::clone(&out);
     // Non-ASCII magic bytes: cannot collide with any test party id,
     // which are all human-readable ASCII strings.
     let mut lens = Local::<T, _>::for_party(b"\x00READOUT\x00", 0).unwrap();
-    lens.process(peer.fork(), |k, _v, m: &Arc<T>| {
-        out.insert(k, T::clone(m));
+    lens.process(peer.fork(), move |k, _v, m: &Arc<T>| {
+        out_in.lock().unwrap().insert(k, T::clone(m));
     });
-    out
+    Arc::try_unwrap(out)
+        .ok()
+        .expect("callback closure dropped after `process` returns")
+        .into_inner()
+        .expect("mutex not poisoned")
 }
 
 /// Multiset (value → count) of a peer's currently-live messages.
 pub fn readout_multiset<T, Id>(peer: &Local<T, Id>) -> BTreeMap<T, usize>
 where
-    T: Clone + Ord + BorshSerialize + BorshDeserialize,
+    T: Clone + Ord + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
 {
     let mut out = BTreeMap::new();
     for v in readout(peer).into_values() {

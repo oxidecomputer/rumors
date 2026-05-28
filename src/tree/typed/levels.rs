@@ -19,10 +19,23 @@ where
 /// An abstract type which represents a multi-zipper into a tree.
 pub trait Levels: Default + Clone + sealed::Sealed {
     /// The party type of the underlying nodes.
-    type Party: Clone + Ord + AsRef<[u8]>;
+    ///
+    /// `Send + Sync` is required because the traversal futures
+    /// ([`Get::get`], [`Unknown::unknown`], [`Act::act`]) are declared as
+    /// `-> impl Future + Send` so that the recursive `Box::pin` inside each
+    /// inductive case can coerce to `Pin<Box<dyn Future + Send>>`. That
+    /// coercion discharges the inner state machine's auto-trait check at
+    /// each recursion site, terminating what would otherwise be a height-
+    /// deep walk through the `imbl` btree internals that trips downstream
+    /// crates' default `recursion_limit = 128`.
+    type Party: Clone + Ord + AsRef<[u8]> + Send + Sync;
 
     /// The message type of the underlying nodes.
-    type Message;
+    ///
+    /// `Send + Sync` is required for the same reason as `Party`: the
+    /// traversal futures are declared `Send`, so the captured node values
+    /// (containing messages) must be `Send + Sync`.
+    type Message: Send + Sync;
 
     /// The height of the bottom-most level.
     type Height: Height;
@@ -89,7 +102,8 @@ where
 
 impl<P, T> Levels for Top<P, T>
 where
-    P: Clone + Ord + AsRef<[u8]>,
+    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+    T: Send + Sync,
 {
     type Party = P;
     type Message = T;

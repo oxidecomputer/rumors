@@ -950,9 +950,17 @@ proptest! {
                 crate::tree::ignore,
             ));
         }
-        let mut fired = 0usize;
-        run(tree.act(std::iter::empty::<Action<Bytes>>(), move |_, _, _| { fired += 1; std::future::ready(()) }));
-        prop_assert_eq!(fired, 0);
+        // `Arc<Mutex<_>>` rather than a borrowed `&mut usize`: the closure
+        // crosses into `tree.act`, whose internal callback bound is
+        // `FnMut(...) -> Fut`; capturing a cheap clone of the `Arc`
+        // sidesteps the lifetime puzzle with no functional difference.
+        let fired = std::sync::Arc::new(std::sync::Mutex::new(0usize));
+        let fired_in = std::sync::Arc::clone(&fired);
+        run(tree.act(std::iter::empty::<Action<Bytes>>(), move |_, _, _| {
+            *fired_in.lock().unwrap() += 1;
+            std::future::ready(())
+        }));
+        prop_assert_eq!(*fired.lock().unwrap(), 0);
     }
 
     /// The reactions surfaced through `act`'s observer are exactly the
@@ -976,14 +984,27 @@ proptest! {
             .collect();
 
         // Capture the version `act` assigned to each reaction; with per-action
-        // versioning each insert or forget gets a distinct vector.
-        let mut captured: Vec<(Key, Version, Option<Message<Bytes>>)> = Vec::new();
+        // versioning each insert or forget gets a distinct vector. The
+        // observer closure outlives its enclosing scope from `act`'s point
+        // of view (the callback bound is `FnMut(...) -> Fut`), so the
+        // capture goes through an `Arc<Mutex<_>>` rather than a borrow.
+        let captured: std::sync::Arc<
+            std::sync::Mutex<Vec<(Key, Version, Option<Message<Bytes>>)>>,
+        > = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let captured_in = std::sync::Arc::clone(&captured);
         run(original.act(actions, move |k, v, m| {
-            captured.push((k, v.clone(), m.cloned()));
+            captured_in
+                .lock()
+                .unwrap()
+                .push((k, v.clone(), m.cloned()));
             std::future::ready(())
         }));
 
         let mut replay = Tree::for_party(party.clone(), 0);
+        let captured = std::sync::Arc::try_unwrap(captured)
+            .expect("observer closure dropped after `act` returns")
+            .into_inner()
+            .expect("mutex not poisoned");
         run(replay.react(captured, crate::tree::ignore));
 
         prop_assert_eq!(original, replay);

@@ -1,6 +1,5 @@
 use std::cell::OnceCell;
 use std::future::Future;
-use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use proptest::collection::vec;
@@ -10,7 +9,7 @@ use tokio::runtime::Runtime;
 use crate::tree::arb::arb_tree_root;
 use crate::tree::traverse::{Action, act};
 use crate::tree::typed::Path;
-use crate::{message::Message, tree::key::Key, version::Version};
+use crate::{message::Message, version::Version};
 
 use super::{local, mirror, remote};
 
@@ -67,16 +66,23 @@ fn mirror_via<P, T>(
     scenario: Scenario,
 ) -> crate::tree::Root<P, T>
 where
-    P: Clone + Ord + AsRef<[u8]> + std::fmt::Debug + BorshSerialize + BorshDeserialize,
-    T: PartialEq + std::fmt::Debug + BorshSerialize + BorshDeserialize,
+    P: Clone
+        + Ord
+        + AsRef<[u8]>
+        + std::fmt::Debug
+        + BorshSerialize
+        + BorshDeserialize
+        + Send
+        + Sync,
+    T: PartialEq + std::fmt::Debug + BorshSerialize + BorshDeserialize + Send + Sync,
 {
-    async fn x<P: Ord, T>(_k: Key, _v: &Version<P>, _m: &Arc<T>) {}
+    use super::ignore;
 
     block_on(async move {
         match scenario {
             Scenario::LocalLocal => {
-                let local_a = local::Exchange::start(a, x, x);
-                let local_b = local::Exchange::start(b, x, x);
+                let local_a = local::Exchange::start(a, ignore, ignore);
+                let local_b = local::Exchange::start(b, ignore, ignore);
                 match mirror(local_a, local_b).await {
                     Err(e) => match e {},
                     Ok(result) => result.1,
@@ -92,11 +98,11 @@ where
                 let (a_r, a_w) = tokio::io::split(a_side);
                 let (b_r, b_w) = tokio::io::split(b_side);
 
-                let local_a = local::Exchange::start(a, x, x);
+                let local_a = local::Exchange::start(a, ignore, ignore);
                 let remote_b = remote::Exchange::start(a_r, a_w);
                 let client = mirror(local_a, remote_b);
 
-                let local_b = local::Exchange::start(b, x, x);
+                let local_b = local::Exchange::start(b, ignore, ignore);
                 let remote_a = remote::Exchange::start(b_r, b_w);
                 let server = mirror(local_b, remote_a);
 

@@ -1,4 +1,5 @@
 use std::future::Future;
+use std::pin::Pin;
 
 use itertools::Itertools;
 
@@ -28,10 +29,10 @@ pub async fn act<'a, P, T, F, Fut>(
     on_action: F,
 ) -> Option<Node<P, T, Root>>
 where
-    P: Clone + Ord + AsRef<[u8]> + 'a,
-    T: 'a,
-    F: FnMut(Key, &Version<P>, Option<&Message<T>>) -> Fut + 'a,
-    Fut: Future<Output = ()> + 'a,
+    P: Clone + Ord + AsRef<[u8]> + Send + Sync + 'a,
+    T: Send + Sync + 'a,
+    F: FnMut(Key, &Version<P>, Option<&Message<T>>) -> Fut + Send + 'a,
+    Fut: Future<Output = ()> + Send + 'a,
 {
     Box::pin(async move {
         let mut on_action = on_action;
@@ -43,16 +44,24 @@ where
 // The internal implementation of the traversal as a polymorphic-recursive
 
 pub trait Act: Height {
-    async fn act<P, T, F, Fut>(
+    // Declared as `-> impl Future + Send` rather than `async fn` so that
+    // implementors produce `Send` futures. The recursive `Box::pin` inside
+    // the inductive `Act::<S<H>>::act` body coerces to `Pin<Box<dyn Future +
+    // Send + '_>>`, and that coercion requires the source state machine to
+    // be `Send`. The accompanying `Send + Sync` bounds on `P` and `T`, and
+    // `Send` bounds on `F` and `Fut`, are what let the auto-trait check at
+    // that coercion site succeed.
+    fn act<P, T, F, Fut>(
         node: Option<Node<P, T, Self>>,
         prefix: Prefix<Self>,
         actions: Vec<(Path<Self>, Version<P>, Action<T>)>,
         on_action: &mut F,
-    ) -> Option<Node<P, T, Self>>
+    ) -> impl Future<Output = Option<Node<P, T, Self>>> + Send
     where
-        P: Clone + Ord + AsRef<[u8]>,
-        F: FnMut(Key, &Version<P>, Option<&Message<T>>) -> Fut,
-        Fut: Future<Output = ()>;
+        P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+        T: Send + Sync,
+        F: FnMut(Key, &Version<P>, Option<&Message<T>>) -> Fut + Send,
+        Fut: Future<Output = ()> + Send;
 }
 
 impl<H: Act> Act for S<H>
@@ -66,9 +75,10 @@ where
         on_action: &mut F,
     ) -> Option<Node<P, T, S<H>>>
     where
-        P: Clone + Ord + AsRef<[u8]>,
-        F: FnMut(Key, &Version<P>, Option<&Message<T>>) -> Fut,
-        Fut: Future<Output = ()>,
+        P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+        T: Send + Sync,
+        F: FnMut(Key, &Version<P>, Option<&Message<T>>) -> Fut + Send,
+        Fut: Future<Output = ()> + Send,
     {
         // Group the paths by their first element. We collect eagerly into a
         // `Vec<(radix, group)>` (rather than holding the lazy `ChunkBy`
@@ -115,14 +125,23 @@ where
                 continue;
             }
 
-            // We box the future to avoid having an enormous future due to recursion.
-            let recursed = Box::pin(Act::act(
-                existing_child,
-                prefix.push(radix),
-                actions,
-                on_action,
-            ))
-            .await;
+            // Box-and-Send-erase the recursive future. The dyn coercion
+            // discharges the inner state machine's auto-trait check here,
+            // inside the lib's `#![recursion_limit = "256"]`. Without the
+            // coercion the source type is `Pin<Box<impl Future>>` and the outer
+            // poll's auto-trait walk descends into the inner state machine,
+            // recursing once per height and tripping downstream crates' default
+            // `recursion_limit = 128`. With the coercion the outer walk sees
+            // only `Pin<Box<dyn Future + Send>>`, which is trivially `Send`
+            // regardless of what's inside.
+            let recursed: Pin<Box<dyn Future<Output = Option<Node<P, T, H>>> + Send + '_>> =
+                Box::pin(Act::act(
+                    existing_child,
+                    prefix.push(radix),
+                    actions,
+                    on_action,
+                ));
+            let recursed = recursed.await;
             if let Some(child) = recursed {
                 updated.push((radix, child));
             }
@@ -141,9 +160,10 @@ impl Act for Z {
         on_action: &mut F,
     ) -> Option<Node<P, T, Z>>
     where
-        P: Clone + Ord + AsRef<[u8]>,
-        F: FnMut(Key, &Version<P>, Option<&Message<T>>) -> Fut,
-        Fut: Future<Output = ()>,
+        P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+        T: Send + Sync,
+        F: FnMut(Key, &Version<P>, Option<&Message<T>>) -> Fut + Send,
+        Fut: Future<Output = ()> + Send,
     {
         let existed_before = node.is_some();
         let mut greatest_version = Version::default();

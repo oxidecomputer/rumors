@@ -101,12 +101,12 @@ proptest! {
         peer.redact_one(key);
 
         let readout_before = readout_multiset(&peer.local);
-        let obs_before = peer.observations.len();
+        let obs_before = peer.observations.lock().unwrap().len();
 
         peer.redact_one(key);
 
         prop_assert_eq!(readout_multiset(&peer.local), readout_before);
-        prop_assert_eq!(peer.observations.len(), obs_before);
+        prop_assert_eq!(peer.observations.lock().unwrap().len(), obs_before);
     }
 
     /// Redacting a `Key` minted on a different peer that this peer
@@ -121,11 +121,11 @@ proptest! {
 
         let mut alice = Peer::<u64>::new("alice");
         let readout_before = readout_multiset(&alice.local);
-        let obs_before = alice.observations.len();
+        let obs_before = alice.observations.lock().unwrap().len();
 
         alice.redact_one(foreign_key);
 
         prop_assert_eq!(readout_multiset(&alice.local), readout_before);
-        prop_assert_eq!(alice.observations.len(), obs_before);
+        prop_assert_eq!(alice.observations.lock().unwrap().len(), obs_before);
     }
 }

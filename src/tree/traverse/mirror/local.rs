@@ -124,7 +124,8 @@ pub struct Exchange<OnSend, OnRecv, V, L> {
 
 impl<OnSend, OnRecv, P, T> Exchange<OnSend, OnRecv, Start<P>, Top<P, T>>
 where
-    P: Clone + Ord + AsRef<[u8]>,
+    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+    T: Send + Sync,
 {
     pub fn start(node: tree::Root<P, T>, on_send: OnSend, on_recv: OnRecv) -> Self {
         Self {
@@ -150,12 +151,14 @@ where
     type Error = Infallible;
 }
 
-impl<P, T, OnSend, OnSendFut, OnRecv, OnRecvFut> protocol::Connect<P, T> for Exchange<OnSend, OnRecv, Start<P>, Top<P, T>>
+impl<P, T, OnSend, OnSendFut, OnRecv, OnRecvFut> protocol::Connect<P, T>
+    for Exchange<OnSend, OnRecv, Start<P>, Top<P, T>>
 where
-    P: Clone + Ord + AsRef<[u8]>,
-    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut,
+    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+    T: Send + Sync,
+    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut + Send,
     OnRecvFut: Future<Output = ()> + Send + 'static,
-    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut,
+    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut + Send,
     OnSendFut: Future<Output = ()> + Send + 'static,
 {
     type Next = Exchange<OnSend, OnRecv, Connecting<P>, Top<P, T>>;
@@ -184,10 +187,11 @@ where
 impl<P, T, OnSend, OnSendFut, OnRecv, OnRecvFut> protocol::CompleteConnect<P, T>
     for Exchange<OnSend, OnRecv, Connecting<P>, Top<P, T>>
 where
-    P: Clone + Ord + AsRef<[u8]>,
-    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut,
+    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+    T: Send + Sync,
+    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut + Send,
     OnRecvFut: Future<Output = ()> + Send + 'static,
-    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut,
+    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut + Send,
     OnSendFut: Future<Output = ()> + Send + 'static,
 {
     type Next = Exchange<OnSend, OnRecv, Connected<P>, Top<P, T>>;
@@ -223,12 +227,14 @@ where
     }
 }
 
-impl<P, T, OnSend, OnSendFut, OnRecv, OnRecvFut> protocol::Accept<P, T> for Exchange<OnSend, OnRecv, Start<P>, Top<P, T>>
+impl<P, T, OnSend, OnSendFut, OnRecv, OnRecvFut> protocol::Accept<P, T>
+    for Exchange<OnSend, OnRecv, Start<P>, Top<P, T>>
 where
-    P: Clone + Ord + AsRef<[u8]>,
-    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut,
+    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+    T: Send + Sync,
+    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut + Send,
     OnRecvFut: Future<Output = ()> + Send + 'static,
-    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut,
+    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut + Send,
     OnSendFut: Future<Output = ()> + Send + 'static,
 {
     type Next = Exchange<OnSend, OnRecv, Connected<P>, Top<P, T>>;
@@ -270,10 +276,11 @@ where
 impl<P, T, OnSend, OnSendFut, OnRecv, OnRecvFut> protocol::Initiator<P, T>
     for Exchange<OnSend, OnRecv, Connected<P>, Top<P, T>>
 where
-    P: Clone + Ord + AsRef<[u8]>,
-    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut,
+    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+    T: Send + Sync,
+    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut + Send,
     OnRecvFut: Future<Output = ()> + Send + 'static,
-    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut,
+    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut + Send,
     OnSendFut: Future<Output = ()> + Send + 'static,
 {
     type Next = Exchange<OnSend, OnRecv, Connected<P>, Top<P, T>>;
@@ -297,10 +304,11 @@ where
 impl<P, T, OnSend, OnSendFut, OnRecv, OnRecvFut> protocol::Responder<P, T>
     for Exchange<OnSend, OnRecv, Connected<P>, Top<P, T>>
 where
-    P: Clone + Ord + AsRef<[u8]>,
-    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut,
+    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+    T: Send + Sync,
+    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut + Send,
     OnRecvFut: Future<Output = ()> + Send + 'static,
-    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut,
+    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut + Send,
     OnSendFut: Future<Output = ()> + Send + 'static,
 {
     type Next = Exchange<OnSend, OnRecv, Connected<P>, Below<UnderRoot, Top<P, T>>>;
@@ -352,10 +360,11 @@ where
 impl<P, T, OnSend, OnSendFut, OnRecv, OnRecvFut, L> protocol::OpenInitiator<P, T>
     for Exchange<OnSend, OnRecv, Connected<P>, L>
 where
-    P: Clone + Ord + AsRef<[u8]>,
-    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut,
+    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+    T: Send + Sync,
+    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut + Send,
     OnRecvFut: Future<Output = ()> + Send + 'static,
-    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut,
+    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut + Send,
     OnSendFut: Future<Output = ()> + Send + 'static,
     L: Levels<Party = P, Message = T, Height = Root>,
 {
@@ -375,10 +384,11 @@ where
 impl<P, T, H, OnSend, OnSendFut, OnRecv, OnRecvFut, L> protocol::Exchange<P, T>
     for Exchange<OnSend, OnRecv, Connected<P>, L>
 where
-    P: Clone + Ord + AsRef<[u8]>,
-    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut,
+    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+    T: Send + Sync,
+    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut + Send,
     OnRecvFut: Future<Output = ()> + Send + 'static,
-    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut,
+    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut + Send,
     OnSendFut: Future<Output = ()> + Send + 'static,
     L: Levels<Party = P, Message = T, Height = S<S<H>>>,
     S<S<H>>: Height,
@@ -404,10 +414,11 @@ where
 impl<P, T, OnSend, OnSendFut, OnRecv, OnRecvFut, L> protocol::CloseInitiator<P, T>
     for Exchange<OnSend, OnRecv, Connected<P>, L>
 where
-    P: Clone + Ord + AsRef<[u8]>,
-    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut,
+    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+    T: Send + Sync,
+    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut + Send,
     OnRecvFut: Future<Output = ()> + Send + 'static,
-    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut,
+    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut + Send,
     OnSendFut: Future<Output = ()> + Send + 'static,
     L: Levels<Party = P, Message = T, Height = S<S<Z>>>,
 {
@@ -424,10 +435,11 @@ where
 impl<P, T, OnSend, OnSendFut, OnRecv, OnRecvFut, L> protocol::CompleteResponder<P, T>
     for Exchange<OnSend, OnRecv, Connected<P>, L>
 where
-    P: Clone + Ord + AsRef<[u8]>,
-    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut,
+    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+    T: Send + Sync,
+    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut + Send,
     OnRecvFut: Future<Output = ()> + Send + 'static,
-    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut,
+    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut + Send,
     OnSendFut: Future<Output = ()> + Send + 'static,
     L: Levels<Party = P, Message = T, Height = S<Z>>,
 {
@@ -450,10 +462,11 @@ where
 impl<P, T, OnSend, OnSendFut, OnRecv, OnRecvFut, L> protocol::CompleteInitiator<P, T>
     for Exchange<OnSend, OnRecv, Connected<P>, L>
 where
-    P: Clone + Ord + AsRef<[u8]>,
-    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut,
+    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
+    T: Send + Sync,
+    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut + Send,
     OnRecvFut: Future<Output = ()> + Send + 'static,
-    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut,
+    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut + Send,
     OnSendFut: Future<Output = ()> + Send + 'static,
     L: Levels<Party = P, Message = T, Height = Z>,
 {
@@ -500,7 +513,10 @@ where
 impl<OnSend, OnRecv, L> Exchange<OnSend, OnRecv, Connected<L::Party>, L>
 where
     L: Levels,
-    L::Party: Clone + Ord + AsRef<[u8]>,
+    L::Party: Clone + Ord + AsRef<[u8]> + Send + Sync,
+    L::Message: Send + Sync,
+    OnSend: Send,
+    OnRecv: Send,
 {
     /// Insert nodes the counterparty has just sent us (because we requested
     /// them last round, or because they unilaterally knew we lacked them) into
@@ -509,7 +525,9 @@ where
         &mut self,
         providing: OrdMap<Prefix<H>, Node<L::Party, L::Message, H>>,
     ) where
-        OnRecv: FnMut(Key, &Version<L::Party>, &Arc<L::Message>) -> OnRecvFut,
+        L::Party: Send + Sync,
+        L::Message: Send + Sync,
+        OnRecv: FnMut(Key, &Version<L::Party>, &Arc<L::Message>) -> OnRecvFut + Send,
         OnRecvFut: Future<Output = ()> + Send + 'static,
         L: Levels<Height = H>,
         H: Height + Get,

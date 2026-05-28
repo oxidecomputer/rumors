@@ -7,6 +7,7 @@
 //! # Quickstart
 //!
 //! ```
+//! use std::sync::{Arc, Mutex};
 //! use rumors::sync::Local;
 //!
 //! // A peer is identified by an arbitrary byte string; the caller must keep
@@ -16,12 +17,16 @@
 //!
 //! // The callback fires once per newly-observed message with an opaque
 //! // `Key` (used later for redaction), the causal `Version`, and the value.
-//! let mut observed = 0;
+//! // Sync callbacks satisfy `Send + 'static` (so the caller can drive
+//! // gossip on a `std::thread::spawn`'d thread); locally-owned counters
+//! // therefore travel through `Arc<Mutex<_>>` rather than `&mut`.
+//! let observed = Arc::new(Mutex::new(0usize));
+//! let observed_in = Arc::clone(&observed);
 //! alice.message(
 //!     ["hello".to_string(), "world".to_string()],
-//!     |_key, _version, _message| observed += 1,
+//!     move |_key, _version, _message| *observed_in.lock().unwrap() += 1,
 //! );
-//! assert_eq!(observed, 2);
+//! assert_eq!(*observed.lock().unwrap(), 2);
 //! ```
 //!
 //! # Redaction
@@ -31,15 +36,17 @@
 //! local decision evicts the message network-wide.
 //!
 //! ```
+//! use std::sync::{Arc, Mutex};
 //! use rumors::sync::{Local, Key};
 //!
 //! let mut alice = Local::for_party("alice", 0).unwrap();
-//! let mut keys: Vec<Key> = Vec::new();
+//! let keys: Arc<Mutex<Vec<Key>>> = Arc::new(Mutex::new(Vec::new()));
+//! let keys_in = Arc::clone(&keys);
 //! alice.message(
 //!     ["stale rumor".to_string()],
-//!     |k, _, _| keys.push(k),
+//!     move |k, _, _| keys_in.lock().unwrap().push(k),
 //! );
-//! alice.redact(keys);
+//! alice.redact(Arc::try_unwrap(keys).unwrap().into_inner().unwrap());
 //! ```
 //!
 //! # Concurrent rumor sets
@@ -123,15 +130,17 @@ pub use ::borsh;
 /// # Example
 ///
 /// ```
+/// use std::sync::{Arc, Mutex};
 /// use rumors::sync::{Local, Key};
 ///
 /// let mut alice = Local::for_party("alice", 0).unwrap();
-/// let mut keys: Vec<Key> = Vec::new();
+/// let keys: Arc<Mutex<Vec<Key>>> = Arc::new(Mutex::new(Vec::new()));
+/// let keys_in = Arc::clone(&keys);
 /// alice.message(
 ///     ["hello".to_string(), "world".to_string()],
-///     |key, _, _| keys.push(key),
+///     move |key, _, _| keys_in.lock().unwrap().push(key),
 /// );
-/// alice.redact([keys[0]]);
+/// alice.redact([keys.lock().unwrap()[0]]);
 /// ```
 #[derive(Debug, Eq)]
 pub struct Local<T, Identity = Forked>(pub crate::Local<T, Identity>);
@@ -216,17 +225,23 @@ impl<T> Local<T, Original> {
     /// # Example
     ///
     /// ```
-    /// use rumors::sync::Local;
+    /// use std::sync::{Arc, Mutex};
+    /// use rumors::sync::{Local, Key, Version};
     ///
     /// let mut alice = Local::for_party("alice", 0).unwrap();
-    /// let mut observed = Vec::new();
+    /// let observed: Arc<Mutex<Vec<(Key, Version, String)>>> =
+    ///     Arc::new(Mutex::new(Vec::new()));
+    /// let observed_in = Arc::clone(&observed);
     /// alice.message(
     ///     ["hello".to_string(), "world".to_string()],
-    ///     |key, version, message| {
-    ///         observed.push((key, version.clone(), message.as_ref().clone()));
+    ///     move |key, version, message| {
+    ///         observed_in
+    ///             .lock()
+    ///             .unwrap()
+    ///             .push((key, version.clone(), message.as_ref().clone()));
     ///     },
     /// );
-    /// assert_eq!(observed.len(), 2);
+    /// assert_eq!(observed.lock().unwrap().len(), 2);
     /// ```
     pub fn message<OnMessage, I>(&mut self, messages: I, mut on_message: OnMessage)
     where
@@ -255,12 +270,17 @@ impl<T> Local<T, Original> {
     /// # Example
     ///
     /// ```
+    /// use std::sync::{Arc, Mutex};
     /// use rumors::sync::{Local, Key};
     ///
     /// let mut alice = Local::for_party("alice", 0).unwrap();
-    /// let mut keys: Vec<Key> = Vec::new();
-    /// alice.message(["transient".to_string()], |k, _, _| keys.push(k));
-    /// alice.redact(keys);
+    /// let keys: Arc<Mutex<Vec<Key>>> = Arc::new(Mutex::new(Vec::new()));
+    /// let keys_in = Arc::clone(&keys);
+    /// alice.message(
+    ///     ["transient".to_string()],
+    ///     move |k, _, _| keys_in.lock().unwrap().push(k),
+    /// );
+    /// alice.redact(Arc::try_unwrap(keys).unwrap().into_inner().unwrap());
     /// ```
     pub fn redact<I: IntoIterator<Item = Key>>(&mut self, redacted: I)
     where
@@ -319,15 +339,20 @@ impl<T, Identity> Local<T, Identity> {
     /// by forking and processing:
     ///
     /// ```
+    /// use std::sync::{Arc, Mutex};
     /// use rumors::sync::{Local, ignore};
     ///
     /// let mut alice = Local::for_party("alice", 0).unwrap();
     /// let mut bob = Local::for_party("bob", 0).unwrap();
     /// bob.message(["news from bob".to_string()], ignore);
     ///
-    /// let mut learned = Vec::new();
-    /// alice.process(bob.fork(), |_, _, m| learned.push(m.as_ref().clone()));
-    /// assert_eq!(learned, vec!["news from bob".to_string()]);
+    /// let learned: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    /// let learned_in = Arc::clone(&learned);
+    /// alice.process(
+    ///     bob.fork(),
+    ///     move |_, _, m| learned_in.lock().unwrap().push(m.as_ref().clone()),
+    /// );
+    /// assert_eq!(*learned.lock().unwrap(), vec!["news from bob".to_string()]);
     /// ```
     pub fn process<OnMessage>(&mut self, new: Local<T, Forked>, mut on_message: OnMessage)
     where

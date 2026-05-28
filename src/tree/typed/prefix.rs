@@ -9,9 +9,14 @@ use super::height::{Height, Root, S, Z};
 use super::path::Path;
 
 /// A typed path through the tree which is always the right height.
+///
+/// `PhantomData<fn() -> H>` rather than `PhantomData<H>` so the
+/// auto-trait check on `Prefix` does not recurse through the
+/// `S<S<…>>` peano-style height chain; see
+/// [`super::node::Node`] for the full rationale.
 #[repr(transparent)]
 pub struct Prefix<H: Height = Z> {
-    height: PhantomData<H>,
+    height: PhantomData<fn() -> H>,
     hash: ArrayVec<[u8; 32]>,
 }
 

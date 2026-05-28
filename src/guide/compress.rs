@@ -38,7 +38,7 @@
 //! a dependency of `rumors`; add it to your application's
 //! `Cargo.toml`.)
 //!
-//! ```ignore
+//! ```no_run
 //! use async_compression::tokio::bufread::ZstdDecoder;
 //! use async_compression::tokio::write::ZstdEncoder;
 //! use rumors::{Local, ignore};
