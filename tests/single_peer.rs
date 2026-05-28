@@ -13,10 +13,12 @@ use proptest::prelude::*;
 use rumors::sync::{Local, ignore};
 use rumors::{Key, Version};
 
-// The sync API's callback bound is `FnMut(...) + Send + 'static` (so the
-// caller can drive gossip on a spawned thread); test helpers therefore
-// can't capture `&mut` of locally-owned state and instead route their
-// observation logs through `Arc<Mutex<_>>` clones.
+// The sync API's callback bound is `FnMut(...) + Send + 'a`. Direct
+// `&mut` capture of locally-owned state is fine in principle (see the
+// `sync_callback_can_borrow_local_state` regression in
+// `api_send_bounds.rs`); the proptest helpers below still use
+// `Arc<Mutex<_>>` because proptest's `move` closure infrastructure makes
+// the borrow lifetimes awkward to thread through `prop_assert_eq!`.
 
 proptest! {
     /// Every value passed to `Local::message` fires `on_message`

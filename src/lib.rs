@@ -1,4 +1,3 @@
-#![recursion_limit = "256"]
 #![warn(clippy::large_futures)]
 //! Unordered gossip with redaction.
 //!
@@ -13,7 +12,6 @@
 //! # Quickstart
 //!
 //! ```
-//! use std::sync::{Arc, Mutex};
 //! use rumors::Local;
 //!
 //! # #[tokio::main(flavor = "current_thread")]
@@ -25,19 +23,17 @@
 //!
 //! // The callback fires once per newly-observed message with an opaque
 //! // `Key` (used later for redaction), the causal `Version`, and the value.
-//! // Callbacks satisfy `Send + 'static` so they can ride along a
-//! // `tokio::spawn`'d task; locally-owned counters and logs therefore
-//! // travel through an `Arc<Mutex<_>>` clone rather than a borrow.
-//! let observed = Arc::new(Mutex::new(0usize));
-//! let observed_in = Arc::clone(&observed);
+//! // It's `FnMut + Send` and may freely borrow local state for the
+//! // duration of the await.
+//! let mut observed = 0usize;
 //! alice.message(
 //!     ["hello".to_string(), "world".to_string()],
-//!     move |_key, _version, _message| {
-//!         *observed_in.lock().unwrap() += 1;
-//!         std::future::ready(())
+//!     |_key, _version, _message| {
+//!         observed += 1;
+//!         async {}
 //!     },
 //! ).await;
-//! assert_eq!(*observed.lock().unwrap(), 2);
+//! assert_eq!(observed, 2);
 //! # }
 //! ```
 //!
@@ -48,22 +44,20 @@
 //! local decision evicts the message network-wide.
 //!
 //! ```
-//! use std::sync::{Arc, Mutex};
 //! use rumors::{Local, Key};
 //!
 //! # #[tokio::main(flavor = "current_thread")]
 //! # async fn main() {
 //! let mut alice = Local::for_party("alice", 0).unwrap();
-//! let keys: Arc<Mutex<Vec<Key>>> = Arc::new(Mutex::new(Vec::new()));
-//! let keys_in = Arc::clone(&keys);
+//! let mut keys: Vec<Key> = Vec::new();
 //! alice.message(
 //!     ["stale rumor".to_string()],
-//!     move |k, _, _| {
-//!         keys_in.lock().unwrap().push(k);
-//!         std::future::ready(())
+//!     |k, _, _| {
+//!         keys.push(k);
+//!         async {}
 //!     },
 //! ).await;
-//! alice.redact(Arc::try_unwrap(keys).unwrap().into_inner().unwrap());
+//! alice.redact(keys);
 //! # }
 //! ```
 //!
@@ -104,7 +98,7 @@
 //!     bob.gossip(&mut b_r, &mut b_w,
 //!         move |_, _, m: &std::sync::Arc<String>| {
 //!             assert_eq!(m.as_ref(), "hello");
-//!             std::future::ready(())
+//!             async {}
 //!         },
 //!     ),
 //! );
@@ -151,7 +145,7 @@
 //! [`compress`](crate::guide::compress) how-to for a working recipe.
 
 use std::{
-    future::Future,
+    future::{Future, Ready, ready},
     ops::{Add, AddAssign},
     pin::Pin,
     sync::{Arc, LazyLock, Mutex, Weak},
@@ -230,22 +224,20 @@ pub const PROTOCOL_VERSION: u16 = 1;
 /// # Example
 ///
 /// ```
-/// use std::sync::{Arc, Mutex};
 /// use rumors::{Local, Key};
 ///
 /// # #[tokio::main(flavor = "current_thread")]
 /// # async fn main() {
 /// let mut alice = Local::for_party("alice", 0).unwrap();
-/// let keys: Arc<Mutex<Vec<Key>>> = Arc::new(Mutex::new(Vec::new()));
-/// let keys_in = Arc::clone(&keys);
+/// let mut keys: Vec<Key> = Vec::new();
 /// alice.message(
 ///     ["hello".to_string(), "world".to_string()],
-///     move |key, _, _| {
-///         keys_in.lock().unwrap().push(key);
-///         std::future::ready(())
+///     |key, _, _| {
+///         keys.push(key);
+///         async {}
 ///     },
 /// ).await;
-/// alice.redact([keys.lock().unwrap()[0]]);
+/// alice.redact([keys[0]]);
 /// # }
 /// ```
 #[derive(Debug, Eq)]
@@ -330,22 +322,19 @@ pub use mirror::remote::Error;
 /// # Example
 ///
 /// ```
-/// use std::sync::{Arc, Mutex};
 /// use rumors::{Local, Key};
 ///
 /// # #[tokio::main(flavor = "current_thread")]
 /// # async fn main() {
 /// let mut alice = Local::for_party("alice", 0).unwrap();
-/// let keys: Arc<Mutex<Vec<Key>>> = Arc::new(Mutex::new(Vec::new()));
-/// let keys_in = Arc::clone(&keys);
+/// let mut keys: Vec<Key> = Vec::new();
 /// alice.message(
 ///     ["echo".to_string(), "echo".to_string()],
-///     move |k, _, _| {
-///         keys_in.lock().unwrap().push(k);
-///         std::future::ready(())
+///     |k, _, _| {
+///         keys.push(k);
+///         async {}
 ///     },
 /// ).await;
-/// let keys = keys.lock().unwrap();
 /// assert_ne!(keys[0], keys[1]);
 /// # }
 /// ```
@@ -362,23 +351,20 @@ pub use tree::Key;
 /// # Example
 ///
 /// ```
-/// use std::sync::{Arc, Mutex};
 /// use rumors::{Local, Version};
 ///
 /// # #[tokio::main(flavor = "current_thread")]
 /// # async fn main() {
 /// let mut alice = Local::for_party("alice", 0).unwrap();
-/// let versions: Arc<Mutex<Vec<Version>>> = Arc::new(Mutex::new(Vec::new()));
-/// let versions_in = Arc::clone(&versions);
+/// let mut versions: Vec<Version> = Vec::new();
 /// alice.message(
 ///     ["first".to_string(), "second".to_string()],
-///     move |_, v, _| {
-///         versions_in.lock().unwrap().push(v.clone());
-///         std::future::ready(())
+///     |_, v, _| {
+///         versions.push(v.clone());
+///         async {}
 ///     },
 /// ).await;
 /// // Successive messages from the same party are causally ordered.
-/// let versions = versions.lock().unwrap();
 /// assert!(versions[0] < versions[1]);
 /// # }
 /// ```
@@ -415,10 +401,6 @@ pub use ::borsh;
 /// inspecting individual messages. See [`sync::ignore`] for the sync
 /// equivalent.
 ///
-/// Returns [`std::future::Ready<()>`], a concrete `Send + 'static` future,
-/// so it satisfies the `OnMessage: FnMut(...) -> _ + Send + 'static`
-/// bound that [`Local::gossip`] requires.
-///
 /// # Example
 ///
 /// ```
@@ -430,8 +412,8 @@ pub use ::borsh;
 /// alice.message(["hello".to_string(), "world".to_string()], ignore).await;
 /// # }
 /// ```
-pub fn ignore<T>(_key: Key, _version: &Version, _message: &Arc<T>) -> std::future::Ready<()> {
-    std::future::ready(())
+pub fn ignore<'a, 'b, T>(_key: Key, _version: &'a Version, _message: &'b Arc<T>) -> Ready<()> {
+    ready(())
 }
 
 impl<T> Local<T, Original> {
@@ -496,57 +478,47 @@ impl<T> Local<T, Original> {
     /// # Example
     ///
     /// ```
-    /// use std::sync::{Arc, Mutex};
     /// use rumors::{Local, Key, Version};
     ///
     /// # #[tokio::main(flavor = "current_thread")]
     /// # async fn main() {
     /// let mut alice = Local::for_party("alice", 0).unwrap();
-    /// let observed: Arc<Mutex<Vec<(Key, Version, String)>>> =
-    ///     Arc::new(Mutex::new(Vec::new()));
-    /// let observed_in = Arc::clone(&observed);
+    /// let mut observed: Vec<(Key, Version, String)> = Vec::new();
     /// alice.message(
     ///     ["hello".to_string(), "world".to_string()],
-    ///     move |key, version, message| {
-    ///         observed_in
-    ///             .lock()
-    ///             .unwrap()
-    ///             .push((key, version.clone(), message.as_ref().clone()));
-    ///         std::future::ready(())
+    ///     |key, version, message| {
+    ///         observed.push((key, version.clone(), message.as_ref().clone()));
+    ///         async {}
     ///     },
     /// ).await;
-    /// assert_eq!(observed.lock().unwrap().len(), 2);
+    /// assert_eq!(observed.len(), 2);
     /// # }
     /// ```
-    pub async fn message<OnMessage, OnMessageFut, I>(
-        &mut self,
+    pub async fn message<'a, OnMessage, OnMessageFut, I>(
+        &'a mut self,
         messages: I,
         mut on_message: OnMessage,
     ) where
-        T: BorshSerialize + Send + Sync + 'static,
+        T: BorshSerialize + Send + Sync + 'a,
         I: IntoIterator<Item = T> + Send,
         I::IntoIter: Send,
-        OnMessage: FnMut(Key, &Version, &Arc<T>) -> OnMessageFut + Send + 'static,
-        OnMessageFut: Future<Output = ()> + Send + 'static,
+        OnMessage: FnMut(Key, &Version, &Arc<T>) -> OnMessageFut + Send + 'a,
+        OnMessageFut: Future<Output = ()> + Send + 'a,
     {
-        // Box-and-Send-erase the protocol future at the API boundary so the
-        // auto-trait check is discharged here (under the lib's
-        // `#![recursion_limit]`) rather than at every call site.
-        let fut: Pin<Box<dyn Future<Output = ()> + Send + '_>> = Box::pin(async move {
-            self.tree
-                .act(
-                    messages.into_iter().map(Message::from).map(Action::Insert),
-                    move |k: Key, v: &Version, m: Option<&Message<T>>|
-                        -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
-                        match m {
-                            Some(m) => Box::pin(on_message(k, v, m.as_ref())),
-                            None => Box::pin(std::future::ready(())),
-                        }
-                    },
-                )
-                .await;
-        });
-        fut.await
+        self.tree
+            .act(
+                messages.into_iter().map(Message::from).map(Action::Insert),
+                move |k: Key,
+                      v: &Version,
+                      m: Option<&Message<T>>|
+                      -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+                    match m {
+                        Some(m) => Box::pin(on_message(k, v, m.as_ref())),
+                        None => Box::pin(ready(())),
+                    }
+                },
+            )
+            .await;
     }
 
     /// Redact the given keys: stop gossiping the corresponding messages, and
@@ -560,33 +532,31 @@ impl<T> Local<T, Original> {
     /// # Example
     ///
     /// ```
-    /// use std::sync::{Arc, Mutex};
     /// use rumors::{Local, Key};
     ///
     /// # #[tokio::main(flavor = "current_thread")]
     /// # async fn main() {
     /// let mut alice = Local::for_party("alice", 0).unwrap();
-    /// let keys: Arc<Mutex<Vec<Key>>> = Arc::new(Mutex::new(Vec::new()));
-    /// let keys_in = Arc::clone(&keys);
+    /// let mut keys: Vec<Key> = Vec::new();
     /// alice.message(
     ///     ["transient announcement".to_string()],
-    ///     move |k, _, _| {
-    ///         keys_in.lock().unwrap().push(k);
-    ///         std::future::ready(())
+    ///     |k, _, _| {
+    ///         keys.push(k);
+    ///         async {}
     ///     },
     /// ).await;
-    /// alice.redact(Arc::try_unwrap(keys).unwrap().into_inner().unwrap());
+    /// alice.redact(keys);
     /// # }
     /// ```
     pub fn redact<I: IntoIterator<Item = Key>>(&mut self, redacted: I)
     where
-        T: Send + Sync + 'static,
+        T: Send + Sync,
     {
         pollster::block_on(
-            self.tree
-                .act(redacted.into_iter().map(Action::Forget), |_, _, _| {
-                    std::future::ready(())
-                }),
+            self.tree.act(
+                redacted.into_iter().map(Action::Forget),
+                |_, _, _| ready(()),
+            ),
         );
     }
 }
@@ -646,7 +616,6 @@ impl<T, Identity> Local<T, Identity> {
     /// by forking and processing:
     ///
     /// ```
-    /// use std::sync::{Arc, Mutex};
     /// use rumors::{Local, ignore};
     ///
     /// # #[tokio::main(flavor = "current_thread")]
@@ -656,37 +625,30 @@ impl<T, Identity> Local<T, Identity> {
     /// bob.message(["news from bob".to_string()], ignore).await;
     ///
     /// // `bob.fork()` produces a Forked copy that alice can absorb.
-    /// let learned: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-    /// let learned_in = Arc::clone(&learned);
-    /// alice.process(bob.fork(), move |_, _, m| {
-    ///     learned_in.lock().unwrap().push(m.as_ref().clone());
-    ///     std::future::ready(())
+    /// let mut learned: Vec<String> = Vec::new();
+    /// alice.process(bob.fork(), |_, _, m| {
+    ///     learned.push(m.as_ref().clone());
+    ///     async {}
     /// }).await;
-    /// assert_eq!(*learned.lock().unwrap(), vec!["news from bob".to_string()]);
+    /// assert_eq!(learned, vec!["news from bob".to_string()]);
     /// # }
     /// ```
-    pub async fn process<OnMessage, OnMessageFut>(
-        &mut self,
+    pub async fn process<'a, OnMessage, OnMessageFut>(
+        &'a mut self,
         new: Local<T, Forked>,
         on_message: OnMessage,
     ) where
-        T: Send + Sync + 'static,
+        T: Send + Sync + 'a,
         Identity: Send,
-        OnMessage: FnMut(Key, &Version, &Arc<T>) -> OnMessageFut + Send + 'static,
-        OnMessageFut: std::future::Future<Output = ()> + Send + 'static,
+        OnMessage: FnMut(Key, &Version, &Arc<T>) -> OnMessageFut + Send + 'a,
+        OnMessageFut: std::future::Future<Output = ()> + Send + 'a,
     {
-        // Box-and-Send-erase the protocol future at the API boundary so the
-        // auto-trait check is discharged here (under the lib's
-        // `#![recursion_limit]`) rather than at every call site.
-        let fut: Pin<Box<dyn Future<Output = ()> + Send + '_>> = Box::pin(async move {
-            // Instantiate the two sides of the mirror exchange, both local
-            let l = mirror::local::Exchange::start(self.tree.root.clone(), ignore, on_message);
-            let r = mirror::local::Exchange::start(new.tree.root, ignore, ignore);
+        // Instantiate the two sides of the mirror exchange, both local
+        let l = mirror::local::Exchange::start(self.tree.root.clone(), ignore, on_message);
+        let r = mirror::local::Exchange::start(new.tree.root, ignore, ignore);
 
-            // Drive them to completion: we know they don't need a "real" executor
-            Ok((self.tree.root, _)) = mirror(l, r).await;
-        });
-        fut.await
+        // Drive them to completion: we know they don't need a "real" executor
+        Ok((self.tree.root, _)) = mirror(l, r).await;
     }
 
     /// Synchronize rumor sets with a remote peer, invoking `on_message` for
@@ -710,7 +672,7 @@ impl<T, Identity> Local<T, Identity> {
     /// # Example
     ///
     /// ```
-    /// use std::sync::{Arc, Mutex};
+    /// use std::sync::Arc;
     /// use rumors::{Local, ignore};
     ///
     /// # #[tokio::main(flavor = "current_thread")]
@@ -723,71 +685,61 @@ impl<T, Identity> Local<T, Identity> {
     /// alice.message(["hello".to_string()], ignore).await;
     /// let bob: Local<String, _> = Local::for_party("bob", 0).unwrap();
     ///
-    /// let bob_learned: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-    /// let bob_learned_in = Arc::clone(&bob_learned);
+    /// let mut bob_learned: Vec<String> = Vec::new();
     /// let (alice, bob) = tokio::join!(
     ///     alice.gossip(&mut a_r, &mut a_w, ignore),
-    ///     bob.gossip(&mut b_r, &mut b_w,
-    ///         move |_, _, m: &Arc<String>| {
-    ///             bob_learned_in.lock().unwrap().push(m.as_ref().clone());
-    ///             std::future::ready(())
-    ///         },
-    ///     ),
+    ///     bob.gossip(&mut b_r, &mut b_w, |_, _, m: &Arc<String>| {
+    ///         bob_learned.push(m.as_ref().clone());
+    ///         async {}
+    ///     }),
     /// );
     /// let (_alice, _bob) = (alice.unwrap(), bob.unwrap());
-    /// assert_eq!(*bob_learned.lock().unwrap(), vec!["hello".to_string()]);
+    /// assert_eq!(bob_learned, vec!["hello".to_string()]);
     /// # }
     /// ```
-    pub async fn gossip<OnMessage, OnMessageFut, R, W>(
+    pub async fn gossip<'a, OnMessage, OnMessageFut, R, W>(
         mut self,
-        read: &mut R,
-        write: &mut W,
+        read: &'a mut R,
+        write: &'a mut W,
         on_message: OnMessage,
     ) -> Result<Self, Error>
     where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
+        T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
         R: AsyncRead + Unpin + Send,
         W: AsyncWrite + Unpin + Send,
-        OnMessage: FnMut(Key, &Version, &Arc<T>) -> OnMessageFut + Send + 'static,
-        OnMessageFut: Future<Output = ()> + Send + 'static,
+        OnMessage: FnMut(Key, &Version, &Arc<T>) -> OnMessageFut + Send + 'a,
+        OnMessageFut: Future<Output = ()> + Send + 'a,
         Identity: Send,
     {
-        // Box-and-Send-erase the protocol future at the API boundary so the
-        // auto-trait check is discharged here (under the lib's
-        // `#![recursion_limit]`) rather than at every call site.
-        let fut: Pin<Box<dyn Future<Output = Result<Self, Error>> + Send + '_>> =
-            Box::pin(async move {
-                // Protocol-version handshake: both sides exchange a fixed
-                // 8-byte preamble before any other traffic. An incompatible
-                // peer is rejected here without touching the local rumor set.
-                mirror::remote::handshake(read, write).await?;
+        // Protocol-version handshake: both sides exchange a fixed
+        // 8-byte preamble before any other traffic. An incompatible
+        // peer is rejected here without touching the local rumor set.
+        mirror::remote::handshake(read, write).await?;
 
-                // Instantiate the two sides of the mirror exchange: local and remote
-                let l = mirror::local::Exchange::start(self.tree.root, ignore, on_message);
-                let r = mirror::remote::Exchange::start(read, write);
+        // Instantiate the two sides of the mirror exchange: local and remote
+        let l = mirror::local::Exchange::start(self.tree.root, ignore, on_message);
+        let r = mirror::remote::Exchange::start(read, write);
 
-                // Drive them to completion against each other
-                (self.tree.root, _) = mirror(l, r).await.map_err(|e| {
-                    // The only possible error is a server error
-                    let mirror::Error::Server(e) = e;
-                    e
-                })?;
+        // Drive them to completion against each other
+        (self.tree.root, _) = mirror(l, r).await.map_err(|e| {
+            // The only possible error is a server error
+            let mirror::Error::Server(e) = e;
+            e
+        })?;
 
-                Ok(self)
-            });
-        fut.await
+        Ok(self)
     }
 }
 
 /// Combine two rumor sets via [`Local::process`].
 impl<T> Add for Local<T, Forked>
 where
-    T: Send + Sync + 'static,
+    T: Send + Sync,
 {
     type Output = Local<T, Forked>;
 
     fn add(mut self, rhs: Self) -> Self::Output {
-        pollster::block_on(self.process(rhs, |_, _, _| std::future::ready(())));
+        pollster::block_on(self.process(rhs, |_, _, _| ready(())));
         self
     }
 }
@@ -795,7 +747,7 @@ where
 /// Absorb `rhs` into `self` via [`Local::process`].
 impl<T> AddAssign for Local<T, Forked>
 where
-    T: Send + Sync + 'static,
+    T: Send + Sync,
 {
     fn add_assign(&mut self, rhs: Self) {
         *self = self.clone().add(rhs);

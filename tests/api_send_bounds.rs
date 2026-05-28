@@ -40,3 +40,44 @@ fn gossip_future_is_send() {
     require_send(&fut);
     drop(fut);
 }
+
+/// The async API accepts non-`'static` callbacks: the closure can borrow
+/// local state from the calling scope and the borrow remains valid for the
+/// duration of the await. This test compiles iff `OnMessage` /
+/// `OnMessageFut` are bound `+ Send + 'a` rather than `+ Send + 'static`,
+/// and additionally exercises the borrow at runtime by collecting messages
+/// into a borrowed `&mut Vec`.
+#[tokio::test]
+async fn callback_can_borrow_local_state() {
+    let mut alice = Local::<String, _>::for_party("borrow-message", 0).unwrap();
+    let mut observed: Vec<String> = Vec::new();
+    alice
+        .message(
+            ["one".to_string(), "two".to_string(), "three".to_string()],
+            |_, _, m| {
+                observed.push(m.as_ref().clone());
+                std::future::ready(())
+            },
+        )
+        .await;
+    // `observed` is reclaimed once the future completes and releases the
+    // borrow; the test would not compile under a `'static` callback bound.
+    observed.sort();
+    assert_eq!(observed, vec!["one", "three", "two"]);
+}
+
+/// The sync API similarly accepts non-`'static` callbacks. Without the
+/// borrow relaxation this would force callers into `Arc<Mutex<_>>` for
+/// every observation log.
+#[test]
+fn sync_callback_can_borrow_local_state() {
+    use rumors::sync::Local as SyncLocal;
+    let mut alice = SyncLocal::<String, _>::for_party("sync-borrow-message", 0).unwrap();
+    let mut observed: Vec<String> = Vec::new();
+    alice.message(
+        ["one".to_string(), "two".to_string(), "three".to_string()],
+        |_, _, m| observed.push(m.as_ref().clone()),
+    );
+    observed.sort();
+    assert_eq!(observed, vec!["one", "three", "two"]);
+}

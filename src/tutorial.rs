@@ -41,22 +41,20 @@
 //! message itself wrapped in an [`Arc`](std::sync::Arc).
 //!
 //! ```
-//! use std::sync::{Arc, Mutex};
 //! use rumors::{Local, Key};
 //!
 //! # #[tokio::main(flavor = "current_thread")]
 //! # async fn main() {
 //! let mut alice = Local::<String, _>::for_party("alice", 0).unwrap();
-//! let keys: Arc<Mutex<Vec<Key>>> = Arc::new(Mutex::new(Vec::new()));
-//! let keys_in = Arc::clone(&keys);
+//! let mut keys: Vec<Key> = Vec::new();
 //! alice.message(
 //!     ["hello".to_string(), "world".to_string()],
-//!     move |k, _v, _m| {
-//!         keys_in.lock().unwrap().push(k);
-//!         std::future::ready(())
+//!     |k, _v, _m| {
+//!         keys.push(k);
+//!         async {}
 //!     },
 //! ).await;
-//! assert_eq!(keys.lock().unwrap().len(), 2);
+//! assert_eq!(keys.len(), 2);
 //! assert_eq!(alice.event(), 2); // two operations applied
 //! # }
 //! ```
@@ -77,7 +75,7 @@
 //! them together with the `tokio::join!` macro.
 //!
 //! ```
-//! use std::sync::{Arc, Mutex};
+//! use std::sync::Arc;
 //! use rumors::{Local, ignore};
 //!
 //! # #[tokio::main(flavor = "current_thread")]
@@ -93,20 +91,17 @@
 //! let bob: Local<String, _> = Local::for_party("bob", 0).unwrap();
 //!
 //! // Gossip. Bob's callback fires for every message he learns.
-//! let bob_learned: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-//! let bob_learned_in = Arc::clone(&bob_learned);
+//! let mut bob_learned: Vec<String> = Vec::new();
 //! let (alice_out, bob_out) = tokio::join!(
 //!     alice.gossip(&mut a_r, &mut a_w, ignore),
-//!     bob.gossip(&mut b_r, &mut b_w,
-//!         move |_k, _v, m: &Arc<String>| {
-//!             bob_learned_in.lock().unwrap().push(m.as_ref().clone());
-//!             std::future::ready(())
-//!         },
-//!     ),
+//!     bob.gossip(&mut b_r, &mut b_w, |_k, _v, m: &Arc<String>| {
+//!         bob_learned.push(m.as_ref().clone());
+//!         async {}
+//!     }),
 //! );
 //! let (_alice, _bob) = (alice_out.unwrap(), bob_out.unwrap());
 //!
-//! assert_eq!(*bob_learned.lock().unwrap(), vec!["hello".to_string()]);
+//! assert_eq!(bob_learned, vec!["hello".to_string()]);
 //! # }
 //! ```
 //!
@@ -125,24 +120,22 @@
 //! [`redact`]: crate::Local::redact
 //!
 //! ```
-//! use std::sync::{Arc, Mutex};
 //! use rumors::{Local, Key};
 //!
 //! # #[tokio::main(flavor = "current_thread")]
 //! # async fn main() {
 //! let mut alice = Local::<String, _>::for_party("alice", 0).unwrap();
-//! let keys: Arc<Mutex<Vec<Key>>> = Arc::new(Mutex::new(Vec::new()));
-//! let keys_in = Arc::clone(&keys);
+//! let mut keys: Vec<Key> = Vec::new();
 //! alice.message(
 //!     ["stale announcement".to_string()],
-//!     move |k, _, _| {
-//!         keys_in.lock().unwrap().push(k);
-//!         std::future::ready(())
+//!     |k, _, _| {
+//!         keys.push(k);
+//!         async {}
 //!     },
 //! ).await;
 //!
 //! // Redact. After this, the rumor will not propagate via gossip.
-//! alice.redact(Arc::try_unwrap(keys).unwrap().into_inner().unwrap());
+//! alice.redact(keys);
 //! assert_eq!(alice.event(), 2); // insert plus redact, both count
 //! # }
 //! ```

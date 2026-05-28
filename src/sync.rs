@@ -7,7 +7,6 @@
 //! # Quickstart
 //!
 //! ```
-//! use std::sync::{Arc, Mutex};
 //! use rumors::sync::Local;
 //!
 //! // A peer is identified by an arbitrary byte string; the caller must keep
@@ -17,16 +16,13 @@
 //!
 //! // The callback fires once per newly-observed message with an opaque
 //! // `Key` (used later for redaction), the causal `Version`, and the value.
-//! // Sync callbacks satisfy `Send + 'static` (so the caller can drive
-//! // gossip on a `std::thread::spawn`'d thread); locally-owned counters
-//! // therefore travel through `Arc<Mutex<_>>` rather than `&mut`.
-//! let observed = Arc::new(Mutex::new(0usize));
-//! let observed_in = Arc::clone(&observed);
+//! // It's `FnMut + Send` and may freely borrow local state.
+//! let mut observed = 0usize;
 //! alice.message(
 //!     ["hello".to_string(), "world".to_string()],
-//!     move |_key, _version, _message| *observed_in.lock().unwrap() += 1,
+//!     |_key, _version, _message| observed += 1,
 //! );
-//! assert_eq!(*observed.lock().unwrap(), 2);
+//! assert_eq!(observed, 2);
 //! ```
 //!
 //! # Redaction
@@ -36,17 +32,12 @@
 //! local decision evicts the message network-wide.
 //!
 //! ```
-//! use std::sync::{Arc, Mutex};
 //! use rumors::sync::{Local, Key};
 //!
 //! let mut alice = Local::for_party("alice", 0).unwrap();
-//! let keys: Arc<Mutex<Vec<Key>>> = Arc::new(Mutex::new(Vec::new()));
-//! let keys_in = Arc::clone(&keys);
-//! alice.message(
-//!     ["stale rumor".to_string()],
-//!     move |k, _, _| keys_in.lock().unwrap().push(k),
-//! );
-//! alice.redact(Arc::try_unwrap(keys).unwrap().into_inner().unwrap());
+//! let mut keys: Vec<Key> = Vec::new();
+//! alice.message(["stale rumor".to_string()], |k, _, _| keys.push(k));
+//! alice.redact(keys);
 //! ```
 //!
 //! # Concurrent rumor sets
@@ -130,17 +121,15 @@ pub use ::borsh;
 /// # Example
 ///
 /// ```
-/// use std::sync::{Arc, Mutex};
 /// use rumors::sync::{Local, Key};
 ///
 /// let mut alice = Local::for_party("alice", 0).unwrap();
-/// let keys: Arc<Mutex<Vec<Key>>> = Arc::new(Mutex::new(Vec::new()));
-/// let keys_in = Arc::clone(&keys);
+/// let mut keys: Vec<Key> = Vec::new();
 /// alice.message(
 ///     ["hello".to_string(), "world".to_string()],
-///     move |key, _, _| keys_in.lock().unwrap().push(key),
+///     |key, _, _| keys.push(key),
 /// );
-/// alice.redact([keys.lock().unwrap()[0]]);
+/// alice.redact([keys[0]]);
 /// ```
 #[derive(Debug, Eq)]
 pub struct Local<T, Identity = Forked>(pub crate::Local<T, Identity>);
@@ -225,32 +214,26 @@ impl<T> Local<T, Original> {
     /// # Example
     ///
     /// ```
-    /// use std::sync::{Arc, Mutex};
     /// use rumors::sync::{Local, Key, Version};
     ///
     /// let mut alice = Local::for_party("alice", 0).unwrap();
-    /// let observed: Arc<Mutex<Vec<(Key, Version, String)>>> =
-    ///     Arc::new(Mutex::new(Vec::new()));
-    /// let observed_in = Arc::clone(&observed);
+    /// let mut observed: Vec<(Key, Version, String)> = Vec::new();
     /// alice.message(
     ///     ["hello".to_string(), "world".to_string()],
-    ///     move |key, version, message| {
-    ///         observed_in
-    ///             .lock()
-    ///             .unwrap()
-    ///             .push((key, version.clone(), message.as_ref().clone()));
+    ///     |key, version, message| {
+    ///         observed.push((key, version.clone(), message.as_ref().clone()));
     ///     },
     /// );
-    /// assert_eq!(observed.lock().unwrap().len(), 2);
+    /// assert_eq!(observed.len(), 2);
     /// ```
-    pub fn message<OnMessage, I>(&mut self, messages: I, mut on_message: OnMessage)
+    pub fn message<'a, OnMessage, I>(&'a mut self, messages: I, mut on_message: OnMessage)
     where
-        T: BorshSerialize + Send + Sync + 'static,
+        T: BorshSerialize + Send + Sync + 'a,
         I: IntoIterator<Item = T> + Send,
         I::IntoIter: Send,
-        OnMessage: FnMut(Key, &Version, &Arc<T>) + Send + 'static,
+        OnMessage: FnMut(Key, &Version, &Arc<T>) + Send + 'a,
     {
-        // Wrap the sync `FnMut` into the `FnMut(...) -> Send + 'static future`
+        // Wrap the sync `FnMut` into the `FnMut(...) -> Send + 'a future`
         // shape the async message wants. The body runs synchronously; the
         // returned `Ready` future resolves immediately.
         pollster::block_on(self.0.message(messages, move |k, v, m| {
@@ -270,21 +253,16 @@ impl<T> Local<T, Original> {
     /// # Example
     ///
     /// ```
-    /// use std::sync::{Arc, Mutex};
     /// use rumors::sync::{Local, Key};
     ///
     /// let mut alice = Local::for_party("alice", 0).unwrap();
-    /// let keys: Arc<Mutex<Vec<Key>>> = Arc::new(Mutex::new(Vec::new()));
-    /// let keys_in = Arc::clone(&keys);
-    /// alice.message(
-    ///     ["transient".to_string()],
-    ///     move |k, _, _| keys_in.lock().unwrap().push(k),
-    /// );
-    /// alice.redact(Arc::try_unwrap(keys).unwrap().into_inner().unwrap());
+    /// let mut keys: Vec<Key> = Vec::new();
+    /// alice.message(["transient".to_string()], |k, _, _| keys.push(k));
+    /// alice.redact(keys);
     /// ```
     pub fn redact<I: IntoIterator<Item = Key>>(&mut self, redacted: I)
     where
-        T: Send + Sync + 'static,
+        T: Send + Sync,
     {
         self.0.redact(redacted);
     }
@@ -339,26 +317,21 @@ impl<T, Identity> Local<T, Identity> {
     /// by forking and processing:
     ///
     /// ```
-    /// use std::sync::{Arc, Mutex};
     /// use rumors::sync::{Local, ignore};
     ///
     /// let mut alice = Local::for_party("alice", 0).unwrap();
     /// let mut bob = Local::for_party("bob", 0).unwrap();
     /// bob.message(["news from bob".to_string()], ignore);
     ///
-    /// let learned: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-    /// let learned_in = Arc::clone(&learned);
-    /// alice.process(
-    ///     bob.fork(),
-    ///     move |_, _, m| learned_in.lock().unwrap().push(m.as_ref().clone()),
-    /// );
-    /// assert_eq!(*learned.lock().unwrap(), vec!["news from bob".to_string()]);
+    /// let mut learned: Vec<String> = Vec::new();
+    /// alice.process(bob.fork(), |_, _, m| learned.push(m.as_ref().clone()));
+    /// assert_eq!(learned, vec!["news from bob".to_string()]);
     /// ```
-    pub fn process<OnMessage>(&mut self, new: Local<T, Forked>, mut on_message: OnMessage)
+    pub fn process<'a, OnMessage>(&'a mut self, new: Local<T, Forked>, mut on_message: OnMessage)
     where
-        T: Send + Sync + 'static,
+        T: Send + Sync + 'a,
         Identity: Send,
-        OnMessage: FnMut(Key, &Version, &Arc<T>) + Send + 'static,
+        OnMessage: FnMut(Key, &Version, &Arc<T>) + Send + 'a,
     {
         pollster::block_on(self.0.process(new.0, move |k, v, m| {
             on_message(k, v, m);
@@ -394,17 +367,17 @@ impl<T, Identity> Local<T, Identity> {
     /// let alice: Local<String, _> = Local::for_party("alice", 0).unwrap();
     /// let _alice = alice.gossip(&mut read, &mut write, ignore).unwrap();
     /// ```
-    pub fn gossip<OnMessage, R, W>(
+    pub fn gossip<'a, OnMessage, R, W>(
         self,
-        read: &mut R,
-        write: &mut W,
+        read: &'a mut R,
+        write: &'a mut W,
         mut on_message: OnMessage,
     ) -> Result<Self, Error>
     where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
+        T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
         R: Read + Unpin + Send,
         W: Write + Unpin + Send,
-        OnMessage: FnMut(Key, &Version, &Arc<T>) + Send + 'static,
+        OnMessage: FnMut(Key, &Version, &Arc<T>) + Send + 'a,
         Identity: Send,
     {
         // Bridge the synchronous reader/writer to the async I/O the protocol
@@ -412,7 +385,7 @@ impl<T, Identity> Local<T, Identity> {
         // traits, and the tokio-compat layer adapts those to `tokio::io`'s.
         let mut read = AllowStdIo::new(read).compat();
         let mut write = AllowStdIo::new(write).compat_write();
-        // Wrap the sync `FnMut` into the `FnMut(...) -> Send + 'static future`
+        // Wrap the sync `FnMut` into the `FnMut(...) -> Send future`
         // shape the async gossip wants. The body runs synchronously; the
         // returned `Ready` future resolves immediately.
         pollster::block_on(self.0.gossip(&mut read, &mut write, move |k, v, m| {
@@ -426,7 +399,7 @@ impl<T, Identity> Local<T, Identity> {
 /// Combine two rumor sets via [`Local::process`].
 impl<T> Add for Local<T, Forked>
 where
-    T: Send + Sync + 'static,
+    T: Send + Sync,
 {
     type Output = Local<T, Forked>;
 
@@ -439,7 +412,7 @@ where
 /// Absorb `rhs` into `self` via [`Local::process`].
 impl<T> AddAssign for Local<T, Forked>
 where
-    T: Send + Sync + 'static,
+    T: Send + Sync,
 {
     fn add_assign(&mut self, rhs: Self) {
         *self = self.clone().add(rhs);

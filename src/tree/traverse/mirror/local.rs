@@ -157,9 +157,9 @@ where
     P: Clone + Ord + AsRef<[u8]> + Send + Sync,
     T: Send + Sync,
     OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut + Send,
-    OnRecvFut: Future<Output = ()> + Send + 'static,
+    OnRecvFut: Future<Output = ()> + Send,
     OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut + Send,
-    OnSendFut: Future<Output = ()> + Send + 'static,
+    OnSendFut: Future<Output = ()> + Send,
 {
     type Next = Exchange<OnSend, OnRecv, Connecting<P>, Top<P, T>>;
 
@@ -190,9 +190,9 @@ where
     P: Clone + Ord + AsRef<[u8]> + Send + Sync,
     T: Send + Sync,
     OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut + Send,
-    OnRecvFut: Future<Output = ()> + Send + 'static,
+    OnRecvFut: Future<Output = ()> + Send,
     OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut + Send,
-    OnSendFut: Future<Output = ()> + Send + 'static,
+    OnSendFut: Future<Output = ()> + Send,
 {
     type Next = Exchange<OnSend, OnRecv, Connected<P>, Top<P, T>>;
 
@@ -233,9 +233,9 @@ where
     P: Clone + Ord + AsRef<[u8]> + Send + Sync,
     T: Send + Sync,
     OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut + Send,
-    OnRecvFut: Future<Output = ()> + Send + 'static,
+    OnRecvFut: Future<Output = ()> + Send,
     OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut + Send,
-    OnSendFut: Future<Output = ()> + Send + 'static,
+    OnSendFut: Future<Output = ()> + Send,
 {
     type Next = Exchange<OnSend, OnRecv, Connected<P>, Top<P, T>>;
 
@@ -279,9 +279,9 @@ where
     P: Clone + Ord + AsRef<[u8]> + Send + Sync,
     T: Send + Sync,
     OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut + Send,
-    OnRecvFut: Future<Output = ()> + Send + 'static,
+    OnRecvFut: Future<Output = ()> + Send,
     OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut + Send,
-    OnSendFut: Future<Output = ()> + Send + 'static,
+    OnSendFut: Future<Output = ()> + Send,
 {
     type Next = Exchange<OnSend, OnRecv, Connected<P>, Top<P, T>>;
 
@@ -307,9 +307,9 @@ where
     P: Clone + Ord + AsRef<[u8]> + Send + Sync,
     T: Send + Sync,
     OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut + Send,
-    OnRecvFut: Future<Output = ()> + Send + 'static,
+    OnRecvFut: Future<Output = ()> + Send,
     OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut + Send,
-    OnSendFut: Future<Output = ()> + Send + 'static,
+    OnSendFut: Future<Output = ()> + Send,
 {
     type Next = Exchange<OnSend, OnRecv, Connected<P>, Below<UnderRoot, Top<P, T>>>;
 
@@ -363,9 +363,9 @@ where
     P: Clone + Ord + AsRef<[u8]> + Send + Sync,
     T: Send + Sync,
     OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut + Send,
-    OnRecvFut: Future<Output = ()> + Send + 'static,
+    OnRecvFut: Future<Output = ()> + Send,
     OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut + Send,
-    OnSendFut: Future<Output = ()> + Send + 'static,
+    OnSendFut: Future<Output = ()> + Send,
     L: Levels<Party = P, Message = T, Height = Root>,
 {
     type Next = Exchange<OnSend, OnRecv, Connected<P>, Below<UnderUnderRoot, Below<UnderRoot, L>>>;
@@ -387,9 +387,9 @@ where
     P: Clone + Ord + AsRef<[u8]> + Send + Sync,
     T: Send + Sync,
     OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut + Send,
-    OnRecvFut: Future<Output = ()> + Send + 'static,
+    OnRecvFut: Future<Output = ()> + Send,
     OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut + Send,
-    OnSendFut: Future<Output = ()> + Send + 'static,
+    OnSendFut: Future<Output = ()> + Send,
     L: Levels<Party = P, Message = T, Height = S<S<H>>>,
     S<S<H>>: Height,
     S<H>: Height,
@@ -417,9 +417,9 @@ where
     P: Clone + Ord + AsRef<[u8]> + Send + Sync,
     T: Send + Sync,
     OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut + Send,
-    OnRecvFut: Future<Output = ()> + Send + 'static,
+    OnRecvFut: Future<Output = ()> + Send,
     OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut + Send,
-    OnSendFut: Future<Output = ()> + Send + 'static,
+    OnSendFut: Future<Output = ()> + Send,
     L: Levels<Party = P, Message = T, Height = S<S<Z>>>,
 {
     type Next = Exchange<OnSend, OnRecv, Connected<P>, Below<Z, Below<S<Z>, L>>>;
@@ -438,9 +438,9 @@ where
     P: Clone + Ord + AsRef<[u8]> + Send + Sync,
     T: Send + Sync,
     OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut + Send,
-    OnRecvFut: Future<Output = ()> + Send + 'static,
+    OnRecvFut: Future<Output = ()> + Send,
     OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut + Send,
-    OnSendFut: Future<Output = ()> + Send + 'static,
+    OnSendFut: Future<Output = ()> + Send,
     L: Levels<Party = P, Message = T, Height = S<Z>>,
 {
     async fn complete_responder(
@@ -465,9 +465,9 @@ where
     P: Clone + Ord + AsRef<[u8]> + Send + Sync,
     T: Send + Sync,
     OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut + Send,
-    OnRecvFut: Future<Output = ()> + Send + 'static,
+    OnRecvFut: Future<Output = ()> + Send,
     OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut + Send,
-    OnSendFut: Future<Output = ()> + Send + 'static,
+    OnSendFut: Future<Output = ()> + Send,
     L: Levels<Party = P, Message = T, Height = Z>,
 {
     async fn complete_initiator(
@@ -528,7 +528,7 @@ where
         L::Party: Send + Sync,
         L::Message: Send + Sync,
         OnRecv: FnMut(Key, &Version<L::Party>, &Arc<L::Message>) -> OnRecvFut + Send,
-        OnRecvFut: Future<Output = ()> + Send + 'static,
+        OnRecvFut: Future<Output = ()> + Send,
         L: Levels<Height = H>,
         H: Height + Get,
     {
@@ -550,7 +550,7 @@ where
     where
         L: Levels<Height = S<H>>,
         OnSend: FnMut(Key, &Version<L::Party>, &Arc<L::Message>) -> OnSendFut,
-        OnSendFut: Future<Output = ()> + Send + 'static,
+        OnSendFut: Future<Output = ()> + Send,
         S<H>: Unknown,
         H: Height,
     {
@@ -605,7 +605,7 @@ where
     ) -> Partition<L::Party, L::Message, H>
     where
         OnSend: FnMut(Key, &Version<L::Party>, &Arc<L::Message>) -> OnSendFut,
-        OnSendFut: Future<Output = ()> + Send + 'static,
+        OnSendFut: Future<Output = ()> + Send,
         L: Levels<Height = S<S<H>>>,
         S<S<H>>: Height,
         S<H>: Height + Unknown,
@@ -761,9 +761,9 @@ where
         Request: Into<message::Exchange<L::Party, L::Message, S<H>>>,
         Response: From<message::Exchange<L::Party, L::Message, H>>,
         OnRecv: FnMut(Key, &Version<L::Party>, &Arc<L::Message>) -> OnRecvFut,
-        OnRecvFut: Future<Output = ()> + Send + 'static,
+        OnRecvFut: Future<Output = ()> + Send,
         OnSend: FnMut(Key, &Version<L::Party>, &Arc<L::Message>) -> OnSendFut,
-        OnSendFut: Future<Output = ()> + Send + 'static,
+        OnSendFut: Future<Output = ()> + Send,
         L: Levels<Height = S<S<H>>>,
         S<S<H>>: Height,
         S<H>: Height,
