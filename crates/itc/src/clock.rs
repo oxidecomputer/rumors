@@ -3,7 +3,7 @@
 use core::marker::PhantomData;
 use core::ops::{BitOr, BitOrAssign};
 
-use crate::{version, DecodeError, OverlapError, Party, Version};
+use crate::{codec, version, DecodeError, OverlapError, Party, Version};
 
 /// A `Party` paired with a `Version`. Not `Clone`. Implements no comparison
 /// traits — compare the party and version separately with any lexicography.
@@ -94,15 +94,22 @@ impl Clock {
     }
 
     /// The canonical packed byte encoding: `enc_id(party)` then `enc_ev(version)`,
-    /// zero-padded to a byte boundary.
+    /// bit-concatenated with no padding between, then zero-padded to a byte boundary.
     pub fn encode(&self) -> Vec<u8> {
-        todo!()
+        let mut bits = self.party.as_bits().to_bitvec();
+        bits.extend_from_bitslice(self.version.as_bits());
+        codec::pack_to_bytes(&bits)
     }
 
     /// Decode a byte string, strictly rejecting malformed or non-canonical input.
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
-        let _ = bytes;
-        todo!()
+        let bits = codec::Bits::from_slice(bytes);
+        let after_id = codec::parse_id(&bits, 0)?;
+        let after_ev = codec::parse_ev(&bits, after_id)?;
+        codec::require_zero_padding(&bits, after_ev)?;
+        let party = Party::from_bits(bits[..after_id].to_bitvec());
+        let version = Version::from_bits(bits[after_id..after_ev].to_bitvec());
+        Ok(Clock::from_parts(party, version))
     }
 }
 

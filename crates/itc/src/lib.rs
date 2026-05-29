@@ -29,6 +29,8 @@ pub mod version;
 
 #[cfg(test)]
 mod oracle;
+#[cfg(test)]
+mod test_support;
 
 pub use clock::Clock;
 pub use party::Party;

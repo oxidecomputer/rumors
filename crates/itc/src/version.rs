@@ -7,6 +7,7 @@ use core::ops::{BitOr, BitOrAssign};
 
 use bitvec::prelude::*;
 
+use crate::codec::{self, BitsSlice};
 use crate::{DecodeError, Party};
 
 /// An event tree / message; an anonymous clock. `Eq`/`Hash` are structural over
@@ -31,15 +32,28 @@ impl Version {
         todo!()
     }
 
-    /// The canonical packed byte encoding (preorder, uniform flag).
+    /// The canonical packed byte encoding (preorder, uniform flag), zero-padded to
+    /// a byte boundary.
     pub fn encode(&self) -> Vec<u8> {
-        todo!()
+        codec::pack_to_bytes(&self.0)
     }
 
     /// Decode a byte string, strictly rejecting malformed or non-canonical input.
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
-        let _ = bytes;
-        todo!()
+        let bits = codec::Bits::from_slice(bytes);
+        let end = codec::parse_ev(&bits, 0)?;
+        codec::require_zero_padding(&bits, end)?;
+        Ok(Version(bits[..end].to_bitvec()))
+    }
+
+    /// The packed preorder bit stream (no trailing padding). Internal.
+    pub(crate) fn as_bits(&self) -> &BitsSlice {
+        &self.0
+    }
+
+    /// Wrap a canonical packed bit stream. Internal; callers guarantee normal form.
+    pub(crate) fn from_bits(bits: codec::Bits) -> Self {
+        Version(bits)
     }
 }
 

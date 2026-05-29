@@ -4,6 +4,7 @@ use core::cmp::Ordering;
 
 use bitvec::prelude::*;
 
+use crate::codec::{self, BitsSlice};
 use crate::DecodeError;
 
 /// A nonzero share of the id space. Not `Clone`. Ordered by descent /
@@ -38,15 +39,28 @@ impl Party {
         todo!()
     }
 
-    /// The canonical packed byte encoding (preorder, uniform flag).
+    /// The canonical packed byte encoding (preorder, uniform flag), zero-padded to
+    /// a byte boundary.
     pub fn encode(&self) -> Vec<u8> {
-        todo!()
+        codec::pack_to_bytes(&self.0)
     }
 
     /// Decode a byte string, strictly rejecting malformed or non-canonical input.
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
-        let _ = bytes;
-        todo!()
+        let bits = codec::Bits::from_slice(bytes);
+        let end = codec::parse_id(&bits, 0)?;
+        codec::require_zero_padding(&bits, end)?;
+        Ok(Party(bits[..end].to_bitvec()))
+    }
+
+    /// The packed preorder bit stream (no trailing padding). Internal.
+    pub(crate) fn as_bits(&self) -> &BitsSlice {
+        &self.0
+    }
+
+    /// Wrap a canonical packed bit stream. Internal; callers guarantee normal form.
+    pub(crate) fn from_bits(bits: codec::Bits) -> Self {
+        Party(bits)
     }
 }
 
