@@ -1,19 +1,23 @@
-//! The causal order on event trees: an iterative, offset-threaded `leq` that reads
-//! either representation in place (no transcode), plus the derived comparison.
+//! The causal order on event trees: a single iterative, offset-threaded pass that
+//! reads either representation in place (no transcode) and yields the comparison
+//! directly.
 //!
-//! `leq(a, b)` decides whether `a`'s event function is `<=` `b`'s pointwise. It is the
-//! recursive `leq` of the paper (plan Appendix A) made iterative *and* `O(n + m)`:
-//! `a` is always fully descended (every node visited once, no re-scan), while `b`
-//! either descends in lockstep (both internal) or is broadcast unchanged to both of
-//! `a`'s children (when `b` is a leaf). Right-child positions are **threaded** — the
-//! walk reports where each subtree ended, so a sibling resumes there instead of
-//! skipping the left subtree. The one place `b` is skipped is under an `a` leaf, which
-//! dominates `b`'s whole subtree there; each `b` node is skipped at most once, so the
-//! total stays linear. Path sums are threaded as `u64` offsets — the same width as the
-//! stored bases and as `ev_join`/`fill`/`grow` and the oracle. They cannot overflow for
-//! any real tree: a path sum is the running total of stored bases along a root-to-node
-//! path, `tick` adds 1 at a time, and any tree small enough to hold in memory has a
-//! total event count far below `u64::MAX`.
+//! [`causal_cmp`] decides the causal order of `a` and `b` by a pointwise comparison of
+//! their event functions, tracking both `a <= b` and `b <= a` in **one** traversal —
+//! running the paper's `leq` twice would do double the work. It is the recursive `leq`
+//! of the paper (plan Appendix A) made iterative, symmetric, *and* `O(n + m)`: at each
+//! aligned node pair the path sums settle the local direction (`an > bn` rules out
+//! `a <= b`; `bn > an` rules out `b <= a`), then the walk descends into whichever side
+//! is internal, broadcasting the leaf side unchanged to both of the other's children,
+//! until both bottom out — so every node of either tree is visited once. Right-child
+//! positions are **threaded**: each subtree reports where it ended, so a sibling
+//! resumes there instead of re-scanning the left subtree. As soon as both directions
+//! are excluded the result is concurrent (`None`) and the walk stops early. Path sums
+//! are threaded as `u64` offsets — the same width as the stored bases and as
+//! `ev_join`/`fill`/`grow` and the oracle. They cannot overflow for any real tree: a
+//! path sum is the running total of stored bases along a root-to-node path, `tick`
+//! adds 1 at a time, and any tree small enough to hold in memory has a total event
+//! count far below `u64::MAX`.
 
 use core::cmp::Ordering;
 
@@ -80,7 +84,7 @@ pub(super) fn skip(view: &EvView, mut at: usize) -> usize {
     at
 }
 
-/// A step in the threaded `leq` walk.
+/// A step in the threaded comparison walk.
 enum Job {
     /// Compare the subtrees at these positions, under these path-sum offsets.
     Eval {
@@ -89,18 +93,31 @@ enum Job {
         bp: usize,
         bo: u64,
     },
-    /// Both-internal node: its left child finished; launch the right child, whose `b`
-    /// position is threaded from where the left child's `b` subtree ended.
+    /// Both-internal node: its left child finished; launch the right child, both
+    /// positions threaded from where the left child's subtrees ended.
     RightLockstep { an: u64, bn: u64 },
-    /// Broadcast node (`b` is a leaf): launch the right child against the same pinned
-    /// `b` leaf, with `a`'s position threaded from the left child's end.
-    RightBroadcast { an: u64, bp: usize, bo: u64 },
+    /// `b` is a leaf broadcast to both of `a`'s children: launch `a`'s right child
+    /// (threaded from the left child's end) against the same pinned `b` leaf.
+    RightBroadcastB { an: u64, bp: usize, bo: u64 },
+    /// `a` is a leaf broadcast to both of `b`'s children: launch `b`'s right child
+    /// (threaded from the left child's end) against the same pinned `a` leaf.
+    RightBroadcastA { ap: usize, ao: u64, bn: u64 },
 }
 
-/// Whether `a`'s event function is pointwise `<=` `b`'s. Iterative and `O(n + m)`.
-fn leq(a: &EvView, b: &EvView) -> bool {
+/// The causal order, computed in one `O(n + m)` pass; `None` means concurrent.
+///
+/// Tracks `a <= b` (`le`) and `b <= a` (`ge`) together so the two pointwise
+/// comparisons share a single traversal instead of running `leq` twice. The walk
+/// descends into whichever side is internal — both in lockstep, or the internal one
+/// while the leaf side is broadcast unchanged to both its children — so each node of
+/// either tree is visited once. Stops early once both directions are excluded.
+pub(crate) fn causal_cmp(a: &EvView, b: &EvView) -> Option<Ordering> {
+    let mut le = true; // `a <= b` still possible
+    let mut ge = true; // `b <= a` still possible
+
     // The (a, b) end positions of the most recently completed subtree; a pending right
-    // child reads `ret.0` (its `a` start, always threaded) and, in lockstep, `ret.1`.
+    // child reads the threaded side(s) from here (the pinned side carries its own
+    // position in the broadcast jobs).
     let mut ret = (0usize, 0usize);
     let mut stack = vec![Job::Eval {
         ap: 0,
@@ -116,31 +133,47 @@ fn leq(a: &EvView, b: &EvView) -> bool {
                 let an = ao + a_base;
                 let bn = bo + b_base;
                 if an > bn {
-                    return false;
+                    le = false;
                 }
-                if !a_internal {
-                    // `a` leaf: dominated everywhere below. Report `b`'s subtree end so
-                    // the parent can resume — the one bounded lazy-skip of `b`.
-                    ret = (a_next, skip(b, bp));
-                    continue;
+                if bn > an {
+                    ge = false;
                 }
-                let a_left = a_next;
-                if b_internal {
-                    stack.push(Job::RightLockstep { an, bn });
-                    stack.push(Job::Eval {
-                        ap: a_left,
-                        ao: an,
-                        bp: b_next,
-                        bo: bn,
-                    });
-                } else {
-                    stack.push(Job::RightBroadcast { an, bp, bo });
-                    stack.push(Job::Eval {
-                        ap: a_left,
-                        ao: an,
-                        bp,
-                        bo,
-                    });
+                if !le && !ge {
+                    return None; // concurrent: neither direction can recover
+                }
+                match (a_internal, b_internal) {
+                    // Both leaves: this branch is decided. Report both ends.
+                    (false, false) => ret = (a_next, b_next),
+                    // Both internal: descend in lockstep.
+                    (true, true) => {
+                        stack.push(Job::RightLockstep { an, bn });
+                        stack.push(Job::Eval {
+                            ap: a_next,
+                            ao: an,
+                            bp: b_next,
+                            bo: bn,
+                        });
+                    }
+                    // `b` leaf broadcast to both of `a`'s children.
+                    (true, false) => {
+                        stack.push(Job::RightBroadcastB { an, bp, bo });
+                        stack.push(Job::Eval {
+                            ap: a_next,
+                            ao: an,
+                            bp,
+                            bo,
+                        });
+                    }
+                    // `a` leaf broadcast to both of `b`'s children.
+                    (false, true) => {
+                        stack.push(Job::RightBroadcastA { ap, ao, bn });
+                        stack.push(Job::Eval {
+                            ap,
+                            ao,
+                            bp: b_next,
+                            bo: bn,
+                        });
+                    }
                 }
             }
             Job::RightLockstep { an, bn } => {
@@ -152,7 +185,7 @@ fn leq(a: &EvView, b: &EvView) -> bool {
                     bo: bn,
                 });
             }
-            Job::RightBroadcast { an, bp, bo } => {
+            Job::RightBroadcastB { an, bp, bo } => {
                 let (a_left_end, _) = ret;
                 stack.push(Job::Eval {
                     ap: a_left_end,
@@ -161,17 +194,23 @@ fn leq(a: &EvView, b: &EvView) -> bool {
                     bo,
                 });
             }
+            Job::RightBroadcastA { ap, ao, bn } => {
+                let (_, b_left_end) = ret;
+                stack.push(Job::Eval {
+                    ap,
+                    ao,
+                    bp: b_left_end,
+                    bo: bn,
+                });
+            }
         }
     }
-    true
-}
 
-/// The causal order; `None` means concurrent.
-pub(crate) fn causal_cmp(a: &EvView, b: &EvView) -> Option<Ordering> {
-    match (leq(a, b), leq(b, a)) {
+    match (le, ge) {
         (true, true) => Some(Ordering::Equal),
         (true, false) => Some(Ordering::Less),
         (false, true) => Some(Ordering::Greater),
+        // Unreachable: both-false returns `None` inside the loop above.
         (false, false) => None,
     }
 }
