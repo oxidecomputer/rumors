@@ -15,11 +15,9 @@
 //! **Probe → emit contract.** The two passes are the *same* traversal: they visit
 //! exactly the same `(id, ev)` branch nodes, in the same preorder, addressed by the
 //! same `(id_pos, ev_pos)` coordinates. `grow_probe` records a [`Choices`] entry for
-//! every branch node it reaches; `grow_emit` indexes that map by `(id, ev)` and relies
-//! on the entry being present (a missing key is a bug, not a runtime condition). The
-//! coordinate agreement is what lets the two passes communicate by position alone.
-
-use std::collections::HashMap;
+//! every branch node it reaches; `grow_emit` reads back the entry for each node on the
+//! chosen path. The probe always set it, because the two passes walk the identical
+//! branch nodes — the coordinate agreement is what lets them communicate by position.
 
 use crate::codec::BitsSlice;
 use crate::idbits;
@@ -37,11 +35,55 @@ type Cost = (u32, u32);
 /// The cost of an infeasible region: an empty-id subtree can never be inflated.
 const COST_MAX: Cost = (u32::MAX, u32::MAX);
 
-/// The probe → emit channel: for each `(id_pos, ev_pos)` branch node, whether the
-/// cheapest inflation descended into the *left* child (`true`) or the right (`false`).
-/// Written by [`grow_probe`], read by [`grow_emit`]; see the module doc for the
-/// coordinate-agreement contract that makes this lookup sound.
-type Choices = HashMap<(usize, usize), bool>;
+/// The probe → emit channel: at each branch node, whether the cheapest inflation
+/// descended into the *left* child (`true`) or the right (`false`).
+///
+/// The key `(id_pos, ev_pos)` has an alternating pinned axis (one coordinate is held
+/// constant while the other descends — see the module doc), so no single array can be
+/// keyed by one coordinate alone. Instead two dense arrays split by regime, which is
+/// exactly "is the id a node?":
+/// - [`by_id`](Choices::by_id): id is a node (`Expand`/`Both`), keyed by the id
+///   bit-position. Each id internal node is visited once, so its slot is unique.
+/// - [`by_ev`](Choices::by_ev): id is a full `1`-leaf (`FullEvNode`), keyed by the
+///   event position. Each event node is reached under at most one id context.
+///
+/// Slots default to `None`; [`grow_probe`] fills the one for each branch node it
+/// reaches and [`grow_emit`] reads back the slot for the regime it is in. Total space
+/// `O(n + m)`, `O(1)` access (no hashing).
+struct Choices {
+    /// Indexed by id bit-position; used when the id is a node.
+    by_id: Vec<Option<bool>>,
+    /// Indexed by event position; used when the id is a full `1`-leaf.
+    by_ev: Vec<Option<bool>>,
+}
+
+impl Choices {
+    /// All slots unset, sized to the id and event position spaces.
+    fn new(id_span: usize, ev_span: usize) -> Self {
+        Choices {
+            by_id: vec![None; id_span],
+            by_ev: vec![None; ev_span],
+        }
+    }
+
+    /// Record the chosen direction at a branch node of the given `kind`.
+    fn record(&mut self, kind: Kind, id: usize, ev: usize, left: bool) {
+        match kind {
+            Kind::FullEvNode => self.by_ev[ev] = Some(left),
+            Kind::Expand | Kind::Both => self.by_id[id] = Some(left),
+        }
+    }
+
+    /// The chosen direction at a branch node. Panics if the probe never recorded it —
+    /// a coordinate-agreement bug, not a runtime condition (see the module doc).
+    fn chosen(&self, kind: Kind, id: usize, ev: usize) -> bool {
+        let slot = match kind {
+            Kind::FullEvNode => self.by_ev[ev],
+            Kind::Expand | Kind::Both => self.by_id[id],
+        };
+        slot.expect("grow_emit reached a branch node grow_probe did not record")
+    }
+}
 
 /// Which `(id, ev)` recursion shape a `grow` branch node has — fixes its cost formula
 /// and how its children are positioned.
@@ -176,7 +218,7 @@ fn grow_probe(id_bits: &BitsSlice, view: &EvView, choice: &mut Choices) {
                 let (cost_r, id_end_r, ev_end_r) = ret;
                 // Strict `<` makes a tie favor the right child (see [`Cost`]).
                 let left_chosen = cost_l < cost_r;
-                choice.insert((id, ev), left_chosen);
+                choice.record(kind, id, ev, left_chosen);
                 let m = if left_chosen { cost_l } else { cost_r };
                 let cost = match kind {
                     Kind::Expand => (m.0.saturating_add(1), m.1.saturating_add(1)),
@@ -255,7 +297,7 @@ fn grow_emit(id_bits: &BitsSlice, view: &EvView, out: &mut Builder, choice: &Cho
                     Kind::Expand
                 };
                 let node = out.open(ev_base);
-                let left_chosen = choice[&(id, ev)];
+                let left_chosen = choice.chosen(kind, id, ev);
                 if left_chosen {
                     // Descend the chosen left child now; the right is emitted on close.
                     let (cid, cev) = match kind {
@@ -343,7 +385,7 @@ fn grow_emit(id_bits: &BitsSlice, view: &EvView, out: &mut Builder, choice: &Cho
 /// path — each `O(n + m)`. The probe and emit are the same traversal; see the module
 /// doc for the `(id, ev)`-coordinate contract that links them through [`Choices`].
 pub(super) fn grow(id_bits: &BitsSlice, view: &EvView) -> WorkingVersion {
-    let mut choice: Choices = HashMap::new();
+    let mut choice = Choices::new(id_bits.len(), view.span());
     grow_probe(id_bits, view, &mut choice);
     let mut out = Builder::new();
     grow_emit(id_bits, view, &mut out, &choice);

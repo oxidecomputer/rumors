@@ -54,6 +54,16 @@ impl EvView<'_> {
             EvView::Working(work) => (work.topo[at], work.base[at], at + 1),
         }
     }
+
+    /// An exclusive upper bound on the positions this view addresses: the bit length
+    /// for packed, the node count for working. Used to size a dense position-indexed
+    /// array (see `grow`'s `Choices`).
+    pub(super) fn span(&self) -> usize {
+        match self {
+            EvView::Packed(bits) => bits.len(),
+            EvView::Working(work) => work.base.len(),
+        }
+    }
 }
 
 /// Advance past one whole subtree starting at `at`, returning the position after it.
