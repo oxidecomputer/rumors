@@ -7,10 +7,11 @@ use proptest::prelude::*;
 
 use super::working::{repack, unpack};
 use super::Version;
-use crate::metrics;
 use crate::test_support::{
-    assert_linear_scaling, deep_version_bits, from_oracle_version, run, versions, world_strategy,
+    assert_linear_scaling, deep_version_bits, from_oracle_party, from_oracle_version, run,
+    versions, world_strategy,
 };
+use crate::{metrics, Party};
 
 /// Steps taken by `f` on a fresh counter.
 fn steps_of(f: impl FnOnce()) -> u64 {
@@ -140,4 +141,132 @@ proptest! {
         prop_assert_eq!(batch_a.partial_cmp(&batch_b), base); // Batch vs Batch
         prop_assert_eq!(a == b, batch_a == batch_b); // PartialEq matrix agrees
     }
+}
+
+// ───────────────────────────── Phase 5: event mutation ─────────────────────────────
+
+/// O1/C14. `Version::new()` is the empty history and the two-sided identity for `|`.
+#[test]
+fn new_is_join_identity() {
+    use crate::oracle::Version::{Leaf, Node};
+    let empty = Version::new();
+    assert!(empty == from_oracle_version(&Leaf(0))); // empty history is Leaf(0)
+    for v in [
+        Leaf(0),
+        Leaf(7),
+        Node(1, Box::new(Leaf(0)), Box::new(Leaf(2))),
+    ] {
+        let iv = from_oracle_version(&v);
+        assert!(empty.clone() | iv.clone() == iv);
+        assert!(iv.clone() | empty.clone() == iv);
+    }
+}
+
+proptest! {
+    /// Phase 5 differential. The impl `tick` matches the oracle's `event` for every
+    /// clock's own `(party, version)` (the party owns the regions tick may inflate).
+    #[test]
+    fn tick_matches_oracle(ops in world_strategy(), i in 0usize..64) {
+        let cs = run(&ops);
+        let n = cs.len();
+        let (party, version) = cs[i % n].trees();
+
+        let mut oracle_after = version.clone();
+        oracle_after.tick(party);
+
+        let mut iv = from_oracle_version(version);
+        iv.tick(&from_oracle_party(party));
+
+        prop_assert!(iv == from_oracle_version(&oracle_after));
+    }
+}
+
+proptest! {
+    /// O13 differential. The impl version join (`|`) matches the oracle's `ev_join`.
+    #[test]
+    fn merge_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+        let cs = run(&ops);
+        let vs = versions(&cs);
+        let n = vs.len();
+        let oracle_join = vs[i % n].clone() | vs[j % n].clone();
+        let merged = from_oracle_version(&vs[i % n]) | from_oracle_version(&vs[j % n]);
+        prop_assert!(merged == from_oracle_version(&oracle_join));
+    }
+}
+
+proptest! {
+    /// C11–C14, C16. The join lattice laws on impl values: upper bound, least upper
+    /// bound, commutative/associative/idempotent, identity, and absorbing.
+    #[test]
+    fn c_lattice_laws(ops in world_strategy(), i in 0usize..64, j in 0usize..64, k in 0usize..64) {
+        let cs = run(&ops);
+        let vs = versions(&cs);
+        let n = vs.len();
+        let a = from_oracle_version(&vs[i % n]);
+        let b = from_oracle_version(&vs[j % n]);
+        let c = from_oracle_version(&vs[k % n]);
+
+        let ab = a.clone() | b.clone();
+        prop_assert!(le(&a, &ab) && le(&b, &ab)); // C11 upper bound
+
+        // C12 least upper bound: any common upper bound dominates a|b.
+        let upper = ab.clone() | c.clone();
+        prop_assert!(le(&a, &upper) && le(&b, &upper));
+        prop_assert!(le(&ab, &upper));
+
+        prop_assert!(ab == (b.clone() | a.clone())); // C13 commutative
+        let lhs = (a.clone() | b.clone()) | c.clone();
+        let rhs = a.clone() | (b.clone() | c.clone());
+        prop_assert!(lhs == rhs); // C13 associative
+        prop_assert!((a.clone() | a.clone()) == a); // C13 idempotent
+
+        prop_assert!((Version::new() | a.clone()) == a); // C14 identity
+
+        if le(&a, &b) {
+            prop_assert!((a.clone() | b.clone()) == b); // C16 absorbing
+        }
+    }
+}
+
+proptest! {
+    /// C15. `tick` strictly advances the causal order: `a < a.tick(p)`.
+    #[test]
+    fn c15_monotone_tick(ops in world_strategy(), i in 0usize..64) {
+        let cs = run(&ops);
+        let n = cs.len();
+        let (party, version) = cs[i % n].trees();
+        let a = from_oracle_version(version);
+        let p = from_oracle_party(party);
+
+        let mut b = a.clone();
+        b.tick(&p);
+        prop_assert!(le(&a, &b)); // a <= a.tick
+        prop_assert!(!le(&b, &a)); // strictly: not a.tick <= a
+        prop_assert!(a != b);
+    }
+}
+
+/// Complexity. `tick` is `O(n + m)`: ticking a deep event spine with the seed party
+/// (which owns everything) scans the whole tree once; steps grow linearly.
+#[test]
+fn tick_is_linear() {
+    let measure = |depth| {
+        let mut v = Version::from_bits(deep_version_bits(depth).0);
+        let p = Party::seed();
+        steps_of(|| v.tick(&p))
+    };
+    assert_linear_scaling(measure(SMALL_DEPTH), measure(BIG_DEPTH));
+}
+
+/// Complexity. `merge` (`|`) is `O(n + m)`: joining two deep event spines stays linear.
+#[test]
+fn merge_is_linear() {
+    let measure = |depth| {
+        let a = Version::from_bits(deep_version_bits(depth).0);
+        let b = a.clone();
+        steps_of(|| {
+            let _ = a.clone() | b.clone();
+        })
+    };
+    assert_linear_scaling(measure(SMALL_DEPTH), measure(BIG_DEPTH));
 }

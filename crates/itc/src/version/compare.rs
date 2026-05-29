@@ -30,7 +30,7 @@ impl EvView<'_> {
     /// `(is_internal, base, position-just-past-this-node's-header)`. For packed, the
     /// header is the flag bit plus the gamma-coded base; the left child (if any)
     /// begins at the returned position. For working, a node is one slot.
-    fn header(&self, at: usize) -> (bool, u64, usize) {
+    pub(super) fn header(&self, at: usize) -> (bool, u64, usize) {
         step!();
         match self {
             EvView::Packed(bits) => {
@@ -45,7 +45,7 @@ impl EvView<'_> {
 
 /// Advance past one whole subtree starting at `at`, returning the position after it.
 /// Iterative: a pending-children counter, never the call stack.
-fn skip(view: &EvView, mut at: usize) -> usize {
+pub(super) fn skip(view: &EvView, mut at: usize) -> usize {
     let mut pending: i64 = 1;
     while pending > 0 {
         let (internal, _, next) = view.header(at);

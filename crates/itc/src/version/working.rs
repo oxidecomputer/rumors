@@ -8,10 +8,6 @@
 //!
 //! Both `unpack` and `repack` are single iterative passes (no recursion on depth).
 
-// Wired into `version::Batch` in Phase 5; until then only the round-trip test
-// exercises this module.
-#![allow(dead_code)]
-
 use crate::codec::{self, decode_int, Bits, BitsSlice};
 
 /// Preorder topology + payload split. `topo[i]` is `true` iff node `i` is internal
@@ -24,7 +20,8 @@ pub(crate) struct WorkingVersion {
 }
 
 impl WorkingVersion {
-    /// Number of nodes.
+    /// Number of nodes. (Used by the working-form layout test.)
+    #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.base.len()
     }

@@ -13,6 +13,7 @@ use self::compare::{causal_cmp, EvView};
 use self::working::WorkingVersion;
 
 mod compare;
+mod event;
 mod working;
 
 #[cfg(test)]
@@ -25,9 +26,12 @@ mod tests;
 pub struct Version(BitVec<u8, Msb0>);
 
 impl Version {
-    /// The empty history (identity for `|`).
+    /// The empty history (identity for `|`): the event tree `Leaf(0)`.
     pub fn new() -> Self {
-        todo!()
+        let mut bits = codec::Bits::new();
+        bits.push(false); // leaf flag
+        codec::encode_int(&mut bits, 0);
+        Version(bits)
     }
 
     /// Advance `party`'s component by one event. Single-op batch.
@@ -105,14 +109,19 @@ pub struct Batch<'v> {
 impl Batch<'_> {
     /// Advance `party`'s component. Chainable. **Core event operation.**
     pub fn tick(&mut self, party: &Party) -> &mut Self {
-        let _ = party;
-        todo!()
+        let work = self
+            .work
+            .take()
+            .unwrap_or_else(|| working::unpack(self.version.as_bits()));
+        self.work = Some(event::tick(party.as_bits(), &work));
+        self
     }
 
     /// Merge another history in place. Chainable.
     pub fn merge(&mut self, other: &Version) -> &mut Self {
-        let _ = other;
-        todo!()
+        let work = event::ev_join(&self.view(), &other.view());
+        self.work = Some(work);
+        self
     }
 
     /// A read-only view of the in-progress event tree (working form if
@@ -142,15 +151,15 @@ impl<'a> From<&'a mut Version> for Batch<'a> {
 impl BitOr<Version> for Version {
     type Output = Version;
     fn bitor(self, r: Version) -> Version {
-        let _ = r;
-        todo!()
+        let work = event::ev_join(&self.view(), &r.view());
+        Version::from_bits(working::repack(&work))
     }
 }
 
 impl BitOrAssign<Version> for Version {
     fn bitor_assign(&mut self, r: Version) {
-        let _ = r;
-        todo!()
+        let work = event::ev_join(&self.view(), &r.view());
+        *self = Version::from_bits(working::repack(&work));
     }
 }
 

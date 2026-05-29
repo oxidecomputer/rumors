@@ -8,8 +8,9 @@
 //! rejects anything else; every op produces normal form), and so is every subtree of
 //! one. Normalization collapses `(0,0) → 0` and `(1,1) → 1`, so in a normal id an
 //! empty region is *exactly* the `0` leaf and a full region is *exactly* the `1`
-//! leaf. [`is_empty`]/[`is_full`] rely on this to answer in `O(1)` — a leaf check —
-//! rather than scanning a subtree. Callers must only pass normal-form id bits.
+//! leaf, so emptiness/fullness are `O(1)` leaf checks rather than subtree scans:
+//! [`is_full`], and an inline `(false, false)` header test for emptiness. Callers
+//! must only pass normal-form id bits.
 
 use crate::codec::BitsSlice;
 use crate::step;
@@ -38,17 +39,8 @@ pub(crate) fn skip(bits: &BitsSlice, mut at: usize) -> usize {
     at
 }
 
-/// Whether the normal-form subtree at `at` owns nothing. `O(1)`: it is empty iff it is
-/// the `0` leaf (see the module's normal-form precondition).
-// Consumed by the event operations (`fill`/`grow`, Phase 5), which walk the packed id.
-#[allow(dead_code)]
-pub(crate) fn is_empty(bits: &BitsSlice, at: usize) -> bool {
-    matches!(header(bits, at), (false, false, _))
-}
-
 /// Whether the normal-form subtree at `at` owns everything. `O(1)`: it is full iff it
 /// is the `1` leaf (see the module's normal-form precondition).
-#[allow(dead_code)]
 pub(crate) fn is_full(bits: &BitsSlice, at: usize) -> bool {
     matches!(header(bits, at), (false, true, _))
 }
