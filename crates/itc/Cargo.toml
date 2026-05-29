@@ -1,0 +1,17 @@
+[package]
+name = "itc"
+version = "0.1.0"
+edition = "2021"
+description = "Interval Tree Clocks (Almeida, Baquero & Fonte, 2008): packed BitVec storage, transient fixed-width working form, linear-typed API."
+license = "MPL-2.0"
+
+[dependencies]
+bitvec = "1"
+serde = { version = "1", optional = true, default-features = false, features = ["derive", "alloc"] }
+
+[dev-dependencies]
+proptest = "1"
+
+[features]
+default = []
+serde = ["dep:serde"]
