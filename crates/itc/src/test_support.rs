@@ -154,3 +154,60 @@ pub(crate) fn from_oracle_clock(c: &oracle::Clock) -> Clock {
     let (party, version) = c.trees();
     Clock::from_parts(from_oracle_party(party), from_oracle_version(version))
 }
+
+// ───────────────────────────── adversarial deep inputs ─────────────────────────────
+//
+// These build left-leaning spines directly as canonical bits — the worst case for any
+// traversal that locates a right child by re-scanning the left subtree (`O(n²)`). The
+// complexity tests measure traversal steps on them and assert linear growth, so they
+// must be built without going through the ops under test (and without deep recursion,
+// which would overflow before the op did). All are in normal form by construction.
+
+/// A left-spine id of `depth` wrapper nodes: `(…((1,0),0)…,0)`. Returns its canonical
+/// `enc_id` bits and its node count (`2*depth + 2`). `depth >= 1`.
+pub(crate) fn deep_party_bits(depth: usize) -> (Bits, usize) {
+    let mut bits = Bits::new();
+    for _ in 0..depth {
+        bits.push(true); // node flag, descending the left spine
+    }
+    bits.push(false); // innermost left: the `1` leaf
+    bits.push(true);
+    for _ in 0..=depth {
+        bits.push(false); // a `0` leaf: the innermost right, then each wrapper's right
+        bits.push(false);
+    }
+    let nodes = 2 * depth + 2;
+    (bits, nodes)
+}
+
+/// A left-spine event tree of `depth` internal nodes: `(0,(0,(…),0),0)` — every node
+/// carries base `0`, a left subtree (the spine), and a `0` leaf on the right. Returns
+/// its canonical `enc_ev` bits and node count (`2*depth + 1`). `depth >= 0`.
+pub(crate) fn deep_version_bits(depth: usize) -> (Bits, usize) {
+    let mut bits = Bits::new();
+    for _ in 0..depth {
+        bits.push(true); // internal node flag
+        codec::encode_int(&mut bits, 0); // base 0
+    }
+    bits.push(false); // innermost left: leaf 0
+    codec::encode_int(&mut bits, 0);
+    for _ in 0..depth {
+        bits.push(false); // each node's right: leaf 0
+        codec::encode_int(&mut bits, 0);
+    }
+    let nodes = 2 * depth + 1;
+    (bits, nodes)
+}
+
+/// Assert that `steps`, measured at two input sizes whose node counts differ by `4×`,
+/// grows roughly linearly rather than quadratically. Linear predicts `~4×` more steps;
+/// quadratic predicts `~16×`. The `6×` threshold sits comfortably between, independent
+/// of any constant factor.
+pub(crate) fn assert_linear_scaling(small_steps: u64, big_steps: u64) {
+    assert!(
+        big_steps <= 6 * small_steps,
+        "steps grew super-linearly: {small_steps} -> {big_steps} for a 4x larger input \
+         (linear would be ~4x; this is {:.1}x)",
+        big_steps as f64 / small_steps.max(1) as f64,
+    );
+}

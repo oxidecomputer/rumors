@@ -1,16 +1,21 @@
 //! The causal order on event trees: an iterative, offset-threaded `leq` that reads
 //! either representation in place (no transcode), plus the derived comparison.
 //!
-//! `leq(a, b)` decides whether `a`'s event function is `<=` `b`'s pointwise. It is
-//! the recursive `leq` of the paper (plan Appendix A) made iterative: `self` always
-//! descends (so the walk terminates), while `other` either descends in lockstep
-//! (both internal) or is broadcast unchanged to both of `self`'s children (when
-//! `other` is a leaf). Path sums are threaded as offsets; `u128` offsets cannot
-//! overflow for any in-memory tree.
+//! `leq(a, b)` decides whether `a`'s event function is `<=` `b`'s pointwise. It is the
+//! recursive `leq` of the paper (plan Appendix A) made iterative *and* `O(n + m)`:
+//! `a` is always fully descended (every node visited once, no re-scan), while `b`
+//! either descends in lockstep (both internal) or is broadcast unchanged to both of
+//! `a`'s children (when `b` is a leaf). Right-child positions are **threaded** — the
+//! walk reports where each subtree ended, so a sibling resumes there instead of
+//! skipping the left subtree. The one place `b` is skipped is under an `a` leaf, which
+//! dominates `b`'s whole subtree there; each `b` node is skipped at most once, so the
+//! total stays linear. Path sums are threaded as `u128` offsets, which cannot overflow
+//! for any in-memory tree.
 
 use core::cmp::Ordering;
 
 use crate::codec::{decode_int, BitsSlice};
+use crate::step;
 
 use super::working::WorkingVersion;
 
@@ -26,6 +31,7 @@ impl EvView<'_> {
     /// header is the flag bit plus the gamma-coded base; the left child (if any)
     /// begins at the returned position. For working, a node is one slot.
     fn header(&self, at: usize) -> (bool, u64, usize) {
+        step!();
         match self {
             EvView::Packed(bits) => {
                 let internal = bits[at];
@@ -49,33 +55,87 @@ fn skip(view: &EvView, mut at: usize) -> usize {
     at
 }
 
-/// Whether `a`'s event function is pointwise `<=` `b`'s. Iterative; both views are
-/// walked from their roots (position `0`).
+/// A step in the threaded `leq` walk.
+enum Job {
+    /// Compare the subtrees at these positions, under these path-sum offsets.
+    Eval {
+        ap: usize,
+        ao: u128,
+        bp: usize,
+        bo: u128,
+    },
+    /// Both-internal node: its left child finished; launch the right child, whose `b`
+    /// position is threaded from where the left child's `b` subtree ended.
+    RightLockstep { an: u128, bn: u128 },
+    /// Broadcast node (`b` is a leaf): launch the right child against the same pinned
+    /// `b` leaf, with `a`'s position threaded from the left child's end.
+    RightBroadcast { an: u128, bp: usize, bo: u128 },
+}
+
+/// Whether `a`'s event function is pointwise `<=` `b`'s. Iterative and `O(n + m)`.
 fn leq(a: &EvView, b: &EvView) -> bool {
-    // (a-position, b-position, a-offset, b-offset)
-    let mut stack: Vec<(usize, usize, u128, u128)> = vec![(0, 0, 0, 0)];
-    while let Some((ap, bp, ao, bo)) = stack.pop() {
-        let (a_internal, a_base, a_next) = a.header(ap);
-        let (b_internal, b_base, b_next) = b.header(bp);
-        let an = ao + a_base as u128;
-        let bn = bo + b_base as u128;
-        if an > bn {
-            return false;
-        }
-        if !a_internal {
-            continue; // a leaf with an <= bn is dominated everywhere below it
-        }
-        let a_left = a_next;
-        let a_right = skip(a, a_left);
-        if b_internal {
-            let b_left = b_next;
-            let b_right = skip(b, b_left);
-            stack.push((a_left, b_left, an, bn));
-            stack.push((a_right, b_right, an, bn));
-        } else {
-            // b is a leaf: broadcast it (unchanged) to both of a's children.
-            stack.push((a_left, bp, an, bo));
-            stack.push((a_right, bp, an, bo));
+    // The (a, b) end positions of the most recently completed subtree; a pending right
+    // child reads `ret.0` (its `a` start, always threaded) and, in lockstep, `ret.1`.
+    let mut ret = (0usize, 0usize);
+    let mut stack = vec![Job::Eval {
+        ap: 0,
+        ao: 0,
+        bp: 0,
+        bo: 0,
+    }];
+    while let Some(job) = stack.pop() {
+        match job {
+            Job::Eval { ap, ao, bp, bo } => {
+                let (a_internal, a_base, a_next) = a.header(ap);
+                let (b_internal, b_base, b_next) = b.header(bp);
+                let an = ao + a_base as u128;
+                let bn = bo + b_base as u128;
+                if an > bn {
+                    return false;
+                }
+                if !a_internal {
+                    // `a` leaf: dominated everywhere below. Report `b`'s subtree end so
+                    // the parent can resume — the one bounded lazy-skip of `b`.
+                    ret = (a_next, skip(b, bp));
+                    continue;
+                }
+                let a_left = a_next;
+                if b_internal {
+                    stack.push(Job::RightLockstep { an, bn });
+                    stack.push(Job::Eval {
+                        ap: a_left,
+                        ao: an,
+                        bp: b_next,
+                        bo: bn,
+                    });
+                } else {
+                    stack.push(Job::RightBroadcast { an, bp, bo });
+                    stack.push(Job::Eval {
+                        ap: a_left,
+                        ao: an,
+                        bp,
+                        bo,
+                    });
+                }
+            }
+            Job::RightLockstep { an, bn } => {
+                let (a_left_end, b_left_end) = ret;
+                stack.push(Job::Eval {
+                    ap: a_left_end,
+                    ao: an,
+                    bp: b_left_end,
+                    bo: bn,
+                });
+            }
+            Job::RightBroadcast { an, bp, bo } => {
+                let (a_left_end, _) = ret;
+                stack.push(Job::Eval {
+                    ap: a_left_end,
+                    ao: an,
+                    bp,
+                    bo,
+                });
+            }
         }
     }
     true

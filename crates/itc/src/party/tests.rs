@@ -6,8 +6,22 @@ use std::cmp::Ordering;
 
 use proptest::prelude::*;
 
-use super::Party;
-use crate::test_support::{from_oracle_party, run, world_strategy};
+use super::{ops, Party};
+use crate::metrics;
+use crate::test_support::{
+    assert_linear_scaling, deep_party_bits, from_oracle_party, run, world_strategy,
+};
+
+/// Steps taken by `f` on a fresh counter.
+fn steps_of(f: impl FnOnce()) -> u64 {
+    metrics::reset();
+    f();
+    metrics::taken()
+}
+
+/// Two left-spine party depths a 4× node-count apart, for linear-scaling checks.
+const SMALL_DEPTH: usize = 256;
+const BIG_DEPTH: usize = 1024;
 
 /// `a <= b` under the impl descent order.
 fn le(a: &Party, b: &Party) -> bool {
@@ -75,6 +89,63 @@ proptest! {
         prop_assert!(keep.join(child).is_ok());
         prop_assert!(keep == parent);
     }
+}
+
+/// Complexity. `split` is `O(n)` in its input: traversal steps grow linearly, not
+/// quadratically, on a deep left-spine id (the worst case for any right-child lookup
+/// that re-scans the left subtree).
+#[test]
+fn split_is_linear() {
+    let (small, sn) = deep_party_bits(SMALL_DEPTH);
+    let (big, bn) = deep_party_bits(BIG_DEPTH);
+    let small_steps = steps_of(|| {
+        ops::split(&small);
+    });
+    let big_steps = steps_of(|| {
+        ops::split(&big);
+    });
+    assert!(bn >= 3 * sn, "sizes should differ ~4x: {sn} vs {bn}");
+    assert_linear_scaling(small_steps, big_steps);
+}
+
+/// Complexity. `sum` is `O(n + m)`: on a deep disjoint pair (the two halves of a forked
+/// spine) its steps grow linearly.
+#[test]
+fn sum_is_linear() {
+    let measure = |depth| {
+        let (bits, _) = deep_party_bits(depth);
+        let mut keep = Party::from_bits(bits);
+        let give = keep.fork(); // a deep disjoint pair; this build is not measured
+        steps_of(|| {
+            ops::sum(keep.as_bits(), give.as_bits());
+        })
+    };
+    assert_linear_scaling(measure(SMALL_DEPTH), measure(BIG_DEPTH));
+}
+
+/// Complexity. `is_disjoint` is `O(n + m)`: comparing a deep spine against a copy of
+/// itself drives the both-internal lockstep down the whole spine, yet stays linear.
+#[test]
+fn is_disjoint_is_linear() {
+    let measure = |depth| {
+        let (bits, _) = deep_party_bits(depth);
+        steps_of(|| {
+            ops::is_disjoint(&bits, &bits);
+        })
+    };
+    assert_linear_scaling(measure(SMALL_DEPTH), measure(BIG_DEPTH));
+}
+
+/// Complexity. `contains` is `O(n + m)`: the deep-lockstep self-comparison stays linear.
+#[test]
+fn contains_is_linear() {
+    let measure = |depth| {
+        let (bits, _) = deep_party_bits(depth);
+        steps_of(|| {
+            ops::contains(&bits, &bits);
+        })
+    };
+    assert_linear_scaling(measure(SMALL_DEPTH), measure(BIG_DEPTH));
 }
 
 proptest! {

@@ -7,7 +7,21 @@ use proptest::prelude::*;
 
 use super::working::{repack, unpack};
 use super::Version;
-use crate::test_support::{from_oracle_version, run, versions, world_strategy};
+use crate::metrics;
+use crate::test_support::{
+    assert_linear_scaling, deep_version_bits, from_oracle_version, run, versions, world_strategy,
+};
+
+/// Steps taken by `f` on a fresh counter.
+fn steps_of(f: impl FnOnce()) -> u64 {
+    metrics::reset();
+    f();
+    metrics::taken()
+}
+
+/// Two left-spine event-tree depths a 4× node-count apart, for linear-scaling checks.
+const SMALL_DEPTH: usize = 256;
+const BIG_DEPTH: usize = 1024;
 
 /// `a <= b` under the impl causal order.
 fn le(a: &Version, b: &Version) -> bool {
@@ -45,6 +59,20 @@ proptest! {
         prop_assert!(repacked == v);
         prop_assert_eq!(repacked.encode(), v.encode());
     }
+}
+
+/// Complexity. The causal order is `O(n + m)`: comparing a deep left-spine event tree
+/// against itself drives the both-internal lockstep down the whole spine, yet steps
+/// grow linearly rather than quadratically (no right-child re-scan).
+#[test]
+fn leq_is_linear() {
+    let measure = |depth| {
+        let v = Version::from_bits(deep_version_bits(depth).0);
+        steps_of(|| {
+            let _ = v.partial_cmp(&v);
+        })
+    };
+    assert_linear_scaling(measure(SMALL_DEPTH), measure(BIG_DEPTH));
 }
 
 proptest! {

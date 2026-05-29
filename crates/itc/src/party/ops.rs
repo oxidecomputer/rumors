@@ -1,63 +1,22 @@
 //! Iterative id operations on the packed form (plan §2.1: ids have no working form,
 //! so `split`/`sum`/`is_disjoint`/`contains` run directly on the `enc_id` bit stream).
 //!
-//! `enc_id(Leaf v) = 0, v` (2 bits); `enc_id(Node l r) = 1, l, r`. Every traversal
-//! uses an explicit stack — no recursion on tree depth.
+//! `enc_id(Leaf v) = 0, v` (2 bits); `enc_id(Node l r) = 1, enc_id(l), enc_id(r)`.
+//! Every traversal is iterative (explicit stack) and `O(n + m)` in its inputs — no
+//! re-scan to find a right child. Two techniques achieve that:
+//!
+//! - **Threading.** A right child's position is *discovered* when the walk finishes
+//!   the left subtree, not recomputed by skipping it. The DFS returns where each
+//!   subtree ended; the sibling resumes there.
+//! - **Bounded lazy-skip.** Where one side prunes early (a leaf dominates the other's
+//!   whole subtree), the dominated subtree is skipped *once*, at the prune point, to
+//!   resync the cursors. Each node is skipped at most once, so the total stays `O(n)`.
+//!
+//! Emptiness/fullness are `O(1)` leaf checks (see [`idbits`]), valid because every
+//! `Party` — and every subtree of one — is in canonical normal form.
 
 use crate::codec::{Bits, BitsSlice};
-
-/// `(is_internal, leaf_value, position-just-past-this-node's-header)`. For a node the
-/// header is the single flag bit and the left child begins at the returned position;
-/// for a leaf the header is the flag plus its value bit.
-fn header(bits: &BitsSlice, at: usize) -> (bool, bool, usize) {
-    let is_node = bits[at];
-    if is_node {
-        (true, false, at + 1)
-    } else {
-        (false, bits[at + 1], at + 2)
-    }
-}
-
-/// Position just past the whole subtree rooted at `at`. Iterative.
-fn skip(bits: &BitsSlice, mut at: usize) -> usize {
-    let mut pending: i64 = 1;
-    while pending > 0 {
-        let (is_node, _, next) = header(bits, at);
-        at = next;
-        pending += if is_node { 1 } else { -1 };
-    }
-    at
-}
-
-/// Whether the subtree at `pos` owns nothing (all leaves are `0`).
-fn is_empty(bits: &BitsSlice, pos: usize) -> bool {
-    let mut at = pos;
-    let mut pending: i64 = 1;
-    while pending > 0 {
-        let (is_node, val, next) = header(bits, at);
-        if !is_node && val {
-            return false;
-        }
-        at = next;
-        pending += if is_node { 1 } else { -1 };
-    }
-    true
-}
-
-/// Whether the subtree at `pos` owns everything (all leaves are `1`).
-fn is_full(bits: &BitsSlice, pos: usize) -> bool {
-    let mut at = pos;
-    let mut pending: i64 = 1;
-    while pending > 0 {
-        let (is_node, val, next) = header(bits, at);
-        if !is_node && !val {
-            return false;
-        }
-        at = next;
-        pending += if is_node { 1 } else { -1 };
-    }
-    true
-}
+use crate::idbits::{header, skip};
 
 /// A leaf id stream: `0, v`.
 fn id_leaf(v: bool) -> Bits {
@@ -80,161 +39,269 @@ fn id_node(l: &BitsSlice, r: &BitsSlice) -> Bits {
     out
 }
 
-/// Whether two ids share no owned region.
+// ───────────────────────────── two-tree comparisons ─────────────────────────────
+
+/// A step in a threaded two-tree DFS.
+enum Pair {
+    /// Compare the subtrees at these positions.
+    Eval(usize, usize),
+    /// The left child just finished; launch the right child from where it ended.
+    Right,
+}
+
+/// Whether two (normal-form) ids share no owned region. `O(n + m)`: both cursors are
+/// threaded, and a side is skipped only where the other's leaf dominates it.
 pub(crate) fn is_disjoint(a: &BitsSlice, b: &BitsSlice) -> bool {
-    let mut stack: Vec<(usize, usize)> = vec![(0, 0)];
-    while let Some((ap, bp)) = stack.pop() {
-        let (a_node, a_val, a_next) = header(a, ap);
-        let (b_node, b_val, b_next) = header(b, bp);
-        if (!a_node && !a_val) || (!b_node && !b_val) {
-            continue; // a `0` leaf is disjoint from anything
-        } else if !a_node && a_val {
-            if !is_empty(b, bp) {
-                return false; // a is full here; b must own nothing
+    // `ends` holds the (a, b) end positions of the most recently completed pair, so a
+    // pending `Right` knows where its sibling begins without re-scanning.
+    let mut ends = (0usize, 0usize);
+    let mut stack = vec![Pair::Eval(0, 0)];
+    while let Some(job) = stack.pop() {
+        match job {
+            Pair::Eval(ap, bp) => {
+                let (a_node, a_val, a_next) = header(a, ap);
+                let (b_node, b_val, b_next) = header(b, bp);
+                if !a_node && !a_val {
+                    ends = (a_next, skip(b, bp)); // a owns nothing here: disjoint
+                } else if !b_node && !b_val {
+                    ends = (skip(a, ap), b_next); // b owns nothing here: disjoint
+                } else if !a_node {
+                    return false; // a is full, b is nonempty: overlap
+                } else if !b_node {
+                    return false; // b is full, a is nonempty: overlap
+                } else {
+                    stack.push(Pair::Right);
+                    stack.push(Pair::Eval(a_next, b_next)); // left
+                }
             }
-        } else if !b_node && b_val {
-            if !is_empty(a, ap) {
-                return false;
+            Pair::Right => {
+                let (a_left_end, b_left_end) = ends;
+                stack.push(Pair::Eval(a_left_end, b_left_end));
             }
-        } else {
-            let (a_l, b_l) = (a_next, b_next);
-            stack.push((a_l, b_l));
-            stack.push((skip(a, a_l), skip(b, b_l)));
         }
     }
     true
 }
 
 /// Whether `a` owns every region `b` owns (reverse-inclusion: `a` contains `b`).
+/// `O(n + m)`, by the same threading + bounded lazy-skip.
 pub(crate) fn contains(a: &BitsSlice, b: &BitsSlice) -> bool {
-    let mut stack: Vec<(usize, usize)> = vec![(0, 0)];
-    while let Some((ap, bp)) = stack.pop() {
-        let (a_node, a_val, a_next) = header(a, ap);
-        let (b_node, b_val, b_next) = header(b, bp);
-        if !b_node && !b_val {
-            continue; // b owns nothing here
-        } else if !a_node && a_val {
-            continue; // a owns everything here
-        } else if !a_node && !a_val {
-            if !is_empty(b, bp) {
-                return false; // a empty but b owns something
+    let mut ends = (0usize, 0usize);
+    let mut stack = vec![Pair::Eval(0, 0)];
+    while let Some(job) = stack.pop() {
+        match job {
+            Pair::Eval(ap, bp) => {
+                let (a_node, a_val, a_next) = header(a, ap);
+                let (b_node, b_val, b_next) = header(b, bp);
+                if !b_node && !b_val {
+                    ends = (skip(a, ap), b_next); // b owns nothing here: contained
+                } else if !a_node && a_val {
+                    ends = (a_next, skip(b, bp)); // a owns everything here: contains b
+                } else if !a_node {
+                    return false; // a empty, b nonempty: not contained
+                } else if !b_node {
+                    return false; // b full, a is a node (never full): not contained
+                } else {
+                    stack.push(Pair::Right);
+                    stack.push(Pair::Eval(a_next, b_next)); // left
+                }
             }
-        } else if !b_node && b_val {
-            if !is_full(a, ap) {
-                return false; // b full but a does not own all of it
+            Pair::Right => {
+                let (a_left_end, b_left_end) = ends;
+                stack.push(Pair::Eval(a_left_end, b_left_end));
             }
-        } else {
-            let (a_l, b_l) = (a_next, b_next);
-            stack.push((a_l, b_l));
-            stack.push((skip(a, a_l), skip(b, b_l)));
         }
     }
     true
 }
 
-/// Split an id into two non-overlapping ids that sum to it. Descends a single spine
-/// (following the non-empty child when one side is empty) to the base case, then
-/// rebuilds both halves on the way up — one descent, one ascent, both iterative.
-pub(crate) fn split(bits: &BitsSlice) -> (Bits, Bits) {
-    enum Wrap {
-        /// Descended right (left was empty): rebuild as `node(0, child)`.
-        Right,
-        /// Descended left (right was empty): rebuild as `node(child, 0)`.
-        Left,
-    }
-    let mut wraps: Vec<Wrap> = Vec::new();
-    let mut pos = 0;
-    let (mut a, mut b) = loop {
-        let (is_node, val, next) = header(bits, pos);
-        if !is_node {
-            break if val {
-                // split(1) = ((1,0), (0,1))
-                (
-                    id_node(&id_leaf(true), &id_leaf(false)),
-                    id_node(&id_leaf(false), &id_leaf(true)),
-                )
-            } else {
-                (id_leaf(false), id_leaf(false))
-            };
-        }
-        let l = next;
-        let r = skip(bits, l);
-        let l_empty = is_empty(bits, l);
-        let r_empty = is_empty(bits, r);
-        if l_empty && r_empty {
-            // A canonical node never has both children empty (it would collapse),
-            // but treat it as the empty split for total coverage.
-            break (id_leaf(false), id_leaf(false));
-        } else if l_empty {
-            wraps.push(Wrap::Right);
-            pos = r;
-        } else if r_empty {
-            wraps.push(Wrap::Left);
-            pos = l;
-        } else {
-            let l_sub = &bits[l..r];
-            let r_sub = &bits[r..skip(bits, r)];
-            break (
-                id_node(l_sub, &id_leaf(false)),
-                id_node(&id_leaf(false), r_sub),
-            );
-        }
-    };
-    while let Some(w) = wraps.pop() {
-        match w {
-            Wrap::Right => {
-                a = id_node(&id_leaf(false), &a);
-                b = id_node(&id_leaf(false), &b);
-            }
-            Wrap::Left => {
-                a = id_node(&a, &id_leaf(false));
-                b = id_node(&b, &id_leaf(false));
-            }
-        }
-    }
-    (a, b)
+// ───────────────────────────── sum (disjoint union) ─────────────────────────────
+
+/// A step in the threaded `sum` build. Results carry `(bits, a_end, b_end)`.
+enum SumJob {
+    Eval(usize, usize),
+    /// Left finished; launch the right child from its end.
+    Right,
+    /// Both children built; combine them into a normalized node.
+    Combine,
 }
 
-/// Sum two ids (the disjoint union of their regions), producing a normalized id.
-/// Postorder evaluation on explicit task/result stacks. For disjoint inputs the
-/// overlap fallback (`1`) is unreachable, matching the oracle.
+/// Sum two (disjoint, normal-form) ids — the union of their regions — producing a
+/// normalized id. `O(n + m)`: the both-internal case threads (no skip); a `0` child
+/// copies the other subtree verbatim (work bounded by the output size). For disjoint
+/// inputs the overlap fallback (`1`) is unreachable, matching the oracle.
 pub(crate) fn sum(a: &BitsSlice, b: &BitsSlice) -> Bits {
-    enum Task {
-        /// Sum the subtrees at these positions.
-        Sum(usize, usize),
-        /// Pop two results and combine them with `id_node`.
-        Combine,
-    }
-    let mut tasks: Vec<Task> = vec![Task::Sum(0, 0)];
-    let mut results: Vec<Bits> = Vec::new();
-    while let Some(task) = tasks.pop() {
-        match task {
-            Task::Sum(ap, bp) => {
+    let mut results: Vec<(Bits, usize, usize)> = Vec::new();
+    let mut stack = vec![SumJob::Eval(0, 0)];
+    while let Some(job) = stack.pop() {
+        match job {
+            SumJob::Eval(ap, bp) => {
                 let (a_node, a_val, a_next) = header(a, ap);
                 let (b_node, b_val, b_next) = header(b, bp);
                 if !a_node && !a_val {
-                    results.push(b[bp..skip(b, bp)].to_bitvec()); // sum(0, b) = b
+                    let end = skip(b, bp); // sum(0, b) = b
+                    results.push((b[bp..end].to_bitvec(), a_next, end));
                 } else if !b_node && !b_val {
-                    results.push(a[ap..skip(a, ap)].to_bitvec()); // sum(a, 0) = a
+                    let end = skip(a, ap); // sum(a, 0) = a
+                    results.push((a[ap..end].to_bitvec(), end, b_next));
                 } else if a_node && b_node {
-                    let (a_l, b_l) = (a_next, b_next);
-                    let (a_r, b_r) = (skip(a, a_l), skip(b, b_l));
-                    tasks.push(Task::Combine);
-                    tasks.push(Task::Sum(a_r, b_r));
-                    tasks.push(Task::Sum(a_l, b_l));
+                    stack.push(SumJob::Combine);
+                    stack.push(SumJob::Right);
+                    stack.push(SumJob::Eval(a_next, b_next)); // left
                 } else {
-                    // Overlap (full vs anything non-empty): unreachable for disjoint
-                    // inputs; mirror the oracle's saturating fallback.
-                    results.push(id_leaf(true));
+                    // Overlap (full vs nonempty): unreachable for disjoint inputs;
+                    // mirror the oracle's saturating fallback.
+                    results.push((id_leaf(true), skip(a, ap), skip(b, bp)));
                 }
             }
-            Task::Combine => {
-                // The left subtree was pushed first, so the right result is on top.
-                let right = results.pop().expect("right result present");
-                let left = results.pop().expect("left result present");
-                results.push(id_node(&left, &right));
+            SumJob::Right => {
+                let &(_, a_left_end, b_left_end) = results.last().expect("left result present");
+                stack.push(SumJob::Eval(a_left_end, b_left_end));
+            }
+            SumJob::Combine => {
+                let (right, a_end, b_end) = results.pop().expect("right result present");
+                let (left, ..) = results.pop().expect("left result present");
+                results.push((id_node(&left, &right), a_end, b_end));
             }
         }
     }
-    results.pop().expect("one result remains")
+    results.pop().expect("one result remains").0
+}
+
+// ───────────────────────────── split ─────────────────────────────
+
+/// Split an id into two non-overlapping ids that sum to it. `O(n)` in two passes:
+/// locate the *branch* — the shallowest node along the (unique) nonempty spine whose
+/// two children both own something, or the spine's terminal `1` leaf — then build both
+/// halves by copying the input with one side of the branch zeroed.
+///
+/// The branch is the both-nonempty node of minimum start position (all shallower nodes
+/// are spine wrappers, with one empty child), found by a single forward scan rather
+/// than by descending and re-scanning to test each right child for emptiness.
+pub(crate) fn split(bits: &BitsSlice) -> (Bits, Bits) {
+    // A whole-tree leaf splits directly.
+    let (root_node, root_val, _) = header(bits, 0);
+    if !root_node {
+        return if root_val {
+            // split(1) = ((1, 0), (0, 1))
+            (
+                id_node(&id_leaf(true), &id_leaf(false)),
+                id_node(&id_leaf(false), &id_leaf(true)),
+            )
+        } else {
+            (id_leaf(false), id_leaf(false))
+        };
+    }
+
+    // Pass 1: find the branch by a single forward preorder scan.
+    enum Frame {
+        NeedLeft {
+            start: usize,
+        },
+        NeedRight {
+            start: usize,
+            left_empty: bool,
+            right_start: usize,
+        },
+    }
+    // The branch node `(start, left_start, right_start)`, and any `1` leaf (the branch
+    // when the tree is a pure spine with no both-nonempty node).
+    let mut branch: Option<(usize, usize, usize)> = None;
+    let mut one_leaf: Option<usize> = None;
+    let mut stack: Vec<Frame> = Vec::new();
+    let mut pos = 0;
+    loop {
+        let (is_node, val, next) = header(bits, pos);
+        let start = pos;
+        pos = next;
+        // What the just-parsed subtree reports to its parent: was it empty?
+        let mut child_empty = if is_node {
+            stack.push(Frame::NeedLeft { start });
+            continue; // descend into the left child
+        } else {
+            if val {
+                one_leaf.get_or_insert(start);
+            }
+            !val // a `0` leaf is empty; a `1` leaf is not
+        };
+        // Bubble the completed subtree up, completing ancestors as their turn comes.
+        loop {
+            match stack.pop() {
+                None => return build_split(bits, branch, one_leaf),
+                Some(Frame::NeedLeft { start }) => {
+                    stack.push(Frame::NeedRight {
+                        start,
+                        left_empty: child_empty,
+                        right_start: pos,
+                    });
+                    break; // parse the right child next
+                }
+                Some(Frame::NeedRight {
+                    start,
+                    left_empty,
+                    right_start,
+                }) => {
+                    let both_nonempty = !left_empty && !child_empty;
+                    if both_nonempty && branch.is_none_or(|(p, ..)| start < p) {
+                        branch = Some((start, start + 1, right_start));
+                    }
+                    child_empty = false; // a normal-form node is never empty
+                }
+            }
+        }
+    }
+}
+
+/// Build the two split halves once the branch is located (see [`split`]). `a` keeps the
+/// branch's left side (its right zeroed); `b` keeps the right side (its left zeroed).
+fn build_split(
+    bits: &BitsSlice,
+    branch: Option<(usize, usize, usize)>,
+    one_leaf: Option<usize>,
+) -> (Bits, Bits) {
+    let zero = id_leaf(false);
+    if let Some((p, left_start, right_start)) = branch {
+        // Branch is a node `(i1, i2)`: i1 = bits[left_start..right_start],
+        // i2 = bits[right_start..branch_end], with the wrapper spine in the prefix
+        // bits[0..p] and the trailing wrapper closings in bits[branch_end..].
+        let branch_end = skip(bits, right_start);
+        let prefix = &bits[0..p];
+        let i1 = &bits[left_start..right_start];
+        let i2 = &bits[right_start..branch_end];
+        let suffix = &bits[branch_end..];
+
+        let mut a = Bits::new();
+        a.extend_from_bitslice(prefix);
+        a.push(true); // the branch node, right child zeroed
+        a.extend_from_bitslice(i1);
+        a.extend_from_bitslice(&zero);
+        a.extend_from_bitslice(suffix);
+
+        let mut b = Bits::new();
+        b.extend_from_bitslice(prefix);
+        b.push(true); // the branch node, left child zeroed
+        b.extend_from_bitslice(&zero);
+        b.extend_from_bitslice(i2);
+        b.extend_from_bitslice(suffix);
+
+        (a, b)
+    } else {
+        // No both-nonempty node: the spine ends in a `1` leaf, split as (1,0)/(0,1).
+        let p = one_leaf.expect("a nonempty id has a branch node or a 1 leaf");
+        let prefix = &bits[0..p];
+        let suffix = &bits[p + 2..]; // the `1` leaf occupies 2 bits
+        let one = id_leaf(true);
+
+        let mut a = Bits::new();
+        a.extend_from_bitslice(prefix);
+        a.extend_from_bitslice(&id_node(&one, &zero));
+        a.extend_from_bitslice(suffix);
+
+        let mut b = Bits::new();
+        b.extend_from_bitslice(prefix);
+        b.extend_from_bitslice(&id_node(&zero, &one));
+        b.extend_from_bitslice(suffix);
+
+        (a, b)
+    }
 }
