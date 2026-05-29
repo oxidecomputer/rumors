@@ -94,7 +94,7 @@ impl PartialOrd for Version {
 impl core::fmt::Debug for Version {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let _ = f;
-        todo!()
+        todo!("Phase 7: Version Debug")
     }
 }
 

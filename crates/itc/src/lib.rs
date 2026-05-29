@@ -29,40 +29,15 @@ pub mod party;
 pub mod version;
 
 #[cfg(test)]
+mod metrics;
+#[cfg(test)]
 mod oracle;
 #[cfg(test)]
 mod test_support;
 
-/// Test-only traversal step counter. Every node-header read calls [`step!`]; the
-/// complexity tests reset it, run one operation, and assert the count is `O(n + m)`
-/// — proving no traversal re-scans (which would be `O(n²)` on a deep spine). A
-/// deterministic stand-in for wall-clock timing, which would be flaky.
-#[cfg(test)]
-pub(crate) mod metrics {
-    use std::cell::Cell;
-
-    thread_local! {
-        static STEPS: Cell<u64> = const { Cell::new(0) };
-    }
-
-    /// Reset the step counter to zero.
-    pub(crate) fn reset() {
-        STEPS.with(|c| c.set(0));
-    }
-
-    /// The number of traversal steps recorded since the last [`reset`].
-    pub(crate) fn taken() -> u64 {
-        STEPS.with(|c| c.get())
-    }
-
-    /// Record one traversal step (one node-header read).
-    pub(crate) fn bump() {
-        STEPS.with(|c| c.set(c.get() + 1));
-    }
-}
-
-/// Record one traversal step. Expands to a counter bump under `cfg(test)` (see
-/// [`metrics`]) and to nothing otherwise, so production traversals pay zero cost.
+/// Record one traversal step. Expands to a counter bump under `cfg(test)` (see the
+/// test-only [`metrics`](crate::metrics) module) and to nothing otherwise, so
+/// production traversals pay zero cost.
 #[cfg(test)]
 macro_rules! step {
     () => {

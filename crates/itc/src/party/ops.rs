@@ -210,6 +210,10 @@ pub(crate) fn split(bits: &BitsSlice) -> (Bits, Bits) {
     let mut one_leaf: Option<usize> = None;
     let mut stack: Vec<Frame> = Vec::new();
     let mut pos = 0;
+    // Two interleaved phases per outer iteration: phase A descends left to a leaf
+    // (pushing `NeedLeft` frames); phase B (the inner `loop`) pops completed ancestors,
+    // recording the shallowest both-nonempty node as the branch, until one still needs
+    // its right child (then resume phase A there) or the stack empties (then build).
     loop {
         let (is_node, val, next) = header(bits, pos);
         let start = pos;

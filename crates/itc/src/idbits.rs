@@ -28,7 +28,9 @@ pub(crate) fn header(bits: &BitsSlice, at: usize) -> (bool, bool, usize) {
 }
 
 /// Position just past the whole subtree rooted at `at`. Iterative: a pending-children
-/// counter, never the call stack.
+/// counter, never the call stack. (The event-tree analogue, on the `EvView` header
+/// shape, is `version::compare::skip`: same algorithm, different node encoding — keep
+/// the two in step.)
 pub(crate) fn skip(bits: &BitsSlice, mut at: usize) -> usize {
     let mut pending: i64 = 1;
     while pending > 0 {

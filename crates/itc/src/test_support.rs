@@ -142,7 +142,8 @@ pub(crate) fn from_oracle_party(t: &oracle::Party) -> Party {
     Party::from_bits(bits)
 }
 
-/// Build the impl `Version` whose canonical bits encode `t`.
+/// Build the impl `Version` whose canonical bits encode `t`. Recursive over a bounded
+/// oracle tree (test-only; the impl's own traversals are iterative).
 pub(crate) fn from_oracle_version(t: &oracle::Version) -> Version {
     let mut bits = Bits::new();
     emit_ev(&mut bits, t);

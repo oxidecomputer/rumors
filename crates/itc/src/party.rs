@@ -95,6 +95,6 @@ impl PartialOrd for Party {
 impl core::fmt::Debug for Party {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let _ = f;
-        todo!()
+        todo!("Phase 7: Party Debug")
     }
 }

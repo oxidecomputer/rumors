@@ -1,4 +1,9 @@
 //! [`Clock`] — a [`Party`] paired with a [`Version`], and its working-form [`Batch`].
+//!
+//! NOTE: [`clock::Batch`](Batch) and the `Clock`-level join operators (`BitOr`/
+//! `BitOrAssign`) land in Phase 6, and `Clock`'s `Debug` in Phase 7. The `todo!()`
+//! bodies below are deliberate stubs matching the frozen Appendix B surface, not
+//! oversights — every signature is final; only the body is pending.
 
 use core::marker::PhantomData;
 use core::ops::{BitOr, BitOrAssign};
@@ -116,7 +121,7 @@ impl Clock {
 impl core::fmt::Debug for Clock {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let _ = f;
-        todo!()
+        todo!("Phase 7: Clock Debug")
     }
 }
 

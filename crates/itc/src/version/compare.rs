@@ -23,8 +23,10 @@ use crate::step;
 use super::working::WorkingVersion;
 
 /// A read-only view of an event tree in either storage form, addressed by a position
-/// (a bit offset for packed, a node index for working).
-pub(crate) enum EvView<'a> {
+/// (a bit offset for packed, a node index for working). Visibility is uniform
+/// `pub(super)` across the trio `EvView`/[`header`](EvView::header)/[`skip`] — used
+/// throughout `version/` (compare, event, grow) and nowhere outside it.
+pub(super) enum EvView<'a> {
     Packed(&'a BitsSlice),
     Working(&'a WorkingVersion),
 }
@@ -34,6 +36,14 @@ impl EvView<'_> {
     /// header is the flag bit plus the gamma-coded base; the left child (if any)
     /// begins at the returned position. For working, a node is one slot.
     pub(super) fn header(&self, at: usize) -> (bool, u64, usize) {
+        // `grow` uses `super::event::VIRTUAL` (`usize::MAX`) as a sentinel "virtual leaf"
+        // position and always guards `ev == VIRTUAL` before any real header read. This
+        // turns a slipped guard into a loud panic instead of a silent out-of-bounds /
+        // wrong-answer. Defense-in-depth only; debug builds.
+        debug_assert!(
+            at != super::event::VIRTUAL,
+            "EvView::header called on the VIRTUAL sentinel position",
+        );
         step!();
         match self {
             EvView::Packed(bits) => {
@@ -47,7 +57,9 @@ impl EvView<'_> {
 }
 
 /// Advance past one whole subtree starting at `at`, returning the position after it.
-/// Iterative: a pending-children counter, never the call stack.
+/// Iterative: a pending-children counter, never the call stack. (The id-tree analogue,
+/// on the packed id header shape, is [`idbits::skip`](crate::idbits::skip): same
+/// algorithm, different node encoding — keep the two in step.)
 pub(super) fn skip(view: &EvView, mut at: usize) -> usize {
     let mut pending: i64 = 1;
     while pending > 0 {
