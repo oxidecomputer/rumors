@@ -5,6 +5,9 @@ use core::ops::{BitOr, BitOrAssign};
 
 use crate::{codec, version, DecodeError, OverlapError, Party, Version};
 
+#[cfg(test)]
+mod tests;
+
 /// A `Party` paired with a `Version`. Not `Clone`. Implements no comparison
 /// traits — compare the party and version separately with any lexicography.
 pub struct Clock {
@@ -59,22 +62,19 @@ impl Clock {
         self.batch().sync(&mut other.batch())
     }
 
-    /// Whether this clock's history already dominates `msg`.
+    /// Whether this clock's history already dominates `msg` (`msg <= version`).
     pub fn has_seen(&self, msg: &Version) -> bool {
-        let _ = msg;
-        todo!()
+        msg <= &self.version
     }
 
     /// Whether this clock's history strictly precedes `other`'s.
     pub fn happens_before(&self, other: &Clock) -> bool {
-        let _ = other;
-        todo!()
+        self.version < other.version
     }
 
     /// Whether this clock's history is concurrent with `other`'s.
     pub fn concurrent_with(&self, other: &Clock) -> bool {
-        let _ = other;
-        todo!()
+        self.version.partial_cmp(&other.version).is_none()
     }
 
     /// Advance, then snapshot the history to transmit.

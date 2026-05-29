@@ -2,7 +2,6 @@
 //! mutation [`Batch`].
 
 use core::cmp::Ordering;
-use core::marker::PhantomData;
 use core::ops::{BitOr, BitOrAssign};
 
 use bitvec::prelude::*;
@@ -10,6 +9,10 @@ use bitvec::prelude::*;
 use crate::codec::{self, BitsSlice};
 use crate::{DecodeError, Party};
 
+use self::compare::{causal_cmp, EvView};
+use self::working::WorkingVersion;
+
+mod compare;
 mod working;
 
 #[cfg(test)]
@@ -32,9 +35,18 @@ impl Version {
         self.batch().tick(party);
     }
 
-    /// Begin a working-form session over this version.
+    /// Begin a working-form session over this version. The working form is
+    /// materialized lazily (on the first mutating step) and repacked on drop.
     pub fn batch(&mut self) -> Batch<'_> {
-        todo!()
+        Batch {
+            version: self,
+            work: None,
+        }
+    }
+
+    /// A read-only view of this version's event tree.
+    fn view(&self) -> EvView<'_> {
+        EvView::Packed(&self.0)
     }
 
     /// The canonical packed byte encoding (preorder, uniform flag), zero-padded to
@@ -71,8 +83,7 @@ impl Default for Version {
 impl PartialOrd for Version {
     /// The causal order; `None` means the two versions are concurrent.
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        let _ = other;
-        todo!()
+        causal_cmp(&self.view(), &other.view())
     }
 }
 
@@ -84,9 +95,11 @@ impl core::fmt::Debug for Version {
 }
 
 /// A working-form session over a [`Version`]. The event-tree complexity
-/// (fill/grow) lives in [`tick`](Self::tick). Repacks on drop.
+/// (fill/grow) lives in [`tick`](Self::tick). The working form is materialized
+/// lazily and repacked into the borrowed version on drop.
 pub struct Batch<'v> {
-    _p: PhantomData<&'v mut Version>,
+    version: &'v mut Version,
+    work: Option<WorkingVersion>,
 }
 
 impl Batch<'_> {
@@ -101,11 +114,22 @@ impl Batch<'_> {
         let _ = other;
         todo!()
     }
+
+    /// A read-only view of the in-progress event tree (working form if
+    /// materialized, otherwise the borrowed version's packed bits).
+    fn view(&self) -> EvView<'_> {
+        match &self.work {
+            Some(work) => EvView::Working(work),
+            None => EvView::Packed(self.version.as_bits()),
+        }
+    }
 }
 
 impl Drop for Batch<'_> {
     fn drop(&mut self) {
-        // Repack into *version if the working form was materialized.
+        if let Some(work) = self.work.take() {
+            *self.version = Version::from_bits(working::repack(&work));
+        }
     }
 }
 
@@ -140,42 +164,36 @@ impl BitOrAssign<&Version> for Batch<'_> {
 
 impl PartialEq<Batch<'_>> for Version {
     fn eq(&self, o: &Batch<'_>) -> bool {
-        let _ = o;
-        todo!()
+        causal_cmp(&self.view(), &o.view()) == Some(Ordering::Equal)
     }
 }
 
 impl PartialOrd<Batch<'_>> for Version {
     fn partial_cmp(&self, o: &Batch<'_>) -> Option<Ordering> {
-        let _ = o;
-        todo!()
+        causal_cmp(&self.view(), &o.view())
     }
 }
 
 impl PartialEq<Version> for Batch<'_> {
     fn eq(&self, o: &Version) -> bool {
-        let _ = o;
-        todo!()
+        causal_cmp(&self.view(), &o.view()) == Some(Ordering::Equal)
     }
 }
 
 impl PartialOrd<Version> for Batch<'_> {
     fn partial_cmp(&self, o: &Version) -> Option<Ordering> {
-        let _ = o;
-        todo!()
+        causal_cmp(&self.view(), &o.view())
     }
 }
 
 impl<'b> PartialEq<Batch<'b>> for Batch<'_> {
     fn eq(&self, o: &Batch<'b>) -> bool {
-        let _ = o;
-        todo!()
+        causal_cmp(&self.view(), &o.view()) == Some(Ordering::Equal)
     }
 }
 
 impl<'b> PartialOrd<Batch<'b>> for Batch<'_> {
     fn partial_cmp(&self, o: &Batch<'b>) -> Option<Ordering> {
-        let _ = o;
-        todo!()
+        causal_cmp(&self.view(), &o.view())
     }
 }

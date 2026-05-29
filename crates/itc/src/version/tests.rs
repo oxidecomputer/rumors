@@ -1,11 +1,18 @@
 //! Phase 2 working-form tests (Appendix D group A 4): `repack ∘ unpack == identity`
 //! and yields canonical bytes.
 
+use std::cmp::Ordering;
+
 use proptest::prelude::*;
 
 use super::working::{repack, unpack};
 use super::Version;
 use crate::test_support::{from_oracle_version, run, versions, world_strategy};
+
+/// `a <= b` under the impl causal order.
+fn le(a: &Version, b: &Version) -> bool {
+    a.partial_cmp(b).is_some_and(|o| o != Ordering::Greater)
+}
 
 /// `unpack` lays out a known event tree as preorder topology + base arrays.
 #[test]
@@ -37,5 +44,72 @@ proptest! {
 
         prop_assert!(repacked == v);
         prop_assert_eq!(repacked.encode(), v.encode());
+    }
+}
+
+proptest! {
+    /// C7–C10 (differential). The impl causal order agrees with the oracle's on
+    /// every generated pair; this subsumes the order laws since the oracle satisfies
+    /// them (O3) and the impl matches it exactly.
+    #[test]
+    fn c_compare_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+        let cs = run(&ops);
+        let vs = versions(&cs);
+        let n = vs.len();
+        let (oa, ob) = (&vs[i % n], &vs[j % n]);
+        let (ia, ib) = (from_oracle_version(oa), from_oracle_version(ob));
+        prop_assert_eq!(ia.partial_cmp(&ib), oa.partial_cmp(ob));
+    }
+}
+
+proptest! {
+    /// C7–C10. The order laws on impl versions directly: reflexive, antisymmetric,
+    /// transitive; `==` ⇔ `Some(Equal)`; concurrency ⇔ `None`.
+    #[test]
+    fn c_order_laws(ops in world_strategy(), i in 0usize..64, j in 0usize..64, k in 0usize..64) {
+        let cs = run(&ops);
+        let vs = versions(&cs);
+        let n = vs.len();
+        let (a, b, c) = (
+            from_oracle_version(&vs[i % n]),
+            from_oracle_version(&vs[j % n]),
+            from_oracle_version(&vs[k % n]),
+        );
+
+        prop_assert_eq!(a.partial_cmp(&a), Some(Ordering::Equal)); // reflexive
+        if le(&a, &b) && le(&b, &a) {
+            prop_assert!(a == b); // antisymmetric
+        }
+        if le(&a, &b) && le(&b, &c) {
+            prop_assert!(le(&a, &c)); // transitive
+        }
+        prop_assert_eq!(a == b, a.partial_cmp(&b) == Some(Ordering::Equal));
+        let concurrent = !le(&a, &b) && !le(&b, &a);
+        prop_assert_eq!(concurrent, a.partial_cmp(&b).is_none());
+    }
+}
+
+proptest! {
+    /// F28. The comparison matrix agrees: `cmp(a,b)`, `cmp(a.batch(),b)`,
+    /// `cmp(a,b.batch())`, and `cmp(a.batch(),b.batch())` all equal the bare
+    /// version comparison (a fresh batch reflects its version).
+    #[test]
+    fn f28_representation_parity(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+        let cs = run(&ops);
+        let vs = versions(&cs);
+        let n = vs.len();
+        let a = from_oracle_version(&vs[i % n]);
+        let b = from_oracle_version(&vs[j % n]);
+        let base = a.partial_cmp(&b);
+
+        let mut ba = a.clone();
+        let mut bb = b.clone();
+        let batch_a = ba.batch();
+        let batch_b = bb.batch();
+
+        prop_assert_eq!(batch_a.partial_cmp(&b), base); // Batch vs Version
+        prop_assert_eq!(a.partial_cmp(&batch_b), base); // Version vs Batch
+        prop_assert_eq!(batch_a.partial_cmp(&batch_b), base); // Batch vs Batch
+        prop_assert_eq!(a == b, batch_a == batch_b); // PartialEq matrix agrees
     }
 }
