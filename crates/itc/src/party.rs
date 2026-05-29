@@ -7,6 +7,11 @@ use bitvec::prelude::*;
 use crate::codec::{self, BitsSlice};
 use crate::DecodeError;
 
+mod ops;
+
+#[cfg(test)]
+mod tests;
+
 /// A nonzero share of the id space. Not `Clone`. Ordered by descent /
 /// reverse-inclusion: `seed` is the minimum, leaves are maximal, cousins are
 /// `None`. For disjoint parties, `join` computes the meet under this order.
@@ -19,24 +24,31 @@ pub struct Party(BitVec<u8, Msb0>);
 impl Party {
     /// The whole id space (the paper's `1`). The only nonzero constructor.
     pub fn seed() -> Self {
-        todo!()
+        let mut bits = codec::Bits::with_capacity(2);
+        bits.push(false); // leaf flag
+        bits.push(true); // value 1
+        Party(bits)
     }
 
     /// Split in two; `self` keeps one half, the other is returned.
     pub fn fork(&mut self) -> Party {
-        todo!()
+        let (keep, give) = ops::split(&self.0);
+        self.0 = keep;
+        Party(give)
     }
 
     /// Merge a disjoint share into `self`; on overlap, `other` is returned.
     pub fn join(&mut self, other: Party) -> Result<(), Party> {
-        let _ = other;
-        todo!()
+        if !self.is_disjoint(&other) {
+            return Err(other);
+        }
+        self.0 = ops::sum(&self.0, &other.0);
+        Ok(())
     }
 
     /// Whether `self` and `other` share no id-space region.
     pub fn is_disjoint(&self, other: &Party) -> bool {
-        let _ = other;
-        todo!()
+        ops::is_disjoint(&self.0, &other.0)
     }
 
     /// The canonical packed byte encoding (preorder, uniform flag), zero-padded to
@@ -66,10 +78,17 @@ impl Party {
 
 impl PartialOrd for Party {
     /// Descent: an ancestor (larger region) is *less than* its forked descendants;
-    /// cousins are incomparable (`None`).
+    /// cousins are incomparable (`None`). `self < other` ⇔ `self` contains `other`.
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        let _ = other;
-        todo!()
+        match (
+            ops::contains(&self.0, &other.0),
+            ops::contains(&other.0, &self.0),
+        ) {
+            (true, true) => Some(Ordering::Equal),
+            (true, false) => Some(Ordering::Less),
+            (false, true) => Some(Ordering::Greater),
+            (false, false) => None,
+        }
     }
 }
 
