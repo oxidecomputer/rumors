@@ -299,8 +299,11 @@ proptest! {
         if n < 2 {
             return Ok(());
         }
-        let (i, j) = (i % n, j % n);
-        prop_assume!(i != j);
+        // Derive two distinct members directly rather than rejecting collisions —
+        // small populations collide often, and `prop_assume` would blow the local
+        // reject cap under a high case count.
+        let i = i % n;
+        let j = (i + 1 + j % (n - 1)) % n;
 
         let a_pre_v = cs[i].version();
         let b_pre_v = cs[j].version();
