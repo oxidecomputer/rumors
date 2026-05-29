@@ -10,6 +10,11 @@ use bitvec::prelude::*;
 use crate::codec::{self, BitsSlice};
 use crate::{DecodeError, Party};
 
+mod working;
+
+#[cfg(test)]
+mod tests;
+
 /// An event tree / message; an anonymous clock. `Eq`/`Hash` are structural over
 /// the canonical encoding; `PartialOrd` is the causal order (`None` ⇔ concurrent),
 /// consistent with `Eq` because normal form is canonical.
