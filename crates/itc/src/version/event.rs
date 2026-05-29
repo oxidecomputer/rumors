@@ -583,7 +583,7 @@ fn grow_emit(
     while let Some(job) = stack.pop() {
         match job {
             EmitJob::Eval { id, ev } => {
-                let (id_node, _id_val, id_next) = idbits::header(id_bits, id);
+                let (id_node, id_val, id_next) = idbits::header(id_bits, id);
                 let virt = ev == VIRTUAL;
                 let (ev_int, ev_base, ev_next) = if virt {
                     (false, 0u64, VIRTUAL)
@@ -592,6 +592,11 @@ fn grow_emit(
                 };
                 // The inflation point: id full over a leaf/virtual event — increment.
                 if !id_node && !ev_int {
+                    // Invariant: the chosen path never reaches an empty (`0`-leaf) id. A
+                    // normal-form id node always has a nonempty child (its min-cost child
+                    // is never the `COST_MAX` empty side), and a real `Party`'s root is
+                    // never empty — so an id leaf on the chosen path is always full.
+                    debug_assert!(id_val, "grow chose an empty-id region to inflate");
                     ret = (out.leaf(ev_base + 1), id_next, ev_next);
                     continue;
                 }

@@ -9,8 +9,11 @@
 //! walk reports where each subtree ended, so a sibling resumes there instead of
 //! skipping the left subtree. The one place `b` is skipped is under an `a` leaf, which
 //! dominates `b`'s whole subtree there; each `b` node is skipped at most once, so the
-//! total stays linear. Path sums are threaded as `u128` offsets, which cannot overflow
-//! for any in-memory tree.
+//! total stays linear. Path sums are threaded as `u64` offsets — the same width as the
+//! stored bases and as `ev_join`/`fill`/`grow` and the oracle. They cannot overflow for
+//! any real tree: a path sum is the running total of stored bases along a root-to-node
+//! path, `tick` adds 1 at a time, and any tree small enough to hold in memory has a
+//! total event count far below `u64::MAX`.
 
 use core::cmp::Ordering;
 
@@ -60,16 +63,16 @@ enum Job {
     /// Compare the subtrees at these positions, under these path-sum offsets.
     Eval {
         ap: usize,
-        ao: u128,
+        ao: u64,
         bp: usize,
-        bo: u128,
+        bo: u64,
     },
     /// Both-internal node: its left child finished; launch the right child, whose `b`
     /// position is threaded from where the left child's `b` subtree ended.
-    RightLockstep { an: u128, bn: u128 },
+    RightLockstep { an: u64, bn: u64 },
     /// Broadcast node (`b` is a leaf): launch the right child against the same pinned
     /// `b` leaf, with `a`'s position threaded from the left child's end.
-    RightBroadcast { an: u128, bp: usize, bo: u128 },
+    RightBroadcast { an: u64, bp: usize, bo: u64 },
 }
 
 /// Whether `a`'s event function is pointwise `<=` `b`'s. Iterative and `O(n + m)`.
@@ -88,8 +91,8 @@ fn leq(a: &EvView, b: &EvView) -> bool {
             Job::Eval { ap, ao, bp, bo } => {
                 let (a_internal, a_base, a_next) = a.header(ap);
                 let (b_internal, b_base, b_next) = b.header(bp);
-                let an = ao + a_base as u128;
-                let bn = bo + b_base as u128;
+                let an = ao + a_base;
+                let bn = bo + b_base;
                 if an > bn {
                     return false;
                 }

@@ -9,7 +9,8 @@ use proptest::prelude::*;
 use super::{ops, Party};
 use crate::metrics;
 use crate::test_support::{
-    arb_shape, assert_linear_scaling, from_oracle_party, run, shape_party, world_strategy,
+    arb_shape, assert_linear_scaling, contain_stress_pair, from_oracle_party, run, shape_party,
+    skip_stress_pair, world_strategy,
 };
 
 /// Steps taken by `f` on a fresh counter.
@@ -124,14 +125,17 @@ proptest! {
 }
 
 proptest! {
-    /// Complexity. `is_disjoint` is `O(n + m)`: comparing a deep id against a copy of
-    /// itself drives the both-internal lockstep down the whole spine, yet stays linear.
+    /// Complexity. `is_disjoint` is `O(n + m)`: a *misaligned* disjoint pair (a shallow
+    /// `0`-leaf on one side aligned with the other's whole deep subtree) drives the
+    /// bounded lazy-skip at scale. The pair is disjoint, so the walk runs to completion
+    /// (no early `false`) and the skip dominates; steps stay linear from `scale` to
+    /// `4 * scale`, proving each node is skipped at most once (no per-node re-scan).
     #[test]
-    fn is_disjoint_is_linear(shape in arb_shape(), scale in MIN_SCALE..256) {
+    fn is_disjoint_is_linear(scale in MIN_SCALE..256) {
         let measure = |s: usize| {
-            let p = shape_party(shape, s);
+            let (a, b) = skip_stress_pair(s);
             steps_of(|| {
-                ops::is_disjoint(p.as_bits(), p.as_bits());
+                ops::is_disjoint(a.as_bits(), b.as_bits());
             })
         };
         assert_linear_scaling(measure(scale), measure(scale * 4));
@@ -139,14 +143,16 @@ proptest! {
 }
 
 proptest! {
-    /// Complexity. `contains` is `O(n + m)`: the deep-lockstep self-comparison stays
-    /// linear over random shapes.
+    /// Complexity. `contains` is `O(n + m)`: a *misaligned* containment pair (a shallow
+    /// `1`-leaf on the container aligned with the contained's whole deep subtree) drives
+    /// the bounded lazy-skip at scale. `contains` returns `true`, so the walk runs to
+    /// completion and the skip dominates; steps stay linear over the `4x` growth.
     #[test]
-    fn contains_is_linear(shape in arb_shape(), scale in MIN_SCALE..256) {
+    fn contains_is_linear(scale in MIN_SCALE..256) {
         let measure = |s: usize| {
-            let p = shape_party(shape, s);
+            let (big, small) = contain_stress_pair(s);
             steps_of(|| {
-                ops::contains(p.as_bits(), p.as_bits());
+                ops::contains(big.as_bits(), small.as_bits());
             })
         };
         assert_linear_scaling(measure(scale), measure(scale * 4));

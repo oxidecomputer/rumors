@@ -10,7 +10,7 @@ use super::Version;
 use crate::metrics;
 use crate::test_support::{
     arb_shape, assert_linear_scaling, from_oracle_party, from_oracle_version, run, shape_party,
-    shape_version, versions, world_strategy,
+    shape_version, versions, world_strategy, Shape,
 };
 
 /// Steps taken by `f` on a fresh counter.
@@ -62,15 +62,24 @@ proptest! {
 }
 
 proptest! {
-    /// Complexity. The causal order is `O(n + m)`: comparing a deep event tree against
-    /// itself drives the both-internal lockstep down the whole spine, yet steps grow
-    /// linearly (no right-child re-scan) over random shapes.
+    /// Complexity. The causal order is `O(n + m)`: comparing `a` against `b = a | extra`
+    /// drives the bounded lazy-skip at scale. `a <= b` always holds (so the walk
+    /// traverses fully, no early `false`), and where `extra` added structure that `a`
+    /// lacks, `a`'s leaf aligns with `b`'s subtree, so `b`'s dominated subtree is skipped
+    /// once under that leaf. Building `a` and `extra` from independent shapes maximizes
+    /// such misalignments. Steps stay linear from `scale` to `4 * scale`.
     #[test]
-    fn leq_is_linear(shape in arb_shape(), scale in MIN_SCALE..256) {
+    fn leq_is_linear(
+        shape_a in arb_shape(),
+        shape_b in arb_shape(),
+        scale in MIN_SCALE..256,
+    ) {
         let measure = |s: usize| {
-            let v = shape_version(shape, s);
+            let a = shape_version(shape_a, s);
+            let extra = shape_version(shape_b, s);
+            let b = a.clone() | extra; // a <= b always; b has subtrees where a has leaves
             steps_of(|| {
-                let _ = v.partial_cmp(&v);
+                let _ = a.partial_cmp(&b);
             })
         };
         assert_linear_scaling(measure(scale), measure(scale * 4));
@@ -255,6 +264,26 @@ proptest! {
         let measure = |s: usize| {
             let mut v = shape_version(shape, s);
             let p = shape_party(shape, s);
+            steps_of(|| {
+                v.tick(&p);
+            })
+        };
+        assert_linear_scaling(measure(scale), measure(scale * 4));
+    }
+}
+
+proptest! {
+    /// Complexity (M2). `grow`'s multi-region cost comparison is `O(n + m)`. Ticking the
+    /// empty history (`Leaf(0)`) against a deep *bushy* id forces `grow` (here `fill` is
+    /// a no-op: the id is a node over an event leaf), and the bushy id's many owned
+    /// regions at varying depths make the probe genuinely weigh two feasible children at
+    /// each branch (`cl < cr` with neither a `COST_MAX` loser). Steps stay linear from
+    /// `scale` to `4 * scale`.
+    #[test]
+    fn grow_bushy_is_linear(scale in MIN_SCALE..256) {
+        let measure = |s: usize| {
+            let p = shape_party(Shape::Bushy, s);
+            let mut v = Version::new(); // Leaf(0): fill is a no-op, so grow runs
             steps_of(|| {
                 v.tick(&p);
             })

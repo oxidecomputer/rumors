@@ -9,6 +9,7 @@
 //! Both `unpack` and `repack` are single iterative passes (no recursion on depth).
 
 use crate::codec::{self, decode_int, Bits, BitsSlice};
+use crate::step;
 
 /// Preorder topology + payload split. `topo[i]` is `true` iff node `i` is internal
 /// (two children); `base[i]` is its stored (relative) integer. The left child of an
@@ -35,6 +36,7 @@ pub(crate) fn unpack(packed: &BitsSlice) -> WorkingVersion {
     let mut base = Vec::new();
     let mut pos = 0;
     while pos < packed.len() {
+        step!(); // one step per node processed
         let flag = packed[pos];
         pos += 1;
         let (b, next) = decode_int(packed, pos).expect("a Version holds canonical event bits");
@@ -51,6 +53,7 @@ pub(crate) fn unpack(packed: &BitsSlice) -> WorkingVersion {
 pub(crate) fn repack(work: &WorkingVersion) -> Bits {
     let mut out = Bits::new();
     for (flag, base) in work.topo.iter().by_vals().zip(&work.base) {
+        step!(); // one step per node processed
         out.push(flag);
         codec::encode_int(&mut out, *base);
     }

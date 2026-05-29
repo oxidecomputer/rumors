@@ -166,8 +166,9 @@ pub(crate) fn from_oracle_clock(c: &oracle::Clock) -> Clock {
 // 16x). Trees are built via the oracle's normalizing constructors, so they are always
 // in normal form; the constructors are `O(1)` per node (no deep recursion at build).
 
-/// A deep, unbalanced tree shape. All are spine-like (depth linear in `scale`) — the
-/// shapes that stress right-child location.
+/// A deep tree shape. The spines (depth linear in `scale`) stress right-child location;
+/// the bushy shape stresses multi-region cost comparisons (a node whose two children are
+/// both feasible), which the spines — with a single owned leaf — never produce.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Shape {
     /// Every node leans left: `(…((·,·),·)…,·)`.
@@ -176,6 +177,9 @@ pub(crate) enum Shape {
     RightSpine,
     /// Alternating left/right lean.
     Zigzag,
+    /// A balanced-ish bushy tree: many leaves at varying depths, so an id built from it
+    /// has multiple genuinely feasible owned regions (see [`shape_party`]).
+    Bushy,
 }
 
 /// A random deep shape for the complexity proptests.
@@ -184,14 +188,46 @@ pub(crate) fn arb_shape() -> impl Strategy<Value = Shape> {
         Just(Shape::LeftSpine),
         Just(Shape::RightSpine),
         Just(Shape::Zigzag),
+        Just(Shape::Bushy),
     ]
 }
 
-/// Build a normal-form event tree of `shape` with `scale` internal nodes (so
-/// `2*scale + 1` nodes total). Distinct leaf bases prevent collapse, preserving the
-/// shape and size.
+/// Build a balanced-ish bushy event tree over `leaves` distinct-based leaves, numbered
+/// from `lo` (so no two siblings collapse). Splitting an odd count unevenly gives leaves
+/// at varying depths. Recursive over a `O(log)` depth (test-only; the impl is iterative).
+fn bushy_version(lo: u64, leaves: usize) -> oracle::Version {
+    use oracle::Version as V;
+    if leaves <= 1 {
+        return V::Leaf(lo);
+    }
+    let half = leaves / 2;
+    V::node(
+        0,
+        bushy_version(lo, half),
+        bushy_version(lo + half as u64, leaves - half),
+    )
+}
+
+/// Build a balanced-ish bushy id over `leaves` leaves with bases alternating `1`/`0`, so
+/// adjacent leaves never collapse and multiple owned (`1`) regions sit at varying depths.
+/// Recursive over a `O(log)` depth (test-only; the impl is iterative).
+fn bushy_party(lo: usize, leaves: usize) -> oracle::Party {
+    use oracle::Party as P;
+    if leaves <= 1 {
+        return P::Leaf(lo.is_multiple_of(2)); // even index owned, odd empty
+    }
+    let half = leaves / 2;
+    P::node(bushy_party(lo, half), bushy_party(lo + half, leaves - half))
+}
+
+/// Build a normal-form event tree of `shape` sized linearly in `scale`. The spines have
+/// `scale` internal nodes (`2*scale + 1` nodes total); the bushy shape has `~scale`
+/// leaves. Distinct leaf bases prevent collapse, preserving the shape and size.
 pub(crate) fn shape_version(shape: Shape, scale: usize) -> Version {
     use oracle::Version as V;
+    if let Shape::Bushy = shape {
+        return from_oracle_version(&bushy_version(0, scale + 1));
+    }
     let mut t = V::Leaf(0);
     for k in 1..=scale as u64 {
         let leaf = V::Leaf(k);
@@ -200,15 +236,76 @@ pub(crate) fn shape_version(shape: Shape, scale: usize) -> Version {
             Shape::RightSpine => V::node(0, leaf, t),
             Shape::Zigzag if k % 2 == 0 => V::node(0, t, leaf),
             Shape::Zigzag => V::node(0, leaf, t),
+            Shape::Bushy => unreachable!("handled above"),
         };
     }
     from_oracle_version(&t)
 }
 
-/// Build a non-empty normal-form id of `shape` with `scale` interior nodes. The spine
-/// carries the owned region (a `1` leaf at its tip); the off-spine children are `0`.
+/// Build a disjoint "staircase" id pair `(a, b)` that drives the bounded lazy-skip in
+/// `is_disjoint` to its worst case: `Θ(scale)` distinct skips, each over a small
+/// subtree. `b` is a right-spine whose every left child is a 2-leaf subtree `(1, 0)`;
+/// `a` is a right-spine of `0`-leaf left children. In lockstep, at every one of the
+/// `scale` levels `a`'s left `0`-leaf aligns against `b`'s left *subtree*, so that
+/// subtree is skipped once. The pair is disjoint (`a` owns only its deepest-right tip,
+/// `b` owns its left subtrees and deepest-left tip), so the walk runs to completion (no
+/// early `false`) and the cumulative skip cost is measured. Both ids are linear in
+/// `scale`. With a *bounded* skip the total is `O(scale)`; an *unbounded* (rescanning)
+/// skip would be `O(scale²)` — which the linear-scaling assertion would catch.
+pub(crate) fn skip_stress_pair(scale: usize) -> (Party, Party) {
+    use oracle::Party as P;
+    // A 2-leaf subtree `(1, 0)`: a small node that owns its left half.
+    let owned_left = || P::node(P::seed(), P::Leaf(false));
+    // `b`: right-spine, each left child a small owned subtree, deepest-right tip empty.
+    let mut b = P::Leaf(false);
+    for _ in 0..scale {
+        b = P::node(owned_left(), b);
+    }
+    // `a`: right-spine of `0`-leaf left children; owns only its deepest-right `1` tip,
+    // which lands in `b`'s empty deepest-right region — so the pair is disjoint and the
+    // walk runs to completion, skipping `b`'s left subtree once at every level.
+    let mut a = P::seed();
+    for _ in 0..scale {
+        a = P::node(P::Leaf(false), a);
+    }
+    (from_oracle_party(&a), from_oracle_party(&b))
+}
+
+/// Build a containment "staircase" pair `(big, small)` that drives the bounded lazy-skip
+/// in `contains` to its worst case: `Θ(scale)` distinct skips. `big` is a right-spine
+/// whose every left child is a `1`-leaf (owns that whole left region); `small` is a
+/// right-spine whose every left child is a 2-leaf subtree `(1, 0)`. In lockstep, at each
+/// level `big`'s left `1`-leaf dominates `small`'s left *subtree*, so that subtree is
+/// skipped once. `big ⊇ small`, so `contains` returns `true` and runs to completion; the
+/// cumulative skip cost is measured. Both ids are linear in `scale`; a bounded skip is
+/// `O(scale)`, an unbounded one `O(scale²)`.
+pub(crate) fn contain_stress_pair(scale: usize) -> (Party, Party) {
+    use oracle::Party as P;
+    // `big`: right-spine, every left child fully owned (`1`); deepest-right empty so the
+    // spine does not collapse (`(1, 1)` would). Owns every left region `small` touches.
+    let mut big = P::Leaf(false);
+    for _ in 0..scale {
+        big = P::node(P::seed(), big);
+    }
+    // A 2-leaf subtree `(1, 0)`: a sub-region of `big`'s corresponding `1`.
+    let owned_left = || P::node(P::seed(), P::Leaf(false));
+    // `small`: right-spine, every left child a sub-region of `big`'s corresponding `1`.
+    let mut small = P::Leaf(false);
+    for _ in 0..scale {
+        small = P::node(owned_left(), small);
+    }
+    (from_oracle_party(&big), from_oracle_party(&small))
+}
+
+/// Build a non-empty normal-form id of `shape` sized linearly in `scale`. The spines
+/// carry a single owned region (a `1` leaf at the tip) with `0` off-spine; the bushy
+/// shape carries many owned regions at varying depths (so a `grow` over it has nodes
+/// whose two children are both feasible, exercising the multi-region cost comparison).
 pub(crate) fn shape_party(shape: Shape, scale: usize) -> Party {
     use oracle::Party as P;
+    if let Shape::Bushy = shape {
+        return from_oracle_party(&bushy_party(0, scale + 1));
+    }
     let mut t = P::seed(); // the `1` leaf
     for k in 0..scale {
         let zero = P::Leaf(false);
@@ -217,6 +314,7 @@ pub(crate) fn shape_party(shape: Shape, scale: usize) -> Party {
             Shape::RightSpine => P::node(zero, t),
             Shape::Zigzag if k % 2 == 0 => P::node(t, zero),
             Shape::Zigzag => P::node(zero, t),
+            Shape::Bushy => unreachable!("handled above"),
         };
     }
     from_oracle_party(&t)
