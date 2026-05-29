@@ -48,7 +48,8 @@ impl Party {
         Party::Leaf(true)
     }
 
-    fn node(l: Party, r: Party) -> Party {
+    // `pub(crate)` so the test-support shape builders can construct normal-form ids.
+    pub(crate) fn node(l: Party, r: Party) -> Party {
         match (&l, &r) {
             (Party::Leaf(false), Party::Leaf(false)) => Party::Leaf(false),
             (Party::Leaf(true), Party::Leaf(true)) => Party::Leaf(true),
@@ -195,8 +196,9 @@ impl Version {
         }
     }
 
-    /// `norm((n,l,r))`, assuming `l`,`r` already normal.
-    fn node(n: u64, l: Version, r: Version) -> Version {
+    /// `norm((n,l,r))`, assuming `l`,`r` already normal. `pub(crate)` so the
+    /// test-support shape builders can construct normal-form event trees.
+    pub(crate) fn node(n: u64, l: Version, r: Version) -> Version {
         let m = l.base().min(r.base());
         let l = l.debase(m);
         let r = r.debase(m);

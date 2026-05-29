@@ -157,46 +157,69 @@ pub(crate) fn from_oracle_clock(c: &oracle::Clock) -> Clock {
 
 // ───────────────────────────── adversarial deep inputs ─────────────────────────────
 //
-// These build left-leaning spines directly as canonical bits — the worst case for any
-// traversal that locates a right child by re-scanning the left subtree (`O(n²)`). The
-// complexity tests measure traversal steps on them and assert linear growth, so they
-// must be built without going through the ops under test (and without deep recursion,
-// which would overflow before the op did). All are in normal form by construction.
+// The complexity proptests assert that a traversal's step count grows linearly, not
+// quadratically, with input size. They drive that over random *spine-family* shapes —
+// the deep, unbalanced trees that are the worst case for any traversal locating a right
+// child by re-scanning its left subtree. Each shape is parameterized by a `scale` knob
+// whose node count is linear in `scale`, so building at `scale` and `4 * scale` gives a
+// 4x-larger input of the *same* shape, and the step ratio should stay near 4x (not
+// 16x). Trees are built via the oracle's normalizing constructors, so they are always
+// in normal form; the constructors are `O(1)` per node (no deep recursion at build).
 
-/// A left-spine id of `depth` wrapper nodes: `(…((1,0),0)…,0)`. Returns its canonical
-/// `enc_id` bits and its node count (`2*depth + 2`). `depth >= 1`.
-pub(crate) fn deep_party_bits(depth: usize) -> (Bits, usize) {
-    let mut bits = Bits::new();
-    for _ in 0..depth {
-        bits.push(true); // node flag, descending the left spine
-    }
-    bits.push(false); // innermost left: the `1` leaf
-    bits.push(true);
-    for _ in 0..=depth {
-        bits.push(false); // a `0` leaf: the innermost right, then each wrapper's right
-        bits.push(false);
-    }
-    let nodes = 2 * depth + 2;
-    (bits, nodes)
+/// A deep, unbalanced tree shape. All are spine-like (depth linear in `scale`) — the
+/// shapes that stress right-child location.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Shape {
+    /// Every node leans left: `(…((·,·),·)…,·)`.
+    LeftSpine,
+    /// Every node leans right.
+    RightSpine,
+    /// Alternating left/right lean.
+    Zigzag,
 }
 
-/// A left-spine event tree of `depth` internal nodes: `(0,(0,(…),0),0)` — every node
-/// carries base `0`, a left subtree (the spine), and a `0` leaf on the right. Returns
-/// its canonical `enc_ev` bits and node count (`2*depth + 1`). `depth >= 0`.
-pub(crate) fn deep_version_bits(depth: usize) -> (Bits, usize) {
-    let mut bits = Bits::new();
-    for _ in 0..depth {
-        bits.push(true); // internal node flag
-        codec::encode_int(&mut bits, 0); // base 0
+/// A random deep shape for the complexity proptests.
+pub(crate) fn arb_shape() -> impl Strategy<Value = Shape> {
+    prop_oneof![
+        Just(Shape::LeftSpine),
+        Just(Shape::RightSpine),
+        Just(Shape::Zigzag),
+    ]
+}
+
+/// Build a normal-form event tree of `shape` with `scale` internal nodes (so
+/// `2*scale + 1` nodes total). Distinct leaf bases prevent collapse, preserving the
+/// shape and size.
+pub(crate) fn shape_version(shape: Shape, scale: usize) -> Version {
+    use oracle::Version as V;
+    let mut t = V::Leaf(0);
+    for k in 1..=scale as u64 {
+        let leaf = V::Leaf(k);
+        t = match shape {
+            Shape::LeftSpine => V::node(0, t, leaf),
+            Shape::RightSpine => V::node(0, leaf, t),
+            Shape::Zigzag if k % 2 == 0 => V::node(0, t, leaf),
+            Shape::Zigzag => V::node(0, leaf, t),
+        };
     }
-    bits.push(false); // innermost left: leaf 0
-    codec::encode_int(&mut bits, 0);
-    for _ in 0..depth {
-        bits.push(false); // each node's right: leaf 0
-        codec::encode_int(&mut bits, 0);
+    from_oracle_version(&t)
+}
+
+/// Build a non-empty normal-form id of `shape` with `scale` interior nodes. The spine
+/// carries the owned region (a `1` leaf at its tip); the off-spine children are `0`.
+pub(crate) fn shape_party(shape: Shape, scale: usize) -> Party {
+    use oracle::Party as P;
+    let mut t = P::seed(); // the `1` leaf
+    for k in 0..scale {
+        let zero = P::Leaf(false);
+        t = match shape {
+            Shape::LeftSpine => P::node(t, zero),
+            Shape::RightSpine => P::node(zero, t),
+            Shape::Zigzag if k % 2 == 0 => P::node(t, zero),
+            Shape::Zigzag => P::node(zero, t),
+        };
     }
-    let nodes = 2 * depth + 1;
-    (bits, nodes)
+    from_oracle_party(&t)
 }
 
 /// Assert that `steps`, measured at two input sizes whose node counts differ by `4×`,

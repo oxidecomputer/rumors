@@ -7,11 +7,11 @@ use proptest::prelude::*;
 
 use super::working::{repack, unpack};
 use super::Version;
+use crate::metrics;
 use crate::test_support::{
-    assert_linear_scaling, deep_version_bits, from_oracle_party, from_oracle_version, run,
-    versions, world_strategy,
+    arb_shape, assert_linear_scaling, from_oracle_party, from_oracle_version, run, shape_party,
+    shape_version, versions, world_strategy,
 };
-use crate::{metrics, Party};
 
 /// Steps taken by `f` on a fresh counter.
 fn steps_of(f: impl FnOnce()) -> u64 {
@@ -20,9 +20,8 @@ fn steps_of(f: impl FnOnce()) -> u64 {
     metrics::taken()
 }
 
-/// Two left-spine event-tree depths a 4× node-count apart, for linear-scaling checks.
-const SMALL_DEPTH: usize = 256;
-const BIG_DEPTH: usize = 1024;
+/// Smallest spine scale to measure at; the big input is always `4x` this.
+const MIN_SCALE: usize = 64;
 
 /// `a <= b` under the impl causal order.
 fn le(a: &Version, b: &Version) -> bool {
@@ -62,18 +61,20 @@ proptest! {
     }
 }
 
-/// Complexity. The causal order is `O(n + m)`: comparing a deep left-spine event tree
-/// against itself drives the both-internal lockstep down the whole spine, yet steps
-/// grow linearly rather than quadratically (no right-child re-scan).
-#[test]
-fn leq_is_linear() {
-    let measure = |depth| {
-        let v = Version::from_bits(deep_version_bits(depth).0);
-        steps_of(|| {
-            let _ = v.partial_cmp(&v);
-        })
-    };
-    assert_linear_scaling(measure(SMALL_DEPTH), measure(BIG_DEPTH));
+proptest! {
+    /// Complexity. The causal order is `O(n + m)`: comparing a deep event tree against
+    /// itself drives the both-internal lockstep down the whole spine, yet steps grow
+    /// linearly (no right-child re-scan) over random shapes.
+    #[test]
+    fn leq_is_linear(shape in arb_shape(), scale in MIN_SCALE..256) {
+        let measure = |s: usize| {
+            let v = shape_version(shape, s);
+            steps_of(|| {
+                let _ = v.partial_cmp(&v);
+            })
+        };
+        assert_linear_scaling(measure(scale), measure(scale * 4));
+    }
 }
 
 proptest! {
@@ -246,27 +247,33 @@ proptest! {
     }
 }
 
-/// Complexity. `tick` is `O(n + m)`: ticking a deep event spine with the seed party
-/// (which owns everything) scans the whole tree once; steps grow linearly.
-#[test]
-fn tick_is_linear() {
-    let measure = |depth| {
-        let mut v = Version::from_bits(deep_version_bits(depth).0);
-        let p = Party::seed();
-        steps_of(|| v.tick(&p))
-    };
-    assert_linear_scaling(measure(SMALL_DEPTH), measure(BIG_DEPTH));
+proptest! {
+    /// Complexity. `tick` is `O(n + m)`: ticking a deep event tree against a deep id of
+    /// the same shape (walking both at once) grows linearly with size.
+    #[test]
+    fn tick_is_linear(shape in arb_shape(), scale in MIN_SCALE..256) {
+        let measure = |s: usize| {
+            let mut v = shape_version(shape, s);
+            let p = shape_party(shape, s);
+            steps_of(|| {
+                v.tick(&p);
+            })
+        };
+        assert_linear_scaling(measure(scale), measure(scale * 4));
+    }
 }
 
-/// Complexity. `merge` (`|`) is `O(n + m)`: joining two deep event spines stays linear.
-#[test]
-fn merge_is_linear() {
-    let measure = |depth| {
-        let a = Version::from_bits(deep_version_bits(depth).0);
-        let b = a.clone();
-        steps_of(|| {
-            let _ = a.clone() | b.clone();
-        })
-    };
-    assert_linear_scaling(measure(SMALL_DEPTH), measure(BIG_DEPTH));
+proptest! {
+    /// Complexity. `merge` (`|`) is `O(n + m)`: joining two deep event trees of the same
+    /// shape stays linear.
+    #[test]
+    fn merge_is_linear(shape in arb_shape(), scale in MIN_SCALE..256) {
+        let measure = |s: usize| {
+            let a = shape_version(shape, s);
+            steps_of(|| {
+                let _ = a.clone() | a.clone();
+            })
+        };
+        assert_linear_scaling(measure(scale), measure(scale * 4));
+    }
 }
