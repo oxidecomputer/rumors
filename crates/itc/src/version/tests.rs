@@ -6,7 +6,7 @@ use std::cmp::Ordering;
 use proptest::prelude::*;
 
 use super::working::{repack, unpack};
-use super::Version;
+use super::{Batch, Version};
 use crate::metrics;
 use crate::test_support::{
     arb_shape, assert_linear_scaling, from_oracle_party, from_oracle_version, run, shape_party,
@@ -161,6 +161,7 @@ fn new_is_join_identity() {
     use crate::oracle::Version::{Leaf, Node};
     let empty = Version::new();
     assert!(empty == from_oracle_version(&Leaf(0))); // empty history is Leaf(0)
+    assert!(Version::default() == empty); // Default delegates to new()
     for v in [
         Leaf(0),
         Leaf(7),
@@ -201,6 +202,37 @@ proptest! {
         let oracle_join = vs[i % n].clone() | vs[j % n].clone();
         let merged = from_oracle_version(&vs[i % n]) | from_oracle_version(&vs[j % n]);
         prop_assert!(merged == from_oracle_version(&oracle_join));
+    }
+}
+
+proptest! {
+    /// Every assigning / batch join surface on `Version` yields the same result as `a |
+    /// b`, which `merge_matches_oracle` already pins to the oracle's `ev_join`. Covers
+    /// `Version |= Version`, the `From<&mut Version>` batch conversion, and the
+    /// `Batch |= &Version` operator (committed on drop) — none of which the by-value
+    /// `|` differential reaches.
+    #[test]
+    fn version_assign_join_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+        let cs = run(&ops);
+        let vs = versions(&cs);
+        let n = vs.len();
+        let expected = from_oracle_version(&(vs[i % n].clone() | vs[j % n].clone()));
+        let a = from_oracle_version(&vs[i % n]);
+        let b = from_oracle_version(&vs[j % n]);
+
+        // `Version |= Version`.
+        let mut assign = a.clone();
+        assign |= b.clone();
+        prop_assert!(assign == expected);
+
+        // `Batch |= &Version`, over a batch built via `From<&mut Version>`, committed on
+        // drop.
+        let mut batched = a.clone();
+        {
+            let mut batch: Batch = (&mut batched).into();
+            batch |= &b;
+        }
+        prop_assert!(batched == expected);
     }
 }
 

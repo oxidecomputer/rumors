@@ -92,8 +92,10 @@ impl Clock {
         self.batch().merge(&msg).tick();
     }
 
-    /// Begin a working-form session over this clock: a split borrow of the party and
-    /// a [`version::Batch`] over the version.
+    /// Begin a batch of operations on this clock.
+    ///
+    /// The same operations are available on a [`Batch`] as on a [`Clock`], but
+    /// sequential operations within a batch are more efficient.
     pub fn batch(&mut self) -> Batch<'_> {
         let Clock { party, version } = self;
         Batch {

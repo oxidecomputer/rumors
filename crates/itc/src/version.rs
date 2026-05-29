@@ -40,8 +40,11 @@ impl Version {
         self.batch().tick(party);
     }
 
-    /// Begin a working-form session over this version. The working form is
-    /// materialized lazily (on the first mutating step) and repacked on drop.
+    /// Begin a batch of operations on this [`Version`].
+    ///
+    /// The same operations are available on a [`Batch`] as on a [`Version`],
+    /// but multiple sequential operations within a [`Batch`] are more
+    /// efficient.
     pub fn batch(&mut self) -> Batch<'_> {
         Batch {
             version: self,

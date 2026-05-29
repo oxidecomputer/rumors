@@ -7,6 +7,7 @@
 
 use proptest::prelude::*;
 
+use super::Batch;
 use crate::oracle;
 use crate::test_support::{
     deep_left_spine_party, from_oracle_clock, from_oracle_party, from_oracle_version, run,
@@ -244,6 +245,40 @@ proptest! {
         let got_vc = from_oracle_version(&ov_i) | from_oracle_clock(&cs[j]);
         let (vcp, vcv) = exp_vc.trees();
         prop_assert_eq!(to_oracle_clock(&got_vc), (vcp.clone(), vcv.clone()));
+    }
+
+    /// E26 (assigning forms). The `Clock` assigning / batch join surfaces merge the
+    /// version and leave the party untouched, matching the oracle — complementing the
+    /// by-value `Clock | Version` above. Covers `Clock |= Version`, the `From<&mut
+    /// Clock>` batch conversion, the `clock::Batch |= &Version` operator (committed on
+    /// drop), and the `clock::Batch::party` accessor.
+    #[test]
+    fn e26_clock_assign_join_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+        let cs = run(&ops);
+        let n = cs.len();
+        let (i, j) = (i % n, j % n);
+        let msg_oracle = cs[j].version();
+
+        // Oracle expectation: party unchanged, version merged.
+        let expected = cs[i].clone() | msg_oracle.clone();
+        let (ep, ev) = expected.trees();
+
+        // `Clock |= Version`.
+        let mut assign = from_oracle_clock(&cs[i]);
+        assign |= from_oracle_version(&msg_oracle);
+        prop_assert_eq!(to_oracle_clock(&assign), (ep.clone(), ev.clone()));
+
+        // `clock::Batch |= &Version`, over a batch built via `From<&mut Clock>`,
+        // committed on drop. The `party` accessor reflects the unchanged party
+        // mid-session.
+        let msg = from_oracle_version(&msg_oracle);
+        let mut batched = from_oracle_clock(&cs[i]);
+        {
+            let mut batch: Batch = (&mut batched).into();
+            batch |= &msg;
+            prop_assert_eq!(to_oracle_party(batch.party()), ep.clone());
+        }
+        prop_assert_eq!(to_oracle_clock(&batched), (ep.clone(), ev.clone()));
     }
 }
 
