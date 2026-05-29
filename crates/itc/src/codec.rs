@@ -132,8 +132,12 @@ struct EvChild {
     is_leaf: bool,
 }
 
+/// While building an event node bottom-up, what we still need from the stream.
 enum EvFrame {
+    /// Parsed the node's flag and base; the next subtree is the left child.
     NeedLeft { base: u64 },
+    /// Parsed the left child; the next subtree is the right child. `base` is the node's
+    /// own (relative) base; `left` is what the left child contributes to the checks.
     NeedRight { base: u64, left: EvChild },
 }
 
@@ -301,8 +305,11 @@ pub(crate) fn write_id(
     f: &mut core::fmt::Formatter<'_>,
     sep: &str,
 ) -> core::fmt::Result {
+    /// A pending node in the preorder print.
     enum Frame {
+        /// Node open, left child printed: emit the separator, then the right child.
         NeedLeft,
+        /// Right child printed: emit the closing `)`.
         NeedRight,
     }
     let mut pos = 0;
@@ -338,8 +345,11 @@ pub(crate) fn write_ev(
     f: &mut core::fmt::Formatter<'_>,
     sep: &str,
 ) -> core::fmt::Result {
+    /// A pending node in the preorder print.
     enum Frame {
+        /// Node open, left child printed: emit the separator, then the right child.
         NeedLeft,
+        /// Right child printed: emit the closing `)`.
         NeedRight,
     }
     let mut pos = 0;
@@ -436,8 +446,11 @@ fn parse_u64(cur: &mut Cur) -> Result<u64, ParseError> {
 /// strictly validating normal form. Iterative (explicit stack): deep nesting cannot
 /// overflow.
 pub(crate) fn parse_id_str(s: &str) -> Result<Bits, ParseError> {
+    /// A pending node being parsed.
     enum Frame {
+        /// Node open, left child parsed: expect the separator, then the right child.
         NeedLeft,
+        /// Right child parsed: expect the closing `)`.
         NeedRight,
     }
     let mut cur = Cur::new(s);
@@ -489,8 +502,11 @@ pub(crate) fn parse_id_str(s: &str) -> Result<Bits, ParseError> {
 /// Parse one event tree in the paper's grammar (`n | (n, e1, e2)`) into canonical bits,
 /// strictly validating normal form. Iterative, as [`parse_id_str`].
 pub(crate) fn parse_ev_str(s: &str) -> Result<Bits, ParseError> {
+    /// A pending node being parsed.
     enum Frame {
+        /// Node open, left child parsed: expect the separator, then the right child.
         NeedLeft,
+        /// Right child parsed: expect the closing `)`.
         NeedRight,
     }
     let mut cur = Cur::new(s);

@@ -22,7 +22,7 @@
 use crate::codec::BitsSlice;
 use crate::idbits;
 
-use super::{Builder, VIRTUAL};
+use super::{Builder, Built, VIRTUAL};
 use crate::version::compare::{skip as ev_skip, EvView};
 use crate::version::working::WorkingVersion;
 
@@ -66,20 +66,22 @@ impl Choices {
         }
     }
 
-    /// Record the chosen direction at a branch node of the given `kind`.
-    fn record(&mut self, kind: Kind, id: usize, ev: usize, left: bool) {
+    /// Record the chosen direction at the branch node of the given `kind` addressed by
+    /// `(id_pos, ev_pos)`.
+    fn record(&mut self, kind: Kind, id_pos: usize, ev_pos: usize, left: bool) {
         match kind {
-            Kind::FullEvNode => self.by_ev[ev] = Some(left),
-            Kind::Expand | Kind::Both => self.by_id[id] = Some(left),
+            Kind::FullEvNode => self.by_ev[ev_pos] = Some(left),
+            Kind::Expand | Kind::Both => self.by_id[id_pos] = Some(left),
         }
     }
 
-    /// The chosen direction at a branch node. Panics if the probe never recorded it —
-    /// a coordinate-agreement bug, not a runtime condition (see the module doc).
-    fn chosen(&self, kind: Kind, id: usize, ev: usize) -> bool {
+    /// The chosen direction at the branch node addressed by `(id_pos, ev_pos)`. Panics if
+    /// the probe never recorded it — a coordinate-agreement bug, not a runtime condition
+    /// (see the module doc).
+    fn chosen(&self, kind: Kind, id_pos: usize, ev_pos: usize) -> bool {
         let slot = match kind {
-            Kind::FullEvNode => self.by_ev[ev],
-            Kind::Expand | Kind::Both => self.by_id[id],
+            Kind::FullEvNode => self.by_ev[ev_pos],
+            Kind::Expand | Kind::Both => self.by_id[id_pos],
         };
         slot.expect("grow_emit reached a branch node grow_probe did not record")
     }
@@ -98,167 +100,239 @@ enum Kind {
 }
 
 /// One step of the read-only cost probe (a threaded postorder over the `(id, event)`
-/// shape, expanding event leaves into virtual `Leaf(0)`s to follow the id). `ret`
-/// carries `(cost, id_end, ev_end)`.
+/// shape, expanding event leaves into virtual `Leaf(0)`s to follow the id). `ret` is the
+/// [`Probed`] register. `id_pos` is a bit offset into the packed id stream; `ev_pos` a
+/// position in the event tree (or [`VIRTUAL`]); `id_next`/`ev_next` are the positions
+/// just past this node's header, threaded to its children.
 enum ProbeJob {
+    /// Probe the cheapest inflation of the event subtree at `ev_pos` under `id_pos`.
     Eval {
-        id: usize,
-        ev: usize,
+        /// Position into the packed id stream.
+        id_pos: usize,
+        /// Position into the event tree (or [`VIRTUAL`]).
+        ev_pos: usize,
     },
+    /// Left child probed; launch the right child, then combine the two costs.
     Right {
-        id: usize,
-        ev: usize,
+        /// Branch node id position (the cost slot key for `Expand`/`Both`).
+        id_pos: usize,
+        /// Branch node event position (the cost slot key for `FullEvNode`).
+        ev_pos: usize,
+        /// Which recursion shape this branch node has.
         kind: Kind,
+        /// Position just past the id header, for threading the right child.
         id_next: usize,
+        /// Position just past the event header, for threading the right child.
         ev_next: usize,
     },
+    /// Both children probed; pick the cheaper, record the direction, fold the cost.
     Combine {
-        id: usize,
-        ev: usize,
+        /// Branch node id position (the cost slot key for `Expand`/`Both`).
+        id_pos: usize,
+        /// Branch node event position (the cost slot key for `FullEvNode`).
+        ev_pos: usize,
+        /// Which recursion shape this branch node has.
         kind: Kind,
+        /// Position just past the id header.
         id_next: usize,
+        /// Position just past the event header.
         ev_next: usize,
-        cost_l: Cost,
+        /// The left child's cost, captured before probing the right.
+        left_cost: Cost,
     },
+}
+
+/// The thread register for the cost probe (see [`super`]'s module doc): the cheapest
+/// inflation `cost` of a just-finished subtree, plus where it ended in the id stream and
+/// the event tree. An `Eval` arm *writes* it (a leaf directly, or via `Combine` folding
+/// a node); the deferred `Right`/`Combine` frames *read* it.
+#[derive(Clone, Copy)]
+struct Probed {
+    /// The cheapest inflation cost of the subtree.
+    cost: Cost,
+    /// Position just past the subtree in the packed id stream.
+    id_end: usize,
+    /// Position just past the subtree in the event tree (or [`VIRTUAL`]).
+    ev_end: usize,
 }
 
 /// Probe the cheapest inflation, recording the chosen child direction (`true` = left)
 /// per `(id, ev)` branch node into `choice`. Read-only; `O(n + m)`. The id is
 /// lazy-skipped where an empty region prunes the event.
 fn grow_probe(id_bits: &BitsSlice, view: &EvView, choice: &mut Choices) {
-    let mut ret: (Cost, usize, usize) = (COST_MAX, 0, 0);
-    let mut stack = vec![ProbeJob::Eval { id: 0, ev: 0 }];
+    let mut ret = Probed {
+        cost: COST_MAX,
+        id_end: 0,
+        ev_end: 0,
+    };
+    let mut stack = vec![ProbeJob::Eval {
+        id_pos: 0,
+        ev_pos: 0,
+    }];
     while let Some(job) = stack.pop() {
         match job {
-            ProbeJob::Eval { id, ev } => {
-                let (id_node, id_val, id_next) = idbits::header(id_bits, id);
-                let virt = ev == VIRTUAL;
+            ProbeJob::Eval { id_pos, ev_pos } => {
+                let (id_node, id_val, id_next) = idbits::header(id_bits, id_pos);
+                let virt = ev_pos == VIRTUAL;
                 let (ev_int, _ev_base, ev_next) = if virt {
                     (false, 0u64, VIRTUAL)
                 } else {
-                    view.header(ev)
+                    view.header(ev_pos)
                 };
                 if !id_node && !id_val {
                     // id 0-leaf: infeasible; lazy-skip the dominated event subtree.
-                    let ev_end = if virt { VIRTUAL } else { ev_skip(view, ev) };
-                    ret = (COST_MAX, id_next, ev_end);
+                    let ev_end = if virt { VIRTUAL } else { ev_skip(view, ev_pos) };
+                    ret = Probed {
+                        cost: COST_MAX,
+                        id_end: id_next,
+                        ev_end,
+                    };
                 } else if !id_node {
                     // id 1-leaf (full).
                     if !ev_int {
-                        ret = ((0, 0), id_next, ev_next); // increment here
+                        // increment here: a free inflation
+                        ret = Probed {
+                            cost: (0, 0),
+                            id_end: id_next,
+                            ev_end: ev_next,
+                        };
                     } else {
                         stack.push(ProbeJob::Right {
-                            id,
-                            ev,
+                            id_pos,
+                            ev_pos,
                             kind: Kind::FullEvNode,
                             id_next,
                             ev_next,
                         });
-                        stack.push(ProbeJob::Eval { id, ev: ev + 1 });
+                        stack.push(ProbeJob::Eval {
+                            id_pos,
+                            ev_pos: ev_pos + 1,
+                        });
                     }
                 } else if !ev_int {
                     // id node, event leaf/virtual: expand and descend the id.
                     stack.push(ProbeJob::Right {
-                        id,
-                        ev,
+                        id_pos,
+                        ev_pos,
                         kind: Kind::Expand,
                         id_next,
                         ev_next,
                     });
                     stack.push(ProbeJob::Eval {
-                        id: id_next,
-                        ev: VIRTUAL,
+                        id_pos: id_next,
+                        ev_pos: VIRTUAL,
                     });
                 } else {
                     // id node, event node.
                     stack.push(ProbeJob::Right {
-                        id,
-                        ev,
+                        id_pos,
+                        ev_pos,
                         kind: Kind::Both,
                         id_next,
                         ev_next,
                     });
                     stack.push(ProbeJob::Eval {
-                        id: id_next,
-                        ev: ev + 1,
+                        id_pos: id_next,
+                        ev_pos: ev_pos + 1,
                     });
                 }
             }
             ProbeJob::Right {
-                id,
-                ev,
+                id_pos,
+                ev_pos,
                 kind,
                 id_next,
                 ev_next,
             } => {
-                let (cost_l, id_end_l, ev_end_l) = ret;
-                let (rid, rev) = match kind {
-                    Kind::FullEvNode => (id, ev_end_l), // id stays full; right event child
-                    Kind::Expand => (id_end_l, VIRTUAL), // `ir`, still virtual
-                    Kind::Both => (id_end_l, ev_end_l), // `ir`, `er`
+                let left = ret; // the left child's probe report
+                let (right_id, right_ev) = match kind {
+                    Kind::FullEvNode => (id_pos, left.ev_end), // id stays full; right event child
+                    Kind::Expand => (left.id_end, VIRTUAL),    // `ir`, still virtual
+                    Kind::Both => (left.id_end, left.ev_end),  // `ir`, `er`
                 };
                 stack.push(ProbeJob::Combine {
-                    id,
-                    ev,
+                    id_pos,
+                    ev_pos,
                     kind,
                     id_next,
                     ev_next,
-                    cost_l,
+                    left_cost: left.cost,
                 });
-                stack.push(ProbeJob::Eval { id: rid, ev: rev });
+                stack.push(ProbeJob::Eval {
+                    id_pos: right_id,
+                    ev_pos: right_ev,
+                });
             }
             ProbeJob::Combine {
-                id,
-                ev,
+                id_pos,
+                ev_pos,
                 kind,
                 id_next,
                 ev_next,
-                cost_l,
+                left_cost,
             } => {
-                let (cost_r, id_end_r, ev_end_r) = ret;
-                // Strict `<` makes a tie favor the right child (see [`Cost`]).
-                let left_chosen = cost_l < cost_r;
-                choice.record(kind, id, ev, left_chosen);
-                let m = if left_chosen { cost_l } else { cost_r };
+                let right = ret; // the right child's probe report
+                                 // Strict `<` makes a tie favor the right child (see [`Cost`]).
+                let left_chosen = left_cost < right.cost;
+                choice.record(kind, id_pos, ev_pos, left_chosen);
+                let m = if left_chosen { left_cost } else { right.cost };
                 let cost = match kind {
                     Kind::Expand => (m.0.saturating_add(1), m.1.saturating_add(1)),
                     Kind::FullEvNode | Kind::Both => (m.0, m.1.saturating_add(1)),
                 };
                 let id_end = match kind {
                     Kind::FullEvNode => id_next, // the 1-leaf is consumed
-                    Kind::Expand | Kind::Both => id_end_r,
+                    Kind::Expand | Kind::Both => right.id_end,
                 };
                 let ev_end = match kind {
-                    Kind::FullEvNode | Kind::Both => ev_end_r,
+                    Kind::FullEvNode | Kind::Both => right.ev_end,
                     Kind::Expand => ev_next, // event leaf/virtual consumed
                 };
-                ret = (cost, id_end, ev_end);
+                ret = Probed {
+                    cost,
+                    id_end,
+                    ev_end,
+                };
             }
         }
     }
 }
 
 /// A step in the threaded `grow` emit, following the probe's choices down the chosen
-/// path and copying everything off it. `ret` carries `(out_root, id_end, ev_end)`.
+/// path and copying everything off it. `ret` is the [`Built`] register (shared with
+/// `fill`). `id_pos` is a bit offset into the packed id stream; `ev_pos` a position in
+/// the event tree (or [`VIRTUAL`]); `id_next`/`ev_next` are the positions just past this
+/// node's header.
 enum EmitJob {
+    /// Emit the grown event subtree at `ev_pos` under the id subtree at `id_pos`.
     Eval {
-        id: usize,
-        ev: usize,
+        /// Position into the packed id stream.
+        id_pos: usize,
+        /// Position into the event tree (or [`VIRTUAL`]).
+        ev_pos: usize,
     },
     /// The chosen *left* child has just been built (`ret`); emit the off-path right
     /// sibling, then sink and close.
     CloseAfterLeft {
+        /// Output index of the node being closed.
         node: usize,
+        /// Which recursion shape this branch node has.
         kind: Kind,
+        /// Position just past the id header (the off-path right's id context).
         id_next: usize,
+        /// Position just past the event header (the off-path right's event context).
         ev_next: usize,
     },
     /// The chosen *right* child has just been built (`ret`); the off-path left sibling
     /// was already emitted. Sink and close.
     CloseAfterRight {
+        /// Output index of the node being closed.
         node: usize,
+        /// Which recursion shape this branch node has.
         kind: Kind,
+        /// Position just past the id header.
         id_next: usize,
+        /// Position just past the event header.
         ev_next: usize,
     },
 }
@@ -267,17 +341,20 @@ enum EmitJob {
 /// `O(n + m)`: only the chosen root-to-leaf path is rebuilt (with the inflation and the
 /// sink); every off-path subtree is copied or skipped exactly once.
 fn grow_emit(id_bits: &BitsSlice, view: &EvView, out: &mut Builder, choice: &Choices) {
-    let mut ret = (0usize, 0usize, 0usize); // (out_root, id_end, ev_end)
-    let mut stack = vec![EmitJob::Eval { id: 0, ev: 0 }];
+    let mut ret = Built::default(); // the thread register, shared with `fill`
+    let mut stack = vec![EmitJob::Eval {
+        id_pos: 0,
+        ev_pos: 0,
+    }];
     while let Some(job) = stack.pop() {
         match job {
-            EmitJob::Eval { id, ev } => {
-                let (id_node, id_val, id_next) = idbits::header(id_bits, id);
-                let virt = ev == VIRTUAL;
+            EmitJob::Eval { id_pos, ev_pos } => {
+                let (id_node, id_val, id_next) = idbits::header(id_bits, id_pos);
+                let virt = ev_pos == VIRTUAL;
                 let (ev_int, ev_base, ev_next) = if virt {
                     (false, 0u64, VIRTUAL)
                 } else {
-                    view.header(ev)
+                    view.header(ev_pos)
                 };
                 // The inflation point: id full over a leaf/virtual event — increment.
                 if !id_node && !ev_int {
@@ -286,7 +363,11 @@ fn grow_emit(id_bits: &BitsSlice, view: &EvView, out: &mut Builder, choice: &Cho
                     // is never the `COST_MAX` empty side), and a real `Party`'s root is
                     // never empty — so an id leaf on the chosen path is always full.
                     debug_assert!(id_val, "grow chose an empty-id region to inflate");
-                    ret = (out.leaf(ev_base + 1), id_next, ev_next);
+                    ret = Built {
+                        out_root: out.leaf(ev_base + 1),
+                        id_end: id_next,
+                        ev_end: ev_next,
+                    };
                     continue;
                 }
                 let kind = if !id_node {
@@ -297,13 +378,13 @@ fn grow_emit(id_bits: &BitsSlice, view: &EvView, out: &mut Builder, choice: &Cho
                     Kind::Expand
                 };
                 let node = out.open(ev_base);
-                let left_chosen = choice.chosen(kind, id, ev);
+                let left_chosen = choice.chosen(kind, id_pos, ev_pos);
                 if left_chosen {
                     // Descend the chosen left child now; the right is emitted on close.
-                    let (cid, cev) = match kind {
-                        Kind::FullEvNode => (id, ev + 1),   // id stays full
-                        Kind::Both => (id_next, ev + 1),    // `il`, `el`
-                        Kind::Expand => (id_next, VIRTUAL), // `il`, virtual
+                    let (child_id, child_ev) = match kind {
+                        Kind::FullEvNode => (id_pos, ev_pos + 1), // id stays full
+                        Kind::Both => (id_next, ev_pos + 1),      // `il`, `el`
+                        Kind::Expand => (id_next, VIRTUAL),       // `il`, virtual
                     };
                     stack.push(EmitJob::CloseAfterLeft {
                         node,
@@ -311,16 +392,19 @@ fn grow_emit(id_bits: &BitsSlice, view: &EvView, out: &mut Builder, choice: &Cho
                         id_next,
                         ev_next,
                     });
-                    stack.push(EmitJob::Eval { id: cid, ev: cev });
+                    stack.push(EmitJob::Eval {
+                        id_pos: child_id,
+                        ev_pos: child_ev,
+                    });
                 } else {
                     // Emit the off-path left sibling now, then descend the chosen right.
-                    let (cid, cev) = match kind {
+                    let (child_id, child_ev) = match kind {
                         Kind::FullEvNode => {
-                            let (_l, ev_right) = out.copy(view, ev + 1);
-                            (id, ev_right)
+                            let (_l, ev_right) = out.copy(view, ev_pos + 1);
+                            (id_pos, ev_right)
                         }
                         Kind::Both => {
-                            let (_l, ev_right) = out.copy(view, ev + 1);
+                            let (_l, ev_right) = out.copy(view, ev_pos + 1);
                             (idbits::skip(id_bits, id_next), ev_right)
                         }
                         Kind::Expand => {
@@ -334,7 +418,10 @@ fn grow_emit(id_bits: &BitsSlice, view: &EvView, out: &mut Builder, choice: &Cho
                         id_next,
                         ev_next,
                     });
-                    stack.push(EmitJob::Eval { id: cid, ev: cev });
+                    stack.push(EmitJob::Eval {
+                        id_pos: child_id,
+                        ev_pos: child_ev,
+                    });
                 }
             }
             EmitJob::CloseAfterLeft {
@@ -343,23 +430,27 @@ fn grow_emit(id_bits: &BitsSlice, view: &EvView, out: &mut Builder, choice: &Cho
                 id_next,
                 ev_next,
             } => {
-                let (_left_root, id_end_l, ev_end_l) = ret;
+                let left = ret; // the chosen left child's report (its root already placed)
                 let (right_root, id_end, ev_end) = match kind {
                     Kind::FullEvNode => {
-                        let (rr, ev_node_end) = out.copy(view, ev_end_l); // off-path `er`
+                        let (rr, ev_node_end) = out.copy(view, left.ev_end); // off-path `er`
                         (rr, id_next, ev_node_end)
                     }
                     Kind::Both => {
-                        let (rr, ev_node_end) = out.copy(view, ev_end_l); // off-path `er`
-                        (rr, idbits::skip(id_bits, id_end_l), ev_node_end)
+                        let (rr, ev_node_end) = out.copy(view, left.ev_end); // off-path `er`
+                        (rr, idbits::skip(id_bits, left.id_end), ev_node_end)
                     }
                     Kind::Expand => {
                         let rr = out.leaf(0); // off-path sibling is a fresh Leaf(0)
-                        (rr, idbits::skip(id_bits, id_end_l), ev_next)
+                        (rr, idbits::skip(id_bits, left.id_end), ev_next)
                     }
                 };
                 out.close_node(node, right_root);
-                ret = (node, id_end, ev_end);
+                ret = Built {
+                    out_root: node,
+                    id_end,
+                    ev_end,
+                };
             }
             EmitJob::CloseAfterRight {
                 node,
@@ -367,14 +458,18 @@ fn grow_emit(id_bits: &BitsSlice, view: &EvView, out: &mut Builder, choice: &Cho
                 id_next,
                 ev_next,
             } => {
-                let (right_root, id_end_r, ev_end_r) = ret;
+                let right = ret; // the chosen right child's report
                 let (id_end, ev_end) = match kind {
-                    Kind::FullEvNode => (id_next, ev_end_r),
-                    Kind::Both => (id_end_r, ev_end_r),
-                    Kind::Expand => (id_end_r, ev_next),
+                    Kind::FullEvNode => (id_next, right.ev_end),
+                    Kind::Both => (right.id_end, right.ev_end),
+                    Kind::Expand => (right.id_end, ev_next),
                 };
-                out.close_node(node, right_root);
-                ret = (node, id_end, ev_end);
+                out.close_node(node, right.out_root);
+                ret = Built {
+                    out_root: node,
+                    id_end,
+                    ev_end,
+                };
             }
         }
     }

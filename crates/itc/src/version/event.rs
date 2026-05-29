@@ -15,14 +15,14 @@
 //! # The thread register
 //!
 //! Every two-tree machine here ([`ev_join`], [`fill`], and the [`grow`] submodule's
-//! probe and emit) — and `leq` in [`super::compare`] next door — drives a single
+//! probe and emit) — and `causal_cmp` in [`super::compare`] next door — drives a single
 //! iterative DFS off an explicit job stack, threading right-child positions instead of
 //! re-scanning to find them. They all speak the same protocol, the **thread register**:
 //!
-//! - A mutable `ret` holds the just-finished subtree's end positions — uniformly
-//!   `(out_root, …_end, …_end)`: the output root it produced and the position just past
-//!   it in each input tree (and, for the cost probe, the subtree's cost in place of
-//!   `out_root`).
+//! - A mutable `ret`, a small named struct, holds the just-finished subtree's report:
+//!   the position just past it in each input tree, plus a per-walk payload — the output
+//!   root it produced ([`Joined`] for the join, [`Built`] shared by `fill` and the grow
+//!   emit), the subtree's cost (`grow`'s `Probed`), or nothing (`compare`'s `Ends`).
 //! - Every `Eval` arm finishes by *writing* `ret` (a completed leaf, or a `Close`/
 //!   `Combine` arm folding two children).
 //! - Every deferred-sibling frame (`Right`/`Close`/`Combine`) *reads* `ret` to resume:
@@ -31,8 +31,8 @@
 //! LIFO push order is what makes the bare register sound: a node pushes its `Close`
 //! frame, then its `Right` frame, then its left `Eval`, so by the time a frame pops and
 //! reads `ret`, the most recent write is exactly the sibling subtree it is waiting on.
-//! (`sum` in `party::ops` uses an explicit results `Vec` for the same role, since it
-//! must combine two child *outputs*, not just their positions.)
+//! (`sum` in `party::ops` plays the same role with a `Vec` of its `Summed` register,
+//! since it must combine two child *outputs*, not just their positions.)
 
 use crate::codec::{Bits, BitsSlice};
 use crate::idbits;
@@ -140,125 +140,194 @@ impl Builder {
 
 // ───────────────────────────── merge (event-tree join) ─────────────────────────────
 
-/// A step in the threaded two-tree `ev_join` walk. `ret` is the thread register (see
-/// the module doc): the just-finished subtree's `(out_root, a_end, b_end)`.
+/// A step in the threaded two-tree `ev_join` walk. `ret` is the [`Joined`] register (see
+/// the module doc). Positions (`*_pos`) address a node in each input; offsets (`*_off`)
+/// are the path sum down to it; sums (`*_sum`) add the node's own base; `*_internal`
+/// records whether that side was a node (so its right child threads) or a leaf (so it
+/// re-broadcasts in place).
 enum JoinJob {
+    /// Join the subtrees at these positions, under these path-sum offsets.
     Eval {
-        ap: usize,
-        ao: u64,
-        bp: usize,
-        bo: u64,
+        /// Position of `a`'s subtree root.
+        a_pos: usize,
+        /// Path sum down to `a`'s subtree.
+        a_off: u64,
+        /// Position of `b`'s subtree root.
+        b_pos: usize,
+        /// Path sum down to `b`'s subtree.
+        b_off: u64,
     },
-    /// Left child finished; launch the right child (threading each internal side,
-    /// re-broadcasting each leaf side).
+    /// Left child finished; launch the right child (threading each internal side from
+    /// `ret`, re-broadcasting each leaf side from the carried position/offset).
     Right {
-        a_int: bool,
-        an: u64,
-        ap: usize,
-        ao: u64,
-        b_int: bool,
-        bn: u64,
-        bp: usize,
-        bo: u64,
+        /// Whether `a` was a node here (its right child threads) or a leaf (re-broadcast).
+        a_internal: bool,
+        /// `a`'s node sum, the offset for a threaded right child.
+        a_sum: u64,
+        /// `a`'s pinned position, reused when `a` is a leaf.
+        a_pos: usize,
+        /// `a`'s pinned offset, reused when `a` is a leaf.
+        a_off: u64,
+        /// Whether `b` was a node here (its right child threads) or a leaf (re-broadcast).
+        b_internal: bool,
+        /// `b`'s node sum, the offset for a threaded right child.
+        b_sum: u64,
+        /// `b`'s pinned position, reused when `b` is a leaf.
+        b_pos: usize,
+        /// `b`'s pinned offset, reused when `b` is a leaf.
+        b_off: u64,
     },
-    /// Right child finished; sink and close the node, reporting its end positions.
+    /// Right child finished; sink and close the node, reporting its end positions. The
+    /// end is the threaded child end when that side descended, else its pinned `*_next`.
     Close {
+        /// Output index of the node being closed.
         node: usize,
-        a_int: bool,
+        /// Whether `a` descended (use the threaded end) or stayed a leaf (use `a_next`).
+        a_internal: bool,
+        /// `a`'s end position when it was a leaf here.
         a_next: usize,
-        b_int: bool,
+        /// Whether `b` descended (use the threaded end) or stayed a leaf (use `b_next`).
+        b_internal: bool,
+        /// `b`'s end position when it was a leaf here.
         b_next: usize,
     },
+}
+
+/// The thread register for `ev_join` (see the module doc): the output root a
+/// just-finished subtree produced, plus where it ended in each input. An `Eval` arm
+/// *writes* it (a leaf directly, or via the `Close` arm folding a node); the deferred
+/// `Right`/`Close` frames *read* it.
+#[derive(Clone, Copy, Default)]
+struct Joined {
+    /// Output index of the subtree's root.
+    out_root: usize,
+    /// Position just past the subtree in `a`.
+    a_end: usize,
+    /// Position just past the subtree in `b`.
+    b_end: usize,
 }
 
 /// The least upper bound of two event trees (the paper's `join` over event trees),
 /// produced in normal form. Reads either storage form via [`EvView`]; `O(n + m)`.
 pub(crate) fn ev_join(a: &EvView, b: &EvView) -> WorkingVersion {
     let mut out = Builder::new();
-    let mut ret = (0usize, 0usize, 0usize); // thread register: (out_root, a_end, b_end)
+    let mut ret = Joined::default();
     let mut stack = vec![JoinJob::Eval {
-        ap: 0,
-        ao: 0,
-        bp: 0,
-        bo: 0,
+        a_pos: 0,
+        a_off: 0,
+        b_pos: 0,
+        b_off: 0,
     }];
     while let Some(job) = stack.pop() {
         match job {
-            JoinJob::Eval { ap, ao, bp, bo } => {
-                let (a_int, a_base, a_next) = a.header(ap);
-                let (b_int, b_base, b_next) = b.header(bp);
-                let an = ao + a_base;
-                let bn = bo + b_base;
-                if !a_int && !b_int {
-                    let root = out.leaf(an.max(bn));
-                    ret = (root, a_next, b_next);
+            JoinJob::Eval {
+                a_pos,
+                a_off,
+                b_pos,
+                b_off,
+            } => {
+                let (a_internal, a_base, a_next) = a.header(a_pos);
+                let (b_internal, b_base, b_next) = b.header(b_pos);
+                let a_sum = a_off + a_base;
+                let b_sum = b_off + b_base;
+                if !a_internal && !b_internal {
+                    ret = Joined {
+                        out_root: out.leaf(a_sum.max(b_sum)),
+                        a_end: a_next,
+                        b_end: b_next,
+                    };
                     continue;
                 }
                 let node = out.open(0);
                 // Left children: an internal side descends; a leaf side broadcasts in
-                // place (reuse its position/offset, so its value stays `an`/`bn`).
-                let (la_p, la_o) = if a_int { (a_next, an) } else { (ap, ao) };
-                let (lb_p, lb_o) = if b_int { (b_next, bn) } else { (bp, bo) };
+                // place (reuse its position/offset, so its value stays `a_sum`/`b_sum`).
+                let (left_a_pos, left_a_off) = if a_internal {
+                    (a_next, a_sum)
+                } else {
+                    (a_pos, a_off)
+                };
+                let (left_b_pos, left_b_off) = if b_internal {
+                    (b_next, b_sum)
+                } else {
+                    (b_pos, b_off)
+                };
                 stack.push(JoinJob::Close {
                     node,
-                    a_int,
+                    a_internal,
                     a_next,
-                    b_int,
+                    b_internal,
                     b_next,
                 });
                 stack.push(JoinJob::Right {
-                    a_int,
-                    an,
-                    ap,
-                    ao,
-                    b_int,
-                    bn,
-                    bp,
-                    bo,
+                    a_internal,
+                    a_sum,
+                    a_pos,
+                    a_off,
+                    b_internal,
+                    b_sum,
+                    b_pos,
+                    b_off,
                 });
                 stack.push(JoinJob::Eval {
-                    ap: la_p,
-                    ao: la_o,
-                    bp: lb_p,
-                    bo: lb_o,
+                    a_pos: left_a_pos,
+                    a_off: left_a_off,
+                    b_pos: left_b_pos,
+                    b_off: left_b_off,
                 });
             }
             JoinJob::Right {
-                a_int,
-                an,
-                ap,
-                ao,
-                b_int,
-                bn,
-                bp,
-                bo,
+                a_internal,
+                a_sum,
+                a_pos,
+                a_off,
+                b_internal,
+                b_sum,
+                b_pos,
+                b_off,
             } => {
-                let (_, a_left_end, b_left_end) = ret;
-                let (ra_p, ra_o) = if a_int { (a_left_end, an) } else { (ap, ao) };
-                let (rb_p, rb_o) = if b_int { (b_left_end, bn) } else { (bp, bo) };
+                let (right_a_pos, right_a_off) = if a_internal {
+                    (ret.a_end, a_sum)
+                } else {
+                    (a_pos, a_off)
+                };
+                let (right_b_pos, right_b_off) = if b_internal {
+                    (ret.b_end, b_sum)
+                } else {
+                    (b_pos, b_off)
+                };
                 stack.push(JoinJob::Eval {
-                    ap: ra_p,
-                    ao: ra_o,
-                    bp: rb_p,
-                    bo: rb_o,
+                    a_pos: right_a_pos,
+                    a_off: right_a_off,
+                    b_pos: right_b_pos,
+                    b_off: right_b_off,
                 });
             }
             JoinJob::Close {
                 node,
-                a_int,
+                a_internal,
                 a_next,
-                b_int,
+                b_internal,
                 b_next,
             } => {
-                let (right_root, a_right_end, b_right_end) = ret;
-                out.close_node(node, right_root);
-                let a_end = if a_int { a_right_end } else { a_next };
-                let b_end = if b_int { b_right_end } else { b_next };
-                ret = (node, a_end, b_end);
+                out.close_node(node, ret.out_root);
+                ret = Joined {
+                    out_root: node,
+                    a_end: if a_internal { ret.a_end } else { a_next },
+                    b_end: if b_internal { ret.b_end } else { b_next },
+                };
             }
         }
     }
     out.finish()
+}
+
+/// An open ancestor on the [`ev_max`] descent stack: a node whose subtree is still
+/// being summed.
+struct Ancestor {
+    /// The path sum from the root down to and including this node.
+    cumulative: u64,
+    /// How many of this node's two children are not yet finished (2, then 1, then pop).
+    children_left: u8,
 }
 
 /// The maximum value of the event function over the subtree at `root` (the paper's
@@ -267,23 +336,26 @@ pub(crate) fn ev_join(a: &EvView, b: &EvView) -> WorkingVersion {
 fn ev_max(view: &EvView, root: usize) -> (u64, usize) {
     let mut max = 0u64;
     let mut pos = root;
-    let mut stack: Vec<(u64, u8)> = Vec::new(); // (node cumulative, children remaining)
+    let mut stack: Vec<Ancestor> = Vec::new();
     loop {
-        let offset = stack.last().map_or(0, |&(c, _)| c);
+        let offset = stack.last().map_or(0, |a| a.cumulative);
         let (internal, base, next) = view.header(pos);
         let cumulative = offset + base;
         max = max.max(cumulative);
         pos = next;
         if internal {
-            stack.push((cumulative, 2));
+            stack.push(Ancestor {
+                cumulative,
+                children_left: 2,
+            });
         } else {
             // A leaf completes; pop every ancestor whose children are now all done.
             loop {
                 match stack.last_mut() {
                     None => return (max, pos),
-                    Some(frame) => {
-                        frame.1 -= 1;
-                        if frame.1 == 0 {
+                    Some(ancestor) => {
+                        ancestor.children_left -= 1;
+                        if ancestor.children_left == 0 {
                             stack.pop();
                         } else {
                             break;
@@ -297,29 +369,52 @@ fn ev_max(view: &EvView, root: usize) -> (u64, usize) {
 
 // ───────────────────────────── fill ─────────────────────────────
 
-/// A step in the threaded `fill` walk. `ret` is the thread register (see the module
-/// doc): the just-finished subtree's `(out_root, id_end, ev_end)`.
+/// A step in the threaded `fill` walk. `ret` is the [`Built`] register (see the module
+/// doc). `id_pos` is a bit offset into the packed id stream; `ev_pos` a position in the
+/// event tree being filled.
 enum FillJob {
+    /// Fill the event subtree at `ev_pos` under the id subtree at `id_pos`.
     Eval {
-        id: usize,
-        ev: usize,
+        /// Position into the packed id stream.
+        id_pos: usize,
+        /// Position into the event tree.
+        ev_pos: usize,
     },
     /// `il` is full: the right child (the filled `er`) is being built; afterwards set
     /// the collapsed left leaf to `max(max_ev(el), min(er'))` and close.
     FullLeftClose {
+        /// Output index of the node being filled.
         node: usize,
+        /// Output index of the placeholder left leaf to backpatch.
         left_leaf: usize,
+        /// `max_ev(el)`: the maximum of the (full-id-collapsed) left event subtree.
         max_el: u64,
     },
     /// `il` is not full: the left child (filled `el`) is being built; afterwards decide
     /// the right child by whether `ir` is full.
     AfterLeft {
+        /// Output index of the node being filled.
         node: usize,
     },
     /// Right child (filled `er`) is being built for the general case; afterwards close.
     GeneralClose {
+        /// Output index of the node being filled.
         node: usize,
     },
+}
+
+/// The thread register for the id-driven emitting walks — `fill` here and the `grow`
+/// emit (see the module doc): the output root a just-finished subtree produced, plus
+/// where it ended in the packed id stream and the event tree. An `Eval` arm *writes* it
+/// (a leaf directly, or via a `*Close` arm folding a node); deferred frames *read* it.
+#[derive(Clone, Copy, Default)]
+pub(super) struct Built {
+    /// Output index of the subtree's root.
+    pub(super) out_root: usize,
+    /// Position just past the subtree in the packed id stream.
+    pub(super) id_end: usize,
+    /// Position just past the subtree in the event tree.
+    pub(super) ev_end: usize,
 }
 
 /// `fill(id, ev)` (plan Appendix A): use the available id to simplify the event tree
@@ -329,28 +424,43 @@ enum FillJob {
 /// where the event prunes it (an event leaf under an id node).
 fn fill(id_bits: &BitsSlice, view: &EvView) -> WorkingVersion {
     let mut out = Builder::new();
-    let mut ret = (0usize, 0usize, 0usize); // thread register: (out_root, id_end, ev_end)
-    let mut stack = vec![FillJob::Eval { id: 0, ev: 0 }];
+    let mut ret = Built::default();
+    let mut stack = vec![FillJob::Eval {
+        id_pos: 0,
+        ev_pos: 0,
+    }];
     while let Some(job) = stack.pop() {
         match job {
-            FillJob::Eval { id, ev } => {
-                let (id_node, id_val, id_next) = idbits::header(id_bits, id);
+            FillJob::Eval { id_pos, ev_pos } => {
+                let (id_node, id_val, id_next) = idbits::header(id_bits, id_pos);
                 if !id_node && !id_val {
                     // id 0-leaf: nothing owned here; the event is unchanged.
-                    let (root, ev_end) = out.copy(view, ev);
-                    ret = (root, id_next, ev_end);
+                    let (root, ev_end) = out.copy(view, ev_pos);
+                    ret = Built {
+                        out_root: root,
+                        id_end: id_next,
+                        ev_end,
+                    };
                     continue;
                 }
                 if !id_node {
                     // id 1-leaf (full): collapse the whole event subtree to its max.
-                    let (mx, ev_end) = ev_max(view, ev);
-                    ret = (out.leaf(mx), id_next, ev_end);
+                    let (mx, ev_end) = ev_max(view, ev_pos);
+                    ret = Built {
+                        out_root: out.leaf(mx),
+                        id_end: id_next,
+                        ev_end,
+                    };
                     continue;
                 }
-                let (ev_int, ev_base, ev_next) = view.header(ev);
+                let (ev_int, ev_base, ev_next) = view.header(ev_pos);
                 if !ev_int {
                     // id node over an event leaf: unchanged; lazy-skip the id subtree.
-                    ret = (out.leaf(ev_base), idbits::skip(id_bits, id), ev_next);
+                    ret = Built {
+                        out_root: out.leaf(ev_base),
+                        id_end: idbits::skip(id_bits, id_pos),
+                        ev_end: ev_next,
+                    };
                     continue;
                 }
                 // id node, event node.
@@ -368,16 +478,16 @@ fn fill(id_bits: &BitsSlice, view: &EvView) -> WorkingVersion {
                         max_el,
                     });
                     stack.push(FillJob::Eval {
-                        id: id_right,
-                        ev: ev_right,
+                        id_pos: id_right,
+                        ev_pos: ev_right,
                     });
                 } else {
                     // `il` not full: fill the left child first; decide the right after.
                     let node = out.open(ev_base);
                     stack.push(FillJob::AfterLeft { node });
                     stack.push(FillJob::Eval {
-                        id: id_left,
-                        ev: ev_left,
+                        id_pos: id_left,
+                        ev_pos: ev_left,
                     });
                 }
             }
@@ -386,30 +496,45 @@ fn fill(id_bits: &BitsSlice, view: &EvView) -> WorkingVersion {
                 left_leaf,
                 max_el,
             } => {
-                let (er_root, id_end, ev_end) = ret;
-                out.base[left_leaf] = max_el.max(out.base[er_root]);
-                out.close_node(node, er_root);
-                ret = (node, id_end, ev_end);
+                let right = ret; // the filled right child's report
+                out.base[left_leaf] = max_el.max(out.base[right.out_root]);
+                out.close_node(node, right.out_root);
+                ret = Built {
+                    out_root: node,
+                    id_end: right.id_end,
+                    ev_end: right.ev_end,
+                };
             }
             FillJob::AfterLeft { node } => {
-                let (el_root, id_end_left, ev_end_left) = ret;
-                let (ir, er) = (id_end_left, ev_end_left);
+                let left = ret; // the filled left child's report
+                let (ir, er) = (left.id_end, left.ev_end);
                 if idbits::is_full(id_bits, ir) {
                     // `ir` full: right collapses to a leaf depending on the filled left.
                     let (max_er, er_end) = ev_max(view, er);
-                    let x = max_er.max(out.base[el_root]);
+                    let x = max_er.max(out.base[left.out_root]);
                     let right_leaf = out.leaf(x);
                     out.close_node(node, right_leaf);
-                    ret = (node, ir + 2 /* past the 1-leaf `ir` */, er_end);
+                    ret = Built {
+                        out_root: node,
+                        id_end: ir + 2, // past the 1-leaf `ir`
+                        ev_end: er_end,
+                    };
                 } else {
                     stack.push(FillJob::GeneralClose { node });
-                    stack.push(FillJob::Eval { id: ir, ev: er });
+                    stack.push(FillJob::Eval {
+                        id_pos: ir,
+                        ev_pos: er,
+                    });
                 }
             }
             FillJob::GeneralClose { node } => {
-                let (er_root, id_end, ev_end) = ret;
-                out.close_node(node, er_root);
-                ret = (node, id_end, ev_end);
+                let right = ret; // the filled right child's report
+                out.close_node(node, right.out_root);
+                ret = Built {
+                    out_root: node,
+                    id_end: right.id_end,
+                    ev_end: right.ev_end,
+                };
             }
         }
     }

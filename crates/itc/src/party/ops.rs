@@ -12,7 +12,7 @@
 //!   whole subtree), the dominated subtree is skipped *once*, at the prune point, to
 //!   resync the cursors. Each node is skipped at most once, so the total stays `O(n)`.
 //!
-//! Emptiness/fullness are `O(1)` leaf checks (see [`idbits`]), valid because every
+//! Emptiness/fullness are `O(1)` leaf checks (see [`idbits`](crate::idbits)), valid because every
 //! `Party` — and every subtree of one — is in canonical normal form.
 
 use crate::codec::{Bits, BitsSlice};
@@ -41,42 +41,68 @@ fn id_node(l: &BitsSlice, r: &BitsSlice) -> Bits {
 
 // ───────────────────────────── two-tree comparisons ─────────────────────────────
 
-/// A step in a threaded two-tree DFS.
+/// A step in a threaded two-tree DFS. `a_pos`/`b_pos` are bit offsets into the two
+/// packed id streams.
 enum Pair {
-    /// Compare the subtrees at these positions.
-    Eval(usize, usize),
-    /// The left child just finished; launch the right child from where it ended.
+    /// Compare the subtrees rooted at these positions.
+    Eval { a_pos: usize, b_pos: usize },
+    /// The left child just finished; launch the right child from where it ended (both
+    /// positions read from the `Ends` register).
     Right,
+}
+
+/// The thread register for the predicate walks ([`is_disjoint`], [`contains`]): the
+/// position just past the most-recently-finished subtree in each input. An `Eval` arm
+/// *writes* it when it decides a branch locally; a deferred `Right` frame *reads* it to
+/// resume the sibling. (No payload — the answer is a bare `bool` returned early.)
+#[derive(Clone, Copy, Default)]
+struct Ends {
+    /// Position just past the finished subtree in `a`.
+    a_end: usize,
+    /// Position just past the finished subtree in `b`.
+    b_end: usize,
 }
 
 /// Whether two (normal-form) ids share no owned region. `O(n + m)`: both cursors are
 /// threaded, and a side is skipped only where the other's leaf dominates it.
 pub(crate) fn is_disjoint(a: &BitsSlice, b: &BitsSlice) -> bool {
-    // `ends` holds the (a, b) end positions of the most recently completed pair, so a
-    // pending `Right` knows where its sibling begins without re-scanning.
-    let mut ends = (0usize, 0usize);
-    let mut stack = vec![Pair::Eval(0, 0)];
+    // A pending `Right` reads where its sibling begins from `ret`, without re-scanning.
+    let mut ret = Ends::default();
+    let mut stack = vec![Pair::Eval { a_pos: 0, b_pos: 0 }];
     while let Some(job) = stack.pop() {
         match job {
-            Pair::Eval(ap, bp) => {
-                let (a_node, a_val, a_next) = header(a, ap);
-                let (b_node, b_val, b_next) = header(b, bp);
+            Pair::Eval { a_pos, b_pos } => {
+                let (a_node, a_val, a_next) = header(a, a_pos);
+                let (b_node, b_val, b_next) = header(b, b_pos);
                 if !a_node && !a_val {
-                    ends = (a_next, skip(b, bp)); // a owns nothing here: disjoint
+                    // a owns nothing here: disjoint
+                    ret = Ends {
+                        a_end: a_next,
+                        b_end: skip(b, b_pos),
+                    };
                 } else if !b_node && !b_val {
-                    ends = (skip(a, ap), b_next); // b owns nothing here: disjoint
+                    // b owns nothing here: disjoint
+                    ret = Ends {
+                        a_end: skip(a, a_pos),
+                        b_end: b_next,
+                    };
                 } else if !a_node {
                     return false; // a is full, b is nonempty: overlap
                 } else if !b_node {
                     return false; // b is full, a is nonempty: overlap
                 } else {
                     stack.push(Pair::Right);
-                    stack.push(Pair::Eval(a_next, b_next)); // left
+                    stack.push(Pair::Eval {
+                        a_pos: a_next,
+                        b_pos: b_next,
+                    }); // left
                 }
             }
             Pair::Right => {
-                let (a_left_end, b_left_end) = ends;
-                stack.push(Pair::Eval(a_left_end, b_left_end));
+                stack.push(Pair::Eval {
+                    a_pos: ret.a_end,
+                    b_pos: ret.b_end,
+                });
             }
         }
     }
@@ -86,29 +112,42 @@ pub(crate) fn is_disjoint(a: &BitsSlice, b: &BitsSlice) -> bool {
 /// Whether `a` owns every region `b` owns (reverse-inclusion: `a` contains `b`).
 /// `O(n + m)`, by the same threading + bounded lazy-skip.
 pub(crate) fn contains(a: &BitsSlice, b: &BitsSlice) -> bool {
-    let mut ends = (0usize, 0usize);
-    let mut stack = vec![Pair::Eval(0, 0)];
+    let mut ret = Ends::default();
+    let mut stack = vec![Pair::Eval { a_pos: 0, b_pos: 0 }];
     while let Some(job) = stack.pop() {
         match job {
-            Pair::Eval(ap, bp) => {
-                let (a_node, a_val, a_next) = header(a, ap);
-                let (b_node, b_val, b_next) = header(b, bp);
+            Pair::Eval { a_pos, b_pos } => {
+                let (a_node, a_val, a_next) = header(a, a_pos);
+                let (b_node, b_val, b_next) = header(b, b_pos);
                 if !b_node && !b_val {
-                    ends = (skip(a, ap), b_next); // b owns nothing here: contained
+                    // b owns nothing here: contained
+                    ret = Ends {
+                        a_end: skip(a, a_pos),
+                        b_end: b_next,
+                    };
                 } else if !a_node && a_val {
-                    ends = (a_next, skip(b, bp)); // a owns everything here: contains b
+                    // a owns everything here: contains b
+                    ret = Ends {
+                        a_end: a_next,
+                        b_end: skip(b, b_pos),
+                    };
                 } else if !a_node {
                     return false; // a empty, b nonempty: not contained
                 } else if !b_node {
                     return false; // b full, a is a node (never full): not contained
                 } else {
                     stack.push(Pair::Right);
-                    stack.push(Pair::Eval(a_next, b_next)); // left
+                    stack.push(Pair::Eval {
+                        a_pos: a_next,
+                        b_pos: b_next,
+                    }); // left
                 }
             }
             Pair::Right => {
-                let (a_left_end, b_left_end) = ends;
-                stack.push(Pair::Eval(a_left_end, b_left_end));
+                stack.push(Pair::Eval {
+                    a_pos: ret.a_end,
+                    b_pos: ret.b_end,
+                });
             }
         }
     }
@@ -117,13 +156,29 @@ pub(crate) fn contains(a: &BitsSlice, b: &BitsSlice) -> bool {
 
 // ───────────────────────────── sum (disjoint union) ─────────────────────────────
 
-/// A step in the threaded `sum` build. Results carry `(bits, a_end, b_end)`.
+/// A step in the threaded `sum` build. `a_pos`/`b_pos` are bit offsets into the two id
+/// streams.
 enum SumJob {
-    Eval(usize, usize),
-    /// Left finished; launch the right child from its end.
+    /// Sum the subtrees rooted at these positions.
+    Eval { a_pos: usize, b_pos: usize },
+    /// Left finished; launch the right child from its end (read off the `results` stack).
     Right,
     /// Both children built; combine them into a normalized node.
     Combine,
+}
+
+/// A built `sum` subtree on the `results` stack — the register analogue for `sum` (see
+/// the module doc, which notes `sum` needs an explicit stack because it folds child
+/// *outputs*, not just positions): the subtree's `bits`, plus where it ended in each
+/// input. `Eval` pushes one for a copied side; `Combine` pops two and pushes their
+/// joined node; `Right` reads the top one's ends to launch the sibling.
+struct Summed {
+    /// The built (normalized) subtree's bits.
+    bits: Bits,
+    /// Position just past the subtree in `a`.
+    a_end: usize,
+    /// Position just past the subtree in `b`.
+    b_end: usize,
 }
 
 /// Sum two normal-form ids — the union of their regions — producing a normalized id, or
@@ -133,23 +188,34 @@ enum SumJob {
 /// the both-internal case threads (no skip); a `0` child copies the other subtree
 /// verbatim (work bounded by the output size).
 pub(crate) fn sum(a: &BitsSlice, b: &BitsSlice) -> Option<Bits> {
-    let mut results: Vec<(Bits, usize, usize)> = Vec::new();
-    let mut stack = vec![SumJob::Eval(0, 0)];
+    let mut results: Vec<Summed> = Vec::new();
+    let mut stack = vec![SumJob::Eval { a_pos: 0, b_pos: 0 }];
     while let Some(job) = stack.pop() {
         match job {
-            SumJob::Eval(ap, bp) => {
-                let (a_node, a_val, a_next) = header(a, ap);
-                let (b_node, b_val, b_next) = header(b, bp);
+            SumJob::Eval { a_pos, b_pos } => {
+                let (a_node, a_val, a_next) = header(a, a_pos);
+                let (b_node, b_val, b_next) = header(b, b_pos);
                 if !a_node && !a_val {
-                    let end = skip(b, bp); // sum(0, b) = b
-                    results.push((b[bp..end].to_bitvec(), a_next, end));
+                    let end = skip(b, b_pos); // sum(0, b) = b
+                    results.push(Summed {
+                        bits: b[b_pos..end].to_bitvec(),
+                        a_end: a_next,
+                        b_end: end,
+                    });
                 } else if !b_node && !b_val {
-                    let end = skip(a, ap); // sum(a, 0) = a
-                    results.push((a[ap..end].to_bitvec(), end, b_next));
+                    let end = skip(a, a_pos); // sum(a, 0) = a
+                    results.push(Summed {
+                        bits: a[a_pos..end].to_bitvec(),
+                        a_end: end,
+                        b_end: b_next,
+                    });
                 } else if a_node && b_node {
                     stack.push(SumJob::Combine);
                     stack.push(SumJob::Right);
-                    stack.push(SumJob::Eval(a_next, b_next)); // left
+                    stack.push(SumJob::Eval {
+                        a_pos: a_next,
+                        b_pos: b_next,
+                    }); // left
                 } else {
                     // A `1` (full) leaf meets a nonempty subtree on the other side: the
                     // two ids share a region, so there is no disjoint union.
@@ -157,17 +223,25 @@ pub(crate) fn sum(a: &BitsSlice, b: &BitsSlice) -> Option<Bits> {
                 }
             }
             SumJob::Right => {
-                let &(_, a_left_end, b_left_end) = results.last().expect("left result present");
-                stack.push(SumJob::Eval(a_left_end, b_left_end));
+                let left = results.last().expect("left result present");
+                stack.push(SumJob::Eval {
+                    a_pos: left.a_end,
+                    b_pos: left.b_end,
+                });
             }
             SumJob::Combine => {
-                let (right, a_end, b_end) = results.pop().expect("right result present");
-                let (left, ..) = results.pop().expect("left result present");
-                results.push((id_node(&left, &right), a_end, b_end));
+                let right = results.pop().expect("right result present");
+                let left = results.pop().expect("left result present");
+                // The node's ends are the right child's (it was threaded last).
+                results.push(Summed {
+                    bits: id_node(&left.bits, &right.bits),
+                    a_end: right.a_end,
+                    b_end: right.b_end,
+                });
             }
         }
     }
-    Some(results.pop().expect("one result remains").0)
+    Some(results.pop().expect("one result remains").bits)
 }
 
 // ───────────────────────────── split ─────────────────────────────
@@ -197,12 +271,15 @@ pub(crate) fn split(bits: &BitsSlice) -> (Bits, Bits) {
 
     // Pass 1: find the branch by a single forward preorder scan.
     enum Frame {
-        NeedLeft {
-            start: usize,
-        },
+        /// An opened node whose left child is being parsed; `start` is its bit position.
+        NeedLeft { start: usize },
+        /// An opened node whose left child is done and right child is being parsed.
         NeedRight {
+            /// The node's bit position.
             start: usize,
+            /// Whether the (now-parsed) left child owned nothing.
             left_empty: bool,
+            /// Bit position where the right child begins.
             right_start: usize,
         },
     }

@@ -84,24 +84,54 @@ pub(super) fn skip(view: &EvView, mut at: usize) -> usize {
     at
 }
 
-/// A step in the threaded comparison walk.
+/// A step in the threaded comparison walk. Positions (`*_pos`) address a node in each
+/// tree; offsets (`*_off`) are the path sum down to that node; sums (`*_sum`) are the
+/// offset plus the node's own base — the value the node contributes pointwise.
 enum Job {
     /// Compare the subtrees at these positions, under these path-sum offsets.
     Eval {
-        ap: usize,
-        ao: u64,
-        bp: usize,
-        bo: u64,
+        /// Position of `a`'s subtree root.
+        a_pos: usize,
+        /// Path sum down to `a`'s subtree.
+        a_off: u64,
+        /// Position of `b`'s subtree root.
+        b_pos: usize,
+        /// Path sum down to `b`'s subtree.
+        b_off: u64,
     },
     /// Both-internal node: its left child finished; launch the right child, both
-    /// positions threaded from where the left child's subtrees ended.
-    RightLockstep { an: u64, bn: u64 },
+    /// positions threaded from where the left child's subtrees ended (read from `ret`)
+    /// and offset by the node sums.
+    RightLockstep { a_sum: u64, b_sum: u64 },
     /// `b` is a leaf broadcast to both of `a`'s children: launch `a`'s right child
-    /// (threaded from the left child's end) against the same pinned `b` leaf.
-    RightBroadcastB { an: u64, bp: usize, bo: u64 },
+    /// (its position threaded from `ret`, offset by `a_sum`) against the same pinned `b`
+    /// leaf (its `b_pos`/`b_off` carried here, not threaded).
+    RightBroadcastB {
+        a_sum: u64,
+        b_pos: usize,
+        b_off: u64,
+    },
     /// `a` is a leaf broadcast to both of `b`'s children: launch `b`'s right child
-    /// (threaded from the left child's end) against the same pinned `a` leaf.
-    RightBroadcastA { ap: usize, ao: u64, bn: u64 },
+    /// (its position threaded from `ret`, offset by `b_sum`) against the same pinned `a`
+    /// leaf (its `a_pos`/`a_off` carried here, not threaded).
+    RightBroadcastA {
+        a_pos: usize,
+        a_off: u64,
+        b_sum: u64,
+    },
+}
+
+/// The thread register for the comparison walk (the discipline is documented in
+/// [`super::event`]'s module doc): the position just past the most-recently-finished
+/// subtree in each input. An `Eval` arm *writes* it on deciding a leaf-vs-leaf branch;
+/// a deferred `Right*` frame *reads* it to resume a sibling where its left neighbor
+/// ended. There is no payload — the comparison accumulates into `le`/`ge`, not here.
+#[derive(Clone, Copy, Default)]
+struct Ends {
+    /// Position just past the finished subtree in `a`.
+    a_end: usize,
+    /// Position just past the finished subtree in `b`.
+    b_end: usize,
 }
 
 /// The causal order, computed in one `O(n + m)` pass; `None` means concurrent.
@@ -115,27 +145,31 @@ pub(crate) fn causal_cmp(a: &EvView, b: &EvView) -> Option<Ordering> {
     let mut le = true; // `a <= b` still possible
     let mut ge = true; // `b <= a` still possible
 
-    // The (a, b) end positions of the most recently completed subtree; a pending right
-    // child reads the threaded side(s) from here (the pinned side carries its own
-    // position in the broadcast jobs).
-    let mut ret = (0usize, 0usize);
+    // A pending right child reads the threaded side(s) from `ret` (the pinned side
+    // carries its own position in the broadcast jobs).
+    let mut ret = Ends::default();
     let mut stack = vec![Job::Eval {
-        ap: 0,
-        ao: 0,
-        bp: 0,
-        bo: 0,
+        a_pos: 0,
+        a_off: 0,
+        b_pos: 0,
+        b_off: 0,
     }];
     while let Some(job) = stack.pop() {
         match job {
-            Job::Eval { ap, ao, bp, bo } => {
-                let (a_internal, a_base, a_next) = a.header(ap);
-                let (b_internal, b_base, b_next) = b.header(bp);
-                let an = ao + a_base;
-                let bn = bo + b_base;
-                if an > bn {
+            Job::Eval {
+                a_pos,
+                a_off,
+                b_pos,
+                b_off,
+            } => {
+                let (a_internal, a_base, a_next) = a.header(a_pos);
+                let (b_internal, b_base, b_next) = b.header(b_pos);
+                let a_sum = a_off + a_base;
+                let b_sum = b_off + b_base;
+                if a_sum > b_sum {
                     le = false;
                 }
-                if bn > an {
+                if b_sum > a_sum {
                     ge = false;
                 }
                 if !le && !ge {
@@ -143,64 +177,82 @@ pub(crate) fn causal_cmp(a: &EvView, b: &EvView) -> Option<Ordering> {
                 }
                 match (a_internal, b_internal) {
                     // Both leaves: this branch is decided. Report both ends.
-                    (false, false) => ret = (a_next, b_next),
+                    (false, false) => {
+                        ret = Ends {
+                            a_end: a_next,
+                            b_end: b_next,
+                        }
+                    }
                     // Both internal: descend in lockstep.
                     (true, true) => {
-                        stack.push(Job::RightLockstep { an, bn });
+                        stack.push(Job::RightLockstep { a_sum, b_sum });
                         stack.push(Job::Eval {
-                            ap: a_next,
-                            ao: an,
-                            bp: b_next,
-                            bo: bn,
+                            a_pos: a_next,
+                            a_off: a_sum,
+                            b_pos: b_next,
+                            b_off: b_sum,
                         });
                     }
                     // `b` leaf broadcast to both of `a`'s children.
                     (true, false) => {
-                        stack.push(Job::RightBroadcastB { an, bp, bo });
+                        stack.push(Job::RightBroadcastB {
+                            a_sum,
+                            b_pos,
+                            b_off,
+                        });
                         stack.push(Job::Eval {
-                            ap: a_next,
-                            ao: an,
-                            bp,
-                            bo,
+                            a_pos: a_next,
+                            a_off: a_sum,
+                            b_pos,
+                            b_off,
                         });
                     }
                     // `a` leaf broadcast to both of `b`'s children.
                     (false, true) => {
-                        stack.push(Job::RightBroadcastA { ap, ao, bn });
+                        stack.push(Job::RightBroadcastA {
+                            a_pos,
+                            a_off,
+                            b_sum,
+                        });
                         stack.push(Job::Eval {
-                            ap,
-                            ao,
-                            bp: b_next,
-                            bo: bn,
+                            a_pos,
+                            a_off,
+                            b_pos: b_next,
+                            b_off: b_sum,
                         });
                     }
                 }
             }
-            Job::RightLockstep { an, bn } => {
-                let (a_left_end, b_left_end) = ret;
+            Job::RightLockstep { a_sum, b_sum } => {
                 stack.push(Job::Eval {
-                    ap: a_left_end,
-                    ao: an,
-                    bp: b_left_end,
-                    bo: bn,
+                    a_pos: ret.a_end,
+                    a_off: a_sum,
+                    b_pos: ret.b_end,
+                    b_off: b_sum,
                 });
             }
-            Job::RightBroadcastB { an, bp, bo } => {
-                let (a_left_end, _) = ret;
+            Job::RightBroadcastB {
+                a_sum,
+                b_pos,
+                b_off,
+            } => {
                 stack.push(Job::Eval {
-                    ap: a_left_end,
-                    ao: an,
-                    bp,
-                    bo,
+                    a_pos: ret.a_end,
+                    a_off: a_sum,
+                    b_pos,
+                    b_off,
                 });
             }
-            Job::RightBroadcastA { ap, ao, bn } => {
-                let (_, b_left_end) = ret;
+            Job::RightBroadcastA {
+                a_pos,
+                a_off,
+                b_sum,
+            } => {
                 stack.push(Job::Eval {
-                    ap,
-                    ao,
-                    bp: b_left_end,
-                    bo: bn,
+                    a_pos,
+                    a_off,
+                    b_pos: ret.b_end,
+                    b_off: b_sum,
                 });
             }
         }
