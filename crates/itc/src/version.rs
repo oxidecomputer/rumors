@@ -124,6 +124,16 @@ impl Batch<'_> {
         self
     }
 
+    /// Snapshot the in-progress history as an owned, canonical [`Version`] — without
+    /// committing or forcing materialization. Used by `clock::Batch` for `fork`/`sync`,
+    /// which must hand a concrete version to another clock mid-session.
+    pub(crate) fn snapshot(&self) -> Version {
+        match &self.work {
+            Some(work) => Version::from_bits(working::repack(work)),
+            None => self.version.clone(),
+        }
+    }
+
     /// A read-only view of the in-progress event tree (working form if
     /// materialized, otherwise the borrowed version's packed bits).
     fn view(&self) -> EvView<'_> {

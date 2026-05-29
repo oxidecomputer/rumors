@@ -65,6 +65,16 @@ impl Party {
         Ok(Party(bits[..end].to_bitvec()))
     }
 
+    /// The empty (zero) id, `Leaf(false)`. Internal transient only — never a public
+    /// value (a `Party` is a nonzero share). Used as a placeholder when moving a party
+    /// out of a `&mut` during `sync`, immediately overwritten by the re-split half.
+    pub(crate) fn empty() -> Party {
+        let mut bits = codec::Bits::with_capacity(2);
+        bits.push(false); // leaf flag
+        bits.push(false); // value 0
+        Party(bits)
+    }
+
     /// The packed preorder bit stream (no trailing padding). Internal.
     pub(crate) fn as_bits(&self) -> &BitsSlice {
         &self.0

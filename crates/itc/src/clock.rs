@@ -1,11 +1,10 @@
 //! [`Clock`] — a [`Party`] paired with a [`Version`], and its working-form [`Batch`].
 //!
-//! NOTE: [`clock::Batch`](Batch) and the `Clock`-level join operators (`BitOr`/
-//! `BitOrAssign`) land in Phase 6, and `Clock`'s `Debug` in Phase 7. The `todo!()`
-//! bodies below are deliberate stubs matching the frozen Appendix B surface, not
-//! oversights — every signature is final; only the body is pending.
+//! A [`clock::Batch`](Batch) is a split borrow of a `Clock`: the party (which has no
+//! working form — id ops run on the packed bits directly) plus a [`version::Batch`]
+//! over the version. Each `Clock` method is a single-op batch; the version repacks once
+//! when the inner `version::Batch` drops. `Clock`'s `Debug` lands in Phase 7.
 
-use core::marker::PhantomData;
 use core::ops::{BitOr, BitOrAssign};
 
 use crate::{codec, version, DecodeError, OverlapError, Party, Version};
@@ -93,9 +92,14 @@ impl Clock {
         self.batch().merge(&msg).tick();
     }
 
-    /// Begin a working-form session over this clock.
+    /// Begin a working-form session over this clock: a split borrow of the party and
+    /// a [`version::Batch`] over the version.
     pub fn batch(&mut self) -> Batch<'_> {
-        todo!()
+        let Clock { party, version } = self;
+        Batch {
+            party,
+            version: version.batch(),
+        }
     }
 
     /// The canonical packed byte encoding: `enc_id(party)` then `enc_ev(version)`,
@@ -125,54 +129,74 @@ impl core::fmt::Debug for Clock {
     }
 }
 
-/// A session over a [`Clock`], built on [`version::Batch`]. Repacks on drop.
+/// A session over a [`Clock`], built on [`version::Batch`]. The version repacks when
+/// the inner `version::Batch` drops; the party is mutated in place (it has no working
+/// form).
 pub struct Batch<'c> {
-    _p: PhantomData<&'c mut Clock>,
+    party: &'c mut Party,
+    version: version::Batch<'c>,
 }
 
 impl Batch<'_> {
     /// Advance the clock's own component. Chainable.
     pub fn tick(&mut self) -> &mut Self {
-        todo!()
+        self.version.tick(&*self.party);
+        self
     }
 
     /// Merge a received message in place. Chainable.
     pub fn merge(&mut self, msg: &Version) -> &mut Self {
-        let _ = msg;
-        todo!()
+        self.version.merge(msg);
+        self
     }
 
     /// Split off a child clock; the child gets the current version.
     pub fn fork(&mut self) -> Clock {
-        todo!()
+        let child_party = self.party.fork();
+        let child_version = self.version.snapshot();
+        Clock::from_parts(child_party, child_version)
     }
 
     /// Absorb a disjoint clock; on overlap, hand it back.
     pub fn join(&mut self, other: Clock) -> Result<(), Clock> {
-        let _ = other;
-        todo!()
+        let (other_party, other_version) = other.into_parts();
+        match self.party.join(other_party) {
+            Ok(()) => {
+                self.version.merge(&other_version);
+                Ok(())
+            }
+            Err(other_party) => Err(Clock::from_parts(other_party, other_version)),
+        }
     }
 
-    /// Reconcile with another live batch (keeps both live).
+    /// Reconcile with another live batch (keeps both live): merge the two parties and
+    /// re-split them, and bring both versions to the join of the two.
     pub fn sync(&mut self, other: &mut Batch<'_>) -> Result<(), OverlapError> {
-        let _ = other;
-        todo!()
+        if !self.party.is_disjoint(other.party) {
+            return Err(OverlapError);
+        }
+        // Merge both parties into self, then re-split: self keeps one half, other the
+        // other. The transient `empty` placeholder is overwritten by the fork half.
+        let theirs = core::mem::replace(other.party, Party::empty());
+        self.party.join(theirs).expect("disjoint, just checked");
+        *other.party = self.party.fork();
+
+        // Both histories become the join of the two.
+        let other_version = other.version.snapshot();
+        self.version.merge(&other_version);
+        let merged = self.version.snapshot();
+        other.version.merge(&merged);
+        Ok(())
     }
 
     /// The in-progress version, for comparison (no repack).
     pub fn version(&self) -> &version::Batch<'_> {
-        todo!()
+        &self.version
     }
 
     /// The current party (may have changed via fork/join/sync).
     pub fn party(&self) -> &Party {
-        todo!()
-    }
-}
-
-impl Drop for Batch<'_> {
-    fn drop(&mut self) {
-        // Repack version into *clock if materialized.
+        &*self.party
     }
 }
 
@@ -187,24 +211,23 @@ impl<'a> From<&'a mut Clock> for Batch<'a> {
 
 impl BitOr<Version> for Clock {
     type Output = Clock;
-    fn bitor(self, r: Version) -> Clock {
-        let _ = r;
-        todo!()
+    fn bitor(mut self, r: Version) -> Clock {
+        self.batch().merge(&r);
+        self
     }
 }
 
 impl BitOr<Clock> for Version {
     type Output = Clock;
-    fn bitor(self, r: Clock) -> Clock {
-        let _ = r;
-        todo!()
+    fn bitor(self, mut r: Clock) -> Clock {
+        r.batch().merge(&self);
+        r
     }
 }
 
 impl BitOrAssign<Version> for Clock {
     fn bitor_assign(&mut self, r: Version) {
-        let _ = r;
-        todo!()
+        self.batch().merge(&r);
     }
 }
 

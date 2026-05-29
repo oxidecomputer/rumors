@@ -156,6 +156,54 @@ pub(crate) fn from_oracle_clock(c: &oracle::Clock) -> Clock {
     Clock::from_parts(from_oracle_party(party), from_oracle_version(version))
 }
 
+// ───────────────────────────── impl → oracle bridge ─────────────────────────────
+//
+// Structural lowering for differential agreement (§8): rebuild the oracle's tree shape
+// from the impl's *internal* packed representation, then compare with `==`. This is the
+// inverse of `from_oracle_*`. It walks the packed bits directly — the impl's at-rest
+// storage — rather than round-tripping the public `encode`/`decode`, so the master
+// harness checks algorithm correctness without sharing a failure mode with the byte
+// codec (which is exercised separately, group A). Recursive over a bounded tree
+// (test-only; the impl's own traversals are iterative). Both forms are normalized, so
+// structural `==` ⇔ semantic equality.
+
+fn read_id(bits: &codec::BitsSlice, pos: usize) -> (oracle::Party, usize) {
+    if bits[pos] {
+        let (l, after_l) = read_id(bits, pos + 1);
+        let (r, after_r) = read_id(bits, after_l);
+        (oracle::Party::Node(Box::new(l), Box::new(r)), after_r)
+    } else {
+        (oracle::Party::Leaf(bits[pos + 1]), pos + 2)
+    }
+}
+
+fn read_ev(bits: &codec::BitsSlice, pos: usize) -> (oracle::Version, usize) {
+    let internal = bits[pos];
+    let (n, after_n) = codec::decode_int(bits, pos + 1).expect("canonical impl bits decode");
+    if internal {
+        let (l, after_l) = read_ev(bits, after_n);
+        let (r, after_r) = read_ev(bits, after_l);
+        (oracle::Version::Node(n, Box::new(l), Box::new(r)), after_r)
+    } else {
+        (oracle::Version::Leaf(n), after_n)
+    }
+}
+
+/// Lower an impl `Party` to the oracle's structural tree by reading its packed bits.
+pub(crate) fn to_oracle_party(p: &Party) -> oracle::Party {
+    read_id(p.as_bits(), 0).0
+}
+
+/// Lower an impl `Version` to the oracle's structural tree by reading its packed bits.
+pub(crate) fn to_oracle_version(v: &Version) -> oracle::Version {
+    read_ev(v.as_bits(), 0).0
+}
+
+/// Lower an impl `Clock` to the oracle's `(Party, Version)` structural form.
+pub(crate) fn to_oracle_clock(c: &Clock) -> (oracle::Party, oracle::Version) {
+    (to_oracle_party(c.party()), to_oracle_version(&c.version()))
+}
+
 // ───────────────────────────── adversarial deep inputs ─────────────────────────────
 //
 // The complexity proptests assert that a traversal's step count grows linearly, not
