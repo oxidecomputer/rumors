@@ -2,12 +2,13 @@
 //! mutation [`Batch`].
 
 use core::cmp::Ordering;
+use core::fmt::Display;
 use core::ops::{BitOr, BitOrAssign};
 
 use bitvec::prelude::*;
 
 use crate::codec::{self, BitsSlice};
-use crate::{DecodeError, Party};
+use crate::{DecodeError, ParseError, Party};
 
 use self::compare::{causal_cmp, EvView};
 use self::working::WorkingVersion;
@@ -91,10 +92,48 @@ impl PartialOrd for Version {
     }
 }
 
+/// Paper notation: `n` leaves, `(n, e1, e2)` nodes. E.g. `(1, 2, (0, (1, 0, 2), 0))`.
+impl core::fmt::Display for Version {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        codec::write_ev(&self.0, f, ", ")
+    }
+}
+
+/// `Version(<paper notation, space-separated>)`, e.g. `Version(1, 2, (0, (1, 0, 2), 0))`.
 impl core::fmt::Debug for Version {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let _ = f;
-        todo!("Phase 7: Version Debug")
+        <Self as Display>::fmt(self, f)
+    }
+}
+
+/// Parse paper notation (`n | (n, e1, e2)`), strictly rejecting non-normal-form input.
+impl core::str::FromStr for Version {
+    type Err = ParseError;
+    fn from_str(s: &str) -> Result<Self, ParseError> {
+        Ok(Version::from_bits(codec::parse_ev_str(s)?))
+    }
+}
+
+/// An event leaf from its base value, e.g. `Version::try_from(3u64)`.
+impl TryFrom<u64> for Version {
+    type Error = ParseError;
+    fn try_from(n: u64) -> Result<Self, ParseError> {
+        Ok(Version::from_bits(codec::ev_leaf(n)))
+    }
+}
+
+/// An event node from an `(n, left, right)` literal, e.g.
+/// `Version::try_from((1u64, 0u64, (2u64, 0u64, 1u64)))`. Rejects non-normal-form nodes
+/// (no zero-base child, or a collapsible `(n, m, m)`).
+impl<T, S> TryFrom<(u64, T, S)> for Version
+where
+    Version: TryFrom<T, Error = ParseError> + TryFrom<S, Error = ParseError>,
+{
+    type Error = ParseError;
+    fn try_from((n, l, r): (u64, T, S)) -> Result<Self, ParseError> {
+        let l = Version::try_from(l)?;
+        let r = Version::try_from(r)?;
+        Ok(Version::from_bits(codec::ev_node(n, &l.0, &r.0)?))
     }
 }
 

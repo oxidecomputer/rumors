@@ -3,11 +3,11 @@
 //! A [`clock::Batch`](Batch) is a split borrow of a `Clock`: the party (which has no
 //! working form — id ops run on the packed bits directly) plus a [`version::Batch`]
 //! over the version. Each `Clock` method is a single-op batch; the version repacks once
-//! when the inner `version::Batch` drops. `Clock`'s `Debug` lands in Phase 7.
+//! when the inner `version::Batch` drops.
 
 use core::ops::{BitOr, BitOrAssign};
 
-use crate::{codec, version, DecodeError, OverlapError, Party, Version};
+use crate::{codec, version, DecodeError, OverlapError, ParseError, Party, Version};
 
 #[cfg(test)]
 mod tests;
@@ -122,10 +122,51 @@ impl Clock {
     }
 }
 
+/// Paper stamp notation: `(<id>, <event>)`, e.g. `(1, 0)` for [`Clock::seed`].
+impl core::fmt::Display for Clock {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "({}, {})", self.party, self.version)
+    }
+}
+
 impl core::fmt::Debug for Clock {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let _ = f;
-        todo!("Phase 7: Clock Debug")
+        f.debug_struct("Clock")
+            .field("party", &self.party)
+            .field("version", &self.version)
+            .finish()
+    }
+}
+
+/// Parse a stamp `(i, e)` in paper notation, strictly rejecting non-normal-form input
+/// and an anonymous (id `0`) party.
+impl core::str::FromStr for Clock {
+    type Err = ParseError;
+    fn from_str(s: &str) -> Result<Self, ParseError> {
+        let (id, ev) = codec::parse_clock_str(s)?;
+        if codec::id_is_empty(&id) {
+            return Err(ParseError::Anonymous);
+        }
+        Ok(Clock::from_parts(
+            Party::from_bits(id),
+            Version::from_bits(ev),
+        ))
+    }
+}
+
+/// A clock from a `(party, version)` literal, e.g. `Clock::try_from(((1u8, 0u8), 5u64))`,
+/// grounding on the recursive [`Party`]/[`Version`] literal forms.
+impl<I, E> TryFrom<(I, E)> for Clock
+where
+    Party: TryFrom<I, Error = ParseError>,
+    Version: TryFrom<E, Error = ParseError>,
+{
+    type Error = ParseError;
+    fn try_from((i, e): (I, E)) -> Result<Self, ParseError> {
+        Ok(Clock::from_parts(
+            Party::try_from(i)?,
+            Version::try_from(e)?,
+        ))
     }
 }
 
@@ -172,13 +213,14 @@ impl Batch<'_> {
     /// Reconcile with another live batch (keeps both live): merge the two parties and
     /// re-split them, and bring both versions to the join of the two.
     pub fn sync(&mut self, other: &mut Batch<'_>) -> Result<(), OverlapError> {
-        if !self.party.is_disjoint(other.party) {
+        // Merge both parties into self, then re-split: self keeps one half, other the
+        // other. `join` is the overlap check — on failure it hands the party back and
+        // leaves `self` unchanged, so we restore `other` and report the overlap.
+        let theirs = core::mem::replace(other.party, Party::empty());
+        if let Err(theirs) = self.party.join(theirs) {
+            *other.party = theirs;
             return Err(OverlapError);
         }
-        // Merge both parties into self, then re-split: self keeps one half, other the
-        // other. The transient `empty` placeholder is overwritten by the fork half.
-        let theirs = core::mem::replace(other.party, Party::empty());
-        self.party.join(theirs).expect("disjoint, just checked");
         *other.party = self.party.fork();
 
         // Both histories become the join of the two.

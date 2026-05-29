@@ -93,6 +93,46 @@ pub(crate) fn run(ops: &[Op]) -> Vec<oracle::Clock> {
     cs
 }
 
+/// Apply one op to an impl population, mirroring [`run`] for the oracle (same index
+/// arithmetic, so traces line up). Used by tests that drive the impl alone.
+pub(crate) fn step_impl(imp: &mut Vec<Clock>, op: &Op) {
+    let n = imp.len();
+    match *op {
+        Op::Tick(i) => imp[i % n].tick(),
+        Op::Fork(i) => {
+            let child = imp[i % n].fork();
+            imp.push(child);
+        }
+        Op::Send(i, j) => {
+            let (i, j) = (i % n, j % n);
+            let msg = imp[i].send();
+            imp[j].receive(msg);
+        }
+        Op::Sync(i, j) => {
+            let (i, j) = (i % n, j % n);
+            if i != j {
+                let (lo, hi) = (i.min(j), i.max(j));
+                let (a, b) = imp.split_at_mut(hi);
+                a[lo]
+                    .sync(&mut b[0])
+                    .expect("seed-derived parties are disjoint");
+            }
+        }
+        Op::Join(i, j) => {
+            if n > 1 {
+                let (i, j) = (i % n, j % n);
+                if i != j {
+                    let victim = imp.remove(j);
+                    let i2 = if j < i { i - 1 } else { i };
+                    imp[i2]
+                        .join(victim)
+                        .expect("seed-derived parties are disjoint");
+                }
+            }
+        }
+    }
+}
+
 /// Every live clock's current version.
 pub(crate) fn versions(cs: &[oracle::Clock]) -> Vec<oracle::Version> {
     cs.iter().map(|c| c.version()).collect()
@@ -367,6 +407,28 @@ pub(crate) fn shape_party(shape: Shape, scale: usize) -> Party {
         };
     }
     from_oracle_party(&t)
+}
+
+/// Build a depth-`depth` left-spine [`Party`] directly as canonical packed bits, with a
+/// single owned region at the deep-left tip. Used by the stack-safety test (group H 33),
+/// which needs structures far deeper than the recursive oracle bridge (`emit_id`) or the
+/// oracle's own recursive `Drop` could build or tear down. The preorder `enc_id` stream
+/// is `depth` node flags, then `Leaf(true)` (`01`), then `depth` `Leaf(false)` right
+/// children (`00`) — a normal-form id (every node mixes a `true`/node child with a
+/// `false` child, so nothing collapses). Built with a flat loop: no recursion at any
+/// depth, in the builder or in `Drop` (the packed form is a flat `BitVec`).
+pub(crate) fn deep_left_spine_party(depth: usize) -> Party {
+    let mut bits = codec::Bits::with_capacity(3 * depth + 2);
+    for _ in 0..depth {
+        bits.push(true); // node flag
+    }
+    bits.push(false); // Leaf
+    bits.push(true); //   value 1 (the deep-left owned tip)
+    for _ in 0..depth {
+        bits.push(false); // Leaf
+        bits.push(false); //   value 0 (each node's right child)
+    }
+    Party::from_bits(bits)
 }
 
 /// Assert that `steps`, measured at two input sizes whose node counts differ by `4×`,

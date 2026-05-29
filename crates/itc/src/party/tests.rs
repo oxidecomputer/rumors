@@ -179,3 +179,11 @@ proptest! {
         }
     }
 }
+
+#[test]
+fn parse_bare_notation() {
+    let _party: Party = 1.try_into().unwrap();
+    assert!(Party::try_from(0).is_err());
+    let _party: Party = (1, 0).try_into().unwrap();
+    let _party: Party = ((0, 1), (1, (1, 0))).try_into().unwrap();
+}

@@ -9,10 +9,10 @@ use proptest::prelude::*;
 
 use crate::oracle;
 use crate::test_support::{
-    from_oracle_clock, from_oracle_party, from_oracle_version, run, to_oracle_clock,
-    to_oracle_version, world_strategy, Op,
+    deep_left_spine_party, from_oracle_clock, from_oracle_party, from_oracle_version, run,
+    step_impl, to_oracle_clock, to_oracle_party, to_oracle_version, world_strategy, Op,
 };
-use crate::Clock;
+use crate::{Clock, ParseError, Party, Version};
 
 proptest! {
     /// The clock observers match the oracle's: `has_seen` is `msg <= version`,
@@ -317,5 +317,303 @@ proptest! {
         prop_assert!(b.version() == &expected);
         drop(b);
         prop_assert!(c.version() == expected);
+    }
+}
+
+// ───────────────────────── normal-form invariant (group A 5) ─────────────────────────
+
+proptest! {
+    /// A5. Every value produced by every op is in canonical normal form, checked after
+    /// every step of a seed-derived impl-only trace (lowered to oracle trees, which
+    /// carry the `is_normal` predicate).
+    #[test]
+    fn a5_ops_preserve_normal_form(ops in world_strategy()) {
+        let mut imp = vec![Clock::seed()];
+        for op in &ops {
+            step_impl(&mut imp, op);
+            for c in &imp {
+                let (p, v) = to_oracle_clock(c);
+                prop_assert!(p.is_normal(), "party not normal: {p:?}");
+                prop_assert!(v.is_normal(), "version not normal: {v:?}");
+            }
+        }
+    }
+}
+
+// ───────────────────────────── robustness (group H) ─────────────────────────────
+
+/// H33. Deep structures (a depth-100k id spine, and the deep event tree a tick builds
+/// over it) survive every op plus the codec and the `Debug` printer with no stack
+/// overflow — the proof that every traversal is iterative. Impl-only: the recursive
+/// oracle cannot build or even drop a tree this deep (oracle agreement at bounded depth
+/// is the master harness's job, §8).
+#[test]
+fn h33_deep_tree_stack_safety() {
+    const DEPTH: usize = 100_000;
+    let party = deep_left_spine_party(DEPTH);
+    let mut clock = Clock::from_parts(party, Version::new());
+
+    // Codec over a deep id round-trips to canonical bytes.
+    let bytes = clock.encode();
+    let decoded = Clock::decode(&bytes).expect("deep id encodes to canonical bytes");
+    assert_eq!(decoded.encode(), bytes);
+
+    // Ticks build, then refine, a deep event tree (unpack / fill / grow / repack).
+    clock.tick();
+    clock.tick();
+
+    // Observing ops over the deep version do not overflow.
+    let v = clock.version();
+    assert_eq!(v.partial_cmp(&v), Some(core::cmp::Ordering::Equal));
+    assert_eq!(v.clone() | v.clone(), v);
+
+    // Codec over a deep id + deep event tree round-trips.
+    let bytes = clock.encode();
+    assert_eq!(
+        Clock::decode(&bytes)
+            .expect("deep clock encodes canonically")
+            .encode(),
+        bytes
+    );
+
+    // Fork (deep split + snapshot) yields a disjoint child; join restores the whole.
+    let child = clock.fork();
+    assert!(clock.party().is_disjoint(child.party()));
+    clock.join(child).expect("fork halves are disjoint");
+
+    // The iterative Debug pretty-printer must not overflow either.
+    assert!(!format!("{clock:?}").is_empty());
+}
+
+proptest! {
+    /// H34. `decode` of arbitrary bytes never panics; it returns `Ok` or `Err`. Any
+    /// accepted value is canonical: re-encoding then decoding yields it again.
+    #[test]
+    fn h34_decode_never_panics(bytes in prop::collection::vec(any::<u8>(), 0..512)) {
+        if let Ok(p) = Party::decode(&bytes) {
+            prop_assert_eq!(Party::decode(&p.encode()).ok(), Some(p));
+        }
+        if let Ok(v) = Version::decode(&bytes) {
+            prop_assert_eq!(Version::decode(&v.encode()).ok(), Some(v));
+        }
+        if let Ok(c) = Clock::decode(&bytes) {
+            let re = Clock::decode(&c.encode()).expect("re-encode of an accepted clock is canonical");
+            prop_assert_eq!(re.encode(), c.encode());
+        }
+    }
+}
+
+// ───────────────────────────── worked example (group I) ─────────────────────────────
+
+/// I35 (paper §5.1). The paper's example run, step by step: seed forks to two; one
+/// ticks then forks; the other ticks twice; one of three ticks while the other two
+/// sync; finally all rejoin to the whole space and a tick collapses the event tree to a
+/// single integer. Mirrors the oracle's `o15_worked_example` on the impl.
+#[test]
+fn i35_worked_example() {
+    // Whole-space region check, computed structurally (parties are not `Clone`).
+    let region = |clocks: &[&Clock]| {
+        let mut acc = oracle::Party::Leaf(false);
+        for c in clocks {
+            acc.join(to_oracle_party(c.party()))
+                .expect("participants own disjoint regions");
+        }
+        acc
+    };
+
+    // seed -> fork into two.
+    let mut p1 = Clock::seed();
+    let mut p2 = p1.fork();
+
+    // p1 suffers one event, then forks.
+    p1.tick();
+    let mut p1a = p1.fork();
+    let mut p1b = p1;
+
+    // p2 suffers two events.
+    p2.tick();
+    p2.tick();
+
+    // Three participants covering the whole space.
+    assert_eq!(region(&[&p1a, &p1b, &p2]), oracle::Party::seed());
+
+    // One participant ticks; the other two sync.
+    let before = p1a.version();
+    p1a.tick();
+    assert!(p1a.version() > before);
+
+    let merged_region = {
+        let mut acc = to_oracle_party(p1b.party());
+        acc.join(to_oracle_party(p2.party())).expect("disjoint");
+        acc
+    };
+    p1b.sync(&mut p2).expect("disjoint");
+
+    // Sync reconciled histories and preserved total ownership of the two halves.
+    assert!(p1b.version() == p2.version());
+    let mut rejoined = to_oracle_party(p1b.party());
+    rejoined
+        .join(to_oracle_party(p2.party()))
+        .expect("disjoint");
+    assert_eq!(rejoined, merged_region);
+    assert_eq!(region(&[&p1a, &p1b, &p2]), oracle::Party::seed());
+
+    // Rejoin all three (recovering id = 1) and tick: the id owns the whole space, so the
+    // event tree collapses to a single integer.
+    let mut whole = p1a;
+    whole.join(p1b).expect("disjoint");
+    whole.join(p2).expect("disjoint");
+    assert_eq!(to_oracle_party(whole.party()), oracle::Party::seed());
+    whole.tick();
+    assert!(
+        matches!(
+            to_oracle_version(&whole.version()),
+            oracle::Version::Leaf(_)
+        ),
+        "post-join event should collapse to a single integer, got {:?}",
+        whole.version()
+    );
+}
+
+// ───────────────────── Display / FromStr / TryFrom (paper notation) ─────────────────────
+
+proptest! {
+    /// `Display` then `FromStr` round-trips for every type, and the printed form is the
+    /// canonical paper notation (re-parsing yields the same value).
+    #[test]
+    fn display_fromstr_roundtrip(ops in world_strategy(), i in 0usize..64) {
+        let cs = run(&ops);
+        let n = cs.len();
+        let p = from_oracle_party(cs[i % n].party());
+        let v = from_oracle_version(&cs[i % n].version());
+        let c = from_oracle_clock(&cs[i % n]);
+
+        let ps = p.to_string();
+        prop_assert_eq!(ps.parse::<Party>().expect("Display is valid paper notation"), p);
+
+        let vs = v.to_string();
+        prop_assert_eq!(vs.parse::<Version>().expect("Display is valid paper notation"), v);
+
+        let cstr = c.to_string();
+        let cparsed: Clock = cstr.parse().expect("Display is valid paper notation");
+        prop_assert_eq!(cparsed.encode(), c.encode());
+    }
+}
+
+/// Display renders the paper's notation exactly (id `0/1/(l, r)`, event `n/(n, e1, e2)`,
+/// stamp `(i, e)`), matching the paper's §5 examples.
+#[test]
+fn display_matches_paper_notation() {
+    assert_eq!(Party::seed().to_string(), "1");
+    assert_eq!(Version::new().to_string(), "0");
+    assert_eq!(Clock::seed().to_string(), "(1, 0)");
+
+    let id: Party = "((0, (1, 0)), (1, 0))".parse().unwrap();
+    assert_eq!(id.to_string(), "((0, (1, 0)), (1, 0))");
+
+    let ev: Version = "(1, 2, (0, (1, 0, 2), 0))".parse().unwrap();
+    assert_eq!(ev.to_string(), "(1, 2, (0, (1, 0, 2), 0))");
+
+    // Debug is the same as Display.
+    assert_eq!(format!("{id:?}"), "((0, (1, 0)), (1, 0))");
+    assert_eq!(format!("{ev:?}"), "(1, 2, (0, (1, 0, 2), 0))");
+    assert_eq!(
+        format!("{:?}", Clock::seed()),
+        "Clock { party: 1, version: 0 }"
+    );
+}
+
+/// `TryFrom` literals build the same values as the equivalent paper-notation strings,
+/// grounding out in the `u8`/`u64` base cases.
+#[test]
+fn tryfrom_literals_build_values() {
+    let p = Party::try_from((1u8, (0u8, 1u8))).unwrap();
+    assert_eq!(p, "(1, (0, 1))".parse::<Party>().unwrap());
+
+    let v = Version::try_from((1u64, 0u64, (2u64, 0u64, 1u64))).unwrap();
+    assert_eq!(v, "(1, 0, (2, 0, 1))".parse::<Version>().unwrap());
+
+    let c = Clock::try_from(((1u8, 0u8), 5u64)).unwrap();
+    assert_eq!(c.encode(), "((1, 0), 5)".parse::<Clock>().unwrap().encode());
+
+    // Base cases. `1` is a valid party; `0` is anonymous on its own but fine as a
+    // sub-tree (see the `(0, 1)` cases above).
+    assert_eq!(Party::try_from(1u8).unwrap().to_string(), "1");
+    assert_eq!(Party::try_from(0u8), Err(ParseError::Anonymous));
+    assert_eq!(Version::try_from(7u64).unwrap().to_string(), "7");
+}
+
+/// `FromStr` and `TryFrom` reject both malformed input and well-formed-but-denormal
+/// input, mirroring `decode`'s strictness.
+#[test]
+fn fromstr_tryfrom_reject_denormal_and_syntax() {
+    // Denormal (well-formed but not canonical).
+    assert_eq!("(1, 1)".parse::<Party>(), Err(ParseError::NotCanonical));
+    assert_eq!(Party::try_from((1u8, 1u8)), Err(ParseError::NotCanonical));
+    assert_eq!(
+        "(5, 3, 3)".parse::<Version>(),
+        Err(ParseError::NotCanonical)
+    );
+    assert_eq!(
+        "(1, 2, 3)".parse::<Version>(),
+        Err(ParseError::NotCanonical)
+    );
+    assert_eq!(
+        Version::try_from((1u64, 2u64, 3u64)),
+        Err(ParseError::NotCanonical)
+    );
+
+    // Syntax (malformed).
+    assert_eq!("(1, 2".parse::<Party>(), Err(ParseError::Syntax)); // unbalanced
+    assert_eq!("2".parse::<Party>(), Err(ParseError::Syntax)); // id leaves are only 0/1
+    assert_eq!(Party::try_from(2u8), Err(ParseError::Syntax));
+    assert_eq!("".parse::<Version>(), Err(ParseError::Syntax)); // empty
+    assert_eq!("(1, 0)".parse::<Version>(), Err(ParseError::Syntax)); // event needs 3 parts
+    assert_eq!(
+        "(99999999999999999999, 0, 0)".parse::<Version>(),
+        Err(ParseError::Syntax) // integer overflows u64: rejected, not panicked
+    );
+    assert_eq!("(café, 0)".parse::<Clock>().err(), Some(ParseError::Syntax)); // non-ASCII byte
+
+    // Anonymous identity `0` is rejected as a standalone party (but allowed as a
+    // sub-tree, exercised in `tryfrom_literals_build_values`).
+    assert_eq!("0".parse::<Party>(), Err(ParseError::Anonymous));
+    assert_eq!(Party::try_from(0u8), Err(ParseError::Anonymous));
+    assert_eq!("(0, 1)".parse::<Party>().unwrap().to_string(), "(0, 1)"); // 0 as sub-tree: ok
+                                                                          // Clock has no `PartialEq`, so compare the error directly.
+    assert_eq!("(0, 5)".parse::<Clock>().err(), Some(ParseError::Anonymous)); // anonymous party
+    assert_eq!(
+        Clock::try_from((0u8, 5u64)).err(),
+        Some(ParseError::Anonymous)
+    );
+
+    // Whitespace is tolerated.
+    assert_eq!(
+        " ( 1 , ( 0 , 1 ) ) ".parse::<Party>().unwrap().to_string(),
+        "(1, (0, 1))"
+    );
+}
+
+// ───────────────────────────── serde (group I, feature-gated) ─────────────────────────────
+
+#[cfg(feature = "serde")]
+proptest! {
+    /// Every value round-trips through serde (here `serde_json`), since it serializes as
+    /// its canonical encoding and deserializes back through the strict validator.
+    #[test]
+    fn serde_roundtrip(ops in world_strategy(), i in 0usize..64) {
+        let cs = run(&ops);
+        let n = cs.len();
+        let p = from_oracle_party(cs[i % n].party());
+        let v = from_oracle_version(&cs[i % n].version());
+        let c = from_oracle_clock(&cs[i % n]);
+
+        let p2: Party = serde_json::from_slice(&serde_json::to_vec(&p).unwrap()).unwrap();
+        let v2: Version = serde_json::from_slice(&serde_json::to_vec(&v).unwrap()).unwrap();
+        let c2: Clock = serde_json::from_slice(&serde_json::to_vec(&c).unwrap()).unwrap();
+
+        prop_assert_eq!(p2, p);
+        prop_assert_eq!(v2, v);
+        prop_assert_eq!(c2.encode(), c.encode());
     }
 }

@@ -1,11 +1,12 @@
 //! [`Party`] — a nonzero share of the interval-tree-clock id space.
 
 use core::cmp::Ordering;
+use core::fmt::Display;
 
 use bitvec::prelude::*;
 
 use crate::codec::{self, BitsSlice};
-use crate::DecodeError;
+use crate::{DecodeError, ParseError};
 
 mod ops;
 
@@ -37,13 +38,16 @@ impl Party {
         Party(give)
     }
 
-    /// Merge a disjoint share into `self`; on overlap, `other` is returned.
+    /// Merge a disjoint share into `self`; on overlap, `other` is returned unchanged.
+    /// `sum` detects the overlap directly, so there is no separate disjointness scan.
     pub fn join(&mut self, other: Party) -> Result<(), Party> {
-        if !self.is_disjoint(&other) {
-            return Err(other);
+        match ops::sum(&self.0, &other.0) {
+            Some(bits) => {
+                self.0 = bits;
+                Ok(())
+            }
+            None => Err(other),
         }
-        self.0 = ops::sum(&self.0, &other.0);
-        Ok(())
     }
 
     /// Whether `self` and `other` share no id-space region.
@@ -102,9 +106,88 @@ impl PartialOrd for Party {
     }
 }
 
+/// Paper notation: `0` / `1` leaves, `(l, r)` nodes. E.g. `(1, (0, 1))`.
+impl core::fmt::Display for Party {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        codec::write_id(&self.0, f, ", ")
+    }
+}
+
+/// `Party(<paper notation, space-separated>)`, e.g. `Party(1, (0, 1))`.
 impl core::fmt::Debug for Party {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let _ = f;
-        todo!("Phase 7: Party Debug")
+        <Self as Display>::fmt(self, f)
+    }
+}
+
+/// Parse paper notation (`0 | 1 | (i1, i2)`), strictly rejecting non-normal-form input
+/// and the anonymous identity `0` (a standalone `Party` must be a nonzero share).
+impl core::str::FromStr for Party {
+    type Err = ParseError;
+    fn from_str(s: &str) -> Result<Self, ParseError> {
+        finish_id(codec::parse_id_str(s)?)
+    }
+}
+
+/// Wrap validated id bits as a `Party`, rejecting the anonymous (empty) identity. The
+/// single gate through which every parsed/built top-level `Party` passes.
+fn finish_id(bits: codec::Bits) -> Result<Party, ParseError> {
+    if codec::id_is_empty(&bits) {
+        Err(ParseError::Anonymous)
+    } else {
+        Ok(Party::from_bits(bits))
+    }
+}
+
+/// An id literal that can ground out a [`Party`] tuple: the `u8` leaves `0`/`1` and
+/// nested `(left, right)` tuples. Sealed and hidden — an implementation detail enabling
+/// `Party::try_from(..)` literals. Unlike the public `TryFrom`, an `IdLit` leaf of `0`
+/// is allowed (it is a valid *sub-tree*); the anonymous check happens only once the
+/// whole id is assembled (see [`finish_id`]).
+mod sealed {
+    pub trait Sealed {}
+    impl Sealed for u8 {}
+    impl<T, S> Sealed for (T, S) {}
+}
+
+#[doc(hidden)]
+pub trait PartyLiteral: sealed::Sealed {
+    #[doc(hidden)]
+    fn into_id_bits(self) -> Result<codec::Bits, ParseError>;
+}
+
+impl PartyLiteral for u8 {
+    fn into_id_bits(self) -> Result<codec::Bits, ParseError> {
+        match self {
+            0 => Ok(codec::id_leaf(false)),
+            1 => Ok(codec::id_leaf(true)),
+            _ => Err(ParseError::Syntax),
+        }
+    }
+}
+
+impl<T: PartyLiteral, S: PartyLiteral> PartyLiteral for (T, S) {
+    fn into_id_bits(self) -> Result<codec::Bits, ParseError> {
+        let l = self.0.into_id_bits()?;
+        let r = self.1.into_id_bits()?;
+        codec::id_node(&l, &r) // assembles + validates normal form
+    }
+}
+
+/// An id leaf from a single bit: `1` (full) is a valid `Party`; `0` is the anonymous
+/// identity and is rejected here, though it is allowed as a sub-tree in the tuple form.
+impl TryFrom<u8> for Party {
+    type Error = ParseError;
+    fn try_from(v: u8) -> Result<Self, ParseError> {
+        finish_id(v.into_id_bits()?)
+    }
+}
+
+/// An id node from a `(left, right)` literal, e.g. `Party::try_from((1u8, (0u8, 1u8)))`.
+/// Rejects a collapsible `(v, v)` (non-canonical) and an all-`0` (anonymous) result.
+impl<T: PartyLiteral, S: PartyLiteral> TryFrom<(T, S)> for Party {
+    type Error = ParseError;
+    fn try_from(t: (T, S)) -> Result<Self, ParseError> {
+        finish_id(t.into_id_bits()?)
     }
 }

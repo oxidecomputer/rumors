@@ -8,7 +8,7 @@
 
 use bitvec::prelude::*;
 
-use crate::DecodeError;
+use crate::{DecodeError, ParseError};
 
 #[cfg(test)]
 mod tests;
@@ -211,4 +211,366 @@ pub(crate) fn require_zero_padding(bits: &BitsSlice, pos: usize) -> Result<(), D
     } else {
         Ok(())
     }
+}
+
+// ───────────────────────── normal-form validation (string / literal entry) ─────────────────────────
+
+/// Confirm a freshly built id bit stream is exactly one canonical-normal-form tree.
+/// Wraps [`parse_id`] (the single source of truth for id normal form), mapping its
+/// outcome onto [`ParseError`].
+pub(crate) fn validate_id(bits: &BitsSlice) -> Result<(), ParseError> {
+    match parse_id(bits, 0) {
+        Ok(end) if end == bits.len() => Ok(()),
+        Ok(_) => Err(ParseError::Syntax),
+        Err(DecodeError::NotCanonical) => Err(ParseError::NotCanonical),
+        Err(_) => Err(ParseError::Syntax),
+    }
+}
+
+/// Confirm a freshly built event bit stream is exactly one canonical-normal-form tree.
+/// Wraps [`parse_ev`], mapping its outcome onto [`ParseError`].
+pub(crate) fn validate_ev(bits: &BitsSlice) -> Result<(), ParseError> {
+    match parse_ev(bits, 0) {
+        Ok(end) if end == bits.len() => Ok(()),
+        Ok(_) => Err(ParseError::Syntax),
+        Err(DecodeError::NotCanonical) => Err(ParseError::NotCanonical),
+        Err(_) => Err(ParseError::Syntax),
+    }
+}
+
+// ───────────────────────── literal builders (for `TryFrom`) ─────────────────────────
+
+/// Whether a normal-form id stream is the anonymous (empty) identity. In canonical
+/// normal form the only empty id is the single `0` leaf — any `(0, 0)` would have
+/// collapsed — so this is an O(1) check. Callers must pass already-validated bits; the
+/// O(1) shortcut is only sound for normal-form input, so we assert that in debug builds.
+pub(crate) fn id_is_empty(bits: &BitsSlice) -> bool {
+    debug_assert!(
+        matches!(parse_id(bits, 0), Ok(end) if end == bits.len()),
+        "id_is_empty requires canonical normal-form bits",
+    );
+    bits.len() == 2 && !bits[0] && !bits[1]
+}
+
+/// The bits for an id leaf (`0` empty, `1` full).
+pub(crate) fn id_leaf(v: bool) -> Bits {
+    let mut b = Bits::with_capacity(2);
+    b.push(false); // leaf flag
+    b.push(v);
+    b
+}
+
+/// The bits for an event leaf with base `n`.
+pub(crate) fn ev_leaf(n: u64) -> Bits {
+    let mut b = Bits::new();
+    b.push(false); // leaf flag
+    encode_int(&mut b, n);
+    b
+}
+
+/// Assemble an id node from two already-normal child streams, then validate the result
+/// is itself normal (rejecting a collapsible `(v, v)`).
+pub(crate) fn id_node(l: &BitsSlice, r: &BitsSlice) -> Result<Bits, ParseError> {
+    let mut b = Bits::with_capacity(1 + l.len() + r.len());
+    b.push(true); // node flag
+    b.extend_from_bitslice(l);
+    b.extend_from_bitslice(r);
+    validate_id(&b)?;
+    Ok(b)
+}
+
+/// Assemble an event node with base `n` from two already-normal child streams, then
+/// validate the result is itself normal (a zero-base child, no collapsible `(n, m, m)`).
+pub(crate) fn ev_node(n: u64, l: &BitsSlice, r: &BitsSlice) -> Result<Bits, ParseError> {
+    let mut b = Bits::with_capacity(2 + l.len() + r.len());
+    b.push(true); // node flag
+    encode_int(&mut b, n);
+    b.extend_from_bitslice(l);
+    b.extend_from_bitslice(r);
+    validate_ev(&b)?;
+    Ok(b)
+}
+
+// ───────────────────────── pretty-printing (Display / Debug) ─────────────────────────
+
+/// Write an id tree in the paper's grammar with `sep` between a node's two children
+/// (`", "` for `Display`, `" "` for `Debug`). Iterative: deep ids must not overflow the
+/// formatter. Leaves render as `0`/`1`, nodes as `(l<sep>r)`.
+pub(crate) fn write_id(
+    bits: &BitsSlice,
+    f: &mut core::fmt::Formatter<'_>,
+    sep: &str,
+) -> core::fmt::Result {
+    enum Frame {
+        NeedLeft,
+        NeedRight,
+    }
+    let mut pos = 0;
+    let mut stack: Vec<Frame> = Vec::new();
+    loop {
+        let flag = bits[pos];
+        pos += 1;
+        if flag {
+            f.write_str("(")?;
+            stack.push(Frame::NeedLeft);
+            continue;
+        }
+        f.write_str(if bits[pos] { "1" } else { "0" })?;
+        pos += 1;
+        loop {
+            match stack.pop() {
+                None => return Ok(()),
+                Some(Frame::NeedLeft) => {
+                    f.write_str(sep)?;
+                    stack.push(Frame::NeedRight);
+                    break;
+                }
+                Some(Frame::NeedRight) => f.write_str(")")?,
+            }
+        }
+    }
+}
+
+/// Write an event tree in the paper's grammar with `sep` between a node's parts. Leaves
+/// render as `n`, nodes as `(n<sep>l<sep>r)`. Iterative, as [`write_id`].
+pub(crate) fn write_ev(
+    bits: &BitsSlice,
+    f: &mut core::fmt::Formatter<'_>,
+    sep: &str,
+) -> core::fmt::Result {
+    enum Frame {
+        NeedLeft,
+        NeedRight,
+    }
+    let mut pos = 0;
+    let mut stack: Vec<Frame> = Vec::new();
+    loop {
+        let internal = bits[pos];
+        let (base, next) = decode_int(bits, pos + 1).expect("a stored event tree is canonical");
+        pos = next;
+        if internal {
+            write!(f, "({base}{sep}")?;
+            stack.push(Frame::NeedLeft);
+            continue;
+        }
+        write!(f, "{base}")?;
+        loop {
+            match stack.pop() {
+                None => return Ok(()),
+                Some(Frame::NeedLeft) => {
+                    f.write_str(sep)?;
+                    stack.push(Frame::NeedRight);
+                    break;
+                }
+                Some(Frame::NeedRight) => f.write_str(")")?,
+            }
+        }
+    }
+}
+
+// ───────────────────────── string parsing (`FromStr`) ─────────────────────────
+
+/// A whitespace-skipping byte cursor over the input string. The grammar is pure ASCII
+/// (`(`, `)`, `,`, digits, `0`/`1`), so byte-level scanning is exact.
+struct Cur<'a> {
+    b: &'a [u8],
+    i: usize,
+}
+
+impl<'a> Cur<'a> {
+    fn new(s: &'a str) -> Self {
+        Cur {
+            b: s.as_bytes(),
+            i: 0,
+        }
+    }
+
+    fn skip_ws(&mut self) {
+        while self.i < self.b.len() && self.b[self.i].is_ascii_whitespace() {
+            self.i += 1;
+        }
+    }
+
+    /// The next non-whitespace byte, without consuming it.
+    fn peek(&mut self) -> Option<u8> {
+        self.skip_ws();
+        self.b.get(self.i).copied()
+    }
+
+    /// Consume and return the next non-whitespace byte.
+    fn bump(&mut self) -> Option<u8> {
+        self.skip_ws();
+        let c = self.b.get(self.i).copied();
+        if c.is_some() {
+            self.i += 1;
+        }
+        c
+    }
+}
+
+/// Read a run of ASCII digits as a `u64` (no surrounding whitespace consumed except a
+/// leading skip). Empty or overflowing input is a syntax error.
+fn parse_u64(cur: &mut Cur) -> Result<u64, ParseError> {
+    cur.skip_ws();
+    let mut n: u64 = 0;
+    let mut any = false;
+    while let Some(&d) = cur.b.get(cur.i) {
+        if !d.is_ascii_digit() {
+            break;
+        }
+        any = true;
+        n = n
+            .checked_mul(10)
+            .and_then(|x| x.checked_add(u64::from(d - b'0')))
+            .ok_or(ParseError::Syntax)?;
+        cur.i += 1;
+    }
+    if any {
+        Ok(n)
+    } else {
+        Err(ParseError::Syntax)
+    }
+}
+
+/// Parse one id tree in the paper's grammar (`0 | 1 | (i1, i2)`) into canonical bits,
+/// strictly validating normal form. Iterative (explicit stack): deep nesting cannot
+/// overflow.
+pub(crate) fn parse_id_str(s: &str) -> Result<Bits, ParseError> {
+    enum Frame {
+        NeedLeft,
+        NeedRight,
+    }
+    let mut cur = Cur::new(s);
+    let mut bits = Bits::new();
+    let mut stack: Vec<Frame> = Vec::new();
+    loop {
+        match cur.bump() {
+            Some(b'(') => {
+                bits.push(true);
+                stack.push(Frame::NeedLeft);
+                continue;
+            }
+            Some(b'0') => {
+                bits.push(false);
+                bits.push(false);
+            }
+            Some(b'1') => {
+                bits.push(false);
+                bits.push(true);
+            }
+            _ => return Err(ParseError::Syntax),
+        }
+        loop {
+            match stack.pop() {
+                None => {
+                    if cur.peek().is_some() {
+                        return Err(ParseError::Syntax);
+                    }
+                    validate_id(&bits)?;
+                    return Ok(bits);
+                }
+                Some(Frame::NeedLeft) => {
+                    if cur.bump() != Some(b',') {
+                        return Err(ParseError::Syntax);
+                    }
+                    stack.push(Frame::NeedRight);
+                    break;
+                }
+                Some(Frame::NeedRight) => {
+                    if cur.bump() != Some(b')') {
+                        return Err(ParseError::Syntax);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Parse one event tree in the paper's grammar (`n | (n, e1, e2)`) into canonical bits,
+/// strictly validating normal form. Iterative, as [`parse_id_str`].
+pub(crate) fn parse_ev_str(s: &str) -> Result<Bits, ParseError> {
+    enum Frame {
+        NeedLeft,
+        NeedRight,
+    }
+    let mut cur = Cur::new(s);
+    let mut bits = Bits::new();
+    let mut stack: Vec<Frame> = Vec::new();
+    loop {
+        match cur.peek() {
+            Some(b'(') => {
+                cur.bump();
+                bits.push(true);
+                let base = parse_u64(&mut cur)?;
+                encode_int(&mut bits, base);
+                if cur.bump() != Some(b',') {
+                    return Err(ParseError::Syntax);
+                }
+                stack.push(Frame::NeedLeft);
+                continue;
+            }
+            Some(c) if c.is_ascii_digit() => {
+                let n = parse_u64(&mut cur)?;
+                bits.push(false);
+                encode_int(&mut bits, n);
+            }
+            _ => return Err(ParseError::Syntax),
+        }
+        loop {
+            match stack.pop() {
+                None => {
+                    if cur.peek().is_some() {
+                        return Err(ParseError::Syntax);
+                    }
+                    validate_ev(&bits)?;
+                    return Ok(bits);
+                }
+                Some(Frame::NeedLeft) => {
+                    if cur.bump() != Some(b',') {
+                        return Err(ParseError::Syntax);
+                    }
+                    stack.push(Frame::NeedRight);
+                    break;
+                }
+                Some(Frame::NeedRight) => {
+                    if cur.bump() != Some(b')') {
+                        return Err(ParseError::Syntax);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Parse a stamp `(i, e)` into its id and event bit streams. Splits at the top-level
+/// (depth-0) comma, then parses each side. Iterative.
+pub(crate) fn parse_clock_str(s: &str) -> Result<(Bits, Bits), ParseError> {
+    let t = s.trim();
+    let bytes = t.as_bytes();
+    if bytes.first() != Some(&b'(') || bytes.last() != Some(&b')') {
+        return Err(ParseError::Syntax);
+    }
+    let inner = &t[1..t.len() - 1];
+    let mut depth: i32 = 0;
+    let mut split = None;
+    for (k, &c) in inner.as_bytes().iter().enumerate() {
+        match c {
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth < 0 {
+                    return Err(ParseError::Syntax);
+                }
+            }
+            b',' if depth == 0 => {
+                split = Some(k);
+                break;
+            }
+            _ => {}
+        }
+    }
+    let k = split.ok_or(ParseError::Syntax)?;
+    let id_bits = parse_id_str(&inner[..k])?;
+    let ev_bits = parse_ev_str(&inner[k + 1..])?;
+    Ok((id_bits, ev_bits))
 }

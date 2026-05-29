@@ -126,11 +126,13 @@ enum SumJob {
     Combine,
 }
 
-/// Sum two (disjoint, normal-form) ids — the union of their regions — producing a
-/// normalized id. `O(n + m)`: the both-internal case threads (no skip); a `0` child
-/// copies the other subtree verbatim (work bounded by the output size). For disjoint
-/// inputs the overlap fallback (`1`) is unreachable, matching the oracle.
-pub(crate) fn sum(a: &BitsSlice, b: &BitsSlice) -> Bits {
+/// Sum two normal-form ids — the union of their regions — producing a normalized id, or
+/// `None` if they overlap (share a region, so no disjoint union exists). This is the
+/// single point of overlap detection: callers (`Party::join`) need not pre-check
+/// [`is_disjoint`], since a successful `sum` *is* the disjointness proof. `O(n + m)`:
+/// the both-internal case threads (no skip); a `0` child copies the other subtree
+/// verbatim (work bounded by the output size).
+pub(crate) fn sum(a: &BitsSlice, b: &BitsSlice) -> Option<Bits> {
     let mut results: Vec<(Bits, usize, usize)> = Vec::new();
     let mut stack = vec![SumJob::Eval(0, 0)];
     while let Some(job) = stack.pop() {
@@ -149,9 +151,9 @@ pub(crate) fn sum(a: &BitsSlice, b: &BitsSlice) -> Bits {
                     stack.push(SumJob::Right);
                     stack.push(SumJob::Eval(a_next, b_next)); // left
                 } else {
-                    // Overlap (full vs nonempty): unreachable for disjoint inputs;
-                    // mirror the oracle's saturating fallback.
-                    results.push((id_leaf(true), skip(a, ap), skip(b, bp)));
+                    // A `1` (full) leaf meets a nonempty subtree on the other side: the
+                    // two ids share a region, so there is no disjoint union.
+                    return None;
                 }
             }
             SumJob::Right => {
@@ -165,7 +167,7 @@ pub(crate) fn sum(a: &BitsSlice, b: &BitsSlice) -> Bits {
             }
         }
     }
-    results.pop().expect("one result remains").0
+    Some(results.pop().expect("one result remains").0)
 }
 
 // ───────────────────────────── split ─────────────────────────────
