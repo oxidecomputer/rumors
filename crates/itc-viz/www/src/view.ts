@@ -50,6 +50,7 @@ export interface ViewState {
   readonly live: ReadonlySet<NodeIdx>;
   readonly style: StampStyle;
   readonly pos: ReadonlyMap<NodeIdx, Point>;
+  readonly rowHeight: number;
   readonly width: number;
   readonly height: number;
 }
@@ -60,6 +61,7 @@ export class GraphView {
   private readonly nodesG: Selection<SVGGElement, unknown, null, undefined>;
   private w = 0;
   private h = 0;
+  private rowHeight = 60;
   private style: StampStyle = { width: 64, unit: 9, maxHeight: 1 };
   private pos = new Map<NodeIdx, Point>();
   private pendingClick: { idx: NodeIdx; timer: number } | null = null;
@@ -71,17 +73,8 @@ export class GraphView {
     private readonly isDisjoint: (a: NodeIdx, b: NodeIdx) => boolean,
   ) {
     this.svg = select(container).append<SVGSVGElement>("svg").attr("class", "scene");
-    const marker = this.svg
-      .append("defs")
-      .append("marker")
-      .attr("id", "arrow")
-      .attr("viewBox", "0 0 8 8")
-      .attr("refX", "7")
-      .attr("refY", "4")
-      .attr("markerWidth", "7")
-      .attr("markerHeight", "7")
-      .attr("orient", "auto-start-reverse");
-    marker.append("path").attr("d", "M0,0 L8,4 L0,8 z").attr("class", "edge__arrow");
+    // No arrowheads: the top-down layout already encodes time's direction, so they
+    // would be redundant ink.
     this.edgesG = this.svg.append<SVGGElement>("g").attr("class", "edges");
     this.nodesG = this.svg.append<SVGGElement>("g").attr("class", "nodes");
     this.svg.on("contextmenu", (e: Event) => e.preventDefault());
@@ -90,6 +83,7 @@ export class GraphView {
   update(state: ViewState): void {
     this.w = state.style.width;
     this.h = stampHeight(state.style);
+    this.rowHeight = state.rowHeight;
     this.style = state.style;
 
     // Size the canvas to at least fill the plate, with padding, so there is room to
@@ -127,8 +121,14 @@ export class GraphView {
     const sy = a.y + this.h / 2;
     const ex = b.x;
     const ey = b.y - this.h / 2;
-    const c = sy + (ey - sy) * 0.5;
-    return `M ${sx.toFixed(1)} ${sy.toFixed(1)} C ${sx.toFixed(1)} ${c.toFixed(1)}, ${ex.toFixed(1)} ${c.toFixed(1)}, ${ex.toFixed(1)} ${ey.toFixed(1)}`;
+    // Edges spanning more than one row bow sideways so they swing clear of the nodes
+    // in the intervening rows rather than cutting straight through them.
+    const span = Math.max(1, Math.round((b.y - a.y) / this.rowHeight));
+    const dir = ex >= sx ? 1 : -1;
+    const bow = span > 1 ? Math.min(this.w * 1.5, (span - 1) * this.rowHeight * 0.34) * dir : 0;
+    const c1y = sy + (ey - sy) * 0.4;
+    const c2y = ey - (ey - sy) * 0.4;
+    return `M ${sx.toFixed(1)} ${sy.toFixed(1)} C ${(sx + bow).toFixed(1)} ${c1y.toFixed(1)}, ${(ex + bow).toFixed(1)} ${c2y.toFixed(1)}, ${ex.toFixed(1)} ${ey.toFixed(1)}`;
   }
 
   private joinEdges(vedges: VEdge[]): void {
@@ -138,7 +138,6 @@ export class GraphView {
       .enter()
       .append("path")
       .attr("class", (d) => `edge edge--${d.kind}`)
-      .attr("marker-end", (d) => (d.kind === "forkjoin" ? "url(#arrow)" : null))
       .attr("d", (d) => this.bezier(d.from, d.to))
       .style("opacity", 0);
     ent

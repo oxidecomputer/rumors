@@ -180,19 +180,16 @@ body {
   touch-action: none; /* let the gesture layer own pointer/drag */
 }
 
-/* Edges: all subdued (history), distinguished by line style + arrowhead. */
+/* Edges: faint supporting ink so the stamps (the data) dominate; distinguished by
+   line style, not arrowheads (direction is implied by the top-down flow). */
 .edge {
   fill: none;
   stroke: var(--rule);
-  stroke-width: 1.2;
+  stroke-width: 1;
 }
 .edge--message {
   stroke-dasharray: 3 3;
   stroke: color-mix(in srgb, var(--version) 60%, var(--rule));
-}
-.edge__arrow {
-  fill: var(--rule);
-  stroke: none;
 }
 
 /* Nodes. */
@@ -304,8 +301,8 @@ body {
   fill: var(--message);
 }
 .node--historical .glyph {
-  filter: grayscale(0.85);
-  opacity: 0.5;
+  filter: grayscale(0.9);
+  opacity: 0.42;
 }
 
 /* ── Margin marginalia ────────────────────────────────────────────────────── */

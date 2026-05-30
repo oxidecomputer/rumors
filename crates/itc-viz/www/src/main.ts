@@ -11,8 +11,8 @@ import { parseEvent, parseId } from "./notation";
 import type { IdTree, NodeIdx, Op, OpLog } from "./types";
 import { GraphView, type GestureHandlers } from "./view";
 
-const GAP_X = 30; // horizontal space between stamp columns
-const EXTRA_V = 36; // vertical cell padding (room for the index chip + gap)
+const GAP_X = 48; // horizontal space between stamp columns (room for edges to bow)
+const EXTRA_V = 46; // vertical cell padding (room for the index chip + curved edges)
 
 async function main(): Promise<void> {
   const plate = document.getElementById("plate");
@@ -52,7 +52,7 @@ async function main(): Promise<void> {
     const cellH = stampHeight(style) + EXTRA_V;
     const layout = layeredLayout(nodes.length, edges, live, cellW, cellH);
 
-    view.update({ nodes, edges, live, style, pos: layout.pos, width: layout.width, height: layout.height });
+    view.update({ nodes, edges, live, style, pos: layout.pos, rowHeight: cellH, width: layout.width, height: layout.height });
 
     plate?.scrollTo({ top: plate.scrollHeight, behavior: "smooth" });
   }
