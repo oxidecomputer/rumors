@@ -1,15 +1,310 @@
-/* Phase 0 placeholder. The full "Monograph Plate" design language (fonts, paper
-   ground, plate framing, palette variables) lands in Phase 2. */
+/* ── Monograph Plate ───────────────────────────────────────────────────────────
+   The 2008 ITC paper re-set as an engraved scientific plate on warm pressed paper.
+   The stamp glyphs stay paper-faithful (only colorized); the aesthetic lives in the
+   typography, ground, framing, and (later) motion. Self-hosted open fonts; no CDN. */
+
+/* Display face: Newsreader (Production Type, SIL OFL) — an editorial/newsprint serif
+   that suits the engraved-plate concept. */
+@font-face {
+  font-family: "Newsreader";
+  src: url("./fonts/Newsreader-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Newsreader";
+  src: url("./fonts/Newsreader-Italic.woff2") format("woff2");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Newsreader";
+  src: url("./fonts/Newsreader-SemiBold.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("./fonts/IBMPlexMono-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("./fonts/IBMPlexMono-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-display: swap;
+}
+
 :root {
   color-scheme: light;
+
+  --paper: #f3eee2;
+  --paper-deep: #ece4d2;
+  --ink: #1b1714;
+  --ink-soft: #6a604f;
+  --rule: #c9bfa6;
+
+  --id: #2f6f6a; /* teal */
+  --event: #5f6f80; /* slate */
+  --message: #c2702f; /* orange */
+  --historical: #a59c8b; /* desaturated warm grey */
+  --reject: #a23b2e; /* ink red */
+
+  --display: "Newsreader", Georgia, "Times New Roman", serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
 }
+
+* {
+  box-sizing: border-box;
+}
+
+html,
 body {
   margin: 0;
-  padding: 2rem;
-  background: #f3eee2;
-  color: #1b1714;
-  font-family: ui-monospace, monospace;
+  min-height: 100%;
 }
-#app {
-  white-space: pre-wrap;
+
+body {
+  background-color: var(--paper);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Faint paper grain laid over everything. */
+.grain {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.5;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'>\
+<filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/>\
+<feColorMatrix type='saturate' values='0'/></filter>\
+<rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.045'/></svg>");
+}
+
+.sheet {
+  position: relative;
+  z-index: 2;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: clamp(1.5rem, 4vw, 4rem) clamp(1.25rem, 4vw, 3.5rem) 4rem;
+}
+
+/* ── Masthead ─────────────────────────────────────────────────────────────── */
+.masthead {
+  border-bottom: 1px solid var(--ink);
+  padding-bottom: 0.9rem;
+  margin-bottom: 2.25rem;
+}
+.masthead__title {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: clamp(2.4rem, 7vw, 4.6rem);
+  line-height: 0.96;
+  letter-spacing: 0.01em;
+  margin: 0;
+}
+.masthead__sub {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: clamp(0.95rem, 2vw, 1.2rem);
+  color: var(--ink-soft);
+  margin: 0.5rem 0 0;
+}
+.masthead__year {
+  white-space: nowrap;
+}
+
+/* ── Layout: dominant plate + narrow margin column ─────────────────────────── */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 14rem;
+  gap: clamp(1.25rem, 3vw, 2.75rem);
+  align-items: start;
+}
+@media (max-width: 720px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Plate frame: hairline border with engraved corner ticks ──────────────── */
+.plate-frame {
+  position: relative;
+  padding: 1.75rem;
+  border: 1px solid var(--ink);
+  background:
+    linear-gradient(var(--paper-deep), var(--paper-deep)) padding-box,
+    var(--paper);
+  box-shadow: 0 1px 0 var(--paper-deep), 0 18px 40px -28px rgba(27, 23, 20, 0.5);
+}
+.plate-frame::before,
+.plate-frame::after {
+  content: "";
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border: 1px solid var(--ink);
+}
+.plate-frame::before {
+  top: 5px;
+  left: 5px;
+  border-right: none;
+  border-bottom: none;
+}
+.plate-frame::after {
+  bottom: 5px;
+  right: 5px;
+  border-left: none;
+  border-top: none;
+}
+
+.plate {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem 1.75rem;
+  align-items: end;
+  min-height: 120px;
+}
+
+.plate__caption {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 0.95rem;
+  color: var(--ink-soft);
+  margin: 1.5rem 0 0;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--rule);
+}
+.plate__fig {
+  font-style: normal;
+  font-weight: 500;
+  color: var(--ink);
+  margin-right: 0.4rem;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+}
+
+/* ── A single stamp ───────────────────────────────────────────────────────── */
+.stamp {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+}
+.glyph {
+  width: 92px;
+  height: auto;
+  overflow: visible;
+}
+.stamp figcaption {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+}
+.stamp__index {
+  color: var(--paper);
+  background: var(--ink);
+  border-radius: 2px;
+  padding: 0 0.32rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.stamp__notation {
+  color: var(--ink-soft);
+}
+
+/* Glyph paint — role colors. */
+.glyph__slab {
+  fill: var(--event);
+}
+.glyph__id {
+  fill: var(--id);
+}
+.glyph__id--empty {
+  fill: none;
+  stroke: var(--rule);
+  stroke-width: 1;
+}
+.glyph--message .glyph__slab {
+  fill: var(--message);
+}
+.glyph--historical {
+  filter: grayscale(0.85);
+  opacity: 0.5;
+}
+
+/* ── Margin marginalia ────────────────────────────────────────────────────── */
+.margin {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+  position: sticky;
+  top: 1.5rem;
+}
+.key__head {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 1.3rem;
+  margin: 0 0 0.6rem;
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 0.25rem;
+}
+.key__list {
+  margin: 0;
+  font-size: 0.82rem;
+}
+.key__list dt {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 500;
+  margin-top: 0.5rem;
+}
+.key__list dd {
+  margin: 0 0 0 1.35rem;
+  color: var(--ink-soft);
+}
+.swatch {
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  border: 1px solid rgba(27, 23, 20, 0.25);
+}
+.swatch--id {
+  background: var(--id);
+}
+.swatch--event {
+  background: var(--event);
+}
+.swatch--message {
+  background: var(--message);
+}
+.gestures {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+}
+.gestures li {
+  padding: 0.18rem 0;
+  border-bottom: 1px dotted var(--rule);
+}
+.gestures b {
+  color: var(--ink);
+  font-weight: 500;
 }

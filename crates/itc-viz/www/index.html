@@ -3,11 +3,54 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Interval Tree Clocks — visualizer</title>
+    <title>Interval Tree Clocks — a plate</title>
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
-    <pre id="app">loading…</pre>
+    <div class="grain" aria-hidden="true"></div>
+    <main class="sheet">
+      <header class="masthead">
+        <h1 class="masthead__title">Interval&nbsp;Tree&nbsp;Clocks</h1>
+        <p class="masthead__sub">
+          an interactive plate, after Almeida, Baquero &amp; Fonte
+          <span class="masthead__year">·&nbsp;2008</span>
+        </p>
+      </header>
+
+      <div class="layout">
+        <section class="plate-frame" aria-label="figure">
+          <div id="plate" class="plate">loading…</div>
+          <p class="plate__caption">
+            <span class="plate__fig">Fig.&nbsp;I</span>
+            stamps as interval&nbsp;+&nbsp;skyline — id below, event&nbsp;history above
+          </p>
+        </section>
+
+        <aside class="margin">
+          <section class="key">
+            <h2 class="key__head">Key</h2>
+            <dl class="key__list">
+              <dt><span class="swatch swatch--id"></span> id</dt>
+              <dd>owned share of the [0,&nbsp;1) interval</dd>
+              <dt><span class="swatch swatch--event"></span> event</dt>
+              <dd>stacked causal history</dd>
+              <dt><span class="swatch swatch--message"></span> message</dt>
+              <dd>a peeked version, in flight</dd>
+            </dl>
+          </section>
+
+          <section class="key">
+            <h2 class="key__head">Gestures</h2>
+            <ul class="gestures">
+              <li><b>click</b> — tick</li>
+              <li><b>double-click</b> — fork</li>
+              <li><b>drag onto</b> — join</li>
+              <li><b>right-drag</b> — peek / merge</li>
+            </ul>
+          </section>
+        </aside>
+      </div>
+    </main>
     <script type="module" src="./dist/app.js"></script>
   </body>
 </html>

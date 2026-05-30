@@ -13,8 +13,10 @@ export class Engine {
   private constructor(private readonly wasm: WasmEngine) {}
 
   /// Load the wasm module and construct an engine. Must be awaited before use.
+  /// The wasm lives in `pkg/` beside the bundle's source; the explicit URL keeps
+  /// it resolvable after esbuild inlines the glue into `dist/`.
   static async create(): Promise<Engine> {
-    await init();
+    await init({ module_or_path: new URL("../pkg/itc_viz_bg.wasm", import.meta.url) });
     return new Engine(new WasmEngine());
   }
 
