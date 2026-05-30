@@ -84,10 +84,10 @@ async function main(): Promise<void> {
         h,
       );
       prevTableau = pos;
-      view.update({ nodes: liveDescs, edges: [], live, style, pos, rowHeight: cellH, width: w, height: h });
+      view.update({ nodes: liveDescs, edges: [], live, style, pos, rowHeight: cellH, width: w, height: h, mode: "tableau" });
     } else {
       const layout = layeredLayout(nodes.length, edges, live, cellW, cellH);
-      view.update({ nodes, edges, live, style, pos: layout.pos, rowHeight: cellH, width: layout.width, height: layout.height });
+      view.update({ nodes, edges, live, style, pos: layout.pos, rowHeight: cellH, width: layout.width, height: layout.height, mode: "history" });
     }
   }
 

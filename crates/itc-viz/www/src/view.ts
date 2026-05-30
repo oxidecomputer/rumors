@@ -61,6 +61,7 @@ export interface ViewState {
   readonly rowHeight: number;
   readonly width: number;
   readonly height: number;
+  readonly mode: "history" | "tableau";
 }
 
 export class GraphView {
@@ -70,6 +71,7 @@ export class GraphView {
   private readonly nodesG: Selection<SVGGElement, unknown, null, undefined>;
   private readonly zoom: ZoomBehavior<SVGSVGElement, unknown>;
   private userZoomed = false;
+  private tableauFitted = false;
   private w = 0;
   private h = 0;
   private topY = 0;
@@ -114,6 +116,7 @@ export class GraphView {
   /// Re-enable auto-fit (the next update reframes the whole figure).
   resetView(): void {
     this.userZoomed = false;
+    this.tableauFitted = false;
   }
 
   update(state: ViewState): void {
@@ -141,7 +144,16 @@ export class GraphView {
     this.joinEdges(vedges);
     this.joinNodes(vnodes);
 
-    if (!this.userZoomed) this.fitContent(state.width, state.height, vw, vh);
+    // History reframes as it grows; tableau is fit once on entry so it stays stable
+    // (pinned clocks already hold their positions across ops).
+    if (!this.userZoomed) {
+      if (state.mode === "history") {
+        this.fitContent(state.width, state.height, vw, vh);
+      } else if (!this.tableauFitted) {
+        this.fitContent(state.width, state.height, vw, vh);
+        this.tableauFitted = true;
+      }
+    }
   }
 
   /// Frame the whole figure within the viewport (until the user manually zooms).

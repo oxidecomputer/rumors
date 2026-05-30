@@ -125,12 +125,16 @@ interface FNode {
   idx: NodeIdx;
   x: number;
   y: number;
+  fx?: number;
+  fy?: number;
 }
 
 /// Tableau layout: only the current live clocks, settled by a force simulation into a
-/// pleasant cluster (charge repulsion + collision + a gentle pull to center). Surviving
-/// nodes warm-start from their previous positions so the arrangement stays stable across
-/// ops; the simulation is deterministic (no randomness), and runs to a fixed tick count.
+/// pleasant cluster (charge repulsion + collision). For stability across ops, every
+/// clock that was already on screen is *pinned* at its previous position, so only newly
+/// appeared clocks move — they settle into the gaps around the fixed ones. A fresh
+/// (cold) layout, with no prior positions, runs a full centered simulation. Determin-
+/// istic (no randomness), run to a fixed tick count.
 export function tableauLayout(
   ids: readonly NodeIdx[],
   prev: ReadonlyMap<NodeIdx, Point>,
@@ -139,23 +143,35 @@ export function tableauLayout(
   height: number,
 ): Map<NodeIdx, Point> {
   const radius = Math.max(style.width, stampHeight(style)) * 0.62;
-  const warm = prev.size > 0;
+  const survivors = ids.map((id) => prev.get(id)).filter((p): p is Point => p !== undefined);
+  const warm = survivors.length > 0;
+
+  // New clocks start near the centroid of the surviving ones (or center, when cold).
+  let cx = width / 2;
+  let cy = height / 2;
+  if (warm) {
+    cx = survivors.reduce((s, p) => s + p.x, 0) / survivors.length;
+    cy = survivors.reduce((s, p) => s + p.y, 0) / survivors.length;
+  }
+
   const nodes: FNode[] = ids.map((idx, i) => {
     const p = prev.get(idx);
-    if (p !== undefined) return { idx, x: p.x, y: p.y };
-    // Deterministic initial spread for new nodes (no Math.random).
-    return { idx, x: width / 2 + Math.cos(i * 2.4) * 40, y: height / 2 + Math.sin(i * 2.4) * 40 };
+    if (p !== undefined) return { idx, x: p.x, y: p.y, fx: p.x, fy: p.y }; // pin survivors
+    return { idx, x: cx + Math.cos(i * 2.4) * 30, y: cy + Math.sin(i * 2.4) * 30 };
   });
 
   const sim = forceSimulation<FNode>(nodes)
     .force("charge", forceManyBody<FNode>().strength(-radius * 7))
     .force("collide", forceCollide<FNode>(radius).iterations(2))
-    .force("x", forceX<FNode>(width / 2).strength(0.06))
-    .force("y", forceY<FNode>(height / 2).strength(0.06))
-    .force("center", forceCenter<FNode>(width / 2, height / 2))
     .stop();
+  if (!warm) {
+    sim
+      .force("center", forceCenter<FNode>(width / 2, height / 2))
+      .force("x", forceX<FNode>(width / 2).strength(0.06))
+      .force("y", forceY<FNode>(height / 2).strength(0.06));
+  }
 
-  const ticks = warm ? 140 : 320;
+  const ticks = warm ? 120 : 320;
   for (let i = 0; i < ticks; i++) sim.tick();
 
   const out = new Map<NodeIdx, Point>();
