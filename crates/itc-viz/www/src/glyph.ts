@@ -19,6 +19,7 @@ export const METRICS = {
   minWidth: 64,
   maxWidth: 220,
   minHeightUnits: 1, // reserve at least this much skyline room
+  maxSkylinePx: 120, // cap total skyline height; deep towers compress the unit
 } as const;
 
 /// The shared paint style for a batch of stamps.
@@ -92,7 +93,10 @@ export function computeStampStyle(ids: readonly IdTree[], events: readonly Event
   for (const ev of events) maxHeight = Math.max(maxHeight, glyphGeometry(null, ev).maxHeight);
   const wanted = METRICS.minLeafPx * 2 ** maxDepth;
   const width = Math.min(METRICS.maxWidth, Math.max(METRICS.minWidth, wanted));
-  return { width, unit: METRICS.unit, maxHeight };
+  // Compress the per-level unit so even a tall tower's skyline stays bounded (all
+  // stamps share the unit, so heights remain comparable).
+  const unit = Math.min(METRICS.unit, METRICS.maxSkylinePx / maxHeight);
+  return { width, unit, maxHeight };
 }
 
 /// Total pixel height of a stamp at a given style (uniform across the batch).
