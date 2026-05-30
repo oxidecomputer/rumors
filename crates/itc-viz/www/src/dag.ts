@@ -13,25 +13,19 @@ export interface Edge {
 }
 
 interface Analysis {
-  /// Causal edges (event / forkjoin / message), in creation order.
   readonly edges: Edge[];
-  /// Indices each op produced; `perOp[i]` are the nodes appended by `log[i]`.
   readonly perOp: NodeIdx[][];
-  /// Clock nodes that were consumed by a later tick/fork/join/merge-target.
+  /// Clock nodes consumed by a later op (tick/fork/join operands, send receiver).
   readonly superseded: Set<NodeIdx>;
-  /// Message nodes that were consumed by their one merge.
-  readonly consumed: Set<NodeIdx>;
-  /// Total node count (seed + all op outputs).
   readonly nodeCount: number;
 }
 
 /// Single forward pass over the log, deriving edges, produced-index lists, and the
-/// superseded/consumed sets — everything else is computed from this.
+/// superseded set — everything else is computed from this.
 function analyze(log: OpLog): Analysis {
   const edges: Edge[] = [];
   const perOp: NodeIdx[][] = [];
   const superseded = new Set<NodeIdx>();
-  const consumed = new Set<NodeIdx>();
   let next = 1; // node 0 is the seed
 
   const fresh = (): NodeIdx => asNodeIdx(next++);
@@ -66,26 +60,18 @@ function analyze(log: OpLog): Analysis {
         perOp.push([out]);
         break;
       }
-      case "peek": {
-        const msg = fresh();
-        edge(op.x, msg, "message");
-        // peek does NOT supersede its source
-        perOp.push([msg]);
-        break;
-      }
-      case "merge": {
+      case "send": {
         const out = fresh();
-        edge(op.t, out, "event");
-        edge(op.m, out, "message");
-        superseded.add(op.t);
-        consumed.add(op.m);
+        edge(op.to, out, "event"); // the receiver's lineage continues
+        edge(op.from, out, "message"); // the sent version
+        superseded.add(op.to); // only the receiver is superseded; the sender lives on
         perOp.push([out]);
         break;
       }
     }
   }
 
-  return { edges, perOp, superseded, consumed, nodeCount: next };
+  return { edges, perOp, superseded, nodeCount: next };
 }
 
 /// The causal edges for a log.
@@ -93,15 +79,12 @@ export function deriveEdges(log: OpLog): Edge[] {
   return analyze(log).edges;
 }
 
-/// The set of live node indices: clocks not yet superseded, messages not yet
-/// consumed. Live nodes are the colored, interactive frontier.
+/// The set of live node indices: clocks not yet superseded by a successor. Live nodes
+/// are the colored, interactive frontier.
 export function liveNodes(log: OpLog, nodes: readonly NodeDescriptor[]): Set<NodeIdx> {
-  const { superseded, consumed } = analyze(log);
+  const { superseded } = analyze(log);
   const live = new Set<NodeIdx>();
-  for (const n of nodes) {
-    const isLive = n.kind === "clock" ? !superseded.has(n.idx) : !consumed.has(n.idx);
-    if (isLive) live.add(n.idx);
-  }
+  for (const n of nodes) if (!superseded.has(n.idx)) live.add(n.idx);
   return live;
 }
 
@@ -127,15 +110,12 @@ export function descendantCone(edges: readonly Edge[], x: NodeIdx): Set<NodeIdx>
 
 /// Rewind history to `target` (drop its descendant cone) and append `newOp`, which
 /// references the *current* indices of `target` and any other operands. Returns a
-/// canonical minimal op-log producing exactly the surviving DAG plus the new
-/// frontier. When `target` is a live tip the cone is empty and this is a plain
-/// append.
+/// canonical minimal op-log producing exactly the surviving DAG plus the new frontier.
+/// When `target` is a live tip the cone is empty and this is a plain append.
 export function rewindAndApply(log: OpLog, target: NodeIdx, makeOp: (remap: (i: NodeIdx) => NodeIdx) => Op): OpLog {
   const { edges, perOp } = analyze(log);
   const cone = descendantCone(edges, target);
 
-  // Keep ops whose outputs all survive; the cone is reachability-closed, so any
-  // kept op's operands also survive. Build the old→new index remap as we go.
   const remap = new Map<NodeIdx, NodeIdx>();
   remap.set(asNodeIdx(0), asNodeIdx(0)); // seed always survives
   const kept: Op[] = [];
@@ -163,9 +143,7 @@ function remapOp(op: Op, remap: Map<NodeIdx, NodeIdx>): Op {
       return { kind: "fork", x: r(op.x) };
     case "join":
       return { kind: "join", a: r(op.a), b: r(op.b) };
-    case "peek":
-      return { kind: "peek", x: r(op.x) };
-    case "merge":
-      return { kind: "merge", t: r(op.t), m: r(op.m) };
+    case "send":
+      return { kind: "send", from: r(op.from), to: r(op.to) };
   }
 }

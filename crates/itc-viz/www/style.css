@@ -48,9 +48,8 @@
   --ink-soft: #6a604f;
   --rule: #c9bfa6;
 
-  --id: #2f6f6a; /* teal */
-  --event: #5f6f80; /* slate */
-  --message: #c2702f; /* orange */
+  --id: #2f6f6a; /* teal — id share */
+  --version: #c2702f; /* orange — event skyline + sent versions */
   --historical: #a59c8b; /* desaturated warm grey */
   --reject: #a23b2e; /* ink red */
 
@@ -189,7 +188,7 @@ body {
 }
 .edge--message {
   stroke-dasharray: 3 3;
-  stroke: color-mix(in srgb, var(--message) 55%, var(--rule));
+  stroke: color-mix(in srgb, var(--version) 60%, var(--rule));
 }
 .edge__arrow {
   fill: var(--rule);
@@ -221,16 +220,22 @@ body {
   fill: color-mix(in srgb, var(--reject) 14%, transparent);
   stroke: var(--reject);
 }
-/* While peek-dragging, the moved node reads as the version being pulled out:
-   orange skyline, no id bar. */
-.node--peeking .glyph__slab {
-  fill: var(--message);
+/* The source clock dims while it is sending a version. */
+.node--sending {
+  opacity: 0.5;
 }
-.node--peeking .glyph__id {
-  display: none;
+
+/* The version ghost that flies to the receiver during a send-drag. */
+.version-ghost {
+  position: fixed;
+  z-index: 50;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  opacity: 0.92;
+  filter: drop-shadow(0 4px 6px rgba(27, 23, 20, 0.35));
 }
-.node--peeking .glyph {
-  filter: drop-shadow(0 3px 5px rgba(27, 23, 20, 0.3));
+.version-ghost svg {
+  display: block;
 }
 
 .plate__caption {
@@ -283,9 +288,9 @@ body {
   color: var(--ink-soft);
 }
 
-/* Glyph paint — role colors. */
+/* Glyph paint — role colors: teal id, orange event/version skyline. */
 .glyph__slab {
-  fill: var(--event);
+  fill: var(--version);
 }
 .glyph__id {
   fill: var(--id);
@@ -343,11 +348,8 @@ body {
 .swatch--id {
   background: var(--id);
 }
-.swatch--event {
-  background: var(--event);
-}
-.swatch--message {
-  background: var(--message);
+.swatch--version {
+  background: var(--version);
 }
 .gestures {
   list-style: none;

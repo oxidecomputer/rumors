@@ -6,12 +6,16 @@
 //! the TypeScript side.
 //!
 //! Immutability of the causal-history DAG is achieved through the `itc` codec:
-//! every node is stored as its canonical [`itc::Clock::encode`] (or
-//! [`itc::Version::encode`]) bytes. Applying an operation decodes a *fresh*
-//! value from a source node, mutates it, and re-encodes the result(s) into new
-//! nodes; source bytes are never touched. Because `encode`/`decode` round-trips
-//! canonically and `fork`/`join` are deterministic, replaying the same log
-//! always reconstructs byte-identical nodes.
+//! every node is stored as its canonical [`itc::Clock::encode`] bytes. Applying an
+//! operation decodes a *fresh* value from a source node, mutates it, and re-encodes
+//! the result(s) into new nodes; source bytes are never touched. Because
+//! `encode`/`decode` round-trips canonically and `fork`/`join` are deterministic,
+//! replaying the same log always reconstructs byte-identical nodes.
+//!
+//! Every node is a clock. Sending a version from one clock to another is a single
+//! [`Op::Send`]: it peeks the sender's history and merges it into the receiver,
+//! producing one new clock — there is no persistent "message" node, only a message
+//! edge (derived on the TypeScript side).
 
 use itc::{Clock, Version};
 use serde::{Deserialize, Serialize};
@@ -22,9 +26,6 @@ mod tests;
 
 /// A single primitive applied during replay. Operands reference nodes by their
 /// 0-based creation index; index `0` is always the implicit seed clock.
-///
-/// There is no `Seed` variant: every log begins with an implicit seed, mirroring
-/// the TypeScript `OpLog` model.
 #[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Op {
@@ -34,53 +35,35 @@ pub enum Op {
     Fork { x: usize },
     /// Merge disjoint clock `b` into clock `a`; emits the union (errors on overlap).
     Join { a: usize, b: usize },
-    /// Snapshot clock `x`'s history as a message; does not advance `x`.
-    Peek { x: usize },
-    /// Merge message `m` into clock `t`; does not tick and does not change ids.
-    Merge { t: usize, m: usize },
+    /// Merge clock `from`'s history into clock `to`, emitting the updated `to`. Does
+    /// not advance either component and does not change ids; `from` is unchanged.
+    Send { from: usize, to: usize },
 }
 
-/// Whether a stored node is a clock (id + history) or a peeked message (history only).
-#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum NodeKind {
-    Clock,
-    Message,
-}
-
-/// A materialized node returned to the front-end: paper-notation strings plus
-/// its kind. Clock nodes carry `party`, `event`, and the combined `stamp`;
-/// message nodes carry only `event` (with `party` serialized as `null`).
+/// A materialized node returned to the front-end: the clock's paper-notation strings.
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct Descriptor {
     pub idx: usize,
-    pub kind: NodeKind,
-    pub party: Option<String>,
+    pub party: String,
     pub event: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stamp: Option<String>,
+    pub stamp: String,
 }
 
 /// A node held in the arena: canonical bytes plus its precomputed notation.
 #[derive(Clone, Debug)]
 struct Node {
     bytes: Vec<u8>,
-    kind: NodeKind,
-    party: Option<String>,
+    party: String,
     event: String,
-    stamp: Option<String>,
+    stamp: String,
 }
 
-/// Why a replay failed. All variants are recoverable on the JS side (a rejected
-/// op simply is not committed to the log).
+/// Why a replay failed. All variants are recoverable on the JS side (a rejected op
+/// simply is not committed to the log).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EngineError {
     /// An operand referenced a node index that does not exist.
     IndexOutOfRange(usize),
-    /// An op expected a clock at this index but found a message.
-    NotAClock(usize),
-    /// An op expected a message at this index but found a clock.
-    NotAMessage(usize),
     /// A `join` was attempted on clocks whose ids overlap.
     JoinOverlap { a: usize, b: usize },
     /// A stored node failed to decode (should be impossible for engine-produced bytes).
@@ -91,8 +74,6 @@ impl core::fmt::Display for EngineError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             EngineError::IndexOutOfRange(i) => write!(f, "node index {i} out of range"),
-            EngineError::NotAClock(i) => write!(f, "node {i} is a message, expected a clock"),
-            EngineError::NotAMessage(i) => write!(f, "node {i} is a clock, expected a message"),
             EngineError::JoinOverlap { a, b } => {
                 write!(f, "cannot join nodes {a} and {b}: their ids overlap")
             }
@@ -137,7 +118,6 @@ impl Engine {
             .enumerate()
             .map(|(idx, n)| Descriptor {
                 idx,
-                kind: n.kind,
                 party: n.party.clone(),
                 event: n.event.clone(),
                 stamp: n.stamp.clone(),
@@ -145,8 +125,8 @@ impl Engine {
             .collect()
     }
 
-    /// Whether the two nodes are clocks with disjoint ids (a join would succeed).
-    /// `false` if either index is out of range or names a message.
+    /// Whether the two nodes have disjoint ids (a join would succeed). `false` if
+    /// either index is out of range.
     pub fn is_disjoint(&self, a: usize, b: usize) -> bool {
         match (clock_at(&self.arena, a), clock_at(&self.arena, b)) {
             (Ok(ca), Ok(cb)) => ca.party().is_disjoint(cb.party()),
@@ -158,44 +138,16 @@ impl Engine {
 /// Decode the clock stored at `i`, or report why it is unavailable.
 fn clock_at(arena: &[Node], i: usize) -> Result<Clock, EngineError> {
     let node = arena.get(i).ok_or(EngineError::IndexOutOfRange(i))?;
-    match node.kind {
-        NodeKind::Clock => {
-            Clock::decode(&node.bytes).map_err(|e| EngineError::Decode(e.to_string()))
-        }
-        NodeKind::Message => Err(EngineError::NotAClock(i)),
-    }
-}
-
-/// Decode the message (version) stored at `i`, or report why it is unavailable.
-fn version_at(arena: &[Node], i: usize) -> Result<Version, EngineError> {
-    let node = arena.get(i).ok_or(EngineError::IndexOutOfRange(i))?;
-    match node.kind {
-        NodeKind::Message => {
-            Version::decode(&node.bytes).map_err(|e| EngineError::Decode(e.to_string()))
-        }
-        NodeKind::Clock => Err(EngineError::NotAMessage(i)),
-    }
+    Clock::decode(&node.bytes).map_err(|e| EngineError::Decode(e.to_string()))
 }
 
 /// Push a clock node, precomputing its paper-notation strings.
 fn push_clock(arena: &mut Vec<Node>, clock: Clock) {
     arena.push(Node {
-        party: Some(clock.party().to_string()),
+        party: clock.party().to_string(),
         event: clock.version().to_string(),
-        stamp: Some(clock.to_string()),
+        stamp: clock.to_string(),
         bytes: clock.encode(),
-        kind: NodeKind::Clock,
-    });
-}
-
-/// Push a message node (a peeked [`Version`]), precomputing its event notation.
-fn push_message(arena: &mut Vec<Node>, version: Version) {
-    arena.push(Node {
-        party: None,
-        event: version.to_string(),
-        stamp: None,
-        bytes: version.encode(),
-        kind: NodeKind::Message,
     });
 }
 
@@ -221,15 +173,11 @@ fn apply(arena: &mut Vec<Node>, op: Op) -> Result<(), EngineError> {
                 Err(_) => return Err(EngineError::JoinOverlap { a, b }),
             }
         }
-        Op::Peek { x } => {
-            let clock = clock_at(arena, x)?;
-            push_message(arena, clock.version());
-        }
-        Op::Merge { t, m } => {
-            let mut clock = clock_at(arena, t)?;
-            let version = version_at(arena, m)?;
-            clock |= version;
-            push_clock(arena, clock);
+        Op::Send { from, to } => {
+            let version: Version = clock_at(arena, from)?.version();
+            let mut receiver = clock_at(arena, to)?;
+            receiver |= version;
+            push_clock(arena, receiver);
         }
     }
     Ok(())
@@ -264,7 +212,7 @@ impl WasmEngine {
         serde_json::to_string(&self.inner.descriptors()).map_err(to_js)
     }
 
-    /// Whether nodes `a` and `b` are clocks with disjoint ids (join validity).
+    /// Whether nodes `a` and `b` have disjoint ids (join validity).
     pub fn is_disjoint(&self, a: usize, b: usize) -> bool {
         self.inner.is_disjoint(a, b)
     }

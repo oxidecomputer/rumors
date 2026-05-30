@@ -1,9 +1,12 @@
 // The graph view: a persistent SVG driven by D3. Nodes and edges are data-joined by
-// key, so updates animate via real eased transitions (enter fades in, update glides,
-// exit fades out). Dragging uses d3-drag to move the actual node under the cursor with
-// its edges re-routing live; on release the gesture is classified and committed, or
-// the node eases back. Gesture mapping mirrors the spec: click=tick, dbl-click=fork,
-// plain-drag clock→clock=join, token→clock=merge, right/⌥-drag=peek / peekMerge.
+// key, so updates animate via real eased transitions. Edges are cubic Béziers (they
+// bow around the layout and interpolate cleanly while the graph morphs).
+//
+// Two drag modes:
+//   plain-drag clock → clock   = join. The actual node moves under the cursor.
+//   right/⌥-drag clock → clock = send. The source stays put; an orange version ghost
+//                                follows the cursor and is delivered to the target.
+//   click = tick, double-click = fork.
 
 import { drag, type D3DragEvent } from "d3-drag";
 import { select, type Selection } from "d3-selection";
@@ -23,9 +26,7 @@ export interface GestureHandlers {
   tick(x: NodeIdx): void;
   fork(x: NodeIdx): void;
   join(a: NodeIdx, b: NodeIdx): void;
-  peek(x: NodeIdx): void;
-  peekMerge(source: NodeIdx, target: NodeIdx): void;
-  merge(token: NodeIdx, target: NodeIdx): void;
+  send(from: NodeIdx, to: NodeIdx): void;
 }
 
 interface VNode {
@@ -59,8 +60,10 @@ export class GraphView {
   private readonly nodesG: Selection<SVGGElement, unknown, null, undefined>;
   private w = 0;
   private h = 0;
+  private style: StampStyle = { width: 64, unit: 9, maxHeight: 1 };
   private pos = new Map<NodeIdx, Point>();
   private pendingClick: { idx: NodeIdx; timer: number } | null = null;
+  private ghost: HTMLElement | null = null;
 
   constructor(
     private readonly container: HTMLElement,
@@ -87,10 +90,10 @@ export class GraphView {
   update(state: ViewState): void {
     this.w = state.style.width;
     this.h = stampHeight(state.style);
+    this.style = state.style;
 
-    // Size the canvas to at least fill the plate, with padding, so there is empty room
-    // to drop a peeked message and so dragged nodes never reach a clipping edge. Center
-    // the DAG within it; the seed sits near the top and the frontier grows downward.
+    // Size the canvas to at least fill the plate, with padding, so there is room to
+    // fly a version ghost and so dragged nodes never reach a clipping edge.
     const pad = 32;
     const cw = this.container.clientWidth || state.width;
     const ch = this.container.clientHeight || state.height;
@@ -110,14 +113,22 @@ export class GraphView {
     const vedges: VEdge[] = state.edges.map((e) => ({ key: `${e.from}->${e.to}:${e.kind}`, from: e.from, to: e.to, kind: e.kind }));
 
     this.joinEdges(vedges);
-    this.joinNodes(vnodes, state.style);
+    this.joinNodes(vnodes);
   }
 
-  private edgePath(from: NodeIdx, to: NodeIdx): string {
-    const a = this.pos.get(from);
-    const b = this.pos.get(to);
+  /// A vertical cubic Bézier from `from`'s bottom to `to`'s top — straight when the
+  /// child is directly below, a smooth S for diagonals. `ox`/`oy` override an endpoint
+  /// (used while dragging).
+  private bezier(from: NodeIdx, to: NodeIdx, override?: { idx: NodeIdx; x: number; y: number }): string {
+    const a = override?.idx === from ? override : this.pos.get(from);
+    const b = override?.idx === to ? override : this.pos.get(to);
     if (a === undefined || b === undefined) return "";
-    return `M ${a.x.toFixed(1)} ${(a.y + this.h / 2).toFixed(1)} L ${b.x.toFixed(1)} ${(b.y - this.h / 2).toFixed(1)}`;
+    const sx = a.x;
+    const sy = a.y + this.h / 2;
+    const ex = b.x;
+    const ey = b.y - this.h / 2;
+    const c = sy + (ey - sy) * 0.5;
+    return `M ${sx.toFixed(1)} ${sy.toFixed(1)} C ${sx.toFixed(1)} ${c.toFixed(1)}, ${ex.toFixed(1)} ${c.toFixed(1)}, ${ex.toFixed(1)} ${ey.toFixed(1)}`;
   }
 
   private joinEdges(vedges: VEdge[]): void {
@@ -128,19 +139,17 @@ export class GraphView {
       .append("path")
       .attr("class", (d) => `edge edge--${d.kind}`)
       .attr("marker-end", (d) => (d.kind === "forkjoin" ? "url(#arrow)" : null))
-      .attr("d", (d) => this.edgePath(d.from, d.to))
+      .attr("d", (d) => this.bezier(d.from, d.to))
       .style("opacity", 0);
-    // One transition per element: a separate opacity transition would be interrupted
-    // by the `d` transition (both unnamed), leaving enter elements stuck transparent.
     ent
       .merge(sel)
       .transition()
       .duration(DURATION)
       .style("opacity", 1)
-      .attr("d", (d) => this.edgePath(d.from, d.to));
+      .attr("d", (d) => this.bezier(d.from, d.to));
   }
 
-  private joinNodes(vnodes: VNode[], style: StampStyle): void {
+  private joinNodes(vnodes: VNode[]): void {
     const self = this;
     const transform = (d: VNode): string => `translate(${(d.x - self.w / 2).toFixed(1)}, ${(d.y - self.h / 2).toFixed(1)})`;
 
@@ -154,20 +163,16 @@ export class GraphView {
       .style("opacity", 0)
       .each(function (d) {
         this.dataset["idx"] = `${d.idx}`;
-        this.dataset["kind"] = d.desc.kind;
         const g = select(this);
-        g.append("title").text(d.desc.kind === "clock" ? d.desc.stamp : `message ${d.desc.event}`);
-        g.append("rect").attr("class", "node__hit").attr("x", 0).attr("y", 0).attr("width", style.width).attr("height", stampHeight(style));
-        const id = d.desc.kind === "clock" ? parseId(d.desc.party) : null;
-        this.appendChild(renderStamp(id, parseEvent(d.desc.event), d.desc.kind, style));
+        g.append("title").text(d.desc.stamp);
+        g.append("rect").attr("class", "node__hit").attr("x", 0).attr("y", 0).attr("width", self.style.width).attr("height", stampHeight(self.style));
+        this.appendChild(renderStamp(parseId(d.desc.party), parseEvent(d.desc.event), self.style));
         g.append("text").attr("class", "node__index").attr("x", 1).attr("y", -3).text(`${d.idx}`);
       })
       .call(this.makeDrag());
 
     const merged = ent.merge(sel);
-    merged.attr("class", (d) => `node node--${d.desc.kind} ${d.live ? "node--live" : "node--historical"}`);
-    // Single transition for both transform (glide) and opacity (enter fade-in); two
-    // unnamed transitions would interrupt each other and strand enter nodes invisible.
+    merged.attr("class", (d) => `node ${d.live ? "node--live" : "node--historical"}`);
     merged.transition().duration(DURATION).attr("transform", transform).style("opacity", 1);
   }
 
@@ -175,11 +180,8 @@ export class GraphView {
   private dragEdges(idx: NodeIdx, x: number, y: number): void {
     this.edgesG.selectAll<SVGPathElement, VEdge>("path.edge").each((d, i, nodes) => {
       if (d.from !== idx && d.to !== idx) return;
-      const a = d.from === idx ? { x, y } : this.pos.get(d.from);
-      const b = d.to === idx ? { x, y } : this.pos.get(d.to);
       const node = nodes[i];
-      if (a === undefined || b === undefined || node === undefined) return;
-      node.setAttribute("d", `M ${a.x.toFixed(1)} ${(a.y + this.h / 2).toFixed(1)} L ${b.x.toFixed(1)} ${(b.y - this.h / 2).toFixed(1)}`);
+      if (node !== undefined) node.setAttribute("d", this.bezier(d.from, d.to, { idx, x, y }));
     });
   }
 
@@ -187,81 +189,94 @@ export class GraphView {
     this.nodesG.selectAll(".node--drop-ok, .node--drop-reject").classed("node--drop-ok", false).classed("node--drop-reject", false);
   }
 
-  private nodeUnder(clientX: number, clientY: number): { idx: NodeIdx; kind: "clock" | "message" } | null {
+  private nodeUnder(clientX: number, clientY: number): NodeIdx | null {
     const g = document.elementFromPoint(clientX, clientY)?.closest<SVGGElement>("g.node");
     const raw = g?.dataset["idx"];
-    const kind = g?.dataset["kind"];
-    if (raw === undefined || (kind !== "clock" && kind !== "message")) return null;
-    return { idx: asNodeIdx(Number(raw)), kind };
+    return raw === undefined ? null : asNodeIdx(Number(raw));
+  }
+
+  private makeGhost(d: VNode): void {
+    if (this.ghost !== null) return;
+    const el = document.createElement("div");
+    el.className = "version-ghost";
+    el.appendChild(renderStamp(null, parseEvent(d.desc.event), this.style));
+    document.body.appendChild(el);
+    this.ghost = el;
+  }
+
+  private moveGhost(x: number, y: number): void {
+    if (this.ghost === null) return;
+    this.ghost.style.left = `${x}px`;
+    this.ghost.style.top = `${y}px`;
+  }
+
+  private removeGhost(): void {
+    this.ghost?.remove();
+    this.ghost = null;
   }
 
   private makeDrag(): (sel: Selection<SVGGElement, VNode, SVGGElement, unknown>) => void {
     const self = this;
-    let peekMode = false;
+    let sendMode = false;
     let moved = false;
-    let startClientX = 0;
-    let startClientY = 0;
+    let startX = 0;
+    let startY = 0;
 
     const behavior = drag<SVGGElement, VNode>()
       .container(() => self.svg.node() as SVGSVGElement)
       .filter((event: PointerEvent) => event.button === 0 || event.button === 2)
       .on("start", (event: D3DragEvent<SVGGElement, VNode, VNode>) => {
         const src = event.sourceEvent as PointerEvent;
-        peekMode = src.button === 2 || src.altKey;
+        sendMode = src.button === 2 || src.altKey;
         moved = false;
-        startClientX = src.clientX;
-        startClientY = src.clientY;
+        startX = src.clientX;
+        startY = src.clientY;
       })
       .on("drag", function (event: D3DragEvent<SVGGElement, VNode, VNode>, d: VNode) {
         const src = event.sourceEvent as PointerEvent;
-        if (!moved && Math.hypot(src.clientX - startClientX, src.clientY - startClientY) > MOVE_THRESHOLD) moved = true;
+        if (!moved && Math.hypot(src.clientX - startX, src.clientY - startY) > MOVE_THRESHOLD) moved = true;
         if (!moved) return;
-        // pointer-events:none so the node under the cursor (a drop target) is found,
-        // not the dragged node riding on top.
-        select(this)
-          .interrupt()
-          .raise()
-          .style("pointer-events", "none")
-          .attr("transform", `translate(${(event.x - self.w / 2).toFixed(1)}, ${(event.y - self.h / 2).toFixed(1)})`);
-        if (peekMode) select(this).classed("node--peeking", true);
-        self.dragEdges(d.idx, event.x, event.y);
+        if (sendMode) {
+          select(this).classed("node--sending", true);
+          self.makeGhost(d);
+          self.moveGhost(src.clientX, src.clientY);
+        } else {
+          // pointer-events:none so the drop target beneath is hit-tested, not the
+          // dragged node riding on top.
+          select(this)
+            .interrupt()
+            .raise()
+            .style("pointer-events", "none")
+            .attr("transform", `translate(${(event.x - self.w / 2).toFixed(1)}, ${(event.y - self.h / 2).toFixed(1)})`);
+          self.dragEdges(d.idx, event.x, event.y);
+        }
         self.clearDropHints();
         const over = self.nodeUnder(src.clientX, src.clientY);
-        if (over === null || over.idx === d.idx || over.kind !== "clock") return;
-        const tgt = self.nodesG.select<SVGGElement>(`g.node[data-idx="${over.idx}"]`);
-        if (!peekMode && d.desc.kind === "clock") tgt.classed(self.isDisjoint(d.idx, over.idx) ? "node--drop-ok" : "node--drop-reject", true);
-        else tgt.classed("node--drop-ok", true);
+        if (over === null || over === d.idx) return;
+        const tgt = self.nodesG.select<SVGGElement>(`g.node[data-idx="${over}"]`);
+        if (sendMode) tgt.classed("node--drop-ok", true);
+        else tgt.classed(self.isDisjoint(d.idx, over) ? "node--drop-ok" : "node--drop-reject", true);
       })
       .on("end", function (event: D3DragEvent<SVGGElement, VNode, VNode>, d: VNode) {
         const src = event.sourceEvent as PointerEvent;
         self.clearDropHints();
-        select(this).classed("node--peeking", false);
+        self.removeGhost();
+        select(this).classed("node--sending", false);
         if (!moved) {
           select(this).style("pointer-events", null);
-          if (d.desc.kind === "clock") self.click(d.idx);
+          self.click(d.idx);
           return;
         }
-        // Hit-test the drop target while the dragged node is still transparent to
-        // pointer events, then restore it.
+        // Hit-test while the dragged node is still transparent (join), then restore.
         const over = self.nodeUnder(src.clientX, src.clientY);
         select(this).style("pointer-events", null);
-        const valid =
-          over !== null &&
-          over.idx !== d.idx &&
-          over.kind === "clock" &&
-          (peekMode || d.desc.kind !== "clock" || self.isDisjoint(d.idx, over.idx));
-
-        if (peekMode && d.desc.kind === "clock") {
-          if (valid && over !== null) self.handlers.peekMerge(d.idx, over.idx);
-          else self.handlers.peek(d.idx);
-          return; // a re-render follows; nothing to snap back
-        }
-        if (valid && over !== null) {
-          if (d.desc.kind === "clock") self.handlers.join(d.idx, over.idx);
-          else self.handlers.merge(d.idx, over.idx);
+        if (over === null || over === d.idx) {
+          if (!sendMode) self.snapBack(d);
           return;
         }
-        self.snapBack(d); // no-op drop: ease the node home
+        if (sendMode) self.handlers.send(d.idx, over);
+        else if (self.isDisjoint(d.idx, over)) self.handlers.join(d.idx, over);
+        else self.snapBack(d);
       });
 
     return (sel) => {
@@ -269,7 +284,7 @@ export class GraphView {
     };
   }
 
-  /// Ease a dragged node (and its edges) back to its layout position.
+  /// Ease a dragged node (and its edges) back to its layout position after a no-op drop.
   private snapBack(d: VNode): void {
     const p = this.pos.get(d.idx);
     if (p === undefined) return;
@@ -283,7 +298,7 @@ export class GraphView {
       .filter((e) => e.from === d.idx || e.to === d.idx)
       .transition()
       .duration(DURATION)
-      .attr("d", (e) => this.edgePath(e.from, e.to));
+      .attr("d", (e) => this.bezier(e.from, e.to));
   }
 
   private click(idx: NodeIdx): void {

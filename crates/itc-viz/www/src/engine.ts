@@ -54,21 +54,11 @@ function parseDescriptor(value: unknown, i: number): NodeDescriptor {
   }
   const record = value as Record<string, unknown>;
   const idx = record["idx"];
-  const kind = record["kind"];
+  const party = record["party"];
   const event = record["event"];
-  if (typeof idx !== "number" || typeof event !== "string") {
-    throw new ReplayError(`node ${i}: missing idx/event`);
+  const stamp = record["stamp"];
+  if (typeof idx !== "number" || typeof party !== "string" || typeof event !== "string" || typeof stamp !== "string") {
+    throw new ReplayError(`node ${i}: malformed descriptor`);
   }
-  if (kind === "clock") {
-    const party = record["party"];
-    const stamp = record["stamp"];
-    if (typeof party !== "string" || typeof stamp !== "string") {
-      throw new ReplayError(`clock node ${i}: missing party/stamp`);
-    }
-    return { idx: asNodeIdx(idx), kind: "clock", party, event, stamp };
-  }
-  if (kind === "message") {
-    return { idx: asNodeIdx(idx), kind: "message", party: null, event };
-  }
-  throw new ReplayError(`node ${i}: unknown kind ${String(kind)}`);
+  return { idx: asNodeIdx(idx), party, event, stamp };
 }

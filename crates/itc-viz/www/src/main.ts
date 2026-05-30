@@ -8,7 +8,7 @@ import { Engine } from "./engine";
 import { computeStampStyle, stampHeight } from "./glyph";
 import { layeredLayout } from "./layout";
 import { parseEvent, parseId } from "./notation";
-import { asNodeIdx, type IdTree, type NodeDescriptor, type NodeIdx, type Op, type OpLog } from "./types";
+import type { IdTree, NodeIdx, Op, OpLog } from "./types";
 import { GraphView, type GestureHandlers } from "./view";
 
 const GAP_X = 30; // horizontal space between stamp columns
@@ -20,10 +20,7 @@ async function main(): Promise<void> {
   plate.textContent = "";
 
   const engine = await Engine.create();
-
   let log: OpLog = [];
-  let nodes: readonly NodeDescriptor[] = [];
-  let live: ReadonlySet<NodeIdx> = new Set();
 
   const apply = (anchor: NodeIdx, makeOp: (remap: (i: NodeIdx) => NodeIdx) => Op): void => {
     log = rewindAndApply(log, anchor, makeOp);
@@ -34,41 +31,29 @@ async function main(): Promise<void> {
     tick: (x) => apply(x, (r) => ({ kind: "tick", x: r(x) })),
     fork: (x) => apply(x, (r) => ({ kind: "fork", x: r(x) })),
     join: (a, b) => apply(a, (r) => ({ kind: "join", a: r(a), b: r(b) })),
-    peek: (x) => apply(x, (r) => ({ kind: "peek", x: r(x) })),
-    merge: (token, target) => apply(target, (r) => ({ kind: "merge", t: r(target), m: r(token) })),
-    peekMerge: (source, target) => {
-      // Offered only between two live clocks, so no rewind: peek appends a message
-      // at the current count, then merge consumes it.
-      if (live.has(source) && live.has(target)) {
-        const msg = asNodeIdx(nodes.length);
-        log = [...log, { kind: "peek", x: source }, { kind: "merge", t: target, m: msg }];
-        render();
-      } else {
-        apply(source, (r) => ({ kind: "peek", x: r(source) }));
-      }
-    },
+    // Anchor on the receiver (which is superseded); the sender survives the rewind.
+    send: (from, to) => apply(to, (r) => ({ kind: "send", from: r(from), to: r(to) })),
   };
 
   const view = new GraphView(plate, handlers, (a, b) => engine.isDisjoint(a, b));
 
   function render(): void {
-    nodes = engine.replay(log);
+    const nodes = engine.replay(log);
     const edges = deriveEdges(log);
-    live = liveNodes(log, nodes);
+    const live = liveNodes(log, nodes);
 
     const ids: IdTree[] = [];
     const events = nodes.map((n) => {
-      if (n.kind === "clock") ids.push(parseId(n.party));
+      ids.push(parseId(n.party));
       return parseEvent(n.event);
     });
     const style = computeStampStyle(ids, events);
     const cellW = style.width + GAP_X;
     const cellH = stampHeight(style) + EXTRA_V;
-    const layout = layeredLayout(nodes.length, edges, cellW, cellH);
+    const layout = layeredLayout(nodes.length, edges, live, cellW, cellH);
 
     view.update({ nodes, edges, live, style, pos: layout.pos, width: layout.width, height: layout.height });
 
-    // Auto-scroll to keep the newest frontier (bottom) in view.
     plate?.scrollTo({ top: plate.scrollHeight, behavior: "smooth" });
   }
 

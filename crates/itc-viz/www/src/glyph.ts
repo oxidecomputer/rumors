@@ -110,9 +110,10 @@ function rect(x: number, y: number, w: number, h: number, className: string): SV
   return r;
 }
 
-/// Build an `<svg>` stamp sized to the shared style. `kind` selects the color
-/// treatment; liveness desaturation is driven by the node group's class in CSS.
-export function renderStamp(id: IdTree | null, event: EventTree, kind: "clock" | "message", style: StampStyle): SVGSVGElement {
+/// Build an `<svg>` stamp sized to the shared style. A null `id` (a bare version, as
+/// used by the send ghost) omits the id bar. Liveness desaturation is driven by the
+/// node group's class in CSS.
+export function renderStamp(id: IdTree | null, event: EventTree, style: StampStyle): SVGSVGElement {
   const geo = glyphGeometry(id, event);
   const W = style.width;
   const H = stampHeight(style);
@@ -122,7 +123,7 @@ export function renderStamp(id: IdTree | null, event: EventTree, kind: "clock" |
   svg.setAttribute("width", W.toFixed(2));
   svg.setAttribute("height", H.toFixed(2));
   svg.setAttribute("viewBox", `0 0 ${W.toFixed(2)} ${H.toFixed(2)}`);
-  svg.setAttribute("class", `glyph glyph--${kind}`);
+  svg.setAttribute("class", "glyph");
 
   for (const s of geo.slabs) {
     const x = s.x0 * W;
