@@ -15,6 +15,8 @@
 //! semantic the differential harness exercises.
 
 #![allow(dead_code)] // Full semantic surface; some methods are used only by later phases.
+#![allow(missing_docs)] // A test/bench reference, not real public API, even when the
+                        // `oracle` feature re-exports it (the crate warns on missing docs).
 
 use std::cmp::Ordering;
 use std::ops::{BitOr, BitOrAssign};

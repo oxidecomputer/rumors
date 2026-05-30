@@ -1,5 +1,5 @@
 //! Iterative id operations on the packed form (plan §2.1: ids have no working form,
-//! so `split`/`sum`/`is_disjoint`/`contains` run directly on the `enc_id` bit stream).
+//! so `split`/`sum`/`is_disjoint`/`compare` run directly on the `enc_id` bit stream).
 //!
 //! `enc_id(Leaf v) = 0, v` (2 bits); `enc_id(Node l r) = 1, enc_id(l), enc_id(r)`.
 //! Every traversal is iterative (explicit stack) and `O(n + m)` in its inputs — no
@@ -14,6 +14,8 @@
 //!
 //! Emptiness/fullness are `O(1)` leaf checks (see [`idbits`](crate::idbits)), valid because every
 //! `Party` — and every subtree of one — is in canonical normal form.
+
+use core::cmp::Ordering;
 
 use crate::codec::{Bits, BitsSlice};
 use crate::idbits::{header, skip};
@@ -51,10 +53,11 @@ enum Pair {
     Right,
 }
 
-/// The thread register for the predicate walks ([`is_disjoint`], [`contains`]): the
+/// The thread register for the predicate walks ([`is_disjoint`], [`compare`]): the
 /// position just past the most-recently-finished subtree in each input. An `Eval` arm
 /// *writes* it when it decides a branch locally; a deferred `Right` frame *reads* it to
-/// resume the sibling. (No payload — the answer is a bare `bool` returned early.)
+/// resume the sibling. (No payload — the predicates accumulate into a `bool` or the
+/// `le`/`ge` pair, not here.)
 #[derive(Clone, Copy, Default)]
 struct Ends {
     /// Position just past the finished subtree in `a`.
@@ -109,9 +112,19 @@ pub(crate) fn is_disjoint(a: &BitsSlice, b: &BitsSlice) -> bool {
     true
 }
 
-/// Whether `a` owns every region `b` owns (reverse-inclusion: `a` contains `b`).
-/// `O(n + m)`, by the same threading + bounded lazy-skip.
-pub(crate) fn contains(a: &BitsSlice, b: &BitsSlice) -> bool {
+/// The descent order on two normal-form ids, in a single `O(n + m)` pass. `Some(Less)`
+/// means `a` is an ancestor of (contains) `b`; `Some(Greater)` the reverse; `Some(Equal)`
+/// equal regions; `None` incomparable (cousins).
+///
+/// Tracks both containment directions together — `a ⊇ b` as `le` and `b ⊇ a` as `ge` —
+/// so the two reverse-inclusion scans share one traversal instead of running `contains`
+/// twice; the walk stops early once both are excluded. Only a both-node pair descends:
+/// wherever at least one side is a leaf, that region's value (empty / full) settles both
+/// directions locally, and the other side is skipped once to resync (bounded lazy-skip),
+/// so each node is still visited at most once.
+pub(crate) fn compare(a: &BitsSlice, b: &BitsSlice) -> Option<Ordering> {
+    let mut le = true; // `a ⊇ b` (a is an ancestor of b) still possible
+    let mut ge = true; // `b ⊇ a` still possible
     let mut ret = Ends::default();
     let mut stack = vec![Pair::Eval { a_pos: 0, b_pos: 0 }];
     while let Some(job) = stack.pop() {
@@ -119,29 +132,29 @@ pub(crate) fn contains(a: &BitsSlice, b: &BitsSlice) -> bool {
             Pair::Eval { a_pos, b_pos } => {
                 let (a_node, a_val, a_next) = header(a, a_pos);
                 let (b_node, b_val, b_next) = header(b, b_pos);
-                if !b_node && !b_val {
-                    // b owns nothing here: contained
-                    ret = Ends {
-                        a_end: skip(a, a_pos),
-                        b_end: b_next,
-                    };
-                } else if !a_node && a_val {
-                    // a owns everything here: contains b
-                    ret = Ends {
-                        a_end: a_next,
-                        b_end: skip(b, b_pos),
-                    };
-                } else if !a_node {
-                    return false; // a empty, b nonempty: not contained
-                } else if !b_node {
-                    return false; // b full, a is a node (never full): not contained
-                } else {
+                if a_node && b_node {
+                    // Both internal: descend in lockstep (left now, right threaded after).
                     stack.push(Pair::Right);
                     stack.push(Pair::Eval {
                         a_pos: a_next,
                         b_pos: b_next,
-                    }); // left
+                    });
+                    continue;
                 }
+                // At least one leaf: this region is decided. `a ⊇ b` holds iff `b` owns
+                // nothing here or `a` owns everything; `b ⊇ a` is the mirror.
+                let (a_full, a_empty) = (!a_node && a_val, !a_node && !a_val);
+                let (b_full, b_empty) = (!b_node && b_val, !b_node && !b_val);
+                le &= b_empty || a_full;
+                ge &= a_empty || b_full;
+                if !le && !ge {
+                    return None; // incomparable: neither containment can recover
+                }
+                // Resync: advance the leaf side past its header, skip the node side once.
+                ret = Ends {
+                    a_end: if a_node { skip(a, a_pos) } else { a_next },
+                    b_end: if b_node { skip(b, b_pos) } else { b_next },
+                };
             }
             Pair::Right => {
                 stack.push(Pair::Eval {
@@ -151,7 +164,13 @@ pub(crate) fn contains(a: &BitsSlice, b: &BitsSlice) -> bool {
             }
         }
     }
-    true
+    match (le, ge) {
+        (true, true) => Some(Ordering::Equal),
+        (true, false) => Some(Ordering::Less),
+        (false, true) => Some(Ordering::Greater),
+        // Unreachable: both-false returns `None` inside the loop above.
+        (false, false) => None,
+    }
 }
 
 // ───────────────────────────── sum (disjoint union) ─────────────────────────────

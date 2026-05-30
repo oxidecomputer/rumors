@@ -93,16 +93,10 @@ impl Party {
 impl PartialOrd for Party {
     /// Descent: an ancestor (larger region) is *less than* its forked descendants;
     /// cousins are incomparable (`None`). `self < other` ⇔ `self` contains `other`.
+    /// One pass tracks both containment directions (see [`ops::compare`]); running
+    /// `contains` once per direction would double the work.
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        match (
-            ops::contains(&self.0, &other.0),
-            ops::contains(&other.0, &self.0),
-        ) {
-            (true, true) => Some(Ordering::Equal),
-            (true, false) => Some(Ordering::Less),
-            (false, true) => Some(Ordering::Greater),
-            (false, false) => None,
-        }
+        ops::compare(&self.0, &other.0)
     }
 }
 

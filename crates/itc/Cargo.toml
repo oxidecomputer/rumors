@@ -12,7 +12,29 @@ serde = { version = "1", optional = true, default-features = false, features = [
 [dev-dependencies]
 proptest = "1"
 serde_json = "1"
+criterion = "0.5"
+rand = "0.8"
+# Self-dependency that turns on the `oracle` feature for benches (and tests): a
+# recognized Cargo idiom so `cargo bench` builds the lib with the oracle exposed
+# without needing `--features oracle`. Dev-dependency cycles are explicitly allowed,
+# and dev-dependencies never affect a normal `cargo build`, so production stays clean.
+itc = { path = ".", features = ["oracle"] }
 
 [features]
 default = []
 serde = ["dep:serde"]
+# Re-exports the reference oracle (`src/oracle.rs`) as `itc::oracle`, so the benchmark
+# suite can time it against the optimized implementation. Bench/test-only.
+oracle = []
+
+[[bench]]
+name = "party"
+harness = false
+
+[[bench]]
+name = "version"
+harness = false
+
+[[bench]]
+name = "clock"
+harness = false

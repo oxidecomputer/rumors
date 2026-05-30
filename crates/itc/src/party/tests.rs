@@ -143,16 +143,17 @@ proptest! {
 }
 
 proptest! {
-    /// Complexity. `contains` is `O(n + m)`: a *misaligned* containment pair (a shallow
+    /// Complexity. `compare` is `O(n + m)`: a *misaligned* containment pair (a shallow
     /// `1`-leaf on the container aligned with the contained's whole deep subtree) drives
-    /// the bounded lazy-skip at scale. `contains` returns `true`, so the walk runs to
-    /// completion and the skip dominates; steps stay linear over the `4x` growth.
+    /// the bounded lazy-skip at scale. `big ⊇ small`, so the `a ⊇ b` direction stays live
+    /// and the walk runs to completion (the `b ⊇ a` direction is excluded early but does
+    /// not stop it); the skip dominates, and steps stay linear over the `4x` growth.
     #[test]
-    fn contains_is_linear(scale in MIN_SCALE..256) {
+    fn compare_is_linear(scale in MIN_SCALE..256) {
         let measure = |s: usize| {
             let (big, small) = contain_stress_pair(s);
             steps_of(|| {
-                ops::contains(big.as_bits(), small.as_bits());
+                ops::compare(big.as_bits(), small.as_bits());
             })
         };
         assert_linear_scaling(measure(scale), measure(scale * 4));
