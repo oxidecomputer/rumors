@@ -438,6 +438,51 @@ proptest! {
     }
 }
 
+// ─────────────────────── decoded-component canonicity (regression) ───────────────────────
+//
+// `Clock::encode` lays the id directly before the event, so the event begins at a
+// generally non-byte-aligned bit offset. A `decode` that extracts the event with
+// `slice.to_bitvec()` keeps that head offset (rather than shifting to bit 0), leaving the
+// recovered `Version`'s packed stream non-canonical: `version().encode()` mis-packs it and
+// `Version::decode` then disagrees. Whole-clock round-trips hide this, because
+// `Clock::encode` re-aligns each component via `extend_from_bitslice`; the bug only shows
+// when a component extracted from a decoded clock is encoded on its own.
+
+/// The seed's id is two bits, so its event starts at a non-byte-aligned offset. Decoding
+/// the seed and re-encoding the recovered version must reproduce the canonical encoding
+/// (and survive its own `decode`), not an offset-shifted one.
+#[test]
+fn decoded_seed_version_encodes_canonically() {
+    let seed = Clock::seed();
+    let decoded = Clock::decode(&seed.encode()).unwrap();
+    assert_eq!(decoded.version().encode(), seed.version().encode());
+    assert_eq!(
+        Version::decode(&decoded.version().encode()).unwrap(),
+        seed.version(),
+    );
+}
+
+proptest! {
+    /// For any seed-derived clock, decoding it preserves each component's canonical
+    /// byte encoding, and the extracted party and version each round-trip through their
+    /// own `decode`. Guards the whole class of non-byte-aligned offset extraction.
+    #[test]
+    fn decode_preserves_component_canonicity(ops in world_strategy(), i in 0usize..64) {
+        let cs = run(&ops);
+        let n = cs.len();
+        let original = from_oracle_clock(&cs[i % n]);
+        let decoded = Clock::decode(&original.encode()).expect("re-decode canonical clock");
+
+        prop_assert_eq!(decoded.party().encode(), original.party().encode());
+        prop_assert_eq!(decoded.version().encode(), original.version().encode());
+
+        let v = decoded.version();
+        prop_assert_eq!(Version::decode(&v.encode()).unwrap(), v);
+        let p_bytes = decoded.party().encode();
+        prop_assert_eq!(Party::decode(&p_bytes).unwrap().encode(), p_bytes);
+    }
+}
+
 // ───────────────────────────── worked example (group I) ─────────────────────────────
 
 /// I35 (paper §5.1). The paper's example run, step by step: seed forks to two; one

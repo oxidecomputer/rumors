@@ -118,8 +118,16 @@ impl Clock {
         let after_id = codec::parse_id(&bits, 0)?;
         let after_ev = codec::parse_ev(&bits, after_id)?;
         codec::require_zero_padding(&bits, after_ev)?;
+        // The party begins at bit 0, so its slice is already byte-aligned. The
+        // version begins at `after_id`, a generally non-byte-aligned offset:
+        // `to_bitvec` on such a slice copies the backing region and *preserves*
+        // the head bit-offset rather than shifting to bit 0, which would leave the
+        // stored stream non-canonical and make `Version::encode` mis-pack it. Copy
+        // the bits logically into a fresh, offset-0 stream to restore canonicity.
         let party = Party::from_bits(bits[..after_id].to_bitvec());
-        let version = Version::from_bits(bits[after_id..after_ev].to_bitvec());
+        let mut version_bits = codec::Bits::new();
+        version_bits.extend_from_bitslice(&bits[after_id..after_ev]);
+        let version = Version::from_bits(version_bits);
         Ok(Clock::from_parts(party, version))
     }
 }
