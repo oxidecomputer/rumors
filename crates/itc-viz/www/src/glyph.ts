@@ -111,14 +111,8 @@ function rect(x: number, y: number, w: number, h: number, className: string): SV
 }
 
 /// Build an `<svg>` stamp sized to the shared style. `kind` selects the color
-/// treatment; `historical` desaturates a superseded/consumed node.
-export function renderStamp(
-  id: IdTree | null,
-  event: EventTree,
-  kind: "clock" | "message",
-  style: StampStyle,
-  historical: boolean,
-): SVGSVGElement {
+/// treatment; liveness desaturation is driven by the node group's class in CSS.
+export function renderStamp(id: IdTree | null, event: EventTree, kind: "clock" | "message", style: StampStyle): SVGSVGElement {
   const geo = glyphGeometry(id, event);
   const W = style.width;
   const H = stampHeight(style);
@@ -128,7 +122,7 @@ export function renderStamp(
   svg.setAttribute("width", W.toFixed(2));
   svg.setAttribute("height", H.toFixed(2));
   svg.setAttribute("viewBox", `0 0 ${W.toFixed(2)} ${H.toFixed(2)}`);
-  svg.setAttribute("class", `glyph glyph--${kind}${historical ? " glyph--historical" : ""}`);
+  svg.setAttribute("class", `glyph glyph--${kind}`);
 
   for (const s of geo.slabs) {
     const x = s.x0 * W;

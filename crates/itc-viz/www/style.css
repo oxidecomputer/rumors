@@ -177,6 +177,7 @@ body {
 .scene {
   display: block;
   margin: 0 auto;
+  overflow: visible; /* don't clip a node dragged past the DAG's bounds */
   touch-action: none; /* let the gesture layer own pointer/drag */
 }
 
@@ -220,28 +221,16 @@ body {
   fill: color-mix(in srgb, var(--reject) 14%, transparent);
   stroke: var(--reject);
 }
-.node--dragging {
-  opacity: 0.35;
-}
-
-/* The ghost that follows the cursor during a drag. */
-.drag-ghost {
-  position: fixed;
-  z-index: 50;
-  pointer-events: none;
-  transform: translate(-50%, -50%);
-  opacity: 0.9;
-  filter: drop-shadow(0 4px 6px rgba(27, 23, 20, 0.35));
-}
-.drag-ghost svg {
-  display: block;
-}
-/* Peek pulls a version out: show the ghost as an orange, id-less message. */
-.drag-ghost--peek .glyph__slab {
+/* While peek-dragging, the moved node reads as the version being pulled out:
+   orange skyline, no id bar. */
+.node--peeking .glyph__slab {
   fill: var(--message);
 }
-.drag-ghost--peek .glyph__id {
+.node--peeking .glyph__id {
   display: none;
+}
+.node--peeking .glyph {
+  filter: drop-shadow(0 3px 5px rgba(27, 23, 20, 0.3));
 }
 
 .plate__caption {
@@ -309,7 +298,7 @@ body {
 .glyph--message .glyph__slab {
   fill: var(--message);
 }
-.glyph--historical {
+.node--historical .glyph {
   filter: grayscale(0.85);
   opacity: 0.5;
 }
