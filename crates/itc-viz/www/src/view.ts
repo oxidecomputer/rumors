@@ -21,6 +21,13 @@ import { asNodeIdx, type NodeDescriptor, type NodeIdx } from "./types";
 const DURATION = 280;
 const MOVE_THRESHOLD = 5;
 const DBLCLICK_MS = 220;
+const REVEAL_PER_PX = 0.7; // stagger of the load reveal, by depth
+const REVEAL_MAX = 800;
+const CASCADE_MIN = 3; // only cascade when this many nodes enter at once (a load)
+
+function reducedMotion(): boolean {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
 
 export interface GestureHandlers {
   tick(x: NodeIdx): void;
@@ -61,6 +68,7 @@ export class GraphView {
   private readonly nodesG: Selection<SVGGElement, unknown, null, undefined>;
   private w = 0;
   private h = 0;
+  private topY = 0;
   private rowHeight = 60;
   private style: StampStyle = { width: 64, unit: 9, maxHeight: 1 };
   private pos = new Map<NodeIdx, Point>();
@@ -98,7 +106,12 @@ export class GraphView {
     this.svg.attr("width", svgW).attr("height", svgH).attr("viewBox", `0 0 ${svgW} ${svgH}`);
 
     this.pos = new Map();
-    for (const [idx, p] of state.pos) this.pos.set(idx, { x: p.x + offX, y: p.y + offY });
+    let top = Number.POSITIVE_INFINITY;
+    for (const [idx, p] of state.pos) {
+      this.pos.set(idx, { x: p.x + offX, y: p.y + offY });
+      top = Math.min(top, p.y + offY);
+    }
+    this.topY = Number.isFinite(top) ? top : 0;
 
     const vnodes: VNode[] = state.nodes.map((desc) => {
       const p = this.pos.get(desc.idx) ?? { x: 0, y: 0 };
@@ -113,6 +126,18 @@ export class GraphView {
   /// A vertical cubic Bézier from `from`'s bottom to `to`'s top — straight when the
   /// child is directly below, a smooth S for diagonals. `ox`/`oy` override an endpoint
   /// (used while dragging).
+  /// Transition duration (0 under reduced-motion, so animations snap).
+  private dur(): number {
+    return reducedMotion() ? 0 : DURATION;
+  }
+
+  /// Enter delay for the load reveal: nodes/edges ink in top-to-bottom. Only when a
+  /// batch enters (a load/share-link), not for a single gesture, and never reduced.
+  private revealDelay(entering: boolean, batch: number, y: number): number {
+    if (!entering || batch < CASCADE_MIN || reducedMotion()) return 0;
+    return Math.min(REVEAL_MAX, (y - this.topY) * REVEAL_PER_PX);
+  }
+
   private bezier(from: NodeIdx, to: NodeIdx, override?: { idx: NodeIdx; x: number; y: number }): string {
     const a = override?.idx === from ? override : this.pos.get(from);
     const b = override?.idx === to ? override : this.pos.get(to);
@@ -133,17 +158,20 @@ export class GraphView {
 
   private joinEdges(vedges: VEdge[]): void {
     const sel = this.edgesG.selectAll<SVGPathElement, VEdge>("path.edge").data(vedges, (d) => d.key);
-    sel.exit().transition().duration(DURATION).style("opacity", 0).remove();
+    sel.exit().transition().duration(this.dur()).style("opacity", 0).remove();
+    const entering = new Set<string>();
     const ent = sel
       .enter()
       .append("path")
+      .each((d) => entering.add(d.key))
       .attr("class", (d) => `edge edge--${d.kind}`)
       .attr("d", (d) => this.bezier(d.from, d.to))
       .style("opacity", 0);
     ent
       .merge(sel)
       .transition()
-      .duration(DURATION)
+      .duration(this.dur())
+      .delay((d) => this.revealDelay(entering.has(d.key), entering.size, this.pos.get(d.to)?.y ?? 0))
       .style("opacity", 1)
       .attr("d", (d) => this.bezier(d.from, d.to));
   }
@@ -153,14 +181,16 @@ export class GraphView {
     const transform = (d: VNode): string => `translate(${(d.x - self.w / 2).toFixed(1)}, ${(d.y - self.h / 2).toFixed(1)})`;
 
     const sel = this.nodesG.selectAll<SVGGElement, VNode>("g.node").data(vnodes, (d) => `${d.idx}`);
-    sel.exit().transition().duration(DURATION).style("opacity", 0).remove();
+    sel.exit().transition().duration(this.dur()).style("opacity", 0).remove();
 
+    const entering = new Set<NodeIdx>();
     const ent = sel
       .enter()
       .append<SVGGElement>("g")
       .attr("transform", transform)
       .style("opacity", 0)
       .each(function (d) {
+        entering.add(d.idx);
         this.dataset["idx"] = `${d.idx}`;
         const g = select(this);
         g.append("title").text(d.desc.stamp);
@@ -172,7 +202,12 @@ export class GraphView {
 
     const merged = ent.merge(sel);
     merged.attr("class", (d) => `node ${d.live ? "node--live" : "node--historical"}`);
-    merged.transition().duration(DURATION).attr("transform", transform).style("opacity", 1);
+    merged
+      .transition()
+      .duration(this.dur())
+      .delay((d) => this.revealDelay(entering.has(d.idx), entering.size, d.y))
+      .attr("transform", transform)
+      .style("opacity", 1);
   }
 
   /// Live re-route of edges incident to a dragged node, using a transient position.
@@ -290,13 +325,13 @@ export class GraphView {
     this.nodesG
       .select<SVGGElement>(`g.node[data-idx="${d.idx}"]`)
       .transition()
-      .duration(DURATION)
+      .duration(this.dur())
       .attr("transform", `translate(${(p.x - this.w / 2).toFixed(1)}, ${(p.y - this.h / 2).toFixed(1)})`);
     this.edgesG
       .selectAll<SVGPathElement, VEdge>("path.edge")
       .filter((e) => e.from === d.idx || e.to === d.idx)
       .transition()
-      .duration(DURATION)
+      .duration(this.dur())
       .attr("d", (e) => this.bezier(e.from, e.to));
   }
 
