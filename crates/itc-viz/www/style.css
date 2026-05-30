@@ -170,11 +170,55 @@ body {
 }
 
 .plate {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1.5rem 1.75rem;
-  align-items: end;
-  min-height: 120px;
+  overflow: auto;
+  max-height: 68vh;
+  min-height: 200px;
+}
+.scene {
+  display: block;
+  margin: 0 auto;
+  touch-action: none; /* let the gesture layer own pointer/drag */
+}
+
+/* Edges: all subdued (history), distinguished by line style + arrowhead. */
+.edge {
+  fill: none;
+  stroke: var(--rule);
+  stroke-width: 1.2;
+}
+.edge--message {
+  stroke-dasharray: 3 3;
+  stroke: color-mix(in srgb, var(--message) 55%, var(--rule));
+}
+.edge__arrow {
+  fill: var(--rule);
+  stroke: none;
+}
+
+/* Nodes. */
+.node {
+  cursor: pointer;
+}
+.node__hit {
+  fill: transparent;
+  stroke: none;
+  rx: 3;
+}
+.node__index {
+  font-family: var(--mono);
+  font-size: 9px;
+  fill: var(--ink-soft);
+}
+.node--historical .node__index {
+  opacity: 0.45;
+}
+.node--drop-ok .node__hit {
+  fill: color-mix(in srgb, var(--id) 14%, transparent);
+  stroke: var(--id);
+}
+.node--drop-reject .node__hit {
+  fill: color-mix(in srgb, var(--reject) 14%, transparent);
+  stroke: var(--reject);
 }
 
 .plate__caption {

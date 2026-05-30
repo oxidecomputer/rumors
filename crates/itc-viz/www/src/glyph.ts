@@ -1,40 +1,44 @@
 // The stamp glyph: the paper's interval + skyline notation. The id (Party) is a thin
 // bar along [0,1) — owned leaves filled, unowned hollow, the interval halved per tree
-// node. The event (Version) is a stacked skyline over the same interval: each node adds
-// `base` height across its interval, then its children stack over the left/right halves.
+// node. The event (Version) is a stacked skyline over the same interval.
 //
-// Geometry is computed as pure data (unit-space, testable); a separate renderer maps it
-// to SVG. Colors are applied via CSS classes so the Monograph palette stays in the
-// stylesheet.
+// Geometry is pure (unit-space); rendering maps it to SVG at a *shared* style so all
+// stamps use one interval width and one baseline, making subdivisions and heights
+// comparable across the whole figure. Colors come from CSS classes.
 
 import type { EventTree, IdTree } from "./types";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
-/// Glyph dimensions, in the SVG's viewBox coordinate space.
-export const GLYPH = {
-  width: 128,
-  height: 88,
+/// Fixed vertical metrics (px). Interval width and event unit are shared, computed.
+export const METRICS = {
   idBarHeight: 7,
   gap: 5,
-  unitPx: 9, // pixels per event level; shared across glyphs so heights compare
+  unit: 9, // px per event level
+  minLeafPx: 7, // smallest legible id leaf segment
+  minWidth: 64,
+  maxWidth: 220,
+  minHeightUnits: 1, // reserve at least this much skyline room
 } as const;
 
-/// A horizontal id segment over `[x0, x1)` (fractions of the unit interval).
+/// The shared paint style for a batch of stamps.
+export interface StampStyle {
+  readonly width: number; // px for the [0,1) interval
+  readonly unit: number; // px per event level
+  readonly maxHeight: number; // global tallest skyline, for a shared baseline
+}
+
 export interface IdSegment {
   readonly x0: number;
   readonly x1: number;
   readonly owned: boolean;
 }
-
-/// A skyline slab: a filled rectangle from event-height `y0` to `y1` over `[x0, x1)`.
 export interface EventSlab {
   readonly x0: number;
   readonly x1: number;
   readonly y0: number;
   readonly y1: number;
 }
-
 export interface GlyphGeometry {
   readonly idSegments: IdSegment[];
   readonly slabs: EventSlab[];
@@ -51,15 +55,7 @@ function collectId(t: IdTree, x0: number, x1: number, out: IdSegment[]): void {
   collectId(t.r, mid, x1, out);
 }
 
-/// Walk the event tree, emitting a slab per node with a positive base and tracking the
-/// tallest point of the skyline. Returns the max height reached.
-function collectEvent(
-  t: EventTree,
-  x0: number,
-  x1: number,
-  floor: number,
-  out: EventSlab[],
-): number {
+function collectEvent(t: EventTree, x0: number, x1: number, floor: number, out: EventSlab[]): number {
   const top = floor + t.base;
   if (t.base > 0) out.push({ x0, x1, y0: floor, y1: top });
   let max = top;
@@ -80,13 +76,31 @@ export function glyphGeometry(id: IdTree | null, event: EventTree): GlyphGeometr
   return { idSegments, slabs, maxHeight };
 }
 
-function rect(
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  className: string,
-): SVGRectElement {
+/// Depth of the id tree (0 for a leaf). The deepest tree fixes the shared width.
+export function idDepth(t: IdTree): number {
+  if ("leaf" in t) return 0;
+  return 1 + Math.max(idDepth(t.l), idDepth(t.r));
+}
+
+/// Derive a shared style from all stamps' id/event trees: width wide enough that the
+/// finest leaf stays legible (clamped), and the global tallest skyline for a common
+/// baseline.
+export function computeStampStyle(ids: readonly IdTree[], events: readonly EventTree[]): StampStyle {
+  let maxDepth = 0;
+  for (const id of ids) maxDepth = Math.max(maxDepth, idDepth(id));
+  let maxHeight: number = METRICS.minHeightUnits;
+  for (const ev of events) maxHeight = Math.max(maxHeight, glyphGeometry(null, ev).maxHeight);
+  const wanted = METRICS.minLeafPx * 2 ** maxDepth;
+  const width = Math.min(METRICS.maxWidth, Math.max(METRICS.minWidth, wanted));
+  return { width, unit: METRICS.unit, maxHeight };
+}
+
+/// Total pixel height of a stamp at a given style (uniform across the batch).
+export function stampHeight(style: StampStyle): number {
+  return METRICS.idBarHeight + METRICS.gap + style.maxHeight * style.unit;
+}
+
+function rect(x: number, y: number, w: number, h: number, className: string): SVGRectElement {
   const r = document.createElementNS(SVG_NS, "rect");
   r.setAttribute("x", x.toFixed(2));
   r.setAttribute("y", y.toFixed(2));
@@ -96,40 +110,40 @@ function rect(
   return r;
 }
 
-/// Build an `<svg>` stamp for a glyph. `kind` selects the color treatment ("clock",
-/// "message"); pass `historical` to desaturate a superseded node.
+/// Build an `<svg>` stamp sized to the shared style. `kind` selects the color
+/// treatment; `historical` desaturates a superseded/consumed node.
 export function renderStamp(
   id: IdTree | null,
   event: EventTree,
   kind: "clock" | "message",
-  historical = false,
+  style: StampStyle,
+  historical: boolean,
 ): SVGSVGElement {
   const geo = glyphGeometry(id, event);
+  const W = style.width;
+  const H = stampHeight(style);
+  const baseline = H - METRICS.idBarHeight - METRICS.gap;
+
   const svg = document.createElementNS(SVG_NS, "svg");
-  svg.setAttribute("viewBox", `0 0 ${GLYPH.width} ${GLYPH.height}`);
+  svg.setAttribute("width", W.toFixed(2));
+  svg.setAttribute("height", H.toFixed(2));
+  svg.setAttribute("viewBox", `0 0 ${W.toFixed(2)} ${H.toFixed(2)}`);
   svg.setAttribute("class", `glyph glyph--${kind}${historical ? " glyph--historical" : ""}`);
-  svg.setAttribute("preserveAspectRatio", "xMidYMax meet");
 
-  const baseline = GLYPH.height - GLYPH.idBarHeight - GLYPH.gap;
-
-  // Event skyline, drawn above the baseline (growing upward).
   for (const s of geo.slabs) {
-    const x = s.x0 * GLYPH.width;
-    const w = (s.x1 - s.x0) * GLYPH.width;
-    const yTop = baseline - s.y1 * GLYPH.unitPx;
-    const h = (s.y1 - s.y0) * GLYPH.unitPx;
+    const x = s.x0 * W;
+    const w = (s.x1 - s.x0) * W;
+    const yTop = baseline - s.y1 * style.unit;
+    const h = (s.y1 - s.y0) * style.unit;
     svg.appendChild(rect(x, yTop, w, h, "glyph__slab"));
   }
 
-  // Id bar along the bottom (omitted for message glyphs).
   if (id !== null) {
-    const y = GLYPH.height - GLYPH.idBarHeight;
+    const y = H - METRICS.idBarHeight;
     for (const seg of geo.idSegments) {
-      const x = seg.x0 * GLYPH.width;
-      const w = (seg.x1 - seg.x0) * GLYPH.width;
-      svg.appendChild(
-        rect(x, y, w, GLYPH.idBarHeight, seg.owned ? "glyph__id" : "glyph__id glyph__id--empty"),
-      );
+      const x = seg.x0 * W;
+      const w = (seg.x1 - seg.x0) * W;
+      svg.appendChild(rect(x, y, w, METRICS.idBarHeight, seg.owned ? "glyph__id" : "glyph__id glyph__id--empty"));
     }
   }
 
