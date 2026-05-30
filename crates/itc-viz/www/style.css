@@ -169,15 +169,19 @@ body {
 }
 
 .plate {
-  overflow: auto;
-  max-height: 68vh;
-  min-height: 200px;
+  overflow: hidden; /* zoom/pan navigates; no scrollbars */
+  height: 68vh;
+  min-height: 340px;
 }
 .scene {
   display: block;
-  margin: 0 auto;
-  overflow: visible; /* don't clip a node dragged past the DAG's bounds */
-  touch-action: none; /* let the gesture layer own pointer/drag */
+  width: 100%;
+  height: 100%;
+  cursor: grab; /* drag the background to pan */
+  touch-action: none; /* the gesture layer owns pointer/drag/zoom */
+}
+.scene:active {
+  cursor: grabbing;
 }
 
 /* Edges: faint supporting ink so the stamps (the data) dominate; distinguished by
@@ -203,7 +207,8 @@ body {
 }
 .node__index {
   font-family: var(--mono);
-  font-size: 9px;
+  /* Counter-scale against zoom so labels stay legible at any zoom level. */
+  font-size: clamp(6px, calc(9px / var(--zoom, 1)), 15px);
   fill: var(--ink-soft);
 }
 .node--historical .node__index {

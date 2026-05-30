@@ -88,7 +88,6 @@ async function main(): Promise<void> {
     } else {
       const layout = layeredLayout(nodes.length, edges, live, cellW, cellH);
       view.update({ nodes, edges, live, style, pos: layout.pos, rowHeight: cellH, width: layout.width, height: layout.height });
-      plateEl.scrollTo({ top: plateEl.scrollHeight, behavior: "smooth" });
     }
   }
 
@@ -106,7 +105,10 @@ async function main(): Promise<void> {
       copyBtn.textContent = "Copy link";
     }, 1200);
   });
-  document.getElementById("reset")?.addEventListener("click", () => commit([]));
+  document.getElementById("reset")?.addEventListener("click", () => {
+    view.resetView();
+    commit([]);
+  });
 
   const viewToggle = document.getElementById("view-toggle");
   const syncToggle = (): void => {

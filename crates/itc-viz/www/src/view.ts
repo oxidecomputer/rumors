@@ -11,6 +11,7 @@
 import { drag, type D3DragEvent } from "d3-drag";
 import { select, type Selection } from "d3-selection";
 import "d3-transition";
+import { zoom as d3zoom, zoomIdentity, type D3ZoomEvent, type ZoomBehavior } from "d3-zoom";
 
 import type { Edge } from "./dag";
 import { renderStamp, stampHeight, type StampStyle } from "./glyph";
@@ -64,8 +65,11 @@ export interface ViewState {
 
 export class GraphView {
   private readonly svg: Selection<SVGSVGElement, unknown, null, undefined>;
+  private readonly viewport: Selection<SVGGElement, unknown, null, undefined>;
   private readonly edgesG: Selection<SVGGElement, unknown, null, undefined>;
   private readonly nodesG: Selection<SVGGElement, unknown, null, undefined>;
+  private readonly zoom: ZoomBehavior<SVGSVGElement, unknown>;
+  private userZoomed = false;
   private w = 0;
   private h = 0;
   private topY = 0;
@@ -81,11 +85,34 @@ export class GraphView {
     private readonly isDisjoint: (a: NodeIdx, b: NodeIdx) => boolean,
   ) {
     this.svg = select(container).append<SVGSVGElement>("svg").attr("class", "scene");
-    // No arrowheads: the top-down layout already encodes time's direction, so they
-    // would be redundant ink.
-    this.edgesG = this.svg.append<SVGGElement>("g").attr("class", "edges");
-    this.nodesG = this.svg.append<SVGGElement>("g").attr("class", "nodes");
+    this.viewport = this.svg.append<SVGGElement>("g").attr("class", "viewport");
+    // No arrowheads: the top-down layout already encodes time's direction.
+    this.edgesG = this.viewport.append<SVGGElement>("g").attr("class", "edges");
+    this.nodesG = this.viewport.append<SVGGElement>("g").attr("class", "nodes");
     this.svg.on("contextmenu", (e: Event) => e.preventDefault());
+
+    // Scroll / pinch to zoom, drag the background to pan. The transform lives on the
+    // viewport group; node drags read coordinates in this (content) space, so they are
+    // zoom-invariant. A node target is left to its own drag handler.
+    this.zoom = d3zoom<SVGSVGElement, unknown>()
+      .scaleExtent([0.15, 2.5])
+      .filter((event: Event) => {
+        const onNode = (event.target as Element | null)?.closest?.(".node") != null;
+        if (event.type === "wheel") return true;
+        const button = (event as MouseEvent).button;
+        return !onNode && (button === undefined || button === 0);
+      })
+      .on("zoom", (event: D3ZoomEvent<SVGSVGElement, unknown>) => {
+        this.viewport.attr("transform", event.transform.toString());
+        this.svg.style("--zoom", `${event.transform.k}`);
+        if (event.sourceEvent != null) this.userZoomed = true; // a manual zoom pins the view
+      });
+    this.svg.call(this.zoom);
+  }
+
+  /// Re-enable auto-fit (the next update reframes the whole figure).
+  resetView(): void {
+    this.userZoomed = false;
   }
 
   update(state: ViewState): void {
@@ -94,23 +121,14 @@ export class GraphView {
     this.rowHeight = state.rowHeight;
     this.style = state.style;
 
-    // Size the canvas to at least fill the plate, with padding, so there is room to
-    // fly a version ghost and so dragged nodes never reach a clipping edge.
-    const pad = 32;
-    const cw = this.container.clientWidth || state.width;
-    const ch = this.container.clientHeight || state.height;
-    const svgW = Math.max(state.width + pad * 2, cw);
-    const svgH = Math.max(state.height + pad * 2, ch);
-    const offX = (svgW - state.width) / 2;
-    const offY = pad;
-    this.svg.attr("width", svgW).attr("height", svgH).attr("viewBox", `0 0 ${svgW} ${svgH}`);
+    // The svg is a fixed viewport filling the plate; zoom/pan navigates the content.
+    const vw = this.container.clientWidth || state.width;
+    const vh = this.container.clientHeight || state.height;
+    this.svg.attr("width", vw).attr("height", vh).attr("viewBox", `0 0 ${vw} ${vh}`);
 
-    this.pos = new Map();
+    this.pos = new Map(state.pos);
     let top = Number.POSITIVE_INFINITY;
-    for (const [idx, p] of state.pos) {
-      this.pos.set(idx, { x: p.x + offX, y: p.y + offY });
-      top = Math.min(top, p.y + offY);
-    }
+    for (const p of state.pos.values()) top = Math.min(top, p.y);
     this.topY = Number.isFinite(top) ? top : 0;
 
     const vnodes: VNode[] = state.nodes.map((desc) => {
@@ -121,6 +139,17 @@ export class GraphView {
 
     this.joinEdges(vedges);
     this.joinNodes(vnodes);
+
+    if (!this.userZoomed) this.fitContent(state.width, state.height, vw, vh);
+  }
+
+  /// Frame the whole figure within the viewport (until the user manually zooms).
+  private fitContent(contentW: number, contentH: number, vw: number, vh: number): void {
+    const pad = 32;
+    const s = Math.max(0.15, Math.min(2.5, (vw - 2 * pad) / Math.max(contentW, 1), (vh - 2 * pad) / Math.max(contentH, 1), 1.1));
+    const tx = (vw - contentW * s) / 2;
+    const ty = Math.max(pad, (vh - contentH * s) / 2);
+    this.svg.call(this.zoom.transform, zoomIdentity.translate(tx, ty).scale(s));
   }
 
   /// A vertical cubic Bézier from `from`'s bottom to `to`'s top — straight when the
@@ -257,7 +286,7 @@ export class GraphView {
     let startY = 0;
 
     const behavior = drag<SVGGElement, VNode>()
-      .container(() => self.svg.node() as SVGSVGElement)
+      .container(() => self.viewport.node() as unknown as SVGSVGElement)
       .filter((event: PointerEvent) => event.button === 0 || event.button === 2)
       .on("start", (event: D3DragEvent<SVGGElement, VNode, VNode>) => {
         const src = event.sourceEvent as PointerEvent;
