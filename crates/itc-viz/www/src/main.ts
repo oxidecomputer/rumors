@@ -8,8 +8,18 @@ import { Engine } from "./engine";
 import { computeStampStyle, stampHeight } from "./glyph";
 import { layeredLayout } from "./layout";
 import { parseEvent, parseId } from "./notation";
+import { decodeLog, encodeLog } from "./oplog";
 import type { IdTree, NodeIdx, Op, OpLog } from "./types";
 import { GraphView, type GestureHandlers } from "./view";
+
+/// The current op-log from the address fragment (empty/invalid → the bare seed).
+function logFromHash(): OpLog {
+  try {
+    return decodeLog(window.location.hash.replace(/^#/, ""));
+  } catch {
+    return [];
+  }
+}
 
 const GAP_X = 48; // horizontal space between stamp columns (room for edges to bow)
 const EXTRA_V = 46; // vertical cell padding (room for the index chip + curved edges)
@@ -20,11 +30,18 @@ async function main(): Promise<void> {
   plate.textContent = "";
 
   const engine = await Engine.create();
-  let log: OpLog = [];
+  let log: OpLog = logFromHash();
+
+  // Commit a new log: push a history entry (so back = undo, forward = redo, and the
+  // URL is always a shareable snapshot), then re-render.
+  const commit = (next: OpLog): void => {
+    log = next;
+    window.history.pushState(null, "", `#${encodeLog(log)}`);
+    render();
+  };
 
   const apply = (anchor: NodeIdx, makeOp: (remap: (i: NodeIdx) => NodeIdx) => Op): void => {
-    log = rewindAndApply(log, anchor, makeOp);
-    render();
+    commit(rewindAndApply(log, anchor, makeOp));
   };
 
   const handlers: GestureHandlers = {
@@ -56,6 +73,22 @@ async function main(): Promise<void> {
 
     plate?.scrollTo({ top: plate.scrollHeight, behavior: "smooth" });
   }
+
+  // Back/forward walk the op-log history — undo and redo.
+  window.addEventListener("popstate", () => {
+    log = logFromHash();
+    render();
+  });
+
+  const copyBtn = document.getElementById("copy-link");
+  copyBtn?.addEventListener("click", () => {
+    void navigator.clipboard?.writeText(window.location.href);
+    copyBtn.textContent = "Copied";
+    window.setTimeout(() => {
+      copyBtn.textContent = "Copy link";
+    }, 1200);
+  });
+  document.getElementById("reset")?.addEventListener("click", () => commit([]));
 
   render();
 }

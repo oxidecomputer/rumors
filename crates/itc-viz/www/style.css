@@ -363,3 +363,27 @@ body {
   color: var(--ink);
   font-weight: 500;
 }
+.controls {
+  display: flex;
+  gap: 0.5rem;
+}
+.controls button {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--ink);
+  padding: 0.28rem 0.6rem;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.controls button:hover {
+  background: var(--ink);
+  color: var(--paper);
+}
+.hint {
+  font-size: 0.74rem;
+  color: var(--ink-soft);
+  margin: 0.6rem 0 0;
+  line-height: 1.4;
+}
