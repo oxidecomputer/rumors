@@ -7,7 +7,7 @@
 
 import { forceCenter, forceCollide, forceManyBody, forceSimulation, forceX, forceY } from "d3-force";
 
-import type { Edge } from "./dag";
+import type { Edge } from "./types";
 import { stampHeight, type StampStyle } from "./glyph";
 import type { NodeIdx } from "./types";
 
@@ -160,16 +160,16 @@ export function tableauLayout(
     return { idx, x: cx + Math.cos(i * 2.4) * 30, y: cy + Math.sin(i * 2.4) * 30 };
   });
 
+  // Warm: pinned survivors don't move; a gentle pull toward the centroid keeps each
+  // new clock near the cluster (collision finds it a gap) instead of being flung out by
+  // repulsion. Cold: a stronger, centered settle of the whole set.
   const sim = forceSimulation<FNode>(nodes)
-    .force("charge", forceManyBody<FNode>().strength(-radius * 7))
-    .force("collide", forceCollide<FNode>(radius).iterations(2))
+    .force("collide", forceCollide<FNode>(radius).iterations(3))
+    .force("charge", forceManyBody<FNode>().strength(-radius * (warm ? 2 : 7)))
+    .force("x", forceX<FNode>(warm ? cx : width / 2).strength(warm ? 0.13 : 0.06))
+    .force("y", forceY<FNode>(warm ? cy : height / 2).strength(warm ? 0.13 : 0.06))
     .stop();
-  if (!warm) {
-    sim
-      .force("center", forceCenter<FNode>(width / 2, height / 2))
-      .force("x", forceX<FNode>(width / 2).strength(0.06))
-      .force("y", forceY<FNode>(height / 2).strength(0.06));
-  }
+  if (!warm) sim.force("center", forceCenter<FNode>(width / 2, height / 2));
 
   const ticks = warm ? 120 : 320;
   for (let i = 0; i < ticks; i++) sim.tick();

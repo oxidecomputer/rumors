@@ -13,7 +13,7 @@ import { select, type Selection } from "d3-selection";
 import "d3-transition";
 import { zoom as d3zoom, zoomIdentity, type D3ZoomEvent, type ZoomBehavior } from "d3-zoom";
 
-import type { Edge } from "./dag";
+import type { Edge } from "./types";
 import { renderStamp, stampHeight, type StampStyle } from "./glyph";
 import type { Point } from "./layout";
 import { parseEvent, parseId } from "./notation";

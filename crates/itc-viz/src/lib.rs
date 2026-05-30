@@ -1,44 +1,29 @@
-//! WASM replay engine for the interactive Interval Tree Clocks visualizer.
+//! WASM engine for the interactive Interval Tree Clocks visualizer.
 //!
-//! The browser holds the authoritative *operation log*; this crate is a pure,
-//! deterministic replay engine that turns a log into materialized clock values.
-//! It owns no graph, layout, or undo logic — those are derived from the log on
-//! the TypeScript side.
+//! The engine owns the authoritative **operation log** and the immutable causal-history
+//! DAG it induces. Gestures call [`Engine::apply`] (or the wasm `tick`/`fork`/`join`/
+//! `send` methods), which rewinds the futures the op supersedes ([`oplog::rewind_and_apply`])
+//! and appends the op; the engine then re-materializes clock values and reports the
+//! derived state (node descriptors, causal edges, the live set) to the front-end, which
+//! is purely presentational. The log also round-trips to a URL fragment, so any figure
+//! is a shareable link.
 //!
-//! Immutability of the causal-history DAG is achieved through the `itc` codec:
-//! every node is stored as its canonical [`itc::Clock::encode`] bytes. Applying an
-//! operation decodes a *fresh* value from a source node, mutates it, and re-encodes
-//! the result(s) into new nodes; source bytes are never touched. Because
-//! `encode`/`decode` round-trips canonically and `fork`/`join` are deterministic,
-//! replaying the same log always reconstructs byte-identical nodes.
-//!
-//! Every node is a clock. Sending a version from one clock to another is a single
-//! [`Op::Send`]: it peeks the sender's history and merges it into the receiver,
-//! producing one new clock — there is no persistent "message" node, only a message
-//! edge (derived on the TypeScript side).
+//! Immutability is achieved through the `itc` codec: every node is stored as its
+//! canonical [`itc::Clock::encode`] bytes. Applying an op decodes a fresh value from a
+//! source node, mutates it, and re-encodes the result; source bytes are never touched.
+//! Because `encode`/`decode` round-trips canonically and `fork`/`join` are
+//! deterministic, replaying the same log always reconstructs byte-identical nodes.
 
 use itc::{Clock, Version};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
+mod oplog;
 #[cfg(test)]
 mod tests;
 
-/// A single primitive applied during replay. Operands reference nodes by their
-/// 0-based creation index; index `0` is always the implicit seed clock.
-#[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Eq)]
-#[serde(tag = "kind", rename_all = "lowercase")]
-pub enum Op {
-    /// Advance node `x`'s own component by one event.
-    Tick { x: usize },
-    /// Split node `x`'s id in two; emits the kept half then the forked child.
-    Fork { x: usize },
-    /// Merge disjoint clock `b` into clock `a`; emits the union (errors on overlap).
-    Join { a: usize, b: usize },
-    /// Merge clock `from`'s history into clock `to`, emitting the updated `to`. Does
-    /// not advance either component and does not change ids; `from` is unchanged.
-    Send { from: usize, to: usize },
-}
+use oplog::{analyze, decode, descendant_cone, encode, rewind_and_apply};
+pub use oplog::{Edge, EdgeKind, Op};
 
 /// A materialized node returned to the front-end: the clock's paper-notation strings.
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -49,25 +34,22 @@ pub struct Descriptor {
     pub stamp: String,
 }
 
-/// A node held in the arena: canonical bytes plus its precomputed notation.
-#[derive(Clone, Debug)]
-struct Node {
-    bytes: Vec<u8>,
-    party: String,
-    event: String,
-    stamp: String,
+/// The full derived state handed to the front-end after each change.
+#[derive(Serialize)]
+pub struct State {
+    pub nodes: Vec<Descriptor>,
+    pub edges: Vec<Edge>,
+    pub live: Vec<usize>,
 }
 
-/// Why a replay failed. All variants are recoverable on the JS side (a rejected op
-/// simply is not committed to the log).
+/// Why an operation failed. All variants are recoverable on the JS side (a rejected op
+/// is not committed).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EngineError {
-    /// An operand referenced a node index that does not exist.
     IndexOutOfRange(usize),
-    /// A `join` was attempted on clocks whose ids overlap.
     JoinOverlap { a: usize, b: usize },
-    /// A stored node failed to decode (should be impossible for engine-produced bytes).
     Decode(String),
+    BadFragment(String),
 }
 
 impl core::fmt::Display for EngineError {
@@ -78,37 +60,89 @@ impl core::fmt::Display for EngineError {
                 write!(f, "cannot join nodes {a} and {b}: their ids overlap")
             }
             EngineError::Decode(e) => write!(f, "failed to decode stored node: {e}"),
+            EngineError::BadFragment(e) => write!(f, "bad fragment: {e}"),
         }
     }
 }
 
 impl std::error::Error for EngineError {}
 
-/// The host-testable replay core. Holds the arena materialized by the last
-/// successful [`Engine::replay`]; carries no wasm types so it can be unit-tested
-/// on the native target.
-#[derive(Default)]
+/// A node in the arena: canonical bytes plus its precomputed notation.
+#[derive(Clone, Debug)]
+struct Node {
+    bytes: Vec<u8>,
+    party: String,
+    event: String,
+    stamp: String,
+}
+
+/// The host-testable engine: owns the op-log and the arena it replays to. Carries no
+/// wasm types, so it can be unit-tested (and property-tested) on the native target.
 pub struct Engine {
+    log: Vec<Op>,
     arena: Vec<Node>,
 }
 
+impl Default for Engine {
+    fn default() -> Self {
+        Engine::new()
+    }
+}
+
 impl Engine {
-    /// A fresh engine with an empty arena (no seed until the first replay).
+    /// A fresh engine: the empty log, materialized to the seed clock.
     pub fn new() -> Self {
-        Engine { arena: Vec::new() }
+        Engine {
+            log: Vec::new(),
+            arena: build(&[]).expect("the seed always builds"),
+        }
     }
 
-    /// Replay an operation log from scratch: seed node `0`, then apply each op,
-    /// committing the rebuilt arena only on success. On error the previous arena
-    /// is left intact.
-    pub fn replay(&mut self, ops: &[Op]) -> Result<(), EngineError> {
-        let mut arena: Vec<Node> = Vec::with_capacity(ops.len() + 1);
-        push_clock(&mut arena, Clock::seed());
-        for op in ops {
-            apply(&mut arena, *op)?;
-        }
+    /// Apply an op referencing current node indices: rewind the futures it supersedes,
+    /// append it, and re-materialize. On error the prior state is left intact.
+    pub fn apply(&mut self, op: Op) -> Result<(), EngineError> {
+        let log = rewind_and_apply(&self.log, op);
+        let arena = build(&log)?;
+        self.log = log;
         self.arena = arena;
         Ok(())
+    }
+
+    /// Replace the log wholesale (e.g. from a URL fragment) and re-materialize.
+    pub fn load(&mut self, log: Vec<Op>) -> Result<(), EngineError> {
+        let arena = build(&log)?;
+        self.log = log;
+        self.arena = arena;
+        Ok(())
+    }
+
+    /// Replace the log from a URL fragment.
+    pub fn load_fragment(&mut self, fragment: &str) -> Result<(), EngineError> {
+        let log = decode(fragment).map_err(EngineError::BadFragment)?;
+        self.load(log)
+    }
+
+    /// The current log as a URL fragment.
+    pub fn fragment(&self) -> String {
+        encode(&self.log)
+    }
+
+    /// The current op-log.
+    pub fn op_log(&self) -> &[Op] {
+        &self.log
+    }
+
+    /// Total node count (arena length).
+    pub fn node_count(&self) -> usize {
+        self.arena.len()
+    }
+
+    /// Live node indices: clocks not yet superseded by a successor.
+    pub fn live_indices(&self) -> Vec<usize> {
+        let superseded = analyze(&self.log).superseded;
+        (0..self.arena.len())
+            .filter(|i| !superseded.contains(i))
+            .collect()
     }
 
     /// Descriptors for every node, in creation order.
@@ -125,23 +159,48 @@ impl Engine {
             .collect()
     }
 
-    /// Whether the two nodes have disjoint ids (a join would succeed). `false` if
-    /// either index is out of range.
+    /// The full derived state: descriptors, causal edges, and the live set.
+    pub fn state(&self) -> State {
+        let a = analyze(&self.log);
+        let live = (0..self.arena.len())
+            .filter(|i| !a.superseded.contains(i))
+            .collect();
+        State {
+            nodes: self.descriptors(),
+            edges: a.edges,
+            live,
+        }
+    }
+
+    /// Whether nodes `a` and `b` have disjoint ids (join validity).
     pub fn is_disjoint(&self, a: usize, b: usize) -> bool {
         match (clock_at(&self.arena, a), clock_at(&self.arena, b)) {
             (Ok(ca), Ok(cb)) => ca.party().is_disjoint(cb.party()),
             _ => false,
         }
     }
+
+    /// The descendant cone of `anchors` in the current log (test/diagnostic helper).
+    pub fn descendant_cone(&self, anchors: &[usize]) -> std::collections::HashSet<usize> {
+        descendant_cone(&analyze(&self.log).edges, anchors)
+    }
 }
 
-/// Decode the clock stored at `i`, or report why it is unavailable.
+/// Replay a log into a fresh arena (seed at index 0, then each op's outputs).
+fn build(log: &[Op]) -> Result<Vec<Node>, EngineError> {
+    let mut arena = Vec::with_capacity(log.len() + 1);
+    push_clock(&mut arena, Clock::seed());
+    for op in log {
+        apply_to_arena(&mut arena, *op)?;
+    }
+    Ok(arena)
+}
+
 fn clock_at(arena: &[Node], i: usize) -> Result<Clock, EngineError> {
     let node = arena.get(i).ok_or(EngineError::IndexOutOfRange(i))?;
     Clock::decode(&node.bytes).map_err(|e| EngineError::Decode(e.to_string()))
 }
 
-/// Push a clock node, precomputing its paper-notation strings.
 fn push_clock(arena: &mut Vec<Node>, clock: Clock) {
     arena.push(Node {
         party: clock.party().to_string(),
@@ -151,8 +210,7 @@ fn push_clock(arena: &mut Vec<Node>, clock: Clock) {
     });
 }
 
-/// Apply one op, appending the node(s) it produces.
-fn apply(arena: &mut Vec<Node>, op: Op) -> Result<(), EngineError> {
+fn apply_to_arena(arena: &mut Vec<Node>, op: Op) -> Result<(), EngineError> {
     match op {
         Op::Tick { x } => {
             let mut clock = clock_at(arena, x)?;
@@ -183,8 +241,8 @@ fn apply(arena: &mut Vec<Node>, op: Op) -> Result<(), EngineError> {
     Ok(())
 }
 
-/// The `#[wasm_bindgen]` surface, exported to JavaScript as `Engine`. A thin
-/// wrapper that crosses the boundary with JSON strings and `JsValue` errors.
+/// The `#[wasm_bindgen]` surface, exported to JavaScript as `Engine`. Gesture methods
+/// return the new [`State`] as JSON; the front-end derives layout and renders from it.
 #[wasm_bindgen(js_name = Engine)]
 pub struct WasmEngine {
     inner: Engine,
@@ -192,8 +250,6 @@ pub struct WasmEngine {
 
 #[wasm_bindgen(js_class = Engine)]
 impl WasmEngine {
-    /// Construct an engine and install a panic hook that surfaces Rust panics in
-    /// the browser console (no-op when the feature is disabled).
     #[wasm_bindgen(constructor)]
     pub fn new() -> WasmEngine {
         #[cfg(feature = "console_error_panic_hook")]
@@ -203,18 +259,47 @@ impl WasmEngine {
         }
     }
 
-    /// Replay an op-log given as a JSON array of [`Op`] and return the resulting
-    /// node descriptors as a JSON array. Rejected ops (e.g. an overlapping join)
-    /// produce an `Err` and leave the prior state intact.
-    pub fn replay(&mut self, ops_json: &str) -> Result<String, JsValue> {
-        let ops: Vec<Op> = serde_json::from_str(ops_json).map_err(to_js)?;
-        self.inner.replay(&ops).map_err(to_js)?;
-        serde_json::to_string(&self.inner.descriptors()).map_err(to_js)
+    pub fn tick(&mut self, x: usize) -> Result<String, JsValue> {
+        self.commit(Op::Tick { x })
+    }
+
+    pub fn fork(&mut self, x: usize) -> Result<String, JsValue> {
+        self.commit(Op::Fork { x })
+    }
+
+    pub fn join(&mut self, a: usize, b: usize) -> Result<String, JsValue> {
+        self.commit(Op::Join { a, b })
+    }
+
+    pub fn send(&mut self, from: usize, to: usize) -> Result<String, JsValue> {
+        self.commit(Op::Send { from, to })
+    }
+
+    /// Load state from a URL fragment, returning the new state JSON.
+    pub fn load(&mut self, fragment: &str) -> Result<String, JsValue> {
+        self.inner.load_fragment(fragment).map_err(to_js)?;
+        self.state_json()
+    }
+
+    /// The current op-log as a URL fragment.
+    pub fn fragment(&self) -> String {
+        self.inner.fragment()
     }
 
     /// Whether nodes `a` and `b` have disjoint ids (join validity).
     pub fn is_disjoint(&self, a: usize, b: usize) -> bool {
         self.inner.is_disjoint(a, b)
+    }
+}
+
+impl WasmEngine {
+    fn commit(&mut self, op: Op) -> Result<String, JsValue> {
+        self.inner.apply(op).map_err(to_js)?;
+        self.state_json()
+    }
+
+    fn state_json(&self) -> Result<String, JsValue> {
+        serde_json::to_string(&self.inner.state()).map_err(to_js)
     }
 }
 
@@ -224,7 +309,6 @@ impl Default for WasmEngine {
     }
 }
 
-/// Render any `Display` error as a `JsValue` for the wasm boundary.
 fn to_js<E: core::fmt::Display>(e: E) -> JsValue {
     JsValue::from_str(&e.to_string())
 }
