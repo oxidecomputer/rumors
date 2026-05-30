@@ -2,13 +2,14 @@
 // rewindAndApply, which is a plain append for live tips and a rewind-then-append for
 // past nodes), then we replay → derive → layout → render. Starts at the seed.
 
+import { animatePositions } from "./animate";
 import { deriveEdges, liveNodes, rewindAndApply } from "./dag";
 import { Engine } from "./engine";
 import { computeStampStyle, stampHeight } from "./glyph";
 import { attachGestures, type GestureHandlers } from "./input";
-import { layeredLayout } from "./layout";
+import { layeredLayout, type Point } from "./layout";
 import { parseEvent, parseId } from "./notation";
-import { renderDag } from "./render";
+import { applyPositions, renderDag } from "./render";
 import { asNodeIdx, type IdTree, type NodeDescriptor, type NodeIdx, type Op, type OpLog } from "./types";
 
 const GAP_X = 30; // horizontal space between stamp columns
@@ -24,6 +25,7 @@ async function main(): Promise<void> {
   let nodes: readonly NodeDescriptor[] = [];
   let live: ReadonlySet<NodeIdx> = new Set();
   let detach: (() => void) | null = null;
+  let prevPos: Map<NodeIdx, Point> = new Map();
 
   const apply = (anchor: NodeIdx, makeOp: (remap: (i: NodeIdx) => NodeIdx) => Op): void => {
     log = rewindAndApply(log, anchor, makeOp);
@@ -63,20 +65,32 @@ async function main(): Promise<void> {
     const cellW = style.width + GAP_X;
     const cellH = stampHeight(style) + EXTRA_V;
     const layout = layeredLayout(nodes.length, edges, cellW, cellH);
+    const target = layout.pos;
+
+    // New nodes emerge from a parent's previous spot (fallback: their own target).
+    const parentOf = new Map<NodeIdx, NodeIdx>();
+    for (const e of edges) if (!parentOf.has(e.to)) parentOf.set(e.to, e.from);
+    const newNodes = new Set<NodeIdx>();
+    const start = new Map<NodeIdx, Point>();
+    for (const [idx, tp] of target) {
+      const prev = prevPos.get(idx);
+      if (prev !== undefined) {
+        start.set(idx, prev);
+      } else {
+        newNodes.add(idx);
+        const par = parentOf.get(idx);
+        start.set(idx, (par !== undefined ? prevPos.get(par) : undefined) ?? tp);
+      }
+    }
 
     detach?.();
-    const scene = renderDag({
-      nodes,
-      edges,
-      live,
-      pos: layout.pos,
-      style,
-      width: layout.width,
-      height: layout.height,
-    });
+    const scene = renderDag({ nodes, edges, live, style, width: layout.width, height: layout.height });
     plate?.replaceChildren(scene.svg);
+    applyPositions(scene, start);
+    animatePositions(scene, start, target, newNodes);
     detach = attachGestures(scene.svg, (a, b) => engine.isDisjoint(a, b), handlers);
 
+    prevPos = target;
     // Auto-scroll to keep the newest frontier (bottom) in view.
     if (plate !== null) plate.scrollTop = plate.scrollHeight;
   }

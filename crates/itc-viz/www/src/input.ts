@@ -1,6 +1,7 @@
 // Pointer gesture state machine. Translates raw pointer events on the scene into
 // high-level intents. The drag's object type carries join vs merge; peek is the one
-// modifier gesture (right-button OR ⌥), dual-bound for trackpad and mouse.
+// modifier gesture (right-button OR ⌥), dual-bound for trackpad and mouse. While
+// dragging, a ghost clone of the grabbed stamp follows the cursor.
 //
 //   click clock                      → tick   (waits out the dbl-click window)
 //   double-click clock               → fork
@@ -29,27 +30,31 @@ export interface NodeInfo {
 const MOVE_THRESHOLD = 5;
 const DBLCLICK_MS = 220;
 
-interface DragState {
+interface Hit {
   readonly idx: NodeIdx;
   readonly info: NodeInfo;
+  readonly group: SVGGElement;
+}
+
+interface DragState {
+  readonly hit: Hit;
   readonly peekMode: boolean; // right button or ⌥
   readonly startX: number;
   readonly startY: number;
   moved: boolean;
+  ghost: HTMLElement | null;
 }
 
-/// Read the node group under a client point, if any.
-function nodeUnder(x: number, y: number): { idx: NodeIdx; info: NodeInfo } | null {
+function hitUnder(x: number, y: number): Hit | null {
   const target = document.elementFromPoint(x, y);
   const group = target?.closest<SVGGElement>(".node");
   if (group == null) return null;
   const raw = group.dataset["idx"];
   const kind = group.dataset["kind"];
   if (raw === undefined || (kind !== "clock" && kind !== "message")) return null;
-  return { idx: asNodeIdx(Number(raw)), info: { kind, live: group.dataset["live"] === "1" } };
+  return { idx: asNodeIdx(Number(raw)), info: { kind, live: group.dataset["live"] === "1" }, group };
 }
 
-/// Attach gesture handling to a freshly-rendered scene. Returns a teardown function.
 export function attachGestures(
   scene: SVGSVGElement,
   isDisjoint: (a: NodeIdx, b: NodeIdx) => boolean,
@@ -64,22 +69,43 @@ export function attachGestures(
     }
   };
 
+  const makeGhost = (d: DragState): void => {
+    const stamp = d.hit.group.querySelector("svg.glyph");
+    if (stamp === null) return;
+    const ghost = document.createElement("div");
+    ghost.className = `drag-ghost${d.peekMode ? " drag-ghost--peek" : ""}`;
+    ghost.appendChild(stamp.cloneNode(true));
+    document.body.appendChild(ghost);
+    d.ghost = ghost;
+    d.hit.group.classList.add("node--dragging");
+  };
+
+  const moveGhost = (d: DragState, x: number, y: number): void => {
+    if (d.ghost === null) return;
+    d.ghost.style.left = `${x}px`;
+    d.ghost.style.top = `${y}px`;
+  };
+
+  const dropGhost = (d: DragState): void => {
+    d.ghost?.remove();
+    d.hit.group.classList.remove("node--dragging");
+  };
+
   const onMove = (e: PointerEvent): void => {
     if (drag === null) return;
     if (!drag.moved && Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) > MOVE_THRESHOLD) {
       drag.moved = true;
+      makeGhost(drag);
     }
     if (!drag.moved) return;
+    moveGhost(drag, e.clientX, e.clientY);
     clearDropHints();
-    const over = nodeUnder(e.clientX, e.clientY);
-    if (over === null || over.idx === drag.idx || over.info.kind !== "clock") return;
-    // Highlight the drop target's validity.
-    const group = scene.querySelector<SVGGElement>(`.node[data-idx="${over.idx}"]`);
-    if (group === null) return;
-    if (!drag.peekMode && drag.info.kind === "clock") {
-      group.classList.add(isDisjoint(drag.idx, over.idx) ? "node--drop-ok" : "node--drop-reject");
+    const over = hitUnder(e.clientX, e.clientY);
+    if (over === null || over.idx === drag.hit.idx || over.info.kind !== "clock") return;
+    if (!drag.peekMode && drag.hit.info.kind === "clock") {
+      over.group.classList.add(isDisjoint(drag.hit.idx, over.idx) ? "node--drop-ok" : "node--drop-reject");
     } else {
-      group.classList.add("node--drop-ok"); // merge / peekMerge always valid onto a clock
+      over.group.classList.add("node--drop-ok"); // merge / peekMerge always valid onto a clock
     }
   };
 
@@ -90,30 +116,31 @@ export function attachGestures(
     const d = drag;
     drag = null;
     if (d === null) return;
+    dropGhost(d);
 
-    const over = nodeUnder(e.clientX, e.clientY);
+    const over = hitUnder(e.clientX, e.clientY);
 
     if (d.peekMode) {
-      if (d.info.kind !== "clock") return;
-      if (over !== null && over.idx !== d.idx && over.info.kind === "clock") {
-        handlers.peekMerge(d.idx, over.idx);
+      if (d.hit.info.kind !== "clock") return;
+      if (over !== null && over.idx !== d.hit.idx && over.info.kind === "clock") {
+        handlers.peekMerge(d.hit.idx, over.idx);
       } else {
-        handlers.peek(d.idx);
+        handlers.peek(d.hit.idx);
       }
       return;
     }
 
     if (!d.moved) {
-      if (d.info.kind === "clock") clickClock(d.idx);
+      if (d.hit.info.kind === "clock") clickClock(d.hit.idx);
       return;
     }
 
     // Plain drag: deliver the grabbed object onto a clock.
-    if (over === null || over.idx === d.idx || over.info.kind !== "clock") return;
-    if (d.info.kind === "clock") {
-      if (isDisjoint(d.idx, over.idx)) handlers.join(d.idx, over.idx);
+    if (over === null || over.idx === d.hit.idx || over.info.kind !== "clock") return;
+    if (d.hit.info.kind === "clock") {
+      if (isDisjoint(d.hit.idx, over.idx)) handlers.join(d.hit.idx, over.idx);
     } else {
-      handlers.merge(d.idx, over.idx);
+      handlers.merge(d.hit.idx, over.idx);
     }
   };
 
@@ -133,17 +160,10 @@ export function attachGestures(
   };
 
   const onDown = (e: PointerEvent): void => {
-    const over = nodeUnder(e.clientX, e.clientY);
-    if (over === null) return;
+    const hit = hitUnder(e.clientX, e.clientY);
+    if (hit === null) return;
     e.preventDefault();
-    drag = {
-      idx: over.idx,
-      info: over.info,
-      peekMode: e.button === 2 || e.altKey,
-      startX: e.clientX,
-      startY: e.clientY,
-      moved: false,
-    };
+    drag = { hit, peekMode: e.button === 2 || e.altKey, startX: e.clientX, startY: e.clientY, moved: false, ghost: null };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
   };
@@ -158,6 +178,7 @@ export function attachGestures(
     scene.removeEventListener("contextmenu", onContextMenu);
     window.removeEventListener("pointermove", onMove);
     window.removeEventListener("pointerup", onUp);
+    drag?.ghost?.remove();
     if (pendingClick !== null) window.clearTimeout(pendingClick.timer);
   };
 }

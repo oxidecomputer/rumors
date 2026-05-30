@@ -220,6 +220,29 @@ body {
   fill: color-mix(in srgb, var(--reject) 14%, transparent);
   stroke: var(--reject);
 }
+.node--dragging {
+  opacity: 0.35;
+}
+
+/* The ghost that follows the cursor during a drag. */
+.drag-ghost {
+  position: fixed;
+  z-index: 50;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  opacity: 0.9;
+  filter: drop-shadow(0 4px 6px rgba(27, 23, 20, 0.35));
+}
+.drag-ghost svg {
+  display: block;
+}
+/* Peek pulls a version out: show the ghost as an orange, id-less message. */
+.drag-ghost--peek .glyph__slab {
+  fill: var(--message);
+}
+.drag-ghost--peek .glyph__id {
+  display: none;
+}
 
 .plate__caption {
   font-family: var(--display);

@@ -1,6 +1,7 @@
-// Render the causal DAG as one SVG scene: edges behind, positioned stamps in front.
-// Each node is a <g> tagged with its index/kind/liveness for hit-testing and later
-// animation. Pure DOM construction from already-derived data + positions.
+// Render the causal DAG as one SVG scene. Structure (nodes, edges) is built once per
+// op; positions are applied separately (and re-applied each animation frame) via
+// `applyPositions`, so node transforms and edge endpoints stay in sync while the graph
+// morphs. Pure DOM construction from already-derived data.
 
 import type { Edge } from "./dag";
 import { renderStamp, stampHeight, type StampStyle } from "./glyph";
@@ -10,16 +11,24 @@ import type { NodeDescriptor, NodeIdx } from "./types";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
+interface EdgeEl {
+  readonly el: SVGPathElement;
+  readonly from: NodeIdx;
+  readonly to: NodeIdx;
+}
+
 export interface Scene {
   readonly svg: SVGSVGElement;
   readonly nodeEls: Map<NodeIdx, SVGGElement>;
+  readonly edges: EdgeEl[];
+  readonly w: number;
+  readonly h: number;
 }
 
 export interface RenderInput {
   readonly nodes: readonly NodeDescriptor[];
   readonly edges: readonly Edge[];
   readonly live: ReadonlySet<NodeIdx>;
-  readonly pos: ReadonlyMap<NodeIdx, Point>;
   readonly style: StampStyle;
   readonly width: number;
   readonly height: number;
@@ -46,8 +55,8 @@ function arrowMarker(): SVGMarkerElement {
 }
 
 export function renderDag(input: RenderInput): Scene {
-  const H = stampHeight(input.style);
-  const W = input.style.width;
+  const h = stampHeight(input.style);
+  const w = input.style.width;
 
   const svg = el("svg", {
     class: "scene",
@@ -60,33 +69,21 @@ export function renderDag(input: RenderInput): Scene {
   defs.appendChild(arrowMarker());
   svg.appendChild(defs);
 
-  // Edges behind nodes: parent bottom-center → child top-center.
   const edgeLayer = el("g", { class: "edges" });
+  const edges: EdgeEl[] = [];
   for (const e of input.edges) {
-    const a = input.pos.get(e.from);
-    const b = input.pos.get(e.to);
-    if (a === undefined || b === undefined) continue;
-    const path = el("path", {
-      class: `edge edge--${e.kind}`,
-      d: `M ${a.x.toFixed(1)} ${(a.y + H / 2).toFixed(1)} L ${b.x.toFixed(1)} ${(b.y - H / 2).toFixed(1)}`,
-    });
+    const path = el("path", { class: `edge edge--${e.kind}`, d: "" });
     if (e.kind === "forkjoin") path.setAttribute("marker-end", "url(#arrow)");
     edgeLayer.appendChild(path);
+    edges.push({ el: path, from: e.from, to: e.to });
   }
   svg.appendChild(edgeLayer);
 
-  // Nodes in front.
   const nodeLayer = el("g", { class: "nodes" });
   const nodeEls = new Map<NodeIdx, SVGGElement>();
   for (const n of input.nodes) {
-    const p = input.pos.get(n.idx);
-    if (p === undefined) continue;
     const live = input.live.has(n.idx);
-
-    const g = el("g", {
-      class: `node node--${n.kind}${live ? " node--live" : " node--historical"}`,
-      transform: `translate(${(p.x - W / 2).toFixed(1)}, ${(p.y - H / 2).toFixed(1)})`,
-    });
+    const g = el("g", { class: `node node--${n.kind}${live ? " node--live" : " node--historical"}` });
     g.dataset["idx"] = `${n.idx}`;
     g.dataset["kind"] = n.kind;
     g.dataset["live"] = live ? "1" : "0";
@@ -94,9 +91,7 @@ export function renderDag(input: RenderInput): Scene {
     const title = el("title", {});
     title.textContent = n.kind === "clock" ? n.stamp : `message ${n.event}`;
     g.appendChild(title);
-
-    // Transparent hit area covering the whole stamp box.
-    g.appendChild(el("rect", { class: "node__hit", x: "0", y: "0", width: `${W}`, height: `${H}` }));
+    g.appendChild(el("rect", { class: "node__hit", x: "0", y: "0", width: `${w}`, height: `${h}` }));
 
     const id = n.kind === "clock" ? parseId(n.party) : null;
     g.appendChild(renderStamp(id, parseEvent(n.event), n.kind, input.style, !live));
@@ -110,5 +105,24 @@ export function renderDag(input: RenderInput): Scene {
   }
   svg.appendChild(nodeLayer);
 
-  return { svg, nodeEls };
+  return { svg, nodeEls, edges, w, h };
+}
+
+/// Position nodes (top-left = center − half-extent) and route edges (parent
+/// bottom-center → child top-center) from a position map. Called per animation frame.
+export function applyPositions(scene: Scene, pos: ReadonlyMap<NodeIdx, Point>): void {
+  for (const [idx, g] of scene.nodeEls) {
+    const p = pos.get(idx);
+    if (p === undefined) continue;
+    g.setAttribute("transform", `translate(${(p.x - scene.w / 2).toFixed(1)}, ${(p.y - scene.h / 2).toFixed(1)})`);
+  }
+  for (const e of scene.edges) {
+    const a = pos.get(e.from);
+    const b = pos.get(e.to);
+    if (a === undefined || b === undefined) continue;
+    e.el.setAttribute(
+      "d",
+      `M ${a.x.toFixed(1)} ${(a.y + scene.h / 2).toFixed(1)} L ${b.x.toFixed(1)} ${(b.y - scene.h / 2).toFixed(1)}`,
+    );
+  }
 }
