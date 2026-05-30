@@ -6,7 +6,7 @@
 import { deriveEdges, liveNodes, rewindAndApply } from "./dag";
 import { Engine } from "./engine";
 import { computeStampStyle, stampHeight } from "./glyph";
-import { layeredLayout } from "./layout";
+import { layeredLayout, tableauLayout, type Point } from "./layout";
 import { parseEvent, parseId } from "./notation";
 import { decodeLog, encodeLog } from "./oplog";
 import type { IdTree, NodeIdx, Op, OpLog } from "./types";
@@ -27,10 +27,13 @@ const EXTRA_V = 46; // vertical cell padding (room for the index chip + curved e
 async function main(): Promise<void> {
   const plate = document.getElementById("plate");
   if (plate === null) throw new Error("missing #plate element");
-  plate.textContent = "";
+  const plateEl: HTMLElement = plate;
+  plateEl.textContent = "";
 
   const engine = await Engine.create();
   let log: OpLog = logFromHash();
+  let mode: "history" | "tableau" = "history";
+  let prevTableau = new Map<NodeIdx, Point>();
 
   // Commit a new log: push a history entry (so back = undo, forward = redo, and the
   // URL is always a shareable snapshot), then re-render.
@@ -52,7 +55,7 @@ async function main(): Promise<void> {
     send: (from, to) => apply(to, (r) => ({ kind: "send", from: r(from), to: r(to) })),
   };
 
-  const view = new GraphView(plate, handlers, (a, b) => engine.isDisjoint(a, b));
+  const view = new GraphView(plateEl, handlers, (a, b) => engine.isDisjoint(a, b));
 
   function render(): void {
     const nodes = engine.replay(log);
@@ -67,11 +70,26 @@ async function main(): Promise<void> {
     const style = computeStampStyle(ids, events);
     const cellW = style.width + GAP_X;
     const cellH = stampHeight(style) + EXTRA_V;
-    const layout = layeredLayout(nodes.length, edges, live, cellW, cellH);
 
-    view.update({ nodes, edges, live, style, pos: layout.pos, rowHeight: cellH, width: layout.width, height: layout.height });
-
-    plate?.scrollTo({ top: plate.scrollHeight, behavior: "smooth" });
+    if (mode === "tableau") {
+      // Only the current live clocks, arranged by the force simulation.
+      const liveDescs = nodes.filter((n) => live.has(n.idx));
+      const w = Math.max(plateEl.clientWidth, 320);
+      const h = Math.max(plateEl.clientHeight, 320);
+      const pos = tableauLayout(
+        liveDescs.map((n) => n.idx),
+        prevTableau,
+        style,
+        w,
+        h,
+      );
+      prevTableau = pos;
+      view.update({ nodes: liveDescs, edges: [], live, style, pos, rowHeight: cellH, width: w, height: h });
+    } else {
+      const layout = layeredLayout(nodes.length, edges, live, cellW, cellH);
+      view.update({ nodes, edges, live, style, pos: layout.pos, rowHeight: cellH, width: layout.width, height: layout.height });
+      plateEl.scrollTo({ top: plateEl.scrollHeight, behavior: "smooth" });
+    }
   }
 
   // Back/forward walk the op-log history — undo and redo.
@@ -89,6 +107,18 @@ async function main(): Promise<void> {
     }, 1200);
   });
   document.getElementById("reset")?.addEventListener("click", () => commit([]));
+
+  const viewToggle = document.getElementById("view-toggle");
+  const syncToggle = (): void => {
+    if (viewToggle !== null) viewToggle.textContent = mode === "history" ? "View: history" : "View: tableau";
+  };
+  viewToggle?.addEventListener("click", () => {
+    mode = mode === "history" ? "tableau" : "history";
+    prevTableau = new Map(); // settle freshly when (re)entering tableau
+    syncToggle();
+    render();
+  });
+  syncToggle();
 
   render();
 }

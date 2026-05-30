@@ -5,7 +5,10 @@
 // coordinates come from a median/separation relaxation so a single child sits beneath
 // its parent and forks center over their children. Pure.
 
+import { forceCenter, forceCollide, forceManyBody, forceSimulation, forceX, forceY } from "d3-force";
+
 import type { Edge } from "./dag";
+import { stampHeight, type StampStyle } from "./glyph";
 import type { NodeIdx } from "./types";
 
 export interface Point {
@@ -115,5 +118,47 @@ function range(from: number, to: number): number[] {
   const out: number[] = [];
   if (from <= to) for (let i = from; i <= to; i++) out.push(i);
   else for (let i = from; i >= to; i--) out.push(i);
+  return out;
+}
+
+interface FNode {
+  idx: NodeIdx;
+  x: number;
+  y: number;
+}
+
+/// Tableau layout: only the current live clocks, settled by a force simulation into a
+/// pleasant cluster (charge repulsion + collision + a gentle pull to center). Surviving
+/// nodes warm-start from their previous positions so the arrangement stays stable across
+/// ops; the simulation is deterministic (no randomness), and runs to a fixed tick count.
+export function tableauLayout(
+  ids: readonly NodeIdx[],
+  prev: ReadonlyMap<NodeIdx, Point>,
+  style: StampStyle,
+  width: number,
+  height: number,
+): Map<NodeIdx, Point> {
+  const radius = Math.max(style.width, stampHeight(style)) * 0.62;
+  const warm = prev.size > 0;
+  const nodes: FNode[] = ids.map((idx, i) => {
+    const p = prev.get(idx);
+    if (p !== undefined) return { idx, x: p.x, y: p.y };
+    // Deterministic initial spread for new nodes (no Math.random).
+    return { idx, x: width / 2 + Math.cos(i * 2.4) * 40, y: height / 2 + Math.sin(i * 2.4) * 40 };
+  });
+
+  const sim = forceSimulation<FNode>(nodes)
+    .force("charge", forceManyBody<FNode>().strength(-radius * 7))
+    .force("collide", forceCollide<FNode>(radius).iterations(2))
+    .force("x", forceX<FNode>(width / 2).strength(0.06))
+    .force("y", forceY<FNode>(height / 2).strength(0.06))
+    .force("center", forceCenter<FNode>(width / 2, height / 2))
+    .stop();
+
+  const ticks = warm ? 140 : 320;
+  for (let i = 0; i < ticks; i++) sim.tick();
+
+  const out = new Map<NodeIdx, Point>();
+  for (const n of nodes) out.set(n.idx, { x: n.x, y: n.y });
   return out;
 }
