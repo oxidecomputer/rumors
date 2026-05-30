@@ -108,6 +108,7 @@ export class GraphView {
         if (event.sourceEvent != null) this.userZoomed = true; // a manual zoom pins the view
       });
     this.svg.call(this.zoom);
+    this.svg.on("dblclick.zoom", null); // double-click is fork, not zoom
   }
 
   /// Re-enable auto-fit (the next update reframes the whole figure).

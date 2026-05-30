@@ -117,6 +117,7 @@ async function main(): Promise<void> {
   viewToggle?.addEventListener("click", () => {
     mode = mode === "history" ? "tableau" : "history";
     prevTableau = new Map(); // settle freshly when (re)entering tableau
+    view.resetView(); // re-fit for the new mode
     syncToggle();
     render();
   });
