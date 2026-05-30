@@ -1,0 +1,6 @@
+# wasm-pack output (generated from src/lib.rs)
+www/pkg/
+# esbuild bundle (generated from www/src)
+www/dist/
+# npm
+www/node_modules/

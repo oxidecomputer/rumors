@@ -1,0 +1,15 @@
+/* Phase 0 placeholder. The full "Monograph Plate" design language (fonts, paper
+   ground, plate framing, palette variables) lands in Phase 2. */
+:root {
+  color-scheme: light;
+}
+body {
+  margin: 0;
+  padding: 2rem;
+  background: #f3eee2;
+  color: #1b1714;
+  font-family: ui-monospace, monospace;
+}
+#app {
+  white-space: pre-wrap;
+}

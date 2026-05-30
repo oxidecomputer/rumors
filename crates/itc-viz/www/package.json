@@ -1,0 +1,16 @@
+{
+  "name": "itc-viz-www",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Front-end for the interactive Interval Tree Clocks visualizer.",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "bundle": "esbuild src/main.ts --bundle --format=esm --outfile=dist/app.js",
+    "build": "npm run typecheck && npm run bundle"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.0"
+  }
+}
