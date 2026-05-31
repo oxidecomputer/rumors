@@ -172,14 +172,14 @@ fn grow_probe(id_bits: &BitsSlice, view: &EvView, choice: &mut Choices) {
     while let Some(job) = stack.pop() {
         match job {
             ProbeJob::Eval { id_pos, ev_pos } => {
-                let (id_node, id_val, id_next) = idbits::header(id_bits, id_pos);
+                let (_, _, id_next) = idbits::header(id_bits, id_pos);
                 let virt = ev_pos == VIRTUAL;
                 let (ev_int, _ev_base, ev_next) = if virt {
                     (false, Base::ZERO, VIRTUAL)
                 } else {
                     view.header(ev_pos)
                 };
-                if !id_node && !id_val {
+                if idbits::is_empty(id_bits, id_pos) {
                     // id 0-leaf: infeasible; lazy-skip the dominated event subtree.
                     let ev_end = if virt { VIRTUAL } else { ev_skip(view, ev_pos) };
                     ret = Probed {
@@ -187,7 +187,7 @@ fn grow_probe(id_bits: &BitsSlice, view: &EvView, choice: &mut Choices) {
                         id_end: id_next,
                         ev_end,
                     };
-                } else if !id_node {
+                } else if idbits::is_full(id_bits, id_pos) {
                     // id 1-leaf (full).
                     if !ev_int {
                         // increment here: a free inflation

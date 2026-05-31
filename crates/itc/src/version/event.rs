@@ -432,8 +432,8 @@ fn fill(id_bits: &BitsSlice, view: &EvView) -> WorkingVersion {
     while let Some(job) = stack.pop() {
         match job {
             FillJob::Eval { id_pos, ev_pos } => {
-                let (id_node, id_val, id_next) = idbits::header(id_bits, id_pos);
-                if !id_node && !id_val {
+                let (_, _, id_next) = idbits::header(id_bits, id_pos);
+                if idbits::is_empty(id_bits, id_pos) {
                     // id 0-leaf: nothing owned here; the event is unchanged.
                     let (root, ev_end) = out.copy(view, ev_pos);
                     ret = Built {
@@ -443,7 +443,7 @@ fn fill(id_bits: &BitsSlice, view: &EvView) -> WorkingVersion {
                     };
                     continue;
                 }
-                if !id_node {
+                if idbits::is_full(id_bits, id_pos) {
                     // id 1-leaf (full): collapse the whole event subtree to its max.
                     let (mx, ev_end) = ev_max(view, ev_pos);
                     ret = Built {

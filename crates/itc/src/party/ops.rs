@@ -18,7 +18,7 @@
 use core::cmp::Ordering;
 
 use crate::codec::{Bits, BitsSlice};
-use crate::idbits::{header, skip};
+use crate::idbits::{header, is_empty, is_full, skip};
 
 /// A leaf id stream: `0, v`.
 fn id_leaf(v: bool) -> Bits {
@@ -75,23 +75,23 @@ pub(crate) fn is_disjoint(a: &BitsSlice, b: &BitsSlice) -> bool {
     while let Some(job) = stack.pop() {
         match job {
             Pair::Eval { a_pos, b_pos } => {
-                let (a_node, a_val, a_next) = header(a, a_pos);
-                let (b_node, b_val, b_next) = header(b, b_pos);
-                if !a_node && !a_val {
+                let (_, _, a_next) = header(a, a_pos);
+                let (_, _, b_next) = header(b, b_pos);
+                if is_empty(a, a_pos) {
                     // a owns nothing here: disjoint
                     ret = Ends {
                         a_end: a_next,
                         b_end: skip(b, b_pos),
                     };
-                } else if !b_node && !b_val {
+                } else if is_empty(b, b_pos) {
                     // b owns nothing here: disjoint
                     ret = Ends {
                         a_end: skip(a, a_pos),
                         b_end: b_next,
                     };
-                } else if !a_node {
+                } else if is_full(a, a_pos) {
                     return false; // a is full, b is nonempty: overlap
-                } else if !b_node {
+                } else if is_full(b, b_pos) {
                     return false; // b is full, a is nonempty: overlap
                 } else {
                     stack.push(Pair::Right);
@@ -136,8 +136,8 @@ pub(crate) fn compare(a: &BitsSlice, b: &BitsSlice) -> Option<Ordering> {
     while let Some(job) = stack.pop() {
         match job {
             Pair::Eval { a_pos, b_pos } => {
-                let (a_node, a_val, a_next) = header(a, a_pos);
-                let (b_node, b_val, b_next) = header(b, b_pos);
+                let (a_node, _, a_next) = header(a, a_pos);
+                let (b_node, _, b_next) = header(b, b_pos);
                 if a_node && b_node {
                     // Both internal: descend in lockstep (left now, right threaded after).
                     stack.push(Pair::Right);
@@ -149,10 +149,8 @@ pub(crate) fn compare(a: &BitsSlice, b: &BitsSlice) -> Option<Ordering> {
                 }
                 // At least one leaf: this region is decided. `a ⊇ b` holds iff `b` owns
                 // nothing here or `a` owns everything; `b ⊇ a` is the mirror.
-                let (a_full, a_empty) = (!a_node && a_val, !a_node && !a_val);
-                let (b_full, b_empty) = (!b_node && b_val, !b_node && !b_val);
-                le &= b_empty || a_full;
-                ge &= a_empty || b_full;
+                le &= is_empty(b, b_pos) || is_full(a, a_pos);
+                ge &= is_empty(a, a_pos) || is_full(b, b_pos);
                 if !le && !ge {
                     return None; // incomparable: neither containment can recover
                 }
@@ -218,16 +216,16 @@ pub(crate) fn sum(a: &BitsSlice, b: &BitsSlice) -> Option<Bits> {
     while let Some(job) = stack.pop() {
         match job {
             SumJob::Eval { a_pos, b_pos } => {
-                let (a_node, a_val, a_next) = header(a, a_pos);
-                let (b_node, b_val, b_next) = header(b, b_pos);
-                if !a_node && !a_val {
+                let (a_node, _, a_next) = header(a, a_pos);
+                let (b_node, _, b_next) = header(b, b_pos);
+                if is_empty(a, a_pos) {
                     let end = skip(b, b_pos); // sum(0, b) = b
                     results.push(Summed {
                         bits: b[b_pos..end].to_bitvec(),
                         a_end: a_next,
                         b_end: end,
                     });
-                } else if !b_node && !b_val {
+                } else if is_empty(b, b_pos) {
                     let end = skip(a, a_pos); // sum(a, 0) = a
                     results.push(Summed {
                         bits: a[a_pos..end].to_bitvec(),
