@@ -10,7 +10,7 @@ use bitvec::prelude::*;
 use crate::codec::{self, BitsSlice};
 use crate::{DecodeError, ParseError, Party};
 
-use self::compare::{causal_cmp, EvView};
+use self::compare::EvView;
 use self::working::WorkingVersion;
 
 mod compare;
@@ -91,7 +91,7 @@ impl Default for Version {
 impl PartialOrd for Version {
     /// The causal order; `None` means the two versions are concurrent.
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        causal_cmp(&self.view(), &other.view())
+        self.view().causal_cmp(&other.view())
     }
 }
 
@@ -154,14 +154,14 @@ impl Batch<'_> {
         let work = self
             .work
             .take()
-            .unwrap_or_else(|| working::unpack(self.version.as_bits()));
+            .unwrap_or_else(|| WorkingVersion::unpack(self.version.as_bits()));
         self.work = Some(event::tick(party.as_bits(), &work));
         self
     }
 
     /// Merge another history in place. Chainable.
     pub fn merge(&mut self, other: &Version) -> &mut Self {
-        let work = event::ev_join(&self.view(), &other.view());
+        let work = self.view().ev_join(&other.view());
         self.work = Some(work);
         self
     }
@@ -171,7 +171,7 @@ impl Batch<'_> {
     /// which must hand a concrete version to another clock mid-session.
     pub(crate) fn snapshot(&self) -> Version {
         match &self.work {
-            Some(work) => Version::from_bits(working::repack(work)),
+            Some(work) => Version::from_bits(work.repack()),
             None => self.version.clone(),
         }
     }
@@ -189,7 +189,7 @@ impl Batch<'_> {
 impl Drop for Batch<'_> {
     fn drop(&mut self) {
         if let Some(work) = self.work.take() {
-            *self.version = Version::from_bits(working::repack(&work));
+            *self.version = Version::from_bits(work.repack());
         }
     }
 }
@@ -203,15 +203,15 @@ impl<'a> From<&'a mut Version> for Batch<'a> {
 impl BitOr<Version> for Version {
     type Output = Version;
     fn bitor(self, r: Version) -> Version {
-        let work = event::ev_join(&self.view(), &r.view());
-        Version::from_bits(working::repack(&work))
+        let work = self.view().ev_join(&r.view());
+        Version::from_bits(work.repack())
     }
 }
 
 impl BitOrAssign<Version> for Version {
     fn bitor_assign(&mut self, r: Version) {
-        let work = event::ev_join(&self.view(), &r.view());
-        *self = Version::from_bits(working::repack(&work));
+        let work = self.view().ev_join(&r.view());
+        *self = Version::from_bits(work.repack());
     }
 }
 
@@ -225,36 +225,36 @@ impl BitOrAssign<&Version> for Batch<'_> {
 
 impl PartialEq<Batch<'_>> for Version {
     fn eq(&self, o: &Batch<'_>) -> bool {
-        causal_cmp(&self.view(), &o.view()) == Some(Ordering::Equal)
+        self.view().causal_cmp(&o.view()) == Some(Ordering::Equal)
     }
 }
 
 impl PartialOrd<Batch<'_>> for Version {
     fn partial_cmp(&self, o: &Batch<'_>) -> Option<Ordering> {
-        causal_cmp(&self.view(), &o.view())
+        self.view().causal_cmp(&o.view())
     }
 }
 
 impl PartialEq<Version> for Batch<'_> {
     fn eq(&self, o: &Version) -> bool {
-        causal_cmp(&self.view(), &o.view()) == Some(Ordering::Equal)
+        self.view().causal_cmp(&o.view()) == Some(Ordering::Equal)
     }
 }
 
 impl PartialOrd<Version> for Batch<'_> {
     fn partial_cmp(&self, o: &Version) -> Option<Ordering> {
-        causal_cmp(&self.view(), &o.view())
+        self.view().causal_cmp(&o.view())
     }
 }
 
 impl<'b> PartialEq<Batch<'b>> for Batch<'_> {
     fn eq(&self, o: &Batch<'b>) -> bool {
-        causal_cmp(&self.view(), &o.view()) == Some(Ordering::Equal)
+        self.view().causal_cmp(&o.view()) == Some(Ordering::Equal)
     }
 }
 
 impl<'b> PartialOrd<Batch<'b>> for Batch<'_> {
     fn partial_cmp(&self, o: &Batch<'b>) -> Option<Ordering> {
-        causal_cmp(&self.view(), &o.view())
+        self.view().causal_cmp(&o.view())
     }
 }

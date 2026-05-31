@@ -2,10 +2,10 @@
 //! reads either representation in place (no transcode) and yields the comparison
 //! directly.
 //!
-//! [`causal_cmp`] decides the causal order of `a` and `b` by a pointwise comparison of
-//! their event functions, tracking both `a <= b` and `b <= a` in **one** traversal —
-//! running the paper's `leq` twice would do double the work. It is the recursive `leq`
-//! of the paper (plan Appendix A) made iterative, symmetric, *and* `O(n + m)`: at each
+//! [`EvView::causal_cmp`] decides the causal order of `a` and `b` by a pointwise
+//! comparison of their event functions, tracking both `a <= b` and `b <= a` in **one**
+//! traversal — running the paper's `leq` twice would do double the work. It is the
+//! recursive `leq` of the paper made iterative, symmetric, *and* `O(n + m)`: at each
 //! aligned node pair the path sums settle the local direction (`an > bn` rules out
 //! `a <= b`; `bn > an` rules out `b <= a`), then the walk descends into whichever side
 //! is internal, broadcasting the leaf side unchanged to both of the other's children,
@@ -39,7 +39,7 @@ pub(super) struct EvHeader {
 }
 
 /// One input's state at an aligned node in a two-tree event walk, capturing the
-/// broadcast rule that both [`causal_cmp`] and [`super::event::ev_join`] share: an
+/// broadcast rule that both [`EvView::causal_cmp`] and [`EvView::ev_join`] share: an
 /// *internal* side threads/descends into its own children, while a *leaf* side is
 /// re-broadcast unchanged to both of the other tree's children.
 ///
@@ -95,7 +95,7 @@ impl Side {
 
 /// A read-only view of an event tree in either storage form, addressed by a position
 /// (a bit offset for packed, a node index for working). Visibility is uniform
-/// `pub(super)` across the trio `EvView`/[`header`](EvView::header)/[`skip`] — used
+/// `pub(super)` across the trio `EvView`/[`header`](EvView::header)/[`skip`](EvView::skip) — used
 /// throughout `version/` (compare, event, grow) and nowhere outside it.
 pub(super) enum EvView<'a> {
     Packed(&'a BitsSlice),
@@ -139,7 +139,7 @@ impl EvView<'_> {
     /// byte-for-byte identical contents. Both forms are always in canonical normal
     /// form (a stored `Version` is canonical; the working form is kept normal by
     /// `event::Builder`), so identical contents is exactly semantic equality — which
-    /// lets [`causal_cmp`] settle `Equal` with one length-checked memcmp instead of
+    /// lets [`causal_cmp`](EvView::causal_cmp) settle `Equal` with one length-checked memcmp instead of
     /// the full `O(n + m)` walk and its heap-allocated job stack. A representation
     /// mismatch (one packed, one working) declines to `false` and falls through:
     /// proving equality across forms would mean transcoding one side, no cheaper than
@@ -161,18 +161,18 @@ impl EvView<'_> {
             EvView::Working(work) => work.base.len(),
         }
     }
-}
 
-/// Advance past one whole subtree starting at `at`, returning the position after it.
-/// Iterative: a pending-children counter, never the call stack — see the shared
-/// [`idbits::skip_subtree`](crate::idbits::skip_subtree) core. (The id-tree analogue, on
-/// the packed id header shape, is [`idbits::skip`](crate::idbits::skip): same algorithm
-/// via the same core, different node encoding.)
-pub(super) fn skip(view: &EvView, at: usize) -> usize {
-    idbits::skip_subtree(at, |pos| {
-        let h = view.header(pos);
-        (h.internal, h.next)
-    })
+    /// Advance past the whole subtree starting at `at`, returning the position after it.
+    /// Iterative: a pending-children counter, never the call stack — see the shared
+    /// [`idbits::skip_subtree`](crate::idbits::skip_subtree) core. (The id-tree analogue,
+    /// on the packed id header shape, is [`idbits::IdView::skip`](crate::idbits::IdView::skip):
+    /// same algorithm via the same core, different node encoding.)
+    pub(super) fn skip(&self, at: usize) -> usize {
+        idbits::skip_subtree(at, |pos| {
+            let h = self.header(pos);
+            (h.internal, h.next)
+        })
+    }
 }
 
 /// A step in the threaded comparison walk. Positions (`*_pos`) address a node in each
@@ -213,118 +213,124 @@ struct Ends {
     b_end: usize,
 }
 
-/// The causal order, computed in one `O(n + m)` pass; `None` means concurrent.
-///
-/// Tracks `a <= b` (`le`) and `b <= a` (`ge`) together so the two pointwise
-/// comparisons share a single traversal instead of running `leq` twice. The walk
-/// descends into whichever side is internal — both in lockstep, or the internal one
-/// while the leaf side is broadcast unchanged to both its children — so each node of
-/// either tree is visited once. Stops early once both directions are excluded.
-pub(crate) fn causal_cmp(a: &EvView, b: &EvView) -> Option<Ordering> {
-    // Both storage forms are canonical normal form, so identical contents is exactly
-    // semantic equality: settle `Equal` with one memcmp before allocating the walk's
-    // job stack. Covers every entry point — Version vs Version, Batch vs Batch, and a
-    // not-yet-materialized Batch (still packed) against either. (Mixed packed/working
-    // forms decline and fall through; see `EvView::trivially_eq`.)
-    if a.trivially_eq(b) {
-        return Some(Ordering::Equal);
-    }
-    let mut le = true; // `a <= b` still possible
-    let mut ge = true; // `b <= a` still possible
+impl EvView<'_> {
+    /// The causal order of `self` and `other`, computed in one `O(n + m)` pass; `None`
+    /// means concurrent.
+    ///
+    /// The iterative, offset-threaded form of the paper's recursive `leq`, run in both
+    /// directions at once. Tracks `self <= other` (`le`) and `other <= self` (`ge`)
+    /// together so the two pointwise comparisons share a single traversal instead of
+    /// running `leq` twice. The walk descends into whichever side is internal — both in
+    /// lockstep, or the internal one while the leaf side is broadcast unchanged to both
+    /// its children — so each node of either tree is visited once. Stops early once both
+    /// directions are excluded.
+    pub(crate) fn causal_cmp(&self, other: &EvView) -> Option<Ordering> {
+        let (a, b) = (self, other);
+        // Both storage forms are canonical normal form, so identical contents is exactly
+        // semantic equality: settle `Equal` with one memcmp before allocating the walk's
+        // job stack. Covers every entry point — Version vs Version, Batch vs Batch, and a
+        // not-yet-materialized Batch (still packed) against either. (Mixed packed/working
+        // forms decline and fall through; see `EvView::trivially_eq`.)
+        if a.trivially_eq(b) {
+            return Some(Ordering::Equal);
+        }
+        let mut le = true; // `a <= b` still possible
+        let mut ge = true; // `b <= a` still possible
 
-    // A pending right child reads the threaded side(s) from `ret` (the pinned side
-    // carries its own position in the broadcast jobs).
-    let mut ret = Ends::default();
-    let mut stack = vec![CompareJob::Eval {
-        a_pos: 0,
-        a_off: Base::ZERO,
-        b_pos: 0,
-        b_off: Base::ZERO,
-    }];
-    while let Some(job) = stack.pop() {
-        match job {
-            CompareJob::Eval {
-                a_pos,
-                a_off,
-                b_pos,
-                b_off,
-            } => {
-                let EvHeader {
-                    internal: a_internal,
-                    base: a_base,
-                    next: a_next,
-                } = a.header(a_pos);
-                let EvHeader {
-                    internal: b_internal,
-                    base: b_base,
-                    next: b_next,
-                } = b.header(b_pos);
-                let a_sum = a_off.clone() + a_base;
-                let b_sum = b_off.clone() + b_base;
-                if a_sum > b_sum {
-                    le = false;
-                }
-                if b_sum > a_sum {
-                    ge = false;
-                }
-                if !le && !ge {
-                    return None; // concurrent: neither direction can recover
-                }
-                if !a_internal && !b_internal {
-                    // Both leaves: this branch is decided. Report both ends.
-                    ret = Ends {
-                        a_end: a_next,
-                        b_end: b_next,
-                    };
-                    continue;
-                }
-                // At least one side is internal: descend it, broadcast the other leaf.
-                // The [`Side`] helpers carry the one broadcast rule for both children.
-                let a_side = Side {
-                    internal: a_internal,
-                    pos: a_pos,
-                    off: a_off,
-                    sum: a_sum,
-                    next: a_next,
-                };
-                let b_side = Side {
-                    internal: b_internal,
-                    pos: b_pos,
-                    off: b_off,
-                    sum: b_sum,
-                    next: b_next,
-                };
-                let (left_a_pos, left_a_off) = a_side.left();
-                let (left_b_pos, left_b_off) = b_side.left();
-                stack.push(CompareJob::Right {
-                    a: a_side,
-                    b: b_side,
-                });
-                stack.push(CompareJob::Eval {
-                    a_pos: left_a_pos,
-                    a_off: left_a_off,
-                    b_pos: left_b_pos,
-                    b_off: left_b_off,
-                });
-            }
-            CompareJob::Right { a, b } => {
-                let (a_pos, a_off) = a.right(ret.a_end);
-                let (b_pos, b_off) = b.right(ret.b_end);
-                stack.push(CompareJob::Eval {
+        // A pending right child reads the threaded side(s) from `ret` (the pinned side
+        // carries its own position in the broadcast jobs).
+        let mut ret = Ends::default();
+        let mut stack = vec![CompareJob::Eval {
+            a_pos: 0,
+            a_off: Base::ZERO,
+            b_pos: 0,
+            b_off: Base::ZERO,
+        }];
+        while let Some(job) = stack.pop() {
+            match job {
+                CompareJob::Eval {
                     a_pos,
                     a_off,
                     b_pos,
                     b_off,
-                });
+                } => {
+                    let EvHeader {
+                        internal: a_internal,
+                        base: a_base,
+                        next: a_next,
+                    } = a.header(a_pos);
+                    let EvHeader {
+                        internal: b_internal,
+                        base: b_base,
+                        next: b_next,
+                    } = b.header(b_pos);
+                    let a_sum = a_off.clone() + a_base;
+                    let b_sum = b_off.clone() + b_base;
+                    if a_sum > b_sum {
+                        le = false;
+                    }
+                    if b_sum > a_sum {
+                        ge = false;
+                    }
+                    if !le && !ge {
+                        return None; // concurrent: neither direction can recover
+                    }
+                    if !a_internal && !b_internal {
+                        // Both leaves: this branch is decided. Report both ends.
+                        ret = Ends {
+                            a_end: a_next,
+                            b_end: b_next,
+                        };
+                        continue;
+                    }
+                    // At least one side is internal: descend it, broadcast the other leaf.
+                    // The [`Side`] helpers carry the one broadcast rule for both children.
+                    let a_side = Side {
+                        internal: a_internal,
+                        pos: a_pos,
+                        off: a_off,
+                        sum: a_sum,
+                        next: a_next,
+                    };
+                    let b_side = Side {
+                        internal: b_internal,
+                        pos: b_pos,
+                        off: b_off,
+                        sum: b_sum,
+                        next: b_next,
+                    };
+                    let (left_a_pos, left_a_off) = a_side.left();
+                    let (left_b_pos, left_b_off) = b_side.left();
+                    stack.push(CompareJob::Right {
+                        a: a_side,
+                        b: b_side,
+                    });
+                    stack.push(CompareJob::Eval {
+                        a_pos: left_a_pos,
+                        a_off: left_a_off,
+                        b_pos: left_b_pos,
+                        b_off: left_b_off,
+                    });
+                }
+                CompareJob::Right { a, b } => {
+                    let (a_pos, a_off) = a.right(ret.a_end);
+                    let (b_pos, b_off) = b.right(ret.b_end);
+                    stack.push(CompareJob::Eval {
+                        a_pos,
+                        a_off,
+                        b_pos,
+                        b_off,
+                    });
+                }
             }
         }
-    }
 
-    match (le, ge) {
-        (true, true) => Some(Ordering::Equal),
-        (true, false) => Some(Ordering::Less),
-        (false, true) => Some(Ordering::Greater),
-        // Unreachable: both-false returns `None` inside the loop above.
-        (false, false) => None,
+        match (le, ge) {
+            (true, true) => Some(Ordering::Equal),
+            (true, false) => Some(Ordering::Less),
+            (false, true) => Some(Ordering::Greater),
+            // Unreachable: both-false returns `None` inside the loop above.
+            (false, false) => None,
+        }
     }
 }

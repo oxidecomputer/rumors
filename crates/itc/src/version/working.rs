@@ -29,34 +29,36 @@ impl WorkingVersion {
     }
 }
 
-/// Unpack a canonical packed event tree into the working form. One forward pass over
-/// the preorder stream: each node contributes one topology bit (its flag) and one
-/// base. The input must be exactly one `enc_ev` tree (a `Version`'s stored bits).
-pub(crate) fn unpack(packed: &BitsSlice) -> WorkingVersion {
-    let mut topo = Bits::new();
-    let mut base = Vec::new();
-    let mut pos = 0;
-    while pos < packed.len() {
-        step!(); // one step per node processed
-        let flag = packed[pos];
-        pos += 1;
-        let (b, next) = decode_int(packed, pos).expect("a Version holds canonical event bits");
-        pos = next;
-        topo.push(flag);
-        base.push(b);
+impl WorkingVersion {
+    /// Unpack a canonical packed event tree into the working form. One forward pass over
+    /// the preorder stream: each node contributes one topology bit (its flag) and one
+    /// base. The input must be exactly one `enc_ev` tree (a `Version`'s stored bits).
+    pub(crate) fn unpack(packed: &BitsSlice) -> WorkingVersion {
+        let mut topo = Bits::new();
+        let mut base = Vec::new();
+        let mut pos = 0;
+        while pos < packed.len() {
+            step!(); // one step per node processed
+            let flag = packed[pos];
+            pos += 1;
+            let (b, next) = decode_int(packed, pos).expect("a Version holds canonical event bits");
+            pos = next;
+            topo.push(flag);
+            base.push(b);
+        }
+        WorkingVersion { topo, base }
     }
-    WorkingVersion { topo, base }
-}
 
-/// Repack the working form into the canonical packed stream. One forward pass: emit
-/// each node's flag followed by its base as `gamma(base + 1)`, in preorder. Canonical
-/// whenever the working form is in normal form.
-pub(crate) fn repack(work: &WorkingVersion) -> Bits {
-    let mut out = Bits::new();
-    for (flag, base) in work.topo.iter().by_vals().zip(&work.base) {
-        step!(); // one step per node processed
-        out.push(flag);
-        codec::encode_int(&mut out, base);
+    /// Repack the working form into the canonical packed stream. One forward pass: emit
+    /// each node's flag followed by its base as `gamma(base + 1)`, in preorder. Canonical
+    /// whenever the working form is in normal form.
+    pub(crate) fn repack(&self) -> Bits {
+        let mut out = Bits::new();
+        for (flag, base) in self.topo.iter().by_vals().zip(&self.base) {
+            step!(); // one step per node processed
+            out.push(flag);
+            codec::encode_int(&mut out, base);
+        }
+        out
     }
-    out
 }

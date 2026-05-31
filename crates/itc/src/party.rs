@@ -6,6 +6,7 @@ use core::fmt::Display;
 use bitvec::prelude::*;
 
 use crate::codec::{self, BitsSlice};
+use crate::idbits::IdView;
 use crate::{DecodeError, ParseError};
 
 mod ops;
@@ -33,7 +34,7 @@ impl Party {
 
     /// Split in two; `self` keeps one half, the other is returned.
     pub fn fork(&mut self) -> Party {
-        let (keep, give) = ops::split(&self.0);
+        let (keep, give) = self.view().split();
         self.0 = keep;
         Party(give)
     }
@@ -41,7 +42,7 @@ impl Party {
     /// Merge a disjoint share into `self`; on overlap, `other` is returned unchanged.
     /// `sum` detects the overlap directly, so there is no separate disjointness scan.
     pub fn join(&mut self, other: Party) -> Result<(), Party> {
-        match ops::sum(&self.0, &other.0) {
+        match self.view().sum(&other.view()) {
             Some(bits) => {
                 self.0 = bits;
                 Ok(())
@@ -52,7 +53,7 @@ impl Party {
 
     /// Whether `self` and `other` share no id-space region.
     pub fn is_disjoint(&self, other: &Party) -> bool {
-        ops::is_disjoint(&self.0, &other.0)
+        self.view().is_disjoint(&other.view())
     }
 
     /// The canonical packed byte encoding (preorder, uniform flag), zero-padded to
@@ -86,6 +87,11 @@ impl Party {
         Party(bits)
     }
 
+    /// A read-only [`IdView`] cursor over this party's packed id bits.
+    fn view(&self) -> IdView<'_> {
+        IdView(&self.0)
+    }
+
     /// The packed preorder bit stream (no trailing padding). Internal.
     pub(crate) fn as_bits(&self) -> &BitsSlice {
         &self.0
@@ -100,10 +106,10 @@ impl Party {
 impl PartialOrd for Party {
     /// Descent: an ancestor (larger region) is *less than* its forked descendants;
     /// cousins are incomparable (`None`). `self < other` ⇔ `self` contains `other`.
-    /// One pass tracks both containment directions (see [`ops::compare`]); running
-    /// `contains` once per direction would double the work.
+    /// One pass tracks both containment directions (see [`IdView::compare`]); running
+    /// the containment test once per direction would double the work.
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        ops::compare(&self.0, &other.0)
+        self.view().compare(&other.view())
     }
 }
 

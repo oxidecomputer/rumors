@@ -14,10 +14,11 @@
 //!
 //! # The thread register
 //!
-//! Every two-tree machine here ([`ev_join`], [`fill`], and the [`grow`] submodule's
-//! probe and emit) — and `causal_cmp` in [`super::compare`] next door — drives a single
-//! iterative DFS off an explicit job stack, threading right-child positions instead of
-//! re-scanning to find them. They all speak the same protocol, the **thread register**:
+//! Every two-tree machine here ([`EvView::ev_join`], [`EvView::fill`], and the [`grow`]
+//! submodule's probe and emit) — and `EvView::causal_cmp` in [`super::compare`] next
+//! door — drives a single iterative DFS off an explicit job stack, threading right-child
+//! positions instead of re-scanning to find them. They all speak the same protocol, the
+//! **thread register**:
 //!
 //! - A mutable `ret`, a small named struct, holds the just-finished subtree's report:
 //!   the position just past it in each input tree, plus a per-walk payload — the output
@@ -35,7 +36,7 @@
 //! since it must combine two child *outputs*, not just their positions.)
 
 use crate::codec::{Base, Bits, BitsSlice};
-use crate::idbits;
+use crate::idbits::IdView;
 
 use super::compare::{EvHeader, EvView, Side};
 use super::working::WorkingVersion;
@@ -197,106 +198,114 @@ struct Joined {
     b_end: usize,
 }
 
-/// The least upper bound of two event trees (the paper's `join` over event trees),
-/// produced in normal form. Reads either storage form via [`EvView`]; `O(n + m)`.
-pub(crate) fn ev_join(a: &EvView, b: &EvView) -> WorkingVersion {
-    let mut out = Builder::new();
-    let mut ret = Joined::default();
-    let mut stack = vec![JoinJob::Eval {
-        a_pos: 0,
-        a_off: Base::ZERO,
-        b_pos: 0,
-        b_off: Base::ZERO,
-    }];
-    while let Some(job) = stack.pop() {
-        match job {
-            JoinJob::Eval {
-                a_pos,
-                a_off,
-                b_pos,
-                b_off,
-            } => {
-                let EvHeader {
-                    internal: a_internal,
-                    base: a_base,
-                    next: a_next,
-                } = a.header(a_pos);
-                let EvHeader {
-                    internal: b_internal,
-                    base: b_base,
-                    next: b_next,
-                } = b.header(b_pos);
-                let a_sum = a_off.clone() + a_base;
-                let b_sum = b_off.clone() + b_base;
-                if !a_internal && !b_internal {
-                    ret = Joined {
-                        out_root: out.leaf(a_sum.max(b_sum)),
-                        a_end: a_next,
-                        b_end: b_next,
+impl EvView<'_> {
+    /// The least upper bound of `self` and `other` (the paper's `join` over event trees),
+    /// produced in normal form. Reads either storage form via [`EvView`]; `O(n + m)`.
+    ///
+    /// The iterative, offset-threaded form of the paper's recursive `join`: the call stack
+    /// is made explicit on a `JoinJob` stack, right-child positions are threaded through
+    /// the [`Joined`] register, and the leaf/node broadcast rule lives in the [`Side`]
+    /// helpers.
+    pub(crate) fn ev_join(&self, other: &EvView) -> WorkingVersion {
+        let (a, b) = (self, other);
+        let mut out = Builder::new();
+        let mut ret = Joined::default();
+        let mut stack = vec![JoinJob::Eval {
+            a_pos: 0,
+            a_off: Base::ZERO,
+            b_pos: 0,
+            b_off: Base::ZERO,
+        }];
+        while let Some(job) = stack.pop() {
+            match job {
+                JoinJob::Eval {
+                    a_pos,
+                    a_off,
+                    b_pos,
+                    b_off,
+                } => {
+                    let EvHeader {
+                        internal: a_internal,
+                        base: a_base,
+                        next: a_next,
+                    } = a.header(a_pos);
+                    let EvHeader {
+                        internal: b_internal,
+                        base: b_base,
+                        next: b_next,
+                    } = b.header(b_pos);
+                    let a_sum = a_off.clone() + a_base;
+                    let b_sum = b_off.clone() + b_base;
+                    if !a_internal && !b_internal {
+                        ret = Joined {
+                            out_root: out.leaf(a_sum.max(b_sum)),
+                            a_end: a_next,
+                            b_end: b_next,
+                        };
+                        continue;
+                    }
+                    let node = out.open(Base::ZERO);
+                    // At least one side is internal: descend it, broadcast the other leaf.
+                    // The [`Side`] helpers carry the one broadcast rule for both children
+                    // and the node close.
+                    let a_side = Side {
+                        internal: a_internal,
+                        pos: a_pos,
+                        off: a_off,
+                        sum: a_sum,
+                        next: a_next,
                     };
-                    continue;
+                    let b_side = Side {
+                        internal: b_internal,
+                        pos: b_pos,
+                        off: b_off,
+                        sum: b_sum,
+                        next: b_next,
+                    };
+                    let (left_a_pos, left_a_off) = a_side.left();
+                    let (left_b_pos, left_b_off) = b_side.left();
+                    stack.push(JoinJob::Close {
+                        node,
+                        a: a_side.clone(),
+                        b: b_side.clone(),
+                    });
+                    stack.push(JoinJob::Right {
+                        a: a_side,
+                        b: b_side,
+                    });
+                    stack.push(JoinJob::Eval {
+                        a_pos: left_a_pos,
+                        a_off: left_a_off,
+                        b_pos: left_b_pos,
+                        b_off: left_b_off,
+                    });
                 }
-                let node = out.open(Base::ZERO);
-                // At least one side is internal: descend it, broadcast the other leaf.
-                // The [`Side`] helpers carry the one broadcast rule for both children
-                // and the node close.
-                let a_side = Side {
-                    internal: a_internal,
-                    pos: a_pos,
-                    off: a_off,
-                    sum: a_sum,
-                    next: a_next,
-                };
-                let b_side = Side {
-                    internal: b_internal,
-                    pos: b_pos,
-                    off: b_off,
-                    sum: b_sum,
-                    next: b_next,
-                };
-                let (left_a_pos, left_a_off) = a_side.left();
-                let (left_b_pos, left_b_off) = b_side.left();
-                stack.push(JoinJob::Close {
-                    node,
-                    a: a_side.clone(),
-                    b: b_side.clone(),
-                });
-                stack.push(JoinJob::Right {
-                    a: a_side,
-                    b: b_side,
-                });
-                stack.push(JoinJob::Eval {
-                    a_pos: left_a_pos,
-                    a_off: left_a_off,
-                    b_pos: left_b_pos,
-                    b_off: left_b_off,
-                });
-            }
-            JoinJob::Right { a, b } => {
-                let (right_a_pos, right_a_off) = a.right(ret.a_end);
-                let (right_b_pos, right_b_off) = b.right(ret.b_end);
-                stack.push(JoinJob::Eval {
-                    a_pos: right_a_pos,
-                    a_off: right_a_off,
-                    b_pos: right_b_pos,
-                    b_off: right_b_off,
-                });
-            }
-            JoinJob::Close { node, a, b } => {
-                out.close_node(node, ret.out_root);
-                ret = Joined {
-                    out_root: node,
-                    a_end: a.end(ret.a_end),
-                    b_end: b.end(ret.b_end),
-                };
+                JoinJob::Right { a, b } => {
+                    let (right_a_pos, right_a_off) = a.right(ret.a_end);
+                    let (right_b_pos, right_b_off) = b.right(ret.b_end);
+                    stack.push(JoinJob::Eval {
+                        a_pos: right_a_pos,
+                        a_off: right_a_off,
+                        b_pos: right_b_pos,
+                        b_off: right_b_off,
+                    });
+                }
+                JoinJob::Close { node, a, b } => {
+                    out.close_node(node, ret.out_root);
+                    ret = Joined {
+                        out_root: node,
+                        a_end: a.end(ret.a_end),
+                        b_end: b.end(ret.b_end),
+                    };
+                }
             }
         }
+        out.finish()
     }
-    out.finish()
 }
 
-/// An open ancestor on the [`ev_max`] descent stack: a node whose subtree is still
-/// being summed.
+/// An open ancestor on the [`EvView::ev_max`] descent stack: a node whose subtree is
+/// still being summed.
 struct Ancestor {
     /// The path sum from the root down to and including this node.
     cumulative: Base,
@@ -304,39 +313,42 @@ struct Ancestor {
     children_left: u8,
 }
 
-/// The maximum value of the event function over the subtree at `root` (the paper's
-/// `max`: `base + max(child maxes)`), and the position just past the subtree. Iterative
-/// linear pass — a per-ancestor cumulative/remaining stack, no right-child re-scan.
-fn ev_max(view: &EvView, root: usize) -> (Base, usize) {
-    let mut max = Base::ZERO;
-    let mut pos = root;
-    let mut stack: Vec<Ancestor> = Vec::new();
-    loop {
-        let offset = stack.last().map_or(Base::ZERO, |a| a.cumulative.clone());
-        let EvHeader {
-            internal,
-            base,
-            next,
-        } = view.header(pos);
-        let cumulative = offset + base;
-        max = max.max(cumulative.clone());
-        pos = next;
-        if internal {
-            stack.push(Ancestor {
-                cumulative,
-                children_left: 2,
-            });
-        } else {
-            // A leaf completes; pop every ancestor whose children are now all done.
-            loop {
-                match stack.last_mut() {
-                    None => return (max, pos),
-                    Some(ancestor) => {
-                        ancestor.children_left -= 1;
-                        if ancestor.children_left == 0 {
-                            stack.pop();
-                        } else {
-                            break;
+impl EvView<'_> {
+    /// The maximum value of the event function over the subtree at `root` (the paper's
+    /// `max`: `base + max(child maxes)`), and the position just past the subtree. Iterative
+    /// linear pass — a per-ancestor cumulative/remaining stack, no right-child re-scan.
+    fn ev_max(&self, root: usize) -> (Base, usize) {
+        let view = self;
+        let mut max = Base::ZERO;
+        let mut pos = root;
+        let mut stack: Vec<Ancestor> = Vec::new();
+        loop {
+            let offset = stack.last().map_or(Base::ZERO, |a| a.cumulative.clone());
+            let EvHeader {
+                internal,
+                base,
+                next,
+            } = view.header(pos);
+            let cumulative = offset + base;
+            max = max.max(cumulative.clone());
+            pos = next;
+            if internal {
+                stack.push(Ancestor {
+                    cumulative,
+                    children_left: 2,
+                });
+            } else {
+                // A leaf completes; pop every ancestor whose children are now all done.
+                loop {
+                    match stack.last_mut() {
+                        None => return (max, pos),
+                        Some(ancestor) => {
+                            ancestor.children_left -= 1;
+                            if ancestor.children_left == 0 {
+                                stack.pop();
+                            } else {
+                                break;
+                            }
                         }
                     }
                 }
@@ -395,132 +407,138 @@ pub(super) struct Built {
     pub(super) ev_end: usize,
 }
 
-/// `fill(id, ev)` (plan Appendix A): use the available id to simplify the event tree
-/// without registering a new event — wherever the id is full over a subtree, collapse
-/// that subtree to its maximum. Produces normal form. Iterative, `O(n + m)`: the event
-/// drives (every event node visited once, threaded), and the id is lazy-skipped only
-/// where the event prunes it (an event leaf under an id node).
-fn fill(id_bits: &BitsSlice, view: &EvView) -> WorkingVersion {
-    let mut out = Builder::new();
-    let mut ret = Built::default();
-    let mut stack = vec![FillJob::Eval {
-        id_pos: 0,
-        ev_pos: 0,
-    }];
-    while let Some(job) = stack.pop() {
-        match job {
-            FillJob::Eval { id_pos, ev_pos } => {
-                let id_next = idbits::header(id_bits, id_pos).next;
-                if idbits::is_empty(id_bits, id_pos) {
-                    // id 0-leaf: nothing owned here; the event is unchanged.
-                    let (root, ev_end) = out.copy(view, ev_pos);
-                    ret = Built {
-                        out_root: root,
-                        id_end: id_next,
-                        ev_end,
-                    };
-                    continue;
+impl EvView<'_> {
+    /// `fill(id, ev)`: use the available id to simplify this event tree (`self`) without
+    /// registering a new event — wherever the id is full over a subtree, collapse that
+    /// subtree to its maximum. Produces normal form. Iterative, `O(n + m)`: the event
+    /// drives (every event node visited once, threaded), and the id is lazy-skipped only
+    /// where the event prunes it (an event leaf under an id node).
+    ///
+    /// The iterative form of the paper's recursive `fill`.
+    fn fill(&self, id_bits: &BitsSlice) -> WorkingVersion {
+        let view = self;
+        let id = IdView(id_bits);
+        let mut out = Builder::new();
+        let mut ret = Built::default();
+        let mut stack = vec![FillJob::Eval {
+            id_pos: 0,
+            ev_pos: 0,
+        }];
+        while let Some(job) = stack.pop() {
+            match job {
+                FillJob::Eval { id_pos, ev_pos } => {
+                    let id_next = id.header(id_pos).next;
+                    if id.is_empty(id_pos) {
+                        // id 0-leaf: nothing owned here; the event is unchanged.
+                        let (root, ev_end) = out.copy(view, ev_pos);
+                        ret = Built {
+                            out_root: root,
+                            id_end: id_next,
+                            ev_end,
+                        };
+                        continue;
+                    }
+                    if id.is_full(id_pos) {
+                        // id 1-leaf (full): collapse the whole event subtree to its max.
+                        let (mx, ev_end) = view.ev_max(ev_pos);
+                        ret = Built {
+                            out_root: out.leaf(mx),
+                            id_end: id_next,
+                            ev_end,
+                        };
+                        continue;
+                    }
+                    let EvHeader {
+                        internal: ev_int,
+                        base: ev_base,
+                        next: ev_next,
+                    } = view.header(ev_pos);
+                    if !ev_int {
+                        // id node over an event leaf: unchanged; lazy-skip the id subtree.
+                        ret = Built {
+                            out_root: out.leaf(ev_base),
+                            id_end: id.skip(id_pos),
+                            ev_end: ev_next,
+                        };
+                        continue;
+                    }
+                    // id node, event node.
+                    let (id_left, ev_left) = (id_next, ev_next);
+                    if id.is_full(id_left) {
+                        // `il` full: left collapses to a leaf whose value depends on the
+                        // filled right; build the right first, then backpatch the leaf.
+                        let node = out.open(ev_base);
+                        let left_leaf = out.leaf(Base::ZERO); // placeholder
+                        let (max_el, ev_right) = view.ev_max(ev_left);
+                        let id_right = id_left + 2; // past the 1-leaf `il`
+                        stack.push(FillJob::FullLeftClose {
+                            node,
+                            left_leaf,
+                            max_el,
+                        });
+                        stack.push(FillJob::Eval {
+                            id_pos: id_right,
+                            ev_pos: ev_right,
+                        });
+                    } else {
+                        // `il` not full: fill the left child first; decide the right after.
+                        let node = out.open(ev_base);
+                        stack.push(FillJob::AfterLeft { node });
+                        stack.push(FillJob::Eval {
+                            id_pos: id_left,
+                            ev_pos: ev_left,
+                        });
+                    }
                 }
-                if idbits::is_full(id_bits, id_pos) {
-                    // id 1-leaf (full): collapse the whole event subtree to its max.
-                    let (mx, ev_end) = ev_max(view, ev_pos);
-                    ret = Built {
-                        out_root: out.leaf(mx),
-                        id_end: id_next,
-                        ev_end,
-                    };
-                    continue;
-                }
-                let EvHeader {
-                    internal: ev_int,
-                    base: ev_base,
-                    next: ev_next,
-                } = view.header(ev_pos);
-                if !ev_int {
-                    // id node over an event leaf: unchanged; lazy-skip the id subtree.
-                    ret = Built {
-                        out_root: out.leaf(ev_base),
-                        id_end: idbits::skip(id_bits, id_pos),
-                        ev_end: ev_next,
-                    };
-                    continue;
-                }
-                // id node, event node.
-                let (id_left, ev_left) = (id_next, ev_next);
-                if idbits::is_full(id_bits, id_left) {
-                    // `il` full: left collapses to a leaf whose value depends on the
-                    // filled right; build the right first, then backpatch the leaf.
-                    let node = out.open(ev_base);
-                    let left_leaf = out.leaf(Base::ZERO); // placeholder
-                    let (max_el, ev_right) = ev_max(view, ev_left);
-                    let id_right = id_left + 2; // past the 1-leaf `il`
-                    stack.push(FillJob::FullLeftClose {
-                        node,
-                        left_leaf,
-                        max_el,
-                    });
-                    stack.push(FillJob::Eval {
-                        id_pos: id_right,
-                        ev_pos: ev_right,
-                    });
-                } else {
-                    // `il` not full: fill the left child first; decide the right after.
-                    let node = out.open(ev_base);
-                    stack.push(FillJob::AfterLeft { node });
-                    stack.push(FillJob::Eval {
-                        id_pos: id_left,
-                        ev_pos: ev_left,
-                    });
-                }
-            }
-            FillJob::FullLeftClose {
-                node,
-                left_leaf,
-                max_el,
-            } => {
-                let right = ret; // the filled right child's report
-                out.base[left_leaf] = max_el.max(out.base[right.out_root].clone());
-                out.close_node(node, right.out_root);
-                ret = Built {
-                    out_root: node,
-                    id_end: right.id_end,
-                    ev_end: right.ev_end,
-                };
-            }
-            FillJob::AfterLeft { node } => {
-                let left = ret; // the filled left child's report
-                let (ir, er) = (left.id_end, left.ev_end);
-                if idbits::is_full(id_bits, ir) {
-                    // `ir` full: right collapses to a leaf depending on the filled left.
-                    let (max_er, er_end) = ev_max(view, er);
-                    let x = max_er.max(out.base[left.out_root].clone());
-                    let right_leaf = out.leaf(x);
-                    out.close_node(node, right_leaf);
+                FillJob::FullLeftClose {
+                    node,
+                    left_leaf,
+                    max_el,
+                } => {
+                    let right = ret; // the filled right child's report
+                    out.base[left_leaf] = max_el.max(out.base[right.out_root].clone());
+                    out.close_node(node, right.out_root);
                     ret = Built {
                         out_root: node,
-                        id_end: ir + 2, // past the 1-leaf `ir`
-                        ev_end: er_end,
+                        id_end: right.id_end,
+                        ev_end: right.ev_end,
                     };
-                } else {
-                    stack.push(FillJob::GeneralClose { node });
-                    stack.push(FillJob::Eval {
-                        id_pos: ir,
-                        ev_pos: er,
-                    });
+                }
+                FillJob::AfterLeft { node } => {
+                    let left = ret; // the filled left child's report
+                    let (ir, er) = (left.id_end, left.ev_end);
+                    if id.is_full(ir) {
+                        // `ir` full: right collapses to a leaf depending on the filled left.
+                        let (max_er, er_end) = view.ev_max(er);
+                        let x = max_er.max(out.base[left.out_root].clone());
+                        let right_leaf = out.leaf(x);
+                        out.close_node(node, right_leaf);
+                        ret = Built {
+                            out_root: node,
+                            id_end: ir + 2, // past the 1-leaf `ir`
+                            ev_end: er_end,
+                        };
+                    } else {
+                        stack.push(FillJob::GeneralClose { node });
+                        stack.push(FillJob::Eval {
+                            id_pos: ir,
+                            ev_pos: er,
+                        });
+                    }
+                }
+                FillJob::GeneralClose { node } => {
+                    let right = ret; // the filled right child's report
+                    out.close_node(node, right.out_root);
+                    ret = Built {
+                        out_root: node,
+                        id_end: right.id_end,
+                        ev_end: right.ev_end,
+                    };
                 }
             }
-            FillJob::GeneralClose { node } => {
-                let right = ret; // the filled right child's report
-                out.close_node(node, right.out_root);
-                ret = Built {
-                    out_root: node,
-                    id_end: right.id_end,
-                    ev_end: right.ev_end,
-                };
-            }
         }
+        out.finish()
     }
-    out.finish()
 }
 
 // ───────────────────────────── tick (fill, else grow) ─────────────────────────────
@@ -530,10 +548,10 @@ fn fill(id_bits: &BitsSlice, view: &EvView) -> WorkingVersion {
 /// the packed `enc_id` stream; `ev` is the current working form. `O(n + m)`.
 pub(crate) fn tick(id: &BitsSlice, ev: &WorkingVersion) -> WorkingVersion {
     let view = EvView::Working(ev);
-    let filled = fill(id, &view);
+    let filled = view.fill(id);
     if filled.topo != ev.topo || filled.base != ev.base {
         filled
     } else {
-        grow::grow(id, &view)
+        view.grow(id)
     }
 }

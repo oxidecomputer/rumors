@@ -6,7 +6,8 @@ use std::cmp::Ordering;
 
 use proptest::prelude::*;
 
-use super::{ops, Party};
+use super::Party;
+use crate::idbits::IdView;
 use crate::metrics;
 use crate::test_support::{
     arb_shape, assert_linear_scaling, contain_stress_pair, from_oracle_party, run, shape_party,
@@ -101,7 +102,7 @@ proptest! {
         let measure = |s: usize| {
             let p = shape_party(shape, s);
             steps_of(|| {
-                ops::split(p.as_bits());
+                IdView(p.as_bits()).split();
             })
         };
         assert_linear_scaling(measure(scale), measure(scale * 4));
@@ -117,7 +118,7 @@ proptest! {
             let mut keep = shape_party(shape, s);
             let give = keep.fork(); // a deep disjoint pair; this build is not measured
             steps_of(|| {
-                ops::sum(keep.as_bits(), give.as_bits());
+                IdView(keep.as_bits()).sum(&IdView(give.as_bits()));
             })
         };
         assert_linear_scaling(measure(scale), measure(scale * 4));
@@ -135,7 +136,7 @@ proptest! {
         let measure = |s: usize| {
             let (a, b) = skip_stress_pair(s);
             steps_of(|| {
-                ops::is_disjoint(a.as_bits(), b.as_bits());
+                IdView(a.as_bits()).is_disjoint(&IdView(b.as_bits()));
             })
         };
         assert_linear_scaling(measure(scale), measure(scale * 4));
@@ -153,7 +154,7 @@ proptest! {
         let measure = |s: usize| {
             let (big, small) = contain_stress_pair(s);
             steps_of(|| {
-                ops::compare(big.as_bits(), small.as_bits());
+                IdView(big.as_bits()).compare(&IdView(small.as_bits()));
             })
         };
         assert_linear_scaling(measure(scale), measure(scale * 4));

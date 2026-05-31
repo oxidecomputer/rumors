@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 
 use proptest::prelude::*;
 
-use super::working::{repack, unpack};
+use super::working::WorkingVersion;
 use super::{Batch, Version};
 use crate::metrics;
 use crate::test_support::{
@@ -34,7 +34,7 @@ fn unpack_layout() {
     use crate::oracle::Version::{Leaf, Node};
     // (0, 1, 0): internal root, two leaves.
     let v = from_oracle_version(&Node(0, Box::new(Leaf(1)), Box::new(Leaf(0))));
-    let w = unpack(v.as_bits());
+    let w = WorkingVersion::unpack(v.as_bits());
     assert_eq!(w.len(), 3);
     assert_eq!(
         w.topo.iter().by_vals().collect::<Vec<_>>(),
@@ -53,8 +53,8 @@ proptest! {
         let n = vs.len();
         let v = from_oracle_version(&vs[i % n]);
 
-        let work = unpack(v.as_bits());
-        let repacked = Version::from_bits(repack(&work));
+        let work = WorkingVersion::unpack(v.as_bits());
+        let repacked = Version::from_bits(work.repack());
 
         prop_assert!(repacked == v);
         prop_assert_eq!(repacked.encode(), v.encode());
