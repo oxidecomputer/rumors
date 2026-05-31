@@ -10,10 +10,9 @@ use std::cmp::Ordering;
 use proptest::prelude::*;
 
 use super::{Clock, Party, Version};
-use crate::test_support::{
-    all_inflations, arb_oracle_party_nonempty, arb_oracle_version, best_inflation, leq,
-    min_inflation_cost, run, versions, world_strategy,
-};
+use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
+use crate::testing::grow_brute_force::{all_inflations, best_inflation, min_inflation_cost};
+use crate::testing::optrace::{leq, run, versions, world_strategy};
 
 // ───────────────────────────── seed / join identity ─────────────────────────────
 
@@ -517,7 +516,7 @@ fn event_fills_to_single_integer() {
 // The paper's event condition (§3, §5.3.4) is the defining causality property: an
 // event registers a *minimal* inflation. `grow` delivers it via a dynamic program. These
 // properties pin the oracle's `grow` against a brute-force search over the entire feasible
-// inflation space (`test_support::all_inflations`), independently establishing that the
+// inflation space (`testing::grow_brute_force::all_inflations`), independently establishing that the
 // oracle's own DP is genuinely cost-minimal — something nothing else in the suite does
 // (every other check is impl == oracle, which shares the DP). The impl is held to the same
 // brute-force standard in `version::tests`.

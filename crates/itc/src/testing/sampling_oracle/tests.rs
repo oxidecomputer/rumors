@@ -28,10 +28,9 @@ use super::{
     sample_id,
 };
 use crate::oracle;
-use crate::test_support::{
-    arb_oracle_party, arb_oracle_party_nonempty, arb_oracle_version, from_oracle_party,
-    from_oracle_version, run, to_oracle_version, versions, world_strategy,
-};
+use crate::testing::bridge::{from_oracle_party, from_oracle_version, to_oracle_version};
+use crate::testing::generators::{arb_oracle_party, arb_oracle_party_nonempty, arb_oracle_version};
+use crate::testing::optrace::{run, versions, world_strategy};
 use crate::Version;
 
 /// Map a `(le, ge)` pair of pointwise comparisons to the partial order the impl reports.
@@ -238,9 +237,9 @@ proptest! {
 /// large range (path sums that would overflow `u64`). Used only by the `#[ignore]`d dense
 /// variant.
 fn deep_arb_oracle_version() -> impl Strategy<Value = oracle::Version> {
-    let leaf = crate::test_support::arb_base().prop_map(oracle::Version::Leaf);
+    let leaf = crate::testing::generators::arb_base().prop_map(oracle::Version::Leaf);
     leaf.prop_recursive(8, 256, 2, |inner| {
-        (crate::test_support::arb_base(), inner.clone(), inner)
+        (crate::testing::generators::arb_base(), inner.clone(), inner)
             .prop_map(|(n, l, r)| oracle::Version::node(n, l, r))
     })
 }

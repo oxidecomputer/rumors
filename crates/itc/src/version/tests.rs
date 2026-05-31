@@ -6,12 +6,13 @@ use proptest::prelude::*;
 
 use super::working::WorkingVersion;
 use super::{Batch, Version};
-use crate::test_support::{
-    all_inflations, arb_oracle_party_nonempty, arb_oracle_version, arb_shape,
-    assert_linear_scaling, best_inflation, from_oracle_party, from_oracle_version,
-    leq as oracle_leq, run, shape_party, shape_version, steps_of, to_oracle_version, versions,
-    world_strategy, Shape, MIN_SCALE,
+use crate::testing::bridge::{from_oracle_party, from_oracle_version, to_oracle_version};
+use crate::testing::complexity::{assert_linear_scaling, steps_of, MIN_SCALE};
+use crate::testing::generators::{
+    arb_oracle_party_nonempty, arb_oracle_version, arb_shape, shape_party, shape_version, Shape,
 };
+use crate::testing::grow_brute_force::{all_inflations, best_inflation};
+use crate::testing::optrace::{leq as oracle_leq, run, versions, world_strategy};
 
 /// `a <= b` under the impl causal order.
 fn le(a: &Version, b: &Version) -> bool {

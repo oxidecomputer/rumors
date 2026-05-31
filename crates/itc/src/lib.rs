@@ -71,31 +71,26 @@ pub mod version;
 #[cfg(feature = "serde")]
 mod serde_impls;
 
-#[cfg(test)]
-mod algebraic_laws;
-#[cfg(test)]
-mod exhaustive;
-#[cfg(test)]
-mod metrics;
 /// Reference oracle — the paper's trees as plain recursive enums; ground truth for the
 /// differential tests. Public under the `oracle` feature so the benchmark suite can time
 /// it against the optimized implementation; not part of the production surface.
 #[cfg(any(test, feature = "oracle"))]
 pub mod oracle;
+
+/// All other test-only code — the oracle⇄impl bridge, input generators, the brute-force
+/// grow-optimality reference, the step-scaling helpers, the second (sampling) oracle, and
+/// the cross-cutting suites — lives under one roof, so the crate's top level reads as the
+/// production modules plus the feature-public `oracle`.
 #[cfg(test)]
-mod sampling_oracle;
-#[cfg(test)]
-mod snapshots_doc;
-#[cfg(test)]
-mod test_support;
+mod testing;
 
 /// Record one traversal step. Expands to a counter bump under `cfg(test)` (see the
-/// test-only [`metrics`](crate::metrics) module) and to nothing otherwise, so
+/// test-only [`metrics`](crate::testing::metrics) module) and to nothing otherwise, so
 /// production traversals pay zero cost.
 #[cfg(test)]
 macro_rules! step {
     () => {
-        $crate::metrics::bump()
+        $crate::testing::metrics::bump()
     };
 }
 #[cfg(not(test))]

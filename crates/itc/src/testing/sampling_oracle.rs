@@ -61,7 +61,7 @@ use crate::oracle;
 /// ceiling on per-comparison cost. It is set high enough that, for the trees the tests
 /// actually build, the cap **never bites** — so the grid always equals the true tree depth
 /// and the sampling is a *complete, faithful* description (no aliasing). The arbitrary
-/// generators cap tree depth at 4 (`test_support::ARB_DEPTH`, +1 for a `tick`), and the
+/// generators cap tree depth at 4 (`testing::generators` `ARB_DEPTH`, +1 for a `tick`), and the
 /// seed-derived op-trace (≤30 ops over ≤8 parties) was measured to top out at depth 7; `10`
 /// clears both with headroom while `2^10 = 1024` points keep each op microsecond-cheap. The
 /// `grid_cap_is_never_reached` test pins that this headroom holds, so a spurious

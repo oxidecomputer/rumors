@@ -7,11 +7,13 @@ use proptest::prelude::*;
 
 use super::Party;
 use crate::idbits::IdView;
-use crate::test_support::{
-    arb_oracle_party, arb_oracle_party_nonempty, arb_shape, assert_linear_scaling,
-    contain_stress_pair, from_oracle_party, run, shape_party, skip_stress_pair, steps_of,
-    to_oracle_party, world_strategy, MIN_SCALE,
+use crate::testing::bridge::{from_oracle_party, to_oracle_party};
+use crate::testing::complexity::{assert_linear_scaling, steps_of, MIN_SCALE};
+use crate::testing::generators::{
+    arb_oracle_party, arb_oracle_party_nonempty, arb_shape, contain_stress_pair, shape_party,
+    skip_stress_pair,
 };
+use crate::testing::optrace::{run, world_strategy};
 
 /// `a <= b` under the impl descent order.
 fn le(a: &Party, b: &Party) -> bool {

@@ -25,7 +25,7 @@
 //!   the canonical byte form; required for byte-equality `Eq`/`Hash` to be sound).
 //!
 //! Inputs come from the arbitrary-normal-form generators
-//! ([`crate::test_support::arb_oracle_version`] / `arb_oracle_party`), so the laws are
+//! ([`crate::testing::generators::arb_oracle_version`] / `arb_oracle_party`), so the laws are
 //! checked on the full space of valid trees — including the large-base (path sums that
 //! would overflow `u64`) events — not just the shapes the op pipeline produces. `Party` is
 //! `!Clone`, so each

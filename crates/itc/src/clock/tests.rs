@@ -8,10 +8,12 @@ use proptest::prelude::*;
 
 use super::Batch;
 use crate::oracle;
-use crate::test_support::{
-    deep_left_spine_party, from_oracle_clock, from_oracle_party, from_oracle_version, run,
-    step_impl, to_oracle_clock, to_oracle_party, to_oracle_version, world_strategy, Op,
+use crate::testing::bridge::{
+    from_oracle_clock, from_oracle_party, from_oracle_version, to_oracle_clock, to_oracle_party,
+    to_oracle_version,
 };
+use crate::testing::generators::deep_left_spine_party;
+use crate::testing::optrace::{run, step_impl, world_strategy, Op};
 use crate::{Clock, ParseError, Party, Version};
 
 proptest! {

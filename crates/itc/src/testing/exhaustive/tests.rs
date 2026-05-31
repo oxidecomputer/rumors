@@ -34,10 +34,10 @@ use super::{
 };
 use crate::idbits::IdView;
 use crate::oracle;
-use crate::test_support::{
-    all_inflations, best_inflation, from_oracle_party, from_oracle_version, to_oracle_party,
-    to_oracle_version,
+use crate::testing::bridge::{
+    from_oracle_party, from_oracle_version, to_oracle_party, to_oracle_version,
 };
+use crate::testing::grow_brute_force::{all_inflations, best_inflation};
 use crate::{Party, Version};
 
 /// `a <= b` under the impl event causal order (concurrency is not-`<=`).

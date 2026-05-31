@@ -376,7 +376,7 @@ impl Version {
 
     /// `grow(id, self)` → (raw tree, cost) — `pub(crate)` so the grow-optimality tests can
     /// compare the DP's chosen inflation and its reported cost against the brute-force
-    /// search (`test_support::best_inflation`/`min_inflation_cost`).
+    /// search (`testing::grow_brute_force::best_inflation`/`min_inflation_cost`).
     pub(crate) fn grow_for_test(&self, id: &Party) -> (Version, (u32, u32)) {
         self.grow(id)
     }

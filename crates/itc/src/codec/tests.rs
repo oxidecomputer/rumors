@@ -9,11 +9,12 @@ use proptest::prelude::*;
 
 use super::{decode_int, encode_int, Base, Bits};
 use crate::oracle;
-use crate::test_support::{
-    arb_oracle_party_nonempty, arb_oracle_version, from_oracle_clock, from_oracle_party,
-    from_oracle_version, run, to_oracle_clock, to_oracle_party, to_oracle_version, versions,
-    world_strategy,
+use crate::testing::bridge::{
+    from_oracle_clock, from_oracle_party, from_oracle_version, to_oracle_clock, to_oracle_party,
+    to_oracle_version,
 };
+use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
+use crate::testing::optrace::{run, versions, world_strategy};
 use crate::{Clock, DecodeError, Party, Version};
 
 // ───────────────────────────── integer code ─────────────────────────────

@@ -10,7 +10,7 @@ use std::cmp::Ordering;
 use proptest::prelude::*;
 
 use crate::oracle;
-use crate::test_support::{arb_oracle_party, arb_oracle_party_nonempty, arb_oracle_version};
+use crate::testing::generators::{arb_oracle_party, arb_oracle_party_nonempty, arb_oracle_version};
 use crate::{Party, Version};
 
 /// `a <= b` under the impl event causal order (concurrency is not-`<=`), via the impl's
@@ -22,14 +22,14 @@ fn le(a: &Version, b: &Version) -> bool {
 /// Build a fresh impl `Version` from an oracle source tree. The oracle tree is only a
 /// carrier of canonical bits here; it is never consulted as an arbiter.
 fn ver(o: &oracle::Version) -> Version {
-    crate::test_support::from_oracle_version(o)
+    crate::testing::bridge::from_oracle_version(o)
 }
 
 /// Build a fresh impl `Party` from an oracle source tree. `Party` is `!Clone`, so every
 /// use that consumes or borrows a party rebuilds one from its (cheap, `Clone`) oracle
 /// source.
 fn party(o: &oracle::Party) -> Party {
-    crate::test_support::from_oracle_party(o)
+    crate::testing::bridge::from_oracle_party(o)
 }
 
 // ───────────────────────────── merge: join-semilattice ─────────────────────────────
