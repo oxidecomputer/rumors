@@ -408,13 +408,10 @@ proptest! {
     /// mutation: each lands one Hamming step from the accepted language, where a validator
     /// that under-checks would leak a non-canonical accept.
     ///
-    /// IGNORED — exposes the trailing-zero-byte defect (see
-    /// [`prog5_trailing_zero_byte_accepted_witness`]): a flip can shift the tree to end on
-    /// a byte boundary one byte before the input's end, leaving a spurious all-zero
-    /// trailing byte that `require_zero_padding` wrongly accepts, so the accepted value
-    /// re-encodes to *fewer* bytes than its own input. Un-ignore once the codec rejects
-    /// trailing whole zero bytes (≥8 padding bits).
-    #[ignore = "exposes trailing-zero-byte defect: decode accepts ≥8 zero padding bits (whole spurious zero bytes), so decode is non-injective on bytes"]
+    /// Regression guard for the trailing-zero-byte defect (fixed in `require_zero_padding`):
+    /// a flip can shift the tree to end on a byte boundary one byte before the input's end,
+    /// leaving a spurious all-zero trailing byte; `decode` now rejects that (a run of `>= 8`
+    /// trailing bits is non-canonical even when zero), keeping `decode` injective on bytes.
     #[test]
     fn prog5_bit_flip_rejects_or_canonical(
         pa in arb_oracle_party_nonempty(),
@@ -442,13 +439,10 @@ proptest! {
     /// (e.g. the leading id leaf of a clock) — which must then decode canonically, never to
     /// a malformed value.
     ///
-    /// IGNORED — exposes the trailing-zero-byte defect (see
-    /// [`prog5_trailing_zero_byte_accepted_witness`]): a truncation can cut a valid stream
-    /// just *after* a complete tree but still inside one or more trailing zero bytes, which
-    /// `require_zero_padding` wrongly accepts, so the accepted value re-encodes to fewer
-    /// bytes than its own (truncated) input. Un-ignore once the codec rejects trailing
-    /// whole zero bytes.
-    #[ignore = "exposes trailing-zero-byte defect: decode accepts ≥8 zero padding bits (whole spurious zero bytes), so decode is non-injective on bytes"]
+    /// Regression guard for the trailing-zero-byte defect (fixed in `require_zero_padding`):
+    /// a truncation can cut a valid stream just *after* a complete tree but still inside one
+    /// or more trailing zero bytes; `decode` now rejects that rather than accepting a value
+    /// that re-encodes to fewer bytes than its own input.
     #[test]
     fn prog5_truncation_rejects_or_canonical(
         pa in arb_oracle_party_nonempty(),
@@ -466,24 +460,19 @@ proptest! {
 /// two ignored mutation proptests above surface.
 ///
 /// `pack_to_bytes` zero-pads a canonical stream only to the next byte boundary, so a
-/// canonical encoding has **at most 7 trailing zero bits**. But [`require_zero_padding`]
-/// (`codec.rs`) only checks that the bits after the tree are all zero — it never bounds
-/// how *many* there are. So appending one or more whole `0x00` bytes (≥8 zero bits) is
-/// wrongly accepted: `decode` is **non-injective on byte strings** — infinitely many
-/// distinct byte vectors decode to the same value, and the accepted value re-encodes to a
-/// *shorter* stream than its own input. This violates `decode`'s documented contract
-/// ("strictly rejects ... non-canonical input") and the keystone byte-canonicity property.
+/// canonical encoding has **at most 7 trailing zero bits**. The original
+/// [`require_zero_padding`] (`codec.rs`) only checked that the bits after the tree are all
+/// zero — it never bounded how *many* there are, so appending one or more whole `0x00`
+/// bytes (≥8 zero bits) was wrongly accepted, making `decode` **non-injective on byte
+/// strings** (the accepted value re-encoded to a *shorter* stream than its own input),
+/// violating `decode`'s contract ("strictly rejects ... non-canonical input") and the
+/// keystone byte-canonicity property. The fix bounds the trailing run: `bits.len() - pos`
+/// must be `< 8`. This test is the permanent regression guard.
 ///
 /// `(2, 0, 1)` is the smallest witness: its canonical encoding is the 2 bytes `[180, 128]`
 /// (16 bits exactly — no intra-byte padding), so a third `0x00` byte is unambiguously a
 /// spurious trailing byte, not padding. A bare party leaf `(1, (0, 1))` = `[177]` exhibits
 /// the same with one appended `0x00`.
-///
-/// IGNORED — asserts the *correct* behavior (reject), which the current codec violates.
-/// Un-ignore the moment `require_zero_padding` is fixed to reject ≥8 trailing zero bits;
-/// it then becomes a permanent regression guard. The fix is local: require
-/// `bits.len() - pos < 8` in addition to `!bits[pos..].any()`.
-#[ignore = "exposes trailing-zero-byte defect: decode accepts ≥8 zero padding bits (whole spurious zero bytes), so decode is non-injective on bytes"]
 #[test]
 fn prog5_trailing_zero_byte_accepted_witness() {
     // Canonical encoding of the event `(2, 0, 1)` is exactly two bytes.

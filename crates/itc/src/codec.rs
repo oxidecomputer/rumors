@@ -221,9 +221,15 @@ pub(crate) fn pack_to_bytes(bits: &BitsSlice) -> Vec<u8> {
     padded.into_vec()
 }
 
-/// Require that all bits from `pos` onward are zero padding.
+/// Require that the bits from `pos` onward are exactly the canonical padding: a run of
+/// zeros shorter than a byte. [`pack_to_bytes`] only pads the final partial byte, so a
+/// canonical stream has at most 7 trailing zero bits; both a nonzero padding bit AND a
+/// whole spurious zero byte (`>= 8` trailing bits, even if all zero) are non-canonical.
+/// Bounding the length is what makes `decode` injective on bytes — without it,
+/// `decode([.., 0x00])` would accept the same value under infinitely many byte strings,
+/// re-encoding to a shorter stream than its own input.
 pub(crate) fn require_zero_padding(bits: &BitsSlice, pos: usize) -> Result<(), DecodeError> {
-    if bits[pos..].any() {
+    if bits.len() - pos >= 8 || bits[pos..].any() {
         Err(DecodeError::TrailingBits)
     } else {
         Ok(())
