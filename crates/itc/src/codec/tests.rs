@@ -125,16 +125,72 @@ proptest! {
 
 // ───────────────────────── A3: rejection ─────────────────────────
 
-/// A3. A collapsible id node `(v, v)` is non-canonical.
+/// A3. A collapsible id node `(v, v)` is non-canonical, for *both* leaf values: a
+/// `(1, 1)` node collapses to `1`, and a `(0, 0)` node to `0`. The plan's A3 enumerates
+/// both; the `(0, 0)` case is distinct because `0`-leaf children also form the anonymous
+/// share, so it must be rejected as `NotCanonical` (a collapsible node) rather than
+/// slipping through to the `Anonymous` empty-id check.
 #[test]
 fn a3_reject_noncanonical_id() {
     use oracle::Party::{Leaf, Node};
-    let denormal = Node(Box::new(Leaf(true)), Box::new(Leaf(true)));
-    let bytes = from_oracle_party(&denormal).encode();
+    for v in [false, true] {
+        let denormal = Node(Box::new(Leaf(v)), Box::new(Leaf(v)));
+        let bytes = from_oracle_party(&denormal).encode();
+        assert!(
+            matches!(Party::decode(&bytes), Err(DecodeError::NotCanonical)),
+            "collapsible id node ({v}, {v}) must be rejected as NotCanonical",
+        );
+    }
+}
+
+/// A3. The id validator runs bottom-up on an explicit stack, so a collapsible `(v, v)`
+/// node buried under deep, otherwise-canonical nesting must still be caught — the
+/// `NotCanonical` check fires when *any* node completes, not only at the root. Build a
+/// left-leaning spine `(((… (1,1) …, 0), 0), 0)` whose deepest node is the denormal
+/// `(1, 1)`, exercising the validator's recursion past a single byte.
+#[test]
+fn a3_reject_deep_nested_denormal_id() {
+    use oracle::Party::{Leaf, Node};
+
+    // Innermost collapsible node, then 16 layers of canonical `(_, 0)` wrapping. Each
+    // wrapper is itself normal (a node child paired with a `0` leaf), so the only
+    // non-canonical node is the buried `(1, 1)`.
+    const DEPTH: usize = 16;
+    let mut tree = Node(Box::new(Leaf(true)), Box::new(Leaf(true)));
+    for _ in 0..DEPTH {
+        tree = Node(Box::new(tree), Box::new(Leaf(false)));
+    }
+    let bytes = from_oracle_party(&tree).encode();
+    // The encoding spans several bytes, so this drives the stack-based validator well
+    // past the trivial single-node case.
+    assert!(bytes.len() > 1, "deep denormal must span multiple bytes");
     assert!(matches!(
         Party::decode(&bytes),
         Err(DecodeError::NotCanonical)
     ));
+}
+
+/// A3. Padding rejection is bit-granular, not byte-granular: a complete tree that ends
+/// mid-byte must have *every* remaining bit of that final byte be zero. A non-zero bit
+/// inside the same byte as the tree (intra-byte padding) is `TrailingBits`, just as a
+/// whole spurious trailing byte is. The id leaf `1` encodes to two bits (`0, 1`) packed
+/// as `0100_0000`; setting any padding bit within that byte must be rejected.
+#[test]
+fn a3_reject_intra_byte_padding() {
+    // `Leaf(true)` = bits [0, 1] → one byte 0b0100_0000; bits 2..8 are zero padding.
+    let clean = from_oracle_party(&oracle::Party::Leaf(true)).encode();
+    assert_eq!(clean.len(), 1, "an id leaf fits in a single byte");
+    assert!(Party::decode(&clean).is_ok(), "clean padding decodes");
+
+    // Flip each intra-byte padding bit (positions 2..8) in turn; each is `TrailingBits`.
+    for bit in 2u8..8 {
+        let mut bytes = clean.clone();
+        bytes[0] |= 0b1000_0000u8 >> bit;
+        assert!(
+            matches!(Party::decode(&bytes), Err(DecodeError::TrailingBits)),
+            "non-zero intra-byte padding at bit {bit} must be rejected",
+        );
+    }
 }
 
 /// A3. An event node with no zero-base child, and a collapsible `(n,m,m)` node, are
