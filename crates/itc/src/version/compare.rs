@@ -27,6 +27,17 @@ use crate::{idbits, step};
 
 use super::working::WorkingVersion;
 
+/// The decoded event-node header at a position: whether the node is internal, its
+/// stored base, and where the next node begins. Returned by [`EvView::header`].
+pub(super) struct EvHeader {
+    /// Whether this node is internal (has two children) rather than a leaf.
+    pub(super) internal: bool,
+    /// This node's stored base, an arbitrary-precision [`Base`].
+    pub(super) base: Base,
+    /// Position just past this node's header (where its left child, if any, begins).
+    pub(super) next: usize,
+}
+
 /// A read-only view of an event tree in either storage form, addressed by a position
 /// (a bit offset for packed, a node index for working). Visibility is uniform
 /// `pub(super)` across the trio `EvView`/[`header`](EvView::header)/[`skip`] — used
@@ -37,11 +48,11 @@ pub(super) enum EvView<'a> {
 }
 
 impl EvView<'_> {
-    /// `(is_internal, base, position-just-past-this-node's-header)`. For packed, the
-    /// header is the flag bit plus the gamma-coded base; the left child (if any)
-    /// begins at the returned position. For working, a node is one slot. The base is an
-    /// arbitrary-precision [`Base`], returned by value (cloned from the working store).
-    pub(super) fn header(&self, at: usize) -> (bool, Base, usize) {
+    /// Decode the event-node header at `at`. For packed, the header is the flag bit plus
+    /// the gamma-coded base; the left child (if any) begins at [`EvHeader::next`]. For
+    /// working, a node is one slot. The base is an arbitrary-precision [`Base`], returned
+    /// by value (cloned from the working store).
+    pub(super) fn header(&self, at: usize) -> EvHeader {
         // `grow` uses `super::event::VIRTUAL` (`usize::MAX`) as a sentinel "virtual leaf"
         // position and always guards `ev == VIRTUAL` before any real header read. This
         // turns a slipped guard into a loud panic instead of a silent out-of-bounds /
@@ -55,9 +66,17 @@ impl EvView<'_> {
             EvView::Packed(bits) => {
                 let internal = bits[at];
                 let (base, next) = decode_int(bits, at + 1).expect("canonical event bits");
-                (internal, base, next)
+                EvHeader {
+                    internal,
+                    base,
+                    next,
+                }
             }
-            EvView::Working(work) => (work.topo[at], work.base[at].clone(), at + 1),
+            EvView::Working(work) => EvHeader {
+                internal: work.topo[at],
+                base: work.base[at].clone(),
+                next: at + 1,
+            },
         }
     }
 
@@ -96,8 +115,8 @@ impl EvView<'_> {
 /// via the same core, different node encoding.)
 pub(super) fn skip(view: &EvView, at: usize) -> usize {
     idbits::skip_subtree(at, |pos| {
-        let (internal, _, next) = view.header(pos);
-        (internal, next)
+        let h = view.header(pos);
+        (h.internal, h.next)
     })
 }
 
@@ -187,8 +206,16 @@ pub(crate) fn causal_cmp(a: &EvView, b: &EvView) -> Option<Ordering> {
                 b_pos,
                 b_off,
             } => {
-                let (a_internal, a_base, a_next) = a.header(a_pos);
-                let (b_internal, b_base, b_next) = b.header(b_pos);
+                let EvHeader {
+                    internal: a_internal,
+                    base: a_base,
+                    next: a_next,
+                } = a.header(a_pos);
+                let EvHeader {
+                    internal: b_internal,
+                    base: b_base,
+                    next: b_next,
+                } = b.header(b_pos);
                 let a_sum = a_off.clone() + a_base;
                 let b_sum = b_off.clone() + b_base;
                 if a_sum > b_sum {

@@ -18,7 +18,7 @@
 use core::cmp::Ordering;
 
 use crate::codec::{Bits, BitsSlice};
-use crate::idbits::{header, is_empty, is_full, skip};
+use crate::idbits::{header, is_empty, is_full, skip, IdHeader};
 
 /// A leaf id stream: `0, v`.
 fn id_leaf(v: bool) -> Bits {
@@ -75,8 +75,8 @@ pub(crate) fn is_disjoint(a: &BitsSlice, b: &BitsSlice) -> bool {
     while let Some(job) = stack.pop() {
         match job {
             Pair::Eval { a_pos, b_pos } => {
-                let (_, _, a_next) = header(a, a_pos);
-                let (_, _, b_next) = header(b, b_pos);
+                let a_next = header(a, a_pos).next;
+                let b_next = header(b, b_pos).next;
                 if is_empty(a, a_pos) {
                     // a owns nothing here: disjoint
                     ret = Ends {
@@ -136,8 +136,10 @@ pub(crate) fn compare(a: &BitsSlice, b: &BitsSlice) -> Option<Ordering> {
     while let Some(job) = stack.pop() {
         match job {
             Pair::Eval { a_pos, b_pos } => {
-                let (a_node, _, a_next) = header(a, a_pos);
-                let (b_node, _, b_next) = header(b, b_pos);
+                let a_hdr = header(a, a_pos);
+                let b_hdr = header(b, b_pos);
+                let (a_node, a_next) = (a_hdr.node, a_hdr.next);
+                let (b_node, b_next) = (b_hdr.node, b_hdr.next);
                 if a_node && b_node {
                     // Both internal: descend in lockstep (left now, right threaded after).
                     stack.push(Pair::Right);
@@ -216,8 +218,10 @@ pub(crate) fn sum(a: &BitsSlice, b: &BitsSlice) -> Option<Bits> {
     while let Some(job) = stack.pop() {
         match job {
             SumJob::Eval { a_pos, b_pos } => {
-                let (a_node, _, a_next) = header(a, a_pos);
-                let (b_node, _, b_next) = header(b, b_pos);
+                let a_hdr = header(a, a_pos);
+                let b_hdr = header(b, b_pos);
+                let (a_node, a_next) = (a_hdr.node, a_hdr.next);
+                let (b_node, b_next) = (b_hdr.node, b_hdr.next);
                 if is_empty(a, a_pos) {
                     let end = skip(b, b_pos); // sum(0, b) = b
                     results.push(Summed {
@@ -279,9 +283,9 @@ pub(crate) fn sum(a: &BitsSlice, b: &BitsSlice) -> Option<Bits> {
 /// than by descending and re-scanning to test each right child for emptiness.
 pub(crate) fn split(bits: &BitsSlice) -> (Bits, Bits) {
     // A whole-tree leaf splits directly.
-    let (root_node, root_val, _) = header(bits, 0);
-    if !root_node {
-        return if root_val {
+    let root = header(bits, 0);
+    if !root.node {
+        return if root.val {
             // split(1) = ((1, 0), (0, 1))
             (
                 id_node(&id_leaf(true), &id_leaf(false)),
@@ -317,7 +321,11 @@ pub(crate) fn split(bits: &BitsSlice) -> (Bits, Bits) {
     // recording the shallowest both-nonempty node as the branch, until one still needs
     // its right child (then resume phase A there) or the stack empties (then build).
     loop {
-        let (is_node, val, next) = header(bits, pos);
+        let IdHeader {
+            node: is_node,
+            val,
+            next,
+        } = header(bits, pos);
         let start = pos;
         pos = next;
         // What the just-parsed subtree reports to its parent: was it empty?

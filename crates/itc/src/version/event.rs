@@ -37,7 +37,7 @@
 use crate::codec::{Base, Bits, BitsSlice};
 use crate::idbits;
 
-use super::compare::EvView;
+use super::compare::{EvHeader, EvView};
 use super::working::WorkingVersion;
 
 mod grow;
@@ -98,7 +98,11 @@ impl Builder {
         let mut pos = root;
         let mut pending: i64 = 1;
         while pending > 0 {
-            let (internal, base, next) = src.header(pos);
+            let EvHeader {
+                internal,
+                base,
+                next,
+            } = src.header(pos);
             self.topo.push(internal);
             self.base.push(base);
             pos = next;
@@ -229,8 +233,16 @@ pub(crate) fn ev_join(a: &EvView, b: &EvView) -> WorkingVersion {
                 b_pos,
                 b_off,
             } => {
-                let (a_internal, a_base, a_next) = a.header(a_pos);
-                let (b_internal, b_base, b_next) = b.header(b_pos);
+                let EvHeader {
+                    internal: a_internal,
+                    base: a_base,
+                    next: a_next,
+                } = a.header(a_pos);
+                let EvHeader {
+                    internal: b_internal,
+                    base: b_base,
+                    next: b_next,
+                } = b.header(b_pos);
                 let a_sum = a_off.clone() + a_base;
                 let b_sum = b_off.clone() + b_base;
                 if !a_internal && !b_internal {
@@ -342,7 +354,11 @@ fn ev_max(view: &EvView, root: usize) -> (Base, usize) {
     let mut stack: Vec<Ancestor> = Vec::new();
     loop {
         let offset = stack.last().map_or(Base::ZERO, |a| a.cumulative.clone());
-        let (internal, base, next) = view.header(pos);
+        let EvHeader {
+            internal,
+            base,
+            next,
+        } = view.header(pos);
         let cumulative = offset + base;
         max = max.max(cumulative.clone());
         pos = next;
@@ -435,7 +451,7 @@ fn fill(id_bits: &BitsSlice, view: &EvView) -> WorkingVersion {
     while let Some(job) = stack.pop() {
         match job {
             FillJob::Eval { id_pos, ev_pos } => {
-                let (_, _, id_next) = idbits::header(id_bits, id_pos);
+                let id_next = idbits::header(id_bits, id_pos).next;
                 if idbits::is_empty(id_bits, id_pos) {
                     // id 0-leaf: nothing owned here; the event is unchanged.
                     let (root, ev_end) = out.copy(view, ev_pos);
@@ -456,7 +472,11 @@ fn fill(id_bits: &BitsSlice, view: &EvView) -> WorkingVersion {
                     };
                     continue;
                 }
-                let (ev_int, ev_base, ev_next) = view.header(ev_pos);
+                let EvHeader {
+                    internal: ev_int,
+                    base: ev_base,
+                    next: ev_next,
+                } = view.header(ev_pos);
                 if !ev_int {
                     // id node over an event leaf: unchanged; lazy-skip the id subtree.
                     ret = Built {

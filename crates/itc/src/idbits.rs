@@ -14,15 +14,35 @@
 use crate::codec::BitsSlice;
 use crate::step;
 
-/// `(is_node, leaf_value, position-just-past-this-node's-header)`. For a node the
-/// header is the single flag bit and the left child begins at the returned position;
-/// for a leaf the header is the flag plus its value bit.
-pub(crate) fn header(bits: &BitsSlice, at: usize) -> (bool, bool, usize) {
+/// The decoded id-node header at a position. For a node the header is the single flag
+/// bit (`node`) and the left child begins at `next`; for a leaf the header is the flag
+/// plus its value bit (`val`).
+pub(crate) struct IdHeader {
+    /// Whether this node is internal (has two children) rather than a leaf.
+    pub(crate) node: bool,
+    /// A leaf's value bit (`true` = owned, `false` = not owned); meaningless for a node.
+    pub(crate) val: bool,
+    /// Position just past this node's header (where its left child, if any, begins).
+    pub(crate) next: usize,
+}
+
+/// Decode the id-node header at `at`. For a node the header is the single flag bit and
+/// the left child begins at [`IdHeader::next`]; for a leaf the header is the flag plus
+/// its value bit.
+pub(crate) fn header(bits: &BitsSlice, at: usize) -> IdHeader {
     step!();
     if bits[at] {
-        (true, false, at + 1)
+        IdHeader {
+            node: true,
+            val: false,
+            next: at + 1,
+        }
     } else {
-        (false, bits[at + 1], at + 2)
+        IdHeader {
+            node: false,
+            val: bits[at + 1],
+            next: at + 2,
+        }
     }
 }
 
@@ -52,19 +72,21 @@ pub(crate) fn skip_subtree(mut at: usize, mut header: impl FnMut(usize) -> (bool
 /// core, different node encoding.)
 pub(crate) fn skip(bits: &BitsSlice, at: usize) -> usize {
     skip_subtree(at, |pos| {
-        let (is_node, _, next) = header(bits, pos);
-        (is_node, next)
+        let h = header(bits, pos);
+        (h.node, h.next)
     })
 }
 
 /// Whether the normal-form subtree at `at` owns nothing. `O(1)`: it is empty iff it
 /// is the `0` leaf (see the module's normal-form precondition).
 pub(crate) fn is_empty(bits: &BitsSlice, at: usize) -> bool {
-    matches!(header(bits, at), (false, false, _))
+    let h = header(bits, at);
+    !h.node && !h.val
 }
 
 /// Whether the normal-form subtree at `at` owns everything. `O(1)`: it is full iff it
 /// is the `1` leaf (see the module's normal-form precondition).
 pub(crate) fn is_full(bits: &BitsSlice, at: usize) -> bool {
-    matches!(header(bits, at), (false, true, _))
+    let h = header(bits, at);
+    !h.node && h.val
 }

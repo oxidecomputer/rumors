@@ -20,10 +20,10 @@
 //! branch nodes — the coordinate agreement is what lets them communicate by position.
 
 use crate::codec::{Base, BitsSlice};
-use crate::idbits;
+use crate::idbits::{self, IdHeader};
 
 use super::{Builder, Built, VIRTUAL};
-use crate::version::compare::{skip as ev_skip, EvView};
+use crate::version::compare::{skip as ev_skip, EvHeader, EvView};
 use crate::version::working::WorkingVersion;
 
 /// Lexicographic inflation cost `(expansions, depth)`: prefer fewer leaf-to-node
@@ -172,10 +172,18 @@ fn grow_probe(id_bits: &BitsSlice, view: &EvView, choice: &mut Choices) {
     while let Some(job) = stack.pop() {
         match job {
             ProbeJob::Eval { id_pos, ev_pos } => {
-                let (_, _, id_next) = idbits::header(id_bits, id_pos);
+                let id_next = idbits::header(id_bits, id_pos).next;
                 let virt = ev_pos == VIRTUAL;
-                let (ev_int, _ev_base, ev_next) = if virt {
-                    (false, Base::ZERO, VIRTUAL)
+                let EvHeader {
+                    internal: ev_int,
+                    base: _ev_base,
+                    next: ev_next,
+                } = if virt {
+                    EvHeader {
+                        internal: false,
+                        base: Base::ZERO,
+                        next: VIRTUAL,
+                    }
                 } else {
                     view.header(ev_pos)
                 };
@@ -349,10 +357,22 @@ fn grow_emit(id_bits: &BitsSlice, view: &EvView, out: &mut Builder, choice: &Cho
     while let Some(job) = stack.pop() {
         match job {
             EmitJob::Eval { id_pos, ev_pos } => {
-                let (id_node, id_val, id_next) = idbits::header(id_bits, id_pos);
+                let IdHeader {
+                    node: id_node,
+                    val: id_val,
+                    next: id_next,
+                } = idbits::header(id_bits, id_pos);
                 let virt = ev_pos == VIRTUAL;
-                let (ev_int, ev_base, ev_next) = if virt {
-                    (false, Base::ZERO, VIRTUAL)
+                let EvHeader {
+                    internal: ev_int,
+                    base: ev_base,
+                    next: ev_next,
+                } = if virt {
+                    EvHeader {
+                        internal: false,
+                        base: Base::ZERO,
+                        next: VIRTUAL,
+                    }
                 } else {
                     view.header(ev_pos)
                 };
