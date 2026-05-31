@@ -10,7 +10,8 @@ use proptest::prelude::*;
 use super::{decode_int, encode_int, Base, Bits};
 use crate::oracle;
 use crate::test_support::{
-    from_oracle_clock, from_oracle_party, from_oracle_version, run, versions, world_strategy,
+    arb_oracle_party_nonempty, arb_oracle_version, from_oracle_clock, from_oracle_party,
+    from_oracle_version, run, to_oracle_clock, versions, world_strategy,
 };
 use crate::{Clock, DecodeError, Party, Version};
 
@@ -120,6 +121,57 @@ proptest! {
         let pb = from_oracle_party(cs[j % n].party());
         prop_assert_eq!(pa == pb, pa.encode() == pb.encode());
         prop_assert_eq!(pa == pb, cs[i % n].party() == cs[j % n].party());
+    }
+}
+
+// ──────────────────── COV-6: Clock canonical byte-injectivity ────────────────────
+
+proptest! {
+    /// COV-6 / A2. `Clock::encode` is injective on normal forms, asserted *directly* on
+    /// `Clock` (which has no `PartialEq`, so A2 above only reaches it transitively through
+    /// the harness): two clocks encode to identical bytes **iff** they lower to the same
+    /// `(Party, Version)` oracle structure. Both directions matter — equal structure must
+    /// produce identical bytes (well-defined canonical encoding), and *distinct* structure
+    /// must produce *distinct* bytes (injectivity, the property byte-equality `Eq`/`Hash`
+    /// relies on). The clock encoding is `enc_id(party) ‖ enc_ev(version)` with no padding
+    /// between the two halves, so this also pins that the id/event boundary is unambiguous:
+    /// a difference in *either* component alone changes the bytes.
+    ///
+    /// Inputs are arbitrary normal-form trees (PROG-1 generators), so the pairs are
+    /// genuinely unrelated structures spanning shapes and base magnitudes the op pipeline
+    /// never produces — exactly where a non-injective boundary would hide.
+    #[test]
+    fn cov6_clock_byte_injective_arbitrary(
+        pa in arb_oracle_party_nonempty(),
+        va in arb_oracle_version(),
+        pb in arb_oracle_party_nonempty(),
+        vb in arb_oracle_version(),
+    ) {
+        let a = Clock::from_parts(from_oracle_party(&pa), from_oracle_version(&va));
+        let b = Clock::from_parts(from_oracle_party(&pb), from_oracle_version(&vb));
+        // Lower through the impl's packed bits, not the source oracle trees, so the
+        // structural identity reflects what the impl actually stored (normalized).
+        prop_assert_eq!(
+            to_oracle_clock(&a) == to_oracle_clock(&b),
+            a.encode() == b.encode()
+        );
+    }
+}
+
+proptest! {
+    /// COV-6 / A2. The same `Clock` byte-injectivity biconditional over *causally related*
+    /// clocks drawn from a seed-derived op trace — the population the protocol actually
+    /// produces, complementing the unrelated arbitrary pairs above.
+    #[test]
+    fn cov6_clock_byte_injective_op_trace(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+        let cs = run(&ops);
+        let n = cs.len();
+        let a = from_oracle_clock(&cs[i % n]);
+        let b = from_oracle_clock(&cs[j % n]);
+        prop_assert_eq!(
+            to_oracle_clock(&a) == to_oracle_clock(&b),
+            a.encode() == b.encode()
+        );
     }
 }
 
