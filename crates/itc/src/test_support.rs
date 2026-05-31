@@ -460,3 +460,70 @@ pub(crate) fn assert_linear_scaling(small_steps: u64, big_steps: u64) {
         big_steps as f64 / small_steps.max(1) as f64,
     );
 }
+
+// ───────────────────────── arbitrary normal-form generators (PROG-1) ─────────────────────────
+//
+// The op-trace generator above only ever produces the tree *shapes operations produce*,
+// and only ever produces causally *related* pairs (every member descends from one seed).
+// These strategies break that coupling: they build *arbitrary* recursive id and event
+// trees with random shape and random base magnitudes — pushed through the oracle's
+// normalizing constructors (`Party::node`/`Version::node`), so whatever random shape
+// comes out is always valid normal form. Fed to every operation and diffed against the
+// oracle, they exercise the `Kind`-arm selection, cost folding, and tie-breaks on shapes
+// the op pipeline never reaches, and (crucially) generate genuinely *unrelated* pairs.
+//
+// Base magnitudes deliberately span small values AND values near/beyond `u64::MAX`: this
+// is the natural home for the BUG-1 regression class (path sums that would overflow a
+// `u64`). With arbitrary-precision `Base` values the impl threads them losslessly, so the
+// large-base differentials must agree with the oracle exactly.
+
+/// Recursion-depth cap for the arbitrary generators. Kept small so the default proptest
+/// run stays CI-cheap while still covering every arm; deeper coverage is the job of the
+/// (ignored) exhaustive variant and the deep-tree stack-safety test.
+const ARB_DEPTH: u32 = 4;
+
+/// Branching budget for the arbitrary generators: the expected interior-node count, which
+/// bounds how bushy a generated tree gets.
+const ARB_NODES: u32 = 16;
+
+/// An arbitrary event base magnitude. Mixes a dense small range (where collapses and
+/// `one_zero` corners live) with values straddling `u64::MAX`, so a generated event tree
+/// can have root-to-leaf path sums that would overflow `u64` — the BUG-1 class. The
+/// big-value arms are built from `u128`/shifted `BigUint` literals, well beyond `u64`.
+pub(crate) fn arb_base() -> impl Strategy<Value = codec::Base> {
+    prop_oneof![
+        6 => (0u64..6).prop_map(codec::Base::from),
+        2 => any::<u64>().prop_map(codec::Base::from),
+        1 => (u64::MAX - 4..=u64::MAX).prop_map(codec::Base::from),
+        1 => any::<u128>().prop_map(|n| codec::Base::from(n) + codec::Base::from(u64::MAX)),
+        1 => (0u32..96).prop_map(|k| (codec::Base::from(1u8) << k) + codec::Base::from(1u8)),
+    ]
+}
+
+/// An arbitrary normal-form id tree (may be the anonymous `Leaf(false)`). Random recursive
+/// shape; every interior node goes through the oracle's normalizing `Party::node`, so the
+/// result is always in normal form (no collapsible `(b, b)` node survives).
+pub(crate) fn arb_oracle_party() -> impl Strategy<Value = oracle::Party> {
+    let leaf = any::<bool>().prop_map(oracle::Party::Leaf);
+    leaf.prop_recursive(ARB_DEPTH, ARB_NODES, 2, |inner| {
+        (inner.clone(), inner).prop_map(|(l, r)| oracle::Party::node(l, r))
+    })
+}
+
+/// An arbitrary *non-empty* normal-form id tree — a valid standalone [`Party`] (owns at
+/// least one region). Filters out the anonymous tree so the impl bridge and ops that
+/// require a real share (fork/join) get a meaningful input.
+pub(crate) fn arb_oracle_party_nonempty() -> impl Strategy<Value = oracle::Party> {
+    arb_oracle_party().prop_filter("non-anonymous id", |p| !p.is_empty())
+}
+
+/// An arbitrary normal-form event tree. Random recursive shape with random base
+/// magnitudes from [`arb_base`] (including values near/beyond `u64::MAX`); every interior
+/// node goes through the oracle's normalizing `Version::node`, so the result is always in
+/// normal form (a zero-base child at every node, no collapsible `(n, m, m)`).
+pub(crate) fn arb_oracle_version() -> impl Strategy<Value = oracle::Version> {
+    let leaf = arb_base().prop_map(oracle::Version::Leaf);
+    leaf.prop_recursive(ARB_DEPTH, ARB_NODES, 2, |inner| {
+        (arb_base(), inner.clone(), inner).prop_map(|(n, l, r)| oracle::Version::node(n, l, r))
+    })
+}

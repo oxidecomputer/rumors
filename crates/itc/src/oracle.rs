@@ -72,7 +72,7 @@ impl Party {
         }
     }
 
-    fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         match self {
             Party::Leaf(b) => !*b,
             Party::Node(l, r) => l.is_empty() && r.is_empty(),

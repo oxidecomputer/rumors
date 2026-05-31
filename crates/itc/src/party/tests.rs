@@ -8,8 +8,9 @@ use proptest::prelude::*;
 use super::Party;
 use crate::idbits::IdView;
 use crate::test_support::{
-    arb_shape, assert_linear_scaling, contain_stress_pair, from_oracle_party, run, shape_party,
-    skip_stress_pair, steps_of, world_strategy, MIN_SCALE,
+    arb_oracle_party, arb_oracle_party_nonempty, arb_shape, assert_linear_scaling,
+    contain_stress_pair, from_oracle_party, run, shape_party, skip_stress_pair, steps_of,
+    to_oracle_party, world_strategy, MIN_SCALE,
 };
 
 /// `a <= b` under the impl descent order.
@@ -187,4 +188,89 @@ fn parse_bare_notation() {
     assert!(Party::try_from(0).is_err());
     let _party: Party = (1, 0).try_into().unwrap();
     let _party: Party = ((0, 1), (1, (1, 0))).try_into().unwrap();
+}
+
+// ───────────── PROG-1: arbitrary normal-form ids (decoupled from the op pipeline) ─────────────
+//
+// The op-trace differentials above only ever compare ids that descend from one seed (so
+// every pair is causally related and pairwise disjoint by construction). These feed
+// *arbitrary* normal-form ids — random shape, random ownership, including genuinely
+// *overlapping* and *unrelated* pairs — to every id op and diff against the oracle. They
+// reach the overlap/incomparable arms (`is_disjoint == false`, `compare == None`,
+// `sum == None`) that the seed-derived pipeline cannot produce.
+
+proptest! {
+    /// PROG-1. `partial_cmp` (descent order) and `is_disjoint` on arbitrary id pairs —
+    /// typically *unrelated* and frequently *overlapping* — agree with the oracle,
+    /// including the incomparable (`None`) and not-disjoint verdicts the op pipeline never
+    /// produces.
+    #[test]
+    fn prog1_compare_disjoint_arbitrary(
+        oa in arb_oracle_party(),
+        ob in arb_oracle_party(),
+    ) {
+        let (ia, ib) = (from_oracle_party(&oa), from_oracle_party(&ob));
+        prop_assert_eq!(ia.partial_cmp(&ib), oa.partial_cmp(&ob));
+        prop_assert_eq!(ia.is_disjoint(&ib), oa.is_disjoint(&ob));
+        // Disjointness is symmetric on the impl directly.
+        prop_assert_eq!(ia.is_disjoint(&ib), ib.is_disjoint(&ia));
+    }
+}
+
+proptest! {
+    /// PROG-1. `split` (the structural op behind `fork`) on an arbitrary non-empty id
+    /// matches the oracle's `split`, structurally — on shapes the seed pipeline never
+    /// forks. The two halves are read straight off the impl's packed `IdView::split`
+    /// output and lowered for comparison.
+    #[test]
+    fn prog1_split_arbitrary(op in arb_oracle_party_nonempty()) {
+        let mut oracle_self = op.clone();
+        let oracle_give = oracle_self.fork(); // fork = split; mutates `oracle_self` to the kept half
+
+        let p = from_oracle_party(&op);
+        let (keep_bits, give_bits) = IdView(p.as_bits()).split();
+        let keep = Party::from_bits(keep_bits);
+        let give = Party::from_bits(give_bits);
+
+        prop_assert!(keep == from_oracle_party(&oracle_self));
+        prop_assert!(give == from_oracle_party(&oracle_give));
+    }
+}
+
+proptest! {
+    /// PROG-1. `sum` on arbitrary id pairs agrees with the oracle: it returns the merged
+    /// id exactly when the pair is disjoint (matching `oracle::Party::join`), and `None`
+    /// on overlap. The op pipeline only ever sums disjoint halves, so the overlap `None`
+    /// arm is otherwise untested at arbitrary shapes.
+    #[test]
+    fn prog1_sum_arbitrary(
+        oa in arb_oracle_party(),
+        ob in arb_oracle_party(),
+    ) {
+        let (ia, ib) = (from_oracle_party(&oa), from_oracle_party(&ob));
+        let summed = IdView(ia.as_bits()).sum(&IdView(ib.as_bits()));
+
+        if oa.is_disjoint(&ob) {
+            let mut oracle_sum = oa.clone();
+            oracle_sum.join(ob.clone()).expect("disjoint, just checked");
+            let bits = summed.expect("disjoint pair sums");
+            prop_assert!(Party::from_bits(bits) == from_oracle_party(&oracle_sum));
+        } else {
+            prop_assert!(summed.is_none(), "overlapping ids must not sum");
+        }
+    }
+}
+
+proptest! {
+    /// PROG-1. `decode ∘ encode == identity` over arbitrary non-empty normal-form ids,
+    /// and the decoded value lowers to the same oracle tree. (The anonymous tree is
+    /// excluded: a standalone `Party` must own a region, and `decode` rejects it.)
+    #[test]
+    fn prog1_decode_encode_arbitrary(op in arb_oracle_party_nonempty()) {
+        let p = from_oracle_party(&op);
+        let bytes = p.encode();
+        let decoded = Party::decode(&bytes).expect("canonical encoding decodes");
+        prop_assert!(decoded == p);
+        prop_assert_eq!(to_oracle_party(&decoded), op);
+    }
 }

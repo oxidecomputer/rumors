@@ -7,8 +7,9 @@ use proptest::prelude::*;
 use super::working::WorkingVersion;
 use super::{Batch, Version};
 use crate::test_support::{
-    arb_shape, assert_linear_scaling, from_oracle_party, from_oracle_version, run, shape_party,
-    shape_version, steps_of, versions, world_strategy, Shape, MIN_SCALE,
+    arb_oracle_party_nonempty, arb_oracle_version, arb_shape, assert_linear_scaling,
+    from_oracle_party, from_oracle_version, run, shape_party, shape_version, steps_of,
+    to_oracle_version, versions, world_strategy, Shape, MIN_SCALE,
 };
 
 /// `a <= b` under the impl causal order.
@@ -380,4 +381,78 @@ fn bug1_path_sum_beyond_u64_compares_greater() {
     let a = Version::try_from((big, (big, 0u64, 1u64), 0u64)).unwrap();
     let b = Version::try_from(big).unwrap(); // constant 2^63
     assert_eq!(a.partial_cmp(&b), Some(Ordering::Greater));
+}
+
+// ───────────── PROG-1: arbitrary normal-form trees (decoupled from the op pipeline) ─────────────
+//
+// The op-trace differentials above only ever compare causally *related* versions (every
+// member descends from one seed) on the *shapes operations produce*. These feed *arbitrary*
+// normal-form event trees — random shape, random base magnitudes including values
+// near/beyond `u64::MAX` — to every event op and diff structurally against the oracle. They
+// are the natural home for the BUG-1 large-base regression class.
+
+proptest! {
+    /// PROG-1. `partial_cmp` on arbitrary, typically *unrelated* event-tree pairs agrees
+    /// with the oracle — including the concurrent (`None`) verdict the op pipeline rarely
+    /// produces, and large-base pairs whose root-to-leaf path sums exceed `u64::MAX`
+    /// (the BUG-1 class): with arbitrary-precision bases the answer must still match.
+    #[test]
+    fn prog1_causal_cmp_arbitrary(oa in arb_oracle_version(), ob in arb_oracle_version()) {
+        let (ia, ib) = (from_oracle_version(&oa), from_oracle_version(&ob));
+        prop_assert_eq!(ia.partial_cmp(&ib), oa.partial_cmp(&ob));
+        // Symmetry of the verdict under swap, on the impl directly.
+        prop_assert_eq!(
+            ib.partial_cmp(&ia),
+            ia.partial_cmp(&ib).map(Ordering::reverse)
+        );
+    }
+}
+
+proptest! {
+    /// PROG-1. `|` (merge / LUB) on arbitrary unrelated event trees agrees with the
+    /// oracle's `ev_join`, structurally. Exercises the join's arm selection on shapes the
+    /// op pipeline never builds, with large bases threaded losslessly.
+    #[test]
+    fn prog1_merge_arbitrary(oa in arb_oracle_version(), ob in arb_oracle_version()) {
+        let merged = from_oracle_version(&oa) | from_oracle_version(&ob);
+        let oracle_join = oa.clone() | ob.clone();
+        prop_assert!(merged == from_oracle_version(&oracle_join));
+        // The result is a normal-form tree that lowers back to the same oracle value.
+        prop_assert_eq!(to_oracle_version(&merged), oracle_join);
+    }
+}
+
+proptest! {
+    /// PROG-1. `tick` (= `fill` then, if no fill, `grow`) on an arbitrary `(id, event)`
+    /// pair with *unrelated* shapes matches the oracle's `event`. This is where the `Kind`
+    /// arm selection, the cost folding, and the root-ward tie-break live; feeding
+    /// unrelated id/event shapes drives the `fill` full-subtree arms and the multi-region
+    /// `grow` cost comparison that same-clock `(party, version)` pairs under-hit.
+    #[test]
+    fn prog1_tick_arbitrary(
+        op in arb_oracle_party_nonempty(),
+        ov in arb_oracle_version(),
+    ) {
+        let mut oracle_after = ov.clone();
+        oracle_after.tick(&op);
+
+        let mut iv = from_oracle_version(&ov);
+        iv.tick(&from_oracle_party(&op));
+
+        prop_assert!(iv == from_oracle_version(&oracle_after));
+    }
+}
+
+proptest! {
+    /// PROG-1. `decode ∘ encode == identity` over arbitrary normal-form event trees,
+    /// including large-base ones: the widened Elias-gamma code round-trips every magnitude
+    /// the working form can hold, and the decoded value lowers to the same oracle tree.
+    #[test]
+    fn prog1_decode_encode_arbitrary(ov in arb_oracle_version()) {
+        let v = from_oracle_version(&ov);
+        let bytes = v.encode();
+        let decoded = Version::decode(&bytes).expect("canonical encoding decodes");
+        prop_assert!(decoded == v);
+        prop_assert_eq!(to_oracle_version(&decoded), ov);
+    }
 }
