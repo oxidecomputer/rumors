@@ -43,9 +43,19 @@ fn id_node(l: &BitsSlice, r: &BitsSlice) -> Bits {
 
 // ───────────────────────────── two-tree comparisons ─────────────────────────────
 
-/// A step in a threaded two-tree DFS. `a_pos`/`b_pos` are bit offsets into the two
-/// packed id streams.
-enum Pair {
+/// A step in the threaded [`is_disjoint`] walk. `a_pos`/`b_pos` are bit offsets into the
+/// two packed id streams.
+enum DisjointJob {
+    /// Test the subtrees rooted at these positions for shared ownership.
+    Eval { a_pos: usize, b_pos: usize },
+    /// The left child just finished; launch the right child from where it ended (both
+    /// positions read from the `Ends` register).
+    Right,
+}
+
+/// A step in the threaded [`compare`] walk, the containment-order analogue of
+/// [`DisjointJob`]. `a_pos`/`b_pos` are bit offsets into the two packed id streams.
+enum CompareJob {
     /// Compare the subtrees rooted at these positions.
     Eval { a_pos: usize, b_pos: usize },
     /// The left child just finished; launch the right child from where it ended (both
@@ -71,10 +81,10 @@ struct Ends {
 pub(crate) fn is_disjoint(a: &BitsSlice, b: &BitsSlice) -> bool {
     // A pending `Right` reads where its sibling begins from `ret`, without re-scanning.
     let mut ret = Ends::default();
-    let mut stack = vec![Pair::Eval { a_pos: 0, b_pos: 0 }];
+    let mut stack = vec![DisjointJob::Eval { a_pos: 0, b_pos: 0 }];
     while let Some(job) = stack.pop() {
         match job {
-            Pair::Eval { a_pos, b_pos } => {
+            DisjointJob::Eval { a_pos, b_pos } => {
                 let a_next = header(a, a_pos).next;
                 let b_next = header(b, b_pos).next;
                 if is_empty(a, a_pos) {
@@ -94,15 +104,15 @@ pub(crate) fn is_disjoint(a: &BitsSlice, b: &BitsSlice) -> bool {
                 } else if is_full(b, b_pos) {
                     return false; // b is full, a is nonempty: overlap
                 } else {
-                    stack.push(Pair::Right);
-                    stack.push(Pair::Eval {
+                    stack.push(DisjointJob::Right);
+                    stack.push(DisjointJob::Eval {
                         a_pos: a_next,
                         b_pos: b_next,
                     }); // left
                 }
             }
-            Pair::Right => {
-                stack.push(Pair::Eval {
+            DisjointJob::Right => {
+                stack.push(DisjointJob::Eval {
                     a_pos: ret.a_end,
                     b_pos: ret.b_end,
                 });
@@ -132,18 +142,18 @@ pub(crate) fn compare(a: &BitsSlice, b: &BitsSlice) -> Option<Ordering> {
     let mut le = true; // `a ⊇ b` (a is an ancestor of b) still possible
     let mut ge = true; // `b ⊇ a` still possible
     let mut ret = Ends::default();
-    let mut stack = vec![Pair::Eval { a_pos: 0, b_pos: 0 }];
+    let mut stack = vec![CompareJob::Eval { a_pos: 0, b_pos: 0 }];
     while let Some(job) = stack.pop() {
         match job {
-            Pair::Eval { a_pos, b_pos } => {
+            CompareJob::Eval { a_pos, b_pos } => {
                 let a_hdr = header(a, a_pos);
                 let b_hdr = header(b, b_pos);
                 let (a_node, a_next) = (a_hdr.node, a_hdr.next);
                 let (b_node, b_next) = (b_hdr.node, b_hdr.next);
                 if a_node && b_node {
                     // Both internal: descend in lockstep (left now, right threaded after).
-                    stack.push(Pair::Right);
-                    stack.push(Pair::Eval {
+                    stack.push(CompareJob::Right);
+                    stack.push(CompareJob::Eval {
                         a_pos: a_next,
                         b_pos: b_next,
                     });
@@ -162,8 +172,8 @@ pub(crate) fn compare(a: &BitsSlice, b: &BitsSlice) -> Option<Ordering> {
                     b_end: if b_node { skip(b, b_pos) } else { b_next },
                 };
             }
-            Pair::Right => {
-                stack.push(Pair::Eval {
+            CompareJob::Right => {
+                stack.push(CompareJob::Eval {
                     a_pos: ret.a_end,
                     b_pos: ret.b_end,
                 });

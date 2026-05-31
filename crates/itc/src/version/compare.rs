@@ -38,6 +38,61 @@ pub(super) struct EvHeader {
     pub(super) next: usize,
 }
 
+/// One input's state at an aligned node in a two-tree event walk, capturing the
+/// broadcast rule that both [`causal_cmp`] and [`super::event::ev_join`] share: an
+/// *internal* side threads/descends into its own children, while a *leaf* side is
+/// re-broadcast unchanged to both of the other tree's children.
+///
+/// The offset/sum fields are arbitrary-precision [`Base`] path sums, so the struct is
+/// `Clone` (not `Copy`); helpers clone rather than copy.
+#[derive(Clone)]
+pub(super) struct Side {
+    /// Whether this side was a node here (its children thread) or a leaf (re-broadcast).
+    pub(super) internal: bool,
+    /// This side's pinned position, reused when it is a leaf.
+    pub(super) pos: usize,
+    /// This side's pinned offset (path sum down to it), reused when it is a leaf.
+    pub(super) off: Base,
+    /// This side's node sum (`off + base`), the offset carried into a threaded child.
+    pub(super) sum: Base,
+    /// Position just past this side's header: its left child start (node) or end (leaf).
+    pub(super) next: usize,
+}
+
+impl Side {
+    /// Where this side's left child starts: descend if a node (its `next`/`sum`), else
+    /// re-broadcast the leaf in place (its pinned `pos`/`off`).
+    pub(super) fn left(&self) -> (usize, Base) {
+        if self.internal {
+            (self.next, self.sum.clone())
+        } else {
+            (self.pos, self.off.clone())
+        }
+    }
+
+    /// Where this side's right child starts, given where its left subtree ended
+    /// (`threaded_end`, read from the thread register): the threaded end when this side
+    /// descended, else the same re-broadcast leaf.
+    pub(super) fn right(&self, threaded_end: usize) -> (usize, Base) {
+        if self.internal {
+            (threaded_end, self.sum.clone())
+        } else {
+            (self.pos, self.off.clone())
+        }
+    }
+
+    /// Where this side's subtree ends, given where its right subtree ended
+    /// (`threaded_end`): the threaded end when this side descended, else its own `next`
+    /// (a leaf was re-broadcast in place, so the input position only advanced past it).
+    pub(super) fn end(&self, threaded_end: usize) -> usize {
+        if self.internal {
+            threaded_end
+        } else {
+            self.next
+        }
+    }
+}
+
 /// A read-only view of an event tree in either storage form, addressed by a position
 /// (a bit offset for packed, a node index for working). Visibility is uniform
 /// `pub(super)` across the trio `EvView`/[`header`](EvView::header)/[`skip`] — used
@@ -121,9 +176,8 @@ pub(super) fn skip(view: &EvView, at: usize) -> usize {
 }
 
 /// A step in the threaded comparison walk. Positions (`*_pos`) address a node in each
-/// tree; offsets (`*_off`) are the path sum down to that node; sums (`*_sum`) are the
-/// offset plus the node's own base — the value the node contributes pointwise.
-enum Job {
+/// tree; offsets (`*_off`) are the path sum down to that node.
+enum CompareJob {
     /// Compare the subtrees at these positions, under these path-sum offsets.
     Eval {
         /// Position of `a`'s subtree root.
@@ -135,25 +189,14 @@ enum Job {
         /// Path sum down to `b`'s subtree.
         b_off: Base,
     },
-    /// Both-internal node: its left child finished; launch the right child, both
-    /// positions threaded from where the left child's subtrees ended (read from `ret`)
-    /// and offset by the node sums.
-    RightLockstep { a_sum: Base, b_sum: Base },
-    /// `b` is a leaf broadcast to both of `a`'s children: launch `a`'s right child
-    /// (its position threaded from `ret`, offset by `a_sum`) against the same pinned `b`
-    /// leaf (its `b_pos`/`b_off` carried here, not threaded).
-    RightBroadcastB {
-        a_sum: Base,
-        b_pos: usize,
-        b_off: Base,
-    },
-    /// `a` is a leaf broadcast to both of `b`'s children: launch `b`'s right child
-    /// (its position threaded from `ret`, offset by `b_sum`) against the same pinned `a`
-    /// leaf (its `a_pos`/`a_off` carried here, not threaded).
-    RightBroadcastA {
-        a_pos: usize,
-        a_off: Base,
-        b_sum: Base,
+    /// Left child finished; launch the right child. Each [`Side`] threads its internal
+    /// side from `ret` and re-broadcasts its leaf side in place — the one rule that
+    /// subsumes the old lockstep / broadcast-`a` / broadcast-`b` spellings.
+    Right {
+        /// `a`'s state at this node.
+        a: Side,
+        /// `b`'s state at this node.
+        b: Side,
     },
 }
 
@@ -192,7 +235,7 @@ pub(crate) fn causal_cmp(a: &EvView, b: &EvView) -> Option<Ordering> {
     // A pending right child reads the threaded side(s) from `ret` (the pinned side
     // carries its own position in the broadcast jobs).
     let mut ret = Ends::default();
-    let mut stack = vec![Job::Eval {
+    let mut stack = vec![CompareJob::Eval {
         a_pos: 0,
         a_off: Base::ZERO,
         b_pos: 0,
@@ -200,7 +243,7 @@ pub(crate) fn causal_cmp(a: &EvView, b: &EvView) -> Option<Ordering> {
     }];
     while let Some(job) = stack.pop() {
         match job {
-            Job::Eval {
+            CompareJob::Eval {
                 a_pos,
                 a_off,
                 b_pos,
@@ -227,87 +270,51 @@ pub(crate) fn causal_cmp(a: &EvView, b: &EvView) -> Option<Ordering> {
                 if !le && !ge {
                     return None; // concurrent: neither direction can recover
                 }
-                match (a_internal, b_internal) {
+                if !a_internal && !b_internal {
                     // Both leaves: this branch is decided. Report both ends.
-                    (false, false) => {
-                        ret = Ends {
-                            a_end: a_next,
-                            b_end: b_next,
-                        }
-                    }
-                    // Both internal: descend in lockstep.
-                    (true, true) => {
-                        stack.push(Job::RightLockstep {
-                            a_sum: a_sum.clone(),
-                            b_sum: b_sum.clone(),
-                        });
-                        stack.push(Job::Eval {
-                            a_pos: a_next,
-                            a_off: a_sum,
-                            b_pos: b_next,
-                            b_off: b_sum,
-                        });
-                    }
-                    // `b` leaf broadcast to both of `a`'s children.
-                    (true, false) => {
-                        stack.push(Job::RightBroadcastB {
-                            a_sum: a_sum.clone(),
-                            b_pos,
-                            b_off: b_off.clone(),
-                        });
-                        stack.push(Job::Eval {
-                            a_pos: a_next,
-                            a_off: a_sum,
-                            b_pos,
-                            b_off,
-                        });
-                    }
-                    // `a` leaf broadcast to both of `b`'s children.
-                    (false, true) => {
-                        stack.push(Job::RightBroadcastA {
-                            a_pos,
-                            a_off: a_off.clone(),
-                            b_sum: b_sum.clone(),
-                        });
-                        stack.push(Job::Eval {
-                            a_pos,
-                            a_off,
-                            b_pos: b_next,
-                            b_off: b_sum,
-                        });
-                    }
+                    ret = Ends {
+                        a_end: a_next,
+                        b_end: b_next,
+                    };
+                    continue;
                 }
-            }
-            Job::RightLockstep { a_sum, b_sum } => {
-                stack.push(Job::Eval {
-                    a_pos: ret.a_end,
-                    a_off: a_sum,
-                    b_pos: ret.b_end,
-                    b_off: b_sum,
+                // At least one side is internal: descend it, broadcast the other leaf.
+                // The [`Side`] helpers carry the one broadcast rule for both children.
+                let a_side = Side {
+                    internal: a_internal,
+                    pos: a_pos,
+                    off: a_off,
+                    sum: a_sum,
+                    next: a_next,
+                };
+                let b_side = Side {
+                    internal: b_internal,
+                    pos: b_pos,
+                    off: b_off,
+                    sum: b_sum,
+                    next: b_next,
+                };
+                let (left_a_pos, left_a_off) = a_side.left();
+                let (left_b_pos, left_b_off) = b_side.left();
+                stack.push(CompareJob::Right {
+                    a: a_side,
+                    b: b_side,
+                });
+                stack.push(CompareJob::Eval {
+                    a_pos: left_a_pos,
+                    a_off: left_a_off,
+                    b_pos: left_b_pos,
+                    b_off: left_b_off,
                 });
             }
-            Job::RightBroadcastB {
-                a_sum,
-                b_pos,
-                b_off,
-            } => {
-                stack.push(Job::Eval {
-                    a_pos: ret.a_end,
-                    a_off: a_sum,
-                    b_pos,
-                    b_off,
-                });
-            }
-            Job::RightBroadcastA {
-                a_pos,
-                a_off,
-                b_sum,
-            } => {
-                stack.push(Job::Eval {
+            CompareJob::Right { a, b } => {
+                let (a_pos, a_off) = a.right(ret.a_end);
+                let (b_pos, b_off) = b.right(ret.b_end);
+                stack.push(CompareJob::Eval {
                     a_pos,
                     a_off,
-                    b_pos: ret.b_end,
-                    b_off: b_sum,
+                    b_pos,
+                    b_off,
                 });
             }
         }

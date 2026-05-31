@@ -37,7 +37,7 @@
 use crate::codec::{Base, Bits, BitsSlice};
 use crate::idbits;
 
-use super::compare::{EvHeader, EvView};
+use super::compare::{EvHeader, EvView, Side};
 use super::working::WorkingVersion;
 
 mod grow;
@@ -148,10 +148,9 @@ impl Builder {
 // ───────────────────────────── merge (event-tree join) ─────────────────────────────
 
 /// A step in the threaded two-tree `ev_join` walk. `ret` is the [`Joined`] register (see
-/// the module doc). Positions (`*_pos`) address a node in each input; offsets (`*_off`)
-/// are the path sum down to it; sums (`*_sum`) add the node's own base; `*_internal`
-/// records whether that side was a node (so its right child threads) or a leaf (so it
-/// re-broadcasts in place).
+/// the module doc). The broadcast rule — an internal side threads/descends, a leaf side
+/// re-broadcasts in place — lives once in the [`Side`] helpers (`left`/`right`/`end`),
+/// not spelled out per side per arm.
 enum JoinJob {
     /// Join the subtrees at these positions, under these path-sum offsets.
     Eval {
@@ -164,39 +163,23 @@ enum JoinJob {
         /// Path sum down to `b`'s subtree.
         b_off: Base,
     },
-    /// Left child finished; launch the right child (threading each internal side from
-    /// `ret`, re-broadcasting each leaf side from the carried position/offset).
+    /// Left child finished; launch the right child. Each [`Side`] threads its internal
+    /// side from `ret` and re-broadcasts its leaf side in place.
     Right {
-        /// Whether `a` was a node here (its right child threads) or a leaf (re-broadcast).
-        a_internal: bool,
-        /// `a`'s node sum, the offset for a threaded right child.
-        a_sum: Base,
-        /// `a`'s pinned position, reused when `a` is a leaf.
-        a_pos: usize,
-        /// `a`'s pinned offset, reused when `a` is a leaf.
-        a_off: Base,
-        /// Whether `b` was a node here (its right child threads) or a leaf (re-broadcast).
-        b_internal: bool,
-        /// `b`'s node sum, the offset for a threaded right child.
-        b_sum: Base,
-        /// `b`'s pinned position, reused when `b` is a leaf.
-        b_pos: usize,
-        /// `b`'s pinned offset, reused when `b` is a leaf.
-        b_off: Base,
+        /// `a`'s state at this node.
+        a: Side,
+        /// `b`'s state at this node.
+        b: Side,
     },
-    /// Right child finished; sink and close the node, reporting its end positions. The
-    /// end is the threaded child end when that side descended, else its pinned `*_next`.
+    /// Right child finished; sink and close the node, reporting its end positions (each
+    /// [`Side::end`] picks the threaded child end or the pinned leaf `next`).
     Close {
         /// Output index of the node being closed.
         node: usize,
-        /// Whether `a` descended (use the threaded end) or stayed a leaf (use `a_next`).
-        a_internal: bool,
-        /// `a`'s end position when it was a leaf here.
-        a_next: usize,
-        /// Whether `b` descended (use the threaded end) or stayed a leaf (use `b_next`).
-        b_internal: bool,
-        /// `b`'s end position when it was a leaf here.
-        b_next: usize,
+        /// `a`'s state at this node.
+        a: Side,
+        /// `b`'s state at this node.
+        b: Side,
     },
 }
 
@@ -254,34 +237,33 @@ pub(crate) fn ev_join(a: &EvView, b: &EvView) -> WorkingVersion {
                     continue;
                 }
                 let node = out.open(Base::ZERO);
-                // Left children: an internal side descends; a leaf side broadcasts in
-                // place (reuse its position/offset, so its value stays `a_sum`/`b_sum`).
-                let (left_a_pos, left_a_off) = if a_internal {
-                    (a_next, a_sum.clone())
-                } else {
-                    (a_pos, a_off.clone())
+                // At least one side is internal: descend it, broadcast the other leaf.
+                // The [`Side`] helpers carry the one broadcast rule for both children
+                // and the node close.
+                let a_side = Side {
+                    internal: a_internal,
+                    pos: a_pos,
+                    off: a_off,
+                    sum: a_sum,
+                    next: a_next,
                 };
-                let (left_b_pos, left_b_off) = if b_internal {
-                    (b_next, b_sum.clone())
-                } else {
-                    (b_pos, b_off.clone())
+                let b_side = Side {
+                    internal: b_internal,
+                    pos: b_pos,
+                    off: b_off,
+                    sum: b_sum,
+                    next: b_next,
                 };
+                let (left_a_pos, left_a_off) = a_side.left();
+                let (left_b_pos, left_b_off) = b_side.left();
                 stack.push(JoinJob::Close {
                     node,
-                    a_internal,
-                    a_next,
-                    b_internal,
-                    b_next,
+                    a: a_side.clone(),
+                    b: b_side.clone(),
                 });
                 stack.push(JoinJob::Right {
-                    a_internal,
-                    a_sum,
-                    a_pos,
-                    a_off,
-                    b_internal,
-                    b_sum,
-                    b_pos,
-                    b_off,
+                    a: a_side,
+                    b: b_side,
                 });
                 stack.push(JoinJob::Eval {
                     a_pos: left_a_pos,
@@ -290,26 +272,9 @@ pub(crate) fn ev_join(a: &EvView, b: &EvView) -> WorkingVersion {
                     b_off: left_b_off,
                 });
             }
-            JoinJob::Right {
-                a_internal,
-                a_sum,
-                a_pos,
-                a_off,
-                b_internal,
-                b_sum,
-                b_pos,
-                b_off,
-            } => {
-                let (right_a_pos, right_a_off) = if a_internal {
-                    (ret.a_end, a_sum)
-                } else {
-                    (a_pos, a_off)
-                };
-                let (right_b_pos, right_b_off) = if b_internal {
-                    (ret.b_end, b_sum)
-                } else {
-                    (b_pos, b_off)
-                };
+            JoinJob::Right { a, b } => {
+                let (right_a_pos, right_a_off) = a.right(ret.a_end);
+                let (right_b_pos, right_b_off) = b.right(ret.b_end);
                 stack.push(JoinJob::Eval {
                     a_pos: right_a_pos,
                     a_off: right_a_off,
@@ -317,18 +282,12 @@ pub(crate) fn ev_join(a: &EvView, b: &EvView) -> WorkingVersion {
                     b_off: right_b_off,
                 });
             }
-            JoinJob::Close {
-                node,
-                a_internal,
-                a_next,
-                b_internal,
-                b_next,
-            } => {
+            JoinJob::Close { node, a, b } => {
                 out.close_node(node, ret.out_root);
                 ret = Joined {
                     out_root: node,
-                    a_end: if a_internal { ret.a_end } else { a_next },
-                    b_end: if b_internal { ret.b_end } else { b_next },
+                    a_end: a.end(ret.a_end),
+                    b_end: b.end(ret.b_end),
                 };
             }
         }
