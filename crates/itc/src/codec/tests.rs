@@ -11,7 +11,8 @@ use super::{decode_int, encode_int, Base, Bits};
 use crate::oracle;
 use crate::test_support::{
     arb_oracle_party_nonempty, arb_oracle_version, from_oracle_clock, from_oracle_party,
-    from_oracle_version, run, to_oracle_clock, versions, world_strategy,
+    from_oracle_version, run, to_oracle_clock, to_oracle_party, to_oracle_version, versions,
+    world_strategy,
 };
 use crate::{Clock, DecodeError, Party, Version};
 
@@ -329,4 +330,210 @@ fn a3_reject_trailing_bits() {
         Version::decode(&bytes),
         Err(DecodeError::TrailingBits)
     ));
+}
+
+// ───────────────────── PROG-5(b): decode mutation tests ─────────────────────
+//
+// The 256 uniform-random vectors in `h34_decode_never_panics` are a thin panic net:
+// truly random bytes almost never form a *nearly*-valid stream, so they barely exercise
+// the validator's accept boundary. These tests instead start from a *valid* canonical
+// encoding and perturb it minimally — flip one bit, truncate at one position — so the
+// mutated input lands right at the edge of the accepted language. The contract for every
+// mutation is the same disjunction: `decode` either **rejects** (`Err`) or
+// **accepts-canonically** — the accepted value lowers to a normal-form oracle tree
+// (COV-7's keystone invariant, the thing byte-equality `Eq`/`Hash` rests on) *and*
+// re-encodes to exactly the bytes it was decoded from (so the mutated stream was itself
+// the canonical encoding of some value). A decode that accepts a non-normal value, or one
+// whose re-encode disagrees with its own input, is a major finding.
+
+/// Assert the accept-canonically contract for a `Party` decode of `bytes`: if it decodes,
+/// the value is normal form and re-encodes to exactly `bytes`.
+fn assert_party_accept_canonical(bytes: &[u8]) {
+    if let Ok(p) = Party::decode(bytes) {
+        assert!(
+            to_oracle_party(&p).is_normal(),
+            "decode accepted a non-normal Party from {bytes:02x?}",
+        );
+        assert_eq!(
+            p.encode(),
+            bytes,
+            "accepted Party does not re-encode to its own input bytes",
+        );
+    }
+}
+
+/// As [`assert_party_accept_canonical`], for a `Version` decode.
+fn assert_version_accept_canonical(bytes: &[u8]) {
+    if let Ok(v) = Version::decode(bytes) {
+        assert!(
+            to_oracle_version(&v).is_normal(),
+            "decode accepted a non-normal Version from {bytes:02x?}",
+        );
+        assert_eq!(
+            v.encode(),
+            bytes,
+            "accepted Version does not re-encode to its own input bytes",
+        );
+    }
+}
+
+/// As [`assert_party_accept_canonical`], for a `Clock` decode. Both lowered components
+/// must be normal form, and the clock must re-encode to its own input bytes.
+fn assert_clock_accept_canonical(bytes: &[u8]) {
+    if let Ok(c) = Clock::decode(bytes) {
+        let (p, v) = to_oracle_clock(&c);
+        assert!(
+            p.is_normal() && v.is_normal(),
+            "decode accepted a non-normal Clock from {bytes:02x?}",
+        );
+        assert_eq!(
+            c.encode(),
+            bytes,
+            "accepted Clock does not re-encode to its own input bytes",
+        );
+    }
+}
+
+/// Run the accept-canonically contract for all three decoders against the same bytes.
+fn assert_all_accept_canonical(bytes: &[u8]) {
+    assert_party_accept_canonical(bytes);
+    assert_version_accept_canonical(bytes);
+    assert_clock_accept_canonical(bytes);
+}
+
+proptest! {
+    /// PROG-5(b). Flipping any single bit of a valid clock encoding yields a stream that
+    /// `decode` either rejects or accepts canonically (normal-form, re-encode-stable) —
+    /// for every bit position and every decoder. Single-bit flips are the most targeted
+    /// mutation: each lands one Hamming step from the accepted language, where a validator
+    /// that under-checks would leak a non-canonical accept.
+    ///
+    /// IGNORED — exposes the trailing-zero-byte defect (see
+    /// [`prog5_trailing_zero_byte_accepted_witness`]): a flip can shift the tree to end on
+    /// a byte boundary one byte before the input's end, leaving a spurious all-zero
+    /// trailing byte that `require_zero_padding` wrongly accepts, so the accepted value
+    /// re-encodes to *fewer* bytes than its own input. Un-ignore once the codec rejects
+    /// trailing whole zero bytes (≥8 padding bits).
+    #[ignore = "exposes trailing-zero-byte defect: decode accepts ≥8 zero padding bits (whole spurious zero bytes), so decode is non-injective on bytes"]
+    #[test]
+    fn prog5_bit_flip_rejects_or_canonical(
+        pa in arb_oracle_party_nonempty(),
+        va in arb_oracle_version(),
+    ) {
+        let clock = Clock::from_parts(from_oracle_party(&pa), from_oracle_version(&va));
+        let valid = clock.encode();
+        // The unmutated stream must of course be accepted canonically.
+        assert_all_accept_canonical(&valid);
+
+        for byte in 0..valid.len() {
+            for bit in 0u8..8 {
+                let mut m = valid.clone();
+                m[byte] ^= 0b1000_0000u8 >> bit;
+                assert_all_accept_canonical(&m);
+            }
+        }
+    }
+}
+
+proptest! {
+    /// PROG-5(b). Truncating a valid encoding at any byte boundary yields a stream that
+    /// `decode` rejects or accepts canonically. A prefix of a complete tree is almost
+    /// always `Truncated`, but a prefix can occasionally itself be a complete smaller tree
+    /// (e.g. the leading id leaf of a clock) — which must then decode canonically, never to
+    /// a malformed value.
+    ///
+    /// IGNORED — exposes the trailing-zero-byte defect (see
+    /// [`prog5_trailing_zero_byte_accepted_witness`]): a truncation can cut a valid stream
+    /// just *after* a complete tree but still inside one or more trailing zero bytes, which
+    /// `require_zero_padding` wrongly accepts, so the accepted value re-encodes to fewer
+    /// bytes than its own (truncated) input. Un-ignore once the codec rejects trailing
+    /// whole zero bytes.
+    #[ignore = "exposes trailing-zero-byte defect: decode accepts ≥8 zero padding bits (whole spurious zero bytes), so decode is non-injective on bytes"]
+    #[test]
+    fn prog5_truncation_rejects_or_canonical(
+        pa in arb_oracle_party_nonempty(),
+        va in arb_oracle_version(),
+    ) {
+        let clock = Clock::from_parts(from_oracle_party(&pa), from_oracle_version(&va));
+        let valid = clock.encode();
+        for cut in 0..valid.len() {
+            assert_all_accept_canonical(&valid[..cut]);
+        }
+    }
+}
+
+/// PROG-5(b) WITNESS — the minimal reproduction of the trailing-zero-byte defect that the
+/// two ignored mutation proptests above surface.
+///
+/// `pack_to_bytes` zero-pads a canonical stream only to the next byte boundary, so a
+/// canonical encoding has **at most 7 trailing zero bits**. But [`require_zero_padding`]
+/// (`codec.rs`) only checks that the bits after the tree are all zero — it never bounds
+/// how *many* there are. So appending one or more whole `0x00` bytes (≥8 zero bits) is
+/// wrongly accepted: `decode` is **non-injective on byte strings** — infinitely many
+/// distinct byte vectors decode to the same value, and the accepted value re-encodes to a
+/// *shorter* stream than its own input. This violates `decode`'s documented contract
+/// ("strictly rejects ... non-canonical input") and the keystone byte-canonicity property.
+///
+/// `(2, 0, 1)` is the smallest witness: its canonical encoding is the 2 bytes `[180, 128]`
+/// (16 bits exactly — no intra-byte padding), so a third `0x00` byte is unambiguously a
+/// spurious trailing byte, not padding. A bare party leaf `(1, (0, 1))` = `[177]` exhibits
+/// the same with one appended `0x00`.
+///
+/// IGNORED — asserts the *correct* behavior (reject), which the current codec violates.
+/// Un-ignore the moment `require_zero_padding` is fixed to reject ≥8 trailing zero bits;
+/// it then becomes a permanent regression guard. The fix is local: require
+/// `bits.len() - pos < 8` in addition to `!bits[pos..].any()`.
+#[ignore = "exposes trailing-zero-byte defect: decode accepts ≥8 zero padding bits (whole spurious zero bytes), so decode is non-injective on bytes"]
+#[test]
+fn prog5_trailing_zero_byte_accepted_witness() {
+    // Canonical encoding of the event `(2, 0, 1)` is exactly two bytes.
+    let canonical = Version::try_from((2u64, 0u64, 1u64)).unwrap().encode();
+    assert_eq!(canonical, vec![180, 128], "witness canonical encoding");
+
+    // Appending a whole zero byte must be rejected as TrailingBits — it is NOT padding,
+    // because the canonical stream already ended on a byte boundary.
+    let mut with_zero = canonical.clone();
+    with_zero.push(0);
+    assert_eq!(
+        Version::decode(&with_zero),
+        Err(DecodeError::TrailingBits),
+        "a whole trailing zero byte is non-canonical and must be rejected",
+    );
+
+    // The same for an id (party): `(1, (0, 1))` packs to one byte; a second zero byte is
+    // spurious.
+    let party = "(1, (0, 1))".parse::<Party>().unwrap().encode();
+    assert_eq!(party, vec![177], "witness party canonical encoding");
+    let mut party_zero = party.clone();
+    party_zero.push(0);
+    assert_eq!(
+        Party::decode(&party_zero),
+        Err(DecodeError::TrailingBits),
+        "a whole trailing zero byte on an id must be rejected",
+    );
+}
+
+proptest! {
+    /// PROG-5(b). The trailing bits of the final byte are zero padding. Setting any one of
+    /// them must be rejected (`TrailingBits`) — never silently accepted — because a
+    /// non-zero padding bit makes the stream non-canonical, which would break the
+    /// byte-equality `Eq`/`Hash` contract. The whole-byte and intra-byte cases are pinned
+    /// by hand in the A3 suite; this sweeps every padding position over arbitrary trees.
+    #[test]
+    fn prog5_padding_perturbation_rejects(pa in arb_oracle_party_nonempty()) {
+        let party = from_oracle_party(&pa);
+        let valid = party.encode();
+        // Number of meaningful bits = bit length of the packed id with no trailing padding.
+        let used = party.as_bits().len();
+        let total = valid.len() * 8;
+        for pad in used..total {
+            let (byte, bit) = (pad / 8, (pad % 8) as u8);
+            let mut m = valid.clone();
+            m[byte] |= 0b1000_0000u8 >> bit;
+            prop_assert!(
+                matches!(Party::decode(&m), Err(DecodeError::TrailingBits)),
+                "non-zero padding bit at position {pad} must be rejected",
+            );
+        }
+    }
 }

@@ -450,17 +450,25 @@ fn h33_deep_tree_stack_safety() {
 }
 
 proptest! {
-    /// H34. `decode` of arbitrary bytes never panics; it returns `Ok` or `Err`. Any
-    /// accepted value is canonical: re-encoding then decoding yields it again.
+    /// H34 + COV-7. `decode` of arbitrary bytes never panics; it returns `Ok` or `Err`.
+    /// Any accepted value satisfies the keystone invariant `decode(b) == Ok(x) ⟹
+    /// is_normal(x)`: lowering it to the oracle yields a normal-form tree. This — not the
+    /// re-encode round-trip alone — is what makes the byte-equality `Eq`/`Hash` sound: a
+    /// non-normal accept would give two distinct byte strings for one logical value. The
+    /// re-encode-then-decode round-trip is also asserted (canonical encoding is stable).
     #[test]
     fn h34_decode_never_panics(bytes in prop::collection::vec(any::<u8>(), 0..512)) {
         if let Ok(p) = Party::decode(&bytes) {
+            prop_assert!(to_oracle_party(&p).is_normal(), "accepted a non-normal Party");
             prop_assert_eq!(Party::decode(&p.encode()).ok(), Some(p));
         }
         if let Ok(v) = Version::decode(&bytes) {
+            prop_assert!(to_oracle_version(&v).is_normal(), "accepted a non-normal Version");
             prop_assert_eq!(Version::decode(&v.encode()).ok(), Some(v));
         }
         if let Ok(c) = Clock::decode(&bytes) {
+            let (p, v) = to_oracle_clock(&c);
+            prop_assert!(p.is_normal() && v.is_normal(), "accepted a non-normal Clock");
             let re = Clock::decode(&c.encode()).expect("re-encode of an accepted clock is canonical");
             prop_assert_eq!(re.encode(), c.encode());
         }
