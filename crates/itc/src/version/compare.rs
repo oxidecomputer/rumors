@@ -23,7 +23,7 @@
 use core::cmp::Ordering;
 
 use crate::codec::{decode_int, Base, BitsSlice};
-use crate::step;
+use crate::{idbits, step};
 
 use super::working::WorkingVersion;
 
@@ -90,17 +90,15 @@ impl EvView<'_> {
 }
 
 /// Advance past one whole subtree starting at `at`, returning the position after it.
-/// Iterative: a pending-children counter, never the call stack. (The id-tree analogue,
-/// on the packed id header shape, is [`idbits::skip`](crate::idbits::skip): same
-/// algorithm, different node encoding — keep the two in step.)
-pub(super) fn skip(view: &EvView, mut at: usize) -> usize {
-    let mut pending: i64 = 1;
-    while pending > 0 {
-        let (internal, _, next) = view.header(at);
-        at = next;
-        pending += if internal { 1 } else { -1 };
-    }
-    at
+/// Iterative: a pending-children counter, never the call stack — see the shared
+/// [`idbits::skip_subtree`](crate::idbits::skip_subtree) core. (The id-tree analogue, on
+/// the packed id header shape, is [`idbits::skip`](crate::idbits::skip): same algorithm
+/// via the same core, different node encoding.)
+pub(super) fn skip(view: &EvView, at: usize) -> usize {
+    idbits::skip_subtree(at, |pos| {
+        let (internal, _, next) = view.header(pos);
+        (internal, next)
+    })
 }
 
 /// A step in the threaded comparison walk. Positions (`*_pos`) address a node in each

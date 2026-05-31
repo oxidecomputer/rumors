@@ -89,7 +89,10 @@ impl Builder {
 
     /// Copy the subtree at `root` of `src` verbatim (it is already normalized); return
     /// `(new_root, src_end)` — its index here and the position just past it in `src`.
-    /// Iterative single pass.
+    /// Iterative single pass: the same pending-children scan as the shared
+    /// [`idbits::skip_subtree`](crate::idbits::skip_subtree) core, but it keeps its own
+    /// loop because it emits each visited node into the output as it goes rather than
+    /// only computing the end position.
     pub(super) fn copy(&mut self, src: &EvView, root: usize) -> (usize, usize) {
         let out_root = self.len();
         let mut pos = root;

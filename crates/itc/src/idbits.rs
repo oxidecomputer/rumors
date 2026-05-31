@@ -26,18 +26,35 @@ pub(crate) fn header(bits: &BitsSlice, at: usize) -> (bool, bool, usize) {
     }
 }
 
-/// Position just past the whole subtree rooted at `at`. Iterative: a pending-children
-/// counter, never the call stack. (The event-tree analogue, on the `EvView` header
-/// shape, is `version::compare::skip`: same algorithm, different node encoding — keep
-/// the two in step.)
-pub(crate) fn skip(bits: &BitsSlice, mut at: usize) -> usize {
+/// Position just past the whole subtree rooted at `at` of any preorder tree encoding,
+/// driven by a caller-supplied header probe. Iterative: a pending-children counter
+/// (`+1` per internal node, `-1` per leaf, start at one outstanding child), never the
+/// call stack — deep inputs cannot overflow. `header(at)` reports `(is_internal, next)`:
+/// whether the node at `at` is internal (so its children follow) and the position just
+/// past its header. The single shared spelling of this scan: [`skip`] runs it on the
+/// packed id header shape, [`version::compare::skip`](crate::version::compare::skip) on
+/// the `EvView` event header shape, and `version::event::Builder::copy` inlines the same
+/// loop while also emitting the visited nodes.
+pub(crate) fn skip_subtree(mut at: usize, mut header: impl FnMut(usize) -> (bool, usize)) -> usize {
     let mut pending: i64 = 1;
     while pending > 0 {
-        let (is_node, _, next) = header(bits, at);
+        let (internal, next) = header(at);
         at = next;
-        pending += if is_node { 1 } else { -1 };
+        pending += if internal { 1 } else { -1 };
     }
     at
+}
+
+/// Position just past the whole subtree rooted at `at`. Iterative: a pending-children
+/// counter, never the call stack — see the shared [`skip_subtree`] core. (The event-tree
+/// analogue, on the `EvView` header shape, is
+/// [`version::compare::skip`](crate::version::compare::skip): same algorithm via the same
+/// core, different node encoding.)
+pub(crate) fn skip(bits: &BitsSlice, at: usize) -> usize {
+    skip_subtree(at, |pos| {
+        let (is_node, _, next) = header(bits, pos);
+        (is_node, next)
+    })
 }
 
 /// Whether the normal-form subtree at `at` owns nothing. `O(1)`: it is empty iff it
