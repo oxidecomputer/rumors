@@ -697,4 +697,50 @@ proptest! {
         prop_assert_eq!(v2, v);
         prop_assert_eq!(c2.encode(), c.encode());
     }
+
+    /// `serde_json` represents `serialize_bytes` as a JSON number-array, decoded back via
+    /// `visit_seq` — so it never exercises the binary `serialize_bytes`/`visit_bytes` path
+    /// (COV-2). Pin that path through two non-JSON formats: `postcard` (non-self-describing,
+    /// length-prefixed bytes) and `ciborium` (self-describing CBOR, which emits a *typed*
+    /// byte-string — CBOR major type 2). Every type must round-trip through both: the
+    /// serialized form is the canonical encoding, deserialization re-validates it, and the
+    /// CBOR typed-bytes path is the one `serde_json` alone can never reach.
+    #[test]
+    fn serde_roundtrip_binary_formats(ops in world_strategy(), i in 0usize..64) {
+        let cs = run(&ops);
+        let n = cs.len();
+        let p = from_oracle_party(cs[i % n].party());
+        let v = from_oracle_version(&cs[i % n].version());
+        let c = from_oracle_clock(&cs[i % n]);
+
+        // postcard: non-self-describing binary format.
+        let p2: Party = postcard::from_bytes(&postcard::to_allocvec(&p).unwrap()).unwrap();
+        let v2: Version = postcard::from_bytes(&postcard::to_allocvec(&v).unwrap()).unwrap();
+        let c2: Clock = postcard::from_bytes(&postcard::to_allocvec(&c).unwrap()).unwrap();
+        prop_assert_eq!(&p2, &p);
+        prop_assert_eq!(&v2, &v);
+        prop_assert_eq!(c2.encode(), c.encode());
+
+        // ciborium: self-describing CBOR. Each value must serialize as a byte string
+        // (major type 2) and deserialize back through `Vec<u8>`'s `visit_bytes`.
+        let cbor = |bytes: &[u8]| -> u8 { bytes[0] >> 5 };
+
+        let mut b = Vec::new();
+        ciborium::ser::into_writer(&p, &mut b).unwrap();
+        prop_assert_eq!(cbor(&b), 2, "Party did not serialize as a CBOR byte string");
+        let p3: Party = ciborium::de::from_reader(&b[..]).unwrap();
+        prop_assert_eq!(&p3, &p);
+
+        let mut b = Vec::new();
+        ciborium::ser::into_writer(&v, &mut b).unwrap();
+        prop_assert_eq!(cbor(&b), 2, "Version did not serialize as a CBOR byte string");
+        let v3: Version = ciborium::de::from_reader(&b[..]).unwrap();
+        prop_assert_eq!(&v3, &v);
+
+        let mut b = Vec::new();
+        ciborium::ser::into_writer(&c, &mut b).unwrap();
+        prop_assert_eq!(cbor(&b), 2, "Clock did not serialize as a CBOR byte string");
+        let c3: Clock = ciborium::de::from_reader(&b[..]).unwrap();
+        prop_assert_eq!(c3.encode(), c.encode());
+    }
 }
