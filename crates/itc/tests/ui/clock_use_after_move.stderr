@@ -1,0 +1,17 @@
+error[E0382]: borrow of moved value: `clock`
+  --> tests/ui/clock_use_after_move.rs:12:18
+   |
+ 8 |     let clock = Clock::seed();
+   |         ----- move occurs because `clock` has type `itc::Clock`, which does not implement the `Copy` trait
+ 9 |     let ev = Version::new();
+10 |     let _merged = clock | ev;
+   |                   ---------- `clock` moved due to usage in operator
+11 |     // `clock` was moved into the `|` above; touching it again is illegal.
+12 |     let _again = clock.version();
+   |                  ^^^^^ value borrowed here after move
+   |
+note: calling this operator moves the left-hand side
+  --> $RUST/core/src/ops/bit.rs
+   |
+   |     fn bitor(self, rhs: Rhs) -> Self::Output;
+   |              ^^^^

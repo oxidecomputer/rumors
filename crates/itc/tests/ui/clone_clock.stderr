@@ -1,0 +1,5 @@
+error[E0599]: no method named `clone` found for struct `itc::Clock` in the current scope
+ --> tests/ui/clone_clock.rs:8:18
+  |
+8 |     let _dup = c.clone();
+  |                  ^^^^^ method not found in `itc::Clock`
