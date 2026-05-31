@@ -85,6 +85,8 @@ mod prog6_laws;
 #[cfg(test)]
 mod sampling_oracle;
 #[cfg(test)]
+mod snapshots_doc;
+#[cfg(test)]
 mod test_support;
 
 /// Record one traversal step. Expands to a counter bump under `cfg(test)` (see the
