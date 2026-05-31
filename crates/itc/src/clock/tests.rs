@@ -377,10 +377,14 @@ proptest! {
 // ───────────────────────────── robustness ─────────────────────────────
 
 /// H33. Deep structures (a depth-100k id spine, and the deep event tree a tick builds
-/// over it) survive every op plus the codec and the `Debug` printer with no stack
-/// overflow — the proof that every traversal is iterative. Impl-only: the recursive
-/// oracle cannot build or even drop a tree this deep (oracle agreement at bounded depth
-/// is the master harness's job, §8).
+/// over it) survive *every* public op plus the codec and the `Debug` printer with no
+/// stack overflow — the proof that every traversal is iterative. Beyond the single-clock
+/// ops (tick / fork / join / partial_cmp / `|` / encode / decode / Debug), this drives
+/// the composite and observer ops that operate on deep structures: `sync` between two
+/// deep clocks, `send`/`receive` of a deep version, and each clock observer
+/// (`has_seen` / `happens_before` / `concurrent_with`) at depth (COV-4). Impl-only: the
+/// recursive oracle cannot build or even drop a tree this deep (oracle agreement at
+/// bounded depth is the master harness's job, §8).
 #[test]
 fn h33_deep_tree_stack_safety() {
     const DEPTH: usize = 100_000;
@@ -410,9 +414,35 @@ fn h33_deep_tree_stack_safety() {
         bytes
     );
 
-    // Fork (deep split + snapshot) yields a disjoint child; join restores the whole.
-    let child = clock.fork();
+    // `send`/`receive` over the deep clock: `send` extracts a deep version (and ticks the
+    // clock's event tree), and a self-`receive` (the sent message is `<= self`) merges a
+    // deep version into a deep clock without overflow.
+    let msg = clock.send();
+    clock.receive(msg);
+
+    // Observers over a deep clock and a deep message do not overflow: `has_seen` lowers to
+    // a deep `causal_cmp` against the version, and the clock-vs-clock observers compare two
+    // deep versions.
+    let sent = clock.send();
+    assert!(clock.has_seen(&sent));
+    assert!(!clock.happens_before(&clock));
+    assert!(!clock.concurrent_with(&clock));
+
+    // Fork (deep split + snapshot) yields a disjoint child; both halves stay deep.
+    let mut child = clock.fork();
     assert!(clock.party().is_disjoint(child.party()));
+
+    // `sync` between two deep clocks is the most complex composite (fork + join + merge of
+    // deep structures). Drive it and assert it reconciles without overflow: post-sync the
+    // two versions are equal, the parties stay disjoint, and the observers agree they are
+    // neither strictly ordered nor concurrent.
+    clock.sync(&mut child).expect("fork halves are disjoint");
+    assert!(clock.version() == child.version());
+    assert!(clock.party().is_disjoint(child.party()));
+    assert!(!clock.happens_before(&child));
+    assert!(!clock.concurrent_with(&child));
+
+    // join restores the whole from the two deep halves.
     clock.join(child).expect("fork halves are disjoint");
 
     // The iterative Debug pretty-printer must not overflow either.
