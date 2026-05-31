@@ -34,6 +34,23 @@
 //! reads `ret`, the most recent write is exactly the sibling subtree it is waiting on.
 //! (`sum` in `party::ops` plays the same role with a `Vec` of its `Summed` register,
 //! since it must combine two child *outputs*, not just their positions.)
+//!
+//! # Traversal-idiom taxonomy
+//!
+//! Every tree walk in the crate is iterative (no recursion on depth). There are three
+//! distinct shapes; each is internally consistent, and knowing which one a given machine
+//! uses tells you how to read it:
+//!
+//! | Idiom | Shape | Where |
+//! |---|---|---|
+//! | Job-stack + `ret` thread register (`Eval`/`Right`/`Close`/`Combine`) | threaded DFS / fold | `causal_cmp`, `ev_join`, `fill`, [`EvView::ev_max`], the [`grow`] probe/emit, `party::ops::sum`, `party::ops::is_disjoint` |
+//! | `NeedLeft`/`NeedRight` frame stack | single-tree build/print | `codec` parse/write of ids and event trees, `party::ops::split`'s pass 1 |
+//! | Pending-children counter (`pending: i64`) | subtree-span scan | [`idbits::skip_subtree`](crate::idbits::skip_subtree) (shared by `idbits::skip` and `EvView::skip`), [`Builder::copy`] |
+//!
+//! The first idiom dominates (a single-output fold like `ev_max` drops the `Close` arm
+//! and threads only the end position); the others appear where the goal is narrower (a
+//! one-tree print, a pure span scan) and the full `Eval`/`Right`/`Close` protocol would
+//! be overkill.
 
 use crate::codec::{Base, Bits, BitsSlice};
 use crate::idbits::IdView;
@@ -131,6 +148,11 @@ impl Builder {
         self.base[right] -= &m;
         // Collapse only when both children are leaves of equal (post-sink) base.
         if !self.topo[left] && !self.topo[right] && self.base[left] == self.base[right] {
+            debug_assert_eq!(
+                right,
+                node + 2,
+                "collapse precondition: both children are adjacent leaves",
+            );
             let collapsed = self.base[node].clone(); // the common child base is 0 after the sink
             self.topo.truncate(node);
             self.base.truncate(node);
@@ -304,56 +326,61 @@ impl EvView<'_> {
     }
 }
 
-/// An open ancestor on the [`EvView::ev_max`] descent stack: a node whose subtree is
-/// still being summed.
-struct Ancestor {
-    /// The path sum from the root down to and including this node.
-    cumulative: Base,
-    /// How many of this node's two children are not yet finished (2, then 1, then pop).
-    children_left: u8,
+/// A step in the [`EvView::ev_max`] descent, in the dominant job-stack idiom. The thread
+/// register is just the end position of the last-finished subtree (`end` in the loop):
+/// this fold has no per-node output to combine, only a global maximum, so it needs no
+/// register struct and `Eval`/`Right` alone (no `Close`) suffice.
+enum MaxJob {
+    /// Accumulate the subtree at `pos`, whose root-to-parent path sum is `off`.
+    Eval { pos: usize, off: Base },
+    /// Left child finished (its end is in the thread register); launch the right child
+    /// under this node's path sum `off`.
+    Right { off: Base },
 }
 
 impl EvView<'_> {
     /// The maximum value of the event function over the subtree at `root` (the paper's
-    /// `max`: `base + max(child maxes)`), and the position just past the subtree. Iterative
-    /// linear pass — a per-ancestor cumulative/remaining stack, no right-child re-scan.
+    /// `max`: `base + max(child maxes)`), and the position just past the subtree.
+    /// Iterative `O(n)` pass in the crate's dominant job-stack idiom: the threaded `end`
+    /// reports where each subtree finished so a right sibling resumes there without
+    /// re-scanning, while the running `max` accumulates every node's path sum.
     fn ev_max(&self, root: usize) -> (Base, usize) {
-        let view = self;
         let mut max = Base::ZERO;
-        let mut pos = root;
-        let mut stack: Vec<Ancestor> = Vec::new();
-        loop {
-            let offset = stack.last().map_or(Base::ZERO, |a| a.cumulative.clone());
-            let EvHeader {
-                internal,
-                base,
-                next,
-            } = view.header(pos);
-            let cumulative = offset + base;
-            max = max.max(cumulative.clone());
-            pos = next;
-            if internal {
-                stack.push(Ancestor {
-                    cumulative,
-                    children_left: 2,
-                });
-            } else {
-                // A leaf completes; pop every ancestor whose children are now all done.
-                loop {
-                    match stack.last_mut() {
-                        None => return (max, pos),
-                        Some(ancestor) => {
-                            ancestor.children_left -= 1;
-                            if ancestor.children_left == 0 {
-                                stack.pop();
-                            } else {
-                                break;
-                            }
-                        }
+        let mut end = root;
+        let mut stack = vec![MaxJob::Eval {
+            pos: root,
+            off: Base::ZERO,
+        }];
+        while let Some(job) = stack.pop() {
+            match job {
+                MaxJob::Eval { pos, off } => {
+                    let EvHeader {
+                        internal,
+                        base,
+                        next,
+                    } = self.header(pos);
+                    let cumulative = off + base;
+                    max = max.max(cumulative.clone());
+                    if internal {
+                        // Descend the left child; defer the right under this node's sum.
+                        // (LIFO: when `Right` pops, `end` is exactly the left subtree's end.)
+                        stack.push(MaxJob::Right {
+                            off: cumulative.clone(),
+                        });
+                        stack.push(MaxJob::Eval {
+                            pos: next,
+                            off: cumulative,
+                        });
+                    } else {
+                        end = next;
                     }
+                }
+                MaxJob::Right { off } => {
+                    stack.push(MaxJob::Eval { pos: end, off });
                 }
             }
         }
+        (max, end)
     }
 }
 
