@@ -15,20 +15,20 @@ use crate::test_support::{
     min_inflation_cost, run, versions, world_strategy,
 };
 
-// ───────────────────────────── O1 ─────────────────────────────
+// ───────────────────────────── seed / join identity ─────────────────────────────
 
-/// O1. `Clock::seed()` decomposes to `(Party::seed(), Version::new())`.
+/// `Clock::seed()` decomposes to `(Party::seed(), Version::new())`.
 #[test]
-fn o1_genesis() {
+fn genesis() {
     let (p, v) = Clock::seed().into_parts();
     assert_eq!(p, Party::seed());
     assert_eq!(v, Version::new());
 }
 
 proptest! {
-    /// O1. `Version::new()` is the two-sided identity for `|`.
+    /// `Version::new()` is the two-sided identity for `|`.
     #[test]
-    fn o1_join_identity(ops in world_strategy()) {
+    fn join_identity(ops in world_strategy()) {
         for v in versions(&run(&ops)) {
             prop_assert_eq!(Version::new() | v.clone(), v.clone());
             prop_assert_eq!(v.clone() | Version::new(), v);
@@ -36,13 +36,13 @@ proptest! {
     }
 }
 
-// ───────────────────────────── O2 ─────────────────────────────
+// ───────────────────────────── normal form ─────────────────────────────
 
 proptest! {
-    /// O2. Every value any op produces is in normal form (parties and versions),
+    /// Every value any op produces is in normal form (parties and versions),
     /// including the result of a join.
     #[test]
-    fn o2_normal_form(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+    fn normal_form(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
         for c in &cs {
             let (p, v) = c.trees();
@@ -56,13 +56,13 @@ proptest! {
     }
 }
 
-// ───────────────────────────── O3 ─────────────────────────────
+// ───────────────────────────── version causal order ─────────────────────────────
 
 proptest! {
-    /// O3. The causal order is a partial order: reflexive, antisymmetric,
+    /// The causal order is a partial order: reflexive, antisymmetric,
     /// transitive; `==` ⇔ `Some(Equal)`; concurrency ⇔ `None`.
     #[test]
-    fn o3_partial_order(ops in world_strategy(), i in 0usize..64, j in 0usize..64, k in 0usize..64) {
+    fn version_partial_order(ops in world_strategy(), i in 0usize..64, j in 0usize..64, k in 0usize..64) {
         let vs = versions(&run(&ops));
         let n = vs.len();
         let (a, b, c) = (&vs[i % n], &vs[j % n], &vs[k % n]);
@@ -80,12 +80,12 @@ proptest! {
     }
 }
 
-// ───────────────────────────── O4 ─────────────────────────────
+// ───────────────────────────── tick advances ─────────────────────────────
 
 proptest! {
-    /// O4. `tick` strictly advances: `v < v.tick(p)` for the clock's own party.
+    /// `tick` strictly advances: `v < v.tick(p)` for the clock's own party.
     #[test]
-    fn o4_tick_advances(ops in world_strategy()) {
+    fn tick_advances(ops in world_strategy()) {
         for c in &run(&ops) {
             let party = c.party().clone();
             let before = c.version();
@@ -97,14 +97,14 @@ proptest! {
     }
 }
 
-// ───────────────────────────── O5 ─────────────────────────────
+// ───────────────────────────── join semilattice ─────────────────────────────
 
 proptest! {
-    /// O5. Join is a bounded join-semilattice and the least upper bound:
+    /// Join is a bounded join-semilattice and the least upper bound:
     /// commutative, associative, idempotent; upper bound; and least (below any
     /// common upper bound).
     #[test]
-    fn o5_lattice(ops in world_strategy(),
+    fn lattice(ops in world_strategy(),
                   i in 0usize..64, j in 0usize..64, k in 0usize..64, l in 0usize..64) {
         let vs = versions(&run(&ops));
         let n = vs.len();
@@ -126,12 +126,12 @@ proptest! {
     }
 }
 
-// ───────────────────────────── O6 ─────────────────────────────
+// ───────────────────────────── order induced by join ─────────────────────────────
 
 proptest! {
-    /// O6. The order is induced by the join: `a <= b` ⇔ `a|b == b`.
+    /// The order is induced by the join: `a <= b` ⇔ `a|b == b`.
     #[test]
-    fn o6_order_from_join(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+    fn order_from_join(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let vs = versions(&run(&ops));
         let n = vs.len();
         let (a, b) = (&vs[i % n], &vs[j % n]);
@@ -139,12 +139,12 @@ proptest! {
     }
 }
 
-// ───────────────────────────── O7 ─────────────────────────────
+// ───────────────────────────── fork / join round-trip ─────────────────────────────
 
 proptest! {
-    /// O7. Party fork is invertible by join, and fork preserves a clock's version.
+    /// Party fork is invertible by join, and fork preserves a clock's version.
     #[test]
-    fn o7_fork_join_roundtrip(ops in world_strategy()) {
+    fn fork_join_roundtrip(ops in world_strategy()) {
         for c in &run(&ops) {
             // Party level: fork then join recovers the original party.
             let mut p = c.party().clone();
@@ -158,9 +158,9 @@ proptest! {
 }
 
 proptest! {
-    /// O7/O10. `fork` leaves both halves carrying the parent's version.
+    /// `fork` leaves both halves carrying the parent's version.
     #[test]
-    fn o7_fork_preserves_version(ops in world_strategy()) {
+    fn fork_preserves_version(ops in world_strategy()) {
         let mut cs = run(&ops);
         for c in &mut cs {
             let before = c.version();
@@ -171,14 +171,14 @@ proptest! {
     }
 }
 
-// ───────────────────────────── O8 ─────────────────────────────
+// ───────────────────────────── party order ─────────────────────────────
 
 proptest! {
-    /// O8. Party order is descent: each fork child is `>` its parent; the order
+    /// Party order is descent: each fork child is `>` its parent; the order
     /// is a partial order; `join` is the meet (a lower bound) for disjoint
     /// parties; and `join` errors (handing the party back unchanged) on overlap.
     #[test]
-    fn o8_party_order(ops in world_strategy(), i in 0usize..64, j in 0usize..64, k in 0usize..64) {
+    fn party_order(ops in world_strategy(), i in 0usize..64, j in 0usize..64, k in 0usize..64) {
         let cs = run(&ops);
         let parties: Vec<Party> = cs.iter().map(|c| c.party().clone()).collect();
         let n = parties.len();
@@ -222,13 +222,13 @@ proptest! {
     }
 }
 
-// ───────────────────────────── O9 ─────────────────────────────
+// ───────────────────────────── disjointness invariant ─────────────────────────────
 
 proptest! {
-    /// O9. Over any seed-derived trace, all live parties are pairwise disjoint and
+    /// Over any seed-derived trace, all live parties are pairwise disjoint and
     /// their overall `sum` recovers the whole id space.
     #[test]
-    fn o9_disjointness_invariant(ops in world_strategy()) {
+    fn disjointness_invariant(ops in world_strategy()) {
         let cs = run(&ops);
         for i in 0..cs.len() {
             for j in (i + 1)..cs.len() {
@@ -246,13 +246,13 @@ proptest! {
     }
 }
 
-// ───────────────────────────── O10 ─────────────────────────────
+// ───────────────────────────── peek does not advance ─────────────────────────────
 
 proptest! {
-    /// O10. Peek does not advance: `version()` is idempotent and leaves the clock
-    /// unchanged. (Fork-preserves-history is O7.)
+    /// Peek does not advance: `version()` is idempotent and leaves the clock
+    /// unchanged. (Fork preserving history is covered by `fork_preserves_version`.)
     #[test]
-    fn o10_peek_does_not_advance(ops in world_strategy()) {
+    fn peek_does_not_advance(ops in world_strategy()) {
         for c in &run(&ops) {
             let v1 = c.version();
             let v2 = c.version();
@@ -261,13 +261,13 @@ proptest! {
     }
 }
 
-// ───────────────────────────── O11 ─────────────────────────────
+// ───────────────────────────── dominated receive ─────────────────────────────
 
 proptest! {
-    /// O11. A dominated receive equals a bare tick, and re-delivery is idempotent
+    /// A dominated receive equals a bare tick, and re-delivery is idempotent
     /// (`v | m | m == v | m`).
     #[test]
-    fn o11_dominated_receive(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+    fn dominated_receive(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
 
         // Re-delivery idempotence at the version level.
@@ -291,12 +291,12 @@ proptest! {
     }
 }
 
-// ───────────────────────────── O12 ─────────────────────────────
+// ───────────────────────────── sync ─────────────────────────────
 
 proptest! {
-    /// O12. `sync` reconciles to the join and re-splits without losing ownership.
+    /// `sync` reconciles to the join and re-splits without losing ownership.
     #[test]
-    fn o12_sync(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+    fn sync(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let mut cs = run(&ops);
         let n = cs.len();
         if n < 2 {
@@ -328,13 +328,13 @@ proptest! {
     }
 }
 
-// ───────────────────────────── O13 ─────────────────────────────
+// ───────────────────────────── heterogeneous joins ─────────────────────────────
 
 proptest! {
-    /// O13. Heterogeneous joins change only the version, to the `ev_join` of the
+    /// Heterogeneous joins change only the version, to the `ev_join` of the
     /// two; a bare `Version` acts as a party-`0` clock would.
     #[test]
-    fn o13_heterogeneous_joins(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+    fn heterogeneous_joins(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
         let vs = versions(&cs);
         let n = cs.len();
@@ -365,12 +365,12 @@ proptest! {
     }
 }
 
-// ───────────────────────────── O14 ─────────────────────────────
+// ───────────────────────────── concurrency / message causality ─────────────────────────────
 
-/// O14. Two clocks forked from a common seed that tick without exchanging
+/// Two clocks forked from a common seed that tick without exchanging
 /// messages are concurrent (incomparable).
 #[test]
-fn o14_independent_forks_are_concurrent() {
+fn independent_forks_are_concurrent() {
     let mut a = Clock::seed();
     let mut b = a.fork();
     a.tick();
@@ -379,10 +379,10 @@ fn o14_independent_forks_are_concurrent() {
     assert!(b.concurrent_with(&a));
 }
 
-/// O14. A receive carries the sender's knowledge: the message is `<=` the
+/// A receive carries the sender's knowledge: the message is `<=` the
 /// receiver's resulting version, and the receiver strictly advances.
 #[test]
-fn o14_receive_carries_knowledge() {
+fn receive_carries_knowledge() {
     let mut a = Clock::seed();
     let mut b = a.fork();
     let msg = a.send(); // a ticks, emits its version
@@ -394,10 +394,10 @@ fn o14_receive_carries_knowledge() {
 }
 
 proptest! {
-    /// O14. No version decreases and join never loses knowledge: after `i` sends
+    /// No version decreases and join never loses knowledge: after `i` sends
     /// to `j`, the message and `j`'s prior version are both `<=` `j`'s new one.
     #[test]
-    fn o14_monotone(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+    fn monotone(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let mut cs = run(&ops);
         let n = cs.len();
         let (i, j) = (i % n, j % n);
@@ -412,12 +412,12 @@ proptest! {
     }
 }
 
-// ───────────────────────────── O15 ─────────────────────────────
+// ───────────────────────────── paper worked examples ─────────────────────────────
 
-/// O15 (§5.2). Normalization of the event component matches the paper's literal
+/// §5.2. Normalization of the event component matches the paper's literal
 /// examples: `(2,1,1) ≡ 3` and `(2,(2,1,0),3) ≡ (4,(0,1,0),1)`.
 #[test]
-fn o15_event_normalization() {
+fn event_normalization() {
     use Version as V;
     let leaf = |n: u64| V::leaf(n);
 
@@ -436,10 +436,10 @@ fn o15_event_normalization() {
     assert_eq!(example, expected);
 }
 
-/// O15 (§5.2). The unit pulse `1 ≡ (1,1) ≡ (1,(1,1)) ≡ ((1,1),1)` collapses for
+/// §5.2. The unit pulse `1 ≡ (1,1) ≡ (1,(1,1)) ≡ ((1,1),1)` collapses for
 /// the id component too: `norm((1,1)) = 1`, `norm((0,0)) = 0`.
 #[test]
-fn o15_id_normalization() {
+fn id_normalization() {
     assert_eq!(
         Party::node(Party::Leaf(true), Party::Leaf(true)),
         Party::Leaf(true)
@@ -450,10 +450,10 @@ fn o15_id_normalization() {
     );
 }
 
-/// O15 (§5.3.2). The `split` equations: `split(1) = ((1,0),(0,1))`, and a node
+/// §5.3.2. The `split` equations: `split(1) = ((1,0),(0,1))`, and a node
 /// with two nonzero subtrees splits by handing each side one subtree.
 #[test]
-fn o15_split() {
+fn split_equations() {
     use Party::{Leaf, Node};
 
     // split(1) = ((1,0),(0,1))
@@ -480,10 +480,10 @@ fn o15_split() {
     );
 }
 
-/// O15 (§5.3.3). `sum` of complementary halves recovers the whole space, and the
+/// §5.3.3. `sum` of complementary halves recovers the whole space, and the
 /// event `join` is the pointwise max / LUB: `(0,1,0) ⊔ (0,0,2) = (1,0,1)`.
 #[test]
-fn o15_sum_and_join() {
+fn sum_and_join() {
     use Party::{Leaf as PLeaf, Node as PNode};
     use Version as V;
     let vleaf = |n: u64| V::leaf(n);
@@ -499,11 +499,11 @@ fn o15_sum_and_join() {
     assert_eq!(joined, expected);
 }
 
-/// O15 (§5.3.4). The headline of the example: when the id owns the whole space,
+/// §5.3.4. The headline of the example: when the id owns the whole space,
 /// `event` fills the gap so the event component collapses to a single integer —
 /// `event(1, (0,1,0)) = (1, 1)`, i.e. the event tree becomes `Leaf(1)`.
 #[test]
-fn o15_event_fills_to_single_integer() {
+fn event_fills_to_single_integer() {
     use Version as V;
 
     let gapped = V::node(0u64, V::leaf(1u64), V::leaf(0u64)); // (0,1,0)
@@ -512,9 +512,9 @@ fn o15_event_fills_to_single_integer() {
     assert_eq!(v, V::leaf(1u64));
 }
 
-// ───────────────────── grow optimality (PAP-1 / PROG-4), oracle side ─────────────────────
+// ───────────────────── grow optimality, oracle side ─────────────────────
 //
-// The paper's event condition (§3 L94-99, §5.3.4) is the defining causality property: an
+// The paper's event condition (§3, §5.3.4) is the defining causality property: an
 // event registers a *minimal* inflation. `grow` delivers it via a dynamic program. These
 // properties pin the oracle's `grow` against a brute-force search over the entire feasible
 // inflation space (`test_support::all_inflations`), independently establishing that the
@@ -523,7 +523,7 @@ fn o15_event_fills_to_single_integer() {
 // brute-force standard in `version::tests`.
 
 proptest! {
-    /// PAP-1/PROG-4. The oracle's `grow` reports the *globally* minimal inflation cost.
+    /// The oracle's `grow` reports the *globally* minimal inflation cost.
     /// `min_inflation_cost` enumerates the whole feasible single-region inflation space
     /// (descending both children everywhere, no pruning) and takes the flat minimum; the
     /// DP's greedy local choice must match it. This is the independent minimality check —
@@ -540,7 +540,7 @@ proptest! {
 }
 
 proptest! {
-    /// PAP-1/PROG-4. The oracle's `grow` chooses exactly the brute-force right-favoring
+    /// The oracle's `grow` chooses exactly the brute-force right-favoring
     /// minimal inflation — the same raw tree and cost. `best_inflation` selects the
     /// globally cost-minimal candidate with the paper's root-ward tie-break (`cl < cr`
     /// goes left, else right), weighing each child by its full-enumeration minimum. So a
@@ -557,7 +557,7 @@ proptest! {
 }
 
 proptest! {
-    /// PAP-1/PROG-4. The brute-force selection is internally consistent: `best_inflation`
+    /// The brute-force selection is internally consistent: `best_inflation`
     /// is one of the enumerated candidates, and its cost equals the global minimum. Guards
     /// the brute-force oracle itself, so the two checks above stand on solid ground.
     #[test]
@@ -578,7 +578,7 @@ proptest! {
 }
 
 proptest! {
-    /// PAP-1 (§3 L94-99), metamorphic form. `grow` "dominates no more events than
+    /// §3 (the event condition), metamorphic form. `grow` "dominates no more events than
     /// needed": no *feasible inflation* `x` sits strictly between `e` and the grown
     /// `e'` — there is no `x` reachable by inflating `(id, e)` with `e ≤ x < e'`. This is
     /// the correct, scoped reading of the paper's `x < e' ⇒ x ≤ e`: the relevant `x` are
@@ -610,12 +610,12 @@ proptest! {
     }
 }
 
-/// O15 (§5.1). Run the paper's example end-to-end and assert its published
+/// §5.1. Run the paper's example end-to-end and assert its published
 /// qualitative outcomes: three participants, ids always summing to the whole
 /// space, the third fork reusing existing id subtrees (not deepening the spine),
 /// and a post-join event that collapses the event component to a single integer.
 #[test]
-fn o15_worked_example() {
+fn worked_example() {
     // seed → fork into two.
     let mut p1 = Clock::seed();
     let mut p2 = p1.fork();

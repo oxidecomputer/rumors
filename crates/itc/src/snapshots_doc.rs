@@ -190,8 +190,8 @@ fn clock_canonical_form() {
 }
 
 /// The paper's §5.1 worked example, rendered step by step as `Clock` `Display`. The same
-/// run the `i35_worked_example` correctness test drives, but here the *concrete clock
-/// states* (id region + event tree) are pinned as a readable trace, so the example in the
+/// run the clock-level `worked_example` correctness test drives, but here the *concrete
+/// clock states* (id region + event tree) are pinned as a readable trace, so the example in the
 /// paper has a literal counterpart in the test suite. (`Party`/`Clock` are not `Clone`,
 /// so each line snapshots a value before it is consumed/mutated by the next step.)
 #[test]

@@ -1,12 +1,12 @@
-//! PROG-3 — exhaustive small-scope differential checking.
+//! Exhaustive small-scope differential checking.
 //!
 //! The op-trace generator only ever produces the tree *shapes operations produce*, and
-//! the PROG-1 strategies sample *arbitrary* normal-form trees at random. Neither
-//! guarantees that any *particular* small corner is hit. This module closes that gap by
-//! brute force: it **enumerates every distinct normal-form id tree** up to a depth bound,
-//! and **every distinct normal-form event tree with bases in `{0, 1, 2}`** up to the same
-//! bound, then runs every operation on every tree and every ordered pair, diffing each
-//! result structurally against the recursive oracle (the same ground truth the PROG-1
+//! the arbitrary-normal-form strategies sample *arbitrary* normal-form trees at random.
+//! Neither guarantees that any *particular* small corner is hit. This module closes that
+//! gap by brute force: it **enumerates every distinct normal-form id tree** up to a depth
+//! bound, and **every distinct normal-form event tree with bases in `{0, 1, 2}`** up to the
+//! same bound, then runs every operation on every tree and every ordered pair, diffing each
+//! result structurally against the recursive oracle (the same ground truth the sampled
 //! differentials use).
 //!
 //! The small-scope hypothesis fits ITC especially well: the normal-form trees of a given
@@ -23,9 +23,9 @@
 //! (`O(corpus²)`) intractable. So events are held one level shallower than ids.
 //!
 //! Two variants:
-//! - [`prog3_exhaustive_small`] runs in the normal gate at [`ID_SMALL_DEPTH`] /
+//! - [`exhaustive_small`] runs in the normal gate at [`ID_SMALL_DEPTH`] /
 //!   [`EV_SMALL_DEPTH`] (256 ids, 691 events); the full op cross-product is a few seconds.
-//! - [`prog3_exhaustive_deep`] is `#[ignore]`d and runs at [`ID_DEEP_DEPTH`] /
+//! - [`exhaustive_deep`] is `#[ignore]`d and runs at [`ID_DEEP_DEPTH`] /
 //!   [`EV_DEEP_DEPTH`] (65536 ids, 691 events); it is `O(corpus²)` in the much larger id
 //!   corpus and takes minutes. See its doc comment for how to run it.
 
@@ -46,7 +46,7 @@ pub(crate) const ID_SMALL_DEPTH: usize = 3;
 pub(crate) const EV_SMALL_DEPTH: usize = 2;
 
 /// Inclusive id depth bound for the `#[ignore]`d deep enumeration: 65536 ids. The id cross-
-/// product is `O(corpus²)`, so this runs in minutes. See [`tests::prog3_exhaustive_deep`].
+/// product is `O(corpus²)`, so this runs in minutes. See [`tests::exhaustive_deep`].
 pub(crate) const ID_DEEP_DEPTH: usize = 4;
 
 /// Inclusive event depth bound for the deep enumeration. Stays at 691 events: the depth-3

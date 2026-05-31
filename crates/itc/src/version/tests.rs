@@ -36,10 +36,10 @@ fn unpack_layout() {
 }
 
 proptest! {
-    /// A4. `repack(unpack(v)) == v` and the repacked bytes are canonical (equal to
+    /// `repack(unpack(v)) == v` and the repacked bytes are canonical (equal to
     /// `v`'s own encoding).
     #[test]
-    fn a4_working_roundtrip(ops in world_strategy(), i in 0usize..64) {
+    fn working_roundtrip(ops in world_strategy(), i in 0usize..64) {
         let cs = run(&ops);
         let vs = versions(&cs);
         let n = vs.len();
@@ -81,11 +81,11 @@ proptest! {
 }
 
 proptest! {
-    /// C7–C10 (differential). The impl causal order agrees with the oracle's on
+    /// Differential. The impl causal order agrees with the oracle's on
     /// every generated pair; this subsumes the order laws since the oracle satisfies
-    /// them (O3) and the impl matches it exactly.
+    /// them (its `version_partial_order` property) and the impl matches it exactly.
     #[test]
-    fn c_compare_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+    fn compare_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
         let vs = versions(&cs);
         let n = vs.len();
@@ -96,10 +96,10 @@ proptest! {
 }
 
 proptest! {
-    /// C7–C10. The order laws on impl versions directly: reflexive, antisymmetric,
+    /// The order laws on impl versions directly: reflexive, antisymmetric,
     /// transitive; `==` ⇔ `Some(Equal)`; concurrency ⇔ `None`.
     #[test]
-    fn c_order_laws(ops in world_strategy(), i in 0usize..64, j in 0usize..64, k in 0usize..64) {
+    fn order_laws(ops in world_strategy(), i in 0usize..64, j in 0usize..64, k in 0usize..64) {
         let cs = run(&ops);
         let vs = versions(&cs);
         let n = vs.len();
@@ -123,11 +123,11 @@ proptest! {
 }
 
 proptest! {
-    /// F28. The comparison matrix agrees: `cmp(a,b)`, `cmp(a.batch(),b)`,
+    /// The comparison matrix agrees: `cmp(a,b)`, `cmp(a.batch(),b)`,
     /// `cmp(a,b.batch())`, and `cmp(a.batch(),b.batch())` all equal the bare
     /// version comparison (a fresh batch reflects its version).
     #[test]
-    fn f28_representation_parity(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+    fn representation_parity(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
         let vs = versions(&cs);
         let n = vs.len();
@@ -148,14 +148,14 @@ proptest! {
 }
 
 proptest! {
-    /// F28b. Parity holds once the working form is *materialized*, exercising the
+    /// Parity holds once the working form is *materialized*, exercising the
     /// equality short-circuit's working-form arms. Merging the join identity
     /// (`Version::new()`) forces `work = Some(..)` without changing the value, so each
     /// batch now compares as a working form. The matrix — materialized vs materialized
     /// (Working/Working), materialized vs packed (the mixed arm that declines and falls
     /// through) — still equals the bare version comparison.
     #[test]
-    fn f28b_materialized_batch_parity(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+    fn materialized_batch_parity(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
         let vs = versions(&cs);
         let n = vs.len();
@@ -179,7 +179,7 @@ proptest! {
 
 // ───────────────────────────── event mutation ─────────────────────────────
 
-/// O1/C14. `Version::new()` is the empty history and the two-sided identity for `|`.
+/// `Version::new()` is the empty history and the two-sided identity for `|`.
 #[test]
 fn new_is_join_identity() {
     use crate::oracle::Version as V;
@@ -217,7 +217,7 @@ proptest! {
 }
 
 proptest! {
-    /// O13 differential. The impl version join (`|`) matches the oracle's `ev_join`.
+    /// Differential. The impl version join (`|`) matches the oracle's `ev_join`.
     #[test]
     fn merge_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
@@ -261,10 +261,10 @@ proptest! {
 }
 
 proptest! {
-    /// C11–C14, C16. The join lattice laws on impl values: upper bound, least upper
+    /// The join lattice laws on impl values: upper bound, least upper
     /// bound, commutative/associative/idempotent, identity, and absorbing.
     #[test]
-    fn c_lattice_laws(ops in world_strategy(), i in 0usize..64, j in 0usize..64, k in 0usize..64) {
+    fn lattice_laws(ops in world_strategy(), i in 0usize..64, j in 0usize..64, k in 0usize..64) {
         let cs = run(&ops);
         let vs = versions(&cs);
         let n = vs.len();
@@ -273,31 +273,31 @@ proptest! {
         let c = from_oracle_version(&vs[k % n]);
 
         let ab = a.clone() | b.clone();
-        prop_assert!(le(&a, &ab) && le(&b, &ab)); // C11 upper bound
+        prop_assert!(le(&a, &ab) && le(&b, &ab)); // upper bound
 
-        // C12 least upper bound: any common upper bound dominates a|b.
+        // Least upper bound: any common upper bound dominates a|b.
         let upper = ab.clone() | c.clone();
         prop_assert!(le(&a, &upper) && le(&b, &upper));
         prop_assert!(le(&ab, &upper));
 
-        prop_assert!(ab == (b.clone() | a.clone())); // C13 commutative
+        prop_assert!(ab == (b.clone() | a.clone())); // commutative
         let lhs = (a.clone() | b.clone()) | c.clone();
         let rhs = a.clone() | (b.clone() | c.clone());
-        prop_assert!(lhs == rhs); // C13 associative
-        prop_assert!((a.clone() | a.clone()) == a); // C13 idempotent
+        prop_assert!(lhs == rhs); // associative
+        prop_assert!((a.clone() | a.clone()) == a); // idempotent
 
-        prop_assert!((Version::new() | a.clone()) == a); // C14 identity
+        prop_assert!((Version::new() | a.clone()) == a); // identity
 
         if le(&a, &b) {
-            prop_assert!((a.clone() | b.clone()) == b); // C16 absorbing
+            prop_assert!((a.clone() | b.clone()) == b); // absorbing
         }
     }
 }
 
 proptest! {
-    /// C15. `tick` strictly advances the causal order: `a < a.tick(p)`.
+    /// `tick` strictly advances the causal order: `a < a.tick(p)`.
     #[test]
-    fn c15_monotone_tick(ops in world_strategy(), i in 0usize..64) {
+    fn monotone_tick(ops in world_strategy(), i in 0usize..64) {
         let cs = run(&ops);
         let n = cs.len();
         let (party, version) = cs[i % n].trees();
@@ -331,7 +331,7 @@ proptest! {
 }
 
 proptest! {
-    /// Complexity (M2). `grow`'s multi-region cost comparison is `O(n + m)`. Ticking the
+    /// Complexity. `grow`'s multi-region cost comparison is `O(n + m)`. Ticking the
     /// empty history (`Leaf(0)`) against a deep *bushy* id forces `grow` (here `fill` is
     /// a no-op: the id is a node over an event leaf), and the bushy id's many owned
     /// regions at varying depths make the probe genuinely weigh two feasible children at
@@ -365,16 +365,16 @@ proptest! {
     }
 }
 
-// ───────────────────────────── overflow regression (BUG-1) ─────────────────────────────
+// ───────────────────────────── path-sum overflow regression ─────────────────────────────
 
-/// BUG-1. A normal-form tree whose root-to-leaf path sum exceeds `u64::MAX` compares
+/// A normal-form tree whose root-to-leaf path sum exceeds `u64::MAX` compares
 /// correctly: with arbitrary-precision base values there is no overflow class, so the
 /// answer is `Greater` in every build profile (no debug panic, no release wrap that
 /// would invert the causal order). `decode`/`try_from` admit such trees — `parse_ev`
 /// validates only *relative* bases and never sums a path — so the comparison must
 /// thread the path sum at full precision.
 #[test]
-fn bug1_path_sum_beyond_u64_compares_greater() {
+fn path_sum_beyond_u64_compares_greater() {
     let big = 1u64 << 63;
     // Normal form: the outer min(big, 0) child is the right `0` leaf; the inner node's
     // min(0, 1) child is its left `0` leaf. The left half's true value is
@@ -384,21 +384,21 @@ fn bug1_path_sum_beyond_u64_compares_greater() {
     assert_eq!(a.partial_cmp(&b), Some(Ordering::Greater));
 }
 
-// ───────────── PROG-1: arbitrary normal-form trees (decoupled from the op pipeline) ─────────────
+// ───────────── arbitrary normal-form trees (decoupled from the op pipeline) ─────────────
 //
 // The op-trace differentials above only ever compare causally *related* versions (every
 // member descends from one seed) on the *shapes operations produce*. These feed *arbitrary*
 // normal-form event trees — random shape, random base magnitudes including values
 // near/beyond `u64::MAX` — to every event op and diff structurally against the oracle. They
-// are the natural home for the BUG-1 large-base regression class.
+// are the natural home for the large-base (path-sum-overflow) regression class.
 
 proptest! {
-    /// PROG-1. `partial_cmp` on arbitrary, typically *unrelated* event-tree pairs agrees
+    /// `partial_cmp` on arbitrary, typically *unrelated* event-tree pairs agrees
     /// with the oracle — including the concurrent (`None`) verdict the op pipeline rarely
-    /// produces, and large-base pairs whose root-to-leaf path sums exceed `u64::MAX`
-    /// (the BUG-1 class): with arbitrary-precision bases the answer must still match.
+    /// produces, and large-base pairs whose root-to-leaf path sums exceed `u64::MAX`:
+    /// with arbitrary-precision bases the answer must still match.
     #[test]
-    fn prog1_causal_cmp_arbitrary(oa in arb_oracle_version(), ob in arb_oracle_version()) {
+    fn causal_cmp_arbitrary(oa in arb_oracle_version(), ob in arb_oracle_version()) {
         let (ia, ib) = (from_oracle_version(&oa), from_oracle_version(&ob));
         prop_assert_eq!(ia.partial_cmp(&ib), oa.partial_cmp(&ob));
         // Symmetry of the verdict under swap, on the impl directly.
@@ -410,11 +410,11 @@ proptest! {
 }
 
 proptest! {
-    /// PROG-1. `|` (merge / LUB) on arbitrary unrelated event trees agrees with the
+    /// `|` (merge / LUB) on arbitrary unrelated event trees agrees with the
     /// oracle's `ev_join`, structurally. Exercises the join's arm selection on shapes the
     /// op pipeline never builds, with large bases threaded losslessly.
     #[test]
-    fn prog1_merge_arbitrary(oa in arb_oracle_version(), ob in arb_oracle_version()) {
+    fn merge_arbitrary(oa in arb_oracle_version(), ob in arb_oracle_version()) {
         let merged = from_oracle_version(&oa) | from_oracle_version(&ob);
         let oracle_join = oa.clone() | ob.clone();
         prop_assert!(merged == from_oracle_version(&oracle_join));
@@ -424,13 +424,13 @@ proptest! {
 }
 
 proptest! {
-    /// PROG-1. `tick` (= `fill` then, if no fill, `grow`) on an arbitrary `(id, event)`
+    /// `tick` (= `fill` then, if no fill, `grow`) on an arbitrary `(id, event)`
     /// pair with *unrelated* shapes matches the oracle's `event`. This is where the `Kind`
     /// arm selection, the cost folding, and the root-ward tie-break live; feeding
     /// unrelated id/event shapes drives the `fill` full-subtree arms and the multi-region
     /// `grow` cost comparison that same-clock `(party, version)` pairs under-hit.
     #[test]
-    fn prog1_tick_arbitrary(
+    fn tick_arbitrary(
         op in arb_oracle_party_nonempty(),
         ov in arb_oracle_version(),
     ) {
@@ -444,25 +444,25 @@ proptest! {
     }
 }
 
-// ───────────── grow optimality (PAP-1 / PROG-4), impl side ─────────────
+// ───────────── grow optimality, impl side ─────────────
 //
-// The defining causality property (§3 L94-99, §5.3.4): an event registers a *minimal*
+// The defining causality property (§3, §5.3.4): an event registers a *minimal*
 // inflation. The oracle's `grow` is pinned to a brute-force search over the entire
 // feasible inflation space in `oracle::tests`; these hold the packed impl to the same
 // standard. `tick = fill else grow`, so when `fill` already simplifies the tree the grow
-// path is not taken — `prog1_grow_matches_brute_force` filters to the grow case (fill a
+// path is not taken — `grow_matches_brute_force` filters to the grow case (fill a
 // no-op) and asserts the impl's inflation equals the brute-force right-favoring minimum;
-// `prog1_event_minimal` checks the paper's metamorphic condition on every `tick`.
+// `grow_minimal` checks the paper's metamorphic condition on every `tick`.
 
 proptest! {
-    /// PAP-1/PROG-4. When `tick` takes the `grow` branch (`fill` leaves the tree
+    /// When `tick` takes the `grow` branch (`fill` leaves the tree
     /// unchanged), the impl inflates exactly the brute-force cost-minimal, right-favoring
     /// region: `tick` lowered to the oracle equals `best_inflation` normalized. This holds
     /// the packed `grow`'s dynamic program to the full-enumeration global optimum directly
     /// — not merely to the recursive oracle (which realizes the same DP). Large bases are
     /// threaded losslessly, so the cost comparison is exact regardless of magnitude.
     #[test]
-    fn prog1_grow_matches_brute_force(
+    fn grow_matches_brute_force(
         op in arb_oracle_party_nonempty(),
         ov in arb_oracle_version(),
     ) {
@@ -483,7 +483,7 @@ proptest! {
 }
 
 proptest! {
-    /// PAP-1 (§3 L94-99), metamorphic form, on the impl. When `tick` takes the `grow`
+    /// §3 (the event condition), metamorphic form, on the impl. When `tick` takes the `grow`
     /// branch, the inflated `e'` "dominates no more than needed": no feasible single-region
     /// inflation candidate `x` of `(id, e)` satisfies `e ≤ x < e'`. This is the correctly
     /// scoped reading of the paper's `x < e' ⇒ x ≤ e` (the literal form over the dense
@@ -492,7 +492,7 @@ proptest! {
     /// candidate set enumerated by the brute-force oracle. Cross-checked against the oracle
     /// order on the same values.
     #[test]
-    fn prog1_grow_minimal(
+    fn grow_minimal(
         op in arb_oracle_party_nonempty(),
         ov in arb_oracle_version(),
     ) {
@@ -518,11 +518,11 @@ proptest! {
 }
 
 proptest! {
-    /// PROG-1. `decode ∘ encode == identity` over arbitrary normal-form event trees,
+    /// `decode ∘ encode == identity` over arbitrary normal-form event trees,
     /// including large-base ones: the widened Elias-gamma code round-trips every magnitude
     /// the working form can hold, and the decoded value lowers to the same oracle tree.
     #[test]
-    fn prog1_decode_encode_arbitrary(ov in arb_oracle_version()) {
+    fn decode_encode_arbitrary(ov in arb_oracle_version()) {
         let v = from_oracle_version(&ov);
         let bytes = v.encode();
         let decoded = Version::decode(&bytes).expect("canonical encoding decodes");

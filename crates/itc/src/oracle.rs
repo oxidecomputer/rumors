@@ -36,7 +36,7 @@ pub enum Party {
 }
 
 /// Event component. Bases are arbitrary-precision [`Base`] (`num_bigint::BigUint`),
-/// matching the implementation's working form, so large-base differentials (`PROG-1`)
+/// matching the implementation's working form, so large-base differentials
 /// lower losslessly — there is no `u64` truncation point. Literal/`u64` construction
 /// still works via [`Version::leaf`]/[`Version::node`] (both take `impl Into<Base>`) and
 /// the [`From<u64>`](Version) conversion.

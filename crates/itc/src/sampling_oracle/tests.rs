@@ -1,22 +1,23 @@
-//! PROG-2 differential tests: the packed impl vs. the function-space sampling oracle.
+//! Differential tests: the packed impl vs. the function-space sampling oracle.
 //!
 //! Each property lowers the impl's result to the recursive [`oracle`] tree (via the
 //! existing `to_oracle_*` bridge), samples it on a dyadic grid that resolves the trees
 //! under test, and checks the function-space relation *pointwise* — never against the
 //! recursive oracle's own verdict. The sampling reference shares no representation and no
 //! recursion with the tree machinery, so a disagreement here is a genuine independent
-//! finding (the failure mode that hid BUG-1: impl and tree-oracle wrong together).
+//! finding (it catches the impl and tree-oracle being wrong together).
 //!
 //! Inputs come from *both* the seed-derived op-trace (`world_strategy`/`run`) and the
-//! PROG-1 decoupled arbitrary-normal-form generators (`arb_oracle_*`) — so the checks cover
-//! the shapes operations produce *and* the full space of valid normal-form trees, including
-//! the large-base (BUG-1-class) events that the sampling values represent exactly.
+//! decoupled arbitrary-normal-form generators (`arb_oracle_*`) — so the checks cover the
+//! shapes operations produce *and* the full space of valid normal-form trees, including the
+//! large-base events (path sums that would overflow `u64`) that the sampling values
+//! represent exactly.
 //!
 //! The grid depth is chosen per case as `min(actual tree depth, MAX_GRID_DEPTH)`, decoupling
 //! grid density (exponential in depth) from the generators' own depth knob; see the parent
-//! module doc. The PROG-1 generators cap depth at 4 and the op-trace at 7, both under the
+//! module doc. The arbitrary generators cap depth at 4 and the op-trace at 7, both under the
 //! cap, so the gate grid always fully resolves the trees (no aliasing) — `grid_cap_is_never_reached`
-//! pins that. A dense, deeper variant lives behind `#[ignore]` (`prog2_dense_deep_arb`).
+//! pins that. A dense, deeper variant lives behind `#[ignore]` (`dense_deep_arbitrary`).
 
 use std::cmp::Ordering;
 
@@ -44,8 +45,8 @@ fn order_of(le: bool, ge: bool) -> Option<Ordering> {
 }
 
 /// The impl's event `partial_cmp` agrees with pointwise comparison of the sampled step
-/// functions. This is the keystone PROG-2 check: it pins the causal order to the paper's
-/// function-space `≤` (L147, L177) on a representation independent of the tree recursion.
+/// functions. This is the keystone check: it pins the causal order to the paper's
+/// function-space `≤` (§4) on a representation independent of the tree recursion.
 fn check_ev_cmp(a: &oracle::Version, b: &oracle::Version) {
     let d = ev_grid_depth(a, b);
     let sa = sample_event(a, d);
@@ -62,7 +63,7 @@ fn check_ev_cmp(a: &oracle::Version, b: &oracle::Version) {
 }
 
 /// The impl's event merge `|` equals the pointwise `max` of the two sampled functions
-/// (paper L149, L183). The merge result is lowered and re-sampled, then compared to the
+/// (§4). The merge result is lowered and re-sampled, then compared to the
 /// pointwise-max sample vector.
 fn check_ev_join(a: &oracle::Version, b: &oracle::Version) {
     let ia = from_oracle_version(a);
@@ -86,7 +87,7 @@ fn check_ev_join(a: &oracle::Version, b: &oracle::Version) {
 }
 
 /// The impl's id `partial_cmp` and `is_disjoint` agree with the function-space containment
-/// and disjointness of the sampled characteristic functions (paper L155-173). An ancestor
+/// and disjointness of the sampled characteristic functions (§4). An ancestor
 /// (larger owned region) reads as `Less`, so containment `a ⊇ b ⇔ a ≤ b`.
 fn check_id_pair(a: &oracle::Party, b: &oracle::Party) {
     let d = id_grid_depth(a, b);
@@ -111,11 +112,11 @@ fn check_id_pair(a: &oracle::Party, b: &oracle::Party) {
     );
 }
 
-/// `tick` realizes the paper's `event` condition (L94-99, L197) as read by the sampling
+/// `tick` realizes the paper's `event` condition (§3, §5.3.4) as read by the sampling
 /// oracle, independent of the tree recursion:
 /// - **strict advance**: the sampled function strictly increases — `e ≤ e'` pointwise and
 ///   `e < e'` at some point (so `e'` is a real successor).
-/// - **inflation only on owned intervals** (L195-197, `event((i,e)) = (i, e + f·i)`): every
+/// - **inflation only on owned intervals** (§4, `event((i,e)) = (i, e + f·i)`): every
 ///   grid point where the value grew is a point the id owns. No unowned interval moves.
 fn check_tick(id: &oracle::Party, e: &oracle::Version) {
     let ip = from_oracle_party(id);
@@ -154,10 +155,10 @@ fn check_tick(id: &oracle::Party, e: &oracle::Version) {
 // ───────────────────────────── op-trace differentials ─────────────────────────────
 
 proptest! {
-    /// PROG-2 over the op-trace: every live clock's version, compared pairwise, has the same
+    /// Over the op-trace: every live clock's version, compared pairwise, has the same
     /// causal order under the impl as under the sampled function space.
     #[test]
-    fn prog2_optrace_ev_cmp(ops in world_strategy()) {
+    fn optrace_event_cmp(ops in world_strategy()) {
         let cs = run(&ops);
         let vs = versions(&cs);
         for a in &vs {
@@ -167,10 +168,10 @@ proptest! {
         }
     }
 
-    /// PROG-2 over the op-trace: the impl's merge of any two live versions is the pointwise
+    /// Over the op-trace: the impl's merge of any two live versions is the pointwise
     /// max of their sampled functions.
     #[test]
-    fn prog2_optrace_ev_join(ops in world_strategy()) {
+    fn optrace_event_join(ops in world_strategy()) {
         let cs = run(&ops);
         let vs = versions(&cs);
         for a in &vs {
@@ -180,10 +181,10 @@ proptest! {
         }
     }
 
-    /// PROG-2 over the op-trace: the live parties (always pairwise disjoint by construction)
+    /// Over the op-trace: the live parties (always pairwise disjoint by construction)
     /// have the impl id order and disjointness the sampled characteristic functions predict.
     #[test]
-    fn prog2_optrace_id_pair(ops in world_strategy()) {
+    fn optrace_id_pair(ops in world_strategy()) {
         let cs = run(&ops);
         let parties: Vec<oracle::Party> = cs.iter().map(|c| c.party().clone()).collect();
         for a in &parties {
@@ -194,47 +195,48 @@ proptest! {
     }
 }
 
-// ──────────────────────── decoupled-generator differentials (PROG-1 × PROG-2) ────────────────────────
+// ──────────────────────── decoupled-generator differentials ────────────────────────
 
 proptest! {
-    /// PROG-2 over arbitrary normal-form events (PROG-1 generators), including large-base
-    /// values the sampler represents exactly: the impl's `partial_cmp` matches pointwise
-    /// `≤` of the sampled step functions. Unrelated pairs (the op-trace never builds these)
-    /// reach the concurrent (`None`) verdict.
+    /// Over arbitrary normal-form events, including large-base values the sampler represents
+    /// exactly: the impl's `partial_cmp` matches pointwise `≤` of the sampled step
+    /// functions. Unrelated pairs (the op-trace never builds these) reach the concurrent
+    /// (`None`) verdict.
     #[test]
-    fn prog2_arb_ev_cmp(a in arb_oracle_version(), b in arb_oracle_version()) {
+    fn arbitrary_event_cmp(a in arb_oracle_version(), b in arb_oracle_version()) {
         check_ev_cmp(&a, &b);
     }
 
-    /// PROG-2 over arbitrary normal-form events: the impl's `|` is the pointwise max of the
+    /// Over arbitrary normal-form events: the impl's `|` is the pointwise max of the
     /// sampled functions.
     #[test]
-    fn prog2_arb_ev_join(a in arb_oracle_version(), b in arb_oracle_version()) {
+    fn arbitrary_event_join(a in arb_oracle_version(), b in arb_oracle_version()) {
         check_ev_join(&a, &b);
     }
 
-    /// PROG-2 over arbitrary normal-form ids (may overlap — the op-trace only builds
+    /// Over arbitrary normal-form ids (may overlap — the op-trace only builds
     /// disjoint parties): the impl's id order and disjointness match the sampled
     /// characteristic functions, reaching the overlap and incomparable arms.
     #[test]
-    fn prog2_arb_id_pair(a in arb_oracle_party(), b in arb_oracle_party()) {
+    fn arbitrary_id_pair(a in arb_oracle_party(), b in arb_oracle_party()) {
         check_id_pair(&a, &b);
     }
 
-    /// PROG-2 over arbitrary (non-anonymous id, event) pairs: `tick` strictly advances the
+    /// Over arbitrary (non-anonymous id, event) pairs: `tick` strictly advances the
     /// sampled function and inflates only owned intervals — the paper's `event` condition
     /// checked on a representation independent of the tree recursion.
     #[test]
-    fn prog2_arb_tick(id in arb_oracle_party_nonempty(), e in arb_oracle_version()) {
+    fn arbitrary_tick(id in arb_oracle_party_nonempty(), e in arb_oracle_version()) {
         check_tick(&id, &e);
     }
 }
 
 // ──────────────────────── dense / deep variant (ignored) ────────────────────────
 
-/// A deeper arbitrary normal-form event tree than the PROG-1 generator builds: recursion
+/// A deeper arbitrary normal-form event tree than the gate generator builds: recursion
 /// depth up to 8, so the resolving grid reaches `2^8 = 256` points. Bases still span the
-/// large (BUG-1-class) range. Used only by the `#[ignore]`d dense variant.
+/// large range (path sums that would overflow `u64`). Used only by the `#[ignore]`d dense
+/// variant.
 fn deep_arb_oracle_version() -> impl Strategy<Value = oracle::Version> {
     let leaf = crate::test_support::arb_base().prop_map(oracle::Version::Leaf);
     leaf.prop_recursive(8, 256, 2, |inner| {
@@ -255,18 +257,18 @@ fn deep_arb_oracle_party() -> impl Strategy<Value = oracle::Party> {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
 
-    /// PROG-2 dense/deep: the same function-space differentials at a far higher grid
+    /// Dense/deep: the same function-space differentials at a far higher grid
     /// resolution and tree depth (up to depth 8 → `2^8 = 256` grid points). Decoupled from
     /// the gate variant precisely so the exponential grid does not slow the gate; runs in
     /// tens of seconds to minutes, so it is `#[ignore]`d. Run with:
     ///
     /// ```text
     /// cargo nextest run -p itc --release --all-features \
-    ///     prog2_dense_deep_arb --run-ignored ignored-only
+    ///     dense_deep_arbitrary --run-ignored ignored-only
     /// ```
     #[test]
     #[ignore = "dense deep sampling grid (up to 2^8 points): tens of seconds; see doc comment"]
-    fn prog2_dense_deep_arb(
+    fn dense_deep_arbitrary(
         ea in deep_arb_oracle_version(),
         eb in deep_arb_oracle_version(),
         ida in deep_arb_oracle_party(),
@@ -284,7 +286,8 @@ proptest! {
 // ───────────────────────────── unit anchors ─────────────────────────────
 
 /// The sampler reproduces the paper's worked function value: `J(1, 2, (0, (1, 0, 2), 0))K`
-/// (paper L262). Base offsets accumulate down the path: root `1`; left leaf `1+2 = 3`; the
+/// (§4, event tree graphical-notation example). Base offsets accumulate down the path: root
+/// `1`; left leaf `1+2 = 3`; the
 /// right subtree `(0, (1,0,2), 0)` adds `1+0 = 1` to the root, its left grandchild
 /// `(1,0,2)` adds `+1` then its own children, etc. This pins the sampler against a value
 /// the paper states, with no tree-recursion reference involved.
@@ -345,7 +348,7 @@ fn seed_tick_raises_every_sample() {
 /// Guard the soundness premise of every check above: the chosen grid must *fully resolve*
 /// the trees under test, i.e. [`MAX_GRID_DEPTH`] must never bite. If it did, sampling would
 /// alias and could report a spurious disagreement. Empirically the op-trace (≤30 ops, ≤8
-/// parties) tops out at depth 7 and the PROG-1 generators at depth 4 (+1 for a `tick`), so
+/// parties) tops out at depth 7 and the arbitrary generators at depth 4 (+1 for a `tick`), so
 /// [`MAX_GRID_DEPTH`] sits comfortably above both. This pins that headroom: over a wide
 /// op-trace sweep, no version or party ever reaches the cap.
 #[test]

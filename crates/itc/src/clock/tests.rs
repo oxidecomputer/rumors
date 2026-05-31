@@ -38,14 +38,14 @@ proptest! {
 // ───────────────────────────── master differential harness ─────────────────────────────
 
 proptest! {
-    /// B6 + B21. A seed-derived op trace, applied in lockstep to the oracle and the
+    /// A seed-derived op trace, applied in lockstep to the oracle and the
     /// impl, agrees structurally on every live clock after every step, and all live
     /// impl parties stay pairwise disjoint (so `join`/`sync` never error in correct
     /// usage). Agreement is by structural lowering — `to_oracle_clock` rebuilds the
     /// oracle's tree shape from the impl's internal packed bits — not via the byte
     /// codec, which the per-trace round-trip below exercises separately.
     #[test]
-    fn b6_master_differential(ops in world_strategy()) {
+    fn master_differential(ops in world_strategy()) {
         let mut ora: Vec<oracle::Clock> = vec![oracle::Clock::seed()];
         let mut imp: Vec<Clock> = vec![Clock::seed()];
 
@@ -130,9 +130,9 @@ proptest! {
 // ───────────────────────────── protocol semantics ─────────────────────────────
 
 proptest! {
-    /// E22. `fork` preserves the version on both halves.
+    /// `fork` preserves the version on both halves.
     #[test]
-    fn e22_fork_preserves_version(ops in world_strategy(), i in 0usize..64) {
+    fn fork_preserves_version(ops in world_strategy(), i in 0usize..64) {
         let cs = run(&ops);
         let n = cs.len();
         let mut c = from_oracle_clock(&cs[i % n]);
@@ -142,10 +142,10 @@ proptest! {
         prop_assert!(child.version() == before);
     }
 
-    /// E23. `version()` (peek) does not advance the clock; the returned `Version`
+    /// `version()` (peek) does not advance the clock; the returned `Version`
     /// equals the clock's own and repeated peeks are stable.
     #[test]
-    fn e23_peek_does_not_advance(ops in world_strategy(), i in 0usize..64) {
+    fn peek_does_not_advance(ops in world_strategy(), i in 0usize..64) {
         let cs = run(&ops);
         let n = cs.len();
         let c = from_oracle_clock(&cs[i % n]);
@@ -156,10 +156,10 @@ proptest! {
         prop_assert_eq!(c.encode(), before);
     }
 
-    /// E24. `receive(msg)` with `msg <= self` (here `msg == self.version()`) equals a
+    /// `receive(msg)` with `msg <= self` (here `msg == self.version()`) equals a
     /// bare `tick`: an own-message receive is benign, and the party is unchanged.
     #[test]
-    fn e24_own_receive_is_tick(ops in world_strategy(), i in 0usize..64) {
+    fn own_receive_is_tick(ops in world_strategy(), i in 0usize..64) {
         let cs = run(&ops);
         let n = cs.len();
         let mut received = from_oracle_clock(&cs[i % n]);
@@ -171,11 +171,11 @@ proptest! {
         prop_assert!(received.party() == ticked.party());
     }
 
-    /// E25. After `a.sync(&mut b)`: both end at the oracle's result, their versions are
+    /// After `a.sync(&mut b)`: both end at the oracle's result, their versions are
     /// equal, their parties are disjoint, and re-joining the two parties recovers the
     /// pre-sync merged party.
     #[test]
-    fn e25_sync(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+    fn sync(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
         let n = cs.len();
         if n < 2 {
@@ -183,7 +183,7 @@ proptest! {
         }
         // Derive two distinct members directly rather than rejecting collisions —
         // small populations collide often, and `prop_assume` would blow the reject
-        // cap under a high case count (see oracle `o12_sync`).
+        // cap under a high case count (see the oracle `sync` test).
         let i = i % n;
         let j = (i + 1 + j % (n - 1)) % n;
 
@@ -217,11 +217,11 @@ proptest! {
         prop_assert!(rejoined == from_oracle_party(&merged));
     }
 
-    /// E26 + E27. The heterogeneous joins `Version|Version`, `Clock|Version`, and
+    /// The heterogeneous joins `Version|Version`, `Clock|Version`, and
     /// `Version|Clock` all match the oracle. The latter two encode the
     /// anonymous-as-party-0 identity: the version merges, the party is untouched.
     #[test]
-    fn e26_heterogeneous_joins(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+    fn heterogeneous_joins(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
         let n = cs.len();
         let (i, j) = (i % n, j % n);
@@ -246,13 +246,13 @@ proptest! {
         prop_assert_eq!(to_oracle_clock(&got_vc), (vcp.clone(), vcv.clone()));
     }
 
-    /// E26 (assigning forms). The `Clock` assigning / batch join surfaces merge the
+    /// Assigning forms. The `Clock` assigning / batch join surfaces merge the
     /// version and leave the party untouched, matching the oracle — complementing the
     /// by-value `Clock | Version` above. Covers `Clock |= Version`, the `From<&mut
     /// Clock>` batch conversion, the `clock::Batch |= &Version` operator (committed on
     /// drop), and the `clock::Batch::party` accessor.
     #[test]
-    fn e26_clock_assign_join_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+    fn clock_assign_join_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
         let n = cs.len();
         let (i, j) = (i % n, j % n);
@@ -284,9 +284,9 @@ proptest! {
 // ───────────────────────── batch equivalence / laziness ─────────────────────────
 
 proptest! {
-    /// G30. A batch of ops equals the same ops applied as value-level calls.
+    /// A batch of ops equals the same ops applied as value-level calls.
     #[test]
-    fn g30_batch_equals_value_level(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+    fn batch_equals_value_level(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
         let n = cs.len();
         let (i, j) = (i % n, j % n);
@@ -309,10 +309,10 @@ proptest! {
         prop_assert!(batched.party() == value_level.party());
     }
 
-    /// G31. A batch with no event arithmetic (created-and-dropped, or fork-only)
+    /// A batch with no event arithmetic (created-and-dropped, or fork-only)
     /// leaves the version unchanged — the working form is never materialized.
     #[test]
-    fn g31_no_arith_batch_preserves_version(ops in world_strategy(), i in 0usize..64) {
+    fn no_arith_batch_preserves_version(ops in world_strategy(), i in 0usize..64) {
         let cs = run(&ops);
         let n = cs.len();
         let mut c = from_oracle_clock(&cs[i % n]);
@@ -331,11 +331,11 @@ proptest! {
         prop_assert!(c.version() == before_fork);
     }
 
-    /// G32 + F29. The commit happens on drop, and mid-batch comparison already reflects
+    /// The commit happens on drop, and mid-batch comparison already reflects
     /// the uncommitted tick: `batch.version()` equals the post-tick value before drop,
     /// and the underlying clock equals it after drop.
     #[test]
-    fn g32_commit_on_drop(ops in world_strategy(), i in 0usize..64) {
+    fn commit_on_drop(ops in world_strategy(), i in 0usize..64) {
         let cs = run(&ops);
         let n = cs.len();
         let mut c = from_oracle_clock(&cs[i % n]);
@@ -357,11 +357,11 @@ proptest! {
 // ───────────────────────── normal-form invariant ─────────────────────────
 
 proptest! {
-    /// A5. Every value produced by every op is in canonical normal form, checked after
+    /// Every value produced by every op is in canonical normal form, checked after
     /// every step of a seed-derived impl-only trace (lowered to oracle trees, which
     /// carry the `is_normal` predicate).
     #[test]
-    fn a5_ops_preserve_normal_form(ops in world_strategy()) {
+    fn ops_preserve_normal_form(ops in world_strategy()) {
         let mut imp = vec![Clock::seed()];
         for op in &ops {
             step_impl(&mut imp, op);
@@ -376,17 +376,17 @@ proptest! {
 
 // ───────────────────────────── robustness ─────────────────────────────
 
-/// H33. Deep structures (a depth-100k id spine, and the deep event tree a tick builds
+/// Deep structures (a depth-100k id spine, and the deep event tree a tick builds
 /// over it) survive *every* public op plus the codec and the `Debug` printer with no
 /// stack overflow — the proof that every traversal is iterative. Beyond the single-clock
 /// ops (tick / fork / join / partial_cmp / `|` / encode / decode / Debug), this drives
 /// the composite and observer ops that operate on deep structures: `sync` between two
 /// deep clocks, `send`/`receive` of a deep version, and each clock observer
-/// (`has_seen` / `happens_before` / `concurrent_with`) at depth (COV-4). Impl-only: the
+/// (`has_seen` / `happens_before` / `concurrent_with`) at depth. Impl-only: the
 /// recursive oracle cannot build or even drop a tree this deep (oracle agreement at
-/// bounded depth is the master harness's job, §8).
+/// bounded depth is the master differential harness's job).
 #[test]
-fn h33_deep_tree_stack_safety() {
+fn deep_tree_stack_safety() {
     const DEPTH: usize = 100_000;
     let party = deep_left_spine_party(DEPTH);
     let mut clock = Clock::from_parts(party, Version::new());
@@ -450,14 +450,14 @@ fn h33_deep_tree_stack_safety() {
 }
 
 proptest! {
-    /// H34 + COV-7. `decode` of arbitrary bytes never panics; it returns `Ok` or `Err`.
+    /// `decode` of arbitrary bytes never panics; it returns `Ok` or `Err`.
     /// Any accepted value satisfies the keystone invariant `decode(b) == Ok(x) ⟹
     /// is_normal(x)`: lowering it to the oracle yields a normal-form tree. This — not the
     /// re-encode round-trip alone — is what makes the byte-equality `Eq`/`Hash` sound: a
     /// non-normal accept would give two distinct byte strings for one logical value. The
     /// re-encode-then-decode round-trip is also asserted (canonical encoding is stable).
     #[test]
-    fn h34_decode_never_panics(bytes in prop::collection::vec(any::<u8>(), 0..512)) {
+    fn decode_never_panics(bytes in prop::collection::vec(any::<u8>(), 0..512)) {
         if let Ok(p) = Party::decode(&bytes) {
             prop_assert!(to_oracle_party(&p).is_normal(), "accepted a non-normal Party");
             prop_assert_eq!(Party::decode(&p.encode()).ok(), Some(p));
@@ -522,12 +522,12 @@ proptest! {
 
 // ───────────────────────────── worked example ─────────────────────────────
 
-/// I35 (paper §5.1). The paper's example run, step by step: seed forks to two; one
+/// Paper §5.1. The paper's example run, step by step: seed forks to two; one
 /// ticks then forks; the other ticks twice; one of three ticks while the other two
 /// sync; finally all rejoin to the whole space and a tick collapses the event tree to a
-/// single integer. Mirrors the oracle's `o15_worked_example` on the impl.
+/// single integer. Mirrors the oracle's `worked_example` on the impl.
 #[test]
-fn i35_worked_example() {
+fn worked_example() {
     // Whole-space region check, computed structurally (parties are not `Clone`).
     let region = |clocks: &[&Clock]| {
         let mut acc = oracle::Party::Leaf(false);
@@ -632,7 +632,7 @@ fn display_matches_paper_notation() {
     assert_eq!(ev.to_string(), "(1, 2, (0, (1, 0, 2), 0))");
 
     // Arbitrary-precision bases round-trip: a base past `u64::MAX` (2^64) parses,
-    // re-renders, and decodes unchanged — there is no integer-width cap (BUG-1).
+    // re-renders, and decodes unchanged — there is no integer-width cap.
     let wide: Version = "(18446744073709551616, 0, 1)".parse().unwrap();
     assert_eq!(wide.to_string(), "(18446744073709551616, 0, 1)");
     assert_eq!(Version::decode(&wide.encode()).unwrap(), wide);
@@ -737,8 +737,8 @@ proptest! {
     }
 
     /// `serde_json` represents `serialize_bytes` as a JSON number-array, decoded back via
-    /// `visit_seq` — so it never exercises the binary `serialize_bytes`/`visit_bytes` path
-    /// (COV-2). Pin that path through two non-JSON formats: `postcard` (non-self-describing,
+    /// `visit_seq` — so it never exercises the binary `serialize_bytes`/`visit_bytes` path.
+    /// Pin that path through two non-JSON formats: `postcard` (non-self-describing,
     /// length-prefixed bytes) and `ciborium` (self-describing CBOR, which emits a *typed*
     /// byte-string — CBOR major type 2). Every type must round-trip through both: the
     /// serialized form is the canonical encoding, deserialization re-validates it, and the

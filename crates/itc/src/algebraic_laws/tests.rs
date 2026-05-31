@@ -1,9 +1,9 @@
-//! PROG-6 algebraic-law proptests, asserted directly on the impl.
+//! Algebraic-law proptests, asserted directly on the impl.
 //!
 //! Each test states one law in its doc comment and checks it on impl `Version` / `Party`
-//! values built from the PROG-1 arbitrary-normal-form generators. No assertion's
-//! right-hand side mentions the oracle: the laws hold by the ITC algebra, so they catch a
-//! defect the impl and the recursive oracle would share.
+//! values built from the arbitrary-normal-form generators. No assertion's right-hand side
+//! mentions the oracle: the laws hold by the ITC algebra, so they catch a defect the impl
+//! and the recursive oracle would share.
 
 use std::cmp::Ordering;
 
@@ -193,8 +193,9 @@ proptest! {
 }
 
 proptest! {
-    /// `decode ∘ encode == id` on `Version`, including the large-base (BUG-1-class) events
-    /// the [`arb_oracle_version`] generator draws near and beyond `u64::MAX`: the widened
+    /// `decode ∘ encode == id` on `Version`, including the large-base events (path sums that
+    /// would overflow `u64`) the [`arb_oracle_version`] generator draws near and beyond
+    /// `u64::MAX`: the widened
     /// Elias-gamma code must round-trip arbitrary-width bases as a canonical prefix code.
     #[test]
     fn version_codec_roundtrip(v in arb_oracle_version()) {

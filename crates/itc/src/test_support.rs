@@ -461,7 +461,7 @@ pub(crate) fn assert_linear_scaling(small_steps: u64, big_steps: u64) {
     );
 }
 
-// ───────────────────────── arbitrary normal-form generators (PROG-1) ─────────────────────────
+// ───────────────────────── arbitrary normal-form generators ─────────────────────────
 //
 // The op-trace generator above only ever produces the tree *shapes operations produce*,
 // and only ever produces causally *related* pairs (every member descends from one seed).
@@ -473,8 +473,9 @@ pub(crate) fn assert_linear_scaling(small_steps: u64, big_steps: u64) {
 // the op pipeline never reaches, and (crucially) generate genuinely *unrelated* pairs.
 //
 // Base magnitudes deliberately span small values AND values near/beyond `u64::MAX`: this
-// is the natural home for the BUG-1 regression class (path sums that would overflow a
-// `u64`). With arbitrary-precision `Base` values the impl threads them losslessly, so the
+// is the natural home for the path-sum-overflow regression class (path sums that would
+// overflow a `u64`). With arbitrary-precision `Base` values the impl threads them
+// losslessly, so the
 // large-base differentials must agree with the oracle exactly.
 
 /// Recursion-depth cap for the arbitrary generators. Kept small so the default proptest
@@ -488,7 +489,7 @@ const ARB_NODES: u32 = 16;
 
 /// An arbitrary event base magnitude. Mixes a dense small range (where collapses and
 /// `one_zero` corners live) with values straddling `u64::MAX`, so a generated event tree
-/// can have root-to-leaf path sums that would overflow `u64` — the BUG-1 class. The
+/// can have root-to-leaf path sums that would overflow `u64`. The
 /// big-value arms are built from `u128`/shifted `BigUint` literals, well beyond `u64`.
 pub(crate) fn arb_base() -> impl Strategy<Value = codec::Base> {
     prop_oneof![
@@ -528,13 +529,14 @@ pub(crate) fn arb_oracle_version() -> impl Strategy<Value = oracle::Version> {
     })
 }
 
-// ───────────────── brute-force grow-optimality oracle (PAP-1 / PROG-4) ─────────────────
+// ───────────────── brute-force grow-optimality oracle ─────────────────
 //
-// The paper's event condition (§3 L94-99, §5.3.4) requires `event` register a *minimal*
+// The paper's event condition (§3, §5.3.4) requires `event` register a *minimal*
 // inflation: `e < e'` and `e'` dominates no more than needed. `grow` delivers this by a
 // dynamic-programming search that, at every branch node, greedily descends the cheaper
 // child. Both the recursive oracle and the packed impl realize that *same* DP — so the
-// op-trace and PROG-1 differentials (impl == oracle) can only confirm the two agree, never
+// op-trace and arbitrary-tree differentials (impl == oracle) can only confirm the two
+// agree, never
 // that the shared DP is actually optimal. That is this module's job, and it is independent
 // of the DP: it enumerates the *entire* feasible single-region inflation space by brute
 // force (descending BOTH children at every node, with no pruning), computes each

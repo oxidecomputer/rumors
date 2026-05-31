@@ -78,12 +78,12 @@ fn gamma_truncated() {
     assert!(matches!(decode_int(&zeros, 0), Err(DecodeError::Truncated)));
 }
 
-// ───────────────────────── A1: round-trip ─────────────────────────
+// ───────────────────────── decode∘encode round-trip ─────────────────────────
 
 proptest! {
-    /// A1. `decode(encode(x)) == x` for `Party`, `Version`, and `Clock`.
+    /// `decode(encode(x)) == x` for `Party`, `Version`, and `Clock`.
     #[test]
-    fn a1_roundtrip(ops in world_strategy(), i in 0usize..64) {
+    fn decode_encode_roundtrip(ops in world_strategy(), i in 0usize..64) {
         let cs = run(&ops);
         let n = cs.len();
         let oc = &cs[i % n];
@@ -102,13 +102,13 @@ proptest! {
     }
 }
 
-// ───────────────────────── A2: canonical injectivity ─────────────────────────
+// ───────────────────────── canonical encoding injectivity ─────────────────────────
 
 proptest! {
-    /// A2. `a == b` ⇔ `encode(a) == encode(b)`; equality also matches the oracle's
+    /// `a == b` ⇔ `encode(a) == encode(b)`; equality also matches the oracle's
     /// (encode is injective on normal forms).
     #[test]
-    fn a2_canonical(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+    fn canonical_encoding_is_injective(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
         let n = cs.len();
         let vs = versions(&cs);
@@ -125,12 +125,13 @@ proptest! {
     }
 }
 
-// ──────────────────── COV-6: Clock canonical byte-injectivity ────────────────────
+// ──────────────────── Clock canonical byte-injectivity ────────────────────
 
 proptest! {
-    /// COV-6 / A2. `Clock::encode` is injective on normal forms, asserted *directly* on
-    /// `Clock` (which has no `PartialEq`, so A2 above only reaches it transitively through
-    /// the harness): two clocks encode to identical bytes **iff** they lower to the same
+    /// `Clock::encode` is injective on normal forms, asserted *directly* on
+    /// `Clock` (which has no `PartialEq`, so the encoding-injectivity property only reaches
+    /// it transitively through the harness): two clocks encode to identical bytes **iff**
+    /// they lower to the same
     /// `(Party, Version)` oracle structure. Both directions matter — equal structure must
     /// produce identical bytes (well-defined canonical encoding), and *distinct* structure
     /// must produce *distinct* bytes (injectivity, the property byte-equality `Eq`/`Hash`
@@ -138,11 +139,11 @@ proptest! {
     /// between the two halves, so this also pins that the id/event boundary is unambiguous:
     /// a difference in *either* component alone changes the bytes.
     ///
-    /// Inputs are arbitrary normal-form trees (PROG-1 generators), so the pairs are
-    /// genuinely unrelated structures spanning shapes and base magnitudes the op pipeline
-    /// never produces — exactly where a non-injective boundary would hide.
+    /// Inputs are arbitrary normal-form trees, so the pairs are genuinely unrelated
+    /// structures spanning shapes and base magnitudes the op pipeline never produces —
+    /// exactly where a non-injective boundary would hide.
     #[test]
-    fn cov6_clock_byte_injective_arbitrary(
+    fn clock_byte_injective_arbitrary(
         pa in arb_oracle_party_nonempty(),
         va in arb_oracle_version(),
         pb in arb_oracle_party_nonempty(),
@@ -160,11 +161,11 @@ proptest! {
 }
 
 proptest! {
-    /// COV-6 / A2. The same `Clock` byte-injectivity biconditional over *causally related*
+    /// The same `Clock` byte-injectivity biconditional over *causally related*
     /// clocks drawn from a seed-derived op trace — the population the protocol actually
     /// produces, complementing the unrelated arbitrary pairs above.
     #[test]
-    fn cov6_clock_byte_injective_op_trace(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+    fn clock_byte_injective_op_trace(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
         let n = cs.len();
         let a = from_oracle_clock(&cs[i % n]);
@@ -176,15 +177,15 @@ proptest! {
     }
 }
 
-// ───────────────────────── A3: rejection ─────────────────────────
+// ───────────────────────── decode rejection of non-canonical input ─────────────────────────
 
-/// A3. A collapsible id node `(v, v)` is non-canonical, for *both* leaf values: a
-/// `(1, 1)` node collapses to `1`, and a `(0, 0)` node to `0`. The plan's A3 enumerates
-/// both; the `(0, 0)` case is distinct because `0`-leaf children also form the anonymous
+/// A collapsible id node `(v, v)` is non-canonical, for *both* leaf values: a
+/// `(1, 1)` node collapses to `1`, and a `(0, 0)` node to `0`. Both cases are checked;
+/// the `(0, 0)` case is distinct because `0`-leaf children also form the anonymous
 /// share, so it must be rejected as `NotCanonical` (a collapsible node) rather than
 /// slipping through to the `Anonymous` empty-id check.
 #[test]
-fn a3_reject_noncanonical_id() {
+fn reject_noncanonical_id() {
     use oracle::Party::{Leaf, Node};
     for v in [false, true] {
         let denormal = Node(Box::new(Leaf(v)), Box::new(Leaf(v)));
@@ -196,13 +197,13 @@ fn a3_reject_noncanonical_id() {
     }
 }
 
-/// A3. The id validator runs bottom-up on an explicit stack, so a collapsible `(v, v)`
+/// The id validator runs bottom-up on an explicit stack, so a collapsible `(v, v)`
 /// node buried under deep, otherwise-canonical nesting must still be caught — the
 /// `NotCanonical` check fires when *any* node completes, not only at the root. Build a
 /// left-leaning spine `(((… (1,1) …, 0), 0), 0)` whose deepest node is the denormal
 /// `(1, 1)`, exercising the validator's recursion past a single byte.
 #[test]
-fn a3_reject_deep_nested_denormal_id() {
+fn reject_deep_nested_denormal_id() {
     use oracle::Party::{Leaf, Node};
 
     // Innermost collapsible node, then 16 layers of canonical `(_, 0)` wrapping. Each
@@ -223,13 +224,13 @@ fn a3_reject_deep_nested_denormal_id() {
     ));
 }
 
-/// A3. Padding rejection is bit-granular, not byte-granular: a complete tree that ends
+/// Padding rejection is bit-granular, not byte-granular: a complete tree that ends
 /// mid-byte must have *every* remaining bit of that final byte be zero. A non-zero bit
 /// inside the same byte as the tree (intra-byte padding) is `TrailingBits`, just as a
 /// whole spurious trailing byte is. The id leaf `1` encodes to two bits (`0, 1`) packed
 /// as `0100_0000`; setting any padding bit within that byte must be rejected.
 #[test]
-fn a3_reject_intra_byte_padding() {
+fn reject_intra_byte_padding() {
     // `Leaf(true)` = bits [0, 1] → one byte 0b0100_0000; bits 2..8 are zero padding.
     let clean = from_oracle_party(&oracle::Party::Leaf(true)).encode();
     assert_eq!(clean.len(), 1, "an id leaf fits in a single byte");
@@ -246,10 +247,10 @@ fn a3_reject_intra_byte_padding() {
     }
 }
 
-/// A3. An event node with no zero-base child, and a collapsible `(n,m,m)` node, are
+/// An event node with no zero-base child, and a collapsible `(n,m,m)` node, are
 /// both non-canonical.
 #[test]
-fn a3_reject_noncanonical_event() {
+fn reject_noncanonical_event() {
     use oracle::Version::{Leaf, Node};
 
     // No child has base 0: violates the one-child-min-is-zero invariant.
@@ -277,13 +278,13 @@ fn a3_reject_noncanonical_event() {
     ));
 }
 
-/// PAP-2. The byte `decode` paths are the only ones that yield a top-level `Party`
+/// The byte `decode` paths are the only ones that yield a top-level `Party`
 /// without passing through `finish_id`; both reject the anonymous identity `0` (the
 /// empty id region), so an empty-region `Party`/`Clock` cannot be constructed. The
 /// paper forbids `event` on an anonymous stamp (§3, `i ≠ 0`), and a standalone party
 /// is by definition a nonzero share.
 #[test]
-fn pap2_decode_rejects_anonymous_id() {
+fn decode_rejects_anonymous_id() {
     // The single `0` leaf is the only canonical empty id; encode it as a bare party.
     let anon = from_oracle_party(&oracle::Party::Leaf(false)).encode();
     assert!(matches!(Party::decode(&anon), Err(DecodeError::Anonymous)));
@@ -300,9 +301,9 @@ fn pap2_decode_rejects_anonymous_id() {
     ));
 }
 
-/// A3. A stream that ends mid-tree is `Truncated`.
+/// A stream that ends mid-tree is `Truncated`.
 #[test]
-fn a3_reject_truncated() {
+fn reject_truncated() {
     // 0xFF is eight node flags in a row — the tree never bottoms out.
     assert!(matches!(
         Party::decode(&[0xFF]),
@@ -314,9 +315,9 @@ fn a3_reject_truncated() {
     ));
 }
 
-/// A3. A non-zero bit after a complete tree is `TrailingBits`.
+/// A non-zero bit after a complete tree is `TrailingBits`.
 #[test]
-fn a3_reject_trailing_bits() {
+fn reject_trailing_bits() {
     let mut bytes = from_oracle_party(&oracle::Party::Leaf(true)).encode();
     bytes.push(0x01); // a set bit beyond the (complete) tree and its zero padding
     assert!(matches!(
@@ -332,16 +333,16 @@ fn a3_reject_trailing_bits() {
     ));
 }
 
-// ───────────────────── PROG-5(b): decode mutation tests ─────────────────────
+// ───────────────────── decode mutation tests ─────────────────────
 //
-// The 256 uniform-random vectors in `h34_decode_never_panics` are a thin panic net:
+// The 256 uniform-random vectors in `decode_never_panics` are a thin panic net:
 // truly random bytes almost never form a *nearly*-valid stream, so they barely exercise
 // the validator's accept boundary. These tests instead start from a *valid* canonical
 // encoding and perturb it minimally — flip one bit, truncate at one position — so the
 // mutated input lands right at the edge of the accepted language. The contract for every
 // mutation is the same disjunction: `decode` either **rejects** (`Err`) or
-// **accepts-canonically** — the accepted value lowers to a normal-form oracle tree
-// (COV-7's keystone invariant, the thing byte-equality `Eq`/`Hash` rests on) *and*
+// **accepts-canonically** — the accepted value lowers to a normal-form oracle tree (the
+// keystone byte-canonicity invariant, the thing byte-equality `Eq`/`Hash` rests on) *and*
 // re-encodes to exactly the bytes it was decoded from (so the mutated stream was itself
 // the canonical encoding of some value). A decode that accepts a non-normal value, or one
 // whose re-encode disagrees with its own input, is a major finding.
@@ -402,7 +403,7 @@ fn assert_all_accept_canonical(bytes: &[u8]) {
 }
 
 proptest! {
-    /// PROG-5(b). Flipping any single bit of a valid clock encoding yields a stream that
+    /// Flipping any single bit of a valid clock encoding yields a stream that
     /// `decode` either rejects or accepts canonically (normal-form, re-encode-stable) —
     /// for every bit position and every decoder. Single-bit flips are the most targeted
     /// mutation: each lands one Hamming step from the accepted language, where a validator
@@ -413,7 +414,7 @@ proptest! {
     /// leaving a spurious all-zero trailing byte; `decode` now rejects that (a run of `>= 8`
     /// trailing bits is non-canonical even when zero), keeping `decode` injective on bytes.
     #[test]
-    fn prog5_bit_flip_rejects_or_canonical(
+    fn bit_flip_rejects_or_decodes_canonically(
         pa in arb_oracle_party_nonempty(),
         va in arb_oracle_version(),
     ) {
@@ -433,7 +434,7 @@ proptest! {
 }
 
 proptest! {
-    /// PROG-5(b). Truncating a valid encoding at any byte boundary yields a stream that
+    /// Truncating a valid encoding at any byte boundary yields a stream that
     /// `decode` rejects or accepts canonically. A prefix of a complete tree is almost
     /// always `Truncated`, but a prefix can occasionally itself be a complete smaller tree
     /// (e.g. the leading id leaf of a clock) — which must then decode canonically, never to
@@ -444,7 +445,7 @@ proptest! {
     /// or more trailing zero bytes; `decode` now rejects that rather than accepting a value
     /// that re-encodes to fewer bytes than its own input.
     #[test]
-    fn prog5_truncation_rejects_or_canonical(
+    fn truncation_rejects_or_decodes_canonically(
         pa in arb_oracle_party_nonempty(),
         va in arb_oracle_version(),
     ) {
@@ -456,8 +457,8 @@ proptest! {
     }
 }
 
-/// PROG-5(b) WITNESS — the minimal reproduction of the trailing-zero-byte defect that the
-/// two ignored mutation proptests above surface.
+/// WITNESS — the minimal reproduction of the trailing-zero-byte defect that the
+/// two mutation proptests above (bit-flip and truncation) surface.
 ///
 /// `pack_to_bytes` zero-pads a canonical stream only to the next byte boundary, so a
 /// canonical encoding has **at most 7 trailing zero bits**. The original
@@ -474,7 +475,7 @@ proptest! {
 /// spurious trailing byte, not padding. A bare party leaf `(1, (0, 1))` = `[177]` exhibits
 /// the same with one appended `0x00`.
 #[test]
-fn prog5_trailing_zero_byte_accepted_witness() {
+fn trailing_zero_byte_rejected_witness() {
     // Canonical encoding of the event `(2, 0, 1)` is exactly two bytes.
     let canonical = Version::try_from((2u64, 0u64, 1u64)).unwrap().encode();
     assert_eq!(canonical, vec![180, 128], "witness canonical encoding");
@@ -503,13 +504,14 @@ fn prog5_trailing_zero_byte_accepted_witness() {
 }
 
 proptest! {
-    /// PROG-5(b). The trailing bits of the final byte are zero padding. Setting any one of
+    /// The trailing bits of the final byte are zero padding. Setting any one of
     /// them must be rejected (`TrailingBits`) — never silently accepted — because a
     /// non-zero padding bit makes the stream non-canonical, which would break the
     /// byte-equality `Eq`/`Hash` contract. The whole-byte and intra-byte cases are pinned
-    /// by hand in the A3 suite; this sweeps every padding position over arbitrary trees.
+    /// by hand in the canonical-rejection suite; this sweeps every padding position over
+    /// arbitrary trees.
     #[test]
-    fn prog5_padding_perturbation_rejects(pa in arb_oracle_party_nonempty()) {
+    fn padding_perturbation_rejects(pa in arb_oracle_party_nonempty()) {
         let party = from_oracle_party(&pa);
         let valid = party.encode();
         // Number of meaningful bits = bit length of the packed id with no trailing padding.

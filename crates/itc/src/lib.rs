@@ -72,16 +72,16 @@ pub mod version;
 mod serde_impls;
 
 #[cfg(test)]
+mod algebraic_laws;
+#[cfg(test)]
+mod exhaustive;
+#[cfg(test)]
 mod metrics;
 /// Reference oracle — the paper's trees as plain recursive enums; ground truth for the
 /// differential tests. Public under the `oracle` feature so the benchmark suite can time
 /// it against the optimized implementation; not part of the production surface.
 #[cfg(any(test, feature = "oracle"))]
 pub mod oracle;
-#[cfg(test)]
-mod prog3_exhaustive;
-#[cfg(test)]
-mod prog6_laws;
 #[cfg(test)]
 mod sampling_oracle;
 #[cfg(test)]

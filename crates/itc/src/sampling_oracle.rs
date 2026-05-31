@@ -1,31 +1,31 @@
-//! PROG-2 — a second, semantically independent reference: the paper's function-space
-//! semantics (§4), sampled on a dyadic grid.
+//! A second, semantically independent reference: the paper's function-space semantics
+//! (§4), sampled on a dyadic grid.
 //!
 //! Every other differential reference in this crate — the recursive [`oracle`] and the
 //! packed impl — represents an ITC stamp as a *tree* and realizes each operation as the
 //! *same* tree recursion (the impl is a hand-optimized transcription of the oracle's
 //! recursion). So "impl `==` oracle" can only ever confirm the two trees agree; it is, by
-//! construction, blind to a bug the two share (the failure mode that hid BUG-1). This
-//! module is built on a representation that shares *no* code and *no* structure with the
-//! tree recursion: it evaluates the paper's semantic functions `JeK` / `JiK` (§4 L232-255)
-//! at a finite grid of dyadic rationals in `[0, 1)`, then defines the operations
-//! *pointwise* over those samples, exactly as the paper's framework does (§4 L138-197).
+//! construction, blind to a bug the two share. This module is built on a representation that
+//! shares *no* code and *no* structure with the tree recursion: it evaluates the paper's
+//! semantic functions `JeK` / `JiK` (§4) at a finite grid of dyadic rationals in `[0, 1)`,
+//! then defines the operations *pointwise* over those samples, exactly as the paper's
+//! framework does (§4).
 //!
 //! Representation:
 //! - The **event** component `e` becomes its step function `JeK` sampled at the `2^d` grid
 //!   points `k / 2^d` for `k ∈ 0..2^d`. The value at a point is the sum of the base values
-//!   on the root-to-leaf path to the leaf interval containing it (paper L257: "a base
-//!   value, common for the whole interval, plus a relative value from the subtree"). Sample
-//!   values are arbitrary-precision [`Base`], so a path sum that would overflow a `u64`
-//!   (the BUG-1 class) is represented exactly — there is no truncation point.
+//!   on the root-to-leaf path to the leaf interval containing it (§4: "a base value, common
+//!   for the whole interval, plus a relative value from the subtree"). Sample values are
+//!   arbitrary-precision [`Base`], so a path sum that would overflow a `u64` is represented
+//!   exactly — there is no truncation point.
 //! - The **id** component `i` becomes its characteristic function `JiK ∈ {0, 1}` sampled on
-//!   the same grid: the set of owned dyadic sub-intervals (paper L155-157).
+//!   the same grid: the set of owned dyadic sub-intervals (§4).
 //!
-//! Operations, defined pointwise over the samples (paper §4):
-//! - `leq` (event `≤`): pointwise `≤` over all samples (L147, L177).
-//! - `join` (event `⊔`): pointwise `max` over all samples (L149, L183).
+//! Operations, defined pointwise over the samples (§4):
+//! - `leq` (event `≤`): pointwise `≤` over all samples.
+//! - `join` (event `⊔`): pointwise `max` over all samples.
 //! - id `contains` / `disjoint`: pointwise `≥` / "no common owned point" over the id
-//!   samples (L173: `i₁ · i₂ = 0` is disjointness).
+//!   samples (the disjointness invariant `i₁ · i₂ = 0`).
 //!
 //! ## Why a fixed grid suffices (grid resolution vs. tree depth)
 //!
@@ -45,10 +45,11 @@
 //! deliberately kept separate. The grid depth is always `min(actual_tree_depth,
 //! MAX_GRID_DEPTH)` — driven by the *depth* of the trees in hand, never by a corpus size
 //! knob (which, used as a grid exponent, would be explosive). The gate-resident tests hold
-//! `d` *small*: the PROG-1 generators cap depth at 4 and the op-trace tops out at 7, both
-//! well under [`MAX_GRID_DEPTH`], so the cap never bites and every sample vector is an exact
-//! description. The `#[ignore]`d dense variant ([`tests::prog2_dense_deep_arb`]) pushes far
-//! deeper random trees through the same checks at a higher cap.
+//! `d` *small*: the arbitrary-normal-form generators cap depth at 4 and the op-trace tops
+//! out at 7, both well under [`MAX_GRID_DEPTH`], so the cap never bites and every sample
+//! vector is an exact description. The `#[ignore]`d dense variant
+//! ([`tests::dense_deep_arbitrary`]) pushes far deeper random trees through the same checks
+//! at a higher cap.
 
 #[cfg(test)]
 mod tests;
@@ -59,7 +60,7 @@ use crate::oracle;
 /// Upper bound on the dyadic-grid exponent `d`. The grid has `2^d` points, so this is a hard
 /// ceiling on per-comparison cost. It is set high enough that, for the trees the tests
 /// actually build, the cap **never bites** — so the grid always equals the true tree depth
-/// and the sampling is a *complete, faithful* description (no aliasing). The PROG-1 arbitrary
+/// and the sampling is a *complete, faithful* description (no aliasing). The arbitrary
 /// generators cap tree depth at 4 (`test_support::ARB_DEPTH`, +1 for a `tick`), and the
 /// seed-derived op-trace (≤30 ops over ≤8 parties) was measured to top out at depth 7; `10`
 /// clears both with headroom while `2^10 = 1024` points keep each op microsecond-cheap. The
@@ -103,7 +104,7 @@ pub(crate) fn id_depth(i: &oracle::Party) -> u32 {
 ///
 /// `samples[k]` is the value of the function on the dyadic sub-interval
 /// `[k / 2^d, (k+1) / 2^d)`: the sum of the base values on the path from the root to the
-/// leaf interval that contains that sub-interval (paper L254-257). Values are
+/// leaf interval that contains that sub-interval (§4, event tree semantics). Values are
 /// arbitrary-precision [`Base`], so large path sums are represented exactly.
 ///
 /// Walked iteratively: a worklist of `(node, base_offset, lo, hi)` where `[lo, hi)` is the
@@ -171,14 +172,13 @@ pub(crate) fn id_grid_depth(a: &oracle::Party, b: &oracle::Party) -> u32 {
     id_depth(a).max(id_depth(b)).min(MAX_GRID_DEPTH)
 }
 
-/// Event `≤` in the function space: pointwise `≤` over the samples (paper L147, L177).
+/// Event `≤` in the function space: pointwise `≤` over the samples (§4).
 pub(crate) fn ev_leq(a: &[Base], b: &[Base]) -> bool {
     debug_assert_eq!(a.len(), b.len(), "samples taken at the same grid depth");
     a.iter().zip(b).all(|(x, y)| x <= y)
 }
 
-/// Event join `⊔` in the function space: pointwise `max` over the samples (paper L149,
-/// L183).
+/// Event join `⊔` in the function space: pointwise `max` over the samples (§4).
 pub(crate) fn ev_join(a: &[Base], b: &[Base]) -> Vec<Base> {
     debug_assert_eq!(a.len(), b.len(), "samples taken at the same grid depth");
     a.iter().zip(b).map(|(x, y)| x.max(y).clone()).collect()
@@ -192,7 +192,7 @@ pub(crate) fn id_contains(a: &[bool], b: &[bool]) -> bool {
     a.iter().zip(b).all(|(x, y)| *x || !*y)
 }
 
-/// Id disjointness in the function space: `i₁ · i₂ = 0` (paper L173) — no grid point is
+/// Id disjointness in the function space: `i₁ · i₂ = 0` (§4) — no grid point is
 /// owned by both.
 pub(crate) fn id_disjoint(a: &[bool], b: &[bool]) -> bool {
     debug_assert_eq!(a.len(), b.len(), "samples taken at the same grid depth");

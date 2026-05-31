@@ -1,13 +1,12 @@
-//! PROG-3 exhaustive small-scope differential tests.
+//! Exhaustive small-scope differential tests.
 //!
 //! Each `check_*` helper runs one op family over the *entire* enumerated corpus (every
 //! tree, every ordered pair) and diffs the impl against the recursive oracle — the same
-//! structural-agreement contract the PROG-1 sampled differentials use, but total rather
-//! than random. The two test entry points wire the helpers to decoupled id/event depth
-//! bounds (events grow far faster, so they are held a level shallower — see the parent
-//! module doc): the gate-resident `prog3_exhaustive_small` at [`ID_SMALL_DEPTH`] /
-//! [`EV_SMALL_DEPTH`], and the `#[ignore]`d `prog3_exhaustive_deep` at [`ID_DEEP_DEPTH`] /
-//! [`EV_DEEP_DEPTH`].
+//! structural-agreement contract the sampled differentials use, but total rather than
+//! random. The two test entry points wire the helpers to decoupled id/event depth bounds
+//! (events grow far faster, so they are held a level shallower — see the parent module
+//! doc): the gate-resident `exhaustive_small` at [`ID_SMALL_DEPTH`] / [`EV_SMALL_DEPTH`],
+//! and the `#[ignore]`d `exhaustive_deep` at [`ID_DEEP_DEPTH`] / [`EV_DEEP_DEPTH`].
 
 use std::cmp::Ordering;
 
@@ -214,11 +213,11 @@ fn run_all_at(id_depth: usize, ev_depth: usize) {
     check_tick(&ids, &evs);
 }
 
-/// PROG-3. Sanity-check that the enumeration deduplicates to canonical normal form: every
+/// Sanity-check that the enumeration deduplicates to canonical normal form: every
 /// enumerated id and event is `is_normal`, and the corpus has no duplicates (the de-dup key
 /// is injective over canonical trees, so equal trees would have collided).
 #[test]
-fn prog3_corpus_is_canonical() {
+fn corpus_is_canonical() {
     let ids = all_normal_ids(ID_SMALL_DEPTH);
     for p in &ids {
         assert!(p.is_normal(), "enumerated id not normal: {p:?}");
@@ -241,27 +240,27 @@ fn prog3_corpus_is_canonical() {
     );
 }
 
-/// PROG-3 (fast). Every operation, on every enumerated tree and ordered pair, agrees with
-/// the oracle at the small depth bound — deterministic coverage of the close-up corners
-/// (root-tie `grow`, empty-child spine, `close_node` adjacency, overlap/concurrent verdicts)
-/// that random sampling under-hits. Runs in the normal gate.
+/// Every operation, on every enumerated tree and ordered pair, agrees with the oracle at
+/// the small depth bound — deterministic coverage of the close-up corners (root-tie `grow`,
+/// empty-child spine, `close_node` adjacency, overlap/concurrent verdicts) that random
+/// sampling under-hits. Runs in the normal gate.
 #[test]
-fn prog3_exhaustive_small() {
+fn exhaustive_small() {
     run_all_at(ID_SMALL_DEPTH, EV_SMALL_DEPTH);
 }
 
-/// PROG-3 (deep). The same total cross-product at [`DEEP_DEPTH`]. The corpus is far larger
-/// and the op cross-product is `O(corpus²)`, so this takes minutes; it is `#[ignore]`d to
-/// keep the normal gate fast. Run it explicitly with:
+/// The same total cross-product at the deep depth bound. The corpus is far larger and the
+/// op cross-product is `O(corpus²)`, so this takes minutes; it is `#[ignore]`d to keep the
+/// normal gate fast. Run it explicitly with:
 ///
 /// ```text
 /// cargo nextest run -p itc --release --all-features \
-///     prog3_exhaustive_deep --run-ignored ignored-only
+///     exhaustive_deep --run-ignored ignored-only
 /// ```
 ///
-/// (or `cargo test -p itc --release --all-features -- --ignored prog3_exhaustive_deep`).
+/// (or `cargo test -p itc --release --all-features -- --ignored exhaustive_deep`).
 #[test]
 #[ignore = "exhaustive deep enumeration: O(corpus^2), runs in minutes; see doc comment"]
-fn prog3_exhaustive_deep() {
+fn exhaustive_deep() {
     run_all_at(ID_DEEP_DEPTH, EV_DEEP_DEPTH);
 }

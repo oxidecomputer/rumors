@@ -190,7 +190,7 @@ fn parse_bare_notation() {
     let _party: Party = ((0, 1), (1, (1, 0))).try_into().unwrap();
 }
 
-// ───────────── PROG-1: arbitrary normal-form ids (decoupled from the op pipeline) ─────────────
+// ───────────── arbitrary normal-form ids (decoupled from the op pipeline) ─────────────
 //
 // The op-trace differentials above only ever compare ids that descend from one seed (so
 // every pair is causally related and pairwise disjoint by construction). These feed
@@ -200,12 +200,12 @@ fn parse_bare_notation() {
 // `sum == None`) that the seed-derived pipeline cannot produce.
 
 proptest! {
-    /// PROG-1. `partial_cmp` (descent order) and `is_disjoint` on arbitrary id pairs —
+    /// `partial_cmp` (descent order) and `is_disjoint` on arbitrary id pairs —
     /// typically *unrelated* and frequently *overlapping* — agree with the oracle,
     /// including the incomparable (`None`) and not-disjoint verdicts the op pipeline never
     /// produces.
     #[test]
-    fn prog1_compare_disjoint_arbitrary(
+    fn compare_disjoint_arbitrary(
         oa in arb_oracle_party(),
         ob in arb_oracle_party(),
     ) {
@@ -218,12 +218,12 @@ proptest! {
 }
 
 proptest! {
-    /// PROG-1. `split` (the structural op behind `fork`) on an arbitrary non-empty id
+    /// `split` (the structural op behind `fork`) on an arbitrary non-empty id
     /// matches the oracle's `split`, structurally — on shapes the seed pipeline never
     /// forks. The two halves are read straight off the impl's packed `IdView::split`
     /// output and lowered for comparison.
     #[test]
-    fn prog1_split_arbitrary(op in arb_oracle_party_nonempty()) {
+    fn split_arbitrary(op in arb_oracle_party_nonempty()) {
         let mut oracle_self = op.clone();
         let oracle_give = oracle_self.fork(); // fork = split; mutates `oracle_self` to the kept half
 
@@ -238,12 +238,12 @@ proptest! {
 }
 
 proptest! {
-    /// PROG-1. `sum` on arbitrary id pairs agrees with the oracle: it returns the merged
+    /// `sum` on arbitrary id pairs agrees with the oracle: it returns the merged
     /// id exactly when the pair is disjoint (matching `oracle::Party::join`), and `None`
     /// on overlap. The op pipeline only ever sums disjoint halves, so the overlap `None`
     /// arm is otherwise untested at arbitrary shapes.
     #[test]
-    fn prog1_sum_arbitrary(
+    fn sum_arbitrary(
         oa in arb_oracle_party(),
         ob in arb_oracle_party(),
     ) {
@@ -262,11 +262,11 @@ proptest! {
 }
 
 proptest! {
-    /// PROG-1. `decode ∘ encode == identity` over arbitrary non-empty normal-form ids,
+    /// `decode ∘ encode == identity` over arbitrary non-empty normal-form ids,
     /// and the decoded value lowers to the same oracle tree. (The anonymous tree is
     /// excluded: a standalone `Party` must own a region, and `decode` rejects it.)
     #[test]
-    fn prog1_decode_encode_arbitrary(op in arb_oracle_party_nonempty()) {
+    fn decode_encode_arbitrary(op in arb_oracle_party_nonempty()) {
         let p = from_oracle_party(&op);
         let bytes = p.encode();
         let decoded = Party::decode(&bytes).expect("canonical encoding decodes");
