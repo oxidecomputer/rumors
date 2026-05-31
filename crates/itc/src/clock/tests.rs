@@ -594,6 +594,12 @@ fn display_matches_paper_notation() {
     let ev: Version = "(1, 2, (0, (1, 0, 2), 0))".parse().unwrap();
     assert_eq!(ev.to_string(), "(1, 2, (0, (1, 0, 2), 0))");
 
+    // Arbitrary-precision bases round-trip: a base past `u64::MAX` (2^64) parses,
+    // re-renders, and decodes unchanged — there is no integer-width cap (BUG-1).
+    let wide: Version = "(18446744073709551616, 0, 1)".parse().unwrap();
+    assert_eq!(wide.to_string(), "(18446744073709551616, 0, 1)");
+    assert_eq!(Version::decode(&wide.encode()).unwrap(), wide);
+
     // Debug is the same as Display.
     assert_eq!(format!("{id:?}"), "((0, (1, 0)), (1, 0))");
     assert_eq!(format!("{ev:?}"), "(1, 2, (0, (1, 0, 2), 0))");
@@ -649,10 +655,6 @@ fn fromstr_tryfrom_reject_denormal_and_syntax() {
     assert_eq!(Party::try_from(2u8), Err(ParseError::Syntax));
     assert_eq!("".parse::<Version>(), Err(ParseError::Syntax)); // empty
     assert_eq!("(1, 0)".parse::<Version>(), Err(ParseError::Syntax)); // event needs 3 parts
-    assert_eq!(
-        "(99999999999999999999, 0, 0)".parse::<Version>(),
-        Err(ParseError::Syntax) // integer overflows u64: rejected, not panicked
-    );
     assert_eq!("(café, 0)".parse::<Clock>().err(), Some(ParseError::Syntax)); // non-ASCII byte
 
     // Anonymous identity `0` is rejected as a standalone party (but allowed as a

@@ -7,7 +7,7 @@
 use bitvec::prelude::*;
 use proptest::prelude::*;
 
-use super::{decode_int, encode_int, Bits};
+use super::{decode_int, encode_int, Base, Bits};
 use crate::oracle;
 use crate::test_support::{
     from_oracle_clock, from_oracle_party, from_oracle_version, run, versions, world_strategy,
@@ -21,8 +21,27 @@ proptest! {
     /// exactly the bits it wrote).
     #[test]
     fn gamma_roundtrip(n in 0u64..1_000_000) {
+        let n = Base::from(n);
         let mut bits = Bits::new();
-        encode_int(&mut bits, n);
+        encode_int(&mut bits, &n);
+        let (decoded, pos) = decode_int(&bits, 0).expect("well-formed");
+        prop_assert_eq!(decoded, n);
+        prop_assert_eq!(pos, bits.len());
+    }
+}
+
+proptest! {
+    /// The integer code round-trips arbitrary-width magnitudes with no cap: a value
+    /// built from many random `u64` limbs (well past `u64::MAX`) survives
+    /// `decode_int ∘ encode_int` exactly and remains self-delimiting.
+    #[test]
+    fn gamma_roundtrip_wide(limbs in proptest::collection::vec(any::<u64>(), 1..8)) {
+        let mut n = Base::ZERO;
+        for limb in limbs {
+            n = (n << 64) | Base::from(limb);
+        }
+        let mut bits = Bits::new();
+        encode_int(&mut bits, &n);
         let (decoded, pos) = decode_int(&bits, 0).expect("well-formed");
         prop_assert_eq!(decoded, n);
         prop_assert_eq!(pos, bits.len());
@@ -32,9 +51,9 @@ proptest! {
 /// The Elias-gamma-of-`n+1` bit costs match the plan's table; `0` is a single bit.
 #[test]
 fn gamma_costs() {
-    let cost = |n| {
+    let cost = |n: u64| {
         let mut bits = Bits::new();
-        encode_int(&mut bits, n);
+        encode_int(&mut bits, &Base::from(n));
         bits.len()
     };
     assert_eq!(cost(0), 1);

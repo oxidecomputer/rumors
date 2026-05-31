@@ -31,7 +31,7 @@ impl Version {
     pub fn new() -> Self {
         let mut bits = codec::Bits::new();
         bits.push(false); // leaf flag
-        codec::encode_int(&mut bits, 0);
+        codec::encode_int(&mut bits, &codec::Base::ZERO);
         Version(bits)
     }
 

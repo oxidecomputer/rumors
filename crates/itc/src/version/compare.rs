@@ -13,15 +13,16 @@
 //! positions are **threaded**: each subtree reports where it ended, so a sibling
 //! resumes there instead of re-scanning the left subtree. As soon as both directions
 //! are excluded the result is concurrent (`None`) and the walk stops early. Path sums
-//! are threaded as `u64` offsets — the same width as the stored bases and as
-//! `ev_join`/`fill`/`grow` and the oracle. They cannot overflow for any real tree: a
-//! path sum is the running total of stored bases along a root-to-node path, `tick`
-//! adds 1 at a time, and any tree small enough to hold in memory has a total event
-//! count far below `u64::MAX`.
+//! are threaded as arbitrary-precision [`Base`](crate::codec::Base) offsets — the same
+//! value type as the stored bases and as `ev_join`/`fill`/`grow`. A path sum is the
+//! running total of stored bases along a root-to-node path; an unbounded integer type
+//! removes the `u64` overflow class entirely (`decode` admits any normal-form tree,
+//! including one whose path sums exceed `u64::MAX`, so a bounded accumulator could
+//! wrap and invert the causal order).
 
 use core::cmp::Ordering;
 
-use crate::codec::{decode_int, BitsSlice};
+use crate::codec::{decode_int, Base, BitsSlice};
 use crate::step;
 
 use super::working::WorkingVersion;
@@ -38,8 +39,9 @@ pub(super) enum EvView<'a> {
 impl EvView<'_> {
     /// `(is_internal, base, position-just-past-this-node's-header)`. For packed, the
     /// header is the flag bit plus the gamma-coded base; the left child (if any)
-    /// begins at the returned position. For working, a node is one slot.
-    pub(super) fn header(&self, at: usize) -> (bool, u64, usize) {
+    /// begins at the returned position. For working, a node is one slot. The base is an
+    /// arbitrary-precision [`Base`], returned by value (cloned from the working store).
+    pub(super) fn header(&self, at: usize) -> (bool, Base, usize) {
         // `grow` uses `super::event::VIRTUAL` (`usize::MAX`) as a sentinel "virtual leaf"
         // position and always guards `ev == VIRTUAL` before any real header read. This
         // turns a slipped guard into a loud panic instead of a silent out-of-bounds /
@@ -55,7 +57,7 @@ impl EvView<'_> {
                 let (base, next) = decode_int(bits, at + 1).expect("canonical event bits");
                 (internal, base, next)
             }
-            EvView::Working(work) => (work.topo[at], work.base[at], at + 1),
+            EvView::Working(work) => (work.topo[at], work.base[at].clone(), at + 1),
         }
     }
 
@@ -110,31 +112,31 @@ enum Job {
         /// Position of `a`'s subtree root.
         a_pos: usize,
         /// Path sum down to `a`'s subtree.
-        a_off: u64,
+        a_off: Base,
         /// Position of `b`'s subtree root.
         b_pos: usize,
         /// Path sum down to `b`'s subtree.
-        b_off: u64,
+        b_off: Base,
     },
     /// Both-internal node: its left child finished; launch the right child, both
     /// positions threaded from where the left child's subtrees ended (read from `ret`)
     /// and offset by the node sums.
-    RightLockstep { a_sum: u64, b_sum: u64 },
+    RightLockstep { a_sum: Base, b_sum: Base },
     /// `b` is a leaf broadcast to both of `a`'s children: launch `a`'s right child
     /// (its position threaded from `ret`, offset by `a_sum`) against the same pinned `b`
     /// leaf (its `b_pos`/`b_off` carried here, not threaded).
     RightBroadcastB {
-        a_sum: u64,
+        a_sum: Base,
         b_pos: usize,
-        b_off: u64,
+        b_off: Base,
     },
     /// `a` is a leaf broadcast to both of `b`'s children: launch `b`'s right child
     /// (its position threaded from `ret`, offset by `b_sum`) against the same pinned `a`
     /// leaf (its `a_pos`/`a_off` carried here, not threaded).
     RightBroadcastA {
         a_pos: usize,
-        a_off: u64,
-        b_sum: u64,
+        a_off: Base,
+        b_sum: Base,
     },
 }
 
@@ -175,9 +177,9 @@ pub(crate) fn causal_cmp(a: &EvView, b: &EvView) -> Option<Ordering> {
     let mut ret = Ends::default();
     let mut stack = vec![Job::Eval {
         a_pos: 0,
-        a_off: 0,
+        a_off: Base::ZERO,
         b_pos: 0,
-        b_off: 0,
+        b_off: Base::ZERO,
     }];
     while let Some(job) = stack.pop() {
         match job {
@@ -189,8 +191,8 @@ pub(crate) fn causal_cmp(a: &EvView, b: &EvView) -> Option<Ordering> {
             } => {
                 let (a_internal, a_base, a_next) = a.header(a_pos);
                 let (b_internal, b_base, b_next) = b.header(b_pos);
-                let a_sum = a_off + a_base;
-                let b_sum = b_off + b_base;
+                let a_sum = a_off.clone() + a_base;
+                let b_sum = b_off.clone() + b_base;
                 if a_sum > b_sum {
                     le = false;
                 }
@@ -210,7 +212,10 @@ pub(crate) fn causal_cmp(a: &EvView, b: &EvView) -> Option<Ordering> {
                     }
                     // Both internal: descend in lockstep.
                     (true, true) => {
-                        stack.push(Job::RightLockstep { a_sum, b_sum });
+                        stack.push(Job::RightLockstep {
+                            a_sum: a_sum.clone(),
+                            b_sum: b_sum.clone(),
+                        });
                         stack.push(Job::Eval {
                             a_pos: a_next,
                             a_off: a_sum,
@@ -221,9 +226,9 @@ pub(crate) fn causal_cmp(a: &EvView, b: &EvView) -> Option<Ordering> {
                     // `b` leaf broadcast to both of `a`'s children.
                     (true, false) => {
                         stack.push(Job::RightBroadcastB {
-                            a_sum,
+                            a_sum: a_sum.clone(),
                             b_pos,
-                            b_off,
+                            b_off: b_off.clone(),
                         });
                         stack.push(Job::Eval {
                             a_pos: a_next,
@@ -236,8 +241,8 @@ pub(crate) fn causal_cmp(a: &EvView, b: &EvView) -> Option<Ordering> {
                     (false, true) => {
                         stack.push(Job::RightBroadcastA {
                             a_pos,
-                            a_off,
-                            b_sum,
+                            a_off: a_off.clone(),
+                            b_sum: b_sum.clone(),
                         });
                         stack.push(Job::Eval {
                             a_pos,

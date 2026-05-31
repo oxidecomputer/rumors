@@ -19,7 +19,7 @@
 //! chosen path. The probe always set it, because the two passes walk the identical
 //! branch nodes — the coordinate agreement is what lets them communicate by position.
 
-use crate::codec::BitsSlice;
+use crate::codec::{Base, BitsSlice};
 use crate::idbits;
 
 use super::{Builder, Built, VIRTUAL};
@@ -175,7 +175,7 @@ fn grow_probe(id_bits: &BitsSlice, view: &EvView, choice: &mut Choices) {
                 let (id_node, id_val, id_next) = idbits::header(id_bits, id_pos);
                 let virt = ev_pos == VIRTUAL;
                 let (ev_int, _ev_base, ev_next) = if virt {
-                    (false, 0u64, VIRTUAL)
+                    (false, Base::ZERO, VIRTUAL)
                 } else {
                     view.header(ev_pos)
                 };
@@ -352,7 +352,7 @@ fn grow_emit(id_bits: &BitsSlice, view: &EvView, out: &mut Builder, choice: &Cho
                 let (id_node, id_val, id_next) = idbits::header(id_bits, id_pos);
                 let virt = ev_pos == VIRTUAL;
                 let (ev_int, ev_base, ev_next) = if virt {
-                    (false, 0u64, VIRTUAL)
+                    (false, Base::ZERO, VIRTUAL)
                 } else {
                     view.header(ev_pos)
                 };
@@ -364,7 +364,7 @@ fn grow_emit(id_bits: &BitsSlice, view: &EvView, out: &mut Builder, choice: &Cho
                     // never empty — so an id leaf on the chosen path is always full.
                     debug_assert!(id_val, "grow chose an empty-id region to inflate");
                     ret = Built {
-                        out_root: out.leaf(ev_base + 1),
+                        out_root: out.leaf(ev_base + 1u32),
                         id_end: id_next,
                         ev_end: ev_next,
                     };
@@ -408,7 +408,7 @@ fn grow_emit(id_bits: &BitsSlice, view: &EvView, out: &mut Builder, choice: &Cho
                             (idbits::skip(id_bits, id_next), ev_right)
                         }
                         Kind::Expand => {
-                            out.leaf(0);
+                            out.leaf(Base::ZERO);
                             (idbits::skip(id_bits, id_next), VIRTUAL)
                         }
                     };
@@ -441,7 +441,7 @@ fn grow_emit(id_bits: &BitsSlice, view: &EvView, out: &mut Builder, choice: &Cho
                         (rr, idbits::skip(id_bits, left.id_end), ev_node_end)
                     }
                     Kind::Expand => {
-                        let rr = out.leaf(0); // off-path sibling is a fresh Leaf(0)
+                        let rr = out.leaf(Base::ZERO); // off-path sibling is a fresh Leaf(0)
                         (rr, idbits::skip(id_bits, left.id_end), ev_next)
                     }
                 };

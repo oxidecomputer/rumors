@@ -163,11 +163,11 @@ fn emit_ev(out: &mut Bits, t: &oracle::Version) {
     match t {
         oracle::Version::Leaf(n) => {
             out.push(false);
-            codec::encode_int(out, *n);
+            codec::encode_int(out, &codec::Base::from(*n));
         }
         oracle::Version::Node(n, l, r) => {
             out.push(true);
-            codec::encode_int(out, *n);
+            codec::encode_int(out, &codec::Base::from(*n));
             emit_ev(out, l);
             emit_ev(out, r);
         }
@@ -219,7 +219,10 @@ fn read_id(bits: &codec::BitsSlice, pos: usize) -> (oracle::Party, usize) {
 
 fn read_ev(bits: &codec::BitsSlice, pos: usize) -> (oracle::Version, usize) {
     let internal = bits[pos];
-    let (n, after_n) = codec::decode_int(bits, pos + 1).expect("canonical impl bits decode");
+    let (big, after_n) = codec::decode_int(bits, pos + 1).expect("canonical impl bits decode");
+    // The oracle is `u64`-valued (it is fed only op-generated, small bases); lowering a
+    // bignum-valued impl tree back to it requires the magnitude to fit `u64`.
+    let n = u64::try_from(&big).expect("oracle lowering: impl base exceeds u64");
     if internal {
         let (l, after_l) = read_ev(bits, after_n);
         let (r, after_r) = read_ev(bits, after_l);

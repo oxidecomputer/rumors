@@ -40,7 +40,7 @@ fn unpack_layout() {
         w.topo.iter().by_vals().collect::<Vec<_>>(),
         [true, false, false]
     );
-    assert_eq!(w.base, [0, 1, 0]);
+    assert_eq!(w.base, [0u32, 1, 0].map(crate::codec::Base::from));
 }
 
 proptest! {
@@ -367,4 +367,23 @@ proptest! {
         };
         assert_linear_scaling(measure(scale), measure(scale * 4));
     }
+}
+
+// ───────────────────────────── overflow regression (BUG-1) ─────────────────────────────
+
+/// BUG-1. A normal-form tree whose root-to-leaf path sum exceeds `u64::MAX` compares
+/// correctly: with arbitrary-precision base values there is no overflow class, so the
+/// answer is `Greater` in every build profile (no debug panic, no release wrap that
+/// would invert the causal order). `decode`/`try_from` admit such trees — `parse_ev`
+/// validates only *relative* bases and never sums a path — so the comparison must
+/// thread the path sum at full precision.
+#[test]
+fn bug1_path_sum_beyond_u64_compares_greater() {
+    let big = 1u64 << 63;
+    // Normal form: the outer min(big, 0) child is the right `0` leaf; the inner node's
+    // min(0, 1) child is its left `0` leaf. The left half's true value is
+    // big + big + 1 = 2^64 + 1, past `u64::MAX`.
+    let a = Version::try_from((big, (big, 0u64, 1u64), 0u64)).unwrap();
+    let b = Version::try_from(big).unwrap(); // constant 2^63
+    assert_eq!(a.partial_cmp(&b), Some(Ordering::Greater));
 }

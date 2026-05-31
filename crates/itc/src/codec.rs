@@ -7,6 +7,7 @@
 //! then stores the (canonical) consumed prefix.
 
 use bitvec::prelude::*;
+use num_bigint::BigUint;
 
 use crate::{DecodeError, ParseError};
 
@@ -18,27 +19,39 @@ pub(crate) type Bits = BitVec<u8, Msb0>;
 /// A borrowed view of the packed storage form.
 pub(crate) type BitsSlice = BitSlice<u8, Msb0>;
 
+/// An event tree's stored integer magnitude. ITC event counts (path sums of `tick`s,
+/// the `max`/`join` of two such sums) grow without bound, so the value type is an
+/// arbitrary-precision non-negative integer (`num_bigint::BigUint`): no `u64` overflow
+/// class, in any build profile. Tree-*structural* counters (bit positions, node indices,
+/// tree depths, gamma code lengths, `grow`'s `(expansions, depth)` cost) stay machine
+/// integers — only the magnitudes that represent logical-clock event counts are `Base`.
+pub(crate) type Base = BigUint;
+
 // ───────────────────────── integer code (Elias gamma of n+1) ─────────────────────────
 
 /// Append `n` as the Elias gamma code of `m = n + 1`: `floor(log2(m))` zero bits,
 /// then `m` in `floor(log2(m)) + 1` bits, most-significant first. Cost is
-/// `2*floor(log2(n+1)) + 1` bits; `0` costs a single bit. Canonical and prefix-free.
-// Used by the cfg(test) oracle bridge now and by `repack` from Phase 2 onward.
-#[allow(dead_code)]
-pub(crate) fn encode_int(out: &mut Bits, n: u64) {
-    let m = n + 1; // m >= 1
-    let k = 63 - m.leading_zeros(); // floor(log2(m)) = bit_length(m) - 1
+/// `2*floor(log2(n+1)) + 1` bits; `0` costs a single bit. Canonical and prefix-free,
+/// for an arbitrary-width non-negative `n` (there is no value cap).
+pub(crate) fn encode_int(out: &mut Bits, n: &Base) {
+    let m = n + 1u32; // m >= 1
+                      // `k = floor(log2(m)) = bit_length(m) - 1` (a tree-structural count, not a
+                      // magnitude). `m >= 1`, so `m.bits() >= 1` and the subtraction never underflows.
+    let k = m.bits() - 1;
     for _ in 0..k {
         out.push(false);
     }
+    // Emit `m` in `k + 1` bits, most-significant first.
     for i in (0..=k).rev() {
-        out.push((m >> i) & 1 == 1);
+        out.push(m.bit(i));
     }
 }
 
 /// Read an Elias-gamma-coded integer at `pos`, returning the value and the new
-/// position. Running past the end (or a code too long to fit `u64`) is `Truncated`.
-pub(crate) fn decode_int(bits: &BitsSlice, pos: usize) -> Result<(u64, usize), DecodeError> {
+/// position. Running past the end is `Truncated`. Decodes an arbitrary-width value
+/// (no cap): the unary prefix length `k` is bounded by the available bits, which the
+/// `Truncated` checks enforce, so a declared code can never exceed the input.
+pub(crate) fn decode_int(bits: &BitsSlice, pos: usize) -> Result<(Base, usize), DecodeError> {
     let mut k = 0usize;
     loop {
         let idx = pos + k;
@@ -49,20 +62,20 @@ pub(crate) fn decode_int(bits: &BitsSlice, pos: usize) -> Result<(u64, usize), D
             break; // the leading 1 of m
         }
         k += 1;
-        if k > 63 {
-            // m would need more than 64 bits: not representable, treat as malformed.
-            return Err(DecodeError::Truncated);
-        }
     }
     let start = pos + k;
     if start + k + 1 > bits.len() {
         return Err(DecodeError::Truncated);
     }
-    let mut m: u64 = 0;
+    // Read the `k + 1` bits of `m` most-significant first into a `BigUint`.
+    let mut m = BigUint::ZERO;
     for i in 0..=k {
-        m = (m << 1) | (bits[start + i] as u64);
+        m <<= 1;
+        if bits[start + i] {
+            m |= BigUint::from(1u32);
+        }
     }
-    Ok((m - 1, start + k + 1))
+    Ok((m - 1u32, start + k + 1))
 }
 
 // ───────────────────────── id (party) parse + validate ─────────────────────────
@@ -126,19 +139,19 @@ pub(crate) fn parse_id(bits: &BitsSlice, mut pos: usize) -> Result<usize, Decode
 
 /// What a parsed event subtree contributes to its parent's normal-form check: its
 /// stored (relative) base, and whether it is a leaf.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct EvChild {
-    base: u64,
+    base: Base,
     is_leaf: bool,
 }
 
 /// While building an event node bottom-up, what we still need from the stream.
 enum EvFrame {
     /// Parsed the node's flag and base; the next subtree is the left child.
-    NeedLeft { base: u64 },
+    NeedLeft { base: Base },
     /// Parsed the left child; the next subtree is the right child. `base` is the node's
     /// own (relative) base; `left` is what the left child contributes to the checks.
-    NeedRight { base: u64, left: EvChild },
+    NeedRight { base: Base, left: EvChild },
 }
 
 /// Parse one `enc_ev` tree at `pos`, validating event normal form: every node has at
@@ -181,7 +194,7 @@ pub(crate) fn parse_ev(bits: &BitsSlice, mut pos: usize) -> Result<usize, Decode
                     left,
                 }) => {
                     let right = summary;
-                    if left.base != 0 && right.base != 0 {
+                    if left.base != Base::ZERO && right.base != Base::ZERO {
                         return Err(DecodeError::NotCanonical); // no child at base 0
                     }
                     if left.is_leaf && right.is_leaf && left.base == right.base {
@@ -268,7 +281,7 @@ pub(crate) fn id_leaf(v: bool) -> Bits {
 pub(crate) fn ev_leaf(n: u64) -> Bits {
     let mut b = Bits::new();
     b.push(false); // leaf flag
-    encode_int(&mut b, n);
+    encode_int(&mut b, &Base::from(n));
     b
 }
 
@@ -288,7 +301,7 @@ pub(crate) fn id_node(l: &BitsSlice, r: &BitsSlice) -> Result<Bits, ParseError> 
 pub(crate) fn ev_node(n: u64, l: &BitsSlice, r: &BitsSlice) -> Result<Bits, ParseError> {
     let mut b = Bits::with_capacity(2 + l.len() + r.len());
     b.push(true); // node flag
-    encode_int(&mut b, n);
+    encode_int(&mut b, &Base::from(n));
     b.extend_from_bitslice(l);
     b.extend_from_bitslice(r);
     validate_ev(&b)?;
@@ -418,21 +431,20 @@ impl<'a> Cur<'a> {
     }
 }
 
-/// Read a run of ASCII digits as a `u64` (no surrounding whitespace consumed except a
-/// leading skip). Empty or overflowing input is a syntax error.
-fn parse_u64(cur: &mut Cur) -> Result<u64, ParseError> {
+/// Read a run of ASCII digits as a [`Base`] magnitude (no surrounding whitespace
+/// consumed except a leading skip). Arbitrary width: an event base has no value cap.
+/// Empty input is a syntax error.
+fn parse_base(cur: &mut Cur) -> Result<Base, ParseError> {
     cur.skip_ws();
-    let mut n: u64 = 0;
+    let mut n = Base::ZERO;
     let mut any = false;
     while let Some(&d) = cur.b.get(cur.i) {
         if !d.is_ascii_digit() {
             break;
         }
         any = true;
-        n = n
-            .checked_mul(10)
-            .and_then(|x| x.checked_add(u64::from(d - b'0')))
-            .ok_or(ParseError::Syntax)?;
+        n *= 10u32;
+        n += u32::from(d - b'0');
         cur.i += 1;
     }
     if any {
@@ -517,8 +529,8 @@ pub(crate) fn parse_ev_str(s: &str) -> Result<Bits, ParseError> {
             Some(b'(') => {
                 cur.bump();
                 bits.push(true);
-                let base = parse_u64(&mut cur)?;
-                encode_int(&mut bits, base);
+                let base = parse_base(&mut cur)?;
+                encode_int(&mut bits, &base);
                 if cur.bump() != Some(b',') {
                     return Err(ParseError::Syntax);
                 }
@@ -526,9 +538,9 @@ pub(crate) fn parse_ev_str(s: &str) -> Result<Bits, ParseError> {
                 continue;
             }
             Some(c) if c.is_ascii_digit() => {
-                let n = parse_u64(&mut cur)?;
+                let n = parse_base(&mut cur)?;
                 bits.push(false);
-                encode_int(&mut bits, n);
+                encode_int(&mut bits, &n);
             }
             _ => return Err(ParseError::Syntax),
         }

@@ -34,7 +34,7 @@
 //! (`sum` in `party::ops` plays the same role with a `Vec` of its `Summed` register,
 //! since it must combine two child *outputs*, not just their positions.)
 
-use crate::codec::{Bits, BitsSlice};
+use crate::codec::{Base, Bits, BitsSlice};
 use crate::idbits;
 
 use super::compare::EvView;
@@ -55,7 +55,7 @@ pub(super) const VIRTUAL: usize = usize::MAX;
 /// normalization lives, so callers never re-implement the sink/collapse.
 pub(super) struct Builder {
     topo: Bits,
-    base: Vec<u64>,
+    base: Vec<Base>,
 }
 
 impl Builder {
@@ -71,7 +71,7 @@ impl Builder {
     }
 
     /// Append a leaf with the given base; return its index.
-    pub(super) fn leaf(&mut self, base: u64) -> usize {
+    pub(super) fn leaf(&mut self, base: Base) -> usize {
         let i = self.len();
         self.topo.push(false);
         self.base.push(base);
@@ -80,7 +80,7 @@ impl Builder {
 
     /// Open an internal node with a placeholder base; its children are appended next.
     /// Return its index.
-    pub(super) fn open(&mut self, base: u64) -> usize {
+    pub(super) fn open(&mut self, base: Base) -> usize {
         let i = self.len();
         self.topo.push(true);
         self.base.push(base);
@@ -117,13 +117,13 @@ impl Builder {
     /// the single collapsed leaf in their place.
     pub(super) fn close_node(&mut self, node: usize, right: usize) {
         let left = node + 1;
-        let m = self.base[left].min(self.base[right]);
-        self.base[node] += m;
-        self.base[left] -= m;
-        self.base[right] -= m;
+        let m = self.base[left].clone().min(self.base[right].clone());
+        self.base[node] += &m;
+        self.base[left] -= &m;
+        self.base[right] -= &m;
         // Collapse only when both children are leaves of equal (post-sink) base.
         if !self.topo[left] && !self.topo[right] && self.base[left] == self.base[right] {
-            let collapsed = self.base[node]; // the common child base is 0 after the sink
+            let collapsed = self.base[node].clone(); // the common child base is 0 after the sink
             self.topo.truncate(node);
             self.base.truncate(node);
             self.leaf(collapsed);
@@ -151,11 +151,11 @@ enum JoinJob {
         /// Position of `a`'s subtree root.
         a_pos: usize,
         /// Path sum down to `a`'s subtree.
-        a_off: u64,
+        a_off: Base,
         /// Position of `b`'s subtree root.
         b_pos: usize,
         /// Path sum down to `b`'s subtree.
-        b_off: u64,
+        b_off: Base,
     },
     /// Left child finished; launch the right child (threading each internal side from
     /// `ret`, re-broadcasting each leaf side from the carried position/offset).
@@ -163,19 +163,19 @@ enum JoinJob {
         /// Whether `a` was a node here (its right child threads) or a leaf (re-broadcast).
         a_internal: bool,
         /// `a`'s node sum, the offset for a threaded right child.
-        a_sum: u64,
+        a_sum: Base,
         /// `a`'s pinned position, reused when `a` is a leaf.
         a_pos: usize,
         /// `a`'s pinned offset, reused when `a` is a leaf.
-        a_off: u64,
+        a_off: Base,
         /// Whether `b` was a node here (its right child threads) or a leaf (re-broadcast).
         b_internal: bool,
         /// `b`'s node sum, the offset for a threaded right child.
-        b_sum: u64,
+        b_sum: Base,
         /// `b`'s pinned position, reused when `b` is a leaf.
         b_pos: usize,
         /// `b`'s pinned offset, reused when `b` is a leaf.
-        b_off: u64,
+        b_off: Base,
     },
     /// Right child finished; sink and close the node, reporting its end positions. The
     /// end is the threaded child end when that side descended, else its pinned `*_next`.
@@ -214,9 +214,9 @@ pub(crate) fn ev_join(a: &EvView, b: &EvView) -> WorkingVersion {
     let mut ret = Joined::default();
     let mut stack = vec![JoinJob::Eval {
         a_pos: 0,
-        a_off: 0,
+        a_off: Base::ZERO,
         b_pos: 0,
-        b_off: 0,
+        b_off: Base::ZERO,
     }];
     while let Some(job) = stack.pop() {
         match job {
@@ -228,8 +228,8 @@ pub(crate) fn ev_join(a: &EvView, b: &EvView) -> WorkingVersion {
             } => {
                 let (a_internal, a_base, a_next) = a.header(a_pos);
                 let (b_internal, b_base, b_next) = b.header(b_pos);
-                let a_sum = a_off + a_base;
-                let b_sum = b_off + b_base;
+                let a_sum = a_off.clone() + a_base;
+                let b_sum = b_off.clone() + b_base;
                 if !a_internal && !b_internal {
                     ret = Joined {
                         out_root: out.leaf(a_sum.max(b_sum)),
@@ -238,18 +238,18 @@ pub(crate) fn ev_join(a: &EvView, b: &EvView) -> WorkingVersion {
                     };
                     continue;
                 }
-                let node = out.open(0);
+                let node = out.open(Base::ZERO);
                 // Left children: an internal side descends; a leaf side broadcasts in
                 // place (reuse its position/offset, so its value stays `a_sum`/`b_sum`).
                 let (left_a_pos, left_a_off) = if a_internal {
-                    (a_next, a_sum)
+                    (a_next, a_sum.clone())
                 } else {
-                    (a_pos, a_off)
+                    (a_pos, a_off.clone())
                 };
                 let (left_b_pos, left_b_off) = if b_internal {
-                    (b_next, b_sum)
+                    (b_next, b_sum.clone())
                 } else {
-                    (b_pos, b_off)
+                    (b_pos, b_off.clone())
                 };
                 stack.push(JoinJob::Close {
                     node,
@@ -325,7 +325,7 @@ pub(crate) fn ev_join(a: &EvView, b: &EvView) -> WorkingVersion {
 /// being summed.
 struct Ancestor {
     /// The path sum from the root down to and including this node.
-    cumulative: u64,
+    cumulative: Base,
     /// How many of this node's two children are not yet finished (2, then 1, then pop).
     children_left: u8,
 }
@@ -333,15 +333,15 @@ struct Ancestor {
 /// The maximum value of the event function over the subtree at `root` (the paper's
 /// `max`: `base + max(child maxes)`), and the position just past the subtree. Iterative
 /// linear pass — a per-ancestor cumulative/remaining stack, no right-child re-scan.
-fn ev_max(view: &EvView, root: usize) -> (u64, usize) {
-    let mut max = 0u64;
+fn ev_max(view: &EvView, root: usize) -> (Base, usize) {
+    let mut max = Base::ZERO;
     let mut pos = root;
     let mut stack: Vec<Ancestor> = Vec::new();
     loop {
-        let offset = stack.last().map_or(0, |a| a.cumulative);
+        let offset = stack.last().map_or(Base::ZERO, |a| a.cumulative.clone());
         let (internal, base, next) = view.header(pos);
         let cumulative = offset + base;
-        max = max.max(cumulative);
+        max = max.max(cumulative.clone());
         pos = next;
         if internal {
             stack.push(Ancestor {
@@ -388,7 +388,7 @@ enum FillJob {
         /// Output index of the placeholder left leaf to backpatch.
         left_leaf: usize,
         /// `max_ev(el)`: the maximum of the (full-id-collapsed) left event subtree.
-        max_el: u64,
+        max_el: Base,
     },
     /// `il` is not full: the left child (filled `el`) is being built; afterwards decide
     /// the right child by whether `ir` is full.
@@ -469,7 +469,7 @@ fn fill(id_bits: &BitsSlice, view: &EvView) -> WorkingVersion {
                     // `il` full: left collapses to a leaf whose value depends on the
                     // filled right; build the right first, then backpatch the leaf.
                     let node = out.open(ev_base);
-                    let left_leaf = out.leaf(0); // placeholder
+                    let left_leaf = out.leaf(Base::ZERO); // placeholder
                     let (max_el, ev_right) = ev_max(view, ev_left);
                     let id_right = id_left + 2; // past the 1-leaf `il`
                     stack.push(FillJob::FullLeftClose {
@@ -497,7 +497,7 @@ fn fill(id_bits: &BitsSlice, view: &EvView) -> WorkingVersion {
                 max_el,
             } => {
                 let right = ret; // the filled right child's report
-                out.base[left_leaf] = max_el.max(out.base[right.out_root]);
+                out.base[left_leaf] = max_el.max(out.base[right.out_root].clone());
                 out.close_node(node, right.out_root);
                 ret = Built {
                     out_root: node,
@@ -511,7 +511,7 @@ fn fill(id_bits: &BitsSlice, view: &EvView) -> WorkingVersion {
                 if idbits::is_full(id_bits, ir) {
                     // `ir` full: right collapses to a leaf depending on the filled left.
                     let (max_er, er_end) = ev_max(view, er);
-                    let x = max_er.max(out.base[left.out_root]);
+                    let x = max_er.max(out.base[left.out_root].clone());
                     let right_leaf = out.leaf(x);
                     out.close_node(node, right_leaf);
                     ret = Built {

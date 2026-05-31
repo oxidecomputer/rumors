@@ -3,12 +3,13 @@
 //! A `Version` at rest is a variable-width packed bit stream; mutating it in place
 //! would require back-patching variable-width integers. Instead a mutating batch
 //! unpacks to this fixed-width form — a preorder topology bit per node plus a
-//! `u64` base per node — mutates (Phase 5), and repacks once at the batch boundary.
-//! The `u64` base array makes a node's integer an O(1) indexed read/overwrite.
+//! [`Base`] (arbitrary-precision) per node — mutates (Phase 5), and repacks once at the
+//! batch boundary. The indexed base array makes a node's integer an O(1) indexed
+//! read/overwrite, and the unbounded value type means path sums can never overflow.
 //!
 //! Both `unpack` and `repack` are single iterative passes (no recursion on depth).
 
-use crate::codec::{self, decode_int, Bits, BitsSlice};
+use crate::codec::{self, decode_int, Base, Bits, BitsSlice};
 use crate::step;
 
 /// Preorder topology + payload split. `topo[i]` is `true` iff node `i` is internal
@@ -17,7 +18,7 @@ use crate::step;
 /// subtree. `topo.len() == base.len() == node count`.
 pub(crate) struct WorkingVersion {
     pub(crate) topo: Bits,
-    pub(crate) base: Vec<u64>,
+    pub(crate) base: Vec<Base>,
 }
 
 impl WorkingVersion {
@@ -55,7 +56,7 @@ pub(crate) fn repack(work: &WorkingVersion) -> Bits {
     for (flag, base) in work.topo.iter().by_vals().zip(&work.base) {
         step!(); // one step per node processed
         out.push(flag);
-        codec::encode_int(&mut out, *base);
+        codec::encode_int(&mut out, base);
     }
     out
 }
