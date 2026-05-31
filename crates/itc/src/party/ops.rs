@@ -131,9 +131,11 @@ impl IdView<'_> {
     /// `Some(Greater)` the reverse; `Some(Equal)` equal regions; `None` incomparable
     /// (cousins).
     ///
-    /// Tracks both containment directions together — `a ⊇ b` as `le` and `b ⊇ a` as `ge` —
-    /// so the two reverse-inclusion scans share one traversal instead of running the
-    /// containment test twice; the walk stops early once both are excluded. Only a both-node
+    /// The iterative form of the recursive `oracle::Party::contains`, run in both directions
+    /// at once; read that recursive twin first. Tracks both containment directions together —
+    /// `a ⊇ b` as `le` and `b ⊇ a` as `ge` — so the two reverse-inclusion scans share one
+    /// traversal instead of running `contains` twice; the walk stops early once both are
+    /// excluded. Only a both-node
     /// pair descends: wherever at least one side is a leaf, that region's value (empty /
     /// full) settles both directions locally, and the other side is skipped once to resync
     /// (bounded lazy-skip), so each node is still visited at most once.
@@ -229,6 +231,10 @@ impl IdView<'_> {
     /// not pre-check [`is_disjoint`](IdView::is_disjoint), since a successful `sum` *is* the
     /// disjointness proof. `O(n + m)`: the both-internal case threads (no skip); a `0` child
     /// copies the other subtree verbatim (work bounded by the output size).
+    ///
+    /// The iterative form of the recursive `oracle::Party::sum` (the paper's `sum`/`norm`);
+    /// read that recursive twin first, then this is the same algorithm with the call stack
+    /// made explicit on the `SumJob` stack.
     pub(crate) fn sum(&self, other: &IdView) -> Option<Bits> {
         let (a, b) = (*self, *other);
         let mut results: Vec<Summed> = Vec::new();
@@ -301,6 +307,10 @@ impl IdView<'_> {
     /// The branch is the both-nonempty node of minimum start position (all shallower nodes
     /// are spine wrappers, with one empty child), found by a single forward scan rather
     /// than by descending and re-scanning to test each right child for emptiness.
+    ///
+    /// The iterative form of the recursive `oracle::Party::split` (the paper's `split`); read
+    /// that recursive twin first. Where the oracle recurses down the spine, this locates the
+    /// same branch by a forward scan and rebuilds the two halves without re-descending.
     pub(crate) fn split(&self) -> (Bits, Bits) {
         let id = *self;
         let bits = id.bits();

@@ -217,8 +217,10 @@ impl EvView<'_> {
     /// The causal order of `self` and `other`, computed in one `O(n + m)` pass; `None`
     /// means concurrent.
     ///
-    /// The iterative, offset-threaded form of the paper's recursive `leq`, run in both
-    /// directions at once. Tracks `self <= other` (`le`) and `other <= self` (`ge`)
+    /// The iterative, offset-threaded form of the recursive `oracle::Version::leq` (the
+    /// paper's `leq`), run in both directions at once; read that recursive twin first, then
+    /// this is the same algorithm with the call stack made explicit. Tracks `self <= other`
+    /// (`le`) and `other <= self` (`ge`)
     /// together so the two pointwise comparisons share a single traversal instead of
     /// running `leq` twice. The walk descends into whichever side is internal — both in
     /// lockstep, or the internal one while the leaf side is broadcast unchanged to both

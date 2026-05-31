@@ -224,10 +224,10 @@ impl EvView<'_> {
     /// The least upper bound of `self` and `other` (the paper's `join` over event trees),
     /// produced in normal form. Reads either storage form via [`EvView`]; `O(n + m)`.
     ///
-    /// The iterative, offset-threaded form of the paper's recursive `join`: the call stack
-    /// is made explicit on a `JoinJob` stack, right-child positions are threaded through
-    /// the [`Joined`] register, and the leaf/node broadcast rule lives in the [`Side`]
-    /// helpers.
+    /// The iterative, offset-threaded form of the recursive `oracle::Version::join_off` (the
+    /// paper's `join`); read that recursive twin first. The call stack is made explicit on a
+    /// `JoinJob` stack, right-child positions are threaded through the [`Joined`] register,
+    /// and the leaf/node broadcast rule lives in the [`Side`] helpers.
     pub(crate) fn ev_join(&self, other: &EvView) -> WorkingVersion {
         let (a, b) = (self, other);
         let mut out = Builder::new();
@@ -441,7 +441,9 @@ impl EvView<'_> {
     /// drives (every event node visited once, threaded), and the id is lazy-skipped only
     /// where the event prunes it (an event leaf under an id node).
     ///
-    /// The iterative form of the paper's recursive `fill`.
+    /// The iterative form of the recursive `oracle::Version::fill` (the paper's `fill`); read
+    /// that recursive twin first, then this is the same algorithm with the call stack made
+    /// explicit.
     fn fill(&self, id_bits: &BitsSlice) -> WorkingVersion {
         let view = self;
         let id = IdView(id_bits);

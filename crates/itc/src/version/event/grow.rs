@@ -161,6 +161,11 @@ impl EvView<'_> {
     /// Probe the cheapest inflation of this event tree (`self`), recording the chosen child
     /// direction (`true` = left) per `(id, ev)` branch node into `choice`. Read-only;
     /// `O(n + m)`. The id is lazy-skipped where an empty region prunes the event.
+    ///
+    /// This is the cost-finding half of the iterative form of the recursive
+    /// `oracle::Version::grow` (the paper's `grow`); read that recursive twin first. Where
+    /// the oracle recurses once and rebuilds on the way back up, the iterative form splits
+    /// into this probe pass and the [`grow_emit`](EvView::grow_emit) replay pass.
     fn grow_probe(&self, id_bits: &BitsSlice, choice: &mut Choices) {
         let view = self;
         let id = IdView(id_bits);
@@ -356,6 +361,11 @@ impl EvView<'_> {
     /// map, in normal form. Iterative, `O(n + m)`: only the chosen root-to-leaf path is
     /// rebuilt (with the inflation and the sink); every off-path subtree is copied or
     /// skipped exactly once.
+    ///
+    /// This is the rebuilding half of the iterative form of the recursive
+    /// `oracle::Version::grow` (the paper's `grow`); read that recursive twin first. It
+    /// replays the choices [`grow_probe`](EvView::grow_probe) recorded, standing in for the
+    /// oracle's bottom-up reconstruction on the way out of the recursion.
     fn grow_emit(&self, id_bits: &BitsSlice, out: &mut Builder, choice: &Choices) {
         let view = self;
         let id = IdView(id_bits);
