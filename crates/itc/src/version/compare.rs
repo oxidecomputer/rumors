@@ -59,6 +59,23 @@ impl EvView<'_> {
         }
     }
 
+    /// Whether the two views are *trivially* equal: the same storage form with
+    /// byte-for-byte identical contents. Both forms are always in canonical normal
+    /// form (a stored `Version` is canonical; the working form is kept normal by
+    /// `event::Builder`), so identical contents is exactly semantic equality — which
+    /// lets [`causal_cmp`] settle `Equal` with one length-checked memcmp instead of
+    /// the full `O(n + m)` walk and its heap-allocated job stack. A representation
+    /// mismatch (one packed, one working) declines to `false` and falls through:
+    /// proving equality across forms would mean transcoding one side, no cheaper than
+    /// the walk itself.
+    pub(super) fn trivially_eq(&self, other: &EvView) -> bool {
+        match (self, other) {
+            (EvView::Packed(a), EvView::Packed(b)) => a == b,
+            (EvView::Working(a), EvView::Working(b)) => a.topo == b.topo && a.base == b.base,
+            _ => false,
+        }
+    }
+
     /// An exclusive upper bound on the positions this view addresses: the bit length
     /// for packed, the node count for working. Used to size a dense position-indexed
     /// array (see `grow`'s `Choices`).
@@ -142,6 +159,14 @@ struct Ends {
 /// while the leaf side is broadcast unchanged to both its children — so each node of
 /// either tree is visited once. Stops early once both directions are excluded.
 pub(crate) fn causal_cmp(a: &EvView, b: &EvView) -> Option<Ordering> {
+    // Both storage forms are canonical normal form, so identical contents is exactly
+    // semantic equality: settle `Equal` with one memcmp before allocating the walk's
+    // job stack. Covers every entry point — Version vs Version, Batch vs Batch, and a
+    // not-yet-materialized Batch (still packed) against either. (Mixed packed/working
+    // forms decline and fall through; see `EvView::trivially_eq`.)
+    if a.trivially_eq(b) {
+        return Some(Ordering::Equal);
+    }
     let mut le = true; // `a <= b` still possible
     let mut ge = true; // `b <= a` still possible
 

@@ -153,6 +153,36 @@ proptest! {
     }
 }
 
+proptest! {
+    /// F28b. Parity holds once the working form is *materialized*, exercising the
+    /// equality short-circuit's working-form arms. Merging the join identity
+    /// (`Version::new()`) forces `work = Some(..)` without changing the value, so each
+    /// batch now compares as a working form. The matrix — materialized vs materialized
+    /// (Working/Working), materialized vs packed (the mixed arm that declines and falls
+    /// through) — still equals the bare version comparison.
+    #[test]
+    fn f28b_materialized_batch_parity(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+        let cs = run(&ops);
+        let vs = versions(&cs);
+        let n = vs.len();
+        let a = from_oracle_version(&vs[i % n]);
+        let b = from_oracle_version(&vs[j % n]);
+        let base = a.partial_cmp(&b);
+
+        let mut ba = a.clone();
+        let mut bb = b.clone();
+        let mut batch_a = ba.batch();
+        let mut batch_b = bb.batch();
+        batch_a.merge(&Version::new()); // materialize the working form, value unchanged
+        batch_b.merge(&Version::new());
+
+        prop_assert_eq!(batch_a.partial_cmp(&b), base); // Working vs Packed (mixed)
+        prop_assert_eq!(a.partial_cmp(&batch_b), base); // Packed vs Working (mixed)
+        prop_assert_eq!(batch_a.partial_cmp(&batch_b), base); // Working vs Working
+        prop_assert_eq!(a == b, batch_a == batch_b); // PartialEq matrix agrees
+    }
+}
+
 // ───────────────────────────── Phase 5: event mutation ─────────────────────────────
 
 /// O1/C14. `Version::new()` is the empty history and the two-sided identity for `|`.

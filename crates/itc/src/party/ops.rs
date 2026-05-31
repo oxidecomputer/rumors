@@ -123,6 +123,12 @@ pub(crate) fn is_disjoint(a: &BitsSlice, b: &BitsSlice) -> bool {
 /// directions locally, and the other side is skipped once to resync (bounded lazy-skip),
 /// so each node is still visited at most once.
 pub(crate) fn compare(a: &BitsSlice, b: &BitsSlice) -> Option<Ordering> {
+    // Both ids are canonical normal form, so bit-equality is semantic equality: settle
+    // `Equal` with one length-checked memcmp before allocating the traversal stack.
+    // Differing lengths fail in O(1); only equal-length inputs pay the scan.
+    if a == b {
+        return Some(Ordering::Equal);
+    }
     let mut le = true; // `a ⊇ b` (a is an ancestor of b) still possible
     let mut ge = true; // `b ⊇ a` still possible
     let mut ret = Ends::default();
