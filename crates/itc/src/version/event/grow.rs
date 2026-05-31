@@ -283,8 +283,9 @@ impl EvView<'_> {
                     ev_next,
                     left_cost,
                 } => {
-                    let right = ret; // the right child's probe report
-                                     // Strict `<` makes a tie favor the right child (see [`Cost`]).
+                    // `ret` is the right child's probe report.
+                    let right = ret;
+                    // Strict `<` makes a tie favor the right child (see [`Cost`]).
                     let left_chosen = left_cost < right.cost;
                     choice.record(kind, id_pos, ev_pos, left_chosen);
                     let m = if left_chosen { left_cost } else { right.cost };

@@ -396,36 +396,36 @@ pub(crate) fn write_ev(
 /// A whitespace-skipping byte cursor over the input string. The grammar is pure ASCII
 /// (`(`, `)`, `,`, digits, `0`/`1`), so byte-level scanning is exact.
 struct Cur<'a> {
-    b: &'a [u8],
-    i: usize,
+    bytes: &'a [u8],
+    pos: usize,
 }
 
 impl<'a> Cur<'a> {
     fn new(s: &'a str) -> Self {
         Cur {
-            b: s.as_bytes(),
-            i: 0,
+            bytes: s.as_bytes(),
+            pos: 0,
         }
     }
 
     fn skip_ws(&mut self) {
-        while self.i < self.b.len() && self.b[self.i].is_ascii_whitespace() {
-            self.i += 1;
+        while self.pos < self.bytes.len() && self.bytes[self.pos].is_ascii_whitespace() {
+            self.pos += 1;
         }
     }
 
     /// The next non-whitespace byte, without consuming it.
     fn peek(&mut self) -> Option<u8> {
         self.skip_ws();
-        self.b.get(self.i).copied()
+        self.bytes.get(self.pos).copied()
     }
 
     /// Consume and return the next non-whitespace byte.
     fn bump(&mut self) -> Option<u8> {
         self.skip_ws();
-        let c = self.b.get(self.i).copied();
+        let c = self.bytes.get(self.pos).copied();
         if c.is_some() {
-            self.i += 1;
+            self.pos += 1;
         }
         c
     }
@@ -438,14 +438,14 @@ fn parse_base(cur: &mut Cur) -> Result<Base, ParseError> {
     cur.skip_ws();
     let mut n = Base::ZERO;
     let mut any = false;
-    while let Some(&d) = cur.b.get(cur.i) {
+    while let Some(&d) = cur.bytes.get(cur.pos) {
         if !d.is_ascii_digit() {
             break;
         }
         any = true;
         n *= 10u32;
         n += u32::from(d - b'0');
-        cur.i += 1;
+        cur.pos += 1;
     }
     if any {
         Ok(n)

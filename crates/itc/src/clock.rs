@@ -232,7 +232,7 @@ impl Batch<'_> {
         // Merge both parties into self, then re-split: self keeps one half, other the
         // other. `join` is the overlap check — on failure it hands the party back and
         // leaves `self` unchanged, so we restore `other` and report the overlap.
-        let theirs = core::mem::replace(other.party, Party::empty());
+        let theirs = core::mem::replace(other.party, Party::anonymous());
         if let Err(theirs) = self.party.join(theirs) {
             *other.party = theirs;
             return Err(OverlapError);

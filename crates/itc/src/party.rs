@@ -77,10 +77,10 @@ impl Party {
         Ok(Party(id))
     }
 
-    /// The empty (zero) id, `Leaf(false)`. Internal transient only — never a public
+    /// The anonymous (zero) id, `Leaf(false)`. Internal transient only — never a public
     /// value (a `Party` is a nonzero share). Used as a placeholder when moving a party
     /// out of a `&mut` during `sync`, immediately overwritten by the re-split half.
-    pub(crate) fn empty() -> Party {
+    pub(crate) fn anonymous() -> Party {
         let mut bits = codec::Bits::with_capacity(2);
         bits.push(false); // leaf flag
         bits.push(false); // value 0

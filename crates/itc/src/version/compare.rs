@@ -329,8 +329,7 @@ impl EvView<'_> {
             (true, true) => Some(Ordering::Equal),
             (true, false) => Some(Ordering::Less),
             (false, true) => Some(Ordering::Greater),
-            // Unreachable: both-false returns `None` inside the loop above.
-            (false, false) => None,
+            (false, false) => unreachable!("both-false returns `None` inside the loop above"),
         }
     }
 }
