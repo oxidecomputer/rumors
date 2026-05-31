@@ -101,75 +101,46 @@ pub use party::Party;
 pub use version::Version;
 
 /// Two parties were not disjoint. (`join` instead hands the clock back.)
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("parties are not disjoint")]
 pub struct OverlapError;
 
-impl core::fmt::Display for OverlapError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str("parties are not disjoint")
-    }
-}
-
-impl std::error::Error for OverlapError {}
-
 /// Why a byte string failed to decode into a `Party`, `Version`, or `Clock`.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum DecodeError {
     /// The bit stream ended mid-tree (or mid-integer).
+    #[error("input ended mid-tree")]
     Truncated,
     /// Non-padding bits remained after a complete tree, or the padding was nonzero.
+    #[error("trailing or nonzero padding bits after a complete tree")]
     TrailingBits,
     /// The structure is well-formed but not in canonical normal form.
+    #[error("input is well-formed but not in canonical normal form")]
     NotCanonical,
     /// The id region is the anonymous identity `0` (it owns no region). A standalone
     /// [`Party`]/[`Clock`] must be a nonzero share, so this is rejected — though `0` is
     /// valid as a sub-tree inside a larger id (e.g. `(0, 1)`).
+    #[error("id region denotes the anonymous identity 0, not a nonzero share")]
     Anonymous,
 }
-
-impl core::fmt::Display for DecodeError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let s = match self {
-            DecodeError::Truncated => "input ended mid-tree",
-            DecodeError::TrailingBits => "trailing or nonzero padding bits after a complete tree",
-            DecodeError::NotCanonical => "input is well-formed but not in canonical normal form",
-            DecodeError::Anonymous => {
-                "id region denotes the anonymous identity 0, not a nonzero share"
-            }
-        };
-        f.write_str(s)
-    }
-}
-
-impl std::error::Error for DecodeError {}
 
 /// Why a string (or a literal tuple) failed to parse into a `Party`, `Version`, or
 /// `Clock`. Parsing uses the paper's notation and, like [`DecodeError`], strictly
 /// rejects non-canonical input.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ParseError {
     /// The input is not well-formed paper notation (bad token, unbalanced parens,
     /// non-`0`/`1` id leaf, malformed integer, or trailing input).
+    #[error("input is not well-formed paper notation")]
     Syntax,
     /// The input is well-formed but does not denote a value in canonical normal form
     /// (e.g. a collapsible `(1, 1)` id or `(n, m, m)` event, or an event node with no
     /// zero-base child).
+    #[error("input is well-formed but not in canonical normal form")]
     NotCanonical,
     /// The input denotes the anonymous identity `0` (an id owning no region). A
     /// standalone [`Party`]/[`Clock`] must be a nonzero share, so this is rejected —
     /// though `0` is valid as a sub-tree inside a larger id (e.g. `(0, 1)`).
+    #[error("input denotes the anonymous identity 0, not a nonzero share")]
     Anonymous,
 }
-
-impl core::fmt::Display for ParseError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let s = match self {
-            ParseError::Syntax => "input is not well-formed paper notation",
-            ParseError::NotCanonical => "input is well-formed but not in canonical normal form",
-            ParseError::Anonymous => "input denotes the anonymous identity 0, not a nonzero share",
-        };
-        f.write_str(s)
-    }
-}
-
-impl std::error::Error for ParseError {}
