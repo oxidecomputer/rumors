@@ -222,39 +222,29 @@ impl BitOrAssign<&Version> for Batch<'_> {
 }
 
 // Causal comparison across {Version, Batch}², reading current state in place.
-
-impl PartialEq<Batch<'_>> for Version {
-    fn eq(&self, o: &Batch<'_>) -> bool {
-        self.view().causal_cmp(&o.view()) == Some(Ordering::Equal)
-    }
+// `Version`/`Version` lives separately (derived `PartialEq` + the `PartialOrd`
+// above); this macro fills in the remaining three off-diagonal/`Batch` cells so
+// the comparison matrix reads as a matrix. Each cell delegates to `causal_cmp`,
+// with `eq` defined as `partial_cmp == Some(Equal)`.
+macro_rules! causal_cmp_impls {
+    ($($lhs:ty, $rhs:ty);* $(;)?) => {
+        $(
+            impl PartialEq<$rhs> for $lhs {
+                fn eq(&self, o: &$rhs) -> bool {
+                    self.view().causal_cmp(&o.view()) == Some(Ordering::Equal)
+                }
+            }
+            impl PartialOrd<$rhs> for $lhs {
+                fn partial_cmp(&self, o: &$rhs) -> Option<Ordering> {
+                    self.view().causal_cmp(&o.view())
+                }
+            }
+        )*
+    };
 }
 
-impl PartialOrd<Batch<'_>> for Version {
-    fn partial_cmp(&self, o: &Batch<'_>) -> Option<Ordering> {
-        self.view().causal_cmp(&o.view())
-    }
-}
-
-impl PartialEq<Version> for Batch<'_> {
-    fn eq(&self, o: &Version) -> bool {
-        self.view().causal_cmp(&o.view()) == Some(Ordering::Equal)
-    }
-}
-
-impl PartialOrd<Version> for Batch<'_> {
-    fn partial_cmp(&self, o: &Version) -> Option<Ordering> {
-        self.view().causal_cmp(&o.view())
-    }
-}
-
-impl<'b> PartialEq<Batch<'b>> for Batch<'_> {
-    fn eq(&self, o: &Batch<'b>) -> bool {
-        self.view().causal_cmp(&o.view()) == Some(Ordering::Equal)
-    }
-}
-
-impl<'b> PartialOrd<Batch<'b>> for Batch<'_> {
-    fn partial_cmp(&self, o: &Batch<'b>) -> Option<Ordering> {
-        self.view().causal_cmp(&o.view())
-    }
+causal_cmp_impls! {
+    Version, Batch<'_>;
+    Batch<'_>, Version;
+    Batch<'_>, Batch<'_>;
 }
