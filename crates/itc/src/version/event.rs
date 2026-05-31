@@ -1,4 +1,4 @@
-//! The event-tree mutation core (plan §6 Phase 5): `merge` (event-tree join) and
+//! The event-tree mutation core: `merge` (event-tree join) and
 //! `tick` (= `fill`, else `grow`, the latter in the [`grow`] submodule). Everything
 //! operates on the fixed-width working form and walks the packed id ([`idbits`])
 //! alongside it where needed.

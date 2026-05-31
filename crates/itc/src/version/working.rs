@@ -1,9 +1,9 @@
-//! The transient fixed-width working form for event mutation (plan §5.5).
+//! The transient fixed-width working form for event mutation.
 //!
 //! A `Version` at rest is a variable-width packed bit stream; mutating it in place
 //! would require back-patching variable-width integers. Instead a mutating batch
 //! unpacks to this fixed-width form — a preorder topology bit per node plus a
-//! [`Base`] (arbitrary-precision) per node — mutates (Phase 5), and repacks once at the
+//! [`Base`] (arbitrary-precision) per node — mutates, and repacks once at the
 //! batch boundary. The indexed base array makes a node's integer an O(1) indexed
 //! read/overwrite, and the unbounded value type means path sums can never overflow.
 //!

@@ -203,7 +203,7 @@ pub(crate) fn from_oracle_clock(c: &oracle::Clock) -> Clock {
 // inverse of `from_oracle_*`. It walks the packed bits directly — the impl's at-rest
 // storage — rather than round-tripping the public `encode`/`decode`, so the master
 // harness checks algorithm correctness without sharing a failure mode with the byte
-// codec (which is exercised separately, group A). Recursive over a bounded tree
+// codec (which is exercised separately). Recursive over a bounded tree
 // (test-only; the impl's own traversals are iterative). Both forms are normalized, so
 // structural `==` ⇔ semantic equality.
 
@@ -364,11 +364,12 @@ pub(crate) fn skip_stress_pair(scale: usize) -> (Party, Party) {
 }
 
 /// Build a containment "staircase" pair `(big, small)` that drives the bounded lazy-skip
-/// in `contains` to its worst case: `Θ(scale)` distinct skips. `big` is a right-spine
+/// in `compare` to its worst case: `Θ(scale)` distinct skips. `big` is a right-spine
 /// whose every left child is a `1`-leaf (owns that whole left region); `small` is a
 /// right-spine whose every left child is a 2-leaf subtree `(1, 0)`. In lockstep, at each
 /// level `big`'s left `1`-leaf dominates `small`'s left *subtree*, so that subtree is
-/// skipped once. `big ⊇ small`, so `contains` returns `true` and runs to completion; the
+/// skipped once. `big ⊇ small`, so `compare` reports `Less` (ancestor) and runs to
+/// completion; the
 /// cumulative skip cost is measured. Both ids are linear in `scale`; a bounded skip is
 /// `O(scale)`, an unbounded one `O(scale²)`.
 pub(crate) fn contain_stress_pair(scale: usize) -> (Party, Party) {
@@ -413,7 +414,7 @@ pub(crate) fn shape_party(shape: Shape, scale: usize) -> Party {
 }
 
 /// Build a depth-`depth` left-spine [`Party`] directly as canonical packed bits, with a
-/// single owned region at the deep-left tip. Used by the stack-safety test (group H 33),
+/// single owned region at the deep-left tip. Used by the stack-safety test,
 /// which needs structures far deeper than the recursive oracle bridge (`emit_id`) or the
 /// oracle's own recursive `Drop` could build or tear down. The preorder `enc_id` stream
 /// is `depth` node flags, then `Leaf(true)` (`01`), then `depth` `Leaf(false)` right

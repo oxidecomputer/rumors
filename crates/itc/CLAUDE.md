@@ -1,8 +1,8 @@
 # itc — Interval Tree Clocks
 
 Safe-Rust ITC: packed `BitVec` storage, transient fixed-width working form for
-mutation, linear-typed API. The full design and execution plan is in
-`IMPLEMENTATION_PLAN.md` — it is frozen; follow it, don't redesign.
+mutation, linear-typed API. The references are the ITC 2008 paper
+(`reference/itc2008.txt`) for the algorithms and the code itself for the design.
 
 ## Commands
 
@@ -34,7 +34,7 @@ mutation, linear-typed API. The full design and execution plan is in
   byte-equality is relied on for `Eq`/`Hash`.
 - `Party`/`Clock` are not `Clone`; `Version` is. Don't add `Clone` to the first two
   or borrowing `BitOr` overloads for `Clock` (would duplicate a party).
-- The public API matches `IMPLEMENTATION_PLAN.md` Appendix B exactly.
+- The public API is stable; don't add to or reshape it without explicit direction.
 
 ## Layout
 

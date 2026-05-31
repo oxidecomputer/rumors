@@ -1,4 +1,4 @@
-//! Phase 1 codec tests (Appendix D group A 1–3): round-trip, canonical
+//! Codec tests: round-trip, canonical
 //! injectivity, and strict rejection of malformed / non-canonical input.
 //!
 //! Impl values are built from oracle trees via the bridge (canonical bits emitted

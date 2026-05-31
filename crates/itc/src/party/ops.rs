@@ -1,5 +1,5 @@
-//! Iterative id operations on the packed form (plan §2.1: ids have no working form,
-//! so `split`/`sum`/`is_disjoint`/`compare` run directly on the `enc_id` bit stream).
+//! Iterative id operations on the packed form. Ids have no working form, so
+//! `split`/`sum`/`is_disjoint`/`compare` run directly on the `enc_id` bit stream.
 //!
 //! `enc_id(Leaf v) = 0, v` (2 bits); `enc_id(Node l r) = 1, enc_id(l), enc_id(r)`.
 //! Every traversal is iterative (explicit stack) and `O(n + m)` in its inputs — no
@@ -127,8 +127,9 @@ impl IdView<'_> {
     }
 
     /// The descent order on `self` and `other` (normal-form ids), in a single `O(n + m)`
-    /// pass. `Some(Less)` means `self` is an ancestor of (contains) `other`; `Some(Greater)`
-    /// the reverse; `Some(Equal)` equal regions; `None` incomparable (cousins).
+    /// pass. `Some(Less)` means `self` is an ancestor of (its region contains) `other`;
+    /// `Some(Greater)` the reverse; `Some(Equal)` equal regions; `None` incomparable
+    /// (cousins).
     ///
     /// Tracks both containment directions together — `a ⊇ b` as `le` and `b ⊇ a` as `ge` —
     /// so the two reverse-inclusion scans share one traversal instead of running the

@@ -1,5 +1,4 @@
-//! Phase 2 working-form tests (Appendix D group A 4): `repack ∘ unpack == identity`
-//! and yields canonical bytes.
+//! Working-form tests: `repack ∘ unpack == identity` and yields canonical bytes.
 
 use std::cmp::Ordering;
 
@@ -183,7 +182,7 @@ proptest! {
     }
 }
 
-// ───────────────────────────── Phase 5: event mutation ─────────────────────────────
+// ───────────────────────────── event mutation ─────────────────────────────
 
 /// O1/C14. `Version::new()` is the empty history and the two-sided identity for `|`.
 #[test]
@@ -204,7 +203,7 @@ fn new_is_join_identity() {
 }
 
 proptest! {
-    /// Phase 5 differential. The impl `tick` matches the oracle's `event` for every
+    /// The impl `tick` matches the oracle's `event` for every
     /// clock's own `(party, version)` (the party owns the regions tick may inflate).
     #[test]
     fn tick_matches_oracle(ops in world_strategy(), i in 0usize..64) {

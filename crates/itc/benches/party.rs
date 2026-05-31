@@ -98,8 +98,8 @@ fn bench_is_disjoint(c: &mut Criterion) {
 ///   post-fork halves, so we snapshot it (bytes for the impl, clone for the oracle)
 ///   before forking off a child.
 /// - `equal`: two structurally identical parties (`Some(Equal)`). *Both* directions run
-///   to completion — the case the single-pass [`ops::compare`] helps most, since the
-///   prior two-`contains` formulation traversed the whole tree twice here.
+///   to completion — the case the single-pass [`ops::compare`] helps most, since a
+///   two-pass containment formulation would traverse the whole tree twice here.
 ///
 /// (Disjoint cousins are omitted: they bail at the first mismatch, so they measure the
 /// per-call floor rather than traversal.)

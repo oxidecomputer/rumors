@@ -1,5 +1,5 @@
 //! A read-only cursor over the packed id encoding, shared by the party operations
-//! (`split`/`sum`/`is_disjoint`/`contains`) and the event operations (`fill`/`grow`
+//! (`split`/`sum`/`is_disjoint`/`compare`) and the event operations (`fill`/`grow`
 //! walk the packed id alongside the working event tree).
 //!
 //! `enc_id(Leaf v) = 0, v` (2 bits); `enc_id(Node l r) = 1, enc_id(l), enc_id(r)`.

@@ -17,7 +17,7 @@
 //!
 //! This crate implements Interval Tree Clocks (Almeida, Baquero & Fonte, 2008)
 //! with a packed [`bitvec`] storage form and a transient fixed-width working form
-//! for mutation. See `IMPLEMENTATION_PLAN.md` for the full, frozen design.
+//! for mutation.
 //!
 //! # Example
 //!

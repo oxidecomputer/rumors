@@ -1,9 +1,8 @@
 //! Clock-level tests.
 //!
-//! Phase 3 (observers): `has_seen` / `happens_before` / `concurrent_with` agree with
-//! the oracle. Phase 6: the master differential harness (groups B 6 & 21), protocol
-//! semantics (group E 22–27), and batch equivalence / laziness / commit-on-drop
-//! (group G 30–32, plus the F 29 mid-batch comparison).
+//! Observers: `has_seen` / `happens_before` / `concurrent_with` agree with the
+//! oracle. The master differential harness, protocol semantics, and batch
+//! equivalence / laziness / commit-on-drop (plus the mid-batch comparison).
 
 use proptest::prelude::*;
 
@@ -128,7 +127,7 @@ proptest! {
     }
 }
 
-// ───────────────────────────── protocol semantics (group E) ─────────────────────────────
+// ───────────────────────────── protocol semantics ─────────────────────────────
 
 proptest! {
     /// E22. `fork` preserves the version on both halves.
@@ -282,7 +281,7 @@ proptest! {
     }
 }
 
-// ───────────────────────── batch equivalence / laziness (group G) ─────────────────────────
+// ───────────────────────── batch equivalence / laziness ─────────────────────────
 
 proptest! {
     /// G30. A batch of ops equals the same ops applied as value-level calls.
@@ -355,7 +354,7 @@ proptest! {
     }
 }
 
-// ───────────────────────── normal-form invariant (group A 5) ─────────────────────────
+// ───────────────────────── normal-form invariant ─────────────────────────
 
 proptest! {
     /// A5. Every value produced by every op is in canonical normal form, checked after
@@ -375,7 +374,7 @@ proptest! {
     }
 }
 
-// ───────────────────────────── robustness (group H) ─────────────────────────────
+// ───────────────────────────── robustness ─────────────────────────────
 
 /// H33. Deep structures (a depth-100k id spine, and the deep event tree a tick builds
 /// over it) survive every op plus the codec and the `Debug` printer with no stack
@@ -483,7 +482,7 @@ proptest! {
     }
 }
 
-// ───────────────────────────── worked example (group I) ─────────────────────────────
+// ───────────────────────────── worked example ─────────────────────────────
 
 /// I35 (paper §5.1). The paper's example run, step by step: seed forks to two; one
 /// ticks then forks; the other ticks twice; one of three ticks while the other two
@@ -676,7 +675,7 @@ fn fromstr_tryfrom_reject_denormal_and_syntax() {
     );
 }
 
-// ───────────────────────────── serde (group I, feature-gated) ─────────────────────────────
+// ───────────────────────────── serde (feature-gated) ─────────────────────────────
 
 #[cfg(feature = "serde")]
 proptest! {

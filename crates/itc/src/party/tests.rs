@@ -1,6 +1,5 @@
-//! Phase 4 party tests (Appendix D group D 17–20): descent order, fork/join
-//! round-trip, disjointness, and the meet / overlap behavior, all differential
-//! against the oracle.
+//! Party tests: descent order, fork/join round-trip, disjointness, and the
+//! meet / overlap behavior, all differential against the oracle.
 
 use std::cmp::Ordering;
 

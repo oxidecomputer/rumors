@@ -1,4 +1,4 @@
-//! Oracle property suite (Appendix D, O1–O15): the Phase 0 gate.
+//! Oracle property suite: the ground-truth gate.
 //!
 //! These establish that the recursive oracle is a faithful (if suboptimal)
 //! realization of the paper, so it can be trusted as differential ground truth.
