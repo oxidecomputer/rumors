@@ -81,6 +81,8 @@ pub mod oracle;
 #[cfg(test)]
 mod prog3_exhaustive;
 #[cfg(test)]
+mod prog6_laws;
+#[cfg(test)]
 mod test_support;
 
 /// Record one traversal step. Expands to a counter bump under `cfg(test)` (see the
