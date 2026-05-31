@@ -415,19 +415,20 @@ proptest! {
 /// examples: `(2,1,1) ≡ 3` and `(2,(2,1,0),3) ≡ (4,(0,1,0),1)`.
 #[test]
 fn o15_event_normalization() {
-    use Version::{Leaf, Node};
+    use Version as V;
+    let leaf = |n: u64| V::leaf(n);
 
     // (2,1,1) ~ 3
-    let unit_pulse = Version::node(2, Leaf(1), Leaf(1));
-    assert_eq!(unit_pulse, Leaf(3));
+    let unit_pulse = V::node(2u64, leaf(1), leaf(1));
+    assert_eq!(unit_pulse, leaf(3));
 
     // (2,(2,1,0),3) ~ (4,(0,1,0),1)
-    let left = Node(2, Box::new(Leaf(1)), Box::new(Leaf(0))); // (2,1,0), already normal
-    let example = Version::node(2, left, Leaf(3));
-    let expected = Node(
-        4,
-        Box::new(Node(0, Box::new(Leaf(1)), Box::new(Leaf(0)))),
-        Box::new(Leaf(1)),
+    let left = V::Node(2u64.into(), Box::new(leaf(1)), Box::new(leaf(0))); // (2,1,0), already normal
+    let example = V::node(2u64, left, leaf(3));
+    let expected = V::Node(
+        4u64.into(),
+        Box::new(V::Node(0u64.into(), Box::new(leaf(1)), Box::new(leaf(0)))),
+        Box::new(leaf(1)),
     );
     assert_eq!(example, expected);
 }
@@ -481,16 +482,17 @@ fn o15_split() {
 #[test]
 fn o15_sum_and_join() {
     use Party::{Leaf as PLeaf, Node as PNode};
-    use Version::{Leaf as VLeaf, Node as VNode};
+    use Version as V;
+    let vleaf = |n: u64| V::leaf(n);
 
     let left_half = PNode(Box::new(PLeaf(true)), Box::new(PLeaf(false)));
     let right_half = PNode(Box::new(PLeaf(false)), Box::new(PLeaf(true)));
     assert_eq!(left_half.sum(right_half), PLeaf(true)); // sum((1,0),(0,1)) = 1
 
-    let a = VNode(0, Box::new(VLeaf(1)), Box::new(VLeaf(0))); // (0,1,0)
-    let b = VNode(0, Box::new(VLeaf(0)), Box::new(VLeaf(2))); // (0,0,2)
+    let a = V::Node(0u64.into(), Box::new(vleaf(1)), Box::new(vleaf(0))); // (0,1,0)
+    let b = V::Node(0u64.into(), Box::new(vleaf(0)), Box::new(vleaf(2))); // (0,0,2)
     let joined = a | b;
-    let expected = VNode(1, Box::new(VLeaf(0)), Box::new(VLeaf(1))); // (1,0,1)
+    let expected = V::Node(1u64.into(), Box::new(vleaf(0)), Box::new(vleaf(1))); // (1,0,1)
     assert_eq!(joined, expected);
 }
 
@@ -499,12 +501,12 @@ fn o15_sum_and_join() {
 /// `event(1, (0,1,0)) = (1, 1)`, i.e. the event tree becomes `Leaf(1)`.
 #[test]
 fn o15_event_fills_to_single_integer() {
-    use Version::{Leaf, Node};
+    use Version as V;
 
-    let gapped = Node(0, Box::new(Leaf(1)), Box::new(Leaf(0))); // (0,1,0)
+    let gapped = V::node(0u64, V::leaf(1u64), V::leaf(0u64)); // (0,1,0)
     let mut v = gapped;
     v.tick(&Party::seed()); // id = 1 (whole space)
-    assert_eq!(v, Leaf(1));
+    assert_eq!(v, V::leaf(1u64));
 }
 
 /// O15 (§5.1). Run the paper's example end-to-end and assert its published

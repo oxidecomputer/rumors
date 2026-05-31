@@ -144,7 +144,11 @@ fn a3_reject_noncanonical_event() {
     use oracle::Version::{Leaf, Node};
 
     // No child has base 0: violates the one-child-min-is-zero invariant.
-    let no_zero = Node(0, Box::new(Leaf(1)), Box::new(Leaf(2)));
+    let no_zero = Node(
+        0u64.into(),
+        Box::new(Leaf(1u64.into())),
+        Box::new(Leaf(2u64.into())),
+    );
     let bytes = from_oracle_version(&no_zero).encode();
     assert!(matches!(
         Version::decode(&bytes),
@@ -152,7 +156,11 @@ fn a3_reject_noncanonical_event() {
     ));
 
     // Two equal-valued leaf children: collapsible to a single integer.
-    let collapsible = Node(0, Box::new(Leaf(5)), Box::new(Leaf(5)));
+    let collapsible = Node(
+        0u64.into(),
+        Box::new(Leaf(5u64.into())),
+        Box::new(Leaf(5u64.into())),
+    );
     let bytes = from_oracle_version(&collapsible).encode();
     assert!(matches!(
         Version::decode(&bytes),
@@ -174,7 +182,7 @@ fn pap2_decode_rejects_anonymous_id() {
     // The same id as a clock's party region (id `0`, event `0`) must also be rejected.
     let anon_clock = from_oracle_clock(&oracle::Clock::from_parts(
         oracle::Party::Leaf(false),
-        oracle::Version::Leaf(0),
+        oracle::Version::new(),
     ))
     .encode();
     assert!(matches!(
@@ -207,7 +215,7 @@ fn a3_reject_trailing_bits() {
         Err(DecodeError::TrailingBits)
     ));
 
-    let mut bytes = from_oracle_version(&oracle::Version::Leaf(0)).encode();
+    let mut bytes = from_oracle_version(&oracle::Version::new()).encode();
     bytes.push(0x80);
     assert!(matches!(
         Version::decode(&bytes),

@@ -21,9 +21,9 @@ fn le(a: &Version, b: &Version) -> bool {
 /// `unpack` lays out a known event tree as preorder topology + base arrays.
 #[test]
 fn unpack_layout() {
-    use crate::oracle::Version::{Leaf, Node};
+    use crate::oracle::Version as V;
     // (0, 1, 0): internal root, two leaves.
-    let v = from_oracle_version(&Node(0, Box::new(Leaf(1)), Box::new(Leaf(0))));
+    let v = from_oracle_version(&V::node(0u64, V::leaf(1u64), V::leaf(0u64)));
     let w = WorkingVersion::unpack(v.as_bits());
     assert_eq!(w.len(), 3);
     assert_eq!(
@@ -180,14 +180,14 @@ proptest! {
 /// O1/C14. `Version::new()` is the empty history and the two-sided identity for `|`.
 #[test]
 fn new_is_join_identity() {
-    use crate::oracle::Version::{Leaf, Node};
+    use crate::oracle::Version as V;
     let empty = Version::new();
-    assert!(empty == from_oracle_version(&Leaf(0))); // empty history is Leaf(0)
+    assert!(empty == from_oracle_version(&V::leaf(0u64))); // empty history is Leaf(0)
     assert!(Version::default() == empty); // Default delegates to new()
     for v in [
-        Leaf(0),
-        Leaf(7),
-        Node(1, Box::new(Leaf(0)), Box::new(Leaf(2))),
+        V::leaf(0u64),
+        V::leaf(7u64),
+        V::node(1u64, V::leaf(0u64), V::leaf(2u64)),
     ] {
         let iv = from_oracle_version(&v);
         assert!(empty.clone() | iv.clone() == iv);

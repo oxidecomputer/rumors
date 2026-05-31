@@ -163,11 +163,11 @@ fn emit_ev(out: &mut Bits, t: &oracle::Version) {
     match t {
         oracle::Version::Leaf(n) => {
             out.push(false);
-            codec::encode_int(out, &codec::Base::from(*n));
+            codec::encode_int(out, n);
         }
         oracle::Version::Node(n, l, r) => {
             out.push(true);
-            codec::encode_int(out, &codec::Base::from(*n));
+            codec::encode_int(out, n);
             emit_ev(out, l);
             emit_ev(out, r);
         }
@@ -219,10 +219,9 @@ fn read_id(bits: &codec::BitsSlice, pos: usize) -> (oracle::Party, usize) {
 
 fn read_ev(bits: &codec::BitsSlice, pos: usize) -> (oracle::Version, usize) {
     let internal = bits[pos];
-    let (big, after_n) = codec::decode_int(bits, pos + 1).expect("canonical impl bits decode");
-    // The oracle is `u64`-valued (it is fed only op-generated, small bases); lowering a
-    // bignum-valued impl tree back to it requires the magnitude to fit `u64`.
-    let n = u64::try_from(&big).expect("oracle lowering: impl base exceeds u64");
+    // The oracle base is the arbitrary-precision `Base` (matching the impl), so lowering is
+    // lossless for any magnitude: no `u64` truncation point.
+    let (n, after_n) = codec::decode_int(bits, pos + 1).expect("canonical impl bits decode");
     if internal {
         let (l, after_l) = read_ev(bits, after_n);
         let (r, after_r) = read_ev(bits, after_l);
@@ -290,11 +289,11 @@ pub(crate) fn arb_shape() -> impl Strategy<Value = Shape> {
 fn bushy_version(lo: u64, leaves: usize) -> oracle::Version {
     use oracle::Version as V;
     if leaves <= 1 {
-        return V::Leaf(lo);
+        return V::leaf(lo);
     }
     let half = leaves / 2;
     V::node(
-        0,
+        0u64,
         bushy_version(lo, half),
         bushy_version(lo + half as u64, leaves - half),
     )
@@ -320,14 +319,14 @@ pub(crate) fn shape_version(shape: Shape, scale: usize) -> Version {
     if let Shape::Bushy = shape {
         return from_oracle_version(&bushy_version(0, scale + 1));
     }
-    let mut t = V::Leaf(0);
+    let mut t = V::leaf(0u64);
     for k in 1..=scale as u64 {
-        let leaf = V::Leaf(k);
+        let leaf = V::leaf(k);
         t = match shape {
-            Shape::LeftSpine => V::node(0, t, leaf),
-            Shape::RightSpine => V::node(0, leaf, t),
-            Shape::Zigzag if k % 2 == 0 => V::node(0, t, leaf),
-            Shape::Zigzag => V::node(0, leaf, t),
+            Shape::LeftSpine => V::node(0u64, t, leaf),
+            Shape::RightSpine => V::node(0u64, leaf, t),
+            Shape::Zigzag if k % 2 == 0 => V::node(0u64, t, leaf),
+            Shape::Zigzag => V::node(0u64, leaf, t),
             Shape::Bushy => unreachable!("handled above"),
         };
     }
