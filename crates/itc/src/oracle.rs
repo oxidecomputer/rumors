@@ -368,6 +368,25 @@ impl Version {
         }
     }
 
+    /// `fill(id, self)` — `pub(crate)` so tests can detect when `event` takes the `grow`
+    /// branch (`fill` left the tree unchanged) versus the `fill` branch.
+    pub(crate) fn fill_for_test(&self, id: &Party) -> Version {
+        self.fill(id)
+    }
+
+    /// `grow(id, self)` → (raw tree, cost) — `pub(crate)` so the grow-optimality tests can
+    /// compare the DP's chosen inflation and its reported cost against the brute-force
+    /// search (`test_support::best_inflation`/`min_inflation_cost`).
+    pub(crate) fn grow_for_test(&self, id: &Party) -> (Version, (u32, u32)) {
+        self.grow(id)
+    }
+
+    /// `norm(self)` — `pub(crate)` so tests can normalize a raw `grow` output before
+    /// comparing it to `event`'s (normalized) result.
+    pub(crate) fn normalized_for_test(&self) -> Version {
+        self.normalized()
+    }
+
     pub fn tick(&mut self, party: &Party) {
         *self = self.event(party);
     }

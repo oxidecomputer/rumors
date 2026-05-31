@@ -10,7 +10,10 @@ use std::cmp::Ordering;
 use proptest::prelude::*;
 
 use super::{Clock, Party, Version};
-use crate::test_support::{leq, run, versions, world_strategy};
+use crate::test_support::{
+    all_inflations, arb_oracle_party_nonempty, arb_oracle_version, best_inflation, leq,
+    min_inflation_cost, run, versions, world_strategy,
+};
 
 // ───────────────────────────── O1 ─────────────────────────────
 
@@ -507,6 +510,104 @@ fn o15_event_fills_to_single_integer() {
     let mut v = gapped;
     v.tick(&Party::seed()); // id = 1 (whole space)
     assert_eq!(v, V::leaf(1u64));
+}
+
+// ───────────────────── grow optimality (PAP-1 / PROG-4), oracle side ─────────────────────
+//
+// The paper's event condition (§3 L94-99, §5.3.4) is the defining causality property: an
+// event registers a *minimal* inflation. `grow` delivers it via a dynamic program. These
+// properties pin the oracle's `grow` against a brute-force search over the entire feasible
+// inflation space (`test_support::all_inflations`), independently establishing that the
+// oracle's own DP is genuinely cost-minimal — something nothing else in the suite does
+// (every other check is impl == oracle, which shares the DP). The impl is held to the same
+// brute-force standard in `version::tests`.
+
+proptest! {
+    /// PAP-1/PROG-4. The oracle's `grow` reports the *globally* minimal inflation cost.
+    /// `min_inflation_cost` enumerates the whole feasible single-region inflation space
+    /// (descending both children everywhere, no pruning) and takes the flat minimum; the
+    /// DP's greedy local choice must match it. This is the independent minimality check —
+    /// it does not rely on the DP at all.
+    #[test]
+    fn grow_cost_is_globally_minimal(
+        id in arb_oracle_party_nonempty(),
+        e in arb_oracle_version(),
+    ) {
+        let (_, dp_cost) = e.grow_for_test(&id);
+        let brute = min_inflation_cost(&id, &e).expect("non-empty id always has an inflation");
+        prop_assert_eq!(dp_cost, brute, "grow's cost is not the global minimum");
+    }
+}
+
+proptest! {
+    /// PAP-1/PROG-4. The oracle's `grow` chooses exactly the brute-force right-favoring
+    /// minimal inflation — the same raw tree and cost. `best_inflation` selects the
+    /// globally cost-minimal candidate with the paper's root-ward tie-break (`cl < cr`
+    /// goes left, else right), weighing each child by its full-enumeration minimum. So a
+    /// match confirms both the cost minimality and the correct tie-break direction.
+    #[test]
+    fn grow_matches_brute_force_choice(
+        id in arb_oracle_party_nonempty(),
+        e in arb_oracle_version(),
+    ) {
+        let dp = e.grow_for_test(&id);
+        let brute = best_inflation(&id, &e).expect("non-empty id always has an inflation");
+        prop_assert_eq!(dp, brute);
+    }
+}
+
+proptest! {
+    /// PAP-1/PROG-4. The brute-force selection is internally consistent: `best_inflation`
+    /// is one of the enumerated candidates, and its cost equals the global minimum. Guards
+    /// the brute-force oracle itself, so the two checks above stand on solid ground.
+    #[test]
+    fn best_inflation_is_a_min_cost_candidate(
+        id in arb_oracle_party_nonempty(),
+        e in arb_oracle_version(),
+    ) {
+        let cands = all_inflations(&id, &e);
+        prop_assume!(!cands.is_empty());
+        let min = cands.iter().map(|(_, c)| *c).min().unwrap();
+        let (best_tree, best_cost) = best_inflation(&id, &e).unwrap();
+        prop_assert_eq!(best_cost, min, "best_inflation cost is not the minimum");
+        prop_assert!(
+            cands.iter().any(|(t, c)| *t == best_tree && *c == best_cost),
+            "best_inflation is not among the enumerated candidates",
+        );
+    }
+}
+
+proptest! {
+    /// PAP-1 (§3 L94-99), metamorphic form. `grow` "dominates no more events than
+    /// needed": no *feasible inflation* `x` sits strictly between `e` and the grown
+    /// `e'` — there is no `x` reachable by inflating `(id, e)` with `e ≤ x < e'`. This is
+    /// the correct, scoped reading of the paper's `x < e' ⇒ x ≤ e`: the relevant `x` are
+    /// the event components the system can produce (the inflation candidates), not
+    /// arbitrary fabricated step functions. (Over the *full* pointwise lattice the literal
+    /// `x < e' ⇒ x ≤ e` is false even for a single `+1` increment — e.g. `e = 0`,
+    /// `e' = 1`, `x = (0,1,0)` has `x < e'` but `x ≰ e` — because that lattice is dense and
+    /// `fill` collapses owned regions to their max; the §3 condition is about system
+    /// states, not arbitrary functions.) `grow` runs directly here, independent of whether
+    /// `event` would have taken the `fill` branch.
+    #[test]
+    fn grow_dominates_no_more_than_needed(
+        id in arb_oracle_party_nonempty(),
+        e in arb_oracle_version(),
+    ) {
+        let (eprime, _) = e.grow_for_test(&id);
+        let eprime = eprime.normalized_for_test();
+        for (cand, _) in all_inflations(&id, &e) {
+            let cand = cand.normalized_for_test();
+            let above_e = leq(&e, &cand);
+            let strictly_below = cand.partial_cmp(&eprime) == Some(Ordering::Less);
+            prop_assert!(
+                !(above_e && strictly_below),
+                "an inflation candidate sits strictly between e and e': \
+                 cand={:?} e={:?} e'={:?}",
+                cand, e, eprime,
+            );
+        }
+    }
 }
 
 /// O15 (§5.1). Run the paper's example end-to-end and assert its published

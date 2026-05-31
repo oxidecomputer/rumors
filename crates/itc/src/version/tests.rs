@@ -7,9 +7,10 @@ use proptest::prelude::*;
 use super::working::WorkingVersion;
 use super::{Batch, Version};
 use crate::test_support::{
-    arb_oracle_party_nonempty, arb_oracle_version, arb_shape, assert_linear_scaling,
-    from_oracle_party, from_oracle_version, run, shape_party, shape_version, steps_of,
-    to_oracle_version, versions, world_strategy, Shape, MIN_SCALE,
+    all_inflations, arb_oracle_party_nonempty, arb_oracle_version, arb_shape,
+    assert_linear_scaling, best_inflation, from_oracle_party, from_oracle_version,
+    leq as oracle_leq, run, shape_party, shape_version, steps_of, to_oracle_version, versions,
+    world_strategy, Shape, MIN_SCALE,
 };
 
 /// `a <= b` under the impl causal order.
@@ -440,6 +441,79 @@ proptest! {
         iv.tick(&from_oracle_party(&op));
 
         prop_assert!(iv == from_oracle_version(&oracle_after));
+    }
+}
+
+// ───────────── grow optimality (PAP-1 / PROG-4), impl side ─────────────
+//
+// The defining causality property (§3 L94-99, §5.3.4): an event registers a *minimal*
+// inflation. The oracle's `grow` is pinned to a brute-force search over the entire
+// feasible inflation space in `oracle::tests`; these hold the packed impl to the same
+// standard. `tick = fill else grow`, so when `fill` already simplifies the tree the grow
+// path is not taken — `prog1_grow_matches_brute_force` filters to the grow case (fill a
+// no-op) and asserts the impl's inflation equals the brute-force right-favoring minimum;
+// `prog1_event_minimal` checks the paper's metamorphic condition on every `tick`.
+
+proptest! {
+    /// PAP-1/PROG-4. When `tick` takes the `grow` branch (`fill` leaves the tree
+    /// unchanged), the impl inflates exactly the brute-force cost-minimal, right-favoring
+    /// region: `tick` lowered to the oracle equals `best_inflation` normalized. This holds
+    /// the packed `grow`'s dynamic program to the full-enumeration global optimum directly
+    /// — not merely to the recursive oracle (which realizes the same DP). Large bases are
+    /// threaded losslessly, so the cost comparison is exact regardless of magnitude.
+    #[test]
+    fn prog1_grow_matches_brute_force(
+        op in arb_oracle_party_nonempty(),
+        ov in arb_oracle_version(),
+    ) {
+        // Only the grow path is under test: skip inputs where `fill` already simplifies
+        // (those are covered by the tick/fill differentials). `fill` is a no-op iff it
+        // returns the input unchanged. About a quarter of arbitrary inputs reach grow,
+        // comfortably within proptest's reject budget.
+        prop_assume!(ov.fill_for_test(&op) == ov);
+
+        let (best_tree, _cost) = best_inflation(&op, &ov).expect("non-empty id inflates");
+        let expected = best_tree.normalized_for_test();
+
+        let mut iv = from_oracle_version(&ov);
+        iv.tick(&from_oracle_party(&op));
+
+        prop_assert_eq!(to_oracle_version(&iv), expected);
+    }
+}
+
+proptest! {
+    /// PAP-1 (§3 L94-99), metamorphic form, on the impl. When `tick` takes the `grow`
+    /// branch, the inflated `e'` "dominates no more than needed": no feasible single-region
+    /// inflation candidate `x` of `(id, e)` satisfies `e ≤ x < e'`. This is the correctly
+    /// scoped reading of the paper's `x < e' ⇒ x ≤ e` (the literal form over the dense
+    /// pointwise lattice is false even for a single increment — see the oracle twin
+    /// `grow_dominates_no_more_than_needed`). Run on the impl's own causal order, with the
+    /// candidate set enumerated by the brute-force oracle. Cross-checked against the oracle
+    /// order on the same values.
+    #[test]
+    fn prog1_grow_minimal(
+        op in arb_oracle_party_nonempty(),
+        ov in arb_oracle_version(),
+    ) {
+        prop_assume!(ov.fill_for_test(&op) == ov);
+
+        let e = from_oracle_version(&ov);
+        let mut eprime = e.clone();
+        eprime.tick(&from_oracle_party(&op)); // grow path: tick == grow
+
+        for (cand, _) in all_inflations(&op, &ov) {
+            let cand_norm = cand.normalized_for_test();
+            let cand_v = from_oracle_version(&cand_norm);
+            let above_e = le(&e, &cand_v);
+            let strictly_below = cand_v.partial_cmp(&eprime) == Some(Ordering::Less);
+            prop_assert!(
+                !(above_e && strictly_below),
+                "an inflation candidate sits strictly between e and e' on the impl",
+            );
+            // The impl and oracle agree on `e ≤ cand` for each candidate.
+            prop_assert_eq!(above_e, oracle_leq(&ov, &cand_norm));
+        }
     }
 }
 
