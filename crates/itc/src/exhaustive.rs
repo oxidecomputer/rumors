@@ -22,12 +22,14 @@
 //! shared bound deep enough for ids (depth 3) would make the event cross-product
 //! (`O(corpus²)`) intractable. So events are held one level shallower than ids.
 //!
-//! Two variants:
+//! Each corpus is lowered to its impl form once and the pair loops *borrow* it (not
+//! re-lowering both operands per pair), and the cross-products run on a `rayon` pool. Two
+//! variants:
 //! - [`exhaustive_small`] runs in the normal gate at [`ID_SMALL_DEPTH`] /
-//!   [`EV_SMALL_DEPTH`] (256 ids, 691 events); the full op cross-product is a few seconds.
+//!   [`EV_SMALL_DEPTH`] (256 ids, 691 events); the full op cross-product is well under a second.
 //! - [`exhaustive_deep`] is `#[ignore]`d and runs at [`ID_DEEP_DEPTH`] /
-//!   [`EV_DEEP_DEPTH`] (65536 ids, 691 events); it is `O(corpus²)` in the much larger id
-//!   corpus and takes minutes. See its doc comment for how to run it.
+//!   [`EV_DEEP_DEPTH`] (65536 ids, 691 events); the `O(corpus²)` id pair-product dominates —
+//!   ~4.5 minutes on a 16-core M4 Max. See its doc comment for how to run it.
 
 #[cfg(test)]
 mod tests;
@@ -46,7 +48,8 @@ pub(crate) const ID_SMALL_DEPTH: usize = 3;
 pub(crate) const EV_SMALL_DEPTH: usize = 2;
 
 /// Inclusive id depth bound for the `#[ignore]`d deep enumeration: 65536 ids. The id cross-
-/// product is `O(corpus²)`, so this runs in minutes. See [`tests::exhaustive_deep`].
+/// product is `O(corpus²)` (~4.3 billion pairs); with the per-tree precompute and `rayon` it
+/// runs in ~4.5 minutes on a 16-core M4 Max. See [`tests::exhaustive_deep`].
 pub(crate) const ID_DEEP_DEPTH: usize = 4;
 
 /// Inclusive event depth bound for the deep enumeration. Stays at 691 events: the depth-3

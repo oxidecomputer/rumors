@@ -17,16 +17,18 @@ serde_json = "1"
 criterion = "0.5"
 rand = "0.8"
 # Binary (non-self-describing) and self-describing serde formats, exercised by the
-# COV-2 round-trip tests: `postcard` emits a typed bytes value via `serialize_bytes`;
+# binary-serde round-trip tests: `postcard` emits a typed bytes value via `serialize_bytes`;
 # `ciborium` is a self-describing CBOR codec. Together they guard the binary serde path
 # that `serde_json` alone never reaches.
 postcard = { version = "1", features = ["use-std"] }
 ciborium = "0.2"
-# Compile-fail tests (COV-5) pinning the linearity guarantees (`Party`/`Clock` `!Clone`,
+# Compile-fail tests pinning the linearity guarantees (`Party`/`Clock` `!Clone`,
 # by-value `BitOr`).
 trybuild = "1"
 # Snapshot tests where a literal expected value is clearer inline than maintained by hand.
 insta = "1"
+# Parallelizes the exhaustive small-scope cross-products (the `exhaustive` module).
+rayon = "1"
 # Self-dependency that turns on the `oracle` feature for benches (and tests): a
 # recognized Cargo idiom so `cargo bench` builds the lib with the oracle exposed
 # without needing `--features oracle`. Dev-dependency cycles are explicitly allowed,
