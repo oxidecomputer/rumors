@@ -157,6 +157,29 @@ fn a3_reject_noncanonical_event() {
     ));
 }
 
+/// PAP-2. The byte `decode` paths are the only ones that yield a top-level `Party`
+/// without passing through `finish_id`; both reject the anonymous identity `0` (the
+/// empty id region), so an empty-region `Party`/`Clock` cannot be constructed. The
+/// paper forbids `event` on an anonymous stamp (§3, `i ≠ 0`), and a standalone party
+/// is by definition a nonzero share.
+#[test]
+fn pap2_decode_rejects_anonymous_id() {
+    // The single `0` leaf is the only canonical empty id; encode it as a bare party.
+    let anon = from_oracle_party(&oracle::Party::Leaf(false)).encode();
+    assert!(matches!(Party::decode(&anon), Err(DecodeError::Anonymous)));
+
+    // The same id as a clock's party region (id `0`, event `0`) must also be rejected.
+    let anon_clock = from_oracle_clock(&oracle::Clock::from_parts(
+        oracle::Party::Leaf(false),
+        oracle::Version::Leaf(0),
+    ))
+    .encode();
+    assert!(matches!(
+        Clock::decode(&anon_clock),
+        Err(DecodeError::Anonymous)
+    ));
+}
+
 /// A3. A stream that ends mid-tree is `Truncated`.
 #[test]
 fn a3_reject_truncated() {

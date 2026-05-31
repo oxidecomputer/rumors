@@ -121,6 +121,10 @@ pub enum DecodeError {
     TrailingBits,
     /// The structure is well-formed but not in canonical normal form.
     NotCanonical,
+    /// The id region is the anonymous identity `0` (it owns no region). A standalone
+    /// [`Party`]/[`Clock`] must be a nonzero share, so this is rejected — though `0` is
+    /// valid as a sub-tree inside a larger id (e.g. `(0, 1)`).
+    Anonymous,
 }
 
 impl core::fmt::Display for DecodeError {
@@ -129,6 +133,9 @@ impl core::fmt::Display for DecodeError {
             DecodeError::Truncated => "input ended mid-tree",
             DecodeError::TrailingBits => "trailing or nonzero padding bits after a complete tree",
             DecodeError::NotCanonical => "input is well-formed but not in canonical normal form",
+            DecodeError::Anonymous => {
+                "id region denotes the anonymous identity 0, not a nonzero share"
+            }
         };
         f.write_str(s)
     }

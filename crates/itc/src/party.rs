@@ -61,12 +61,19 @@ impl Party {
         codec::pack_to_bytes(&self.0)
     }
 
-    /// Decode a byte string, strictly rejecting malformed or non-canonical input.
+    /// Decode a byte string, strictly rejecting malformed or non-canonical input, and the
+    /// anonymous identity `0` (a standalone `Party` is a nonzero share — the paper's `event`
+    /// precondition `i ≠ 0`, §3). This is the only byte path that yields a top-level `Party`,
+    /// so the empty-region check here is what makes an anonymous `Party` unconstructible.
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
         let bits = codec::Bits::from_slice(bytes);
         let end = codec::parse_id(&bits, 0)?;
         codec::require_zero_padding(&bits, end)?;
-        Ok(Party(bits[..end].to_bitvec()))
+        let id = bits[..end].to_bitvec();
+        if codec::id_is_empty(&id) {
+            return Err(DecodeError::Anonymous);
+        }
+        Ok(Party(id))
     }
 
     /// The empty (zero) id, `Leaf(false)`. Internal transient only — never a public

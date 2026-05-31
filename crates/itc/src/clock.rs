@@ -124,7 +124,13 @@ impl Clock {
         // the head bit-offset rather than shifting to bit 0, which would leave the
         // stored stream non-canonical and make `Version::encode` mis-pack it. Copy
         // the bits logically into a fresh, offset-0 stream to restore canonicity.
-        let party = Party::from_bits(bits[..after_id].to_bitvec());
+        let party_bits = bits[..after_id].to_bitvec();
+        if codec::id_is_empty(&party_bits) {
+            // A standalone `Clock` carries a nonzero share (paper §3: `event` requires
+            // `i ≠ 0`); the anonymous id `0` is not a decodable top-level party.
+            return Err(DecodeError::Anonymous);
+        }
+        let party = Party::from_bits(party_bits);
         let mut version_bits = codec::Bits::new();
         version_bits.extend_from_bitslice(&bits[after_id..after_ev]);
         let version = Version::from_bits(version_bits);
