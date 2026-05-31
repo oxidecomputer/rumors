@@ -13,7 +13,7 @@ use std::cmp::Ordering;
 use proptest::prelude::*;
 
 use crate::codec::{self, Bits};
-use crate::oracle;
+use crate::{metrics, oracle};
 use crate::{Clock, Party, Version};
 
 // ───────────────────────────── op-trace generator ─────────────────────────────
@@ -433,6 +433,20 @@ pub(crate) fn deep_left_spine_party(depth: usize) -> Party {
         bits.push(false); //   value 0 (each node's right child)
     }
     Party::from_bits(bits)
+}
+
+/// Smallest spine scale a complexity proptest measures at; below this the step count is
+/// too noisy for the ratio to be meaningful. The big input is always `4×` this (see
+/// [`assert_linear_scaling`]).
+pub(crate) const MIN_SCALE: usize = 64;
+
+/// Steps taken by `f`, measured on a fresh traversal-step counter. The complexity
+/// proptests wrap each measured traversal in this and feed the two results to
+/// [`assert_linear_scaling`].
+pub(crate) fn steps_of(f: impl FnOnce()) -> u64 {
+    metrics::reset();
+    f();
+    metrics::taken()
 }
 
 /// Assert that `steps`, measured at two input sizes whose node counts differ by `4×`,

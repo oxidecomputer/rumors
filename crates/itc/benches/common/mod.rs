@@ -86,7 +86,9 @@ pub fn plan(rng: &mut StdRng, n: usize, groups: u8) -> Plan {
 
 // ───────────────────────────── party universes ─────────────────────────────
 
-/// The `groups` preserved [`Party`] trees for `plan`, built through the public API.
+/// The `groups` preserved [`Party`] trees for `plan`, built through the public API by the
+/// module's fork-a-universe / preserve-a-subset / join-each-group recipe (see the module
+/// doc); the preserved subset randomizes the tree shape.
 pub fn impl_parties(plan: &Plan, groups: u8) -> Vec<Party> {
     let mut universe = vec![Party::seed()];
     for &i in &plan.schedule {
@@ -130,8 +132,9 @@ pub fn oracle_parties(plan: &Plan, groups: u8) -> Vec<oracle::Party> {
 
 // ───────────────────────────── clock universes ─────────────────────────────
 
-/// The `groups` preserved [`Clock`] trees for `plan`: fork a seed clock into a universe,
-/// tick each member `plan.ticks[m]` times to give it history, then join each group.
+/// The `groups` preserved [`Clock`] trees for `plan`, built by the module's
+/// fork-a-universe / preserve-a-subset / join-each-group recipe (see the module doc),
+/// additionally ticking each member `plan.ticks[m]` times to give it real history.
 pub fn impl_clocks(plan: &Plan, groups: u8) -> Vec<Clock> {
     let mut universe = vec![Clock::seed()];
     for &i in &plan.schedule {

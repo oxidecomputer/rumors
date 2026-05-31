@@ -6,26 +6,17 @@ use proptest::prelude::*;
 
 use super::working::WorkingVersion;
 use super::{Batch, Version};
-use crate::metrics;
 use crate::test_support::{
     arb_shape, assert_linear_scaling, from_oracle_party, from_oracle_version, run, shape_party,
-    shape_version, versions, world_strategy, Shape,
+    shape_version, steps_of, versions, world_strategy, Shape, MIN_SCALE,
 };
-
-/// Steps taken by `f` on a fresh counter.
-fn steps_of(f: impl FnOnce()) -> u64 {
-    metrics::reset();
-    f();
-    metrics::taken()
-}
-
-/// Smallest spine scale to measure at; the big input is always `4x` this.
-const MIN_SCALE: usize = 64;
 
 /// `a <= b` under the impl causal order.
 fn le(a: &Version, b: &Version) -> bool {
     a.partial_cmp(b).is_some_and(|o| o != Ordering::Greater)
 }
+
+// ───────────────────────────── working form ─────────────────────────────
 
 /// `unpack` lays out a known event tree as preorder topology + base arrays.
 #[test]
@@ -59,6 +50,8 @@ proptest! {
         prop_assert_eq!(repacked.encode(), v.encode());
     }
 }
+
+// ───────────────────────────── causal order ─────────────────────────────
 
 proptest! {
     /// Complexity. The causal order is `O(n + m)`: comparing `a` against `b = a | extra`
@@ -316,6 +309,8 @@ proptest! {
         prop_assert!(a != b);
     }
 }
+
+// ───────────────────────── complexity (linear scaling) ─────────────────────────
 
 proptest! {
     /// Complexity. `tick` is `O(n + m)`: ticking a deep event tree against a deep id of

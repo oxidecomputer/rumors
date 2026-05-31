@@ -7,27 +7,17 @@ use proptest::prelude::*;
 
 use super::Party;
 use crate::idbits::IdView;
-use crate::metrics;
 use crate::test_support::{
     arb_shape, assert_linear_scaling, contain_stress_pair, from_oracle_party, run, shape_party,
-    skip_stress_pair, world_strategy,
+    skip_stress_pair, steps_of, world_strategy, MIN_SCALE,
 };
-
-/// Steps taken by `f` on a fresh counter.
-fn steps_of(f: impl FnOnce()) -> u64 {
-    metrics::reset();
-    f();
-    metrics::taken()
-}
-
-/// Smallest spine scale to measure at; below this the step count is too noisy for the
-/// ratio to be meaningful. The big input is always `4x` this.
-const MIN_SCALE: usize = 64;
 
 /// `a <= b` under the impl descent order.
 fn le(a: &Party, b: &Party) -> bool {
     a.partial_cmp(b).is_some_and(|o| o != Ordering::Greater)
 }
+
+// ───────────────────────────── differential vs oracle ─────────────────────────────
 
 proptest! {
     /// D17/D20. The impl descent order and `is_disjoint` agree with the oracle, and
@@ -91,6 +81,8 @@ proptest! {
         prop_assert!(keep == parent);
     }
 }
+
+// ───────────────────────────── complexity (linear scaling) ─────────────────────────────
 
 proptest! {
     /// Complexity. `split` is `O(n)`: over a random deep id shape, its traversal steps
@@ -160,6 +152,8 @@ proptest! {
     }
 }
 
+// ───────────────────────────── join overlap ─────────────────────────────
+
 proptest! {
     /// D20. Joining overlapping parties errors and hands the party back unchanged.
     #[test]
@@ -181,6 +175,12 @@ proptest! {
     }
 }
 
+// ───────────────────────── paper-notation TryFrom ─────────────────────────
+
+/// `TryFrom` numeric/tuple literals build parties via the same paper notation as the
+/// string parser: the seed `1`, a flat `(1, 0)`, and a nested `((0, 1), (1, (1, 0)))`
+/// all construct, while the anonymous bare `0` is rejected (a standalone id must own
+/// some region).
 #[test]
 fn parse_bare_notation() {
     let _party: Party = 1.try_into().unwrap();

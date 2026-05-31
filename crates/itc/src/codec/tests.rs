@@ -48,7 +48,10 @@ proptest! {
     }
 }
 
-/// The Elias-gamma-of-`n+1` bit costs match the plan's table; `0` is a single bit.
+/// The integer code is Elias-gamma of `n + 1`, so its bit cost is `2⌊log2(n+1)⌋ + 1`:
+/// `0` costs a single bit, and the cost steps up by two at each power-of-two boundary
+/// of `n + 1` (`1`/`2` → 3 bits, `6` → 5, `7` → 7). Pinning these widths guards the
+/// canonical prefix-code property the byte-equality `Eq`/`Hash` relies on.
 #[test]
 fn gamma_costs() {
     let cost = |n: u64| {
