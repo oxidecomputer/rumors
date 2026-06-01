@@ -65,9 +65,9 @@ impl Version {
 
     /// Decode a byte string, strictly rejecting malformed or non-canonical input.
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
-        let bits = codec::Bits::from_slice(bytes);
-        let end = codec::parse_ev(&bits, 0)?;
-        codec::require_zero_padding(&bits, end)?;
+        let bits = codec::bytes_as_bits(bytes);
+        let end = codec::parse_ev(bits, 0)?;
+        codec::require_zero_padding(bits, end)?;
         Ok(Version(bits[..end].to_bitvec()))
     }
 
@@ -102,7 +102,7 @@ impl core::fmt::Display for Version {
     }
 }
 
-/// `Version(<paper notation, space-separated>)`, e.g. `Version(1, 2, (0, (1, 0, 2), 0))`.
+/// `Version(<paper notation, comma-separated>)`, e.g. `Version(1, 2, (0, (1, 0, 2), 0))`.
 impl core::fmt::Debug for Version {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         <Self as Display>::fmt(self, f)
@@ -161,9 +161,21 @@ impl Batch<'_> {
 
     /// Merge another history in place. Chainable.
     pub fn merge(&mut self, other: &Version) -> &mut Self {
-        let work = self.view().join(&other.view());
+        let current = self.view();
+        let incoming = other.view();
+        if current.trivially_eq(&incoming) {
+            return self;
+        }
+        let work = current.join(&incoming);
         self.work = Some(work);
         self
+    }
+
+    /// Replace the in-progress history with an already-canonical owned version.
+    /// Used by `clock::Batch::sync` after it computes the merged history once.
+    pub(crate) fn replace_with(&mut self, version: Version) {
+        self.work = None;
+        *self.version = version;
     }
 
     /// Snapshot the in-progress history as an owned, canonical [`Version`] — without
@@ -203,6 +215,9 @@ impl<'a> From<&'a mut Version> for Batch<'a> {
 impl BitOr<Version> for Version {
     type Output = Version;
     fn bitor(self, r: Version) -> Version {
+        if self == r {
+            return self;
+        }
         let work = self.view().join(&r.view());
         Version::from_bits(work.repack())
     }
@@ -210,6 +225,9 @@ impl BitOr<Version> for Version {
 
 impl BitOrAssign<Version> for Version {
     fn bitor_assign(&mut self, r: Version) {
+        if *self == r {
+            return;
+        }
         let work = self.view().join(&r.view());
         *self = Version::from_bits(work.repack());
     }

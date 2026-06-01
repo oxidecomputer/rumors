@@ -9,11 +9,12 @@
 //!
 //! Linearity: `Party`/`Clock` are not `Clone`; `Version` clones freely.
 //!
-//! All mutation goes through a batch ([`version::Batch`], [`clock::Batch`]) that
-//! unpacks the version to a fast fixed-width working form lazily, applies a run
-//! of operations, and repacks once on drop. Value-level methods are single-op
-//! batches. Comparison reads the current state in place — no repack — so batches
-//! are compared directly rather than peeked. All traversals are iterative.
+//! Version mutation goes through a batch ([`version::Batch`], [`clock::Batch`]) that
+//! unpacks the version to a fast fixed-width working form lazily, applies a run of
+//! operations, and repacks once on drop. Party id operations run directly on the packed
+//! bits. Value-level methods are single-op batches. Comparison reads the current state in
+//! place — no repack — so batches are compared directly rather than peeked. All traversals
+//! are iterative.
 //!
 //! This crate implements Interval Tree Clocks (Almeida, Baquero & Fonte, 2008)
 //! with a packed [`bitvec`] storage form and a transient fixed-width working form

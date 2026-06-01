@@ -69,6 +69,19 @@ fn gamma_costs() {
     assert_eq!(cost(7), 7);
 }
 
+/// The small inline `Base` representation must spill exactly at the `u64` boundary
+/// without changing the arbitrary-width integer codec.
+#[test]
+fn gamma_roundtrip_just_above_u64_max() {
+    let n = Base::from(u64::MAX) + Base::from(1u8);
+    let mut bits = Bits::new();
+    encode_int(&mut bits, &n);
+    let (decoded, pos) = decode_int(&bits, 0).expect("well-formed");
+    assert_eq!(decoded, n);
+    assert_eq!(decoded.to_string(), "18446744073709551616");
+    assert_eq!(pos, bits.len());
+}
+
 /// `decode_int` never panics and reports `Truncated` when the code runs off the end
 /// (empty input, or all-zeros with no terminating `1`).
 #[test]

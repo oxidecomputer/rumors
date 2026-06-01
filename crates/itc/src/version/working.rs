@@ -34,8 +34,9 @@ impl WorkingVersion {
     /// the preorder stream: each node contributes one topology bit (its flag) and one
     /// base. The input must be exactly one `enc_ev` tree (a `Version`'s stored bits).
     pub(crate) fn unpack(packed: &BitsSlice) -> WorkingVersion {
-        let mut topo = Bits::new();
-        let mut base = Vec::new();
+        let capacity = packed.len().div_ceil(2);
+        let mut topo = Bits::with_capacity(capacity);
+        let mut base = Vec::with_capacity(capacity);
         let mut pos = 0;
         while pos < packed.len() {
             step!(); // one step per node processed
@@ -53,7 +54,9 @@ impl WorkingVersion {
     /// each node's flag followed by its base as `gamma(base + 1)`, in preorder. Canonical
     /// whenever the working form is in normal form.
     pub(crate) fn repack(&self) -> Bits {
-        let mut out = Bits::new();
+        let capacity =
+            self.topo.len() + self.base.iter().map(codec::encoded_int_len).sum::<usize>();
+        let mut out = Bits::with_capacity(capacity);
         for (flag, base) in self.topo.iter().by_vals().zip(&self.base) {
             step!(); // one step per node processed
             out.push(flag);

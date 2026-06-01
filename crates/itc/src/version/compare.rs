@@ -22,7 +22,7 @@
 
 use core::cmp::Ordering;
 
-use crate::codec::{decode_int, Base, BitsSlice};
+use crate::codec::{decode_int, skip_int, Base, BitsSlice};
 use crate::{idbits, step};
 
 use super::working::WorkingVersion;
@@ -162,16 +162,33 @@ impl EvView<'_> {
         }
     }
 
+    /// A conservative node-count capacity for output builders. Packed event nodes occupy
+    /// at least two bits (flag + gamma(0)), so this avoids a full counting pass while
+    /// keeping over-allocation bounded for normal small-base trees.
+    pub(super) fn node_capacity_bound(&self) -> usize {
+        match self {
+            EvView::Packed(bits) => bits.len().div_ceil(2),
+            EvView::Working(work) => work.base.len(),
+        }
+    }
+
     /// Advance past the whole subtree starting at `at`, returning the position after it.
-    /// Iterative: a pending-children counter, never the call stack — see the shared
-    /// [`idbits::skip_subtree`](crate::idbits::skip_subtree) core. (The id-tree analogue,
-    /// on the packed id header shape, is [`idbits::IdView::skip`](crate::idbits::IdView::skip):
-    /// same algorithm via the same core, different node encoding.)
+    /// Iterative: a pending-children counter, never the call stack. Packed views skip the
+    /// gamma-coded base without decoding it, because only topology and end positions
+    /// matter here.
     pub(super) fn skip(&self, at: usize) -> usize {
-        idbits::skip_subtree(at, |pos| {
-            let h = self.header(pos);
-            (h.internal, h.next)
-        })
+        match self {
+            EvView::Packed(bits) => idbits::skip_subtree(at, |pos| {
+                step!();
+                let internal = bits[pos];
+                let next = skip_int(bits, pos + 1).expect("canonical event bits");
+                (internal, next)
+            }),
+            EvView::Working(_) => idbits::skip_subtree(at, |pos| {
+                let h = self.header(pos);
+                (h.internal, h.next)
+            }),
+        }
     }
 }
 
