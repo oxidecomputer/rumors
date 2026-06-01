@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc e1f8ae3796b9d709b05abbc6ac4845f8b3a3d539cf8206b7d829393704d6d5b1 # shrinks to p = Node(Node(Leaf(true), Node(Node(Leaf(true), Leaf(false)), Leaf(false))), Leaf(false))
+cc 4971367e555c5031dbf23b9861de1bf812e48495fa337343dbcb7c50f37b8a83 # shrinks to seeds = 2, ops = [Fork(5), Fork(3), Fork(5), Sync(4, 2), Fork(1), Fork(4), Sync(4, 5), Join(5, 1), Sync(5, 4)]
+cc cab1bab5e9c3ba93db9c4bd4d5a7937da71247f657cb11166ae7e6182cda20fe # shrinks to seeds = 2, ops = [Fork(6), Fork(2), Fork(2), Fork(6), Join(0, 2), Join(7, 0), Join(6, 0), Send(3, 2), Send(0, 3), Fork(3)]

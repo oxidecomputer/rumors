@@ -1,6 +1,6 @@
 //! Test-only harness: the oracle⇄impl bridge, input generators, the brute-force
-//! grow-optimality reference, the step-scaling helpers, the second (sampling) oracle, and
-//! the cross-cutting suites (exhaustive small-scope, algebraic laws, documentation
+//! grow-optimality reference, the step-scaling helpers, the function-space (semantic) oracle,
+//! and the cross-cutting suites (exhaustive small-scope, algebraic laws, documentation
 //! snapshots). Compiled only under `cfg(test)`; never part of the shipped crate.
 //!
 //! The per-production-module unit tests live in their own `*/tests.rs` siblings; this
@@ -15,5 +15,5 @@ pub(crate) mod optrace;
 
 mod algebraic_laws;
 mod exhaustive;
-mod sampling_oracle;
+mod semantic_oracle;
 mod snapshots;
