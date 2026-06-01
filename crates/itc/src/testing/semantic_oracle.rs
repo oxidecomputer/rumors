@@ -1,41 +1,47 @@
-//! A third, semantically independent reference: the paper's §4 function-space construction,
-//! realized *literally as functions*.
+//! A third, semantically independent reference: the paper's §4 function-space
+//! construction, realized *literally as functions*.
 //!
-//! The recursive [`oracle`] and the packed impl both represent a stamp as a *tree* and
-//! realize each operation as the same tree recursion, so "impl == oracle" is blind to a bug
-//! the two share. This module shares no code and no structure with that recursion: a stamp's
-//! id *is* its characteristic function `⟦i⟧: [0,1) → {0,1}` and its event *is* its step
-//! function `⟦e⟧: [0,1) → ℕ₀` ([`Id`]/[`Event`], boxed closures over dyadic rationals), and
-//! every ITC operation is a closure combinator (§2-3). It is a deliberately inefficient,
+//! The recursive [`oracle`] and the packed impl both represent a stamp as a
+//! *tree* and realize each operation as the same tree recursion, so "impl ==
+//! oracle" is blind to a bug the two share. This module shares no code and no
+//! structure with that recursion: a stamp's id *is* its characteristic function
+//! `⟦i⟧: [0,1) → {0,1}` and its event *is* its step function `⟦e⟧: [0,1) → ℕ₀`
+//! ([`Id`]/[`Event`], boxed closures over dyadic rationals), and every ITC
+//! operation is a closure combinator (§2-3). It is a deliberately inefficient,
 //! one-to-one transcription of §4.
 //!
 //! ## Cross-check by replay
 //!
-//! [`tests`] plays one (single-seed) op trace against all three references — impl, tree
-//! oracle, and this function space — then over the Cartesian product of each final clock
-//! population computes a comparison descriptor (version causal order, party containment, party
-//! disjointness) and requires all three to agree. This is ITC's defining guarantee: the
-//! observable partial order is fixed by the operation sequence, independent of the (valid)
-//! fork/inflation policy each implementation chooses.
+//! [`tests`] plays one (single-seed) op trace against all three references —
+//! impl, tree oracle, and this function space — then over the Cartesian product
+//! of each final clock population computes a comparison descriptor (version
+//! causal order, party containment, party disjointness) and requires all three
+//! to agree. This is ITC's defining guarantee: the observable partial order is
+//! fixed by the operation sequence, independent of the (valid) fork/inflation
+//! policy each implementation chooses.
 //!
-//! To exercise *that independence directly*, this reference's two under-determined operations
-//! make a fresh **random** law-abiding choice on every call (seeded from the proptest input, so
-//! failures replay): [`event`] draws an arbitrary §4-valid inflation (a partial, random-amount
-//! bump of the owned region) and [`fork`] draws an arbitrary §4-valid split (dealing the owned
-//! region's pieces out at random). So the cross-check does not merely confirm one fixed
-//! instantiation agrees with the impl's minimal `grow` — it asserts agreement across a whole
-//! random sample of the valid policy space, which is the real content of the invariance claim.
-//! The lone limit is a concession to the *finite* grid: an arbitrary cut of an *indivisible*
-//! interval needs unbounded resolution, so such a piece is bisected at its midpoint (see
-//! [`fork`]); every other split, and every inflation, is free.
+//! To exercise *that independence directly*, this reference's two
+//! under-determined operations make a fresh **random** law-abiding choice on
+//! every call (seeded from the proptest input, so failures replay): [`event`]
+//! draws an arbitrary §4-valid inflation (a partial, random-amount bump of the
+//! owned region) and [`fork`] draws an arbitrary §4-valid split (dealing the
+//! owned region's pieces out at random). So the cross-check does not merely
+//! confirm one fixed instantiation agrees with the impl's minimal `grow` — it
+//! asserts agreement across a whole random sample of the valid policy space,
+//! which is the real content of the invariance claim. The lone limit is a
+//! concession to the *finite* grid: an arbitrary cut of an *indivisible*
+//! interval needs unbounded resolution, so such a piece is bisected at its
+//! midpoint (see [`fork`]); every other split, and every inflation, is free.
 //!
-//! That invariance holds only for a *proper* ITC system — one seed, so ids partition a single
-//! space and all live ids stay disjoint. Several seeds would each own all of `[0,1)` (not a
-//! valid configuration), and a cross-lineage `receive` then entangles events on the overlapping
-//! region, where the random policy and minimal `grow` genuinely disagree. Hence single seed
-//! here; overlap and the join/sync-`Err` paths are id-algorithm behavior, checked against the
-//! oracle elsewhere. (Under the random policy multiple seeds also disagree on *structural* vs.
-//! *geometric* party disjointness, a second reason they cannot be replayed in lockstep.)
+//! That invariance holds only for a *proper* ITC system — one seed, so ids
+//! partition a single space and all live ids stay disjoint. Several seeds would
+//! each own all of `[0,1)` (not a valid configuration), and a cross-lineage
+//! `receive` then entangles events on the overlapping region, where the random
+//! policy and minimal `grow` genuinely disagree. Hence single seed here;
+//! overlap and the join/sync-`Err` paths are id-algorithm behavior, checked
+//! against the oracle elsewhere. (Under the random policy multiple seeds also
+//! disagree on *structural* vs. *geometric* party disjointness, a second reason
+//! they cannot be replayed in lockstep.)
 
 #[cfg(test)]
 mod tests;
@@ -49,19 +55,21 @@ use rand::Rng;
 use crate::codec::Base;
 use crate::oracle;
 
-/// Grid exponent ceiling for the comparison and resolution scans: a scan samples `2^g` points
-/// with `g` the resolution actually in hand ([`id_res`]/[`ev_res`]), and this caps `g`. Set well
-/// above the resolution the tests reach (arbitrary generators cap at 4; a single-seed op trace
-/// tops out near 7, since the random `fork` only deepens at the paper's rate), so it never bites.
-/// The headroom is load-bearing — `fork` bisects an indivisible piece one level finer, so a piece
-/// at resolution `GRID_N` could not be split — and [`tests::grid_cap_is_never_reached`] pins it.
+/// Grid exponent ceiling for the comparison and resolution scans: a scan
+/// samples `2^g` points with `g` the resolution actually in hand
+/// ([`id_res`]/[`ev_res`]), and this caps `g`. Set well above the resolution
+/// the tests reach (arbit rary generators cap at 4; a single-seed op trace tops
+/// out near 7, since the random `fork` only deepens at the paper's rate), so it
+/// never bites. The headroom is load-bearing — `fork` bisects an indivisible
+/// piece one level finer, so a piece at resolution `GRID_N` could not be split
+/// — and [`tests::grid_cap_is_never_reached`] pins it.
 pub(crate) const GRID_N: u32 = 10;
 
 // ───────────────────────────── dyadic points ─────────────────────────────
 
-/// A point `num / 2^exp` in `[0, 1)` (`0 ≤ num < 2^exp`; `exp == 0` is the point `0`).
-/// Halving the enclosing interval — the §4 descent — just consumes the top bit of `num`, so
-/// no general-rational arithmetic is needed.
+/// A point `num / 2^exp` in `[0, 1)` (`0 ≤ num < 2^exp`; `exp == 0` is the
+/// point `0`). Halving the enclosing interval — the §4 descent — just consumes
+/// the top bit of `num`, so no general-rational arithmetic is needed.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Dyadic {
     num: u64,
@@ -95,8 +103,8 @@ impl PartialOrd for Dyadic {
     }
 }
 impl Ord for Dyadic {
-    /// Compare `a/2^p` and `b/2^q` by cross-multiplication: `a·2^q` vs `b·2^p` (exponents are
-    /// small in tests, so `u128` never overflows).
+    /// Compare `a/2^p` and `b/2^q` by cross-multiplication: `a·2^q` vs `b·2^p`
+    /// (exponents are small in tests, so `u128` never overflows).
     fn cmp(&self, other: &Self) -> Ordering {
         let lhs = (self.num as u128) << other.exp;
         let rhs = (other.num as u128) << self.exp;
@@ -121,7 +129,8 @@ pub(crate) fn new_ev() -> Event {
     Rc::new(|_| Base::ZERO)
 }
 
-/// Id union `⟦i1⟧ + ⟦i2⟧` (used by `join`/`sum`; operands must be disjoint for a valid id).
+/// Id union `⟦i1⟧ + ⟦i2⟧` (used by `join`/`sum`; operands must be disjoint for
+/// a valid id).
 pub(crate) fn sum(a: Id, b: Id) -> Id {
     Rc::new(move |x| a(x) || b(x))
 }
@@ -140,9 +149,10 @@ pub(crate) fn join(a: Event, b: Event) -> Event {
 
 // ───────────────────────────── cell indexing ─────────────────────────────
 
-/// The index, at resolution `level`, of the cell containing `x` — the top `level` bits of `x`
-/// (always `< 2^level`). The random operations draw a per-cell decision into a table indexed this
-/// way, so a closure maps a sampled point back to its cell to look that decision up.
+/// The index, at resolution `level`, of the cell containing `x` — the top
+/// `level` bits of `x` (always `< 2^level`). The random operations draw a
+/// per-cell decision into a table indexed this way, so a closure maps a sampled
+/// point back to its cell to look that decision up.
 fn cell_at(x: Dyadic, level: u32) -> usize {
     let cell = if x.exp >= level {
         x.num >> (x.exp - level)
@@ -154,20 +164,23 @@ fn cell_at(x: Dyadic, level: u32) -> usize {
 
 // ───────────────────────────── the under-determined operations ─────────────────────────────
 
-/// `event`: a *random* §4-valid inflation, freshly drawn each call. §4 pins only
-/// `⟦e'⟧ = ⟦e⟧ + f·⟦i⟧` for some `f` with `f·⟦i⟧ ▷ 0` (strictly positive somewhere the id owns);
-/// the old fixed `add-one` and the impl's minimal `grow` are two particular `f`. Here `f` is
-/// arbitrary: each owned cell (at the id's own resolution) is bumped by an independent amount in
-/// `0..=3`, with one owned cell forced positive so the advance is real (and others may be `0` —
-/// a *partial* inflation). In a proper single-seed system every such `f` still tracks
-/// happens-before — it meets the §3 event condition (the result is fresh, `e' ≰` any other live
-/// stamp, and dominates nothing new, because the id owns its region exclusively) — so the causal
-/// order is identical to `add-one`'s and `grow`'s. That invariance is what the replay exercises.
+/// `event`: a *random* §4-valid inflation, freshly drawn each call. §4 pins
+/// only `⟦e'⟧ = ⟦e⟧ + f·⟦i⟧` for some `f` with `f·⟦i⟧ ▷ 0` (strictly positive
+/// somewhere the id owns); the old fixed `add-one` and the impl's minimal
+/// `grow` are two particular `f`. Here `f` is arbitrary: each owned cell (at
+/// the id's own resolution) is bumped by an independent amount in `0..=3`, with
+/// one owned cell forced positive so the advance is real (and others may be `0`
+/// — a *partial* inflation). In a proper single-seed system every such `f`
+/// still tracks happens-before — it meets the §3 event condition (the result is
+/// fresh, `e' ≰` any other live stamp, and dominates nothing new, because the
+/// id owns its region exclusively) — so the causal order is identical to
+/// `add-one`'s and `grow`'s. That invariance is what the replay exercises.
 pub(crate) fn event(i: &Id, e: Event, rng: &mut StdRng) -> Event {
     let level = id_res(i);
     let owned = owned_cells(i, level);
-    // Per-cell bump, indexed by cell at the id's resolution: each owned cell `0..=3`, with the
-    // first owned cell forced `1..=3` so `f·i ▷ 0`. Non-owned cells stay `0` (and are gated out).
+    // Per-cell bump, indexed by cell at the id's resolution: each owned cell
+    // `0..=3`, with the first owned cell forced `1..=3` so `f·i ▷ 0`. Non-owned
+    // cells stay `0` (and are gated out).
     let mut bump = vec![0u64; 1 << level];
     for (n, &c) in owned.iter().enumerate() {
         bump[c] = if n == 0 {
@@ -188,24 +201,29 @@ pub(crate) fn event(i: &Id, e: Event, rng: &mut StdRng) -> Event {
     })
 }
 
-/// `fork`/`split`: a *random* §4-valid partition, freshly drawn each call. §4 pins only
-/// `⟦i₁⟧ + ⟦i₂⟧ = ⟦i⟧` and `⟦i₁⟧ · ⟦i₂⟧ = 0` (a disjoint cover of the owned region); the paper's
-/// `split` is one particular choice. Here the region's maximal constant pieces — its owned cells
-/// at its *own* resolution — are dealt independently to the two sides (an arbitrary, possibly
-/// interleaved, partition), with the lowest and highest pinned to opposite sides so both halves
-/// are nonempty. When the region is a single indivisible piece there is nothing to deal out, so
-/// it is bisected at its midpoint (the one forced cut).
+/// `fork`/`split`: a *random* §4-valid partition, freshly drawn each call. §4
+/// pins only `⟦i₁⟧ + ⟦i₂⟧ = ⟦i⟧` and `⟦i₁⟧ · ⟦i₂⟧ = 0` (a disjoint cover of the
+/// owned region); the paper's `split` is one particular choice. Here the
+/// region's maximal constant pieces — its owned cells at its *own* resolution —
+/// are dealt independently to the two sides (an arbitrary, possibly
+/// interleaved, partition), with the lowest and highest pinned to opposite
+/// sides so both halves are nonempty. When the region is a single indivisible
+/// piece there is nothing to deal out, so it is bisected at its midpoint (the
+/// one forced cut).
 ///
-/// Dealing out *existing* pieces adds no new boundary, so resolution grows only on the
-/// bisection of an indivisible piece — exactly the paper's rate (≤ 1 level per fork). That is
-/// the one concession to a *finite* comparison grid: an arbitrary cut of an indivisible interval
-/// would need ever-finer dyadic points, which a fixed grid cannot resolve over a long trace.
-/// [`tests::grid_cap_is_never_reached`] guards the headroom. (Both halves nonempty is stronger
-/// than §4 — which permits the empty `peek` split — but a child handed an empty id could never
-/// advance, diverging from the impl; the replay needs both children live.)
+/// Dealing out *existing* pieces adds no new boundary, so resolution grows only
+/// on the bisection of an indivisible piece — exactly the paper's rate (≤ 1
+/// level per fork). That is the one concession to a *finite* comparison grid:
+/// an arbitrary cut of an indivisible interval would need ever-finer dyadic
+/// points, which a fixed grid cannot resolve over a long trace.
+/// [`tests::grid_cap_is_never_reached`] guards the headroom. (Both halves
+/// nonempty is stronger than §4 — which permits the empty `peek` split — but a
+/// child handed an empty id could never advance, diverging from the impl; the
+/// replay needs both children live.)
 pub(crate) fn fork(i: &Id, rng: &mut StdRng) -> (Id, Id) {
     let res = id_res(i);
-    // Deal out the region's pieces at its own resolution; if it is a single piece, bisect it.
+    // Deal out the region's pieces at its own resolution; if it is a single
+    // piece, bisect it.
     let level = if owned_cells(i, res).len() >= 2 {
         res
     } else {
@@ -213,8 +231,9 @@ pub(crate) fn fork(i: &Id, rng: &mut StdRng) -> (Id, Id) {
     };
     let owned = owned_cells(i, level);
     let (lo, hi) = (owned[0], *owned.last().expect("fork of an empty id"));
-    // `left[c]` decides each owned piece independently, then `lo` is pinned left and `hi` right so
-    // both halves are nonempty (`lo != hi`, the region having ≥ 2 pieces at `level`).
+    // `left[c]` decides each owned piece independently, then `lo` is pinned
+    // left and `hi` right so both halves are nonempty (`lo != hi`, the region
+    // having ≥ 2 pieces at `level`).
     let mut left = vec![false; 1 << level];
     for &c in &owned {
         left[c] = rng.gen();
@@ -233,8 +252,9 @@ pub(crate) fn fork(i: &Id, rng: &mut StdRng) -> (Id, Id) {
 
 // ───────────────────────────── resolution probing ─────────────────────────────
 
-/// The owned cells of `i` at resolution `level`, by index. `level` is `≥` the id's own
-/// resolution, so `⟦i⟧` is constant within each cell and one interior sample per cell decides it.
+/// The owned cells of `i` at resolution `level`, by index. `level` is `≥` the
+/// id's own resolution, so `⟦i⟧` is constant within each cell and one interior
+/// sample per cell decides it.
 fn owned_cells(i: &Id, level: u32) -> Vec<usize> {
     (0..(1u64 << level))
         .filter(|&k| i(Dyadic::center(k, level)))
@@ -242,10 +262,11 @@ fn owned_cells(i: &Id, level: u32) -> Vec<usize> {
         .collect()
 }
 
-/// The resolution of an id: the finest dyadic level at which `⟦i⟧` actually changes value (`0`
-/// if constant). Probed from the function, not tracked — so a `sum` that recombines into a
-/// coarser region (e.g. two halves back to the whole `[0,1)`) reports its *true*, collapsed
-/// resolution, keeping the comparison grid no finer than necessary.
+/// The resolution of an id: the finest dyadic level at which `⟦i⟧` actually
+/// changes value (`0` if constant). Probed from the function, not tracked — so
+/// a `sum` that recombines into a coarser region (e.g. two halves back to the
+/// whole `[0,1)`) reports its *true*, collapsed resolution, keeping the
+/// comparison grid no finer than necessary.
 pub(crate) fn id_res(i: &Id) -> u32 {
     let samples: Vec<bool> = (0..(1u64 << GRID_N))
         .map(|k| i(Dyadic::center(k, GRID_N)))
@@ -261,9 +282,10 @@ pub(crate) fn ev_res(e: &Event) -> u32 {
     resolution(&samples)
 }
 
-/// Finest boundary level present in a row of `2^GRID_N` cell samples: the deepest level at which
-/// two adjacent cells disagree (`0` if all equal). The boundary between cells `k-1` and `k` sits
-/// at level `GRID_N − v₂(k)`, so the finest disagreement is the resolution.
+/// Finest boundary level present in a row of `2^GRID_N` cell samples: the
+/// deepest level at which two adjacent cells disagree (`0` if all equal). The
+/// boundary between cells `k-1` and `k` sits at level `GRID_N − v₂(k)`, so the
+/// finest disagreement is the resolution.
 fn resolution<T: PartialEq>(samples: &[T]) -> u32 {
     let mut res = 0;
     for k in 1..samples.len() {
@@ -276,8 +298,9 @@ fn resolution<T: PartialEq>(samples: &[T]) -> u32 {
 
 // ───────────────────────────── embedding (tree → function) ─────────────────────────────
 
-/// `⟦i⟧` for an oracle id tree: the only place a tree is read. Descends by the §4 recursion —
-/// at a node the left child owns `[0,½)` (argument `2x`), the right `[½,1)` (argument `2x−1`).
+/// `⟦i⟧` for an oracle id tree: the only place a tree is read. Descends by the
+/// §4 recursion — at a node the left child owns `[0,½)` (argument `2x`), the
+/// right `[½,1)` (argument `2x−1`).
 pub(crate) fn lift_id(t: oracle::Party) -> Id {
     Rc::new(move |x| eval_id(&t, x))
 }
@@ -319,9 +342,10 @@ fn eval_ev(t: &oracle::Version, mut x: Dyadic) -> Base {
     }
 }
 
-/// One step of the §4 descent: which half of `[0,1)` the point lies in, and the point
-/// rescaled into that half (`2x` on the left, `2x − 1` on the right). A point coarser than
-/// the tree (`exp == 0`) is the left endpoint `0`, so it descends left and stays `0`.
+/// One step of the §4 descent: which half of `[0,1)` the point lies in, and the
+/// point rescaled into that half (`2x` on the left, `2x − 1` on the right). A
+/// point coarser than the tree (`exp == 0`) is the left endpoint `0`, so it
+/// descends left and stays `0`.
 fn descend(x: Dyadic) -> (bool, Dyadic) {
     if x.exp == 0 {
         return (false, x);
@@ -348,8 +372,9 @@ fn descend(x: Dyadic) -> (bool, Dyadic) {
 
 // ───────────────────────────── scan comparison (no materialization) ─────────────────────────────
 
-/// Event causal order: pointwise `≤` over the `2^g` grid points, `None` if incomparable
-/// (concurrent). Scans with an early-out once both directions are ruled out.
+/// Event causal order: pointwise `≤` over the `2^g` grid points, `None` if
+/// incomparable (concurrent). Scans with an early-out once both directions are
+/// ruled out.
 pub(crate) fn ev_order(a: &Event, b: &Event, g: u32) -> Option<Ordering> {
     let (mut le, mut ge) = (true, true);
     for k in 0..(1u64 << g) {
@@ -366,8 +391,8 @@ pub(crate) fn ev_order(a: &Event, b: &Event, g: u32) -> Option<Ordering> {
     order_of(le, ge)
 }
 
-/// Party containment order, matching `Party::partial_cmp`: an ancestor (larger owned region)
-/// reads as `Less`. `le` is `a ⊇ b`, `ge` is `b ⊇ a`.
+/// Party containment order, matching `Party::partial_cmp`: an ancestor (larger
+/// owned region) reads as `Less`. `le` is `a ⊇ b`, `ge` is `b ⊇ a`.
 pub(crate) fn id_order(a: &Id, b: &Id, g: u32) -> Option<Ordering> {
     let (mut le, mut ge) = (true, true);
     for k in 0..(1u64 << g) {
@@ -405,16 +430,17 @@ fn order_of(le: bool, ge: bool) -> Option<Ordering> {
 
 // ───────────────────────────── the function-space clock ─────────────────────────────
 
-/// A clock in the function space: an owned-region characteristic function and an event step
-/// function. Operations mirror the crate's [`Clock`](crate::Clock) semantics.
-pub(crate) struct SemClock {
+/// A clock in the function space: an owned-region characteristic function and
+/// an event step function. Operations mirror the crate's
+/// [`Clock`](crate::Clock) semantics.
+pub(crate) struct FunctionClock {
     pub(crate) id: Id,
     pub(crate) ev: Event,
 }
 
-impl SemClock {
+impl FunctionClock {
     pub(crate) fn seed() -> Self {
-        SemClock {
+        FunctionClock {
             id: seed_id(),
             ev: new_ev(),
         }
@@ -424,12 +450,12 @@ impl SemClock {
         self.ev = event(&self.id, self.ev.clone(), rng);
     }
 
-    /// Split off a child; `self` keeps the left half, the child takes the right (mirroring the
-    /// crate's fork, which returns the child and keeps `self`).
-    pub(crate) fn fork(&mut self, rng: &mut StdRng) -> SemClock {
+    /// Split off a child; `self` keeps the left half, the child takes the right
+    /// (mirroring the crate's fork, which returns the child and keeps `self`).
+    pub(crate) fn fork(&mut self, rng: &mut StdRng) -> FunctionClock {
         let (left, right) = fork(&self.id, rng);
         self.id = left;
-        SemClock {
+        FunctionClock {
             id: right,
             ev: self.ev.clone(),
         }
@@ -437,7 +463,7 @@ impl SemClock {
 
     /// Absorb a disjoint clock; on overlap return it unchanged. `g` resolves the disjointness
     /// scan.
-    pub(crate) fn join(&mut self, other: SemClock, g: u32) -> Result<(), SemClock> {
+    pub(crate) fn join(&mut self, other: FunctionClock, g: u32) -> Result<(), FunctionClock> {
         if disjoint(&self.id, &other.id, g) {
             self.id = sum(self.id.clone(), other.id);
             self.ev = join(self.ev.clone(), other.ev);
@@ -450,7 +476,7 @@ impl SemClock {
     /// Reconcile two clocks: merge events to their LUB, union ids, re-split the union.
     pub(crate) fn sync(
         &mut self,
-        other: &mut SemClock,
+        other: &mut FunctionClock,
         g: u32,
         rng: &mut StdRng,
     ) -> Result<(), ()> {

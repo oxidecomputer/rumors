@@ -1,22 +1,25 @@
-//! `grow`: register a new event when [`fill`](EvView::fill) cannot simplify the tree, by
-//! inflating the cheapest available leaf. Two iterative passes, each `O(n + m)`:
+//! `grow`: register a new event when [`fill`](EvView::fill) cannot simplify the
+//! tree, by inflating the cheapest available leaf. Two iterative passes, each
+//! `O(n + m)`:
 //!
-//! 1. [`grow_probe`](EvView::grow_probe) — a read-only cost probe that walks the
-//!    `(id, event)` shape and, at every branch node, records which child the cheapest
-//!    inflation descends into.
-//! 2. [`grow_emit`](EvView::grow_emit) — replays the probe's choices, rebuilding only the
-//!    chosen root-to-leaf path (with the inflation and the sink) and copying/skipping
-//!    every off-path subtree exactly once.
+//! 1. [`grow_probe`](EvView::grow_probe) — a read-only cost probe that walks
+//! the `(id, event)` shape and, at every branch node, records which child the
+//! cheapest inflation descends into.
+//!
+//! 2. [`grow_emit`](EvView::grow_emit) — replays the probe's choices,
+//! rebuilding only the chosen root-to-leaf path (with the inflation and the
+//! sink) and copying/skipping every off-path subtree exactly once.
 //!
 //! Both passes share the **thread register** discipline documented in
 //! [`super`]'s module doc: each `Eval` arm writes `ret` with the just-finished
 //! subtree's end positions, and a deferred sibling frame reads it to resume.
 //!
-//! **Probe → emit contract.** The probe records a [`Choices`] entry for every `(id, ev)`
-//! branch node it reaches, keyed by the same `(id_pos, ev_pos)` coordinates the emit pass
-//! uses. `grow_emit` only follows the chosen path (copying/skipping off-path subtrees),
-//! but every branch node it reaches was recorded by the probe; the coordinate agreement is
-//! what lets the two passes communicate by position.
+//! **Probe → emit contract.** The probe records a [`Choices`] entry for every
+//! `(id, ev)` branch node it reaches, keyed by the same `(id_pos, ev_pos)`
+//! coordinates the emit pass uses. `grow_emit` only follows the chosen path
+//! (copying/skipping off-path subtrees), but every branch node it reaches was
+//! recorded by the probe; the coordinate agreement is what lets the two passes
+//! communicate by position.
 
 use crate::codec::{Base, BitsSlice};
 use crate::idbits::{IdHeader, IdView};
@@ -25,31 +28,34 @@ use super::{Builder, Built, VIRTUAL};
 use crate::version::compare::{EvHeader, EvView};
 use crate::version::working::WorkingVersion;
 
-/// Lexicographic inflation cost `(expansions, depth)`: prefer fewer leaf-to-node
-/// expansions, then a shallower spot. `MAX` ([`COST_MAX`]) marks an infeasible
-/// (empty-id) region. Ties between a node's two children favor the *right* child, to
-/// match the oracle's choice (see [`grow_probe`](EvView::grow_probe)'s `left_chosen`).
+/// Lexicographic inflation cost `(expansions, depth)`: prefer fewer
+/// leaf-to-node expansions, then a shallower spot. `MAX` ([`COST_MAX`]) marks
+/// an infeasible (empty-id) region. Ties between a node's two children favor
+/// the *right* child, to match the oracle's choice (see
+/// [`grow_probe`](EvView::grow_probe)'s `left_chosen`).
 type Cost = (u32, u32);
 
 /// The cost of an infeasible region: an empty-id subtree can never be inflated.
 const COST_MAX: Cost = (u32::MAX, u32::MAX);
 
-/// The probe → emit channel: at each branch node, whether the cheapest inflation
-/// descended into the *left* child (`true`) or the right (`false`).
+/// The probe → emit channel: at each branch node, whether the cheapest
+/// inflation descended into the *left* child (`true`) or the right (`false`).
 ///
 /// The key `(id_pos, ev_pos)` has an alternating pinned axis (one coordinate is held
 /// constant while the other descends — see the module doc), so no single array can be
 /// keyed by one coordinate alone. Instead two dense arrays split by regime, which is
 /// exactly "is the id a node?":
-/// - [`by_id`](Choices::by_id): id is a node (`Expand`/`Both`), keyed by the id
-///   bit-position. Each id internal node is visited once, so its slot is unique.
-/// - [`by_ev`](Choices::by_ev): id is a full `1`-leaf (`FullEvNode`), keyed by the
-///   event position. Each event node is reached under at most one id context.
 ///
-/// Slots default to `None`; [`grow_probe`](EvView::grow_probe) fills the one for each
-/// branch node it reaches and [`grow_emit`](EvView::grow_emit) reads back the slot for
-/// the regime it is in. Total space
-/// `O(n + m)`, `O(1)` access (no hashing).
+/// - [`by_id`](Choices::by_id): id is a node (`Expand`/`Both`), keyed by the id
+/// bit-position. Each id internal node is visited once, so its slot is unique.
+///
+/// - [`by_ev`](Choices::by_ev): id is a full `1`-leaf (`FullEvNode`), keyed by
+/// the event position. Each event node is reached under at most one id context.
+///
+/// Slots default to `None`; [`grow_probe`](EvView::grow_probe) fills the one
+/// for each branch node it reaches and [`grow_emit`](EvView::grow_emit) reads
+/// back the slot for the regime it is in. Total space `O(n + m)`, `O(1)` access
+/// (no hashing).
 struct Choices {
     /// Indexed by id bit-position; used when the id is a node.
     by_id: Vec<Option<bool>>,
@@ -99,11 +105,12 @@ enum Kind {
     Both,
 }
 
-/// One step of the read-only cost probe (a threaded postorder over the `(id, event)`
-/// shape, expanding event leaves into virtual `Leaf(0)`s to follow the id). `ret` is the
-/// [`Probed`] register. `id_pos` is a bit offset into the packed id stream; `ev_pos` a
-/// position in the event tree (or [`VIRTUAL`]); `id_next`/`ev_next` are the positions
-/// just past this node's header, threaded to its children.
+/// One step of the read-only cost probe (a threaded postorder over the `(id,
+/// event)` shape, expanding event leaves into virtual `Leaf(0)`s to follow the
+/// id). `ret` is the [`Probed`] register. `id_pos` is a bit offset into the
+/// packed id stream; `ev_pos` a position in the event tree (or [`VIRTUAL`]);
+/// `id_next`/`ev_next` are the positions just past this node's header, threaded
+/// to its children.
 enum ProbeJob {
     /// Probe the cheapest inflation of the event subtree at `ev_pos` under `id_pos`.
     Eval {
@@ -142,10 +149,11 @@ enum ProbeJob {
     },
 }
 
-/// The thread register for the cost probe (see [`super`]'s module doc): the cheapest
-/// inflation `cost` of a just-finished subtree, plus where it ended in the id stream and
-/// the event tree. An `Eval` arm *writes* it (a leaf directly, or via `Combine` folding
-/// a node); the deferred `Right`/`Combine` frames *read* it.
+/// The thread register for the cost probe (see [`super`]'s module doc): the
+/// cheapest inflation `cost` of a just-finished subtree, plus where it ended in
+/// the id stream and the event tree. An `Eval` arm *writes* it (a leaf
+/// directly, or via `Combine` folding a node); the deferred `Right`/`Combine`
+/// frames *read* it.
 #[derive(Clone, Copy)]
 struct Probed {
     /// The cheapest inflation cost of the subtree.
@@ -157,14 +165,16 @@ struct Probed {
 }
 
 impl EvView<'_> {
-    /// Probe the cheapest inflation of this event tree (`self`), recording the chosen child
-    /// direction (`true` = left) per `(id, ev)` branch node into `choice`. Read-only;
-    /// `O(n + m)`. The id is lazy-skipped where an empty region prunes the event.
+    /// Probe the cheapest inflation of this event tree (`self`), recording the
+    /// chosen child direction (`true` = left) per `(id, ev)` branch node into
+    /// `choice`. Read-only; `O(n + m)`. The id is lazy-skipped where an empty
+    /// region prunes the event.
     ///
     /// This is the cost-finding half of the iterative form of the recursive
-    /// `oracle::Version::grow` (the paper's `grow`); read that recursive twin first. Where
-    /// the oracle recurses once and rebuilds on the way back up, the iterative form splits
-    /// into this probe pass and the [`grow_emit`](EvView::grow_emit) replay pass.
+    /// `oracle::Version::grow` (the paper's `grow`); read that recursive twin
+    /// first. Where the oracle recurses once and rebuilds on the way back up,
+    /// the iterative form splits into this probe pass and the
+    /// [`grow_emit`](EvView::grow_emit) replay pass.
     fn grow_probe(&self, id_bits: &BitsSlice, choice: &mut Choices) {
         let view = self;
         let id = IdView(id_bits);
@@ -317,11 +327,11 @@ impl EvView<'_> {
     }
 }
 
-/// A step in the threaded `grow` emit, following the probe's choices down the chosen
-/// path and copying everything off it. `ret` is the [`Built`] register (shared with
-/// `fill`). `id_pos` is a bit offset into the packed id stream; `ev_pos` a position in
-/// the event tree (or [`VIRTUAL`]); `id_next`/`ev_next` are the positions just past this
-/// node's header.
+/// A step in the threaded `grow` emit, following the probe's choices down the
+/// chosen path and copying everything off it. `ret` is the [`Built`] register
+/// (shared with `fill`). `id_pos` is a bit offset into the packed id stream;
+/// `ev_pos` a position in the event tree (or [`VIRTUAL`]); `id_next`/`ev_next`
+/// are the positions just past this node's header.
 enum EmitJob {
     /// Emit the grown event subtree at `ev_pos` under the id subtree at `id_pos`.
     Eval {
@@ -330,8 +340,8 @@ enum EmitJob {
         /// Position into the event tree (or [`VIRTUAL`]).
         ev_pos: usize,
     },
-    /// The chosen *left* child has just been built (`ret`); emit the off-path right
-    /// sibling, then sink and close.
+    /// The chosen *left* child has just been built (`ret`); emit the off-path
+    /// right sibling, then sink and close.
     CloseAfterLeft {
         /// Output index of the node being closed.
         node: usize,
@@ -357,15 +367,16 @@ enum EmitJob {
 }
 
 impl EvView<'_> {
-    /// Emit the grown tree (`self` is the source event tree) using the probe's `choice`
-    /// map, in normal form. Iterative, `O(n + m)`: only the chosen root-to-leaf path is
-    /// rebuilt (with the inflation and the sink); every off-path subtree is copied or
-    /// skipped exactly once.
+    /// Emit the grown tree (`self` is the source event tree) using the probe's
+    /// `choice` map, in normal form. Iterative, `O(n + m)`: only the chosen
+    /// root-to-leaf path is rebuilt (with the inflation and the sink); every
+    /// off-path subtree is copied or skipped exactly once.
     ///
     /// This is the rebuilding half of the iterative form of the recursive
-    /// `oracle::Version::grow` (the paper's `grow`); read that recursive twin first. It
-    /// replays the choices [`grow_probe`](EvView::grow_probe) recorded, standing in for the
-    /// oracle's bottom-up reconstruction on the way out of the recursion.
+    /// `oracle::Version::grow` (the paper's `grow`); read that recursive twin
+    /// first. It replays the choices [`grow_probe`](EvView::grow_probe)
+    /// recorded, standing in for the oracle's bottom-up reconstruction on the
+    /// way out of the recursion.
     fn grow_emit(&self, id_bits: &BitsSlice, out: &mut Builder, choice: &Choices) {
         let view = self;
         let id = IdView(id_bits);
@@ -398,10 +409,12 @@ impl EvView<'_> {
                     };
                     // The inflation point: id full over a leaf/virtual event — increment.
                     if !id_node && !ev_int {
-                        // Invariant: the chosen path never reaches an empty (`0`-leaf) id. A
-                        // normal-form id node always has a nonempty child (its min-cost child
-                        // is never the `COST_MAX` empty side), and a real `Party`'s root is
-                        // never empty — so an id leaf on the chosen path is always full.
+                        // Invariant: the chosen path never reaches an empty
+                        // (`0`-leaf) id. A normal-form id node always has a
+                        // nonempty child (its min-cost child is never the
+                        // `COST_MAX` empty side), and a real `Party`'s root is
+                        // never empty — so an id leaf on the chosen path is
+                        // always full.
                         debug_assert!(id_val, "grow chose an empty-id region to inflate");
                         ret = Built {
                             out_root: out.leaf(ev_base + 1u32),
@@ -515,11 +528,11 @@ impl EvView<'_> {
         }
     }
 
-    /// `grow(id, ev)`: register a new event on this event tree (`self`) by the cheapest
-    /// available inflation, in normal form. Two iterative passes — a read-only cost probe,
-    /// then an emit along the chosen path — each `O(n + m)`. The probe and emit are the same
-    /// traversal; see the module doc for the `(id, ev)`-coordinate contract that links them
-    /// through [`Choices`].
+    /// `grow(id, ev)`: register a new event on this event tree (`self`) by the
+    /// cheapest available inflation, in normal form. Two iterative passes — a
+    /// read-only cost probe, then an emit along the chosen path — each `O(n +
+    /// m)`. The probe and emit are the same traversal; see the module doc for
+    /// the `(id, ev)`-coordinate contract that links them through [`Choices`].
     pub(super) fn grow(&self, id_bits: &BitsSlice) -> WorkingVersion {
         let mut choice = Choices::new(id_bits.len(), self.span());
         self.grow_probe(id_bits, &mut choice);

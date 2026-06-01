@@ -4,10 +4,11 @@ use core::ops::{Add, AddAssign, BitOr, MulAssign, Shl, Sub, SubAssign};
 
 use num_bigint::BigUint;
 
-/// An event tree's stored integer magnitude. ITC event counts (path sums of `tick`s,
-/// the `max`/`join` of two such sums) grow without bound, so the value type preserves
-/// arbitrary precision: no `u64` overflow class, in any build profile. The common case
-/// stays inline as a `u64`; only values past `u64::MAX` spill to `BigUint`.
+/// An event tree's stored integer magnitude. ITC event counts (path sums of
+/// `tick`s, the `max`/`join` of two such sums) grow without bound, so the value
+/// type preserves arbitrary precision: no `u64` overflow class, in any build
+/// profile. The common case stays inline as a `u64`; only values past
+/// `u64::MAX` spill to `BigUint`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Base {
     Small(u64),

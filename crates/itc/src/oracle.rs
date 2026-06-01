@@ -1,20 +1,21 @@
 //! Reference oracle — the paper's trees as plain recursive enums.
 //!
-//! `Party` and `Version` *are* the trees; every operation is a method, so there is no
-//! second representation to keep in sync. Deliberately simple, suboptimal, and
-//! recursive: its only job is to be obviously correct, so it can serve as differential
-//! ground truth. It mirrors the target's **semantic** surface (construction,
-//! operations, ordering, operators) and omits the two purely *representational*
-//! concerns that carry no semantics: the byte codec (`encode`/`decode`) and the batch
-//! optimization (a batch only ever equals its value-level ops). Bounded-depth use only
-//! — the deep-tree stack-safety test runs against the impl, never the oracle.
+//! `Party` and `Version` *are* the trees; every operation is a method, so there
+//! is no second representation to keep in sync. Deliberately simple,
+//! suboptimal, and recursive: its only job is to be obviously correct, so it
+//! can serve as differential ground truth. It mirrors the target's **semantic**
+//! surface (construction, operations, ordering, operators) and omits the two
+//! purely *representational* concerns that carry no semantics: the byte codec
+//! (`encode`/`decode`) and the batch optimization (a batch only ever equals its
+//! value-level ops). Bounded-depth use only — the deep-tree stack-safety test
+//! runs against the impl, never the oracle.
 //!
-//! All three types derive `Clone`: a reference oracle needs cheap snapshots of "before"
-//! states for the property checks, and linearity (`!Clone` on `Party`/`Clock`) is a
-//! *type-level* guarantee checked against `itc` by compile-fail tests — not a runtime
-//! semantic the differential harness exercises.
+//! All three types derive `Clone`: a reference oracle needs cheap snapshots of
+//! "before" states for the property checks, and linearity (`!Clone` on
+//! `Party`/`Clock`) is a *type-level* guarantee checked against `itc` by
+//! compile-fail tests — not a runtime semantic the differential harness
+//! exercises.
 
-#![allow(dead_code)] // Full semantic surface; some methods are used only by later phases.
 #![allow(missing_docs)] // A test/bench reference, not real public API, even when the
                         // `oracle` feature re-exports it (the crate warns on missing docs).
 
@@ -370,6 +371,7 @@ impl Version {
 
     /// `fill(id, self)` — `pub(crate)` so tests can detect when `event` takes the `grow`
     /// branch (`fill` left the tree unchanged) versus the `fill` branch.
+    #[cfg(test)]
     pub(crate) fn fill_for_test(&self, id: &Party) -> Version {
         self.fill(id)
     }
@@ -377,12 +379,14 @@ impl Version {
     /// `grow(id, self)` → (raw tree, cost) — `pub(crate)` so the grow-optimality tests can
     /// compare the DP's chosen inflation and its reported cost against the brute-force
     /// search (`testing::grow_brute_force::best_inflation`/`min_inflation_cost`).
+    #[cfg(test)]
     pub(crate) fn grow_for_test(&self, id: &Party) -> (Version, (u32, u32)) {
         self.grow(id)
     }
 
     /// `norm(self)` — `pub(crate)` so tests can normalize a raw `grow` output before
     /// comparing it to `event`'s (normalized) result.
+    #[cfg(test)]
     pub(crate) fn normalized_for_test(&self) -> Version {
         self.normalized()
     }

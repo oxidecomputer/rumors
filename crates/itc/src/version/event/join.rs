@@ -5,10 +5,10 @@ use crate::version::working::WorkingVersion;
 
 use super::Builder;
 
-/// A step in the threaded two-tree `join` walk. `ret` is the [`Joined`] register (see
-/// the module doc). The broadcast rule — an internal side threads/descends, a leaf side
-/// re-broadcasts in place — lives once in the [`Side`] helpers (`left`/`right`/`end`),
-/// not spelled out per side per arm.
+/// A step in the threaded two-tree `join` walk. `ret` is the [`Joined`]
+/// register (see the module doc). The broadcast rule — an internal side
+/// threads/descends, a leaf side re-broadcasts in place — lives once in the
+/// [`Side`] helpers (`left`/`right`/`end`), not spelled out per side per arm.
 enum JoinJob {
     /// Join the subtrees at these positions, under these path-sum offsets.
     Eval {
@@ -42,9 +42,9 @@ enum JoinJob {
 }
 
 /// The thread register for `join` (see the module doc): the output root a
-/// just-finished subtree produced, plus where it ended in each input. An `Eval` arm
-/// *writes* it (a leaf directly, or via the `Close` arm folding a node); the deferred
-/// `Right`/`Close` frames *read* it.
+/// just-finished subtree produced, plus where it ended in each input. An `Eval`
+/// arm *writes* it (a leaf directly, or via the `Close` arm folding a node);
+/// the deferred `Right`/`Close` frames *read* it.
 #[derive(Clone, Copy, Default)]
 struct Joined {
     /// Output index of the subtree's root.
@@ -56,13 +56,15 @@ struct Joined {
 }
 
 impl EvView<'_> {
-    /// The least upper bound of `self` and `other` (the paper's `join` over event trees),
-    /// produced in normal form. Reads either storage form via [`EvView`]; `O(n + m)`.
+    /// The least upper bound of `self` and `other` (the paper's `join` over
+    /// event trees), produced in normal form. Reads either storage form via
+    /// [`EvView`]; `O(n + m)`.
     ///
-    /// The iterative, offset-threaded form of the recursive `oracle::Version::join_off` (the
-    /// paper's `join`); read that recursive twin first. The call stack is made explicit on a
-    /// `JoinJob` stack, right-child positions are threaded through the [`Joined`] register,
-    /// and the leaf/node broadcast rule lives in the [`Side`] helpers.
+    /// The iterative, offset-threaded form of the recursive
+    /// `oracle::Version::join_off` (the paper's `join`); read that recursive
+    /// twin first. The call stack is made explicit on a `JoinJob` stack,
+    /// right-child positions are threaded through the [`Joined`] register, and
+    /// the leaf/node broadcast rule lives in the [`Side`] helpers.
     pub(crate) fn join(&self, other: &EvView) -> WorkingVersion {
         let (a, b) = (self, other);
         let mut out = Builder::with_capacity(a.node_capacity_bound() + b.node_capacity_bound());
@@ -102,6 +104,7 @@ impl EvView<'_> {
                         continue;
                     }
                     let node = out.open(Base::ZERO);
+
                     // At least one side is internal: descend it, broadcast the other leaf.
                     // The [`Side`] helpers carry the one broadcast rule for both children
                     // and the node close.

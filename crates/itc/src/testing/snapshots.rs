@@ -1,19 +1,4 @@
 //! Documentation goldens (insta inline snapshots).
-//!
-//! These are **not** correctness oracles — the differential harness, the exhaustive
-//! small-scope checker, and the property suites are what prove the algorithms. These
-//! snapshots exist to make three otherwise-opaque artifacts *human-readable and
-//! reviewable* in one place:
-//!
-//! 1. the Elias-gamma bit layout for a table of magnitudes (the integer code that
-//!    underpins canonical byte-equality `Eq`/`Hash`);
-//! 2. the canonical encoded forms (unpadded bit stream + zero-padded bytes) of a few
-//!    representative `Party` / `Version` / `Clock` values;
-//! 3. the `Display` / `Debug` rendering of the paper's §5.1 worked-example clock states,
-//!    step by step.
-//!
-//! When the encoding or a `Display` impl changes intentionally, the diff here is the
-//! review surface: `cargo insta review` to accept. A surprising diff means a regression.
 
 use insta::assert_snapshot;
 

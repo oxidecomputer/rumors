@@ -12,7 +12,7 @@ use rand::SeedableRng;
 
 use super::{
     disjoint, ev_depth, ev_order, ev_res, event, id_depth, id_order, id_res, join, lift_ev,
-    lift_id, sum, Dyadic, Event, Id, SemClock, GRID_N,
+    lift_id, sum, Dyadic, Event, FunctionClock, Id, GRID_N,
 };
 use crate::codec::Base;
 use crate::oracle;
@@ -49,10 +49,10 @@ fn replay(
     seeds: usize,
     ops: &[Op],
     rng: &mut StdRng,
-) -> (Vec<Clock>, Vec<oracle::Clock>, Vec<SemClock>) {
+) -> (Vec<Clock>, Vec<oracle::Clock>, Vec<FunctionClock>) {
     let mut im: Vec<Clock> = (0..seeds).map(|_| Clock::seed()).collect();
     let mut or: Vec<oracle::Clock> = (0..seeds).map(|_| oracle::Clock::seed()).collect();
-    let mut se: Vec<SemClock> = (0..seeds).map(|_| SemClock::seed()).collect();
+    let mut se: Vec<FunctionClock> = (0..seeds).map(|_| FunctionClock::seed()).collect();
 
     for op in ops {
         let n = im.len();
@@ -74,8 +74,8 @@ fn replay(
             }
             Op::Send(i, j) => {
                 let (i, j) = (i % n, j % n);
-                let m = im[i].send();
-                im[j].receive(m);
+                let m = im[i].send().clone();
+                im[j].receive(&m);
                 let m = or[i].send();
                 or[j].receive(m);
                 let m = se[i].send(rng);
@@ -167,7 +167,7 @@ proptest! {
                 let (ovi, ovj) = (or[i].version(), or[j].version());
                 let (ivi, ivj) = (im[i].version(), im[j].version());
                 let d_impl = (
-                    ivi.partial_cmp(&ivj),
+                    ivi.partial_cmp(ivj),
                     im[i].party().partial_cmp(im[j].party()),
                     im[i].party().is_disjoint(im[j].party()),
                 );

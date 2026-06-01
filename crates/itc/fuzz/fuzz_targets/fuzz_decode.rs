@@ -1,14 +1,11 @@
-//! PROG-5(a) / COV-7 — hostile decode fuzzing of the byte codec.
+//! Hostile decode fuzzing of the byte codec.
 //!
 //! Feed arbitrary bytes to every top-level `decode`. The contracts under test:
+//!
 //!   1. `decode` never panics on any input (it returns `Ok` or `Err`).
 //!   2. Any accepted value is canonical: re-encoding it then decoding again yields the
 //!      same value and the same bytes (the keystone byte-equality invariant that
 //!      `Eq`/`Hash` rely on).
-//!
-//! `is_normal` (the structural-lowering form of the same invariant) is asserted in the
-//! in-tree proptests (`clock::tests::h34_decode_never_panics`), which can reach the
-//! `oracle` lowering; this target guards the byte path with no nightly-only deps.
 
 #![no_main]
 

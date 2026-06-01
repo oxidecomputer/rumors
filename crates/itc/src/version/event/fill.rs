@@ -6,9 +6,9 @@ use crate::version::working::WorkingVersion;
 
 use super::{Builder, Built};
 
-/// A step in the threaded `fill` walk. `ret` is the [`Built`] register (see the module
-/// doc). `id_pos` is a bit offset into the packed id stream; `ev_pos` a position in the
-/// event tree being filled.
+/// A step in the threaded `fill` walk. `ret` is the [`Built`] register (see the
+/// module doc). `id_pos` is a bit offset into the packed id stream; `ev_pos` a
+/// position in the event tree being filled.
 enum FillJob {
     /// Fill the event subtree at `ev_pos` under the id subtree at `id_pos`.
     Eval {
@@ -17,23 +17,26 @@ enum FillJob {
         /// Position into the event tree.
         ev_pos: usize,
     },
-    /// `il` is full: the right child (the filled `er`) is being built; afterwards set
-    /// the collapsed left leaf to `max(max_ev(el), min(er'))` and close.
+    /// `il` is full: the right child (the filled `er`) is being built;
+    /// afterwards set the collapsed left leaf to `max(max_ev(el), min(er'))`
+    /// and close.
     FullLeftClose {
         /// Output index of the node being filled.
         node: usize,
         /// Output index of the placeholder left leaf to backpatch.
         left_leaf: usize,
-        /// `max_ev(el)`: the maximum of the (full-id-collapsed) left event subtree.
+        /// `max_ev(el)`: the maximum of the (full-id-collapsed) left event
+        /// subtree.
         max_el: Base,
     },
-    /// `il` is not full: the left child (filled `el`) is being built; afterwards decide
-    /// the right child by whether `ir` is full.
+    /// `il` is not full: the left child (filled `el`) is being built;
+    /// afterwards decide the right child by whether `ir` is full.
     AfterLeft {
         /// Output index of the node being filled.
         node: usize,
     },
-    /// Right child (filled `er`) is being built for the general case; afterwards close.
+    /// Right child (filled `er`) is being built for the general case;
+    /// afterwards close.
     GeneralClose {
         /// Output index of the node being filled.
         node: usize,
@@ -41,15 +44,16 @@ enum FillJob {
 }
 
 impl EvView<'_> {
-    /// `fill(id, ev)`: use the available id to simplify this event tree (`self`) without
-    /// registering a new event — wherever the id is full over a subtree, collapse that
-    /// subtree to its maximum. Produces normal form. Iterative, `O(n + m)`: the event
-    /// drives (every event node visited once, threaded), and the id is lazy-skipped only
-    /// where the event prunes it (an event leaf under an id node).
+    /// `fill(id, ev)`: use the available id to simplify this event tree
+    /// (`self`) without registering a new event — wherever the id is full over
+    /// a subtree, collapse that subtree to its maximum. Produces normal form.
+    /// Iterative, `O(n + m)`: the event drives (every event node visited once,
+    /// threaded), and the id is lazy-skipped only where the event prunes it (an
+    /// event leaf under an id node).
     ///
-    /// The iterative form of the recursive `oracle::Version::fill` (the paper's `fill`); read
-    /// that recursive twin first, then this is the same algorithm with the call stack made
-    /// explicit.
+    /// The iterative form of the recursive `oracle::Version::fill` (the paper's
+    /// `fill`); read that recursive twin first, then this is the same algorithm
+    /// with the call stack made explicit.
     pub(super) fn fill(&self, id_bits: &BitsSlice) -> WorkingVersion {
         let view = self;
         let id = IdView(id_bits);

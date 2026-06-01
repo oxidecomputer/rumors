@@ -2,8 +2,8 @@ use crate::ParseError;
 
 use super::{encode_int, validate_ev, validate_id, Base, Bits};
 
-/// A whitespace-skipping byte cursor over the input string. The grammar is pure ASCII
-/// (`(`, `)`, `,`, digits, `0`/`1`), so byte-level scanning is exact.
+/// A whitespace-skipping byte cursor over the input string. The grammar is pure
+/// ASCII (`(`, `)`, `,`, digits, `0`/`1`), so byte-level scanning is exact.
 struct Cur<'a> {
     bytes: &'a [u8],
     pos: usize,
@@ -40,9 +40,9 @@ impl<'a> Cur<'a> {
     }
 }
 
-/// Read a run of ASCII digits as a [`Base`] magnitude (no surrounding whitespace
-/// consumed except a leading skip). Arbitrary width: an event base has no value cap.
-/// Empty input is a syntax error.
+/// Read a run of ASCII digits as a [`Base`] magnitude (no surrounding
+/// whitespace consumed except a leading skip). Arbitrary width: an event base
+/// has no value cap. Empty input is a syntax error.
 fn parse_base(cur: &mut Cur) -> Result<Base, ParseError> {
     cur.skip_ws();
     let mut n = Base::ZERO;
@@ -63,13 +63,14 @@ fn parse_base(cur: &mut Cur) -> Result<Base, ParseError> {
     }
 }
 
-/// Parse one id tree in the paper's grammar (`0 | 1 | (i1, i2)`) into canonical bits,
-/// strictly validating normal form. Iterative (explicit stack): deep nesting cannot
-/// overflow.
+/// Parse one id tree in the paper's grammar (`0 | 1 | (i1, i2)`) into canonical
+/// bits, strictly validating normal form. Iterative (explicit stack): deep
+/// nesting cannot overflow.
 pub(crate) fn parse_id_str(s: &str) -> Result<Bits, ParseError> {
     /// A pending node being parsed.
     enum Frame {
-        /// Node open, left child parsed: expect the separator, then the right child.
+        /// Node open, left child parsed: expect the separator, then the right
+        /// child.
         NeedLeft,
         /// Right child parsed: expect the closing `)`.
         NeedRight,
@@ -120,12 +121,14 @@ pub(crate) fn parse_id_str(s: &str) -> Result<Bits, ParseError> {
     }
 }
 
-/// Parse one event tree in the paper's grammar (`n | (n, e1, e2)`) into canonical bits,
-/// strictly validating normal form. Iterative, as [`parse_id_str`].
+/// Parse one event tree in the paper's grammar (`n | (n, e1, e2)`) into
+/// canonical bits, strictly validating normal form. Iterative, as
+/// [`parse_id_str`].
 pub(crate) fn parse_ev_str(s: &str) -> Result<Bits, ParseError> {
     /// A pending node being parsed.
     enum Frame {
-        /// Node open, left child parsed: expect the separator, then the right child.
+        /// Node open, left child parsed: expect the separator, then the right
+        /// child.
         NeedLeft,
         /// Right child parsed: expect the closing `)`.
         NeedRight,
@@ -179,8 +182,8 @@ pub(crate) fn parse_ev_str(s: &str) -> Result<Bits, ParseError> {
     }
 }
 
-/// Parse a stamp `(i, e)` into its id and event bit streams. Splits at the top-level
-/// (depth-0) comma, then parses each side. Iterative.
+/// Parse a stamp `(i, e)` into its id and event bit streams. Splits at the
+/// top-level (depth-0) comma, then parses each side. Iterative.
 pub(crate) fn parse_clock_str(s: &str) -> Result<(Bits, Bits), ParseError> {
     let t = s.trim();
     let bytes = t.as_bytes();

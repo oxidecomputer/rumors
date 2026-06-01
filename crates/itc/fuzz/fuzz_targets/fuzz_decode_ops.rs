@@ -1,14 +1,14 @@
-//! PROG-5(a) — decode-then-operate fuzzing.
+//! Decode-then-operate fuzzing.
 //!
-//! Decode a value from the *front* of the input and use the trailing bytes as a script
-//! that drives the full op set against it. This pushes adversarially-shaped (but
-//! canonical) trees — ones the op-trace generator never produces — through the
-//! working-form arithmetic and the repack-on-drop boundary, where the path-sum
-//! accounting and `grow`/`fill`/`join` machinery live. The contract is simply: no panic,
-//! no overflow, on any decoded-then-driven sequence.
+//! Decode a value from the *front* of the input and use the trailing bytes as a
+//! script that drives the full op set against it. This pushes
+//! adversarially-shaped (but canonical) trees — ones the op-trace generator
+//! never produces — through the working-form arithmetic and the repack-on-drop
+//! boundary. The contract is simply: no panic, no overflow, on any
+//! decoded-then-driven sequence.
 //!
-//! Split: the first byte selects the value flavour, the next length-prefixed chunk is the
-//! value's bytes, and the remainder is the op script (one op per byte).
+//! The first byte selects the value flavour, the next length-prefixed chunk is
+//! the value's bytes, and the remainder is the op script (one op per byte).
 
 #![no_main]
 

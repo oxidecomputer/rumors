@@ -17,15 +17,16 @@ cargo install cargo-fuzz
 
 ## Targets
 
-- **`fuzz_decode`** — feeds arbitrary bytes to `Party::decode`, `Version::decode`, and
-  `Clock::decode`. Asserts the keystone invariant inline: an accepted value re-encodes
-  stably and decodes back to itself (so a non-canonical accept is a crash, not a silent
-  pass). The structural `is_normal`-on-accept form of the same invariant is checked by the
-  in-tree proptest `clock::tests::h34_decode_never_panics`.
-- **`fuzz_decode_ops`** — decodes a value from the front of the input, then uses the
-  trailing bytes as an op script (tick / fork / join / sync / send / receive + observers).
-  Pushes adversarially-shaped but canonical trees through the working-form arithmetic and
-  the repack-on-drop boundary.
+- **`fuzz_decode`** feeds arbitrary bytes to `Party::decode`, `Version::decode`,
+  and `Clock::decode`. Asserts the key invariant inline: an accepted value
+  re-encodes stably and decodes back to itself (so a non-canonical accept is a
+  crash, not a silent pass). The structural `is_normal`-on-accept form of the
+  same invariant is checked by the in-tree proptest
+  `clock::tests::h34_decode_never_panics`.
+- **`fuzz_decode_ops`** decodes a value from the front of the input, then uses
+  the trailing bytes as an op script (tick / fork / join / sync / send / receive
+  + observers). Pushes adversarially-shaped but canonical trees through the
+    working-form arithmetic and the repack-on-drop boundary.
 
 ## Run
 

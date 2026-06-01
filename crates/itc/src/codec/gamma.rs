@@ -4,10 +4,11 @@ use crate::DecodeError;
 
 use super::{Base, Bits, BitsSlice};
 
-/// Append `n` as the Elias gamma code of `m = n + 1`: `floor(log2(m))` zero bits,
-/// then `m` in `floor(log2(m)) + 1` bits, most-significant first. Cost is
-/// `2*floor(log2(n+1)) + 1` bits; `0` costs a single bit. Canonical and prefix-free,
-/// for an arbitrary-width non-negative `n` (there is no value cap).
+/// Append `n` as the Elias gamma code of `m = n + 1`: `floor(log2(m))` zero
+/// bits, then `m` in `floor(log2(m)) + 1` bits, most-significant first. Cost is
+/// `2*floor(log2(n+1)) + 1` bits; `0` costs a single bit. Canonical and
+/// prefix-free, for an arbitrary-width non-negative `n` (there is no value
+/// cap).
 pub(crate) fn encode_int(out: &mut Bits, n: &Base) {
     let m = n + 1u32; // m >= 1
                       // `k = floor(log2(m)) = bit_length(m) - 1` (a tree-structural count, not a
@@ -29,9 +30,10 @@ pub(crate) fn encoded_int_len(n: &Base) -> usize {
 }
 
 /// Read an Elias-gamma-coded integer at `pos`, returning the value and the new
-/// position. Running past the end is `Truncated`. Decodes an arbitrary-width value
-/// (no cap): the unary prefix length `k` is bounded by the available bits, which the
-/// `Truncated` checks enforce, so a declared code can never exceed the input.
+/// position. Running past the end is `Truncated`. Decodes an arbitrary-width
+/// value (no cap): the unary prefix length `k` is bounded by the available
+/// bits, which the `Truncated` checks enforce, so a declared code can never
+/// exceed the input.
 pub(crate) fn decode_int(bits: &BitsSlice, pos: usize) -> Result<(Base, usize), DecodeError> {
     let mut k = 0usize;
     loop {
@@ -49,6 +51,7 @@ pub(crate) fn decode_int(bits: &BitsSlice, pos: usize) -> Result<(Base, usize), 
         return Err(DecodeError::Truncated);
     }
     let end = start + k + 1;
+
     // Common case: read small codes into a machine integer, then widen once.
     if k < u64::BITS as usize {
         let mut m = 0u64;
@@ -72,8 +75,8 @@ pub(crate) fn decode_int(bits: &BitsSlice, pos: usize) -> Result<(Base, usize), 
     Ok((Base::from(m - 1u32), end))
 }
 
-/// Skip an Elias-gamma-coded integer at `pos`, returning the position just past it
-/// without materializing the integer. Used by topology-only event scans.
+/// Skip an Elias-gamma-coded integer at `pos`, returning the position just past
+/// it without materializing the integer. Used by topology-only event scans.
 pub(crate) fn skip_int(bits: &BitsSlice, pos: usize) -> Result<usize, DecodeError> {
     let mut k = 0usize;
     loop {

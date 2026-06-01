@@ -1,9 +1,7 @@
-//! [`Clock`] — a [`Party`] paired with a [`Version`], and its working-form [`Batch`].
+//! A [`Clock`] is a [`Party`] paired with a [`Version`].
 //!
-//! A [`clock::Batch`](Batch) is a split borrow of a `Clock`: the party (which has no
-//! working form — id ops run on the packed bits directly) plus a [`version::Batch`]
-//! over the version. Each `Clock` method is a single-op batch; the version repacks once
-//! when the inner `version::Batch` drops.
+//! A [`clock::Batch`](Batch) is a borrow of a `Clock` affording the same
+//! interface but faster for bulk operations.
 
 use core::ops::{BitOr, BitOrAssign};
 
@@ -12,20 +10,31 @@ use crate::{codec, version, DecodeError, OverlapError, ParseError, Party, Versio
 #[cfg(test)]
 mod tests;
 
-/// A `Party` paired with a `Version`. Not `Clone`. Implements no comparison
-/// traits — compare the party and version separately with any lexicography.
+/// A [`Party`] and its [`Version`].
+///
+/// This type is `!Clone` to discourage non-linear usage: while using a
+/// [`Clock`] non-linearly is "safe" from the perspective of Rust, it is invalid
+/// in the setting of interval tree clocks, which requires that all live clocks
+/// in the system **must** be disjoint.
 pub struct Clock {
     party: Party,
     version: Version,
 }
 
 impl Clock {
-    /// A fresh clock owning the whole id space with empty history.
+    /// The initial clock of the distinguished [`Party::seed`]; the only
+    /// [`Clock`] which is not derived from some prior clock.
+    ///
+    /// In any given system of clocks, this function should only be called by
+    /// one party in the entire system, and only once: all its descendents are
+    /// necessarily disjoint, but the descendents of parallel seeds need not be;
+    /// if ever the twain meet, invariants and expectations will be violated.
     pub fn seed() -> Self {
         Self::from_parts(Party::seed(), Version::new())
     }
 
-    /// Pair an existing party and version into a clock.
+    /// A [`Clock`] is merely the pair of a [`Version`] and its [`Party`], for
+    /// convenience.
     pub fn from_parts(party: Party, version: Version) -> Self {
         Clock { party, version }
     }
@@ -35,61 +44,86 @@ impl Clock {
         (self.party, self.version)
     }
 
-    /// The clock's party (its share of the id space).
+    /// The party whose causal history this clock tracks.
     pub fn party(&self) -> &Party {
         &self.party
     }
 
-    /// Snapshot the history as a transmittable `Version`. Does not advance.
-    pub fn version(&self) -> Version {
-        self.version.clone()
+    /// Snapshot the current state of the [`Clock`] as a transmittable [`Version`].
+    ///
+    /// This does not advance the clock.
+    pub fn version(&self) -> &Version {
+        &self.version
     }
 
-    /// Advance this clock's own component by one event.
-    pub fn tick(&mut self) {
+    /// Advance this [`Clock`] by one event for its own [`Party`], returning the
+    /// new [`Version`].
+    pub fn tick(&mut self) -> &Version {
         self.batch().tick();
+        self.version()
     }
 
-    /// Split off a child clock; `self` keeps half the id space, the child the
-    /// other half. Both carry the current version.
+    /// Split off a child clock by forking the underlying [`Party`].
+    ///
+    /// Both resultant clocks carry the current [`Version`].
+    ///
+    /// Repeatedly calling [`fork`](Clock::fork) on the same [`Clock`] will lead
+    /// to imbalanced internal tree representations and worse memory usage and
+    /// performance; it's recommended to randomize which [`Clock`]s are
+    /// [`fork`](Clock::fork)ed.
     pub fn fork(&mut self) -> Clock {
         self.batch().fork()
     }
 
-    /// Absorb a disjoint clock's party and history; on overlap, hand it back.
-    pub fn join(&mut self, other: Clock) -> Result<(), Clock> {
-        self.batch().join(other)
+    /// Absorb a *disjoint* [`Clock`]'s [`Party`] and [`Version`], returning the
+    /// new [`Version`].
+    ///
+    /// # Errors
+    ///
+    /// If the [`Clock`]s' [`Party`]s overlap, `self` is unmodified and
+    /// `Err(other)` is returned unmodified.
+    pub fn join(&mut self, other: Clock) -> Result<&Version, Clock> {
+        self.batch().join(other)?;
+        Ok(self.version())
     }
 
-    /// Reconcile two clocks: merge histories and re-split the merged party.
-    pub fn sync(&mut self, other: &mut Clock) -> Result<(), OverlapError> {
-        self.batch().sync(&mut other.batch())
+    /// Reconcile two *disjoint* [`Clock`]s: join their [`Version`]s and
+    /// re-[`fork`](Clock::fork) the [`join`](Clock::join) of their [`Party`]s.
+    ///
+    /// # Errors
+    ///
+    /// If the [`Clock`]s' [`Party`]s overlap, an error is returned and `self`
+    /// and `other` are left unmodified.
+    pub fn sync(&mut self, other: &mut Clock) -> Result<&Version, OverlapError> {
+        self.batch().sync(&mut other.batch())?;
+        Ok(self.version())
     }
 
-    /// Whether this clock's history already dominates `msg` (`msg <= version`).
-    pub fn has_seen(&self, msg: &Version) -> bool {
-        msg <= &self.version
+    /// Equivalent to `self.tick()`, but with a more illustrative name when
+    /// versions are [`receive`](Version::receive)d.
+    ///
+    /// If you are using [`Clock`]s as *vector clock*s rather than *version
+    /// vector*s, you should mark communication between [`Party`]s by
+    /// [`send`](Clock::send)ing a [`Version`] from the sender to the recipient,
+    /// who should dually [`receive`](Clock::receive) that [`Version`] to
+    /// incorporate it into their own [`Clock`].
+    pub fn send(&mut self) -> &Version {
+        self.tick()
     }
 
-    /// Whether this clock's history strictly precedes `other`'s.
-    pub fn happens_before(&self, other: &Clock) -> bool {
-        self.version < other.version
-    }
-
-    /// Whether this clock's history is concurrent with `other`'s.
-    pub fn concurrent_with(&self, other: &Clock) -> bool {
-        self.version.partial_cmp(&other.version).is_none()
-    }
-
-    /// Advance, then snapshot the history to transmit.
-    pub fn send(&mut self) -> Version {
-        self.tick();
+    /// Merge a received [`Version`] into this [`Clock`]'s version, then
+    /// [`tick`](Clock::tick) the [`Clock`].
+    ///
+    /// Equivalent to `self |= version; self.tick()`.
+    ///
+    /// If you are using [`Clock`]s as *vector clock*s rather than *version
+    /// vector*s, you should mark communication between [`Party`]s by sending a
+    /// [`Version`] from the sender to the recipient, who should dually
+    /// [`receive`](Clock::receive) that [`Version`] to incorporate it into
+    /// their own [`Clock`].
+    pub fn receive(&mut self, version: &Version) -> &Version {
+        self.batch().merge(version).tick();
         self.version()
-    }
-
-    /// Merge a received message, then advance this clock's own component.
-    pub fn receive(&mut self, msg: Version) {
-        self.batch().merge(&msg).tick();
     }
 
     /// Begin a batch of operations on this clock.
@@ -140,7 +174,8 @@ impl Clock {
     }
 }
 
-/// Paper stamp notation: `(<id>, <event>)`, e.g. `(1, 0)` for [`Clock::seed`].
+/// Format a [`Clock`] using the notation in the original paper: `(<id>,
+/// <event>)`, e.g. `(1, 0)` for [`Clock::seed`].
 impl core::fmt::Display for Clock {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "({}, {})", self.party, self.version)
@@ -156,8 +191,8 @@ impl core::fmt::Debug for Clock {
     }
 }
 
-/// Parse a stamp `(i, e)` in paper notation, strictly rejecting non-normal-form input
-/// and an anonymous (id `0`) party.
+/// Parse a stamp `(i, e)` in paper notation, strictly rejecting non-normal-form
+/// input and any anonymous (id `0`) party.
 impl core::str::FromStr for Clock {
     type Err = ParseError;
     fn from_str(s: &str) -> Result<Self, ParseError> {
@@ -172,8 +207,7 @@ impl core::str::FromStr for Clock {
     }
 }
 
-/// A clock from a `(party, version)` literal, e.g. `Clock::try_from(((1u8, 0u8), 5u64))`,
-/// grounding on the recursive [`Party`]/[`Version`] literal forms.
+/// A clock from a `(party, version)` literal, e.g. `((1, 0), 5).into()`.
 impl<I, E> TryFrom<(I, E)> for Clock
 where
     Party: TryFrom<I, Error = ParseError>,
@@ -188,49 +222,47 @@ where
     }
 }
 
-/// A session over a [`Clock`], built on [`version::Batch`]. The version repacks when
-/// the inner `version::Batch` drops; the party is mutated in place (it has no working
-/// form).
+/// A session over a [`Clock`], providing the same API, but with faster
+/// performance for batches of operations.
 pub struct Batch<'c> {
     party: &'c mut Party,
     version: version::Batch<'c>,
 }
 
 impl Batch<'_> {
-    /// Advance the clock's own component. Chainable.
+    /// Like [`tick`](Clock::tick), but chainable.
     pub fn tick(&mut self) -> &mut Self {
         self.version.tick(&*self.party);
         self
     }
 
-    /// Merge a received message in place. Chainable.
-    pub fn merge(&mut self, msg: &Version) -> &mut Self {
-        self.version.merge(msg);
+    /// Like `self |= version`, but chainable.
+    pub fn merge(&mut self, version: &Version) -> &mut Self {
+        self.version.merge(version);
         self
     }
 
-    /// Split off a child clock; the child gets the current version.
+    /// Like [`fork`](Clock::fork).
     pub fn fork(&mut self) -> Clock {
         let child_party = self.party.fork();
         let child_version = self.version.snapshot();
         Clock::from_parts(child_party, child_version)
     }
 
-    /// Absorb a disjoint clock; on overlap, hand it back.
-    pub fn join(&mut self, other: Clock) -> Result<(), Clock> {
+    /// Like [`join`](Clock::join).
+    pub fn join(&mut self, other: Clock) -> Result<&version::Batch<'_>, Clock> {
         let (other_party, other_version) = other.into_parts();
         match self.party.join(other_party) {
             Ok(()) => {
                 self.version.merge(&other_version);
-                Ok(())
+                Ok(self.version())
             }
             Err(other_party) => Err(Clock::from_parts(other_party, other_version)),
         }
     }
 
-    /// Reconcile with another live batch (keeps both live): merge the two parties and
-    /// re-split them, and bring both versions to the join of the two.
-    pub fn sync(&mut self, other: &mut Batch<'_>) -> Result<(), OverlapError> {
+    /// Like [`sync`](Clock::sync).
+    pub fn sync(&mut self, other: &mut Batch<'_>) -> Result<&version::Batch<'_>, OverlapError> {
         // Merge both parties into self, then re-split: self keeps one half, other the
         // other. `join` is the overlap check — on failure it hands the party back and
         // leaves `self` unchanged, so we restore `other` and report the overlap.
@@ -247,7 +279,7 @@ impl Batch<'_> {
         let merged = self.version.snapshot();
         self.version.replace_with(merged.clone());
         other.version.replace_with(merged);
-        Ok(())
+        Ok(self.version())
     }
 
     /// The in-progress version, for comparison (no repack).

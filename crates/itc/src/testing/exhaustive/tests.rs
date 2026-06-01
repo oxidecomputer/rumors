@@ -1,29 +1,34 @@
 //! Exhaustive small-scope differential tests.
 //!
-//! Each `check_*` helper runs one op family over the *entire* enumerated corpus (every
-//! tree, every ordered pair) and diffs the impl against the recursive oracle — the same
-//! structural-agreement contract the sampled differentials use, but total rather than
-//! random. The cross-product is the whole point, so it is never sampled (that is what the
-//! property tests are for); instead two things keep it tractable:
+//! Each `check_*` helper runs one op family over the *entire* enumerated corpus
+//! (every tree, every ordered pair) and diffs the impl against the recursive
+//! oracle — the same structural-agreement contract the sampled differentials
+//! use, but total rather than random. The cross-product is the whole point, so
+//! it is never sampled (that is what the property tests are for); instead two
+//! things keep it tractable:
 //!
-//! - **Precompute once.** Each oracle tree is lowered to its impl form a single time into a
-//!   `Vec<Party>` / `Vec<Version>` that the pair loops *borrow*, rather than re-lowering both
-//!   operands inside the inner loop (which, at the deep bound, would be billions of
-//!   allocations).
-//! - **Parallelize.** The outer loop of every check runs on a `rayon` thread pool; a failing
-//!   `assert!` in a worker propagates as a panic when the parallel region joins, so the test
-//!   semantics are unchanged. The `step!()` metric is a `thread_local`, so parallel
-//!   traversals do not contend (and these tests do not read it).
+//! - **Precompute once.** Each oracle tree is lowered to its impl form a single
+//! time into a `Vec<Party>` / `Vec<Version>` that the pair loops *borrow*,
+//! rather than re-lowering both operands inside the inner loop (which, at the
+//! deep bound, would be billions of allocations).
 //!
-//! The two entry points wire the helpers to decoupled id/event depth bounds (events grow far
-//! faster, so they are held a level shallower — see the parent module doc): the gate-resident
-//! `exhaustive_small` at [`ID_SMALL_DEPTH`] / [`EV_SMALL_DEPTH`], and the `#[ignore]`d
-//! `exhaustive_deep` at [`ID_DEEP_DEPTH`] / [`EV_DEEP_DEPTH`].
+//! - **Parallelize.** The outer loop of every check runs on a `rayon` thread
+//! pool; a failing `assert!` in a worker propagates as a panic when the
+//! parallel region joins, so the test semantics are unchanged. The `step!()`
+//! metric is a `thread_local`, so parallel traversals do not contend (and these
+//! tests do not read it).
 //!
-//! Op *symmetry* (`is_disjoint` symmetric, `sum`/merge commutative, `partial_cmp`
-//! anti-symmetric) is NOT relied on to skip half the pairs and is NOT checked here; it is an
-//! intrinsic algebraic property of the impl, tested directly and oracle-independently in the
-//! "intrinsic symmetry laws" section at the bottom of this file.
+//! The two entry points wire the helpers to decoupled id/event depth bounds
+//! (events grow far faster, so they are held a level shallower — see the parent
+//! module doc): the gate-resident `exhaustive_small` at [`ID_SMALL_DEPTH`] /
+//! [`EV_SMALL_DEPTH`], and the `#[ignore]`d `exhaustive_deep` at
+//! [`ID_DEEP_DEPTH`] / [`EV_DEEP_DEPTH`].
+//!
+//! Op *symmetry* (`is_disjoint` symmetric, `sum`/merge commutative,
+//! `partial_cmp` anti-symmetric) is NOT relied on to skip half the pairs and is
+//! NOT checked here; it is an intrinsic algebraic property of the impl, tested
+//! directly and oracle-independently in the "intrinsic symmetry laws" section
+//! at the bottom of this file.
 
 use std::cmp::Ordering;
 

@@ -1,7 +1,7 @@
-//! `Version` benchmarks: the optimized working-form implementation against the naive
-//! recursive oracle, on the same randomized event trees (see `common`). Includes the
-//! batch-vs-single-op comparison that motivates the working form, plus the impl-only
-//! byte codec.
+//! `Version` benchmarks: the optimized implementation against the naive
+//! recursive oracle, on the same randomized event trees (see `common`).
+//! Includes the batch-vs-single-op comparison that motivates the working form,
+//! plus the impl-only byte codec.
 
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use itc::{Party, Version};

@@ -20,14 +20,12 @@ mod working;
 #[cfg(test)]
 mod tests;
 
-/// An event tree / message; an anonymous clock. `Eq`/`Hash` are structural over
-/// the canonical encoding; `PartialOrd` is the causal order (`None` ⇔ concurrent),
-/// consistent with `Eq` because normal form is canonical.
+/// A causal version.
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Version(BitVec<u8, Msb0>);
 
 impl Version {
-    /// The empty history (identity for `|`): the event tree `Leaf(0)`.
+    /// The empty [`Version`], representing no [`tick`](Version::tick)s.
     pub fn new() -> Self {
         let mut bits = codec::Bits::new();
         bits.push(false); // leaf flag
@@ -35,9 +33,16 @@ impl Version {
         Version(bits)
     }
 
-    /// Advance `party`'s component by one event. Single-op batch.
+    /// Advance the [`Version`] from the perspective of [`Party`].
     pub fn tick(&mut self, party: &Party) {
         self.batch().tick(party);
+    }
+
+    /// Determine if two [`Version`]s are concurrent, i.e. incomparable.
+    ///
+    /// This is equivalent to their partial equality returning `None`.
+    pub fn concurrent<V: PartialOrd<Self>>(&self, version: &V) -> bool {
+        version.partial_cmp(self).is_none()
     }
 
     /// Begin a batch of operations on this [`Version`].
@@ -57,13 +62,15 @@ impl Version {
         EvView::Packed(&self.0)
     }
 
-    /// The canonical packed byte encoding (preorder, uniform flag), zero-padded to
-    /// a byte boundary.
+    /// Encode this [`Version`] to bytes.
+    ///
+    /// **Note:** The byte-encoding of a [`Clock`] is **not the same** as the
+    /// concatenation of the byte-encoding of a [`Party`] and a [`Version`].
     pub fn encode(&self) -> Vec<u8> {
         codec::pack_to_bytes(&self.0)
     }
 
-    /// Decode a byte string, strictly rejecting malformed or non-canonical input.
+    /// Decode a [`Version`] from canonical bytes.
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
         let bits = codec::bytes_as_bits(bytes);
         let end = codec::parse_ev(bits, 0)?;
@@ -102,14 +109,14 @@ impl core::fmt::Display for Version {
     }
 }
 
-/// `Version(<paper notation, comma-separated>)`, e.g. `Version(1, 2, (0, (1, 0, 2), 0))`.
+/// The same format as `Display`.
 impl core::fmt::Debug for Version {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         <Self as Display>::fmt(self, f)
     }
 }
 
-/// Parse paper notation (`n | (n, e1, e2)`), strictly rejecting non-normal-form input.
+/// Parse paper notation (`n` or `(n, e1, e2)`), strictly rejecting non-normal-form input.
 impl core::str::FromStr for Version {
     type Err = ParseError;
     fn from_str(s: &str) -> Result<Self, ParseError> {
@@ -149,7 +156,7 @@ pub struct Batch<'v> {
 }
 
 impl Batch<'_> {
-    /// Advance `party`'s component. Chainable. **Core event operation.**
+    /// Like [`tick`](Version::tick), but chainable.
     pub fn tick(&mut self, party: &Party) -> &mut Self {
         let work = self
             .work
@@ -159,8 +166,13 @@ impl Batch<'_> {
         self
     }
 
-    /// Merge another history in place. Chainable.
-    pub fn merge(&mut self, other: &Version) -> &mut Self {
+    /// Like [`concurrent`](Version::concurrent).
+    pub fn concurrent<V: PartialOrd<Self>>(&self, version: &V) -> bool {
+        version.partial_cmp(self).is_none()
+    }
+
+    /// Merge another version into this batch; chainable.
+    pub(crate) fn merge(&mut self, other: &Version) -> &mut Self {
         let current = self.view();
         let incoming = other.view();
         if current.trivially_eq(&incoming) {
@@ -254,6 +266,26 @@ macro_rules! causal_cmp_impls {
             }
             impl PartialOrd<$rhs> for $lhs {
                 fn partial_cmp(&self, o: &$rhs) -> Option<Ordering> {
+                    self.view().causal_cmp(&o.view())
+                }
+            }
+            impl PartialEq<$rhs> for &$lhs {
+                fn eq(&self, o: &$rhs) -> bool {
+                    self.view().causal_cmp(&o.view()) == Some(Ordering::Equal)
+                }
+            }
+            impl PartialOrd<$rhs> for &$lhs {
+                fn partial_cmp(&self, o: &$rhs) -> Option<Ordering> {
+                    self.view().causal_cmp(&o.view())
+                }
+            }
+            impl PartialEq<&$rhs> for $lhs {
+                fn eq(&self, o: &&$rhs) -> bool {
+                    self.view().causal_cmp(&o.view()) == Some(Ordering::Equal)
+                }
+            }
+            impl PartialOrd<&$rhs> for $lhs {
+                fn partial_cmp(&self, o: &&$rhs) -> Option<Ordering> {
                     self.view().causal_cmp(&o.view())
                 }
             }

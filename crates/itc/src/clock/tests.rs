@@ -31,9 +31,9 @@ proptest! {
         let msg_oracle = ob.version();
         let msg = from_oracle_version(&msg_oracle);
 
-        prop_assert_eq!(ia.has_seen(&msg), oa.has_seen(&msg_oracle));
-        prop_assert_eq!(ia.happens_before(&ib), oa.happens_before(ob));
-        prop_assert_eq!(ia.concurrent_with(&ib), oa.concurrent_with(ob));
+        prop_assert_eq!(ia.version() >= &msg, oa.version() >= msg_oracle);
+        prop_assert_eq!(ia.version() < ib.version(), oa.version() < ob.version());
+        prop_assert_eq!(ia.version().concurrent(ib.version()), oa.concurrent_with(ob));
     }
 }
 
@@ -69,9 +69,9 @@ proptest! {
                 Op::Send(i, j) => {
                     let (i, j) = (i % n, j % n);
                     let om = ora[i].send();
-                    let im = imp[i].send();
+                    let im = imp[i].send().clone();
                     ora[j].receive(om);
-                    imp[j].receive(im);
+                    imp[j].receive(&im);
                 }
                 Op::Sync(i, j) => {
                     let (i, j) = (i % n, j % n);
@@ -138,10 +138,10 @@ proptest! {
         let cs = run(&ops);
         let n = cs.len();
         let mut c = from_oracle_clock(&cs[i % n]);
-        let before = c.version();
+        let before = c.version().clone();
         let child = c.fork();
-        prop_assert!(c.version() == before);
-        prop_assert!(child.version() == before);
+        prop_assert!(c.version() == &before);
+        prop_assert!(child.version() == &before);
     }
 
     /// `version()` (peek) does not advance the clock; the returned `Version`
@@ -166,8 +166,8 @@ proptest! {
         let n = cs.len();
         let mut received = from_oracle_clock(&cs[i % n]);
         let mut ticked = from_oracle_clock(&cs[i % n]);
-        let own = received.version();
-        received.receive(own);
+        let own = received.version().clone();
+        received.receive(&own);
         ticked.tick();
         prop_assert!(received.version() == ticked.version());
         prop_assert!(received.party() == ticked.party());
@@ -319,18 +319,18 @@ proptest! {
         let n = cs.len();
         let mut c = from_oracle_clock(&cs[i % n]);
 
-        let before = c.version();
+        let before = c.version().clone();
         {
             let _b = c.batch();
         }
-        prop_assert!(c.version() == before);
+        prop_assert!(c.version() == &before);
 
-        let before_fork = c.version();
+        let before_fork = c.version().clone();
         {
             let mut b = c.batch();
             let _child = b.fork();
         }
-        prop_assert!(c.version() == before_fork);
+        prop_assert!(c.version().clone() == before_fork);
     }
 
     /// The commit happens on drop, and mid-batch comparison already reflects
@@ -345,14 +345,14 @@ proptest! {
         let expected = {
             let mut e = from_oracle_clock(&cs[i % n]);
             e.tick();
-            e.version()
+            e.version().clone()
         };
 
         let mut b = c.batch();
         b.tick();
         prop_assert!(b.version() == &expected);
         drop(b);
-        prop_assert!(c.version() == expected);
+        prop_assert!(c.version() == &expected);
     }
 }
 
@@ -404,8 +404,8 @@ fn deep_tree_stack_safety() {
 
     // Observing ops over the deep version do not overflow.
     let v = clock.version();
-    assert_eq!(v.partial_cmp(&v), Some(core::cmp::Ordering::Equal));
-    assert_eq!(v.clone() | v.clone(), v);
+    assert_eq!(v.partial_cmp(v), Some(core::cmp::Ordering::Equal));
+    assert_eq!(v.clone() | v.clone(), *v);
 
     // Codec over a deep id + deep event tree round-trips.
     let bytes = clock.encode();
@@ -419,16 +419,16 @@ fn deep_tree_stack_safety() {
     // `send`/`receive` over the deep clock: `send` extracts a deep version (and ticks the
     // clock's event tree), and a self-`receive` (the sent message is `<= self`) merges a
     // deep version into a deep clock without overflow.
-    let msg = clock.send();
-    clock.receive(msg);
+    let msg = clock.send().clone();
+    clock.receive(&msg);
 
     // Observers over a deep clock and a deep message do not overflow: `has_seen` lowers to
     // a deep `causal_cmp` against the version, and the clock-vs-clock observers compare two
     // deep versions.
-    let sent = clock.send();
-    assert!(clock.has_seen(&sent));
-    assert!(!clock.happens_before(&clock));
-    assert!(!clock.concurrent_with(&clock));
+    let sent = clock.send().clone();
+    assert!(clock.version() >= &sent);
+    assert!(!(clock.version() >= clock.version()));
+    assert!(!(clock.version().partial_cmp(clock.version()).is_none()));
 
     // Fork (deep split + snapshot) yields a disjoint child; both halves stay deep.
     let mut child = clock.fork();
@@ -441,8 +441,8 @@ fn deep_tree_stack_safety() {
     clock.sync(&mut child).expect("fork halves are disjoint");
     assert!(clock.version() == child.version());
     assert!(clock.party().is_disjoint(child.party()));
-    assert!(!clock.happens_before(&child));
-    assert!(!clock.concurrent_with(&child));
+    assert!(!(clock.version() >= child.version()));
+    assert!(!(clock.version().concurrent(child.version())));
 
     // join restores the whole from the two deep halves.
     clock.join(child).expect("fork halves are disjoint");
@@ -496,7 +496,7 @@ fn decoded_seed_version_encodes_canonically() {
     let decoded = Clock::decode(&seed.encode()).unwrap();
     assert_eq!(decoded.version().encode(), seed.version().encode());
     assert_eq!(
-        Version::decode(&decoded.version().encode()).unwrap(),
+        &Version::decode(&decoded.version().encode()).unwrap(),
         seed.version(),
     );
 }
@@ -516,7 +516,7 @@ proptest! {
         prop_assert_eq!(decoded.version().encode(), original.version().encode());
 
         let v = decoded.version();
-        prop_assert_eq!(Version::decode(&v.encode()).unwrap(), v);
+        prop_assert_eq!(&Version::decode(&v.encode()).unwrap(), v);
         let p_bytes = decoded.party().encode();
         prop_assert_eq!(Party::decode(&p_bytes).unwrap().encode(), p_bytes);
     }
@@ -557,9 +557,9 @@ fn worked_example() {
     assert_eq!(region(&[&p1a, &p1b, &p2]), oracle::Party::seed());
 
     // One participant ticks; the other two sync.
-    let before = p1a.version();
+    let before = p1a.version().clone();
     p1a.tick();
-    assert!(p1a.version() > before);
+    assert!(p1a.version() > &before);
 
     let merged_region = {
         let mut acc = to_oracle_party(p1b.party());
@@ -649,11 +649,14 @@ fn display_matches_paper_notation() {
 }
 
 /// `TryFrom` literals build the same values as the equivalent paper-notation strings,
-/// grounding out in the `u8`/`u64` base cases.
+/// grounding out in the `bool`/`u8`/`u64` base cases.
 #[test]
 fn tryfrom_literals_build_values() {
-    let p = Party::try_from((1u8, (0u8, 1u8))).unwrap();
+    let p = Party::try_from((1, (0, 1))).unwrap();
     assert_eq!(p, "(1, (0, 1))".parse::<Party>().unwrap());
+
+    let p = Party::try_from((true, false)).unwrap();
+    assert_eq!(p, "(1, 0)".parse::<Party>().unwrap());
 
     let v = Version::try_from((1u64, 0u64, (2u64, 0u64, 1u64))).unwrap();
     assert_eq!(v, "(1, 0, (2, 0, 1))".parse::<Version>().unwrap());
@@ -665,6 +668,7 @@ fn tryfrom_literals_build_values() {
     // sub-tree (see the `(0, 1)` cases above).
     assert_eq!(Party::try_from(1u8).unwrap().to_string(), "1");
     assert_eq!(Party::try_from(0u8), Err(ParseError::Anonymous));
+    assert_eq!(Party::try_from(false), Err(ParseError::Anonymous));
     assert_eq!(Version::try_from(7u64).unwrap().to_string(), "7");
 }
 

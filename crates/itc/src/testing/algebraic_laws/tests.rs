@@ -1,9 +1,10 @@
 //! Algebraic-law proptests, asserted directly on the impl.
 //!
-//! Each test states one law in its doc comment and checks it on impl `Version` / `Party`
-//! values built from the arbitrary-normal-form generators. No assertion's right-hand side
-//! mentions the oracle: the laws hold by the ITC algebra, so they catch a defect the impl
-//! and the recursive oracle would share.
+//! Each test states one law in its doc comment and checks it on impl `Version`
+//! / `Party` values built from the arbitrary-normal-form generators. No
+//! assertion's right-hand side mentions the oracle: the laws hold by the ITC
+//! algebra, so they catch a defect the impl and the recursive oracle would
+//! share.
 
 use std::cmp::Ordering;
 
@@ -13,21 +14,20 @@ use crate::oracle;
 use crate::testing::generators::{arb_oracle_party, arb_oracle_party_nonempty, arb_oracle_version};
 use crate::{Party, Version};
 
-/// `a <= b` under the impl event causal order (concurrency is not-`<=`), via the impl's
-/// own `PartialOrd` — never the oracle.
+/// `a <= b` under the impl event causal order (concurrency is not-`<=`).
 fn le(a: &Version, b: &Version) -> bool {
     a.partial_cmp(b).is_some_and(|o| o != Ordering::Greater)
 }
 
-/// Build a fresh impl `Version` from an oracle source tree. The oracle tree is only a
-/// carrier of canonical bits here; it is never consulted as an arbiter.
+/// Build a fresh impl `Version` from an oracle source tree. The oracle tree is
+/// only a carrier of canonical bits here.
 fn ver(o: &oracle::Version) -> Version {
     crate::testing::bridge::from_oracle_version(o)
 }
 
-/// Build a fresh impl `Party` from an oracle source tree. `Party` is `!Clone`, so every
-/// use that consumes or borrows a party rebuilds one from its (cheap, `Clone`) oracle
-/// source.
+/// Build a fresh impl `Party` from an oracle source tree. `Party` is `!Clone`,
+/// so every use that consumes or borrows a party rebuilds one from its (cheap,
+/// `Clone`) oracle source.
 fn party(o: &oracle::Party) -> Party {
     crate::testing::bridge::from_oracle_party(o)
 }
@@ -35,8 +35,8 @@ fn party(o: &oracle::Party) -> Party {
 // ───────────────────────────── merge: join-semilattice ─────────────────────────────
 
 proptest! {
-    /// Idempotence: `a | a == a`. Merging a version with itself is the identity (the LUB
-    /// of a value and itself is that value).
+    /// Idempotence: `a | a == a`. Merging a version with itself is the identity
+    /// (the LUB of a value and itself is that value).
     #[test]
     fn merge_idempotent(a in arb_oracle_version()) {
         let merged = ver(&a) | ver(&a);
@@ -45,7 +45,8 @@ proptest! {
 }
 
 proptest! {
-    /// Commutativity: `a | b == b | a`. The LUB does not depend on operand order.
+    /// Commutativity: `a | b == b | a`. The LUB does not depend on operand
+    /// order.
     #[test]
     fn merge_commutative(a in arb_oracle_version(), b in arb_oracle_version()) {
         let ab = ver(&a) | ver(&b);
@@ -55,8 +56,8 @@ proptest! {
 }
 
 proptest! {
-    /// Associativity: `(a | b) | c == a | (b | c)`. With commutativity and idempotence,
-    /// this makes `|` a join-semilattice operation.
+    /// Associativity: `(a | b) | c == a | (b | c)`. With commutativity and
+    /// idempotence, this makes `|` a join-semilattice operation.
     #[test]
     fn merge_associative(
         a in arb_oracle_version(),
@@ -70,8 +71,8 @@ proptest! {
 }
 
 proptest! {
-    /// The join is an upper bound: `a <= a | b` and `b <= a | b`. This is what ties `|`
-    /// to the causal order — the merge dominates both inputs.
+    /// The join is an upper bound: `a <= a | b` and `b <= a | b`. This is what
+    /// ties `|` to the causal order — the merge dominates both inputs.
     #[test]
     fn merge_is_upper_bound(a in arb_oracle_version(), b in arb_oracle_version()) {
         let ab = ver(&a) | ver(&b);
@@ -83,8 +84,9 @@ proptest! {
 // ───────────────────────────── causal order: partial order ─────────────────────────────
 
 proptest! {
-    /// Reflexivity: `a <= a` and `a == a` under the causal order. (Equality is the
-    /// canonical-bit short-circuit; this guards it against ever reporting an inequality.)
+    /// Reflexivity: `a <= a` and `a == a` under the causal order. (Equality is
+    /// the canonical-bit short-circuit; this guards it against ever reporting
+    /// an inequality.)
     #[test]
     fn order_reflexive(a in arb_oracle_version()) {
         prop_assert_eq!(ver(&a).partial_cmp(&ver(&a)), Some(Ordering::Equal));
@@ -92,8 +94,9 @@ proptest! {
 }
 
 proptest! {
-    /// Antisymmetry: `a <= b && b <= a ⇒ a == b`. Two mutually-dominating versions denote
-    /// the same history, so their canonical forms (and bytes) coincide.
+    /// Antisymmetry: `a <= b && b <= a ⇒ a == b`. Two mutually-dominating
+    /// versions denote the same history, so their canonical forms (and bytes)
+    /// coincide.
     #[test]
     fn order_antisymmetric(a in arb_oracle_version(), b in arb_oracle_version()) {
         let (va, vb) = (ver(&a), ver(&b));
@@ -104,10 +107,11 @@ proptest! {
 }
 
 proptest! {
-    /// Transitivity: `a <= b && b <= c ⇒ a <= c`. The arbitrary generators rarely produce
-    /// three causally-chained versions by chance, so we *construct* a chain that always
-    /// satisfies the antecedent — `a <= a|b <= a|b|c` — by the upper-bound law, then assert
-    /// the conclusion holds across the impl's order directly.
+    /// Transitivity: `a <= b && b <= c ⇒ a <= c`. The arbitrary generators
+    /// rarely produce three causally-chained versions by chance, so we
+    /// *construct* a chain that always satisfies the antecedent — `a <= a|b <=
+    /// a|b|c` — by the upper-bound law, then assert the conclusion holds across
+    /// the impl's order directly.
     #[test]
     fn order_transitive(
         a in arb_oracle_version(),
@@ -126,10 +130,10 @@ proptest! {
 }
 
 proptest! {
-    /// Transitivity, unconstructed: whenever three *arbitrary* generated versions happen
-    /// to chain (`a <= b` and `b <= c`), the endpoints must too. Complements
-    /// [`order_transitive`] by exercising chains the generators stumble into rather than
-    /// ones we built, so the antecedent is the impl's own verdict end to end.
+    /// Transitivity, unconstructed: whenever three *arbitrary* generated
+    /// versions happen to chain (`a <= b` and `b <= c`), the endpoints must
+    /// too. Complements [`order_transitive`] by exercising chains the
+    /// generators stumble into rather than ones we built.
     #[test]
     fn order_transitive_incidental(
         a in arb_oracle_version(),
@@ -146,9 +150,9 @@ proptest! {
 // ───────────────────────────── id: fork / join / split / sum ─────────────────────────────
 
 proptest! {
-    /// `fork` then `join` round-trips: forking a non-empty share yields two halves whose
-    /// `join` reconstructs the original id exactly. (`fork` keeps one half in place and
-    /// returns the other; `join` sums them back.)
+    /// `fork` then `join` round-trips: forking a non-empty share yields two
+    /// halves whose `join` reconstructs the original id exactly. (`fork` keeps
+    /// one half in place and returns the other; `join` sums them back.)
     #[test]
     fn fork_join_roundtrip(p in arb_oracle_party_nonempty()) {
         let original = party(&p);
@@ -160,10 +164,10 @@ proptest! {
 }
 
 proptest! {
-    /// `split` ⊕ `sum` disjointness: the two halves a `fork` produces are disjoint, the
-    /// relation is symmetric, and neither half is the anonymous id (a `fork` always hands
-    /// out a real share). This is the invariant that keeps a forked population pairwise
-    /// `join`-able.
+    /// `split` ⊕ `sum` disjointness: the two halves a `fork` produces are
+    /// disjoint, the relation is symmetric, and neither half is the anonymous
+    /// id (a `fork` always hands out a real share). This is the invariant that
+    /// keeps a forked population pairwise `join`-able.
     #[test]
     fn fork_halves_disjoint(p in arb_oracle_party_nonempty()) {
         let mut kept = party(&p);
@@ -180,9 +184,9 @@ proptest! {
 // ───────────────────────────── codec: section of canonical bytes ─────────────────────────────
 
 proptest! {
-    /// `decode ∘ encode == id` on `Party`: encoding a value and decoding the bytes
-    /// recovers an equal value. The codec must be a section of the canonical byte form, or
-    /// byte-equality `Eq`/`Hash` would be unsound.
+    /// `decode ∘ encode == id` on `Party`: encoding a value and decoding the
+    /// bytes recovers an equal value. The codec must be a section of the
+    /// canonical byte form, or byte-equality `Eq`/`Hash` would be unsound.
     #[test]
     fn party_codec_roundtrip(p in arb_oracle_party_nonempty()) {
         let original = party(&p);
@@ -193,10 +197,10 @@ proptest! {
 }
 
 proptest! {
-    /// `decode ∘ encode == id` on `Version`, including the large-base events (path sums that
-    /// would overflow `u64`) the [`arb_oracle_version`] generator draws near and beyond
-    /// `u64::MAX`: the widened
-    /// Elias-gamma code must round-trip arbitrary-width bases as a canonical prefix code.
+    /// `decode ∘ encode == id` on `Version`, including the large-base events
+    /// (path sums that would overflow `u64`) the [`arb_oracle_version`]
+    /// generator draws near and beyond `u64::MAX`: the widened Elias-gamma code
+    /// must round-trip arbitrary-width bases as a canonical prefix code.
     #[test]
     fn version_codec_roundtrip(v in arb_oracle_version()) {
         let original = ver(&v);
@@ -207,10 +211,11 @@ proptest! {
 }
 
 proptest! {
-    /// An arbitrary (possibly anonymous) id still round-trips through the codec *as a
-    /// sub-tree*: wrapping it under a `seed` sibling makes a nonzero share that `decode`
-    /// accepts, so the anonymous leaf is exercised on the codec path too (a standalone
-    /// anonymous `Party` is rejected by design and cannot be encoded as a top-level value).
+    /// An arbitrary (possibly anonymous) id still round-trips through the codec
+    /// *as a sub-tree*: wrapping it under a `seed` sibling makes a nonzero
+    /// share that `decode` accepts, so the anonymous leaf is exercised on the
+    /// codec path too (a standalone anonymous `Party` is rejected by design and
+    /// cannot be encoded as a top-level value).
     #[test]
     fn party_codec_roundtrip_with_anonymous_subtree(p in arb_oracle_party()) {
         let wrapped = oracle::Party::node(oracle::Party::seed(), p);

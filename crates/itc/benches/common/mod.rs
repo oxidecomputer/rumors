@@ -1,21 +1,24 @@
 //! Shared input generation for the itc differential benchmarks.
 //!
-//! Every input is built through the *public* API. Fork a seed into a universe of
-//! pairwise-disjoint members, then preserve a random subset and `join` it back into a
-//! single tree. The members not preserved are simply dropped, so their regions of the id
-//! space become structural `0` holes — the preserved subset determines the shape, so
-//! *choosing which members to preserve randomizes the tree*. A two-group partition yields
-//! two trees that are disjoint by construction (the operands for `join`/`sync`/compare).
+//! Every input is built through the *public* API. Fork a seed into a universe
+//! of pairwise-disjoint members, then preserve a random subset and `join` it
+//! back into a single tree. The members not preserved are simply dropped, so
+//! their regions of the id space become structural `0` holes. The preserved
+//! subset determines the shape, so *choosing which members to preserve
+//! randomizes the tree*. A two-group partition yields two trees that are
+//! disjoint by construction (the operands for `join`/`sync`/compare).
 //!
-//! Impl and oracle inputs are built from the *same* [`Plan`] (fork schedule + preserve
-//! labels + per-member tick counts), and `fork`/`tick`/`join` are deterministic, so the
-//! two are structurally identical (the differential suite proves they agree). The
-//! timings are therefore a like-for-like comparison on the same trees.
+//! Impl and oracle inputs are built from the *same* [`Plan`] (fork schedule +
+//! preserve labels + per-member tick counts), and `fork`/`tick`/`join` are
+//! deterministic, so the two are structurally identical (the differential suite
+//! proves they agree). The timings are therefore a like-for-like comparison on
+//! the same trees.
 //!
-//! All randomness is seeded with a fixed constant, so inputs are reproducible run to run
-//! — which is what criterion's regression comparisons require. Generation lives here,
-//! outside the timed region; the benches only clone (oracle) or `decode` (impl, which is
-//! not `Clone`) a prebuilt template to get a fresh value per iteration.
+//! All randomness is seeded with a fixed constant, so inputs are reproducible
+//! run to run, which is what criterion's regression comparisons require.
+//! Generation lives outside the timed region; the benches only clone (oracle)
+//! or `decode` (impl, which is not `Clone`) a prebuilt template to get a fresh
+//! value per iteration.
 
 #![allow(dead_code)] // Each bench target compiles this module but uses only part of it.
 
@@ -196,7 +199,7 @@ pub fn oracle_clocks(plan: &Plan, groups: u8) -> Vec<oracle::Clock> {
 pub fn impl_versions(plan: &Plan, groups: u8) -> Vec<Version> {
     impl_clocks(plan, groups)
         .into_iter()
-        .map(|c| c.version())
+        .map(|c| c.version().clone())
         .collect()
 }
 

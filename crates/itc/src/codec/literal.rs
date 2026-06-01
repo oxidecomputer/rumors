@@ -2,10 +2,11 @@ use crate::ParseError;
 
 use super::{encode_int, parse_id, validate_ev, validate_id, Base, Bits, BitsSlice};
 
-/// Whether a normal-form id stream is the anonymous (empty) identity. In canonical
-/// normal form the only empty id is the single `0` leaf — any `(0, 0)` would have
-/// collapsed — so this is an O(1) check. Callers must pass already-validated bits; the
-/// O(1) shortcut is only sound for normal-form input, so we assert that in debug builds.
+/// Whether a normal-form id stream is the anonymous (empty) identity. In
+/// canonical normal form the only empty id is the single `0` leaf — any `(0,
+/// 0)` would have collapsed — so this is an O(1) check. Callers must pass
+/// already-validated bits; the O(1) shortcut is only sound for normal-form
+/// input, so we assert that in debug builds.
 pub(crate) fn id_is_empty(bits: &BitsSlice) -> bool {
     debug_assert!(
         matches!(parse_id(bits, 0), Ok(end) if end == bits.len()),
@@ -30,8 +31,8 @@ pub(crate) fn ev_leaf(n: u64) -> Bits {
     b
 }
 
-/// Assemble an id node from two already-normal child streams, then validate the result
-/// is itself normal (rejecting a collapsible `(v, v)`).
+/// Assemble an id node from two already-normal child streams, then validate the
+/// result is itself normal (rejecting a collapsible `(v, v)`).
 pub(crate) fn id_node(l: &BitsSlice, r: &BitsSlice) -> Result<Bits, ParseError> {
     let mut b = Bits::with_capacity(1 + l.len() + r.len());
     b.push(true); // node flag
@@ -41,8 +42,9 @@ pub(crate) fn id_node(l: &BitsSlice, r: &BitsSlice) -> Result<Bits, ParseError> 
     Ok(b)
 }
 
-/// Assemble an event node with base `n` from two already-normal child streams, then
-/// validate the result is itself normal (a zero-base child, no collapsible `(n, m, m)`).
+/// Assemble an event node with base `n` from two already-normal child streams,
+/// then validate the result is itself normal (a zero-base child, no collapsible
+/// `(n, m, m)`).
 pub(crate) fn ev_node(n: u64, l: &BitsSlice, r: &BitsSlice) -> Result<Bits, ParseError> {
     let mut b = Bits::with_capacity(2 + l.len() + r.len());
     b.push(true); // node flag

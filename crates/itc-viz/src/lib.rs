@@ -227,12 +227,12 @@ fn apply_to_arena(arena: &mut Vec<Node>, op: Op) -> Result<(), EngineError> {
             let mut left = clock_at(arena, a)?;
             let right = clock_at(arena, b)?;
             match left.join(right) {
-                Ok(()) => push_clock(arena, left),
+                Ok(_) => push_clock(arena, left),
                 Err(_) => return Err(EngineError::JoinOverlap { a, b }),
             }
         }
         Op::Send { from, to } => {
-            let version: Version = clock_at(arena, from)?.version();
+            let version: Version = clock_at(arena, from)?.version().clone();
             let mut receiver = clock_at(arena, to)?;
             receiver |= version;
             push_clock(arena, receiver);

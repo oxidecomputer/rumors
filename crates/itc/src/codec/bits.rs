@@ -5,10 +5,12 @@ use crate::DecodeError;
 
 /// The packed storage form: a most-significant-bit-first bit stream over bytes.
 pub(crate) type Bits = BitVec<u8, Msb0>;
+
 /// A borrowed view of the packed storage form.
 pub(crate) type BitsSlice = BitSlice<u8, Msb0>;
 
-/// Borrow bytes as an MSB-first bit stream without first copying them into a [`Bits`].
+/// Borrow bytes as an MSB-first bit stream without first copying them into a
+/// [`Bits`].
 pub(crate) fn bytes_as_bits(bytes: &[u8]) -> &BitsSlice {
     bytes.view_bits::<Msb0>()
 }
@@ -47,13 +49,14 @@ pub(crate) fn pack_to_bytes(bits: &BitsSlice) -> Vec<u8> {
     padded.into_vec()
 }
 
-/// Require that the bits from `pos` onward are exactly the canonical padding: a run of
-/// zeros shorter than a byte. [`pack_to_bytes`] only pads the final partial byte, so a
-/// canonical stream has at most 7 trailing zero bits; both a nonzero padding bit AND a
-/// whole spurious zero byte (`>= 8` trailing bits, even if all zero) are non-canonical.
-/// Bounding the length is what makes `decode` injective on bytes — without it,
-/// `decode([.., 0x00])` would accept the same value under infinitely many byte strings,
-/// re-encoding to a shorter stream than its own input.
+/// Require that the bits from `pos` onward are exactly the canonical padding: a
+/// run of zeros shorter than a byte. [`pack_to_bytes`] only pads the final
+/// partial byte, so a canonical stream has at most 7 trailing zero bits; both a
+/// nonzero padding bit AND a whole spurious zero byte (`>= 8` trailing bits,
+/// even if all zero) are non-canonical. Bounding the length is what makes
+/// `decode` injective on bytes — without it, `decode([.., 0x00])` would accept
+/// the same value under infinitely many byte strings, re-encoding to a shorter
+/// stream than its own input.
 pub(crate) fn require_zero_padding(bits: &BitsSlice, pos: usize) -> Result<(), DecodeError> {
     if bits.len() - pos >= 8 || bits[pos..].any() {
         Err(DecodeError::TrailingBits)

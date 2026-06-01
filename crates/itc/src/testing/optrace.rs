@@ -92,15 +92,17 @@ pub(crate) fn run(ops: &[Op]) -> Vec<oracle::Clock> {
 pub(crate) fn step_impl(imp: &mut Vec<Clock>, op: &Op) {
     let n = imp.len();
     match *op {
-        Op::Tick(i) => imp[i % n].tick(),
+        Op::Tick(i) => {
+            imp[i % n].tick();
+        }
         Op::Fork(i) => {
             let child = imp[i % n].fork();
             imp.push(child);
         }
         Op::Send(i, j) => {
             let (i, j) = (i % n, j % n);
-            let msg = imp[i].send();
-            imp[j].receive(msg);
+            let msg = imp[i].send().clone();
+            imp[j].receive(&msg);
         }
         Op::Sync(i, j) => {
             let (i, j) = (i % n, j % n);

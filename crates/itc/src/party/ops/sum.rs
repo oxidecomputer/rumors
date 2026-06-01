@@ -3,8 +3,8 @@ use crate::idbits::IdView;
 
 use super::build::IdBuilder;
 
-/// A step in the threaded `sum` build. `a_pos`/`b_pos` are bit offsets into the two id
-/// streams.
+/// A step in the threaded `sum` build. `a_pos`/`b_pos` are bit offsets into the
+/// two id streams.
 enum SumJob {
     /// Sum the subtrees rooted at these positions.
     Eval { a_pos: usize, b_pos: usize },
@@ -17,10 +17,11 @@ enum SumJob {
     },
 }
 
-/// A built `sum` subtree report — the register analogue for `sum`: the subtree's output
-/// root, plus where it ended in each input. `Eval` writes one for a copied side; `Right`
-/// reads it to launch the sibling; `Combine` rewrites it with the joined node's report
-/// after finalizing that node in the output builder.
+/// A built `sum` subtree report — the register analogue for `sum`: the
+/// subtree's output root, plus where it ended in each input. `Eval` writes one
+/// for a copied side; `Right` reads it to launch the sibling; `Combine`
+/// rewrites it with the joined node's report after finalizing that node in the
+/// output builder.
 #[derive(Clone, Copy, Default)]
 struct Summed {
     /// Output bit position of the subtree's root.
@@ -32,16 +33,18 @@ struct Summed {
 }
 
 impl IdView<'_> {
-    /// Sum `self` and `other` (normal-form ids) — the union of their regions — producing a
-    /// normalized id, or `None` if they overlap (share a region, so no disjoint union
-    /// exists). This is the single point of overlap detection: callers (`Party::join`) need
-    /// not pre-check [`is_disjoint`](IdView::is_disjoint), since a successful `sum` *is* the
-    /// disjointness proof. `O(n + m)`: the both-internal case threads (no skip); a `0` child
-    /// copies the other subtree verbatim (work bounded by the output size).
+    /// Sum `self` and `other` (normal-form ids) — the union of their regions —
+    /// producing a normalized id, or `None` if they overlap (share a region, so
+    /// no disjoint union exists). This is the single point of overlap
+    /// detection: callers (`Party::join`) need not pre-check
+    /// [`is_disjoint`](IdView::is_disjoint), since a successful `sum` *is* the
+    /// disjointness proof. `O(n + m)`: the both-internal case threads (no
+    /// skip); a `0` child copies the other subtree verbatim (work bounded by
+    /// the output size).
     ///
-    /// The iterative form of the recursive `oracle::Party::sum` (the paper's `sum`/`norm`);
-    /// read that recursive twin first, then this is the same algorithm with the call stack
-    /// made explicit on the `SumJob` stack.
+    /// The iterative form of the recursive `oracle::Party::sum` (the paper's
+    /// `sum`/`norm`); read that recursive twin first, then this is the same
+    /// algorithm with the call stack made explicit on the `SumJob` stack.
     pub(crate) fn sum(&self, other: &IdView) -> Option<Bits> {
         let (a, b) = (*self, *other);
         let mut out = IdBuilder::with_capacity(a.bits().len() + b.bits().len());

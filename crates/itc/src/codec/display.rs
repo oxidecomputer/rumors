@@ -1,8 +1,8 @@
 use super::{decode_int, BitsSlice};
 
-/// Write an id tree in the paper's grammar with `sep` between a node's two children
-/// (`", "` for `Display`, `" "` for `Debug`). Iterative: deep ids must not overflow the
-/// formatter. Leaves render as `0`/`1`, nodes as `(l<sep>r)`.
+/// Write an id tree in the paper's grammar with `sep` between a node's two
+/// children (`", "`). Iterative: deep ids must not overflow the formatter.
+/// Leaves render as `0`/`1`, nodes as `(l<sep>r)`.
 pub(crate) fn write_id(
     bits: &BitsSlice,
     f: &mut core::fmt::Formatter<'_>,
@@ -41,8 +41,9 @@ pub(crate) fn write_id(
     }
 }
 
-/// Write an event tree in the paper's grammar with `sep` between a node's parts. Leaves
-/// render as `n`, nodes as `(n<sep>l<sep>r)`. Iterative, as [`write_id`].
+/// Write an event tree in the paper's grammar with `sep` between a node's
+/// parts. Leaves render as `n`, nodes as `(n<sep>l<sep>r)`. Iterative, as
+/// [`write_id`].
 pub(crate) fn write_ev(
     bits: &BitsSlice,
     f: &mut core::fmt::Formatter<'_>,

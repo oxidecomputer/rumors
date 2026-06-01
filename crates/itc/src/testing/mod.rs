@@ -1,10 +1,12 @@
 //! Test-only harness: the oracle⇄impl bridge, input generators, the brute-force
-//! grow-optimality reference, the step-scaling helpers, the function-space (semantic) oracle,
-//! and the cross-cutting suites (exhaustive small-scope, algebraic laws, documentation
-//! snapshots). Compiled only under `cfg(test)`; never part of the shipped crate.
+//! grow-optimality reference, the step-scaling helpers, the function-space
+//! (semantic) oracle, and the cross-cutting suites (exhaustive small-scope,
+//! algebraic laws, documentation snapshots). Compiled only under `cfg(test)`;
+//! never part of the shipped crate.
 //!
-//! The per-production-module unit tests live in their own `*/tests.rs` siblings; this
-//! module holds the shared scaffolding and the suites that span more than one module.
+//! The per-production-module unit tests live in their own `*/tests.rs`
+//! siblings; this module holds the shared scaffolding and the suites that span
+//! more than one module.
 
 pub(crate) mod bridge;
 pub(crate) mod complexity;

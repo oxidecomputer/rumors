@@ -1,13 +1,14 @@
 //! The oracle⇄impl bridge for differential structural agreement.
 //!
-//! [`from_oracle_party`]/[`from_oracle_version`] build an impl value by emitting the
-//! canonical packed bits of an oracle tree directly (NOT via the public codec), keeping
-//! algorithm correctness decoupled from codec correctness. The inverse `to_oracle_*`
-//! rebuild the oracle's tree shape from the impl's *internal* packed representation, so a
-//! differential test can compare structures with `==` without round-tripping the byte
-//! codec (which is exercised separately). Both forms are normalized, so structural `==` ⇔
-//! semantic equality. Recursive over bounded test trees (the impl's own traversals are
-//! iterative).
+//! [`from_oracle_party`]/[`from_oracle_version`] build an impl value by
+//! emitting the canonical packed bits of an oracle tree directly (NOT via the
+//! public codec), keeping algorithm correctness decoupled from codec
+//! correctness. The inverse `to_oracle_*` rebuild the oracle's tree shape from
+//! the impl's *internal* packed representation, so a differential test can
+//! compare structures with `==` without round-tripping the byte codec (which is
+//! exercised separately). Both forms are normalized, so structural `==` ⇔
+//! semantic equality. Recursive over bounded test trees (the impl's own
+//! traversals are iterative).
 
 use crate::codec::{self, Bits};
 use crate::oracle;
@@ -68,13 +69,15 @@ pub(crate) fn from_oracle_clock(c: &oracle::Clock) -> Clock {
 
 // ───────────────────────────── impl → oracle ─────────────────────────────
 //
-// Structural lowering for differential agreement: rebuild the oracle's tree shape from the
-// impl's *internal* packed representation, then compare with `==`. This is the inverse of
-// `from_oracle_*`. It walks the packed bits directly — the impl's at-rest storage — rather
-// than round-tripping the public `encode`/`decode`, so the master harness checks algorithm
-// correctness without sharing a failure mode with the byte codec (which is exercised
-// separately). Recursive over a bounded tree (test-only; the impl's own traversals are
-// iterative). Both forms are normalized, so structural `==` ⇔ semantic equality.
+// Structural lowering for differential agreement: rebuild the oracle's tree
+// shape from the impl's *internal* packed representation, then compare with
+// `==`. This is the inverse of `from_oracle_*`. It walks the packed bits
+// directly — the impl's at-rest storage — rather than round-tripping the public
+// `encode`/`decode`, so the master harness checks algorithm correctness without
+// sharing a failure mode with the byte codec (which is exercised separately).
+// Recursive over a bounded tree (test-only; the impl's own traversals are
+// iterative). Both forms are normalized, so structural `==` ⇔ semantic
+// equality.
 
 fn read_id(bits: &codec::BitsSlice, pos: usize) -> (oracle::Party, usize) {
     if bits[pos] {

@@ -1,5 +1,5 @@
-//! Party tests: descent order, fork/join round-trip, disjointness, and the
-//! meet / overlap behavior, all differential against the oracle.
+//! Party tests: descent order, fork/join round-trip, disjointness, and the meet
+//! / overlap behavior, all differential against the oracle.
 
 use std::cmp::Ordering;
 
@@ -23,8 +23,9 @@ fn le(a: &Party, b: &Party) -> bool {
 // ───────────────────────────── differential vs oracle ─────────────────────────────
 
 proptest! {
-    /// D17/D20. The impl descent order and `is_disjoint` agree with the oracle, and
-    /// the order obeys the partial-order laws (reflexive, antisymmetric, transitive).
+    /// The impl descent order and `is_disjoint` agree with the oracle, and the
+    /// order obeys the partial-order laws (reflexive, antisymmetric,
+    /// transitive).
     #[test]
     fn d_party_matches_oracle(
         ops in world_strategy(),
@@ -55,8 +56,8 @@ proptest! {
 }
 
 proptest! {
-    /// D18/D19. `fork` yields two disjoint descendants of the parent (parent `<`
-    /// each child), both matching the oracle; `join` of the two recovers the parent
+    /// `fork` yields two disjoint descendants of the parent (parent `<` each
+    /// child), both matching the oracle; `join` of the two recovers the parent
     /// (the meet — a lower bound of both).
     #[test]
     fn d_fork_join_roundtrip(ops in world_strategy(), i in 0usize..64) {
@@ -88,9 +89,9 @@ proptest! {
 // ───────────────────────────── complexity (linear scaling) ─────────────────────────────
 
 proptest! {
-    /// Complexity. `split` is `O(n)`: over a random deep id shape, its traversal steps
-    /// grow linearly (not quadratically) from `scale` to `4 * scale` — proving no
-    /// re-scan to find a right child.
+    /// Complexity. `split` is `O(n)`: over a random deep id shape, its
+    /// traversal steps grow linearly (not quadratically) from `scale` to `4 *
+    /// scale` — proving no re-scan to find a right child.
     #[test]
     fn split_is_linear(shape in arb_shape(), scale in MIN_SCALE..256) {
         let measure = |s: usize| {
@@ -104,8 +105,8 @@ proptest! {
 }
 
 proptest! {
-    /// Complexity. `sum` is `O(n + m)`: on a deep disjoint pair (the halves of a forked
-    /// spine) its steps grow linearly with shape size.
+    /// Complexity. `sum` is `O(n + m)`: on a deep disjoint pair (the halves of
+    /// a forked spine) its steps grow linearly with shape size.
     #[test]
     fn sum_is_linear(shape in arb_shape(), scale in MIN_SCALE..256) {
         let measure = |s: usize| {
@@ -120,11 +121,12 @@ proptest! {
 }
 
 proptest! {
-    /// Complexity. `is_disjoint` is `O(n + m)`: a *misaligned* disjoint pair (a shallow
-    /// `0`-leaf on one side aligned with the other's whole deep subtree) drives the
-    /// bounded lazy-skip at scale. The pair is disjoint, so the walk runs to completion
-    /// (no early `false`) and the skip dominates; steps stay linear from `scale` to
-    /// `4 * scale`, proving each node is skipped at most once (no per-node re-scan).
+    /// Complexity. `is_disjoint` is `O(n + m)`: a *misaligned* disjoint pair (a
+    /// shallow `0`-leaf on one side aligned with the other's whole deep
+    /// subtree) drives the bounded lazy-skip at scale. The pair is disjoint, so
+    /// the walk runs to completion (no early `false`) and the skip dominates;
+    /// steps stay linear from `scale` to `4 * scale`, proving each node is
+    /// skipped at most once (no per-node re-scan).
     #[test]
     fn is_disjoint_is_linear(scale in MIN_SCALE..256) {
         let measure = |s: usize| {
@@ -138,11 +140,12 @@ proptest! {
 }
 
 proptest! {
-    /// Complexity. `compare` is `O(n + m)`: a *misaligned* containment pair (a shallow
-    /// `1`-leaf on the container aligned with the contained's whole deep subtree) drives
-    /// the bounded lazy-skip at scale. `big ⊇ small`, so the `a ⊇ b` direction stays live
-    /// and the walk runs to completion (the `b ⊇ a` direction is excluded early but does
-    /// not stop it); the skip dominates, and steps stay linear over the `4x` growth.
+    /// Complexity. `compare` is `O(n + m)`: a *misaligned* containment pair (a
+    /// shallow `1`-leaf on the container aligned with the contained's whole
+    /// deep subtree) drives the bounded lazy-skip at scale. `big ⊇ small`, so
+    /// the `a ⊇ b` direction stays live and the walk runs to completion (the `b
+    /// ⊇ a` direction is excluded early but does not stop it); the skip
+    /// dominates, and steps stay linear over the `4x` growth.
     #[test]
     fn compare_is_linear(scale in MIN_SCALE..256) {
         let measure = |s: usize| {
@@ -158,7 +161,7 @@ proptest! {
 // ───────────────────────────── join overlap ─────────────────────────────
 
 proptest! {
-    /// D20. Joining overlapping parties errors and hands the party back unchanged.
+    /// Joining overlapping parties errors and hands the party back unchanged.
     #[test]
     fn d_join_overlap_hands_back(ops in world_strategy(), i in 0usize..64) {
         let cs = run(&ops);
@@ -180,10 +183,10 @@ proptest! {
 
 // ───────────────────────── paper-notation TryFrom ─────────────────────────
 
-/// `TryFrom` numeric/tuple literals build parties via the same paper notation as the
-/// string parser: the seed `1`, a flat `(1, 0)`, and a nested `((0, 1), (1, (1, 0)))`
-/// all construct, while the anonymous bare `0` is rejected (a standalone id must own
-/// some region).
+/// `TryFrom` numeric/tuple literals build parties via the same paper notation
+/// as the string parser: the seed `1`, a flat `(1, 0)`, and a nested `((0, 1),
+/// (1, (1, 0)))` all construct, while the anonymous bare `0` is rejected (a
+/// standalone id must own some region).
 #[test]
 fn parse_bare_notation() {
     let _party: Party = 1.try_into().unwrap();
@@ -194,18 +197,19 @@ fn parse_bare_notation() {
 
 // ───────────── arbitrary normal-form ids (decoupled from the op pipeline) ─────────────
 //
-// The op-trace differentials above only ever compare ids that descend from one seed (so
-// every pair is causally related and pairwise disjoint by construction). These feed
-// *arbitrary* normal-form ids — random shape, random ownership, including genuinely
-// *overlapping* and *unrelated* pairs — to every id op and diff against the oracle. They
-// reach the overlap/incomparable arms (`is_disjoint == false`, `compare == None`,
-// `sum == None`) that the seed-derived pipeline cannot produce.
+// The op-trace differentials above only ever compare ids that descend from one
+// seed (so every pair is causally related and pairwise disjoint by
+// construction). These feed *arbitrary* normal-form ids — random shape, random
+// ownership, including genuinely *overlapping* and *unrelated* pairs — to every
+// id op and diff against the oracle. They reach the overlap/incomparable arms
+// (`is_disjoint == false`, `compare == None`, `sum == None`) that the
+// seed-derived pipeline cannot produce.
 
 proptest! {
     /// `partial_cmp` (descent order) and `is_disjoint` on arbitrary id pairs —
-    /// typically *unrelated* and frequently *overlapping* — agree with the oracle,
-    /// including the incomparable (`None`) and not-disjoint verdicts the op pipeline never
-    /// produces.
+    /// typically *unrelated* and frequently *overlapping* — agree with the
+    /// oracle, including the incomparable (`None`) and not-disjoint verdicts
+    /// the op pipeline never produces.
     #[test]
     fn compare_disjoint_arbitrary(
         oa in arb_oracle_party(),
@@ -221,9 +225,9 @@ proptest! {
 
 proptest! {
     /// `split` (the structural op behind `fork`) on an arbitrary non-empty id
-    /// matches the oracle's `split`, structurally — on shapes the seed pipeline never
-    /// forks. The two halves are read straight off the impl's packed `IdView::split`
-    /// output and lowered for comparison.
+    /// matches the oracle's `split`, structurally — on shapes the seed pipeline
+    /// never forks. The two halves are read straight off the impl's packed
+    /// `IdView::split` output and lowered for comparison.
     #[test]
     fn split_arbitrary(op in arb_oracle_party_nonempty()) {
         let mut oracle_self = op.clone();
@@ -240,10 +244,11 @@ proptest! {
 }
 
 proptest! {
-    /// `sum` on arbitrary id pairs agrees with the oracle: it returns the merged
-    /// id exactly when the pair is disjoint (matching `oracle::Party::join`), and `None`
-    /// on overlap. The op pipeline only ever sums disjoint halves, so the overlap `None`
-    /// arm is otherwise untested at arbitrary shapes.
+    /// `sum` on arbitrary id pairs agrees with the oracle: it returns the
+    /// merged id exactly when the pair is disjoint (matching
+    /// `oracle::Party::join`), and `None` on overlap. The op pipeline only ever
+    /// sums disjoint halves, so the overlap `None` arm is otherwise untested at
+    /// arbitrary shapes.
     #[test]
     fn sum_arbitrary(
         oa in arb_oracle_party(),
@@ -265,8 +270,9 @@ proptest! {
 
 proptest! {
     /// `decode ∘ encode == identity` over arbitrary non-empty normal-form ids,
-    /// and the decoded value lowers to the same oracle tree. (The anonymous tree is
-    /// excluded: a standalone `Party` must own a region, and `decode` rejects it.)
+    /// and the decoded value lowers to the same oracle tree. (The anonymous
+    /// tree is excluded: a standalone `Party` must own a region, and `decode`
+    /// rejects it.)
     #[test]
     fn decode_encode_arbitrary(op in arb_oracle_party_nonempty()) {
         let p = from_oracle_party(&op);

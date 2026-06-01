@@ -4,18 +4,21 @@ use crate::idbits::{IdHeader, IdView};
 use super::build::{id_leaf, id_node};
 
 impl IdView<'_> {
-    /// Split this id (`self`) into two non-overlapping ids that sum to it. `O(n)` in two
-    /// passes: locate the *branch* — the shallowest node along the (unique) nonempty spine
-    /// whose two children both own something, or the spine's terminal `1` leaf — then build
-    /// both halves by copying the input with one side of the branch zeroed.
+    /// Split this id (`self`) into two non-overlapping ids that sum to it.
+    /// `O(n)` in two passes: locate the *branch* — the shallowest node along
+    /// the (unique) nonempty spine whose two children both own something, or
+    /// the spine's terminal `1` leaf — then build both halves by copying the
+    /// input with one side of the branch zeroed.
     ///
-    /// The branch is the both-nonempty node of minimum start position (all shallower nodes
-    /// are spine wrappers, with one empty child), found by a single forward scan rather
-    /// than by descending and re-scanning to test each right child for emptiness.
+    /// The branch is the both-nonempty node of minimum start position (all
+    /// shallower nodes are spine wrappers, with one empty child), found by a
+    /// single forward scan rather than by descending and re-scanning to test
+    /// each right child for emptiness.
     ///
-    /// The iterative form of the recursive `oracle::Party::split` (the paper's `split`); read
-    /// that recursive twin first. Where the oracle recurses down the spine, this locates the
-    /// same branch by a forward scan and rebuilds the two halves without re-descending.
+    /// The iterative form of the recursive `oracle::Party::split` (the paper's
+    /// `split`). Where the oracle recurses down the spine, this locates the
+    /// same branch by a forward scan and rebuilds the two halves without
+    /// re-descending.
     pub(crate) fn split(&self) -> (Bits, Bits) {
         let id = *self;
         let bits = id.bits();
@@ -47,16 +50,18 @@ impl IdView<'_> {
                 right_start: usize,
             },
         }
-        // The branch node `(start, left_start, right_start)`, and any `1` leaf (the branch
-        // when the tree is a pure spine with no both-nonempty node).
+        // The branch node `(start, left_start, right_start)`, and any `1` leaf
+        // (the branch when the tree is a pure spine with no both-nonempty
+        // node).
         let mut branch: Option<(usize, usize, usize)> = None;
         let mut one_leaf: Option<usize> = None;
         let mut stack: Vec<Frame> = Vec::new();
         let mut pos = 0;
-        // Two interleaved phases per outer iteration: phase A descends left to a leaf
-        // (pushing `NeedLeft` frames); phase B (the inner `loop`) pops completed ancestors,
-        // recording the shallowest both-nonempty node as the branch, until one still needs
-        // its right child (then resume phase A there) or the stack empties (then build).
+        // Two interleaved phases per outer iteration: phase A descends left to
+        // a leaf (pushing `NeedLeft` frames); phase B (the inner `loop`) pops
+        // completed ancestors, recording the shallowest both-nonempty node as
+        // the branch, until one still needs its right child (then resume phase
+        // A there) or the stack empties (then build).
         loop {
             let IdHeader {
                 node: is_node,
@@ -75,7 +80,8 @@ impl IdView<'_> {
                 }
                 !val // a `0` leaf is empty; a `1` leaf is not
             };
-            // Bubble the completed subtree up, completing ancestors as their turn comes.
+            // Bubble the completed subtree up, completing ancestors as their
+            // turn comes.
             loop {
                 match stack.pop() {
                     None => return build_split(bits, branch, one_leaf),
@@ -104,9 +110,9 @@ impl IdView<'_> {
     }
 }
 
-/// Build the two split halves once the branch is located (see [`split`](IdView::split)).
-/// `a` keeps the branch's left side (its right zeroed); `b` keeps the right side (its
-/// left zeroed).
+/// Build the two split halves once the branch is located (see
+/// [`split`](IdView::split)). `a` keeps the branch's left side (its right
+/// zeroed); `b` keeps the right side (its left zeroed).
 fn build_split(
     bits: &BitsSlice,
     branch: Option<(usize, usize, usize)>,
@@ -114,8 +120,8 @@ fn build_split(
 ) -> (Bits, Bits) {
     let zero = id_leaf(false);
     if let Some((p, left_start, right_start)) = branch {
-        // Branch is a node `(i1, i2)`: i1 = bits[left_start..right_start],
-        // i2 = bits[right_start..branch_end], with the wrapper spine in the prefix
+        // Branch is a node `(i1, i2)`: i1 = bits[left_start..right_start], i2 =
+        // bits[right_start..branch_end], with the wrapper spine in the prefix
         // bits[0..p] and the trailing wrapper closings in bits[branch_end..].
         let branch_end = IdView(bits).skip(right_start);
         let prefix = &bits[0..p];
@@ -139,7 +145,8 @@ fn build_split(
 
         (a, b)
     } else {
-        // No both-nonempty node: the spine ends in a `1` leaf, split as (1,0)/(0,1).
+        // No both-nonempty node: the spine ends in a `1` leaf, split as
+        // (1,0)/(0,1).
         let p = one_leaf.expect("a nonempty id has a branch node or a 1 leaf");
         let prefix = &bits[0..p];
         let suffix = &bits[p + 2..]; // the `1` leaf occupies 2 bits

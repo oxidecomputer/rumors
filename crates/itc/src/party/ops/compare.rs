@@ -2,8 +2,8 @@ use core::cmp::Ordering;
 
 use crate::idbits::IdView;
 
-/// A step in the threaded [`is_disjoint`](IdView::is_disjoint) walk. `a_pos`/`b_pos` are
-/// bit offsets into the two packed id streams.
+/// A step in the threaded [`is_disjoint`](IdView::is_disjoint) walk.
+/// `a_pos`/`b_pos` are bit offsets into the two packed id streams.
 enum DisjointJob {
     /// Test the subtrees rooted at these positions for shared ownership.
     Eval { a_pos: usize, b_pos: usize },
@@ -12,9 +12,9 @@ enum DisjointJob {
     Right,
 }
 
-/// A step in the threaded [`compare`](IdView::compare) walk, the containment-order
-/// analogue of [`DisjointJob`]. `a_pos`/`b_pos` are bit offsets into the two packed id
-/// streams.
+/// A step in the threaded [`compare`](IdView::compare) walk, the
+/// containment-order analogue of [`DisjointJob`]. `a_pos`/`b_pos` are bit
+/// offsets into the two packed id streams.
 enum CompareJob {
     /// Compare the subtrees rooted at these positions.
     Eval { a_pos: usize, b_pos: usize },
@@ -23,12 +23,12 @@ enum CompareJob {
     Right,
 }
 
-/// The thread register for the predicate walks ([`is_disjoint`](IdView::is_disjoint),
-/// [`compare`](IdView::compare)): the
-/// position just past the most-recently-finished subtree in each input. An `Eval` arm
-/// *writes* it when it decides a branch locally; a deferred `Right` frame *reads* it to
-/// resume the sibling. (No payload — the predicates accumulate into a `bool` or the
-/// `le`/`ge` pair, not here.)
+/// The thread register for the predicate walks
+/// ([`is_disjoint`](IdView::is_disjoint), [`compare`](IdView::compare)): the
+/// position just past the most-recently-finished subtree in each input. An
+/// `Eval` arm *writes* it when it decides a branch locally; a deferred `Right`
+/// frame *reads* it to resume the sibling. (No payload — the predicates
+/// accumulate into a `bool` or the `le`/`ge` pair, not here.)
 #[derive(Clone, Copy, Default)]
 struct Ends {
     /// Position just past the finished subtree in `a`.
@@ -87,24 +87,25 @@ impl IdView<'_> {
         true
     }
 
-    /// The descent order on `self` and `other` (normal-form ids), in a single `O(n + m)`
-    /// pass. `Some(Less)` means `self` is an ancestor of (its region contains) `other`;
-    /// `Some(Greater)` the reverse; `Some(Equal)` equal regions; `None` incomparable
-    /// (cousins).
+    /// The descent order on `self` and `other` (normal-form ids), in a single
+    /// `O(n + m)` pass. `Some(Less)` means `self` is an ancestor of (its region
+    /// contains) `other`; `Some(Greater)` the reverse; `Some(Equal)` equal
+    /// regions; `None` incomparable (cousins).
     ///
-    /// The iterative form of the recursive `oracle::Party::contains`, run in both directions
-    /// at once; read that recursive twin first. Tracks both containment directions together —
-    /// `a ⊇ b` as `le` and `b ⊇ a` as `ge` — so the two reverse-inclusion scans share one
-    /// traversal instead of running `contains` twice; the walk stops early once both are
-    /// excluded. Only a both-node
-    /// pair descends: wherever at least one side is a leaf, that region's value (empty /
-    /// full) settles both directions locally, and the other side is skipped once to resync
+    /// The iterative form of the recursive `oracle::Party::contains`, run in
+    /// both directions at once. Tracks both containment directions together —
+    /// `a ⊇ b` as `le` and `b ⊇ a` as `ge` — so the two reverse-inclusion scans
+    /// share one traversal instead of running `contains` twice; the walk stops
+    /// early once both are excluded. Only a both-node pair descends: wherever
+    /// at least one side is a leaf, that region's value (empty / full) settles
+    /// both directions locally, and the other side is skipped once to resync
     /// (bounded lazy-skip), so each node is still visited at most once.
     pub(crate) fn compare(&self, other: &IdView) -> Option<Ordering> {
         let (a, b) = (*self, *other);
-        // Both ids are canonical normal form, so bit-equality is semantic equality: settle
-        // `Equal` with one length-checked memcmp before allocating the traversal stack.
-        // Differing lengths fail in O(1); only equal-length inputs pay the scan.
+        // Both ids are canonical normal form, so bit-equality is semantic
+        // equality: settle `Equal` with one length-checked memcmp before
+        // allocating the traversal stack. Differing lengths fail in O(1); only
+        // equal-length inputs pay the scan.
         if a.bits() == b.bits() {
             return Some(Ordering::Equal);
         }

@@ -1,4 +1,4 @@
-//! [`Party`] — a nonzero share of the interval-tree-clock id space.
+//! Disjoint parties who can emit events.
 
 use core::cmp::Ordering;
 use core::fmt::Display;
@@ -14,9 +14,11 @@ mod ops;
 #[cfg(test)]
 mod tests;
 
-/// A nonzero share of the id space. Not `Clone`. Ordered by descent /
-/// reverse-inclusion: `seed` is the minimum, leaves are maximal, cousins are
-/// `None`. For disjoint parties, `join` computes the meet under this order.
+/// A disjoint party.
+///
+/// Parties are ordered by ancestry: [`seed`](Party::seed) is the minimum;
+/// siblings and cousins are incomparable. For disjoint parties,
+/// [`join`](Party::join) computes the meet under this order.
 ///
 /// At rest, a `Party` holds its canonical packed preorder encoding, so
 /// bit-equality is semantic equality.
@@ -24,7 +26,14 @@ mod tests;
 pub struct Party(BitVec<u8, Msb0>);
 
 impl Party {
-    /// The whole id space (the paper's `1`). The only nonzero constructor.
+    /// The initial [`Party`] in the system.
+    ///
+    /// In any given system of [`Party`]s, this function (or
+    /// [`Clock::seed`](crate::Clock::seed), which invokes it) should only be
+    /// called by one party in the entire system, and only once: all its
+    /// descendents are necessarily disjoint, but the descendents of parallel
+    /// seeds need not be; if ever the twain meet, invariants and expectations
+    /// will be violated.
     pub fn seed() -> Self {
         let mut bits = codec::Bits::with_capacity(2);
         bits.push(false); // leaf flag
@@ -32,15 +41,24 @@ impl Party {
         Party(bits)
     }
 
-    /// Split in two; `self` keeps one half, the other is returned.
+    /// Split off a new disjoint [`Party`] from this one.
+    ///
+    /// Repeatedly calling [`fork`](Party::fork) on the same [`Party`] will lead
+    /// to imbalanced internal tree representations and worse memory usage and
+    /// performance; it's recommended to randomize which [`Party`]s are
+    /// [`fork`](Party::fork)ed.
     pub fn fork(&mut self) -> Party {
         let (keep, give) = self.view().split();
         self.0 = keep;
         Party(give)
     }
 
-    /// Merge a disjoint share into `self`; on overlap, `other` is returned unchanged.
-    /// `sum` detects the overlap directly, so there is no separate disjointness scan.
+    /// Reunite two disjoint [`Party`]s.
+    ///
+    /// # Errors
+    ///
+    /// If the parties are not disjoint, `self` is unmodified, and `Err(other)`
+    /// is returned.
     pub fn join(&mut self, other: Party) -> Result<(), Party> {
         match self.view().sum(&other.view()) {
             Some(bits) => {
@@ -51,21 +69,25 @@ impl Party {
         }
     }
 
-    /// Whether `self` and `other` share no id-space region.
+    /// Test whether `self` and `other` are *disjoint* (i.e. descend from linear
+    /// [`fork`](Party::fork)-[`join`](Party::join) operations starting from a
+    /// singular [`seed`](Party::seed)).
+    ///
+    /// Disjoint [`Party`]s may always be [`join`](Party::join)ed.
     pub fn is_disjoint(&self, other: &Party) -> bool {
         self.view().is_disjoint(&other.view())
     }
 
-    /// The canonical packed byte encoding (preorder, uniform flag), zero-padded to
-    /// a byte boundary.
+    /// Encode a [`Party`] to bytes.
+    ///
+    /// **Note:** The byte-encoding of a [`Clock`] is **not the same** as the
+    /// concatenation of the byte-encoding of a [`Party`] and a [`Version`].
     pub fn encode(&self) -> Vec<u8> {
         codec::pack_to_bytes(&self.0)
     }
 
-    /// Decode a byte string, strictly rejecting malformed or non-canonical input, and the
-    /// anonymous identity `0` (a standalone `Party` is a nonzero share — the paper's `event`
-    /// precondition `i ≠ 0`, §3). This is the only byte path that yields a top-level `Party`,
-    /// so the empty-region check here is what makes an anonymous `Party` unconstructible.
+    /// Decode a [`Party`] from canonical bytes, strictly rejecting
+    /// non-canonical representations.
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
         let bits = codec::bytes_as_bits(bytes);
         let end = codec::parse_id(bits, 0)?;
@@ -77,9 +99,12 @@ impl Party {
         Ok(Party(id))
     }
 
-    /// The anonymous (zero) id, `Leaf(false)`. Internal transient only — never a public
-    /// value (a `Party` is a nonzero share). Used as a placeholder when moving a party
-    /// out of a `&mut` during `sync`, immediately overwritten by the re-split half.
+    /// The anonymous (zero) id, `Leaf(false)`. Internal and transient only
+    /// (i.e. for use in `mem::swap`) and *never* a publicly constructible value
+    /// (a `Party` is a nonzero share).
+    ///
+    /// Used as a placeholder when moving a party out of a `&mut` during `sync`,
+    /// immediately overwritten by the re-split half.
     pub(crate) fn anonymous() -> Party {
         let mut bits = codec::Bits::with_capacity(2);
         bits.push(false); // leaf flag
@@ -154,6 +179,7 @@ fn finish_id(bits: codec::Bits) -> Result<Party, ParseError> {
 mod sealed {
     pub trait Sealed {}
     impl Sealed for u8 {}
+    impl Sealed for bool {}
     impl<T, S> Sealed for (T, S) {}
 }
 
@@ -173,6 +199,12 @@ impl PartyLiteral for u8 {
     }
 }
 
+impl PartyLiteral for bool {
+    fn into_id_bits(self) -> Result<codec::Bits, ParseError> {
+        Ok(codec::id_leaf(self))
+    }
+}
+
 impl<T: PartyLiteral, S: PartyLiteral> PartyLiteral for (T, S) {
     fn into_id_bits(self) -> Result<codec::Bits, ParseError> {
         let l = self.0.into_id_bits()?;
@@ -186,6 +218,14 @@ impl<T: PartyLiteral, S: PartyLiteral> PartyLiteral for (T, S) {
 impl TryFrom<u8> for Party {
     type Error = ParseError;
     fn try_from(v: u8) -> Result<Self, ParseError> {
+        finish_id(v.into_id_bits()?)
+    }
+}
+
+/// An id leaf from a single boolean: `true` = `1`, `false` = `0`.
+impl TryFrom<bool> for Party {
+    type Error = ParseError;
+    fn try_from(v: bool) -> Result<Self, ParseError> {
         finish_id(v.into_id_bits()?)
     }
 }

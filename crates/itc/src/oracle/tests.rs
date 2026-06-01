@@ -3,7 +3,8 @@
 //! These establish that the recursive oracle is a faithful (if suboptimal)
 //! realization of the paper, so it can be trusted as differential ground truth.
 //! Values are generated via operations from a seed (always valid, normal-form,
-//! and — for populations — pairwise party-disjoint), never by fabricating trees.
+//! and — for populations — pairwise party-disjoint), never by fabricating
+//! trees.
 
 use std::cmp::Ordering;
 
@@ -173,9 +174,10 @@ proptest! {
 // ───────────────────────────── party order ─────────────────────────────
 
 proptest! {
-    /// Party order is descent: each fork child is `>` its parent; the order
-    /// is a partial order; `join` is the meet (a lower bound) for disjoint
-    /// parties; and `join` errors (handing the party back unchanged) on overlap.
+    /// Party order is descent: each fork child is `>` its parent; the order is
+    /// a partial order; `join` is the meet (a lower bound) for disjoint
+    /// parties; and `join` errors (handing the party back unchanged) on
+    /// overlap.
     #[test]
     fn party_order(ops in world_strategy(), i in 0usize..64, j in 0usize..64, k in 0usize..64) {
         let cs = run(&ops);
@@ -301,9 +303,9 @@ proptest! {
         if n < 2 {
             return Ok(());
         }
-        // Derive two distinct members directly rather than rejecting collisions —
-        // small populations collide often, and `prop_assume` would blow the local
-        // reject cap under a high case count.
+        // Derive two distinct members directly rather than rejecting collisions
+        // — small populations collide often, and `prop_assume` would blow the
+        // local reject cap under a high case count.
         let i = i % n;
         let j = (i + 1 + j % (n - 1)) % n;
 
@@ -330,8 +332,8 @@ proptest! {
 // ───────────────────────────── heterogeneous joins ─────────────────────────────
 
 proptest! {
-    /// Heterogeneous joins change only the version, to the `join` of the
-    /// two; a bare `Version` acts as a party-`0` clock would.
+    /// Heterogeneous joins change only the version, to the `join` of the two; a
+    /// bare `Version` acts as a party-`0` clock would.
     #[test]
     fn heterogeneous_joins(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
@@ -366,8 +368,8 @@ proptest! {
 
 // ───────────────────────────── concurrency / message causality ─────────────────────────────
 
-/// Two clocks forked from a common seed that tick without exchanging
-/// messages are concurrent (incomparable).
+/// Two clocks forked from a common seed that tick without exchanging messages
+/// are concurrent (incomparable).
 #[test]
 fn independent_forks_are_concurrent() {
     let mut a = Clock::seed();
@@ -378,8 +380,8 @@ fn independent_forks_are_concurrent() {
     assert!(b.concurrent_with(&a));
 }
 
-/// A receive carries the sender's knowledge: the message is `<=` the
-/// receiver's resulting version, and the receiver strictly advances.
+/// A receive carries the sender's knowledge: the message is `<=` the receiver's
+/// resulting version, and the receiver strictly advances.
 #[test]
 fn receive_carries_knowledge() {
     let mut a = Clock::seed();
@@ -393,8 +395,8 @@ fn receive_carries_knowledge() {
 }
 
 proptest! {
-    /// No version decreases and join never loses knowledge: after `i` sends
-    /// to `j`, the message and `j`'s prior version are both `<=` `j`'s new one.
+    /// No version decreases and join never loses knowledge: after `i` sends to
+    /// `j`, the message and `j`'s prior version are both `<=` `j`'s new one.
     #[test]
     fn monotone(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let mut cs = run(&ops);
@@ -435,8 +437,8 @@ fn event_normalization() {
     assert_eq!(example, expected);
 }
 
-/// §5.2. The unit pulse `1 ≡ (1,1) ≡ (1,(1,1)) ≡ ((1,1),1)` collapses for
-/// the id component too: `norm((1,1)) = 1`, `norm((0,0)) = 0`.
+/// §5.2. The unit pulse `1 ≡ (1,1) ≡ (1,(1,1)) ≡ ((1,1),1)` collapses for the
+/// id component too: `norm((1,1)) = 1`, `norm((0,0)) = 0`.
 #[test]
 fn id_normalization() {
     assert_eq!(
@@ -449,8 +451,8 @@ fn id_normalization() {
     );
 }
 
-/// §5.3.2. The `split` equations: `split(1) = ((1,0),(0,1))`, and a node
-/// with two nonzero subtrees splits by handing each side one subtree.
+/// §5.3.2. The `split` equations: `split(1) = ((1,0),(0,1))`, and a node with
+/// two nonzero subtrees splits by handing each side one subtree.
 #[test]
 fn split_equations() {
     use Party::{Leaf, Node};
@@ -513,20 +515,21 @@ fn event_fills_to_single_integer() {
 
 // ───────────────────── grow optimality, oracle side ─────────────────────
 //
-// The paper's event condition (§3, §5.3.4) is the defining causality property: an
-// event registers a *minimal* inflation. `grow` delivers it via a dynamic program. These
-// properties pin the oracle's `grow` against a brute-force search over the entire feasible
-// inflation space (`testing::grow_brute_force::all_inflations`), independently establishing that the
-// oracle's own DP is genuinely cost-minimal — something nothing else in the suite does
-// (every other check is impl == oracle, which shares the DP). The impl is held to the same
-// brute-force standard in `version::tests`.
+// The paper's event condition (§3, §5.3.4) is the defining causality property:
+// an event registers a *minimal* inflation. `grow` delivers it via a dynamic
+// program. These properties pin the oracle's `grow` against a brute-force
+// search over the entire feasible inflation space
+// (`testing::grow_brute_force::all_inflations`), independently establishing
+// that the oracle's own DP is genuinely cost-minimal — something nothing else
+// in the suite does (every other check is impl == oracle, which shares the DP).
+// The impl is held to the same brute-force standard in `version::tests`.
 
 proptest! {
     /// The oracle's `grow` reports the *globally* minimal inflation cost.
-    /// `min_inflation_cost` enumerates the whole feasible single-region inflation space
-    /// (descending both children everywhere, no pruning) and takes the flat minimum; the
-    /// DP's greedy local choice must match it. This is the independent minimality check —
-    /// it does not rely on the DP at all.
+    /// `min_inflation_cost` enumerates the whole feasible single-region
+    /// inflation space (descending both children everywhere, no pruning) and
+    /// takes the flat minimum; the DP's greedy local choice must match it. This
+    /// is the independent minimality check — it does not rely on the DP at all.
     #[test]
     fn grow_cost_is_globally_minimal(
         id in arb_oracle_party_nonempty(),
@@ -540,10 +543,11 @@ proptest! {
 
 proptest! {
     /// The oracle's `grow` chooses exactly the brute-force right-favoring
-    /// minimal inflation — the same raw tree and cost. `best_inflation` selects the
-    /// globally cost-minimal candidate with the paper's root-ward tie-break (`cl < cr`
-    /// goes left, else right), weighing each child by its full-enumeration minimum. So a
-    /// match confirms both the cost minimality and the correct tie-break direction.
+    /// minimal inflation — the same raw tree and cost. `best_inflation` selects
+    /// the globally cost-minimal candidate with the paper's root-ward tie-break
+    /// (`cl < cr` goes left, else right), weighing each child by its
+    /// full-enumeration minimum. So a match confirms both the cost minimality
+    /// and the correct tie-break direction.
     #[test]
     fn grow_matches_brute_force_choice(
         id in arb_oracle_party_nonempty(),
@@ -556,9 +560,10 @@ proptest! {
 }
 
 proptest! {
-    /// The brute-force selection is internally consistent: `best_inflation`
-    /// is one of the enumerated candidates, and its cost equals the global minimum. Guards
-    /// the brute-force oracle itself, so the two checks above stand on solid ground.
+    /// The brute-force selection is internally consistent: `best_inflation` is
+    /// one of the enumerated candidates, and its cost equals the global
+    /// minimum. Guards the brute-force oracle itself, so the two checks above
+    /// stand on solid ground.
     #[test]
     fn best_inflation_is_a_min_cost_candidate(
         id in arb_oracle_party_nonempty(),
@@ -577,17 +582,18 @@ proptest! {
 }
 
 proptest! {
-    /// §3 (the event condition), metamorphic form. `grow` "dominates no more events than
-    /// needed": no *feasible inflation* `x` sits strictly between `e` and the grown
-    /// `e'` — there is no `x` reachable by inflating `(id, e)` with `e ≤ x < e'`. This is
-    /// the correct, scoped reading of the paper's `x < e' ⇒ x ≤ e`: the relevant `x` are
-    /// the event components the system can produce (the inflation candidates), not
-    /// arbitrary fabricated step functions. (Over the *full* pointwise lattice the literal
-    /// `x < e' ⇒ x ≤ e` is false even for a single `+1` increment — e.g. `e = 0`,
-    /// `e' = 1`, `x = (0,1,0)` has `x < e'` but `x ≰ e` — because that lattice is dense and
-    /// `fill` collapses owned regions to their max; the §3 condition is about system
-    /// states, not arbitrary functions.) `grow` runs directly here, independent of whether
-    /// `event` would have taken the `fill` branch.
+    /// §3 (the event condition), metamorphic form. `grow` "dominates no more
+    /// events than needed": no *feasible inflation* `x` sits strictly between
+    /// `e` and the grown `e'` — there is no `x` reachable by inflating `(id,
+    /// e)` with `e ≤ x < e'`. This is the correct, scoped reading of the
+    /// paper's `x < e' ⇒ x ≤ e`: the relevant `x` are the event components the
+    /// system can produce (the inflation candidates), not arbitrary fabricated
+    /// step functions. (Over the *full* pointwise lattice the literal `x < e' ⇒
+    /// x ≤ e` is false even for a single `+1` increment — e.g. `e = 0`, `e' =
+    /// 1`, `x = (0,1,0)` has `x < e'` but `x ≰ e` — because that lattice is
+    /// dense and `fill` collapses owned regions to their max; the §3 condition
+    /// is about system states, not arbitrary functions.) `grow` runs directly
+    /// here, independent of whether `event` would have taken the `fill` branch.
     #[test]
     fn grow_dominates_no_more_than_needed(
         id in arb_oracle_party_nonempty(),
@@ -611,8 +617,9 @@ proptest! {
 
 /// §5.1. Run the paper's example end-to-end and assert its published
 /// qualitative outcomes: three participants, ids always summing to the whole
-/// space, the third fork reusing existing id subtrees (not deepening the spine),
-/// and a post-join event that collapses the event component to a single integer.
+/// space, the third fork reusing existing id subtrees (not deepening the
+/// spine), and a post-join event that collapses the event component to a single
+/// integer.
 #[test]
 fn worked_example() {
     // seed → fork into two.
@@ -659,9 +666,9 @@ fn worked_example() {
 
     // The paper's closing observation: a join merges id subtrees, and an event
     // can then inflate the gap so the event component becomes a single integer.
-    // Rejoin all three participants (recovering id = 1) and tick: because the id
-    // owns the whole space, `event` fills every gap and the event tree collapses
-    // to a Leaf.
+    // Rejoin all three participants (recovering id = 1) and tick: because the
+    // id owns the whole space, `event` fills every gap and the event tree
+    // collapses to a Leaf.
     let mut whole = p1a;
     whole.join(p1b).expect("disjoint");
     whole.join(p2).expect("disjoint");
