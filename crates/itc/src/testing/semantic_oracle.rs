@@ -16,15 +16,26 @@
 //! population computes a comparison descriptor (version causal order, party containment, party
 //! disjointness) and requires all three to agree. This is ITC's defining guarantee: the
 //! observable partial order is fixed by the operation sequence, independent of the (valid)
-//! fork/inflation policy each implementation chooses — so the function space's *easy* choices
-//! (`add-one` `event`, paper-`split` `fork`) yield the same order as the impl's minimal `grow`.
+//! fork/inflation policy each implementation chooses.
+//!
+//! To exercise *that independence directly*, this reference's two under-determined operations
+//! make a fresh **random** law-abiding choice on every call (seeded from the proptest input, so
+//! failures replay): [`event`] draws an arbitrary §4-valid inflation (a partial, random-amount
+//! bump of the owned region) and [`fork`] draws an arbitrary §4-valid split (dealing the owned
+//! region's pieces out at random). So the cross-check does not merely confirm one fixed
+//! instantiation agrees with the impl's minimal `grow` — it asserts agreement across a whole
+//! random sample of the valid policy space, which is the real content of the invariance claim.
+//! The lone limit is a concession to the *finite* grid: an arbitrary cut of an *indivisible*
+//! interval needs unbounded resolution, so such a piece is bisected at its midpoint (see
+//! [`fork`]); every other split, and every inflation, is free.
 //!
 //! That invariance holds only for a *proper* ITC system — one seed, so ids partition a single
 //! space and all live ids stay disjoint. Several seeds would each own all of `[0,1)` (not a
-//! valid configuration), and a cross-lineage `receive` then entangles events on the
-//! overlapping region, where `add-one` and minimal `grow` genuinely disagree. Hence single
-//! seed here; overlap and the join/sync-`Err` paths are id-algorithm behavior, checked against
-//! the oracle elsewhere.
+//! valid configuration), and a cross-lineage `receive` then entangles events on the overlapping
+//! region, where the random policy and minimal `grow` genuinely disagree. Hence single seed
+//! here; overlap and the join/sync-`Err` paths are id-algorithm behavior, checked against the
+//! oracle elsewhere. (Under the random policy multiple seeds also disagree on *structural* vs.
+//! *geometric* party disjointness, a second reason they cannot be replayed in lockstep.)
 
 #[cfg(test)]
 mod tests;
@@ -32,13 +43,18 @@ mod tests;
 use std::cmp::Ordering;
 use std::rc::Rc;
 
+use rand::rngs::StdRng;
+use rand::Rng;
+
 use crate::codec::Base;
 use crate::oracle;
 
-/// Grid exponent ceiling for the comparison scans: a comparison samples `2^g` points with
-/// `g` the depth of the trees in hand, and this caps `g`. Set well above the depths the tests
-/// build (arbitrary generators cap at 4, the op-trace tops out near 7), so it never bites; the
-/// [`tests::grid_cap_is_never_reached`] guard pins that headroom.
+/// Grid exponent ceiling for the comparison and resolution scans: a scan samples `2^g` points
+/// with `g` the resolution actually in hand ([`id_res`]/[`ev_res`]), and this caps `g`. Set well
+/// above the resolution the tests reach (arbitrary generators cap at 4; a single-seed op trace
+/// tops out near 7, since the random `fork` only deepens at the paper's rate), so it never bites.
+/// The headroom is load-bearing — `fork` bisects an indivisible piece one level finer, so a piece
+/// at resolution `GRID_N` could not be split — and [`tests::grid_cap_is_never_reached`] pins it.
 pub(crate) const GRID_N: u32 = 10;
 
 // ───────────────────────────── dyadic points ─────────────────────────────
@@ -122,65 +138,140 @@ pub(crate) fn join(a: Event, b: Event) -> Event {
     })
 }
 
-/// `event`: the easiest §4-valid inflation — add one wherever the id owns. Dominates `e`,
-/// is local to the owned region, and strictly advances on a nonempty id. (The impl's `grow`
-/// is *minimal*; that is a §5.3 refinement, not a §4 law — see the module doc on why the
-/// difference does not affect the causal-order comparison.)
-pub(crate) fn event(i: &Id, e: Event) -> Event {
+// ───────────────────────────── cell indexing ─────────────────────────────
+
+/// The index, at resolution `level`, of the cell containing `x` — the top `level` bits of `x`
+/// (always `< 2^level`). The random operations draw a per-cell decision into a table indexed this
+/// way, so a closure maps a sampled point back to its cell to look that decision up.
+fn cell_at(x: Dyadic, level: u32) -> usize {
+    let cell = if x.exp >= level {
+        x.num >> (x.exp - level)
+    } else {
+        x.num << (level - x.exp)
+    };
+    cell as usize
+}
+
+// ───────────────────────────── the under-determined operations ─────────────────────────────
+
+/// `event`: a *random* §4-valid inflation, freshly drawn each call. §4 pins only
+/// `⟦e'⟧ = ⟦e⟧ + f·⟦i⟧` for some `f` with `f·⟦i⟧ ▷ 0` (strictly positive somewhere the id owns);
+/// the old fixed `add-one` and the impl's minimal `grow` are two particular `f`. Here `f` is
+/// arbitrary: each owned cell (at the id's own resolution) is bumped by an independent amount in
+/// `0..=3`, with one owned cell forced positive so the advance is real (and others may be `0` —
+/// a *partial* inflation). In a proper single-seed system every such `f` still tracks
+/// happens-before — it meets the §3 event condition (the result is fresh, `e' ≰` any other live
+/// stamp, and dominates nothing new, because the id owns its region exclusively) — so the causal
+/// order is identical to `add-one`'s and `grow`'s. That invariance is what the replay exercises.
+pub(crate) fn event(i: &Id, e: Event, rng: &mut StdRng) -> Event {
+    let level = id_res(i);
+    let owned = owned_cells(i, level);
+    // Per-cell bump, indexed by cell at the id's resolution: each owned cell `0..=3`, with the
+    // first owned cell forced `1..=3` so `f·i ▷ 0`. Non-owned cells stay `0` (and are gated out).
+    let mut bump = vec![0u64; 1 << level];
+    for (n, &c) in owned.iter().enumerate() {
+        bump[c] = if n == 0 {
+            rng.gen_range(1..=3) // first owned cell: strictly positive
+        } else {
+            rng.gen_range(0..=3) // any other owned cell: 0 leaves it untouched (partial inflation)
+        };
+    }
+    let bump = Rc::new(bump);
     let i = i.clone();
     Rc::new(move |x| {
         let v = e(x);
         if i(x) {
-            v + Base::from(1u32)
+            v + Base::from(bump[cell_at(x, level)])
         } else {
             v
         }
     })
 }
 
-/// `fork`/`split`: partition the owned region into two nonempty disjoint halves, reproducing
-/// the paper's `split` exactly so the result matches the impl/oracle region-for-region.
+/// `fork`/`split`: a *random* §4-valid partition, freshly drawn each call. §4 pins only
+/// `⟦i₁⟧ + ⟦i₂⟧ = ⟦i⟧` and `⟦i₁⟧ · ⟦i₂⟧ = 0` (a disjoint cover of the owned region); the paper's
+/// `split` is one particular choice. Here the region's maximal constant pieces — its owned cells
+/// at its *own* resolution — are dealt independently to the two sides (an arbitrary, possibly
+/// interleaved, partition), with the lowest and highest pinned to opposite sides so both halves
+/// are nonempty. When the region is a single indivisible piece there is nothing to deal out, so
+/// it is bisected at its midpoint (the one forced cut).
 ///
-/// Returns `(left, right)` where the cut `b` is the midpoint of the smallest dyadic interval
-/// containing the support — the paper's split point (descend through singly-occupied halves;
-/// split the first both-occupied node). Returns threshold-gated closures; only [`find_split`]
-/// samples.
-pub(crate) fn fork(i: Id) -> (Id, Id) {
-    let b = find_split(&i);
+/// Dealing out *existing* pieces adds no new boundary, so resolution grows only on the
+/// bisection of an indivisible piece — exactly the paper's rate (≤ 1 level per fork). That is
+/// the one concession to a *finite* comparison grid: an arbitrary cut of an indivisible interval
+/// would need ever-finer dyadic points, which a fixed grid cannot resolve over a long trace.
+/// [`tests::grid_cap_is_never_reached`] guards the headroom. (Both halves nonempty is stronger
+/// than §4 — which permits the empty `peek` split — but a child handed an empty id could never
+/// advance, diverging from the impl; the replay needs both children live.)
+pub(crate) fn fork(i: &Id, rng: &mut StdRng) -> (Id, Id) {
+    let res = id_res(i);
+    // Deal out the region's pieces at its own resolution; if it is a single piece, bisect it.
+    let level = if owned_cells(i, res).len() >= 2 {
+        res
+    } else {
+        (res + 1).min(GRID_N)
+    };
+    let owned = owned_cells(i, level);
+    let (lo, hi) = (owned[0], *owned.last().expect("fork of an empty id"));
+    // `left[c]` decides each owned piece independently, then `lo` is pinned left and `hi` right so
+    // both halves are nonempty (`lo != hi`, the region having ≥ 2 pieces at `level`).
+    let mut left = vec![false; 1 << level];
+    for &c in &owned {
+        left[c] = rng.gen();
+    }
+    left[lo] = true;
+    left[hi] = false;
+    let left = Rc::new(left);
     let il = i.clone();
+    let right_mask = left.clone();
+    let ir = i.clone();
     (
-        Rc::new(move |x| il(x) && x < b),
-        Rc::new(move |x| i(x) && x >= b),
+        Rc::new(move |x| il(x) && left[cell_at(x, level)]),
+        Rc::new(move |x| ir(x) && !right_mask[cell_at(x, level)]),
     )
 }
 
-/// The split boundary for [`fork`]: the midpoint of the smallest dyadic interval enclosing the
-/// support. Detected at a fixed granularity [`GRID_N`] — which the depth cap guarantees is
-/// `≥ depth`, so every owned cell is hit (an *adaptive* search cannot reproduce the paper
-/// split: a thin, deep part of the support is undetectable until sampled at its own depth, and
-/// the search has no way to know that depth, so it can stop early at a different valid cut).
-/// At full resolution the min and max owned cells bound the support, so flipping their
-/// most-significant differing bit gives the enclosing interval's midpoint. Panics only if `i`
-/// owns nothing (never for a valid id).
-fn find_split(i: &Id) -> Dyadic {
-    let g = GRID_N;
-    let mut first = None;
-    let mut last = None;
-    for k in 0..(1u64 << g) {
-        if i(Dyadic::center(k, g)) {
-            first.get_or_insert(k);
-            last = Some(k);
+// ───────────────────────────── resolution probing ─────────────────────────────
+
+/// The owned cells of `i` at resolution `level`, by index. `level` is `≥` the id's own
+/// resolution, so `⟦i⟧` is constant within each cell and one interior sample per cell decides it.
+fn owned_cells(i: &Id, level: u32) -> Vec<usize> {
+    (0..(1u64 << level))
+        .filter(|&k| i(Dyadic::center(k, level)))
+        .map(|k| k as usize)
+        .collect()
+}
+
+/// The resolution of an id: the finest dyadic level at which `⟦i⟧` actually changes value (`0`
+/// if constant). Probed from the function, not tracked — so a `sum` that recombines into a
+/// coarser region (e.g. two halves back to the whole `[0,1)`) reports its *true*, collapsed
+/// resolution, keeping the comparison grid no finer than necessary.
+pub(crate) fn id_res(i: &Id) -> u32 {
+    let samples: Vec<bool> = (0..(1u64 << GRID_N))
+        .map(|k| i(Dyadic::center(k, GRID_N)))
+        .collect();
+    resolution(&samples)
+}
+
+/// The resolution of an event step function (see [`id_res`]).
+pub(crate) fn ev_res(e: &Event) -> u32 {
+    let samples: Vec<Base> = (0..(1u64 << GRID_N))
+        .map(|k| e(Dyadic::center(k, GRID_N)))
+        .collect();
+    resolution(&samples)
+}
+
+/// Finest boundary level present in a row of `2^GRID_N` cell samples: the deepest level at which
+/// two adjacent cells disagree (`0` if all equal). The boundary between cells `k-1` and `k` sits
+/// at level `GRID_N − v₂(k)`, so the finest disagreement is the resolution.
+fn resolution<T: PartialEq>(samples: &[T]) -> u32 {
+    let mut res = 0;
+    for k in 1..samples.len() {
+        if samples[k] != samples[k - 1] {
+            res = res.max(GRID_N - (k as u32).trailing_zeros());
         }
     }
-    let (f, l) = (first.expect("fork of an empty id"), last.unwrap());
-    if f == l {
-        // The whole support fits one level-g cell (only if depth ≥ GRID_N, which the cap
-        // rules out): bisect that cell.
-        return Dyadic::center(f, g);
-    }
-    let p = 63 - (f ^ l).leading_zeros();
-    let boundary = ((f >> (p + 1)) << (p + 1)) + (1 << p);
-    Dyadic::grid(boundary, g)
+    res
 }
 
 // ───────────────────────────── embedding (tree → function) ─────────────────────────────
@@ -329,14 +420,14 @@ impl SemClock {
         }
     }
 
-    pub(crate) fn tick(&mut self) {
-        self.ev = event(&self.id, self.ev.clone());
+    pub(crate) fn tick(&mut self, rng: &mut StdRng) {
+        self.ev = event(&self.id, self.ev.clone(), rng);
     }
 
     /// Split off a child; `self` keeps the left half, the child takes the right (mirroring the
     /// crate's fork, which returns the child and keeps `self`).
-    pub(crate) fn fork(&mut self) -> SemClock {
-        let (left, right) = fork(self.id.clone());
+    pub(crate) fn fork(&mut self, rng: &mut StdRng) -> SemClock {
+        let (left, right) = fork(&self.id, rng);
         self.id = left;
         SemClock {
             id: right,
@@ -357,10 +448,15 @@ impl SemClock {
     }
 
     /// Reconcile two clocks: merge events to their LUB, union ids, re-split the union.
-    pub(crate) fn sync(&mut self, other: &mut SemClock, g: u32) -> Result<(), ()> {
+    pub(crate) fn sync(
+        &mut self,
+        other: &mut SemClock,
+        g: u32,
+        rng: &mut StdRng,
+    ) -> Result<(), ()> {
         if disjoint(&self.id, &other.id, g) {
             let merged = join(self.ev.clone(), other.ev.clone());
-            let (left, right) = fork(sum(self.id.clone(), other.id.clone()));
+            let (left, right) = fork(&sum(self.id.clone(), other.id.clone()), rng);
             self.id = left;
             self.ev = merged.clone();
             other.id = right;
@@ -372,14 +468,14 @@ impl SemClock {
     }
 
     /// Advance, then snapshot the event to transmit.
-    pub(crate) fn send(&mut self) -> Event {
-        self.tick();
+    pub(crate) fn send(&mut self, rng: &mut StdRng) -> Event {
+        self.tick(rng);
         self.ev.clone()
     }
 
     /// Merge a received event, then advance.
-    pub(crate) fn receive(&mut self, msg: Event) {
-        self.ev = event(&self.id, join(self.ev.clone(), msg));
+    pub(crate) fn receive(&mut self, msg: Event, rng: &mut StdRng) {
+        self.ev = event(&self.id, join(self.ev.clone(), msg), rng);
     }
 }
 

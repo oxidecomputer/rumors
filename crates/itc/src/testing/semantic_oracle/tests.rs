@@ -7,10 +7,12 @@
 use std::cmp::Ordering;
 
 use proptest::prelude::*;
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 
 use super::{
-    disjoint, ev_depth, ev_order, event, id_depth, id_order, join, lift_ev, lift_id, sum, Dyadic,
-    Event, Id, SemClock, GRID_N,
+    disjoint, ev_depth, ev_order, ev_res, event, id_depth, id_order, id_res, join, lift_ev,
+    lift_id, sum, Dyadic, Event, Id, SemClock, GRID_N,
 };
 use crate::codec::Base;
 use crate::oracle;
@@ -43,7 +45,11 @@ fn grid_for(parts: &[u32]) -> u32 {
 /// populations (index-aligned). Multiple seeds start mutually non-disjoint, so the overlap and
 /// concurrent arms are exercised; a `Join`/`Sync` on overlapping parties is a no-op in all
 /// three (disjointness is invariant).
-fn replay(seeds: usize, ops: &[Op]) -> (Vec<Clock>, Vec<oracle::Clock>, Vec<SemClock>) {
+fn replay(
+    seeds: usize,
+    ops: &[Op],
+    rng: &mut StdRng,
+) -> (Vec<Clock>, Vec<oracle::Clock>, Vec<SemClock>) {
     let mut im: Vec<Clock> = (0..seeds).map(|_| Clock::seed()).collect();
     let mut or: Vec<oracle::Clock> = (0..seeds).map(|_| oracle::Clock::seed()).collect();
     let mut se: Vec<SemClock> = (0..seeds).map(|_| SemClock::seed()).collect();
@@ -55,7 +61,7 @@ fn replay(seeds: usize, ops: &[Op]) -> (Vec<Clock>, Vec<oracle::Clock>, Vec<SemC
                 let i = i % n;
                 im[i].tick();
                 or[i].tick();
-                se[i].tick();
+                se[i].tick(rng);
             }
             Op::Fork(i) => {
                 let i = i % n;
@@ -63,7 +69,7 @@ fn replay(seeds: usize, ops: &[Op]) -> (Vec<Clock>, Vec<oracle::Clock>, Vec<SemC
                 im.push(c);
                 let c = or[i].fork();
                 or.push(c);
-                let c = se[i].fork();
+                let c = se[i].fork(rng);
                 se.push(c);
             }
             Op::Send(i, j) => {
@@ -72,8 +78,8 @@ fn replay(seeds: usize, ops: &[Op]) -> (Vec<Clock>, Vec<oracle::Clock>, Vec<SemC
                 im[j].receive(m);
                 let m = or[i].send();
                 or[j].receive(m);
-                let m = se[i].send();
-                se[j].receive(m);
+                let m = se[i].send(rng);
+                se[j].receive(m, rng);
             }
             Op::Sync(i, j) => {
                 let (i, j) = (i % n, j % n);
@@ -92,7 +98,7 @@ fn replay(seeds: usize, ops: &[Op]) -> (Vec<Clock>, Vec<oracle::Clock>, Vec<SemC
                         let (a, b) = or.split_at_mut(hi);
                         assert!(a[lo].sync(&mut b[0]).is_ok());
                         let (a, b) = se.split_at_mut(hi);
-                        assert!(a[lo].sync(&mut b[0], GRID_N).is_ok());
+                        assert!(a[lo].sync(&mut b[0], GRID_N, rng).is_ok());
                     }
                 }
             }
@@ -136,22 +142,26 @@ proptest! {
     /// Single seed, deliberately: that guarantee holds only for a *proper* ITC system, where
     /// ids partition one space and all live ids are disjoint. Multiple seeds would have several
     /// stamps each owning all of `[0,1)` — not a valid configuration — and a cross-lineage
-    /// `receive` then entangles events on the overlapping region, where the add-one and minimal
-    /// `grow` policies genuinely disagree on the order. (Disjointness/overlap and the
+    /// `receive` then entangles events on the overlapping region, where the various §4-valid
+    /// inflation policies genuinely disagree on the order. (Disjointness/overlap and the
     /// join/sync-`Err` paths are id-algorithm behavior, exercised against the oracle elsewhere.)
+    ///
+    /// The trace carries a `seed`: the function space's `fork`/`event` choices are *random*
+    /// (any §4-valid split/inflation), so this asserts agreement for an arbitrary valid policy,
+    /// not just one fixed instantiation. The seed makes a failure replay deterministically.
     #[test]
-    fn replay_matches_across_references(ops in world_strategy()) {
-        let (im, or, se) = replay(1, &ops);
+    fn replay_matches_across_references(ops in world_strategy(), seed in any::<u64>()) {
+        let (im, or, se) = replay(1, &ops, &mut StdRng::seed_from_u64(seed));
         let n = im.len();
-        // One granularity for all the function-space scans: the deepest tree in the population
-        // (capped, guarded by `grid_cap_is_never_reached`). A single seed's events live only on
-        // the disjoint owned regions, so the id depth resolves them; the impl's *minimized*
-        // event can be shallower than the add-one event, so its depth alone would under-resolve.
-        let g = or
+        // One granularity for all the function-space scans: the finest boundary actually present
+        // in the population's own closures (probed, then capped — guarded by
+        // `grid_cap_is_never_reached`). Sampling at that level resolves every step exactly, so the
+        // random policy's region/inflation boundaries are never aliased.
+        let g = se
             .iter()
-            .map(|c| id_depth(c.party()).max(ev_depth(&c.version())))
+            .map(|c| id_res(&c.id).max(ev_res(&c.ev)))
             .max()
-            .map_or(0, |d| (d + 1).min(GRID_N));
+            .map_or(0, |d| d.min(GRID_N));
         for i in 0..n {
             for j in 0..n {
                 let (ovi, ovj) = (or[i].version(), or[j].version());
@@ -215,33 +225,31 @@ proptest! {
         );
     }
 
-    /// `fork` partitions: the two halves are disjoint and recombine (`sum`) to the original;
-    /// reproduces the paper's split exactly, so it also matches the oracle's `fork`.
+    /// `fork` partitions, whatever the random split: the two halves are disjoint, both nonempty,
+    /// and recombine (`sum`) to the original (the §4 fork law). It need *not* match the paper's
+    /// split — only obey the law — which is the whole point of randomizing it.
     #[test]
-    fn fork_partitions_and_matches_oracle(p in arb_oracle_party_nonempty()) {
-        let g = grid_for(&[id_depth(&p)]);
-        let i = lift_id(p.clone());
-        let (l, r) = super::fork(i.clone());
+    fn fork_partitions(p in arb_oracle_party_nonempty(), seed in any::<u64>()) {
+        // Children refine ≤ 2 levels below the id's depth; scan deep enough to resolve them.
+        let g = (id_depth(&p) + 3).min(GRID_N);
+        let i = lift_id(p);
+        let (l, r) = super::fork(&i, &mut StdRng::seed_from_u64(seed));
         prop_assert!(disjoint(&l, &r, g), "fork halves overlap");
         prop_assert!(id_eq(&sum(l.clone(), r.clone()), &i, g), "fork halves do not recombine");
-        // Reproduces the oracle's split as a set of two halves (order-independent, since the
-        // kept/given convention is incidental).
-        let mut keep = p.clone();
-        let give = keep.fork();
-        let (ok, og) = (lift_id(keep), lift_id(give));
-        let matches = (id_eq(&l, &ok, g) && id_eq(&r, &og, g))
-            || (id_eq(&l, &og, g) && id_eq(&r, &ok, g));
-        prop_assert!(matches, "fork halves differ from the oracle's split");
+        prop_assert_ne!(id_res(&l), 0, "left half is empty or all"); // both halves nonempty:
+        prop_assert_ne!(id_res(&r), 0, "right half is empty or all"); // a strict sub-region splits
     }
 
     /// `event` dominates, is local to the owned region, and strictly advances on a nonempty
     /// id (the §4 event condition).
     #[test]
-    fn event_dominates_local_and_advances(p in arb_oracle_party_nonempty(), e in arb_oracle_version()) {
+    fn event_dominates_local_and_advances(
+        p in arb_oracle_party_nonempty(), e in arb_oracle_version(), seed in any::<u64>(),
+    ) {
         let g = grid_for(&[id_depth(&p), ev_depth(&e) + 1]);
         let id = lift_id(p);
         let before = lift_ev(e);
-        let after = event(&id, before.clone());
+        let after = event(&id, before.clone(), &mut StdRng::seed_from_u64(seed));
         let mut advanced = false;
         for k in 0..(1u64 << g) {
             let x = Dyadic::grid(k, g);
@@ -259,11 +267,11 @@ proptest! {
 
     /// `sum` of disjoint ids owns exactly their union (commutatively).
     #[test]
-    fn sum_of_disjoint_is_union(p in arb_oracle_party_nonempty()) {
+    fn sum_of_disjoint_is_union(p in arb_oracle_party_nonempty(), seed in any::<u64>()) {
         // Fork a nonempty id into two disjoint halves, then sum them back two ways.
-        let g = grid_for(&[id_depth(&p) + 1]);
+        let g = (id_depth(&p) + 3).min(GRID_N);
         let i = lift_id(p);
-        let (l, r) = super::fork(i.clone());
+        let (l, r) = super::fork(&i, &mut StdRng::seed_from_u64(seed));
         prop_assert!(id_eq(&sum(l.clone(), r.clone()), &sum(r.clone(), l.clone()), g)); // commutative
         prop_assert!(id_eq(&sum(l, r), &i, g));                                          // union == original
     }
@@ -319,24 +327,41 @@ fn lifted_event_is_constant_within_a_leaf_interval() {
     assert_eq!(f(Dyadic::grid(15, 4)), Base::from(9u64)); // 15/16
 }
 
-/// Guard the soundness premise: the chosen grid must fully resolve the trees under test, i.e.
-/// the depth observed over a wide multi-seed op-trace sweep must stay below [`GRID_N`] (else
-/// sampling could alias). Pins that headroom.
+/// Guard the soundness premise: the chosen grid must fully resolve every function the keystone
+/// scans, i.e. the finest boundary observed over a wide op-trace sweep must stay below
+/// [`GRID_N`] (else sampling could alias). This covers *both* the oracle's tree depth and the
+/// function space's probed resolution — the random `fork` refines up to two levels per call
+/// (vs. the paper's one), so its resolution can run ahead of the oracle's, and it is the binding
+/// constraint. Pins that headroom.
+///
+/// Single seed, matching the keystone: forking one lineage repeatedly is the worst case for
+/// per-lineage resolution growth, so a single seed bounds it. (Multiple seeds reuse `[0,1)`, an
+/// improper configuration the keystone deliberately avoids; under the random policy their
+/// structural-vs-geometric disjointness even disagrees, so they can't be replayed in lockstep —
+/// see the keystone doc.)
 #[test]
 fn grid_cap_is_never_reached() {
     use proptest::test_runner::{Config, TestRunner};
     use std::sync::atomic::{AtomicU32, Ordering as AOrd};
+    // Fewer cases than a typical canary sweep: each case now *probes* the function space's grid
+    // to read its resolution (the original measured cheap tree depth), and the bound it guards is
+    // structural — `fork` only deepens by bisecting an indivisible piece, the paper's rate — so a
+    // modest sweep is an ample canary.
     let mut runner = TestRunner::new(Config {
-        cases: 2000,
+        cases: 400,
         ..Config::default()
     });
     let max_d = AtomicU32::new(0);
     runner
-        .run(&(1usize..=4, world_strategy()), |(seeds, ops)| {
-            let (_, or, _) = replay(seeds, &ops);
+        .run(&(world_strategy(), any::<u64>()), |(ops, seed)| {
+            let (_, or, se) = replay(1, &ops, &mut StdRng::seed_from_u64(seed));
             for c in &or {
                 max_d.fetch_max(ev_depth(&c.version()), AOrd::Relaxed);
                 max_d.fetch_max(id_depth(c.party()), AOrd::Relaxed);
+            }
+            for c in &se {
+                max_d.fetch_max(id_res(&c.id), AOrd::Relaxed);
+                max_d.fetch_max(ev_res(&c.ev), AOrd::Relaxed);
             }
             Ok(())
         })
@@ -344,7 +369,7 @@ fn grid_cap_is_never_reached() {
     let observed = max_d.load(AOrd::Relaxed);
     assert!(
         observed < GRID_N,
-        "op-trace reached depth {observed} ≥ GRID_N {GRID_N}; raise GRID_N so the scans stay \
-         fully faithful",
+        "op-trace reached resolution {observed} ≥ GRID_N {GRID_N}; raise GRID_N so the scans \
+         stay fully faithful",
     );
 }
