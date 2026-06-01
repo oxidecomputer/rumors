@@ -14,12 +14,12 @@
 //! concurrently by both sides before any framed traffic:
 //!
 //! ```text
-//! [ R U M R | version: u16 (big-endian) | reserved: u16 (big-endian) ]
-//!    magic                  2B                      2B
-//!     4B
+//! [ R U M O R S | version: u16 (big-endian) ]
+//!     magic                   2B
+//!      6B
 //! ```
 //!
-//! - **Magic** is [`crate::PROTOCOL_MAGIC`] (`b"RUMR"`). A peer that opens
+//! - **Magic** is [`crate::PROTOCOL_MAGIC`] (`b"RUMORS"`). A peer that opens
 //!   the connection with anything else is rejected as
 //!   [`Error::MagicMismatch`] — it isn't speaking the `rumors` protocol
 //!   at all.
@@ -28,9 +28,6 @@
 //!   compatible (additive wire changes, both sides downgrade to
 //!   `min(local, remote)`); major versions may bump it incompatibly and
 //!   surface as [`Error::VersionMismatch`].
-//! - **Reserved** is `0` in v1. Future minor versions may give it
-//!   meaning (e.g. a `min_compatible_version` field for negotiating
-//!   downgrades).
 //!
 //! Both sides drive the write and the read concurrently via
 //! [`futures_util::future::try_join`]; a peer that reads before writing
@@ -95,7 +92,7 @@ pub enum Error {
     ///
     /// [`PROTOCOL_MAGIC`]: crate::PROTOCOL_MAGIC
     #[error("peer is not a rumors stream (remote magic: {remote_magic:x?})")]
-    MagicMismatch { remote_magic: [u8; 4] },
+    MagicMismatch { remote_magic: [u8; 6] },
 
     /// The peer's handshake magic matched but its protocol version is
     /// incompatible with ours. See [`PROTOCOL_VERSION`].
@@ -116,16 +113,15 @@ impl From<borsh::io::Error> for Error {
 
 /// Exchange the 8-byte protocol handshake with a peer.
 ///
-/// The local side writes `[magic(4) | version(u16 BE) | reserved(u16 BE)=0]`
-/// while concurrently reading the same shape from the peer. The concurrent
-/// drive is required: a peer that reads before writing deadlocks against a
-/// peer that does the same when the kernel write buffer is smaller than
-/// 8 bytes (rare but possible on heavily-tuned sockets).
+/// The local side writes `[magic(6) | version(u16 BE)]` while concurrently
+/// reading the same shape from the peer. The concurrent drive is required: a
+/// peer that reads before writing deadlocks against a peer that does the same
+/// when the kernel write buffer is smaller than 8 bytes (rare but possible on
+/// heavily-tuned sockets).
 ///
-/// Returns [`Error::MagicMismatch`] when the peer's first four bytes are not
+/// Returns [`Error::MagicMismatch`] when the peer's first six bytes are not
 /// [`crate::PROTOCOL_MAGIC`], or [`Error::VersionMismatch`] when the magic
-/// matches but the version does not. The two reserved bytes are ignored in
-/// v1; future minor versions may give them meaning.
+/// matches but the version does not.
 pub async fn handshake<R, W>(read: &mut R, write: &mut W) -> Result<(), Error>
 where
     R: AsyncRead + Unpin,
@@ -133,7 +129,7 @@ where
 {
     let v = crate::PROTOCOL_VERSION.to_be_bytes();
     let m = crate::PROTOCOL_MAGIC;
-    let local: [u8; 8] = [m[0], m[1], m[2], m[3], v[0], v[1], 0, 0];
+    let local: [u8; 8] = [m[0], m[1], m[2], m[3], m[4], m[5], v[0], v[1]];
 
     let mut remote = [0u8; 8];
     let write_fut = async {
@@ -152,11 +148,11 @@ where
     };
     futures_util::future::try_join(write_fut, read_fut).await?;
 
-    let remote_magic: [u8; 4] = remote[..4].try_into().expect("4 bytes");
+    let remote_magic: [u8; 6] = remote[..6].try_into().expect("6 bytes");
     if remote_magic != crate::PROTOCOL_MAGIC {
         return Err(Error::MagicMismatch { remote_magic });
     }
-    let remote_version = u16::from_be_bytes([remote[4], remote[5]]);
+    let remote_version = u16::from_be_bytes([remote[6], remote[7]]);
     if remote_version != crate::PROTOCOL_VERSION {
         return Err(Error::VersionMismatch { remote_version });
     }

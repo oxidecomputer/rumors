@@ -127,10 +127,10 @@
 //!   rumor-set state is touched.
 //!
 //! Every connection begins with an 8-byte preamble: [`PROTOCOL_MAGIC`]
-//! (`b"RUMR"`), [`PROTOCOL_VERSION`] as a big-endian `u16`, and a
-//! reserved `u16` (zero in v1). Reading bytes that don't start with
-//! `RUMR` surfaces as [`Error::MagicMismatch`]; the connection is not a
-//! `rumors` stream at all.
+//! (`b"RUMORS"`) followed by [`PROTOCOL_VERSION`] as a big-endian `u16`.
+//! Reading bytes that don't start with `RUMORS` surfaces as
+//! [`Error::MagicMismatch`]; the connection is not a `rumors` stream at
+//! all.
 //!
 //! # Compression
 //!
@@ -141,8 +141,7 @@
 //! borsh-encoded messages) generally do not compress further. We do not
 //! compress internally because the best algorithm could depend on the content
 //! of gossiped messages; however, **compressing the wire is strongly
-//! recommended** and is the caller's responsibility. See the
-//! [`compress`](crate::guide::compress) how-to for a working recipe.
+//! recommended** and is the caller's responsibility.
 
 use std::{
     future::{Future, Ready, ready},
@@ -157,7 +156,6 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use weak_table2::WeakHashSet;
 
 pub mod explanation;
-pub mod guide;
 pub mod sync;
 pub mod tutorial;
 
@@ -169,12 +167,12 @@ mod version;
 use message::Message;
 use tree::{Action, Tree, mirror};
 
-/// Magic bytes that prefix every `rumors` gossip session: `b"RUMR"`.
+/// Magic bytes that prefix every `rumors` gossip session: `b"RUMORS"`.
 ///
-/// Sent as the first four bytes of the [handshake](Local::gossip), a peer
+/// Sent as the first six bytes of the [handshake](Local::gossip), a peer
 /// whose preamble starts with anything else is rejected with
 /// [`Error::MagicMismatch`] before any rumor-set state is touched.
-pub const PROTOCOL_MAGIC: [u8; 4] = *b"RUMR";
+pub const PROTOCOL_MAGIC: [u8; 6] = *b"RUMORS";
 
 /// On-the-wire protocol version, exchanged in the [handshake](Local::gossip)
 /// right after [`PROTOCOL_MAGIC`].
