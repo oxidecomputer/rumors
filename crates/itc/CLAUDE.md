@@ -2,7 +2,7 @@
 
 Safe-Rust ITC: packed `BitVec` storage, transient fixed-width working form for
 mutation, linear-typed API. The references are the ITC 2008 paper
-(`reference/itc2008.txt`) for the algorithms and the code itself for the design.
+(`reference/itc2008.md`) for the algorithms and the code itself for the design.
 
 ## Commands
 
