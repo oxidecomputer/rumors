@@ -330,7 +330,7 @@ proptest! {
 // ───────────────────────────── heterogeneous joins ─────────────────────────────
 
 proptest! {
-    /// Heterogeneous joins change only the version, to the `ev_join` of the
+    /// Heterogeneous joins change only the version, to the `join` of the
     /// two; a bare `Version` acts as a party-`0` clock would.
     #[test]
     fn heterogeneous_joins(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
@@ -359,7 +359,7 @@ proptest! {
         prop_assert_eq!(r3.party(), &pid);
         prop_assert_eq!(r3.version(), expected.clone());
 
-        // Version | Version is ev_join.
+        // Version | Version is join.
         prop_assert_eq!(v0 | m, expected);
     }
 }

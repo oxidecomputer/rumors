@@ -14,7 +14,7 @@
 //!
 //! # The thread register
 //!
-//! Every two-tree machine here ([`EvView::ev_join`], [`EvView::fill`], and the [`grow`]
+//! Every two-tree machine here ([`EvView::join`], [`EvView::fill`], and the [`grow`]
 //! submodule's probe and emit) — and `EvView::causal_cmp` in [`super::compare`] next
 //! door — drives a single iterative DFS off an explicit job stack, threading right-child
 //! positions instead of re-scanning to find them. They all speak the same protocol, the
@@ -43,11 +43,11 @@
 //!
 //! | Idiom | Shape | Where |
 //! |---|---|---|
-//! | Job-stack + `ret` thread register (`Eval`/`Right`/`Close`/`Combine`) | threaded DFS / fold | `causal_cmp`, `ev_join`, `fill`, [`EvView::ev_max`], the [`grow`] probe/emit, `party::ops::sum`, `party::ops::is_disjoint` |
+//! | Job-stack + `ret` thread register (`Eval`/`Right`/`Close`/`Combine`) | threaded DFS / fold | `causal_cmp`, `join`, `fill`, [`EvView::max`], the [`grow`] probe/emit, `party::ops::sum`, `party::ops::is_disjoint` |
 //! | `NeedLeft`/`NeedRight` frame stack | single-tree build/print | `codec` parse/write of ids and event trees, `party::ops::split`'s pass 1 |
 //! | Pending-children counter (`pending: i64`) | subtree-span scan | [`idbits::skip_subtree`](crate::idbits::skip_subtree) (shared by `idbits::skip` and `EvView::skip`), [`Builder::copy`] |
 //!
-//! The first idiom dominates (a single-output fold like `ev_max` drops the `Close` arm
+//! The first idiom dominates (a single-output fold like `max` drops the `Close` arm
 //! and threads only the end position); the others appear where the goal is narrower (a
 //! one-tree print, a pure span scan) and the full `Eval`/`Right`/`Close` protocol would
 //! be overkill.
@@ -69,7 +69,7 @@ pub(super) const VIRTUAL: usize = usize::MAX;
 /// Accumulates the output event tree in preorder. A node's base is written as a
 /// placeholder when the node opens and finalized by [`close_node`](Self::close_node)
 /// once its children are in place. This is the canonical output path shared by every
-/// emitting walk (`ev_join`, `fill`, the [`grow`] emit); it is the single place event
+/// emitting walk (`join`, `fill`, the [`grow`] emit); it is the single place event
 /// normalization lives, so callers never re-implement the sink/collapse.
 pub(super) struct Builder {
     topo: Bits,
@@ -170,7 +170,7 @@ impl Builder {
 
 // ───────────────────────────── merge (event-tree join) ─────────────────────────────
 
-/// A step in the threaded two-tree `ev_join` walk. `ret` is the [`Joined`] register (see
+/// A step in the threaded two-tree `join` walk. `ret` is the [`Joined`] register (see
 /// the module doc). The broadcast rule — an internal side threads/descends, a leaf side
 /// re-broadcasts in place — lives once in the [`Side`] helpers (`left`/`right`/`end`),
 /// not spelled out per side per arm.
@@ -206,7 +206,7 @@ enum JoinJob {
     },
 }
 
-/// The thread register for `ev_join` (see the module doc): the output root a
+/// The thread register for `join` (see the module doc): the output root a
 /// just-finished subtree produced, plus where it ended in each input. An `Eval` arm
 /// *writes* it (a leaf directly, or via the `Close` arm folding a node); the deferred
 /// `Right`/`Close` frames *read* it.
@@ -228,7 +228,7 @@ impl EvView<'_> {
     /// paper's `join`); read that recursive twin first. The call stack is made explicit on a
     /// `JoinJob` stack, right-child positions are threaded through the [`Joined`] register,
     /// and the leaf/node broadcast rule lives in the [`Side`] helpers.
-    pub(crate) fn ev_join(&self, other: &EvView) -> WorkingVersion {
+    pub(crate) fn join(&self, other: &EvView) -> WorkingVersion {
         let (a, b) = (self, other);
         let mut out = Builder::new();
         let mut ret = Joined::default();
@@ -326,7 +326,7 @@ impl EvView<'_> {
     }
 }
 
-/// A step in the [`EvView::ev_max`] descent, in the dominant job-stack idiom. The thread
+/// A step in the [`EvView::max`] descent, in the dominant job-stack idiom. The thread
 /// register is just the end position of the last-finished subtree (`end` in the loop):
 /// this fold has no per-node output to combine, only a global maximum, so it needs no
 /// register struct and `Eval`/`Right` alone (no `Close`) suffice.
@@ -344,7 +344,7 @@ impl EvView<'_> {
     /// Iterative `O(n)` pass in the crate's dominant job-stack idiom: the threaded `end`
     /// reports where each subtree finished so a right sibling resumes there without
     /// re-scanning, while the running `max` accumulates every node's path sum.
-    fn ev_max(&self, root: usize) -> (Base, usize) {
+    fn max(&self, root: usize) -> (Base, usize) {
         let mut max = Base::ZERO;
         let mut end = root;
         let mut stack = vec![MaxJob::Eval {
@@ -469,7 +469,7 @@ impl EvView<'_> {
                     }
                     if id.is_full(id_pos) {
                         // id 1-leaf (full): collapse the whole event subtree to its max.
-                        let (mx, ev_end) = view.ev_max(ev_pos);
+                        let (mx, ev_end) = view.max(ev_pos);
                         ret = Built {
                             out_root: out.leaf(mx),
                             id_end: id_next,
@@ -498,7 +498,7 @@ impl EvView<'_> {
                         // filled right; build the right first, then backpatch the leaf.
                         let node = out.open(ev_base);
                         let left_leaf = out.leaf(Base::ZERO); // placeholder
-                        let (max_el, ev_right) = view.ev_max(ev_left);
+                        let (max_el, ev_right) = view.max(ev_left);
                         let id_right = id_left + 2; // past the 1-leaf `il`
                         stack.push(FillJob::FullLeftClose {
                             node,
@@ -538,7 +538,7 @@ impl EvView<'_> {
                     let (ir, er) = (left.id_end, left.ev_end);
                     if id.is_full(ir) {
                         // `ir` full: right collapses to a leaf depending on the filled left.
-                        let (max_er, er_end) = view.ev_max(er);
+                        let (max_er, er_end) = view.max(er);
                         let x = max_er.max(out.base[left.out_root].clone());
                         let right_leaf = out.leaf(x);
                         out.close_node(node, right_leaf);

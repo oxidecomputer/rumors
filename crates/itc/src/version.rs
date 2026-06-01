@@ -161,7 +161,7 @@ impl Batch<'_> {
 
     /// Merge another history in place. Chainable.
     pub fn merge(&mut self, other: &Version) -> &mut Self {
-        let work = self.view().ev_join(&other.view());
+        let work = self.view().join(&other.view());
         self.work = Some(work);
         self
     }
@@ -203,14 +203,14 @@ impl<'a> From<&'a mut Version> for Batch<'a> {
 impl BitOr<Version> for Version {
     type Output = Version;
     fn bitor(self, r: Version) -> Version {
-        let work = self.view().ev_join(&r.view());
+        let work = self.view().join(&r.view());
         Version::from_bits(work.repack())
     }
 }
 
 impl BitOrAssign<Version> for Version {
     fn bitor_assign(&mut self, r: Version) {
-        let work = self.view().ev_join(&r.view());
+        let work = self.view().join(&r.view());
         *self = Version::from_bits(work.repack());
     }
 }

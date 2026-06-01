@@ -14,7 +14,7 @@
 //! resumes there instead of re-scanning the left subtree. As soon as both directions
 //! are excluded the result is concurrent (`None`) and the walk stops early. Path sums
 //! are threaded as arbitrary-precision [`Base`](crate::codec::Base) offsets — the same
-//! value type as the stored bases and as `ev_join`/`fill`/`grow`. A path sum is the
+//! value type as the stored bases and as `join`/`fill`/`grow`. A path sum is the
 //! running total of stored bases along a root-to-node path; an unbounded integer type
 //! removes the `u64` overflow class entirely (`decode` admits any normal-form tree,
 //! including one whose path sums exceed `u64::MAX`, so a bounded accumulator could
@@ -39,7 +39,7 @@ pub(super) struct EvHeader {
 }
 
 /// One input's state at an aligned node in a two-tree event walk, capturing the
-/// broadcast rule that both [`EvView::causal_cmp`] and [`EvView::ev_join`] share: an
+/// broadcast rule that both [`EvView::causal_cmp`] and [`EvView::join`] share: an
 /// *internal* side threads/descends into its own children, while a *leaf* side is
 /// re-broadcast unchanged to both of the other tree's children.
 ///

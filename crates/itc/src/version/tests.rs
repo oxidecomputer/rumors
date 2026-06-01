@@ -218,7 +218,7 @@ proptest! {
 }
 
 proptest! {
-    /// Differential. The impl version join (`|`) matches the oracle's `ev_join`.
+    /// Differential. The impl version join (`|`) matches the oracle's `join`.
     #[test]
     fn merge_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
@@ -232,7 +232,7 @@ proptest! {
 
 proptest! {
     /// Every assigning / batch join surface on `Version` yields the same result as `a |
-    /// b`, which `merge_matches_oracle` already pins to the oracle's `ev_join`. Covers
+    /// b`, which `merge_matches_oracle` already pins to the oracle's `join`. Covers
     /// `Version |= Version`, the `From<&mut Version>` batch conversion, and the
     /// `Batch |= &Version` operator (committed on drop) — none of which the by-value
     /// `|` differential reaches.
@@ -412,7 +412,7 @@ proptest! {
 
 proptest! {
     /// `|` (merge / LUB) on arbitrary unrelated event trees agrees with the
-    /// oracle's `ev_join`, structurally. Exercises the join's arm selection on shapes the
+    /// oracle's `join`, structurally. Exercises the join's arm selection on shapes the
     /// op pipeline never builds, with large bases threaded losslessly.
     #[test]
     fn merge_arbitrary(oa in arb_oracle_version(), ob in arb_oracle_version()) {
