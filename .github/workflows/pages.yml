@@ -1,0 +1,76 @@
+# Build the itc-viz WASM visualizer and deploy it to GitHub Pages.
+#
+# The site is served from a project subpath (https://oxidecomputer.github.io/rumors/);
+# every asset reference in index.html / the esbuild bundle is relative, so no base-href
+# rewriting is needed. Only the minimal runtime set is published — not node_modules,
+# not the TypeScript sources, not the wasm-pack glue that esbuild already inlined.
+#
+# One-time setup: repo Settings > Pages > Build and deployment > Source = "GitHub Actions".
+name: Deploy itc-viz to Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/itc-viz/**"
+      - "crates/itc/**" # the engine the visualizer compiles in
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow one concurrent deployment; don't cancel an in-progress one mid-publish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add wasm target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: crates/itc-viz/www/package-lock.json
+
+      - name: Build visualizer
+        run: ./crates/itc-viz/build.sh
+
+      # Assemble the minimal runtime set: index.html + style.css + fonts + the esbuild
+      # bundle + the wasm. The bundle inlines pkg/itc_viz.js and resolves the wasm via
+      # ../pkg/itc_viz_bg.wasm, so that one .wasm is the only thing pkg/ contributes.
+      - name: Assemble site
+        working-directory: crates/itc-viz/www
+        run: |
+          dest="$GITHUB_WORKSPACE/_site"
+          mkdir -p "$dest/dist" "$dest/pkg"
+          cp index.html style.css "$dest/"
+          cp -R fonts "$dest/"
+          cp dist/app.js "$dest/dist/"
+          cp pkg/itc_viz_bg.wasm "$dest/pkg/"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
