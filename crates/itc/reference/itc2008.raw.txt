@@ -1,0 +1,657 @@
+Interval Tree Clocks: A Logical Clock for Dynamic Systems
+Paulo Sérgio Almeida
+
+Carlos Baquero
+
+Victor Fonte
+
+DI/CCTC, Universidade do Minho, Braga, Portugal
+
+1
+
+Introduction
+
+Ever since causality was introduced in distributed systems [11], it has played an important role in the
+modeling of distributed computations. In the absence of global clocks, causality remains as a means to
+reason about the order of distributed events. In order to be useful, causality is implemented by concrete
+mechanisms, such as Vector Clocks [7, 14] and Version Vectors [16], where a compressed representation
+of the sets of events observed by processes or replicas is kept.
+These mechanisms are based on a mapping from a globally unique identifier to an integer counter, so
+that each entity keeps track of how many events it knows from each other entity. A special and common
+case is when the number of entities is known: here ids can be integers, and a vector of counters can be used.
+Nowadays, distributed systems are much less static and predictable than those traditionally considered
+when the basic causality tracking mechanisms were created. In dynamic distributed systems [15], the
+number of active entities varies during the system execution and in some settings, such as in peer-to-peer
+deployments, the level of change, due to churn, can be extremely high.
+Causality tracking in dynamic settings is not new [8] and several proposals analyzed the dynamic creation and retirement of entities [19, 9, 18, 12, 2]. However, in most cases localized retirement is not supported: all active entities must agree before an id can be removed [19, 9, 18] and a single unreachable entity
+will stale garbage collection. Localized retirement is partially supported in [12], while [2] has full support
+but the mechanism itself exhibits an unreasonble structural growth that the its practical use is compromised
+[3].
+This paper addresses causality tracking in dynamic settings and introduces Interval Tree Clocks (ITC),
+a novel causality tracking mechanism that generalizes both Version Vectors and Vector Clocks. It does
+not require global ids but is able to create, retire and reuse them autonomously, with no need for global
+coordination; any entity can fork a new one and the number of participants can be reduced by joining
+arbitrary pairs of entities; stamps tend to grow or shrink adapting to the dynamic nature of the system.
+Contrary to some previous approaches, ITC is suitable for practical uses, as the space requirement scales
+well with the number of entities and grows modestly over time.
+In the next section we review the related work. Section 3 introduces a model based on fork, event
+and join operations that factors out a kernel for the description of causality systems. Section 4 builds
+on the identified core operations and introduces a general framework that expresses the properties that
+must be met by concrete causality tracking mechanisms. Section 5 introduces the ITC mechanism and
+correctness argument under the framework. Before conclusions, in Section 7, we present in Section 6 a
+simple simulation based assessment of the space requirements of the mechanism.
+
+2
+
+Related Work
+
+After Lamport’s description of causality in distributed system [11], subsequent work introduced the basic
+mechanisms and theory [16, 7, 14, 5]. We refer the interested reader to the survey in [20] and to the historical notes in [4]. After an initial focus on message passing systems, recent developments have improved
+causality tracking for replicated data: they addressed efficient coding for groups of related objects [13];
+bounded representation of version vectors [1]; and the semantics of reconciliation [10].
+
+1
+
+Fidge introduces in [8] a model with a variable number of process ids. In this model process ids are
+assumed globally unique and are gradually introduced by process spawning events. No garbage collection
+of ids is performed when processes terminate.
+Garbage collection of terminated ids requires additional meta-data in order to assess that all active
+entities already witnessed the termination; otherwise, ids cannot be safely removed from the vectors. This
+approach is used in [9, 19] together with the assumption of globally unique ids. In [18] the assumption
+of global ids is dropped and each entity is able to produce a globally unique id from local information. A
+typical weakness in these systems is twofold: terminated ids cannot be reused; and garbage collection is
+hampered by even a single unreachable entity. In addition, when garbage collection cannot terminate the
+associated meta-data overhead cannot be freed. Since this overhead is substantial, when the likelihood of
+non termination is high, it can be more efficient not to garbage collect and keep the inactive ids.
+The mechanism described in [12] provides local retirement of ids but only for restricted termination
+patterns (a process can only be retired by joining a direct ancestor); moreover the use of global ids is
+required.
+Our own work in [2] introduced localized creation and retirements of ids. Although of theoretical
+interest as it does not use counters, and inspired the id management technique used in ITC, the technique
+was later found out to exhibit very adverse growth in common scenarios [3].
+In order to control version vector growth, in Dynamo [6] old inactive entries are garbage collected.
+Although the authors tune it so that in production systems errors are unlikely to be introduced, in general
+this can lead to resurgence of old updates. Mechanims like ITC may help in avoiding the need for these
+aggressive pruning solutions.
+
+3
+
+Fork-Event-Join Model
+
+Causality tracking mechanisms can be modeled by a set of core operations: fork; event and join, that
+act on stamps (logical clocks) whose structure is a pair (i, e), formed by an id and an event component
+that encodes causally known events. Fidge used in [8] a model that bears some resemblance, although not
+making explicit the id component.
+Causality is characterized by a partial order over the event components, (E, ≤). In version vectors, this
+order is the pointwise order on the event component: e ≤ e0 iff ∀k. e[k] ≤ e0 [k]. In causal histories [20],
+where event components are sets of event ids, the order is defined by set inclusion.
+fork The fork operation allows the cloning of the causal past of a stamp, resulting in a pair of stamps that
+have identical copies of the event component and distinct ids; fork(i, e) = ((i1 , e), (i2 , e)) such that
+i2 6= i1 . Typically, i = i1 and i2 is a new id. In some systems i2 is obtained from an external source
+of unique ids, e.g. MAC addresses. In contrast, in Bayou [18] i2 is a function of the original stamp
+f ((i, e)); consecutive forks are assigned distinct ids since an event is issued to increment a counter
+after each fork.
+peek A special case of fork when it is enough to obtain an anonymous stamp (0, e), with “null” identity, than can be used to transmit causal information but cannot register events, peek((i, e)) =
+((0, e), (i, e)). Anonymous stamps are typically used to create messages or as inactive copies
+for later debugging of distributed executions.
+event An event operation adds a new event to the event component, so that if (i, e0 ) results from event((i, e))
+the causal ordering is such that e < e0 . This action does a strict advance in the partial order such
+that e0 is not dominated by any other entity and does not dominate more events than needed: for any
+other event component x in the system, e0 6≤ x and when x < e0 then x ≤ e. In version vectors the
+event operation increments a counter associated to the identity in the stamp: ∀k 6= i. e0 [k] = e[k]
+and e0 [i] = e[i] + 1.
+join This operation merges two stamps, producing a new one. If join((i1 , e1 ), (i2 , e2 )) = (i3 , e3 ), the
+resulting event component e3 should be such that e1 ≤ e3 and e2 ≤ e3 . Also, e3 should not dominate
+2
+
+more that either e1 and e2 did. This is obtained by the order theoretical join, e3 = e1 t e2 , that
+must be defined for all pairs; i.e. the order must form a join semilattice. In causal histories the join
+is defined by set union, and in version vectors it is obtained by the pointwise maximum of the two
+vectors.
+The identity should be based on the provided ones, i3 = f (i1 , i2 ) and kept globally unique (with the
+exception of anonymous ids). In most systems this is obtained by keeping only one of the ids, but if
+ids are to be reused it should depend upon and incorporate both [2].
+When one stamp is anonymous, join can model message reception, where join((i, e1 ), (0, e2 )) =
+(i, e1 t e2 ). When both ids are defined, the join can be used to terminate an entity and collect
+its causal past. Also notice that joins can be applied when both stamps are anonymous, modeling
+in-transit aggregation of messages.
+Classic operations can be described as a composition of these core operations:
+send This operation is the atomic composition of event followed by peek. E.g. in vector clock systems,
+message sending is modeled by incrementing the local counter and then creating a new message.
+receive A receive is the atomic composition of join followed by event. E.g. in vector clocks taking the
+pointwise maximum is followed by an increment of the local counter.
+sync A sync is the atomic composition of join followed by fork. E.g. In version vector systems and in
+bounded version vectors [1] it models the atomic synchronization of two replicas.
+Traditional descriptions assume a starting number of participants. This can be simulated by starting
+from an initial seed stamp and forking several times until the required number of participants is reached.
+
+4
+
+Function space based Clock Mechanisms
+
+In this section we present a general framework which can be used to explain and instantiate concrete causality tracking mechanisms, such as our own ITC presented in the next section. Here stamps are described in
+terms of functions and some invariants are presented towards ensuring correctness. Actual mechanisms can
+be seen as finite encodings of such functions. Correctness of each mechanism will follow directly from the
+correctness of the encoding and from respecting the corresponding semantics and conditions to be met by
+each operation. In the following we will make use of the standard pointwise sum, product, scaling, partial
+ordering and join of functions:
+.
+(f + g)(x) = f (x) + g(x),
+.
+(f · g)(x) = f (x) · g(x),
+.
+(n · g)(x) = n · g(x),
+.
+f ≤ g = ∀x. f (x) ≤ g(x),
+.
+(f t g)(x) = f (x) t g(x),
+and of a function 0 that maps all elements to 0:
+.
+0 = λx. 0.
+A stamp will consist of a pair (i, e): the identity and the event components, both functions from some
+arbitrary domain to natural numbers. The identity component is a characteristic function (maps elements to
+{0, 1}) that defines the set of elements in the domain available to inflate (“increment”) the event function
+when an event occurs. We chose to use the characteristic function instead of the set as it leads to better
+notation. The essential point towards ensuring a correct tracking of causality is to be able to inflate the
+mapping of some element which no other participant (process or replica) has access to. This means each
+
+3
+
+participant having an identity which maps to 1 some element which is mapped to 0 in all other participants.
+This is expressed by the following invariant over the identity components of all participants:
+G
+∀i. (i ·
+i0 ) 6= i.
+i0 6=i
+
+We adopt a less general but more useful invariant, as it can be maintained by local operations without access
+to global knowledge. It consists of having disjointness of the parts of the domain that are mapped to 1 in
+each participant; i.e. non-overlapping graphs for any pair of id functions.
+∀i1 6= i2 . i1 · i2 = 0.
+Comparison of stamps is made through the event component:
+.
+(i1 , e1 ) ≤ (i2 , e2 ) = e1 ≤ e2 .
+Join takes two stamps, and returns a stamp that causally dominates both (therefore, the event component
+is a join of the event components), and has the elements from both identities available for future event
+accounting:
+.
+join((i1 , e1 ), (i2 , e2 )) = (i1 + i2 , e1 t e2 ).
+Fork can be any function that takes a stamp and returns two stamps which keep the same event component, but split between them the available elements in the identity; i.e. any function:
+.
+fork((i, e)) = ((i1 , e), (i2 , e))
+
+subject to i1 + i2 = i and i1 · i2 = 0.
+
+Peek is a special case of fork, which results in one anonymous stamp with 0 identity and another which
+keeps all the elements in the identity to itself:
+.
+peek((i, e)) = ((0, e), (i, e)).
+Event can be any function that takes a stamp and returns another with the same identity and with an
+event component inflated on any arbitrary set of elements available in the identity:
+event((i, e)) = (i, e + f · i)
+
+for any f such that f · i A 0.
+
+An event cannot be applied to an anonymous stamp as no element in the domain is available to be inflated.
+
+5
+
+Interval Tree Clocks
+
+We now describe Interval Tree Clocks, a novel clock mechanism that can be used in scenarios with a
+dynamic number of participants, allowing a completely decentralized creation of processes/replicas without
+need for global identifiers. The mechanism has a variable size representation that adapts automatically to
+the number of existing entities, growing or shrinking appropriately. There are two essential differences
+between ITC and classic clock mechanisms, from the point of view of our function space framework:
+• in classic mechanisms each participant uses a fixed, pre-defined function for id; in ITC the id component of participants is manipulated to adapt to the dynamic number of participants;
+• classic mechanisms are based on functions over a discrete and typically finite domain; ITC is based
+on functions over a continuous infinite domain (R) with emphasis on the interval [0, 1); this domain
+can be split into an arbitrary number of subintervals as needed.
+The idea is that each participant has available, in the id, a set of intervals that can use to inflate the event
+component and to give to the successors when forking; a join operation joins the sets of intervals. Each
+interval results from successive partitions of [0, 1) into equal subintervals; the set of intervals is described
+by a binary tree structure. Another binary tree structure is also used for the event component, but this time
+4
+
+to describe a mapping of intervals to integers. To describe the mechanism in terms of functions, it is useful
+to define a unit pulse function:
+(
+1 x ≥ 0 ∧ x < 1,
+.
+1 = λx.
+0 x < 0 ∨ x ≥ 1.
+The id component is an id tree with the recursive form (where i, i1 , i2 range over id trees):
+i ::= 0 | 1 | (i1 , i2 ).
+We define a semantic function for the interpretation of id trees as functions:
+J0K = 0
+J1K = 1
+
+J(i1, i2)K = λx. Ji1 K(2x) + Ji2 K(2x − 1).
+These functions can be 1 for some subintervals of [0, 1) and 0 otherwise. For an id (i1 , i2 ), the functions
+corresponding to the two subtrees are transformed so as to be non-zero in two non-overlapping subintervals:
+i1 in the interval [0, 1/2) and i2 in the interval [1/2, 1). As an example, (1, (0, 1)) represents the function
+λx. 1(2x) + (λx. 1(2x − 1))(2x − 1). We will also use a graphical notation, which based on the graph of
+the function over [0, 1). Examples:
+(1, (0, 1)) ∼
+((0, (1, 0)), (1, 0)) ∼
+The event component is a binary event tree with non-negative integers in nodes; using e, e1 , e2 to range
+over event trees and n over non-negative integers:
+e ::= n | (n, e1 , e2 ).
+We define a semantic function for the interpretation of these trees as functions:
+JnK = n · 1
+
+J(n, e1, e2)K = n · 1 + λx. Je1 K(2x) + Je2 K(2x − 1).
+This means the value for an element in some subinterval is the sum of a base value, common for the whole
+interval, plus a relative value from the corresponding subtree. We will also use a graphical notation for the
+event component; again, it is based on the graph of the function, obtained by “stacking” the corresponding
+parts. An example:
+(1, 2, (0, (1, 0, 2), 0)) ∼
+A stamp in ITC is a pair (i, e), where i is an id tree and e an event tree; we will also use a graphical notation
+based on stacking the two components:
+(((0, (1, 0)), (1, 0)), (1, 2, (0, (1, 0, 2), 0))) ∼
+ITC makes use what we call the seed stamp, (1, 0), from which we can fork as desired to obtain an
+initial configuration.
+
+5.1
+
+An example
+
+We now present an example to ilustrate the intuition behind the mechanism, showing a run with a dynamic
+number of participants in the fork-event-join model. The run starts by a single participant, with the seed
+stamp, which forks into two; one of these suffers one event and forks; the other suffers two events. At
+this point there are three participants. Then, one participant suffers an event while the remaining two
+synchronize by doing a join followed by a fork.
+5
+
+The example shows how ITC adapts to the number of participants and allows simplifications to occur
+upon joins or events. While the first two forks had to split a node in the id tree, the third one makes use
+of the two available subtrees. The final join leads to a simplification in the id by merging two subtrees. It
+can be seen that each event always inflates the event tree in intervals available in the id. The event after the
+final join managed to perform an inflation in a way such that the resulting event function is represented by
+a single integer.
+
+5.2
+
+Normal form
+
+There can be several equivalent representations for a given function. ITC is conceived so as to keep stamps
+in a normal form, for the representations of both id and event functions. This is important not only for
+having compact representations but also to allow simple definitions of the operations on stamps (fork,
+event, join) as shown below. As an example, for the unit pulse, we have:
+1 ∼ 1 ≡ (1, 1) ≡ (1, (1, 1)) ≡ ((1, 1), 1) ≡ . . .
+This means that, if after a join the resulting id is (1, (1, 1)), we can simplify it to 1. Normalization of the id
+component can be obtained by applying the following function when building the id tree recursively:
+norm((0, 0)) = 0,
+norm((1, 1)) = 1,
+norm(i) = i.
+The event component can be also normalized, preserving its interpretation as a function. Two examples:
+(2, 1, 1) ∼
+
+≡
+
+∼ 3,
+
+(2, (2, 1, 0), 3) ∼
+
+≡
+
+∼ (4, (0, 1, 0), 1).
+
+To normalize the event component we will make use of the following operators to “lift” or “sink” a tree:
+n↑m = n + m,
+(n, e1 , e2 )↑m = (n + m, e1 , e2 ),
+n↓m = n − m,
+(n, e1 , e2 )↓m = (n − m, e1 , e2 ).
+Normalization of the event component can be obtained by applying the following function when building a tree recursively (where m and n range over integers and e1 and e2 over normalized event trees) :
+norm(n) = n,
+norm((n, m, m)) = n + m,
+norm((n, e1 , e2 )) = (n + m, e1 ↓m , e2 ↓m ), where m = min(min(e1 ), min(e2 )),
+where min applied to a tree returns the mininum value of the corresponding function in the range [0, 1):
+min(e) = min JeK(x),
+x∈[0,1)
+
+6
+
+which can be obtained by the recursive function over event trees:
+min(n) = n,
+min((n, e1 , e2 )) = n + min(min(e1 ), min(e2 )),
+or more simply, assuming the event tree is normalized:
+min(n) = n,
+min((n, e1 , e2 )) = n,
+which explores the property that in a normalized event tree, one of the subtrees has minimum equal to 0.
+We will also make use of the analogous max function over event trees that returns the maximum value of
+the corresponding function in the range [0, 1), and can be obtained by the recursive function:
+max(n) = n,
+max((n, e1 , e2 )) = n + max(max(e1 ), max(e2 )).
+
+5.3
+
+Operations over ITC
+
+We now present the operations on ITC for the fork-event-join model. They are defined so as to respect the
+operations and invariants from the function space based framework presented in the previous section. All
+the functions below take as input and give as result stamps in the normal form.
+5.3.1
+
+Comparison
+
+Comparison of ITC can be derived from the pointwise comparison of the corresponding functions:
+.
+(i1 , e1 ) ≤ (i2 , e2 ) = Je1 K ≤ Je2 K.
+
+It is trivial to see that this can be computed through a recursive function over normalized event trees;
+i.e. (i1 , e1 ) ≤ (i2 , e2 ) ⇐⇒ leq(e1 , e2 ), with leq defined as (where l and r range over the “left” and
+“right” subtrees):
+leq(n1 , n2 ) = n1 ≤ n2 ,
+leq(n1 , (n2 , l2 , r2 )) = n1 ≤ n2 ,
+leq((n1 , l1 , r1 ), n2 ) = n1 ≤ n2 ∧ leq(l1 ↑n1 , n2 ) ∧ leq(r1 ↑n1 , n2 ),
+leq((n1 , l1 , r1 ), (n2 , l2 , r2 )) = n1 ≤ n2 ∧ leq(l1 ↑n1 , l2 ↑n2 ) ∧ leq(r1 ↑n1 , r2 ↑n2 ).
+5.3.2
+
+Fork
+
+Forking preserves the event component, and must split the id in two parts whose corresponding functions
+do not overlap and give the original one when added.
+.
+fork(i, e) = ((i1 , e), (i2 , e)), where (i1 , i2 ) = split(i),
+for a function split such that:
+(i1 , i2 ) = split(i) =⇒ Ji1 K × Ji2 K = 0 ∧ Ji1 K + Ji2 K = JiK.
+This is satisfied naturally using the following recursive function over id trees, as the two subtrees of an id
+component always represent functions that do not overlap:
+split(0) = (0, 0),
+split(1) = ((1, 0), (0, 1)),
+split((0, i)) = ((0, i1 ), (0, i2 )), where (i1 , i2 ) = split(i),
+split((i, 0)) = ((i1 , 0), (i2 , 0)), where (i1 , i2 ) = split(i),
+split((i1 , i2 )) = ((i1 , 0), (0, i2 ))
+7
+
+5.3.3
+
+Join
+
+Joining two entities is made by summing the corresponding id functions and making a join of the corresponding event functions:
+.
+join((i1 , e1 ), (i2 , e2 )) = (sum(i1 , i2 ), join(e1 , e2 )),
+for a sum function over identities and a join function over event trees such that:
+Jsum(i1 , i2 )K = Ji1 K + Ji2 K,
+
+Jjoin(e1 , e2 )K = Je1 K t Je2 K.
+The sum function that respects the above condition and also produces a normalized id is:
+sum(0, i) = i,
+sum(i, 0) = i,
+sum((l1 , r1 ), (l2 , r2 )) = norm((sum(l1 , l2 ), sum(r1 , r2 ))).
+Likewise, the join function over event trees, producing a normalized event tree is:
+join(n1 , n2 ) = max(n1 , n2 ),
+join(n1 , (n2 , l2 , r2 )) = join((n1 , 0, 0), (n2 , l2 , r2 )),
+join((n1 , l1 , r1 ), n2 ) = join((n1 , l1 , r1 ), (n2 , 0, 0)),
+join((n1 , l1 , r1 ), (n2 , l2 , r2 )) = join((n2 , l2 , r2 ), (n1 , l1 , r1 )), if n1 > n2 ,
+join((n1 , l1 , r1 ), (n2 , l2 , r2 )) = norm((n1 , join(l1 , l2 ↑n2 −n1 ), join(r1 , r2 ↑n2 −n1 ))).
+5.3.4
+
+Event
+
+The event operation is substantially more complex than the others. While fork and join have a simple
+natural definition, event has larger freedom of implementation while respecting the condition:
+event((i, e)) = (i, e0 ),
+
+subject to Je0 K = JeK + f · JiK for any f such that f · JiK A 0.
+
+Event cannot be applied to anonymous stamps; it has the precondition that the id is non-null; i.e. i 6= 0. We
+can use any subset of the available id to inflate the event function. The freedom of which part to inflate is
+explored in ITC so as to simplify the event tree. Considering the final event in our larger example:
+
+The event operation was able to fill the missing part in a tree so as to allow its simplification to a single
+integer. In general, the event operation can use several parts of the id, and may simplify several subtrees
+simultaneously. The operation performs all simplifications in the event tree that are possible given the
+id tree. If some simplification is possible (which means the corresponding function was inflated), the
+resulting tree is returned; otherwise another procedure is applied, that “grows” some subtree, preferably
+only incrementing an integer if possible. The event operation is defined resorting to these two functions
+(fill and grow) defined below:
+(
+(i, fill(i, e)) if fill(i, e) 6= e,
+event(i, e) =
+(i, e0 )
+otherwise, where (e0 , c) = grow(i, e).
+
+8
+
+Fill either succeeds in doing one or more simplifications, or returns an unmodified tree; it never increments an integer that would not lead to simplyfing the tree:
+fill(0, e) = e,
+fill(1, e) = max(e),
+fill(i, n) = n,
+fill((1, ir ), (n, el , er )) = norm((n, max(max(el ), min(e0r )), e0r )), where e0r = fill(ir , er ),
+fill((il , 1), (n, el , er )) = norm((n, e0l , max(max(er ), min(e0l )))), where e0l = fill(il , el ),
+fill((il , ir ), (n, el , er )) = norm((n, fill(il , el ), fill(ir , er ))).
+In the following example, fill is unable to perform any simplification and grow is used. From the two
+candidate inflations shown in light grey, the one chosen requires a simple integer increment, while the other
+would require expanding a node:
+
+Grow performs a dynamic programming based optimization to choose the inflation that can be performed, given the available id tree, so as to minimize the cost of the event tree growth. It is defined
+recursively, returning the new event tree and cost, so that:
+• incrementing an integer is preferable over expanding an integer to a tuple;
+• to disambiguate, an operation near the root is preferable to one farther away.
+
+grow(1, n) = (n + 1, 0),
+grow(i, n) = (e0 , c + N ), where (e0 , c) = grow(i, (n, 0, 0)),
+and N is some large constant,
+grow((0, ir ), (n, el , er )) = ((n, el , e0r ), cr + 1), where (e0r , cr ) = grow(ir , er ),
+grow((il , 0), (n, el , er )) = ((n, e0l , er ), cl + 1), where (e0l , cl ) = grow(il , el ),
+(
+((n, e0l , er ), cl + 1) if cl < cr ,
+grow((il , ir ), (n, el , er )) =
+((n, el , e0r ), cr + 1) if cl ≥ cr ,
+where (e0l , cl ) = grow(il , el ) and (e0r , cr ) = grow(ir , er ).
+The definition makes use of a constant N that should be greater than the maximum tree depth that
+arises. This is a practical choice, to have the cost as a simple integer. We could avoid it by having the cost
+as a pair under lexicographic order, but it would “pollute” the presentation and be a distracting element.
+
+6
+
+Excercising ITCs
+
+In order to have a rough insight of ITC space consumption we exercised its usage for both dynamic and
+static scenarios, using a mix of data and process causality. For data causality in dynamic scenarios, each iteration consists of forking, recording an event and joining two replicas, each performed on random replicas,
+leading to constantly evolving ids. This pattern maintains the number of existing replicas while exercising id management under churn. For process causality in a static scenario, we operate on a fixed set of
+
+9
+
+Data Causality in a Dynamic Setting
+
+Process Causality in a Static Setting
+
+10000
+
+1000
+
+Size in bytes
+
+1000
+
+Size in bytes
+
+128 replicas
+64 replicas
+32 replicas
+16 replicas
+8 replicas
+4 replicas
+
+100
+
+128 processes
+64 processes
+32 processes
+16 processes
+8 processes
+4 processes
+
+100
+
+10
+
+10
+
+1
+
+1
+1
+
+10
+
+100
+1000
+Iterations
+
+10000
+
+100000
+
+1
+
+10
+
+100
+Iterations
+
+1000
+
+10000
+
+Figure 1: Average space consumption of an ITC stamp, in dynamic and static settings.
+processes doing message exchanges (via peek and join) and recording internal events; here ids remain
+unchanged, since messages are anonymous.
+The charts in Figure 1 depict the mean size (a binary encoding function is shown in Appendix A) of an
+ITC across 100 runs of 25,000 iterations for process causality and 100,000 iterations for data causality and
+for different numbers of active entities (pre-created by forking a seed stamp before iterating). It shows that
+space comsumption basically stabilizes (with a minor logarithmic component) after a number of iterations.
+These results show that ITCs can in fact be used as a practical mechanism for data and process causality in
+dynamic systems, contrary to Version Stamps[2] that have storage cost growing unreasonably over time.
+In order to put these numbers in perspective, the Microsoft Windows operating system [17] uses 128
+bits Universally Unique Identifiers (UUIDs) and 32 bit counters. The storage cost of a version vector for
+128 replicas would be 2560 bytes using a mapping from ids to counters and 512 bytes using a vector.
+The mean size of an ITC for this scenario (at the end of the iterations) would be less than 2900 bytes for
+dynamic scenarios and slightly above 170 bytes for static ones. While vectors can be represented in a more
+compact way (e.g. factoring out the smallest number), such optimizations would be irrelevant for dynamic
+scenarios, where most of the cost stems from the UUIDs.
+
+7
+
+Conclusions
+
+We have introduced, Interval Tree Clocks, a novel logical clock mechanism for dynamic systems, where
+processes/replicas can be created or retired in a decentralized fashion. The mechanism has been presented
+using a model (fork-event-join) that can serve as a kernel to describe all classic operations (like message
+sending, symmetric synchronization and process creation), being suitable for both process and data causality scenarios.
+We have presented a general framework for clock mechanisms, where stamps can be seen as finite
+representations of a pair of functions over a continuous domain; the event component serves to perform
+comparison or join (performed pointwise); the identity component defines a set of intervals where the event
+component can be inflated (a generalization of the classic counter increment). ITC is a concrete mechanism
+that instantiates the framework, using trees to describe functions on sets of intervals. The framework opens
+the way for research on future alternative mechanisms that use different representations of functions.
+Previous approaches to causality tracking for dynamic systems either require access to globally unique
+ids; do not reuse ids of retired participants; require global coordination for garbage collection of ids; or
+exhibit an intolerable growth in terms of space consumption (our previous approach). ITC is the first
+mechanism for dynamic systems that avoids all these problems, can be used for both process and data
+causality, and requires a modest space consumption, making it a general purpose mechanism, even for
+static systems.
+
+10
+
+References
+[1] José Bacelar Almeida, Paulo Sérgio Almeida, and Carlos Baquero. Bounded version vectors. In
+Rachid Guerraoui, editor, DISC, volume 3274 of Lecture Notes in Computer Science, pages 102–116.
+Springer, 2004.
+[2] Paulo Sérgio Almeida, Carlos Baquero, and Victor Fonte. Version stamps – decentralized version
+vectors. In Proceedings of the 22nd International Conference on Distributed Computing Systems
+(ICDCS), pages 544–551. IEEE Computer Society, 2002.
+[3] Paulo Sérgio Almeida, Carlos Baquero, and Victor Fonte. Improving on version stamps. In Robert
+Meersman, Zahir Tari, and Pilar Herrero, editors, On the Move to Meaningful Internet Systems 2007:
+OTM 2007 Workshops, OTM Confederated International Workshops and Posters, AWeSOMe, CAMS,
+OTM Academy Doctoral Consortium, MONET, OnToContent, ORM, PerSys, PPN, RDDS, SSWS, and
+SWWS 2007, Vilamoura, Portugal, November 25-30, 2007, Proceedings, Part II, volume 4806 of
+Lecture Notes in Computer Science, pages 1025–1031. Springer, 2007.
+[4] Roberto Baldoni and Michel Raynal. Fundamentals of distributed computing: A practical tour of
+vector clock systems. IEEE Distributed Systems Online, 3(2), 2002.
+[5] Bernadette Charron-Bost. Concerning the size of logical clocks in distributed systems. Information
+Processing Letters, 39:11–16, 1991.
+[6] Giuseppe DeCandia, Deniz Hastorun, Madan Jampani, Gunavardhan Kakulapati, Avinash Lakshman,
+Alex Pilchin, Swaminathan Sivasubramanian, Peter Vosshall, and Werner Vogels. Dynamo: amazon’s
+highly available key-value store. In Thomas C. Bressoud and M. Frans Kaashoek, editors, Proceedings of the 21st ACM Symposium on Operating Systems Principles 2007, SOSP 2007, Stevenson,
+Washington, USA, October 14-17, 2007, pages 205–220. ACM, 2007.
+[7] Colin Fidge. Timestamps in message-passing systems that preserve the partial ordering. In 11th
+Australian Computer Science Conference, pages 55–66, 1989.
+[8] Colin Fidge. Logical time in distributed computing systems. IEEE Computer, 24(8):28–33, August
+1991.
+[9] Richard G. Golden, III. Efficient vector time with dynamic process creation and termination. Journal
+of Parallel and Distributed Computing (JPDC), 55(1):109–120, 1998.
+[10] Michael B. Greenwald, Sanjeev Khanna, Keshav Kunal, Benjamin C. Pierce, and Alan Schmitt.
+Agreeing to agree: Conflict resolution for optimistically replicated data. In Shlomi Dolev, editor,
+DISC, volume 4167 of Lecture Notes in Computer Science, pages 269–283. Springer, 2006.
+[11] Leslie Lamport. Time, clocks and the ordering of events in a distributed system. Communications of
+the ACM, 21(7):558–565, July 1978.
+[12] Tobias Landes. Tree clocks: An efficient and entirely dynamic logical time system. In Helmar
+Burkhart, editor, Proceedings of the IASTED International Conference on Parallel and Distributed
+Computing and Networks, as part of the 25th IASTED International Multi-Conference on Applied
+Informatics, February 13-15 2007, Innsbruck, Austria, pages 349–354. IASTED/ACTA Press, 2007.
+[13] Dahlia Malkhi and Douglas B. Terry. Concise version vectors in winfs. In Pierre Fraigniaud, editor,
+DISC, volume 3724 of Lecture Notes in Computer Science, pages 339–353. Springer, 2005.
+[14] Friedemann Mattern. Virtual time and global clocks in distributed systems. In Workshop on Parallel
+and Distributed Algorithms, pages 215–226, 1989.
+
+11
+
+[15] Achour Mostefaoui, Michel Raynal, Corentin Travers, Stacy Patterson, Divyakant Agrawal, and
+Amr El Abbadi. From static distributed systems to dynamic systems. In Proceedings 24th IEEE
+Symposium on Reliable Distributed Systems (24th SRDS’05), pages 109–118, Orlando, FL, USA,
+October 2005. IEEE Computer Society.
+[16] D. Stott Parker, Gerald Popek, Gerard Rudisin, Allen Stoughton, Bruce Walker, Evelyn Walton, Johanna Chow, David Edwards, Stephen Kiser, and Charles Kline. Detection of mutual inconsistency
+in distributed systems. Transactions on Software Engineering, 9(3):240–246, 1983.
+[17] Daniel Peek, Douglas B. Terry, Venugopalan Ramasubramanian, Meg Walraed-Sullivan, Thomas L.
+Rodeheffer, and Ted Wobber. Fast encounter-based synchronization for mobile devices. Digital
+Information Management, 2007. ICDIM ’07. 2nd International Conference on, 2:750–755, 2007.
+[18] K. Petersen, M. Spreitzer, D. Terry, and M. Theimer. Bayou: Replicated database services for worldwide applications. In 7th ACM SIGOPS European Workshop, Connemara, Ireland, 1996.
+[19] David Ratner, Peter Reiher, and Gerald Popek. Dynamic version vector maintenance. Technical
+Report CSD-970022, Department of Computer Science, University of California, Los Angeles, 1997.
+[20] R. Schwarz and F. Mattern. Detecting causal relationships in distributed computations: In search of
+the holy grail. Distributed Computing, 3(7):149–174, 1994.
+
+12
+
+A
+
+A Binary Encoding for ITC
+
+Here we describe a compact encoding of ITC as strings of bits. It may be relevant when stamp size is an
+issue, e.g. when many participants are involved; it is appropriate to being transmitted or stored persistently
+as a single blob. We do not attempt to present an optimal (in some way) encoding, but a sensible one, which
+was used in the space consumption analysis.
+As an event tree tends to have very few large numbers near the root and many very small numbers at
+the leaves; this prompts a variable length representation for integers, where small integers occupy just a
+few bits. Also, common cases like trees with only the left or right subtree, or with 0 for the base value are
+treated as special cases.
+We use a notation (inspired by the bit syntax from the Erlang programming language) where: x, y, z
+is a string of bits resulting from concatenating x, y and z; and n:b represents number n encoded in b bits.
+An example: 2:3, 0:1, 1:2 represents the string of 6 bits 010001.
+
+enc((i, e)) = enci (i), ence (e).
+enci (0) = 0:2, 0:1,
+enci (1) = 0:2, 1:1,
+enci ((0, i)) = 1:2, enci (i),
+enci ((i, 0)) = 2:2, enci (i),
+enci ((il , ir )) = 3:2, enci (il ), enci (ir ).
+ence ((0, 0, er )) = 0:1, 0:2, ence (er ),
+ence ((0, el , 0)) = 0:1, 1:2, ence (el ),
+ence ((0, el , er )) = 0:1, 2:2, ence (el ), ence (er ),
+ence ((n, 0, er )) = 0:1, 3:2, 0:1, 0:1, ence (n), ence (er ),
+ence ((n, el , 0)) = 0:1, 3:2, 0:1, 1:1, ence (n), ence (el ),
+ence ((n, el , er )) = 0:1, 3:2, 1:1, ence (n), ence (el ), ence (er ),
+ence (n) = 1:1, encn (n, 2).
+(
+0:1, n:B
+if n < 2B ,
+encn (n, B) =
+1:1, encn (n − 2B , B + 1) otherwise.
+
+13
+
+
