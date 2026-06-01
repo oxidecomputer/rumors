@@ -67,9 +67,9 @@ impl Party {
     /// precondition `i ≠ 0`, §3). This is the only byte path that yields a top-level `Party`,
     /// so the empty-region check here is what makes an anonymous `Party` unconstructible.
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
-        let bits = codec::Bits::from_slice(bytes);
-        let end = codec::parse_id(&bits, 0)?;
-        codec::require_zero_padding(&bits, end)?;
+        let bits = codec::bytes_as_bits(bytes);
+        let end = codec::parse_id(bits, 0)?;
+        codec::require_zero_padding(bits, end)?;
         let id = bits[..end].to_bitvec();
         if codec::id_is_empty(&id) {
             return Err(DecodeError::Anonymous);
@@ -106,7 +106,7 @@ impl Party {
 impl PartialOrd for Party {
     /// Descent: an ancestor (larger region) is *less than* its forked descendants;
     /// cousins are incomparable (`None`). `self < other` ⇔ `self` contains `other`.
-    /// One pass tracks both containment directions (see [`IdView::compare`]); running
+    /// One pass tracks both containment directions (see `IdView::compare`); running
     /// the containment test once per direction would double the work.
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         self.view().compare(&other.view())

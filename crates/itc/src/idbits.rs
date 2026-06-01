@@ -6,23 +6,21 @@
 //!
 //! The bit stream is wrapped in [`IdView`] — a lightweight read-only newtype that
 //! parallels the event side's `EvView` — so the cursor operations read as methods on the
-//! id (`id.header(at)`, `id.skip(at)`, `id.is_empty(at)`, `id.is_full(at)`).
+//! id (`id.header(at)`, `id.skip(at)`).
 //!
 //! **Normal-form precondition.** Every `Party` is in canonical normal form (`decode`
 //! rejects anything else; every op produces normal form), and so is every subtree of
 //! one. Normalization collapses `(0,0) → 0` and `(1,1) → 1`, so in a normal id an
 //! empty region is *exactly* the `0` leaf and a full region is *exactly* the `1`
-//! leaf, so emptiness/fullness are `O(1)` leaf checks rather than subtree scans:
-//! [`IdView::is_empty`] and [`IdView::is_full`]. Callers must only pass normal-form id
-//! bits.
+//! leaf, so emptiness/fullness are `O(1)` checks on an already-decoded [`IdHeader`]
+//! rather than subtree scans. Callers must only pass normal-form id bits.
 
 use crate::codec::BitsSlice;
 use crate::step;
 
 /// A read-only view of a packed id bit stream, addressed by a bit offset. The id-side
-/// analogue of the event side's `EvView`: the cursor operations
-/// (`header`/`skip`/`is_empty`/`is_full`) hang off it as methods. A thin `Copy` wrapper
-/// over a borrowed slice, so passing one by value is free.
+/// analogue of the event side's `EvView`: cursor operations hang off it as methods. A
+/// thin `Copy` wrapper over a borrowed slice, so passing one by value is free.
 #[derive(Clone, Copy)]
 pub(crate) struct IdView<'a>(pub(crate) &'a BitsSlice);
 
@@ -36,6 +34,18 @@ pub(crate) struct IdHeader {
     pub(crate) val: bool,
     /// Position just past this node's header (where its left child, if any, begins).
     pub(crate) next: usize,
+}
+
+impl IdHeader {
+    /// Whether this already-decoded normal-form header is the empty `0` leaf.
+    pub(crate) fn is_empty(&self) -> bool {
+        !self.node && !self.val
+    }
+
+    /// Whether this already-decoded normal-form header is the full `1` leaf.
+    pub(crate) fn is_full(&self) -> bool {
+        !self.node && self.val
+    }
 }
 
 impl<'a> IdView<'a> {
@@ -69,20 +79,6 @@ impl<'a> IdView<'a> {
             let h = self.header(pos);
             (h.node, h.next)
         })
-    }
-
-    /// Whether the normal-form subtree at `at` owns nothing. `O(1)`: it is empty iff it
-    /// is the `0` leaf (see the module's normal-form precondition).
-    pub(crate) fn is_empty(&self, at: usize) -> bool {
-        let h = self.header(at);
-        !h.node && !h.val
-    }
-
-    /// Whether the normal-form subtree at `at` owns everything. `O(1)`: it is full iff it
-    /// is the `1` leaf (see the module's normal-form precondition).
-    pub(crate) fn is_full(&self, at: usize) -> bool {
-        let h = self.header(at);
-        !h.node && h.val
     }
 
     /// The underlying packed bit stream.

@@ -12,12 +12,11 @@
 //! [`super`]'s module doc: each `Eval` arm writes `ret` with the just-finished
 //! subtree's end positions, and a deferred sibling frame reads it to resume.
 //!
-//! **Probe → emit contract.** The two passes are the *same* traversal: they visit
-//! exactly the same `(id, ev)` branch nodes, in the same preorder, addressed by the
-//! same `(id_pos, ev_pos)` coordinates. `grow_probe` records a [`Choices`] entry for
-//! every branch node it reaches; `grow_emit` reads back the entry for each node on the
-//! chosen path. The probe always set it, because the two passes walk the identical
-//! branch nodes — the coordinate agreement is what lets them communicate by position.
+//! **Probe → emit contract.** The probe records a [`Choices`] entry for every `(id, ev)`
+//! branch node it reaches, keyed by the same `(id_pos, ev_pos)` coordinates the emit pass
+//! uses. `grow_emit` only follows the chosen path (copying/skipping off-path subtrees),
+//! but every branch node it reaches was recorded by the probe; the coordinate agreement is
+//! what lets the two passes communicate by position.
 
 use crate::codec::{Base, BitsSlice};
 use crate::idbits::{IdHeader, IdView};
@@ -181,7 +180,8 @@ impl EvView<'_> {
         while let Some(job) = stack.pop() {
             match job {
                 ProbeJob::Eval { id_pos, ev_pos } => {
-                    let id_next = id.header(id_pos).next;
+                    let id_hdr = id.header(id_pos);
+                    let id_next = id_hdr.next;
                     let virt = ev_pos == VIRTUAL;
                     let EvHeader {
                         internal: ev_int,
@@ -196,7 +196,7 @@ impl EvView<'_> {
                     } else {
                         view.header(ev_pos)
                     };
-                    if id.is_empty(id_pos) {
+                    if id_hdr.is_empty() {
                         // id 0-leaf: infeasible; lazy-skip the dominated event subtree.
                         let ev_end = if virt { VIRTUAL } else { view.skip(ev_pos) };
                         ret = Probed {
@@ -204,7 +204,7 @@ impl EvView<'_> {
                             id_end: id_next,
                             ev_end,
                         };
-                    } else if id.is_full(id_pos) {
+                    } else if id_hdr.is_full() {
                         // id 1-leaf (full).
                         if !ev_int {
                             // increment here: a free inflation
@@ -523,7 +523,7 @@ impl EvView<'_> {
     pub(super) fn grow(&self, id_bits: &BitsSlice) -> WorkingVersion {
         let mut choice = Choices::new(id_bits.len(), self.span());
         self.grow_probe(id_bits, &mut choice);
-        let mut out = Builder::new();
+        let mut out = Builder::with_capacity(self.node_capacity_bound() + id_bits.len());
         self.grow_emit(id_bits, &mut out, &choice);
         out.finish()
     }

@@ -13,6 +13,7 @@ use crate::testing::generators::{
 };
 use crate::testing::grow_brute_force::{all_inflations, best_inflation};
 use crate::testing::optrace::{leq as oracle_leq, run, versions, world_strategy};
+use crate::Party;
 
 /// `a <= b` under the impl causal order.
 fn le(a: &Version, b: &Version) -> bool {
@@ -383,6 +384,20 @@ fn path_sum_beyond_u64_compares_greater() {
     let a = Version::try_from((big, (big, 0u64, 1u64), 0u64)).unwrap();
     let b = Version::try_from(big).unwrap(); // constant 2^63
     assert_eq!(a.partial_cmp(&b), Some(Ordering::Greater));
+}
+
+/// A stored event base above `u64::MAX` stays exact across mutation and merge. This pins
+/// the small-or-big `Base` representation at the spill boundary, not only path sums made
+/// from individually-small nodes.
+#[test]
+fn stored_base_beyond_u64_ticks_and_merges() {
+    let big: Version = "18446744073709551616".parse().unwrap();
+    let mut ticked = big.clone();
+    ticked.tick(&Party::seed());
+
+    assert_eq!(ticked.to_string(), "18446744073709551617");
+    assert_eq!(big.clone() | ticked.clone(), ticked);
+    assert_eq!(Version::decode(&ticked.encode()).unwrap(), ticked);
 }
 
 // ───────────── arbitrary normal-form trees (decoupled from the op pipeline) ─────────────

@@ -35,10 +35,10 @@ pub enum Party {
     Node(Box<Party>, Box<Party>),
 }
 
-/// Event component. Bases are arbitrary-precision [`Base`] (`num_bigint::BigUint`),
+/// Event component. Bases are arbitrary-precision `Base` (`num_bigint::BigUint`),
 /// matching the implementation's working form, so large-base differentials
 /// lower losslessly — there is no `u64` truncation point. Literal/`u64` construction
-/// still works via [`Version::leaf`]/[`Version::node`] (both take `impl Into<Base>`) and
+/// still works via `Version::leaf`/`Version::node` (both take `impl Into<Base>`) and
 /// the [`From<u64>`](Version) conversion.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Version {

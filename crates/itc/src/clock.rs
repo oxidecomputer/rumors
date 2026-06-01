@@ -107,17 +107,19 @@ impl Clock {
     /// The canonical packed byte encoding: `enc_id(party)` then `enc_ev(version)`,
     /// bit-concatenated with no padding between, then zero-padded to a byte boundary.
     pub fn encode(&self) -> Vec<u8> {
-        let mut bits = self.party.as_bits().to_bitvec();
+        let mut bits =
+            codec::Bits::with_capacity(self.party.as_bits().len() + self.version.as_bits().len());
+        bits.extend_from_bitslice(self.party.as_bits());
         bits.extend_from_bitslice(self.version.as_bits());
         codec::pack_to_bytes(&bits)
     }
 
     /// Decode a byte string, strictly rejecting malformed or non-canonical input.
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
-        let bits = codec::Bits::from_slice(bytes);
-        let after_id = codec::parse_id(&bits, 0)?;
-        let after_ev = codec::parse_ev(&bits, after_id)?;
-        codec::require_zero_padding(&bits, after_ev)?;
+        let bits = codec::bytes_as_bits(bytes);
+        let after_id = codec::parse_id(bits, 0)?;
+        let after_ev = codec::parse_ev(bits, after_id)?;
+        codec::require_zero_padding(bits, after_ev)?;
         // The party begins at bit 0, so its slice is already byte-aligned. The
         // version begins at `after_id`, a generally non-byte-aligned offset:
         // `to_bitvec` on such a slice copies the backing region and *preserves*
@@ -243,7 +245,8 @@ impl Batch<'_> {
         let other_version = other.version.snapshot();
         self.version.merge(&other_version);
         let merged = self.version.snapshot();
-        other.version.merge(&merged);
+        self.version.replace_with(merged.clone());
+        other.version.replace_with(merged);
         Ok(())
     }
 
