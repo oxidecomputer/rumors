@@ -1,8 +1,4 @@
 //! Clock-level tests.
-//!
-//! Observers: `has_seen` / `happens_before` / `concurrent_with` agree with the
-//! oracle. The master differential harness, protocol semantics, and batch
-//! equivalence / laziness / commit-on-drop (plus the mid-batch comparison).
 
 use proptest::prelude::*;
 
@@ -40,12 +36,13 @@ proptest! {
 // ───────────────────────────── master differential harness ─────────────────────────────
 
 proptest! {
-    /// A seed-derived op trace, applied in lockstep to the oracle and the
-    /// impl, agrees structurally on every live clock after every step, and all live
-    /// impl parties stay pairwise disjoint (so `join`/`sync` never error in correct
-    /// usage). Agreement is by structural lowering — `to_oracle_clock` rebuilds the
-    /// oracle's tree shape from the impl's internal packed bits — not via the byte
-    /// codec, which the per-trace round-trip below exercises separately.
+    /// A seed-derived op trace, applied in lockstep to the oracle and the impl,
+    /// agrees structurally on every live clock after every step, and all live
+    /// impl parties stay pairwise disjoint (so `join`/`sync` never error in
+    /// correct usage). Agreement is by structural lowering — `to_oracle_clock`
+    /// rebuilds the oracle's tree shape from the impl's internal packed bits —
+    /// not via the byte codec, which the per-trace round-trip below exercises
+    /// separately.
     #[test]
     fn master_differential(ops in world_strategy()) {
         let mut ora: Vec<oracle::Clock> = vec![oracle::Clock::seed()];
@@ -249,10 +246,11 @@ proptest! {
     }
 
     /// Assigning forms. The `Clock` assigning / batch join surfaces merge the
-    /// version and leave the party untouched, matching the oracle — complementing the
-    /// by-value `Clock | Version` above. Covers `Clock |= Version`, the `From<&mut
-    /// Clock>` batch conversion, the `clock::Batch |= &Version` operator (committed on
-    /// drop), and the `clock::Batch::party` accessor.
+    /// version and leave the party untouched, matching the oracle —
+    /// complementing the by-value `Clock | Version` above. Covers `Clock |=
+    /// Version`, the `From<&mut Clock>` batch conversion, the `clock::Batch |=
+    /// &Version` operator (committed on drop), and the `clock::Batch::party`
+    /// accessor.
     #[test]
     fn clock_assign_join_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
@@ -334,8 +332,8 @@ proptest! {
     }
 
     /// The commit happens on drop, and mid-batch comparison already reflects
-    /// the uncommitted tick: `batch.version()` equals the post-tick value before drop,
-    /// and the underlying clock equals it after drop.
+    /// the uncommitted tick: `batch.version()` equals the post-tick value
+    /// before drop, and the underlying clock equals it after drop.
     #[test]
     fn commit_on_drop(ops in world_strategy(), i in 0usize..64) {
         let cs = run(&ops);
@@ -378,14 +376,15 @@ proptest! {
 
 // ───────────────────────────── robustness ─────────────────────────────
 
-/// Deep structures (a depth-100k id spine, and the deep event tree a tick builds
-/// over it) survive *every* public op plus the codec and the `Debug` printer with no
-/// stack overflow — the proof that every traversal is iterative. Beyond the single-clock
-/// ops (tick / fork / join / partial_cmp / `|` / encode / decode / Debug), this drives
-/// the composite and observer ops that operate on deep structures: `sync` between two
-/// deep clocks, `send`/`receive` of a deep version, and each clock observer
-/// (`has_seen` / `happens_before` / `concurrent_with`) at depth. Impl-only: the
-/// recursive oracle cannot build or even drop a tree this deep (oracle agreement at
+/// Deep structures (a depth-100k id spine, and the deep event tree a tick
+/// builds over it) survive *every* public op plus the codec and the `Debug`
+/// printer with no stack overflow — the proof that every traversal is
+/// iterative. Beyond the single-clock ops (tick / fork / join / partial_cmp /
+/// `|` / encode / decode / Debug), this drives the composite and observer ops
+/// that operate on deep structures: `sync` between two deep clocks,
+/// `send`/`receive` of a deep version, and each clock observer (`has_seen` /
+/// `happens_before` / `concurrent_with`) at depth. Impl-only: the recursive
+/// oracle cannot build or even drop a tree this deep (oracle agreement at
 /// bounded depth is the master differential harness's job).
 #[test]
 fn deep_tree_stack_safety() {
@@ -416,32 +415,33 @@ fn deep_tree_stack_safety() {
         bytes
     );
 
-    // `send`/`receive` over the deep clock: `send` extracts a deep version (and ticks the
-    // clock's event tree), and a self-`receive` (the sent message is `<= self`) merges a
-    // deep version into a deep clock without overflow.
+    // `send`/`receive` over the deep clock: `send` extracts a deep version (and
+    // ticks the clock's event tree), and a self-`receive` (the sent message is
+    // `<= self`) merges a deep version into a deep clock without overflow.
     let msg = clock.send().clone();
     clock.receive(&msg);
 
-    // Observers over a deep clock and a deep message do not overflow: `has_seen` lowers to
-    // a deep `causal_cmp` against the version, and the clock-vs-clock observers compare two
-    // deep versions.
+    // Observers over a deep clock and a deep message do not overflow:
+    // `has_seen` lowers to a deep `causal_cmp` against the version, and the
+    // clock-vs-clock observers compare two deep versions.
     let sent = clock.send().clone();
     assert!(clock.version() >= &sent);
-    assert!(!(clock.version() >= clock.version()));
-    assert!(!(clock.version().partial_cmp(clock.version()).is_none()));
+    assert!(!(clock.version() > clock.version()));
+    assert!(!(clock.version().concurrent(clock.version())));
 
     // Fork (deep split + snapshot) yields a disjoint child; both halves stay deep.
     let mut child = clock.fork();
     assert!(clock.party().is_disjoint(child.party()));
 
-    // `sync` between two deep clocks is the most complex composite (fork + join + merge of
-    // deep structures). Drive it and assert it reconciles without overflow: post-sync the
-    // two versions are equal, the parties stay disjoint, and the observers agree they are
-    // neither strictly ordered nor concurrent.
+    // `sync` between two deep clocks is the most complex composite (fork + join
+    // + merge of deep structures). Drive it and assert it reconciles without
+    // overflow: post-sync the two versions are equal, the parties stay
+    // disjoint, and the observers agree they are neither strictly ordered nor
+    // concurrent.
     clock.sync(&mut child).expect("fork halves are disjoint");
     assert!(clock.version() == child.version());
     assert!(clock.party().is_disjoint(child.party()));
-    assert!(!(clock.version() >= child.version()));
+    assert!(!(clock.version() < child.version()));
     assert!(!(clock.version().concurrent(child.version())));
 
     // join restores the whole from the two deep halves.
@@ -452,12 +452,13 @@ fn deep_tree_stack_safety() {
 }
 
 proptest! {
-    /// `decode` of arbitrary bytes never panics; it returns `Ok` or `Err`.
-    /// Any accepted value satisfies the keystone invariant `decode(b) == Ok(x) ⟹
-    /// is_normal(x)`: lowering it to the oracle yields a normal-form tree. This — not the
-    /// re-encode round-trip alone — is what makes the byte-equality `Eq`/`Hash` sound: a
-    /// non-normal accept would give two distinct byte strings for one logical value. The
-    /// re-encode-then-decode round-trip is also asserted (canonical encoding is stable).
+    /// `decode` of arbitrary bytes never panics; it returns `Ok` or `Err`. Any
+    /// accepted value satisfies the keystone invariant `decode(b) == Ok(x) ⟹
+    /// is_normal(x)`: lowering it to the oracle yields a normal-form tree. This
+    /// — not the re-encode round-trip alone — is what makes the byte-equality
+    /// `Eq`/`Hash` sound: a non-normal accept would give two distinct byte
+    /// strings for one logical value. The re-encode-then-decode round-trip is
+    /// also asserted (canonical encoding is stable).
     #[test]
     fn decode_never_panics(bytes in prop::collection::vec(any::<u8>(), 0..512)) {
         if let Ok(p) = Party::decode(&bytes) {
@@ -479,17 +480,19 @@ proptest! {
 
 // ─────────────────────── decoded-component canonicity (regression) ───────────────────────
 //
-// `Clock::encode` lays the id directly before the event, so the event begins at a
-// generally non-byte-aligned bit offset. A `decode` that extracts the event with
-// `slice.to_bitvec()` keeps that head offset (rather than shifting to bit 0), leaving the
-// recovered `Version`'s packed stream non-canonical: `version().encode()` mis-packs it and
-// `Version::decode` then disagrees. Whole-clock round-trips hide this, because
-// `Clock::encode` re-aligns each component via `extend_from_bitslice`; the bug only shows
-// when a component extracted from a decoded clock is encoded on its own.
+// `Clock::encode` lays the id directly before the event, so the event begins at
+// a generally non-byte-aligned bit offset. A `decode` that extracts the event
+// with `slice.to_bitvec()` keeps that head offset (rather than shifting to bit
+// 0), leaving the recovered `Version`'s packed stream non-canonical:
+// `version().encode()` mis-packs it and `Version::decode` then disagrees.
+// Whole-clock round-trips hide this, because `Clock::encode` re-aligns each
+// component via `extend_from_bitslice`; the bug only shows when a component
+// extracted from a decoded clock is encoded on its own.
 
-/// The seed's id is two bits, so its event starts at a non-byte-aligned offset. Decoding
-/// the seed and re-encoding the recovered version must reproduce the canonical encoding
-/// (and survive its own `decode`), not an offset-shifted one.
+/// The seed's id is two bits, so its event starts at a non-byte-aligned offset.
+/// Decoding the seed and re-encoding the recovered version must reproduce the
+/// canonical encoding (and survive its own `decode`), not an offset-shifted
+/// one.
 #[test]
 fn decoded_seed_version_encodes_canonically() {
     let seed = Clock::seed();
@@ -502,9 +505,10 @@ fn decoded_seed_version_encodes_canonically() {
 }
 
 proptest! {
-    /// For any seed-derived clock, decoding it preserves each component's canonical
-    /// byte encoding, and the extracted party and version each round-trip through their
-    /// own `decode`. Guards the whole class of non-byte-aligned offset extraction.
+    /// For any seed-derived clock, decoding it preserves each component's
+    /// canonical byte encoding, and the extracted party and version each
+    /// round-trip through their own `decode`. Guards the whole class of
+    /// non-byte-aligned offset extraction.
     #[test]
     fn decode_preserves_component_canonicity(ops in world_strategy(), i in 0usize..64) {
         let cs = run(&ops);
@@ -525,9 +529,10 @@ proptest! {
 // ───────────────────────────── worked example ─────────────────────────────
 
 /// Paper §5.1. The paper's example run, step by step: seed forks to two; one
-/// ticks then forks; the other ticks twice; one of three ticks while the other two
-/// sync; finally all rejoin to the whole space and a tick collapses the event tree to a
-/// single integer. Mirrors the oracle's `worked_example` on the impl.
+/// ticks then forks; the other ticks twice; one of three ticks while the other
+/// two sync; finally all rejoin to the whole space and a tick collapses the
+/// event tree to a single integer. Mirrors the oracle's `worked_example` on the
+/// impl.
 #[test]
 fn worked_example() {
     // Whole-space region check, computed structurally (parties are not `Clone`).
@@ -577,8 +582,8 @@ fn worked_example() {
     assert_eq!(rejoined, merged_region);
     assert_eq!(region(&[&p1a, &p1b, &p2]), oracle::Party::seed());
 
-    // Rejoin all three (recovering id = 1) and tick: the id owns the whole space, so the
-    // event tree collapses to a single integer.
+    // Rejoin all three (recovering id = 1) and tick: the id owns the whole
+    // space, so the event tree collapses to a single integer.
     let mut whole = p1a;
     whole.join(p1b).expect("disjoint");
     whole.join(p2).expect("disjoint");
@@ -597,8 +602,8 @@ fn worked_example() {
 // ───────────────────── Display / FromStr / TryFrom (paper notation) ─────────────────────
 
 proptest! {
-    /// `Display` then `FromStr` round-trips for every type, and the printed form is the
-    /// canonical paper notation (re-parsing yields the same value).
+    /// `Display` then `FromStr` round-trips for every type, and the printed
+    /// form is the canonical paper notation (re-parsing yields the same value).
     #[test]
     fn display_fromstr_roundtrip(ops in world_strategy(), i in 0usize..64) {
         let cs = run(&ops);
@@ -619,8 +624,8 @@ proptest! {
     }
 }
 
-/// Display renders the paper's notation exactly (id `0/1/(l, r)`, event `n/(n, e1, e2)`,
-/// stamp `(i, e)`), matching the paper's §5 examples.
+/// Display renders the paper's notation exactly (id `0/1/(l, r)`, event `n/(n,
+/// e1, e2)`, stamp `(i, e)`), matching the paper's §5 examples.
 #[test]
 fn display_matches_paper_notation() {
     assert_eq!(Party::seed().to_string(), "1");
@@ -633,8 +638,9 @@ fn display_matches_paper_notation() {
     let ev: Version = "(1, 2, (0, (1, 0, 2), 0))".parse().unwrap();
     assert_eq!(ev.to_string(), "(1, 2, (0, (1, 0, 2), 0))");
 
-    // Arbitrary-precision bases round-trip: a base past `u64::MAX` (2^64) parses,
-    // re-renders, and decodes unchanged — there is no integer-width cap.
+    // Arbitrary-precision bases round-trip: a base past `u64::MAX` (2^64)
+    // parses, re-renders, and decodes unchanged — there is no integer-width
+    // cap.
     let wide: Version = "(18446744073709551616, 0, 1)".parse().unwrap();
     assert_eq!(wide.to_string(), "(18446744073709551616, 0, 1)");
     assert_eq!(Version::decode(&wide.encode()).unwrap(), wide);
@@ -648,8 +654,8 @@ fn display_matches_paper_notation() {
     );
 }
 
-/// `TryFrom` literals build the same values as the equivalent paper-notation strings,
-/// grounding out in the `bool`/`u8`/`u64` base cases.
+/// `TryFrom` literals build the same values as the equivalent paper-notation
+/// strings, grounding out in the `bool`/`u8`/`u64` base cases.
 #[test]
 fn tryfrom_literals_build_values() {
     let p = Party::try_from((1, (0, 1))).unwrap();
@@ -664,16 +670,16 @@ fn tryfrom_literals_build_values() {
     let c = Clock::try_from(((1u8, 0u8), 5u64)).unwrap();
     assert_eq!(c.encode(), "((1, 0), 5)".parse::<Clock>().unwrap().encode());
 
-    // Base cases. `1` is a valid party; `0` is anonymous on its own but fine as a
-    // sub-tree (see the `(0, 1)` cases above).
+    // Base cases. `1` is a valid party; `0` is anonymous on its own but fine as
+    // a sub-tree (see the `(0, 1)` cases above).
     assert_eq!(Party::try_from(1u8).unwrap().to_string(), "1");
     assert_eq!(Party::try_from(0u8), Err(ParseError::Anonymous));
     assert_eq!(Party::try_from(false), Err(ParseError::Anonymous));
     assert_eq!(Version::try_from(7u64).unwrap().to_string(), "7");
 }
 
-/// `FromStr` and `TryFrom` reject both malformed input and well-formed-but-denormal
-/// input, mirroring `decode`'s strictness.
+/// `FromStr` and `TryFrom` reject both malformed input and
+/// well-formed-but-denormal input, mirroring `decode`'s strictness.
 #[test]
 fn fromstr_tryfrom_reject_denormal_and_syntax() {
     // Denormal (well-formed but not canonical).
@@ -700,8 +706,8 @@ fn fromstr_tryfrom_reject_denormal_and_syntax() {
     assert_eq!("(1, 0)".parse::<Version>(), Err(ParseError::Syntax)); // event needs 3 parts
     assert_eq!("(café, 0)".parse::<Clock>().err(), Some(ParseError::Syntax)); // non-ASCII byte
 
-    // Anonymous identity `0` is rejected as a standalone party (but allowed as a
-    // sub-tree, exercised in `tryfrom_literals_build_values`).
+    // Anonymous identity `0` is rejected as a standalone party (but allowed as
+    // a sub-tree, exercised in `tryfrom_literals_build_values`).
     assert_eq!("0".parse::<Party>(), Err(ParseError::Anonymous));
     assert_eq!(Party::try_from(0u8), Err(ParseError::Anonymous));
     assert_eq!("(0, 1)".parse::<Party>().unwrap().to_string(), "(0, 1)"); // 0 as sub-tree: ok
@@ -723,8 +729,9 @@ fn fromstr_tryfrom_reject_denormal_and_syntax() {
 
 #[cfg(feature = "serde")]
 proptest! {
-    /// Every value round-trips through serde (here `serde_json`), since it serializes as
-    /// its canonical encoding and deserializes back through the strict validator.
+    /// Every value round-trips through serde (here `serde_json`), since it
+    /// serializes as its canonical encoding and deserializes back through the
+    /// strict validator.
     #[test]
     fn serde_roundtrip(ops in world_strategy(), i in 0usize..64) {
         let cs = run(&ops);
@@ -742,13 +749,15 @@ proptest! {
         prop_assert_eq!(c2.encode(), c.encode());
     }
 
-    /// `serde_json` represents `serialize_bytes` as a JSON number-array, decoded back via
-    /// `visit_seq` — so it never exercises the binary `serialize_bytes`/`visit_bytes` path.
-    /// Pin that path through two non-JSON formats: `postcard` (non-self-describing,
-    /// length-prefixed bytes) and `ciborium` (self-describing CBOR, which emits a *typed*
-    /// byte-string — CBOR major type 2). Every type must round-trip through both: the
-    /// serialized form is the canonical encoding, deserialization re-validates it, and the
-    /// CBOR typed-bytes path is the one `serde_json` alone can never reach.
+    /// `serde_json` represents `serialize_bytes` as a JSON number-array,
+    /// decoded back via `visit_seq` — so it never exercises the binary
+    /// `serialize_bytes`/`visit_bytes` path. Pin that path through two non-JSON
+    /// formats: `postcard` (non-self-describing, length-prefixed bytes) and
+    /// `ciborium` (self-describing CBOR, which emits a *typed* byte-string —
+    /// CBOR major type 2). Every type must round-trip through both: the
+    /// serialized form is the canonical encoding, deserialization re-validates
+    /// it, and the CBOR typed-bytes path is the one `serde_json` alone can
+    /// never reach.
     #[test]
     fn serde_roundtrip_binary_formats(ops in world_strategy(), i in 0usize..64) {
         let cs = run(&ops);
@@ -765,8 +774,9 @@ proptest! {
         prop_assert_eq!(&v2, &v);
         prop_assert_eq!(c2.encode(), c.encode());
 
-        // ciborium: self-describing CBOR. Each value must serialize as a byte string
-        // (major type 2) and deserialize back through `Vec<u8>`'s `visit_bytes`.
+        // ciborium: self-describing CBOR. Each value must serialize as a byte
+        // string (major type 2) and deserialize back through `Vec<u8>`'s
+        // `visit_bytes`.
         let cbor = |bytes: &[u8]| -> u8 { bytes[0] >> 5 };
 
         let mut b = Vec::new();
