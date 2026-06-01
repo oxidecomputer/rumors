@@ -12,7 +12,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
 /// encodes by hand.
 #[test]
 fn protocol_constants_match_spec() {
-    assert_eq!(PROTOCOL_MAGIC, *b"RUMR");
+    assert_eq!(PROTOCOL_MAGIC, *b"RUMORS");
     assert_eq!(PROTOCOL_VERSION, 1);
 }
 
@@ -44,7 +44,7 @@ async fn magic_mismatch_surfaces_error() {
     let (mut a_r, mut a_w) = tokio::io::split(a);
     let (mut b_r, mut b_w) = tokio::io::split(b);
 
-    let bad_magic = *b"NOPE";
+    let bad_magic = *b"NOPENO";
     let fake_peer = async move {
         // Drain alice's handshake (so her write_all completes) and
         // reply with a non-rumors preamble.
@@ -55,10 +55,10 @@ async fn magic_mismatch_surfaces_error() {
             bad_magic[1],
             bad_magic[2],
             bad_magic[3],
+            bad_magic[4],
+            bad_magic[5],
             0,
             1,
-            0,
-            0,
         ];
         b_w.write_all(&preamble).await.expect("fake peer write");
     };
@@ -94,10 +94,10 @@ async fn version_mismatch_surfaces_error() {
             PROTOCOL_MAGIC[1],
             PROTOCOL_MAGIC[2],
             PROTOCOL_MAGIC[3],
+            PROTOCOL_MAGIC[4],
+            PROTOCOL_MAGIC[5],
             v[0],
             v[1],
-            0,
-            0,
         ];
         b_w.write_all(&preamble).await.expect("fake peer write");
     };
@@ -126,8 +126,9 @@ async fn truncated_handshake_io_error() {
     let fake_peer = async move {
         let mut got = [0u8; 8];
         b_r.read_exact(&mut got).await.expect("fake peer read");
-        // Write only four bytes, then drop the write half to signal EOF.
-        b_w.write_all(b"RUMR").await.expect("partial write");
+        // Write only the six magic bytes (short of the 8-byte preamble),
+        // then drop the write half to signal EOF mid-handshake.
+        b_w.write_all(b"RUMORS").await.expect("partial write");
         drop(b_w);
     };
 
@@ -163,7 +164,7 @@ async fn handshake_precedes_framed_traffic() {
         // A frame-style length prefix (4-byte big-endian) for a
         // 64-byte payload, then 4 bytes of arbitrary junk. The first
         // 8 bytes are `[0, 0, 0, 64, junk*4]` which definitely is not
-        // `RUMR`.
+        // `RUMORS`.
         b_w.write_all(&[0, 0, 0, 64, b'X', b'X', b'X', b'X'])
             .await
             .expect("fake peer write");
