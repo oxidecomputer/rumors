@@ -1,5 +1,5 @@
 use crate::codec::{Bits, BitsSlice};
-use crate::idbits::{IdHeader, IdView};
+use crate::idbits::IdView;
 
 use super::build::{id_leaf, id_node};
 
@@ -15,10 +15,11 @@ impl IdView<'_> {
     /// single forward scan rather than by descending and re-scanning to test
     /// each right child for emptiness.
     ///
-    /// The iterative form of the recursive `oracle::Party::split` (the paper's
-    /// `split`). Where the oracle recurses down the spine, this locates the
-    /// same branch by a forward scan and rebuilds the two halves without
-    /// re-descending.
+    /// The recursive form of `oracle::Party::split` (the paper's `split`). Where
+    /// the oracle recurses down the spine, this records the same branch during a
+    /// single recursive scan and rebuilds the two halves without re-descending.
+    /// The scan is guarded by [`crate::recurse`] so deep ids grow the stack onto
+    /// the heap rather than overflowing.
     pub(crate) fn split(&self) -> (Bits, Bits) {
         let id = *self;
         let bits = id.bits();
@@ -36,77 +37,52 @@ impl IdView<'_> {
             };
         }
 
-        // Pass 1: find the branch by a single forward preorder scan.
-        enum Frame {
-            /// An opened node whose left child is being parsed; `start` is its bit position.
-            NeedLeft { start: usize },
-            /// An opened node whose left child is done and right child is being parsed.
-            NeedRight {
-                /// The node's bit position.
-                start: usize,
-                /// Whether the (now-parsed) left child owned nothing.
-                left_empty: bool,
-                /// Bit position where the right child begins.
-                right_start: usize,
-            },
-        }
-        // The branch node `(start, left_start, right_start)`, and any `1` leaf
-        // (the branch when the tree is a pure spine with no both-nonempty
-        // node).
-        let mut branch: Option<(usize, usize, usize)> = None;
-        let mut one_leaf: Option<usize> = None;
-        let mut stack: Vec<Frame> = Vec::new();
-        let mut pos = 0;
-        // Two interleaved phases per outer iteration: phase A descends left to
-        // a leaf (pushing `NeedLeft` frames); phase B (the inner `loop`) pops
-        // completed ancestors, recording the shallowest both-nonempty node as
-        // the branch, until one still needs its right child (then resume phase
-        // A there) or the stack empties (then build).
-        loop {
-            let IdHeader {
-                node: is_node,
-                val,
-                next,
-            } = id.header(pos);
-            let start = pos;
-            pos = next;
-            // What the just-parsed subtree reports to its parent: was it empty?
-            let mut child_empty = if is_node {
-                stack.push(Frame::NeedLeft { start });
-                continue; // descend into the left child
-            } else {
-                if val {
-                    one_leaf.get_or_insert(start);
+        // Pass 1: locate the branch by a single recursive preorder scan.
+        let mut scan = SplitScan {
+            id,
+            branch: None,
+            one_leaf: None,
+        };
+        scan.scan(0, 0);
+        build_split(bits, scan.branch, scan.one_leaf)
+    }
+}
+
+/// Pass-1 scan state for [`split`](IdView::split): the id being scanned, the
+/// branch node found so far (`(start, left_start, right_start)`, the
+/// shallowest both-nonempty node), and any `1` leaf (the branch when the tree
+/// is a pure spine with no both-nonempty node).
+struct SplitScan<'a> {
+    id: IdView<'a>,
+    branch: Option<(usize, usize, usize)>,
+    one_leaf: Option<usize>,
+}
+
+impl SplitScan<'_> {
+    /// Scan the subtree at `pos`, recording the shallowest both-nonempty node as
+    /// the branch and the first `1` leaf, routed through the amortized
+    /// stack-growth guard. Returns `(empty, end)`: whether the subtree owns
+    /// nothing, and the position just past it.
+    fn scan(&mut self, pos: usize, depth: usize) -> (bool, usize) {
+        crate::recurse::guarded(depth, move || {
+            let hdr = self.id.header(pos);
+            if !hdr.node {
+                if hdr.val {
+                    self.one_leaf.get_or_insert(pos);
                 }
-                !val // a `0` leaf is empty; a `1` leaf is not
-            };
-            // Bubble the completed subtree up, completing ancestors as their
-            // turn comes.
-            loop {
-                match stack.pop() {
-                    None => return build_split(bits, branch, one_leaf),
-                    Some(Frame::NeedLeft { start }) => {
-                        stack.push(Frame::NeedRight {
-                            start,
-                            left_empty: child_empty,
-                            right_start: pos,
-                        });
-                        break; // parse the right child next
-                    }
-                    Some(Frame::NeedRight {
-                        start,
-                        left_empty,
-                        right_start,
-                    }) => {
-                        let both_nonempty = !left_empty && !child_empty;
-                        if both_nonempty && branch.is_none_or(|(p, ..)| start < p) {
-                            branch = Some((start, start + 1, right_start));
-                        }
-                        child_empty = false; // a normal-form node is never empty
-                    }
-                }
+                return (!hdr.val, hdr.next); // a `0` leaf is empty; a `1` leaf is not
             }
-        }
+            let left_start = hdr.next;
+            let (left_empty, right_start) = self.scan(left_start, depth + 1);
+            let (right_empty, end) = self.scan(right_start, depth + 1);
+            // The shallowest both-nonempty node wins (smallest start); a parent's
+            // position is always less than its descendants', and postorder visits
+            // children first, so the parent overwrites any descendant branch.
+            if !left_empty && !right_empty && self.branch.is_none_or(|(p, ..)| pos < p) {
+                self.branch = Some((pos, left_start, right_start));
+            }
+            (false, end) // a normal-form node is never empty
+        })
     }
 }
 
