@@ -1,4 +1,4 @@
-use crate::ParseError;
+use crate::error::Parse;
 
 use super::{encode_int, parse_id, validate_ev, validate_id, Base, Bits, BitsSlice};
 
@@ -33,7 +33,7 @@ pub(crate) fn ev_leaf(n: u64) -> Bits {
 
 /// Assemble an id node from two already-normal child streams, then validate the
 /// result is itself normal (rejecting a collapsible `(v, v)`).
-pub(crate) fn id_node(l: &BitsSlice, r: &BitsSlice) -> Result<Bits, ParseError> {
+pub(crate) fn id_node(l: &BitsSlice, r: &BitsSlice) -> Result<Bits, Parse> {
     let mut b = Bits::with_capacity(1 + l.len() + r.len());
     b.push(true); // node flag
     b.extend_from_bitslice(l);
@@ -45,7 +45,7 @@ pub(crate) fn id_node(l: &BitsSlice, r: &BitsSlice) -> Result<Bits, ParseError> 
 /// Assemble an event node with base `n` from two already-normal child streams,
 /// then validate the result is itself normal (a zero-base child, no collapsible
 /// `(n, m, m)`).
-pub(crate) fn ev_node(n: u64, l: &BitsSlice, r: &BitsSlice) -> Result<Bits, ParseError> {
+pub(crate) fn ev_node(n: u64, l: &BitsSlice, r: &BitsSlice) -> Result<Bits, Parse> {
     let mut b = Bits::with_capacity(2 + l.len() + r.len());
     b.push(true); // node flag
     encode_int(&mut b, &Base::from(n));

@@ -16,7 +16,7 @@ use crate::testing::bridge::{
 };
 use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
 use crate::testing::optrace::{run, versions, world_strategy};
-use crate::{Clock, DecodeError, Party, Version};
+use crate::{error::Decode, Clock, Party, Version};
 
 // ───────────────────────────── integer code ─────────────────────────────
 
@@ -89,9 +89,9 @@ fn gamma_roundtrip_just_above_u64_max() {
 #[test]
 fn gamma_truncated() {
     let empty = Bits::new();
-    assert!(matches!(decode_int(&empty, 0), Err(DecodeError::Truncated)));
+    assert!(matches!(decode_int(&empty, 0), Err(Decode::Truncated)));
     let zeros: Bits = bitvec![u8, Msb0; 0, 0, 0, 0, 0];
-    assert!(matches!(decode_int(&zeros, 0), Err(DecodeError::Truncated)));
+    assert!(matches!(decode_int(&zeros, 0), Err(Decode::Truncated)));
 }
 
 // ───────────────────────── decode∘encode round-trip ─────────────────────────
@@ -240,7 +240,7 @@ fn reject_noncanonical_id() {
         let denormal = Node(Box::new(Leaf(v)), Box::new(Leaf(v)));
         let bytes = from_oracle_party(&denormal).encode();
         assert!(
-            matches!(Party::decode(&bytes[..]), Err(DecodeError::NotCanonical)),
+            matches!(Party::decode(&bytes[..]), Err(Decode::NotCanonical)),
             "collapsible id node ({v}, {v}) must be rejected as NotCanonical",
         );
     }
@@ -271,7 +271,7 @@ fn reject_deep_nested_denormal_id() {
     assert!(bytes.len() > 1, "deep denormal must span multiple bytes");
     assert!(matches!(
         Party::decode(&bytes[..]),
-        Err(DecodeError::NotCanonical)
+        Err(Decode::NotCanonical)
     ));
 }
 
@@ -295,7 +295,7 @@ fn reject_intra_byte_padding() {
         let mut bytes = clean.clone();
         bytes[0] |= 0b1000_0000u8 >> bit;
         assert!(
-            matches!(Party::decode(&bytes[..]), Err(DecodeError::TrailingBits)),
+            matches!(Party::decode(&bytes[..]), Err(Decode::TrailingBits)),
             "non-zero intra-byte padding at bit {bit} must be rejected",
         );
     }
@@ -316,7 +316,7 @@ fn reject_noncanonical_event() {
     let bytes = from_oracle_version(&no_zero).encode();
     assert!(matches!(
         Version::decode(&bytes[..]),
-        Err(DecodeError::NotCanonical)
+        Err(Decode::NotCanonical)
     ));
 
     // Two equal-valued leaf children: collapsible to a single integer.
@@ -328,7 +328,7 @@ fn reject_noncanonical_event() {
     let bytes = from_oracle_version(&collapsible).encode();
     assert!(matches!(
         Version::decode(&bytes[..]),
-        Err(DecodeError::NotCanonical)
+        Err(Decode::NotCanonical)
     ));
 }
 
@@ -342,10 +342,7 @@ fn decode_rejects_anonymous_id() {
     // The single `0` leaf is the only canonical empty id; encode it as a bare
     // party.
     let anon = from_oracle_party(&oracle::Party::Leaf(false)).encode();
-    assert!(matches!(
-        Party::decode(&anon[..]),
-        Err(DecodeError::Anonymous)
-    ));
+    assert!(matches!(Party::decode(&anon[..]), Err(Decode::Anonymous)));
 
     // The same id as a clock's party region (id `0`, event `0`) must also be
     // rejected.
@@ -356,7 +353,7 @@ fn decode_rejects_anonymous_id() {
     .encode();
     assert!(matches!(
         Clock::decode(&anon_clock[..]),
-        Err(DecodeError::Anonymous)
+        Err(Decode::Anonymous)
     ));
 }
 
@@ -364,13 +361,10 @@ fn decode_rejects_anonymous_id() {
 #[test]
 fn reject_truncated() {
     // 0xFF is eight node flags in a row — the tree never bottoms out.
-    assert!(matches!(
-        Party::decode(&[0xFF][..]),
-        Err(DecodeError::Truncated)
-    ));
+    assert!(matches!(Party::decode(&[0xFF][..]), Err(Decode::Truncated)));
     assert!(matches!(
         Version::decode(&[0xFF][..]),
-        Err(DecodeError::Truncated)
+        Err(Decode::Truncated)
     ));
 }
 
@@ -381,14 +375,14 @@ fn reject_trailing_bits() {
     bytes.push(0x01); // a set bit beyond the (complete) tree and its zero padding
     assert!(matches!(
         Party::decode(&bytes[..]),
-        Err(DecodeError::TrailingBits)
+        Err(Decode::TrailingBits)
     ));
 
     let mut bytes = from_oracle_version(&oracle::Version::new()).encode();
     bytes.push(0x80);
     assert!(matches!(
         Version::decode(&bytes[..]),
-        Err(DecodeError::TrailingBits)
+        Err(Decode::TrailingBits)
     ));
 }
 
@@ -551,9 +545,8 @@ fn trailing_zero_byte_rejected_witness() {
     // padding, because the canonical stream already ended on a byte boundary.
     let mut with_zero = canonical.clone();
     with_zero.push(0);
-    assert_eq!(
-        Version::decode(&with_zero[..]),
-        Err(DecodeError::TrailingBits),
+    assert!(
+        matches!(Version::decode(&with_zero[..]), Err(Decode::TrailingBits)),
         "a whole trailing zero byte is non-canonical and must be rejected",
     );
 
@@ -563,9 +556,8 @@ fn trailing_zero_byte_rejected_witness() {
     assert_eq!(party, vec![177], "witness party canonical encoding");
     let mut party_zero = party.clone();
     party_zero.push(0);
-    assert_eq!(
-        Party::decode(&party_zero[..]),
-        Err(DecodeError::TrailingBits),
+    assert!(
+        matches!(Party::decode(&party_zero[..]), Err(Decode::TrailingBits)),
         "a whole trailing zero byte on an id must be rejected",
     );
 }
@@ -591,7 +583,7 @@ proptest! {
             let mut m = valid.clone();
             m[byte] |= 0b1000_0000u8 >> bit;
             prop_assert!(
-                matches!(Party::decode(&m[..]), Err(DecodeError::TrailingBits)),
+                matches!(Party::decode(&m[..]), Err(Decode::TrailingBits)),
                 "non-zero padding bit at position {pad} must be rejected",
             );
         }

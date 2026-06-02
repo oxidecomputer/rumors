@@ -3,7 +3,7 @@ use std::io;
 use bitvec::domain::Domain;
 use bitvec::prelude::*;
 
-use crate::DecodeError;
+use crate::error::Decode;
 
 /// The packed storage form: a most-significant-bit-first bit stream over bytes.
 pub(crate) type Bits = BitVec<u8, Msb0>;
@@ -132,9 +132,9 @@ pub(crate) fn pack_to_writer<W: io::Write>(bits: &BitsSlice, w: &mut W) -> io::R
 /// `decode` injective on bytes — without it, `decode([.., 0x00])` would accept
 /// the same value under infinitely many byte strings, re-encoding to a shorter
 /// stream than its own input.
-pub(crate) fn require_zero_padding(bits: &BitsSlice, pos: usize) -> Result<(), DecodeError> {
+pub(crate) fn require_zero_padding(bits: &BitsSlice, pos: usize) -> Result<(), Decode> {
     if bits.len() - pos >= 8 || bits[pos..].any() {
-        Err(DecodeError::TrailingBits)
+        Err(Decode::TrailingBits)
     } else {
         Ok(())
     }

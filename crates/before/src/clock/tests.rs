@@ -10,7 +10,7 @@ use crate::testing::bridge::{
 };
 use crate::testing::generators::deep_left_spine_party;
 use crate::testing::optrace::{run, step_impl, world_strategy, Op};
-use crate::{Clock, ParseError, Party, Version};
+use crate::{error::Parse, Clock, Party, Version};
 
 proptest! {
     /// The clock observers match the oracle's: `has_seen` is `msg <= version`,
@@ -68,7 +68,7 @@ proptest! {
                     let om = ora[i].send();
                     let im = imp[i].send().clone();
                     ora[j].receive(om);
-                    imp[j].receive(&im);
+                    imp[j].recv(&im);
                 }
                 Op::Sync(i, j) => {
                     let (i, j) = (i % n, j % n);
@@ -164,7 +164,7 @@ proptest! {
         let mut received = from_oracle_clock(&cs[i % n]);
         let mut ticked = from_oracle_clock(&cs[i % n]);
         let own = received.version().clone();
-        received.receive(&own);
+        received.recv(&own);
         ticked.tick();
         prop_assert!(received.version() == ticked.version());
         prop_assert!(received.party() == ticked.party());
@@ -374,6 +374,27 @@ proptest! {
     }
 }
 
+// ───────────────────────── encoded_bits ↔ encode ─────────────────────────
+
+proptest! {
+    /// `encoded_bits` is the exact pre-pad bit length of `encode`: for every live
+    /// clock (and its party and version), `encode().len()` is `encoded_bits()`
+    /// rounded up to whole bytes. A `Clock`'s bit length is the unrounded sum of
+    /// its party's and version's (it packs the two streams contiguously, padding
+    /// once) — *not* the sum of their byte lengths.
+    #[test]
+    fn encoded_bits_matches_encode_len(ops in world_strategy()) {
+        for oc in &run(&ops) {
+            let c = from_oracle_clock(oc);
+            let (p, v) = (c.party(), c.version());
+            prop_assert_eq!(c.encode().len(), c.encoded_bits().div_ceil(8));
+            prop_assert_eq!(p.encode().len(), p.encoded_bits().div_ceil(8));
+            prop_assert_eq!(v.encode().len(), v.encoded_bits().div_ceil(8));
+            prop_assert_eq!(c.encoded_bits(), p.encoded_bits() + v.encoded_bits());
+        }
+    }
+}
+
 // ───────────────────────────── robustness ─────────────────────────────
 
 /// Deep structures (a depth-100k id spine, and the deep event tree a tick
@@ -421,7 +442,7 @@ fn deep_tree_stack_safety() {
     // ticks the clock's event tree), and a self-`receive` (the sent message is
     // `<= self`) merges a deep version into a deep clock without overflow.
     let msg = clock.send().clone();
-    clock.receive(&msg);
+    clock.recv(&msg);
 
     // Observers over a deep clock and a deep message do not overflow:
     // `has_seen` lowers to a deep `causal_cmp` against the version, and the
@@ -678,8 +699,8 @@ fn tryfrom_literals_build_values() {
     // Base cases. `1` is a valid party; `0` is anonymous on its own but fine as
     // a sub-tree (see the `(0, 1)` cases above).
     assert_eq!(Party::try_from(1u8).unwrap().to_string(), "1");
-    assert_eq!(Party::try_from(0u8), Err(ParseError::Anonymous));
-    assert_eq!(Party::try_from(false), Err(ParseError::Anonymous));
+    assert_eq!(Party::try_from(0u8), Err(Parse::Anonymous));
+    assert_eq!(Party::try_from(false), Err(Parse::Anonymous));
     assert_eq!(Version::try_from(7u64).unwrap().to_string(), "7");
 }
 
@@ -688,40 +709,31 @@ fn tryfrom_literals_build_values() {
 #[test]
 fn fromstr_tryfrom_reject_denormal_and_syntax() {
     // Denormal (well-formed but not canonical).
-    assert_eq!("(1, 1)".parse::<Party>(), Err(ParseError::NotCanonical));
-    assert_eq!(Party::try_from((1u8, 1u8)), Err(ParseError::NotCanonical));
-    assert_eq!(
-        "(5, 3, 3)".parse::<Version>(),
-        Err(ParseError::NotCanonical)
-    );
-    assert_eq!(
-        "(1, 2, 3)".parse::<Version>(),
-        Err(ParseError::NotCanonical)
-    );
+    assert_eq!("(1, 1)".parse::<Party>(), Err(Parse::NotCanonical));
+    assert_eq!(Party::try_from((1u8, 1u8)), Err(Parse::NotCanonical));
+    assert_eq!("(5, 3, 3)".parse::<Version>(), Err(Parse::NotCanonical));
+    assert_eq!("(1, 2, 3)".parse::<Version>(), Err(Parse::NotCanonical));
     assert_eq!(
         Version::try_from((1u64, 2u64, 3u64)),
-        Err(ParseError::NotCanonical)
+        Err(Parse::NotCanonical)
     );
 
     // Syntax (malformed).
-    assert_eq!("(1, 2".parse::<Party>(), Err(ParseError::Syntax)); // unbalanced
-    assert_eq!("2".parse::<Party>(), Err(ParseError::Syntax)); // id leaves are only 0/1
-    assert_eq!(Party::try_from(2u8), Err(ParseError::Syntax));
-    assert_eq!("".parse::<Version>(), Err(ParseError::Syntax)); // empty
-    assert_eq!("(1, 0)".parse::<Version>(), Err(ParseError::Syntax)); // event needs 3 parts
-    assert_eq!("(café, 0)".parse::<Clock>().err(), Some(ParseError::Syntax)); // non-ASCII byte
+    assert_eq!("(1, 2".parse::<Party>(), Err(Parse::Syntax)); // unbalanced
+    assert_eq!("2".parse::<Party>(), Err(Parse::Syntax)); // id leaves are only 0/1
+    assert_eq!(Party::try_from(2u8), Err(Parse::Syntax));
+    assert_eq!("".parse::<Version>(), Err(Parse::Syntax)); // empty
+    assert_eq!("(1, 0)".parse::<Version>(), Err(Parse::Syntax)); // event needs 3 parts
+    assert_eq!("(café, 0)".parse::<Clock>().err(), Some(Parse::Syntax)); // non-ASCII byte
 
     // Anonymous identity `0` is rejected as a standalone party (but allowed as
     // a sub-tree, exercised in `tryfrom_literals_build_values`).
-    assert_eq!("0".parse::<Party>(), Err(ParseError::Anonymous));
-    assert_eq!(Party::try_from(0u8), Err(ParseError::Anonymous));
+    assert_eq!("0".parse::<Party>(), Err(Parse::Anonymous));
+    assert_eq!(Party::try_from(0u8), Err(Parse::Anonymous));
     assert_eq!("(0, 1)".parse::<Party>().unwrap().to_string(), "(0, 1)"); // 0 as sub-tree: ok
                                                                           // Clock has no `PartialEq`, so compare the error directly.
-    assert_eq!("(0, 5)".parse::<Clock>().err(), Some(ParseError::Anonymous)); // anonymous party
-    assert_eq!(
-        Clock::try_from((0u8, 5u64)).err(),
-        Some(ParseError::Anonymous)
-    );
+    assert_eq!("(0, 5)".parse::<Clock>().err(), Some(Parse::Anonymous)); // anonymous party
+    assert_eq!(Clock::try_from((0u8, 5u64)).err(), Some(Parse::Anonymous));
 
     // Whitespace is tolerated.
     assert_eq!(

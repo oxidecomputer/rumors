@@ -1,6 +1,6 @@
 use num_bigint::BigUint;
 
-use crate::DecodeError;
+use crate::error::Decode;
 
 use super::{Base, Bits, BitsSlice};
 
@@ -34,12 +34,12 @@ pub(crate) fn encoded_int_len(n: &Base) -> usize {
 /// value (no cap): the unary prefix length `k` is bounded by the available
 /// bits, which the `Truncated` checks enforce, so a declared code can never
 /// exceed the input.
-pub(crate) fn decode_int(bits: &BitsSlice, pos: usize) -> Result<(Base, usize), DecodeError> {
+pub(crate) fn decode_int(bits: &BitsSlice, pos: usize) -> Result<(Base, usize), Decode> {
     let mut k = 0usize;
     loop {
         let idx = pos + k;
         if idx >= bits.len() {
-            return Err(DecodeError::Truncated);
+            return Err(Decode::Truncated);
         }
         if bits[idx] {
             break; // the leading 1 of m
@@ -48,7 +48,7 @@ pub(crate) fn decode_int(bits: &BitsSlice, pos: usize) -> Result<(Base, usize), 
     }
     let start = pos + k;
     if start + k + 1 > bits.len() {
-        return Err(DecodeError::Truncated);
+        return Err(Decode::Truncated);
     }
     let end = start + k + 1;
 
@@ -77,12 +77,12 @@ pub(crate) fn decode_int(bits: &BitsSlice, pos: usize) -> Result<(Base, usize), 
 
 /// Skip an Elias-gamma-coded integer at `pos`, returning the position just past
 /// it without materializing the integer. Used by topology-only event scans.
-pub(crate) fn skip_int(bits: &BitsSlice, pos: usize) -> Result<usize, DecodeError> {
+pub(crate) fn skip_int(bits: &BitsSlice, pos: usize) -> Result<usize, Decode> {
     let mut k = 0usize;
     loop {
         let idx = pos + k;
         if idx >= bits.len() {
-            return Err(DecodeError::Truncated);
+            return Err(Decode::Truncated);
         }
         if bits[idx] {
             break;
@@ -91,7 +91,7 @@ pub(crate) fn skip_int(bits: &BitsSlice, pos: usize) -> Result<usize, DecodeErro
     }
     let end = pos + (2 * k) + 1;
     if end > bits.len() {
-        Err(DecodeError::Truncated)
+        Err(Decode::Truncated)
     } else {
         Ok(end)
     }

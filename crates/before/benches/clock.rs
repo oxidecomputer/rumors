@@ -184,7 +184,7 @@ fn bench_receive(c: &mut Criterion) {
                 b.iter_batched(
                     || (Clock::decode(&bytes[..]).unwrap(), msg),
                     |(mut c, msg)| {
-                        c.receive(msg);
+                        c.recv(msg);
                         black_box(c)
                     },
                     BatchSize::SmallInput,

@@ -7,21 +7,20 @@
 //! <= a` in **one** traversal — running the paper's `leq` twice would do double
 //! the work. It is the paper's recursive `leq` made symmetric *and* `O(n + m)`,
 //! guarded by [`crate::recurse`] against deep trees: at each aligned node pair
-//! the path sums settle the local
-//! direction (`an > bn` rules out `a <= b`; `bn > an` rules out `b <= a`), then
-//! the walk descends into whichever side is internal, broadcasting the leaf
-//! side unchanged to both of the other's children, until both bottom out — so
-//! every node of either tree is visited once. Right-child positions are
-//! **threaded**: each subtree reports where it ended, so a sibling resumes
-//! there instead of re-scanning the left subtree. As soon as both directions
-//! are excluded the result is concurrent (`None`) and the walk stops early.
-//! Path sums are threaded as arbitrary-precision [`Base`](crate::codec::Base)
-//! offsets — the same value type as the stored bases and as
-//! `join`/`fill`/`grow`. A path sum is the running total of stored bases along
-//! a root-to-node path; an unbounded integer type removes the `u64` overflow
-//! class entirely (`decode` admits any normal-form tree, including one whose
-//! path sums exceed `u64::MAX`, so a bounded accumulator could wrap and invert
-//! the causal order).
+//! the path sums settle the local direction (`an > bn` rules out `a <= b`;
+//! `bn > an` rules out `b <= a`), then the walk descends into whichever side is
+//! internal, broadcasting the leaf side unchanged to both of the other's
+//! children, until both bottom out — so every node of either tree is visited
+//! once. Right-child positions are **threaded**: each subtree reports where it
+//! ended, so a sibling resumes there instead of re-scanning the left subtree.
+//! As soon as both directions are excluded the result is concurrent (`None`)
+//! and the walk stops early. Path sums are threaded as arbitrary-precision
+//! [`Base`](crate::codec::Base) offsets — the same value type as the stored
+//! bases and as `join`/`fill`/`grow`. A path sum is the running total of stored
+//! bases along a root-to-node path; an unbounded integer type removes the `u64`
+//! overflow class entirely (`decode` admits any normal-form tree, including one
+//! whose path sums exceed `u64::MAX`, so a bounded accumulator could wrap and
+//! invert the causal order).
 
 use core::cmp::Ordering;
 
@@ -97,9 +96,9 @@ impl EvView<'_> {
     /// normal by `event::Builder`), so identical contents is exactly semantic
     /// equality — which lets [`causal_cmp`](EvView::causal_cmp) settle `Equal`
     /// with one length-checked memcmp instead of the full `O(n + m)` recursive
-    /// walk. A representation mismatch (one packed, one
-    /// working) declines to `false` and falls through: proving equality across
-    /// forms would mean transcoding one side, no cheaper than the walk itself.
+    /// walk. A representation mismatch (one packed, one working) declines to
+    /// `false` and falls through: proving equality across forms would mean
+    /// transcoding one side, no cheaper than the walk itself.
     pub(super) fn trivially_eq(&self, other: &EvView) -> bool {
         match (self, other) {
             (EvView::Packed(a), EvView::Packed(b)) => a == b,
@@ -154,14 +153,15 @@ impl EvView<'_> {
     /// `None` means concurrent.
     ///
     /// The recursive, offset-threaded form of the paper's `leq`
-    /// (`oracle::Version::leq`), run in both directions at once: it tracks `self
-    /// <= other` (`le`) and `other <= self` (`ge`) together so the two pointwise
-    /// comparisons share a single traversal instead of running `leq` twice, and
-    /// stops early the moment both are excluded. The walk descends into whichever
-    /// side is internal — both in lockstep, or the internal one while the leaf
-    /// side is broadcast unchanged to both its children — so each node of either
-    /// tree is visited once. Recursion is guarded by [`crate::recurse`] so deep,
-    /// unbalanced trees grow the stack onto the heap instead of overflowing.
+    /// (`oracle::Version::leq`), run in both directions at once: it tracks
+    /// `self <= other` (`le`) and `other <= self` (`ge`) together so the two
+    /// pointwise comparisons share a single traversal instead of running `leq`
+    /// twice, and stops early the moment both are excluded. The walk descends
+    /// into whichever side is internal — both in lockstep, or the internal one
+    /// while the leaf side is broadcast unchanged to both its children — so
+    /// each node of either tree is visited once. Recursion is guarded by
+    /// [`crate::recurse`] so deep, unbalanced trees grow the stack onto the
+    /// heap instead of overflowing.
     pub(crate) fn causal_cmp(&self, other: &EvView) -> Option<Ordering> {
         // Both storage forms are canonical normal form, so identical contents is
         // exactly semantic equality: settle `Equal` with one memcmp before
@@ -191,12 +191,12 @@ impl EvView<'_> {
     }
 }
 
-/// The mutable state of a [`causal_cmp`](EvView::causal_cmp) walk: the two views
-/// and the two still-possible directions. Per-node path-sum offsets stay
+/// The mutable state of a [`causal_cmp`](EvView::causal_cmp) walk: the two
+/// views and the two still-possible directions. Per-node path-sum offsets stay
 /// borrowed (`&Base`); a side's single child offset — its node sum when
 /// internal, its own offset re-broadcast when a leaf — is computed once and
-/// shared by reference between its two children, so the walk clones no path sums
-/// (where the explicit-stack form cloned one per side per node).
+/// shared by reference between its two children, so the walk clones no path
+/// sums (where the explicit-stack form cloned one per side per node).
 struct CmpWalk<'a> {
     a: EvView<'a>,
     b: EvView<'a>,
@@ -207,9 +207,9 @@ struct CmpWalk<'a> {
 }
 
 impl CmpWalk<'_> {
-    /// Compare the aligned subtrees at the given positions and path-sum offsets,
-    /// routing through the amortized stack-growth guard. Returns the end
-    /// positions in each input (to thread the right sibling), or `None` to
+    /// Compare the aligned subtrees at the given positions and path-sum
+    /// offsets, routing through the amortized stack-growth guard. Returns the
+    /// end positions in each input (to thread the right sibling), or `None` to
     /// signal a decided `concurrent` that unwinds the whole walk.
     fn rec(
         &mut self,
@@ -247,9 +247,9 @@ impl CmpWalk<'_> {
         // At least one side is internal: descend it, broadcast the other leaf.
         // Each side hands the same offset to both children — its node sum when
         // internal, its own offset when a leaf — so it is borrowed, not cloned,
-        // across the two recursive calls. The positions differ: an internal side
-        // descends (left at `next`, right at the threaded end); a leaf side
-        // re-broadcasts in place (both at its own `pos`).
+        // across the two recursive calls. The positions differ: an internal
+        // side descends (left at `next`, right at the threaded end); a leaf
+        // side re-broadcasts in place (both at its own `pos`).
         let a_child: &Base = if a_internal { &a_sum } else { a_off };
         let b_child: &Base = if b_internal { &b_sum } else { b_off };
         let a_left = if a_internal { a_next } else { a_pos };

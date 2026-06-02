@@ -1,4 +1,4 @@
-use crate::{DecodeError, ParseError};
+use crate::error::{Decode, Parse};
 
 use super::{decode_int, Base, BitsSlice};
 
@@ -14,11 +14,11 @@ enum IdFrame {
 /// Parse one `enc_id` tree at `pos`, validating id normal form (no node whose
 /// two children are leaves of equal value). Returns the position just past the
 /// tree. Iterative: depth lives on an explicit stack, never the call stack.
-pub(crate) fn parse_id(bits: &BitsSlice, mut pos: usize) -> Result<usize, DecodeError> {
+pub(crate) fn parse_id(bits: &BitsSlice, mut pos: usize) -> Result<usize, Decode> {
     let mut stack: Vec<IdFrame> = Vec::new();
     loop {
         if pos >= bits.len() {
-            return Err(DecodeError::Truncated);
+            return Err(Decode::Truncated);
         }
         let flag = bits[pos];
         pos += 1;
@@ -29,7 +29,7 @@ pub(crate) fn parse_id(bits: &BitsSlice, mut pos: usize) -> Result<usize, Decode
             continue; // descend into the left child
         } else {
             if pos >= bits.len() {
-                return Err(DecodeError::Truncated);
+                return Err(Decode::Truncated);
             }
             let v = bits[pos];
             pos += 1;
@@ -47,7 +47,7 @@ pub(crate) fn parse_id(bits: &BitsSlice, mut pos: usize) -> Result<usize, Decode
                 Some(IdFrame::NeedRight { left_leaf }) => {
                     if let (Some(a), Some(b)) = (left_leaf, summary) {
                         if a == b {
-                            return Err(DecodeError::NotCanonical); // collapsible (v,v)
+                            return Err(Decode::NotCanonical); // collapsible (v,v)
                         }
                     }
                     summary = None; // this node is internal to its own parent
@@ -77,11 +77,11 @@ enum EvFrame {
 /// Parse one `enc_ev` tree at `pos`, validating event normal form: every node
 /// has at least one child with base `0`, and no node's two children are
 /// equal-valued leaves. Returns the position just past the tree. Iterative.
-pub(crate) fn parse_ev(bits: &BitsSlice, mut pos: usize) -> Result<usize, DecodeError> {
+pub(crate) fn parse_ev(bits: &BitsSlice, mut pos: usize) -> Result<usize, Decode> {
     let mut stack: Vec<EvFrame> = Vec::new();
     loop {
         if pos >= bits.len() {
-            return Err(DecodeError::Truncated);
+            return Err(Decode::Truncated);
         }
         let flag = bits[pos];
         pos += 1;
@@ -115,10 +115,10 @@ pub(crate) fn parse_ev(bits: &BitsSlice, mut pos: usize) -> Result<usize, Decode
                 }) => {
                     let right = summary;
                     if left.base != Base::ZERO && right.base != Base::ZERO {
-                        return Err(DecodeError::NotCanonical); // no child at base 0
+                        return Err(Decode::NotCanonical); // no child at base 0
                     }
                     if left.is_leaf && right.is_leaf && left.base == right.base {
-                        return Err(DecodeError::NotCanonical); // collapsible (n,m,m)
+                        return Err(Decode::NotCanonical); // collapsible (n,m,m)
                     }
                     summary = EvChild {
                         base: node_base,
@@ -133,23 +133,23 @@ pub(crate) fn parse_ev(bits: &BitsSlice, mut pos: usize) -> Result<usize, Decode
 /// Confirm a freshly built id bit stream is exactly one canonical-normal-form
 /// tree. Wraps [`parse_id`] (the single source of truth for id normal form),
 /// mapping its outcome onto [`ParseError`].
-pub(crate) fn validate_id(bits: &BitsSlice) -> Result<(), ParseError> {
+pub(crate) fn validate_id(bits: &BitsSlice) -> Result<(), Parse> {
     match parse_id(bits, 0) {
         Ok(end) if end == bits.len() => Ok(()),
-        Ok(_) => Err(ParseError::Syntax),
-        Err(DecodeError::NotCanonical) => Err(ParseError::NotCanonical),
-        Err(_) => Err(ParseError::Syntax),
+        Ok(_) => Err(Parse::Syntax),
+        Err(Decode::NotCanonical) => Err(Parse::NotCanonical),
+        Err(_) => Err(Parse::Syntax),
     }
 }
 
 /// Confirm a freshly built event bit stream is exactly one
 /// canonical-normal-form tree. Wraps [`parse_ev`], mapping its outcome onto
 /// [`ParseError`].
-pub(crate) fn validate_ev(bits: &BitsSlice) -> Result<(), ParseError> {
+pub(crate) fn validate_ev(bits: &BitsSlice) -> Result<(), Parse> {
     match parse_ev(bits, 0) {
         Ok(end) if end == bits.len() => Ok(()),
-        Ok(_) => Err(ParseError::Syntax),
-        Err(DecodeError::NotCanonical) => Err(ParseError::NotCanonical),
-        Err(_) => Err(ParseError::Syntax),
+        Ok(_) => Err(Parse::Syntax),
+        Err(Decode::NotCanonical) => Err(Parse::NotCanonical),
+        Err(_) => Err(Parse::Syntax),
     }
 }

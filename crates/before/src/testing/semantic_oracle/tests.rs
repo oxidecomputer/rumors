@@ -75,7 +75,7 @@ fn replay(
             Op::Send(i, j) => {
                 let (i, j) = (i % n, j % n);
                 let m = im[i].send().clone();
-                im[j].receive(&m);
+                im[j].recv(&m);
                 let m = or[i].send();
                 or[j].receive(m);
                 let m = se[i].send(rng);

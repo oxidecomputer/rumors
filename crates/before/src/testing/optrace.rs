@@ -102,7 +102,7 @@ pub(crate) fn step_impl(imp: &mut Vec<Clock>, op: &Op) {
         Op::Send(i, j) => {
             let (i, j) = (i % n, j % n);
             let msg = imp[i].send().clone();
-            imp[j].receive(&msg);
+            imp[j].recv(&msg);
         }
         Op::Sync(i, j) => {
             let (i, j) = (i % n, j % n);

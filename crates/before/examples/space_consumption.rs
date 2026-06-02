@@ -44,13 +44,18 @@
 //! drawn on stderr. Columns:
 //!
 //! ```text
-//! scenario,entities,iteration,mean_bytes,std_bytes,runs
+//! scenario,entities,iteration,mean_bits,std_bits,mean_bytes,std_bytes,runs
 //! ```
 //!
-//! `mean_bytes` is the grand mean, across runs, of the per-run mean stamp size
-//! at that iteration checkpoint; `std_bytes` is the standard deviation of the
-//! per-run means (the spread the paper averages away). Sampling is log-spaced so
-//! a handful of checkpoints traces the whole curve.
+//! `mean_bits`/`mean_bytes` are the grand mean, across runs, of the per-run mean
+//! stamp size at that iteration checkpoint; the `std_` columns are the standard
+//! deviation of the per-run means (the spread the paper averages away). Sampling
+//! is log-spaced so a handful of checkpoints traces the whole curve.
+//!
+//! Bits are the exact pre-pad encoded length ([`Clock::encoded_bits`]); bytes are
+//! `encode().len()` = `⌈bits/8⌉` per stamp. The bit column is the smooth quantity
+//! to fit — averaging per-stamp byte ceilings biases small stamps upward and adds
+//! quantization noise; the byte column is what a real deployment stores.
 //!
 //! # Running
 //!
@@ -155,8 +160,11 @@ fn main() {
 
     let stdout = io::stdout();
     let mut out = stdout.lock();
-    writeln!(out, "scenario,entities,iteration,mean_bytes,std_bytes,runs")
-        .expect("writing CSV header to stdout");
+    writeln!(
+        out,
+        "scenario,entities,iteration,mean_bits,std_bits,mean_bytes,std_bytes,runs"
+    )
+    .expect("writing CSV header to stdout");
 
     // Heaviest populations first (descending), so the progress bar's early
     // throughput reflects the slow large-stamp work: the ETA then *over*estimates
@@ -174,7 +182,7 @@ fn main() {
             // Each run is independent; parallelize across them. `collect`
             // preserves run order, so results stay deterministic regardless of
             // how rayon schedules the threads.
-            let per_run: Vec<Vec<f64>> = (0..config.runs)
+            let per_run: Vec<Vec<(f64, f64)>> = (0..config.runs)
                 .into_par_iter()
                 .map(|run| {
                     let seed = seed_for(scenario, n, run);
@@ -183,18 +191,23 @@ fn main() {
                 .collect();
 
             // Aggregate across runs at each checkpoint: the figure's y-value is
-            // the mean of the per-run mean stamp sizes.
+            // the mean of the per-run mean stamp sizes, reported in both bits
+            // (exact) and bytes (rounded, as stored).
             for (ci, &iteration) in checkpoints.iter().enumerate() {
-                let samples: Vec<f64> = per_run.iter().map(|run| run[ci]).collect();
-                let (mean, std) = mean_std(&samples);
+                let bits: Vec<f64> = per_run.iter().map(|run| run[ci].0).collect();
+                let bytes: Vec<f64> = per_run.iter().map(|run| run[ci].1).collect();
+                let (mean_bits, std_bits) = mean_std(&bits);
+                let (mean_bytes, std_bytes) = mean_std(&bytes);
                 writeln!(
                     out,
-                    "{},{},{},{:.3},{:.3},{}",
+                    "{},{},{},{:.4},{:.4},{:.4},{:.4},{}",
                     scenario.label(),
                     n,
                     iteration,
-                    mean,
-                    std,
+                    mean_bits,
+                    std_bits,
+                    mean_bytes,
+                    std_bytes,
                     config.runs,
                 )
                 .expect("writing CSV row to stdout");
@@ -206,8 +219,8 @@ fn main() {
 }
 
 /// Run one simulation: build a population of `n` balanced stamps, then exercise
-/// it for `max_iters` iterations, recording the mean stamp size (in bytes, under
-/// this crate's encoding) at each checkpoint. Advances `pb` by the number of
+/// it for `max_iters` iterations, recording the mean stamp size (as `(bits, bytes)`,
+/// under this crate's encoding) at each checkpoint. Advances `pb` by the number of
 /// iterations completed between checkpoints.
 fn simulate(
     scenario: Scenario,
@@ -216,7 +229,7 @@ fn simulate(
     checkpoints: &[u64],
     seed: u64,
     pb: &ProgressBar,
-) -> Vec<f64> {
+) -> Vec<(f64, f64)> {
     let mut rng = StdRng::seed_from_u64(seed);
     let mut clocks = build_population(n);
 
@@ -231,7 +244,7 @@ fn simulate(
         }
 
         if next_cp < checkpoints.len() && iteration == checkpoints[next_cp] {
-            sizes.push(mean_stamp_bytes(&clocks));
+            sizes.push(mean_stamp_sizes(&clocks));
             next_cp += 1;
             // Report progress in checkpoint-sized chunks: ~8 atomic increments
             // per decade per run, negligible against the work itself.
@@ -305,11 +318,15 @@ fn build_population(n: usize) -> Vec<Clock> {
     clocks
 }
 
-/// Mean encoded size, in bytes, over all live stamps — this crate's packed
-/// [`Clock::encode`], not the paper's Appendix A encoding.
-fn mean_stamp_bytes(clocks: &[Clock]) -> f64 {
-    let total: usize = clocks.iter().map(|c| c.encode().len()).sum();
-    total as f64 / clocks.len() as f64
+/// Mean encoded size over all live stamps, as `(bits, bytes)` — this crate's
+/// packed encoding, not the paper's Appendix A encoding. Bits are the exact
+/// pre-pad length ([`Clock::encoded_bits`]); bytes are `encode().len()`, i.e.
+/// `⌈bits/8⌉` per stamp (the per-stamp ceiling is what biases the byte mean).
+fn mean_stamp_sizes(clocks: &[Clock]) -> (f64, f64) {
+    let n = clocks.len() as f64;
+    let bits: usize = clocks.iter().map(Clock::encoded_bits).sum();
+    let bytes: usize = clocks.iter().map(|c| c.encode().len()).sum();
+    (bits as f64 / n, bytes as f64 / n)
 }
 
 /// Mean and (population) standard deviation of a sample.

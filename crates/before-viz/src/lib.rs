@@ -198,7 +198,7 @@ fn build(log: &[Op]) -> Result<Vec<Node>, EngineError> {
 
 fn clock_at(arena: &[Node], i: usize) -> Result<Clock, EngineError> {
     let node = arena.get(i).ok_or(EngineError::IndexOutOfRange(i))?;
-    Clock::decode(&node.bytes).map_err(|e| EngineError::Decode(e.to_string()))
+    Clock::decode(&node.bytes[..]).map_err(|e| EngineError::Decode(e.to_string()))
 }
 
 fn push_clock(arena: &mut Vec<Node>, clock: Clock) {
