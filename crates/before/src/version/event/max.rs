@@ -2,63 +2,42 @@ use crate::codec::Base;
 
 use crate::version::compare::{EvHeader, EvView};
 
-/// A step in the [`EvView::max`] descent, in the dominant job-stack idiom. The
-/// thread register is just the end position of the last-finished subtree (`end`
-/// in the loop): this fold has no per-node output to combine, only a global
-/// maximum, so it needs no register struct and `Eval`/`Right` alone (no
-/// `Close`) suffice.
-enum MaxJob {
-    /// Accumulate the subtree at `pos`, whose root-to-parent path sum is `off`.
-    Eval { pos: usize, off: Base },
-    /// Left child finished (its end is in the thread register); launch the
-    /// right child under this node's path sum `off`.
-    Right { off: Base },
-}
-
 impl EvView<'_> {
     /// The maximum value of the event function over the subtree at `root` (the
-    /// paper's `max`: `base + max(child maxes)`), and the position just past
-    /// the subtree. Iterative `O(n)` pass in the crate's dominant job-stack
-    /// idiom: the threaded `end` reports where each subtree finished so a right
-    /// sibling resumes there without re-scanning, while the running `max`
-    /// accumulates every node's path sum.
+    /// paper's `max`: `base + max(child maxes)`), and the position just past the
+    /// subtree. `O(n)`.
+    ///
+    /// The recursive form of the paper's `max`, guarded by [`crate::recurse`] so
+    /// deep trees grow the stack onto the heap rather than overflowing. The
+    /// running path sum `off` is threaded by reference; the subtree maximum is
+    /// returned (no mutable accumulator), and the threaded end position lets a
+    /// right sibling resume without re-scanning.
     pub(super) fn max(&self, root: usize) -> (Base, usize) {
-        let mut max = Base::ZERO;
-        let mut end = root;
-        let mut stack = vec![MaxJob::Eval {
-            pos: root,
-            off: Base::ZERO,
-        }];
-        while let Some(job) = stack.pop() {
-            match job {
-                MaxJob::Eval { pos, off } => {
-                    let EvHeader {
-                        internal,
-                        base,
-                        next,
-                    } = self.header(pos);
-                    let cumulative = off + base;
-                    max = max.max(cumulative.clone());
-                    if internal {
-                        // Descend the left child; defer the right under this
-                        // node's sum. (LIFO: when `Right` pops, `end` is
-                        // exactly the left subtree's end.)
-                        stack.push(MaxJob::Right {
-                            off: cumulative.clone(),
-                        });
-                        stack.push(MaxJob::Eval {
-                            pos: next,
-                            off: cumulative,
-                        });
-                    } else {
-                        end = next;
-                    }
-                }
-                MaxJob::Right { off } => {
-                    stack.push(MaxJob::Eval { pos: end, off });
-                }
-            }
-        }
-        (max, end)
+        let zero = Base::ZERO;
+        max_rec(*self, root, &zero, 0)
     }
+}
+
+/// The maximum cumulative path sum over the subtree at `pos`, whose
+/// root-to-parent path sum is `off`, plus the position just past the subtree.
+/// Routed through the amortized stack-growth guard.
+fn max_rec(view: EvView, pos: usize, off: &Base, depth: usize) -> (Base, usize) {
+    crate::recurse::guarded(depth, move || {
+        let EvHeader {
+            internal,
+            base,
+            next,
+        } = view.header(pos);
+        let cumulative = off + &base;
+        if !internal {
+            // Leaf: its cumulative path sum is the subtree maximum.
+            return (cumulative, next);
+        }
+        // Internal: descend both children under this node's path sum (the right
+        // threaded from where the left ended). A child's cumulative dominates the
+        // node's own, so the subtree max is the larger child max.
+        let (l_max, l_end) = max_rec(view, next, &cumulative, depth + 1);
+        let (r_max, r_end) = max_rec(view, l_end, &cumulative, depth + 1);
+        (l_max.max(r_max).max(cumulative), r_end)
+    })
 }
