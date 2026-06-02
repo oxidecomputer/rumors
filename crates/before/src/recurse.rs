@@ -14,18 +14,20 @@
 /// Recurse this many levels between stack-headroom probes.
 ///
 /// Must satisfy `STRIDE * max_frame_bytes < RED_ZONE`: a burst of `STRIDE`
-/// frames between two probes cannot be allowed to overrun the red zone. The
-/// traversal frames here are well under 1 KiB, so `64 * 1 KiB = 64 KiB` stays
-/// comfortably inside [`RED_ZONE`]. A power of two so `depth % STRIDE` lowers to
-/// a mask.
+/// frames between two probes cannot be allowed to overrun the red zone. A power
+/// of two so `depth % STRIDE` lowers to a mask.
 const STRIDE: usize = 64;
 
 /// Grow the stack when fewer than this many bytes of headroom remain.
 ///
-/// Provisional: chosen as a conservative fraction of a typical 1–8 MiB thread
-/// stack, large enough to absorb a `STRIDE`-frame burst with wide margin. To be
-/// tuned against an empirical per-traversal frame-size measurement.
-const RED_ZONE: usize = 128 * 1024;
+/// Sized from a frame-size measurement (aarch64 release): the heaviest
+/// traversal frame is ~0.5 KiB/level — established by per-level stack-pointer
+/// deltas and cross-checked against each recursive function's prologue `sub sp`
+/// (summed over its `rec` shell and body closure). With [`STRIDE`] = 64 the
+/// inter-probe burst is therefore ~32 KiB, so 256 KiB leaves roughly an 8x
+/// cushion — ample headroom for wider frames on other targets (e.g. x86_64) and
+/// for arbitrary-precision `Base` arithmetic temporaries in the deepest frame.
+const RED_ZONE: usize = 256 * 1024;
 
 /// Size of each heap-allocated stack segment allocated when growth triggers.
 const STACK_GROWTH: usize = 1024 * 1024;
