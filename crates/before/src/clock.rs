@@ -29,6 +29,7 @@ mod tests;
 /// b.tick();
 /// assert!(a.version().concurrent(b.version()));
 /// ```
+#[derive(PartialEq, Eq, Hash)]
 pub struct Clock {
     party: Party,
     version: Version,
@@ -173,7 +174,7 @@ impl Clock {
     /// ```
     /// use before::Clock;
     /// let mut clock = Clock::seed();
-    /// clock.batch().tick().tick(); // applied when the batch drops
+    /// clock.batch().tick().tick();
     /// assert_eq!(clock.version().to_string(), "2");
     /// ```
     pub fn batch(&mut self) -> Batch<'_> {
@@ -549,6 +550,20 @@ impl BitOr<Clock> for Version {
 impl BitOrAssign<Version> for Clock {
     fn bitor_assign(&mut self, r: Version) {
         self.batch().merge(&r);
+    }
+}
+
+/// Merge a [`&Version`](Version) into a [`Clock`] in place.
+///
+/// ```
+/// use before::{Clock, Version};
+/// let mut clock = Clock::seed();
+/// clock |= "1".parse::<Version>().unwrap();
+/// assert_eq!(clock.version().to_string(), "1");
+/// ```
+impl BitOrAssign<&Version> for Clock {
+    fn bitor_assign(&mut self, r: &Version) {
+        self.batch().merge(r);
     }
 }
 

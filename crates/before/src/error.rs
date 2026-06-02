@@ -10,7 +10,7 @@
 /// let mut b = Clock::seed(); // a second seed shares the first's party
 /// assert!(a.sync(&mut b).is_err()); // the parties overlap
 /// ```
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default, thiserror::Error)]
 #[error("parties are not disjoint")]
 pub struct Overlap;
 
@@ -53,7 +53,7 @@ pub enum Decode {
 /// use before::{error::Parse, Clock};
 /// assert_eq!("nonsense".parse::<Clock>().unwrap_err(), Parse::Syntax);
 /// ```
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, thiserror::Error)]
 pub enum Parse {
     /// The input is not well-formed paper notation (bad token, unbalanced
     /// parens, non-`0`/`1` id leaf, malformed integer, or trailing input).
