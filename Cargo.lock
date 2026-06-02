@@ -141,6 +141,7 @@ dependencies = [
  "bitvec",
  "ciborium",
  "criterion",
+ "indicatif",
  "insta",
  "num-bigint",
  "postcard",

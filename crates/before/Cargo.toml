@@ -31,8 +31,11 @@ ciborium = "0.2"
 trybuild = "1"
 # Snapshot tests where a literal expected value is clearer inline than maintained by hand.
 insta = "1"
-# Parallelizes the exhaustive small-scope cross-products (the `exhaustive` module).
+# Parallelizes the exhaustive small-scope cross-products (the `exhaustive` module)
+# and, in the `space_consumption` example, the independent simulation runs.
 rayon = "1"
+# Progress bars for the long-running `space_consumption` example.
+indicatif = "0.17"
 # Self-dependency that turns on the `oracle` feature for benches (and tests): a
 # recognized Cargo idiom so `cargo bench` builds the lib with the oracle exposed
 # without needing `--features oracle`. Dev-dependency cycles are explicitly allowed,
