@@ -1,6 +1,7 @@
 use core::cmp::Ordering;
 
 use crate::idbits::IdView;
+use crate::recurse::descend;
 
 impl IdView<'_> {
     /// Whether `self` and `other` (normal-form ids) share no owned region. `O(n + m)`: both
@@ -13,7 +14,7 @@ impl IdView<'_> {
         // Each subtree walk returns where it ended in both inputs (so a right
         // sibling resumes without re-scanning), or `None` the instant an overlap
         // is found, unwinding the whole walk.
-        disjoint_rec(*self, *other, 0, 0, 0).is_some()
+        descend!(0, disjoint_rec(*self, *other, 0, 0, 0)).is_some()
     }
 
     /// The descent order on `self` and `other` (normal-form ids), in a single
@@ -66,26 +67,27 @@ fn disjoint_rec(
     b_pos: usize,
     depth: usize,
 ) -> Option<(usize, usize)> {
-    crate::recurse::guarded(depth, move || {
-        let a_hdr = a.header(a_pos);
-        let b_hdr = b.header(b_pos);
-        if a_hdr.is_empty() {
-            // a owns nothing here: disjoint. Skip b's subtree to resync.
-            return Some((a_hdr.next, b.skip(b_pos)));
-        }
-        if b_hdr.is_empty() {
-            // b owns nothing here: disjoint. Skip a's subtree to resync.
-            return Some((a.skip(a_pos), b_hdr.next));
-        }
-        if a_hdr.is_full() || b_hdr.is_full() {
-            // One side is full and the other nonempty: overlap.
-            return None;
-        }
-        // Both internal: descend in lockstep, threading the right child from
-        // where the left ended.
-        let (a_mid, b_mid) = disjoint_rec(a, b, a_hdr.next, b_hdr.next, depth + 1)?;
-        disjoint_rec(a, b, a_mid, b_mid, depth + 1)
-    })
+    let a_hdr = a.header(a_pos);
+    let b_hdr = b.header(b_pos);
+    if a_hdr.is_empty() {
+        // a owns nothing here: disjoint. Skip b's subtree to resync.
+        return Some((a_hdr.next, b.skip(b_pos)));
+    }
+    if b_hdr.is_empty() {
+        // b owns nothing here: disjoint. Skip a's subtree to resync.
+        return Some((a.skip(a_pos), b_hdr.next));
+    }
+    if a_hdr.is_full() || b_hdr.is_full() {
+        // One side is full and the other nonempty: overlap.
+        return None;
+    }
+    // Both internal: descend in lockstep, threading the right child from where
+    // the left ended.
+    let (a_mid, b_mid) = descend!(
+        depth + 1,
+        disjoint_rec(a, b, a_hdr.next, b_hdr.next, depth + 1)
+    )?;
+    descend!(depth + 1, disjoint_rec(a, b, a_mid, b_mid, depth + 1))
 }
 
 /// The mutable state of a [`compare`](IdView::compare) walk: the two id views and

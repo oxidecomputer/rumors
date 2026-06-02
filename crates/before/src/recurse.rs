@@ -46,3 +46,31 @@ pub(crate) fn guarded<R>(depth: usize, f: impl FnOnce() -> R) -> R {
         f()
     }
 }
+
+/// Whether to probe stack headroom on entering `depth` (every [`STRIDE`] levels).
+#[inline]
+pub(crate) fn should_grow(depth: usize) -> bool {
+    depth.is_multiple_of(STRIDE)
+}
+
+/// Grow the stack onto the heap if under [`RED_ZONE`], then run `f`.
+#[inline]
+pub(crate) fn grow<R>(f: impl FnOnce() -> R) -> R {
+    stacker::maybe_grow(RED_ZONE, STACK_GROWTH, f)
+}
+
+/// Recurse into one child, guarding the descent without wrapping the caller's
+/// body in a closure: the common path is a direct call (the body stays one
+/// frame and inlines), and only every [`STRIDE`] levels is the call routed
+/// through [`grow`]. Use at each recursive call site:
+/// `descend!(depth + 1, self.rec(child_args, depth + 1))`.
+macro_rules! descend {
+    ($depth:expr, $call:expr) => {
+        if $crate::recurse::should_grow($depth) {
+            $crate::recurse::grow(|| $call)
+        } else {
+            $call
+        }
+    };
+}
+pub(crate) use descend;
