@@ -1,97 +1,140 @@
-use crate::recurse::descend;
+use smallvec::SmallVec;
+
 use crate::{DecodeError, ParseError};
 
 use super::{decode_int, Base, BitsSlice};
 
-/// Parse one `enc_id` tree at `pos`, validating id normal form (no node whose
-/// two children are leaves of equal value). Returns the position just past the
-/// tree. Recursive, guarded by [`crate::recurse`] so deep input grows the stack
-/// onto the heap rather than overflowing.
-pub(crate) fn parse_id(bits: &BitsSlice, pos: usize) -> Result<usize, DecodeError> {
-    descend!(0, parse_id_node(bits, pos, 0)).map(|(_summary, end)| end)
+/// Inline parse-stack capacity: a tree of depth up to this many levels keeps its
+/// stack on the program stack with no heap allocation (covering all balanced
+/// inputs in practice); deeper trees spill to the heap.
+const PARSE_STACK_INLINE: usize = 16;
+
+/// While building a node bottom-up, what we still need from the stream.
+enum IdFrame {
+    /// Parsed the node flag; the next subtree is the left child.
+    NeedLeft,
+    /// Parsed the left child (a leaf with this value, or `None` if internal); the
+    /// next subtree is the right child.
+    NeedRight { left_leaf: Option<bool> },
 }
 
-/// Parse one id subtree at `pos`. Returns `(summary, end)`: the leaf's value
-/// (`Some`) or `None` for an internal node, and the position just past the
-/// subtree. Routed through the amortized stack-growth guard.
-fn parse_id_node(
-    bits: &BitsSlice,
-    pos: usize,
-    depth: usize,
-) -> Result<(Option<bool>, usize), DecodeError> {
-    if pos >= bits.len() {
-        return Err(DecodeError::Truncated);
-    }
-    // `enc_id(Leaf v) = 0, v`; `enc_id(Node l r) = 1, l, r`.
-    if !bits[pos] {
-        if pos + 1 >= bits.len() {
+/// Parse one `enc_id` tree at `pos`, validating id normal form (no node whose
+/// two children are leaves of equal value). Returns the position just past the
+/// tree. Iterative: depth lives on an explicit stack, never the call stack.
+pub(crate) fn parse_id(bits: &BitsSlice, mut pos: usize) -> Result<usize, DecodeError> {
+    let mut stack: SmallVec<[IdFrame; PARSE_STACK_INLINE]> = SmallVec::new();
+    loop {
+        if pos >= bits.len() {
             return Err(DecodeError::Truncated);
         }
-        return Ok((Some(bits[pos + 1]), pos + 2));
-    }
-    let (left, mid) = descend!(depth + 1, parse_id_node(bits, pos + 1, depth + 1))?;
-    let (right, end) = descend!(depth + 1, parse_id_node(bits, mid, depth + 1))?;
-    if let (Some(a), Some(b)) = (left, right) {
-        if a == b {
-            return Err(DecodeError::NotCanonical); // collapsible (v,v)
+        let flag = bits[pos];
+        pos += 1;
+
+        // `enc_id(Leaf v) = 0, v`; `enc_id(Node l r) = 1, l, r`.
+        let mut summary: Option<bool> = if flag {
+            stack.push(IdFrame::NeedLeft);
+            continue; // descend into the left child
+        } else {
+            if pos >= bits.len() {
+                return Err(DecodeError::Truncated);
+            }
+            let v = bits[pos];
+            pos += 1;
+            Some(v)
+        };
+
+        // Attach the completed subtree to its parent, possibly completing it too.
+        loop {
+            match stack.pop() {
+                None => return Ok(pos), // the root is complete
+                Some(IdFrame::NeedLeft) => {
+                    stack.push(IdFrame::NeedRight { left_leaf: summary });
+                    break; // go parse the right child
+                }
+                Some(IdFrame::NeedRight { left_leaf }) => {
+                    if let (Some(a), Some(b)) = (left_leaf, summary) {
+                        if a == b {
+                            return Err(DecodeError::NotCanonical); // collapsible (v,v)
+                        }
+                    }
+                    summary = None; // this node is internal to its own parent
+                }
+            }
         }
     }
-    Ok((None, end)) // this node is internal to its own parent
 }
 
 /// What a parsed event subtree contributes to its parent's normal-form check:
 /// its stored (relative) base, and whether it is a leaf.
+#[derive(Clone)]
 struct EvChild {
     base: Base,
     is_leaf: bool,
 }
 
-/// Parse one `enc_ev` tree at `pos`, validating event normal form: every node
-/// has at least one child with base `0`, and no node's two children are
-/// equal-valued leaves. Returns the position just past the tree. Recursive,
-/// guarded by [`crate::recurse`] against deep input.
-pub(crate) fn parse_ev(bits: &BitsSlice, pos: usize) -> Result<usize, DecodeError> {
-    descend!(0, parse_ev_node(bits, pos, 0)).map(|(_summary, end)| end)
+/// While building an event node bottom-up, what we still need from the stream.
+enum EvFrame {
+    /// Parsed the node's flag and base; the next subtree is the left child.
+    NeedLeft { base: Base },
+    /// Parsed the left child; the next subtree is the right child. `base` is the node's
+    /// own (relative) base; `left` is what the left child contributes to the checks.
+    NeedRight { base: Base, left: EvChild },
 }
 
-/// Parse one event subtree at `pos`. Returns `(summary, end)`: what the subtree
-/// contributes to its parent's checks, and the position just past it. Routed
-/// through the amortized stack-growth guard.
-fn parse_ev_node(
-    bits: &BitsSlice,
-    pos: usize,
-    depth: usize,
-) -> Result<(EvChild, usize), DecodeError> {
-    if pos >= bits.len() {
-        return Err(DecodeError::Truncated);
-    }
-    let flag = bits[pos];
-    let (base, next) = decode_int(bits, pos + 1)?;
-    // `enc_ev(Leaf n) = 0, gamma(n)`; `enc_ev(Node n l r) = 1, gamma(n), l, r`.
-    if !flag {
-        return Ok((
+/// Parse one `enc_ev` tree at `pos`, validating event normal form: every node
+/// has at least one child with base `0`, and no node's two children are
+/// equal-valued leaves. Returns the position just past the tree. Iterative.
+pub(crate) fn parse_ev(bits: &BitsSlice, mut pos: usize) -> Result<usize, DecodeError> {
+    let mut stack: SmallVec<[EvFrame; PARSE_STACK_INLINE]> = SmallVec::new();
+    loop {
+        if pos >= bits.len() {
+            return Err(DecodeError::Truncated);
+        }
+        let flag = bits[pos];
+        pos += 1;
+        let (base, next) = decode_int(bits, pos)?;
+        pos = next;
+
+        // `enc_ev(Leaf n) = 0, gamma(n)`; `enc_ev(Node n l r) = 1, gamma(n), l, r`.
+        let mut summary = if flag {
+            stack.push(EvFrame::NeedLeft { base });
+            continue; // descend into the left child
+        } else {
             EvChild {
                 base,
                 is_leaf: true,
-            },
-            next,
-        ));
+            }
+        };
+
+        loop {
+            match stack.pop() {
+                None => return Ok(pos),
+                Some(EvFrame::NeedLeft { base: node_base }) => {
+                    stack.push(EvFrame::NeedRight {
+                        base: node_base,
+                        left: summary,
+                    });
+                    break;
+                }
+                Some(EvFrame::NeedRight {
+                    base: node_base,
+                    left,
+                }) => {
+                    let right = summary;
+                    if left.base != Base::ZERO && right.base != Base::ZERO {
+                        return Err(DecodeError::NotCanonical); // no child at base 0
+                    }
+                    if left.is_leaf && right.is_leaf && left.base == right.base {
+                        return Err(DecodeError::NotCanonical); // collapsible (n,m,m)
+                    }
+                    summary = EvChild {
+                        base: node_base,
+                        is_leaf: false,
+                    };
+                }
+            }
+        }
     }
-    let (left, mid) = descend!(depth + 1, parse_ev_node(bits, next, depth + 1))?;
-    let (right, end) = descend!(depth + 1, parse_ev_node(bits, mid, depth + 1))?;
-    if left.base != Base::ZERO && right.base != Base::ZERO {
-        return Err(DecodeError::NotCanonical); // no child at base 0
-    }
-    if left.is_leaf && right.is_leaf && left.base == right.base {
-        return Err(DecodeError::NotCanonical); // collapsible (n,m,m)
-    }
-    Ok((
-        EvChild {
-            base,
-            is_leaf: false,
-        },
-        end,
-    ))
 }
 
 /// Confirm a freshly built id bit stream is exactly one canonical-normal-form
