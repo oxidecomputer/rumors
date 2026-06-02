@@ -10,8 +10,7 @@ mod codec;
 mod error;
 mod idbits;
 
-/// Stack-growth guard for the experimental recursive traversals (`internals`).
-#[cfg(feature = "internals")]
+/// Stack-growth guard shared by the recursive traversals.
 mod recurse;
 
 pub mod clock;

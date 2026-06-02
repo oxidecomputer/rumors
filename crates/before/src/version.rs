@@ -102,24 +102,6 @@ impl PartialOrd for Version {
     }
 }
 
-/// Bench/test-only entry points (behind the `internals` feature) that select a
-/// specific causal-comparison implementation, so the benchmark suite can time
-/// the iterative and recursive+stacker variants head-to-head and the
-/// differential tests can pin them equivalent. The production [`PartialOrd`]
-/// stays on the iterative impl.
-#[cfg(feature = "internals")]
-impl Version {
-    /// The iterative causal comparison (same as [`PartialOrd::partial_cmp`]).
-    pub fn causal_cmp_iterative(&self, other: &Version) -> Option<Ordering> {
-        self.view().causal_cmp(&other.view())
-    }
-
-    /// The experimental recursive+stacker causal comparison.
-    pub fn causal_cmp_recursive(&self, other: &Version) -> Option<Ordering> {
-        self.view().causal_cmp_recursive(&other.view())
-    }
-}
-
 /// Paper notation: `n` leaves, `(n, e1, e2)` nodes. E.g. `(1, 2, (0, (1, 0, 2), 0))`.
 impl core::fmt::Display for Version {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {

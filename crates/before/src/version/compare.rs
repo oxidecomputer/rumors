@@ -24,15 +24,8 @@
 
 use core::cmp::Ordering;
 
-use smallvec::{smallvec, SmallVec};
-
 use crate::codec::{decode_int, skip_int, Base, BitsSlice};
 use crate::{idbits, step};
-
-/// Inline job-stack capacity for the comparison walk: near-balanced trees up to
-/// a few hundred nodes keep their stack on the program stack (no heap alloc);
-/// deeper trees spill to the heap transparently.
-const COMPARE_STACK_INLINE: usize = 16;
 
 use super::working::WorkingVersion;
 
@@ -216,274 +209,26 @@ impl EvView<'_> {
     }
 }
 
-/// A step in the threaded comparison walk. Positions (`*_pos`) address a node
-/// in each tree; offsets (`*_off`) are the path sum down to that node.
-enum CompareJob {
-    /// Compare the subtrees at these positions, under these path-sum offsets.
-    Eval {
-        /// Position of `a`'s subtree root.
-        a_pos: usize,
-        /// Path sum down to `a`'s subtree.
-        a_off: Base,
-        /// Position of `b`'s subtree root.
-        b_pos: usize,
-        /// Path sum down to `b`'s subtree.
-        b_off: Base,
-    },
-    /// Left child finished; launch the right child. Each [`Side`] threads its
-    /// internal side from `ret` and re-broadcasts its leaf side in place — the
-    /// one rule that subsumes the old lockstep / broadcast-`a` / broadcast-`b`
-    /// spellings.
-    Right {
-        /// `a`'s state at this node.
-        a: Side,
-        /// `b`'s state at this node.
-        b: Side,
-    },
-}
-
-/// The thread register for the comparison walk (the discipline is documented in
-/// [`super::event`]'s module doc): the position just past the
-/// most-recently-finished subtree in each input. An `Eval` arm *writes* it on
-/// deciding a leaf-vs-leaf branch; a deferred `Right*` frame *reads* it to
-/// resume a sibling where its left neighbor ended. There is no payload — the
-/// comparison accumulates into `le`/`ge`, not here.
-#[derive(Clone, Copy, Default)]
-struct Ends {
-    /// Position just past the finished subtree in `a`.
-    a_end: usize,
-    /// Position just past the finished subtree in `b`.
-    b_end: usize,
-}
-
 impl EvView<'_> {
     /// The causal order of `self` and `other`, computed in one `O(n + m)` pass;
     /// `None` means concurrent.
     ///
-    /// The iterative, offset-threaded form of the recursive
-    /// `oracle::Version::leq` (the paper's `leq`), run in both directions at
-    /// once; read that recursive twin first, then this is the same algorithm
-    /// with the call stack made explicit. Tracks `self <= other` (`le`) and
-    /// `other <= self` (`ge`) together so the two pointwise comparisons share a
-    /// single traversal instead of running `leq` twice. The walk descends into
-    /// whichever side is internal — both in lockstep, or the internal one while
-    /// the leaf side is broadcast unchanged to both its children — so each node
-    /// of either tree is visited once. Stops early once both directions are
-    /// excluded.
+    /// The recursive, offset-threaded form of the paper's `leq`
+    /// (`oracle::Version::leq`), run in both directions at once: it tracks `self
+    /// <= other` (`le`) and `other <= self` (`ge`) together so the two pointwise
+    /// comparisons share a single traversal instead of running `leq` twice, and
+    /// stops early the moment both are excluded. The walk descends into whichever
+    /// side is internal — both in lockstep, or the internal one while the leaf
+    /// side is broadcast unchanged to both its children — so each node of either
+    /// tree is visited once. Recursion is guarded by [`crate::recurse`] so deep,
+    /// unbalanced trees grow the stack onto the heap instead of overflowing.
     pub(crate) fn causal_cmp(&self, other: &EvView) -> Option<Ordering> {
-        let (a, b) = (self, other);
-        // Both storage forms are canonical normal form, so identical contents
-        // is exactly semantic equality: settle `Equal` with one memcmp before
-        // allocating the walk's job stack. Covers every entry point — Version
-        // vs Version, Batch vs Batch, and a not-yet-materialized Batch (still
-        // packed) against either. (Mixed packed/working forms decline and fall
-        // through; see `EvView::trivially_eq`.)
-        if a.trivially_eq(b) {
-            return Some(Ordering::Equal);
-        }
-        let mut le = true; // `a <= b` still possible
-        let mut ge = true; // `b <= a` still possible
-
-        // A pending right child reads the threaded side(s) from `ret` (the
-        // pinned side carries its own position in the broadcast jobs).
-        let mut ret = Ends::default();
-        let mut stack: SmallVec<[CompareJob; COMPARE_STACK_INLINE]> = smallvec![CompareJob::Eval {
-            a_pos: 0,
-            a_off: Base::ZERO,
-            b_pos: 0,
-            b_off: Base::ZERO,
-        }];
-        while let Some(job) = stack.pop() {
-            match job {
-                CompareJob::Eval {
-                    a_pos,
-                    a_off,
-                    b_pos,
-                    b_off,
-                } => {
-                    let EvHeader {
-                        internal: a_internal,
-                        base: a_base,
-                        next: a_next,
-                    } = a.header(a_pos);
-                    let EvHeader {
-                        internal: b_internal,
-                        base: b_base,
-                        next: b_next,
-                    } = b.header(b_pos);
-                    let a_sum = &a_off + &a_base;
-                    let b_sum = &b_off + &b_base;
-                    if a_sum > b_sum {
-                        le = false;
-                    }
-                    if b_sum > a_sum {
-                        ge = false;
-                    }
-                    if !le && !ge {
-                        return None; // concurrent: neither direction can recover
-                    }
-                    if !a_internal && !b_internal {
-                        // Both leaves: this branch is decided. Report both ends.
-                        ret = Ends {
-                            a_end: a_next,
-                            b_end: b_next,
-                        };
-                        continue;
-                    }
-                    // At least one side is internal: descend it, broadcast the
-                    // other leaf. The [`Side`] helpers carry the one broadcast
-                    // rule for both children. Each side keeps just the offset its
-                    // children need: the node sum when internal, its own offset
-                    // when a leaf (see [`Side::child_off`]).
-                    let a_side = Side {
-                        internal: a_internal,
-                        pos: a_pos,
-                        next: a_next,
-                        child_off: if a_internal { a_sum } else { a_off },
-                    };
-                    let b_side = Side {
-                        internal: b_internal,
-                        pos: b_pos,
-                        next: b_next,
-                        child_off: if b_internal { b_sum } else { b_off },
-                    };
-                    let (left_a_pos, left_a_off) = a_side.left();
-                    let (left_b_pos, left_b_off) = b_side.left();
-                    stack.push(CompareJob::Right {
-                        a: a_side,
-                        b: b_side,
-                    });
-                    stack.push(CompareJob::Eval {
-                        a_pos: left_a_pos,
-                        a_off: left_a_off,
-                        b_pos: left_b_pos,
-                        b_off: left_b_off,
-                    });
-                }
-                CompareJob::Right { a, b } => {
-                    let (a_pos, a_off) = a.right(ret.a_end);
-                    let (b_pos, b_off) = b.right(ret.b_end);
-                    stack.push(CompareJob::Eval {
-                        a_pos,
-                        a_off,
-                        b_pos,
-                        b_off,
-                    });
-                }
-            }
-        }
-
-        match (le, ge) {
-            (true, true) => Some(Ordering::Equal),
-            (true, false) => Some(Ordering::Less),
-            (false, true) => Some(Ordering::Greater),
-            (false, false) => unreachable!("both-false returns `None` inside the loop above"),
-        }
-    }
-}
-
-/// The recursive twin of [`EvView::causal_cmp`], kept behind the `internals`
-/// feature so the benchmarks can time it head-to-head and the differential tests
-/// can pin it equivalent. Same single-pass, both-directions algorithm and the
-/// same `O(n + m)` asymptotics; the explicit `CompareJob` stack is replaced by
-/// native recursion, guarded by [`crate::recurse`] so deep trees grow the stack
-/// onto the heap instead of overflowing.
-///
-/// The mutable state (`le`/`ge`) lives here rather than threaded through every
-/// frame; the per-node offsets stay borrowed (`&Base`) and a side's *single*
-/// child offset — its node sum when internal, its own offset re-broadcast when a
-/// leaf — is computed once and shared by reference between its two children, so
-/// the recursion clones no path sums at all (the iterative form clones one per
-/// `Side::left`/`right`).
-#[cfg(feature = "internals")]
-struct CmpWalk<'a> {
-    a: EvView<'a>,
-    b: EvView<'a>,
-    /// `a <= b` still possible.
-    le: bool,
-    /// `b <= a` still possible.
-    ge: bool,
-}
-
-#[cfg(feature = "internals")]
-impl CmpWalk<'_> {
-    /// Compare the aligned subtrees, applying the amortized stack-growth guard
-    /// once every [`crate::recurse::STRIDE`] levels and recursing directly in
-    /// between. Returns the end positions in each input (for threading the right
-    /// sibling), or `None` to signal a decided `concurrent` (both directions
-    /// excluded) that unwinds the whole walk.
-    fn rec(
-        &mut self,
-        a_pos: usize,
-        a_off: &Base,
-        b_pos: usize,
-        b_off: &Base,
-        depth: usize,
-    ) -> Option<(usize, usize)> {
-        if depth.is_multiple_of(crate::recurse::STRIDE) {
-            crate::recurse::guard(|| self.step(a_pos, a_off, b_pos, b_off, depth))
-        } else {
-            self.step(a_pos, a_off, b_pos, b_off, depth)
-        }
-    }
-
-    /// One node of the walk (see [`rec`](Self::rec) for the guard wrapper).
-    fn step(
-        &mut self,
-        a_pos: usize,
-        a_off: &Base,
-        b_pos: usize,
-        b_off: &Base,
-        depth: usize,
-    ) -> Option<(usize, usize)> {
-        let EvHeader {
-            internal: a_internal,
-            base: a_base,
-            next: a_next,
-        } = self.a.header(a_pos);
-        let EvHeader {
-            internal: b_internal,
-            base: b_base,
-            next: b_next,
-        } = self.b.header(b_pos);
-        let a_sum = a_off + &a_base;
-        let b_sum = b_off + &b_base;
-        if a_sum > b_sum {
-            self.le = false;
-        }
-        if b_sum > a_sum {
-            self.ge = false;
-        }
-        if !self.le && !self.ge {
-            return None; // concurrent: neither direction can recover
-        }
-        if !a_internal && !b_internal {
-            // Both leaves: this branch is decided. Report both ends.
-            return Some((a_next, b_next));
-        }
-        // At least one side is internal: descend it, broadcast the other leaf.
-        // Each side hands the same offset to both children — its node sum when
-        // internal, its own offset when a leaf — so it is borrowed, not cloned,
-        // across the two recursive calls. The positions differ: an internal side
-        // descends (left at `next`, right at the threaded end); a leaf side
-        // re-broadcasts in place (both at its own `pos`).
-        let a_child: &Base = if a_internal { &a_sum } else { a_off };
-        let b_child: &Base = if b_internal { &b_sum } else { b_off };
-        let a_left = if a_internal { a_next } else { a_pos };
-        let b_left = if b_internal { b_next } else { b_pos };
-        let (a_mid, b_mid) = self.rec(a_left, a_child, b_left, b_child, depth + 1)?;
-        let a_right = if a_internal { a_mid } else { a_pos };
-        let b_right = if b_internal { b_mid } else { b_pos };
-        self.rec(a_right, a_child, b_right, b_child, depth + 1)
-    }
-}
-
-#[cfg(feature = "internals")]
-impl EvView<'_> {
-    /// Recursive+stacker form of [`causal_cmp`](EvView::causal_cmp); see
-    /// [`CmpWalk`]. Behind the `internals` feature for head-to-head benching and
-    /// differential testing.
-    pub(crate) fn causal_cmp_recursive(&self, other: &EvView) -> Option<Ordering> {
+        // Both storage forms are canonical normal form, so identical contents is
+        // exactly semantic equality: settle `Equal` with one memcmp before
+        // recursing. Covers every entry point — Version vs Version, Batch vs
+        // Batch, and a not-yet-materialized Batch (still packed) against either.
+        // (Mixed packed/working forms decline and fall through; see
+        // `EvView::trivially_eq`.)
         if self.trivially_eq(other) {
             return Some(Ordering::Equal);
         }
@@ -503,5 +248,77 @@ impl EvView<'_> {
                 (false, false) => unreachable!("both-false returns `None` inside `rec`"),
             },
         }
+    }
+}
+
+/// The mutable state of a [`causal_cmp`](EvView::causal_cmp) walk: the two views
+/// and the two still-possible directions. Per-node path-sum offsets stay
+/// borrowed (`&Base`); a side's single child offset — its node sum when
+/// internal, its own offset re-broadcast when a leaf — is computed once and
+/// shared by reference between its two children, so the walk clones no path sums
+/// (where the explicit-stack form cloned one per side per node).
+struct CmpWalk<'a> {
+    a: EvView<'a>,
+    b: EvView<'a>,
+    /// `a <= b` still possible.
+    le: bool,
+    /// `b <= a` still possible.
+    ge: bool,
+}
+
+impl CmpWalk<'_> {
+    /// Compare the aligned subtrees at the given positions and path-sum offsets,
+    /// routing through the amortized stack-growth guard. Returns the end
+    /// positions in each input (to thread the right sibling), or `None` to
+    /// signal a decided `concurrent` that unwinds the whole walk.
+    fn rec(
+        &mut self,
+        a_pos: usize,
+        a_off: &Base,
+        b_pos: usize,
+        b_off: &Base,
+        depth: usize,
+    ) -> Option<(usize, usize)> {
+        crate::recurse::guarded(depth, move || {
+            let EvHeader {
+                internal: a_internal,
+                base: a_base,
+                next: a_next,
+            } = self.a.header(a_pos);
+            let EvHeader {
+                internal: b_internal,
+                base: b_base,
+                next: b_next,
+            } = self.b.header(b_pos);
+            let a_sum = a_off + &a_base;
+            let b_sum = b_off + &b_base;
+            if a_sum > b_sum {
+                self.le = false;
+            }
+            if b_sum > a_sum {
+                self.ge = false;
+            }
+            if !self.le && !self.ge {
+                return None; // concurrent: neither direction can recover
+            }
+            if !a_internal && !b_internal {
+                // Both leaves: this branch is decided. Report both ends.
+                return Some((a_next, b_next));
+            }
+            // At least one side is internal: descend it, broadcast the other
+            // leaf. Each side hands the same offset to both children — its node
+            // sum when internal, its own offset when a leaf — so it is borrowed,
+            // not cloned, across the two recursive calls. The positions differ:
+            // an internal side descends (left at `next`, right at the threaded
+            // end); a leaf side re-broadcasts in place (both at its own `pos`).
+            let a_child: &Base = if a_internal { &a_sum } else { a_off };
+            let b_child: &Base = if b_internal { &b_sum } else { b_off };
+            let a_left = if a_internal { a_next } else { a_pos };
+            let b_left = if b_internal { b_next } else { b_pos };
+            let (a_mid, b_mid) = self.rec(a_left, a_child, b_left, b_child, depth + 1)?;
+            let a_right = if a_internal { a_mid } else { a_pos };
+            let b_right = if b_internal { b_mid } else { b_pos };
+            self.rec(a_right, a_child, b_right, b_child, depth + 1)
+        })
     }
 }
