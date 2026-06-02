@@ -22,6 +22,7 @@
 
 use crate::codec::{Base, BitsSlice};
 use crate::idbits::{IdHeader, IdView};
+use crate::recurse::descend;
 
 use super::{Builder, Built, VIRTUAL};
 use crate::version::compare::{EvHeader, EvView};
@@ -143,7 +144,7 @@ impl EvView<'_> {
             id: IdView(id_bits),
             choice,
         };
-        walk.rec(0, 0, 0);
+        descend!(0, walk.rec(0, 0, 0));
     }
 
     /// Emit the grown tree (`self` is the source event tree) using the probe's
@@ -161,7 +162,7 @@ impl EvView<'_> {
             out,
             choice,
         };
-        walk.rec(0, 0, 0);
+        descend!(0, walk.rec(0, 0, 0));
     }
 
     /// `grow(id, ev)`: register a new event on this event tree (`self`) by the
@@ -191,83 +192,81 @@ impl ProbeWalk<'_> {
     /// [`VIRTUAL`]) under the id subtree at `id_pos`, routed through the
     /// amortized stack-growth guard. Returns the subtree's [`Probed`] report.
     fn rec(&mut self, id_pos: usize, ev_pos: usize, depth: usize) -> Probed {
-        crate::recurse::guarded(depth, move || {
-            let id_hdr = self.id.header(id_pos);
-            let id_next = id_hdr.next;
-            let virt = ev_pos == VIRTUAL;
-            let EvHeader {
-                internal: ev_int,
-                base: _,
-                next: ev_next,
-            } = if virt {
-                EvHeader {
-                    internal: false,
-                    base: Base::ZERO,
-                    next: VIRTUAL,
-                }
+        let id_hdr = self.id.header(id_pos);
+        let id_next = id_hdr.next;
+        let virt = ev_pos == VIRTUAL;
+        let EvHeader {
+            internal: ev_int,
+            base: _,
+            next: ev_next,
+        } = if virt {
+            EvHeader {
+                internal: false,
+                base: Base::ZERO,
+                next: VIRTUAL,
+            }
+        } else {
+            self.view.header(ev_pos)
+        };
+        if id_hdr.is_empty() {
+            // id 0-leaf: infeasible; lazy-skip the dominated event subtree.
+            let ev_end = if virt {
+                VIRTUAL
             } else {
-                self.view.header(ev_pos)
+                self.view.skip(ev_pos)
             };
-            if id_hdr.is_empty() {
-                // id 0-leaf: infeasible; lazy-skip the dominated event subtree.
-                let ev_end = if virt {
-                    VIRTUAL
-                } else {
-                    self.view.skip(ev_pos)
-                };
-                return Probed {
-                    cost: COST_MAX,
-                    id_end: id_next,
-                    ev_end,
-                };
-            }
-            if id_hdr.is_full() {
-                if !ev_int {
-                    // increment here: a free inflation
-                    return Probed {
-                        cost: (0, 0),
-                        id_end: id_next,
-                        ev_end: ev_next,
-                    };
-                }
-                // id stays full; descend both event children (right threaded).
-                let left = self.rec(id_pos, ev_pos + 1, depth + 1);
-                let right = self.rec(id_pos, left.ev_end, depth + 1);
-                let branch = Branch {
-                    kind: Kind::FullEvNode,
-                    id_pos,
-                    ev_pos,
-                    id_next,
-                    ev_next,
-                };
-                return self.combine(branch, left, right);
-            }
+            return Probed {
+                cost: COST_MAX,
+                id_end: id_next,
+                ev_end,
+            };
+        }
+        if id_hdr.is_full() {
             if !ev_int {
-                // id node, event leaf/virtual: expand and descend the id (the
-                // event stays virtual on both sides).
-                let left = self.rec(id_next, VIRTUAL, depth + 1);
-                let right = self.rec(left.id_end, VIRTUAL, depth + 1);
-                let branch = Branch {
-                    kind: Kind::Expand,
-                    id_pos,
-                    ev_pos,
-                    id_next,
-                    ev_next,
+                // increment here: a free inflation
+                return Probed {
+                    cost: (0, 0),
+                    id_end: id_next,
+                    ev_end: ev_next,
                 };
-                return self.combine(branch, left, right);
             }
-            // id node, event node: descend both (right threaded from the left).
-            let left = self.rec(id_next, ev_pos + 1, depth + 1);
-            let right = self.rec(left.id_end, left.ev_end, depth + 1);
+            // id stays full; descend both event children (right threaded).
+            let left = descend!(depth + 1, self.rec(id_pos, ev_pos + 1, depth + 1));
+            let right = descend!(depth + 1, self.rec(id_pos, left.ev_end, depth + 1));
             let branch = Branch {
-                kind: Kind::Both,
+                kind: Kind::FullEvNode,
                 id_pos,
                 ev_pos,
                 id_next,
                 ev_next,
             };
-            self.combine(branch, left, right)
-        })
+            return self.combine(branch, left, right);
+        }
+        if !ev_int {
+            // id node, event leaf/virtual: expand and descend the id (the event
+            // stays virtual on both sides).
+            let left = descend!(depth + 1, self.rec(id_next, VIRTUAL, depth + 1));
+            let right = descend!(depth + 1, self.rec(left.id_end, VIRTUAL, depth + 1));
+            let branch = Branch {
+                kind: Kind::Expand,
+                id_pos,
+                ev_pos,
+                id_next,
+                ev_next,
+            };
+            return self.combine(branch, left, right);
+        }
+        // id node, event node: descend both (right threaded from the left).
+        let left = descend!(depth + 1, self.rec(id_next, ev_pos + 1, depth + 1));
+        let right = descend!(depth + 1, self.rec(left.id_end, left.ev_end, depth + 1));
+        let branch = Branch {
+            kind: Kind::Both,
+            id_pos,
+            ev_pos,
+            id_next,
+            ev_next,
+        };
+        self.combine(branch, left, right)
     }
 
     /// Pick the cheaper child, record the direction, and fold the branch node's
@@ -319,106 +318,104 @@ impl EmitWalk<'_> {
     /// off-path subtree once. Routed through the amortized stack-growth guard;
     /// returns the subtree's [`Built`] report.
     fn rec(&mut self, id_pos: usize, ev_pos: usize, depth: usize) -> Built {
-        crate::recurse::guarded(depth, move || {
-            let IdHeader {
-                node: id_node,
-                val: id_val,
-                next: id_next,
-            } = self.id.header(id_pos);
-            let virt = ev_pos == VIRTUAL;
-            let EvHeader {
-                internal: ev_int,
-                base: ev_base,
-                next: ev_next,
-            } = if virt {
-                EvHeader {
-                    internal: false,
-                    base: Base::ZERO,
-                    next: VIRTUAL,
-                }
-            } else {
-                self.view.header(ev_pos)
-            };
-            // The inflation point: id full over a leaf/virtual event — increment.
-            if !id_node && !ev_int {
-                // Invariant: the chosen path never reaches an empty (`0`-leaf)
-                // id. A normal-form id node always has a nonempty child (its
-                // min-cost child is never the `COST_MAX` empty side), and a real
-                // `Party`'s root is never empty — so an id leaf on the chosen
-                // path is always full.
-                debug_assert!(id_val, "grow chose an empty-id region to inflate");
-                return Built {
-                    out_root: self.out.leaf(ev_base + 1u32),
-                    id_end: id_next,
-                    ev_end: ev_next,
-                };
+        let IdHeader {
+            node: id_node,
+            val: id_val,
+            next: id_next,
+        } = self.id.header(id_pos);
+        let virt = ev_pos == VIRTUAL;
+        let EvHeader {
+            internal: ev_int,
+            base: ev_base,
+            next: ev_next,
+        } = if virt {
+            EvHeader {
+                internal: false,
+                base: Base::ZERO,
+                next: VIRTUAL,
             }
-            let kind = if !id_node {
-                Kind::FullEvNode
-            } else if ev_int {
-                Kind::Both
-            } else {
-                Kind::Expand
+        } else {
+            self.view.header(ev_pos)
+        };
+        // The inflation point: id full over a leaf/virtual event — increment.
+        if !id_node && !ev_int {
+            // Invariant: the chosen path never reaches an empty (`0`-leaf)
+            // id. A normal-form id node always has a nonempty child (its
+            // min-cost child is never the `COST_MAX` empty side), and a real
+            // `Party`'s root is never empty — so an id leaf on the chosen
+            // path is always full.
+            debug_assert!(id_val, "grow chose an empty-id region to inflate");
+            return Built {
+                out_root: self.out.leaf(ev_base + 1u32),
+                id_end: id_next,
+                ev_end: ev_next,
             };
-            let node = self.out.open(ev_base);
-            if self.choice.chosen(kind, id_pos, ev_pos) {
-                // Chosen left child: build it now, emit the off-path right on close.
-                let (child_id, child_ev) = match kind {
-                    Kind::FullEvNode => (id_pos, ev_pos + 1), // id stays full
-                    Kind::Both => (id_next, ev_pos + 1),      // `il`, `el`
-                    Kind::Expand => (id_next, VIRTUAL),       // `il`, virtual
-                };
-                let left = self.rec(child_id, child_ev, depth + 1);
-                let (right_root, id_end, ev_end) = match kind {
-                    Kind::FullEvNode => {
-                        let (rr, ev_node_end) = self.out.copy(&self.view, left.ev_end); // off-path `er`
-                        (rr, id_next, ev_node_end)
-                    }
-                    Kind::Both => {
-                        let (rr, ev_node_end) = self.out.copy(&self.view, left.ev_end); // off-path `er`
-                        (rr, self.id.skip(left.id_end), ev_node_end)
-                    }
-                    Kind::Expand => {
-                        let rr = self.out.leaf(Base::ZERO); // off-path sibling is a fresh Leaf(0)
-                        (rr, self.id.skip(left.id_end), ev_next)
-                    }
-                };
-                self.out.close_node(node, right_root);
-                Built {
-                    out_root: node,
-                    id_end,
-                    ev_end,
+        }
+        let kind = if !id_node {
+            Kind::FullEvNode
+        } else if ev_int {
+            Kind::Both
+        } else {
+            Kind::Expand
+        };
+        let node = self.out.open(ev_base);
+        if self.choice.chosen(kind, id_pos, ev_pos) {
+            // Chosen left child: build it now, emit the off-path right on close.
+            let (child_id, child_ev) = match kind {
+                Kind::FullEvNode => (id_pos, ev_pos + 1), // id stays full
+                Kind::Both => (id_next, ev_pos + 1),      // `il`, `el`
+                Kind::Expand => (id_next, VIRTUAL),       // `il`, virtual
+            };
+            let left = descend!(depth + 1, self.rec(child_id, child_ev, depth + 1));
+            let (right_root, id_end, ev_end) = match kind {
+                Kind::FullEvNode => {
+                    let (rr, ev_node_end) = self.out.copy(&self.view, left.ev_end); // off-path `er`
+                    (rr, id_next, ev_node_end)
                 }
-            } else {
-                // Chosen right child: emit the off-path left sibling now, then
-                // build the chosen right.
-                let (child_id, child_ev) = match kind {
-                    Kind::FullEvNode => {
-                        let (_l, ev_right) = self.out.copy(&self.view, ev_pos + 1);
-                        (id_pos, ev_right)
-                    }
-                    Kind::Both => {
-                        let (_l, ev_right) = self.out.copy(&self.view, ev_pos + 1);
-                        (self.id.skip(id_next), ev_right)
-                    }
-                    Kind::Expand => {
-                        self.out.leaf(Base::ZERO);
-                        (self.id.skip(id_next), VIRTUAL)
-                    }
-                };
-                let right = self.rec(child_id, child_ev, depth + 1);
-                let (id_end, ev_end) = match kind {
-                    Kind::FullEvNode => (id_next, right.ev_end),
-                    Kind::Both => (right.id_end, right.ev_end),
-                    Kind::Expand => (right.id_end, ev_next),
-                };
-                self.out.close_node(node, right.out_root);
-                Built {
-                    out_root: node,
-                    id_end,
-                    ev_end,
+                Kind::Both => {
+                    let (rr, ev_node_end) = self.out.copy(&self.view, left.ev_end); // off-path `er`
+                    (rr, self.id.skip(left.id_end), ev_node_end)
                 }
+                Kind::Expand => {
+                    let rr = self.out.leaf(Base::ZERO); // off-path sibling is a fresh Leaf(0)
+                    (rr, self.id.skip(left.id_end), ev_next)
+                }
+            };
+            self.out.close_node(node, right_root);
+            Built {
+                out_root: node,
+                id_end,
+                ev_end,
             }
-        })
+        } else {
+            // Chosen right child: emit the off-path left sibling now, then
+            // build the chosen right.
+            let (child_id, child_ev) = match kind {
+                Kind::FullEvNode => {
+                    let (_l, ev_right) = self.out.copy(&self.view, ev_pos + 1);
+                    (id_pos, ev_right)
+                }
+                Kind::Both => {
+                    let (_l, ev_right) = self.out.copy(&self.view, ev_pos + 1);
+                    (self.id.skip(id_next), ev_right)
+                }
+                Kind::Expand => {
+                    self.out.leaf(Base::ZERO);
+                    (self.id.skip(id_next), VIRTUAL)
+                }
+            };
+            let right = descend!(depth + 1, self.rec(child_id, child_ev, depth + 1));
+            let (id_end, ev_end) = match kind {
+                Kind::FullEvNode => (id_next, right.ev_end),
+                Kind::Both => (right.id_end, right.ev_end),
+                Kind::Expand => (right.id_end, ev_next),
+            };
+            self.out.close_node(node, right.out_root);
+            Built {
+                out_root: node,
+                id_end,
+                ev_end,
+            }
+        }
     }
 }

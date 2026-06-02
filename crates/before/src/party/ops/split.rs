@@ -1,5 +1,6 @@
 use crate::codec::{Bits, BitsSlice};
 use crate::idbits::IdView;
+use crate::recurse::descend;
 
 use super::build::{id_leaf, id_node};
 
@@ -43,7 +44,7 @@ impl IdView<'_> {
             branch: None,
             one_leaf: None,
         };
-        scan.scan(0, 0);
+        descend!(0, scan.scan(0, 0));
         build_split(bits, scan.branch, scan.one_leaf)
     }
 }
@@ -64,25 +65,23 @@ impl SplitScan<'_> {
     /// stack-growth guard. Returns `(empty, end)`: whether the subtree owns
     /// nothing, and the position just past it.
     fn scan(&mut self, pos: usize, depth: usize) -> (bool, usize) {
-        crate::recurse::guarded(depth, move || {
-            let hdr = self.id.header(pos);
-            if !hdr.node {
-                if hdr.val {
-                    self.one_leaf.get_or_insert(pos);
-                }
-                return (!hdr.val, hdr.next); // a `0` leaf is empty; a `1` leaf is not
+        let hdr = self.id.header(pos);
+        if !hdr.node {
+            if hdr.val {
+                self.one_leaf.get_or_insert(pos);
             }
-            let left_start = hdr.next;
-            let (left_empty, right_start) = self.scan(left_start, depth + 1);
-            let (right_empty, end) = self.scan(right_start, depth + 1);
-            // The shallowest both-nonempty node wins (smallest start); a parent's
-            // position is always less than its descendants', and postorder visits
-            // children first, so the parent overwrites any descendant branch.
-            if !left_empty && !right_empty && self.branch.is_none_or(|(p, ..)| pos < p) {
-                self.branch = Some((pos, left_start, right_start));
-            }
-            (false, end) // a normal-form node is never empty
-        })
+            return (!hdr.val, hdr.next); // a `0` leaf is empty; a `1` leaf is not
+        }
+        let left_start = hdr.next;
+        let (left_empty, right_start) = descend!(depth + 1, self.scan(left_start, depth + 1));
+        let (right_empty, end) = descend!(depth + 1, self.scan(right_start, depth + 1));
+        // The shallowest both-nonempty node wins (smallest start); a parent's
+        // position is always less than its descendants', and postorder visits
+        // children first, so the parent overwrites any descendant branch.
+        if !left_empty && !right_empty && self.branch.is_none_or(|(p, ..)| pos < p) {
+            self.branch = Some((pos, left_start, right_start));
+        }
+        (false, end) // a normal-form node is never empty
     }
 }
 

@@ -45,7 +45,7 @@ impl IdView<'_> {
             le: true, // `a ⊇ b` (a is an ancestor of b) still possible
             ge: true, // `b ⊇ a` still possible
         };
-        match walk.rec(0, 0, 0) {
+        match descend!(0, walk.rec(0, 0, 0)) {
             None => None, // incomparable: neither containment can recover
             Some(_) => match (walk.le, walk.ge) {
                 (true, true) => Some(Ordering::Equal),
@@ -107,29 +107,26 @@ impl CmpWalk<'_> {
     /// the right sibling), or `None` to signal a decided incomparable that
     /// unwinds the whole walk.
     fn rec(&mut self, a_pos: usize, b_pos: usize, depth: usize) -> Option<(usize, usize)> {
-        crate::recurse::guarded(depth, move || {
-            let a_hdr = self.a.header(a_pos);
-            let b_hdr = self.b.header(b_pos);
-            let (a_node, a_next) = (a_hdr.node, a_hdr.next);
-            let (b_node, b_next) = (b_hdr.node, b_hdr.next);
-            if a_node && b_node {
-                // Both internal: descend in lockstep (left now, right threaded
-                // from where the left ended). The node ends where its right
-                // subtree ends.
-                let (a_mid, b_mid) = self.rec(a_next, b_next, depth + 1)?;
-                return self.rec(a_mid, b_mid, depth + 1);
-            }
-            // At least one leaf: this region is decided. `a ⊇ b` holds iff `b`
-            // owns nothing here or `a` owns everything; `b ⊇ a` is the mirror.
-            self.le &= b_hdr.is_empty() || a_hdr.is_full();
-            self.ge &= a_hdr.is_empty() || b_hdr.is_full();
-            if !self.le && !self.ge {
-                return None; // incomparable: neither containment can recover
-            }
-            // Resync: advance the leaf side past its header, skip the node side once.
-            let a_end = if a_node { self.a.skip(a_pos) } else { a_next };
-            let b_end = if b_node { self.b.skip(b_pos) } else { b_next };
-            Some((a_end, b_end))
-        })
+        let a_hdr = self.a.header(a_pos);
+        let b_hdr = self.b.header(b_pos);
+        let (a_node, a_next) = (a_hdr.node, a_hdr.next);
+        let (b_node, b_next) = (b_hdr.node, b_hdr.next);
+        if a_node && b_node {
+            // Both internal: descend in lockstep (left now, right threaded from
+            // where the left ended). The node ends where its right subtree ends.
+            let (a_mid, b_mid) = descend!(depth + 1, self.rec(a_next, b_next, depth + 1))?;
+            return descend!(depth + 1, self.rec(a_mid, b_mid, depth + 1));
+        }
+        // At least one leaf: this region is decided. `a ⊇ b` holds iff `b` owns
+        // nothing here or `a` owns everything; `b ⊇ a` is the mirror.
+        self.le &= b_hdr.is_empty() || a_hdr.is_full();
+        self.ge &= a_hdr.is_empty() || b_hdr.is_full();
+        if !self.le && !self.ge {
+            return None; // incomparable: neither containment can recover
+        }
+        // Resync: advance the leaf side past its header, skip the node side once.
+        let a_end = if a_node { self.a.skip(a_pos) } else { a_next };
+        let b_end = if b_node { self.b.skip(b_pos) } else { b_next };
+        Some((a_end, b_end))
     }
 }

@@ -1,4 +1,5 @@
 use crate::codec::Base;
+use crate::recurse::descend;
 
 use crate::version::compare::{EvHeader, EvView};
 
@@ -14,7 +15,7 @@ impl EvView<'_> {
     /// right sibling resume without re-scanning.
     pub(super) fn max(&self, root: usize) -> (Base, usize) {
         let zero = Base::ZERO;
-        max_rec(*self, root, &zero, 0)
+        descend!(0, max_rec(*self, root, &zero, 0))
     }
 }
 
@@ -22,22 +23,20 @@ impl EvView<'_> {
 /// root-to-parent path sum is `off`, plus the position just past the subtree.
 /// Routed through the amortized stack-growth guard.
 fn max_rec(view: EvView, pos: usize, off: &Base, depth: usize) -> (Base, usize) {
-    crate::recurse::guarded(depth, move || {
-        let EvHeader {
-            internal,
-            base,
-            next,
-        } = view.header(pos);
-        let cumulative = off + &base;
-        if !internal {
-            // Leaf: its cumulative path sum is the subtree maximum.
-            return (cumulative, next);
-        }
-        // Internal: descend both children under this node's path sum (the right
-        // threaded from where the left ended). A child's cumulative dominates the
-        // node's own, so the subtree max is the larger child max.
-        let (l_max, l_end) = max_rec(view, next, &cumulative, depth + 1);
-        let (r_max, r_end) = max_rec(view, l_end, &cumulative, depth + 1);
-        (l_max.max(r_max).max(cumulative), r_end)
-    })
+    let EvHeader {
+        internal,
+        base,
+        next,
+    } = view.header(pos);
+    let cumulative = off + &base;
+    if !internal {
+        // Leaf: its cumulative path sum is the subtree maximum.
+        return (cumulative, next);
+    }
+    // Internal: descend both children under this node's path sum (the right
+    // threaded from where the left ended). A child's cumulative dominates the
+    // node's own, so the subtree max is the larger child max.
+    let (l_max, l_end) = descend!(depth + 1, max_rec(view, next, &cumulative, depth + 1));
+    let (r_max, r_end) = descend!(depth + 1, max_rec(view, l_end, &cumulative, depth + 1));
+    (l_max.max(r_max).max(cumulative), r_end)
 }

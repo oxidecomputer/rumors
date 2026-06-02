@@ -1,3 +1,4 @@
+use crate::recurse::descend;
 use crate::ParseError;
 
 use super::{encode_int, validate_ev, validate_id, Base, Bits};
@@ -70,7 +71,7 @@ fn parse_base(cur: &mut Cur) -> Result<Base, ParseError> {
 pub(crate) fn parse_id_str(s: &str) -> Result<Bits, ParseError> {
     let mut cur = Cur::new(s);
     let mut bits = Bits::new();
-    parse_id_node(&mut cur, &mut bits, 0)?;
+    descend!(0, parse_id_node(&mut cur, &mut bits, 0))?;
     if cur.peek().is_some() {
         return Err(ParseError::Syntax); // trailing junk
     }
@@ -81,14 +82,14 @@ pub(crate) fn parse_id_str(s: &str) -> Result<Bits, ParseError> {
 /// Parse one id subtree, appending its canonical bits. Routed through the
 /// amortized stack-growth guard.
 fn parse_id_node(cur: &mut Cur, bits: &mut Bits, depth: usize) -> Result<(), ParseError> {
-    crate::recurse::guarded(depth, move || match cur.bump() {
+    match cur.bump() {
         Some(b'(') => {
             bits.push(true);
-            parse_id_node(cur, bits, depth + 1)?; // left
+            descend!(depth + 1, parse_id_node(cur, bits, depth + 1))?; // left
             if cur.bump() != Some(b',') {
                 return Err(ParseError::Syntax);
             }
-            parse_id_node(cur, bits, depth + 1)?; // right
+            descend!(depth + 1, parse_id_node(cur, bits, depth + 1))?; // right
             if cur.bump() != Some(b')') {
                 return Err(ParseError::Syntax);
             }
@@ -105,7 +106,7 @@ fn parse_id_node(cur: &mut Cur, bits: &mut Bits, depth: usize) -> Result<(), Par
             Ok(())
         }
         _ => Err(ParseError::Syntax),
-    })
+    }
 }
 
 /// Parse one event tree in the paper's grammar (`n | (n, e1, e2)`) into
@@ -114,7 +115,7 @@ fn parse_id_node(cur: &mut Cur, bits: &mut Bits, depth: usize) -> Result<(), Par
 pub(crate) fn parse_ev_str(s: &str) -> Result<Bits, ParseError> {
     let mut cur = Cur::new(s);
     let mut bits = Bits::new();
-    parse_ev_node(&mut cur, &mut bits, 0)?;
+    descend!(0, parse_ev_node(&mut cur, &mut bits, 0))?;
     if cur.peek().is_some() {
         return Err(ParseError::Syntax); // trailing junk
     }
@@ -125,7 +126,7 @@ pub(crate) fn parse_ev_str(s: &str) -> Result<Bits, ParseError> {
 /// Parse one event subtree, appending its canonical bits. Routed through the
 /// amortized stack-growth guard.
 fn parse_ev_node(cur: &mut Cur, bits: &mut Bits, depth: usize) -> Result<(), ParseError> {
-    crate::recurse::guarded(depth, move || match cur.peek() {
+    match cur.peek() {
         Some(b'(') => {
             cur.bump();
             bits.push(true);
@@ -134,11 +135,11 @@ fn parse_ev_node(cur: &mut Cur, bits: &mut Bits, depth: usize) -> Result<(), Par
             if cur.bump() != Some(b',') {
                 return Err(ParseError::Syntax);
             }
-            parse_ev_node(cur, bits, depth + 1)?; // left
+            descend!(depth + 1, parse_ev_node(cur, bits, depth + 1))?; // left
             if cur.bump() != Some(b',') {
                 return Err(ParseError::Syntax);
             }
-            parse_ev_node(cur, bits, depth + 1)?; // right
+            descend!(depth + 1, parse_ev_node(cur, bits, depth + 1))?; // right
             if cur.bump() != Some(b')') {
                 return Err(ParseError::Syntax);
             }
@@ -151,7 +152,7 @@ fn parse_ev_node(cur: &mut Cur, bits: &mut Bits, depth: usize) -> Result<(), Par
             Ok(())
         }
         _ => Err(ParseError::Syntax),
-    })
+    }
 }
 
 /// Parse a stamp `(i, e)` into its id and event bit streams. Splits at the

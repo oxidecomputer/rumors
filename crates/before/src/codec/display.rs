@@ -1,3 +1,5 @@
+use crate::recurse::descend;
+
 use super::{decode_int, BitsSlice};
 
 /// Write an id tree in the paper's grammar with `sep` between a node's two
@@ -8,7 +10,7 @@ pub(crate) fn write_id(
     f: &mut core::fmt::Formatter<'_>,
     sep: &str,
 ) -> core::fmt::Result {
-    write_id_node(bits, 0, f, sep, 0).map(|_end| ())
+    descend!(0, write_id_node(bits, 0, f, sep, 0)).map(|_end| ())
 }
 
 /// Write the id subtree at `pos`, returning the position just past it. Routed
@@ -20,18 +22,16 @@ fn write_id_node(
     sep: &str,
     depth: usize,
 ) -> Result<usize, core::fmt::Error> {
-    crate::recurse::guarded(depth, move || {
-        if !bits[pos] {
-            f.write_str(if bits[pos + 1] { "1" } else { "0" })?;
-            return Ok(pos + 2);
-        }
-        f.write_str("(")?;
-        let mid = write_id_node(bits, pos + 1, f, sep, depth + 1)?;
-        f.write_str(sep)?;
-        let end = write_id_node(bits, mid, f, sep, depth + 1)?;
-        f.write_str(")")?;
-        Ok(end)
-    })
+    if !bits[pos] {
+        f.write_str(if bits[pos + 1] { "1" } else { "0" })?;
+        return Ok(pos + 2);
+    }
+    f.write_str("(")?;
+    let mid = descend!(depth + 1, write_id_node(bits, pos + 1, f, sep, depth + 1))?;
+    f.write_str(sep)?;
+    let end = descend!(depth + 1, write_id_node(bits, mid, f, sep, depth + 1))?;
+    f.write_str(")")?;
+    Ok(end)
 }
 
 /// Write an event tree in the paper's grammar with `sep` between a node's
@@ -42,7 +42,7 @@ pub(crate) fn write_ev(
     f: &mut core::fmt::Formatter<'_>,
     sep: &str,
 ) -> core::fmt::Result {
-    write_ev_node(bits, 0, f, sep, 0).map(|_end| ())
+    descend!(0, write_ev_node(bits, 0, f, sep, 0)).map(|_end| ())
 }
 
 /// Write the event subtree at `pos`, returning the position just past it. Routed
@@ -54,18 +54,16 @@ fn write_ev_node(
     sep: &str,
     depth: usize,
 ) -> Result<usize, core::fmt::Error> {
-    crate::recurse::guarded(depth, move || {
-        let internal = bits[pos];
-        let (base, next) = decode_int(bits, pos + 1).expect("a stored event tree is canonical");
-        if !internal {
-            write!(f, "{base}")?;
-            return Ok(next);
-        }
-        write!(f, "({base}{sep}")?;
-        let mid = write_ev_node(bits, next, f, sep, depth + 1)?;
-        f.write_str(sep)?;
-        let end = write_ev_node(bits, mid, f, sep, depth + 1)?;
-        f.write_str(")")?;
-        Ok(end)
-    })
+    let internal = bits[pos];
+    let (base, next) = decode_int(bits, pos + 1).expect("a stored event tree is canonical");
+    if !internal {
+        write!(f, "{base}")?;
+        return Ok(next);
+    }
+    write!(f, "({base}{sep}")?;
+    let mid = descend!(depth + 1, write_ev_node(bits, next, f, sep, depth + 1))?;
+    f.write_str(sep)?;
+    let end = descend!(depth + 1, write_ev_node(bits, mid, f, sep, depth + 1))?;
+    f.write_str(")")?;
+    Ok(end)
 }

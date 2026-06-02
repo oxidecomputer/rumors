@@ -1,5 +1,6 @@
 use crate::codec::Bits;
 use crate::idbits::IdView;
+use crate::recurse::descend;
 
 use super::build::IdBuilder;
 
@@ -34,7 +35,7 @@ impl IdView<'_> {
             b: *other,
             out: IdBuilder::with_capacity(self.bits().len() + other.bits().len()),
         };
-        walk.rec(0, 0, 0)?; // `None` on overlap, discarding the partial output
+        descend!(0, walk.rec(0, 0, 0))?; // `None` on overlap, discarding the partial output
         Some(walk.out.finish())
     }
 }
@@ -53,44 +54,42 @@ impl SumWalk<'_> {
     /// [`Summed`] report, or `None` the instant an overlap is found (unwinding
     /// the whole walk).
     fn rec(&mut self, a_pos: usize, b_pos: usize, depth: usize) -> Option<Summed> {
-        crate::recurse::guarded(depth, move || {
-            let a_hdr = self.a.header(a_pos);
-            let b_hdr = self.b.header(b_pos);
-            let (a_node, a_next) = (a_hdr.node, a_hdr.next);
-            let (b_node, b_next) = (b_hdr.node, b_hdr.next);
-            if a_hdr.is_empty() {
-                let (out_root, b_end) = self.out.copy(self.b, b_pos); // sum(0, b) = b
-                return Some(Summed {
-                    out_root,
-                    a_end: a_next,
-                    b_end,
-                });
-            }
-            if b_hdr.is_empty() {
-                let (out_root, a_end) = self.out.copy(self.a, a_pos); // sum(a, 0) = a
-                return Some(Summed {
-                    out_root,
-                    a_end,
-                    b_end: b_next,
-                });
-            }
-            if a_node && b_node {
-                // Both internal: descend (left now, right threaded from where the
-                // left ended), then close the node. Its ends are the right
-                // child's (it was threaded last).
-                let node = self.out.open();
-                let left = self.rec(a_next, b_next, depth + 1)?;
-                let right = self.rec(left.a_end, left.b_end, depth + 1)?;
-                self.out.close_node(node, right.out_root);
-                return Some(Summed {
-                    out_root: node,
-                    a_end: right.a_end,
-                    b_end: right.b_end,
-                });
-            }
-            // A `1` (full) leaf meets a nonempty subtree on the other side: the
-            // two ids share a region, so there is no disjoint union.
-            None
-        })
+        let a_hdr = self.a.header(a_pos);
+        let b_hdr = self.b.header(b_pos);
+        let (a_node, a_next) = (a_hdr.node, a_hdr.next);
+        let (b_node, b_next) = (b_hdr.node, b_hdr.next);
+        if a_hdr.is_empty() {
+            let (out_root, b_end) = self.out.copy(self.b, b_pos); // sum(0, b) = b
+            return Some(Summed {
+                out_root,
+                a_end: a_next,
+                b_end,
+            });
+        }
+        if b_hdr.is_empty() {
+            let (out_root, a_end) = self.out.copy(self.a, a_pos); // sum(a, 0) = a
+            return Some(Summed {
+                out_root,
+                a_end,
+                b_end: b_next,
+            });
+        }
+        if a_node && b_node {
+            // Both internal: descend (left now, right threaded from where the
+            // left ended), then close the node. Its ends are the right child's
+            // (it was threaded last).
+            let node = self.out.open();
+            let left = descend!(depth + 1, self.rec(a_next, b_next, depth + 1))?;
+            let right = descend!(depth + 1, self.rec(left.a_end, left.b_end, depth + 1))?;
+            self.out.close_node(node, right.out_root);
+            return Some(Summed {
+                out_root: node,
+                a_end: right.a_end,
+                b_end: right.b_end,
+            });
+        }
+        // A `1` (full) leaf meets a nonempty subtree on the other side: the two
+        // ids share a region, so there is no disjoint union.
+        None
     }
 }

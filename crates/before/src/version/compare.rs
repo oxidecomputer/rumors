@@ -26,6 +26,7 @@
 use core::cmp::Ordering;
 
 use crate::codec::{decode_int, skip_int, Base, BitsSlice};
+use crate::recurse::descend;
 use crate::{idbits, step};
 
 use super::working::WorkingVersion;
@@ -178,7 +179,7 @@ impl EvView<'_> {
             ge: true,
         };
         let zero = Base::ZERO;
-        match walk.rec(0, &zero, 0, &zero, 0) {
+        match descend!(0, walk.rec(0, &zero, 0, &zero, 0)) {
             None => None, // concurrent
             Some(_) => match (walk.le, walk.ge) {
                 (true, true) => Some(Ordering::Equal),
@@ -218,46 +219,50 @@ impl CmpWalk<'_> {
         b_off: &Base,
         depth: usize,
     ) -> Option<(usize, usize)> {
-        crate::recurse::guarded(depth, move || {
-            let EvHeader {
-                internal: a_internal,
-                base: a_base,
-                next: a_next,
-            } = self.a.header(a_pos);
-            let EvHeader {
-                internal: b_internal,
-                base: b_base,
-                next: b_next,
-            } = self.b.header(b_pos);
-            let a_sum = a_off + &a_base;
-            let b_sum = b_off + &b_base;
-            if a_sum > b_sum {
-                self.le = false;
-            }
-            if b_sum > a_sum {
-                self.ge = false;
-            }
-            if !self.le && !self.ge {
-                return None; // concurrent: neither direction can recover
-            }
-            if !a_internal && !b_internal {
-                // Both leaves: this branch is decided. Report both ends.
-                return Some((a_next, b_next));
-            }
-            // At least one side is internal: descend it, broadcast the other
-            // leaf. Each side hands the same offset to both children — its node
-            // sum when internal, its own offset when a leaf — so it is borrowed,
-            // not cloned, across the two recursive calls. The positions differ:
-            // an internal side descends (left at `next`, right at the threaded
-            // end); a leaf side re-broadcasts in place (both at its own `pos`).
-            let a_child: &Base = if a_internal { &a_sum } else { a_off };
-            let b_child: &Base = if b_internal { &b_sum } else { b_off };
-            let a_left = if a_internal { a_next } else { a_pos };
-            let b_left = if b_internal { b_next } else { b_pos };
-            let (a_mid, b_mid) = self.rec(a_left, a_child, b_left, b_child, depth + 1)?;
-            let a_right = if a_internal { a_mid } else { a_pos };
-            let b_right = if b_internal { b_mid } else { b_pos };
+        let EvHeader {
+            internal: a_internal,
+            base: a_base,
+            next: a_next,
+        } = self.a.header(a_pos);
+        let EvHeader {
+            internal: b_internal,
+            base: b_base,
+            next: b_next,
+        } = self.b.header(b_pos);
+        let a_sum = a_off + &a_base;
+        let b_sum = b_off + &b_base;
+        if a_sum > b_sum {
+            self.le = false;
+        }
+        if b_sum > a_sum {
+            self.ge = false;
+        }
+        if !self.le && !self.ge {
+            return None; // concurrent: neither direction can recover
+        }
+        if !a_internal && !b_internal {
+            // Both leaves: this branch is decided. Report both ends.
+            return Some((a_next, b_next));
+        }
+        // At least one side is internal: descend it, broadcast the other leaf.
+        // Each side hands the same offset to both children — its node sum when
+        // internal, its own offset when a leaf — so it is borrowed, not cloned,
+        // across the two recursive calls. The positions differ: an internal side
+        // descends (left at `next`, right at the threaded end); a leaf side
+        // re-broadcasts in place (both at its own `pos`).
+        let a_child: &Base = if a_internal { &a_sum } else { a_off };
+        let b_child: &Base = if b_internal { &b_sum } else { b_off };
+        let a_left = if a_internal { a_next } else { a_pos };
+        let b_left = if b_internal { b_next } else { b_pos };
+        let (a_mid, b_mid) = descend!(
+            depth + 1,
+            self.rec(a_left, a_child, b_left, b_child, depth + 1)
+        )?;
+        let a_right = if a_internal { a_mid } else { a_pos };
+        let b_right = if b_internal { b_mid } else { b_pos };
+        descend!(
+            depth + 1,
             self.rec(a_right, a_child, b_right, b_child, depth + 1)
-        })
+        )
     }
 }
