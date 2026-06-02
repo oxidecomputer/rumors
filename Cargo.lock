@@ -125,6 +125,39 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
+name = "before"
+version = "0.1.0"
+dependencies = [
+ "before",
+ "bitvec",
+ "ciborium",
+ "criterion",
+ "insta",
+ "num-bigint",
+ "postcard",
+ "proptest",
+ "rand 0.8.6",
+ "rayon",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "trybuild",
+]
+
+[[package]]
+name = "before-viz"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "before",
+ "console_error_panic_hook",
+ "proptest",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "bit-set"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -830,39 +863,6 @@ name = "is_terminal_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
-
-[[package]]
-name = "itc"
-version = "0.1.0"
-dependencies = [
- "bitvec",
- "ciborium",
- "criterion",
- "insta",
- "itc",
- "num-bigint",
- "postcard",
- "proptest",
- "rand 0.8.6",
- "rayon",
- "serde",
- "serde_json",
- "thiserror",
- "trybuild",
-]
-
-[[package]]
-name = "itc-viz"
-version = "0.1.0"
-dependencies = [
- "base64",
- "console_error_panic_hook",
- "itc",
- "proptest",
- "serde",
- "serde_json",
- "wasm-bindgen",
-]
 
 [[package]]
 name = "itertools"

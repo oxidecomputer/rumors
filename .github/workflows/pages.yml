@@ -1,4 +1,4 @@
-# Build the itc-viz WASM visualizer and deploy it to GitHub Pages.
+# Build the before-viz WASM visualizer and deploy it to GitHub Pages.
 #
 # The site is served from a project subpath (https://oxidecomputer.github.io/rumors/);
 # every asset reference in index.html / the esbuild bundle is relative, so no base-href
@@ -6,14 +6,14 @@
 # not the TypeScript sources, not the wasm-pack glue that esbuild already inlined.
 #
 # One-time setup: repo Settings > Pages > Build and deployment > Source = "GitHub Actions".
-name: Deploy itc-viz to Pages
+name: Deploy before-viz to Pages
 
 on:
   push:
     branches: [main]
     paths:
-      - "crates/itc-viz/**"
-      - "crates/itc/**" # the engine the visualizer compiles in
+      - "crates/before-viz/**"
+      - "crates/before/**" # the engine the visualizer compiles in
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -43,23 +43,23 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: crates/itc-viz/www/package-lock.json
+          cache-dependency-path: crates/before-viz/www/package-lock.json
 
       - name: Build visualizer
-        run: ./crates/itc-viz/build.sh
+        run: ./crates/before-viz/build.sh
 
       # Assemble the minimal runtime set: index.html + style.css + fonts + the esbuild
-      # bundle + the wasm. The bundle inlines pkg/itc_viz.js and resolves the wasm via
-      # ../pkg/itc_viz_bg.wasm, so that one .wasm is the only thing pkg/ contributes.
+      # bundle + the wasm. The bundle inlines pkg/before_viz.js and resolves the wasm via
+      # ../pkg/before_viz_bg.wasm, so that one .wasm is the only thing pkg/ contributes.
       - name: Assemble site
-        working-directory: crates/itc-viz/www
+        working-directory: crates/before-viz/www
         run: |
           dest="$GITHUB_WORKSPACE/_site"
           mkdir -p "$dest/dist" "$dest/pkg"
           cp index.html style.css "$dest/"
           cp -R fonts "$dest/"
           cp dist/app.js "$dest/dist/"
-          cp pkg/itc_viz_bg.wasm "$dest/pkg/"
+          cp pkg/before_viz_bg.wasm "$dest/pkg/"
 
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -1,0 +1,7 @@
+error[E0369]: no implementation for `&before::Clock | &before::Clock`
+  --> tests/ui/clock_borrow_bitor.rs:10:22
+   |
+10 |     let _merged = &a | &b;
+   |                   -- ^ -- &before::Clock
+   |                   |
+   |                   &before::Clock

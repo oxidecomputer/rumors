@@ -1,5 +1,0 @@
-error[E0599]: no method named `clone` found for struct `itc::Party` in the current scope
- --> tests/ui/clone_party.rs:8:18
-  |
-8 |     let _dup = p.clone();
-  |                  ^^^^^ method not found in `itc::Party`
