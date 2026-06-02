@@ -8,11 +8,6 @@ license = "MPL-2.0"
 [dependencies]
 bitvec = "1"
 num-bigint = "0.4.6"
-# Inline-capacity stacks for the hot two-tree traversals (compare/join): small,
-# near-balanced trees keep their job stack on the program stack and pay no heap
-# allocation; deep trees spill to the heap transparently, preserving the
-# overflow-safety the explicit stacks exist for.
-smallvec = "1"
 # Stack-growth guard for the recursive traversals: recurse natively on shallow
 # trees; grow the stack onto the heap before a deep one can overflow. The crate
 # stays `#![forbid(unsafe_code)]`; the platform stack manipulation lives here.
