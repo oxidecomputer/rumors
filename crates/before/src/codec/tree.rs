@@ -2,132 +2,99 @@ use crate::{DecodeError, ParseError};
 
 use super::{decode_int, Base, BitsSlice};
 
-/// While building a node bottom-up, what we still need from the stream.
-enum IdFrame {
-    /// Parsed the node flag; the next subtree is the left child.
-    NeedLeft,
-    /// Parsed the left child (a leaf with this value, or `None` if internal); the
-    /// next subtree is the right child.
-    NeedRight { left_leaf: Option<bool> },
-}
-
 /// Parse one `enc_id` tree at `pos`, validating id normal form (no node whose
 /// two children are leaves of equal value). Returns the position just past the
-/// tree. Iterative: depth lives on an explicit stack, never the call stack.
-pub(crate) fn parse_id(bits: &BitsSlice, mut pos: usize) -> Result<usize, DecodeError> {
-    let mut stack: Vec<IdFrame> = Vec::new();
-    loop {
+/// tree. Recursive, guarded by [`crate::recurse`] so deep input grows the stack
+/// onto the heap rather than overflowing.
+pub(crate) fn parse_id(bits: &BitsSlice, pos: usize) -> Result<usize, DecodeError> {
+    parse_id_node(bits, pos, 0).map(|(_summary, end)| end)
+}
+
+/// Parse one id subtree at `pos`. Returns `(summary, end)`: the leaf's value
+/// (`Some`) or `None` for an internal node, and the position just past the
+/// subtree. Routed through the amortized stack-growth guard.
+fn parse_id_node(
+    bits: &BitsSlice,
+    pos: usize,
+    depth: usize,
+) -> Result<(Option<bool>, usize), DecodeError> {
+    crate::recurse::guarded(depth, move || {
         if pos >= bits.len() {
             return Err(DecodeError::Truncated);
         }
-        let flag = bits[pos];
-        pos += 1;
-
         // `enc_id(Leaf v) = 0, v`; `enc_id(Node l r) = 1, l, r`.
-        let mut summary: Option<bool> = if flag {
-            stack.push(IdFrame::NeedLeft);
-            continue; // descend into the left child
-        } else {
-            if pos >= bits.len() {
+        if !bits[pos] {
+            if pos + 1 >= bits.len() {
                 return Err(DecodeError::Truncated);
             }
-            let v = bits[pos];
-            pos += 1;
-            Some(v)
-        };
-
-        // Attach the completed subtree to its parent, possibly completing it too.
-        loop {
-            match stack.pop() {
-                None => return Ok(pos), // the root is complete
-                Some(IdFrame::NeedLeft) => {
-                    stack.push(IdFrame::NeedRight { left_leaf: summary });
-                    break; // go parse the right child
-                }
-                Some(IdFrame::NeedRight { left_leaf }) => {
-                    if let (Some(a), Some(b)) = (left_leaf, summary) {
-                        if a == b {
-                            return Err(DecodeError::NotCanonical); // collapsible (v,v)
-                        }
-                    }
-                    summary = None; // this node is internal to its own parent
-                }
+            return Ok((Some(bits[pos + 1]), pos + 2));
+        }
+        let (left, mid) = parse_id_node(bits, pos + 1, depth + 1)?;
+        let (right, end) = parse_id_node(bits, mid, depth + 1)?;
+        if let (Some(a), Some(b)) = (left, right) {
+            if a == b {
+                return Err(DecodeError::NotCanonical); // collapsible (v,v)
             }
         }
-    }
+        Ok((None, end)) // this node is internal to its own parent
+    })
 }
 
 /// What a parsed event subtree contributes to its parent's normal-form check:
 /// its stored (relative) base, and whether it is a leaf.
-#[derive(Clone)]
 struct EvChild {
     base: Base,
     is_leaf: bool,
 }
 
-/// While building an event node bottom-up, what we still need from the stream.
-enum EvFrame {
-    /// Parsed the node's flag and base; the next subtree is the left child.
-    NeedLeft { base: Base },
-    /// Parsed the left child; the next subtree is the right child. `base` is the node's
-    /// own (relative) base; `left` is what the left child contributes to the checks.
-    NeedRight { base: Base, left: EvChild },
-}
-
 /// Parse one `enc_ev` tree at `pos`, validating event normal form: every node
 /// has at least one child with base `0`, and no node's two children are
-/// equal-valued leaves. Returns the position just past the tree. Iterative.
-pub(crate) fn parse_ev(bits: &BitsSlice, mut pos: usize) -> Result<usize, DecodeError> {
-    let mut stack: Vec<EvFrame> = Vec::new();
-    loop {
+/// equal-valued leaves. Returns the position just past the tree. Recursive,
+/// guarded by [`crate::recurse`] against deep input.
+pub(crate) fn parse_ev(bits: &BitsSlice, pos: usize) -> Result<usize, DecodeError> {
+    parse_ev_node(bits, pos, 0).map(|(_summary, end)| end)
+}
+
+/// Parse one event subtree at `pos`. Returns `(summary, end)`: what the subtree
+/// contributes to its parent's checks, and the position just past it. Routed
+/// through the amortized stack-growth guard.
+fn parse_ev_node(
+    bits: &BitsSlice,
+    pos: usize,
+    depth: usize,
+) -> Result<(EvChild, usize), DecodeError> {
+    crate::recurse::guarded(depth, move || {
         if pos >= bits.len() {
             return Err(DecodeError::Truncated);
         }
         let flag = bits[pos];
-        pos += 1;
-        let (base, next) = decode_int(bits, pos)?;
-        pos = next;
-
+        let (base, next) = decode_int(bits, pos + 1)?;
         // `enc_ev(Leaf n) = 0, gamma(n)`; `enc_ev(Node n l r) = 1, gamma(n), l, r`.
-        let mut summary = if flag {
-            stack.push(EvFrame::NeedLeft { base });
-            continue; // descend into the left child
-        } else {
+        if !flag {
+            return Ok((
+                EvChild {
+                    base,
+                    is_leaf: true,
+                },
+                next,
+            ));
+        }
+        let (left, mid) = parse_ev_node(bits, next, depth + 1)?;
+        let (right, end) = parse_ev_node(bits, mid, depth + 1)?;
+        if left.base != Base::ZERO && right.base != Base::ZERO {
+            return Err(DecodeError::NotCanonical); // no child at base 0
+        }
+        if left.is_leaf && right.is_leaf && left.base == right.base {
+            return Err(DecodeError::NotCanonical); // collapsible (n,m,m)
+        }
+        Ok((
             EvChild {
                 base,
-                is_leaf: true,
-            }
-        };
-
-        loop {
-            match stack.pop() {
-                None => return Ok(pos),
-                Some(EvFrame::NeedLeft { base: node_base }) => {
-                    stack.push(EvFrame::NeedRight {
-                        base: node_base,
-                        left: summary,
-                    });
-                    break;
-                }
-                Some(EvFrame::NeedRight {
-                    base: node_base,
-                    left,
-                }) => {
-                    let right = summary;
-                    if left.base != Base::ZERO && right.base != Base::ZERO {
-                        return Err(DecodeError::NotCanonical); // no child at base 0
-                    }
-                    if left.is_leaf && right.is_leaf && left.base == right.base {
-                        return Err(DecodeError::NotCanonical); // collapsible (n,m,m)
-                    }
-                    summary = EvChild {
-                        base: node_base,
-                        is_leaf: false,
-                    };
-                }
-            }
-        }
-    }
+                is_leaf: false,
+            },
+            end,
+        ))
+    })
 }
 
 /// Confirm a freshly built id bit stream is exactly one canonical-normal-form
