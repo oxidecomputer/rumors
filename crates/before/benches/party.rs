@@ -28,7 +28,7 @@ fn bench_fork(c: &mut Criterion) {
         let orc = common::oracle_parties(&plan, 1).pop().unwrap();
         g.bench_with_input(BenchmarkId::new("before", n), &bytes, |b, bytes| {
             b.iter_batched(
-                || Party::decode(bytes).unwrap(),
+                || Party::decode(&bytes[..]).unwrap(),
                 |mut p| black_box(p.fork()),
                 BatchSize::SmallInput,
             );
@@ -57,7 +57,12 @@ fn bench_join(c: &mut Criterion) {
         let (oa, ob) = (orc[0].clone(), orc[1].clone());
         g.bench_with_input(BenchmarkId::new("before", n), &(ba, bb), |b, (ba, bb)| {
             b.iter_batched(
-                || (Party::decode(ba).unwrap(), Party::decode(bb).unwrap()),
+                || {
+                    (
+                        Party::decode(&ba[..]).unwrap(),
+                        Party::decode(&bb[..]).unwrap(),
+                    )
+                },
                 |(mut a, b)| black_box(a.join(b).is_ok()),
                 BatchSize::SmallInput,
             );
@@ -118,11 +123,11 @@ fn bench_partial_cmp(c: &mut Criterion) {
         let ochild = op.fork();
 
         // ancestor/descendant: whole ⊋ child (Some(Less)).
-        let anc = Party::decode(&whole_bytes).unwrap();
+        let anc = Party::decode(&whole_bytes[..]).unwrap();
         // equal: two distinct instances of the whole (Some(Equal)) — both directions full.
         let ieq = (
-            Party::decode(&whole_bytes).unwrap(),
-            Party::decode(&whole_bytes).unwrap(),
+            Party::decode(&whole_bytes[..]).unwrap(),
+            Party::decode(&whole_bytes[..]).unwrap(),
         );
         let oeq = (owhole.clone(), owhole.clone());
 
@@ -163,7 +168,7 @@ fn bench_codec(c: &mut Criterion) {
             b.iter(|| black_box(p.encode()));
         });
         g.bench_with_input(BenchmarkId::new("before/decode", n), &bytes, |b, bytes| {
-            b.iter(|| black_box(Party::decode(bytes).unwrap()));
+            b.iter(|| black_box(Party::decode(&bytes[..]).unwrap()));
         });
     }
     g.finish();

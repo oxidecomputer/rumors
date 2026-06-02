@@ -79,12 +79,23 @@ impl Version {
         codec::pack_to_writer(&self.0, writer)
     }
 
-    /// Decode a [`Version`] from canonical bytes.
-    pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
-        let bits = codec::bytes_as_bits(bytes);
-        let end = codec::parse_ev(bits, 0)?;
-        codec::require_zero_padding(bits, end)?;
-        Ok(Version(bits[..end].to_bitvec()))
+    /// Decode a [`Version`] from a reader of canonical bytes (a `&[u8]` is one).
+    pub fn decode<R: std::io::Read>(mut reader: R) -> Result<Self, DecodeError> {
+        let mut buf = Vec::new();
+        reader
+            .read_to_end(&mut buf)
+            .map_err(|e| DecodeError::Io(e.kind()))?;
+        let end = {
+            let bits = codec::bytes_as_bits(&buf);
+            let end = codec::parse_ev(bits, 0)?;
+            codec::require_zero_padding(bits, end)?;
+            end
+        };
+        // Reuse the read buffer as the result's backing store (offset-0,
+        // canonical up to `end`), so decoding allocates no more than before.
+        let mut bits = codec::Bits::from_vec(buf);
+        bits.truncate(end);
+        Ok(Version(bits))
     }
 
     /// The packed preorder bit stream (no trailing padding). Internal.

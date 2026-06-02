@@ -90,7 +90,7 @@ fn check_id_codec(ids: &[oracle::Party], imp: &[Party]) {
         }
         let p = &imp[i];
         let bytes = p.encode();
-        let decoded = Party::decode(&bytes).expect("canonical id encoding decodes");
+        let decoded = Party::decode(&bytes[..]).expect("canonical id encoding decodes");
         assert!(&decoded == p, "id decode∘encode is not identity for {oa:?}");
         assert_eq!(to_oracle_party(&decoded), *oa);
     });
@@ -149,7 +149,7 @@ fn check_ev_codec(evs: &[oracle::Version], imp: &[Version]) {
         let ov = &evs[i];
         let v = &imp[i];
         let bytes = v.encode();
-        let decoded = Version::decode(&bytes).expect("canonical event encoding decodes");
+        let decoded = Version::decode(&bytes[..]).expect("canonical event encoding decodes");
         assert!(
             &decoded == v,
             "event decode∘encode is not identity for {ov:?}"

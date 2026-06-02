@@ -400,7 +400,7 @@ fn stored_base_beyond_u64_ticks_and_merges() {
 
     assert_eq!(ticked.to_string(), "18446744073709551617");
     assert_eq!(big.clone() | ticked.clone(), ticked);
-    assert_eq!(Version::decode(&ticked.encode()).unwrap(), ticked);
+    assert_eq!(Version::decode(&ticked.encode()[..]).unwrap(), ticked);
 }
 
 // ───────────── arbitrary normal-form trees (decoupled from the op pipeline) ─────────────
@@ -552,7 +552,7 @@ proptest! {
     fn decode_encode_arbitrary(ov in arb_oracle_version()) {
         let v = from_oracle_version(&ov);
         let bytes = v.encode();
-        let decoded = Version::decode(&bytes).expect("canonical encoding decodes");
+        let decoded = Version::decode(&bytes[..]).expect("canonical encoding decodes");
         prop_assert!(decoded == v);
         prop_assert_eq!(to_oracle_version(&decoded), ov);
     }

@@ -95,13 +95,23 @@ impl Party {
         codec::pack_to_writer(&self.0, writer)
     }
 
-    /// Decode a [`Party`] from canonical bytes, strictly rejecting
-    /// non-canonical representations.
-    pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
-        let bits = codec::bytes_as_bits(bytes);
-        let end = codec::parse_id(bits, 0)?;
-        codec::require_zero_padding(bits, end)?;
-        let id = bits[..end].to_bitvec();
+    /// Decode a [`Party`] from a reader of canonical bytes (a `&[u8]` is one),
+    /// strictly rejecting non-canonical representations.
+    pub fn decode<R: std::io::Read>(mut reader: R) -> Result<Self, DecodeError> {
+        let mut buf = Vec::new();
+        reader
+            .read_to_end(&mut buf)
+            .map_err(|e| DecodeError::Io(e.kind()))?;
+        let end = {
+            let bits = codec::bytes_as_bits(&buf);
+            let end = codec::parse_id(bits, 0)?;
+            codec::require_zero_padding(bits, end)?;
+            end
+        };
+        // Reuse the read buffer as the result's backing store (it is offset-0
+        // and canonical up to `end`), so decoding allocates no more than before.
+        let mut id = codec::Bits::from_vec(buf);
+        id.truncate(end);
         if codec::id_is_empty(&id) {
             return Err(DecodeError::Anonymous);
         }

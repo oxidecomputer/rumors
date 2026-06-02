@@ -277,7 +277,7 @@ proptest! {
     fn decode_encode_arbitrary(op in arb_oracle_party_nonempty()) {
         let p = from_oracle_party(&op);
         let bytes = p.encode();
-        let decoded = Party::decode(&bytes).expect("canonical encoding decodes");
+        let decoded = Party::decode(&bytes[..]).expect("canonical encoding decodes");
         prop_assert!(decoded == p);
         prop_assert_eq!(to_oracle_party(&decoded), op);
     }

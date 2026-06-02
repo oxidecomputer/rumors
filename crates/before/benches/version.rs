@@ -42,7 +42,7 @@ fn bench_tick(c: &mut Criterion) {
         let (bytes, iparty, oversion, oparty) = version_and_party(&mut r, n);
         g.bench_with_input(BenchmarkId::new("before", n), &bytes, |b, bytes| {
             b.iter_batched(
-                || Version::decode(bytes).unwrap(),
+                || Version::decode(&bytes[..]).unwrap(),
                 |mut v| {
                     v.tick(&iparty);
                     black_box(v)
@@ -76,7 +76,7 @@ fn bench_batch(c: &mut Criterion) {
     for &k in &[1usize, 4, 16, 64] {
         g.bench_with_input(BenchmarkId::new("before/batched", k), &bytes, |b, bytes| {
             b.iter_batched(
-                || Version::decode(bytes).unwrap(),
+                || Version::decode(&bytes[..]).unwrap(),
                 |mut v| {
                     {
                         let mut batch = v.batch();
@@ -94,7 +94,7 @@ fn bench_batch(c: &mut Criterion) {
             &bytes,
             |b, bytes| {
                 b.iter_batched(
-                    || Version::decode(bytes).unwrap(),
+                    || Version::decode(&bytes[..]).unwrap(),
                     |mut v| {
                         for _ in 0..k {
                             v.tick(&iparty);
@@ -134,7 +134,12 @@ fn bench_merge(c: &mut Criterion) {
         let (oa, ob) = (orc[0].clone(), orc[1].clone());
         g.bench_with_input(BenchmarkId::new("before", n), &(ba, bb), |b, (ba, bb)| {
             b.iter_batched(
-                || (Version::decode(ba).unwrap(), Version::decode(bb).unwrap()),
+                || {
+                    (
+                        Version::decode(&ba[..]).unwrap(),
+                        Version::decode(&bb[..]).unwrap(),
+                    )
+                },
                 |(a, b)| black_box(a | b),
                 BatchSize::SmallInput,
             );
@@ -207,7 +212,7 @@ fn bench_codec(c: &mut Criterion) {
             b.iter(|| black_box(v.encode()));
         });
         g.bench_with_input(BenchmarkId::new("before/decode", n), &bytes, |b, bytes| {
-            b.iter(|| black_box(Version::decode(bytes).unwrap()));
+            b.iter(|| black_box(Version::decode(&bytes[..]).unwrap()));
         });
     }
     g.finish();

@@ -23,6 +23,12 @@ pub enum DecodeError {
     /// `(0, 1)`).
     #[error("party is anonymous")]
     Anonymous,
+    /// The underlying reader failed. Only possible for `decode` from a fallible
+    /// [`Read`](std::io::Read); decoding an in-memory byte slice never errors
+    /// here. The [`ErrorKind`](std::io::ErrorKind) is kept (rather than the full
+    /// `io::Error`) so [`DecodeError`] stays `PartialEq`/`Eq`.
+    #[error("read error: {0:?}")]
+    Io(std::io::ErrorKind),
 }
 
 /// Why a string (or a literal tuple/`u8`/`bool`) failed to parse into a

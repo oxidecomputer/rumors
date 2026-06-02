@@ -17,7 +17,7 @@ impl Serialize for Party {
 impl<'de> Deserialize<'de> for Party {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let bytes = <Vec<u8>>::deserialize(d)?;
-        Party::decode(&bytes).map_err(D::Error::custom)
+        Party::decode(&bytes[..]).map_err(D::Error::custom)
     }
 }
 
@@ -30,7 +30,7 @@ impl Serialize for Version {
 impl<'de> Deserialize<'de> for Version {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let bytes = <Vec<u8>>::deserialize(d)?;
-        Version::decode(&bytes).map_err(D::Error::custom)
+        Version::decode(&bytes[..]).map_err(D::Error::custom)
     }
 }
 
@@ -43,6 +43,6 @@ impl Serialize for Clock {
 impl<'de> Deserialize<'de> for Clock {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let bytes = <Vec<u8>>::deserialize(d)?;
-        Clock::decode(&bytes).map_err(D::Error::custom)
+        Clock::decode(&bytes[..]).map_err(D::Error::custom)
     }
 }

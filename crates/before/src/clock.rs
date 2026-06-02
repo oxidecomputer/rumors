@@ -160,28 +160,37 @@ impl Clock {
         writer.finish()
     }
 
-    /// Decode a byte string, strictly rejecting malformed or non-canonical input.
-    pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
-        let bits = codec::bytes_as_bits(bytes);
-        let after_id = codec::parse_id(bits, 0)?;
-        let after_ev = codec::parse_ev(bits, after_id)?;
-        codec::require_zero_padding(bits, after_ev)?;
-        // The party begins at bit 0, so its slice is already byte-aligned. The
-        // version begins at `after_id`, a generally non-byte-aligned offset:
-        // `to_bitvec` on such a slice copies the backing region and *preserves*
-        // the head bit-offset rather than shifting to bit 0, which would leave the
-        // stored stream non-canonical and make `Version::encode` mis-pack it. Copy
-        // the bits logically into a fresh, offset-0 stream to restore canonicity.
-        let party_bits = bits[..after_id].to_bitvec();
-        if codec::id_is_empty(&party_bits) {
-            // A standalone `Clock` carries a nonzero share (paper §3: `event` requires
-            // `i ≠ 0`); the anonymous id `0` is not a decodable top-level party.
-            return Err(DecodeError::Anonymous);
-        }
+    /// Decode from a reader of canonical bytes (a `&[u8]` is one), strictly
+    /// rejecting malformed or non-canonical input.
+    pub fn decode<R: std::io::Read>(mut reader: R) -> Result<Self, DecodeError> {
+        let mut buf = Vec::new();
+        reader
+            .read_to_end(&mut buf)
+            .map_err(|e| DecodeError::Io(e.kind()))?;
+        // The party begins at bit 0 (byte-aligned); the version begins at
+        // `after_id`, a generally non-byte-aligned offset, so it is copied
+        // logically into a fresh offset-0 stream to restore canonicity (a
+        // byte-offset copy would leave it non-canonical and mis-pack on
+        // re-encode). The party then reuses the read buffer as its backing
+        // store, so decoding allocates no more than before.
+        let (after_id, version) = {
+            let bits = codec::bytes_as_bits(&buf);
+            let after_id = codec::parse_id(bits, 0)?;
+            let after_ev = codec::parse_ev(bits, after_id)?;
+            codec::require_zero_padding(bits, after_ev)?;
+            if codec::id_is_empty(&bits[..after_id]) {
+                // A standalone `Clock` carries a nonzero share (paper §3: `event`
+                // requires `i ≠ 0`); the anonymous id `0` is not a decodable
+                // top-level party.
+                return Err(DecodeError::Anonymous);
+            }
+            let mut version_bits = codec::Bits::new();
+            version_bits.extend_from_bitslice(&bits[after_id..after_ev]);
+            (after_id, Version::from_bits(version_bits))
+        };
+        let mut party_bits = codec::Bits::from_vec(buf);
+        party_bits.truncate(after_id);
         let party = Party::from_bits(party_bits);
-        let mut version_bits = codec::Bits::new();
-        version_bits.extend_from_bitslice(&bits[after_id..after_ev]);
-        let version = Version::from_bits(version_bits);
         Ok(Clock::from_parts(party, version))
     }
 }

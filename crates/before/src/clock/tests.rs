@@ -120,7 +120,7 @@ proptest! {
         // and stays structurally identical (also confirms each encoding is canonical,
         // since `decode` strictly rejects non-normal-form input).
         for m in &imp {
-            let back = Clock::decode(&m.encode()).expect("impl encodings are canonical");
+            let back = Clock::decode(&m.encode()[..]).expect("impl encodings are canonical");
             prop_assert_eq!(to_oracle_clock(&back), to_oracle_clock(m));
         }
     }
@@ -396,7 +396,7 @@ fn deep_tree_stack_safety() {
 
     // Codec over a deep id round-trips to canonical bytes.
     let bytes = clock.encode();
-    let decoded = Clock::decode(&bytes).expect("deep id encodes to canonical bytes");
+    let decoded = Clock::decode(&bytes[..]).expect("deep id encodes to canonical bytes");
     assert_eq!(decoded.encode(), bytes);
 
     // Ticks build, then refine, a deep event tree (unpack / fill / grow / repack).
@@ -411,7 +411,7 @@ fn deep_tree_stack_safety() {
     // Codec over a deep id + deep event tree round-trips.
     let bytes = clock.encode();
     assert_eq!(
-        Clock::decode(&bytes)
+        Clock::decode(&bytes[..])
             .expect("deep clock encodes canonically")
             .encode(),
         bytes
@@ -469,18 +469,18 @@ proptest! {
     /// also asserted (canonical encoding is stable).
     #[test]
     fn decode_never_panics(bytes in prop::collection::vec(any::<u8>(), 0..512)) {
-        if let Ok(p) = Party::decode(&bytes) {
+        if let Ok(p) = Party::decode(&bytes[..]) {
             prop_assert!(to_oracle_party(&p).is_normal(), "accepted a non-normal Party");
-            prop_assert_eq!(Party::decode(&p.encode()).ok(), Some(p));
+            prop_assert_eq!(Party::decode(&p.encode()[..]).ok(), Some(p));
         }
-        if let Ok(v) = Version::decode(&bytes) {
+        if let Ok(v) = Version::decode(&bytes[..]) {
             prop_assert!(to_oracle_version(&v).is_normal(), "accepted a non-normal Version");
-            prop_assert_eq!(Version::decode(&v.encode()).ok(), Some(v));
+            prop_assert_eq!(Version::decode(&v.encode()[..]).ok(), Some(v));
         }
-        if let Ok(c) = Clock::decode(&bytes) {
+        if let Ok(c) = Clock::decode(&bytes[..]) {
             let (p, v) = to_oracle_clock(&c);
             prop_assert!(p.is_normal() && v.is_normal(), "accepted a non-normal Clock");
-            let re = Clock::decode(&c.encode()).expect("re-encode of an accepted clock is canonical");
+            let re = Clock::decode(&c.encode()[..]).expect("re-encode of an accepted clock is canonical");
             prop_assert_eq!(re.encode(), c.encode());
         }
     }
@@ -504,10 +504,10 @@ proptest! {
 #[test]
 fn decoded_seed_version_encodes_canonically() {
     let seed = Clock::seed();
-    let decoded = Clock::decode(&seed.encode()).unwrap();
+    let decoded = Clock::decode(&seed.encode()[..]).unwrap();
     assert_eq!(decoded.version().encode(), seed.version().encode());
     assert_eq!(
-        &Version::decode(&decoded.version().encode()).unwrap(),
+        &Version::decode(&decoded.version().encode()[..]).unwrap(),
         seed.version(),
     );
 }
@@ -522,15 +522,15 @@ proptest! {
         let cs = run(&ops);
         let n = cs.len();
         let original = from_oracle_clock(&cs[i % n]);
-        let decoded = Clock::decode(&original.encode()).expect("re-decode canonical clock");
+        let decoded = Clock::decode(&original.encode()[..]).expect("re-decode canonical clock");
 
         prop_assert_eq!(decoded.party().encode(), original.party().encode());
         prop_assert_eq!(decoded.version().encode(), original.version().encode());
 
         let v = decoded.version();
-        prop_assert_eq!(&Version::decode(&v.encode()).unwrap(), v);
+        prop_assert_eq!(&Version::decode(&v.encode()[..]).unwrap(), v);
         let p_bytes = decoded.party().encode();
-        prop_assert_eq!(Party::decode(&p_bytes).unwrap().encode(), p_bytes);
+        prop_assert_eq!(Party::decode(&p_bytes[..]).unwrap().encode(), p_bytes);
     }
 }
 
@@ -648,7 +648,7 @@ fn display_matches_paper_notation() {
     // cap.
     let wide: Version = "(18446744073709551616, 0, 1)".parse().unwrap();
     assert_eq!(wide.to_string(), "(18446744073709551616, 0, 1)");
-    assert_eq!(Version::decode(&wide.encode()).unwrap(), wide);
+    assert_eq!(Version::decode(&wide.encode()[..]).unwrap(), wide);
 
     // Debug is the same as Display.
     assert_eq!(format!("{id:?}"), "((0, (1, 0)), (1, 0))");

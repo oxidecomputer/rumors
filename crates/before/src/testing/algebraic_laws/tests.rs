@@ -176,8 +176,8 @@ proptest! {
         prop_assert!(given.is_disjoint(&kept), "is_disjoint not symmetric on fork halves");
         // Neither half decodes-rejects as anonymous: re-encode and decode round-trips,
         // which only succeeds for a nonzero share.
-        prop_assert!(Party::decode(&kept.encode()).is_ok(), "kept half is anonymous");
-        prop_assert!(Party::decode(&given.encode()).is_ok(), "given half is anonymous");
+        prop_assert!(Party::decode(&kept.encode()[..]).is_ok(), "kept half is anonymous");
+        prop_assert!(Party::decode(&given.encode()[..]).is_ok(), "given half is anonymous");
     }
 }
 
@@ -191,7 +191,7 @@ proptest! {
     fn party_codec_roundtrip(p in arb_oracle_party_nonempty()) {
         let original = party(&p);
         let bytes = original.encode();
-        let decoded = Party::decode(&bytes).expect("a fresh encoding decodes");
+        let decoded = Party::decode(&bytes[..]).expect("a fresh encoding decodes");
         prop_assert!(decoded == party(&p), "Party decode∘encode is not the identity");
     }
 }
@@ -205,7 +205,7 @@ proptest! {
     fn version_codec_roundtrip(v in arb_oracle_version()) {
         let original = ver(&v);
         let bytes = original.encode();
-        let decoded = Version::decode(&bytes).expect("a fresh encoding decodes");
+        let decoded = Version::decode(&bytes[..]).expect("a fresh encoding decodes");
         prop_assert!(decoded == ver(&v), "Version decode∘encode is not the identity");
     }
 }
@@ -221,7 +221,7 @@ proptest! {
         let wrapped = oracle::Party::node(oracle::Party::seed(), p);
         let original = party(&wrapped);
         let bytes = original.encode();
-        let decoded = Party::decode(&bytes).expect("a nonzero share decodes");
+        let decoded = Party::decode(&bytes[..]).expect("a nonzero share decodes");
         prop_assert!(decoded == party(&wrapped), "Party decode∘encode is not the identity");
     }
 }

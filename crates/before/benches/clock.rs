@@ -23,7 +23,7 @@ fn bench_tick(c: &mut Criterion) {
         let orc = common::oracle_clocks(&plan, 1).pop().unwrap();
         g.bench_with_input(BenchmarkId::new("before", n), &bytes, |b, bytes| {
             b.iter_batched(
-                || Clock::decode(bytes).unwrap(),
+                || Clock::decode(&bytes[..]).unwrap(),
                 |mut c| {
                     c.tick();
                     black_box(c)
@@ -55,7 +55,7 @@ fn bench_fork(c: &mut Criterion) {
         let orc = common::oracle_clocks(&plan, 1).pop().unwrap();
         g.bench_with_input(BenchmarkId::new("before", n), &bytes, |b, bytes| {
             b.iter_batched(
-                || Clock::decode(bytes).unwrap(),
+                || Clock::decode(&bytes[..]).unwrap(),
                 |mut c| black_box(c.fork()),
                 BatchSize::SmallInput,
             );
@@ -83,7 +83,12 @@ fn bench_join(c: &mut Criterion) {
         let (oa, ob) = (orc[0].clone(), orc[1].clone());
         g.bench_with_input(BenchmarkId::new("before", n), &(ba, bb), |b, (ba, bb)| {
             b.iter_batched(
-                || (Clock::decode(ba).unwrap(), Clock::decode(bb).unwrap()),
+                || {
+                    (
+                        Clock::decode(&ba[..]).unwrap(),
+                        Clock::decode(&bb[..]).unwrap(),
+                    )
+                },
                 |(mut a, b)| black_box(a.join(b).is_ok()),
                 BatchSize::SmallInput,
             );
@@ -112,7 +117,12 @@ fn bench_sync(c: &mut Criterion) {
         let (oa, ob) = (orc[0].clone(), orc[1].clone());
         g.bench_with_input(BenchmarkId::new("before", n), &(ba, bb), |b, (ba, bb)| {
             b.iter_batched(
-                || (Clock::decode(ba).unwrap(), Clock::decode(bb).unwrap()),
+                || {
+                    (
+                        Clock::decode(&ba[..]).unwrap(),
+                        Clock::decode(&bb[..]).unwrap(),
+                    )
+                },
                 |(mut a, mut b)| black_box(a.sync(&mut b).is_ok()),
                 BatchSize::SmallInput,
             );
@@ -138,7 +148,7 @@ fn bench_send(c: &mut Criterion) {
         let orc = common::oracle_clocks(&plan, 1).pop().unwrap();
         g.bench_with_input(BenchmarkId::new("before", n), &bytes, |b, bytes| {
             b.iter_batched(
-                || Clock::decode(bytes).unwrap(),
+                || Clock::decode(&bytes[..]).unwrap(),
                 |mut c| black_box(c.send().clone()),
                 BatchSize::SmallInput,
             );
@@ -172,7 +182,7 @@ fn bench_receive(c: &mut Criterion) {
             &(bytes, msg),
             |b, (bytes, msg)| {
                 b.iter_batched(
-                    || (Clock::decode(bytes).unwrap(), msg),
+                    || (Clock::decode(&bytes[..]).unwrap(), msg),
                     |(mut c, msg)| {
                         c.receive(msg);
                         black_box(c)
@@ -211,7 +221,7 @@ fn bench_codec(c: &mut Criterion) {
             b.iter(|| black_box(c.encode()));
         });
         g.bench_with_input(BenchmarkId::new("before/decode", n), &bytes, |b, bytes| {
-            b.iter(|| black_box(Clock::decode(bytes).unwrap()));
+            b.iter(|| black_box(Clock::decode(&bytes[..]).unwrap()));
         });
     }
     g.finish();
