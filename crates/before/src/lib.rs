@@ -10,6 +10,10 @@ mod codec;
 mod error;
 mod idbits;
 
+/// Stack-growth guard for the experimental recursive traversals (`internals`).
+#[cfg(feature = "internals")]
+mod recurse;
+
 pub mod clock;
 pub mod party;
 pub mod version;

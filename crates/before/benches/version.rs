@@ -180,7 +180,14 @@ fn bench_partial_cmp(c: &mut Criterion) {
                 BenchmarkId::new(format!("before/{kind}"), n),
                 &(ia, ib),
                 |b, (a, c)| {
-                    b.iter(|| black_box(a.partial_cmp(c)));
+                    b.iter(|| black_box(a.causal_cmp_iterative(c)));
+                },
+            );
+            g.bench_with_input(
+                BenchmarkId::new(format!("before-rec/{kind}"), n),
+                &(ia, ib),
+                |b, (a, c)| {
+                    b.iter(|| black_box(a.causal_cmp_recursive(c)));
                 },
             );
             g.bench_with_input(

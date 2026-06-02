@@ -99,6 +99,23 @@ proptest! {
     }
 }
 
+#[cfg(feature = "internals")]
+proptest! {
+    /// Differential. The experimental recursive+stacker causal comparison agrees
+    /// with the iterative impl — and thus the oracle — on every generated pair.
+    /// Pins the template conversion equivalent before it is benched.
+    #[test]
+    fn recursive_compare_matches_iterative(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+        let cs = run(&ops);
+        let vs = versions(&cs);
+        let n = vs.len();
+        let (oa, ob) = (&vs[i % n], &vs[j % n]);
+        let (ia, ib) = (from_oracle_version(oa), from_oracle_version(ob));
+        prop_assert_eq!(ia.causal_cmp_recursive(&ib), ia.causal_cmp_iterative(&ib));
+        prop_assert_eq!(ia.causal_cmp_recursive(&ib), oa.partial_cmp(ob));
+    }
+}
+
 proptest! {
     /// The order laws on impl versions directly: reflexive, antisymmetric,
     /// transitive; `==` ⇔ `Some(Equal)`; concurrency ⇔ `None`.

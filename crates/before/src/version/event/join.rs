@@ -93,8 +93,8 @@ impl EvView<'_> {
                         base: b_base,
                         next: b_next,
                     } = b.header(b_pos);
-                    let a_sum = a_off.clone() + a_base;
-                    let b_sum = b_off.clone() + b_base;
+                    let a_sum = &a_off + &a_base;
+                    let b_sum = &b_off + &b_base;
                     if !a_internal && !b_internal {
                         ret = Joined {
                             out_root: out.leaf(a_sum.max(b_sum)),
@@ -107,20 +107,20 @@ impl EvView<'_> {
 
                     // At least one side is internal: descend it, broadcast the other leaf.
                     // The [`Side`] helpers carry the one broadcast rule for both children
-                    // and the node close.
+                    // and the node close. Each side keeps just the offset its children
+                    // need: the node sum when internal, its own offset when a leaf (see
+                    // [`Side::child_off`]).
                     let a_side = Side {
                         internal: a_internal,
                         pos: a_pos,
-                        off: a_off,
-                        sum: a_sum,
                         next: a_next,
+                        child_off: if a_internal { a_sum } else { a_off },
                     };
                     let b_side = Side {
                         internal: b_internal,
                         pos: b_pos,
-                        off: b_off,
-                        sum: b_sum,
                         next: b_next,
+                        child_off: if b_internal { b_sum } else { b_off },
                     };
                     let (left_a_pos, left_a_off) = a_side.left();
                     let (left_b_pos, left_b_off) = b_side.left();

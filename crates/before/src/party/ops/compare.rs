@@ -1,6 +1,13 @@
 use core::cmp::Ordering;
 
+use smallvec::{smallvec, SmallVec};
+
 use crate::idbits::IdView;
+
+/// Inline job-stack capacity for the id comparison walk: near-balanced ids keep
+/// their stack on the program stack (no heap alloc); deeper ids spill to the
+/// heap transparently.
+const COMPARE_STACK_INLINE: usize = 16;
 
 /// A step in the threaded [`is_disjoint`](IdView::is_disjoint) walk.
 /// `a_pos`/`b_pos` are bit offsets into the two packed id streams.
@@ -112,7 +119,8 @@ impl IdView<'_> {
         let mut le = true; // `a ⊇ b` (a is an ancestor of b) still possible
         let mut ge = true; // `b ⊇ a` still possible
         let mut ret = Ends::default();
-        let mut stack = vec![CompareJob::Eval { a_pos: 0, b_pos: 0 }];
+        let mut stack: SmallVec<[CompareJob; COMPARE_STACK_INLINE]> =
+            smallvec![CompareJob::Eval { a_pos: 0, b_pos: 0 }];
         while let Some(job) = stack.pop() {
             match job {
                 CompareJob::Eval { a_pos, b_pos } => {

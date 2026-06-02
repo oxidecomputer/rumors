@@ -8,6 +8,15 @@ license = "MPL-2.0"
 [dependencies]
 bitvec = "1"
 num-bigint = "0.4.6"
+# Inline-capacity stacks for the hot two-tree traversals (compare/join): small,
+# near-balanced trees keep their job stack on the program stack and pay no heap
+# allocation; deep trees spill to the heap transparently, preserving the
+# overflow-safety the explicit stacks exist for.
+smallvec = "1"
+# Stack-growth guard for the experimental recursive traversals (the `internals`
+# feature). Recurse natively on shallow trees; grow the stack onto the heap
+# before a deep one can overflow. Optional: only the recursive variants need it.
+stacker = { version = "0.1", optional = true }
 thiserror = "2"
 serde = { version = "1", optional = true, default-features = false, features = ["derive", "alloc"] }
 
@@ -33,7 +42,7 @@ rayon = "1"
 # recognized Cargo idiom so `cargo bench` builds the lib with the oracle exposed
 # without needing `--features oracle`. Dev-dependency cycles are explicitly allowed,
 # and dev-dependencies never affect a normal `cargo build`, so production stays clean.
-before = { path = ".", features = ["oracle"] }
+before = { path = ".", features = ["oracle", "internals"] }
 
 [features]
 default = []
@@ -41,6 +50,10 @@ serde = ["dep:serde"]
 # Re-exports the reference oracle (`src/oracle.rs`) as `before::oracle`, so the benchmark
 # suite can time it against the optimized implementation. Bench/test-only.
 oracle = []
+# Exposes the experimental recursive+stacker traversals alongside the iterative
+# ones, so the benchmark suite can time them head-to-head and the differential
+# tests can pin them equivalent. Bench/test-only; pulls in `stacker`.
+internals = ["dep:stacker"]
 
 [[bench]]
 name = "party"
