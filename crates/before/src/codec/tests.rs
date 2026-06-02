@@ -216,7 +216,7 @@ fn reject_noncanonical_id() {
     }
 }
 
-/// The id validator runs bottom-up on an explicit stack, so a collapsible `(v,
+/// The id validator runs bottom-up by recursion, so a collapsible `(v,
 /// v)` node buried under deep, otherwise-canonical nesting must still be caught
 /// — the `NotCanonical` check fires when *any* node completes, not only at the
 /// root. Build a left-leaning spine `(((… (1,1) …, 0), 0), 0)` whose deepest

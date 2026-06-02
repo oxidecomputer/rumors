@@ -25,9 +25,15 @@ mutation, linear-typed API. The references are the ITC 2008 paper
 
 ## Hard rules (always)
 
-- No `unsafe` (crate has `#![forbid(unsafe_code)]`).
-- Every tree traversal is ITERATIVE (explicit stack / preorder cursor). No
-  recursion on tree depth — deep inputs must not overflow.
+- No `unsafe` (crate has `#![forbid(unsafe_code)]`). `stacker` (a dependency)
+  does the platform stack manipulation; the crate itself stays unsafe-free.
+- Every tree traversal RECURSES on depth and MUST route each recursive entry
+  through `crate::recurse::guarded(depth, || …)`, which grows the stack onto the
+  heap before a deep, unbalanced input can overflow. Never recurse on tree depth
+  without the guard. (The `pending: i64` span scans in `idbits::skip_subtree` /
+  `Builder::copy` are the exception: they loop with an `O(1)` stack and need no
+  guard. Test-only walks in `testing/` keep their own explicit stacks.) The
+  depth-100k `clock::tests::deep_tree_stack_safety` test is the overflow proof.
 - `decode` strictly rejects non-canonical (non-normal-form) input; canonical
   byte-equality is relied on for `Eq`/`Hash`.
 - `Party`/`Clock` are not `Clone`; `Version` is. Don't add `Clone` to the first two

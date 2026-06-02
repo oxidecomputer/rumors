@@ -379,7 +379,9 @@ proptest! {
 /// Deep structures (a depth-100k id spine, and the deep event tree a tick
 /// builds over it) survive *every* public op plus the codec and the `Debug`
 /// printer with no stack overflow — the proof that every traversal is
-/// iterative. Beyond the single-clock ops (tick / fork / join / partial_cmp /
+/// stack-safe: each recurses, but [`crate::recurse`] grows the stack onto the
+/// heap before a deep one can overflow. Beyond the single-clock ops (tick / fork
+/// / join / partial_cmp /
 /// `|` / encode / decode / Debug), this drives the composite and observer ops
 /// that operate on deep structures: `sync` between two deep clocks,
 /// `send`/`receive` of a deep version, and each clock observer (`has_seen` /
@@ -453,7 +455,7 @@ fn deep_tree_stack_safety() {
     // join restores the whole from the two deep halves.
     clock.join(child).expect("fork halves are disjoint");
 
-    // The iterative Debug pretty-printer must not overflow either.
+    // The recursive Debug pretty-printer must not overflow either.
     assert!(!format!("{clock:?}").is_empty());
 }
 

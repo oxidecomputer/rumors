@@ -1,5 +1,5 @@
 //! Bit I/O: the Elias-gamma integer code, the preorder id/event encodings, and
-//! the iterative `decode` with normal-form validation.
+//! the recursive `decode` with normal-form validation.
 //!
 //! At rest, a `Party`/`Version` holds its canonical packed preorder bit stream
 //! (no trailing padding), so bit-equality is semantic equality. `encode` pads

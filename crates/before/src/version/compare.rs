@@ -1,12 +1,13 @@
-//! The causal order on event trees: a single iterative, offset-threaded pass
+//! The causal order on event trees: a single recursive, offset-threaded pass
 //! that reads either representation in place (no transcode) and yields the
 //! comparison directly.
 //!
 //! [`EvView::causal_cmp`] decides the causal order of `a` and `b` by a
 //! pointwise comparison of their event functions, tracking both `a <= b` and `b
 //! <= a` in **one** traversal — running the paper's `leq` twice would do double
-//! the work. It is the recursive `leq` of the paper made iterative, symmetric,
-//! *and* `O(n + m)`: at each aligned node pair the path sums settle the local
+//! the work. It is the paper's recursive `leq` made symmetric *and* `O(n + m)`,
+//! guarded by [`crate::recurse`] against deep trees: at each aligned node pair
+//! the path sums settle the local
 //! direction (`an > bn` rules out `a <= b`; `bn > an` rules out `b <= a`), then
 //! the walk descends into whichever side is internal, broadcasting the leaf
 //! side unchanged to both of the other's children, until both bottom out — so
@@ -94,8 +95,8 @@ impl EvView<'_> {
     /// normal form (a stored `Version` is canonical; the working form is kept
     /// normal by `event::Builder`), so identical contents is exactly semantic
     /// equality — which lets [`causal_cmp`](EvView::causal_cmp) settle `Equal`
-    /// with one length-checked memcmp instead of the full `O(n + m)` walk and
-    /// its heap-allocated job stack. A representation mismatch (one packed, one
+    /// with one length-checked memcmp instead of the full `O(n + m)` recursive
+    /// walk. A representation mismatch (one packed, one
     /// working) declines to `false` and falls through: proving equality across
     /// forms would mean transcoding one side, no cheaper than the walk itself.
     pub(super) fn trivially_eq(&self, other: &EvView) -> bool {
