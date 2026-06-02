@@ -33,11 +33,12 @@ mutation, linear-typed API. The references are the ITC 2008 paper
   overflow. Never recurse on tree depth without the guard. Exceptions, all still
   overflow-safe: (1) the `pending: i64` span scans in `idbits::skip_subtree` /
   `Builder::copy` loop with an `O(1)` stack; (2) the codec decode parsers
-  (`codec::tree::parse_id`/`parse_ev`) stay iterative with inline-`SmallVec`
-  stacks — measured faster than recursion for gamma-heavy parsing, the SmallVec
-  keeps shallow inputs allocation-free, and the heap spill preserves overflow
-  safety; (3) test-only walks in `testing/` keep their own explicit stacks. The
-  depth-100k `clock::tests::deep_tree_stack_safety` test is the overflow proof.
+  (`codec::tree::parse_id`/`parse_ev`) stay iterative with an explicit `Vec`
+  stack — measured faster than recursion for gamma-heavy parsing (an inline
+  `SmallVec` was tried and reverted: its inline buffer plus spill-branching
+  regressed larger inputs ~30%); the heap `Vec` preserves overflow safety;
+  (3) test-only walks in `testing/` keep their own explicit stacks. The depth-100k
+  `clock::tests::deep_tree_stack_safety` test is the overflow proof.
 - `decode` strictly rejects non-canonical (non-normal-form) input; canonical
   byte-equality is relied on for `Eq`/`Hash`.
 - `Party`/`Clock` are not `Clone`; `Version` is. Don't add `Clone` to the first two

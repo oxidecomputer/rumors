@@ -1,13 +1,6 @@
-use smallvec::SmallVec;
-
 use crate::{DecodeError, ParseError};
 
 use super::{decode_int, Base, BitsSlice};
-
-/// Inline parse-stack capacity: a tree of depth up to this many levels keeps its
-/// stack on the program stack with no heap allocation (covering all balanced
-/// inputs in practice); deeper trees spill to the heap.
-const PARSE_STACK_INLINE: usize = 16;
 
 /// While building a node bottom-up, what we still need from the stream.
 enum IdFrame {
@@ -22,7 +15,7 @@ enum IdFrame {
 /// two children are leaves of equal value). Returns the position just past the
 /// tree. Iterative: depth lives on an explicit stack, never the call stack.
 pub(crate) fn parse_id(bits: &BitsSlice, mut pos: usize) -> Result<usize, DecodeError> {
-    let mut stack: SmallVec<[IdFrame; PARSE_STACK_INLINE]> = SmallVec::new();
+    let mut stack: Vec<IdFrame> = Vec::new();
     loop {
         if pos >= bits.len() {
             return Err(DecodeError::Truncated);
@@ -85,7 +78,7 @@ enum EvFrame {
 /// has at least one child with base `0`, and no node's two children are
 /// equal-valued leaves. Returns the position just past the tree. Iterative.
 pub(crate) fn parse_ev(bits: &BitsSlice, mut pos: usize) -> Result<usize, DecodeError> {
-    let mut stack: SmallVec<[EvFrame; PARSE_STACK_INLINE]> = SmallVec::new();
+    let mut stack: Vec<EvFrame> = Vec::new();
     loop {
         if pos >= bits.len() {
             return Err(DecodeError::Truncated);
