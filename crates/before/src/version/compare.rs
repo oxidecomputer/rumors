@@ -42,68 +42,6 @@ pub(super) struct EvHeader {
     pub(super) next: usize,
 }
 
-/// One input's state at an aligned node in a two-tree event walk, capturing the
-/// broadcast rule that both [`EvView::causal_cmp`] and [`EvView::join`] share:
-/// an *internal* side threads/descends into its own children, while a *leaf*
-/// side is re-broadcast unchanged to both of the other tree's children.
-///
-/// The offset field is an arbitrary-precision [`Base`] path sum, so the struct
-/// is `Clone` (not `Copy`); helpers clone rather than copy.
-#[derive(Clone)]
-pub(super) struct Side {
-    /// Whether this side was a node here (its children thread) or a leaf
-    /// (re-broadcast).
-    pub(super) internal: bool,
-    /// This side's pinned position, reused when it is a leaf.
-    pub(super) pos: usize,
-    /// Position just past this side's header: its left child start (node) or
-    /// end (leaf).
-    pub(super) next: usize,
-    /// The path-sum offset handed to this side's children. The two prior fields
-    /// `off` (the leaf's own path sum) and `sum` (the node sum `off + base`) are
-    /// never both needed — an internal side carries only its node sum into its
-    /// threaded children, a leaf side re-broadcasts only its own offset — so
-    /// they collapse into one `Base`, halving the path-sum payload moved through
-    /// the job stack. Holds the node sum when [`internal`](Self::internal), the
-    /// leaf's own offset otherwise.
-    pub(super) child_off: Base,
-}
-
-impl Side {
-    /// Where this side's left child starts: descend if a node (its `next`), else
-    /// re-broadcast the leaf in place (its pinned `pos`). Both carry
-    /// [`child_off`](Self::child_off) down.
-    pub(super) fn left(&self) -> (usize, Base) {
-        let pos = if self.internal { self.next } else { self.pos };
-        (pos, self.child_off.clone())
-    }
-
-    /// Where this side's right child starts, given where its left subtree ended
-    /// (`threaded_end`, read from the thread register): the threaded end when
-    /// this side descended, else the same re-broadcast leaf. Both carry
-    /// [`child_off`](Self::child_off) down.
-    pub(super) fn right(&self, threaded_end: usize) -> (usize, Base) {
-        let pos = if self.internal {
-            threaded_end
-        } else {
-            self.pos
-        };
-        (pos, self.child_off.clone())
-    }
-
-    /// Where this side's subtree ends, given where its right subtree ended
-    /// (`threaded_end`): the threaded end when this side descended, else its
-    /// own `next` (a leaf was re-broadcast in place, so the input position only
-    /// advanced past it).
-    pub(super) fn end(&self, threaded_end: usize) -> usize {
-        if self.internal {
-            threaded_end
-        } else {
-            self.next
-        }
-    }
-}
-
 /// A read-only view of an event tree in either storage form, addressed by a
 /// position (a bit offset for packed, a node index for working). Visibility is
 /// uniform `pub(super)` across the trio
