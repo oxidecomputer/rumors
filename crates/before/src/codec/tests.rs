@@ -118,6 +118,36 @@ proptest! {
     }
 }
 
+proptest! {
+    /// `encode_to` writes the same bytes as `encode` to an arbitrary writer —
+    /// here a `BufWriter`, a distinct buffered `Write` impl. For `Clock` this
+    /// exercises the streamed id/event boundary (the partial byte merged across
+    /// the two component streams with no combined buffer).
+    #[test]
+    fn encode_to_matches_encode(ops in world_strategy(), i in 0usize..64) {
+        use std::io::BufWriter;
+        let cs = run(&ops);
+        let n = cs.len();
+        let oc = &cs[i % n];
+        let (op, ov) = oc.trees();
+
+        let party = from_oracle_party(op);
+        let mut bw = BufWriter::new(Vec::new());
+        party.encode_to(&mut bw).unwrap();
+        prop_assert_eq!(bw.into_inner().unwrap(), party.encode());
+
+        let version = from_oracle_version(ov);
+        let mut bw = BufWriter::new(Vec::new());
+        version.encode_to(&mut bw).unwrap();
+        prop_assert_eq!(bw.into_inner().unwrap(), version.encode());
+
+        let clock = from_oracle_clock(oc);
+        let mut bw = BufWriter::new(Vec::new());
+        clock.encode_to(&mut bw).unwrap();
+        prop_assert_eq!(bw.into_inner().unwrap(), clock.encode());
+    }
+}
+
 // ───────────────────────── canonical encoding injectivity ─────────────────────────
 
 proptest! {
@@ -493,7 +523,7 @@ proptest! {
 /// WITNESS — the minimal reproduction of the trailing-zero-byte defect that the
 /// two mutation proptests above (bit-flip and truncation) surface.
 ///
-/// `pack_to_bytes` zero-pads a canonical stream only to the next byte boundary,
+/// `pack_to_writer` zero-pads a canonical stream only to the next byte boundary,
 /// so a canonical encoding has **at most 7 trailing zero bits**. The original
 /// [`require_zero_padding`] (`codec.rs`) only checked that the bits after the
 /// tree are all zero — it never bounded how *many* there are, so appending one

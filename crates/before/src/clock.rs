@@ -141,11 +141,23 @@ impl Clock {
     /// The canonical packed byte encoding: `enc_id(party)` then `enc_ev(version)`,
     /// bit-concatenated with no padding between, then zero-padded to a byte boundary.
     pub fn encode(&self) -> Vec<u8> {
-        let mut bits =
-            codec::Bits::with_capacity(self.party.as_bits().len() + self.version.as_bits().len());
-        bits.extend_from_bitslice(self.party.as_bits());
-        bits.extend_from_bitslice(self.version.as_bits());
-        codec::pack_to_bytes(&bits)
+        let mut bytes = Vec::new();
+        self.encode_to(&mut bytes)
+            .expect("writing to a Vec is infallible");
+        bytes
+    }
+
+    /// Encode a [`Clock`] to an arbitrary writer (see [`encode`](Self::encode)
+    /// for the format). Wrap a `BufWriter` around an unbuffered sink.
+    ///
+    /// Streams the id then the event bits straight through a [`BitWriter`],
+    /// merging the partial byte at their boundary on the fly — no combined
+    /// `BitVec` is built.
+    pub fn encode_to<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        let mut writer = codec::BitWriter::new(writer);
+        writer.write(self.party.as_bits())?;
+        writer.write(self.version.as_bits())?;
+        writer.finish()
     }
 
     /// Decode a byte string, strictly rejecting malformed or non-canonical input.

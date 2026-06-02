@@ -83,7 +83,16 @@ impl Party {
     /// **Note:** The byte-encoding of a [`Clock`] is **not the same** as the
     /// concatenation of the byte-encoding of a [`Party`] and a [`Version`].
     pub fn encode(&self) -> Vec<u8> {
-        codec::pack_to_bytes(&self.0)
+        let mut bytes = Vec::new();
+        self.encode_to(&mut bytes)
+            .expect("writing to a Vec is infallible");
+        bytes
+    }
+
+    /// Encode a [`Party`] to an arbitrary writer (see [`encode`](Self::encode)
+    /// for the format). Wrap a `BufWriter` around an unbuffered sink.
+    pub fn encode_to<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        codec::pack_to_writer(&self.0, writer)
     }
 
     /// Decode a [`Party`] from canonical bytes, strictly rejecting

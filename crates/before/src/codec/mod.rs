@@ -18,7 +18,9 @@ mod tree;
 mod tests;
 
 pub use base::Base;
-pub(crate) use bits::{bytes_as_bits, pack_to_bytes, require_zero_padding, Bits, BitsSlice};
+pub(crate) use bits::{
+    bytes_as_bits, pack_to_writer, require_zero_padding, BitWriter, Bits, BitsSlice,
+};
 pub(crate) use display::{write_ev, write_id};
 pub(crate) use gamma::{decode_int, encode_int, encoded_int_len, skip_int};
 pub(crate) use literal::{ev_leaf, ev_node, id_is_empty, id_leaf, id_node};
