@@ -1,7 +1,22 @@
 use crate::codec::Base;
 use crate::recurse::descend;
 
-use crate::version::compare::{EvHeader, EvView};
+use crate::version::compare::{EvHeader, EvReader, EvView};
+
+impl<'a> EvReader<'a> {
+    /// The subtree maximum (the paper's `max`) and a reader positioned past the
+    /// subtree. A synthetic `Zero` subtree maxes to 0. Lives here, in the event
+    /// module, because it runs [`EvView::max`].
+    pub(super) fn max(self) -> (Base, EvReader<'a>) {
+        match self.parts() {
+            None => (Base::ZERO, self),
+            Some((view, pos)) => {
+                let (m, end) = view.max(pos);
+                (m, EvReader::at(view, end))
+            }
+        }
+    }
+}
 
 impl EvView<'_> {
     /// The maximum value of the event function over the subtree at `root` (the

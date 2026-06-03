@@ -1,6 +1,6 @@
 use crate::codec::{Base, Bits};
 
-use crate::version::compare::{EvHeader, EvView};
+use crate::version::compare::{EvHeader, EvReader, EvView};
 use crate::version::working::WorkingVersion;
 
 /// Accumulates the output event tree in preorder. A node's base is written as a
@@ -49,6 +49,20 @@ impl Builder {
     /// the shared [`idbits::skip_subtree`](crate::idbits::skip_subtree) core,
     /// but it keeps its own loop because it emits each visited node into the
     /// output as it goes rather than only computing the end position.
+    /// Copy the whole subtree at `src` verbatim (it is already normal form),
+    /// returning the output root and a reader positioned past it. The
+    /// reader-threading form of [`copy`](Self::copy); a synthetic `Zero` subtree
+    /// copies as a fresh `Leaf(0)`.
+    pub(super) fn copy_reader<'a>(&mut self, src: EvReader<'a>) -> (usize, EvReader<'a>) {
+        match src.parts() {
+            None => (self.leaf(Base::ZERO), src),
+            Some((view, pos)) => {
+                let (root, end) = self.copy(&view, pos);
+                (root, EvReader::at(view, end))
+            }
+        }
+    }
+
     pub(super) fn copy(&mut self, src: &EvView, root: usize) -> (usize, usize) {
         let out_root = self.len();
         let mut pos = root;

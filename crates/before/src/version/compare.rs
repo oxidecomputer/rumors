@@ -208,6 +208,23 @@ impl<'a> EvReader<'a> {
             }
         }
     }
+
+    /// The `(view, position)` this reader points at, or `None` for the synthetic
+    /// `Zero`. Lets the event module reach the underlying view to run operations
+    /// defined there (`max`, `copy`) without exposing the variants widely.
+    pub(super) fn parts(self) -> Option<(EvView<'a>, usize)> {
+        match self {
+            EvReader::At(view, pos) => Some((view, pos)),
+            EvReader::Zero => None,
+        }
+    }
+
+    /// Build a reader at an explicit `(view, position)` — the inverse of
+    /// [`parts`](EvReader::parts), for re-wrapping an end position the event
+    /// module computed.
+    pub(super) fn at(view: EvView<'a>, pos: usize) -> Self {
+        EvReader::At(view, pos)
+    }
 }
 
 /// One side of an aligned node pair, resolved for descent — the single place

@@ -90,6 +90,67 @@ impl<'a> IdView<'a> {
     }
 }
 
+/// A decoded id node: the empty `0` leaf, the full `1` leaf, or an internal
+/// node. The id-side analogue of the event side's `EvNode` — a clean three-way
+/// for the `match (id, ev)` shape the operations recurse on (the paper's id
+/// grammar `i ::= 0 | 1 | (i1, i2)`).
+pub(crate) enum IdNode {
+    /// The `0` leaf: an unowned region.
+    Empty,
+    /// The `1` leaf: a fully-owned region.
+    Full,
+    /// An internal node `(i1, i2)`; its children follow in the stream.
+    Internal,
+}
+
+/// A cursor into a packed id tree: a position in the bit stream. The id-side
+/// analogue of the event side's [`EvReader`](crate::version::compare). Where
+/// [`IdView`] exposes a positional `header(at)`, `IdReader` *consumes* — its
+/// [`read`](IdReader::read) advances past the node it decodes — so operations
+/// thread readers instead of bare bit offsets and read as the paper's recursive
+/// `match`. A thin `Copy` handle over a borrowed slice.
+#[derive(Clone, Copy)]
+pub(crate) struct IdReader<'a> {
+    bits: &'a BitsSlice,
+    pos: usize,
+}
+
+impl<'a> IdReader<'a> {
+    /// A reader at the root of `bits`.
+    pub(crate) fn root(bits: &'a BitsSlice) -> Self {
+        IdReader { bits, pos: 0 }
+    }
+
+    /// Decode this node, returning it together with a reader positioned just
+    /// past the header — at the left child, for an internal node.
+    pub(crate) fn read(self) -> (IdNode, IdReader<'a>) {
+        step!();
+        let (node, next) = if self.bits[self.pos] {
+            (IdNode::Internal, self.pos + 1)
+        } else if self.bits[self.pos + 1] {
+            (IdNode::Full, self.pos + 2)
+        } else {
+            (IdNode::Empty, self.pos + 2)
+        };
+        (
+            node,
+            IdReader {
+                bits: self.bits,
+                pos: next,
+            },
+        )
+    }
+
+    /// A reader positioned just past this whole subtree (the shared iterative
+    /// [`skip_subtree`] scan), for skipping a dominated id subtree.
+    pub(crate) fn skip(self) -> IdReader<'a> {
+        IdReader {
+            bits: self.bits,
+            pos: IdView(self.bits).skip(self.pos),
+        }
+    }
+}
+
 /// Position just past the whole subtree rooted at `at` of any preorder tree
 /// encoding, driven by a caller-supplied header probe. Iterative: a
 /// pending-children counter (`+1` per internal node, `-1` per leaf, start at
