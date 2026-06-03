@@ -91,7 +91,7 @@ impl FillWalk {
             let max_el = ev.max(); // ev past `el` → at `er`
             let right = descend!(depth + 1, self.rec(id, ev, depth + 1));
             let value = max_el.max(self.out.base_of(right).clone());
-            self.out.resolve(left, value);
+            self.out.resolve_leaf(left, value);
             return self.out.close_node(node, right);
         }
         // `il` not full: fill the left child (id → `ir`, ev → `er`), then check `ir`.

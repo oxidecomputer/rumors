@@ -125,7 +125,7 @@ impl Builder {
     }
 
     /// Fill in a [`deferred_leaf`](Self::deferred_leaf)'s base once it is known.
-    pub(super) fn resolve(&mut self, leaf: DeferredLeaf, base: Base) {
+    pub(super) fn resolve_leaf(&mut self, leaf: DeferredLeaf, base: Base) {
         self.base[leaf.0] = base;
     }
 
