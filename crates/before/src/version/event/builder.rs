@@ -104,6 +104,28 @@ impl Builder {
         }
     }
 
+    /// A leaf whose base is not yet known: emitted as a placeholder now, filled
+    /// in by [`resolve`](Self::resolve) once the value it depends on exists.
+    /// `fill` needs this for the one case the preorder builder cannot emit in
+    /// evaluation order: an id-full *left* child collapses to a max-leaf whose
+    /// value depends on its right sibling, but preorder must place the left leaf
+    /// first. (An id-full *right* child needs no deferral — its left sibling is
+    /// already built when the right leaf is emitted.)
+    pub(super) fn deferred_leaf(&mut self) -> DeferredLeaf {
+        DeferredLeaf(self.leaf(Base::ZERO))
+    }
+
+    /// Fill in a [`deferred_leaf`](Self::deferred_leaf)'s base once it is known.
+    pub(super) fn resolve(&mut self, leaf: DeferredLeaf, base: Base) {
+        self.base[leaf.0] = base;
+    }
+
+    /// The base stored at an output node (e.g. a just-built subtree's root), for
+    /// computing a collapsing sibling's value.
+    pub(super) fn base_of(&self, node: usize) -> &Base {
+        &self.base[node]
+    }
+
     pub(super) fn finish(self) -> WorkingVersion {
         WorkingVersion {
             topo: self.topo,
@@ -111,6 +133,12 @@ impl Builder {
         }
     }
 }
+
+/// A placeholder leaf in a [`Builder`], to be filled by
+/// [`Builder::resolve`](Builder::resolve). Carries the output index opaquely so
+/// callers cannot poke the base array directly (see
+/// [`Builder::deferred_leaf`](Builder::deferred_leaf)).
+pub(super) struct DeferredLeaf(usize);
 
 /// The thread register for the id-driven emitting walks — `fill` and the `grow`
 /// emit (see the module doc): the output root a just-finished subtree produced,

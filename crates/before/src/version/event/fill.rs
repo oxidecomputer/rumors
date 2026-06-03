@@ -1,4 +1,4 @@
-use crate::codec::{Base, BitsSlice};
+use crate::codec::BitsSlice;
 use crate::idbits::IdView;
 use crate::recurse::descend;
 
@@ -75,18 +75,27 @@ impl FillWalk<'_> {
                 ev_end: ev_next,
             };
         }
-        // id node, event node.
-        let (id_left, ev_left) = (id_next, ev_next);
+        // id node, event node: the paper's
+        // `fill((il,ir),(n,el,er)) = norm((n, fill(il,el), fill(ir,er)))`, plus
+        // the two `is_full` shortcuts — a fully-owned child collapses to a
+        // single leaf valued `max(child events) ⊔ (sibling's filled base)`.
+        //
+        // The two shortcuts are mirror images, but the preorder builder treats
+        // them asymmetrically (this is intrinsic, not incidental): a collapsed
+        // *left* child must be emitted before its right sibling exists, so it is
+        // a [`deferred_leaf`](Builder::deferred_leaf) resolved after the right is
+        // built; a collapsed *right* child is emitted after its left sibling, so
+        // its value is already known.
+        let id_left = id_next;
         let id_left_hdr = self.id.header(id_left);
         if id_left_hdr.is_full() {
-            // `il` full: left collapses to a leaf whose value depends on the
-            // filled right; build the right first, then backpatch the leaf.
+            // `il` full: defer the collapsed left, fill the right, then resolve.
             let node = self.out.open(ev_base);
-            let left_leaf = self.out.leaf(Base::ZERO); // placeholder
-            let (max_el, ev_right) = self.view.max(ev_left);
-            let id_right = id_left_hdr.next; // past the 1-leaf `il`
-            let right = descend!(depth + 1, self.rec(id_right, ev_right, depth + 1));
-            self.out.base[left_leaf] = max_el.max(self.out.base[right.out_root].clone());
+            let left = self.out.deferred_leaf();
+            let (max_el, ev_right) = self.view.max(ev_next);
+            let right = descend!(depth + 1, self.rec(id_left_hdr.next, ev_right, depth + 1));
+            let value = max_el.max(self.out.base_of(right.out_root).clone());
+            self.out.resolve(left, value);
             self.out.close_node(node, right.out_root);
             return Built {
                 out_root: node,
@@ -94,24 +103,24 @@ impl FillWalk<'_> {
                 ev_end: right.ev_end,
             };
         }
-        // `il` not full: fill the left child first; decide the right after.
+        // `il` not full: fill the left child first — only then is `ir`'s packed
+        // position known (it is where the left subtree's id ended).
         let node = self.out.open(ev_base);
-        let left = descend!(depth + 1, self.rec(id_left, ev_left, depth + 1));
-        let (ir, er) = (left.id_end, left.ev_end);
-        let ir_hdr = self.id.header(ir);
+        let left = descend!(depth + 1, self.rec(id_left, ev_next, depth + 1));
+        let ir_hdr = self.id.header(left.id_end);
         if ir_hdr.is_full() {
-            // `ir` full: right collapses to a leaf depending on the filled left.
-            let (max_er, er_end) = self.view.max(er);
-            let x = max_er.max(self.out.base[left.out_root].clone());
-            let right_leaf = self.out.leaf(x);
+            // `ir` full: emit the collapsed right directly over the filled left.
+            let (max_er, ev_end) = self.view.max(left.ev_end);
+            let value = max_er.max(self.out.base_of(left.out_root).clone());
+            let right_leaf = self.out.leaf(value);
             self.out.close_node(node, right_leaf);
             return Built {
                 out_root: node,
-                id_end: ir_hdr.next, // past the 1-leaf `ir`
-                ev_end: er_end,
+                id_end: ir_hdr.next,
+                ev_end,
             };
         }
-        let right = descend!(depth + 1, self.rec(ir, er, depth + 1));
+        let right = descend!(depth + 1, self.rec(left.id_end, left.ev_end, depth + 1));
         self.out.close_node(node, right.out_root);
         Built {
             out_root: node,
