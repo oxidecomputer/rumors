@@ -1,3 +1,19 @@
+//! Elias-gamma encoding/decoding for use in [`Version`](crate::Version)s.
+//!
+//! By the structural invariants on the normal form of a
+//! [`Version`](crate::Version), we know that >= 50% of all integers in a
+//! version *must* be 0. Encoding in Elias-gamma means that these zeroes cost 1
+//! bit to represent, and other integers cost proportionate to the log of their
+//! magnitude. Because normalization pushes magnitude towards the root of the
+//! tree, it's expected that most integers are *much* smaller than `u64::MAX`,
+//! even when many, many events have occurred, so this encoding is close to
+//! minimal in our case.
+//!
+//! The cost: we pay for encoding and decoding Elias-gamma on operations which
+//! need to examine versions, but this is worth it to gain dozens-fold heap
+//! usage improvement. We also amortize the decoding when you use a
+//! [`Batch`](version::Batch).
+
 use num_bigint::BigUint;
 
 use crate::error::Decode;
