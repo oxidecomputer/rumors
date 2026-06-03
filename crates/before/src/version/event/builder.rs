@@ -1,6 +1,6 @@
 use crate::codec::{Base, Bits};
 
-use crate::version::compare::{EvHeader, EvReader, EvView};
+use crate::version::compare::{EvNode, EvReader};
 use crate::version::working::WorkingVersion;
 
 /// Accumulates the output event tree in preorder. A node's base is written as a
@@ -43,42 +43,31 @@ impl Builder {
         i
     }
 
-    /// Copy the subtree at `root` of `src` verbatim (it is already normalized);
-    /// return `(new_root, src_end)` — its index here and the position just past
-    /// it in `src`. Iterative single pass: the same pending-children scan as
-    /// the shared [`idbits::skip_subtree`](crate::idbits::skip_subtree) core,
-    /// but it keeps its own loop because it emits each visited node into the
-    /// output as it goes rather than only computing the end position.
     /// Copy the whole subtree at `src` verbatim (it is already normal form),
-    /// returning the output root and a reader positioned past it. The
-    /// reader-threading form of [`copy`](Self::copy); a synthetic `Zero` subtree
-    /// copies as a fresh `Leaf(0)`.
+    /// returning the output root and a reader positioned just past it. Iterative
+    /// single pass: the same pending-children scan as the shared
+    /// [`idbits::skip_subtree`](crate::idbits::skip_subtree) core, but it emits
+    /// each visited node into the output as it goes rather than only computing
+    /// the end. A synthetic `Zero` subtree copies as a fresh `Leaf(0)`.
     pub(super) fn copy_reader<'a>(&mut self, src: EvReader<'a>) -> (usize, EvReader<'a>) {
-        match src.parts() {
-            None => (self.leaf(Base::ZERO), src),
-            Some((view, pos)) => {
-                let (root, end) = self.copy(&view, pos);
-                (root, EvReader::at(view, end))
-            }
+        if let EvReader::Zero = src {
+            return (self.leaf(Base::ZERO), src);
         }
-    }
-
-    pub(super) fn copy(&mut self, src: &EvView, root: usize) -> (usize, usize) {
         let out_root = self.len();
-        let mut pos = root;
+        let mut r = src;
         let mut pending: i64 = 1;
         while pending > 0 {
-            let EvHeader {
-                internal,
-                base,
-                next,
-            } = src.header(pos);
+            let (node, next) = r.read();
+            let internal = node.is_internal();
+            let base = match node {
+                EvNode::Leaf(b) | EvNode::Internal(b) => b,
+            };
             self.topo.push(internal);
             self.base.push(base);
-            pos = next;
             pending += if internal { 1 } else { -1 };
+            r = next;
         }
-        (out_root, pos)
+        (out_root, r)
     }
 
     /// Finalize the internal node at `node` whose left child is at `node + 1`
@@ -153,18 +142,3 @@ impl Builder {
 /// callers cannot poke the base array directly (see
 /// [`Builder::deferred_leaf`](Builder::deferred_leaf)).
 pub(super) struct DeferredLeaf(usize);
-
-/// The thread register for the id-driven emitting walks — `fill` and the `grow`
-/// emit (see the module doc): the output root a just-finished subtree produced,
-/// plus where it ended in the packed id stream and the event tree. An `Eval`
-/// arm *writes* it (a leaf directly, or via a `*Close` arm folding a node);
-/// deferred frames *read* it.
-#[derive(Clone, Copy, Default)]
-pub(super) struct Built {
-    /// Output index of the subtree's root.
-    pub(super) out_root: usize,
-    /// Position just past the subtree in the packed id stream.
-    pub(super) id_end: usize,
-    /// Position just past the subtree in the event tree.
-    pub(super) ev_end: usize,
-}

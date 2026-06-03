@@ -37,7 +37,7 @@ use rayon::prelude::*;
 use super::{
     all_normal_events, all_normal_ids, EV_DEEP_DEPTH, EV_SMALL_DEPTH, ID_DEEP_DEPTH, ID_SMALL_DEPTH,
 };
-use crate::idbits::IdView;
+use crate::idbits::IdReader;
 use crate::oracle;
 use crate::testing::bridge::{
     from_oracle_party, from_oracle_version, to_oracle_party, to_oracle_version,
@@ -107,7 +107,7 @@ fn check_id_split(ids: &[oracle::Party], imp: &[Party]) {
         let mut oracle_self = oa.clone();
         let oracle_give = oracle_self.fork(); // fork == split; mutates self to the kept half
 
-        let (keep_bits, give_bits) = IdView(imp[i].as_bits()).split();
+        let (keep_bits, give_bits) = IdReader::root(imp[i].as_bits()).split();
         assert!(Party::from_bits(keep_bits) == from_oracle_party(&oracle_self));
         assert!(Party::from_bits(give_bits) == from_oracle_party(&oracle_give));
     });
@@ -124,7 +124,7 @@ fn check_id_pairs(ids: &[oracle::Party], imp: &[Party]) {
         let disjoint = oa.is_disjoint(ob);
         assert_eq!(ia.is_disjoint(ib), disjoint, "is_disjoint {oa:?} {ob:?}");
 
-        let summed = IdView(ia.as_bits()).sum(&IdView(ib.as_bits()));
+        let summed = IdReader::root(ia.as_bits()).sum(IdReader::root(ib.as_bits()));
         if disjoint {
             let mut oracle_sum = oa.clone();
             oracle_sum.join(ob.clone()).expect("disjoint, just checked");
@@ -338,8 +338,8 @@ fn id_is_disjoint_is_symmetric() {
 fn id_sum_is_commutative() {
     let imp = impl_ids(ID_SMALL_DEPTH);
     par_for_pairs(imp.len(), |i, j| {
-        let ab = IdView(imp[i].as_bits()).sum(&IdView(imp[j].as_bits()));
-        let ba = IdView(imp[j].as_bits()).sum(&IdView(imp[i].as_bits()));
+        let ab = IdReader::root(imp[i].as_bits()).sum(IdReader::root(imp[j].as_bits()));
+        let ba = IdReader::root(imp[j].as_bits()).sum(IdReader::root(imp[i].as_bits()));
         assert!(ab == ba, "sum not commutative at ({i}, {j})");
     });
 }

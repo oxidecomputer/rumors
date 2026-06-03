@@ -4,7 +4,7 @@
 use proptest::prelude::*;
 
 use super::Party;
-use crate::idbits::IdView;
+use crate::idbits::IdReader;
 use crate::testing::bridge::{from_oracle_party, to_oracle_party};
 use crate::testing::complexity::{assert_linear_scaling, steps_of, MIN_SCALE};
 use crate::testing::generators::{
@@ -51,7 +51,7 @@ proptest! {
         let measure = |s: usize| {
             let p = shape_party(shape, s);
             steps_of(|| {
-                IdView(p.as_bits()).split();
+                IdReader::root(p.as_bits()).split();
             })
         };
         assert_linear_scaling(measure(scale), measure(scale * 4));
@@ -67,7 +67,7 @@ proptest! {
             let mut keep = shape_party(shape, s);
             let give = keep.fork(); // a deep disjoint pair; this build is not measured
             steps_of(|| {
-                IdView(keep.as_bits()).sum(&IdView(give.as_bits()));
+                IdReader::root(keep.as_bits()).sum(IdReader::root(give.as_bits()));
             })
         };
         assert_linear_scaling(measure(scale), measure(scale * 4));
@@ -86,7 +86,7 @@ proptest! {
         let measure = |s: usize| {
             let (a, b) = skip_stress_pair(s);
             steps_of(|| {
-                IdView(a.as_bits()).is_disjoint(&IdView(b.as_bits()));
+                IdReader::root(a.as_bits()).is_disjoint(IdReader::root(b.as_bits()));
             })
         };
         assert_linear_scaling(measure(scale), measure(scale * 4));
@@ -160,14 +160,14 @@ proptest! {
     /// `split` (the structural op behind `fork`) on an arbitrary non-empty id
     /// matches the oracle's `split`, structurally — on shapes the seed pipeline
     /// never forks. The two halves are read straight off the impl's packed
-    /// `IdView::split` output and lowered for comparison.
+    /// `IdReader::split` output and lowered for comparison.
     #[test]
     fn split_arbitrary(op in arb_oracle_party_nonempty()) {
         let mut oracle_self = op.clone();
         let oracle_give = oracle_self.fork(); // fork = split; mutates `oracle_self` to the kept half
 
         let p = from_oracle_party(&op);
-        let (keep_bits, give_bits) = IdView(p.as_bits()).split();
+        let (keep_bits, give_bits) = IdReader::root(p.as_bits()).split();
         let keep = Party::from_bits(keep_bits);
         let give = Party::from_bits(give_bits);
 
@@ -188,7 +188,7 @@ proptest! {
         ob in arb_oracle_party(),
     ) {
         let (ia, ib) = (from_oracle_party(&oa), from_oracle_party(&ob));
-        let summed = IdView(ia.as_bits()).sum(&IdView(ib.as_bits()));
+        let summed = IdReader::root(ia.as_bits()).sum(IdReader::root(ib.as_bits()));
 
         if oa.is_disjoint(&ob) {
             let mut oracle_sum = oa.clone();

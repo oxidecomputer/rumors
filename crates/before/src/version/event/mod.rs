@@ -14,18 +14,18 @@
 //!
 //! # Recursion and threading
 //!
-//! Every two-tree machine here ([`EvView::join`], [`EvView::fill`], and the
-//! [`grow`] submodule's probe and emit) — and `EvView::causal_cmp` in
+//! Every two-tree machine here ([`EvReader::join`], [`EvReader::fill`], and the
+//! [`grow`] submodule's probe and emit) — and `EvReader::causal_cmp` in
 //! [`super::compare`] next door — recurses on tree depth, returning a small
 //! per-subtree *report* and threading right-child positions instead of
 //! re-scanning to find them:
 //!
-//! - Each recursive call returns its just-finished subtree's report: the
-//!   position just past it in each input tree, plus a per-walk payload — the
-//!   output root it produced ([`Built`], shared by `fill` and the grow emit;
-//!   `join`'s `Joined`), the subtree's cost (`grow`'s `Probed`), or just the end
-//!   positions (`compare`). A right child is evaluated starting where its left
-//!   sibling's report says it ended, so it never re-scans.
+//! - Each recursive call returns its just-finished subtree's report: a reader
+//!   just past it in each input tree, plus a per-walk payload — the output root
+//!   it produced (`fill`'s `Filled`, the grow emit's `Grown`, `join`'s
+//!   `Joined`), the subtree's cost (`grow`'s `Probed`), or just the end readers
+//!   (`compare`). A right child is evaluated starting where its left sibling's
+//!   report says it ended, so it never re-scans.
 //!
 //! - Recursion is guarded by [`crate::recurse`]: a shallow, near-balanced tree
 //!   recurses on the program stack at native speed, while a deep one grows the
@@ -42,9 +42,9 @@
 //!
 //! | Idiom | Shape | Where |
 //! |-------|-------|-------|
-//! | Recursive walk returning a per-subtree report | threaded DFS / fold / build | `causal_cmp`, `join`, `fill`, [`EvView::max`], the [`grow`] probe/emit, `party::ops::sum`, `party::ops::compare`, `party::ops::is_disjoint` |
+//! | Recursive walk returning a per-subtree report | threaded DFS / fold / build | `causal_cmp`, `join`, `fill`, [`EvReader::max`], the [`grow`] probe/emit, `party::ops::sum`, `party::ops::compare`, `party::ops::is_disjoint` |
 //! | Recursive single-tree build/print | one-tree parse/print | `codec` parse/write of ids and event trees, `party::ops::split`'s pass 1 |
-//! | Pending-children counter (`pending: i64`) | subtree-span scan | [`idbits::skip_subtree`](crate::idbits::skip_subtree) (shared by `idbits::skip` and `EvView::skip`), [`Builder::copy`] |
+//! | Pending-children counter (`pending: i64`) | subtree-span scan | [`idbits::skip_subtree`](crate::idbits::skip_subtree) (shared by `IdReader::skip` and `EvReader::skip`), [`Builder::copy_reader`] |
 //!
 //! The first idiom dominates (a single-output fold like `max` returns just the
 //! subtree maximum and its end; a two-tree build threads two end positions); the
@@ -53,7 +53,7 @@
 
 use crate::codec::BitsSlice;
 
-use super::compare::EvView;
+use super::compare::EvReader;
 use super::working::WorkingVersion;
 
 mod builder;
@@ -62,19 +62,14 @@ mod grow;
 mod join;
 mod max;
 
-use builder::{Builder, Built};
-
-/// Sentinel event position: a virtual `Leaf(0)`, used by [`grow`] when it
-/// expands an event leaf into a node to follow the id deeper. Never a real bit
-/// offset.
-pub(super) const VIRTUAL: usize = usize::MAX;
+use builder::Builder;
 
 /// Advance `id`'s component of the event tree by one event. `fill` first (it
 /// may simplify the tree using the available id); if it changes nothing,
 /// `grow`. The id is the packed `enc_id` stream; `ev` is the current working
 /// form. `O(n + m)`.
 pub(crate) fn tick(id: &BitsSlice, ev: &WorkingVersion) -> WorkingVersion {
-    let view = EvView::Working(ev);
+    let view = EvReader::working(ev);
     let filled = view.fill(id);
     if filled.topo != ev.topo || filled.base != ev.base {
         filled

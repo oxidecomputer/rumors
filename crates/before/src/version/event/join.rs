@@ -1,15 +1,15 @@
 use crate::codec::Base;
 use crate::recurse::descend;
 
-use crate::version::compare::{EvReader, EvView, Side};
+use crate::version::compare::{EvReader, Side};
 use crate::version::working::WorkingVersion;
 
 use super::Builder;
 
-impl EvView<'_> {
+impl<'a> EvReader<'a> {
     /// The least upper bound of `self` and `other` (the paper's `join` over
     /// event trees), produced in normal form. Reads either storage form via
-    /// [`EvView`]; `O(n + m)`.
+    /// [`EvReader`]; `O(n + m)`.
     ///
     /// The recursive, offset-threaded form of `oracle::Version::join_off` (the
     /// paper's `join`), guarded by [`crate::recurse`] so deep trees grow the
@@ -17,26 +17,17 @@ impl EvView<'_> {
     /// the shared [`Side`] helper: an internal side descends, a leaf side
     /// broadcasts a [`Zero`](EvReader::Zero) to both of the other side's
     /// children, and each side hands its node sum to both children.
-    pub(crate) fn join(&self, other: &EvView) -> WorkingVersion {
+    pub(crate) fn join(self, other: EvReader<'a>) -> WorkingVersion {
         let mut walk = JoinWalk {
             out: Builder::with_capacity(self.node_capacity_bound() + other.node_capacity_bound()),
         };
         let zero = Base::ZERO;
-        descend!(
-            0,
-            walk.rec(
-                EvReader::root(*self),
-                &zero,
-                EvReader::root(*other),
-                &zero,
-                0
-            )
-        );
+        descend!(0, walk.rec(self, &zero, other, &zero, 0));
         walk.out.finish()
     }
 }
 
-/// The single output builder of a [`join`](EvView::join) walk; the readers
+/// The single output builder of a [`join`](EvReader::join) walk; the readers
 /// carry the traversal state.
 struct JoinWalk {
     out: Builder,

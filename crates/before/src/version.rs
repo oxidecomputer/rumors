@@ -11,7 +11,7 @@ use crate::codec::{self, BitsSlice};
 use crate::error::{Decode, Parse};
 use crate::Party;
 
-use self::compare::EvView;
+use self::compare::EvReader;
 use self::working::WorkingVersion;
 
 mod compare;
@@ -109,8 +109,8 @@ impl Version {
     }
 
     /// A read-only view of this version's event tree.
-    fn view(&self) -> EvView<'_> {
-        EvView::Packed(&self.0)
+    fn view(&self) -> EvReader<'_> {
+        EvReader::packed(&self.0)
     }
 
     /// Encode this [`Version`] to bytes.
@@ -212,7 +212,7 @@ impl PartialOrd for Version {
     /// assert!(a < b);
     /// ```
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.view().causal_cmp(&other.view())
+        self.view().causal_cmp(other.view())
     }
 }
 
@@ -224,7 +224,7 @@ impl PartialEq<Version> for &Version {
 
 impl PartialOrd<Version> for &Version {
     fn partial_cmp(&self, other: &Version) -> Option<Ordering> {
-        self.view().causal_cmp(&other.view())
+        self.view().causal_cmp(other.view())
     }
 }
 
@@ -236,7 +236,7 @@ impl PartialEq<&Version> for Version {
 
 impl PartialOrd<&Version> for Version {
     fn partial_cmp(&self, other: &&Version) -> Option<Ordering> {
-        self.view().causal_cmp(&other.view())
+        self.view().causal_cmp(other.view())
     }
 }
 
@@ -365,10 +365,10 @@ impl Batch<'_> {
     pub(crate) fn merge(&mut self, other: &Version) -> &mut Self {
         let current = self.view();
         let incoming = other.view();
-        if current.trivially_eq(&incoming) {
+        if current.trivially_eq(incoming) {
             return self;
         }
-        let work = current.join(&incoming);
+        let work = current.join(incoming);
         self.work = Some(work);
         self
     }
@@ -392,10 +392,10 @@ impl Batch<'_> {
 
     /// A read-only view of the in-progress event tree (working form if
     /// materialized, otherwise the borrowed version's packed bits).
-    fn view(&self) -> EvView<'_> {
+    fn view(&self) -> EvReader<'_> {
         match &self.work {
-            Some(work) => EvView::Working(work),
-            None => EvView::Packed(self.version.as_bits()),
+            Some(work) => EvReader::working(work),
+            None => EvReader::packed(self.version.as_bits()),
         }
     }
 }
@@ -438,7 +438,7 @@ impl BitOr<Version> for Version {
         if self == r {
             return self;
         }
-        let work = self.view().join(&r.view());
+        let work = self.view().join(r.view());
         Version::from_bits(work.repack())
     }
 }
@@ -449,7 +449,7 @@ impl BitOr<&Version> for Version {
         if self == r {
             return self;
         }
-        let work = self.view().join(&r.view());
+        let work = self.view().join(r.view());
         Version::from_bits(work.repack())
     }
 }
@@ -487,7 +487,7 @@ impl BitOrAssign<Version> for Version {
         if *self == r {
             return;
         }
-        let work = self.view().join(&r.view());
+        let work = self.view().join(r.view());
         *self = Version::from_bits(work.repack());
     }
 }
@@ -503,7 +503,7 @@ impl BitOrAssign<&Version> for Version {
         if self == r {
             return;
         }
-        let work = self.view().join(&r.view());
+        let work = self.view().join(r.view());
         *self = Version::from_bits(work.repack());
     }
 }
@@ -524,32 +524,32 @@ macro_rules! causal_cmp_impls {
         $(
             impl PartialEq<$rhs> for $lhs {
                 fn eq(&self, o: &$rhs) -> bool {
-                    self.view().causal_cmp(&o.view()) == Some(Ordering::Equal)
+                    self.view().causal_cmp(o.view()) == Some(Ordering::Equal)
                 }
             }
             impl PartialOrd<$rhs> for $lhs {
                 fn partial_cmp(&self, o: &$rhs) -> Option<Ordering> {
-                    self.view().causal_cmp(&o.view())
+                    self.view().causal_cmp(o.view())
                 }
             }
             impl PartialEq<$rhs> for &$lhs {
                 fn eq(&self, o: &$rhs) -> bool {
-                    self.view().causal_cmp(&o.view()) == Some(Ordering::Equal)
+                    self.view().causal_cmp(o.view()) == Some(Ordering::Equal)
                 }
             }
             impl PartialOrd<$rhs> for &$lhs {
                 fn partial_cmp(&self, o: &$rhs) -> Option<Ordering> {
-                    self.view().causal_cmp(&o.view())
+                    self.view().causal_cmp(o.view())
                 }
             }
             impl PartialEq<&$rhs> for $lhs {
                 fn eq(&self, o: &&$rhs) -> bool {
-                    self.view().causal_cmp(&o.view()) == Some(Ordering::Equal)
+                    self.view().causal_cmp(o.view()) == Some(Ordering::Equal)
                 }
             }
             impl PartialOrd<&$rhs> for $lhs {
                 fn partial_cmp(&self, o: &&$rhs) -> Option<Ordering> {
-                    self.view().causal_cmp(&o.view())
+                    self.view().causal_cmp(o.view())
                 }
             }
         )*

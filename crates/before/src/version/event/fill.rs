@@ -2,12 +2,12 @@ use crate::codec::BitsSlice;
 use crate::idbits::{IdNode, IdReader};
 use crate::recurse::descend;
 
-use crate::version::compare::{EvNode, EvReader, EvView};
+use crate::version::compare::{EvNode, EvReader};
 use crate::version::working::WorkingVersion;
 
 use super::Builder;
 
-impl EvView<'_> {
+impl EvReader<'_> {
     /// `fill(id, ev)`: use the available id to simplify this event tree
     /// (`self`) without registering a new event — wherever the id is full over
     /// a subtree, collapse that subtree to its maximum. Produces normal form.
@@ -19,19 +19,16 @@ impl EvView<'_> {
     /// walk reads as the oracle's `match (id, ev)`, threading an [`IdReader`] and
     /// an [`EvReader`] in place of bare positions. Guarded by [`crate::recurse`]
     /// so deep trees grow the stack onto the heap rather than overflowing.
-    pub(super) fn fill(&self, id_bits: &BitsSlice) -> WorkingVersion {
+    pub(super) fn fill(self, id_bits: &BitsSlice) -> WorkingVersion {
         let mut walk = FillWalk {
             out: Builder::with_capacity(self.node_capacity_bound()),
         };
-        descend!(
-            0,
-            walk.rec(IdReader::root(id_bits), EvReader::root(*self), 0)
-        );
+        descend!(0, walk.rec(IdReader::root(id_bits), self, 0));
         walk.out.finish()
     }
 }
 
-/// The single output builder of a [`fill`](EvView::fill) walk; the readers carry
+/// The single output builder of a [`fill`](EvReader::fill) walk; the readers carry
 /// the traversal state.
 struct FillWalk {
     out: Builder,

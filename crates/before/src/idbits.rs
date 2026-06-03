@@ -4,91 +4,20 @@
 //!
 //! `enc_id(Leaf v) = 0, v` (2 bits); `enc_id(Node l r) = 1, enc_id(l), enc_id(r)`.
 //!
-//! The bit stream is wrapped in [`IdView`] — a lightweight read-only newtype
-//! that parallels the event side's `EvView` — so the cursor operations read as
-//! methods on the id (`id.header(at)`, `id.skip(at)`).
+//! The bit stream is wrapped in [`IdReader`] — a consuming cursor that parallels
+//! the event side's [`EvReader`](crate::version::compare) — so the operations
+//! read as the paper's recursive `match` over [`IdNode`].
 //!
 //! **Normal-form precondition.** Every `Party` is in canonical normal form
 //! (`decode` rejects anything else; every op produces normal form), and so is
 //! every subtree of one. Normalization collapses `(0,0) → 0` and `(1,1) → 1`,
-//! so in a normal id an empty region is *exactly* the `0` leaf and a full
-//! region is *exactly* the `1` leaf, so emptiness/fullness are `O(1)` checks on
-//! an already-decoded [`IdHeader`] rather than subtree scans. Callers must only
-//! pass normal-form id bits.
+//! so in a normal id an empty region is *exactly* the `0` leaf
+//! ([`IdNode::Empty`]) and a full region is *exactly* the `1` leaf
+//! ([`IdNode::Full`]), so emptiness/fullness are `O(1)` checks on a decoded node
+//! rather than subtree scans. Callers must only pass normal-form id bits.
 
 use crate::codec::BitsSlice;
 use crate::step;
-
-/// A read-only view of a packed id bit stream, addressed by a bit offset. The
-/// id-side analogue of the event side's `EvView`: cursor operations hang off it
-/// as methods. A thin `Copy` wrapper over a borrowed slice, so passing one by
-/// value is free.
-#[derive(Clone, Copy)]
-pub(crate) struct IdView<'a>(pub(crate) &'a BitsSlice);
-
-/// The decoded id-node header at a position. For a node the header is the
-/// single flag bit (`node`) and the left child begins at `next`; for a leaf the
-/// header is the flag plus its value bit (`val`).
-pub(crate) struct IdHeader {
-    /// Whether this node is internal (has two children) rather than a leaf.
-    pub(crate) node: bool,
-    /// A leaf's value bit (`true` = owned, `false` = not owned); meaningless for a node.
-    pub(crate) val: bool,
-    /// Position just past this node's header (where its left child, if any, begins).
-    pub(crate) next: usize,
-}
-
-impl IdHeader {
-    /// Whether this already-decoded normal-form header is the empty `0` leaf.
-    pub(crate) fn is_empty(&self) -> bool {
-        !self.node && !self.val
-    }
-
-    /// Whether this already-decoded normal-form header is the full `1` leaf.
-    pub(crate) fn is_full(&self) -> bool {
-        !self.node && self.val
-    }
-}
-
-impl<'a> IdView<'a> {
-    /// Decode the id-node header at `at`. For a node the header is the single
-    /// flag bit and the left child begins at [`IdHeader::next`]; for a leaf the
-    /// header is the flag plus its value bit.
-    pub(crate) fn header(&self, at: usize) -> IdHeader {
-        let bits = self.0;
-        step!();
-        if bits[at] {
-            IdHeader {
-                node: true,
-                val: false,
-                next: at + 1,
-            }
-        } else {
-            IdHeader {
-                node: false,
-                val: bits[at + 1],
-                next: at + 2,
-            }
-        }
-    }
-
-    /// Position just past the whole subtree rooted at `at`. Iterative: a
-    /// pending-children counter, never the call stack — see the shared
-    /// [`skip_subtree`] core. (The event-tree analogue, on the `EvView` header
-    /// shape, is `EvView::skip` in `version::compare`: same algorithm via the
-    /// same core, different node encoding.)
-    pub(crate) fn skip(&self, at: usize) -> usize {
-        skip_subtree(at, |pos| {
-            let h = self.header(pos);
-            (h.node, h.next)
-        })
-    }
-
-    /// The underlying packed bit stream.
-    pub(crate) fn bits(&self) -> &'a BitsSlice {
-        self.0
-    }
-}
 
 /// A decoded id node: the empty `0` leaf, the full `1` leaf, or an internal
 /// node. The id-side analogue of the event side's `EvNode` — a clean three-way
@@ -121,6 +50,12 @@ impl<'a> IdReader<'a> {
         IdReader { bits, pos: 0 }
     }
 
+    /// A reader at an explicit bit offset, for resuming a scan at a recorded
+    /// subtree position (see `split`'s `build_split`).
+    pub(crate) fn at(bits: &'a BitsSlice, pos: usize) -> Self {
+        IdReader { bits, pos }
+    }
+
     /// Decode this node, returning it together with a reader positioned just
     /// past the header — at the left child, for an internal node.
     pub(crate) fn read(self) -> (IdNode, IdReader<'a>) {
@@ -144,10 +79,26 @@ impl<'a> IdReader<'a> {
     /// A reader positioned just past this whole subtree (the shared iterative
     /// [`skip_subtree`] scan), for skipping a dominated id subtree.
     pub(crate) fn skip(self) -> IdReader<'a> {
-        IdReader {
-            bits: self.bits,
-            pos: IdView(self.bits).skip(self.pos),
-        }
+        let bits = self.bits;
+        let pos = skip_subtree(self.pos, |at| {
+            step!();
+            if bits[at] {
+                (true, at + 1) // internal: one flag bit
+            } else {
+                (false, at + 2) // leaf: flag + value bit
+            }
+        });
+        IdReader { bits, pos }
+    }
+
+    /// The underlying packed bit stream.
+    pub(crate) fn bits(self) -> &'a BitsSlice {
+        self.bits
+    }
+
+    /// This reader's bit offset, for copying a subtree's verbatim bit range.
+    pub(crate) fn pos(self) -> usize {
+        self.pos
     }
 }
 
@@ -157,10 +108,10 @@ impl<'a> IdReader<'a> {
 /// one outstanding child), never the call stack — deep inputs cannot overflow.
 /// `header(at)` reports `(is_internal, next)`: whether the node at `at` is
 /// internal (so its children follow) and the position just past its header. The
-/// single shared spelling of this scan: [`IdView::skip`] runs it on the packed
-/// id header shape, `EvView::skip` (in `version::compare`) on the `EvView`
-/// event header shape, and `version::event::Builder::copy` inlines the same
-/// loop while also emitting the visited nodes.
+/// single shared spelling of this scan: [`IdReader::skip`] runs it on the packed
+/// id encoding, `EvReader::skip` (in `version::compare`) on the event encoding,
+/// and `version::event::Builder::copy_reader` inlines the same loop while also
+/// emitting the visited nodes.
 pub(crate) fn skip_subtree(mut at: usize, mut header: impl FnMut(usize) -> (bool, usize)) -> usize {
     let mut pending: i64 = 1;
     while pending > 0 {

@@ -2,7 +2,7 @@
 //! that reads either representation in place (no transcode) and yields the
 //! comparison directly.
 //!
-//! [`EvView::causal_cmp`] decides the causal order of `a` and `b` by a
+//! [`EvReader::causal_cmp`] decides the causal order of `a` and `b` by a
 //! pointwise comparison of their event functions, tracking both `a <= b` and `b
 //! <= a` in **one** traversal — running the paper's `leq` twice would do double
 //! the work. It is the paper's recursive `leq` made symmetric *and* `O(n + m)`,
@@ -30,124 +30,6 @@ use crate::{idbits, step};
 
 use super::working::WorkingVersion;
 
-/// The decoded event-node header at a position: whether the node is internal,
-/// its stored base, and where the next node begins. Returned by
-/// [`EvView::header`].
-pub(super) struct EvHeader {
-    /// Whether this node is internal (has two children) rather than a leaf.
-    pub(super) internal: bool,
-    /// This node's stored base, an arbitrary-precision [`Base`].
-    pub(super) base: Base,
-    /// Position just past this node's header (where its left child, if any,
-    /// begins).
-    pub(super) next: usize,
-}
-
-/// A read-only view of an event tree in either storage form, addressed by a
-/// position (a bit offset for packed, a node index for working). Visibility is
-/// uniform `pub(super)` across the trio
-/// `EvView`/[`header`](EvView::header)/[`skip`](EvView::skip) — used throughout
-/// `version/` (compare, event, grow) and nowhere outside it. `Copy`: it holds
-/// only shared borrows, so passing it by value is free.
-#[derive(Clone, Copy)]
-pub(super) enum EvView<'a> {
-    Packed(&'a BitsSlice),
-    Working(&'a WorkingVersion),
-}
-
-impl EvView<'_> {
-    /// Decode the event-node header at `at`. For packed, the header is the flag
-    /// bit plus the gamma-coded base; the left child (if any) begins at
-    /// [`EvHeader::next`]. For working, a node is one slot. The base is an
-    /// arbitrary-precision [`Base`], returned by value (cloned from the working
-    /// store).
-    pub(super) fn header(&self, at: usize) -> EvHeader {
-        // `grow` uses `super::event::VIRTUAL` (`usize::MAX`) as a sentinel
-        // "virtual leaf" position and always guards `ev == VIRTUAL` before any
-        // real header read. This turns a slipped guard into a loud panic
-        // instead of a silent out-of-bounds / wrong-answer. Defense-in-depth
-        // only; debug builds.
-        debug_assert!(
-            at != super::event::VIRTUAL,
-            "EvView::header called on the VIRTUAL sentinel position",
-        );
-        step!();
-        match self {
-            EvView::Packed(bits) => {
-                let internal = bits[at];
-                let (base, next) = decode_int(bits, at + 1).expect("canonical event bits");
-                EvHeader {
-                    internal,
-                    base,
-                    next,
-                }
-            }
-            EvView::Working(work) => EvHeader {
-                internal: work.topo[at],
-                base: work.base[at].clone(),
-                next: at + 1,
-            },
-        }
-    }
-
-    /// Whether the two views are *trivially* equal: the same storage form with
-    /// byte-for-byte identical contents. Both forms are always in canonical
-    /// normal form (a stored `Version` is canonical; the working form is kept
-    /// normal by `event::Builder`), so identical contents is exactly semantic
-    /// equality — which lets [`causal_cmp`](EvView::causal_cmp) settle `Equal`
-    /// with one length-checked memcmp instead of the full `O(n + m)` recursive
-    /// walk. A representation mismatch (one packed, one working) declines to
-    /// `false` and falls through: proving equality across forms would mean
-    /// transcoding one side, no cheaper than the walk itself.
-    pub(super) fn trivially_eq(&self, other: &EvView) -> bool {
-        match (self, other) {
-            (EvView::Packed(a), EvView::Packed(b)) => a == b,
-            (EvView::Working(a), EvView::Working(b)) => a.topo == b.topo && a.base == b.base,
-            _ => false,
-        }
-    }
-
-    /// An exclusive upper bound on the positions this view addresses: the bit
-    /// length for packed, the node count for working. Used to size a dense
-    /// position-indexed array (see `grow`'s `Route`).
-    pub(super) fn span(&self) -> usize {
-        match self {
-            EvView::Packed(bits) => bits.len(),
-            EvView::Working(work) => work.base.len(),
-        }
-    }
-
-    /// A conservative node-count capacity for output builders. Packed event
-    /// nodes occupy at least two bits (flag + gamma(0)), so this avoids a full
-    /// counting pass while keeping over-allocation bounded for normal
-    /// small-base trees.
-    pub(super) fn node_capacity_bound(&self) -> usize {
-        match self {
-            EvView::Packed(bits) => bits.len().div_ceil(2),
-            EvView::Working(work) => work.base.len(),
-        }
-    }
-
-    /// Advance past the whole subtree starting at `at`, returning the position
-    /// after it. Iterative: a pending-children counter, never the call stack.
-    /// Packed views skip the gamma-coded base without decoding it, because only
-    /// topology and end positions matter here.
-    pub(super) fn skip(&self, at: usize) -> usize {
-        match self {
-            EvView::Packed(bits) => idbits::skip_subtree(at, |pos| {
-                step!();
-                let internal = bits[pos];
-                let next = skip_int(bits, pos + 1).expect("canonical event bits");
-                (internal, next)
-            }),
-            EvView::Working(_) => idbits::skip_subtree(at, |pos| {
-                let h = self.header(pos);
-                (h.internal, h.next)
-            }),
-        }
-    }
-}
-
 /// A decoded event node: a leaf value, or an internal node's stored base. The
 /// base is the node's *relative* value; a path sum (offset) is threaded
 /// alongside to recover absolute values (see [`Side`]).
@@ -169,61 +51,149 @@ impl EvNode {
     }
 }
 
-/// A cursor into an event tree: a position in some [`EvView`], or `Zero` — a
-/// synthetic `Leaf(0)`. `Zero` is the paper's `0` in "a leaf `n` behaves as
-/// `(n, 0, 0)`": when a two-tree walk descends a node whose other side is a
-/// leaf, the leaf hands both children a `Zero`, so its single value is
-/// broadcast unchanged across the other side's subtree. A thin `Copy` handle
-/// (a view is shared borrows; `Zero` carries nothing).
+/// The sole cursor into an event tree, in either storage form, or a synthetic
+/// zero. It reads both representations in place (no transcode) and *consumes* —
+/// [`read`](EvReader::read) decodes the node at the cursor and returns a reader
+/// advanced past it, so operations thread readers rather than bare positions.
+///
+/// - `Packed`: a bit offset into the canonical `enc_ev` stream (flag bit +
+///   gamma-coded base, children following).
+/// - `Working`: a node index into the fixed-width working form (`topo`/`base`).
+/// - `Zero`: a synthetic `Leaf(0)` that consumes nothing — the paper's `0` in
+///   "a leaf `n` behaves as `(n, 0, 0)`". A leaf side of a two-tree walk hands
+///   both children a `Zero` (see [`Side`]); `grow` uses it as its *virtual
+///   leaf*, the `(0,0)` it expands an event leaf into to follow the id deeper.
+///
+/// `Copy`: shared borrows plus a position. Visibility is `pub(super)` —
+/// `pub(in crate::version)` — used throughout `version/` and nowhere outside.
 #[derive(Clone, Copy)]
 pub(super) enum EvReader<'a> {
-    At(EvView<'a>, usize),
+    Packed {
+        bits: &'a BitsSlice,
+        pos: usize,
+    },
+    Working {
+        work: &'a WorkingVersion,
+        pos: usize,
+    },
     Zero,
 }
 
 impl<'a> EvReader<'a> {
-    /// A reader at the root of `view`.
-    pub(super) fn root(view: EvView<'a>) -> Self {
-        EvReader::At(view, 0)
+    /// A reader at the root of a packed `enc_ev` stream.
+    pub(super) fn packed(bits: &'a BitsSlice) -> Self {
+        EvReader::Packed { bits, pos: 0 }
+    }
+
+    /// A reader at the root of a working-form event tree.
+    pub(super) fn working(work: &'a WorkingVersion) -> Self {
+        EvReader::Working { work, pos: 0 }
     }
 
     /// Decode this node, returning it together with a reader positioned just
-    /// past the header — at the left child, for an internal node. (`Zero` reads
-    /// as `Leaf(0)` and never advances: a synthetic leaf has no children.)
+    /// past the header — at the left child, for an internal node. `Zero` reads
+    /// as `Leaf(0)` and never advances (a synthetic leaf has no children).
     pub(super) fn read(self) -> (EvNode, EvReader<'a>) {
         match self {
             EvReader::Zero => (EvNode::Leaf(Base::ZERO), EvReader::Zero),
-            EvReader::At(view, pos) => {
-                let EvHeader {
-                    internal,
-                    base,
-                    next,
-                } = view.header(pos);
+            EvReader::Packed { bits, pos } => {
+                step!();
+                let internal = bits[pos];
+                let (base, next) = decode_int(bits, pos + 1).expect("canonical event bits");
                 let node = if internal {
                     EvNode::Internal(base)
                 } else {
                     EvNode::Leaf(base)
                 };
-                (node, EvReader::At(view, next))
+                (node, EvReader::Packed { bits, pos: next })
+            }
+            EvReader::Working { work, pos } => {
+                step!();
+                let base = work.base[pos].clone();
+                let node = if work.topo[pos] {
+                    EvNode::Internal(base)
+                } else {
+                    EvNode::Leaf(base)
+                };
+                (node, EvReader::Working { work, pos: pos + 1 })
             }
         }
     }
 
-    /// The `(view, position)` this reader points at, or `None` for the synthetic
-    /// `Zero`. Lets the event module reach the underlying view to run operations
-    /// defined there (`max`, `copy`) without exposing the variants widely.
-    pub(super) fn parts(self) -> Option<(EvView<'a>, usize)> {
+    /// A reader positioned just past this whole subtree. Iterative: a
+    /// pending-children counter (the shared
+    /// [`skip_subtree`](crate::idbits::skip_subtree) scan), never the call
+    /// stack. Packed skips the gamma-coded base without decoding it.
+    pub(super) fn skip(self) -> EvReader<'a> {
         match self {
-            EvReader::At(view, pos) => Some((view, pos)),
-            EvReader::Zero => None,
+            EvReader::Zero => EvReader::Zero,
+            EvReader::Packed { bits, pos } => EvReader::Packed {
+                bits,
+                pos: idbits::skip_subtree(pos, |p| {
+                    step!();
+                    let internal = bits[p];
+                    let next = skip_int(bits, p + 1).expect("canonical event bits");
+                    (internal, next)
+                }),
+            },
+            EvReader::Working { work, pos } => EvReader::Working {
+                work,
+                pos: idbits::skip_subtree(pos, |p| {
+                    step!();
+                    (work.topo[p], p + 1)
+                }),
+            },
         }
     }
 
-    /// Build a reader at an explicit `(view, position)` — the inverse of
-    /// [`parts`](EvReader::parts), for re-wrapping an end position the event
-    /// module computed.
-    pub(super) fn at(view: EvView<'a>, pos: usize) -> Self {
-        EvReader::At(view, pos)
+    /// This reader's position, for keying `grow`'s position-indexed `Route`.
+    /// Never called on `Zero` (a synthetic leaf is never a branch key).
+    pub(super) fn pos(self) -> usize {
+        match self {
+            EvReader::Packed { pos, .. } | EvReader::Working { pos, .. } => pos,
+            EvReader::Zero => unreachable!("pos() on the synthetic Zero reader"),
+        }
+    }
+
+    /// Whether two readers are *trivially* equal: the same storage form with
+    /// byte-for-byte identical contents (a whole-representation check,
+    /// independent of position). Both forms are always canonical normal form, so
+    /// identical contents is exactly semantic equality — which lets
+    /// [`causal_cmp`](EvReader::causal_cmp) settle `Equal` with one
+    /// length-checked memcmp instead of the full `O(n + m)` walk. A
+    /// representation mismatch declines to `false` and falls through: proving
+    /// equality across forms would mean transcoding, no cheaper than the walk.
+    pub(super) fn trivially_eq(self, other: EvReader) -> bool {
+        match (self, other) {
+            (EvReader::Packed { bits: a, .. }, EvReader::Packed { bits: b, .. }) => a == b,
+            (EvReader::Working { work: a, .. }, EvReader::Working { work: b, .. }) => {
+                a.topo == b.topo && a.base == b.base
+            }
+            _ => false,
+        }
+    }
+
+    /// An exclusive upper bound on the positions this representation addresses:
+    /// the bit length (packed) or node count (working). Sizes `grow`'s dense
+    /// position-indexed `Route`.
+    pub(super) fn span(self) -> usize {
+        match self {
+            EvReader::Packed { bits, .. } => bits.len(),
+            EvReader::Working { work, .. } => work.base.len(),
+            EvReader::Zero => 0,
+        }
+    }
+
+    /// A conservative node-count capacity for output builders. Packed event
+    /// nodes occupy at least two bits (flag + gamma(0)), so this avoids a full
+    /// counting pass while keeping over-allocation bounded for normal
+    /// small-base trees.
+    pub(super) fn node_capacity_bound(self) -> usize {
+        match self {
+            EvReader::Packed { bits, .. } => bits.len().div_ceil(2),
+            EvReader::Working { work, .. } => work.base.len(),
+            EvReader::Zero => 0,
+        }
     }
 }
 
@@ -284,7 +254,7 @@ impl<'a> Side<'a> {
     }
 }
 
-impl EvView<'_> {
+impl EvReader<'_> {
     /// The causal order of `self` and `other`, computed in one `O(n + m)` pass;
     /// `None` means concurrent.
     ///
@@ -297,28 +267,19 @@ impl EvView<'_> {
     /// while the leaf side broadcasts a [`Zero`](EvReader::Zero) to both its
     /// children. Recursion is guarded by [`crate::recurse`] so deep, unbalanced
     /// trees grow the stack onto the heap instead of overflowing.
-    pub(crate) fn causal_cmp(&self, other: &EvView) -> Option<Ordering> {
+    pub(crate) fn causal_cmp(self, other: EvReader) -> Option<Ordering> {
         // Both storage forms are canonical normal form, so identical contents is
         // exactly semantic equality: settle `Equal` with one memcmp before
         // recursing. Covers every entry point — Version vs Version, Batch vs
         // Batch, and a not-yet-materialized Batch (still packed) against either.
         // (Mixed packed/working forms decline and fall through; see
-        // `EvView::trivially_eq`.)
+        // `EvReader::trivially_eq`.)
         if self.trivially_eq(other) {
             return Some(Ordering::Equal);
         }
         let mut walk = CmpWalk { le: true, ge: true };
         let zero = Base::ZERO;
-        match descend!(
-            0,
-            walk.rec(
-                EvReader::root(*self),
-                &zero,
-                EvReader::root(*other),
-                &zero,
-                0
-            )
-        ) {
+        match descend!(0, walk.rec(self, &zero, other, &zero, 0)) {
             None => None, // concurrent
             Some(_) => match (walk.le, walk.ge) {
                 (true, true) => Some(Ordering::Equal),
@@ -330,7 +291,7 @@ impl EvView<'_> {
     }
 }
 
-/// The two still-possible directions of a [`causal_cmp`](EvView::causal_cmp)
+/// The two still-possible directions of a [`causal_cmp`](EvReader::causal_cmp)
 /// walk. The readers carry the traversal state; only the verdict lives here.
 struct CmpWalk {
     /// `a <= b` still possible.

@@ -1,10 +1,10 @@
 use crate::codec::{Bits, BitsSlice};
-use crate::idbits::IdView;
+use crate::idbits::{IdNode, IdReader};
 use crate::recurse::descend;
 
 use super::build::{id_leaf, id_node};
 
-impl IdView<'_> {
+impl IdReader<'_> {
     /// Split this id (`self`) into two non-overlapping ids that sum to it.
     /// `O(n)` in two passes: locate the *branch* — the shallowest node along
     /// the (unique) nonempty spine whose two children both own something, or
@@ -19,74 +19,78 @@ impl IdView<'_> {
     /// The recursive form of `oracle::Party::split` (the paper's `split`). Where
     /// the oracle recurses down the spine, this records the same branch during a
     /// single recursive scan and rebuilds the two halves without re-descending.
-    /// The scan is guarded by [`crate::recurse`] so deep ids grow the stack onto
-    /// the heap rather than overflowing.
-    pub(crate) fn split(&self) -> (Bits, Bits) {
-        let id = *self;
-        let bits = id.bits();
+    /// The scan threads an [`IdReader`] but records bit *positions* — the branch
+    /// node's and its children's — since `build_split` splices the input on
+    /// them. Guarded by [`crate::recurse`] so deep ids grow the stack onto the
+    /// heap rather than overflowing.
+    pub(crate) fn split(self) -> (Bits, Bits) {
+        let bits = self.bits();
         // A whole-tree leaf splits directly.
-        let root = id.header(0);
-        if !root.node {
-            return if root.val {
-                // split(1) = ((1, 0), (0, 1))
-                (
+        let (root, _) = self.read();
+        match root {
+            // split(0) = (0, 0)
+            IdNode::Empty => return (id_leaf(false), id_leaf(false)),
+            // split(1) = ((1, 0), (0, 1))
+            IdNode::Full => {
+                return (
                     id_node(&id_leaf(true), &id_leaf(false)),
                     id_node(&id_leaf(false), &id_leaf(true)),
                 )
-            } else {
-                (id_leaf(false), id_leaf(false))
-            };
+            }
+            IdNode::Internal => {}
         }
 
         // Pass 1: locate the branch by a single recursive preorder scan.
         let mut scan = SplitScan {
-            id,
             branch: None,
             one_leaf: None,
         };
-        descend!(0, scan.scan(0, 0));
+        descend!(0, scan.scan(self, 0));
         build_split(bits, scan.branch, scan.one_leaf)
     }
 }
 
-/// Pass-1 scan state for [`split`](IdView::split): the id being scanned, the
-/// branch node found so far (`(start, left_start, right_start)`, the
-/// shallowest both-nonempty node), and any `1` leaf (the branch when the tree
-/// is a pure spine with no both-nonempty node).
-struct SplitScan<'a> {
-    id: IdView<'a>,
+/// Pass-1 scan state for [`split`](IdReader::split): the branch node found so
+/// far (`(start, left_start, right_start)` bit positions, the shallowest
+/// both-nonempty node), and any `1` leaf position (the branch when the tree is
+/// a pure spine with no both-nonempty node).
+struct SplitScan {
     branch: Option<(usize, usize, usize)>,
     one_leaf: Option<usize>,
 }
 
-impl SplitScan<'_> {
-    /// Scan the subtree at `pos`, recording the shallowest both-nonempty node as
+impl SplitScan {
+    /// Scan the subtree at `id`, recording the shallowest both-nonempty node as
     /// the branch and the first `1` leaf, routed through the amortized
     /// stack-growth guard. Returns `(empty, end)`: whether the subtree owns
-    /// nothing, and the position just past it.
-    fn scan(&mut self, pos: usize, depth: usize) -> (bool, usize) {
-        let hdr = self.id.header(pos);
-        if !hdr.node {
-            if hdr.val {
-                self.one_leaf.get_or_insert(pos);
+    /// nothing, and a reader just past it.
+    fn scan<'a>(&mut self, id: IdReader<'a>, depth: usize) -> (bool, IdReader<'a>) {
+        let (node, after) = id.read();
+        match node {
+            IdNode::Empty => (true, after), // a `0` leaf is empty
+            IdNode::Full => {
+                self.one_leaf.get_or_insert(id.pos());
+                (false, after) // a `1` leaf is not empty
             }
-            return (!hdr.val, hdr.next); // a `0` leaf is empty; a `1` leaf is not
+            IdNode::Internal => {
+                let left = after;
+                let (left_empty, right) = descend!(depth + 1, self.scan(left, depth + 1));
+                let (right_empty, end) = descend!(depth + 1, self.scan(right, depth + 1));
+                // The shallowest both-nonempty node wins (smallest start): a
+                // parent's position is always less than its descendants', and
+                // postorder visits children first, so the parent overwrites any
+                // descendant branch.
+                if !left_empty && !right_empty && self.branch.is_none_or(|(p, ..)| id.pos() < p) {
+                    self.branch = Some((id.pos(), left.pos(), right.pos()));
+                }
+                (false, end) // a normal-form node is never empty
+            }
         }
-        let left_start = hdr.next;
-        let (left_empty, right_start) = descend!(depth + 1, self.scan(left_start, depth + 1));
-        let (right_empty, end) = descend!(depth + 1, self.scan(right_start, depth + 1));
-        // The shallowest both-nonempty node wins (smallest start); a parent's
-        // position is always less than its descendants', and postorder visits
-        // children first, so the parent overwrites any descendant branch.
-        if !left_empty && !right_empty && self.branch.is_none_or(|(p, ..)| pos < p) {
-            self.branch = Some((pos, left_start, right_start));
-        }
-        (false, end) // a normal-form node is never empty
     }
 }
 
 /// Build the two split halves once the branch is located (see
-/// [`split`](IdView::split)). `a` keeps the branch's left side (its right
+/// [`split`](IdReader::split)). `a` keeps the branch's left side (its right
 /// zeroed); `b` keeps the right side (its left zeroed).
 fn build_split(
     bits: &BitsSlice,
@@ -98,7 +102,7 @@ fn build_split(
         // Branch is a node `(i1, i2)`: i1 = bits[left_start..right_start], i2 =
         // bits[right_start..branch_end], with the wrapper spine in the prefix
         // bits[0..p] and the trailing wrapper closings in bits[branch_end..].
-        let branch_end = IdView(bits).skip(right_start);
+        let branch_end = IdReader::at(bits, right_start).skip().pos();
         let prefix = &bits[0..p];
         let i1 = &bits[left_start..right_start];
         let i2 = &bits[right_start..branch_end];

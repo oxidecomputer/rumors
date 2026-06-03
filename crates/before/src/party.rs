@@ -6,7 +6,7 @@ use bitvec::prelude::*;
 
 use crate::codec::{self, BitsSlice};
 use crate::error::{Decode, Parse};
-use crate::idbits::IdView;
+use crate::idbits::IdReader;
 use crate::Version;
 
 mod ops;
@@ -115,7 +115,7 @@ impl Party {
     /// assert_eq!(p.to_string(), "1");
     /// ```
     pub fn join(&mut self, other: Party) -> Result<(), Party> {
-        match self.view().sum(&other.view()) {
+        match self.view().sum(other.view()) {
             Some(bits) => {
                 self.0 = bits;
                 Ok(())
@@ -137,7 +137,7 @@ impl Party {
     /// assert!(p.is_disjoint(&q));
     /// ```
     pub fn is_disjoint(&self, other: &Party) -> bool {
-        self.view().is_disjoint(&other.view())
+        self.view().is_disjoint(other.view())
     }
 
     /// Encode a [`Party`] to bytes.
@@ -221,9 +221,9 @@ impl Party {
         Party(bits)
     }
 
-    /// A read-only [`IdView`] cursor over this party's packed id bits.
-    fn view(&self) -> IdView<'_> {
-        IdView(&self.0)
+    /// A read-only [`IdReader`] cursor at the root of this party's packed id bits.
+    fn view(&self) -> IdReader<'_> {
+        IdReader::root(&self.0)
     }
 
     /// The packed preorder bit stream (no trailing padding). Internal.

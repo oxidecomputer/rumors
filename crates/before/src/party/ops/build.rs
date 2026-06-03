@@ -1,5 +1,5 @@
 use crate::codec::{Bits, BitsSlice};
-use crate::idbits::IdView;
+use crate::idbits::IdReader;
 
 /// A leaf id stream: `0, v`.
 pub(super) fn id_leaf(v: bool) -> Bits {
@@ -52,12 +52,13 @@ impl IdBuilder {
     }
 
     /// Copy one already-normal source subtree into the output, returning its
-    /// new root and the source position just past it. The source subtree is
-    /// copied exactly once.
-    pub(super) fn copy(&mut self, src: IdView<'_>, root: usize) -> (usize, usize) {
+    /// new root and a reader just past it. The source subtree is copied exactly
+    /// once.
+    pub(super) fn copy_reader<'a>(&mut self, src: IdReader<'a>) -> (usize, IdReader<'a>) {
         let out_root = self.bits.len();
-        let end = src.skip(root);
-        self.bits.extend_from_bitslice(&src.bits()[root..end]);
+        let end = src.skip();
+        self.bits
+            .extend_from_bitslice(&src.bits()[src.pos()..end.pos()]);
         (out_root, end)
     }
 
