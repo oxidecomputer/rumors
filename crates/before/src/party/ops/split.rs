@@ -23,11 +23,11 @@ impl IdReader<'_> {
     /// node's and its children's — since `build_split` splices the input on
     /// them. Guarded by [`crate::recurse`] so deep ids grow the stack onto the
     /// heap rather than overflowing.
-    pub(crate) fn split(self) -> (Bits, Bits) {
+    pub(crate) fn split(mut self) -> (Bits, Bits) {
         let bits = self.bits();
-        // A whole-tree leaf splits directly.
-        let (root, _) = self.read();
-        match root {
+        // A whole-tree leaf splits directly. `peek` leaves the cursor at the
+        // root for the scan to read from.
+        match self.peek() {
             // split(0) = (0, 0)
             IdNode::Empty => return (id_leaf(false), id_leaf(false)),
             // split(1) = ((1, 0), (0, 1))
@@ -45,7 +45,7 @@ impl IdReader<'_> {
             branch: None,
             one_leaf: None,
         };
-        descend!(0, scan.scan(self, 0));
+        descend!(0, scan.scan(&mut self, 0));
         build_split(bits, scan.branch, scan.one_leaf)
     }
 }
@@ -61,29 +61,31 @@ struct SplitScan {
 
 impl SplitScan {
     /// Scan the subtree at `id`, recording the shallowest both-nonempty node as
-    /// the branch and the first `1` leaf, routed through the amortized
-    /// stack-growth guard. Returns `(empty, end)`: whether the subtree owns
-    /// nothing, and a reader just past it.
-    fn scan<'a>(&mut self, id: IdReader<'a>, depth: usize) -> (bool, IdReader<'a>) {
-        let (node, after) = id.read();
-        match node {
-            IdNode::Empty => (true, after), // a `0` leaf is empty
+    /// the branch and the first `1` leaf, advancing the `&mut` cursor past the
+    /// subtree and routing through the amortized stack-growth guard. Returns
+    /// whether the subtree owns nothing. Branch positions are captured from the
+    /// cursor before each read advances it.
+    fn scan(&mut self, id: &mut IdReader, depth: usize) -> bool {
+        let node_pos = id.pos(); // this node's bit position, before the read
+        match id.read() {
+            IdNode::Empty => true, // a `0` leaf is empty
             IdNode::Full => {
-                self.one_leaf.get_or_insert(id.pos());
-                (false, after) // a `1` leaf is not empty
+                self.one_leaf.get_or_insert(node_pos);
+                false // a `1` leaf is not empty
             }
             IdNode::Internal => {
-                let left = after;
-                let (left_empty, right) = descend!(depth + 1, self.scan(left, depth + 1));
-                let (right_empty, end) = descend!(depth + 1, self.scan(right, depth + 1));
+                let left_pos = id.pos(); // at `il`
+                let left_empty = descend!(depth + 1, self.scan(id, depth + 1));
+                let right_pos = id.pos(); // at `ir`, where the left subtree ended
+                let right_empty = descend!(depth + 1, self.scan(id, depth + 1));
                 // The shallowest both-nonempty node wins (smallest start): a
                 // parent's position is always less than its descendants', and
                 // postorder visits children first, so the parent overwrites any
                 // descendant branch.
-                if !left_empty && !right_empty && self.branch.is_none_or(|(p, ..)| id.pos() < p) {
-                    self.branch = Some((id.pos(), left.pos(), right.pos()));
+                if !left_empty && !right_empty && self.branch.is_none_or(|(p, ..)| node_pos < p) {
+                    self.branch = Some((node_pos, left_pos, right_pos));
                 }
-                (false, end) // a normal-form node is never empty
+                false // a normal-form node is never empty
             }
         }
     }
@@ -102,7 +104,11 @@ fn build_split(
         // Branch is a node `(i1, i2)`: i1 = bits[left_start..right_start], i2 =
         // bits[right_start..branch_end], with the wrapper spine in the prefix
         // bits[0..p] and the trailing wrapper closings in bits[branch_end..].
-        let branch_end = IdReader::at(bits, right_start).skip().pos();
+        let branch_end = {
+            let mut r = IdReader::at(bits, right_start);
+            r.skip();
+            r.pos()
+        };
         let prefix = &bits[0..p];
         let i1 = &bits[left_start..right_start];
         let i2 = &bits[right_start..branch_end];

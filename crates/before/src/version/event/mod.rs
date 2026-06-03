@@ -69,11 +69,12 @@ use builder::Builder;
 /// `grow`. The id is the packed `enc_id` stream; `ev` is the current working
 /// form. `O(n + m)`.
 pub(crate) fn tick(id: &BitsSlice, ev: &WorkingVersion) -> WorkingVersion {
-    let view = EvReader::working(ev);
-    let filled = view.fill(id);
+    // `fill` and `grow` each consume a cursor (cursors are single-use), so build
+    // a fresh one per pass from the source working form rather than reusing one.
+    let filled = EvReader::working(ev).fill(id);
     if filled.topo != ev.topo || filled.base != ev.base {
         filled
     } else {
-        view.grow(id)
+        EvReader::working(ev).grow(id)
     }
 }

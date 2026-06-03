@@ -32,73 +32,131 @@ pub(crate) enum IdNode {
     Internal,
 }
 
-/// A cursor into a packed id tree: a position in the bit stream. The id-side
-/// analogue of the event side's [`EvReader`](crate::version::compare). Where
-/// [`IdView`] exposes a positional `header(at)`, `IdReader` *consumes* — its
-/// [`read`](IdReader::read) advances past the node it decodes — so operations
-/// thread readers instead of bare bit offsets and read as the paper's recursive
-/// `match`. A thin `Copy` handle over a borrowed slice.
-#[derive(Clone, Copy)]
-pub(crate) struct IdReader<'a> {
-    bits: &'a BitsSlice,
-    pos: usize,
+/// A cursor into a packed id tree, or a synthetic full leaf. The id-side
+/// analogue of the event side's [`EvReader`](crate::version::compare): it
+/// *consumes* — [`read`](IdReader::read) decodes the node at the cursor and
+/// advances it in place — so operations thread `&mut` readers and read as the
+/// paper's recursive `match`.
+///
+/// - `At`: a bit offset into the packed `enc_id` stream.
+/// - `Full`: a synthetic `1` leaf that consumes nothing — the id-side analogue
+///   of [`EvReader::Zero`](crate::version::compare). `grow` hands it to both
+///   event children when the id is full (`FullEvNode`), re-presenting the full
+///   `1` without duplicating the real cursor.
+///
+/// **Not `Copy`/`Clone`.** A cursor is single-use: advancing it consumes the
+/// stream, so a stale or duplicated cursor — the re-scan footgun that breaks
+/// `O(n + m)` — cannot be formed by accident. The one legitimate duplication
+/// (a second traversal of the *same* tree) goes through an explicit, greppable
+/// [`duplicate`](EvReader::duplicate) on the event side; the id side never needs
+/// it (its second pass always rebuilds fresh from the source bits).
+pub(crate) enum IdReader<'a> {
+    At {
+        bits: &'a BitsSlice,
+        pos: usize,
+    },
+    /// A synthetic full `1` leaf (see the type doc); reads as [`IdNode::Full`]
+    /// and never advances.
+    Full,
 }
 
 impl<'a> IdReader<'a> {
     /// A reader at the root of `bits`.
     pub(crate) fn root(bits: &'a BitsSlice) -> Self {
-        IdReader { bits, pos: 0 }
+        IdReader::At { bits, pos: 0 }
     }
 
     /// A reader at an explicit bit offset, for resuming a scan at a recorded
     /// subtree position (see `split`'s `build_split`).
     pub(crate) fn at(bits: &'a BitsSlice, pos: usize) -> Self {
-        IdReader { bits, pos }
+        IdReader::At { bits, pos }
     }
 
-    /// Decode this node, returning it together with a reader positioned just
-    /// past the header — at the left child, for an internal node.
-    pub(crate) fn read(self) -> (IdNode, IdReader<'a>) {
-        step!();
-        let (node, next) = if self.bits[self.pos] {
-            (IdNode::Internal, self.pos + 1)
-        } else if self.bits[self.pos + 1] {
-            (IdNode::Full, self.pos + 2)
-        } else {
-            (IdNode::Empty, self.pos + 2)
-        };
-        (
-            node,
-            IdReader {
-                bits: self.bits,
-                pos: next,
-            },
-        )
-    }
-
-    /// A reader positioned just past this whole subtree (the shared iterative
-    /// [`skip_subtree`] scan), for skipping a dominated id subtree.
-    pub(crate) fn skip(self) -> IdReader<'a> {
-        let bits = self.bits;
-        let pos = skip_subtree(self.pos, |at| {
-            step!();
-            if bits[at] {
-                (true, at + 1) // internal: one flag bit
-            } else {
-                (false, at + 2) // leaf: flag + value bit
+    /// Decode the node at this cursor, advancing it just past the header — to
+    /// the left child, for an internal node. `Full` reads as [`IdNode::Full`]
+    /// and never advances.
+    pub(crate) fn read(&mut self) -> IdNode {
+        match self {
+            IdReader::Full => IdNode::Full,
+            IdReader::At { bits, pos } => {
+                step!();
+                let (node, next) = if bits[*pos] {
+                    (IdNode::Internal, *pos + 1)
+                } else if bits[*pos + 1] {
+                    (IdNode::Full, *pos + 2)
+                } else {
+                    (IdNode::Empty, *pos + 2)
+                };
+                *pos = next;
+                node
             }
-        });
-        IdReader { bits, pos }
+        }
     }
 
-    /// The underlying packed bit stream.
-    pub(crate) fn bits(self) -> &'a BitsSlice {
-        self.bits
+    /// Decode the node at this cursor *without* advancing — a look at the
+    /// current node. `fill` uses it to test whether a child is fully owned
+    /// before deciding to collapse it (a shortcut) or recurse into it. (Not a
+    /// duplication: it reads the node in place, leaving the single cursor where
+    /// it was.)
+    pub(crate) fn peek(&self) -> IdNode {
+        match self {
+            IdReader::Full => IdNode::Full,
+            IdReader::At { bits, pos } => {
+                step!();
+                if bits[*pos] {
+                    IdNode::Internal
+                } else if bits[*pos + 1] {
+                    IdNode::Full
+                } else {
+                    IdNode::Empty
+                }
+            }
+        }
     }
 
-    /// This reader's bit offset, for copying a subtree's verbatim bit range.
-    pub(crate) fn pos(self) -> usize {
-        self.pos
+    /// Advance this cursor just past the whole subtree at it (the shared
+    /// iterative [`skip_subtree`] scan), for skipping a dominated id subtree.
+    /// `Full` is a leaf: nothing to skip.
+    pub(crate) fn skip(&mut self) {
+        if let IdReader::At { bits, pos } = self {
+            let bits = *bits;
+            *pos = skip_subtree(*pos, |at| {
+                step!();
+                if bits[at] {
+                    (true, at + 1) // internal: one flag bit
+                } else {
+                    (false, at + 2) // leaf: flag + value bit
+                }
+            });
+        }
+    }
+
+    /// The underlying packed bit stream. Not called on the synthetic `Full`.
+    pub(crate) fn bits(&self) -> &'a BitsSlice {
+        match self {
+            IdReader::At { bits, .. } => bits,
+            IdReader::Full => unreachable!("bits() on the synthetic Full id reader"),
+        }
+    }
+
+    /// This reader's bit offset, for copying a subtree's verbatim bit range or
+    /// recording a branch position. Not called on the synthetic `Full`.
+    pub(crate) fn pos(&self) -> usize {
+        match self {
+            IdReader::At { pos, .. } => *pos,
+            IdReader::Full => unreachable!("pos() on the synthetic Full id reader"),
+        }
+    }
+
+    /// This reader's bit offset if it addresses a real tree, or `None` for the
+    /// synthetic `Full`. `grow` captures it (before a read advances the cursor)
+    /// to key its position-indexed `Route`; the synthetic side of a branch is
+    /// never the keying side, so its `None` is never unwrapped.
+    pub(crate) fn pos_opt(&self) -> Option<usize> {
+        match self {
+            IdReader::At { pos, .. } => Some(*pos),
+            IdReader::Full => None,
+        }
     }
 }
 

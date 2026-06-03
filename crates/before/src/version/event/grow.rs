@@ -25,7 +25,7 @@ use crate::idbits::{IdNode, IdReader};
 use crate::recurse::descend;
 
 use super::Builder;
-use crate::version::compare::{EvNode, EvReader};
+use crate::version::compare::EvReader;
 use crate::version::working::WorkingVersion;
 
 /// Lexicographic inflation cost `(expansions, depth)`: prefer fewer
@@ -111,45 +111,11 @@ enum Kind {
     Both,
 }
 
-/// A `grow` branch node's identity for [`ProbeWalk::combine`]: its recursion
-/// shape, the [`Route`] key to record the chosen direction at, and the readers
-/// just past each input's node header (the threaded ends a leaf/full side
-/// consumes).
-#[derive(Clone, Copy)]
-struct Branch<'a> {
-    kind: Kind,
-    /// The position to record the direction at: the event position for
-    /// `FullEvNode` (keyed `by_ev`), else the id position (keyed `by_id`).
-    key: usize,
-    id_after: IdReader<'a>,
-    ev_after: EvReader<'a>,
-}
-
-/// A probed `grow` subtree report: the cheapest inflation `cost`, plus readers
-/// just past the subtree in the id and event inputs.
-#[derive(Clone, Copy)]
-struct Probed<'a> {
-    /// The cheapest inflation cost of the subtree.
-    cost: Cost,
-    /// Reader just past the subtree in the id.
-    id_end: IdReader<'a>,
-    /// Reader just past the subtree in the event tree.
-    ev_end: EvReader<'a>,
-}
-
-/// A grown `grow` subtree report (the emit pass): the output root, plus readers
-/// just past the subtree in each input.
-struct Grown<'a> {
-    out_root: usize,
-    id_end: IdReader<'a>,
-    ev_end: EvReader<'a>,
-}
-
 impl<'a> EvReader<'a> {
     /// Probe the cheapest inflation of this event tree (`self`), recording the
     /// chosen child direction (`true` = left) per `(id, ev)` branch node into
-    /// `route`. Read-only; `O(n + m)`. The id is lazy-skipped where an empty
-    /// region prunes the event.
+    /// `route`. Read-only; `O(n + m)`. The event side is lazy-skipped where an
+    /// empty id region prunes it.
     ///
     /// This is the cost-finding half of the recursive form of
     /// `oracle::Version::grow` (the paper's `grow`): where the oracle recurses
@@ -157,7 +123,9 @@ impl<'a> EvReader<'a> {
     /// path and [`grow_emit`](EvReader::grow_emit) replays it.
     fn grow_probe(self, id_bits: &'a BitsSlice, route: &mut Route) {
         let mut walk = ProbeWalk { route };
-        descend!(0, walk.rec(IdReader::root(id_bits), self, 0));
+        let mut ev = self;
+        let mut id = IdReader::root(id_bits);
+        descend!(0, walk.rec(&mut id, &mut ev, 0));
     }
 
     /// Emit the grown tree (`self` is the source event tree) following the
@@ -170,7 +138,9 @@ impl<'a> EvReader<'a> {
     /// [`grow_probe`](EvReader::grow_probe) recorded.
     fn grow_emit(self, id_bits: &'a BitsSlice, out: &mut Builder, route: &Route) {
         let mut walk = EmitWalk { out, route };
-        descend!(0, walk.rec(IdReader::root(id_bits), self, 0));
+        let mut ev = self;
+        let mut id = IdReader::root(id_bits);
+        descend!(0, walk.rec(&mut id, &mut ev, 0));
     }
 
     /// `grow(id, ev)`: register a new event on this event tree (`self`) by the
@@ -180,128 +150,92 @@ impl<'a> EvReader<'a> {
     /// ev)`-coordinate contract that links them through the [`Route`].
     pub(super) fn grow(self, id_bits: &'a BitsSlice) -> WorkingVersion {
         let mut route = Route::new(id_bits.len(), self.span());
-        self.grow_probe(id_bits, &mut route);
         // Conservative: the grown tree is the source plus the nodes a single
         // expansion adds along the chosen path, bounded by the id's bit length.
-        let mut out = Builder::with_capacity(self.node_capacity_bound() + id_bits.len());
-        self.grow_emit(id_bits, &mut out, &route);
+        let cap = self.node_capacity_bound() + id_bits.len();
+        // `grow` is the one operation that traverses a tree twice — a cost probe
+        // then an emit — so it duplicates the event cursor once, here. (This is
+        // the sole sanctioned `duplicate`; it is never called inside a walk.)
+        let emit_ev = self.duplicate();
+        self.grow_probe(id_bits, &mut route);
+        let mut out = Builder::with_capacity(cap);
+        emit_ev.grow_emit(id_bits, &mut out, &route);
         out.finish()
     }
 }
 
 /// The mutable state of a [`grow_probe`](EvReader::grow_probe) walk: just the
-/// [`Route`] being filled (the readers carry the traversal state).
+/// [`Route`] being filled (the `&mut` readers carry the traversal state).
 struct ProbeWalk<'a> {
     route: &'a mut Route,
 }
 
 impl ProbeWalk<'_> {
     /// Probe the cheapest inflation of the event subtree at `ev` under the id
-    /// subtree at `id`, routed through the amortized stack-growth guard. Returns
-    /// the subtree's [`Probed`] report. The event side bottoms out at
-    /// [`Zero`](EvReader::Zero) — `grow`'s virtual leaf — read like any other
-    /// `Leaf(0)`, so no sentinel guard is needed.
-    fn rec<'a>(&mut self, id: IdReader<'a>, ev: EvReader<'a>, depth: usize) -> Probed<'a> {
-        let (id_node, id_after) = id.read();
-        let (ev_node, ev_after) = ev.read();
-        let ev_internal = ev_node.is_internal();
-        match id_node {
+    /// subtree at `id`, advancing both readers past their subtrees and routing
+    /// through the amortized stack-growth guard. Returns the subtree's cheapest
+    /// [`Cost`]. A leaf/full side broadcasts a fresh synthetic — `grow`'s
+    /// virtual leaf [`Zero`](EvReader::Zero) for an expanded event leaf, a
+    /// [`Full`](IdReader::Full) id re-presented to both event children — read
+    /// like any real node, so no sentinel guards are needed.
+    fn rec(&mut self, id: &mut IdReader, ev: &mut EvReader, depth: usize) -> Cost {
+        // Capture the keying positions before the reads advance the cursors. The
+        // keying side (id for `Expand`/`Both`, ev for `FullEvNode`) is always a
+        // real cursor; the synthetic side's `None` is never the chosen key.
+        let id_pos = id.pos_opt();
+        match id.read() {
             IdNode::Empty => {
                 // id 0-leaf: infeasible; lazy-skip the dominated event subtree.
-                Probed {
-                    cost: COST_MAX,
-                    id_end: id_after,
-                    ev_end: ev.skip(),
-                }
-            }
-            IdNode::Full if !ev_internal => {
-                // increment here: a free inflation
-                Probed {
-                    cost: (0, 0),
-                    id_end: id_after,
-                    ev_end: ev_after,
-                }
+                ev.skip();
+                COST_MAX
             }
             IdNode::Full => {
-                // id stays full; descend both event children (right threaded).
-                let left = descend!(depth + 1, self.rec(id, ev_after, depth + 1));
-                let right = descend!(depth + 1, self.rec(id, left.ev_end, depth + 1));
-                let branch = Branch {
-                    kind: Kind::FullEvNode,
-                    key: ev.pos(),
-                    id_after,
-                    ev_after,
-                };
-                self.combine(branch, left, right)
+                let ev_pos = ev.pos_opt();
+                if !ev.read().is_internal() {
+                    return (0, 0); // a free inflation: increment this leaf
+                }
+                // id stays full; descend both event children (a synthetic `Full`
+                // id re-presented to each), threading the event cursor.
+                let mut full = IdReader::Full;
+                let left = descend!(depth + 1, self.rec(&mut full, ev, depth + 1));
+                let right = descend!(depth + 1, self.rec(&mut full, ev, depth + 1));
+                self.combine(Kind::FullEvNode, ev_pos.unwrap(), left, right)
             }
-            IdNode::Internal if !ev_internal => {
-                // id node, event leaf/virtual: expand and descend the id (the
-                // event stays a virtual `Zero` on both sides).
-                let left = descend!(depth + 1, self.rec(id_after, EvReader::Zero, depth + 1));
-                let right = descend!(depth + 1, self.rec(left.id_end, EvReader::Zero, depth + 1));
-                let branch = Branch {
-                    kind: Kind::Expand,
-                    key: id.pos(),
-                    id_after,
-                    ev_after,
-                };
-                self.combine(branch, left, right)
+            IdNode::Internal if !ev.read().is_internal() => {
+                // id node, event leaf/virtual: expand and descend the id, the
+                // event a virtual `Zero` on both sides.
+                let mut z1 = EvReader::Zero;
+                let mut z2 = EvReader::Zero;
+                let left = descend!(depth + 1, self.rec(id, &mut z1, depth + 1));
+                let right = descend!(depth + 1, self.rec(id, &mut z2, depth + 1));
+                self.combine(Kind::Expand, id_pos.unwrap(), left, right)
             }
             IdNode::Internal => {
-                // id node, event node: descend both (right threaded from the left).
-                let left = descend!(depth + 1, self.rec(id_after, ev_after, depth + 1));
-                let right = descend!(depth + 1, self.rec(left.id_end, left.ev_end, depth + 1));
-                let branch = Branch {
-                    kind: Kind::Both,
-                    key: id.pos(),
-                    id_after,
-                    ev_after,
-                };
-                self.combine(branch, left, right)
+                // id node, event node: descend both, threading both cursors.
+                let left = descend!(depth + 1, self.rec(id, ev, depth + 1));
+                let right = descend!(depth + 1, self.rec(id, ev, depth + 1));
+                self.combine(Kind::Both, id_pos.unwrap(), left, right)
             }
         }
     }
 
-    /// Pick the cheaper child, record the direction, and fold the branch node's
-    /// cost and end readers (a tie favors the right child; see [`Cost`]).
-    fn combine<'a>(
-        &mut self,
-        branch: Branch<'a>,
-        left: Probed<'a>,
-        right: Probed<'a>,
-    ) -> Probed<'a> {
-        let Branch {
-            kind,
-            key,
-            id_after,
-            ev_after,
-        } = branch;
+    /// Pick the cheaper child, record the direction at `key`, and fold the
+    /// branch node's cost (a tie favors the right child; see [`Cost`]).
+    fn combine(&mut self, kind: Kind, key: usize, left: Cost, right: Cost) -> Cost {
         // Strict `<` makes a tie favor the right child (see [`Cost`]).
-        let left_chosen = left.cost < right.cost;
+        let left_chosen = left < right;
         self.route.record(kind, key, left_chosen);
-        let m = if left_chosen { left.cost } else { right.cost };
-        let cost = match kind {
+        let m = if left_chosen { left } else { right };
+        match kind {
             Kind::Expand => (m.0.saturating_add(1), m.1.saturating_add(1)),
             Kind::FullEvNode | Kind::Both => (m.0, m.1.saturating_add(1)),
-        };
-        let id_end = match kind {
-            Kind::FullEvNode => id_after, // the 1-leaf is consumed
-            Kind::Expand | Kind::Both => right.id_end,
-        };
-        let ev_end = match kind {
-            Kind::FullEvNode | Kind::Both => right.ev_end,
-            Kind::Expand => ev_after, // event leaf/virtual consumed
-        };
-        Probed {
-            cost,
-            id_end,
-            ev_end,
         }
     }
 }
 
 /// The mutable state of a [`grow_emit`](EvReader::grow_emit) walk: the output
-/// builder and the probe's [`Route`] (the readers carry the traversal state).
+/// builder and the probe's [`Route`] (the `&mut` readers carry the traversal
+/// state).
 struct EmitWalk<'a> {
     out: &'a mut Builder,
     route: &'a Route,
@@ -309,17 +243,18 @@ struct EmitWalk<'a> {
 
 impl EmitWalk<'_> {
     /// Emit the grown event subtree at `ev` under the id subtree at `id`,
-    /// following the probe's chosen path and copying every off-path subtree
-    /// once. Routed through the amortized stack-growth guard; returns the
-    /// subtree's [`Grown`] report. The event side bottoms out at
-    /// [`Zero`](EvReader::Zero), read like any other `Leaf(0)`.
-    fn rec<'a>(&mut self, id: IdReader<'a>, ev: EvReader<'a>, depth: usize) -> Grown<'a> {
-        let (id_node, id_after) = id.read();
-        let (ev_node, ev_after) = ev.read();
+    /// following the probe's chosen path, copying every off-path subtree once,
+    /// and advancing both readers. Routed through the amortized stack-growth
+    /// guard; returns the output root. The event side bottoms out at
+    /// [`Zero`](EvReader::Zero), the id-full side at [`Full`](IdReader::Full),
+    /// each read like any real node.
+    fn rec(&mut self, id: &mut IdReader, ev: &mut EvReader, depth: usize) -> usize {
+        let id_pos = id.pos_opt();
+        let id_node = id.read();
+        let ev_pos = ev.pos_opt();
+        let ev_node = ev.read();
         let ev_internal = ev_node.is_internal();
-        let ev_base = match ev_node {
-            EvNode::Leaf(ref b) | EvNode::Internal(ref b) => b.clone(),
-        };
+        let ev_base = ev_node.base().clone();
         let id_internal = matches!(id_node, IdNode::Internal);
         // The inflation point: id full over a leaf/virtual event — increment.
         if !id_internal && !ev_internal {
@@ -331,11 +266,7 @@ impl EmitWalk<'_> {
                 matches!(id_node, IdNode::Full),
                 "grow chose an empty-id region to inflate",
             );
-            return Grown {
-                out_root: self.out.leaf(ev_base + 1u32),
-                id_end: id_after,
-                ev_end: ev_after,
-            };
+            return self.out.leaf(ev_base + 1u32);
         }
         let kind = match id_node {
             IdNode::Internal if ev_internal => Kind::Both,
@@ -343,67 +274,58 @@ impl EmitWalk<'_> {
             _ => Kind::FullEvNode, // id full leaf, event node
         };
         let key = match kind {
-            Kind::FullEvNode => ev.pos(),
-            Kind::Expand | Kind::Both => id.pos(),
+            Kind::FullEvNode => ev_pos.unwrap(),
+            Kind::Expand | Kind::Both => id_pos.unwrap(),
         };
         let node = self.out.open(ev_base);
+        // At this branch, one child is on the chosen inflation path (rebuilt by
+        // recursion) and the other is off it (copied/skipped once). The reads
+        // above already advanced `id`/`ev` past the node header — `id` is now at
+        // `il`, `ev` at `el` (a `FullEvNode` keeps `id` full via a synthetic).
         if self.route.descends_left(kind, key) {
-            // Chosen left child: build it now, emit the off-path right on close.
-            let (child_id, child_ev) = match kind {
-                Kind::FullEvNode => (id, ev_after),         // id stays full, `el`
-                Kind::Both => (id_after, ev_after),         // `il`, `el`
-                Kind::Expand => (id_after, EvReader::Zero), // `il`, virtual
-            };
-            let left = descend!(depth + 1, self.rec(child_id, child_ev, depth + 1));
-            let (right_root, id_end, ev_end) = match kind {
+            // Left is chosen: rebuild it, then deal with the off-path right.
+            let right = match kind {
                 Kind::FullEvNode => {
-                    let (rr, ev_end) = self.out.copy_reader(left.ev_end); // off-path `er`
-                    (rr, id_after, ev_end)
+                    let mut full = IdReader::Full;
+                    descend!(depth + 1, self.rec(&mut full, ev, depth + 1)); // left `el`
+                    self.out.copy_reader(ev) // off-path `er`
                 }
                 Kind::Both => {
-                    let (rr, ev_end) = self.out.copy_reader(left.ev_end); // off-path `er`
-                    (rr, left.id_end.skip(), ev_end)
+                    descend!(depth + 1, self.rec(id, ev, depth + 1)); // left `il`/`el`
+                    let right = self.out.copy_reader(ev); // off-path `er`
+                    id.skip(); // off-path `ir`
+                    right
                 }
                 Kind::Expand => {
-                    let rr = self.out.leaf(Base::ZERO); // off-path sibling is a fresh Leaf(0)
-                    (rr, left.id_end.skip(), ev_after)
+                    let mut z = EvReader::Zero;
+                    descend!(depth + 1, self.rec(id, &mut z, depth + 1)); // left `il`, virtual
+                    id.skip(); // off-path `ir`
+                    self.out.leaf(Base::ZERO) // off-path sibling is a fresh Leaf(0)
                 }
             };
-            self.out.close_node(node, right_root);
-            Grown {
-                out_root: node,
-                id_end,
-                ev_end,
-            }
+            self.out.close_node(node, right);
         } else {
-            // Chosen right child: emit the off-path left sibling now, then
-            // build the chosen right.
-            let (child_id, child_ev) = match kind {
+            // Right is chosen: emit the off-path left, then rebuild the right.
+            let right = match kind {
                 Kind::FullEvNode => {
-                    let (_l, ev_right) = self.out.copy_reader(ev_after);
-                    (id, ev_right)
+                    self.out.copy_reader(ev); // off-path `el`
+                    let mut full = IdReader::Full;
+                    descend!(depth + 1, self.rec(&mut full, ev, depth + 1)) // right `er`
                 }
                 Kind::Both => {
-                    let (_l, ev_right) = self.out.copy_reader(ev_after);
-                    (id_after.skip(), ev_right)
+                    self.out.copy_reader(ev); // off-path `el`
+                    id.skip(); // off-path `il`
+                    descend!(depth + 1, self.rec(id, ev, depth + 1)) // right `ir`/`er`
                 }
                 Kind::Expand => {
-                    self.out.leaf(Base::ZERO);
-                    (id_after.skip(), EvReader::Zero)
+                    self.out.leaf(Base::ZERO); // off-path sibling is a fresh Leaf(0)
+                    id.skip(); // off-path `il`
+                    let mut z = EvReader::Zero;
+                    descend!(depth + 1, self.rec(id, &mut z, depth + 1)) // right `ir`, virtual
                 }
             };
-            let right = descend!(depth + 1, self.rec(child_id, child_ev, depth + 1));
-            let (id_end, ev_end) = match kind {
-                Kind::FullEvNode => (id_after, right.ev_end),
-                Kind::Both => (right.id_end, right.ev_end),
-                Kind::Expand => (right.id_end, ev_after),
-            };
-            self.out.close_node(node, right.out_root);
-            Grown {
-                out_root: node,
-                id_end,
-                ev_end,
-            }
+            self.out.close_node(node, right);
         }
+        node
     }
 }

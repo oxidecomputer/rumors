@@ -23,29 +23,24 @@ impl EvReader<'_> {
         let mut walk = FillWalk {
             out: Builder::with_capacity(self.node_capacity_bound()),
         };
-        descend!(0, walk.rec(IdReader::root(id_bits), self, 0));
+        let mut ev = self;
+        let mut id = IdReader::root(id_bits);
+        descend!(0, walk.rec(&mut id, &mut ev, 0));
         walk.out.finish()
     }
 }
 
-/// The single output builder of a [`fill`](EvReader::fill) walk; the readers carry
-/// the traversal state.
+/// The single output builder of a [`fill`](EvReader::fill) walk; the `&mut`
+/// readers carry the traversal state.
 struct FillWalk {
     out: Builder,
 }
 
-/// A filled subtree: the output root it produced, plus the readers past the id
-/// and event inputs (so a right sibling resumes without re-scanning).
-struct Filled<'a> {
-    out_root: usize,
-    id_end: IdReader<'a>,
-    ev_end: EvReader<'a>,
-}
-
 impl FillWalk {
     /// Fill the event subtree at `ev` under the id subtree at `id`, emitting into
-    /// `out` and routing through the amortized stack-growth guard. Returns the
-    /// subtree's [`Filled`] report. Reads as the paper's `fill`:
+    /// `out`, advancing both readers past their subtrees, and routing through the
+    /// amortized stack-growth guard. Returns the output root. Reads as the
+    /// paper's `fill`:
     ///
     /// - `fill(0, e) = e`           — id empty: copy the event unchanged.
     /// - `fill(1, e) = max(e)`      — id full: collapse to a single max-leaf.
@@ -53,43 +48,27 @@ impl FillWalk {
     ///   lazy-skip the dominated id subtree.
     /// - `fill((il,ir), (n,el,er)) = norm((n, fill(il,el), fill(ir,er)))` — with
     ///   the two `is_full` shortcuts below.
-    fn rec<'a>(&mut self, id: IdReader<'a>, ev: EvReader<'a>, depth: usize) -> Filled<'a> {
-        let (id_node, il) = id.read();
-        match id_node {
-            IdNode::Empty => {
-                let (out_root, ev_end) = self.out.copy_reader(ev);
-                return Filled {
-                    out_root,
-                    id_end: il,
-                    ev_end,
-                };
-            }
-            IdNode::Full => {
-                let (mx, ev_end) = ev.max();
-                return Filled {
-                    out_root: self.out.leaf(mx),
-                    id_end: il,
-                    ev_end,
-                };
-            }
-            IdNode::Internal => {}
+    fn rec(&mut self, id: &mut IdReader, ev: &mut EvReader, depth: usize) -> usize {
+        match id.read() {
+            IdNode::Empty => return self.out.copy_reader(ev), // fill(0, e) = e
+            IdNode::Full => return self.out.leaf(ev.max()),   // fill(1, e) = max(e)
+            IdNode::Internal => {}                            // id now at `il`
         }
-        // id is an internal node; `il` is the reader at its left child.
-        let (ev_node, el) = ev.read();
-        let ev_base = match ev_node {
+        let ev_base = match ev.read() {
             EvNode::Leaf(n) => {
-                return Filled {
-                    out_root: self.out.leaf(n),
-                    id_end: id.skip(),
-                    ev_end: el,
-                };
+                // fill((il,ir), Leaf n) = Leaf n: lazy-skip the dominated id
+                // subtree (both children, `il` then `ir`).
+                id.skip();
+                id.skip();
+                return self.out.leaf(n);
             }
-            EvNode::Internal(base) => base,
+            EvNode::Internal(base) => base, // ev now at `el`
         };
 
         // id node, event node. A fully-owned child collapses to a single leaf
         // valued `max(child events) ⊔ (sibling's filled base)` — raising the
         // owned side to meet the sibling, which is what lets the tree simplify.
+        // [`peek`](IdReader::peek) tests a child's fullness without consuming it.
         //
         // The two shortcuts are mirror images, but the preorder builder treats
         // them asymmetrically (intrinsic, not incidental): a collapsed *left*
@@ -97,47 +76,32 @@ impl FillWalk {
         // [`deferred_leaf`](Builder::deferred_leaf) resolved after the right is
         // built; a collapsed *right* child is emitted after its left sibling, so
         // its value is already known.
-        let (il_node, ir) = il.read();
-        if let IdNode::Full = il_node {
+        if let IdNode::Full = id.peek() {
             // `il` full: defer the collapsed left, fill the right, then resolve.
-            // `ir` (past the `il` leaf) is the right id child; `el.max()` ends at
-            // `er`, the right event child.
             let node = self.out.open(ev_base);
             let left = self.out.deferred_leaf();
-            let (max_el, er) = el.max();
-            let right = descend!(depth + 1, self.rec(ir, er, depth + 1));
-            let value = max_el.max(self.out.base_of(right.out_root).clone());
+            id.skip(); // consume the `il` 1-leaf → id at `ir`
+            let max_el = ev.max(); // ev past `el` → at `er`
+            let right = descend!(depth + 1, self.rec(id, ev, depth + 1));
+            let value = max_el.max(self.out.base_of(right).clone());
             self.out.resolve(left, value);
-            self.out.close_node(node, right.out_root);
-            return Filled {
-                out_root: node,
-                id_end: right.id_end,
-                ev_end: right.ev_end,
-            };
+            self.out.close_node(node, right);
+            return node;
         }
-        // `il` not full: fill the left child first — only then is `ir`'s packed
-        // position known (it is where the left subtree's id ended).
+        // `il` not full: fill the left child (id → `ir`, ev → `er`), then check `ir`.
         let node = self.out.open(ev_base);
-        let left = descend!(depth + 1, self.rec(il, el, depth + 1));
-        let (ir_node, ir_after) = left.id_end.read();
-        if let IdNode::Full = ir_node {
+        let left = descend!(depth + 1, self.rec(id, ev, depth + 1));
+        if let IdNode::Full = id.peek() {
             // `ir` full: emit the collapsed right directly over the filled left.
-            let (max_er, ev_end) = left.ev_end.max();
-            let value = max_er.max(self.out.base_of(left.out_root).clone());
+            id.skip(); // consume the `ir` 1-leaf
+            let max_er = ev.max(); // ev past `er`
+            let value = max_er.max(self.out.base_of(left).clone());
             let right_leaf = self.out.leaf(value);
             self.out.close_node(node, right_leaf);
-            return Filled {
-                out_root: node,
-                id_end: ir_after,
-                ev_end,
-            };
+            return node;
         }
-        let right = descend!(depth + 1, self.rec(left.id_end, left.ev_end, depth + 1));
-        self.out.close_node(node, right.out_root);
-        Filled {
-            out_root: node,
-            id_end: right.id_end,
-            ev_end: right.ev_end,
-        }
+        let right = descend!(depth + 1, self.rec(id, ev, depth + 1));
+        self.out.close_node(node, right);
+        node
     }
 }

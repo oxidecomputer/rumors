@@ -51,15 +51,16 @@ impl IdBuilder {
         root
     }
 
-    /// Copy one already-normal source subtree into the output, returning its
-    /// new root and a reader just past it. The source subtree is copied exactly
-    /// once.
-    pub(super) fn copy_reader<'a>(&mut self, src: IdReader<'a>) -> (usize, IdReader<'a>) {
+    /// Copy one already-normal source subtree into the output, advancing `src`
+    /// past it and returning its new root. The source subtree is copied exactly
+    /// once (a verbatim bit-range splice).
+    pub(super) fn copy_reader(&mut self, src: &mut IdReader) -> usize {
         let out_root = self.bits.len();
-        let end = src.skip();
+        let start = src.pos();
+        src.skip();
         self.bits
-            .extend_from_bitslice(&src.bits()[src.pos()..end.pos()]);
-        (out_root, end)
+            .extend_from_bitslice(&src.bits()[start..src.pos()]);
+        out_root
     }
 
     /// Normalize the node opened at `node`. The left child starts immediately

@@ -44,30 +44,32 @@ impl Builder {
     }
 
     /// Copy the whole subtree at `src` verbatim (it is already normal form),
-    /// returning the output root and a reader positioned just past it. Iterative
-    /// single pass: the same pending-children scan as the shared
+    /// advancing `src` past it and returning the output root. Iterative single
+    /// pass: the same pending-children scan as the shared
     /// [`idbits::skip_subtree`](crate::idbits::skip_subtree) core, but it emits
     /// each visited node into the output as it goes rather than only computing
     /// the end. A synthetic `Zero` subtree copies as a fresh `Leaf(0)`.
-    pub(super) fn copy_reader<'a>(&mut self, src: EvReader<'a>) -> (usize, EvReader<'a>) {
-        if let EvReader::Zero = src {
-            return (self.leaf(Base::ZERO), src);
+    pub(super) fn copy_reader(&mut self, src: &mut EvReader) -> usize {
+        if matches!(src, EvReader::Zero) {
+            return self.leaf(Base::ZERO);
         }
         let out_root = self.len();
-        let mut r = src;
         let mut pending: i64 = 1;
         while pending > 0 {
-            let (node, next) = r.read();
-            let internal = node.is_internal();
-            let base = match node {
-                EvNode::Leaf(b) | EvNode::Internal(b) => b,
+            let internal = match src.read() {
+                EvNode::Internal(base) => {
+                    self.base.push(base);
+                    true
+                }
+                EvNode::Leaf(base) => {
+                    self.base.push(base);
+                    false
+                }
             };
             self.topo.push(internal);
-            self.base.push(base);
             pending += if internal { 1 } else { -1 };
-            r = next;
         }
-        (out_root, r)
+        out_root
     }
 
     /// Finalize the internal node at `node` whose left child is at `node + 1`
@@ -141,4 +143,5 @@ impl Builder {
 /// [`Builder::resolve`](Builder::resolve). Carries the output index opaquely so
 /// callers cannot poke the base array directly (see
 /// [`Builder::deferred_leaf`](Builder::deferred_leaf)).
+#[must_use = "deferred leaves must be resolved"]
 pub(super) struct DeferredLeaf(usize);

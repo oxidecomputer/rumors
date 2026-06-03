@@ -32,7 +32,7 @@ use super::working::WorkingVersion;
 
 /// A decoded event node: a leaf value, or an internal node's stored base. The
 /// base is the node's *relative* value; a path sum (offset) is threaded
-/// alongside to recover absolute values (see [`Side`]).
+/// alongside to recover absolute values.
 pub(super) enum EvNode {
     Leaf(Base),
     Internal(Base),
@@ -53,20 +53,25 @@ impl EvNode {
 
 /// The sole cursor into an event tree, in either storage form, or a synthetic
 /// zero. It reads both representations in place (no transcode) and *consumes* —
-/// [`read`](EvReader::read) decodes the node at the cursor and returns a reader
-/// advanced past it, so operations thread readers rather than bare positions.
+/// [`read`](EvReader::read) decodes the node at the cursor and advances it in
+/// place, so operations thread `&mut` readers rather than bare positions.
 ///
 /// - `Packed`: a bit offset into the canonical `enc_ev` stream (flag bit +
 ///   gamma-coded base, children following).
 /// - `Working`: a node index into the fixed-width working form (`topo`/`base`).
 /// - `Zero`: a synthetic `Leaf(0)` that consumes nothing — the paper's `0` in
 ///   "a leaf `n` behaves as `(n, 0, 0)`". A leaf side of a two-tree walk hands
-///   both children a `Zero` (see [`Side`]); `grow` uses it as its *virtual
+///   both children a freshly-constructed `Zero`; `grow` uses it as its *virtual
 ///   leaf*, the `(0,0)` it expands an event leaf into to follow the id deeper.
 ///
-/// `Copy`: shared borrows plus a position. Visibility is `pub(super)` —
-/// `pub(in crate::version)` — used throughout `version/` and nowhere outside.
-#[derive(Clone, Copy)]
+/// **Not `Copy`/`Clone`.** A cursor is single-use: advancing it consumes the
+/// stream, so a stale or duplicated cursor — the re-scan footgun that breaks
+/// `O(n + m)` — cannot be formed by accident. A broadcast hands children a
+/// *fresh* synthetic (`Zero`), not a copy of the cursor. The one legitimate
+/// duplication — a second traversal of the *same* tree — goes through the
+/// explicit, greppable [`duplicate`](EvReader::duplicate), which must never
+/// appear inside a recursive walk (see its doc). Visibility is `pub(super)`,
+/// used throughout `version/` and nowhere outside.
 pub(super) enum EvReader<'a> {
     Packed {
         bits: &'a BitsSlice,
@@ -76,6 +81,8 @@ pub(super) enum EvReader<'a> {
         work: &'a WorkingVersion,
         pos: usize,
     },
+    /// A synthetic `Leaf(0)` (see the type doc); reads as `Leaf(0)` and never
+    /// advances.
     Zero,
 }
 
@@ -90,68 +97,85 @@ impl<'a> EvReader<'a> {
         EvReader::Working { work, pos: 0 }
     }
 
-    /// Decode this node, returning it together with a reader positioned just
-    /// past the header — at the left child, for an internal node. `Zero` reads
-    /// as `Leaf(0)` and never advances (a synthetic leaf has no children).
-    pub(super) fn read(self) -> (EvNode, EvReader<'a>) {
+    /// A second cursor at the same position. The *only* sanctioned way to read a
+    /// tree twice; it must never be called inside a recursive walk (that would
+    /// be the re-scan that `!Copy` exists to forbid). Its sole use is `grow`,
+    /// which traverses one event tree twice — a cost probe then an emit.
+    pub(super) fn duplicate(&self) -> Self {
+        match *self {
+            EvReader::Packed { bits, pos } => EvReader::Packed { bits, pos },
+            EvReader::Working { work, pos } => EvReader::Working { work, pos },
+            EvReader::Zero => EvReader::Zero,
+        }
+    }
+
+    /// Decode the node at this cursor, advancing it just past the header — to
+    /// the left child, for an internal node. `Zero` reads as `Leaf(0)` and never
+    /// advances (a synthetic leaf has no children).
+    pub(super) fn read(&mut self) -> EvNode {
         match self {
-            EvReader::Zero => (EvNode::Leaf(Base::ZERO), EvReader::Zero),
+            EvReader::Zero => EvNode::Leaf(Base::ZERO),
             EvReader::Packed { bits, pos } => {
                 step!();
-                let internal = bits[pos];
-                let (base, next) = decode_int(bits, pos + 1).expect("canonical event bits");
-                let node = if internal {
+                let bits = *bits;
+                let internal = bits[*pos];
+                let (base, next) = decode_int(bits, *pos + 1).expect("canonical event bits");
+                *pos = next;
+                if internal {
                     EvNode::Internal(base)
                 } else {
                     EvNode::Leaf(base)
-                };
-                (node, EvReader::Packed { bits, pos: next })
+                }
             }
             EvReader::Working { work, pos } => {
                 step!();
-                let base = work.base[pos].clone();
-                let node = if work.topo[pos] {
+                let base = work.base[*pos].clone();
+                let internal = work.topo[*pos];
+                *pos += 1;
+                if internal {
                     EvNode::Internal(base)
                 } else {
                     EvNode::Leaf(base)
-                };
-                (node, EvReader::Working { work, pos: pos + 1 })
+                }
             }
         }
     }
 
-    /// A reader positioned just past this whole subtree. Iterative: a
+    /// Advance this cursor just past the whole subtree at it. Iterative: a
     /// pending-children counter (the shared
     /// [`skip_subtree`](crate::idbits::skip_subtree) scan), never the call
-    /// stack. Packed skips the gamma-coded base without decoding it.
-    pub(super) fn skip(self) -> EvReader<'a> {
+    /// stack. Packed skips the gamma-coded base without decoding it. `Zero` is a
+    /// leaf: nothing to skip.
+    pub(super) fn skip(&mut self) {
         match self {
-            EvReader::Zero => EvReader::Zero,
-            EvReader::Packed { bits, pos } => EvReader::Packed {
-                bits,
-                pos: idbits::skip_subtree(pos, |p| {
+            EvReader::Zero => {}
+            EvReader::Packed { bits, pos } => {
+                let bits = *bits;
+                *pos = idbits::skip_subtree(*pos, |p| {
                     step!();
                     let internal = bits[p];
                     let next = skip_int(bits, p + 1).expect("canonical event bits");
                     (internal, next)
-                }),
-            },
-            EvReader::Working { work, pos } => EvReader::Working {
-                work,
-                pos: idbits::skip_subtree(pos, |p| {
+                });
+            }
+            EvReader::Working { work, pos } => {
+                let work = *work;
+                *pos = idbits::skip_subtree(*pos, |p| {
                     step!();
                     (work.topo[p], p + 1)
-                }),
-            },
+                });
+            }
         }
     }
 
-    /// This reader's position, for keying `grow`'s position-indexed `Route`.
-    /// Never called on `Zero` (a synthetic leaf is never a branch key).
-    pub(super) fn pos(self) -> usize {
+    /// This reader's position if it addresses a real tree, or `None` for the
+    /// synthetic `Zero`. `grow` captures it (before a read advances the cursor)
+    /// to key its position-indexed `Route`; the synthetic side of a branch is
+    /// never the keying side, so its `None` is never unwrapped.
+    pub(super) fn pos_opt(&self) -> Option<usize> {
         match self {
-            EvReader::Packed { pos, .. } | EvReader::Working { pos, .. } => pos,
-            EvReader::Zero => unreachable!("pos() on the synthetic Zero reader"),
+            EvReader::Packed { pos, .. } | EvReader::Working { pos, .. } => Some(*pos),
+            EvReader::Zero => None,
         }
     }
 
@@ -163,7 +187,7 @@ impl<'a> EvReader<'a> {
     /// length-checked memcmp instead of the full `O(n + m)` walk. A
     /// representation mismatch declines to `false` and falls through: proving
     /// equality across forms would mean transcoding, no cheaper than the walk.
-    pub(super) fn trivially_eq(self, other: EvReader) -> bool {
+    pub(super) fn trivially_eq(&self, other: &EvReader) -> bool {
         match (self, other) {
             (EvReader::Packed { bits: a, .. }, EvReader::Packed { bits: b, .. }) => a == b,
             (EvReader::Working { work: a, .. }, EvReader::Working { work: b, .. }) => {
@@ -176,7 +200,7 @@ impl<'a> EvReader<'a> {
     /// An exclusive upper bound on the positions this representation addresses:
     /// the bit length (packed) or node count (working). Sizes `grow`'s dense
     /// position-indexed `Route`.
-    pub(super) fn span(self) -> usize {
+    pub(super) fn span(&self) -> usize {
         match self {
             EvReader::Packed { bits, .. } => bits.len(),
             EvReader::Working { work, .. } => work.base.len(),
@@ -188,68 +212,11 @@ impl<'a> EvReader<'a> {
     /// nodes occupy at least two bits (flag + gamma(0)), so this avoids a full
     /// counting pass while keeping over-allocation bounded for normal
     /// small-base trees.
-    pub(super) fn node_capacity_bound(self) -> usize {
+    pub(super) fn node_capacity_bound(&self) -> usize {
         match self {
             EvReader::Packed { bits, .. } => bits.len().div_ceil(2),
             EvReader::Working { work, .. } => work.base.len(),
             EvReader::Zero => 0,
-        }
-    }
-}
-
-/// One side of an aligned node pair, resolved for descent — the single place
-/// the paper's leaf broadcast lives. An *internal* side descends into its two
-/// real children; a *leaf* side hands both children a [`Zero`](EvReader::Zero)
-/// subtree at the same offset, so a leaf `n` behaves as `(n, 0, 0)`. Both
-/// children of either side receive the same path-sum offset, [`sum`](Side::sum)
-/// — borrowed, never cloned.
-pub(super) struct Side<'a> {
-    internal: bool,
-    /// The path sum at this node (incoming offset + base), handed to both
-    /// children.
-    pub(super) sum: Base,
-    /// The reader just past this node's header: its left child if internal, or
-    /// the next-sibling position if a leaf.
-    after: EvReader<'a>,
-}
-
-impl<'a> Side<'a> {
-    /// Resolve a side from its decoded node, the reader past its header, and the
-    /// incoming path-sum offset.
-    pub(super) fn new(node: &EvNode, after: EvReader<'a>, off: &Base) -> Side<'a> {
-        Side {
-            internal: node.is_internal(),
-            sum: off + node.base(),
-            after,
-        }
-    }
-
-    /// The left child's reader: the real left child if internal, else `Zero`.
-    pub(super) fn left(&self) -> EvReader<'a> {
-        if self.internal {
-            self.after
-        } else {
-            EvReader::Zero
-        }
-    }
-
-    /// The right child's reader, given where the left child's traversal ended:
-    /// the threaded end if internal, else `Zero`.
-    pub(super) fn right(&self, left_end: EvReader<'a>) -> EvReader<'a> {
-        if self.internal {
-            left_end
-        } else {
-            EvReader::Zero
-        }
-    }
-
-    /// Where this subtree ends, given where its right child ended: the threaded
-    /// end if internal, else just past this leaf's header.
-    pub(super) fn end(&self, right_end: EvReader<'a>) -> EvReader<'a> {
-        if self.internal {
-            right_end
-        } else {
-            self.after
         }
     }
 }
@@ -274,14 +241,15 @@ impl EvReader<'_> {
         // Batch, and a not-yet-materialized Batch (still packed) against either.
         // (Mixed packed/working forms decline and fall through; see
         // `EvReader::trivially_eq`.)
-        if self.trivially_eq(other) {
+        if self.trivially_eq(&other) {
             return Some(Ordering::Equal);
         }
         let mut walk = CmpWalk { le: true, ge: true };
         let zero = Base::ZERO;
-        match descend!(0, walk.rec(self, &zero, other, &zero, 0)) {
+        let (mut a, mut b) = (self, other);
+        match descend!(0, walk.rec(&mut a, &zero, &mut b, &zero, 0)) {
             None => None, // concurrent
-            Some(_) => match (walk.le, walk.ge) {
+            Some(()) => match (walk.le, walk.ge) {
                 (true, true) => Some(Ordering::Equal),
                 (true, false) => Some(Ordering::Less),
                 (false, true) => Some(Ordering::Greater),
@@ -292,7 +260,8 @@ impl EvReader<'_> {
 }
 
 /// The two still-possible directions of a [`causal_cmp`](EvReader::causal_cmp)
-/// walk. The readers carry the traversal state; only the verdict lives here.
+/// walk. The `&mut` readers carry the traversal state; only the verdict lives
+/// here.
 struct CmpWalk {
     /// `a <= b` still possible.
     le: bool,
@@ -301,24 +270,27 @@ struct CmpWalk {
 }
 
 impl CmpWalk {
-    /// Compare the aligned subtrees at the two readers and path-sum offsets,
-    /// routing through the amortized stack-growth guard. Returns the readers
-    /// past each subtree (to thread the right sibling), or `None` to signal a
-    /// decided `concurrent` that unwinds the whole walk.
+    /// Compare the aligned subtrees at the two `&mut` readers and path-sum
+    /// offsets, advancing each reader past its subtree (so a right sibling
+    /// resumes from it), routing through the amortized stack-growth guard.
+    /// `None` signals a decided `concurrent` that unwinds the whole walk.
     ///
     /// Reads as the paper's `leq`: settle the local direction from the path
-    /// sums, then descend each side (an internal side into its children, a leaf
-    /// side broadcasting `Zero`), handing both children the node sum.
-    fn rec<'a>(
+    /// sums, then descend each side — an internal side into its two real
+    /// children (the `&mut` advances through left then right), a leaf side
+    /// broadcasting a fresh `Zero` to both — handing both children the node sum.
+    fn rec(
         &mut self,
-        a: EvReader<'a>,
+        a: &mut EvReader,
         a_off: &Base,
-        b: EvReader<'a>,
+        b: &mut EvReader,
         b_off: &Base,
         depth: usize,
-    ) -> Option<(EvReader<'a>, EvReader<'a>)> {
-        let (a_node, a_after) = a.read();
-        let (b_node, b_after) = b.read();
+    ) -> Option<()> {
+        let a_node = a.read();
+        let b_node = b.read();
+        let a_internal = a_node.is_internal();
+        let b_internal = b_node.is_internal();
         let a_sum = a_off + a_node.base();
         let b_sum = b_off + b_node.base();
         if a_sum > b_sum {
@@ -330,26 +302,33 @@ impl CmpWalk {
         if !self.le && !self.ge {
             return None; // concurrent: neither direction can recover
         }
-        if !a_node.is_internal() && !b_node.is_internal() {
-            // Both leaves: this branch is decided. Report both ends.
-            return Some((a_after, b_after));
+        if !a_internal && !b_internal {
+            return Some(()); // both leaves: this branch is decided
         }
-        let sa = Side::new(&a_node, a_after, a_off);
-        let sb = Side::new(&b_node, b_after, b_off);
-        let (a_mid, b_mid) = descend!(
-            depth + 1,
-            self.rec(sa.left(), &sa.sum, sb.left(), &sb.sum, depth + 1)
-        )?;
-        let (a_end, b_end) = descend!(
+        // Descend. An internal side hands its `&mut` cursor down (it advances
+        // through the left subtree, then the right resumes from it); a leaf side
+        // broadcasts a fresh `Zero`, leaving its own cursor at the leaf's end.
+        let mut a_zero = EvReader::Zero;
+        let mut b_zero = EvReader::Zero;
+        descend!(
             depth + 1,
             self.rec(
-                sa.right(a_mid),
-                &sa.sum,
-                sb.right(b_mid),
-                &sb.sum,
-                depth + 1
+                if a_internal { &mut *a } else { &mut a_zero },
+                &a_sum,
+                if b_internal { &mut *b } else { &mut b_zero },
+                &b_sum,
+                depth + 1,
             )
         )?;
-        Some((sa.end(a_end), sb.end(b_end)))
+        descend!(
+            depth + 1,
+            self.rec(
+                if a_internal { &mut *a } else { &mut a_zero },
+                &a_sum,
+                if b_internal { &mut *b } else { &mut b_zero },
+                &b_sum,
+                depth + 1,
+            )
+        )
     }
 }

@@ -8,38 +8,43 @@ impl IdReader<'_> {
     /// Recursive form of the paper's region-disjointness test, guarded by
     /// [`crate::recurse`] so deep ids grow the stack onto the heap rather than
     /// overflowing.
-    pub(crate) fn is_disjoint(self, other: IdReader) -> bool {
-        // Each subtree walk returns where it ended in both inputs (so a right
-        // sibling resumes without re-scanning), or `None` the instant an overlap
-        // is found, unwinding the whole walk.
-        descend!(0, disjoint_rec(self, other, 0)).is_some()
+    // Takes the cursors by value: a reader is single-use, and the walk consumes
+    // both. (`is_*`-by-value is unusual, hence the allow.)
+    #[allow(clippy::wrong_self_convention)]
+    pub(crate) fn is_disjoint(mut self, mut other: IdReader) -> bool {
+        descend!(0, disjoint_rec(&mut self, &mut other, 0))
     }
 }
 
-/// One subtree of the [`is_disjoint`](IdReader::is_disjoint) walk. Returns readers
-/// past the subtree in each input (to thread the right sibling), or `None` the
-/// moment an overlap is found, which unwinds the whole walk. Reads as a match on
+/// One subtree of the [`is_disjoint`](IdReader::is_disjoint) walk, advancing
+/// both `&mut` readers past their subtrees; `false` the moment an overlap is
+/// found unwinds the whole walk (the `&&` short-circuits). Reads as a match on
 /// the two id nodes: an empty side is disjoint from anything (skip the other to
 /// resync); a full side overlaps any nonempty other; two nodes descend.
-fn disjoint_rec<'a>(
-    a: IdReader<'a>,
-    b: IdReader<'a>,
-    depth: usize,
-) -> Option<(IdReader<'a>, IdReader<'a>)> {
-    let (a_node, a_after) = a.read();
-    let (b_node, b_after) = b.read();
-    match (a_node, b_node) {
-        // An empty side owns nothing here: disjoint. Skip the other's subtree to
-        // resync the cursors.
-        (IdNode::Empty, _) => Some((a_after, b.skip())),
-        (_, IdNode::Empty) => Some((a.skip(), b_after)),
-        // One side full, the other nonempty (neither is empty): overlap.
-        (IdNode::Full, _) | (_, IdNode::Full) => None,
-        // Both internal: descend in lockstep, threading the right child from
-        // where the left ended.
-        (IdNode::Internal, IdNode::Internal) => {
-            let (a_mid, b_mid) = descend!(depth + 1, disjoint_rec(a_after, b_after, depth + 1))?;
-            descend!(depth + 1, disjoint_rec(a_mid, b_mid, depth + 1))
+fn disjoint_rec(a: &mut IdReader, b: &mut IdReader, depth: usize) -> bool {
+    let a_node = a.read();
+    if let IdNode::Empty = a_node {
+        b.skip(); // a owns nothing here: disjoint; skip b's subtree to resync
+        return true;
+    }
+    let b_node = b.read();
+    if let IdNode::Empty = b_node {
+        // b owns nothing: disjoint. Skip the rest of a's subtree (its two
+        // children) if a is a node; a leaf is already consumed.
+        if let IdNode::Internal = a_node {
+            a.skip();
+            a.skip();
         }
+        return true;
+    }
+    match (a_node, b_node) {
+        // Both internal: descend in lockstep, each cursor threaded through its
+        // left subtree then its right.
+        (IdNode::Internal, IdNode::Internal) => {
+            descend!(depth + 1, disjoint_rec(a, b, depth + 1))
+                && descend!(depth + 1, disjoint_rec(a, b, depth + 1))
+        }
+        // One side full, the other nonempty (neither is empty): overlap.
+        _ => false,
     }
 }

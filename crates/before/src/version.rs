@@ -365,7 +365,7 @@ impl Batch<'_> {
     pub(crate) fn merge(&mut self, other: &Version) -> &mut Self {
         let current = self.view();
         let incoming = other.view();
-        if current.trivially_eq(incoming) {
+        if current.trivially_eq(&incoming) {
             return self;
         }
         let work = current.join(incoming);
