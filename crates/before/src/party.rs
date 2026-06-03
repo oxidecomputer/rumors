@@ -17,7 +17,7 @@ mod tests;
 /// A disjoint party: a share of the unit interval `[0, 1)`, identified by its
 /// place in the fork tree.
 ///
-/// A party is defined by three operations:
+/// A party is primarily manipulated by these operations:
 ///
 /// | Operation                                 | Meaning                                                                   |
 /// |-------------------------------------------|---------------------------------------------------------------------------|
@@ -25,6 +25,7 @@ mod tests;
 /// | [`a.fork()`](Party::fork)                 | split `a` into two disjoint children                                      |
 /// | [`a.join(b)`](Party::join)                | reunite two *disjoint* parties into the one owning both regions; fallible |
 /// | [`a.is_disjoint(&b)`](Party::is_disjoint) | whether `a` and `b` share no region, hence may safely interact            |
+/// | `a == b`                                  | whether `a` is exactly the same [`Party`] as `b`                          |
 ///
 /// A [`Party`] is **not ordered**. Use [`is_disjoint`](Party::is_disjoint) to
 /// tell whether two parties may [`join`](Party::join). There is likewise no
