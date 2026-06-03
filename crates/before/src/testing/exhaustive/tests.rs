@@ -24,7 +24,7 @@
 //! [`EV_SMALL_DEPTH`], and the `#[ignore]`d `exhaustive_deep` at
 //! [`ID_DEEP_DEPTH`] / [`EV_DEEP_DEPTH`].
 //!
-//! Op *symmetry* (`is_disjoint` symmetric, `sum`/merge commutative,
+//! Op *symmetry* (`is_disjoint` symmetric, `sum`/merge commutative, event
 //! `partial_cmp` anti-symmetric) is NOT relied on to skip half the pairs and is
 //! NOT checked here; it is an intrinsic algebraic property of the impl, tested
 //! directly and oracle-independently in the "intrinsic symmetry laws" section
@@ -113,15 +113,14 @@ fn check_id_split(ids: &[oracle::Party], imp: &[Party]) {
     });
 }
 
-/// `partial_cmp`, `is_disjoint`, and `sum` over every *ordered pair* of ids agree with the
-/// oracle — reaching the overlap (`is_disjoint == false`), incomparable (`partial_cmp ==
-/// None`), and overlap-sum (`None`) arms exhaustively.
+/// `is_disjoint` and `sum` over every *ordered pair* of ids agree with the oracle —
+/// reaching the overlap (`is_disjoint == false`) and overlap-sum (`None`) arms
+/// exhaustively.
 fn check_id_pairs(ids: &[oracle::Party], imp: &[Party]) {
     par_for_pairs(ids.len(), |i, j| {
         let (oa, ob) = (&ids[i], &ids[j]);
         let (ia, ib) = (&imp[i], &imp[j]);
 
-        assert_eq!(ia.partial_cmp(ib), oa.partial_cmp(ob), "cmp {oa:?} {ob:?}");
         let disjoint = oa.is_disjoint(ob);
         assert_eq!(ia.is_disjoint(ib), disjoint, "is_disjoint {oa:?} {ob:?}");
 
@@ -151,7 +150,7 @@ fn check_ev_codec(evs: &[oracle::Version], imp: &[Version]) {
         let bytes = v.encode();
         let decoded = Version::decode(&bytes[..]).expect("canonical event encoding decodes");
         assert!(
-            &decoded == v,
+            decoded == v,
             "event decode∘encode is not identity for {ov:?}"
         );
         assert_eq!(to_oracle_version(&decoded), *ov);
@@ -342,20 +341,6 @@ fn id_sum_is_commutative() {
         let ab = IdView(imp[i].as_bits()).sum(&IdView(imp[j].as_bits()));
         let ba = IdView(imp[j].as_bits()).sum(&IdView(imp[i].as_bits()));
         assert!(ab == ba, "sum not commutative at ({i}, {j})");
-    });
-}
-
-/// id `partial_cmp` is anti-symmetric: `cmp(a, b) == cmp(b, a).reverse()` (and the two
-/// directions agree on the incomparable/`None` verdict), over every ordered pair.
-#[test]
-fn id_partial_cmp_is_antisymmetric() {
-    let imp = impl_ids(ID_SMALL_DEPTH);
-    par_for_pairs(imp.len(), |i, j| {
-        assert_eq!(
-            imp[i].partial_cmp(&imp[j]),
-            imp[j].partial_cmp(&imp[i]).map(Ordering::reverse),
-            "id partial_cmp not anti-symmetric at ({i}, {j})",
-        );
     });
 }
 

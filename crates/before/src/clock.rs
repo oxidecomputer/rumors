@@ -21,6 +21,19 @@ mod tests;
 /// in the setting of interval tree clocks, which requires that all live clocks
 /// in the system **must** be disjoint.
 ///
+/// Causal comparison and merge happen through the [`Version`]; `Clock` is not
+/// itself ordered:
+///
+/// | Operation                                                                                                                           | Meaning                                                  |
+/// |-------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------|
+/// | `a.version()` (`<`, `<=`, `==`) `b.version()`                                                                                       | compare causal histories (the order lives on [`Version`])|
+/// | [`a.version().concurrent(b.version())`](Version::concurrent)                                                                        | the two clocks' histories are incomparable               |
+/// | `clock \| v`, `clock \|= v`                                                                                                         | join a received [`Version`] `v` into this clock          |
+/// | [`tick`](Clock::tick)/[`fork`](Clock::fork)/[`join`](Clock::join)/[`sync`](Clock::sync)/[`send`](Clock::send)/[`recv`](Clock::recv) | advance, split, and reunite clocks                       |
+///
+/// There is deliberately no `Clock | Clock`: merging two whole clocks is the
+/// fallible [`join`](Clock::join), which must verify the parties are disjoint.
+///
 /// ```
 /// use before::Clock;
 /// let mut a = Clock::seed();
@@ -524,6 +537,14 @@ impl BitOr<Version> for Clock {
     }
 }
 
+impl BitOr<&Version> for Clock {
+    type Output = Clock;
+    fn bitor(mut self, r: &Version) -> Clock {
+        self.batch().merge(r);
+        self
+    }
+}
+
 /// Merge a [`Version`] into a [`Clock`], consuming the clock.
 ///
 /// ```
@@ -535,6 +556,14 @@ impl BitOr<Clock> for Version {
     type Output = Clock;
     fn bitor(self, mut r: Clock) -> Clock {
         r.batch().merge(&self);
+        r
+    }
+}
+
+impl BitOr<Clock> for &Version {
+    type Output = Clock;
+    fn bitor(self, mut r: Clock) -> Clock {
+        r.batch().merge(self);
         r
     }
 }
@@ -581,5 +610,11 @@ impl BitOrAssign<&Version> for Clock {
 impl BitOrAssign<&Version> for Batch<'_> {
     fn bitor_assign(&mut self, r: &Version) {
         self.merge(r);
+    }
+}
+
+impl BitOrAssign<Version> for Batch<'_> {
+    fn bitor_assign(&mut self, r: Version) {
+        self.merge(&r);
     }
 }

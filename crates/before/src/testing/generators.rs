@@ -139,35 +139,6 @@ pub(crate) fn skip_stress_pair(scale: usize) -> (Party, Party) {
     (from_oracle_party(&a), from_oracle_party(&b))
 }
 
-/// Build a containment "staircase" pair `(big, small)` that drives the bounded
-/// lazy-skip in `compare` to its worst case: `Θ(scale)` distinct skips. `big`
-/// is a right-spine whose every left child is a `1`-leaf (owns that whole left
-/// region); `small` is a right-spine whose every left child is a 2-leaf subtree
-/// `(1, 0)`. In lockstep, at each level `big`'s left `1`-leaf dominates
-/// `small`'s left *subtree*, so that subtree is skipped once. `big ⊇ small`, so
-/// `compare` reports `Less` (ancestor) and runs to completion; the cumulative
-/// skip cost is measured. Both ids are linear in `scale`; a bounded skip is
-/// `O(scale)`, an unbounded one `O(scale²)`.
-pub(crate) fn contain_stress_pair(scale: usize) -> (Party, Party) {
-    use oracle::Party as P;
-    // `big`: right-spine, every left child fully owned (`1`); deepest-right
-    // empty so the spine does not collapse (`(1, 1)` would). Owns every left
-    // region `small` touches.
-    let mut big = P::Leaf(false);
-    for _ in 0..scale {
-        big = P::node(P::seed(), big);
-    }
-    // A 2-leaf subtree `(1, 0)`: a sub-region of `big`'s corresponding `1`.
-    let owned_left = || P::node(P::seed(), P::Leaf(false));
-    // `small`: right-spine, every left child a sub-region of `big`'s
-    // corresponding `1`.
-    let mut small = P::Leaf(false);
-    for _ in 0..scale {
-        small = P::node(owned_left(), small);
-    }
-    (from_oracle_party(&big), from_oracle_party(&small))
-}
-
 /// Build a non-empty normal-form id of `shape` sized linearly in `scale`. The
 /// spines carry a single owned region (a `1` leaf at the tip) with `0`
 /// off-spine; the bushy shape carries many owned regions at varying depths (so

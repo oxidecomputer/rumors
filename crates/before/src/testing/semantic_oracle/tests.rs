@@ -168,17 +168,14 @@ proptest! {
                 let (ivi, ivj) = (im[i].version(), im[j].version());
                 let d_impl = (
                     ivi.partial_cmp(ivj),
-                    im[i].party().partial_cmp(im[j].party()),
                     im[i].party().is_disjoint(im[j].party()),
                 );
                 let d_oracle = (
                     ovi.partial_cmp(&ovj),
-                    or[i].party().partial_cmp(or[j].party()),
                     or[i].party().is_disjoint(or[j].party()),
                 );
                 let d_sem = (
                     ev_order(&se[i].ev, &se[j].ev, g),
-                    id_order(&se[i].id, &se[j].id, g),
                     disjoint(&se[i].id, &se[j].id, g),
                 );
                 prop_assert_eq!(d_impl, d_oracle, "impl vs oracle at ({}, {})", i, j);

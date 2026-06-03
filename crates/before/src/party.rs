@@ -1,6 +1,5 @@
 //! Disjoint parties who can emit events.
 
-use core::cmp::Ordering;
 use core::fmt::Display;
 
 use bitvec::prelude::*;
@@ -8,23 +7,40 @@ use bitvec::prelude::*;
 use crate::codec::{self, BitsSlice};
 use crate::error::{Decode, Parse};
 use crate::idbits::IdView;
+use crate::Version;
 
 mod ops;
 
 #[cfg(test)]
 mod tests;
 
-/// A disjoint party.
+/// A disjoint party: a share of the unit interval `[0, 1)`, identified by its
+/// place in the fork tree.
 ///
-/// Parties are ordered by ancestry: [`seed`](Party::seed) is the minimum;
-/// siblings and cousins are incomparable. For disjoint parties,
-/// [`join`](Party::join) computes the meet under this order.
+/// A party is defined by three operations:
+///
+/// | Operation                                 | Meaning                                                                   |
+/// |-------------------------------------------|---------------------------------------------------------------------------|
+/// | [`a.tick(v)`](Party::tick)                | advance the [`Version`] for this [`Party`]                                |
+/// | [`a.fork()`](Party::fork)                 | split `a` into two disjoint children                                      |
+/// | [`a.join(b)`](Party::join)                | reunite two *disjoint* parties into the one owning both regions; fallible |
+/// | [`a.is_disjoint(&b)`](Party::is_disjoint) | whether `a` and `b` share no region, hence may safely interact            |
+///
+/// A [`Party`] is **not ordered**. Use [`is_disjoint`](Party::is_disjoint) to
+/// tell whether two parties may [`join`](Party::join). There is likewise no
+/// `Party | Party`: reuniting is the fallible [`join`](Party::join), which
+/// internally verifies disjointness.
+///
+/// Like [`Clock`](crate::Clock), [`Party`] is [`!Clone`](Clone): duplicating a
+/// live party would violate the linearity which interval tree clocks require.
 ///
 /// ```
 /// use before::Party;
 /// let mut whole = Party::seed();
 /// let half = whole.fork();
-/// assert!(whole.is_disjoint(&half));
+/// assert!(whole.is_disjoint(&half)); // the two halves share no region
+/// whole.join(half).unwrap();         // ... and reunite into the whole
+/// assert_eq!(whole.to_string(), "1");
 /// ```
 #[derive(PartialEq, Eq, Hash)]
 pub struct Party(BitVec<u8, Msb0>);
@@ -47,6 +63,18 @@ impl Party {
         bits.push(false); // leaf flag
         bits.push(true); // value 1
         Party(bits)
+    }
+
+    /// Advance the [`Version`] from the perspective of [`Party`].
+    ///
+    /// ```
+    /// use before::{Party, Version};
+    /// let mut v = Version::new();
+    /// Party::seed().tick(&mut v);
+    /// assert_eq!(v.to_string(), "1");
+    /// ```
+    pub fn tick(&self, version: &mut Version) {
+        version.tick(self)
     }
 
     /// Split off a new disjoint [`Party`] from this one.
@@ -205,25 +233,6 @@ impl Party {
     /// Wrap a canonical packed bit stream. Internal; callers guarantee normal form.
     pub(crate) fn from_bits(bits: codec::Bits) -> Self {
         Party(bits)
-    }
-}
-
-impl PartialOrd for Party {
-    /// Descent: an ancestor (larger region) is *less than* its forked descendants;
-    /// cousins are incomparable (`None`). `self < other` ⇔ `self` contains `other`.
-    /// One pass tracks both containment directions (see `IdView::compare`); running
-    /// the containment test once per direction would double the work.
-    ///
-    /// ```
-    /// use before::Party;
-    /// let whole: Party = "1".parse().unwrap();
-    /// let part: Party = "(1, 0)".parse().unwrap();
-    /// assert!(whole < part); // an ancestor region precedes its descendants
-    /// let sibling: Party = "(0, 1)".parse().unwrap();
-    /// assert!(part.partial_cmp(&sibling).is_none()); // siblings are incomparable
-    /// ```
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.view().compare(&other.view())
     }
 }
 

@@ -96,65 +96,6 @@ fn bench_is_disjoint(c: &mut Criterion) {
     g.finish();
 }
 
-/// `partial_cmp`: the descent order, over the two outcomes that force a full traversal.
-///
-/// - `ancestor`: an ancestor/descendant pair (`Some(Less)`). One direction (`a ⊇ b`)
-///   runs to completion; the other is excluded early. The pre-fork whole contains both
-///   post-fork halves, so we snapshot it (bytes for the impl, clone for the oracle)
-///   before forking off a child.
-/// - `equal`: two structurally identical parties (`Some(Equal)`). *Both* directions run
-///   to completion — the case the single-pass [`ops::compare`] helps most, since a
-///   two-pass containment formulation would traverse the whole tree twice here.
-///
-/// (Disjoint cousins are omitted: they bail at the first mismatch, so they measure the
-/// per-call floor rather than traversal.)
-fn bench_partial_cmp(c: &mut Criterion) {
-    let mut g = c.benchmark_group("party/partial_cmp");
-    let mut r = rng(4);
-    for &n in SIZES {
-        let plan = common::plan(&mut r, n, 1);
-
-        // The pre-fork whole, snapshotted before forking off a child.
-        let mut ip = common::impl_parties(&plan, 1).pop().unwrap();
-        let whole_bytes = ip.encode();
-        let child = ip.fork();
-        let mut op = common::oracle_parties(&plan, 1).pop().unwrap();
-        let owhole = op.clone();
-        let ochild = op.fork();
-
-        // ancestor/descendant: whole ⊋ child (Some(Less)).
-        let anc = Party::decode(&whole_bytes[..]).unwrap();
-        // equal: two distinct instances of the whole (Some(Equal)) — both directions full.
-        let ieq = (
-            Party::decode(&whole_bytes[..]).unwrap(),
-            Party::decode(&whole_bytes[..]).unwrap(),
-        );
-        let oeq = (owhole.clone(), owhole.clone());
-
-        g.bench_with_input(
-            BenchmarkId::new("before/ancestor", n),
-            &(anc, child),
-            |b, (a, c)| {
-                b.iter(|| black_box(a.partial_cmp(c)));
-            },
-        );
-        g.bench_with_input(
-            BenchmarkId::new("oracle/ancestor", n),
-            &(owhole, ochild),
-            |b, (a, c)| {
-                b.iter(|| black_box(a.partial_cmp(c)));
-            },
-        );
-        g.bench_with_input(BenchmarkId::new("before/equal", n), &ieq, |b, (a, c)| {
-            b.iter(|| black_box(a.partial_cmp(c)));
-        });
-        g.bench_with_input(BenchmarkId::new("oracle/equal", n), &oeq, |b, (a, c)| {
-            b.iter(|| black_box(a.partial_cmp(c)));
-        });
-    }
-    g.finish();
-}
-
 /// `encode`/`decode`: the packed byte codec. No oracle equivalent (the oracle omits the
 /// codec by design), so these are timed for the impl alone.
 fn bench_codec(c: &mut Criterion) {
@@ -179,7 +120,6 @@ criterion_group!(
     bench_fork,
     bench_join,
     bench_is_disjoint,
-    bench_partial_cmp,
     bench_codec
 );
 criterion_main!(benches);

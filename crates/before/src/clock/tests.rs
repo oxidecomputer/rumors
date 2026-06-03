@@ -27,7 +27,7 @@ proptest! {
         let msg_oracle = ob.version();
         let msg = from_oracle_version(&msg_oracle);
 
-        prop_assert_eq!(ia.version() >= &msg, oa.version() >= msg_oracle);
+        prop_assert_eq!(ia.version() >= msg, oa.version() >= msg_oracle);
         prop_assert_eq!(ia.version() < ib.version(), oa.version() < ob.version());
         prop_assert_eq!(ia.version().concurrent(ib.version()), oa.concurrent_with(ob));
     }
@@ -137,8 +137,8 @@ proptest! {
         let mut c = from_oracle_clock(&cs[i % n]);
         let before = c.version().clone();
         let child = c.fork();
-        prop_assert!(c.version() == &before);
-        prop_assert!(child.version() == &before);
+        prop_assert!(c.version() == before);
+        prop_assert!(child.version() == before);
     }
 
     /// `version()` (peek) does not advance the clock; the returned `Version`
@@ -321,7 +321,7 @@ proptest! {
         {
             let _b = c.batch();
         }
-        prop_assert!(c.version() == &before);
+        prop_assert!(c.version() == before);
 
         let before_fork = c.version().clone();
         {
@@ -350,7 +350,7 @@ proptest! {
         b.tick();
         prop_assert!(b.version() == expected);
         drop(b);
-        prop_assert!(c.version() == &expected);
+        prop_assert!(c.version() == expected);
     }
 }
 
@@ -448,7 +448,7 @@ fn deep_tree_stack_safety() {
     // `has_seen` lowers to a deep `causal_cmp` against the version, and the
     // clock-vs-clock observers compare two deep versions.
     let sent = clock.send().clone();
-    assert!(clock.version() >= &sent);
+    assert!(clock.version() >= sent);
     assert_ne!(
         clock.version().partial_cmp(clock.version()),
         Some(core::cmp::Ordering::Greater)
@@ -593,7 +593,7 @@ fn worked_example() {
     // One participant ticks; the other two sync.
     let before = p1a.version().clone();
     p1a.tick();
-    assert!(p1a.version() > &before);
+    assert!(p1a.version() > before);
 
     let merged_region = {
         let mut acc = to_oracle_party(p1b.party());

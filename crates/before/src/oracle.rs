@@ -151,16 +151,6 @@ impl Party {
         }
     }
 
-    fn contains(&self, other: &Party) -> bool {
-        match (self, other) {
-            (_, Party::Leaf(false)) => true,
-            (Party::Leaf(true), _) => true,
-            (Party::Leaf(false), x) => x.is_empty(),
-            (x, Party::Leaf(true)) => x.is_full(),
-            (Party::Node(a1, a2), Party::Node(b1, b2)) => a1.contains(b1) && a2.contains(b2),
-        }
-    }
-
     pub fn is_normal(&self) -> bool {
         match self {
             Party::Leaf(_) => true,
@@ -169,18 +159,6 @@ impl Party {
                     matches!((&**l, &**r), (Party::Leaf(a), Party::Leaf(b)) if a == b);
                 !collapsible && l.is_normal() && r.is_normal()
             }
-        }
-    }
-}
-
-impl PartialOrd for Party {
-    /// Descent: an ancestor (larger region) is *less than* its forked descendants.
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        match (self.contains(other), other.contains(self)) {
-            (true, true) => Some(Ordering::Equal),
-            (true, false) => Some(Ordering::Less),
-            (false, true) => Some(Ordering::Greater),
-            (false, false) => None,
         }
     }
 }

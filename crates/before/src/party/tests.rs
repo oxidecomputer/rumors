@@ -1,7 +1,5 @@
-//! Party tests: descent order, fork/join round-trip, disjointness, and the meet
-//! / overlap behavior, all differential against the oracle.
-
-use std::cmp::Ordering;
+//! Party tests: fork/join round-trip, disjointness, split/sum, and overlap
+//! behavior, all differential against the oracle.
 
 use proptest::prelude::*;
 
@@ -10,55 +8,15 @@ use crate::idbits::IdView;
 use crate::testing::bridge::{from_oracle_party, to_oracle_party};
 use crate::testing::complexity::{assert_linear_scaling, steps_of, MIN_SCALE};
 use crate::testing::generators::{
-    arb_oracle_party, arb_oracle_party_nonempty, arb_shape, contain_stress_pair, shape_party,
-    skip_stress_pair,
+    arb_oracle_party, arb_oracle_party_nonempty, arb_shape, shape_party, skip_stress_pair,
 };
 use crate::testing::optrace::{run, world_strategy};
-
-/// `a <= b` under the impl descent order.
-fn le(a: &Party, b: &Party) -> bool {
-    a.partial_cmp(b).is_some_and(|o| o != Ordering::Greater)
-}
 
 // ───────────────────────────── differential vs oracle ─────────────────────────────
 
 proptest! {
-    /// The impl descent order and `is_disjoint` agree with the oracle, and the
-    /// order obeys the partial-order laws (reflexive, antisymmetric,
-    /// transitive).
-    #[test]
-    fn d_party_matches_oracle(
-        ops in world_strategy(),
-        i in 0usize..64,
-        j in 0usize..64,
-        k in 0usize..64,
-    ) {
-        let cs = run(&ops);
-        let n = cs.len();
-        let (oa, ob, oc) = (cs[i % n].party(), cs[j % n].party(), cs[k % n].party());
-        let (ia, ib, ic) = (
-            from_oracle_party(oa),
-            from_oracle_party(ob),
-            from_oracle_party(oc),
-        );
-
-        prop_assert_eq!(ia.partial_cmp(&ib), oa.partial_cmp(ob));
-        prop_assert_eq!(ia.is_disjoint(&ib), oa.is_disjoint(ob));
-
-        prop_assert_eq!(ia.partial_cmp(&ia), Some(Ordering::Equal));
-        if le(&ia, &ib) && le(&ib, &ia) {
-            prop_assert!(ia == ib);
-        }
-        if le(&ia, &ib) && le(&ib, &ic) {
-            prop_assert!(le(&ia, &ic));
-        }
-    }
-}
-
-proptest! {
-    /// `fork` yields two disjoint descendants of the parent (parent `<` each
-    /// child), both matching the oracle; `join` of the two recovers the parent
-    /// (the meet — a lower bound of both).
+    /// `fork` yields two disjoint halves, both matching the oracle's split;
+    /// `join` of the two recovers the parent.
     #[test]
     fn d_fork_join_roundtrip(ops in world_strategy(), i in 0usize..64) {
         let cs = run(&ops);
@@ -74,10 +32,6 @@ proptest! {
         // Both halves match the oracle's split.
         prop_assert!(keep == from_oracle_party(&oracle_party));
         prop_assert!(child == from_oracle_party(&oracle_child));
-
-        // Descent: the parent is strictly below (a lower bound of) each child.
-        prop_assert_eq!(parent.partial_cmp(&keep), Some(Ordering::Less));
-        prop_assert_eq!(parent.partial_cmp(&child), Some(Ordering::Less));
 
         // Forks are disjoint, and join recovers the parent.
         prop_assert!(keep.is_disjoint(&child));
@@ -139,25 +93,6 @@ proptest! {
     }
 }
 
-proptest! {
-    /// Complexity. `compare` is `O(n + m)`: a *misaligned* containment pair (a
-    /// shallow `1`-leaf on the container aligned with the contained's whole
-    /// deep subtree) drives the bounded lazy-skip at scale. `big ⊇ small`, so
-    /// the `a ⊇ b` direction stays live and the walk runs to completion (the `b
-    /// ⊇ a` direction is excluded early but does not stop it); the skip
-    /// dominates, and steps stay linear over the `4x` growth.
-    #[test]
-    fn compare_is_linear(scale in MIN_SCALE..256) {
-        let measure = |s: usize| {
-            let (big, small) = contain_stress_pair(s);
-            steps_of(|| {
-                IdView(big.as_bits()).compare(&IdView(small.as_bits()));
-            })
-        };
-        assert_linear_scaling(measure(scale), measure(scale * 4));
-    }
-}
-
 // ───────────────────────────── join overlap ─────────────────────────────
 
 proptest! {
@@ -206,17 +141,15 @@ fn parse_bare_notation() {
 // seed-derived pipeline cannot produce.
 
 proptest! {
-    /// `partial_cmp` (descent order) and `is_disjoint` on arbitrary id pairs —
-    /// typically *unrelated* and frequently *overlapping* — agree with the
-    /// oracle, including the incomparable (`None`) and not-disjoint verdicts
-    /// the op pipeline never produces.
+    /// `is_disjoint` on arbitrary id pairs — typically *unrelated* and
+    /// frequently *overlapping* — agrees with the oracle, including the
+    /// not-disjoint verdict the op pipeline never produces.
     #[test]
-    fn compare_disjoint_arbitrary(
+    fn disjoint_arbitrary(
         oa in arb_oracle_party(),
         ob in arb_oracle_party(),
     ) {
         let (ia, ib) = (from_oracle_party(&oa), from_oracle_party(&ob));
-        prop_assert_eq!(ia.partial_cmp(&ib), oa.partial_cmp(&ob));
         prop_assert_eq!(ia.is_disjoint(&ib), oa.is_disjoint(&ob));
         // Disjointness is symmetric on the impl directly.
         prop_assert_eq!(ia.is_disjoint(&ib), ib.is_disjoint(&ia));

@@ -171,58 +171,6 @@ proptest! {
     }
 }
 
-// ───────────────────────────── party order ─────────────────────────────
-
-proptest! {
-    /// Party order is descent: each fork child is `>` its parent; the order is
-    /// a partial order; `join` is the meet (a lower bound) for disjoint
-    /// parties; and `join` errors (handing the party back unchanged) on
-    /// overlap.
-    #[test]
-    fn party_order(ops in world_strategy(), i in 0usize..64, j in 0usize..64, k in 0usize..64) {
-        let cs = run(&ops);
-        let parties: Vec<Party> = cs.iter().map(|c| c.party().clone()).collect();
-        let n = parties.len();
-        let (a, b, c) = (&parties[i % n], &parties[j % n], &parties[k % n]);
-
-        // Partial-order laws under descent.
-        prop_assert_eq!(a.partial_cmp(a), Some(Ordering::Equal));
-        let le = |x: &Party, y: &Party| x.partial_cmp(y).is_some_and(|o| o != Ordering::Greater);
-        if le(a, b) && le(b, a) {
-            prop_assert_eq!(a, b);
-        }
-        if le(a, b) && le(b, c) {
-            prop_assert!(le(a, c));
-        }
-
-        // Fork: parent < each child; siblings disjoint.
-        let mut parent = a.clone();
-        let snapshot = parent.clone();
-        let child = parent.fork();
-        prop_assert_eq!(snapshot.partial_cmp(&parent), Some(Ordering::Less));
-        prop_assert_eq!(snapshot.partial_cmp(&child), Some(Ordering::Less));
-        prop_assert!(parent.is_disjoint(&child));
-
-        // Meet of two disjoint parties (the two fresh halves): a lower bound that
-        // equals their sum, recovering the original region.
-        let mut meet = parent.clone();
-        prop_assert_eq!(meet.join(child.clone()), Ok(()));
-        prop_assert!(le(&meet, &parent) && le(&meet, &child));
-        prop_assert_eq!(&meet, &snapshot);
-
-        // Overlap: joining a descendant into its ancestor errors and is a no-op.
-        let mut ancestor = snapshot.clone();
-        let descendant = {
-            let mut x = snapshot.clone();
-            x.fork()
-        };
-        prop_assert!(!ancestor.is_disjoint(&descendant));
-        let before = ancestor.clone();
-        prop_assert_eq!(ancestor.join(descendant.clone()), Err(descendant));
-        prop_assert_eq!(ancestor, before);
-    }
-}
-
 // ───────────────────────────── disjointness invariant ─────────────────────────────
 
 proptest! {

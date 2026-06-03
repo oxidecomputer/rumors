@@ -8,6 +8,17 @@
 //! *recycle identifiers* without violating causality, thereby avoiding the
 //! unbounded linear inflation to which naïve sparse clocks/vectors fall victim.
 //!
+//! ## The types
+//!
+//! | Type        | Is                                              | Core operations                                                                                                                                                           |
+//! |-------------|-------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+//! | [`Party`]   | a distinct entity which may emit events         | [`tick`](Party::tick), [`fork`](Party::fork), [`join`](Party::join), [`is_disjoint`](Party::is_disjoint)                                                                  |
+//! | [`Version`] | a causal timestamp (a history of seen events)   | [`tick`](Version::tick), compare (`<`, `<=`, [`concurrent`](Version::concurrent)), merge (`\|`)                                                                           |
+//! | [`Clock`]   | a [`Party`] paired with its current [`Version`] | [`tick`](Clock::tick), [`fork`](Clock::fork), [`join`](Clock::join), [`sync`](Clock::sync), [`send`](Clock::send), [`recv`](Clock::recv), merge (`\|`) with [`Version`]   |
+//!
+//! [`Party`]s and [`Clock`]s are linear ([`!Clone`](Clone)); [`Version`]s are
+//! freely [`Clone`]able.
+//!
 //! ## A conceptual sketch
 //!
 //! The insight of the original ITC paper is that we can get *both* compact
@@ -37,6 +48,12 @@
 //! over the lifetime of a distributed system, their average representational
 //! size remains quite small (in the hundreds or low thousands of bytes, even
 //! for hundreds of communicating processes and millions of iterations).
+//!
+//! Concretely, that lattice *is* the [`Version`] API you reach for: the partial
+//! order `<=` asks whether one version's history is contained in another's, the
+//! join `|` combines two histories into their least upper bound, and
+//! [`tick`](Version::tick) moves strictly upward; two histories with no
+//! containing order are *[`concurrent`](Version::concurrent)*.
 //!
 //! By packaging a [`Version`] and a [`Party`] together into a [`Clock`], we get
 //! a causal clock which may be [`tick`](Clock::tick)ed,

@@ -21,14 +21,32 @@ mod working;
 #[cfg(test)]
 mod tests;
 
-/// A causal version.
+/// A causal version: an event tree timestamping a [`Party`]'s history.
+///
+/// Comparison and **join** (`|`) are what give a version meaning;
+/// [`tick`](Version::tick) is the only way to change one:
+///
+/// | Operation                                 | Meaning                                                        |
+/// |-------------------------------------------|----------------------------------------------------------------|
+/// | `a == b`                                  | identical causal history                                       |
+/// | `a < b`, `a <= b`                         | `a` is causally dominated by `b`: every event in `a` is in `b` |
+/// | [`a.concurrent(b)`](Version::concurrent)  | incomparable: neither dominates the other                      |
+/// | `a \| b`, `a \|= b`                       | the *join* (least upper bound): the combined history of both   |
+/// | [`a.tick(&p)`](Version::tick)             | record one new event for [`Party`] `p`                         |
+///
+/// Comparison is **partial** ([`PartialOrd`], not [`Ord`]): two distinct
+/// versions can be [`concurrent`](Version::concurrent), and then `a < b`,
+/// `a == b`, and `a > b` are all false.
 ///
 /// ```
-/// use before::{Party, Version};
-/// let party = Party::seed();
-/// let mut v = Version::new();
-/// v.tick(&party);
-/// assert!(v > Version::new()); // a tick advances the causal order
+/// use before::Clock;
+/// let mut a = Clock::seed();
+/// let mut b = a.fork();
+/// let va = a.tick();
+/// let vb = b.tick();
+/// assert!(va.concurrent(vb));  // ticking two forks makes them concurrent
+/// let merged = va | vb;
+/// assert!(merged > va && merged > vb);  // the join dominates both inputs
 /// ```
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Version(BitVec<u8, Msb0>);
@@ -183,7 +201,9 @@ impl Default for Version {
 }
 
 impl PartialOrd for Version {
-    /// The causal order; `None` means the two versions are concurrent.
+    /// The causal order. Returns `None` when the versions are *concurrent*, so
+    /// `<`, `<=`, `>`, and `>=` may *all* be false for two distinct versions;
+    /// use [`concurrent`](Version::concurrent) to detect that case.
     ///
     /// ```
     /// use before::Version;
@@ -192,6 +212,30 @@ impl PartialOrd for Version {
     /// assert!(a < b);
     /// ```
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.view().causal_cmp(&other.view())
+    }
+}
+
+impl PartialEq<Version> for &Version {
+    fn eq(&self, other: &Version) -> bool {
+        self.partial_cmp(other) == Some(Ordering::Equal)
+    }
+}
+
+impl PartialOrd<Version> for &Version {
+    fn partial_cmp(&self, other: &Version) -> Option<Ordering> {
+        self.view().causal_cmp(&other.view())
+    }
+}
+
+impl PartialEq<&Version> for Version {
+    fn eq(&self, other: &&Version) -> bool {
+        self.partial_cmp(other) == Some(Ordering::Equal)
+    }
+}
+
+impl PartialOrd<&Version> for Version {
+    fn partial_cmp(&self, other: &&Version) -> Option<Ordering> {
         self.view().causal_cmp(&other.view())
     }
 }
@@ -399,6 +443,34 @@ impl BitOr<Version> for Version {
     }
 }
 
+impl BitOr<&Version> for Version {
+    type Output = Version;
+    fn bitor(self, r: &Version) -> Version {
+        if self == r {
+            return self;
+        }
+        let work = self.view().join(&r.view());
+        Version::from_bits(work.repack())
+    }
+}
+
+impl BitOr<Version> for &Version {
+    type Output = Version;
+    fn bitor(self, r: Version) -> Version {
+        r | self
+    }
+}
+
+impl BitOr<&Version> for &Version {
+    type Output = Version;
+    fn bitor(self, r: &Version) -> Version {
+        if self == r {
+            return self.clone();
+        }
+        self.clone() | r
+    }
+}
+
 /// `a |= b` joins `b` into `a` in place.
 ///
 /// ```
@@ -420,19 +492,22 @@ impl BitOrAssign<Version> for Version {
     }
 }
 
-/// Merge a [`Version`] into a version [`Batch`] in place.
-///
-/// ```
-/// use before::{Party, Version};
-/// let mut base = Version::new();
-/// base.tick(&Party::seed());
-/// let mut v = Version::new();
-/// {
-///     let mut batch = v.batch();
-///     batch |= &base;
-/// }
-/// assert_eq!(v.to_string(), "1");
-/// ```
+impl BitOrAssign<Version> for Batch<'_> {
+    fn bitor_assign(&mut self, r: Version) {
+        self.merge(&r);
+    }
+}
+
+impl BitOrAssign<&Version> for Version {
+    fn bitor_assign(&mut self, r: &Version) {
+        if self == r {
+            return;
+        }
+        let work = self.view().join(&r.view());
+        *self = Version::from_bits(work.repack());
+    }
+}
+
 impl BitOrAssign<&Version> for Batch<'_> {
     fn bitor_assign(&mut self, r: &Version) {
         self.merge(r);
