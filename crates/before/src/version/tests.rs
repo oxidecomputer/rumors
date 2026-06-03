@@ -753,3 +753,29 @@ proptest! {
         prop_assert_eq!(to_oracle_version(&decoded), ov);
     }
 }
+
+proptest! {
+    /// `as_bytes` returns exactly the canonical `encode` bytes: the stored form
+    /// keeps its final partial byte zero-padded, so the raw storage slice is
+    /// byte-identical to the packed encoding. Exercises the literal/`extend`
+    /// construction path over arbitrary normal-form trees.
+    #[test]
+    fn as_bytes_matches_encode(ov in arb_oracle_version()) {
+        let v = from_oracle_version(&ov);
+        let encoded = v.encode();
+        prop_assert_eq!(v.as_bytes(), encoded.as_slice());
+    }
+
+    /// The invariant survives the repack path too: ticking rebuilds the packed
+    /// stream through the working form, which must also leave a zero-padded tail.
+    #[test]
+    fn as_bytes_matches_encode_after_ticks(n in 0u32..256) {
+        let party = Party::seed();
+        let mut v = Version::new();
+        for _ in 0..n {
+            v.tick(&party);
+        }
+        let encoded = v.encode();
+        prop_assert_eq!(v.as_bytes(), encoded.as_slice());
+    }
+}

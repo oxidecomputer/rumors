@@ -139,6 +139,7 @@ version = "0.1.0"
 dependencies = [
  "before",
  "bitvec",
+ "borsh",
  "ciborium",
  "criterion",
  "indicatif",

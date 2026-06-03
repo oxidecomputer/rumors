@@ -226,6 +226,27 @@ impl Party {
         IdReader::root(&self.0)
     }
 
+    /// The canonical packed bytes of this [`Party`]: exactly what
+    /// [`encode`](Self::encode) produces, but borrowed without copying. The
+    /// final partial byte is zero-padded (an invariant of the stored form), so
+    /// these bytes are a *canonical* identity — byte-equal if and only if the
+    /// [`Party`]s are equal, and stable to [`hash`](core::hash::Hash).
+    ///
+    /// A [`Party`] is **not ordered** (see the type docs); the lexicographic
+    /// order of these bytes is an arbitrary total order with no semantic
+    /// meaning, useful only as a deterministic tiebreak. Use
+    /// [`is_disjoint`](Self::is_disjoint) to reason about whether two parties
+    /// may interact.
+    ///
+    /// ```
+    /// use before::Party;
+    /// let p = Party::seed();
+    /// assert_eq!(p.as_bytes(), p.encode().as_slice());
+    /// ```
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_raw_slice()
+    }
+
     /// The packed preorder bit stream (no trailing padding). Internal.
     pub(crate) fn as_bits(&self) -> &BitsSlice {
         &self.0

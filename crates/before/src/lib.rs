@@ -224,6 +224,9 @@ pub mod oracle;
 #[cfg(feature = "serde")]
 mod serde_impls;
 
+#[cfg(feature = "borsh")]
+mod borsh_impls;
+
 #[cfg(test)]
 mod testing;
 

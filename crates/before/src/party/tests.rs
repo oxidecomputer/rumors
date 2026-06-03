@@ -215,3 +215,25 @@ proptest! {
         prop_assert_eq!(to_oracle_party(&decoded), op);
     }
 }
+
+proptest! {
+    /// `as_bytes` returns exactly the canonical `encode` bytes (zero-padded
+    /// tail), over arbitrary non-empty ids — the `id_node`/`extend` build path.
+    #[test]
+    fn as_bytes_matches_encode(op in arb_oracle_party_nonempty()) {
+        let p = from_oracle_party(&op);
+        let encoded = p.encode();
+        prop_assert_eq!(p.as_bytes(), encoded.as_slice());
+    }
+
+    /// The invariant holds for both halves produced by `fork` (the split path),
+    /// not just for rebuilt parties.
+    #[test]
+    fn as_bytes_matches_encode_after_fork(op in arb_oracle_party_nonempty()) {
+        let mut p = from_oracle_party(&op);
+        let q = p.fork();
+        let (pe, qe) = (p.encode(), q.encode());
+        prop_assert_eq!(p.as_bytes(), pe.as_slice());
+        prop_assert_eq!(q.as_bytes(), qe.as_slice());
+    }
+}

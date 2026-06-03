@@ -182,6 +182,26 @@ impl Version {
         self.as_bits().len()
     }
 
+    /// The canonical packed bytes of this [`Version`]: exactly what
+    /// [`encode`](Self::encode) produces, but borrowed without copying. The
+    /// final partial byte is zero-padded (an invariant of the stored form), so
+    /// these bytes are a *canonical* identity — byte-equal if and only if the
+    /// [`Version`]s are equal, and stable to [`hash`](core::hash::Hash).
+    ///
+    /// Their lexicographic order is an arbitrary total order with **no causal
+    /// meaning**: use it only where a deterministic tiebreak between distinct
+    /// versions is wanted. For causal comparison, use [`PartialOrd`] (`<=`) or
+    /// [`concurrent`](Self::concurrent).
+    ///
+    /// ```
+    /// use before::Version;
+    /// let v = Version::try_from((1, 0, 1)).unwrap();
+    /// assert_eq!(v.as_bytes(), v.encode().as_slice());
+    /// ```
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_raw_slice()
+    }
+
     /// The packed preorder bit stream (no trailing padding). Internal.
     pub(crate) fn as_bits(&self) -> &BitsSlice {
         &self.0

@@ -815,3 +815,69 @@ proptest! {
         prop_assert_eq!(c3.encode(), c.encode());
     }
 }
+
+// ───────────────────────────── borsh (feature-gated) ─────────────────────────────
+
+#[cfg(feature = "borsh")]
+proptest! {
+    /// Every value round-trips through borsh: it serializes as its canonical
+    /// encoding (length-prefixed) and deserializes back through the strict
+    /// validator.
+    #[test]
+    fn borsh_roundtrip(ops in world_strategy(), i in 0usize..64) {
+        let cs = run(&ops);
+        let n = cs.len();
+        let p = from_oracle_party(cs[i % n].party());
+        let v = from_oracle_version(&cs[i % n].version());
+        let c = from_oracle_clock(&cs[i % n]);
+
+        let p2: Party = borsh::from_slice(&borsh::to_vec(&p).unwrap()).unwrap();
+        let v2: Version = borsh::from_slice(&borsh::to_vec(&v).unwrap()).unwrap();
+        let c2: Clock = borsh::from_slice(&borsh::to_vec(&c).unwrap()).unwrap();
+
+        prop_assert_eq!(p2, p);
+        prop_assert_eq!(v2, v);
+        prop_assert_eq!(c2.encode(), c.encode());
+    }
+
+    /// The borsh payload is the canonical encoding under borsh's `Vec<u8>`
+    /// framing (a `u32` length prefix), so `to_vec` of a value equals borsh's
+    /// own encoding of that value's `encode()` vector — and the framing is
+    /// self-delimiting, so two values concatenated decode back in order.
+    #[test]
+    fn borsh_frames_as_canonical_bytes(ops in world_strategy(), i in 0usize..64) {
+        let cs = run(&ops);
+        let n = cs.len();
+        let v = from_oracle_version(&cs[i % n].version());
+
+        let framed = borsh::to_vec(&v).unwrap();
+        let bytes_framed = borsh::to_vec(&v.encode()).unwrap();
+        prop_assert_eq!(&framed, &bytes_framed);
+
+        // Two concatenated versions decode back in order: proof of self-delimitation.
+        let mut buf = framed.clone();
+        buf.extend_from_slice(&framed);
+        let mut reader = &buf[..];
+        let a = <Version as borsh::BorshDeserialize>::deserialize_reader(&mut reader).unwrap();
+        let b = <Version as borsh::BorshDeserialize>::deserialize_reader(&mut reader).unwrap();
+        prop_assert_eq!(a, v.clone());
+        prop_assert_eq!(b, v);
+    }
+
+    /// Deserialization runs the strict `decode` validator: a frame whose body is
+    /// not a canonical encoding is rejected rather than silently accepted.
+    #[test]
+    fn borsh_rejects_non_canonical(ops in world_strategy(), i in 0usize..64) {
+        let cs = run(&ops);
+        let n = cs.len();
+        let v = from_oracle_version(&cs[i % n].version());
+
+        // Append a spurious whole zero byte: canonical padding is < 8 bits, so
+        // `decode` rejects this, and borsh must surface that rejection.
+        let mut body = v.encode();
+        body.push(0x00);
+        prop_assume!(Version::decode(&body[..]).is_err());
+        let framed = borsh::to_vec(&body).unwrap();
+        prop_assert!(borsh::from_slice::<Version>(&framed).is_err());
+    }
+}
