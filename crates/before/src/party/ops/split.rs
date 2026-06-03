@@ -1,6 +1,7 @@
 use crate::codec::{Bits, BitsSlice};
 use crate::idbits::{IdNode, IdReader};
 use crate::recurse::descend;
+use crate::step;
 
 use super::build::{id_leaf, id_node};
 
@@ -23,10 +24,9 @@ impl IdReader<'_> {
     /// node's and its children's — since `build_split` splices the input on
     /// them. Guarded by [`crate::recurse`] so deep ids grow the stack onto the
     /// heap rather than overflowing.
-    pub(crate) fn split(mut self) -> (Bits, Bits) {
+    pub(crate) fn split(self) -> (Bits, Bits) {
         let bits = self.bits();
-        // A whole-tree leaf splits directly. `peek` leaves the cursor at the
-        // root for the scan to read from.
+        // A whole-tree leaf splits directly.
         match self.peek() {
             // split(0) = (0, 0)
             IdNode::Empty => return (id_leaf(false), id_leaf(false)),
@@ -40,12 +40,13 @@ impl IdReader<'_> {
             IdNode::Internal => {}
         }
 
-        // Pass 1: locate the branch by a single recursive preorder scan.
+        // Pass 1: locate the branch by a single recursive preorder scan from the
+        // root header at bit 0.
         let mut scan = SplitScan {
             branch: None,
             one_leaf: None,
         };
-        descend!(0, scan.scan(&mut self, 0));
+        descend!(0, scan.scan(bits, 0, 0));
         build_split(bits, scan.branch, scan.one_leaf)
     }
 }
@@ -60,34 +61,52 @@ struct SplitScan {
 }
 
 impl SplitScan {
-    /// Scan the subtree at `id`, recording the shallowest both-nonempty node as
-    /// the branch and the first `1` leaf, advancing the `&mut` cursor past the
-    /// subtree and routing through the amortized stack-growth guard. Returns
-    /// whether the subtree owns nothing. Branch positions are captured from the
-    /// cursor before each read advances it.
-    fn scan(&mut self, id: &mut IdReader, depth: usize) -> bool {
-        let node_pos = id.pos(); // this node's bit position, before the read
-        match id.read() {
-            IdNode::Empty => true, // a `0` leaf is empty
-            IdNode::Full => {
-                self.one_leaf.get_or_insert(node_pos);
-                false // a `1` leaf is not empty
+    /// Scan the subtree whose root header is at bit `pos` in `bits`, recording
+    /// the shallowest both-nonempty node as the branch and the first `1` leaf,
+    /// and routing through the amortized stack-growth guard. Returns
+    /// `(empty, end)`: whether the subtree owns nothing, and the bit position
+    /// just past it (so a parent's right child resumes there).
+    ///
+    /// Unlike every other walk in the crate, this one is **positional** — it
+    /// reads the packed `enc_id` bits at explicit offsets rather than threading
+    /// an [`IdReader`](crate::idbits) cursor — because its entire output *is* bit
+    /// positions: [`build_split`] reconstructs the two halves by splicing the
+    /// input on the recorded `(node, left, right)` offsets. A consuming cursor
+    /// would hide exactly the positions this scan exists to capture and force it
+    /// to re-derive them at every node; threaded as `usize` here they fall out
+    /// of the recursion for free (see below). The `enc_id` layout it decodes:
+    ///
+    /// - **Leaf** — two bits: a `0` flag, then a value bit. So `bits[pos]` is
+    ///   `false`, `bits[pos + 1]` is the value (`true` = the full `1` leaf,
+    ///   owned; `false` = the empty `0` leaf), and the leaf spans `[pos, pos+2)`.
+    /// - **Node** — a `1` flag, then its two child subtrees in preorder. So
+    ///   `bits[pos]` is `true`; the **left** child's header begins at `pos + 1`
+    ///   (immediately past the single flag bit — this is the "for free" part),
+    ///   and the **right** child's begins where the left subtree ends, which the
+    ///   left recursion returns. The node spans `[pos, end)`.
+    fn scan(&mut self, bits: &BitsSlice, pos: usize, depth: usize) -> (bool, usize) {
+        step!(); // one node-header read, counted for the complexity proptests
+        if !bits[pos] {
+            // Leaf, `[pos, pos + 2)`. The `1` leaf is nonempty (and the branch
+            // fallback for a pure spine); the `0` leaf is empty.
+            let full = bits[pos + 1];
+            if full {
+                self.one_leaf.get_or_insert(pos);
             }
-            IdNode::Internal => {
-                let left_pos = id.pos(); // at `il`
-                let left_empty = descend!(depth + 1, self.scan(id, depth + 1));
-                let right_pos = id.pos(); // at `ir`, where the left subtree ended
-                let right_empty = descend!(depth + 1, self.scan(id, depth + 1));
-                // The shallowest both-nonempty node wins (smallest start): a
-                // parent's position is always less than its descendants', and
-                // postorder visits children first, so the parent overwrites any
-                // descendant branch.
-                if !left_empty && !right_empty && self.branch.is_none_or(|(p, ..)| node_pos < p) {
-                    self.branch = Some((node_pos, left_pos, right_pos));
-                }
-                false // a normal-form node is never empty
-            }
+            return (!full, pos + 2);
         }
+        // Node: left child just past the flag bit; right child where the left
+        // subtree ends (the position the left recursion hands back).
+        let left_pos = pos + 1;
+        let (left_empty, right_pos) = descend!(depth + 1, self.scan(bits, left_pos, depth + 1));
+        let (right_empty, end) = descend!(depth + 1, self.scan(bits, right_pos, depth + 1));
+        // The shallowest both-nonempty node wins (smallest start): a parent's
+        // position is always less than its descendants', and postorder visits
+        // children first, so the parent overwrites any descendant branch.
+        if !left_empty && !right_empty && self.branch.is_none_or(|(p, ..)| pos < p) {
+            self.branch = Some((pos, left_pos, right_pos));
+        }
+        (false, end) // a normal-form node is never empty
     }
 }
 
