@@ -48,7 +48,11 @@ mod tests;
 /// let merged = va | vb;
 /// assert!(merged > va && merged > vb);  // the join dominates both inputs
 /// ```
-#[derive(Clone, PartialEq, Eq, Hash)]
+// `PartialEq` is the macro's `causal_cmp == Equal` (see `causal_cmp_impls!`);
+// for canonical normal form that *is* byte-equality, so the derived `Hash` over
+// the packed bits stays consistent with it. clippy can't see the invariant.
+#[allow(clippy::derived_hash_with_manual_eq)]
+#[derive(Clone, Eq, Hash)]
 pub struct Version(BitVec<u8, Msb0>);
 
 impl Version {
@@ -200,46 +204,6 @@ impl Default for Version {
     }
 }
 
-impl PartialOrd for Version {
-    /// The causal order. Returns `None` when the versions are *concurrent*, so
-    /// `<`, `<=`, `>`, and `>=` may *all* be false for two distinct versions;
-    /// use [`concurrent`](Version::concurrent) to detect that case.
-    ///
-    /// ```
-    /// use before::Version;
-    /// let a: Version = "1".parse().unwrap();
-    /// let b: Version = "2".parse().unwrap();
-    /// assert!(a < b);
-    /// ```
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.view().causal_cmp(other.view())
-    }
-}
-
-impl PartialEq<Version> for &Version {
-    fn eq(&self, other: &Version) -> bool {
-        self.partial_cmp(other) == Some(Ordering::Equal)
-    }
-}
-
-impl PartialOrd<Version> for &Version {
-    fn partial_cmp(&self, other: &Version) -> Option<Ordering> {
-        self.view().causal_cmp(other.view())
-    }
-}
-
-impl PartialEq<&Version> for Version {
-    fn eq(&self, other: &&Version) -> bool {
-        self.partial_cmp(other) == Some(Ordering::Equal)
-    }
-}
-
-impl PartialOrd<&Version> for Version {
-    fn partial_cmp(&self, other: &&Version) -> Option<Ordering> {
-        self.view().causal_cmp(other.view())
-    }
-}
-
 /// Paper notation: `n` leaves, `(n, e1, e2)` nodes. E.g. `(1, 2, (0, (1, 0, 2), 0))`.
 ///
 /// ```
@@ -363,8 +327,16 @@ impl Batch<'_> {
 
     /// Like `|=`, but chainable.
     pub(crate) fn merge(&mut self, other: &Version) -> &mut Self {
+        self.merge_view(other.view())
+    }
+
+    /// The view-taking core of [`merge`](Self::merge): join an arbitrary
+    /// event-tree view into this batch's in-progress history. Any operand with a
+    /// [`view`](Self::view) — a [`Version`] or another [`Batch`], owned or
+    /// borrowed — joins through here, which is what lets the `|`/`|=` matrix
+    /// (below) accept a [`Batch`] on either side without transcoding.
+    fn merge_view(&mut self, incoming: EvReader<'_>) -> &mut Self {
         let current = self.view();
-        let incoming = other.view();
         if current.trivially_eq(&incoming) {
             return self;
         }
@@ -435,22 +407,15 @@ impl<'a> From<&'a mut Version> for Batch<'a> {
 impl BitOr<Version> for Version {
     type Output = Version;
     fn bitor(self, r: Version) -> Version {
-        if self == r {
-            return self;
-        }
-        let work = self.view().join(r.view());
-        Version::from_bits(work.repack())
+        &self | r
     }
 }
 
 impl BitOr<&Version> for Version {
     type Output = Version;
-    fn bitor(self, r: &Version) -> Version {
-        if self == r {
-            return self;
-        }
-        let work = self.view().join(r.view());
-        Version::from_bits(work.repack())
+    fn bitor(mut self, r: &Version) -> Version {
+        self.batch().merge(r);
+        self
     }
 }
 
@@ -464,9 +429,6 @@ impl BitOr<Version> for &Version {
 impl BitOr<&Version> for &Version {
     type Output = Version;
     fn bitor(self, r: &Version) -> Version {
-        if self == r {
-            return self.clone();
-        }
         self.clone() | r
     }
 }
@@ -484,11 +446,13 @@ impl BitOr<&Version> for &Version {
 /// ```
 impl BitOrAssign<Version> for Version {
     fn bitor_assign(&mut self, r: Version) {
-        if *self == r {
-            return;
-        }
-        let work = self.view().join(r.view());
-        *self = Version::from_bits(work.repack());
+        *self = &*self | r;
+    }
+}
+
+impl BitOrAssign<&Version> for Version {
+    fn bitor_assign(&mut self, r: &Version) {
+        *self = &*self | r;
     }
 }
 
@@ -498,20 +462,115 @@ impl BitOrAssign<Version> for Batch<'_> {
     }
 }
 
-impl BitOrAssign<&Version> for Version {
-    fn bitor_assign(&mut self, r: &Version) {
-        if self == r {
-            return;
-        }
-        let work = self.view().join(r.view());
-        *self = Version::from_bits(work.repack());
-    }
-}
-
 impl BitOrAssign<&Version> for Batch<'_> {
     fn bitor_assign(&mut self, r: &Version) {
         self.merge(r);
     }
+}
+
+// The join (`|`) and assigning join (`|=`) across {Version, Batch}², mirroring
+// the comparison matrix below. The `Version`/`Version` cells (and their three
+// reference forms) are the documented exemplars hand-written above; these two
+// macros fill in every remaining cell — the ones with a `Batch` on one or both
+// sides — so the join matrix reads as a matrix.
+//
+// Both route through `Batch::merge_view`, which joins any `.view()` into a
+// batch. `|` snapshots its left operand to a fresh owned `Version` (a `Batch`
+// left operand via `snapshot`, a borrowed `Version` via `clone`, an owned
+// `Version` moved in place) and joins the right operand's view into it; a
+// `Batch` read for `|` is never mutated by the join and commits its own pending
+// state on drop as usual. `|=` joins the right operand's view into the left
+// operand in place (a `Version` through a transient `batch()`, a `Batch`
+// directly).
+
+/// Fills the non-`Version`/`Version` cells of the `|` matrix. Each cell owns its
+/// left operand as a fresh `Version` — `own` (move, for an owned `Version`),
+/// `clone` (a borrowed `Version`), or `snapshot` (a `Batch`, owned or borrowed)
+/// — then joins the right operand's view into it. Each kind has its own `@impl`
+/// arm so the receiver `self` is written in the same expansion as the method it
+/// belongs to (`self` cannot cross a macro-invocation boundary).
+macro_rules! version_join_impls {
+    ($($lhs:ty, $rhs:ty, $own:tt);* $(;)?) => {
+        $( version_join_impls!(@impl $lhs, $rhs, $own); )*
+    };
+    (@impl $lhs:ty, $rhs:ty, own) => {
+        impl BitOr<$rhs> for $lhs {
+            type Output = Version;
+            fn bitor(self, r: $rhs) -> Version {
+                let mut out: Version = self;
+                out.batch().merge_view(r.view());
+                out
+            }
+        }
+    };
+    (@impl $lhs:ty, $rhs:ty, clone) => {
+        impl BitOr<$rhs> for $lhs {
+            type Output = Version;
+            fn bitor(self, r: $rhs) -> Version {
+                let mut out: Version = self.clone();
+                out.batch().merge_view(r.view());
+                out
+            }
+        }
+    };
+    (@impl $lhs:ty, $rhs:ty, snapshot) => {
+        impl BitOr<$rhs> for $lhs {
+            type Output = Version;
+            fn bitor(self, r: $rhs) -> Version {
+                let mut out: Version = self.snapshot();
+                out.batch().merge_view(r.view());
+                out
+            }
+        }
+    };
+}
+
+version_join_impls! {
+    Version,    Batch<'_>,  own;
+    Version,    &Batch<'_>, own;
+    &Version,   Batch<'_>,  clone;
+    &Version,   &Batch<'_>, clone;
+    Batch<'_>,  Version,    snapshot;
+    Batch<'_>,  &Version,   snapshot;
+    &Batch<'_>, Version,    snapshot;
+    &Batch<'_>, &Version,   snapshot;
+    Batch<'_>,  Batch<'_>,  snapshot;
+    Batch<'_>,  &Batch<'_>, snapshot;
+    &Batch<'_>, Batch<'_>,  snapshot;
+    &Batch<'_>, &Batch<'_>, snapshot;
+}
+
+/// Fills the `Batch`-valued right-operand cells of the `|=` matrix (the
+/// `Version`/`Batch` right operands are hand-written above). The right operand's
+/// view is joined into the left operand in place: through a transient `batch()`
+/// for a `Version` left operand (`batch`), or directly for a `Batch` left
+/// operand (`direct`). Split into per-kind `@impl` arms for the same reason as
+/// the `|` macro: `self` must be written alongside its method.
+macro_rules! version_join_assign_impls {
+    ($($lhs:ty, $rhs:ty, $into:tt);* $(;)?) => {
+        $( version_join_assign_impls!(@impl $lhs, $rhs, $into); )*
+    };
+    (@impl $lhs:ty, $rhs:ty, batch) => {
+        impl BitOrAssign<$rhs> for $lhs {
+            fn bitor_assign(&mut self, r: $rhs) {
+                self.batch().merge_view(r.view());
+            }
+        }
+    };
+    (@impl $lhs:ty, $rhs:ty, direct) => {
+        impl BitOrAssign<$rhs> for $lhs {
+            fn bitor_assign(&mut self, r: $rhs) {
+                self.merge_view(r.view());
+            }
+        }
+    };
+}
+
+version_join_assign_impls! {
+    Version,   Batch<'_>,  batch;
+    Version,   &Batch<'_>, batch;
+    Batch<'_>, Batch<'_>,  direct;
+    Batch<'_>, &Batch<'_>, direct;
 }
 
 // Causal comparison across {Version, Batch}², reading current state in place.
@@ -557,6 +616,7 @@ macro_rules! causal_cmp_impls {
 }
 
 causal_cmp_impls! {
+    Version, Version;
     Version, Batch<'_>;
     Batch<'_>, Version;
     Batch<'_>, Batch<'_>;

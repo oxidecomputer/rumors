@@ -182,6 +182,82 @@ proptest! {
     }
 }
 
+/// Assert one comparison-matrix cell agrees with `expected`: its `partial_cmp`
+/// (`PartialOrd`) and `==`/`!=` (`PartialEq`), plus the four ordering operators
+/// `partial_cmp` derives. Generic over the operand types, so each call resolves
+/// to exactly the impl for `(L, R)` — `assert_cmp_cell(&a, b, ..)` exercises the
+/// `&Lhs`/`Rhs` cell, `assert_cmp_cell(a, &b, ..)` the `Lhs`/`&Rhs` cell, `&`/`&`
+/// the std blanket — with no method-resolution ambiguity to mask which cell ran.
+/// A cell wired into a delegation cycle overflows the stack here rather than
+/// diverging silently in production.
+fn assert_cmp_cell<L, R>(lhs: L, rhs: R, expected: Option<Ordering>) -> Result<(), TestCaseError>
+where
+    L: PartialEq<R> + PartialOrd<R>,
+{
+    prop_assert_eq!(lhs.partial_cmp(&rhs), expected);
+    prop_assert_eq!(lhs == rhs, expected == Some(Ordering::Equal));
+    prop_assert_eq!(lhs != rhs, expected != Some(Ordering::Equal));
+    prop_assert_eq!(lhs < rhs, expected == Some(Ordering::Less));
+    prop_assert_eq!(lhs > rhs, expected == Some(Ordering::Greater));
+    prop_assert_eq!(
+        lhs <= rhs,
+        matches!(expected, Some(Ordering::Less | Ordering::Equal))
+    );
+    prop_assert_eq!(
+        lhs >= rhs,
+        matches!(expected, Some(Ordering::Greater | Ordering::Equal))
+    );
+    Ok(())
+}
+
+proptest! {
+    /// The full comparison matrix over {Version, Batch}² — every owned and
+    /// borrowed form of each operand, covering all twenty-four generated
+    /// `PartialEq`/`PartialOrd` impls plus the `&Lhs`/`&Rhs` std blanket forms —
+    /// agrees with the oracle's verdict on the same pair. Pinning every cell to
+    /// one source of truth is the "the cells can't drift out of sync" guarantee;
+    /// invoking every cell is the "no cell recurses forever" guarantee. Each
+    /// `Batch` operand is a fresh batch over a clone (read-only here, so reused
+    /// across the operators within a cell).
+    #[test]
+    fn compare_matrix_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+        let cs = run(&ops);
+        let vs = versions(&cs);
+        let n = vs.len();
+        let expected = vs[i % n].partial_cmp(&vs[j % n]); // oracle: the source of truth
+        let a = from_oracle_version(&vs[i % n]);
+        let b = from_oracle_version(&vs[j % n]);
+
+        // Version × Version (owned/owned, &/owned, owned/&, &/& blanket).
+        assert_cmp_cell(a.clone(), b.clone(), expected)?;
+        assert_cmp_cell(&a, b.clone(), expected)?;
+        assert_cmp_cell(a.clone(), &b, expected)?;
+        assert_cmp_cell(&a, &b, expected)?;
+
+        // Version × Batch.
+        { let mut cb = b.clone(); assert_cmp_cell(a.clone(), cb.batch(), expected)?; }
+        { let mut cb = b.clone(); assert_cmp_cell(&a, cb.batch(), expected)?; }
+        { let mut cb = b.clone(); let rb = cb.batch(); assert_cmp_cell(a.clone(), &rb, expected)?; }
+        { let mut cb = b.clone(); let rb = cb.batch(); assert_cmp_cell(&a, &rb, expected)?; }
+
+        // Batch × Version.
+        { let mut ca = a.clone(); assert_cmp_cell(ca.batch(), b.clone(), expected)?; }
+        { let mut ca = a.clone(); let lb = ca.batch(); assert_cmp_cell(&lb, b.clone(), expected)?; }
+        { let mut ca = a.clone(); assert_cmp_cell(ca.batch(), &b, expected)?; }
+        { let mut ca = a.clone(); let lb = ca.batch(); assert_cmp_cell(&lb, &b, expected)?; }
+
+        // Batch × Batch.
+        { let mut ca = a.clone(); let mut cb = b.clone();
+          assert_cmp_cell(ca.batch(), cb.batch(), expected)?; }
+        { let mut ca = a.clone(); let mut cb = b.clone(); let rb = cb.batch();
+          assert_cmp_cell(ca.batch(), &rb, expected)?; }
+        { let mut ca = a.clone(); let mut cb = b.clone(); let lb = ca.batch();
+          assert_cmp_cell(&lb, cb.batch(), expected)?; }
+        { let mut ca = a.clone(); let mut cb = b.clone(); let lb = ca.batch(); let rb = cb.batch();
+          assert_cmp_cell(&lb, &rb, expected)?; }
+    }
+}
+
 // ───────────────────────────── event mutation ─────────────────────────────
 
 /// `Version::new()` is the empty history and the two-sided identity for `|`.
@@ -262,6 +338,126 @@ proptest! {
             batch |= &b;
         }
         prop_assert!(batched == expected);
+    }
+}
+
+proptest! {
+    /// The full `|` (BitOr) matrix over {Version, Batch}² — every owned and
+    /// borrowed form of each operand — equals the oracle's `join`, which
+    /// `merge_matches_oracle` already pins for the bare Version×Version case. A
+    /// fresh `Batch` reflects its `Version`, so each of the sixteen
+    /// representation/reference cells must agree. Each `Batch` operand gets its
+    /// own clone in a tight scope: an owned-`Batch` operand is consumed by `|`
+    /// and commits (unchanged) on drop, so a fresh one is built per cell.
+    #[test]
+    fn join_matrix_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+        let cs = run(&ops);
+        let vs = versions(&cs);
+        let n = vs.len();
+        let expected = from_oracle_version(&(vs[i % n].clone() | vs[j % n].clone()));
+        let a = from_oracle_version(&vs[i % n]);
+        let b = from_oracle_version(&vs[j % n]);
+
+        // Version × Version (four reference forms).
+        prop_assert!(a.clone() | b.clone() == expected);
+        prop_assert!(&a | b.clone() == expected);
+        prop_assert!(a.clone() | &b == expected);
+        prop_assert!(&a | &b == expected);
+
+        // Version × Batch.
+        { let mut bb = b.clone(); prop_assert!(a.clone() | bb.batch() == expected); }
+        { let mut bb = b.clone(); prop_assert!(&a | bb.batch() == expected); }
+        { let mut bb = b.clone(); let r = bb.batch(); prop_assert!(a.clone() | &r == expected); }
+        { let mut bb = b.clone(); let r = bb.batch(); prop_assert!(&a | &r == expected); }
+
+        // Batch × Version.
+        { let mut aa = a.clone(); prop_assert!(aa.batch() | b.clone() == expected); }
+        { let mut aa = a.clone(); prop_assert!(aa.batch() | &b == expected); }
+        { let mut aa = a.clone(); let l = aa.batch(); prop_assert!(&l | b.clone() == expected); }
+        { let mut aa = a.clone(); let l = aa.batch(); prop_assert!(&l | &b == expected); }
+
+        // Batch × Batch.
+        { let mut aa = a.clone(); let mut bb = b.clone();
+          prop_assert!(aa.batch() | bb.batch() == expected); }
+        { let mut aa = a.clone(); let mut bb = b.clone(); let r = bb.batch();
+          prop_assert!(aa.batch() | &r == expected); }
+        { let mut aa = a.clone(); let mut bb = b.clone(); let l = aa.batch();
+          prop_assert!(&l | bb.batch() == expected); }
+        { let mut aa = a.clone(); let mut bb = b.clone(); let l = aa.batch(); let r = bb.batch();
+          prop_assert!(&l | &r == expected); }
+    }
+}
+
+proptest! {
+    /// The full `|=` (BitOrAssign) matrix: {Version, Batch} left operands against
+    /// {Version, Batch} right operands, every reference form, all landing on the
+    /// oracle's `join`. A `Batch` left operand commits on drop, so it is scoped
+    /// and its underlying `Version` checked afterward.
+    #[test]
+    fn join_assign_matrix_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+        let cs = run(&ops);
+        let vs = versions(&cs);
+        let n = vs.len();
+        let expected = from_oracle_version(&(vs[i % n].clone() | vs[j % n].clone()));
+        let a = from_oracle_version(&vs[i % n]);
+        let b = from_oracle_version(&vs[j % n]);
+
+        // Version |= Version / &Version.
+        { let mut x = a.clone(); x |= b.clone(); prop_assert!(x == expected); }
+        { let mut x = a.clone(); x |= &b; prop_assert!(x == expected); }
+
+        // Version |= Batch / &Batch.
+        { let mut x = a.clone(); let mut bb = b.clone(); x |= bb.batch(); prop_assert!(x == expected); }
+        { let mut x = a.clone(); let mut bb = b.clone(); let r = bb.batch(); x |= &r; prop_assert!(x == expected); }
+
+        // Batch |= Version / &Version (committed on drop).
+        { let mut x = a.clone(); { let mut bx = x.batch(); bx |= b.clone(); } prop_assert!(x == expected); }
+        { let mut x = a.clone(); { let mut bx = x.batch(); bx |= &b; } prop_assert!(x == expected); }
+
+        // Batch |= Batch / &Batch (committed on drop).
+        { let mut x = a.clone(); let mut bb = b.clone();
+          { let mut bx = x.batch(); bx |= bb.batch(); } prop_assert!(x == expected); }
+        { let mut x = a.clone(); let mut bb = b.clone(); let r = bb.batch();
+          { let mut bx = x.batch(); bx |= &r; } prop_assert!(x == expected); }
+    }
+}
+
+proptest! {
+    /// The join matrix holds once the `Batch` operands are *materialized* to
+    /// working form, exercising `snapshot`'s repack and `merge_view` joining a
+    /// Working-form incoming view (the fresh-batch cells above all read packed
+    /// views). Merging the join identity (`Version::new()`) forces
+    /// `work = Some(..)` without changing the value.
+    #[test]
+    fn materialized_join_parity(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+        let cs = run(&ops);
+        let vs = versions(&cs);
+        let n = vs.len();
+        let expected = from_oracle_version(&(vs[i % n].clone() | vs[j % n].clone()));
+        let a = from_oracle_version(&vs[i % n]);
+        let b = from_oracle_version(&vs[j % n]);
+
+        // `&Batch | &Batch`, both materialized: Working snapshot joined with a
+        // Working incoming view.
+        {
+            let mut aa = a.clone();
+            let mut bb = b.clone();
+            let mut la = aa.batch();
+            la.merge(&Version::new());
+            let mut rb = bb.batch();
+            rb.merge(&Version::new());
+            prop_assert!(&la | &rb == expected);
+        }
+
+        // `Version |= &Batch` with the batch materialized.
+        {
+            let mut x = a.clone();
+            let mut bb = b.clone();
+            let mut rb = bb.batch();
+            rb.merge(&Version::new());
+            x |= &rb;
+            prop_assert!(x == expected);
+        }
     }
 }
 
