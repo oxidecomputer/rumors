@@ -74,7 +74,7 @@
 //!           <->  wire-layer counter      <->  std::io::pipe
 //! ```
 //!
-//! The protocol uses `rumors::sync::Local::gossip` so we drive synchronous
+//! The protocol uses `rumors::sync::Known::gossip` so we drive synchronous
 //! `Read` + `Write` halves of a `std::io::pipe`; one helper thread runs bob's
 //! side per sample, alice's runs on the rayon worker thread. zstd's
 //! `Encoder::auto_finish` writes a closing block on drop so the peer's decoder
@@ -210,10 +210,10 @@ use std::{
 
 use clap::{Parser, ValueEnum};
 use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
-use rand::{Rng, SeedableRng, rngs::SmallRng};
+use rand::{SeedableRng, rngs::SmallRng};
 use rayon::prelude::*;
 use rumors::Key;
-use rumors::sync::{Local, Original, ignore};
+use rumors::sync::{Known, ignore};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -280,7 +280,7 @@ enum Mode {
 ///
 /// Only ever touched by a single thread (the rayon worker for alice, the bob
 /// worker for bob), but the wrapped handle has to be `Send` because
-/// [`rumors::sync::Local::gossip`]'s `R`/`W` parameters require it. We use
+/// [`rumors::sync::Known::gossip`]'s `R`/`W` parameters require it. We use
 /// `Arc<Mutex<…>>`: in single-threaded use the mutex is always uncontended,
 /// so each lock is a single uncontended atomic op — measurably negligible
 /// against the I/O the example is profiling.
@@ -379,11 +379,7 @@ fn axis(max_exp: u32) -> Vec<u32> {
     v
 }
 
-fn random_party(rng: &mut SmallRng) -> String {
-    format!("p_{:016x}", rng.r#gen::<u64>())
-}
-
-/// Build the (alice, bob) `Local<()>` pair for one sample. Ancestor elements
+/// Build the (alice, bob) `Known<()>` pair for one sample. Ancestor elements
 /// are distributed as evenly as possible across `parties` distinct background
 /// parties, each of which inserts its share and is then processed into both
 /// alice's and bob's local views. Redactions reference *existing* ancestor
@@ -393,27 +389,26 @@ fn random_party(rng: &mut SmallRng) -> String {
 /// effective party count is capped: a "party" with zero inserts never
 /// appears in any version vector, so it can't be observed.
 fn build_pair(
-    rng: &mut SmallRng,
     parties: u32,
     shared: u32,
     distinct_a: u32,
     distinct_b: u32,
     redacted_a: u32,
     redacted_b: u32,
-) -> (Local<(), Original>, Local<(), Original>) {
-    let a_party = random_party(rng);
-    let b_party = random_party(rng);
-
-    let mut alice: Local<(), Original> = Local::for_party(&a_party, 0).expect("alice for_party");
-    let mut bob: Local<(), Original> = Local::for_party(&b_party, 0).expect("bob for_party");
+) -> (Known<()>, Known<()>) {
+    // Every party in one sample descends from a single universe seed, so they
+    // are pairwise disjoint and can `learn` from one another (the Law of
+    // Disjointness). ITC parties are anonymous — the old random party *names*
+    // are gone, and forking is deterministic, so a given cell's structure is
+    // now identical across samples.
+    let mut seed: Known<()> = Known::seed();
+    let mut alice = seed.fork();
+    let mut bob = seed.fork();
 
     let total_ancestor = shared + redacted_a + redacted_b;
-    // `bg.message`'s `on_message` callback is bounded `Send + 'static` (the
-    // sync API ferries it through the underlying async one), so we can't
-    // capture a `&mut Vec` here. Share the accumulator via `Arc<Mutex>`
-    // and unwrap it back into a plain `Vec` after the loop.
-    let keys: Arc<Mutex<Vec<Key>>> =
-        Arc::new(Mutex::new(Vec::with_capacity(total_ancestor as usize)));
+    // The sync callback bound is `Send + 'a`, so the closure borrows `keys`
+    // directly for the duration of each `message` call.
+    let mut keys: Vec<Key> = Vec::with_capacity(total_ancestor as usize);
 
     if total_ancestor > 0 {
         // Cap effective parties to total_ancestor: a party with 0 inserts is
@@ -422,25 +417,19 @@ fn build_pair(
         let base = total_ancestor / effective;
         let remainder = total_ancestor % effective;
         for i in 0..effective {
-            let name = random_party(rng);
             let count = (base + if i < remainder { 1 } else { 0 }) as usize;
-            let mut bg: Local<(), Original> =
-                Local::for_party(&name, 0).expect("background for_party");
-            let keys_in = Arc::clone(&keys);
-            bg.message(std::iter::repeat_n((), count), move |k, _, _| {
-                keys_in.lock().unwrap().push(k)
-            });
-            // bg is the singleton Original for this background party; fork it
-            // into alice and bob (and let bg drop, freeing the party slot).
-            alice.process(bg.fork(), ignore);
-            bob.process(bg.fork(), ignore);
+            let mut bg = seed.fork();
+            bg.message(std::iter::repeat_n((), count), |k, _, _| keys.push(k));
+            // Fork bg's observations into alice and bob; `learn` rejoins the
+            // forked party region, and disjointness makes it infallible here.
+            alice
+                .learn(bg.fork(), ignore)
+                .expect("disjoint background party");
+            bob.learn(bg.fork(), ignore)
+                .expect("disjoint background party");
         }
     }
 
-    let keys = Arc::try_unwrap(keys)
-        .expect("keys outlived bg closures")
-        .into_inner()
-        .expect("keys mutex poisoned");
     let s = shared as usize;
     let ra = redacted_a as usize;
     let redact_a: Vec<Key> = keys[s..s + ra].to_vec();
@@ -702,7 +691,7 @@ fn build_io_stack(
 /// *inside* the worker thread (so they can live in an `Rc<RefCell<…>>`) and
 /// shipped back via the done channel.
 struct BobJob {
-    bob: Local<(), Original>,
+    bob: Known<()>,
     read: std::io::PipeReader,
     write: std::io::PipeWriter,
     zstd_level: i32,
@@ -756,7 +745,10 @@ thread_local! {
 }
 
 fn run_sample(
-    rng: &mut SmallRng,
+    // Vestigial since party identities are no longer randomized (ITC parties
+    // are anonymous and forking is deterministic); retained so the per-sample
+    // seeding call chain stays intact.
+    _rng: &mut SmallRng,
     parties: u32,
     shared: u32,
     distinct_a: u32,
@@ -767,7 +759,7 @@ fn run_sample(
     mode: Mode,
 ) -> Measure {
     let (alice, bob) = build_pair(
-        rng, parties, shared, distinct_a, distinct_b, redacted_a, redacted_b,
+        parties, shared, distinct_a, distinct_b, redacted_a, redacted_b,
     );
 
     let (a_to_b_r, a_to_b_w) = pipe().expect("pipe a->b");

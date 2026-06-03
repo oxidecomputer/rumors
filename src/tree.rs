@@ -1,17 +1,14 @@
 use std::sync::Arc;
 
-use bytes::Bytes;
-
 mod key;
 mod traverse;
 mod typed;
 
+use before::Party;
+
 use crate::{
     message::Message,
-    tree::{
-        traverse::Paths,
-        typed::{Hash, Node},
-    },
+    tree::{traverse::Paths, typed::Node},
     version::Version,
 };
 
@@ -32,23 +29,22 @@ pub use traverse::mirror;
 /// of the tree structure.
 #[derive(Debug, Eq)]
 pub struct Tree<T> {
-    party: Bytes,
-    pub(crate) root: Root<Bytes, T>,
+    pub(crate) root: Root<T>,
 }
 
 #[derive(Debug, Eq)]
-pub struct Root<P: Clone + Ord + AsRef<[u8]>, T> {
-    version: Version<P>,
-    root: Option<typed::node::Root<P, T>>,
+pub struct Root<T> {
+    version: Version,
+    root: Option<typed::node::Root<T>>,
 }
 
-impl<P: Clone + Ord + AsRef<[u8]>, T> From<Root<P, T>> for Option<typed::node::Root<P, T>> {
-    fn from(value: Root<P, T>) -> Self {
+impl<T> From<Root<T>> for Option<typed::node::Root<T>> {
+    fn from(value: Root<T>) -> Self {
         value.root
     }
 }
 
-impl<P: Clone + Ord + AsRef<[u8]>, T> Clone for Root<P, T> {
+impl<T> Clone for Root<T> {
     fn clone(&self) -> Self {
         Self {
             version: self.version.clone(),
@@ -57,7 +53,7 @@ impl<P: Clone + Ord + AsRef<[u8]>, T> Clone for Root<P, T> {
     }
 }
 
-impl<P: Clone + Ord + AsRef<[u8]>, T> PartialEq for Root<P, T> {
+impl<T> PartialEq for Root<T> {
     fn eq(&self, other: &Self) -> bool {
         self.version == other.version && self.root == other.root
     }
@@ -66,7 +62,6 @@ impl<P: Clone + Ord + AsRef<[u8]>, T> PartialEq for Root<P, T> {
 impl<T> Clone for Tree<T> {
     fn clone(&self) -> Self {
         Self {
-            party: self.party.clone(),
             root: self.root.clone(),
         }
     }
@@ -74,7 +69,13 @@ impl<T> Clone for Tree<T> {
 
 impl<T> PartialEq for Tree<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.party == other.party && self.root == other.root
+        self.root == other.root
+    }
+}
+
+impl<T> Default for Tree<T> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -88,15 +89,16 @@ pub enum Action<T> {
 }
 
 impl<T> Tree<T> {
-    /// Create a new tree which represents the perspective of the given party.
+    /// Create a new, empty tree carrying the empty [`Version`].
     ///
-    /// The `start` parameter determines the starting local version scalar for the party.
-    pub fn for_party(party: impl AsRef<[u8]>, start: u64) -> Self {
-        let party = Bytes::copy_from_slice(&Hash::of(party.as_ref()).as_bytes()[..]);
+    /// The tree no longer owns a party identity: advancing the version is
+    /// driven by a [`Party`] passed into [`act`](Self::act) by the caller (the
+    /// [`Known`](crate::Known) that owns the party). Forking a tree is a plain
+    /// [`clone`](Clone) — the party split happens on the owning [`Known`].
+    pub fn new() -> Self {
         Tree {
-            party: party.clone(),
             root: Root {
-                version: (party, start).into(),
+                version: Version::new(),
                 root: None,
             },
         }
@@ -105,12 +107,6 @@ impl<T> Tree<T> {
     /// Get the version for the tree.
     pub fn version(&self) -> Version {
         self.root.version.clone()
-    }
-
-    /// Get the pre-hashed local party identifier this tree was created for.
-    #[allow(unused)]
-    pub fn party(&self) -> &Bytes {
-        &self.party
     }
 
     /// Get the root hash for the tree.
@@ -140,6 +136,19 @@ impl<T> Tree<T> {
         } else {
             Vec::new()
         }
+    }
+
+    /// Lazily iterate every live leaf currently in the tree as
+    /// `(Key, &Version, &Arc<T>)`, in unspecified order.
+    pub fn iter(&self) -> impl Iterator<Item = (Key, &Version, &Arc<T>)> + Send + Sync
+    where
+        T: Send + Sync,
+    {
+        self.root
+            .root
+            .as_ref()
+            .map(typed::node::Root::iter)
+            .unwrap_or_else(typed::Iter::empty)
     }
 
     /// Get all the values in this tree which are unknown relative to the given
@@ -179,45 +188,47 @@ impl<T> Tree<T> {
     /// case of multiple actions which address the same key. In this case, the
     /// version is only incremented once for every changed key, regardless of
     /// how many actions pertain to it.
-    pub async fn act<I, O, Fut>(&mut self, actions: I, react: O)
+    pub async fn act<I, O, Fut>(&mut self, party: &Party, actions: I, react: O)
     where
         T: Send + Sync,
         I: IntoIterator<Item = Action<T>>,
         O: FnMut(Key, &Version, Option<&Message<T>>) -> Fut + Send,
         Fut: Future<Output = ()> + Send,
     {
-        // Get the local party.
-        let party = self.party.clone();
-
-        // Track the running version vector across the batch, advancing it once
-        // per action so that (a) content-identical messages produce distinct
-        // keys even when submitted together, and (b) forgets carry a version
-        // strictly greater than any prior insert at this party — load-bearing
-        // for the mirror protocol's deletion-honoring inference, which cannot
-        // distinguish "forgot it" from "never had it" when version vectors are
-        // equal. An empty batch is a complete no-op.
+        // Track the running version across the batch, ticking the owning party
+        // once per action so that (a) content-identical messages produce
+        // distinct keys even when submitted together, and (b) forgets carry a
+        // version strictly greater than any prior insert at this party —
+        // load-bearing for the mirror protocol's deletion-honoring inference,
+        // which cannot distinguish "forgot it" from "never had it" when
+        // versions are equal. An empty batch is a complete no-op.
         let mut new_version = self.version();
 
-        let reactions = actions.into_iter().map(move |action| {
-            // Record a new event in the version vector -- it is *load-bearing*
-            // that this be unique for every action applied to the tree. If not,
-            // then the mirror-sync protocol incorrectly concludes that it can
-            // early-abort when version vectors are equal.
-            new_version.event(&party);
+        // Build reactions eagerly so the `party` borrow stays cleanly scoped:
+        // a lazy `map` would hold `&Party` across the `react` await below.
+        let reactions: Vec<_> = actions
+            .into_iter()
+            .map(|action| {
+                // Advance the version. It is *load-bearing* that this be unique
+                // for every action applied to the tree; otherwise the
+                // mirror-sync protocol wrongly early-aborts when versions
+                // compare equal.
+                new_version.tick(party);
 
-            // Convert unversioned, unlocalized actions into `Reaction`s
-            // which are independent of our local party and current version:
-            let (key, value) = match action {
-                Action::Forget(hash) => (hash, None),
-                Action::Insert(value) => {
-                    let key =
-                        typed::Path::for_leaf(&party, new_version.for_party(&party), value.bytes())
-                            .into();
-                    (key, Some(value))
-                }
-            };
-            (key, new_version.clone(), value)
-        });
+                // Convert unversioned, unlocalized actions into reactions
+                // independent of our party and current version. The key is
+                // derived from the post-tick version, which is unique per
+                // insert (see [`typed::Path::for_leaf`]).
+                let (key, value) = match action {
+                    Action::Forget(hash) => (hash, None),
+                    Action::Insert(value) => {
+                        let key = typed::Path::for_leaf(&new_version, value.bytes()).into();
+                        (key, Some(value))
+                    }
+                };
+                (key, new_version.clone(), value)
+            })
+            .collect();
         self.react(reactions, react).await;
     }
 
@@ -285,11 +296,7 @@ mod arb;
 /// public-API `rumors::ignore`, but with the tree's callback signature
 /// (`Option<&Message<T>>` rather than `&Arc<T>`).
 #[cfg(test)]
-pub(crate) fn ignore<P: Ord, T>(
-    _: Key,
-    _: &Version<P>,
-    _: Option<&Message<T>>,
-) -> std::future::Ready<()> {
+pub(crate) fn ignore<T>(_: Key, _: &Version, _: Option<&Message<T>>) -> std::future::Ready<()> {
     std::future::ready(())
 }
 

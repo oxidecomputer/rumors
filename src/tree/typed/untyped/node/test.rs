@@ -4,6 +4,7 @@ use imbl::OrdMap;
 use proptest::collection::{btree_set, vec};
 use proptest::prelude::*;
 
+use crate::tree::arb::arb_version;
 use crate::{message::Message, version::Version};
 
 use super::Node;
@@ -30,25 +31,6 @@ const MAX_BRANCHING: usize = 256;
 /// so to exercise very wide branches the budget must be at least that wide.
 const TREE_LEAF_BUDGET: usize = 16;
 
-/// Upper bound on the number of (party, count) entries in a generated
-/// `Version` vector. Forgotten-versions are exercised by sprinkling small
-/// vectors of these across every branch in the tree; capped low so that
-/// the per-branch join is small and shrinking stays tractable.
-const MAX_VERSION_ENTRIES: usize = 3;
-
-/// Generate an arbitrary `Version<P>`. Used both for leaf versions and as
-/// the `forgotten` argument supplied at every branch by `arb_tree`. The
-/// upper bound on entries is deliberately small so that the cumulative
-/// join across a deep tree still has bounded width.
-fn arb_version<P>() -> BoxedStrategy<Version<P>>
-where
-    P: Arbitrary + Ord + Clone + 'static,
-{
-    vec((any::<P>(), any::<u64>()), 0..=MAX_VERSION_ENTRIES)
-        .prop_map(|pairs| Version::new(pairs.into_iter().map(Version::from)))
-        .boxed()
-}
-
 /// Generate an arbitrary tree of uniform depth `depth` with at most `budget`
 /// leaves, constructed only via the public smart constructors `Node::leaf` and
 /// `Node::branch`. At depth 0 the strategy produces a bare leaf; at depth N > 0
@@ -57,15 +39,12 @@ where
 /// child gets at least 1 and the shares sum to the parent's budget). This
 /// guarantees all leaves sit at a common depth, and no more than `budget`
 /// leaves are generated. `budget` must be at least 1.
-fn arb_tree<P>(depth: usize, budget: usize) -> BoxedStrategy<Node<P, ()>>
-where
-    P: Arbitrary + Ord + Clone + AsRef<[u8]> + 'static,
-{
+fn arb_tree(depth: usize, budget: usize) -> BoxedStrategy<Node<()>> {
     if depth == 0 {
         // The leaf payload is not examined at this abstraction layer, so we
         // stuff in a fixed empty value rather than generating one; only the
         // version is varied.
-        arb_version::<P>()
+        arb_version()
             .prop_map(|version| Node::leaf(version, Message::new(())))
             .boxed()
     } else {
@@ -91,12 +70,12 @@ where
                 }
                 let subtrees: Vec<_> = per_child
                     .into_iter()
-                    .map(|child_budget| arb_tree::<P>(depth - 1, child_budget))
+                    .map(|child_budget| arb_tree(depth - 1, child_budget))
                     .collect();
                 (Just(indices), subtrees)
             })
             .prop_map(|(indices, subtrees)| {
-                let children: OrdMap<u8, Node<P, ()>> = indices.into_iter().zip(subtrees).collect();
+                let children: OrdMap<u8, Node<()>> = indices.into_iter().zip(subtrees).collect();
                 Node::branch(children).expect("branch input has >= 1 child")
             })
             .boxed()
@@ -109,10 +88,7 @@ where
 /// yields them. The version is the leaf's own version as recorded by
 /// `Node::leaf`, and is preserved across path compression because
 /// `into_children` never mutates `version` — only `prefix`.
-fn enumerate_leaves<P: Ord + Clone + AsRef<[u8]>>(
-    node: Node<P, ()>,
-    path: Vec<u8>,
-) -> Vec<(Vec<u8>, Version<P>, Message<()>)> {
+fn enumerate_leaves(node: Node<()>, path: Vec<u8>) -> Vec<(Vec<u8>, Version, Message<()>)> {
     match node.into_children() {
         Ok(children) => children
             .into_iter()
@@ -141,9 +117,8 @@ fn enumerate_leaves<P: Ord + Clone + AsRef<[u8]>>(
 /// leaves pass their original version back into `Node::leaf`, and branch
 /// versions are recomputed by `Node::branch` from the same per-child
 /// versions we started with.
-fn rebuild_with<P, F>(node: Node<P, ()>, f: &F) -> Node<P, ()>
+fn rebuild_with<F>(node: Node<()>, f: &F) -> Node<()>
 where
-    P: Ord + Clone + AsRef<[u8]>,
     F: Fn(&Message<()>) -> Message<()>,
 {
     let version = node.version().clone();
@@ -155,7 +130,7 @@ where
             Node::leaf(version, f(leaf))
         }
         Ok(children) => {
-            let rebuilt: OrdMap<u8, Node<P, ()>> = children
+            let rebuilt: OrdMap<u8, Node<()>> = children
                 .into_iter()
                 .map(|(k, v)| (k, rebuild_with(v, f)))
                 .collect();
@@ -170,7 +145,7 @@ where
 /// one-child case is handled by `beneath`-collapse instead.
 #[test]
 fn empty_branch_is_none() {
-    let empty: OrdMap<u8, Node<String, ()>> = OrdMap::new();
+    let empty: OrdMap<u8, Node<()>> = OrdMap::new();
     assert!(Node::branch(empty).is_none());
 }
 
@@ -179,7 +154,7 @@ proptest! {
     /// path-compression invariant: every branch has at least two children.
     #[test]
     fn arbitrary_tree_is_max_compressed(
-        tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|depth| arb_tree::<String>(depth, TREE_LEAF_BUDGET)),
+        tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|depth| arb_tree(depth, TREE_LEAF_BUDGET)),
     ) {
         prop_assert!(tree.is_max_compressed());
     }
@@ -194,7 +169,7 @@ proptest! {
     /// `branch`→`beneath`, so this also exercises the compression path.
     #[test]
     fn decompose_and_rebuild_preserves_hash_and_version(
-        tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree::<String>(d, TREE_LEAF_BUDGET)),
+        tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
     ) {
         let hash_before = tree.hash();
         let version_before = tree.version().clone();
@@ -213,7 +188,7 @@ proptest! {
     #[test]
     fn leaf_enumeration_has_expected_shape(
         (depth, tree) in (0..=MAX_TEST_DEPTH)
-            .prop_flat_map(|d| (Just(d), arb_tree::<String>(d, TREE_LEAF_BUDGET))),
+            .prop_flat_map(|d| (Just(d), arb_tree(d, TREE_LEAF_BUDGET))),
     ) {
         let leaves = enumerate_leaves(tree, Vec::new());
         prop_assert!(!leaves.is_empty());
@@ -234,7 +209,7 @@ proptest! {
     /// so the invariant has to hold at every layer of the construction.
     #[test]
     fn version_is_join_of_leaf_versions(
-        tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree::<String>(d, TREE_LEAF_BUDGET)),
+        tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
     ) {
         let root_version = tree.version().clone();
         let leaves = enumerate_leaves(tree, Vec::new());
@@ -243,7 +218,10 @@ proptest! {
             prop_assert!(v <= &root_version);
         }
 
-        let joined = Version::new(leaves.iter().map(|(_, v, _)| v.clone()));
+        let joined = leaves
+            .iter()
+            .map(|(_, v, _)| v.clone())
+            .fold(Version::new(), |acc, v| acc | v);
         prop_assert_eq!(joined, root_version);
     }
 
@@ -257,7 +235,7 @@ proptest! {
     #[test]
     fn nested_singleton_wraps_match_repeated_branch_hash(
         indices in vec(any::<u8>(), 2..=8),
-        child in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree::<String>(d, TREE_LEAF_BUDGET)),
+        child in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
     ) {
         let mut expected = child.hash();
         for &index in &indices {
@@ -285,7 +263,7 @@ proptest! {
     #[test]
     fn pop_top_byte_matches_freshly_built_shorter_prefix(
         indices in btree_set(any::<u8>(), 2..=8),
-        child in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree::<String>(d, TREE_LEAF_BUDGET)),
+        child in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
     ) {
         let indices: Vec<u8> = indices.into_iter().collect();
 
@@ -331,7 +309,7 @@ proptest! {
     #[test]
     fn singleton_branch_matches_virtual_branch_hash(
         index in any::<u8>(),
-        child in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree::<String>(d, TREE_LEAF_BUDGET)),
+        child in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
     ) {
         let child_hash = child.hash();
         let wrapped = Node::branch(OrdMap::from_iter([(index, child)]))

@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 use proptest::collection::vec;
 use proptest::prelude::*;
 use rumors::Key;
+use rumors::sync::Known;
 
 use crate::common::oracle::readout_multiset;
 use crate::common::peer::{Peer, gossip_step, quiesce};
@@ -32,8 +33,9 @@ proptest! {
         value in any::<u64>(),
         redactor_idx in any::<usize>(),
     ) {
+        let mut seed = Known::<u64>::seed();
         let mut peers: Vec<Peer<u64>> = (0..n_peers)
-            .map(|i| Peer::<u64>::new(format!("p{i}")))
+            .map(|_| Peer::new(seed.fork()))
             .collect();
 
         let key = peers[0].insert_one(value);
@@ -67,8 +69,9 @@ proptest! {
         b_values in vec(any::<u64>(), 1..=4),
     ) {
         let run = |a_first: bool| -> BTreeMap<u64, usize> {
-            let mut a = Peer::<u64>::new("alice");
-            let mut b = Peer::<u64>::new("bob");
+            let mut seed = Known::<u64>::seed();
+            let mut a = Peer::new(seed.fork());
+            let mut b = Peer::new(seed.fork());
             let mut a_keys: Vec<Key> = Vec::new();
             let mut b_keys: Vec<Key> = Vec::new();
             for v in &a_values { a_keys.push(a.insert_one(*v)); }
@@ -96,7 +99,7 @@ proptest! {
     /// through the public API at the call site.)
     #[test]
     fn redact_twice_is_idempotent(value in any::<u64>()) {
-        let mut peer = Peer::<u64>::new("alice");
+        let mut peer = Peer::<u64>::new(Known::seed());
         let key = peer.insert_one(value);
         peer.redact_one(key);
 
@@ -116,10 +119,11 @@ proptest! {
     /// this corner.
     #[test]
     fn redact_unknown_key_is_noop(value in any::<u64>()) {
-        let mut bob = Peer::<u64>::new("bob");
+        let mut seed = Known::<u64>::seed();
+        let mut bob = Peer::new(seed.fork());
         let foreign_key = bob.insert_one(value);
 
-        let mut alice = Peer::<u64>::new("alice");
+        let mut alice = Peer::new(seed.fork());
         let readout_before = readout_multiset(&alice.local);
         let obs_before = alice.observations.lock().unwrap().len();
 

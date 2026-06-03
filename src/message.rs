@@ -88,6 +88,16 @@ impl<T> Message<T> {
         &self.message
     }
 
+    /// Get a reference to the shared [`Arc`] holding this message's object,
+    /// without cloning it. Used by enumeration paths (e.g. [`Tree::known`])
+    /// that hand out borrowed `&Arc<T>` exactly as the `on_message` callbacks
+    /// do.
+    ///
+    /// [`Tree::known`]: crate::tree::Tree::known
+    pub fn as_arc(&self) -> &Arc<T> {
+        &self.message
+    }
+
     /// Get the serialized bytes corresponding to this message.
     pub fn as_slice(&self) -> &[u8] {
         self.serialized.as_ref()

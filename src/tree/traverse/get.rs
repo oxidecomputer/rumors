@@ -23,9 +23,8 @@ where
 ///
 /// Values are returned in arbitrary order, not necessarily in the order of the
 /// specified paths.
-pub fn get<P, T>(node: Option<Node<P, T, Root>>, paths: Paths) -> Vec<(Key, Version<P>, Arc<T>)>
+pub fn get<T>(node: Option<Node<T, Root>>, paths: Paths) -> Vec<(Key, Version, Arc<T>)>
 where
-    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
     T: Send + Sync,
 {
     pollster::block_on(async {
@@ -34,7 +33,7 @@ where
             node,
             Prefix::new(),
             paths,
-            &mut |k, v: &Version<P>, m: &Arc<T>| {
+            &mut |k, v: &Version, m: &Arc<T>| {
                 gotten.push((k, v.clone(), m.clone()));
                 std::future::ready(())
             },
@@ -51,16 +50,15 @@ pub trait Get: Height {
     // `Pin<Box<dyn Future + Send + '_>>`; the coercion requires the source
     // state machine to be `Send`, which is what the `Send + Sync` bounds on
     // `P`, `T` and the `Send` bounds on `F`, `Fut` discharge.
-    fn get<P, T, F, Fut>(
-        node: Option<Node<P, T, Self>>,
+    fn get<T, F, Fut>(
+        node: Option<Node<T, Self>>,
         prefix: Prefix<Self>,
         paths: Paths<Self>,
         with_gotten: &mut F,
     ) -> impl Future<Output = ()> + Send
     where
-        P: Clone + Ord + AsRef<[u8]> + Send + Sync,
         T: Send + Sync,
-        F: FnMut(Key, &Version<P>, &Arc<T>) -> Fut + Send,
+        F: FnMut(Key, &Version, &Arc<T>) -> Fut + Send,
         Fut: Future<Output = ()> + Send;
 }
 
@@ -68,15 +66,14 @@ impl<H: Get> Get for S<H>
 where
     S<H>: Height,
 {
-    async fn get<P, T, F, Fut>(
-        node: Option<Node<P, T, Self>>,
+    async fn get<T, F, Fut>(
+        node: Option<Node<T, Self>>,
         prefix: Prefix<Self>,
         paths: Paths<Self>,
         with_gotten: &mut F,
     ) where
-        P: Clone + Ord + AsRef<[u8]> + Send + Sync,
         T: Send + Sync,
-        F: FnMut(Key, &Version<P>, &Arc<T>) -> Fut + Send,
+        F: FnMut(Key, &Version, &Arc<T>) -> Fut + Send,
         Fut: Future<Output = ()> + Send,
     {
         let Some(node) = node else {
@@ -132,15 +129,14 @@ where
 }
 
 impl Get for Z {
-    async fn get<P, T, F, Fut>(
-        node: Option<Node<P, T, Self>>,
+    async fn get<T, F, Fut>(
+        node: Option<Node<T, Self>>,
         prefix: Prefix<Self>,
         paths: Paths<Self>,
         with_gotten: &mut F,
     ) where
-        P: Clone + Ord + AsRef<[u8]> + Send + Sync,
         T: Send + Sync,
-        F: FnMut(Key, &Version<P>, &Arc<T>) -> Fut + Send,
+        F: FnMut(Key, &Version, &Arc<T>) -> Fut + Send,
         Fut: Future<Output = ()> + Send,
     {
         let Some(node) = node else {

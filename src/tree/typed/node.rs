@@ -11,10 +11,10 @@ use super::levels::{Top, levels};
 use super::untyped;
 
 /// The typed node with a height of 32; the root of the tree.
-pub type Root<P, T> = Node<P, T, height::Root>;
+pub type Root<T> = Node<T, height::Root>;
 
 /// The type of children of a given height.
-pub type Children<P, T, H> = OrdMap<u8, Node<P, T, H>>;
+pub type Children<T, H> = OrdMap<u8, Node<T, H>>;
 
 /// A typed node which enforces the structural validity of the constructed tree
 /// at compile-time.
@@ -29,12 +29,12 @@ pub type Children<P, T, H> = OrdMap<u8, Node<P, T, H>>;
 /// even though the type variable `H` itself is purely phantom and never
 /// constructs anything that could fail to be `Send`/`Sync`.
 #[repr(transparent)]
-pub struct Node<P: Ord + AsRef<[u8]>, T, H: Height> {
+pub struct Node<T, H: Height> {
     height: PhantomData<fn() -> H>,
-    inner: untyped::Node<P, T>,
+    inner: untyped::Node<T>,
 }
 
-impl<P: Ord + AsRef<[u8]>, T, H: Height> Clone for Node<P, T, H> {
+impl<T, H: Height> Clone for Node<T, H> {
     fn clone(&self) -> Self {
         Self {
             height: self.height,
@@ -43,9 +43,8 @@ impl<P: Ord + AsRef<[u8]>, T, H: Height> Clone for Node<P, T, H> {
     }
 }
 
-impl<P, T, H> Debug for Node<P, T, H>
+impl<T, H> Debug for Node<T, H>
 where
-    P: Debug + Ord + AsRef<[u8]>,
     T: Debug,
     H: Height,
 {
@@ -54,9 +53,9 @@ where
     }
 }
 
-impl<P: Clone + Ord + AsRef<[u8]>, T, H: Height> Node<P, T, H> {
+impl<T, H: Height> Node<T, H> {
     /// Get the version of this node.
-    pub fn version(&self) -> &Version<P> {
+    pub fn version(&self) -> &Version {
         self.inner.version()
     }
 
@@ -83,20 +82,20 @@ impl<P: Clone + Ord + AsRef<[u8]>, T, H: Height> Node<P, T, H> {
     }
 }
 
-impl<P: Clone + Ord + AsRef<[u8]>, T, H: Height> Node<P, T, S<H>>
+impl<T, H: Height> Node<T, S<H>>
 where
     S<H>: Height,
 {
     /// Construct a new branch node from a map of children (inverse to
     /// [`Node::into_children`]).
-    pub fn branch(children: Children<P, T, H>) -> Option<Self> {
+    pub fn branch(children: Children<T, H>) -> Option<Self> {
         // Transmute the map of children from typed nodes with the correct
         // height into untyped nodes.
         //
         // SAFETY: TypedNode is #[repr(transparent)] and `OrdMap` treats values
         // in the map parametrically (i.e. no use of `TypeId`, etc.)
         let children = unsafe {
-            mem::transmute::<OrdMap<u8, Node<P, T, H>>, OrdMap<u8, untyped::Node<P, T>>>(children)
+            mem::transmute::<OrdMap<u8, Node<T, H>>, OrdMap<u8, untyped::Node<T>>>(children)
         };
 
         Some(Node {
@@ -107,7 +106,7 @@ where
 
     /// Convert a node into a map from child index to child node (inverse to
     /// [`Node::branch`]).
-    pub fn into_children(self) -> Children<P, T, H> {
+    pub fn into_children(self) -> Children<T, H> {
         // Transmute the map of children into typed nodes with the correct
         // height, to recursively enforce type-safe height.
         //
@@ -121,7 +120,7 @@ where
     /// `untyped::Node::beneath`: it path-compresses a single-child wrap into
     /// the underlying node's prefix without materializing the intervening
     /// branch level.
-    pub fn beneath(child: Node<P, T, H>, index: u8) -> Self {
+    pub fn beneath(child: Node<T, H>, index: u8) -> Self {
         Node {
             height: PhantomData,
             inner: child.inner.beneath(index),
@@ -129,9 +128,9 @@ where
     }
 }
 
-impl<P: Clone + Ord + AsRef<[u8]>, T> Node<P, T, Z> {
+impl<T> Node<T, Z> {
     /// Construct a new leaf node from a versioned message.
-    pub fn leaf(version: Version<P>, message: Message<T>) -> Self {
+    pub fn leaf(version: Version, message: Message<T>) -> Self {
         Self {
             height: PhantomData,
             inner: untyped::Node::leaf(version, message),
@@ -146,32 +145,35 @@ impl<P: Clone + Ord + AsRef<[u8]>, T> Node<P, T, Z> {
     }
 }
 
-impl<P, T> Node<P, T, height::Root>
-where
-    P: Clone + Ord + AsRef<[u8]>,
-{
-    pub fn levels(node: Option<Root<P, T>>) -> Top<P, T> {
+impl<T> Node<T, height::Root> {
+    pub fn levels(node: Option<Root<T>>) -> Top<T> {
         levels(node)
     }
 
-    pub fn root_hash(node: &Option<Root<P, T>>) -> Hash
-    where
-        P: Clone + Ord + AsRef<[u8]>,
-    {
+    /// Lazily iterate every live leaf in this root subtree as
+    /// `(Key, &Version, &Arc<T>)`. Delegates to the height-agnostic untyped
+    /// walk; because this is a height-32 root, every yielded path is a full
+    /// 32-byte [`Key`](crate::Key).
+    pub fn iter(&self) -> untyped::Iter<'_, T> {
+        untyped::Iter::root(&self.inner)
+    }
+
+    pub fn root_hash(node: &Option<Root<T>>) -> Hash
+where {
         node.as_ref().map(|n| n.hash()).unwrap_or_default()
     }
 }
 
-impl<P: Clone + Ord + AsRef<[u8]>, T, H: Height> Eq for Node<P, T, H> {}
+impl<T, H: Height> Eq for Node<T, H> {}
 
-impl<P: Clone + Ord + AsRef<[u8]>, T, H: Height> PartialEq for Node<P, T, H> {
+impl<T, H: Height> PartialEq for Node<T, H> {
     fn eq(&self, other: &Self) -> bool {
         self.inner == other.inner
     }
 }
 
 // Borsh wire format. Serialization is height-uniform: every typed
-// `Node<P, T, H>` delegates to [`untyped::Node::serialize_to`], which
+// `Node<T, H>` delegates to [`untyped::Node::serialize_to`], which
 // emits the in-memory representation directly (prefix length, head bytes,
 // then either a leaf body or a `count_minus_two` + children list). No
 // leaf-vs-branch tag is needed on the wire — at the receiver, the typed
@@ -189,9 +191,8 @@ impl<P: Clone + Ord + AsRef<[u8]>, T, H: Height> PartialEq for Node<P, T, H> {
 // compression invariant); singletons appear on the wire only as
 // `prefix_len > 0` and reconstruct through [`Node::beneath`].
 
-impl<P, T, H> BorshSerialize for Node<P, T, H>
+impl<T, H> BorshSerialize for Node<T, H>
 where
-    P: Clone + Ord + AsRef<[u8]> + BorshSerialize,
     H: Height,
 {
     fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
@@ -199,9 +200,8 @@ where
     }
 }
 
-impl<P, T> BorshDeserialize for Node<P, T, Z>
+impl<T> BorshDeserialize for Node<T, Z>
 where
-    P: Clone + Ord + AsRef<[u8]> + BorshDeserialize,
     T: BorshDeserialize,
 {
     fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
@@ -212,19 +212,18 @@ where
                 "leaf height cannot carry a prefix",
             ));
         }
-        let version = Version::<P>::deserialize_reader(reader)?;
+        let version = Version::deserialize_reader(reader)?;
         let message = Message::<T>::deserialize_reader(reader)?;
         Ok(Node::leaf(version, message))
     }
 }
 
-impl<P, T, H> BorshDeserialize for Node<P, T, S<H>>
+impl<T, H> BorshDeserialize for Node<T, S<H>>
 where
-    P: Clone + Ord + AsRef<[u8]> + BorshDeserialize,
     T: BorshDeserialize,
     H: Height,
     S<H>: Height,
-    Node<P, T, H>: BorshDeserialize,
+    Node<T, H>: BorshDeserialize,
 {
     fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
         let prefix_len = u8::deserialize_reader(reader)?;
@@ -243,7 +242,7 @@ where
                     "branch children count exceeds 256",
                 ));
             }
-            let mut children: OrdMap<u8, Node<P, T, H>> = OrdMap::new();
+            let mut children: OrdMap<u8, Node<T, H>> = OrdMap::new();
             let mut prev: Option<u8> = None;
             for _ in 0..count {
                 let radix = u8::deserialize_reader(reader)?;
@@ -256,7 +255,7 @@ where
                     ));
                 }
                 prev = Some(radix);
-                let child = Node::<P, T, H>::deserialize_reader(reader)?;
+                let child = Node::<T, H>::deserialize_reader(reader)?;
                 children.insert(radix, child);
             }
             Node::branch(children).ok_or_else(|| {
@@ -273,7 +272,7 @@ where
             // trait.
             let synthesized = [prefix_len - 1];
             let mut chained = borsh::io::Read::chain(synthesized.as_slice(), &mut *reader);
-            let inner = Node::<P, T, H>::deserialize_reader(&mut chained)?;
+            let inner = Node::<T, H>::deserialize_reader(&mut chained)?;
             Ok(Node::beneath(inner, head))
         }
     }

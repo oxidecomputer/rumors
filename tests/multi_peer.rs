@@ -32,7 +32,7 @@ fn schedule_string() -> impl Strategy<Value = Schedule<String>> {
 proptest! {
     /// After the final quiesce phase, every peer's live content (per
     /// `readout`) matches every other's. Compared via `readout`
-    /// rather than `Local::eq` because the latter includes the party
+    /// rather than `Known::eq` because the latter includes the party
     /// tag, which always differs across peers.
     #[test]
     fn all_peers_converge_after_quiesce(

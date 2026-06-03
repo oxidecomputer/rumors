@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use rumors::Key;
+use rumors::sync::Known;
 
 use super::events::{Event, EventIdx, Schedule};
 use crate::common::oracle::Oracle;
@@ -60,9 +61,19 @@ where
     T: Clone + Ord + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
     F: Fn(usize, usize, EventIdx) -> bool,
 {
-    let mut peers: Vec<Peer<T>> = (0..schedule.n_peers)
-        .map(|i| Peer::<T>::new(format!("p{i}")))
-        .collect();
+    // Build the peer fleet along the schedule's fork tree: peer 0 is the
+    // universe seed, and every other peer is forked from an already-built
+    // peer (`fork_parents[i] < i`). All peers therefore descend from one seed
+    // and are pairwise disjoint, so `gossip_step` can always `learn`.
+    let mut peers: Vec<Peer<T>> = Vec::with_capacity(schedule.n_peers);
+    for i in 0..schedule.n_peers {
+        let local = if i == 0 {
+            Known::seed()
+        } else {
+            peers[schedule.fork_parents[i]].local.fork()
+        };
+        peers.push(Peer::new(local));
+    }
     let mut oracle = Oracle::<T>::default();
     let mut resolved_keys: BTreeMap<EventIdx, Key> = BTreeMap::new();
 

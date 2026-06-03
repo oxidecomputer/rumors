@@ -82,21 +82,21 @@ use super::protocol;
 
 /// The version state for an [`Exchange`] which has just been initialized but
 /// has not yet connected.
-pub struct Start<P: Ord> {
-    our_version: Version<P>,
+pub struct Start {
+    our_version: Version,
 }
 
 /// The version state for an [`Exchange`] which has sent its version to its peer
 /// but has not yet received its peer's version.
-pub struct Connecting<P: Ord> {
-    our_version: Version<P>,
+pub struct Connecting {
+    our_version: Version,
 }
 
 /// The version state for an [`Exchange`] which has sent and received versions
 /// with its peer, and so can proceed to the rest of the protocol.
-pub struct Connected<P: Ord> {
-    our_version: Version<P>,
-    their_version: Version<P>,
+pub struct Connected {
+    our_version: Version,
+    their_version: Version,
 }
 
 /// An in-progress mirror synchronization on one side of the wire.
@@ -122,12 +122,11 @@ pub struct Exchange<OnSend, OnRecv, V, L> {
     on_send: OnSend,
 }
 
-impl<OnSend, OnRecv, P, T> Exchange<OnSend, OnRecv, Start<P>, Top<P, T>>
+impl<OnSend, OnRecv, T> Exchange<OnSend, OnRecv, Start, Top<T>>
 where
-    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
     T: Send + Sync,
 {
-    pub fn start(node: tree::Root<P, T>, on_send: OnSend, on_recv: OnRecv) -> Self {
+    pub fn start(node: tree::Root<T>, on_send: OnSend, on_recv: OnRecv) -> Self {
         Self {
             versions: Start {
                 our_version: node.version.clone(),
@@ -144,28 +143,24 @@ where
 impl<OnSend, OnRecv, V, L> protocol::Stage for Exchange<OnSend, OnRecv, V, L>
 where
     L: Levels,
-    L::Party: Clone + Ord + AsRef<[u8]>,
 {
     type Height = L::Height;
-    type Output = tree::Root<L::Party, L::Message>;
+    type Output = tree::Root<L::Message>;
     type Error = Infallible;
 }
 
-impl<P, T, OnSend, OnSendFut, OnRecv, OnRecvFut> protocol::Connect<P, T>
-    for Exchange<OnSend, OnRecv, Start<P>, Top<P, T>>
+impl<T, OnSend, OnSendFut, OnRecv, OnRecvFut> protocol::Connect<T>
+    for Exchange<OnSend, OnRecv, Start, Top<T>>
 where
-    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
     T: Send + Sync,
-    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut + Send,
+    OnRecv: FnMut(Key, &Version, &Arc<T>) -> OnRecvFut + Send,
     OnRecvFut: Future<Output = ()> + Send,
-    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut + Send,
+    OnSend: FnMut(Key, &Version, &Arc<T>) -> OnSendFut + Send,
     OnSendFut: Future<Output = ()> + Send,
 {
-    type Next = Exchange<OnSend, OnRecv, Connecting<P>, Top<P, T>>;
+    type Next = Exchange<OnSend, OnRecv, Connecting, Top<T>>;
 
-    async fn connect(
-        self,
-    ) -> Result<protocol::Step<Version<P>, Self::Next, Infallible>, Self::Error> {
+    async fn connect(self) -> Result<protocol::Step<Version, Self::Next, Infallible>, Self::Error> {
         let our_version = self.versions.our_version;
 
         let next = Exchange {
@@ -184,21 +179,20 @@ where
     }
 }
 
-impl<P, T, OnSend, OnSendFut, OnRecv, OnRecvFut> protocol::CompleteConnect<P, T>
-    for Exchange<OnSend, OnRecv, Connecting<P>, Top<P, T>>
+impl<T, OnSend, OnSendFut, OnRecv, OnRecvFut> protocol::CompleteConnect<T>
+    for Exchange<OnSend, OnRecv, Connecting, Top<T>>
 where
-    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
     T: Send + Sync,
-    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut + Send,
+    OnRecv: FnMut(Key, &Version, &Arc<T>) -> OnRecvFut + Send,
     OnRecvFut: Future<Output = ()> + Send,
-    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut + Send,
+    OnSend: FnMut(Key, &Version, &Arc<T>) -> OnSendFut + Send,
     OnSendFut: Future<Output = ()> + Send,
 {
-    type Next = Exchange<OnSend, OnRecv, Connected<P>, Top<P, T>>;
+    type Next = Exchange<OnSend, OnRecv, Connected, Top<T>>;
 
     async fn complete_connect(
         self,
-        their_version: Version<P>,
+        their_version: Version,
     ) -> Result<protocol::Step<(), Self::Next, Self::Output>, Self::Error> {
         let our_version = self.versions.our_version;
 
@@ -227,22 +221,21 @@ where
     }
 }
 
-impl<P, T, OnSend, OnSendFut, OnRecv, OnRecvFut> protocol::Accept<P, T>
-    for Exchange<OnSend, OnRecv, Start<P>, Top<P, T>>
+impl<T, OnSend, OnSendFut, OnRecv, OnRecvFut> protocol::Accept<T>
+    for Exchange<OnSend, OnRecv, Start, Top<T>>
 where
-    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
     T: Send + Sync,
-    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut + Send,
+    OnRecv: FnMut(Key, &Version, &Arc<T>) -> OnRecvFut + Send,
     OnRecvFut: Future<Output = ()> + Send,
-    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut + Send,
+    OnSend: FnMut(Key, &Version, &Arc<T>) -> OnSendFut + Send,
     OnSendFut: Future<Output = ()> + Send,
 {
-    type Next = Exchange<OnSend, OnRecv, Connected<P>, Top<P, T>>;
+    type Next = Exchange<OnSend, OnRecv, Connected, Top<T>>;
 
     async fn accept(
         self,
-        their_version: Version<P>,
-    ) -> Result<protocol::Step<Version<P>, Self::Next, Self::Output>, Self::Error> {
+        their_version: Version,
+    ) -> Result<protocol::Step<Version, Self::Next, Self::Output>, Self::Error> {
         let our_version = self.versions.our_version;
 
         // If the two versions are the same, both sides are immediately done
@@ -273,17 +266,16 @@ where
     }
 }
 
-impl<P, T, OnSend, OnSendFut, OnRecv, OnRecvFut> protocol::Initiator<P, T>
-    for Exchange<OnSend, OnRecv, Connected<P>, Top<P, T>>
+impl<T, OnSend, OnSendFut, OnRecv, OnRecvFut> protocol::Initiator<T>
+    for Exchange<OnSend, OnRecv, Connected, Top<T>>
 where
-    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
     T: Send + Sync,
-    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut + Send,
+    OnRecv: FnMut(Key, &Version, &Arc<T>) -> OnRecvFut + Send,
     OnRecvFut: Future<Output = ()> + Send,
-    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut + Send,
+    OnSend: FnMut(Key, &Version, &Arc<T>) -> OnSendFut + Send,
     OnSendFut: Future<Output = ()> + Send,
 {
-    type Next = Exchange<OnSend, OnRecv, Connected<P>, Top<P, T>>;
+    type Next = Exchange<OnSend, OnRecv, Connected, Top<T>>;
 
     async fn initiator(
         self,
@@ -301,17 +293,16 @@ where
     }
 }
 
-impl<P, T, OnSend, OnSendFut, OnRecv, OnRecvFut> protocol::Responder<P, T>
-    for Exchange<OnSend, OnRecv, Connected<P>, Top<P, T>>
+impl<T, OnSend, OnSendFut, OnRecv, OnRecvFut> protocol::Responder<T>
+    for Exchange<OnSend, OnRecv, Connected, Top<T>>
 where
-    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
     T: Send + Sync,
-    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut + Send,
+    OnRecv: FnMut(Key, &Version, &Arc<T>) -> OnRecvFut + Send,
     OnRecvFut: Future<Output = ()> + Send,
-    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut + Send,
+    OnSend: FnMut(Key, &Version, &Arc<T>) -> OnSendFut + Send,
     OnSendFut: Future<Output = ()> + Send,
 {
-    type Next = Exchange<OnSend, OnRecv, Connected<P>, Below<UnderRoot, Top<P, T>>>;
+    type Next = Exchange<OnSend, OnRecv, Connected, Below<UnderRoot, Top<T>>>;
 
     async fn responder(
         mut self,
@@ -357,96 +348,90 @@ where
     }
 }
 
-impl<P, T, OnSend, OnSendFut, OnRecv, OnRecvFut, L> protocol::OpenInitiator<P, T>
-    for Exchange<OnSend, OnRecv, Connected<P>, L>
+impl<T, OnSend, OnSendFut, OnRecv, OnRecvFut, L> protocol::OpenInitiator<T>
+    for Exchange<OnSend, OnRecv, Connected, L>
 where
-    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
     T: Send + Sync,
-    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut + Send,
+    OnRecv: FnMut(Key, &Version, &Arc<T>) -> OnRecvFut + Send,
     OnRecvFut: Future<Output = ()> + Send,
-    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut + Send,
+    OnSend: FnMut(Key, &Version, &Arc<T>) -> OnSendFut + Send,
     OnSendFut: Future<Output = ()> + Send,
-    L: Levels<Party = P, Message = T, Height = Root>,
+    L: Levels<Message = T, Height = Root>,
 {
-    type Next = Exchange<OnSend, OnRecv, Connected<P>, Below<UnderUnderRoot, Below<UnderRoot, L>>>;
+    type Next = Exchange<OnSend, OnRecv, Connected, Below<UnderUnderRoot, Below<UnderRoot, L>>>;
 
     async fn open_initiator(
         self,
         request: message::Opening,
     ) -> Result<
-        protocol::Step<message::Exchange<P, T, UnderUnderRoot>, Self::Next, Self::Output>,
+        protocol::Step<message::Exchange<T, UnderUnderRoot>, Self::Next, Self::Output>,
         Infallible,
     > {
         Ok(self.reply(request).await)
     }
 }
 
-impl<P, T, H, OnSend, OnSendFut, OnRecv, OnRecvFut, L> protocol::Exchange<P, T>
-    for Exchange<OnSend, OnRecv, Connected<P>, L>
+impl<T, H, OnSend, OnSendFut, OnRecv, OnRecvFut, L> protocol::Exchange<T>
+    for Exchange<OnSend, OnRecv, Connected, L>
 where
-    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
     T: Send + Sync,
-    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut + Send,
+    OnRecv: FnMut(Key, &Version, &Arc<T>) -> OnRecvFut + Send,
     OnRecvFut: Future<Output = ()> + Send,
-    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut + Send,
+    OnSend: FnMut(Key, &Version, &Arc<T>) -> OnSendFut + Send,
     OnSendFut: Future<Output = ()> + Send,
-    L: Levels<Party = P, Message = T, Height = S<S<H>>>,
+    L: Levels<Message = T, Height = S<S<H>>>,
     S<S<H>>: Height,
     S<H>: Height,
     H: Height + Unknown + Get,
     // Assumed at impl-validation time so we don't have to case-analyze `H`
     // here: at use sites `H` is concrete and one of the three blanket impls
     // discharges it.
-    Exchange<OnSend, OnRecv, Connected<P>, Below<H, Below<S<H>, L>>>:
-        protocol::AfterExchange<P, T, H>,
+    Exchange<OnSend, OnRecv, Connected, Below<H, Below<S<H>, L>>>: protocol::AfterExchange<T, H>,
 {
-    type Next = Exchange<OnSend, OnRecv, Connected<P>, Below<H, Below<S<H>, L>>>;
+    type Next = Exchange<OnSend, OnRecv, Connected, Below<H, Below<S<H>, L>>>;
 
     async fn exchange(
         self,
-        request: message::Exchange<P, T, S<H>>,
-    ) -> Result<protocol::Step<message::Exchange<P, T, H>, Self::Next, Self::Output>, Infallible>
-    {
+        request: message::Exchange<T, S<H>>,
+    ) -> Result<protocol::Step<message::Exchange<T, H>, Self::Next, Self::Output>, Infallible> {
         Ok(self.reply(request).await)
     }
 }
 
-impl<P, T, OnSend, OnSendFut, OnRecv, OnRecvFut, L> protocol::CloseInitiator<P, T>
-    for Exchange<OnSend, OnRecv, Connected<P>, L>
+impl<T, OnSend, OnSendFut, OnRecv, OnRecvFut, L> protocol::CloseInitiator<T>
+    for Exchange<OnSend, OnRecv, Connected, L>
 where
-    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
     T: Send + Sync,
-    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut + Send,
+    OnRecv: FnMut(Key, &Version, &Arc<T>) -> OnRecvFut + Send,
     OnRecvFut: Future<Output = ()> + Send,
-    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut + Send,
+    OnSend: FnMut(Key, &Version, &Arc<T>) -> OnSendFut + Send,
     OnSendFut: Future<Output = ()> + Send,
-    L: Levels<Party = P, Message = T, Height = S<S<Z>>>,
+    L: Levels<Message = T, Height = S<S<Z>>>,
 {
-    type Next = Exchange<OnSend, OnRecv, Connected<P>, Below<Z, Below<S<Z>, L>>>;
+    type Next = Exchange<OnSend, OnRecv, Connected, Below<Z, Below<S<Z>, L>>>;
 
     async fn close_initiator(
         self,
-        request: message::Exchange<P, T, S<Z>>,
-    ) -> Result<protocol::Step<message::Closing<P, T>, Self::Next, Self::Output>, Infallible> {
+        request: message::Exchange<T, S<Z>>,
+    ) -> Result<protocol::Step<message::Closing<T>, Self::Next, Self::Output>, Infallible> {
         Ok(self.reply(request).await)
     }
 }
 
-impl<P, T, OnSend, OnSendFut, OnRecv, OnRecvFut, L> protocol::CompleteResponder<P, T>
-    for Exchange<OnSend, OnRecv, Connected<P>, L>
+impl<T, OnSend, OnSendFut, OnRecv, OnRecvFut, L> protocol::CompleteResponder<T>
+    for Exchange<OnSend, OnRecv, Connected, L>
 where
-    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
     T: Send + Sync,
-    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut + Send,
+    OnRecv: FnMut(Key, &Version, &Arc<T>) -> OnRecvFut + Send,
     OnRecvFut: Future<Output = ()> + Send,
-    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut + Send,
+    OnSend: FnMut(Key, &Version, &Arc<T>) -> OnSendFut + Send,
     OnSendFut: Future<Output = ()> + Send,
-    L: Levels<Party = P, Message = T, Height = S<Z>>,
+    L: Levels<Message = T, Height = S<Z>>,
 {
     async fn complete_responder(
         mut self,
-        request: message::Closing<P, T>,
-    ) -> Result<protocol::Step<message::Complete<P, T>, Infallible, Self::Output>, Infallible> {
+        request: message::Closing<T>,
+    ) -> Result<protocol::Step<message::Complete<T>, Infallible, Self::Output>, Infallible> {
         self.absorb_providing(request.providing).await;
         let providing = self.answer_requested(request.requested).await;
         Ok(protocol::Step::Done {
@@ -459,20 +444,19 @@ where
     }
 }
 
-impl<P, T, OnSend, OnSendFut, OnRecv, OnRecvFut, L> protocol::CompleteInitiator<P, T>
-    for Exchange<OnSend, OnRecv, Connected<P>, L>
+impl<T, OnSend, OnSendFut, OnRecv, OnRecvFut, L> protocol::CompleteInitiator<T>
+    for Exchange<OnSend, OnRecv, Connected, L>
 where
-    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
     T: Send + Sync,
-    OnRecv: FnMut(Key, &Version<P>, &Arc<T>) -> OnRecvFut + Send,
+    OnRecv: FnMut(Key, &Version, &Arc<T>) -> OnRecvFut + Send,
     OnRecvFut: Future<Output = ()> + Send,
-    OnSend: FnMut(Key, &Version<P>, &Arc<T>) -> OnSendFut + Send,
+    OnSend: FnMut(Key, &Version, &Arc<T>) -> OnSendFut + Send,
     OnSendFut: Future<Output = ()> + Send,
-    L: Levels<Party = P, Message = T, Height = Z>,
+    L: Levels<Message = T, Height = Z>,
 {
     async fn complete_initiator(
         mut self,
-        request: message::Complete<P, T>,
+        request: message::Complete<T>,
     ) -> Result<protocol::Step<(), Infallible, Self::Output>, Infallible> {
         self.absorb_providing(request.providing).await;
         Ok(protocol::Step::Done {
@@ -489,31 +473,29 @@ where
 
 /// The output of [`Exchange::partition_uncertain`], one field per outgoing
 /// channel in the asymmetry matrix.
-struct Partition<P, T, H>
+struct Partition<T, H>
 where
-    P: Clone + Ord + AsRef<[u8]>,
     S<H>: Height,
     H: Height,
 {
     /// Left-case subtrees (we have them, the counterparty does not). The caller
     /// will combine these with `answer_requested`'s output to form the final
     /// outgoing `providing`.
-    providing: OrdMap<Prefix<S<H>>, Node<P, T, S<H>>>,
+    providing: OrdMap<Prefix<S<H>>, Node<T, S<H>>>,
     /// Right-case prefixes (the counterparty has them, we do not): the outgoing
     /// `requested`.
     requested: OrdSet<Prefix<S<H>>>,
     /// `Both`-case children whose hashes agreed, plus Left-case children we
     /// kept locally. Become the new level immediately above the bottom.
-    matched: OrdMap<Prefix<S<H>>, Node<P, T, S<H>>>,
+    matched: OrdMap<Prefix<S<H>>, Node<T, S<H>>>,
     /// `Both`-case grandchildren of children whose hashes disagreed. Become the
     /// new bottom of the zipper, and next round's outgoing `uncertain`.
-    exploded: OrdMap<Prefix<H>, Node<P, T, H>>,
+    exploded: OrdMap<Prefix<H>, Node<T, H>>,
 }
 
-impl<OnSend, OnRecv, L> Exchange<OnSend, OnRecv, Connected<L::Party>, L>
+impl<OnSend, OnRecv, L> Exchange<OnSend, OnRecv, Connected, L>
 where
     L: Levels,
-    L::Party: Clone + Ord + AsRef<[u8]> + Send + Sync,
     L::Message: Send + Sync,
     OnSend: Send,
     OnRecv: Send,
@@ -523,11 +505,10 @@ where
     /// our zipper's bottom level.
     async fn absorb_providing<H, OnRecvFut>(
         &mut self,
-        providing: OrdMap<Prefix<H>, Node<L::Party, L::Message, H>>,
+        providing: OrdMap<Prefix<H>, Node<L::Message, H>>,
     ) where
-        L::Party: Send + Sync,
         L::Message: Send + Sync,
-        OnRecv: FnMut(Key, &Version<L::Party>, &Arc<L::Message>) -> OnRecvFut + Send,
+        OnRecv: FnMut(Key, &Version, &Arc<L::Message>) -> OnRecvFut + Send,
         OnRecvFut: Future<Output = ()> + Send,
         L: Levels<Height = H>,
         H: Height + Get,
@@ -546,10 +527,10 @@ where
     async fn answer_requested<H, OnSendFut>(
         &mut self,
         requested: OrdSet<Prefix<S<H>>>,
-    ) -> OrdMap<Prefix<H>, Node<L::Party, L::Message, H>>
+    ) -> OrdMap<Prefix<H>, Node<L::Message, H>>
     where
         L: Levels<Height = S<H>>,
-        OnSend: FnMut(Key, &Version<L::Party>, &Arc<L::Message>) -> OnSendFut,
+        OnSend: FnMut(Key, &Version, &Arc<L::Message>) -> OnSendFut,
         OnSendFut: Future<Output = ()> + Send,
         S<H>: Unknown,
         H: Height,
@@ -602,9 +583,9 @@ where
     async fn partition_uncertain<H, OnSendFut>(
         &mut self,
         uncertain: OrdMap<Prefix<S<H>>, Hash>,
-    ) -> Partition<L::Party, L::Message, H>
+    ) -> Partition<L::Message, H>
     where
-        OnSend: FnMut(Key, &Version<L::Party>, &Arc<L::Message>) -> OnSendFut,
+        OnSend: FnMut(Key, &Version, &Arc<L::Message>) -> OnSendFut,
         OnSendFut: Future<Output = ()> + Send,
         L: Levels<Height = S<S<H>>>,
         S<S<H>>: Height,
@@ -754,15 +735,15 @@ where
         request: Request,
     ) -> protocol::Step<
         Response,
-        Exchange<OnSend, OnRecv, Connected<L::Party>, Below<H, Below<S<H>, L>>>,
-        tree::Root<L::Party, L::Message>,
+        Exchange<OnSend, OnRecv, Connected, Below<H, Below<S<H>, L>>>,
+        tree::Root<L::Message>,
     >
     where
-        Request: Into<message::Exchange<L::Party, L::Message, S<H>>>,
-        Response: From<message::Exchange<L::Party, L::Message, H>>,
-        OnRecv: FnMut(Key, &Version<L::Party>, &Arc<L::Message>) -> OnRecvFut,
+        Request: Into<message::Exchange<L::Message, S<H>>>,
+        Response: From<message::Exchange<L::Message, H>>,
+        OnRecv: FnMut(Key, &Version, &Arc<L::Message>) -> OnRecvFut,
         OnRecvFut: Future<Output = ()> + Send,
-        OnSend: FnMut(Key, &Version<L::Party>, &Arc<L::Message>) -> OnSendFut,
+        OnSend: FnMut(Key, &Version, &Arc<L::Message>) -> OnSendFut,
         OnSendFut: Future<Output = ()> + Send,
         L: Levels<Height = S<S<H>>>,
         S<S<H>>: Height,

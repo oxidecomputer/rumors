@@ -27,9 +27,9 @@ use protocol::*;
 /// non-async `fn` returning `Ready<()>` so the resulting future has no
 /// captures and is unconditionally `Send`.
 #[cfg(test)]
-pub(crate) fn ignore<P: Ord, T>(
+pub(crate) fn ignore<T>(
     _: crate::tree::Key,
-    _: &crate::version::Version<P>,
+    _: &crate::version::Version,
     _: &std::sync::Arc<T>,
 ) -> std::future::Ready<()> {
     std::future::ready(())
@@ -123,15 +123,14 @@ macro_rules! x {
 
 // The inner mirror protocol, between an initiator and a responder (who may or
 // may not correspond with the original client/server distinction).
-async fn mirror_connected<I, R, P, T>(
+async fn mirror_connected<I, R, T>(
     i: I,
     r: R,
 ) -> Result<(I::Output, R::Output), Error<I::Error, R::Error>>
 where
-    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
     T: Send + Sync,
-    I: Peer<P, T>,
-    R: Peer<P, T>,
+    I: Peer<T>,
+    R: Peer<T>,
 {
     x! { let x = i.initiator() }
     x! { i.open_initiator <=x== r.responder }
@@ -155,15 +154,14 @@ pub enum Error<C, S> {
 }
 
 /// Drive a mirror protocol client against a server to synchronize both of them.
-pub async fn mirror<'a, C, S, P, T>(
+pub async fn mirror<'a, C, S, T>(
     c: C,
     s: S,
 ) -> Result<(C::Output, S::Output), Error<C::Error, S::Error>>
 where
-    P: Clone + Ord + AsRef<[u8]> + Send + Sync + 'a,
     T: Send + Sync + 'a,
-    C: Client<P, T> + 'a,
-    S: Server<P, T> + 'a,
+    C: Client<T> + 'a,
+    S: Server<T> + 'a,
 {
     // Box the future so that callers don't need to handle its big future type
     // (this prevents callers from needing to bump the recursion limit).
@@ -208,9 +206,11 @@ where
 
         // We know at this point that the client and server versions are different;
         // otherwise, both would have bailed early during the accept/complete_connect
-        // phases. If we compare them *LEXICOGRAPHICALLY*, we have a natural built-in
-        // total choice to determine who acts as the initiator vs. responder.
-        let (c, s) = match server_version.versions().cmp(client_version.versions()) {
+        // phases. Their causal order is only partial (they may be concurrent), so
+        // to pick an initiator we compare their *canonical bytes* lexicographically:
+        // an arbitrary but total and deterministic tiebreak (not a causal order).
+        // Distinct versions have distinct canonical bytes, so `Equal` is impossible.
+        let (c, s) = match server_version.as_bytes().cmp(client_version.as_bytes()) {
             // If the server version is less, the client is the initiator:
             Ordering::Less => mirror_connected(c, s).await,
             // When running the server as the initiator, rearrange the result:

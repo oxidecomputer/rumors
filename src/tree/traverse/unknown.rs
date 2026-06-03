@@ -15,20 +15,19 @@ use prefix::Prefix;
 /// The unknown set is the set of leaves necessary to communicate to a
 /// counterparty who has this version vector, so that their tree will become a
 /// (non-strict) superset of yours.
-pub fn unknown<P, T>(
-    node: Option<Node<P, T, Root>>,
-    known: &Version<P>,
-    with_unknown: &mut (impl FnMut(Key, &Version<P>, &Message<T>) + Send),
-) -> Option<Node<P, T, Root>>
+pub fn unknown<T>(
+    node: Option<Node<T, Root>>,
+    known: &Version,
+    with_unknown: &mut (impl FnMut(Key, &Version, &Message<T>) + Send),
+) -> Option<Node<T, Root>>
 where
-    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
     T: Send + Sync,
 {
     pollster::block_on(Unknown::unknown(
         node,
         Prefix::new(),
         known,
-        &mut |k, v: &Version<P>, m: &Message<T>| {
+        &mut |k, v: &Version, m: &Message<T>| {
             with_unknown(k, v, m);
             std::future::ready(())
         },
@@ -42,16 +41,15 @@ pub trait Unknown: Height {
     // `Pin<Box<dyn Future + Send + '_>>`; the coercion requires the source
     // state machine to be `Send`, which is what these `Send + Sync` /
     // `Send` bounds discharge.
-    fn unknown<P, T, F, Fut>(
-        node: Option<Node<P, T, Self>>,
+    fn unknown<T, F, Fut>(
+        node: Option<Node<T, Self>>,
         prefix: Prefix<Self>,
-        known: &Version<P>,
+        known: &Version,
         with_unknown: &mut F,
-    ) -> impl Future<Output = Option<Node<P, T, Self>>> + Send
+    ) -> impl Future<Output = Option<Node<T, Self>>> + Send
     where
-        P: Clone + Ord + AsRef<[u8]> + Send + Sync,
         T: Send + Sync,
-        F: FnMut(Key, &Version<P>, &Message<T>) -> Fut + Send,
+        F: FnMut(Key, &Version, &Message<T>) -> Fut + Send,
         Fut: Future<Output = ()> + Send;
 }
 
@@ -59,16 +57,15 @@ impl<H: Unknown> Unknown for S<H>
 where
     S<H>: Height,
 {
-    async fn unknown<P, T, F, Fut>(
-        node: Option<Node<P, T, Self>>,
+    async fn unknown<T, F, Fut>(
+        node: Option<Node<T, Self>>,
         prefix: Prefix<Self>,
-        known: &Version<P>,
+        known: &Version,
         with_unknown: &mut F,
-    ) -> Option<Node<P, T, Self>>
+    ) -> Option<Node<T, Self>>
     where
-        P: Clone + Ord + AsRef<[u8]> + Send + Sync,
         T: Send + Sync,
-        F: FnMut(Key, &Version<P>, &Message<T>) -> Fut + Send,
+        F: FnMut(Key, &Version, &Message<T>) -> Fut + Send,
         Fut: Future<Output = ()> + Send,
     {
         // If the node doesn't exist, we can't return information about it
@@ -87,13 +84,9 @@ where
             for (radix, child) in node.into_children() {
                 // Box-and-Send-erase the recursive future; see the matching
                 // comment in `act.rs`.
-                let fut: Pin<Box<dyn Future<Output = Option<Node<P, T, H>>> + Send + '_>> =
-                    Box::pin(Unknown::unknown(
-                        Some(child),
-                        prefix.push(radix),
-                        known,
-                        with_unknown,
-                    ));
+                let fut: Pin<Box<dyn Future<Output = Option<Node<T, H>>> + Send + '_>> = Box::pin(
+                    Unknown::unknown(Some(child), prefix.push(radix), known, with_unknown),
+                );
                 let recursed = fut.await;
                 if let Some(child) = recursed {
                     children.insert(radix, child);
@@ -105,16 +98,15 @@ where
 }
 
 impl Unknown for Z {
-    async fn unknown<P, T, F, Fut>(
-        node: Option<Node<P, T, Self>>,
+    async fn unknown<T, F, Fut>(
+        node: Option<Node<T, Self>>,
         prefix: Prefix,
-        known: &Version<P>,
+        known: &Version,
         with_unknown: &mut F,
-    ) -> Option<Node<P, T, Self>>
+    ) -> Option<Node<T, Self>>
     where
-        P: Clone + Ord + AsRef<[u8]> + Send + Sync,
         T: Send + Sync,
-        F: FnMut(Key, &Version<P>, &Message<T>) -> Fut + Send,
+        F: FnMut(Key, &Version, &Message<T>) -> Fut + Send,
         Fut: Future<Output = ()> + Send,
     {
         // If the node doesn't exist, we can't return information about it

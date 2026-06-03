@@ -5,7 +5,7 @@
 //! default `recursion_limit = 128` and forces downstream crates to bump
 //! their own limit. We defuse that by type-erasing inside the protocol
 //! (`tree::traverse::mirror::mirror`, `tree::traverse::act`), which leaves
-//! the public futures (`Local::gossip`, `Local::process`, `Local::message`)
+//! the public futures (`Known::gossip`, `Known::learn`, `Known::message`)
 //! holding nothing more than a `Pin<Box<dyn Future>>` plus a few locals.
 //!
 //! This test pins down that arrangement: if someone reintroduces the deep
@@ -24,7 +24,7 @@
 
 use std::mem::size_of_val;
 
-use rumors::{Local, ignore};
+use rumors::{Known, ignore};
 
 /// Upper bound for the unawaited public futures. At time of writing, all
 /// three measure ~170 bytes. The budget is set generously above that
@@ -34,7 +34,7 @@ use rumors::{Local, ignore};
 /// inline) will.
 const PUBLIC_FUTURE_BUDGET: usize = 1024;
 
-/// `Local::gossip` drives the full mirror protocol against a peer; the
+/// `Known::gossip` drives the full mirror protocol against a peer; the
 /// public future is type-erased via `mirror()`'s internal `Pin<Box<dyn
 /// Future>>` so the protocol's `Levels` chain doesn't appear in the
 /// caller's layout query.
@@ -44,7 +44,7 @@ fn gossip_future_fits_budget() {
     let (mut a_r, mut a_w) = tokio::io::split(a);
     drop(b);
 
-    let alice: Local<(), _> = Local::for_party("alice", 0).unwrap();
+    let alice: Known<()> = Known::seed();
     let fut = alice.gossip(&mut a_r, &mut a_w, ignore);
     let size = size_of_val(&fut);
 
@@ -57,13 +57,13 @@ fn gossip_future_fits_budget() {
     );
 }
 
-/// `Local::process` runs both ends of the mirror protocol locally. Same
+/// `Known::learn` runs both ends of the mirror protocol locally. Same
 /// erasure boundary as `gossip` via `mirror()`.
 #[test]
 fn process_future_fits_budget() {
-    let mut alice: Local<(), _> = Local::for_party("alice", 0).unwrap();
+    let mut alice: Known<()> = Known::seed();
     let helper = alice.fork();
-    let fut = alice.process(helper, ignore);
+    let fut = alice.learn(helper, ignore);
     let size = size_of_val(&fut);
 
     assert!(
@@ -73,12 +73,12 @@ fn process_future_fits_budget() {
     );
 }
 
-/// `Local::message` drives `Tree::act`, which goes through the recursive
+/// `Known::message` drives `Tree::act`, which goes through the recursive
 /// `Act` trait's 32-level chain. Type-erased via `traverse::act`'s
 /// internal `Pin<Box<dyn Future>>`.
 #[test]
 fn message_future_fits_budget() {
-    let mut alice: Local<(), _> = Local::for_party("alice", 0).unwrap();
+    let mut alice: Known<()> = Known::seed();
     let fut = alice.message([()], ignore);
     let size = size_of_val(&fut);
 

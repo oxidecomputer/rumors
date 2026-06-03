@@ -1,13 +1,13 @@
-//! A simulated peer: a `Local<T>` paired with its observation log, plus
+//! A simulated peer: a `Known<T>` paired with its observation log, plus
 //! helpers for the schedule executor (`gossip_step` for bidirectional
-//! `Local::process`, `quiesce` for full-mesh convergence to a fixed
+//! `Known::learn`, `quiesce` for full-mesh convergence to a fixed
 //! point).
 
 use std::sync::{Arc, Mutex};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use rumors::sync::Local;
-use rumors::{Key, Original, Version};
+use rumors::sync::Known;
+use rumors::{Key, Version};
 
 /// One simulated peer.
 ///
@@ -18,9 +18,9 @@ use rumors::{Key, Original, Version};
 /// each helper instead clones the `Arc` into its closure and locks it on
 /// each callback invocation.
 pub struct Peer<T> {
-    pub local: Local<T, Original>,
+    pub local: Known<T>,
     /// All observations this peer has accumulated, across `message`,
-    /// `redact`, and `process` calls. The public API contract says
+    /// `redact`, and `learn` calls. The public API contract says
     /// callback order within a batch is arbitrary; in practice it is
     /// deterministic across runs because the underlying tree is an
     /// `imbl::OrdMap`, so the log is reproducible inside a counterexample.
@@ -28,10 +28,15 @@ pub struct Peer<T> {
 }
 
 impl<T: Clone + BorshSerialize + BorshDeserialize + Send + Sync + 'static> Peer<T> {
-    pub fn new(party: impl AsRef<[u8]>) -> Self {
+    /// Wrap an already-forked `Known` as a simulated peer.
+    ///
+    /// The caller must mint `local` by [`fork`](Known::fork)ing the shared
+    /// universe seed (directly, or via another peer), never by an independent
+    /// [`Known::seed`]: only then are all peers pairwise disjoint, the
+    /// precondition for [`gossip_step`] to succeed.
+    pub fn new(local: Known<T>) -> Self {
         Self {
-            local: Local::for_party(party, 0)
-                .expect("party name must be unique within a test case"),
+            local,
             observations: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -61,7 +66,7 @@ impl<T: Clone + BorshSerialize + BorshDeserialize + Send + Sync + 'static> Peer<
         produced
             .lock()
             .unwrap()
-            .expect("Local::message must fire on_message for every inserted value")
+            .expect("Known::message must fire on_message for every inserted value")
     }
 
     pub fn redact_one(&mut self, key: Key) {
@@ -79,20 +84,27 @@ where
     let a_snapshot = a.local.fork();
     let b_snapshot = b.local.fork();
 
+    // `learn` is fallible only if the two parties are not disjoint; every peer
+    // in a test fleet descends from one seed by forking, so they always are.
+    // (`unwrap_or_else` rather than `expect` keeps `T: Debug` off the bound.)
     let obs_a = Arc::clone(&a.observations);
-    a.local.process(b_snapshot, move |k, v, m| {
-        obs_a.lock().unwrap().push((k, v.clone(), T::clone(m)));
-    });
+    a.local
+        .learn(b_snapshot, move |k, v, m| {
+            obs_a.lock().unwrap().push((k, v.clone(), T::clone(m)));
+        })
+        .unwrap_or_else(|_| unreachable!("fleet peers share one seed, so are disjoint"));
 
     let obs_b = Arc::clone(&b.observations);
-    b.local.process(a_snapshot, move |k, v, m| {
-        obs_b.lock().unwrap().push((k, v.clone(), T::clone(m)));
-    });
+    b.local
+        .learn(a_snapshot, move |k, v, m| {
+            obs_b.lock().unwrap().push((k, v.clone(), T::clone(m)));
+        })
+        .unwrap_or_else(|_| unreachable!("fleet peers share one seed, so are disjoint"));
 }
 
 /// Drive every pair toward convergence by repeatedly running
 /// `gossip_step` over all pairs in a fixed order until no peer's
-/// `Local` changes for a full round. A bounded outer loop guards
+/// `Known` changes for a full round. A bounded outer loop guards
 /// against pathological non-termination (which would itself be a bug
 /// the test should catch).
 pub fn quiesce<T>(peers: &mut [Peer<T>])
@@ -106,7 +118,7 @@ where
 
     let max_rounds = MAX_QUIESCE_ROUNDS_PER_PEER * n;
     for _ in 0..max_rounds {
-        let snapshot: Vec<Local<T>> = peers.iter().map(|p| p.local.fork()).collect();
+        let snapshot: Vec<Known<T>> = peers.iter_mut().map(|p| p.local.fork()).collect();
 
         for i in 0..n {
             for j in (i + 1)..n {

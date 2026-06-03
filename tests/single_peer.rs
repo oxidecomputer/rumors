@@ -1,46 +1,39 @@
-//! Single-peer correctness for `Local`, with no gossip.
+//! Single-peer correctness for `Known`, with no gossip.
 //!
-//! Exercises the surface area of `Local::message`: callback fan-out,
+//! Exercises the surface area of `Known::message`: callback fan-out,
 //! `Key` distinctness within a batch, and strict monotonicity of the
 //! local party's component of each emitted `Version`.
 
 use std::collections::BTreeSet;
-use std::sync::{Arc, Mutex};
 
 use imbl::OrdMap;
 use proptest::collection::vec;
 use proptest::prelude::*;
-use rumors::sync::{Local, ignore};
+use rumors::sync::{Known, ignore};
 use rumors::{Key, Version};
 
-// The sync API's callback bound is `FnMut(...) + Send + 'a`. Direct
-// `&mut` capture of locally-owned state is fine in principle (see the
-// `sync_callback_can_borrow_local_state` regression in
-// `api_send_bounds.rs`); the proptest helpers below still use
-// `Arc<Mutex<_>>` because proptest's `move` closure infrastructure makes
-// the borrow lifetimes awkward to thread through `prop_assert_eq!`.
+// The sync API's callback bound is `FnMut(...) + Send + 'a`, so the
+// closures below borrow locally-owned state directly (`&mut`); no
+// `Arc<Mutex<_>>` shuttling is needed.
 
 proptest! {
-    /// Every value passed to `Local::message` fires `on_message`
+    /// Every value passed to `Known::message` fires `on_message`
     /// exactly once: no duplicates, no omissions.
     #[test]
     fn insert_fires_once_per_value(values in vec(any::<u64>(), 0..=32)) {
-        let mut peer = Local::<u64, _>::for_party("alice", 0).unwrap();
-        let observed = Arc::new(Mutex::new(0usize));
-        let observed_in = Arc::clone(&observed);
-        peer.message(values.clone(), move |_, _, _| *observed_in.lock().unwrap() += 1);
-        prop_assert_eq!(*observed.lock().unwrap(), values.len());
+        let mut peer = Known::<u64>::seed();
+        let mut observed = 0usize;
+        peer.message(values.clone(), |_, _, _| observed += 1);
+        prop_assert_eq!(observed, values.len());
     }
 
-    /// All `Key`s emitted within a single `Local::message` call are
+    /// All `Key`s emitted within a single `Known::message` call are
     /// distinct, even when several values in the batch are equal.
     #[test]
     fn distinct_keys_per_batch(values in vec(any::<u64>(), 1..=32)) {
-        let mut peer = Local::<u64, _>::for_party("alice", 0).unwrap();
-        let keys: Arc<Mutex<Vec<Key>>> = Arc::new(Mutex::new(Vec::new()));
-        let keys_in = Arc::clone(&keys);
-        peer.message(values.clone(), move |k, _, _| keys_in.lock().unwrap().push(k));
-        let keys = keys.lock().unwrap();
+        let mut peer = Known::<u64>::seed();
+        let mut keys: Vec<Key> = Vec::new();
+        peer.message(values.clone(), |k, _, _| keys.push(k));
         prop_assert_eq!(keys.len(), values.len());
         let unique: BTreeSet<_> = keys.iter().copied().collect();
         prop_assert_eq!(unique.len(), keys.len(), "keys must be distinct");
@@ -50,11 +43,9 @@ proptest! {
     /// `n` distinct `Key`s — content equality does not collapse keys.
     #[test]
     fn duplicate_values_get_distinct_keys(n in 1usize..=16, value in any::<u64>()) {
-        let mut peer = Local::<u64, _>::for_party("alice", 0).unwrap();
-        let keys: Arc<Mutex<Vec<Key>>> = Arc::new(Mutex::new(Vec::new()));
-        let keys_in = Arc::clone(&keys);
-        peer.message(std::iter::repeat_n(value, n), move |k, _, _| keys_in.lock().unwrap().push(k));
-        let keys = keys.lock().unwrap();
+        let mut peer = Known::<u64>::seed();
+        let mut keys: Vec<Key> = Vec::new();
+        peer.message(std::iter::repeat_n(value, n), |k, _, _| keys.push(k));
         prop_assert_eq!(keys.len(), n);
         prop_assert_eq!(keys.iter().copied().collect::<BTreeSet<_>>().len(), n);
     }
@@ -69,26 +60,22 @@ proptest! {
     fn local_versions_strictly_increasing(
         batches in vec(vec(any::<u64>(), 1..=8), 1..=8),
     ) {
-        let mut peer = Local::<u64, _>::for_party("alice", 0).unwrap();
+        let mut peer = Known::<u64>::seed();
 
-        // Values in the order of insertion
+        // Values in the order of insertion.
         let mut values = Vec::new();
 
-        // Map of each value to the version assigned it
-        let all_versions: Arc<Mutex<OrdMap<u64, Version>>> = Arc::new(Mutex::new(OrdMap::new()));
+        // Map of each value to the version assigned it.
+        let mut all_versions: OrdMap<u64, Version> = OrdMap::new();
 
-        // Process the batches, tracking values and versions
         for batch in &batches {
             values.extend(batch.clone());
-            let all_versions_in = Arc::clone(&all_versions);
-            peer.message(batch.clone(), move |_, v, m| {
-                all_versions_in.lock().unwrap().insert(**m, v.clone());
+            peer.message(batch.clone(), |_, v, m| {
+                all_versions.insert(**m, v.clone());
             });
         }
 
-        // Ensure that for any two consecutive values, their
-        // corresponding versions are ordered
-        let all_versions = all_versions.lock().unwrap();
+        // For any two consecutive values, their versions must be ordered.
         for window in values.windows(2) {
             prop_assert!(
                 all_versions.get(&window[0]) < all_versions.get(&window[1]),
@@ -97,10 +84,10 @@ proptest! {
         }
     }
 
-    /// Final state after `Local::message(values)` does not depend on
+    /// Final state after `Known::message(values)` does not depend on
     /// the input order. Inserting `values` and a Fisher-Yates shuffle
-    /// of `values` into two fresh peers (same party tag) yields
-    /// equal live value multisets.
+    /// of `values` into two fresh peers yields equal live value
+    /// multisets.
     ///
     /// Callback order within a batch is unspecified by the public
     /// API; this test pins down that the *resulting state* is
@@ -130,27 +117,17 @@ proptest! {
             v
         };
 
-        // `Local::for_party` is one-per-party-per-process, so we
-        // can't hold both "alice"s alive simultaneously. Take each
-        // peer's multiset readout in turn, then compare.
-        //
-        // `start` >= prior `event()` is the public-API contract for
-        // reuse across drops; we use 0 here because the test never
-        // gossips between the two `alice`s and so cannot witness any
-        // version-vector corruption that might result.
+        // Each peer is its own fresh seed (the two never gossip, so they
+        // need not share a universe). Read the live multiset directly off
+        // `Known::iter`.
         let multiset_of = |values: Vec<u64>| -> BTreeMap<u64, usize> {
-            let mut peer = Local::<u64, _>::for_party("alice", 0).unwrap();
+            let mut peer = Known::<u64>::seed();
             peer.message(values, ignore);
-            let out: Arc<Mutex<BTreeMap<u64, usize>>> = Arc::new(Mutex::new(BTreeMap::new()));
-            let out_in = Arc::clone(&out);
-            let mut lens = Local::<u64, _>::for_party(b"\x00READOUT\x00", 0).unwrap();
-            lens.process(peer.fork(), move |_, _, v| {
-                *out_in.lock().unwrap().entry(**v).or_insert(0) += 1;
-            });
-            Arc::try_unwrap(out)
-                .expect("callback closure dropped after `process` returns")
-                .into_inner()
-                .unwrap()
+            let mut out = BTreeMap::new();
+            for (_, _, v) in peer.iter() {
+                *out.entry(**v).or_insert(0) += 1;
+            }
+            out
         };
         prop_assert_eq!(multiset_of(values), multiset_of(shuffled));
     }

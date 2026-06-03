@@ -7,9 +7,8 @@ use crate::tree::typed::{
 };
 
 /// Create a new [`Levels`] from the root of a tree.
-pub fn levels<P, T>(root: Option<Node<P, T, Root>>) -> Top<P, T>
+pub fn levels<T>(root: Option<Node<T, Root>>) -> Top<T>
 where
-    P: Clone + Ord + AsRef<[u8]>,
 {
     Top {
         root: OrdMap::from_iter(root.map(|root| (Prefix::new(), root))),
@@ -18,50 +17,38 @@ where
 
 /// An abstract type which represents a multi-zipper into a tree.
 pub trait Levels: Default + Clone + sealed::Sealed {
-    /// The party type of the underlying nodes.
+    /// The message type of the underlying nodes.
     ///
     /// `Send + Sync` is required because the traversal futures
     /// ([`Get::get`], [`Unknown::unknown`], [`Act::act`]) are declared as
     /// `-> impl Future + Send` so that the recursive `Box::pin` inside each
     /// inductive case can coerce to `Pin<Box<dyn Future + Send>>`. That
-    /// coercion discharges the inner state machine's auto-trait check at
-    /// each recursion site, terminating what would otherwise be a height-
-    /// deep walk through the `imbl` btree internals that trips downstream
-    /// crates' default `recursion_limit = 128`.
-    type Party: Clone + Ord + AsRef<[u8]> + Send + Sync;
-
-    /// The message type of the underlying nodes.
-    ///
-    /// `Send + Sync` is required for the same reason as `Party`: the
-    /// traversal futures are declared `Send`, so the captured node values
-    /// (containing messages) must be `Send + Sync`.
+    /// coercion discharges the inner state machine's auto-trait check at each
+    /// recursion site, terminating what would otherwise be a height-deep walk
+    /// through the `imbl` btree internals that trips downstream crates'
+    /// default `recursion_limit = 128`; the captured node values (containing
+    /// messages) must therefore be `Send + Sync`.
     type Message: Send + Sync;
 
     /// The height of the bottom-most level.
     type Height: Height;
 
     /// Collapse a [`Levels`] back to a node by folding all the levels together.
-    fn collapse(self) -> Option<Node<Self::Party, Self::Message, Root>>;
+    fn collapse(self) -> Option<Node<Self::Message, Root>>;
 
     /// Get an immutable reference to the bottom-most level.
     #[allow(clippy::type_complexity)]
-    fn level(
-        &self,
-    ) -> &OrdMap<Prefix<Self::Height>, Node<Self::Party, Self::Message, Self::Height>>;
+    fn level(&self) -> &OrdMap<Prefix<Self::Height>, Node<Self::Message, Self::Height>>;
 
     /// Get a mutable reference to the bottom-most level.
     #[allow(clippy::type_complexity)]
-    fn level_mut(
-        &mut self,
-    ) -> &mut OrdMap<Prefix<Self::Height>, Node<Self::Party, Self::Message, Self::Height>>;
+    fn level_mut(&mut self)
+    -> &mut OrdMap<Prefix<Self::Height>, Node<Self::Message, Self::Height>>;
 
     /// Tack a new level onto the bottom of this [`Levels`], decreasing its height by one.
     ///
     /// This can only be called on a [`Levels`] whose height is more than zero.
-    fn down<H>(
-        self,
-        below: OrdMap<Prefix<H>, Node<Self::Party, Self::Message, H>>,
-    ) -> Below<H, Self>
+    fn down<H>(self, below: OrdMap<Prefix<H>, Node<Self::Message, H>>) -> Below<H, Self>
     where
         S<H>: Height,
         H: Height,
@@ -74,14 +61,11 @@ pub trait Levels: Default + Clone + sealed::Sealed {
     }
 }
 
-pub struct Top<P, T>
-where
-    P: Clone + Ord + AsRef<[u8]>,
-{
-    root: OrdMap<Prefix<Root>, Node<P, T, Root>>,
+pub struct Top<T> {
+    root: OrdMap<Prefix<Root>, Node<T, Root>>,
 }
 
-impl<P: Clone + Ord + AsRef<[u8]>, T> Clone for Top<P, T> {
+impl<T> Clone for Top<T> {
     fn clone(&self) -> Self {
         Self {
             root: self.root.clone(),
@@ -89,10 +73,7 @@ impl<P: Clone + Ord + AsRef<[u8]>, T> Clone for Top<P, T> {
     }
 }
 
-impl<P, T> Default for Top<P, T>
-where
-    P: Clone + Ord + AsRef<[u8]>,
-{
+impl<T> Default for Top<T> {
     fn default() -> Self {
         Self {
             root: Default::default(),
@@ -100,24 +81,22 @@ where
     }
 }
 
-impl<P, T> Levels for Top<P, T>
+impl<T> Levels for Top<T>
 where
-    P: Clone + Ord + AsRef<[u8]> + Send + Sync,
     T: Send + Sync,
 {
-    type Party = P;
     type Message = T;
     type Height = Root;
 
-    fn collapse(mut self) -> Option<Node<P, T, Root>> {
+    fn collapse(mut self) -> Option<Node<T, Root>> {
         self.root.remove(&Prefix::new())
     }
 
-    fn level(&self) -> &OrdMap<Prefix<Self::Height>, Node<P, T, Self::Height>> {
+    fn level(&self) -> &OrdMap<Prefix<Self::Height>, Node<T, Self::Height>> {
         &self.root
     }
 
-    fn level_mut(&mut self) -> &mut OrdMap<Prefix<Self::Height>, Node<P, T, Self::Height>> {
+    fn level_mut(&mut self) -> &mut OrdMap<Prefix<Self::Height>, Node<T, Self::Height>> {
         &mut self.root
     }
 }
@@ -127,7 +106,7 @@ where
     A: Levels<Height = S<H>>,
     H: Height,
 {
-    here: OrdMap<Prefix<H>, Node<A::Party, A::Message, H>>,
+    here: OrdMap<Prefix<H>, Node<A::Message, H>>,
     above: A,
 }
 
@@ -163,11 +142,10 @@ where
     S<H>: Height,
     H: Height,
 {
-    type Party = A::Party;
     type Message = A::Message;
     type Height = <A::Height as Pred>::Pred;
 
-    fn collapse(mut self) -> Option<Node<A::Party, A::Message, Root>> {
+    fn collapse(mut self) -> Option<Node<A::Message, Root>> {
         let above = self.above.level_mut();
 
         // Pop each child's prefix to get its radix and parent prefix. OrdMap
@@ -201,13 +179,11 @@ where
         self.above.collapse()
     }
 
-    fn level(&self) -> &OrdMap<Prefix<Self::Height>, Node<A::Party, A::Message, Self::Height>> {
+    fn level(&self) -> &OrdMap<Prefix<Self::Height>, Node<A::Message, Self::Height>> {
         &self.here
     }
 
-    fn level_mut(
-        &mut self,
-    ) -> &mut OrdMap<Prefix<Self::Height>, Node<A::Party, A::Message, Self::Height>> {
+    fn level_mut(&mut self) -> &mut OrdMap<Prefix<Self::Height>, Node<A::Message, Self::Height>> {
         &mut self.here
     }
 }
@@ -216,7 +192,7 @@ mod sealed {
     use super::{Below, Height, Levels, Pred, S, Top};
 
     pub trait Sealed {}
-    impl<P: Clone + Ord + AsRef<[u8]>, T> Sealed for Top<P, T> {}
+    impl<T> Sealed for Top<T> {}
     impl<A: Levels<Height = S<H>> + Sealed, H: Height> Sealed for Below<H, A> where A::Height: Pred {}
 }
 

@@ -8,9 +8,27 @@ use borsh::BorshDeserialize;
 use imbl::{OrdMap, OrdSet};
 
 use super::message;
+use crate::tree::arb::nth_party;
 use crate::tree::typed::height::{Height, Root, S, Z};
 use crate::tree::typed::{Hash, Node, Prefix};
 use crate::{message::Message, version::Version};
+
+/// Map a single-letter party label to its disjoint-party index (see
+/// [`nth_party`]): `"a"` → 0, `"b"` → 1, and so on.
+fn party_index(label: &str) -> usize {
+    (label.bytes().next().unwrap_or(b'a').to_ascii_lowercase() - b'a') as usize
+}
+
+/// The [`Version`] reached by ticking `label`'s disjoint party `ticks` times.
+/// Replaces the old `Version::from((party, scalar))` vector constructor.
+fn ticked(label: &str, ticks: u64) -> Version {
+    let p = nth_party(party_index(label));
+    let mut v = Version::new();
+    for _ in 0..ticks {
+        v.tick(&p);
+    }
+    v
+}
 
 fn hex_dump(bytes: &[u8]) -> String {
     if bytes.is_empty() {
@@ -38,11 +56,8 @@ fn prefix_from_bytes<H: Height>(bytes: &[u8]) -> Prefix<H> {
     Prefix::<H>::try_from_slice(bytes).expect("known-valid prefix bytes")
 }
 
-fn leaf(party: &str, version: u64) -> Node<String, (), Z> {
-    Node::leaf(
-        Version::from((party.to_string(), version)),
-        Message::new(()),
-    )
+fn leaf(party: &str, version: u64) -> Node<(), Z> {
+    Node::leaf(ticked(party, version), Message::new(()))
 }
 
 // ---------- Hash ----------
@@ -94,7 +109,7 @@ fn prefix_z_full_32_bytes() {
     insta::assert_snapshot!(snap(&prefix_from_bytes::<Z>(&bytes)));
 }
 
-// ---------- Node<P, T, Z>: leaf ----------
+// ---------- Node<T, Z>: leaf ----------
 
 #[test]
 fn node_z_leaf() {
@@ -103,42 +118,42 @@ fn node_z_leaf() {
 
 #[test]
 fn node_z_leaf_empty_version() {
-    let l: Node<String, (), Z> = Node::leaf(Version::default(), Message::new(()));
+    let l: Node<(), Z> = Node::leaf(Version::default(), Message::new(()));
     insta::assert_snapshot!(snap(&l));
 }
 
-// ---------- Node<P, T, S<Z>> ----------
+// ---------- Node<T, S<Z>> ----------
 
 #[test]
 fn node_s_z_singleton_path_compressed_leaf() {
-    let n: Node<String, (), S<Z>> = Node::beneath(leaf("a", 1), 0xab);
+    let n: Node<(), S<Z>> = Node::beneath(leaf("a", 1), 0xab);
     insta::assert_snapshot!(snap(&n));
 }
 
 #[test]
 fn node_s_z_two_child_branch() {
-    let mut children: OrdMap<u8, Node<String, (), Z>> = OrdMap::new();
+    let mut children: OrdMap<u8, Node<(), Z>> = OrdMap::new();
     children.insert(0x00, leaf("a", 1));
     children.insert(0xff, leaf("a", 2));
-    let n = Node::<String, (), S<Z>>::branch(children).unwrap();
+    let n = Node::<(), S<Z>>::branch(children).unwrap();
     insta::assert_snapshot!(snap(&n));
 }
 
 #[test]
 fn node_s_z_full_256_child_branch() {
-    let mut children: OrdMap<u8, Node<String, (), Z>> = OrdMap::new();
+    let mut children: OrdMap<u8, Node<(), Z>> = OrdMap::new();
     for i in 0u16..=255 {
         children.insert(i as u8, leaf("a", i as u64 + 1));
     }
-    let n = Node::<String, (), S<Z>>::branch(children).unwrap();
+    let n = Node::<(), S<Z>>::branch(children).unwrap();
     insta::assert_snapshot!(snap(&n));
 }
 
-// ---------- Node<P, T, Root> ----------
+// ---------- Node<T, Root> ----------
 
 #[test]
 fn node_root_none() {
-    let n: Option<Node<String, (), Root>> = None;
+    let n: Option<Node<(), Root>> = None;
     insta::assert_snapshot!(snap(&n));
 }
 
@@ -148,7 +163,7 @@ fn node_root_single_leaf_full_compression() {
     seq_macro::seq!(I in 0..32 {
         let n = Node::beneath(n, I as u8);
     });
-    let n: Node<String, (), Root> = n;
+    let n: Node<(), Root> = n;
     insta::assert_snapshot!(snap(&n));
 }
 
@@ -171,10 +186,10 @@ fn node_root_two_leaves_branched_at_root() {
             });
             n
         };
-        let mut children: OrdMap<u8, Node<String, (), _>> = OrdMap::new();
+        let mut children: OrdMap<u8, Node<(), _>> = OrdMap::new();
         children.insert(0x01, n0);
         children.insert(0x02, n1);
-        Node::<String, (), Root>::branch(children).unwrap()
+        Node::<(), Root>::branch(children).unwrap()
     };
     insta::assert_snapshot!(snap(&n));
 }
@@ -183,13 +198,12 @@ fn node_root_two_leaves_branched_at_root() {
 
 #[test]
 fn version_empty() {
-    insta::assert_snapshot!(snap(&Version::<String>::default()));
+    insta::assert_snapshot!(snap(&Version::new()));
 }
 
 #[test]
 fn version_two_parties_ascending() {
-    let v: Version<String> =
-        Version::from(("a".to_string(), 1)) | Version::from(("b".to_string(), 2));
+    let v: Version = ticked("a", 1) | ticked("b", 2);
     insta::assert_snapshot!(snap(&v));
 }
 
@@ -224,19 +238,19 @@ fn message_opening_one_entry() {
 
 #[test]
 fn message_exchange_empty() {
-    let m: message::Exchange<String, (), message::UnderRoot> = message::Exchange::default();
+    let m: message::Exchange<(), message::UnderRoot> = message::Exchange::default();
     insta::assert_snapshot!(snap(&m));
 }
 
 #[test]
 fn message_exchange_populated() {
-    let leaf_z: Node<String, (), Z> = leaf("a", 1);
-    let inner: Node<String, (), S<Z>> = Node::beneath(leaf_z, 0xab);
-    let mut other_children: OrdMap<u8, Node<String, (), S<Z>>> = OrdMap::new();
+    let leaf_z: Node<(), Z> = leaf("a", 1);
+    let inner: Node<(), S<Z>> = Node::beneath(leaf_z, 0xab);
+    let mut other_children: OrdMap<u8, Node<(), S<Z>>> = OrdMap::new();
     other_children.insert(0x01, inner.clone());
     other_children.insert(0x02, inner.clone());
-    let s_s_z = Node::<String, (), S<S<Z>>>::branch(other_children).unwrap();
-    let n_root: Node<String, (), Root> = {
+    let s_s_z = Node::<(), S<S<Z>>>::branch(other_children).unwrap();
+    let n_root: Node<(), Root> = {
         let n = s_s_z;
         seq_macro::seq!(I in 0..30 {
             let n = Node::beneath(n, I as u8);
@@ -244,7 +258,7 @@ fn message_exchange_populated() {
         n
     };
 
-    let mut providing: OrdMap<Prefix<Root>, Node<String, (), Root>> = OrdMap::new();
+    let mut providing: OrdMap<Prefix<Root>, Node<(), Root>> = OrdMap::new();
     providing.insert(Prefix::<Root>::new(), n_root);
 
     let mut requested: OrdSet<Prefix<Root>> = OrdSet::new();
@@ -256,7 +270,7 @@ fn message_exchange_populated() {
         Hash([3u8; 32]),
     );
 
-    let m: message::Exchange<String, (), message::UnderRoot> = message::Exchange {
+    let m: message::Exchange<(), message::UnderRoot> = message::Exchange {
         providing,
         requested,
         uncertain,
@@ -266,18 +280,18 @@ fn message_exchange_populated() {
 
 #[test]
 fn message_closing_empty() {
-    let m: message::Closing<String, ()> = message::Closing::default();
+    let m: message::Closing<()> = message::Closing::default();
     insta::assert_snapshot!(snap(&m));
 }
 
 #[test]
 fn message_closing_populated() {
-    let n_s_z: Node<String, (), S<Z>> = Node::beneath(leaf("a", 1), 0xab);
-    let mut providing: OrdMap<Prefix<S<Z>>, Node<String, (), S<Z>>> = OrdMap::new();
+    let n_s_z: Node<(), S<Z>> = Node::beneath(leaf("a", 1), 0xab);
+    let mut providing: OrdMap<Prefix<S<Z>>, Node<(), S<Z>>> = OrdMap::new();
     providing.insert(prefix_from_bytes::<S<Z>>(&vec![0u8; 31]), n_s_z);
     let mut requested: OrdSet<Prefix<S<Z>>> = OrdSet::new();
     requested.insert(prefix_from_bytes::<S<Z>>(&vec![0xffu8; 31]));
-    let m: message::Closing<String, ()> = message::Closing {
+    let m: message::Closing<()> = message::Closing {
         providing,
         requested,
     };
@@ -286,14 +300,14 @@ fn message_closing_populated() {
 
 #[test]
 fn message_complete_empty() {
-    let m: message::Complete<String, ()> = message::Complete::default();
+    let m: message::Complete<()> = message::Complete::default();
     insta::assert_snapshot!(snap(&m));
 }
 
 #[test]
 fn message_complete_populated() {
-    let mut providing: OrdMap<Prefix<Z>, Node<String, (), Z>> = OrdMap::new();
+    let mut providing: OrdMap<Prefix<Z>, Node<(), Z>> = OrdMap::new();
     providing.insert(prefix_from_bytes::<Z>(&vec![0u8; 32]), leaf("a", 1));
-    let m: message::Complete<String, ()> = message::Complete { providing };
+    let m: message::Complete<()> = message::Complete { providing };
     insta::assert_snapshot!(snap(&m));
 }

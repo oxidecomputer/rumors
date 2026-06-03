@@ -5,7 +5,7 @@ mod common;
 
 use proptest::collection::vec;
 use proptest::prelude::*;
-use rumors::sync::{Local, ignore};
+use rumors::sync::{Known, ignore};
 
 use crate::common::oracle::readout_multiset;
 use crate::common::peer::{Peer, quiesce};
@@ -26,28 +26,34 @@ proptest! {
         let _ = execute_and_quiesce(&schedule);
     }
 
-    /// Forking is non-destructive: merging a peer's fork into an
-    /// independent peer reaches the same multiset as processing that
-    /// peer in directly. This is the documented gossip pattern —
-    /// forks carry observations between Originals.
+    /// Forking is non-destructive: merging a peer's fork into a fork of
+    /// another peer reaches the same multiset as learning that peer
+    /// directly. This is the documented gossip pattern — forks carry
+    /// observations between peers, and `learn` reunites them.
     #[test]
     fn fork_then_merge_matches_direct_process(
         alice_values in vec(any::<u64>(), 0..=MAX_CLONE_VALUES),
         bob_values in vec(any::<u64>(), 0..=MAX_CLONE_VALUES),
     ) {
-        let mut alice = Local::<u64, _>::for_party("alice", 0).unwrap();
+        // One universe seed; alice and bob are disjoint forks of it.
+        let mut seed = Known::<u64>::seed();
+        let mut alice = seed.fork();
         alice.message(alice_values, ignore);
 
-        let mut bob = Local::<u64, _>::for_party("bob", 0).unwrap();
+        let mut bob = seed.fork();
         bob.message(bob_values, ignore);
 
-        // Recombine alice with bob's fork via `+` on a fork of alice.
-        let bob_fork = bob.fork();
-        let recombined = alice.fork() + bob_fork.clone();
+        // Two disjoint copies of bob's observations to feed both paths.
+        let mut bob_fork = bob.fork();
+        let bob_fork2 = bob_fork.fork();
 
-        // Direct: process bob's fork straight into alice.
+        // Recombine a fork of alice with one copy of bob's fork.
+        let mut recombined = alice.fork();
+        recombined.learn(bob_fork2, ignore).unwrap();
+
+        // Direct: learn bob's other fork straight into alice.
         let mut direct = alice;
-        direct.process(bob_fork, ignore);
+        direct.learn(bob_fork, ignore).unwrap();
 
         prop_assert_eq!(
             readout_multiset(&recombined),
@@ -58,14 +64,14 @@ proptest! {
 
 /// `quiesce` is a no-op on zero or one peer: it returns without
 /// panicking, doesn't fire callbacks on the lone peer, and leaves
-/// its `Local` content and observation log unchanged.
+/// its `Known` content and observation log unchanged.
 #[test]
 fn quiesce_handles_zero_or_one_peer() {
     let mut zero: Vec<Peer<u64>> = Vec::new();
     quiesce(&mut zero);
     assert!(zero.is_empty());
 
-    let mut peer = Peer::<u64>::new("alone");
+    let mut peer = Peer::<u64>::new(Known::seed());
     peer.insert_one(42);
     let local_before = peer.local.fork();
     let obs_before = peer.observations();

@@ -749,12 +749,6 @@ dependencies = [
 
 [[package]]
 name = "hashbrown"
-version = "0.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "841d1cc9bed7f9236f321df977030373f4a4163ae1a7dbfe1a51a2c1a51d9100"
-
-[[package]]
-name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
@@ -1328,6 +1322,7 @@ name = "rumors"
 version = "0.1.0"
 dependencies = [
  "async-compression",
+ "before",
  "blake3",
  "borsh",
  "bytes",
@@ -1351,7 +1346,6 @@ dependencies = [
  "tinyvec",
  "tokio",
  "tokio-util",
- "weak-table2",
  "zstd",
 ]
 
@@ -1909,15 +1903,6 @@ dependencies = [
  "hashbrown 0.15.5",
  "indexmap",
  "semver",
-]
-
-[[package]]
-name = "weak-table2"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5682865c8ed3c11f4d38df75276af32307f86ecd2734ee64a9e063a9e7d8e9c0"
-dependencies = [
- "hashbrown 0.16.1",
 ]
 
 [[package]]

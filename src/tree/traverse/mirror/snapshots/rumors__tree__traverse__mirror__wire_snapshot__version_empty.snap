@@ -1,5 +1,5 @@
 ---
 source: src/tree/traverse/mirror/wire_snapshot.rs
-expression: "snap(&Version::<String>::default())"
+expression: "snap(&Version::new())"
 ---
-0000: 00 00 00 00
+0000: 01 00 00 00 40

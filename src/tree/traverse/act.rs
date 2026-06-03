@@ -23,15 +23,14 @@ pub enum Action<T> {
 /// produced by recursive `Act` trait dispatch doesn't leak into the
 /// layout queries of every public API that drives the tree — otherwise
 /// downstream crates would need to bump their `recursion_limit`.
-pub async fn act<'a, P, T, F, Fut>(
-    node: Option<Node<P, T, Root>>,
-    actions: Vec<(Path, Version<P>, Action<T>)>,
+pub async fn act<'a, T, F, Fut>(
+    node: Option<Node<T, Root>>,
+    actions: Vec<(Path, Version, Action<T>)>,
     on_action: F,
-) -> Option<Node<P, T, Root>>
+) -> Option<Node<T, Root>>
 where
-    P: Clone + Ord + AsRef<[u8]> + Send + Sync + 'a,
     T: Send + Sync + 'a,
-    F: FnMut(Key, &Version<P>, Option<&Message<T>>) -> Fut + Send + 'a,
+    F: FnMut(Key, &Version, Option<&Message<T>>) -> Fut + Send + 'a,
     Fut: Future<Output = ()> + Send + 'a,
 {
     Box::pin(async move {
@@ -51,16 +50,15 @@ pub trait Act: Height {
     // be `Send`. The accompanying `Send + Sync` bounds on `P` and `T`, and
     // `Send` bounds on `F` and `Fut`, are what let the auto-trait check at
     // that coercion site succeed.
-    fn act<P, T, F, Fut>(
-        node: Option<Node<P, T, Self>>,
+    fn act<T, F, Fut>(
+        node: Option<Node<T, Self>>,
         prefix: Prefix<Self>,
-        actions: Vec<(Path<Self>, Version<P>, Action<T>)>,
+        actions: Vec<(Path<Self>, Version, Action<T>)>,
         on_action: &mut F,
-    ) -> impl Future<Output = Option<Node<P, T, Self>>> + Send
+    ) -> impl Future<Output = Option<Node<T, Self>>> + Send
     where
-        P: Clone + Ord + AsRef<[u8]> + Send + Sync,
         T: Send + Sync,
-        F: FnMut(Key, &Version<P>, Option<&Message<T>>) -> Fut + Send,
+        F: FnMut(Key, &Version, Option<&Message<T>>) -> Fut + Send,
         Fut: Future<Output = ()> + Send;
 }
 
@@ -68,16 +66,15 @@ impl<H: Act> Act for S<H>
 where
     S<H>: Height,
 {
-    async fn act<P, T, F, Fut>(
-        node: Option<Node<P, T, S<H>>>,
+    async fn act<T, F, Fut>(
+        node: Option<Node<T, S<H>>>,
         prefix: Prefix<Self>,
-        actions: Vec<(Path<Self>, Version<P>, Action<T>)>,
+        actions: Vec<(Path<Self>, Version, Action<T>)>,
         on_action: &mut F,
-    ) -> Option<Node<P, T, S<H>>>
+    ) -> Option<Node<T, S<H>>>
     where
-        P: Clone + Ord + AsRef<[u8]> + Send + Sync,
         T: Send + Sync,
-        F: FnMut(Key, &Version<P>, Option<&Message<T>>) -> Fut + Send,
+        F: FnMut(Key, &Version, Option<&Message<T>>) -> Fut + Send,
         Fut: Future<Output = ()> + Send,
     {
         // Group the paths by their first element. We collect eagerly into a
@@ -86,7 +83,7 @@ where
         // uses interior `RefCell`/`Cell` state, which is `!Sync` and would
         // make the surrounding async fn's future `!Send` for callers that
         // want to `tokio::spawn` it on a multi-threaded runtime.
-        let by_radix: Vec<(u8, Vec<(Path<H>, Version<P>, Action<T>)>)> = actions
+        let by_radix: Vec<(u8, Vec<(Path<H>, Version, Action<T>)>)> = actions
             .into_iter()
             .map(|(path, version, action)| {
                 let (child, path) = path.pop();
@@ -134,13 +131,9 @@ where
             // `recursion_limit = 128`. With the coercion the outer walk sees
             // only `Pin<Box<dyn Future + Send>>`, which is trivially `Send`
             // regardless of what's inside.
-            let recursed: Pin<Box<dyn Future<Output = Option<Node<P, T, H>>> + Send + '_>> =
-                Box::pin(Act::act(
-                    existing_child,
-                    prefix.push(radix),
-                    actions,
-                    on_action,
-                ));
+            let recursed: Pin<Box<dyn Future<Output = Option<Node<T, H>>> + Send + '_>> = Box::pin(
+                Act::act(existing_child, prefix.push(radix), actions, on_action),
+            );
             let recursed = recursed.await;
             if let Some(child) = recursed {
                 updated.push((radix, child));
@@ -153,16 +146,15 @@ where
 }
 
 impl Act for Z {
-    async fn act<P, T, F, Fut>(
-        mut node: Option<Node<P, T, Self>>,
+    async fn act<T, F, Fut>(
+        mut node: Option<Node<T, Self>>,
         prefix: Prefix<Self>,
-        actions: Vec<(Path<Self>, Version<P>, Action<T>)>,
+        actions: Vec<(Path<Self>, Version, Action<T>)>,
         on_action: &mut F,
-    ) -> Option<Node<P, T, Z>>
+    ) -> Option<Node<T, Z>>
     where
-        P: Clone + Ord + AsRef<[u8]> + Send + Sync,
         T: Send + Sync,
-        F: FnMut(Key, &Version<P>, Option<&Message<T>>) -> Fut + Send,
+        F: FnMut(Key, &Version, Option<&Message<T>>) -> Fut + Send,
         Fut: Future<Output = ()> + Send,
     {
         let existed_before = node.is_some();

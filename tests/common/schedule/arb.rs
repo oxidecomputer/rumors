@@ -64,9 +64,31 @@ where
     S: Strategy<Value = T> + Clone + 'static,
 {
     n_peers_range.prop_flat_map(move |n_peers| {
-        vec(arb_choice(value_strategy.clone(), n_peers), 0..=max_events)
-            .prop_map(move |choices| build_schedule(n_peers, choices))
+        // Alongside the event choices, draw raw entropy for the fork topology:
+        // one value per non-seed peer, folded into a valid parent index by
+        // [`fork_tree`]. Drawing it here (rather than fixing a star) exercises
+        // imbalanced fork lattices, which stress the ITC party arithmetic.
+        (
+            vec(any::<usize>(), n_peers.saturating_sub(1)),
+            vec(arb_choice(value_strategy.clone(), n_peers), 0..=max_events),
+        )
+            .prop_map(move |(raw_parents, choices)| {
+                let fork_parents = fork_tree(n_peers, &raw_parents);
+                build_schedule(n_peers, fork_parents, choices)
+            })
     })
+}
+
+/// Fold raw entropy into a valid fork tree: peer `i` (for `i >= 1`) forks from
+/// `raw[i - 1] % i`, which is always an already-existing peer, so the whole
+/// fleet descends from peer 0 (the seed) and every pair of peers is disjoint.
+/// `fork_parents[0]` is a placeholder `0` (peer 0 is the seed itself). Because
+/// `raw` shrinks toward `0`, the topology shrinks toward a star rooted at
+/// peer 0 — the simplest reproduction of any failure.
+fn fork_tree(n_peers: usize, raw: &[usize]) -> Vec<usize> {
+    (0..n_peers)
+        .map(|i| if i == 0 { 0 } else { raw[i - 1] % i })
+        .collect()
 }
 
 /// Abstract action the strategy emits. Concrete `Event`s are derived
@@ -151,10 +173,12 @@ impl SimState {
         if a == b {
             return;
         }
-        // The hash-tree mirror exchanges *every* tree position that
-        // differs, which means the receiver learns about both live
-        // values (with an `on_message` callback) and redaction
-        // tombstones (silently, no callback). Walking the union of
+        // The hash-tree mirror reconciles *every* tree position that
+        // differs. The receiver learns live values (with an `on_message`
+        // callback) and also converges on redactions — but a redaction
+        // carries no marker: the mirror infers it from the version frontier
+        // (one side's version dominates a leaf the other has dropped) and
+        // silently removes the leaf, firing no callback. Walking the union of
         // each side's `ever_known` lets us model both in one pass.
         //
         // For each key any side has ever held:
@@ -211,7 +235,11 @@ impl SimState {
     }
 }
 
-fn build_schedule<T>(n_peers: usize, choices: Vec<Choice<T>>) -> (Schedule<T>, ShadowFinal) {
+fn build_schedule<T>(
+    n_peers: usize,
+    fork_parents: Vec<usize>,
+    choices: Vec<Choice<T>>,
+) -> (Schedule<T>, ShadowFinal) {
     let mut sim = SimState::new(n_peers);
     let mut events: Vec<Event<T>> = Vec::new();
     for choice in choices {
@@ -246,7 +274,11 @@ fn build_schedule<T>(n_peers: usize, choices: Vec<Choice<T>>) -> (Schedule<T>, S
         observed_log, live, ..
     } = sim;
     (
-        Schedule { n_peers, events },
+        Schedule {
+            n_peers,
+            fork_parents,
+            events,
+        },
         ShadowFinal { observed_log, live },
     )
 }

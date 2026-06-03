@@ -6,7 +6,7 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 use tokio::runtime::Runtime;
 
-use crate::tree::arb::arb_tree_root;
+use crate::tree::arb::{arb_tree_root, nth_party};
 use crate::tree::traverse::{Action, act};
 use crate::tree::typed::Path;
 use crate::{message::Message, version::Version};
@@ -40,7 +40,7 @@ fn block_on<F: Future>(fut: F) -> F::Output {
 ///
 /// In every variant, "A" is the client (holds tree `a`) and "B" is the
 /// server (holds tree `b`). What varies is which side's state the *test
-/// thread* holds directly (`Local`) versus accesses via a wire proxy
+/// thread* holds directly (`Known`) versus accesses via a wire proxy
 /// (`Remote`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Scenario {
@@ -60,20 +60,12 @@ const DUPLEX_BUF: usize = 8 * 1024;
 /// Drive the mirror protocol through the high-level [`super::mirror`]
 /// driver under the chosen [`Scenario`], and return the reconciled tree
 /// (which must be equal on both sides if the protocol converged).
-fn mirror_via<P, T>(
-    a: crate::tree::Root<P, T>,
-    b: crate::tree::Root<P, T>,
+fn mirror_via<T>(
+    a: crate::tree::Root<T>,
+    b: crate::tree::Root<T>,
     scenario: Scenario,
-) -> crate::tree::Root<P, T>
+) -> crate::tree::Root<T>
 where
-    P: Clone
-        + Ord
-        + AsRef<[u8]>
-        + std::fmt::Debug
-        + BorshSerialize
-        + BorshDeserialize
-        + Send
-        + Sync,
     T: PartialEq + std::fmt::Debug + BorshSerialize + BorshDeserialize + Send + Sync,
 {
     use super::ignore;
@@ -125,7 +117,7 @@ proptest! {
     /// Mirroring a node with itself is a no-op: the two replicas have
     /// identical content and versions, so the reconciled tree is unchanged.
     #[test]
-    fn idempotent(a in arb_tree_root("a", 0..=8)) {
+    fn idempotent(a in arb_tree_root(0, 0..=8)) {
         for scenario in SCENARIOS {
             prop_assert_eq!(mirror_via(a.clone(), a.clone(), scenario), a.clone());
         }
@@ -135,8 +127,8 @@ proptest! {
     /// initiates and which responds.
     #[test]
     fn commutative(
-        a in arb_tree_root("a", 0..=8),
-        b in arb_tree_root("b", 0..=8),
+        a in arb_tree_root(0, 0..=8),
+        b in arb_tree_root(1, 0..=8),
     ) {
         for scenario in SCENARIOS {
             prop_assert_eq!(
@@ -150,8 +142,8 @@ proptest! {
     /// the result already contains everything the peer had.
     #[test]
     fn absorptive(
-        a in arb_tree_root("a", 0..=8),
-        b in arb_tree_root("b", 0..=8),
+        a in arb_tree_root(0, 0..=8),
+        b in arb_tree_root(1, 0..=8),
     ) {
         for scenario in SCENARIOS {
             let ab = mirror_via(a.clone(), b.clone(), scenario);
@@ -163,9 +155,9 @@ proptest! {
     /// produces the same tree as syncing a then (b,c).
     #[test]
     fn associative(
-        a in arb_tree_root("a", 0..=4),
-        b in arb_tree_root("b", 0..=4),
-        c in arb_tree_root("c", 0..=4),
+        a in arb_tree_root(0, 0..=4),
+        b in arb_tree_root(1, 0..=4),
+        c in arb_tree_root(2, 0..=4),
     ) {
         for scenario in SCENARIOS {
             let ab_c = mirror_via(
@@ -189,30 +181,35 @@ proptest! {
         entries_a in vec((any::<[u8; 32]>(), any::<bool>()), 0..=8),
         entries_b in vec((any::<[u8; 32]>(), any::<bool>()), 0..=8),
     ) {
-        let make_actions = |party: &str, entries: &[([u8; 32], bool)]| -> Vec<_> {
-            let n = entries.len();
-            let mut actions: Vec<_> = entries.iter().enumerate().map(|(i, (bytes, _))| {
+        // Tick the party's disjoint clock once per action so every action
+        // carries a strictly-increasing version on that party: inserts take
+        // the first `len` ticks, forgets the ticks after them, mirroring the
+        // old `(party, scalar)` numbering with distinct, ascending versions.
+        let make_actions = |party_index: usize, entries: &[([u8; 32], bool)]| -> Vec<_> {
+            let p = nth_party(party_index);
+            let mut version = Version::new();
+            let mut actions: Vec<_> = entries.iter().map(|(bytes, _)| {
                 let path = Path::from(*bytes);
-                let version = Version::from((party.to_string(), i as u64 + 1));
-                (path, version, Action::Insert(Message::new(())))
+                version.tick(&p);
+                (path, version.clone(), Action::Insert(Message::new(())))
             }).collect();
-            for (j, (bytes, forget)) in entries.iter().enumerate() {
+            for (bytes, forget) in entries.iter() {
                 if *forget {
                     let path = Path::from(*bytes);
-                    let version = Version::from((party.to_string(), (n + j + 1) as u64));
-                    actions.push((path, version, Action::Forget));
+                    version.tick(&p);
+                    actions.push((path, version.clone(), Action::Forget));
                 }
             }
             actions
         };
 
-        let actions_a = make_actions("a", &entries_a);
-        let actions_b = make_actions("b", &entries_b);
+        let actions_a = make_actions(0, &entries_a);
+        let actions_b = make_actions(1, &entries_b);
 
         // The wrapper version must be a causal upper bound on every action
         // we apply — `Tree::react` maintains the same invariant by `|=`-ing
         // each action's version into the tree's version vector.
-        let wrap = |actions: &[(Path, Version<String>, Action<()>)]| crate::tree::Root {
+        let wrap = |actions: &[(Path, Version, Action<()>)]| crate::tree::Root {
             version: actions
                 .iter()
                 .fold(Version::default(), |acc, (_, v, _)| acc | v.clone()),

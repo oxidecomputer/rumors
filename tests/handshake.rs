@@ -1,11 +1,11 @@
 //! Pre-handshake protocol-version exchange (`mirror::remote::handshake`).
 //!
-//! Drives [`rumors::Local::gossip`] against a hand-crafted peer over a
+//! Drives [`rumors::Known::gossip`] against a hand-crafted peer over a
 //! [`tokio::io::duplex`] pipe, asserting that mismatched magic or
 //! version surfaces as the typed error variant rather than corrupting
 //! the local rumor set.
 
-use rumors::{Error, Local, PROTOCOL_MAGIC, PROTOCOL_VERSION, ignore};
+use rumors::{Error, Known, PROTOCOL_MAGIC, PROTOCOL_VERSION, ignore};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
 
 /// The compile-time constants match the layout this test crate
@@ -24,8 +24,8 @@ async fn handshake_roundtrip_succeeds() {
     let (mut a_r, mut a_w) = tokio::io::split(a);
     let (mut b_r, mut b_w) = tokio::io::split(b);
 
-    let alice: Local<String, _> = Local::for_party("alice-roundtrip", 0).unwrap();
-    let bob: Local<String, _> = Local::for_party("bob-roundtrip", 0).unwrap();
+    let alice: Known<String> = Known::seed();
+    let bob: Known<String> = Known::seed();
 
     let (alice_out, bob_out) = tokio::join!(
         alice.gossip(&mut a_r, &mut a_w, ignore),
@@ -63,7 +63,7 @@ async fn magic_mismatch_surfaces_error() {
         b_w.write_all(&preamble).await.expect("fake peer write");
     };
 
-    let alice: Local<String, _> = Local::for_party("alice-magic", 0).unwrap();
+    let alice: Known<String> = Known::seed();
     let alice_fut = alice.gossip(&mut a_r, &mut a_w, ignore);
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
@@ -102,7 +102,7 @@ async fn version_mismatch_surfaces_error() {
         b_w.write_all(&preamble).await.expect("fake peer write");
     };
 
-    let alice: Local<String, _> = Local::for_party("alice-version", 0).unwrap();
+    let alice: Known<String> = Known::seed();
     let alice_fut = alice.gossip(&mut a_r, &mut a_w, ignore);
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
@@ -132,7 +132,7 @@ async fn truncated_handshake_io_error() {
         drop(b_w);
     };
 
-    let alice: Local<String, _> = Local::for_party("alice-trunc", 0).unwrap();
+    let alice: Known<String> = Known::seed();
     let alice_fut = alice.gossip(&mut a_r, &mut a_w, ignore);
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
@@ -170,7 +170,7 @@ async fn handshake_precedes_framed_traffic() {
             .expect("fake peer write");
     };
 
-    let alice: Local<String, _> = Local::for_party("alice-skip", 0).unwrap();
+    let alice: Known<String> = Known::seed();
     let alice_fut = alice.gossip(&mut a_r, &mut a_w, ignore);
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);

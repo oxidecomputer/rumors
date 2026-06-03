@@ -1,42 +1,52 @@
-//! Pairwise gossip semantics for `Local::process` (and its alias `+`).
+//! Pairwise gossip semantics for `Known::learn` and `Known::join`.
 //!
-//! Covers convergence, symmetry, idempotence, the algebraic laws of
-//! `+`, and equivalence with `Local::gossip` over a real
+//! Covers convergence, symmetry, idempotence, the algebraic laws of the
+//! `join` merge, and equivalence with `Known::gossip` over a real
 //! `tokio::io::duplex` channel.
 //!
-//! Post-gossip equality is asserted against *readouts*, not `Local`s
-//! directly: `Local::eq` includes the party tag, so two peers can
-//! have identical content but distinct parties and never compare
-//! equal. The publicly meaningful equality is "live content multiset
-//! with consistent `Key`s," which is exactly what `readout` returns.
+//! Two `Known`s are compared with `Known::eq`, which compares *live content*
+//! (the underlying tree) and ignores the party tag — so two peers that reached
+//! the same content by different fork/merge paths compare equal. Where a test
+//! wants the `Key`-level multiset explicitly it goes through `readout`.
+//!
+//! Every peer in a test is forked from one shared [`Known::seed`], so all
+//! peers are pairwise *disjoint* and `learn`/`join` between them never fails
+//! (the `before` crate's Law of Disjointness).
 
 mod common;
 
-use std::sync::{Arc, Mutex};
-
 use borsh::{BorshDeserialize, BorshSerialize};
 use proptest::prelude::*;
-use rumors::sync::{Local, ignore};
-
-// Closures handed to the sync API satisfy `Send + 'static`, so locally
-// owned mutable state is routed through `Arc<Mutex<_>>` clones rather
-// than captured by reference.
+use rumors::sync::{Known, ignore};
 
 use crate::common::action::{arb_local_actions, arb_string_actions, build_local};
 use crate::common::oracle::readout;
 use crate::common::wire::wire_gossip;
 
-/// Bidirectional gossip between two raw `Local`s, discarding
-/// observation callbacks. Used by the algebraic tests below, which
-/// care about final content but not about which keys fired callbacks.
-fn gossip_step_local<T>(a: &mut Local<T>, b: &mut Local<T>)
+/// Bidirectional gossip between two raw `Known`s, discarding observation
+/// callbacks. The two must be disjoint (forked from a shared seed), which
+/// every caller guarantees, so the `learn`s never fail.
+fn gossip_step_local<T>(a: &mut Known<T>, b: &mut Known<T>)
 where
     T: Clone + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
 {
-    let a_snapshot = a.clone();
-    let b_snapshot = b.clone();
-    a.process(b_snapshot, ignore);
-    b.process(a_snapshot, ignore);
+    let a_snapshot = a.fork();
+    let b_snapshot = b.fork();
+    a.learn(b_snapshot, ignore)
+        .unwrap_or_else(|_| unreachable!("disjoint operands"));
+    b.learn(a_snapshot, ignore)
+        .unwrap_or_else(|_| unreachable!("disjoint operands"));
+}
+
+/// Merge `b` into `a` and return the result: the `join`-based stand-in for the
+/// old `a + b`. Operands must be disjoint (forked from a shared seed).
+fn merged<T>(mut a: Known<T>, b: Known<T>) -> Known<T>
+where
+    T: Clone + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+{
+    a.join(b)
+        .unwrap_or_else(|_| unreachable!("disjoint operands"));
+    a
 }
 
 proptest! {
@@ -47,31 +57,33 @@ proptest! {
         a_actions in arb_local_actions(),
         b_actions in arb_local_actions(),
     ) {
-        let mut a = build_local("alice", &a_actions);
-        let mut b = build_local("bob", &b_actions);
+        let mut seed = Known::<u64>::seed();
+        let mut a = build_local(seed.fork(), &a_actions);
+        let mut b = build_local(seed.fork(), &b_actions);
         gossip_step_local(&mut a, &mut b);
         prop_assert_eq!(readout(&a), readout(&b));
     }
 
     /// The final pair `(a, b)` is independent of which side initiates
-    /// the merge first — `a.process(b)` then `b.process(a)` yields
-    /// the same content as `b.process(a)` then `a.process(b)`.
+    /// the merge first — `a.learn(b)` then `b.learn(a)` yields
+    /// the same content as `b.learn(a)` then `a.learn(b)`.
     #[test]
     fn gossip_step_symmetric(
         a_actions in arb_local_actions(),
         b_actions in arb_local_actions(),
     ) {
-        let a0 = build_local("alice", &a_actions);
-        let b0 = build_local("bob", &b_actions);
+        let mut seed = Known::<u64>::seed();
+        let mut a0 = build_local(seed.fork(), &a_actions);
+        let mut b0 = build_local(seed.fork(), &b_actions);
 
-        let (mut a_fwd, mut b_fwd) = (a0.clone(), b0.clone());
+        let (mut a_fwd, mut b_fwd) = (a0.fork(), b0.fork());
         gossip_step_local(&mut a_fwd, &mut b_fwd);
 
-        let (mut a_rev, mut b_rev) = (a0.clone(), b0);
-        let a_snap = a_rev.clone();
-        let b_snap = b_rev.clone();
-        b_rev.process(a_snap, |_, _, _| {});
-        a_rev.process(b_snap, |_, _, _| {});
+        let (mut a_rev, mut b_rev) = (a0.fork(), b0.fork());
+        let a_snap = a_rev.fork();
+        let b_snap = b_rev.fork();
+        b_rev.learn(a_snap, |_, _, _| {}).unwrap();
+        a_rev.learn(b_snap, |_, _, _| {}).unwrap();
 
         prop_assert_eq!(readout(&a_fwd), readout(&a_rev));
         prop_assert_eq!(readout(&b_fwd), readout(&b_rev));
@@ -79,51 +91,46 @@ proptest! {
 
     /// A second `gossip_step` immediately after the first is a no-op:
     /// zero `on_message` callbacks fire and neither peer's content
-    /// changes. (Same-party comparison is safe here — each peer is
-    /// being compared to a clone of itself.)
+    /// changes.
     #[test]
     fn gossip_step_idempotent(
         a_actions in arb_local_actions(),
         b_actions in arb_local_actions(),
     ) {
-        let mut a = build_local("alice", &a_actions);
-        let mut b = build_local("bob", &b_actions);
+        let mut seed = Known::<u64>::seed();
+        let mut a = build_local(seed.fork(), &a_actions);
+        let mut b = build_local(seed.fork(), &b_actions);
         gossip_step_local(&mut a, &mut b);
 
-        let a_before = a.clone();
-        let b_before = b.clone();
+        let a_before = a.fork();
+        let b_before = b.fork();
 
-        let observed = Arc::new(Mutex::new(0usize));
-        let a_snap = a.clone();
-        let b_snap = b.clone();
-        {
-            let observed_in = Arc::clone(&observed);
-            a.process(b_snap, move |_, _, _| *observed_in.lock().unwrap() += 1);
-        }
-        {
-            let observed_in = Arc::clone(&observed);
-            b.process(a_snap, move |_, _, _| *observed_in.lock().unwrap() += 1);
-        }
+        let mut observed = 0usize;
+        let a_snap = a.fork();
+        let b_snap = b.fork();
+        a.learn(b_snap, |_, _, _| observed += 1).unwrap();
+        b.learn(a_snap, |_, _, _| observed += 1).unwrap();
 
-        prop_assert_eq!(*observed.lock().unwrap(), 0, "no new observations on second gossip");
+        prop_assert_eq!(observed, 0, "no new observations on second gossip");
         prop_assert_eq!(&a, &a_before);
         prop_assert_eq!(&b, &b_before);
     }
 
-    /// Bidirectional `Local::process` produces the same final
-    /// `(a, b)` as driving the same two `Local`s through
-    /// `Local::gossip` over `tokio::io::duplex` — proving the wire
-    /// protocol is faithful to the in-process merge.
+    /// Bidirectional `Known::learn` produces the same final live content as
+    /// driving the same two `Known`s through `Known::gossip` over
+    /// `tokio::io::duplex` — proving the wire protocol is faithful to the
+    /// in-process merge.
     #[test]
     fn process_matches_wire_gossip(
         a_actions in arb_local_actions(),
         b_actions in arb_local_actions(),
     ) {
-        let a0 = build_local("alice", &a_actions);
-        let b0 = build_local("bob", &b_actions);
+        let mut seed = Known::<u64>::seed();
+        let mut a0 = build_local(seed.fork(), &a_actions);
+        let mut b0 = build_local(seed.fork(), &b_actions);
 
-        let mut a_proc = a0.clone();
-        let mut b_proc = b0.clone();
+        let mut a_proc = a0.fork();
+        let mut b_proc = b0.fork();
         gossip_step_local(&mut a_proc, &mut b_proc);
 
         let (a_wire, b_wire) = wire_gossip(a0, b0);
@@ -133,93 +140,83 @@ proptest! {
         prop_assert_eq!(readout(&a_wire), readout(&b_wire));
     }
 
-    /// `+` is commutative on live content: `readout(a + b) ==
-    /// readout(b + a)`. Compared via `readout` rather than `Local::eq`
-    /// because the two operands carry distinct party tags.
+    /// `join` is commutative on live content: `readout(a join b) ==
+    /// readout(b join a)`.
     #[test]
-    fn add_commutative(
+    fn join_commutative(
         a_actions in arb_local_actions(),
         b_actions in arb_local_actions(),
     ) {
-        let a = build_local("alice", &a_actions);
-        let b = build_local("bob", &b_actions);
-        prop_assert_eq!(readout(&(a.clone() + b.clone())), readout(&(b + a)));
+        let mut seed = Known::<u64>::seed();
+        let mut a = build_local(seed.fork(), &a_actions);
+        let mut b = build_local(seed.fork(), &b_actions);
+        prop_assert_eq!(
+            readout(&merged(a.fork(), b.fork())),
+            readout(&merged(b.fork(), a.fork())),
+        );
     }
 
-    /// `+` is associative on live content: `readout((a + b) + c) ==
-    /// readout(a + (b + c))`.
+    /// `join` is associative on live content: `readout((a join b) join c) ==
+    /// readout(a join (b join c))`.
     #[test]
-    fn add_associative(
+    fn join_associative(
         a_actions in arb_local_actions(),
         b_actions in arb_local_actions(),
         c_actions in arb_local_actions(),
     ) {
-        let a = build_local("alice", &a_actions);
-        let b = build_local("bob", &b_actions);
-        let c = build_local("carol", &c_actions);
+        let mut seed = Known::<u64>::seed();
+        let mut a = build_local(seed.fork(), &a_actions);
+        let mut b = build_local(seed.fork(), &b_actions);
+        let mut c = build_local(seed.fork(), &c_actions);
         prop_assert_eq!(
-            readout(&((a.clone() + b.clone()) + c.clone())),
-            readout(&(a + (b + c))),
+            readout(&merged(merged(a.fork(), b.fork()), c.fork())),
+            readout(&merged(a.fork(), merged(b.fork(), c.fork()))),
         );
     }
 
-    /// `+` is idempotent: `a + a == a`. Same party on both sides, so
-    /// direct `Local::eq` is meaningful here.
+    /// `join` is idempotent: merging two copies of the same content yields
+    /// that content. `Known::eq` compares the tree (party-independent), so a
+    /// direct equality is meaningful.
     #[test]
-    fn add_idempotent(a_actions in arb_local_actions()) {
-        let a = build_local("alice", &a_actions);
-        prop_assert_eq!(a.clone() + a.clone(), a);
+    fn join_idempotent(a_actions in arb_local_actions()) {
+        let mut seed = Known::<u64>::seed();
+        let mut a = build_local(seed.fork(), &a_actions);
+        prop_assert_eq!(merged(a.fork(), a.fork()), a);
     }
 
-    /// `a += b` produces the same live content as `a + b`. Guards
-    /// against `AddAssign` drifting away from `Add` (it's currently
-    /// implemented as `self = self.clone() + rhs`).
-    #[test]
-    fn add_assign_matches_add(
-        a_actions in arb_local_actions(),
-        b_actions in arb_local_actions(),
-    ) {
-        let a = build_local("alice", &a_actions);
-        let b = build_local("bob", &b_actions);
-
-        let mut a_assign = a.clone();
-        a_assign += b.clone();
-        let a_plus = a + b;
-
-        prop_assert_eq!(readout(&a_assign), readout(&a_plus));
-    }
-
-    /// `Local::process` against an empty source is a no-op: zero
+    /// `Known::learn` against an empty source is a no-op: zero
     /// callbacks fire and `self` is unchanged.
     #[test]
     fn process_empty_source_is_noop(actions in arb_local_actions()) {
-        let original = build_local("alice", &actions);
-        let mut subject = original.clone();
-        let empty = Local::<u64, _>::for_party("ghost", 0).unwrap().fork();
+        let mut seed = Known::<u64>::seed();
+        let mut original = build_local(seed.fork(), &actions);
+        let mut subject = original.fork();
+        let empty = seed.fork();
 
-        let callbacks = Arc::new(Mutex::new(0usize));
-        let callbacks_in = Arc::clone(&callbacks);
-        subject.process(empty, move |_, _, _| *callbacks_in.lock().unwrap() += 1);
+        let mut callbacks = 0usize;
+        subject.learn(empty, |_, _, _| callbacks += 1).unwrap();
 
-        prop_assert_eq!(*callbacks.lock().unwrap(), 0);
+        prop_assert_eq!(callbacks, 0);
         prop_assert_eq!(&subject, &original);
     }
 
     /// String-T variant of [`process_matches_wire_gossip`]: same
     /// invariant for `T = String`, exercising the borsh round-trip
     /// for a non-primitive value type. Uses the same Insert/Redact
-    /// action shape as the `u64` variant, so redaction-tombstone
-    /// serialization is also covered.
+    /// action shape as the `u64` variant, so redaction propagation —
+    /// inferred from version frontiers, with no tombstone on the wire —
+    /// is also covered over the channel.
     #[test]
     fn process_matches_wire_gossip_string(
         a_actions in arb_string_actions(),
         b_actions in arb_string_actions(),
     ) {
-        let a0 = build_local("alice", &a_actions);
-        let b0 = build_local("bob", &b_actions);
+        let mut seed = Known::<String>::seed();
+        let mut a0 = build_local(seed.fork(), &a_actions);
+        let mut b0 = build_local(seed.fork(), &b_actions);
 
-        let mut a_proc = a0.clone();
-        let mut b_proc = b0.clone();
+        let mut a_proc = a0.fork();
+        let mut b_proc = b0.fork();
         gossip_step_local(&mut a_proc, &mut b_proc);
 
         let (a_wire, b_wire) = wire_gossip(a0, b0);
@@ -239,72 +236,65 @@ proptest! {
     ) {
         use rumors::Version;
 
-        let mut alice = Local::<u64, _>::for_party("alice", 0).unwrap();
-        let mut bob = Local::<u64, _>::for_party("bob", 0).unwrap();
+        let mut seed = Known::<u64>::seed();
+        let mut alice = seed.fork();
+        let mut bob = seed.fork();
 
-        let va: Arc<Mutex<Option<Version>>> = Arc::new(Mutex::new(None));
-        let vb: Arc<Mutex<Option<Version>>> = Arc::new(Mutex::new(None));
-        {
-            let va_in = Arc::clone(&va);
-            alice.message([a_value], move |_, v, _| *va_in.lock().unwrap() = Some(v.clone()));
-        }
-        {
-            let vb_in = Arc::clone(&vb);
-            bob.message([b_value], move |_, v, _| *vb_in.lock().unwrap() = Some(v.clone()));
-        }
+        let mut va: Option<Version> = None;
+        let mut vb: Option<Version> = None;
+        alice.message([a_value], |_, v, _| va = Some(v.clone()));
+        bob.message([b_value], |_, v, _| vb = Some(v.clone()));
 
-        let va = va.lock().unwrap().clone().expect("alice's insert must fire on_message");
-        let vb = vb.lock().unwrap().clone().expect("bob's insert must fire on_message");
+        let va = va.expect("alice's insert must fire on_message");
+        let vb = vb.expect("bob's insert must fire on_message");
         prop_assert_eq!(va.partial_cmp(&vb), None);
     }
 
-    /// Asymmetric merge: after `a.process(b)`, `a`'s live readout
+    /// Asymmetric merge: after `a.learn(b)`, `a`'s live readout
     /// equals the union of the two pre-merge readouts. `b` itself
-    /// is unchanged. This pins down the underlying primitive of `+`
-    /// and `gossip_step` directly, independent of the bidirectional
-    /// wrapper.
+    /// is unchanged. This pins down the underlying merge primitive
+    /// directly, independent of the bidirectional wrapper.
     ///
     /// The "union of readouts" is computed by `BTreeMap::extend`,
-    /// which is sound here only because `Key`s derive from
-    /// `(party, version_counter)` and `alice` / `bob` therefore
-    /// can't mint the same `Key`. Across same-party operands the
-    /// math would be more subtle.
+    /// which is sound here only because `Key`s derive from the leaf
+    /// version's canonical bytes and `alice` / `bob` tick disjoint
+    /// parties, so they can't mint the same `Key`.
     #[test]
     fn asymmetric_process_unions_content(
         a_actions in arb_local_actions(),
         b_actions in arb_local_actions(),
     ) {
-        let a0 = build_local("alice", &a_actions);
-        let b0 = build_local("bob", &b_actions);
+        let mut seed = Known::<u64>::seed();
+        let a0 = build_local(seed.fork(), &a_actions);
+        let mut b0 = build_local(seed.fork(), &b_actions);
 
         let a_before = readout(&a0);
         let b_before = readout(&b0);
         let mut expected = a_before;
         expected.extend(b_before.clone());
 
+        let b_snapshot = b0.fork();
         let mut a_after = a0;
-        let b_snapshot = b0.clone();
-        a_after.process(b_snapshot, |_, _, _| {});
+        a_after.learn(b_snapshot, |_, _, _| {}).unwrap();
 
         prop_assert_eq!(readout(&a_after), expected);
         prop_assert_eq!(readout(&b0), b_before);
     }
 
-    /// `Local::process` against a clone of `self` is a no-op:
-    /// zero callbacks fire and the readout is unchanged. The
-    /// "true" idempotence of `process`, distinct from idempotence
-    /// of `+` (which always wraps `process`).
+    /// `Known::learn` against a fork of `self` is a no-op: zero
+    /// callbacks fire and the readout is unchanged. The "true"
+    /// idempotence of the merge.
     #[test]
     fn self_process_is_noop(actions in arb_local_actions()) {
-        let original = build_local("alice", &actions);
+        let mut seed = Known::<u64>::seed();
+        let mut original = build_local(seed.fork(), &actions);
         let readout_before = readout(&original);
 
-        let mut subject = original.clone();
-        let callbacks = Arc::new(Mutex::new(0usize));
-        let callbacks_in = Arc::clone(&callbacks);
-        subject.process(original, move |_, _, _| *callbacks_in.lock().unwrap() += 1);
+        let mut subject = original.fork();
+        let mut callbacks = 0usize;
+        subject.learn(original, |_, _, _| callbacks += 1).unwrap();
 
-        prop_assert_eq!(*callbacks.lock().unwrap(), 0);
+        prop_assert_eq!(callbacks, 0);
         prop_assert_eq!(readout(&subject), readout_before);
     }
 }

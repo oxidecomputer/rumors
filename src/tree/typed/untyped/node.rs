@@ -7,11 +7,11 @@ use imbl::OrdMap;
 
 use crate::{message::Message, tree::typed::Hash, version::Version};
 
-pub struct Node<P: Ord + AsRef<[u8]>, T> {
-    inner: Arc<NodeInner<P, T>>,
+pub struct Node<T> {
+    inner: Arc<NodeInner<T>>,
 }
 
-impl<P: Ord + AsRef<[u8]>, T> Clone for Node<P, T> {
+impl<T> Clone for Node<T> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -19,7 +19,7 @@ impl<P: Ord + AsRef<[u8]>, T> Clone for Node<P, T> {
     }
 }
 
-struct NodeInner<P: Ord + AsRef<[u8]>, T> {
+struct NodeInner<T> {
     /// Compressed path above this node's own branching level, stored with the
     /// deepest byte at index 0 and the shallowest byte at the last index. An
     /// empty prefix means the node is not path-compressed above its level.
@@ -32,12 +32,12 @@ struct NodeInner<P: Ord + AsRef<[u8]>, T> {
     /// construction.
     children_hash: Hash,
     /// The maximal version of any child of this node.
-    version: Version<P>,
+    version: Version,
     /// The children of this node: either a leaf, or a branch point.
-    children: Children<P, T>,
+    children: Children<T>,
 }
 
-impl<P: Clone + Ord + AsRef<[u8]>, T> Clone for NodeInner<P, T> {
+impl<T> Clone for NodeInner<T> {
     fn clone(&self) -> Self {
         Self {
             prefix: self.prefix.clone(),
@@ -48,7 +48,7 @@ impl<P: Clone + Ord + AsRef<[u8]>, T> Clone for NodeInner<P, T> {
     }
 }
 
-impl<P: Debug + Ord + AsRef<[u8]>, T: Debug> Debug for Node<P, T> {
+impl<T: Debug> Debug for Node<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut s = f.debug_struct("Node");
         s.field(
@@ -71,15 +71,15 @@ impl<P: Debug + Ord + AsRef<[u8]>, T: Debug> Debug for Node<P, T> {
 
 /// The children of a node.
 #[derive(Debug)]
-enum Children<P: Ord + AsRef<[u8]>, T> {
+enum Children<T> {
     /// A direct leaf, at the true bottom of the tree.
     Leaf(Message<T>),
     /// A materialized branch point, with the invariant that there are always >=
     /// 2 branches (or else they should be path-compressed away).
-    Branch(OrdMap<u8, Node<P, T>>),
+    Branch(OrdMap<u8, Node<T>>),
 }
 
-impl<P: Clone + Ord + AsRef<[u8]>, T> Clone for Children<P, T> {
+impl<T> Clone for Children<T> {
     fn clone(&self) -> Self {
         match self {
             Self::Leaf(l) => Self::Leaf(l.clone()),
@@ -93,10 +93,10 @@ impl<P: Clone + Ord + AsRef<[u8]>, T> Clone for Children<P, T> {
 /// hash as `[0x00; 32]`, the natural zero-init of the staging buffer.
 const LEAF_SENTINEL: [u8; 32] = [0xff; 32];
 
-impl<P: Ord + Clone + AsRef<[u8]>, T> Node<P, T> {
+impl<T> Node<T> {
     /// Construct a new branch node from a list of children with distinct
     /// indices (inverse to [`Node::into_children`]).
-    pub fn branch(children: OrdMap<u8, Node<P, T>>) -> Option<Self> {
+    pub fn branch(children: OrdMap<u8, Node<T>>) -> Option<Self> {
         match children.len() {
             0 => None,
             1 => {
@@ -111,7 +111,13 @@ impl<P: Ord + Clone + AsRef<[u8]>, T> Node<P, T> {
                     buf[i as usize * 32..][..32].copy_from_slice(child.hash().as_bytes());
                 }
                 let children_hash = Hash::of(&buf);
-                let version = Version::new(children.values().map(|n| n.version().clone()));
+                // A branch's version is the join (least upper bound) of its
+                // children's versions: fold `|` over them from the empty
+                // version (the lattice bottom).
+                let version = children
+                    .values()
+                    .map(|n| n.version().clone())
+                    .fold(Version::new(), |acc, v| acc | v);
                 Some(Node {
                     inner: Arc::new(NodeInner {
                         prefix: Vec::new(),
@@ -128,7 +134,7 @@ impl<P: Ord + Clone + AsRef<[u8]>, T> Node<P, T> {
     /// [`Node::branch`]).
     ///
     /// If `self` is a leaf node, returns `Err(self)`.
-    pub fn into_children(mut self) -> Result<OrdMap<u8, Node<P, T>>, Node<P, T>> {
+    pub fn into_children(mut self) -> Result<OrdMap<u8, Node<T>>, Node<T>> {
         if !self.inner.prefix.is_empty() {
             // Path-compressed: pop the top byte and rewrap self under it. The
             // popped entry's precomputed hash and cumulative forgotten are
@@ -157,7 +163,7 @@ impl<P: Ord + Clone + AsRef<[u8]>, T> Node<P, T> {
     }
 
     /// Construct a new leaf node.
-    pub fn leaf(version: Version<P>, value: Message<T>) -> Self {
+    pub fn leaf(version: Version, value: Message<T>) -> Self {
         Node {
             inner: Arc::new(NodeInner {
                 prefix: Vec::new(),
@@ -193,7 +199,7 @@ impl<P: Ord + Clone + AsRef<[u8]>, T> Node<P, T> {
     }
 
     /// Get the version of this node (the maximal version of all children).
-    pub fn version(&self) -> &Version<P> {
+    pub fn version(&self) -> &Version {
         &self.inner.version
     }
 
@@ -218,7 +224,7 @@ impl<P: Ord + Clone + AsRef<[u8]>, T> Node<P, T> {
     /// 2. `prefix_len` head bytes, shallowest first (decoders peel from the
     ///    outermost compressed level inward);
     /// 3. the body, dispatched on `children`:
-    ///    - [`Children::Leaf`]: `version: Version<P>`, then `message: Message<T>`;
+    ///    - [`Children::Leaf`]: `version: Version`, then `message: Message<T>`;
     ///    - [`Children::Branch`]: `count_minus_two: u8`, then for each
     ///      child (in canonical `OrdMap` key order): `radix: u8`,
     ///      `serialize_to(child)`.
@@ -228,9 +234,7 @@ impl<P: Ord + Clone + AsRef<[u8]>, T> Node<P, T> {
     /// shape. Multi-child branches always carry at least two children, by
     /// the path-compression invariant.
     pub fn serialize_to<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()>
-    where
-        P: BorshSerialize,
-    {
+where {
         let prefix_len = u8::try_from(self.inner.prefix.len()).map_err(|_| {
             borsh::io::Error::new(
                 borsh::io::ErrorKind::InvalidData,
@@ -272,7 +276,7 @@ impl<P: Ord + Clone + AsRef<[u8]>, T> Node<P, T> {
     /// Place a node beneath the given child index, increasing its height by
     /// one. Eagerly computes the new top-of-prefix hash by wrapping the old
     /// observable hash through one virtual-branch level.
-    pub fn beneath(mut self, index: u8) -> Node<P, T> {
+    pub fn beneath(mut self, index: u8) -> Node<T> {
         let mut buf = [0u8; 256 * 32];
         buf[index as usize * 32..][..32].copy_from_slice(self.hash().as_bytes());
         let new_top_hash = Hash::of(&buf);
@@ -296,11 +300,82 @@ impl<P: Ord + Clone + AsRef<[u8]>, T> Node<P, T> {
     }
 }
 
-impl<P: Ord + Clone + AsRef<[u8]>, T> Eq for Node<P, T> {}
+impl<T> Eq for Node<T> {}
 
-impl<P: Ord + Clone + AsRef<[u8]>, T> PartialEq for Node<P, T> {
+impl<T> PartialEq for Node<T> {
     fn eq(&self, other: &Self) -> bool {
         self.hash() == other.hash()
+    }
+}
+
+/// A lazy depth-first iterator over every live leaf in a subtree, yielding each
+/// leaf's reconstructed 32-byte path [`Key`], its [`Version`], and a borrowed
+/// handle to its message [`Arc`].
+///
+/// The iterator is lazy: a single `next()` descends only far enough to reach
+/// the next leaf, so the first item is produced after walking one root-to-leaf
+/// spine rather than the whole tree. Each pending node on the stack carries the
+/// path bytes accumulated to reach it (above its own compressed prefix); since
+/// the tree's depth is fixed at 32, those buffers never exceed 32 bytes.
+///
+/// Iteration order is unspecified — matching the `on_message` callback contract
+/// in [`Known`](crate::Known), which makes no ordering promise.
+///
+/// `Iter` is `Send + Sync` whenever `T: Send + Sync`: it holds only `&Node<T>`
+/// references and `Vec<u8>` path buffers.
+pub struct Iter<'a, T> {
+    /// Pending `(node, path-to-reach-it)` frames, LIFO. Empty once exhausted.
+    stack: Vec<(&'a Node<T>, Vec<u8>)>,
+}
+
+impl<'a, T> Iter<'a, T> {
+    /// Iterate the subtree rooted at `node` (a height-32 root, so every leaf's
+    /// path is a full 32-byte [`Key`]).
+    pub(crate) fn root(node: &'a Node<T>) -> Self {
+        Self {
+            stack: vec![(node, Vec::with_capacity(32))],
+        }
+    }
+
+    /// The empty iterator, for a tree with no root.
+    pub(crate) fn empty() -> Self {
+        Self { stack: Vec::new() }
+    }
+}
+
+impl<'a, T> Iterator for Iter<'a, T> {
+    type Item = (crate::tree::key::Key, &'a Version, &'a Arc<T>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some((node, mut path)) = self.stack.pop() {
+            // The compressed prefix sits above this node's level and is stored
+            // shallowest-last, so replay it shallowest-first to extend the path.
+            for (byte, _hash) in node.inner.prefix.iter().rev() {
+                path.push(*byte);
+            }
+            match &node.inner.children {
+                Children::Leaf(message) => {
+                    let path = <[u8; 32]>::try_from(path)
+                        .expect("a leaf sits at depth 32, so its path is 32 bytes");
+                    return Some((
+                        crate::tree::key::Key(path),
+                        &node.inner.version,
+                        message.as_arc(),
+                    ));
+                }
+                Children::Branch(children) => {
+                    // Push each child with its own extended path; the owned
+                    // buffer per frame is what keeps the descent lazy without a
+                    // separate pop phase.
+                    for (radix, child) in children.iter() {
+                        let mut child_path = path.clone();
+                        child_path.push(*radix);
+                        self.stack.push((child, child_path));
+                    }
+                }
+            }
+        }
+        None
     }
 }
 

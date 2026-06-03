@@ -11,6 +11,7 @@ proptest = ["dep:proptest"]
 
 [dependencies]
 proptest = { version = "1", optional = true }
+before = { path = "crates/before", features = ["borsh"] }
 imbl = "7"
 bytes = "1"
 blake3 = "1.8"
@@ -26,7 +27,6 @@ tokio-util = { version = "0.7", default-features = false, features = ["codec", "
 futures = { version = "0.3", default-features = false, features = ["std"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 pollster = "0.4"
-weak-table2 = "0.3.3"
 
 [dev-dependencies]
 proptest = "1"

@@ -1,7 +1,7 @@
 #![warn(clippy::large_futures)]
 //! Unordered gossip with redaction.
 //!
-//! `rumors` is a CRDT-backed gossip set. Each peer holds a [`Local<T>`] rumor
+//! `rumors` is a CRDT-backed gossip set. Each peer holds a [`Known<T>`] rumor
 //! set; peers reconcile by exchanging only the parts that differ. Redacting
 //! a message stops it propagating, and redactions spread contagiously to
 //! every peer the redactor (transitively) gossips with.
@@ -12,14 +12,13 @@
 //! # Quickstart
 //!
 //! ```
-//! use rumors::Local;
+//! use rumors::Known;
 //!
 //! # #[tokio::main(flavor = "current_thread")]
 //! # async fn main() {
-//! // A peer is identified by an arbitrary byte string; the caller must
-//! // keep party identifiers globally unique. `start` is the local event
-//! // counter to resume from (0 for a fresh party); see [`Local::for_party`].
-//! let mut alice = Local::for_party("alice", 0).unwrap();
+//! // `seed` mints the distinguished root rumor set for a universe of peers;
+//! // additional peers are made by [`Known::fork`], never by a second `seed`.
+//! let mut alice = Known::seed();
 //!
 //! // The callback fires once per newly-observed message with an opaque
 //! // `Key` (used later for redaction), the causal `Version`, and the value.
@@ -39,16 +38,16 @@
 //!
 //! # Redaction
 //!
-//! Any peer can [`redact`](Local::redact) a [`Key`] it holds; the redaction
+//! Any peer can [`redact`](Known::redact) a [`Key`] it holds; the redaction
 //! propagates to every connected peer without consensus, so a single peer's
 //! local decision evicts the message network-wide.
 //!
 //! ```
-//! use rumors::{Local, Key};
+//! use rumors::{Known, Key};
 //!
 //! # #[tokio::main(flavor = "current_thread")]
 //! # async fn main() {
-//! let mut alice = Local::for_party("alice", 0).unwrap();
+//! let mut alice = Known::seed();
 //! let mut keys: Vec<Key> = Vec::new();
 //! alice.message(
 //!     ["stale rumor".to_string()],
@@ -63,23 +62,23 @@
 //!
 //! # Concurrent rumor sets
 //!
-//! A [`Local`] is either an [`Original`] (returned by [`Local::for_party`], one
-//! per party per process) or a [`Forked`] copy made with [`Local::fork`]. Only
-//! the [`Original`] may originate new [`message`](Local::message)s or
-//! [`redact`](Local::redact)ions; [`Forked`] clones are cheap (the underlying
-//! tree is structurally shared and copy-on-write) and exist to be mutated
-//! concurrently against peers, then folded back in via [`Local::process`] (or
-//! the [`Add`] / [`AddAssign`] operators). This split enforces at the type
-//! level that every party acts as a single sequential process. See the
-//! [`Local`] docs for the full discussion.
+//! Every [`Known`] carries its own Interval Tree Clock party and may originate
+//! [`message`](Known::message)s and [`redact`](Known::redact)ions. To work
+//! against a peer concurrently, [`fork`](Known::fork) a `Known`: a *true causal
+//! fork* that mints a fresh disjoint party sharing the current observations
+//! (the underlying tree is structurally shared, copy-on-write). The two halves
+//! act independently, then reunite via [`Known::learn`] (observing everything
+//! new) or [`Known::join`] (the fallible merge that rejoins their parties). A
+//! `Known` is [`!Clone`](Clone) — the only way to get another working copy is
+//! [`fork`](Known::fork). See the [`Known`] docs for the full discussion.
 //!
 //! # Gossiping with peers on the network
 //!
 //! Pass an [`AsyncRead`] reader and an [`AsyncWrite`] writer into
-//! [`Local::gossip`]:
+//! [`Known::gossip`]:
 //!
 //! ```
-//! use rumors::{Local, ignore};
+//! use rumors::{Known, ignore};
 //!
 //! # #[tokio::main(flavor = "current_thread")]
 //! # async fn main() {
@@ -88,9 +87,9 @@
 //! let (mut a_r, mut a_w) = tokio::io::split(a);
 //! let (mut b_r, mut b_w) = tokio::io::split(b);
 //!
-//! let mut alice: Local<String, _> = Local::for_party("alice", 0).unwrap();
+//! let mut alice: Known<String> = Known::seed();
 //! alice.message(["hello".to_string()], ignore).await;
-//! let bob: Local<String, _> = Local::for_party("bob", 0).unwrap();
+//! let bob: Known<String> = Known::seed();
 //!
 //! // Drive both ends concurrently; bob learns "hello".
 //! let (alice, bob) = tokio::join!(
@@ -145,19 +144,15 @@
 
 use std::{
     future::{Future, Ready, ready},
-    ops::{Add, AddAssign},
     pin::Pin,
-    sync::{Arc, LazyLock, Mutex, Weak},
+    sync::Arc,
 };
 
+use before::Party;
 use borsh::{BorshDeserialize, BorshSerialize};
-use bytes::Bytes;
 use tokio::io::{AsyncRead, AsyncWrite};
-use weak_table2::WeakHashSet;
 
-pub mod explanation;
 pub mod sync;
-pub mod tutorial;
 
 mod imbl_borsh;
 mod message;
@@ -169,12 +164,12 @@ use tree::{Action, Tree, mirror};
 
 /// Magic bytes that prefix every `rumors` gossip session: `b"RUMORS"`.
 ///
-/// Sent as the first six bytes of the [handshake](Local::gossip), a peer
+/// Sent as the first six bytes of the [handshake](Known::gossip), a peer
 /// whose preamble starts with anything else is rejected with
 /// [`Error::MagicMismatch`] before any rumor-set state is touched.
 pub const PROTOCOL_MAGIC: [u8; 6] = *b"RUMORS";
 
-/// On-the-wire protocol version, exchanged in the [handshake](Local::gossip)
+/// On-the-wire protocol version, exchanged in the [handshake](Known::gossip)
 /// right after [`PROTOCOL_MAGIC`].
 ///
 /// Bumped whenever the wire format changes. Patch versions of `rumors` never
@@ -186,47 +181,38 @@ pub const PROTOCOL_VERSION: u16 = 1;
 
 /// A local set of rumors: add to it, redact from it, gossip with peers.
 ///
-/// [`Local<T, Forked>`](Local) is cheap to clone (structurally shared,
-/// copy-on-write); concurrent code holds one fork per thread or task and
-/// recombines them via [`Local::process`]. [`Local<T, Original>`](Local)
-/// deliberately does *not* implement [`Clone`]: only the singleton
-/// original may originate new messages and redactions, and duplicating one
-/// must be explicit. Use [`Local::fork`] to obtain a [`Forked`] view that
-/// can be cloned and moved across tasks.
+/// Every `Known` owns an Interval Tree Clock party and may originate messages
+/// and redactions. It deliberately does *not* implement [`Clone`]: duplicating
+/// a live party would break the linearity the clocks require. To obtain another
+/// working copy, [`fork`](Known::fork) it — a *true causal fork* that mints a
+/// fresh disjoint party sharing the current observations (the underlying tree
+/// is structurally shared, copy-on-write). Concurrent code holds one fork per
+/// thread or task and recombines them via [`learn`](Known::learn) /
+/// [`join`](Known::join).
 ///
 /// Methods take `AsyncFnMut` callbacks; for synchronous I/O and callbacks,
-/// see [`sync::Local`].
+/// see [`sync::Known`].
 ///
 /// # Uniqueness of parties
 ///
-/// It is *required* that each party's [`Local::message`] and [`Local::redact`]
-/// actions are causally sequential. This is enforced locally within a given
-/// process: [`Local::for_party`] returns a type-tagged `Local<T, Original>` (or
-/// [`Err(AlreadyExists)`](AlreadyExists) if there is an extant original
-/// [`Local`] for this party in the current process). Subsequently,
-/// [`Local::fork`] can duplicate an [`Original`] [`Local`] into a [`Forked`]
-/// [`Local`], which can still participate in [`gossip`](Local::gossip) and can
-/// still [`process`](Local::process) other [`Forked`] [`Local`]s into itself,
-/// but crucially which *cannot* originate new messages and redactions: these
-/// may only be performed on the original singleton `Local<T, Original>`.
+/// Every party in one universe must descend from a single [`seed`](Known::seed)
+/// by [`fork`](Known::fork). Forking splits a party into two disjoint regions,
+/// and [`learn`](Known::learn) / [`join`](Known::join) rejoin them; because the
+/// regions are disjoint, each party's history stays causally well-defined no
+/// matter how forks and merges interleave.
 ///
-/// While these checks enforce consistency within a single process, it is the
-/// responsibility of the programmer to ensure that parties act as sequential
-/// processes across the network. In particular, if an [`Original`] [`Local`]
-/// is ever dropped and then recreated for the same party (e.g. across process
-/// restarts), the `start` parameter passed to [`Local::for_party`] must be
-/// greater than or equal to the last observable [`event`](Local::event) of the
-/// prior instantiation. Persist `event()` durably between runs and feed it back
-/// in as `start` to uphold this invariant.
+/// The one rule the caller must uphold is *not mixing universes*: two `Known`s
+/// from independent [`seed`](Known::seed) calls share no causal history and
+/// must **never** gossip with each other.
 ///
 /// # Example
 ///
 /// ```
-/// use rumors::{Local, Key};
+/// use rumors::{Known, Key};
 ///
 /// # #[tokio::main(flavor = "current_thread")]
 /// # async fn main() {
-/// let mut alice = Local::for_party("alice", 0).unwrap();
+/// let mut alice = Known::seed();
 /// let mut keys: Vec<Key> = Vec::new();
 /// alice.message(
 ///     ["hello".to_string(), "world".to_string()],
@@ -239,79 +225,36 @@ pub const PROTOCOL_VERSION: u16 = 1;
 /// # }
 /// ```
 #[derive(Debug, Eq)]
-pub struct Local<T, Identity = Forked> {
+pub struct Known<T> {
+    /// This rumor set's [`Party`]: an Interval Tree Clock identity descended
+    /// from a common [`seed`](Known::seed) by disjoint [`fork`](Known::fork)s.
+    /// It is `!Clone`, so a `Known` is `!Clone` too: the only way to obtain
+    /// another working copy is [`fork`](Known::fork), which mints a fresh
+    /// disjoint party. This enforces the ITC linearity law at the type level —
+    /// no two live `Known`s ever share a party region.
+    party: Party,
     tree: Tree<T>,
-    identity: Identity,
 }
 
-/// Marker type indicating that this [`Local`] is the original created by
-/// [`Local::for_party`], empowering it to be used for adding new
-/// [`message`](Local::message)s and [`redact`](Local::redact)ions.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Original(Arc<Bytes>);
-
-/// Marker type indicating that this [`Local`] is a fork of another, meaning it
-/// can only be used for [`process`](Local::process)ing and
-/// [`gossip`](Local::gossip)ing about messages and redactions originated by
-/// other [`Original`] [`Local`]s in the system.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct Forked(());
-
-/// Error returned from [`Local::for_party`] when an [`Original`] [`Local`]
-/// already exists for that party in the current process.
-///
-/// The check is intentionally per-process: it enforces locally that there is
-/// only one [`Original`] per party at any moment. Releasing the [`Original`]
-/// (dropping it) frees the party identifier; reusing the identifier on a fresh
-/// [`Local::for_party`] call is allowed but the new `start` must be `>=` the
-/// dropped party's last observable [`event`](Local::event).
-///
-/// # Example
-///
-/// ```
-/// use rumors::{Local, AlreadyExists};
-///
-/// let alice: Local<String, _> = Local::for_party("solo", 0).unwrap();
-/// // A second Original for the same party would violate uniqueness.
-/// let result: Result<Local<String, _>, _> = Local::for_party("solo", 0);
-/// assert!(matches!(result.unwrap_err(), AlreadyExists { .. }));
-///
-/// // Dropping the Original frees the party slot.
-/// drop(alice);
-/// let _alice_again: Local<String, _> = Local::for_party("solo", 0).unwrap();
-/// ```
-#[non_exhaustive]
-#[derive(Debug, Clone, Copy, thiserror::Error)]
-#[error("original local rumor set for this party already exists")]
-pub struct AlreadyExists {}
-
-/// Only forked `Local`s can be cloned using [`Clone`]; to clone an original
-/// `Local` into a non-original one, use [`Local::fork`].
-impl<T> Clone for Local<T> {
-    fn clone(&self) -> Self {
-        Self {
-            tree: self.tree.clone(),
-            identity: self.identity,
-        }
-    }
-}
-
-impl<T, Identity, Other> PartialEq<Local<T, Other>> for Local<T, Identity> {
-    fn eq(&self, other: &Local<T, Other>) -> bool {
+/// Two rumor sets are equal when they hold the same observations — the same
+/// tree — regardless of which [`Party`] observed them. A [`fork`](Known::fork)
+/// therefore compares equal to its parent until one of them originates anew.
+impl<T> PartialEq for Known<T> {
+    fn eq(&self, other: &Self) -> bool {
         self.tree == other.tree
     }
 }
 
-/// The error type returned by [`Local::gossip`].
+/// The error type returned by [`Known::gossip`].
 ///
 /// Surfaces I/O failures from the underlying reader/writer as well as
 /// framing errors encountered while parsing messages off the wire.
 pub use mirror::remote::Error;
 
-/// An opaque identifier for a single message in a [`Local`] rumor set.
+/// An opaque identifier for a single message in a [`Known`] rumor set.
 ///
-/// Keys are produced by the `on_message` callbacks of [`Local::message`],
-/// [`Local::process`], and [`Local::gossip`], and are stable across peers:
+/// Keys are produced by the `on_message` callbacks of [`Known::message`],
+/// [`Known::learn`], and [`Known::gossip`], and are stable across peers:
 /// a key obtained from one peer can redact the message on any other.
 ///
 /// Two content-identical messages always receive distinct keys: every
@@ -320,11 +263,11 @@ pub use mirror::remote::Error;
 /// # Example
 ///
 /// ```
-/// use rumors::{Local, Key};
+/// use rumors::{Known, Key};
 ///
 /// # #[tokio::main(flavor = "current_thread")]
 /// # async fn main() {
-/// let mut alice = Local::for_party("alice", 0).unwrap();
+/// let mut alice = Known::seed();
 /// let mut keys: Vec<Key> = Vec::new();
 /// alice.message(
 ///     ["echo".to_string(), "echo".to_string()],
@@ -340,8 +283,8 @@ pub use tree::Key;
 
 /// A causal version vector tagging when a message was observed.
 ///
-/// Surfaced to the `on_message` callbacks of [`Local::message`],
-/// [`Local::process`], and [`Local::gossip`]. [`PartialOrd`] captures causal
+/// Surfaced to the `on_message` callbacks of [`Known::message`],
+/// [`Known::learn`], and [`Known::gossip`]. [`PartialOrd`] captures causal
 /// ordering: `a <= b` iff every party's counter in `a` is at most the
 /// corresponding counter in `b`. Versions produced by concurrent events are
 /// incomparable (`partial_cmp` returns `None`).
@@ -349,11 +292,11 @@ pub use tree::Key;
 /// # Example
 ///
 /// ```
-/// use rumors::{Local, Version};
+/// use rumors::{Known, Version};
 ///
 /// # #[tokio::main(flavor = "current_thread")]
 /// # async fn main() {
-/// let mut alice = Local::for_party("alice", 0).unwrap();
+/// let mut alice = Known::seed();
 /// let mut versions: Vec<Version> = Vec::new();
 /// alice.message(
 ///     ["first".to_string(), "second".to_string()],
@@ -362,8 +305,11 @@ pub use tree::Key;
 ///         async {}
 ///     },
 /// ).await;
-/// // Successive messages from the same party are causally ordered.
-/// assert!(versions[0] < versions[1]);
+/// // Successive messages from the same party are causally *comparable* — one
+/// // strictly precedes the other. (Callback order is unspecified, so we don't
+/// // assume which one arrives first; concurrent events would be incomparable.)
+/// assert!(versions[0] != versions[1]);
+/// assert!(versions[0] < versions[1] || versions[1] < versions[0]);
 /// # }
 /// ```
 pub use version::Version;
@@ -377,14 +323,14 @@ pub use version::Version;
 /// # Example
 ///
 /// ```
-/// use rumors::{Local, borsh, ignore};
+/// use rumors::{Known, borsh, ignore};
 ///
 /// #[derive(borsh::BorshSerialize, borsh::BorshDeserialize)]
 /// struct Rumor { subject: String, count: u32 }
 ///
 /// # #[tokio::main(flavor = "current_thread")]
 /// # async fn main() {
-/// let mut alice = Local::for_party("alice", 0).unwrap();
+/// let mut alice = Known::seed();
 /// alice.message(
 ///     [Rumor { subject: "weather".into(), count: 3 }],
 ///     ignore,
@@ -402,11 +348,11 @@ pub use ::borsh;
 /// # Example
 ///
 /// ```
-/// use rumors::{Local, ignore};
+/// use rumors::{Known, ignore};
 ///
 /// # #[tokio::main(flavor = "current_thread")]
 /// # async fn main() {
-/// let mut alice = Local::for_party("alice", 0).unwrap();
+/// let mut alice = Known::seed();
 /// alice.message(["hello".to_string(), "world".to_string()], ignore).await;
 /// # }
 /// ```
@@ -414,50 +360,31 @@ pub fn ignore<'a, 'b, T>(_key: Key, _version: &'a Version, _message: &'b Arc<T>)
     ready(())
 }
 
-impl<T> Local<T, Original> {
-    /// Create an empty rumor set tagged with the given party identifier.
+impl<T> Known<T> {
+    /// Create the distinguished seed rumor set: the single root [`Party`] from
+    /// which every other party in this universe descends by [`fork`](Self::fork).
     ///
-    /// Party identifiers must be *globally unique* across the gossip network;
-    /// reusing one across peers causes missed messages and other undefined
-    /// behavior. If a party identifier is ever reused, its `start` must be
-    /// greater than or equal to the last observable [`event`](Local::event) of
-    /// the last instantiation of that party.
+    /// Call this exactly once per universe of cooperating peers. Additional
+    /// originating peers are minted by [`fork`](Self::fork)ing an existing
+    /// `Known`, never by calling `seed` again: two independently-seeded
+    /// universes share no causal history and must never gossip (the `before`
+    /// crate's Law of Disjointness). The caller owns this uniqueness — unlike
+    /// the previous version-vector design, `rumors` no longer tracks parties
+    /// process-globally, which lets several independent universes coexist in
+    /// one program.
     ///
     /// # Example
     ///
     /// ```
-    /// use rumors::Local;
+    /// use rumors::Known;
     ///
-    /// let _alice: Local<String, _> = Local::for_party("alice", 0).unwrap();
+    /// let _alice: Known<String> = Known::seed();
     /// ```
-    pub fn for_party(party: impl AsRef<[u8]>, start: u64) -> Result<Self, AlreadyExists> {
-        // Weak pointers to all the parties which have been created.
-        static PARTIES: LazyLock<Mutex<WeakHashSet<Weak<Bytes>>>> =
-            LazyLock::new(|| Mutex::new(WeakHashSet::new()));
-
-        let tree = Tree::for_party(party, start);
-        let identity = Original(Arc::new(tree.party().clone()));
-
-        // Ensure this party isn't live right now, then track it.
-        let mut parties = PARTIES.lock().unwrap();
-        if !parties.contains(&*identity.0) {
-            parties.insert(identity.0.clone());
-            Ok(Self { identity, tree })
-        } else {
-            Err(AlreadyExists {})
+    pub fn seed() -> Self {
+        Known {
+            party: Party::seed(),
+            tree: Tree::new(),
         }
-    }
-
-    /// Get this party's local event counter: the count of all operations ever
-    /// applied by this party.
-    ///
-    /// Persist this value durably between process runs and pass it back as the
-    /// `start` argument to [`Local::for_party`] on the next invocation. If a
-    /// party name is reused, `start >= self.event()` of the prior instantiation
-    /// is *required*; violating this invariant can lead to arbitrary and
-    /// contagious corruption of the rumor set network-wide.
-    pub fn event(&self) -> u64 {
-        self.tree.version().for_party(self.tree.party())
     }
 
     /// Insert messages into the rumor set, invoking `on_message` once per
@@ -476,11 +403,11 @@ impl<T> Local<T, Original> {
     /// # Example
     ///
     /// ```
-    /// use rumors::{Local, Key, Version};
+    /// use rumors::{Known, Key, Version};
     ///
     /// # #[tokio::main(flavor = "current_thread")]
     /// # async fn main() {
-    /// let mut alice = Local::for_party("alice", 0).unwrap();
+    /// let mut alice = Known::seed();
     /// let mut observed: Vec<(Key, Version, String)> = Vec::new();
     /// alice.message(
     ///     ["hello".to_string(), "world".to_string()],
@@ -505,6 +432,7 @@ impl<T> Local<T, Original> {
     {
         self.tree
             .act(
+                &self.party,
                 messages.into_iter().map(Message::from).map(Action::Insert),
                 move |k: Key,
                       v: &Version,
@@ -519,22 +447,46 @@ impl<T> Local<T, Original> {
             .await;
     }
 
+    /// Lazily iterate every message currently live in this rumor set, as
+    /// `(Key, &Version, &Arc<T>)`, in unspecified order.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rumors::{Known, ignore};
+    ///
+    /// # #[tokio::main(flavor = "current_thread")]
+    /// # async fn main() {
+    /// let mut alice = Known::seed();
+    /// alice.message(["a".to_string(), "b".to_string()], ignore).await;
+    /// let mut live: Vec<String> = alice.iter().map(|(_, _, m)| m.as_ref().clone()).collect();
+    /// live.sort();
+    /// assert_eq!(live, vec!["a".to_string(), "b".to_string()]);
+    /// # }
+    /// ```
+    pub fn iter(&self) -> impl Iterator<Item = (Key, &Version, &Arc<T>)> + Send + Sync
+    where
+        T: Send + Sync,
+    {
+        self.tree.iter()
+    }
+
     /// Redact the given keys: stop gossiping the corresponding messages, and
     /// instruct every peer we synchronize with to do the same.
     ///
     /// Each [`Key`] was originally surfaced by an `on_message` callback in
-    /// [`Local::message`], [`Local::process`], or [`Local::gossip`].
+    /// [`Known::message`], [`Known::learn`], or [`Known::gossip`].
     /// Redaction is contagious, so a single peer's call evicts the message
     /// network-wide without consensus.
     ///
     /// # Example
     ///
     /// ```
-    /// use rumors::{Local, Key};
+    /// use rumors::{Known, Key};
     ///
     /// # #[tokio::main(flavor = "current_thread")]
     /// # async fn main() {
-    /// let mut alice = Local::for_party("alice", 0).unwrap();
+    /// let mut alice = Known::seed();
     /// let mut keys: Vec<Key> = Vec::new();
     /// alice.message(
     ///     ["transient announcement".to_string()],
@@ -550,103 +502,120 @@ impl<T> Local<T, Original> {
     where
         T: Send + Sync,
     {
-        pollster::block_on(
-            self.tree.act(
-                redacted.into_iter().map(Action::Forget),
-                |_, _, _| ready(()),
-            ),
-        );
+        pollster::block_on(self.tree.act(
+            &self.party,
+            redacted.into_iter().map(Action::Forget),
+            |_, _, _| ready(()),
+        ));
     }
-}
 
-impl<T, Identity> Local<T, Identity> {
-    /// Duplicate a rumor set into a [`Forked`] [`Local`] usable concurrently.
+    /// Fork off a new rumor set with its own disjoint [`Party`], sharing this
+    /// set's current observations.
     ///
-    /// Forks share their underlying tree structurally (copy-on-write), so this
-    /// is cheap. The fork may [`gossip`](Local::gossip) and merge other forks
-    /// into itself via [`process`](Local::process) or `+`, but it *cannot*
-    /// originate new [`message`](Local::message)s or [`redact`](Local::redact)
-    /// keys; only the singleton [`Original`] for the party can. The fork can
-    /// later be folded back in with `original.process(fork)`. See the
-    /// [`Local`] docs for why this split exists.
+    /// This is a *true causal fork*: it splits the underlying ITC [`Party`] in
+    /// two, so the returned `Known` is a fully independent peer — it may
+    /// [`message`](Self::message), [`redact`](Self::redact),
+    /// [`gossip`](Self::gossip), and be [`fork`](Self::fork)ed again, all
+    /// concurrently with `self`. The tree is shared structurally
+    /// (copy-on-write), so the fork starts from the same observations, but the
+    /// two parties' futures are independent and causally concurrent. Reunite a
+    /// fork with [`learn`](Self::learn) / [`join`](Self::join), which
+    /// merges the trees and rejoins the parties.
     ///
     /// # Example
     ///
     /// ```
-    /// use rumors::{Local, ignore};
+    /// use rumors::{Known, ignore};
     ///
     /// # #[tokio::main(flavor = "current_thread")]
     /// # async fn main() {
-    /// let mut alice = Local::for_party("alice", 0).unwrap();
+    /// let mut alice = Known::seed();
     /// alice.message(["hello".to_string()], ignore).await;
     ///
-    /// // A fork can be moved to another task; only the Original can mutate.
+    /// // The fork shares alice's observations but has its own party.
     /// let snapshot = alice.fork();
     /// assert_eq!(alice, snapshot);
     /// # }
     /// ```
-    pub fn fork(&self) -> Local<T, Forked> {
-        Local {
+    pub fn fork(&mut self) -> Known<T> {
+        Known {
+            party: self.party.fork(),
             tree: self.tree.clone(),
-            identity: Forked(()),
         }
     }
 
-    /// Merge `new` into `self`, invoking `on_message` for each message in
-    /// `new` that `self` had not already observed.
+    /// Merge `other` into `self`, invoking `on_message` for each message in
+    /// `other` that `self` had not already observed, and reuniting `other`'s
+    /// [`Party`] back into `self`'s.
     ///
-    /// `new` must be [`Forked`]: only the [`Original`] for a party can
-    /// originate messages, but any number of [`Forked`] copies can carry
-    /// observations between peers and recombine. The callback signature
-    /// matches [`Local::message`]; messages present in `self` but missing from
-    /// `new` do not fire it.
+    /// **Delivery is unordered**: callbacks fire in arbitrary order, including
+    /// orderings that violate the causal precedence captured by each message's
+    /// [`Version`]. Sort by [`Version`] if your application needs causal or
+    /// insertion ordering.
     ///
-    /// **Delivery is unordered**: callbacks fire in arbitrary order,
-    /// including orderings that violate the causal precedence captured by
-    /// each message's [`Version`]. `rumors` is not a causal-delivery
-    /// primitive; if your application requires causal or insertion
-    /// ordering, sort the observations by [`Version`] before consuming
-    /// them.
+    /// # Errors
+    ///
+    /// Returns `Err(other)`, handing `other` back untouched, if the two parties
+    /// are **not disjoint**, i.e. they do not descend from a common
+    /// [`seed`](Self::seed) by un-rejoined forks (for example, they come from
+    /// two different seeds). In correct linear usage this never happens; it is
+    /// surfaced rather than panicking so a caller who mixes universes can
+    /// recover.
     ///
     /// # Example
     ///
-    /// Two parties, each holding their own [`Original`], can exchange state
-    /// by forking and processing:
-    ///
     /// ```
-    /// use rumors::{Local, ignore};
+    /// use rumors::{Known, ignore};
     ///
     /// # #[tokio::main(flavor = "current_thread")]
     /// # async fn main() {
-    /// let mut alice = Local::for_party("alice", 0).unwrap();
-    /// let mut bob = Local::for_party("bob", 0).unwrap();
+    /// let mut alice = Known::seed();
+    /// let mut bob = alice.fork();
     /// bob.message(["news from bob".to_string()], ignore).await;
     ///
-    /// // `bob.fork()` produces a Forked copy that alice can absorb.
     /// let mut learned: Vec<String> = Vec::new();
-    /// alice.process(bob.fork(), |_, _, m| {
+    /// alice.learn(bob, |_, _, m| {
     ///     learned.push(m.as_ref().clone());
     ///     async {}
-    /// }).await;
+    /// }).await.unwrap();
     /// assert_eq!(learned, vec!["news from bob".to_string()]);
     /// # }
     /// ```
-    pub async fn process<'a, OnMessage, OnMessageFut>(
+    pub async fn learn<'a, OnMessage, OnMessageFut>(
         &'a mut self,
-        new: Local<T, Forked>,
+        other: Known<T>,
         on_message: OnMessage,
-    ) where
+    ) -> Result<(), Known<T>>
+    where
         T: Send + Sync + 'a,
-        Identity: Send,
         OnMessage: FnMut(Key, &Version, &Arc<T>) -> OnMessageFut + Send + 'a,
         OnMessageFut: std::future::Future<Output = ()> + Send + 'a,
     {
+        let Known {
+            party: other_party,
+            tree: other_tree,
+        } = other;
+
+        // `Party::join` *is* the disjointness check: on success it merges the
+        // other party's region into ours; on overlap (different seeds, or an
+        // already-rejoined pair) it leaves us untouched and hands the party
+        // back. Doing it first means a non-disjoint `other` is returned whole
+        // with nothing mutated — no separate `is_disjoint` probe needed.
+        if let Err(party) = self.party.join(other_party) {
+            return Err(Known {
+                party,
+                tree: other_tree,
+            });
+        }
+
         // Instantiate the two sides of the mirror exchange, both local
         let l = mirror::local::Exchange::start(self.tree.root.clone(), ignore, on_message);
-        let r = mirror::local::Exchange::start(new.tree.root, ignore, ignore);
+        let r = mirror::local::Exchange::start(other_tree.root, ignore, ignore);
 
         // Drive them to completion: we know they don't need a "real" executor
         Ok((self.tree.root, _)) = mirror(l, r).await;
+
+        Ok(())
     }
 
     /// Synchronize rumor sets with a remote peer, invoking `on_message` for
@@ -654,8 +623,8 @@ impl<T, Identity> Local<T, Identity> {
     ///
     /// `read` and `write` must implement [`AsyncRead`] / [`AsyncWrite`];
     /// both ends of the connection must drive `gossip` concurrently. The
-    /// callback signature matches [`Local::message`]. For synchronous I/O,
-    /// use [`sync::Local::gossip`].
+    /// callback signature matches [`Known::message`]. For synchronous I/O,
+    /// use [`sync::Known::gossip`].
     ///
     /// The session begins with the 8-byte protocol handshake described in
     /// the crate-level `# Stability` section; a peer with the wrong
@@ -671,7 +640,7 @@ impl<T, Identity> Local<T, Identity> {
     ///
     /// ```
     /// use std::sync::Arc;
-    /// use rumors::{Local, ignore};
+    /// use rumors::{Known, ignore};
     ///
     /// # #[tokio::main(flavor = "current_thread")]
     /// # async fn main() {
@@ -679,9 +648,9 @@ impl<T, Identity> Local<T, Identity> {
     /// let (mut a_r, mut a_w) = tokio::io::split(a);
     /// let (mut b_r, mut b_w) = tokio::io::split(b);
     ///
-    /// let mut alice: Local<String, _> = Local::for_party("alice", 0).unwrap();
+    /// let mut alice: Known<String> = Known::seed();
     /// alice.message(["hello".to_string()], ignore).await;
-    /// let bob: Local<String, _> = Local::for_party("bob", 0).unwrap();
+    /// let bob: Known<String> = Known::seed();
     ///
     /// let mut bob_learned: Vec<String> = Vec::new();
     /// let (alice, bob) = tokio::join!(
@@ -707,7 +676,6 @@ impl<T, Identity> Local<T, Identity> {
         W: AsyncWrite + Unpin + Send,
         OnMessage: FnMut(Key, &Version, &Arc<T>) -> OnMessageFut + Send + 'a,
         OnMessageFut: Future<Output = ()> + Send + 'a,
-        Identity: Send,
     {
         // Protocol-version handshake: both sides exchange a fixed
         // 8-byte preamble before any other traffic. An incompatible
@@ -727,27 +695,32 @@ impl<T, Identity> Local<T, Identity> {
 
         Ok(self)
     }
-}
 
-/// Combine two rumor sets via [`Local::process`].
-impl<T> Add for Local<T, Forked>
-where
-    T: Send + Sync,
-{
-    type Output = Local<T, Forked>;
-
-    fn add(mut self, rhs: Self) -> Self::Output {
-        pollster::block_on(self.process(rhs, |_, _, _| ready(())));
-        self
-    }
-}
-
-/// Absorb `rhs` into `self` via [`Local::process`].
-impl<T> AddAssign for Local<T, Forked>
-where
-    T: Send + Sync,
-{
-    fn add_assign(&mut self, rhs: Self) {
-        *self = self.clone().add(rhs);
+    /// Reunite `other` into `self`, discarding per-message observations.
+    ///
+    /// A blocking, ignore-the-callback convenience for
+    /// [`learn`](Self::learn): it merges `other`'s history into `self` and
+    /// rejoins their parties (the inverse of [`fork`](Self::fork)). Returns
+    /// `Err(other)` if the two parties are not disjoint — see
+    /// [`learn`](Self::learn) for when that arises.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rumors::{Known, ignore};
+    ///
+    /// # #[tokio::main(flavor = "current_thread")]
+    /// # async fn main() {
+    /// let mut alice = Known::seed();
+    /// let mut bob = alice.fork();
+    /// bob.message(["news".to_string()], ignore).await;
+    /// alice.join(bob).unwrap();
+    /// # }
+    /// ```
+    pub fn join(&mut self, other: Known<T>) -> Result<(), Known<T>>
+    where
+        T: Send + Sync,
+    {
+        pollster::block_on(self.learn(other, |_, _, _| ready(())))
     }
 }

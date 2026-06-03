@@ -71,9 +71,9 @@ fn prefix_root_serializes_to_empty() {
 // would fail here.
 proptest! {
     #[test]
-    fn typed_root_node_borsh_round_trip(node in arb_root_node("p", 0..=8)) {
+    fn typed_root_node_borsh_round_trip(node in arb_root_node(0, 0..=8)) {
         let serialized = borsh::to_vec(&node).unwrap();
-        let deserialized: Option<Node<String, (), Root>> =
+        let deserialized: Option<Node<(), Root>> =
             Option::try_from_slice(&serialized).unwrap();
         let hash_before = Node::root_hash(&node);
         let hash_after = Node::root_hash(&deserialized);
@@ -91,7 +91,7 @@ proptest! {
 // points so a refactor that silently accepts malformed wires would fail
 // here. ----
 
-/// A `Node<P, T, Z>` with `prefix_len > 0` is structurally impossible
+/// A `Node<T, Z>` with `prefix_len > 0` is structurally impossible
 /// (leaves never carry a prefix); the decoder must reject it rather
 /// than absorb the bytes as a leaf body.
 #[test]
@@ -99,7 +99,7 @@ fn node_z_rejects_nonzero_prefix_len() {
     let mut wire = vec![0x01]; // prefix_len = 1
     wire.push(0xab); // pretend head byte
     wire.extend_from_slice(&[0u8; 4]); // empty version map (u32 len = 0)
-    let err = Node::<String, (), Z>::try_from_slice(&wire).unwrap_err();
+    let err = Node::<(), Z>::try_from_slice(&wire).unwrap_err();
     assert!(
         err.to_string()
             .contains("leaf height cannot carry a prefix"),
@@ -107,14 +107,14 @@ fn node_z_rejects_nonzero_prefix_len() {
     );
 }
 
-/// A `Node<P, T, S<Z>>` with `prefix_len > S<Z>::HEIGHT` is past the
+/// A `Node<T, S<Z>>` with `prefix_len > S<Z>::HEIGHT` is past the
 /// height-derived maximum and must be rejected before any further
 /// reads.
 #[test]
 fn node_s_z_rejects_oversized_prefix_len() {
     // S<Z>::HEIGHT == 1, so prefix_len = 2 is out of range.
     let wire = vec![0x02];
-    let err = Node::<String, (), S<Z>>::try_from_slice(&wire).unwrap_err();
+    let err = Node::<(), S<Z>>::try_from_slice(&wire).unwrap_err();
     assert!(
         err.to_string()
             .contains("prefix length exceeds typed height"),
@@ -127,11 +127,12 @@ fn node_s_z_rejects_oversized_prefix_len() {
 fn node_s_z_rejects_non_ascending_radices() {
     // S<Z> branch, prefix_len=0, count_minus_two=0 (count=2), radices 5 then 3.
     let mut wire = vec![0x00, 0x00, 0x05];
-    // First child (Z leaf): prefix_len=0, empty version, empty message.
-    wire.extend_from_slice(&[0x00, 0x00, 0x00, 0x00, 0x00]);
+    // First child (Z leaf): prefix_len=0, then an empty `Version` (borsh-framed
+    // as length-1 bytes `01 00 00 00 40`), then the empty `()` message.
+    wire.extend_from_slice(&[0x00, 0x01, 0x00, 0x00, 0x00, 0x40]);
     wire.push(0x03);
-    wire.extend_from_slice(&[0x00, 0x00, 0x00, 0x00, 0x00]);
-    let err = Node::<String, (), S<Z>>::try_from_slice(&wire).unwrap_err();
+    wire.extend_from_slice(&[0x00, 0x01, 0x00, 0x00, 0x00, 0x40]);
+    let err = Node::<(), S<Z>>::try_from_slice(&wire).unwrap_err();
     assert!(
         err.to_string().contains("strictly ascending"),
         "unexpected error: {err}",
@@ -143,10 +144,10 @@ fn node_s_z_rejects_non_ascending_radices() {
 #[test]
 fn node_s_z_rejects_duplicate_radix() {
     let mut wire = vec![0x00, 0x00, 0x05];
-    wire.extend_from_slice(&[0x00, 0x00, 0x00, 0x00, 0x00]);
+    wire.extend_from_slice(&[0x00, 0x01, 0x00, 0x00, 0x00, 0x40]);
     wire.push(0x05);
-    wire.extend_from_slice(&[0x00, 0x00, 0x00, 0x00, 0x00]);
-    let err = Node::<String, (), S<Z>>::try_from_slice(&wire).unwrap_err();
+    wire.extend_from_slice(&[0x00, 0x01, 0x00, 0x00, 0x00, 0x40]);
+    let err = Node::<(), S<Z>>::try_from_slice(&wire).unwrap_err();
     assert!(
         err.to_string().contains("strictly ascending"),
         "unexpected error: {err}",
@@ -157,7 +158,7 @@ fn node_s_z_rejects_duplicate_radix() {
 #[test]
 fn node_s_z_rejects_overflow_count() {
     let wire = vec![0x00, 0xff];
-    let err = Node::<String, (), S<Z>>::try_from_slice(&wire).unwrap_err();
+    let err = Node::<(), S<Z>>::try_from_slice(&wire).unwrap_err();
     assert!(
         err.to_string().contains("exceeds 256"),
         "unexpected error: {err}",

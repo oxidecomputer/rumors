@@ -1,15 +1,13 @@
-//! Generic `Insert`/`Redact` action sequences for single-`Local`
+//! Generic `Insert`/`Redact` action sequences for single-`Known`
 //! tests. Shared by `pairwise` (async wire) and `sync_wire`, so both
 //! exercise the same shapes of input — including redactions, which
 //! the original String-T and Sync wire tests skipped.
-
-use std::sync::{Arc, Mutex};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use proptest::collection::vec;
 use proptest::prelude::*;
 use rumors::Key;
-use rumors::sync::Local;
+use rumors::sync::Known;
 
 const MAX_ACTIONS: usize = 16;
 
@@ -48,31 +46,29 @@ pub fn arb_string_actions() -> impl Strategy<Value = Vec<LocalAction<String>>> {
     arb_actions("[a-z]{0,8}".prop_map(String::from))
 }
 
-/// Apply a `LocalAction` sequence to a fresh `Local<T>` tagged with
-/// `party`, returning the result.
-pub fn build_local<T>(party: &str, actions: &[LocalAction<T>]) -> Local<T>
+/// Apply a `LocalAction` sequence to the given `Known<T>`, returning it.
+///
+/// The caller supplies `local` already [`fork`](Known::fork)ed from the shared
+/// universe seed, so independently-built locals stay pairwise disjoint and can
+/// later [`learn`](Known::learn) from one another.
+pub fn build_local<T>(mut local: Known<T>, actions: &[LocalAction<T>]) -> Known<T>
 where
     T: Send + Sync + Clone + BorshSerialize + BorshDeserialize + 'static,
 {
-    let mut local = Local::for_party(party, 0).unwrap();
-    // `Arc<Mutex<_>>` rather than `&mut keys`: the sync API's callback
-    // bound is `Send + 'static`, which a borrow can't satisfy.
-    let keys: Arc<Mutex<Vec<Key>>> = Arc::new(Mutex::new(Vec::new()));
+    // The sync callback bound only requires `Send + 'a`, so the closure can
+    // borrow `keys` directly for the duration of each `message` call.
+    let mut keys: Vec<Key> = Vec::new();
     for a in actions {
         match a {
             LocalAction::Insert(v) => {
-                let keys_in = Arc::clone(&keys);
-                local.message([v.clone()], move |k, _, _| keys_in.lock().unwrap().push(k));
+                local.message([v.clone()], |k, _, _| keys.push(k));
             }
             LocalAction::Redact(idx) => {
-                let keys_guard = keys.lock().unwrap();
-                if !keys_guard.is_empty() {
-                    let k = keys_guard[idx % keys_guard.len()];
-                    drop(keys_guard);
-                    local.redact([k]);
+                if !keys.is_empty() {
+                    local.redact([keys[idx % keys.len()]]);
                 }
             }
         }
     }
-    local.fork()
+    local
 }

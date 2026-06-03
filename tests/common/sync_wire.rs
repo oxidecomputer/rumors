@@ -1,18 +1,18 @@
 //! Wire-equivalence helper for the *synchronous* gossip path: drive
-//! `sync::Local::gossip` over a pair of `std::io::pipe`s with one peer
-//! on each thread. Mirrors `wire.rs` for the async `Local::gossip`
+//! `sync::Known::gossip` over a pair of `std::io::pipe`s with one peer
+//! on each thread. Mirrors `wire.rs` for the async `Known::gossip`
 //! path. Used by the `sync_wire` integration test.
 
 use std::io::pipe;
 use std::thread;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use rumors::sync::{self, Local, ignore};
+use rumors::sync::{self, Known, ignore};
 
-/// Gossip two `Local`s through the synchronous wire protocol and
-/// return the reconciled pair. After this returns, the two `Local`s
+/// Gossip two `Known`s through the synchronous wire protocol and
+/// return the reconciled pair. After this returns, the two `Known`s
 /// agree on live content.
-pub fn sync_wire_gossip<T>(a: Local<T>, b: Local<T>) -> (Local<T>, Local<T>)
+pub fn sync_wire_gossip<T>(a: Known<T>, b: Known<T>) -> (Known<T>, Known<T>)
 where
     T: Clone + BorshSerialize + BorshDeserialize + Send + std::marker::Sync + 'static,
 {

@@ -15,3 +15,4 @@ pub use levels::Levels;
 pub use node::Node;
 pub use path::Path;
 pub use prefix::Prefix;
+pub use untyped::Iter;

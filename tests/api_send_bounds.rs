@@ -1,4 +1,4 @@
-//! Static assertions that every async public method on [`rumors::Local`]
+//! Static assertions that every async public method on [`rumors::Known`]
 //! returns a `Send` future.
 //!
 //! The motivating use case is `tokio::spawn(local.method(...))` on a
@@ -7,7 +7,7 @@
 //! drops the future without awaiting. If any of the async methods
 //! regresses to a `!Send` return, this crate fails to compile.
 
-use rumors::{Local, ignore};
+use rumors::{Known, ignore};
 
 /// Compile-time `Send`-bound check. Takes its argument by reference so the
 /// future can be dropped (rather than awaited) afterwards.
@@ -15,7 +15,7 @@ fn require_send<T: Send + ?Sized>(_: &T) {}
 
 #[test]
 fn message_future_is_send() {
-    let mut alice = Local::<String, _>::for_party("send-bound-message", 0).unwrap();
+    let mut alice = Known::<String>::seed();
     let fut = alice.message(["hello".to_string()], ignore);
     require_send(&fut);
     drop(fut);
@@ -23,17 +23,17 @@ fn message_future_is_send() {
 
 #[test]
 fn process_future_is_send() {
-    let mut alice = Local::<String, _>::for_party("send-bound-process-a", 0).unwrap();
-    let bob = Local::<String, _>::for_party("send-bound-process-b", 0).unwrap();
+    let mut alice = Known::<String>::seed();
+    let mut bob = Known::<String>::seed();
     let bob_fork = bob.fork();
-    let fut = alice.process(bob_fork, ignore);
+    let fut = alice.learn(bob_fork, ignore);
     require_send(&fut);
     drop(fut);
 }
 
 #[test]
 fn gossip_future_is_send() {
-    let alice = Local::<String, _>::for_party("send-bound-gossip", 0).unwrap();
+    let alice = Known::<String>::seed();
     let (_, b) = tokio::io::duplex(64);
     let (mut r, mut w) = tokio::io::split(b);
     let fut = alice.gossip(&mut r, &mut w, ignore);
@@ -49,7 +49,7 @@ fn gossip_future_is_send() {
 /// into a borrowed `&mut Vec`.
 #[tokio::test]
 async fn callback_can_borrow_local_state() {
-    let mut alice = Local::<String, _>::for_party("borrow-message", 0).unwrap();
+    let mut alice = Known::<String>::seed();
     let mut observed: Vec<String> = Vec::new();
     alice
         .message(
@@ -71,8 +71,8 @@ async fn callback_can_borrow_local_state() {
 /// every observation log.
 #[test]
 fn sync_callback_can_borrow_local_state() {
-    use rumors::sync::Local as SyncLocal;
-    let mut alice = SyncLocal::<String, _>::for_party("sync-borrow-message", 0).unwrap();
+    use rumors::sync::Known as SyncLocal;
+    let mut alice = SyncLocal::<String>::seed();
     let mut observed: Vec<String> = Vec::new();
     alice.message(
         ["one".to_string(), "two".to_string(), "three".to_string()],

@@ -18,10 +18,9 @@ trait Descend: Height {
     fn descend_and_collapse<L>(
         levels: L,
         decisions: &mut impl Iterator<Item = bool>,
-    ) -> Option<Node<L::Party, L::Message, Root>>
+    ) -> Option<Node<L::Message, Root>>
     where
         L: Levels<Height = Self>,
-        L::Party: Clone + Ord + AsRef<[u8]> + Send + Sync,
         L::Message: Clone + Send + Sync;
 }
 
@@ -29,10 +28,9 @@ impl Descend for Z {
     fn descend_and_collapse<L>(
         levels: L,
         _decisions: &mut impl Iterator<Item = bool>,
-    ) -> Option<Node<L::Party, L::Message, Root>>
+    ) -> Option<Node<L::Message, Root>>
     where
         L: Levels<Height = Self>,
-        L::Party: Clone + Ord + AsRef<[u8]> + Send + Sync,
         L::Message: Clone + Send + Sync,
     {
         levels.collapse()
@@ -47,16 +45,15 @@ where
     fn descend_and_collapse<L>(
         mut levels: L,
         decisions: &mut impl Iterator<Item = bool>,
-    ) -> Option<Node<L::Party, L::Message, Root>>
+    ) -> Option<Node<L::Message, Root>>
     where
         L: Levels<Height = Self>,
-        L::Party: Clone + Ord + AsRef<[u8]> + Send + Sync,
         L::Message: Clone + Send + Sync,
     {
         let current = std::mem::take(levels.level_mut());
 
         let mut stay = OrdMap::new();
-        let mut below: OrdMap<Prefix<H>, Node<L::Party, L::Message, H>> = OrdMap::new();
+        let mut below: OrdMap<Prefix<H>, Node<L::Message, H>> = OrdMap::new();
 
         for (prefix, node) in current {
             if decisions.next().unwrap_or(false) {
@@ -79,7 +76,7 @@ proptest! {
     /// then folding back via `collapse`, recovers the original tree.
     #[test]
     fn collapse_inverts_down(
-        tree in arb_root_node("a", 0..=16),
+        tree in arb_root_node(0, 0..=16),
         decisions in vec(any::<bool>(), 0..=512),
     ) {
         let before = tree.clone();

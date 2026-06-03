@@ -4,6 +4,7 @@ use bytes::Bytes;
 
 use super::hash::{Hash, Hasher};
 use super::height::{Height, Root, S};
+use crate::version::Version;
 
 /// A typed path through the tree which is always the right height.
 ///
@@ -19,14 +20,21 @@ pub struct Path<H: Height = Root> {
 }
 
 impl Path<Root> {
-    /// Get a path for the given leaf, incorporating its party, version, and value.
-    pub fn for_leaf<P: AsRef<[u8]>>(party: &P, version: u64, value: &Bytes) -> Self {
-        // We form the hash for a value as the ternary depth-1 merkle tree of
-        // party, version, value. This ensures no length malleability issues.
+    /// Get a path for the given leaf, incorporating its version and value.
+    ///
+    /// The version's canonical [`as_bytes`](Version::as_bytes) makes the path
+    /// unique per insert: every [`tick`](Version::tick) yields a distinct
+    /// canonical encoding, so two content-identical values inserted at
+    /// different versions land at distinct paths. Parties descend from a
+    /// shared seed by disjoint forks, so their versions are structurally
+    /// distinct too; the version alone therefore disambiguates without also
+    /// folding in the party.
+    pub fn for_leaf(version: &Version, value: &Bytes) -> Self {
+        // We form the hash for a value as the binary depth-1 merkle tree of
+        // version, value. This ensures no length malleability issues.
 
         let mut hasher = Hasher::new();
-        hasher.update(Hash::of(party.as_ref()).as_bytes());
-        hasher.update(Hash::of(&version.to_le_bytes()).as_bytes());
+        hasher.update(Hash::of(version.as_bytes()).as_bytes());
         hasher.update(Hash::of(value.as_ref()).as_bytes());
 
         Self {

@@ -1,19 +1,17 @@
 //! Spec-shaped oracle for the gossip-set semantics, plus a `readout`
-//! lens that projects a `Local<T>` back into its currently-live
+//! lens that projects a `Known<T>` back into its currently-live
 //! `(Key, T)` map.
 //!
-//! The oracle holds only `BTreeMap`s and `BTreeSet`s — no `Local`, no
-//! `process`, no `+` — so a bug in the live merge primitives cannot
+//! The oracle holds only `BTreeMap`s and `BTreeSet`s — no `Known`, no
+//! `learn`, no merging — so a bug in the live merge primitives cannot
 //! silently corrupt the reference state. It records each insert by
 //! the schedule's [`EventIdx`] so the oracle and the live executor
 //! agree on identity without ever consulting the live `Key`s.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::{Arc, Mutex};
 
-use borsh::{BorshDeserialize, BorshSerialize};
 use rumors::Key;
-use rumors::sync::Local;
+use rumors::sync::Known;
 
 use super::schedule::EventIdx;
 
@@ -65,40 +63,23 @@ impl<T: Clone + Ord> Oracle<T> {
     }
 }
 
-/// Project a `Local<T>` into its currently-live `(Key, T)` map by
-/// mirroring it into a fresh empty `Local`. Forgotten entries do not
-/// fire `on_message` (their paths carry forget tombstones, not
-/// messages), so they are naturally excluded.
+/// Project a `Known<T>` into its currently-live `(Key, T)` map.
 ///
-/// `Local::process` is used here purely as an enumeration mechanism
-/// against an empty baseline; the throwaway lens never feeds back into
-/// anything.
-pub fn readout<T, Id>(peer: &Local<T, Id>) -> BTreeMap<Key, T>
+/// A direct read via [`Known::iter`]: it enumerates exactly the live leaves,
+/// so redacted messages — whose leaves the redaction *removed*, leaving no
+/// marker — are simply absent. No mirroring, no throwaway peer, no party
+/// juggling.
+pub fn readout<T>(peer: &Known<T>) -> BTreeMap<Key, T>
 where
-    T: Clone + Ord + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+    T: Clone + Send + Sync + 'static,
 {
-    // The sync API's callback bound is `Send + 'static`; route the
-    // observation map through an `Arc<Mutex<_>>` clone and unwrap the
-    // sole remaining reference once `process` returns.
-    let out: Arc<Mutex<BTreeMap<Key, T>>> = Arc::new(Mutex::new(BTreeMap::new()));
-    let out_in = Arc::clone(&out);
-    // Non-ASCII magic bytes: cannot collide with any test party id,
-    // which are all human-readable ASCII strings.
-    let mut lens = Local::<T, _>::for_party(b"\x00READOUT\x00", 0).unwrap();
-    lens.process(peer.fork(), move |k, _v, m: &Arc<T>| {
-        out_in.lock().unwrap().insert(k, T::clone(m));
-    });
-    Arc::try_unwrap(out)
-        .ok()
-        .expect("callback closure dropped after `process` returns")
-        .into_inner()
-        .expect("mutex not poisoned")
+    peer.iter().map(|(k, _v, m)| (k, (**m).clone())).collect()
 }
 
 /// Multiset (value → count) of a peer's currently-live messages.
-pub fn readout_multiset<T, Id>(peer: &Local<T, Id>) -> BTreeMap<T, usize>
+pub fn readout_multiset<T>(peer: &Known<T>) -> BTreeMap<T, usize>
 where
-    T: Clone + Ord + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+    T: Clone + Ord + Send + Sync + 'static,
 {
     let mut out = BTreeMap::new();
     for v in readout(peer).into_values() {
