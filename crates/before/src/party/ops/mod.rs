@@ -5,11 +5,15 @@
 //! `enc_id(Leaf v) = 0, v` (2 bits); `enc_id(Node l r) = 1, enc_id(l),
 //! enc_id(r)`. Every traversal recurses on depth — guarded against overflow by
 //! [`crate::recurse`] — and is `O(n + m)` in its inputs, with no re-scan to find
-//! a right child. Two techniques achieve that:
+//! a right child. The same single-use-cursor discipline as the event side
+//! governs them (see the [traversal overview](crate::version::event)); two
+//! points are specific to ids:
 //!
-//! - **Threading.** A right child's position is *discovered* when the walk
-//!   finishes the left subtree, not recomputed by skipping it. Each recursive
-//!   call returns where its subtree ended; the sibling resumes there.
+//! - **Threading via the cursor.** A child is a single-use `&mut`
+//!   [`IdReader`](crate::idbits::IdReader): reading a node advances it in place,
+//!   so finishing the left subtree leaves the cursor at the right child — no end
+//!   position to return, no re-scan. (`split` is the exception: its scan records
+//!   bit *positions*, because `build_split` splices the input on them.)
 //!
 //! - **Bounded lazy-skip.** Where one side prunes early (a leaf dominates the
 //!   other's whole subtree), the dominated subtree is skipped *once*, at the
@@ -18,7 +22,9 @@
 //!
 //! Emptiness/fullness are `O(1)` leaf checks (see [`idbits`](crate::idbits)),
 //! valid because every `Party` — and every subtree of one — is in canonical
-//! normal form.
+//! normal form. Output is built by [`build::IdBuilder`] (`sum`) or by direct
+//! bit-splice (`split`); see `split`'s `build_split` for why it does not use the
+//! builder.
 
 mod build;
 mod compare;

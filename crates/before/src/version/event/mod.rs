@@ -12,44 +12,66 @@
 //! `O(1)` base backpatch ([`Builder::close_node`]) the moment a node's children
 //! are known, exactly the back-reference the fixed-width form exists for.
 //!
-//! # Recursion and threading
+//! # How to read these traversals
 //!
-//! Every two-tree machine here ([`EvReader::join`], [`EvReader::fill`], and the
-//! [`grow`] submodule's probe and emit) — and `EvReader::causal_cmp` in
-//! [`super::compare`] next door — recurses on tree depth, returning a small
-//! per-subtree *report* and threading right-child positions instead of
-//! re-scanning to find them:
+//! Every operation here recurses on tree depth over **single-use cursors**
+//! ([`EvReader`], and [`IdReader`](crate::idbits::IdReader) on the id side). A cursor is
+//! `!Copy`/`!Clone`: [`read`](EvReader::read) decodes the node at the cursor and
+//! advances it *in place*, so a recursive call threads a `&mut` cursor that
+//! comes back positioned just past the subtree it consumed — the right child
+//! then resumes from it with no re-scan and no returned "end" to thread. The
+//! call returns only its payload: an output root, a cost, a verdict. This is the
+//! whole shape of `causal_cmp`, `join`, `fill`, [`EvReader::max`], the [`grow`]
+//! probe and emit, and `party::ops`'s `sum`/`is_disjoint`/`split` next door.
 //!
-//! - Each recursive call returns its just-finished subtree's report: a reader
-//!   just past it in each input tree, plus a per-walk payload — the output root
-//!   it produced (`fill`'s `Filled`, the grow emit's `Grown`, `join`'s
-//!   `Joined`), the subtree's cost (`grow`'s `Probed`), or just the end readers
-//!   (`compare`). A right child is evaluated starting where its left sibling's
-//!   report says it ended, so it never re-scans.
+//! Two things follow from the cursor being single-use:
 //!
-//! - Recursion is guarded by [`crate::recurse`]: a shallow, near-balanced tree
-//!   recurses on the program stack at native speed, while a deep one grows the
-//!   stack onto the heap before it can overflow. (`sum` in `party::ops` plays
-//!   the same role with an output builder plus its `Summed` report, since it
-//!   must also finalize normalized output nodes.)
+//! - **A re-scan is a compile error.** Reading the same subtree twice would mean
+//!   copying or rewinding a cursor, which the types forbid; that is the `O(n+m)`
+//!   guarantee made structural rather than reviewed. The lone operation that
+//!   reads one tree twice — `grow`'s cost probe then emit — rebuilds a fresh
+//!   cursor from the source for each pass (as `tick` does), visibly distinct
+//!   from in-pass threading.
 //!
-//! # Traversal-idiom taxonomy
+//! - **A broadcast constructs, it does not copy.** Where a two-tree walk meets a
+//!   leaf on one side and a node on the other, the leaf is "broadcast" to both
+//!   of the node's children — the paper's rule that a leaf `n` behaves as
+//!   `(n, 0, 0)`. The leaf side hands each child a *freshly built* synthetic
+//!   cursor, never a copy of itself: [`EvReader::Zero`] (a `Leaf(0)`; also
+//!   `grow`'s virtual leaf) and, on the id side, [`IdReader::Full`](crate::idbits::IdReader::Full)
+//!   (the `1` re-presented to both event children in `grow`'s full-id case).
 //!
-//! Every tree walk in the crate recurses on depth, guarded against overflow by
-//! [`crate::recurse`]. There are three distinct shapes; each is internally
-//! consistent, and knowing which one a given machine uses tells you how to read
-//! it:
+//! Recursion is guarded by [`crate::recurse`]: a shallow, near-balanced tree
+//! recurses on the program stack at native speed; a deep one grows the stack
+//! onto the heap before it can overflow.
 //!
-//! | Idiom | Shape | Where |
-//! |-------|-------|-------|
-//! | Recursive walk returning a per-subtree report | threaded DFS / fold / build | `causal_cmp`, `join`, `fill`, [`EvReader::max`], the [`grow`] probe/emit, `party::ops::sum`, `party::ops::compare`, `party::ops::is_disjoint` |
-//! | Recursive single-tree build/print | one-tree parse/print | `codec` parse/write of ids and event trees, `party::ops::split`'s pass 1 |
-//! | Pending-children counter (`pending: i64`) | subtree-span scan | [`idbits::skip_subtree`](crate::idbits::skip_subtree) (shared by `IdReader::skip` and `EvReader::skip`), [`Builder::copy_reader`] |
+//! # Incidental vs. intrinsic complexity
 //!
-//! The first idiom dominates (a single-output fold like `max` returns just the
-//! subtree maximum and its end; a two-tree build threads two end positions); the
-//! third is the one genuine loop — a pure span scan with an `O(1)` stack — kept
-//! iterative because it has no per-node work to recurse for.
+//! The cursor and the [`Builder`] absorb what is *incidental* to these walks —
+//! bit-offset arithmetic, the packed-vs-working representation split, gamma
+//! decoding, end-position threading, stack growth, the normalizing sink — so the
+//! operation bodies read as the paper's recursive equations (`oracle.rs` is the
+//! same equations as plain enums; each op names the oracle method it mirrors).
+//! What remains is *intrinsic* to single-pass, zero-copy traversal of a preorder
+//! encoding, and is called out where it lives rather than hidden:
+//!
+//! - The **leaf/full broadcast** above: a single-pass two-tree walk cannot avoid
+//!   re-presenting one side against both of the other's children.
+//! - `fill`'s **[`deferred_leaf`](Builder::deferred_leaf) backpatch**: a
+//!   collapsed *left* child's value depends on its right sibling, but a preorder
+//!   builder must emit the left first — so it emits a placeholder and resolves it
+//!   once the right is built.
+//! - `grow`'s **two passes** and its position-keyed `Route`: the cheapest
+//!   inflation is a bottom-up cost fold, but emission is top-down preorder, so
+//!   the two cannot fuse.
+//!
+//! # The one genuine loop
+//!
+//! Three walks do *not* recurse: the subtree-span scans. [`idbits::skip_subtree`](crate::idbits::skip_subtree)
+//! (shared by [`IdReader::skip`](crate::idbits::IdReader::skip) and [`EvReader::skip`]) and the
+//! emit-while-scanning [`Builder::copy_reader`] run a pending-children counter
+//! (`pending: i64`) with an `O(1)` stack — kept iterative because a span scan has
+//! no per-node work to recurse for.
 
 use crate::codec::BitsSlice;
 

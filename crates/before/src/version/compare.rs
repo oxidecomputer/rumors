@@ -9,12 +9,13 @@
 //! guarded by [`crate::recurse`] against deep trees: at each aligned node pair
 //! the path sums settle the local direction (`an > bn` rules out `a <= b`;
 //! `bn > an` rules out `b <= a`), then the walk descends into whichever side is
-//! internal, broadcasting the leaf side unchanged to both of the other's
-//! children, until both bottom out — so every node of either tree is visited
-//! once. Right-child positions are **threaded**: each subtree reports where it
-//! ended, so a sibling resumes there instead of re-scanning the left subtree.
-//! As soon as both directions are excluded the result is concurrent (`None`)
-//! and the walk stops early. Path sums are threaded as arbitrary-precision
+//! internal — a leaf side broadcasting a fresh [`Zero`](EvReader::Zero) to both
+//! of the other's children — until both bottom out, so every node of either
+//! tree is visited once. The two `&mut` cursors advance in place as they are
+//! read, so the right child resumes from where the left one left off without
+//! re-scanning (see the [traversal overview](super::event)). As soon as both
+//! directions are excluded the result is concurrent (`None`) and the walk stops
+//! early. Path sums are threaded as arbitrary-precision
 //! [`Base`](crate::codec::Base) offsets — the same value type as the stored
 //! bases and as `join`/`fill`/`grow`. A path sum is the running total of stored
 //! bases along a root-to-node path; an unbounded integer type removes the `u64`

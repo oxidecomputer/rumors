@@ -94,6 +94,15 @@ impl SplitScan {
 /// Build the two split halves once the branch is located (see
 /// [`split`](IdReader::split)). `a` keeps the branch's left side (its right
 /// zeroed); `b` keeps the right side (its left zeroed).
+///
+/// Unlike `sum`, this does not go through [`IdBuilder`](super::build::IdBuilder):
+/// it is a bulk verbatim splice of already-normal bit ranges with one branch
+/// child replaced by a `0` leaf, which *preserves* normal form by construction
+/// (the kept child is nonempty, so no `(0,0)`/`(1,1)` collapse can arise, and
+/// the spine/suffix were already normal). `IdBuilder` exists to normalize a
+/// recursive node-by-node assembly, where equal-leaf children do arise; a splice
+/// has nothing to collapse, so routing through it would only re-emit node by
+/// node for no benefit.
 fn build_split(
     bits: &BitsSlice,
     branch: Option<(usize, usize, usize)>,

@@ -10,8 +10,9 @@
 //!    copying/skipping every off-path subtree exactly once.
 //!
 //! Both passes recurse on the `(id, ev)` shape, guarded by [`crate::recurse`] so
-//! deep trees grow the stack onto the heap rather than overflowing; each returns
-//! its subtree's end positions so a right sibling resumes without re-scanning.
+//! deep trees grow the stack onto the heap rather than overflowing, advancing
+//! their `&mut` cursors in place so a right sibling resumes without re-scanning
+//! (see the [traversal overview](super)).
 //!
 //! **Probe → emit contract.** The probe records a [`Route`] direction for every
 //! `(id, ev)` branch node it reaches, keyed by the same `(id_pos, ev_pos)`
@@ -19,6 +20,14 @@
 //! (copying/skipping off-path subtrees), but every branch node it reaches was
 //! recorded by the probe; the coordinate agreement is what lets the two passes
 //! communicate by position.
+//!
+//! **Worked example.** `grow` of id `(1, 0)` over event `(0, 1, 0)` — the id
+//! owns the left half only. At the root (id node, event node) the probe descends
+//! both: the left is an id-full leaf over an event leaf, a free increment (cost
+//! `(0, 0)`); the right is an empty-id region, infeasible (`COST_MAX`). So it
+//! records "descend left" at the root. The emit rebuilds the left leaf as
+//! `Leaf(2)` and copies the untouched right, giving `(0, 2, 0)` — the cheapest
+//! available inflation.
 
 use crate::codec::{Base, Bits, BitsSlice};
 use crate::idbits::{IdNode, IdReader};

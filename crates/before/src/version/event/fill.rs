@@ -19,6 +19,13 @@ impl EvReader<'_> {
     /// walk reads as the oracle's `match (id, ev)`, threading an [`IdReader`] and
     /// an [`EvReader`] in place of bare positions. Guarded by [`crate::recurse`]
     /// so deep trees grow the stack onto the heap rather than overflowing.
+    ///
+    /// Worked example: `fill` of id `1` (fully owned) over event `(0, 2, 3)`
+    /// collapses the whole subtree to its maximum, `0 + max(2, 3) = 3` — a single
+    /// `Leaf(3)`. A *partial* id collapses only the subtrees it fully owns,
+    /// raising each to its max (and to its sibling, where that lets the parent
+    /// simplify) and leaving unowned subtrees in place — which is how a `tick`
+    /// shrinks the tree when `fill` alone suffices.
     pub(super) fn fill(self, id_bits: &BitsSlice) -> WorkingVersion {
         let mut walk = FillWalk {
             out: Builder::with_capacity(self.node_capacity_bound()),
