@@ -55,56 +55,57 @@ const COST_MAX: Cost = (u32::MAX, u32::MAX);
 /// while the probe visited every branch, so emit must look up its direction by
 /// where it is, not read it off a sequence.
 ///
-/// The key `(id_pos, ev_pos)` has an alternating pinned axis (one coordinate is
-/// held constant while the other descends — see the module doc), so no single
-/// array is keyed by one coordinate alone. Two bit-vectors split by regime,
-/// which is exactly "is the id a node?":
-///
-/// - [`by_id`](Route::by_id): id is a node (`Expand`/`Both`), keyed by the id
-///   bit-position. Each id internal node is visited once, so its bit is unique.
-/// - [`by_ev`](Route::by_ev): id is a full `1`-leaf (`FullEvNode`), keyed by the
-///   event position. Each event node is reached under at most one id context.
-///
-/// One `Bits` per axis — a direction is a single bit, so this is ~8x smaller
-/// than the former `Vec<Option<bool>>` and one allocation each. `O(n + m)`
-/// space, `O(1)` access. A bit defaults to `false` (left); a probe/emit
-/// coordinate mismatch would therefore misread a direction rather than panic,
-/// but the grow-optimality property tests (against the brute-force search)
-/// catch any such disagreement.
+/// A branch is keyed by id bit-position (`Expand`/`Both`, where the id is a
+/// node) or by event position (`FullEvNode`, where the id is a full `1`-leaf).
+/// Those two position spaces both start at `0`, so keyed naively into one array
+/// they would collide; instead they are *concatenated* into a single bit-vector
+/// — id-node branches in `[0, id_span)`, full-`1`-leaf branches offset into
+/// `[id_span, id_span + ev_span)`. The two blocks are disjoint, so the range a
+/// bit falls in implicitly recovers its regime. Each branch's key is unique
+/// within its block (each id node, and each event node under a full id, is
+/// reached once). One allocation, `O(n + m)` bits, `O(1)` access — ~8x smaller
+/// than the former `Vec<Option<bool>>` pair. A bit defaults to `false` (left); a
+/// probe/emit mismatch would misread a direction rather than panic, but the
+/// grow-optimality property tests (against the brute-force search) catch any
+/// such disagreement.
 struct Route {
-    /// Direction bit at id-node branches, by id bit-position.
-    by_id: Bits,
-    /// Direction bit at full-`1`-leaf branches, by event position.
-    by_ev: Bits,
+    dirs: Bits,
+    /// Start of the event-position block: a `FullEvNode` key `ev_pos` lives at
+    /// `id_span + ev_pos`, an `Expand`/`Both` key `id_pos` at `id_pos`.
+    id_span: usize,
 }
 
 impl Route {
-    /// All directions cleared, sized to the id and event position spaces.
+    /// All directions cleared, sized to the concatenated id + event position
+    /// spaces.
     fn new(id_span: usize, ev_span: usize) -> Self {
         Route {
-            by_id: Bits::repeat(false, id_span),
-            by_ev: Bits::repeat(false, ev_span),
+            dirs: Bits::repeat(false, id_span + ev_span),
+            id_span,
         }
     }
 
-    /// Record that the cheapest inflation at the branch keyed by `key` descends
-    /// into the left child (`left = true`) or the right (`false`). `key` is the
-    /// event position for `FullEvNode` (keyed `by_ev`) or the id position for
-    /// `Expand`/`Both` (keyed `by_id`) — see [`Route`].
+    /// The bit index for a branch of the given `kind` at position `key` — the id
+    /// position for `Expand`/`Both`, the event position for `FullEvNode`
+    /// (offset into the upper block).
+    fn index(&self, kind: Kind, key: usize) -> usize {
+        match kind {
+            Kind::Expand | Kind::Both => key,
+            Kind::FullEvNode => self.id_span + key,
+        }
+    }
+
+    /// Record that the cheapest inflation at the branch keyed by `(kind, key)`
+    /// descends into the left child (`left = true`) or the right (`false`).
     fn record(&mut self, kind: Kind, key: usize, left: bool) {
-        match kind {
-            Kind::FullEvNode => self.by_ev.set(key, left),
-            Kind::Expand | Kind::Both => self.by_id.set(key, left),
-        }
+        let i = self.index(kind, key);
+        self.dirs.set(i, left);
     }
 
-    /// Whether the cheapest inflation at the branch keyed by `key` descends into
-    /// the left child.
+    /// Whether the cheapest inflation at the branch keyed by `(kind, key)`
+    /// descends into the left child.
     fn descends_left(&self, kind: Kind, key: usize) -> bool {
-        match kind {
-            Kind::FullEvNode => self.by_ev[key],
-            Kind::Expand | Kind::Both => self.by_id[key],
-        }
+        self.dirs[self.index(kind, key)]
     }
 }
 
