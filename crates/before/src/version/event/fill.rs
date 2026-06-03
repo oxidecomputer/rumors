@@ -5,7 +5,7 @@ use crate::recurse::descend;
 use crate::version::compare::{EvNode, EvReader};
 use crate::version::working::WorkingVersion;
 
-use super::Builder;
+use super::{Builder, Slot};
 
 impl EvReader<'_> {
     /// `fill(id, ev)`: use the available id to simplify this event tree
@@ -55,10 +55,10 @@ impl FillWalk {
     ///   lazy-skip the dominated id subtree.
     /// - `fill((il,ir), (n,el,er)) = norm((n, fill(il,el), fill(ir,er)))` — with
     ///   the two `is_full` shortcuts below.
-    fn rec(&mut self, id: &mut IdReader, ev: &mut EvReader, depth: usize) -> usize {
+    fn rec(&mut self, id: &mut IdReader, ev: &mut EvReader, depth: usize) -> Slot {
         match id.read() {
             IdNode::Empty => return self.out.copy_reader(ev), // fill(0, e) = e
-            IdNode::Full => return self.out.leaf(ev.max()),   // fill(1, e) = max(e)
+            IdNode::Full => return self.out.leaf(ev.max()).into(), // fill(1, e) = max(e)
             IdNode::Internal => {}                            // id now at `il`
         }
         let ev_base = match ev.read() {
@@ -67,7 +67,7 @@ impl FillWalk {
                 // subtree (both children, `il` then `ir`).
                 id.skip();
                 id.skip();
-                return self.out.leaf(n);
+                return self.out.leaf(n).into();
             }
             EvNode::Internal(base) => base, // ev now at `el`
         };
@@ -92,8 +92,7 @@ impl FillWalk {
             let right = descend!(depth + 1, self.rec(id, ev, depth + 1));
             let value = max_el.max(self.out.base_of(right).clone());
             self.out.resolve(left, value);
-            self.out.close_node(node, right);
-            return node;
+            return self.out.close_node(node, right);
         }
         // `il` not full: fill the left child (id → `ir`, ev → `er`), then check `ir`.
         let node = self.out.open(ev_base);
@@ -104,11 +103,9 @@ impl FillWalk {
             let max_er = ev.max(); // ev past `er`
             let value = max_er.max(self.out.base_of(left).clone());
             let right_leaf = self.out.leaf(value);
-            self.out.close_node(node, right_leaf);
-            return node;
+            return self.out.close_node(node, right_leaf);
         }
         let right = descend!(depth + 1, self.rec(id, ev, depth + 1));
-        self.out.close_node(node, right);
-        node
+        self.out.close_node(node, right)
     }
 }

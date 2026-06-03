@@ -1,9 +1,8 @@
 use crate::codec::{Bits, BitsSlice};
 use crate::idbits::{IdNode, IdReader};
+use crate::party::ops::build::IdBuilder;
 use crate::recurse::descend;
 use crate::step;
-
-use super::build::{id_leaf, id_node};
 
 impl IdReader<'_> {
     /// Split this id (`self`) into two non-overlapping ids that sum to it.
@@ -29,13 +28,33 @@ impl IdReader<'_> {
         // A whole-tree leaf splits directly.
         match self.peek() {
             // split(0) = (0, 0)
-            IdNode::Empty => return (id_leaf(false), id_leaf(false)),
+            IdNode::Empty => {
+                let empty = {
+                    let mut id = IdBuilder::with_capacity(2);
+                    id.leaf(false);
+                    id.finish()
+                };
+                return (empty.clone(), empty);
+            }
             // split(1) = ((1, 0), (0, 1))
             IdNode::Full => {
-                return (
-                    id_node(&id_leaf(true), &id_leaf(false)),
-                    id_node(&id_leaf(false), &id_leaf(true)),
-                )
+                let left = {
+                    let mut id = IdBuilder::with_capacity(5);
+                    let node = id.open();
+                    id.leaf(true);
+                    let right = id.leaf(false);
+                    id.close_node(node, right);
+                    id.finish()
+                };
+                let right = {
+                    let mut id = IdBuilder::with_capacity(5);
+                    let node = id.open();
+                    id.leaf(false);
+                    let right = id.leaf(true);
+                    id.close_node(node, right);
+                    id.finish()
+                };
+                return (left, right);
             }
             IdNode::Internal => {}
         }
@@ -114,7 +133,7 @@ impl SplitScan {
 /// [`split`](IdReader::split)). `a` keeps the branch's left side (its right
 /// zeroed); `b` keeps the right side (its left zeroed).
 ///
-/// Unlike `sum`, this does not go through [`IdBuilder`](super::build::IdBuilder):
+/// Unlike `sum`, this mostly doesn't use [`IdBuilder`](super::build::IdBuilder):
 /// it is a bulk verbatim splice of already-normal bit ranges with one branch
 /// child replaced by a `0` leaf, which *preserves* normal form by construction
 /// (the kept child is nonempty, so no `(0,0)`/`(1,1)` collapse can arise, and
@@ -127,7 +146,11 @@ fn build_split(
     branch: Option<(usize, usize, usize)>,
     one_leaf: Option<usize>,
 ) -> (Bits, Bits) {
-    let zero = id_leaf(false);
+    let zero = {
+        let mut id = IdBuilder::with_capacity(2);
+        id.leaf(false);
+        id.finish()
+    };
     if let Some((p, left_start, right_start)) = branch {
         // Branch is a node `(i1, i2)`: i1 = bits[left_start..right_start], i2 =
         // bits[right_start..branch_end], with the wrapper spine in the prefix
@@ -167,16 +190,31 @@ fn build_split(
         let p = one_leaf.expect("a nonempty id has a branch node or a 1 leaf");
         let prefix = &bits[0..p];
         let suffix = &bits[p + 2..]; // the `1` leaf occupies 2 bits
-        let one = id_leaf(true);
+        let left = {
+            let mut id = IdBuilder::with_capacity(5);
+            let node = id.open();
+            id.leaf(true);
+            let right = id.leaf(false);
+            id.close_node(node, right);
+            id.finish()
+        };
+        let right = {
+            let mut id = IdBuilder::with_capacity(5);
+            let node = id.open();
+            id.leaf(false);
+            let right = id.leaf(true);
+            id.close_node(node, right);
+            id.finish()
+        };
 
         let mut a = Bits::with_capacity(bits.len() + 3);
         a.extend_from_bitslice(prefix);
-        a.extend_from_bitslice(&id_node(&one, &zero));
+        a.extend_from_bitslice(&left);
         a.extend_from_bitslice(suffix);
 
         let mut b = Bits::with_capacity(bits.len() + 3);
         b.extend_from_bitslice(prefix);
-        b.extend_from_bitslice(&id_node(&zero, &one));
+        b.extend_from_bitslice(&right);
         b.extend_from_bitslice(suffix);
 
         (a, b)

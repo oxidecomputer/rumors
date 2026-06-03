@@ -1,26 +1,5 @@
-use crate::codec::{Bits, BitsSlice};
+use crate::codec::Bits;
 use crate::idbits::IdReader;
-
-/// A leaf id stream: `0, v`.
-pub(super) fn id_leaf(v: bool) -> Bits {
-    let mut out = Bits::with_capacity(2);
-    out.push(false);
-    out.push(v);
-    out
-}
-
-/// `norm((l, r))`: build a node, collapsing `(0,0) -> 0` and `(1,1) -> 1`. A
-/// 2-bit stream is exactly a leaf, so equal-valued leaf children collapse.
-pub(super) fn id_node(l: &BitsSlice, r: &BitsSlice) -> Bits {
-    if l.len() == 2 && r.len() == 2 && l[1] == r[1] {
-        return id_leaf(l[1]);
-    }
-    let mut out = Bits::with_capacity(1 + l.len() + r.len());
-    out.push(true);
-    out.extend_from_bitslice(l);
-    out.extend_from_bitslice(r);
-    out
-}
 
 /// Single-buffer builder for normalized id output. A node is opened before its
 /// children are emitted, then closed once the right child is known; if both
@@ -38,36 +17,42 @@ impl IdBuilder {
         }
     }
 
-    pub(super) fn leaf(&mut self, value: bool) -> usize {
+    /// Append a leaf with the given value; return its output position.
+    pub(super) fn leaf(&mut self, value: bool) -> Leaf {
         let root = self.bits.len();
         self.bits.push(false);
         self.bits.push(value);
-        root
+        Leaf(root)
     }
 
-    pub(super) fn open(&mut self) -> usize {
+    /// Open an internal node; its children are emitted next, then it is closed
+    /// (and normalized) with [`close_node`](Self::close_node).
+    pub(super) fn open(&mut self) -> Node {
         let root = self.bits.len();
         self.bits.push(true);
-        root
+        Node(root)
     }
 
     /// Copy one already-normal source subtree into the output, advancing `src`
     /// past it and returning its new root. The source subtree is copied exactly
     /// once (a verbatim bit-range splice).
-    pub(super) fn copy_reader(&mut self, src: &mut IdReader) -> usize {
+    pub(super) fn copy_reader(&mut self, src: &mut IdReader) -> Slot {
         let out_root = self.bits.len();
         let start = src.pos();
         src.skip();
         self.bits
             .extend_from_bitslice(&src.bits()[start..src.pos()]);
-        out_root
+        Slot(out_root)
     }
 
-    /// Normalize the node opened at `node`. The left child starts immediately
-    /// after the node flag; `right` is the right child's root. If both children
-    /// are equal leaves, collapse the just-emitted suffix to a single leaf. The
-    /// root position remains `node`.
-    pub(super) fn close_node(&mut self, node: usize, right: usize) {
+    /// Normalize and close the node opened at `node`, consuming the open-node
+    /// token. The left child starts immediately after the node flag; `right` is
+    /// the right child's root. If both children are equal leaves, collapse the
+    /// just-emitted suffix to a single leaf. Returns the node's root position,
+    /// which is unchanged by the collapse.
+    pub(super) fn close_node(&mut self, node: Node, right: impl Into<Slot>) -> Slot {
+        let node = node.0;
+        let right = right.into().0;
         let left = node + 1;
         if !self.bits[left] && !self.bits[right] && self.bits[left + 1] == self.bits[right + 1] {
             debug_assert_eq!(
@@ -82,11 +67,34 @@ impl IdBuilder {
             );
             let value = self.bits[left + 1];
             self.bits.truncate(node);
-            self.leaf(value);
+            return self.leaf(value).into();
         }
+        Slot(node)
     }
 
     pub(super) fn finish(self) -> Bits {
         self.bits
+    }
+}
+
+/// The root position of an emitted subtree (a leaf, a closed node, or a copied
+/// run): usable as a node's right child or to refer back to a built subtree.
+#[derive(Clone, Copy)]
+pub(super) struct Slot(usize);
+
+/// A leaf's output position. Cheap to copy; unlike [`Node`] it needs no close.
+#[derive(Clone, Copy)]
+pub(super) struct Leaf(usize);
+
+/// A just-opened internal node, awaiting its children and a
+/// [`close_node`](IdBuilder::close_node). `!Clone` and `#[must_use]`: the token
+/// must be closed exactly once, and the borrow checker stops it being reused or
+/// dropped silently — so an open with no matching close cannot compile.
+#[must_use = "an opened node must be closed with close_node"]
+pub(super) struct Node(usize);
+
+impl From<Leaf> for Slot {
+    fn from(leaf: Leaf) -> Slot {
+        Slot(leaf.0)
     }
 }

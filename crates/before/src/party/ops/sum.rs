@@ -2,7 +2,7 @@ use crate::codec::Bits;
 use crate::idbits::{IdNode, IdReader};
 use crate::recurse::descend;
 
-use super::build::IdBuilder;
+use super::build::{IdBuilder, Slot};
 
 impl IdReader<'_> {
     /// Sum `self` and `other` (normal-form ids) — the union of their regions —
@@ -46,7 +46,7 @@ impl SumWalk {
     ///
     /// The nodes are [`peek`](IdReader::peek)ed, not read: the copied side must
     /// stay unconsumed so `copy_reader` can splice its whole subtree.
-    fn rec(&mut self, a: &mut IdReader, b: &mut IdReader, depth: usize) -> Option<usize> {
+    fn rec(&mut self, a: &mut IdReader, b: &mut IdReader, depth: usize) -> Option<Slot> {
         match (a.peek(), b.peek()) {
             (IdNode::Empty, _) => {
                 a.skip(); // sum(0, b) = b: skip the `0`, copy b
@@ -68,8 +68,7 @@ impl SumWalk {
                 let node = self.out.open();
                 descend!(depth + 1, self.rec(a, b, depth + 1))?; // left (out root is node + 1)
                 let right = descend!(depth + 1, self.rec(a, b, depth + 1))?;
-                self.out.close_node(node, right);
-                Some(node)
+                Some(self.out.close_node(node, right))
             }
         }
     }

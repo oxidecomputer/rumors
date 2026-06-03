@@ -84,7 +84,7 @@ mod grow;
 mod join;
 mod max;
 
-use builder::Builder;
+use builder::{Builder, Slot};
 
 /// Advance `id`'s component of the event tree by one event. `fill` first (it
 /// may simplify the tree using the available id); if it changes nothing,

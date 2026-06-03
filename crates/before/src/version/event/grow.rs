@@ -33,7 +33,7 @@ use crate::codec::{Base, Bits, BitsSlice};
 use crate::idbits::{IdNode, IdReader};
 use crate::recurse::descend;
 
-use super::Builder;
+use super::{Builder, Slot};
 use crate::version::compare::EvReader;
 use crate::version::working::WorkingVersion;
 
@@ -258,7 +258,7 @@ impl EmitWalk<'_> {
     /// guard; returns the output root. The event side bottoms out at
     /// [`Zero`](EvReader::Zero), the id-full side at [`Full`](IdReader::Full),
     /// each read like any real node.
-    fn rec(&mut self, id: &mut IdReader, ev: &mut EvReader, depth: usize) -> usize {
+    fn rec(&mut self, id: &mut IdReader, ev: &mut EvReader, depth: usize) -> Slot {
         let id_pos = id.pos_opt();
         let id_node = id.read();
         let ev_pos = ev.pos_opt();
@@ -276,7 +276,7 @@ impl EmitWalk<'_> {
                 matches!(id_node, IdNode::Full),
                 "grow chose an empty-id region to inflate",
             );
-            return self.out.leaf(ev_base + 1u32);
+            return self.out.leaf(ev_base + 1u32).into();
         }
         let kind = match id_node {
             IdNode::Internal if ev_internal => Kind::Both,
@@ -310,10 +310,10 @@ impl EmitWalk<'_> {
                     let mut z = EvReader::Zero;
                     descend!(depth + 1, self.rec(id, &mut z, depth + 1)); // left `il`, virtual
                     id.skip(); // off-path `ir`
-                    self.out.leaf(Base::ZERO) // off-path sibling is a fresh Leaf(0)
+                    self.out.leaf(Base::ZERO).into() // off-path sibling is a fresh Leaf(0)
                 }
             };
-            self.out.close_node(node, right);
+            self.out.close_node(node, right)
         } else {
             // Right is chosen: emit the off-path left, then rebuild the right.
             let right = match kind {
@@ -334,8 +334,7 @@ impl EmitWalk<'_> {
                     descend!(depth + 1, self.rec(id, &mut z, depth + 1)) // right `ir`, virtual
                 }
             };
-            self.out.close_node(node, right);
+            self.out.close_node(node, right)
         }
-        node
     }
 }

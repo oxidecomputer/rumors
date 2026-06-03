@@ -4,7 +4,7 @@ use crate::recurse::descend;
 use crate::version::compare::EvReader;
 use crate::version::working::WorkingVersion;
 
-use super::Builder;
+use super::{Builder, Slot};
 
 impl<'a> EvReader<'a> {
     /// The least upper bound of `self` and `other` (the paper's `join` over
@@ -50,7 +50,7 @@ impl JoinWalk {
         b: &mut EvReader,
         b_off: &Base,
         depth: usize,
-    ) -> usize {
+    ) -> Slot {
         let a_node = a.read();
         let b_node = b.read();
         let a_internal = a_node.is_internal();
@@ -59,7 +59,7 @@ impl JoinWalk {
         let b_sum = b_off + b_node.base();
         if !a_internal && !b_internal {
             // Both leaves: the joined leaf is their pointwise maximum.
-            return self.out.leaf(a_sum.max(b_sum));
+            return self.out.leaf(a_sum.max(b_sum)).into();
         }
         // Open a node, descend each side (an internal side hands down its `&mut`
         // cursor; a leaf side broadcasts a fresh `Zero`), then close to sink.
@@ -86,7 +86,6 @@ impl JoinWalk {
                 depth + 1,
             )
         );
-        self.out.close_node(node, right);
-        node
+        self.out.close_node(node, right)
     }
 }
