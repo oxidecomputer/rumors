@@ -13,14 +13,14 @@
 //! deep trees grow the stack onto the heap rather than overflowing; each returns
 //! its subtree's end positions so a right sibling resumes without re-scanning.
 //!
-//! **Probe → emit contract.** The probe records a [`Choices`] entry for every
+//! **Probe → emit contract.** The probe records a [`Route`] direction for every
 //! `(id, ev)` branch node it reaches, keyed by the same `(id_pos, ev_pos)`
 //! coordinates the emit pass uses. `grow_emit` only follows the chosen path
 //! (copying/skipping off-path subtrees), but every branch node it reaches was
 //! recorded by the probe; the coordinate agreement is what lets the two passes
 //! communicate by position.
 
-use crate::codec::{Base, BitsSlice};
+use crate::codec::{Base, Bits, BitsSlice};
 use crate::idbits::{IdHeader, IdView};
 use crate::recurse::descend;
 
@@ -38,58 +38,62 @@ type Cost = (u32, u32);
 /// The cost of an infeasible region: an empty-id subtree can never be inflated.
 const COST_MAX: Cost = (u32::MAX, u32::MAX);
 
-/// The probe → emit channel: at each branch node, whether the cheapest
-/// inflation descended into the *left* child (`true`) or the right (`false`).
+/// The probe → emit channel: the cheapest inflation's route to the leaf it
+/// grows, as one direction *bit* per branch node — `true` = descend the left
+/// child, `false` = the right. The paper's `grow` settles a single root-to-leaf
+/// path; this records its turns. It is *keyed by branch position* rather than
+/// stored as one linear path because the emit pass walks only the chosen path
+/// while the probe visited every branch, so emit must look up its direction by
+/// where it is, not read it off a sequence.
 ///
-/// The key `(id_pos, ev_pos)` has an alternating pinned axis (one coordinate is held
-/// constant while the other descends — see the module doc), so no single array can be
-/// keyed by one coordinate alone. Instead two dense arrays split by regime, which is
-/// exactly "is the id a node?":
+/// The key `(id_pos, ev_pos)` has an alternating pinned axis (one coordinate is
+/// held constant while the other descends — see the module doc), so no single
+/// array is keyed by one coordinate alone. Two bit-vectors split by regime,
+/// which is exactly "is the id a node?":
 ///
-/// - [`by_id`](Choices::by_id): id is a node (`Expand`/`Both`), keyed by the id
-///   bit-position. Each id internal node is visited once, so its slot is unique.
+/// - [`by_id`](Route::by_id): id is a node (`Expand`/`Both`), keyed by the id
+///   bit-position. Each id internal node is visited once, so its bit is unique.
+/// - [`by_ev`](Route::by_ev): id is a full `1`-leaf (`FullEvNode`), keyed by the
+///   event position. Each event node is reached under at most one id context.
 ///
-/// - [`by_ev`](Choices::by_ev): id is a full `1`-leaf (`FullEvNode`), keyed by
-///   the event position. Each event node is reached under at most one id context.
-///
-/// Slots default to `None`; [`grow_probe`](EvView::grow_probe) fills the one
-/// for each branch node it reaches and [`grow_emit`](EvView::grow_emit) reads
-/// back the slot for the regime it is in. Total space `O(n + m)`, `O(1)` access
-/// (no hashing).
-struct Choices {
-    /// Indexed by id bit-position; used when the id is a node.
-    by_id: Vec<Option<bool>>,
-    /// Indexed by event position; used when the id is a full `1`-leaf.
-    by_ev: Vec<Option<bool>>,
+/// One `Bits` per axis — a direction is a single bit, so this is ~8x smaller
+/// than the former `Vec<Option<bool>>` and one allocation each. `O(n + m)`
+/// space, `O(1)` access. A bit defaults to `false` (left); a probe/emit
+/// coordinate mismatch would therefore misread a direction rather than panic,
+/// but the grow-optimality property tests (against the brute-force search)
+/// catch any such disagreement.
+struct Route {
+    /// Direction bit at id-node branches, by id bit-position.
+    by_id: Bits,
+    /// Direction bit at full-`1`-leaf branches, by event position.
+    by_ev: Bits,
 }
 
-impl Choices {
-    /// All slots unset, sized to the id and event position spaces.
+impl Route {
+    /// All directions cleared, sized to the id and event position spaces.
     fn new(id_span: usize, ev_span: usize) -> Self {
-        Choices {
-            by_id: vec![None; id_span],
-            by_ev: vec![None; ev_span],
+        Route {
+            by_id: Bits::repeat(false, id_span),
+            by_ev: Bits::repeat(false, ev_span),
         }
     }
 
-    /// Record the chosen direction at the branch node of the given `kind` addressed by
-    /// `(id_pos, ev_pos)`.
+    /// Record that the cheapest inflation at this branch descends into the left
+    /// child (`left = true`) or the right (`false`).
     fn record(&mut self, kind: Kind, id_pos: usize, ev_pos: usize, left: bool) {
         match kind {
-            Kind::FullEvNode => self.by_ev[ev_pos] = Some(left),
-            Kind::Expand | Kind::Both => self.by_id[id_pos] = Some(left),
+            Kind::FullEvNode => self.by_ev.set(ev_pos, left),
+            Kind::Expand | Kind::Both => self.by_id.set(id_pos, left),
         }
     }
 
-    /// The chosen direction at the branch node addressed by `(id_pos, ev_pos)`. Panics if
-    /// the probe never recorded it — a coordinate-agreement bug, not a runtime condition
-    /// (see the module doc).
-    fn chosen(&self, kind: Kind, id_pos: usize, ev_pos: usize) -> bool {
-        let slot = match kind {
+    /// Whether the cheapest inflation at this branch descends into the left
+    /// child.
+    fn descends_left(&self, kind: Kind, id_pos: usize, ev_pos: usize) -> bool {
+        match kind {
             Kind::FullEvNode => self.by_ev[ev_pos],
             Kind::Expand | Kind::Both => self.by_id[id_pos],
-        };
-        slot.expect("grow_emit reached a branch node grow_probe did not record")
+        }
     }
 }
 
@@ -131,36 +135,36 @@ struct Probed {
 impl EvView<'_> {
     /// Probe the cheapest inflation of this event tree (`self`), recording the
     /// chosen child direction (`true` = left) per `(id, ev)` branch node into
-    /// `choice`. Read-only; `O(n + m)`. The id is lazy-skipped where an empty
+    /// `route`. Read-only; `O(n + m)`. The id is lazy-skipped where an empty
     /// region prunes the event.
     ///
     /// This is the cost-finding half of the recursive form of
     /// `oracle::Version::grow` (the paper's `grow`): where the oracle recurses
     /// once and rebuilds on the way back up, this probe pass finds the cheapest
     /// path and [`grow_emit`](EvView::grow_emit) replays it.
-    fn grow_probe(&self, id_bits: &BitsSlice, choice: &mut Choices) {
+    fn grow_probe(&self, id_bits: &BitsSlice, route: &mut Route) {
         let mut walk = ProbeWalk {
             view: *self,
             id: IdView(id_bits),
-            choice,
+            route,
         };
         descend!(0, walk.rec(0, 0, 0));
     }
 
-    /// Emit the grown tree (`self` is the source event tree) using the probe's
-    /// `choice` map, in normal form. `O(n + m)`: only the chosen root-to-leaf
+    /// Emit the grown tree (`self` is the source event tree) following the
+    /// probe's `route`, in normal form. `O(n + m)`: only the chosen root-to-leaf
     /// path is rebuilt (with the inflation and the sink); every off-path subtree
     /// is copied or skipped exactly once.
     ///
     /// This is the rebuilding half of the recursive form of
-    /// `oracle::Version::grow`, replaying the choices
+    /// `oracle::Version::grow`, replaying the directions
     /// [`grow_probe`](EvView::grow_probe) recorded.
-    fn grow_emit(&self, id_bits: &BitsSlice, out: &mut Builder, choice: &Choices) {
+    fn grow_emit(&self, id_bits: &BitsSlice, out: &mut Builder, route: &Route) {
         let mut walk = EmitWalk {
             view: *self,
             id: IdView(id_bits),
             out,
-            choice,
+            route,
         };
         descend!(0, walk.rec(0, 0, 0));
     }
@@ -169,22 +173,22 @@ impl EvView<'_> {
     /// cheapest available inflation, in normal form. Two passes — a read-only
     /// cost probe, then an emit along the chosen path — each `O(n + m)`. The
     /// probe and emit are the same traversal; see the module doc for the `(id,
-    /// ev)`-coordinate contract that links them through [`Choices`].
+    /// ev)`-coordinate contract that links them through the [`Route`].
     pub(super) fn grow(&self, id_bits: &BitsSlice) -> WorkingVersion {
-        let mut choice = Choices::new(id_bits.len(), self.span());
-        self.grow_probe(id_bits, &mut choice);
+        let mut route = Route::new(id_bits.len(), self.span());
+        self.grow_probe(id_bits, &mut route);
         let mut out = Builder::with_capacity(self.node_capacity_bound() + id_bits.len());
-        self.grow_emit(id_bits, &mut out, &choice);
+        self.grow_emit(id_bits, &mut out, &route);
         out.finish()
     }
 }
 
 /// The mutable state of a [`grow_probe`](EvView::grow_probe) walk: the event view
-/// and packed id being probed, and the choice map being filled.
+/// and packed id being probed, and the [`Route`] being filled.
 struct ProbeWalk<'a> {
     view: EvView<'a>,
     id: IdView<'a>,
-    choice: &'a mut Choices,
+    route: &'a mut Route,
 }
 
 impl ProbeWalk<'_> {
@@ -281,7 +285,7 @@ impl ProbeWalk<'_> {
         } = branch;
         // Strict `<` makes a tie favor the right child (see [`Cost`]).
         let left_chosen = left.cost < right.cost;
-        self.choice.record(kind, id_pos, ev_pos, left_chosen);
+        self.route.record(kind, id_pos, ev_pos, left_chosen);
         let m = if left_chosen { left.cost } else { right.cost };
         let cost = match kind {
             Kind::Expand => (m.0.saturating_add(1), m.1.saturating_add(1)),
@@ -304,12 +308,12 @@ impl ProbeWalk<'_> {
 }
 
 /// The mutable state of a [`grow_emit`](EvView::grow_emit) walk: the source event
-/// view and packed id, the output builder, and the probe's choice map.
+/// view and packed id, the output builder, and the probe's [`Route`].
 struct EmitWalk<'a> {
     view: EvView<'a>,
     id: IdView<'a>,
     out: &'a mut Builder,
-    choice: &'a Choices,
+    route: &'a Route,
 }
 
 impl EmitWalk<'_> {
@@ -359,7 +363,7 @@ impl EmitWalk<'_> {
             Kind::Expand
         };
         let node = self.out.open(ev_base);
-        if self.choice.chosen(kind, id_pos, ev_pos) {
+        if self.route.descends_left(kind, id_pos, ev_pos) {
             // Chosen left child: build it now, emit the off-path right on close.
             let (child_id, child_ev) = match kind {
                 Kind::FullEvNode => (id_pos, ev_pos + 1), // id stays full

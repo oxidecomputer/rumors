@@ -109,7 +109,7 @@ impl EvView<'_> {
 
     /// An exclusive upper bound on the positions this view addresses: the bit
     /// length for packed, the node count for working. Used to size a dense
-    /// position-indexed array (see `grow`'s `Choices`).
+    /// position-indexed array (see `grow`'s `Route`).
     pub(super) fn span(&self) -> usize {
         match self {
             EvView::Packed(bits) => bits.len(),
