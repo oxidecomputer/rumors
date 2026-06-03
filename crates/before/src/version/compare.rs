@@ -148,6 +148,125 @@ impl EvView<'_> {
     }
 }
 
+/// A decoded event node: a leaf value, or an internal node's stored base. The
+/// base is the node's *relative* value; a path sum (offset) is threaded
+/// alongside to recover absolute values (see [`Side`]).
+pub(super) enum EvNode {
+    Leaf(Base),
+    Internal(Base),
+}
+
+impl EvNode {
+    /// This node's stored (relative) base, leaf or internal.
+    pub(super) fn base(&self) -> &Base {
+        match self {
+            EvNode::Leaf(n) | EvNode::Internal(n) => n,
+        }
+    }
+
+    pub(super) fn is_internal(&self) -> bool {
+        matches!(self, EvNode::Internal(_))
+    }
+}
+
+/// A cursor into an event tree: a position in some [`EvView`], or `Zero` — a
+/// synthetic `Leaf(0)`. `Zero` is the paper's `0` in "a leaf `n` behaves as
+/// `(n, 0, 0)`": when a two-tree walk descends a node whose other side is a
+/// leaf, the leaf hands both children a `Zero`, so its single value is
+/// broadcast unchanged across the other side's subtree. A thin `Copy` handle
+/// (a view is shared borrows; `Zero` carries nothing).
+#[derive(Clone, Copy)]
+pub(super) enum EvReader<'a> {
+    At(EvView<'a>, usize),
+    Zero,
+}
+
+impl<'a> EvReader<'a> {
+    /// A reader at the root of `view`.
+    pub(super) fn root(view: EvView<'a>) -> Self {
+        EvReader::At(view, 0)
+    }
+
+    /// Decode this node, returning it together with a reader positioned just
+    /// past the header — at the left child, for an internal node. (`Zero` reads
+    /// as `Leaf(0)` and never advances: a synthetic leaf has no children.)
+    pub(super) fn read(self) -> (EvNode, EvReader<'a>) {
+        match self {
+            EvReader::Zero => (EvNode::Leaf(Base::ZERO), EvReader::Zero),
+            EvReader::At(view, pos) => {
+                let EvHeader {
+                    internal,
+                    base,
+                    next,
+                } = view.header(pos);
+                let node = if internal {
+                    EvNode::Internal(base)
+                } else {
+                    EvNode::Leaf(base)
+                };
+                (node, EvReader::At(view, next))
+            }
+        }
+    }
+}
+
+/// One side of an aligned node pair, resolved for descent — the single place
+/// the paper's leaf broadcast lives. An *internal* side descends into its two
+/// real children; a *leaf* side hands both children a [`Zero`](EvReader::Zero)
+/// subtree at the same offset, so a leaf `n` behaves as `(n, 0, 0)`. Both
+/// children of either side receive the same path-sum offset, [`sum`](Side::sum)
+/// — borrowed, never cloned.
+pub(super) struct Side<'a> {
+    internal: bool,
+    /// The path sum at this node (incoming offset + base), handed to both
+    /// children.
+    pub(super) sum: Base,
+    /// The reader just past this node's header: its left child if internal, or
+    /// the next-sibling position if a leaf.
+    after: EvReader<'a>,
+}
+
+impl<'a> Side<'a> {
+    /// Resolve a side from its decoded node, the reader past its header, and the
+    /// incoming path-sum offset.
+    pub(super) fn new(node: &EvNode, after: EvReader<'a>, off: &Base) -> Side<'a> {
+        Side {
+            internal: node.is_internal(),
+            sum: off + node.base(),
+            after,
+        }
+    }
+
+    /// The left child's reader: the real left child if internal, else `Zero`.
+    pub(super) fn left(&self) -> EvReader<'a> {
+        if self.internal {
+            self.after
+        } else {
+            EvReader::Zero
+        }
+    }
+
+    /// The right child's reader, given where the left child's traversal ended:
+    /// the threaded end if internal, else `Zero`.
+    pub(super) fn right(&self, left_end: EvReader<'a>) -> EvReader<'a> {
+        if self.internal {
+            left_end
+        } else {
+            EvReader::Zero
+        }
+    }
+
+    /// Where this subtree ends, given where its right child ended: the threaded
+    /// end if internal, else just past this leaf's header.
+    pub(super) fn end(&self, right_end: EvReader<'a>) -> EvReader<'a> {
+        if self.internal {
+            right_end
+        } else {
+            self.after
+        }
+    }
+}
+
 impl EvView<'_> {
     /// The causal order of `self` and `other`, computed in one `O(n + m)` pass;
     /// `None` means concurrent.
@@ -158,10 +277,9 @@ impl EvView<'_> {
     /// pointwise comparisons share a single traversal instead of running `leq`
     /// twice, and stops early the moment both are excluded. The walk descends
     /// into whichever side is internal — both in lockstep, or the internal one
-    /// while the leaf side is broadcast unchanged to both its children — so
-    /// each node of either tree is visited once. Recursion is guarded by
-    /// [`crate::recurse`] so deep, unbalanced trees grow the stack onto the
-    /// heap instead of overflowing.
+    /// while the leaf side broadcasts a [`Zero`](EvReader::Zero) to both its
+    /// children. Recursion is guarded by [`crate::recurse`] so deep, unbalanced
+    /// trees grow the stack onto the heap instead of overflowing.
     pub(crate) fn causal_cmp(&self, other: &EvView) -> Option<Ordering> {
         // Both storage forms are canonical normal form, so identical contents is
         // exactly semantic equality: settle `Equal` with one memcmp before
@@ -172,14 +290,18 @@ impl EvView<'_> {
         if self.trivially_eq(other) {
             return Some(Ordering::Equal);
         }
-        let mut walk = CmpWalk {
-            a: *self,
-            b: *other,
-            le: true,
-            ge: true,
-        };
+        let mut walk = CmpWalk { le: true, ge: true };
         let zero = Base::ZERO;
-        match descend!(0, walk.rec(0, &zero, 0, &zero, 0)) {
+        match descend!(
+            0,
+            walk.rec(
+                EvReader::root(*self),
+                &zero,
+                EvReader::root(*other),
+                &zero,
+                0
+            )
+        ) {
             None => None, // concurrent
             Some(_) => match (walk.le, walk.ge) {
                 (true, true) => Some(Ordering::Equal),
@@ -191,46 +313,36 @@ impl EvView<'_> {
     }
 }
 
-/// The mutable state of a [`causal_cmp`](EvView::causal_cmp) walk: the two
-/// views and the two still-possible directions. Per-node path-sum offsets stay
-/// borrowed (`&Base`); a side's single child offset — its node sum when
-/// internal, its own offset re-broadcast when a leaf — is computed once and
-/// shared by reference between its two children, so the walk clones no path
-/// sums (where the explicit-stack form cloned one per side per node).
-struct CmpWalk<'a> {
-    a: EvView<'a>,
-    b: EvView<'a>,
+/// The two still-possible directions of a [`causal_cmp`](EvView::causal_cmp)
+/// walk. The readers carry the traversal state; only the verdict lives here.
+struct CmpWalk {
     /// `a <= b` still possible.
     le: bool,
     /// `b <= a` still possible.
     ge: bool,
 }
 
-impl CmpWalk<'_> {
-    /// Compare the aligned subtrees at the given positions and path-sum
-    /// offsets, routing through the amortized stack-growth guard. Returns the
-    /// end positions in each input (to thread the right sibling), or `None` to
-    /// signal a decided `concurrent` that unwinds the whole walk.
-    fn rec(
+impl CmpWalk {
+    /// Compare the aligned subtrees at the two readers and path-sum offsets,
+    /// routing through the amortized stack-growth guard. Returns the readers
+    /// past each subtree (to thread the right sibling), or `None` to signal a
+    /// decided `concurrent` that unwinds the whole walk.
+    ///
+    /// Reads as the paper's `leq`: settle the local direction from the path
+    /// sums, then descend each side (an internal side into its children, a leaf
+    /// side broadcasting `Zero`), handing both children the node sum.
+    fn rec<'a>(
         &mut self,
-        a_pos: usize,
+        a: EvReader<'a>,
         a_off: &Base,
-        b_pos: usize,
+        b: EvReader<'a>,
         b_off: &Base,
         depth: usize,
-    ) -> Option<(usize, usize)> {
-        let EvHeader {
-            internal: a_internal,
-            base: a_base,
-            next: a_next,
-        } = self.a.header(a_pos);
-        let EvHeader {
-            internal: b_internal,
-            base: b_base,
-            next: b_next,
-        } = self.b.header(b_pos);
-        let a_sum = a_off + &a_base;
-        let b_sum = b_off + &b_base;
+    ) -> Option<(EvReader<'a>, EvReader<'a>)> {
+        let (a_node, a_after) = a.read();
+        let (b_node, b_after) = b.read();
+        let a_sum = a_off + a_node.base();
+        let b_sum = b_off + b_node.base();
         if a_sum > b_sum {
             self.le = false;
         }
@@ -240,29 +352,26 @@ impl CmpWalk<'_> {
         if !self.le && !self.ge {
             return None; // concurrent: neither direction can recover
         }
-        if !a_internal && !b_internal {
+        if !a_node.is_internal() && !b_node.is_internal() {
             // Both leaves: this branch is decided. Report both ends.
-            return Some((a_next, b_next));
+            return Some((a_after, b_after));
         }
-        // At least one side is internal: descend it, broadcast the other leaf.
-        // Each side hands the same offset to both children — its node sum when
-        // internal, its own offset when a leaf — so it is borrowed, not cloned,
-        // across the two recursive calls. The positions differ: an internal
-        // side descends (left at `next`, right at the threaded end); a leaf
-        // side re-broadcasts in place (both at its own `pos`).
-        let a_child: &Base = if a_internal { &a_sum } else { a_off };
-        let b_child: &Base = if b_internal { &b_sum } else { b_off };
-        let a_left = if a_internal { a_next } else { a_pos };
-        let b_left = if b_internal { b_next } else { b_pos };
+        let sa = Side::new(&a_node, a_after, a_off);
+        let sb = Side::new(&b_node, b_after, b_off);
         let (a_mid, b_mid) = descend!(
             depth + 1,
-            self.rec(a_left, a_child, b_left, b_child, depth + 1)
+            self.rec(sa.left(), &sa.sum, sb.left(), &sb.sum, depth + 1)
         )?;
-        let a_right = if a_internal { a_mid } else { a_pos };
-        let b_right = if b_internal { b_mid } else { b_pos };
-        descend!(
+        let (a_end, b_end) = descend!(
             depth + 1,
-            self.rec(a_right, a_child, b_right, b_child, depth + 1)
-        )
+            self.rec(
+                sa.right(a_mid),
+                &sa.sum,
+                sb.right(b_mid),
+                &sb.sum,
+                depth + 1
+            )
+        )?;
+        Some((sa.end(a_end), sb.end(b_end)))
     }
 }

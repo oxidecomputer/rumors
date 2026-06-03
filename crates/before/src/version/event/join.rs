@@ -1,23 +1,10 @@
 use crate::codec::Base;
 use crate::recurse::descend;
 
-use crate::version::compare::{EvHeader, EvView};
+use crate::version::compare::{EvReader, EvView, Side};
 use crate::version::working::WorkingVersion;
 
 use super::Builder;
-
-/// A built `join` subtree report: the output root a just-finished subtree
-/// produced, plus where it ended in each input (so a right sibling resumes
-/// without re-scanning).
-#[derive(Clone, Copy, Default)]
-struct Joined {
-    /// Output index of the subtree's root.
-    out_root: usize,
-    /// Position just past the subtree in `a`.
-    a_end: usize,
-    /// Position just past the subtree in `b`.
-    b_end: usize,
-}
 
 impl EvView<'_> {
     /// The least upper bound of `self` and `other` (the paper's `join` over
@@ -26,92 +13,93 @@ impl EvView<'_> {
     ///
     /// The recursive, offset-threaded form of `oracle::Version::join_off` (the
     /// paper's `join`), guarded by [`crate::recurse`] so deep trees grow the
-    /// stack onto the heap rather than overflowing. The leaf/node broadcast rule
-    /// is inlined: an internal side descends (threading its right child from
-    /// where the left ended), a leaf side re-broadcasts in place to both of the
-    /// other side's children, and each side hands the same offset — its node sum
-    /// when internal, its own offset when a leaf — to both children by reference.
+    /// stack onto the heap rather than overflowing. The leaf/node broadcast is
+    /// the shared [`Side`] helper: an internal side descends, a leaf side
+    /// broadcasts a [`Zero`](EvReader::Zero) to both of the other side's
+    /// children, and each side hands its node sum to both children.
     pub(crate) fn join(&self, other: &EvView) -> WorkingVersion {
         let mut walk = JoinWalk {
-            a: *self,
-            b: *other,
             out: Builder::with_capacity(self.node_capacity_bound() + other.node_capacity_bound()),
         };
         let zero = Base::ZERO;
-        descend!(0, walk.rec(0, &zero, 0, &zero, 0));
+        descend!(
+            0,
+            walk.rec(
+                EvReader::root(*self),
+                &zero,
+                EvReader::root(*other),
+                &zero,
+                0
+            )
+        );
         walk.out.finish()
     }
 }
 
-/// The mutable state of a [`join`](EvView::join) walk: the two views and the
-/// single output builder threaded through the recursion. Per-node path-sum
-/// offsets stay borrowed (`&Base`); each side's single child offset is shared by
-/// reference between its two children, so the walk clones no path sums.
-struct JoinWalk<'a> {
-    a: EvView<'a>,
-    b: EvView<'a>,
+/// The single output builder of a [`join`](EvView::join) walk; the readers
+/// carry the traversal state.
+struct JoinWalk {
     out: Builder,
 }
 
-impl JoinWalk<'_> {
-    /// Join the aligned subtrees at the given positions and path-sum offsets,
+/// A built `join` subtree: the output root it produced, plus the readers past
+/// each input (so a right sibling resumes without re-scanning).
+struct Joined<'a> {
+    out_root: usize,
+    a_end: EvReader<'a>,
+    b_end: EvReader<'a>,
+}
+
+impl JoinWalk {
+    /// Join the aligned subtrees at the two readers and path-sum offsets,
     /// emitting into `out` and routing through the amortized stack-growth guard.
-    /// Returns the subtree's [`Joined`] report.
-    fn rec(
+    ///
+    /// Reads as the paper's `join`: two leaves join to their pointwise maximum;
+    /// otherwise open a node, descend each side (via [`Side`], an internal side
+    /// into its children, a leaf side broadcasting `Zero`), and close — the
+    /// close performs the normalizing sink.
+    fn rec<'a>(
         &mut self,
-        a_pos: usize,
+        a: EvReader<'a>,
         a_off: &Base,
-        b_pos: usize,
+        b: EvReader<'a>,
         b_off: &Base,
         depth: usize,
-    ) -> Joined {
-        let EvHeader {
-            internal: a_internal,
-            base: a_base,
-            next: a_next,
-        } = self.a.header(a_pos);
-        let EvHeader {
-            internal: b_internal,
-            base: b_base,
-            next: b_next,
-        } = self.b.header(b_pos);
-        let a_sum = a_off + &a_base;
-        let b_sum = b_off + &b_base;
-        if !a_internal && !b_internal {
+    ) -> Joined<'a> {
+        let (a_node, a_after) = a.read();
+        let (b_node, b_after) = b.read();
+        let a_sum = a_off + a_node.base();
+        let b_sum = b_off + b_node.base();
+        if !a_node.is_internal() && !b_node.is_internal() {
             // Both leaves: the joined leaf is their pointwise maximum.
             return Joined {
                 out_root: self.out.leaf(a_sum.max(b_sum)),
-                a_end: a_next,
-                b_end: b_next,
+                a_end: a_after,
+                b_end: b_after,
             };
         }
-        // At least one side is internal: descend it, broadcast the other leaf.
-        // Each side hands the same offset to both children — its node sum when
-        // internal, its own offset when a leaf — by reference. The positions
-        // differ: an internal side descends (left at `next`, right threaded from
-        // where the left ended), a leaf re-broadcasts in place.
+        let sa = Side::new(&a_node, a_after, a_off);
+        let sb = Side::new(&b_node, b_after, b_off);
         let node = self.out.open(Base::ZERO);
-        let a_child: &Base = if a_internal { &a_sum } else { a_off };
-        let b_child: &Base = if b_internal { &b_sum } else { b_off };
-        let a_left = if a_internal { a_next } else { a_pos };
-        let b_left = if b_internal { b_next } else { b_pos };
         let left = descend!(
             depth + 1,
-            self.rec(a_left, a_child, b_left, b_child, depth + 1)
+            self.rec(sa.left(), &sa.sum, sb.left(), &sb.sum, depth + 1)
         );
-        let a_right = if a_internal { left.a_end } else { a_pos };
-        let b_right = if b_internal { left.b_end } else { b_pos };
         let right = descend!(
             depth + 1,
-            self.rec(a_right, a_child, b_right, b_child, depth + 1)
+            self.rec(
+                sa.right(left.a_end),
+                &sa.sum,
+                sb.right(left.b_end),
+                &sb.sum,
+                depth + 1
+            )
         );
         self.out.close_node(node, right.out_root);
-        // The node ends where each internal side's right subtree ended; a
-        // re-broadcast leaf side ends just past its own header.
         Joined {
             out_root: node,
-            a_end: if a_internal { right.a_end } else { a_next },
-            b_end: if b_internal { right.b_end } else { b_next },
+            a_end: sa.end(right.a_end),
+            b_end: sb.end(right.b_end),
         }
     }
 }
