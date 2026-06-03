@@ -46,10 +46,9 @@ pub(crate) enum IdNode {
 ///
 /// **Not `Copy`/`Clone`.** A cursor is single-use: advancing it consumes the
 /// stream, so a stale or duplicated cursor — the re-scan footgun that breaks
-/// `O(n + m)` — cannot be formed by accident. The one legitimate duplication
-/// (a second traversal of the *same* tree) goes through an explicit, greppable
-/// [`duplicate`](EvReader::duplicate) on the event side; the id side never needs
-/// it (its second pass always rebuilds fresh from the source bits).
+/// `O(n + m)` — cannot be formed by accident. The only operation that reads a
+/// tree twice is `grow` (on the event side); it rebuilds a fresh cursor from the
+/// source per pass, so no cursor is ever duplicated.
 pub(crate) enum IdReader<'a> {
     At {
         bits: &'a BitsSlice,

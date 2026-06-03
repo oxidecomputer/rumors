@@ -75,6 +75,6 @@ pub(crate) fn tick(id: &BitsSlice, ev: &WorkingVersion) -> WorkingVersion {
     if filled.topo != ev.topo || filled.base != ev.base {
         filled
     } else {
-        EvReader::working(ev).grow(id)
+        grow::grow(ev, id)
     }
 }

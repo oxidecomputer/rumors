@@ -111,7 +111,7 @@ enum Kind {
     Both,
 }
 
-impl<'a> EvReader<'a> {
+impl EvReader<'_> {
     /// Probe the cheapest inflation of this event tree (`self`), recording the
     /// chosen child direction (`true` = left) per `(id, ev)` branch node into
     /// `route`. Read-only; `O(n + m)`. The event side is lazy-skipped where an
@@ -121,7 +121,7 @@ impl<'a> EvReader<'a> {
     /// `oracle::Version::grow` (the paper's `grow`): where the oracle recurses
     /// once and rebuilds on the way back up, this probe pass finds the cheapest
     /// path and [`grow_emit`](EvReader::grow_emit) replays it.
-    fn grow_probe(self, id_bits: &'a BitsSlice, route: &mut Route) {
+    fn grow_probe(self, id_bits: &BitsSlice, route: &mut Route) {
         let mut walk = ProbeWalk { route };
         let mut ev = self;
         let mut id = IdReader::root(id_bits);
@@ -136,32 +136,32 @@ impl<'a> EvReader<'a> {
     /// This is the rebuilding half of the recursive form of
     /// `oracle::Version::grow`, replaying the directions
     /// [`grow_probe`](EvReader::grow_probe) recorded.
-    fn grow_emit(self, id_bits: &'a BitsSlice, out: &mut Builder, route: &Route) {
+    fn grow_emit(self, id_bits: &BitsSlice, out: &mut Builder, route: &Route) {
         let mut walk = EmitWalk { out, route };
         let mut ev = self;
         let mut id = IdReader::root(id_bits);
         descend!(0, walk.rec(&mut id, &mut ev, 0));
     }
+}
 
-    /// `grow(id, ev)`: register a new event on this event tree (`self`) by the
-    /// cheapest available inflation, in normal form. Two passes — a read-only
-    /// cost probe, then an emit along the chosen path — each `O(n + m)`. The
-    /// probe and emit are the same traversal; see the module doc for the `(id,
-    /// ev)`-coordinate contract that links them through the [`Route`].
-    pub(super) fn grow(self, id_bits: &'a BitsSlice) -> WorkingVersion {
-        let mut route = Route::new(id_bits.len(), self.span());
-        // Conservative: the grown tree is the source plus the nodes a single
-        // expansion adds along the chosen path, bounded by the id's bit length.
-        let cap = self.node_capacity_bound() + id_bits.len();
-        // `grow` is the one operation that traverses a tree twice — a cost probe
-        // then an emit — so it duplicates the event cursor once, here. (This is
-        // the sole sanctioned `duplicate`; it is never called inside a walk.)
-        let emit_ev = self.duplicate();
-        self.grow_probe(id_bits, &mut route);
-        let mut out = Builder::with_capacity(cap);
-        emit_ev.grow_emit(id_bits, &mut out, &route);
-        out.finish()
-    }
+/// `grow(id, ev)`: register a new event on the event tree `ev` by the cheapest
+/// available inflation, in normal form. Two passes — a read-only cost probe,
+/// then an emit along the chosen path — each `O(n + m)`. The probe and emit are
+/// the same traversal; see the module doc for the `(id, ev)`-coordinate
+/// contract that links them through the [`Route`].
+///
+/// Takes the source working form rather than a cursor: each pass builds its own
+/// fresh cursor from it (as `tick` does), so the one operation that reads a tree
+/// twice needs no cursor duplication.
+pub(super) fn grow(ev: &WorkingVersion, id_bits: &BitsSlice) -> WorkingVersion {
+    let mut route = Route::new(id_bits.len(), ev.base.len());
+    // Conservative: the grown tree is the source plus the nodes a single
+    // expansion adds along the chosen path, bounded by the id's bit length.
+    let cap = ev.base.len() + id_bits.len();
+    EvReader::working(ev).grow_probe(id_bits, &mut route);
+    let mut out = Builder::with_capacity(cap);
+    EvReader::working(ev).grow_emit(id_bits, &mut out, &route);
+    out.finish()
 }
 
 /// The mutable state of a [`grow_probe`](EvReader::grow_probe) walk: just the

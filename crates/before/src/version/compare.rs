@@ -67,11 +67,11 @@ impl EvNode {
 /// **Not `Copy`/`Clone`.** A cursor is single-use: advancing it consumes the
 /// stream, so a stale or duplicated cursor — the re-scan footgun that breaks
 /// `O(n + m)` — cannot be formed by accident. A broadcast hands children a
-/// *fresh* synthetic (`Zero`), not a copy of the cursor. The one legitimate
-/// duplication — a second traversal of the *same* tree — goes through the
-/// explicit, greppable [`duplicate`](EvReader::duplicate), which must never
-/// appear inside a recursive walk (see its doc). Visibility is `pub(super)`,
-/// used throughout `version/` and nowhere outside.
+/// *fresh* synthetic (`Zero`), not a copy of the cursor. The one operation that
+/// reads a tree twice (`grow`, a cost probe then an emit) builds a fresh cursor
+/// from the source working form for each pass, exactly as `tick` does — so no
+/// cursor is ever duplicated. Visibility is `pub(super)`, used throughout
+/// `version/` and nowhere outside.
 pub(super) enum EvReader<'a> {
     Packed {
         bits: &'a BitsSlice,
@@ -95,18 +95,6 @@ impl<'a> EvReader<'a> {
     /// A reader at the root of a working-form event tree.
     pub(super) fn working(work: &'a WorkingVersion) -> Self {
         EvReader::Working { work, pos: 0 }
-    }
-
-    /// A second cursor at the same position. The *only* sanctioned way to read a
-    /// tree twice; it must never be called inside a recursive walk (that would
-    /// be the re-scan that `!Copy` exists to forbid). Its sole use is `grow`,
-    /// which traverses one event tree twice — a cost probe then an emit.
-    pub(super) fn duplicate(&self) -> Self {
-        match *self {
-            EvReader::Packed { bits, pos } => EvReader::Packed { bits, pos },
-            EvReader::Working { work, pos } => EvReader::Working { work, pos },
-            EvReader::Zero => EvReader::Zero,
-        }
     }
 
     /// Decode the node at this cursor, advancing it just past the header — to
@@ -194,17 +182,6 @@ impl<'a> EvReader<'a> {
                 a.topo == b.topo && a.base == b.base
             }
             _ => false,
-        }
-    }
-
-    /// An exclusive upper bound on the positions this representation addresses:
-    /// the bit length (packed) or node count (working). Sizes `grow`'s dense
-    /// position-indexed `Route`.
-    pub(super) fn span(&self) -> usize {
-        match self {
-            EvReader::Packed { bits, .. } => bits.len(),
-            EvReader::Working { work, .. } => work.base.len(),
-            EvReader::Zero => 0,
         }
     }
 
