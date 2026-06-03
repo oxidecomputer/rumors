@@ -181,6 +181,8 @@ impl<'a> EvReader<'a> {
     pub(super) fn grow(self, id_bits: &'a BitsSlice) -> WorkingVersion {
         let mut route = Route::new(id_bits.len(), self.span());
         self.grow_probe(id_bits, &mut route);
+        // Conservative: the grown tree is the source plus the nodes a single
+        // expansion adds along the chosen path, bounded by the id's bit length.
         let mut out = Builder::with_capacity(self.node_capacity_bound() + id_bits.len());
         self.grow_emit(id_bits, &mut out, &route);
         out.finish()

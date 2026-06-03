@@ -108,14 +108,18 @@ fn build_split(
         let i2 = &bits[right_start..branch_end];
         let suffix = &bits[branch_end..];
 
-        let mut a = Bits::with_capacity(bits.len());
+        // Each half keeps one child and zeroes the other, so its length is
+        // exact: prefix + branch flag + kept child + `0` leaf + suffix. (Sizing
+        // to `bits.len()` would over-allocate by the discarded child, up to
+        // half the input.)
+        let mut a = Bits::with_capacity(prefix.len() + 1 + i1.len() + zero.len() + suffix.len());
         a.extend_from_bitslice(prefix);
         a.push(true); // the branch node, right child zeroed
         a.extend_from_bitslice(i1);
         a.extend_from_bitslice(&zero);
         a.extend_from_bitslice(suffix);
 
-        let mut b = Bits::with_capacity(bits.len());
+        let mut b = Bits::with_capacity(prefix.len() + 1 + zero.len() + i2.len() + suffix.len());
         b.extend_from_bitslice(prefix);
         b.push(true); // the branch node, left child zeroed
         b.extend_from_bitslice(&zero);

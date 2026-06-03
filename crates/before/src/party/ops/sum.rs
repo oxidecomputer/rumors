@@ -30,6 +30,9 @@ impl IdReader<'_> {
     /// rather than overflowing.
     pub(crate) fn sum(self, other: IdReader) -> Option<Bits> {
         let mut walk = SumWalk {
+            // Conservative: the disjoint union has at most as many bits as both
+            // inputs combined; normalization (collapsing `(v, v)` leaves) only
+            // shrinks it. No tighter bound is cheap without doing the sum.
             out: IdBuilder::with_capacity(self.bits().len() + other.bits().len()),
         };
         descend!(0, walk.rec(self, other, 0))?; // `None` on overlap, discarding the partial output
