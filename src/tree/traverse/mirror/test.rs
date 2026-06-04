@@ -1,5 +1,7 @@
 use std::cell::OnceCell;
 use std::future::Future;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use proptest::collection::vec;
@@ -225,5 +227,112 @@ proptest! {
             let mirrored = mirror_via(tree_a.clone(), tree_b.clone(), scenario);
             prop_assert_eq!(mirrored, expected.clone());
         }
+    }
+}
+
+/// A write transport that delivers nothing to its inner writer until an
+/// explicit flush — the defining property of a buffering layer such as a
+/// compression codec or a [`std::io::BufWriter`], and exactly the property
+/// [`tokio::io::duplex`] lacks (it forwards every write immediately, which is
+/// why the other scenarios never exercised the flush path).
+///
+/// `poll_write` accepts bytes into a local buffer and reports progress, but
+/// holds them back from the inner writer until `poll_flush` drains them.
+struct HoldUntilFlush<W> {
+    inner: W,
+    buf: Vec<u8>,
+    sent: usize,
+}
+
+impl<W> HoldUntilFlush<W> {
+    fn new(inner: W) -> Self {
+        Self {
+            inner,
+            buf: Vec::new(),
+            sent: 0,
+        }
+    }
+}
+
+impl<W: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for HoldUntilFlush<W> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        data: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        self.get_mut().buf.extend_from_slice(data);
+        Poll::Ready(Ok(data.len()))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        let this = self.get_mut();
+        while this.sent < this.buf.len() {
+            match Pin::new(&mut this.inner).poll_write(cx, &this.buf[this.sent..]) {
+                Poll::Ready(Ok(0)) => {
+                    return Poll::Ready(Err(std::io::ErrorKind::WriteZero.into()));
+                }
+                Poll::Ready(Ok(n)) => this.sent += n,
+                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                Poll::Pending => return Poll::Pending,
+            }
+        }
+        this.buf.clear();
+        this.sent = 0;
+        Pin::new(&mut this.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        match self.as_mut().poll_flush(cx) {
+            Poll::Ready(Ok(())) => {}
+            other => return other,
+        }
+        Pin::new(&mut self.get_mut().inner).poll_shutdown(cx)
+    }
+}
+
+/// Regression: the protocol handshake must make progress over a transport that
+/// delivers bytes only on flush.
+///
+/// Each peer writes an 8-byte preamble and then `read_exact`s the peer's 8
+/// bytes before sending anything further. If the preamble is left sitting in a
+/// buffering writer (`write_all` reaches only the buffer, never the wire), both
+/// peers block forever — a deadlock that a raw socket hides because the kernel
+/// forwards immediately, but that any compression/buffering layer exposes. We
+/// drive both handshakes concurrently under a timeout and require completion.
+#[test]
+fn handshake_flushes_over_buffering_transport() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    // Run both handshakes on a watchdog thread. A deadlock can't be caught with
+    // a future-level timeout here (tokio's `time` feature is off in dev-deps),
+    // so we bound it from outside: if the pair hasn't reported back within the
+    // deadline, the handshakes are wedged.
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let both_ok = block_on(async {
+            // `duplex` cross-connects the two ends: bytes written to `a_side`
+            // are readable from `b_side` and vice versa. Wrapping each write
+            // half in `HoldUntilFlush` makes delivery contingent on the
+            // handshake flushing its preamble.
+            let (a_side, b_side) = tokio::io::duplex(64);
+            let (mut a_r, a_w) = tokio::io::split(a_side);
+            let (mut b_r, b_w) = tokio::io::split(b_side);
+            let mut a_w = HoldUntilFlush::new(a_w);
+            let mut b_w = HoldUntilFlush::new(b_w);
+
+            let (ra, rb) = tokio::join!(
+                remote::handshake(&mut a_r, &mut a_w),
+                remote::handshake(&mut b_r, &mut b_w),
+            );
+            ra.is_ok() && rb.is_ok()
+        });
+        let _ = tx.send(both_ok);
+    });
+
+    match rx.recv_timeout(Duration::from_secs(5)) {
+        Ok(true) => {}
+        Ok(false) => panic!("handshake errored over a flush-only transport"),
+        Err(_) => panic!("handshake deadlocked over a flush-only transport"),
     }
 }

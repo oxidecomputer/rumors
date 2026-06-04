@@ -132,7 +132,17 @@ where
     let local: [u8; 8] = [m[0], m[1], m[2], m[3], m[4], m[5], v[0], v[1]];
 
     let mut remote = [0u8; 8];
-    let write_fut = async { write.write_all(&local).await.map_err(Error::Io) };
+    // Flush after writing the preamble: `write_all` alone only reaches the
+    // writer's buffer, and a buffering transport (a compression layer, a
+    // `BufWriter`, a TLS record buffer) may hold all 8 bytes back. Since the
+    // peer concurrently `read_exact`s 8 bytes before it will send anything
+    // further, an unflushed preamble deadlocks both sides. A raw socket
+    // forwards immediately and so never exposed this, but the contract on
+    // `AsyncWrite` does not promise it.
+    let write_fut = async {
+        write.write_all(&local).await.map_err(Error::Io)?;
+        write.flush().await.map_err(Error::Io)
+    };
     let read_fut = async {
         read.read_exact(&mut remote)
             .await
