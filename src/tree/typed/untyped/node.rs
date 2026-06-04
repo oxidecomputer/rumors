@@ -198,6 +198,16 @@ impl<T> Node<T> {
         }
     }
 
+    /// Whether two nodes share the same backing allocation. This is a
+    /// *sufficient* (not necessary) test for structural equality that touches
+    /// no hash: forked trees share their unchanged subtrees by `Arc`, so an
+    /// in-memory merge can short-circuit those in `O(1)` — even cold — before
+    /// falling back to the content hash for subtrees that diverged in memory
+    /// but happen to hold equal content.
+    pub fn ptr_eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
+
     /// Hash the subtree rooted at this node.
     ///
     /// The hash is computed lazily on first call and memoized, so the first
@@ -411,7 +421,10 @@ impl<T> Eq for Node<T> {}
 
 impl<T> PartialEq for Node<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.hash() == other.hash()
+        // Shared backing settles equality with no hashing (and even cold): the
+        // common case for forked/cloned trees and the subtrees they share. Only
+        // distinct allocations fall back to the content hash.
+        self.ptr_eq(other) || self.hash() == other.hash()
     }
 }
 

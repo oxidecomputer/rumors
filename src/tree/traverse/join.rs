@@ -36,8 +36,6 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use imbl::OrdMap;
-
 use crate::{tree::key::Key, version::Version};
 
 use super::typed::*;
@@ -167,24 +165,39 @@ where
             // *we* learn (`on_recv`).
             (None, Some(theirs)) => filter_into(theirs, prefix, a_version, on_recv).await,
             (Some(ours), Some(theirs)) => {
-                // Identical subtrees: keep one, observe nothing. Equal hash ⟹
-                // equal content (content addressing), so there is nothing to
+                // Identical subtrees: keep one, observe nothing. Equality
+                // short-circuits on shared backing (the common case for forked
+                // trees, hash-free) and otherwise on the content hash ⟹ equal
+                // content (content addressing). Either way there is nothing to
                 // learn on either side.
-                if ours.hash() == theirs.hash() {
+                if ours == theirs {
                     return Some(ours);
                 }
 
-                // Differing subtrees: descend both one level and recurse per
-                // child over the union of radixes.
-                let mut ours = ours.into_children();
-                let mut theirs = theirs.into_children();
+                // Differing subtrees: descend one level. Start the merged map
+                // from *ours* and reconcile only the radixes that actually
+                // diverge — children present on both sides with identical
+                // subtrees (again `ptr_eq`-or-hash) carry over verbatim, with no
+                // recursion and no callback (nothing is learned across an equal
+                // subtree). Only the divergent radixes pay a recursion and an
+                // `OrdMap` write, so a small delta against a large shared tree
+                // costs work proportional to the delta, not to the fan-out.
+                let ours = ours.into_children();
+                let theirs = theirs.into_children();
                 let radixes: std::collections::BTreeSet<u8> =
                     ours.keys().chain(theirs.keys()).copied().collect();
 
-                let mut merged: OrdMap<u8, Node<T, H>> = OrdMap::new();
+                let mut merged = ours.clone();
                 for radix in radixes {
-                    let our_child = ours.remove(&radix);
-                    let their_child = theirs.remove(&radix);
+                    let our_child = ours.get(&radix);
+                    let their_child = theirs.get(&radix);
+                    if let (Some(o), Some(t)) = (our_child, their_child)
+                        && o == t
+                    {
+                        // Identical on both sides (shared backing or equal
+                        // hash): already present in `merged`, nothing to learn.
+                        continue;
+                    }
 
                     // Box-and-Send-erase the recursive future; see the matching
                     // comment in `act.rs`.
@@ -192,16 +205,21 @@ where
                     let fut: Pin<
                         Box<dyn Future<Output = Option<Node<T, H>>> + Send + '_>,
                     > = Box::pin(Join::join(
-                        our_child,
-                        their_child,
+                        our_child.cloned(),
+                        their_child.cloned(),
                         prefix.push(radix),
                         a_version,
                         b_version,
                         on_recv,
                         on_send,
                     ));
-                    if let Some(child) = fut.await {
-                        merged.insert(radix, child);
+                    match fut.await {
+                        Some(child) => {
+                            merged.insert(radix, child);
+                        }
+                        None => {
+                            merged.remove(&radix);
+                        }
                     }
                 }
 
