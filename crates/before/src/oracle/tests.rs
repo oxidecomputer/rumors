@@ -53,6 +53,8 @@ proptest! {
         let n = vs.len();
         let joined = vs[i % n].clone() | vs[j % n].clone();
         prop_assert!(joined.is_normal(), "join produced denormal: {:?}", joined);
+        let met = vs[i % n].clone() & vs[j % n].clone();
+        prop_assert!(met.is_normal(), "meet produced denormal: {:?}", met);
     }
 }
 
@@ -136,6 +138,60 @@ proptest! {
         let n = vs.len();
         let (a, b) = (&vs[i % n], &vs[j % n]);
         prop_assert_eq!(leq(a, b), (a.clone() | b.clone()) == *b);
+    }
+}
+
+// ───────────────────────────── meet semilattice ─────────────────────────────
+
+proptest! {
+    /// Meet (`&`) is a meet-semilattice and the greatest lower bound:
+    /// commutative, associative, idempotent; lower bound; and greatest (above
+    /// any common lower bound). The order-theoretic dual of [`lattice`]. There is
+    /// no top element — a version can always tick higher — so meet has no
+    /// identity; instead `Version::new()` (the bottom) is *absorbing*: `a & 0 ==
+    /// 0`.
+    #[test]
+    fn meet_semilattice(ops in world_strategy(),
+                  i in 0usize..64, j in 0usize..64, k in 0usize..64, l in 0usize..64) {
+        let vs = versions(&run(&ops));
+        let n = vs.len();
+        let (a, b, c, extra) = (&vs[i % n], &vs[j % n], &vs[k % n], &vs[l % n]);
+
+        let ab = a.clone() & b.clone();
+        prop_assert_eq!(ab.clone(), b.clone() & a.clone());              // commutative
+        prop_assert_eq!(a.clone() & a.clone(), a.clone());               // idempotent
+        prop_assert_eq!(
+            (a.clone() & b.clone()) & c.clone(),
+            a.clone() & (b.clone() & c.clone()),
+        );                                                               // associative
+        prop_assert!(leq(&ab, a) && leq(&ab, b));                        // lower bound
+
+        // Greatest: any common lower bound is dominated by a&b. Build one as ab&extra.
+        let lower = ab.clone() & extra.clone();
+        prop_assert!(leq(&lower, a) && leq(&lower, b));
+        prop_assert!(leq(&lower, &ab));
+
+        // Bottom is absorbing for meet.
+        prop_assert_eq!(a.clone() & Version::new(), Version::new());
+    }
+}
+
+proptest! {
+    /// Meet and join cohere as a lattice: both absorption laws hold, and the
+    /// causal order is induced by *either* operation — `a <= b` iff `a & b == a`
+    /// iff `a | b == b`.
+    #[test]
+    fn lattice_absorption(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+        let vs = versions(&run(&ops));
+        let n = vs.len();
+        let (a, b) = (&vs[i % n], &vs[j % n]);
+
+        prop_assert_eq!(a.clone() & (a.clone() | b.clone()), a.clone()); // a & (a|b) == a
+        prop_assert_eq!(a.clone() | (a.clone() & b.clone()), a.clone()); // a | (a&b) == a
+
+        let le = leq(a, b);
+        prop_assert_eq!(le, (a.clone() & b.clone()) == *a);              // a<=b ⇔ a&b==a
+        prop_assert_eq!(le, (a.clone() | b.clone()) == *b);              // a<=b ⇔ a|b==b
     }
 }
 
@@ -446,6 +502,20 @@ fn sum_and_join() {
     let joined = a | b;
     let expected = V::Node(1u64.into(), Box::new(vleaf(0)), Box::new(vleaf(1))); // (1,0,1)
     assert_eq!(joined, expected);
+}
+
+/// The event `meet` is the pointwise min / GLB, dual to [`sum_and_join`]'s
+/// pointwise max: `(0,1,0) ⊓ (0,0,2) = 0`, since `min(1,0) = min(0,2) = 0` and
+/// the all-zero node collapses to a single leaf.
+#[test]
+fn meet_is_pointwise_min() {
+    use Version as V;
+    let vleaf = |n: u64| V::leaf(n);
+
+    let a = V::Node(0u64.into(), Box::new(vleaf(1)), Box::new(vleaf(0))); // (0,1,0)
+    let b = V::Node(0u64.into(), Box::new(vleaf(0)), Box::new(vleaf(2))); // (0,0,2)
+    let met = a & b;
+    assert_eq!(met, vleaf(0));
 }
 
 /// §5.3.4. The headline of the example: when the id owns the whole space,

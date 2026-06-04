@@ -311,6 +311,20 @@ proptest! {
 }
 
 proptest! {
+    /// Differential. The impl version meet (`&`) matches the oracle's `meet`,
+    /// dual to [`merge_matches_oracle`].
+    #[test]
+    fn meet_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+        let cs = run(&ops);
+        let vs = versions(&cs);
+        let n = vs.len();
+        let oracle_meet = vs[i % n].clone() & vs[j % n].clone();
+        let met = from_oracle_version(&vs[i % n]) & from_oracle_version(&vs[j % n]);
+        prop_assert!(met == from_oracle_version(&oracle_meet));
+    }
+}
+
+proptest! {
     /// Every assigning / batch join surface on `Version` yields the same result
     /// as `a | b`, which `merge_matches_oracle` already pins to the oracle's
     /// `join`. Covers `Version |= Version`, the `From<&mut Version>` batch
@@ -462,6 +476,129 @@ proptest! {
 }
 
 proptest! {
+    /// The full `&` (BitAnd) matrix over {Version, Batch}² — every owned and
+    /// borrowed form of each operand — equals the oracle's `meet`, dual to
+    /// [`join_matrix_matches_oracle`]. `meet_matches_oracle` pins the bare
+    /// Version×Version cell; a fresh `Batch` reflects its `Version`, so each of
+    /// the sixteen representation/reference cells must agree. Each `Batch`
+    /// operand gets its own clone in a tight scope: an owned-`Batch` operand is
+    /// consumed by `&` and commits (unchanged) on drop, so a fresh one is built
+    /// per cell.
+    #[test]
+    fn meet_matrix_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+        let cs = run(&ops);
+        let vs = versions(&cs);
+        let n = vs.len();
+        let expected = from_oracle_version(&(vs[i % n].clone() & vs[j % n].clone()));
+        let a = from_oracle_version(&vs[i % n]);
+        let b = from_oracle_version(&vs[j % n]);
+
+        // Version × Version (four reference forms).
+        prop_assert!(a.clone() & b.clone() == expected);
+        prop_assert!(&a & b.clone() == expected);
+        prop_assert!(a.clone() & &b == expected);
+        prop_assert!(&a & &b == expected);
+
+        // Version × Batch.
+        { let mut bb = b.clone(); prop_assert!(a.clone() & bb.batch() == expected); }
+        { let mut bb = b.clone(); prop_assert!(&a & bb.batch() == expected); }
+        { let mut bb = b.clone(); let r = bb.batch(); prop_assert!(a.clone() & &r == expected); }
+        { let mut bb = b.clone(); let r = bb.batch(); prop_assert!(&a & &r == expected); }
+
+        // Batch × Version.
+        { let mut aa = a.clone(); prop_assert!(aa.batch() & b.clone() == expected); }
+        { let mut aa = a.clone(); prop_assert!(aa.batch() & &b == expected); }
+        { let mut aa = a.clone(); let l = aa.batch(); prop_assert!(&l & b.clone() == expected); }
+        { let mut aa = a.clone(); let l = aa.batch(); prop_assert!(&l & &b == expected); }
+
+        // Batch × Batch.
+        { let mut aa = a.clone(); let mut bb = b.clone();
+          prop_assert!(aa.batch() & bb.batch() == expected); }
+        { let mut aa = a.clone(); let mut bb = b.clone(); let r = bb.batch();
+          prop_assert!(aa.batch() & &r == expected); }
+        { let mut aa = a.clone(); let mut bb = b.clone(); let l = aa.batch();
+          prop_assert!(&l & bb.batch() == expected); }
+        { let mut aa = a.clone(); let mut bb = b.clone(); let l = aa.batch(); let r = bb.batch();
+          prop_assert!(&l & &r == expected); }
+    }
+}
+
+proptest! {
+    /// The full `&=` (BitAndAssign) matrix: {Version, Batch} left operands
+    /// against {Version, Batch} right operands, every reference form, all landing
+    /// on the oracle's `meet`. Dual to [`join_assign_matrix_matches_oracle`]. A
+    /// `Batch` left operand commits on drop, so it is scoped and its underlying
+    /// `Version` checked afterward.
+    #[test]
+    fn meet_assign_matrix_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+        let cs = run(&ops);
+        let vs = versions(&cs);
+        let n = vs.len();
+        let expected = from_oracle_version(&(vs[i % n].clone() & vs[j % n].clone()));
+        let a = from_oracle_version(&vs[i % n]);
+        let b = from_oracle_version(&vs[j % n]);
+
+        // Version &= Version / &Version.
+        { let mut x = a.clone(); x &= b.clone(); prop_assert!(x == expected); }
+        { let mut x = a.clone(); x &= &b; prop_assert!(x == expected); }
+
+        // Version &= Batch / &Batch.
+        { let mut x = a.clone(); let mut bb = b.clone(); x &= bb.batch(); prop_assert!(x == expected); }
+        { let mut x = a.clone(); let mut bb = b.clone(); let r = bb.batch(); x &= &r; prop_assert!(x == expected); }
+
+        // Batch &= Version / &Version (committed on drop).
+        { let mut x = a.clone(); { let mut bx = x.batch(); bx &= b.clone(); } prop_assert!(x == expected); }
+        { let mut x = a.clone(); { let mut bx = x.batch(); bx &= &b; } prop_assert!(x == expected); }
+
+        // Batch &= Batch / &Batch (committed on drop).
+        { let mut x = a.clone(); let mut bb = b.clone();
+          { let mut bx = x.batch(); bx &= bb.batch(); } prop_assert!(x == expected); }
+        { let mut x = a.clone(); let mut bb = b.clone(); let r = bb.batch();
+          { let mut bx = x.batch(); bx &= &r; } prop_assert!(x == expected); }
+    }
+}
+
+proptest! {
+    /// The meet matrix holds once the `Batch` operands are *materialized* to
+    /// working form, exercising `snapshot`'s repack and `meet_view` meeting a
+    /// Working-form incoming view (the fresh-batch cells above all read packed
+    /// views). Dual to [`materialized_join_parity`]; materializing with the join
+    /// identity (`Version::new()`) forces `work = Some(..)` without changing the
+    /// value.
+    #[test]
+    fn materialized_meet_parity(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+        let cs = run(&ops);
+        let vs = versions(&cs);
+        let n = vs.len();
+        let expected = from_oracle_version(&(vs[i % n].clone() & vs[j % n].clone()));
+        let a = from_oracle_version(&vs[i % n]);
+        let b = from_oracle_version(&vs[j % n]);
+
+        // `&Batch & &Batch`, both materialized: Working snapshot met with a
+        // Working incoming view.
+        {
+            let mut aa = a.clone();
+            let mut bb = b.clone();
+            let mut la = aa.batch();
+            la.merge(&Version::new());
+            let mut rb = bb.batch();
+            rb.merge(&Version::new());
+            prop_assert!(&la & &rb == expected);
+        }
+
+        // `Version &= &Batch` with the batch materialized.
+        {
+            let mut x = a.clone();
+            let mut bb = b.clone();
+            let mut rb = bb.batch();
+            rb.merge(&Version::new());
+            x &= &rb;
+            prop_assert!(x == expected);
+        }
+    }
+}
+
+proptest! {
     /// The join lattice laws on impl values: upper bound, least upper bound,
     /// commutative/associative/idempotent, identity, and absorbing.
     #[test]
@@ -491,6 +628,45 @@ proptest! {
 
         if le(&a, &b) {
             prop_assert!((a.clone() | b.clone()) == b); // absorbing
+        }
+    }
+}
+
+proptest! {
+    /// The meet semilattice laws on impl values: lower bound, greatest lower
+    /// bound, commutative/associative/idempotent, bottom absorbing, and the two
+    /// lattice absorption laws tying `&` to `|`. Dual to [`lattice_laws`].
+    #[test]
+    fn meet_lattice_laws(ops in world_strategy(), i in 0usize..64, j in 0usize..64, k in 0usize..64) {
+        let cs = run(&ops);
+        let vs = versions(&cs);
+        let n = vs.len();
+        let a = from_oracle_version(&vs[i % n]);
+        let b = from_oracle_version(&vs[j % n]);
+        let c = from_oracle_version(&vs[k % n]);
+
+        let ab = a.clone() & b.clone();
+        prop_assert!(le(&ab, &a) && le(&ab, &b)); // lower bound
+
+        // Greatest lower bound: any common lower bound is dominated by a&b.
+        let lower = ab.clone() & c.clone();
+        prop_assert!(le(&lower, &a) && le(&lower, &b));
+        prop_assert!(le(&lower, &ab));
+
+        prop_assert!(ab == (b.clone() & a.clone())); // commutative
+        let lhs = (a.clone() & b.clone()) & c.clone();
+        let rhs = a.clone() & (b.clone() & c.clone());
+        prop_assert!(lhs == rhs); // associative
+        prop_assert!((a.clone() & a.clone()) == a); // idempotent
+
+        prop_assert!((Version::new() & a.clone()) == Version::new()); // bottom absorbing
+
+        // Absorption ties the two operations into a lattice.
+        prop_assert!((a.clone() & (a.clone() | b.clone())) == a); // a & (a|b) == a
+        prop_assert!((a.clone() | (a.clone() & b.clone())) == a); // a | (a&b) == a
+
+        if le(&a, &b) {
+            prop_assert!((a.clone() & b.clone()) == a); // a<=b ⇒ a&b == a
         }
     }
 }
@@ -560,6 +736,24 @@ proptest! {
             let a = shape_version(shape, s);
             steps_of(|| {
                 let _ = a.clone() | a.clone();
+            })
+        };
+        assert_linear_scaling(measure(scale), measure(scale * 4));
+    }
+}
+
+proptest! {
+    /// Complexity. `meet` (`&`) is `O(n + m)`: meeting two deep event trees of
+    /// the same shape stays linear, dual to [`merge_is_linear`]. The operands
+    /// are independent shapes so the walk genuinely descends both sides (`a & a`
+    /// would short-circuit on `trivially_eq`).
+    #[test]
+    fn meet_is_linear(shape_a in arb_shape(), shape_b in arb_shape(), scale in MIN_SCALE..256) {
+        let measure = |s: usize| {
+            let a = shape_version(shape_a, s);
+            let b = shape_version(shape_b, s);
+            steps_of(|| {
+                let _ = a.clone() & b.clone();
             })
         };
         assert_linear_scaling(measure(scale), measure(scale * 4));
@@ -637,6 +831,21 @@ proptest! {
         prop_assert!(merged == from_oracle_version(&oracle_join));
         // The result is a normal-form tree that lowers back to the same oracle value.
         prop_assert_eq!(to_oracle_version(&merged), oracle_join);
+    }
+}
+
+proptest! {
+    /// `&` (meet / GLB) on arbitrary unrelated event trees agrees with the
+    /// oracle's `meet`, structurally — dual to [`merge_arbitrary`]. Exercises the
+    /// meet's arm selection and `close_node` sink/collapse on shapes the op
+    /// pipeline never builds, with large bases threaded losslessly.
+    #[test]
+    fn meet_arbitrary(oa in arb_oracle_version(), ob in arb_oracle_version()) {
+        let met = from_oracle_version(&oa) & from_oracle_version(&ob);
+        let oracle_meet = oa.clone() & ob.clone();
+        prop_assert!(met == from_oracle_version(&oracle_meet));
+        // The result is a normal-form tree that lowers back to the same oracle value.
+        prop_assert_eq!(to_oracle_version(&met), oracle_meet);
     }
 }
 

@@ -81,6 +81,63 @@ proptest! {
     }
 }
 
+// ───────────────────────────── meet: meet-semilattice ─────────────────────────────
+
+proptest! {
+    /// Idempotence: `a & a == a`. The GLB of a value and itself is that value.
+    #[test]
+    fn meet_idempotent(a in arb_oracle_version()) {
+        let met = ver(&a) & ver(&a);
+        prop_assert!(met == ver(&a), "a & a != a");
+    }
+}
+
+proptest! {
+    /// Commutativity: `a & b == b & a`. The GLB does not depend on operand order.
+    #[test]
+    fn meet_commutative(a in arb_oracle_version(), b in arb_oracle_version()) {
+        let ab = ver(&a) & ver(&b);
+        let ba = ver(&b) & ver(&a);
+        prop_assert!(ab == ba, "a & b != b & a");
+    }
+}
+
+proptest! {
+    /// Associativity: `(a & b) & c == a & (b & c)`. With commutativity and
+    /// idempotence, this makes `&` a meet-semilattice operation.
+    #[test]
+    fn meet_associative(
+        a in arb_oracle_version(),
+        b in arb_oracle_version(),
+        c in arb_oracle_version(),
+    ) {
+        let left = (ver(&a) & ver(&b)) & ver(&c);
+        let right = ver(&a) & (ver(&b) & ver(&c));
+        prop_assert!(left == right, "(a & b) & c != a & (b & c)");
+    }
+}
+
+proptest! {
+    /// The meet is a lower bound: `a & b <= a` and `a & b <= b`. The dual of
+    /// [`merge_is_upper_bound`] — what ties `&` to the causal order.
+    #[test]
+    fn meet_is_lower_bound(a in arb_oracle_version(), b in arb_oracle_version()) {
+        let ab = ver(&a) & ver(&b);
+        prop_assert!(le(&ab, &ver(&a)), "a & b is not <= a");
+        prop_assert!(le(&ab, &ver(&b)), "a & b is not <= b");
+    }
+}
+
+proptest! {
+    /// Absorption ties `&` and `|` into a lattice: `a & (a | b) == a` and
+    /// `a | (a & b) == a`. Holds by the ITC algebra, independent of the oracle.
+    #[test]
+    fn meet_join_absorption(a in arb_oracle_version(), b in arb_oracle_version()) {
+        prop_assert!((ver(&a) & (ver(&a) | ver(&b))) == ver(&a), "a & (a | b) != a");
+        prop_assert!((ver(&a) | (ver(&a) & ver(&b))) == ver(&a), "a | (a & b) != a");
+    }
+}
+
 // ───────────────────────────── causal order: partial order ─────────────────────────────
 
 proptest! {

@@ -157,9 +157,9 @@ fn check_ev_codec(evs: &[oracle::Version], imp: &[Version]) {
     });
 }
 
-/// `partial_cmp` and `|` (merge / LUB) over every *ordered pair* of events agree with the
-/// oracle, structurally — reaching the concurrent (`None`) verdict and the join arm selection
-/// on shapes the op pipeline never builds.
+/// `partial_cmp`, `|` (merge / LUB), and `&` (meet / GLB) over every *ordered pair* of events
+/// agree with the oracle, structurally — reaching the concurrent (`None`) verdict and the
+/// join/meet arm selection on shapes the op pipeline never builds.
 fn check_ev_pairs(evs: &[oracle::Version], imp: &[Version]) {
     par_for_pairs(evs.len(), |i, j| {
         let (oa, ob) = (&evs[i], &evs[j]);
@@ -174,6 +174,14 @@ fn check_ev_pairs(evs: &[oracle::Version], imp: &[Version]) {
             "merge {oa:?} | {ob:?}"
         );
         assert_eq!(to_oracle_version(&merged), oracle_join);
+
+        let met = ia.clone() & ib.clone();
+        let oracle_meet = oa.clone() & ob.clone();
+        assert!(
+            met == from_oracle_version(&oracle_meet),
+            "meet {oa:?} & {ob:?}"
+        );
+        assert_eq!(to_oracle_version(&met), oracle_meet);
     });
 }
 
@@ -366,5 +374,17 @@ fn event_merge_is_commutative() {
         let ab = imp[i].clone() | imp[j].clone();
         let ba = imp[j].clone() | imp[i].clone();
         assert!(ab == ba, "event merge not commutative at ({i}, {j})");
+    });
+}
+
+/// event meet (`&`, the meet / greatest lower bound) is commutative: `a & b == b & a`, over
+/// every ordered pair of enumerated events. The dual of [`event_merge_is_commutative`].
+#[test]
+fn event_meet_is_commutative() {
+    let imp = impl_events(EV_SMALL_DEPTH);
+    par_for_pairs(imp.len(), |i, j| {
+        let ab = imp[i].clone() & imp[j].clone();
+        let ba = imp[j].clone() & imp[i].clone();
+        assert!(ab == ba, "event meet not commutative at ({i}, {j})");
     });
 }

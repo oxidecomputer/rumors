@@ -20,7 +20,7 @@
                         // `oracle` feature re-exports it (the crate warns on missing docs).
 
 use std::cmp::Ordering;
-use std::ops::{BitOr, BitOrAssign};
+use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign};
 
 use crate::codec::Base;
 
@@ -251,6 +251,30 @@ impl Version {
         };
         let l = sl.join_off(&sb, ol, &ob);
         let r = sr.join_off(&sb, or, &ob);
+        Version::node(0u64, l, r)
+    }
+
+    /// Meet (GLB) of two event trees, offset-threaded. The order-theoretic dual
+    /// of [`join_off`](Self::join_off): pointwise *minimum* in place of maximum,
+    /// identical structure otherwise (a leaf still broadcasts as the constant
+    /// `(n, 0, 0)` to both of the other side's children).
+    fn meet_off(&self, so: &Base, other: &Version, oo: &Base) -> Version {
+        if let (Version::Leaf(sn), Version::Leaf(on)) = (self, other) {
+            return Version::Leaf((so + sn).min(oo + on));
+        }
+        let sb = so + self.base();
+        let ob = oo + other.base();
+        let z = Version::new();
+        let (sl, sr) = match self {
+            Version::Node(_, l, r) => (l.as_ref(), r.as_ref()),
+            _ => (&z, &z),
+        };
+        let (ol, or) = match other {
+            Version::Node(_, l, r) => (l.as_ref(), r.as_ref()),
+            _ => (&z, &z),
+        };
+        let l = sl.meet_off(&sb, ol, &ob);
+        let r = sr.meet_off(&sb, or, &ob);
         Version::node(0u64, l, r)
     }
 
@@ -501,6 +525,24 @@ impl BitOr<Version> for Version {
 impl BitOrAssign<Version> for Version {
     fn bitor_assign(&mut self, rhs: Version) {
         *self = self.join_off(&Base::ZERO, &rhs, &Base::ZERO);
+    }
+}
+
+// `&`/`&=` are the meet (GLB), the dual of `|`/`|=`, on `Version` only. They are
+// deliberately *not* offered on `Clock`: the id (`Party`) component has no safe
+// meet — intersecting two small disjoint shares could synthesize an ancestor
+// they share with a third live party, violating disjoint linearity — so the meet
+// lives purely on the event component.
+impl BitAnd<Version> for Version {
+    type Output = Version;
+    fn bitand(self, rhs: Version) -> Version {
+        self.meet_off(&Base::ZERO, &rhs, &Base::ZERO)
+    }
+}
+
+impl BitAndAssign<Version> for Version {
+    fn bitand_assign(&mut self, rhs: Version) {
+        *self = self.meet_off(&Base::ZERO, &rhs, &Base::ZERO);
     }
 }
 

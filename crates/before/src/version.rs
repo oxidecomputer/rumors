@@ -3,7 +3,7 @@
 
 use core::cmp::Ordering;
 use core::fmt::Display;
-use core::ops::{BitOr, BitOrAssign};
+use core::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign};
 
 use bitvec::prelude::*;
 
@@ -32,6 +32,7 @@ mod tests;
 /// | `a < b`, `a <= b`                         | `a` is causally dominated by `b`: every event in `a` is in `b` |
 /// | [`a.concurrent(b)`](Version::concurrent)  | incomparable: neither dominates the other                      |
 /// | `a \| b`, `a \|= b`                       | the *join* (least upper bound): the combined history of both   |
+/// | `a & b`, `a &= b`                         | the *meet* (greatest lower bound): the history common to both  |
 /// | [`a.tick(&p)`](Version::tick)             | record one new event for [`Party`] `p`                         |
 ///
 /// Comparison is **partial** ([`PartialOrd`], not [`Ord`]): two distinct
@@ -365,6 +366,27 @@ impl Batch<'_> {
         self
     }
 
+    /// Like `&=`, but chainable: the greatest-lower-bound dual of
+    /// [`merge`](Self::merge).
+    fn meet(&mut self, other: &Version) -> &mut Self {
+        self.meet_view(other.view())
+    }
+
+    /// The view-taking core of [`meet`](Self::meet), the dual of
+    /// [`merge_view`](Self::merge_view): meet an arbitrary event-tree view into
+    /// this batch's in-progress history. The `&`/`&=` matrix routes through here
+    /// exactly as the `|`/`|=` matrix routes through `merge_view`, which is what
+    /// lets it accept a [`Batch`] on either side without transcoding.
+    fn meet_view(&mut self, incoming: EvReader<'_>) -> &mut Self {
+        let current = self.view();
+        if current.trivially_eq(&incoming) {
+            return self; // a & a == a
+        }
+        let work = current.meet(incoming);
+        self.work = Some(work);
+        self
+    }
+
     /// Replace the in-progress history with an already-canonical owned version.
     /// Used by `clock::Batch::sync` after it computes the merged history once.
     pub(crate) fn replace_with(&mut self, version: Version) {
@@ -605,6 +627,176 @@ macro_rules! version_join_assign_impls {
 }
 
 version_join_assign_impls! {
+    Version,   Batch<'_>,  batch;
+    Version,   &Batch<'_>, batch;
+    Batch<'_>, Batch<'_>,  direct;
+    Batch<'_>, &Batch<'_>, direct;
+}
+
+/// `a & b` is the causal meet (greatest lower bound) of two [`Version`]s: the
+/// history common to both, dual to the join `|`.
+///
+/// ```
+/// use before::Clock;
+/// let mut a = Clock::seed();
+/// let mut b = a.fork();
+/// let va = a.tick().clone();
+/// let vb = b.tick().clone();
+/// let met = va.clone() & vb.clone();
+/// assert!(met <= va && met <= vb); // the meet is dominated by both inputs
+/// ```
+impl BitAnd<Version> for Version {
+    type Output = Version;
+    fn bitand(self, r: Version) -> Version {
+        &self & r
+    }
+}
+
+impl BitAnd<&Version> for Version {
+    type Output = Version;
+    fn bitand(mut self, r: &Version) -> Version {
+        self.batch().meet(r);
+        self
+    }
+}
+
+impl BitAnd<Version> for &Version {
+    type Output = Version;
+    fn bitand(self, r: Version) -> Version {
+        r & self // meet is commutative
+    }
+}
+
+impl BitAnd<&Version> for &Version {
+    type Output = Version;
+    fn bitand(self, r: &Version) -> Version {
+        self.clone() & r
+    }
+}
+
+/// `a &= b` meets `b` into `a` in place.
+///
+/// ```
+/// use before::Clock;
+/// let mut a = Clock::seed();
+/// let mut b = a.fork();
+/// let mut va = a.tick().clone();
+/// let vb = b.tick().clone();
+/// let before = va.clone();
+/// va &= vb;
+/// assert!(va <= before); // `a` is narrowed to what it shares
+/// ```
+impl BitAndAssign<Version> for Version {
+    fn bitand_assign(&mut self, r: Version) {
+        *self = &*self & r;
+    }
+}
+
+impl BitAndAssign<&Version> for Version {
+    fn bitand_assign(&mut self, r: &Version) {
+        *self = &*self & r;
+    }
+}
+
+impl BitAndAssign<Version> for Batch<'_> {
+    fn bitand_assign(&mut self, r: Version) {
+        self.meet(&r);
+    }
+}
+
+impl BitAndAssign<&Version> for Batch<'_> {
+    fn bitand_assign(&mut self, r: &Version) {
+        self.meet(r);
+    }
+}
+
+// The meet (`&`) and assigning meet (`&=`) across {Version, Batch}², the exact
+// dual of the join matrix above: same cells, same ownership/snapshot strategy,
+// routing through `Batch::meet_view` (which meets any `.view()` into a batch)
+// instead of `merge_view`. The `Version`/`Version` cells are hand-written above;
+// these two macros fill in every remaining cell with a `Batch` on one or both
+// sides, so the meet matrix reads as a matrix exactly as the join one does.
+
+/// Fills the non-`Version`/`Version` cells of the `&` matrix, the dual of
+/// [`version_join_impls`]. Each cell owns its left operand as a fresh `Version`
+/// — `own`, `clone`, or `snapshot` — then meets the right operand's view into
+/// it.
+macro_rules! version_meet_impls {
+    ($($lhs:ty, $rhs:ty, $own:tt);* $(;)?) => {
+        $( version_meet_impls!(@impl $lhs, $rhs, $own); )*
+    };
+    (@impl $lhs:ty, $rhs:ty, own) => {
+        impl BitAnd<$rhs> for $lhs {
+            type Output = Version;
+            fn bitand(self, r: $rhs) -> Version {
+                let mut out: Version = self;
+                out.batch().meet_view(r.view());
+                out
+            }
+        }
+    };
+    (@impl $lhs:ty, $rhs:ty, clone) => {
+        impl BitAnd<$rhs> for $lhs {
+            type Output = Version;
+            fn bitand(self, r: $rhs) -> Version {
+                let mut out: Version = self.clone();
+                out.batch().meet_view(r.view());
+                out
+            }
+        }
+    };
+    (@impl $lhs:ty, $rhs:ty, snapshot) => {
+        impl BitAnd<$rhs> for $lhs {
+            type Output = Version;
+            fn bitand(self, r: $rhs) -> Version {
+                let mut out: Version = self.snapshot();
+                out.batch().meet_view(r.view());
+                out
+            }
+        }
+    };
+}
+
+version_meet_impls! {
+    Version,    Batch<'_>,  own;
+    Version,    &Batch<'_>, own;
+    &Version,   Batch<'_>,  clone;
+    &Version,   &Batch<'_>, clone;
+    Batch<'_>,  Version,    snapshot;
+    Batch<'_>,  &Version,   snapshot;
+    &Batch<'_>, Version,    snapshot;
+    &Batch<'_>, &Version,   snapshot;
+    Batch<'_>,  Batch<'_>,  snapshot;
+    Batch<'_>,  &Batch<'_>, snapshot;
+    &Batch<'_>, Batch<'_>,  snapshot;
+    &Batch<'_>, &Batch<'_>, snapshot;
+}
+
+/// Fills the `Batch`-valued right-operand cells of the `&=` matrix, the dual of
+/// [`version_join_assign_impls`]. The right operand's view is met into the left
+/// operand in place: through a transient `batch()` for a `Version` left operand
+/// (`batch`), or directly for a `Batch` left operand (`direct`).
+macro_rules! version_meet_assign_impls {
+    ($($lhs:ty, $rhs:ty, $into:tt);* $(;)?) => {
+        $( version_meet_assign_impls!(@impl $lhs, $rhs, $into); )*
+    };
+    (@impl $lhs:ty, $rhs:ty, batch) => {
+        impl BitAndAssign<$rhs> for $lhs {
+            fn bitand_assign(&mut self, r: $rhs) {
+                self.batch().meet_view(r.view());
+            }
+        }
+    };
+    (@impl $lhs:ty, $rhs:ty, direct) => {
+        impl BitAndAssign<$rhs> for $lhs {
+            fn bitand_assign(&mut self, r: $rhs) {
+                self.meet_view(r.view());
+            }
+        }
+    };
+}
+
+version_meet_assign_impls! {
     Version,   Batch<'_>,  batch;
     Version,   &Batch<'_>, batch;
     Batch<'_>, Batch<'_>,  direct;
