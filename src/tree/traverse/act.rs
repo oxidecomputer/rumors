@@ -83,6 +83,7 @@ where
         // uses interior `RefCell`/`Cell` state, which is `!Sync` and would
         // make the surrounding async fn's future `!Send` for callers that
         // want to `tokio::spawn` it on a multi-threaded runtime.
+        #[allow(clippy::type_complexity)]
         let by_radix: Vec<(u8, Vec<(Path<H>, Version, Action<T>)>)> = actions
             .into_iter()
             .map(|(path, version, action)| {
@@ -131,9 +132,15 @@ where
             // `recursion_limit = 128`. With the coercion the outer walk sees
             // only `Pin<Box<dyn Future + Send>>`, which is trivially `Send`
             // regardless of what's inside.
-            let recursed: Pin<Box<dyn Future<Output = Option<Node<T, H>>> + Send + '_>> = Box::pin(
-                Act::act(existing_child, prefix.push(radix), actions, on_action),
-            );
+            #[allow(clippy::type_complexity)]
+            let recursed: Pin<
+                Box<dyn Future<Output = Option<Node<T, H>>> + Send + '_>,
+            > = Box::pin(Act::act(
+                existing_child,
+                prefix.push(radix),
+                actions,
+                on_action,
+            ));
             let recursed = recursed.await;
             if let Some(child) = recursed {
                 updated.push((radix, child));
@@ -168,7 +175,7 @@ impl Act for Z {
 
             // Skip updates that are strictly causally prior to the current
             // version at this node
-            if &version
+            if version
                 < node
                     .as_ref()
                     .map(|n| n.version())

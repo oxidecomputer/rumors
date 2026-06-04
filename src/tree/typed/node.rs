@@ -69,14 +69,15 @@ impl<T, H: Height> Node<T, H> {
 
     /// Hash the subtree rooted at this node.
     ///
-    /// Hashes are computed eagerly at node construction and stored, so this
-    /// is an O(1) field read.
+    /// Hashes are computed lazily on first read and memoized, so the first read
+    /// of a freshly-built subtree costs `O(nodes)` and every read thereafter is
+    /// an `O(1)` field load.
     ///
-    /// The hashing convention: a leaf's "hash" is the distinguished sentinel
-    /// `[0xff; 32]`, a branch's is the hash of 256 concatenated child hashes
-    /// (with `[0x00; 32]` in empty slots). Hashing does not depend on path
-    /// compression: a one-child branch and a node path-compressed by one byte
-    /// produce identical hashes.
+    /// The hashing convention (see [`Hash::branch`] and [`Hash::leaf`]): a leaf
+    /// hashes to `blake3(LEAF_TAG)`; a branch to `blake3(BRANCH_TAG ‖ r₀ ‖ h₀ ‖
+    /// …)` over its children in ascending radix order. Hashing does not depend
+    /// on path compression: a one-child branch and a node path-compressed by
+    /// one byte produce identical hashes.
     pub fn hash(&self) -> Hash {
         self.inner.hash()
     }
@@ -160,7 +161,11 @@ impl<T> Node<T, height::Root> {
 
     pub fn root_hash(node: &Option<Root<T>>) -> Hash
 where {
-        node.as_ref().map(|n| n.hash()).unwrap_or_default()
+        // An absent root is the empty tree, which hashes as a branch with no
+        // children (`blake3(BRANCH_TAG)`), not as the all-zero default.
+        node.as_ref()
+            .map(|n| n.hash())
+            .unwrap_or_else(Hash::empty_root)
     }
 }
 

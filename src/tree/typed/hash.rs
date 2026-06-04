@@ -21,10 +21,49 @@ impl Debug for Hash {
     }
 }
 
+/// Domain-separation tag prefixed to a leaf's hash preimage. Leaves are
+/// content-addressed — the path *is* `blake3(version ‖ value)` — so a leaf
+/// carries no hash-distinguishing content and commits to nothing but this tag.
+const LEAF_TAG: u8 = 0;
+
+/// Domain-separation tag prefixed to a branch's hash preimage, distinguishing
+/// it from a leaf so the two can never collide regardless of children.
+const BRANCH_TAG: u8 = 1;
+
 impl Hash {
     /// One-shot hash of a contiguous byte slice.
     pub fn of(bytes: &[u8]) -> Self {
         Hash(*blake3::hash(bytes).as_bytes())
+    }
+
+    /// The hash of a leaf node: `blake3(LEAF_TAG)`, a constant.
+    pub fn leaf() -> Self {
+        Hash::of(&[LEAF_TAG])
+    }
+
+    /// The hash of a branch over `children`, given as `(radix, child hash)`
+    /// pairs in ascending radix order: `blake3(BRANCH_TAG ‖ r₀ ‖ h₀ ‖ …)`.
+    ///
+    /// This single rule applies at every level of the tree, whether the branch
+    /// is a fully-materialized multi-child node or a single-child virtual level
+    /// collapsed into a compressed prefix. Because a one-child branch hashes
+    /// identically whether it is materialized or path-compressed, hashing is
+    /// compression-invariant by construction. Empty slots are *omitted*, not
+    /// zero-filled; the empty iterator yields the [empty-root](Hash::empty_root)
+    /// hash.
+    pub fn branch(children: impl IntoIterator<Item = (u8, Hash)>) -> Self {
+        let mut hasher = Hasher::new();
+        hasher.update(&[BRANCH_TAG]);
+        for (radix, child) in children {
+            hasher.update(&[radix]);
+            hasher.update(child.as_bytes());
+        }
+        hasher.finalize()
+    }
+
+    /// The hash of the empty tree: a branch with no children, `blake3(BRANCH_TAG)`.
+    pub fn empty_root() -> Self {
+        Hash::branch(std::iter::empty())
     }
 
     /// Reference to the raw 32 bytes.

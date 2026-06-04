@@ -356,7 +356,7 @@ pub use ::borsh;
 /// alice.message(["hello".to_string(), "world".to_string()], ignore).await;
 /// # }
 /// ```
-pub fn ignore<'a, 'b, T>(_key: Key, _version: &'a Version, _message: &'b Arc<T>) -> Ready<()> {
+pub fn ignore<T>(_key: Key, _version: &Version, _message: &Arc<T>) -> Ready<()> {
     ready(())
 }
 

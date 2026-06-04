@@ -11,9 +11,8 @@ use super::Node;
 
 /// Upper bound on the depth of trees generated in property tests. Each test
 /// samples a depth in `0..=MAX_TEST_DEPTH` so that proptest shrinks tree
-/// height as well as structure when a counterexample is found. Kept modest
-/// because every byte of path compression wraps the subtree hash through
-/// another 8 KB of hash input, so deep trees get expensive fast.
+/// height as well as structure when a counterexample is found. Kept modest to
+/// keep generated structures small and shrinking fast.
 const MAX_TEST_DEPTH: usize = 4;
 
 /// Maximum children per branch in generated trees. Capped at the alphabet
@@ -215,7 +214,7 @@ proptest! {
         let leaves = enumerate_leaves(tree, Vec::new());
 
         for (_, v, _) in &leaves {
-            prop_assert!(v <= &root_version);
+            prop_assert!(v <= root_version);
         }
 
         let joined = leaves
@@ -228,10 +227,9 @@ proptest! {
     /// Wrapping a child in N nested singleton branches accumulates an
     /// N-byte compressed prefix above it. The observable hash must equal
     /// the result of N successive virtual-branch wraps of the child's
-    /// hash. With eager hash computation, the per-prefix-level hashes
-    /// stored along the way must match what an external recomputation
-    /// produces byte-for-byte; otherwise either `beneath`'s wrap function
-    /// or its bookkeeping is wrong.
+    /// hash, where each wrap is `blake3(BRANCH_TAG ‖ index ‖ child_hash)`.
+    /// This recomputes the expected value independently of `beneath`, so a
+    /// wrong wrap rule or stale memoization surfaces as a mismatch.
     #[test]
     fn nested_singleton_wraps_match_repeated_branch_hash(
         indices in vec(any::<u8>(), 2..=8),
@@ -239,9 +237,7 @@ proptest! {
     ) {
         let mut expected = child.hash();
         for &index in &indices {
-            let mut buf = [0u8; 256 * 32];
-            buf[index as usize * 32..][..32].copy_from_slice(expected.as_bytes());
-            expected = super::Hash::of(&buf);
+            expected = wrap_reference(index, expected);
         }
 
         let mut wrapped = child;
@@ -255,11 +251,9 @@ proptest! {
 
     /// Popping the topmost compressed-prefix byte (via `into_children`)
     /// must produce a node whose hash matches a freshly-built node with
-    /// the same children and the shortened prefix. With eager per-level
-    /// storage, the surviving prefix entries' precomputed hashes must
-    /// remain consistent with the byte sequence above them: pop is just
-    /// a `Vec::pop`, so a stale or wrong entry would surface as a hash
-    /// mismatch against the from-scratch reference.
+    /// the same children and the shortened prefix. Pop shortens the prefix
+    /// and resets the lazy hash memo, so the recomputed value must match the
+    /// from-scratch reference; a missing memo reset would surface here.
     #[test]
     fn pop_top_byte_matches_freshly_built_shorter_prefix(
         indices in btree_set(any::<u8>(), 2..=8),
@@ -299,13 +293,12 @@ proptest! {
         prop_assert_eq!(popped.hash(), reference.hash());
     }
 
-    /// A one-child branch at index `i` hashes as a "virtual" 256-slot
-    /// branch with slot `i` holding the child's hash and every other
-    /// slot holding `[0x00; 32]`. `Node::branch` collapses the one-child
-    /// case into `beneath`, which path-compresses by pushing a byte onto
-    /// the child's prefix rather than materializing a branch node. The
-    /// stored top-of-prefix hash must match a materialized single-child
-    /// branch's hash so path compression stays observation-invisible.
+    /// A one-child branch at index `i` hashes as a single-child branch
+    /// `blake3(BRANCH_TAG ‖ i ‖ child_hash)`. `Node::branch` collapses the
+    /// one-child case into `beneath`, which path-compresses by pushing a byte
+    /// onto the child's prefix rather than materializing a branch node. The
+    /// observable hash must match that single-child commitment so path
+    /// compression stays observation-invisible.
     #[test]
     fn singleton_branch_matches_virtual_branch_hash(
         index in any::<u8>(),
@@ -315,10 +308,54 @@ proptest! {
         let wrapped = Node::branch(OrdMap::from_iter([(index, child)]))
             .expect("one-child branch is non-empty");
 
-        let mut buf = [0u8; 256 * 32];
-        buf[index as usize * 32..][..32].copy_from_slice(child_hash.as_bytes());
-        let expected = super::Hash::of(&buf);
-
-        prop_assert_eq!(wrapped.hash(), expected);
+        prop_assert_eq!(wrapped.hash(), wrap_reference(index, child_hash));
     }
+
+    /// `beneath` must invalidate the memoized hash. We force the child's hash
+    /// to be computed and cached *first*, then wrap it; the wrapped node's
+    /// observable hash must reflect the new top level (the single-child
+    /// commitment over the child's hash), not the stale cached child hash.
+    /// Without the memo reset in `beneath`, the wrapped node would report the
+    /// child's pre-wrap hash.
+    #[test]
+    fn beneath_invalidates_memoized_hash(
+        index in any::<u8>(),
+        child in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
+    ) {
+        let child_hash = child.hash(); // populate the child's lazy memo
+        let wrapped = child.beneath(index);
+
+        prop_assert_ne!(wrapped.hash(), child_hash);
+        prop_assert_eq!(wrapped.hash(), wrap_reference(index, child_hash));
+    }
+
+    /// `into_children` popping a prefix byte must invalidate the memoized hash.
+    /// We force the wrapped node's hash to be cached at its top level first,
+    /// then pop; the popped child's observable hash must drop back to the
+    /// child's own hash, not retain the stale top-level value.
+    #[test]
+    fn pop_invalidates_memoized_hash(
+        index in any::<u8>(),
+        child in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
+    ) {
+        let child_hash = child.hash();
+        let wrapped = child.beneath(index);
+        let top_hash = wrapped.hash(); // populate the wrapped node's lazy memo
+        prop_assert_ne!(top_hash, child_hash);
+
+        let popped = wrapped.into_children().expect("non-empty");
+        let (_, popped_child) = popped.iter().next().expect("singleton");
+
+        prop_assert_eq!(popped_child.hash(), child_hash);
+    }
+}
+
+/// Reference for a single virtual-branch wrap: `blake3(BRANCH_TAG ‖ index ‖
+/// child_hash)`, computed with literal tag bytes independently of the
+/// implementation's [`Hash::branch`].
+fn wrap_reference(index: u8, child_hash: super::Hash) -> super::Hash {
+    const BRANCH_TAG: u8 = 1;
+    let mut buf = vec![BRANCH_TAG, index];
+    buf.extend_from_slice(child_hash.as_bytes());
+    super::Hash::of(&buf)
 }

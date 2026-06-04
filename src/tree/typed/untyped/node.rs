@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 use std::mem;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use borsh::BorshSerialize;
 use imbl::OrdMap;
@@ -24,24 +24,51 @@ struct NodeInner<T> {
     /// deepest byte at index 0 and the shallowest byte at the last index. An
     /// empty prefix means the node is not path-compressed above its level.
     ///
-    /// Each entry pairs a path byte with the precomputed hash for the virtual
-    /// node sitting at that level.
-    prefix: Vec<(u8, Hash)>,
-    /// Hash of this node's children (the leaf sentinel or the branch-level
-    /// hash), independent of any compressed prefix above it. Computed once at
-    /// construction.
-    children_hash: Hash,
+    /// Only the path bytes are stored: every level's hash is recoverable by
+    /// wrapping the children's hash up through these bytes (see
+    /// [`NodeInner::compute_hash`]), and the cheap commitment makes that
+    /// recomputation negligible.
+    prefix: Vec<u8>,
+    /// The node's observable hash (the hash of the subtree as seen from the top
+    /// of its compressed prefix), computed lazily on first read and memoized.
+    /// The memo is a pure function of the subtree, so it is safe to share
+    /// across the structurally-shared (copy-on-write) clones a forked tree
+    /// produces. Any mutation of `prefix` or `children` invalidates it and must
+    /// reset this cell.
+    hash: OnceLock<Hash>,
     /// The maximal version of any child of this node.
     version: Version,
     /// The children of this node: either a leaf, or a branch point.
     children: Children<T>,
 }
 
+impl<T> NodeInner<T> {
+    /// Compute the observable hash from scratch: hash the children (a leaf
+    /// constant or the branch commitment over their hashes), then wrap that up
+    /// through the compressed prefix one byte at a time, deepest byte first.
+    /// A single-child wrap and a materialized one-child branch share the same
+    /// rule, so the result is independent of how the path is compressed.
+    fn compute_hash(&self) -> Hash {
+        let mut hash = match &self.children {
+            Children::Leaf(_) => Hash::leaf(),
+            Children::Branch(branch) => {
+                Hash::branch(branch.iter().map(|(radix, child)| (*radix, child.hash())))
+            }
+        };
+        // `prefix[0]` is the deepest level (closest to the children), so
+        // folding front-to-back wraps from the bottom up to the observable top.
+        for &byte in &self.prefix {
+            hash = Hash::branch([(byte, hash)]);
+        }
+        hash
+    }
+}
+
 impl<T> Clone for NodeInner<T> {
     fn clone(&self) -> Self {
         Self {
             prefix: self.prefix.clone(),
-            children_hash: self.children_hash,
+            hash: self.hash.clone(),
             version: self.version.clone(),
             children: self.children.clone(),
         }
@@ -50,20 +77,9 @@ impl<T> Clone for NodeInner<T> {
 
 impl<T: Debug> Debug for Node<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut s = f.debug_struct("Node");
-        s.field(
-            "prefix",
-            &hex::encode(
-                self.inner
-                    .prefix
-                    .iter()
-                    .map(|(b, _)| *b)
-                    .collect::<Vec<_>>()
-                    .as_slice(),
-            ),
-        );
-
-        s.field("version", &self.inner.version)
+        f.debug_struct("Node")
+            .field("prefix", &hex::encode(&self.inner.prefix))
+            .field("version", &self.inner.version)
             .field("children", &self.inner.children)
             .finish()
     }
@@ -88,11 +104,6 @@ impl<T> Clone for Children<T> {
     }
 }
 
-/// Sentinel hash used as a leaf's "hash" so leaves are distinguishable from
-/// any branch (which always hashes a 256-slot buffer). Empty branch slots
-/// hash as `[0x00; 32]`, the natural zero-init of the staging buffer.
-const LEAF_SENTINEL: [u8; 32] = [0xff; 32];
-
 impl<T> Node<T> {
     /// Construct a new branch node from a list of children with distinct
     /// indices (inverse to [`Node::into_children`]).
@@ -106,14 +117,10 @@ impl<T> Node<T> {
                 Some(node.beneath(index))
             }
             _ => {
-                let mut buf = [0u8; 256 * 32];
-                for (&i, child) in children.iter() {
-                    buf[i as usize * 32..][..32].copy_from_slice(child.hash().as_bytes());
-                }
-                let children_hash = Hash::of(&buf);
                 // A branch's version is the join (least upper bound) of its
                 // children's versions: fold `|` over them from the empty
-                // version (the lattice bottom).
+                // version (the lattice bottom). The hash is left lazy: it is
+                // computed on first observation, not at construction.
                 let version = children
                     .values()
                     .map(|n| n.version().clone())
@@ -121,7 +128,7 @@ impl<T> Node<T> {
                 Some(Node {
                     inner: Arc::new(NodeInner {
                         prefix: Vec::new(),
-                        children_hash,
+                        hash: OnceLock::new(),
                         version,
                         children: Children::Branch(children),
                     }),
@@ -136,14 +143,14 @@ impl<T> Node<T> {
     /// If `self` is a leaf node, returns `Err(self)`.
     pub fn into_children(mut self) -> Result<OrdMap<u8, Node<T>>, Node<T>> {
         if !self.inner.prefix.is_empty() {
-            // Path-compressed: pop the top byte and rewrap self under it. The
-            // popped entry's precomputed hash and cumulative forgotten are
-            // dropped; every shorter prefix-level's stored hash and
-            // cumulative forgotten remain valid because they were computed
-            // independently of the popped level, and the children and the
-            // surviving byte sequence are unchanged.
+            // Path-compressed: pop the top (shallowest) byte and rewrap self
+            // under it. Popping shortens the prefix, so the observable hash
+            // moves down one virtual level; the memoized hash is now stale and
+            // must be cleared so the next read recomputes from the shortened
+            // prefix.
             let inner = Arc::make_mut(&mut self.inner);
-            let (index, _hash) = inner.prefix.pop().expect("non-empty prefix");
+            let index = inner.prefix.pop().expect("non-empty prefix");
+            inner.hash = OnceLock::new();
             Ok(OrdMap::from_iter([(index, self)]))
         } else {
             match &self.inner.children {
@@ -167,7 +174,7 @@ impl<T> Node<T> {
         Node {
             inner: Arc::new(NodeInner {
                 prefix: Vec::new(),
-                children_hash: Hash(LEAF_SENTINEL),
+                hash: OnceLock::new(),
                 version,
                 children: Children::Leaf(value),
             }),
@@ -184,18 +191,15 @@ impl<T> Node<T> {
 
     /// Hash the subtree rooted at this node.
     ///
-    /// The hash is precomputed at construction and stored, so this is an O(1)
-    /// field read. The hashing convention: a leaf's "hash" is the distinguished
-    /// sentinel `[0xff; 32]`, a branch's is the hash of 256 concatenated child
-    /// hashes (with `[0x00; 32]` in empty slots). Hashing does not depend on
-    /// path compression: a one-child branch and a node path-compressed by one
-    /// byte produce identical hashes.
+    /// The hash is computed lazily on first call and memoized, so the first
+    /// read of a freshly-built subtree is `O(nodes)` and every read thereafter
+    /// is an `O(1)` field load. The convention (see [`Hash::branch`] and
+    /// [`Hash::leaf`]): a leaf hashes to `blake3(LEAF_TAG)`; a branch to
+    /// `blake3(BRANCH_TAG ‖ r₀ ‖ h₀ ‖ …)` over its children in ascending radix
+    /// order. Hashing does not depend on path compression: a one-child branch
+    /// and a node path-compressed by one byte produce identical hashes.
     pub fn hash(&self) -> Hash {
-        self.inner
-            .prefix
-            .last()
-            .map(|(_, h)| *h)
-            .unwrap_or(self.inner.children_hash)
+        *self.inner.hash.get_or_init(|| self.inner.compute_hash())
     }
 
     /// Get the version of this node (the maximal version of all children).
@@ -244,7 +248,7 @@ where {
         prefix_len.serialize(writer)?;
         // Wire order is shallowest-first; the in-memory `prefix` stores the
         // shallowest byte at the last index, so iterate in reverse.
-        for (byte, _hash) in self.inner.prefix.iter().rev() {
+        for byte in self.inner.prefix.iter().rev() {
             byte.serialize(writer)?;
         }
         match &self.inner.children {
@@ -274,14 +278,13 @@ where {
     }
 
     /// Place a node beneath the given child index, increasing its height by
-    /// one. Eagerly computes the new top-of-prefix hash by wrapping the old
-    /// observable hash through one virtual-branch level.
+    /// one. Pushing onto the prefix raises the observable hash by one virtual
+    /// level, so the memoized hash is invalidated and recomputed lazily on the
+    /// next read.
     pub fn beneath(mut self, index: u8) -> Node<T> {
-        let mut buf = [0u8; 256 * 32];
-        buf[index as usize * 32..][..32].copy_from_slice(self.hash().as_bytes());
-        let new_top_hash = Hash::of(&buf);
         let inner = Arc::make_mut(&mut self.inner);
-        inner.prefix.push((index, new_top_hash));
+        inner.prefix.push(index);
+        inner.hash = OnceLock::new();
         self
     }
 
@@ -350,8 +353,8 @@ impl<'a, T> Iterator for Iter<'a, T> {
         while let Some((node, mut path)) = self.stack.pop() {
             // The compressed prefix sits above this node's level and is stored
             // shallowest-last, so replay it shallowest-first to extend the path.
-            for (byte, _hash) in node.inner.prefix.iter().rev() {
-                path.push(*byte);
+            for &byte in node.inner.prefix.iter().rev() {
+                path.push(byte);
             }
             match &node.inner.children {
                 Children::Leaf(message) => {

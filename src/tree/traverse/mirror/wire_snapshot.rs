@@ -161,7 +161,7 @@ fn node_root_none() {
 fn node_root_single_leaf_full_compression() {
     let n = leaf("a", 1);
     seq_macro::seq!(I in 0..32 {
-        let n = Node::beneath(n, I as u8);
+        let n = Node::beneath(n, I);
     });
     let n: Node<(), Root> = n;
     insta::assert_snapshot!(snap(&n));
@@ -175,14 +175,14 @@ fn node_root_two_leaves_branched_at_root() {
         let n0 = {
             let n = l0;
             seq_macro::seq!(I in 0..31 {
-                let n = Node::beneath(n, I as u8);
+                let n = Node::beneath(n, I);
             });
             n
         };
         let n1 = {
             let n = l1;
             seq_macro::seq!(I in 0..31 {
-                let n = Node::beneath(n, I as u8);
+                let n = Node::beneath(n, I);
             });
             n
         };
@@ -253,7 +253,7 @@ fn message_exchange_populated() {
     let n_root: Node<(), Root> = {
         let n = s_s_z;
         seq_macro::seq!(I in 0..30 {
-            let n = Node::beneath(n, I as u8);
+            let n = Node::beneath(n, I);
         });
         n
     };
@@ -288,9 +288,9 @@ fn message_closing_empty() {
 fn message_closing_populated() {
     let n_s_z: Node<(), S<Z>> = Node::beneath(leaf("a", 1), 0xab);
     let mut providing: OrdMap<Prefix<S<Z>>, Node<(), S<Z>>> = OrdMap::new();
-    providing.insert(prefix_from_bytes::<S<Z>>(&vec![0u8; 31]), n_s_z);
+    providing.insert(prefix_from_bytes::<S<Z>>(&[0u8; 31]), n_s_z);
     let mut requested: OrdSet<Prefix<S<Z>>> = OrdSet::new();
-    requested.insert(prefix_from_bytes::<S<Z>>(&vec![0xffu8; 31]));
+    requested.insert(prefix_from_bytes::<S<Z>>(&[0xffu8; 31]));
     let m: message::Closing<()> = message::Closing {
         providing,
         requested,
@@ -307,7 +307,7 @@ fn message_complete_empty() {
 #[test]
 fn message_complete_populated() {
     let mut providing: OrdMap<Prefix<Z>, Node<(), Z>> = OrdMap::new();
-    providing.insert(prefix_from_bytes::<Z>(&vec![0u8; 32]), leaf("a", 1));
+    providing.insert(prefix_from_bytes::<Z>(&[0u8; 32]), leaf("a", 1));
     let m: message::Complete<()> = message::Complete { providing };
     insta::assert_snapshot!(snap(&m));
 }

@@ -47,3 +47,7 @@ debug = "line-tables-only"
 [[example]]
 name = "network_profile"
 path = "examples/network_profile.rs"
+
+[[bench]]
+name = "hash_recon"
+harness = false

@@ -58,7 +58,7 @@ where
         for (prefix, node) in current {
             if decisions.next().unwrap_or(false) {
                 for (byte, child) in node.into_children() {
-                    below.insert(prefix.clone().push(byte), child);
+                    below.insert(prefix.push(byte), child);
                 }
             } else {
                 stay.insert(prefix, node);

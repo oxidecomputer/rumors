@@ -132,18 +132,11 @@ where
     let local: [u8; 8] = [m[0], m[1], m[2], m[3], m[4], m[5], v[0], v[1]];
 
     let mut remote = [0u8; 8];
-    let write_fut = async {
-        write
-            .write_all(&local)
-            .await
-            .map_err(borsh::io::Error::from)
-            .map_err(Error::Io)
-    };
+    let write_fut = async { write.write_all(&local).await.map_err(Error::Io) };
     let read_fut = async {
         read.read_exact(&mut remote)
             .await
             .map(|_| ())
-            .map_err(borsh::io::Error::from)
             .map_err(Error::Io)
     };
     futures_util::future::try_join(write_fut, read_fut).await?;

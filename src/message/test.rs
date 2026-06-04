@@ -104,7 +104,7 @@ proptest! {
     #[test]
     fn nested_in_vec_roundtrips(ps in proptest::collection::vec(payload(), 0..8)) {
         let msgs: Vec<Message<Payload>> =
-            ps.into_iter().map(|p| Message::new(p)).collect();
+            ps.into_iter().map(Message::new).collect();
         let bytes = borsh::to_vec(&msgs).unwrap();
         let back: Vec<Message<Payload>> = borsh::from_slice(&bytes).unwrap();
         prop_assert_eq!(&msgs, &back);

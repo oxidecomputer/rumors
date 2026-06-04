@@ -645,6 +645,7 @@ struct Prediction {
 
 /// Build one side's I/O stack: counted-protocol-layer wrapping a zstd codec
 /// wrapping the counted wire layer wrapping the raw pipe halves.
+#[allow(clippy::type_complexity)]
 fn build_io_stack(
     raw_read: std::io::PipeReader,
     raw_write: std::io::PipeWriter,
@@ -744,6 +745,7 @@ thread_local! {
     static BOB_WORKER: BobWorker = BobWorker::new();
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_sample(
     // Vestigial since party identities are no longer randomized (ITC parties
     // are anonymous and forking is deterministic); retained so the per-sample

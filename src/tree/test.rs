@@ -149,52 +149,51 @@ fn sync_ops_strategy(max_ops: usize, max_batch: usize) -> impl Strategy<Value = 
     )
 }
 
-/// Compute the root hash of the fully-expanded (uVn-path-compressed) 256-ary
-/// trie over the given set of values. For every unique hash path, a leaf
-/// sentinel of all-0xff bytes sits at depth 32; at each level above, a 256-way
-/// branch hashes its child slots (0x00-filled where absent, recursive hash
-/// where present). This is the ground truth that the compressed tree's root
-/// hash must match.
+/// Compute the root hash of the fully-expanded (un-path-compressed) 256-ary
+/// trie over the given set of values, recomputed independently of the
+/// implementation as a ground truth. A leaf hashes to `blake3(LEAF_TAG)`; at
+/// each level above, a branch hashes `blake3(BRANCH_TAG ‖ r₀ ‖ h₀ ‖ …)` over
+/// its *present* children in ascending radix order (absent slots are omitted,
+/// not zero-filled). The empty tree is the branch with no children. The
+/// compressed tree's root hash must match this regardless of how it compresses.
 fn reference_hash(values: &[(Version, Bytes)]) -> Hash {
-    const LEAF_SENTINEL: [u8; 32] = [0xff; 32];
-    const ZERO: [u8; 32] = [0x00; 32];
+    const LEAF_TAG: u8 = 0;
+    const BRANCH_TAG: u8 = 1;
 
-    // The empty tree has the hash of an empty node
-    if values.is_empty() {
-        return Hash::default();
-    }
+    let leaf_hash = || -> Hash {
+        let mut hasher = Hasher::new();
+        hasher.update(&[LEAF_TAG]);
+        hasher.finalize()
+    };
 
     let hash_branch = |children: &HashMap<u8, Hash>| -> Hash {
+        let mut entries: Vec<(u8, Hash)> = children.iter().map(|(k, v)| (*k, *v)).collect();
+        entries.sort_by_key(|(radix, _)| *radix);
         let mut hasher = Hasher::new();
-        for i in u8::MIN..=u8::MAX {
-            match children.get(&i) {
-                Some(h) => hasher.update(h.as_bytes()),
-                None => hasher.update(&ZERO),
-            };
+        hasher.update(&[BRANCH_TAG]);
+        for (radix, h) in entries {
+            hasher.update(&[radix]);
+            hasher.update(h.as_bytes());
         }
         hasher.finalize()
     };
 
-    // Level 32 (the value level): every distinct path maps to the sentinel.
-    // The tree hashes over the serialized `Message` bytes, not the raw
-    // inner value, so we do the same here.
+    // Level 32 (the value level): every distinct path maps to a leaf. The tree
+    // hashes over the serialized `Message` bytes, not the raw inner value, so
+    // we do the same here.
     let paths: BTreeSet<Key> = values
         .iter()
         .map(|(version, value)| Path::for_leaf(version, msg(value.clone()).bytes()).into())
         .collect();
 
+    // The empty tree is a branch with no children.
     if paths.is_empty() {
         return hash_branch(&HashMap::new());
     }
 
     let mut current: HashMap<Vec<u8>, Hash> = paths
         .into_iter()
-        .map(|p| {
-            (
-                <[u8; 32]>::from(typed::Path::from(p)).to_vec(),
-                Hash(LEAF_SENTINEL),
-            )
-        })
+        .map(|p| (<[u8; 32]>::from(typed::Path::from(p)).to_vec(), leaf_hash()))
         .collect();
 
     // Fold upward one level at a time: group entries by the prefix they share
@@ -217,7 +216,8 @@ fn reference_hash(values: &[(Version, Bytes)]) -> Hash {
         .expect("exactly one root entry")
 }
 
-/// An empty tree's root hash must match the reference (256 zero slots).
+/// An empty tree's root hash must match the reference: the branch with no
+/// children, `blake3(BRANCH_TAG)`.
 #[test]
 fn empty_tree_hash_matches_reference() {
     let tree: Tree<Bytes> = Tree::new();
@@ -340,7 +340,7 @@ proptest! {
     }
 
     /// Inserting a value and then deleting its leaf path via two separate `act`
-    /// calls must leave the tree empty (zero root hash). Each `act` batch
+    /// calls must leave the tree empty (the empty-tree hash). Each `act` batch
     /// advances the party's scalar version by one — inserts and forgets
     /// both claim a fresh version, so that the mirror protocol can
     /// distinguish "I forgot this" from "I never knew about it."
@@ -354,13 +354,14 @@ proptest! {
         run(tree.act(&party_of("P"), [insert_action(value)], crate::tree::ignore));
         run(tree.act(&party_of("P"), [Action::Forget(path)], crate::tree::ignore));
 
-        prop_assert_eq!(tree.hash(), [0u8; 32]);
+        prop_assert_eq!(tree.hash(), *reference_hash(&[]).as_bytes());
         prop_assert_eq!(tree.version(), version_for(&party, 2));
     }
 
     /// Inserting a value and deleting its leaf path within the same `act`
-    /// batch must leave the tree empty with the version untouched. The
-    /// "last action on a given path wins" rule makes the delete prevail.
+    /// batch must leave the tree empty (the empty-tree hash) with the version
+    /// untouched. The "last action on a given path wins" rule makes the delete
+    /// prevail.
     #[test]
     fn insert_and_delete_same_batch_is_empty(value in any::<Vec<u8>>()) {
         let party = "P".to_string();
@@ -370,7 +371,7 @@ proptest! {
         let mut tree = Tree::new();
         run(tree.act(&party_of("P"), [insert_action(value), Action::Forget(path)], crate::tree::ignore));
 
-        prop_assert_eq!(tree.hash(), [0u8; 32]);
+        prop_assert_eq!(tree.hash(), *reference_hash(&[]).as_bytes());
         prop_assert_eq!(tree.version(), Version::new());
     }
 
@@ -955,6 +956,7 @@ proptest! {
         // observer closure outlives its enclosing scope from `act`'s point
         // of view (the callback bound is `FnMut(...) -> Fut`), so the
         // capture goes through an `Arc<Mutex<_>>` rather than a borrow.
+        #[allow(clippy::type_complexity)]
         let captured: std::sync::Arc<
             std::sync::Mutex<Vec<(Key, Version, Option<Message<Bytes>>)>>,
         > = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));

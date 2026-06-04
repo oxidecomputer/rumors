@@ -84,9 +84,15 @@ where
             for (radix, child) in node.into_children() {
                 // Box-and-Send-erase the recursive future; see the matching
                 // comment in `act.rs`.
-                let fut: Pin<Box<dyn Future<Output = Option<Node<T, H>>> + Send + '_>> = Box::pin(
-                    Unknown::unknown(Some(child), prefix.push(radix), known, with_unknown),
-                );
+                #[allow(clippy::type_complexity)]
+                let fut: Pin<
+                    Box<dyn Future<Output = Option<Node<T, H>>> + Send + '_>,
+                > = Box::pin(Unknown::unknown(
+                    Some(child),
+                    prefix.push(radix),
+                    known,
+                    with_unknown,
+                ));
                 let recursed = fut.await;
                 if let Some(child) = recursed {
                     children.insert(radix, child);
