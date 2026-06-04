@@ -24,7 +24,7 @@
 
 use std::mem::size_of_val;
 
-use rumors::{Known, ignore};
+use rumors::Known;
 
 /// Upper bound for the unawaited public futures. At time of writing, all
 /// three measure ~170 bytes. The budget is set generously above that
@@ -45,7 +45,7 @@ fn gossip_future_fits_budget() {
     drop(b);
 
     let alice: Known<()> = Known::seed();
-    let fut = alice.gossip(&mut a_r, &mut a_w, ignore);
+    let fut = alice.gossip(&mut a_r, &mut a_w);
     let size = size_of_val(&fut);
 
     assert!(
@@ -63,7 +63,7 @@ fn gossip_future_fits_budget() {
 fn process_future_fits_budget() {
     let mut alice: Known<()> = Known::seed();
     let helper = alice.fork();
-    let fut = alice.learn(helper, ignore);
+    let fut = alice.join(helper);
     let size = size_of_val(&fut);
 
     assert!(
@@ -79,7 +79,7 @@ fn process_future_fits_budget() {
 #[test]
 fn message_future_fits_budget() {
     let mut alice: Known<()> = Known::seed();
-    let fut = alice.message([()], ignore);
+    let fut = alice.message([()]);
     let size = size_of_val(&fut);
 
     assert!(

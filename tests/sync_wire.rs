@@ -5,7 +5,7 @@
 mod common;
 
 use proptest::prelude::*;
-use rumors::sync::{Known, ignore};
+use rumors::sync::Known;
 
 use crate::common::action::{arb_local_actions, build_local};
 use crate::common::oracle::readout;
@@ -32,8 +32,8 @@ proptest! {
         let mut b_proc = b0.fork();
         let a_snap = a_proc.fork();
         let b_snap = b_proc.fork();
-        a_proc.learn(b_snap, ignore).unwrap();
-        b_proc.learn(a_snap, ignore).unwrap();
+        a_proc.join(b_snap).unwrap();
+        b_proc.join(a_snap).unwrap();
 
         let (a_wire, b_wire) = sync_wire_gossip(a0, b0);
 

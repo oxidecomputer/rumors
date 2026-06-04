@@ -315,9 +315,9 @@ impl<T> Tree<T> {
 mod arb;
 
 /// Test-only no-op callback for [`Tree::act`] / [`Tree::react`]; drops every
-/// observation and returns an already-ready future. Counterpart to the
-/// public-API `rumors::ignore`, but with the tree's callback signature
-/// (`Option<&Message<T>>` rather than `&Arc<T>`).
+/// observation and returns an already-ready future. The internal counterpart
+/// to passing no callback through the public API, but with the tree's callback
+/// signature (`Option<&Message<T>>` rather than `&Arc<T>`).
 #[cfg(test)]
 pub(crate) fn ignore<T>(_: Key, _: &Version, _: Option<&Message<T>>) -> std::future::Ready<()> {
     std::future::ready(())

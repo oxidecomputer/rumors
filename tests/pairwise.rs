@@ -17,7 +17,7 @@ mod common;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use proptest::prelude::*;
-use rumors::sync::{Known, ignore};
+use rumors::sync::Known;
 
 use crate::common::action::{arb_local_actions, arb_string_actions, build_local};
 use crate::common::oracle::readout;
@@ -32,9 +32,9 @@ where
 {
     let a_snapshot = a.fork();
     let b_snapshot = b.fork();
-    a.learn(b_snapshot, ignore)
+    a.join(b_snapshot)
         .unwrap_or_else(|_| unreachable!("disjoint operands"));
-    b.learn(a_snapshot, ignore)
+    b.join(a_snapshot)
         .unwrap_or_else(|_| unreachable!("disjoint operands"));
 }
 
@@ -82,8 +82,8 @@ proptest! {
         let (mut a_rev, mut b_rev) = (a0.fork(), b0.fork());
         let a_snap = a_rev.fork();
         let b_snap = b_rev.fork();
-        b_rev.learn(a_snap, |_, _, _| {}).unwrap();
-        a_rev.learn(b_snap, |_, _, _| {}).unwrap();
+        b_rev.join_then(a_snap, |_, _, _| {}).unwrap();
+        a_rev.join_then(b_snap, |_, _, _| {}).unwrap();
 
         prop_assert_eq!(readout(&a_fwd), readout(&a_rev));
         prop_assert_eq!(readout(&b_fwd), readout(&b_rev));
@@ -108,8 +108,8 @@ proptest! {
         let mut observed = 0usize;
         let a_snap = a.fork();
         let b_snap = b.fork();
-        a.learn(b_snap, |_, _, _| observed += 1).unwrap();
-        b.learn(a_snap, |_, _, _| observed += 1).unwrap();
+        a.join_then(b_snap, |_, _, _| observed += 1).unwrap();
+        b.join_then(a_snap, |_, _, _| observed += 1).unwrap();
 
         prop_assert_eq!(observed, 0, "no new observations on second gossip");
         prop_assert_eq!(&a, &a_before);
@@ -194,7 +194,7 @@ proptest! {
         let empty = seed.fork();
 
         let mut callbacks = 0usize;
-        subject.learn(empty, |_, _, _| callbacks += 1).unwrap();
+        subject.join_then(empty, |_, _, _| callbacks += 1).unwrap();
 
         prop_assert_eq!(callbacks, 0);
         prop_assert_eq!(&subject, &original);
@@ -242,8 +242,8 @@ proptest! {
 
         let mut va: Option<Version> = None;
         let mut vb: Option<Version> = None;
-        alice.message([a_value], |_, v, _| va = Some(v.clone()));
-        bob.message([b_value], |_, v, _| vb = Some(v.clone()));
+        alice.message_then([a_value], |_, v, _| va = Some(v.clone()));
+        bob.message_then([b_value], |_, v, _| vb = Some(v.clone()));
 
         let va = va.expect("alice's insert must fire on_message");
         let vb = vb.expect("bob's insert must fire on_message");
@@ -275,7 +275,7 @@ proptest! {
 
         let b_snapshot = b0.fork();
         let mut a_after = a0;
-        a_after.learn(b_snapshot, |_, _, _| {}).unwrap();
+        a_after.join_then(b_snapshot, |_, _, _| {}).unwrap();
 
         prop_assert_eq!(readout(&a_after), expected);
         prop_assert_eq!(readout(&b0), b_before);
@@ -292,7 +292,7 @@ proptest! {
 
         let mut subject = original.fork();
         let mut callbacks = 0usize;
-        subject.learn(original, |_, _, _| callbacks += 1).unwrap();
+        subject.join_then(original, |_, _, _| callbacks += 1).unwrap();
 
         prop_assert_eq!(callbacks, 0);
         prop_assert_eq!(readout(&subject), readout_before);

@@ -21,20 +21,6 @@ mod wire_snapshot;
 
 use protocol::*;
 
-/// Test-only no-op `on_send` / `on_recv` callback for the mirror exchange
-/// types. Counterpart to [`crate::tree::ignore`] but matching the mirror
-/// callback signature (`&Arc<T>` rather than `Option<&Message<T>>`); a
-/// non-async `fn` returning `Ready<()>` so the resulting future has no
-/// captures and is unconditionally `Send`.
-#[cfg(test)]
-pub(crate) fn ignore<T>(
-    _: crate::tree::Key,
-    _: &crate::version::Version,
-    _: &std::sync::Arc<T>,
-) -> std::future::Ready<()> {
-    std::future::ready(())
-}
-
 // This macro allows defining one communication step of the inner protocol
 // between initiator <==> responder (once the client and server have determined
 // who plays which role).

@@ -21,13 +21,13 @@
 //!   throughput, averaged over the 0..N growth curve).
 //! - `iter`: a full live-message traversal of a size-N set.
 //! - `redact`: forget all N keys of a size-N set in one call.
-//! - `learn_{disjoint,small_delta,identical}`: reconcile two peers whose
+//! - `join_{disjoint,small_delta,identical}`: reconcile two peers whose
 //!   histories differ by everything / a fixed handful / nothing.
 
 use std::hint::black_box;
 
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use rumors::sync::{Key, Known, ignore};
+use rumors::sync::{Key, Known};
 
 /// Live message counts spanning three orders of magnitude.
 const SIZES: &[usize] = &[100, 10_000, 1_000_000];
@@ -52,7 +52,7 @@ fn units(n: usize) -> impl Iterator<Item = ()> + Send {
     std::iter::repeat_n((), n)
 }
 
-/// A function building the two peers for one `learn` divergence shape.
+/// A function building the two peers for one `join` divergence shape.
 type ShapeBuilder = fn(usize) -> (Known<()>, Known<()>);
 
 /// A freshly seeded rumor set holding `n` messages, paired with the keys minted
@@ -60,7 +60,7 @@ type ShapeBuilder = fn(usize) -> (Known<()>, Known<()>);
 fn build(n: usize) -> (Known<()>, Vec<Key>) {
     let mut known: Known<()> = Known::seed();
     let mut keys = Vec::with_capacity(n);
-    known.message(units(n), |k, _, _| keys.push(k));
+    known.message_then(units(n), |k, _, _| keys.push(k));
     (known, keys)
 }
 
@@ -77,7 +77,7 @@ fn bench_message(c: &mut Criterion) {
         group.bench_function(BenchmarkId::from_parameter(n), |b| {
             b.iter(|| {
                 let mut known: Known<()> = Known::seed();
-                known.message(units(black_box(n)), ignore);
+                known.message(units(black_box(n)));
                 known
             })
         });
@@ -133,12 +133,12 @@ fn bench_redact(c: &mut Criterion) {
 }
 
 /// Two peers, each holding N messages the other has never seen: worst-case
-/// reconciliation, where `learn` must transfer everything.
+/// reconciliation, where `join` must transfer everything.
 fn build_disjoint(n: usize) -> (Known<()>, Known<()>) {
     let mut left: Known<()> = Known::seed();
     let mut right = left.fork();
-    left.message(units(n), ignore);
-    right.message(units(n), ignore);
+    left.message(units(n));
+    right.message(units(n));
     (left, right)
 }
 
@@ -147,33 +147,33 @@ fn build_disjoint(n: usize) -> (Known<()>, Known<()>) {
 /// prefix should short-circuit by hash and only the deltas transfer.
 fn build_small_delta(n: usize) -> (Known<()>, Known<()>) {
     let mut left: Known<()> = Known::seed();
-    left.message(units(n), ignore);
+    left.message(units(n));
     let mut right = left.fork();
-    left.message(units(DELTA), ignore);
-    right.message(units(DELTA), ignore);
+    left.message(units(DELTA));
+    right.message(units(DELTA));
     (left, right)
 }
 
-/// Two peers with identical histories: `learn` compares two equal roots and
+/// Two peers with identical histories: `join` compares two equal roots and
 /// transfers nothing, measuring the structural-equality fast path.
 fn build_identical(n: usize) -> (Known<()>, Known<()>) {
     let mut left: Known<()> = Known::seed();
-    left.message(units(n), ignore);
+    left.message(units(n));
     let right = left.fork();
     (left, right)
 }
 
-/// `learn` across the three divergence shapes. `Elements(n)` reports against
+/// `join` across the three divergence shapes. `Elements(n)` reports against
 /// the shared tree size in every shape, so the three groups are comparable at
 /// equal N.
-fn bench_learn(c: &mut Criterion) {
+fn bench_join(c: &mut Criterion) {
     let shapes: [(&str, ShapeBuilder); 3] = [
         ("disjoint", build_disjoint),
         ("small_delta", build_small_delta),
         ("identical", build_identical),
     ];
     for (name, builder) in shapes {
-        let mut group = c.benchmark_group(format!("learn_{name}"));
+        let mut group = c.benchmark_group(format!("join_{name}"));
         for &n in SIZES {
             group.sample_size(sample_size_for(n));
             group.throughput(Throughput::Elements(n as u64));
@@ -181,7 +181,7 @@ fn bench_learn(c: &mut Criterion) {
                 b.iter_batched(
                     || builder(n),
                     |(mut left, right)| {
-                        left.learn(right, ignore).unwrap();
+                        left.join(right).unwrap();
                         left
                     },
                     BatchSize::PerIteration,
@@ -192,11 +192,5 @@ fn bench_learn(c: &mut Criterion) {
     }
 }
 
-criterion_group!(
-    benches,
-    bench_message,
-    bench_iter,
-    bench_redact,
-    bench_learn
-);
+criterion_group!(benches, bench_message, bench_iter, bench_redact, bench_join);
 criterion_main!(benches);

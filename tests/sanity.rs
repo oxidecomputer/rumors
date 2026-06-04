@@ -5,7 +5,7 @@ mod common;
 
 use proptest::collection::vec;
 use proptest::prelude::*;
-use rumors::sync::{Known, ignore};
+use rumors::sync::Known;
 
 use crate::common::oracle::readout_multiset;
 use crate::common::peer::{Peer, quiesce};
@@ -38,10 +38,10 @@ proptest! {
         // One universe seed; alice and bob are disjoint forks of it.
         let mut seed = Known::<u64>::seed();
         let mut alice = seed.fork();
-        alice.message(alice_values, ignore);
+        alice.message(alice_values);
 
         let mut bob = seed.fork();
-        bob.message(bob_values, ignore);
+        bob.message(bob_values);
 
         // Two disjoint copies of bob's observations to feed both paths.
         let mut bob_fork = bob.fork();
@@ -49,11 +49,11 @@ proptest! {
 
         // Recombine a fork of alice with one copy of bob's fork.
         let mut recombined = alice.fork();
-        recombined.learn(bob_fork2, ignore).unwrap();
+        recombined.join(bob_fork2).unwrap();
 
         // Direct: learn bob's other fork straight into alice.
         let mut direct = alice;
-        direct.learn(bob_fork, ignore).unwrap();
+        direct.join(bob_fork).unwrap();
 
         prop_assert_eq!(
             readout_multiset(&recombined),

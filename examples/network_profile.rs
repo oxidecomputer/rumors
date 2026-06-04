@@ -213,7 +213,7 @@ use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
 use rand::{SeedableRng, rngs::SmallRng};
 use rayon::prelude::*;
 use rumors::Key;
-use rumors::sync::{Known, ignore};
+use rumors::sync::Known;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -419,14 +419,11 @@ fn build_pair(
         for i in 0..effective {
             let count = (base + if i < remainder { 1 } else { 0 }) as usize;
             let mut bg = seed.fork();
-            bg.message(std::iter::repeat_n((), count), |k, _, _| keys.push(k));
+            bg.message_then(std::iter::repeat_n((), count), |k, _, _| keys.push(k));
             // Fork bg's observations into alice and bob; `learn` rejoins the
             // forked party region, and disjointness makes it infallible here.
-            alice
-                .learn(bg.fork(), ignore)
-                .expect("disjoint background party");
-            bob.learn(bg.fork(), ignore)
-                .expect("disjoint background party");
+            alice.join(bg.fork()).expect("disjoint background party");
+            bob.join(bg.fork()).expect("disjoint background party");
         }
     }
 
@@ -436,10 +433,10 @@ fn build_pair(
     let redact_b: Vec<Key> = keys[s + ra..].to_vec();
 
     alice.redact(redact_a);
-    alice.message(std::iter::repeat_n((), distinct_a as usize), ignore);
+    alice.message(std::iter::repeat_n((), distinct_a as usize));
 
     bob.redact(redact_b);
-    bob.message(std::iter::repeat_n((), distinct_b as usize), ignore);
+    bob.message(std::iter::repeat_n((), distinct_b as usize));
 
     (alice, bob)
 }
@@ -720,9 +717,7 @@ impl BobWorker {
                     let (mut r, mut w) =
                         build_io_stack(job.read, job.write, &stats, job.zstd_level)
                             .expect("build bob stack");
-                    job.bob
-                        .gossip(&mut r, &mut w, ignore)
-                        .expect("sync gossip bob");
+                    job.bob.gossip(&mut r, &mut w).expect("sync gossip bob");
                 }
                 let result = *stats.lock().unwrap();
                 // Recv side will be dropped on shutdown; ignore that error.
@@ -776,7 +771,7 @@ fn run_sample(
             {
                 let (mut r, mut w) = build_io_stack(a_to_b_r, b_to_a_w, &stats, zstd_level)
                     .expect("build bob stack");
-                bob.gossip(&mut r, &mut w, ignore).expect("sync gossip bob");
+                bob.gossip(&mut r, &mut w).expect("sync gossip bob");
             }
             *stats.lock().unwrap()
         })),
@@ -798,9 +793,7 @@ fn run_sample(
     {
         let (mut r, mut w) =
             build_io_stack(b_to_a_r, a_to_b_w, &stats_a, zstd_level).expect("build alice stack");
-        let _alice_out = alice
-            .gossip(&mut r, &mut w, ignore)
-            .expect("sync gossip alice");
+        let _alice_out = alice.gossip(&mut r, &mut w).expect("sync gossip alice");
     }
     let sa = *stats_a.lock().unwrap();
 

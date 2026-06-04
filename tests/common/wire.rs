@@ -14,7 +14,6 @@ use std::cell::OnceCell;
 use std::future::Future;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use rumors::ignore;
 use rumors::sync::Known;
 use tokio::runtime::Runtime;
 
@@ -56,8 +55,8 @@ where
         // Bridge sync::Known -> async Known for the wire, then wrap back
         // into sync::Known on the way out.
         let (a_result, b_result) = tokio::join!(
-            a.0.gossip(&mut a_r, &mut a_w, ignore),
-            b.0.gossip(&mut b_r, &mut b_w, ignore),
+            a.0.gossip(&mut a_r, &mut a_w),
+            b.0.gossip(&mut b_r, &mut b_w),
         );
         (
             Known(a_result.expect("wire gossip A")),

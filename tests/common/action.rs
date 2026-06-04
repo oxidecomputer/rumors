@@ -61,7 +61,7 @@ where
     for a in actions {
         match a {
             LocalAction::Insert(v) => {
-                local.message([v.clone()], |k, _, _| keys.push(k));
+                local.message_then([v.clone()], |k, _, _| keys.push(k));
             }
             LocalAction::Redact(idx) => {
                 if !keys.is_empty() {

@@ -68,13 +68,11 @@ fn mirror_via<T>(
 where
     T: PartialEq + std::fmt::Debug + BorshSerialize + BorshDeserialize + Send + Sync,
 {
-    use super::ignore;
-
     block_on(async move {
         match scenario {
             Scenario::LocalLocal => {
-                let local_a = local::Exchange::start(a, ignore, ignore);
-                let local_b = local::Exchange::start(b, ignore, ignore);
+                let local_a = local::Exchange::silent(a);
+                let local_b = local::Exchange::silent(b);
                 match mirror(local_a, local_b).await {
                     Err(e) => match e {},
                     Ok(result) => result.1,
@@ -90,11 +88,11 @@ where
                 let (a_r, a_w) = tokio::io::split(a_side);
                 let (b_r, b_w) = tokio::io::split(b_side);
 
-                let local_a = local::Exchange::start(a, ignore, ignore);
+                let local_a = local::Exchange::silent(a);
                 let remote_b = remote::Exchange::start(a_r, a_w);
                 let client = mirror(local_a, remote_b);
 
-                let local_b = local::Exchange::start(b, ignore, ignore);
+                let local_b = local::Exchange::silent(b);
                 let remote_a = remote::Exchange::start(b_r, b_w);
                 let server = mirror(local_b, remote_a);
 

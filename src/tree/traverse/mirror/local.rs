@@ -62,6 +62,7 @@ use std::{convert::Infallible, future::Future, mem, sync::Arc};
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use futures::future::Either;
 use itertools::{EitherOrBoth, Itertools};
 
 use crate::{
@@ -100,11 +101,27 @@ pub struct Connected {
     their_version: Version,
 }
 
+/// The "no callback" callback type: a bare function pointer with the mirror
+/// callback signature. Used as the `OnSend`/`OnRecv` type parameter when a
+/// side passes [`None`] (see [`Exchange::silent`]); it is never actually
+/// invoked, only named to pin the otherwise-unconstrained type parameter.
+pub type Silent<T> = fn(Key, &Version, &Arc<T>) -> std::future::Ready<()>;
+
 /// An in-progress mirror synchronization on one side of the wire.
 ///
 /// `L` is our zipper, parameterised by the height of its bottom level; as the
 /// protocol descends, each [`Self::exchange`] call returns a new `Exchange`
 /// whose `L` is two heights below the previous one.
+///
+/// Both callbacks are [`Option`]al. A [`None`] `on_recv` lets
+/// [`Self::absorb_providing`] skip the per-leaf discovery walk entirely (the
+/// dominant cost when no observation is wanted, as in [`join`] and
+/// callback-less [`learn`]); a [`None`] `on_send` skips firing the
+/// counterparty-side notification while still running the load-bearing
+/// version filter.
+///
+/// [`join`]: crate::Known::join
+/// [`learn`]: crate::Known::learn
 pub struct Exchange<OnSend, OnRecv, V, L> {
     /// Our multi-level zipper: agreed heights live near the top, the height
     /// currently under comparison lives at the bottom.
@@ -115,19 +132,20 @@ pub struct Exchange<OnSend, OnRecv, V, L> {
     versions: V,
     /// Invoked whenever we discover a leaf that was previously unknown to us;
     /// lets the calling code stream out leaf-level observations as we find
-    /// out about them.
-    on_recv: OnRecv,
+    /// out about them. [`None`] skips the discovery walk altogether.
+    on_recv: Option<OnRecv>,
     /// Invoked whenever the version-vector filter discovers a leaf the
     /// counterparty does not yet know about; lets the calling code stream out
     /// leaf-level observations as they're discovered by the counterparty.
-    on_send: OnSend,
+    /// [`None`] skips the notification (the filter itself still runs).
+    on_send: Option<OnSend>,
 }
 
 impl<OnSend, OnRecv, T> Exchange<OnSend, OnRecv, Start, Top<T>>
 where
     T: Send + Sync,
 {
-    pub fn start(node: tree::Root<T>, on_send: OnSend, on_recv: OnRecv) -> Self {
+    pub fn start(node: tree::Root<T>, on_send: Option<OnSend>, on_recv: Option<OnRecv>) -> Self {
         Self {
             versions: Start {
                 our_version: node.version.clone(),
@@ -136,6 +154,21 @@ where
             on_recv,
             on_send,
         }
+    }
+}
+
+impl<T> Exchange<Silent<T>, Silent<T>, Start, Top<T>>
+where
+    T: Send + Sync,
+{
+    /// Start a side with no callbacks: neither leaf discovery nor
+    /// counterparty-side notification is reported. Equivalent to
+    /// [`Self::start`] with both callbacks [`None`], but pins the
+    /// otherwise-unconstrained callback type parameters to [`Silent`] so the
+    /// caller need not spell them out. This is the path that elides the
+    /// [`absorb_providing`](Self::absorb_providing) discovery walk.
+    pub fn silent(node: tree::Root<T>) -> Self {
+        Self::start(node, None, None)
     }
 }
 
@@ -514,10 +547,22 @@ where
         L: Levels<Height = H>,
         H: Height + Get,
     {
-        let frontier = self.levels.level_mut();
-        for (prefix, node) in providing {
-            Get::get(Some(node.clone()), prefix, Paths::All, &mut self.on_recv).await;
-            frontier.insert(prefix, node);
+        // Only walk a just-absorbed subtree to fire `on_recv` when there is an
+        // `on_recv` to fire: with no callback the walk is pure waste (it does
+        // nothing but invoke a no-op per leaf), and skipping it is the dominant
+        // saving for callback-less `learn`/`join`. The frontier insert is
+        // unconditional: later rounds re-explode from it regardless.
+        if let Some(on_recv) = self.on_recv.as_mut() {
+            let frontier = self.levels.level_mut();
+            for (prefix, node) in providing {
+                Get::get(Some(node.clone()), prefix, Paths::All, on_recv).await;
+                frontier.insert(prefix, node);
+            }
+        } else {
+            let frontier = self.levels.level_mut();
+            for (prefix, node) in providing {
+                frontier.insert(prefix, node);
+            }
         }
     }
 
@@ -548,7 +593,10 @@ where
                     Some(node),
                     prefix,
                     &self.versions.their_version,
-                    &mut |k, v, m| (self.on_send)(k, v, m.as_ref()),
+                    &mut |k, v, m| match self.on_send.as_mut() {
+                        Some(on_send) => Either::Left(on_send(k, v, m.as_ref())),
+                        None => Either::Right(std::future::ready(())),
+                    },
                 )
                 .await
                 {
@@ -637,7 +685,10 @@ where
                                 Some(ours),
                                 child_prefix,
                                 &self.versions.their_version,
-                                &mut |k, v, m| (self.on_send)(k, v, m.as_ref()),
+                                &mut |k, v, m| match self.on_send.as_mut() {
+                                    Some(on_send) => Either::Left(on_send(k, v, m.as_ref())),
+                                    None => Either::Right(std::future::ready(())),
+                                },
                             )
                             .await
                             {
@@ -701,7 +752,10 @@ where
                         Some(ours),
                         child_prefix,
                         &self.versions.their_version,
-                        &mut |k, v, m| (self.on_send)(k, v, m.as_ref()),
+                        &mut |k, v, m| match self.on_send.as_mut() {
+                            Some(on_send) => Either::Left(on_send(k, v, m.as_ref())),
+                            None => Either::Right(std::future::ready(())),
+                        },
                     )
                     .await
                     {

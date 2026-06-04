@@ -7,7 +7,7 @@
 //! drops the future without awaiting. If any of the async methods
 //! regresses to a `!Send` return, this crate fails to compile.
 
-use rumors::{Known, ignore};
+use rumors::Known;
 
 /// Compile-time `Send`-bound check. Takes its argument by reference so the
 /// future can be dropped (rather than awaited) afterwards.
@@ -16,7 +16,7 @@ fn require_send<T: Send + ?Sized>(_: &T) {}
 #[test]
 fn message_future_is_send() {
     let mut alice = Known::<String>::seed();
-    let fut = alice.message(["hello".to_string()], ignore);
+    let fut = alice.message(["hello".to_string()]);
     require_send(&fut);
     drop(fut);
 }
@@ -26,7 +26,7 @@ fn process_future_is_send() {
     let mut alice = Known::<String>::seed();
     let mut bob = Known::<String>::seed();
     let bob_fork = bob.fork();
-    let fut = alice.learn(bob_fork, ignore);
+    let fut = alice.join(bob_fork);
     require_send(&fut);
     drop(fut);
 }
@@ -36,7 +36,7 @@ fn gossip_future_is_send() {
     let alice = Known::<String>::seed();
     let (_, b) = tokio::io::duplex(64);
     let (mut r, mut w) = tokio::io::split(b);
-    let fut = alice.gossip(&mut r, &mut w, ignore);
+    let fut = alice.gossip(&mut r, &mut w);
     require_send(&fut);
     drop(fut);
 }
@@ -52,7 +52,7 @@ async fn callback_can_borrow_local_state() {
     let mut alice = Known::<String>::seed();
     let mut observed: Vec<String> = Vec::new();
     alice
-        .message(
+        .message_then(
             ["one".to_string(), "two".to_string(), "three".to_string()],
             |_, _, m| {
                 observed.push(m.as_ref().clone());
@@ -74,7 +74,7 @@ fn sync_callback_can_borrow_local_state() {
     use rumors::sync::Known as SyncLocal;
     let mut alice = SyncLocal::<String>::seed();
     let mut observed: Vec<String> = Vec::new();
-    alice.message(
+    alice.message_then(
         ["one".to_string(), "two".to_string(), "three".to_string()],
         |_, _, m| observed.push(m.as_ref().clone()),
     );

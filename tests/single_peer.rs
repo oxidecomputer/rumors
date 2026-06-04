@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 use imbl::OrdMap;
 use proptest::collection::vec;
 use proptest::prelude::*;
-use rumors::sync::{Known, ignore};
+use rumors::sync::Known;
 use rumors::{Key, Version};
 
 // The sync API's callback bound is `FnMut(...) + Send + 'a`, so the
@@ -23,7 +23,7 @@ proptest! {
     fn insert_fires_once_per_value(values in vec(any::<u64>(), 0..=32)) {
         let mut peer = Known::<u64>::seed();
         let mut observed = 0usize;
-        peer.message(values.clone(), |_, _, _| observed += 1);
+        peer.message_then(values.clone(), |_, _, _| observed += 1);
         prop_assert_eq!(observed, values.len());
     }
 
@@ -33,7 +33,7 @@ proptest! {
     fn distinct_keys_per_batch(values in vec(any::<u64>(), 1..=32)) {
         let mut peer = Known::<u64>::seed();
         let mut keys: Vec<Key> = Vec::new();
-        peer.message(values.clone(), |k, _, _| keys.push(k));
+        peer.message_then(values.clone(), |k, _, _| keys.push(k));
         prop_assert_eq!(keys.len(), values.len());
         let unique: BTreeSet<_> = keys.iter().copied().collect();
         prop_assert_eq!(unique.len(), keys.len(), "keys must be distinct");
@@ -45,7 +45,7 @@ proptest! {
     fn duplicate_values_get_distinct_keys(n in 1usize..=16, value in any::<u64>()) {
         let mut peer = Known::<u64>::seed();
         let mut keys: Vec<Key> = Vec::new();
-        peer.message(std::iter::repeat_n(value, n), |k, _, _| keys.push(k));
+        peer.message_then(std::iter::repeat_n(value, n), |k, _, _| keys.push(k));
         prop_assert_eq!(keys.len(), n);
         prop_assert_eq!(keys.iter().copied().collect::<BTreeSet<_>>().len(), n);
     }
@@ -70,7 +70,7 @@ proptest! {
 
         for batch in &batches {
             values.extend(batch.clone());
-            peer.message(batch.clone(), |_, v, m| {
+            peer.message_then(batch.clone(), |_, v, m| {
                 all_versions.insert(**m, v.clone());
             });
         }
@@ -122,7 +122,7 @@ proptest! {
         // `Known::iter`.
         let multiset_of = |values: Vec<u64>| -> BTreeMap<u64, usize> {
             let mut peer = Known::<u64>::seed();
-            peer.message(values, ignore);
+            peer.message(values);
             let mut out = BTreeMap::new();
             for (_, _, v) in peer.iter() {
                 *out.entry(**v).or_insert(0) += 1;

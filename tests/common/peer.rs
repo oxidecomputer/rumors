@@ -56,7 +56,7 @@ impl<T: Clone + BorshSerialize + BorshDeserialize + Send + Sync + 'static> Peer<
         let produced: Arc<Mutex<Option<Key>>> = Arc::new(Mutex::new(None));
         let observations = Arc::clone(&self.observations);
         let produced_in = Arc::clone(&produced);
-        self.local.message([value], move |k, v, m| {
+        self.local.message_then([value], move |k, v, m| {
             observations
                 .lock()
                 .unwrap()
@@ -89,14 +89,14 @@ where
     // (`unwrap_or_else` rather than `expect` keeps `T: Debug` off the bound.)
     let obs_a = Arc::clone(&a.observations);
     a.local
-        .learn(b_snapshot, move |k, v, m| {
+        .join_then(b_snapshot, move |k, v, m| {
             obs_a.lock().unwrap().push((k, v.clone(), T::clone(m)));
         })
         .unwrap_or_else(|_| unreachable!("fleet peers share one seed, so are disjoint"));
 
     let obs_b = Arc::clone(&b.observations);
     b.local
-        .learn(a_snapshot, move |k, v, m| {
+        .join_then(a_snapshot, move |k, v, m| {
             obs_b.lock().unwrap().push((k, v.clone(), T::clone(m)));
         })
         .unwrap_or_else(|_| unreachable!("fleet peers share one seed, so are disjoint"));

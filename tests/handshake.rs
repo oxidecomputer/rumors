@@ -5,7 +5,7 @@
 //! version surfaces as the typed error variant rather than corrupting
 //! the local rumor set.
 
-use rumors::{Error, Known, PROTOCOL_MAGIC, PROTOCOL_VERSION, ignore};
+use rumors::{Error, Known, PROTOCOL_MAGIC, PROTOCOL_VERSION};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
 
 /// The compile-time constants match the layout this test crate
@@ -28,8 +28,8 @@ async fn handshake_roundtrip_succeeds() {
     let bob: Known<String> = Known::seed();
 
     let (alice_out, bob_out) = tokio::join!(
-        alice.gossip(&mut a_r, &mut a_w, ignore),
-        bob.gossip(&mut b_r, &mut b_w, ignore),
+        alice.gossip(&mut a_r, &mut a_w),
+        bob.gossip(&mut b_r, &mut b_w),
     );
 
     alice_out.expect("alice gossip");
@@ -64,7 +64,7 @@ async fn magic_mismatch_surfaces_error() {
     };
 
     let alice: Known<String> = Known::seed();
-    let alice_fut = alice.gossip(&mut a_r, &mut a_w, ignore);
+    let alice_fut = alice.gossip(&mut a_r, &mut a_w);
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
     match alice_result {
@@ -103,7 +103,7 @@ async fn version_mismatch_surfaces_error() {
     };
 
     let alice: Known<String> = Known::seed();
-    let alice_fut = alice.gossip(&mut a_r, &mut a_w, ignore);
+    let alice_fut = alice.gossip(&mut a_r, &mut a_w);
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
     match alice_result {
@@ -133,7 +133,7 @@ async fn truncated_handshake_io_error() {
     };
 
     let alice: Known<String> = Known::seed();
-    let alice_fut = alice.gossip(&mut a_r, &mut a_w, ignore);
+    let alice_fut = alice.gossip(&mut a_r, &mut a_w);
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
     match alice_result {
@@ -171,7 +171,7 @@ async fn handshake_precedes_framed_traffic() {
     };
 
     let alice: Known<String> = Known::seed();
-    let alice_fut = alice.gossip(&mut a_r, &mut a_w, ignore);
+    let alice_fut = alice.gossip(&mut a_r, &mut a_w);
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
     assert!(

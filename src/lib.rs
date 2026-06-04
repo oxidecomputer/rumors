@@ -25,7 +25,7 @@
 //! // It's `FnMut + Send` and may freely borrow local state for the
 //! // duration of the await.
 //! let mut observed = 0usize;
-//! alice.message(
+//! alice.message_then(
 //!     ["hello".to_string(), "world".to_string()],
 //!     |_key, _version, _message| {
 //!         observed += 1;
@@ -49,7 +49,7 @@
 //! # async fn main() {
 //! let mut alice = Known::seed();
 //! let mut keys: Vec<Key> = Vec::new();
-//! alice.message(
+//! alice.message_then(
 //!     ["stale rumor".to_string()],
 //!     |k, _, _| {
 //!         keys.push(k);
@@ -67,7 +67,7 @@
 //! against a peer concurrently, [`fork`](Known::fork) a `Known`: a *true causal
 //! fork* that mints a fresh disjoint party sharing the current observations
 //! (the underlying tree is structurally shared, copy-on-write). The two halves
-//! act independently, then reunite via [`Known::learn`] (observing everything
+//! act independently, then reunite via [`Known::join_then`] (observing everything
 //! new) or [`Known::join`] (the fallible merge that rejoins their parties). A
 //! `Known` is [`!Clone`](Clone) — the only way to get another working copy is
 //! [`fork`](Known::fork). See the [`Known`] docs for the full discussion.
@@ -78,7 +78,7 @@
 //! [`Known::gossip`]:
 //!
 //! ```
-//! use rumors::{Known, ignore};
+//! use rumors::{Known};
 //!
 //! # #[tokio::main(flavor = "current_thread")]
 //! # async fn main() {
@@ -88,13 +88,13 @@
 //! let (mut b_r, mut b_w) = tokio::io::split(b);
 //!
 //! let mut alice: Known<String> = Known::seed();
-//! alice.message(["hello".to_string()], ignore).await;
+//! alice.message(["hello".to_string()]).await;
 //! let bob: Known<String> = Known::seed();
 //!
 //! // Drive both ends concurrently; bob learns "hello".
 //! let (alice, bob) = tokio::join!(
-//!     alice.gossip(&mut a_r, &mut a_w, ignore),
-//!     bob.gossip(&mut b_r, &mut b_w,
+//!     alice.gossip(&mut a_r, &mut a_w),
+//!     bob.gossip_then(&mut b_r, &mut b_w,
 //!         move |_, _, m: &std::sync::Arc<String>| {
 //!             assert_eq!(m.as_ref(), "hello");
 //!             async {}
@@ -117,10 +117,7 @@
 //!
 //! - **Patch versions** are wire-identical: two peers on the same minor
 //!   version, regardless of patch, always interoperate.
-//! - **Minor versions** are forward-compatible. Wire changes between
-//!   minor versions are strictly additive, and the version negotiated by
-//!   the handshake is `min(local, remote)`, so a peer on a newer minor
-//!   version can gossip with a peer on an older one.
+//! - **Minor versions** are forward-compatible.
 //! - **Major versions** may break the wire incompatibly. The handshake
 //!   surfaces such mismatches as [`Error::VersionMismatch`] before any
 //!   rumor-set state is touched.
@@ -186,7 +183,7 @@ pub const PROTOCOL_VERSION: u16 = 1;
 /// working copy, [`fork`](Known::fork) it — a *true causal fork* that mints a
 /// fresh disjoint party sharing the current observations (the underlying tree
 /// is structurally shared, copy-on-write). Concurrent code holds one fork per
-/// thread or task and recombines them via [`learn`](Known::learn) /
+/// thread or task and recombines them via [`join_then`](Known::join_then) /
 /// [`join`](Known::join).
 ///
 /// Methods take `AsyncFnMut` callbacks; for synchronous I/O and callbacks,
@@ -196,7 +193,7 @@ pub const PROTOCOL_VERSION: u16 = 1;
 ///
 /// Every party in one universe must descend from a single [`seed`](Known::seed)
 /// by [`fork`](Known::fork). Forking splits a party into two disjoint regions,
-/// and [`learn`](Known::learn) / [`join`](Known::join) rejoin them; because the
+/// and [`join_then`](Known::join_then) / [`join`](Known::join) rejoin them; because the
 /// regions are disjoint, each party's history stays causally well-defined no
 /// matter how forks and merges interleave.
 ///
@@ -213,7 +210,7 @@ pub const PROTOCOL_VERSION: u16 = 1;
 /// # async fn main() {
 /// let mut alice = Known::seed();
 /// let mut keys: Vec<Key> = Vec::new();
-/// alice.message(
+/// alice.message_then(
 ///     ["hello".to_string(), "world".to_string()],
 ///     |key, _, _| {
 ///         keys.push(key);
@@ -253,7 +250,7 @@ pub use mirror::remote::Error;
 /// An opaque identifier for a single message in a [`Known`] rumor set.
 ///
 /// Keys are produced by the `on_message` callbacks of [`Known::message`],
-/// [`Known::learn`], and [`Known::gossip`], and are stable across peers:
+/// [`Known::join_then`], and [`Known::gossip`], and are stable across peers:
 /// a key obtained from one peer can redact the message on any other.
 ///
 /// Two content-identical messages always receive distinct keys: every
@@ -268,7 +265,7 @@ pub use mirror::remote::Error;
 /// # async fn main() {
 /// let mut alice = Known::seed();
 /// let mut keys: Vec<Key> = Vec::new();
-/// alice.message(
+/// alice.message_then(
 ///     ["echo".to_string(), "echo".to_string()],
 ///     |k, _, _| {
 ///         keys.push(k);
@@ -283,7 +280,7 @@ pub use tree::Key;
 /// A causal version vector tagging when a message was observed.
 ///
 /// Surfaced to the `on_message` callbacks of [`Known::message`],
-/// [`Known::learn`], and [`Known::gossip`]. [`PartialOrd`] captures causal
+/// [`Known::join_then`], and [`Known::gossip`]. [`PartialOrd`] captures causal
 /// ordering: `a <= b` iff every party's counter in `a` is at most the
 /// corresponding counter in `b`. Versions produced by concurrent events are
 /// incomparable (`partial_cmp` returns `None`).
@@ -297,7 +294,7 @@ pub use tree::Key;
 /// # async fn main() {
 /// let mut alice = Known::seed();
 /// let mut versions: Vec<Version> = Vec::new();
-/// alice.message(
+/// alice.message_then(
 ///     ["first".to_string(), "second".to_string()],
 ///     |_, v, _| {
 ///         versions.push(v.clone());
@@ -322,7 +319,7 @@ pub use version::Version;
 /// # Example
 ///
 /// ```
-/// use rumors::{Known, borsh, ignore};
+/// use rumors::{Known, borsh};
 ///
 /// #[derive(borsh::BorshSerialize, borsh::BorshDeserialize)]
 /// struct Rumor { subject: String, count: u32 }
@@ -330,34 +327,10 @@ pub use version::Version;
 /// # #[tokio::main(flavor = "current_thread")]
 /// # async fn main() {
 /// let mut alice = Known::seed();
-/// alice.message(
-///     [Rumor { subject: "weather".into(), count: 3 }],
-///     ignore,
-/// ).await;
+/// alice.message([Rumor { subject: "weather".into(), count: 3 }]).await;
 /// # }
 /// ```
 pub use ::borsh;
-
-/// An `on_message` callback that discards every observation.
-///
-/// Pass this when you only care about mutating the rumor set, not about
-/// inspecting individual messages. See [`sync::ignore`] for the sync
-/// equivalent.
-///
-/// # Example
-///
-/// ```
-/// use rumors::{Known, ignore};
-///
-/// # #[tokio::main(flavor = "current_thread")]
-/// # async fn main() {
-/// let mut alice = Known::seed();
-/// alice.message(["hello".to_string(), "world".to_string()], ignore).await;
-/// # }
-/// ```
-pub fn ignore<T>(_key: Key, _version: &Version, _message: &Arc<T>) -> Ready<()> {
-    ready(())
-}
 
 impl<T> Known<T> {
     /// Create the distinguished seed rumor set: the single root [`Party`] from
@@ -386,6 +359,33 @@ impl<T> Known<T> {
         }
     }
 
+    /// Insert messages into the rumor set without observing them.
+    ///
+    /// The callback-free counterpart to [`message_then`](Self::message_then):
+    /// use it when you only care about mutating the rumor set, not about the
+    /// [`Key`]s or [`Version`]s of the inserted messages.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rumors::Known;
+    ///
+    /// # #[tokio::main(flavor = "current_thread")]
+    /// # async fn main() {
+    /// let mut alice = Known::seed();
+    /// alice.message(["hello".to_string(), "world".to_string()]).await;
+    /// # }
+    /// ```
+    pub async fn message<'a, I>(&'a mut self, messages: I)
+    where
+        T: BorshSerialize + Send + Sync + 'a,
+        I: IntoIterator<Item = T> + Send,
+        I::IntoIter: Send,
+    {
+        self.message_inner(messages, None::<fn(Key, &Version, &Arc<T>) -> Ready<()>>)
+            .await;
+    }
+
     /// Insert messages into the rumor set, invoking `on_message` once per
     /// newly-observed message.
     ///
@@ -397,7 +397,8 @@ impl<T> Known<T> {
     ///
     /// Callback order is unspecified and need not match insertion order. If
     /// your application needs an ordering, sort by the [`Version`] threaded
-    /// through the callback.
+    /// through the callback. To insert without a callback, use
+    /// [`message`](Self::message).
     ///
     /// # Example
     ///
@@ -408,7 +409,7 @@ impl<T> Known<T> {
     /// # async fn main() {
     /// let mut alice = Known::seed();
     /// let mut observed: Vec<(Key, Version, String)> = Vec::new();
-    /// alice.message(
+    /// alice.message_then(
     ///     ["hello".to_string(), "world".to_string()],
     ///     |key, version, message| {
     ///         observed.push((key, version.clone(), message.as_ref().clone()));
@@ -418,10 +419,27 @@ impl<T> Known<T> {
     /// assert_eq!(observed.len(), 2);
     /// # }
     /// ```
-    pub async fn message<'a, OnMessage, OnMessageFut, I>(
+    pub async fn message_then<'a, OnMessage, OnMessageFut, I>(
         &'a mut self,
         messages: I,
-        mut on_message: OnMessage,
+        on_message: OnMessage,
+    ) where
+        T: BorshSerialize + Send + Sync + 'a,
+        I: IntoIterator<Item = T> + Send,
+        I::IntoIter: Send,
+        OnMessage: FnMut(Key, &Version, &Arc<T>) -> OnMessageFut + Send + 'a,
+        OnMessageFut: Future<Output = ()> + Send + 'a,
+    {
+        self.message_inner(messages, Some(on_message)).await;
+    }
+
+    /// Shared core of [`message`](Self::message) and
+    /// [`message_then`](Self::message_then). A [`None`] `on_message` skips the
+    /// per-leaf callback entirely.
+    async fn message_inner<'a, OnMessage, OnMessageFut, I>(
+        &'a mut self,
+        messages: I,
+        mut on_message: Option<OnMessage>,
     ) where
         T: BorshSerialize + Send + Sync + 'a,
         I: IntoIterator<Item = T> + Send,
@@ -437,9 +455,9 @@ impl<T> Known<T> {
                       v: &Version,
                       m: Option<&Message<T>>|
                       -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
-                    match m {
-                        Some(m) => Box::pin(on_message(k, v, m.as_ref())),
-                        None => Box::pin(ready(())),
+                    match (on_message.as_mut(), m) {
+                        (Some(on_message), Some(m)) => Box::pin(on_message(k, v, m.as_ref())),
+                        _ => Box::pin(ready(())),
                     }
                 },
             )
@@ -452,12 +470,12 @@ impl<T> Known<T> {
     /// # Example
     ///
     /// ```
-    /// use rumors::{Known, ignore};
+    /// use rumors::{Known};
     ///
     /// # #[tokio::main(flavor = "current_thread")]
     /// # async fn main() {
     /// let mut alice = Known::seed();
-    /// alice.message(["a".to_string(), "b".to_string()], ignore).await;
+    /// alice.message(["a".to_string(), "b".to_string()]).await;
     /// let mut live: Vec<String> = alice.iter().map(|(_, _, m)| m.as_ref().clone()).collect();
     /// live.sort();
     /// assert_eq!(live, vec!["a".to_string(), "b".to_string()]);
@@ -474,7 +492,7 @@ impl<T> Known<T> {
     /// instruct every peer we synchronize with to do the same.
     ///
     /// Each [`Key`] was originally surfaced by an `on_message` callback in
-    /// [`Known::message`], [`Known::learn`], or [`Known::gossip`].
+    /// [`Known::message`], [`Known::join_then`], or [`Known::gossip`].
     /// Redaction is contagious, so a single peer's call evicts the message
     /// network-wide without consensus.
     ///
@@ -487,7 +505,7 @@ impl<T> Known<T> {
     /// # async fn main() {
     /// let mut alice = Known::seed();
     /// let mut keys: Vec<Key> = Vec::new();
-    /// alice.message(
+    /// alice.message_then(
     ///     ["transient announcement".to_string()],
     ///     |k, _, _| {
     ///         keys.push(k);
@@ -518,18 +536,18 @@ impl<T> Known<T> {
     /// concurrently with `self`. The tree is shared structurally
     /// (copy-on-write), so the fork starts from the same observations, but the
     /// two parties' futures are independent and causally concurrent. Reunite a
-    /// fork with [`learn`](Self::learn) / [`join`](Self::join), which
+    /// fork with [`join_then`](Self::join_then) / [`join`](Self::join), which
     /// merges the trees and rejoins the parties.
     ///
     /// # Example
     ///
     /// ```
-    /// use rumors::{Known, ignore};
+    /// use rumors::{Known};
     ///
     /// # #[tokio::main(flavor = "current_thread")]
     /// # async fn main() {
     /// let mut alice = Known::seed();
-    /// alice.message(["hello".to_string()], ignore).await;
+    /// alice.message(["hello".to_string()]).await;
     ///
     /// // The fork shares alice's observations but has its own party.
     /// let snapshot = alice.fork();
@@ -543,9 +561,46 @@ impl<T> Known<T> {
         }
     }
 
+    /// Reunite `other` into `self`, discarding per-message observations, and
+    /// rejoin its [`Party`] back into `self`'s (the inverse of
+    /// [`fork`](Self::fork)).
+    ///
+    /// A blocking convenience: the callback-free counterpart of
+    /// [`join_then`](Self::join_then). Because there is no callback, the merge
+    /// elides the per-leaf discovery walk, the dominant cost of reconciliation.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(other)`, handing `other` back untouched, if the two parties
+    /// are **not disjoint** — see [`join_then`](Self::join_then).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rumors::Known;
+    ///
+    /// # #[tokio::main(flavor = "current_thread")]
+    /// # async fn main() {
+    /// let mut alice = Known::seed();
+    /// let mut bob = alice.fork();
+    /// bob.message(["news".to_string()]).await;
+    /// alice.join(bob).unwrap();
+    /// # }
+    /// ```
+    pub fn join(&mut self, other: Known<T>) -> Result<(), Known<T>>
+    where
+        T: Send + Sync,
+    {
+        // A `None` callback lets the merge elide the per-leaf discovery walk.
+        pollster::block_on(self.join_inner(other, None::<fn(Key, &Version, &Arc<T>) -> Ready<()>>))
+    }
+
     /// Merge `other` into `self`, invoking `on_message` for each message in
     /// `other` that `self` had not already observed, and reuniting `other`'s
     /// [`Party`] back into `self`'s.
+    ///
+    /// The observing counterpart of [`join`](Self::join): use that when you do
+    /// not need the [`Key`]s / [`Version`]s of the merged-in messages.
     ///
     /// **Delivery is unordered**: callbacks fire in arbitrary order, including
     /// orderings that violate the causal precedence captured by each message's
@@ -564,26 +619,41 @@ impl<T> Known<T> {
     /// # Example
     ///
     /// ```
-    /// use rumors::{Known, ignore};
+    /// use rumors::Known;
     ///
     /// # #[tokio::main(flavor = "current_thread")]
     /// # async fn main() {
     /// let mut alice = Known::seed();
     /// let mut bob = alice.fork();
-    /// bob.message(["news from bob".to_string()], ignore).await;
+    /// bob.message(["news from bob".to_string()]).await;
     ///
     /// let mut learned: Vec<String> = Vec::new();
-    /// alice.learn(bob, |_, _, m| {
+    /// alice.join_then(bob, |_, _, m| {
     ///     learned.push(m.as_ref().clone());
     ///     async {}
     /// }).await.unwrap();
     /// assert_eq!(learned, vec!["news from bob".to_string()]);
     /// # }
     /// ```
-    pub async fn learn<'a, OnMessage, OnMessageFut>(
+    pub async fn join_then<'a, OnMessage, OnMessageFut>(
         &'a mut self,
         other: Known<T>,
         on_message: OnMessage,
+    ) -> Result<(), Known<T>>
+    where
+        T: Send + Sync + 'a,
+        OnMessage: FnMut(Key, &Version, &Arc<T>) -> OnMessageFut + Send + 'a,
+        OnMessageFut: std::future::Future<Output = ()> + Send + 'a,
+    {
+        self.join_inner(other, Some(on_message)).await
+    }
+
+    /// Shared core of [`join`](Self::join) and [`join_then`](Self::join_then).
+    /// A [`None`] `on_message` elides the per-leaf discovery walk.
+    async fn join_inner<'a, OnMessage, OnMessageFut>(
+        &'a mut self,
+        other: Known<T>,
+        on_message: Option<OnMessage>,
     ) -> Result<(), Known<T>>
     where
         T: Send + Sync + 'a,
@@ -615,9 +685,12 @@ impl<T> Known<T> {
         // those nodes uniquely held, so the structural ops are plain moves. The
         // merged root is written straight back below, so the take is transient
         // and there is no early return between here and the write-back.
-        let l =
-            mirror::local::Exchange::start(std::mem::take(&mut self.tree.root), ignore, on_message);
-        let r = mirror::local::Exchange::start(other_tree.root, ignore, ignore);
+        let l = mirror::local::Exchange::start(
+            std::mem::take(&mut self.tree.root),
+            None::<mirror::local::Silent<T>>,
+            on_message,
+        );
+        let r = mirror::local::Exchange::silent(other_tree.root);
 
         // Drive them to completion: we know they don't need a "real" executor
         Ok((self.tree.root, _)) = mirror(l, r).await;
@@ -625,13 +698,53 @@ impl<T> Known<T> {
         Ok(())
     }
 
+    /// Synchronize rumor sets with a remote peer without observing the messages
+    /// learned from it.
+    ///
+    /// The callback-free counterpart of [`gossip_then`](Self::gossip_then);
+    /// see that method for the handshake and ordering semantics. For
+    /// synchronous I/O, use [`sync::Known::gossip`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rumors::Known;
+    ///
+    /// # #[tokio::main(flavor = "current_thread")]
+    /// # async fn main() {
+    /// let (a, b) = tokio::io::duplex(1024);
+    /// let (mut a_r, mut a_w) = tokio::io::split(a);
+    /// let (mut b_r, mut b_w) = tokio::io::split(b);
+    ///
+    /// let mut alice: Known<String> = Known::seed();
+    /// alice.message(["hello".to_string()]).await;
+    /// let bob: Known<String> = Known::seed();
+    ///
+    /// let (alice, bob) = tokio::join!(
+    ///     alice.gossip(&mut a_r, &mut a_w),
+    ///     bob.gossip(&mut b_r, &mut b_w),
+    /// );
+    /// let (_alice, _bob) = (alice.unwrap(), bob.unwrap());
+    /// # }
+    /// ```
+    pub async fn gossip<'a, R, W>(self, read: &'a mut R, write: &'a mut W) -> Result<Self, Error>
+    where
+        T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
+        R: AsyncRead + Unpin + Send,
+        W: AsyncWrite + Unpin + Send,
+    {
+        self.gossip_inner(read, write, None::<fn(Key, &Version, &Arc<T>) -> Ready<()>>)
+            .await
+    }
+
     /// Synchronize rumor sets with a remote peer, invoking `on_message` for
     /// each message learned from the peer.
     ///
     /// `read` and `write` must implement [`AsyncRead`] / [`AsyncWrite`];
-    /// both ends of the connection must drive `gossip` concurrently. The
-    /// callback signature matches [`Known::message`]. For synchronous I/O,
-    /// use [`sync::Known::gossip`].
+    /// both ends of the connection must drive gossip concurrently. The
+    /// callback signature matches [`Known::message_then`]. To synchronize
+    /// without a callback, use [`gossip`](Self::gossip); for synchronous I/O,
+    /// use [`sync::Known::gossip_then`].
     ///
     /// The session begins with the 8-byte protocol handshake described in
     /// the crate-level `# Stability` section; a peer with the wrong
@@ -647,7 +760,7 @@ impl<T> Known<T> {
     ///
     /// ```
     /// use std::sync::Arc;
-    /// use rumors::{Known, ignore};
+    /// use rumors::Known;
     ///
     /// # #[tokio::main(flavor = "current_thread")]
     /// # async fn main() {
@@ -656,13 +769,13 @@ impl<T> Known<T> {
     /// let (mut b_r, mut b_w) = tokio::io::split(b);
     ///
     /// let mut alice: Known<String> = Known::seed();
-    /// alice.message(["hello".to_string()], ignore).await;
+    /// alice.message(["hello".to_string()]).await;
     /// let bob: Known<String> = Known::seed();
     ///
     /// let mut bob_learned: Vec<String> = Vec::new();
     /// let (alice, bob) = tokio::join!(
-    ///     alice.gossip(&mut a_r, &mut a_w, ignore),
-    ///     bob.gossip(&mut b_r, &mut b_w, |_, _, m: &Arc<String>| {
+    ///     alice.gossip(&mut a_r, &mut a_w),
+    ///     bob.gossip_then(&mut b_r, &mut b_w, |_, _, m: &Arc<String>| {
     ///         bob_learned.push(m.as_ref().clone());
     ///         async {}
     ///     }),
@@ -671,11 +784,30 @@ impl<T> Known<T> {
     /// assert_eq!(bob_learned, vec!["hello".to_string()]);
     /// # }
     /// ```
-    pub async fn gossip<'a, OnMessage, OnMessageFut, R, W>(
-        mut self,
+    pub async fn gossip_then<'a, OnMessage, OnMessageFut, R, W>(
+        self,
         read: &'a mut R,
         write: &'a mut W,
         on_message: OnMessage,
+    ) -> Result<Self, Error>
+    where
+        T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
+        R: AsyncRead + Unpin + Send,
+        W: AsyncWrite + Unpin + Send,
+        OnMessage: FnMut(Key, &Version, &Arc<T>) -> OnMessageFut + Send + 'a,
+        OnMessageFut: Future<Output = ()> + Send + 'a,
+    {
+        self.gossip_inner(read, write, Some(on_message)).await
+    }
+
+    /// Shared core of [`gossip`](Self::gossip) and
+    /// [`gossip_then`](Self::gossip_then). A [`None`] `on_message` elides the
+    /// per-leaf discovery walk.
+    async fn gossip_inner<'a, OnMessage, OnMessageFut, R, W>(
+        mut self,
+        read: &'a mut R,
+        write: &'a mut W,
+        on_message: Option<OnMessage>,
     ) -> Result<Self, Error>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
@@ -690,7 +822,11 @@ impl<T> Known<T> {
         mirror::remote::handshake(read, write).await?;
 
         // Instantiate the two sides of the mirror exchange: local and remote
-        let l = mirror::local::Exchange::start(self.tree.root, ignore, on_message);
+        let l = mirror::local::Exchange::start(
+            self.tree.root,
+            None::<mirror::local::Silent<T>>,
+            on_message,
+        );
         let r = mirror::remote::Exchange::start(read, write);
 
         // Drive them to completion against each other
@@ -701,33 +837,5 @@ impl<T> Known<T> {
         })?;
 
         Ok(self)
-    }
-
-    /// Reunite `other` into `self`, discarding per-message observations.
-    ///
-    /// A blocking, ignore-the-callback convenience for
-    /// [`learn`](Self::learn): it merges `other`'s history into `self` and
-    /// rejoins their parties (the inverse of [`fork`](Self::fork)). Returns
-    /// `Err(other)` if the two parties are not disjoint — see
-    /// [`learn`](Self::learn) for when that arises.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use rumors::{Known, ignore};
-    ///
-    /// # #[tokio::main(flavor = "current_thread")]
-    /// # async fn main() {
-    /// let mut alice = Known::seed();
-    /// let mut bob = alice.fork();
-    /// bob.message(["news".to_string()], ignore).await;
-    /// alice.join(bob).unwrap();
-    /// # }
-    /// ```
-    pub fn join(&mut self, other: Known<T>) -> Result<(), Known<T>>
-    where
-        T: Send + Sync,
-    {
-        pollster::block_on(self.learn(other, |_, _, _| ready(())))
     }
 }
