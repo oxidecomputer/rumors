@@ -372,10 +372,28 @@ impl Batch<'_> {
         *self.version = version;
     }
 
-    /// Snapshot the in-progress history as an owned, canonical [`Version`] — without
-    /// committing or forcing materialization. Used by `clock::Batch` for `fork`/`sync`,
-    /// which must hand a concrete version to another clock mid-session.
-    pub(crate) fn snapshot(&self) -> Version {
+    /// Snapshot the in-progress history as an owned, canonical [`Version`]
+    /// without ending the batch.
+    ///
+    /// Equivalent to the [`Version`] that would result if the batch were
+    /// dropped now, but leaves the batch open so further
+    /// [`tick`](Self::tick)s/joins continue to accumulate in the materialized
+    /// working form. This is what lets a caller read a per-operation version
+    /// mid-batch (e.g. to key each insert in a run) while still paying the
+    /// unpack cost only once for the whole batch.
+    ///
+    /// ```
+    /// use before::{Party, Version};
+    /// let party = Party::seed();
+    /// let mut v = Version::new();
+    /// let mut batch = v.batch();
+    /// let one = batch.tick(&party).snapshot();
+    /// let two = batch.tick(&party).snapshot();
+    /// assert_eq!(one.to_string(), "1");
+    /// assert_eq!(two.to_string(), "2");
+    /// assert!(one < two);
+    /// ```
+    pub fn snapshot(&self) -> Version {
         match &self.work {
             Some(work) => Version::from_bits(work.repack()),
             None => self.version.clone(),
