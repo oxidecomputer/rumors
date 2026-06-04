@@ -5,7 +5,9 @@
 //! re-accept a snapshot only after a deliberate format change.
 
 use borsh::BorshDeserialize;
-use imbl::{OrdMap, OrdSet};
+use std::collections::{BTreeMap, BTreeSet};
+
+use imbl::OrdMap;
 
 use super::message;
 use crate::tree::arb::nth_party;
@@ -216,7 +218,7 @@ fn message_initiate_empty() {
 
 #[test]
 fn message_initiate_one_entry() {
-    let mut uncertain = OrdMap::new();
+    let mut uncertain = BTreeMap::new();
     uncertain.insert(Prefix::<Root>::new(), Hash([1u8; 32]));
     insta::assert_snapshot!(snap(&message::Initiate { uncertain }));
 }
@@ -228,7 +230,7 @@ fn message_opening_empty() {
 
 #[test]
 fn message_opening_one_entry() {
-    let mut uncertain = OrdMap::new();
+    let mut uncertain = BTreeMap::new();
     uncertain.insert(
         prefix_from_bytes::<message::UnderRoot>(&[0x42]),
         Hash([2u8; 32]),
@@ -258,13 +260,13 @@ fn message_exchange_populated() {
         n
     };
 
-    let mut providing: OrdMap<Prefix<Root>, Node<(), Root>> = OrdMap::new();
+    let mut providing: BTreeMap<Prefix<Root>, Node<(), Root>> = BTreeMap::new();
     providing.insert(Prefix::<Root>::new(), n_root);
 
-    let mut requested: OrdSet<Prefix<Root>> = OrdSet::new();
+    let mut requested: BTreeSet<Prefix<Root>> = BTreeSet::new();
     requested.insert(Prefix::<Root>::new());
 
-    let mut uncertain: OrdMap<Prefix<message::UnderRoot>, Hash> = OrdMap::new();
+    let mut uncertain: BTreeMap<Prefix<message::UnderRoot>, Hash> = BTreeMap::new();
     uncertain.insert(
         prefix_from_bytes::<message::UnderRoot>(&[0xcc]),
         Hash([3u8; 32]),
@@ -287,9 +289,9 @@ fn message_closing_empty() {
 #[test]
 fn message_closing_populated() {
     let n_s_z: Node<(), S<Z>> = Node::beneath(leaf("a", 1), 0xab);
-    let mut providing: OrdMap<Prefix<S<Z>>, Node<(), S<Z>>> = OrdMap::new();
+    let mut providing: BTreeMap<Prefix<S<Z>>, Node<(), S<Z>>> = BTreeMap::new();
     providing.insert(prefix_from_bytes::<S<Z>>(&[0u8; 31]), n_s_z);
-    let mut requested: OrdSet<Prefix<S<Z>>> = OrdSet::new();
+    let mut requested: BTreeSet<Prefix<S<Z>>> = BTreeSet::new();
     requested.insert(prefix_from_bytes::<S<Z>>(&[0xffu8; 31]));
     let m: message::Closing<()> = message::Closing {
         providing,
@@ -306,7 +308,7 @@ fn message_complete_empty() {
 
 #[test]
 fn message_complete_populated() {
-    let mut providing: OrdMap<Prefix<Z>, Node<(), Z>> = OrdMap::new();
+    let mut providing: BTreeMap<Prefix<Z>, Node<(), Z>> = BTreeMap::new();
     providing.insert(prefix_from_bytes::<Z>(&[0u8; 32]), leaf("a", 1));
     let m: message::Complete<()> = message::Complete { providing };
     insta::assert_snapshot!(snap(&m));

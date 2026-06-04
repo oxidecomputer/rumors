@@ -1,4 +1,5 @@
-use imbl::OrdMap;
+use std::collections::BTreeMap;
+
 use itertools::Itertools;
 
 use crate::tree::typed::{
@@ -11,7 +12,7 @@ pub fn levels<T>(root: Option<Node<T, Root>>) -> Top<T>
 where
 {
     Top {
-        root: OrdMap::from_iter(root.map(|root| (Prefix::new(), root))),
+        root: BTreeMap::from_iter(root.map(|root| (Prefix::new(), root))),
     }
 }
 
@@ -38,17 +39,18 @@ pub trait Levels: Default + Clone + sealed::Sealed {
 
     /// Get an immutable reference to the bottom-most level.
     #[allow(clippy::type_complexity)]
-    fn level(&self) -> &OrdMap<Prefix<Self::Height>, Node<Self::Message, Self::Height>>;
+    fn level(&self) -> &BTreeMap<Prefix<Self::Height>, Node<Self::Message, Self::Height>>;
 
     /// Get a mutable reference to the bottom-most level.
     #[allow(clippy::type_complexity)]
-    fn level_mut(&mut self)
-    -> &mut OrdMap<Prefix<Self::Height>, Node<Self::Message, Self::Height>>;
+    fn level_mut(
+        &mut self,
+    ) -> &mut BTreeMap<Prefix<Self::Height>, Node<Self::Message, Self::Height>>;
 
     /// Tack a new level onto the bottom of this [`Levels`], decreasing its height by one.
     ///
     /// This can only be called on a [`Levels`] whose height is more than zero.
-    fn down<H>(self, below: OrdMap<Prefix<H>, Node<Self::Message, H>>) -> Below<H, Self>
+    fn down<H>(self, below: BTreeMap<Prefix<H>, Node<Self::Message, H>>) -> Below<H, Self>
     where
         S<H>: Height,
         H: Height,
@@ -62,7 +64,7 @@ pub trait Levels: Default + Clone + sealed::Sealed {
 }
 
 pub struct Top<T> {
-    root: OrdMap<Prefix<Root>, Node<T, Root>>,
+    root: BTreeMap<Prefix<Root>, Node<T, Root>>,
 }
 
 impl<T> Clone for Top<T> {
@@ -92,11 +94,11 @@ where
         self.root.remove(&Prefix::new())
     }
 
-    fn level(&self) -> &OrdMap<Prefix<Self::Height>, Node<T, Self::Height>> {
+    fn level(&self) -> &BTreeMap<Prefix<Self::Height>, Node<T, Self::Height>> {
         &self.root
     }
 
-    fn level_mut(&mut self) -> &mut OrdMap<Prefix<Self::Height>, Node<T, Self::Height>> {
+    fn level_mut(&mut self) -> &mut BTreeMap<Prefix<Self::Height>, Node<T, Self::Height>> {
         &mut self.root
     }
 }
@@ -106,7 +108,7 @@ where
     A: Levels<Height = S<H>>,
     H: Height,
 {
-    here: OrdMap<Prefix<H>, Node<A::Message, H>>,
+    here: BTreeMap<Prefix<H>, Node<A::Message, H>>,
     above: A,
 }
 
@@ -148,7 +150,7 @@ where
     fn collapse(mut self) -> Option<Node<A::Message, Root>> {
         let above = self.above.level_mut();
 
-        // Pop each child's prefix to get its radix and parent prefix. OrdMap
+        // Pop each child's prefix to get its radix and parent prefix. BTreeMap
         // iteration is sorted, so siblings are adjacent.
         let siblings = self.here.into_iter().map(|(prefix, node)| {
             let (parent_prefix, radix) = prefix.pop();
@@ -179,11 +181,11 @@ where
         self.above.collapse()
     }
 
-    fn level(&self) -> &OrdMap<Prefix<Self::Height>, Node<A::Message, Self::Height>> {
+    fn level(&self) -> &BTreeMap<Prefix<Self::Height>, Node<A::Message, Self::Height>> {
         &self.here
     }
 
-    fn level_mut(&mut self) -> &mut OrdMap<Prefix<Self::Height>, Node<A::Message, Self::Height>> {
+    fn level_mut(&mut self) -> &mut BTreeMap<Prefix<Self::Height>, Node<A::Message, Self::Height>> {
         &mut self.here
     }
 }

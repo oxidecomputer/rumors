@@ -154,7 +154,6 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 pub mod sync;
 
-mod imbl_borsh;
 mod message;
 mod tree;
 mod version;
@@ -608,8 +607,16 @@ impl<T> Known<T> {
             });
         }
 
-        // Instantiate the two sides of the mirror exchange, both local
-        let l = mirror::local::Exchange::start(self.tree.root.clone(), ignore, on_message);
+        // Instantiate the two sides of the mirror exchange, both local. Move
+        // our root into the exchange rather than cloning it: a clone would
+        // leave every spine node's `Arc` shared between `self.tree.root` and
+        // the exchange, so each `into_children`/`beneath` during the descent
+        // would `Arc::make_mut`-deep-clone a `NodeInner`. Taking the root makes
+        // those nodes uniquely held, so the structural ops are plain moves. The
+        // merged root is written straight back below, so the take is transient
+        // and there is no early return between here and the write-back.
+        let l =
+            mirror::local::Exchange::start(std::mem::take(&mut self.tree.root), ignore, on_message);
         let r = mirror::local::Exchange::start(other_tree.root, ignore, ignore);
 
         // Drive them to completion: we know they don't need a "real" executor

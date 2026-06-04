@@ -60,7 +60,8 @@
 
 use std::{convert::Infallible, future::Future, mem, sync::Arc};
 
-use imbl::{OrdMap, OrdSet};
+use std::collections::{BTreeMap, BTreeSet};
+
 use itertools::{EitherOrBoth, Itertools};
 
 use crate::{
@@ -332,7 +333,7 @@ where
         let msg = message::Opening {
             uncertain: levels
                 .level()
-                .into_iter()
+                .iter()
                 .map(|(prefix, child)| (*prefix, child.hash()))
                 .collect(),
         };
@@ -481,16 +482,16 @@ where
     /// Left-case subtrees (we have them, the counterparty does not). The caller
     /// will combine these with `answer_requested`'s output to form the final
     /// outgoing `providing`.
-    providing: OrdMap<Prefix<S<H>>, Node<T, S<H>>>,
+    providing: BTreeMap<Prefix<S<H>>, Node<T, S<H>>>,
     /// Right-case prefixes (the counterparty has them, we do not): the outgoing
     /// `requested`.
-    requested: OrdSet<Prefix<S<H>>>,
+    requested: BTreeSet<Prefix<S<H>>>,
     /// `Both`-case children whose hashes agreed, plus Left-case children we
     /// kept locally. Become the new level immediately above the bottom.
-    matched: OrdMap<Prefix<S<H>>, Node<T, S<H>>>,
+    matched: BTreeMap<Prefix<S<H>>, Node<T, S<H>>>,
     /// `Both`-case grandchildren of children whose hashes disagreed. Become the
     /// new bottom of the zipper, and next round's outgoing `uncertain`.
-    exploded: OrdMap<Prefix<H>, Node<T, H>>,
+    exploded: BTreeMap<Prefix<H>, Node<T, H>>,
 }
 
 impl<OnSend, OnRecv, L> Exchange<OnSend, OnRecv, Connected, L>
@@ -505,7 +506,7 @@ where
     /// our zipper's bottom level.
     async fn absorb_providing<H, OnRecvFut>(
         &mut self,
-        providing: OrdMap<Prefix<H>, Node<L::Message, H>>,
+        providing: BTreeMap<Prefix<H>, Node<L::Message, H>>,
     ) where
         L::Message: Send + Sync,
         OnRecv: FnMut(Key, &Version, &Arc<L::Message>) -> OnRecvFut + Send,
@@ -526,8 +527,8 @@ where
     /// outgoing `providing` map, one height below the frontier.
     async fn answer_requested<H, OnSendFut>(
         &mut self,
-        requested: OrdSet<Prefix<S<H>>>,
-    ) -> OrdMap<Prefix<H>, Node<L::Message, H>>
+        requested: BTreeSet<Prefix<S<H>>>,
+    ) -> BTreeMap<Prefix<H>, Node<L::Message, H>>
     where
         L: Levels<Height = S<H>>,
         OnSend: FnMut(Key, &Version, &Arc<L::Message>) -> OnSendFut,
@@ -536,7 +537,7 @@ where
         H: Height,
     {
         let frontier = self.levels.level_mut();
-        let mut providing = OrdMap::default();
+        let mut providing = BTreeMap::default();
         for prefix in requested {
             if let Some(node) = frontier.remove(&prefix) {
                 // Filter against the counterparty's version: anything causally
@@ -582,7 +583,7 @@ where
     /// steady-state caller silently triggering either branch.
     async fn partition_uncertain<H, OnSendFut>(
         &mut self,
-        uncertain: OrdMap<Prefix<S<H>>, Hash>,
+        uncertain: BTreeMap<Prefix<S<H>>, Hash>,
     ) -> Partition<L::Message, H>
     where
         OnSend: FnMut(Key, &Version, &Arc<L::Message>) -> OnSendFut,
@@ -593,10 +594,10 @@ where
         H: Height + Unknown,
     {
         let frontier = self.levels.level_mut();
-        let mut providing = OrdMap::default();
-        let mut requested = OrdSet::default();
-        let mut matched = OrdMap::default();
-        let mut exploded = OrdMap::default();
+        let mut providing = BTreeMap::default();
+        let mut requested = BTreeSet::default();
+        let mut matched = BTreeMap::default();
+        let mut exploded = BTreeMap::default();
 
         // Group the uncertain prefixes by their parent, so we pull each parent
         // out of the frontier at most once. We collect into an owned `Vec`
@@ -782,7 +783,7 @@ where
 
         // Compute the hashes of the level returned at the bottom of `next`;
         // these are the children we are uncertain about now.
-        let uncertain: OrdMap<_, _> = next
+        let uncertain: BTreeMap<_, _> = next
             .levels
             .level()
             .iter()

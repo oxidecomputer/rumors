@@ -12,10 +12,13 @@
 //!   H::HEIGHT` raw bytes, no length prefix (the type pins the byte count).
 //! - [`Version`](crate::Version) and [`Message<T>`](crate::Message):
 //!   their existing borsh shapes (see those types).
-//! - [`OrdMap<K, V>`](imbl::OrdMap), [`OrdSet<T>`](imbl::OrdSet): `u32`
-//!   length followed by every entry in strictly-ascending key order;
-//!   decoders reject duplicates and out-of-order keys (see the
-//!   `imbl_borsh` module).
+//! - [`BTreeMap<K, V>`](std::collections::BTreeMap),
+//!   [`BTreeSet<T>`](std::collections::BTreeSet): `u32` length followed by
+//!   every entry in strictly-ascending key order. These channels are
+//!   single-use and never forked, so a plain ordered map suffices — no
+//!   persistence needed. `borsh`'s `de_strict_order` feature makes the
+//!   decoders reject duplicates and out-of-order keys, giving each value one
+//!   canonical encoding.
 //!
 //! ## Typed [`Node<T, H>`](crate::tree::typed::Node)
 //!
@@ -50,16 +53,14 @@
 //!
 //! Each of the five message types (see [`message`]) is the borsh
 //! concatenation of its fields in source order. The `providing` /
-//! `requested` / `uncertain` channels use the shared `OrdMap`/`OrdSet`
+//! `requested` / `uncertain` channels use the standard `BTreeMap`/`BTreeSet`
 //! encoding. There is no length framing between messages on the wire:
 //! the protocol's height schedule names the type each side expects next.
 
-use borsh::{BorshDeserialize, BorshSerialize};
-use imbl::{OrdMap, OrdSet};
+use std::collections::{BTreeMap, BTreeSet};
 
-use crate::imbl_borsh::{
-    deserialize_ordmap, deserialize_ordset, serialize_ordmap, serialize_ordset,
-};
+use borsh::{BorshDeserialize, BorshSerialize};
+
 use crate::tree::typed::{
     Hash, Node, Prefix,
     height::{Height, Pred, Root, S, Z},
@@ -74,11 +75,7 @@ use crate::tree::typed::{
 /// populated until at least one round has passed.
 #[derive(Clone, Default, BorshSerialize, BorshDeserialize)]
 pub struct Initiate {
-    #[borsh(
-        serialize_with = "crate::imbl_borsh::serialize_ordmap",
-        deserialize_with = "crate::imbl_borsh::deserialize_ordmap"
-    )]
-    pub uncertain: OrdMap<Prefix<Root>, Hash>,
+    pub uncertain: BTreeMap<Prefix<Root>, Hash>,
 }
 
 /// The responder's opening message: one hash per child of the responder's root,
@@ -94,11 +91,7 @@ pub struct Initiate {
 /// describes a parent the receiver has already acknowledged.
 #[derive(Clone, Default, BorshSerialize, BorshDeserialize)]
 pub struct Opening {
-    #[borsh(
-        serialize_with = "crate::imbl_borsh::serialize_ordmap",
-        deserialize_with = "crate::imbl_borsh::deserialize_ordmap"
-    )]
-    pub uncertain: OrdMap<Prefix<UnderRoot>, Hash>,
+    pub uncertain: BTreeMap<Prefix<UnderRoot>, Hash>,
 }
 
 /// The steady-state message: carries all three channels (see the
@@ -118,15 +111,15 @@ where
     /// version vector: anything causally `<=` their version has either been
     /// already-seen or already-forgotten on their side, so the receiver's view
     /// must agree with ours by treating the absence as a deletion.
-    pub providing: OrdMap<Prefix<S<H>>, Node<T, S<H>>>,
+    pub providing: BTreeMap<Prefix<S<H>>, Node<T, S<H>>>,
     /// Prefixes the counterparty listed in the previous round's `uncertain`
     /// that we lack entirely. We ask them to send the subtrees so we can insert
     /// them into our zipper.
-    pub requested: OrdSet<Prefix<S<H>>>,
+    pub requested: BTreeSet<Prefix<S<H>>>,
     /// Hashes of our subtrees at this round's frontier, for the counterparty
     /// to compare against their own. Each entry routes to one cell of the
     /// asymmetry matrix on the receiving side.
-    pub uncertain: OrdMap<Prefix<H>, Hash>,
+    pub uncertain: BTreeMap<Prefix<H>, Hash>,
 }
 
 impl<T, H> BorshSerialize for Exchange<T, H>
@@ -135,9 +128,9 @@ where
     H: Height,
 {
     fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
-        serialize_ordmap(&self.providing, writer)?;
-        serialize_ordset(&self.requested, writer)?;
-        serialize_ordmap(&self.uncertain, writer)?;
+        self.providing.serialize(writer)?;
+        self.requested.serialize(writer)?;
+        self.uncertain.serialize(writer)?;
         Ok(())
     }
 }
@@ -155,9 +148,9 @@ where
     Node<T, S<H>>: BorshDeserialize,
 {
     fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
-        let providing = deserialize_ordmap(reader)?;
-        let requested = deserialize_ordset(reader)?;
-        let uncertain = deserialize_ordmap(reader)?;
+        let providing = BorshDeserialize::deserialize_reader(reader)?;
+        let requested = BorshDeserialize::deserialize_reader(reader)?;
+        let uncertain = BorshDeserialize::deserialize_reader(reader)?;
         Ok(Self {
             providing,
             requested,
@@ -201,14 +194,14 @@ where
 /// directly, without a runtime check against an out-of-spec initiator.
 #[derive(Clone)]
 pub struct Closing<T> {
-    pub providing: OrdMap<Prefix<S<Z>>, Node<T, S<Z>>>,
-    pub requested: OrdSet<Prefix<S<Z>>>,
+    pub providing: BTreeMap<Prefix<S<Z>>, Node<T, S<Z>>>,
+    pub requested: BTreeSet<Prefix<S<Z>>>,
 }
 
 impl<T> BorshSerialize for Closing<T> {
     fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
-        serialize_ordmap(&self.providing, writer)?;
-        serialize_ordset(&self.requested, writer)?;
+        self.providing.serialize(writer)?;
+        self.requested.serialize(writer)?;
         Ok(())
     }
 }
@@ -218,8 +211,8 @@ where
     T: BorshDeserialize,
 {
     fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
-        let providing = deserialize_ordmap(reader)?;
-        let requested = deserialize_ordset(reader)?;
+        let providing = BorshDeserialize::deserialize_reader(reader)?;
+        let requested = BorshDeserialize::deserialize_reader(reader)?;
         Ok(Self {
             providing,
             requested,
@@ -259,12 +252,12 @@ impl<T> Default for Closing<T> {
 /// (vacuous at leaf height, same reasoning as [`Closing`]).
 #[derive(Clone)]
 pub struct Complete<T> {
-    pub providing: OrdMap<Prefix<Z>, Node<T, Z>>,
+    pub providing: BTreeMap<Prefix<Z>, Node<T, Z>>,
 }
 
 impl<T> BorshSerialize for Complete<T> {
     fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
-        serialize_ordmap(&self.providing, writer)
+        self.providing.serialize(writer)
     }
 }
 
@@ -273,7 +266,7 @@ where
     T: BorshDeserialize,
 {
     fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
-        let providing = deserialize_ordmap(reader)?;
+        let providing = BorshDeserialize::deserialize_reader(reader)?;
         Ok(Self { providing })
     }
 }

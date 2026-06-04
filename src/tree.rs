@@ -53,6 +53,18 @@ impl<T> Clone for Root<T> {
     }
 }
 
+/// The empty root: the empty [`Version`] over no nodes. Lets callers
+/// `mem::take` a root out of a `&mut` borrow (e.g. to move it into a mirror
+/// exchange and write the merged result back) without an interim clone.
+impl<T> Default for Root<T> {
+    fn default() -> Self {
+        Root {
+            version: Version::new(),
+            root: None,
+        }
+    }
+}
+
 impl<T> PartialEq for Root<T> {
     fn eq(&self, other: &Self) -> bool {
         self.version == other.version && self.root == other.root
@@ -206,29 +218,40 @@ impl<T> Tree<T> {
 
         // Build reactions eagerly so the `party` borrow stays cleanly scoped:
         // a lazy `map` would hold `&Party` across the `react` await below.
-        let reactions: Vec<_> = actions
-            .into_iter()
-            .map(|action| {
-                // Advance the version. It is *load-bearing* that this be unique
-                // for every action applied to the tree; otherwise the
-                // mirror-sync protocol wrongly early-aborts when versions
-                // compare equal.
-                new_version.tick(party);
+        //
+        // Hold one version `Batch` open across the whole run: each `tick`
+        // advances the materialized working form in place, and `snapshot` reads
+        // the per-action committed version that keys the leaf. This pays the
+        // unpack cost once for the batch rather than once per action — a bare
+        // `Version::tick` opens and drops its own batch (an unpack and a repack)
+        // on every call.
+        let reactions: Vec<_> = {
+            let mut batch = new_version.batch();
+            actions
+                .into_iter()
+                .map(|action| {
+                    // Advance the version. It is *load-bearing* that this be
+                    // unique for every action applied to the tree; otherwise the
+                    // mirror-sync protocol wrongly early-aborts when versions
+                    // compare equal.
+                    batch.tick(party);
+                    let version = batch.snapshot();
 
-                // Convert unversioned, unlocalized actions into reactions
-                // independent of our party and current version. The key is
-                // derived from the post-tick version, which is unique per
-                // insert (see [`typed::Path::for_leaf`]).
-                let (key, value) = match action {
-                    Action::Forget(hash) => (hash, None),
-                    Action::Insert(value) => {
-                        let key = typed::Path::for_leaf(&new_version, value.bytes()).into();
-                        (key, Some(value))
-                    }
-                };
-                (key, new_version.clone(), value)
-            })
-            .collect();
+                    // Convert unversioned, unlocalized actions into reactions
+                    // independent of our party and current version. The key is
+                    // derived from the post-tick version, which is unique per
+                    // insert (see [`typed::Path::for_leaf`]).
+                    let (key, value) = match action {
+                        Action::Forget(hash) => (hash, None),
+                        Action::Insert(value) => {
+                            let key = typed::Path::for_leaf(&version, value.bytes()).into();
+                            (key, Some(value))
+                        }
+                    };
+                    (key, version, value)
+                })
+                .collect()
+        };
         self.react(reactions, react).await;
     }
 
@@ -280,7 +303,7 @@ impl<T> Tree<T> {
             self.root.root.take(),
             actions,
             move |k: Key, v: &Version, m: Option<&Message<T>>| {
-                *root_version |= v.clone();
+                *root_version |= v;
                 react(k, v, m)
             },
         )

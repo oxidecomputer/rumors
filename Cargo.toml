@@ -17,7 +17,7 @@ bytes = "1"
 blake3 = "1.8"
 static_assertions = "1.1"
 itertools = "0.14"
-borsh = { version = "1.6", features = ["bytes", "derive"] }
+borsh = { version = "1.6", features = ["bytes", "derive", "de_strict_order"] }
 seq-macro = "0.3"
 tinyvec = { version = "1.11", features = ["alloc"] }
 thiserror = "2.0"
@@ -50,4 +50,12 @@ path = "examples/network_profile.rs"
 
 [[bench]]
 name = "hash_recon"
+harness = false
+
+[[bench]]
+name = "in_memory"
+harness = false
+
+[[bench]]
+name = "branch_hash"
 harness = false

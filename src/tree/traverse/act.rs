@@ -171,7 +171,9 @@ impl Act for Z {
         // causally posterior operation wins, with concurrent or equal actions
         // biasing towards the last in the sequence
         for (_, version, action) in actions {
-            greatest_version |= version.clone();
+            // Join by reference: `version` is still needed for the causality
+            // comparison just below, and the join doesn't consume it.
+            greatest_version |= &version;
 
             // Skip updates that are strictly causally prior to the current
             // version at this node

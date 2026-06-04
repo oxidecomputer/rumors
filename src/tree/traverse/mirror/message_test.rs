@@ -5,8 +5,9 @@
 //! semantic round-trip correctness across the full state space of
 //! `arb_root_tree`.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use borsh::BorshDeserialize;
-use imbl::{OrdMap, OrdSet};
 use proptest::collection::vec;
 use proptest::prelude::*;
 
@@ -49,7 +50,7 @@ fn arb_s_z_node() -> BoxedStrategy<Node<(), S<Z>>> {
 }
 
 proptest! {
-    /// `Initiate` is `uncertain: OrdMap<Prefix<Root>, Hash>`.
+    /// `Initiate` is `uncertain: BTreeMap<Prefix<Root>, Hash>`.
     #[test]
     fn initiate_borsh_round_trip(
         entries in vec((arb_prefix::<Root>(), arb_hash()), 0..=4),
@@ -62,7 +63,7 @@ proptest! {
         prop_assert_eq!(m.uncertain, decoded.uncertain);
     }
 
-    /// `Opening` is `uncertain: OrdMap<Prefix<UnderRoot>, Hash>`.
+    /// `Opening` is `uncertain: BTreeMap<Prefix<UnderRoot>, Hash>`.
     #[test]
     fn opening_borsh_round_trip(
         entries in vec((arb_prefix::<message::UnderRoot>(), arb_hash()), 0..=4),
@@ -87,12 +88,12 @@ proptest! {
         requested in vec(arb_prefix::<Root>(), 0..=4),
         uncertain in vec((arb_prefix::<message::UnderRoot>(), arb_hash()), 0..=4),
     ) {
-        let providing: OrdMap<Prefix<Root>, Node<(), Root>> = providing_entries
+        let providing: BTreeMap<Prefix<Root>, Node<(), Root>> = providing_entries
             .into_iter()
             .map(|(p, n)| (p, n.expect("filtered non-None")))
             .collect();
-        let requested: OrdSet<Prefix<Root>> = requested.into_iter().collect();
-        let uncertain: OrdMap<Prefix<message::UnderRoot>, Hash> =
+        let requested: BTreeSet<Prefix<Root>> = requested.into_iter().collect();
+        let uncertain: BTreeMap<Prefix<message::UnderRoot>, Hash> =
             uncertain.into_iter().collect();
         let m: message::Exchange<(), message::UnderRoot> = message::Exchange {
             providing: providing.clone(),
@@ -108,16 +109,16 @@ proptest! {
         prop_assert_eq!(decoded.uncertain, uncertain);
     }
 
-    /// `Closing<T>` carries `providing: OrdMap<Prefix<S<Z>>, Node<S<Z>>>`
-    /// and `requested: OrdSet<Prefix<S<Z>>>`.
+    /// `Closing<T>` carries `providing: BTreeMap<Prefix<S<Z>>, Node<S<Z>>>`
+    /// and `requested: BTreeSet<Prefix<S<Z>>>`.
     #[test]
     fn closing_borsh_round_trip(
         providing_entries in vec((arb_prefix::<S<Z>>(), arb_s_z_node()), 0..=4),
         requested in vec(arb_prefix::<S<Z>>(), 0..=4),
     ) {
-        let providing: OrdMap<Prefix<S<Z>>, Node<(), S<Z>>> =
+        let providing: BTreeMap<Prefix<S<Z>>, Node<(), S<Z>>> =
             providing_entries.into_iter().collect();
-        let requested: OrdSet<Prefix<S<Z>>> = requested.into_iter().collect();
+        let requested: BTreeSet<Prefix<S<Z>>> = requested.into_iter().collect();
         let m: message::Closing<()> = message::Closing {
             providing: providing.clone(),
             requested: requested.clone(),
@@ -128,13 +129,13 @@ proptest! {
         prop_assert_eq!(decoded.requested, requested);
     }
 
-    /// `Complete<T>` carries `providing: OrdMap<Prefix<Z>, Node<Z>>`.
+    /// `Complete<T>` carries `providing: BTreeMap<Prefix<Z>, Node<Z>>`.
     /// At `Z` heights, a `Node` is exactly a leaf.
     #[test]
     fn complete_borsh_round_trip(
         providing_entries in vec((arb_prefix::<Z>(), arb_leaf()), 0..=4),
     ) {
-        let providing: OrdMap<Prefix<Z>, Node<(), Z>> =
+        let providing: BTreeMap<Prefix<Z>, Node<(), Z>> =
             providing_entries.into_iter().collect();
         let m: message::Complete<()> = message::Complete {
             providing: providing.clone(),

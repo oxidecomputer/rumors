@@ -118,13 +118,19 @@ impl<T> Node<T> {
             }
             _ => {
                 // A branch's version is the join (least upper bound) of its
-                // children's versions: fold `|` over them from the empty
-                // version (the lattice bottom). The hash is left lazy: it is
+                // children's versions, accumulated from the empty version (the
+                // lattice bottom). Drive the joins through a single `Batch` so
+                // the working form is materialized once and repacked once,
+                // rather than once per child, and join by reference so no
+                // child's version is cloned. The hash is left lazy: it is
                 // computed on first observation, not at construction.
-                let version = children
-                    .values()
-                    .map(|n| n.version().clone())
-                    .fold(Version::new(), |acc, v| acc | v);
+                let mut version = Version::new();
+                {
+                    let mut batch = version.batch();
+                    for child in children.values() {
+                        batch |= child.version();
+                    }
+                }
                 Some(Node {
                     inner: Arc::new(NodeInner {
                         prefix: Vec::new(),

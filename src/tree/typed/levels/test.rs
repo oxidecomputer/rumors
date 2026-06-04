@@ -1,6 +1,6 @@
-use imbl::OrdMap;
 use proptest::collection::vec;
 use proptest::prelude::*;
+use std::collections::BTreeMap;
 
 use crate::tree::arb::arb_root_node;
 use crate::tree::typed::height::{Height, Root, S, Z};
@@ -52,8 +52,8 @@ where
     {
         let current = std::mem::take(levels.level_mut());
 
-        let mut stay = OrdMap::new();
-        let mut below: OrdMap<Prefix<H>, Node<L::Message, H>> = OrdMap::new();
+        let mut stay = BTreeMap::new();
+        let mut below: BTreeMap<Prefix<H>, Node<L::Message, H>> = BTreeMap::new();
 
         for (prefix, node) in current {
             if decisions.next().unwrap_or(false) {
