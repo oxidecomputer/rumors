@@ -57,5 +57,9 @@ name = "in_memory"
 harness = false
 
 [[bench]]
+name = "gossip_grid"
+harness = false
+
+[[bench]]
 name = "branch_hash"
 harness = false

@@ -21,39 +21,22 @@
 //!   throughput, averaged over the 0..N growth curve).
 //! - `iter`: a full live-message traversal of a size-N set.
 //! - `redact`: forget all N keys of a size-N set in one call.
-//! - `join_{disjoint,small_delta,identical}`: reconcile two peers whose
-//!   histories differ by everything / a fixed handful / nothing.
+//! - `join_grid` / `join_identical`: reconcile two peers across the
+//!   `(common, differing, redacted)` divergence grid (see [`grid`]).
+//!   `gossip_grid.rs` runs the same grid over the wire for comparison.
 
 use std::hint::black_box;
 
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use rumors::sync::{Key, Known};
 
-/// Live message counts spanning three orders of magnitude.
-const SIZES: &[usize] = &[100, 10_000, 1_000_000];
+// The shared grid module exposes a superset of helpers; each bench binary uses
+// a subset, so the unused remainder is expected per-binary.
+#[allow(dead_code)]
+#[path = "support/grid.rs"]
+mod grid;
 
-/// Extra messages each side originates after the fork in the `small_delta`
-/// merge shape: enough to exercise real reconciliation work without swamping
-/// the shared-prefix comparison the benchmark is meant to isolate.
-const DELTA: usize = 16;
-
-/// Criterion samples per size. The million-message fixtures are expensive to
-/// (re)build in setup, so the larger sizes take Criterion's floor of 10.
-fn sample_size_for(n: usize) -> usize {
-    match n {
-        n if n >= 1_000_000 => 10,
-        n if n >= 10_000 => 20,
-        _ => 100,
-    }
-}
-
-/// An iterator yielding `n` unit payloads.
-fn units(n: usize) -> impl Iterator<Item = ()> + Send {
-    std::iter::repeat_n((), n)
-}
-
-/// A function building the two peers for one `join` divergence shape.
-type ShapeBuilder = fn(usize) -> (Known<()>, Known<()>);
+use grid::{SIZES, sample_size_for, units};
 
 /// A freshly seeded rumor set holding `n` messages, paired with the keys minted
 /// for each, in insertion order.
@@ -132,50 +115,18 @@ fn bench_redact(c: &mut Criterion) {
     group.finish();
 }
 
-/// Two peers, each holding N messages the other has never seen: worst-case
-/// reconciliation, where `join` must transfer everything.
-fn build_disjoint(n: usize) -> (Known<()>, Known<()>) {
-    let mut left: Known<()> = Known::seed();
-    let mut right = left.fork();
-    left.message(units(n));
-    right.message(units(n));
-    (left, right)
-}
-
-/// Two peers sharing N messages (inserted before the fork), each then
-/// originating [`DELTA`] of its own: steady-state gossip, where the shared
-/// prefix should short-circuit by hash and only the deltas transfer.
-fn build_small_delta(n: usize) -> (Known<()>, Known<()>) {
-    let mut left: Known<()> = Known::seed();
-    left.message(units(n));
-    let mut right = left.fork();
-    left.message(units(DELTA));
-    right.message(units(DELTA));
-    (left, right)
-}
-
-/// Two peers with identical histories: `join` compares two equal roots and
-/// transfers nothing, measuring the structural-equality fast path.
-fn build_identical(n: usize) -> (Known<()>, Known<()>) {
-    let mut left: Known<()> = Known::seed();
-    left.message(units(n));
-    let right = left.fork();
-    (left, right)
-}
-
-/// The per-side divergence a single `join` actually reconciles, as a function
-/// of the shared size `n`: the disjoint shape transfers all `n`, the small-delta
-/// shape only its [`DELTA`], and the identical shape nothing.
-type Divergence = fn(usize) -> u64;
-
-/// `join` across the three divergence shapes.
+/// `join` across the divergence grid.
 ///
-/// Throughput is reported against the *divergence* each shape reconciles, not
-/// the shared tree size `n`: `join`'s cost tracks the difference between the
-/// peers, not how much they already agree on, so charging it against `n` would
-/// understate the small-delta shape (constant work, growing `n`) by orders of
-/// magnitude. The identical shape transfers nothing, so it reports plain
-/// latency (no throughput).
+/// Throughput is reported against each cell's [`divergence`](grid::Cell::divergence)
+/// — the `differing` messages plus `redacted` deletions a peer must reconcile —
+/// not the shared tree size: `join`'s cost tracks the difference between the
+/// peers, not how much they already agree on, so charging it against the shared
+/// prefix would understate the small-delta cells (near-constant work, growing
+/// prefix) by orders of magnitude.
+///
+/// The identical corner (`differing = 0, redacted = 0`) reconciles nothing, so
+/// it lands in a separate `join_identical` group that reports plain latency
+/// rather than a meaningless zero-element throughput.
 ///
 /// Each fixture is built *and its lazy hash/ceiling/floor memos warmed* in the
 /// untimed setup, so the timed body measures `join`'s own traversal — the hash
@@ -183,42 +134,49 @@ type Divergence = fn(usize) -> u64;
 /// not the one-time cost of first computing those memos (which, cold, would
 /// charge an `O(n)` rehash of the whole shared subtree to every `join`).
 fn bench_join(c: &mut Criterion) {
-    let shapes: [(&str, ShapeBuilder, Divergence); 3] = [
-        ("disjoint", build_disjoint, |n| n as u64),
-        ("small_delta", build_small_delta, |_| DELTA as u64),
-        ("identical", build_identical, |_| 0),
-    ];
-    for (name, builder, divergence) in shapes {
-        let mut group = c.benchmark_group(format!("join_{name}"));
-        for &n in SIZES {
-            group.sample_size(sample_size_for(n));
-            // The identical shape reconciles nothing, so it reports plain
-            // latency rather than a meaningless zero-element throughput.
-            let synced = divergence(n);
-            if synced > 0 {
-                group.throughput(Throughput::Elements(synced));
-            }
-            group.bench_function(BenchmarkId::from_parameter(n), |b| {
-                b.iter_batched(
-                    || {
-                        let (left, right) = builder(n);
-                        // Warm both trees' memos in the untimed setup so the
-                        // timed `join` is not charged for first-touch
-                        // memoization (see the fn doc).
-                        left.warm_caches();
-                        right.warm_caches();
-                        (left, right)
-                    },
-                    |(mut left, right)| {
-                        left.join(right).unwrap();
-                        left
-                    },
-                    BatchSize::PerIteration,
-                )
-            });
-        }
-        group.finish();
+    // Cells that transfer something: throughput is charged against divergence.
+    let mut grid_group = c.benchmark_group("join_grid");
+    for cell in grid::cells().filter(|cell| cell.divergence() > 0) {
+        grid_group.sample_size(sample_size_for(cell.build_magnitude()));
+        grid_group.throughput(Throughput::Elements(cell.divergence()));
+        grid_group.bench_function(BenchmarkId::from_parameter(cell.id()), |b| {
+            b.iter_batched(
+                || warmed(cell),
+                |(mut left, right)| {
+                    left.join(right).unwrap();
+                    left
+                },
+                BatchSize::PerIteration,
+            )
+        });
     }
+    grid_group.finish();
+
+    // The identical corner reconciles nothing; report latency only.
+    let mut identical_group = c.benchmark_group("join_identical");
+    for cell in grid::cells().filter(|cell| cell.divergence() == 0) {
+        identical_group.sample_size(sample_size_for(cell.build_magnitude()));
+        identical_group.bench_function(BenchmarkId::from_parameter(cell.id()), |b| {
+            b.iter_batched(
+                || warmed(cell),
+                |(mut left, right)| {
+                    left.join(right).unwrap();
+                    left
+                },
+                BatchSize::PerIteration,
+            )
+        });
+    }
+    identical_group.finish();
+}
+
+/// Build a cell's peers and warm both trees' lazy memos in untimed setup, so
+/// the timed body is not charged for first-touch memoization (see [`bench_join`]).
+fn warmed(cell: grid::Cell) -> (Known<()>, Known<()>) {
+    let (left, right) = grid::build(cell);
+    left.warm_caches();
+    right.warm_caches();
+    (left, right)
 }
 
 criterion_group!(benches, bench_message, bench_iter, bench_redact, bench_join);
