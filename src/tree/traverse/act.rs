@@ -180,7 +180,7 @@ impl Act for Z {
             if version
                 < node
                     .as_ref()
-                    .map(|n| n.version())
+                    .map(|n| n.ceiling())
                     .unwrap_or(&Version::default())
             {
                 continue;

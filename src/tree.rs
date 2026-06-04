@@ -161,6 +161,9 @@ impl<T> Tree<T> {
             .as_ref()
             .map(typed::node::Root::iter)
             .unwrap_or_else(typed::Iter::empty)
+            // The shared walk yields the full `&Message<T>`; the public contract
+            // hands out only the `&Arc<T>` value, a cheap projection of it.
+            .map(|(k, v, m)| (k, v, m.as_arc()))
     }
 
     /// Get all the values in this tree which are unknown relative to the given

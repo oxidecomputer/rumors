@@ -57,6 +57,13 @@ where
 }
 
 impl<H: Height> Prefix<H> {
+    /// The accumulated path bytes, shallowest-first. Exactly `32 - H::HEIGHT`
+    /// long, so appending the remaining `H::HEIGHT` bytes of a descent below
+    /// this point reconstructs a full 32-byte [`Key`].
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        &self.hash
+    }
+
     /// Pop one hash byte off the end of the prefix, yielding the byte and the
     /// remainder of the prefix.
     pub fn pop(mut self) -> (Prefix<S<H>>, u8)

@@ -148,7 +148,7 @@ impl Get for Z {
         {
             // Do nothing if the path doesn't match
         } else {
-            with_gotten(prefix.into(), node.version(), node.message().as_ref()).await;
+            with_gotten(prefix.into(), node.ceiling(), node.message().as_ref()).await;
         }
     }
 }

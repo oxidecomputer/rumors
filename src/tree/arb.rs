@@ -96,7 +96,7 @@ pub fn arb_tree_root(
             // regardless of `extra`.
             let inner = node
                 .as_ref()
-                .map(Node::version)
+                .map(Node::ceiling)
                 .cloned()
                 .unwrap_or_default();
             // An arbitrary extra frontier on this tree's own party, so even an

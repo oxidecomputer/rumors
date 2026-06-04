@@ -98,7 +98,7 @@ fn enumerate_leaves(node: Node<()>, path: Vec<u8>) -> Vec<(Vec<u8>, Version, Mes
             })
             .collect(),
         Err(leaf_node) => {
-            let version = leaf_node.version().clone();
+            let version = leaf_node.ceiling().clone();
             let leaf = leaf_node
                 .as_leaf()
                 .expect("into_children returned Err only for leaves")
@@ -120,7 +120,7 @@ fn rebuild_with<F>(node: Node<()>, f: &F) -> Node<()>
 where
     F: Fn(&Message<()>) -> Message<()>,
 {
-    let version = node.version().clone();
+    let version = node.ceiling().clone();
     match node.into_children() {
         Err(leaf_node) => {
             let leaf = leaf_node
@@ -171,10 +171,10 @@ proptest! {
         tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
     ) {
         let hash_before = tree.hash();
-        let version_before = tree.version().clone();
+        let version_before = tree.ceiling().clone();
         let rebuilt = rebuild_with(tree, &|b| b.clone());
         prop_assert_eq!(rebuilt.hash(), hash_before);
-        prop_assert_eq!(rebuilt.version(), &version_before);
+        prop_assert_eq!(rebuilt.ceiling(), &version_before);
     }
 
     /// Enumerating a generated tree's leaves via the public API yields
@@ -210,7 +210,7 @@ proptest! {
     fn version_is_join_of_leaf_versions(
         tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
     ) {
-        let root_version = tree.version().clone();
+        let root_version = tree.ceiling().clone();
         let leaves = enumerate_leaves(tree, Vec::new());
 
         for (_, v, _) in &leaves {

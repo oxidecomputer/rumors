@@ -26,42 +26,21 @@ struct NodeInner<T> {
     ///
     /// Only the path bytes are stored: every level's hash is recoverable by
     /// wrapping the children's hash up through these bytes (see
-    /// [`NodeInner::compute_hash`]), and the cheap commitment makes that
+    /// [`Node::hash`]), and the cheap commitment makes that
     /// recomputation negligible.
     prefix: Vec<u8>,
     /// The node's observable hash (the hash of the subtree as seen from the top
     /// of its compressed prefix), computed lazily on first read and memoized.
-    /// The memo is a pure function of the subtree, so it is safe to share
-    /// across the structurally-shared (copy-on-write) clones a forked tree
-    /// produces. Any mutation of `prefix` or `children` invalidates it and must
-    /// reset this cell.
+    /// Unlike the ceiling/floor memos, this lives on `NodeInner` rather than
+    /// inside [`Children::Branch`] so a path-compressed leaf memoizes its hash
+    /// too: a deep single-leaf spine costs the wrap only once. The memo is a
+    /// pure function of the subtree, so it is safe to share across the
+    /// structurally-shared (copy-on-write) clones a forked tree produces. It
+    /// folds in the compressed prefix, so any mutation of `prefix` *or*
+    /// `children` invalidates it and must reset this cell.
     hash: OnceLock<Hash>,
-    /// The maximal version of any child of this node.
-    version: Version,
     /// The children of this node: either a leaf, or a branch point.
     children: Children<T>,
-}
-
-impl<T> NodeInner<T> {
-    /// Compute the observable hash from scratch: hash the children (a leaf
-    /// constant or the branch commitment over their hashes), then wrap that up
-    /// through the compressed prefix one byte at a time, deepest byte first.
-    /// A single-child wrap and a materialized one-child branch share the same
-    /// rule, so the result is independent of how the path is compressed.
-    fn compute_hash(&self) -> Hash {
-        let mut hash = match &self.children {
-            Children::Leaf(_) => Hash::leaf(),
-            Children::Branch(branch) => {
-                Hash::branch(branch.iter().map(|(radix, child)| (*radix, child.hash())))
-            }
-        };
-        // `prefix[0]` is the deepest level (closest to the children), so
-        // folding front-to-back wraps from the bottom up to the observable top.
-        for &byte in &self.prefix {
-            hash = Hash::branch([(byte, hash)]);
-        }
-        hash
-    }
 }
 
 impl<T> Clone for NodeInner<T> {
@@ -69,7 +48,6 @@ impl<T> Clone for NodeInner<T> {
         Self {
             prefix: self.prefix.clone(),
             hash: self.hash.clone(),
-            version: self.version.clone(),
             children: self.children.clone(),
         }
     }
@@ -79,7 +57,6 @@ impl<T: Debug> Debug for Node<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Node")
             .field("prefix", &hex::encode(&self.inner.prefix))
-            .field("version", &self.inner.version)
             .field("children", &self.inner.children)
             .finish()
     }
@@ -89,17 +66,51 @@ impl<T: Debug> Debug for Node<T> {
 #[derive(Debug)]
 enum Children<T> {
     /// A direct leaf, at the true bottom of the tree.
-    Leaf(Message<T>),
+    Leaf {
+        /// The version of this leaf.
+        version: Version,
+        /// The payload of this leaf.
+        message: Message<T>,
+    },
     /// A materialized branch point, with the invariant that there are always >=
     /// 2 branches (or else they should be path-compressed away).
-    Branch(OrdMap<u8, Node<T>>),
+    Branch {
+        /// The *MAXIMAL* version of any child of this node, computed lazily on
+        /// first read and memoized.
+        ///
+        /// This must be reset whenever the children of this leaf change, but
+        /// *not* when its prefix does.
+        ceiling: OnceLock<Version>,
+        /// The *MINIMAL* version of any child of this node, computed lazily on
+        /// first read and memoized.
+        ///
+        /// This must be reset whenever the children of this leaf change, but
+        /// *not* when its prefix does.
+        floor: OnceLock<Version>,
+        /// The children of this branch.
+        children: OrdMap<u8, Node<T>>,
+    },
 }
 
 impl<T> Clone for Children<T> {
     fn clone(&self) -> Self {
         match self {
-            Self::Leaf(l) => Self::Leaf(l.clone()),
-            Self::Branch(b) => Self::Branch(b.clone()),
+            Self::Leaf { version, message } => Self::Leaf {
+                version: version.clone(),
+                message: message.clone(),
+            },
+            // The lazy memos are pure functions of the (shared) subtree, so
+            // cloning the `OnceLock`s carries any already-computed value over
+            // to the copy-on-write clone rather than discarding it.
+            Self::Branch {
+                ceiling,
+                floor,
+                children,
+            } => Self::Branch {
+                ceiling: ceiling.clone(),
+                floor: floor.clone(),
+                children: children.clone(),
+            },
         }
     }
 }
@@ -116,30 +127,17 @@ impl<T> Node<T> {
                 };
                 Some(node.beneath(index))
             }
-            _ => {
-                // A branch's version is the join (least upper bound) of its
-                // children's versions, accumulated from the empty version (the
-                // lattice bottom). Drive the joins through a single `Batch` so
-                // the working form is materialized once and repacked once,
-                // rather than once per child, and join by reference so no
-                // child's version is cloned. The hash is left lazy: it is
-                // computed on first observation, not at construction.
-                let mut version = Version::new();
-                {
-                    let mut batch = version.batch();
-                    for child in children.values() {
-                        batch |= child.version();
-                    }
-                }
-                Some(Node {
-                    inner: Arc::new(NodeInner {
-                        prefix: Vec::new(),
-                        hash: OnceLock::new(),
-                        version,
-                        children: Children::Branch(children),
-                    }),
-                })
-            }
+            _ => Some(Node {
+                inner: Arc::new(NodeInner {
+                    prefix: Vec::new(),
+                    hash: OnceLock::new(),
+                    children: Children::Branch {
+                        children,
+                        ceiling: OnceLock::new(),
+                        floor: OnceLock::new(),
+                    },
+                }),
+            }),
         }
     }
 
@@ -160,13 +158,16 @@ impl<T> Node<T> {
             Ok(OrdMap::from_iter([(index, self)]))
         } else {
             match &self.inner.children {
-                Children::Leaf(_) => Err(self),
-                Children::Branch(_) => {
+                Children::Leaf { .. } => Err(self),
+                Children::Branch { .. } => {
                     // Extract the children map; self is dropped, so leaving
                     // its precomputed metadata referencing the now-vacated
                     // branch is harmless.
                     let inner = Arc::make_mut(&mut self.inner);
-                    let Children::Branch(branch) = &mut inner.children else {
+                    let Children::Branch {
+                        children: branch, ..
+                    } = &mut inner.children
+                    else {
                         unreachable!("just matched Branch")
                     };
                     Ok(mem::take(branch))
@@ -181,8 +182,10 @@ impl<T> Node<T> {
             inner: Arc::new(NodeInner {
                 prefix: Vec::new(),
                 hash: OnceLock::new(),
-                version,
-                children: Children::Leaf(value),
+                children: Children::Leaf {
+                    message: value,
+                    version,
+                },
             }),
         }
     }
@@ -190,7 +193,7 @@ impl<T> Node<T> {
     /// Get a reference to the leaf at this node, if it is a leaf.
     pub fn as_leaf(&self) -> Option<&Message<T>> {
         match &self.inner.children {
-            Children::Leaf(leaf) => Some(leaf),
+            Children::Leaf { message, .. } => Some(message),
             _ => None,
         }
     }
@@ -205,21 +208,108 @@ impl<T> Node<T> {
     /// order. Hashing does not depend on path compression: a one-child branch
     /// and a node path-compressed by one byte produce identical hashes.
     pub fn hash(&self) -> Hash {
-        *self.inner.hash.get_or_init(|| self.inner.compute_hash())
+        *self.inner.hash.get_or_init(|| {
+            // Start from the node's base hash at its own level: the `Hash::leaf()`
+            // constant for a leaf, or the branch commitment over the children's
+            // hashes for a branch.
+            let mut hash = match &self.inner.children {
+                Children::Leaf { .. } => Hash::leaf(),
+                Children::Branch { children, .. } => {
+                    Hash::branch(children.iter().map(|(radix, child)| (*radix, child.hash())))
+                }
+            };
+            // Wrap that base up through the compressed prefix one byte at a
+            // time, deepest byte first. `prefix[0]` is the deepest level
+            // (closest to the children), so folding front-to-back wraps from the
+            // bottom up to the observable top. A single-child wrap and a
+            // materialized one-child branch share this rule, so the result is
+            // independent of how the path is compressed.
+            for &byte in &self.inner.prefix {
+                hash = Hash::branch([(byte, hash)]);
+            }
+            hash
+        })
     }
 
-    /// Get the version of this node (the maximal version of all children).
-    pub fn version(&self) -> &Version {
-        &self.inner.version
+    /// Get the ceiling version of this node (the maximal version of all
+    /// children).
+    ///
+    /// Like [`hash`](Self::hash), the ceiling is computed lazily on first call
+    /// and memoized: a leaf's is set at construction, and a branch's is the
+    /// join of its children's ceilings, computed once on demand. The memo is a
+    /// pure function of the subtree, so it is safe to share across the
+    /// structurally-shared clones a forked tree produces.
+    pub fn ceiling(&self) -> &Version {
+        match &self.inner.children {
+            Children::Leaf { version, .. } => version,
+            Children::Branch {
+                ceiling, children, ..
+            } => ceiling.get_or_init(|| {
+                // The join (least upper bound) of the children's ceilings,
+                // accumulated from the empty version (the lattice bottom, the
+                // join identity). Path compression doesn't change which leaves
+                // the subtree contains, so the prefix plays no part. Drive the
+                // joins through a single `Batch` so the working form is
+                // materialized once and repacked once, rather than once per
+                // child, and join by reference so no child's version is cloned.
+                let mut version = Version::new();
+                {
+                    let mut batch = version.batch();
+                    for child in children.values() {
+                        batch |= child.ceiling();
+                    }
+                }
+                version
+            }),
+        }
+    }
+
+    /// Get the floor version of this node (the minimal version of all
+    /// children).
+    ///
+    /// Like [`hash`](Self::hash), the floor is computed lazily on first call
+    /// and memoized: a leaf's is set at construction, and a branch's is the
+    /// meet of its children's floors, computed once on demand. The memo is a
+    /// pure function of the subtree, so it is safe to share across the
+    /// structurally-shared clones a forked tree produces.
+    pub fn floor(&self) -> &Version {
+        match &self.inner.children {
+            Children::Leaf { version, .. } => version,
+            Children::Branch {
+                floor, children, ..
+            } => floor.get_or_init(|| {
+                // The meet (greatest lower bound) of the children's floors.
+                // Unlike the join, the meet has no identity element (there is
+                // no top version), so seed with the first child's floor and
+                // meet the rest in. A branch always has >= 2 children by the
+                // path-compression invariant, so `next()` cannot be empty.
+                // Drive the meets through a single `Batch` so the working form
+                // is materialized once and repacked once, and meet by reference
+                // so no child's version is cloned.
+                let mut children = children.values();
+                let mut version = children
+                    .next()
+                    .expect("a branch always has >= 2 children")
+                    .floor()
+                    .clone();
+                {
+                    let mut batch = version.batch();
+                    for child in children {
+                        batch &= child.floor();
+                    }
+                }
+                version
+            }),
+        }
     }
 
     /// Whether this node's content is a single leaf (regardless of any
     /// path-compressed prefix above it). A leaf carries exactly one version,
-    /// so its [`version`](Self::version) is also the meet of its leaves —
+    /// so its [`floor`](Self::floor) and [`ceiling`](Self::ceiling) coincide —
     /// which lets callers decide "keep or drop this whole subtree" from the
     /// version check alone, without exploding the compressed prefix.
     pub fn is_leaf(&self) -> bool {
-        matches!(self.inner.children, Children::Leaf(_))
+        matches!(self.inner.children, Children::Leaf { .. })
     }
 
     /// Number of path-compressed prefix bytes carried on this node — i.e.,
@@ -252,8 +342,7 @@ impl<T> Node<T> {
     /// typed height and the running `prefix_len` together name the body's
     /// shape. Multi-child branches always carry at least two children, by
     /// the path-compression invariant.
-    pub fn serialize_to<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()>
-where {
+    pub fn serialize_to<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
         let prefix_len = u8::try_from(self.inner.prefix.len()).map_err(|_| {
             borsh::io::Error::new(
                 borsh::io::ErrorKind::InvalidData,
@@ -267,11 +356,11 @@ where {
             byte.serialize(writer)?;
         }
         match &self.inner.children {
-            Children::Leaf(msg) => {
-                self.inner.version.serialize(writer)?;
-                msg.serialize(writer)?;
+            Children::Leaf { message, version } => {
+                version.serialize(writer)?;
+                message.serialize(writer)?;
             }
-            Children::Branch(children) => {
+            Children::Branch { children, .. } => {
                 debug_assert!(
                     (2..=256).contains(&children.len()),
                     "multi-child branch must have 2..=256 children",
@@ -310,8 +399,8 @@ where {
     #[cfg(test)]
     fn is_max_compressed(&self) -> bool {
         match &self.inner.children {
-            Children::Leaf(_) => true,
-            Children::Branch(children) => {
+            Children::Leaf { .. } => true,
+            Children::Branch { children, .. } => {
                 children.len() >= 2 && children.values().all(Self::is_max_compressed)
             }
         }
@@ -328,7 +417,11 @@ impl<T> PartialEq for Node<T> {
 
 /// A lazy depth-first iterator over every live leaf in a subtree, yielding each
 /// leaf's reconstructed 32-byte path [`Key`], its [`Version`], and a borrowed
-/// handle to its message [`Arc`].
+/// handle to its [`Message`].
+///
+/// The [`Message`] is the richest leaf payload (it carries the cached
+/// serialization alongside the `Arc<T>`); callers that only want the value
+/// project it cheaply with [`Message::as_arc`].
 ///
 /// The iterator is lazy: a single `next()` descends only far enough to reach
 /// the next leaf, so the first item is produced after walking one root-to-leaf
@@ -336,8 +429,11 @@ impl<T> PartialEq for Node<T> {
 /// path bytes accumulated to reach it (above its own compressed prefix); since
 /// the tree's depth is fixed at 32, those buffers never exceed 32 bytes.
 ///
-/// Iteration order is unspecified — matching the `on_message` callback contract
-/// in [`Known`](crate::Known), which makes no ordering promise.
+/// Leaves are yielded in ascending-key order: the descent is radix-DFS, walking
+/// each branch's children from smallest radix to largest. (The public
+/// `on_message` contract in [`Known`](crate::Known) still promises nothing about
+/// order, but [`unknown`](crate::tree::traverse::unknown) and `Tree::join` lean
+/// on this ascending order for their own deterministic callback delivery.)
 ///
 /// `Iter` is `Send + Sync` whenever `T: Send + Sync`: it holds only `&Node<T>`
 /// references and `Vec<u8>` path buffers.
@@ -350,8 +446,19 @@ impl<'a, T> Iter<'a, T> {
     /// Iterate the subtree rooted at `node` (a height-32 root, so every leaf's
     /// path is a full 32-byte [`Key`]).
     pub(crate) fn root(node: &'a Node<T>) -> Self {
+        Self::within(node, &[])
+    }
+
+    /// Iterate the subtree rooted at `node` when it does *not* sit at the top of
+    /// the tree: `path` carries the bytes already walked to reach it (the
+    /// ancestors' radixes, shallowest-first), which the descent extends so each
+    /// leaf still reconstructs a full 32-byte [`Key`]. `path.len()` plus the
+    /// height of `node` must therefore be 32.
+    pub(crate) fn within(node: &'a Node<T>, path: &[u8]) -> Self {
+        let mut buf = Vec::with_capacity(32);
+        buf.extend_from_slice(path);
         Self {
-            stack: vec![(node, Vec::with_capacity(32))],
+            stack: vec![(node, buf)],
         }
     }
 
@@ -362,7 +469,7 @@ impl<'a, T> Iter<'a, T> {
 }
 
 impl<'a, T> Iterator for Iter<'a, T> {
-    type Item = (crate::tree::key::Key, &'a Version, &'a Arc<T>);
+    type Item = (crate::tree::key::Key, &'a Version, &'a Message<T>);
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some((node, mut path)) = self.stack.pop() {
@@ -372,20 +479,20 @@ impl<'a, T> Iterator for Iter<'a, T> {
                 path.push(byte);
             }
             match &node.inner.children {
-                Children::Leaf(message) => {
+                Children::Leaf { message, .. } => {
                     let path = <[u8; 32]>::try_from(path)
                         .expect("a leaf sits at depth 32, so its path is 32 bytes");
-                    return Some((
-                        crate::tree::key::Key(path),
-                        &node.inner.version,
-                        message.as_arc(),
-                    ));
+                    return Some((crate::tree::key::Key(path), node.ceiling(), message));
                 }
-                Children::Branch(children) => {
+                Children::Branch { children, .. } => {
                     // Push each child with its own extended path; the owned
                     // buffer per frame is what keeps the descent lazy without a
-                    // separate pop phase.
-                    for (radix, child) in children.iter() {
+                    // separate pop phase. Push in *descending* radix order so the
+                    // LIFO stack pops the smallest radix first: this yields leaves
+                    // in ascending-key order (see the order note above), which
+                    // `Tree::join` relies on when it drives `on_recv` through the
+                    // unknown leaf walk.
+                    for (radix, child) in children.iter().rev() {
                         let mut child_path = path.clone();
                         child_path.push(*radix);
                         self.stack.push((child, child_path));

@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 6a537c46f93f5ebdcab35d2d1bf2ea6b5946ddea1c65a35cf2ae45b024d8e9fc # shrinks to (a, b) = (Root { version: 0, root: None }, Root { version: (0, (0, (0, 0, 2), 0), 0), root: Some(Node { prefix: "", children: Branch { ceiling: OnceLock(<uninit>), floor: OnceLock(<uninit>), children: {80: Node { prefix: "09cabf1e315343f1e40384237d2eeddc6919a3dbed8e64014638926442a28e", children: Leaf { version: (0, (0, (0, 0, 1), 0), 0), message: () } }, 197: Node { prefix: "435d9afb7520ad826c543d168f27bcef96c0f0f6ffada7e375566a91b156d1", children: Leaf { version: (0, (0, (0, 0, 2), 0), 0), message: () } }} } }) })

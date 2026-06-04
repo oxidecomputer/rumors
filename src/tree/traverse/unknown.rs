@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -92,18 +93,33 @@ where
         // If the node is causally prior or at the known version vector, it's
         // already known (and so are all its children, since they are always in
         // the causal past or present of their parent), so don't return anything
-        if node.version() <= known {
+        if node.ceiling() <= known {
             return None;
         }
 
-        // Keep-whole fast path: a single (possibly path-compressed) leaf carries
-        // exactly one version, so its `version` *is* the meet of its leaves —
-        // having passed the check above, none of it is filtered. With no
-        // callback to fire there is nothing left to do, so return it verbatim
-        // (an `Arc` move) instead of exploding the compressed prefix one virtual
-        // level at a time only to rebuild it identically. (With a callback we
-        // fall through and descend, to fire it for the leaf at `Z`.)
-        if with_unknown.is_none() && node.is_leaf() {
+        // Keep-whole fast path: if this subtree's meet (the floor, the minimal
+        // version among its leaves) is *not* dominated by `known`, then no leaf
+        // can be either — any leaf `v` with `v <= known` would force
+        // `floor <= v <= known` — so every leaf is unknown and none would be
+        // filtered out. The floor is undominated exactly when the comparison is
+        // `Greater` or incomparable (`None`); a concurrent floor counts, since a
+        // counterparty at `known` is still missing it.
+        //
+        // Either way the destroy-and-rebuild below would reproduce this subtree
+        // identically (with cold memos), so skip it: if anyone is observing,
+        // fire the callback for every leaf via a read-only leaf walk — which
+        // leaves the subtree and its memoized hash/ceiling/floor untouched —
+        // then return it verbatim (an `Arc` move).
+        let floor_unknown = matches!(
+            node.floor().partial_cmp(known),
+            None | Some(Ordering::Greater)
+        );
+        if floor_unknown {
+            if let Some(with_unknown) = with_unknown.as_mut() {
+                for (key, version, message) in node.leaves(prefix) {
+                    with_unknown(key, version, message).await;
+                }
+            }
             return Some(node);
         }
 
@@ -149,14 +165,14 @@ impl Unknown for Z {
 
         // If the node is causally prior or at the known version vector, it's
         // already known, so don't return anything
-        if node.version() <= known {
+        if node.ceiling() <= known {
             return None;
         }
 
         // Otherwise, the node is causally unknown, so observe it (if anyone is
         // listening) and return its information
         if let Some(with_unknown) = with_unknown.as_mut() {
-            with_unknown(Path::from(prefix).into(), node.version(), node.message()).await;
+            with_unknown(Path::from(prefix).into(), node.ceiling(), node.message()).await;
         }
         Some(node)
     }
