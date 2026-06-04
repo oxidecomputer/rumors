@@ -424,6 +424,12 @@ fn deep_tree_stack_safety() {
     clock.tick();
     clock.tick();
 
+    // Snapshot this deep version before the clock advances further. Used below to
+    // drive the shared join/meet `combine` recursion against a *distinct* deep
+    // version: equal operands short-circuit on `trivially_eq` before recursing,
+    // so only distinct ones exercise the depth-100k descent.
+    let early = clock.version().clone();
+
     // Observing ops over the deep version do not overflow.
     let v = clock.version();
     assert_eq!(v.partial_cmp(v), Some(core::cmp::Ordering::Equal));
@@ -443,6 +449,16 @@ fn deep_tree_stack_safety() {
     // `<= self`) merges a deep version into a deep clock without overflow.
     let msg = clock.send().clone();
     clock.recv(&msg);
+
+    // A join and a meet of two *distinct* deep versions drive the shared
+    // `combine` recursion (the `|`/`&` walk) at full depth. `early` predates the
+    // `send`/`recv` ticks, so `early < clock.version()`: their meet (GLB) is the
+    // older `early`, their join (LUB) the newer current version. The operands
+    // differ, so neither short-circuits on `trivially_eq` — the depth-100k
+    // descent is genuinely exercised, not skipped.
+    let current = clock.version().clone();
+    assert!(early.clone() & current.clone() == early);
+    assert!(early | current.clone() == current);
 
     // Observers over a deep clock and a deep message do not overflow:
     // `has_seen` lowers to a deep `causal_cmp` against the version, and the

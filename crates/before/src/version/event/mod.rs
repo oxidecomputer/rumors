@@ -1,5 +1,6 @@
-//! The event-tree mutation core: `merge` (event-tree join) and `tick` (=
-//! `fill`, else `grow`, the latter in the [`grow`] submodule). Everything
+//! The event-tree mutation core: `merge` (event-tree join `|` and its dual meet
+//! `&`, the pointwise lattice combine in the [`combine`] submodule) and `tick`
+//! (= `fill`, else `grow`, the latter in the [`grow`] submodule). Everything
 //! operates on the fixed-width working form and walks the packed id
 //! ([`idbits`]) alongside it where needed.
 //!
@@ -21,7 +22,7 @@
 //! comes back positioned just past the subtree it consumed — the right child
 //! then resumes from it with no re-scan and no returned "end" to thread. The
 //! call returns only its payload: an output root, a cost, a verdict. This is the
-//! whole shape of `causal_cmp`, `join`, `fill`, [`EvReader::max`], the [`grow`]
+//! whole shape of `causal_cmp`, `join`/`meet`, `fill`, [`EvReader::max`], the [`grow`]
 //! probe and emit, and `party::ops`'s `sum`/`is_disjoint`/`split` next door.
 //!
 //! Two things follow from the cursor being single-use:
@@ -79,9 +80,9 @@ use super::compare::EvReader;
 use super::working::WorkingVersion;
 
 mod builder;
+mod combine;
 mod fill;
 mod grow;
-mod join;
 mod max;
 
 use builder::{Builder, Slot};
