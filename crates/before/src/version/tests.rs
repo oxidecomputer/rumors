@@ -172,8 +172,8 @@ proptest! {
         let mut bb = b.clone();
         let mut batch_a = ba.batch();
         let mut batch_b = bb.batch();
-        batch_a.merge(&Version::new()); // materialize the working form, value unchanged
-        batch_b.merge(&Version::new());
+        batch_a.join(&Version::new()); // materialize the working form, value unchanged
+        batch_b.join(&Version::new());
 
         prop_assert_eq!(batch_a.partial_cmp(&b), base); // Working vs Packed (mixed)
         prop_assert_eq!(a.partial_cmp(&batch_b), base); // Packed vs Working (mixed)
@@ -457,9 +457,9 @@ proptest! {
             let mut aa = a.clone();
             let mut bb = b.clone();
             let mut la = aa.batch();
-            la.merge(&Version::new());
+            la.join(&Version::new());
             let mut rb = bb.batch();
-            rb.merge(&Version::new());
+            rb.join(&Version::new());
             prop_assert!(&la | &rb == expected);
         }
 
@@ -468,7 +468,7 @@ proptest! {
             let mut x = a.clone();
             let mut bb = b.clone();
             let mut rb = bb.batch();
-            rb.merge(&Version::new());
+            rb.join(&Version::new());
             x |= &rb;
             prop_assert!(x == expected);
         }
@@ -580,9 +580,9 @@ proptest! {
             let mut aa = a.clone();
             let mut bb = b.clone();
             let mut la = aa.batch();
-            la.merge(&Version::new());
+            la.join(&Version::new());
             let mut rb = bb.batch();
-            rb.merge(&Version::new());
+            rb.join(&Version::new());
             prop_assert!(&la & &rb == expected);
         }
 
@@ -591,7 +591,7 @@ proptest! {
             let mut x = a.clone();
             let mut bb = b.clone();
             let mut rb = bb.batch();
-            rb.merge(&Version::new());
+            rb.join(&Version::new());
             x &= &rb;
             prop_assert!(x == expected);
         }

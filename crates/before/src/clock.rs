@@ -3,6 +3,7 @@
 //! A [`clock::Batch`](Batch) is a borrow of a `Clock` affording the same
 //! interface but faster for bulk operations.
 
+use core::borrow::Borrow;
 use core::ops::{BitOr, BitOrAssign};
 
 use crate::{
@@ -176,7 +177,7 @@ impl Clock {
     /// assert!(*b.version() > msg);
     /// ```
     pub fn recv(&mut self, version: &Version) -> &Version {
-        self.batch().merge(version).tick();
+        self.batch().join_version(version).tick();
         self.version()
     }
 
@@ -415,8 +416,8 @@ impl Batch<'_> {
     }
 
     /// Like `|=`, but chainable.
-    pub(crate) fn merge(&mut self, version: &Version) -> &mut Self {
-        self.version.merge(version);
+    pub(crate) fn join_version(&mut self, version: &Version) -> &mut Self {
+        self.version.join(version);
         self
     }
 
@@ -446,7 +447,7 @@ impl Batch<'_> {
         let (other_party, other_version) = other.into_parts();
         match self.party.join(other_party) {
             Ok(()) => {
-                self.version.merge(&other_version);
+                self.version.join(&other_version);
                 Ok(self.version())
             }
             Err(other_party) => Err(Clock::from_parts(other_party, other_version)),
@@ -474,7 +475,7 @@ impl Batch<'_> {
 
         // Both histories become the join of the two.
         let other_version = other.version.snapshot();
-        self.version.merge(&other_version);
+        self.version.join(&other_version);
         let merged = self.version.snapshot();
         self.version.replace_with(merged.clone());
         other.version.replace_with(merged);
@@ -519,102 +520,67 @@ impl<'a> From<&'a mut Clock> for Batch<'a> {
     }
 }
 
-// Join operators. The `Clock` operand is consumed (a borrowing form would
-// duplicate its party). No `Clock | Clock` — that is the fallible `Clock::join`.
+// The join operators for `Clock`, across the cells {Clock, Version}: `|` merges
+// a `Version` into a clock — on either side, since a `Version` carries no party
+// — and returns the clock; `|=` merges one in place. There is no `Clock | Clock`
+// (a borrowing form would duplicate the clock's party, and reuniting two whole
+// clocks is the fallible `Clock::join`, which must verify disjointness). Every
+// cell folds the version operand into the clock's `version` batch through
+// `Batch::join_version`; the operand — owned `Version` or borrowed `&Version` —
+// reaches it coerced uniformly to `&Version` by `Borrow::borrow`, so one `@cell`
+// arm per *position* covers both operand forms.
 
-/// Merge a [`Version`] into a [`Clock`], consuming the clock.
-///
-/// ```
-/// use before::{Clock, Version};
-/// let merged = Clock::seed() | "1".parse::<Version>().unwrap();
-/// assert_eq!(merged.version().to_string(), "1");
-/// ```
-impl BitOr<Version> for Clock {
-    type Output = Clock;
-    fn bitor(mut self, r: Version) -> Clock {
-        self.batch().merge(&r);
-        self
-    }
+/// Generates the `Clock` join matrix. A `|` cell owns its clock operand
+/// (whichever side it is on) and returns it; a `|=` cell merges into the
+/// receiver in place. Each position — `op_l`/`op_r` for the clock as the left or
+/// right `|` operand, `as_clock`/`as_batch` for the `|=` receiver — has its own
+/// `@cell` arm so the receiver `self` is written in the same expansion as the
+/// method it belongs to (`self` cannot cross a macro-invocation boundary).
+macro_rules! clock_join_matrix {
+    ($($kind:tt $lhs:ty, $rhs:ty);* $(;)?) => {
+        $( clock_join_matrix!(@cell $kind $lhs, $rhs); )*
+    };
+    (@cell op_l $lhs:ty, $rhs:ty) => {
+        impl BitOr<$rhs> for $lhs {
+            type Output = Clock;
+            fn bitor(mut self, r: $rhs) -> Clock {
+                self.batch().join_version(r.borrow());
+                self
+            }
+        }
+    };
+    (@cell op_r $lhs:ty, $rhs:ty) => {
+        impl BitOr<$rhs> for $lhs {
+            type Output = Clock;
+            fn bitor(self, mut r: $rhs) -> Clock {
+                r.batch().join_version(self.borrow());
+                r
+            }
+        }
+    };
+    (@cell as_clock $lhs:ty, $rhs:ty) => {
+        impl BitOrAssign<$rhs> for $lhs {
+            fn bitor_assign(&mut self, r: $rhs) {
+                self.batch().join_version(r.borrow());
+            }
+        }
+    };
+    (@cell as_batch $lhs:ty, $rhs:ty) => {
+        impl BitOrAssign<$rhs> for $lhs {
+            fn bitor_assign(&mut self, r: $rhs) {
+                self.join_version(r.borrow());
+            }
+        }
+    };
 }
 
-impl BitOr<&Version> for Clock {
-    type Output = Clock;
-    fn bitor(mut self, r: &Version) -> Clock {
-        self.batch().merge(r);
-        self
-    }
-}
-
-/// Merge a [`Version`] into a [`Clock`], consuming the clock.
-///
-/// ```
-/// use before::{Clock, Version};
-/// let merged = "1".parse::<Version>().unwrap() | Clock::seed();
-/// assert_eq!(merged.version().to_string(), "1");
-/// ```
-impl BitOr<Clock> for Version {
-    type Output = Clock;
-    fn bitor(self, mut r: Clock) -> Clock {
-        r.batch().merge(&self);
-        r
-    }
-}
-
-impl BitOr<Clock> for &Version {
-    type Output = Clock;
-    fn bitor(self, mut r: Clock) -> Clock {
-        r.batch().merge(self);
-        r
-    }
-}
-
-/// Merge a [`Version`] into a [`Clock`] in place.
-///
-/// ```
-/// use before::{Clock, Version};
-/// let mut clock = Clock::seed();
-/// clock |= "1".parse::<Version>().unwrap();
-/// assert_eq!(clock.version().to_string(), "1");
-/// ```
-impl BitOrAssign<Version> for Clock {
-    fn bitor_assign(&mut self, r: Version) {
-        self.batch().merge(&r);
-    }
-}
-
-/// Merge a [`&Version`](Version) into a [`Clock`] in place.
-///
-/// ```
-/// use before::{Clock, Version};
-/// let mut clock = Clock::seed();
-/// clock |= "1".parse::<Version>().unwrap();
-/// assert_eq!(clock.version().to_string(), "1");
-/// ```
-impl BitOrAssign<&Version> for Clock {
-    fn bitor_assign(&mut self, r: &Version) {
-        self.batch().merge(r);
-    }
-}
-
-/// Merge a [`Version`] into a clock [`Batch`] in place.
-///
-/// ```
-/// use before::{Clock, Version};
-/// let mut clock = Clock::seed();
-/// {
-///     let mut batch = clock.batch();
-///     batch |= &"1".parse::<Version>().unwrap();
-/// }
-/// assert_eq!(clock.version().to_string(), "1");
-/// ```
-impl BitOrAssign<&Version> for Batch<'_> {
-    fn bitor_assign(&mut self, r: &Version) {
-        self.merge(r);
-    }
-}
-
-impl BitOrAssign<Version> for Batch<'_> {
-    fn bitor_assign(&mut self, r: Version) {
-        self.merge(&r);
-    }
+clock_join_matrix! {
+    op_l     Clock,     Version;
+    op_l     Clock,     &Version;
+    op_r     Version,   Clock;
+    op_r     &Version,  Clock;
+    as_clock Clock,     Version;
+    as_clock Clock,     &Version;
+    as_batch Batch<'_>, Version;
+    as_batch Batch<'_>, &Version;
 }

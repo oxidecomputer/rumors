@@ -347,16 +347,16 @@ impl Batch<'_> {
     }
 
     /// Like `|=`, but chainable.
-    pub(crate) fn merge(&mut self, other: &Version) -> &mut Self {
-        self.merge_view(other.view())
+    pub(crate) fn join(&mut self, other: &Version) -> &mut Self {
+        self.join_view(other.view())
     }
 
-    /// The view-taking core of [`merge`](Self::merge): join an arbitrary
-    /// event-tree view into this batch's in-progress history. Any operand with a
-    /// [`view`](Self::view) — a [`Version`] or another [`Batch`], owned or
+    /// The view-taking core of [`join`](Self::join): join an arbitrary
+    /// event-tree view into this batch's in-progress history. Any operand with
+    /// a [`view`](Self::view) — a [`Version`] or another [`Batch`], owned or
     /// borrowed — joins through here, which is what lets the `|`/`|=` matrix
     /// (below) accept a [`Batch`] on either side without transcoding.
-    fn merge_view(&mut self, incoming: EvReader<'_>) -> &mut Self {
+    fn join_view(&mut self, incoming: EvReader<'_>) -> &mut Self {
         let current = self.view();
         if current.trivially_eq(&incoming) {
             return self;
@@ -366,17 +366,11 @@ impl Batch<'_> {
         self
     }
 
-    /// Like `&=`, but chainable: the greatest-lower-bound dual of
-    /// [`merge`](Self::merge).
-    fn meet(&mut self, other: &Version) -> &mut Self {
-        self.meet_view(other.view())
-    }
-
-    /// The view-taking core of [`meet`](Self::meet), the dual of
-    /// [`merge_view`](Self::merge_view): meet an arbitrary event-tree view into
-    /// this batch's in-progress history. The `&`/`&=` matrix routes through here
-    /// exactly as the `|`/`|=` matrix routes through `merge_view`, which is what
-    /// lets it accept a [`Batch`] on either side without transcoding.
+    /// The view-taking meet core, the dual of [`join_view`](Self::join_view):
+    /// meet an arbitrary event-tree view into this batch's in-progress history.
+    /// The `&`/`&=` matrix routes through here exactly as the `|`/`|=` matrix
+    /// routes through [`join_view`](Self::join_view), which is what lets it
+    /// accept a [`Batch`] on either side without transcoding.
     fn meet_view(&mut self, incoming: EvReader<'_>) -> &mut Self {
         let current = self.view();
         if current.trivially_eq(&incoming) {
@@ -453,354 +447,146 @@ impl<'a> From<&'a mut Version> for Batch<'a> {
     }
 }
 
-/// `a | b` is the causal join (least upper bound) of two [`Version`]s.
-///
-/// ```
-/// use before::Clock;
-/// let mut a = Clock::seed();
-/// let mut b = a.fork();
-/// let va = a.tick().clone();
-/// let vb = b.tick().clone();
-/// let joined = va.clone() | vb.clone();
-/// assert!(joined >= va && joined >= vb); // the join dominates both inputs
-/// ```
-impl BitOr<Version> for Version {
-    type Output = Version;
-    fn bitor(self, r: Version) -> Version {
-        &self | r
-    }
-}
-
-impl BitOr<&Version> for Version {
-    type Output = Version;
-    fn bitor(mut self, r: &Version) -> Version {
-        self.batch().merge(r);
-        self
-    }
-}
-
-impl BitOr<Version> for &Version {
-    type Output = Version;
-    fn bitor(self, r: Version) -> Version {
-        r | self
-    }
-}
-
-impl BitOr<&Version> for &Version {
-    type Output = Version;
-    fn bitor(self, r: &Version) -> Version {
-        self.clone() | r
-    }
-}
-
-/// `a |= b` joins `b` into `a` in place.
-///
-/// ```
-/// use before::Clock;
-/// let mut a = Clock::seed();
-/// let mut b = a.fork();
-/// let mut va = a.tick().clone();
-/// let vb = b.tick().clone();
-/// va |= vb.clone();
-/// assert!(va >= vb); // `a` now dominates what it absorbed
-/// ```
-impl BitOrAssign<Version> for Version {
-    fn bitor_assign(&mut self, r: Version) {
-        *self = &*self | r;
-    }
-}
-
-impl BitOrAssign<&Version> for Version {
-    fn bitor_assign(&mut self, r: &Version) {
-        *self = &*self | r;
-    }
-}
-
-impl BitOrAssign<Version> for Batch<'_> {
-    fn bitor_assign(&mut self, r: Version) {
-        self.merge(&r);
-    }
-}
-
-impl BitOrAssign<&Version> for Batch<'_> {
-    fn bitor_assign(&mut self, r: &Version) {
-        self.merge(r);
-    }
-}
-
-// The join (`|`) and assigning join (`|=`) across {Version, Batch}², mirroring
-// the comparison matrix below. The `Version`/`Version` cells (and their three
-// reference forms) are the documented exemplars hand-written above; these two
-// macros fill in every remaining cell — the ones with a `Batch` on one or both
-// sides — so the join matrix reads as a matrix.
+// The join (`|`, `|=`) and meet (`&`, `&=`) matrices across {Version, Batch}²,
+// duals of each other and mirroring the comparison matrix below. The
+// `binop_matrix!` macro generates every cell of both — all 16 value-operator
+// cells (lhs × rhs over {Version, &Version, Batch, &Batch}) and all 8 assign
+// cells (lhs over {Version, Batch}) — so each operator reads as a single matrix.
 //
-// Both route through `Batch::merge_view`, which joins any `.view()` into a
-// batch. `|` snapshots its left operand to a fresh owned `Version` (a `Batch`
-// left operand via `snapshot`, a borrowed `Version` via `clone`, an owned
-// `Version` moved in place) and joins the right operand's view into it; a
-// `Batch` read for `|` is never mutated by the join and commits its own pending
-// state on drop as usual. `|=` joins the right operand's view into the left
-// operand in place (a `Version` through a transient `batch()`, a `Batch`
-// directly).
+// A value-operator cell (`|`/`&`) turns its left operand into a fresh owned
+// `Version` — `own` (move, an owned `Version`), `clone` (a borrowed `Version`),
+// or `snapshot` (a `Batch`, owned or borrowed) — then folds the right operand's
+// view into it; a `Batch` read this way is never mutated and commits its own
+// pending state on drop as usual. An assign cell (`|=`/`&=`) folds the right
+// operand's view into the left operand in place: through a transient `batch()`
+// for a `Version` left operand (`batch`), or directly for a `Batch` (`direct`).
+// The only thing that distinguishes the two families is the view-folding method
+// each cell routes through: `Batch::join_view` for `|`/`|=`, `Batch::meet_view`
+// for `&`/`&=` (each folds any `.view()` into a batch).
 
-/// Fills the non-`Version`/`Version` cells of the `|` matrix. Each cell owns its
-/// left operand as a fresh `Version` — `own` (move, for an owned `Version`),
-/// `clone` (a borrowed `Version`), or `snapshot` (a `Batch`, owned or borrowed)
-/// — then joins the right operand's view into it. Each kind has its own `@impl`
-/// arm so the receiver `self` is written in the same expansion as the method it
-/// belongs to (`self` cannot cross a macro-invocation boundary).
-macro_rules! version_join_impls {
-    ($($lhs:ty, $rhs:ty, $own:tt);* $(;)?) => {
-        $( version_join_impls!(@impl $lhs, $rhs, $own); )*
+/// Generates one binary-operator family's full matrix across {Version, Batch}².
+/// Parameterized over the value operator `$Op::$op` (e.g. `BitOr::bitor`), its
+/// assigning form `$Assign::$assign` (e.g. `BitOrAssign::bitor_assign`), and the
+/// view-folding method `$view` every cell routes through (`join_view` or
+/// `meet_view`). Each strategy — `own`/`clone`/`snapshot` for value cells,
+/// `batch`/`direct` for assign cells — has its own `@cell` arm so the receiver
+/// `self` is written in the same expansion as the method it belongs to (`self`
+/// cannot cross a macro-invocation boundary).
+macro_rules! binop_matrix {
+    ($Op:ident::$op:ident, $Assign:ident::$assign:ident, $view:ident;
+     $($lhs:ty, $rhs:ty, $strat:tt);* $(;)?
+    ) => {
+        $( binop_matrix!(@cell $Op::$op, $Assign::$assign, $view, $lhs, $rhs, $strat); )*
     };
-    (@impl $lhs:ty, $rhs:ty, own) => {
-        impl BitOr<$rhs> for $lhs {
+    (@cell $Op:ident::$op:ident, $Assign:ident::$assign:ident, $view:ident, $lhs:ty, $rhs:ty, own) => {
+        impl $Op<$rhs> for $lhs {
             type Output = Version;
-            fn bitor(self, r: $rhs) -> Version {
+            fn $op(self, r: $rhs) -> Version {
                 let mut out: Version = self;
-                out.batch().merge_view(r.view());
+                out.batch().$view(r.view());
                 out
             }
         }
     };
-    (@impl $lhs:ty, $rhs:ty, clone) => {
-        impl BitOr<$rhs> for $lhs {
+    (@cell $Op:ident::$op:ident, $Assign:ident::$assign:ident, $view:ident, $lhs:ty, $rhs:ty, clone) => {
+        impl $Op<$rhs> for $lhs {
             type Output = Version;
-            fn bitor(self, r: $rhs) -> Version {
+            fn $op(self, r: $rhs) -> Version {
                 let mut out: Version = self.clone();
-                out.batch().merge_view(r.view());
+                out.batch().$view(r.view());
                 out
             }
         }
     };
-    (@impl $lhs:ty, $rhs:ty, snapshot) => {
-        impl BitOr<$rhs> for $lhs {
+    (@cell $Op:ident::$op:ident, $Assign:ident::$assign:ident, $view:ident, $lhs:ty, $rhs:ty, snapshot) => {
+        impl $Op<$rhs> for $lhs {
             type Output = Version;
-            fn bitor(self, r: $rhs) -> Version {
+            fn $op(self, r: $rhs) -> Version {
                 let mut out: Version = self.snapshot();
-                out.batch().merge_view(r.view());
+                out.batch().$view(r.view());
                 out
+            }
+        }
+    };
+    (@cell $Op:ident::$op:ident, $Assign:ident::$assign:ident, $view:ident, $lhs:ty, $rhs:ty, batch) => {
+        impl $Assign<$rhs> for $lhs {
+            fn $assign(&mut self, r: $rhs) {
+                self.batch().$view(r.view());
+            }
+        }
+    };
+    (@cell $Op:ident::$op:ident, $Assign:ident::$assign:ident, $view:ident, $lhs:ty, $rhs:ty, direct) => {
+        impl $Assign<$rhs> for $lhs {
+            fn $assign(&mut self, r: $rhs) {
+                self.$view(r.view());
             }
         }
     };
 }
 
-version_join_impls! {
+// The join (`|`, `|=`) family. Routes through `Batch::join_view`.
+binop_matrix! {
+    BitOr::bitor, BitOrAssign::bitor_assign, join_view;
+    // value operator: left operand becomes a fresh owned `Version`
+    Version,    Version,    own;
+    Version,    &Version,   own;
     Version,    Batch<'_>,  own;
     Version,    &Batch<'_>, own;
+    &Version,   Version,    clone;
+    &Version,   &Version,   clone;
     &Version,   Batch<'_>,  clone;
     &Version,   &Batch<'_>, clone;
     Batch<'_>,  Version,    snapshot;
     Batch<'_>,  &Version,   snapshot;
-    &Batch<'_>, Version,    snapshot;
-    &Batch<'_>, &Version,   snapshot;
     Batch<'_>,  Batch<'_>,  snapshot;
     Batch<'_>,  &Batch<'_>, snapshot;
+    &Batch<'_>, Version,    snapshot;
+    &Batch<'_>, &Version,   snapshot;
     &Batch<'_>, Batch<'_>,  snapshot;
     &Batch<'_>, &Batch<'_>, snapshot;
+    // assign: right operand folded into the left operand in place
+    Version,    Version,    batch;
+    Version,    &Version,   batch;
+    Version,    Batch<'_>,  batch;
+    Version,    &Batch<'_>, batch;
+    Batch<'_>,  Version,    direct;
+    Batch<'_>,  &Version,   direct;
+    Batch<'_>,  Batch<'_>,  direct;
+    Batch<'_>,  &Batch<'_>, direct;
 }
 
-/// Fills the `Batch`-valued right-operand cells of the `|=` matrix (the
-/// `Version`/`Batch` right operands are hand-written above). The right operand's
-/// view is joined into the left operand in place: through a transient `batch()`
-/// for a `Version` left operand (`batch`), or directly for a `Batch` left
-/// operand (`direct`). Split into per-kind `@impl` arms for the same reason as
-/// the `|` macro: `self` must be written alongside its method.
-macro_rules! version_join_assign_impls {
-    ($($lhs:ty, $rhs:ty, $into:tt);* $(;)?) => {
-        $( version_join_assign_impls!(@impl $lhs, $rhs, $into); )*
-    };
-    (@impl $lhs:ty, $rhs:ty, batch) => {
-        impl BitOrAssign<$rhs> for $lhs {
-            fn bitor_assign(&mut self, r: $rhs) {
-                self.batch().merge_view(r.view());
-            }
-        }
-    };
-    (@impl $lhs:ty, $rhs:ty, direct) => {
-        impl BitOrAssign<$rhs> for $lhs {
-            fn bitor_assign(&mut self, r: $rhs) {
-                self.merge_view(r.view());
-            }
-        }
-    };
-}
-
-version_join_assign_impls! {
-    Version,   Batch<'_>,  batch;
-    Version,   &Batch<'_>, batch;
-    Batch<'_>, Batch<'_>,  direct;
-    Batch<'_>, &Batch<'_>, direct;
-}
-
-/// `a & b` is the causal meet (greatest lower bound) of two [`Version`]s: the
-/// history common to both, dual to the join `|`.
-///
-/// ```
-/// use before::Clock;
-/// let mut a = Clock::seed();
-/// let mut b = a.fork();
-/// let va = a.tick().clone();
-/// let vb = b.tick().clone();
-/// let met = va.clone() & vb.clone();
-/// assert!(met <= va && met <= vb); // the meet is dominated by both inputs
-/// ```
-impl BitAnd<Version> for Version {
-    type Output = Version;
-    fn bitand(self, r: Version) -> Version {
-        &self & r
-    }
-}
-
-impl BitAnd<&Version> for Version {
-    type Output = Version;
-    fn bitand(mut self, r: &Version) -> Version {
-        self.batch().meet(r);
-        self
-    }
-}
-
-impl BitAnd<Version> for &Version {
-    type Output = Version;
-    fn bitand(self, r: Version) -> Version {
-        r & self // meet is commutative
-    }
-}
-
-impl BitAnd<&Version> for &Version {
-    type Output = Version;
-    fn bitand(self, r: &Version) -> Version {
-        self.clone() & r
-    }
-}
-
-/// `a &= b` meets `b` into `a` in place.
-///
-/// ```
-/// use before::Clock;
-/// let mut a = Clock::seed();
-/// let mut b = a.fork();
-/// let mut va = a.tick().clone();
-/// let vb = b.tick().clone();
-/// let before = va.clone();
-/// va &= vb;
-/// assert!(va <= before); // `a` is narrowed to what it shares
-/// ```
-impl BitAndAssign<Version> for Version {
-    fn bitand_assign(&mut self, r: Version) {
-        *self = &*self & r;
-    }
-}
-
-impl BitAndAssign<&Version> for Version {
-    fn bitand_assign(&mut self, r: &Version) {
-        *self = &*self & r;
-    }
-}
-
-impl BitAndAssign<Version> for Batch<'_> {
-    fn bitand_assign(&mut self, r: Version) {
-        self.meet(&r);
-    }
-}
-
-impl BitAndAssign<&Version> for Batch<'_> {
-    fn bitand_assign(&mut self, r: &Version) {
-        self.meet(r);
-    }
-}
-
-// The meet (`&`) and assigning meet (`&=`) across {Version, Batch}², the exact
-// dual of the join matrix above: same cells, same ownership/snapshot strategy,
-// routing through `Batch::meet_view` (which meets any `.view()` into a batch)
-// instead of `merge_view`. The `Version`/`Version` cells are hand-written above;
-// these two macros fill in every remaining cell with a `Batch` on one or both
-// sides, so the meet matrix reads as a matrix exactly as the join one does.
-
-/// Fills the non-`Version`/`Version` cells of the `&` matrix, the dual of
-/// [`version_join_impls`]. Each cell owns its left operand as a fresh `Version`
-/// — `own`, `clone`, or `snapshot` — then meets the right operand's view into
-/// it.
-macro_rules! version_meet_impls {
-    ($($lhs:ty, $rhs:ty, $own:tt);* $(;)?) => {
-        $( version_meet_impls!(@impl $lhs, $rhs, $own); )*
-    };
-    (@impl $lhs:ty, $rhs:ty, own) => {
-        impl BitAnd<$rhs> for $lhs {
-            type Output = Version;
-            fn bitand(self, r: $rhs) -> Version {
-                let mut out: Version = self;
-                out.batch().meet_view(r.view());
-                out
-            }
-        }
-    };
-    (@impl $lhs:ty, $rhs:ty, clone) => {
-        impl BitAnd<$rhs> for $lhs {
-            type Output = Version;
-            fn bitand(self, r: $rhs) -> Version {
-                let mut out: Version = self.clone();
-                out.batch().meet_view(r.view());
-                out
-            }
-        }
-    };
-    (@impl $lhs:ty, $rhs:ty, snapshot) => {
-        impl BitAnd<$rhs> for $lhs {
-            type Output = Version;
-            fn bitand(self, r: $rhs) -> Version {
-                let mut out: Version = self.snapshot();
-                out.batch().meet_view(r.view());
-                out
-            }
-        }
-    };
-}
-
-version_meet_impls! {
+// The meet (`&`, `&=`) family: the exact dual of the join matrix above — same
+// cells, same ownership/snapshot strategy, same `binop_matrix!` macro — routing
+// through `Batch::meet_view` (which meets any `.view()` into a batch) instead of
+// `join_view`.
+binop_matrix! {
+    BitAnd::bitand, BitAndAssign::bitand_assign, meet_view;
+    // value operator: left operand becomes a fresh owned `Version`
+    Version,    Version,    own;
+    Version,    &Version,   own;
     Version,    Batch<'_>,  own;
     Version,    &Batch<'_>, own;
+    &Version,   Version,    clone;
+    &Version,   &Version,   clone;
     &Version,   Batch<'_>,  clone;
     &Version,   &Batch<'_>, clone;
     Batch<'_>,  Version,    snapshot;
     Batch<'_>,  &Version,   snapshot;
-    &Batch<'_>, Version,    snapshot;
-    &Batch<'_>, &Version,   snapshot;
     Batch<'_>,  Batch<'_>,  snapshot;
     Batch<'_>,  &Batch<'_>, snapshot;
+    &Batch<'_>, Version,    snapshot;
+    &Batch<'_>, &Version,   snapshot;
     &Batch<'_>, Batch<'_>,  snapshot;
     &Batch<'_>, &Batch<'_>, snapshot;
-}
-
-/// Fills the `Batch`-valued right-operand cells of the `&=` matrix, the dual of
-/// [`version_join_assign_impls`]. The right operand's view is met into the left
-/// operand in place: through a transient `batch()` for a `Version` left operand
-/// (`batch`), or directly for a `Batch` left operand (`direct`).
-macro_rules! version_meet_assign_impls {
-    ($($lhs:ty, $rhs:ty, $into:tt);* $(;)?) => {
-        $( version_meet_assign_impls!(@impl $lhs, $rhs, $into); )*
-    };
-    (@impl $lhs:ty, $rhs:ty, batch) => {
-        impl BitAndAssign<$rhs> for $lhs {
-            fn bitand_assign(&mut self, r: $rhs) {
-                self.batch().meet_view(r.view());
-            }
-        }
-    };
-    (@impl $lhs:ty, $rhs:ty, direct) => {
-        impl BitAndAssign<$rhs> for $lhs {
-            fn bitand_assign(&mut self, r: $rhs) {
-                self.meet_view(r.view());
-            }
-        }
-    };
-}
-
-version_meet_assign_impls! {
-    Version,   Batch<'_>,  batch;
-    Version,   &Batch<'_>, batch;
-    Batch<'_>, Batch<'_>,  direct;
-    Batch<'_>, &Batch<'_>, direct;
+    // assign: right operand folded into the left operand in place
+    Version,    Version,    batch;
+    Version,    &Version,   batch;
+    Version,    Batch<'_>,  batch;
+    Version,    &Batch<'_>, batch;
+    Batch<'_>,  Version,    direct;
+    Batch<'_>,  &Version,   direct;
+    Batch<'_>,  Batch<'_>,  direct;
+    Batch<'_>,  &Batch<'_>, direct;
 }
 
 // Causal comparison across {Version, Batch}², reading current state in place.

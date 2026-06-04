@@ -65,11 +65,11 @@ impl CombineWalk {
     /// offsets, emitting into `out`, advancing each reader past its subtree, and
     /// routing through the amortized stack-growth guard. Returns the output root.
     ///
-    /// Reads as the paper's `join`/meet: two leaves combine to `leaf_op` of their
-    /// path sums (`max` for the join, `min` for the meet); otherwise open a node,
-    /// descend each side (an internal side into its real children, a leaf side
-    /// broadcasting a fresh `Zero`), and close — the close performs the
-    /// normalizing sink.
+    /// Reads as the paper's `join` (and unwritten meet): two leaves combine to
+    /// `leaf_op` of their path sums (`max` for the join, `min` for the meet);
+    /// otherwise open a node, descend each side (an internal side into its real
+    /// children, a leaf side broadcasting a fresh `Zero`), and close — the
+    /// close performs the normalizing sink.
     fn rec(
         &mut self,
         a: &mut EvReader,

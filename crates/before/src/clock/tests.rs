@@ -296,7 +296,7 @@ proptest! {
         {
             let mut b = batched.batch();
             b.tick();
-            b.merge(&msg);
+            b.join_version(&msg);
             b.tick();
         }
 
