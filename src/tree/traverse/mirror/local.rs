@@ -68,7 +68,7 @@ use crate::{
     tree::{
         self,
         key::Key,
-        traverse::{Paths, get::Get, unknown, unknown::Unknown},
+        traverse::{unknown, unknown::Unknown},
         typed::{
             Hash, Levels, Node, Prefix,
             height::{Height, Root, S, Z},
@@ -419,7 +419,7 @@ where
     L: Levels<Message = T, Height = S<S<H>>>,
     S<S<H>>: Height,
     S<H>: Height,
-    H: Height + Unknown + Get,
+    H: Height + Unknown,
     // Assumed at impl-validation time so we don't have to case-analyze `H`
     // here: at use sites `H` is concrete and one of the three blanket impls
     // discharges it.
@@ -548,7 +548,7 @@ where
         OnRecv: FnMut(Key, &Version, &Arc<L::Message>) -> OnRecvFut + Send,
         OnRecvFut: Future<Output = ()> + Send,
         L: Levels<Height = H>,
-        H: Height + Get,
+        H: Height,
     {
         // Only walk a just-absorbed subtree to fire `on_recv` when there is an
         // `on_recv` to fire: with no callback the walk is pure waste (it does
@@ -558,7 +558,12 @@ where
         if let Some(on_recv) = self.on_recv.as_mut() {
             let frontier = self.levels.level_mut();
             for (prefix, node) in providing {
-                Get::get(Some(node.clone()), prefix, Paths::All, on_recv).await;
+                // Fire `on_recv` for every leaf via a read-only walk, then move
+                // the subtree itself into the frontier: no clone, and the
+                // subtree's memoized hash/ceiling/floor survive intact.
+                for (key, version, message) in node.leaves(prefix) {
+                    on_recv(key, version, message.as_arc()).await;
+                }
                 frontier.insert(prefix, node);
             }
         } else {
@@ -800,7 +805,7 @@ where
         L: Levels<Height = S<S<H>>>,
         S<S<H>>: Height,
         S<H>: Height,
-        H: Height + Unknown + Get,
+        H: Height + Unknown,
     {
         let message::Exchange {
             providing,

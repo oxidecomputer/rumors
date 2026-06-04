@@ -6,11 +6,7 @@ mod typed;
 
 use before::Party;
 
-use crate::{
-    message::Message,
-    tree::{traverse::Paths, typed::Node},
-    version::Version,
-};
+use crate::{message::Message, tree::typed::Node, version::Version};
 
 pub use key::Key;
 
@@ -128,26 +124,23 @@ impl<T> Tree<T> {
     }
 
     /// Get all the values stored at a list of hash paths in the tree.
-    #[allow(unused)]
-    pub fn get<I>(&self, paths: I) -> Vec<(Key, Version, Arc<T>)>
+    ///
+    /// A live tree holds at most one leaf per path, so the result has one entry
+    /// per requested path that is present, in unspecified order. This filters
+    /// the lazy leaf walk rather than descending each path: it is a test-only
+    /// helper (no production caller), so simplicity wins over the targeted
+    /// descent a hot path would want.
+    #[cfg(test)]
+    fn get<I>(&self, paths: I) -> Vec<(Key, Version, Arc<T>)>
     where
         T: Send + Sync,
         I: IntoIterator<Item = Key>,
     {
-        if let Some(root) = &self.root.root {
-            traverse::get(
-                Some(root.clone()),
-                Paths::Selected(
-                    paths
-                        .into_iter()
-                        .map(|i| i.0)
-                        .map(typed::Path::from)
-                        .collect(),
-                ),
-            )
-        } else {
-            Vec::new()
-        }
+        let wanted: std::collections::HashSet<Key> = paths.into_iter().collect();
+        self.iter()
+            .filter(|(key, _, _)| wanted.contains(key))
+            .map(|(key, version, message)| (key, version.clone(), message.clone()))
+            .collect()
     }
 
     /// Lazily iterate every live leaf currently in the tree as

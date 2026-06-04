@@ -8,9 +8,6 @@ use super::*;
 mod act;
 pub use act::{Action, act};
 
-mod get;
-pub use get::{Paths, get};
-
 mod unknown;
 pub use unknown::unknown;
 
