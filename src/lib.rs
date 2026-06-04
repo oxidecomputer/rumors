@@ -130,14 +130,16 @@
 //!
 //! # Compression
 //!
-//! The wire protocol implemented in this crate is uncompressed. Party
-//! identifiers appear inline in every version vector exchanged during gossip,
-//! and version vectors are exchanged frequently: this metadata channel is
-//! highly redundant and compresses easily. Payload bytes (Blake3 hashes, your
-//! borsh-encoded messages) generally do not compress further. We do not
-//! compress internally because the best algorithm could depend on the content
-//! of gossiped messages; however, **compressing the wire is strongly
-//! recommended** and is the caller's responsibility.
+//! The wire protocol implemented in this crate is uncompressed. Causal
+//! [`Version`]s are Interval Tree Clocks — bit-packed event trees with no party
+//! identifiers — so the metadata channel is compact and high-entropy, not the
+//! redundant repeating-identifier stream an earlier version-vector design
+//! produced. The rest of the wire is Blake3 tree-descent hashes and your
+//! borsh-encoded payloads, which also do not compress further. In practice a
+//! general-purpose codec (e.g. zstd) recovers little — often nothing once its
+//! own framing is counted — so compression is optional and the caller's
+//! responsibility; benchmark it against your own payloads before assuming it
+//! helps. See the `network_profile` example for measured ratios.
 
 use std::{
     future::{Future, Ready, ready},
