@@ -38,8 +38,10 @@ csv = "1"
 indicatif = { version = "0.17", features = ["rayon"] }
 rayon = "1"
 rand = { version = "0.8", features = ["small_rng"] }
+arc-swap = "1"
 zstd = "0.13"
 async-compression = { version = "0.4", features = ["tokio", "zstd"] }
+ratatui = "0.29"
 
 [profile.dev]
 debug = "line-tables-only"
@@ -47,6 +49,10 @@ debug = "line-tables-only"
 [[example]]
 name = "network_profile"
 path = "examples/network_profile.rs"
+
+[[example]]
+name = "swarm"
+path = "examples/swarm.rs"
 
 [[bench]]
 name = "hash_recon"
