@@ -62,14 +62,13 @@ use std::{convert::Infallible, future::Future, mem, sync::Arc};
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use futures::future::Either;
 use itertools::{EitherOrBoth, Itertools};
 
 use crate::{
     tree::{
         self,
         key::Key,
-        traverse::{Paths, get::Get, unknown::Unknown},
+        traverse::{Paths, get::Get, unknown, unknown::Unknown},
         typed::{
             Hash, Levels, Node, Prefix,
             height::{Height, Root, S, Z},
@@ -593,14 +592,12 @@ where
                 // prior to it that they lack, they have already deleted -- so
                 // we should too. The surviving subtree (if any) goes back into
                 // our frontier; its children are sent out as `providing`.
+                let mut on_send = self.on_send.as_mut().map(unknown::from_arc);
                 if let Some(node) = Unknown::unknown(
                     Some(node),
                     prefix,
                     &self.versions.their_version,
-                    &mut |k, v, m| match self.on_send.as_mut() {
-                        Some(on_send) => Either::Left(on_send(k, v, m.as_ref())),
-                        None => Either::Right(std::future::ready(())),
-                    },
+                    &mut on_send,
                 )
                 .await
                 {
@@ -685,14 +682,12 @@ where
                         // their deletions) and keep a local copy.
                         Left((child_radix, ours)) => {
                             let child_prefix = parent_prefix.push(child_radix);
+                            let mut on_send = self.on_send.as_mut().map(unknown::from_arc);
                             if let Some(ours) = Unknown::unknown(
                                 Some(ours),
                                 child_prefix,
                                 &self.versions.their_version,
-                                &mut |k, v, m| match self.on_send.as_mut() {
-                                    Some(on_send) => Either::Left(on_send(k, v, m.as_ref())),
-                                    None => Either::Right(std::future::ready(())),
-                                },
+                                &mut on_send,
                             )
                             .await
                             {
@@ -752,14 +747,12 @@ where
             for (parent_prefix, parent) in mem::take(frontier).into_iter() {
                 for (child_radix, ours) in parent.into_children() {
                     let child_prefix = parent_prefix.push(child_radix);
+                    let mut on_send = self.on_send.as_mut().map(unknown::from_arc);
                     if let Some(ours) = Unknown::unknown(
                         Some(ours),
                         child_prefix,
                         &self.versions.their_version,
-                        &mut |k, v, m| match self.on_send.as_mut() {
-                            Some(on_send) => Either::Left(on_send(k, v, m.as_ref())),
-                            None => Either::Right(std::future::ready(())),
-                        },
+                        &mut on_send,
                     )
                     .await
                     {

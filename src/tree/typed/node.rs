@@ -59,6 +59,14 @@ impl<T, H: Height> Node<T, H> {
         self.inner.version()
     }
 
+    /// Whether this node's content is a single leaf, regardless of any
+    /// path-compressed prefix above it. For such a node `version` is also the
+    /// meet of its leaves, so a single version comparison decides whether the
+    /// whole (compressed) subtree is kept or dropped — no need to explode it.
+    pub fn is_leaf(&self) -> bool {
+        self.inner.is_leaf()
+    }
+
     /// Number of path-compressed prefix bytes on this node — i.e., the
     /// count of singleton virtual-branch levels collapsed above the node's
     /// actual content. Zero for a leaf or a non-compressed branch.
@@ -159,8 +167,7 @@ impl<T> Node<T, height::Root> {
         untyped::Iter::root(&self.inner)
     }
 
-    pub fn root_hash(node: &Option<Root<T>>) -> Hash
-where {
+    pub fn root_hash(node: &Option<Root<T>>) -> Hash {
         // An absent root is the empty tree, which hashes as a branch with no
         // children (`blake3(BRANCH_TAG)`), not as the all-zero default.
         node.as_ref()

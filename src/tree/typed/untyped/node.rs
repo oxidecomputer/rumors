@@ -213,6 +213,15 @@ impl<T> Node<T> {
         &self.inner.version
     }
 
+    /// Whether this node's content is a single leaf (regardless of any
+    /// path-compressed prefix above it). A leaf carries exactly one version,
+    /// so its [`version`](Self::version) is also the meet of its leaves —
+    /// which lets callers decide "keep or drop this whole subtree" from the
+    /// version check alone, without exploding the compressed prefix.
+    pub fn is_leaf(&self) -> bool {
+        matches!(self.inner.children, Children::Leaf(_))
+    }
+
     /// Number of path-compressed prefix bytes carried on this node — i.e.,
     /// the count of virtual-branch levels collapsed above the node's actual
     /// content. Zero for a leaf or a non-compressed branch.

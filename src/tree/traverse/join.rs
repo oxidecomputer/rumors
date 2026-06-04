@@ -36,13 +36,12 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use futures::future::Either;
 use imbl::OrdMap;
 
-use crate::{message::Message, tree::key::Key, version::Version};
+use crate::{tree::key::Key, version::Version};
 
 use super::typed::*;
-use super::unknown::Unknown;
+use super::unknown::{Unknown, from_arc};
 use height::{Height, Root, S, Z};
 use prefix::Prefix;
 
@@ -89,6 +88,30 @@ where
         .await
     })
     .await
+}
+
+/// Resolve the asymmetric case — a subtree one side holds and the other lacks —
+/// by filtering it against the other side's `known` version and reporting
+/// survivors through `callback`.
+///
+/// A thin adapter over [`Unknown::unknown`]: it bridges the public `&Arc<T>`
+/// callback to `Unknown`'s `&Message<T>` and threads the callback as an
+/// [`Option`] so `Unknown` can both honor deletions and take its keep-whole
+/// fast path when there is nothing to observe.
+async fn filter_into<H, T, F, Fut>(
+    node: Node<T, H>,
+    prefix: Prefix<H>,
+    known: &Version,
+    callback: &mut Option<F>,
+) -> Option<Node<T, H>>
+where
+    H: Unknown,
+    T: Send + Sync,
+    F: FnMut(Key, &Version, &Arc<T>) -> Fut + Send,
+    Fut: Future<Output = ()> + Send,
+{
+    let mut adapted = callback.as_mut().map(from_arc);
+    Unknown::unknown(Some(node), prefix, known, &mut adapted).await
 }
 
 pub trait Join: Unknown {
@@ -139,32 +162,10 @@ where
             // Only we have it: filter against their version and report what
             // *they* learn (`on_send`); causally-known subtrees they deleted
             // drop out.
-            (Some(ours), None) => {
-                Unknown::unknown(
-                    Some(ours),
-                    prefix,
-                    b_version,
-                    &mut |k, v, m: &Message<T>| match on_send.as_mut() {
-                        Some(on_send) => Either::Left(on_send(k, v, m.as_ref())),
-                        None => Either::Right(std::future::ready(())),
-                    },
-                )
-                .await
-            }
+            (Some(ours), None) => filter_into(ours, prefix, b_version, on_send).await,
             // Only they have it: filter against our version and report what
             // *we* learn (`on_recv`).
-            (None, Some(theirs)) => {
-                Unknown::unknown(
-                    Some(theirs),
-                    prefix,
-                    a_version,
-                    &mut |k, v, m: &Message<T>| match on_recv.as_mut() {
-                        Some(on_recv) => Either::Left(on_recv(k, v, m.as_ref())),
-                        None => Either::Right(std::future::ready(())),
-                    },
-                )
-                .await
-            }
+            (None, Some(theirs)) => filter_into(theirs, prefix, a_version, on_recv).await,
             (Some(ours), Some(theirs)) => {
                 // Identical subtrees: keep one, observe nothing. Equal hash ⟹
                 // equal content (content addressing), so there is nothing to
@@ -229,30 +230,8 @@ impl Join for Z {
     {
         match (a, b) {
             (None, None) => None,
-            (Some(ours), None) => {
-                Unknown::unknown(
-                    Some(ours),
-                    prefix,
-                    b_version,
-                    &mut |k, v, m: &Message<T>| match on_send.as_mut() {
-                        Some(on_send) => Either::Left(on_send(k, v, m.as_ref())),
-                        None => Either::Right(std::future::ready(())),
-                    },
-                )
-                .await
-            }
-            (None, Some(theirs)) => {
-                Unknown::unknown(
-                    Some(theirs),
-                    prefix,
-                    a_version,
-                    &mut |k, v, m: &Message<T>| match on_recv.as_mut() {
-                        Some(on_recv) => Either::Left(on_recv(k, v, m.as_ref())),
-                        None => Either::Right(std::future::ready(())),
-                    },
-                )
-                .await
-            }
+            (Some(ours), None) => filter_into(ours, prefix, b_version, on_send).await,
+            (None, Some(theirs)) => filter_into(theirs, prefix, a_version, on_recv).await,
             // Two leaves at the same path are the same leaf: the path *is*
             // `blake3(version ‖ value)`, so identical paths carry identical
             // (version, value). Keep one; observe nothing.
