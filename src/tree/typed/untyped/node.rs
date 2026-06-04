@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::mem;
 use std::sync::{Arc, OnceLock};
@@ -87,6 +88,8 @@ enum Children<T> {
         /// This must be reset whenever the children of this leaf change, but
         /// *not* when its prefix does.
         floor: OnceLock<Version>,
+        /// The number of total leaves under this branch.
+        leaves: usize,
         /// The children of this branch.
         children: OrdMap<u8, Node<T>>,
     },
@@ -105,10 +108,12 @@ impl<T> Clone for Children<T> {
             Self::Branch {
                 ceiling,
                 floor,
+                leaves,
                 children,
             } => Self::Branch {
                 ceiling: ceiling.clone(),
                 floor: floor.clone(),
+                leaves: *leaves,
                 children: children.clone(),
             },
         }
@@ -132,9 +137,10 @@ impl<T> Node<T> {
                     prefix: Vec::new(),
                     hash: OnceLock::new(),
                     children: Children::Branch {
-                        children,
                         ceiling: OnceLock::new(),
                         floor: OnceLock::new(),
+                        leaves: children.values().map(Node::len).sum(),
+                        children,
                     },
                 }),
             }),
@@ -195,6 +201,14 @@ impl<T> Node<T> {
         match &self.inner.children {
             Children::Leaf { message, .. } => Some(message),
             _ => None,
+        }
+    }
+
+    /// Get the number of leaves under a node.
+    pub fn len(&self) -> usize {
+        match self.inner.children {
+            Children::Leaf { .. } => 1,
+            Children::Branch { leaves, .. } => leaves,
         }
     }
 
@@ -438,21 +452,36 @@ impl<T> PartialEq for Node<T> {
 ///
 /// The iterator is lazy: a single `next()` descends only far enough to reach
 /// the next leaf, so the first item is produced after walking one root-to-leaf
-/// spine rather than the whole tree. Each pending node on the stack carries the
-/// path bytes accumulated to reach it (above its own compressed prefix); since
-/// the tree's depth is fixed at 32, those buffers never exceed 32 bytes.
+/// spine rather than the whole tree. Each pending node in the frontier carries
+/// the path bytes accumulated to reach it (above its own compressed prefix);
+/// since the tree's depth is fixed at 32, those buffers never exceed 32 bytes.
 ///
-/// Leaves are yielded in ascending-key order: the descent is radix-DFS, walking
-/// each branch's children from smallest radix to largest. (The public
-/// `on_message` contract in [`Known`](crate::Known) still promises nothing about
-/// order, but [`unknown`](crate::tree::traverse::unknown) and `Tree::join` lean
-/// on this ascending order for their own deterministic callback delivery.)
+/// [`next`](Iterator::next) yields leaves in ascending-key order; the iterator
+/// is also a [`DoubleEndedIterator`], so [`next_back`](DoubleEndedIterator::next_back)
+/// yields them in descending-key order, and the two ends meet in the middle
+/// without overlap. The frontier is a deque of pending subtrees held in
+/// ascending order front-to-back: `next` pops the smallest subtree off the
+/// front (expanding a branch by pushing its children smallest-radix-frontmost),
+/// `next_back` pops the largest off the back. (The public `on_message` contract
+/// in [`Known`](crate::Known) still promises nothing about order, but
+/// [`unknown`](crate::tree::traverse::unknown) and `Tree::join` lean on the
+/// ascending forward order for their own deterministic callback delivery.)
 ///
 /// `Iter` is `Send + Sync` whenever `T: Send + Sync`: it holds only `&Node<T>`
 /// references and `Vec<u8>` path buffers.
 pub struct Iter<'a, T> {
-    /// Pending `(node, path-to-reach-it)` frames, LIFO. Empty once exhausted.
-    stack: Vec<(&'a Node<T>, Vec<u8>)>,
+    /// Pending `(node, path-to-reach-it)` subtrees, held in ascending key order
+    /// front-to-back. `next` consumes the front, `next_back` the back; a branch
+    /// is expanded in place into its children (preserving the ordering), so the
+    /// frontier always describes exactly the not-yet-yielded leaves. Empty once
+    /// exhausted.
+    frames: VecDeque<(&'a Node<T>, Vec<u8>)>,
+    /// Leaves not yet yielded — exactly the leaf count still reachable from the
+    /// frontier. Seeded from the root's [`Node::len`] and decremented once per
+    /// yielded leaf. Exploding a branch into its children preserves it (a
+    /// branch's `len` is the sum of its children's), so it stays exact without
+    /// re-counting, which is what lets `Iter` be an [`ExactSizeIterator`].
+    remaining: usize,
 }
 
 impl<'a, T> Iter<'a, T> {
@@ -471,21 +500,31 @@ impl<'a, T> Iter<'a, T> {
         let mut buf = Vec::with_capacity(32);
         buf.extend_from_slice(path);
         Self {
-            stack: vec![(node, buf)],
+            frames: VecDeque::from([(node, buf)]),
+            remaining: node.len(),
         }
     }
 
     /// The empty iterator, for a tree with no root.
     pub(crate) fn empty() -> Self {
-        Self { stack: Vec::new() }
+        Self {
+            frames: VecDeque::new(),
+            remaining: 0,
+        }
     }
-}
 
-impl<'a, T> Iterator for Iter<'a, T> {
-    type Item = (crate::tree::key::Key, &'a Version, &'a Message<T>);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        while let Some((node, mut path)) = self.stack.pop() {
+    /// Advance from one end of the frontier to the next leaf. `back` selects the
+    /// end: `false` pops the smallest pending subtree off the front (the `next`
+    /// direction), `true` pops the largest off the back (`next_back`). A popped
+    /// branch is expanded back onto the *same* end, ordered so the frontier
+    /// stays ascending front-to-back; the two ends therefore never yield the
+    /// same leaf and meet cleanly when the frontier empties.
+    fn step(&mut self, back: bool) -> Option<(crate::tree::key::Key, &'a Version, &'a Message<T>)> {
+        while let Some((node, mut path)) = if back {
+            self.frames.pop_back()
+        } else {
+            self.frames.pop_front()
+        } {
             // The compressed prefix sits above this node's level and is stored
             // shallowest-last, so replay it shallowest-first to extend the path.
             for &byte in node.inner.prefix.iter().rev() {
@@ -495,20 +534,29 @@ impl<'a, T> Iterator for Iter<'a, T> {
                 Children::Leaf { message, .. } => {
                     let path = <[u8; 32]>::try_from(path)
                         .expect("a leaf sits at depth 32, so its path is 32 bytes");
+                    self.remaining -= 1;
                     return Some((crate::tree::key::Key(path), node.ceiling(), message));
                 }
                 Children::Branch { children, .. } => {
-                    // Push each child with its own extended path; the owned
-                    // buffer per frame is what keeps the descent lazy without a
-                    // separate pop phase. Push in *descending* radix order so the
-                    // LIFO stack pops the smallest radix first: this yields leaves
-                    // in ascending-key order (see the order note above), which
-                    // `Tree::join` relies on when it drives `on_recv` through the
-                    // unknown leaf walk.
-                    for (radix, child) in children.iter().rev() {
-                        let mut child_path = path.clone();
-                        child_path.push(*radix);
-                        self.stack.push((child, child_path));
+                    // Re-push the children onto the end we just popped, each with
+                    // its own extended path buffer (the owned buffer per frame is
+                    // what keeps the descent lazy). Order so the frontier stays
+                    // ascending front-to-back: pushing to the front goes
+                    // largest-radix-first so the smallest ends up frontmost;
+                    // pushing to the back goes smallest-radix-first so the largest
+                    // ends up backmost.
+                    if back {
+                        for (radix, child) in children.iter() {
+                            let mut child_path = path.clone();
+                            child_path.push(*radix);
+                            self.frames.push_back((child, child_path));
+                        }
+                    } else {
+                        for (radix, child) in children.iter().rev() {
+                            let mut child_path = path.clone();
+                            child_path.push(*radix);
+                            self.frames.push_front((child, child_path));
+                        }
                     }
                 }
             }
@@ -516,6 +564,28 @@ impl<'a, T> Iterator for Iter<'a, T> {
         None
     }
 }
+
+impl<'a, T> Iterator for Iter<'a, T> {
+    type Item = (crate::tree::key::Key, &'a Version, &'a Message<T>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.step(false)
+    }
+
+    /// Exact, because [`Self::remaining`] tracks the reachable leaf count
+    /// precisely; the lower and upper bounds always coincide.
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.remaining, Some(self.remaining))
+    }
+}
+
+impl<'a, T> DoubleEndedIterator for Iter<'a, T> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.step(true)
+    }
+}
+
+impl<'a, T> ExactSizeIterator for Iter<'a, T> {}
 
 #[cfg(test)]
 mod test;

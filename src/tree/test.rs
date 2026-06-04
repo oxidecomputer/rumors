@@ -120,8 +120,8 @@ fn insert_at(
 /// can be applied in either order. Absent deletions, this is the entire
 /// protocol needed for two parties to converge.
 fn sync_via_unknown(a: &mut Tree<Bytes>, b: &mut Tree<Bytes>) {
-    let from_a = a.unknown(b.version());
-    let from_b = b.unknown(a.version());
+    let from_a = a.unknown(b.latest());
+    let from_b = b.unknown(a.latest());
     run(a.react(from_b, crate::tree::ignore));
     run(b.react(from_a, crate::tree::ignore));
 }
@@ -336,7 +336,94 @@ proptest! {
         ));
 
         prop_assert_eq!(t_act.hash(), t_react.hash());
-        prop_assert_eq!(t_act.version(), t_react.version());
+        prop_assert_eq!(t_act.latest(), t_react.latest());
+    }
+
+    /// The size and version accessors agree with an independent walk of the
+    /// tree. Inserting `n` distinct values must make `len` report `n`, `iter`
+    /// yield `n` leaves, and `is_empty` track `n == 0`. `iter` is moreover an
+    /// honest `ExactSizeIterator`: its reported length starts at `n` and falls
+    /// by exactly one per yielded leaf, hitting zero precisely at the end.
+    /// Finally `earliest`/`latest` bracket every live leaf version (`<=` in the
+    /// causal order), and `earliest` is absent exactly when the tree is empty.
+    #[test]
+    fn size_and_version_accessors_are_consistent(bytes in distinct_bytes(16)) {
+        let mut tree: Tree<Bytes> = Tree::new();
+        if !bytes.is_empty() {
+            run(tree.act(
+                &party_of("P"),
+                bytes.iter().cloned().map(insert_action),
+                crate::tree::ignore,
+            ));
+        }
+        let n = bytes.len();
+
+        prop_assert_eq!(tree.len(), n);
+        prop_assert_eq!(tree.is_empty(), n == 0);
+        prop_assert_eq!(tree.iter().count(), n);
+
+        // `iter()` reports an exact, monotonically-shrinking remaining count.
+        let mut it = tree.iter();
+        prop_assert_eq!(it.len(), n);
+        let mut seen = 0usize;
+        while it.len() > 0 {
+            let before = it.len();
+            prop_assert!(it.next().is_some());
+            prop_assert_eq!(it.len(), before - 1);
+            seen += 1;
+        }
+        prop_assert!(it.next().is_none());
+        prop_assert_eq!(seen, n);
+
+        // `earliest` is present iff non-empty, and bounds every leaf version.
+        prop_assert_eq!(tree.earliest().is_none(), tree.is_empty());
+        if let Some(earliest) = tree.earliest() {
+            let latest = tree.latest();
+            for (_, v, _) in tree.iter() {
+                prop_assert!(earliest <= v);
+                prop_assert!(v <= latest);
+            }
+        }
+    }
+
+    /// The leaf iterator is a consistent `DoubleEndedIterator`: the forward
+    /// walk is in strictly ascending key order, reverse iteration yields exactly
+    /// that sequence reversed, and consuming alternately from both ends visits
+    /// every leaf exactly once — the ends meet in the middle with no overlap and
+    /// no gap, so `front ++ reverse(back)` reconstructs the forward order.
+    #[test]
+    fn iter_is_double_ended(bytes in distinct_bytes(16)) {
+        let mut tree: Tree<Bytes> = Tree::new();
+        if !bytes.is_empty() {
+            run(tree.act(
+                &party_of("P"),
+                bytes.iter().cloned().map(insert_action),
+                crate::tree::ignore,
+            ));
+        }
+
+        // Forward order is strictly ascending by key.
+        let fwd: Vec<[u8; 32]> = tree.iter().map(|(k, _, _)| k.0).collect();
+        prop_assert!(fwd.windows(2).all(|w| w[0] < w[1]));
+
+        // Reverse iteration is the forward sequence, reversed.
+        let bwd: Vec<[u8; 32]> = tree.iter().rev().map(|(k, _, _)| k.0).collect();
+        let mut fwd_rev = fwd.clone();
+        fwd_rev.reverse();
+        prop_assert_eq!(bwd, fwd_rev);
+
+        // Pulling alternately from each end visits every leaf once; reuniting
+        // the two halves (back reversed) must rebuild the forward order.
+        let mut it = tree.iter();
+        let (mut front, mut back) = (Vec::new(), Vec::new());
+        let mut take_front = true;
+        while let Some((k, _, _)) = if take_front { it.next() } else { it.next_back() } {
+            if take_front { front.push(k.0) } else { back.push(k.0) }
+            take_front = !take_front;
+        }
+        back.reverse();
+        front.extend(back);
+        prop_assert_eq!(front, fwd);
     }
 
     /// Inserting a value and then deleting its leaf path via two separate `act`
@@ -355,7 +442,7 @@ proptest! {
         run(tree.act(&party_of("P"), [Action::Forget(path)], crate::tree::ignore));
 
         prop_assert_eq!(tree.hash(), *reference_hash(&[]).as_bytes());
-        prop_assert_eq!(tree.version(), version_for(&party, 2));
+        prop_assert_eq!(tree.latest(), version_for(&party, 2));
     }
 
     /// Inserting a value and deleting its leaf path within the same `act`
@@ -372,7 +459,7 @@ proptest! {
         run(tree.act(&party_of("P"), [insert_action(value), Action::Forget(path)], crate::tree::ignore));
 
         prop_assert_eq!(tree.hash(), *reference_hash(&[]).as_bytes());
-        prop_assert_eq!(tree.version(), Version::new());
+        prop_assert_eq!(tree.latest(), Version::new());
     }
 
     /// Deleting a path that is not present in the tree must not change the
@@ -502,7 +589,7 @@ proptest! {
         // Each prior insert and each batch insert ticks the party once, so the
         // tree's version is exactly that many ticks of the owning party.
         prop_assert_eq!(
-            tree.version(),
+            tree.latest(),
             version_for(&party, (prior_inserts + batch_size) as u64),
         );
     }
@@ -516,9 +603,9 @@ proptest! {
                 format!("prior-{i}").into_bytes(),
             ))], crate::tree::ignore));
         }
-        let before = tree.version().clone();
+        let before = tree.latest().clone();
         run(tree.act(&party_of("P"), std::iter::empty::<Action<Bytes>>(), crate::tree::ignore));
-        prop_assert_eq!(tree.version(), before);
+        prop_assert_eq!(tree.latest(), before);
     }
 
     /// Two disjoint batches of versioned inserts applied via `react` must
@@ -639,7 +726,7 @@ proptest! {
         let mut a_events: Vec<(Key, Version, Message<Bytes>)> = Vec::new();
         for (i, value) in a_inserts.iter().enumerate() {
             let scalar = (i + 1) as u64;
-            let mut recorded = tree_a.version().clone();
+            let mut recorded = tree_a.latest().clone();
             recorded.tick(&party_of(&a_id));
             run(tree_a.act(&party_of("A"), [insert_action(value.clone())], crate::tree::ignore));
             a_events.push(insert_at(recorded, &a_id, scalar, value.clone()));
@@ -649,7 +736,7 @@ proptest! {
         let mut b_events: Vec<(Key, Version, Message<Bytes>)> = Vec::new();
         for (i, value) in b_inserts.iter().enumerate() {
             let scalar = (i + 1) as u64;
-            let mut recorded = tree_b.version().clone();
+            let mut recorded = tree_b.latest().clone();
             recorded.tick(&party_of(&b_id));
             run(tree_b.act(&party_of("B"), [insert_action(value.clone())], crate::tree::ignore));
             b_events.push(insert_at(recorded, &b_id, scalar, value.clone()));
@@ -658,7 +745,7 @@ proptest! {
         run(tree_a.react(b_events.iter().map(|(k, v, m)| (*k, v.clone(), m.clone())), crate::tree::ignore));
         run(tree_b.react(a_events.iter().map(|(k, v, m)| (*k, v.clone(), m.clone())), crate::tree::ignore));
 
-        prop_assert_eq!(tree_a.version(), tree_b.version());
+        prop_assert_eq!(tree_a.latest(), tree_b.latest());
         prop_assert_eq!(tree_a.hash(), tree_b.hash());
     }
 
@@ -671,7 +758,7 @@ proptest! {
         run(tree.act(&party_of("P"), acts.into_iter().map(insert_action), crate::tree::ignore));
         let cloned = tree.clone();
 
-        prop_assert_eq!(cloned.version(), tree.version());
+        prop_assert_eq!(cloned.latest(), tree.latest());
         prop_assert_eq!(cloned.hash(), tree.hash());
         prop_assert_eq!(cloned, tree);
     }
@@ -719,7 +806,7 @@ proptest! {
         for batch in batches {
             run(tree.act(&party_of("P"), batch.into_iter().map(insert_action), crate::tree::ignore));
         }
-        prop_assert!(tree.unknown(tree.version().clone()).is_empty());
+        prop_assert!(tree.unknown(tree.latest()).is_empty());
     }
 
     /// `unknown` relative to the default (empty) version enumerates every
@@ -734,7 +821,7 @@ proptest! {
         let mut tree = Tree::new();
         run(tree.act(&party_of("P"), bytes.iter().cloned().map(insert_action), crate::tree::ignore));
 
-        let got = tree.unknown(Version::default());
+        let got = tree.unknown(&Version::default());
 
         let got_paths: BTreeSet<Key> = got.iter().map(|(p, _, _)| *p).collect();
         let expected_paths: BTreeSet<Key> = bytes
@@ -779,7 +866,7 @@ proptest! {
         sync_via_unknown(&mut tree_a, &mut tree_b);
 
         prop_assert_eq!(tree_a.hash(), tree_b.hash());
-        prop_assert_eq!(tree_a.version(), tree_b.version());
+        prop_assert_eq!(tree_a.latest(), tree_b.latest());
     }
 
     /// A second sync immediately after a first is a complete no-op: the
@@ -801,19 +888,19 @@ proptest! {
 
         let hash_a = tree_a.hash();
         let hash_b = tree_b.hash();
-        let version_a = tree_a.version().clone();
-        let version_b = tree_b.version().clone();
+        let version_a = tree_a.latest().clone();
+        let version_b = tree_b.latest().clone();
 
         // The deltas in both directions must now be empty.
-        prop_assert!(tree_a.unknown(version_b.clone()).is_empty());
-        prop_assert!(tree_b.unknown(version_a.clone()).is_empty());
+        prop_assert!(tree_a.unknown(&version_b).is_empty());
+        prop_assert!(tree_b.unknown(&version_a).is_empty());
 
         // And a second sync must leave both trees bit-identical.
         sync_via_unknown(&mut tree_a, &mut tree_b);
         prop_assert_eq!(tree_a.hash(), hash_a);
         prop_assert_eq!(tree_b.hash(), hash_b);
-        prop_assert_eq!(tree_a.version(), version_a);
-        prop_assert_eq!(tree_b.version(), version_b);
+        prop_assert_eq!(tree_a.latest(), version_a);
+        prop_assert_eq!(tree_b.latest(), version_b);
     }
 
     /// A one-way delivery of A's `unknown(V_B)` to B — only half of a
@@ -832,9 +919,9 @@ proptest! {
         run(tree_a.act(&party_of("A"), a_inserts.iter().cloned().map(insert_action), crate::tree::ignore));
         run(tree_b.act(&party_of("B"), b_inserts.iter().cloned().map(insert_action), crate::tree::ignore));
 
-        run(tree_b.react(tree_a.unknown(tree_b.version().clone()), crate::tree::ignore));
+        run(tree_b.react(tree_a.unknown(tree_b.latest()), crate::tree::ignore));
 
-        prop_assert!(tree_b.version() >= tree_a.version());
+        prop_assert!(tree_b.latest() >= tree_a.latest());
 
         let a_paths: Vec<Key> = a_inserts
             .iter()
@@ -876,14 +963,14 @@ proptest! {
                 SyncOp::Sync => {
                     sync_via_unknown(&mut tree_a, &mut tree_b);
                     prop_assert_eq!(tree_a.hash(), tree_b.hash());
-                    prop_assert_eq!(tree_a.version(), tree_b.version());
+                    prop_assert_eq!(tree_a.latest(), tree_b.latest());
                 }
             }
         }
 
         sync_via_unknown(&mut tree_a, &mut tree_b);
         prop_assert_eq!(tree_a.hash(), tree_b.hash());
-        prop_assert_eq!(tree_a.version(), tree_b.version());
+        prop_assert_eq!(tree_a.latest(), tree_b.latest());
     }
 
     /// Inserting the same value twice under the same party via two `act`
@@ -1007,7 +1094,7 @@ proptest! {
         let mut from_iter: Vec<(Key, Bytes)> =
             tree.iter().map(|(k, _, m)| (k, (**m).clone())).collect();
         let mut from_unknown: Vec<(Key, Bytes)> = tree
-            .unknown(Version::default())
+            .unknown(&Version::default())
             .into_iter()
             .map(|(k, _, m)| (k, m.message().clone()))
             .collect();

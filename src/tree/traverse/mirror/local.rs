@@ -147,7 +147,7 @@ where
     pub fn start(node: tree::Root<T>, on_send: Option<OnSend>, on_recv: Option<OnRecv>) -> Self {
         Self {
             versions: Start {
-                our_version: node.version.clone(),
+                our_version: node.ceiling.clone(),
             },
             levels: Node::levels(Option::from(node)),
             on_recv,
@@ -238,7 +238,7 @@ where
             return Ok(protocol::Step::Done {
                 msg: (),
                 output: tree::Root {
-                    version: our_version,
+                    ceiling: our_version,
                     root: self.levels.collapse(),
                 },
             });
@@ -280,7 +280,7 @@ where
             return Ok(protocol::Step::Done {
                 msg: our_version.clone(),
                 output: tree::Root {
-                    version: our_version.clone(),
+                    ceiling: our_version.clone(),
                     root: self.levels.collapse(),
                 },
             });
@@ -474,7 +474,7 @@ where
         Ok(protocol::Step::Done {
             msg: message::Complete { providing },
             output: tree::Root {
-                version: self.versions.our_version | self.versions.their_version,
+                ceiling: self.versions.our_version | self.versions.their_version,
                 root: self.levels.collapse(),
             },
         })
@@ -499,7 +499,7 @@ where
         Ok(protocol::Step::Done {
             msg: (),
             output: tree::Root {
-                version: self.versions.our_version | self.versions.their_version,
+                ceiling: self.versions.our_version | self.versions.their_version,
                 root: self.levels.collapse(),
             },
         })
@@ -860,7 +860,7 @@ where
             protocol::Step::Done {
                 msg: response.into(),
                 output: tree::Root {
-                    version: next.versions.our_version | next.versions.their_version,
+                    ceiling: next.versions.our_version | next.versions.their_version,
                     root: next.levels.collapse(),
                 },
             }

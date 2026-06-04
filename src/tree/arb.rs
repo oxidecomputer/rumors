@@ -107,7 +107,7 @@ pub fn arb_tree_root(
                 extra.tick(&p);
             }
             crate::tree::Root {
-                version: extra | inner,
+                ceiling: extra | inner,
                 root: node,
             }
         })

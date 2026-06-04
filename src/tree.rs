@@ -30,7 +30,7 @@ pub struct Tree<T> {
 
 #[derive(Debug, Eq)]
 pub struct Root<T> {
-    version: Version,
+    ceiling: Version,
     root: Option<typed::node::Root<T>>,
 }
 
@@ -43,7 +43,7 @@ impl<T> From<Root<T>> for Option<typed::node::Root<T>> {
 impl<T> Clone for Root<T> {
     fn clone(&self) -> Self {
         Self {
-            version: self.version.clone(),
+            ceiling: self.ceiling.clone(),
             root: self.root.clone(),
         }
     }
@@ -55,7 +55,7 @@ impl<T> Clone for Root<T> {
 impl<T> Default for Root<T> {
     fn default() -> Self {
         Root {
-            version: Version::new(),
+            ceiling: Version::new(),
             root: None,
         }
     }
@@ -63,7 +63,7 @@ impl<T> Default for Root<T> {
 
 impl<T> PartialEq for Root<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.version == other.version && self.root == other.root
+        self.ceiling == other.ceiling && self.root == other.root
     }
 }
 
@@ -106,15 +106,30 @@ impl<T> Tree<T> {
     pub fn new() -> Self {
         Tree {
             root: Root {
-                version: Version::new(),
+                ceiling: Version::new(),
                 root: None,
             },
         }
     }
 
-    /// Get the version for the tree.
-    pub fn version(&self) -> Version {
-        self.root.version.clone()
+    /// Get the latest version for the tree.
+    pub fn latest(&self) -> &Version {
+        &self.root.ceiling
+    }
+
+    /// Get the earliest version present in the tree.
+    pub fn earliest(&self) -> Option<&Version> {
+        self.root.root.as_ref().map(Node::floor)
+    }
+
+    /// Determine if this root is empty.
+    pub fn is_empty(&self) -> bool {
+        self.root.root.is_none()
+    }
+
+    /// Get the number of messages in the tree.
+    pub fn len(&self) -> usize {
+        self.root.root.as_ref().map(Node::len).unwrap_or_default()
     }
 
     /// Get the root hash for the tree.
@@ -142,7 +157,9 @@ impl<T> Tree<T> {
 
     /// Lazily iterate every live leaf currently in the tree as
     /// `(Key, &Version, &Arc<T>)`, in unspecified order.
-    pub fn iter(&self) -> impl Iterator<Item = (Key, &Version, &Arc<T>)> + Send + Sync
+    pub fn iter(
+        &self,
+    ) -> impl ExactSizeIterator<Item = (Key, &Version, &Arc<T>)> + DoubleEndedIterator + Send + Sync
     where
         T: Send + Sync,
     {
@@ -179,12 +196,12 @@ impl<T> Tree<T> {
     /// Get all the values in this tree which are unknown relative to the given
     /// version vector.
     #[cfg(test)]
-    pub fn unknown(&self, version: Version) -> Vec<(Key, Version, Message<T>)>
+    pub fn unknown(&self, version: &Version) -> Vec<(Key, Version, Message<T>)>
     where
         T: Send + Sync,
     {
         let mut unknown = Vec::new();
-        traverse::unknown(self.root.clone().into(), &version, &mut |k, v, m| {
+        traverse::unknown(self.root.clone().into(), version, &mut |k, v, m| {
             unknown.push((k, v.clone(), m.clone()))
         });
         unknown
@@ -227,7 +244,7 @@ impl<T> Tree<T> {
         // load-bearing for the mirror protocol's deletion-honoring inference,
         // which cannot distinguish "forgot it" from "never had it" when
         // versions are equal. An empty batch is a complete no-op.
-        let mut new_version = self.version();
+        let mut new_version = self.latest().clone();
 
         // Build reactions eagerly so the `party` borrow stays cleanly scoped:
         // a lazy `map` would hold `&Party` across the `react` await below.
@@ -311,7 +328,7 @@ impl<T> Tree<T> {
         // The version join is deferred to the observer callback so that
         // zero-effect actions (e.g. forgetting a nonexistent key) do not
         // bump the root version.
-        let root_version = &mut self.root.version;
+        let root_version = &mut self.root.ceiling;
         self.root.root = traverse::act(
             self.root.root.take(),
             actions,
@@ -347,7 +364,7 @@ impl<T> Tree<T> {
         WFut: Future<Output = ()> + Send,
     {
         let Root {
-            version: their_version,
+            ceiling: their_version,
             root: their_root,
         } = other.root;
 
@@ -359,14 +376,14 @@ impl<T> Tree<T> {
         let merged = traverse::join(
             our_root,
             their_root,
-            &self.root.version,
+            &self.root.ceiling,
             &their_version,
             on_recv,
             on_send,
         )
         .await;
 
-        self.root.version |= their_version;
+        self.root.ceiling |= their_version;
         self.root.root = merged;
     }
 }

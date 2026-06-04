@@ -549,8 +549,8 @@ fn predict(
     let (alice, bob) = build_pair(
         parties, shared, distinct_a, distinct_b, redacted_a, redacted_b,
     );
-    let version_a = alice.version();
-    let version_b = bob.version();
+    let version_a = alice.latest();
+    let version_b = bob.latest();
     let vlen_a = version_a.as_bytes().len() as f64;
     let vlen_b = version_b.as_bytes().len() as f64;
 

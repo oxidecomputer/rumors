@@ -65,6 +65,11 @@ impl<T, H: Height> Node<T, H> {
         self.inner.floor()
     }
 
+    /// Get the number of leaves under this node.
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
     /// Whether this node's content is a single leaf, regardless of any
     /// path-compressed prefix above it. For such a node `version` is also the
     /// meet of its leaves, so a single version comparison decides whether the

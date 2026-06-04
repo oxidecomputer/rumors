@@ -210,7 +210,7 @@ proptest! {
         // we apply — `Tree::react` maintains the same invariant by `|=`-ing
         // each action's version into the tree's version vector.
         let wrap = |actions: &[(Path, Version, Action<()>)]| crate::tree::Root {
-            version: actions
+            ceiling: actions
                 .iter()
                 .fold(Version::default(), |acc, (_, v, _)| acc | v.clone()),
             root: pollster::block_on(act(None, actions.to_vec(), crate::tree::ignore)),

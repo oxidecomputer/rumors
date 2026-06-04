@@ -32,6 +32,7 @@ use rumors::sync::{Key, Known};
 
 /// Live message counts for the non-grid benchmarks (`message`, `iter`,
 /// `redact`), spanning three orders of magnitude.
+#[allow(unused)]
 pub const SIZES: &[usize] = &[100, 10_000, 1_000_000];
 
 /// Shared-prefix sizes. Capped at 100k: building two trees per Criterion

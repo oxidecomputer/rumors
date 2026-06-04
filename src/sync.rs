@@ -282,21 +282,83 @@ impl<T> Known<T> {
     /// live.sort();
     /// assert_eq!(live, vec!["a".to_string(), "b".to_string()]);
     /// ```
-    pub fn iter(&self) -> impl Iterator<Item = (Key, &Version, &Arc<T>)> + Send + Sync
+    pub fn iter(
+        &self,
+    ) -> impl ExactSizeIterator<Item = (Key, &Version, &Arc<T>)> + DoubleEndedIterator + Send + Sync
     where
         T: Send + Sync,
     {
         self.0.iter()
     }
 
-    /// This set's causal [`Version`]: the least upper bound of every message
-    /// and redaction it has observed.
+    /// The number of live messages in this rumor set.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rumors::sync::Known;
+    ///
+    /// let mut alice = Known::seed();
+    /// assert_eq!(alice.len(), 0);
+    /// alice.message(["a".to_string(), "b".to_string()]);
+    /// assert_eq!(alice.len(), 2);
+    /// ```
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Whether this rumor set holds no live messages.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rumors::sync::Known;
+    ///
+    /// let mut alice = Known::seed();
+    /// assert!(alice.is_empty());
+    /// alice.message(["news".to_string()]);
+    /// assert!(!alice.is_empty());
+    /// ```
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// This set's latest causal [`Version`]: the least upper bound of every
+    /// message and redaction it has observed.
     ///
     /// This is the timestamp a peer ships first when it [`gossip`](Self::gossip)s,
     /// and the one the protocol compares to decide what each side is missing.
     /// Two sets with equal versions have already converged.
-    pub fn version(&self) -> Version {
-        self.0.version()
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rumors::sync::Known;
+    ///
+    /// let mut alice = Known::seed();
+    /// let before = alice.latest().clone();
+    /// alice.message(["news".to_string()]);
+    /// assert!(alice.latest() != &before); // observing a message advanced it
+    /// ```
+    pub fn latest(&self) -> &Version {
+        self.0.latest()
+    }
+
+    /// The earliest message [`Version`] currently live in this set, or `None`
+    /// if it is empty.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rumors::sync::Known;
+    ///
+    /// let mut alice = Known::seed();
+    /// assert!(alice.earliest().is_none());
+    /// alice.message(["only".to_string()]);
+    /// assert!(alice.earliest().is_some());
+    /// ```
+    pub fn earliest(&self) -> Option<&Version> {
+        self.0.earliest()
     }
 
     /// The observable root hash of this set: a 32-byte digest of its live
@@ -305,6 +367,17 @@ impl<T> Known<T> {
     /// Two sets with the same root hash hold the same live messages, so a
     /// gossip session between them converges immediately. It is the first
     /// thing the initiator puts on the wire (see [`gossip`](Self::gossip)).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rumors::sync::Known;
+    ///
+    /// let mut alice = Known::seed();
+    /// let empty = alice.hash();
+    /// alice.message(["rumor".to_string()]);
+    /// assert_ne!(alice.hash(), empty); // new content, new digest
+    /// ```
     pub fn hash(&self) -> [u8; 32] {
         self.0.hash()
     }

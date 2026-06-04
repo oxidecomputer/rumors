@@ -361,6 +361,84 @@ impl<T> Known<T> {
         }
     }
 
+    /// Get the latest version represented by this [`Known`]: the least upper
+    /// bound of every message and redaction it has observed.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rumors::Known;
+    ///
+    /// # #[tokio::main(flavor = "current_thread")]
+    /// # async fn main() {
+    /// let mut alice = Known::seed();
+    /// let before = alice.latest().clone();
+    /// alice.message(["news".to_string()]).await;
+    /// assert!(alice.latest() != &before); // observing a message advanced it
+    /// # }
+    /// ```
+    pub fn latest(&self) -> &Version {
+        self.tree.latest()
+    }
+
+    /// Get the earliest message version currently present in this [`Known`], or
+    /// `None` if it is empty.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rumors::Known;
+    ///
+    /// # #[tokio::main(flavor = "current_thread")]
+    /// # async fn main() {
+    /// let mut alice = Known::seed();
+    /// assert!(alice.earliest().is_none());
+    /// alice.message(["only".to_string()]).await;
+    /// assert!(alice.earliest().is_some());
+    /// # }
+    /// ```
+    pub fn earliest(&self) -> Option<&Version> {
+        self.tree.earliest()
+    }
+
+    /// Determine if there are any current messages in this [`Known`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rumors::Known;
+    ///
+    /// # #[tokio::main(flavor = "current_thread")]
+    /// # async fn main() {
+    /// let mut alice = Known::seed();
+    /// assert!(alice.is_empty());
+    /// alice.message(["news".to_string()]).await;
+    /// assert!(!alice.is_empty());
+    /// # }
+    /// ```
+    pub fn is_empty(&self) -> bool {
+        self.tree.is_empty()
+    }
+
+    /// Get the number of live messages in this [`Known`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rumors::Known;
+    ///
+    /// # #[tokio::main(flavor = "current_thread")]
+    /// # async fn main() {
+    /// let mut alice = Known::seed();
+    /// assert_eq!(alice.len(), 0);
+    /// alice.message(["a".to_string(), "b".to_string()]).await;
+    /// assert_eq!(alice.len(), 2);
+    /// # }
+    /// ```
+    pub fn len(&self) -> usize {
+        self.tree.len()
+    }
+
     /// Insert messages into the rumor set without observing them.
     ///
     /// The callback-free counterpart to [`message_then`](Self::message_then):
@@ -483,21 +561,13 @@ impl<T> Known<T> {
     /// assert_eq!(live, vec!["a".to_string(), "b".to_string()]);
     /// # }
     /// ```
-    pub fn iter(&self) -> impl Iterator<Item = (Key, &Version, &Arc<T>)> + Send + Sync
+    pub fn iter(
+        &self,
+    ) -> impl ExactSizeIterator<Item = (Key, &Version, &Arc<T>)> + DoubleEndedIterator + Send + Sync
     where
         T: Send + Sync,
     {
         self.tree.iter()
-    }
-
-    /// This set's causal [`Version`]: the least upper bound of every message
-    /// and redaction it has observed.
-    ///
-    /// This is the timestamp a peer ships first when it [`gossip`](Self::gossip)s,
-    /// and the one the protocol compares to decide what each side is missing.
-    /// Two sets with equal versions have already converged.
-    pub fn version(&self) -> Version {
-        self.tree.version()
     }
 
     /// The observable root hash of this set: a 32-byte digest of its live
@@ -506,6 +576,20 @@ impl<T> Known<T> {
     /// Two sets with the same root hash hold the same live messages, so a
     /// gossip session between them converges immediately. It is the first
     /// thing the initiator puts on the wire (see [`gossip`](Self::gossip)).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rumors::Known;
+    ///
+    /// # #[tokio::main(flavor = "current_thread")]
+    /// # async fn main() {
+    /// let mut alice = Known::seed();
+    /// let empty = alice.hash();
+    /// alice.message(["rumor".to_string()]).await;
+    /// assert_ne!(alice.hash(), empty); // new content, new digest
+    /// # }
+    /// ```
     pub fn hash(&self) -> [u8; 32] {
         self.tree.hash()
     }
