@@ -21,9 +21,12 @@
 //! - **both have it, hashes equal**: the subtrees are identical (content
 //!   addressing makes equal hash ⟹ equal content, versions included), so keep
 //!   one verbatim and observe nothing.
-//! - **both have it, hashes differ**: explode both one level and recurse per
-//!   child over the union of their radixes, reassembling with [`Node::branch`]
+//! - **both have it, hashes differ**: explode both one level and recurse only
+//!   into the radixes whose child subtrees differ (an [`OrdMap::diff`] that
+//!   prunes the shared ones by pointer), reassembling with [`Node::branch`]
 //!   (which re-compresses singletons and recomputes the joined branch version).
+//!
+//! [`OrdMap::diff`]: imbl::OrdMap::diff
 //!
 //! All callback firing therefore happens inside the [`Unknown`] delegations at
 //! the asymmetric frontier; the lockstep recursion itself is pure structural
@@ -35,6 +38,8 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+
+use imbl::ordmap::DiffItem;
 
 use crate::{tree::key::Key, version::Version};
 
@@ -174,39 +179,55 @@ where
                     return Some(ours);
                 }
 
-                // Differing subtrees: descend one level. Start the merged map
-                // from *ours* and reconcile only the radixes that actually
-                // diverge — children present on both sides with identical
-                // subtrees (again `ptr_eq`-or-hash) carry over verbatim, with no
-                // recursion and no callback (nothing is learned across an equal
-                // subtree). Only the divergent radixes pay a recursion and an
-                // `OrdMap` write, so a small delta against a large shared tree
-                // costs work proportional to the delta, not to the fan-out.
+                // Differing subtrees: descend one level, but only into the
+                // radixes that actually diverge. `OrdMap::diff` walks both
+                // persistent B-trees in lockstep and prunes whole spans that are
+                // pointer-equal — the shared backing a fork leaves behind — so it
+                // yields exactly the changed children, in ascending-radix order,
+                // without enumerating the full radix union or probing the
+                // unchanged children. A small delta against a large shared tree
+                // therefore costs work proportional to the delta, not to the
+                // fan-out. (`diff` classifies a child as unchanged via `Node`'s
+                // `PartialEq`, which is the same `ptr_eq`-or-hash short-circuit
+                // the node-level equality above uses: nothing is learned across
+                // an equal subtree, so it carries over verbatim.)
+                //
+                // Collect the divergent radixes first — cloning only those few
+                // children — so we don't hold `diff`'s borrow of `ours` /
+                // `theirs` across the recursive `await`.
                 let ours = ours.into_children();
                 let theirs = theirs.into_children();
-                let radixes: std::collections::BTreeSet<u8> =
-                    ours.keys().chain(theirs.keys()).copied().collect();
 
-                let mut merged = ours.clone();
-                for radix in radixes {
-                    let our_child = ours.get(&radix);
-                    let their_child = theirs.get(&radix);
-                    if let (Some(o), Some(t)) = (our_child, their_child)
-                        && o == t
-                    {
-                        // Identical on both sides (shared backing or equal
-                        // hash): already present in `merged`, nothing to learn.
-                        continue;
-                    }
+                #[allow(clippy::type_complexity)]
+                let divergent: Vec<(u8, Option<Node<T, H>>, Option<Node<T, H>>)> = ours
+                    .diff(&theirs)
+                    .map(|item| match item {
+                        // Only they have this radix: report what *we* learn.
+                        DiffItem::Add(&radix, theirs) => (radix, None, Some(theirs.clone())),
+                        // Only we have it: report what *they* learn.
+                        DiffItem::Remove(&radix, ours) => (radix, Some(ours.clone()), None),
+                        // Both have it but the subtrees differ: recurse to
+                        // reconcile (the equal ones were already pruned).
+                        DiffItem::Update {
+                            old: (&radix, ours),
+                            new: (_, theirs),
+                        } => (radix, Some(ours.clone()), Some(theirs.clone())),
+                    })
+                    .collect();
 
+                // Start the merged map from *ours* (moved — `diff`'s borrow has
+                // ended) and rewrite only the divergent radixes; every shared
+                // child carries over verbatim by structural sharing.
+                let mut merged = ours;
+                for (radix, our_child, their_child) in divergent {
                     // Box-and-Send-erase the recursive future; see the matching
                     // comment in `act.rs`.
                     #[allow(clippy::type_complexity)]
                     let fut: Pin<
                         Box<dyn Future<Output = Option<Node<T, H>>> + Send + '_>,
                     > = Box::pin(Join::join(
-                        our_child.cloned(),
-                        their_child.cloned(),
+                        our_child,
+                        their_child,
                         prefix.push(radix),
                         a_version,
                         b_version,

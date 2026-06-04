@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use proptest::prelude::*;
 
-use crate::tree::arb::{arb_divergent_pair, arb_tree_root};
+use crate::tree::arb::{arb_divergent_pair, arb_shared_delta_pair, arb_tree_root};
 use crate::tree::key::Key;
 use crate::tree::traverse::mirror::{local, mirror};
 use crate::tree::{Root, Tree};
@@ -108,6 +108,31 @@ proptest! {
     // the public API contracts delivery order as unspecified, `join_matches_
     // mirror` asserts multiset parity; `Tree::join`'s own order is the clean,
     // deterministic ascending-key checked there.
+
+    /// A small delta against a *wide shared* (forked) prefix: the steady-state
+    /// gossip shape `join_small_delta` benchmarks, and the case `join`'s
+    /// `OrdMap::diff` exists to make cheap. A wide shared base gives the children
+    /// maps real B-tree depth, so this drives `diff`'s cross-level pointer-
+    /// pruning (which the narrow `arb_divergent_pair` bases never reach) and
+    /// confirms it still enumerates *exactly* the divergent radixes — no more, no
+    /// fewer: `join` produces the same merged tree and callbacks as the mirror.
+    ///
+    /// Fewer cases than the block above: each draw builds two wide trees and runs
+    /// the mirror twice, so the fixtures dominate.
+    #[test]
+    #[ignore = "wide fixtures: slow; run explicitly with --include-ignored"]
+    fn join_wide_shared_small_delta_matches_mirror((a, b) in arb_shared_delta_pair(32..256)) {
+        let (tree_j, recv_j, send_j) = join_capture(a.clone(), b.clone());
+        let (tree_m, recv_m) = mirror_capture(a.clone(), b.clone());
+
+        prop_assert_eq!(&tree_j, &tree_m);
+        prop_assert_eq!(by_key(recv_j.clone()), by_key(recv_m));
+
+        let (_tree_ba, recv_ba) = mirror_capture(b, a);
+        prop_assert_eq!(by_key(send_j), by_key(recv_ba));
+
+        prop_assert_eq!(by_key(recv_j.clone()), recv_j);
+    }
 
     /// Merging a tree with itself is a content no-op and observes nothing.
     #[test]
