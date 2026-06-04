@@ -1,8 +1,8 @@
 //! Pairwise gossip semantics for `Known::learn` and `Known::join`.
 //!
-//! Covers convergence, symmetry, idempotence, the algebraic laws of the
-//! `join` merge, and equivalence with `Known::gossip` over a real
-//! `tokio::io::duplex` channel.
+//! Covers convergence, symmetry, idempotence, and the algebraic laws of the
+//! `join` merge. Equivalence between this in-process merge and `Known::gossip`
+//! over the wire lives in the `async_wire` and `sync_wire` test binaries.
 //!
 //! Two `Known`s are compared with `Known::eq`, which compares *live content*
 //! (the underlying tree) and ignores the party tag — so two peers that reached
@@ -19,9 +19,8 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use proptest::prelude::*;
 use rumors::sync::Known;
 
-use crate::common::action::{arb_local_actions, arb_string_actions, build_local};
+use crate::common::action::{arb_local_actions, build_local};
 use crate::common::oracle::readout;
-use crate::common::wire::wire_gossip;
 
 /// Bidirectional gossip between two raw `Known`s, discarding observation
 /// callbacks. The two must be disjoint (forked from a shared seed), which
@@ -116,30 +115,6 @@ proptest! {
         prop_assert_eq!(&b, &b_before);
     }
 
-    /// Bidirectional `Known::learn` produces the same final live content as
-    /// driving the same two `Known`s through `Known::gossip` over
-    /// `tokio::io::duplex` — proving the wire protocol is faithful to the
-    /// in-process merge.
-    #[test]
-    fn process_matches_wire_gossip(
-        a_actions in arb_local_actions(),
-        b_actions in arb_local_actions(),
-    ) {
-        let mut seed = Known::<u64>::seed();
-        let mut a0 = build_local(seed.fork(), &a_actions);
-        let mut b0 = build_local(seed.fork(), &b_actions);
-
-        let mut a_proc = a0.fork();
-        let mut b_proc = b0.fork();
-        gossip_step_local(&mut a_proc, &mut b_proc);
-
-        let (a_wire, b_wire) = wire_gossip(a0, b0);
-
-        prop_assert_eq!(readout(&a_proc), readout(&a_wire));
-        prop_assert_eq!(readout(&b_proc), readout(&b_wire));
-        prop_assert_eq!(readout(&a_wire), readout(&b_wire));
-    }
-
     /// `join` is commutative on live content: `readout(a join b) ==
     /// readout(b join a)`.
     #[test]
@@ -198,32 +173,6 @@ proptest! {
 
         prop_assert_eq!(callbacks, 0);
         prop_assert_eq!(&subject, &original);
-    }
-
-    /// String-T variant of [`process_matches_wire_gossip`]: same
-    /// invariant for `T = String`, exercising the borsh round-trip
-    /// for a non-primitive value type. Uses the same Insert/Redact
-    /// action shape as the `u64` variant, so redaction propagation —
-    /// inferred from version frontiers, with no tombstone on the wire —
-    /// is also covered over the channel.
-    #[test]
-    fn process_matches_wire_gossip_string(
-        a_actions in arb_string_actions(),
-        b_actions in arb_string_actions(),
-    ) {
-        let mut seed = Known::<String>::seed();
-        let mut a0 = build_local(seed.fork(), &a_actions);
-        let mut b0 = build_local(seed.fork(), &b_actions);
-
-        let mut a_proc = a0.fork();
-        let mut b_proc = b0.fork();
-        gossip_step_local(&mut a_proc, &mut b_proc);
-
-        let (a_wire, b_wire) = wire_gossip(a0, b0);
-
-        prop_assert_eq!(readout(&a_proc), readout(&a_wire));
-        prop_assert_eq!(readout(&b_proc), readout(&b_wire));
-        prop_assert_eq!(readout(&a_wire), readout(&b_wire));
     }
 
     /// Two peers each insert a single value with no intervening

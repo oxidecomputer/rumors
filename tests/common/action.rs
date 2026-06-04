@@ -1,13 +1,17 @@
-//! Generic `Insert`/`Redact` action sequences for single-`Known`
-//! tests. Shared by `pairwise` (async wire) and `sync_wire`, so both
-//! exercise the same shapes of input — including redactions, which
-//! the original String-T and Sync wire tests skipped.
+//! Generic `Insert`/`Redact` action sequences for single-`Known` tests.
+//! Shared by `pairwise`, `async_wire`, and `sync_wire`, so all three
+//! exercise the same shapes of input — including redactions, which the
+//! original String-T and Sync wire tests skipped. [`build_local`] applies a
+//! sequence to a synchronous `sync::Known`; [`build_local_async`] applies it
+//! to an asynchronous `rumors::Known` for the concurrent wire test.
+
+use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use proptest::collection::vec;
 use proptest::prelude::*;
-use rumors::Key;
 use rumors::sync::Known;
+use rumors::{Key, Version};
 
 const MAX_ACTIONS: usize = 16;
 
@@ -71,4 +75,51 @@ where
         }
     }
     local
+}
+
+/// Asynchronous counterpart of [`build_local`]: replay the same
+/// `LocalAction` sequence on an async [`rumors::Known`], so the `async_wire`
+/// test can build peers for the genuinely-concurrent wire protocol without
+/// going through the synchronous wrapper.
+///
+/// Inserts go through the `async` [`rumors::Known::message_then`]; redaction
+/// is synchronous on both surfaces. As in [`build_local`], `local` must
+/// already be [`fork`](rumors::Known::fork)ed from the shared seed.
+pub async fn build_local_async<T>(
+    mut local: rumors::Known<T>,
+    actions: &[LocalAction<T>],
+) -> rumors::Known<T>
+where
+    T: Send + Sync + Clone + BorshSerialize + BorshDeserialize + 'static,
+{
+    let mut keys: Vec<Key> = Vec::new();
+    for a in actions {
+        match a {
+            LocalAction::Insert(v) => {
+                local.message_then([v.clone()], record_key(&mut keys)).await;
+            }
+            LocalAction::Redact(idx) => {
+                if !keys.is_empty() {
+                    local.redact([keys[idx % keys.len()]]);
+                }
+            }
+        }
+    }
+    local
+}
+
+/// Adapt "push the observed `Key` into `keys`" into the async callback shape
+/// [`rumors::Known::message_then`] expects.
+///
+/// The explicit return-position `impl FnMut(..) -> Ready<()>` pins the
+/// closure to a higher-ranked signature, which is what lets it flow into the
+/// async layer without a "not general enough" lifetime error (the same trick
+/// the crate's own sync wrapper uses internally).
+fn record_key<T>(
+    keys: &mut Vec<Key>,
+) -> impl FnMut(Key, &Version, &Arc<T>) -> std::future::Ready<()> {
+    move |k: Key, _v: &Version, _m: &Arc<T>| {
+        keys.push(k);
+        std::future::ready(())
+    }
 }
