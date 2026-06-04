@@ -9,6 +9,7 @@ mod act;
 pub use act::{Action, act};
 
 mod unknown;
+#[cfg(test)]
 pub use unknown::unknown;
 
 mod join;

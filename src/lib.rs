@@ -488,6 +488,14 @@ impl<T> Known<T> {
         self.tree.iter()
     }
 
+    /// Force this set's tree to compute its lazy structural memos (observable
+    /// hash and ceiling/floor version bounds), so a subsequent operation is
+    /// timed against its own work. For benchmark and test calibration only.
+    #[doc(hidden)]
+    pub fn warm_caches(&self) {
+        self.tree.warm_caches();
+    }
+
     /// Redact the given keys: stop gossiping the corresponding messages, and
     /// instruct every peer we synchronize with to do the same.
     ///

@@ -289,6 +289,14 @@ impl<T> Known<T> {
         self.0.iter()
     }
 
+    /// Force this set's lazy structural memos (observable hash and
+    /// ceiling/floor version bounds), so a subsequent operation is timed
+    /// against its own work. For benchmark and test calibration only.
+    #[doc(hidden)]
+    pub fn warm_caches(&self) {
+        self.0.warm_caches();
+    }
+
     /// Reunite `other` into `self`, discarding per-message observations, and
     /// rejoin its party back into `self`'s.
     ///

@@ -123,6 +123,39 @@ impl<T> Tree<T> {
         Node::root_hash(&self.root.clone().into()).into()
     }
 
+    /// Force every lazily-memoized structural value — the observable hash and
+    /// the ceiling/floor version bounds — for the whole tree. Each accessor
+    /// recurses, so one call apiece warms the entire subtree.
+    ///
+    /// For benchmark and test calibration only: it lets a subsequent operation
+    /// be timed against its own work rather than this one-time memoization. In
+    /// production these warm naturally as the tree is hashed for the wire and
+    /// reconciled against peers.
+    #[doc(hidden)]
+    pub fn warm_caches(&self) {
+        if let Some(root) = &self.root.root {
+            let _ = root.hash();
+            let _ = root.ceiling();
+            let _ = root.floor();
+        }
+    }
+
+    /// Lazily iterate every live leaf currently in the tree as
+    /// `(Key, &Version, &Arc<T>)`, in unspecified order.
+    pub fn iter(&self) -> impl Iterator<Item = (Key, &Version, &Arc<T>)> + Send + Sync
+    where
+        T: Send + Sync,
+    {
+        self.root
+            .root
+            .as_ref()
+            .map(typed::node::Root::iter)
+            .unwrap_or_else(typed::Iter::empty)
+            // The shared walk yields the full `&Message<T>`; the public contract
+            // hands out only the `&Arc<T>` value, a cheap projection of it.
+            .map(|(k, v, m)| (k, v, m.as_arc()))
+    }
+
     /// Get all the values stored at a list of hash paths in the tree.
     ///
     /// A live tree holds at most one leaf per path, so the result has one entry
@@ -143,25 +176,9 @@ impl<T> Tree<T> {
             .collect()
     }
 
-    /// Lazily iterate every live leaf currently in the tree as
-    /// `(Key, &Version, &Arc<T>)`, in unspecified order.
-    pub fn iter(&self) -> impl Iterator<Item = (Key, &Version, &Arc<T>)> + Send + Sync
-    where
-        T: Send + Sync,
-    {
-        self.root
-            .root
-            .as_ref()
-            .map(typed::node::Root::iter)
-            .unwrap_or_else(typed::Iter::empty)
-            // The shared walk yields the full `&Message<T>`; the public contract
-            // hands out only the `&Arc<T>` value, a cheap projection of it.
-            .map(|(k, v, m)| (k, v, m.as_arc()))
-    }
-
     /// Get all the values in this tree which are unknown relative to the given
     /// version vector.
-    #[allow(unused)]
+    #[cfg(test)]
     pub fn unknown(&self, version: Version) -> Vec<(Key, Version, Message<T>)>
     where
         T: Send + Sync,

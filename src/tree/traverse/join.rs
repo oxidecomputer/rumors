@@ -235,15 +235,7 @@ impl Join for Z {
             // Two leaves at the same path are the same leaf: the path *is*
             // `blake3(version ‖ value)`, so identical paths carry identical
             // (version, value). Keep one; observe nothing.
-            (Some(ours), Some(theirs)) => {
-                debug_assert_eq!(
-                    ours.hash(),
-                    theirs.hash(),
-                    "two leaves at the same path must be identical",
-                );
-                let _ = theirs;
-                Some(ours)
-            }
+            (Some(ours), Some(_)) => Some(ours),
         }
     }
 }

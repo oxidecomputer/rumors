@@ -163,23 +163,52 @@ fn build_identical(n: usize) -> (Known<()>, Known<()>) {
     (left, right)
 }
 
-/// `join` across the three divergence shapes. `Elements(n)` reports against
-/// the shared tree size in every shape, so the three groups are comparable at
-/// equal N.
+/// The per-side divergence a single `join` actually reconciles, as a function
+/// of the shared size `n`: the disjoint shape transfers all `n`, the small-delta
+/// shape only its [`DELTA`], and the identical shape nothing.
+type Divergence = fn(usize) -> u64;
+
+/// `join` across the three divergence shapes.
+///
+/// Throughput is reported against the *divergence* each shape reconciles, not
+/// the shared tree size `n`: `join`'s cost tracks the difference between the
+/// peers, not how much they already agree on, so charging it against `n` would
+/// understate the small-delta shape (constant work, growing `n`) by orders of
+/// magnitude. The identical shape transfers nothing, so it reports plain
+/// latency (no throughput).
+///
+/// Each fixture is built *and its lazy hash/ceiling/floor memos warmed* in the
+/// untimed setup, so the timed body measures `join`'s own traversal — the hash
+/// short-circuit over the shared prefix, plus reconciling the divergence — and
+/// not the one-time cost of first computing those memos (which, cold, would
+/// charge an `O(n)` rehash of the whole shared subtree to every `join`).
 fn bench_join(c: &mut Criterion) {
-    let shapes: [(&str, ShapeBuilder); 3] = [
-        ("disjoint", build_disjoint),
-        ("small_delta", build_small_delta),
-        ("identical", build_identical),
+    let shapes: [(&str, ShapeBuilder, Divergence); 3] = [
+        ("disjoint", build_disjoint, |n| n as u64),
+        ("small_delta", build_small_delta, |_| DELTA as u64),
+        ("identical", build_identical, |_| 0),
     ];
-    for (name, builder) in shapes {
+    for (name, builder, divergence) in shapes {
         let mut group = c.benchmark_group(format!("join_{name}"));
         for &n in SIZES {
             group.sample_size(sample_size_for(n));
-            group.throughput(Throughput::Elements(n as u64));
+            // The identical shape reconciles nothing, so it reports plain
+            // latency rather than a meaningless zero-element throughput.
+            let synced = divergence(n);
+            if synced > 0 {
+                group.throughput(Throughput::Elements(synced));
+            }
             group.bench_function(BenchmarkId::from_parameter(n), |b| {
                 b.iter_batched(
-                    || builder(n),
+                    || {
+                        let (left, right) = builder(n);
+                        // Warm both trees' memos in the untimed setup so the
+                        // timed `join` is not charged for first-touch
+                        // memoization (see the fn doc).
+                        left.warm_caches();
+                        right.warm_caches();
+                        (left, right)
+                    },
                     |(mut left, right)| {
                         left.join(right).unwrap();
                         left

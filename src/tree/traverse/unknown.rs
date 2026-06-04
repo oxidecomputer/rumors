@@ -6,7 +6,7 @@ use std::sync::Arc;
 use crate::{message::Message, tree::key::Key, version::Version};
 
 use super::typed::*;
-use height::{Height, Root, S, Z};
+use height::{Height, S, Z};
 use imbl::OrdMap;
 use prefix::Prefix;
 
@@ -34,11 +34,12 @@ where
 /// The unknown set is the set of leaves necessary to communicate to a
 /// counterparty who has this version vector, so that their tree will become a
 /// (non-strict) superset of yours.
+#[cfg(test)]
 pub fn unknown<T>(
-    node: Option<Node<T, Root>>,
+    node: Option<Node<T, height::Root>>,
     known: &Version,
     with_unknown: &mut (impl FnMut(Key, &Version, &Message<T>) + Send),
-) -> Option<Node<T, Root>>
+) -> Option<Node<T, height::Root>>
 where
     T: Send + Sync,
 {
