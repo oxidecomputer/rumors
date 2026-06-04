@@ -12,8 +12,9 @@
 //! [`predict`], computed from a structural model of the wire format. Comparing
 //! `bytes_a` to `pred_bytes_a` (and the rounds equivalents) is the primary way
 //! to validate that the model still matches the implementation when either
-//! changes; the cell-mean residual should approach zero as samples grow, and
-//! the per-sample residual should approach a small irreducible noise floor.
+//! changes; the residual is now pure deterministic model error (see
+//! [the determinism note](#determinism-no-per-sample-noise)), so it should be
+//! small and stable, not a sampling average.
 //!
 //! # Input space
 //!
@@ -31,23 +32,21 @@
 //! For each cell `(P, S, DA, DB, RA, RB)` the example constructs a fresh
 //! synthetic state:
 //!
-//! 1. Allocate `min(P, S+RA+RB)` ancestor parties with random identifiers and
-//!    distribute the `S + RA + RB` ancestor inserts evenly across them.
-//!    (Parties with zero inserts would be invisible to either side, so we cap.)
-//! 2. Both alice and bob process every ancestor party — each side's version
-//!    vector now contains one entry per contributing background party.
+//! 1. Allocate `min(P, S+RA+RB)` ancestor parties and distribute the `S + RA +
+//!    RB` ancestor inserts evenly across them. (Parties with zero inserts would
+//!    be invisible to either side, so we cap.) Parties are anonymous Interval
+//!    Tree Clock (ITC) regions forked from a single seed — there are no party
+//!    *identifiers* on the wire (see [the version note](#version-sizing)).
+//! 2. Both alice and bob `join` every ancestor party — each side's [`Version`]
+//!    (an ITC event tree) now records one populated region per contributing
+//!    background party.
 //! 3. Partition the ancestor keys disjointly into `[shared | redact-by-A |
 //!    redact-by-B]`. Alice redacts her slice; bob redacts his. Redactions
 //!    therefore reference *existing* keys and never overlap, so the measurement
 //!    reflects protocol behaviour rather than redaction-overlap statistics.
-//! 4. Alice inserts `DA` fresh `()` units under her own party id; bob inserts
+//! 4. Alice inserts `DA` fresh `()` units under her own party; bob inserts
 //!    `DB`. The value type is `()` so we measure protocol overhead unmixed with
 //!    application payload size.
-//!
-//! Per sample, the ancestor party names, alice's name, and bob's name are all
-//! drawn freshly from a per-job RNG seed derived from `--seed` plus the cell
-//! and sample index. Repeated samples therefore vary the hash distribution at
-//! every level of the tree without changing the structural counts.
 //!
 //! # Output
 //!
@@ -83,121 +82,155 @@
 //! # What the measurements demonstrate about the protocol
 //!
 //! Running the full sweep and analyzing the CSV reveals the protocol's
-//! performance shape, much of which is reproducible from the wire format alone:
+//! performance shape, much of which is reproducible from the wire format alone.
+//!
+//! ## Determinism: no per-sample noise
+//!
+//! ITC parties are anonymous and forking is deterministic: there are no random
+//! party identifiers any more. A given cell `(P, S, DA, DB, RA, RB)` therefore
+//! produces a *byte-for-byte identical* session on every sample — same bytes,
+//! same rounds, same initiator/responder assignment. `--samples > 1` adds no
+//! information; it is retained only so old invocations keep working. The
+//! prediction residual is consequently deterministic model error, not a
+//! sampling average: there is nothing to average away.
+//!
+//! ## Role: the larger version initiates
+//!
+//! Once both sides have exchanged versions and found them unequal, the mirror
+//! driver breaks the tie by comparing their *canonical ITC bytes*
+//! lexicographically — the side with the larger bytes becomes the initiator
+//! (see `mirror.rs`). This is a total, deterministic, but **non-closed-form**
+//! tiebreak: it depends on the bit-packed encoding, not on the cell counts, and
+//! it flips in structure-dependent ways as `DA`/`DB` change. The two roles have
+//! sharply different cost profiles (below), so [`predict`] reconstructs the two
+//! versions to read off the role exactly rather than guessing it from counts.
 //!
 //! ## Round trips: essentially constant, structurally logarithmic
 //!
-//! Each `exchange` call in the mirror protocol descends two heights into the
-//! 256-ary trie. For a union of `N` random leaves, birthday-paradox depth is
-//! `O(log_256 N)`, so the round count fits
+//! Each `exchange` call descends two heights into the 256-ary trie. For a union
+//! of `N` random leaves, birthday-paradox depth is `O(log_256 N)`, so the round
+//! count fits
 //!
 //! ```text
-//! rounds = 1.82 + 1.013 · log_256(N + 1) − 0.24 · 𝟙[side is "quiet"]
+//! rounds = 2.36 + 0.5·𝟙[initiator] + 1.357 · log_256(N + 1)
 //! ```
 //!
-//! where the quiet indicator captures the side with `DA == 0 ∧ RB == 0` (the
-//! one that has neither fresh inserts to push nor remote redactions to learn
-//! about) terminating one round earlier. The 1.013 coefficient is within
-//! fitting precision of the theoretical 1.0; the formula is structural.
+//! The initiator runs one extra half-round-trip (its `Initiate`/`close` pair),
+//! hence the `+0.5`. When the two versions match (only when `DA + DB + RA + RB
+//! == 0`) both sides bail right after the connect exchange at exactly **1.5
+//! rounds** (handshake write/read + connect write/read = 3 phase transitions).
 //!
-//! Practically: rounds plateau at ~2.5 across the calibration range (1 ≤ N ≤
-//! a few hundred). A network must reach `N > 256` to see a third round and
-//! `N > 65 536` to see a fourth. This is the key advantage of the 256-ary
-//! trie: convergence is latency-bounded by 2–4 round trips, not by `log₂ N`.
+//! Practically: rounds plateau at ~3–4 across the calibration range. A network
+//! must reach `N > 256` to add a level. This is the key advantage of the
+//! 256-ary trie: convergence is latency-bounded by a handful of round trips,
+//! not by `log₂ N`.
 //!
-//! ## Bytes: exact at the boundary, linear in the active leaves
+//! ## Bytes: a small exact boundary, then two role-dependent regimes
 //!
-//! Two structural pieces are reproducible exactly from the wire format:
+//! The fixed framing is exact and tiny:
 //!
-//! * **Connect frame**: each side ships its `Version<Bytes>` as a 4-byte
-//!   length-delimited frame containing a borsh OrdMap of `(Bytes(party_hash),
-//!   u64(counter))` pairs. Total `8 + 44 · np` bytes, where `np` is the
-//!   distinct-party count in that side's version vector. When the two
-//!   versions match (only happens when `DA + DB + RA + RB == 0`), both sides
-//!   bail at this point — bytes are exactly `8 + 44 · np`, rounds exactly 0.5.
+//! * **Connect frame**: each side ships its [`Version`] as a 4-byte
+//!   length-delimited frame wrapping a borsh body (a `u32` length prefix + the
+//!   bit-packed ITC event tree). With the 8-byte protocol handshake that is
+//!   exactly `16 + |version|` bytes, where `|version|` is the serialized event
+//!   tree (often just **1–30 bytes**; see below). On a connect-bail this is the
+//!   *entire* cost: e.g. an empty version is `16 + 1 = 17` bytes per side.
 //!
-//! * **Per-transmitted-leaf Version cost**: every leaf shipped in `providing`
-//!   carries the originator's insert-time `Version<P>`, exactly `4 + 44 · np`
-//!   bytes per leaf. Empirically this fits with coefficient 1.014 ± 0.05,
-//!   matching the theoretical 1.0 to fitting precision.
+//! Past the connect, cost splits by role, because the initiator provides its
+//! leaves *shallow* (early in the descent, before the frontier narrows) while
+//! the responder provides them *deep*:
 //!
-//! The remaining ~48 bytes per A-originated leaf (path-compressed prefix,
-//! `providing`'s OrdMap key, framing share) and the per-shared-element
-//! descent step (~17 bytes) are fit constants, but each has a structural
-//! interpretation traceable to the wire-format docs on the mirror protocol's
-//! message types.
+//! * **Initiator** ≈ `36 + 40·D + |version|·(1 + D) + 0.65·U·log₂(1+U)` bytes,
+//!   where `D` is its own outgoing leaves and `U = S + D_other + R_self` is the
+//!   divergent set it must exchange `uncertain` hashes through. The frontier
+//!   term is super-linear because deeper rounds add whole levels of hashes.
+//! * **Responder** ≈ `68 + 67·D + |version|·(1 + D) + 31·S + 31·R_other` bytes.
+//!   The `31` constants are one 32-byte blake3 hash apiece: the responder pays
+//!   a hash exchange per shared element it descends past and per element the
+//!   *other* side redacted (it routes the now-absent prefix to `requested`).
+//!
+//! In both regimes every provided leaf and the connect frame carry the side's
+//! `Version`, hence the `|version|·(1 + D)` term (`1` connect + `D` leaves).
+//!
+//! ## Version sizing
+//!
+//! The old version-vector representation cost `44` bytes *per party* (a 32-byte
+//! party-hash + `u64` counter + framing, in an OrdMap). ITC versions have **no
+//! party identifiers at all**: a [`Version`] is a bit-packed event tree whose
+//! size grows with the number of populated regions (`min(P, S+RA+RB)`, plus the
+//! side's own region if it acted) and the Elias-gamma-coded event counts —
+//! *sublinearly* and at well under a byte per region. Even at 32 regions the
+//! serialized version is ~26 bytes, versus the `32·44 = 1408` bytes the old
+//! model predicted. Because the size has no clean closed form, [`predict`]
+//! reconstructs the version and measures `as_bytes().len()` directly.
 //!
 //! ## What scales with what
 //!
-//! * **Linear in the side's own outgoing elements** (`DA` for A, `DB` for B).
-//!   Each fresh leaf alice originates costs alice `(4 + 44·np) + ~48` bytes;
-//!   bob pays only ~2 bytes per A-originated leaf.
-//! * **Logarithmically weak in the union size** for rounds: rounds barely
-//!   move as the union grows by a factor of 100.
-//! * **`O(np)` in the version-vector size**, which is `min(P, S+RA+RB) + 𝟙[acted]`.
-//!   At `np = 32` the connect frame alone is 1.4 KiB; every transmitted leaf
-//!   adds another 1.4 KiB.
-//! * **`O(1)` in shared elements** for rounds (S only affects the union size
-//!   under the log).
-//! * **`O(1)` in redactions** for rounds, and only `~16` bytes per element
-//!   for bytes (descent through an empty-now subtree).
+//! * **Linear in the side's own outgoing elements** (`DA` for A, `DB` for B):
+//!   ~40 bytes/leaf as initiator, ~67 as responder, plus the per-leaf version.
+//! * **`O(S)` and `O(R_other)` for the responder** at ~31 bytes each (a hash);
+//!   the initiator pays for these only through its sub-linear frontier term.
+//! * **Logarithmically weak in the union size** for rounds.
+//! * **Sub-linear, identifier-free in the party count `P`**: `P` only enlarges
+//!   the bit-packed version, by a fraction of a byte per region — not the
+//!   1.4 KiB/leaf the version-vector representation cost.
 //!
-//! ## Compression: dominated by repeating party identifiers
+//! ## Compression: now nearly a no-op
 //!
-//! Party identifiers are 32-byte blake3 hashes. Each transmitted leaf
-//! reprints every known party's hash in its `Version<P>` payload, and so does
-//! every connect frame. With `P = 32`, the version vector for a typical leaf
-//! is ~1.4 KiB of repeating 32-byte literals — textbook zstd dictionary
-//! material.
-//!
-//! Empirically, the compression ratio (wire bytes / protocol bytes) falls
-//! monotonically as `P` grows:
+//! Under the old version-vector wire, every leaf and connect frame reprinted
+//! every known party's 32-byte hash — textbook repeating zstd dictionary
+//! material, and compression was a large multiplier (ratios down to ~0.1 for
+//! big batches). ITC versions removed those repeats entirely. What remains on
+//! the wire is mostly high-entropy blake3 tree-descent hashes, which do not
+//! compress, so the ratio (wire bytes / protocol bytes) now hovers near 1:
 //!
 //! | `P`  | mean ratio |
 //! | ---- | ---------- |
-//! |  1   | 0.64       |
-//! |  4   | 0.47       |
-//! |  16  | 0.36       |
-//! |  32  | 0.36       |
+//! |  1   | 1.06       |
+//! |  8   | 0.99       |
+//! |  32  | 0.92       |
+//! |  64  | 0.91       |
 //!
-//! For larger transmitted batches (`DA ≥ 8` at `P = 32`), the ratio drops to
-//! ~0.1: the protocol-layer overhead is almost entirely compressed away,
-//! leaving only the high-entropy tree-descent hashes and the application
-//! payload (incompressible by assumption) on the wire.
-//!
-//! Compression does not affect the round count.
+//! At small `P` the ratio is **above 1**: zstd's framing overhead exceeds what
+//! it can save on a tiny, high-entropy payload. Only at large `P` or large
+//! transmitted batches (`DA ≥ 8`, ratio ~0.88) does it claw back ~10%.
+//! Compression no longer materially changes the bandwidth story, and never
+//! changes the round count.
 //!
 //! # Validating the prediction
 //!
 //! For each row, compute `(bytes_a - pred_bytes_a)` and `(rounds_a -
-//! pred_rounds_a)`. The per-sample distribution has an irreducible noise
-//! floor (~190 bytes / ~0.28 rounds RMS) driven by random hash distribution,
-//! since which side is initiator vs. responder is decided by the
-//! lexicographic order of version-vector OrdMaps. Cell-mean residuals
-//! (averaging over the per-sample noise) should approach zero as samples
-//! grow; that's the convergence test the prediction is built for.
+//! pred_rounds_a)`. Because the workload is deterministic, these are stable
+//! model errors, not noise. With the role and version sizes taken exactly from
+//! a reconstruction, the residual reduces to the descent-cost model:
 //!
-//! A run with `--samples 4 --max-shared 4 --max-distinct 4 --max-redacted 3
-//! --max-parties 5` produces enough cells across `P ∈ {1, …, 32}` to confirm
-//! both the structural pieces (exact agreement on connect-bail) and the
-//! near-zero bias of the full formula.
+//! * The **connect-bail** and **rounds** pieces are essentially exact.
+//! * The **responder** byte model is tight (~2% median error): its cost is the
+//!   clean per-leaf + per-hash structure above.
+//! * The **initiator** byte model is looser (~7% median, with a heavier tail on
+//!   high-`U` cells): its `uncertain`-hash frontier cost is genuinely
+//!   round-by-round path-dependent and does not reduce to the cell counts. This
+//!   residual is the irreducible "this is the model's approximation" term — it
+//!   does not shrink with more samples.
+//!
+//! A run with `--max-shared 5 --max-distinct 5 --max-redacted 4 --max-parties
+//! 6` sweeps enough of the space to see all of this.
 //!
 //! # When the protocol fits this workload model
 //!
 //! From the structure above, the protocol is well-suited to networks with:
 //!
-//! * Tens to low hundreds of stable parties (so `44·np` stays small or
-//!   compresses well).
+//! * Many parties — the ITC version is identifier-free and bit-packed, so party
+//!   count costs a fraction of a byte per region rather than 44 bytes each.
 //! * Rumor payloads at least a few hundred bytes (so the per-leaf overhead
 //!   doesn't dominate the application data).
 //! * Periodic reconciliation on a timer of seconds to minutes (so the
-//!   2–3 round trips per gossip are dwarfed by the gossip interval).
+//!   handful of round trips per gossip are dwarfed by the gossip interval).
 //! * Peers usually mostly in sync, occasionally diverging by a small delta
 //!   (so linear-in-delta bandwidth is what's being paid, not linear-in-state).
 //!
-//! Compression is a large multiplier for any network with many parties: it
-//! turns the `O(P²)` interaction between party count and transmitted leaves
-//! into effectively `O(payload + small constant)`.
+//! Compression, once a large multiplier, is now nearly a no-op: the ITC version
+//! already removed the repeating-identifier bloat it used to recover.
 
 use std::{
     fs::File,
@@ -225,8 +258,10 @@ struct Args {
     #[arg(short, long)]
     output: PathBuf,
 
-    /// Samples per cell. Each sample uses fresh random party identifiers,
-    /// derived deterministically from `--seed` + (cell index, sample index).
+    /// Samples per cell. Now that ITC parties are anonymous and forking is
+    /// deterministic, every sample of a cell is byte-for-byte identical, so
+    /// this adds no information; it is retained only so old invocations keep
+    /// working. Leave it at 1.
     #[arg(long, default_value_t = 1)]
     samples: u32,
 
@@ -453,74 +488,53 @@ struct Measure {
     transitions_b: u64,
 }
 
-/// Structurally-derived mean-prediction formula for one (S, DA, DB, RA, RB) cell.
+/// Structural wire-cost prediction for one `(P, S, DA, DB, RA, RB)` cell.
 ///
-/// Pieces marked EXACT are derived from the wire format and the construction
-/// (no fitting). Other coefficients are fit to the calibration sweep, but each
-/// has a structural meaning explained inline.
+/// The workload is deterministic (see the module's determinism note), so this
+/// is a point prediction, not a mean over samples. It is built in two layers:
+///
+/// 1. **Reconstructed-exact pieces.** The two sides' [`Version`]s are rebuilt
+///    with [`build_pair`] (cheap: forks + ticks, no gossip) so the serialized
+///    version sizes and the initiator/responder role come out *exactly*. Both
+///    are needed and neither has a usable closed form: the version is a
+///    bit-packed ITC event tree, and the role is a lexicographic comparison of
+///    the two canonical version-byte strings (`mirror.rs`).
+/// 2. **Modeled descent cost.** Given the role and version sizes, the protocol
+///    byte/round costs are fit constants with the structural meanings spelled
+///    out on each constant below.
 ///
 /// # Wire ground truth
 ///
-/// The mirror protocol is framed by `tokio_util::codec::LengthDelimitedCodec`:
-/// every frame is a 4-byte big-endian length followed by a borsh body.
+/// The mirror protocol is framed by `tokio_util::codec::LengthDelimitedCodec`
+/// (4-byte big-endian length + borsh body), and a session opens with the 8-byte
+/// protocol handshake. The first frame each side sends is its [`Version`]: a
+/// `u32` length prefix + the bit-packed event tree. So the connect costs
+/// exactly `16 + |version|` bytes (`8` handshake + `4` frame + `4` borsh len),
+/// and on a connect-bail (`DA+DB+RA+RB == 0`, equal versions) that is the whole
+/// session — `1.5` rounds (handshake + connect, three phase transitions).
 ///
-/// First exchange (always sent): each side ships its `Version<Bytes>`. With
-/// `imbl_borsh`'s OrdMap encoding, that is `u32(len)` followed by
-/// `(Bytes(party_hash), u64(counter))` pairs. Party identifiers are hashed to
-/// 32 bytes before insertion (see `Tree::for_party`), so every party entry is
-/// `4 + 32 + 8 = 44` bytes, and the OrdMap-len prefix is `4` bytes. Including
-/// the frame prefix, the connect-out costs exactly `8 + 44·np` bytes per side,
-/// where `np` is the number of parties in that side's version vector.
+/// # Modeled descent cost
 ///
-/// Under the present construction, with `P` background parties each
-/// contributing roughly `(S+RA+RB)/P` ancestor inserts:
-///   * Each background party with ≥ 1 insert contributes one entry to both
-///     alice's and bob's version vectors. So the effective background-party
-///     count is `min(P, S+RA+RB)` (a party with zero inserts is invisible).
-///   * Alice adds her own party-counter iff she performs any action herself,
-///     i.e. iff `DA + RA > 0` (insert or redact); similarly bob.
-///   * `np_self = min(P, S+RA+RB) + 𝟙[self acted]`.
-///
-/// If `DA + DB + RA + RB == 0`, both versions are identical and the protocol
-/// bails after the connect exchange — total bytes are EXACTLY `8 + 44·np` per
-/// side, and exactly 1 phase transition (= 0.5 rounds) per side.
-///
-/// # Per-leaf cost
-///
-/// When alice originates a leaf and ships it in `providing`, the leaf body
-/// carries her full `Version<P>` at insert time — which has `np_a` parties.
-/// That's `4 + 44·np_a` bytes per leaf (the same OrdMap shape, no outer frame
-/// because the leaf is nested inside a larger message). Empirically this term
-/// fits with coefficient **1.014 ± 0.05**, matching the theoretical 1.0 to
-/// fitting precision; we lock it to 1.0.
-///
-/// The other ~48 bytes per A-leaf are framing share, the leaf's path-compressed
-/// `prefix_len + prefix_bytes`, and the OrdMap key in `providing`. The exact
-/// split varies by tree height at which the leaf is sent, so we fit one
-/// constant rather than enumerate.
+/// Past the connect the cost depends sharply on role (the initiator provides
+/// its leaves shallow and early; the responder provides them deep), so the two
+/// sides are modeled by separate fits in [`side_bytes`]. Every provided leaf
+/// and the connect frame carry the side's `Version`, so its serialized size
+/// appears `1 + D` times. The responder's per-shared and per-other-redaction
+/// constants are each one 32-byte blake3 hash; the initiator instead pays a
+/// single super-linear `uncertain`-hash frontier term over the divergent set.
 ///
 /// # Round count
 ///
-/// The tree is 256-ary with depth 32. The protocol descends two levels per
-/// `exchange` call and short-circuits when both sides have nothing left to
-/// reconcile. For a union of `N` random leaves, the expected descent depth
-/// before all paths diverge is `O(log_256(N))` (birthday paradox), so rounds
-/// scale as **1.82 + 1.013 · log_256(N+1)** on a typical-role side. The 1.013
-/// fit coefficient is within fitting precision of the theoretical 1.0; the
-/// 1.82 base reflects the connect + open-initiator round-trip pair (≈ 4
-/// transitions = 2 rounds, minus role-asymmetry averaging).
+/// Both roles fit `rounds = 2.36 + 0.5·𝟙[initiator] + 1.357·log_256(N+1)` for
+/// union size `N` (256-ary descent, two heights per `exchange`; the initiator
+/// runs one extra half-round-trip). Connect-bail is exactly `1.5`.
 ///
-/// One side ("quiet": originates nothing and faces no remote redactions) can
-/// short-circuit one round earlier: `DA == 0 && RB == 0` removes 0.24 rounds
-/// from alice's expectation (symmetrically for bob).
+/// # Residual
 ///
-/// # What residual noise remains
-///
-/// Per-sample bytes have ~190-byte RMS *irreducible* noise from party-id–driven
-/// hash distribution: which side becomes initiator vs. responder is decided by
-/// the lexicographic order of version-vector OrdMaps, which is essentially a
-/// coin flip per random-party-id sample. Mean per cell converges (the formula
-/// is unbiased), but individual sample residuals do not vanish.
+/// Deterministic, not noise. The responder model is tight (~2% median); the
+/// initiator's frontier term is the looser piece (~7% median, heavier tail) and
+/// is the model's irreducible approximation — its true cost is round-by-round
+/// path-dependent, not a function of the cell counts.
 fn predict(
     parties: u32,
     shared: u32,
@@ -529,107 +543,124 @@ fn predict(
     redacted_a: u32,
     redacted_b: u32,
 ) -> Prediction {
-    let s = shared as f64;
-    let da = distinct_a as f64;
-    let db = distinct_b as f64;
-    let ra = redacted_a as f64;
-    let rb = redacted_b as f64;
-
-    // Number of distinct parties in each side's version vector. EXACT under
-    // the test-rig construction: a background party with ≥ 1 insert appears
-    // in both alice's and bob's version; one with zero inserts is invisible.
-    let total_ancestor = shared + redacted_a + redacted_b;
-    let effective_parties = if total_ancestor == 0 {
-        0
-    } else {
-        parties.min(total_ancestor)
-    };
-    let np_a = effective_parties + u32::from(redacted_a + distinct_a > 0);
-    let np_b = effective_parties + u32::from(redacted_b + distinct_b > 0);
-
-    // EXACT: connect-out frame = 4-byte LengthDelimitedCodec prefix + Version<Bytes>
-    //   Version<Bytes> = 4 (OrdMap len) + (4 + 32 + 8) per party
-    let ver_a = 8.0 + 44.0 * (np_a as f64);
-    let ver_b = 8.0 + 44.0 * (np_b as f64);
+    // Reconstruct the two sides deterministically to read off the exact
+    // serialized version sizes and the exact role. This is the same
+    // construction the measured run uses, minus the gossip.
+    let (alice, bob) = build_pair(
+        parties, shared, distinct_a, distinct_b, redacted_a, redacted_b,
+    );
+    let version_a = alice.version();
+    let version_b = bob.version();
+    let vlen_a = version_a.as_bytes().len() as f64;
+    let vlen_b = version_b.as_bytes().len() as f64;
 
     let any_diff = distinct_a + distinct_b + redacted_a + redacted_b > 0;
 
-    // EXACT: matching versions cause both sides to bail after the connect exchange.
+    // EXACT: equal versions ⇒ both sides ship only their connect frame and stop.
     if !any_diff {
         return Prediction {
-            bytes_a: ver_a,
-            bytes_b: ver_b,
-            rounds_a: 0.5,
-            rounds_b: 0.5,
+            bytes_a: CONNECT_FIXED + vlen_a,
+            bytes_b: CONNECT_FIXED + vlen_b,
+            rounds_a: BAIL_ROUNDS,
+            rounds_b: BAIL_ROUNDS,
         };
     }
 
-    // EXACT structural per-leaf-version cost: each leaf in `providing` carries
-    // a `Version<P>` with np_self parties, serialized as 4 + 44·np_self bytes.
-    let leaf_ver_a = 4.0 + 44.0 * (np_a as f64);
-    let leaf_ver_b = 4.0 + 44.0 * (np_b as f64);
+    // Distinct versions have distinct canonical bytes, so the comparison is
+    // strict and total: the larger-bytes side is the initiator (`mirror.rs`).
+    let alice_initiates = version_a.as_bytes() > version_b.as_bytes();
 
-    // Per-leaf overhead beyond the version (prefix_len + path-compressed prefix
-    // + share of framing/OrdMap key in `providing`). Fit to the cal data; ~48
-    // bytes captures the average across heights where leaves get shipped.
-    const PER_LEAF_OVERHEAD: f64 = 48.0;
-
-    // Per-shared-element descent step in the union subtree (~17 bytes; the
-    // exchange carries one Hash entry plus OrdMap-key + prefix overhead).
-    const PER_SHARED: f64 = 17.0;
-    // Per-element descent into a B-redacted (or A-redacted, symmetrically)
-    // subtree — slightly cheaper than a fully shared one because the receiver
-    // routes the prefix to `requested` rather than carrying a full Node.
-    const PER_REDACT_OTHER: f64 = 16.0;
-
-    // Protocol startup beyond connect (Initiate/Opening pair + first descent).
-    const PROTO_BASE: f64 = 30.0;
-
-    // The remaining tiny coefficients are role-asymmetry residuals after the
-    // main structural terms. Empirically they each contribute < 6 bytes; we
-    // keep them so the model nails the asymmetric cells.
-    const SMALL_OTHER_PER_DISTINCT: f64 = 2.0; // per element on the OTHER side
-    const SMALL_OWN_REDACT: f64 = 1.0; // per own redaction announced
-    const PRESENCE_BUMP: f64 = 5.0; // when an indicator subtree opens
-
-    let proto_a = PROTO_BASE
-        + da * (leaf_ver_a + PER_LEAF_OVERHEAD)
-        + s * PER_SHARED
-        + rb * PER_REDACT_OTHER
-        + SMALL_OTHER_PER_DISTINCT * db
-        + SMALL_OWN_REDACT * ra
-        + if redacted_a > 0 { PRESENCE_BUMP } else { 0.0 }
-        + if shared > 0 { PRESENCE_BUMP } else { 0.0 };
-    let proto_b = PROTO_BASE
-        + db * (leaf_ver_b + PER_LEAF_OVERHEAD)
-        + s * PER_SHARED
-        + ra * PER_REDACT_OTHER
-        + SMALL_OTHER_PER_DISTINCT * da
-        + SMALL_OWN_REDACT * rb
-        + if redacted_b > 0 { PRESENCE_BUMP } else { 0.0 }
-        + if shared > 0 { PRESENCE_BUMP } else { 0.0 };
-
-    // Rounds: 256-ary tree descent + role asymmetry.
-    let n_total = (shared + distinct_a + distinct_b + redacted_a + redacted_b) as f64;
-    let log256 = (n_total + 1.0).ln() / 256.0_f64.ln();
-    const ROUNDS_BASE: f64 = 1.82;
-    const ROUNDS_PER_LEVEL: f64 = 1.013; // structural 1.0 within fit precision
-    const QUIET_DISCOUNT: f64 = 0.24;
-
-    let quiet_a = distinct_a == 0 && redacted_b == 0;
-    let quiet_b = distinct_b == 0 && redacted_a == 0;
-
-    let rounds_a =
-        ROUNDS_BASE + ROUNDS_PER_LEVEL * log256 - if quiet_a { QUIET_DISCOUNT } else { 0.0 };
-    let rounds_b =
-        ROUNDS_BASE + ROUNDS_PER_LEVEL * log256 - if quiet_b { QUIET_DISCOUNT } else { 0.0 };
-
+    let n = (shared + distinct_a + distinct_b + redacted_a + redacted_b) as f64;
     Prediction {
-        bytes_a: ver_a + proto_a,
-        bytes_b: ver_b + proto_b,
-        rounds_a,
-        rounds_b,
+        bytes_a: side_bytes(
+            distinct_a,
+            distinct_b,
+            shared,
+            redacted_a,
+            redacted_b,
+            vlen_a,
+            alice_initiates,
+        ),
+        bytes_b: side_bytes(
+            distinct_b,
+            distinct_a,
+            shared,
+            redacted_b,
+            redacted_a,
+            vlen_b,
+            !alice_initiates,
+        ),
+        rounds_a: side_rounds(n, alice_initiates),
+        rounds_b: side_rounds(n, !alice_initiates),
     }
+}
+
+/// Fixed per-session framing ahead of any version payload: the 8-byte protocol
+/// handshake + the 4-byte length-delimited frame prefix + borsh's 4-byte `u32`
+/// length on the `Version` body. The connect frame is `CONNECT_FIXED +
+/// |version|` bytes.
+const CONNECT_FIXED: f64 = 16.0;
+
+/// Connect-bail rounds: handshake write/read + connect write/read = three
+/// protocol-layer phase transitions = 1.5 rounds, identically on both sides.
+const BAIL_ROUNDS: f64 = 1.5;
+
+/// One side's transmitted bytes, given its role and the exact serialized size
+/// of the `Version` it stamps on its connect frame and on every leaf it
+/// provides. `d`/`r` are this side's own outgoing leaves and redactions;
+/// `od`/`orr` are the other side's. Coefficients are fit to the deterministic
+/// sweep; each is annotated with its structural meaning.
+fn side_bytes(
+    d: u32,
+    od: u32,
+    s: u32,
+    r: u32,
+    orr: u32,
+    version_len: f64,
+    is_initiator: bool,
+) -> f64 {
+    let d = d as f64;
+    // The side's Version rides its connect frame once and every provided leaf.
+    let version_total = version_len * (1.0 + d);
+
+    if is_initiator {
+        // Provides leaves shallow (cheap framing), then pays an `uncertain`-hash
+        // frontier cost over the divergent set `U = S + D_other + R_self`. The
+        // frontier term is super-linear: deeper rounds add whole hash levels.
+        const INIT_BASE: f64 = 36.4;
+        const INIT_PER_LEAF: f64 = 39.9;
+        const INIT_PER_VERSION: f64 = 1.106;
+        const INIT_FRONTIER: f64 = 0.649;
+        let u = (s + od + r) as f64;
+        INIT_BASE
+            + INIT_PER_LEAF * d
+            + INIT_PER_VERSION * version_total
+            + INIT_FRONTIER * u * (1.0 + u).log2()
+    } else {
+        // Provides leaves deep (pricier framing per leaf), and exchanges one
+        // 32-byte hash per shared element it descends past and per element the
+        // *other* side redacted (routed to `requested`).
+        const RESP_BASE: f64 = 68.4;
+        const RESP_PER_LEAF: f64 = 66.7;
+        const RESP_PER_VERSION: f64 = 0.969;
+        const RESP_PER_SHARED: f64 = 30.8;
+        const RESP_PER_OTHER_REDACT: f64 = 31.2;
+        RESP_BASE
+            + RESP_PER_LEAF * d
+            + RESP_PER_VERSION * version_total
+            + RESP_PER_SHARED * s as f64
+            + RESP_PER_OTHER_REDACT * orr as f64
+    }
+}
+
+/// One side's round count: 256-ary descent over a union of `n` leaves, with the
+/// initiator running one extra half-round-trip (its `Initiate`/`close` pair).
+fn side_rounds(n: f64, is_initiator: bool) -> f64 {
+    const ROUNDS_RESP_BASE: f64 = 2.356;
+    const ROUNDS_INIT_BONUS: f64 = 0.5;
+    const ROUNDS_PER_LEVEL: f64 = 1.357;
+    let base = ROUNDS_RESP_BASE + if is_initiator { ROUNDS_INIT_BONUS } else { 0.0 };
+    base + ROUNDS_PER_LEVEL * (n + 1.0).log(256.0)
 }
 
 #[derive(Copy, Clone, Debug)]

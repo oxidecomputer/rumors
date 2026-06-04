@@ -488,6 +488,26 @@ impl<T> Known<T> {
         self.tree.iter()
     }
 
+    /// This set's causal [`Version`]: the least upper bound of every message
+    /// and redaction it has observed.
+    ///
+    /// This is the timestamp a peer ships first when it [`gossip`](Self::gossip)s,
+    /// and the one the protocol compares to decide what each side is missing.
+    /// Two sets with equal versions have already converged.
+    pub fn version(&self) -> Version {
+        self.tree.version()
+    }
+
+    /// The observable root hash of this set: a 32-byte digest of its live
+    /// contents that ignores party identity and insertion order.
+    ///
+    /// Two sets with the same root hash hold the same live messages, so a
+    /// gossip session between them converges immediately. It is the first
+    /// thing the initiator puts on the wire (see [`gossip`](Self::gossip)).
+    pub fn hash(&self) -> [u8; 32] {
+        self.tree.hash()
+    }
+
     /// Force this set's tree to compute its lazy structural memos (observable
     /// hash and ceiling/floor version bounds), so a subsequent operation is
     /// timed against its own work. For benchmark and test calibration only.
