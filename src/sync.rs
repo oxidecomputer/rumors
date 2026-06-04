@@ -110,7 +110,7 @@ pub use ::borsh;
 /// alice.redact([keys[0]]);
 /// ```
 #[derive(Debug, Eq)]
-pub struct Known<T>(pub crate::Known<T>);
+pub struct Known<T>(pub(crate) crate::Known<T>);
 
 impl<T> PartialEq for Known<T> {
     fn eq(&self, other: &Self) -> bool {
