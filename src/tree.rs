@@ -309,6 +309,53 @@ impl<T> Tree<T> {
         )
         .await;
     }
+
+    /// Merge `other` into `self` by a single simultaneous recursion over both
+    /// trees, observing each side's gains.
+    ///
+    /// This is the in-memory counterpart to mirroring two local trees (see
+    /// [`traverse::mirror`]) and is observationally identical to it: it produces
+    /// the same merged tree and fires the same callbacks. `on_recv` fires once
+    /// per leaf `self` learns from `other`; `on_send` once per leaf `other`
+    /// would learn from `self`. Either may be [`None`] to skip its observations
+    /// (the version filtering still runs). Deletions are honored by version
+    /// dominance: a leaf one side lacks while its version is `<=` that side's
+    /// version vector was deleted there and is dropped.
+    pub async fn join<R, RFut, W, WFut>(
+        &mut self,
+        other: Tree<T>,
+        on_recv: Option<R>,
+        on_send: Option<W>,
+    ) where
+        T: Send + Sync,
+        R: FnMut(Key, &Version, &Arc<T>) -> RFut + Send,
+        RFut: Future<Output = ()> + Send,
+        W: FnMut(Key, &Version, &Arc<T>) -> WFut + Send,
+        WFut: Future<Output = ()> + Send,
+    {
+        let Root {
+            version: their_version,
+            root: their_root,
+        } = other.root;
+
+        // Take our root out so the recursion owns it uniquely (structural ops
+        // are then plain moves, never `Arc::make_mut` deep-clones); the merged
+        // root is written straight back below. Our version stays in place to be
+        // read as the deletion filter, then joined with theirs.
+        let our_root = std::mem::take(&mut self.root.root);
+        let merged = traverse::join(
+            our_root,
+            their_root,
+            &self.root.version,
+            &their_version,
+            on_recv,
+            on_send,
+        )
+        .await;
+
+        self.root.version |= their_version;
+        self.root.root = merged;
+    }
 }
 
 #[cfg(test)]

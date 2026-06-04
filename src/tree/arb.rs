@@ -114,6 +114,64 @@ pub fn arb_tree_root(
         .boxed()
 }
 
+/// Generate a pair of divergent trees that share causal history: a common base
+/// (inserts on party 0) is forked into two sides, each of which then makes its
+/// own concurrent inserts (parties 1 and 2) and redacts an arbitrary subset of
+/// the shared keys.
+///
+/// This exercises every cell a merge must handle: keys only one side has, keys
+/// both share (matched subtrees), and — crucially — keys one side has *deleted*
+/// while the other still holds them (which the merge must drop by version
+/// dominance, the entire deletion mechanism). With zero shared inserts the two
+/// sides are fully disjoint, so this one generator also covers that case.
+pub fn arb_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate::tree::Root<()>)> {
+    use crate::tree::{Action, Tree, ignore};
+
+    (
+        0usize..6,                // shared inserts (the common base)
+        0usize..5,                // a-only inserts
+        0usize..5,                // b-only inserts
+        vec(any::<bool>(), 0..6), // which shared keys side a redacts
+        vec(any::<bool>(), 0..6), // which shared keys side b redacts
+    )
+        .prop_map(|(n_shared, n_a, n_b, a_redact, b_redact)| {
+            let p_s = nth_party(0);
+            let p_a = nth_party(1);
+            let p_b = nth_party(2);
+
+            // Common base, capturing the shared keys so each side can redact them.
+            let mut base = Tree::new();
+            let mut shared_keys = Vec::new();
+            pollster::block_on(base.act(
+                &p_s,
+                (0..n_shared).map(|_| Action::Insert(Message::new(()))),
+                |k, _, _| {
+                    shared_keys.push(k);
+                    std::future::ready(())
+                },
+            ));
+
+            let side = |party: &Party, n: usize, redact: &[bool]| {
+                let mut t = base.clone();
+                pollster::block_on(t.act(
+                    party,
+                    (0..n).map(|_| Action::Insert(Message::new(()))),
+                    ignore,
+                ));
+                let forgets: Vec<_> = shared_keys
+                    .iter()
+                    .zip(redact)
+                    .filter_map(|(k, &r)| r.then_some(Action::Forget(*k)))
+                    .collect();
+                pollster::block_on(t.act(party, forgets, ignore));
+                t.root
+            };
+
+            (side(&p_a, n_a, &a_redact), side(&p_b, n_b, &b_redact))
+        })
+        .boxed()
+}
+
 #[cfg(test)]
 mod test {
     use super::nth_party;

@@ -157,6 +157,10 @@ where
     }
 }
 
+// Only the tests construct a both-silent local exchange now: production
+// `join`/`join_then` merge in-process via [`Tree::join`](crate::tree::Tree),
+// and `gossip` pairs a callback-carrying local side with a remote one.
+#[cfg(test)]
 impl<T> Exchange<Silent<T>, Silent<T>, Start, Top<T>>
 where
     T: Send + Sync,

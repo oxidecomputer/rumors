@@ -677,23 +677,19 @@ impl<T> Known<T> {
             });
         }
 
-        // Instantiate the two sides of the mirror exchange, both local. Move
-        // our root into the exchange rather than cloning it: a clone would
-        // leave every spine node's `Arc` shared between `self.tree.root` and
-        // the exchange, so each `into_children`/`beneath` during the descent
-        // would `Arc::make_mut`-deep-clone a `NodeInner`. Taking the root makes
-        // those nodes uniquely held, so the structural ops are plain moves. The
-        // merged root is written straight back below, so the take is transient
-        // and there is no early return between here and the write-back.
-        let l = mirror::local::Exchange::start(
-            std::mem::take(&mut self.tree.root),
-            None::<mirror::local::Silent<T>>,
-            on_message,
-        );
-        let r = mirror::local::Exchange::silent(other_tree.root);
-
-        // Drive them to completion: we know they don't need a "real" executor
-        Ok((self.tree.root, _)) = mirror(l, r).await;
+        // Merge the two trees directly, by a simultaneous recursion over both.
+        // This is observationally identical to mirroring two local trees (same
+        // merged tree, same `on_message` callbacks).
+        //
+        // This is more efficient than running the mirror protocol in-memory,
+        // but observationally equivalent up to message reordering.
+        self.tree
+            .join(
+                other_tree,
+                on_message,
+                None::<fn(Key, &Version, &Arc<T>) -> Ready<()>>,
+            )
+            .await;
 
         Ok(())
     }
