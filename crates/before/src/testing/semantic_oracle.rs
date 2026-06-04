@@ -147,6 +147,19 @@ pub(crate) fn join(a: Event, b: Event) -> Event {
     })
 }
 
+/// Event greatest-lower-bound `⟦e1⟧ ⊓ ⟦e2⟧`: pointwise min. The dual of
+/// [`join`]; the meet that the crate exposes as `Version::&`.
+pub(crate) fn meet(a: Event, b: Event) -> Event {
+    Rc::new(move |x| {
+        let (va, vb) = (a(x), b(x));
+        if va <= vb {
+            va
+        } else {
+            vb
+        }
+    })
+}
+
 // ───────────────────────────── cell indexing ─────────────────────────────
 
 /// The index, at resolution `level`, of the cell containing `x` — the top

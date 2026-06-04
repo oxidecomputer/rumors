@@ -12,7 +12,7 @@ use rand::SeedableRng;
 
 use super::{
     disjoint, ev_depth, ev_order, ev_res, event, id_depth, id_order, id_res, join, lift_ev,
-    lift_id, sum, Dyadic, Event, FunctionClock, Id, GRID_N,
+    lift_id, meet, sum, Dyadic, Event, FunctionClock, Id, GRID_N,
 };
 use crate::codec::Base;
 use crate::oracle;
@@ -185,6 +185,24 @@ proptest! {
     }
 }
 
+// ───────────────────────────── operation cross-checks ─────────────────────────────
+
+proptest! {
+    /// The tree oracle's `meet` (`&`) realizes the function-space pointwise
+    /// minimum: lifting `a & b` to the function space equals `meet(⟦a⟧, ⟦b⟧)`.
+    /// This is the explicit, shares-no-recursion proof that the tree recursion
+    /// computes the true GLB — the dual of the pointwise maximum that the
+    /// keystone replay exercises implicitly through `join`/`send`. Resolved at
+    /// the grid both lifted trees settle on.
+    #[test]
+    fn meet_realizes_pointwise_min(a in arb_oracle_version(), b in arb_oracle_version()) {
+        let g = grid_for(&[ev_depth(&a), ev_depth(&b)]);
+        let tree_meet = lift_ev(a.clone() & b.clone());
+        let fn_meet = meet(lift_ev(a), lift_ev(b));
+        prop_assert!(ev_eq(&tree_meet, &fn_meet, g));
+    }
+}
+
 // ───────────────────────────── law suite (the function-space model is a sound ITC) ─────────────────────────────
 
 proptest! {
@@ -219,6 +237,25 @@ proptest! {
         prop_assert!(
             matches!(ev_order(&fa, &ab, g), Some(Ordering::Less | Ordering::Equal)),
             "a is not <= a|b",
+        );
+    }
+
+    /// `meet` is the greatest lower bound: idempotent, commutative, associative, and a lower
+    /// bound (`a∧b ≤ a`). The order-theoretic dual of [`join_is_the_lub`], and the function-space
+    /// witness that the pointwise minimum is a sound GLB.
+    #[test]
+    fn meet_is_the_glb(a in arb_oracle_version(), b in arb_oracle_version(), c in arb_oracle_version()) {
+        let g = grid_for(&[ev_depth(&a), ev_depth(&b), ev_depth(&c)]);
+        let (fa, fb, fc) = (lift_ev(a), lift_ev(b), lift_ev(c));
+        prop_assert!(ev_eq(&meet(fa.clone(), fa.clone()), &fa, g));                            // idempotent
+        prop_assert!(ev_eq(&meet(fa.clone(), fb.clone()), &meet(fb.clone(), fa.clone()), g));  // commutative
+        let l = meet(meet(fa.clone(), fb.clone()), fc.clone());
+        let r = meet(fa.clone(), meet(fb.clone(), fc.clone()));
+        prop_assert!(ev_eq(&l, &r, g));                                                        // associative
+        let ab = meet(fa.clone(), fb.clone());
+        prop_assert!(
+            matches!(ev_order(&ab, &fa, g), Some(Ordering::Less | Ordering::Equal)),
+            "a&b is not <= a",
         );
     }
 
