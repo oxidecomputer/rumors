@@ -1,5 +1,7 @@
 /target
 
+# Claude Code per-session worktrees
+.claude/worktrees/
 
 # Added by cargo
 #
