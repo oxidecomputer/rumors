@@ -60,8 +60,6 @@
 
 use std::{convert::Infallible, future::Future, mem, sync::Arc};
 
-use std::collections::{BTreeMap, BTreeSet};
-
 use itertools::{EitherOrBoth, Itertools};
 
 use crate::{
@@ -70,7 +68,7 @@ use crate::{
         key::Key,
         traverse::{unknown, unknown::Unknown},
         typed::{
-            Hash, Levels, Node, Prefix,
+            Hash, Level, Levels, Node, Prefix,
             height::{Height, Root, S, Z},
             levels::{Below, Top},
         },
@@ -117,12 +115,12 @@ pub type Silent<T> = fn(Key, &Version, &Arc<T>) -> std::future::Ready<()>;
 fn expected_providing_parents<A, B>(
     requested: &[Prefix<A>],
     uncertain: &[(Prefix<B>, Hash)],
-) -> BTreeSet<Box<[u8]>>
+) -> std::collections::BTreeSet<Box<[u8]>>
 where
     A: Height,
     B: Height,
 {
-    let mut parents = BTreeSet::new();
+    let mut parents = std::collections::BTreeSet::default();
     // The root is always implicitly compared, so the counterparty may always
     // provide root's children (the first round's asymmetric-root drain, where
     // the initiator hands over root children an empty/divergent responder never
@@ -180,7 +178,7 @@ pub struct Exchange<OnSend, OnRecv, V, L> {
     /// Tracked only in debug builds, since it backs a `debug_assert!`: release
     /// builds carry no field and pay nothing to maintain it.
     #[cfg(debug_assertions)]
-    expected_parents: BTreeSet<Box<[u8]>>,
+    expected_parents: std::collections::BTreeSet<Box<[u8]>>,
 }
 
 impl<OnSend, OnRecv, T> Exchange<OnSend, OnRecv, Start, Top<T>>
@@ -196,7 +194,7 @@ where
             on_recv,
             on_send,
             #[cfg(debug_assertions)]
-            expected_parents: BTreeSet::new(),
+            expected_parents: Default::default(),
         }
     }
 }
@@ -576,16 +574,17 @@ where
     /// Left-case subtrees (we have them, the counterparty does not). The caller
     /// will combine these with `answer_requested`'s output to form the final
     /// outgoing `providing`.
-    providing: BTreeMap<Prefix<S<H>>, Node<T, S<H>>>,
+    providing: Level<T, S<H>>,
     /// Right-case prefixes (the counterparty has them, we do not): the outgoing
-    /// `requested`.
-    requested: BTreeSet<Prefix<S<H>>>,
+    /// `requested`. Built in strictly ascending order (see
+    /// [`Exchange::partition_uncertain`]).
+    requested: Vec<Prefix<S<H>>>,
     /// `Both`-case children whose hashes agreed, plus Left-case children we
     /// kept locally. Become the new level immediately above the bottom.
-    matched: BTreeMap<Prefix<S<H>>, Node<T, S<H>>>,
+    matched: Level<T, S<H>>,
     /// `Both`-case grandchildren of children whose hashes disagreed. Become the
     /// new bottom of the zipper, and next round's outgoing `uncertain`.
-    exploded: BTreeMap<Prefix<H>, Node<T, H>>,
+    exploded: Level<T, H>,
 }
 
 impl<OnSend, OnRecv, L> Exchange<OnSend, OnRecv, Connected, L>
@@ -627,25 +626,25 @@ where
         // Only walk a just-absorbed subtree to fire `on_recv` when there is an
         // `on_recv` to fire: with no callback the walk is pure waste (it does
         // nothing but invoke a no-op per leaf), and skipping it is the dominant
-        // saving for callback-less `learn`/`join`. The frontier insert is
-        // unconditional: later rounds re-explode from it regardless.
+        // saving for callback-less `learn`/`join`.
         if let Some(on_recv) = self.on_recv.as_mut() {
-            let frontier = self.levels.level_mut();
-            for (prefix, node) in providing {
-                // Fire `on_recv` for every leaf via a read-only walk, then move
-                // the subtree itself into the frontier: no clone, and the
-                // subtree's memoized hash/ceiling/floor survive intact.
-                for (key, version, message) in node.leaves(prefix) {
+            for (prefix, node) in &providing {
+                // Read-only walk: borrow each subtree to fire `on_recv` per
+                // leaf, leaving the node (and its memoized hash/ceiling/floor)
+                // intact to move into the frontier below.
+                for (key, version, message) in node.leaves(*prefix) {
                     on_recv(key, version, message.as_arc()).await;
                 }
-                frontier.insert(prefix, node);
-            }
-        } else {
-            let frontier = self.levels.level_mut();
-            for (prefix, node) in providing {
-                frontier.insert(prefix, node);
             }
         }
+
+        // Merge the provided subtrees into the frontier in a single pass. Both
+        // sides are sorted ascending by prefix — the wire frame is canonical,
+        // and the frontier maintains the `Level` invariant — so this is an
+        // O(n+m) merge rather than m separate O(n) binary-search inserts.
+        self.levels
+            .level_mut()
+            .extend(Level::from_sorted(providing));
     }
 
     /// Answer the counterparty's `requested` set by exploding each requested
@@ -655,7 +654,7 @@ where
     async fn answer_requested<H, OnSendFut>(
         &mut self,
         requested: Vec<Prefix<S<H>>>,
-    ) -> BTreeMap<Prefix<H>, Node<L::Message, H>>
+    ) -> Level<L::Message, H>
     where
         L: Levels<Height = S<H>>,
         OnSend: FnMut(Key, &Version, &Arc<L::Message>) -> OnSendFut,
@@ -663,14 +662,29 @@ where
         S<H>: Unknown,
         H: Height,
     {
-        let frontier = self.levels.level_mut();
-        let mut providing = BTreeMap::default();
-        for prefix in requested {
-            if let Some(node) = frontier.remove(&prefix) {
+        // Drain the frontier in one pass, co-iterating it against the ascending
+        // `requested` set (a subset of the frontier's prefixes). Requested
+        // nodes are exploded into the outgoing `providing`; their surviving
+        // selves and every un-requested node carry over into the rebuilt
+        // frontier. Both the frontier and `requested` are sorted, so this is
+        // O(n) rather than a binary-search `remove`/`insert` per requested
+        // prefix.
+        let mut providing = Level::default();
+        // Grow `kept` by `push` rather than pre-sizing to `frontier.len()`: these
+        // levels are allocated and freed every round, and `Vec`'s power-of-two
+        // growth recycles through the allocator's size classes across rounds far
+        // better than an exact, round-varying `with_capacity` (measured: the
+        // pre-sized variant regressed).
+        let mut kept = Level::default();
+        let mut requested = requested.into_iter().peekable();
+        for (prefix, node) in mem::take(self.levels.level_mut()) {
+            if requested.peek() == Some(&prefix) {
+                requested.next();
                 // Filter against the counterparty's version: anything causally
                 // prior to it that they lack, they have already deleted -- so
-                // we should too. The surviving subtree (if any) goes back into
-                // our frontier; its children are sent out as `providing`.
+                // we should too. The surviving subtree (if any) carries over
+                // into the rebuilt frontier; its children are sent out as
+                // `providing`.
                 let mut on_send = self.on_send.as_mut().map(unknown::from_arc);
                 if let Some(node) = Unknown::unknown(
                     Some(node),
@@ -680,19 +694,23 @@ where
                 )
                 .await
                 {
-                    frontier.insert(prefix, node.clone());
-                    for (radix, child) in node.into_children() {
-                        providing.insert(prefix.push(radix), child);
+                    for (radix, child) in node.clone().into_children() {
+                        providing.push(prefix.push(radix), child);
                     }
+                    kept.push(prefix, node);
                 }
             } else {
-                // The counterparty should only request prefixes we previously
-                // listed as `uncertain`; otherwise either the counterparty is
-                // misbehaving, or we are.
-                #[cfg(debug_assertions)]
-                panic!("counterparty requested unknown prefix {:?}", prefix);
+                kept.push(prefix, node);
             }
         }
+        // The counterparty should only request prefixes we previously listed as
+        // `uncertain`; a leftover means the request named a prefix we lack, so
+        // either the counterparty is misbehaving, or we are.
+        #[cfg(debug_assertions)]
+        if let Some(prefix) = requested.peek() {
+            panic!("counterparty requested unknown prefix {:?}", prefix);
+        }
+        *self.levels.level_mut() = kept;
         providing
     }
 
@@ -721,11 +739,20 @@ where
         S<H>: Height + Unknown,
         H: Height + Unknown,
     {
-        let frontier = self.levels.level_mut();
-        let mut providing = BTreeMap::default();
-        let mut requested = BTreeSet::default();
-        let mut matched = BTreeMap::default();
-        let mut exploded = BTreeMap::default();
+        let mut providing = Level::default();
+        // `requested` is appended in strictly ascending order: parents are
+        // visited in ascending order (`by_parent` chunks the sorted `uncertain`)
+        // and, within each, `merge_join_by` yields ascending radixes — so a
+        // `push` keeps it sorted with no per-entry search.
+        let mut requested = Vec::new();
+        let mut matched = Level::default();
+        let mut exploded = Level::default();
+
+        // The Root level holds a single (empty-prefix) entry, so the two
+        // "asymmetric root" cases below — a counterparty parent we lack, and a
+        // parent we hold that the counterparty never mentioned — are reachable
+        // only when the frontier sits at Root, i.e. the initiator's first round.
+        let at_root = <L::Height as Height>::HEIGHT == <Root as Height>::HEIGHT;
 
         // Group the uncertain prefixes by their parent, so we pull each parent
         // out of the frontier at most once. We collect into an owned `Vec`
@@ -742,8 +769,27 @@ where
             .into_iter()
             .map(|(parent_prefix, group)| (parent_prefix, group.collect()))
             .collect();
+
+        // Drain the frontier in one pass, co-iterating it (ascending) against
+        // the ascending `by_parent` groups. Both are sorted, so each parent is
+        // matched, kept, or requested in a single linear walk — no per-parent
+        // binary-search `remove`. Parents the counterparty did mention are
+        // consumed here; parents it never mentioned carry over into `kept` (the
+        // rebuilt frontier) unless we are at Root, where they drain below.
+        let mut frontier = mem::take(self.levels.level_mut()).into_iter().peekable();
+        let mut kept = Level::default();
         for (parent_prefix, uncertain_children) in by_parent {
-            if let Some(parent) = frontier.remove(&parent_prefix) {
+            // Frontier parents preceding this group are ones the counterparty
+            // never mentioned; below Root they are expected leftovers that stay
+            // put (turning them into Left cases would re-send data). At Root
+            // prefixes are all empty, so this never fires.
+            while frontier.peek().is_some_and(|(fp, _)| *fp < parent_prefix) {
+                let (fp, fnode) = frontier.next().unwrap();
+                kept.push(fp, fnode);
+            }
+
+            if frontier.peek().is_some_and(|(fp, _)| *fp == parent_prefix) {
+                let (_, parent) = frontier.next().unwrap();
                 // Merge-join our children against theirs by radix. Each cell of
                 // the asymmetry matrix from the module docs corresponds to
                 // exactly one arm below: `Left` is (we have, they lack), `Both`
@@ -770,8 +816,8 @@ where
                             )
                             .await
                             {
-                                providing.insert(child_prefix, ours.clone());
-                                matched.insert(child_prefix, ours);
+                                providing.push(child_prefix, ours.clone());
+                                matched.push(child_prefix, ours);
                             }
                         }
                         // We both have it: drop on hash match, otherwise
@@ -780,67 +826,64 @@ where
                         Both((child_radix, ours), (parent_prefix, _, theirs)) => {
                             let child_prefix = parent_prefix.push(child_radix);
                             if ours.hash() == theirs {
-                                matched.insert(child_prefix, ours);
+                                matched.push(child_prefix, ours);
                             } else {
                                 for (grandchild_radix, grandchild) in ours.into_children() {
                                     let grandchild_prefix = child_prefix.push(grandchild_radix);
-                                    exploded.insert(grandchild_prefix, grandchild);
+                                    exploded.push(grandchild_prefix, grandchild);
                                 }
                             }
                         }
                         // We lack it, they have it: request it.
                         Right((parent_prefix, hash_radix, _)) => {
-                            requested.insert(parent_prefix.push(hash_radix));
+                            requested.push(parent_prefix.push(hash_radix));
                         }
                     }
                 }
             } else {
-                debug_assert_eq!(
-                    <L::Height as Height>::HEIGHT,
-                    <Root as Height>::HEIGHT,
+                debug_assert!(
+                    at_root,
                     "counterparty indicated uncertainty about unknown parent \
                     prefix {:?} outside of the initiator's first round",
                     parent_prefix,
                 );
                 for (parent, hash_radix, _) in uncertain_children {
-                    requested.insert(parent.push(hash_radix));
+                    requested.push(parent.push(hash_radix));
                 }
             }
         }
 
-        // Symmetric counterpart of the `else` branch above: any parent still
-        // sitting in our frontier is one the counterparty never mentioned.
-        // From their omission we infer they lack it entirely, so every one of
-        // its children is a "Left" case (we have, they lack).
-        //
-        // Same reachability restriction as the `else` branch: only the
-        // initiator's first round can drive this. In steady-state both sides'
-        // frontiers were constructed from the previous round's Both-case
-        // matches, so the counterparty would always have mentioned every
-        // parent we hold. The Root-height guard is *load-bearing*, not just an
-        // assertion: at lower heights the same frontier entries are normal,
-        // expected leftovers (e.g., responder children we've just re-inserted
-        // via `answer_requested`), and turning them into Left cases would
-        // re-emit data we already sent.
-        if <L::Height as Height>::HEIGHT == <Root as Height>::HEIGHT {
-            for (parent_prefix, parent) in mem::take(frontier).into_iter() {
-                for (child_radix, ours) in parent.into_children() {
-                    let child_prefix = parent_prefix.push(child_radix);
-                    let mut on_send = self.on_send.as_mut().map(unknown::from_arc);
-                    if let Some(ours) = Unknown::unknown(
-                        Some(ours),
-                        child_prefix,
-                        &self.versions.their_version,
-                        &mut on_send,
-                    )
-                    .await
-                    {
-                        providing.insert(child_prefix, ours.clone());
-                        matched.insert(child_prefix, ours);
-                    }
+        // Frontier parents past the last mentioned group. Below Root they are
+        // expected leftovers and carry over unchanged. At Root, any parent we
+        // hold that the counterparty never mentioned is one we infer it lacks
+        // entirely, so every child is a "Left" case (we have, they lack); we
+        // drain it here. The Root guard is *load-bearing*, not just an
+        // assertion: below Root these leftovers are normal (e.g. responder
+        // children just carried through `answer_requested`), and turning them
+        // into Left cases would re-emit data we already sent.
+        for (parent_prefix, parent) in frontier {
+            if !at_root {
+                kept.push(parent_prefix, parent);
+                continue;
+            }
+            for (child_radix, ours) in parent.into_children() {
+                let child_prefix = parent_prefix.push(child_radix);
+                let mut on_send = self.on_send.as_mut().map(unknown::from_arc);
+                if let Some(ours) = Unknown::unknown(
+                    Some(ours),
+                    child_prefix,
+                    &self.versions.their_version,
+                    &mut on_send,
+                )
+                .await
+                {
+                    providing.push(child_prefix, ours.clone());
+                    matched.push(child_prefix, ours);
                 }
             }
         }
+
+        *self.levels.level_mut() = kept;
 
         Partition {
             providing,
@@ -911,7 +954,7 @@ where
             on_send: self.on_send,
             on_recv: self.on_recv,
             #[cfg(debug_assertions)]
-            expected_parents: BTreeSet::new(),
+            expected_parents: Default::default(),
         };
 
         // Compute the hashes of the level returned at the bottom of `next`;
@@ -924,12 +967,12 @@ where
             .map(|(prefix, node)| (*prefix, node.hash()))
             .collect();
 
-        // Collect the outgoing `providing` map into an ascending `(prefix,
-        // node)` `Vec` (the `BTreeMap` already iterates in prefix order), and
-        // the `requested` set likewise into an ascending `Vec`.
+        // Collect the outgoing `providing` level into an ascending `(prefix,
+        // node)` `Vec`; the `Level` already holds its entries in prefix order.
+        // `partition.requested` is likewise already ascending.
         let response = message::Exchange {
             providing: providing.into_iter().collect(),
-            requested: partition.requested.into_iter().collect(),
+            requested: partition.requested,
             uncertain,
         };
 

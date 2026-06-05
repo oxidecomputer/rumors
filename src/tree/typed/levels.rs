@@ -1,18 +1,22 @@
-use std::collections::BTreeMap;
+use std::mem;
 
 use itertools::Itertools;
 
 use crate::tree::typed::{
-    Node, Prefix,
+    Children, Node, Prefix,
     height::{Height, Pred, Root, S},
 };
+
+mod level;
+
+pub use level::Level;
 
 /// Create a new [`Levels`] from the root of a tree.
 pub fn levels<T>(root: Option<Node<T, Root>>) -> Top<T>
 where
 {
     Top {
-        root: BTreeMap::from_iter(root.map(|root| (Prefix::new(), root))),
+        root: Level::from_iter(root.map(|root| (Prefix::new(), root))),
     }
 }
 
@@ -37,19 +41,15 @@ pub trait Levels: Default + Clone + sealed::Sealed {
     fn collapse(self) -> Option<Node<Self::Message, Root>>;
 
     /// Get an immutable reference to the bottom-most level.
-    #[allow(clippy::type_complexity)]
-    fn level(&self) -> &BTreeMap<Prefix<Self::Height>, Node<Self::Message, Self::Height>>;
+    fn level(&self) -> &Level<Self::Message, Self::Height>;
 
     /// Get a mutable reference to the bottom-most level.
-    #[allow(clippy::type_complexity)]
-    fn level_mut(
-        &mut self,
-    ) -> &mut BTreeMap<Prefix<Self::Height>, Node<Self::Message, Self::Height>>;
+    fn level_mut(&mut self) -> &mut Level<Self::Message, Self::Height>;
 
     /// Tack a new level onto the bottom of this [`Levels`], decreasing its height by one.
     ///
     /// This can only be called on a [`Levels`] whose height is more than zero.
-    fn down<H>(self, below: BTreeMap<Prefix<H>, Node<Self::Message, H>>) -> Below<H, Self>
+    fn down<H>(self, below: Level<Self::Message, H>) -> Below<H, Self>
     where
         S<H>: Height,
         H: Height,
@@ -63,7 +63,7 @@ pub trait Levels: Default + Clone + sealed::Sealed {
 }
 
 pub struct Top<T> {
-    root: BTreeMap<Prefix<Root>, Node<T, Root>>,
+    root: Level<T, Root>,
 }
 
 impl<T> Clone for Top<T> {
@@ -93,11 +93,11 @@ where
         self.root.remove(&Prefix::new())
     }
 
-    fn level(&self) -> &BTreeMap<Prefix<Self::Height>, Node<T, Self::Height>> {
+    fn level(&self) -> &Level<T, Self::Height> {
         &self.root
     }
 
-    fn level_mut(&mut self) -> &mut BTreeMap<Prefix<Self::Height>, Node<T, Self::Height>> {
+    fn level_mut(&mut self) -> &mut Level<T, Self::Height> {
         &mut self.root
     }
 }
@@ -107,7 +107,7 @@ where
     A: Levels<Height = S<H>>,
     H: Height,
 {
-    here: BTreeMap<Prefix<H>, Node<A::Message, H>>,
+    here: Level<A::Message, H>,
     above: A,
 }
 
@@ -147,44 +147,61 @@ where
     type Height = <A::Height as Pred>::Pred;
 
     fn collapse(mut self) -> Option<Node<A::Message, Root>> {
-        let above = self.above.level_mut();
-
-        // Pop each child's prefix to get its radix and parent prefix. BTreeMap
+        // Pop each child's prefix to get its radix and parent prefix. `Level`
         // iteration is sorted, so siblings are adjacent.
         let siblings = self.here.into_iter().map(|(prefix, node)| {
             let (parent_prefix, radix) = prefix.pop();
             (parent_prefix, radix, node)
         });
 
-        // Group siblings so each parent is deconstructed and reconstructed
-        // exactly once.
+        // Rebuild the level above by merging its existing parents (sorted) with
+        // the parents reconstructed from this level's siblings (also sorted,
+        // grouped by `chunk_by`). Co-iterating the two sorted runs rebuilds each
+        // parent exactly once in a single linear pass, rather than a
+        // binary-search `remove` + `insert` per parent.
+        let mut existing = mem::take(self.above.level_mut()).into_iter().peekable();
+        let mut rebuilt = Level::default();
         for (parent_prefix, group) in &siblings.chunk_by(|(pp, _, _)| *pp) {
-            // Disassemble the existing parent (if any) into its children
-            let mut children = above
-                .remove(&parent_prefix)
-                .map(Node::into_children)
-                .unwrap_or_default();
+            // Carry over existing parents that precede this group untouched.
+            while existing.peek().is_some_and(|(ep, _)| *ep < parent_prefix) {
+                let (ep, enode) = existing.next().unwrap();
+                rebuilt.push(ep, enode);
+            }
 
-            // Merge all siblings in this group into the children map
+            // Start from the existing parent's children when it shares this
+            // prefix (deconstructing it once), otherwise from an empty set.
+            let mut children = if existing.peek().is_some_and(|(ep, _)| *ep == parent_prefix) {
+                existing.next().unwrap().1.into_children()
+            } else {
+                Children::default()
+            };
+
+            // Merge all siblings in this group into the children map.
             for (_, radix, node) in group {
                 children.insert(radix, node);
             }
 
-            // Reconstruct the parent and insert it into the level above
+            // Reconstruct the parent and append it to the rebuilt level.
             if let Some(parent) = Node::branch(children) {
-                above.insert(parent_prefix, parent);
+                rebuilt.push(parent_prefix, parent);
             }
         }
+
+        // Existing parents past the last group carry over untouched.
+        for (ep, enode) in existing {
+            rebuilt.push(ep, enode);
+        }
+        *self.above.level_mut() = rebuilt;
 
         // Collapse the level above, recursively
         self.above.collapse()
     }
 
-    fn level(&self) -> &BTreeMap<Prefix<Self::Height>, Node<A::Message, Self::Height>> {
+    fn level(&self) -> &Level<A::Message, Self::Height> {
         &self.here
     }
 
-    fn level_mut(&mut self) -> &mut BTreeMap<Prefix<Self::Height>, Node<A::Message, Self::Height>> {
+    fn level_mut(&mut self) -> &mut Level<A::Message, Self::Height> {
         &mut self.here
     }
 }

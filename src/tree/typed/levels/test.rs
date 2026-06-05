@@ -1,10 +1,9 @@
 use proptest::collection::vec;
 use proptest::prelude::*;
-use std::collections::BTreeMap;
 
 use crate::tree::arb::arb_root_node;
 use crate::tree::typed::height::{Height, Root, S, Z};
-use crate::tree::typed::{Node, Prefix};
+use crate::tree::typed::{Level, Node};
 
 use super::Levels;
 
@@ -52,16 +51,19 @@ where
     {
         let current = std::mem::take(levels.level_mut());
 
-        let mut stay = BTreeMap::new();
-        let mut below: BTreeMap<Prefix<H>, Node<L::Message, H>> = BTreeMap::new();
+        let mut stay = Level::default();
+        let mut below: Level<L::Message, H> = Level::default();
 
+        // `current` iterates in ascending prefix order, and each node's children
+        // ascend by radix, so both partitions are built strictly ascending —
+        // `push` keeps them sorted.
         for (prefix, node) in current {
             if decisions.next().unwrap_or(false) {
                 for (byte, child) in node.into_children() {
-                    below.insert(prefix.push(byte), child);
+                    below.push(prefix.push(byte), child);
                 }
             } else {
-                stay.insert(prefix, node);
+                stay.push(prefix, node);
             }
         }
 

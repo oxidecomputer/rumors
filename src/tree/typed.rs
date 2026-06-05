@@ -11,7 +11,7 @@ mod untyped;
 mod test;
 
 pub use hash::Hash;
-pub use levels::Levels;
+pub use levels::{Level, Levels};
 pub use node::{Children, Node};
 pub use path::Path;
 pub use prefix::Prefix;
