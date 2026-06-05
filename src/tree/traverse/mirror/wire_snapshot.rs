@@ -5,14 +5,14 @@
 //! re-accept a snapshot only after a deliberate format change.
 
 use borsh::BorshDeserialize;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use imbl::OrdMap;
 
 use super::message;
 use crate::tree::arb::nth_party;
 use crate::tree::typed::height::{Height, Root, S, Z};
-use crate::tree::typed::{Hash, Node, Prefix};
+use crate::tree::typed::{Hash, Node, Path, Prefix};
 use crate::{message::Message, version::Version};
 
 /// Map a single-letter party label to its disjoint-party index (see
@@ -60,6 +60,18 @@ fn prefix_from_bytes<H: Height>(bytes: &[u8]) -> Prefix<H> {
 
 fn leaf(party: &str, version: u64) -> Node<(), Z> {
     Node::leaf(ticked(party, version), Message::new(()))
+}
+
+/// A canonical `providing` leaf list: `(version, ())` pairs placed at their
+/// content-addressed paths, in strictly ascending path order.
+fn providing_leaves(versions: &[Version]) -> Vec<(Version, Message<()>)> {
+    let mut by_path: BTreeMap<[u8; 32], (Version, Message<()>)> = BTreeMap::new();
+    for version in versions {
+        let message = Message::new(());
+        let path: [u8; 32] = Path::<Root>::for_leaf(version, message.bytes()).into();
+        by_path.insert(path, (version.clone(), message));
+    }
+    by_path.into_values().collect()
 }
 
 // ---------- Hash ----------
@@ -218,8 +230,7 @@ fn message_initiate_empty() {
 
 #[test]
 fn message_initiate_one_entry() {
-    let mut uncertain = BTreeMap::new();
-    uncertain.insert(Prefix::<Root>::new(), Hash([1u8; 32]));
+    let uncertain = vec![(Prefix::<Root>::new(), Hash([1u8; 32]))];
     insta::assert_snapshot!(snap(&message::Initiate { uncertain }));
 }
 
@@ -230,11 +241,10 @@ fn message_opening_empty() {
 
 #[test]
 fn message_opening_one_entry() {
-    let mut uncertain = BTreeMap::new();
-    uncertain.insert(
+    let uncertain = vec![(
         prefix_from_bytes::<message::UnderRoot>(&[0x42]),
         Hash([2u8; 32]),
-    );
+    )];
     insta::assert_snapshot!(snap(&message::Opening { uncertain }));
 }
 
@@ -246,31 +256,14 @@ fn message_exchange_empty() {
 
 #[test]
 fn message_exchange_populated() {
-    let leaf_z: Node<(), Z> = leaf("a", 1);
-    let inner: Node<(), S<Z>> = Node::beneath(leaf_z, 0xab);
-    let mut other_children: OrdMap<u8, Node<(), S<Z>>> = OrdMap::new();
-    other_children.insert(0x01, inner.clone());
-    other_children.insert(0x02, inner.clone());
-    let s_s_z = Node::<(), S<S<Z>>>::branch(other_children).unwrap();
-    let n_root: Node<(), Root> = {
-        let n = s_s_z;
-        seq_macro::seq!(I in 0..30 {
-            let n = Node::beneath(n, I);
-        });
-        n
-    };
-
-    let mut providing: BTreeMap<Prefix<Root>, Node<(), Root>> = BTreeMap::new();
-    providing.insert(Prefix::<Root>::new(), n_root);
-
-    let mut requested: BTreeSet<Prefix<Root>> = BTreeSet::new();
-    requested.insert(Prefix::<Root>::new());
-
-    let mut uncertain: BTreeMap<Prefix<message::UnderRoot>, Hash> = BTreeMap::new();
-    uncertain.insert(
+    // `providing` is a leaf list (paths elided), plus an ascending `requested`
+    // and `uncertain`.
+    let providing = providing_leaves(&[ticked("a", 1), ticked("a", 2)]);
+    let requested = vec![Prefix::<Root>::new()];
+    let uncertain = vec![(
         prefix_from_bytes::<message::UnderRoot>(&[0xcc]),
         Hash([3u8; 32]),
-    );
+    )];
 
     let m: message::Exchange<(), message::UnderRoot> = message::Exchange {
         providing,
@@ -288,11 +281,8 @@ fn message_closing_empty() {
 
 #[test]
 fn message_closing_populated() {
-    let n_s_z: Node<(), S<Z>> = Node::beneath(leaf("a", 1), 0xab);
-    let mut providing: BTreeMap<Prefix<S<Z>>, Node<(), S<Z>>> = BTreeMap::new();
-    providing.insert(prefix_from_bytes::<S<Z>>(&[0u8; 31]), n_s_z);
-    let mut requested: BTreeSet<Prefix<S<Z>>> = BTreeSet::new();
-    requested.insert(prefix_from_bytes::<S<Z>>(&[0xffu8; 31]));
+    let providing = providing_leaves(&[ticked("a", 1)]);
+    let requested = vec![prefix_from_bytes::<S<Z>>(&[0xffu8; 31])];
     let m: message::Closing<()> = message::Closing {
         providing,
         requested,
@@ -308,8 +298,7 @@ fn message_complete_empty() {
 
 #[test]
 fn message_complete_populated() {
-    let mut providing: BTreeMap<Prefix<Z>, Node<(), Z>> = BTreeMap::new();
-    providing.insert(prefix_from_bytes::<Z>(&[0u8; 32]), leaf("a", 1));
+    let providing = providing_leaves(&[ticked("a", 1)]);
     let m: message::Complete<()> = message::Complete { providing };
     insta::assert_snapshot!(snap(&m));
 }

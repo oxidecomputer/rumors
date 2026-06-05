@@ -6,9 +6,8 @@ use std::marker::PhantomData;
 /// The inner marker is `PhantomData<fn() -> T>` rather than `T` (or
 /// `PhantomData<T>`) so the auto-trait check on `S<T>` does not descend
 /// into `T`. Without this, proving `S<S<…S<Z>…>>: Sync` recurses 32
-/// levels deep — far past the default `recursion_limit = 128` — every
-/// time a downstream crate asks an auto-trait question about a type
-/// that names `Root`. Function pointers are unconditionally
+/// levels deep every time a downstream crate asks an auto-trait question
+/// about a type that names `Root`. Function pointers are unconditionally
 /// `Send + Sync` regardless of their return type, so this marker
 /// short-circuits the recursion without unsafe `Send` / `Sync` impls.
 #[repr(C)]

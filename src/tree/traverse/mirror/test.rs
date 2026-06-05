@@ -178,26 +178,32 @@ proptest! {
     /// histories — inserts and forgets — through a single `act` call.
     #[test]
     fn equivalent_to_cross_react(
-        entries_a in vec((any::<[u8; 32]>(), any::<bool>()), 0..=8),
-        entries_b in vec((any::<[u8; 32]>(), any::<bool>()), 0..=8),
+        entries_a in vec(any::<bool>(), 0..=8),
+        entries_b in vec(any::<bool>(), 0..=8),
     ) {
         // Tick the party's disjoint clock once per action so every action
         // carries a strictly-increasing version on that party: inserts take
         // the first `len` ticks, forgets the ticks after them, mirroring the
         // old `(party, scalar)` numbering with distinct, ascending versions.
-        let make_actions = |party_index: usize, entries: &[([u8; 32], bool)]| -> Vec<_> {
+        // Each leaf goes to its content-addressed path (as a real insert does),
+        // and a forget targets the path of the insert it cancels — matching how
+        // `redact` reuses the key surfaced by the original insert.
+        let make_actions = |party_index: usize, forgets: &[bool]| -> Vec<_> {
             let p = nth_party(party_index);
             let mut version = Version::new();
-            let mut actions: Vec<_> = entries.iter().map(|(bytes, _)| {
-                let path = Path::from(*bytes);
+            let mut actions: Vec<(Path, Version, Action<()>)> = Vec::new();
+            let mut paths: Vec<Path> = Vec::new();
+            for _ in forgets {
                 version.tick(&p);
-                (path, version.clone(), Action::Insert(Message::new(())))
-            }).collect();
-            for (bytes, forget) in entries.iter() {
+                let message = Message::new(());
+                let path = Path::for_leaf(&version, message.bytes());
+                paths.push(path);
+                actions.push((path, version.clone(), Action::Insert(message)));
+            }
+            for (forget, path) in forgets.iter().zip(&paths) {
                 if *forget {
-                    let path = Path::from(*bytes);
                     version.tick(&p);
-                    actions.push((path, version.clone(), Action::Forget));
+                    actions.push((*path, version.clone(), Action::Forget));
                 }
             }
             actions

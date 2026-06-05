@@ -21,8 +21,7 @@ pub enum Action<T> {
 ///
 /// Type-erased via `Pin<Box<dyn Future>>` so the deep `S<S<…<Z>>>` chain
 /// produced by recursive `Act` trait dispatch doesn't leak into the
-/// layout queries of every public API that drives the tree — otherwise
-/// downstream crates would need to bump their `recursion_limit`.
+/// layout queries of every public API that drives the tree.
 pub async fn act<'a, T, F, Fut>(
     node: Option<Node<T, Root>>,
     actions: Vec<(Path, Version, Action<T>)>,
@@ -124,14 +123,12 @@ where
             }
 
             // Box-and-Send-erase the recursive future. The dyn coercion
-            // discharges the inner state machine's auto-trait check here,
-            // inside the lib's `#![recursion_limit = "256"]`. Without the
-            // coercion the source type is `Pin<Box<impl Future>>` and the outer
-            // poll's auto-trait walk descends into the inner state machine,
-            // recursing once per height and tripping downstream crates' default
-            // `recursion_limit = 128`. With the coercion the outer walk sees
-            // only `Pin<Box<dyn Future + Send>>`, which is trivially `Send`
-            // regardless of what's inside.
+            // discharges the inner state machine's auto-trait check here.
+            // Without the coercion the source type is `Pin<Box<impl Future>>`
+            // and the outer poll's auto-trait walk descends into the inner
+            // state machine, recursing once per height. With the coercion the
+            // outer walk sees only `Pin<Box<dyn Future + Send>>`, which is
+            // trivially `Send` regardless of what's inside.
             #[allow(clippy::type_complexity)]
             let recursed: Pin<
                 Box<dyn Future<Output = Option<Node<T, H>>> + Send + '_>,

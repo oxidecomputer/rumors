@@ -121,7 +121,7 @@ pub trait Join: Unknown {
     // As with [`Unknown`] / [`super::act::Act`]: declared `-> impl Future +
     // Send` (not `async fn`) so the recursive `Box::pin` at the `S<H>` step can
     // coerce to `Pin<Box<dyn Future + Send + '_>>`, keeping the auto-trait check
-    // shallow enough for downstream crates' default `recursion_limit`.
+    // shallow rather than walking the full `S<S<…>>` height chain.
     #[allow(clippy::too_many_arguments)]
     fn join<T, R, RFut, W, WFut>(
         a: Option<Node<T, Self>>,

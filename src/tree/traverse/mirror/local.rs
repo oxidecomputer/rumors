@@ -65,6 +65,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use itertools::{EitherOrBoth, Itertools};
 
 use crate::{
+    message::Message,
     tree::{
         self,
         key::Key,
@@ -80,6 +81,7 @@ use crate::{
 
 use super::message::{self, UnderRoot, UnderUnderRoot};
 use super::protocol;
+use super::reassemble::{BuildNode, flatten_providing, reassemble_providing};
 
 /// The version state for an [`Exchange`] which has just been initialized but
 /// has not yet connected.
@@ -419,7 +421,7 @@ where
     L: Levels<Message = T, Height = S<S<H>>>,
     S<S<H>>: Height,
     S<H>: Height,
-    H: Height + Unknown,
+    H: Height + Unknown + BuildNode,
     // Assumed at impl-validation time so we don't have to case-analyze `H`
     // here: at use sites `H` is concrete and one of the three blanket impls
     // discharges it.
@@ -472,7 +474,9 @@ where
         self.absorb_providing(request.providing).await;
         let providing = self.answer_requested(request.requested).await;
         Ok(protocol::Step::Done {
-            msg: message::Complete { providing },
+            msg: message::Complete {
+                providing: flatten_providing(providing),
+            },
             output: tree::Root {
                 ceiling: self.versions.our_version | self.versions.their_version,
                 root: self.levels.collapse(),
@@ -537,19 +541,26 @@ where
     OnSend: Send,
     OnRecv: Send,
 {
-    /// Insert nodes the counterparty has just sent us (because we requested
+    /// Insert leaves the counterparty has just sent us (because we requested
     /// them last round, or because they unilaterally knew we lacked them) into
     /// our zipper's bottom level.
+    ///
+    /// The wire carries only the leaves; we re-materialize the subtrees at this
+    /// height by recomputing each leaf's content-addressed path
+    /// ([`reassemble_providing`]), so a leaf can only land where its content
+    /// hashes to.
     async fn absorb_providing<H, OnRecvFut>(
         &mut self,
-        providing: BTreeMap<Prefix<H>, Node<L::Message, H>>,
+        providing: Vec<(Version, Message<L::Message>)>,
     ) where
         L::Message: Send + Sync,
         OnRecv: FnMut(Key, &Version, &Arc<L::Message>) -> OnRecvFut + Send,
         OnRecvFut: Future<Output = ()> + Send,
         L: Levels<Height = H>,
-        H: Height,
+        H: BuildNode,
     {
+        let providing = reassemble_providing::<L::Message, H>(providing);
+
         // Only walk a just-absorbed subtree to fire `on_recv` when there is an
         // `on_recv` to fire: with no callback the walk is pure waste (it does
         // nothing but invoke a no-op per leaf), and skipping it is the dominant
@@ -580,7 +591,7 @@ where
     /// outgoing `providing` map, one height below the frontier.
     async fn answer_requested<H, OnSendFut>(
         &mut self,
-        requested: BTreeSet<Prefix<S<H>>>,
+        requested: Vec<Prefix<S<H>>>,
     ) -> BTreeMap<Prefix<H>, Node<L::Message, H>>
     where
         L: Levels<Height = S<H>>,
@@ -637,7 +648,7 @@ where
     /// steady-state caller silently triggering either branch.
     async fn partition_uncertain<H, OnSendFut>(
         &mut self,
-        uncertain: BTreeMap<Prefix<S<H>>, Hash>,
+        uncertain: Vec<(Prefix<S<H>>, Hash)>,
     ) -> Partition<L::Message, H>
     where
         OnSend: FnMut(Key, &Version, &Arc<L::Message>) -> OnSendFut,
@@ -805,7 +816,7 @@ where
         L: Levels<Height = S<S<H>>>,
         S<S<H>>: Height,
         S<H>: Height,
-        H: Height + Unknown,
+        H: Height + Unknown + BuildNode,
     {
         let message::Exchange {
             providing,
@@ -838,17 +849,20 @@ where
         };
 
         // Compute the hashes of the level returned at the bottom of `next`;
-        // these are the children we are uncertain about now.
-        let uncertain: BTreeMap<_, _> = next
+        // these are the children we are uncertain about now. Iterating the
+        // sorted level yields ascending prefixes, so the `Vec` is canonical.
+        let uncertain: Vec<_> = next
             .levels
             .level()
             .iter()
             .map(|(prefix, node)| (*prefix, node.hash()))
             .collect();
 
+        // Flatten the outgoing `providing` map to its leaves (in ascending path
+        // order) and the `requested` set to an ascending `Vec`.
         let response = message::Exchange {
-            providing,
-            requested: partition.requested,
+            providing: flatten_providing(providing),
+            requested: partition.requested.into_iter().collect(),
             uncertain,
         };
 

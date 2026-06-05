@@ -26,9 +26,8 @@ pub type Children<T, H> = OrdMap<u8, Node<T, H>>;
 /// `S<S<S<...S<Z>...>>>` peano-style height chain. Without this, the
 /// `SharedPointer<...>: Send` obligation imposed by `imbl` (which
 /// requires its contents to be `Sync`) recursively walks 32 levels of
-/// `S<…>: Sync` and trips `recursion_limit = 128` in downstream crates,
-/// even though the type variable `H` itself is purely phantom and never
-/// constructs anything that could fail to be `Send`/`Sync`.
+/// `S<…>: Sync`, even though the type variable `H` itself is purely phantom
+/// and never constructs anything that could fail to be `Send`/`Sync`.
 #[repr(transparent)]
 pub struct Node<T, H: Height> {
     height: PhantomData<fn() -> H>,

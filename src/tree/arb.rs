@@ -60,18 +60,23 @@ pub fn arb_root_node(
     party: usize,
     leaves: impl Into<proptest::collection::SizeRange>,
 ) -> BoxedStrategy<Option<Node<(), Root>>> {
-    vec(any::<[u8; 32]>(), leaves)
-        .prop_map(move |paths| {
+    vec(any::<()>(), leaves)
+        .prop_map(move |draws| {
             // Tick this tree's party once per leaf, so the leaves carry a
-            // strictly-increasing chain of versions on a single party.
+            // strictly-increasing chain of versions on a single party. Each
+            // leaf is placed at its content-addressed path, exactly as a real
+            // insert does (see [`Path::for_leaf`] and `Tree::act`): a tree with
+            // a leaf anywhere else can never arise in production, so gossiping
+            // one would test an impossible state.
             let p = nth_party(party);
             let mut version = Version::new();
-            let actions: Vec<_> = paths
+            let actions: Vec<_> = draws
                 .into_iter()
-                .map(|bytes| {
-                    let path = Path::from(bytes);
+                .map(|()| {
                     version.tick(&p);
-                    (path, version.clone(), Action::Insert(Message::new(())))
+                    let message = Message::new(());
+                    let path = Path::for_leaf(&version, message.bytes());
+                    (path, version.clone(), Action::Insert(message))
                 })
                 .collect();
             pollster::block_on(act(None, actions, crate::tree::ignore))

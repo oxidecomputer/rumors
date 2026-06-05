@@ -9,6 +9,7 @@ pub mod protocol;
 pub mod remote;
 
 mod message;
+mod reassemble;
 
 #[cfg(test)]
 mod message_test;
@@ -149,8 +150,7 @@ where
     C: Client<T> + 'a,
     S: Server<T> + 'a,
 {
-    // Box the future so that callers don't need to handle its big future type
-    // (this prevents callers from needing to bump the recursion limit).
+    // Box the future so that callers don't need to handle its big future type.
     Box::pin(async move {
         // Connect the client by getting its version
         x! { let x = c.connect() };
