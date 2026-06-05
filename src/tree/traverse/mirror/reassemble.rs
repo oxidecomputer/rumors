@@ -1,16 +1,20 @@
 //! Wire⇄node conversion for the `providing` channel, and order-enforcement
 //! for every channel.
 //!
-//! On the wire, `providing` is a flat `Vec<(Version, Message<T>)>` in ascending
-//! path order: just the leaves of the subtrees being provided, with every
-//! prefix and structural byte elided. This module turns that list back into the
-//! `BTreeMap<Prefix<H>, Node<T, H>>` the protocol consumes
+//! On the wire, `providing` is a flat `Vec<(Key, Version, Message<T>)>` in
+//! ascending key order: just the leaves of the subtrees being provided, with
+//! every prefix and structural byte elided. This module turns that list back
+//! into the `BTreeMap<Prefix<H>, Node<T, H>>` the protocol consumes
 //! ([`reassemble_providing`]) and, on the send side, flattens such a map into
 //! the wire list ([`flatten_providing`]).
 //!
-//! Re-materialization is a *verification*, not a trust: each leaf's position is
-//! recomputed from its own `(version, value)` via [`Path::for_leaf`], so a peer
-//! cannot place a leaf anywhere its content does not hash to. Because the
+//! Each leaf carries its [`Key`], which *is* its content-addressed path
+//! `blake3(blake3(version) ‖ blake3(value))` ([`Path::for_leaf`]). The provider
+//! already holds that hash, so it ships it and the receiver places the leaf
+//! directly — no re-hash of the `(version, value)`, which is otherwise the
+//! dominant cost of reassembly (up to ~4×). Release builds trust the
+//! transmitted key; debug builds recompute the path and `debug_assert!` it
+//! matches, catching a misbehaving peer or our own protocol drift. Because the
 //! canonical compressed trie is uniquely determined by its leaf set
 //! ([`Node::branch`]/[`Node::beneath`] enforce one shape), the rebuilt nodes are
 //! structurally and hash-identical to the originals.
@@ -25,6 +29,7 @@ use std::collections::BTreeMap;
 use borsh::BorshDeserialize;
 use itertools::Itertools;
 
+use crate::tree::key::Key;
 use crate::tree::typed::height::{Height, Root, S, Z};
 use crate::tree::typed::{Children, Node, Path, Prefix};
 use crate::{message::Message, version::Version};
@@ -84,16 +89,28 @@ where
 }
 
 /// Re-materialize a flat wire leaf list into the `providing` map at height `H`,
-/// recomputing every leaf's content-addressed path so its placement is verified
-/// rather than trusted. Inverse of [`flatten_providing`].
+/// placing each leaf at the path named by its transmitted [`Key`]. The key *is*
+/// the leaf's content-addressed path, so release builds trust it directly and
+/// skip the [`Path::for_leaf`] re-hash; debug builds recompute the path and
+/// `debug_assert!` it matches the key, catching a misbehaving peer or protocol
+/// drift. Inverse of [`flatten_providing`].
 pub(crate) fn reassemble_providing<T, H: BuildNode>(
-    leaves: Vec<(Version, Message<T>)>,
+    leaves: Vec<(Key, Version, Message<T>)>,
 ) -> BTreeMap<Prefix<H>, Node<T, H>> {
     let prefix_len = 32 - H::HEIGHT;
     #[allow(clippy::type_complexity)]
     let mut groups: BTreeMap<Prefix<H>, Vec<(Path<H>, Version, Message<T>)>> = BTreeMap::new();
-    for (version, message) in leaves {
-        let full: [u8; 32] = Path::<Root>::for_leaf(&version, message.bytes()).into();
+    for (key, version, message) in leaves {
+        let full: [u8; 32] = key.0;
+        // The provider already holds the leaf's hash; we trust the transmitted
+        // key rather than re-deriving it. In debug builds we still recompute and
+        // assert, so a key that does not match its content is caught in test and
+        // dev runs (release skips it for the performance win).
+        debug_assert_eq!(
+            full,
+            <[u8; 32]>::from(Path::<Root>::for_leaf(&version, message.bytes())),
+            "provided leaf key does not match its content-addressed path",
+        );
         // The node sits at `Prefix<H>` (the leading `32 - H::HEIGHT` bytes); the
         // remaining bytes are descended inside `H::build`.
         let prefix = Prefix::<H>::try_from_slice(&full[..prefix_len])
@@ -109,16 +126,18 @@ pub(crate) fn reassemble_providing<T, H: BuildNode>(
         .collect()
 }
 
-/// Flatten a `providing` map into the wire leaf list, in ascending path order
-/// (disjoint sorted prefixes, each node's leaves ascending). Inverse of
-/// [`reassemble_providing`]; the result satisfies [`verify_providing_canonical`].
+/// Flatten a `providing` map into the wire leaf list, in ascending key order
+/// (disjoint sorted prefixes, each node's leaves ascending). Each leaf's [`Key`]
+/// — already memoized as its content-addressed path — travels with it so the
+/// receiver need not recompute. Inverse of [`reassemble_providing`]; the result
+/// satisfies [`verify_providing_canonical`].
 pub(crate) fn flatten_providing<T, H: Height>(
     map: BTreeMap<Prefix<H>, Node<T, H>>,
-) -> Vec<(Version, Message<T>)> {
+) -> Vec<(Key, Version, Message<T>)> {
     let mut leaves = Vec::new();
     for (prefix, node) in map {
-        for (_key, version, message) in node.leaves(prefix) {
-            leaves.push((version.clone(), message.clone()));
+        for (key, version, message) in node.leaves(prefix) {
+            leaves.push((key, version.clone(), message.clone()));
         }
     }
     leaves
@@ -134,18 +153,17 @@ fn not_canonical(what: &'static str) -> borsh::io::Error {
     )
 }
 
-/// Require a `providing` leaf list to be in strictly ascending recomputed-path
-/// order (which also rejects duplicate paths).
+/// Require a `providing` leaf list to be in strictly ascending transmitted-key
+/// order (which also rejects duplicate keys). The key is the leaf's
+/// content-addressed path, so this is the same ordering the receiver places by;
+/// it costs only key comparisons, not a per-leaf re-hash. (Whether each key
+/// *matches* its content is a separate, debug-only check in
+/// [`reassemble_providing`].)
 pub(crate) fn verify_providing_canonical<T>(
-    leaves: &[(Version, Message<T>)],
+    leaves: &[(Key, Version, Message<T>)],
 ) -> borsh::io::Result<()> {
-    let mut prev: Option<[u8; 32]> = None;
-    for (version, message) in leaves {
-        let path: [u8; 32] = Path::<Root>::for_leaf(version, message.bytes()).into();
-        if prev.is_some_and(|p| path <= p) {
-            return Err(not_canonical("providing leaves"));
-        }
-        prev = Some(path);
+    if leaves.windows(2).any(|w| w[0].0 >= w[1].0) {
+        return Err(not_canonical("providing leaves"));
     }
     Ok(())
 }

@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 
 use super::message;
 use crate::tree::arb::nth_party;
+use crate::tree::key::Key;
 use crate::tree::typed::height::{Height, Root, S, Z};
 use crate::tree::typed::{Hash, Path, Prefix};
 use crate::{message::Message, version::Version};
@@ -56,14 +57,22 @@ fn prefix_from_bytes<H: Height>(bytes: &[u8]) -> Prefix<H> {
     Prefix::<H>::try_from_slice(bytes).expect("known-valid prefix bytes")
 }
 
-/// A canonical `providing` leaf list: `(version, ())` pairs placed at their
-/// content-addressed paths, in strictly ascending path order.
-fn providing_leaves(versions: &[Version]) -> Vec<(Version, Message<()>)> {
-    let mut by_path: BTreeMap<[u8; 32], (Version, Message<()>)> = BTreeMap::new();
+/// A canonical `providing` leaf list: `(key, version, ())` triples placed at
+/// their content-addressed paths, in strictly ascending key order. The key is
+/// the leaf's path, transmitted so the receiver need not re-hash.
+fn providing_leaves(versions: &[Version]) -> Vec<(Key, Version, Message<()>)> {
+    let mut by_path: BTreeMap<[u8; 32], (Key, Version, Message<()>)> = BTreeMap::new();
     for version in versions {
         let message = Message::new(());
         let path: [u8; 32] = Path::<Root>::for_leaf(version, message.bytes()).into();
-        by_path.insert(path, (version.clone(), message));
+        by_path.insert(
+            path,
+            (
+                Key::from(Path::<Root>::from(path)),
+                version.clone(),
+                message,
+            ),
+        );
     }
     by_path.into_values().collect()
 }

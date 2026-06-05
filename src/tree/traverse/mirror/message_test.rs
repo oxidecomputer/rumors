@@ -2,10 +2,11 @@
 //! `providing` reassemble⇄flatten round-trip and the canonical-order rejection
 //! each channel enforces on deserialize.
 //!
-//! The `providing` channel carries only leaves on the wire and re-derives each
-//! leaf's position from its `(version, value)`, so its tests build leaves at
-//! their true content-addressed paths (via [`Path::for_leaf`]) rather than at
-//! arbitrary prefixes. The `uncertain` / `requested` channels still carry
+//! The `providing` channel carries only leaves on the wire, each tagged with
+//! its [`Key`] (its content-addressed path), so its tests build leaves at their
+//! true paths (via [`Path::for_leaf`]) rather than at arbitrary prefixes — a key
+//! that did not match its content would trip the debug-only assert in
+//! [`reassemble_providing`]. The `uncertain` / `requested` channels still carry
 //! arbitrary prefixes, fed pre-sorted to satisfy the canonical-order check.
 //! The exact on-wire bytes are pinned by `mirror::wire_snapshot`.
 
@@ -17,6 +18,7 @@ use proptest::prelude::*;
 
 use crate::message::Message;
 use crate::tree::arb::{arb_version, nth_party};
+use crate::tree::key::Key;
 use crate::tree::typed::height::{Height, Root, S, Z};
 use crate::tree::typed::{Hash, Path, Prefix};
 use crate::version::Version;
@@ -40,15 +42,18 @@ fn arb_hash() -> BoxedStrategy<Hash> {
     any::<[u8; 32]>().prop_map(Hash).boxed()
 }
 
-/// A `providing` leaf list in canonical wire form: each leaf placed at its true
-/// content-addressed path, deduplicated, in strictly ascending path order. The
-/// value is `()` so the path is determined by the version alone.
-fn canonical_leaves(versions: Vec<Version>) -> Vec<(Version, Message<()>)> {
-    let mut by_path: BTreeMap<[u8; 32], (Version, Message<()>)> = BTreeMap::new();
+/// A `providing` leaf list in canonical wire form: each leaf tagged with its
+/// true content-addressed-path [`Key`], deduplicated, in strictly ascending key
+/// order. The value is `()` so the path is determined by the version alone.
+fn canonical_leaves(versions: Vec<Version>) -> Vec<(Key, Version, Message<()>)> {
+    let mut by_path: BTreeMap<[u8; 32], (Key, Version, Message<()>)> = BTreeMap::new();
     for version in versions {
         let message = Message::new(());
         let path: [u8; 32] = Path::<Root>::for_leaf(&version, message.bytes()).into();
-        by_path.insert(path, (version, message));
+        by_path.insert(
+            path,
+            (Key::from(Path::<Root>::from(path)), version, message),
+        );
     }
     by_path.into_values().collect()
 }
@@ -171,9 +176,10 @@ proptest! {
     }
 
     /// Reassembling a leaf list into the `providing` map at a given height and
-    /// flattening it back is the identity: placement is content-derived, so the
-    /// rebuilt subtrees yield exactly the original leaves in the original order.
-    /// Exercised across heights from leaf (`Z`) up near the root.
+    /// flattening it back is the identity: placement is by the transmitted key
+    /// (the leaf's content-addressed path), so the rebuilt subtrees yield exactly
+    /// the original leaves — keys included — in the original order. Exercised
+    /// across heights from leaf (`Z`) up near the root.
     #[test]
     fn reassemble_flatten_identity(versions in vec(arb_version(), 0..=6)) {
         let leaves = canonical_leaves(versions);
@@ -204,19 +210,36 @@ fn one_version() -> Version {
     v
 }
 
-/// A `providing` frame with two identical leaves (hence identical recomputed
-/// paths) is rejected: the canonical encoding admits no duplicates.
+/// A `providing` frame with two identical leaves (hence identical transmitted
+/// keys) is rejected: the canonical encoding admits no duplicate keys.
 #[test]
 fn providing_rejects_duplicate_paths() {
     let version = one_version();
+    let message = Message::new(());
+    let key = Key::from(Path::<Root>::for_leaf(&version, message.bytes()));
     let m = message::Complete::<()> {
         providing: vec![
-            (version.clone(), Message::new(())),
-            (version, Message::new(())),
+            (key, version.clone(), message.clone()),
+            (key, version, message),
         ],
     };
     let bytes = borsh::to_vec(&m).unwrap();
     assert!(message::Complete::<()>::try_from_slice(&bytes).is_err());
+}
+
+/// In debug builds, [`reassemble_providing`] recomputes each leaf's path and
+/// asserts it matches the transmitted key, so a key that does not match its
+/// content trips the assert. (Release builds trust the key and skip the check
+/// for the performance win, which is why this test is debug-only.)
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "does not match its content-addressed path")]
+fn reassemble_rejects_mismatched_key_in_debug() {
+    let version = one_version();
+    let message = Message::new(());
+    // A key that is deliberately *not* this leaf's content-addressed path.
+    let wrong_key = Key::from(Path::<Root>::from([0xab; 32]));
+    let _ = reassemble_providing::<(), Z>(vec![(wrong_key, version, message)]);
 }
 
 /// A `requested` frame whose prefixes descend is rejected.

@@ -601,13 +601,14 @@ where
     /// them last round, or because they unilaterally knew we lacked them) into
     /// our zipper's bottom level.
     ///
-    /// The wire carries only the leaves; we re-materialize the subtrees at this
-    /// height by recomputing each leaf's content-addressed path
-    /// ([`reassemble_providing`]), so a leaf can only land where its content
-    /// hashes to.
+    /// The wire carries only the leaves, each tagged with its [`Key`] (its
+    /// content-addressed path); we re-materialize the subtrees at this height by
+    /// placing each leaf at the path its key names ([`reassemble_providing`]).
+    /// Release builds trust the key; debug builds recompute and assert it
+    /// matches, so a leaf can only land where its content hashes to.
     async fn absorb_providing<H, OnRecvFut>(
         &mut self,
-        providing: Vec<(Version, Message<L::Message>)>,
+        providing: Vec<(Key, Version, Message<L::Message>)>,
     ) where
         L::Message: Send + Sync,
         OnRecv: FnMut(Key, &Version, &Arc<L::Message>) -> OnRecvFut + Send,

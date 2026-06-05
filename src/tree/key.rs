@@ -1,8 +1,15 @@
 use std::fmt::Debug;
 
+use borsh::{BorshDeserialize, BorshSerialize};
+
 use super::typed;
 
-#[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
+/// The borsh encoding is 32 raw bytes (no length prefix), matching
+/// [`typed::Hash`](super::typed::Hash): a key *is* a leaf's content-addressed
+/// path, and the mirror protocol's `providing` channel ships it alongside the
+/// `(version, value)` so the receiver can place the leaf without re-hashing
+/// (see [`super::traverse::mirror::reassemble`]).
+#[derive(BorshSerialize, BorshDeserialize, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[repr(transparent)]
 pub struct Key(pub(crate) [u8; 32]);
 

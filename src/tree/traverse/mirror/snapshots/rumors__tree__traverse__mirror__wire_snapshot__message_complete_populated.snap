@@ -2,4 +2,6 @@
 source: src/tree/traverse/mirror/wire_snapshot.rs
 expression: snap(&m)
 ---
-0000: 01 00 00 00 01 00 00 00 d2
+0000: 01 00 00 00 20 0a 74 07 ec 50 1d ba e7 08 36 65
+0010: e4 43 b6 e1 c9 25 18 cc 7c fb fe 35 6c d2 d4 01
+0020: 4e e4 3b 4d 01 00 00 00 d2
