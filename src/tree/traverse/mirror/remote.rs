@@ -70,10 +70,7 @@ use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use crate::tree::typed::{
-    Node,
-    height::{Height, Root, S, Z},
-};
+use crate::tree::typed::height::{Height, Root, S, Z};
 use crate::version::Version;
 
 use super::message::{self, UnderRoot, UnderUnderRoot};
@@ -309,7 +306,6 @@ where
     T: BorshDeserialize + Send + Sync,
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
-    Node<T, UnderRoot>: BorshDeserialize,
 {
     type Next = Exchange<T, R, W, Connected, Root>;
 
@@ -331,7 +327,6 @@ where
     T: BorshDeserialize + Send + Sync,
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
-    Node<T, UnderRoot>: BorshDeserialize,
 {
     type Next = Exchange<T, R, W, Connected, UnderRoot>;
 
@@ -359,7 +354,6 @@ where
     T: BorshDeserialize + Send + Sync,
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
-    Node<T, UnderRoot>: BorshDeserialize,
 {
     type Next = Exchange<T, R, W, Connected, UnderUnderRoot>;
 
@@ -396,7 +390,6 @@ where
     H: Height,
     S<H>: Height,
     S<S<H>>: Height,
-    Node<T, S<H>>: BorshDeserialize,
     // Assumed at impl-validation time so we don't have to case-analyze `H`
     // here: at use sites `H` is concrete and one of the three blanket impls
     // in `super::protocol` discharges it.

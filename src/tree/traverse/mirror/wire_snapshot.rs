@@ -7,12 +7,10 @@
 use borsh::BorshDeserialize;
 use std::collections::BTreeMap;
 
-use imbl::OrdMap;
-
 use super::message;
 use crate::tree::arb::nth_party;
 use crate::tree::typed::height::{Height, Root, S, Z};
-use crate::tree::typed::{Hash, Node, Path, Prefix};
+use crate::tree::typed::{Hash, Path, Prefix};
 use crate::{message::Message, version::Version};
 
 /// Map a single-letter party label to its disjoint-party index (see
@@ -56,10 +54,6 @@ fn snap<T: borsh::BorshSerialize>(value: &T) -> String {
 fn prefix_from_bytes<H: Height>(bytes: &[u8]) -> Prefix<H> {
     assert_eq!(bytes.len(), 32 - H::HEIGHT);
     Prefix::<H>::try_from_slice(bytes).expect("known-valid prefix bytes")
-}
-
-fn leaf(party: &str, version: u64) -> Node<(), Z> {
-    Node::leaf(ticked(party, version), Message::new(()))
 }
 
 /// A canonical `providing` leaf list: `(version, ())` pairs placed at their
@@ -121,91 +115,6 @@ fn prefix_s_z_max_byte() {
 fn prefix_z_full_32_bytes() {
     let bytes: [u8; 32] = std::array::from_fn(|i| i as u8);
     insta::assert_snapshot!(snap(&prefix_from_bytes::<Z>(&bytes)));
-}
-
-// ---------- Node<T, Z>: leaf ----------
-
-#[test]
-fn node_z_leaf() {
-    insta::assert_snapshot!(snap(&leaf("a", 1)));
-}
-
-#[test]
-fn node_z_leaf_empty_version() {
-    let l: Node<(), Z> = Node::leaf(Version::default(), Message::new(()));
-    insta::assert_snapshot!(snap(&l));
-}
-
-// ---------- Node<T, S<Z>> ----------
-
-#[test]
-fn node_s_z_singleton_path_compressed_leaf() {
-    let n: Node<(), S<Z>> = Node::beneath(leaf("a", 1), 0xab);
-    insta::assert_snapshot!(snap(&n));
-}
-
-#[test]
-fn node_s_z_two_child_branch() {
-    let mut children: OrdMap<u8, Node<(), Z>> = OrdMap::new();
-    children.insert(0x00, leaf("a", 1));
-    children.insert(0xff, leaf("a", 2));
-    let n = Node::<(), S<Z>>::branch(children).unwrap();
-    insta::assert_snapshot!(snap(&n));
-}
-
-#[test]
-fn node_s_z_full_256_child_branch() {
-    let mut children: OrdMap<u8, Node<(), Z>> = OrdMap::new();
-    for i in 0u16..=255 {
-        children.insert(i as u8, leaf("a", i as u64 + 1));
-    }
-    let n = Node::<(), S<Z>>::branch(children).unwrap();
-    insta::assert_snapshot!(snap(&n));
-}
-
-// ---------- Node<T, Root> ----------
-
-#[test]
-fn node_root_none() {
-    let n: Option<Node<(), Root>> = None;
-    insta::assert_snapshot!(snap(&n));
-}
-
-#[test]
-fn node_root_single_leaf_full_compression() {
-    let n = leaf("a", 1);
-    seq_macro::seq!(I in 0..32 {
-        let n = Node::beneath(n, I);
-    });
-    let n: Node<(), Root> = n;
-    insta::assert_snapshot!(snap(&n));
-}
-
-#[test]
-fn node_root_two_leaves_branched_at_root() {
-    let n = {
-        let l0 = leaf("a", 1);
-        let l1 = leaf("a", 2);
-        let n0 = {
-            let n = l0;
-            seq_macro::seq!(I in 0..31 {
-                let n = Node::beneath(n, I);
-            });
-            n
-        };
-        let n1 = {
-            let n = l1;
-            seq_macro::seq!(I in 0..31 {
-                let n = Node::beneath(n, I);
-            });
-            n
-        };
-        let mut children: OrdMap<u8, Node<(), _>> = OrdMap::new();
-        children.insert(0x01, n0);
-        children.insert(0x02, n1);
-        Node::<(), Root>::branch(children).unwrap()
-    };
-    insta::assert_snapshot!(snap(&n));
 }
 
 // ---------- Version ----------

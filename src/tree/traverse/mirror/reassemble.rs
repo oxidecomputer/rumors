@@ -23,11 +23,10 @@
 use std::collections::BTreeMap;
 
 use borsh::BorshDeserialize;
-use imbl::OrdMap;
 use itertools::Itertools;
 
 use crate::tree::typed::height::{Height, Root, S, Z};
-use crate::tree::typed::{Node, Path, Prefix};
+use crate::tree::typed::{Children, Node, Path, Prefix};
 use crate::{message::Message, version::Version};
 
 /// Build a single [`Node<T, Self>`] from the leaves beneath it, each carrying
@@ -75,7 +74,7 @@ where
             .map(|(radix, group)| (radix, group.map(|(_, path, v, m)| (path, v, m)).collect()))
             .collect();
 
-        let children: OrdMap<u8, Node<T, H>> = by_radix
+        let children: Children<T, H> = by_radix
             .into_iter()
             .map(|(radix, group)| (radix, H::build(group)))
             .collect();

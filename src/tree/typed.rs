@@ -12,7 +12,7 @@ mod test;
 
 pub use hash::Hash;
 pub use levels::Levels;
-pub use node::Node;
+pub use node::{Children, Node};
 pub use path::Path;
 pub use prefix::Prefix;
 pub use untyped::Iter;

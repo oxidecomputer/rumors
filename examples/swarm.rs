@@ -535,10 +535,25 @@ fn try_initiate(
         return false;
     }
 
-    // Both claimed: hand the peer one end of a fresh pipe and gossip the other.
+    // Both claimed. Reserve an in-flight slot before the final `running` check:
+    // shutdown first clears `running`, then waits for this counter to drain, so
+    // it cannot miss a session that is about to start.
     net.metrics.inflight.fetch_add(1, Ordering::SeqCst);
+    if !net.running.load(Ordering::SeqCst) {
+        peer.engaged.store(false, Ordering::Release);
+        me.engaged.store(false, Ordering::Release);
+        net.metrics.inflight.fetch_sub(1, Ordering::SeqCst);
+        return false;
+    }
+
+    // Hand the peer one end of a fresh pipe and gossip the other.
     let (mine, theirs) = tokio::io::duplex(net.duplex_capacity);
-    peer.inbox.send(theirs).expect("peer inbox closed");
+    if peer.inbox.send(theirs).is_err() {
+        peer.engaged.store(false, Ordering::Release);
+        me.engaged.store(false, Ordering::Release);
+        net.metrics.inflight.fetch_sub(1, Ordering::SeqCst);
+        return false;
+    }
 
     let rounds = Arc::new(Rounds::default());
     let (read_half, write_half) = tokio::io::split(mine);

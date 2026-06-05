@@ -7,7 +7,6 @@ use crate::{message::Message, tree::key::Key, version::Version};
 
 use super::typed::*;
 use height::{Height, S, Z};
-use imbl::OrdMap;
 use prefix::Prefix;
 
 /// Adapt a `&Arc<T>` observer into the `&Message<T>` callback [`Unknown`] fires,
@@ -126,7 +125,7 @@ where
 
         // Recursively process each child, re-assembling only the unknown children
         Node::branch({
-            let mut children = OrdMap::new();
+            let mut children = Children::default();
             for (radix, child) in node.into_children() {
                 // Box-and-Send-erase the recursive future; see the matching
                 // comment in `act.rs`.

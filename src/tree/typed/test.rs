@@ -1,9 +1,8 @@
 use borsh::BorshDeserialize;
 use proptest::prelude::*;
 
-use crate::tree::arb::arb_root_node;
 use crate::tree::typed::height::{Height, Root, S, Z};
-use crate::tree::typed::{Hash, Node, Prefix};
+use crate::tree::typed::{Hash, Prefix};
 
 // `Hash` is a fixed-width newtype; its borsh round-trip is the trivial
 // case but worth pinning so a future encoding change to the helper trait
@@ -60,107 +59,4 @@ fn prefix_root_serializes_to_empty() {
     let prefix = Prefix::<Root>::new();
     let serialized = borsh::to_vec(&prefix).unwrap();
     assert!(serialized.is_empty());
-}
-
-// Arbitrary trees round-trip through borsh: deserialize-then-serialize
-// returns to the original `Option<Node<...>>`, with identical `hash()`
-// and structural `Eq`. Also pin the in-memory path-compression layout:
-// the underlying prefix-byte count must survive the round-trip so a
-// decoder that mis-distributes prefix bytes between parent and child
-// (producing a logically-equivalent but structurally-different node)
-// would fail here.
-proptest! {
-    #[test]
-    fn typed_root_node_borsh_round_trip(node in arb_root_node(0, 0..=8)) {
-        let serialized = borsh::to_vec(&node).unwrap();
-        let deserialized: Option<Node<(), Root>> =
-            Option::try_from_slice(&serialized).unwrap();
-        let hash_before = Node::root_hash(&node);
-        let hash_after = Node::root_hash(&deserialized);
-        prop_assert_eq!(hash_before, hash_after);
-        prop_assert_eq!(
-            node.as_ref().map(|n| n.compressed_prefix_len()),
-            deserialized.as_ref().map(|n| n.compressed_prefix_len()),
-        );
-        prop_assert_eq!(node, deserialized);
-    }
-}
-
-// ---- Negative tests: each crafts a wire payload that the decoder must
-// reject, and asserts the specific error path. These pin the rejection
-// points so a refactor that silently accepts malformed wires would fail
-// here. ----
-
-/// A `Node<T, Z>` with `prefix_len > 0` is structurally impossible
-/// (leaves never carry a prefix); the decoder must reject it rather
-/// than absorb the bytes as a leaf body.
-#[test]
-fn node_z_rejects_nonzero_prefix_len() {
-    let mut wire = vec![0x01]; // prefix_len = 1
-    wire.push(0xab); // pretend head byte
-    wire.extend_from_slice(&[0u8; 4]); // empty version map (u32 len = 0)
-    let err = Node::<(), Z>::try_from_slice(&wire).unwrap_err();
-    assert!(
-        err.to_string()
-            .contains("leaf height cannot carry a prefix"),
-        "unexpected error: {err}",
-    );
-}
-
-/// A `Node<T, S<Z>>` with `prefix_len > S<Z>::HEIGHT` is past the
-/// height-derived maximum and must be rejected before any further
-/// reads.
-#[test]
-fn node_s_z_rejects_oversized_prefix_len() {
-    // S<Z>::HEIGHT == 1, so prefix_len = 2 is out of range.
-    let wire = vec![0x02];
-    let err = Node::<(), S<Z>>::try_from_slice(&wire).unwrap_err();
-    assert!(
-        err.to_string()
-            .contains("prefix length exceeds typed height"),
-        "unexpected error: {err}",
-    );
-}
-
-/// Branch children must appear in strictly-ascending radix order.
-#[test]
-fn node_s_z_rejects_non_ascending_radices() {
-    // S<Z> branch, prefix_len=0, count_minus_two=0 (count=2), radices 5 then 3.
-    let mut wire = vec![0x00, 0x00, 0x05];
-    // First child (Z leaf): prefix_len=0, then an empty `Version` (borsh-framed
-    // as length-1 bytes `01 00 00 00 40`), then the empty `()` message.
-    wire.extend_from_slice(&[0x00, 0x01, 0x00, 0x00, 0x00, 0x40]);
-    wire.push(0x03);
-    wire.extend_from_slice(&[0x00, 0x01, 0x00, 0x00, 0x00, 0x40]);
-    let err = Node::<(), S<Z>>::try_from_slice(&wire).unwrap_err();
-    assert!(
-        err.to_string().contains("strictly ascending"),
-        "unexpected error: {err}",
-    );
-}
-
-/// Two children at the same radix is also rejected (the strict-ascending
-/// rule subsumes the no-duplicates rule).
-#[test]
-fn node_s_z_rejects_duplicate_radix() {
-    let mut wire = vec![0x00, 0x00, 0x05];
-    wire.extend_from_slice(&[0x00, 0x01, 0x00, 0x00, 0x00, 0x40]);
-    wire.push(0x05);
-    wire.extend_from_slice(&[0x00, 0x01, 0x00, 0x00, 0x00, 0x40]);
-    let err = Node::<(), S<Z>>::try_from_slice(&wire).unwrap_err();
-    assert!(
-        err.to_string().contains("strictly ascending"),
-        "unexpected error: {err}",
-    );
-}
-
-/// `count_minus_two = 0xff` overflows the 256-child maximum (`count = 257`).
-#[test]
-fn node_s_z_rejects_overflow_count() {
-    let wire = vec![0x00, 0xff];
-    let err = Node::<(), S<Z>>::try_from_slice(&wire).unwrap_err();
-    assert!(
-        err.to_string().contains("exceeds 256"),
-        "unexpected error: {err}",
-    );
 }

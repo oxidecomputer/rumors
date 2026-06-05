@@ -1,4 +1,3 @@
-#![warn(clippy::large_futures)]
 //! Unordered gossip with redaction.
 //!
 //! `rumors` is a CRDT-backed gossip set. Each peer holds a [`Known<T>`] rumor
@@ -127,6 +126,12 @@
 //! Reading bytes that don't start with `RUMORS` surfaces as
 //! [`Error::MagicMismatch`]; the connection is not a `rumors` stream at
 //! all.
+
+// Static assertions uses #[allow(unsafe_code)], so we allow it only in tests
+#![cfg_attr(not(test), forbid(unsafe_code))]
+// Programmer error in recursive async traits can create large futures, so we
+// check to make sure it's not an issue
+#![deny(clippy::large_futures)]
 
 use std::{
     future::{Future, Ready, ready},

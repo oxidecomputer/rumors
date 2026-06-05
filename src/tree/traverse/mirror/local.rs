@@ -108,6 +108,38 @@ pub struct Connected {
 /// invoked, only named to pin the otherwise-unconstrained type parameter.
 pub type Silent<T> = fn(Key, &Version, &Arc<T>) -> std::future::Ready<()>;
 
+/// The parent prefixes a counterparty may legitimately `provide` against, given
+/// the `requested` and `uncertain` we are about to send: each `requested`
+/// prefix is the parent of the subtree-children it will answer with, and each
+/// `uncertain` prefix's parent is the parent of the Left-case siblings it may
+/// unilaterally provide. Returned as raw bytes so the membership test in
+/// [`Exchange::absorb_providing`] is height-agnostic. Debug-only: it backs a
+/// `debug_assert!`.
+#[cfg(debug_assertions)]
+fn expected_providing_parents<A, B>(
+    requested: &[Prefix<A>],
+    uncertain: &[(Prefix<B>, Hash)],
+) -> BTreeSet<Box<[u8]>>
+where
+    A: Height,
+    B: Height,
+{
+    let mut parents = BTreeSet::new();
+    // The root is always implicitly compared, so the counterparty may always
+    // provide root's children (the first round's asymmetric-root drain, where
+    // the initiator hands over root children an empty/divergent responder never
+    // listed). Its parent is the empty prefix.
+    parents.insert(Box::from(&[][..]));
+    for prefix in requested {
+        parents.insert(Box::from(prefix.as_bytes()));
+    }
+    for (prefix, _) in uncertain {
+        let bytes = prefix.as_bytes();
+        parents.insert(Box::from(&bytes[..bytes.len().saturating_sub(1)]));
+    }
+    parents
+}
+
 /// An in-progress mirror synchronization on one side of the wire.
 ///
 /// `L` is our zipper, parameterised by the height of its bottom level; as the
@@ -140,6 +172,17 @@ pub struct Exchange<OnSend, OnRecv, V, L> {
     /// leaf-level observations as they're discovered by the counterparty.
     /// [`None`] skips the notification (the filter itself still runs).
     on_send: Option<OnSend>,
+    /// The parent prefixes (raw bytes, height-agnostic) the counterparty is
+    /// allowed to `provide` next: those we `requested` last round, plus the
+    /// parents of those we listed as `uncertain` (whose siblings the
+    /// counterparty may unilaterally provide as the Left case). Used by
+    /// [`absorb_providing`](Self::absorb_providing) to reject a peer that
+    /// provides subtrees we had no basis to receive.
+    ///
+    /// Tracked only in debug builds, since it backs a `debug_assert!`: release
+    /// builds carry no field and pay nothing to maintain it.
+    #[cfg(debug_assertions)]
+    expected_parents: BTreeSet<Box<[u8]>>,
 }
 
 impl<OnSend, OnRecv, T> Exchange<OnSend, OnRecv, Start, Top<T>>
@@ -154,6 +197,8 @@ where
             levels: Node::levels(Option::from(node)),
             on_recv,
             on_send,
+            #[cfg(debug_assertions)]
+            expected_parents: BTreeSet::new(),
         }
     }
 }
@@ -209,6 +254,8 @@ where
             },
             on_recv: self.on_recv,
             on_send: self.on_send,
+            #[cfg(debug_assertions)]
+            expected_parents: self.expected_parents,
         };
 
         Ok(protocol::Step::Continue {
@@ -254,6 +301,8 @@ where
             },
             on_recv: self.on_recv,
             on_send: self.on_send,
+            #[cfg(debug_assertions)]
+            expected_parents: self.expected_parents,
         };
 
         Ok(protocol::Step::Continue { msg: (), next })
@@ -296,6 +345,8 @@ where
             },
             on_recv: self.on_recv,
             on_send: self.on_send,
+            #[cfg(debug_assertions)]
+            expected_parents: self.expected_parents,
         };
 
         Ok(protocol::Step::Continue {
@@ -381,6 +432,11 @@ where
             versions: self.versions,
             on_recv: self.on_recv,
             on_send: self.on_send,
+            // The `Opening` carries only `uncertain`; the initiator may answer
+            // it with Left-case `providing` whose parents are the parents of
+            // these prefixes (it carries no `requested` to honor).
+            #[cfg(debug_assertions)]
+            expected_parents: expected_providing_parents::<UnderRoot, _>(&[], &msg.uncertain),
         };
 
         Ok(protocol::Step::Continue { msg, next })
@@ -560,6 +616,22 @@ where
         H: BuildNode,
     {
         let providing = reassemble_providing::<L::Message, H>(providing);
+
+        // The counterparty may only provide subtrees we requested last round,
+        // or whose parent we listed as `uncertain` (the Left case it may infer
+        // we lack). Each reassembled prefix's parent must therefore be one we
+        // recorded as expected; anything else means the peer is misbehaving, or
+        // we are. (Content placement is already verified by the path recompute
+        // in `reassemble_providing`; this guards the *selection* of subtrees.)
+        #[cfg(debug_assertions)]
+        for prefix in providing.keys() {
+            let bytes = prefix.as_bytes();
+            let parent = &bytes[..bytes.len().saturating_sub(1)];
+            debug_assert!(
+                self.expected_parents.contains(parent),
+                "counterparty provided prefix {prefix:?} we neither requested nor left to infer",
+            );
+        }
 
         // Only walk a just-absorbed subtree to fire `on_recv` when there is an
         // `on_recv` to fire: with no callback the walk is pure waste (it does
@@ -841,11 +913,14 @@ where
         // Descend the zipper by two heights: matched children at S<H>, then
         // exploded grandchildren at H.
         let levels = self.levels.down(partition.matched).down(partition.exploded);
-        let next = Exchange {
+        #[cfg_attr(not(debug_assertions), allow(unused_mut))]
+        let mut next = Exchange {
             levels,
             versions: self.versions,
             on_send: self.on_send,
             on_recv: self.on_recv,
+            #[cfg(debug_assertions)]
+            expected_parents: BTreeSet::new(),
         };
 
         // Compute the hashes of the level returned at the bottom of `next`;
@@ -865,6 +940,15 @@ where
             requested: partition.requested.into_iter().collect(),
             uncertain,
         };
+
+        // Record which parents the counterparty may `provide` against in its
+        // reply to this message: the prefixes we just `requested`, plus the
+        // parents of those we listed as `uncertain` (Left-case siblings).
+        #[cfg(debug_assertions)]
+        {
+            next.expected_parents =
+                expected_providing_parents(&response.requested, &response.uncertain);
+        }
 
         // Convergence: nothing left to ask, nothing left in dispute. The
         // outgoing message is still meaningful (it may carry `providing`), so

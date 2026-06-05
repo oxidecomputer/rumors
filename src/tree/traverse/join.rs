@@ -39,8 +39,6 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use imbl::ordmap::DiffItem;
-
 use crate::{tree::key::Key, version::Version};
 
 use super::typed::*;
@@ -198,22 +196,7 @@ where
                 let ours = ours.into_children();
                 let theirs = theirs.into_children();
 
-                #[allow(clippy::type_complexity)]
-                let divergent: Vec<(u8, Option<Node<T, H>>, Option<Node<T, H>>)> = ours
-                    .diff(&theirs)
-                    .map(|item| match item {
-                        // Only they have this radix: report what *we* learn.
-                        DiffItem::Add(&radix, theirs) => (radix, None, Some(theirs.clone())),
-                        // Only we have it: report what *they* learn.
-                        DiffItem::Remove(&radix, ours) => (radix, Some(ours.clone()), None),
-                        // Both have it but the subtrees differ: recurse to
-                        // reconcile (the equal ones were already pruned).
-                        DiffItem::Update {
-                            old: (&radix, ours),
-                            new: (_, theirs),
-                        } => (radix, Some(ours.clone()), Some(theirs.clone())),
-                    })
-                    .collect();
+                let divergent: Vec<_> = ours.diff_owned(&theirs).collect();
 
                 // Start the merged map from *ours* (moved — `diff`'s borrow has
                 // ended) and rewrite only the divergent radixes; every shared

@@ -1,7 +1,6 @@
-use std::{fmt::Debug, marker::PhantomData, mem};
+use std::{fmt::Debug, iter::Map, marker::PhantomData};
 
-use borsh::{BorshDeserialize, BorshSerialize};
-use imbl::OrdMap;
+use imbl::{OrdMap, ordmap};
 
 use crate::{message::Message, version::Version};
 
@@ -15,7 +14,100 @@ use super::untyped;
 pub type Root<T> = Node<T, height::Root>;
 
 /// The type of children of a given height.
-pub type Children<T, H> = OrdMap<u8, Node<T, H>>;
+pub struct Children<T, H: Height> {
+    height: PhantomData<fn() -> H>,
+    inner: OrdMap<u8, untyped::Node<T>>,
+}
+
+impl<T, H: Height> Default for Children<T, H> {
+    fn default() -> Self {
+        Self {
+            height: PhantomData,
+            inner: OrdMap::new(),
+        }
+    }
+}
+
+impl<T, H: Height> Children<T, H> {
+    fn from_untyped_map(inner: OrdMap<u8, untyped::Node<T>>) -> Self {
+        Self {
+            height: PhantomData,
+            inner,
+        }
+    }
+
+    fn into_untyped_map(self) -> OrdMap<u8, untyped::Node<T>> {
+        self.inner
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    pub fn insert(&mut self, radix: u8, child: Node<T, H>) -> Option<Node<T, H>> {
+        self.inner
+            .insert(radix, child.into_untyped())
+            .map(Node::from_untyped)
+    }
+
+    pub fn remove(&mut self, radix: &u8) -> Option<Node<T, H>> {
+        self.inner.remove(radix).map(Node::from_untyped)
+    }
+
+    pub fn diff_owned<'a>(
+        &'a self,
+        other: &'a Self,
+    ) -> impl Iterator<Item = (u8, Option<Node<T, H>>, Option<Node<T, H>>)> + 'a {
+        self.inner.diff(&other.inner).map(|item| match item {
+            ordmap::DiffItem::Add(&radix, theirs) => {
+                (radix, None, Some(Node::from_untyped(theirs.clone())))
+            }
+            ordmap::DiffItem::Remove(&radix, ours) => {
+                (radix, Some(Node::from_untyped(ours.clone())), None)
+            }
+            ordmap::DiffItem::Update {
+                old: (&radix, ours),
+                new: (_, theirs),
+            } => (
+                radix,
+                Some(Node::from_untyped(ours.clone())),
+                Some(Node::from_untyped(theirs.clone())),
+            ),
+        })
+    }
+}
+
+impl<T, H: Height> FromIterator<(u8, Node<T, H>)> for Children<T, H> {
+    fn from_iter<I: IntoIterator<Item = (u8, Node<T, H>)>>(iter: I) -> Self {
+        Self::from_untyped_map(
+            iter.into_iter()
+                .map(|(radix, child)| (radix, child.into_untyped()))
+                .collect(),
+        )
+    }
+}
+
+fn typed_child<T, H: Height>((radix, inner): (u8, untyped::Node<T>)) -> (u8, Node<T, H>) {
+    (radix, Node::from_untyped(inner))
+}
+
+impl<T, H: Height> IntoIterator for Children<T, H> {
+    type Item = (u8, Node<T, H>);
+    type IntoIter = Map<
+        <OrdMap<u8, untyped::Node<T>> as IntoIterator>::IntoIter,
+        fn((u8, untyped::Node<T>)) -> (u8, Node<T, H>),
+    >;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.inner
+            .into_iter()
+            .map(typed_child::<T, H> as fn((u8, untyped::Node<T>)) -> (u8, Node<T, H>))
+    }
+}
 
 /// A typed node which enforces the structural validity of the constructed tree
 /// at compile-time.
@@ -54,6 +146,17 @@ where
 }
 
 impl<T, H: Height> Node<T, H> {
+    fn from_untyped(inner: untyped::Node<T>) -> Self {
+        Self {
+            height: PhantomData,
+            inner,
+        }
+    }
+
+    fn into_untyped(self) -> untyped::Node<T> {
+        self.inner
+    }
+
     /// Get the ceiling version of this node (the greatest version contained within).
     pub fn ceiling(&self) -> &Version {
         self.inner.ceiling()
@@ -122,30 +225,21 @@ where
     /// Construct a new branch node from a map of children (inverse to
     /// [`Node::into_children`]).
     pub fn branch(children: Children<T, H>) -> Option<Self> {
-        // Transmute the map of children from typed nodes with the correct
-        // height into untyped nodes.
-        //
-        // SAFETY: TypedNode is #[repr(transparent)] and `OrdMap` treats values
-        // in the map parametrically (i.e. no use of `TypeId`, etc.)
-        let children = unsafe {
-            mem::transmute::<OrdMap<u8, Node<T, H>>, OrdMap<u8, untyped::Node<T>>>(children)
-        };
-
         Some(Node {
             height: PhantomData,
-            inner: untyped::Node::branch(children)?,
+            inner: untyped::Node::branch(children.into_untyped_map())?,
         })
     }
 
     /// Convert a node into a map from child index to child node (inverse to
     /// [`Node::branch`]).
     pub fn into_children(self) -> Children<T, H> {
-        // Transmute the map of children into typed nodes with the correct
-        // height, to recursively enforce type-safe height.
-        //
-        // SAFETY: TypedNode is #[repr(transparent)] and `OrdMap` treats values
-        // in the map parametrically (i.e. no use of `TypeId`, etc.)
-        unsafe { mem::transmute(self.inner.into_children()) }
+        let children = match self.inner.into_children() {
+            Ok(children) => children,
+            Err(_) => unreachable!("typed nonzero-height node cannot be an uncompressed leaf"),
+        };
+
+        Children::from_untyped_map(children)
     }
 
     /// Wrap `child` (at height `H`) beneath slot `index` of a virtual branch
@@ -208,108 +302,7 @@ impl<T, H: Height> PartialEq for Node<T, H> {
     }
 }
 
-// Borsh wire format. Serialization is height-uniform: every typed
-// `Node<T, H>` delegates to [`untyped::Node::serialize_to`], which
-// emits the in-memory representation directly (prefix length, head bytes,
-// then either a leaf body or a `count_minus_two` + children list). No
-// leaf-vs-branch tag is needed on the wire — at the receiver, the typed
-// height together with the running `prefix_len` names the body's shape.
-//
-// Deserialization at typed height `H` reads `prefix_len`, then either
-// decodes the body directly (when `prefix_len == 0`) or peels one head
-// byte and recurses at the next-finer typed height — synthesizing the
-// `prefix_len - 1` byte for the inner reader via
-// [`borsh::io::Read::chain`]. The recursion bottoms out at the typed
-// level matching the structural level of the underlying body: a multi-
-// child branch at `S<_>` heights, or a leaf at `Z`.
-//
-// Multi-child branches always carry at least two children (the path-
-// compression invariant); singletons appear on the wire only as
-// `prefix_len > 0` and reconstruct through [`Node::beneath`].
-
-impl<T, H> BorshSerialize for Node<T, H>
-where
-    H: Height,
-{
-    fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
-        self.inner.serialize_to(writer)
-    }
-}
-
-impl<T> BorshDeserialize for Node<T, Z>
-where
-    T: BorshDeserialize,
-{
-    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
-        let prefix_len = u8::deserialize_reader(reader)?;
-        if prefix_len != 0 {
-            return Err(borsh::io::Error::new(
-                borsh::io::ErrorKind::InvalidData,
-                "leaf height cannot carry a prefix",
-            ));
-        }
-        let version = Version::deserialize_reader(reader)?;
-        let message = Message::<T>::deserialize_reader(reader)?;
-        Ok(Node::leaf(version, message))
-    }
-}
-
-impl<T, H> BorshDeserialize for Node<T, S<H>>
-where
-    T: BorshDeserialize,
-    H: Height,
-    S<H>: Height,
-    Node<T, H>: BorshDeserialize,
-{
-    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
-        let prefix_len = u8::deserialize_reader(reader)?;
-        if (prefix_len as usize) > <S<H>>::HEIGHT {
-            return Err(borsh::io::Error::new(
-                borsh::io::ErrorKind::InvalidData,
-                "prefix length exceeds typed height",
-            ));
-        }
-        if prefix_len == 0 {
-            let count_minus_two = u8::deserialize_reader(reader)?;
-            let count = (count_minus_two as usize) + 2;
-            if count > 256 {
-                return Err(borsh::io::Error::new(
-                    borsh::io::ErrorKind::InvalidData,
-                    "branch children count exceeds 256",
-                ));
-            }
-            let mut children: OrdMap<u8, Node<T, H>> = OrdMap::new();
-            let mut prev: Option<u8> = None;
-            for _ in 0..count {
-                let radix = u8::deserialize_reader(reader)?;
-                if let Some(p) = prev
-                    && radix <= p
-                {
-                    return Err(borsh::io::Error::new(
-                        borsh::io::ErrorKind::InvalidData,
-                        "branch radices not strictly ascending",
-                    ));
-                }
-                prev = Some(radix);
-                let child = Node::<T, H>::deserialize_reader(reader)?;
-                children.insert(radix, child);
-            }
-            Node::branch(children).ok_or_else(|| {
-                borsh::io::Error::new(
-                    borsh::io::ErrorKind::InvalidData,
-                    "branch could not be reconstructed",
-                )
-            })
-        } else {
-            let head = u8::deserialize_reader(reader)?;
-            // Prepend `prefix_len - 1` to the rest of the stream so the
-            // inner typed level reads it as if it were on the wire,
-            // synthesizing the singleton-chain recursion without a helper
-            // trait.
-            let synthesized = [prefix_len - 1];
-            let mut chained = borsh::io::Read::chain(synthesized.as_slice(), &mut *reader);
-            let inner = Node::<T, H>::deserialize_reader(&mut chained)?;
-            Ok(Node::beneath(inner, head))
-        }
-    }
-}
+// `Node<T, H>` has no borsh representation: nodes never cross the wire. The
+// `providing` channel carries leaves only (see [`super::super::traverse::mirror`]),
+// and the receiver rebuilds subtrees from them. `Version` and `Message<T>` carry
+// their own borsh shapes for that leaf list.
