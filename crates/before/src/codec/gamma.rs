@@ -39,12 +39,6 @@ pub(crate) fn encode_int(out: &mut Bits, n: &Base) {
     }
 }
 
-/// Number of bits [`encode_int`] will append for `n`.
-pub(crate) fn encoded_int_len(n: &Base) -> usize {
-    let m = n + 1u32;
-    (2 * m.bits() - 1) as usize
-}
-
 /// Read an Elias-gamma-coded integer at `pos`, returning the value and the new
 /// position. Running past the end is `Truncated`. Decodes an arbitrary-width
 /// value (no cap): the unary prefix length `k` is bounded by the available
