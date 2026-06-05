@@ -9,6 +9,7 @@
 #![allow(dead_code, unused_imports)]
 
 pub mod action;
+pub mod gossip_snapshot;
 pub mod oracle;
 pub mod peer;
 pub mod schedule;

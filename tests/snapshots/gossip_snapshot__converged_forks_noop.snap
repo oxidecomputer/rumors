@@ -1,0 +1,16 @@
+---
+source: tests/gossip_snapshot.rs
+expression: "capture_gossip(a, b)"
+---
+party A                         │ party B
+─────────────────────────────── │ ───────────────────────────────
+sent 8 bytes                    │ sent 8 bytes
+  0000: 52 55 4d 4f 52 53 00 01 │   0000: 52 55 4d 4f 52 53 00 01
+received 8 bytes                │ received 8 bytes
+  0000: 52 55 4d 4f 52 53 00 01 │   0000: 52 55 4d 4f 52 53 00 01
+sent 9 bytes                    │ sent 9 bytes
+  0000: 00 00 00 05 01 00 00 00 │   0000: 00 00 00 05 01 00 00 00
+  0008: 30                      │   0008: 30
+received 9 bytes                │ received 9 bytes
+  0000: 00 00 00 05 01 00 00 00 │   0000: 00 00 00 05 01 00 00 00
+  0008: 30                      │   0008: 30

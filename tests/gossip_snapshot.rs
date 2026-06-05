@@ -1,0 +1,233 @@
+//! Golden byte-level snapshots of a single round of gossip between two
+//! [`rumors::Known`]s.
+//!
+//! Each test stages a scenario, drives one gossip session through the
+//! recording duplex in [`common::gossip_snapshot`], and pins the exact
+//! byte-by-byte conversation — sends, receives, and their interleaving —
+//! against an `insta` snapshot. Drift in framing, message ordering, or the
+//! request/response lockstep shows up here as a diff; re-accept only after a
+//! deliberate protocol change.
+//!
+//! The payload type is `u64` throughout: it borsh-encodes to a fixed 8 bytes
+//! and is trivial to make distinct, which keeps the dumps short and lets
+//! distinct payloads (`1`, `2`, `3`, `4`) be spotted directly in the hex.
+
+mod common;
+
+use std::sync::Arc;
+
+use rumors::{Key, Known, Version};
+
+use crate::common::gossip_snapshot::capture_gossip;
+use crate::common::wire::block_on;
+
+/// Push the observed [`Key`] into `keys`, paired with its value, in the async
+/// callback shape [`Known::message_then`] expects. The value lets a caller
+/// pick out a specific message's key regardless of callback order.
+fn record_keyed<T: Clone>(
+    keys: &mut Vec<(T, Key)>,
+) -> impl FnMut(Key, &Version, &Arc<T>) -> std::future::Ready<()> + '_ {
+    move |k: Key, _v: &Version, m: &Arc<T>| {
+        keys.push(((**m).clone(), k));
+        std::future::ready(())
+    }
+}
+
+/// The key the insert callback surfaced for payload `value`.
+fn key_for<T: PartialEq + std::fmt::Debug>(keys: &[(T, Key)], value: &T) -> Key {
+    keys.iter()
+        .find_map(|(v, k)| (v == value).then_some(*k))
+        .unwrap_or_else(|| panic!("no key recorded for value {value:?}"))
+}
+
+/// Two empty peers: the minimal session. After the 8-byte handshake the two
+/// sides exchange versions, find them equal, and converge immediately with no
+/// content transfer — the protocol's shortest possible conversation.
+#[test]
+fn empty_pair_converges_immediately() {
+    let mut a: Known<u64> = Known::seed();
+    let b: Known<u64> = a.fork();
+    insta::assert_snapshot!(capture_gossip(a, b));
+}
+
+/// One side holds two messages, the other is an empty peer in the same
+/// universe. Captures the one-directional flow: the populated peer ships its
+/// content and the empty peer requests and receives it, with nothing of
+/// substance flowing the other way.
+#[test]
+fn one_sided_transfer() {
+    let (a, b) = block_on(async {
+        let mut a: Known<u64> = Known::seed();
+        // B must descend from A's seed (never a second `seed`), so fork it and
+        // then drop the shared content by redacting everything it carries,
+        // leaving an empty peer in the same universe.
+        let mut b = a.fork();
+        let carried: Vec<Key> = b.iter().map(|(k, _, _)| k).collect();
+        b.redact(carried);
+
+        a.message([1u64, 2u64]).await;
+        (a, b)
+    });
+    insta::assert_snapshot!(capture_gossip(a, b));
+}
+
+/// The headline scenario, exercising most of the wire protocol's properties in
+/// one session:
+///
+/// 1. seed `A` and insert two distinct messages (`1`, `2`);
+/// 2. fork `B` from `A` (both now hold `1` and `2`, sharing their keys);
+/// 3. each fork inserts one distinct message (`A` adds `3`, `B` adds `4`);
+/// 4. each fork redacts a *different* one of the two common messages (`A`
+///    redacts `1`, `B` redacts `2`);
+/// 5. gossip.
+///
+/// Reconciliation must converge both peers on the live set `{3, 4}`: the two
+/// redactions are contagious and cross the wire alongside the two novel
+/// inserts, so the capture pins inserts, fork divergence, bidirectional
+/// transfer, and redaction propagation all at once.
+#[test]
+fn fork_insert_redact() {
+    let (a, b) = block_on(async {
+        let mut a: Known<u64> = Known::seed();
+
+        // (1) Two distinct common messages; remember their keys for redaction.
+        let mut keys: Vec<(u64, Key)> = Vec::new();
+        a.message_then([1u64, 2u64], record_keyed(&mut keys)).await;
+
+        // (2) Fork: B shares A's observations (both hold 1 and 2).
+        let mut b = a.fork();
+
+        // (3) Each fork inserts one distinct message.
+        a.message([3u64]).await;
+        b.message([4u64]).await;
+
+        // (4) Each fork redacts a different one of the two common messages.
+        a.redact([key_for(&keys, &1)]);
+        b.redact([key_for(&keys, &2)]);
+
+        (a, b)
+    });
+    insta::assert_snapshot!(capture_gossip(a, b));
+}
+
+/// Fork with *no* divergence: insert `1` and `2`, fork, gossip immediately.
+/// Both peers carry identical content *and* identical version vectors, so the
+/// version exchange short-circuits the session to Done before any content is
+/// examined — zero transfer despite non-empty trees. The non-empty companion
+/// to [`empty_pair_converges_immediately`]: it proves convergence is decided
+/// by version equality, independent of how much content the peers hold.
+#[test]
+fn converged_forks_noop() {
+    let (a, b) = block_on(async {
+        let mut a: Known<u64> = Known::seed();
+        a.message([1u64, 2u64]).await;
+        let b = a.fork();
+        (a, b)
+    });
+    insta::assert_snapshot!(capture_gossip(a, b));
+}
+
+/// Redaction in isolation: both forks hold `1` and `2`, `A` redacts `1`, `B`
+/// does nothing, then they gossip and converge on `{2}`. The clean counterpart
+/// to [`fork_insert_redact`] — no inserts share the wire, so the bytes that
+/// carry a redaction (and the version advance that distinguishes "forgot it"
+/// from "never had it") stand alone.
+#[test]
+fn redaction_only() {
+    let (a, b) = block_on(async {
+        let mut a: Known<u64> = Known::seed();
+        let mut keys: Vec<(u64, Key)> = Vec::new();
+        a.message_then([1u64, 2u64], record_keyed(&mut keys)).await;
+        let b = a.fork();
+        a.redact([key_for(&keys, &1)]);
+        (a, b)
+    });
+    insta::assert_snapshot!(capture_gossip(a, b));
+}
+
+/// Number of disjoint messages each side of [`deep_trie_divergence`] holds.
+/// Chosen so the two sides' leaves are numerous enough to collide in their
+/// leading hash byte, branching the trie past its root and so driving the
+/// recursive `Exchange` descent (and the `Opening`/`Closing`/`Complete` phases
+/// at more than one level) that the small scenarios never reach.
+const DEEP_TRIE_PER_SIDE: u64 = 16;
+
+/// Two peers with large, fully disjoint message sets. `A` holds
+/// `0..DEEP_TRIE_PER_SIDE`, `B` holds the next `DEEP_TRIE_PER_SIDE`; both
+/// descend from one seed so they may gossip, but they share no content. The
+/// reconciliation must branch the prefix-trie and recurse down it, exercising
+/// the protocol's recursive core that the handful-of-messages scenarios leave
+/// untouched.
+#[test]
+fn deep_trie_divergence() {
+    let (a, b) = block_on(async {
+        let mut a: Known<u64> = Known::seed();
+        let mut b = a.fork();
+        a.message(0..DEEP_TRIE_PER_SIDE).await;
+        b.message(DEEP_TRIE_PER_SIDE..2 * DEEP_TRIE_PER_SIDE).await;
+        (a, b)
+    });
+    insta::assert_snapshot!(capture_gossip(a, b));
+}
+
+/// A non-primitive, variable-length payload type. `u64` borsh-encodes to a
+/// fixed 8 bytes; `String` encodes as a length prefix followed by its UTF-8
+/// bytes, so this is the only scenario that pins how a variable-length value
+/// is framed inside a leaf on the wire. `A` and `B` each contribute one
+/// distinct string and converge on both.
+#[test]
+fn string_payload() {
+    let (a, b) = block_on(async {
+        let mut a: Known<String> = Known::seed();
+        let mut b = a.fork();
+        a.message(["hello".to_string()]).await;
+        b.message(["world".to_string()]).await;
+        (a, b)
+    });
+    insta::assert_snapshot!(capture_gossip(a, b));
+}
+
+/// Equal live content, divergent version vectors. Both peers hold `1`; then
+/// `A` inserts `2` and immediately redacts it, leaving its *live* set back at
+/// `{1}` but advancing its version vector past `B`'s. The two peers' observable
+/// root hashes are therefore equal while their versions are not — so this pins
+/// whether the protocol short-circuits on the matching live hash or whether the
+/// version dominance (the same signal redaction propagation rides on) drives a
+/// reconciliation pass. There are no deletion markers in the protocol; the only
+/// trace of the redacted `2` is the advanced version.
+#[test]
+fn same_live_content_divergent_versions() {
+    let (a, b) = block_on(async {
+        let mut a: Known<u64> = Known::seed();
+        let mut keys: Vec<(u64, Key)> = Vec::new();
+        a.message_then([1u64], record_keyed(&mut keys)).await;
+        let b = a.fork();
+
+        // A diverges in version but not in live content: insert 2, then drop it.
+        a.message_then([2u64], record_keyed(&mut keys)).await;
+        a.redact([key_for(&keys, &2)]);
+        (a, b)
+    });
+    insta::assert_snapshot!(capture_gossip(a, b));
+}
+
+/// Concurrent, identical redaction. Both forks hold `1` and `2`, and *each*
+/// independently redacts `1` (the same [`Key`]) before they gossip. The two
+/// redactions are causally concurrent — distinct version advances on distinct
+/// parties — yet target the same message, so this pins that the protocol
+/// converges idempotently on `{2}` rather than treating the two redactions as
+/// conflicting work to reconcile.
+#[test]
+fn both_redact_same_key() {
+    let (a, b) = block_on(async {
+        let mut a: Known<u64> = Known::seed();
+        let mut keys: Vec<(u64, Key)> = Vec::new();
+        a.message_then([1u64, 2u64], record_keyed(&mut keys)).await;
+        let mut b = a.fork();
+        let k1 = key_for(&keys, &1);
+        a.redact([k1]);
+        b.redact([k1]);
+        (a, b)
+    });
+    insta::assert_snapshot!(capture_gossip(a, b));
+}
