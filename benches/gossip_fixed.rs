@@ -1,0 +1,258 @@
+//! Fixed-size over-the-wire gossip sweeps.
+//!
+//! Every fixture starts with a total universe size of `N = 10_000` possible
+//! actions and varies only where the work lands: shared pre-fork insertions,
+//! post-fork divergent insertions, or post-fork redactions. Each benchmark
+//! drives [`Known::gossip`] over persistent in-memory pipes, so the timed body
+//! pays for the gossip session rather than pipe allocation or thread spawn.
+//!
+//! The four Criterion groups are:
+//!
+//! - `gossip_fixed_bidir_insertions`: total post-fork insertions `I`.
+//! - `gossip_fixed_bidir_redactions`: total post-fork redactions `R`.
+//! - `gossip_fixed_unilateral_insertions`: one-side post-fork insertions `I`.
+//! - `gossip_fixed_unilateral_redactions`: one-side post-fork redactions `R`.
+
+use std::hint::black_box;
+use std::io::{PipeReader, PipeWriter, pipe};
+use std::sync::mpsc::{Receiver, Sender, channel};
+use std::thread::{self, JoinHandle};
+
+use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use rand::rngs::SmallRng;
+use rand::seq::SliceRandom;
+use rand::{RngCore, SeedableRng};
+use rumors::sync::{Key, Known};
+
+// The shared grid module exposes a superset of helpers; this bench only needs
+// its sample-size policy so fixed-N runs line up with the existing benches.
+#[allow(dead_code)]
+#[path = "support/grid.rs"]
+mod grid;
+
+const N: usize = 10_000;
+const INSERT_STEP: usize = 500;
+const REDACT_STEP: usize = 250;
+
+/// A reusable in-memory "wire": two OS pipes plus a persistent worker thread
+/// driving peer B.
+struct Wire {
+    a_read: PipeReader,
+    a_write: PipeWriter,
+    work: Option<Sender<Known<u8>>>,
+    done: Receiver<Known<u8>>,
+    worker: Option<JoinHandle<()>>,
+}
+
+impl Wire {
+    fn new() -> Self {
+        let (a_to_b_r, a_to_b_w) = pipe().expect("pipe a_to_b");
+        let (b_to_a_r, b_to_a_w) = pipe().expect("pipe b_to_a");
+        let (work_tx, work_rx) = channel::<Known<u8>>();
+        let (done_tx, done_rx) = channel::<Known<u8>>();
+
+        let worker = thread::spawn(move || {
+            let mut read = a_to_b_r;
+            let mut write = b_to_a_w;
+            while let Ok(b) = work_rx.recv() {
+                let b_out = b.gossip(&mut read, &mut write).expect("worker peer gossip");
+                if done_tx.send(b_out).is_err() {
+                    break;
+                }
+            }
+        });
+
+        Wire {
+            a_read: b_to_a_r,
+            a_write: a_to_b_w,
+            work: Some(work_tx),
+            done: done_rx,
+            worker: Some(worker),
+        }
+    }
+
+    fn round_trip(&mut self, a: Known<u8>, b: Known<u8>) -> (Known<u8>, Known<u8>) {
+        self.work
+            .as_ref()
+            .expect("worker still running")
+            .send(b)
+            .expect("hand peer B to worker");
+        let a_out = a
+            .gossip(&mut self.a_read, &mut self.a_write)
+            .expect("peer A gossip");
+        let b_out = self.done.recv().expect("recv reconciled peer B");
+        (a_out, b_out)
+    }
+}
+
+impl Drop for Wire {
+    fn drop(&mut self) {
+        self.work.take();
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Scenario {
+    BidirInsertions,
+    BidirRedactions,
+    UnilateralInsertions,
+    UnilateralRedactions,
+}
+
+impl Scenario {
+    fn group_name(self) -> &'static str {
+        match self {
+            Scenario::BidirInsertions => "gossip_fixed_bidir_insertions",
+            Scenario::BidirRedactions => "gossip_fixed_bidir_redactions",
+            Scenario::UnilateralInsertions => "gossip_fixed_unilateral_insertions",
+            Scenario::UnilateralRedactions => "gossip_fixed_unilateral_redactions",
+        }
+    }
+
+    fn max_param(self) -> usize {
+        match self {
+            Scenario::BidirInsertions | Scenario::UnilateralInsertions => N,
+            Scenario::BidirRedactions | Scenario::UnilateralRedactions => N / 2,
+        }
+    }
+
+    fn step(self) -> usize {
+        match self {
+            Scenario::BidirInsertions | Scenario::UnilateralInsertions => INSERT_STEP,
+            Scenario::BidirRedactions | Scenario::UnilateralRedactions => REDACT_STEP,
+        }
+    }
+
+    fn build(self, param: usize) -> (Known<u8>, Known<u8>) {
+        match self {
+            Scenario::BidirInsertions => build_bidir_insertions(param),
+            Scenario::BidirRedactions => build_bidir_redactions(param),
+            Scenario::UnilateralInsertions => build_unilateral_insertions(param),
+            Scenario::UnilateralRedactions => build_unilateral_redactions(param),
+        }
+    }
+}
+
+fn bench_gossip_fixed(c: &mut Criterion) {
+    let mut wire = Wire::new();
+
+    for scenario in [
+        Scenario::BidirInsertions,
+        Scenario::BidirRedactions,
+        Scenario::UnilateralInsertions,
+        Scenario::UnilateralRedactions,
+    ] {
+        let mut group = c.benchmark_group(scenario.group_name());
+        group.sample_size(grid::sample_size_for(N));
+
+        for param in (0..=scenario.max_param()).step_by(scenario.step()) {
+            group.throughput(Throughput::Elements(param as u64));
+            group.bench_function(BenchmarkId::from_parameter(param), |b| {
+                b.iter_batched(
+                    || warmed(scenario.build(param)),
+                    |(left, right)| black_box(wire.round_trip(left, right)),
+                    BatchSize::PerIteration,
+                )
+            });
+        }
+
+        group.finish();
+    }
+}
+
+fn build_bidir_insertions(total_insertions: usize) -> (Known<u8>, Known<u8>) {
+    assert!(total_insertions <= N);
+    assert_eq!(total_insertions % 2, 0);
+
+    let mut left = seeded_with_messages(N - total_insertions, 0x1189_2d1a_c54f_a94d);
+    let mut right = left.fork();
+    let per_side = total_insertions / 2;
+
+    left.message(random_bytes(
+        per_side,
+        0x7a27_9f20_6c8b_d141 ^ total_insertions as u64,
+    ));
+    right.message(random_bytes(
+        per_side,
+        0xc436_90ed_83f6_5b55 ^ total_insertions as u64,
+    ));
+
+    (left, right)
+}
+
+fn build_unilateral_insertions(total_insertions: usize) -> (Known<u8>, Known<u8>) {
+    assert!(total_insertions <= N);
+
+    let mut left = seeded_with_messages(N - total_insertions, 0x70e4_a5b8_cce0_25da);
+    let right = left.fork();
+
+    left.message(random_bytes(
+        total_insertions,
+        0xf193_d419_8d66_85d1 ^ total_insertions as u64,
+    ));
+
+    (left, right)
+}
+
+fn build_bidir_redactions(total_redactions: usize) -> (Known<u8>, Known<u8>) {
+    assert!(total_redactions <= N / 2);
+    assert_eq!(total_redactions % 2, 0);
+
+    let (mut left, keys) = seeded_with_keys(N, 0xc786_a046_6b7d_c9d3);
+    let mut right = left.fork();
+    let shuffled = shuffled_keys(keys, 0x84f6_7932_1265_9eec ^ total_redactions as u64);
+    let per_side = total_redactions / 2;
+
+    left.redact(shuffled[..per_side].iter().copied());
+    right.redact(shuffled[per_side..total_redactions].iter().copied());
+
+    (left, right)
+}
+
+fn build_unilateral_redactions(total_redactions: usize) -> (Known<u8>, Known<u8>) {
+    assert!(total_redactions <= N / 2);
+
+    let (mut left, keys) = seeded_with_keys(N, 0x2526_34f4_918f_e1c7);
+    let right = left.fork();
+    let shuffled = shuffled_keys(keys, 0xd4f9_f46b_3c09_1d60 ^ total_redactions as u64);
+
+    left.redact(shuffled[..total_redactions].iter().copied());
+
+    (left, right)
+}
+
+fn seeded_with_messages(n: usize, seed: u64) -> Known<u8> {
+    let mut known = Known::seed();
+    known.message(random_bytes(n, seed));
+    known
+}
+
+fn seeded_with_keys(n: usize, seed: u64) -> (Known<u8>, Vec<Key>) {
+    let mut known = Known::seed();
+    let mut keys = Vec::with_capacity(n);
+    known.message_then(random_bytes(n, seed), |key, _, _| keys.push(key));
+    (known, keys)
+}
+
+fn warmed((left, right): (Known<u8>, Known<u8>)) -> (Known<u8>, Known<u8>) {
+    left.warm_caches();
+    right.warm_caches();
+    (left, right)
+}
+
+fn random_bytes(n: usize, seed: u64) -> Vec<u8> {
+    let mut bytes = vec![0; n];
+    SmallRng::seed_from_u64(seed).fill_bytes(&mut bytes);
+    bytes
+}
+
+fn shuffled_keys(mut keys: Vec<Key>, seed: u64) -> Vec<Key> {
+    keys.shuffle(&mut SmallRng::seed_from_u64(seed));
+    keys
+}
+
+criterion_group!(benches, bench_gossip_fixed);
+criterion_main!(benches);

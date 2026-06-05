@@ -67,5 +67,9 @@ name = "gossip_grid"
 harness = false
 
 [[bench]]
+name = "gossip_fixed"
+harness = false
+
+[[bench]]
 name = "branch_hash"
 harness = false
