@@ -19,27 +19,50 @@
 //!   old `de_strict_order` `BTreeMap`/`BTreeSet` channels gave (see
 //!   [`super::reassemble`]).
 //!
+//! ## Typed [`Node<T, H>`](crate::tree::typed::Node)
+//!
+//! Encoded in its in-memory layout. The typed `BorshSerialize` impl is a
+//! thin delegate over the untyped node's `serialize_to`, which is the
+//! canonical encoder:
+//!
+//! ```text
+//! NodeWire ::=
+//!     prefix_len: u8                  // path-compressed prefix byte count
+//!     [u8; prefix_len]                // head bytes, shallowest first
+//!     body                            // dispatched on `children`:
+//!         Children::Leaf:   version: Version, message: Message<T>
+//!         Children::Branch: count_minus_two: u8, [(radix: u8, NodeWire); count]
+//! ```
+//!
+//! The body's shape is **not** tagged on the wire; the receiver determines
+//! it from the typed height (`Z` ⇒ leaf, `S<_>` ⇒ branch) together with
+//! the running `prefix_len`. On the decode side, when `prefix_len > 0` we
+//! peel one head byte and recurse at the next-finer typed height,
+//! synthesizing the `prefix_len − 1` byte for the inner reader via
+//! [`borsh::io::Read::chain`] — so the wire carries one `prefix_len` byte
+//! per top-of-chain rather than one per typed level.
+//!
+//! Multi-child branches always carry at least two children; singletons
+//! appear on the wire only as `prefix_len > 0` and reconstruct through
+//! [`Node::beneath`](crate::tree::typed::Node::beneath). Branch radices
+//! are required to be strictly ascending (matching the backing `OrdMap`'s
+//! canonical iteration order).
+//!
 //! ## The three channels
 //!
-//! - **`providing`**: `Vec<(Key, Version, Message<T>)>` — the *leaves* of the
-//!   subtrees being provided, in ascending content-addressed-path order. The
-//!   prefixes and tree structure are **elided**: each leaf carries its own
-//!   [`Key`] — which *is* its content-addressed path
-//!   `blake3(blake3(version) ‖ blake3(value))` ([`Path::for_leaf`]) — so the
-//!   receiver re-materializes the subtrees ([`reassemble_providing`]) from the
-//!   transmitted key without re-hashing the `(version, value)`. The provider
-//!   already holds the hash; sending it spares the receiver the recompute (up
-//!   to ~4× the cost of placement) at the price of 32 bytes per leaf. Release
-//!   builds *trust* the key; debug builds recompute the path and assert it
-//!   matches (see [`reassemble_providing`]). Rejected unless strictly ascending
-//!   by transmitted key.
+//! - **`providing`**: `Vec<(Prefix<_>, Node<T, _>)>` — the subtrees being
+//!   provided, each paired with the prefix it lands at, in ascending prefix
+//!   order. Each node carries its full structure on the wire (path-compression
+//!   bytes, branch radices, child counts); the receiver inserts it directly at
+//!   the named prefix. This trades the bandwidth of the elided-leaf encoding for
+//!   placement without a per-leaf re-hash. Rejected unless strictly ascending by
+//!   prefix. (The inverse leaf-only encoding lives in [`super::reassemble`],
+//!   retained for adapting leaf-only persistent storage to this channel.)
 //! - **`requested`**: `Vec<Prefix<_>>` — prefixes the peer should send next
 //!   round. Rejected unless strictly ascending.
 //! - **`uncertain`**: `Vec<(Prefix<_>, Hash)>` — frontier subtree hashes for the
 //!   peer to compare against its own. Rejected unless strictly ascending by
-//!   prefix. (Prefixes here cannot be elided: the peer has no content from which
-//!   to re-derive them, so these bytes are byte-identical to the old map
-//!   encoding.)
+//!   prefix.
 //!
 //! ## Messages
 //!
@@ -47,23 +70,20 @@
 //! of its fields in source order. There is no length framing between messages
 //! on the wire: the protocol's height schedule names the type each side expects
 //! next.
-//!
-//! [`Path::for_leaf`]: crate::tree::typed::Path::for_leaf
-//! [`reassemble_providing`]: super::reassemble::reassemble_providing
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use crate::message::Message;
-use crate::tree::key::Key;
 use crate::tree::typed::{
-    Hash, Prefix,
+    Hash, Node, Prefix,
     height::{Height, Pred, Root, S, Z},
 };
-use crate::version::Version;
 
-use super::reassemble::{
-    verify_keys_canonical, verify_pairs_canonical, verify_providing_canonical,
-};
+use super::reassemble::{verify_keys_canonical, verify_pairs_canonical};
+
+/// The `providing` channel's payload at height `H`: the subtrees being provided,
+/// each paired with the prefix it lands at, in ascending prefix order. The
+/// receiver inserts each node directly at its named prefix.
+pub type Providing<T, H> = Vec<(Prefix<H>, Node<T, H>)>;
 
 /// The initiator's opening message: a single hash at the empty (root) prefix,
 /// namely our root hash.
@@ -127,13 +147,10 @@ where
     /// already-seen or already-forgotten on their side, so the receiver's view
     /// must agree with ours by treating the absence as a deletion.
     ///
-    /// On the wire this is just the *leaves* of those subtrees — a flat list of
-    /// `(key, version, value)` triples in ascending key order, with every prefix
-    /// and structural byte elided. Each [`Key`] is the leaf's content-addressed
-    /// path, which the receiver uses directly to re-materialize the subtrees
-    /// without re-hashing; debug builds recompute it and assert the match (see
-    /// [`super::reassemble`]).
-    pub providing: Vec<(Key, Version, Message<T>)>,
+    /// On the wire each subtree travels as a whole `(prefix, node)` pair in
+    /// ascending prefix order; the receiver inserts it directly at the named
+    /// prefix. Strictly ascending by prefix; duplicates are rejected.
+    pub providing: Providing<T, S<H>>,
     /// Prefixes the counterparty listed in the previous round's `uncertain`
     /// that we lack entirely. We ask them to send the subtrees so we can insert
     /// them into our zipper. Strictly ascending; duplicates are rejected.
@@ -157,16 +174,21 @@ where
     }
 }
 
+// `Node<T, S<H>>: BorshDeserialize` reduces inductively to
+// `Node<T, H>: BorshDeserialize` and bottoms at `Z`, so with `H` left
+// generic the proof obligation doesn't terminate during inference. We
+// thread `Node<T, S<H>>: BorshDeserialize` through as an explicit
+// bound so the caller — who knows `H` concretely — discharges it.
 impl<T, H> BorshDeserialize for Exchange<T, H>
 where
     T: BorshDeserialize,
     S<H>: Height,
     H: Height,
+    Node<T, S<H>>: BorshDeserialize,
 {
     fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
-        let providing: Vec<(Key, Version, Message<T>)> =
-            BorshDeserialize::deserialize_reader(reader)?;
-        verify_providing_canonical(&providing)?;
+        let providing: Providing<T, S<H>> = BorshDeserialize::deserialize_reader(reader)?;
+        verify_pairs_canonical(&providing, "Exchange.providing")?;
         let requested: Vec<Prefix<S<H>>> = BorshDeserialize::deserialize_reader(reader)?;
         verify_keys_canonical(&requested, "Exchange.requested")?;
         let uncertain: Vec<(Prefix<H>, Hash)> = BorshDeserialize::deserialize_reader(reader)?;
@@ -214,7 +236,7 @@ where
 /// directly, without a runtime check against an out-of-spec initiator.
 #[derive(Clone)]
 pub struct Closing<T> {
-    pub providing: Vec<(Key, Version, Message<T>)>,
+    pub providing: Providing<T, S<Z>>,
     pub requested: Vec<Prefix<S<Z>>>,
 }
 
@@ -231,9 +253,8 @@ where
     T: BorshDeserialize,
 {
     fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
-        let providing: Vec<(Key, Version, Message<T>)> =
-            BorshDeserialize::deserialize_reader(reader)?;
-        verify_providing_canonical(&providing)?;
+        let providing: Providing<T, S<Z>> = BorshDeserialize::deserialize_reader(reader)?;
+        verify_pairs_canonical(&providing, "Closing.providing")?;
         let requested: Vec<Prefix<S<Z>>> = BorshDeserialize::deserialize_reader(reader)?;
         verify_keys_canonical(&requested, "Closing.requested")?;
         Ok(Self {
@@ -275,7 +296,7 @@ impl<T> Default for Closing<T> {
 /// (vacuous at leaf height, same reasoning as [`Closing`]).
 #[derive(Clone)]
 pub struct Complete<T> {
-    pub providing: Vec<(Key, Version, Message<T>)>,
+    pub providing: Providing<T, Z>,
 }
 
 impl<T> BorshSerialize for Complete<T> {
@@ -289,9 +310,8 @@ where
     T: BorshDeserialize,
 {
     fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
-        let providing: Vec<(Key, Version, Message<T>)> =
-            BorshDeserialize::deserialize_reader(reader)?;
-        verify_providing_canonical(&providing)?;
+        let providing: Providing<T, Z> = BorshDeserialize::deserialize_reader(reader)?;
+        verify_pairs_canonical(&providing, "Complete.providing")?;
         Ok(Self { providing })
     }
 }

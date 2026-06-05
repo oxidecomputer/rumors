@@ -1,28 +1,35 @@
-//! Wire⇄node conversion for the `providing` channel, and order-enforcement
+//! Leaf⇄node conversion for the `providing` channel, and order-enforcement
 //! for every channel.
 //!
-//! On the wire, `providing` is a flat `Vec<(Key, Version, Message<T>)>` in
-//! ascending key order: just the leaves of the subtrees being provided, with
-//! every prefix and structural byte elided. This module turns that list back
-//! into the `BTreeMap<Prefix<H>, Node<T, H>>` the protocol consumes
-//! ([`reassemble_providing`]) and, on the send side, flattens such a map into
-//! the wire list ([`flatten_providing`]).
+//! The `providing` channel currently travels as whole `(prefix, node)` pairs
+//! (see [`super::message`]), so the protocol does **not** use the leaf-list
+//! conversion below. It is retained deliberately: a leaf-only persistent store
+//! holds just `(key, version, value)` triples, and adapting such a store to
+//! this channel — or shrinking the wire encoding back to leaves — needs exactly
+//! [`reassemble_providing`] (leaves → `BTreeMap<Prefix<H>, Node<T, H>>`) and
+//! [`flatten_providing`] (the inverse). Only the canonical-order verifiers
+//! ([`verify_pairs_canonical`], [`verify_keys_canonical`]) are live today.
 //!
-//! Each leaf carries its [`Key`], which *is* its content-addressed path
-//! `blake3(blake3(version) ‖ blake3(value))` ([`Path::for_leaf`]). The provider
-//! already holds that hash, so it ships it and the receiver places the leaf
-//! directly — no re-hash of the `(version, value)`, which is otherwise the
-//! dominant cost of reassembly (up to ~4×). Release builds trust the
-//! transmitted key; debug builds recompute the path and `debug_assert!` it
-//! matches, catching a misbehaving peer or our own protocol drift. Because the
-//! canonical compressed trie is uniquely determined by its leaf set
-//! ([`Node::branch`]/[`Node::beneath`] enforce one shape), the rebuilt nodes are
-//! structurally and hash-identical to the originals.
+//! In the leaf-list form, each leaf carries its [`Key`], which *is* its
+//! content-addressed path `blake3(blake3(version) ‖ blake3(value))`
+//! ([`Path::for_leaf`]). The provider already holds that hash, so it ships it
+//! and the receiver places the leaf directly — no re-hash of the
+//! `(version, value)`, which is otherwise the dominant cost of reassembly (up
+//! to ~4×). Release builds trust the transmitted key; debug builds recompute the
+//! path and `debug_assert!` it matches, catching a misbehaving peer or protocol
+//! drift. Because the canonical compressed trie is uniquely determined by its
+//! leaf set ([`Node::branch`]/[`Node::beneath`] enforce one shape), the rebuilt
+//! nodes are structurally and hash-identical to the originals.
 //!
-//! The [`verify_*`](verify_providing_canonical) helpers re-impose the canonical
+//! The [`verify_*`](verify_pairs_canonical) helpers re-impose the canonical
 //! ordering the old `de_strict_order` `BTreeMap`/`BTreeSet` encodings gave for
 //! free: a frame whose entries are out of order or duplicated is rejected at
 //! deserialize time.
+
+// The leaf-list conversion is retained for a future leaf-only storage adapter
+// (see the module docs) and is exercised only by tests today, so its items read
+// as dead code in a non-test build. The order verifiers remain live.
+#![allow(dead_code)]
 
 use std::collections::BTreeMap;
 

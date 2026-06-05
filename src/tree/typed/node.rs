@@ -1,5 +1,6 @@
 use std::{fmt::Debug, iter::Map, marker::PhantomData};
 
+use borsh::{BorshDeserialize, BorshSerialize};
 use imbl::{OrdMap, ordmap};
 
 use crate::{message::Message, version::Version};
@@ -58,6 +59,7 @@ impl<T, H: Height> Children<T, H> {
         self.inner.remove(radix).map(Node::from_untyped)
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn diff_owned<'a>(
         &'a self,
         other: &'a Self,
@@ -302,7 +304,113 @@ impl<T, H: Height> PartialEq for Node<T, H> {
     }
 }
 
-// `Node<T, H>` has no borsh representation: nodes never cross the wire. The
-// `providing` channel carries leaves only (see [`super::super::traverse::mirror`]),
-// and the receiver rebuilds subtrees from them. `Version` and `Message<T>` carry
-// their own borsh shapes for that leaf list.
+// Borsh wire format. Serialization is height-uniform: every typed
+// `Node<T, H>` delegates to [`untyped::Node::serialize_to`], which
+// emits the in-memory representation directly (prefix length, head bytes,
+// then either a leaf body or a `count_minus_two` + children list). No
+// leaf-vs-branch tag is needed on the wire — at the receiver, the typed
+// height together with the running `prefix_len` names the body's shape.
+//
+// Deserialization at typed height `H` reads `prefix_len`, then either
+// decodes the body directly (when `prefix_len == 0`) or peels one head
+// byte and recurses at the next-finer typed height — synthesizing the
+// `prefix_len - 1` byte for the inner reader via
+// [`borsh::io::Read::chain`]. The recursion bottoms out at the typed
+// level matching the structural level of the underlying body: a multi-
+// child branch at `S<_>` heights, or a leaf at `Z`.
+//
+// Multi-child branches always carry at least two children (the path-
+// compression invariant); singletons appear on the wire only as
+// `prefix_len > 0` and reconstruct through [`Node::beneath`].
+//
+// The branch decoder builds a typed [`Children`] through its safe `insert`
+// API rather than transmuting an `OrdMap<u8, Node<T, H>>`: `Node` carries no
+// unsafe code, so the wire decoder stays within the same safe boundary as
+// [`Node::branch`].
+
+impl<T, H> BorshSerialize for Node<T, H>
+where
+    H: Height,
+{
+    fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
+        self.inner.serialize_to(writer)
+    }
+}
+
+impl<T> BorshDeserialize for Node<T, Z>
+where
+    T: BorshDeserialize,
+{
+    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
+        let prefix_len = u8::deserialize_reader(reader)?;
+        if prefix_len != 0 {
+            return Err(borsh::io::Error::new(
+                borsh::io::ErrorKind::InvalidData,
+                "leaf height cannot carry a prefix",
+            ));
+        }
+        let version = Version::deserialize_reader(reader)?;
+        let message = Message::<T>::deserialize_reader(reader)?;
+        Ok(Node::leaf(version, message))
+    }
+}
+
+impl<T, H> BorshDeserialize for Node<T, S<H>>
+where
+    T: BorshDeserialize,
+    H: Height,
+    S<H>: Height,
+    Node<T, H>: BorshDeserialize,
+{
+    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
+        let prefix_len = u8::deserialize_reader(reader)?;
+        if (prefix_len as usize) > <S<H>>::HEIGHT {
+            return Err(borsh::io::Error::new(
+                borsh::io::ErrorKind::InvalidData,
+                "prefix length exceeds typed height",
+            ));
+        }
+        if prefix_len == 0 {
+            let count_minus_two = u8::deserialize_reader(reader)?;
+            let count = (count_minus_two as usize) + 2;
+            if count > 256 {
+                return Err(borsh::io::Error::new(
+                    borsh::io::ErrorKind::InvalidData,
+                    "branch children count exceeds 256",
+                ));
+            }
+            let mut children = Children::<T, H>::default();
+            let mut prev: Option<u8> = None;
+            for _ in 0..count {
+                let radix = u8::deserialize_reader(reader)?;
+                if let Some(p) = prev
+                    && radix <= p
+                {
+                    return Err(borsh::io::Error::new(
+                        borsh::io::ErrorKind::InvalidData,
+                        "branch radices not strictly ascending",
+                    ));
+                }
+                prev = Some(radix);
+                let child = Node::<T, H>::deserialize_reader(reader)?;
+                children.insert(radix, child);
+            }
+            Node::branch(children).ok_or_else(|| {
+                borsh::io::Error::new(
+                    borsh::io::ErrorKind::InvalidData,
+                    "branch could not be reconstructed",
+                )
+            })
+        } else {
+            let head = u8::deserialize_reader(reader)?;
+            // Prepend `prefix_len - 1` to the rest of the stream so the
+            // inner typed level reads it as if it were on the wire,
+            // synthesizing the singleton-chain recursion without a helper
+            // trait.
+            let synthesized = [prefix_len - 1];
+            let mut chained = borsh::io::Read::chain(synthesized.as_slice(), &mut *reader);
+            let inner = Node::<T, H>::deserialize_reader(&mut chained)?;
+            Ok(Node::beneath(inner, head))
+        }
+    }
+}

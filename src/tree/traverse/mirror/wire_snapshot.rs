@@ -5,13 +5,11 @@
 //! re-accept a snapshot only after a deliberate format change.
 
 use borsh::BorshDeserialize;
-use std::collections::BTreeMap;
 
 use super::message;
 use crate::tree::arb::nth_party;
-use crate::tree::key::Key;
 use crate::tree::typed::height::{Height, Root, S, Z};
-use crate::tree::typed::{Hash, Path, Prefix};
+use crate::tree::typed::{Children, Hash, Node, Prefix};
 use crate::{message::Message, version::Version};
 
 /// Map a single-letter party label to its disjoint-party index (see
@@ -57,24 +55,8 @@ fn prefix_from_bytes<H: Height>(bytes: &[u8]) -> Prefix<H> {
     Prefix::<H>::try_from_slice(bytes).expect("known-valid prefix bytes")
 }
 
-/// A canonical `providing` leaf list: `(key, version, ())` triples placed at
-/// their content-addressed paths, in strictly ascending key order. The key is
-/// the leaf's path, transmitted so the receiver need not re-hash.
-fn providing_leaves(versions: &[Version]) -> Vec<(Key, Version, Message<()>)> {
-    let mut by_path: BTreeMap<[u8; 32], (Key, Version, Message<()>)> = BTreeMap::new();
-    for version in versions {
-        let message = Message::new(());
-        let path: [u8; 32] = Path::<Root>::for_leaf(version, message.bytes()).into();
-        by_path.insert(
-            path,
-            (
-                Key::from(Path::<Root>::from(path)),
-                version.clone(),
-                message,
-            ),
-        );
-    }
-    by_path.into_values().collect()
+fn leaf(party: &str, version: u64) -> Node<(), Z> {
+    Node::leaf(ticked(party, version), Message::new(()))
 }
 
 // ---------- Hash ----------
@@ -126,6 +108,88 @@ fn prefix_z_full_32_bytes() {
     insta::assert_snapshot!(snap(&prefix_from_bytes::<Z>(&bytes)));
 }
 
+// ---------- Node<T, Z>: leaf ----------
+
+#[test]
+fn node_z_leaf() {
+    insta::assert_snapshot!(snap(&leaf("a", 1)));
+}
+
+#[test]
+fn node_z_leaf_empty_version() {
+    let l: Node<(), Z> = Node::leaf(Version::default(), Message::new(()));
+    insta::assert_snapshot!(snap(&l));
+}
+
+// ---------- Node<T, S<Z>> ----------
+
+#[test]
+fn node_s_z_singleton_path_compressed_leaf() {
+    let n: Node<(), S<Z>> = Node::beneath(leaf("a", 1), 0xab);
+    insta::assert_snapshot!(snap(&n));
+}
+
+#[test]
+fn node_s_z_two_child_branch() {
+    let children: Children<(), Z> = [(0x00, leaf("a", 1)), (0xff, leaf("a", 2))]
+        .into_iter()
+        .collect();
+    let n = Node::<(), S<Z>>::branch(children).unwrap();
+    insta::assert_snapshot!(snap(&n));
+}
+
+#[test]
+fn node_s_z_full_256_child_branch() {
+    let children: Children<(), Z> = (0u16..=255)
+        .map(|i| (i as u8, leaf("a", i as u64 + 1)))
+        .collect();
+    let n = Node::<(), S<Z>>::branch(children).unwrap();
+    insta::assert_snapshot!(snap(&n));
+}
+
+// ---------- Node<T, Root> ----------
+
+#[test]
+fn node_root_none() {
+    let n: Option<Node<(), Root>> = None;
+    insta::assert_snapshot!(snap(&n));
+}
+
+#[test]
+fn node_root_single_leaf_full_compression() {
+    let n = leaf("a", 1);
+    seq_macro::seq!(I in 0..32 {
+        let n = Node::beneath(n, I);
+    });
+    let n: Node<(), Root> = n;
+    insta::assert_snapshot!(snap(&n));
+}
+
+#[test]
+fn node_root_two_leaves_branched_at_root() {
+    let n = {
+        let l0 = leaf("a", 1);
+        let l1 = leaf("a", 2);
+        let n0 = {
+            let n = l0;
+            seq_macro::seq!(I in 0..31 {
+                let n = Node::beneath(n, I);
+            });
+            n
+        };
+        let n1 = {
+            let n = l1;
+            seq_macro::seq!(I in 0..31 {
+                let n = Node::beneath(n, I);
+            });
+            n
+        };
+        let children: Children<(), _> = [(0x01, n0), (0x02, n1)].into_iter().collect();
+        Node::<(), Root>::branch(children).unwrap()
+    };
+    insta::assert_snapshot!(snap(&n));
+}
+
 // ---------- Version ----------
 
 #[test]
@@ -174,9 +238,22 @@ fn message_exchange_empty() {
 
 #[test]
 fn message_exchange_populated() {
-    // `providing` is a leaf list (paths elided), plus an ascending `requested`
-    // and `uncertain`.
-    let providing = providing_leaves(&[ticked("a", 1), ticked("a", 2)]);
+    let leaf_z: Node<(), Z> = leaf("a", 1);
+    let inner: Node<(), S<Z>> = Node::beneath(leaf_z, 0xab);
+    let other_children: Children<(), S<Z>> =
+        [(0x01, inner.clone()), (0x02, inner)].into_iter().collect();
+    let s_s_z = Node::<(), S<S<Z>>>::branch(other_children).unwrap();
+    let n_root: Node<(), Root> = {
+        let n = s_s_z;
+        seq_macro::seq!(I in 0..30 {
+            let n = Node::beneath(n, I);
+        });
+        n
+    };
+
+    // `providing` is an ascending `(prefix, node)` list, plus an ascending
+    // `requested` and `uncertain`.
+    let providing = vec![(Prefix::<Root>::new(), n_root)];
     let requested = vec![Prefix::<Root>::new()];
     let uncertain = vec![(
         prefix_from_bytes::<message::UnderRoot>(&[0xcc]),
@@ -199,7 +276,8 @@ fn message_closing_empty() {
 
 #[test]
 fn message_closing_populated() {
-    let providing = providing_leaves(&[ticked("a", 1)]);
+    let n_s_z: Node<(), S<Z>> = Node::beneath(leaf("a", 1), 0xab);
+    let providing = vec![(prefix_from_bytes::<S<Z>>(&[0u8; 31]), n_s_z)];
     let requested = vec![prefix_from_bytes::<S<Z>>(&[0xffu8; 31])];
     let m: message::Closing<()> = message::Closing {
         providing,
@@ -216,7 +294,7 @@ fn message_complete_empty() {
 
 #[test]
 fn message_complete_populated() {
-    let providing = providing_leaves(&[ticked("a", 1)]);
+    let providing = vec![(prefix_from_bytes::<Z>(&[0u8; 32]), leaf("a", 1))];
     let m: message::Complete<()> = message::Complete { providing };
     insta::assert_snapshot!(snap(&m));
 }

@@ -65,7 +65,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use itertools::{EitherOrBoth, Itertools};
 
 use crate::{
-    message::Message,
     tree::{
         self,
         key::Key,
@@ -81,7 +80,6 @@ use crate::{
 
 use super::message::{self, UnderRoot, UnderUnderRoot};
 use super::protocol;
-use super::reassemble::{BuildNode, flatten_providing, reassemble_providing};
 
 /// The version state for an [`Exchange`] which has just been initialized but
 /// has not yet connected.
@@ -477,7 +475,7 @@ where
     L: Levels<Message = T, Height = S<S<H>>>,
     S<S<H>>: Height,
     S<H>: Height,
-    H: Height + Unknown + BuildNode,
+    H: Height + Unknown,
     // Assumed at impl-validation time so we don't have to case-analyze `H`
     // here: at use sites `H` is concrete and one of the three blanket impls
     // discharges it.
@@ -531,7 +529,7 @@ where
         let providing = self.answer_requested(request.requested).await;
         Ok(protocol::Step::Done {
             msg: message::Complete {
-                providing: flatten_providing(providing),
+                providing: providing.into_iter().collect(),
             },
             output: tree::Root {
                 ceiling: self.versions.our_version | self.versions.their_version,
@@ -597,35 +595,27 @@ where
     OnSend: Send,
     OnRecv: Send,
 {
-    /// Insert leaves the counterparty has just sent us (because we requested
+    /// Insert nodes the counterparty has just sent us (because we requested
     /// them last round, or because they unilaterally knew we lacked them) into
     /// our zipper's bottom level.
     ///
-    /// The wire carries only the leaves, each tagged with its [`Key`] (its
-    /// content-addressed path); we re-materialize the subtrees at this height by
-    /// placing each leaf at the path its key names ([`reassemble_providing`]).
-    /// Release builds trust the key; debug builds recompute and assert it
-    /// matches, so a leaf can only land where its content hashes to.
-    async fn absorb_providing<H, OnRecvFut>(
-        &mut self,
-        providing: Vec<(Key, Version, Message<L::Message>)>,
-    ) where
+    /// Each subtree arrives as a whole `(prefix, node)` pair, in ascending
+    /// prefix order, and is inserted directly at the named prefix.
+    async fn absorb_providing<H, OnRecvFut>(&mut self, providing: message::Providing<L::Message, H>)
+    where
         L::Message: Send + Sync,
         OnRecv: FnMut(Key, &Version, &Arc<L::Message>) -> OnRecvFut + Send,
         OnRecvFut: Future<Output = ()> + Send,
         L: Levels<Height = H>,
-        H: BuildNode,
+        H: Height,
     {
-        let providing = reassemble_providing::<L::Message, H>(providing);
-
         // The counterparty may only provide subtrees we requested last round,
         // or whose parent we listed as `uncertain` (the Left case it may infer
-        // we lack). Each reassembled prefix's parent must therefore be one we
+        // we lack). Each provided prefix's parent must therefore be one we
         // recorded as expected; anything else means the peer is misbehaving, or
-        // we are. (Content placement is already verified by the path recompute
-        // in `reassemble_providing`; this guards the *selection* of subtrees.)
+        // we are.
         #[cfg(debug_assertions)]
-        for prefix in providing.keys() {
+        for (prefix, _) in &providing {
             let bytes = prefix.as_bytes();
             let parent = &bytes[..bytes.len().saturating_sub(1)];
             debug_assert!(
@@ -889,7 +879,7 @@ where
         L: Levels<Height = S<S<H>>>,
         S<S<H>>: Height,
         S<H>: Height,
-        H: Height + Unknown + BuildNode,
+        H: Height + Unknown,
     {
         let message::Exchange {
             providing,
@@ -934,10 +924,11 @@ where
             .map(|(prefix, node)| (*prefix, node.hash()))
             .collect();
 
-        // Flatten the outgoing `providing` map to its leaves (in ascending path
-        // order) and the `requested` set to an ascending `Vec`.
+        // Collect the outgoing `providing` map into an ascending `(prefix,
+        // node)` `Vec` (the `BTreeMap` already iterates in prefix order), and
+        // the `requested` set likewise into an ascending `Vec`.
         let response = message::Exchange {
-            providing: flatten_providing(providing),
+            providing: providing.into_iter().collect(),
             requested: partition.requested.into_iter().collect(),
             uncertain,
         };
