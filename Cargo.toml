@@ -41,7 +41,7 @@ rand = { version = "0.8", features = ["small_rng"] }
 arc-swap = "1"
 zstd = "0.13"
 async-compression = { version = "0.4", features = ["tokio", "zstd"] }
-ratatui = "0.29"
+ratatui = "0.30"
 
 [profile.dev]
 debug = "line-tables-only"
