@@ -8,7 +8,7 @@ pub mod local;
 pub mod protocol;
 pub mod remote;
 
-mod message;
+pub(crate) mod message;
 mod reassemble;
 
 #[cfg(test)]
@@ -21,6 +21,9 @@ mod test;
 mod wire_snapshot;
 
 use protocol::*;
+
+use crate::version::Version;
+use message::Handshake;
 
 // This macro allows defining one communication step of the inner protocol
 // between initiator <==> responder (once the client and server have determined
@@ -140,7 +143,144 @@ pub enum Error<C, S> {
     Server(S),
 }
 
+/// The client's exchange after the connect phase: the [`Peer`] it has descended
+/// to once `connect` then `complete_connect` have run.
+pub(crate) type ClientConnected<C, T> = <<C as Connect<T>>::Next as CompleteConnect<T>>::Next;
+
+/// The server's exchange after the connect phase: the [`Peer`] it has descended
+/// to once `accept` has run.
+pub(crate) type ServerConnected<S, T> = <S as Accept<T>>::Next;
+
+/// The result of the connect phase ([`connect_phase`]): the [`Handshake`]s have
+/// been exchanged, so the caller can inspect the peer's `network`/`party` and
+/// decide whether to descend, absorb a retiree, serve a bootstrapper, etc.
+pub(crate) enum Phase<C, S, T>
+where
+    T: Send + Sync,
+    C: Client<T>,
+    S: Server<T>,
+{
+    /// The two versions were equal: already converged, no descent. Carries the
+    /// client's reconciled root, the server's output (the remote side's framed
+    /// halves over the wire), and the peer's [`Handshake`].
+    Converged {
+        local_root: C::Output,
+        remote_out: S::Output,
+        peer: Handshake,
+    },
+    /// The versions differ: the connected exchanges are ready for [`descend`].
+    /// Carries our version and the peer's [`Handshake`] for the caller's
+    /// dispatch and the descent's role tiebreak.
+    Diverged {
+        local: ClientConnected<C, T>,
+        remote: ServerConnected<S, T>,
+        our_version: Version,
+        peer: Handshake,
+    },
+}
+
+/// Run the connect phase: the client emits its [`Handshake`], the server ships
+/// it and replies with the peer's, and the client absorbs the peer's version.
+/// Stops there, handing the outcome back for dispatch (see [`Phase`]).
+pub(crate) async fn connect_phase<C, S, T>(
+    c: C,
+    s: S,
+) -> Result<Phase<C, S, T>, Error<C::Error, S::Error>>
+where
+    T: Send + Sync,
+    C: Client<T>,
+    S: Server<T>,
+{
+    // The client emits its handshake. `connect` is statically `Continue` (its
+    // `Done` carries `Infallible`), so this `let` is irrefutable.
+    x! { let our_hs = c.connect() }
+    let our_version = our_hs.version.clone();
+
+    // The server ships our handshake and replies with the peer's.
+    match s.accept(our_hs).await.map_err(Error::Server)? {
+        Step::Continue { msg: peer, next: s } => match c
+            .complete_connect(peer.version.clone())
+            .await
+            .map_err(Error::Client)?
+        {
+            Step::Continue { msg: (), next: c } => Ok(Phase::Diverged {
+                local: c,
+                remote: s,
+                our_version,
+                peer,
+            }),
+            Step::Done { .. } => {
+                unreachable!("client and server disagree about whether versions match")
+            }
+        },
+        Step::Done {
+            msg: peer,
+            output: remote_out,
+        } => match c
+            .complete_connect(peer.version.clone())
+            .await
+            .map_err(Error::Client)?
+        {
+            Step::Done {
+                msg: (),
+                output: local_root,
+            } => {
+                debug_assert!(
+                    our_version == peer.version,
+                    "server and client must agree on version to quit early"
+                );
+                Ok(Phase::Converged {
+                    local_root,
+                    remote_out,
+                    peer,
+                })
+            }
+            Step::Continue { .. } => {
+                unreachable!("client and server disagree about whether versions match")
+            }
+        },
+    }
+}
+
+/// Run the steady-state descent between two connected [`Peer`]s, choosing the
+/// initiator by the canonical-byte tiebreak on the two (necessarily distinct)
+/// versions, and returning the outputs in `(local, remote)` order.
+pub(crate) async fn descend<I, R, T>(
+    local: I,
+    remote: R,
+    local_version: Version,
+    remote_version: Version,
+) -> Result<(I::Output, R::Output), Error<I::Error, R::Error>>
+where
+    T: Send + Sync,
+    I: Peer<T>,
+    R: Peer<T>,
+{
+    // Their causal order is only partial (they may be concurrent), so to pick
+    // an initiator we compare canonical bytes lexicographically: an arbitrary
+    // but total, deterministic tiebreak (not a causal order). Distinct versions
+    // have distinct canonical bytes, so `Equal` is impossible.
+    match remote_version.as_bytes().cmp(local_version.as_bytes()) {
+        // If the remote version is less, the local side is the initiator.
+        Ordering::Less => mirror_connected(local, remote).await,
+        // Running the remote as initiator, rearrange the result back to (local, remote).
+        Ordering::Greater => match mirror_connected(remote, local).await {
+            Ok((r, l)) => Ok((l, r)),
+            Err(e) => Err(match e {
+                Error::Server(l) => Error::Client(l),
+                Error::Client(r) => Error::Server(r),
+            }),
+        },
+        Ordering::Equal => unreachable!("distinct versions have distinct canonical bytes"),
+    }
+}
+
 /// Drive a mirror protocol client against a server to synchronize both of them.
+/// A test convenience: the wire entry points in [`crate::Known`] drive
+/// [`connect_phase`] and [`descend`] directly so they can dispatch on the peer's
+/// [`Handshake`] in between, so this whole-session shortcut is only used by the
+/// in-process protocol tests.
+#[cfg(test)]
 pub async fn mirror<'a, C, S, T>(
     c: C,
     s: S,
@@ -152,65 +292,19 @@ where
 {
     // Box the future so that callers don't need to handle its big future type.
     Box::pin(async move {
-        // Connect the client by getting its version
-        x! { let x = c.connect() };
-        let client_version = x.clone();
-
-        // Send the client's version to the server and get the server's version
-        let (c, s, server_version) = match s.accept(x).await.map_err(Error::Server)? {
-            Step::Continue { msg: x, next: s } => {
-                let server_version = x.clone();
-                match c.complete_connect(x).await.map_err(Error::Client)? {
-                    Step::Continue { msg: (), next: c } => (c, s, server_version),
-                    Step::Done { .. } => {
-                        unreachable!("client and server disagree about whether versions match")
-                    }
-                }
-            }
-            Step::Done {
-                msg: x,
-                output: server_output,
-            } => {
-                let server_version = x.clone();
-                match c.complete_connect(x).await.map_err(Error::Client)? {
-                    Step::Continue { .. } => {
-                        unreachable!("client and server disagree about whether versions match")
-                    }
-                    Step::Done {
-                        msg: (),
-                        output: client_output,
-                    } => {
-                        debug_assert!(
-                            client_version == server_version,
-                            "server and client must agree on version to quit early"
-                        );
-                        return Ok((client_output, server_output));
-                    }
-                };
-            }
-        };
-
-        // We know at this point that the client and server versions are different;
-        // otherwise, both would have bailed early during the accept/complete_connect
-        // phases. Their causal order is only partial (they may be concurrent), so
-        // to pick an initiator we compare their *canonical bytes* lexicographically:
-        // an arbitrary but total and deterministic tiebreak (not a causal order).
-        // Distinct versions have distinct canonical bytes, so `Equal` is impossible.
-        let (c, s) = match server_version.as_bytes().cmp(client_version.as_bytes()) {
-            // If the server version is less, the client is the initiator:
-            Ordering::Less => mirror_connected(c, s).await,
-            // When running the server as the initiator, rearrange the result:
-            Ordering::Greater => match mirror_connected(s, c).await {
-                Ok((s, c)) => Ok((c, s)),
-                Err(e) => Err(match e {
-                    Error::Server(c) => Error::Client(c),
-                    Error::Client(s) => Error::Server(s),
-                }),
-            },
-            Ordering::Equal => unreachable!("server and client must bail early if versions match"),
-        }?;
-
-        Ok((c, s))
+        match connect_phase(c, s).await? {
+            Phase::Converged {
+                local_root,
+                remote_out,
+                ..
+            } => Ok((local_root, remote_out)),
+            Phase::Diverged {
+                local,
+                remote,
+                our_version,
+                peer,
+            } => descend(local, remote, our_version, peer.version).await,
+        }
     })
     .await
 }

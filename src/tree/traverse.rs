@@ -16,4 +16,5 @@ mod join;
 pub use join::join;
 
 pub mod mirror;
+#[cfg(test)]
 pub use mirror::mirror;

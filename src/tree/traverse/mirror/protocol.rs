@@ -88,7 +88,8 @@ where
 {
     type Next: CompleteConnect<T> + Stage<Output = Self::Output, Height = Root, Error = Self::Error>;
 
-    async fn connect(self) -> Result<Step<Version, Self::Next, Infallible>, Self::Error>;
+    async fn connect(self)
+    -> Result<Step<message::Handshake, Self::Next, Infallible>, Self::Error>;
 }
 
 pub trait CompleteConnect<T>: Stage<Height = Root> + Sized
@@ -115,8 +116,8 @@ where
 
     async fn accept(
         self,
-        their_version: Version,
-    ) -> Result<Step<Version, Self::Next, Self::Output>, Self::Error>;
+        request: message::Handshake,
+    ) -> Result<Step<message::Handshake, Self::Next, Self::Output>, Self::Error>;
 }
 
 /// Continue the protocol as the initiator.

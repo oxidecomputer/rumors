@@ -140,20 +140,46 @@ impl Party {
         self.view().is_disjoint(other.view())
     }
 
-    /// Duplicate this party's id-region, producing a second handle to the
-    /// **same** region.
+    /// Dangerously duplicate this party, violating linearity to produce a
+    /// second handle to the **same** party identity.
     ///
-    /// # ⚠️ This deliberately violates linearity
+    /// # ⚠️ You probably don't want to call this method because it can **corrupt
+    /// causal history**
     ///
     /// [`Party`] is [`!Clone`](Clone) precisely because two live handles to one
-    /// region break the Law of Disjointness the interval tree clocks rely on:
-    /// the copies are *not* [disjoint](Party::is_disjoint), so
-    /// [`join`](Party::join)ing them — or independently [`tick`](Party::tick)ing
-    /// both — corrupts causal history. This method hands you that footgun
-    /// anyway. The caller is **solely responsible** for ensuring at most one
-    /// copy is ever treated as live (the other must be dropped without being
-    /// used), e.g. when handing a party across a boundary where ownership
-    /// transfers to exactly one side.
+    /// region break the Law of Disjointness upon which interval tree clocks
+    /// rely: the copy produced by this method is *not*
+    /// [disjoint](Party::is_disjoint), so if the original and the alias (or any
+    /// of their [`fork`](Party::fork)s) both [`join`](Party::join) or
+    /// [`tick`](Party::tick), it can corrupt causal history arbitrarily.
+    ///
+    /// Because of this, duplicating a [`Party`] is almost always a footgun;
+    /// this method invites you to shoot yourself in the foot. The caller is
+    /// **solely responsible** for ensuring at most one copy of a [`Party`] is
+    /// ever treated as "live"; the other must be dropped without ever being
+    /// used again. It is only causality-safe to call this method if you can
+    /// ensure that *at most one* of the copies (or any of its
+    /// [`fork`](Party::fork)s) will *ever* call [`tick`](Party::tick) again.
+    ///
+    /// Keep in mind that a [`Clock`](crate::Clock) is merely the convenient
+    /// pairing of a [`Party`] and a [`Version`], so all these warnings apply
+    /// equally to [`Clock`](crate::Clock)s constructed from such a [`Party`]:
+    /// *at most one* of such a [`Clock`](crate::Clock) (or any of its
+    /// [`fork`](crate::Clock::fork)s) must *ever* call
+    /// [`tick`](crate::Clock::tick) again.
+    ///
+    /// ## When might you want to do this?
+    ///
+    /// You might reach for this when handing a party across a boundary where
+    /// ownership transfers to exactly one side based on a subsequent
+    /// determination not known at the time of transfer.
+    ///
+    /// ```
+    /// use before::Party;
+    /// let p = Party::seed();
+    /// let q = p.dangerously_alias();
+    /// assert!(!p.is_disjoint(&q));
+    /// ```
     pub fn dangerously_alias(&self) -> Self {
         Party(self.0.clone())
     }

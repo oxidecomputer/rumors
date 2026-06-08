@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use proptest::prelude::*;
 
+use crate::network::Network;
 use crate::tree::arb::{arb_divergent_pair, arb_shared_delta_pair, arb_tree_root};
 use crate::tree::key::Key;
 use crate::tree::traverse::mirror::{local, mirror};
@@ -34,8 +35,13 @@ type Silent = fn(Key, &Version, &Arc<()>) -> std::future::Ready<()>;
 fn mirror_capture(a: Root<()>, b: Root<()>) -> (Root<()>, Log) {
     let mut learned: Log = Vec::new();
     let merged = pollster::block_on(async {
+        // Local-local oracle: the network/party greeting fields are inert here
+        // (no lib-level dispatch runs), so a placeholder network and absent
+        // party suffice — only the version the handshake carries is consumed.
         let l = local::Exchange::start(
             a,
+            Network::ZERO,
+            None,
             None::<Silent>,
             Some(|k: Key, v: &Version, _m: &Arc<()>| {
                 learned.push((k, v.clone()));

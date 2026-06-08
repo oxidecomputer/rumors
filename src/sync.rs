@@ -1,15 +1,23 @@
 //! Synchronous rumor sets with redaction.
 //!
-//! `rumors::sync` is a CRDT-backed gossip set with `FnMut` callbacks and
-//! [`std::io::Read`] / [`std::io::Write`] I/O. Use this module when your I/O
-//! is synchronous (e.g. [`std::net::TcpStream`]).
+//! `rumors` is a protocol for efficient unordered gossip for sets of causally
+//! versioned messages with redaction. Each peer holds a [`Known<T>`] rumor set;
+//! peers reconcile by exchanging only the parts that differ. Redacting a
+//! message stops it propagating, and redactions spread contagiously to every
+//! peer the redactor (transitively) gossips with.
+//!
+//! This is the synchronous interface: blocking [`std::io::Read`] /
+//! [`std::io::Write`] I/O and `FnMut` callbacks. For an async interface
+//! (`AsyncRead`/`AsyncWrite`, async callbacks), see the [`rumors`](crate) crate
+//! root.
 //!
 //! # Quickstart
 //!
 //! ```
 //! use rumors::sync::Known;
 //!
-//! // The distinguished seed rumor set; further peers are made by `fork`.
+//! // `seed` mints the distinguished root rumor set for a universe of peers;
+//! // additional peers are made by [`Known::fork`], never by a second `seed`.
 //! let mut alice = Known::seed();
 //!
 //! // The callback fires once per newly-observed message with an opaque
@@ -40,28 +48,65 @@
 //!
 //! # Concurrent rumor sets
 //!
-//! Every [`Known`] carries its own Interval Tree Clock party and may originate
-//! [`message`](Known::message)s and [`redact`](Known::redact)ions. To work
-//! against a peer concurrently, [`fork`](Known::fork) a `Known`: this is a
-//! *true causal fork* that mints a fresh disjoint party sharing the current
-//! observations (copy-on-write), so both halves can act independently. Reunite
-//! a fork with [`join_then`](Known::join_then) / [`join`](Known::join), which
-//! merges the histories and rejoins the parties. A `Known` is `!Clone` — the
-//! only way to get another working copy is [`fork`](Known::fork).
+//! A `Known` is [`!Clone`](Clone); the only way to duplicate one is
+//! [`fork`](Known::fork), which creates a cheap, copy-on-write *causal fork*,
+//! or its networked counterpart, [`Known::bootstrap`]. The fork may originate
+//! [`message`](Known::message)s and [`redact`](Known::redact)ions independently
+//! of its original. Any two causal forks ultimately descended from the same
+//! [`Known::seed`] may be reunited via [`Known::join_then`] (observing
+//! everything new from one side) or [`Known::join`].
 //!
-//! # Gossiping with peers on the network
+//! # Gossiping over the network
 //!
-//! Pass a [`Read`] reader and a [`Write`] writer into [`Known::gossip`]; both
-//! ends must drive `gossip` concurrently (typically on separate threads):
+//! On a real network, a brand-new process does not have a [`Known`]. It
+//! acquires one by *bootstrapping* from an established peer. The newcomer
+//! drives [`bootstrap`](Known::bootstrap); the established peer drives its
+//! usual [`gossip`](Known::gossip), which transparently serves the bootstrap
+//! request. Once the newcomer has a [`Known`], it can then
+//! [`gossip`](Known::gossip) with others, including allowing others to
+//! [`bootstrap`](Known::bootstrap) from itself.
 //!
-//! ```no_run
-//! use rumors::sync::{Known};
-//! use std::net::TcpStream;
+//! Both [`bootstrap`](Known::bootstrap) and [`gossip`](Known::gossip) take a
+//! [`Read`] reader and a [`Write`] writer. Because the calls block, the two
+//! ends must run concurrently — typically on separate threads. Here two
+//! [`std::io::pipe`]s stand in for a TCP connection:
 //!
-//! let mut write = TcpStream::connect("127.0.0.1:9000").unwrap();
-//! let mut read = write.try_clone().unwrap();
-//! let alice: Known<String> = Known::seed();
-//! let _alice = alice.gossip(&mut read, &mut write).unwrap();
+//! ```
+//! use rumors::sync::Known;
+//! use std::io::pipe;
+//! use std::thread;
+//!
+//! // One pipe carries alice -> bob, the other bob -> alice.
+//! let (mut a2b_r, mut a2b_w) = pipe().unwrap();
+//! let (mut b2a_r, mut b2a_w) = pipe().unwrap();
+//!
+//! // `alice` is an established peer with some content.
+//! let mut alice: Known<String> = Known::seed();
+//! alice.message(["hello".to_string()]);
+//!
+//! // `bob` is a fresh process on its own thread. It bootstraps from alice,
+//! // who serves a copy of her tree and a freshly-forked party. The thread
+//! // hands the pipe halves back so we can reuse the connection below.
+//! let bob = thread::spawn(move || {
+//!     let bob = Known::<String>::bootstrap(&mut a2b_r, &mut b2a_w)
+//!         .expect("handshake")
+//!         .expect("alice served the bootstrap");
+//!     (bob, a2b_r, b2a_w)
+//! });
+//! let mut alice = alice.gossip(&mut b2a_r, &mut a2b_w).unwrap();
+//! let (mut bob, mut a2b_r, mut b2a_w) = bob.join().unwrap();
+//!
+//! // bob now belongs to alice's network and holds her observations.
+//! assert_eq!(alice, bob);
+//!
+//! // If both add messages they diverge, but gossiping reconciles them again:
+//! alice.message(["from alice".to_string()]);
+//! bob.message(["from bob".to_string()]);
+//! assert!(alice != bob);
+//!
+//! let bob = thread::spawn(move || bob.gossip(&mut a2b_r, &mut b2a_w).unwrap());
+//! let alice = alice.gossip(&mut b2a_r, &mut a2b_w).unwrap();
+//! assert_eq!(alice, bob.join().unwrap());
 //! ```
 //!
 //! # Message serialization
@@ -77,7 +122,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use futures::io::AllowStdIo;
 use tokio_util::compat::{FuturesAsyncReadCompatExt, FuturesAsyncWriteCompatExt};
 
-pub use crate::{Error, Key, PROTOCOL_MAGIC, PROTOCOL_VERSION, Version};
+pub use crate::{Error, Key, Network, PROTOCOL_MAGIC, PROTOCOL_VERSION, Version};
 pub use ::borsh;
 
 /// A local set of rumors: add to it, redact from it, gossip with peers.
@@ -148,6 +193,9 @@ impl<T> Known<T> {
     ///
     /// # Example
     ///
+    /// The universe's [`Network`] identifier is drawn from the operating
+    /// system's secure RNG; use [`seed_rng`](Self::seed_rng) to supply your own.
+    ///
     /// ```
     /// use rumors::sync::Known;
     ///
@@ -155,6 +203,31 @@ impl<T> Known<T> {
     /// ```
     pub fn seed() -> Self {
         Known(crate::Known::seed())
+    }
+
+    /// Like [`seed`](Self::seed), but draws the universe's [`Network`] identifier
+    /// from a caller-supplied RNG instead of the OS RNG (e.g. a deterministic
+    /// RNG in tests).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rand::SeedableRng;
+    /// use rand::rngs::StdRng;
+    /// use rumors::sync::Known;
+    ///
+    /// let mut rng = StdRng::seed_from_u64(42);
+    /// let _alice: Known<String> = Known::seed_rng(&mut rng);
+    /// ```
+    pub fn seed_rng<R: rand::RngCore + ?Sized>(rng: &mut R) -> Self {
+        Known(crate::Known::seed_rng(rng))
+    }
+
+    /// This rumor set's [`Network`]: the identifier shared by every peer
+    /// descended from the same [`seed`](Self::seed). Combining operations
+    /// require matching networks.
+    pub fn network(&self) -> Network {
+        self.0.network()
     }
 
     /// Insert messages into the rumor set without observing them.
@@ -418,8 +491,6 @@ impl<T> Known<T> {
     /// `other` that `self` had not already observed, and reuniting `other`'s
     /// party back into `self`'s.
     ///
-    /// The observing counterpart of [`join`](Self::join).
-    ///
     /// **Delivery is unordered**: callbacks fire in arbitrary order, including
     /// orderings that violate the causal precedence captured by each message's
     /// [`Version`]. Sort by [`Version`] if your application needs causal or
@@ -462,9 +533,6 @@ impl<T> Known<T> {
     /// Synchronize rumor sets with a remote peer without observing the messages
     /// learned from it.
     ///
-    /// The callback-free counterpart of [`gossip_then`](Self::gossip_then); see
-    /// that method for the handshake and ordering semantics.
-    ///
     /// # Example
     ///
     /// ```no_run
@@ -493,20 +561,10 @@ impl<T> Known<T> {
     /// Synchronize rumor sets with a remote peer, invoking `on_message` for
     /// each message learned from the peer.
     ///
-    /// `read` and `write` must implement [`Read`] / [`Write`]; both ends of
-    /// the connection must drive gossip concurrently (typically on separate
-    /// threads). The callback signature matches [`Known::message_then`]. To
-    /// synchronize without a callback, use [`gossip`](Self::gossip).
-    ///
-    /// The session begins with the 8-byte protocol handshake described in
-    /// the crate-level `# Stability` section; a peer with the wrong
-    /// [`PROTOCOL_MAGIC`] or [`PROTOCOL_VERSION`] is rejected as
-    /// [`Error::MagicMismatch`] or [`Error::VersionMismatch`] before any
-    /// rumor-set state is touched. After the handshake, message delivery
-    /// is **unordered**: callbacks fire in arbitrary order, including
-    /// orderings that violate the causal precedence captured by each
-    /// message's [`Version`]. Sort by [`Version`] if your application
-    /// needs causal or insertion ordering.
+    /// Message delivery is **unordered**: callbacks fire in arbitrary order,
+    /// including orderings that violate the causal precedence captured by each
+    /// message's [`Version`]. Sort by [`Version`] if your application needs
+    /// causal ordering.
     ///
     /// # Example
     ///
@@ -543,5 +601,143 @@ impl<T> Known<T> {
                 .gossip_then(&mut read, &mut write, into_async(on_message)),
         )
         .map(Known)
+    }
+
+    /// Bootstrap a brand-new rumor set from a remote peer.
+    ///
+    /// The peer must already have a [`Known`] in hand; bootstrapping from a
+    /// peer who is also bootstrapping results in `Ok(None)`.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(Some(known))`: success.
+    /// - `Ok(None)`: the peer was *also* bootstrapping, so neither side had
+    ///   anything to give the other.
+    /// - `Err(_)`: handshake or transfer failure (see [`Error`]).
+    ///
+    /// To observe each message in the received tree, use
+    /// [`bootstrap_then`](Self::bootstrap_then).
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use rumors::sync::Known;
+    /// use std::net::TcpStream;
+    ///
+    /// let mut write = TcpStream::connect("127.0.0.1:9000").unwrap();
+    /// let mut read = write.try_clone().unwrap();
+    /// let bob: Option<Known<String>> = Known::bootstrap(&mut read, &mut write).unwrap();
+    /// ```
+    pub fn bootstrap<'a, R, W>(read: &'a mut R, write: &'a mut W) -> Result<Option<Self>, Error>
+    where
+        T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
+        R: Read + Unpin + Send,
+        W: Write + Unpin + Send,
+    {
+        // Bridge the synchronous reader/writer to the async I/O the protocol
+        // expects, exactly as `gossip` does.
+        let mut read = AllowStdIo::new(read).compat();
+        let mut write = AllowStdIo::new(write).compat_write();
+        pollster::block_on(crate::Known::<T>::bootstrap(&mut read, &mut write))
+            .map(|known| known.map(Known))
+    }
+
+    /// Bootstrap a brand-new rumor set from a remote peer, invoking
+    /// `on_message` once per message in the received [`Known`].
+    ///
+    /// The peer must already have a [`Known`] in hand; bootstrapping from a
+    /// peer who is also bootstrapping results in `Ok(None)`.
+    ///
+    /// Message delivery is **unordered**: callbacks fire in arbitrary order,
+    /// including orderings that violate the causal precedence captured by each
+    /// message's [`Version`]. Sort by [`Version`] if your application needs
+    /// causal ordering.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use std::sync::Arc;
+    /// use rumors::sync::Known;
+    /// use std::net::TcpStream;
+    ///
+    /// let mut write = TcpStream::connect("127.0.0.1:9000").unwrap();
+    /// let mut read = write.try_clone().unwrap();
+    /// let bob: Option<Known<String>> = Known::bootstrap_then(
+    ///     &mut read,
+    ///     &mut write,
+    ///     |_, _, m: &Arc<String>| println!("{}", m.len()),
+    /// )
+    /// .unwrap();
+    /// ```
+    pub fn bootstrap_then<'a, OnMessage, R, W>(
+        read: &'a mut R,
+        write: &'a mut W,
+        on_message: OnMessage,
+    ) -> Result<Option<Self>, Error>
+    where
+        T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
+        R: Read + Unpin + Send,
+        W: Write + Unpin + Send,
+        OnMessage: FnMut(Key, &Version, &Arc<T>) + Send + 'a,
+    {
+        // Bridge the synchronous reader/writer to the async I/O the protocol
+        // expects, exactly as `gossip_then` does.
+        let mut read = AllowStdIo::new(read).compat();
+        let mut write = AllowStdIo::new(write).compat_write();
+        pollster::block_on(crate::Known::<T>::bootstrap_then(
+            &mut read,
+            &mut write,
+            into_async(on_message),
+        ))
+        .map(|known| known.map(Known))
+    }
+
+    /// Retire this rumor set into a remote peer, handing it our party so our
+    /// id-region is reclaimed rather than leaked, then leaving the universe.
+    ///
+    /// We may only retire into a peer that *causally dominates* us (its version
+    /// is `>=` ours): such a peer already holds a superset of our content, so
+    /// handing over only the party — with no content transfer — is safe. The
+    /// intended pattern is therefore to [`gossip`](Self::gossip) with a peer
+    /// first (so its version comes to dominate ours), then `retire` into it; if
+    /// that fails, pick another peer and try again.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(None)`: **retired.** The peer dominated us and absorbed our party;
+    ///   we have left the universe and dropped ourselves.
+    /// - `Ok(Some(self))`: **declined, unchanged.** The peer did not dominate
+    ///   us, was itself retiring, or was bootstrapping — nothing happened and we
+    ///   are handed back intact to retry elsewhere.
+    /// - `Err(_)`: an I/O, handshake, or network-mismatch failure (see
+    ///   [`Error`]). As with the other wire methods, an error here consumes
+    ///   `self`.
+    ///
+    /// A peer running ordinary [`gossip`](Self::gossip) absorbs a retiree
+    /// transparently, so the counterparty needs no special call.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use rumors::sync::Known;
+    /// use std::net::TcpStream;
+    ///
+    /// let mut write = TcpStream::connect("127.0.0.1:9000").unwrap();
+    /// let mut read = write.try_clone().unwrap();
+    /// let alice: Known<String> = Known::seed();
+    /// // `None` => we successfully retired; `Some(alice)` => declined, retry.
+    /// let _retired: Option<Known<String>> = alice.retire(&mut read, &mut write).unwrap();
+    /// ```
+    pub fn retire<'a, R, W>(self, read: &'a mut R, write: &'a mut W) -> Result<Option<Self>, Error>
+    where
+        T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
+        R: Read + Unpin + Send,
+        W: Write + Unpin + Send,
+    {
+        // Bridge the synchronous reader/writer to the async I/O the protocol
+        // expects, exactly as `gossip` does.
+        let mut read = AllowStdIo::new(read).compat();
+        let mut write = AllowStdIo::new(write).compat_write();
+        pollster::block_on(self.0.retire(&mut read, &mut write)).map(|known| known.map(Known))
     }
 }

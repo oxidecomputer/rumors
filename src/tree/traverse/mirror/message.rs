@@ -73,10 +73,14 @@
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
+use before::Party;
+
+use crate::network::Network;
 use crate::tree::typed::{
     Hash, Node, Prefix,
     height::{Height, Pred, Root, S, Z},
 };
+use crate::version::Version;
 
 use super::reassemble::{verify_keys_canonical, verify_pairs_canonical};
 
@@ -84,6 +88,56 @@ use super::reassemble::{verify_keys_canonical, verify_pairs_canonical};
 /// each paired with the prefix it lands at, in ascending prefix order. The
 /// receiver inserts each node directly at its named prefix.
 pub type Providing<T, H> = Vec<(Prefix<H>, Node<T, H>)>;
+
+/// The opening message of every session: what the `connect`/`accept` steps
+/// exchange (replacing the bare [`Version`] they exchanged before the handshake
+/// was folded in). It carries the sender's universe [`Network`], its causal
+/// [`Version`], and, only when the sender is *retiring*, its [`Party`] for the
+/// peer to absorb (see [`Known::retire`](crate::Known::retire)).
+///
+/// On the wire this frame follows the raw `magic + proto_version` preamble,
+/// which is validated before this body is ever parsed (see
+/// [`super::remote`]); so the magic bytes are *not* part of this struct. The
+/// [`Network`] travels as its raw 16 bytes (a fixed-width array, no length
+/// prefix), the [`Version`] and the `Option<Party>` as their own borsh shapes.
+///
+/// Deliberately **not** [`Clone`]: it may carry a linear [`Party`], which must
+/// not be duplicated implicitly. Take `.version.clone()` (a [`Version`] is
+/// [`Clone`]) when only the causal timestamp is needed.
+pub struct Handshake {
+    /// The sender's universe id, or [`Network::ZERO`](crate::Network) if the
+    /// sender is bootstrapping and has none yet.
+    pub network: Network,
+    /// The sender's latest causal [`Version`].
+    pub version: Version,
+    /// [`Some`] iff the sender is retiring: the party it offers the peer to
+    /// absorb. [`None`] for ordinary gossip and for a bootstrapping peer.
+    pub party: Option<Party>,
+}
+
+impl BorshSerialize for Handshake {
+    fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
+        // Raw 16-byte network (borsh encodes `[u8; 16]` as exactly 16 bytes,
+        // no length prefix), then the version and optional party.
+        self.network.to_bytes().serialize(writer)?;
+        self.version.serialize(writer)?;
+        self.party.serialize(writer)?;
+        Ok(())
+    }
+}
+
+impl BorshDeserialize for Handshake {
+    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
+        let network = Network::from_bytes(<[u8; 16]>::deserialize_reader(reader)?);
+        let version = Version::deserialize_reader(reader)?;
+        let party = Option::<Party>::deserialize_reader(reader)?;
+        Ok(Self {
+            network,
+            version,
+            party,
+        })
+    }
+}
 
 /// The initiator's opening message: a single hash at the empty (root) prefix,
 /// namely our root hash.

@@ -296,15 +296,16 @@ impl<W: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for HoldUntilFlush<
     }
 }
 
-/// Regression: the protocol handshake must make progress over a transport that
+/// Regression: the protocol preamble must make progress over a transport that
 /// delivers bytes only on flush.
 ///
-/// Each peer writes an 8-byte preamble and then `read_exact`s the peer's 8
-/// bytes before sending anything further. If the preamble is left sitting in a
-/// buffering writer (`write_all` reaches only the buffer, never the wire), both
-/// peers block forever — a deadlock that a raw socket hides because the kernel
-/// forwards immediately, but that any compression/buffering layer exposes. We
-/// drive both handshakes concurrently under a timeout and require completion.
+/// Each peer writes an 8-byte preamble (magic + version) and then `read_exact`s
+/// the peer's 8 bytes before sending anything further. If the preamble is left
+/// sitting in a buffering writer (`write_all` reaches only the buffer, never the
+/// wire), both peers block forever — a deadlock that a raw socket hides because
+/// the kernel forwards immediately, but that any compression/buffering layer
+/// exposes. We drive both preambles concurrently under a timeout and require
+/// completion.
 #[test]
 fn handshake_flushes_over_buffering_transport() {
     use std::sync::mpsc;
@@ -327,9 +328,12 @@ fn handshake_flushes_over_buffering_transport() {
             let mut a_w = HoldUntilFlush::new(a_w);
             let mut b_w = HoldUntilFlush::new(b_w);
 
+            // The preamble carries only magic + version now (the network moved
+            // into the framed `Handshake` body), so this exercises purely the
+            // flush/deadlock behavior of the raw prefix exchange.
             let (ra, rb) = tokio::join!(
-                remote::handshake(&mut a_r, &mut a_w),
-                remote::handshake(&mut b_r, &mut b_w),
+                remote::preamble(&mut a_r, &mut a_w),
+                remote::preamble(&mut b_r, &mut b_w),
             );
             ra.is_ok() && rb.is_ok()
         });

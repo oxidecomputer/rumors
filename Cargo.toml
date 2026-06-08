@@ -27,6 +27,7 @@ tokio-util = { version = "0.7", default-features = false, features = ["codec", "
 futures = { version = "0.3", default-features = false, features = ["std"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 pollster = "0.4"
+rand = "0.8"
 
 [dev-dependencies]
 proptest = "1"

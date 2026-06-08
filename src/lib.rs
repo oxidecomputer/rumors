@@ -1,12 +1,13 @@
 //! Unordered gossip with redaction.
 //!
-//! `rumors` is a CRDT-backed gossip set. Each peer holds a [`Known<T>`] rumor
-//! set; peers reconcile by exchanging only the parts that differ. Redacting
-//! a message stops it propagating, and redactions spread contagiously to
-//! every peer the redactor (transitively) gossips with.
+//! `rumors` is a protocol for efficient unordered gossip for sets of causally
+//! versioned messages with redaction. Each peer holds a [`Known<T>`] rumor set;
+//! peers reconcile by exchanging only the parts that differ. Redacting a
+//! message stops it propagating, and redactions spread contagiously to every
+//! peer the redactor (transitively) gossips with.
 //!
-//! This is the asynchronous surface. For synchronous I/O (e.g.
-//! [`std::net::TcpStream`]) see the parallel [`rumors::sync`](sync) module.
+//! This crate supports an async interface (this module) and a synchronous
+//! interface, in the [`rumors::sync`](sync) module.
 //!
 //! # Quickstart
 //!
@@ -61,46 +62,64 @@
 //!
 //! # Concurrent rumor sets
 //!
-//! Every [`Known`] carries its own Interval Tree Clock party and may originate
-//! [`message`](Known::message)s and [`redact`](Known::redact)ions. To work
-//! against a peer concurrently, [`fork`](Known::fork) a `Known`: a *true causal
-//! fork* that mints a fresh disjoint party sharing the current observations
-//! (the underlying tree is structurally shared, copy-on-write). The two halves
-//! act independently, then reunite via [`Known::join_then`] (observing everything
-//! new) or [`Known::join`] (the fallible merge that rejoins their parties). A
-//! `Known` is [`!Clone`](Clone) — the only way to get another working copy is
-//! [`fork`](Known::fork). See the [`Known`] docs for the full discussion.
+//! A `Known` is [`!Clone`](Clone); the only way to duplicate one is
+//! [`fork`](Known::fork), which creates a cheap, copy-on-write *causal fork*,
+//! or its networked counterpart, [`Known::bootstrap`]. The fork may originate
+//! [`message`](Known::message)s and [`redact`](Known::redact)ions independently
+//! of its original. Any two causal forks ultimately descended from the same
+//! [`Known::seed`] may be reunited via [`Known::join_then`] (observing
+//! everything new from one side) or [`Known::join`].
 //!
-//! # Gossiping with peers on the network
+//! # Gossiping over the network
 //!
-//! Pass an [`AsyncRead`] reader and an [`AsyncWrite`] writer into
-//! [`Known::gossip`]:
+//! On a real network, a brand-new process does not have a [`Known`]. It
+//! acquires one by *bootstrapping* from an established peer. The newcomer
+//! drives [`bootstrap`](Known::bootstrap); the established peer drives its
+//! usual [`gossip`](Known::gossip), which transparently serves the bootstrap
+//! request. Once the newcomer has a [`Known`], it can then
+//! [`gossip`](Known::gossip) with others, including allowing others to
+//! [`bootstrap`](Known::bootstrap) from itself.
+//!
+//! Both [`bootstrap`](Known::bootstrap) and [`gossip`](Known::gossip) pass an
+//! [`AsyncRead`] reader and [`AsyncWrite`] writer (here, the two ends of an
+//! in-memory pipe standing in for a TCP connection):
 //!
 //! ```
-//! use rumors::{Known};
+//! use rumors::Known;
 //!
 //! # #[tokio::main(flavor = "current_thread")]
 //! # async fn main() {
-//! // Stand in for a real network with an in-memory bidirectional pipe.
 //! let (a, b) = tokio::io::duplex(1024);
 //! let (mut a_r, mut a_w) = tokio::io::split(a);
 //! let (mut b_r, mut b_w) = tokio::io::split(b);
 //!
+//! // `alice` is an established peer with some content.
 //! let mut alice: Known<String> = Known::seed();
 //! alice.message(["hello".to_string()]).await;
-//! let bob: Known<String> = Known::seed();
 //!
-//! // Drive both ends concurrently; bob learns "hello".
+//! // `bob` is a fresh process. It bootstraps from alice, who serves a copy of
+//! // her tree and a freshly-forked party; both ends drive the session at once.
 //! let (alice, bob) = tokio::join!(
 //!     alice.gossip(&mut a_r, &mut a_w),
-//!     bob.gossip_then(&mut b_r, &mut b_w,
-//!         move |_, _, m: &std::sync::Arc<String>| {
-//!             assert_eq!(m.as_ref(), "hello");
-//!             async {}
-//!         },
-//!     ),
+//!     Known::<String>::bootstrap(&mut b_r, &mut b_w),
 //! );
-//! let (_alice, _bob) = (alice.unwrap(), bob.unwrap());
+//! let mut alice = alice.unwrap();
+//! let mut bob = bob.unwrap().expect("alice served the bootstrap");
+//!
+//! // bob now belongs to alice's network and holds her observations.
+//! assert_eq!(alice, bob);
+//!
+//! // If bob and alice add messages, they are no longer equal:
+//! alice.message(["bob".to_string()]).await;
+//! bob.message(["alice".to_string()]).await;
+//! assert!(alice != bob);
+//!
+//! // But they can gossip to synchronize again:
+//! let (alice, bob) = tokio::join!(
+//!     alice.gossip(&mut a_r, &mut a_w),
+//!     bob.gossip(&mut b_r, &mut b_w),
+//! );
+//! assert_eq!(alice.unwrap(), bob.unwrap());
 //! # }
 //! ```
 //!
@@ -109,23 +128,6 @@
 //! Messages are serialized with [`borsh`], which is re-exported so callers
 //! can derive [`BorshSerialize`] / [`BorshDeserialize`] on their message
 //! types without taking a separate dependency.
-//!
-//! # Stability
-//!
-//! Pre-1.0. The on-the-wire protocol is part of the public API:
-//!
-//! - **Patch versions** are wire-identical: two peers on the same minor
-//!   version, regardless of patch, always interoperate.
-//! - **Minor versions** are forward-compatible.
-//! - **Major versions** may break the wire incompatibly. The handshake
-//!   surfaces such mismatches as [`Error::VersionMismatch`] before any
-//!   rumor-set state is touched.
-//!
-//! Every connection begins with an 8-byte preamble: [`PROTOCOL_MAGIC`]
-//! (`b"RUMORS"`) followed by [`PROTOCOL_VERSION`] as a big-endian `u16`.
-//! Reading bytes that don't start with `RUMORS` surfaces as
-//! [`Error::MagicMismatch`]; the connection is not a `rumors` stream at
-//! all.
 
 // Static assertions uses #[allow(unsafe_code)], so we allow it only in tests
 #![cfg_attr(not(test), forbid(unsafe_code))]
@@ -141,26 +143,34 @@ use std::{
 
 use before::Party;
 use borsh::{BorshDeserialize, BorshSerialize};
+use rand::{RngCore, rngs::OsRng};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 pub mod sync;
 
 mod message;
+mod network;
 mod tree;
 mod version;
+
+#[cfg(test)]
+mod tests;
 
 use message::Message;
 use tree::{Action, Tree, mirror};
 
+pub use network::Network;
+
 /// Magic bytes that prefix every `rumors` gossip session: `b"RUMORS"`.
 ///
-/// Sent as the first six bytes of the [handshake](Known::gossip), a peer
-/// whose preamble starts with anything else is rejected with
-/// [`Error::MagicMismatch`] before any rumor-set state is touched.
+/// Sent as the first six bytes of the raw preamble that opens every session
+/// ([`gossip`](Known::gossip)/[`bootstrap`](Known::bootstrap)/[`retire`](Known::retire)),
+/// ahead of the framed greeting. A peer whose preamble starts with anything else
+/// is rejected with [`Error::MagicMismatch`] before any framed traffic is read.
 pub const PROTOCOL_MAGIC: [u8; 6] = *b"RUMORS";
 
-/// On-the-wire protocol version, exchanged in the [handshake](Known::gossip)
-/// right after [`PROTOCOL_MAGIC`].
+/// On-the-wire protocol version, the big-endian `u16` that follows
+/// [`PROTOCOL_MAGIC`] in the raw preamble (before the framed greeting).
 ///
 /// Bumped whenever the wire format changes. Patch versions of `rumors` never
 /// change this; minor versions may bump it but remain wire-compatible
@@ -216,6 +226,11 @@ pub const PROTOCOL_VERSION: u16 = 1;
 /// ```
 #[derive(Debug, Eq)]
 pub struct Known<T> {
+    /// The universe this rumor set belongs to: a 128-bit id minted at
+    /// [`seed`](Known::seed) and inherited by every [`fork`](Known::fork). Every
+    /// combining operation checks it matches before merging, ruling out
+    /// coincidentally-disjoint parties from unrelated seeds. See [`Network`].
+    network: Network,
     /// This rumor set's [`Party`]: an Interval Tree Clock identity descended
     /// from a common [`seed`](Known::seed) by disjoint [`fork`](Known::fork)s.
     /// It is `!Clone`, so a `Known` is `!Clone` too: the only way to obtain
@@ -226,12 +241,15 @@ pub struct Known<T> {
     tree: Tree<T>,
 }
 
-/// Two rumor sets are equal when they hold the same observations — the same
-/// tree — regardless of which [`Party`] observed them. A [`fork`](Known::fork)
-/// therefore compares equal to its parent until one of them originates anew.
+/// Two rumor sets are equal when they belong to the same [`Network`] and hold
+/// the same observations — the same tree — regardless of which [`Party`]
+/// observed them. (The party is deliberately excluded: parties are linear, so
+/// no two live `Known`s ever share one, and including it would make equality
+/// essentially never hold.) A [`fork`](Known::fork) therefore compares equal to
+/// its parent until one of them originates anew.
 impl<T> PartialEq for Known<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.tree == other.tree
+        self.network == other.network && self.tree == other.tree
     }
 }
 
@@ -240,6 +258,8 @@ impl<T> PartialEq for Known<T> {
 /// Surfaces I/O failures from the underlying reader/writer as well as
 /// framing errors encountered while parsing messages off the wire.
 pub use mirror::remote::Error;
+
+use mirror::message::Handshake;
 
 /// An opaque identifier for a single message in a [`Known`] rumor set.
 ///
@@ -327,6 +347,17 @@ pub use version::Version;
 pub use ::borsh;
 
 impl<T> Known<T> {
+    /// Collapse a mirror error down to the wire-bound server error. The client
+    /// side of every wire session is the in-memory local exchange, whose error
+    /// type is [`Infallible`](std::convert::Infallible), so the
+    /// [`Client`](mirror::Error::Client) arm is uninhabitable.
+    fn unwrap_server(e: mirror::Error<std::convert::Infallible, Error>) -> Error {
+        match e {
+            mirror::Error::Server(e) => e,
+            mirror::Error::Client(never) => match never {},
+        }
+    }
+
     /// Create the distinguished seed rumor set: the single root [`Party`] from
     /// which every other party in this universe descends by [`fork`](Self::fork).
     ///
@@ -339,6 +370,10 @@ impl<T> Known<T> {
     /// process-globally, which lets several independent universes coexist in
     /// one program.
     ///
+    /// The network identifier is drawn from the operating system's secure RNG
+    /// ([`OsRng`](rand::rngs::OsRng)); use [`seed_rng`](Self::seed_rng) to supply
+    /// your own source (e.g. a deterministic RNG in tests).
+    ///
     /// # Example
     ///
     /// ```
@@ -347,10 +382,40 @@ impl<T> Known<T> {
     /// let _alice: Known<String> = Known::seed();
     /// ```
     pub fn seed() -> Self {
+        Self::seed_rng(&mut OsRng)
+    }
+
+    /// Like [`seed`](Self::seed), but draws the universe's [`Network`] identifier
+    /// from a caller-supplied RNG instead of [`OsRng`](rand::rngs::OsRng).
+    ///
+    /// Useful when a deterministic network id is needed — for example a test
+    /// that pins exact handshake bytes, or a caller that derives the id from its
+    /// own entropy source. The party and tree are identical to [`seed`](Self::seed)'s.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rand::SeedableRng;
+    /// use rand::rngs::StdRng;
+    /// use rumors::Known;
+    ///
+    /// let mut rng = StdRng::seed_from_u64(42);
+    /// let _alice: Known<String> = Known::seed_rng(&mut rng);
+    /// ```
+    pub fn seed_rng<R: RngCore + ?Sized>(rng: &mut R) -> Self {
         Known {
+            network: Network::from_rng(rng),
             party: Party::seed(),
             tree: Tree::new(),
         }
+    }
+
+    /// This rumor set's [`Network`]: the identifier shared by every peer that
+    /// descends from the same [`seed`](Self::seed). Two `Known`s combine (locally
+    /// via [`join`](Self::join), remotely via [`gossip`](Self::gossip)) only when
+    /// their networks match.
+    pub fn network(&self) -> Network {
+        self.network
     }
 
     /// Get the latest version represented by this [`Known`]: the least upper
@@ -662,6 +727,7 @@ impl<T> Known<T> {
     /// ```
     pub fn fork(&mut self) -> Known<T> {
         Known {
+            network: self.network,
             party: self.party.fork(),
             tree: self.tree.clone(),
         }
@@ -767,9 +833,22 @@ impl<T> Known<T> {
         OnMessageFut: std::future::Future<Output = ()> + Send + 'a,
     {
         let Known {
+            network: other_network,
             party: other_party,
             tree: other_tree,
         } = other;
+
+        // Networks must match before anything merges: apparently-disjoint
+        // parties from unrelated seeds would otherwise pass the disjointness
+        // check below despite sharing no causal history. A mismatch hands
+        // `other` back whole with nothing mutated.
+        if self.network != other_network {
+            return Err(Known {
+                network: other_network,
+                party: other_party,
+                tree: other_tree,
+            });
+        }
 
         // `Party::join` *is* the disjointness check: on success it merges the
         // other party's region into ours; on overlap (different seeds, or an
@@ -778,6 +857,7 @@ impl<T> Known<T> {
         // with nothing mutated — no separate `is_disjoint` probe needed.
         if let Err(party) = self.party.join(other_party) {
             return Err(Known {
+                network: other_network,
                 party,
                 tree: other_tree,
             });
@@ -819,8 +899,10 @@ impl<T> Known<T> {
     /// let (mut b_r, mut b_w) = tokio::io::split(b);
     ///
     /// let mut alice: Known<String> = Known::seed();
+    /// // `bob` shares alice's universe via `fork` (a second `seed` would be a
+    /// // different network, which gossip rejects).
+    /// let bob = alice.fork();
     /// alice.message(["hello".to_string()]).await;
-    /// let bob: Known<String> = Known::seed();
     ///
     /// let (alice, bob) = tokio::join!(
     ///     alice.gossip(&mut a_r, &mut a_w),
@@ -835,28 +917,17 @@ impl<T> Known<T> {
         R: AsyncRead + Unpin + Send,
         W: AsyncWrite + Unpin + Send,
     {
-        self.gossip_inner(read, write, None::<fn(Key, &Version, &Arc<T>) -> Ready<()>>)
+        Box::pin(self.gossip_inner(read, write, None::<fn(Key, &Version, &Arc<T>) -> Ready<()>>))
             .await
     }
 
     /// Synchronize rumor sets with a remote peer, invoking `on_message` for
     /// each message learned from the peer.
     ///
-    /// `read` and `write` must implement [`AsyncRead`] / [`AsyncWrite`];
-    /// both ends of the connection must drive gossip concurrently. The
-    /// callback signature matches [`Known::message_then`]. To synchronize
-    /// without a callback, use [`gossip`](Self::gossip); for synchronous I/O,
-    /// use [`sync::Known::gossip_then`].
-    ///
-    /// The session begins with the 8-byte protocol handshake described in
-    /// the crate-level `# Stability` section; a peer with the wrong
-    /// [`PROTOCOL_MAGIC`] or [`PROTOCOL_VERSION`] is rejected as
-    /// [`Error::MagicMismatch`] or [`Error::VersionMismatch`] before any
-    /// rumor-set state is touched. After the handshake, message delivery
-    /// is **unordered**: callbacks fire in arbitrary order, including
-    /// orderings that violate the causal precedence captured by each
-    /// message's [`Version`]. Sort by [`Version`] if your application
-    /// needs causal or insertion ordering.
+    /// Message delivery is **unordered**: callbacks fire in arbitrary order,
+    /// including orderings that violate the causal precedence captured by each
+    /// message's [`Version`]. Sort by [`Version`] if your application needs
+    /// causal ordering.
     ///
     /// # Example
     ///
@@ -871,8 +942,10 @@ impl<T> Known<T> {
     /// let (mut b_r, mut b_w) = tokio::io::split(b);
     ///
     /// let mut alice: Known<String> = Known::seed();
+    /// // Fork `bob` from alice's universe before the insert, so it shares the
+    /// // network and has "hello" to learn over the wire.
+    /// let bob = alice.fork();
     /// alice.message(["hello".to_string()]).await;
-    /// let bob: Known<String> = Known::seed();
     ///
     /// let mut bob_learned: Vec<String> = Vec::new();
     /// let (alice, bob) = tokio::join!(
@@ -918,26 +991,364 @@ impl<T> Known<T> {
         OnMessage: FnMut(Key, &Version, &Arc<T>) -> OnMessageFut + Send + 'a,
         OnMessageFut: Future<Output = ()> + Send + 'a,
     {
-        // Protocol-version handshake: both sides exchange a fixed
-        // 8-byte preamble before any other traffic. An incompatible
-        // peer is rejected here without touching the local rumor set.
-        mirror::remote::handshake(read, write).await?;
+        // Raw magic/version preamble: reject a non-rumors or incompatible peer
+        // before the codec trusts any peer-supplied frame length.
+        mirror::remote::preamble(read, write).await?;
 
-        // Instantiate the two sides of the mirror exchange: local and remote
+        // Our latest version, captured before the tree moves into the exchange.
+        let our_version = self.tree.latest().clone();
+
+        // Run the connect phase, which exchanges `message::Handshake`s (network
+        // + version + retire-intent). We are gossiping, so we offer no party.
         let l = mirror::local::Exchange::start(
             self.tree.root,
+            self.network,
+            None,
             None::<mirror::local::Silent<T>>,
             on_message,
         );
         let r = mirror::remote::Exchange::start(read, write);
 
-        // Drive them to completion against each other
-        (self.tree.root, _) = mirror(l, r).await.map_err(|e| {
-            // The only possible error is a server error
-            let mirror::Error::Server(e) = e;
-            e
-        })?;
+        match mirror::connect_phase(l, r)
+            .await
+            .map_err(Self::unwrap_server)?
+        {
+            // Versions already equal: the trees are reconciled. Absorb a
+            // retiring peer (we necessarily dominate it), serve a bootstrapper,
+            // or simply finish.
+            mirror::Phase::Converged {
+                local_root,
+                remote_out: (_reader, mut writer),
+                peer,
+            } => {
+                let Handshake {
+                    network: peer_net,
+                    version: peer_version,
+                    party: peer_party,
+                } = peer;
+                self.tree.root = local_root;
+                if let Some(party) = peer_party {
+                    if peer_version <= our_version {
+                        self.party.join(party).map_err(|_| Error::PartyOverlap)?;
+                    }
+                } else if peer_net.is_bootstrap() {
+                    mirror::remote::send_party_fork(&mut self.party, &mut writer).await?;
+                }
+                Ok(self)
+            }
+            // Versions differ. A retiring peer ends the session with no descent;
+            // otherwise descend, then serve a bootstrapper if it was one.
+            mirror::Phase::Diverged {
+                local,
+                remote,
+                our_version: _,
+                peer,
+            } => {
+                let Handshake {
+                    network: peer_net,
+                    version: peer_version,
+                    party: peer_party,
+                } = peer;
+                if let Some(party) = peer_party {
+                    let root = local.into_root();
+                    if peer_version <= our_version {
+                        self.party.join(party).map_err(|_| Error::PartyOverlap)?;
+                    }
+                    self.tree.root = root;
+                    return Ok(self);
+                }
+                let bootstrapper = peer_net.is_bootstrap();
+                let (root, (_reader, mut writer)) =
+                    mirror::descend(local, remote, our_version, peer_version)
+                        .await
+                        .map_err(Self::unwrap_server)?;
+                self.tree.root = root;
+                if bootstrapper {
+                    mirror::remote::send_party_fork(&mut self.party, &mut writer).await?;
+                }
+                Ok(self)
+            }
+        }
+    }
 
-        Ok(self)
+    /// Bootstrap a brand-new rumor set from a remote peer.
+    ///
+    /// The peer must already have a [`Known`] in hand; bootstrapping from a
+    /// peer who is also bootstrapping results in `Ok(None)`.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(Some(known))`: success.
+    /// - `Ok(None)`: the peer was *also* bootstrapping, so neither side had
+    ///   anything to give the other.
+    /// - `Err(_)`: handshake or transfer failure (see [`Error`]).
+    ///
+    /// To observe each message in the received tree, use
+    /// [`bootstrap_then`](Self::bootstrap_then).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rumors::Known;
+    ///
+    /// # #[tokio::main(flavor = "current_thread")]
+    /// # async fn main() {
+    /// let (a, b) = tokio::io::duplex(1024);
+    /// let (mut a_r, mut a_w) = tokio::io::split(a);
+    /// let (mut b_r, mut b_w) = tokio::io::split(b);
+    ///
+    /// let mut alice: Known<String> = Known::seed();
+    /// alice.message(["hello".to_string()]).await;
+    ///
+    /// let (alice, bob) = tokio::join!(
+    ///     alice.gossip(&mut a_r, &mut a_w),
+    ///     Known::<String>::bootstrap(&mut b_r, &mut b_w),
+    /// );
+    /// let (_alice, bob) = (alice.unwrap(), bob.unwrap().expect("served"));
+    /// let mut live: Vec<String> = bob.iter().map(|(_, _, m)| m.as_ref().clone()).collect();
+    /// live.sort();
+    /// assert_eq!(live, vec!["hello".to_string()]);
+    /// # }
+    /// ```
+    pub async fn bootstrap<'a, R, W>(
+        read: &'a mut R,
+        write: &'a mut W,
+    ) -> Result<Option<Self>, Error>
+    where
+        T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
+        R: AsyncRead + Unpin + Send,
+        W: AsyncWrite + Unpin + Send,
+    {
+        Box::pin(Self::bootstrap_inner(
+            read,
+            write,
+            None::<fn(Key, &Version, &Arc<T>) -> Ready<()>>,
+        ))
+        .await
+    }
+
+    /// Bootstrap a brand-new rumor set from a remote peer, invoking
+    /// `on_message` once per message in the received [`Known`].
+    ///
+    /// The peer must already have a [`Known`] in hand; bootstrapping from a
+    /// peer who is also bootstrapping results in `Ok(None)`.
+    ///
+    /// Message delivery is **unordered**: callbacks fire in arbitrary order,
+    /// including orderings that violate the causal precedence captured by each
+    /// message's [`Version`]. Sort by [`Version`] if your application needs
+    /// causal ordering.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(Some(known))`: success.
+    /// - `Ok(None)`: the peer was *also* bootstrapping, so neither side had
+    ///   anything to give the other.
+    /// - `Err(_)`: handshake or transfer failure (see [`Error`]).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use rumors::Known;
+    ///
+    /// # #[tokio::main(flavor = "current_thread")]
+    /// # async fn main() {
+    /// let (a, b) = tokio::io::duplex(1024);
+    /// let (mut a_r, mut a_w) = tokio::io::split(a);
+    /// let (mut b_r, mut b_w) = tokio::io::split(b);
+    ///
+    /// let mut alice: Known<String> = Known::seed();
+    /// alice.message(["hello".to_string()]).await;
+    ///
+    /// let mut learned: Vec<String> = Vec::new();
+    /// let (alice, bob) = tokio::join!(
+    ///     alice.gossip(&mut a_r, &mut a_w),
+    ///     Known::<String>::bootstrap_then(&mut b_r, &mut b_w, |_, _, m: &Arc<String>| {
+    ///         learned.push(m.as_ref().clone());
+    ///         async {}
+    ///     }),
+    /// );
+    /// let (_alice, _bob) = (alice.unwrap(), bob.unwrap().expect("served"));
+    /// assert_eq!(learned, vec!["hello".to_string()]);
+    /// # }
+    /// ```
+    pub async fn bootstrap_then<'a, OnMessage, OnMessageFut, R, W>(
+        read: &'a mut R,
+        write: &'a mut W,
+        on_message: OnMessage,
+    ) -> Result<Option<Self>, Error>
+    where
+        T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
+        R: AsyncRead + Unpin + Send,
+        W: AsyncWrite + Unpin + Send,
+        OnMessage: FnMut(Key, &Version, &Arc<T>) -> OnMessageFut + Send + 'a,
+        OnMessageFut: Future<Output = ()> + Send + 'a,
+    {
+        Self::bootstrap_inner(read, write, Some(on_message)).await
+    }
+
+    /// Shared core of [`bootstrap`](Self::bootstrap) and
+    /// [`bootstrap_then`](Self::bootstrap_then).
+    ///
+    /// Declares us bootstrapping in the handshake. If the peer is bootstrapping
+    /// too, both sides bail with `Ok(None)`. Otherwise it reads the peer's tree
+    /// and forked party, assembles the [`Known`], and — when `on_message` is
+    /// [`Some`] — replays every leaf through the callback off
+    /// [`iter`](Self::iter) (the whole tree arrives at once, so there is no
+    /// incremental merge to hook).
+    async fn bootstrap_inner<'a, OnMessage, OnMessageFut, R, W>(
+        read: &'a mut R,
+        write: &'a mut W,
+        on_message: Option<OnMessage>,
+    ) -> Result<Option<Self>, Error>
+    where
+        T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
+        R: AsyncRead + Unpin + Send,
+        W: AsyncWrite + Unpin + Send,
+        OnMessage: FnMut(Key, &Version, &Arc<T>) -> OnMessageFut + Send + 'a,
+        OnMessageFut: Future<Output = ()> + Send + 'a,
+    {
+        // Raw magic/version preamble first.
+        mirror::remote::preamble(read, write).await?;
+
+        // We hold nothing: run the ordinary mirror protocol from an *empty*
+        // tree, declaring ourselves bootstrapping with the placeholder network
+        // and no party. The empty side pulls all of the provider's content
+        // through the usual descent, firing `on_message` per received leaf.
+        let l = mirror::local::Exchange::start(
+            tree::Root::default(),
+            Network::ZERO,
+            None,
+            None::<mirror::local::Silent<T>>,
+            on_message,
+        );
+        let r = mirror::remote::Exchange::start(read, write);
+
+        // After the connect phase, a peer that is *also* bootstrapping, or one
+        // that is *retiring* (it will not serve), means there is nothing to
+        // receive: bail symmetrically. Otherwise reconcile, then read the
+        // provider's fork-last party frame off the same reader.
+        let (network, root, mut reader) = match mirror::connect_phase(l, r)
+            .await
+            .map_err(Self::unwrap_server)?
+        {
+            mirror::Phase::Converged {
+                local_root,
+                remote_out: (reader, _writer),
+                peer,
+            } => {
+                if peer.network.is_bootstrap() || peer.party.is_some() {
+                    return Ok(None);
+                }
+                (peer.network, local_root, reader)
+            }
+            mirror::Phase::Diverged {
+                local,
+                remote,
+                our_version,
+                peer,
+            } => {
+                if peer.network.is_bootstrap() || peer.party.is_some() {
+                    return Ok(None);
+                }
+                let network = peer.network;
+                let (root, (reader, _writer)) =
+                    mirror::descend(local, remote, our_version, peer.version)
+                        .await
+                        .map_err(Self::unwrap_server)?;
+                (network, root, reader)
+            }
+        };
+
+        // Adopt the provider's network and the forked party it ships last.
+        let party = mirror::remote::recv_party(&mut reader).await?;
+        Ok(Some(Known {
+            network,
+            party,
+            tree: Tree { root },
+        }))
+    }
+
+    /// Retire this rumor set into a remote peer, handing it our [`Party`] so our
+    /// id-region is reclaimed rather than leaked, then leaving the universe.
+    ///
+    /// We may only retire into a peer that *causally dominates* us (its
+    /// [`Version`] is `>=` ours): such a peer already holds a superset of our
+    /// content, so handing over only the party — with no content transfer — is
+    /// safe. The intended pattern is therefore to [`gossip`](Self::gossip) with
+    /// a peer first (so its version comes to dominate ours), then `retire` into
+    /// it; if that fails, pick another peer and try again.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(None)`: **retired.** The peer dominated us and absorbed our party;
+    ///   we have left the universe and dropped ourselves.
+    /// - `Ok(Some(self))`: **declined, unchanged.** The peer did not dominate
+    ///   us, was itself retiring, or was bootstrapping — nothing happened and we
+    ///   are handed back intact to retry elsewhere.
+    /// - `Err(_)`: an I/O, handshake, or network-mismatch failure (see
+    ///   [`Error`]). As with the other wire methods, an error here consumes
+    ///   `self`.
+    ///
+    /// # Commitment
+    ///
+    /// Once we read a dominating version from the peer we are *committed*: we
+    /// must assume the peer received the party we put on the wire, so we drop
+    /// ourselves. A peer running ordinary [`gossip`](Self::gossip) absorbs a
+    /// retiree transparently, so the counterparty needs no special call.
+    pub async fn retire<'a, R, W>(
+        mut self,
+        read: &'a mut R,
+        write: &'a mut W,
+    ) -> Result<Option<Self>, Error>
+    where
+        T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
+        R: AsyncRead + Unpin + Send,
+        W: AsyncWrite + Unpin + Send,
+    {
+        let our_version = self.tree.latest().clone();
+        let our_network = self.network;
+        // Alias our party onto the wire while keeping the live one: exactly one
+        // side ends up treating it as live (the peer on commit, us on decline).
+        let alias = self.party.dangerously_alias();
+
+        mirror::remote::preamble(read, write).await?;
+        let l = mirror::local::Exchange::start(
+            self.tree.root,
+            our_network,
+            Some(alias),
+            None::<mirror::local::Silent<T>>,
+            None::<mirror::local::Silent<T>>,
+        );
+        let r = mirror::remote::Exchange::start(read, write);
+
+        // Retire never descends: the connect-phase handshake decides everything.
+        // Collapse our (un-descended) tree back to a root in case we decline.
+        let (root, peer) = match mirror::connect_phase(l, r)
+            .await
+            .map_err(Self::unwrap_server)?
+        {
+            mirror::Phase::Converged {
+                local_root, peer, ..
+            } => (local_root, peer),
+            mirror::Phase::Diverged { local, peer, .. } => (local.into_root(), peer),
+        };
+
+        // The connect phase already rejected a real-network mismatch.
+        //
+        // Commit only into a real, non-retiring peer that dominates us: it will
+        // have absorbed the party we aliased onto the wire. A bootstrapping peer
+        // cannot dominate (and would not absorb), and a peer that is itself
+        // retiring declines symmetrically.
+        let committed =
+            peer.party.is_none() && !peer.network.is_bootstrap() && our_version <= peer.version;
+        if committed {
+            // Drop ourselves and our now-handed-off party: we have retired.
+            return Ok(None);
+        }
+
+        // Declined: keep our party and restore our tree, unchanged.
+        self.tree.root = root;
+        Ok(Some(self))
     }
 }

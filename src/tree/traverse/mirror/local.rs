@@ -62,7 +62,10 @@ use std::{convert::Infallible, future::Future, mem, sync::Arc};
 
 use itertools::{EitherOrBoth, Itertools};
 
+use before::Party;
+
 use crate::{
+    network::Network,
     tree::{
         self,
         key::Key,
@@ -80,9 +83,14 @@ use super::message::{self, UnderRoot, UnderUnderRoot};
 use super::protocol;
 
 /// The version state for an [`Exchange`] which has just been initialized but
-/// has not yet connected.
+/// has not yet connected. Carries the fields the [`Connect`](protocol::Connect)
+/// / [`Accept`](protocol::Accept) step needs to build its outgoing
+/// [`message::Handshake`]: our universe [`Network`], our latest [`Version`], and
+/// — iff we are *retiring* — the [`Party`] we offer the peer to absorb.
 pub struct Start {
+    network: Network,
     our_version: Version,
+    party: Option<Party>,
 }
 
 /// The version state for an [`Exchange`] which has sent its version to its peer
@@ -185,10 +193,18 @@ impl<OnSend, OnRecv, T> Exchange<OnSend, OnRecv, Start, Top<T>>
 where
     T: Send + Sync,
 {
-    pub fn start(node: tree::Root<T>, on_send: Option<OnSend>, on_recv: Option<OnRecv>) -> Self {
+    pub fn start(
+        node: tree::Root<T>,
+        network: Network,
+        party: Option<Party>,
+        on_send: Option<OnSend>,
+        on_recv: Option<OnRecv>,
+    ) -> Self {
         Self {
             versions: Start {
+                network,
                 our_version: node.ceiling.clone(),
+                party,
             },
             levels: Node::levels(Option::from(node)),
             on_recv,
@@ -214,7 +230,10 @@ where
     /// caller need not spell them out. This is the path that elides the
     /// [`absorb_providing`](Self::absorb_providing) discovery walk.
     pub fn silent(node: tree::Root<T>) -> Self {
-        Self::start(node, None, None)
+        // Local-local test sessions never run the lib-level network/party
+        // dispatch, so the placeholder network and absent party are inert: the
+        // handshake they produce is consumed only for its version.
+        Self::start(node, Network::ZERO, None, None, None)
     }
 }
 
@@ -240,8 +259,14 @@ where
 {
     type Next = Exchange<OnSend, OnRecv, Connecting, Top<T>>;
 
-    async fn connect(self) -> Result<protocol::Step<Version, Self::Next, Infallible>, Self::Error> {
-        let our_version = self.versions.our_version;
+    async fn connect(
+        self,
+    ) -> Result<protocol::Step<message::Handshake, Self::Next, Infallible>, Self::Error> {
+        let Start {
+            network,
+            our_version,
+            party,
+        } = self.versions;
 
         let next = Exchange {
             levels: self.levels,
@@ -255,7 +280,11 @@ where
         };
 
         Ok(protocol::Step::Continue {
-            msg: our_version,
+            msg: message::Handshake {
+                network,
+                version: our_version,
+                party,
+            },
             next,
         })
     }
@@ -318,16 +347,25 @@ where
 
     async fn accept(
         self,
-        their_version: Version,
-    ) -> Result<protocol::Step<Version, Self::Next, Self::Output>, Self::Error> {
-        let our_version = self.versions.our_version;
+        request: message::Handshake,
+    ) -> Result<protocol::Step<message::Handshake, Self::Next, Self::Output>, Self::Error> {
+        let Start {
+            network,
+            our_version,
+            party,
+        } = self.versions;
+        let their_version = request.version;
 
         // If the two versions are the same, both sides are immediately done
         if our_version == their_version {
             return Ok(protocol::Step::Done {
-                msg: our_version.clone(),
+                msg: message::Handshake {
+                    network,
+                    version: our_version.clone(),
+                    party,
+                },
                 output: tree::Root {
-                    ceiling: our_version.clone(),
+                    ceiling: our_version,
                     root: self.levels.collapse(),
                 },
             });
@@ -346,9 +384,29 @@ where
         };
 
         Ok(protocol::Step::Continue {
-            msg: our_version,
+            msg: message::Handshake {
+                network,
+                version: our_version,
+                party,
+            },
             next,
         })
+    }
+}
+
+impl<OnSend, OnRecv, T> Exchange<OnSend, OnRecv, Connected, Top<T>>
+where
+    T: Send + Sync,
+{
+    /// Collapse a connected exchange back to its tree root *without* running the
+    /// descent. The tree is unchanged since [`start`](Self::start); used when
+    /// the session ends right after the handshake — an absorbed retiree, a
+    /// declined retirement, or already-converged peers — instead of descending.
+    pub fn into_root(self) -> tree::Root<T> {
+        tree::Root {
+            ceiling: self.versions.our_version,
+            root: self.levels.collapse(),
+        }
     }
 }
 
