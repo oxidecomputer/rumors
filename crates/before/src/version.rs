@@ -95,6 +95,37 @@ impl Version {
         version.partial_cmp(self).is_none()
     }
 
+    /// The minimum number of [`tick`](Self::tick)s that could have produced this
+    /// [`Version`]: the sum of every base in its event tree, saturating at
+    /// [`u64::MAX`].
+    ///
+    /// This is a true **floor** over *all* causal histories — every sequence of
+    /// [`fork`](crate::Clock::fork)/`tick`/[`join`](crate::Clock::join) that
+    /// yields this version performs at least this many ticks — and it is tight:
+    /// some history hits it exactly (a single [`Party`] ticking in a line hits
+    /// it for a leaf). It exceeds the tallest root-to-leaf path sum whenever
+    /// the history forked: `(0, (0,1,0), (0,0,1))` is two height-`1` peaks over
+    /// disjoint regions, so although no single path is taller than `1`, two
+    /// independent ticks are forced.
+    ///
+    /// There is no corresponding *maximum*. For any nonempty version the tick
+    /// count is unbounded above: one height-`1` increment over an interval can
+    /// always be refined into two concurrent height-`1` increments over its
+    /// halves (forked, ticked, rejoined) — the same version, one more tick —
+    /// without limit.
+    ///
+    /// ```
+    /// use before::Version;
+    /// assert_eq!(Version::new().min_ticks(), 0);
+    /// assert_eq!(Version::try_from(5).unwrap().min_ticks(), 5);
+    /// // Concurrency forces more ticks than the tallest path (1) suggests:
+    /// let peaks: Version = "(0, (0, 1, 0), (0, 0, 1))".parse().unwrap();
+    /// assert_eq!(peaks.min_ticks(), 2);
+    /// ```
+    pub fn min_ticks(&self) -> u64 {
+        self.view().min_ticks()
+    }
+
     /// Begin a batch of operations on this [`Version`].
     ///
     /// Sequential operations within a [`Batch`] are more efficient.

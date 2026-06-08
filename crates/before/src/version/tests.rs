@@ -12,8 +12,8 @@ use crate::testing::generators::{
     arb_oracle_party_nonempty, arb_oracle_version, arb_shape, shape_party, shape_version, Shape,
 };
 use crate::testing::grow_brute_force::{all_inflations, best_inflation};
-use crate::testing::optrace::{leq as oracle_leq, run, versions, world_strategy};
-use crate::Party;
+use crate::testing::optrace::{leq as oracle_leq, run, step_impl, versions, world_strategy, Op};
+use crate::{Clock, Party};
 
 /// `a <= b` under the impl causal order.
 fn le(a: &Version, b: &Version) -> bool {
@@ -986,5 +986,105 @@ proptest! {
         }
         let encoded = v.encode();
         prop_assert_eq!(v.as_bytes(), encoded.as_slice());
+    }
+}
+
+// ─────────────────────────────── min_ticks ───────────────────────────────
+
+/// The number of `tick`s a trace performs against the impl population, derived
+/// straight from the op list. `Tick` advances once; `Send` advances twice (the
+/// sender `tick`s, the receiver `recv`s = join-then-`tick`); `Fork`, `Sync`,
+/// and `Join` never `tick`. Each `Tick`/`Send` always executes fully (no index
+/// guard can skip it), so this count is exact — it mirrors `step_impl`.
+fn trace_ticks(ops: &[Op]) -> u64 {
+    ops.iter()
+        .map(|op| match op {
+            Op::Tick(_) => 1,
+            Op::Send(..) => 2,
+            Op::Fork(_) | Op::Sync(..) | Op::Join(..) => 0,
+        })
+        .sum()
+}
+
+/// An independent sum-of-bases over the reference oracle's recursive `Version`,
+/// saturating at `u64::MAX` — ground truth for [`Version::min_ticks`].
+fn oracle_min_ticks(v: &crate::oracle::Version) -> u64 {
+    use crate::oracle::Version::{Leaf, Node};
+    match v {
+        Leaf(b) => b.to_u64_saturating(),
+        Node(b, l, r) => b
+            .to_u64_saturating()
+            .saturating_add(oracle_min_ticks(l))
+            .saturating_add(oracle_min_ticks(r)),
+    }
+}
+
+/// `min_ticks` known values: the empty version, a single-party line (= the leaf
+/// value), and two concurrent peaks (forced above their tallest path of `1`).
+#[test]
+fn min_ticks_known_values() {
+    assert_eq!(Version::new().min_ticks(), 0);
+    assert_eq!(Version::try_from(5).unwrap().min_ticks(), 5);
+    let peaks: Version = "(0, (0, 1, 0), (0, 0, 1))".parse().unwrap();
+    assert_eq!(peaks.min_ticks(), 2);
+}
+
+proptest! {
+    /// `min_ticks` is a true floor: for *every* live clock in *any* causal
+    /// history of fork/tick/send/sync/join, its version's `min_ticks` never
+    /// exceeds the ticks actually performed. Cross-checks the fold itself
+    /// against the independent oracle sum-of-bases.
+    #[test]
+    fn min_ticks_floors_every_history(ops in world_strategy()) {
+        let total = trace_ticks(&ops);
+        let mut imp = vec![Clock::seed()];
+        for op in &ops {
+            step_impl(&mut imp, op);
+        }
+        for c in &imp {
+            let v = c.version();
+            // The fold computes exactly the sum-of-bases.
+            prop_assert_eq!(v.min_ticks(), oracle_min_ticks(&to_oracle_version(v)));
+            // And that minimum never exceeds the ticks the history performed.
+            prop_assert!(
+                v.min_ticks() <= total,
+                "min_ticks {} exceeded the {} ticks performed",
+                v.min_ticks(),
+                total,
+            );
+        }
+    }
+}
+
+/// There is no *maximum* tick count: leaf `1` can be built by arbitrarily many
+/// ticks — `n` disjoint forks each ticking once, then all joined — yet
+/// `min_ticks` stays `1`. This witnesses the unboundedness of the dual quantity
+/// while pinning the floor.
+#[test]
+fn no_maximum_tick_count() {
+    for n in 1usize..=16 {
+        // Fork a seed into `n` disjoint clocks tiling the whole id space.
+        let mut clocks = vec![Clock::seed()];
+        while clocks.len() < n {
+            let i = clocks.len() - 1;
+            let child = clocks[i].fork();
+            clocks.push(child);
+        }
+        // Each ticks exactly once: `n` ticks in total.
+        for c in &mut clocks {
+            c.tick();
+        }
+        // Join them all back into one. Joins move no events.
+        let mut whole = clocks.remove(0);
+        for c in clocks {
+            whole.join(c).expect("seed-derived parties are disjoint");
+        }
+        let v = whole.version();
+        assert_eq!(
+            v,
+            &Version::try_from(1).unwrap(),
+            "n={n}: rejoins to leaf 1"
+        );
+        assert_eq!(v.min_ticks(), 1, "n={n}: {n} ticks collapse to the floor 1");
     }
 }

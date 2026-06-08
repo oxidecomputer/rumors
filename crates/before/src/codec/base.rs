@@ -41,6 +41,15 @@ impl Base {
         }
     }
 
+    /// This magnitude as a `u64`, saturating at [`u64::MAX`] for values past the
+    /// inline range (those that have spilled to `BigUint`).
+    pub(crate) fn to_u64_saturating(&self) -> u64 {
+        match self {
+            Base::Small(n) => *n,
+            Base::Big(_) => u64::MAX,
+        }
+    }
+
     pub(crate) fn bit(&self, i: u64) -> bool {
         match self {
             Base::Small(n) => i < u64::BITS as u64 && (n & (1u64 << i)) != 0,
