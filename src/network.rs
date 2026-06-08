@@ -2,10 +2,11 @@
 
 use std::fmt;
 
+use borsh::{BorshDeserialize, BorshSerialize};
 use rand::RngCore;
 
 /// The random, unique identifier of a causally connected universe of
-/// [`Known`]s.
+/// [`Known`](crate::Known)s.
 ///
 /// It exists to catch a failure mode that party disjointness alone cannot: two
 /// `Known`s from *independent* [`seed`](crate::Known::seed)s can end up with
@@ -17,7 +18,7 @@ use rand::RngCore;
 /// mint one except through [`seed`](crate::Known::seed).
 ///
 /// [`Known::seed`]: crate::Known::seed
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, BorshDeserialize, BorshSerialize)]
 pub struct Network([u8; 16]);
 
 impl Network {

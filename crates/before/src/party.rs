@@ -140,6 +140,48 @@ impl Party {
         self.view().is_disjoint(other.view())
     }
 
+    /// Test whether `self`'s owned id-region *contains* all of `other`'s — i.e.
+    /// `self ⊇ other`, every region `other` owns is also owned by `self`.
+    ///
+    /// The asymmetric companion of [`is_disjoint`](Party::is_disjoint): two
+    /// [`Party`]s are either disjoint (share nothing), or one covers the other
+    /// (their regions are nested), or — for arbitrary unrelated ids — neither
+    /// (they partially overlap). For any two [`Party`]s descended from the same
+    /// [`seed`](Party::seed) via [`fork`](Party::fork)/[`join`](Party::join),
+    /// the partial-overlap case cannot arise, so covering is exactly the
+    /// negation of disjointness once equal regions are set aside.
+    ///
+    /// Covering is reflexive and transitive (a partial order on regions), with
+    /// the whole [`seed`](Party::seed) on top:
+    ///
+    /// - `seed` covers every [`Party`];
+    /// - a [`Party`] covers itself (and any [`dangerously_alias`] of it);
+    /// - the parent of a [`fork`](Party::fork) covers both resulting halves,
+    ///   and a [`join`](Party::join) covers each of its parts.
+    ///
+    /// Covering a *non-empty* region implies the two are **not**
+    /// [disjoint](Party::is_disjoint): a reclaiming party that has come to
+    /// cover another's region can therefore no longer [`join`](Party::join) it
+    /// (the region is already held), which is exactly how a caller recognizes a
+    /// once-outstanding share as fully reabsorbed.
+    ///
+    /// [`dangerously_alias`]: Party::dangerously_alias
+    ///
+    /// ```
+    /// use before::Party;
+    /// let mut p = Party::seed();
+    /// let q = p.fork();
+    /// assert!(Party::seed().covers(&p)); // the whole covers a part
+    /// assert!(p.covers(&p.dangerously_alias())); // a region covers itself
+    /// assert!(!p.covers(&q)); // disjoint halves cover neither other
+    /// assert!(!q.covers(&p));
+    /// p.join(q).unwrap();
+    /// assert!(p.covers(&Party::seed())); // rejoined to the whole again
+    /// ```
+    pub fn covers(&self, other: &Party) -> bool {
+        self.view().covers(other.view())
+    }
+
     /// Dangerously duplicate this party, violating linearity to produce a
     /// second handle to the **same** party identity.
     ///

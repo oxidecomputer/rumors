@@ -8,7 +8,8 @@ use crate::idbits::IdReader;
 use crate::testing::bridge::{from_oracle_party, to_oracle_party};
 use crate::testing::complexity::{assert_linear_scaling, steps_of, MIN_SCALE};
 use crate::testing::generators::{
-    arb_oracle_party, arb_oracle_party_nonempty, arb_shape, shape_party, skip_stress_pair,
+    arb_oracle_party, arb_oracle_party_nonempty, arb_shape, covers_stress_pair, shape_party,
+    skip_stress_pair,
 };
 use crate::testing::optrace::{run, world_strategy};
 
@@ -90,6 +91,80 @@ proptest! {
             })
         };
         assert_linear_scaling(measure(scale), measure(scale * 4));
+    }
+}
+
+proptest! {
+    /// Complexity. `covers` is `O(n + m)`: a *covering* misaligned pair (`a`'s
+    /// full `1` leaf at each level aligned against `b`'s small owned subtree)
+    /// drives the bounded lazy-skip at scale. `a` covers `b`, so the walk runs
+    /// to completion (no early `false`) and the skip dominates; steps stay
+    /// linear from `scale` to `4 * scale`, proving each node is skipped at most
+    /// once (no per-node re-scan).
+    #[test]
+    fn covers_is_linear(scale in MIN_SCALE..256) {
+        let measure = |s: usize| {
+            let (a, b) = covers_stress_pair(s);
+            steps_of(|| {
+                IdReader::root(a.as_bits()).covers(IdReader::root(b.as_bits()));
+            })
+        };
+        assert_linear_scaling(measure(scale), measure(scale * 4));
+    }
+}
+
+// ───────────────────────────── covering (containment) ─────────────────────────────
+
+proptest! {
+    /// `covers` on arbitrary id pairs — typically *unrelated* and frequently
+    /// *overlapping* — agrees with the oracle, including the partial-overlap
+    /// case (neither covers the other) that the seed pipeline never produces.
+    /// Covering is *antisymmetric*: two regions cover each other exactly when
+    /// they are equal.
+    #[test]
+    fn covers_arbitrary(
+        oa in arb_oracle_party(),
+        ob in arb_oracle_party(),
+    ) {
+        let (ia, ib) = (from_oracle_party(&oa), from_oracle_party(&ob));
+        prop_assert_eq!(ia.covers(&ib), oa.covers(&ob));
+        prop_assert_eq!(ib.covers(&ia), ob.covers(&oa));
+        prop_assert_eq!(ia.covers(&ib) && ib.covers(&ia), ia == ib);
+    }
+}
+
+proptest! {
+    /// On seed-derived parties, covering tracks the fork/join lattice: the whole
+    /// [`Party::seed`] covers every live party, a party covers itself (and any
+    /// alias), a fork's parent covers both resulting halves, and the rejoin of
+    /// two halves covers each part. Disjoint live halves cover neither other —
+    /// the partial-overlap-free shadow of [`Party::is_disjoint`].
+    #[test]
+    fn covers_tracks_fork_join(ops in world_strategy(), i in 0usize..64) {
+        let cs = run(&ops);
+        let n = cs.len();
+        let snapshot = cs[i % n].party().clone();
+
+        // The whole covers any live party; a party covers an alias of itself.
+        let live = from_oracle_party(&snapshot);
+        prop_assert!(Party::seed().covers(&live));
+        prop_assert!(live.covers(&live.dangerously_alias()));
+
+        // A fork's parent covers both halves; the halves cover neither other.
+        let mut keep = from_oracle_party(&snapshot);
+        let parent = from_oracle_party(&snapshot);
+        let give = keep.fork();
+        prop_assert!(parent.covers(&keep));
+        prop_assert!(parent.covers(&give));
+        prop_assert!(!keep.covers(&give));
+        prop_assert!(!give.covers(&keep));
+
+        // The rejoin of the two halves covers each part it absorbed.
+        let keep_half = keep.dangerously_alias();
+        let give_half = give.dangerously_alias();
+        keep.join(give).expect("disjoint halves rejoin");
+        prop_assert!(keep.covers(&keep_half));
+        prop_assert!(keep.covers(&give_half));
     }
 }
 

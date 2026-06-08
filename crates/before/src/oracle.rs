@@ -151,6 +151,25 @@ impl Party {
         }
     }
 
+    /// Whether `self`'s owned region contains all of `other`'s (`self ⊇
+    /// other`). The asymmetric companion of [`is_disjoint`](Self::is_disjoint):
+    /// where disjointness asks whether two regions *share nothing*, this asks
+    /// whether one region *subsumes* the other.
+    pub fn covers(&self, other: &Party) -> bool {
+        match (self, other) {
+            // Nothing to cover: every region contains the empty region.
+            (_, Party::Leaf(false)) => true,
+            // Owns everything: the full region contains any other.
+            (Party::Leaf(true), _) => true,
+            // Owns nothing yet `other` owns something: not covered.
+            (Party::Leaf(false), x) => x.is_empty(),
+            // `other` owns the whole region here; `self` must own it all too.
+            (x, Party::Leaf(true)) => x.is_full(),
+            // Both internal: cover holds iff it holds on both halves.
+            (Party::Node(a1, a2), Party::Node(b1, b2)) => a1.covers(b1) && a2.covers(b2),
+        }
+    }
+
     pub fn is_normal(&self) -> bool {
         match self {
             Party::Leaf(_) => true,

@@ -139,6 +139,36 @@ pub(crate) fn skip_stress_pair(scale: usize) -> (Party, Party) {
     (from_oracle_party(&a), from_oracle_party(&b))
 }
 
+/// Build a *covering* "staircase" id pair `(a, b)` with `a ⊇ b`, driving the
+/// bounded lazy-skip in `covers` to its worst case: `Θ(scale)` distinct skips,
+/// each over a small subtree. The covering analogue of
+/// [`skip_stress_pair`]: `b` is a right-spine whose every left child is a small
+/// owned subtree `(1, 0)`; `a` is a right-spine whose every left child is the
+/// *full* `1` leaf. At every level `a`'s left `1` leaf dominates `b`'s left
+/// subtree, so that subtree is skipped once, and the full leaf covers it — so
+/// the walk runs to completion (no early `false`) and the cumulative skip cost
+/// is measured. The shared empty deepest-right tip keeps both spines in normal
+/// form (no `(1, 1)` node collapses). With a *bounded* skip the total is
+/// `O(scale)`; an *unbounded* (rescanning) skip would be `O(scale²)`.
+pub(crate) fn covers_stress_pair(scale: usize) -> (Party, Party) {
+    use oracle::Party as P;
+    // A 2-leaf subtree `(1, 0)`: a small node that owns its left half.
+    let owned_left = || P::node(P::seed(), P::Leaf(false));
+    // `b`: right-spine, each left child a small owned subtree, deepest-right tip
+    // empty.
+    let mut b = P::Leaf(false);
+    for _ in 0..scale {
+        b = P::node(owned_left(), b);
+    }
+    // `a`: right-spine, each left child the full `1` leaf (covering `b`'s left
+    // subtree), deepest-right tip empty (so the `(1, 0)` spine never collapses).
+    let mut a = P::Leaf(false);
+    for _ in 0..scale {
+        a = P::node(P::seed(), a);
+    }
+    (from_oracle_party(&a), from_oracle_party(&b))
+}
+
 /// Build a non-empty normal-form id of `shape` sized linearly in `scale`. The
 /// spines carry a single owned region (a `1` leaf at the tip) with `0`
 /// off-spine; the bushy shape carries many owned regions at varying depths (so

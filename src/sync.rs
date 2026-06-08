@@ -122,7 +122,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use futures::io::AllowStdIo;
 use tokio_util::compat::{FuturesAsyncReadCompatExt, FuturesAsyncWriteCompatExt};
 
-pub use crate::{Error, Key, Network, PROTOCOL_MAGIC, PROTOCOL_VERSION, Version};
+pub use crate::{Bookmark, Error, Key, Network, PROTOCOL_MAGIC, PROTOCOL_VERSION, Version};
 pub use ::borsh;
 
 /// A local set of rumors: add to it, redact from it, gossip with peers.
@@ -739,5 +739,67 @@ impl<T> Known<T> {
         let mut read = AllowStdIo::new(read).compat();
         let mut write = AllowStdIo::new(write).compat_write();
         pollster::block_on(self.0.retire(&mut read, &mut write)).map(|known| known.map(Known))
+    }
+
+    /// Record this [`Known`]'s identity and current version into a [`Bookmark`],
+    /// so this peer can recover its identity after an ungraceful restart instead
+    /// of leaking it.
+    ///
+    /// See [`Bookmark`] for the recovery model: what an identity is, why
+    /// leaking one permanently inflates every peer's versions, and the rule for
+    /// reclaiming a bookmarked identity (you may only resume as an identity
+    /// once your version is at least as advanced as the one it was bookmarked
+    /// at; resuming behind it corrupts causal history).
+    ///
+    /// Used correctly, bookmarks prevent that leakage; persisted at the wrong
+    /// moment, a bookmark instead causes the causal-history corruption it
+    /// exists to prevent. The discipline:
+    ///
+    /// # When to bookmark
+    ///
+    /// You do not have to use bookmarks, but if you do, checkpoint *right
+    /// before you [`gossip`](Known::gossip)*, whenever you have changed this
+    /// [`Known`] with [`message`](Known::message) or [`redact`](Known::redact)
+    /// since your last checkpoint, and persist the bookmark before that gossip
+    /// goes out. The invariant this preserves is that the persisted
+    /// [`Bookmark`] must *never* be causally behind a change another peer has
+    /// already learned; otherwise, a recovery from it would resume behind the
+    /// network.
+    ///
+    /// A peer that is about to [`retire`](Known::retire) *must* erase its
+    /// persisted [`Bookmark`] first, so that a successful retire cannot leave
+    /// its identity recoverable locally while it is also in use elsewhere in
+    /// the network.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rumors::sync::{Known, Bookmark};
+    ///
+    /// let mut peer = Known::<u64>::seed();
+    /// peer.message([1, 2]);
+    ///
+    /// // A pristine checkpoint of the peer's identity. (In practice you would
+    /// // persist the bookmark — it is `borsh`-serializable — to durable storage
+    /// // right before gossiping.)
+    /// let mut pristine = Bookmark::new();
+    /// peer.bookmark(&mut pristine);
+    ///
+    /// // Fork a child, checkpoint it, then lose it ungracefully — a crash, with
+    /// // no chance to `retire`. Re-checkpointing the peer reclaims the lost
+    /// // fork's identity rather than leaking it.
+    /// let mut bookmark = Bookmark::new();
+    /// {
+    ///     let mut child = peer.fork();
+    ///     child.bookmark(&mut bookmark);
+    /// }
+    /// peer.bookmark(&mut bookmark);
+    ///
+    /// // The reclaimed checkpoint is identical to the pristine one: the
+    /// // discarded fork's identity was folded back in, leaking nothing.
+    /// assert_eq!(bookmark, pristine);
+    /// ```
+    pub fn bookmark(&mut self, bookmark: &mut Bookmark) {
+        bookmark.update(self.network(), &mut self.0.party, self.0.tree.latest());
     }
 }
