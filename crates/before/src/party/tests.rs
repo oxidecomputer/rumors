@@ -116,6 +116,23 @@ proptest! {
     }
 }
 
+// ───────────────────────── dangerously_duplicate ─────────────────────────
+
+proptest! {
+    /// `dangerously_alias` yields a byte-identical, `Eq` copy that aliases the
+    /// original's entire region: the two are therefore *not* disjoint — the
+    /// deliberate linearity violation the method documents. (The caller alone is
+    /// responsible for keeping at most one of them live.)
+    #[test]
+    fn dangerously_alias_aliases_region(op in arb_oracle_party_nonempty()) {
+        let p = from_oracle_party(&op);
+        let dup = p.dangerously_alias();
+        prop_assert!(dup == p);
+        prop_assert_eq!(dup.as_bytes(), p.as_bytes());
+        prop_assert!(!p.is_disjoint(&dup), "a duplicate aliases the whole region");
+    }
+}
+
 // ───────────────────────── paper-notation TryFrom ─────────────────────────
 
 /// `TryFrom` numeric/tuple literals build parties via the same paper notation

@@ -140,6 +140,24 @@ impl Party {
         self.view().is_disjoint(other.view())
     }
 
+    /// Duplicate this party's id-region, producing a second handle to the
+    /// **same** region.
+    ///
+    /// # ⚠️ This deliberately violates linearity
+    ///
+    /// [`Party`] is [`!Clone`](Clone) precisely because two live handles to one
+    /// region break the Law of Disjointness the interval tree clocks rely on:
+    /// the copies are *not* [disjoint](Party::is_disjoint), so
+    /// [`join`](Party::join)ing them — or independently [`tick`](Party::tick)ing
+    /// both — corrupts causal history. This method hands you that footgun
+    /// anyway. The caller is **solely responsible** for ensuring at most one
+    /// copy is ever treated as live (the other must be dropped without being
+    /// used), e.g. when handing a party across a boundary where ownership
+    /// transfers to exactly one side.
+    pub fn dangerously_alias(&self) -> Self {
+        Party(self.0.clone())
+    }
+
     /// Encode a [`Party`] to bytes.
     ///
     /// **Note:** The byte-encoding of a [`Clock`](crate::Clock) is **not the
