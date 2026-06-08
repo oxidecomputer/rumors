@@ -85,6 +85,7 @@ mod fill;
 mod grow;
 mod max;
 mod min_ticks;
+mod project;
 
 use builder::{Builder, Slot};
 

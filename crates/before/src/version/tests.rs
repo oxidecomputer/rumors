@@ -1088,3 +1088,121 @@ fn no_maximum_tick_count() {
         assert_eq!(v.min_ticks(), 1, "n={n}: {n} ticks collapse to the floor 1");
     }
 }
+
+// ─────────────────────── projection onto a party (`/`) ───────────────────────
+
+/// Projection decomposes a version along a fork: each half's contribution is a
+/// sub-version, the two rejoin to the whole, and their supports are disjoint (so
+/// their meet is empty). The whole-interval seed party is the identity, and
+/// projecting onto a *disjoint* party keeps nothing.
+#[test]
+fn div_decomposes_along_fork() {
+    let mut a = Clock::seed();
+    let mut b = a.fork();
+    a.tick();
+    a.tick();
+    b.tick();
+    a.sync(&mut b).unwrap(); // both learn the full history
+    let v = a.version().clone();
+
+    let from_a = &v / a.party();
+    let from_b = &v / b.party();
+
+    assert!(from_a <= v && from_b <= v); // each contribution is a sub-version
+    assert_eq!(&from_a | &from_b, v); // and they rejoin to the whole
+    assert_eq!(&from_a & &from_b, Version::new()); // over disjoint supports
+    assert_eq!(&v / &Party::seed(), v); // the whole-interval party is the identity
+}
+
+/// `/=` agrees with `/`, and projecting onto a party disjoint from where the
+/// events happened keeps nothing.
+#[test]
+fn div_assign_matches_div() {
+    let mut a = Clock::seed();
+    let b = a.fork(); // a: one half, b: the disjoint other
+    a.tick();
+    let v = a.version().clone();
+
+    let mut w = v.clone();
+    w /= a.party();
+    assert_eq!(w, &v / a.party());
+    assert_eq!(w, v); // a's whole version lives in a's region
+
+    let mut z = v.clone();
+    z /= b.party();
+    assert_eq!(z, Version::new()); // none of a's tick lies in b's region
+}
+
+/// Projection can *raise* `min_ticks`: it is not monotone under `<=`. A single
+/// whole-interval tick (`leaf 1`, `min_ticks` 1) projected onto a "comb" region
+/// — two quarters in different halves — becomes two concurrent peaks, which no
+/// single tick can produce, forcing `min_ticks` to 2 even though the projection
+/// is a sub-version.
+#[test]
+fn div_can_fragment_and_raise_min_ticks() {
+    // Fork a seed into quarters, then rejoin two that lie in different halves.
+    let mut q0 = Clock::seed();
+    let mut q2 = q0.fork(); // q0: one half, q2: the other
+    let _q1 = q0.fork(); // q0: a quarter of its half
+    let _q3 = q2.fork(); // q2: a quarter of the other half
+    q0.join(q2).unwrap(); // q0 now owns two quarters, one per half
+    let comb = q0.party();
+
+    let v = Version::try_from(1).unwrap();
+    assert_eq!(v.min_ticks(), 1); // one tick covers the whole interval
+
+    let frag = &v / comb;
+    assert!(frag <= v); // still a sub-version
+    assert_eq!(frag.min_ticks(), 2); // but now two concurrent peaks
+}
+
+proptest! {
+    /// The projection laws over arbitrary histories: sub-version, idempotent,
+    /// event-count-nonincreasing, identity under the seed party, and a
+    /// homomorphism of both join and meet.
+    #[test]
+    fn div_by_party_laws(
+        ops in world_strategy(),
+        i in 0usize..64,
+        j in 0usize..64,
+        k in 0usize..64,
+    ) {
+        let mut imp = vec![Clock::seed()];
+        for op in &ops {
+            step_impl(&mut imp, op);
+        }
+        let n = imp.len();
+        let a = imp[i % n].version().clone();
+        let b = imp[j % n].version().clone();
+        let p = imp[k % n].party();
+
+        let proj = &a / p;
+        prop_assert!(proj <= a); // sub-version
+        prop_assert_eq!(&proj / p, proj.clone()); // idempotent
+        prop_assert_eq!(&a / &Party::seed(), a.clone()); // seed is the identity
+        // a homomorphism of join and of meet
+        prop_assert_eq!((a.clone() | b.clone()) / p, (&a / p) | (&b / p));
+        prop_assert_eq!((a.clone() & b.clone()) / p, (&a / p) & (&b / p));
+    }
+}
+
+proptest! {
+    /// Projection is additive across a fork: a party's contribution equals the
+    /// join of the contributions of the two disjoint halves it forks into. This
+    /// is the homomorphism that the join/meet distribution rests on.
+    #[test]
+    fn div_is_additive_over_fork(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+        let mut imp = vec![Clock::seed()];
+        for op in &ops {
+            step_impl(&mut imp, op);
+        }
+        let n = imp.len();
+        let v = imp[i % n].version().clone();
+
+        let k = j % n;
+        let whole = &v / imp[k].party(); // the un-forked party's contribution
+        let child = imp[k].fork(); // imp[k] keeps one half, `child` the other
+        let halves = (&v / imp[k].party()) | (&v / child.party());
+        prop_assert_eq!(halves, whole);
+    }
+}

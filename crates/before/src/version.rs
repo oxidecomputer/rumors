@@ -3,7 +3,7 @@
 
 use core::cmp::Ordering;
 use core::fmt::Display;
-use core::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign};
+use core::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Div, DivAssign};
 
 use bitvec::prelude::*;
 
@@ -618,6 +618,61 @@ binop_matrix! {
     Batch<'_>,  &Version,   direct;
     Batch<'_>,  Batch<'_>,  direct;
     Batch<'_>,  &Batch<'_>, direct;
+}
+
+// ───────────────────── projection onto a party (`/`, `/=`) ───────────────────
+//
+// `v / &p` masks `v` to `p`'s id: the value is kept wherever `p` owns the region
+// and zeroed everywhere else — "`p`'s contribution to `v`". It reads only the
+// party's id bits (`as_bits`), never consuming or cloning the linear `Party`, so
+// it takes `&Party` and leaves it untouched.
+//
+// Algebraic shape (exercised by `version::tests`): the projection is a
+// sub-version (`v/p <= v`) and idempotent (`(v/p)/p == v/p`); it is additive
+// across a fork — `v/p == v/p_left | v/p_right` when `p` forks into disjoint
+// halves — and so a homomorphism of both the join and the meet
+// (`(a|b)/p == a/p | b/p`, `(a&b)/p == a/p & b/p`); the whole-interval party
+// leaves `v` unchanged. Projection need not lower the event count, though:
+// carving one broad tick into disjoint peaks can *raise* `min_ticks`, so it is
+// not monotone under `<=`.
+
+/// `v / &p` — the part of the [`Version`] `v` contributed within [`Party`]
+/// `p`'s id region (zero everywhere `p` does not own). The party is borrowed,
+/// not consumed.
+///
+/// ```
+/// use before::Clock;
+/// // Two disjoint halves each tick, then learn each other's history.
+/// let mut a = Clock::seed();
+/// let mut b = a.fork();
+/// a.tick();
+/// b.tick();
+/// a.sync(&mut b).unwrap();
+/// let v = a.version().clone();
+/// // Each half's contribution is a sub-version, and the two rejoin to `v`.
+/// let from_a = &v / a.party();
+/// let from_b = &v / b.party();
+/// assert!(from_a <= v && from_b <= v);
+/// assert_eq!(&from_a | &from_b, v);
+/// ```
+impl Div<&Party> for &Version {
+    type Output = Version;
+    fn div(self, party: &Party) -> Version {
+        Version::from_bits(self.view().project(party.as_bits()).repack())
+    }
+}
+
+impl Div<&Party> for Version {
+    type Output = Version;
+    fn div(self, party: &Party) -> Version {
+        &self / party
+    }
+}
+
+impl DivAssign<&Party> for Version {
+    fn div_assign(&mut self, party: &Party) {
+        *self = Version::from_bits(self.view().project(party.as_bits()).repack());
+    }
 }
 
 // Causal comparison across {Version, Batch}², reading current state in place.

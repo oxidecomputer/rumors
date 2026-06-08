@@ -240,6 +240,27 @@ impl Clock {
         &self.version
     }
 
+    /// Get the *slice* of the [`Version`] of the [`Clock`] *which is owned by
+    /// its own [`Party`].
+    ///
+    /// This is short for `self.version() / self.party()`.
+    ///
+    /// ```
+    /// use before::{Clock, Version};
+    /// let mut a = Clock::seed();
+    /// a.tick();
+    /// let mut b = a.fork();
+    /// a.tick();
+    /// b.tick();
+    /// // The greatest common ancestor version is more than the initial version:
+    /// assert!(a.version() & b.version() > Version::new());
+    /// // But the greatest common ancestor of the two quotiented versions is not:
+    /// assert!(a.own_version() & b.own_version() == Version::new());
+    /// ```
+    pub fn own_version(&self) -> Version {
+        self.version() / self.party()
+    }
+
     /// Encode a [`Clock`] as canonical bytes.
     ///
     /// ```
