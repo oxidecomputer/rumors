@@ -18,6 +18,8 @@ use std::io::{PipeReader, PipeWriter, pipe};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread::{self, JoinHandle};
 
+use borsh::{BorshDeserialize, BorshSerialize};
+
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
@@ -33,6 +35,31 @@ mod grid;
 const N: usize = 10_000;
 const INSERT_STEP: usize = 500;
 const REDACT_STEP: usize = 250;
+
+/// Mint a genuine party-disjoint originator that inherits `parent`'s content.
+///
+/// `Known::fork` is gone, so a peer that will independently `message`/`redact`
+/// (as both sides of every fixture here do) is minted by serving a bootstrap
+/// from a [`rumors`](Known::rumors) snapshot of `parent`: the newcomer pulls
+/// `parent`'s whole tree through the ordinary mirror descent and is handed a
+/// fresh disjoint party, exactly as a local fork used to be.
+fn bootstrap_fork<T>(parent: &Known<T>) -> Known<T>
+where
+    T: BorshSerialize + BorshDeserialize + Clone + Send + Sync + 'static,
+{
+    let (mut p2n_r, mut p2n_w) = pipe().expect("pipe parent→newcomer");
+    let (mut n2p_r, mut n2p_w) = pipe().expect("pipe newcomer→parent");
+    let newcomer = thread::spawn(move || {
+        Known::<T>::bootstrap(&mut p2n_r, &mut n2p_w)
+            .expect("bootstrap newcomer")
+            .expect("provider served bootstrap")
+    });
+    let server = parent.rumors();
+    server
+        .gossip(&mut n2p_r, &mut p2n_w)
+        .expect("serve bootstrap");
+    newcomer.join().expect("join bootstrap thread")
+}
 
 /// A reusable in-memory "wire": two OS pipes plus a persistent worker thread
 /// driving peer B.
@@ -168,7 +195,7 @@ fn build_bidir_insertions(total_insertions: usize) -> (Known<u8>, Known<u8>) {
     assert_eq!(total_insertions % 2, 0);
 
     let mut left = seeded_with_messages(N - total_insertions, 0x1189_2d1a_c54f_a94d);
-    let mut right = left.fork();
+    let mut right = bootstrap_fork(&left);
     let per_side = total_insertions / 2;
 
     left.message(random_bytes(
@@ -187,7 +214,7 @@ fn build_unilateral_insertions(total_insertions: usize) -> (Known<u8>, Known<u8>
     assert!(total_insertions <= N);
 
     let mut left = seeded_with_messages(N - total_insertions, 0x70e4_a5b8_cce0_25da);
-    let right = left.fork();
+    let right = bootstrap_fork(&left);
 
     left.message(random_bytes(
         total_insertions,
@@ -202,7 +229,7 @@ fn build_bidir_redactions(total_redactions: usize) -> (Known<u8>, Known<u8>) {
     assert_eq!(total_redactions % 2, 0);
 
     let (mut left, keys) = seeded_with_keys(N, 0xc786_a046_6b7d_c9d3);
-    let mut right = left.fork();
+    let mut right = bootstrap_fork(&left);
     let shuffled = shuffled_keys(keys, 0x84f6_7932_1265_9eec ^ total_redactions as u64);
     let per_side = total_redactions / 2;
 
@@ -216,7 +243,7 @@ fn build_unilateral_redactions(total_redactions: usize) -> (Known<u8>, Known<u8>
     assert!(total_redactions <= N / 2);
 
     let (mut left, keys) = seeded_with_keys(N, 0x2526_34f4_918f_e1c7);
-    let right = left.fork();
+    let right = bootstrap_fork(&left);
     let shuffled = shuffled_keys(keys, 0xd4f9_f46b_3c09_1d60 ^ total_redactions as u64);
 
     left.redact(shuffled[..total_redactions].iter().copied());

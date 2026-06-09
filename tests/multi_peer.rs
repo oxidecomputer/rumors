@@ -128,8 +128,8 @@ proptest! {
         }).prop_filter("distinct peers", |(_, a, b)| a != b),
     ) {
         let mut result = execute_and_quiesce(&schedule);
-        let before_a = result.peers[a].local.fork();
-        let before_b = result.peers[b].local.fork();
+        let before_a = result.peers[a].local.rumors();
+        let before_b = result.peers[b].local.rumors();
         let obs_a_before = result.peers[a].observations.lock().unwrap().len();
         let obs_b_before = result.peers[b].observations.lock().unwrap().len();
 

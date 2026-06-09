@@ -17,6 +17,7 @@ use rumors::sync::Known;
 
 use crate::common::oracle::readout_multiset;
 use crate::common::peer::{Peer, gossip_step, quiesce};
+use crate::common::sync_wire::sync_bootstrap_fork;
 
 proptest! {
     /// A redaction issued by *any* peer propagates contagiously to
@@ -33,9 +34,9 @@ proptest! {
         value in any::<u64>(),
         redactor_idx in any::<usize>(),
     ) {
-        let mut seed = Known::<u64>::seed();
+        let seed = Known::<u64>::seed();
         let mut peers: Vec<Peer<u64>> = (0..n_peers)
-            .map(|_| Peer::new(seed.fork()))
+            .map(|_| Peer::new(sync_bootstrap_fork(&seed)))
             .collect();
 
         let key = peers[0].insert_one(value);
@@ -69,9 +70,9 @@ proptest! {
         b_values in vec(any::<u64>(), 1..=4),
     ) {
         let run = |a_first: bool| -> BTreeMap<u64, usize> {
-            let mut seed = Known::<u64>::seed();
-            let mut a = Peer::new(seed.fork());
-            let mut b = Peer::new(seed.fork());
+            let seed = Known::<u64>::seed();
+            let mut a = Peer::new(sync_bootstrap_fork(&seed));
+            let mut b = Peer::new(sync_bootstrap_fork(&seed));
             let mut a_keys: Vec<Key> = Vec::new();
             let mut b_keys: Vec<Key> = Vec::new();
             for v in &a_values { a_keys.push(a.insert_one(*v)); }
@@ -119,11 +120,11 @@ proptest! {
     /// this corner.
     #[test]
     fn redact_unknown_key_is_noop(value in any::<u64>()) {
-        let mut seed = Known::<u64>::seed();
-        let mut bob = Peer::new(seed.fork());
+        let seed = Known::<u64>::seed();
+        let mut bob = Peer::new(sync_bootstrap_fork(&seed));
         let foreign_key = bob.insert_one(value);
 
-        let mut alice = Peer::new(seed.fork());
+        let mut alice = Peer::new(sync_bootstrap_fork(&seed));
         let readout_before = readout_multiset(&alice.local);
         let obs_before = alice.observations.lock().unwrap().len();
 

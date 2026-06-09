@@ -81,25 +81,26 @@ pub fn gossip_step<T>(a: &mut Peer<T>, b: &mut Peer<T>)
 where
     T: Clone + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
 {
-    let a_snapshot = a.local.fork();
-    let b_snapshot = b.local.fork();
+    let a_snapshot = a.local.rumors();
+    let b_snapshot = b.local.rumors();
 
-    // `learn` is fallible only if the two parties are not disjoint; every peer
-    // in a test fleet descends from one seed by forking, so they always are.
-    // (`unwrap_or_else` rather than `expect` keeps `T: Debug` off the bound.)
+    // `join_then` is fallible only on a `Network` mismatch (two independent
+    // seeds); every peer in a test fleet descends from one seed, so they always
+    // match. (`unwrap_or_else` rather than `expect` keeps `T: Debug` off the
+    // bound.)
     let obs_a = Arc::clone(&a.observations);
     a.local
         .join_then(b_snapshot, move |k, v, m| {
             obs_a.lock().unwrap().push((k, v.clone(), T::clone(m)));
         })
-        .unwrap_or_else(|_| unreachable!("fleet peers share one seed, so are disjoint"));
+        .unwrap_or_else(|_| unreachable!("fleet peers share one network"));
 
     let obs_b = Arc::clone(&b.observations);
     b.local
         .join_then(a_snapshot, move |k, v, m| {
             obs_b.lock().unwrap().push((k, v.clone(), T::clone(m)));
         })
-        .unwrap_or_else(|_| unreachable!("fleet peers share one seed, so are disjoint"));
+        .unwrap_or_else(|_| unreachable!("fleet peers share one network"));
 }
 
 /// Drive every pair toward convergence by repeatedly running
@@ -118,7 +119,8 @@ where
 
     let max_rounds = MAX_QUIESCE_ROUNDS_PER_PEER * n;
     for _ in 0..max_rounds {
-        let snapshot: Vec<Known<T>> = peers.iter_mut().map(|p| p.local.fork()).collect();
+        let snapshot: Vec<Known<T, rumors::Rumors>> =
+            peers.iter().map(|p| p.local.rumors()).collect();
 
         for i in 0..n {
             for j in (i + 1)..n {

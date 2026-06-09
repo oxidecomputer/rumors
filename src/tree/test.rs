@@ -72,8 +72,11 @@ fn idx(label: impl AsRef<[u8]>) -> usize {
 
 /// The disjoint [`Party`] for a label (see [`crate::tree::arb::nth_party`]).
 /// Distinct labels give disjoint parties, hence causally-concurrent histories.
-fn party_of(label: impl AsRef<[u8]>) -> before::Party {
-    crate::tree::arb::nth_party(idx(label))
+fn party_of(label: impl AsRef<[u8]>) -> impl FnMut(&mut before::batch::Version) {
+    let idx = idx(label);
+    move |batch| {
+        batch.tick(&crate::tree::arb::nth_party(idx));
+    }
 }
 
 /// Build the [`Version`] a party reaches after `ticks` events: tick its
@@ -81,11 +84,13 @@ fn party_of(label: impl AsRef<[u8]>) -> before::Party {
 /// `(party, scalar)` version-vector constructor — `ticks` plays the role the
 /// per-party scalar counter used to.
 fn version_for(party: impl AsRef<[u8]>, ticks: u64) -> Version {
-    let p = party_of(party);
+    let mut p = party_of(party);
     let mut v = Version::new();
+    let mut batch = v.batch();
     for _ in 0..ticks {
-        v.tick(&p);
+        p(&mut batch);
     }
+    drop(batch);
     v
 }
 
@@ -234,7 +239,7 @@ fn single_value_hash_matches_reference() {
     let value = Bytes::from(&b"hello"[..]);
     let mut tree: Tree<Bytes> = Tree::new();
     run(tree.act(
-        &party_of("P"),
+        party_of("P"),
         [insert_action(value.clone())],
         crate::tree::ignore,
     ));
@@ -256,7 +261,7 @@ proptest! {
             .prop_map(|v| v.into_iter().map(Bytes::from).collect::<Vec<_>>()),
     ) {
         let mut tree = Tree::new();
-        run(tree.act(&party_of("P"), values.iter().cloned().map(insert_action), crate::tree::ignore));
+        run(tree.act(party_of("P"), values.iter().cloned().map(insert_action), crate::tree::ignore));
         let reference_input: Vec<_> = values
             .into_iter()
             .enumerate()
@@ -317,7 +322,7 @@ proptest! {
     ) {
         let mut t_act = Tree::new();
         for b in &bytes {
-            run(t_act.act(&party_of("P"), [insert_action(b.clone())], crate::tree::ignore));
+            run(t_act.act(party_of("P"), [insert_action(b.clone())], crate::tree::ignore));
         }
 
         let party = "P".to_string();
@@ -351,7 +356,7 @@ proptest! {
         let mut tree: Tree<Bytes> = Tree::new();
         if !bytes.is_empty() {
             run(tree.act(
-                &party_of("P"),
+                party_of("P"),
                 bytes.iter().cloned().map(insert_action),
                 crate::tree::ignore,
             ));
@@ -396,7 +401,7 @@ proptest! {
         let mut tree: Tree<Bytes> = Tree::new();
         if !bytes.is_empty() {
             run(tree.act(
-                &party_of("P"),
+                party_of("P"),
                 bytes.iter().cloned().map(insert_action),
                 crate::tree::ignore,
             ));
@@ -438,8 +443,8 @@ proptest! {
         let path = leaf_path(&party, 1, &value);
 
         let mut tree = Tree::new();
-        run(tree.act(&party_of("P"), [insert_action(value)], crate::tree::ignore));
-        run(tree.act(&party_of("P"), [Action::Forget(path)], crate::tree::ignore));
+        run(tree.act(party_of("P"), [insert_action(value)], crate::tree::ignore));
+        run(tree.act(party_of("P"), [Action::Forget(path)], crate::tree::ignore));
 
         prop_assert_eq!(tree.hash(), *reference_hash(&[]).as_bytes());
         prop_assert_eq!(tree.latest(), version_for(&party, 2));
@@ -456,7 +461,7 @@ proptest! {
         let path = leaf_path(&party, 1, &value);
 
         let mut tree = Tree::new();
-        run(tree.act(&party_of("P"), [insert_action(value), Action::Forget(path)], crate::tree::ignore));
+        run(tree.act(party_of("P"), [insert_action(value), Action::Forget(path)], crate::tree::ignore));
 
         prop_assert_eq!(tree.hash(), *reference_hash(&[]).as_bytes());
         prop_assert_eq!(tree.latest(), Version::new());
@@ -478,9 +483,9 @@ proptest! {
         prop_assume!(!present.contains(&nuke));
 
         let mut t_before = Tree::new();
-        run(t_before.act(&party_of("P"), bytes.into_iter().map(insert_action), crate::tree::ignore));
+        run(t_before.act(party_of("P"), bytes.into_iter().map(insert_action), crate::tree::ignore));
         let mut t_after = t_before.clone();
-        run(t_after.act(&party_of("P"), [Action::Forget(nuke)], crate::tree::ignore));
+        run(t_after.act(party_of("P"), [Action::Forget(nuke)], crate::tree::ignore));
 
         prop_assert_eq!(t_before.hash(), t_after.hash());
     }
@@ -506,7 +511,7 @@ proptest! {
     ) {
         let party = "P".to_string();
         let mut tree = Tree::new();
-        run(tree.act(&party_of("P"), bytes.iter().cloned().map(insert_action), crate::tree::ignore));
+        run(tree.act(party_of("P"), bytes.iter().cloned().map(insert_action), crate::tree::ignore));
 
         let paths: Vec<Key> = bytes
             .iter()
@@ -535,7 +540,7 @@ proptest! {
     ) {
         let party = "P".to_string();
         let mut tree = Tree::new();
-        run(tree.act(&party_of("P"), bytes.iter().cloned().map(insert_action), crate::tree::ignore));
+        run(tree.act(party_of("P"), bytes.iter().cloned().map(insert_action), crate::tree::ignore));
 
         let present_paths: BTreeSet<Key> = bytes
             .iter()
@@ -574,7 +579,7 @@ proptest! {
         let party = "P".to_string();
         let mut tree = Tree::new();
         for i in 0..prior_inserts {
-            run(tree.act(&party_of(&party), [insert_action(Bytes::from(
+            run(tree.act(party_of(&party), [insert_action(Bytes::from(
                 format!("prior-{i}").into_bytes(),
             ))], crate::tree::ignore));
         }
@@ -584,7 +589,7 @@ proptest! {
                 insert_action(Bytes::from(format!("batch-{i}").into_bytes()))
             })
             .collect();
-        run(tree.act(&party_of(&party), actions, crate::tree::ignore));
+        run(tree.act(party_of(&party), actions, crate::tree::ignore));
 
         // Each prior insert and each batch insert ticks the party once, so the
         // tree's version is exactly that many ticks of the owning party.
@@ -599,12 +604,12 @@ proptest! {
     fn empty_act_is_a_version_noop(prior_batches in 0usize..4) {
         let mut tree = Tree::new();
         for i in 0..prior_batches {
-            run(tree.act(&party_of("P"), [insert_action(Bytes::from(
+            run(tree.act(party_of("P"), [insert_action(Bytes::from(
                 format!("prior-{i}").into_bytes(),
             ))], crate::tree::ignore));
         }
         let before = tree.latest().clone();
-        run(tree.act(&party_of("P"), std::iter::empty::<Action<Bytes>>(), crate::tree::ignore));
+        run(tree.act(party_of("P"), std::iter::empty::<Action<Bytes>>(), crate::tree::ignore));
         prop_assert_eq!(tree.latest(), before);
     }
 
@@ -727,8 +732,8 @@ proptest! {
         for (i, value) in a_inserts.iter().enumerate() {
             let scalar = (i + 1) as u64;
             let mut recorded = tree_a.latest().clone();
-            recorded.tick(&party_of(&a_id));
-            run(tree_a.act(&party_of("A"), [insert_action(value.clone())], crate::tree::ignore));
+            party_of(&a_id)(&mut recorded.batch());
+            run(tree_a.act(party_of("A"), [insert_action(value.clone())], crate::tree::ignore));
             a_events.push(insert_at(recorded, &a_id, scalar, value.clone()));
         }
 
@@ -737,8 +742,8 @@ proptest! {
         for (i, value) in b_inserts.iter().enumerate() {
             let scalar = (i + 1) as u64;
             let mut recorded = tree_b.latest().clone();
-            recorded.tick(&party_of(&b_id));
-            run(tree_b.act(&party_of("B"), [insert_action(value.clone())], crate::tree::ignore));
+            party_of(&b_id)(&mut recorded.batch());
+            run(tree_b.act(party_of("B"), [insert_action(value.clone())], crate::tree::ignore));
             b_events.push(insert_at(recorded, &b_id, scalar, value.clone()));
         }
 
@@ -755,7 +760,7 @@ proptest! {
     #[test]
     fn clone_preserves_all_observables(acts in distinct_bytes(8)) {
         let mut tree = Tree::new();
-        run(tree.act(&party_of("P"), acts.into_iter().map(insert_action), crate::tree::ignore));
+        run(tree.act(party_of("P"), acts.into_iter().map(insert_action), crate::tree::ignore));
         let cloned = tree.clone();
 
         prop_assert_eq!(cloned.latest(), tree.latest());
@@ -770,9 +775,9 @@ proptest! {
     #[test]
     fn eq_implies_same_hash(acts in distinct_bytes(8)) {
         let mut t1 = Tree::new();
-        run(t1.act(&party_of("P"), acts.iter().cloned().map(insert_action), crate::tree::ignore));
+        run(t1.act(party_of("P"), acts.iter().cloned().map(insert_action), crate::tree::ignore));
         let mut t2 = Tree::new();
-        run(t2.act(&party_of("P"), acts.into_iter().map(insert_action), crate::tree::ignore));
+        run(t2.act(party_of("P"), acts.into_iter().map(insert_action), crate::tree::ignore));
 
         prop_assert_eq!(&t1, &t2);
         prop_assert_eq!(t1.hash(), t2.hash());
@@ -787,8 +792,8 @@ proptest! {
         let value = Bytes::from(value);
         let mut t_a = Tree::new();
         let mut t_b = Tree::new();
-        run(t_a.act(&party_of("A"), [insert_action(value.clone())], crate::tree::ignore));
-        run(t_b.act(&party_of("B"), [insert_action(value)], crate::tree::ignore));
+        run(t_a.act(party_of("A"), [insert_action(value.clone())], crate::tree::ignore));
+        run(t_b.act(party_of("B"), [insert_action(value)], crate::tree::ignore));
 
         prop_assert_ne!(t_a.hash(), t_b.hash());
     }
@@ -804,7 +809,7 @@ proptest! {
     ) {
         let mut tree = Tree::new();
         for batch in batches {
-            run(tree.act(&party_of("P"), batch.into_iter().map(insert_action), crate::tree::ignore));
+            run(tree.act(party_of("P"), batch.into_iter().map(insert_action), crate::tree::ignore));
         }
         prop_assert!(tree.unknown(tree.latest()).is_empty());
     }
@@ -819,7 +824,7 @@ proptest! {
     fn unknown_relative_to_empty_is_everything(bytes in distinct_bytes(16)) {
         let party = "P".to_string();
         let mut tree = Tree::new();
-        run(tree.act(&party_of("P"), bytes.iter().cloned().map(insert_action), crate::tree::ignore));
+        run(tree.act(party_of("P"), bytes.iter().cloned().map(insert_action), crate::tree::ignore));
 
         let got = tree.unknown(&Version::default());
 
@@ -860,8 +865,8 @@ proptest! {
     ) {
         let mut tree_a = Tree::new();
         let mut tree_b = Tree::new();
-        run(tree_a.act(&party_of("A"), a_inserts.into_iter().map(insert_action), crate::tree::ignore));
-        run(tree_b.act(&party_of("B"), b_inserts.into_iter().map(insert_action), crate::tree::ignore));
+        run(tree_a.act(party_of("A"), a_inserts.into_iter().map(insert_action), crate::tree::ignore));
+        run(tree_b.act(party_of("B"), b_inserts.into_iter().map(insert_action), crate::tree::ignore));
 
         sync_via_unknown(&mut tree_a, &mut tree_b);
 
@@ -881,8 +886,8 @@ proptest! {
     ) {
         let mut tree_a = Tree::new();
         let mut tree_b = Tree::new();
-        run(tree_a.act(&party_of("A"), a_inserts.into_iter().map(insert_action), crate::tree::ignore));
-        run(tree_b.act(&party_of("B"), b_inserts.into_iter().map(insert_action), crate::tree::ignore));
+        run(tree_a.act(party_of("A"), a_inserts.into_iter().map(insert_action), crate::tree::ignore));
+        run(tree_b.act(party_of("B"), b_inserts.into_iter().map(insert_action), crate::tree::ignore));
 
         sync_via_unknown(&mut tree_a, &mut tree_b);
 
@@ -916,8 +921,8 @@ proptest! {
         let a_id = "A".to_string();
         let mut tree_a = Tree::new();
         let mut tree_b = Tree::new();
-        run(tree_a.act(&party_of("A"), a_inserts.iter().cloned().map(insert_action), crate::tree::ignore));
-        run(tree_b.act(&party_of("B"), b_inserts.iter().cloned().map(insert_action), crate::tree::ignore));
+        run(tree_a.act(party_of("A"), a_inserts.iter().cloned().map(insert_action), crate::tree::ignore));
+        run(tree_b.act(party_of("B"), b_inserts.iter().cloned().map(insert_action), crate::tree::ignore));
 
         run(tree_b.react(tree_a.unknown(tree_b.latest()), crate::tree::ignore));
 
@@ -955,10 +960,10 @@ proptest! {
         for op in ops {
             match op {
                 SyncOp::ActA(values) => {
-                    run(tree_a.act(&party_of("A"), values.into_iter().map(insert_action), crate::tree::ignore));
+                    run(tree_a.act(party_of("A"), values.into_iter().map(insert_action), crate::tree::ignore));
                 }
                 SyncOp::ActB(values) => {
-                    run(tree_b.act(&party_of("B"), values.into_iter().map(insert_action), crate::tree::ignore));
+                    run(tree_b.act(party_of("B"), values.into_iter().map(insert_action), crate::tree::ignore));
                 }
                 SyncOp::Sync => {
                     sync_via_unknown(&mut tree_a, &mut tree_b);
@@ -983,8 +988,8 @@ proptest! {
         let party = "P".to_string();
         let value = Bytes::from(value);
         let mut tree = Tree::new();
-        run(tree.act(&party_of("P"), [insert_action(value.clone())], crate::tree::ignore));
-        run(tree.act(&party_of("P"), [insert_action(value.clone())], crate::tree::ignore));
+        run(tree.act(party_of("P"), [insert_action(value.clone())], crate::tree::ignore));
+        run(tree.act(party_of("P"), [insert_action(value.clone())], crate::tree::ignore));
 
         let path_v1 = leaf_path(&party, 1, &value);
         let path_v2 = leaf_path(&party, 2, &value);
@@ -1001,7 +1006,7 @@ proptest! {
     fn act_observer_silent_on_empty_batch(prior_batches in 0usize..4) {
         let mut tree = Tree::new();
         for i in 0..prior_batches {
-            run(tree.act(&party_of("P"),
+            run(tree.act(party_of("P"),
                 [insert_action(Bytes::from(format!("prior-{i}").into_bytes()))],
                 crate::tree::ignore,
             ));
@@ -1012,7 +1017,7 @@ proptest! {
         // sidesteps the lifetime puzzle with no functional difference.
         let fired = std::sync::Arc::new(std::sync::Mutex::new(0usize));
         let fired_in = std::sync::Arc::clone(&fired);
-        run(tree.act(&party_of("P"), std::iter::empty::<Action<Bytes>>(), move |_, _, _| {
+        run(tree.act(party_of("P"), std::iter::empty::<Action<Bytes>>(), move |_, _, _| {
             *fired_in.lock().unwrap() += 1;
             std::future::ready(())
         }));
@@ -1048,7 +1053,7 @@ proptest! {
             std::sync::Mutex<Vec<(Key, Version, Option<Message<Bytes>>)>>,
         > = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let captured_in = std::sync::Arc::clone(&captured);
-        run(original.act(&party_of("P"), actions, move |k, v, m| {
+        run(original.act(party_of("P"), actions, move |k, v, m| {
             captured_in
                 .lock()
                 .unwrap()
@@ -1079,7 +1084,7 @@ proptest! {
     ) {
         let mut tree = Tree::new();
         for batch in batches {
-            run(tree.act(&party_of("P"), batch.into_iter().map(insert_action), crate::tree::ignore));
+            run(tree.act(party_of("P"), batch.into_iter().map(insert_action), crate::tree::ignore));
         }
 
         // Redact a sampling of currently-live keys, removing their leaves.
@@ -1087,7 +1092,7 @@ proptest! {
         for (i, redact) in redactions.iter().enumerate() {
             if *redact && !live.is_empty() {
                 let key = live[i % live.len()];
-                run(tree.act(&party_of("P"), [Action::Forget(key)], crate::tree::ignore));
+                run(tree.act(party_of("P"), [Action::Forget(key)], crate::tree::ignore));
             }
         }
 
@@ -1108,7 +1113,7 @@ proptest! {
 fn delete_nonexistent_key() {
     let mut tree: Tree<()> = Tree::new();
     run(tree.act(
-        &party_of("P"),
+        party_of("P"),
         [Action::Forget(Key([0; 32]))],
         crate::tree::ignore,
     ));

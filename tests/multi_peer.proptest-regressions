@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc e8223e7277e8ed55bc63d1115c3d7d605004609dd56eef378f40ccd11d0441fb # shrinks to schedule = Schedule { n_peers: 2, fork_parents: [0, 0], events: [Insert { peer: 1, value: "" }, Insert { peer: 0, value: "" }] }
+cc f0b08cf78637ae257fa18e58231776722068190afad77f6850c413b5109bd6d1 # shrinks to schedule = Schedule { n_peers: 2, fork_parents: [0, 0], events: [Insert { peer: 0, value: 0 }, Insert { peer: 1, value: 1 }] }
+cc aec9d95e9e8d7c2cc0a10a8e94c5d537966232a58c1e929f778fdd64005392d4 # shrinks to schedule = Schedule { n_peers: 2, fork_parents: [0, 0], events: [Insert { peer: 1, value: 0 }, Insert { peer: 0, value: 0 }] }

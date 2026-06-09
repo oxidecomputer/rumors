@@ -28,7 +28,37 @@
 //! - small-delta = `common = n,  differing = k, redacted = 0` (small `k`)
 //! - identical   = `common = n,  differing = 0, redacted = 0`
 
+use std::io::pipe;
+use std::thread;
+
+use borsh::{BorshDeserialize, BorshSerialize};
 use rumors::sync::{Key, Known};
+
+/// Mint a genuine party-disjoint originator that inherits `parent`'s content.
+///
+/// `Known::fork` is gone, so a peer that will independently `message`/`redact`
+/// (as both sides of every grid cell do after the split) needs its own disjoint
+/// Interval Tree Clock region. We mint one by serving a bootstrap from a
+/// [`rumors`](Known::rumors) snapshot of `parent`: the newcomer pulls `parent`'s
+/// whole tree through the ordinary mirror descent and is handed a fresh disjoint
+/// party, exactly as a local fork used to be.
+fn bootstrap_fork<T>(parent: &Known<T>) -> Known<T>
+where
+    T: BorshSerialize + BorshDeserialize + Clone + Send + Sync + 'static,
+{
+    let (mut p2n_r, mut p2n_w) = pipe().expect("pipe parent->newcomer");
+    let (mut n2p_r, mut n2p_w) = pipe().expect("pipe newcomer->parent");
+    let newcomer = thread::spawn(move || {
+        Known::<T>::bootstrap(&mut p2n_r, &mut n2p_w)
+            .expect("bootstrap newcomer")
+            .expect("provider served bootstrap")
+    });
+    let server = parent.rumors();
+    server
+        .gossip(&mut n2p_r, &mut p2n_w)
+        .expect("serve bootstrap");
+    newcomer.join().expect("join bootstrap thread")
+}
 
 /// Live message counts for the non-grid benchmarks (`message`, `iter`,
 /// `redact`), spanning three orders of magnitude.
@@ -130,9 +160,10 @@ pub fn cells() -> impl Iterator<Item = Cell> {
 
 /// Build the two peers for one grid cell.
 ///
-/// Both descend from a fresh [`Known::seed`] so their parties are disjoint (the
+/// `left` is a fresh [`Known::seed`]; `right` is a genuine disjoint peer minted
+/// from it via [`bootstrap_fork`], so their parties are disjoint (the
 /// precondition for `join` / `gossip`). The shared prefix is inserted before
-/// the fork; the `differing` messages and `redacted` deletions are applied
+/// the split; the `differing` messages and `redacted` deletions are applied
 /// independently to each side after it.
 pub fn build(cell: Cell) -> (Known<()>, Known<()>) {
     let Cell {
@@ -145,7 +176,7 @@ pub fn build(cell: Cell) -> (Known<()>, Known<()>) {
     let mut shared: Vec<Key> = Vec::with_capacity(common);
     left.message_then(units(common), |k, _, _| shared.push(k));
 
-    let mut right = left.fork();
+    let mut right = bootstrap_fork(&left);
     left.message(units(differing));
     right.message(units(differing));
 

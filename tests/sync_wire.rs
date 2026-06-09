@@ -9,7 +9,7 @@ use rumors::sync::Known;
 
 use crate::common::action::{arb_local_actions, build_local};
 use crate::common::oracle::readout;
-use crate::common::sync_wire::sync_wire_gossip;
+use crate::common::sync_wire::{sync_bootstrap_fork, sync_wire_gossip};
 
 proptest! {
     /// `sync::Known::gossip` over `std::io::pipe`s yields the same live
@@ -21,17 +21,19 @@ proptest! {
         a_actions in arb_local_actions(),
         b_actions in arb_local_actions(),
     ) {
-        // One universe seed; alice and bob start as disjoint forks.
-        let mut seed = Known::<u64>::seed();
-        let mut a0 = build_local(seed.fork(), &a_actions);
-        let mut b0 = build_local(seed.fork(), &b_actions);
+        // One universe seed; alice and bob start as genuine party-disjoint
+        // originators so they can each `message`/`redact` independently.
+        let seed = Known::<u64>::seed();
+        let a0 = build_local(sync_bootstrap_fork(&seed), &a_actions);
+        let b0 = build_local(sync_bootstrap_fork(&seed), &b_actions);
 
-        // Local-`learn` path runs on forks, leaving the originals for the wire
-        // path. Each `learn` consumes a fresh fork of the counterpart.
-        let mut a_proc = a0.fork();
-        let mut b_proc = b0.fork();
-        let a_snap = a_proc.fork();
-        let b_snap = b_proc.fork();
+        // Genuine party-disjoint copies of each side's content for the oracle;
+        // a0/b0 themselves go on to the wire. `join` merges content from a
+        // `rumors` snapshot of the counterpart.
+        let mut a_proc = sync_bootstrap_fork(&a0);
+        let mut b_proc = sync_bootstrap_fork(&b0);
+        let a_snap = a_proc.rumors();
+        let b_snap = b_proc.rumors();
         a_proc.join(b_snap).unwrap();
         b_proc.join(a_snap).unwrap();
 

@@ -62,7 +62,7 @@ fn gossip_future_fits_budget() {
 #[test]
 fn process_future_fits_budget() {
     let mut alice: Known<()> = Known::seed();
-    let helper = alice.fork();
+    let helper = alice.rumors();
     let fut = alice.join(helper);
     let size = size_of_val(&fut);
 

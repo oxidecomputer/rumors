@@ -148,7 +148,9 @@ pub fn arb_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate::tree
             let mut base = Tree::new();
             let mut shared_keys = Vec::new();
             pollster::block_on(base.act(
-                &p_s,
+                |b| {
+                    b.tick(&p_s);
+                },
                 (0..n_shared).map(|_| Action::Insert(Message::new(()))),
                 |k, _, _| {
                     shared_keys.push(k);
@@ -159,7 +161,9 @@ pub fn arb_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate::tree
             let side = |party: &Party, n: usize, redact: &[bool]| {
                 let mut t = base.clone();
                 pollster::block_on(t.act(
-                    party,
+                    |b| {
+                        b.tick(party);
+                    },
                     (0..n).map(|_| Action::Insert(Message::new(()))),
                     ignore,
                 ));
@@ -168,7 +172,13 @@ pub fn arb_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate::tree
                     .zip(redact)
                     .filter_map(|(k, &r)| r.then_some(Action::Forget(*k)))
                     .collect();
-                pollster::block_on(t.act(party, forgets, ignore));
+                pollster::block_on(t.act(
+                    |b| {
+                        b.tick(party);
+                    },
+                    forgets,
+                    ignore,
+                ));
                 t.root
             };
 
@@ -206,7 +216,9 @@ pub fn arb_shared_delta_pair(
             // wide trie — the structure `diff` must prune through.
             let mut base = Tree::new();
             pollster::block_on(base.act(
-                &p_s,
+                |b| {
+                    b.tick(&p_s);
+                },
                 (0..n_shared).map(|_| Action::Insert(Message::new(()))),
                 ignore,
             ));
@@ -215,7 +227,9 @@ pub fn arb_shared_delta_pair(
             let side = |party: &Party, n: usize| {
                 let mut t = base.clone();
                 pollster::block_on(t.act(
-                    party,
+                    |b| {
+                        b.tick(party);
+                    },
                     (0..n).map(|_| Action::Insert(Message::new(()))),
                     ignore,
                 ));

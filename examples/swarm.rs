@@ -6,7 +6,7 @@
 //!
 //! `seed_messages` random `Vec<u8>` payloads are inserted into one seed
 //! [`Known`] *before any fork*, so every party starts from the same shared
-//! observations. The seed is then [`fork`](Known::fork)ed into `parties`
+//! observations. The seed is then forked (via `bootstrap_fork`) into `parties`
 //! disjoint peers, one per OS thread, and the party count is itself tunable
 //! live (see *Dynamic membership* below). Each party thread runs a tight loop:
 //!
@@ -64,15 +64,15 @@
 //! # Dynamic membership
 //!
 //! The party count is live-tunable, and growing or shrinking it exercises the
-//! [`fork`](Known::fork)/[`join`](Known::join) algebra directly. A single
-//! coordinator thread — the only writer of the peer directory — watches the
-//! desired count against the live one and reconciles a step at a time:
+//! fork/[`join`](Known::join) algebra directly. A single coordinator thread —
+//! the only writer of the peer directory — watches the desired count against
+//! the live one and reconciles a step at a time:
 //!
-//! - **Grow:** pick a random live party, hand it a *fork* command. It calls
-//!   [`fork`](Known::fork) on its own [`Known`], ships the child back to the
-//!   coordinator, and keeps running; the coordinator spawns a fresh thread for
-//!   the child. The parent and child are disjoint sub-parties, so the directory
-//!   stays a partition of the seed's party space.
+//! - **Grow:** pick a random live party, hand it a *fork* command. It mints a
+//!   disjoint child of its own [`Known`] (via `bootstrap_fork`), ships the child
+//!   back to the coordinator, and keeps running; the coordinator spawns a fresh
+//!   thread for the child. The parent and child are disjoint sub-parties, so the
+//!   directory stays a partition of the seed's party space.
 //! - **Shrink:** pick two random parties, hand each a *retire* command. Each
 //!   finishes any owed session, locks itself out of new ones, ships its
 //!   [`Known`] back, and exits. The coordinator [`join`](Known::join)s the two
@@ -132,6 +132,33 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Sparkline};
 use rumors::{Key, Known};
 use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
+
+/// Mint a genuine party-disjoint peer that inherits `parent`'s content.
+///
+/// `Known::fork` is gone, so every party in the swarm — which independently
+/// `message`s, `redact`s, and `gossip`s — needs its own disjoint Interval Tree
+/// Clock region. We mint one by serving a bootstrap from a
+/// [`rumors`](Known::rumors) snapshot of `parent` over an in-memory duplex: the
+/// newcomer pulls `parent`'s whole tree through the ordinary mirror descent and
+/// is handed a fresh disjoint party, exactly as a local fork used to be. Both
+/// halves run concurrently on `runtime`'s single current thread via
+/// [`tokio::join!`].
+fn bootstrap_fork(runtime: &tokio::runtime::Runtime, parent: &Known<Payload>) -> Known<Payload> {
+    let (a, b) = tokio::io::duplex(16 * 1024);
+    let (mut a_r, mut a_w) = tokio::io::split(a);
+    let (mut b_r, mut b_w) = tokio::io::split(b);
+    let server = parent.rumors();
+    let (served, newcomer) = runtime.block_on(async {
+        tokio::join!(
+            server.gossip(&mut a_r, &mut a_w),
+            Known::<Payload>::bootstrap(&mut b_r, &mut b_w),
+        )
+    });
+    served.expect("serve bootstrap");
+    newcomer
+        .expect("bootstrap newcomer")
+        .expect("provider served bootstrap")
+}
 
 /// Message payload type: opaque, randomized bytes. Borsh serializes `Vec<u8>`
 /// as a length-prefixed blob, so the wire cost tracks the message size
@@ -317,11 +344,12 @@ fn main() -> io::Result<()> {
             async {}
         }));
     }
-    // Every party starts as a fork of the seed: same observations, disjoint
-    // party. The seed party itself never gossips, only its forks do.
+    // Every party starts as a disjoint fork of the seed: same observations,
+    // its own party region. The seed party itself never gossips, only its
+    // forks do.
     let initial: Vec<Donation> = (0..args.parties)
         .map(|_| Donation {
-            known: seed.fork(),
+            known: bootstrap_fork(&seed_runtime, &seed),
             keys: seed_keys.clone(),
         })
         .collect();
@@ -413,9 +441,10 @@ fn run_party(
         while let Ok(cmd) = control.try_recv() {
             match cmd {
                 Command::Fork { reply } => {
-                    // The child shares our observations, so it inherits a copy
-                    // of our redaction pool; we keep running unchanged.
-                    let child = known.fork();
+                    // Mint a genuine disjoint child that inherits our content, so
+                    // it can independently churn and gossip; it also inherits a
+                    // copy of our redaction pool. We keep running unchanged.
+                    let child = bootstrap_fork(&runtime, &known);
                     let _ = reply.send(Donation {
                         known: child,
                         keys: keys.clone(),
@@ -811,10 +840,13 @@ fn shrink(
         return;
     };
 
-    // Merge: join b's tree and party into a's, then pool their redaction keys,
-    // dropping the duplicates the two views inevitably share.
+    // Merge: fold b's content into a (a content-only union, network-guarded),
+    // then pool their redaction keys, dropping the duplicates the two views
+    // inevitably share. b's party region is simply dropped as b is absorbed.
     let mut known = da.known;
-    known.join(db.known).expect("join disjoint parties");
+    known
+        .join(db.known.rumors())
+        .expect("join disjoint parties");
     let mut keys = da.keys;
     keys.extend(db.keys);
     keys.sort_unstable();

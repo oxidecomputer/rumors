@@ -72,6 +72,7 @@
 use std::convert::Infallible;
 use std::marker::PhantomData;
 
+use before::Party;
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -350,14 +351,13 @@ where
 /// The frame travels on the *same* [`FramedWrite`] the descent used (surfaced
 /// back to the caller as the remote exchange's output), because the descent's
 /// reader on the far side may already have buffered this frame's leading bytes.
-pub(crate) async fn send_party_fork<W>(
-    party: &mut before::Party,
+pub(crate) async fn send_party<W>(
+    give: Party,
     writer: &mut FramedWrite<W, LengthDelimitedCodec>,
 ) -> Result<(), Error>
 where
     W: AsyncWrite + Unpin,
 {
-    let give = party.fork();
     send_msg(writer, &give).await
 }
 
@@ -366,7 +366,7 @@ where
 /// [`send_party_fork`] for why the fork sits last.
 pub(crate) async fn recv_party<R>(
     reader: &mut FramedRead<R, LengthDelimitedCodec>,
-) -> Result<before::Party, Error>
+) -> Result<Party, Error>
 where
     R: AsyncRead + Unpin,
 {

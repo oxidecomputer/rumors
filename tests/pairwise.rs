@@ -1,4 +1,4 @@
-//! Pairwise gossip semantics for `Known::learn` and `Known::join`.
+//! Pairwise gossip semantics for `Known::join`.
 //!
 //! Covers convergence, symmetry, idempotence, and the algebraic laws of the
 //! `join` merge. Equivalence between this in-process merge and `Known::gossip`
@@ -6,12 +6,15 @@
 //!
 //! Two `Known`s are compared with `Known::eq`, which compares *live content*
 //! (the underlying tree) and ignores the party tag — so two peers that reached
-//! the same content by different fork/merge paths compare equal. Where a test
-//! wants the `Key`-level multiset explicitly it goes through `readout`.
+//! the same content by different merge paths compare equal. Where a test wants
+//! the `Key`-level multiset explicitly it goes through `readout`.
 //!
-//! Every peer in a test is forked from one shared [`Known::seed`], so all
-//! peers are pairwise *disjoint* and `learn`/`join` between them never fails
-//! (the `before` crate's Law of Disjointness).
+//! Every peer in a test is a genuine, party-disjoint fork of one shared
+//! [`Known::seed`], minted by [`sync_bootstrap_fork`]. They share a [`Network`]
+//! but tick disjoint parties, so their concurrent inserts stay incomparable and
+//! `join` (a content merge, network-guarded) between them never fails. A
+//! [`rumors`](Known::rumors) snapshot shares its origin's party, so it is only
+//! ever used as a *content* source for a `join`, never to originate.
 
 mod common;
 
@@ -21,30 +24,44 @@ use rumors::sync::Known;
 
 use crate::common::action::{arb_local_actions, build_local};
 use crate::common::oracle::readout;
+use crate::common::sync_wire::sync_bootstrap_fork;
+
+/// A genuine, party-disjoint Facts copy of `k`'s content: the replacement for
+/// the old `k.fork()` wherever a *fresh originator* is needed (a `join`
+/// receiver, or a peer that will be mutated). A [`rumors`](Known::rumors)
+/// snapshot won't do — it shares `k`'s party, so two such copies would carry
+/// non-concurrent versions and corrupt the merge's deletion-honoring.
+fn dup<T>(k: &Known<T>) -> Known<T>
+where
+    T: Clone + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+{
+    sync_bootstrap_fork(k)
+}
 
 /// Bidirectional gossip between two raw `Known`s, discarding observation
-/// callbacks. The two must be disjoint (forked from a shared seed), which
-/// every caller guarantees, so the `learn`s never fail.
+/// callbacks. Each side merges the other's content snapshot in; the two share a
+/// network, so the `join`s never fail.
 fn gossip_step_local<T>(a: &mut Known<T>, b: &mut Known<T>)
 where
     T: Clone + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
 {
-    let a_snapshot = a.fork();
-    let b_snapshot = b.fork();
+    let a_snapshot = a.rumors();
+    let b_snapshot = b.rumors();
     a.join(b_snapshot)
-        .unwrap_or_else(|_| unreachable!("disjoint operands"));
+        .unwrap_or_else(|_| unreachable!("same-universe operands"));
     b.join(a_snapshot)
-        .unwrap_or_else(|_| unreachable!("disjoint operands"));
+        .unwrap_or_else(|_| unreachable!("same-universe operands"));
 }
 
-/// Merge `b` into `a` and return the result: the `join`-based stand-in for the
-/// old `a + b`. Operands must be disjoint (forked from a shared seed).
-fn merged<T>(mut a: Known<T>, b: Known<T>) -> Known<T>
+/// Merge `b`'s content into `a` and return the result: the `join`-based stand-in
+/// for the old `a + b`. `a` is a fresh Facts receiver; `b` is a content
+/// snapshot. Both descend from one seed, so the `join` never fails.
+fn merged<T>(mut a: Known<T>, b: Known<T, rumors::Rumors>) -> Known<T>
 where
     T: Clone + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
 {
     a.join(b)
-        .unwrap_or_else(|_| unreachable!("disjoint operands"));
+        .unwrap_or_else(|_| unreachable!("same-universe operands"));
     a
 }
 
@@ -56,31 +73,31 @@ proptest! {
         a_actions in arb_local_actions(),
         b_actions in arb_local_actions(),
     ) {
-        let mut seed = Known::<u64>::seed();
-        let mut a = build_local(seed.fork(), &a_actions);
-        let mut b = build_local(seed.fork(), &b_actions);
+        let seed = Known::<u64>::seed();
+        let mut a = build_local(dup(&seed), &a_actions);
+        let mut b = build_local(dup(&seed), &b_actions);
         gossip_step_local(&mut a, &mut b);
         prop_assert_eq!(readout(&a), readout(&b));
     }
 
     /// The final pair `(a, b)` is independent of which side initiates
-    /// the merge first — `a.learn(b)` then `b.learn(a)` yields
-    /// the same content as `b.learn(a)` then `a.learn(b)`.
+    /// the merge first — `a.join(b)` then `b.join(a)` yields
+    /// the same content as `b.join(a)` then `a.join(b)`.
     #[test]
     fn gossip_step_symmetric(
         a_actions in arb_local_actions(),
         b_actions in arb_local_actions(),
     ) {
-        let mut seed = Known::<u64>::seed();
-        let mut a0 = build_local(seed.fork(), &a_actions);
-        let mut b0 = build_local(seed.fork(), &b_actions);
+        let seed = Known::<u64>::seed();
+        let a0 = build_local(dup(&seed), &a_actions);
+        let b0 = build_local(dup(&seed), &b_actions);
 
-        let (mut a_fwd, mut b_fwd) = (a0.fork(), b0.fork());
+        let (mut a_fwd, mut b_fwd) = (dup(&a0), dup(&b0));
         gossip_step_local(&mut a_fwd, &mut b_fwd);
 
-        let (mut a_rev, mut b_rev) = (a0.fork(), b0.fork());
-        let a_snap = a_rev.fork();
-        let b_snap = b_rev.fork();
+        let (mut a_rev, mut b_rev) = (dup(&a0), dup(&b0));
+        let a_snap = a_rev.rumors();
+        let b_snap = b_rev.rumors();
         b_rev.join_then(a_snap, |_, _, _| {}).unwrap();
         a_rev.join_then(b_snap, |_, _, _| {}).unwrap();
 
@@ -96,17 +113,17 @@ proptest! {
         a_actions in arb_local_actions(),
         b_actions in arb_local_actions(),
     ) {
-        let mut seed = Known::<u64>::seed();
-        let mut a = build_local(seed.fork(), &a_actions);
-        let mut b = build_local(seed.fork(), &b_actions);
+        let seed = Known::<u64>::seed();
+        let mut a = build_local(dup(&seed), &a_actions);
+        let mut b = build_local(dup(&seed), &b_actions);
         gossip_step_local(&mut a, &mut b);
 
-        let a_before = a.fork();
-        let b_before = b.fork();
+        let a_before = a.rumors();
+        let b_before = b.rumors();
 
         let mut observed = 0usize;
-        let a_snap = a.fork();
-        let b_snap = b.fork();
+        let a_snap = a.rumors();
+        let b_snap = b.rumors();
         a.join_then(b_snap, |_, _, _| observed += 1).unwrap();
         b.join_then(a_snap, |_, _, _| observed += 1).unwrap();
 
@@ -122,12 +139,12 @@ proptest! {
         a_actions in arb_local_actions(),
         b_actions in arb_local_actions(),
     ) {
-        let mut seed = Known::<u64>::seed();
-        let mut a = build_local(seed.fork(), &a_actions);
-        let mut b = build_local(seed.fork(), &b_actions);
+        let seed = Known::<u64>::seed();
+        let a = build_local(dup(&seed), &a_actions);
+        let b = build_local(dup(&seed), &b_actions);
         prop_assert_eq!(
-            readout(&merged(a.fork(), b.fork())),
-            readout(&merged(b.fork(), a.fork())),
+            readout(&merged(dup(&a), b.rumors())),
+            readout(&merged(dup(&b), a.rumors())),
         );
     }
 
@@ -139,13 +156,13 @@ proptest! {
         b_actions in arb_local_actions(),
         c_actions in arb_local_actions(),
     ) {
-        let mut seed = Known::<u64>::seed();
-        let mut a = build_local(seed.fork(), &a_actions);
-        let mut b = build_local(seed.fork(), &b_actions);
-        let mut c = build_local(seed.fork(), &c_actions);
+        let seed = Known::<u64>::seed();
+        let a = build_local(dup(&seed), &a_actions);
+        let b = build_local(dup(&seed), &b_actions);
+        let c = build_local(dup(&seed), &c_actions);
         prop_assert_eq!(
-            readout(&merged(merged(a.fork(), b.fork()), c.fork())),
-            readout(&merged(a.fork(), merged(b.fork(), c.fork()))),
+            readout(&merged(merged(dup(&a), b.rumors()), c.rumors())),
+            readout(&merged(dup(&a), merged(dup(&b), c.rumors()).rumors())),
         );
     }
 
@@ -154,19 +171,19 @@ proptest! {
     /// direct equality is meaningful.
     #[test]
     fn join_idempotent(a_actions in arb_local_actions()) {
-        let mut seed = Known::<u64>::seed();
-        let mut a = build_local(seed.fork(), &a_actions);
-        prop_assert_eq!(merged(a.fork(), a.fork()), a);
+        let seed = Known::<u64>::seed();
+        let a = build_local(dup(&seed), &a_actions);
+        prop_assert_eq!(merged(dup(&a), a.rumors()), a);
     }
 
-    /// `Known::learn` against an empty source is a no-op: zero
+    /// `Known::join` against an empty source is a no-op: zero
     /// callbacks fire and `self` is unchanged.
     #[test]
     fn process_empty_source_is_noop(actions in arb_local_actions()) {
-        let mut seed = Known::<u64>::seed();
-        let mut original = build_local(seed.fork(), &actions);
-        let mut subject = original.fork();
-        let empty = seed.fork();
+        let seed = Known::<u64>::seed();
+        let original = build_local(dup(&seed), &actions);
+        let mut subject = dup(&original);
+        let empty = seed.rumors();
 
         let mut callbacks = 0usize;
         subject.join_then(empty, |_, _, _| callbacks += 1).unwrap();
@@ -185,9 +202,9 @@ proptest! {
     ) {
         use rumors::Version;
 
-        let mut seed = Known::<u64>::seed();
-        let mut alice = seed.fork();
-        let mut bob = seed.fork();
+        let seed = Known::<u64>::seed();
+        let mut alice = dup(&seed);
+        let mut bob = dup(&seed);
 
         let mut va: Option<Version> = None;
         let mut vb: Option<Version> = None;
@@ -199,7 +216,7 @@ proptest! {
         prop_assert_eq!(va.partial_cmp(&vb), None);
     }
 
-    /// Asymmetric merge: after `a.learn(b)`, `a`'s live readout
+    /// Asymmetric merge: after `a.join(b)`, `a`'s live readout
     /// equals the union of the two pre-merge readouts. `b` itself
     /// is unchanged. This pins down the underlying merge primitive
     /// directly, independent of the bidirectional wrapper.
@@ -213,16 +230,16 @@ proptest! {
         a_actions in arb_local_actions(),
         b_actions in arb_local_actions(),
     ) {
-        let mut seed = Known::<u64>::seed();
-        let a0 = build_local(seed.fork(), &a_actions);
-        let mut b0 = build_local(seed.fork(), &b_actions);
+        let seed = Known::<u64>::seed();
+        let a0 = build_local(dup(&seed), &a_actions);
+        let b0 = build_local(dup(&seed), &b_actions);
 
         let a_before = readout(&a0);
         let b_before = readout(&b0);
         let mut expected = a_before;
         expected.extend(b_before.clone());
 
-        let b_snapshot = b0.fork();
+        let b_snapshot = b0.rumors();
         let mut a_after = a0;
         a_after.join_then(b_snapshot, |_, _, _| {}).unwrap();
 
@@ -230,18 +247,18 @@ proptest! {
         prop_assert_eq!(readout(&b0), b_before);
     }
 
-    /// `Known::learn` against a fork of `self` is a no-op: zero
+    /// `Known::join` against a snapshot of `self` is a no-op: zero
     /// callbacks fire and the readout is unchanged. The "true"
     /// idempotence of the merge.
     #[test]
     fn self_process_is_noop(actions in arb_local_actions()) {
-        let mut seed = Known::<u64>::seed();
-        let mut original = build_local(seed.fork(), &actions);
+        let seed = Known::<u64>::seed();
+        let original = build_local(dup(&seed), &actions);
         let readout_before = readout(&original);
 
-        let mut subject = original.fork();
+        let mut subject = dup(&original);
         let mut callbacks = 0usize;
-        subject.join_then(original, |_, _, _| callbacks += 1).unwrap();
+        subject.join_then(original.rumors(), |_, _, _| callbacks += 1).unwrap();
 
         prop_assert_eq!(callbacks, 0);
         prop_assert_eq!(readout(&subject), readout_before);

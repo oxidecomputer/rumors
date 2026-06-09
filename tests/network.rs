@@ -24,8 +24,8 @@ fn seeded<T>(stream: u64) -> Known<T> {
 /// inherits the parent's [`Network`] unchanged.
 #[test]
 fn fork_preserves_network() {
-    let mut parent = Known::<u64>::seed();
-    let child = parent.fork();
+    let parent = Known::<u64>::seed();
+    let child = parent.rumors();
     assert_eq!(parent.network(), child.network());
 }
 
@@ -47,7 +47,9 @@ fn join_rejects_foreign_network() {
     let b = seeded::<u64>(2);
     let b_network = b.network();
 
-    let returned = a.join(b).expect_err("join across networks must fail");
+    let returned = a
+        .join(b.rumors())
+        .expect_err("join across networks must fail");
     assert_eq!(
         returned.network(),
         b_network,

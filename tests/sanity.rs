@@ -10,6 +10,7 @@ use rumors::sync::Known;
 use crate::common::oracle::readout_multiset;
 use crate::common::peer::{Peer, quiesce};
 use crate::common::schedule::{arb_schedule, execute_and_quiesce};
+use crate::common::sync_wire::sync_bootstrap_fork;
 
 const N_PEERS: std::ops::RangeInclusive<usize> = 2..=8;
 const MAX_EVENTS: usize = 50;
@@ -26,34 +27,34 @@ proptest! {
         let _ = execute_and_quiesce(&schedule);
     }
 
-    /// Forking is non-destructive: merging a peer's fork into a fork of
-    /// another peer reaches the same multiset as learning that peer
-    /// directly. This is the documented gossip pattern — forks carry
-    /// observations between peers, and `learn` reunites them.
+    /// Merging is non-destructive: joining a snapshot of one peer into a copy
+    /// of another reaches the same multiset as joining it straight in. This is
+    /// the documented gossip pattern — `rumors` snapshots carry observations
+    /// between peers, and `join` (a content merge) absorbs them.
     #[test]
     fn fork_then_merge_matches_direct_process(
         alice_values in vec(any::<u64>(), 0..=MAX_CLONE_VALUES),
         bob_values in vec(any::<u64>(), 0..=MAX_CLONE_VALUES),
     ) {
-        // One universe seed; alice and bob are disjoint forks of it.
-        let mut seed = Known::<u64>::seed();
-        let mut alice = seed.fork();
+        // One universe seed; alice and bob are genuine party-disjoint forks.
+        let seed = Known::<u64>::seed();
+        let mut alice = sync_bootstrap_fork(&seed);
         alice.message(alice_values);
 
-        let mut bob = seed.fork();
+        let mut bob = sync_bootstrap_fork(&seed);
         bob.message(bob_values);
 
-        // Two disjoint copies of bob's observations to feed both paths.
-        let mut bob_fork = bob.fork();
-        let bob_fork2 = bob_fork.fork();
+        // Two snapshots of bob's observations to feed both paths.
+        let bob_snap = bob.rumors();
+        let bob_snap2 = bob.rumors();
 
-        // Recombine a fork of alice with one copy of bob's fork.
-        let mut recombined = alice.fork();
-        recombined.join(bob_fork2).unwrap();
+        // Recombine a disjoint copy of alice with one snapshot of bob.
+        let mut recombined = sync_bootstrap_fork(&alice);
+        recombined.join(bob_snap2).unwrap();
 
-        // Direct: learn bob's other fork straight into alice.
+        // Direct: join bob's other snapshot straight into alice.
         let mut direct = alice;
-        direct.join(bob_fork).unwrap();
+        direct.join(bob_snap).unwrap();
 
         prop_assert_eq!(
             readout_multiset(&recombined),
@@ -73,7 +74,7 @@ fn quiesce_handles_zero_or_one_peer() {
 
     let mut peer = Peer::<u64>::new(Known::seed());
     peer.insert_one(42);
-    let local_before = peer.local.fork();
+    let local_before = peer.local.rumors();
     let obs_before = peer.observations();
 
     let mut one = vec![peer];

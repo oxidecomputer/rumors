@@ -21,7 +21,7 @@ use rand::rngs::SmallRng;
 use rumors::{Key, Known, Version};
 
 use crate::common::gossip_snapshot::capture_gossip;
-use crate::common::wire::block_on;
+use crate::common::wire::{block_on, bootstrap_fork, bootstrap_fork_async};
 
 /// A peer seeded from a fixed RNG, so the [`rumors::Network`] id carried in the
 /// handshake preamble is deterministic and these byte-level captures stay
@@ -54,8 +54,8 @@ fn key_for<T: PartialEq + std::fmt::Debug>(keys: &[(T, Key)], value: &T) -> Key 
 /// content transfer — the protocol's shortest possible conversation.
 #[test]
 fn empty_pair_converges_immediately() {
-    let mut a: Known<u64> = seeded();
-    let b: Known<u64> = a.fork();
+    let a: Known<u64> = seeded();
+    let b: Known<u64> = bootstrap_fork(&a);
     insta::assert_snapshot!(capture_gossip(a, b));
 }
 
@@ -67,12 +67,9 @@ fn empty_pair_converges_immediately() {
 fn one_sided_transfer() {
     let (a, b) = block_on(async {
         let mut a: Known<u64> = seeded();
-        // B must descend from A's seed (never a second `seed`), so fork it and
-        // then drop the shared content by redacting everything it carries,
-        // leaving an empty peer in the same universe.
-        let mut b = a.fork();
-        let carried: Vec<Key> = b.iter().map(|(k, _, _)| k).collect();
-        b.redact(carried);
+        // B is a genuine disjoint fork of A, minted while A is still empty, so
+        // it is an empty peer in the same universe.
+        let b = bootstrap_fork_async(&a).await;
 
         a.message([1u64, 2u64]).await;
         (a, b)
@@ -103,8 +100,9 @@ fn fork_insert_redact() {
         let mut keys: Vec<(u64, Key)> = Vec::new();
         a.message_then([1u64, 2u64], record_keyed(&mut keys)).await;
 
-        // (2) Fork: B shares A's observations (both hold 1 and 2).
-        let mut b = a.fork();
+        // (2) Fork: B is a genuine disjoint fork sharing A's observations (both
+        // hold 1 and 2).
+        let mut b = bootstrap_fork_async(&a).await;
 
         // (3) Each fork inserts one distinct message.
         a.message([3u64]).await;
@@ -130,7 +128,7 @@ fn converged_forks_noop() {
     let (a, b) = block_on(async {
         let mut a: Known<u64> = seeded();
         a.message([1u64, 2u64]).await;
-        let b = a.fork();
+        let b = bootstrap_fork_async(&a).await;
         (a, b)
     });
     insta::assert_snapshot!(capture_gossip(a, b));
@@ -147,7 +145,7 @@ fn redaction_only() {
         let mut a: Known<u64> = seeded();
         let mut keys: Vec<(u64, Key)> = Vec::new();
         a.message_then([1u64, 2u64], record_keyed(&mut keys)).await;
-        let b = a.fork();
+        let b = bootstrap_fork_async(&a).await;
         a.redact([key_for(&keys, &1)]);
         (a, b)
     });
@@ -171,7 +169,7 @@ const DEEP_TRIE_PER_SIDE: u64 = 16;
 fn deep_trie_divergence() {
     let (a, b) = block_on(async {
         let mut a: Known<u64> = seeded();
-        let mut b = a.fork();
+        let mut b = bootstrap_fork_async(&a).await;
         a.message(0..DEEP_TRIE_PER_SIDE).await;
         b.message(DEEP_TRIE_PER_SIDE..2 * DEEP_TRIE_PER_SIDE).await;
         (a, b)
@@ -188,7 +186,7 @@ fn deep_trie_divergence() {
 fn string_payload() {
     let (a, b) = block_on(async {
         let mut a: Known<String> = seeded();
-        let mut b = a.fork();
+        let mut b = bootstrap_fork_async(&a).await;
         a.message(["hello".to_string()]).await;
         b.message(["world".to_string()]).await;
         (a, b)
@@ -210,7 +208,7 @@ fn same_live_content_divergent_versions() {
         let mut a: Known<u64> = seeded();
         let mut keys: Vec<(u64, Key)> = Vec::new();
         a.message_then([1u64], record_keyed(&mut keys)).await;
-        let b = a.fork();
+        let b = bootstrap_fork_async(&a).await;
 
         // A diverges in version but not in live content: insert 2, then drop it.
         a.message_then([2u64], record_keyed(&mut keys)).await;
@@ -232,7 +230,7 @@ fn both_redact_same_key() {
         let mut a: Known<u64> = seeded();
         let mut keys: Vec<(u64, Key)> = Vec::new();
         a.message_then([1u64, 2u64], record_keyed(&mut keys)).await;
-        let mut b = a.fork();
+        let mut b = bootstrap_fork_async(&a).await;
         let k1 = key_for(&keys, &1);
         a.redact([k1]);
         b.redact([k1]);

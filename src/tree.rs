@@ -4,8 +4,6 @@ mod key;
 mod traverse;
 mod typed;
 
-use before::Party;
-
 use crate::{message::Message, tree::typed::Node, version::Version};
 
 pub use key::Key;
@@ -230,9 +228,10 @@ impl<T> Tree<T> {
     /// case of multiple actions which address the same key. In this case, the
     /// version is only incremented once for every changed key, regardless of
     /// how many actions pertain to it.
-    pub async fn act<I, O, Fut>(&mut self, party: &Party, actions: I, react: O)
+    pub async fn act<F, I, O, Fut>(&mut self, mut tick: F, actions: I, react: O)
     where
         T: Send + Sync,
+        F: FnMut(&mut before::batch::Version),
         I: IntoIterator<Item = Action<T>>,
         O: FnMut(Key, &Version, Option<&Message<T>>) -> Fut + Send,
         Fut: Future<Output = ()> + Send,
@@ -264,7 +263,7 @@ impl<T> Tree<T> {
                     // unique for every action applied to the tree; otherwise the
                     // mirror-sync protocol wrongly early-aborts when versions
                     // compare equal.
-                    batch.tick(party);
+                    tick(&mut batch);
                     let version = batch.snapshot();
 
                     // Convert unversioned, unlocalized actions into reactions

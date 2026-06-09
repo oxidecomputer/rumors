@@ -25,16 +25,15 @@ use crate::Network;
 ///
 /// Every peer in a universe holds a distinct *identity*: its share of a single
 /// space of identities, first minted whole by [`seed`](crate::Known::seed).
-/// [`fork`](crate::Known::fork) splits one share into two so a new peer can act
-/// independently; [`join`](crate::Known::join) reunites two shares back into
-/// one. A [`Version`](crate::Version) is a timestamp expressed relative to
-/// these shares, and a share reached through more forks is more finely
-/// subdivided, so its versions cost more bits to represent.
-/// [`join`](crate::Known::join) coalesces shares again, shrinking that cost
-/// back down.
+/// [`bootstrap`](crate::Known::bootstrap) splits a share off for a new peer so
+/// it can act independently; [`retire`](crate::Known::retire) hands a share
+/// back, reuniting it. A [`Version`](crate::Version) is a timestamp expressed
+/// relative to these shares, and a share split off through more bootstraps is
+/// more finely subdivided, so its versions cost more bits to represent.
+/// Retiring coalesces shares again, shrinking that cost back down.
 ///
 /// A peer that simply dies takes its share with it: nothing remains to
-/// [`join`](crate::Known::join) it back, so the subdivision it represents
+/// [`retire`](crate::Known::retire) it back, so the subdivision it represents
 /// becomes permanent and every peer's versions stay larger than they need to be
 /// from then on. A graceful [`retire`](crate::Known::retire) avoids this by
 /// handing the share back before leaving, but a crash gives no chance to

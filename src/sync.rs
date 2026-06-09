@@ -17,7 +17,8 @@
 //! use rumors::sync::Known;
 //!
 //! // `seed` mints the distinguished root rumor set for a universe of peers;
-//! // additional peers are made by [`Known::fork`], never by a second `seed`.
+//! // additional originating peers are made by [`Known::bootstrap`], never by a
+//! // second `seed`.
 //! let mut alice = Known::seed();
 //!
 //! // The callback fires once per newly-observed message with an opaque
@@ -48,13 +49,16 @@
 //!
 //! # Concurrent rumor sets
 //!
-//! A `Known` is [`!Clone`](Clone); the only way to duplicate one is
-//! [`fork`](Known::fork), which creates a cheap, copy-on-write *causal fork*,
-//! or its networked counterpart, [`Known::bootstrap`]. The fork may originate
-//! [`message`](Known::message)s and [`redact`](Known::redact)ions independently
-//! of its original. Any two causal forks ultimately descended from the same
-//! [`Known::seed`] may be reunited via [`Known::join_then`] (observing
-//! everything new from one side) or [`Known::join`].
+//! A `Known` is [`!Clone`](Clone). For a cheap, copy-on-write working snapshot
+//! that shares the originator's party, take a [`rumors`](Known::rumors)
+//! snapshot; gossip with it, then [`join`](Known::join) it back into its
+//! originator to absorb what it learned. A genuine second *originating* peer,
+//! with its own disjoint party, comes from [`Known::bootstrap`] over the wire.
+//! A snapshot cannot originate [`message`](Known::message)s or
+//! [`redact`](Known::redact)ions; only the originating `Known` can, which keeps
+//! its events linearized. A [`rumors`](Known::rumors) snapshot is reunited with
+//! its originator via [`Known::join_then`] (observing everything new from it) or
+//! [`Known::join`].
 //!
 //! # Gossiping over the network
 //!
@@ -122,23 +126,29 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use futures::io::AllowStdIo;
 use tokio_util::compat::{FuturesAsyncReadCompatExt, FuturesAsyncWriteCompatExt};
 
-pub use crate::{Bookmark, Error, Key, Network, PROTOCOL_MAGIC, PROTOCOL_VERSION, Version};
+pub use crate::{
+    Bookmark, Error, Facts, Key, Network, PROTOCOL_MAGIC, PROTOCOL_VERSION, Rumors, Version,
+};
 pub use ::borsh;
 
 /// A local set of rumors: add to it, redact from it, gossip with peers.
 ///
-/// Each `Known` owns an Interval Tree Clock party and may originate messages
-/// and redactions. It is `!Clone`; obtain another working copy with
-/// [`fork`](Known::fork), a true causal fork that mints a fresh disjoint party
-/// sharing the current observations. Reunite forks with
-/// [`join_then`](Known::join_then) / [`join`](Known::join).
+/// A canonical `Known` owns an Interval Tree Clock party and may originate
+/// messages and redactions. It is `!Clone`; for a working copy take a
+/// [`rumors`](Known::rumors) snapshot — a cheap copy-on-write view that *shares*
+/// the originator's party and cannot originate — then fold it back with
+/// [`join_then`](Known::join_then) / [`join`](Known::join). A genuine second
+/// originating peer, with its own disjoint party, comes from
+/// [`bootstrap`](Known::bootstrap).
 ///
 /// # Uniqueness of parties
 ///
-/// All parties in one universe must descend from a single [`seed`](Known::seed)
-/// by [`fork`](Known::fork). The caller must not let two independently-seeded
-/// universes gossip with each other (the `before` crate's Law of Disjointness);
-/// `rumors` no longer tracks parties process-globally, so several independent
+/// Every party in one universe descends from a single [`seed`](Known::seed) — by
+/// a [`rumors`](Known::rumors) snapshot (sharing it) or a
+/// [`bootstrap`](Known::bootstrap)ed peer (a fresh disjoint region). The caller
+/// must not let two independently-seeded universes gossip with each other (the
+/// `before` crate's Law of Disjointness); `rumors` no longer tracks parties
+/// process-globally, so several independent
 /// universes may coexist in one program.
 ///
 /// # Example
@@ -154,12 +164,18 @@ pub use ::borsh;
 /// );
 /// alice.redact([keys[0]]);
 /// ```
-#[derive(Debug, Eq)]
-pub struct Known<T>(pub(crate) crate::Known<T>);
+pub struct Known<T, S = Facts>(pub(crate) crate::Known<T, S>);
 
-impl<T> PartialEq for Known<T> {
-    fn eq(&self, other: &Self) -> bool {
+impl<T, S> Eq for Known<T, S> {}
+impl<T, S, U> PartialEq<Known<T, U>> for Known<T, S> {
+    fn eq(&self, other: &Known<T, U>) -> bool {
         self.0 == other.0
+    }
+}
+
+impl<T: std::fmt::Debug, S> std::fmt::Debug for Known<T, S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(&self.0, f)
     }
 }
 
@@ -184,12 +200,11 @@ where
 
 impl<T> Known<T> {
     /// Create the distinguished seed rumor set: the single root party from
-    /// which every other party in this universe descends by
-    /// [`fork`](Self::fork).
+    /// which every other party in this universe descends.
     ///
     /// Call this exactly once per universe of cooperating peers; make
-    /// additional peers with [`fork`](Self::fork), never by calling `seed`
-    /// again.
+    /// additional originating peers with [`bootstrap`](Self::bootstrap), never by
+    /// calling `seed` again.
     ///
     /// # Example
     ///
@@ -221,13 +236,6 @@ impl<T> Known<T> {
     /// ```
     pub fn seed_rng<R: rand::RngCore + ?Sized>(rng: &mut R) -> Self {
         Known(crate::Known::seed_rng(rng))
-    }
-
-    /// This rumor set's [`Network`]: the identifier shared by every peer
-    /// descended from the same [`seed`](Self::seed). Combining operations
-    /// require matching networks.
-    pub fn network(&self) -> Network {
-        self.0.network()
     }
 
     /// Insert messages into the rumor set without observing them.
@@ -317,14 +325,11 @@ impl<T> Known<T> {
         self.0.redact(redacted);
     }
 
-    /// Fork off a new rumor set with its own disjoint party, sharing this set's
-    /// current observations.
-    ///
-    /// A *true causal fork*: the returned `Known` is a fully independent peer
-    /// (it may [`message`](Self::message), [`redact`](Self::redact),
-    /// [`gossip`](Self::gossip), and be [`fork`](Self::fork)ed again), sharing
-    /// the tree copy-on-write. Reunite with [`join_then`](Self::join_then) /
-    /// [`join`](Self::join).
+    /// Fork off a copy of this [`Known`] which can gossip, but cannot originate
+    /// new [`message`](Known::message)s or [`redact`](Known::redact) existing
+    /// ones. In order to process messages received via gossip, it's expected
+    /// that you should subsequently [`join`](Known::join) this back to its
+    /// originator.
     ///
     /// # Example
     ///
@@ -334,141 +339,19 @@ impl<T> Known<T> {
     /// let mut alice = Known::seed();
     /// alice.message(["hello".to_string()]);
     ///
-    /// let snapshot = alice.fork();
+    /// let snapshot = alice.rumors();
     /// assert_eq!(alice, snapshot);
     /// ```
-    pub fn fork(&mut self) -> Known<T> {
-        Known(self.0.fork())
+    pub fn rumors(&self) -> Known<T, Rumors> {
+        Known(self.0.rumors())
     }
 
-    /// Lazily iterate every message currently live in this rumor set, as
-    /// `(Key, &Version, &Arc<T>)`, in unspecified order.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use rumors::sync::{Known};
-    ///
-    /// let mut alice = Known::seed();
-    /// alice.message(["a".to_string(), "b".to_string()]);
-    /// let mut live: Vec<String> = alice.iter().map(|(_, _, m)| m.as_ref().clone()).collect();
-    /// live.sort();
-    /// assert_eq!(live, vec!["a".to_string(), "b".to_string()]);
-    /// ```
-    pub fn iter(
-        &self,
-    ) -> impl ExactSizeIterator<Item = (Key, &Version, &Arc<T>)> + DoubleEndedIterator + Send + Sync
-    where
-        T: Send + Sync,
-    {
-        self.0.iter()
-    }
-
-    /// The number of live messages in this rumor set.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use rumors::sync::Known;
-    ///
-    /// let mut alice = Known::seed();
-    /// assert_eq!(alice.len(), 0);
-    /// alice.message(["a".to_string(), "b".to_string()]);
-    /// assert_eq!(alice.len(), 2);
-    /// ```
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    /// Whether this rumor set holds no live messages.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use rumors::sync::Known;
-    ///
-    /// let mut alice = Known::seed();
-    /// assert!(alice.is_empty());
-    /// alice.message(["news".to_string()]);
-    /// assert!(!alice.is_empty());
-    /// ```
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    /// This set's latest causal [`Version`]: the least upper bound of every
-    /// message and redaction it has observed.
-    ///
-    /// This is the timestamp a peer ships first when it [`gossip`](Self::gossip)s,
-    /// and the one the protocol compares to decide what each side is missing.
-    /// Two sets with equal versions have already converged.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use rumors::sync::Known;
-    ///
-    /// let mut alice = Known::seed();
-    /// let before = alice.latest().clone();
-    /// alice.message(["news".to_string()]);
-    /// assert!(alice.latest() != &before); // observing a message advanced it
-    /// ```
-    pub fn latest(&self) -> &Version {
-        self.0.latest()
-    }
-
-    /// The earliest message [`Version`] currently live in this set, or `None`
-    /// if it is empty.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use rumors::sync::Known;
-    ///
-    /// let mut alice = Known::seed();
-    /// assert!(alice.earliest().is_none());
-    /// alice.message(["only".to_string()]);
-    /// assert!(alice.earliest().is_some());
-    /// ```
-    pub fn earliest(&self) -> Option<&Version> {
-        self.0.earliest()
-    }
-
-    /// The observable root hash of this set: a 32-byte digest of its live
-    /// contents that ignores party identity and insertion order.
-    ///
-    /// Two sets with the same root hash hold the same live messages, so a
-    /// gossip session between them converges immediately. It is the first
-    /// thing the initiator puts on the wire (see [`gossip`](Self::gossip)).
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use rumors::sync::Known;
-    ///
-    /// let mut alice = Known::seed();
-    /// let empty = alice.hash();
-    /// alice.message(["rumor".to_string()]);
-    /// assert_ne!(alice.hash(), empty); // new content, new digest
-    /// ```
-    pub fn hash(&self) -> [u8; 32] {
-        self.0.hash()
-    }
-
-    /// Force this set's lazy structural memos (observable hash and
-    /// ceiling/floor version bounds), so a subsequent operation is timed
-    /// against its own work. For benchmark and test calibration only.
-    #[doc(hidden)]
-    pub fn warm_caches(&self) {
-        self.0.warm_caches();
-    }
-
-    /// Reunite `other` into `self`, discarding per-message observations, and
-    /// rejoin its party back into `self`'s.
+    /// Merge `other`'s content into `self`, discarding per-message observations.
     ///
     /// The callback-free counterpart of [`join_then`](Self::join_then); because
     /// there is no callback, the merge elides the per-leaf discovery walk.
-    /// Returns `Err(other)` if the two parties are not disjoint.
+    /// Returns `Err(other)`, handing `other` back untouched, on a [`Network`]
+    /// mismatch (two independently-seeded universes).
     ///
     /// # Example
     ///
@@ -476,20 +359,22 @@ impl<T> Known<T> {
     /// use rumors::sync::Known;
     ///
     /// let mut alice = Known::seed();
-    /// let mut bob = alice.fork();
-    /// bob.message(["news".to_string()]);
-    /// alice.join(bob).unwrap();
+    /// alice.message(["hello".to_string()]);
+    ///
+    /// // A snapshot shares alice's observations; joining it back is a content
+    /// // union (in real use the snapshot would gossip and learn first).
+    /// let snapshot = alice.rumors();
+    /// alice.join(snapshot).unwrap();
     /// ```
-    pub fn join(&mut self, other: Known<T>) -> Result<(), Known<T>>
+    pub fn join(&mut self, other: Known<T, Rumors>) -> Result<(), Known<T, Rumors>>
     where
         T: Send + Sync,
     {
         self.0.join(other.0).map_err(Known)
     }
 
-    /// Merge `other` into `self`, invoking `on_message` for each message in
-    /// `other` that `self` had not already observed, and reuniting `other`'s
-    /// party back into `self`'s.
+    /// Merge `other`'s content into `self`, invoking `on_message` for each
+    /// message in `other` that `self` had not already observed.
     ///
     /// **Delivery is unordered**: callbacks fire in arbitrary order, including
     /// orderings that violate the causal precedence captured by each message's
@@ -498,12 +383,11 @@ impl<T> Known<T> {
     ///
     /// # Errors
     ///
-    /// Returns `Err(other)`, handing `other` back untouched, if the two parties
-    /// are **not disjoint**, i.e. they do not descend from a common
-    /// [`seed`](Self::seed) by un-rejoined forks (for example, they come from
-    /// two different seeds). In correct linear usage this never happens; it is
-    /// surfaced rather than panicking so a caller who mixes universes can
-    /// recover.
+    /// Returns `Err(other)`, handing `other` back untouched, on a [`Network`]
+    /// mismatch: `self` and `other` descend from two different
+    /// [`seed`](Self::seed)s and share no causal history. In correct usage this
+    /// never happens; it is surfaced rather than panicking so a caller who mixes
+    /// universes can recover.
     ///
     /// # Example
     ///
@@ -511,96 +395,26 @@ impl<T> Known<T> {
     /// use rumors::sync::Known;
     ///
     /// let mut alice = Known::seed();
-    /// let mut bob = alice.fork();
-    /// bob.message(["news from bob".to_string()]);
+    /// alice.message(["hello".to_string()]);
     ///
+    /// // A snapshot shares alice's observations; merging it back observes only
+    /// // messages alice had not already seen (here none — in real use the
+    /// // snapshot would gossip with a peer and learn first).
+    /// let snapshot = alice.rumors();
     /// let mut learned: Vec<String> = Vec::new();
-    /// alice.join_then(bob, |_, _, m| learned.push(m.as_ref().clone())).unwrap();
-    /// assert_eq!(learned, vec!["news from bob".to_string()]);
+    /// alice.join_then(snapshot, |_, _, m| learned.push(m.as_ref().clone())).unwrap();
+    /// assert!(learned.is_empty());
     /// ```
     pub fn join_then<'a, OnMessage>(
         &'a mut self,
-        other: Known<T>,
+        other: Known<T, Rumors>,
         on_message: OnMessage,
-    ) -> Result<(), Known<T>>
+    ) -> Result<(), Known<T, Rumors>>
     where
         T: Send + Sync + 'a,
         OnMessage: FnMut(Key, &Version, &Arc<T>) + Send + 'a,
     {
         pollster::block_on(self.0.join_then(other.0, into_async(on_message))).map_err(Known)
-    }
-
-    /// Synchronize rumor sets with a remote peer without observing the messages
-    /// learned from it.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// use rumors::sync::Known;
-    /// use std::net::TcpStream;
-    ///
-    /// let mut write = TcpStream::connect("127.0.0.1:9000").unwrap();
-    /// let mut read = write.try_clone().unwrap();
-    /// let alice: Known<String> = Known::seed();
-    /// let _alice = alice.gossip(&mut read, &mut write).unwrap();
-    /// ```
-    pub fn gossip<'a, R, W>(self, read: &'a mut R, write: &'a mut W) -> Result<Self, Error>
-    where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
-        R: Read + Unpin + Send,
-        W: Write + Unpin + Send,
-    {
-        // Bridge the synchronous reader/writer to the async I/O the protocol
-        // expects: `AllowStdIo` adapts `Read`/`Write` to `futures::io`'s async
-        // traits, and the tokio-compat layer adapts those to `tokio::io`'s.
-        let mut read = AllowStdIo::new(read).compat();
-        let mut write = AllowStdIo::new(write).compat_write();
-        pollster::block_on(self.0.gossip(&mut read, &mut write)).map(Known)
-    }
-
-    /// Synchronize rumor sets with a remote peer, invoking `on_message` for
-    /// each message learned from the peer.
-    ///
-    /// Message delivery is **unordered**: callbacks fire in arbitrary order,
-    /// including orderings that violate the causal precedence captured by each
-    /// message's [`Version`]. Sort by [`Version`] if your application needs
-    /// causal ordering.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// use rumors::sync::Known;
-    /// use std::net::TcpStream;
-    ///
-    /// let mut write = TcpStream::connect("127.0.0.1:9000").unwrap();
-    /// let mut read = write.try_clone().unwrap();
-    /// let alice: Known<String> = Known::seed();
-    /// let _alice = alice
-    ///     .gossip_then(&mut read, &mut write, |_, _, m| println!("{}", m.len()))
-    ///     .unwrap();
-    /// ```
-    pub fn gossip_then<'a, OnMessage, R, W>(
-        self,
-        read: &'a mut R,
-        write: &'a mut W,
-        on_message: OnMessage,
-    ) -> Result<Self, Error>
-    where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
-        R: Read + Unpin + Send,
-        W: Write + Unpin + Send,
-        OnMessage: FnMut(Key, &Version, &Arc<T>) + Send + 'a,
-    {
-        // Bridge the synchronous reader/writer to the async I/O the protocol
-        // expects: `AllowStdIo` adapts `Read`/`Write` to `futures::io`'s async
-        // traits, and the tokio-compat layer adapts those to `tokio::io`'s.
-        let mut read = AllowStdIo::new(read).compat();
-        let mut write = AllowStdIo::new(write).compat_write();
-        pollster::block_on(
-            self.0
-                .gossip_then(&mut read, &mut write, into_async(on_message)),
-        )
-        .map(Known)
     }
 
     /// Bootstrap a brand-new rumor set from a remote peer.
@@ -739,5 +553,218 @@ impl<T> Known<T> {
         let mut read = AllowStdIo::new(read).compat();
         let mut write = AllowStdIo::new(write).compat_write();
         pollster::block_on(self.0.retire(&mut read, &mut write)).map(|known| known.map(Known))
+    }
+}
+
+/// Methods available regardless of type-state: read-only observers and the wire
+/// protocol. Both a canonical [`Known`] and a non-canonical [`rumors`](Known::rumors)
+/// snapshot can inspect their content and [`gossip`](Self::gossip); only an
+/// originator (`Known<T, Facts>`) can [`message`](Known::message) or
+/// [`redact`](Known::redact).
+impl<T, S> Known<T, S> {
+    /// This rumor set's [`Network`]: the identifier shared by every peer
+    /// descended from the same [`seed`](Known::seed). Combining operations
+    /// require matching networks.
+    pub fn network(&self) -> Network {
+        self.0.network()
+    }
+
+    /// Lazily iterate every message currently live in this rumor set, as
+    /// `(Key, &Version, &Arc<T>)`, in unspecified order.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rumors::sync::{Known};
+    ///
+    /// let mut alice = Known::seed();
+    /// alice.message(["a".to_string(), "b".to_string()]);
+    /// let mut live: Vec<String> = alice.iter().map(|(_, _, m)| m.as_ref().clone()).collect();
+    /// live.sort();
+    /// assert_eq!(live, vec!["a".to_string(), "b".to_string()]);
+    /// ```
+    pub fn iter(
+        &self,
+    ) -> impl ExactSizeIterator<Item = (Key, &Version, &Arc<T>)> + DoubleEndedIterator + Send + Sync
+    where
+        T: Send + Sync,
+    {
+        self.0.iter()
+    }
+
+    /// The number of live messages in this rumor set.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rumors::sync::Known;
+    ///
+    /// let mut alice = Known::seed();
+    /// assert_eq!(alice.len(), 0);
+    /// alice.message(["a".to_string(), "b".to_string()]);
+    /// assert_eq!(alice.len(), 2);
+    /// ```
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Whether this rumor set holds no live messages.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rumors::sync::Known;
+    ///
+    /// let mut alice = Known::seed();
+    /// assert!(alice.is_empty());
+    /// alice.message(["news".to_string()]);
+    /// assert!(!alice.is_empty());
+    /// ```
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// This set's latest causal [`Version`]: the least upper bound of every
+    /// message and redaction it has observed.
+    ///
+    /// This is the timestamp a peer ships first when it [`gossip`](Self::gossip)s,
+    /// and the one the protocol compares to decide what each side is missing.
+    /// Two sets with equal versions have already converged.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rumors::sync::Known;
+    ///
+    /// let mut alice = Known::seed();
+    /// let before = alice.latest().clone();
+    /// alice.message(["news".to_string()]);
+    /// assert!(alice.latest() != &before); // observing a message advanced it
+    /// ```
+    pub fn latest(&self) -> &Version {
+        self.0.latest()
+    }
+
+    /// The earliest message [`Version`] currently live in this set, or `None`
+    /// if it is empty.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rumors::sync::Known;
+    ///
+    /// let mut alice = Known::seed();
+    /// assert!(alice.earliest().is_none());
+    /// alice.message(["only".to_string()]);
+    /// assert!(alice.earliest().is_some());
+    /// ```
+    pub fn earliest(&self) -> Option<&Version> {
+        self.0.earliest()
+    }
+
+    /// The observable root hash of this set: a 32-byte digest of its live
+    /// contents that ignores party identity and insertion order.
+    ///
+    /// Two sets with the same root hash hold the same live messages, so a
+    /// gossip session between them converges immediately. It is the first
+    /// thing the initiator puts on the wire (see [`gossip`](Self::gossip)).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rumors::sync::Known;
+    ///
+    /// let mut alice = Known::seed();
+    /// let empty = alice.hash();
+    /// alice.message(["rumor".to_string()]);
+    /// assert_ne!(alice.hash(), empty); // new content, new digest
+    /// ```
+    pub fn hash(&self) -> [u8; 32] {
+        self.0.hash()
+    }
+
+    /// Force this set's lazy structural memos (observable hash and
+    /// ceiling/floor version bounds), so a subsequent operation is timed
+    /// against its own work. For benchmark and test calibration only.
+    #[doc(hidden)]
+    pub fn warm_caches(&self) {
+        self.0.warm_caches();
+    }
+
+    /// Synchronize rumor sets with a remote peer without observing the messages
+    /// learned from it.
+    ///
+    /// Available on both a canonical [`Known`] and a [`rumors`](Known::rumors)
+    /// snapshot: the documented idiom is to gossip with a snapshot and then
+    /// [`join`](Known::join) it back into its originator.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use rumors::sync::Known;
+    /// use std::net::TcpStream;
+    ///
+    /// let mut write = TcpStream::connect("127.0.0.1:9000").unwrap();
+    /// let mut read = write.try_clone().unwrap();
+    /// let alice: Known<String> = Known::seed();
+    /// let _alice = alice.gossip(&mut read, &mut write).unwrap();
+    /// ```
+    pub fn gossip<'a, R, W>(self, read: &'a mut R, write: &'a mut W) -> Result<Self, Error>
+    where
+        T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
+        R: Read + Unpin + Send,
+        W: Write + Unpin + Send,
+    {
+        // Bridge the synchronous reader/writer to the async I/O the protocol
+        // expects: `AllowStdIo` adapts `Read`/`Write` to `futures::io`'s async
+        // traits, and the tokio-compat layer adapts those to `tokio::io`'s.
+        let mut read = AllowStdIo::new(read).compat();
+        let mut write = AllowStdIo::new(write).compat_write();
+        pollster::block_on(self.0.gossip(&mut read, &mut write)).map(Known)
+    }
+
+    /// Synchronize rumor sets with a remote peer, invoking `on_message` for
+    /// each message learned from the peer.
+    ///
+    /// Message delivery is **unordered**: callbacks fire in arbitrary order,
+    /// including orderings that violate the causal precedence captured by each
+    /// message's [`Version`]. Sort by [`Version`] if your application needs
+    /// causal ordering.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use rumors::sync::Known;
+    /// use std::net::TcpStream;
+    ///
+    /// let mut write = TcpStream::connect("127.0.0.1:9000").unwrap();
+    /// let mut read = write.try_clone().unwrap();
+    /// let alice: Known<String> = Known::seed();
+    /// let _alice = alice
+    ///     .gossip_then(&mut read, &mut write, |_, _, m| println!("{}", m.len()))
+    ///     .unwrap();
+    /// ```
+    pub fn gossip_then<'a, OnMessage, R, W>(
+        self,
+        read: &'a mut R,
+        write: &'a mut W,
+        on_message: OnMessage,
+    ) -> Result<Self, Error>
+    where
+        T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
+        R: Read + Unpin + Send,
+        W: Write + Unpin + Send,
+        OnMessage: FnMut(Key, &Version, &Arc<T>) + Send + 'a,
+    {
+        // Bridge the synchronous reader/writer to the async I/O the protocol
+        // expects: `AllowStdIo` adapts `Read`/`Write` to `futures::io`'s async
+        // traits, and the tokio-compat layer adapts those to `tokio::io`'s.
+        let mut read = AllowStdIo::new(read).compat();
+        let mut write = AllowStdIo::new(write).compat_write();
+        pollster::block_on(
+            self.0
+                .gossip_then(&mut read, &mut write, into_async(on_message)),
+        )
+        .map(Known)
     }
 }

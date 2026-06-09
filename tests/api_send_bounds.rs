@@ -24,8 +24,8 @@ fn message_future_is_send() {
 #[test]
 fn process_future_is_send() {
     let mut alice = Known::<String>::seed();
-    let mut bob = Known::<String>::seed();
-    let bob_fork = bob.fork();
+    let bob = Known::<String>::seed();
+    let bob_fork = bob.rumors();
     let fut = alice.join(bob_fork);
     require_send(&fut);
     drop(fut);

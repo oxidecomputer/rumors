@@ -414,6 +414,33 @@ fn axis(max_exp: u32) -> Vec<u32> {
     v
 }
 
+/// Mint a genuine party-disjoint peer that inherits `parent`'s content.
+///
+/// `Known::fork` is gone, so a peer with its own disjoint Interval Tree Clock
+/// region — required of any party that will independently `message`/`redact`,
+/// and of each anonymous background party here — is minted by serving a
+/// bootstrap from a [`rumors`](Known::rumors) snapshot of `parent`. The newcomer
+/// pulls `parent`'s whole tree through the ordinary mirror descent and is handed
+/// a fresh disjoint party, exactly as a local fork used to be. Serving from an
+/// empty `parent` yields a disjoint empty peer in the same universe.
+fn bootstrap_fork<T>(parent: &Known<T>) -> Known<T>
+where
+    T: borsh::BorshSerialize + borsh::BorshDeserialize + Clone + Send + Sync + 'static,
+{
+    let (mut p2n_r, mut p2n_w) = pipe().expect("pipe parent->newcomer");
+    let (mut n2p_r, mut n2p_w) = pipe().expect("pipe newcomer->parent");
+    let newcomer = thread::spawn(move || {
+        Known::<T>::bootstrap(&mut p2n_r, &mut n2p_w)
+            .expect("bootstrap newcomer")
+            .expect("provider served bootstrap")
+    });
+    let server = parent.rumors();
+    server
+        .gossip(&mut n2p_r, &mut p2n_w)
+        .expect("serve bootstrap");
+    newcomer.join().expect("join bootstrap thread")
+}
+
 /// Build the (alice, bob) `Known<()>` pair for one sample. Ancestor elements
 /// are distributed as evenly as possible across `parties` distinct background
 /// parties, each of which inserts its share and is then processed into both
@@ -436,9 +463,9 @@ fn build_pair(
     // Disjointness). ITC parties are anonymous — the old random party *names*
     // are gone, and forking is deterministic, so a given cell's structure is
     // now identical across samples.
-    let mut seed: Known<()> = Known::seed();
-    let mut alice = seed.fork();
-    let mut bob = seed.fork();
+    let seed: Known<()> = Known::seed();
+    let mut alice = bootstrap_fork(&seed);
+    let mut bob = bootstrap_fork(&seed);
 
     let total_ancestor = shared + redacted_a + redacted_b;
     // The sync callback bound is `Send + 'a`, so the closure borrows `keys`
@@ -453,12 +480,14 @@ fn build_pair(
         let remainder = total_ancestor % effective;
         for i in 0..effective {
             let count = (base + if i < remainder { 1 } else { 0 }) as usize;
-            let mut bg = seed.fork();
+            let mut bg = bootstrap_fork(&seed);
             bg.message_then(std::iter::repeat_n((), count), |k, _, _| keys.push(k));
-            // Fork bg's observations into alice and bob; `learn` rejoins the
-            // forked party region, and disjointness makes it infallible here.
-            alice.join(bg.fork()).expect("disjoint background party");
-            bob.join(bg.fork()).expect("disjoint background party");
+            // Merge bg's content into alice and bob. bg is a genuine disjoint
+            // party, so its leaves carry its own ITC region: absorbing them
+            // raises each side's version to record one populated region per
+            // background party, exactly as the old per-party fork+join did.
+            alice.join(bg.rumors()).expect("disjoint background party");
+            bob.join(bg.rumors()).expect("disjoint background party");
         }
     }
 

@@ -26,3 +26,35 @@ where
     let b_out = b_thread.join().expect("join B thread");
     (a_out, b_out)
 }
+
+/// Mint a genuine, party-disjoint `sync::Known` from `parent` by serving it a
+/// bootstrap over a pair of pipes: the synchronous counterpart of
+/// `wire::bootstrap_fork`.
+///
+/// Now that `fork` is gone, this is how the sync tests obtain a second
+/// *originator*. The returned peer descends from `parent`'s universe (same
+/// [`Network`](rumors::Network)) with its own disjoint party region and a copy
+/// of `parent`'s content. Use it — not [`rumors`](Known::rumors) — wherever the
+/// second peer must go on to `message`/`redact`: two `rumors` snapshots share a
+/// party and would originate non-concurrent versions, breaking the merge.
+pub fn sync_bootstrap_fork<T>(parent: &Known<T>) -> Known<T>
+where
+    T: Clone + BorshSerialize + BorshDeserialize + Send + std::marker::Sync + 'static,
+{
+    let (mut p_to_n_r, mut p_to_n_w) = pipe().expect("pipe parent→newcomer");
+    let (mut n_to_p_r, mut n_to_p_w) = pipe().expect("pipe newcomer→parent");
+
+    // The newcomer bootstraps on its own thread; the server is a `rumors`
+    // snapshot sharing parent's party, so serving the bootstrap forks a disjoint
+    // slice off parent in place and the two end up pairwise disjoint.
+    let newcomer = thread::spawn(move || {
+        sync::Known::<T>::bootstrap(&mut p_to_n_r, &mut n_to_p_w)
+            .expect("bootstrap handshake")
+            .expect("parent served the bootstrap")
+    });
+    let server = parent.rumors();
+    server
+        .gossip(&mut n_to_p_r, &mut p_to_n_w)
+        .expect("bootstrap server gossip");
+    newcomer.join().expect("join bootstrap thread")
+}

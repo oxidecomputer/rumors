@@ -68,3 +68,47 @@ where
         )
     })
 }
+
+/// Mint a genuine, party-disjoint `Known` from `parent` by serving it a
+/// bootstrap over an in-memory pipe.
+///
+/// Now that `fork` is gone, this is how a test obtains a second *originator*:
+/// the returned peer descends from `parent`'s universe (same [`Network`]) with
+/// its own disjoint party region and a copy of `parent`'s content, exactly as a
+/// real process joining over the network would. `parent` keeps its own party
+/// (the bootstrap hands the newcomer a freshly-forked slice of it).
+///
+/// Use this — not [`rumors`](Known::rumors) — wherever the second peer must go
+/// on to [`message`](Known::message) or [`redact`](Known::redact): a `rumors`
+/// snapshot is non-canonical and shares `parent`'s party, so two such snapshots
+/// would originate *non-concurrent* versions and break the gossip merge.
+pub fn bootstrap_fork<T>(parent: &Known<T>) -> Known<T>
+where
+    T: BorshSerialize + BorshDeserialize + Send + Sync + Clone + 'static,
+{
+    block_on(bootstrap_fork_async(parent))
+}
+
+/// Awaitable core of [`bootstrap_fork`], for callers already inside an async
+/// block on this thread's runtime (where a nested [`block_on`] would panic).
+pub async fn bootstrap_fork_async<T>(parent: &Known<T>) -> Known<T>
+where
+    T: BorshSerialize + BorshDeserialize + Send + Sync + Clone + 'static,
+{
+    let (a_side, b_side) = tokio::io::duplex(DUPLEX_BUF);
+    let (mut a_r, mut a_w) = tokio::io::split(a_side);
+    let (mut b_r, mut b_w) = tokio::io::split(b_side);
+
+    // `parent.rumors()` shares parent's party; serving the bootstrap forks a
+    // disjoint slice off it for the newcomer (mutating the shared party in
+    // place), so afterward parent and newcomer are pairwise disjoint.
+    let server = parent.rumors();
+    let (server_out, boot_out) = tokio::join!(
+        server.gossip(&mut a_r, &mut a_w),
+        Known::<T>::bootstrap(&mut b_r, &mut b_w),
+    );
+    server_out.expect("bootstrap server gossip");
+    boot_out
+        .expect("bootstrap handshake")
+        .expect("parent served the bootstrap")
+}

@@ -6,8 +6,9 @@
 //! greeting — so the assertions here are about *outcomes* (`Ok(None)` retired,
 //! `Ok(Some(self))` declined) and the invariants the absorbing peer must
 //! preserve (its tree and version are untouched). Party integrity on the
-//! decline path is shown behaviorally: the two parties still `join`, which
-//! succeeds exactly when they remain live and disjoint.
+//! decline path is shown behaviorally: the declined retiree remains a live
+//! `Known` whose content still `join`s (a network-guarded content merge) into
+//! the peer it tried to retire into.
 
 mod common;
 
@@ -18,8 +19,8 @@ use proptest::prelude::*;
 use rumors::{Key, Known, Version};
 
 use crate::common::action::{LocalAction, arb_local_actions, build_local, build_local_async};
-use crate::common::sync_wire::sync_wire_gossip;
-use crate::common::wire::{block_on, wire_gossip};
+use crate::common::sync_wire::{sync_bootstrap_fork, sync_wire_gossip};
+use crate::common::wire::{block_on, bootstrap_fork, wire_gossip};
 
 /// Capacity for the in-memory duplex pipe. Retire moves no content, so a small
 /// buffer would do; this matches the other wire tests' headroom.
@@ -27,16 +28,18 @@ const DUPLEX_BUF: usize = 64 * 1024;
 
 // ---- builders ------------------------------------------------------------
 
-/// Build an async `Known<u64>` by inserting `vals` into an already-forked peer.
-fn async_known(fork: Known<u64>, vals: &[u64]) -> Known<u64> {
+/// Build an async `Known<u64>` by inserting `vals` into a disjoint originator
+/// (a genuine bootstrap fork: its own party region, ready to originate).
+fn async_known(peer: Known<u64>, vals: &[u64]) -> Known<u64> {
     let actions: Vec<LocalAction<u64>> = vals.iter().map(|&v| LocalAction::Insert(v)).collect();
-    block_on(build_local_async(fork, &actions))
+    block_on(build_local_async(peer, &actions))
 }
 
-/// Build a synchronous `sync::Known<u64>` by inserting `vals` into a fork.
-fn sync_known(fork: rumors::sync::Known<u64>, vals: &[u64]) -> rumors::sync::Known<u64> {
+/// Build a synchronous `sync::Known<u64>` by inserting `vals` into a disjoint
+/// originator (a genuine bootstrap fork: its own party region).
+fn sync_known(peer: rumors::sync::Known<u64>, vals: &[u64]) -> rumors::sync::Known<u64> {
     let actions: Vec<LocalAction<u64>> = vals.iter().map(|&v| LocalAction::Insert(v)).collect();
-    build_local(fork, &actions)
+    build_local(peer, &actions)
 }
 
 // ---- wire harnesses ------------------------------------------------------
@@ -152,8 +155,8 @@ fn sync_retire_into_gossip(
 /// the absorbing peer's tree and version are untouched (no content crosses).
 #[test]
 fn retire_into_converged_peer_succeeds() {
-    let mut seed = Known::<u64>::seed();
-    let a = async_known(seed.fork(), &[1, 2]);
+    let seed = Known::<u64>::seed();
+    let a = async_known(bootstrap_fork(&seed), &[1, 2]);
     let b = async_known(seed, &[3, 4]);
 
     let (a, b) = wire_gossip(a, b);
@@ -171,12 +174,12 @@ fn retire_into_converged_peer_succeeds() {
 }
 
 /// Equal versions satisfy the `<=` domination precondition reflexively: a
-/// freshly-forked, empty retiree can retire into the peer it forked from with
+/// fresh, empty bootstrap fork can retire into the peer it forked from with
 /// no prior gossip.
 #[test]
 fn empty_equal_version_retire_succeeds() {
-    let mut seed = Known::<u64>::seed();
-    let a = seed.fork();
+    let seed = Known::<u64>::seed();
+    let a = bootstrap_fork(&seed);
     let b = seed;
 
     let (retired, _b) = retire_into_gossip(a, b);
@@ -191,14 +194,14 @@ fn empty_equal_version_retire_succeeds() {
 /// proven by a subsequent `join` succeeding.
 #[test]
 fn divergent_peers_decline() {
-    let mut seed = Known::<u64>::seed();
-    let a = async_known(seed.fork(), &[1]);
+    let seed = Known::<u64>::seed();
+    let a = async_known(bootstrap_fork(&seed), &[1]);
     let b = async_known(seed, &[2]);
 
     let (retired, b) = retire_into_gossip(a, b);
     let mut a = retired.expect("a non-dominating peer declines the retiree, returning self");
     assert!(
-        a.join(b).is_ok(),
+        a.join(b.rumors()).is_ok(),
         "a declined retire leaves both parties live and disjoint"
     );
 }
@@ -208,15 +211,15 @@ fn divergent_peers_decline() {
 /// is itself leaving. Both are handed back intact.
 #[test]
 fn mutual_retire_declines() {
-    let mut seed = Known::<u64>::seed();
-    let a = async_known(seed.fork(), &[1, 2]);
+    let seed = Known::<u64>::seed();
+    let a = async_known(bootstrap_fork(&seed), &[1, 2]);
     let b = async_known(seed, &[3, 4]);
 
     let (ra, rb) = retire_into_retire(a, b);
     let mut a = ra.expect("mutual retire declines A");
     let b = rb.expect("mutual retire declines B");
     assert!(
-        a.join(b).is_ok(),
+        a.join(b.rumors()).is_ok(),
         "a mutually-declined retire leaves both parties live and disjoint"
     );
 }
@@ -227,8 +230,8 @@ fn mutual_retire_declines() {
 /// no deadlock.
 #[test]
 fn retire_into_bootstrapper_declines() {
-    let mut seed = Known::<u64>::seed();
-    let retiree = async_known(seed.fork(), &[1, 2]);
+    let seed = Known::<u64>::seed();
+    let retiree = async_known(bootstrap_fork(&seed), &[1, 2]);
 
     let (retired, bootstrapped) = retire_into_bootstrap(retiree);
     assert!(
@@ -246,8 +249,8 @@ fn retire_into_bootstrapper_declines() {
 /// dominates), and its tree and version are unchanged.
 #[test]
 fn gossip_absorbs_retiree_without_callbacks() {
-    let mut seed = Known::<u64>::seed();
-    let a = async_known(seed.fork(), &[1, 2]);
+    let seed = Known::<u64>::seed();
+    let a = async_known(bootstrap_fork(&seed), &[1, 2]);
     let b = async_known(seed, &[3, 4]);
 
     let (a, b) = wire_gossip(a, b);
@@ -272,8 +275,8 @@ fn gossip_absorbs_retiree_without_callbacks() {
 /// untouched.
 #[test]
 fn sync_retire_into_converged_peer_succeeds() {
-    let mut seed = rumors::sync::Known::<u64>::seed();
-    let a = sync_known(seed.fork(), &[1, 2]);
+    let seed = rumors::sync::Known::<u64>::seed();
+    let a = sync_known(sync_bootstrap_fork(&seed), &[1, 2]);
     let b = sync_known(seed, &[3]);
 
     let (a, b) = sync_wire_gossip(a, b);
@@ -294,14 +297,14 @@ fn sync_retire_into_converged_peer_succeeds() {
 /// the blocking wire, and both parties survive live and disjoint.
 #[test]
 fn sync_divergent_peers_decline() {
-    let mut seed = rumors::sync::Known::<u64>::seed();
-    let a = sync_known(seed.fork(), &[1]);
+    let seed = rumors::sync::Known::<u64>::seed();
+    let a = sync_known(sync_bootstrap_fork(&seed), &[1]);
     let b = sync_known(seed, &[2]);
 
     let (retired, b) = sync_retire_into_gossip(a, b);
     let mut a = retired.expect("a non-dominating peer declines the retiree");
     assert!(
-        a.join(b).is_ok(),
+        a.join(b.rumors()).is_ok(),
         "a declined retire leaves both parties live and disjoint"
     );
 }
@@ -322,8 +325,8 @@ proptest! {
     ) {
         // Wire path: converge, then retire A into B.
         let (wire_hash, wire_version) = {
-            let mut seed = Known::<u64>::seed();
-            let a = block_on(build_local_async(seed.fork(), &a_actions));
+            let seed = Known::<u64>::seed();
+            let a = block_on(build_local_async(bootstrap_fork(&seed), &a_actions));
             let b = block_on(build_local_async(seed, &b_actions));
             let (a, b) = wire_gossip(a, b);
             let (retired, b) = retire_into_gossip(a, b);
@@ -331,12 +334,13 @@ proptest! {
             (b.hash(), b.latest().clone())
         };
 
-        // Oracle: an in-process join of an identically-built universe.
+        // Oracle: an in-process content-merge (`join`) of an identically-built
+        // universe; `join` is network-guarded and merges content only.
         let (join_hash, join_version) = {
-            let mut seed = Known::<u64>::seed();
-            let a = block_on(build_local_async(seed.fork(), &a_actions));
+            let seed = Known::<u64>::seed();
+            let a = block_on(build_local_async(bootstrap_fork(&seed), &a_actions));
             let mut b = block_on(build_local_async(seed, &b_actions));
-            b.join(a).expect("disjoint forks join");
+            b.join(a.rumors()).expect("same-universe peers join");
             (b.hash(), b.latest().clone())
         };
 

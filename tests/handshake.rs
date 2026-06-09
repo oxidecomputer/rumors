@@ -41,8 +41,8 @@ async fn handshake_roundtrip_succeeds() {
     let (mut b_r, mut b_w) = tokio::io::split(b);
 
     // Same universe: `bob` is a fork of `alice`, so their networks match.
-    let mut alice: Known<String> = Known::seed();
-    let bob = alice.fork();
+    let alice: Known<String> = Known::seed();
+    let bob = alice.rumors();
 
     let (alice_out, bob_out) = tokio::join!(
         alice.gossip(&mut a_r, &mut a_w),

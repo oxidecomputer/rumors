@@ -28,7 +28,7 @@
 use std::hint::black_box;
 
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use rumors::sync::{Key, Known};
+use rumors::sync::{Key, Known, Rumors};
 
 // The shared grid module exposes a superset of helpers; each bench binary uses
 // a subset, so the unused remainder is expected per-binary.
@@ -172,11 +172,15 @@ fn bench_join(c: &mut Criterion) {
 
 /// Build a cell's peers and warm both trees' lazy memos in untimed setup, so
 /// the timed body is not charged for first-touch memoization (see [`bench_join`]).
-fn warmed(cell: grid::Cell) -> (Known<()>, Known<()>) {
+///
+/// `join` now consumes a [`rumors`](Known::rumors) snapshot, so `right` is
+/// snapshotted here in the untimed setup; the timed body stays a bare
+/// `left.join(right)`.
+fn warmed(cell: grid::Cell) -> (Known<()>, Known<(), Rumors>) {
     let (left, right) = grid::build(cell);
     left.warm_caches();
     right.warm_caches();
-    (left, right)
+    (left, right.rumors())
 }
 
 criterion_group!(benches, bench_message, bench_iter, bench_redact, bench_join);

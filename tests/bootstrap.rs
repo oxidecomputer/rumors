@@ -13,7 +13,7 @@ use proptest::prelude::*;
 use rumors::{Key, Known};
 
 use crate::common::action::{arb_local_actions, arb_string_actions, build_local_async};
-use crate::common::wire::block_on;
+use crate::common::wire::{block_on, bootstrap_fork};
 
 /// Capacity for the in-memory duplex pipe. Roomy enough that the provider's
 /// whole-tree frame (the bootstrap transfer ships it in one frame) fits without
@@ -44,28 +44,29 @@ where
 
 proptest! {
     /// Bootstrapping from a provider yields the same live content as a local
-    /// [`fork`](Known::fork) of that provider, leaves the provider's own
-    /// content untouched, and mints a *disjoint* party — proven behaviorally
-    /// by the two parties successfully [`join`](Known::join)ing afterward
-    /// (`join` is `Ok` exactly when the parties are disjoint).
+    /// [`rumors`](Known::rumors) snapshot of that provider, leaves the
+    /// provider's own content untouched, and mints a *disjoint* party — proven
+    /// behaviorally by the bootstrapped peer's content [`join`](Known::join)ing
+    /// back into the provider without error (`join` is network-guarded and
+    /// merges content only).
     #[test]
     fn bootstrap_reproduces_a_fork(actions in arb_local_actions()) {
-        let mut seed = Known::<u64>::seed();
-        let mut provider = block_on(build_local_async(seed.fork(), &actions));
+        let seed = Known::<u64>::seed();
+        let provider = block_on(build_local_async(bootstrap_fork(&seed), &actions));
 
-        // A local fork is the oracle: identical content, disjoint party.
-        let control = provider.fork();
+        // A `rumors` snapshot is the content oracle: identical live content.
+        let control = provider.rumors();
 
         let (mut provider_after, bootstrapped) = wire_bootstrap(provider);
         let bootstrapped = bootstrapped.expect("provider served the bootstrap");
 
-        prop_assert_eq!(&control, &bootstrapped, "bootstrapped content must match a local fork");
+        prop_assert_eq!(&control, &bootstrapped, "bootstrapped content must match the provider snapshot");
         prop_assert_eq!(&control, &provider_after, "serving a bootstrap must not change provider content");
 
         // The minted party is disjoint from the provider's retained half, so
-        // the two can be rejoined without error.
+        // the bootstrapped content can be merged back without error.
         prop_assert!(
-            provider_after.join(bootstrapped).is_ok(),
+            provider_after.join(bootstrapped.rumors()).is_ok(),
             "bootstrapped party must be disjoint from the provider's",
         );
     }
@@ -75,18 +76,18 @@ proptest! {
     /// round-trip of the whole-tree frame for `T = String`.
     #[test]
     fn bootstrap_reproduces_a_fork_string(actions in arb_string_actions()) {
-        let mut seed = Known::<String>::seed();
-        let mut provider = block_on(build_local_async(seed.fork(), &actions));
+        let seed = Known::<String>::seed();
+        let provider = block_on(build_local_async(bootstrap_fork(&seed), &actions));
 
-        let control = provider.fork();
+        let control = provider.rumors();
 
         let (mut provider_after, bootstrapped) = wire_bootstrap(provider);
         let bootstrapped = bootstrapped.expect("provider served the bootstrap");
 
-        prop_assert_eq!(&control, &bootstrapped, "bootstrapped content must match a local fork");
+        prop_assert_eq!(&control, &bootstrapped, "bootstrapped content must match the provider snapshot");
         prop_assert_eq!(&control, &provider_after, "serving a bootstrap must not change provider content");
         prop_assert!(
-            provider_after.join(bootstrapped).is_ok(),
+            provider_after.join(bootstrapped.rumors()).is_ok(),
             "bootstrapped party must be disjoint from the provider's",
         );
     }
@@ -97,8 +98,8 @@ proptest! {
     /// own live set. Empty action sequences exercise the zero-message case.
     #[test]
     fn bootstrap_then_observes_every_live_message(actions in arb_local_actions()) {
-        let mut seed = Known::<u64>::seed();
-        let provider = block_on(build_local_async(seed.fork(), &actions));
+        let seed = Known::<u64>::seed();
+        let provider = block_on(build_local_async(bootstrap_fork(&seed), &actions));
 
         // The provider's live (Key, value) set, captured before `gossip` moves it.
         let mut expected: Vec<(Key, u64)> =
@@ -165,7 +166,7 @@ fn sync_bootstrap_reproduces_a_fork() {
 
     let mut provider = SyncKnown::<u64>::seed();
     provider.message([10u64, 20, 30]);
-    let control = provider.fork();
+    let control = provider.rumors();
 
     // provider → bootstrapper, and bootstrapper → provider.
     let (mut p2b_r, mut p2b_w) = pipe().expect("pipe provider→bootstrapper");
@@ -185,14 +186,14 @@ fn sync_bootstrap_reproduces_a_fork() {
 
     assert_eq!(
         control, bootstrapped,
-        "bootstrapped content must match a local fork"
+        "bootstrapped content must match the provider snapshot"
     );
     assert_eq!(
         control, provider_after,
         "serving must not change provider content"
     );
     assert!(
-        provider_after.join(bootstrapped).is_ok(),
+        provider_after.join(bootstrapped.rumors()).is_ok(),
         "bootstrapped party must be disjoint from the provider's",
     );
 }
