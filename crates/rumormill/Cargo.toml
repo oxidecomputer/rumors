@@ -1,0 +1,28 @@
+[package]
+name = "rumormill"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+rumors = { path = "../.." }
+# 1.0 release candidate: pinned exactly until 1.0 lands, then relax to "1".
+iroh = "=1.0.0-rc.1"
+ratatui = "0.30"
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "sync",
+    "time",
+    "signal",
+    "io-util",
+] }
+tokio-util = { version = "0.7", default-features = false, features = ["time"] }
+futures = { version = "0.3", default-features = false, features = ["std"] }
+clap = { version = "4", features = ["derive"] }
+rand = "0.8"
+anyhow = "1"
+hex = "0.4"
+
+[dev-dependencies]
+proptest = "1"
