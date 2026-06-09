@@ -10,11 +10,11 @@
 //!
 //! # Handshake
 //!
-//! Every gossip session begins with a 24-byte preamble, exchanged
+//! Every gossip session begins with an 8-byte raw preamble, exchanged
 //! concurrently by both sides before any framed traffic:
 //!
 //! ```text
-//! [ magic = b"RUMORS": 6B | version: 2B (big-endian) | network: 16B ]
+//! [ magic = b"RUMORS": 6B | version: 2B (big-endian) ]
 //! ```
 //!
 //! - **Magic** is [`crate::PROTOCOL_MAGIC`] (`b"RUMORS"`). A peer that opens
@@ -27,18 +27,18 @@
 //!   `min(local, remote)`); major versions may bump it incompatibly and
 //!   surface as [`Error::VersionMismatch`].
 //!
-//! - **Network** is the 128-bit [`Network`] identifier of this side's universe,
-//!   and doubles as the session-intent signal. A real (non-[`ZERO`]) value
-//!   means an ordinary peer; the all-zero [`ZERO`] placeholder means this side
-//!   is [bootstrapping](super::bootstrap) and holds no universe yet. When
-//!   *both* sides carry a real network and the two differ, the session is
-//!   rejected as [`Error::NetworkMismatch`]: the peers descend from different
-//!   [`seed`](crate::Known::seed)s and must not combine, even if their parties
-//!   happen to look disjoint. A bootstrapping side's placeholder suppresses
-//!   that check, and the provider's network becomes the value the bootstrapper
-//!   adopts.
+//! The 128-bit [`Network`] identifier rides the framed [`message::Handshake`]
+//! greeting that follows, where it doubles as the session-intent signal: a real
+//! (non-`ZERO`) value means an ordinary peer, while the all-zero placeholder
+//! means that side is [bootstrapping](crate::Known::bootstrap) and holds no
+//! universe yet. When *both* sides carry a real network and the two differ, the
+//! session is rejected as [`Error::NetworkMismatch`]: the peers descend from
+//! different [`seed`](crate::Known::seed)s and must not combine, even if their
+//! parties happen to look disjoint. A bootstrapping side's placeholder
+//! suppresses that check, and the provider's network becomes the value the
+//! bootstrapper adopts.
 //!
-//! Both sides drive the write and the read concurrently via
+//! Both sides drive the preamble's write and read concurrently via
 //! [`futures_util::future::try_join`]; a peer that reads before writing would
 //! deadlock against another peer doing the same on a connection with a tiny
 //! write buffer.
@@ -323,16 +323,18 @@ where
 
 /// Provider side of the party hand-off that completes bootstrapping a brand-new
 /// peer: fork `party` and ship the give-half as one frame, *after* the mirror
-/// descent has transferred all content. (The opposite hand-off direction —
-/// absorbing a [`Known::retire`](crate::Known::retire)ing peer — needs no
-/// trailing frame: the retiree's party rides its greeting.)
+/// descent has transferred all content. [`Known::retire`](crate::Known::retire)
+/// reuses the same trailing frame in the opposite direction: the retiree ships
+/// its (whole, aliased) party last, for the absorber to [`recv_party`] and
+/// join.
 ///
 /// Bootstrapping is not a separate bulk transfer: a peer holding nothing greets
 /// with the placeholder [`Network::ZERO`](crate::Network) and an empty tree,
 /// then runs the ordinary [mirror descent](super::local) — the empty side pulls
 /// all of the provider's content through the usual `providing` channel. The
-/// descent moves *content* but not *parties*, so one thing remains: the provider
-/// must hand the newcomer a [`Party`](before::Party). That is this single frame.
+/// descent moves *content* but not *parties*, so one thing remains: the
+/// provider must hand the newcomer a [`Party`](before::Party). That is this
+/// single frame.
 ///
 /// # Ordering is load-bearing
 ///
@@ -340,10 +342,10 @@ where
 /// region. If the party frame itself is lost, the provider must assume it could
 /// *still* have been received: it is not safe to reclaim the forked party, and
 /// if it was in fact not received, the party permanently leaks out of the
-/// system. No acknowledgement could shrink that residual window to zero — a lost
-/// final message leaves the provider unable to tell "peer got the party" from
-/// "peer did not" (the two-generals problem) — so forking last is the structural
-/// minimum, and it costs no extra round-trip. Because
+/// system. No acknowledgement could shrink that residual window to zero — a
+/// lost final message leaves the provider unable to tell "peer got the party"
+/// from "peer did not" (the two-generals problem) — so forking last is the
+/// structural minimum, and it costs no extra round-trip. Because
 /// [`Party::fork`](before::Party::fork) splits the identifier space without
 /// ticking the clock, a party frame lost in that window costs only a slice of
 /// the id space, never causal correctness: the provider's retained half stays a
@@ -362,9 +364,9 @@ where
     send_msg(writer, &give).await
 }
 
-/// Bootstrapper side of the hand-off: read the forked party the provider ships
-/// after the descent, off the same reader the descent used. See
-/// [`send_party_fork`] for why the fork sits last.
+/// Receiving side of the hand-off: read the party the peer ships after the
+/// descent (a bootstrap provider's fork, or a retiree's whole party), off the
+/// same reader the descent used. See [`send_party`] for why it sits last.
 pub(crate) async fn recv_party<R>(
     reader: &mut FramedRead<R, LengthDelimitedCodec>,
 ) -> Result<Party, Error>
@@ -390,11 +392,11 @@ where
         mut self,
         request: message::Handshake,
     ) -> Result<protocol::Step<message::Handshake, Self::Next, Self::Output>, Self::Error> {
-        // `request` is our local caller's handshake; ship it across to the peer,
-        // then read the peer's handshake reply. (If our caller is retiring,
-        // `request.party` is the aliased party we offer here; the peer joins it
-        // once its reconciliation completes, and the caller drops its live copy
-        // when its own side does — exactly the ownership transfer retire wants.)
+        // `request` is our local caller's handshake; ship it across to the
+        // peer, then read the peer's handshake reply. (If our caller is
+        // retiring, `request.retiring` only *announces* the hand-off; the party
+        // itself travels as a trailing frame after reconciliation, via
+        // `send_party`.)
         send_msg(&mut self.writer, &request).await?;
         let peer: message::Handshake = recv_msg(&mut self.reader).await?;
 
@@ -402,7 +404,8 @@ where
         // (non-`ZERO`) networks that differ descend from unrelated seeds and
         // must never combine. A `ZERO` on either side (a bootstrapping peer)
         // suppresses the check. Uniform across gossip/retire/bootstrap, so it
-        // lives here in the connect phase rather than in each caller's dispatch.
+        // lives here in the connect phase rather than in each caller's
+        // dispatch.
         if !request.network.is_bootstrap()
             && !peer.network.is_bootstrap()
             && request.network != peer.network

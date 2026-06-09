@@ -127,7 +127,8 @@ use futures::io::AllowStdIo;
 use tokio_util::compat::{FuturesAsyncReadCompatExt, FuturesAsyncWriteCompatExt};
 
 pub use crate::{
-    Bookmark, Error, Facts, Key, Network, PROTOCOL_MAGIC, PROTOCOL_VERSION, Rumors, Version,
+    Bookmark, Error, Facts, Key, Network, PROTOCOL_MAGIC, PROTOCOL_VERSION, RetireError, Rumors,
+    Version,
 };
 pub use ::borsh;
 
@@ -523,10 +524,13 @@ impl<T> Known<T> {
     /// - `Ok(Some(self))`: **declined, unchanged.** The peer cannot absorb a
     ///   party — it was itself retiring, or was bootstrapping — so nothing
     ///   happened and we are handed back intact to retry elsewhere.
-    /// - `Err(_)`: an I/O, handshake, or network-mismatch failure (see
-    ///   [`Error`]). As with the other wire methods, an error here consumes
-    ///   `self` (the party region can leak on a failed session, but is never
-    ///   duplicated — see the async [`Known::retire`](crate::Known::retire)).
+    /// - `Err(`[`RetireError::Recovered`]`)`: the session failed *before* our
+    ///   party ever crossed the wire; the error carries the intact retiree to
+    ///   retry elsewhere. Nothing was lost.
+    /// - `Err(`[`RetireError::Uncertain`]`)`: the session failed while sending
+    ///   the trailing party frame; the peer may hold our party, so the retiree
+    ///   is consumed. See the async [`Known::retire`](crate::Known::retire)
+    ///   for the commitment model.
     ///
     /// A peer running ordinary [`gossip`](Self::gossip) absorbs a retiree
     /// transparently, so the counterparty needs no special call.
@@ -543,7 +547,11 @@ impl<T> Known<T> {
     /// // `None` => we successfully retired; `Some(alice)` => declined, retry.
     /// let _retired: Option<Known<String>> = alice.retire(&mut read, &mut write).unwrap();
     /// ```
-    pub fn retire<'a, R, W>(self, read: &'a mut R, write: &'a mut W) -> Result<Option<Self>, Error>
+    pub fn retire<'a, R, W>(
+        self,
+        read: &'a mut R,
+        write: &'a mut W,
+    ) -> Result<Option<Self>, RetireError<Self>>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
         R: Read + Unpin + Send,
@@ -553,7 +561,16 @@ impl<T> Known<T> {
         // expects, exactly as `gossip` does.
         let mut read = AllowStdIo::new(read).compat();
         let mut write = AllowStdIo::new(write).compat_write();
-        pollster::block_on(self.0.retire(&mut read, &mut write)).map(|known| known.map(Known))
+        pollster::block_on(self.0.retire(&mut read, &mut write))
+            .map(|known| known.map(Known))
+            .map_err(|e| match e {
+                // Re-wrap the recovered retiree in the synchronous surface.
+                RetireError::Recovered { error, known } => RetireError::Recovered {
+                    error,
+                    known: Known(known),
+                },
+                RetireError::Uncertain { error } => RetireError::Uncertain { error },
+            })
     }
 }
 

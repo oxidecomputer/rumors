@@ -62,8 +62,6 @@ use std::{convert::Infallible, future::Future, mem, sync::Arc};
 
 use itertools::{EitherOrBoth, Itertools};
 
-use before::Party;
-
 use crate::{
     network::Network,
     tree::{
@@ -86,11 +84,13 @@ use super::protocol;
 /// has not yet connected. Carries the fields the [`Connect`](protocol::Connect)
 /// / [`Accept`](protocol::Accept) step needs to build its outgoing
 /// [`message::Handshake`]: our universe [`Network`], our latest [`Version`], and
-/// — iff we are *retiring* — the [`Party`] we offer the peer to absorb.
+/// our [`Intent`](message::Intent) ([`Retire`](message::Intent::Retire) iff we
+/// will hand the peer our party in a trailing frame once reconciliation
+/// completes).
 pub struct Start {
     network: Network,
     our_version: Version,
-    party: Option<Party>,
+    intent: message::Intent,
 }
 
 /// The version state for an [`Exchange`] which has sent its version to its peer
@@ -196,7 +196,7 @@ where
     pub fn start(
         node: tree::Root<T>,
         network: Network,
-        party: Option<Party>,
+        intent: message::Intent,
         on_send: Option<OnSend>,
         on_recv: Option<OnRecv>,
     ) -> Self {
@@ -204,7 +204,7 @@ where
             versions: Start {
                 network,
                 our_version: node.ceiling.clone(),
-                party,
+                intent,
             },
             levels: Node::levels(Option::from(node)),
             on_recv,
@@ -230,10 +230,10 @@ where
     /// caller need not spell them out. This is the path that elides the
     /// [`absorb_providing`](Self::absorb_providing) discovery walk.
     pub fn silent(node: tree::Root<T>) -> Self {
-        // Local-local test sessions never run the lib-level network/party
-        // dispatch, so the placeholder network and absent party are inert: the
-        // handshake they produce is consumed only for its version.
-        Self::start(node, Network::ZERO, None, None, None)
+        // Local-local test sessions never run the lib-level network/intent
+        // dispatch, so the placeholder network and `Remain` intent are inert:
+        // the handshake they produce is consumed only for its version.
+        Self::start(node, Network::ZERO, message::Intent::Remain, None, None)
     }
 }
 
@@ -265,7 +265,7 @@ where
         let Start {
             network,
             our_version,
-            party,
+            intent,
         } = self.versions;
 
         let next = Exchange {
@@ -283,7 +283,7 @@ where
             msg: message::Handshake {
                 network,
                 version: our_version,
-                party,
+                intent,
             },
             next,
         })
@@ -352,7 +352,7 @@ where
         let Start {
             network,
             our_version,
-            party,
+            intent,
         } = self.versions;
         let their_version = request.version;
 
@@ -362,7 +362,7 @@ where
                 msg: message::Handshake {
                     network,
                     version: our_version.clone(),
-                    party,
+                    intent,
                 },
                 output: tree::Root {
                     ceiling: our_version,
@@ -387,7 +387,7 @@ where
             msg: message::Handshake {
                 network,
                 version: our_version,
-                party,
+                intent,
             },
             next,
         })

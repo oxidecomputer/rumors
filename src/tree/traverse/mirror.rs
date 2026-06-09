@@ -152,8 +152,8 @@ pub(crate) type ClientConnected<C, T> = <<C as Connect<T>>::Next as CompleteConn
 pub(crate) type ServerConnected<S, T> = <S as Accept<T>>::Next;
 
 /// The result of the connect phase ([`connect_phase`]): the [`Handshake`]s have
-/// been exchanged, so the caller can inspect the peer's `network`/`party` and
-/// decide whether to descend, absorb a retiree, serve a bootstrapper, etc.
+/// been exchanged, so the caller can inspect the peer's `network`/`retiring`
+/// and decide whether to descend, absorb a retiree, serve a bootstrapper, etc.
 pub(crate) enum Handshaken<C, S, T>
 where
     T: Send + Sync,
@@ -187,7 +187,7 @@ where
 {
     /// The peer's [`Handshake`], available whichever way the connect phase went.
     ///
-    /// Lets the caller dispatch on the peer's `network`/`version`/`party` —
+    /// Lets the caller dispatch on the peer's `network`/`version`/`retiring` —
     /// deciding whether to [`reconcile`](Self::reconcile) or [`stop`](Self::stop)
     /// — *before* committing to (or skipping) the descent.
     pub(crate) fn peer(&self) -> &Handshake {

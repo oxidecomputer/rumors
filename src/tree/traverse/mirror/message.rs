@@ -73,8 +73,6 @@
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use before::Party;
-
 use crate::network::Network;
 use crate::tree::typed::{
     Hash, Node, Prefix,
@@ -89,39 +87,74 @@ use super::reassemble::{verify_keys_canonical, verify_pairs_canonical};
 /// receiver inserts each node directly at its named prefix.
 pub type Providing<T, H> = Vec<(Prefix<H>, Node<T, H>)>;
 
+/// A peer's declared session intent, carried in its [`Handshake`] greeting.
+///
+/// This is strictly about the *party hand-off*: it tells the receiver whether
+/// a trailing party frame will follow reconciliation. (Bootstrapping is the
+/// other special intent, but it is signalled by the placeholder
+/// [`Network::ZERO`](crate::Network), not here: a bootstrapper participates in
+/// an ordinary session and *receives* a party, so it greets with [`Remain`].)
+///
+/// On the wire it is a borsh unit-enum: a single `u8` tag, `0x00` for
+/// [`Remain`] and `0x01` for [`Retire`].
+///
+/// [`Remain`]: Intent::Remain
+/// [`Retire`]: Intent::Retire
+#[derive(Debug, Clone, Copy, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub enum Intent {
+    /// The sender stays in (or, bootstrapping, joins) the universe: no party
+    /// will be handed over. Ordinary gossip and bootstrap greet with this.
+    Remain,
+    /// The sender is retiring: once reconciliation completes, it will ship its
+    /// party as a single trailing frame for the receiver to absorb (see
+    /// [`Known::retire`](crate::Known::retire)).
+    Retire,
+}
+
+impl Intent {
+    /// True iff this is a [`Retire`](Intent::Retire) greeting: the sender will
+    /// hand its party over after reconciliation.
+    pub fn retiring(self) -> bool {
+        self == Intent::Retire
+    }
+}
+
 /// The opening message of every session: what the `connect`/`accept` steps
 /// exchange (replacing the bare [`Version`] they exchanged before the handshake
 /// was folded in). It carries the sender's universe [`Network`], its causal
-/// [`Version`], and, only when the sender is *retiring*, its [`Party`] for the
-/// peer to absorb (see [`Known::retire`](crate::Known::retire)).
+/// [`Version`], and its [`Intent`]: a retiring sender announces here that,
+/// once reconciliation completes, it will ship its party as a single trailing
+/// frame for the receiver to absorb (see
+/// [`Known::retire`](crate::Known::retire)). The party itself never rides the
+/// greeting — sending it *after* the descent keeps the id-region out of limbo
+/// until the last possible frame, mirroring bootstrap's fork-last hand-off.
 ///
 /// On the wire this frame follows the raw `magic + proto_version` preamble,
 /// which is validated before this body is ever parsed (see
 /// [`super::remote`]); so the magic bytes are *not* part of this struct. The
 /// [`Network`] travels as its raw 16 bytes (a fixed-width array, no length
-/// prefix), the [`Version`] and the `Option<Party>` as their own borsh shapes.
-///
-/// Deliberately **not** [`Clone`]: it may carry a linear [`Party`], which must
-/// not be duplicated implicitly. Take `.version.clone()` (a [`Version`] is
-/// [`Clone`]) when only the causal timestamp is needed.
+/// prefix), the [`Version`] and the [`Intent`] as their own borsh shapes. (A
+/// [`Remain`](Intent::Remain) greeting is byte-identical to the previous
+/// `Option<Party>` encoding of a non-retiring one: borsh writes the `Remain`
+/// tag and `None` both as a single `0x00`.)
 pub struct Handshake {
     /// The sender's universe id, or [`Network::ZERO`](crate::Network) if the
     /// sender is bootstrapping and has none yet.
     pub network: Network,
     /// The sender's latest causal [`Version`].
     pub version: Version,
-    /// [`Some`] iff the sender is retiring: the party it offers the peer to
-    /// absorb. [`None`] for ordinary gossip and for a bootstrapping peer.
-    pub party: Option<Party>,
+    /// The sender's session intent: whether a trailing party frame will follow
+    /// reconciliation.
+    pub intent: Intent,
 }
 
 impl BorshSerialize for Handshake {
     fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
         // Raw 16-byte network (borsh encodes `[u8; 16]` as exactly 16 bytes,
-        // no length prefix), then the version and optional party.
+        // no length prefix), then the version and the intent tag.
         self.network.to_bytes().serialize(writer)?;
         self.version.serialize(writer)?;
-        self.party.serialize(writer)?;
+        self.intent.serialize(writer)?;
         Ok(())
     }
 }
@@ -130,11 +163,11 @@ impl BorshDeserialize for Handshake {
     fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
         let network = Network::from_bytes(<[u8; 16]>::deserialize_reader(reader)?);
         let version = Version::deserialize_reader(reader)?;
-        let party = Option::<Party>::deserialize_reader(reader)?;
+        let intent = Intent::deserialize_reader(reader)?;
         Ok(Self {
             network,
             version,
-            party,
+            intent,
         })
     }
 }

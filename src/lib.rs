@@ -299,6 +299,42 @@ impl<T, S, U> PartialEq<Known<T, U>> for Known<T, S> {
 /// framing errors encountered while parsing messages off the wire.
 pub use mirror::remote::Error;
 
+/// The error type returned by [`Known::retire`] (and [`sync::Known::retire`],
+/// with `K` the synchronous wrapper).
+///
+/// A retiring peer's party crosses the wire as a single trailing frame, sent
+/// only after reconciliation completes, so the id-region is at risk for
+/// exactly that one frame. This error distinguishes failures by which side of
+/// that frame they struck.
+#[derive(Debug, thiserror::Error)]
+pub enum RetireError<K> {
+    /// The session failed strictly before the party frame was sent: the peer
+    /// provably does not hold our party, so the retiree is handed back intact
+    /// — its party live, its content as of the start of the session — to
+    /// retry elsewhere. Nothing was lost.
+    #[error("retire failed before the party hand-off: {error}")]
+    Recovered {
+        /// The underlying session failure.
+        #[source]
+        error: Error,
+        /// The intact retiree.
+        known: K,
+    },
+    /// The session failed while sending the party frame: the peer *may* hold
+    /// our party, and no acknowledgement could tell us whether it does (the
+    /// two-generals problem), so the party must be treated as handed off and
+    /// the retiree is consumed. Keeping a live copy when the peer might have
+    /// absorbed the frame would duplicate the region — breaking the linearity
+    /// the clocks require — so the worst case here is a *leaked* region,
+    /// never a duplicated one.
+    #[error("retire failed during the party hand-off: {error}")]
+    Uncertain {
+        /// The underlying session failure.
+        #[source]
+        error: Error,
+    },
+}
+
 /// An opaque identifier for a single message in a [`Known`] rumor set.
 ///
 /// Keys are produced by the `on_message` callbacks of [`Known::message`],
@@ -585,12 +621,13 @@ impl<T> Known<T> {
 
         // We hold nothing: run the ordinary mirror protocol from an *empty*
         // tree, declaring ourselves bootstrapping with the placeholder network
-        // and no party. The empty side pulls all of the provider's content
-        // through the usual descent, firing `on_message` per received leaf.
+        // and no retire-intent. The empty side pulls all of the provider's
+        // content through the usual descent, firing `on_message` per received
+        // leaf.
         let l = local::Exchange::start(
             tree::Root::default(),
             Network::ZERO,
-            None,
+            mirror::message::Intent::Remain,
             None::<Silent<T>>,
             on_message,
         );
@@ -600,7 +637,7 @@ impl<T> Known<T> {
         // that is *retiring* (it will not serve), means there is nothing to
         // receive: bail symmetrically.
         let handshaken = mirror::handshake(l, r).await.map_err(server_error)?;
-        if handshaken.peer().network.is_bootstrap() || handshaken.peer().party.is_some() {
+        if handshaken.peer().network.is_bootstrap() || handshaken.peer().intent.retiring() {
             return Ok(None);
         }
 
@@ -954,27 +991,33 @@ impl<T> Known<T> {
     /// - `Ok(Some(self))`: **declined, unchanged.** The peer cannot absorb a
     ///   party — it was itself retiring, or was bootstrapping — so nothing
     ///   happened and we are handed back intact to retry elsewhere.
-    /// - `Err(_)`: an I/O, handshake, or network-mismatch failure (see
-    ///   [`Error`]). As with the other wire methods, an error here consumes
-    ///   `self`.
+    /// - `Err(`[`RetireError::Recovered`]`)`: the session failed *before* our
+    ///   party ever crossed the wire, so nothing is lost: the error carries the
+    ///   intact retiree (content as of the start of the session) to retry
+    ///   elsewhere.
+    /// - `Err(`[`RetireError::Uncertain`]`)`: the session failed while sending
+    ///   the party frame itself; the peer may hold our party, so the retiree is
+    ///   consumed.
     ///
     /// # Commitment
     ///
-    /// Once the greeting shows a real, non-retiring peer we are *committed*: the
-    /// peer will join the party we aliased onto the wire when its own
-    /// reconciliation completes, so we drop ourselves as soon as ours does. An
-    /// error mid-reconciliation also consumes `self` — we cannot know whether
-    /// the peer completed (no acknowledgement could tell us: two generals), and
-    /// keeping our live party when it might have absorbed the alias would
-    /// duplicate the region. A session failure can therefore leak the region,
-    /// but never duplicate it. A peer running ordinary
-    /// [`gossip`](Self::gossip) absorbs a retiree transparently, so the
-    /// counterparty needs no special call.
+    /// Our party crosses the wire as a **single trailing frame**, sent only
+    /// after our reconciliation completes — the same fork-last structure as
+    /// serving a [`bootstrap`](Self::bootstrap), in the opposite direction. A
+    /// failure anywhere up to that frame therefore provably cannot have given
+    /// the peer our party, and hands us back via
+    /// [`RetireError::Recovered`]. Once the frame is in flight we are
+    /// committed: no acknowledgement could distinguish "the peer got it" from
+    /// "it was lost" (the two-generals problem), so we must assume delivery
+    /// and drop ourselves — a failure there ([`RetireError::Uncertain`]) can
+    /// at worst leak the one frame's region, never duplicate it. A peer
+    /// running ordinary [`gossip`](Self::gossip) absorbs a retiree
+    /// transparently, so the counterparty needs no special call.
     pub async fn retire<'a, R, W>(
         mut self,
         read: &'a mut R,
         write: &'a mut W,
-    ) -> Result<Option<Self>, Error>
+    ) -> Result<Option<Self>, RetireError<Self>>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
         R: AsyncRead + Unpin + Send,
@@ -983,17 +1026,18 @@ impl<T> Known<T> {
         // Boxed: the reconciliation descent makes this future large, exactly
         // as in `gossip` and `bootstrap`.
         Box::pin(async move {
-            let our_network = self.network;
-            // Alias our party onto the wire while keeping the live one: exactly
-            // one side ends up treating it as live (the peer on commit, us on
-            // decline).
-            let alias = self.party.read().unwrap().dangerously_alias();
+            if let Err(error) = remote::preamble(read, write).await {
+                return Err(RetireError::Recovered { error, known: self });
+            }
 
-            remote::preamble(read, write).await?;
+            // The session takes our tree root by value; keep a copy-on-write
+            // backup (structurally shared, not deep-copied) so a failure
+            // before the party hand-off can return the retiree intact.
+            let backup = self.tree.root.clone();
             let l = local::Exchange::start(
                 self.tree.root,
-                our_network,
-                Some(alias),
+                self.network,
+                mirror::message::Intent::Retire,
                 None::<Silent<T>>,
                 None::<Silent<T>>,
             );
@@ -1001,28 +1045,54 @@ impl<T> Known<T> {
 
             // The connect phase rejects a real-network mismatch; past it, the
             // peer's greeting decides whether it can absorb us.
-            let handshaken = mirror::handshake(l, r).await.map_err(server_error)?;
+            let handshaken = match mirror::handshake(l, r).await {
+                Ok(handshaken) => handshaken,
+                Err(e) => {
+                    self.tree.root = backup;
+                    return Err(RetireError::Recovered {
+                        error: server_error(e),
+                        known: self,
+                    });
+                }
+            };
 
             // Decline against a peer that cannot absorb a party: one that is
             // itself retiring (it is leaving too) or bootstrapping (it has no
             // party to join ours into). Both sides skip the descent; collapse
-            // our (un-descended) tree back and keep our live party — the peer
-            // symmetrically discards the alias.
-            if handshaken.peer().party.is_some() || handshaken.peer().network.is_bootstrap() {
+            // our (un-descended) tree back and keep our live party.
+            if handshaken.peer().intent.retiring() || handshaken.peer().network.is_bootstrap() {
                 let (root, _peer) = handshaken.stop();
                 self.tree.root = root;
                 return Ok(Some(self));
             }
 
-            // Otherwise reconcile to convergence — the round of gossip
-            // (a no-op if the versions already match). The descent hands the
-            // peer everything it lacked, after which it causally dominates us
-            // and joins the party we aliased into the greeting. Whatever we
-            // learned from the peer in return is dropped along with our tree.
-            // Commit: we have retired.
-            Box::pin(handshaken.reconcile())
-                .await
-                .map_err(server_error)?;
+            // Otherwise reconcile to convergence — the round of gossip (a
+            // no-op if the versions already match). The descent hands the peer
+            // everything it lacked, after which it causally dominates us and
+            // is owed the party our greeting promised. Whatever we learned
+            // from the peer in return is dropped along with our tree.
+            let (_root, (_reader, mut writer), _peer) = match Box::pin(handshaken.reconcile()).await
+            {
+                Ok(reconciled) => reconciled,
+                Err(e) => {
+                    self.tree.root = backup;
+                    return Err(RetireError::Recovered {
+                        error: server_error(e),
+                        known: self,
+                    });
+                }
+            };
+
+            // The hand-off: ship our party as one trailing frame on the same
+            // writer the descent used. We alias rather than move it out (a
+            // `rumors` snapshot may share the `Arc`), then drop our copy by
+            // dropping ourselves: exactly one side treats the party as live.
+            // From the moment this send begins we are committed — the peer may
+            // have received it even if the send errors.
+            let alias = self.party.read().unwrap().dangerously_alias();
+            if let Err(error) = remote::send_party(alias, &mut writer).await {
+                return Err(RetireError::Uncertain { error });
+            }
             Ok(None)
         })
         .await
@@ -1290,11 +1360,11 @@ impl<T, S> Known<T, S> {
         remote::preamble(read, write).await?;
 
         // Run the connect phase, which exchanges `message::Handshake`s (network
-        // + version + retire-intent). We are gossiping, so we offer no party.
+        // + version + retire-intent). We are gossiping, so we are not retiring.
         let l = local::Exchange::start(
             self.tree.root,
             self.network,
-            None,
+            mirror::message::Intent::Remain,
             None::<Silent<T>>,
             on_message,
         );
@@ -1308,17 +1378,18 @@ impl<T, S> Known<T, S> {
         // this is the whole session; for a retiring peer it is the round of
         // gossip that brings us to causal dominance before we absorb it; for a
         // bootstrapper it hands over all our content.
-        let (root, (_reader, mut writer), peer) =
+        let (root, (mut reader, mut writer), peer) =
             handshaken.reconcile().await.map_err(server_error)?;
         self.tree.root = root;
 
         // The descent moved content but not parties; settle the party hand-off
         // the greeting promised, in whichever direction.
-        if let Some(party) = peer.party {
+        if peer.intent.retiring() {
             // The peer is retiring: the reconciliation just made us a causal
-            // superset of it, so absorbing the party it aliased into its
-            // greeting is safe. It drops its live copy the moment its own
-            // descent completes.
+            // superset of it, so it now ships its party as one trailing frame
+            // on the same wire the descent used, and drops its own copy.
+            // Absorb the region.
+            let party = remote::recv_party(&mut reader).await?;
             self.party
                 .write()
                 .unwrap()

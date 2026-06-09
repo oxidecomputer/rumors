@@ -4,12 +4,15 @@
 //! require in-crate access, so they live here rather than in `tests/`.
 
 use std::marker::PhantomData;
+use std::pin::Pin;
 use std::sync::{Arc, RwLock};
+use std::task::{Context, Poll};
 
 use before::Party;
+use tokio::io::AsyncWrite;
 
 use crate::tree::{Root, Tree};
-use crate::{Error, Known};
+use crate::{Error, Known, RetireError};
 
 /// Capacity for the in-memory duplex pipe; every retiree here is already
 /// converged with its absorber, so the sessions move no content and the exact
@@ -39,7 +42,7 @@ fn retire_child_into(survivor: Known<u64>, child: Known<u64>) -> Known<u64> {
         );
         assert!(
             child_out.expect("child retire").is_none(),
-            "a dominating survivor absorbs the child"
+            "the survivor absorbs the child"
         );
         survivor_out.expect("survivor gossip")
     })
@@ -150,4 +153,173 @@ fn bootstrap_then_retire_reconstitutes_the_seed_party() {
         &Party::seed(),
         "retiring a bootstrapped peer back must reconstitute the whole id-space",
     );
+}
+
+// ---- fault injection: severing the wire mid-retire ------------------------
+
+/// An [`AsyncWrite`] wrapper that forwards writes until a byte budget is
+/// exhausted, then fails every write with [`BrokenPipe`]: a deterministic
+/// stand-in for a connection severed at a chosen point in the session. Reads
+/// are not budgeted; the counterparty observes the cut as EOF once the
+/// session's halves drop.
+///
+/// [`BrokenPipe`]: std::io::ErrorKind::BrokenPipe
+struct Fuse<W> {
+    inner: W,
+    remaining: usize,
+}
+
+impl<W: AsyncWrite + Unpin> AsyncWrite for Fuse<W> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        let this = self.get_mut();
+        if this.remaining == 0 {
+            return Poll::Ready(Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "fuse blown",
+            )));
+        }
+        // Admit at most the remaining budget; the writer's retry of the
+        // unwritten tail then trips the exhausted fuse above.
+        let admitted = buf.len().min(this.remaining);
+        match Pin::new(&mut this.inner).poll_write(cx, &buf[..admitted]) {
+            Poll::Ready(Ok(n)) => {
+                this.remaining -= n;
+                Poll::Ready(Ok(n))
+            }
+            other => other,
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.get_mut().inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.get_mut().inner).poll_shutdown(cx)
+    }
+}
+
+/// The wire length of `retiree`'s greeting frame (4-byte length prefix +
+/// borsh-encoded [`Handshake`](crate::tree::mirror::message::Handshake) body),
+/// so a [`Fuse`] budget can land on an exact protocol boundary.
+fn greeting_frame_len(retiree: &Known<u64>) -> usize {
+    let greeting = crate::tree::mirror::message::Handshake {
+        network: retiree.network,
+        version: retiree.latest().clone(),
+        intent: crate::tree::mirror::message::Intent::Retire,
+    };
+    4 + borsh::to_vec(&greeting).expect("serialize greeting").len()
+}
+
+/// Drive `retiree.retire` against a [`rumors`](Known::rumors) snapshot of
+/// `peer` over a duplex whose retiree-side writer is fused to `budget` bytes.
+/// Each side's I/O halves are owned by its future, so the failing side's drop
+/// surfaces as EOF to the other rather than deadlocking the join. Returns both
+/// outcomes; the snapshot absorbs nothing durable on failure (it shares
+/// `peer`'s party only through the `Arc`, and its tree copy is dropped).
+#[allow(clippy::type_complexity)]
+fn severed_retire(
+    retiree: Known<u64>,
+    peer: &Known<u64>,
+    budget: usize,
+) -> (
+    Result<Option<Known<u64>>, RetireError<Known<u64>>>,
+    Result<Known<u64, crate::Rumors>, Error>,
+) {
+    let snapshot = peer.rumors();
+    pollster::block_on(async move {
+        let (a_side, b_side) = tokio::io::duplex(DUPLEX_BUF);
+        let (a_r, a_w) = tokio::io::split(a_side);
+        let (b_r, b_w) = tokio::io::split(b_side);
+        tokio::join!(
+            async move {
+                let mut a_r = a_r;
+                let mut a_w = Fuse {
+                    inner: a_w,
+                    remaining: budget,
+                };
+                retiree.retire(&mut a_r, &mut a_w).await
+            },
+            async move {
+                let (mut b_r, mut b_w) = (b_r, b_w);
+                snapshot.gossip(&mut b_r, &mut b_w).await
+            },
+        )
+    })
+}
+
+/// A session severed during the reconciliation descent costs nothing: the
+/// trailing party frame was provably never sent, so the retiree comes back
+/// intact ([`RetireError::Recovered`]) — same content, still-live party — and
+/// a subsequent clean retire of the recovered set reconstitutes the seed's
+/// whole id-space. This pins retire's fork-last ordering: the id-region is
+/// never in limbo during the descent.
+#[test]
+fn severed_descent_recovers_the_retiree() {
+    let survivor = Known::<u64>::seed();
+    let (survivor, child) = bootstrap_from(survivor);
+    // Diverge: the child holds content the survivor lacks, so the retire
+    // session must descend, and its frames overflow the fuse's slack.
+    let child = with_messages(child, &(0..32).collect::<Vec<u64>>());
+    let hash = child.hash();
+
+    // Admit exactly the preamble and greeting, plus a slack smaller than any
+    // descent frame: the cut provably lands after the handshake completes and
+    // before the party hand-off.
+    let budget = 8 + greeting_frame_len(&child) + 16;
+    let (child_out, snapshot_out) = severed_retire(child, &survivor, budget);
+
+    assert!(
+        snapshot_out.is_err(),
+        "the severed wire fails the absorbing side too"
+    );
+    let child = match child_out {
+        Err(RetireError::Recovered { known, .. }) => known,
+        other => panic!("a pre-hand-off failure must recover the retiree, got {other:?}"),
+    };
+    assert_eq!(
+        child.hash(),
+        hash,
+        "the recovered retiree's content is intact"
+    );
+
+    // The recovered retiree still owns its live region: a clean retire (whose
+    // gossip round re-carries the divergent content) succeeds, and the
+    // survivor's party normalizes back to the whole id-space — nothing leaked.
+    let survivor = retire_child_into(survivor, child);
+    assert_eq!(
+        &*survivor.party.read().unwrap(),
+        &Party::seed(),
+        "a severed-then-retried retire must reconstitute the whole id-space",
+    );
+}
+
+/// A session severed on the trailing party frame itself is the irreducible
+/// two-generals window: the retiree cannot know whether the peer received its
+/// party, so it is consumed ([`RetireError::Uncertain`]) rather than risk
+/// duplicating the region by surviving alongside a delivered copy.
+#[test]
+fn severed_party_frame_is_uncertain() {
+    let survivor = Known::<u64>::seed();
+    let (survivor, child) = bootstrap_from(survivor);
+
+    // Both empty and converged, so the session is exactly preamble + greeting
+    // + party frame. The fuse admits the first two to the byte, so the party
+    // frame is the write that fails.
+    let budget = 8 + greeting_frame_len(&child);
+    let (child_out, snapshot_out) = severed_retire(child, &survivor, budget);
+
+    assert!(
+        matches!(child_out, Err(RetireError::Uncertain { .. })),
+        "a failure on the party frame itself must consume the retiree, got {child_out:?}"
+    );
+    assert!(
+        snapshot_out.is_err(),
+        "the absorber never receives the promised party frame"
+    );
+    drop(survivor);
 }

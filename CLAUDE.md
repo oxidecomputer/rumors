@@ -118,8 +118,9 @@ must drive it concurrently. A session is:
    the only raw (non-framed) exchange in a session.
 2. **Connect phase (the greeting)** — each side then exchanges one
    length-delimited `message::Handshake` frame carrying its `Network` (16 raw
-   bytes), its latest `Version`, and an `Option<Party>` retire-intent (`Some` ⇒
-   "I am retiring into you"). This single frame validates and dispatches:
+   bytes), its latest `Version`, and its `Intent` (a one-byte enum: `Remain`
+   for gossip/bootstrap, `Retire` ⇒ "after we reconcile, I will hand you my
+   party"). This single frame validates and dispatches:
    - **Network match**: two real (non-`ZERO`) networks that differ descend from
      unrelated `seed`s and are rejected as `Error::NetworkMismatch`. The all-zero
      `Network` is the placeholder a *bootstrapping* peer sends (it has no
@@ -131,13 +132,14 @@ must drive it concurrently. A session is:
    - **Version compare**: if the two versions are equal the peers have already
      converged and the session ends with no content transfer (the fast path,
      independent of how much content they hold).
-   - **Retire / bootstrap dispatch**: `party: Some` on *both* sides (mutual
-     retire), or `party: Some` meeting a `ZERO` network (retiree vs.
+   - **Retire / bootstrap dispatch**: `Intent::Retire` on *both* sides (mutual
+     retire), or `Intent::Retire` meeting a `ZERO` network (retiree vs.
      bootstrapper), ends the session with no descent — neither counterparty can
-     absorb a party. A single `party: Some` against an ordinary peer proceeds
-     to the descent like any gossip; the absorber joins the greeting's party
-     after it. A single `ZERO` network triggers the bootstrap party hand-off
-     after reconciliation.
+     absorb a party. A single `Intent::Retire` against an ordinary peer
+     proceeds to the descent like any gossip, after which the retiree ships its
+     party as one trailing frame and the absorber joins it. A single `ZERO`
+     network triggers the bootstrap party hand-off (the same trailing frame,
+     opposite direction) after reconciliation.
 3. **Trie descent** — otherwise (versions differ, not both-`ZERO`, not a
    declined retirement) the two sides walk their tries from the root downward in
    lockstep, comparing subtree hashes level by level. Each message carries only
@@ -160,7 +162,7 @@ The protocol's structure lives in `src/tree/traverse/mirror/`:
 - `remote.rs` — realizes the *same* traits as a wire proxy of the counterparty:
   each step serializes the outgoing message and deserializes the reply. Driving
   a `local` against a `remote` is what `gossip` does. Also home to the raw
-  `preamble` exchange and the fork-last party hand-off (`send_party_fork` /
+  `preamble` exchange and the fork-last party hand-off (`send_party` /
   `recv_party`) that bootstrap and retire complete with.
 - `mirror.rs` — `connect_phase` runs the greeting exchange and hands back a
   `Phase` (`Converged`/`Diverged` plus the peer's `Handshake`) for the caller to
@@ -183,7 +185,7 @@ is decided by which side(s) sent the placeholder:
   runs the ordinary mirror descent, pulling all of the provider's content through
   the usual `providing` channel. The descent moves content but not parties, so
   afterward the provider forks its party and sends the give-half as a single
-  trailing frame (`send_party_fork`); the bootstrapper reads it (`recv_party`),
+  trailing frame (`send_party`); the bootstrapper reads it (`recv_party`),
   adopts the provider's `Network` (learned in the greeting), and assembles a
   `Known` causally equivalent to a local `fork`.
 
@@ -191,19 +193,24 @@ The send order (descend, **then** fork+party last) is load-bearing: a failure
 during the descent never costs a party region, and the residual leak window is
 one tiny frame. No acknowledgement could close that window (two-generals), so
 forking last is the structural minimum and costs no extra round-trip. See the
-module docs on `send_party_fork` in `remote.rs`.
+module docs on `send_party` in `remote.rs`.
 
 ## Retiring: handing a party back
 
 `Known::retire(read, write)` is the inverse of bootstrap: a peer **leaves** a
 universe by handing its ITC party to a peer that reclaims the id-region rather
-than leaking it. It returns `Result<Option<Self>, Error>`:
+than leaking it. It returns `Result<Option<Self>, RetireError<Self>>`:
 
 - `Ok(None)` — **retired**: the peer handed its party over and dropped itself.
 - `Ok(Some(self))` — **declined, unchanged**: handed back intact to retry
   elsewhere.
-- `Err(_)` — I/O / protocol failure (consumes `self`, like the other wire
-  methods).
+- `Err(RetireError::Recovered { error, known })` — the session failed strictly
+  *before* the trailing party frame was sent, so the peer provably does not
+  hold the party: `known` is the intact retiree (content as of the start of
+  the session), ready to retry. Nothing was lost.
+- `Err(RetireError::Uncertain { error })` — the session failed while sending
+  the party frame itself: the peer *may* hold the party, so the retiree is
+  consumed (keeping a copy could duplicate the region).
 
 A retire session **begins with a round of gossip**: retiree `R` and absorber
 `N` run the ordinary mirror descent (a no-op if their versions already match),
@@ -215,21 +222,28 @@ dropped along with `R`. Declines remain only for counterparties that
 structurally cannot absorb a party: a peer that is itself retiring, or a
 bootstrapper (decided at the greeting, no descent).
 
-`retire` greets with `party: Some(self.party.dangerously_alias())` while keeping
-its live party. Exactly one side ever treats the alias as live: on commit `N`
-joins it once its reconciliation completes and `R` drops its copy when its own
-does (`Ok(None)`); on a decline `N` discards it and `R` keeps its live party
-(`Ok(Some(self))`). A session error consumes `R` (it cannot know whether `N`
-completed — two generals), so a failed session can *leak* the region but never
-*duplicate* it; the at-risk window is the reconciliation itself rather than
-bootstrap's single trailing frame. `before::Party::dangerously_alias` is the
+The party itself never rides the greeting: `R` greets with `Intent::Retire`
+(announcement only), and ships `self.party.dangerously_alias()` as a **single
+trailing frame** on the same framed writer the descent used — bootstrap's
+fork-last structure, in the opposite direction (both directions reuse
+`send_party` / `recv_party` in `remote.rs`). Sending the party last keeps the
+id-region out of limbo for the whole reconciliation: a failure anywhere before
+that frame returns `RetireError::Recovered` with the retiree intact, and only
+a failure on the frame itself (`RetireError::Uncertain`) forces the
+two-generals assumption — `R` must treat the party as delivered and drop its
+copy, so the worst case is a *leaked* region, never a *duplicated* one.
+Exactly one side ever treats the alias as live: `N` joins it on receipt; `R`
+drops its copy by dropping itself. `before::Party::dangerously_alias` is the
 named linearity escape hatch this relies on (it deliberately violates
 disjointness; retire is responsible for keeping exactly one copy live). Plain
-`gossip` **transparently absorbs** a retiree (reconciles, then joins its
-party), exactly as it transparently serves a bootstrapper, so the counterparty
-needs no special call — its `gossip_then` callbacks observe whatever the
-retiree contributes. The retiree itself discards what it learns, so there is
-still no `retire_then` callback variant.
+`gossip` **transparently absorbs** a retiree (reconciles, then reads and joins
+the trailing party frame), exactly as it transparently serves a bootstrapper,
+so the counterparty needs no special call — its `gossip_then` callbacks
+observe whatever the retiree contributes. The retiree itself discards what it
+learns, so there is still no `retire_then` callback variant. The severed-wire
+behavior is pinned by fault-injection tests in `src/tests.rs`
+(`severed_descent_recovers_the_retiree`, `severed_party_frame_is_uncertain`),
+which cut the duplex at exact byte offsets with a budgeted `Fuse` writer.
 
 ## Testing notes
 

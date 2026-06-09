@@ -15,9 +15,9 @@
 //!
 //! | Trait                 | Wire input                      | Wire output                       | `Next`                                |
 //! |-----------------------|---------------------------------|-----------------------------------|---------------------------------------|
-//! | [`Connect`]           | --                              | [`Version`]                       | [`CompleteConnect`]                   |
+//! | [`Connect`]           | --                              | [`message::Handshake`]            | [`CompleteConnect`]                   |
 //! | [`CompleteConnect`]   | [`Version`]                     | --                                | [`Initiator`] or [`Responder`]        |
-//! | [`Accept`]            | [`Version`]                     | [`Version`]                       | [`Initiator`] or [`Responder`]        |
+//! | [`Accept`]            | [`message::Handshake`]          | [`message::Handshake`]            | [`Initiator`] or [`Responder`]        |
 //! | [`Initiator`]         | --                              | [`message::Initiate`]             | [`OpenInitiator`]                     |
 //! | [`Responder`]         | [`message::Initiate`]           | [`message::Opening`]              | [`Exchange`] (first steady round)     |
 //! | [`OpenInitiator`]     | [`message::Opening`]            | [`message::Exchange<_, _, U^2>`]  | [`Exchange`] (first steady round)     |
