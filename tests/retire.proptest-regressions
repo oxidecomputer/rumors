@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc b49b3a9ac32c51cae73fbac4e36f9882a827d76eaf757fe1db5c3e4aa380bd72 # shrinks to a_actions = [], b_actions = []
+cc f63e981a4e7979519ac37ccb1ac2e1f16d85925cb8b50228079c1d673e708005 # shrinks to n = 1

@@ -155,6 +155,32 @@ fn bootstrap_then_retire_reconstitutes_the_seed_party() {
     );
 }
 
+/// A refused retire ([`RetireError::Outstanding`], an outstanding snapshot
+/// sharing the party) neither aliases nor leaks any region: after the snapshot
+/// drops, a clean retire of the same set reconstitutes the seed's whole
+/// id-space in the survivor, exactly as if the refusal had never happened.
+#[test]
+fn refused_retire_leaves_the_region_whole() {
+    let survivor = Known::<u64>::seed();
+    let (survivor, child) = bootstrap_from(survivor);
+
+    let snapshot = child.rumors();
+    let mut read = tokio::io::empty();
+    let mut write: Vec<u8> = Vec::new();
+    let child = match pollster::block_on(child.retire(&mut read, &mut write)) {
+        Err(RetireError::Outstanding { known }) => known,
+        other => panic!("an outstanding snapshot must refuse retire, got {other:?}"),
+    };
+    drop(snapshot);
+
+    let survivor = retire_child_into(survivor, child);
+    assert_eq!(
+        &*survivor.party.read().unwrap(),
+        &Party::seed(),
+        "a refused-then-retried retire must reconstitute the whole id-space",
+    );
+}
+
 // ---- fault injection: severing the wire mid-retire ------------------------
 
 /// An [`AsyncWrite`] wrapper that forwards writes until a byte budget is

@@ -524,13 +524,18 @@ impl<T> Known<T> {
     /// - `Ok(Some(self))`: **declined, unchanged.** The peer cannot absorb a
     ///   party — it was itself retiring, or was bootstrapping — so nothing
     ///   happened and we are handed back intact to retry elsewhere.
+    /// - `Err(`[`RetireError::Outstanding`]`)`: **refused, unchanged.** One or
+    ///   more [`rumors`](Self::rumors) snapshots still share our party, which
+    ///   retirement must own exclusively; nothing touched the wire, and the
+    ///   error carries the intact retiree. Join the snapshots back or drop
+    ///   them, then retry.
     /// - `Err(`[`RetireError::Recovered`]`)`: the session failed *before* our
     ///   party ever crossed the wire; the error carries the intact retiree to
     ///   retry elsewhere. Nothing was lost.
     /// - `Err(`[`RetireError::Uncertain`]`)`: the session failed while sending
     ///   the trailing party frame; the peer may hold our party, so the retiree
     ///   is consumed. See the async [`Known::retire`](crate::Known::retire)
-    ///   for the commitment model.
+    ///   for the commitment and exclusivity model.
     ///
     /// A peer running ordinary [`gossip`](Self::gossip) absorbs a retiree
     /// transparently, so the counterparty needs no special call.
@@ -570,6 +575,9 @@ impl<T> Known<T> {
                     known: Known(known),
                 },
                 RetireError::Uncertain { error } => RetireError::Uncertain { error },
+                RetireError::Outstanding { known } => RetireError::Outstanding {
+                    known: Known(known),
+                },
             })
     }
 }

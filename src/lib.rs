@@ -209,8 +209,10 @@ pub const PROTOCOL_VERSION: u16 = 1;
 /// [`join`](Known::join) merge a snapshot's content back (network-guarded)
 /// and never touch parties. A second peer with its own disjoint party comes
 /// from [`bootstrap`](Known::bootstrap), and [`retire`](Known::retire) hands
-/// a party region back. Because every region stays disjoint, each party's
-/// history is causally well-defined no matter how peers interleave.
+/// a party region back — refusing until every outstanding snapshot has been
+/// joined back or dropped, so the handed-off region cannot also be forked.
+/// Because every region stays disjoint, each party's history is causally
+/// well-defined no matter how peers interleave.
 ///
 /// The one rule the caller must uphold is not to mix universes: two `Known`s
 /// from independent [`seed`](Known::seed) calls share no causal history and
@@ -248,6 +250,9 @@ pub struct Known<T, S = Facts> {
     /// We *share* a party between every instance of this [`Known`], mutating
     /// the shared party only at the party hand-offs: forking off a portion to
     /// help someone else bootstrap, or absorbing a retiring peer's region.
+    /// [`retire`](Known::retire) requires the share to be exclusive
+    /// (`Arc::strong_count == 1`): handing the region away while a snapshot
+    /// could still fork it would duplicate id-space.
     party: Arc<RwLock<Party>>,
     /// The inner tree holding everything we know.
     tree: Tree<T>,
@@ -301,9 +306,12 @@ pub use mirror::remote::Error;
 /// The error type returned by [`Known::retire`] (and [`sync::Known::retire`],
 /// with `K` the synchronous wrapper).
 ///
-/// A retiring peer's party crosses the wire as a single trailing frame, sent
-/// only after reconciliation completes, so the id-region is at risk for
-/// exactly that one frame. This error distinguishes failures by which side of
+/// Retire first requires exclusive ownership of the party — no outstanding
+/// [`rumors`](Known::rumors) snapshots — and refuses before any wire traffic
+/// otherwise ([`Outstanding`](Self::Outstanding)). Past that, a retiring
+/// peer's party crosses the wire as a single trailing frame, sent only after
+/// reconciliation completes, so the id-region is at risk for exactly that
+/// one frame; the remaining variants distinguish failures by which side of
 /// that frame they struck.
 #[derive(Debug, thiserror::Error)]
 pub enum RetireError<K> {
@@ -331,6 +339,18 @@ pub enum RetireError<K> {
         /// The underlying session failure.
         #[source]
         error: Error,
+    },
+    /// Retire was refused before any wire traffic: one or more outstanding
+    /// [`rumors`](Known::rumors) snapshots still share this rumor set's
+    /// party. A snapshot can fork the shared party (serving a bootstrap) or
+    /// grow it (absorbing a retiree), so handing the region away while one
+    /// is live could duplicate id-space. [`join`](Known::join) the snapshots
+    /// back (lossless) or drop them (regions always live in the shared
+    /// party, so only unjoined *content* is lost), then retry.
+    #[error("retire refused: outstanding rumors snapshots share this party")]
+    Outstanding {
+        /// The intact retiree, handed back unchanged.
+        known: K,
     },
 }
 
@@ -990,6 +1010,10 @@ impl<T> Known<T> {
     /// - `Ok(Some(self))`: **declined, unchanged.** The peer cannot absorb a
     ///   party — it was itself retiring, or was bootstrapping — so nothing
     ///   happened and we are handed back intact to retry elsewhere.
+    /// - `Err(`[`RetireError::Outstanding`]`)`: **refused, unchanged.** One or
+    ///   more [`rumors`](Self::rumors) snapshots still share our party; see
+    ///   *Exclusivity* below. Nothing touched the wire; the error carries the
+    ///   intact retiree.
     /// - `Err(`[`RetireError::Recovered`]`)`: the session failed *before* our
     ///   party ever crossed the wire, so nothing is lost: the error carries the
     ///   intact retiree (content as of the start of the session) to retry
@@ -997,6 +1021,18 @@ impl<T> Known<T> {
     /// - `Err(`[`RetireError::Uncertain`]`)`: the session failed while sending
     ///   the party frame itself; the peer may hold our party, so the retiree is
     ///   consumed.
+    ///
+    /// # Exclusivity
+    ///
+    /// Retiring requires that no [`rumors`](Self::rumors) snapshot still
+    /// shares our party: a live snapshot can fork the shared party to serve a
+    /// bootstrap, and a fork taken after our region was handed away would
+    /// duplicate id-space, breaking the linearity the clocks require. A
+    /// retire attempted with snapshots outstanding is refused before any wire
+    /// traffic ([`RetireError::Outstanding`]). [`join`](Self::join) the
+    /// snapshots back first (the lossless drain), or drop them: party regions
+    /// only ever live in the shared party, so discarding a snapshot loses at
+    /// most unjoined *content*, never id-space.
     ///
     /// # Commitment
     ///
@@ -1025,6 +1061,17 @@ impl<T> Known<T> {
         // Boxed: the reconciliation descent makes this future large, exactly
         // as in `gossip` and `bootstrap`.
         Box::pin(async move {
+            // Refuse while any `rumors` snapshot shares our party: a live
+            // snapshot can fork it (serving a bootstrap), which would
+            // duplicate id-space we are about to hand away. The check is a
+            // genuine linearization point, not check-then-act: snapshots are
+            // minted only by `rumors`, which needs the canonical `Known` we
+            // just consumed, so a count of one cannot grow for the rest of
+            // the session.
+            if Arc::strong_count(&self.party) > 1 {
+                return Err(RetireError::Outstanding { known: self });
+            }
+
             if let Err(error) = remote::preamble(read, write).await {
                 return Err(RetireError::Recovered { error, known: self });
             }
@@ -1083,13 +1130,18 @@ impl<T> Known<T> {
             };
 
             // The hand-off: ship our party as one trailing frame on the same
-            // writer the descent used. We alias rather than move it out (a
-            // `rumors` snapshot may share the `Arc`), then drop our copy by
-            // dropping ourselves: exactly one side treats the party as live.
-            // From the moment this send begins we are committed — the peer may
-            // have received it even if the send errors.
-            let alias = self.party.read().unwrap().dangerously_alias();
-            if let Err(error) = remote::send_party(alias, &mut writer).await {
+            // writer the descent used. The exclusivity check at entry proved
+            // no snapshot shares the `Arc` and none could be minted since, so
+            // we own the party outright and move it out: the wire frame is
+            // the only live copy. From the moment this send begins we are
+            // committed — the peer may have received it even if the send
+            // errors.
+            let Known { party, .. } = self;
+            let party = Arc::into_inner(party)
+                .expect("exclusive at entry, and consuming self prevents new snapshots")
+                .into_inner()
+                .unwrap();
+            if let Err(error) = remote::send_party(party, &mut writer).await {
                 return Err(RetireError::Uncertain { error });
             }
             Ok(None)

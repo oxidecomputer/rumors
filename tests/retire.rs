@@ -18,7 +18,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use proptest::prelude::*;
-use rumors::{Key, Known, Version};
+use rumors::{Key, Known, RetireError, Version};
 
 use crate::common::action::{LocalAction, arb_local_actions, build_local, build_local_async};
 use crate::common::sync_wire::{sync_bootstrap_fork, sync_wire_gossip};
@@ -374,6 +374,120 @@ fn sync_divergent_retiree_reconciles_then_retires() {
         vec![1, 2],
         "the retiree's content survives in the absorber"
     );
+}
+
+// ---- exclusivity: outstanding snapshots block retirement ------------------
+
+/// A retire attempted while a [`rumors`](Known::rumors) snapshot still shares
+/// the party is refused before any wire traffic: the outcome is
+/// [`RetireError::Outstanding`] carrying the retiree back intact, and not a
+/// single byte is written. A live snapshot can fork the shared party (serving
+/// a bootstrap), so handing the region away under it could duplicate id-space.
+/// Once the snapshot drops, the same retiree retires cleanly.
+#[test]
+fn retire_with_outstanding_snapshot_is_refused_before_any_io() {
+    let seed = Known::<u64>::seed();
+    let retiree = async_known(bootstrap_fork(&seed), &[1, 2]);
+    let hash = retiree.hash();
+    let snapshot = retiree.rumors();
+
+    // No counterparty at all: a refusal must not need (or touch) the wire.
+    let mut read = tokio::io::empty();
+    let mut write: Vec<u8> = Vec::new();
+    let retiree = match block_on(retiree.retire(&mut read, &mut write)) {
+        Err(RetireError::Outstanding { known }) => known,
+        other => panic!("an outstanding snapshot must refuse retire, got {other:?}"),
+    };
+    assert!(write.is_empty(), "a refused retire writes nothing");
+    assert_eq!(
+        retiree.hash(),
+        hash,
+        "the refused retiree is handed back intact"
+    );
+
+    drop(snapshot);
+    let (retired, _peer) = retire_into_gossip(retiree, seed);
+    assert!(retired.is_none(), "with snapshots drained, retire commits");
+}
+
+/// Joining an outstanding snapshot back into its originator — the lossless
+/// drain — releases the share: the subsequent retire commits, and the
+/// retiree's content survives in the absorber.
+#[test]
+fn retire_succeeds_after_snapshot_joins_back() {
+    let seed = Known::<u64>::seed();
+    let mut retiree = async_known(bootstrap_fork(&seed), &[1, 2]);
+    let snapshot = retiree.rumors();
+    retiree.join(snapshot).expect("same-universe peers join");
+
+    let (retired, peer) = retire_into_gossip(retiree, seed);
+    assert!(
+        retired.is_none(),
+        "joining the snapshot back releases the share, so retire commits"
+    );
+    let mut live: Vec<u64> = peer.iter().map(|(_, _, m)| **m).collect();
+    live.sort_unstable();
+    assert_eq!(
+        live,
+        vec![1, 2],
+        "the retiree's content survives in the absorber"
+    );
+}
+
+/// Synchronous parity: the blocking surface refuses a retire while a snapshot
+/// shares the party, hands the retiree back intact, and writes nothing.
+#[test]
+fn sync_retire_with_outstanding_snapshot_is_refused() {
+    let retiree = sync_known(rumors::sync::Known::<u64>::seed(), &[1]);
+    let hash = retiree.hash();
+    let snapshot = retiree.rumors();
+
+    let mut read = std::io::empty();
+    let mut write: Vec<u8> = Vec::new();
+    let retiree = match retiree.retire(&mut read, &mut write) {
+        Err(RetireError::Outstanding { known }) => known,
+        other => panic!("an outstanding snapshot must refuse sync retire, got {other:?}"),
+    };
+    assert!(write.is_empty(), "a refused retire writes nothing");
+    assert_eq!(
+        retiree.hash(),
+        hash,
+        "the refused retiree is handed back intact"
+    );
+    drop(snapshot);
+}
+
+proptest! {
+    /// Retire is refused exactly while any snapshot is outstanding: with `n`
+    /// snapshots live, every attempt is refused intact and touches no wire;
+    /// each refusal then drops one snapshot, and once the last is gone the
+    /// retire commits.
+    #[test]
+    fn retire_refused_iff_snapshots_outstanding(n in 0usize..4) {
+        let seed = Known::<u64>::seed();
+        let mut retiree = bootstrap_fork(&seed);
+        let mut snapshots: Vec<_> = (0..n).map(|_| retiree.rumors()).collect();
+
+        while let Some(snapshot) = snapshots.pop() {
+            let mut read = tokio::io::empty();
+            let mut write: Vec<u8> = Vec::new();
+            retiree = match block_on(retiree.retire(&mut read, &mut write)) {
+                Err(RetireError::Outstanding { known }) => known,
+                other => panic!(
+                    "{} outstanding snapshots must refuse retire, got {other:?}",
+                    snapshots.len() + 1
+                ),
+            };
+            prop_assert!(write.is_empty(), "a refused retire writes nothing");
+            drop(snapshot);
+        }
+
+        let (retired, _peer) = retire_into_gossip(retiree, seed);
+        prop_assert!(
+            retired.is_none(),
+            "with all snapshots dropped, retire commits"
+        );
+    }
 }
 
 // ---- wire-equivalence property test -------------------------------------
