@@ -114,6 +114,11 @@ fuzz secs=fuzz_smoke_secs:
 bench *args:
     cargo bench {{args}}
 
+# Run the chatroom demo, e.g. `just rumormill --name alice` (paste a peer id
+# into the dialog) or `just rumormill --name bob --peer <endpoint-id>`.
+rumormill *args:
+    cargo run --release -p rumormill -- {{args}}
+
 # ── the no-rot sweep ─────────────────────────────────────────────────────────
 
 # Ordered cheap-first so failures surface early: formatting, then the lint
