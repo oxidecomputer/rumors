@@ -205,15 +205,18 @@ impl<T> Tree<T> {
     }
 
     /// Apply the specified actions as a batch to the tree, advancing its
-    /// internal version vector once per insert.
+    /// internal version vector once per action.
     ///
     /// Each [`Action::Insert`] advances the local party's component of the
     /// version vector by one before the leaf's path is derived; the inserts
     /// in a batch are therefore assigned strictly-increasing versions in the
     /// order they appear, and two content-identical messages within a batch
-    /// receive distinct keys. A forget that targets a key derived from an
-    /// earlier insert in the same batch overrides that insert (last action
-    /// on a path wins).
+    /// receive distinct keys. An [`Action::Forget`] ticks too, so an
+    /// effectual forget carries a version strictly greater than any prior
+    /// insert (the mirror protocol's deletion-honoring inference depends on
+    /// that; see the body comment). A forget that targets a key derived from
+    /// an earlier insert in the same batch overrides that insert (last
+    /// action on a path wins).
     ///
     /// A batch is applied to the tree in a single traversal, which is more
     /// efficient than applying its actions one at a time: in theory an

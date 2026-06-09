@@ -245,9 +245,9 @@ pub struct Known<T, S = Facts> {
     /// This rumor set's [`Party`]: an Interval Tree Clock identity descended
     /// from a common [`seed`](Known::seed).
     ///
-    /// We *share* a party between every instance of this [`Known`], only
-    /// mutating the shared party in the event that we transmit a portion of it
-    /// to help someone else bootstrap.
+    /// We *share* a party between every instance of this [`Known`], mutating
+    /// the shared party only at the party hand-offs: forking off a portion to
+    /// help someone else bootstrap, or absorbing a retiring peer's region.
     party: Arc<RwLock<Party>>,
     /// The inner tree holding everything we know.
     tree: Tree<T>,

@@ -84,7 +84,7 @@ where
 ///
 /// Inserts go through the `async` [`rumors::Known::message_then`]; redaction
 /// is synchronous on both surfaces. As in [`build_local`], `local` must
-/// already be [`fork`](rumors::Known::fork)ed from the shared seed.
+/// already be bootstrapped from the shared universe seed.
 pub async fn build_local_async<T>(
     mut local: rumors::Known<T>,
     actions: &[LocalAction<T>],

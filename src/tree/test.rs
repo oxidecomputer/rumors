@@ -771,6 +771,7 @@ proptest! {
     /// directly, so if two trees are `Eq` their root hashes — a pure
     /// function of the root node — must agree. Two independently-built
     /// trees that applied the same batch of actions are expected to be
+    /// equal, so the implication is exercised on its non-vacuous branch.
     #[test]
     fn eq_implies_same_hash(acts in distinct_bytes(8)) {
         let mut t1 = Tree::new();
@@ -783,9 +784,10 @@ proptest! {
     }
 
     /// Inserting the same value under different parties produces different
-    /// leaf paths, and therefore different root hashes. Party identity
-    /// participates in the path derivation precisely so two parties can
-    /// concurrently write the same value without colliding.
+    /// leaf paths, and therefore different root hashes. The path derives from
+    /// the leaf's version (never the party itself; see `Path::for_leaf`), and
+    /// disjoint parties tick structurally distinct versions, so two parties
+    /// can concurrently write the same value without colliding.
     #[test]
     fn same_value_different_parties_differ(value in any::<Vec<u8>>()) {
         let value = Bytes::from(value);

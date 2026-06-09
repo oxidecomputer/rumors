@@ -672,10 +672,11 @@ impl DivAssign<&Party> for Version {
 }
 
 // Causal comparison across {Version, Batch}², reading current state in place.
-// `Version`/`Version` lives separately (derived `PartialEq` + the `PartialOrd`
-// above); this macro fills in the remaining three off-diagonal/`Batch` cells so
-// the comparison matrix reads as a matrix. Each cell delegates to `causal_cmp`,
-// with `eq` defined as `partial_cmp == Some(Equal)`.
+// All four cells — `Version`/`Version` included — come from this macro, so the
+// comparison matrix reads as a matrix. Each cell delegates to `causal_cmp`,
+// with `eq` defined as `partial_cmp == Some(Equal)`; the `Version` derive list
+// deliberately omits `PartialEq`/`PartialOrd` so the macro is the single source
+// of both (see the note on the derive above).
 macro_rules! causal_cmp_impls {
     ($($lhs:ty, $rhs:ty);* $(;)?) => {
         $(

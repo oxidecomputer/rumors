@@ -64,7 +64,7 @@ const COST_MAX: Cost = (u32::MAX, u32::MAX);
 /// bit falls in implicitly recovers its regime. Each branch's key is unique
 /// within its block (each id node, and each event node under a full id, is
 /// reached once). One allocation, `O(n + m)` bits, `O(1)` access. A bit
-/// defaults to `false` (left); a probe/emit mismatch would misread a
+/// defaults to `false` (right); a probe/emit mismatch would misread a
 /// direction rather than panic, but the grow-optimality property tests
 /// (against the brute-force search) catch any such disagreement.
 struct Route {

@@ -15,8 +15,9 @@
 //! [`tests`] plays one (single-seed) op trace against all three references —
 //! impl, tree oracle, and this function space — then over the Cartesian product
 //! of each final clock population computes a comparison descriptor (version
-//! causal order, party containment, party disjointness) and requires all three
-//! to agree. This is ITC's defining guarantee: the observable partial order is
+//! causal order, party disjointness) and requires all three references to
+//! agree. (Party containment is cross-checked separately, in
+//! `covers_realizes_containment`.) This is ITC's defining guarantee: the observable partial order is
 //! fixed by the operation sequence, independent of the (valid) fork/inflation
 //! policy each implementation chooses.
 //!
@@ -420,8 +421,11 @@ pub(crate) fn ev_order(a: &Event, b: &Event, g: u32) -> Option<Ordering> {
     order_of(le, ge)
 }
 
-/// Party containment order, matching `Party::partial_cmp`: an ancestor (larger
-/// owned region) reads as `Less`. `le` is `a ⊇ b`, `ge` is `b ⊇ a`.
+/// Party containment order over the sampled regions: an ancestor (larger owned
+/// region) reads as `Less`; `le` is `a ⊇ b`, `ge` is `b ⊇ a`. The geometric
+/// counterpart of the tree side's `Party::covers` (`covers` ⟺ `Less`/`Equal`,
+/// as `covers_realizes_containment` pins); `Party` itself is deliberately
+/// unordered.
 pub(crate) fn id_order(a: &Id, b: &Id, g: u32) -> Option<Ordering> {
     let (mut le, mut ge) = (true, true);
     for k in 0..(1u64 << g) {

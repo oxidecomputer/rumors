@@ -31,9 +31,11 @@ fn schedule_string() -> impl Strategy<Value = Schedule<String>> {
 
 proptest! {
     /// After the final quiesce phase, every peer's live content (per
-    /// `readout`) matches every other's. Compared via `readout`
-    /// rather than `Known::eq` because the latter includes the party
-    /// tag, which always differs across peers.
+    /// `readout`) matches every other's. Compared via `readout` — the
+    /// `(Key, value)` lens the oracle checks also use — rather than
+    /// `Known::eq`, so the assertion is directly about live content.
+    /// (`Known::eq` compares network + tree and already excludes the
+    /// party, so it would work too; `readout` keeps the lens uniform.)
     #[test]
     fn all_peers_converge_after_quiesce(
         schedule in schedule_u64(),

@@ -5,8 +5,10 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use super::typed;
 
 /// The borsh encoding is 32 raw bytes (no length prefix), matching the internal
-/// content-address hash: a key *is* a leaf's content-addressed path, and the
-/// mirror protocol's `providing` channel ships it alongside the
+/// content-address hash: a key *is* a leaf's content-addressed path. The mirror
+/// protocol's `providing` channel currently ships whole `(prefix, node)` pairs,
+/// so keys do not ride the wire today; in the retained leaf-list form (see
+/// `tree::traverse::mirror::reassemble`) each leaf's key travels alongside its
 /// `(version, value)` so the receiver can place the leaf without re-hashing
 /// during reassembly.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]

@@ -2,14 +2,16 @@
 //!
 //! The branch preimage is `BRANCH_TAG ‖ (radix ‖ 32-byte child hash)*` — each
 //! child is a 33-byte record that straddles Blake3's 64-byte block boundary.
-//! The current implementation streams two `update` calls per child (the radix
-//! byte alone, then the 32-byte hash). This bench asks whether assembling a
-//! contiguous buffer first is faster, across realistic fan-outs.
+//! The original implementation streamed two `update` calls per child (the radix
+//! byte alone, then the 32-byte hash); this bench asked whether assembling a
+//! contiguous buffer first is faster, across realistic fan-outs — it is, and
+//! the shipped `Hash::branch` now uses the contiguous one-shot form.
 //!
 //! Strategies:
-//!   - `stream2`: current — `update(&[radix]); update(&hash)` per child.
+//!   - `stream2`: the original — `update(&[radix]); update(&hash)` per child.
 //!   - `stream1`: one `update` per child of a 33-byte stack record.
-//!   - `buffer_oneshot`: fill a reused contiguous buffer, then `blake3::hash`.
+//!   - `buffer_oneshot`: fill a reused contiguous buffer, then `blake3::hash`
+//!     (what `Hash::branch` ships today).
 //!
 //! `buffer_oneshot` is the only one that hands Blake3 a single contiguous slice,
 //! which is what lets its SIMD path compress multiple blocks at once. The
@@ -39,7 +41,7 @@ fn children(k: usize) -> Vec<(u8, [u8; 32])> {
         .collect()
 }
 
-/// Current implementation: two `update` calls per child.
+/// The original implementation: two `update` calls per child.
 fn stream2(children: &[(u8, [u8; 32])]) -> [u8; 32] {
     let mut hasher = blake3::Hasher::new();
     hasher.update(&[BRANCH_TAG]);

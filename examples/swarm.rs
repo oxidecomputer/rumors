@@ -1010,8 +1010,8 @@ impl Field {
         }
     }
 
-    /// Nudge this field. `increase` chooses direction; `coarse` chooses a 10×
-    /// step. Values are clamped to sane bounds.
+    /// Nudge this field. `increase` chooses direction; `coarse` chooses a
+    /// larger (roughly 8–10×) step. Values are clamped to sane bounds.
     fn adjust(self, controls: &Controls, increase: bool, coarse: bool) {
         match self {
             Field::Parties => {

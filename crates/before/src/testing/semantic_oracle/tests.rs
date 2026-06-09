@@ -135,8 +135,8 @@ fn replay(
 
 proptest! {
     /// The keystone check. After the same op trace, every ordered pair of final clocks has the
-    /// same comparison descriptor — (version causal order, party containment order, party
-    /// disjointness) — under all three references. The function space computes its descriptor
+    /// same comparison descriptor — (version causal order, party disjointness) — under all
+    /// three references. The function space computes its descriptor
     /// purely by sampling its closures; the impl and oracle use their native ops. Agreement
     /// across all three is the satisfaction condition: it is ITC's defining guarantee that the
     /// observable partial order is fixed by the operation sequence, independent of the (valid)

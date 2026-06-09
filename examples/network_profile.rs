@@ -59,6 +59,8 @@
 //! | `transitions_a`, `transitions_b`         | phase-change count between R and W on each side       |
 //! | `rounds_a`, `rounds_b`                   | `transitions / 2`; may be fractional at protocol end  |
 //! | `pred_bytes_*`, `pred_rounds_*`          | structural-model prediction for the same cell         |
+//! | `vlen_a`, `vlen_b`                       | exact serialized [`Version`] size per side, in bytes  |
+//! | `initiator_a`                            | `1` if A initiates, `0` if B does, empty on a bail    |
 //!
 //! Phase transitions are tracked at the *protocol* (pre-compression) layer
 //! because that's where the logical round-trips live; the compression layer
@@ -129,22 +131,24 @@
 //!
 //! The fixed framing is exact and tiny:
 //!
-//! * **Connect frame**: each side ships its [`Version`] as a 4-byte
-//!   length-delimited frame wrapping a borsh body (a `u32` length prefix + the
-//!   bit-packed ITC event tree). With the 8-byte protocol handshake that is
-//!   exactly `16 + |version|` bytes, where `|version|` is the serialized event
-//!   tree (often just **1–30 bytes**; see below). On a connect-bail this is the
-//!   *entire* cost: e.g. an empty version is `16 + 1 = 17` bytes per side.
+//! * **Connect frame**: each side ships one greeting as a 4-byte
+//!   length-delimited frame whose borsh body is the 16-byte network id, the
+//!   [`Version`] (a `u32` length prefix + the bit-packed ITC event tree), and
+//!   a 1-byte intent tag. With the 8-byte protocol preamble that is exactly
+//!   `33 + |version|` bytes (itemized at `CONNECT_FIXED`), where `|version|`
+//!   is the serialized event tree (often just **1–30 bytes**; see below). On a
+//!   connect-bail this is the *entire* cost: e.g. an empty version is
+//!   `33 + 1 = 34` bytes per side.
 //!
 //! Past the connect, cost splits by role, because the initiator provides its
 //! leaves *shallow* (early in the descent, before the frontier narrows) while
 //! the responder provides them *deep*:
 //!
-//! * **Initiator** ≈ `36 + 40·D + |version|·(1 + D) + 0.65·U·log₂(1+U)` bytes,
+//! * **Initiator** ≈ `53 + 40·D + |version|·(1 + D) + 0.65·U·log₂(1+U)` bytes,
 //!   where `D` is its own outgoing leaves and `U = S + D_other + R_self` is the
 //!   divergent set it must exchange `uncertain` hashes through. The frontier
 //!   term is super-linear because deeper rounds add whole levels of hashes.
-//! * **Responder** ≈ `68 + 67·D + |version|·(1 + D) + 31·S + 31·R_other` bytes.
+//! * **Responder** ≈ `85 + 67·D + |version|·(1 + D) + 31·S + 31·R_other` bytes.
 //!   The `31` constants are one 32-byte blake3 hash apiece: the responder pays
 //!   a hash exchange per shared element it descends past and per element the
 //!   *other* side redacted (it routes the now-absent prefix to `requested`).
@@ -186,10 +190,10 @@
 //!
 //! | `P`  | mean ratio |
 //! | ---- | ---------- |
-//! |  1   | 1.06       |
+//! |  1   | 1.03       |
 //! |  8   | 0.99       |
-//! |  32  | 0.92       |
-//! |  64  | 0.91       |
+//! |  32  | 0.94       |
+//! |  64  | 0.93       |
 //!
 //! At small `P` the ratio is **above 1**: zstd's framing overhead exceeds what
 //! it can save on a tiny, high-entropy payload. Only at large `P` or large
@@ -215,6 +219,24 @@
 //!
 //! A run with `--max-shared 5 --max-distinct 5 --max-redacted 4 --max-parties
 //! 6` sweeps enough of the space to see all of this.
+//!
+//! # Refitting the model
+//!
+//! The fixed connect framing is derived from the wire format (and pinned by
+//! the gossip snapshots), but the descent-cost coefficients are empirical fits
+//! that rot silently when the wire format changes. To refit, sweep then fit:
+//!
+//! ```text
+//! cargo run --release --example network_profile -- --output profile.csv \
+//!     --max-shared 5 --max-distinct 5 --max-redacted 4 --max-parties 6
+//! cargo run --release --example network_profile -- --fit profile.csv
+//! ```
+//!
+//! `--fit` re-derives every `side_bytes`/`side_rounds` coefficient by least
+//! squares over the per-side observations (printed paste-ready), reports
+//! residuals for both the shipped constants and the refit, verifies the
+//! connect-bail prediction is still byte-exact, and prints the
+//! compression-ratio table above.
 //!
 //! # When the protocol fits this workload model
 //!
@@ -250,13 +272,21 @@ use rumors::sync::Known;
 
 #[derive(Parser, Debug)]
 #[command(
-    about = "Empirically measure rumors gossip bandwidth and round trips across a 5-D input space."
+    about = "Empirically measure rumors gossip bandwidth and round trips across a 6-D input space."
 )]
 struct Args {
     /// Output CSV path. The file is created (or truncated) and written
     /// row-by-row with a flush after each sample.
-    #[arg(short, long)]
-    output: PathBuf,
+    #[arg(short, long, conflicts_with = "fit", required_unless_present = "fit")]
+    output: Option<PathBuf>,
+
+    /// Instead of running a sweep, refit the descent-cost model from a
+    /// previously generated CSV: prints least-squares coefficients for
+    /// `side_bytes`/`side_rounds` (paste-ready), residual summaries for the
+    /// shipped constants and the refit, the connect-bail exactness check, and
+    /// the compression-ratio-by-parties table the module docs quote.
+    #[arg(long, value_name = "CSV")]
+    fit: Option<PathBuf>,
 
     /// Samples per cell. Now that ITC parties are anonymous and forking is
     /// deterministic, every sample of a cell is byte-for-byte identical, so
@@ -536,11 +566,12 @@ struct Measure {
 ///
 /// The mirror protocol is framed by `tokio_util::codec::LengthDelimitedCodec`
 /// (4-byte big-endian length + borsh body), and a session opens with the 8-byte
-/// protocol handshake. The first frame each side sends is its [`Version`]: a
-/// `u32` length prefix + the bit-packed event tree. So the connect costs
-/// exactly `16 + |version|` bytes (`8` handshake + `4` frame + `4` borsh len),
-/// and on a connect-bail (`DA+DB+RA+RB == 0`, equal versions) that is the whole
-/// session — `1.5` rounds (handshake + connect, three phase transitions).
+/// raw preamble. The first frame each side sends is its greeting: the 16-byte
+/// network id, its [`Version`] (a `u32` length prefix + the bit-packed event
+/// tree), and a 1-byte intent tag. So the connect costs exactly
+/// `33 + |version|` bytes (itemized at `CONNECT_FIXED`), and on a connect-bail
+/// (`DA+DB+RA+RB == 0`, equal versions) that is the whole session — `1.5`
+/// rounds (preamble + connect, three phase transitions).
 ///
 /// # Modeled descent cost
 ///
@@ -592,6 +623,9 @@ fn predict(
             bytes_b: CONNECT_FIXED + vlen_b,
             rounds_a: BAIL_ROUNDS,
             rounds_b: BAIL_ROUNDS,
+            vlen_a,
+            vlen_b,
+            alice_initiates: None,
         };
     }
 
@@ -621,14 +655,31 @@ fn predict(
         ),
         rounds_a: side_rounds(n, alice_initiates),
         rounds_b: side_rounds(n, !alice_initiates),
+        vlen_a,
+        vlen_b,
+        alice_initiates: Some(alice_initiates),
     }
 }
 
-/// Fixed per-session framing ahead of any version payload: the 8-byte protocol
-/// handshake + the 4-byte length-delimited frame prefix + borsh's 4-byte `u32`
-/// length on the `Version` body. The connect frame is `CONNECT_FIXED +
-/// |version|` bytes.
-const CONNECT_FIXED: f64 = 16.0;
+/// The 8-byte raw preamble: `b"RUMORS"` + the `u16` protocol version.
+const PREAMBLE: f64 = 8.0;
+/// `LengthDelimitedCodec`'s 4-byte big-endian length prefix on the greeting.
+const GREETING_FRAME_PREFIX: f64 = 4.0;
+/// The 16-byte network id opening the greeting body.
+const GREETING_NETWORK: f64 = 16.0;
+/// borsh's `u32` length prefix on the `Version` bytes inside the greeting.
+const GREETING_VERSION_PREFIX: f64 = 4.0;
+/// The 1-byte intent tag (remain/retire) closing the greeting body.
+const GREETING_INTENT: f64 = 1.0;
+
+/// Fixed per-session framing: everything a side sends through the connect
+/// besides the bit-packed event tree itself, so the connect costs
+/// `CONNECT_FIXED + |version|` bytes. The layout is pinned byte-for-byte by
+/// `tests/gossip_snapshot.rs` — its empty-pair snapshot shows each side
+/// sending 8 + 26 bytes, i.e. `CONNECT_FIXED` (33) + a 1-byte empty version.
+/// If a greeting field changes, that snapshot churns and this sum must follow.
+const CONNECT_FIXED: f64 =
+    PREAMBLE + GREETING_FRAME_PREFIX + GREETING_NETWORK + GREETING_VERSION_PREFIX + GREETING_INTENT;
 
 /// Connect-bail rounds: handshake write/read + connect write/read = three
 /// protocol-layer phase transitions = 1.5 rounds, identically on both sides.
@@ -656,7 +707,7 @@ fn side_bytes(
         // Provides leaves shallow (cheap framing), then pays an `uncertain`-hash
         // frontier cost over the divergent set `U = S + D_other + R_self`. The
         // frontier term is super-linear: deeper rounds add whole hash levels.
-        const INIT_BASE: f64 = 36.4;
+        const INIT_BASE: f64 = 53.4;
         const INIT_PER_LEAF: f64 = 39.9;
         const INIT_PER_VERSION: f64 = 1.106;
         const INIT_FRONTIER: f64 = 0.649;
@@ -669,7 +720,7 @@ fn side_bytes(
         // Provides leaves deep (pricier framing per leaf), and exchanges one
         // 32-byte hash per shared element it descends past and per element the
         // *other* side redacted (routed to `requested`).
-        const RESP_BASE: f64 = 68.4;
+        const RESP_BASE: f64 = 85.4;
         const RESP_PER_LEAF: f64 = 66.7;
         const RESP_PER_VERSION: f64 = 0.969;
         const RESP_PER_SHARED: f64 = 30.8;
@@ -698,6 +749,308 @@ struct Prediction {
     bytes_b: f64,
     rounds_a: f64,
     rounds_b: f64,
+    /// Exact serialized [`Version`] sizes, read off the reconstruction. Emitted
+    /// into the CSV so `--fit` can rebuild the model features without rerunning
+    /// the reconstruction.
+    vlen_a: f64,
+    vlen_b: f64,
+    /// `None` on a connect-bail: equal versions, no descent, no initiator.
+    alice_initiates: Option<bool>,
+}
+
+/// One side's observation from a descent (non-bail) CSV row, in the model's
+/// own coordinates: `d`/`r` are this side's outgoing leaves and redactions,
+/// `od`/`orr` the other side's (only their combinations `u` and `orr` are
+/// retained).
+#[derive(Copy, Clone, Debug)]
+struct SideObs {
+    /// This side's own outgoing leaves.
+    d: f64,
+    /// Shared elements.
+    s: f64,
+    /// Elements the *other* side redacted.
+    orr: f64,
+    /// Divergent set the initiator's frontier term ranges over: `s + od + r`.
+    u: f64,
+    /// Union size for the rounds model: `s + da + db + ra + rb`.
+    n: f64,
+    /// Exact serialized `Version` size for this side.
+    vlen: f64,
+    init: bool,
+    bytes: f64,
+    rounds: f64,
+    /// Predictions of the constants currently compiled into this binary, so
+    /// the report can show shipped-versus-refit drift.
+    shipped_bytes: f64,
+    shipped_rounds: f64,
+}
+
+/// Solve the least-squares problem `min ‖Xβ − y‖` via the normal equations
+/// `(XᵀX)β = Xᵀy`, by Gauss-Jordan elimination with partial pivoting. The
+/// systems here are at most 5×5, so numerical sophistication beyond pivoting
+/// (or a linear-algebra dependency) would be wasted on an example.
+fn least_squares(x: &[Vec<f64>], y: &[f64]) -> Vec<f64> {
+    let k = x[0].len();
+    // Augmented [XᵀX | Xᵀy].
+    let mut a = vec![vec![0.0f64; k + 1]; k];
+    for (f, &yi) in x.iter().zip(y) {
+        for i in 0..k {
+            for j in 0..k {
+                a[i][j] += f[i] * f[j];
+            }
+            a[i][k] += f[i] * yi;
+        }
+    }
+    for col in 0..k {
+        let pivot = (col..k)
+            .max_by(|&r1, &r2| a[r1][col].abs().partial_cmp(&a[r2][col].abs()).unwrap())
+            .unwrap();
+        a.swap(col, pivot);
+        let p = a[col][col];
+        assert!(
+            p.abs() > 1e-9,
+            "singular normal equations: a regressor is degenerate in this CSV",
+        );
+        for v in &mut a[col][col..=k] {
+            *v /= p;
+        }
+        // Copy the (tiny) normalized pivot row so eliminating the other rows
+        // doesn't alias it.
+        let pivot_row: Vec<f64> = a[col][col..=k].to_vec();
+        for (row, r) in a.iter_mut().enumerate() {
+            if row != col && r[col] != 0.0 {
+                let factor = r[col];
+                for (v, pv) in r[col..=k].iter_mut().zip(&pivot_row) {
+                    *v -= factor * pv;
+                }
+            }
+        }
+    }
+    (0..k).map(|i| a[i][k]).collect()
+}
+
+fn dot(a: &[f64], b: &[f64]) -> f64 {
+    a.iter().zip(b).map(|(x, y)| x * y).sum()
+}
+
+/// `(median, p90, max)` of `|pred − meas| / meas`.
+fn rel_err_summary(pred: &[f64], meas: &[f64]) -> (f64, f64, f64) {
+    let mut errs: Vec<f64> = pred
+        .iter()
+        .zip(meas)
+        .map(|(p, m)| ((p - m) / m).abs())
+        .collect();
+    errs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let pick = |q: f64| errs[((errs.len() - 1) as f64 * q).round() as usize];
+    (pick(0.5), pick(0.9), *errs.last().unwrap())
+}
+
+/// Fit one model block and print paste-ready constants plus a residual
+/// comparison between the constants compiled into this binary ("shipped") and
+/// the fresh fit. `names` labels the coefficients positionally, matching the
+/// regressor order `features` produces.
+fn fit_block(
+    title: &str,
+    names: &[&str],
+    obs: &[SideObs],
+    features: impl Fn(&SideObs) -> Vec<f64>,
+    measured: impl Fn(&SideObs) -> f64,
+    shipped: impl Fn(&SideObs) -> f64,
+) {
+    println!("{title} ({} observations):", obs.len());
+    if obs.len() < names.len() {
+        println!("  too few observations to fit; run a larger sweep");
+        return;
+    }
+    let x: Vec<Vec<f64>> = obs.iter().map(&features).collect();
+    let y: Vec<f64> = obs.iter().map(&measured).collect();
+    let beta = least_squares(&x, &y);
+    for (name, b) in names.iter().zip(&beta) {
+        println!("    const {name}: f64 = {b:.3};");
+    }
+    let refit: Vec<f64> = x.iter().map(|f| dot(f, &beta)).collect();
+    let shipped: Vec<f64> = obs.iter().map(&shipped).collect();
+    let (sm, sp90, smax) = rel_err_summary(&shipped, &y);
+    let (rm, rp90, rmax) = rel_err_summary(&refit, &y);
+    println!(
+        "  |rel err| shipped: median {:5.2}%  p90 {:5.2}%  max {:6.2}%",
+        sm * 100.0,
+        sp90 * 100.0,
+        smax * 100.0,
+    );
+    println!(
+        "  |rel err| refit:   median {:5.2}%  p90 {:5.2}%  max {:6.2}%",
+        rm * 100.0,
+        rp90 * 100.0,
+        rmax * 100.0,
+    );
+}
+
+/// Refit the descent-cost model from a previously generated sweep CSV.
+///
+/// Connect-bail rows are *verified* (the prediction there is exact by
+/// construction, so any residual means `CONNECT_FIXED` has drifted from the
+/// wire format) and excluded from the fits. Every other row yields two
+/// per-side observations.
+fn run_fit(path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+    let mut reader = csv::Reader::from_path(path)?;
+    let headers = reader.headers()?.clone();
+    let col = |name: &str| -> Result<usize, String> {
+        headers.iter().position(|h| h == name).ok_or_else(|| {
+            format!(
+                "CSV is missing column `{name}`: regenerate it with --output \
+                 (the fit needs the vlen_a/vlen_b/initiator_a columns)"
+            )
+        })
+    };
+    let c_parties = col("parties")?;
+    let c_shared = col("shared")?;
+    let c_da = col("distinct_a")?;
+    let c_db = col("distinct_b")?;
+    let c_ra = col("redacted_a")?;
+    let c_rb = col("redacted_b")?;
+    let c_bytes_a = col("bytes_a")?;
+    let c_bytes_b = col("bytes_b")?;
+    let c_comp_a = col("bytes_a_compressed")?;
+    let c_comp_b = col("bytes_b_compressed")?;
+    let c_rounds_a = col("rounds_a")?;
+    let c_rounds_b = col("rounds_b")?;
+    let c_vlen_a = col("vlen_a")?;
+    let c_vlen_b = col("vlen_b")?;
+    let c_init_a = col("initiator_a")?;
+
+    let mut obs: Vec<SideObs> = Vec::new();
+    let mut bail_rows = 0u64;
+    let mut bail_bytes_max = 0.0f64;
+    let mut bail_rounds_max = 0.0f64;
+    // parties → (sum of per-side wire/protocol ratios, side count)
+    let mut ratios: std::collections::BTreeMap<u64, (f64, u64)> = std::collections::BTreeMap::new();
+
+    for record in reader.records() {
+        let record = record?;
+        let get = |i: usize| -> Result<f64, Box<dyn std::error::Error>> {
+            Ok(record.get(i).ok_or("short CSV record")?.parse::<f64>()?)
+        };
+        let parties = get(c_parties)? as u64;
+        let s = get(c_shared)?;
+        let da = get(c_da)?;
+        let db = get(c_db)?;
+        let ra = get(c_ra)?;
+        let rb = get(c_rb)?;
+        let bytes_a = get(c_bytes_a)?;
+        let bytes_b = get(c_bytes_b)?;
+        let comp_a = get(c_comp_a)?;
+        let comp_b = get(c_comp_b)?;
+        let rounds_a = get(c_rounds_a)?;
+        let rounds_b = get(c_rounds_b)?;
+        let vlen_a = get(c_vlen_a)?;
+        let vlen_b = get(c_vlen_b)?;
+
+        let ratio = ratios.entry(parties).or_insert((0.0, 0));
+        ratio.0 += comp_a / bytes_a + comp_b / bytes_b;
+        ratio.1 += 2;
+
+        let init_field = record.get(c_init_a).ok_or("short CSV record")?;
+        if init_field.is_empty() {
+            // Connect-bail: exact by construction, so verify instead of fit.
+            bail_rows += 1;
+            bail_bytes_max = bail_bytes_max
+                .max((bytes_a - (CONNECT_FIXED + vlen_a)).abs())
+                .max((bytes_b - (CONNECT_FIXED + vlen_b)).abs());
+            bail_rounds_max = bail_rounds_max
+                .max((rounds_a - BAIL_ROUNDS).abs())
+                .max((rounds_b - BAIL_ROUNDS).abs());
+            continue;
+        }
+        let alice_initiates = init_field == "1";
+        let n = s + da + db + ra + rb;
+        for (d, od, r, orr, vlen, init, bytes, rounds) in [
+            (da, db, ra, rb, vlen_a, alice_initiates, bytes_a, rounds_a),
+            (db, da, rb, ra, vlen_b, !alice_initiates, bytes_b, rounds_b),
+        ] {
+            obs.push(SideObs {
+                d,
+                s,
+                orr,
+                u: s + od + r,
+                n,
+                vlen,
+                init,
+                bytes,
+                rounds,
+                shipped_bytes: side_bytes(
+                    d as u32, od as u32, s as u32, r as u32, orr as u32, vlen, init,
+                ),
+                shipped_rounds: side_rounds(n, init),
+            });
+        }
+    }
+
+    println!(
+        "rows: {} connect-bail + {} descent ({} per-side observations)",
+        bail_rows,
+        obs.len() / 2,
+        obs.len(),
+    );
+    println!(
+        "connect-bail exactness: max |bytes residual| = {bail_bytes_max:.3}, \
+         max |rounds residual| = {bail_rounds_max:.3}",
+    );
+    if bail_bytes_max > 0.0 || bail_rounds_max > 0.0 {
+        println!(
+            "  WARNING: the connect-bail prediction must be exact; \
+             CONNECT_FIXED has drifted from the wire format"
+        );
+    }
+    println!();
+
+    let initiator: Vec<SideObs> = obs.iter().copied().filter(|o| o.init).collect();
+    let responder: Vec<SideObs> = obs.iter().copied().filter(|o| !o.init).collect();
+
+    fit_block(
+        "initiator bytes",
+        &[
+            "INIT_BASE",
+            "INIT_PER_LEAF",
+            "INIT_PER_VERSION",
+            "INIT_FRONTIER",
+        ],
+        &initiator,
+        |o| vec![1.0, o.d, o.vlen * (1.0 + o.d), o.u * (1.0 + o.u).log2()],
+        |o| o.bytes,
+        |o| o.shipped_bytes,
+    );
+    println!();
+    fit_block(
+        "responder bytes",
+        &[
+            "RESP_BASE",
+            "RESP_PER_LEAF",
+            "RESP_PER_VERSION",
+            "RESP_PER_SHARED",
+            "RESP_PER_OTHER_REDACT",
+        ],
+        &responder,
+        |o| vec![1.0, o.d, o.vlen * (1.0 + o.d), o.s, o.orr],
+        |o| o.bytes,
+        |o| o.shipped_bytes,
+    );
+    println!();
+    fit_block(
+        "rounds (both roles)",
+        &["ROUNDS_RESP_BASE", "ROUNDS_INIT_BONUS", "ROUNDS_PER_LEVEL"],
+        &obs,
+        |o| vec![1.0, f64::from(o.init), (o.n + 1.0).log(256.0)],
+        |o| o.rounds,
+        |o| o.shipped_rounds,
+    );
+    println!();
+
+    println!("compression ratio (wire bytes / protocol bytes), mean by parties:");
+    for (p, (sum, count)) in &ratios {
+        println!("  P = {:>3}: {:.2}", p, sum / *count as f64);
+    }
+    Ok(())
 }
 
 /// Build one side's I/O stack: counted-protocol-layer wrapping a zstd codec
@@ -891,6 +1244,13 @@ fn job_seed(run_seed: u64, cell_idx: usize, sample_idx: u32) -> u64 {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
+    if let Some(csv_path) = &args.fit {
+        return run_fit(csv_path);
+    }
+    let output_path = args
+        .output
+        .clone()
+        .expect("clap enforces exactly one of --output / --fit");
     let seed = args.seed.unwrap_or_else(|| {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -935,9 +1295,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // contention on the BufWriter (and the flush(2) syscall held under that
     // lock) is the main remaining serialization point for the par_iter; with
     // a single owner thread the rayon workers just enqueue and move on. Each
-    // row is sent as a pre-formatted `[String; 19]` so all string formatting
+    // row is sent as a pre-formatted `[String; 22]` so all string formatting
     // happens in parallel on the producer side.
-    let header: [&'static str; 19] = [
+    let header: [&'static str; 22] = [
         "parties",
         "shared",
         "distinct_a",
@@ -957,9 +1317,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "pred_bytes_b",
         "pred_rounds_a",
         "pred_rounds_b",
+        "vlen_a",
+        "vlen_b",
+        "initiator_a",
     ];
-    let (row_tx, row_rx) = mpsc::channel::<[String; 19]>();
-    let output_path = args.output.clone();
+    let (row_tx, row_rx) = mpsc::channel::<[String; 22]>();
     let writer_thread: thread::JoinHandle<io::Result<()>> = thread::spawn(move || {
         // 256 KiB BufWriter holds ~1500 rows at typical row widths, so a flush
         // cycle becomes one write(2) instead of one per row. FLUSH_EVERY caps
@@ -1037,6 +1399,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     format!("{:.3}", p.bytes_b),
                     format!("{:.4}", p.rounds_a),
                     format!("{:.4}", p.rounds_b),
+                    format!("{}", p.vlen_a as u64),
+                    format!("{}", p.vlen_b as u64),
+                    p.alice_initiates
+                        .map(|init| if init { "1" } else { "0" }.to_string())
+                        .unwrap_or_default(),
                 ])
                 .expect("send row to writer thread");
         });
