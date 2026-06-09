@@ -51,6 +51,10 @@ const OUTSTANDING_RETRIES: u32 = 20;
 /// Delay between those re-checks.
 const OUTSTANDING_RETRY_DELAY: Duration = Duration::from_millis(100);
 
+/// How long [`settle`] waits for the peer's FIN before giving up and
+/// letting the connection close anyway.
+const TEARDOWN_GRACE: Duration = Duration::from_secs(5);
+
 /// Bind an endpoint with the default n0 infrastructure (relays + DNS
 /// discovery): peers are dialable by `EndpointId` alone.
 pub async fn bind() -> anyhow::Result<Endpoint> {
@@ -100,7 +104,7 @@ async fn run_stream(
 
     match snapshot.gossip(&mut recv, &mut send).await {
         Ok(learned) => {
-            let _ = send.finish();
+            settle(&mut send, &mut recv).await;
             cmd.send(Command::JoinBack { snapshot: learned })
                 .await
                 .context("owner gone")?;
@@ -133,7 +137,7 @@ async fn serve_merge(conn: &Connection, cmd: &mpsc::Sender<Command>) -> anyhow::
         .gossip(&mut recv, &mut send)
         .await
         .context("serving the merge bootstrap")?;
-    let _ = send.finish();
+    settle(&mut send, &mut recv).await;
     cmd.send(Command::JoinBack { snapshot: learned })
         .await
         .context("owner gone")?;
@@ -162,7 +166,7 @@ async fn request_merge(
     .await
     .context("bootstrapping into the winning universe")?
     .context("the winner was itself bootstrapping or retiring")?;
-    let _ = send.finish();
+    settle(&mut send, &mut recv).await;
     cmd.send(Command::Reset {
         known: Box::new(known),
         observed,
@@ -171,6 +175,17 @@ async fn request_merge(
     .await
     .context("owner gone")?;
     Ok(())
+}
+
+/// Conclude a session stream gracefully: send our FIN, then wait for the
+/// peer's. EOF from the peer proves it finished writing and QUIC delivered
+/// everything; only then is it safe for either side to close the
+/// connection (`Connection::close` discards in-flight data, so closing
+/// before the FIN exchange races the peer's final frames — the bootstrap
+/// party frame especially).
+async fn settle(send: &mut iroh::endpoint::SendStream, recv: &mut iroh::endpoint::RecvStream) {
+    let _ = send.finish();
+    let _ = timeout(TEARDOWN_GRACE, recv.read_to_end(64)).await;
 }
 
 /// Ask the owner for a copy-on-write snapshot.
