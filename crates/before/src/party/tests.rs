@@ -210,7 +210,7 @@ proptest! {
     }
 }
 
-// ───────────────────────── dangerously_duplicate ─────────────────────────
+// ───────────────────────── dangerously_alias ─────────────────────────
 
 proptest! {
     /// `dangerously_alias` yields a byte-identical, `Eq` copy that aliases the

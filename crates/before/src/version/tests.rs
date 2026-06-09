@@ -1,4 +1,7 @@
-//! Working-form tests: `repack ∘ unpack == identity` and yields canonical bytes.
+//! Version tests: the working-form round-trip, the causal order and its
+//! comparison matrix, the join/meet operator matrices and lattice laws,
+//! complexity (linear-scaling) checks, grow optimality against the
+//! brute-force reference, `min_ticks`, and projection (`/`).
 
 use std::cmp::Ordering;
 
@@ -465,7 +468,7 @@ proptest! {
 
 proptest! {
     /// The join matrix holds once the `Batch` operands are *materialized* to
-    /// working form, exercising `snapshot`'s repack and `merge_view` joining a
+    /// working form, exercising `snapshot`'s repack and `join_view` joining a
     /// Working-form incoming view (the fresh-batch cells above all read packed
     /// views). Merging the join identity (`Version::new()`) forces
     /// `work = Some(..)` without changing the value.

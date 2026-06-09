@@ -5,7 +5,7 @@
 //! default `recursion_limit = 128` and forces downstream crates to bump
 //! their own limit. We defuse that by type-erasing inside the protocol
 //! (`tree::traverse::mirror::mirror`, `tree::traverse::act`), which leaves
-//! the public futures (`Known::gossip`, `Known::learn`, `Known::message`)
+//! the public futures (`Known::gossip`, `Known::join`, `Known::message`)
 //! holding nothing more than a `Pin<Box<dyn Future>>` plus a few locals.
 //!
 //! This test pins down that arrangement: if someone reintroduces the deep
@@ -15,10 +15,8 @@
 //! budget — alerting us before downstream crates discover the
 //! `recursion_limit` regression.
 //!
-//! In debug, layout includes additional state because the recursive
-//! `Act` / `Get` / `Unknown` trait dispatch is itself boxed under
-//! `cfg(debug_assertions)` for stack safety; we don't enforce a budget
-//! there because the debug layout is not what users ship.
+//! The budget is enforced only in release builds: debug layouts carry
+//! additional state, and they are not what users ship.
 
 #![cfg(not(debug_assertions))]
 
@@ -57,10 +55,10 @@ fn gossip_future_fits_budget() {
     );
 }
 
-/// `Known::learn` runs both ends of the mirror protocol locally. Same
-/// erasure boundary as `gossip` via `mirror()`.
+/// `Known::join` merges a snapshot in-process. Same erasure boundary as
+/// `gossip`, via `tree::traverse::join`.
 #[test]
-fn process_future_fits_budget() {
+fn join_future_fits_budget() {
     let mut alice: Known<()> = Known::seed();
     let helper = alice.rumors();
     let fut = alice.join(helper);
@@ -68,7 +66,7 @@ fn process_future_fits_budget() {
 
     assert!(
         size <= PUBLIC_FUTURE_BUDGET,
-        "process future is {size} bytes, exceeds budget {PUBLIC_FUTURE_BUDGET}; \
+        "join future is {size} bytes, exceeds budget {PUBLIC_FUTURE_BUDGET}; \
          see gossip_future_fits_budget for rationale",
     );
 }

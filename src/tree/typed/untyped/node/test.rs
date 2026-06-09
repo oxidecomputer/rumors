@@ -199,13 +199,13 @@ proptest! {
         prop_assert_eq!(distinct.len(), leaves.len());
     }
 
-    /// Every node's `version` is the pointwise-max join of its descendant
-    /// leaves' versions. At the root this means: (a) every leaf's version
-    /// is ≤ the root version, and (b) the root version is exactly the
-    /// join of all leaf versions — no component is larger, so the root
-    /// never over-reports causality. `Node::branch` computes this via
-    /// `Version::new(children.versions)` and `beneath` leaves it alone,
-    /// so the invariant has to hold at every layer of the construction.
+    /// Every node's ceiling is the join of its descendant leaves' versions.
+    /// At the root this means: (a) every leaf's version is ≤ the root
+    /// ceiling, and (b) the root ceiling is exactly the join of all leaf
+    /// versions, with no larger component, so the root never over-reports
+    /// causality. A branch's ceiling is computed lazily from its children's
+    /// (see `Node::ceiling`) and `beneath` leaves it alone, so the invariant
+    /// must hold at every layer of the construction.
     #[test]
     fn version_is_join_of_leaf_versions(
         tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),

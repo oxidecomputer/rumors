@@ -44,11 +44,11 @@ pub(crate) enum IdNode {
 ///   event children when the id is full (`FullEvNode`), re-presenting the full
 ///   `1` without duplicating the real cursor.
 ///
-/// **Not `Copy`/`Clone`.** A cursor is single-use: advancing it consumes the
-/// stream, so a stale or duplicated cursor — the re-scan footgun that breaks
-/// `O(n + m)` — cannot be formed by accident. The only operation that reads a
-/// tree twice is `grow` (on the event side); it rebuilds a fresh cursor from the
-/// source per pass, so no cursor is ever duplicated.
+/// Not `Copy` or `Clone`: a cursor is single-use. Advancing it consumes the
+/// stream, so a stale or duplicated cursor (a re-scan, which would break the
+/// `O(n + m)` bound) cannot be formed by accident. The only operation that
+/// reads a tree twice is `grow` (on the event side), which rebuilds a fresh
+/// cursor from the source per pass.
 pub(crate) enum IdReader<'a> {
     At {
         bits: &'a BitsSlice,

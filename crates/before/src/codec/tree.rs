@@ -132,7 +132,7 @@ pub(crate) fn parse_ev(bits: &BitsSlice, mut pos: usize) -> Result<usize, Decode
 
 /// Confirm a freshly built id bit stream is exactly one canonical-normal-form
 /// tree. Wraps [`parse_id`] (the single source of truth for id normal form),
-/// mapping its outcome onto [`ParseError`].
+/// mapping its outcome onto [`Parse`].
 pub(crate) fn validate_id(bits: &BitsSlice) -> Result<(), Parse> {
     match parse_id(bits, 0) {
         Ok(end) if end == bits.len() => Ok(()),
@@ -144,7 +144,7 @@ pub(crate) fn validate_id(bits: &BitsSlice) -> Result<(), Parse> {
 
 /// Confirm a freshly built event bit stream is exactly one
 /// canonical-normal-form tree. Wraps [`parse_ev`], mapping its outcome onto
-/// [`ParseError`].
+/// [`Parse`].
 pub(crate) fn validate_ev(bits: &BitsSlice) -> Result<(), Parse> {
     match parse_ev(bits, 0) {
         Ok(end) if end == bits.len() => Ok(()),

@@ -23,8 +23,8 @@ use rumors::{Key, Known, Version};
 use crate::common::gossip_snapshot::capture_gossip;
 use crate::common::wire::{block_on, bootstrap_fork, bootstrap_fork_async};
 
-/// A peer seeded from a fixed RNG, so the [`rumors::Network`] id carried in the
-/// handshake preamble is deterministic and these byte-level captures stay
+/// A peer seeded from a fixed RNG, so the [`rumors::Network`] id carried in
+/// the greeting is deterministic and these byte-level captures stay
 /// reproducible across runs.
 fn seeded<T>() -> Known<T> {
     Known::seed_rng(&mut SmallRng::seed_from_u64(0))
@@ -49,9 +49,10 @@ fn key_for<T: PartialEq + std::fmt::Debug>(keys: &[(T, Key)], value: &T) -> Key 
         .unwrap_or_else(|| panic!("no key recorded for value {value:?}"))
 }
 
-/// Two empty peers: the minimal session. After the 24-byte handshake the two
-/// sides exchange versions, find them equal, and converge immediately with no
-/// content transfer — the protocol's shortest possible conversation.
+/// Two empty peers: the minimal session. After the 8-byte preamble the two
+/// sides exchange greetings, find their versions equal, and converge
+/// immediately with no content transfer: the protocol's shortest possible
+/// conversation.
 #[test]
 fn empty_pair_converges_immediately() {
     let a: Known<u64> = seeded();

@@ -421,12 +421,11 @@ proptest! {
         );
     }
 
-    /// Retiring A into B over the wire with *no prior synchronization* leaves B
-    /// with the same live content (`hash`) and causal version (`latest`) as
-    /// merging A into B with an in-process `join`: the gossip round inside the
-    /// retire session performs the reconciliation the caller previously had to
-    /// run beforehand. The same two-universe comparison construction as
-    /// [`retire_matches_local_join`].
+    /// Retiring A into B over the wire with *no prior synchronization* leaves
+    /// B with the same live content (`hash`) and causal version (`latest`) as
+    /// merging A into B with an in-process `join`: the gossip round inside
+    /// the retire session performs the reconciliation itself. The same
+    /// two-universe comparison construction as [`retire_matches_local_join`].
     #[test]
     fn unsynchronized_retire_matches_local_join(
         a_actions in arb_local_actions(),

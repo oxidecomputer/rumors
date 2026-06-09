@@ -1,27 +1,29 @@
-//! The causal order on event trees: a single recursive, offset-threaded pass
-//! that reads either representation in place (no transcode) and yields the
+//! The causal order on event trees: one recursive, offset-threaded pass that
+//! reads either representation in place (no transcode) and yields the
 //! comparison directly.
 //!
-//! [`EvReader::causal_cmp`] decides the causal order of `a` and `b` by a
-//! pointwise comparison of their event functions, tracking both `a <= b` and `b
-//! <= a` in **one** traversal — running the paper's `leq` twice would do double
-//! the work. It is the paper's recursive `leq` made symmetric *and* `O(n + m)`,
-//! guarded by [`crate::recurse`] against deep trees: at each aligned node pair
-//! the path sums settle the local direction (`an > bn` rules out `a <= b`;
-//! `bn > an` rules out `b <= a`), then the walk descends into whichever side is
-//! internal — a leaf side broadcasting a fresh [`Zero`](EvReader::Zero) to both
-//! of the other's children — until both bottom out, so every node of either
-//! tree is visited once. The two `&mut` cursors advance in place as they are
-//! read, so the right child resumes from where the left one left off without
-//! re-scanning (see the [traversal overview](super::event)). As soon as both
-//! directions are excluded the result is concurrent (`None`) and the walk stops
-//! early. Path sums are threaded as arbitrary-precision
-//! [`Base`](crate::codec::Base) offsets — the same value type as the stored
-//! bases and as `join`/`fill`/`grow`. A path sum is the running total of stored
-//! bases along a root-to-node path; an unbounded integer type removes the `u64`
-//! overflow class entirely (`decode` admits any normal-form tree, including one
-//! whose path sums exceed `u64::MAX`, so a bounded accumulator could wrap and
-//! invert the causal order).
+//! [`EvReader::causal_cmp`] decides the order of `a` and `b` by a pointwise
+//! comparison of their event functions, tracking `a <= b` and `b <= a` in a
+//! single `O(n + m)` traversal; running the paper's `leq` twice would do
+//! double the work. At each aligned node pair the path sums settle the local
+//! direction (`an > bn` rules out `a <= b`, and `bn > an` rules out
+//! `b <= a`); the walk then descends into whichever side is internal, a leaf
+//! side broadcasting a fresh [`Zero`](EvReader::Zero) to both of the other's
+//! children, until both bottom out. Every node of either tree is visited
+//! once, and once both directions are excluded the result is concurrent
+//! (`None`) and the walk stops early. Recursion is guarded by
+//! [`crate::recurse`].
+//!
+//! The two `&mut` cursors advance in place as they are read, so the right
+//! child resumes where the left one left off without re-scanning (see the
+//! [traversal overview](super::event)).
+//!
+//! Path sums (the running total of stored bases along a root-to-node path)
+//! are threaded as arbitrary-precision [`Base`](crate::codec::Base) offsets,
+//! the same value type as the stored bases and as `join`/`fill`/`grow`.
+//! `decode` admits any normal-form tree, including one whose path sums
+//! exceed `u64::MAX`, so a bounded accumulator could wrap and invert the
+//! causal order; the unbounded type removes that failure class.
 
 use core::cmp::Ordering;
 
@@ -65,14 +67,14 @@ impl EvNode {
 ///   both children a freshly-constructed `Zero`; `grow` uses it as its *virtual
 ///   leaf*, the `(0,0)` it expands an event leaf into to follow the id deeper.
 ///
-/// **Not `Copy`/`Clone`.** A cursor is single-use: advancing it consumes the
-/// stream, so a stale or duplicated cursor — the re-scan footgun that breaks
-/// `O(n + m)` — cannot be formed by accident. A broadcast hands children a
-/// *fresh* synthetic (`Zero`), not a copy of the cursor. The one operation that
-/// reads a tree twice (`grow`, a cost probe then an emit) builds a fresh cursor
-/// from the source working form for each pass, exactly as `tick` does — so no
-/// cursor is ever duplicated. Visibility is `pub(super)`, used throughout
-/// `version/` and nowhere outside.
+/// Not `Copy` or `Clone`: a cursor is single-use. Advancing it consumes the
+/// stream, so a stale or duplicated cursor (a re-scan, which would break the
+/// `O(n + m)` bound) cannot be formed by accident. A broadcast hands
+/// children a fresh synthetic (`Zero`), not a copy of the cursor. The one
+/// operation that reads a tree twice (`grow`, a cost probe then an emit)
+/// builds a fresh cursor from the source working form for each pass, as
+/// `tick` does. Visibility is `pub(super)`: used throughout `version/`,
+/// nowhere outside.
 pub(super) enum EvReader<'a> {
     Packed {
         bits: &'a BitsSlice,

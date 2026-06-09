@@ -52,8 +52,8 @@
 //! A `Known` is [`!Clone`](Clone). For a cheap, copy-on-write working snapshot
 //! that shares the originator's party, take a [`rumors`](Known::rumors)
 //! snapshot; gossip with it, then [`join`](Known::join) it back into its
-//! originator to absorb what it learned. A genuine second *originating* peer,
-//! with its own disjoint party, comes from [`Known::bootstrap`] over the wire.
+//! originator to absorb what it learned. A second *originating* peer, with
+//! its own disjoint party, comes from [`Known::bootstrap`] over the wire.
 //! A snapshot cannot originate [`message`](Known::message)s or
 //! [`redact`](Known::redact)ions; only the originating `Known` can, which keeps
 //! its events linearized. A [`rumors`](Known::rumors) snapshot is reunited with
@@ -127,8 +127,7 @@ use futures::io::AllowStdIo;
 use tokio_util::compat::{FuturesAsyncReadCompatExt, FuturesAsyncWriteCompatExt};
 
 pub use crate::{
-    Bookmark, Error, Facts, Key, Network, PROTOCOL_MAGIC, PROTOCOL_VERSION, RetireError, Rumors,
-    Version,
+    Error, Facts, Key, Network, PROTOCOL_MAGIC, PROTOCOL_VERSION, RetireError, Rumors, Version,
 };
 pub use ::borsh;
 
@@ -136,21 +135,21 @@ pub use ::borsh;
 ///
 /// A canonical `Known` owns an Interval Tree Clock party and may originate
 /// messages and redactions. It is `!Clone`; for a working copy take a
-/// [`rumors`](Known::rumors) snapshot — a cheap copy-on-write view that *shares*
-/// the originator's party and cannot originate — then fold it back with
-/// [`join_then`](Known::join_then) / [`join`](Known::join). A genuine second
+/// [`rumors`](Known::rumors) snapshot, a cheap copy-on-write view that
+/// shares the originator's party and cannot originate, then fold it back
+/// with [`join_then`](Known::join_then) or [`join`](Known::join). A second
 /// originating peer, with its own disjoint party, comes from
 /// [`bootstrap`](Known::bootstrap).
 ///
 /// # Uniqueness of parties
 ///
-/// Every party in one universe descends from a single [`seed`](Known::seed) — by
-/// a [`rumors`](Known::rumors) snapshot (sharing it) or a
-/// [`bootstrap`](Known::bootstrap)ed peer (a fresh disjoint region). The caller
-/// must not let two independently-seeded universes gossip with each other (the
-/// `before` crate's Law of Disjointness); `rumors` no longer tracks parties
-/// process-globally, so several independent
-/// universes may coexist in one program.
+/// Every party in one universe descends from a single [`seed`](Known::seed),
+/// either by a [`rumors`](Known::rumors) snapshot (sharing it) or by a
+/// [`bootstrap`](Known::bootstrap)ed peer (a fresh disjoint region). Parties
+/// are not tracked process-globally, so several independent universes may
+/// coexist in one program; the caller must not let two independently-seeded
+/// universes gossip with each other (the `before` crate's Law of
+/// Disjointness).
 ///
 /// # Example
 ///
@@ -204,13 +203,14 @@ impl<T> Known<T> {
     /// which every other party in this universe descends.
     ///
     /// Call this exactly once per universe of cooperating peers; make
-    /// additional originating peers with [`bootstrap`](Self::bootstrap), never by
-    /// calling `seed` again.
-    ///
-    /// # Example
+    /// additional originating peers with [`bootstrap`](Self::bootstrap),
+    /// never by calling `seed` again.
     ///
     /// The universe's [`Network`] identifier is drawn from the operating
-    /// system's secure RNG; use [`seed_rng`](Self::seed_rng) to supply your own.
+    /// system's secure RNG; use [`seed_rng`](Self::seed_rng) to supply your
+    /// own.
+    ///
+    /// # Example
     ///
     /// ```
     /// use rumors::sync::Known;
@@ -326,11 +326,11 @@ impl<T> Known<T> {
         self.0.redact(redacted);
     }
 
-    /// Fork off a copy of this [`Known`] which can gossip, but cannot originate
-    /// new [`message`](Known::message)s or [`redact`](Known::redact) existing
-    /// ones. In order to process messages received via gossip, it's expected
-    /// that you should subsequently [`join`](Known::join) this back to its
-    /// originator.
+    /// Take a snapshot of this [`Known`] that can gossip but cannot
+    /// originate new [`message`](Known::message)s or
+    /// [`redact`](Known::redact) existing ones. Gossip with the snapshot,
+    /// then [`join`](Known::join) it back into its originator to absorb what
+    /// it learned.
     ///
     /// # Example
     ///
@@ -377,7 +377,7 @@ impl<T> Known<T> {
     /// Merge `other`'s content into `self`, invoking `on_message` for each
     /// message in `other` that `self` had not already observed.
     ///
-    /// **Delivery is unordered**: callbacks fire in arbitrary order, including
+    /// Delivery is unordered: callbacks fire in arbitrary order, including
     /// orderings that violate the causal precedence captured by each message's
     /// [`Version`]. Sort by [`Version`] if your application needs causal or
     /// insertion ordering.
@@ -463,7 +463,7 @@ impl<T> Known<T> {
     /// The peer must already have a [`Known`] in hand; bootstrapping from a
     /// peer who is also bootstrapping results in `Ok(None)`.
     ///
-    /// Message delivery is **unordered**: callbacks fire in arbitrary order,
+    /// Message delivery is unordered: callbacks fire in arbitrary order,
     /// including orderings that violate the causal precedence captured by each
     /// message's [`Version`]. Sort by [`Version`] if your application needs
     /// causal ordering.
@@ -645,9 +645,10 @@ impl<T, S> Known<T, S> {
     /// This set's latest causal [`Version`]: the least upper bound of every
     /// message and redaction it has observed.
     ///
-    /// This is the timestamp a peer ships first when it [`gossip`](Self::gossip)s,
-    /// and the one the protocol compares to decide what each side is missing.
-    /// Two sets with equal versions have already converged.
+    /// This is the timestamp a peer ships in its greeting when it
+    /// [`gossip`](Self::gossip)s, and the one the protocol compares to decide
+    /// what each side is missing. Two sets with equal versions have already
+    /// converged.
     ///
     /// # Example
     ///
@@ -683,9 +684,10 @@ impl<T, S> Known<T, S> {
     /// The observable root hash of this set: a 32-byte digest of its live
     /// contents that ignores party identity and insertion order.
     ///
-    /// Two sets with the same root hash hold the same live messages, so a
-    /// gossip session between them converges immediately. It is the first
-    /// thing the initiator puts on the wire (see [`gossip`](Self::gossip)).
+    /// Two sets with the same root hash hold the same live messages. Gossip
+    /// converges on causal versions rather than hashes: peers with equal
+    /// hashes but different versions (for example, after an insert that was
+    /// then redacted) still run a reconciliation pass.
     ///
     /// # Example
     ///
@@ -744,7 +746,7 @@ impl<T, S> Known<T, S> {
     /// Synchronize rumor sets with a remote peer, invoking `on_message` for
     /// each message learned from the peer.
     ///
-    /// Message delivery is **unordered**: callbacks fire in arbitrary order,
+    /// Message delivery is unordered: callbacks fire in arbitrary order,
     /// including orderings that violate the causal precedence captured by each
     /// message's [`Version`]. Sort by [`Version`] if your application needs
     /// causal ordering.

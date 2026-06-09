@@ -63,11 +63,10 @@ const COST_MAX: Cost = (u32::MAX, u32::MAX);
 /// `[id_span, id_span + ev_span)`. The two blocks are disjoint, so the range a
 /// bit falls in implicitly recovers its regime. Each branch's key is unique
 /// within its block (each id node, and each event node under a full id, is
-/// reached once). One allocation, `O(n + m)` bits, `O(1)` access — ~8x smaller
-/// than the former `Vec<Option<bool>>` pair. A bit defaults to `false` (left); a
-/// probe/emit mismatch would misread a direction rather than panic, but the
-/// grow-optimality property tests (against the brute-force search) catch any
-/// such disagreement.
+/// reached once). One allocation, `O(n + m)` bits, `O(1)` access. A bit
+/// defaults to `false` (left); a probe/emit mismatch would misread a
+/// direction rather than panic, but the grow-optimality property tests
+/// (against the brute-force search) catch any such disagreement.
 struct Route {
     dirs: Bits,
     /// Start of the event-position block: a `FullEvNode` key `ev_pos` lives at

@@ -125,7 +125,7 @@ pub fn arb_tree_root(
 /// the shared keys.
 ///
 /// This exercises every cell a merge must handle: keys only one side has, keys
-/// both share (matched subtrees), and — crucially — keys one side has *deleted*
+/// both share (matched subtrees), and keys one side has *deleted*
 /// while the other still holds them (which the merge must drop by version
 /// dominance, the entire deletion mechanism). With zero shared inserts the two
 /// sides are fully disjoint, so this one generator also covers that case.
@@ -211,9 +211,9 @@ pub fn arb_shared_delta_pair(
             let p_b = nth_party(2);
 
             // Common base: `n_shared` inserts on party 0. The leaf paths are
-            // content hashes (`blake3(version ‖ value)`), so they scatter
-            // uniformly across the radix space and a wide base builds a deep,
-            // wide trie — the structure `diff` must prune through.
+            // content hashes (see `Path::for_leaf`), so they scatter
+            // uniformly across the radix space, and a wide base builds the
+            // deep, wide trie `diff` must prune through.
             let mut base = Tree::new();
             pollster::block_on(base.act(
                 |b| {
@@ -246,7 +246,7 @@ mod test {
     use super::nth_party;
 
     /// Distinct indices yield mutually *disjoint* parties. This is the
-    /// load-bearing invariant for every strategy here: trees built on different
+    /// invariant every strategy here relies on: trees built on different
     /// indices must have causally-concurrent (joinable) histories, never one
     /// containing the other. `nth_party` walks a left-leaning fork chain, so its
     /// string form looks nested — `(0, 1)`, `((0, 1), 0)`, … — but each owns a

@@ -72,8 +72,8 @@ where
 /// Mint a genuine, party-disjoint `Known` from `parent` by serving it a
 /// bootstrap over an in-memory pipe.
 ///
-/// Now that `fork` is gone, this is how a test obtains a second *originator*:
-/// the returned peer descends from `parent`'s universe (same [`Network`]) with
+/// This is how a test obtains a second *originator*: the returned peer
+/// descends from `parent`'s universe (same [`Network`]) with
 /// its own disjoint party region and a copy of `parent`'s content, exactly as a
 /// real process joining over the network would. `parent` keeps its own party
 /// (the bootstrap hands the newcomer a freshly-forked slice of it).

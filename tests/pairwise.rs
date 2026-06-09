@@ -179,7 +179,7 @@ proptest! {
     /// `Known::join` against an empty source is a no-op: zero
     /// callbacks fire and `self` is unchanged.
     #[test]
-    fn process_empty_source_is_noop(actions in arb_local_actions()) {
+    fn join_empty_source_is_noop(actions in arb_local_actions()) {
         let seed = Known::<u64>::seed();
         let original = build_local(dup(&seed), &actions);
         let mut subject = dup(&original);
@@ -251,7 +251,7 @@ proptest! {
     /// callbacks fire and the readout is unchanged. The "true"
     /// idempotence of the merge.
     #[test]
-    fn self_process_is_noop(actions in arb_local_actions()) {
+    fn join_self_snapshot_is_noop(actions in arb_local_actions()) {
         let seed = Known::<u64>::seed();
         let original = build_local(dup(&seed), &actions);
         let readout_before = readout(&original);

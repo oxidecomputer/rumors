@@ -32,7 +32,7 @@ proptest! {
     /// the documented gossip pattern — `rumors` snapshots carry observations
     /// between peers, and `join` (a content merge) absorbs them.
     #[test]
-    fn fork_then_merge_matches_direct_process(
+    fn bootstrap_then_join_matches_direct_join(
         alice_values in vec(any::<u64>(), 0..=MAX_CLONE_VALUES),
         bob_values in vec(any::<u64>(), 0..=MAX_CLONE_VALUES),
     ) {

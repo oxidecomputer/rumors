@@ -12,12 +12,11 @@
 //! - [`Version`](crate::Version) and [`Message<T>`](crate::Message):
 //!   their existing borsh shapes (see those types). A `Message<T>` serializes
 //!   byte-identically to its inner `T`.
-//! - `Vec<_>`: `u32` length followed by each element in order. Every channel is
-//!   a length-prefixed `Vec`; on deserialize the decoder rejects any frame
-//!   whose entries are not strictly ascending in canonical order (which also
-//!   rejects duplicates), reimposing the one-encoding-per-value guarantee the
-//!   old `de_strict_order` `BTreeMap`/`BTreeSet` channels gave (see
-//!   [`super::reassemble`]).
+//! - `Vec<_>`: `u32` length followed by each element in order. Every channel
+//!   is a length-prefixed `Vec`; on deserialize the decoder rejects any
+//!   frame whose entries are not strictly ascending in canonical order
+//!   (which also rejects duplicates), so each value has exactly one
+//!   encoding (see [`super::reassemble`]).
 //!
 //! ## Typed [`Node<T, H>`](crate::tree::typed::Node)
 //!
@@ -34,12 +33,12 @@
 //!         Children::Branch: count_minus_two: u8, [(radix: u8, NodeWire); count]
 //! ```
 //!
-//! The body's shape is **not** tagged on the wire; the receiver determines
-//! it from the typed height (`Z` ⇒ leaf, `S<_>` ⇒ branch) together with
-//! the running `prefix_len`. On the decode side, when `prefix_len > 0` we
-//! peel one head byte and recurse at the next-finer typed height,
+//! The body's shape is not tagged on the wire; the receiver determines it
+//! from the typed height (`Z` ⇒ leaf, `S<_>` ⇒ branch) together with the
+//! running `prefix_len`. On the decode side, when `prefix_len > 0` the
+//! decoder peels one head byte and recurses at the next-finer typed height,
 //! synthesizing the `prefix_len − 1` byte for the inner reader via
-//! [`borsh::io::Read::chain`] — so the wire carries one `prefix_len` byte
+//! [`borsh::io::Read::chain`], so the wire carries one `prefix_len` byte
 //! per top-of-chain rather than one per typed level.
 //!
 //! Multi-child branches always carry at least two children; singletons
@@ -66,9 +65,9 @@
 //!
 //! ## Messages
 //!
-//! Each of the five message types (see [`message`]) is the borsh concatenation
-//! of its fields in source order. There is no length framing between messages
-//! on the wire: the protocol's height schedule names the type each side expects
+//! Each of the five message types below is the borsh concatenation of its
+//! fields in source order. There is no length framing between messages on
+//! the wire: the protocol's height schedule names the type each side expects
 //! next.
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -119,24 +118,21 @@ impl Intent {
     }
 }
 
-/// The opening message of every session: what the `connect`/`accept` steps
-/// exchange (replacing the bare [`Version`] they exchanged before the handshake
-/// was folded in). It carries the sender's universe [`Network`], its causal
-/// [`Version`], and its [`Intent`]: a retiring sender announces here that,
-/// once reconciliation completes, it will ship its party as a single trailing
-/// frame for the receiver to absorb (see
-/// [`Known::retire`](crate::Known::retire)). The party itself never rides the
-/// greeting — sending it *after* the descent keeps the id-region out of limbo
-/// until the last possible frame, mirroring bootstrap's fork-last hand-off.
+/// The opening message of every session, exchanged by the
+/// `connect`/`accept` steps. It carries the sender's universe [`Network`],
+/// its causal [`Version`], and its [`Intent`]: a retiring sender announces
+/// here that, once reconciliation completes, it will ship its party as a
+/// single trailing frame for the receiver to absorb (see
+/// [`Known::retire`](crate::Known::retire)). The party itself never rides
+/// the greeting; sending it after the descent keeps the id-region out of
+/// limbo until the last possible frame, mirroring bootstrap's fork-last
+/// hand-off.
 ///
 /// On the wire this frame follows the raw `magic + proto_version` preamble,
 /// which is validated before this body is ever parsed (see
-/// [`super::remote`]); so the magic bytes are *not* part of this struct. The
+/// [`super::remote`]), so the magic bytes are not part of this struct. The
 /// [`Network`] travels as its raw 16 bytes (a fixed-width array, no length
-/// prefix), the [`Version`] and the [`Intent`] as their own borsh shapes. (A
-/// [`Remain`](Intent::Remain) greeting is byte-identical to the previous
-/// `Option<Party>` encoding of a non-retiring one: borsh writes the `Remain`
-/// tag and `None` both as a single `0x00`.)
+/// prefix), the [`Version`] and the [`Intent`] as their own borsh shapes.
 pub struct Handshake {
     /// The sender's universe id, or [`Network::ZERO`](crate::Network) if the
     /// sender is bootstrapping and has none yet.
@@ -172,13 +168,14 @@ impl BorshDeserialize for Handshake {
     }
 }
 
-/// The initiator's opening message: a single hash at the empty (root) prefix,
-/// namely our root hash.
+/// The initiator's opening message: our root hash at the empty (root)
+/// prefix.
 ///
-/// Carries the same shape as [`Opening`]: an `uncertain` map at `Root` height,
-/// populated with one entry. Distinct from `Opening` only by height -- and from
-/// [`Exchange`] by the absence of `providing` / `requested`, which can't be
-/// populated until at least one round has passed.
+/// Carries the same shape as [`Opening`]: an `uncertain` map at `Root`
+/// height, with at most one entry (none when the initiator's tree is
+/// empty). Distinct from `Opening` only by height,
+/// and from [`Exchange`] by the absence of `providing`/`requested`, which
+/// cannot be populated until at least one round has passed.
 #[derive(Clone, Default, BorshSerialize)]
 pub struct Initiate {
     pub uncertain: Vec<(Prefix<Root>, Hash)>,
@@ -200,9 +197,10 @@ impl BorshDeserialize for Initiate {
 /// the responder has not yet been asked for anything, nor seen any of the
 /// initiator's `uncertain` to react to. Encoding the asymmetry in the type
 /// system makes the initiator's first call
-/// ([`super::exchange::Exchange::open_initiator`]) a separate entry point from
-/// the steady-state `exchange`, so the latter can assume every uncertain hash
-/// describes a parent the receiver has already acknowledged.
+/// ([`open_initiator`](super::protocol::OpenInitiator::open_initiator)) a
+/// separate entry point from the steady-state `exchange`, so the latter can
+/// assume every uncertain hash describes a parent the receiver has already
+/// acknowledged.
 #[derive(Clone, Default, BorshSerialize)]
 pub struct Opening {
     pub uncertain: Vec<(Prefix<UnderRoot>, Hash)>,
@@ -217,7 +215,7 @@ impl BorshDeserialize for Opening {
 }
 
 /// The steady-state message: carries all three channels (see the
-/// asymmetry-matrix table in the [`super`] module docs).
+/// asymmetry-matrix table in the [`super::local`] module docs).
 #[derive(Clone)]
 pub struct Exchange<T, H>
 where
@@ -244,7 +242,8 @@ where
     pub requested: Vec<Prefix<S<H>>>,
     /// Hashes of our subtrees at this round's frontier, for the counterparty
     /// to compare against their own. Each entry routes to one cell of the
-    /// asymmetry matrix on the receiving side. Strictly ascending by prefix.
+    /// asymmetry matrix (see the [`super::local`] module docs) on the
+    /// receiving side. Strictly ascending by prefix.
     pub uncertain: Vec<(Prefix<H>, Hash)>,
 }
 
@@ -312,15 +311,18 @@ where
 }
 
 /// The initiator's closing message: a final `providing`/`requested` pair at
-/// `S<Z>`, emitted by [`super::exchange::Exchange::close_initiator`].
+/// `S<Z>`, emitted by
+/// [`close_initiator`](super::protocol::CloseInitiator::close_initiator).
 ///
 /// Distinct from [`Exchange`] by the absence of `uncertain`: at leaf height,
-/// any two parties either have a leaf at the same path (in which case the leaf
-/// hashes match: they are the same all-ones sentinel) or one of them lacks it
-/// (in which case the receiver routes the missing prefix to `requested`, never
-/// `uncertain`). Encoding the vacuity in the type system lets
-/// [`super::exchange::Exchange::complete_responder`] consume `Closing`
-/// directly, without a runtime check against an out-of-spec initiator.
+/// any two parties either have a leaf at the same path (in which case the
+/// leaf hashes match, both being the constant leaf hash) or one of them
+/// lacks it (in which case the receiver routes the missing prefix to
+/// `requested`, never `uncertain`). Encoding the vacuity in the type system
+/// lets
+/// [`complete_responder`](super::protocol::CompleteResponder::complete_responder)
+/// consume `Closing` directly, without a runtime check against an
+/// out-of-spec initiator.
 #[derive(Clone)]
 pub struct Closing<T> {
     pub providing: Providing<T, S<Z>>,
@@ -376,8 +378,10 @@ impl<T> Default for Closing<T> {
 }
 
 /// The responder's closing message: the final `providing` at leaf height,
-/// emitted by [`super::exchange::Exchange::complete_responder`] for the
-/// initiator to absorb in [`super::exchange::Exchange::complete_initiator`].
+/// emitted by
+/// [`complete_responder`](super::protocol::CompleteResponder::complete_responder)
+/// for the initiator to absorb in
+/// [`complete_initiator`](super::protocol::CompleteInitiator::complete_initiator).
 ///
 /// No `requested` (the initiator never replies after this) and no `uncertain`
 /// (vacuous at leaf height, same reasoning as [`Closing`]).

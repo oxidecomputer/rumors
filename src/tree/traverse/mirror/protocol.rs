@@ -20,9 +20,9 @@
 //! | [`Accept`]            | [`message::Handshake`]          | [`message::Handshake`]            | [`Initiator`] or [`Responder`]        |
 //! | [`Initiator`]         | --                              | [`message::Initiate`]             | [`OpenInitiator`]                     |
 //! | [`Responder`]         | [`message::Initiate`]           | [`message::Opening`]              | [`Exchange`] (first steady round)     |
-//! | [`OpenInitiator`]     | [`message::Opening`]            | [`message::Exchange<_, _, U^2>`]  | [`Exchange`] (first steady round)     |
+//! | [`OpenInitiator`]     | [`message::Opening`]            | `message::Exchange<_, U²>`        | [`Exchange`] (first steady round)     |
 //! | [`Exchange`]          | [`message::Exchange`]           | [`message::Exchange`]             | [`AfterExchange<H>`] (see below)      |
-//! | [`CloseInitiator`]    | [`message::Exchange<_,_,S<Z>>`] | [`message::Closing`]              | [`CompleteInitiator`]                 |
+//! | [`CloseInitiator`]    | `message::Exchange<_, S<Z>>`    | [`message::Closing`]              | [`CompleteInitiator`]                 |
 //! | [`CompleteResponder`] | [`message::Closing`]            | [`message::Complete`]             | terminal                              |
 //! | [`CompleteInitiator`] | [`message::Complete`]           | --                                | terminal                              |
 //!
@@ -147,10 +147,6 @@ where
 }
 
 /// Continue the protocol as the responder.
-///
-/// `Err(node)` from this call indicates that the initiator's root hash matched
-/// ours: the trees are already equal, the protocol short-circuits, and the
-/// caller receives the unchanged root.
 pub trait Responder<T>: Stage<Height = Root> + Sized
 where
     T: Send + Sync,
@@ -161,12 +157,12 @@ where
     /// Begin the protocol as the responder, processing the initiator's
     /// [`message::Initiate`].
     ///
-    /// If our root hash matches the initiator's, we short-circuit with
-    /// [`Step::Done`] and an empty `Opening`: the trees are already equal.
-    /// Otherwise we yield [`Step::Continue`], explode our root one level down
-    /// into an [`UnderRoot`]-height zipper, and emit its children's hashes as
-    /// the `Opening`'s `uncertain` set -- unconditionally, since we haven't
-    /// yet learned what the initiator has.
+    /// Yields [`Step::Continue`]: the responder explodes its root one level
+    /// down into an [`UnderRoot`]-height zipper and emits its children's
+    /// hashes as the `Opening`'s `uncertain` set, unconditionally, since it
+    /// has not yet learned what the initiator holds. (Equal versions end the
+    /// session in the connect phase, before this step; an empty `Opening` is
+    /// how an empty responder asks the initiator to provide everything.)
     async fn responder(
         self,
         request: message::Initiate,
@@ -176,7 +172,7 @@ where
 /// Process the responder's [`message::Opening`].
 ///
 /// Distinct from [`Exchange`] because the opening carries only `uncertain`,
-/// and the responder may list children of the initiator's absent root --- a
+/// and the responder may list children of the initiator's absent root, a
 /// case the steady-state [`Exchange`] is allowed to debug-assert against.
 pub trait OpenInitiator<T>: Stage<Height = Root> + Sized
 where
@@ -189,12 +185,12 @@ where
     /// Process the initiator's first round, applied to the responder's
     /// [`message::Opening`].
     ///
-    /// Distinct from [`Self::exchange`] because the opening carries only
-    /// `uncertain`, never `providing` or `requested`: the responder enumerates
-    /// every child of its root before learning what the initiator has. The
-    /// responder may therefore list hashes whose parent (our empty root prefix)
-    /// we lack entirely -- a normal case here, but one that would indicate a
-    /// protocol bug if it recurred in `Self::exchange`.
+    /// Distinct from [`Exchange::exchange`] because the opening carries only
+    /// `uncertain`, never `providing` or `requested`: the responder
+    /// enumerates every child of its root before learning what the initiator
+    /// has. The responder may therefore list hashes whose parent (our empty
+    /// root prefix) we lack entirely, a normal case here, but one that would
+    /// indicate a protocol bug if it recurred in `Exchange::exchange`.
     #[allow(clippy::type_complexity)]
     async fn open_initiator(
         self,
@@ -229,8 +225,8 @@ where
     ///
     /// Each call moves our zipper down by two heights and emits the next
     /// outgoing message. Yields [`Step::Done`] once we have nothing left to
-    /// ask about and nothing left in dispute -- but the outgoing message is
-    /// emitted unconditionally, because the counterparty may still need its
+    /// ask about and nothing left in dispute; the outgoing message is still
+    /// emitted unconditionally, because the counterparty may need its
     /// contents to converge.
     #[allow(clippy::type_complexity)]
     async fn exchange(
@@ -258,13 +254,13 @@ where
     /// The initiator's last sending round, descending the zipper from
     /// `S<S<Z>>` to `Z` and emitting [`message::Closing`].
     ///
-    /// Like [`Self::exchange`] internally, but emits `Closing` rather than
-    /// `Exchange<_, _, Z>`: the leaf-height `uncertain` that the steady-state
-    /// path would produce is structurally vacuous (leaves all hash to the
-    /// same all-ones sentinel, so any "Both"-case is necessarily a match),
-    /// so we omit it from the wire. This lets [`Self::complete_responder`]
-    /// consume `Closing` directly, without a runtime check that a
-    /// well-behaved peer would never trip.
+    /// Like [`Exchange::exchange`] internally, but emits `Closing` rather
+    /// than `Exchange<_, Z>`: the leaf-height `uncertain` the steady-state
+    /// path would produce is structurally vacuous (every leaf has the same
+    /// constant hash, so any "Both" case is necessarily a match), so it is
+    /// omitted from the wire. [`CompleteResponder`] can then consume
+    /// `Closing` directly, without a runtime check that a well-behaved peer
+    /// would never trip.
     #[allow(clippy::type_complexity)]
     async fn close_initiator(
         self,
@@ -387,9 +383,9 @@ where
 /// responder side does the same for `$resp_terminal`.
 ///
 /// Plain `where`-clauses on a trait definition don't propagate to callers,
-/// but `Trait<AssocType: Bound>` in supertrait position does --- which is
-/// why we go through the trouble of expressing the entire chain at the
-/// supertrait level rather than as a `where` predicate.
+/// but `Trait<AssocType: Bound>` in supertrait position does, so the entire
+/// chain is expressed at the supertrait level rather than as a `where`
+/// predicate.
 macro_rules! define_peer {
     (
         init: [$($init_count:tt)*],
@@ -445,9 +441,9 @@ macro_rules! define_peer {
     ) => {
         /// A type that can play either side of the mirror protocol: it
         /// implements both [`Initiator`] and [`Responder`] at the root, and
-        /// in either role the entire chain of `::Next` projections that the
-        /// drivers [`super::initiator`] / [`super::responder`] walk
-        /// implements the right protocol trait at every height.
+        /// in either role the entire chain of `::Next` projections the
+        /// session driver walks implements the right protocol trait at
+        /// every height.
         ///
         /// Both `local::Exchange` and `remote::Exchange` pick this up for
         /// free via the blanket impl below; downstream call sites take a

@@ -22,14 +22,14 @@ impl Arbitrary for Key {
 }
 
 /// Wrap a `Bytes` value as a `Message<Bytes>` with its cached serialization.
-/// Tests speak in terms of raw `Bytes`, but the tree's API now takes
+/// Tests speak in terms of raw `Bytes`, but the tree's API takes
 /// `Message<T>`, so every insert goes through this one-liner.
 fn msg(b: Bytes) -> Message<Bytes> {
     Message::new(b)
 }
 
-/// Convert an action into the form the tree accepts: `Action::Insert` wraps
-/// its value in a `Message<Bytes>`; `Action::Delete` passes through.
+/// Wrap a value as the insert action the tree accepts, with its cached
+/// serialization.
 fn insert_action(b: Bytes) -> Action<Bytes> {
     Action::Insert(msg(b))
 }
@@ -62,8 +62,8 @@ fn distinct_bytes_and_permutation(max: usize) -> impl Strategy<Value = (Vec<Byte
 
 /// Map a human-readable party label to a small disjoint-party index. The
 /// distinct labels the tests use ("A"/"B"/"C"/"P", or proptest-generated
-/// strings) map to distinct indices, so [`party_of`] yields mutually disjoint
-/// parties — the ITC stand-in for the old distinct party *names*.
+/// strings) map to distinct indices, so [`party_of`] yields mutually
+/// disjoint parties.
 fn idx(label: impl AsRef<[u8]>) -> usize {
     label.as_ref().first().map_or(0, |b| {
         (b.to_ascii_lowercase().wrapping_sub(b'a') as usize) % 16
@@ -80,9 +80,7 @@ fn party_of(label: impl AsRef<[u8]>) -> impl FnMut(&mut before::batch::Version) 
 }
 
 /// Build the [`Version`] a party reaches after `ticks` events: tick its
-/// disjoint party `ticks` times from the empty version. Replaces the old
-/// `(party, scalar)` version-vector constructor — `ticks` plays the role the
-/// per-party scalar counter used to.
+/// disjoint party `ticks` times from the empty version.
 fn version_for(party: impl AsRef<[u8]>, ticks: u64) -> Version {
     let mut p = party_of(party);
     let mut v = Version::new();
@@ -105,7 +103,7 @@ fn leaf_path(party: impl AsRef<[u8]>, scalar: u64, value: &Bytes) -> Key {
 }
 
 /// Build a versioned insert triple of the shape `Tree::react` expects:
-/// `(version, leaf_path, message)`. The leaf path matches what `act` would
+/// `(leaf_path, version, message)`. The leaf path matches what `act` would
 /// have computed for the given party label and scalar version. Wrapping the
 /// boilerplate keeps the test bodies focused on the property under test.
 fn insert_at(
@@ -431,11 +429,11 @@ proptest! {
         prop_assert_eq!(front, fwd);
     }
 
-    /// Inserting a value and then deleting its leaf path via two separate `act`
-    /// calls must leave the tree empty (the empty-tree hash). Each `act` batch
-    /// advances the party's scalar version by one — inserts and forgets
-    /// both claim a fresh version, so that the mirror protocol can
-    /// distinguish "I forgot this" from "I never knew about it."
+    /// Inserting a value and then deleting its leaf path via two separate
+    /// `act` calls must leave the tree empty (the empty-tree hash), with the
+    /// version two ticks along: inserts and effectual forgets each claim a
+    /// fresh version, so the mirror protocol can distinguish "I forgot this"
+    /// from "I never knew about it."
     #[test]
     fn insert_then_delete_is_empty(value in any::<Vec<u8>>()) {
         let party = "P".to_string();
@@ -467,9 +465,9 @@ proptest! {
         prop_assert_eq!(tree.latest(), Version::new());
     }
 
-    /// Deleting a path that is not present in the tree must not change the
-    /// root hash. The version vector still advances because `act` always
-    /// bumps, but the leaf multiset is identical, so the hash is unchanged.
+    /// Deleting a path that is not present in the tree changes neither the
+    /// root hash nor the version: the leaf multiset is identical, and the
+    /// tree's version absorbs a tick only from actions that have an effect.
     #[test]
     fn delete_absent_path_preserves_hash(
         bytes in distinct_bytes(8),
@@ -488,6 +486,7 @@ proptest! {
         run(t_after.act(party_of("P"), [Action::Forget(nuke)], crate::tree::ignore));
 
         prop_assert_eq!(t_before.hash(), t_after.hash());
+        prop_assert_eq!(t_before.latest(), t_after.latest());
     }
 
     /// A fresh tree returns no values for any requested paths: no leaves are
@@ -567,10 +566,13 @@ proptest! {
         prop_assert_eq!(got, expected);
     }
 
-    /// Every `act` call advances the owning party's scalar version by exactly
-    /// the number of [`Action::Insert`]s in the batch: each insert claims a
-    /// fresh version so that content-identical messages produce distinct keys.
-    /// Forgets do not advance the version.
+    /// Every insert in an `act` batch advances the owning party's version by
+    /// one, so a run of batches totalling `n` inserts leaves the tree's
+    /// version exactly `n` ticks along. Each insert claims a fresh version
+    /// so that content-identical messages produce distinct keys. (Effectual
+    /// forgets advance the version too, pinned by
+    /// `insert_then_delete_is_empty`; ineffectual ones do not, pinned by
+    /// `delete_absent_path_preserves_hash`.)
     #[test]
     fn act_bumps_self_party_by_number_of_inserts(
         prior_inserts in 0usize..4,
@@ -710,11 +712,8 @@ proptest! {
 
     /// Strong eventual consistency: if two parties each apply their own
     /// actions locally and then cross-react to each other's recorded event
-    /// history, their trees converge to the same leaf multiset (and thus
-    /// the same root hash and version vector). Different parties keep
-    /// distinct `party` fields, so we can't use `Tree`'s full structural
-    /// equality, but the observable invariants — `hash()` and `version()`
-    /// — must agree.
+    /// history, their trees converge to the same leaf multiset, so the
+    /// observable invariants (`hash()` and `latest()`) must agree.
     #[test]
     fn two_party_sec_cross_replay(
         a_inserts in distinct_bytes(4),

@@ -20,18 +20,18 @@
 //! fixed by the operation sequence, independent of the (valid) fork/inflation
 //! policy each implementation chooses.
 //!
-//! To exercise *that independence directly*, this reference's two
-//! under-determined operations make a fresh **random** law-abiding choice on
-//! every call (seeded from the proptest input, so failures replay): [`event`]
-//! draws an arbitrary §4-valid inflation (a partial, random-amount bump of the
-//! owned region) and [`fork`] draws an arbitrary §4-valid split (dealing the
-//! owned region's pieces out at random). So the cross-check does not merely
-//! confirm one fixed instantiation agrees with the impl's minimal `grow` — it
-//! asserts agreement across a whole random sample of the valid policy space,
-//! which is the real content of the invariance claim. The lone limit is a
-//! concession to the *finite* grid: an arbitrary cut of an *indivisible*
+//! To exercise that independence directly, the two under-determined
+//! operations make a fresh random, law-abiding choice on every call (seeded
+//! from the proptest input, so failures replay): [`event`] draws an
+//! arbitrary §4-valid inflation (a partial, random-amount bump of the owned
+//! region) and [`fork`] draws an arbitrary §4-valid split (dealing the owned
+//! region's pieces out at random). The cross-check therefore asserts
+//! agreement across a random sample of the valid policy space, not merely
+//! between one fixed instantiation and the impl's minimal `grow`. The one
+//! concession to the finite grid: an arbitrary cut of an indivisible
 //! interval needs unbounded resolution, so such a piece is bisected at its
-//! midpoint (see [`fork`]); every other split, and every inflation, is free.
+//! midpoint (see [`fork`]); every other split, and every inflation, is
+//! unconstrained.
 //!
 //! That invariance holds only for a *proper* ITC system — one seed, so ids
 //! partition a single space and all live ids stay disjoint. Several seeds would
@@ -58,11 +58,12 @@ use crate::oracle;
 /// Grid exponent ceiling for the comparison and resolution scans: a scan
 /// samples `2^g` points with `g` the resolution actually in hand
 /// ([`id_res`]/[`ev_res`]), and this caps `g`. Set well above the resolution
-/// the tests reach (arbit rary generators cap at 4; a single-seed op trace tops
-/// out near 7, since the random `fork` only deepens at the paper's rate), so it
-/// never bites. The headroom is load-bearing — `fork` bisects an indivisible
-/// piece one level finer, so a piece at resolution `GRID_N` could not be split
-/// — and [`tests::grid_cap_is_never_reached`] pins it.
+/// the tests reach (arbitrary generators cap at 4; a single-seed op trace
+/// tops out near 7, since the random `fork` only deepens at the paper's
+/// rate), so it never bites. The headroom is required for correctness:
+/// `fork` bisects an indivisible piece one level finer, so a piece at
+/// resolution `GRID_N` could not be split.
+/// [`tests::grid_cap_is_never_reached`] pins it.
 pub(crate) const GRID_N: u32 = 10;
 
 // ───────────────────────────── dyadic points ─────────────────────────────
@@ -326,9 +327,9 @@ fn resolution<T: PartialEq>(samples: &[T]) -> u32 {
 
 // ───────────────────────────── embedding (tree → function) ─────────────────────────────
 
-/// `⟦i⟧` for an oracle id tree: the only place a tree is read. Descends by the
-/// §4 recursion — at a node the left child owns `[0,½)` (argument `2x`), the
-/// right `[½,1)` (argument `2x−1`).
+/// `⟦i⟧` for an oracle id tree (with [`lift_ev`], the only places a tree is
+/// read). Descends by the §4 recursion: at a node the left child owns
+/// `[0,½)` (argument `2x`), the right `[½,1)` (argument `2x−1`).
 pub(crate) fn lift_id(t: oracle::Party) -> Id {
     Rc::new(move |x| eval_id(&t, x))
 }

@@ -78,11 +78,11 @@ impl FillWalk {
         // [`peek`](IdReader::peek) tests a child's fullness without consuming it.
         //
         // The two shortcuts are mirror images, but the preorder builder treats
-        // them asymmetrically (intrinsic, not incidental): a collapsed *left*
-        // child must be emitted before its right sibling exists, so it is a
+        // them asymmetrically: a collapsed *left* child must be emitted before
+        // its right sibling exists, so it is a
         // [`deferred_leaf`](Builder::deferred_leaf) resolved after the right is
-        // built; a collapsed *right* child is emitted after its left sibling, so
-        // its value is already known.
+        // built; a collapsed *right* child is emitted after its left sibling,
+        // so its value is already known.
         if let IdNode::Full = id.peek() {
             // `il` full: defer the collapsed left, fill the right, then resolve.
             let node = self.out.open(ev_base);

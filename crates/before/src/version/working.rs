@@ -37,12 +37,11 @@ impl WorkingVersion {
     /// (its flag) and one base. The input must be exactly one `enc_ev` tree (a
     /// `Version`'s stored bits).
     pub(crate) fn unpack(packed: &BitsSlice) -> WorkingVersion {
-        // Grow `topo`/`base` by `push` rather than pre-sizing: the working form
-        // is transient (built, compared, dropped) and these are allocated and
-        // freed on every version op, so `Vec`/`Bits` power-of-two growth
-        // recycles through the allocator's size classes across calls better than
-        // an exact, input-varying `with_capacity` (matching the mirror-level
-        // finding in `rumors`).
+        // Grow `topo`/`base` by `push` rather than pre-sizing: the working
+        // form is transient (built, compared, dropped) and these are
+        // allocated and freed on every version op, so `Vec`/`Bits`
+        // power-of-two growth recycles through the allocator's size classes
+        // across calls better than an exact, input-varying `with_capacity`.
         let mut topo = Bits::new();
         let mut base = Vec::new();
         let mut pos = 0;
@@ -64,9 +63,9 @@ impl WorkingVersion {
     pub(crate) fn repack(&self) -> Bits {
         // Grow `out` by `push` rather than pre-sizing: dropping the
         // `with_capacity` also drops the `encoded_int_len` capacity-sum pass
-        // (real work over every base), and `Bits`'s power-of-two growth recycles
-        // through the allocator's size classes across calls (see
-        // `unpack`/the mirror-level finding).
+        // (real work over every base), and `Bits`'s power-of-two growth
+        // recycles through the allocator's size classes across calls (see
+        // `unpack`).
         let mut out = Bits::new();
         for (flag, base) in self.topo.iter().by_vals().zip(&self.base) {
             step!(); // one step per node processed

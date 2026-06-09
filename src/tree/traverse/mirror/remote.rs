@@ -21,22 +21,20 @@
 //!   the connection with anything else is rejected as [`Error::MagicMismatch`];
 //!   it isn't speaking the `rumors` protocol at all.
 //!
-//! - **Version** is [`crate::PROTOCOL_VERSION`], a monotonic `u16`. Patch
-//!   versions of `rumors` never change it; minor versions are forward-
-//!   compatible (additive wire changes, both sides downgrade to
-//!   `min(local, remote)`); major versions may bump it incompatibly and
-//!   surface as [`Error::VersionMismatch`].
+//! - **Version** is [`crate::PROTOCOL_VERSION`], a monotonic `u16`. A peer
+//!   whose version differs is rejected as [`Error::VersionMismatch`].
 //!
-//! The 128-bit [`Network`] identifier rides the framed [`message::Handshake`]
-//! greeting that follows, where it doubles as the session-intent signal: a real
-//! (non-`ZERO`) value means an ordinary peer, while the all-zero placeholder
-//! means that side is [bootstrapping](crate::Known::bootstrap) and holds no
-//! universe yet. When *both* sides carry a real network and the two differ, the
-//! session is rejected as [`Error::NetworkMismatch`]: the peers descend from
-//! different [`seed`](crate::Known::seed)s and must not combine, even if their
-//! parties happen to look disjoint. A bootstrapping side's placeholder
-//! suppresses that check, and the provider's network becomes the value the
-//! bootstrapper adopts.
+//! The 128-bit [`Network`] identifier rides the framed
+//! [`message::Handshake`] greeting that follows, where it doubles as the
+//! bootstrap signal: a real (non-`ZERO`) value means an ordinary peer, while
+//! the all-zero placeholder means that side is
+//! [bootstrapping](crate::Known::bootstrap) and holds no universe yet. When
+//! both sides carry a real network and the two differ, the session is
+//! rejected as [`Error::NetworkMismatch`]: the peers descend from different
+//! [`seed`](crate::Known::seed)s and must not combine, even if their parties
+//! happen to look disjoint. A bootstrapping side's placeholder suppresses
+//! that check, and the provider's network becomes the value the bootstrapper
+//! adopts.
 //!
 //! Both sides drive the preamble's write and read concurrently via
 //! [`futures_util::future::try_join`]; a peer that reads before writing would
@@ -55,9 +53,9 @@
 //! length-delimited frame via [`tokio_util::codec::LengthDelimitedCodec`]
 //! (4-byte big-endian length prefix). The codec's `max_frame_length` is raised
 //! to `usize::MAX` so that arbitrarily large subtrees can travel in one frame;
-//! the protocol's height schedule still names the type each side expects next,
-//! and the frame boundary now lets the async reader know exactly how many bytes
-//! belong to that next message.
+//! the protocol's height schedule names the type each side expects next, and
+//! the frame boundary tells the async reader exactly how many bytes belong to
+//! that next message.
 //!
 //! # In-band termination
 //!
@@ -97,15 +95,15 @@ pub enum Error {
     #[error(transparent)]
     Io(borsh::io::Error),
 
-    /// The peer's handshake preamble did not begin with [`PROTOCOL_MAGIC`]:
-    /// the connection is not speaking the `rumors` protocol at all.
+    /// The peer's preamble did not begin with [`PROTOCOL_MAGIC`]: the
+    /// connection is not speaking the `rumors` protocol at all.
     ///
     /// [`PROTOCOL_MAGIC`]: crate::PROTOCOL_MAGIC
     #[error("peer is not a rumors stream (remote magic: {remote_magic:x?})")]
     MagicMismatch { remote_magic: [u8; 6] },
 
-    /// The peer's handshake magic matched but its protocol version is
-    /// incompatible with ours. See [`PROTOCOL_VERSION`].
+    /// The peer's magic matched but its protocol version differs from ours.
+    /// See [`PROTOCOL_VERSION`].
     ///
     /// [`PROTOCOL_VERSION`]: crate::PROTOCOL_VERSION
     #[error(
@@ -155,7 +153,7 @@ impl From<borsh::io::Error> for Error {
 /// rejected *before* the length-delimited codec ever trusts a peer-supplied
 /// frame length, so that a garbage peer cannot induce a huge-frame allocation.
 ///
-/// The [`Network`] is no longer part of the preamble: it now rides the framed
+/// The [`Network`] is not part of the preamble: it rides the framed
 /// [`message::Handshake`] the `connect`/`accept` steps exchange, where the
 /// network-match check is applied.
 ///
@@ -180,8 +178,8 @@ where
     // and a buffering transport (a compression layer, a `BufWriter`, a TLS
     // record buffer) may hold all 8 bytes back. Since the peer concurrently
     // `read_exact`s 8 bytes before sending anything further, an unflushed
-    // preamble deadlocks both sides. A raw socket forwards immediately and so
-    // never exposed this, but the `AsyncWrite` contract does not promise it.
+    // preamble deadlocks both sides. A raw socket forwards immediately and
+    // masks the problem, but the `AsyncWrite` contract does not promise it.
     let write_fut = async {
         write.write_all(&local).await.map_err(Error::Io)?;
         write.flush().await.map_err(Error::Io)
@@ -262,12 +260,13 @@ impl<T, R, W, H: Height> Exchange<T, R, W, Connected, H> {
 
 impl<T, R, W, V, H: Height> protocol::Stage for Exchange<T, R, W, V, H> {
     type Height = H;
-    /// The reconciled tree lives on the local side; the proxy yields its framed
-    /// reader/writer halves back to the caller. This lets a session that needs a
-    /// trailing frame after the descent — the fork-last party hand-off when
-    /// serving a [bootstrapping](super::bootstrap) peer — read it from the *same*
-    /// [`FramedRead`] the descent used, whose buffer may already hold the
-    /// trailing frame's leading bytes (a fresh reader would lose them).
+    /// The reconciled tree lives on the local side; the proxy yields its
+    /// framed reader/writer halves back to the caller. A session that needs
+    /// a trailing frame after the descent (the fork-last party hand-off when
+    /// serving a [bootstrapping](crate::Known::bootstrap) peer) can then
+    /// read it from the same [`FramedRead`] the descent used, whose buffer
+    /// may already hold the trailing frame's leading bytes; a fresh reader
+    /// would lose them.
     type Output = (
         FramedRead<R, LengthDelimitedCodec>,
         FramedWrite<W, LengthDelimitedCodec>,
@@ -296,10 +295,9 @@ where
 
 /// Pull one length-delimited frame off the wire and borsh-decode it as `M`.
 ///
-/// A clean end-of-stream (peer closed before sending the expected message) is
-/// surfaced as an [`UnexpectedEof`](borsh::io::ErrorKind::UnexpectedEof)
-/// borsh I/O error, matching what the synchronous predecessor would have
-/// raised mid-`deserialize_reader`.
+/// A clean end-of-stream (peer closed before sending the expected message)
+/// is surfaced as an [`UnexpectedEof`](borsh::io::ErrorKind::UnexpectedEof)
+/// borsh I/O error.
 pub(super) async fn recv_msg<M, R>(
     reader: &mut FramedRead<R, LengthDelimitedCodec>,
 ) -> Result<M, Error>
@@ -328,32 +326,33 @@ where
 /// its (whole, aliased) party last, for the absorber to [`recv_party`] and
 /// join.
 ///
-/// Bootstrapping is not a separate bulk transfer: a peer holding nothing greets
-/// with the placeholder [`Network::ZERO`](crate::Network) and an empty tree,
-/// then runs the ordinary [mirror descent](super::local) — the empty side pulls
-/// all of the provider's content through the usual `providing` channel. The
-/// descent moves *content* but not *parties*, so one thing remains: the
-/// provider must hand the newcomer a [`Party`](before::Party). That is this
-/// single frame.
+/// Bootstrapping is not a separate bulk transfer: a peer holding nothing
+/// greets with the placeholder [`Network::ZERO`](crate::Network) and an
+/// empty tree, then runs the ordinary [mirror descent](super::local), with
+/// the empty side pulling all of the provider's content through the usual
+/// `providing` channel. The descent moves content but not parties, so one
+/// thing remains: the provider must hand the newcomer a
+/// [`Party`](before::Party). That is this single frame.
 ///
-/// # Ordering is load-bearing
+/// # Ordering
 ///
-/// Forking last means a failure during the (large) descent never costs a party
-/// region. If the party frame itself is lost, the provider must assume it could
-/// *still* have been received: it is not safe to reclaim the forked party, and
-/// if it was in fact not received, the party permanently leaks out of the
-/// system. No acknowledgement could shrink that residual window to zero — a
-/// lost final message leaves the provider unable to tell "peer got the party"
-/// from "peer did not" (the two-generals problem) — so forking last is the
-/// structural minimum, and it costs no extra round-trip. Because
-/// [`Party::fork`](before::Party::fork) splits the identifier space without
-/// ticking the clock, a party frame lost in that window costs only a slice of
-/// the id space, never causal correctness: the provider's retained half stays a
-/// valid, disjoint party.
+/// Forking last means a failure during the (large) descent never costs a
+/// party region. If the party frame itself is lost, the provider must assume
+/// it could still have been received: it is not safe to reclaim the forked
+/// party, and if the frame was in fact not received, the party permanently
+/// leaks out of the system. No acknowledgement could shrink that residual
+/// window to zero, because a lost final message leaves the provider unable
+/// to tell "peer got the party" from "peer did not" (the two-generals
+/// problem); forking last is the structural minimum, and it costs no extra
+/// round-trip. [`Party::fork`](before::Party::fork) splits the identifier
+/// space without ticking the clock, so a party frame lost in that window
+/// costs only a slice of the id space, never causal correctness: the
+/// provider's retained half stays a valid, disjoint party.
 ///
-/// The frame travels on the *same* [`FramedWrite`] the descent used (surfaced
-/// back to the caller as the remote exchange's output), because the descent's
-/// reader on the far side may already have buffered this frame's leading bytes.
+/// The frame travels on the same [`FramedWrite`] the descent used (surfaced
+/// back to the caller as the remote exchange's output), because the
+/// descent's reader on the far side may already have buffered this frame's
+/// leading bytes.
 pub(crate) async fn send_party<W>(
     give: Party,
     writer: &mut FramedWrite<W, LengthDelimitedCodec>,
@@ -394,7 +393,7 @@ where
     ) -> Result<protocol::Step<message::Handshake, Self::Next, Self::Output>, Self::Error> {
         // `request` is our local caller's handshake; ship it across to the
         // peer, then read the peer's handshake reply. (If our caller is
-        // retiring, `request.retiring` only *announces* the hand-off; the party
+        // retiring, `request.intent` only announces the hand-off; the party
         // itself travels as a trailing frame after reconciliation, via
         // `send_party`.)
         send_msg(&mut self.writer, &request).await?;

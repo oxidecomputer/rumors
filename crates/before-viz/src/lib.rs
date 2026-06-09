@@ -2,7 +2,7 @@
 //!
 //! The engine owns the authoritative **operation log** and the immutable causal-history
 //! DAG it induces. Gestures call [`Engine::apply`] (or the wasm `tick`/`fork`/`join`/
-//! `send` methods), which rewinds the futures the op supersedes ([`oplog::rewind_and_apply`])
+//! `send` methods), which rewinds the futures the op supersedes (`oplog::rewind_and_apply`)
 //! and appends the op; the engine then re-materializes clock values and reports the
 //! derived state (node descriptors, causal edges, the live set) to the front-end, which
 //! is purely presentational. The log also round-trips to a URL fragment, so any figure

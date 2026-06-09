@@ -27,10 +27,10 @@ mod tests;
 /// | [`a.is_disjoint(&b)`](Party::is_disjoint) | whether `a` and `b` share no region, hence may safely interact            |
 /// | `a == b`                                  | whether `a` is exactly the same [`Party`] as `b`                          |
 ///
-/// A [`Party`] is **not ordered**. Use [`is_disjoint`](Party::is_disjoint) to
+/// A [`Party`] is not ordered. Use [`is_disjoint`](Party::is_disjoint) to
 /// tell whether two parties may [`join`](Party::join). There is likewise no
 /// `Party | Party`: reuniting is the fallible [`join`](Party::join), which
-/// internally verifies disjointness.
+/// verifies disjointness itself.
 ///
 /// Like [`Clock`](crate::Clock), [`Party`] is [`!Clone`](Clone): duplicating a
 /// live party would violate the linearity which interval tree clocks require.
@@ -49,12 +49,11 @@ pub struct Party(BitVec<u8, Msb0>);
 impl Party {
     /// The initial [`Party`] in the system.
     ///
-    /// In any given system of [`Party`]s, this function (or
-    /// [`Clock::seed`](crate::Clock::seed), which invokes it) should only be
-    /// called by one party in the entire system, and only once: all its
-    /// descendents are necessarily disjoint, but the descendents of parallel
-    /// seeds need not be; if ever the twain meet, invariants and expectations
-    /// will be violated.
+    /// Call this function (or [`Clock::seed`](crate::Clock::seed), which
+    /// invokes it) once per system of parties. Every descendant of a single
+    /// seed is disjoint from its peers, but descendants of two independent
+    /// seeds need not be; if they ever interact, causal history is silently
+    /// corrupted.
     ///
     /// ```
     /// assert_eq!(before::Party::seed().to_string(), "1");
@@ -80,12 +79,11 @@ impl Party {
 
     /// Split off a new disjoint [`Party`] from this one.
     ///
-    /// # ⚠️ Warning
+    /// # Warning
     ///
-    /// Repeatedly calling [`fork`](Party::fork) on solely the same [`Party`]
-    /// will lead to imbalanced internal tree representations and worse memory
-    /// usage and performance; it's recommended to randomize which [`Party`]s
-    /// are [`fork`](Party::fork)ed.
+    /// Repeatedly forking the same [`Party`] produces an imbalanced internal
+    /// tree, with worse memory use and performance. Prefer to vary which
+    /// party is forked.
     ///
     /// ```
     /// use before::Party;
@@ -124,11 +122,13 @@ impl Party {
         }
     }
 
-    /// Test whether `self` and `other` are *disjoint* (i.e. descend from linear
-    /// [`fork`](Party::fork)-[`join`](Party::join) operations starting from a
-    /// singular [`seed`](Party::seed)).
+    /// Test whether `self` and `other` are *disjoint*: their owned regions
+    /// share nothing. All live descendants of a single
+    /// [`seed`](Party::seed), evolved by linear [`fork`](Party::fork) and
+    /// [`join`](Party::join), are pairwise disjoint.
     ///
-    /// Disjoint [`Party`]s may always be [`join`](Party::join)ed without error.
+    /// Disjoint [`Party`]s may always be [`join`](Party::join)ed without
+    /// error.
     ///
     /// ```
     /// use before::Party;
@@ -140,30 +140,28 @@ impl Party {
         self.view().is_disjoint(other.view())
     }
 
-    /// Test whether `self`'s owned id-region *contains* all of `other`'s — i.e.
-    /// `self ⊇ other`, every region `other` owns is also owned by `self`.
+    /// Test whether `self`'s owned region contains all of `other`'s
+    /// (`self ⊇ other`).
     ///
-    /// The asymmetric companion of [`is_disjoint`](Party::is_disjoint): two
-    /// [`Party`]s are either disjoint (share nothing), or one covers the other
-    /// (their regions are nested), or — for arbitrary unrelated ids — neither
-    /// (they partially overlap). For any two [`Party`]s descended from the same
-    /// [`seed`](Party::seed) via [`fork`](Party::fork)/[`join`](Party::join),
-    /// the partial-overlap case cannot arise, so covering is exactly the
-    /// negation of disjointness once equal regions are set aside.
+    /// This is the asymmetric companion of
+    /// [`is_disjoint`](Party::is_disjoint). Two arbitrary parties are
+    /// disjoint (they share nothing), nested (one covers the other), or
+    /// partially overlapping (neither covers the other). For parties
+    /// descended from one [`seed`](Party::seed) via [`fork`](Party::fork)
+    /// and [`join`](Party::join), partial overlap cannot arise.
     ///
-    /// Covering is reflexive and transitive (a partial order on regions), with
+    /// Covering is reflexive and transitive, a partial order on regions with
     /// the whole [`seed`](Party::seed) on top:
     ///
     /// - `seed` covers every [`Party`];
     /// - a [`Party`] covers itself (and any [`dangerously_alias`] of it);
-    /// - the parent of a [`fork`](Party::fork) covers both resulting halves,
-    ///   and a [`join`](Party::join) covers each of its parts.
+    /// - the parent of a [`fork`](Party::fork) covers both halves, and a
+    ///   [`join`](Party::join) covers each of its parts.
     ///
-    /// Covering a *non-empty* region implies the two are **not**
-    /// [disjoint](Party::is_disjoint): a reclaiming party that has come to
-    /// cover another's region can therefore no longer [`join`](Party::join) it
-    /// (the region is already held), which is exactly how a caller recognizes a
-    /// once-outstanding share as fully reabsorbed.
+    /// Covering a non-empty region implies the two are not
+    /// [disjoint](Party::is_disjoint), so a party that has come to cover
+    /// another's region can no longer [`join`](Party::join) it. This is how
+    /// a caller recognizes an outstanding share as fully reabsorbed.
     ///
     /// [`dangerously_alias`]: Party::dangerously_alias
     ///
@@ -173,7 +171,7 @@ impl Party {
     /// let q = p.fork();
     /// assert!(Party::seed().covers(&p)); // the whole covers a part
     /// assert!(p.covers(&p.dangerously_alias())); // a region covers itself
-    /// assert!(!p.covers(&q)); // disjoint halves cover neither other
+    /// assert!(!p.covers(&q)); // neither disjoint half covers the other
     /// assert!(!q.covers(&p));
     /// p.join(q).unwrap();
     /// assert!(p.covers(&Party::seed())); // rejoined to the whole again
@@ -182,19 +180,18 @@ impl Party {
         self.view().covers(other.view())
     }
 
-    /// Carve `other`'s region out of `self`, yielding the share of `self` that
-    /// `other` does **not** own — the region difference `self \ other`.
+    /// Carve `other`'s region out of `self`: the region difference
+    /// `self \ other`.
     ///
-    /// Returns `None` exactly when `other` [`covers`](Party::covers) `self`, so
-    /// nothing remains: a [`Party`] is a *nonzero* share, and the empty region
-    /// is not a [`Party`]. Otherwise returns `Some` of the remainder, which is
-    /// always a subregion of `self` (`self \ other ⊆ self`).
+    /// Returns `None` when `other` [`covers`](Party::covers) `self` and
+    /// nothing remains; the empty region is not a [`Party`]. Otherwise
+    /// returns the remainder, which is always a subregion of `self`
+    /// (`self \ other ⊆ self`).
     ///
-    /// This is a partial inverse of [`join`](Party::join): where `join` folds a
-    /// disjoint share *in*, `without` cuts a share back *out*. It consumes
-    /// `self` by value and reads `other` only as a mask, shrinking `self`,
-    /// which means that it does not introduce any more non-linearity than
-    /// already exists.
+    /// This is a partial inverse of [`join`](Party::join): where `join`
+    /// folds a disjoint share in, `without` cuts a share back out. It
+    /// consumes `self` and reads `other` only as a mask, so it introduces no
+    /// new aliasing.
     ///
     /// ```
     /// use before::Party;
@@ -217,39 +214,24 @@ impl Party {
         }
     }
 
-    /// Dangerously duplicate this party, violating linearity to produce a
-    /// second handle to the **same** party identity.
+    /// Duplicate this party, producing a second handle to the same identity
+    /// in violation of linearity.
     ///
-    /// # ⚠️ You probably don't want to call this method because it can **corrupt
-    /// causal history**
+    /// # Warning
     ///
-    /// [`Party`] is [`!Clone`](Clone) precisely because two live handles to one
-    /// region break the Law of Disjointness upon which interval tree clocks
-    /// rely: the copy produced by this method is *not*
-    /// [disjoint](Party::is_disjoint), so if the original and the alias (or any
-    /// of their [`fork`](Party::fork)s) both [`join`](Party::join) or
-    /// [`tick`](Party::tick), it can corrupt causal history arbitrarily.
+    /// [`Party`] is [`!Clone`](Clone) because two live handles to one region
+    /// break the Law of Disjointness: the alias is not
+    /// [disjoint](Party::is_disjoint) from the original, so if both copies
+    /// (or any of their [`fork`](Party::fork)s) go on to
+    /// [`tick`](Party::tick) or [`join`](Party::join), causal history can be
+    /// corrupted arbitrarily. The caller must ensure that at most one of the
+    /// two copies is ever treated as live; the other must be dropped without
+    /// further use. The same rule applies to any [`Clock`](crate::Clock)
+    /// built from such a party.
     ///
-    /// Because of this, duplicating a [`Party`] is almost always a footgun;
-    /// this method invites you to shoot yourself in the foot. The caller is
-    /// **solely responsible** for ensuring at most one copy of a [`Party`] is
-    /// ever treated as "live"; the other must be dropped without ever being
-    /// used again. It is only causality-safe to call this method if you can
-    /// ensure that *at most one* of the copies (or any of its
-    /// [`fork`](Party::fork)s) will *ever* call [`tick`](Party::tick) again.
-    ///
-    /// Keep in mind that a [`Clock`](crate::Clock) is merely the convenient
-    /// pairing of a [`Party`] and a [`Version`], so all these warnings apply
-    /// equally to [`Clock`](crate::Clock)s constructed from such a [`Party`]:
-    /// *at most one* of such a [`Clock`](crate::Clock) (or any of its
-    /// [`fork`](crate::Clock::fork)s) must *ever* call
-    /// [`tick`](crate::Clock::tick) again.
-    ///
-    /// ## When might you want to do this?
-    ///
-    /// You might reach for this when handing a party across a boundary where
-    /// ownership transfers to exactly one side based on a subsequent
-    /// determination not known at the time of transfer.
+    /// This method exists for handing a party across a boundary where
+    /// ownership transfers to exactly one side based on an outcome not known
+    /// at the time of transfer.
     ///
     /// ```
     /// use before::Party;
@@ -263,9 +245,10 @@ impl Party {
 
     /// Encode a [`Party`] to bytes.
     ///
-    /// **Note:** The byte-encoding of a [`Clock`](crate::Clock) is **not the
-    /// same** as the concatenation of the byte-encoding of a [`Party`] and a
-    /// [`Version`](crate::Version).
+    /// The byte encoding of a [`Clock`](crate::Clock) is not the
+    /// concatenation of the encodings of its [`Party`] and
+    /// [`Version`](crate::Version); see
+    /// [`Clock::encode`](crate::Clock::encode).
     ///
     /// ```
     /// use before::Party;
@@ -347,17 +330,17 @@ impl Party {
         IdReader::root(&self.0)
     }
 
-    /// The canonical packed bytes of this [`Party`]: exactly what
-    /// [`encode`](Self::encode) produces, but borrowed without copying. The
-    /// final partial byte is zero-padded (an invariant of the stored form), so
-    /// these bytes are a *canonical* identity — byte-equal if and only if the
-    /// [`Party`]s are equal, and stable to [`hash`](core::hash::Hash).
+    /// The canonical packed bytes of this [`Party`]: what
+    /// [`encode`](Self::encode) produces, borrowed without copying. The
+    /// final partial byte is zero-padded in the stored form, so these bytes
+    /// are a canonical identity: byte-equal if and only if the parties are
+    /// equal, and consistent with [`hash`](core::hash::Hash).
     ///
-    /// A [`Party`] is **not ordered** (see the type docs); the lexicographic
+    /// A [`Party`] is not ordered (see the type docs). The lexicographic
     /// order of these bytes is an arbitrary total order with no semantic
     /// meaning, useful only as a deterministic tiebreak. Use
-    /// [`is_disjoint`](Self::is_disjoint) to reason about whether two parties
-    /// may interact.
+    /// [`is_disjoint`](Self::is_disjoint) to reason about whether two
+    /// parties may interact.
     ///
     /// ```
     /// use before::Party;

@@ -8,7 +8,9 @@ use crate::tree::Key;
 use super::height::{Height, Root, S, Z};
 use super::path::Path;
 
-/// A typed path through the tree which is always the right height.
+/// The path bytes accumulated from the root down to height `H`: exactly
+/// `32 - H::HEIGHT` of them. The complement of a [`Path<H>`], which holds
+/// the bytes still to be consumed below that height.
 ///
 /// `PhantomData<fn() -> H>` rather than `PhantomData<H>` so the
 /// auto-trait check on `Prefix` does not recurse through the
@@ -73,7 +75,7 @@ impl<H: Height> Prefix<H> {
         let byte = self
             .hash
             .pop()
-            .expect("internal vector cannot be non-empty");
+            .expect("a prefix above height Root has at least one byte to pop");
         (
             Prefix {
                 height: PhantomData,

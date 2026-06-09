@@ -20,9 +20,8 @@
 //!
 //!   1. Initiator sends [`message::Initiate`] (a single hash at the empty
 //!      prefix: our root hash).
-//!   2. Responder either declares the trees equal, or replies with
-//!      [`message::Opening`] enumerating the hashes of *every* child of its
-//!      root.
+//!   2. Responder replies with [`message::Opening`], enumerating the hashes
+//!      of every child of its root (empty if it has none).
 //!   3. Both sides alternately send [`message::Exchange`]s, each round
 //!      descending the sender's zipper by two heights.
 //!   4. The initiator's last outgoing message is [`message::Closing`] in
@@ -152,13 +151,12 @@ where
 ///
 /// Both callbacks are [`Option`]al. A [`None`] `on_recv` lets
 /// [`Self::absorb_providing`] skip the per-leaf discovery walk entirely (the
-/// dominant cost when no observation is wanted, as in [`join`] and
-/// callback-less [`learn`]); a [`None`] `on_send` skips firing the
-/// counterparty-side notification while still running the load-bearing
-/// version filter.
+/// dominant cost when no observation is wanted, as in callback-less
+/// [`gossip`]); a [`None`] `on_send` skips firing the counterparty-side
+/// notification while still running the version filter that honors
+/// deletions.
 ///
-/// [`join`]: crate::Known::join
-/// [`learn`]: crate::Known::learn
+/// [`gossip`]: crate::Known::gossip
 pub struct Exchange<OnSend, OnRecv, V, L> {
     /// Our multi-level zipper: agreed heights live near the top, the height
     /// currently under comparison lives at the bottom.
@@ -237,7 +235,7 @@ where
     }
 }
 
-// We define a local `Exchage`'s participation in the protocol as such:
+// A local `Exchange`'s participation in the protocol:
 
 impl<OnSend, OnRecv, V, L> protocol::Stage for Exchange<OnSend, OnRecv, V, L>
 where
@@ -684,9 +682,9 @@ where
         }
 
         // Only walk a just-absorbed subtree to fire `on_recv` when there is an
-        // `on_recv` to fire: with no callback the walk is pure waste (it does
-        // nothing but invoke a no-op per leaf), and skipping it is the dominant
-        // saving for callback-less `learn`/`join`.
+        // `on_recv` to fire: with no callback the walk does nothing but invoke
+        // a no-op per leaf, and skipping it is the dominant saving for
+        // callback-less gossip.
         if let Some(on_recv) = self.on_recv.as_mut() {
             for (prefix, node) in &providing {
                 // Read-only walk: borrow each subtree to fire `on_recv` per
@@ -917,8 +915,8 @@ where
         // expected leftovers and carry over unchanged. At Root, any parent we
         // hold that the counterparty never mentioned is one we infer it lacks
         // entirely, so every child is a "Left" case (we have, they lack); we
-        // drain it here. The Root guard is *load-bearing*, not just an
-        // assertion: below Root these leftovers are normal (e.g. responder
+        // drain it here. The Root guard is required for correctness, not just
+        // an assertion: below Root these leftovers are normal (e.g. responder
         // children just carried through `answer_requested`), and turning them
         // into Left cases would re-emit data we already sent.
         for (parent_prefix, parent) in frontier {

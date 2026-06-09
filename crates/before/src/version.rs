@@ -1,5 +1,5 @@
-//! [`Version`] — an interval-tree-clock event tree / message, and its working-form
-//! mutation [`Batch`].
+//! The interval-tree-clock event tree, [`Version`], and its amortizing
+//! mutation handle, [`Batch`].
 
 use core::cmp::Ordering;
 use core::fmt::Display;
@@ -95,24 +95,23 @@ impl Version {
         version.partial_cmp(self).is_none()
     }
 
-    /// The minimum number of [`tick`](Self::tick)s that could have produced this
-    /// [`Version`]: the sum of every base in its event tree, saturating at
-    /// [`u64::MAX`].
+    /// The minimum number of [`tick`](Self::tick)s that could have produced
+    /// this [`Version`]: the sum of every base in its event tree, saturating
+    /// at [`u64::MAX`].
     ///
-    /// This is a true **floor** over *all* causal histories — every sequence of
-    /// [`fork`](crate::Clock::fork)/`tick`/[`join`](crate::Clock::join) that
-    /// yields this version performs at least this many ticks — and it is tight:
-    /// some history hits it exactly (a single [`Party`] ticking in a line hits
-    /// it for a leaf). It exceeds the tallest root-to-leaf path sum whenever
-    /// the history forked: `(0, (0,1,0), (0,0,1))` is two height-`1` peaks over
-    /// disjoint regions, so although no single path is taller than `1`, two
-    /// independent ticks are forced.
+    /// This is a floor over all causal histories: every sequence of
+    /// [`fork`](crate::Clock::fork), `tick`, and
+    /// [`join`](crate::Clock::join) that yields this version performs at
+    /// least this many ticks, and some history achieves it exactly (for a
+    /// leaf, a single [`Party`] ticking in a line). The floor exceeds the
+    /// tallest root-to-leaf path sum whenever the history forked:
+    /// `(0, (0,1,0), (0,0,1))` has no path taller than `1`, but its two
+    /// peaks over disjoint regions force two independent ticks.
     ///
-    /// There is no corresponding *maximum*. For any nonempty version the tick
-    /// count is unbounded above: one height-`1` increment over an interval can
-    /// always be refined into two concurrent height-`1` increments over its
-    /// halves (forked, ticked, rejoined) — the same version, one more tick —
-    /// without limit.
+    /// There is no corresponding maximum. For any nonempty version the tick
+    /// count is unbounded above: an increment over an interval can always be
+    /// refined into two concurrent increments over its halves (forked,
+    /// ticked, rejoined), producing the same version with one more tick.
     ///
     /// ```
     /// use before::Version;
@@ -151,9 +150,9 @@ impl Version {
 
     /// Encode this [`Version`] to bytes.
     ///
-    /// **Note:** The byte-encoding of a [`Clock`](crate::Clock) is **not the
-    /// same** as the concatenation of the byte-encoding of a [`Party`] and a
-    /// [`Version`].
+    /// The byte encoding of a [`Clock`](crate::Clock) is not the
+    /// concatenation of the encodings of its [`Party`] and [`Version`]; see
+    /// [`Clock::encode`](crate::Clock::encode).
     ///
     /// ```
     /// use before::Version;
@@ -214,15 +213,15 @@ impl Version {
         self.as_bits().len()
     }
 
-    /// The canonical packed bytes of this [`Version`]: exactly what
-    /// [`encode`](Self::encode) produces, but borrowed without copying. The
-    /// final partial byte is zero-padded (an invariant of the stored form), so
-    /// these bytes are a *canonical* identity — byte-equal if and only if the
-    /// [`Version`]s are equal, and stable to [`hash`](core::hash::Hash).
+    /// The canonical packed bytes of this [`Version`]: what
+    /// [`encode`](Self::encode) produces, borrowed without copying. The
+    /// final partial byte is zero-padded in the stored form, so these bytes
+    /// are a canonical identity: byte-equal if and only if the versions are
+    /// equal, and consistent with [`hash`](core::hash::Hash).
     ///
-    /// Their lexicographic order is an arbitrary total order with **no causal
-    /// meaning**: use it only where a deterministic tiebreak between distinct
-    /// versions is wanted. For causal comparison, use [`PartialOrd`] (`<=`) or
+    /// Their lexicographic order is an arbitrary total order with no causal
+    /// meaning; use it only as a deterministic tiebreak between distinct
+    /// versions. For causal comparison, use [`PartialOrd`] (`<=`) or
     /// [`concurrent`](Self::concurrent).
     ///
     /// ```
@@ -383,10 +382,10 @@ impl Batch<'_> {
     }
 
     /// The view-taking core of [`join`](Self::join): join an arbitrary
-    /// event-tree view into this batch's in-progress history. Any operand with
-    /// a [`view`](Self::view) — a [`Version`] or another [`Batch`], owned or
-    /// borrowed — joins through here, which is what lets the `|`/`|=` matrix
-    /// (below) accept a [`Batch`] on either side without transcoding.
+    /// event-tree view into this batch's in-progress history. Any operand
+    /// with a [`view`](Self::view) (a [`Version`] or another [`Batch`],
+    /// owned or borrowed) joins through here, so the `|`/`|=` matrix below
+    /// accepts a [`Batch`] on either side without transcoding.
     fn join_view(&mut self, incoming: EvReader<'_>) -> &mut Self {
         let current = self.view();
         if current.trivially_eq(&incoming) {
@@ -397,11 +396,11 @@ impl Batch<'_> {
         self
     }
 
-    /// The view-taking meet core, the dual of [`join_view`](Self::join_view):
-    /// meet an arbitrary event-tree view into this batch's in-progress history.
-    /// The `&`/`&=` matrix routes through here exactly as the `|`/`|=` matrix
-    /// routes through [`join_view`](Self::join_view), which is what lets it
-    /// accept a [`Batch`] on either side without transcoding.
+    /// The view-taking meet core, the dual of
+    /// [`join_view`](Self::join_view): meet an arbitrary event-tree view
+    /// into this batch's in-progress history. The `&`/`&=` matrix routes
+    /// through here just as the `|`/`|=` matrix routes through `join_view`,
+    /// and accepts a [`Batch`] on either side without transcoding.
     fn meet_view(&mut self, incoming: EvReader<'_>) -> &mut Self {
         let current = self.view();
         if current.trivially_eq(&incoming) {
@@ -423,11 +422,11 @@ impl Batch<'_> {
     /// without ending the batch.
     ///
     /// Equivalent to the [`Version`] that would result if the batch were
-    /// dropped now, but leaves the batch open so further
-    /// [`tick`](Self::tick)s/joins continue to accumulate in the materialized
-    /// working form. This is what lets a caller read a per-operation version
-    /// mid-batch (e.g. to key each insert in a run) while still paying the
-    /// unpack cost only once for the whole batch.
+    /// dropped now, but the batch stays open and further
+    /// [`tick`](Self::tick)s and joins continue to accumulate in the
+    /// materialized working form. A caller can therefore read a
+    /// per-operation version mid-batch (for example, to key each insert in a
+    /// run) while paying the unpack cost once for the whole batch.
     ///
     /// ```
     /// use before::{Party, Version};
@@ -479,21 +478,20 @@ impl<'a> From<&'a mut Version> for Batch<'a> {
 }
 
 // The join (`|`, `|=`) and meet (`&`, `&=`) matrices across {Version, Batch}²,
-// duals of each other and mirroring the comparison matrix below. The
-// `binop_matrix!` macro generates every cell of both — all 16 value-operator
-// cells (lhs × rhs over {Version, &Version, Batch, &Batch}) and all 8 assign
-// cells (lhs over {Version, Batch}) — so each operator reads as a single matrix.
+// duals of each other, mirroring the comparison matrix below. The
+// `binop_matrix!` macro generates every cell of both: 16 value-operator cells
+// (lhs × rhs over {Version, &Version, Batch, &Batch}) and 8 assign cells (lhs
+// over {Version, Batch}).
 //
-// A value-operator cell (`|`/`&`) turns its left operand into a fresh owned
-// `Version` — `own` (move, an owned `Version`), `clone` (a borrowed `Version`),
-// or `snapshot` (a `Batch`, owned or borrowed) — then folds the right operand's
-// view into it; a `Batch` read this way is never mutated and commits its own
-// pending state on drop as usual. An assign cell (`|=`/`&=`) folds the right
-// operand's view into the left operand in place: through a transient `batch()`
-// for a `Version` left operand (`batch`), or directly for a `Batch` (`direct`).
-// The only thing that distinguishes the two families is the view-folding method
-// each cell routes through: `Batch::join_view` for `|`/`|=`, `Batch::meet_view`
-// for `&`/`&=` (each folds any `.view()` into a batch).
+// A value-operator cell turns its left operand into a fresh owned `Version`
+// (`own` moves an owned `Version`, `clone` copies a borrowed one, `snapshot`
+// reads a `Batch`), then folds the right operand's view into it; a `Batch`
+// read this way is not mutated and still commits its pending state on drop.
+// An assign cell folds the right operand's view into the left operand in
+// place, through a transient `batch()` for a `Version` receiver (`batch`) or
+// directly for a `Batch` (`direct`). The two families differ only in the
+// view-folding method each cell routes through: `Batch::join_view` for join,
+// `Batch::meet_view` for meet.
 
 /// Generates one binary-operator family's full matrix across {Version, Batch}².
 /// Parameterized over the value operator `$Op::$op` (e.g. `BitOr::bitor`), its
@@ -586,9 +584,8 @@ binop_matrix! {
     Batch<'_>,  &Batch<'_>, direct;
 }
 
-// The meet (`&`, `&=`) family: the exact dual of the join matrix above — same
-// cells, same ownership/snapshot strategy, same `binop_matrix!` macro — routing
-// through `Batch::meet_view` (which meets any `.view()` into a batch) instead of
+// The meet (`&`, `&=`) family: the dual of the join matrix above, with the
+// same cells and strategies, routing through `Batch::meet_view` instead of
 // `join_view`.
 binop_matrix! {
     BitAnd::bitand, BitAndAssign::bitand_assign, meet_view;
@@ -622,19 +619,18 @@ binop_matrix! {
 
 // ───────────────────── projection onto a party (`/`, `/=`) ───────────────────
 //
-// `v / &p` masks `v` to `p`'s id: the value is kept wherever `p` owns the region
-// and zeroed everywhere else — "`p`'s contribution to `v`". It reads only the
-// party's id bits (`as_bits`), never consuming or cloning the linear `Party`, so
-// it takes `&Party` and leaves it untouched.
+// `v / &p` masks `v` to `p`'s id: the value is kept wherever `p` owns the
+// region and zeroed everywhere else ("`p`'s contribution to `v`"). It reads
+// only the party's id bits (`as_bits`), never consuming or cloning the linear
+// `Party`, so it takes `&Party` and leaves it untouched.
 //
 // Algebraic shape (exercised by `version::tests`): the projection is a
-// sub-version (`v/p <= v`) and idempotent (`(v/p)/p == v/p`); it is additive
-// across a fork — `v/p == v/p_left | v/p_right` when `p` forks into disjoint
-// halves — and so a homomorphism of both the join and the meet
-// (`(a|b)/p == a/p | b/p`, `(a&b)/p == a/p & b/p`); the whole-interval party
-// leaves `v` unchanged. Projection need not lower the event count, though:
-// carving one broad tick into disjoint peaks can *raise* `min_ticks`, so it is
-// not monotone under `<=`.
+// sub-version (`v/p <= v`) and idempotent (`(v/p)/p == v/p`). It is additive
+// across a fork (`v/p == v/p_left | v/p_right` for disjoint halves), and so a
+// homomorphism of both join and meet (`(a|b)/p == a/p | b/p`,
+// `(a&b)/p == a/p & b/p`); the whole-interval party leaves `v` unchanged.
+// Projection can still raise `min_ticks` (carving one broad tick into
+// disjoint peaks), so it is not monotone under `<=`.
 
 /// `v / &p` — the part of the [`Version`] `v` contributed within [`Party`]
 /// `p`'s id region (zero everywhere `p` does not own). The party is borrowed,

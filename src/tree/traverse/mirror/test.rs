@@ -37,7 +37,7 @@ fn block_on<F: Future>(fut: F) -> F::Output {
     })
 }
 
-/// Which mirror-protocol arrangement to drive: the cardinal product of
+/// Which mirror-protocol arrangement to drive: the Cartesian product of
 /// `{local, remote}` for the initiator side and the responder side.
 ///
 /// In every variant, "A" is the client (holds tree `a`) and "B" is the
@@ -328,9 +328,8 @@ fn handshake_flushes_over_buffering_transport() {
             let mut a_w = HoldUntilFlush::new(a_w);
             let mut b_w = HoldUntilFlush::new(b_w);
 
-            // The preamble carries only magic + version now (the network moved
-            // into the framed `Handshake` body), so this exercises purely the
-            // flush/deadlock behavior of the raw prefix exchange.
+            // The preamble carries only magic + version, so this exercises
+            // purely the flush/deadlock behavior of the raw prefix exchange.
             let (ra, rb) = tokio::join!(
                 remote::preamble(&mut a_r, &mut a_w),
                 remote::preamble(&mut b_r, &mut b_w),

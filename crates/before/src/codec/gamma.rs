@@ -1,18 +1,17 @@
-//! Elias-gamma encoding/decoding for use in [`Version`](crate::Version)s.
+//! Elias-gamma encoding and decoding of the integers in a
+//! [`Version`](crate::Version).
 //!
-//! By the structural invariants on the normal form of a
-//! [`Version`](crate::Version), we know that >= 50% of all integers in a
-//! version *must* be 0. Encoding in Elias-gamma means that these zeroes cost 1
-//! bit to represent, and other integers cost proportionate to the log of their
-//! magnitude. Because normalization pushes magnitude towards the root of the
-//! tree, it's expected that most integers are *much* smaller than `u64::MAX`,
-//! even when many, many events have occurred, so this encoding is close to
-//! minimal in our case.
+//! The normal form of a [`Version`](crate::Version) guarantees that at least
+//! half of the integers in its event tree are zero, and normalization pushes
+//! magnitude toward the root, so most stored integers are small even after
+//! many events. Elias-gamma encodes a zero in one bit and other integers in
+//! bits proportional to the log of their magnitude, so the encoding is close
+//! to minimal for this distribution.
 //!
-//! The cost: we pay for encoding and decoding Elias-gamma on operations which
-//! need to examine versions, but this is worth it to gain dozens-fold heap
-//! usage improvement. We also amortize the decoding when you use a
-//! [`Batch`](version::Batch).
+//! The trade-off is decode cost on every operation that examines a version.
+//! That cost buys a heap-size reduction of one to two orders of magnitude,
+//! and [`Batch`](crate::version::Batch) amortizes the decoding across a run
+//! of operations.
 
 use num_bigint::BigUint;
 
@@ -26,9 +25,10 @@ use super::{Base, Bits, BitsSlice};
 /// prefix-free, for an arbitrary-width non-negative `n` (there is no value
 /// cap).
 pub(crate) fn encode_int(out: &mut Bits, n: &Base) {
-    let m = n + 1u32; // m >= 1
-                      // `k = floor(log2(m)) = bit_length(m) - 1` (a tree-structural count, not a
-                      // magnitude). `m >= 1`, so `m.bits() >= 1` and the subtraction never underflows.
+    // m >= 1, so `m.bits() >= 1` and computing `k = floor(log2(m)) =
+    // bit_length(m) - 1` never underflows. `k` is a bit count and fits a
+    // `u64` even when `m` itself does not.
+    let m = n + 1u32;
     let k = m.bits() - 1;
     for _ in 0..k {
         out.push(false);

@@ -50,7 +50,7 @@ proptest! {
 
     /// After quiesce, every peer's readout multiset equals the
     /// oracle's `expected_live()`. The oracle is pure data and never
-    /// invokes `process`, so this is a genuinely independent check.
+    /// invokes the merge, so this check is independent of it.
     #[test]
     fn readout_matches_oracle_after_quiesce(
         schedule in schedule_u64(),

@@ -18,8 +18,8 @@ fn party_index(label: &str) -> usize {
     (label.bytes().next().unwrap_or(b'a').to_ascii_lowercase() - b'a') as usize
 }
 
-/// The [`Version`] reached by ticking `label`'s disjoint party `ticks` times.
-/// Replaces the old `Version::from((party, scalar))` vector constructor.
+/// The [`Version`] reached by ticking `label`'s disjoint party `ticks`
+/// times.
 fn ticked(label: &str, ticks: u64) -> Version {
     let p = nth_party(party_index(label));
     let mut v = Version::new();

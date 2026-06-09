@@ -26,13 +26,13 @@ where
     move |k, v, m: &Message<T>| callback(k, v, m.as_ref())
 }
 
-/// Perform a batch lookup in the tree by version vector, returning a list of
-/// [`Bytes`] and their accompanying paths for all versioned leaves which are
-/// *unknown* relative to the specified version.
+/// Perform a batch lookup in the tree by version vector, reporting every
+/// versioned leaf (with its path) that is *unknown* relative to the
+/// specified version.
 ///
-/// The unknown set is the set of leaves necessary to communicate to a
-/// counterparty who has this version vector, so that their tree will become a
-/// (non-strict) superset of yours.
+/// The unknown set is the set of leaves a counterparty holding this version
+/// vector must receive for its tree to become a (non-strict) superset of
+/// this one.
 #[cfg(test)]
 pub fn unknown<T>(
     node: Option<Node<T, height::Root>>,

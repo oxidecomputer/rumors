@@ -22,7 +22,7 @@ fn message_future_is_send() {
 }
 
 #[test]
-fn process_future_is_send() {
+fn join_future_is_send() {
     let mut alice = Known::<String>::seed();
     let bob = Known::<String>::seed();
     let bob_fork = bob.rumors();

@@ -411,17 +411,15 @@ proptest! {
 // ───────────────────────────── robustness ─────────────────────────────
 
 /// Deep structures (a depth-100k id spine, and the deep event tree a tick
-/// builds over it) survive *every* public op plus the codec and the `Debug`
-/// printer with no stack overflow — the proof that every traversal is
-/// stack-safe: each recurses, but [`crate::recurse`] grows the stack onto the
-/// heap before a deep one can overflow. Beyond the single-clock ops (tick / fork
-/// / join / partial_cmp /
-/// `|` / encode / decode / Debug), this drives the composite and observer ops
-/// that operate on deep structures: `sync` between two deep clocks,
-/// `send`/`receive` of a deep version, and each clock observer (`has_seen` /
-/// `happens_before` / `concurrent_with`) at depth. Impl-only: the recursive
-/// oracle cannot build or even drop a tree this deep (oracle agreement at
-/// bounded depth is the master differential harness's job).
+/// builds over it) survive every public op, the codec, and the `Debug`
+/// printer with no stack overflow: each traversal recurses, but
+/// [`crate::recurse`] grows the stack onto the heap before a deep input can
+/// overflow it. Beyond the single-clock ops (tick, fork, join, partial_cmp,
+/// `|`, encode, decode, Debug), this drives the composite ops on deep
+/// structures: `sync` between two deep clocks, `send`/`recv` of a deep
+/// version, and version comparison and concurrency at depth. Impl-only: the
+/// recursive oracle cannot build or even drop a tree this deep (oracle
+/// agreement at bounded depth is the master differential harness's job).
 #[test]
 fn deep_tree_stack_safety() {
     const DEPTH: usize = 100_000;
@@ -760,7 +758,8 @@ fn fromstr_tryfrom_reject_denormal_and_syntax() {
     assert_eq!("0".parse::<Party>(), Err(Parse::Anonymous));
     assert_eq!(Party::try_from(0u8), Err(Parse::Anonymous));
     assert_eq!("(0, 1)".parse::<Party>().unwrap().to_string(), "(0, 1)"); // 0 as sub-tree: ok
-                                                                          // Clock has no `PartialEq`, so compare the error directly.
+
+    // Clock has no `PartialEq`, so compare the error directly.
     assert_eq!("(0, 5)".parse::<Clock>().err(), Some(Parse::Anonymous)); // anonymous party
     assert_eq!(Clock::try_from((0u8, 5u64)).err(), Some(Parse::Anonymous));
 

@@ -4,9 +4,9 @@
 //!
 //! Interval tree clocks use much less space than traditional representations of
 //! version vectors and vector clocks, often by more than an order of magnitude.
-//! Uniquely, in dynamic settings where participants may join or leave, they can
-//! *recycle identifiers* without violating causality, thereby avoiding the
-//! unbounded linear inflation to which naïve sparse clocks/vectors fall victim.
+//! In dynamic settings where participants join and leave, they can also
+//! *recycle identifiers* without violating causality, so they avoid the
+//! unbounded growth that affects naïve sparse clocks and vectors.
 //!
 //! ## The types
 //!
@@ -21,39 +21,33 @@
 //!
 //! ## A conceptual sketch
 //!
-//! The insight of the original ITC paper is that we can get *both* compact
-//! representation *and also* dynamic membership by representing a [`Party`] as
-//! a *tree* which denotes a non-empty set of subintervals of `[0, 1)`. The
-//! initial [`Party`], [`Party::seed`], is `{ [0, 1) }`; subsequent
-//! [`fork`](Party::fork)s split that interval into `{ [0, 1/2) }` and
-//! `{ [1/2, 1) }`, etc. These sets of disjoint intervals can then be
-//! [`join`](Party::join)ed together by taking their disjoint set union
-//! (concretely a merge of trees), so that `{ [0, 1/2), [5/8, 3/4) }` ∪
-//! `{ [3/4, 1) }` = `{ [0, 1/2), [5/8, 1) }` (note: merging adjacent intervals).
-//! This gives us a lattice algebra of [`Party`]s which can be dynamically
-//! generated and recycled, with parsimonious inner structure.
+//! The insight of the original ITC paper is that a [`Party`] can be
+//! represented as a *tree* denoting a non-empty set of subintervals of
+//! `[0, 1)`, giving both compact representation and dynamic membership. The
+//! initial [`Party`], [`Party::seed`], is `{ [0, 1) }`; a
+//! [`fork`](Party::fork) splits an interval in half, so the first fork yields
+//! `{ [0, 1/2) }` and `{ [1/2, 1) }`. Disjoint interval sets are
+//! [`join`](Party::join)ed by set union, merging adjacent intervals:
+//! `{ [0, 1/2), [5/8, 3/4) }` ∪ `{ [3/4, 1) }` = `{ [0, 1/2), [5/8, 1) }`.
+//! Parties can therefore be minted and recycled freely while their
+//! representations stay small.
 //!
-//! Atop this, we can implement a second lattice algebra of [`Version`]s, so
-//! that a [`Version`] is a function from `[0, 1)` to natural numbers (also
-//! represented concretely as a tree), with the initial [`Version`] being the
-//! constantly-zero function. To register an event in a [`Version`] for a given
-//! [`Party`], we need only increment an *arbitrary* non-empty part of the
-//! [`Version`]'s domain so that the incremented portion lies entirely within
-//! the [`Party`]'s owned set of subintervals. Any such arbitrary choice will
-//! let [`Version`]s behave like causal timestamps for [`Party`]s, and the
-//! implementation freedom left by this conceptual nondeterminism allows our
-//! concrete representation to *simplify [`Version`]s on
-//! [`tick`](Version::tick)*. This opportunistic structural compacting means
-//! that even as [`Party`]s and [`Version`]s are dynamically forked and joined
-//! over the lifetime of a distributed system, their average representational
-//! size remains quite small (in the hundreds or low thousands of bytes, even
-//! for hundreds of communicating processes and millions of iterations).
+//! A [`Version`] is then a function from `[0, 1)` to the natural numbers,
+//! also represented as a tree, with the initial [`Version`] the
+//! constantly-zero function. To register an event for a [`Party`], it
+//! suffices to increment the function over any non-empty region owned by that
+//! party. Any such choice yields a valid causal timestamp, and the freedom of
+//! choice lets the implementation simplify a [`Version`]'s tree on
+//! [`tick`](Version::tick). As parties and versions are forked and joined
+//! over the lifetime of a distributed system, their typical size therefore
+//! stays small: hundreds to low thousands of bytes, even for hundreds of
+//! communicating processes and millions of events.
 //!
-//! Concretely, that lattice *is* the [`Version`] API you reach for: the partial
-//! order `<=` asks whether one version's history is contained in another's, the
-//! join `|` combines two histories into their least upper bound, and
-//! [`tick`](Version::tick) moves strictly upward; two histories with no
-//! containing order are *[`concurrent`](Version::concurrent)*.
+//! That lattice is the [`Version`] API: the partial order `<=` tests whether
+//! one version's history is contained in another's, the join `|` combines two
+//! histories into their least upper bound, and [`tick`](Version::tick) moves
+//! strictly upward. Two histories with no containing order are
+//! *[`concurrent`](Version::concurrent)*.
 //!
 //! By packaging a [`Version`] and a [`Party`] together into a [`Clock`], we get
 //! a causal clock which may be [`tick`](Clock::tick)ed,
@@ -161,28 +155,25 @@
 //! assert!(bob.version() > alice.version());
 //! ```
 //!
-//! ## ⚠️ Safety rules
+//! ## Safety rules
 //!
-//! In order to reap the rewards of interval tree clocks, one must always heed
-//! the Law of Disjointness: no [`Party`] may ever interact with another
-//! [`Party`] which is not [*disjoint*](Party::is_disjoint) from it. In other
-//! words, the programmer must ensure both:
+//! Interval tree clocks are correct only under the Law of Disjointness: no
+//! [`Party`] may ever interact with another [`Party`] that is not
+//! [*disjoint*](Party::is_disjoint) from it. The caller must ensure both:
 //!
-//! 1. **Singularity:** There must be one singular [`Clock::seed`]
-//!    (alternatively, [`Party::seed`]) *ever* created *anywhere* in any given
-//!    system of clocks, and *all* [`Clock`]s or [`Party`]s *everywhere* must
-//!    descend from it. Note that it is acceptable to reuse one [`Party`] with
-//!    multiple [`Version`]s; one also may create multiple "universes" of
-//!    [`Clock`]s (or [`Party`]s), each descended from a different
-//!    [`seed`](Clock::seed), *so long as [`Clock`]s (or [`Party`]s) from different
-//!    [`seed`](Clock::seed)s never interact*.
+//! 1. **Singularity.** A system of clocks has one [`Clock::seed`] (or
+//!    [`Party::seed`]), created once, from which every [`Clock`] and
+//!    [`Party`] in the system descends. One [`Party`] may be reused with
+//!    multiple [`Version`]s, and multiple "universes" may coexist, each
+//!    descended from its own [`seed`](Clock::seed), as long as clocks from
+//!    different seeds never interact.
 //!
-//! 2. **Linearity:** Operations on [`Clock`]s and [`Party`]s must be *strictly
-//!    linear*; once a [`Clock`] or [`Party`] has been [`fork`](Clock::fork)ed, a
-//!    copy of the pre-`fork` entity *must not* come back into play. This crate
-//!    assists by making [`Party`] and [`Clock`] [!`Clone`](Clone), but enforcing
-//!    linearity becomes the *programmer's responsibility* at serialization
-//!    boundaries and in the presence of multiple processes.
+//! 2. **Linearity.** Operations on [`Clock`]s and [`Party`]s are strictly
+//!    linear: once a [`Clock`] or [`Party`] has been
+//!    [`fork`](Clock::fork)ed, a copy of the pre-fork value must not come
+//!    back into play. The crate helps by making [`Party`] and [`Clock`]
+//!    [`!Clone`](Clone), but at serialization boundaries and across
+//!    processes, linearity is the caller's responsibility.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]

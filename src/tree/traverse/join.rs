@@ -3,12 +3,12 @@
 //!
 //! This is the local-only counterpart to the [`mirror`](super::mirror)
 //! protocol: where the mirror reconciles two replicas by exchanging messages
-//! (and so must serialize, run a zipper, and build the union on *both* sides),
-//! `join` walks the two trees in lockstep in one process and builds the merged
-//! union *once*. It is **observationally identical** to mirroring two local
-//! trees: it produces the same merged [`Root`](crate::tree::Root) and fires the
-//! same callbacks, by *delegating* all version-filtering and leaf observation to
-//! the same [`Unknown`] traversal the mirror uses.
+//! (and so must serialize, run a zipper, and build the union on both sides),
+//! `join` walks the two trees in lockstep in one process and builds the
+//! merged union once. It is observationally identical to mirroring two local
+//! trees, producing the same merged [`Root`](crate::tree::Root) and firing
+//! the same callbacks, because it delegates all version filtering and leaf
+//! observation to the same [`Unknown`] traversal the mirror uses.
 //!
 //! For each pair of nodes at a path the recursion distinguishes four cases:
 //!
@@ -17,7 +17,7 @@
 //!   filtered against the *other* side's version vector. Survivors are the
 //!   subtree the other side learns; anything causally `<=` the other side's
 //!   version was deleted there (the version vector is the entire deletion
-//!   mechanism — there are no tombstones) and is dropped.
+//!   mechanism; there are no tombstones) and is dropped.
 //! - **both have it, hashes equal**: the subtrees are identical (content
 //!   addressing makes equal hash ⟹ equal content, versions included), so keep
 //!   one verbatim and observe nothing.
@@ -254,9 +254,10 @@ impl Join for Z {
             (None, None) => None,
             (Some(ours), None) => filter_into(ours, prefix, b_version, on_send).await,
             (None, Some(theirs)) => filter_into(theirs, prefix, a_version, on_recv).await,
-            // Two leaves at the same path are the same leaf: the path *is*
-            // `blake3(version ‖ value)`, so identical paths carry identical
-            // (version, value). Keep one; observe nothing.
+            // Two leaves at the same path are the same leaf: the path is the
+            // content-addressed hash of (version, value) (see
+            // `Path::for_leaf`), so identical paths carry identical contents.
+            // Keep one; observe nothing.
             (Some(ours), Some(_)) => Some(ours),
         }
     }

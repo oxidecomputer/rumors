@@ -166,8 +166,7 @@ impl From<Leaf> for Slot {
 }
 
 /// A placeholder leaf in a [`Builder`], to be filled by
-/// [`Builder::resolve`](Builder::resolve). Carries the output index opaquely so
-/// callers cannot poke the base array directly (see
-/// [`Builder::deferred_leaf`](Builder::deferred_leaf)).
+/// [`Builder::resolve_leaf`]. Carries the output index opaquely so callers
+/// cannot poke the base array directly (see [`Builder::deferred_leaf`]).
 #[must_use = "deferred leaves must be resolved"]
 pub(super) struct DeferredLeaf(usize);

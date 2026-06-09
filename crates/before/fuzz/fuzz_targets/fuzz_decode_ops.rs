@@ -42,9 +42,10 @@ fuzz_target!(|data: &[u8]| {
                 return;
             };
             if let Ok(msg) = Version::decode(script) {
-                // has_seen / receive a hostile-but-canonical message.
-                let _ = clock.has_seen(&msg);
-                clock.receive(msg);
+                // Compare against, then receive, a hostile-but-canonical
+                // message.
+                let _ = *clock.version() >= msg;
+                clock.recv(&msg);
             }
             let _ = clock.send();
         }
@@ -58,7 +59,9 @@ fn drive_clock(clock: &mut Clock, script: &[u8]) {
     let mut stash: Vec<Clock> = Vec::new();
     for &op in script {
         match op % 7 {
-            0 => clock.tick(),
+            0 => {
+                clock.tick();
+            }
             1 => stash.push(clock.fork()),
             2 => {
                 if let Some(child) = stash.pop() {
@@ -76,18 +79,18 @@ fn drive_clock(clock: &mut Clock, script: &[u8]) {
                 }
             }
             4 => {
-                let msg = clock.send();
-                clock.receive(msg);
+                let msg = clock.send().clone();
+                clock.recv(&msg);
             }
             5 => {
                 if let Some(child) = stash.last() {
-                    let _ = clock.happens_before(child);
-                    let _ = clock.concurrent_with(child);
+                    let _ = clock.version() < child.version();
+                    let _ = clock.version().concurrent(child.version());
                 }
             }
             _ => {
-                let msg = clock.send();
-                let _ = clock.has_seen(&msg);
+                let msg = clock.send().clone();
+                let _ = *clock.version() >= msg;
             }
         }
     }

@@ -12,9 +12,7 @@ mod level;
 pub use level::Level;
 
 /// Create a new [`Levels`] from the root of a tree.
-pub fn levels<T>(root: Option<Node<T, Root>>) -> Top<T>
-where
-{
+pub fn levels<T>(root: Option<Node<T, Root>>) -> Top<T> {
     Top {
         root: Level::from_iter(root.map(|root| (Prefix::new(), root))),
     }

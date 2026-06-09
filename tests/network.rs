@@ -20,10 +20,10 @@ fn seeded<T>(stream: u64) -> Known<T> {
     Known::seed_rng(&mut SmallRng::seed_from_u64(stream))
 }
 
-/// A [`fork`](Known::fork) belongs to the same universe as its parent: it
-/// inherits the parent's [`Network`] unchanged.
+/// A [`rumors`](Known::rumors) snapshot belongs to the same universe as its
+/// originator: it inherits the originator's [`Network`] unchanged.
 #[test]
-fn fork_preserves_network() {
+fn rumors_snapshot_preserves_network() {
     let parent = Known::<u64>::seed();
     let child = parent.rumors();
     assert_eq!(parent.network(), child.network());

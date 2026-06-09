@@ -2,9 +2,9 @@
 //! lens that projects a `Known<T>` back into its currently-live
 //! `(Key, T)` map.
 //!
-//! The oracle holds only `BTreeMap`s and `BTreeSet`s — no `Known`, no
-//! `learn`, no merging — so a bug in the live merge primitives cannot
-//! silently corrupt the reference state. It records each insert by
+//! The oracle holds only `BTreeMap`s and `BTreeSet`s (no `Known`, no
+//! merging), so a bug in the live merge primitives cannot silently corrupt
+//! the reference state. It records each insert by
 //! the schedule's [`EventIdx`] so the oracle and the live executor
 //! agree on identity without ever consulting the live `Key`s.
 

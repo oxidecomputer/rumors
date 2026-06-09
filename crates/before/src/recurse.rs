@@ -5,14 +5,13 @@
 //! deep, unbalanced tree can approach the stack limit, [`grow`] extends the
 //! stack onto the heap (via `stacker`), so deep inputs cannot overflow.
 //!
-//! The headroom probe is *amortized*: a traversal routes each recursive call
+//! The headroom probe is amortized: a traversal routes each recursive call
 //! through the [`descend!`] macro, which probes only once every [`STRIDE`]
-//! levels and recurses directly in between. Crucially, `descend!` guards the
-//! *descent*, not the body — so the common path is a plain recursive call that
-//! stays one inlined frame (wrapping the body in a closure to pass to
-//! `maybe_grow` would force a second frame and call per node). So the common
-//! shallow case pays essentially nothing, and only genuinely deep inputs ever
-//! trip a heap growth.
+//! levels and recurses directly in between. `descend!` guards the *descent*,
+//! not the body, so the common path is a plain recursive call that stays one
+//! inlined frame; wrapping the body in a closure to pass to `maybe_grow`
+//! would force a second frame and call per node. The shallow case therefore
+//! pays almost nothing, and only deep inputs ever trip a heap growth.
 
 /// Recurse this many levels between stack-headroom probes.
 ///

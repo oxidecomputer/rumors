@@ -50,12 +50,12 @@ impl Network {
         self == Network::ZERO
     }
 
-    /// The raw 16 bytes, for placement into the handshake preamble.
+    /// The raw 16 bytes, for placement into the greeting frame.
     pub(crate) fn to_bytes(self) -> [u8; 16] {
         self.0
     }
 
-    /// Reconstruct a network from 16 bytes read off the handshake preamble.
+    /// Reconstruct a network from 16 bytes read off the greeting frame.
     pub(crate) fn from_bytes(bytes: [u8; 16]) -> Self {
         Network(bytes)
     }

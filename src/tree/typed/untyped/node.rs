@@ -76,17 +76,17 @@ enum Children<T> {
     /// A materialized branch point, with the invariant that there are always >=
     /// 2 branches (or else they should be path-compressed away).
     Branch {
-        /// The *MAXIMAL* version of any child of this node, computed lazily on
+        /// The maximal version of any child of this node, computed lazily on
         /// first read and memoized.
         ///
-        /// This must be reset whenever the children of this leaf change, but
-        /// *not* when its prefix does.
+        /// This must be reset whenever the branch's children change, but not
+        /// when its prefix does.
         ceiling: OnceLock<Version>,
-        /// The *MINIMAL* version of any child of this node, computed lazily on
+        /// The minimal version of any child of this node, computed lazily on
         /// first read and memoized.
         ///
-        /// This must be reset whenever the children of this leaf change, but
-        /// *not* when its prefix does.
+        /// This must be reset whenever the branch's children change, but not
+        /// when its prefix does.
         floor: OnceLock<Version>,
         /// The number of total leaves under this branch.
         leaves: usize,
@@ -212,12 +212,12 @@ impl<T> Node<T> {
         }
     }
 
-    /// Whether two nodes share the same backing allocation. This is a
-    /// *sufficient* (not necessary) test for structural equality that touches
-    /// no hash: forked trees share their unchanged subtrees by `Arc`, so an
-    /// in-memory merge can short-circuit those in `O(1)` — even cold — before
+    /// Whether two nodes share the same backing allocation: a sufficient
+    /// (not necessary) test for structural equality that touches no hash.
+    /// Forked trees share their unchanged subtrees by `Arc`, so an in-memory
+    /// merge can short-circuit those in `O(1)`, even with cold memos, before
     /// falling back to the content hash for subtrees that diverged in memory
-    /// but happen to hold equal content.
+    /// but hold equal content.
     pub fn ptr_eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.inner, &other.inner)
     }

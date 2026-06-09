@@ -17,10 +17,9 @@ mod tests;
 
 /// A [`Party`] and its [`Version`].
 ///
-/// This type is `!Clone` to discourage non-linear usage: while using a
-/// [`Clock`] non-linearly is "safe" from the perspective of Rust, it is invalid
-/// in the setting of interval tree clocks, which requires that all live clocks
-/// in the system **must** be disjoint.
+/// This type is `!Clone` to discourage non-linear usage: duplicating a
+/// [`Clock`] is memory-safe but invalid for interval tree clocks, which
+/// require all live clocks in a system to be disjoint.
 ///
 /// Causal comparison and merge happen through the [`Version`]; `Clock` is not
 /// itself ordered:
@@ -51,12 +50,12 @@ pub struct Clock {
 
 impl Clock {
     /// The initial clock of the distinguished [`Party::seed`]; the only
-    /// [`Clock`] which is not derived from some prior clock.
+    /// [`Clock`] not derived from some prior clock.
     ///
-    /// In any given system of clocks, this function should only be called by
-    /// one party in the entire system, and only once: all its descendents are
-    /// necessarily disjoint, but the descendents of parallel seeds need not be;
-    /// if ever the twain meet, invariants and expectations will be violated.
+    /// Call this function once per system of clocks. Every descendant of a
+    /// single seed is disjoint from its peers, but descendants of two
+    /// independent seeds need not be; if they ever interact, causal history
+    /// is silently corrupted.
     ///
     /// ```
     /// assert_eq!(before::Clock::seed().to_string(), "(1, 0)");
@@ -80,12 +79,11 @@ impl Clock {
     /// Split off a child clock by [`fork`](Party::fork)ing the underlying
     /// [`Party`] and copying the underlying [`Version`].
     ///
-    /// # ⚠️ Warning
+    /// # Warning
     ///
-    /// Repeatedly calling [`fork`](Clock::fork) on the same [`Clock`] will lead
-    /// to imbalanced internal tree representations and worse memory usage and
-    /// performance; it's recommended to randomize which [`Clock`]s are
-    /// [`fork`](Clock::fork)ed.
+    /// Repeatedly forking the same [`Clock`] produces an imbalanced internal
+    /// tree, with worse memory use and performance. Prefer to vary which
+    /// clock is forked.
     ///
     /// ```
     /// use before::Clock;
@@ -102,8 +100,8 @@ impl Clock {
     ///
     /// # Errors
     ///
-    /// If the [`Clock`]s' [`Party`]s overlap, `self` is unmodified and
-    /// `Err(other)` is returned unmodified.
+    /// If the two clocks' [`Party`]s overlap, `self` is unmodified and
+    /// `other` is handed back in the error.
     ///
     /// ```
     /// use before::Clock;
@@ -139,14 +137,13 @@ impl Clock {
         Ok(self.version())
     }
 
-    /// Equivalent to `self.tick()`, but with a more illustrative name when
-    /// another party is to [`recv`](Clock::recv) the resultant new [`Version`].
+    /// Equivalent to [`tick`](Clock::tick), named for the case where another
+    /// party will [`recv`](Clock::recv) the resulting [`Version`].
     ///
-    /// If you are using [`Clock`]s as *vector clock*s rather than *version
-    /// vector*s, you should mark communication between [`Party`]s by
-    /// [`send`](Clock::send)ing a [`Version`] from the sender to the recipient,
-    /// who should dually [`recv`](Clock::recv) that [`Version`] to incorporate
-    /// it into their own [`Clock`].
+    /// When using [`Clock`]s as *vector clocks* rather than *version
+    /// vectors*, mark communication by `send`ing a [`Version`] from the
+    /// sender to the recipient, who [`recv`](Clock::recv)s it into their own
+    /// [`Clock`].
     ///
     /// ```
     /// let mut clock = before::Clock::seed();
@@ -160,13 +157,9 @@ impl Clock {
     /// Merge a received [`Version`] into this [`Clock`]'s version, then
     /// [`tick`](Clock::tick) the [`Clock`].
     ///
-    /// Equivalent to `self |= version; self.tick()`.
-    ///
-    /// If you are using [`Clock`]s as *vector clock*s rather than *version
-    /// vector*s, you should mark communication between [`Party`]s by sending a
-    /// [`Version`] from the sender to the recipient, who should dually
-    /// [`recv`](Clock::recv) that [`Version`] to incorporate it into their own
-    /// [`Clock`].
+    /// Equivalent to `self |= version; self.tick()`. The receiving half of
+    /// the vector-clock communication pattern described on
+    /// [`send`](Clock::send).
     ///
     /// ```
     /// use before::Clock;
@@ -252,9 +245,10 @@ impl Clock {
     /// let mut b = a.fork();
     /// a.tick();
     /// b.tick();
-    /// // The greatest common ancestor version is more than the initial version:
+    /// // The meet (greatest lower bound) of the two versions is more than
+    /// // the initial version:
     /// assert!(a.version() & b.version() > Version::new());
-    /// // But the greatest common ancestor of the two quotiented versions is not:
+    /// // But the meet of the two projected versions is not:
     /// assert!(a.own_version() & b.own_version() == Version::new());
     /// ```
     pub fn own_version(&self) -> Version {
@@ -541,15 +535,15 @@ impl<'a> From<&'a mut Clock> for Batch<'a> {
     }
 }
 
-// The join operators for `Clock`, across the cells {Clock, Version}: `|` merges
-// a `Version` into a clock — on either side, since a `Version` carries no party
-// — and returns the clock; `|=` merges one in place. There is no `Clock | Clock`
-// (a borrowing form would duplicate the clock's party, and reuniting two whole
-// clocks is the fallible `Clock::join`, which must verify disjointness). Every
-// cell folds the version operand into the clock's `version` batch through
-// `Batch::join_version`; the operand — owned `Version` or borrowed `&Version` —
-// reaches it coerced uniformly to `&Version` by `Borrow::borrow`, so one `@cell`
-// arm per *position* covers both operand forms.
+// The join operators for `Clock` over {Clock, Version}: `|` merges a
+// `Version` into a clock (on either side, since a `Version` carries no
+// party) and returns the clock; `|=` merges in place. There is no
+// `Clock | Clock`: a borrowing form would duplicate the clock's party, and
+// reuniting two whole clocks is the fallible `Clock::join`. Every cell folds
+// the version operand into the clock's `version` batch through
+// `Batch::join_version`; `Borrow::borrow` coerces an owned or borrowed
+// operand uniformly to `&Version`, so one `@cell` arm per position covers
+// both forms.
 
 /// Generates the `Clock` join matrix. A `|` cell owns its clock operand
 /// (whichever side it is on) and returns it; a `|=` cell merges into the

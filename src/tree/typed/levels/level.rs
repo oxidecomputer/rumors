@@ -4,17 +4,15 @@
 //! The mirror protocol builds a fresh level (often two) on each side every
 //! round and discards it once the zipper descends. Those levels are small
 //! (≤256 entries, usually ~16) and short-lived, so a sorted `Vec` beats a
-//! `BTreeMap`: one contiguous allocation instead of a heap node per entry, and
-//! cache-friendly iteration in the prefix order the wire and the descent both
-//! want. [`Level`] keeps that `Vec` strictly ascending by prefix at all times
-//! (the same one-canonical-order invariant the `BTreeMap` gave), so iteration,
-//! `collapse`, and the wire encoding need no re-sort.
+//! `BTreeMap`: one contiguous allocation instead of a heap node per entry,
+//! and cache-friendly iteration in the prefix order the wire and the descent
+//! both want. [`Level`] keeps that `Vec` strictly ascending by prefix at all
+//! times, so iteration, `collapse`, and the wire encoding need no re-sort.
 
 use crate::tree::typed::{Node, Prefix, height::Height};
 
-/// A zipper level: `(prefix, node)` pairs kept strictly ascending by prefix,
-/// with no duplicate prefixes. A flat-`Vec` stand-in for the
-/// `BTreeMap<Prefix<H>, Node<T, H>>` the levels used to be.
+/// A zipper level: `(prefix, node)` pairs kept in a flat `Vec`, strictly
+/// ascending by prefix, with no duplicate prefixes.
 pub struct Level<T, H: Height> {
     /// Invariant: strictly ascending by prefix, no duplicates.
     entries: Vec<(Prefix<H>, Node<T, H>)>,

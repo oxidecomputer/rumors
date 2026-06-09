@@ -31,8 +31,8 @@ where
 /// bootstrap over a pair of pipes: the synchronous counterpart of
 /// `wire::bootstrap_fork`.
 ///
-/// Now that `fork` is gone, this is how the sync tests obtain a second
-/// *originator*. The returned peer descends from `parent`'s universe (same
+/// This is how the sync tests obtain a second *originator*. The returned
+/// peer descends from `parent`'s universe (same
 /// [`Network`](rumors::Network)) with its own disjoint party region and a copy
 /// of `parent`'s content. Use it — not [`rumors`](Known::rumors) — wherever the
 /// second peer must go on to `message`/`redact`: two `rumors` snapshots share a

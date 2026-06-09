@@ -3,12 +3,12 @@ use std::sync::LazyLock;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-/// 32-byte hash newtype. Wraps a fixed-size byte array so we can derive borsh
-/// without a length prefix and so the rest of the crate doesn't depend on the
-/// underlying hash crate.
+/// 32-byte hash newtype. Wraps a fixed-size byte array so borsh can be
+/// derived without a length prefix and so the rest of the crate does not
+/// depend on the underlying hash crate.
 ///
-/// The underlying primitive is [`blake3`], but this is an implementation detail:
-/// callers should reach for [`Hash::hash`] or [`Hasher`] and never touch the
+/// The underlying primitive is [`blake3`], but that is an implementation
+/// detail: callers use [`Hash::of`] or [`Hasher`] and never touch the
 /// `blake3` types directly.
 #[derive(
     BorshSerialize, BorshDeserialize, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Default,
@@ -23,8 +23,9 @@ impl Debug for Hash {
 }
 
 /// Domain-separation tag prefixed to a leaf's hash preimage. Leaves are
-/// content-addressed — the path *is* `blake3(version ‖ value)` — so a leaf
-/// carries no hash-distinguishing content and commits to nothing but this tag.
+/// content-addressed (the path is the leaf's content hash; see
+/// [`Path::for_leaf`](super::Path::for_leaf)), so a leaf carries no
+/// hash-distinguishing content and commits to nothing but this tag.
 const LEAF_TAG: u8 = 0;
 
 /// Domain-separation tag prefixed to a branch's hash preimage, distinguishing
@@ -102,8 +103,9 @@ impl From<Hash> for [u8; 32] {
     }
 }
 
-/// Streaming hasher: equivalent to feeding the concatenation of every `update`
-/// chunk through [`Hash::hash`], without allocating an intermediate buffer.
+/// Streaming hasher: equivalent to feeding the concatenation of every
+/// `update` chunk through [`Hash::of`], without allocating an intermediate
+/// buffer.
 #[derive(Default)]
 pub struct Hasher(blake3::Hasher);
 

@@ -21,10 +21,9 @@
 //! leaf set ([`Node::branch`]/[`Node::beneath`] enforce one shape), the rebuilt
 //! nodes are structurally and hash-identical to the originals.
 //!
-//! The [`verify_*`](verify_pairs_canonical) helpers re-impose the canonical
-//! ordering the old `de_strict_order` `BTreeMap`/`BTreeSet` encodings gave for
-//! free: a frame whose entries are out of order or duplicated is rejected at
-//! deserialize time.
+//! The [`verify_*`](verify_pairs_canonical) helpers enforce canonical
+//! ordering: a frame whose entries are out of order or duplicated is
+//! rejected at deserialize time.
 
 // The leaf-list conversion is retained for a future leaf-only storage adapter
 // (see the module docs) and is exercised only by tests today, so its items read

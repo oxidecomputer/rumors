@@ -93,11 +93,10 @@ proptest! {
         prop_assert_eq!(run(true), run(false));
     }
 
-    /// Redacting the same `Key` a second time is content-idempotent:
-    /// the live readout is unchanged and no callback fires. (The
-    /// local party's version counter does advance, since `redact`
-    /// always issues a fresh operation, but that's not observable
-    /// through the public API at the call site.)
+    /// Redacting the same `Key` a second time is idempotent: the live
+    /// readout is unchanged and no callback fires. (The second redact is a
+    /// nil action — the leaf is already gone — so the tree's version is
+    /// also unchanged.)
     #[test]
     fn redact_twice_is_idempotent(value in any::<u64>()) {
         let mut peer = Peer::<u64>::new(Known::seed());

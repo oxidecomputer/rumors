@@ -52,9 +52,9 @@ pub fn arb_string_actions() -> impl Strategy<Value = Vec<LocalAction<String>>> {
 
 /// Apply a `LocalAction` sequence to the given `Known<T>`, returning it.
 ///
-/// The caller supplies `local` already [`fork`](Known::fork)ed from the shared
-/// universe seed, so independently-built locals stay pairwise disjoint and can
-/// later [`learn`](Known::learn) from one another.
+/// The caller supplies `local` already bootstrapped from the shared universe
+/// seed, so independently-built locals stay pairwise disjoint and can later
+/// merge one another's snapshots with [`join`](Known::join).
 pub fn build_local<T>(mut local: Known<T>, actions: &[LocalAction<T>]) -> Known<T>
 where
     T: Send + Sync + Clone + BorshSerialize + BorshDeserialize + 'static,

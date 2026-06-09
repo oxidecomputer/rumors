@@ -1,9 +1,13 @@
 //! Identity checkpoints that survive an ungraceful restart.
 //!
-//! A [`Bookmark`] persists *who* a [`Known`](crate::Known) is and how far it has
-//! advanced, so a peer that crashed can recover its identity instead of leaking
-//! it. See the [`Bookmark`] type for the recovery model and the one rule that
-//! keeps it sound.
+//! A [`Bookmark`] persists *who* a [`Known`](crate::Known) is and how far it
+//! has advanced, so a peer that crashed can recover its identity instead of
+//! leaking it. See the [`Bookmark`] type for the recovery model and the one
+//! rule that keeps it sound.
+//!
+//! This module is not yet wired to the public surface: the recovery API is
+//! being redesigned, and until it lands nothing outside the crate can drive
+//! [`Bookmark::update`].
 
 use std::collections::BTreeMap;
 

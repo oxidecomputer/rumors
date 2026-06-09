@@ -1,4 +1,9 @@
-//! Bidirectional alternating mirror-sync between two replicas of the typed tree.
+//! Bidirectional alternating mirror-sync between two replicas of the typed
+//! tree.
+//!
+//! See [`local`] for the protocol's state machine and asymmetry matrix,
+//! [`protocol`] for the type-level phase schedule, [`message`] for the wire
+//! format, and [`remote`] for the wire-bound proxy and framing.
 
 use std::cmp::Ordering;
 
@@ -151,9 +156,10 @@ pub(crate) type ClientConnected<C, T> = <<C as Connect<T>>::Next as CompleteConn
 /// to once `accept` has run.
 pub(crate) type ServerConnected<S, T> = <S as Accept<T>>::Next;
 
-/// The result of the connect phase ([`connect_phase`]): the [`Handshake`]s have
-/// been exchanged, so the caller can inspect the peer's `network`/`retiring`
-/// and decide whether to descend, absorb a retiree, serve a bootstrapper, etc.
+/// The result of the connect phase ([`handshake`]): the [`Handshake`]s have
+/// been exchanged, so the caller can inspect the peer's
+/// `network`/`version`/`intent` and decide whether to descend, absorb a
+/// retiree, serve a bootstrapper, and so on.
 pub(crate) enum Handshaken<C, S, T>
 where
     T: Send + Sync,
@@ -185,11 +191,12 @@ where
     C: Client<T>,
     S: Server<T>,
 {
-    /// The peer's [`Handshake`], available whichever way the connect phase went.
+    /// The peer's [`Handshake`], available whichever way the connect phase
+    /// went.
     ///
-    /// Lets the caller dispatch on the peer's `network`/`version`/`retiring` —
-    /// deciding whether to [`reconcile`](Self::reconcile) or [`stop`](Self::stop)
-    /// — *before* committing to (or skipping) the descent.
+    /// Lets the caller dispatch on the peer's `network`/`version`/`intent`,
+    /// deciding whether to [`reconcile`](Self::reconcile) or
+    /// [`stop`](Self::stop), before committing to (or skipping) the descent.
     pub(crate) fn peer(&self) -> &Handshake {
         match self {
             Handshaken::Converged { peer, .. } | Handshaken::Diverged { peer, .. } => peer,
@@ -245,9 +252,10 @@ where
     }
 }
 
-/// Run the connect phase: the client emits its [`Handshake`], the server ships
-/// it and replies with the peer's, and the client absorbs the peer's version.
-/// Stops there, handing the outcome back for dispatch (see [`Phase`]).
+/// Run the connect phase: the client emits its [`Handshake`], the server
+/// ships it and replies with the peer's, and the client absorbs the peer's
+/// version. Stops there, handing the outcome back for dispatch (see
+/// [`Handshaken`]).
 pub(crate) async fn handshake<C, S, T>(
     c: C,
     s: S,
@@ -341,11 +349,11 @@ where
     }
 }
 
-/// Drive a mirror protocol client against a server to synchronize both of them.
-/// A test convenience: the wire entry points in [`crate::Known`] drive
-/// [`connect_phase`] and [`descend`] directly so they can dispatch on the peer's
-/// [`Handshake`] in between, so this whole-session shortcut is only used by the
-/// in-process protocol tests.
+/// Drive a mirror protocol client against a server to synchronize both of
+/// them. A test convenience: the wire entry points in [`crate::Known`] drive
+/// [`handshake`] and [`Handshaken::reconcile`] directly so they can dispatch
+/// on the peer's [`Handshake`] in between, so this whole-session shortcut is
+/// only used by the in-process protocol tests.
 #[cfg(test)]
 pub async fn mirror<'a, C, S, T>(
     c: C,

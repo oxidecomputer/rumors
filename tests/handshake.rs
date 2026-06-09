@@ -3,10 +3,10 @@
 //! Drives [`rumors::Known::gossip`] against a hand-crafted peer over a
 //! [`tokio::io::duplex`] pipe, asserting that a mismatched magic or version
 //! surfaces as the typed error variant rather than corrupting the local rumor
-//! set. The preamble is the *raw* (non-length-delimited) prefix validated before
-//! any framed traffic; the [`Network`](rumors::Network) now rides the framed
-//! greeting that follows, so network-mismatch rejection is exercised separately
-//! in `tests/network.rs`.
+//! set. The preamble is the *raw* (non-length-delimited) prefix validated
+//! before any framed traffic; the [`Network`](rumors::Network) rides the
+//! framed greeting that follows, so network-mismatch rejection is exercised
+//! separately in `tests/network.rs`.
 
 use rumors::{Error, Known, PROTOCOL_MAGIC, PROTOCOL_VERSION};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
@@ -40,7 +40,7 @@ async fn handshake_roundtrip_succeeds() {
     let (mut a_r, mut a_w) = tokio::io::split(a);
     let (mut b_r, mut b_w) = tokio::io::split(b);
 
-    // Same universe: `bob` is a fork of `alice`, so their networks match.
+    // Same universe: `bob` is a snapshot of `alice`, so their networks match.
     let alice: Known<String> = Known::seed();
     let bob = alice.rumors();
 

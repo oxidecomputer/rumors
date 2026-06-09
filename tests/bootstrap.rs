@@ -15,9 +15,9 @@ use rumors::{Key, Known};
 use crate::common::action::{arb_local_actions, arb_string_actions, build_local_async};
 use crate::common::wire::{block_on, bootstrap_fork};
 
-/// Capacity for the in-memory duplex pipe. Roomy enough that the provider's
-/// whole-tree frame (the bootstrap transfer ships it in one frame) fits without
-/// the test depending on backpressure subtleties.
+/// Capacity for the in-memory duplex pipe. Roomy enough that the bootstrap
+/// descent's largest frames fit without the test depending on backpressure
+/// subtleties.
 const DUPLEX_BUF: usize = 64 * 1024;
 
 /// Drive a provider's `gossip` against a peer's `bootstrap` over a duplex pipe,

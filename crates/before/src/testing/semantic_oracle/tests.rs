@@ -1,8 +1,9 @@
-//! Cross-check the three references — production impl, recursive tree [`oracle`], and the
-//! function-space [`super`] model — by replaying one multi-seed op trace against all three
-//! and requiring their final clock populations to agree on every pairwise comparison. Plus a
-//! law suite proving the function-space operations are a sound ITC, and unit anchors pinning
-//! the embedding against a value the paper states.
+//! Cross-check the three references (the production impl, the recursive tree
+//! [`oracle`], and the function-space [`super`] model) by replaying one
+//! single-seed op trace against all three and requiring their final clock
+//! populations to agree on every pairwise comparison. Also a law suite
+//! proving the function-space operations are a sound ITC, and unit anchors
+//! pinning the embedding against a value the paper states.
 
 use std::cmp::Ordering;
 
@@ -40,11 +41,13 @@ fn grid_for(parts: &[u32]) -> u32 {
 
 // ───────────────────────────── replay cross-check ─────────────────────────────
 
-/// Play `ops` (starting from `seeds` independent seed clocks) against all three references in
-/// lockstep, asserting they agree on every fallible op's outcome, and return the three final
-/// populations (index-aligned). Multiple seeds start mutually non-disjoint, so the overlap and
-/// concurrent arms are exercised; a `Join`/`Sync` on overlapping parties is a no-op in all
-/// three (disjointness is invariant).
+/// Play `ops` (starting from `seeds` independent seed clocks) against all
+/// three references in lockstep, asserting they agree on every fallible op's
+/// outcome, and return the three final populations (index-aligned). Every
+/// caller passes `seeds = 1`: the invariance the keystone asserts holds only
+/// for a proper single-seed system (see
+/// [`replay_matches_across_references`]). A `Join`/`Sync` on overlapping
+/// parties is a no-op in all three (disjointness is invariant).
 fn replay(
     seeds: usize,
     ops: &[Op],
@@ -439,10 +442,10 @@ fn lifted_event_is_constant_within_a_leaf_interval() {
 fn grid_cap_is_never_reached() {
     use proptest::test_runner::{Config, TestRunner};
     use std::sync::atomic::{AtomicU32, Ordering as AOrd};
-    // Fewer cases than a typical canary sweep: each case now *probes* the function space's grid
-    // to read its resolution (the original measured cheap tree depth), and the bound it guards is
-    // structural — `fork` only deepens by bisecting an indivisible piece, the paper's rate — so a
-    // modest sweep is an ample canary.
+    // Fewer cases than a typical canary sweep: each case probes the function
+    // space's grid to read its resolution, and the bound it guards is
+    // structural (`fork` only deepens by bisecting an indivisible piece, the
+    // paper's rate), so a modest sweep is an ample canary.
     let mut runner = TestRunner::new(Config {
         cases: 400,
         ..Config::default()

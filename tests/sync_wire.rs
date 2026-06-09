@@ -1,6 +1,6 @@
 //! Wire-equivalence test for the *synchronous* gossip path:
-//! `sync::Known::gossip` over `std::io::pipe`s must agree with
-//! bidirectional `Known::learn`.
+//! `sync::Known::gossip` over `std::io::pipe`s must agree with the
+//! bidirectional in-process merge (`Known::join`).
 
 mod common;
 
@@ -13,11 +13,11 @@ use crate::common::sync_wire::{sync_bootstrap_fork, sync_wire_gossip};
 
 proptest! {
     /// `sync::Known::gossip` over `std::io::pipe`s yields the same live
-    /// content as bidirectional `Known::learn`. Exercised with the
-    /// shared `Insert`/`Redact` action shape so redactions cross the
+    /// content as a bidirectional in-process `Known::join`. Exercised with
+    /// the shared `Insert`/`Redact` action shape so redactions cross the
     /// wire too (not just inserts).
     #[test]
-    fn sync_gossip_matches_local_process(
+    fn sync_gossip_matches_local_join(
         a_actions in arb_local_actions(),
         b_actions in arb_local_actions(),
     ) {

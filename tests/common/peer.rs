@@ -1,6 +1,6 @@
 //! A simulated peer: a `Known<T>` paired with its observation log, plus
-//! helpers for the schedule executor (`gossip_step` for bidirectional
-//! `Known::learn`, `quiesce` for full-mesh convergence to a fixed
+//! helpers for the schedule executor (`gossip_step` for a bidirectional
+//! `Known::join_then`, `quiesce` for full-mesh convergence to a fixed
 //! point).
 
 use std::sync::{Arc, Mutex};
@@ -30,10 +30,10 @@ pub struct Peer<T> {
 impl<T: Clone + BorshSerialize + BorshDeserialize + Send + Sync + 'static> Peer<T> {
     /// Wrap an already-forked `Known` as a simulated peer.
     ///
-    /// The caller must mint `local` by [`fork`](Known::fork)ing the shared
-    /// universe seed (directly, or via another peer), never by an independent
-    /// [`Known::seed`]: only then are all peers pairwise disjoint, the
-    /// precondition for [`gossip_step`] to succeed.
+    /// The caller must mint `local` by bootstrapping from the shared
+    /// universe seed (directly, or via another peer), never by an
+    /// independent [`Known::seed`]: only then are all peers pairwise
+    /// disjoint, the precondition for [`gossip_step`] to succeed.
     pub fn new(local: Known<T>) -> Self {
         Self {
             local,

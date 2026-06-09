@@ -10,17 +10,15 @@ pub use key::Key;
 
 pub use traverse::mirror;
 
-/// A sparse Merkle trie with transparent path compression, whose leaves store
-/// versioned blobs of [`Bytes`].
+/// A sparse Merkle radix trie with transparent path compression, whose
+/// leaves store versioned [`Message<T>`]s.
 ///
-/// The tree internally has a branching factor of 256 and a depth of 32; this
-/// means that each path into the tree corresponds exactly to the hash of the
-/// `Bytes` stored at that position.
-///
-/// The only possible collisions (absent the astronomically unlikely hash
-/// collision) are in the event multiple different parties write the same value.
-/// This is resolved at the synchronization protocol level, and is not a concern
-/// of the tree structure.
+/// The tree has a branching factor of 256 and a depth of 32, so a leaf's
+/// 32-byte path is its content-addressed hash (see
+/// [`Path::for_leaf`](typed::Path::for_leaf)). The version is folded into
+/// the path, so two content-identical messages inserted at distinct
+/// versions occupy distinct leaves; two leaves collide only when they carry
+/// the same `(version, value)` pair, which disjoint parties cannot produce.
 #[derive(Debug, Eq)]
 pub struct Tree<T> {
     pub(crate) root: Root<T>,
@@ -97,10 +95,11 @@ pub enum Action<T> {
 impl<T> Tree<T> {
     /// Create a new, empty tree carrying the empty [`Version`].
     ///
-    /// The tree no longer owns a party identity: advancing the version is
-    /// driven by a [`Party`] passed into [`act`](Self::act) by the caller (the
-    /// [`Known`](crate::Known) that owns the party). Forking a tree is a plain
-    /// [`clone`](Clone) — the party split happens on the owning [`Known`].
+    /// A tree owns no party identity: advancing the version is driven by a
+    /// [`Party`] passed into [`act`](Self::act) by the caller (the
+    /// [`Known`](crate::Known) that owns the party). Forking a tree is a
+    /// plain [`clone`](Clone); any party split happens on the owning
+    /// [`Known`].
     pub fn new() -> Self {
         Tree {
             root: Root {
@@ -216,18 +215,17 @@ impl<T> Tree<T> {
     /// earlier insert in the same batch overrides that insert (last action
     /// on a path wins).
     ///
-    /// It is more efficient to apply a batch of actions all at once, compared
-    /// to applying them one at a time. This is because all actions in a batch
-    /// are applied to the tree in a single traversal. Theoretically, this gives
-    /// an O(log n) speedup relative to one-by-one insertion operations, but
-    /// since the log base is 256, in practice this is about 2-3x.
+    /// A batch is applied to the tree in a single traversal, which is more
+    /// efficient than applying its actions one at a time: in theory an
+    /// O(log n) speedup over one-by-one insertion, in practice about 2-3x
+    /// since the log base is 256.
     ///
-    /// This function is "morally associative": partitioning a sequence of actions
-    /// across multiple `act` calls produces the same tree as a single `act` over
-    /// their concatenation, modulo the tree's version, which may differ in the
-    /// case of multiple actions which address the same key. In this case, the
-    /// version is only incremented once for every changed key, regardless of
-    /// how many actions pertain to it.
+    /// This function is "morally associative": partitioning a sequence of
+    /// actions across multiple `act` calls produces the same tree as a
+    /// single `act` over their concatenation, except possibly for the tree's
+    /// version when several actions address the same key. In that case the
+    /// version is incremented once per changed key, regardless of how many
+    /// actions pertain to it.
     pub async fn act<F, I, O, Fut>(&mut self, mut tick: F, actions: I, react: O)
     where
         T: Send + Sync,
@@ -239,10 +237,11 @@ impl<T> Tree<T> {
         // Track the running version across the batch, ticking the owning party
         // once per action so that (a) content-identical messages produce
         // distinct keys even when submitted together, and (b) forgets carry a
-        // version strictly greater than any prior insert at this party —
-        // load-bearing for the mirror protocol's deletion-honoring inference,
-        // which cannot distinguish "forgot it" from "never had it" when
-        // versions are equal. An empty batch is a complete no-op.
+        // version strictly greater than any prior insert at this party. The
+        // strict tick on forgets is required by the mirror protocol's
+        // deletion-honoring inference, which cannot distinguish "forgot it"
+        // from "never had it" when versions are equal. An empty batch is a
+        // complete no-op.
         let mut new_version = self.latest().clone();
 
         // Build reactions eagerly so the `party` borrow stays cleanly scoped:
@@ -259,10 +258,9 @@ impl<T> Tree<T> {
             actions
                 .into_iter()
                 .map(|action| {
-                    // Advance the version. It is *load-bearing* that this be
-                    // unique for every action applied to the tree; otherwise the
-                    // mirror-sync protocol wrongly early-aborts when versions
-                    // compare equal.
+                    // Advance the version. It must be unique for every action
+                    // applied to the tree; otherwise the mirror protocol
+                    // wrongly early-aborts when versions compare equal.
                     tick(&mut batch);
                     let version = batch.snapshot();
 
@@ -290,17 +288,14 @@ impl<T> Tree<T> {
     /// should be forgotten.
     ///
     /// If multiple actions refer to the same leaf of the tree, the causally
-    /// latest action wins, with order of specification breaking concurrency and
-    /// version ties. Because each item is keyed by (party, version, hash), if
-    /// each party only manipulates their *own* tree using [`Tree::act`], these
-    /// conflicts are impossible.
+    /// latest action wins, with order of specification breaking concurrency
+    /// and version ties. Each item is keyed by its version and content hash,
+    /// so if each party only manipulates its own tree through
+    /// [`Tree::act`], these conflicts cannot arise.
     ///
-    /// It is more efficient to apply a batch of actions all at once, compared
-    /// to applying them one at a time, even though the two are semantically
-    /// equivalent. This is because all actions in a batch are applied to the
-    /// tree in a single traversal. Theoretically, this gives an O(log n)
-    /// speedup relative to one-by-one insertion operations, but since the log
-    /// base is 256, in practice this is about 2-3x.
+    /// As with [`act`](Self::act), a batch is applied in a single traversal,
+    /// which is more efficient than applying its actions one at a time but
+    /// semantically equivalent.
     pub async fn react<M, I, O, Fut>(&mut self, reactions: I, mut react: O)
     where
         T: Send + Sync,
