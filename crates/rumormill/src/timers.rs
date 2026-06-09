@@ -29,13 +29,13 @@ pub const SYSTEM_TTL: Duration = Duration::from_secs(15);
 /// Poisson process so independent nodes never sync up into a thundering
 /// herd; a converged session costs only a handshake, so the mean can be
 /// aggressive.
-pub const GOSSIP_MEAN_INTERVAL: Duration = Duration::from_secs(2);
+pub const GOSSIP_MEAN_INTERVAL: Duration = Duration::from_millis(500);
 
 /// Bounds on a single sampled gossip delay: the exponential distribution has
 /// unbounded support, so clamp the tail (and keep a floor so a tiny sample
 /// cannot spin-dial).
 pub const GOSSIP_DELAY_MIN: Duration = Duration::from_millis(200);
-pub const GOSSIP_DELAY_MAX: Duration = Duration::from_secs(30);
+pub const GOSSIP_DELAY_MAX: Duration = Duration::from_secs(20);
 
 /// How long a dial may take before we give up on the peer for this round.
 pub const DIAL_TIMEOUT: Duration = Duration::from_secs(10);
