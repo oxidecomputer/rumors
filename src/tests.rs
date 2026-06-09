@@ -11,8 +11,9 @@ use before::Party;
 use crate::tree::{Root, Tree};
 use crate::{Error, Known};
 
-/// Capacity for the in-memory duplex pipe; retire/absorb move no content, so the
-/// exact size is immaterial.
+/// Capacity for the in-memory duplex pipe; every retiree here is already
+/// converged with its absorber, so the sessions move no content and the exact
+/// size is immaterial.
 const DUPLEX_BUF: usize = 64 * 1024;
 
 /// Insert each of `vals` into `k`, driving the async inserts to completion.

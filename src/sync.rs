@@ -509,23 +509,24 @@ impl<T> Known<T> {
     /// Retire this rumor set into a remote peer, handing it our party so our
     /// id-region is reclaimed rather than leaked, then leaving the universe.
     ///
-    /// We may only retire into a peer that *causally dominates* us (its version
-    /// is `>=` ours): such a peer already holds a superset of our content, so
-    /// handing over only the party — with no content transfer — is safe. The
-    /// intended pattern is therefore to [`gossip`](Self::gossip) with a peer
-    /// first (so its version comes to dominate ours), then `retire` into it; if
-    /// that fails, pick another peer and try again.
+    /// The session begins with a round of gossip: the two peers reconcile
+    /// content exactly as [`gossip`](Self::gossip) would, so everything we hold
+    /// that the peer had not yet seen survives in it. Once reconciliation
+    /// completes the peer *causally dominates* us by construction, and it
+    /// absorbs our party. No prior synchronization is required; retiring into
+    /// an already-converged peer simply skips the content transfer.
     ///
     /// # Returns
     ///
-    /// - `Ok(None)`: **retired.** The peer dominated us and absorbed our party;
-    ///   we have left the universe and dropped ourselves.
-    /// - `Ok(Some(self))`: **declined, unchanged.** The peer did not dominate
-    ///   us, was itself retiring, or was bootstrapping — nothing happened and we
-    ///   are handed back intact to retry elsewhere.
+    /// - `Ok(None)`: **retired.** The peer reconciled with us and absorbed our
+    ///   party; we have left the universe and dropped ourselves.
+    /// - `Ok(Some(self))`: **declined, unchanged.** The peer cannot absorb a
+    ///   party — it was itself retiring, or was bootstrapping — so nothing
+    ///   happened and we are handed back intact to retry elsewhere.
     /// - `Err(_)`: an I/O, handshake, or network-mismatch failure (see
     ///   [`Error`]). As with the other wire methods, an error here consumes
-    ///   `self`.
+    ///   `self` (the party region can leak on a failed session, but is never
+    ///   duplicated — see the async [`Known::retire`](crate::Known::retire)).
     ///
     /// A peer running ordinary [`gossip`](Self::gossip) absorbs a retiree
     /// transparently, so the counterparty needs no special call.

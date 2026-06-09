@@ -319,10 +319,10 @@ where
 ///
 /// Implemented by the side that owns the reconciled tree (the client, once
 /// `connect`/`complete_connect` have run), it is the basis for ending a session
-/// the instant the handshake decides no content need cross: already-converged
-/// peers, an absorbed retiree, or a declined retirement. The collapsed [`Root`]
-/// is exactly the [`Stage::Output`] the descent would otherwise have produced,
-/// since the tree is untouched between the handshake and the descent.
+/// the instant the handshake decides no content need cross: a declined
+/// retirement (a retiring or bootstrapping counterparty). The collapsed
+/// [`Root`] is exactly the [`Stage::Output`] the descent would otherwise have
+/// produced, since the tree is untouched between the handshake and the descent.
 ///
 /// [`Root`]: Self::Root
 pub trait Collapse {

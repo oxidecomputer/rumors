@@ -322,9 +322,10 @@ where
 }
 
 /// Provider side of the party hand-off that completes bootstrapping a brand-new
-/// peer (and is reused by [`Known::retire`](crate::Known::retire)): fork `party`
-/// and ship the give-half as one frame, *after* the mirror descent has
-/// transferred all content.
+/// peer: fork `party` and ship the give-half as one frame, *after* the mirror
+/// descent has transferred all content. (The opposite hand-off direction —
+/// absorbing a [`Known::retire`](crate::Known::retire)ing peer — needs no
+/// trailing frame: the retiree's party rides its greeting.)
 ///
 /// Bootstrapping is not a separate bulk transfer: a peer holding nothing greets
 /// with the placeholder [`Network::ZERO`](crate::Network) and an empty tree,
@@ -391,8 +392,9 @@ where
     ) -> Result<protocol::Step<message::Handshake, Self::Next, Self::Output>, Self::Error> {
         // `request` is our local caller's handshake; ship it across to the peer,
         // then read the peer's handshake reply. (If our caller is retiring,
-        // `request.party` is the aliased party we hand over here; dropping the
-        // local copy afterward is exactly the ownership transfer retire wants.)
+        // `request.party` is the aliased party we offer here; the peer joins it
+        // once its reconciliation completes, and the caller drops its live copy
+        // when its own side does — exactly the ownership transfer retire wants.)
         send_msg(&mut self.writer, &request).await?;
         let peer: message::Handshake = recv_msg(&mut self.reader).await?;
 

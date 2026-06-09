@@ -229,8 +229,9 @@ where
     /// **without descending**: take the already-converged root, or collapse the
     /// un-descended local tree back to one. The remote wire halves are dropped.
     ///
-    /// This is the party-only path: an absorbed retiree, a declined retirement,
-    /// or peers that were already converged.
+    /// This is the declined-retirement path: a retiree whose counterparty
+    /// cannot absorb a party (it is itself retiring, or bootstrapping) bails
+    /// here. Every other session — including absorbing a retiree — reconciles.
     pub(crate) fn stop(self) -> (C::Output, Handshake)
     where
         ClientConnected<C, T>: Collapse<Root = C::Output>,

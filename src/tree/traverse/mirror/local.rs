@@ -402,8 +402,8 @@ where
 
     /// Collapse a connected exchange back to its tree root *without* running the
     /// descent. The tree is unchanged since [`start`](Self::start); used when
-    /// the session ends right after the handshake — an absorbed retiree, a
-    /// declined retirement, or already-converged peers — instead of descending.
+    /// the session ends right after the handshake — a declined retirement —
+    /// instead of descending.
     fn into_root(self) -> tree::Root<T> {
         tree::Root {
             ceiling: self.versions.our_version,

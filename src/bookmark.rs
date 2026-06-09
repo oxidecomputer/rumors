@@ -58,8 +58,9 @@ use crate::Network;
 /// Being caught up — your version equal to or beyond the mark — is the proof
 /// that you already know everything that identity ever did, so stepping into it
 /// is indistinguishable from having been it all along. This is the same
-/// condition [`retire`](crate::Known::retire) enforces from the other side: a
-/// peer may only retire into one that has already caught up to it.
+/// condition [`retire`](crate::Known::retire) establishes from the other side:
+/// its in-session round of gossip catches the absorbing peer up to the retiree
+/// before the party changes hands.
 ///
 /// A freshly-recovered peer might have caught up to only *some* of the
 /// identities a bookmark holds, so recovery is incremental: reclaim the ones

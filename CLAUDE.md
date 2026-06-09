@@ -131,11 +131,15 @@ must drive it concurrently. A session is:
    - **Version compare**: if the two versions are equal the peers have already
      converged and the session ends with no content transfer (the fast path,
      independent of how much content they hold).
-   - **Retire / bootstrap dispatch**: any `party: Some` on either side ends the
-     session with no descent (retire is party-only); a single `ZERO` network
-     triggers the bootstrap party hand-off after reconciliation.
-3. **Trie descent** — otherwise (both `party: None`, versions differ, not
-   both-`ZERO`) the two sides walk their tries from the root downward in
+   - **Retire / bootstrap dispatch**: `party: Some` on *both* sides (mutual
+     retire), or `party: Some` meeting a `ZERO` network (retiree vs.
+     bootstrapper), ends the session with no descent — neither counterparty can
+     absorb a party. A single `party: Some` against an ordinary peer proceeds
+     to the descent like any gossip; the absorber joins the greeting's party
+     after it. A single `ZERO` network triggers the bootstrap party hand-off
+     after reconciliation.
+3. **Trie descent** — otherwise (versions differ, not both-`ZERO`, not a
+   declined retirement) the two sides walk their tries from the root downward in
    lockstep, comparing subtree hashes level by level. Each message carries only
    differences: `providing` (subtrees the peer lacks), `requested` (prefixes
    this side wants), and `uncertain` (prefix→hash pairs still to compare). Equal
@@ -201,24 +205,31 @@ than leaking it. It returns `Result<Option<Self>, Error>`:
 - `Err(_)` — I/O / protocol failure (consumes `self`, like the other wire
   methods).
 
-A retiree `R` may only retire into a peer `N` that **causally dominates** it
-(`R.version <= N.version`). Domination means `N` already holds a superset of
-`R`'s content, so **no content is transferred** and the version-join is a lattice
-no-op (`N`'s tree and `ceiling` are never touched) — `N` only `party.join`s `R`'s
-region. The intended pattern is to `gossip` with a peer first (so its version
-comes to dominate), then `retire` into it.
+A retire session **begins with a round of gossip**: retiree `R` and absorber
+`N` run the ordinary mirror descent (a no-op if their versions already match),
+so `N` comes to **causally dominate** `R` by construction before the party
+changes hands. No prior synchronization is required, and nothing `R` held is
+lost — its novel content (and redactions) reach `N` through the descent exactly
+as plain gossip would carry them. Content `R` learns from `N` in return is
+dropped along with `R`. Declines remain only for counterparties that
+structurally cannot absorb a party: a peer that is itself retiring, or a
+bootstrapper (decided at the greeting, no descent).
 
 `retire` greets with `party: Some(self.party.dangerously_alias())` while keeping
 its live party. Exactly one side ever treats the alias as live: on commit `N`
-joins it and `R` drops its copy (`Ok(None)`); on any decline `N` discards it and
-`R` keeps its live party (`Ok(Some(self))`). No path duplicates or leaks the
-region beyond the same single-frame two-generals window as bootstrap.
-`before::Party::dangerously_alias` is the named linearity escape hatch this
-relies on (it deliberately violates disjointness; retire is responsible for
-keeping exactly one copy live). Plain `gossip` **transparently absorbs** a
-retiree (joins its party, no descent), exactly as it transparently serves a
-bootstrapper, so the counterparty needs no special call. Retire moves no content,
-so there is no `retire_then` callback variant.
+joins it once its reconciliation completes and `R` drops its copy when its own
+does (`Ok(None)`); on a decline `N` discards it and `R` keeps its live party
+(`Ok(Some(self))`). A session error consumes `R` (it cannot know whether `N`
+completed — two generals), so a failed session can *leak* the region but never
+*duplicate* it; the at-risk window is the reconciliation itself rather than
+bootstrap's single trailing frame. `before::Party::dangerously_alias` is the
+named linearity escape hatch this relies on (it deliberately violates
+disjointness; retire is responsible for keeping exactly one copy live). Plain
+`gossip` **transparently absorbs** a retiree (reconciles, then joins its
+party), exactly as it transparently serves a bootstrapper, so the counterparty
+needs no special call — its `gossip_then` callbacks observe whatever the
+retiree contributes. The retiree itself discards what it learns, so there is
+still no `retire_then` callback variant.
 
 ## Testing notes
 
