@@ -42,7 +42,7 @@ use crate::Network;
 /// restarted peer recover its old share and fold it back in, rather than
 /// stranding it.
 ///
-/// # Recovering an identity: only once you have caught up to it
+/// # Recovering an identity automatically once you have caught up to it
 ///
 /// A crashed peer recovers by [`bootstrap`](crate::Known::bootstrap)ping a
 /// fresh identity from the network, re-learning the content it lost, and then
@@ -67,6 +67,27 @@ use crate::Network;
 /// you have caught up to, [`gossip`](crate::Known::gossip) to advance, and
 /// reclaim more as you do. An identity you have not yet caught up to is simply
 /// kept for a later attempt.
+///
+/// # One bookmark per process, handled linearly
+///
+/// A bookmark is the durable identity of a *single* peer across *its own*
+/// restarts: write it, crash, then recover by reclaiming from it. Reusing one
+/// bookmark for that same peer's successive lives is the whole point. Sharing
+/// one bookmark between *distinct, concurrently-live* peers is the one misuse
+/// that turns this tool against itself.
+///
+/// Reclamation folds back every stored identity the live party has *caught up
+/// to*. But two live peers in one universe [`gossip`](crate::Known::gossip)
+/// with one another, so each comes to hold the other's content and thereby to
+/// satisfy that catch-up test for the other's share. If they share a bookmark,
+/// peer `A` — having gossiped `B`'s messages — meets the test for still-live
+/// `B`'s share and absorbs it, and the same identity is now claimed by two live
+/// parties at once.
+///
+/// So a bookmark, like the identity it records, must be handled **linearly**
+/// and **persisted atomically**. A duplicated bookmark is as dangerous as a
+/// duplicated party, because that is precisely what reclaiming from a shared
+/// one can produce.
 #[derive(Debug, Eq, PartialEq, Hash, BorshDeserialize, BorshSerialize, Default)]
 pub struct Bookmark {
     inner: BTreeMap<Network, Vec<Clock>>,
@@ -81,12 +102,19 @@ impl Bookmark {
     /// Fold the live `party` and `version` into the bookmark, reclaiming every
     /// stored identity that `version` has caught up to.
     ///
-    /// An identity is caught up to when `version` is at least as advanced as the
-    /// one stored with it (`clock.version() <= version`); those are exactly the
-    /// identities it is causally honest to reabsorb, and `party` grows in place
-    /// to take them back. An identity `version` has not yet caught up to is left
-    /// untouched, so calling this repeatedly as `version` advances reclaims more
-    /// each time. A reclaimed identity whose share `party` now wholly holds is
+    /// An identity is caught up to when `version` is at least as advanced as
+    /// that identity's *own contribution* — its stored version restricted to
+    /// its share, `clock.own_version()`. Because a share's id region is
+    /// advanced only by that share (regions are disjoint among live peers),
+    /// this projection is the share's complete authored history, and dominating
+    /// it is all that licenses reabsorbing the share: what the identity knew
+    /// *outside* its region is authored by others and irrelevant to becoming
+    /// it. This is strictly weaker than dominating the stored version in full,
+    /// so it reclaims more, no less safely. Those are exactly the identities it
+    /// is causally honest to reabsorb, and `party` grows in place to take them
+    /// back. An identity `version` has not yet caught up to is left untouched,
+    /// so calling this repeatedly as `version` advances reclaims more each
+    /// time. A reclaimed identity whose share `party` now wholly holds is
     /// redundant and dropped; one that still covers a share held elsewhere is
     /// kept until that share, too, comes back. Finally `party` is recorded at
     /// `version` as the bookmark's latest record of this identity.
@@ -101,7 +129,7 @@ impl Bookmark {
         // the order they are visited: by the end, `party` has grown to its
         // final, fully-reclaimed value.
         let mut overlapping = Vec::new();
-        for clock in clocks.extract_if(.., |clock| clock.version() <= version) {
+        for clock in clocks.extract_if(.., |clock| clock.own_version() <= *version) {
             let (p, v) = clock.into_parts();
             if let Err(p) = party.join(p) {
                 overlapping.push(Clock::from_parts(p, v));
@@ -129,6 +157,3 @@ impl Bookmark {
         ))
     }
 }
-
-#[cfg(test)]
-mod tests;

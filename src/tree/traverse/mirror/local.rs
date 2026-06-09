@@ -394,15 +394,17 @@ where
     }
 }
 
-impl<OnSend, OnRecv, T> Exchange<OnSend, OnRecv, Connected, Top<T>>
+impl<OnSend, OnRecv, T> protocol::Collapse for Exchange<OnSend, OnRecv, Connected, Top<T>>
 where
     T: Send + Sync,
 {
+    type Root = tree::Root<T>;
+
     /// Collapse a connected exchange back to its tree root *without* running the
     /// descent. The tree is unchanged since [`start`](Self::start); used when
     /// the session ends right after the handshake — an absorbed retiree, a
     /// declined retirement, or already-converged peers — instead of descending.
-    pub fn into_root(self) -> tree::Root<T> {
+    fn into_root(self) -> tree::Root<T> {
         tree::Root {
             ceiling: self.versions.our_version,
             root: self.levels.collapse(),

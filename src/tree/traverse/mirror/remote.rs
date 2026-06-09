@@ -119,7 +119,16 @@ pub enum Error {
     /// bootstrapping peer sends the placeholder [`Network`], so a session where
     /// either side is bootstrapping never raises this.)
     #[error("peer belongs to a different network ({remote_network:?})")]
-    NetworkMismatch { remote_network: Network },
+    NetworkMismatch {
+        /// The network identifier for the remote network.
+        remote_network: Network,
+        /// A lower-bound for the number of events which have ever been recorded
+        /// in the remote network.
+        ///
+        /// This can be useful as a tie-break heuristic to resolve in favor of
+        /// an older network.
+        remote_min_events: u64,
+    },
 
     /// A retiring peer offered a [`Party`](before::Party) whose id-region
     /// overlaps ours, so it cannot be [`join`](before::Party::join)ed. In a
@@ -398,6 +407,7 @@ where
         {
             return Err(Error::NetworkMismatch {
                 remote_network: peer.network,
+                remote_min_events: peer.version.min_ticks(),
             });
         }
 

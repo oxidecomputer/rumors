@@ -154,7 +154,7 @@ pub(crate) type ServerConnected<S, T> = <S as Accept<T>>::Next;
 /// The result of the connect phase ([`connect_phase`]): the [`Handshake`]s have
 /// been exchanged, so the caller can inspect the peer's `network`/`party` and
 /// decide whether to descend, absorb a retiree, serve a bootstrapper, etc.
-pub(crate) enum Phase<C, S, T>
+pub(crate) enum Handshaken<C, S, T>
 where
     T: Send + Sync,
     C: Client<T>,
@@ -179,13 +179,78 @@ where
     },
 }
 
+impl<C, S, T> Handshaken<C, S, T>
+where
+    T: Send + Sync,
+    C: Client<T>,
+    S: Server<T>,
+{
+    /// The peer's [`Handshake`], available whichever way the connect phase went.
+    ///
+    /// Lets the caller dispatch on the peer's `network`/`version`/`party` —
+    /// deciding whether to [`reconcile`](Self::reconcile) or [`stop`](Self::stop)
+    /// — *before* committing to (or skipping) the descent.
+    pub(crate) fn peer(&self) -> &Handshake {
+        match self {
+            Handshaken::Converged { peer, .. } | Handshaken::Diverged { peer, .. } => peer,
+        }
+    }
+
+    /// Reconcile the two trees to convergence, **descending** the divergent
+    /// tries if the versions differ (a no-op if they already converged).
+    ///
+    /// Hands back the reconciled root, the remote wire halves (for any trailing
+    /// party hand-off the caller appends), and the peer's [`Handshake`]. This is
+    /// the path that moves content: a steady-state gossip, or serving a
+    /// bootstrapper its first copy.
+    pub(crate) async fn reconcile(
+        self,
+    ) -> Result<(C::Output, S::Output, Handshake), Error<C::Error, S::Error>> {
+        match self {
+            Handshaken::Converged {
+                local_root,
+                remote_out,
+                peer,
+            } => Ok((local_root, remote_out, peer)),
+            Handshaken::Diverged {
+                local,
+                remote,
+                our_version,
+                peer,
+            } => {
+                let (root, remote_out) =
+                    descend(local, remote, our_version, peer.version.clone()).await?;
+                Ok((root, remote_out, peer))
+            }
+        }
+    }
+
+    /// End the session the instant the handshake decides no content need cross,
+    /// **without descending**: take the already-converged root, or collapse the
+    /// un-descended local tree back to one. The remote wire halves are dropped.
+    ///
+    /// This is the party-only path: an absorbed retiree, a declined retirement,
+    /// or peers that were already converged.
+    pub(crate) fn stop(self) -> (C::Output, Handshake)
+    where
+        ClientConnected<C, T>: Collapse<Root = C::Output>,
+    {
+        match self {
+            Handshaken::Converged {
+                local_root, peer, ..
+            } => (local_root, peer),
+            Handshaken::Diverged { local, peer, .. } => (local.into_root(), peer),
+        }
+    }
+}
+
 /// Run the connect phase: the client emits its [`Handshake`], the server ships
 /// it and replies with the peer's, and the client absorbs the peer's version.
 /// Stops there, handing the outcome back for dispatch (see [`Phase`]).
-pub(crate) async fn connect_phase<C, S, T>(
+pub(crate) async fn handshake<C, S, T>(
     c: C,
     s: S,
-) -> Result<Phase<C, S, T>, Error<C::Error, S::Error>>
+) -> Result<Handshaken<C, S, T>, Error<C::Error, S::Error>>
 where
     T: Send + Sync,
     C: Client<T>,
@@ -203,7 +268,7 @@ where
             .await
             .map_err(Error::Client)?
         {
-            Step::Continue { msg: (), next: c } => Ok(Phase::Diverged {
+            Step::Continue { msg: (), next: c } => Ok(Handshaken::Diverged {
                 local: c,
                 remote: s,
                 our_version,
@@ -229,7 +294,7 @@ where
                     our_version == peer.version,
                     "server and client must agree on version to quit early"
                 );
-                Ok(Phase::Converged {
+                Ok(Handshaken::Converged {
                     local_root,
                     remote_out,
                     peer,
@@ -292,19 +357,8 @@ where
 {
     // Box the future so that callers don't need to handle its big future type.
     Box::pin(async move {
-        match connect_phase(c, s).await? {
-            Phase::Converged {
-                local_root,
-                remote_out,
-                ..
-            } => Ok((local_root, remote_out)),
-            Phase::Diverged {
-                local,
-                remote,
-                our_version,
-                peer,
-            } => descend(local, remote, our_version, peer.version).await,
-        }
+        let (root, remote_out, _peer) = handshake(c, s).await?.reconcile().await?;
+        Ok((root, remote_out))
     })
     .await
 }

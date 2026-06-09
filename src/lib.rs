@@ -261,8 +261,6 @@ impl<T> PartialEq for Known<T> {
 /// framing errors encountered while parsing messages off the wire.
 pub use mirror::remote::Error;
 
-use mirror::message::Handshake;
-
 /// An opaque identifier for a single message in a [`Known`] rumor set.
 ///
 /// Keys are produced by the `on_message` callbacks of [`Known::message`],
@@ -348,18 +346,12 @@ pub use version::Version;
 /// ```
 pub use ::borsh;
 
-impl<T> Known<T> {
-    /// Collapse a mirror error down to the wire-bound server error. The client
-    /// side of every wire session is the in-memory local exchange, whose error
-    /// type is [`Infallible`](std::convert::Infallible), so the
-    /// [`Client`](mirror::Error::Client) arm is uninhabitable.
-    fn unwrap_server(e: mirror::Error<std::convert::Infallible, Error>) -> Error {
-        match e {
-            mirror::Error::Server(e) => e,
-            mirror::Error::Client(never) => match never {},
-        }
-    }
+use crate::tree::mirror::{
+    local::{self, Silent},
+    remote,
+};
 
+impl<T> Known<T> {
     /// Create the distinguished seed rumor set: the single root [`Party`] from
     /// which every other party in this universe descends by [`fork`](Self::fork).
     ///
@@ -995,82 +987,53 @@ impl<T> Known<T> {
     {
         // Raw magic/version preamble: reject a non-rumors or incompatible peer
         // before the codec trusts any peer-supplied frame length.
-        mirror::remote::preamble(read, write).await?;
+        remote::preamble(read, write).await?;
 
         // Our latest version, captured before the tree moves into the exchange.
         let our_version = self.tree.latest().clone();
 
         // Run the connect phase, which exchanges `message::Handshake`s (network
         // + version + retire-intent). We are gossiping, so we offer no party.
-        let l = mirror::local::Exchange::start(
+        let l = local::Exchange::start(
             self.tree.root,
             self.network,
             None,
-            None::<mirror::local::Silent<T>>,
+            None::<Silent<T>>,
             on_message,
         );
-        let r = mirror::remote::Exchange::start(read, write);
+        let r = remote::Exchange::start(read, write);
 
-        match mirror::connect_phase(l, r)
-            .await
-            .map_err(Self::unwrap_server)?
-        {
-            // Versions already equal: the trees are reconciled. Absorb a
-            // retiring peer (we necessarily dominate it), serve a bootstrapper,
-            // or simply finish.
-            mirror::Phase::Converged {
-                local_root,
-                remote_out: (_reader, mut writer),
-                peer,
-            } => {
-                let Handshake {
-                    network: peer_net,
-                    version: peer_version,
-                    party: peer_party,
-                } = peer;
-                self.tree.root = local_root;
-                if let Some(party) = peer_party {
-                    if peer_version <= our_version {
-                        self.party.join(party).map_err(|_| Error::PartyOverlap)?;
-                    }
-                } else if peer_net.is_bootstrap() {
-                    mirror::remote::send_party_fork(&mut self.party, &mut writer).await?;
-                }
-                Ok(self)
+        // Run the initial handshake to determine if and how to gossip.
+        let handshaken = mirror::handshake(l, r).await.map_err(server_error)?;
+
+        // A retiring peer (it offered its party) ends the session with no
+        // descent: collapse our tree back unchanged. We join its party region
+        // only if we causally dominate it (`peer.version <= our_version`), the
+        // condition under which it commits to handing the region over. If we do
+        // not dominate it, we decline — dropping the aliased party untouched —
+        // exactly as the retiree symmetrically declines and keeps its live one.
+        if handshaken.peer().party.is_some() {
+            let (root, peer) = handshaken.stop();
+            self.tree.root = root;
+            if let Some(party) = peer.party
+                && peer.version <= our_version
+            {
+                self.party.join(party).map_err(|_| Error::PartyOverlap)?;
             }
-            // Versions differ. A retiring peer ends the session with no descent;
-            // otherwise descend, then serve a bootstrapper if it was one.
-            mirror::Phase::Diverged {
-                local,
-                remote,
-                our_version: _,
-                peer,
-            } => {
-                let Handshake {
-                    network: peer_net,
-                    version: peer_version,
-                    party: peer_party,
-                } = peer;
-                if let Some(party) = peer_party {
-                    let root = local.into_root();
-                    if peer_version <= our_version {
-                        self.party.join(party).map_err(|_| Error::PartyOverlap)?;
-                    }
-                    self.tree.root = root;
-                    return Ok(self);
-                }
-                let bootstrapper = peer_net.is_bootstrap();
-                let (root, (_reader, mut writer)) =
-                    mirror::descend(local, remote, our_version, peer_version)
-                        .await
-                        .map_err(Self::unwrap_server)?;
-                self.tree.root = root;
-                if bootstrapper {
-                    mirror::remote::send_party_fork(&mut self.party, &mut writer).await?;
-                }
-                Ok(self)
-            }
+            return Ok(self);
         }
+
+        // Otherwise reconcile — descending if our versions differ — and then
+        // serve a bootstrapper the forked party it still needs (the descent
+        // moved content but not parties).
+        let bootstrapper = handshaken.peer().network.is_bootstrap();
+        let (root, (_reader, mut writer), _peer) =
+            handshaken.reconcile().await.map_err(server_error)?;
+        self.tree.root = root;
+        if bootstrapper {
+            remote::send_party_fork(&mut self.party, &mut writer).await?;
+        }
+        Ok(self)
     }
 
     /// Bootstrap a brand-new rumor set from a remote peer.
@@ -1211,61 +1174,37 @@ impl<T> Known<T> {
         OnMessageFut: Future<Output = ()> + Send + 'a,
     {
         // Raw magic/version preamble first.
-        mirror::remote::preamble(read, write).await?;
+        remote::preamble(read, write).await?;
 
         // We hold nothing: run the ordinary mirror protocol from an *empty*
         // tree, declaring ourselves bootstrapping with the placeholder network
         // and no party. The empty side pulls all of the provider's content
         // through the usual descent, firing `on_message` per received leaf.
-        let l = mirror::local::Exchange::start(
+        let l = local::Exchange::start(
             tree::Root::default(),
             Network::ZERO,
             None,
-            None::<mirror::local::Silent<T>>,
+            None::<Silent<T>>,
             on_message,
         );
-        let r = mirror::remote::Exchange::start(read, write);
+        let r = remote::Exchange::start(read, write);
 
         // After the connect phase, a peer that is *also* bootstrapping, or one
         // that is *retiring* (it will not serve), means there is nothing to
-        // receive: bail symmetrically. Otherwise reconcile, then read the
-        // provider's fork-last party frame off the same reader.
-        let (network, root, mut reader) = match mirror::connect_phase(l, r)
-            .await
-            .map_err(Self::unwrap_server)?
-        {
-            mirror::Phase::Converged {
-                local_root,
-                remote_out: (reader, _writer),
-                peer,
-            } => {
-                if peer.network.is_bootstrap() || peer.party.is_some() {
-                    return Ok(None);
-                }
-                (peer.network, local_root, reader)
-            }
-            mirror::Phase::Diverged {
-                local,
-                remote,
-                our_version,
-                peer,
-            } => {
-                if peer.network.is_bootstrap() || peer.party.is_some() {
-                    return Ok(None);
-                }
-                let network = peer.network;
-                let (root, (reader, _writer)) =
-                    mirror::descend(local, remote, our_version, peer.version)
-                        .await
-                        .map_err(Self::unwrap_server)?;
-                (network, root, reader)
-            }
-        };
+        // receive: bail symmetrically.
+        let handshaken = mirror::handshake(l, r).await.map_err(server_error)?;
+        if handshaken.peer().network.is_bootstrap() || handshaken.peer().party.is_some() {
+            return Ok(None);
+        }
 
-        // Adopt the provider's network and the forked party it ships last.
-        let party = mirror::remote::recv_party(&mut reader).await?;
+        // Otherwise reconcile — pulling the provider's whole tree through the
+        // descent — then read the provider's fork-last party frame off the same
+        // reader, and adopt its network alongside.
+        let (root, (mut reader, _writer), peer) =
+            handshaken.reconcile().await.map_err(server_error)?;
+        let party = remote::recv_party(&mut reader).await?;
         Ok(Some(Known {
-            network,
+            network: peer.network,
             party,
             tree: Tree { root },
         }))
@@ -1314,27 +1253,20 @@ impl<T> Known<T> {
         // side ends up treating it as live (the peer on commit, us on decline).
         let alias = self.party.dangerously_alias();
 
-        mirror::remote::preamble(read, write).await?;
-        let l = mirror::local::Exchange::start(
+        remote::preamble(read, write).await?;
+        let l = local::Exchange::start(
             self.tree.root,
             our_network,
             Some(alias),
-            None::<mirror::local::Silent<T>>,
-            None::<mirror::local::Silent<T>>,
+            None::<Silent<T>>,
+            None::<Silent<T>>,
         );
-        let r = mirror::remote::Exchange::start(read, write);
+        let r = remote::Exchange::start(read, write);
 
-        // Retire never descends: the connect-phase handshake decides everything.
-        // Collapse our (un-descended) tree back to a root in case we decline.
-        let (root, peer) = match mirror::connect_phase(l, r)
-            .await
-            .map_err(Self::unwrap_server)?
-        {
-            mirror::Phase::Converged {
-                local_root, peer, ..
-            } => (local_root, peer),
-            mirror::Phase::Diverged { local, peer, .. } => (local.into_root(), peer),
-        };
+        // Retire never descends: the connect-phase handshake decides everything,
+        // so we `stop` — collapsing our (un-descended) tree back to a root in
+        // case we decline.
+        let (root, peer) = mirror::handshake(l, r).await.map_err(server_error)?.stop();
 
         // The connect phase already rejected a real-network mismatch.
         //
@@ -1353,69 +1285,15 @@ impl<T> Known<T> {
         self.tree.root = root;
         Ok(Some(self))
     }
+}
 
-    /// Record this [`Known`]'s identity and current version into a [`Bookmark`],
-    /// so this peer can recover its identity after an ungraceful restart instead
-    /// of leaking it.
-    ///
-    /// See [`Bookmark`] for the recovery model: what an identity is, why
-    /// leaking one permanently inflates every peer's versions, and the rule for
-    /// reclaiming a bookmarked identity (you may only resume as an identity
-    /// once your version is at least as advanced as the one it was bookmarked
-    /// at; resuming behind it corrupts causal history).
-    ///
-    /// Used correctly, bookmarks prevent that leakage; persisted at the wrong
-    /// moment, a bookmark instead causes the causal-history corruption it
-    /// exists to prevent. The discipline:
-    ///
-    /// # When to bookmark
-    ///
-    /// You do not have to use bookmarks, but if you do, checkpoint *right
-    /// before you [`gossip`](Known::gossip)*, whenever you have changed this
-    /// [`Known`] with [`message`](Known::message) or [`redact`](Known::redact)
-    /// since your last checkpoint, and persist the bookmark before that gossip
-    /// goes out. The invariant this preserves is that the persisted
-    /// [`Bookmark`] must *never* be causally behind a change another peer has
-    /// already learned; otherwise, a recovery from it would resume behind the
-    /// network.
-    ///
-    /// A peer that is about to [`retire`](Known::retire) *must* erase its
-    /// persisted [`Bookmark`] first, so that a successful retire cannot leave
-    /// its identity recoverable locally while it is also in use elsewhere in
-    /// the network.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use rumors::{Known, Bookmark};
-    ///
-    /// # #[tokio::main(flavor = "current_thread")]
-    /// # async fn main() {
-    /// let mut peer = Known::<u64>::seed();
-    /// peer.message([1, 2]).await;
-    ///
-    /// // A pristine checkpoint of the peer's identity. (In practice you would
-    /// // persist the bookmark — it is `borsh`-serializable — to durable storage
-    /// // right before gossiping.)
-    /// let mut pristine = Bookmark::new();
-    /// peer.bookmark(&mut pristine);
-    ///
-    /// // Fork a child, checkpoint it, then lose it ungracefully — a crash, with
-    /// // no chance to `retire`. Re-checkpointing the peer reclaims the lost
-    /// // fork's identity rather than leaking it.
-    /// let mut bookmark = Bookmark::new();
-    /// {
-    ///     let mut child = peer.fork();
-    ///     child.bookmark(&mut bookmark);
-    /// }
-    /// peer.bookmark(&mut bookmark);
-    ///
-    /// // The reclaimed checkpoint is identical to the pristine one: the
-    /// // discarded fork's identity was folded back in, leaking nothing.
-    /// assert_eq!(bookmark, pristine);
-    /// # }
-    /// ```
-    pub fn bookmark(&mut self, bookmark: &mut Bookmark) {
-        bookmark.update(self.network(), &mut self.party, self.tree.latest());
+/// Collapse a mirror error down to the wire-bound server error. The client side
+/// of every wire session is the in-memory local exchange, whose error type is
+/// [`Infallible`](std::convert::Infallible), so the
+/// [`Client`](mirror::Error::Client) arm is uninhabitable.
+fn server_error(e: mirror::Error<std::convert::Infallible, Error>) -> Error {
+    match e {
+        mirror::Error::Server(e) => e,
+        mirror::Error::Client(never) => match never {},
     }
 }

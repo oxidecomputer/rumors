@@ -314,6 +314,26 @@ where
     ) -> Result<Step<(), Infallible, Self::Output>, Self::Error>;
 }
 
+/// A connected exchange that can be collapsed back to its tree root *without*
+/// running the descent.
+///
+/// Implemented by the side that owns the reconciled tree (the client, once
+/// `connect`/`complete_connect` have run), it is the basis for ending a session
+/// the instant the handshake decides no content need cross: already-converged
+/// peers, an absorbed retiree, or a declined retirement. The collapsed [`Root`]
+/// is exactly the [`Stage::Output`] the descent would otherwise have produced,
+/// since the tree is untouched between the handshake and the descent.
+///
+/// [`Root`]: Self::Root
+pub trait Collapse {
+    /// The reconciled-root output, matching the [`Stage::Output`] a full descent
+    /// would yield.
+    type Root;
+
+    /// Collapse this connected exchange straight back to its root.
+    fn into_root(self) -> Self::Root;
+}
+
 /// Blanket marker trait keyed by the height `H` just produced by an
 /// [`Exchange::exchange`] call. A state type satisfying `AfterExchange<H>` is
 /// "the right kind of state to follow an exchange that ended at height `H`":
