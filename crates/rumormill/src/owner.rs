@@ -4,7 +4,7 @@
 //! can originate messages and redactions — together with the [`AppState`]
 //! display machine and the expiry wheel. Everything else talks to it through
 //! a [`Command`] channel and reads back through a
-//! [`watch`](tokio::sync::watch)-published [`View`] snapshot.
+//! [`watch`]-published [`View`] snapshot.
 //!
 //! The wiring is deadlock-free by construction: the owner never awaits
 //! another task. [`Command::Snapshot`] is answered immediately (a
