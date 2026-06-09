@@ -11,12 +11,12 @@ use rand::rngs::StdRng;
 use rand::SeedableRng;
 
 use super::{
-    disjoint, ev_depth, ev_order, ev_res, event, id_depth, id_order, id_res, join, lift_ev,
-    lift_id, meet, sum, Dyadic, Event, FunctionClock, Id, GRID_N,
+    diff, disjoint, ev_depth, ev_order, ev_res, event, id_depth, id_order, id_res, join, lift_ev,
+    lift_id, meet, min_ticks, project, sum, Dyadic, Event, FunctionClock, Id, GRID_N,
 };
 use crate::codec::Base;
 use crate::oracle;
-use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
+use crate::testing::generators::{arb_oracle_party, arb_oracle_party_nonempty, arb_oracle_version};
 use crate::testing::optrace::{world_strategy, Op};
 use crate::Clock;
 
@@ -200,6 +200,68 @@ proptest! {
         let tree_meet = lift_ev(a.clone() & b.clone());
         let fn_meet = meet(lift_ev(a), lift_ev(b));
         prop_assert!(ev_eq(&tree_meet, &fn_meet, g));
+    }
+}
+
+proptest! {
+    /// The tree oracle's `without` (id region difference) realizes the
+    /// function-space pointwise mask `a ∧ ¬b`: lifting `a.without(&b)` equals
+    /// `diff(⟦a⟧, ⟦b⟧)`. The id-side analogue of [`meet_realizes_pointwise_min`],
+    /// sharing no recursion with the tree model — the independent witness that
+    /// the tree difference carves exactly the unowned-by-`b` part of `a`.
+    /// Arbitrary (often overlapping, sometimes covering) pairs reach the empty
+    /// result, the all-`false` function.
+    #[test]
+    fn without_realizes_region_difference(a in arb_oracle_party(), b in arb_oracle_party()) {
+        let g = grid_for(&[id_depth(&a), id_depth(&b)]);
+        let tree_diff = lift_id(a.without(&b));
+        let fn_diff = diff(lift_id(a), lift_id(b));
+        prop_assert!(id_eq(&tree_diff, &fn_diff, g));
+    }
+}
+
+proptest! {
+    /// The tree oracle's quotient `v / p` realizes the function-space mask
+    /// `project(⟦v⟧, ⟦p⟧)`: keep the value where `p` owns the region, zero it
+    /// everywhere else. Shares no recursion with the tree model — the
+    /// independent witness that projection masks exactly the owned region (the
+    /// event-side analogue of [`meet_realizes_pointwise_min`]).
+    #[test]
+    fn quotient_realizes_region_mask(v in arb_oracle_version(), p in arb_oracle_party_nonempty()) {
+        let g = grid_for(&[ev_depth(&v), id_depth(&p)]);
+        let tree_q = lift_ev(&v / &p);
+        let fn_q = project(lift_ev(v), lift_id(p));
+        prop_assert!(ev_eq(&tree_q, &fn_q, g));
+    }
+}
+
+proptest! {
+    /// The tree oracle's `covers` realizes function-space region containment:
+    /// `a.covers(&b)` holds exactly when `⟦a⟧ ⊇ ⟦b⟧` — every point `b` owns is
+    /// owned by `a` too — which `id_order` reports as `Less`/`Equal` (an
+    /// ancestor reads as `Less`). The independent witness that tree covering is
+    /// geometric containment, including the partial-overlap case where neither
+    /// covers the other (`id_order` is `None`).
+    #[test]
+    fn covers_realizes_containment(a in arb_oracle_party(), b in arb_oracle_party()) {
+        let g = grid_for(&[id_depth(&a), id_depth(&b)]);
+        let covered = a.covers(&b);
+        let order = id_order(&lift_id(a), &lift_id(b), g);
+        prop_assert_eq!(covered, matches!(order, Some(Ordering::Less | Ordering::Equal)));
+    }
+}
+
+proptest! {
+    /// The tree oracle's `min_ticks` (sum of every base) is recovered from the
+    /// step function by `min_ticks` pulling up per-node floors over the dyadic
+    /// subdivision — the geometric mirror of normalization, sharing no code with
+    /// the tree. Resolved at the grid the lifted event settles on.
+    #[test]
+    fn min_ticks_realizes_base_sum(v in arb_oracle_version()) {
+        let g = grid_for(&[ev_depth(&v)]);
+        let want = v.min_ticks();
+        let got = min_ticks(&lift_ev(v), g).to_u64_saturating();
+        prop_assert_eq!(got, want);
     }
 }
 

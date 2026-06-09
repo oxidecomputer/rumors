@@ -33,6 +33,19 @@ proptest! {
     }
 }
 
+proptest! {
+    /// `own_version` (`version() / party()`: the clock's history within its own
+    /// region) matches the oracle on every clock in a generated population.
+    #[test]
+    fn own_version_matches_oracle(ops in world_strategy(), i in 0usize..64) {
+        let cs = run(&ops);
+        let n = cs.len();
+        let oc = &cs[i % n];
+        let ic = from_oracle_clock(oc);
+        prop_assert_eq!(to_oracle_version(&ic.own_version()), oc.own_version());
+    }
+}
+
 // ───────────────────────────── master differential harness ─────────────────────────────
 
 proptest! {

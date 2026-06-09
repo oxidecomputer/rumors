@@ -182,6 +182,41 @@ impl Party {
         self.view().covers(other.view())
     }
 
+    /// Carve `other`'s region out of `self`, yielding the share of `self` that
+    /// `other` does **not** own — the region difference `self \ other`.
+    ///
+    /// Returns `None` exactly when `other` [`covers`](Party::covers) `self`, so
+    /// nothing remains: a [`Party`] is a *nonzero* share, and the empty region
+    /// is not a [`Party`]. Otherwise returns `Some` of the remainder, which is
+    /// always a subregion of `self` (`self \ other ⊆ self`).
+    ///
+    /// This is a partial inverse of [`join`](Party::join): where `join` folds a
+    /// disjoint share *in*, `without` cuts a share back *out*. It consumes
+    /// `self` by value and reads `other` only as a mask, shrinking `self`,
+    /// which means that it does not introduce any more non-linearity than
+    /// already exists.
+    ///
+    /// ```
+    /// use before::Party;
+    /// let mut p = Party::seed();
+    /// let q = p.fork(); // p and q are disjoint halves of the seed
+    ///
+    /// // Removing a disjoint share leaves `self` untouched.
+    /// let keep = p.dangerously_alias();
+    /// assert_eq!(p.without(&q).unwrap().to_string(), keep.to_string());
+    ///
+    /// // Removing a covering share (here, itself) leaves nothing.
+    /// assert!(Party::seed().without(&Party::seed()).is_none());
+    /// ```
+    pub fn without(self, other: &Party) -> Option<Party> {
+        let bits = self.view().diff(other.view());
+        if codec::id_is_empty(&bits) {
+            None
+        } else {
+            Some(Party::from_bits(bits))
+        }
+    }
+
     /// Dangerously duplicate this party, violating linearity to produce a
     /// second handle to the **same** party identity.
     ///

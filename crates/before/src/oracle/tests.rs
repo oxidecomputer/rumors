@@ -11,7 +11,7 @@ use std::cmp::Ordering;
 use proptest::prelude::*;
 
 use super::{Clock, Party, Version};
-use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
+use crate::testing::generators::{arb_oracle_party, arb_oracle_party_nonempty, arb_oracle_version};
 use crate::testing::grow_brute_force::{all_inflations, best_inflation, min_inflation_cost};
 use crate::testing::optrace::{leq, run, versions, world_strategy};
 
@@ -697,4 +697,120 @@ fn worked_example() {
         "post-join event should collapse to a single integer, got {:?}",
         whole.version()
     );
+}
+
+// ───────────────────────────── party containment (`covers`) ─────────────────────────────
+
+proptest! {
+    /// `covers` is a partial order on regions over *arbitrary* (often
+    /// overlapping or unrelated) parties: reflexive, antisymmetric (mutual
+    /// covering ⇔ equality), and transitive. The whole `seed` covers every
+    /// party, and covering a *nonempty* region rules out disjointness.
+    #[test]
+    fn party_covers(a in arb_oracle_party(), b in arb_oracle_party(), c in arb_oracle_party()) {
+        prop_assert!(a.covers(&a)); // reflexive
+        prop_assert_eq!(a.covers(&b) && b.covers(&a), a == b); // antisymmetric
+        if a.covers(&b) && b.covers(&c) {
+            prop_assert!(a.covers(&c)); // transitive
+        }
+        prop_assert!(Party::seed().covers(&a)); // the whole covers every part
+        if a.covers(&b) && !b.is_empty() {
+            prop_assert!(!a.is_disjoint(&b), "covering a nonempty region is not disjoint");
+        }
+    }
+}
+
+// ───────────────────────────── party difference (`without`) ─────────────────────────────
+
+proptest! {
+    /// `without` computes the region difference `a \ b`: the result is in normal
+    /// form, a subregion of `a` (`a` covers it), disjoint from `b`, and empty
+    /// exactly when `b` covers `a`. Removing a *disjoint* share is the identity.
+    #[test]
+    fn party_without(a in arb_oracle_party(), b in arb_oracle_party()) {
+        let d = a.without(&b);
+        prop_assert!(d.is_normal());
+        prop_assert!(a.covers(&d)); // a subregion of `a`
+        prop_assert!(d.is_disjoint(&b)); // shares nothing with `b`
+        prop_assert_eq!(d.is_empty(), b.covers(&a)); // empty iff `b` covers `a`
+        if a.is_disjoint(&b) {
+            prop_assert_eq!(a.without(&b), a.clone()); // disjoint removal is a no-op
+        }
+    }
+}
+
+proptest! {
+    /// `without` is the partial inverse of `sum`: forking a party into disjoint
+    /// halves and removing one recovers the other (`(l ⊔ r) \ r == l`). The
+    /// oracle's `fork` is the paper split, so no randomness is needed.
+    #[test]
+    fn without_inverts_sum(p in arb_oracle_party_nonempty()) {
+        let mut keep = p.clone();
+        let give = keep.fork(); // p == keep ⊔ give, disjoint
+        prop_assert_eq!(p.without(&give), keep.clone()); // carve the give-half back out
+        prop_assert_eq!(keep.clone().without(&give), keep); // disjoint removal is a no-op
+    }
+}
+
+// ───────────────────────────── version projection (`/`) ─────────────────────────────
+
+proptest! {
+    /// The quotient `v / p` masks `v` to `p`'s region: a sub-version, idempotent,
+    /// the identity under the whole-interval `seed`, and a homomorphism of both
+    /// join and meet. The reference laws the impl's `/` is checked against.
+    #[test]
+    fn version_projection(
+        ops in world_strategy(), i in 0usize..64, j in 0usize..64, k in 0usize..64,
+    ) {
+        let cs = run(&ops);
+        let vs = versions(&cs);
+        let n = vs.len();
+        let (a, b) = (vs[i % n].clone(), vs[j % n].clone());
+        let p = cs[k % n].party();
+
+        let proj = a.clone() / p;
+        prop_assert!(proj.is_normal());
+        prop_assert!(leq(&proj, &a)); // sub-version
+        prop_assert_eq!(proj.clone() / p, proj.clone()); // idempotent
+        prop_assert_eq!(a.clone() / &Party::seed(), a.clone()); // seed is the identity
+        prop_assert_eq!((a.clone() | b.clone()) / p, (a.clone() / p) | (b.clone() / p)); // join hom
+        prop_assert_eq!((a.clone() & b.clone()) / p, (a.clone() / p) & (b.clone() / p)); // meet hom
+    }
+}
+
+// ───────────────────────────── min_ticks / own_version ─────────────────────────────
+
+proptest! {
+    /// `min_ticks` is the sum of every base, so it is `0` only for the zero
+    /// version, additive under a disjoint-support join (`(a|b)` over fork halves
+    /// sums their counts), and dominated by neither operand alone. A single
+    /// whole-interval tick costs exactly one.
+    #[test]
+    fn version_min_ticks(ops in world_strategy(), i in 0usize..64) {
+        let cs = run(&ops);
+        let vs = versions(&cs);
+        let n = vs.len();
+        let v = &vs[i % n];
+
+        prop_assert_eq!(v.min_ticks() == 0, *v == Version::new()); // zero iff the zero version
+        prop_assert!(v.min_ticks() >= 1 || *v == Version::new());
+        // The seed ticked once in a line costs exactly one.
+        let mut one = Version::new();
+        one.tick(&Party::seed());
+        prop_assert_eq!(one.min_ticks(), 1);
+    }
+}
+
+proptest! {
+    /// `own_version` is exactly `version() / party()`: the clock's history within
+    /// the region it owns. It is a sub-version of the full version, and ticking
+    /// (which advances only the owned region) raises it.
+    #[test]
+    fn clock_own_version(ops in world_strategy(), i in 0usize..64) {
+        let cs = run(&ops);
+        let n = cs.len();
+        let c = &cs[i % n];
+        prop_assert_eq!(c.own_version(), c.version() / c.party()); // the definition
+        prop_assert!(leq(&c.own_version(), &c.version())); // a sub-version
+    }
 }

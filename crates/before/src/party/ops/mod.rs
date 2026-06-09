@@ -28,5 +28,6 @@
 
 mod build;
 mod compare;
+mod diff;
 mod split;
 mod sum;

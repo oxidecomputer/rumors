@@ -113,6 +113,25 @@ proptest! {
     }
 }
 
+proptest! {
+    /// Complexity. `diff` is `O(n + m)`: on the same misaligned disjoint pair
+    /// as `is_disjoint` (a shallow `0`-leaf on `a` aligned against `b`'s whole
+    /// deep subtree), every level drives the bounded lazy-skip once via the
+    /// `diff(0, b) = 0` arm. The pair is disjoint, so the walk runs to
+    /// completion and the skip dominates; steps stay linear from `scale` to `4 *
+    /// scale`, proving each node is skipped at most once (no per-node re-scan).
+    #[test]
+    fn diff_is_linear(scale in MIN_SCALE..256) {
+        let measure = |s: usize| {
+            let (a, b) = skip_stress_pair(s);
+            steps_of(|| {
+                IdReader::root(a.as_bits()).diff(IdReader::root(b.as_bits()));
+            })
+        };
+        assert_linear_scaling(measure(scale), measure(scale * 4));
+    }
+}
+
 // ───────────────────────────── covering (containment) ─────────────────────────────
 
 proptest! {
@@ -290,6 +309,72 @@ proptest! {
         } else {
             prop_assert!(summed.is_none(), "overlapping ids must not sum");
         }
+    }
+}
+
+proptest! {
+    /// `without` on arbitrary id pairs — typically *unrelated* and frequently
+    /// *overlapping* — agrees with the oracle's `without`, mapping the oracle's
+    /// empty result to `None`. Reaches the partial-overlap shapes the
+    /// seed-derived pipeline never produces.
+    ///
+    /// It also pins the two characterizations the type encodes: the result is
+    /// `None` exactly when `other` covers `self`, and whenever a remainder
+    /// survives it is a subregion of `self` that is disjoint from `other`
+    /// (`self \ other ⊆ self` and `(self \ other) ∩ other = ∅`).
+    #[test]
+    fn without_arbitrary(
+        oa in arb_oracle_party(),
+        ob in arb_oracle_party(),
+    ) {
+        let (ia, ib) = (from_oracle_party(&oa), from_oracle_party(&ob));
+        let self_copy = from_oracle_party(&oa);
+        let oracle_diff = oa.without(&ob);
+
+        match ia.without(&ib) {
+            None => {
+                prop_assert!(oracle_diff.is_empty(), "impl emptied but oracle did not");
+                prop_assert!(ob.covers(&oa), "None iff `other` covers `self`");
+            }
+            Some(remainder) => {
+                prop_assert!(remainder == from_oracle_party(&oracle_diff));
+                prop_assert!(!ob.covers(&oa), "Some iff `other` does not cover `self`");
+                prop_assert!(self_copy.covers(&remainder), "the remainder is a subregion of `self`");
+                prop_assert!(remainder.is_disjoint(&ib), "the remainder shares nothing with `other`");
+            }
+        }
+    }
+}
+
+proptest! {
+    /// `without` is the partial inverse of `join` on the fork/join lattice:
+    /// carving a forked-off share back out of the parent recovers the kept
+    /// half, and removing a *disjoint* share is a no-op. Removing a covering
+    /// share (a party from itself) empties it to `None`.
+    #[test]
+    fn without_inverts_fork(ops in world_strategy(), i in 0usize..64) {
+        let cs = run(&ops);
+        let n = cs.len();
+        let snapshot = cs[i % n].party().clone();
+
+        // Fork splits `parent` into disjoint halves `keep ⊔ give`.
+        let mut keep = from_oracle_party(&snapshot);
+        let parent = from_oracle_party(&snapshot);
+        let give = keep.fork();
+        let kept = keep.dangerously_alias(); // a stable reference to the kept half
+
+        // Carving the give-half back out of the parent recovers the kept half:
+        // `parent \ give = keep`.
+        let carved = parent.without(&give).expect("parent is not covered by its give-half");
+        prop_assert!(carved == kept.dangerously_alias());
+
+        // Removing a disjoint share is a no-op: `keep \ give = keep`.
+        prop_assert!(keep.is_disjoint(&give));
+        let no_op = keep.without(&give).expect("disjoint removal keeps everything");
+        prop_assert!(no_op == kept.dangerously_alias());
+
+        // A party covers itself, so removing itself leaves nothing.
+        prop_assert!(no_op.without(&kept).is_none());
     }
 }
 

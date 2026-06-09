@@ -135,6 +135,21 @@ pub(crate) fn sum(a: Id, b: Id) -> Id {
     Rc::new(move |x| a(x) || b(x))
 }
 
+/// Id difference `⟦i1⟧ \ ⟦i2⟧`: the region `a` owns that `b` does not, pointwise
+/// `a ∧ ¬b`. The function-space realization of [`Party::without`](crate::Party::without)
+/// — total (overlap is the point) and possibly empty (the all-`false` function,
+/// when `b` covers `a`).
+pub(crate) fn diff(a: Id, b: Id) -> Id {
+    Rc::new(move |x| a(x) && !b(x))
+}
+
+/// Event projection `⟦e⟧ / ⟦i⟧`: keep the value where `i` owns the region, zero
+/// it everywhere else (pointwise `if i(x) { e(x) } else { 0 }`). The
+/// function-space realization of the quotient [`Version / &Party`](crate::Version).
+pub(crate) fn project(e: Event, i: Id) -> Event {
+    Rc::new(move |x| if i(x) { e(x) } else { Base::ZERO })
+}
+
 /// Event least-upper-bound `⟦e1⟧ ⊔ ⟦e2⟧`: pointwise max.
 pub(crate) fn join(a: Event, b: Event) -> Event {
     Rc::new(move |x| {
@@ -430,6 +445,43 @@ pub(crate) fn disjoint(a: &Id, b: &Id, g: u32) -> bool {
         let x = Dyadic::grid(k, g);
         a(x) && b(x)
     })
+}
+
+/// `min_ticks` recovered from the step function `⟦e⟧`: the sum of the per-node
+/// floors pulled up the dyadic subdivision — the *geometric* mirror of event-tree
+/// normalization, sharing no code with the tree (it samples the closure and
+/// recurses on halves). A cell already constant is a leaf: its value (relative to
+/// the floor pulled up above it) is its only base; otherwise the cell's minimum
+/// is pulled up and the two halves recurse with it subtracted, so the total is
+/// `local + left + right`. The result is the sum of every base in the normal-form
+/// tree — exactly [`oracle::Version::min_ticks`](crate::oracle::Version). `g` must
+/// resolve `e` (every real boundary at level `≤ g`), so each level-`g` cell is a
+/// single constant point.
+pub(crate) fn min_ticks(e: &Event, g: u32) -> Base {
+    fn rec(e: &Event, k: u64, level: u32, g: u32, off: &Base) -> Base {
+        let span = 1u64 << (g - level);
+        let start = k << (g - level);
+        // The cell's values relative to the floor already pulled up above it.
+        // Every value here is `≥ off` (a containing cell's running minimum), so
+        // the `Base` subtraction never underflows.
+        let vals: Vec<Base> = (start..start + span)
+            .map(|j| e(Dyadic::grid(j, g)) - off)
+            .collect();
+        let local = vals
+            .iter()
+            .min()
+            .expect("a cell samples at least one point")
+            .clone();
+        // A constant cell (or a single point at the finest level) is a leaf.
+        if level == g || vals.iter().all(|v| *v == local) {
+            return local;
+        }
+        let off2 = off.clone() + &local;
+        let l = rec(e, 2 * k, level + 1, g, &off2);
+        let r = rec(e, 2 * k + 1, level + 1, g, &off2);
+        local + l + r
+    }
+    rec(e, 0, 0, g, &Base::ZERO)
 }
 
 fn order_of(le: bool, ge: bool) -> Option<Ordering> {

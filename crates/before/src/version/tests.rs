@@ -325,6 +325,33 @@ proptest! {
 }
 
 proptest! {
+    /// Differential. The impl quotient `v / &p` matches the oracle's projection
+    /// (mask `v` to `p`'s region), over a shared population: arbitrary versions
+    /// and parties drawn from the clocks.
+    #[test]
+    fn div_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
+        let cs = run(&ops);
+        let vs = versions(&cs);
+        let n = vs.len();
+        let oracle_proj = vs[i % n].clone() / cs[j % n].party();
+        let proj = from_oracle_version(&vs[i % n]) / &from_oracle_party(cs[j % n].party());
+        prop_assert!(proj == from_oracle_version(&oracle_proj));
+    }
+}
+
+proptest! {
+    /// Differential. The impl's `min_ticks` matches the oracle's base sum on
+    /// every generated version.
+    #[test]
+    fn min_ticks_matches_oracle(ops in world_strategy(), i in 0usize..64) {
+        let cs = run(&ops);
+        let vs = versions(&cs);
+        let n = vs.len();
+        prop_assert_eq!(from_oracle_version(&vs[i % n]).min_ticks(), vs[i % n].min_ticks());
+    }
+}
+
+proptest! {
     /// Every assigning / batch join surface on `Version` yields the same result
     /// as `a | b`, which `merge_matches_oracle` already pins to the oracle's
     /// `join`. Covers `Version |= Version`, the `From<&mut Version>` batch

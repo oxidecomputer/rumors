@@ -20,7 +20,7 @@
                         // `oracle` feature re-exports it (the crate warns on missing docs).
 
 use std::cmp::Ordering;
-use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign};
+use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Div, DivAssign};
 
 use crate::codec::Base;
 
@@ -170,6 +170,34 @@ impl Party {
         }
     }
 
+    /// The region complement `1 \ self`: the share `self` does *not* own. Flips
+    /// each leaf and recurses; `node` renormalizes (a complemented normal tree
+    /// is already normal).
+    fn complement(&self) -> Party {
+        match self {
+            Party::Leaf(b) => Party::Leaf(!*b),
+            Party::Node(l, r) => Party::node(l.complement(), r.complement()),
+        }
+    }
+
+    /// The region difference `self \ other`: the part of `self` that `other`
+    /// does not own. May be the empty `Leaf(false)` (when `other` covers
+    /// `self`). The reference for [`Party::without`](crate::Party::without),
+    /// which maps that empty result to `None`.
+    pub fn without(&self, other: &Party) -> Party {
+        match (self, other) {
+            // diff(0, _) = 0 and diff(_, 1) = 0: nothing of `self` survives.
+            (Party::Leaf(false), _) | (_, Party::Leaf(true)) => Party::Leaf(false),
+            // diff(a, 0) = a: `other` owns nothing here.
+            (a, Party::Leaf(false)) => a.clone(),
+            // diff(1, b) = complement(b): `self` owns everything `b` lacks.
+            (Party::Leaf(true), b) => b.complement(),
+            (Party::Node(a1, a2), Party::Node(b1, b2)) => {
+                Party::node(a1.without(b1), a2.without(b2))
+            }
+        }
+    }
+
     pub fn is_normal(&self) -> bool {
         match self {
             Party::Leaf(_) => true,
@@ -295,6 +323,70 @@ impl Version {
         let l = sl.meet_off(&sb, ol, &ob);
         let r = sr.meet_off(&sb, or, &ob);
         Version::node(0u64, l, r)
+    }
+
+    /// Lift this event tree into absolute value by adding `off` to its root base
+    /// (every value in the subtree rises by `off`). Normal form is preserved —
+    /// the children are untouched, so neither the one-zero-base nor the
+    /// non-collapsible invariant can break.
+    fn shift(&self, off: &Base) -> Version {
+        match self {
+            Version::Leaf(n) => Version::Leaf(n + off),
+            Version::Node(n, l, r) => Version::Node(n + off, l.clone(), r.clone()),
+        }
+    }
+
+    /// `project(id, self)` carrying the accumulated ancestor base `off`: keep the
+    /// value where `id` owns the region (as an absolute value lifted by `off`),
+    /// and zero it everywhere `id` does not own. Masking rebuilds from
+    /// **absolute** values because a non-negative event base cannot be undone
+    /// below a split — the same reason the impl's `project` threads its offset.
+    fn project_off(&self, id: &Party, off: &Base) -> Version {
+        match id {
+            // Owned outright: keep the value, lifted to absolute by `off`.
+            Party::Leaf(true) => self.shift(off),
+            // Unowned: masked to zero, whatever the value is here.
+            Party::Leaf(false) => Version::new(),
+            // The id subdivides this region: push any event base down (into
+            // `off`) so the masked side can still reach zero, then recurse and
+            // let `node` renormalize.
+            Party::Node(il, ir) => match self {
+                // A constant `off + n` over a subdivided region: broadcast it to
+                // both id children as a fresh zero event carrying the constant.
+                Version::Leaf(n) => {
+                    let val = off + n;
+                    let z = Version::new();
+                    Version::node(0u64, z.project_off(il, &val), z.project_off(ir, &val))
+                }
+                Version::Node(n, el, er) => {
+                    let off2 = off + n;
+                    Version::node(0u64, el.project_off(il, &off2), er.project_off(ir, &off2))
+                }
+            },
+        }
+    }
+
+    /// `self / id` — the part of the version contributed within `id`'s region,
+    /// zero everywhere `id` does not own. The reference for the impl's quotient
+    /// [`Version / &Party`](crate::Version).
+    fn project(&self, id: &Party) -> Version {
+        self.project_off(id, &Base::ZERO)
+    }
+
+    /// The minimum number of [`tick`](Self::tick)s that could have produced this
+    /// version: the sum of every base in the event tree, saturating at
+    /// [`u64::MAX`]. The reference for
+    /// [`Version::min_ticks`](crate::Version::min_ticks).
+    pub fn min_ticks(&self) -> u64 {
+        self.base_total().to_u64_saturating()
+    }
+
+    /// The sum of every base in the event tree (node bases plus leaf values).
+    fn base_total(&self) -> Base {
+        match self {
+            Version::Leaf(n) => n.clone(),
+            Version::Node(n, l, r) => n.clone() + l.base_total() + r.base_total(),
+        }
     }
 
     /// `fill(id, self)`.
@@ -471,6 +563,13 @@ impl Clock {
         self.version.clone()
     }
 
+    /// `version() / party()`: this clock's own contribution to its version
+    /// (the history within the region it owns). The reference for
+    /// [`Clock::own_version`](crate::Clock::own_version).
+    pub fn own_version(&self) -> Version {
+        self.version() / self.party()
+    }
+
     pub fn tick(&mut self) {
         self.version.tick(&self.party);
     }
@@ -562,6 +661,30 @@ impl BitAnd<Version> for Version {
 impl BitAndAssign<Version> for Version {
     fn bitand_assign(&mut self, rhs: Version) {
         *self = self.meet_off(&Base::ZERO, &rhs, &Base::ZERO);
+    }
+}
+
+// `/`/`/=` project a `Version` onto a `Party`'s region (the quotient), mirroring
+// the impl's `Div<&Party> for Version`. Unlike the impl, the oracle `Party` is
+// `Clone`, so the borrow is incidental — but the surface is kept identical (a
+// borrowed party) so the operator reads the same in differential tests.
+impl Div<&Party> for &Version {
+    type Output = Version;
+    fn div(self, party: &Party) -> Version {
+        self.project(party)
+    }
+}
+
+impl Div<&Party> for Version {
+    type Output = Version;
+    fn div(self, party: &Party) -> Version {
+        self.project(party)
+    }
+}
+
+impl DivAssign<&Party> for Version {
+    fn div_assign(&mut self, party: &Party) {
+        *self = self.project(party);
     }
 }
 
