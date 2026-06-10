@@ -37,7 +37,10 @@ impl<T> Snapshot<T> {
 
     /// Iterate every message currently [`Known`] as `(Key, &Version, &Arc<T>)`.
     ///
-    /// Order is unspecified.
+    /// Order is unspecified, and in particular does *not* follow the causal
+    /// order: a message may be yielded before another that causally precedes
+    /// it. Sort by the yielded [`Version`]s if your application needs an
+    /// ordering consistent with causality.
     pub fn iter(
         &self,
     ) -> impl ExactSizeIterator<Item = (Key, &Version, &Arc<T>)> + DoubleEndedIterator + Send + Sync
@@ -45,6 +48,56 @@ impl<T> Snapshot<T> {
         T: Send + Sync,
     {
         self.tree.iter()
+    }
+
+    /// Iterate the messages whose [`Version`]s fall within the causal
+    /// `range`: a message is yielded iff its version is contained in the
+    /// range's end bound and *not* contained in its start bound — a
+    /// difference of causal down-sets. Per bound kind, for a message at
+    /// version `v`:
+    ///
+    /// - start [`Unbounded`](std::ops::Bound::Unbounded): nothing excluded;
+    ///   [`Excluded(s)`](std::ops::Bound::Excluded): `v <= s` excluded;
+    ///   [`Included(s)`](std::ops::Bound::Included): `v < s` excluded, so a
+    ///   message at exactly `s` is yielded.
+    /// - end [`Unbounded`](std::ops::Bound::Unbounded): everything kept;
+    ///   [`Included(e)`](std::ops::Bound::Included): `v <= e` kept;
+    ///   [`Excluded(e)`](std::ops::Bound::Excluded): `v < e` kept.
+    ///
+    /// Because [`Version`]s are partially ordered, a start bound of either
+    /// kind keeps versions *concurrent* to it — "everything since `s`"
+    /// must not drop other parties' concurrent messages — while an end
+    /// bound of either kind drops them: keeping demands containment.
+    ///
+    /// The [`causally`](crate::causally) constructors name every shape:
+    /// `range(causally::since(&s))`,
+    /// `range(causally::delta(&s, &e))`,
+    /// `range(causally::not_before(&s).known_at(&e))`, and so on.
+    /// Plain range syntax also works — `range(&v1..=&v2)`,
+    /// `range(&v1..)` — as does any other
+    /// [`RangeBounds<Version>`](std::ops::RangeBounds) value, such as a
+    /// [`Bound`](std::ops::Bound) tuple.
+    ///
+    /// Pruning rides the tree's memoized version bounds, so iterating a
+    /// small causal delta against a large snapshot costs work proportional
+    /// to the delta, not the snapshot. Unlike [`iter`](Self::iter), not an
+    /// [`ExactSizeIterator`]: how many messages fall in the range is
+    /// unknown until they are visited.
+    ///
+    /// Order is unspecified, and in particular does *not* follow the causal
+    /// order: filtering by versions does not mean yielding in version order,
+    /// and a message may be yielded before another that causally precedes
+    /// it. Sort by the yielded [`Version`]s if your application needs an
+    /// ordering consistent with causality.
+    pub fn range<R>(
+        &self,
+        range: R,
+    ) -> impl DoubleEndedIterator<Item = (Key, &Version, &Arc<T>)> + Send + Sync
+    where
+        T: Send + Sync,
+        R: std::ops::RangeBounds<Version> + Send + Sync,
+    {
+        self.tree.range(range)
     }
 
     /// Force this set's tree to compute its lazy structural memos (observable

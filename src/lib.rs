@@ -65,6 +65,12 @@ pub use tree::Key;
 /// A causal version vector tagging when a message was observed.
 pub use version::Version;
 
+/// Named, composable constructors for causal [`Version`] ranges
+/// (re-exported from [`before`](::before)): the vocabulary for
+/// [`Snapshot::range`] and [`Broadcast::listen_from`] — e.g.
+/// `causally::since(&cursor)` or `causally::not_before(&s).known_at(&e)`.
+pub use before::causally;
+
 /// The [`borsh`] crate, re-exported.
 ///
 /// Message types must implement [`BorshSerialize`] and [`BorshDeserialize`];
@@ -425,6 +431,12 @@ impl<T> Known<T> {
     }
 
     /// Get a [`Clone`]-able broadcast handle which can be used concurrently.
+    ///
+    /// While any [`Broadcast`] handle exists for this [`Known`], it is illegal
+    /// to access the underlying [`Known`], because retirement cannot happen
+    /// concurrent to gossip sessions. As a consequence, this function returns a
+    /// future which yields `self` precisely when there remain no extant
+    /// [`Broadcast`]s.
     pub fn broadcast(self) -> (Broadcast<T>, impl Future<Output = Self> + Send)
     where
         T: Send + Sync,

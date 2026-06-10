@@ -170,6 +170,33 @@ impl<T> Tree<T> {
             .map(|(k, v, m)| (k, v, m.as_arc()))
     }
 
+    /// Lazily iterate the live leaves whose versions fall within the causal
+    /// `range`: a leaf is yielded iff its version is contained in the
+    /// range's end bound and *not* contained in its start bound — a
+    /// difference of causal down-sets (see
+    /// [`untyped::Range`](typed::untyped::Range) for the
+    /// per-bound semantics). Subtrees wholly outside the range are pruned by
+    /// their memoized version bounds without being entered, so iterating a
+    /// small delta against a large tree costs work proportional to the delta
+    /// (plus the pruning frontier), not the tree.
+    ///
+    /// Unlike [`iter`](Self::iter), not an [`ExactSizeIterator`]: how many
+    /// leaves pass is unknown until they are visited.
+    pub fn range<R>(
+        &self,
+        range: R,
+    ) -> impl DoubleEndedIterator<Item = (Key, &Version, &Arc<T>)> + Send + Sync
+    where
+        T: Send + Sync,
+        R: std::ops::RangeBounds<Version> + Send + Sync,
+    {
+        typed::node::Root::range(self.root.root.as_ref(), range)
+            // The shared walk yields the full `&Message<T>`; the public
+            // contract hands out only the `&Arc<T>` value, a cheap projection
+            // of it.
+            .map(|(k, v, m)| (k, v, m.as_arc()))
+    }
+
     /// Get all the values stored at a list of hash paths in the tree.
     ///
     /// A live tree holds at most one leaf per path, so the result has one entry

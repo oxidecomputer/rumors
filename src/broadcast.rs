@@ -1,6 +1,7 @@
-use crate::{Error, Key, Known, Message, Network, Snapshot, Version, tree::Action};
+use crate::{Error, Key, Known, Message, Network, Snapshot, Version, causally, tree::Action};
 use borsh::{BorshDeserialize, BorshSerialize};
 use std::future::ready;
+use std::sync::Arc;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     sync::watch,
@@ -121,6 +122,103 @@ impl<T> Broadcast<T> {
     /// Take a consistent snapshot of the current state.
     pub fn snapshot(&self) -> Snapshot<T> {
         self.known.snapshot()
+    }
+
+    /// Observe every message in this rumor set, from genesis onward: the
+    /// returned future fires `on_message` once for every message currently
+    /// live, then follows along with every change, firing once per message
+    /// learned — by local [`send`](Self::send), by gossip, from any handle.
+    ///
+    /// Equivalent to [`listen_from`](Self::listen_from) at [`Version::new`];
+    /// see it for the delivery contract, termination, and resumption.
+    pub fn listen<F, Fut>(self, on_message: F) -> impl Future<Output = Version> + Send
+    where
+        T: Send + Sync,
+        F: FnMut(Key, &Version, &Arc<T>) -> Fut + Send,
+        Fut: Future<Output = ()> + Send,
+    {
+        self.listen_from(Version::new(), on_message)
+    }
+
+    /// Observe every message not already causally contained in `since`.
+    ///
+    /// The cursor is a causal [`Version`], not a tree: each time the shared
+    /// state changes, the listener fires `on_message` for precisely the live
+    /// messages whose versions the cursor does not dominate, then absorbs the
+    /// snapshot's ceiling. Every message live at some pass is observed
+    /// exactly once; a message inserted and redacted wholly between passes is
+    /// never observed (already-redacted content is never delivered);
+    /// redactions themselves are honored silently. Delivery order is
+    /// unspecified and does *not* follow the causal order: a message may be
+    /// observed before another that causally precedes it. Order by the
+    /// [`Version`] handed to the callback if causality matters.
+    ///
+    /// Consuming `self` dissolves this handle: a listener is an observer, not
+    /// an actor. It does not hold the rumor set open, and it does not block
+    /// the future from [`Known::broadcast`] that reunites the [`Known`].
+    ///
+    /// The future resolves once no further change is possible — after the
+    /// [`Known`] and every [`Broadcast`] have dropped — having observed the
+    /// complete final state, and yields the version up to which it processed:
+    /// a valid `since` for a later `listen_from` against any replica of the
+    /// same network. To resume after *cancelling* a listener (dropping the
+    /// future loses its internal cursor), fold the observed versions in the
+    /// callback (`resume |= version`) and pass the fold as `since`; every
+    /// previously-fired message is contained in the fold, so nothing
+    /// re-fires.
+    pub fn listen_from<F, Fut>(
+        self,
+        since: Version,
+        mut on_message: F,
+    ) -> impl Future<Output = Version> + Send
+    where
+        T: Send + Sync,
+        F: FnMut(Key, &Version, &Arc<T>) -> Fut + Send,
+        Fut: Future<Output = ()> + Send,
+    {
+        // Subscribe while our own sender still holds the channel open, then
+        // dissolve the Broadcast eagerly (when `listen_from` returns, not
+        // when the future first polls): dropping our data sender means the
+        // channel closes when the last *actor* — the `Known` or a
+        // `Broadcast` — goes, which is exactly the listener's termination
+        // signal (holding it would self-pin the listener, waiting on a
+        // channel it keeps open); dropping our liveness receiver means a
+        // listener does not pin `Known::broadcast`'s reunification future.
+        let mut rx = self.known.inner.subscribe();
+        drop(self);
+        async move {
+            let mut cursor = since;
+            loop {
+                // Snapshot under the read guard and release it immediately:
+                // the guard blocks every writer, so it must never be held
+                // across an await. The tree clone is a cheap copy-on-write
+                // handle onto shared structure.
+                let snapshot = rx.borrow_and_update().tree.clone();
+                let ceiling = snapshot.latest().clone();
+
+                // Fire for precisely the leaves the cursor does not dominate.
+                // (`since`, not `not_before`: a leaf at exactly the cursor
+                // was observed by the pass that absorbed it, and must not
+                // re-fire.) Dominated subtrees are pruned by their memoized
+                // version bounds, so a pass costs the delta, not the tree.
+                for (key, version, message) in snapshot.range(causally::since(&cursor)) {
+                    on_message(key, version, message).await;
+                }
+
+                // The pass observed every survivor at or under the snapshot's
+                // ceiling. Absorbing the ceiling (rather than the observed
+                // leaf versions) also covers redaction ticks, which left no
+                // leaves behind to observe.
+                cursor |= &ceiling;
+
+                // `Err` here means every sender is gone: no further change is
+                // possible, and the pass above already drained the final
+                // state.
+                if rx.changed().await.is_err() {
+                    break cursor;
+                }
+            }
+        }
     }
 
     /// Force this set's tree to compute its lazy structural memos (observable

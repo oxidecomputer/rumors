@@ -287,6 +287,19 @@ impl<T> Node<T, height::Root> {
         untyped::Iter::root(&self.inner)
     }
 
+    /// Lazily iterate the live leaves of the (possibly absent) root `node`
+    /// whose versions fall within the causal `range`: a leaf is yielded iff
+    /// its version is contained in the range's end bound and *not* contained
+    /// in its start bound (see [`untyped::Range`] for the per-bound
+    /// semantics). Subtrees wholly outside the range are pruned by their
+    /// memoized version bounds without being entered.
+    pub fn range<R>(node: Option<&Self>, range: R) -> untyped::Range<'_, T, R>
+    where
+        R: std::ops::RangeBounds<Version>,
+    {
+        untyped::Range::root(node.map(|node| &node.inner), range)
+    }
+
     pub fn root_hash(node: &Option<Root<T>>) -> Hash {
         // An absent root is the empty tree, which hashes as a branch with no
         // children (`blake3(BRANCH_TAG)`), not as the all-zero default.
