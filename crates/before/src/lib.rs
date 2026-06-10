@@ -186,6 +186,7 @@ mod version;
 
 // The whole public API:
 pub use clock::Clock;
+pub mod causally;
 pub mod error;
 pub use party::Party;
 pub use version::Version;
