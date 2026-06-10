@@ -49,13 +49,21 @@ Advantages over the earlier tree-cursor design:
   `Send` (`src/tree/traverse/unknown.rs:64`). A subtree with
   `ceiling() <= known` returns `None` immediately — dominated subtrees are
   never entered, so a pass costs O(new leaves · depth), not O(n).
-- **The keep-whole fast path is already non-rebuilding.** A subtree whose
-  floor the cursor does not dominate is observed by a *read-only* leaf walk
-  and returned verbatim as an `Arc` move (`unknown.rs:100-124`). Only the
-  mixed known/unknown case destroys-and-rebuilds; running the walk over a
-  disposable per-pass clone makes that wasted allocation, never
-  incorrectness. A borrowing `&Node` variant is a later optimization, taken
-  only if profiling asks (§7).
+- **The keep-whole fast path is already non-rebuilding,** observing a
+  subtree whose floor the cursor does not dominate via a *read-only* leaf
+  walk and returning it verbatim as an `Arc` move (`unknown.rs:100-124`).
+  Only the mixed known/unknown case destroys-and-rebuilds — and a `rebuild:
+  bool` parameter makes the whole walk allocation-free for observers (§3):
+  when `false`, the leaf arm returns `None` instead of `Some(leaf)`, the
+  fast path returns `None` after its (unchanged) leaf walk, and the mixed
+  arm skips `Node::branch` construction outright, returning `None` without
+  touching the assembled-children path. The prune arm already returns
+  `None`. `OrdMap` does not allocate when empty, so nothing is built unless
+  asked. A runtime `bool` threaded like `with_unknown`, not a const
+  generic: the recursion is already monomorphized over 16 heights × `T` ×
+  `F`, and the branch is perfectly predictable. The wire path
+  (`mirror/local.rs`) passes `true` — it genuinely wants the filtered
+  subset tree; the listener and the test helper pass `false`.
 - **The callback adapter exists.** `unknown::from_arc` adapts the public
   `FnMut(Key, &Version, &Arc<T>) -> Fut` shape to the `&Message<T>` shape
   the walk fires (`unknown.rs:20`).
@@ -88,8 +96,10 @@ pub fn listen_from<F, Fut>(self, since: Version, mut on_message: F)
             let ceiling = snapshot.latest().clone();
 
             // Fire for precisely the leaves `cursor` does not dominate.
+            // `rebuild: false`: observe only, build nothing, allocate
+            // nothing.
             let mut observe = Some(unknown::from_arc(&mut on_message));
-            Unknown::unknown(snapshot.root.into(), Prefix::new(), &cursor, &mut observe)
+            Unknown::unknown(snapshot.root.into(), Prefix::new(), &cursor, &mut observe, false)
                 .await;
 
             // The pass observed every survivor at or under the snapshot's
@@ -225,17 +235,25 @@ Tests 5 and 6 want `proptest` over interleaving scripts; commit any
 
 ## 7. Sequencing
 
-1. Implement `listen_from` + `listen` in `src/broadcast.rs` over the
-   existing consuming `Unknown` walk (~40 lines; no protocol surface, no
-   wire change). Small visibility adjustments for `Unknown`/`Prefix`/
-   `from_arc` as needed.
-2. Clippy pass; `Box::pin` if `large_futures` objects.
-3. Tests, gated on the crate compiling again (the stale `src/sync.rs` /
+1. Thread `rebuild: bool` through `Unknown::unknown` (both height impls,
+   `unknown.rs`): leaf arm and fast path return `None` when `false`, mixed
+   arm recurses for observation but skips `Node::branch` construction.
+   `mirror/local.rs` call sites pass `true`; the `cfg(test)` `Tree::unknown`
+   helper passes `false` (it discards the returned node). Verification
+   item while in there: confirm by-value child iteration
+   (`into_children()`) over nodes shared with the live tree doesn't clone
+   map chunks at the known/unknown boundary; the fast path and prune arm
+   bypass it everywhere else.
+2. Implement `listen_from` + `listen` in `src/broadcast.rs` over the walk
+   with `rebuild: false` (~40 lines; no protocol surface, no wire change).
+   Small visibility adjustments for `Unknown`/`Prefix`/`from_arc` as
+   needed.
+3. Clippy pass; `Box::pin` if `large_futures` objects.
+4. Tests, gated on the crate compiling again (the stale `src/sync.rs` /
    `src/tests.rs` still block every test target); a fresh `tests/listen.rs`
    needs only the lib to build.
-4. Profile-driven only: a borrowing, non-rebuilding `&Node` unknown-walk if
-   per-pass rebuild allocation shows up; collect-then-fire if snapshot
-   pinning across slow callbacks shows up.
-5. Doc comments for the delivery contract, the resume recipe, and the
+5. Profile-driven only: collect-then-fire if snapshot pinning across slow
+   callbacks shows up.
+6. Doc comments for the delivery contract, the resume recipe, and the
    same-universe obligation (§4) when the public API gets its
    documentation pass.
