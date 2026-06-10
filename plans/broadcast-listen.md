@@ -1,7 +1,16 @@
 # Plan: `Broadcast::listen` / `listen_from`, version-cursor subscriptions
 
-Status: draft for review. Not yet implemented. Builds on the in-progress
+Status: implemented on `shared-state-wip` (`ec2915f` the `before::causally`
+module, `92a16c9` the listener and range iteration), except for the rumors
+test suite (§6), which is gated on the stale `src/sync.rs` / `src/tests.rs`
+still blocking every test target. Builds on the in-progress
 internally-synchronized `Known`/`Broadcast` rework (`watch::Sender<Inner>`).
+
+An earlier revision of this plan built the pass on the `Unknown` traversal
+with a `rebuild: bool` flag; that was superseded before merge by the
+version-filtered borrowing iterator (§2), which subsumes it — no consuming
+walk, no flag through the wire path, and a public dividend
+(`Snapshot::range`).
 
 ## 1. Shape and intent
 
@@ -25,7 +34,7 @@ impl<T> Broadcast<T> {
 ```
 
 The cursor is a causal `Version`, not a tree. Each time the shared tree
-changes, the [`Unknown`] traversal fires `on_message` for precisely the
+changes, a version-filtered leaf walk fires `on_message` for precisely the
 leaves the cursor does not dominate, then the cursor absorbs the snapshot's
 ceiling. The future resolves — when no further change is possible — to the
 version up to which it has processed, which is a valid `since` for a later
@@ -41,40 +50,52 @@ Advantages over the earlier tree-cursor design:
 3. **Resumability and portability** (§4): cursors compose across listen
    calls, across cancellation (via a caller-side fold), and across replicas.
 
-## 2. Verified code facts the design rests on
+## 2. The mechanism, as built
 
-- **`Unknown` already takes async callbacks and prunes by version.**
-  `Unknown::unknown(node, prefix, known, &mut Option<F>)` with
-  `F: FnMut(Key, &Version, &Message<T>) -> Fut`, recursion Box::pin'd for
-  `Send` (`src/tree/traverse/unknown.rs:64`). A subtree with
-  `ceiling() <= known` returns `None` immediately — dominated subtrees are
-  never entered, so a pass costs O(new leaves · depth), not O(n).
-- **The keep-whole fast path is already non-rebuilding,** observing a
-  subtree whose floor the cursor does not dominate via a *read-only* leaf
-  walk and returning it verbatim as an `Arc` move (`unknown.rs:100-124`).
-  Only the mixed known/unknown case destroys-and-rebuilds — and a `rebuild:
-  bool` parameter makes the whole walk allocation-free for observers (§3):
-  when `false`, the leaf arm returns `None` instead of `Some(leaf)`, the
-  fast path returns `None` after its (unchanged) leaf walk, and the mixed
-  arm skips `Node::branch` construction outright, returning `None` without
-  touching the assembled-children path. The prune arm already returns
-  `None`. `OrdMap` does not allocate when empty, so nothing is built unless
-  asked. A runtime `bool` threaded like `with_unknown`, not a const
-  generic: the recursion is already monomorphized over 16 heights × `T` ×
-  `F`, and the branch is perfectly predictable. The wire path
-  (`mirror/local.rs`) passes `true` — it genuinely wants the filtered
-  subset tree; the listener and the test helper pass `false`.
-- **The callback adapter exists.** `unknown::from_arc` adapts the public
-  `FnMut(Key, &Version, &Arc<T>) -> Fut` shape to the `&Message<T>` shape
-  the walk fires (`unknown.rs:20`).
-- **`Version::new()` is genesis** (`before::Version`, with `Default`), `|=`
-  is the least-upper-bound absorb, and `<=` is causal containment.
+- **A `Walk` engine generic over `RangeBounds<Version>`**
+  (`src/tree/typed/untyped/node/iter.rs`): the leaf iterator's frontier
+  deque, with two shells sharing it — `Iter` (the old unfiltered walk,
+  instantiated at `RangeFull`, still an `ExactSizeIterator`, never touching
+  a version memo) and `Range` (filtered, upper-bound `size_hint` only).
+  Both are borrowing, lazy, and double-ended.
+- **Prune/promote by memoized version bounds.** A popped subtree is
+  resolved against the range before it is entered: pruned whole when its
+  memoized `ceiling`/`floor` prove no leaf can pass, promoted when they
+  prove every leaf must (descendants then skip all version comparisons),
+  descended undecided only when genuinely straddling a bound. For a leaf —
+  whose floor and ceiling are both its version — prune-or-promote is
+  exhaustive, so the walk never compares versions leaf-by-leaf. A pass over
+  a small delta against a large tree costs the delta plus the pruning
+  frontier, not the tree.
+- **Range semantics: a difference of causal down-sets.** Keep what the end
+  bound contains, subtract what the start bound contains; `Included` vs
+  `Excluded` adjusts each at the bound itself. A start bound of either kind
+  keeps versions *concurrent* to it; an end bound of either kind drops
+  them. The listener's filter is `(Excluded(cursor), Unbounded)`.
+- **`before::causally` names every shape** (`crates/before/src/causally.rs`):
+  `all()`, `since(&s)` / `not_before(&s)`, `known_at(&e)` / `before(&e)`,
+  and the `delta(&s, &e)` / `delta_before(&s, &e)` shorthands, composing in
+  any order into a `causally::Range` that implements
+  `RangeBounds<Version>`. `Range::contains` is the causal membership
+  predicate (shadowing the `RangeBounds::contains` default, whose start
+  check drops concurrent versions); `Range::placement_of` totally orders a
+  `Version` against a range — `Less` / `Equal` (contained) / `Greater` —
+  with the totality carried by the bare `Ordering` return type. No operator
+  overloads: cross-type `PartialEq` meaning membership would violate the
+  trait's transitivity contract. Unit-tested and doctested in `before`,
+  which compiles independently of the rumors blockers.
+- **Surfaced as `Tree::range` and the public `Snapshot::range`**, named for
+  the `BTreeMap::iter`/`range` precedent, accepting range syntax
+  (`&v1..=&v2`), `causally` constructors, and `Bound` tuples alike.
+- **Frames are allocation-free**: each carries its path bytes in an inline
+  `ArrayVec<[u8; 32]>` (the `Prefix` shape; depth is fixed at 32), so the
+  walk allocates nothing but its frontier deque.
 - **`watch` cannot miss updates.** `borrow_and_update` marks seen; a write
   after it makes the next `changed()` resolve immediately; `changed()`
   errors exactly when every sender is gone, after which no write can occur.
   Borrow-then-drain-then-wait therefore observes the complete final state.
 
-## 3. The loop
+## 3. The loop (as implemented in `src/broadcast.rs`)
 
 ```rust
 pub fn listen_from<F, Fut>(self, since: Version, mut on_message: F)
@@ -91,16 +112,16 @@ pub fn listen_from<F, Fut>(self, since: Version, mut on_message: F)
         loop {
             // Snapshot under the guard and release immediately: the guard
             // blocks writers and must never be held across an await. The
-            // clone is disposable, so the consuming walk below is fine.
+            // tree clone is a cheap copy-on-write handle.
             let snapshot = rx.borrow_and_update().tree.clone();
             let ceiling = snapshot.latest().clone();
 
             // Fire for precisely the leaves `cursor` does not dominate.
-            // `rebuild: false`: observe only, build nothing, allocate
-            // nothing.
-            let mut observe = Some(unknown::from_arc(&mut on_message));
-            Unknown::unknown(snapshot.root.into(), Prefix::new(), &cursor, &mut observe, false)
-                .await;
+            // (`since`, not `not_before`: a leaf at exactly the cursor was
+            // observed by the pass that absorbed it, and must not re-fire.)
+            for (key, version, message) in snapshot.range(causally::since(&cursor)) {
+                on_message(key, version, message).await;
+            }
 
             // The pass observed every survivor at or under the snapshot's
             // ceiling; absorbing the ceiling (not just observed leaf
@@ -116,8 +137,9 @@ pub fn listen_from<F, Fut>(self, since: Version, mut on_message: F)
 }
 ```
 
-Placement: `src/broadcast.rs`. `Unknown`, `Prefix`, and `from_arc` are
-crate-internal; expect a couple of small visibility/import adjustments.
+Because the walk is a synchronous iterator, the listener needs no async
+recursion and no `Box::pin`; the crate's `deny(clippy::large_futures)`
+stayed quiet.
 
 ## 4. Decisions and rationale
 
@@ -164,6 +186,13 @@ crate-internal; expect a couple of small visibility/import adjustments.
   every message live at any pass whose version exceeds `since` is observed
   exactly once; redactions are honored silently. This rides the same
   version-bounds discipline as the crate's tombstone-free deletion.
+- **Iteration and delivery order are key order, not causal order** —
+  documented at every layer where the assumption could form
+  (`Snapshot::iter`, `Snapshot::range`, `Broadcast::listen_from`, and the
+  internal iterators): keys are content-derived hashes, so a message may be
+  yielded or delivered before one that causally precedes it, and filtering
+  by versions does not mean yielding in version order. Callers order by the
+  yielded `Version`s if causality matters.
 - **Coalescing is the backpressure.** A slow `on_message` never blocks
   writers; the next pass runs against a fresher snapshot and pays one
   delta-walk regardless of how many writes coalesced.
@@ -178,16 +207,24 @@ crate-internal; expect a couple of small visibility/import adjustments.
   proof — feed it to a later `listen_from` anywhere in the universe. A
   never type (`Output = Infallible`) would promise the universe outlives
   the listener, which retiring or dropping the last `Known` falsifies.
+- **Naming: `range`, not `iter_between`.** `BTreeMap` has exactly this
+  method pair — `iter()` for everything, `range(R: RangeBounds<K>)`
+  filtered, with the same `ExactSizeIterator` asymmetry — and the filtered
+  iterator struct is likewise `Range`, mirroring `btree_map::Range`. The
+  "range over which dimension?" question has only one answer here: keys
+  are uniformly random hashes, so the causal order is the only meaningful
+  order in the domain.
 
 ## 5. Risks and verification items
 
-- **`large_futures`**: `Unknown` Box::pins its own recursion, but the listen
-  future still embeds a pass; if the crate's deny lint fires, `Box::pin`
-  the async block (one allocation per listener).
-- **Subscribe-before-drop ordering** is load-bearing: the receiver must be
-  taken from `self.known.inner` before `drop(self)`.
-- **Watch-guard discipline**: the `borrow_and_update` guard is bound only
-  long enough to clone the tree, never across the walk.
+- ~~`large_futures`~~: moot — the pass is a synchronous iterator; no async
+  recursion in the listener.
+- **Subscribe-before-drop ordering** is load-bearing and implemented with
+  the why in a comment: the receiver is taken from `self.known.inner`
+  before `drop(self)`.
+- **Watch-guard discipline** is implemented: the `borrow_and_update` guard
+  lives only for the tree clone, never across an await. Test 12 (§6)
+  pins the observable consequence.
 - **Per-pass snapshot pinning**: during a pass the snapshot clone (and its
   leaf `Arc`s) stay alive across the user's callback awaits. If that ever
   matters, the collect-then-fire pattern from `Tree::act` (eagerly collect
@@ -195,9 +232,15 @@ crate-internal; expect a couple of small visibility/import adjustments.
   materializing the delta. v1 fires inline.
 - **Termination via retire**: confirm the listener completes once the
   retired `Known` and remaining `Broadcast`s are gone; should fall out of
-  sender-count-zero with no special-casing.
+  sender-count-zero with no special-casing (test 9).
 
 ## 6. Tests (each with its invariant in the doc comment)
+
+Done: `before::causally` is unit-tested and doctested in `before`
+(constructor bound pairs, order-agnostic composition, latest-wins
+rebinding, the concurrent-version asymmetry on both bound sides,
+delta-as-composition, genesis edges, placement totality and `contains`
+agreement). The rest below is gated on the rumors lib compiling again.
 
 1. **Genesis replay**: send N, `broadcast()`, `listen` — observes exactly
    the live set, each once; returned cursor dominates every observed
@@ -229,31 +272,23 @@ crate-internal; expect a couple of small visibility/import adjustments.
     `until_no_broadcasts` resolve while the listener is still pending.
 12. **Non-blocking observer**: a listener parked in `on_message` does not
     block `Broadcast::send` on another handle.
+13. **`Snapshot::range` against the naive filter** (prop test): for
+    arbitrary trees and bound pairs, `snapshot.range(r)` yields exactly
+    `snapshot.iter().filter(|(_, v, _)| r.contains(v))` — the prune/promote
+    shortcuts are pure optimization. This is the differential test for the
+    `Walk` engine's partial-order reasoning.
 
-Tests 5 and 6 want `proptest` over interleaving scripts; commit any
-`proptest-regressions` seeds they mint.
+Tests 5, 6, and 13 want `proptest` over interleaving scripts / arbitrary
+trees; commit any `proptest-regressions` seeds they mint.
 
-## 7. Sequencing
+## 7. Remaining work
 
-1. Thread `rebuild: bool` through `Unknown::unknown` (both height impls,
-   `unknown.rs`): leaf arm and fast path return `None` when `false`, mixed
-   arm recurses for observation but skips `Node::branch` construction.
-   `mirror/local.rs` call sites pass `true`; the `cfg(test)` `Tree::unknown`
-   helper passes `false` (it discards the returned node). Verification
-   item while in there: confirm by-value child iteration
-   (`into_children()`) over nodes shared with the live tree doesn't clone
-   map chunks at the known/unknown boundary; the fast path and prune arm
-   bypass it everywhere else.
-2. Implement `listen_from` + `listen` in `src/broadcast.rs` over the walk
-   with `rebuild: false` (~40 lines; no protocol surface, no wire change).
-   Small visibility adjustments for `Unknown`/`Prefix`/`from_arc` as
-   needed.
-3. Clippy pass; `Box::pin` if `large_futures` objects.
-4. Tests, gated on the crate compiling again (the stale `src/sync.rs` /
-   `src/tests.rs` still block every test target); a fresh `tests/listen.rs`
-   needs only the lib to build.
-5. Profile-driven only: collect-then-fire if snapshot pinning across slow
+1. Tests (§6), gated on the crate compiling again (the stale `src/sync.rs`
+   / `src/tests.rs` still block every rumors test target); a fresh
+   `tests/listen.rs` needs only the lib to build.
+2. Profile-driven only: collect-then-fire if snapshot pinning across slow
    callbacks shows up.
-6. Doc comments for the delivery contract, the resume recipe, and the
-   same-universe obligation (§4) when the public API gets its
-   documentation pass.
+3. The public-API documentation pass: the delivery contract, the resume
+   recipe, and the same-universe obligation (§4) are documented on the
+   methods; `before`'s crate-level docs should mention `causally` when that
+   crate gets its pass.
