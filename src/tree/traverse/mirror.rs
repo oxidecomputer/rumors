@@ -212,13 +212,13 @@ where
     /// bootstrapper its first copy.
     pub(crate) async fn reconcile(
         self,
-    ) -> Result<(C::Output, S::Output, Handshake), Error<C::Error, S::Error>> {
+    ) -> Result<(C::Output, S::Output), Error<C::Error, S::Error>> {
         match self {
             Handshaken::Converged {
                 local_root,
                 remote_out,
-                peer,
-            } => Ok((local_root, remote_out, peer)),
+                ..
+            } => Ok((local_root, remote_out)),
             Handshaken::Diverged {
                 local,
                 remote,
@@ -227,27 +227,8 @@ where
             } => {
                 let (root, remote_out) =
                     descend(local, remote, our_version, peer.version.clone()).await?;
-                Ok((root, remote_out, peer))
+                Ok((root, remote_out))
             }
-        }
-    }
-
-    /// End the session the instant the handshake decides no content need cross,
-    /// **without descending**: take the already-converged root, or collapse the
-    /// un-descended local tree back to one. The remote wire halves are dropped.
-    ///
-    /// This is the declined-retirement path: a retiree whose counterparty
-    /// cannot absorb a party (it is itself retiring, or bootstrapping) bails
-    /// here. Every other session — including absorbing a retiree — reconciles.
-    pub(crate) fn stop(self) -> (C::Output, Handshake)
-    where
-        ClientConnected<C, T>: Collapse<Root = C::Output>,
-    {
-        match self {
-            Handshaken::Converged {
-                local_root, peer, ..
-            } => (local_root, peer),
-            Handshaken::Diverged { local, peer, .. } => (local.into_root(), peer),
         }
     }
 }
@@ -267,11 +248,11 @@ where
 {
     // The client emits its handshake. `connect` is statically `Continue` (its
     // `Done` carries `Infallible`), so this `let` is irrefutable.
-    x! { let our_hs = c.connect() }
-    let our_version = our_hs.version.clone();
+    x! { let our_handshake = c.connect() }
+    let our_version = our_handshake.version.clone();
 
     // The server ships our handshake and replies with the peer's.
-    match s.accept(our_hs).await.map_err(Error::Server)? {
+    match s.accept(our_handshake).await.map_err(Error::Server)? {
         Step::Continue { msg: peer, next: s } => match c
             .complete_connect(peer.version.clone())
             .await
@@ -366,7 +347,7 @@ where
 {
     // Box the future so that callers don't need to handle its big future type.
     Box::pin(async move {
-        let (root, remote_out, _peer) = handshake(c, s).await?.reconcile().await?;
+        let (root, remote_out) = handshake(c, s).await?.reconcile().await?;
         Ok((root, remote_out))
     })
     .await

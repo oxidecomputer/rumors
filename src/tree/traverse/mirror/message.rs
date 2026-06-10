@@ -72,7 +72,6 @@
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use crate::network::Network;
 use crate::tree::typed::{
     Hash, Node, Prefix,
     height::{Height, Pred, Root, S, Z},
@@ -118,53 +117,28 @@ impl Intent {
     }
 }
 
-/// The opening message of every session, exchanged by the
-/// `connect`/`accept` steps. It carries the sender's universe [`Network`],
-/// its causal [`Version`], and its [`Intent`]: a retiring sender announces
-/// here that, once reconciliation completes, it will ship its party as a
-/// single trailing frame for the receiver to absorb (see
-/// [`Known::retire`](crate::Known::retire)). The party itself never rides
-/// the greeting; sending it after the descent keeps the id-region out of
-/// limbo until the last possible frame, mirroring bootstrap's fork-last
-/// hand-off.
+/// The opening message of every session, exchanged by the `connect`/`accept`
+/// steps. It carries the sender's causal [`Version`].
 ///
-/// On the wire this frame follows the raw `magic + proto_version` preamble,
-/// which is validated before this body is ever parsed (see
-/// [`super::remote`]), so the magic bytes are not part of this struct. The
-/// [`Network`] travels as its raw 16 bytes (a fixed-width array, no length
-/// prefix), the [`Version`] and the [`Intent`] as their own borsh shapes.
+/// On the wire this frame follows the raw `magic + proto_version + network +
+/// intent` preamble, which is validated before this body is ever parsed (see
+/// [`super::remote`]), so the magic bytes are not part of this struct.
 pub struct Handshake {
-    /// The sender's universe id, or [`Network::ZERO`](crate::Network) if the
-    /// sender is bootstrapping and has none yet.
-    pub network: Network,
     /// The sender's latest causal [`Version`].
     pub version: Version,
-    /// The sender's session intent: whether a trailing party frame will follow
-    /// reconciliation.
-    pub intent: Intent,
 }
 
 impl BorshSerialize for Handshake {
     fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
-        // Raw 16-byte network (borsh encodes `[u8; 16]` as exactly 16 bytes,
-        // no length prefix), then the version and the intent tag.
-        self.network.to_bytes().serialize(writer)?;
         self.version.serialize(writer)?;
-        self.intent.serialize(writer)?;
         Ok(())
     }
 }
 
 impl BorshDeserialize for Handshake {
     fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
-        let network = Network::from_bytes(<[u8; 16]>::deserialize_reader(reader)?);
         let version = Version::deserialize_reader(reader)?;
-        let intent = Intent::deserialize_reader(reader)?;
-        Ok(Self {
-            network,
-            version,
-            intent,
-        })
+        Ok(Self { version })
     }
 }
 

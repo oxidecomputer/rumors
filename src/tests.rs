@@ -12,7 +12,7 @@ use before::Party;
 use tokio::io::AsyncWrite;
 
 use crate::tree::{Root, Tree};
-use crate::{Error, Known, RetireError};
+use crate::{Error, Known};
 
 /// Capacity for the in-memory duplex pipe; every retiree here is already
 /// converged with its absorber, so the sessions move no content and the exact
@@ -23,7 +23,7 @@ const DUPLEX_BUF: usize = 64 * 1024;
 fn with_messages(mut k: Known<u64>, vals: &[u64]) -> Known<u64> {
     pollster::block_on(async move {
         for &v in vals {
-            k.message([v]).await;
+            k.send([v]).await;
         }
         k
     })

@@ -8,7 +8,9 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 use tokio::runtime::Runtime;
 
+use crate::Network;
 use crate::tree::arb::{arb_tree_root, nth_party};
+use crate::tree::mirror::message::Intent;
 use crate::tree::traverse::{Action, act};
 use crate::tree::typed::Path;
 use crate::{message::Message, version::Version};
@@ -328,11 +330,11 @@ fn handshake_flushes_over_buffering_transport() {
             let mut a_w = HoldUntilFlush::new(a_w);
             let mut b_w = HoldUntilFlush::new(b_w);
 
-            // The preamble carries only magic + version, so this exercises
+            // The preamble carries only magic + version + network, so this exercises
             // purely the flush/deadlock behavior of the raw prefix exchange.
             let (ra, rb) = tokio::join!(
-                remote::preamble(&mut a_r, &mut a_w),
-                remote::preamble(&mut b_r, &mut b_w),
+                remote::preamble(Network::BOOTSTRAP, Intent::Remain, &mut a_r, &mut a_w),
+                remote::preamble(Network::BOOTSTRAP, Intent::Remain, &mut b_r, &mut b_w),
             );
             ra.is_ok() && rb.is_ok()
         });

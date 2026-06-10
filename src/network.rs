@@ -26,13 +26,13 @@ impl Network {
     /// has no `Known` yet, hence no real network. It is the one value
     /// [`from_rng`](Self::from_rng) never mints, so it unambiguously means "I
     /// am bootstrapping" on the wire and suppresses the network-match check.
-    pub(crate) const ZERO: Network = Network([0u8; 16]);
+    pub(crate) const BOOTSTRAP: Network = Network([0u8; 16]);
 
     /// Mint a fresh random identifier by drawing 16 bytes from `rng`.
     ///
     /// Re-draws in the (cryptographically impossible, `2^-128`) event of the
-    /// all-zero value, keeping [`ZERO`](Self::ZERO) reserved as the unambiguous
-    /// bootstrap sentinel.
+    /// all-zero value, keeping [`BOOTSTRAP`](Self::BOOTSTRAP) reserved as the
+    /// unambiguous bootstrap sentinel.
     pub(crate) fn from_rng<R: RngCore + ?Sized>(rng: &mut R) -> Self {
         loop {
             let mut bytes = [0u8; 16];
@@ -44,10 +44,10 @@ impl Network {
         }
     }
 
-    /// Whether this is the [`ZERO`](Self::ZERO) bootstrap placeholder rather than
-    /// a real, randomly-minted universe id.
+    /// Whether this is the [`BOOTSTRAP`](Self::BOOTSTRAP) placeholder rather
+    /// than a real, randomly-minted universe id.
     pub(crate) fn is_bootstrap(self) -> bool {
-        self == Network::ZERO
+        self == Network::BOOTSTRAP
     }
 
     /// The raw 16 bytes, for placement into the greeting frame.

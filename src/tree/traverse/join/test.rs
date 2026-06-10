@@ -7,10 +7,9 @@ use std::sync::Arc;
 
 use proptest::prelude::*;
 
-use crate::network::Network;
 use crate::tree::arb::{arb_divergent_pair, arb_shared_delta_pair, arb_tree_root};
 use crate::tree::key::Key;
-use crate::tree::traverse::mirror::{local, message, mirror};
+use crate::tree::traverse::mirror::{local, mirror};
 use crate::tree::{Root, Tree};
 use crate::version::Version;
 
@@ -41,8 +40,6 @@ fn mirror_capture(a: Root<()>, b: Root<()>) -> (Root<()>, Log) {
         // is consumed.
         let l = local::Exchange::start(
             a,
-            Network::ZERO,
-            message::Intent::Remain,
             None::<Silent>,
             Some(|k: Key, v: &Version, _m: &Arc<()>| {
                 learned.push((k, v.clone()));

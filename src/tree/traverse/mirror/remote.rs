@@ -79,6 +79,7 @@ use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::network::Network;
+use crate::tree::mirror::message::Intent;
 use crate::tree::typed::{
     Node,
     height::{Height, Root, S, Z},
@@ -136,6 +137,19 @@ pub enum Error {
     /// abort the session.
     #[error("retiring peer's party overlaps ours")]
     PartyOverlap,
+
+    /// The peer's preamble intent byte was neither 0 (remain) nor 1 (retire).
+    #[error("peer sent an invalid intent byte ({byte:#04x})")]
+    IntentInvalid { byte: u8 },
+
+    /// The peer declared the bootstrap placeholder [`Network`] together with
+    /// a retiring intent. Retiring donates a party and bootstrapping receives
+    /// one, so no honest peer combines them; rejecting the combination in the
+    /// [`preamble`] keeps a buggy or malicious peer from maneuvering us into
+    /// both forking it a party and absorbing its donation, which would orphan
+    /// the fork's id-region.
+    #[error("peer claimed to bootstrap and retire in the same session")]
+    BootstrapRetireConflict,
 }
 
 impl From<borsh::io::Error> for Error {
@@ -145,17 +159,13 @@ impl From<borsh::io::Error> for Error {
 }
 
 /// Exchange and validate the raw protocol preamble `[magic(6) | proto_version(2
-/// BE)]` with a peer, before any framed traffic.
+/// BE) | network(16) | intent(1)]` with a peer, before any framed traffic.
 ///
 /// This is the *only* raw (non-length-delimited) exchange in a session; it runs
 /// before the [`message::Handshake`] body and the rest of the protocol, so a
 /// non-`rumors` peer (wrong magic) or an incompatible one (wrong version) is
 /// rejected *before* the length-delimited codec ever trusts a peer-supplied
 /// frame length, so that a garbage peer cannot induce a huge-frame allocation.
-///
-/// The [`Network`] is not part of the preamble: it rides the framed
-/// [`message::Handshake`] the `connect`/`accept` steps exchange, where the
-/// network-match check is applied.
 ///
 /// Both sides write and read concurrently via [`futures_util::future::try_join`]:
 /// a peer that reads before writing would deadlock against another doing the
@@ -164,22 +174,33 @@ impl From<borsh::io::Error> for Error {
 /// Returns [`Error::MagicMismatch`] when the peer's first six bytes are not
 /// [`crate::PROTOCOL_MAGIC`], or [`Error::VersionMismatch`] when the magic
 /// matches but the version does not.
-pub async fn preamble<R, W>(read: &mut R, write: &mut W) -> Result<(), Error>
+pub async fn preamble<R, W>(
+    network: Network,
+    intent: Intent,
+    read: &mut R,
+    write: &mut W,
+) -> Result<(Network, Intent), Error>
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
-    let mut local = [0u8; 8];
+    // Preamble layout: [magic(6) | proto_version(2 BE) | network(16) | intent(1)].
+    const PREAMBLE_LEN: usize = 6 + 2 + 16 + 1;
+
+    let mut local = [0u8; PREAMBLE_LEN];
     local[..6].copy_from_slice(&crate::PROTOCOL_MAGIC);
     local[6..8].copy_from_slice(&crate::PROTOCOL_VERSION.to_be_bytes());
+    local[8..24].copy_from_slice(&network.to_bytes());
+    local[24] = if intent.retiring() { 1 } else { 0 };
 
-    let mut remote = [0u8; 8];
+    let mut remote = [0u8; PREAMBLE_LEN];
     // Flush after writing: `write_all` alone only reaches the writer's buffer,
     // and a buffering transport (a compression layer, a `BufWriter`, a TLS
-    // record buffer) may hold all 8 bytes back. Since the peer concurrently
-    // `read_exact`s 8 bytes before sending anything further, an unflushed
-    // preamble deadlocks both sides. A raw socket forwards immediately and
-    // masks the problem, but the `AsyncWrite` contract does not promise it.
+    // record buffer) may hold the whole preamble back. Since the peer
+    // concurrently `read_exact`s the preamble before sending anything further,
+    // an unflushed preamble deadlocks both sides. A raw socket forwards
+    // immediately and masks the problem, but the `AsyncWrite` contract does
+    // not promise it.
     let write_fut = async {
         write.write_all(&local).await.map_err(Error::Io)?;
         write.flush().await.map_err(Error::Io)
@@ -200,7 +221,20 @@ where
     if remote_version != crate::PROTOCOL_VERSION {
         return Err(Error::VersionMismatch { remote_version });
     }
-    Ok(())
+    let remote_network = Network::from_bytes(remote[8..24].try_into().expect("16 bytes"));
+    let remote_intent = match remote[24] {
+        0 => Intent::Remain,
+        1 => Intent::Retire,
+        byte => return Err(Error::IntentInvalid { byte }),
+    };
+    // No honest peer both donates a party (retiring) and receives one
+    // (bootstrapping) in a single session; the network and intent are
+    // peer-supplied bytes, so the combination must be rejected here rather
+    // than assumed away by callers.
+    if remote_network.is_bootstrap() && remote_intent.retiring() {
+        return Err(Error::BootstrapRetireConflict);
+    }
+    Ok((remote_network, remote_intent))
 }
 
 /// The version state for an [`Exchange`] which has just been initialized but
@@ -398,22 +432,6 @@ where
         // `send_party`.)
         send_msg(&mut self.writer, &request).await?;
         let peer: message::Handshake = recv_msg(&mut self.reader).await?;
-
-        // Greeting validation, sibling to the magic/version preamble: two real
-        // (non-`ZERO`) networks that differ descend from unrelated seeds and
-        // must never combine. A `ZERO` on either side (a bootstrapping peer)
-        // suppresses the check. Uniform across gossip/retire/bootstrap, so it
-        // lives here in the connect phase rather than in each caller's
-        // dispatch.
-        if !request.network.is_bootstrap()
-            && !peer.network.is_bootstrap()
-            && request.network != peer.network
-        {
-            return Err(Error::NetworkMismatch {
-                remote_network: peer.network,
-                remote_min_events: peer.version.min_ticks(),
-            });
-        }
 
         // If the two versions are the same, both sides are immediately done.
         if request.version == peer.version {

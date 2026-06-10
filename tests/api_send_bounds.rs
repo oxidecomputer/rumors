@@ -33,7 +33,7 @@ fn join_future_is_send() {
 
 #[test]
 fn gossip_future_is_send() {
-    let alice = Known::<String>::seed();
+    let mut alice = Known::<String>::seed();
     let (_, b) = tokio::io::duplex(64);
     let (mut r, mut w) = tokio::io::split(b);
     let fut = alice.gossip(&mut r, &mut w);

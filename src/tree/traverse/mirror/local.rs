@@ -62,7 +62,6 @@ use std::{convert::Infallible, future::Future, mem, sync::Arc};
 use itertools::{EitherOrBoth, Itertools};
 
 use crate::{
-    network::Network,
     tree::{
         self,
         key::Key,
@@ -87,9 +86,7 @@ use super::protocol;
 /// will hand the peer our party in a trailing frame once reconciliation
 /// completes).
 pub struct Start {
-    network: Network,
     our_version: Version,
-    intent: message::Intent,
 }
 
 /// The version state for an [`Exchange`] which has sent its version to its peer
@@ -191,18 +188,10 @@ impl<OnSend, OnRecv, T> Exchange<OnSend, OnRecv, Start, Top<T>>
 where
     T: Send + Sync,
 {
-    pub fn start(
-        node: tree::Root<T>,
-        network: Network,
-        intent: message::Intent,
-        on_send: Option<OnSend>,
-        on_recv: Option<OnRecv>,
-    ) -> Self {
+    pub fn start(node: tree::Root<T>, on_send: Option<OnSend>, on_recv: Option<OnRecv>) -> Self {
         Self {
             versions: Start {
-                network,
                 our_version: node.ceiling.clone(),
-                intent,
             },
             levels: Node::levels(Option::from(node)),
             on_recv,
@@ -231,7 +220,7 @@ where
         // Local-local test sessions never run the lib-level network/intent
         // dispatch, so the placeholder network and `Remain` intent are inert:
         // the handshake they produce is consumed only for its version.
-        Self::start(node, Network::ZERO, message::Intent::Remain, None, None)
+        Self::start(node, None, None)
     }
 }
 
@@ -260,11 +249,7 @@ where
     async fn connect(
         self,
     ) -> Result<protocol::Step<message::Handshake, Self::Next, Infallible>, Self::Error> {
-        let Start {
-            network,
-            our_version,
-            intent,
-        } = self.versions;
+        let Start { our_version } = self.versions;
 
         let next = Exchange {
             levels: self.levels,
@@ -279,9 +264,7 @@ where
 
         Ok(protocol::Step::Continue {
             msg: message::Handshake {
-                network,
                 version: our_version,
-                intent,
             },
             next,
         })
@@ -347,20 +330,14 @@ where
         self,
         request: message::Handshake,
     ) -> Result<protocol::Step<message::Handshake, Self::Next, Self::Output>, Self::Error> {
-        let Start {
-            network,
-            our_version,
-            intent,
-        } = self.versions;
+        let Start { our_version } = self.versions;
         let their_version = request.version;
 
         // If the two versions are the same, both sides are immediately done
         if our_version == their_version {
             return Ok(protocol::Step::Done {
                 msg: message::Handshake {
-                    network,
                     version: our_version.clone(),
-                    intent,
                 },
                 output: tree::Root {
                     ceiling: our_version,
@@ -383,30 +360,10 @@ where
 
         Ok(protocol::Step::Continue {
             msg: message::Handshake {
-                network,
                 version: our_version,
-                intent,
             },
             next,
         })
-    }
-}
-
-impl<OnSend, OnRecv, T> protocol::Collapse for Exchange<OnSend, OnRecv, Connected, Top<T>>
-where
-    T: Send + Sync,
-{
-    type Root = tree::Root<T>;
-
-    /// Collapse a connected exchange back to its tree root *without* running the
-    /// descent. The tree is unchanged since [`start`](Self::start); used when
-    /// the session ends right after the handshake — a declined retirement —
-    /// instead of descending.
-    fn into_root(self) -> tree::Root<T> {
-        tree::Root {
-            ceiling: self.versions.our_version,
-            root: self.levels.collapse(),
-        }
     }
 }
 
