@@ -92,13 +92,24 @@ Placement: `src/broadcast.rs`. Everything needed is already in reach
 
 ## 4. Decisions and rationale
 
-- **Replay from genesis (observed tree starts empty).** The first join fires
-  `on_message` for every message live at subscription time, then deltas
-  follow. This gives the clean invariant "every message live at some wakeup
-  is observed exactly once" and matches §3 of the shared-state plan, where
-  bootstrap replays history through the same reducer as live traffic. The
-  from-now alternative is the one-line change `observed = current.clone()`
+- **Replay from genesis (observed tree starts empty), per call.** The first
+  join fires `on_message` for every message live at subscription time, then
+  deltas follow. This gives the clean invariant "every message live at some
+  wakeup is observed exactly once" and matches §3 of the shared-state plan,
+  where bootstrap replays history through the same reducer as live traffic.
+  The from-now alternative is the one-line change `observed = current.clone()`
   before the loop; defer until a use case asks for it.
+- **No resumable cursor (`&mut self` storing the observed tree in the
+  `Broadcast`): rejected for cancellation.** A merge observes arbitrarily
+  many events but commits atomically — and worse than losing the delta,
+  `Tree::join` `mem::take`s the receiver's root and writes the merged root
+  back only after the traversal completes (`src/tree.rs:373`), so a join
+  future dropped at a callback await leaves the stored cursor *empty*: the
+  next `listen` would silently replay from genesis while appearing to
+  resume. Per-call genesis ties the cursor's lifetime to the future's, so
+  cancellation cannot tear it; cross-call dedup belongs to the caller (via
+  `Key`s) or to the from-now variant, whose cursor also dies with its
+  future.
 - **A listener is an observer, not an actor.** `listen` consumes its
   `Broadcast` and drops both handles: the data sender (so listeners never
   hold the channel open: termination tracks the *actors*) and the liveness
@@ -122,6 +133,18 @@ Placement: `src/broadcast.rs`. Everything needed is already in reach
   re-fire obligation (unlike `step`'s callback-then-install dance in the
   shared-state plan, which exists because `step`'s cursor survives the
   cancelled future).
+- **Termination is real and meaningful: `Output = ()`, not a never type.**
+  The future completes exactly when every sender on the data channel is gone:
+  the `Known`'s (in hand or parked in a pending `until_no_broadcasts`), every
+  `Broadcast` clone's, and the transient `PartyGuard` clones (which live
+  inside gossip futures borrowing an actor). `listen` dropping its own
+  sender up front is the linchpin: holding it would self-pin the listener
+  (waiting for a channel it holds open) and deadlock listeners against each
+  other. Because the loop drains before checking `changed()`, completion
+  carries a guarantee to document: the listener has observed the complete
+  final state of the set; no change can ever occur again. A never-return
+  type (`Output = Infallible` on stable) would promise the universe outlives
+  the listener, which retiring or dropping the last `Known` falsifies.
 - **Output stays `()`.** Returning the callback or a final `Snapshot` on
   completion is expressible later without breaking the signature's users.
 
