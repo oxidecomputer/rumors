@@ -1,205 +1,241 @@
-# Plan: `Broadcast::listen`, an observing subscription
+# Plan: `Broadcast::listen` / `listen_from`, version-cursor subscriptions
 
-Status: draft for review. Not yet implemented. Builds on the
-`shared-state-wip` rework (internally-synchronized `Known`/`Broadcast` over a
-`watch::Sender<Inner>`).
+Status: draft for review. Not yet implemented. Builds on the in-progress
+internally-synchronized `Known`/`Broadcast` rework (`watch::Sender<Inner>`).
 
 ## 1. Shape and intent
 
 ```rust
 impl<T> Broadcast<T> {
-    pub fn listen<F, Fut>(self, on_message: F) -> impl Future<Output = ()> + Send
+    /// Observe every message from genesis onward.
+    pub fn listen<F, Fut>(self, on_message: F) -> impl Future<Output = Version> + Send
     where
         T: Send + Sync,
         F: FnMut(Key, &Version, &Arc<T>) -> Fut + Send,
         Fut: Future<Output = ()> + Send,
+    {
+        self.listen_from(Version::new(), on_message)
+    }
+
+    /// Observe every message not causally contained in `since`.
+    pub fn listen_from<F, Fut>(self, since: Version, on_message: F)
+        -> impl Future<Output = Version> + Send
+    where /* same bounds */
 }
 ```
 
-The returned future owns a private `Tree<T>` (the *observed* tree) and loops:
-snapshot the shared tree out of the watch channel, observing-`join` it into
-the observed tree (firing `on_message` once per leaf gained), then await the
-channel's change notification. It completes when no further change is
-possible: when every sender on the channel (the `Known` and all `Broadcast`s)
-has dropped.
+The cursor is a causal `Version`, not a tree. Each time the shared tree
+changes, the [`Unknown`] traversal fires `on_message` for precisely the
+leaves the cursor does not dominate, then the cursor absorbs the snapshot's
+ceiling. The future resolves — when no further change is possible — to the
+version up to which it has processed, which is a valid `since` for a later
+`listen_from`.
 
-This is the subscription analogue of `plans/shared-state.md` §3's drain: the
-observed tree is the same exclusively-owned dedup cursor, and exactly-once
-observation holds for the same reason — the cursor lives behind the future's
-unique ownership, so no race can double-observe and no buffer is needed.
+Advantages over the earlier tree-cursor design:
 
-The `F`/`Fut` bounds are exactly `Tree::join`'s `R`/`RFut` bounds
-(`src/tree.rs:351`), so the callback threads straight through with no adapter;
-`&mut F: FnMut` lets each loop iteration pass `Some(&mut on_message)` without
-consuming it.
+1. **Arbitrary starting version.** `Version::new()` is genesis; the
+   subscription-time ceiling is from-now; anything else is a resume point.
+2. **No pinned structure between passes.** An undriven listener holds a
+   `watch::Receiver` and a `Version` — it does not keep old `Arc` clones of
+   the tree alive. (A per-pass snapshot clone lives only for the pass.)
+3. **Resumability and portability** (§4): cursors compose across listen
+   calls, across cancellation (via a caller-side fold), and across replicas.
 
 ## 2. Verified code facts the design rests on
 
-- **`Tree::join` is an observing CRDT merge.** `on_recv` fires once per leaf
-  `self` gains; deletion-honoring drops leaves the other side has redacted
-  (version-dominated absences), with no callback for removals
-  (`src/tree.rs:340-385`). So the observed tree tracks redactions silently
-  and never re-observes.
-- **Repeated joins cost O(delta), not O(n).** The join recursion
-  short-circuits subtree equality by `ptr_eq`-or-hash, and `OrdMap::diff`
-  prunes pointer-equal spans (`src/tree/traverse/join.rs:175-205`). The
-  observed tree is built from clones of the shared tree's own nodes, so
-  successive wakeups share almost all structure and pay only for what
-  changed since the last wakeup.
-- **`watch` cannot miss updates.** `Receiver::borrow_and_update` marks the
-  current version seen; a write landing after it makes the next `changed()`
-  resolve immediately. Borrow-then-wait is the lossless idiom. `changed()`
-  returns `Err` exactly when every sender has dropped, after which no write
-  can ever occur, so "drain, then `changed() == Err`" observes the final
-  state completely.
-- **Joins suspend only at user callbacks** (`plans/shared-state.md` §2). The
-  listener's join runs against owned/cloned data with no lock held, so the
-  user's `on_message` future may suspend arbitrarily long without blocking
-  any writer.
+- **`Unknown` already takes async callbacks and prunes by version.**
+  `Unknown::unknown(node, prefix, known, &mut Option<F>)` with
+  `F: FnMut(Key, &Version, &Message<T>) -> Fut`, recursion Box::pin'd for
+  `Send` (`src/tree/traverse/unknown.rs:64`). A subtree with
+  `ceiling() <= known` returns `None` immediately — dominated subtrees are
+  never entered, so a pass costs O(new leaves · depth), not O(n).
+- **The keep-whole fast path is already non-rebuilding.** A subtree whose
+  floor the cursor does not dominate is observed by a *read-only* leaf walk
+  and returned verbatim as an `Arc` move (`unknown.rs:100-124`). Only the
+  mixed known/unknown case destroys-and-rebuilds; running the walk over a
+  disposable per-pass clone makes that wasted allocation, never
+  incorrectness. A borrowing `&Node` variant is a later optimization, taken
+  only if profiling asks (§7).
+- **The callback adapter exists.** `unknown::from_arc` adapts the public
+  `FnMut(Key, &Version, &Arc<T>) -> Fut` shape to the `&Message<T>` shape
+  the walk fires (`unknown.rs:20`).
+- **`Version::new()` is genesis** (`before::Version`, with `Default`), `|=`
+  is the least-upper-bound absorb, and `<=` is causal containment.
+- **`watch` cannot miss updates.** `borrow_and_update` marks seen; a write
+  after it makes the next `changed()` resolve immediately; `changed()`
+  errors exactly when every sender is gone, after which no write can occur.
+  Borrow-then-drain-then-wait therefore observes the complete final state.
 
 ## 3. The loop
 
 ```rust
-pub fn listen<F, Fut>(self, mut on_message: F) -> impl Future<Output = ()> + Send {
-    // Subscribe while our own sender still holds the channel open.
+pub fn listen_from<F, Fut>(self, since: Version, mut on_message: F)
+    -> impl Future<Output = Version> + Send
+{
+    // Subscribe while our own sender still holds the channel open, then
+    // dissolve the Broadcast eagerly: the data sender goes (the channel
+    // closes when the last *actor* does), and the liveness receiver goes
+    // (a listener must not pin `until_no_broadcasts`).
     let mut rx = self.known.inner.subscribe();
-    // Dissolve the Broadcast eagerly (when `listen` returns, not when the
-    // future first polls): the data sender goes, so the channel closes when
-    // the last *actor* does; the liveness receiver goes, so a listener does
-    // not pin `until_no_broadcasts` (a listener is a pure observer).
     drop(self);
     async move {
-        let mut observed = Tree::new();
+        let mut cursor = since;
         loop {
-            // Snapshot and release: the watch read guard blocks writers, so
-            // it must never be held across an await. Tree clone is O(1) COW.
-            let current = rx.borrow_and_update().tree.clone();
-            observed
-                .join(current, Some(&mut on_message), None::<Silent<T>>)
+            // Snapshot under the guard and release immediately: the guard
+            // blocks writers and must never be held across an await. The
+            // clone is disposable, so the consuming walk below is fine.
+            let snapshot = rx.borrow_and_update().tree.clone();
+            let ceiling = snapshot.latest().clone();
+
+            // Fire for precisely the leaves `cursor` does not dominate.
+            let mut observe = Some(unknown::from_arc(&mut on_message));
+            Unknown::unknown(snapshot.root.into(), Prefix::new(), &cursor, &mut observe)
                 .await;
-            // Err: every sender is gone, no further change is possible, and
-            // the borrow above already drained the final state.
+
+            // The pass observed every survivor at or under the snapshot's
+            // ceiling; absorbing the ceiling (not just observed leaf
+            // versions) also covers redaction ticks, which have no leaves.
+            cursor |= &ceiling;
+
+            // Err: every sender is gone, the drain above was final.
             if rx.changed().await.is_err() {
-                break;
+                break cursor;
             }
         }
     }
 }
 ```
 
-Placement: `src/broadcast.rs`. Everything needed is already in reach
-(`known.inner` is `pub(crate)`; `Tree`, `Silent` are crate-internal imports).
+Placement: `src/broadcast.rs`. `Unknown`, `Prefix`, and `from_arc` are
+crate-internal; expect a couple of small visibility/import adjustments.
 
 ## 4. Decisions and rationale
 
-- **Replay from genesis (observed tree starts empty), per call.** The first
-  join fires `on_message` for every message live at subscription time, then
-  deltas follow. This gives the clean invariant "every message live at some
-  wakeup is observed exactly once" and matches §3 of the shared-state plan,
-  where bootstrap replays history through the same reducer as live traffic.
-  The from-now alternative is the one-line change `observed = current.clone()`
-  before the loop; defer until a use case asks for it.
-- **No resumable cursor (`&mut self` storing the observed tree in the
-  `Broadcast`): rejected for cancellation.** A merge observes arbitrarily
-  many events but commits atomically — and worse than losing the delta,
-  `Tree::join` `mem::take`s the receiver's root and writes the merged root
-  back only after the traversal completes (`src/tree.rs:373`), so a join
-  future dropped at a callback await leaves the stored cursor *empty*: the
-  next `listen` would silently replay from genesis while appearing to
-  resume. Per-call genesis ties the cursor's lifetime to the future's, so
-  cancellation cannot tear it; cross-call dedup belongs to the caller (via
-  `Key`s) or to the from-now variant, whose cursor also dies with its
-  future.
-- **A listener is an observer, not an actor.** `listen` consumes its
-  `Broadcast` and drops both handles: the data sender (so listeners never
-  hold the channel open: termination tracks the *actors*) and the liveness
-  receiver (so a listener does not block `until_no_broadcasts`). The XOR
-  exists to make `retire` safe against concurrent *sessions and mints*;
-  a listener can do neither. Consequences worth documenting on the method:
-  the `Known` can be reclaimed and even retired while listeners run, and a
-  listener outlives the `Broadcast` generation it was made from, completing
-  only when the universe of senders is gone.
+- **The cursor is a `Version`, committed per pass.** During a pass the
+  filter is the pass-start cursor, so intra-pass ordering doesn't matter;
+  at pass end `cursor |= ceiling` marks everything in the snapshot
+  observed. Exactly-once within one listen call: every fired leaf is `<=`
+  the absorbed ceiling, and the next pass filters against it.
+- **Cancellation loses the closed-over cursor — by design, with a
+  documented recipe.** A dropped future cannot return its `Version`. The
+  resume recipe falls out of the signature: the callback receives
+  `&Version`, so a caller wanting cancel-resume folds `resume |= version`
+  as it processes; `listen_from(resume)` then re-fires nothing already
+  folded (every fired leaf is `<=` the fold by construction). The single
+  in-flight message is the caller's choice: fold-before-side-effect is
+  at-most-once, fold-after is at-least-once. The fold sits under the true
+  ceiling (redaction ticks aren't folded), which only weakens pruning for
+  the first resumed pass; the pass-end absorb catches the cursor up. No
+  `&mut self`-resumable variant: with per-pass commits it re-fires whole
+  passes, and persisting a cursor inside the `Broadcast` buys nothing the
+  fold doesn't.
+- **Cursors are portable across replicas.** A `Version` is causal and
+  network-global, not replica-local: a cursor earned against replica A is a
+  valid `since` against replica B's `Broadcast` in the same universe, and
+  the terminal `Output` of one listener can seed a listener elsewhere.
+  Messages observed via A are dominated and skipped; messages B holds that
+  A never saw are concurrent to the cursor and fire. The sharp edge: a
+  `Version` from a *different universe* is meaningless and undetectable
+  (`Version` carries no `Network`); same-network `since` is the caller's
+  obligation, an instance of the crate's existing Law-of-Disjointness
+  rules. A *future* version (ahead of this replica) is legal: nothing
+  fires until causality catches up.
+- **A listener is an observer, not an actor.** `listen_from` consumes its
+  `Broadcast` and drops both handles up front: the data sender (listeners
+  never hold the channel open; termination tracks the actors) and the
+  liveness receiver (listeners do not block `until_no_broadcasts`). The
+  XOR exists to make `retire` safe against concurrent sessions and mints;
+  a listener can do neither. The `Known` can be reclaimed, even retired,
+  while listeners run.
 - **At-most-once is inherent for redaction-raced messages.** The channel
   holds only the latest tree; a message inserted and redacted between two
-  wakeups is never observed. This is a feature: content already redacted is
-  never delivered. The delivery contract to document: every message is
-  observed at most once; every message live at any wakeup (including the
-  final drain) is observed exactly once; redactions are honored silently.
+  passes is never observed — content already redacted is never delivered.
+  The delivery contract: every message is observed at most once per call;
+  every message live at any pass whose version exceeds `since` is observed
+  exactly once; redactions are honored silently. This rides the same
+  version-bounds discipline as the crate's tombstone-free deletion.
 - **Coalescing is the backpressure.** A slow `on_message` never blocks
-  writers; the listener simply joins against a fresher snapshot next
-  iteration, paying one delta-join regardless of how many writes coalesced.
-- **Cancellation: drop means stop.** The observed tree dies with the future;
-  no shared state is touched, so there is no partial-state hazard and no
-  re-fire obligation (unlike `step`'s callback-then-install dance in the
-  shared-state plan, which exists because `step`'s cursor survives the
-  cancelled future).
-- **Termination is real and meaningful: `Output = ()`, not a never type.**
-  The future completes exactly when every sender on the data channel is gone:
-  the `Known`'s (in hand or parked in a pending `until_no_broadcasts`), every
-  `Broadcast` clone's, and the transient `PartyGuard` clones (which live
-  inside gossip futures borrowing an actor). `listen` dropping its own
-  sender up front is the linchpin: holding it would self-pin the listener
-  (waiting for a channel it holds open) and deadlock listeners against each
-  other. Because the loop drains before checking `changed()`, completion
-  carries a guarantee to document: the listener has observed the complete
-  final state of the set; no change can ever occur again. A never-return
-  type (`Output = Infallible` on stable) would promise the universe outlives
+  writers; the next pass runs against a fresher snapshot and pays one
+  delta-walk regardless of how many writes coalesced.
+- **Termination is real and meaningful: `Output = Version`, not a never
+  type.** The future completes exactly when every sender is gone: the
+  `Known`'s (in hand or parked in a pending `until_no_broadcasts`), every
+  `Broadcast` clone's, and the transient `PartyGuard` clones (inside gossip
+  futures that borrow an actor). Dropping our own sender up front is the
+  linchpin: holding it would self-pin the listener and deadlock listeners
+  against each other. Completion guarantees the complete final state was
+  observed, and the returned cursor (the final absorbed ceiling) is the
+  proof — feed it to a later `listen_from` anywhere in the universe. A
+  never type (`Output = Infallible`) would promise the universe outlives
   the listener, which retiring or dropping the last `Known` falsifies.
-- **Output stays `()`.** Returning the callback or a final `Snapshot` on
-  completion is expressible later without breaking the signature's users.
 
 ## 5. Risks and verification items
 
-- **`large_futures`.** The crate denies `clippy::large_futures`; the listen
-  future embeds the join traversal. If the lint fires, `Box::pin` the async
-  block (one allocation per listener, amortized over its life) — same
-  treatment as the boxed `reconcile()` sites.
-- **`subscribe`-before-drop ordering** is load-bearing: subscribing after
-  dropping the last sender would panic/fail. The receiver must be taken from
-  `self.known.inner` before `drop(self)`. (Compiler enforces the move order;
-  a comment should enforce the why.)
-- **Watch-guard discipline**: `borrow_and_update()` result must be bound only
-  long enough to clone the tree, never across the join await. Worth a test
-  that a listener blocked in `on_message` does not block a concurrent
-  `send` (try_send-style timing assertion or a oneshot-gated callback).
-- **Termination via retire**: a successful retire drops the `Known`
-  (consumed) — confirm the listener then completes once any remaining
-  `Broadcast`s drop. No special-casing should be needed; it falls out of
-  sender-count-zero.
+- **`large_futures`**: `Unknown` Box::pins its own recursion, but the listen
+  future still embeds a pass; if the crate's deny lint fires, `Box::pin`
+  the async block (one allocation per listener).
+- **Subscribe-before-drop ordering** is load-bearing: the receiver must be
+  taken from `self.known.inner` before `drop(self)`.
+- **Watch-guard discipline**: the `borrow_and_update` guard is bound only
+  long enough to clone the tree, never across the walk.
+- **Per-pass snapshot pinning**: during a pass the snapshot clone (and its
+  leaf `Arc`s) stay alive across the user's callback awaits. If that ever
+  matters, the collect-then-fire pattern from `Tree::act` (eagerly collect
+  `(Key, Version, Arc<T>)`, drop the snapshot, then await) trades it for
+  materializing the delta. v1 fires inline.
+- **Termination via retire**: confirm the listener completes once the
+  retired `Known` and remaining `Broadcast`s are gone; should fall out of
+  sender-count-zero with no special-casing.
 
 ## 6. Tests (each with its invariant in the doc comment)
 
-1. **Replay**: send N messages, `broadcast()`, `listen` — the listener
-   observes exactly the live set, each message once.
-2. **Live delivery**: messages sent through a sibling `Broadcast` clone after
-   `listen` begins are observed.
-3. **Wire delivery**: messages learned via `gossip` are observed (the
-   listener doesn't care how the tree advanced).
-4. **Redaction honored**: a message observed then redacted is not re-observed
-   and produces no callback; a message redacted before `listen` starts is
-   never observed.
-5. **Exactly-once under interleaving** (prop test): arbitrary interleaving of
-   sends/redactions from several `Broadcast` clones with a running listener;
-   invariants: no key observed twice, and observed ⊇ the final live set.
-6. **Termination**: drop the `Known` and all `Broadcast`s mid-listen — the
+1. **Genesis replay**: send N, `broadcast()`, `listen` — observes exactly
+   the live set, each once; returned cursor dominates every observed
+   version.
+2. **Arbitrary start**: `listen_from(v_mid)` observes exactly the leaves not
+   dominated by `v_mid`.
+3. **Live delivery**: messages sent through a sibling clone after listening
+   begins are observed; gossip-learned messages likewise.
+4. **Redaction honored**: observed-then-redacted fires nothing further;
+   redacted-before-listen never fires; a from-now listener does not see
+   pre-subscription content.
+5. **Exactly-once under interleaving** (prop test): arbitrary send/redact
+   interleavings from several clones; no key observed twice; observed ⊇
+   final live set above `since`.
+6. **Resume recipe** (prop test): cancel a listener at an arbitrary point
+   (oneshot-gated callback), fold observed versions, `listen_from(fold)`;
+   union of observations is exactly-once per message (fold-before-effect
+   discipline).
+7. **Cursor round-trip**: terminal `Output` fed to a fresh `listen_from` on
+   an unchanged set observes nothing and terminates with an equal cursor.
+8. **Replica portability**: cursor earned on replica A, resumed against
+   replica B post-gossip: A-observed messages are skipped, B-only messages
+   fire.
+9. **Termination**: drop the `Known` and all `Broadcast`s mid-listen — the
    future drains and completes. Variant: the `Known` leaves via `retire`.
-7. **Pending while actors live**: with a `Known` or `Broadcast` alive, the
-   listen future stays pending (poll via `now_or_never`).
-8. **XOR non-interference**: `listen` consuming the last `Broadcast` lets
-   `until_no_broadcasts` resolve while the listener is still pending.
-9. **Non-blocking observer**: a listener parked inside `on_message` does not
-   block `Broadcast::send` on another handle.
+10. **Pending while actors live**: with a `Known` or `Broadcast` alive, the
+    future stays pending (`now_or_never`).
+11. **XOR non-interference**: `listen` consuming the last `Broadcast` lets
+    `until_no_broadcasts` resolve while the listener is still pending.
+12. **Non-blocking observer**: a listener parked in `on_message` does not
+    block `Broadcast::send` on another handle.
 
-Test 5 wants `proptest` over an interleaving script; commit any
-`proptest-regressions` seeds it mints.
+Tests 5 and 6 want `proptest` over interleaving scripts; commit any
+`proptest-regressions` seeds they mint.
 
 ## 7. Sequencing
 
-1. Implement `listen` in `src/broadcast.rs` (~30 lines; no protocol surface,
-   no wire change).
+1. Implement `listen_from` + `listen` in `src/broadcast.rs` over the
+   existing consuming `Unknown` walk (~40 lines; no protocol surface, no
+   wire change). Small visibility adjustments for `Unknown`/`Prefix`/
+   `from_arc` as needed.
 2. Clippy pass; `Box::pin` if `large_futures` objects.
 3. Tests, gated on the crate compiling again (the stale `src/sync.rs` /
-   `src/tests.rs` still block every test target) — a fresh `tests/listen.rs`
+   `src/tests.rs` still block every test target); a fresh `tests/listen.rs`
    needs only the lib to build.
-4. Doc comments for the delivery contract (§4) when the public API gets its
+4. Profile-driven only: a borrowing, non-rebuilding `&Node` unknown-walk if
+   per-pass rebuild allocation shows up; collect-then-fire if snapshot
+   pinning across slow callbacks shows up.
+5. Doc comments for the delivery contract, the resume recipe, and the
+   same-universe obligation (§4) when the public API gets its
    documentation pass.
