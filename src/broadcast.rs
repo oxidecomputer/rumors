@@ -147,6 +147,15 @@ impl<T> Broadcast<T> {
         self.known.hash()
     }
 
+    /// Look up a single live message by its [`Key`]: one `O(depth)` descent
+    /// (the key *is* the leaf's content-addressed path), never a scan.
+    /// Returns owned handles cloned out of the synchronized state; `None`
+    /// when no live message has that key — never inserted, or since
+    /// redacted.
+    pub fn get(&self, key: &Key) -> Option<(Version, Arc<T>)> {
+        self.known.get(key)
+    }
+
     /// Observe every message in this rumor set, from genesis onward: the
     /// returned future fires `on_message` once for every message currently
     /// live, then follows along with every change, firing once per message

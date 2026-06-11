@@ -143,6 +143,10 @@ impl<T> Known<T> {
         self.0.hash()
     }
 
+    pub fn get(&self, key: &Key) -> Option<(Version, Arc<T>)> {
+        self.0.get(key)
+    }
+
     #[doc(hidden)]
     pub fn warm_caches(&self) {
         self.0.warm_caches();
@@ -231,6 +235,10 @@ impl<T> Broadcast<T> {
 
     pub fn hash(&self) -> [u8; 32] {
         self.0.hash()
+    }
+
+    pub fn get(&self, key: &Key) -> Option<(Version, Arc<T>)> {
+        self.0.get(key)
     }
 
     #[doc(hidden)]

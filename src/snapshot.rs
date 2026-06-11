@@ -45,6 +45,14 @@ impl<T> Snapshot<T> {
         self.tree.hash()
     }
 
+    /// Look up a single live message by its [`Key`]: one `O(depth)` descent
+    /// (the key *is* the leaf's content-addressed path), never a scan.
+    /// `None` when no live message has that key — never inserted, or since
+    /// redacted.
+    pub fn get(&self, key: &Key) -> Option<(&Version, &Arc<T>)> {
+        self.tree.get(key)
+    }
+
     /// Iterate every message currently [`Known`] as `(Key, &Version, &Arc<T>)`.
     ///
     /// Order is unspecified, and in particular does *not* follow the causal

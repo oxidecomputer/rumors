@@ -206,6 +206,36 @@ impl<T> Node<T> {
         }
     }
 
+    /// Look up the leaf at `path` beneath this node: a single root-to-leaf
+    /// descent costing `O(depth)`, never a scan. `None` when no live leaf
+    /// sits at that path.
+    pub fn get(&self, mut path: &[u8]) -> Option<(&Version, &Message<T>)> {
+        let mut node = self;
+        loop {
+            // Consume the compressed prefix, shallowest byte first (it is
+            // stored shallowest-last); any divergence means the path exits
+            // the tree inside the compressed span.
+            for &byte in node.inner.prefix.iter().rev() {
+                match path.split_first() {
+                    Some((&next, rest)) if next == byte => path = rest,
+                    _ => return None,
+                }
+            }
+            match &node.inner.children {
+                // A full 32-byte path lands exactly at a leaf; a leftover
+                // tail means the path was deeper than the tree.
+                Children::Leaf { version, message } => {
+                    return path.is_empty().then_some((version, message));
+                }
+                Children::Branch { children, .. } => {
+                    let (radix, rest) = path.split_first()?;
+                    node = children.get(radix)?;
+                    path = rest;
+                }
+            }
+        }
+    }
+
     /// Get the number of leaves under a node.
     pub fn len(&self) -> usize {
         match self.inner.children {

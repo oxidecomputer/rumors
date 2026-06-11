@@ -135,6 +135,17 @@ impl<T> Tree<T> {
         Node::root_hash(&self.root.clone().into()).into()
     }
 
+    /// Look up a single live message by its [`Key`]: one `O(depth)` descent
+    /// (the key *is* the leaf's path), never a scan. `None` when no live
+    /// message has that key — never inserted, or since redacted.
+    pub fn get(&self, key: &Key) -> Option<(&Version, &Arc<T>)> {
+        self.root
+            .root
+            .as_ref()?
+            .get(&key.0)
+            .map(|(version, message)| (version, message.as_arc()))
+    }
+
     /// Force every lazily-memoized structural value — the observable hash and
     /// the ceiling/floor version bounds — for the whole tree. Each accessor
     /// recurses, so one call apiece warms the entire subtree.
@@ -205,7 +216,7 @@ impl<T> Tree<T> {
     /// helper (no production caller), so simplicity wins over the targeted
     /// descent a hot path would want.
     #[cfg(test)]
-    fn get<I>(&self, paths: I) -> Vec<(Key, Version, Arc<T>)>
+    fn get_all<I>(&self, paths: I) -> Vec<(Key, Version, Arc<T>)>
     where
         T: Send + Sync,
         I: IntoIterator<Item = Key>,

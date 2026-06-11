@@ -287,6 +287,12 @@ impl<T> Node<T, height::Root> {
         untyped::Iter::root(&self.inner)
     }
 
+    /// Look up the live leaf whose full 32-byte path is `path`, by a single
+    /// `O(depth)` descent.
+    pub fn get(&self, path: &[u8]) -> Option<(&Version, &Message<T>)> {
+        self.inner.get(path)
+    }
+
     /// Lazily iterate the live leaves of the (possibly absent) root `node`
     /// whose versions fall within the causal `range`: a leaf is yielded iff
     /// its version is contained in the range's end bound and *not* contained

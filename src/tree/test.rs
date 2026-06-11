@@ -496,7 +496,7 @@ proptest! {
         paths in proptest::collection::vec(any::<Key>(), 0..8),
     ) {
         let tree: Tree<Bytes> = Tree::new();
-        prop_assert!(tree.get(paths).is_empty());
+        prop_assert!(tree.get_all(paths).is_empty());
     }
 
     /// After inserting a set of distinct values via `act`, looking up the
@@ -519,7 +519,7 @@ proptest! {
             .collect();
 
         let mut got: Vec<Bytes> =
-            tree.get(paths).into_iter()
+            tree.get_all(paths).into_iter()
                 .map(|(_, _, m)| m.as_ref().clone())
                 .collect();
         got.sort();
@@ -556,7 +556,7 @@ proptest! {
             present_paths.iter().copied().chain(absent).collect();
 
         let mut got: Vec<Bytes> = tree
-            .get(all_paths)
+            .get_all(all_paths)
             .into_iter()
             .map(|(_, _, m)| m.as_ref().clone())
             .collect();
@@ -935,7 +935,7 @@ proptest! {
             .map(|(i, b)| leaf_path(&a_id, (i + 1) as u64, b))
             .collect();
         let mut got: Vec<Bytes> = tree_b
-            .get(a_paths)
+            .get_all(a_paths)
             .into_iter()
             .map(|(_, _, m)| m.as_ref().clone())
             .collect();
@@ -996,7 +996,7 @@ proptest! {
         let path_v2 = leaf_path(&party, 2, &value);
 
         prop_assert_ne!(path_v1, path_v2);
-        let got = tree.get([path_v1, path_v2]);
+        let got = tree.get_all([path_v1, path_v2]);
         prop_assert_eq!(got.len(), 2);
         prop_assert!(got.iter().all(|b| b.2.as_ref() == &value));
     }
