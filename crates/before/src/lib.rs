@@ -189,7 +189,7 @@ pub use clock::Clock;
 pub mod causally;
 pub mod error;
 pub use party::Party;
-pub use version::Version;
+pub use version::{Area, Version};
 pub mod batch {
     //! [`batch::Clock`](Clock) and [`batch::Version`](Version) amortize costs
     //! to improve performance on [`Clock`](crate::Clock)s and

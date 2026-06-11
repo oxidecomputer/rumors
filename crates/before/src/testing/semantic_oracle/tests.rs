@@ -12,11 +12,12 @@ use rand::rngs::StdRng;
 use rand::SeedableRng;
 
 use super::{
-    diff, disjoint, ev_depth, ev_order, ev_res, event, id_depth, id_order, id_res, join, lift_ev,
-    lift_id, meet, min_ticks, project, sum, Dyadic, Event, FunctionClock, Id, GRID_N,
+    area, diff, disjoint, ev_depth, ev_order, ev_res, event, id_depth, id_order, id_res, join,
+    lift_ev, lift_id, meet, min_ticks, project, sum, Dyadic, Event, FunctionClock, Id, GRID_N,
 };
 use crate::codec::Base;
 use crate::oracle;
+use crate::testing::bridge::from_oracle_version;
 use crate::testing::generators::{arb_oracle_party, arb_oracle_party_nonempty, arb_oracle_version};
 use crate::testing::optrace::{world_strategy, Op};
 use crate::Clock;
@@ -265,6 +266,21 @@ proptest! {
         let want = v.min_ticks();
         let got = min_ticks(&lift_ev(v), g).to_u64_saturating();
         prop_assert_eq!(got, want);
+    }
+}
+
+proptest! {
+    /// All three references agree on the causal rank: the impl's
+    /// cursor-threaded `area` fold, the tree oracle's recursive fold, and the
+    /// function space's plain Riemann sum over the resolving grid — which
+    /// shares no recursion, no per-node bases, and no normalization with
+    /// either tree, so a formula bug the folds shared could not hide here.
+    #[test]
+    fn area_realizes_riemann_sum(v in arb_oracle_version()) {
+        let g = grid_for(&[ev_depth(&v)]);
+        let want = from_oracle_version(&v).area();
+        prop_assert_eq!(v.area(), want.clone());
+        prop_assert_eq!(area(&lift_ev(v), g), want);
     }
 }
 

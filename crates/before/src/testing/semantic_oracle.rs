@@ -489,6 +489,21 @@ pub(crate) fn min_ticks(e: &Event, g: u32) -> Base {
     rec(e, 0, 0, g, &Base::ZERO)
 }
 
+/// `area` recovered from the step function `⟦e⟧`: the plain Riemann sum
+/// `Σₖ e(k/2ᵍ) · 2⁻ᵍ` over the level-`g` grid — exact, not approximate,
+/// because `g` resolves `e`, so the function is constant on every level-`g`
+/// cell and each sample is its cell's true height. Shares no structure with
+/// either tree fold (no recursion, no per-node bases, no normalization
+/// sink): the geometric ground truth for
+/// [`Version::area`](crate::Version::area) and the oracle's tree fold.
+pub(crate) fn area(e: &Event, g: u32) -> crate::Area {
+    let mut total = Base::ZERO;
+    for k in 0..(1u64 << g) {
+        total += &e(Dyadic::grid(k, g));
+    }
+    crate::Area::from_raw(total, g)
+}
+
 fn order_of(le: bool, ge: bool) -> Option<Ordering> {
     match (le, ge) {
         (true, true) => Some(Ordering::Equal),

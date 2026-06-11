@@ -1,6 +1,6 @@
 use core::cmp::Ordering;
 use core::fmt;
-use core::ops::{Add, AddAssign, BitOr, MulAssign, Shl, Sub, SubAssign};
+use core::ops::{Add, AddAssign, BitOr, MulAssign, Shl, Shr, Sub, SubAssign};
 
 use num_bigint::BigUint;
 
@@ -54,6 +54,17 @@ impl Base {
         match self {
             Base::Small(n) => i < u64::BITS as u64 && (n & (1u64 << i)) != 0,
             Base::Big(n) => n.bit(i),
+        }
+    }
+
+    /// The number of trailing zero bits, or `None` for zero (which has no
+    /// lowest set bit). Used by [`Area`](crate::Area) normalization to strip
+    /// factors of two out of a dyadic numerator.
+    pub(crate) fn trailing_zeros(&self) -> Option<u64> {
+        match self {
+            Base::Small(0) => None,
+            Base::Small(n) => Some(u64::from(n.trailing_zeros())),
+            Base::Big(n) => n.trailing_zeros(),
         }
     }
 
@@ -271,6 +282,18 @@ impl Shl<i32> for Base {
     fn shl(self, rhs: i32) -> Base {
         debug_assert!(rhs >= 0, "Base left shift must be non-negative");
         self << rhs as u32
+    }
+}
+
+impl Shr<u32> for Base {
+    type Output = Base;
+
+    fn shr(self, rhs: u32) -> Base {
+        match self {
+            Base::Small(n) if rhs < u64::BITS => Base::Small(n >> rhs),
+            Base::Small(_) => Base::Small(0),
+            Base::Big(n) => Base::from_big(n >> rhs),
+        }
     }
 }
 

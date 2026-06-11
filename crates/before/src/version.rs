@@ -14,9 +14,12 @@ use crate::Party;
 use self::compare::EvReader;
 use self::working::WorkingVersion;
 
+mod area;
 mod compare;
 mod event;
 mod working;
+
+pub use area::Area;
 
 #[cfg(test)]
 mod tests;
@@ -123,6 +126,33 @@ impl Version {
     /// ```
     pub fn min_ticks(&self) -> u64 {
         self.view().min_ticks()
+    }
+
+    /// The exact [`Area`] under this version's event tree: a strictly
+    /// monotone causal rank — `v < w` implies `v.area() < w.area()`, so
+    /// equal areas are never causally ordered (same version, or
+    /// concurrent). Sorting by `(area, some-total-tiebreak)` therefore
+    /// yields a linear extension of the causal order: causes always sort
+    /// before their effects. See [`Area`] for the measure itself and the
+    /// [`area`](self::area) module docs for why strictness holds.
+    ///
+    /// Exact at any magnitude (arbitrary-precision numerator), `O(n)` in
+    /// the event tree.
+    ///
+    /// ```
+    /// use before::Clock;
+    /// let mut a = Clock::seed();
+    /// let mut b = a.fork();
+    /// a.tick();
+    /// b.tick();
+    /// let va = a.version().clone();
+    /// let joined = &va | b.version();
+    /// // Ticks grow the area; the join dominates both sides' areas.
+    /// assert!(va.area() < joined.area());
+    /// assert!(b.version().area() < joined.area());
+    /// ```
+    pub fn area(&self) -> Area {
+        self.view().area()
     }
 
     /// Begin a batch of operations on this [`Version`].
