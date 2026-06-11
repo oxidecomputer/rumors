@@ -1,9 +1,7 @@
 // Deliberately undocumented for now: the prose lives on the async API at the
 // crate root and will be adapted here once polished.
 
-use std::future::Future;
 use std::io::{Read, Write};
-use std::pin::Pin;
 use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -31,8 +29,6 @@ impl<T> std::fmt::Debug for Broadcast<T> {
     }
 }
 
-pub struct BroadcastComplete<'a, T>(Pin<Box<dyn Future<Output = crate::Known<T>> + Send + 'a>>);
-
 #[must_use = "a declined or recovered retirement hands the Known back; dropping it leaks the identity"]
 #[derive(Debug)]
 pub enum Retire<T> {
@@ -44,12 +40,45 @@ pub enum Retire<T> {
 
 pub struct Messages<T>(crate::Messages<T>);
 
+/// The outcome of one non-blocking observer step ([`Messages::try_next`]).
+#[derive(Debug)]
+pub enum TryNext<'a, T> {
+    /// The observer yielded a message, lent until the observer's next call
+    /// (exactly as [`Messages::borrow_next`] lends).
+    Message((Key, &'a Version, &'a Arc<T>)),
+    /// Nothing new to report right now; actors are still live, so more may
+    /// come. Ask again later.
+    Quiet,
+    /// Every handle is gone and the complete final state has been yielded;
+    /// no further message is possible.
+    Ended,
+}
+
 impl<T> Messages<T> {
     pub fn borrow_next(&mut self) -> Option<(Key, &Version, &Arc<T>)>
     where
         T: Send + Sync,
     {
         pollster::block_on(self.0.borrow_next())
+    }
+
+    /// Advance to the next message only if one is already available,
+    /// distinguishing a *quiet* observer (nothing new, actors live) from an
+    /// *ended* one — where [`borrow_next`](Self::borrow_next) would block
+    /// through the quiet case. The non-blocking face for callers that catch
+    /// up opportunistically between their own work, e.g.
+    /// `while let TryNext::Message(m) = messages.try_next() { … }` to drain
+    /// whatever is pending.
+    pub fn try_next(&mut self) -> TryNext<'_, T>
+    where
+        T: Send + Sync,
+    {
+        use futures::FutureExt;
+        match self.0.borrow_next().now_or_never() {
+            None => TryNext::Quiet,
+            Some(None) => TryNext::Ended,
+            Some(Some(message)) => TryNext::Message(message),
+        }
     }
 
     pub fn cursor(&self) -> &Version {
@@ -140,15 +169,8 @@ impl<T> Known<T> {
         }
     }
 
-    pub fn broadcast<'a>(self) -> (Broadcast<T>, BroadcastComplete<'a, T>)
-    where
-        T: Send + Sync + 'a,
-    {
-        let (broadcast, until_no_broadcasts) = self.0.broadcast();
-        (
-            Broadcast(broadcast),
-            BroadcastComplete(Box::pin(until_no_broadcasts)),
-        )
+    pub fn broadcast(self) -> Broadcast<T> {
+        Broadcast(self.0.broadcast())
     }
 
     pub fn snapshot(&self) -> Snapshot<T> {
@@ -203,12 +225,6 @@ impl<T> Known<T> {
     }
 }
 
-impl<T> BroadcastComplete<'_, T> {
-    pub fn wait(self) -> Known<T> {
-        Known(pollster::block_on(self.0))
-    }
-}
-
 impl<T> Clone for Broadcast<T> {
     fn clone(&self) -> Self {
         Broadcast(self.0.clone())
@@ -246,6 +262,10 @@ impl<T> Broadcast<T> {
         let mut read = AllowStdIo::new(read).compat();
         let mut write = AllowStdIo::new(write).compat_write();
         pollster::block_on(self.0.gossip(&mut read, &mut write))
+    }
+
+    pub fn reunite(self) -> Option<Known<T>> {
+        pollster::block_on(self.0.reunite()).map(Known)
     }
 
     pub fn messages(&self) -> Messages<T>

@@ -97,7 +97,7 @@ pub enum Action<T> {
     Forget(Key),
 }
 
-/// The iterator of [`Tree::iter`] and [`Snapshot::iter`](crate::Snapshot):
+/// The iterator of [`Snapshot::iter`](crate::Snapshot::iter):
 /// a lazy depth-first walk over every live message as
 /// `(Key, &Version, &Arc<T>)`, in unspecified order. An
 /// [`ExactSizeIterator`] (the live-message count is known up front) and a

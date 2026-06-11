@@ -8,6 +8,10 @@ edition = "2024"
 
 [features]
 proptest = ["dep:proptest"]
+# Test-only introspection surfaces (party aliasing for invariant accounting).
+# Enabled for this crate's own tests via the self-referential dev-dependency
+# below; never enable it in an application.
+test-internals = []
 
 [dependencies]
 proptest = { version = "1", optional = true }
@@ -30,10 +34,19 @@ pollster = "0.4"
 rand = "0.8"
 
 [dev-dependencies]
+rumors = { path = ".", features = ["test-internals"] }
+before = { path = "crates/before", features = ["borsh"] }
 proptest = "1"
 criterion = { version = "0.5", features = ["html_reports"] }
 insta = "1.47"
-tokio = { version = "1", features = ["rt", "macros", "io-util", "net"] }
+tokio = { version = "1", features = [
+    "rt",
+    "rt-multi-thread",
+    "macros",
+    "io-util",
+    "net",
+    "time",
+] }
 clap = { version = "4", features = ["derive"] }
 csv = "1"
 indicatif = { version = "0.17", features = ["rayon"] }

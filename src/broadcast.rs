@@ -4,6 +4,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use futures::Stream;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context, Poll};
 use tokio::{
     io::{AsyncRead, AsyncWrite},
@@ -12,14 +13,37 @@ use tokio::{
 
 /// A broadcast handle for a set of rumors.
 pub struct Broadcast<T> {
-    pub(crate) known: Known<T>,
-    /// Liveness token for the future returned by [`Known::broadcast`]: every
-    /// clone of this `Broadcast` holds a clone of this receiver, and that
-    /// future awaits the paired sender's
-    /// [`closed`](tokio::sync::watch::Sender::closed), which resolves exactly
-    /// when the last receiver (the last `Broadcast`) drops. Nothing is ever
-    /// sent on this channel.
-    pub(crate) alive: watch::Receiver<()>,
+    known: Known<T>,
+    /// This handle's claim to existence; see [`Extant`].
+    extant: Extant,
+}
+
+/// One handle's share of a broadcast generation's existence. The `token`
+/// [`Arc`]'s strong count *is* the number of extant handles (a pending
+/// [`reunite`](Broadcast::reunite) has already shed its share), so the count
+/// reaching zero is the moment the generation has quiesced and the [`Known`]
+/// may be reclaimed.
+#[derive(Clone)]
+struct Extant {
+    /// The extancy token. An `Option` only so [`Drop`] can shed it *before*
+    /// waking waiters on `drops`: a reuniter woken by that send must already
+    /// observe the decremented strong count. Always `Some` outside `Drop`.
+    token: Option<Arc<()>>,
+    /// The exactly-once claim on the reclaimed [`Known`]: among reuniters
+    /// that observe quiescence concurrently, the one that wins this flag is
+    /// handed the `Known`; the rest resolve `None`.
+    claimed: Arc<AtomicBool>,
+    /// Wakes pending reuniters after each handle's token drops. Nothing
+    /// meaningful is ever sent; only the version bump matters.
+    drops: watch::Sender<()>,
+}
+
+impl Drop for Extant {
+    fn drop(&mut self) {
+        // Shed the token first, then wake: see the field docs above.
+        self.token = None;
+        self.drops.send_replace(());
+    }
 }
 
 impl<T> Clone for Broadcast<T> {
@@ -29,7 +53,7 @@ impl<T> Clone for Broadcast<T> {
                 network: self.known.network,
                 inner: self.known.inner.clone(),
             },
-            alive: self.alive.clone(),
+            extant: self.extant.clone(),
         }
     }
 }
@@ -48,6 +72,63 @@ impl<T> std::fmt::Debug for Broadcast<T> {
 }
 
 impl<T> Broadcast<T> {
+    /// Assemble the first handle of a fresh broadcast generation around
+    /// `known`, the only constructor: every other handle is a [`Clone`] of
+    /// this one, so the token count faithfully counts handles.
+    pub(crate) fn new(known: Known<T>) -> Self {
+        Self {
+            known,
+            extant: Extant {
+                token: Some(Arc::new(())),
+                claimed: Arc::new(AtomicBool::new(false)),
+                drops: watch::Sender::new(()),
+            },
+        }
+    }
+
+    /// Give up this handle and reclaim the [`Known`] once the set quiesces:
+    /// resolves when no [`Broadcast`] for this set remains, handing the
+    /// `Known` to exactly one caller.
+    ///
+    /// The semantics follow [`Arc::into_inner`]: calling `reunite` sheds
+    /// this handle's share immediately (a pending reunite no longer counts
+    /// as extant, and there is no way back to the `Broadcast`); when the
+    /// last remaining handle drops or reunites, every pending `reunite`
+    /// resolves at once — one receives `Some`, the rest `None`. Concurrent
+    /// reuniters therefore never deadlock, and "last one out" works: N
+    /// tasks can each call `reunite` as they finish, and exactly one is
+    /// handed the `Known` to retire.
+    ///
+    /// Cancelling a pending `reunite` abandons its claim: the handle was
+    /// already consumed, so dropping the future is no different from having
+    /// dropped the `Broadcast`. If every handle goes away with no reunite
+    /// pending, the `Known` is gone for good and the set closes: observers
+    /// drain the final state and end.
+    pub async fn reunite(self) -> Option<Known<T>> {
+        let Self { known, extant } = self;
+        let token = Arc::downgrade(extant.token.as_ref().expect("Some outside Drop"));
+        let claimed = Arc::clone(&extant.claimed);
+        // Subscribe before shedding our token, so no later drop's wake can
+        // be missed; our own shed below wakes us once, harmlessly.
+        let mut drops = extant.drops.subscribe();
+        drop(extant);
+        loop {
+            // Monotone once zero: minting a token takes a live `Broadcast`
+            // to clone, and every reuniter has already shed its own.
+            if token.strong_count() == 0 {
+                // Exactly one reuniter wins the claim; the Known/Broadcast
+                // XOR is restored the instant this swap succeeds.
+                return claimed
+                    .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                    .is_ok()
+                    .then_some(known);
+            }
+            // `Err` here means every sender — every `Extant` — is gone, so
+            // the count re-check above terminates the loop.
+            let _ = drops.changed().await;
+        }
+    }
+
     /// Send a message to all listeners.
     ///
     /// Returns a [`Batch`] that commits when dropped: a bare
@@ -173,6 +254,14 @@ impl<T> Broadcast<T> {
     pub fn warm_caches(&self) {
         self.known.warm_caches();
     }
+
+    /// Alias this set's live party for invariant assertions in tests; see
+    /// [`Known::dangerously_alias_party`] for the contract.
+    #[cfg(any(test, feature = "test-internals"))]
+    #[doc(hidden)]
+    pub fn dangerously_alias_party(&self) -> Option<before::Party> {
+        self.known.dangerously_alias_party()
+    }
 }
 
 /// An observer of one rumor set: every message not causally contained in
@@ -209,8 +298,8 @@ impl<T> Broadcast<T> {
 /// [`cursor`](Self::cursor) and start a new observer from it.
 ///
 /// An observer is not an actor: it holds no send handle, does not keep the
-/// rumor set open, and does not block the future from [`Known::broadcast`]
-/// that reunites the [`Known`].
+/// rumor set open, and does not count against the quiescence that lets
+/// [`reunite`](Broadcast::reunite) reclaim the [`Known`].
 pub struct Messages<T> {
     /// The watch channel, or the in-flight wait for it to change. The wait
     /// future owns the receiver and hands it back: the `Stream` face cannot

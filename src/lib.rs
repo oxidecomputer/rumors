@@ -118,7 +118,7 @@ pub use tree::Key;
 pub use version::Version;
 
 /// Named, composable constructors for causal [`Version`] ranges
-/// (re-exported from [`before`](::before)): the vocabulary for
+/// (re-exported from [`before`]): the vocabulary for
 /// [`Snapshot::range`] and [`Known::messages_from`] — e.g.
 /// `causally::since(&cursor)` or `causally::not_before(&s).known_at(&e)`.
 pub use before::causally;
@@ -475,37 +475,17 @@ impl<T> Known<T> {
         (outcome, Ok(()))
     }
 
-    /// Get a [`Clone`]-able broadcast handle which can be used concurrently.
+    /// Trade this [`Known`] for a [`Clone`]-able [`Broadcast`] handle which
+    /// can be used concurrently.
     ///
-    /// While any [`Broadcast`] handle exists for this [`Known`], it is illegal
-    /// to access the underlying [`Known`], because retirement cannot happen
-    /// concurrent to gossip sessions. As a consequence, this function returns a
-    /// future which yields `self` precisely when there remain no extant
-    /// [`Broadcast`]s.
-    pub fn broadcast(self) -> (Broadcast<T>, impl Future<Output = Self> + Send)
-    where
-        T: Send + Sync,
-    {
-        // The Known/Broadcast XOR: every `Broadcast` clone holds a receiver on
-        // this channel (on which nothing is ever sent), and the only sender is
-        // captured by the future below, which hands `self` back exactly when
-        // `closed()` resolves: when the last receiver, and thus the last
-        // `Broadcast`, has dropped. Until then `self` sits inert inside the
-        // pending future, so a usable `Known` and a `Broadcast` for the same
-        // set never coexist.
-        let (extant, alive) = watch::channel(());
-        let broadcast = Broadcast {
-            known: Self {
-                network: self.network,
-                inner: self.inner.clone(),
-            },
-            alive,
-        };
-        let until_no_broadcasts = async move {
-            extant.closed().await;
-            self
-        };
-        (broadcast, until_no_broadcasts)
+    /// While any [`Broadcast`] handle exists for this set, the underlying
+    /// [`Known`] is inaccessible, because retirement cannot happen concurrent
+    /// to gossip sessions: a usable `Known` and a `Broadcast` for the same
+    /// set never coexist. The way back is [`Broadcast::reunite`], which
+    /// resolves once every handle is gone and hands the `Known` to exactly
+    /// one caller; if every handle is instead dropped, the set closes.
+    pub fn broadcast(self) -> Broadcast<T> {
+        Broadcast::new(self)
     }
 
     /// Take a consistent snapshot of the current state.
@@ -588,6 +568,22 @@ impl<T> Known<T> {
     #[doc(hidden)]
     pub fn warm_caches(&self) {
         self.inner.borrow().tree.warm_caches();
+    }
+
+    /// Alias this set's live party for invariant assertions in tests:
+    /// compare it, [`join`](Party::join) it into an accounting fold, or test
+    /// [`is_disjoint`](Party::is_disjoint) — never use it as an identity.
+    /// The alias shares the live party's id-region without forking it, so
+    /// treating it as a participant violates the linearity everything else
+    /// rests on. `None` only while a retirement has the party in flight.
+    #[cfg(any(test, feature = "test-internals"))]
+    #[doc(hidden)]
+    pub fn dangerously_alias_party(&self) -> Option<Party> {
+        self.inner
+            .borrow()
+            .party
+            .as_ref()
+            .map(Party::dangerously_alias)
     }
 }
 

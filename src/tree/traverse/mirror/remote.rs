@@ -10,11 +10,11 @@
 //!
 //! # Handshake
 //!
-//! Every gossip session begins with an 8-byte raw preamble, exchanged
+//! Every gossip session begins with a 25-byte raw preamble, exchanged
 //! concurrently by both sides before any framed traffic:
 //!
 //! ```text
-//! [ magic = b"RUMORS": 6B | version: 2B (big-endian) ]
+//! [ magic = b"RUMORS": 6B | version: 2B (big-endian) | network: 16B | intent: 1B ]
 //! ```
 //!
 //! - **Magic** is [`crate::PROTOCOL_MAGIC`] (`b"RUMORS"`). A peer that opens
@@ -24,17 +24,25 @@
 //! - **Version** is [`crate::PROTOCOL_VERSION`], a monotonic `u16`. A peer
 //!   whose version differs is rejected as [`Error::VersionMismatch`].
 //!
-//! The 128-bit [`Network`] identifier rides the framed
-//! [`message::Handshake`] greeting that follows, where it doubles as the
-//! bootstrap signal: a real (non-`ZERO`) value means an ordinary peer, while
-//! the all-zero placeholder means that side is
-//! [bootstrapping](crate::Known::bootstrap) and holds no universe yet. When
-//! both sides carry a real network and the two differ, the session is
-//! rejected as [`Error::NetworkMismatch`]: the peers descend from different
-//! [`seed`](crate::Known::seed)s and must not combine, even if their parties
-//! happen to look disjoint. A bootstrapping side's placeholder suppresses
-//! that check, and the provider's network becomes the value the bootstrapper
-//! adopts.
+//! - **Network** is the 128-bit universe identifier, doubling as the
+//!   bootstrap signal: a real (non-`ZERO`) value means an ordinary peer,
+//!   while the all-zero placeholder means that side is
+//!   [bootstrapping](crate::Known::bootstrap) and holds no universe yet.
+//!   When both sides carry a real network and the two differ, the session
+//!   is rejected as [`Error::NetworkMismatch`]: the peers descend from
+//!   different [`seed`](crate::Known::seed)s and must not combine, even if
+//!   their parties happen to look disjoint. A bootstrapping side's
+//!   placeholder suppresses that check, and the provider's network becomes
+//!   the value the bootstrapper adopts.
+//!
+//! - **Intent** declares whether the peer participates to remain (`0`) or
+//!   to [retire](crate::Known::retire) its party into us (`1`). Any other
+//!   byte is rejected as [`Error::IntentInvalid`], and a peer claiming to
+//!   bootstrap *and* retire in one session is rejected as
+//!   [`Error::BootstrapRetireConflict`].
+//!
+//! The framed [`message::Handshake`] greeting that follows carries the
+//! causal [`Version`](crate::Version) alone.
 //!
 //! Both sides drive the preamble's write and read concurrently via
 //! [`futures_util::future::try_join`]; a peer that reads before writing would
@@ -142,12 +150,12 @@ pub enum Error {
     #[error("peer sent an invalid intent byte ({byte:#04x})")]
     IntentInvalid { byte: u8 },
 
-    /// The peer declared the bootstrap placeholder [`Network`] together with
-    /// a retiring intent. Retiring donates a party and bootstrapping receives
+    /// The peer declared the bootstrap placeholder [`Network`] together with a
+    /// retiring intent. Retiring donates a party and bootstrapping receives
     /// one, so no honest peer combines them; rejecting the combination in the
-    /// [`preamble`] keeps a buggy or malicious peer from maneuvering us into
-    /// both forking it a party and absorbing its donation, which would orphan
-    /// the fork's id-region.
+    /// preamble exchange keeps a buggy or malicious peer from maneuvering us
+    /// into both forking it a party and absorbing its donation, which would
+    /// orphan the fork's id-region.
     #[error("peer claimed to bootstrap and retire in the same session")]
     BootstrapRetireConflict,
 }

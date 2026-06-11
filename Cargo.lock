@@ -3993,6 +3993,7 @@ dependencies = [
  "rand 0.8.6",
  "ratatui",
  "rayon",
+ "rumors",
  "seq-macro",
  "static_assertions",
  "thiserror 2.0.18",

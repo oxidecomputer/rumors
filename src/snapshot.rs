@@ -19,23 +19,29 @@ impl<T> Snapshot<T> {
         Self { network, tree }
     }
 
-    /// The latest version of any message ever tracked by this [`Known`].
+    /// The identifier shared by every peer that descends from the same
+    /// [`seed`](crate::Known::seed) as the snapshotted set.
+    pub fn network(&self) -> Network {
+        self.network
+    }
+
+    /// The latest version of any message ever tracked by this [`Known`](crate::Known).
     pub fn latest(&self) -> &Version {
         self.tree.latest()
     }
 
-    /// The earliest version of any message currently present in this [`Known`], or
+    /// The earliest version of any message currently present in this [`Known`](crate::Known), or
     /// `None` if it has never seen a message.
     pub fn earliest(&self) -> Option<&Version> {
         self.tree.earliest()
     }
 
-    /// Determine if there are any current messages in this [`Known`].
+    /// Determine if there are any current messages in this [`Known`](crate::Known).
     pub fn is_empty(&self) -> bool {
         self.tree.is_empty()
     }
 
-    /// The number of live messages in this [`Known`].
+    /// The number of live messages in this [`Known`](crate::Known).
     pub fn len(&self) -> usize {
         self.tree.len()
     }
@@ -58,7 +64,7 @@ impl<T> Snapshot<T> {
         self.tree.get(key)
     }
 
-    /// Iterate every message currently [`Known`] as `(Key, &Version, &Arc<T>)`.
+    /// Iterate every message currently [`Known`](crate::Known) as `(Key, &Version, &Arc<T>)`.
     ///
     /// Order is unspecified, and in particular does *not* follow the causal
     /// order: a message may be yielded before another that causally precedes
