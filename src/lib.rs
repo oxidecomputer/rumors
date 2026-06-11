@@ -33,7 +33,7 @@ mod tests;
 use tree::{Tree, mirror};
 
 pub use batch::Batch;
-pub use broadcast::{Broadcast, Messages};
+pub use broadcast::{Broadcast, CausalMessages, Messages};
 pub use network::Network;
 pub use snapshot::Snapshot;
 
@@ -510,6 +510,29 @@ impl<T> Known<T> {
         T: Send + Sync,
     {
         Messages::subscribe(&self.inner, since)
+    }
+
+    /// Observe every message in this rumor set in *causal order*, from
+    /// genesis onward. See [`CausalMessages`] for the contract; equivalent
+    /// to [`causal_messages_from`](Self::causal_messages_from) at
+    /// [`Version::new`].
+    pub fn causal_messages(&self) -> CausalMessages<T>
+    where
+        T: Send + Sync,
+    {
+        self.causal_messages_from(Version::new())
+    }
+
+    /// Observe every message not already causally contained in `since`, in
+    /// *causal order*: each message is delivered after every delivered
+    /// message it causally depends on, at the cost of an idle state that
+    /// holds the undelivered backlog rather than [`Messages`]' constant
+    /// spine. See [`CausalMessages`] for the contract.
+    pub fn causal_messages_from(&self, since: Version) -> CausalMessages<T>
+    where
+        T: Send + Sync,
+    {
+        CausalMessages::subscribe(&self.inner, since)
     }
 
     /// The identifier shared by every peer that descends from the same

@@ -1,3 +1,7 @@
+mod causal;
+
+pub use causal::CausalMessages;
+
 use crate::tree::{Frozen, Leaf};
 use crate::{Batch, Error, Key, Known, Network, Snapshot, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -245,6 +249,26 @@ impl<T> Broadcast<T> {
         T: Send + Sync,
     {
         self.known.messages_from(since)
+    }
+
+    /// Observe every message in this rumor set in *causal order*, from
+    /// genesis onward. See [`CausalMessages`] for the contract; equivalent
+    /// to [`causal_messages_from`](Self::causal_messages_from) at
+    /// [`Version::new`].
+    pub fn causal_messages(&self) -> CausalMessages<T>
+    where
+        T: Send + Sync,
+    {
+        self.known.causal_messages()
+    }
+
+    /// Observe every message not already causally contained in `since`, in
+    /// *causal order*. See [`CausalMessages`] for the contract.
+    pub fn causal_messages_from(&self, since: Version) -> CausalMessages<T>
+    where
+        T: Send + Sync,
+    {
+        self.known.causal_messages_from(since)
     }
 
     /// Force this set's tree to compute its lazy structural memos (observable

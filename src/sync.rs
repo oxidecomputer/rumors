@@ -94,6 +94,29 @@ impl<T: Send + Sync + 'static> Iterator for Messages<T> {
     }
 }
 
+pub struct CausalMessages<T>(crate::CausalMessages<T>);
+
+impl<T> CausalMessages<T> {
+    pub fn borrow_next(&mut self) -> Option<(Key, &Version, &Arc<T>)>
+    where
+        T: Send + Sync,
+    {
+        pollster::block_on(self.0.borrow_next())
+    }
+
+    pub fn cursor(&self) -> &Version {
+        self.0.cursor()
+    }
+}
+
+impl<T: Send + Sync + 'static> Iterator for CausalMessages<T> {
+    type Item = (Key, Version, Arc<T>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        pollster::block_on(futures::StreamExt::next(&mut self.0))
+    }
+}
+
 impl<T> Known<T> {
     pub fn seed() -> Self {
         Known(crate::Known::seed())
@@ -219,6 +242,20 @@ impl<T> Known<T> {
         Messages(self.0.messages_from(since))
     }
 
+    pub fn causal_messages(&self) -> CausalMessages<T>
+    where
+        T: Send + Sync,
+    {
+        self.causal_messages_from(Version::new())
+    }
+
+    pub fn causal_messages_from(&self, since: Version) -> CausalMessages<T>
+    where
+        T: Send + Sync,
+    {
+        CausalMessages(self.0.causal_messages_from(since))
+    }
+
     #[doc(hidden)]
     pub fn warm_caches(&self) {
         self.0.warm_caches();
@@ -280,6 +317,20 @@ impl<T> Broadcast<T> {
         T: Send + Sync,
     {
         Messages(self.0.messages_from(since))
+    }
+
+    pub fn causal_messages(&self) -> CausalMessages<T>
+    where
+        T: Send + Sync,
+    {
+        self.causal_messages_from(Version::new())
+    }
+
+    pub fn causal_messages_from(&self, since: Version) -> CausalMessages<T>
+    where
+        T: Send + Sync,
+    {
+        CausalMessages(self.0.causal_messages_from(since))
     }
 
     pub fn network(&self) -> Network {
