@@ -1,6 +1,5 @@
 //! Borsh round-trip property tests for the five mirror message types, plus the
-//! canonical-order rejection each channel enforces on deserialize and the
-//! retained `providing` reassemble⇄flatten round-trip.
+//! canonical-order rejection each channel enforces on deserialize.
 //!
 //! Every channel is a length-prefixed `Vec` that must arrive in strictly
 //! ascending, duplicate-free order; the tests feed each one pre-sorted (via
@@ -8,10 +7,7 @@
 //! satisfy that check, and separately pin that a non-canonical frame is
 //! rejected. `providing` carries whole `(prefix, node)` pairs, so its tests
 //! build nodes via [`arb_root_node`] / [`arb_s_z_node`] / [`arb_leaf`]. The
-//! leaf-only [`reassemble_providing`]/[`flatten_providing`] path is retained for
-//! a future leaf-only storage adapter (see [`super::reassemble`]) and is
-//! exercised here against arbitrary leaf sets. The exact on-wire bytes are
-//! pinned by `mirror::wire_snapshot`.
+//! exact on-wire bytes are pinned by `mirror::wire_snapshot`.
 
 use std::collections::{BTreeMap, BTreeSet};
 

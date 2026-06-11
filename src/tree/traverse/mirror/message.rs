@@ -16,7 +16,7 @@
 //!   is a length-prefixed `Vec`; on deserialize the decoder rejects any
 //!   frame whose entries are not strictly ascending in canonical order
 //!   (which also rejects duplicates), so each value has exactly one
-//!   encoding (see [`super::reassemble`]).
+//!   encoding.
 //!
 //! ## Typed [`Node<T, H>`](crate::tree::typed::Node)
 //!
@@ -55,8 +55,7 @@
 //!   bytes, branch radices, child counts); the receiver inserts it directly at
 //!   the named prefix. This trades the bandwidth of the elided-leaf encoding for
 //!   placement without a per-leaf re-hash. Rejected unless strictly ascending by
-//!   prefix. (The inverse leaf-only encoding lives in [`super::reassemble`],
-//!   retained for adapting leaf-only persistent storage to this channel.)
+//!   prefix.
 //! - **`requested`**: `Vec<Prefix<_>>` — prefixes the peer should send next
 //!   round. Rejected unless strictly ascending.
 //! - **`uncertain`**: `Vec<(Prefix<_>, Hash)>` — frontier subtree hashes for the
