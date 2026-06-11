@@ -70,6 +70,44 @@ impl<T> std::fmt::Debug for Known<T> {
     }
 }
 
+/// The outcome of [`Known::retire`]: whether the identity was handed off,
+/// and what came back if not.
+///
+/// Marked `must_use` because two variants carry the intact [`Known`] —
+/// silently dropping the result of a declined or recovered retirement
+/// destroys the identity that the call was specifically trying to preserve,
+/// leaking its id-region from the universe.
+#[must_use = "a declined or recovered retirement hands the Known back; dropping it leaks the identity"]
+#[derive(Debug)]
+pub enum Retire<T> {
+    /// **Retired.** The peer reconciled with us and absorbed our party; the
+    /// rumor set has left the universe and its id-region is recycled.
+    Retired,
+    /// **Declined, unchanged.** The peer cannot absorb a party — it was
+    /// itself retiring — so nothing touched the wire and the rumor set is
+    /// handed back intact, to retry elsewhere.
+    Declined {
+        /// The intact retiree.
+        known: Known<T>,
+    },
+    /// **Recovered, unchanged.** The session failed *before* our party ever
+    /// crossed the wire; the rumor set is handed back intact, to retry
+    /// elsewhere. Nothing was lost.
+    Recovered {
+        /// The intact retiree.
+        known: Known<T>,
+        /// What failed the session.
+        error: Error,
+    },
+    /// **Uncertain.** The session failed while the party itself was in
+    /// flight: the peer may or may not hold it, so the retiree is consumed
+    /// rather than risk the same identity living twice.
+    Uncertain {
+        /// What failed the session.
+        error: Error,
+    },
+}
+
 /// The error type returned by [`Known::gossip`].
 pub use mirror::remote::Error;
 
@@ -171,24 +209,25 @@ impl<T> Known<T> {
 
     /// Retire this rumor set into a remote peer, handing it our identity so
     /// that it can be recycled by the network.
-    pub async fn retire<'a, R, W>(
-        mut self,
-        read: &'a mut R,
-        write: &'a mut W,
-    ) -> (Option<Self>, Result<(), Error>)
+    ///
+    /// The session begins with a round of gossip: the two peers reconcile
+    /// content exactly as [`gossip`](Self::gossip) would, so everything we
+    /// hold that the peer had not yet seen survives in it; the peer then
+    /// absorbs our party. A peer running ordinary gossip absorbs a retiree
+    /// transparently, so the counterparty needs no special call. The four
+    /// outcomes are the [`Retire`] variants; see each for what survived.
+    pub async fn retire<'a, R, W>(mut self, read: &'a mut R, write: &'a mut W) -> Retire<T>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
         R: AsyncRead + Unpin + Send,
         W: AsyncWrite + Unpin + Send,
     {
-        let (outcome, result) = self.gossip_inner(Intent::Retire, read, write).await;
-        (
-            match outcome {
-                Intent::Remain => Some(self),
-                Intent::Retire => None,
-            },
-            result,
-        )
+        match self.gossip_inner(Intent::Retire, read, write).await {
+            (Intent::Retire, Ok(())) => Retire::Retired,
+            (Intent::Retire, Err(error)) => Retire::Uncertain { error },
+            (Intent::Remain, Ok(())) => Retire::Declined { known: self },
+            (Intent::Remain, Err(error)) => Retire::Recovered { known: self, error },
+        }
     }
 
     /// Send a message to all listeners.

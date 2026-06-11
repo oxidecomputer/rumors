@@ -34,6 +34,15 @@ impl<T> std::fmt::Debug for Broadcast<T> {
 
 pub struct BroadcastComplete<'a, T>(Pin<Box<dyn Future<Output = crate::Known<T>> + Send + 'a>>);
 
+#[must_use = "a declined or recovered retirement hands the Known back; dropping it leaks the identity"]
+#[derive(Debug)]
+pub enum Retire<T> {
+    Retired,
+    Declined { known: Known<T> },
+    Recovered { known: Known<T>, error: Error },
+    Uncertain { error: Error },
+}
+
 fn into_async<T, R, F>(mut on_message: F) -> impl FnMut(Key, &Version, &Arc<T>) -> Ready<R>
 where
     F: FnMut(Key, &Version, &Arc<T>) -> R,
@@ -95,7 +104,7 @@ impl<T> Known<T> {
         pollster::block_on(self.0.gossip(&mut read, &mut write))
     }
 
-    pub fn retire<R, W>(self, read: &mut R, write: &mut W) -> (Option<Self>, Result<(), Error>)
+    pub fn retire<R, W>(self, read: &mut R, write: &mut W) -> Retire<T>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync,
         R: Read + Send,
@@ -103,8 +112,17 @@ impl<T> Known<T> {
     {
         let mut read = AllowStdIo::new(read).compat();
         let mut write = AllowStdIo::new(write).compat_write();
-        let (known, result) = pollster::block_on(self.0.retire(&mut read, &mut write));
-        (known.map(Known), result)
+        match pollster::block_on(self.0.retire(&mut read, &mut write)) {
+            crate::Retire::Retired => Retire::Retired,
+            crate::Retire::Declined { known } => Retire::Declined {
+                known: Known(known),
+            },
+            crate::Retire::Recovered { known, error } => Retire::Recovered {
+                known: Known(known),
+                error,
+            },
+            crate::Retire::Uncertain { error } => Retire::Uncertain { error },
+        }
     }
 
     pub fn broadcast<'a>(self) -> (Broadcast<T>, BroadcastComplete<'a, T>)
