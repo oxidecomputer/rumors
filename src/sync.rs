@@ -43,6 +43,19 @@ pub enum Retire<T> {
     Uncertain { error: Error },
 }
 
+type BoxedMessages<'a, T> =
+    Pin<Box<dyn futures::Stream<Item = (Key, Version, Arc<T>)> + Send + 'a>>;
+
+pub struct Messages<'a, T>(BoxedMessages<'a, T>);
+
+impl<T> Iterator for Messages<'_, T> {
+    type Item = (Key, Version, Arc<T>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        pollster::block_on(futures::StreamExt::next(&mut self.0))
+    }
+}
+
 fn into_async<T, R, F>(mut on_message: F) -> impl FnMut(Key, &Version, &Arc<T>) -> Ready<R>
 where
     F: FnMut(Key, &Version, &Arc<T>) -> R,
@@ -226,6 +239,20 @@ impl<T> Broadcast<T> {
         F: FnMut(Key, &Version, &Arc<T>) -> ControlFlow<B> + Send,
     {
         pollster::block_on(self.0.listen(into_async(on_message)))
+    }
+
+    pub fn stream<'a>(self) -> Messages<'a, T>
+    where
+        T: Send + Sync + 'a,
+    {
+        Messages(Box::pin(self.0.stream()))
+    }
+
+    pub fn stream_from<'a>(self, since: Version) -> Messages<'a, T>
+    where
+        T: Send + Sync + 'a,
+    {
+        Messages(Box::pin(self.0.stream_from(since)))
     }
 
     pub fn listen_from<B, F>(self, since: Version, on_message: F) -> (Version, Option<B>)

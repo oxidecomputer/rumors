@@ -1,5 +1,7 @@
 use crate::{Batch, Error, Key, Known, Network, Snapshot, Version, causally};
 use borsh::{BorshDeserialize, BorshSerialize};
+use futures::Stream;
+use std::collections::VecDeque;
 use std::ops::ControlFlow;
 use std::sync::Arc;
 use tokio::{
@@ -270,6 +272,70 @@ impl<T> Broadcast<T> {
                 }
             }
         }
+    }
+
+    /// Observe this rumor set as a [`Stream`] of owned `(Key, Version,
+    /// Arc<T>)` items, from genesis onward.
+    ///
+    /// Equivalent to [`stream_from`](Self::stream_from) at [`Version::new`];
+    /// see it for the delivery contract.
+    pub fn stream(self) -> impl Stream<Item = (Key, Version, Arc<T>)> + Send
+    where
+        T: Send + Sync,
+    {
+        self.stream_from(Version::new())
+    }
+
+    /// Observe every message not already causally contained in `since`, as a
+    /// [`Stream`] of owned `(Key, Version, Arc<T>)` items: the
+    /// [`Stream`]-shaped sibling of [`listen_from`](Self::listen_from), for
+    /// consumers who would rather `select!` and combinate than write
+    /// callbacks.
+    ///
+    /// Same delivery contract as [`listen_from`](Self::listen_from): every
+    /// message live at some pass is yielded exactly once, already-redacted
+    /// content is never yielded, order is unspecified (not causal), and the
+    /// stream ends once the [`Known`] and every [`Broadcast`] have dropped,
+    /// after yielding the complete final state. One difference inherent to
+    /// the shape: dropping the stream yields no resume cursor — for
+    /// resumable consumption use [`listen_from`](Self::listen_from) and
+    /// break with [`ControlFlow::Break`] (folding the yielded versions is
+    /// *not* a sound resume point; see there).
+    pub fn stream_from(self, since: Version) -> impl Stream<Item = (Key, Version, Arc<T>)> + Send
+    where
+        T: Send + Sync,
+    {
+        // Subscribe-then-dissolve, exactly as `listen_from` does and for the
+        // same reasons.
+        let rx = self.known.inner.subscribe();
+        drop(self);
+        futures::stream::unfold(
+            (rx, since, VecDeque::new()),
+            |(mut rx, mut cursor, mut pending)| async move {
+                loop {
+                    if let Some(item) = pending.pop_front() {
+                        return Some((item, (rx, cursor, pending)));
+                    }
+                    // Refill: materialize the pass's delta as owned items
+                    // (the snapshot clone then drops immediately, so slow
+                    // consumers pin only the delta, not the tree), and
+                    // absorb the ceiling as a completed pass.
+                    let snapshot = rx.borrow_and_update().tree.clone();
+                    let ceiling = snapshot.latest().clone();
+                    pending.extend(
+                        snapshot
+                            .range(causally::since(&cursor))
+                            .map(|(key, version, message)| (key, version.clone(), message.clone())),
+                    );
+                    cursor |= &ceiling;
+                    // An empty refill means we are caught up: await the next
+                    // change, ending the stream when every sender is gone.
+                    if pending.is_empty() && rx.changed().await.is_err() {
+                        return None;
+                    }
+                }
+            },
+        )
     }
 
     /// Force this set's tree to compute its lazy structural memos (observable
