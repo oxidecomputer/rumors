@@ -37,9 +37,10 @@
 //!    be invisible to either side, so we cap.) Parties are anonymous Interval
 //!    Tree Clock (ITC) regions forked from a single seed — there are no party
 //!    *identifiers* on the wire (see [the version note](#version-sizing)).
-//! 2. Both alice and bob `join` every ancestor party — each side's [`Version`]
-//!    (an ITC event tree) now records one populated region per contributing
-//!    background party.
+//! 2. Both alice and bob gossip with every ancestor party (over pipes, the
+//!    wire being the only merge) — each side's [`Version`] (an ITC event
+//!    tree) now records one populated region per contributing background
+//!    party.
 //! 3. Partition the ancestor keys disjointly into `[shared | redact-by-A |
 //!    redact-by-B]`. Alice redacts her slice; bob redacts his. Redactions
 //!    therefore reference *existing* keys and never overlap, so the measurement
@@ -132,13 +133,13 @@
 //! The fixed framing is exact and tiny:
 //!
 //! * **Connect frame**: each side ships one greeting as a 4-byte
-//!   length-delimited frame whose borsh body is the 16-byte network id, the
-//!   [`Version`] (a `u32` length prefix + the bit-packed ITC event tree), and
-//!   a 1-byte intent tag. With the 8-byte protocol preamble that is exactly
-//!   `33 + |version|` bytes (itemized at `CONNECT_FIXED`), where `|version|`
-//!   is the serialized event tree (often just **1–30 bytes**; see below). On a
-//!   connect-bail this is the *entire* cost: e.g. an empty version is
-//!   `33 + 1 = 34` bytes per side.
+//!   length-delimited frame whose borsh body is the [`Version`] (a `u32`
+//!   length prefix + the bit-packed ITC event tree). With the 25-byte raw
+//!   protocol preamble (magic, protocol version, network id, intent tag)
+//!   that is exactly `33 + |version|` bytes (itemized at `CONNECT_FIXED`),
+//!   where `|version|` is the serialized event tree (often just **1–30
+//!   bytes**; see below). On a connect-bail this is the *entire* cost: e.g.
+//!   an empty version is `33 + 1 = 34` bytes per side.
 //!
 //! Past the connect, cost splits by role, because the initiator provides its
 //! leaves *shallow* (early in the descent, before the frontier narrows) while
@@ -446,29 +447,46 @@ fn axis(max_exp: u32) -> Vec<u32> {
 
 /// Mint a genuine party-disjoint peer that inherits `parent`'s content.
 ///
-/// `Known::fork` is gone, so a peer with its own disjoint Interval Tree Clock
-/// region — required of any party that will independently `message`/`redact`,
-/// and of each anonymous background party here — is minted by serving a
-/// bootstrap from a [`rumors`](Known::rumors) snapshot of `parent`. The newcomer
-/// pulls `parent`'s whole tree through the ordinary mirror descent and is handed
-/// a fresh disjoint party, exactly as a local fork used to be. Serving from an
+/// A peer with its own disjoint Interval Tree Clock region — required of any
+/// party that will independently `send`/`redact`, and of each anonymous
+/// background party here — is minted by serving a bootstrap from `parent`
+/// over a pair of pipes. The newcomer pulls `parent`'s whole tree through the
+/// ordinary mirror descent and is handed a fresh disjoint party, forked in
+/// the same critical section that snapshots the served tree. Serving from an
 /// empty `parent` yields a disjoint empty peer in the same universe.
-fn bootstrap_fork<T>(parent: &Known<T>) -> Known<T>
+fn bootstrap_fork<T>(parent: &mut Known<T>) -> Known<T>
 where
     T: borsh::BorshSerialize + borsh::BorshDeserialize + Clone + Send + Sync + 'static,
 {
     let (mut p2n_r, mut p2n_w) = pipe().expect("pipe parent->newcomer");
     let (mut n2p_r, mut n2p_w) = pipe().expect("pipe newcomer->parent");
-    let newcomer = thread::spawn(move || {
-        Known::<T>::bootstrap(&mut p2n_r, &mut n2p_w)
-            .expect("bootstrap newcomer")
-            .expect("provider served bootstrap")
+    thread::scope(|s| {
+        let newcomer = s.spawn(move || {
+            Known::<T>::bootstrap(&mut p2n_r, &mut n2p_w)
+                .expect("bootstrap newcomer")
+                .expect("provider served bootstrap")
+        });
+        parent
+            .gossip(&mut n2p_r, &mut p2n_w)
+            .expect("serve bootstrap");
+        newcomer.join().expect("join bootstrap thread")
+    })
+}
+
+/// One bidirectional gossip session between two locals over a pair of pipes,
+/// each side on its own thread: how a background party's content is absorbed
+/// into alice and bob now that the in-process merge is gone.
+fn sync_gossip<T>(a: &mut Known<T>, b: &mut Known<T>)
+where
+    T: borsh::BorshSerialize + borsh::BorshDeserialize + Clone + Send + Sync + 'static,
+{
+    let (mut a2b_r, mut a2b_w) = pipe().expect("pipe a->b");
+    let (mut b2a_r, mut b2a_w) = pipe().expect("pipe b->a");
+    thread::scope(|s| {
+        let b_thread = s.spawn(move || b.gossip(&mut a2b_r, &mut b2a_w).expect("gossip b"));
+        a.gossip(&mut b2a_r, &mut a2b_w).expect("gossip a");
+        b_thread.join().expect("join b thread");
     });
-    let server = parent.rumors();
-    server
-        .gossip(&mut n2p_r, &mut p2n_w)
-        .expect("serve bootstrap");
-    newcomer.join().expect("join bootstrap thread")
 }
 
 /// Build the (alice, bob) `Known<()>` pair for one sample. Ancestor elements
@@ -493,13 +511,11 @@ fn build_pair(
     // Disjointness). ITC parties are anonymous — the old random party *names*
     // are gone, and forking is deterministic, so a given cell's structure is
     // now identical across samples.
-    let seed: Known<()> = Known::seed();
-    let mut alice = bootstrap_fork(&seed);
-    let mut bob = bootstrap_fork(&seed);
+    let mut seed: Known<()> = Known::seed();
+    let mut alice = bootstrap_fork(&mut seed);
+    let mut bob = bootstrap_fork(&mut seed);
 
     let total_ancestor = shared + redacted_a + redacted_b;
-    // The sync callback bound is `Send + 'a`, so the closure borrows `keys`
-    // directly for the duration of each `message` call.
     let mut keys: Vec<Key> = Vec::with_capacity(total_ancestor as usize);
 
     if total_ancestor > 0 {
@@ -510,14 +526,29 @@ fn build_pair(
         let remainder = total_ancestor % effective;
         for i in 0..effective {
             let count = (base + if i < remainder { 1 } else { 0 }) as usize;
-            let mut bg = bootstrap_fork(&seed);
-            bg.message_then(std::iter::repeat_n((), count), |k, _, _| keys.push(k));
-            // Merge bg's content into alice and bob. bg is a genuine disjoint
-            // party, so its leaves carry its own ITC region: absorbing them
-            // raises each side's version to record one populated region per
-            // background party, exactly as the old per-party fork+join did.
-            alice.join(bg.rumors()).expect("disjoint background party");
-            bob.join(bg.rumors()).expect("disjoint background party");
+            let mut bg = bootstrap_fork(&mut seed);
+            let pre = bg.latest();
+            {
+                let mut batch = bg.batch();
+                for _ in 0..count {
+                    batch.send(());
+                }
+            }
+            // The keys bg's batch just minted: the live leaves above bg's
+            // pre-batch frontier, in the tree's deterministic order.
+            keys.extend(
+                bg.snapshot()
+                    .range(rumors::causally::since(&pre))
+                    .map(|(k, _, _)| k),
+            );
+            // Merge bg's content into alice and bob over the wire. bg is a
+            // genuine disjoint party, so its leaves carry its own ITC region:
+            // absorbing them raises each side's version to record one
+            // populated region per background party. (At this point alice
+            // and bob hold nothing of their own, so the bidirectional
+            // session moves content in one direction only.)
+            sync_gossip(&mut alice, &mut bg);
+            sync_gossip(&mut bob, &mut bg);
         }
     }
 
@@ -526,11 +557,25 @@ fn build_pair(
     let redact_a: Vec<Key> = keys[s..s + ra].to_vec();
     let redact_b: Vec<Key> = keys[s + ra..].to_vec();
 
-    alice.redact(redact_a);
-    alice.message(std::iter::repeat_n((), distinct_a as usize));
+    {
+        let mut batch = alice.batch();
+        for key in redact_a {
+            batch.redact(key);
+        }
+        for _ in 0..distinct_a {
+            batch.send(());
+        }
+    }
 
-    bob.redact(redact_b);
-    bob.message(std::iter::repeat_n((), distinct_b as usize));
+    {
+        let mut batch = bob.batch();
+        for key in redact_b {
+            batch.redact(key);
+        }
+        for _ in 0..distinct_b {
+            batch.send(());
+        }
+    }
 
     (alice, bob)
 }
@@ -565,13 +610,13 @@ struct Measure {
 /// # Wire ground truth
 ///
 /// The mirror protocol is framed by `tokio_util::codec::LengthDelimitedCodec`
-/// (4-byte big-endian length + borsh body), and a session opens with the 8-byte
-/// raw preamble. The first frame each side sends is its greeting: the 16-byte
-/// network id, its [`Version`] (a `u32` length prefix + the bit-packed event
-/// tree), and a 1-byte intent tag. So the connect costs exactly
-/// `33 + |version|` bytes (itemized at `CONNECT_FIXED`), and on a connect-bail
-/// (`DA+DB+RA+RB == 0`, equal versions) that is the whole session — `1.5`
-/// rounds (preamble + connect, three phase transitions).
+/// (4-byte big-endian length + borsh body), and a session opens with the
+/// 25-byte raw preamble (magic, protocol version, network id, intent tag).
+/// The first frame each side sends is its greeting: its [`Version`] alone (a
+/// `u32` length prefix + the bit-packed event tree). So the connect costs
+/// exactly `33 + |version|` bytes (itemized at `CONNECT_FIXED`), and on a
+/// connect-bail (`DA+DB+RA+RB == 0`, equal versions) that is the whole
+/// session — `1.5` rounds (preamble + connect, three phase transitions).
 ///
 /// # Modeled descent cost
 ///
@@ -661,25 +706,23 @@ fn predict(
     }
 }
 
-/// The 8-byte raw preamble: `b"RUMORS"` + the `u16` protocol version.
-const PREAMBLE: f64 = 8.0;
+/// The 25-byte raw preamble: `b"RUMORS"`, the `u16` protocol version, the
+/// 16-byte network id, and the 1-byte intent tag (remain/retire).
+const PREAMBLE: f64 = 25.0;
 /// `LengthDelimitedCodec`'s 4-byte big-endian length prefix on the greeting.
 const GREETING_FRAME_PREFIX: f64 = 4.0;
-/// The 16-byte network id opening the greeting body.
-const GREETING_NETWORK: f64 = 16.0;
-/// borsh's `u32` length prefix on the `Version` bytes inside the greeting.
+/// borsh's `u32` length prefix on the `Version` bytes inside the greeting
+/// (since the preamble rework, the version is the whole greeting body).
 const GREETING_VERSION_PREFIX: f64 = 4.0;
-/// The 1-byte intent tag (remain/retire) closing the greeting body.
-const GREETING_INTENT: f64 = 1.0;
 
 /// Fixed per-session framing: everything a side sends through the connect
 /// besides the bit-packed event tree itself, so the connect costs
 /// `CONNECT_FIXED + |version|` bytes. The layout is pinned byte-for-byte by
 /// `tests/gossip_snapshot.rs` — its empty-pair snapshot shows each side
-/// sending 8 + 26 bytes, i.e. `CONNECT_FIXED` (33) + a 1-byte empty version.
-/// If a greeting field changes, that snapshot churns and this sum must follow.
-const CONNECT_FIXED: f64 =
-    PREAMBLE + GREETING_FRAME_PREFIX + GREETING_NETWORK + GREETING_VERSION_PREFIX + GREETING_INTENT;
+/// sending 25 + 9 bytes, i.e. `CONNECT_FIXED` (33) + a 1-byte empty version.
+/// If a preamble or greeting field changes, that snapshot churns and this
+/// sum must follow.
+const CONNECT_FIXED: f64 = PREAMBLE + GREETING_FRAME_PREFIX + GREETING_VERSION_PREFIX;
 
 /// Connect-bail rounds: handshake write/read + connect write/read = three
 /// protocol-layer phase transitions = 1.5 rounds, identically on both sides.
@@ -1124,7 +1167,7 @@ impl BobWorker {
         let (job_tx, job_rx) = mpsc::channel::<BobJob>();
         let (done_tx, done_rx) = mpsc::channel::<SideStats>();
         thread::spawn(move || {
-            while let Ok(job) = job_rx.recv() {
+            while let Ok(mut job) = job_rx.recv() {
                 let stats: StatsHandle = Arc::new(Mutex::new(SideStats::default()));
                 {
                     let (mut r, mut w) =
@@ -1180,6 +1223,7 @@ fn run_sample(
     // constructed on the bob thread (Rc is !Send) and shipped back.
     let bob_handle: BobHandle = match mode {
         Mode::Spawn => BobHandle::Spawn(thread::spawn(move || -> SideStats {
+            let mut bob = bob;
             let stats: StatsHandle = Arc::new(Mutex::new(SideStats::default()));
             {
                 let (mut r, mut w) = build_io_stack(a_to_b_r, b_to_a_w, &stats, zstd_level)
@@ -1202,11 +1246,12 @@ fn run_sample(
     };
 
     // Alice's stack: reads from b_to_a, writes to a_to_b.
+    let mut alice = alice;
     let stats_a: StatsHandle = Arc::new(Mutex::new(SideStats::default()));
     {
         let (mut r, mut w) =
             build_io_stack(b_to_a_r, a_to_b_w, &stats_a, zstd_level).expect("build alice stack");
-        let _alice_out = alice.gossip(&mut r, &mut w).expect("sync gossip alice");
+        alice.gossip(&mut r, &mut w).expect("sync gossip alice");
     }
     let sa = *stats_a.lock().unwrap();
 
