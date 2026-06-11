@@ -97,14 +97,14 @@ proptest! {
 
         let a_before = fingerprint(&a);
         let b_before = fingerprint(&b);
-        let cursor = a.latest();
+        let checkpoint = a.latest();
 
         wire_gossip(&mut a, &mut b);
 
         prop_assert_eq!(fingerprint(&a), a_before);
         prop_assert_eq!(fingerprint(&b), b_before);
         prop_assert_eq!(
-            a.snapshot().range(causally::since(&cursor)).count(), 0,
+            a.snapshot().range(causally::since(&checkpoint)).count(), 0,
             "no new observations on second gossip",
         );
     }
@@ -164,12 +164,12 @@ proptest! {
         let mut a = build_local_async(dup(&mut seed), &actions);
 
         let a_before = fingerprint(&a);
-        let cursor = a.latest();
+        let checkpoint = a.latest();
         wire_gossip(&mut a, &mut empty);
 
         prop_assert_eq!(fingerprint(&a), a_before, "the populated side is unchanged");
         prop_assert_eq!(
-            a.snapshot().range(causally::since(&cursor)).count(), 0,
+            a.snapshot().range(causally::since(&checkpoint)).count(), 0,
             "the populated side observes nothing",
         );
         prop_assert_eq!(readout(&empty.snapshot()), readout(&a.snapshot()));

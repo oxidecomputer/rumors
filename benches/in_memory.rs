@@ -27,7 +27,7 @@
 //!   commit (insert throughput, averaged over the 0..N growth curve).
 //! - `iter`: a full live-message traversal of a size-N snapshot.
 //! - `redact`: forget all N keys of a size-N set in one batch commit.
-//! - `range_delta`: iterate the causal delta of size D above a cursor in a
+//! - `range_delta`: iterate the causal delta of size D above a checkpoint in a
 //!   size-N set — the version-bounds pruning claim: cost should track D
 //!   plus the pruning frontier, not N.
 //! - `observer_replay`: drain a fresh [`Messages`] observer over a size-N
@@ -155,22 +155,22 @@ fn bench_redact(c: &mut Criterion) {
     group.finish();
 }
 
-/// A size-`n` set whose last `delta` messages sit above the returned cursor,
+/// A size-`n` set whose last `delta` messages sit above the returned checkpoint,
 /// with the tree's lazy memos warmed so the timed body measures the
 /// version-bounded walk itself rather than first-touch memoization.
-fn build_with_cursor(n: usize, delta: usize) -> (Known<()>, rumors::Version) {
+fn build_with_checkpoint(n: usize, delta: usize) -> (Known<()>, rumors::Version) {
     let known: Known<()> = Known::seed();
     send_units(&known, n - delta);
-    let cursor = known.latest();
+    let checkpoint = known.latest();
     send_units(&known, delta);
     known.warm_caches();
-    (known, cursor)
+    (known, checkpoint)
 }
 
-/// `range_delta`: iterate the causal delta above a cursor.
+/// `range_delta`: iterate the causal delta above a checkpoint.
 ///
 /// Throughput is charged against the delta, not the set size: the
-/// memoized version bounds let the walk prune everything the cursor
+/// memoized version bounds let the walk prune everything the checkpoint
 /// dominates, so a small delta against a large snapshot should cost the
 /// delta plus the pruning frontier, not the tree. Comparing one column
 /// (fixed delta) across set sizes is exactly that claim under measurement.
@@ -183,14 +183,14 @@ fn bench_range_delta(c: &mut Criterion) {
             }
             group.sample_size(sample_size_for(n));
             group.throughput(Throughput::Elements(delta as u64));
-            let (known, cursor) = build_with_cursor(n, delta);
+            let (known, checkpoint) = build_with_checkpoint(n, delta);
             let snapshot = known.snapshot();
             group.bench_function(
                 BenchmarkId::from_parameter(format!("n={n},delta={delta}")),
                 |b| {
                     b.iter(|| {
                         let mut count = 0usize;
-                        for entry in snapshot.range(causally::since(black_box(&cursor))) {
+                        for entry in snapshot.range(causally::since(black_box(&checkpoint))) {
                             black_box(entry);
                             count += 1;
                         }
@@ -226,7 +226,7 @@ fn bench_observer_replay(c: &mut Criterion) {
 
 /// `observer_delta`: one pass over a size-D delta in a size-N set.
 ///
-/// The observer subscribes from the pre-delta cursor, so each iteration's
+/// The observer subscribes from the pre-delta checkpoint, so each iteration's
 /// drain is the steady-state cost of an up-to-date observer catching up on
 /// D new messages — like `range_delta`, this should track D, not N.
 fn bench_observer_delta(c: &mut Criterion) {
@@ -238,12 +238,12 @@ fn bench_observer_delta(c: &mut Criterion) {
             }
             group.sample_size(sample_size_for(n));
             group.throughput(Throughput::Elements(delta as u64));
-            let (known, cursor) = build_with_cursor(n, delta);
+            let (known, checkpoint) = build_with_checkpoint(n, delta);
             group.bench_function(
                 BenchmarkId::from_parameter(format!("n={n},delta={delta}")),
                 |b| {
                     b.iter(|| {
-                        let mut observer = known.messages_from(cursor.clone());
+                        let mut observer = known.messages_from(checkpoint.clone());
                         black_box(drain(&mut observer))
                     })
                 },

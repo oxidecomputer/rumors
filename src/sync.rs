@@ -81,8 +81,8 @@ impl<T> Messages<T> {
         }
     }
 
-    pub fn cursor(&self) -> &Version {
-        self.0.cursor()
+    pub fn checkpoint(&self) -> &Version {
+        self.0.checkpoint()
     }
 }
 
@@ -120,8 +120,8 @@ impl<T> CausalMessages<T> {
         }
     }
 
-    pub fn cursor(&self) -> &Version {
-        self.0.cursor()
+    pub fn checkpoint(&self) -> &Version {
+        self.0.checkpoint()
     }
 }
 

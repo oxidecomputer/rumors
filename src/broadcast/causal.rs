@@ -18,7 +18,7 @@ use crate::{Key, Version};
 use super::Channel;
 
 /// A causal-order observer of one rumor set: every message not causally
-/// contained in the starting cursor, then every message learned afterwards,
+/// contained in the starting checkpoint, then every message learned afterwards,
 /// each delivered *after* every delivered message it causally depends on —
 /// and `None` once the [`Known`](crate::Known) and every
 /// [`Broadcast`](crate::Broadcast) have dropped and the staged backlog has
@@ -35,9 +35,9 @@ use super::Channel;
 /// # How causal order is recovered from unordered passes
 ///
 /// The plain observer runs in *passes*: each pass walks the leaves of a
-/// frozen snapshot that are not causally contained in the cursor, in key
+/// frozen snapshot that are not causally contained in the checkpoint, in key
 /// order — which bears no relation to causal order — and then absorbs the
-/// snapshot's ceiling into the cursor. Causal delivery rests on two facts
+/// snapshot's ceiling into the checkpoint. Causal delivery rests on two facts
 /// about that engine:
 ///
 /// 1. **Inversions are confined to a single pass.** A message delivered by
@@ -77,14 +77,14 @@ pub struct CausalMessages<T> {
     /// The next pass walks leaves *not* contained here. Advances at ingest,
     /// so it runs ahead of delivery while the backlog drains.
     ingested: Version,
-    /// The public resume point: [`cursor`](Self::cursor). Trails
+    /// The public resume point: [`checkpoint`](Self::checkpoint). Trails
     /// [`ingested`](Self::ingested) — catching up exactly when the staged
     /// backlog empties — so that resuming from it never skips a staged,
     /// undelivered message.
-    cursor: Version,
+    checkpoint: Version,
     /// The undelivered backlog, in causal-rank order. Always the residue of
     /// a *single* ingest (a new pass opens only once this empties), whose
-    /// range start was `cursor` and whose ceiling is `ingested`.
+    /// range start was `checkpoint` and whose ceiling is `ingested`.
     staged: BTreeMap<(Area, Key), Leaf<T>>,
     /// The most recently delivered leaf, kept alive so its version and
     /// value can be lent to the caller until the next call.
@@ -96,7 +96,7 @@ impl<T> CausalMessages<T> {
         Self {
             channel: Some(Channel::Ready(inner.subscribe())),
             ingested: since.clone(),
-            cursor: since,
+            checkpoint: since,
             staged: BTreeMap::new(),
             current: None,
         }
@@ -137,11 +137,11 @@ impl<T> CausalMessages<T> {
     /// Pop the causally least staged message, parking it in `current` so
     /// its borrows survive the return, and let the resume point catch up
     /// when this empties the backlog (the popped message is in the caller's
-    /// hands by the time the cursor can be read).
+    /// hands by the time the checkpoint can be read).
     fn pop(&mut self) -> Option<(Key, &Version, &Arc<T>)> {
         let ((_, key), leaf) = self.staged.pop_first()?;
         if self.staged.is_empty() {
-            self.cursor = self.ingested.clone();
+            self.checkpoint = self.ingested.clone();
         }
         let (key, leaf) = self.current.insert((key, leaf));
         Some((*key, leaf.version(), leaf.value()))
@@ -178,7 +178,7 @@ impl<T> CausalMessages<T> {
                         // Nothing new: the resume point is already current;
                         // await the next change. `Err` means every sender
                         // is gone and the ingest above saw the final state.
-                        self.cursor = self.ingested.clone();
+                        self.checkpoint = self.ingested.clone();
                         if rx.changed().await.is_err() {
                             return None;
                         }
@@ -192,9 +192,9 @@ impl<T> CausalMessages<T> {
     /// The sound resume point: the causal frontier *behind* the staged
     /// backlog, suitable for persisting across processes or handing to
     /// another replica of the same network — a later
-    /// [`causal_messages_from(cursor)`](crate::Broadcast::causal_messages_from)
+    /// [`causal_messages_from(checkpoint)`](crate::Broadcast::causal_messages_from)
     /// re-observes nothing already delivered *and drained*, and everything
-    /// not yet delivered. While a backlog is draining the cursor holds at
+    /// not yet delivered. While a backlog is draining the checkpoint holds at
     /// the batch's range start (a [`Version`] can only encode a causally
     /// closed boundary, and a half-delivered rank prefix need not be one),
     /// so a resume re-delivers the partially drained batch; dedup by
@@ -206,8 +206,8 @@ impl<T> CausalMessages<T> {
     ///
     /// After the observer ends (`None`), this is the complete final
     /// frontier.
-    pub fn cursor(&self) -> &Version {
-        &self.cursor
+    pub fn checkpoint(&self) -> &Version {
+        &self.checkpoint
     }
 }
 
@@ -223,7 +223,7 @@ impl<T: Send + Sync + 'static> Stream for CausalMessages<T> {
         loop {
             if let Some(((_, key), leaf)) = this.staged.pop_first() {
                 if this.staged.is_empty() {
-                    this.cursor = this.ingested.clone();
+                    this.checkpoint = this.ingested.clone();
                 }
                 return Poll::Ready(Some((key, leaf.version().clone(), leaf.value().clone())));
             }
@@ -243,7 +243,7 @@ impl<T: Send + Sync + 'static> Stream for CausalMessages<T> {
                         // Nothing new: catch the resume point up and enter
                         // the owned wait (the receiver rides inside the
                         // future and comes back with the result).
-                        this.cursor = this.ingested.clone();
+                        this.checkpoint = this.ingested.clone();
                         let Some(Channel::Ready(mut rx)) = this.channel.take() else {
                             unreachable!("matched Ready above");
                         };

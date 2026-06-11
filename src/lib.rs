@@ -120,7 +120,7 @@ pub use version::Version;
 /// Named, composable constructors for causal [`Version`] ranges
 /// (re-exported from [`before`]): the vocabulary for
 /// [`Snapshot::range`] and [`Known::messages_from`] — e.g.
-/// `causally::since(&cursor)` or `causally::not_before(&s).known_at(&e)`.
+/// `causally::since(&checkpoint)` or `causally::not_before(&s).known_at(&e)`.
 pub use before::causally;
 
 /// The [`borsh`] crate, re-exported.

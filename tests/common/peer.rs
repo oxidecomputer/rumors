@@ -5,7 +5,7 @@
 //!
 //! Observation is pull-based, mirroring the `Messages` observer one pass at
 //! a time: a [`drain`](Peer::drain) snapshots the peer and records exactly
-//! the live leaves its causal cursor does not contain — local sends and
+//! the live leaves its causal checkpoint does not contain — local sends and
 //! gossip-learned messages alike — then absorbs the snapshot's ceiling.
 //! Every helper drains after the operation it performs, so the log stays in
 //! event order and a message redacted before it was ever drained is never
@@ -24,7 +24,7 @@ pub struct Peer<T> {
     /// drain records the live leaves not contained here, then absorbs the
     /// snapshot's ceiling (so redaction ticks, which have no leaves, are
     /// covered too).
-    cursor: Version,
+    checkpoint: Version,
     /// All observations this peer has accumulated, across `insert_one`,
     /// `gossip_step`, and `quiesce` calls. Drain order within a pass is the
     /// tree's iteration order; in practice it is deterministic across runs,
@@ -42,10 +42,10 @@ impl<T: Clone + BorshSerialize + BorshDeserialize + Send + Sync + 'static> Peer<
     /// independent [`Known::seed`]: only then are all peers pairwise
     /// disjoint, the precondition for [`gossip_step`] to succeed.
     pub fn new(local: Known<T>) -> Self {
-        let cursor = local.latest();
+        let checkpoint = local.latest();
         Self {
             local,
-            cursor,
+            checkpoint,
             observations: Vec::new(),
         }
     }
@@ -56,17 +56,17 @@ impl<T: Clone + BorshSerialize + BorshDeserialize + Send + Sync + 'static> Peer<
         self.observations.clone()
     }
 
-    /// Record every live message the cursor does not causally contain,
+    /// Record every live message the checkpoint does not causally contain,
     /// then absorb the snapshot's ceiling. Returns how many were new.
     pub fn drain(&mut self) -> usize {
         let snapshot = self.local.snapshot();
         let mut new = 0;
-        for (key, version, message) in snapshot.range(causally::since(&self.cursor)) {
+        for (key, version, message) in snapshot.range(causally::since(&self.checkpoint)) {
             self.observations
                 .push((key, version.clone(), (**message).clone()));
             new += 1;
         }
-        self.cursor |= snapshot.latest();
+        self.checkpoint |= snapshot.latest();
         new
     }
 
@@ -85,7 +85,7 @@ impl<T: Clone + BorshSerialize + BorshDeserialize + Send + Sync + 'static> Peer<
     pub fn redact_one(&mut self, key: Key) {
         self.local.redact(key);
         // Redactions fire no observation; the drain just absorbs the
-        // version tick into the cursor.
+        // version tick into the checkpoint.
         self.drain();
     }
 }

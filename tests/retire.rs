@@ -292,7 +292,7 @@ fn retire_into_bootstrapper_hands_off_the_identity() {
 
 /// Ordinary `gossip` learns a divergent retiree's novel content through the
 /// session's gossip round — the messages land above the absorber's
-/// pre-session frontier, observable to any cursor — before absorbing the
+/// pre-session frontier, observable to any checkpoint — before absorbing the
 /// party.
 #[test]
 fn gossip_learns_content_from_divergent_retiree() {

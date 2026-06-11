@@ -1,4 +1,4 @@
-//! The [`Messages`] observer: delivery contract, cursor semantics,
+//! The [`Messages`] observer: delivery contract, checkpoint semantics,
 //! termination, and non-interference with the actor handles
 //! (plan: `plans/broadcast-listen.md` §6; the `Snapshot::range`
 //! differential proptest lives with the walk machinery in
@@ -67,7 +67,7 @@ fn live_map(known: &Known<u64>) -> BTreeMap<Key, u64> {
 
 /// §6.1 Genesis replay: a from-genesis observer on a populated set yields
 /// exactly the live set, each message once, then goes quiet; after the
-/// completed pass its cursor dominates every observed version.
+/// completed pass its checkpoint dominates every observed version.
 #[test]
 fn genesis_replay_observes_the_live_set_once() {
     let known = Known::<u64>::seed();
@@ -95,8 +95,8 @@ fn genesis_replay_observes_the_live_set_once() {
 
     for (_, version, _) in &items {
         assert!(
-            version <= obs.cursor(),
-            "the post-pass cursor dominates every observed version"
+            version <= obs.checkpoint(),
+            "the post-pass checkpoint dominates every observed version"
         );
     }
 }
@@ -104,7 +104,7 @@ fn genesis_replay_observes_the_live_set_once() {
 /// §6.2 Arbitrary start: `messages_from(v_mid)` observes exactly the
 /// messages `v_mid` does not causally contain.
 #[test]
-fn cursor_start_observes_only_what_it_does_not_contain() {
+fn checkpoint_start_observes_only_what_it_does_not_contain() {
     let known = Known::<u64>::seed();
     known.batch().send(1).send(2).send(3);
     let v_mid = known.latest();
@@ -124,7 +124,7 @@ fn cursor_start_observes_only_what_it_does_not_contain() {
         // exactly the versions v_mid does not contain.
         assert!(
             causally::since(&v_mid).contains(version),
-            "no observed version is contained in the starting cursor"
+            "no observed version is contained in the starting checkpoint"
         );
     }
 }
@@ -346,49 +346,49 @@ fn lent_borrows_do_not_block_senders() {
     );
 }
 
-/// §6.7 Cursor round-trip: a cursor earned by a completed pass, fed to a
+/// §6.7 Checkpoint round-trip: a checkpoint earned by a completed pass, fed to a
 /// fresh `messages_from` on an unchanged set, observes nothing and earns an
-/// equal cursor.
+/// equal checkpoint.
 #[test]
-fn cursor_round_trips_on_an_unchanged_set() {
+fn checkpoint_round_trips_on_an_unchanged_set() {
     let known = Known::<u64>::seed();
     known.batch().send(1).send(2).send(3);
 
     let mut obs = known.messages();
     let (items, _) = drain(&mut obs);
     assert_eq!(items.len(), 3);
-    let cursor = obs.cursor().clone();
+    let checkpoint = obs.checkpoint().clone();
 
-    let mut resumed = known.messages_from(cursor.clone());
+    let mut resumed = known.messages_from(checkpoint.clone());
     let (items, _) = drain(&mut resumed);
     assert!(items.is_empty(), "nothing fires on an unchanged set");
     assert_eq!(
-        resumed.cursor(),
-        &cursor,
-        "the resumed observer's completed pass earns an equal cursor"
+        resumed.checkpoint(),
+        &checkpoint,
+        "the resumed observer's completed pass earns an equal checkpoint"
     );
 }
 
-/// §6.8 Replica portability: a cursor earned against replica A is a valid
+/// §6.8 Replica portability: a checkpoint earned against replica A is a valid
 /// `since` against replica B of the same universe — messages observed via A
 /// are skipped, messages B holds that A never saw fire.
 #[test]
-fn cursor_is_portable_across_replicas() {
+fn checkpoint_is_portable_across_replicas() {
     let mut a = Known::<u64>::seed();
     let mut b = bootstrap_fork(&mut a);
 
     a.send(1);
     b.send(2);
 
-    // Observe everything A has, completing the pass to earn the cursor.
+    // Observe everything A has, completing the pass to earn the checkpoint.
     let mut obs_a = a.messages();
     let (items, _) = drain(&mut obs_a);
     assert_eq!(items.len(), 1);
-    let cursor = obs_a.cursor().clone();
+    let checkpoint = obs_a.checkpoint().clone();
 
     // Converge the replicas, then resume against B.
     wire_gossip(&mut a, &mut b);
-    let mut obs_b = b.messages_from(cursor);
+    let mut obs_b = b.messages_from(checkpoint);
     let (items, _) = drain(&mut obs_b);
     assert_eq!(items.len(), 1, "only the message A never observed fires");
     assert_eq!(items[0].2, 2, "A-observed messages are skipped at B");
@@ -476,9 +476,9 @@ fn sync_iterator_face_drains_then_ends() {
 /// resume point. Delivery is in key order, not causal order, so a stopped
 /// pass can have delivered `m2` (later version) but not `m1` (earlier);
 /// the fold then causally contains `m1`, and resuming from it skips `m1`
-/// forever — loss, not re-delivery. `Messages::cursor()` (the last
+/// forever — loss, not re-delivery. `Messages::checkpoint()` (the last
 /// *completed* pass's frontier) re-delivers instead, which is why the API
-/// exposes the pass cursor and not a per-item fold.
+/// exposes the pass checkpoint and not a per-item fold.
 #[test]
 fn folding_delivered_versions_can_lose_a_message() {
     // Search deterministic universes for the counterexample shape: the
@@ -517,14 +517,14 @@ fn folding_delivered_versions_can_lose_a_message() {
         "the fold causally contains the never-delivered message: it is lost"
     );
 
-    // The sound resume: the observer's pass cursor (genesis — no pass
+    // The sound resume: the observer's pass checkpoint (genesis — no pass
     // completed) re-delivers both messages. At-least-once, never loss.
-    let mut resumed_from_cursor = known.messages_from(obs.cursor().clone());
-    let (items, _) = drain(&mut resumed_from_cursor);
+    let mut resumed_from_checkpoint = known.messages_from(obs.checkpoint().clone());
+    let (items, _) = drain(&mut resumed_from_checkpoint);
     assert_eq!(
         items.len(),
         2,
-        "the pass cursor re-delivers the interrupted pass instead of losing"
+        "the pass checkpoint re-delivers the interrupted pass instead of losing"
     );
 }
 
@@ -608,15 +608,15 @@ proptest! {
         }
     }
 
-    /// §6.6 Cursor-resume: stop an observer at an arbitrary point and
-    /// resume a fresh one from its `cursor()`; the union of observations
+    /// §6.6 Checkpoint-resume: stop an observer at an arbitrary point and
+    /// resume a fresh one from its `checkpoint()`; the union of observations
     /// covers every message that survived to the end (nothing lost). If the
     /// stop fell *mid-pass*, re-deliveries are permitted but only for
     /// messages the interrupted pass already delivered (at-least-once); if
     /// the observer had *completed* its pass, nothing from it is
     /// re-delivered (exactly-once across completed passes).
     #[test]
-    fn cursor_resume_loses_nothing(
+    fn checkpoint_resume_loses_nothing(
         phase_one in vec(any::<u64>(), 1..8),
         phase_two in vec(any::<u64>(), 0..8),
         taken in any::<usize>(),
@@ -631,7 +631,7 @@ proptest! {
         }
 
         // Deliver a prefix of the first pass — or, when `complete_pass`,
-        // drain to quiescence so the pass commits into the cursor.
+        // drain to quiescence so the pass commits into the checkpoint.
         let mut obs = known.messages();
         let mut first_run: Vec<(Key, Version, u64)> = Vec::new();
         if complete_pass {
@@ -645,7 +645,7 @@ proptest! {
                 }
             }
         }
-        let cursor = obs.cursor().clone();
+        let checkpoint = obs.checkpoint().clone();
         drop(obs);
 
         // More traffic after the stop.
@@ -656,8 +656,8 @@ proptest! {
             }
         }
 
-        // Resume from the persisted cursor and drain to the end.
-        let mut resumed = known.messages_from(cursor);
+        // Resume from the persisted checkpoint and drain to the end.
+        let mut resumed = known.messages_from(checkpoint);
         let final_live = live_map(&known);
         drop(known);
         let (second_run, ended) = drain(&mut resumed);

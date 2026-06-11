@@ -2,7 +2,7 @@
 //! everything [`Messages`](rumors::Messages) already promises (exercised in
 //! `tests/listen.rs`) — no message is ever delivered before a delivered
 //! message it causally depends on, within a backlog and across live passes,
-//! with the resume cursor lagging the staged backlog so resumption never
+//! with the resume checkpoint lagging the staged backlog so resumption never
 //! skips an undelivered message.
 //!
 //! Driven step-by-step with `now_or_never`, as in `tests/listen.rs`: an
@@ -180,12 +180,12 @@ fn live_passes_preserve_causal_order_cumulatively() {
 }
 
 /// The resume point lags the staged backlog: after delivering part of a
-/// backlog, `cursor()` still names the batch's range start, so a resume
+/// backlog, `checkpoint()` still names the batch's range start, so a resume
 /// re-delivers the partial batch (at-least-once) rather than losing the
-/// undelivered remainder; once the backlog drains, the cursor catches up
+/// undelivered remainder; once the backlog drains, the checkpoint catches up
 /// and a resume observes nothing.
 #[test]
-fn cursor_lags_until_the_backlog_drains() {
+fn checkpoint_lags_until_the_backlog_drains() {
     let known = Known::<u64>::seed();
     let genesis = known.latest();
     known.send(1);
@@ -197,26 +197,26 @@ fn cursor_lags_until_the_backlog_drains() {
         panic!("a populated set delivers an item");
     };
     assert_eq!(
-        obs.cursor(),
+        obs.checkpoint(),
         &genesis,
-        "mid-backlog, the cursor holds at the batch's range start"
+        "mid-backlog, the checkpoint holds at the batch's range start"
     );
 
-    // A resume from the lagging cursor re-delivers the whole batch,
+    // A resume from the lagging checkpoint re-delivers the whole batch,
     // including the already-delivered first item: re-delivery, never loss.
-    let mut resumed = known.causal_messages_from(obs.cursor().clone());
+    let mut resumed = known.causal_messages_from(obs.checkpoint().clone());
     let (resumed_items, _) = drain(&mut resumed);
     assert_eq!(resumed_items.len(), 3, "the partial batch re-delivers");
     assert!(resumed_items.contains(&first));
 
-    // Drain the original: the cursor catches up to the ingest frontier and
+    // Drain the original: the checkpoint catches up to the ingest frontier and
     // a fresh resume from it observes nothing.
     let (rest, _) = drain(&mut obs);
     assert_eq!(rest.len(), 2);
     assert_causal(&[vec![first], rest].concat());
-    let mut from_drained = known.causal_messages_from(obs.cursor().clone());
+    let mut from_drained = known.causal_messages_from(obs.checkpoint().clone());
     let (none, _) = drain(&mut from_drained);
-    assert!(none.is_empty(), "a drained backlog's cursor is current");
+    assert!(none.is_empty(), "a drained backlog's checkpoint is current");
 }
 
 /// A message staged and then redacted before delivery is still delivered —
@@ -425,12 +425,12 @@ proptest! {
         }
     }
 
-    /// Cursor-resume discipline: stop at an arbitrary point in the backlog
+    /// Checkpoint-resume discipline: stop at an arbitrary point in the backlog
     /// (or after a complete drain) and resume a fresh observer from
-    /// `cursor()`; nothing is lost, both runs are individually causal, and
+    /// `checkpoint()`; nothing is lost, both runs are individually causal, and
     /// after a *complete* drain nothing re-delivers.
     #[test]
-    fn cursor_resume_loses_nothing(
+    fn checkpoint_resume_loses_nothing(
         phase_one in vec(any::<u64>(), 1..8),
         phase_two in vec(any::<u64>(), 0..8),
         taken in any::<usize>(),
@@ -454,14 +454,14 @@ proptest! {
             }
         }
         assert_causal(&first_run);
-        let cursor = obs.cursor().clone();
+        let checkpoint = obs.checkpoint().clone();
         drop(obs);
 
         for v in &phase_two {
             known.send(*v);
         }
 
-        let mut resumed = known.causal_messages_from(cursor);
+        let mut resumed = known.causal_messages_from(checkpoint);
         let final_live = live_map(&known);
         drop(known);
         let (second_run, ended) = drain(&mut resumed);
@@ -479,7 +479,7 @@ proptest! {
             );
         }
 
-        // After a complete drain the cursor is current: no re-delivery.
+        // After a complete drain the checkpoint is current: no re-delivery.
         let first_keys: BTreeSet<Key> = first_run.iter().map(|(k, _, _)| *k).collect();
         let second_keys: BTreeSet<Key> = second_run.iter().map(|(k, _, _)| *k).collect();
         if complete_drain {

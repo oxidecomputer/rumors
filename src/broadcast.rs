@@ -289,7 +289,7 @@ impl<T> Broadcast<T> {
 }
 
 /// An observer of one rumor set: every message not causally contained in
-/// the starting cursor, then every message learned afterwards — by local
+/// the starting checkpoint, then every message learned afterwards — by local
 /// [`send`](Broadcast::send), by gossip, from any handle — and `None` once
 /// the [`Known`] and every [`Broadcast`] have dropped and no further change
 /// is possible, after yielding the complete final state.
@@ -319,7 +319,7 @@ impl<T> Broadcast<T> {
 /// buffered, nothing growing with the delta or the tree), so hold it as
 /// long as you like and ask again later; drop it to cancel. To resume in a
 /// *later process*, or on another replica of the same network, persist
-/// [`cursor`](Self::cursor) and start a new observer from it.
+/// [`checkpoint`](Self::checkpoint) and start a new observer from it.
 ///
 /// An observer is not an actor: it holds no send handle, does not keep the
 /// rumor set open, and does not count against the quiescence that lets
@@ -332,7 +332,7 @@ pub struct Messages<T> {
     /// wait is materialized; `borrow_next` enters it only to finish what a
     /// `Stream` poll started.
     channel: Option<Channel<T>>,
-    cursor: Version,
+    checkpoint: Version,
     pass: Option<Pass<T>>,
     /// The most recently yielded leaf, kept alive so its version and value
     /// can be lent to the caller until the next call.
@@ -352,7 +352,7 @@ enum Channel<T> {
 }
 
 /// One in-progress pass: the frozen walk over its snapshot, and the
-/// snapshot's ceiling to absorb into the cursor when the walk drains.
+/// snapshot's ceiling to absorb into the checkpoint when the walk drains.
 struct Pass<T> {
     walk: Frozen<T, (std::ops::Bound<Version>, std::ops::Bound<Version>)>,
     ceiling: Version,
@@ -362,7 +362,7 @@ impl<T> Messages<T> {
     pub(crate) fn subscribe(inner: &watch::Sender<crate::Inner<T>>, since: Version) -> Self {
         Self {
             channel: Some(Channel::Ready(inner.subscribe())),
-            cursor: since,
+            checkpoint: since,
             pass: None,
             current: None,
         }
@@ -374,7 +374,7 @@ impl<T> Messages<T> {
     fn open_pass(
         pass: &mut Option<Pass<T>>,
         rx: &mut watch::Receiver<crate::Inner<T>>,
-        cursor: &Version,
+        checkpoint: &Version,
     ) where
         T: Send + Sync,
     {
@@ -382,7 +382,7 @@ impl<T> Messages<T> {
             let inner = rx.borrow_and_update();
             *pass = Some(Pass {
                 walk: inner.tree.freeze((
-                    std::ops::Bound::Excluded(cursor.clone()),
+                    std::ops::Bound::Excluded(checkpoint.clone()),
                     std::ops::Bound::Unbounded,
                 )),
                 ceiling: inner.tree.latest().clone(),
@@ -408,7 +408,7 @@ impl<T> Messages<T> {
                     }
                 }
                 Channel::Ready(rx) => {
-                    Self::open_pass(&mut self.pass, rx, &self.cursor);
+                    Self::open_pass(&mut self.pass, rx, &self.checkpoint);
 
                     // Lend the next leaf out of the walk, parking it in
                     // `current` so the borrows survive the return.
@@ -423,7 +423,7 @@ impl<T> Messages<T> {
                     // is gone and the drain above already saw the final
                     // state.
                     let Pass { ceiling, .. } = self.pass.take().expect("opened above");
-                    self.cursor |= &ceiling;
+                    self.checkpoint |= &ceiling;
                     if rx.changed().await.is_err() {
                         return None;
                     }
@@ -435,7 +435,7 @@ impl<T> Messages<T> {
     /// The sound resume point: the causal frontier of the last *completed*
     /// pass, suitable for persisting across processes or handing to another
     /// replica of the same network — a later
-    /// [`messages_from(cursor)`](Broadcast::messages_from) re-observes
+    /// [`messages_from(checkpoint)`](Broadcast::messages_from) re-observes
     /// nothing from completed passes and everything not yet delivered.
     /// Messages already delivered from the *in-progress* pass are delivered
     /// again (a [`Version`] can only encode a causally closed boundary, and
@@ -448,9 +448,9 @@ impl<T> Messages<T> {
     ///
     /// After the observer ends (`None`), this is the complete final
     /// frontier. To merely pause in-process, just hold the observer: its
-    /// idle state is constant-size, and the cursor stays inside it.
-    pub fn cursor(&self) -> &Version {
-        &self.cursor
+    /// idle state is constant-size, and the checkpoint stays inside it.
+    pub fn checkpoint(&self) -> &Version {
+        &self.checkpoint
     }
 }
 
@@ -475,7 +475,7 @@ impl<T: Send + Sync + 'static> Stream for Messages<T> {
                     }
                 },
                 Channel::Ready(rx) => {
-                    Self::open_pass(&mut this.pass, rx, &this.cursor);
+                    Self::open_pass(&mut this.pass, rx, &this.checkpoint);
 
                     let pass = this.pass.as_mut().expect("opened above");
                     if let Some((key, leaf)) = pass.walk.next() {
@@ -490,7 +490,7 @@ impl<T: Send + Sync + 'static> Stream for Messages<T> {
                     // owned wait (the receiver rides inside the future and
                     // comes back with the result).
                     let Pass { ceiling, .. } = this.pass.take().expect("opened above");
-                    this.cursor |= &ceiling;
+                    this.checkpoint |= &ceiling;
                     let Some(Channel::Ready(mut rx)) = this.channel.take() else {
                         unreachable!("matched Ready above");
                     };
