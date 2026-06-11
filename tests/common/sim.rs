@@ -350,6 +350,10 @@ async fn run_observers(handle: Broadcast<u64>, done: Arc<AtomicBool>) {
                 causal_seen.insert(key),
                 "CausalMessages delivered key {key:?} twice"
             );
+            // `Version` is a partial order: `!(version < earlier)` also
+            // admits concurrent pairs, which `version >= earlier` would
+            // reject.
+            #[allow(clippy::neg_cmp_op_on_partial_ord)]
             for earlier in &causal_delivered {
                 assert!(
                     !(version < earlier),

@@ -58,6 +58,9 @@ fn drain(obs: &mut CausalMessages<u64>) -> (Vec<(Key, Version, u64)>, bool) {
 /// Assert the causal-delivery contract on a delivered sequence: no message
 /// precedes a delivered message it causally dominates — for every pair, the
 /// later-delivered version is never strictly less than the earlier one.
+// `Version` is a partial order: `!(later < earlier)` also admits concurrent
+// pairs, which `later >= earlier` would reject.
+#[allow(clippy::neg_cmp_op_on_partial_ord)]
 fn assert_causal(items: &[(Key, Version, u64)]) {
     for i in 0..items.len() {
         for j in (i + 1)..items.len() {

@@ -676,7 +676,7 @@ proptest! {
 
         prop_assert_ne!(path_v1, path_v2);
         let got = [tree.get(&path_v1).unwrap(), tree.get(&path_v2).unwrap()];
-        prop_assert!(got.iter().all(|b| &b.1[..] == &*value));
+        prop_assert!(got.iter().all(|b| b.1[..] == *value));
     }
 }
 
