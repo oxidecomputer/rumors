@@ -1,4 +1,6 @@
-% Generated from results/mirror-complexity.md (commit a8a3b7a).
+% Canonical source for the mirror-protocol complexity analysis (commit
+% a8a3b7a). Supersedes the retired markdown original
+% (results/mirror-complexity.md).
 \documentclass[11pt]{article}
 
 \usepackage[margin=1.1in]{geometry}
@@ -16,6 +18,10 @@
 % do not overflow the margin.
 \newcommand{\code}[1]{\texttt{#1}}
 \emergencystretch=3em
+% The unbreakable tt file:line blobs leave a handful of lines loose; that
+% is accepted layout here, so do not report underfull hboxes (overfull
+% detection is unaffected).
+\hbadness=10000
 
 \theoremstyle{plain}
 \newtheorem{lemma}{Lemma}
@@ -27,7 +33,8 @@
 
 \title{The asymptotic complexity of the mirror reconciliation protocol}
 \author{}
-\date{\normalsize\itshape Generated from \code{results/mirror-complexity.md}.}
+\date{\normalsize\itshape Canonical source; supersedes the retired markdown
+original (\code{results/mirror-complexity.md}).}
 
 \begin{document}
 \maketitle
@@ -75,7 +82,7 @@ $\sqrt{C \cdot D}$ to within a factor of ${\sim}2$--$4$ across almost the
 whole $(C, D)$ plane. The smooth $D \cdot \log(N/D)$ form is the asymptote;
 the discrete base-256 staircase underneath it locally mimics a square root.
 The empirical fit was not an accident, and wall-clock benchmarks at these
-scales genuinely cannot refute it --- \S8 gives measurements that can.
+scales genuinely cannot refute it --- \S9 gives measurements that can.
 
 \begin{quote}
 \textbf{Source-of-data flag.} \code{benches/hash\_recon.rs} is \emph{not} a
@@ -120,9 +127,9 @@ own zipper by \textbf{two heights} (\code{local.rs:395-415};
 the conversation's frontier advances \textbf{one depth per message, two per
 round trip}.
 
-Each steady-state message carries three channels
-(\code{src/tree/traverse/mirror/}\allowbreak\code{message.rs:50-70},
-asymmetry matrix at \code{local.rs:46-58}):
+Each steady-state message carries three channels, per the wire format in
+\path{src/tree/traverse/mirror/message.rs:50-70} and the asymmetry matrix
+at \code{local.rs:46-58}:
 
 \begin{center}
 \begin{tabular}{@{}L{0.14\textwidth}L{0.32\textwidth}L{0.44\textwidth}@{}}
@@ -191,14 +198,14 @@ intact without rebuilding them (\code{unknown.rs:38-52}).
   random-oracle model the $N$ leaf paths are i.i.d.\ uniform 32-byte
   strings, \emph{regardless of insertion order, batching, or payload
   skew} --- an adversary would need structured BLAKE3 preimages to cluster
-  them. This is the load-bearing probabilistic assumption; see \S9.4.
+  them. This is the load-bearing probabilistic assumption; see \S10.4.
 \item \textbf{(A2) Parameters.} Branching $b = 256$, depth 32
   (\code{tree.rs:21}, \code{height.rs:110-117}). Hash size $h = 32$ bytes
   (\code{hash.rs:17}).
 \item \textbf{(A3) Warm memos.} Subtree hashes and version bounds are
   memoized reads (\code{untyped.rs:266-288}); we count a hash
   \emph{comparison} as $O(1)$. First-touch costs after local mutation are a
-  separate, additive term (\S9.1) --- the benches warm them in untimed
+  separate, additive term (\S10.1) --- the benches warm them in untimed
   setup (\code{benches/gossip\_grid.rs:119-160}, \code{src/tree.rs:182-196}).
 \item \textbf{(A4) Dispute drives descent.} Only the
   \emph{Both-and-hashes-differ} cell of the asymmetry matrix recurses
@@ -234,7 +241,7 @@ Symbol & Meaning \\
 $b$ & branching factor, 256 \\
 $C$ & live messages present on \textbf{both} sides \\
 $D$ & messages present on \textbf{exactly one} side, summed over both sides
-  ($D = D_L + D_R$); redacted-on-one-side leaves count (\S9.3) \\
+  ($D = D_L + D_R$); redacted-on-one-side leaves count (\S10.3) \\
 $N$ & $C + D$, the size of the union tree \\
 $k$ & depth = prefix length in bytes, $0 \le k \le 32$; height $H = 32 - k$ \\
 $\Delta_k$ & number of \textbf{disputed} depth-$k$ prefixes: prefixes
@@ -247,7 +254,7 @@ $k^*$ & separation depth: deepest disputed prefix \\
 $W$ & per-side work / total \code{uncertain} entries:
   $\sum_k \Delta_k \cdot f_k$ \\
 $\bar{s}$, $s_v$ & mean payload size; serialized \code{Version} size (not
-  $O(1)$, \S9.5) \\
+  $O(1)$, \S10.5) \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -432,10 +439,19 @@ W \;=\; \Theta\bigl( \min(b \cdot D,\, N) \cdot (1 + \log_b(N/D)) \bigr)
 \end{itemize}
 \end{theorem}
 
-Cross-checks: $D = 1$, $N = 10^6$ gives
-$W \approx 256 \cdot (1 + \log_b(N/b)) \approx 640$ vs.\ the \S4 hand count
-of 527 \checkmark. Disjoint trees ($C = 0$, $N = D$) give $\Theta(N)$
-\checkmark{} (matches the one-shot character of bootstrap, \S9.2).
+Cross-checks: for $D = 1$, $N = 10^6$ the log factor sharpens from the
+envelope's $\log_b(N/D)$ to $\log_b(N/b)$, because the per-level fan $f_k$
+saturates at $b$ only down to depth $j_N - 1$ and decays geometrically
+below --- so the sum is $b$ per level over the $j_N = 1 + \log_b(N/b)$
+saturated levels, $W \approx 256 \cdot (1 + \log_b(N/b)) \approx 640$, vs.\
+the \S4 hand count of 527 \checkmark{} (the residue is the envelope billing
+the thinned final fraction of a level at the full $b$ where the tree
+delivers ${\approx}15$). Billing all $1 + \log_b(N/D) \approx 3.5$ levels of
+descent at full fan, as the $\Theta$-form read literally would, gives
+${\approx}894$ --- still a correct upper envelope, but the descent below
+depth $j_N - 1$ is exactly where the fans thin. Disjoint trees ($C = 0$,
+$N = D$) give $\Theta(N)$ \checkmark{} (matches the one-shot character of
+bootstrap, \S10.2).
 
 \begin{theorem}[bandwidth]
 Total bytes on the wire, both directions (each depth's \code{uncertain} is
@@ -454,11 +470,14 @@ In $\Theta$-terms:
 $\Theta(D \cdot (\bar{s} + s_v))
  + \Theta(\min(b \cdot D, N) \cdot (1 + \log_b(N/D)) \cdot h)$.
 The empirical ``${\sim}D$'' is right in its $D$-scaling; the per-$D$
-constant is the interesting part: at $N/D = 10^2 \dots 10^4$ the hash
-channel runs ${\sim}10$--$40$\,KB \emph{per differing message} (e.g.\ \S4:
-18\,KB to move one message). For small payloads, \textbf{hash traffic
-dominates bandwidth}; bodies dominate only when
-$\bar{s} \gtrsim 36 \cdot W/D$ bytes. \qed
+constant is the interesting part: at $N/D = 10^2 \dots 10^4$ the smooth
+envelope prices the hash channel at ${\sim}10$--$40$\,KB \emph{per
+differing message} (e.g.\ \S4: 18\,KB to move one message). That envelope
+is tight only for $D \lesssim b$; \S8 prices the channel exactly and shows
+the staircase discounts it to ${\sim}0.3$--$6$\,KB once $D \gg b$. For
+small payloads, \textbf{hash traffic dominates bandwidth}; bodies dominate
+only when $\bar{s} \gtrsim 36 \cdot W/D$ bytes (the crossover is solved in
+\S8). \qed
 \end{theorem}
 
 \begin{theorem}[latency]
@@ -481,7 +500,7 @@ levels $\approx$ 3 RTT for $(10^7, 10^7)$; the $O(1)$ dominates. The
 empirical $\log_{256}(C + D)$ agrees at $D \approx N$ (where
 $\tfrac{1}{2} \log DN = \log N$) and is $\approx 2\times$ the true descent
 depth for $D \ll N$, a difference of $< 2$ RTT at any realistic scale ---
-unfalsifiable from timing, trivially checkable by counting frames (\S8). \qed
+unfalsifiable from timing, trivially checkable by counting frames (\S9). \qed
 \end{theorem}
 
 \section{Against the \texorpdfstring{$\sqrt{C \cdot D}$}{sqrt(C·D)} fit}
@@ -495,13 +514,17 @@ D \cdot \ln(C/D) \;\le\; \frac{2}{e} \cdot \sqrt{C \cdot D},
 \end{proposition}
 
 \begin{proof}
-Set $x = D/C \in (0, 1]$ and maximize $g(x) = \sqrt{x} \cdot \ln(1/x)$:
-$g'(x) = (\ln(1/x) - 2)/(2\sqrt{x}) = 0$ at $x = e^{-2}$,
-$g(e^{-2}) = 2/e$. Then
-$D \ln(C/D) = C \cdot x \ln(1/x) = C\sqrt{x} \cdot g(x) \cdots$ ---
-directly,
-$D \cdot \ln(C/D) = \sqrt{CD} \cdot \sqrt{x} \cdot \ln(1/x)
-\le (2/e)\sqrt{CD}$.
+Set $x = D/C \in (0, 1]$ and $g(x) = \sqrt{x} \cdot \ln(1/x)$. On $(0, 1]$,
+$g'(x) = (\ln(1/x) - 2)/(2\sqrt{x})$ vanishes only at $x = e^{-2}$, a
+maximum, with $g(e^{-2}) = 2/e$. Since $\sqrt{CD} = C\sqrt{x}$,
+\begin{equation*}
+D \cdot \ln(C/D)
+\;=\; C \cdot x \cdot \ln(1/x)
+\;=\; (C\sqrt{x}) \cdot \bigl(\sqrt{x} \cdot \ln(1/x)\bigr)
+\;=\; \sqrt{CD} \cdot g(x)
+\;\le\; \frac{2}{e} \cdot \sqrt{CD},
+\end{equation*}
+with equality iff $x = e^{-2}$, i.e.\ $D = C/e^2$.
 \end{proof}
 
 In base 256:
@@ -562,7 +585,8 @@ Read the ratio column: over five orders of magnitude in each axis it stays
 within $[0.2, 10]$ --- a one-constant sqrt fit (say anchored at the central
 cells, $a \approx 2.6$) leaves residuals of only $0.1\times$--$4\times$,
 and the worst residuals sit at the extreme corners ($D = 1$ at huge $N$;
-$D \approx b \cdot N/b^2$) where wall time is dominated by fixed
+$D \approx N/b$, where the plateau has just vanished and the peak term
+crosses from $b \cdot D$ to $N$) where wall time is dominated by fixed
 per-session costs (preamble, handshake, ${\sim}8$ frames, thread/pipe
 synchronization in the bench harness) or by the $\Theta(D)$ body-handling
 term. Local log-log slopes of the exact sum, vs.\ sqrt's uniform 0.5:
@@ -586,6 +610,175 @@ from wall time on diagonal or $D$-sweeps at grid scales; they separate
 cleanly on \textbf{fixed-$D$, $N$-sweeps across the $10^5 \to 10^6$
 decade}, and on any \emph{count}-based (rather than time-based)
 measurement.
+
+\section{Expected bandwidth in closed form}
+
+Theorem~2 gave the bandwidth's shape. This section prices it: an explicit
+expectation $E[B](C, D, M)$ --- total bytes on the wire, both directions,
+to reconcile two replicas sharing $C$ live messages and differing in $D$
+leaves, with mean serialized message body $M$. (A \code{Message<T>}
+serializes byte-identically to its inner $T$, \code{message.rs:12-14}, so
+$M$ is \S3's $\bar{s}$ as measured on the wire.) Split
+$D = D_{\mathrm{live}} + D_{\mathrm{red}}$ into leaves the counterparty
+must receive and leaves redacted on one side (\S10.3); $N = C + D$ as
+always. Assumptions: A1 (uniform content addressing) and A8 (wire sizes);
+the $D = D_L + D_R$ split between the sides turns out not to matter, shown
+at the end.
+
+\paragraph{\code{providing}: $33 + s_v + M$ bytes per live differing leaf.}
+By A4 each differing leaf crosses the wire exactly once: a Left case ships
+in the same message, a Right case is requested and answered whole one
+message later (\code{partition.rs:91-142}), and disputed prefixes never
+ship content, only hashes. A leaf provided alone at pairing depth $d$
+costs, per the node encoding (\code{untyped.rs:406-443}; channel shapes at
+\code{message.rs:50-63}): its pairing \code{Prefix}, $d$ raw bytes (the
+typed height pins the byte count, so there is no length prefix,
+\code{prefix.rs:127-156}); the node's \code{prefix\_len} byte plus its
+$32 - d$ compressed path bytes (the spine from depth $d$ down to the
+leaf); its \code{Version}, $s_v$ bytes on average; and its body, $M$
+bytes. The pairing prefix and the compressed spine \emph{partition} the
+leaf's 32 path bytes, so the path overhead is $d + 1 + (32 - d) = 33$
+bytes --- independent of where the leaf separated. When several differing
+leaves ship under one provided prefix, the shared spine bytes are paid
+once and branch bookkeeping appears instead (one \code{prefix\_len} and
+one \code{count\_minus\_two} byte per node, one radix byte per child): the
+per-leaf path overhead $\ell$ then sits in $[2, 35]$, and sharing only
+helps; the singleton value $\ell = 33$ is the common case, since uniform
+paths rarely co-separate at $D \ll N$. Redacted leaves ship \emph{nothing}
+here: both the Left arm and \code{answer\_requested} filter through
+\code{Unknown::unknown} before anything is serialized
+(\code{partition.rs:91-142, 232-239}; \code{unknown.rs:28-34}), so a
+redacted leaf is billed for descent --- it counts in $D$, hence in
+$W$ --- and at most one \code{requested} record, but zero body bytes.
+In expectation:
+\begin{equation*}
+E[\code{providing}] \;=\; D_{\mathrm{live}} \cdot (\ell + s_v + M),
+\qquad \ell \approx 33.
+\end{equation*}
+
+\paragraph{\code{uncertain}: $W$ records of $h + \bar{k}$ bytes.}
+\S6 established that the records listed at depth $k$ are exactly the
+occupied children of the disputed depth-$(k{-}1)$ parents: the wire
+carries each disputed parent's \emph{full occupied sibling fan} --- the
+Both arm explodes every grandchild, not only the differing ones
+(\code{partition.rs:243-254}) --- and each depth is listed by exactly one
+side (the alternation; Theorem~2). The session-total record count, both
+directions summed, is therefore Theorem~1's $W$ itself:
+\begin{equation*}
+E[\#\text{records}] \;=\; W
+\;=\; \Theta\bigl(\min(b \cdot D,\, N) \cdot (1 + \log_b(N/D))\bigr).
+\end{equation*}
+A record at depth $k$ is $k$ raw prefix bytes plus the $h = 32$-byte hash
+(A8); $W$'s mass sits within a level of the saturation depth $j_N$ (the
+head and shoulder of \S6's regime table), so the mean record size is
+$\bar{r} = h + \bar{k}$ with $\bar{k} \le j_N + 1$: $\bar{r} \approx
+34$--$38$ bytes for $N \le 10^7$. The numbers below use $\bar{r} = 36$.
+
+\paragraph{\code{requested}: lower-order.} One bare prefix per separated
+they-only subtree: $R$ records, $R \le D$ (each names a subtree holding at
+least one differing leaf, and nothing is requested twice), each
+$\le k^* + 1 \le 33$ bytes, no hash. So $\le 33 \cdot D$ bytes total ---
+under the hash channel by a factor ${\sim}\bar{r} \cdot b/33 \approx 280$
+in the dispute regime $D \le N/b$, and never above the bodies' fixed
+per-leaf overhead. Lower-order everywhere.
+
+\paragraph{Framing and handshake: $O(1)$.} Two 25-byte raw preambles
+(\code{remote.rs:11-17}); two framed \code{Handshake}s carrying one
+\code{Version} each, $4 + s_v$ bytes framed (\code{message.rs:127-144});
+at most 36 frames per session (\S1) at 4 length bytes each
+(\code{remote.rs:26-33}); and a \code{u32} length per channel vector, at
+most three per frame (\code{message.rs:4-5}). Total fixed cost
+\begin{equation*}
+F \;\le\; 2 \cdot 25 + 2 \cdot (4 + s_v) + 36 \cdot 4 + 36 \cdot 12
+\;\approx\; 630 + 2 \cdot s_v \text{ bytes},
+\end{equation*}
+independent of $C$, $D$, and $M$.
+
+\paragraph{The expectation.} Summing the four contributions:
+\begin{equation*}
+E[B] \;=\;
+\underbrace{D_{\mathrm{live}} \cdot (\ell + s_v + M)}_{\text{bodies}}
+\;+\; \underbrace{W \cdot (h + \bar{k})}_{\text{hashes}}
+\;+\; \underbrace{R \cdot \bar{k}_q}_{\text{requests}}
+\;+\; F,
+\end{equation*}
+with $\ell \approx 33$, $h = 32$, $\bar{k} \le j_N + 1$, $R \le D$,
+$\bar{k}_q \le 33$, $F = O(s_v)$. Dropping the lower-order terms and
+absorbing the constants:
+\begin{equation*}
+E[B] \;=\; \Theta\Bigl( D_{\mathrm{live}} \cdot (M + s_v)
+\;+\; \bar{r} \cdot \min(b \cdot D,\, N) \cdot
+\bigl(1 + \log_b(N/D)\bigr) \Bigr),
+\qquad \bar{r} = h + \bar{k} \approx 36.
+\end{equation*}
+Two caveats, both already on the record. The hash term is the smooth
+envelope of \S7's staircase, so realized values mid-step run several times
+below it. And when one side is empty (\S10.2) the dispute machinery never
+engages: the hash term collapses to the \code{Opening}'s $O(b)$ records
+and $E[B] \approx D \cdot (\ell + s_v + M) + F$ --- the formula's hash
+envelope is then an overstatement, though the bodies dominate it there
+regardless.
+
+\paragraph{Crossover: when do bodies overtake hashes?} Set the two leading
+terms equal and solve for $M$:
+\begin{equation*}
+M^* \;=\; \bar{r} \cdot \frac{W}{D_{\mathrm{live}}} \;-\; (\ell + s_v).
+\end{equation*}
+On the smooth envelope with $D \le N/b$ and $D_{\mathrm{red}} = 0$,
+$W/D = b \cdot (1 + \log_b(N/D))$, so
+\begin{equation*}
+M^* \;\approx\; 36 \cdot 256 \cdot \bigl(1 + \log_{256}(N/D)\bigr)
+\;\approx\; 17,\ 21,\ 25\ \text{KB at } N/D = 10^2,\ 10^3,\ 10^4
+\end{equation*}
+--- the source of Theorem~2's ``${\sim}10$--$40$\,KB per differing
+message'' figure (the envelope, $\pm$ Lemma~1's occupancy constants). The
+realized figures, taking $W$ from \S7's exact-sum table, agree with the
+envelope only where it is tight, $D \lesssim b$: there
+$M^* \approx 9$--$24$\,KB (the $D = 1$ rows and the $D = 10^2$ cells).
+For $D \gg b$ the head levels' fans are shared among all $D$ differing
+leaves and the shoulder fan is $N/b^k < b$ --- the same staircase discount
+as \S7 --- and $M^*$ falls to ${\sim}0.3$--$6$\,KB (e.g.\ $W/D = 22$ at
+$(N, D) = (10^6, 10^4)$, so $M^* \approx 0.7$\,KB). Theorem~2's headline
+survives with its regime named: \textbf{hash traffic dominates for bodies
+under ${\sim}10$--$25$\,KB when divergence is sparse ($D \lesssim b$), but
+only under ${\sim}0.3$--$6$\,KB when it is heavy ($D \gg b$)}.
+
+\paragraph{Numbers.} $W$ from \S7's table at $N = 10^6$ (so $C \approx N$),
+$D_{\mathrm{red}} = 0$, $\bar{r} = 36$, $\ell = 33$, and a nominal
+$s_v = 16$\,B; ``share'' is the hash channel's fraction of $E[B]$
+(requests and framing are negligible at this scale):
+
+\begin{center}
+\begin{tabular}{@{}rrrrrrrr@{}}
+\toprule
+$C/D$ & $D$ & $W$ & hash bytes & $M^*$ &
+\multicolumn{3}{c@{}}{hash share of $E[B]$} \\
+\cmidrule(l){6-8}
+& & & & & $M = 256$\,B & $M = 4$\,KB & $M = 64$\,KB \\
+\midrule
+${\sim}10^6$ & $1$    & $527$              & $19$\,KB   & $18.9$\,KB & $98\%$ & $82\%$ & $22\%$ \\
+${\sim}10^4$ & $10^2$ & $27\,\mathrm{k}$   & $0.97$\,MB & $9.7$\,KB  & $97\%$ & $70\%$ & $13\%$ \\
+${\sim}10^2$ & $10^4$ & $220\,\mathrm{k}$  & $7.9$\,MB  & $0.74$\,KB & $72\%$ & $16\%$ & $1.2\%$ \\
+$9$          & $10^5$ & $1.08\,\mathrm{M}$ & $39$\,MB   & $0.34$\,KB & $56\%$ & $8.6\%$ & $0.6\%$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Read against the document's running example: moving one differing message
+through a $10^6$-leaf tree costs ${\approx}19$\,KB of hashes (\S4's
+18\,KB) however small the body --- and that constant is the radix-256
+tradeoff of \S10.6, not a fixable inefficiency.
+
+\paragraph{Does the $D_L$/$D_R$ split matter?} For the totals, no: each
+live differing leaf ships exactly once whichever side holds it, and $W$
+already counts both directions' listings. The only split-sensitive
+quantity in the derivation is Lemma~2's pair count
+$D_L(C + D_R) + D_R(C + D_L) = DC + 2 D_L D_R$, which ranges from $DC$
+(one-sided) to $DC + D^2/2$ (even split) --- at most a factor 2 inside the
+$\log_b$, i.e.\ $\le \log_{256} 2 \approx 0.13$ levels of separation
+depth. Per-direction loads do follow the split: the side holding $D_L$ of
+the difference sends $D_L$ of the bodies, while the alternation splits the
+hash records between the directions regardless.
 
 \section{An experiment that distinguishes them}
 
