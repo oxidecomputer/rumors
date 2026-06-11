@@ -28,7 +28,7 @@
 //!
 //! [`OrdMap::diff`]: imbl::OrdMap::diff
 
-use crate::version::Version;
+use crate::Version;
 
 use super::typed::*;
 use super::unknown::Unknown;

@@ -23,7 +23,7 @@ mod wire_snapshot;
 
 use protocol::*;
 
-use crate::version::Version;
+use crate::Version;
 use message::Handshake;
 
 // This macro allows defining one communication step of the inner protocol

@@ -1,6 +1,6 @@
 use itertools::Itertools;
 
-use crate::{message::Message, version::Version};
+use crate::{Version, message::Message};
 
 use super::typed::*;
 use height::{Height, Root, S, Z};

@@ -71,11 +71,11 @@
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
+use crate::Version;
 use crate::tree::typed::{
     Hash, Node, Prefix,
     height::{Height, Pred, Root, S, Z},
 };
-use crate::version::Version;
 
 #[cfg(test)]
 mod tests;

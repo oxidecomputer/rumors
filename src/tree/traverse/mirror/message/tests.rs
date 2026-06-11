@@ -15,11 +15,11 @@ use borsh::BorshDeserialize;
 use proptest::collection::vec;
 use proptest::prelude::*;
 
+use crate::Version;
 use crate::message::Message;
 use crate::tree::arb::{arb_root_node, arb_version, nth_party};
 use crate::tree::typed::height::{Height, Root, S, Z};
 use crate::tree::typed::{Hash, Node, Prefix};
-use crate::version::Version;
 
 use crate::tree::traverse::mirror::message;
 

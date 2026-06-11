@@ -5,7 +5,7 @@ use proptest::collection::{btree_set, vec};
 use proptest::prelude::*;
 
 use crate::tree::arb::arb_version;
-use crate::{message::Message, version::Version};
+use crate::{Version, message::Message};
 
 use super::Node;
 

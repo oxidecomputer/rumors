@@ -4,7 +4,7 @@ mod key;
 mod traverse;
 mod typed;
 
-use crate::{message::Message, tree::typed::Node, version::Version};
+use crate::{Version, message::Message, tree::typed::Node};
 
 pub use key::Key;
 

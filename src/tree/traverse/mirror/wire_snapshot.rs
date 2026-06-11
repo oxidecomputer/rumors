@@ -10,7 +10,7 @@ use super::message;
 use crate::tree::arb::nth_party;
 use crate::tree::typed::height::{Height, Root, S, Z};
 use crate::tree::typed::{Children, Hash, Node, Prefix};
-use crate::{message::Message, version::Version};
+use crate::{Version, message::Message};
 
 /// Map a single-letter party label to its disjoint-party index (see
 /// [`nth_party`]): `"a"` → 0, `"b"` → 1, and so on.

@@ -13,7 +13,7 @@ use crate::tree::arb::{arb_tree_root, nth_party};
 use crate::tree::mirror::message::Intent;
 use crate::tree::traverse::{Action, act};
 use crate::tree::typed::Path;
-use crate::{message::Message, version::Version};
+use crate::{Version, message::Message};
 
 use super::{local, mirror, remote};
 

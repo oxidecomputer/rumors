@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use crate::version::Version;
+use crate::Version;
 
 use super::typed::*;
 use height::{Height, S, Z};

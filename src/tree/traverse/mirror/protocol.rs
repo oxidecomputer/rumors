@@ -43,8 +43,8 @@
 use std::convert::Infallible;
 
 use crate::{
+    Version,
     tree::typed::height::{Height, Pred, Root, S, Z},
-    version::Version,
 };
 
 use super::message::{self, UnderRoot, UnderUnderRoot};

@@ -4,7 +4,7 @@ use bytes::Bytes;
 
 use super::hash::{Hash, Hasher};
 use super::height::{Height, Root, S};
-use crate::version::Version;
+use crate::Version;
 
 /// A typed path through the tree which is always the right height.
 ///

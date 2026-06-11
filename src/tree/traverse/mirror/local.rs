@@ -62,6 +62,7 @@ use std::{convert::Infallible, mem};
 use itertools::{EitherOrBoth, Itertools};
 
 use crate::{
+    Version,
     tree::{
         self,
         traverse::unknown::Unknown,
@@ -71,7 +72,6 @@ use crate::{
             levels::{Below, Top},
         },
     },
-    version::Version,
 };
 
 use super::message::{self, UnderRoot, UnderUnderRoot};

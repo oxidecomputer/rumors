@@ -3,7 +3,7 @@ use std::{fmt::Debug, iter::Map, marker::PhantomData};
 use borsh::{BorshDeserialize, BorshSerialize};
 use imbl::{OrdMap, ordmap};
 
-use crate::{message::Message, version::Version};
+use crate::{Version, message::Message};
 
 use super::hash::Hash;
 use super::height::{self, Height, S, Z};

@@ -11,7 +11,7 @@ use std::ops::{Bound, RangeBounds, RangeFull};
 
 use tinyvec::ArrayVec;
 
-use crate::{message::Message, version::Version};
+use crate::{Version, message::Message};
 
 use super::{Children, Node};
 

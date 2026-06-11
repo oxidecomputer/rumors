@@ -5,7 +5,7 @@ use proptest::prelude::*;
 use crate::tree::traverse::{Action, act};
 use crate::tree::typed::height::Root;
 use crate::tree::typed::{Node, Path};
-use crate::{message::Message, version::Version};
+use crate::{Version, message::Message};
 
 /// The `index`-th party in a canonical left-leaning fork chain descending from
 /// a single [`Party::seed`].

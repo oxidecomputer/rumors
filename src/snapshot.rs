@@ -1,4 +1,4 @@
-use crate::{Key, Network, Tree, Version};
+use crate::{Key, Network, Version, tree::Tree};
 use std::sync::Arc;
 
 /// The iterator of [`Snapshot::iter`], re-exported from the tree internals:

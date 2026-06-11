@@ -5,7 +5,7 @@ use std::sync::{Arc, OnceLock};
 use borsh::BorshSerialize;
 use imbl::OrdMap;
 
-use crate::{message::Message, tree::typed::Hash, version::Version};
+use crate::{Version, message::Message, tree::typed::Hash};
 
 mod iter;
 pub use iter::{Frozen, Iter, Leaf, Range};
