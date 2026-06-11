@@ -49,6 +49,17 @@
 //! strictly upward. Two histories with no containing order are
 //! *[`concurrent`](Version::concurrent)*.
 //!
+//! The [`causally`] module names that order's down-sets: composable
+//! constructors — [`since`](causally::since), [`before`](causally::before),
+//! [`delta`](causally::delta), and friends — build a [`causally::Range`]
+//! (a [`RangeBounds<Version>`](std::ops::RangeBounds) whose membership
+//! predicate is causal containment) for any API that filters by where
+//! versions stand in history. Where a *total* order over versions is
+//! needed, [`Area`] is the exact, strictly-monotone causal rank: ordering
+//! by `(Area, tiebreak)` linearly extends causality, so concurrent
+//! versions can be sequenced deterministically without ever inverting a
+//! causal dependency.
+//!
 //! By packaging a [`Version`] and a [`Party`] together into a [`Clock`], we get
 //! a causal clock which may be [`tick`](Clock::tick)ed,
 //! [`fork`](Clock::fork)ed, and [`join`](Clock::join)ed, in addition to derived
