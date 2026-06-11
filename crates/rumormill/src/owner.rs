@@ -1,30 +1,32 @@
-//! The actor that owns the canonical rumor set.
+//! The actor that owns the room's view of the rumor set.
 //!
-//! Exactly one task holds the `Known<Entry, Facts>` — the only value that
-//! can originate messages and redactions — together with the [`AppState`]
-//! display machine and the expiry wheel. Everything else talks to it through
-//! a [`Command`] channel and reads back through a
-//! [`watch`]-published [`View`] snapshot.
+//! One task holds the primary [`Broadcast`] handle, the [`Messages`]
+//! observer, the [`AppState`] display machine, and the expiry wheel.
+//! Everything else talks to it through a [`Command`] channel and reads back
+//! through a [`watch`]-published [`View`] snapshot.
 //!
 //! The wiring is deadlock-free by construction: the owner never awaits
-//! another task. [`Command::Snapshot`] is answered immediately (a
-//! [`rumors`](rumors::Known::rumors) snapshot is a cheap copy-on-write
-//! view), join callbacks only touch owner-local state, and publishing uses
-//! [`watch::Sender::send_replace`]. Every wait-for edge points from a
-//! connection task toward the owner, so the wait-for graph is acyclic.
+//! another task. [`Command::Handle`] is answered immediately (a
+//! [`Broadcast`] clone shares the internally-synchronized set), and
+//! publishing uses [`watch::Sender::send_replace`]. Every wait-for edge
+//! points from a connection task toward the owner, so the wait-for graph is
+//! acyclic.
 //!
-//! Concurrency follows the crate's snapshot discipline: connection tasks
-//! gossip with [`Known<Entry, Rumors>`] snapshots and fold what they learned
-//! back via [`Command::JoinBack`]; the owner drives the state machine
-//! forward at every join. A lost partition merge arrives as
-//! [`Command::Reset`], which swaps the whole world out.
+//! Connection tasks gossip on their own [`Broadcast`] clones; whatever a
+//! session learns lands in the shared set and reaches the owner through its
+//! [`Messages`] observer, folded into the same select loop the commands
+//! arrive on. Redactions learned from a peer are silent (the leaf is simply
+//! gone), so the owner diffs its display state against the live key set
+//! after every finished session ([`Command::SessionOutcome`]) and on every
+//! heartbeat. A lost partition merge arrives as [`Command::Reset`], which
+//! swaps the whole world out.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use futures::StreamExt;
-use rumors::{Key, Known, Network, Rumors, Version};
+use futures::{FutureExt, StreamExt};
+use rumors::{Broadcast, Key, Known, Messages, Network, Version};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::time::{DelayQueue, delay_queue};
 
@@ -95,22 +97,20 @@ pub enum Command {
         /// The expired entry's key.
         key: Key,
     },
-    /// Hand out a copy-on-write snapshot for a gossip session.
-    Snapshot {
-        /// Where to send the snapshot.
-        reply: oneshot::Sender<Known<Entry, Rumors>>,
-    },
-    /// Fold a gossiped snapshot back in, observing everything it learned.
-    JoinBack {
-        /// The snapshot, as returned by a completed gossip session.
-        snapshot: Known<Entry, Rumors>,
+    /// Hand out a [`Broadcast`] clone for a gossip session. The clone shares
+    /// the owner's internally-synchronized set, so whatever the session
+    /// learns is immediately visible to the owner's observer; there is no
+    /// fold-back step.
+    Handle {
+        /// Where to send the handle.
+        reply: oneshot::Sender<Broadcast<Entry>>,
     },
     /// We lost a partition merge: adopt the winning universe wholesale.
     Reset {
-        /// The freshly bootstrapped rumor set in the winning network.
+        /// The freshly bootstrapped rumor set in the winning network. Its
+        /// content reaches the display through the owner's fresh observer,
+        /// which replays the set from genesis.
         known: Box<Known<Entry>>,
-        /// Every entry it arrived with, as observed by the bootstrap.
-        observed: Vec<(Key, Version, Arc<Entry>)>,
         /// The universe we were in when this merge was lost. The owner
         /// adopts only while it is *still* in that universe: the
         /// session-level verdict is the single arbiter of merges, and this
@@ -132,7 +132,12 @@ pub enum Command {
 /// The owner actor. Construct with [`Owner::new`], then drive with
 /// [`Owner::run`].
 pub struct Owner {
-    known: Known<Entry>,
+    /// The primary actor handle; sessions gossip on clones of it.
+    broadcast: Broadcast<Entry>,
+    /// The pull-based observer: every entry that becomes live in the set —
+    /// originated here, learned by any session's gossip, or replayed after
+    /// a reset — comes through exactly once.
+    observer: Messages<Entry>,
     state: AppState,
     me: PeerId,
     me_display: String,
@@ -158,8 +163,11 @@ impl Owner {
         clock: Clock,
     ) -> (Self, watch::Receiver<Arc<View>>) {
         let (view_tx, view_rx) = watch::channel(Arc::new(View::default()));
+        let broadcast = known.broadcast();
+        let observer = broadcast.messages();
         let owner = Owner {
-            known,
+            broadcast,
+            observer,
             state: AppState::new(),
             me,
             me_display,
@@ -179,12 +187,19 @@ impl Owner {
     /// Drive the actor until [`Command::Shutdown`], then return the `Known`
     /// (for retirement) and the retire candidates, most recently seen first.
     ///
-    /// The heartbeat interval and the expiry wheel are folded into the same
-    /// [`Command`] stream the channel feeds, so every state transition flows
-    /// through [`handle`](Self::handle).
+    /// The heartbeat interval, the expiry wheel, and the [`Messages`]
+    /// observer are folded into the same select loop the channel feeds, so
+    /// every state transition flows through [`handle`](Self::handle) or
+    /// [`observe_all`](Self::observe_all).
     pub async fn run(mut self, mut rx: mpsc::Receiver<Command>) -> (Known<Entry>, Vec<PeerId>) {
+        /// One turn of the owner loop: either a command or an observation.
+        enum Turn {
+            Cmd(Command),
+            Observed((Key, Version, Arc<Entry>)),
+        }
+
         // Announce ourselves to the (initially one-node) universe, presence
-        // included: the first snapshot handed out must already carry it, and
+        // included: the first handle given out must already carry it, and
         // the heartbeat interval below only keeps it fresh.
         let now = self.clock.now();
         self.originate(vec![
@@ -204,33 +219,44 @@ impl Owner {
                 at: now,
                 ttl_ms: timers::SYSTEM_TTL.as_millis() as u64,
             },
-        ])
-        .await;
+        ]);
         self.publish();
 
         let mut heartbeat = tokio::time::interval(timers::HEARTBEAT_INTERVAL);
         loop {
-            let cmd = tokio::select! {
-                Some(cmd) = rx.recv() => cmd,
-                _ = heartbeat.tick() => Command::HeartbeatTick,
-                // The guard keeps an empty wheel from being polled at all;
-                // `DelayQueue` ends its stream when empty rather than
-                // registering a waker for future inserts.
-                Some(expired) = self.expiry.next(), if !self.expiry.is_empty() => {
-                    Command::ExpiryDue { key: expired.into_inner() }
+            // The select borrows the wheel and the observer; bundling its
+            // outcome into a `Turn` ends those borrows before `self` is
+            // borrowed again to act on it.
+            let turn = {
+                let expiry = &mut self.expiry;
+                let observer = &mut self.observer;
+                tokio::select! {
+                    Some(cmd) = rx.recv() => Turn::Cmd(cmd),
+                    _ = heartbeat.tick() => Turn::Cmd(Command::HeartbeatTick),
+                    // The guard keeps an empty wheel from being polled at all;
+                    // `DelayQueue` ends its stream when empty rather than
+                    // registering a waker for future inserts.
+                    Some(expired) = expiry.next(), if !expiry.is_empty() => {
+                        Turn::Cmd(Command::ExpiryDue { key: expired.into_inner() })
+                    }
+                    // Entries learned by sessions gossiping on their handle
+                    // clones; our own originations are drained inline by
+                    // `originate`, so this arm sees only what peers taught us.
+                    Some(observed) = observer.next() => Turn::Observed(observed),
                 }
             };
-            if matches!(cmd, Command::Shutdown) {
-                break;
+            match turn {
+                Turn::Cmd(Command::Shutdown) => break,
+                Turn::Cmd(cmd) => self.handle(cmd),
+                Turn::Observed(observed) => self.observe_all(vec![observed]),
             }
-            self.handle(cmd).await;
             self.publish();
         }
         self.shutdown().await
     }
 
     /// Apply one command to the state machine.
-    async fn handle(&mut self, cmd: Command) {
+    fn handle(&mut self, cmd: Command) {
         let now = self.clock.now();
         match cmd {
             Command::SendChat { channel, body } => {
@@ -240,16 +266,14 @@ impl Owner {
                     body,
                     sent_at: now,
                     ttl_ms: timers::CHAT_TTL.as_millis() as u64,
-                }])
-                .await;
+                }]);
             }
             Command::CreateChannel { name } => {
                 self.originate(vec![Entry::Channel {
                     name,
                     created_by: self.me,
                     at: now,
-                }])
-                .await;
+                }]);
             }
             Command::AddPeer { peer } => {
                 if peer != self.me && !self.dial_targets.contains(&peer) {
@@ -263,72 +287,65 @@ impl Owner {
                     peer: self.me,
                     name: self.name.clone(),
                     at: now,
-                }])
-                .await;
+                }]);
                 let effects = self.state.sweep_stale(now);
                 self.apply(effects);
+                self.sweep_losses();
             }
             Command::ExpiryDue { key } => {
                 self.expiry_keys.remove(&key);
                 self.state.forget(&key);
-                self.known.redact([key]);
+                self.broadcast.redact(key);
             }
-            Command::Snapshot { reply } => {
+            Command::Handle { reply } => {
                 // A dropped receiver means the session task died first;
                 // nothing to do.
-                let _ = reply.send(self.known.rumors());
+                let _ = reply.send(self.broadcast.clone());
             }
-            Command::JoinBack { snapshot } => self.join_back(snapshot).await,
-            Command::Reset {
-                known,
-                observed,
-                abandoned,
-            } => self.reset(*known, observed, abandoned).await,
+            Command::Reset { known, abandoned } => self.reset(*known, abandoned),
             Command::SessionOutcome { ok } => {
                 if ok {
                     self.stats.sessions_ok += 1;
                 } else {
                     self.stats.sessions_failed += 1;
                 }
+                // The session may have learned peer redactions, which are
+                // silent (the leaf is simply gone): diff the display state
+                // against the live set.
+                self.sweep_losses();
             }
             Command::Shutdown => unreachable!("run() intercepts Shutdown"),
         }
     }
 
-    /// Insert entries we author, observing each through the state machine.
-    async fn originate(&mut self, entries: Vec<Entry>) {
+    /// Insert entries we author, then drain the observer inline so the
+    /// state machine sees them before the next publish.
+    fn originate(&mut self, entries: Vec<Entry>) {
+        {
+            let mut batch = self.broadcast.batch();
+            for entry in entries {
+                batch.send(entry);
+            }
+        }
+        self.drain_observer();
+    }
+
+    /// Pull everything the observer has pending — without blocking — and
+    /// run it through the state machine.
+    fn drain_observer(&mut self) {
         let mut observed: Vec<(Key, Version, Arc<Entry>)> = Vec::new();
-        self.known
-            .message_then(entries, |key, version, entry| {
-                observed.push((key, version.clone(), entry.clone()));
-                async {}
-            })
-            .await;
+        while let Some(Some(item)) = self.observer.next().now_or_never() {
+            observed.push(item);
+        }
         self.observe_all(observed);
     }
 
-    /// Fold a gossiped snapshot back in: observe its gains, then diff away
-    /// its losses (joins observe gains only — a key another peer redacted
-    /// simply stops being live, and the diff is how that reaches the
-    /// screen).
-    async fn join_back(&mut self, snapshot: Known<Entry, Rumors>) {
-        let mut observed: Vec<(Key, Version, Arc<Entry>)> = Vec::new();
-        if self
-            .known
-            .join_then(snapshot, |key, version, entry| {
-                observed.push((key, version.clone(), entry.clone()));
-                async {}
-            })
-            .await
-            .is_err()
-        {
-            // A snapshot from before a partition-merge reset: it belongs to
-            // the universe we abandoned, and `join` hands it back untouched
-            // on the network mismatch. Drop it.
-            return;
-        }
-        self.observe_all(observed);
-        let live = self.known.iter().map(|(key, _, _)| key).collect();
+    /// Diff the display state against the live key set: observers see gains
+    /// only — a key another peer redacted simply stops being live, and this
+    /// diff is how that reaches the screen.
+    fn sweep_losses(&mut self) {
+        let snapshot = self.broadcast.snapshot();
+        let live = snapshot.iter().map(|(key, _, _)| key).collect();
         for dead in self.state.retain_live(&live) {
             if let Some(slot) = self.expiry_keys.remove(&dead) {
                 self.expiry.try_remove(&slot);
@@ -343,29 +360,35 @@ impl Owner {
     /// universe it was computed against. Concurrent sessions can race two
     /// resets: the first to land adopts, the second no longer matches and
     /// is dropped (a future session against that universe re-arbitrates).
-    async fn reset(
-        &mut self,
-        known: Known<Entry>,
-        observed: Vec<(Key, Version, Arc<Entry>)>,
-        abandoned: Network,
-    ) {
-        if abandoned != self.known.network() || known.network() == self.known.network() {
+    fn reset(&mut self, known: Known<Entry>, abandoned: Network) {
+        if abandoned != self.broadcast.network() || known.network() == self.broadcast.network() {
             // Stale or out-raced reset. Dropping `known` abandons the party
             // region the winner forked for us — a leak in a universe we are
             // not adopting, which is the acceptable cost of losing the race.
             return;
         }
 
-        // The old universe is gone wholesale: state, timers, highlights.
+        // The old universe is gone wholesale: state, timers, highlights,
+        // handle, observer. Stale `Broadcast` clones still inside session
+        // tasks keep talking to the abandoned set until those sessions end;
+        // their universe loses every future merge verdict, so nothing they
+        // do can leak back in.
         self.state = AppState::new();
         self.expiry.clear();
         self.expiry_keys.clear();
         self.highlights.clear();
-        self.known = known;
+        self.broadcast = known.broadcast();
+        // A fresh observer replays the adopted universe from genesis; the
+        // inline drain below runs it through the state machine so the merge
+        // lands on screen atomically with the network switch.
+        self.observer = self.broadcast.messages();
         self.stats.merges += 1;
-        self.merged_notice = Some(format!("merged into {}", network_short(&self.known)));
+        self.merged_notice = Some(format!(
+            "merged into {}",
+            network_short(self.broadcast.network())
+        ));
 
-        self.observe_all(observed);
+        self.drain_observer();
 
         // Re-announce ourselves in the new universe.
         let now = self.clock.now();
@@ -389,7 +412,7 @@ impl Owner {
                 at: now,
             });
         }
-        self.originate(entries).await;
+        self.originate(entries);
     }
 
     /// Run a batch of observations through the state machine and apply the
@@ -429,7 +452,10 @@ impl Owner {
             }
         }
         if !redact.is_empty() {
-            self.known.redact(redact);
+            let mut batch = self.broadcast.batch();
+            for key in redact {
+                batch.redact(key);
+            }
         }
     }
 
@@ -482,12 +508,12 @@ impl Owner {
         self.dial_targets
             .retain(|peer| !self.state.presence.contains_key(peer));
 
-        self.stats.live_entries = self.known.len();
+        self.stats.live_entries = self.broadcast.len();
         let view = View {
             me: self.me,
             me_display: self.me_display.clone(),
             name: self.name.clone(),
-            network: network_short(&self.known),
+            network: network_short(self.broadcast.network()),
             merged_notice: self.merged_notice.clone(),
             channels,
             roster,
@@ -497,8 +523,9 @@ impl Owner {
         self.view_tx.send_replace(Arc::new(view));
     }
 
-    /// Say goodbye and hand the `Known` back for retirement, along with
-    /// retire candidates ordered by presence recency.
+    /// Say goodbye, reclaim the `Known` from the broadcast generation, and
+    /// hand it back for retirement along with retire candidates ordered by
+    /// presence recency.
     async fn shutdown(mut self) -> (Known<Entry>, Vec<PeerId>) {
         let now = self.clock.now();
         // The leave notice and our presence redaction ride out with the
@@ -508,12 +535,11 @@ impl Owner {
             body: format!("{} left", self.name),
             at: now,
             ttl_ms: timers::SYSTEM_TTL.as_millis() as u64,
-        }])
-        .await;
+        }]);
         if let Some(rec) = self.state.presence.get(&self.me) {
             let key = rec.key;
             self.state.forget(&key);
-            self.known.redact([key]);
+            self.broadcast.redact(key);
         }
 
         let mut candidates: Vec<(Millis, PeerId)> = self
@@ -524,17 +550,26 @@ impl Owner {
             .map(|(peer, rec)| (rec.at, *peer))
             .collect();
         candidates.sort_by(|a, b| b.cmp(a));
+
+        // Reunite resolves once every session's handle clone has dropped
+        // (the caller tears the gossip tasks down alongside us); we are the
+        // only reuniter, so the `Known` always comes back to us.
+        let known = self
+            .broadcast
+            .reunite()
+            .await
+            .expect("the owner is the sole reuniter");
         (
-            self.known,
+            known,
             candidates.into_iter().map(|(_, peer)| peer).collect(),
         )
     }
 }
 
-/// A short, human-scannable identifier for the current universe, derived
-/// from the `Network`'s debug form (`Network(<hex>)`).
-fn network_short<S>(known: &Known<Entry, S>) -> String {
-    let debug = format!("{:?}", known.network());
+/// A short, human-scannable identifier for a universe, derived from the
+/// `Network`'s debug form (`Network(<hex>)`).
+fn network_short(network: Network) -> String {
+    let debug = format!("{network:?}");
     let hex = debug.trim_start_matches("Network(").trim_end_matches(')');
     hex.chars().take(8).collect()
 }

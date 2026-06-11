@@ -13,27 +13,28 @@ use super::*;
 const ALICE: PeerId = [0xaa; 32];
 const BOB: PeerId = [0xbb; 32];
 
-/// Insert `entries` into `known` and return each one's `(key, version)` in
-/// insertion order. Insertion order is causal order here: every insert ticks
-/// the same party, so versions come back totally ordered.
-async fn mint(known: &mut Known<Entry>, entries: Vec<Entry>) -> Vec<(Key, Version)> {
-    let mut tagged: Vec<(Key, Version, Millis)> = Vec::new();
-    known
-        .message_then(entries, |key, version, entry| {
-            let at = match entry.as_ref() {
-                Entry::Chat { sent_at, .. } => *sent_at,
-                Entry::Presence { at, .. }
-                | Entry::Channel { at, .. }
-                | Entry::System { at, .. } => *at,
-            };
-            tagged.push((key, version.clone(), at));
-            async {}
-        })
-        .await;
-    // Callback order is unspecified; recover insertion order from the
-    // distinct timestamps the tests bake into each entry.
-    tagged.sort_by_key(|(_, _, at)| *at);
-    tagged.into_iter().map(|(k, v, _)| (k, v)).collect()
+/// Insert `entries` into `known` as one batch and return each one's
+/// `(key, version)` in insertion order. Insertion order is causal order
+/// here: every insert ticks the same party, so the minted versions come
+/// back totally ordered and sorting by them recovers the batch order.
+fn mint(known: &Known<Entry>, entries: Vec<Entry>) -> Vec<(Key, Version)> {
+    let pre = known.latest();
+    {
+        let mut batch = known.batch();
+        for entry in entries {
+            batch.send(entry);
+        }
+    }
+    let snapshot = known.snapshot();
+    let mut minted: Vec<(Key, Version)> = snapshot
+        .range(rumors::causally::since(&pre))
+        .map(|(key, version, _)| (key, version.clone()))
+        .collect();
+    minted.sort_by(|(_, a), (_, b)| {
+        a.partial_cmp(b)
+            .expect("one party's versions are totally ordered")
+    });
+    minted
 }
 
 fn chat(body: &str, sent_at: Millis) -> Entry {
@@ -59,9 +60,9 @@ fn beat(peer: PeerId, name: &str, at: Millis) -> Entry {
 /// redacted.
 #[tokio::test(flavor = "current_thread")]
 async fn expiry_policy_on_arrival() {
-    let mut known: Known<Entry> = Known::seed();
+    let known: Known<Entry> = Known::seed();
     let entries = vec![chat("live", 1_000), chat("dead", 2_000)];
-    let minted = mint(&mut known, entries.clone()).await;
+    let minted = mint(&known, entries.clone());
     let mut state = AppState::new();
 
     let now = 1_000 + 60_000; // "live" has 1ms left; "dead" expired exactly now
@@ -86,9 +87,9 @@ async fn expiry_policy_on_arrival() {
 /// the UI can highlight the insertion.
 #[tokio::test(flavor = "current_thread")]
 async fn late_delivery_reports_mid_list() {
-    let mut known: Known<Entry> = Known::seed();
+    let known: Known<Entry> = Known::seed();
     let entries = vec![chat("first", 1_000), chat("second", 2_000)];
-    let minted = mint(&mut known, entries.clone()).await;
+    let minted = mint(&known, entries.clone());
     let mut state = AppState::new();
 
     // Deliver in inverted causal order: second, then first.
@@ -127,9 +128,9 @@ async fn late_delivery_reports_mid_list() {
 /// order, and the loser is redacted so stale beats never accumulate.
 #[tokio::test(flavor = "current_thread")]
 async fn presence_supersession_is_arrival_order_independent() {
-    let mut known: Known<Entry> = Known::seed();
+    let known: Known<Entry> = Known::seed();
     let entries = vec![beat(ALICE, "alice", 1_000), beat(ALICE, "alice", 2_000)];
-    let minted = mint(&mut known, entries.clone()).await;
+    let minted = mint(&known, entries.clone());
 
     // Old then new: the new beat evicts the old.
     let mut state = AppState::new();
@@ -157,13 +158,13 @@ async fn presence_supersession_is_arrival_order_independent() {
 /// the only path by which a peer's redaction reaches the screen.
 #[tokio::test(flavor = "current_thread")]
 async fn retain_live_drops_peer_redactions() {
-    let mut known: Known<Entry> = Known::seed();
+    let known: Known<Entry> = Known::seed();
     let entries = vec![
         chat("kept", 1_000),
         chat("redacted-elsewhere", 2_000),
         beat(BOB, "bob", 3_000),
     ];
-    let minted = mint(&mut known, entries.clone()).await;
+    let minted = mint(&known, entries.clone());
     let mut state = AppState::new();
     for ((key, version), entry) in minted.iter().zip(&entries) {
         state.observe(*key, version, entry, 0);
@@ -192,9 +193,9 @@ async fn retain_live_drops_peer_redactions() {
 #[tokio::test(flavor = "current_thread")]
 async fn sweep_stale_boundary() {
     let stale_ms = timers::PRESENCE_STALE.as_millis() as Millis;
-    let mut known: Known<Entry> = Known::seed();
+    let known: Known<Entry> = Known::seed();
     let entries = vec![beat(ALICE, "alice", 1_000), beat(BOB, "bob", 2_000)];
-    let minted = mint(&mut known, entries.clone()).await;
+    let minted = mint(&known, entries.clone());
     let mut state = AppState::new();
     for ((key, version), entry) in minted.iter().zip(&entries) {
         state.observe(*key, version, entry, 0);
@@ -216,7 +217,7 @@ async fn sweep_stale_boundary() {
 /// whenever the creation entry shows up.
 #[tokio::test(flavor = "current_thread")]
 async fn channel_creation_is_order_independent() {
-    let mut known: Known<Entry> = Known::seed();
+    let known: Known<Entry> = Known::seed();
     let entries = vec![
         Entry::Chat {
             channel: "dogs".into(),
@@ -231,7 +232,7 @@ async fn channel_creation_is_order_independent() {
             at: 2_000,
         },
     ];
-    let minted = mint(&mut known, entries.clone()).await;
+    let minted = mint(&known, entries.clone());
     let mut state = AppState::new();
 
     // The message arrives before the channel's creation entry.
@@ -247,9 +248,9 @@ async fn channel_creation_is_order_independent() {
 /// `peer_name` resolves through presence and falls back to a short hex id.
 #[tokio::test(flavor = "current_thread")]
 async fn peer_name_resolution() {
-    let mut known: Known<Entry> = Known::seed();
+    let known: Known<Entry> = Known::seed();
     let entries = vec![beat(ALICE, "alice", 1_000)];
-    let minted = mint(&mut known, entries.clone()).await;
+    let minted = mint(&known, entries.clone());
     let mut state = AppState::new();
     state.observe(minted[0].0, &minted[0].1, &entries[0], 0);
 

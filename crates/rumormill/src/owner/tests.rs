@@ -49,45 +49,43 @@ fn spawn_node(known: Known<Entry>, me: PeerId, name: &str) -> Node {
 }
 
 /// Mint a second originating peer in `a`'s universe over a duplex pipe.
-async fn bootstrap_from(a: Known<Entry>) -> (Known<Entry>, Known<Entry>) {
+async fn bootstrap_from(mut a: Known<Entry>) -> (Known<Entry>, Known<Entry>) {
     let (sa, sb) = tokio::io::duplex(64 * 1024);
     let (mut ar, mut aw) = tokio::io::split(sa);
     let (mut br, mut bw) = tokio::io::split(sb);
-    let (a, b) = tokio::join!(
+    let (served, b) = tokio::join!(
         a.gossip(&mut ar, &mut aw),
         Known::<Entry>::bootstrap(&mut br, &mut bw),
     );
-    (a.unwrap(), b.unwrap().expect("peer served the bootstrap"))
+    served.unwrap();
+    (a, b.unwrap().expect("peer served the bootstrap"))
 }
 
-async fn snapshot(cmd: &mpsc::Sender<Command>) -> Known<Entry, Rumors> {
+/// Ask an owner for a session handle, exactly as a connection task would.
+async fn handle(cmd: &mpsc::Sender<Command>) -> Broadcast<Entry> {
     let (reply, rx) = oneshot::channel();
-    cmd.send(Command::Snapshot { reply }).await.unwrap();
+    cmd.send(Command::Handle { reply }).await.unwrap();
     rx.await.unwrap()
 }
 
-/// One full gossip session between two owners: snapshot both, reconcile over
-/// a duplex pipe, fold both snapshots back.
+/// One full gossip session between two owners: take a handle from each,
+/// reconcile over a duplex pipe, and report the outcome — the report is
+/// what triggers each owner's loss sweep, exactly as in production.
 async fn gossip_pair(a: &Node, b: &Node) {
-    let snap_a = snapshot(&a.cmd).await;
-    let snap_b = snapshot(&b.cmd).await;
+    let mut ha = handle(&a.cmd).await;
+    let mut hb = handle(&b.cmd).await;
     let (sa, sb) = tokio::io::duplex(64 * 1024);
     let (mut ar, mut aw) = tokio::io::split(sa);
     let (mut br, mut bw) = tokio::io::split(sb);
-    let (ra, rb) = tokio::join!(
-        snap_a.gossip(&mut ar, &mut aw),
-        snap_b.gossip(&mut br, &mut bw),
-    );
+    let (ra, rb) = tokio::join!(ha.gossip(&mut ar, &mut aw), hb.gossip(&mut br, &mut bw),);
+    ra.unwrap();
+    rb.unwrap();
     a.cmd
-        .send(Command::JoinBack {
-            snapshot: ra.unwrap(),
-        })
+        .send(Command::SessionOutcome { ok: true })
         .await
         .unwrap();
     b.cmd
-        .send(Command::JoinBack {
-            snapshot: rb.unwrap(),
-        })
+        .send(Command::SessionOutcome { ok: true })
         .await
         .unwrap();
 }
@@ -219,8 +217,7 @@ async fn staleness_evicts_and_revival_restores() {
 /// Two independently seeded universes meet: gossip surfaces a symmetric
 /// `NetworkMismatch`, exactly one side wins the merge rule, the loser
 /// bootstraps and resets — and its old content is gone while the winner's
-/// survives. Stale snapshots from the abandoned universe are dropped
-/// silently, and a late `Reset` whose verdict was computed against the
+/// survives. A late `Reset` whose verdict was computed against the
 /// already-abandoned universe is declined.
 #[tokio::test(flavor = "current_thread")]
 async fn network_merge_resets_the_loser() {
@@ -245,16 +242,16 @@ async fn network_merge_resets_the_loser() {
 
     // The contact attempt: both sides gossip and both fail symmetrically
     // with the other's network and event floor.
-    let snap_a = snapshot(&a.cmd).await;
-    let snap_b = snapshot(&b.cmd).await;
-    let ours_a = (snap_a.latest().min_ticks(), snap_a.network());
-    let ours_b = (snap_b.latest().min_ticks(), snap_b.network());
+    let mut handle_a = handle(&a.cmd).await;
+    let mut handle_b = handle(&b.cmd).await;
+    let ours_a = (handle_a.latest().min_ticks(), handle_a.network());
+    let ours_b = (handle_b.latest().min_ticks(), handle_b.network());
     let (sa, sb) = tokio::io::duplex(64 * 1024);
     let (mut ar, mut aw) = tokio::io::split(sa);
     let (mut br, mut bw) = tokio::io::split(sb);
     let (ra, rb) = tokio::join!(
-        snap_a.gossip(&mut ar, &mut aw),
-        snap_b.gossip(&mut br, &mut bw),
+        handle_a.gossip(&mut ar, &mut aw),
+        handle_b.gossip(&mut br, &mut bw),
     );
     let theirs_a = match ra {
         Err(Error::NetworkMismatch {
@@ -275,42 +272,30 @@ async fn network_merge_resets_the_loser() {
     assert_eq!(theirs_b, ours_a);
     assert_ne!(ours_a > theirs_a, ours_b > theirs_b);
 
-    let (winner, loser, abandoned, winner_body, loser_body) = if ours_a > theirs_a {
-        (&a, &mut b, ours_b.1, "from alice", "from bob")
+    let (winner_handle, loser, abandoned, winner_body, loser_body) = if ours_a > theirs_a {
+        (handle_a, &mut b, ours_b.1, "from alice", "from bob")
     } else {
-        (&b, &mut a, ours_a.1, "from bob", "from alice")
+        (handle_b, &mut a, ours_a.1, "from bob", "from alice")
     };
 
-    // The loser keeps a snapshot of its doomed universe to replay later.
-    let stale_snapshot = snapshot(&loser.cmd).await;
-
     // The loser bootstraps from the winner over a fresh pipe and resets.
-    let serve = snapshot(&winner.cmd).await;
+    // (The owner's fresh observer replays the adopted content; no
+    // observation list rides the command.)
+    let mut serve = winner_handle;
     let (sw, sl) = tokio::io::duplex(64 * 1024);
     let (mut wr, mut ww) = tokio::io::split(sw);
     let (mut lr, mut lw) = tokio::io::split(sl);
-    let mut observed: Vec<(Key, Version, Arc<Entry>)> = Vec::new();
     let (served, fresh) = tokio::join!(
         serve.gossip(&mut wr, &mut ww),
-        Known::<Entry>::bootstrap_then(&mut lr, &mut lw, |key, version, entry| {
-            observed.push((key, version.clone(), entry.clone()));
-            async {}
-        }),
+        Known::<Entry>::bootstrap(&mut lr, &mut lw),
     );
-    winner
-        .cmd
-        .send(Command::JoinBack {
-            snapshot: served.unwrap(),
-        })
-        .await
-        .unwrap();
+    served.unwrap();
     let fresh = fresh.unwrap().expect("winner served the bootstrap");
-    let expected_network = network_short(&fresh);
+    let expected_network = network_short(fresh.network());
     loser
         .cmd
         .send(Command::Reset {
             known: Box::new(fresh),
-            observed,
             abandoned,
         })
         .await
@@ -326,15 +311,6 @@ async fn network_merge_resets_the_loser() {
     assert_eq!(view.stats.merges, 1);
     assert!(view.merged_notice.is_some());
 
-    // A snapshot from the abandoned universe joins back as a no-op (network
-    // mismatch inside `join` hands it back; the owner drops it).
-    loser
-        .cmd
-        .send(Command::JoinBack {
-            snapshot: stale_snapshot,
-        })
-        .await
-        .unwrap();
     // A late Reset raced from a session in the *abandoned* universe is
     // declined — we already left it, so its verdict no longer applies and a
     // future session would re-arbitrate. The view keeps the adopted network.
@@ -342,7 +318,6 @@ async fn network_merge_resets_the_loser() {
         .cmd
         .send(Command::Reset {
             known: Box::new(Known::seed()),
-            observed: Vec::new(),
             abandoned,
         })
         .await
@@ -396,7 +371,8 @@ async fn shutdown_returns_known_and_candidates() {
     let (known, candidates) = a.task.await.unwrap();
     assert_eq!(candidates, vec![BOB]);
     // Our own presence is redacted; the goodbye notice is live.
-    let live: Vec<&Entry> = known.iter().map(|(_, _, e)| e.as_ref()).collect();
+    let snapshot = known.snapshot();
+    let live: Vec<&Entry> = snapshot.iter().map(|(_, _, e)| e.as_ref()).collect();
     assert!(
         !live
             .iter()

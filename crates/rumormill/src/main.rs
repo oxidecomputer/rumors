@@ -116,16 +116,16 @@ async fn main() -> anyhow::Result<()> {
     let _ = execute!(std::io::stdout(), DisableBracketedPaste);
     ratatui::restore();
 
-    // Leave gracefully. Order matters: the owner says goodbye and hands the
-    // `Known` back; then the gossip tasks are torn down so their snapshots
-    // drop (retire refuses while any snapshot shares the party — the
-    // library enforces the exclusivity, and `net::retire` waits it out).
+    // Leave gracefully. Order matters: tear the gossip tasks down first so
+    // their `Broadcast` handle clones drop, then ask the owner to say
+    // goodbye — its shutdown reunites the `Known` out of the broadcast
+    // generation, which resolves exactly when no session handle remains.
     cmd_tx.send(Command::Shutdown).await.ok();
-    let (known, candidates) = owner_task.await.context("owner task panicked")?;
     scheduler.abort();
     accept.abort();
     let _ = scheduler.await;
     let _ = accept.await;
+    let (known, candidates) = owner_task.await.context("owner task panicked")?;
 
     if candidates.is_empty() {
         eprintln!(

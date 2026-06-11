@@ -28,7 +28,7 @@ use iroh::endpoint::{Connection, presets};
 use iroh::{Endpoint, EndpointId};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
-use rumors::{Error, Key, Known, Network, RetireError, Version};
+use rumors::{Broadcast, Error, Known, Network, Retire};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio::time::{Instant, timeout};
@@ -43,13 +43,6 @@ pub const ALPN: &[u8] = b"rumormill/0";
 
 /// Concurrent inbound sessions served at once; excess streams wait.
 const MAX_INBOUND: usize = 8;
-
-/// How many times the retire walk re-checks for snapshot exclusivity while
-/// aborted session tasks finish dropping their snapshots.
-const OUTSTANDING_RETRIES: u32 = 20;
-
-/// Delay between those re-checks.
-const OUTSTANDING_RETRY_DELAY: Duration = Duration::from_millis(100);
 
 /// How long [`settle`] waits for the peer's FIN before giving up and
 /// letting the connection close anyway.
@@ -97,17 +90,15 @@ async fn run_stream(
     mut recv: iroh::endpoint::RecvStream,
     cmd: &mpsc::Sender<Command>,
 ) -> anyhow::Result<()> {
-    let snapshot = request_snapshot(cmd).await?;
-    // `gossip` consumes the snapshot on failure; keep our side of the merge
-    // comparison from before the attempt.
-    let ours = (snapshot.latest().min_ticks(), snapshot.network());
+    let mut handle = request_handle(cmd).await?;
+    // Our side of the merge comparison, from before the attempt.
+    let ours = (handle.latest().min_ticks(), handle.network());
 
-    match snapshot.gossip(&mut recv, &mut send).await {
-        Ok(learned) => {
+    match handle.gossip(&mut recv, &mut send).await {
+        Ok(()) => {
+            // Whatever the session learned is already in the shared set,
+            // on its way to the owner through its observer.
             settle(&mut send, &mut recv).await;
-            cmd.send(Command::JoinBack { snapshot: learned })
-                .await
-                .context("owner gone")?;
             Ok(())
         }
         Err(Error::NetworkMismatch {
@@ -132,23 +123,20 @@ async fn serve_merge(conn: &Connection, cmd: &mpsc::Sender<Command>) -> anyhow::
     let (mut send, mut recv) = timeout(timers::SESSION_TIMEOUT, conn.accept_bi())
         .await
         .context("waiting for the loser's bootstrap stream")??;
-    let snapshot = request_snapshot(cmd).await?;
-    let learned = snapshot
+    let mut handle = request_handle(cmd).await?;
+    handle
         .gossip(&mut recv, &mut send)
         .await
         .context("serving the merge bootstrap")?;
     settle(&mut send, &mut recv).await;
-    cmd.send(Command::JoinBack { snapshot: learned })
-        .await
-        .context("owner gone")?;
     Ok(())
 }
 
 /// Merge, losing side: bootstrap a brand-new `Known` from the winner over a
 /// fresh stream (the mismatched one died mid-protocol) and hand it to the
-/// owner as a [`Command::Reset`], observations and all. `abandoned` is the
-/// universe the verdict was computed against; the owner adopts only while
-/// it is still in it.
+/// owner as a [`Command::Reset`]. `abandoned` is the universe the verdict
+/// was computed against; the owner adopts only while it is still in it, and
+/// observes the adopted content by replaying it through a fresh observer.
 async fn request_merge(
     conn: &Connection,
     cmd: &mpsc::Sender<Command>,
@@ -158,18 +146,13 @@ async fn request_merge(
         .open_bi()
         .await
         .context("opening the bootstrap stream")?;
-    let mut observed: Vec<(Key, Version, Arc<Entry>)> = Vec::new();
-    let known = Known::<Entry>::bootstrap_then(&mut recv, &mut send, |key, version, entry| {
-        observed.push((key, version.clone(), entry.clone()));
-        async {}
-    })
-    .await
-    .context("bootstrapping into the winning universe")?
-    .context("the winner was itself bootstrapping or retiring")?;
+    let known = Known::<Entry>::bootstrap(&mut recv, &mut send)
+        .await
+        .context("bootstrapping into the winning universe")?
+        .context("the winner was itself bootstrapping")?;
     settle(&mut send, &mut recv).await;
     cmd.send(Command::Reset {
         known: Box::new(known),
-        observed,
         abandoned,
     })
     .await
@@ -188,15 +171,14 @@ async fn settle(send: &mut iroh::endpoint::SendStream, recv: &mut iroh::endpoint
     let _ = timeout(TEARDOWN_GRACE, recv.read_to_end(64)).await;
 }
 
-/// Ask the owner for a copy-on-write snapshot.
-async fn request_snapshot(
-    cmd: &mpsc::Sender<Command>,
-) -> anyhow::Result<Known<Entry, rumors::Rumors>> {
+/// Ask the owner for a session handle (a `Broadcast` clone of the current
+/// universe's set).
+async fn request_handle(cmd: &mpsc::Sender<Command>) -> anyhow::Result<Broadcast<Entry>> {
     let (reply, rx) = oneshot::channel();
-    cmd.send(Command::Snapshot { reply })
+    cmd.send(Command::Handle { reply })
         .await
         .context("owner gone")?;
-    rx.await.context("owner dropped the snapshot request")
+    rx.await.context("owner dropped the handle request")
 }
 
 /// Dial `peer` and run one session.
@@ -344,10 +326,9 @@ pub enum Departure {
 }
 
 /// Retire into the first willing candidate, walking the list in presence
-/// recency order. Call only after the scheduler and accept loop are aborted:
-/// retire refuses ([`RetireError::Outstanding`]) while any session snapshot
-/// is still alive, and we retry briefly to let aborted tasks finish
-/// dropping.
+/// recency order. The caller hands us the reunited `Known` — the
+/// `Known`/`Broadcast` XOR means no session can be using the set while we
+/// hold it, so retirement's exclusivity holds by construction.
 pub async fn retire(
     endpoint: &Endpoint,
     mut known: Known<Entry>,
@@ -365,46 +346,31 @@ pub async fn retire(
             continue;
         };
 
-        let mut outstanding_retries = 0;
-        loop {
-            match known.retire(&mut recv, &mut send).await {
-                // Retired: we are gone; the peer holds our party.
-                Ok(None) => {
-                    let _ = send.finish();
-                    conn.close(0u32.into(), b"retired");
-                    return Departure::Retired { into: target };
-                }
-                // Declined (the peer was itself retiring or bootstrapping):
-                // intact, try the next candidate.
-                Ok(Some(intact)) => {
-                    known = intact;
-                    break;
-                }
-                // Session snapshots are still dropping after the abort;
-                // nothing touched the wire. Give them a moment.
-                Err(RetireError::Outstanding { known: intact }) => {
-                    known = intact;
-                    outstanding_retries += 1;
-                    if outstanding_retries > OUTSTANDING_RETRIES {
-                        conn.close(0u32.into(), b"leak");
-                        return Departure::Leaked;
-                    }
-                    tokio::time::sleep(OUTSTANDING_RETRY_DELAY).await;
-                }
-                // Failed before the party frame: intact, try elsewhere.
-                Err(RetireError::Recovered { known: intact, .. }) => {
-                    known = intact;
-                    break;
-                }
-                // Failed during the party frame: the peer may hold our
-                // party. Retrying could duplicate the region; stop here.
-                Err(RetireError::Uncertain { .. }) => {
-                    conn.close(0u32.into(), b"uncertain");
-                    return Departure::Uncertain;
-                }
+        match known.retire(&mut recv, &mut send).await {
+            // Retired: we are gone; the peer holds our party.
+            Retire::Retired => {
+                let _ = send.finish();
+                conn.close(0u32.into(), b"retired");
+                return Departure::Retired { into: target };
+            }
+            // Declined (the peer was itself retiring): intact, try the
+            // next candidate.
+            Retire::Declined { known: intact } => {
+                known = intact;
+                conn.close(0u32.into(), b"declined");
+            }
+            // Failed before the party frame: intact, try elsewhere.
+            Retire::Recovered { known: intact, .. } => {
+                known = intact;
+                conn.close(0u32.into(), b"recovered");
+            }
+            // Failed during the party frame: the peer may hold our
+            // party. Retrying could duplicate the region; stop here.
+            Retire::Uncertain { .. } => {
+                conn.close(0u32.into(), b"uncertain");
+                return Departure::Uncertain;
             }
         }
-        conn.close(0u32.into(), b"declined");
     }
     Departure::Leaked
 }

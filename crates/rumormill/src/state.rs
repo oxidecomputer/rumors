@@ -8,13 +8,14 @@
 //! holds no `Known`, and reads no clock (the caller passes `now`), so the
 //! whole lifecycle is testable with synthetic events.
 //!
-//! Two callbacks rumors does *not* provide shape this module:
+//! Two signals rumors does *not* deliver shape this module:
 //!
-//! - Joins observe gains only; a message redacted by a peer simply stops
+//! - Observers see gains only; a message redacted by a peer simply stops
 //!   being live. [`retain_live`](AppState::retain_live) diffs the tracked
-//!   key set against the `Known`'s live keys after every join to notice
-//!   removals. Ephemerality bounds the live set, so the diff stays cheap.
-//! - Redacting locally fires no callback either, so the mutators here
+//!   key set against the set's live keys after every finished session to
+//!   notice removals. Ephemerality bounds the live set, so the diff stays
+//!   cheap.
+//! - Redacting locally is silent too, so the mutators here
 //!   ([`sweep_stale`](AppState::sweep_stale), [`forget`](AppState::forget))
 //!   drop their own bookkeeping in the same step that emits the
 //!   [`Effect::Redact`].
@@ -256,10 +257,10 @@ impl AppState {
         }
     }
 
-    /// Drop every tracked key not in `live` (the `Known`'s live key set,
-    /// taken after a join): this is how peer-originated redactions reach the
-    /// screen. Returns the dropped keys so the owner can cancel their expiry
-    /// timers.
+    /// Drop every tracked key not in `live` (the set's live keys, taken
+    /// after a finished session): this is how peer-originated redactions
+    /// reach the screen. Returns the dropped keys so the owner can cancel
+    /// their expiry timers.
     pub fn retain_live(&mut self, live: &HashSet<Key>) -> Vec<Key> {
         let dead: Vec<Key> = self
             .messages
