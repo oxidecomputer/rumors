@@ -16,10 +16,12 @@
 //!   wins — see [`net::decide`]) and the loser resets wholesale, bootstrapping
 //!   into the winner. A fresh node is just a tiny partition that always
 //!   loses, so "joining" and "partition healing" are the same mechanism.
-//! - **Causal display order.** Messages are placed by their causal
-//!   [`Version`](rumors::Version); a message that gossip delivers late lands
-//!   *mid-list* (briefly highlighted) rather than at the bottom. Concurrent
-//!   messages carry no obligation and sit in arrival order.
+//! - **Causal display order.** The owner observes through
+//!   [`CausalMessages`](rumors::CausalMessages), so messages arrive in a
+//!   linear extension of causality and the display simply appends — no
+//!   placement logic at all. A message delivered from a *concurrent* line
+//!   of history (a gossip burst composed in ignorance of the channel tail)
+//!   is briefly highlighted as the boundary of merged-in history.
 //! - **Redaction everywhere.** Chat and system notices expire on a TTL
 //!   (every holder redacts, idempotently); each heartbeat supersedes and
 //!   redacts its predecessor; silent peers have their last presence redacted
@@ -39,7 +41,8 @@
 //!    dialed B.
 //! 4. `/new dogs` on B: the channel appears everywhere (Tab to switch).
 //! 5. `kill -STOP` C, chat on A and B, `kill -CONT` C: the missed messages
-//!    land mid-list on C, highlighted.
+//!    arrive on C in causal order, highlighted where they don't follow
+//!    from what C already shows.
 //! 6. `kill -9` B: within ~30s the survivors drop B from the roster (stale
 //!    presence redacted).
 //! 7. Wait ~15s after any join/leave: the notice vanishes everywhere (TTL
@@ -50,7 +53,6 @@
 //! Sending a message to a peer who is offline still works — it propagates
 //! through any peers both of you gossip with, whenever they next reconcile.
 
-mod causal;
 mod cli;
 mod entry;
 mod net;

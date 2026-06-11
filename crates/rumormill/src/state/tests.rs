@@ -37,6 +37,22 @@ fn mint(known: &Known<Entry>, entries: Vec<Entry>) -> Vec<(Key, Version)> {
     minted
 }
 
+/// A party-disjoint fork of `known`, minted by serving a bootstrap over an
+/// in-memory duplex: the only honest source of genuinely concurrent
+/// versions.
+async fn bootstrap_empty_fork(known: &mut Known<Entry>) -> Known<Entry> {
+    let (sa, sb) = tokio::io::duplex(64 * 1024);
+    let (mut ar, mut aw) = tokio::io::split(sa);
+    let (mut br, mut bw) = tokio::io::split(sb);
+    let (served, fork) = tokio::join!(
+        known.gossip(&mut ar, &mut aw),
+        Known::<Entry>::bootstrap(&mut br, &mut bw),
+    );
+    served.expect("serve the fork's bootstrap");
+    fork.expect("bootstrap handshake")
+        .expect("the parent served the bootstrap")
+}
+
 fn chat(body: &str, sent_at: Millis) -> Entry {
     Entry::Chat {
         channel: "general".into(),
@@ -83,16 +99,35 @@ async fn expiry_policy_on_arrival() {
     assert!(!state.messages.contains_key(dead_key));
 }
 
-/// A message delivered out of causal order lands mid-list and reports it, so
-/// the UI can highlight the insertion.
+/// A message that causally follows the channel tail extends the
+/// conversation unflagged; one delivered from a *concurrent* line of
+/// history is flagged as a [`Effect::ConcurrentArrival`] for the UI to
+/// highlight. Display order is plain arrival order — sound because the
+/// owner feeds `observe` from a `CausalMessages` observer.
 #[tokio::test(flavor = "current_thread")]
-async fn late_delivery_reports_mid_list() {
-    let known: Known<Entry> = Known::seed();
+async fn concurrent_arrival_is_flagged() {
+    // Two causal lines: alice's chain, and a concurrent message minted by a
+    // disjoint fork that never saw it. The fork is minted while both sides
+    // are empty, so the two lines share no history.
+    let mut known: Known<Entry> = Known::seed();
+    let fork = bootstrap_empty_fork(&mut known).await;
+
     let entries = vec![chat("first", 1_000), chat("second", 2_000)];
     let minted = mint(&known, entries.clone());
+    let elsewhere = vec![chat("elsewhere", 3_000)];
+    let minted_elsewhere = mint(&fork, elsewhere.clone());
+
     let mut state = AppState::new();
 
-    // Deliver in inverted causal order: second, then first.
+    // The chain, in causal delivery order: the successor is not flagged.
+    let effects = state.observe(minted[0].0, &minted[0].1, &entries[0], 0);
+    assert_eq!(
+        effects,
+        vec![Effect::Schedule {
+            key: minted[0].0,
+            deadline: 61_000
+        }]
+    );
     let effects = state.observe(minted[1].0, &minted[1].1, &entries[1], 0);
     assert_eq!(
         effects,
@@ -101,27 +136,30 @@ async fn late_delivery_reports_mid_list() {
             deadline: 62_000
         }]
     );
-    let effects = state.observe(minted[0].0, &minted[0].1, &entries[0], 0);
+
+    // The concurrent message arrives last (a later pass): flagged.
+    let effects = state.observe(
+        minted_elsewhere[0].0,
+        &minted_elsewhere[0].1,
+        &elsewhere[0],
+        0,
+    );
     assert_eq!(
         effects,
         vec![
             Effect::Schedule {
-                key: minted[0].0,
-                deadline: 61_000
+                key: minted_elsewhere[0].0,
+                deadline: 63_000
             },
-            Effect::InsertedMidList {
+            Effect::ConcurrentArrival {
                 channel: "general".into(),
-                key: minted[0].0
+                key: minted_elsewhere[0].0
             },
         ]
     );
-    // And the display order is causal despite arrival order.
-    let order: Vec<Key> = state.channels["general"]
-        .list
-        .iter()
-        .map(|s| s.key)
-        .collect();
-    assert_eq!(order, vec![minted[0].0, minted[1].0]);
+    // Display order is arrival order.
+    let order: Vec<Key> = state.channels["general"].list.clone();
+    assert_eq!(order, vec![minted[0].0, minted[1].0, minted_elsewhere[0].0]);
 }
 
 /// Presence supersession: the causally newer beat wins regardless of arrival
@@ -180,12 +218,7 @@ async fn retain_live_drops_peer_redactions() {
     assert!(state.messages.contains_key(&minted[0].0));
     assert!(!state.messages.contains_key(&minted[1].0));
     assert!(!state.presence.contains_key(&BOB));
-    let order: Vec<Key> = state.channels["general"]
-        .list
-        .iter()
-        .map(|s| s.key)
-        .collect();
-    assert_eq!(order, vec![minted[0].0]);
+    assert_eq!(state.channels["general"].list, vec![minted[0].0]);
 }
 
 /// The staleness sweep evicts exactly the peers whose newest beat is at

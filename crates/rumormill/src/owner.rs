@@ -1,32 +1,31 @@
 //! The actor that owns the room's view of the rumor set.
 //!
-//! One task holds the primary [`Broadcast`] handle, the [`Messages`]
-//! observer, the [`AppState`] display machine, and the expiry wheel.
-//! Everything else talks to it through a [`Command`] channel and reads back
-//! through a [`watch`]-published [`View`] snapshot.
+//! One task holds the primary [`Broadcast`] handle, the [`CausalMessages`]
+//! observer, the [`AppState`] display machine, and the expiry wheel. Everything
+//! else talks to it through a [`Command`] channel and reads back through a
+//! [`watch`]-published [`View`] snapshot.
 //!
-//! The wiring is deadlock-free by construction: the owner never awaits
-//! another task. [`Command::Handle`] is answered immediately (a
-//! [`Broadcast`] clone shares the internally-synchronized set), and
-//! publishing uses [`watch::Sender::send_replace`]. Every wait-for edge
-//! points from a connection task toward the owner, so the wait-for graph is
-//! acyclic.
+//! The wiring is deadlock-free by construction: the owner never awaits another
+//! task. [`Command::Handle`] is answered immediately (a [`Broadcast`] clone
+//! shares the internally-synchronized set), and publishing uses
+//! [`watch::Sender::send_replace`]. Every wait-for edge points from a
+//! connection task toward the owner, so the wait-for graph is acyclic.
 //!
 //! Connection tasks gossip on their own [`Broadcast`] clones; whatever a
 //! session learns lands in the shared set and reaches the owner through its
-//! [`Messages`] observer, folded into the same select loop the commands
+//! [`CausalMessages`] observer, folded into the same select loop the commands
 //! arrive on. Redactions learned from a peer are silent (the leaf is simply
-//! gone), so the owner diffs its display state against the live key set
-//! after every finished session ([`Command::SessionOutcome`]) and on every
-//! heartbeat. A lost partition merge arrives as [`Command::Reset`], which
-//! swaps the whole world out.
+//! gone), so the owner diffs its display state against the live key set after
+//! every finished session ([`Command::SessionOutcome`]) and on every heartbeat.
+//! A lost partition merge arrives as [`Command::Reset`], which swaps the whole
+//! world out.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use futures::{FutureExt, StreamExt};
-use rumors::{Broadcast, Key, Known, Messages, Network, Version};
+use rumors::{Broadcast, CausalMessages, Key, Known, Network, Version};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::time::{DelayQueue, delay_queue};
 
@@ -137,7 +136,7 @@ pub struct Owner {
     /// The pull-based observer: every entry that becomes live in the set —
     /// originated here, learned by any session's gossip, or replayed after
     /// a reset — comes through exactly once.
-    observer: Messages<Entry>,
+    observer: CausalMessages<Entry>,
     state: AppState,
     me: PeerId,
     me_display: String,
@@ -164,7 +163,7 @@ impl Owner {
     ) -> (Self, watch::Receiver<Arc<View>>) {
         let (view_tx, view_rx) = watch::channel(Arc::new(View::default()));
         let broadcast = known.broadcast();
-        let observer = broadcast.messages();
+        let observer = broadcast.causal_messages();
         let owner = Owner {
             broadcast,
             observer,
@@ -187,7 +186,7 @@ impl Owner {
     /// Drive the actor until [`Command::Shutdown`], then return the `Known`
     /// (for retirement) and the retire candidates, most recently seen first.
     ///
-    /// The heartbeat interval, the expiry wheel, and the [`Messages`]
+    /// The heartbeat interval, the expiry wheel, and the [`CausalMessages`]
     /// observer are folded into the same select loop the channel feeds, so
     /// every state transition flows through [`handle`](Self::handle) or
     /// [`observe_all`](Self::observe_all).
@@ -381,7 +380,7 @@ impl Owner {
         // A fresh observer replays the adopted universe from genesis; the
         // inline drain below runs it through the state machine so the merge
         // lands on screen atomically with the network switch.
-        self.observer = self.broadcast.messages();
+        self.observer = self.broadcast.causal_messages();
         self.stats.merges += 1;
         self.merged_notice = Some(format!(
             "merged into {}",
@@ -445,7 +444,7 @@ impl Owner {
                     let slot = self.expiry.insert(key, delay);
                     self.expiry_keys.insert(key, slot);
                 }
-                Effect::InsertedMidList { key, .. } => {
+                Effect::ConcurrentArrival { key, .. } => {
                     self.highlights
                         .insert(key, Instant::now() + timers::HIGHLIGHT);
                 }
@@ -473,10 +472,10 @@ impl Owner {
                 messages: channel
                     .list
                     .iter()
-                    .map(|slot| {
-                        let info = &self.state.messages[&slot.key];
+                    .map(|&key| {
+                        let info = &self.state.messages[&key];
                         MessageView {
-                            key: slot.key,
+                            key,
                             author: info.author,
                             author_name: match &info.author {
                                 Some(peer) => self.state.peer_name(peer),
@@ -484,7 +483,7 @@ impl Owner {
                             },
                             body: info.body.clone(),
                             at: info.at,
-                            highlight_until: self.highlights.get(&slot.key).copied(),
+                            highlight_until: self.highlights.get(&key).copied(),
                         }
                     })
                     .collect(),

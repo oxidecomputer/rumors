@@ -1,12 +1,20 @@
 //! The pure application state machine.
 //!
 //! [`AppState`] is the bridge between the rumor set and the screen: every
-//! entry the local `Known` observes (originated, gossiped, or bootstrapped)
+//! entry the local set observes (originated, gossiped, or bootstrapped)
 //! is fed through [`observe`](AppState::observe), which places it in the
 //! display structures and returns the [`Effect`]s the caller must apply —
 //! redactions to originate and expiries to schedule. The module does no I/O,
 //! holds no `Known`, and reads no clock (the caller passes `now`), so the
 //! whole lifecycle is testable with synthetic events.
+//!
+//! **The input contract is causal delivery**: the owner feeds `observe`
+//! from a [`CausalMessages`](rumors::CausalMessages) observer, so an entry
+//! never arrives before one it causally depends on. Display order is
+//! therefore plain arrival order — appending is the whole placement
+//! algorithm — and the only ordering question left per arrival is whether
+//! it causally follows the channel's tail
+//! ([`Effect::ConcurrentArrival`] when it does not).
 //!
 //! Two signals rumors does *not* deliver shape this module:
 //!
@@ -24,7 +32,6 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use rumors::{Key, Version};
 
-use crate::causal::CausalList;
 use crate::entry::{Entry, Millis, PeerId};
 use crate::timers;
 
@@ -44,10 +51,12 @@ pub enum Effect {
         /// Wall-clock deadline in epoch milliseconds.
         deadline: Millis,
     },
-    /// The entry landed mid-list: it was delivered out of causal order and
-    /// inserted between messages already on screen. The UI highlights it.
-    InsertedMidList {
-        /// The channel whose list the entry landed in.
+    /// The entry does not causally follow the message displayed above it:
+    /// it arrived from a *concurrent* line of history (a gossip burst
+    /// delivering messages composed elsewhere, in ignorance of the channel
+    /// tail). The UI highlights it as the boundary of merged-in history.
+    ConcurrentArrival {
+        /// The channel the entry landed in.
         channel: String,
         /// The entry's key.
         key: Key,
@@ -70,11 +79,19 @@ pub struct MessageInfo {
 /// One channel: causally ordered message keys plus creation metadata.
 #[derive(Debug, Default)]
 pub struct ChannelState {
-    /// Display order, a linear extension of the causal partial order.
-    pub list: CausalList<Key, Version>,
+    /// Display order: plain arrival order, which is a linear extension of
+    /// the causal partial order because the owner observes through
+    /// [`CausalMessages`](rumors::CausalMessages) — a message is never
+    /// delivered before one it causally depends on, so appending preserves
+    /// causal consistency with no placement logic at all.
+    pub list: Vec<Key>,
+    /// The version of the most recently appended message: the causal tail
+    /// the next arrival is compared against to detect a
+    /// [`ConcurrentArrival`](Effect::ConcurrentArrival).
+    tail: Option<Version>,
     /// Creation metadata, absent until (and unless) the [`Entry::Channel`]
     /// entry is observed — messages may arrive before their channel's
-    /// creation entry, since delivery is unordered.
+    /// creation entry, since concurrent entries carry no delivery order.
     pub created_by: Option<PeerId>,
 }
 
@@ -172,7 +189,13 @@ impl AppState {
         }
     }
 
-    /// Place an ephemeral message (chat or system notice) in its channel.
+    /// Append an ephemeral message (chat or system notice) to its channel.
+    ///
+    /// Append is all the placement there is: the caller feeds entries in
+    /// causal delivery order, so the list is a linear extension of
+    /// causality by construction. The only question left is whether the
+    /// newcomer causally follows the current tail — if not, it opens a
+    /// stretch of merged-in concurrent history, and the UI highlights it.
     #[allow(clippy::too_many_arguments)] // private plumbing shared by two variants
     fn place_message(
         &mut self,
@@ -189,11 +212,18 @@ impl AppState {
             // Expired before we ever displayed it; redact rather than show.
             return vec![Effect::Redact(key)];
         }
-        let state = self.channels.entry(channel.to_string()).or_default();
-        let len_before = state.list.len();
-        let Some(index) = state.list.insert(key, version.clone()) else {
+        if self.messages.contains_key(&key) {
             return Vec::new(); // duplicate observation
-        };
+        }
+        let state = self.channels.entry(channel.to_string()).or_default();
+        // Concurrent to (or somehow behind) the tail: news from elsewhere.
+        // A successor extends the conversation and is not flagged.
+        let concurrent = state
+            .tail
+            .as_ref()
+            .is_some_and(|tail| version.partial_cmp(tail) != Some(std::cmp::Ordering::Greater));
+        state.list.push(key);
+        state.tail = Some(version.clone());
         self.messages.insert(
             key,
             MessageInfo {
@@ -204,8 +234,8 @@ impl AppState {
             },
         );
         let mut effects = vec![Effect::Schedule { key, deadline }];
-        if index < len_before {
-            effects.push(Effect::InsertedMidList {
+        if concurrent {
+            effects.push(Effect::ConcurrentArrival {
                 channel: channel.to_string(),
                 key,
             });
@@ -283,7 +313,7 @@ impl AppState {
         if let Some(info) = self.messages.remove(key)
             && let Some(channel) = self.channels.get_mut(&info.channel)
         {
-            channel.list.remove(key);
+            channel.list.retain(|k| k != key);
         }
         if let Some(peer) = self.presence_keys.remove(key) {
             // Only drop the roster entry if it still points at this key; a
