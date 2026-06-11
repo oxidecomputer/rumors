@@ -21,7 +21,14 @@
 //!    byte offsets via [`FaultPlan`]s. Serving a bootstrap mid-chaos puts
 //!    the snapshot-and-fork critical section under concurrent sends from
 //!    sibling handles (see [`run_boot`]); a failed attempt may orphan the
-//!    served fork's id-region — counted, see below.
+//!    served fork's id-region — counted, see below. Each peer also carries
+//!    one observer of each kind ([`Messages`](rumors::Messages) and
+//!    [`CausalMessages`](rumors::CausalMessages)), drained concurrently
+//!    with the chaos and asserting the delivery contracts inline — no key
+//!    twice, no causal inversion, and full coverage of the peer's live set
+//!    once the writers settle (see [`run_observers`]). This is the only
+//!    place the observers' watch-coalescing path runs against genuinely
+//!    parallel writers.
 //! 3. **Retire**: planned retirements over possibly-faulty wires — the only
 //!    phase that moves whole parties, exercising the
 //!    recovered/uncertain/retired algebra under fire.
@@ -40,6 +47,7 @@
 //! plan generator arranges often, by disabling fault injection entirely in
 //! half its plans).
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -301,6 +309,77 @@ async fn run_activity(handle: Broadcast<u64>, script: Vec<Activity>) {
     }
 }
 
+/// Drain one peer's observers — one of each kind — concurrently with the
+/// chaos, asserting the delivery contracts on every step:
+///
+/// - **Exactly-once**: neither observer ever yields a key twice.
+/// - **Causal order** (the causal observer): no delivery is ever a causal
+///   predecessor of an earlier one.
+/// - **Coverage**: once `done` (the writers have settled), a final drain
+///   leaves every key live in the peer's snapshot observed by both.
+///
+/// The interesting part is not the assertions but where they run: under
+/// genuinely parallel sends, redactions, and gossip sessions on sibling
+/// handles, this is the only exercise of the observers' watch-coalescing
+/// path (`send_if_modified` racing `borrow_and_update`) outside
+/// single-threaded tests.
+async fn run_observers(handle: Broadcast<u64>, done: Arc<AtomicBool>) {
+    use futures::FutureExt;
+
+    let mut plain = handle.messages();
+    let mut causal = handle.causal_messages();
+    let mut plain_seen: BTreeSet<Key> = BTreeSet::new();
+    let mut causal_seen: BTreeSet<Key> = BTreeSet::new();
+    let mut causal_delivered: Vec<Version> = Vec::new();
+
+    loop {
+        // Settle *before* draining: after the writers finish, one more full
+        // drain below sees their complete effect, so the coverage check
+        // races nothing.
+        let finished = done.load(Ordering::Acquire);
+
+        while let Some(Some((key, version, _))) = plain.borrow_next().now_or_never() {
+            let _ = version;
+            assert!(
+                plain_seen.insert(key),
+                "Messages delivered key {key:?} twice"
+            );
+        }
+        while let Some(Some((key, version, _))) = causal.borrow_next().now_or_never() {
+            assert!(
+                causal_seen.insert(key),
+                "CausalMessages delivered key {key:?} twice"
+            );
+            for earlier in &causal_delivered {
+                assert!(
+                    !(version < earlier),
+                    "causal inversion: {version:?} delivered after {earlier:?}, \
+                     which causally depends on it"
+                );
+            }
+            causal_delivered.push(version.clone());
+        }
+
+        if finished {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+
+    // The writers have settled and both observers are quiet: everything
+    // live in the set was live at each observer's final pass.
+    for (key, _, _) in handle.snapshot().iter() {
+        assert!(
+            plain_seen.contains(&key),
+            "Messages never delivered live key {key:?}"
+        );
+        assert!(
+            causal_seen.contains(&key),
+            "CausalMessages never delivered live key {key:?}"
+        );
+    }
+}
+
 /// Concurrently re-assert global pairwise party disjointness until `done`.
 ///
 /// Sound mid-flight: a region is removed from its holder's shared state
@@ -357,6 +436,10 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
     let casts: Vec<Broadcast<u64>> = fleet.into_iter().map(Known::broadcast).collect();
     let done = Arc::new(AtomicBool::new(false));
     let prober = tokio::spawn(probe_disjointness(casts.clone(), Arc::clone(&done)));
+    let observers: Vec<_> = casts
+        .iter()
+        .map(|handle| tokio::spawn(run_observers(handle.clone(), Arc::clone(&done))))
+        .collect();
 
     let mut tasks = Vec::new();
     for (handle, script) in casts.iter().zip(&plan.scripts) {
@@ -388,6 +471,9 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
     }
     done.store(true, Ordering::Release);
     prober.await.expect("prober task");
+    for observer in observers {
+        observer.await.expect("observer task");
+    }
 
     // Phase 3: reunite, then run the planned retirements. Retirement
     // requires the unique `Known` (the Known/Broadcast XOR), so parties
