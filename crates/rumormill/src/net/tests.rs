@@ -10,7 +10,7 @@ use super::*;
 
 /// Mint a real (opaque) `Network` from a deterministic seed.
 fn network(seed: u64) -> Network {
-    Known::<Entry>::seed_rng(&mut StdRng::seed_from_u64(seed)).network()
+    Peer::<Entry>::seed_rng(&mut StdRng::seed_from_u64(seed)).network()
 }
 
 proptest! {

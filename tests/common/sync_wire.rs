@@ -1,19 +1,19 @@
 //! Wire helpers for the *synchronous* gossip path: drive
-//! `sync::Known::gossip` over a pair of `std::io::pipe`s with one peer
-//! on each thread. Mirrors `wire.rs` for the async `Known::gossip`
+//! `sync::Rumors::gossip` over a pair of `std::io::pipe`s with one peer
+//! on each thread. Mirrors `wire.rs` for the async `Rumors::gossip`
 //! path. Used by the `sync_wire` integration test.
 
 use std::io::pipe;
 use std::thread;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use rumors::sync::Known;
+use rumors::sync::{Peer, Rumors};
 
-/// Gossip two `Known`s through the synchronous wire protocol. After this
-/// returns, the two `Known`s agree on live content. One side blocks on
+/// Gossip two `Rumors` through the synchronous wire protocol. After this
+/// returns, the two rumor sets agree on live content. One side blocks on
 /// this thread, the other on a spawned thread; the thread is scoped so
 /// `b` can be borrowed rather than moved.
-pub fn sync_wire_gossip<T>(a: &mut Known<T>, b: &mut Known<T>)
+pub fn sync_wire_gossip<T>(a: &mut Rumors<T>, b: &mut Rumors<T>)
 where
     T: Clone + BorshSerialize + BorshDeserialize + Send + std::marker::Sync + 'static,
 {
@@ -28,7 +28,7 @@ where
     });
 }
 
-/// Mint a genuine, party-disjoint `sync::Known` from `parent` by serving it
+/// Mint a genuine, party-disjoint `sync::Rumors` from `parent` by serving it
 /// a bootstrap over a pair of pipes: the synchronous counterpart of
 /// `wire::bootstrap_fork`.
 ///
@@ -38,7 +38,7 @@ where
 /// copy of `parent`'s content. Serving the bootstrap forks the slice off
 /// `parent`'s party in the same critical section that snapshots the served
 /// tree, so the two end up pairwise disjoint.
-pub fn sync_bootstrap_fork<T>(parent: &mut Known<T>) -> Known<T>
+pub fn sync_bootstrap_fork<T>(parent: &mut Rumors<T>) -> Rumors<T>
 where
     T: Clone + BorshSerialize + BorshDeserialize + Send + std::marker::Sync + 'static,
 {
@@ -47,7 +47,7 @@ where
 
     thread::scope(|s| {
         let newcomer = s.spawn(move || {
-            Known::<T>::bootstrap(&mut p_to_n_r, &mut n_to_p_w)
+            Peer::<T>::bootstrap(&mut p_to_n_r, &mut n_to_p_w)
                 .expect("bootstrap handshake")
                 .expect("parent served the bootstrap")
         });
@@ -56,4 +56,5 @@ where
             .expect("bootstrap server gossip");
         newcomer.join().expect("join bootstrap thread")
     })
+    .into_rumors()
 }

@@ -76,7 +76,7 @@
 //!           <->  wire-layer counter      <->  std::io::pipe
 //! ```
 //!
-//! The protocol uses `rumors::sync::Known::gossip` so we drive synchronous
+//! The protocol uses `rumors::sync::Rumors::gossip` so we drive synchronous
 //! `Read` + `Write` halves of a `std::io::pipe`; one helper thread runs bob's
 //! side per sample, alice's runs on the rayon worker thread. zstd's
 //! `Encoder::auto_finish` writes a closing block on drop so the peer's decoder
@@ -269,7 +269,7 @@ use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
 use rand::{SeedableRng, rngs::SmallRng};
 use rayon::prelude::*;
 use rumors::Key;
-use rumors::sync::Known;
+use rumors::sync::{Peer, Rumors};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -346,7 +346,7 @@ enum Mode {
 ///
 /// Only ever touched by a single thread (the rayon worker for alice, the bob
 /// worker for bob), but the wrapped handle has to be `Send` because
-/// [`rumors::sync::Known::gossip`]'s `R`/`W` parameters require it. We use
+/// [`rumors::sync::Rumors::gossip`]'s `R`/`W` parameters require it. We use
 /// `Arc<Mutex<…>>`: in single-threaded use the mutex is always uncontended,
 /// so each lock is a single uncontended atomic op — measurably negligible
 /// against the I/O the example is profiling.
@@ -454,7 +454,7 @@ fn axis(max_exp: u32) -> Vec<u32> {
 /// ordinary mirror descent and is handed a fresh disjoint party, forked in
 /// the same critical section that snapshots the served tree. Serving from an
 /// empty `parent` yields a disjoint empty peer in the same universe.
-fn bootstrap_fork<T>(parent: &mut Known<T>) -> Known<T>
+fn bootstrap_fork<T>(parent: &mut Rumors<T>) -> Rumors<T>
 where
     T: borsh::BorshSerialize + borsh::BorshDeserialize + Clone + Send + Sync + 'static,
 {
@@ -462,9 +462,10 @@ where
     let (mut n2p_r, mut n2p_w) = pipe().expect("pipe newcomer->parent");
     thread::scope(|s| {
         let newcomer = s.spawn(move || {
-            Known::<T>::bootstrap(&mut p2n_r, &mut n2p_w)
+            Peer::<T>::bootstrap(&mut p2n_r, &mut n2p_w)
                 .expect("bootstrap newcomer")
                 .expect("provider served bootstrap")
+                .into_rumors()
         });
         parent
             .gossip(&mut n2p_r, &mut p2n_w)
@@ -476,7 +477,7 @@ where
 /// One bidirectional gossip session between two locals over a pair of pipes,
 /// each side on its own thread: how a background party's content is absorbed
 /// into alice and bob now that the in-process merge is gone.
-fn sync_gossip<T>(a: &mut Known<T>, b: &mut Known<T>)
+fn sync_gossip<T>(a: &mut Rumors<T>, b: &mut Rumors<T>)
 where
     T: borsh::BorshSerialize + borsh::BorshDeserialize + Clone + Send + Sync + 'static,
 {
@@ -489,7 +490,7 @@ where
     });
 }
 
-/// Build the (alice, bob) `Known<()>` pair for one sample. Ancestor elements
+/// Build the (alice, bob) `Rumors<()>` pair for one sample. Ancestor elements
 /// are distributed as evenly as possible across `parties` distinct background
 /// parties, each of which inserts its share and is then processed into both
 /// alice's and bob's local views. Redactions reference *existing* ancestor
@@ -505,13 +506,13 @@ fn build_pair(
     distinct_b: u32,
     redacted_a: u32,
     redacted_b: u32,
-) -> (Known<()>, Known<()>) {
+) -> (Rumors<()>, Rumors<()>) {
     // Every party in one sample descends from a single universe seed, so they
     // are pairwise disjoint and can `learn` from one another (the Law of
     // Disjointness). ITC parties are anonymous — the old random party *names*
     // are gone, and forking is deterministic, so a given cell's structure is
     // now identical across samples.
-    let mut seed: Known<()> = Known::seed();
+    let mut seed: Rumors<()> = Peer::seed().into_rumors();
     let mut alice = bootstrap_fork(&mut seed);
     let mut bob = bootstrap_fork(&mut seed);
 
@@ -527,7 +528,7 @@ fn build_pair(
         for i in 0..effective {
             let count = (base + if i < remainder { 1 } else { 0 }) as usize;
             let mut bg = bootstrap_fork(&mut seed);
-            let pre = bg.latest();
+            let pre = bg.snapshot().latest().clone();
             {
                 let mut batch = bg.batch();
                 for _ in 0..count {
@@ -654,8 +655,10 @@ fn predict(
     let (alice, bob) = build_pair(
         parties, shared, distinct_a, distinct_b, redacted_a, redacted_b,
     );
-    let version_a = alice.latest();
-    let version_b = bob.latest();
+    let snapshot_a = alice.snapshot();
+    let snapshot_b = bob.snapshot();
+    let version_a = snapshot_a.latest();
+    let version_b = snapshot_b.latest();
     let vlen_a = version_a.as_bytes().len() as f64;
     let vlen_b = version_b.as_bytes().len() as f64;
 
@@ -1145,7 +1148,7 @@ fn build_io_stack(
 /// *inside* the worker thread (so they can live in an `Rc<RefCell<…>>`) and
 /// shipped back via the done channel.
 struct BobJob {
-    bob: Known<()>,
+    bob: Rumors<()>,
     read: std::io::PipeReader,
     write: std::io::PipeWriter,
     zstd_level: i32,

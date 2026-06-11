@@ -1,10 +1,10 @@
 //! Crate-level unit tests for party mechanics that the public integration
-//! tests can't reach: they need either a *forged* `Known` (private fields) or
-//! to read a `Known`'s [`Party`] and compare it to [`Party::seed`]. Both
+//! tests can't reach: they need either a *forged* `Peer` (private fields) or
+//! to read a `Peer`'s [`Party`] and compare it to [`Party::seed`]. Both
 //! require in-crate access, so they live here rather than in `tests/`.
 //!
 //! (The old typestate-era test of a retire refused by an outstanding
-//! snapshot has no equivalent: the `Known`/`Broadcast` XOR makes "retire
+//! snapshot has no equivalent: the `Peer`/`Rumors` XOR makes "retire
 //! while observers share the party" unrepresentable at compile time.)
 
 use std::pin::Pin;
@@ -15,7 +15,7 @@ use tokio::io::AsyncWrite;
 use tokio::sync::watch;
 
 use crate::tree::{Root, Tree};
-use crate::{Error, Inner, Known, Retire};
+use crate::{Error, Inner, Peer, Retire};
 
 /// Capacity for the in-memory duplex pipe; every retiree here is already
 /// converged with its absorber, so the sessions move no content and the exact
@@ -28,7 +28,7 @@ const DUPLEX_BUF: usize = 64 * 1024;
 const PREAMBLE_LEN: usize = 25;
 
 /// Insert each of `vals` into `k` as one committed batch.
-fn with_messages(k: Known<u64>, vals: &[u64]) -> Known<u64> {
+fn with_messages(k: Peer<u64>, vals: &[u64]) -> Peer<u64> {
     let mut batch = k.batch();
     for &v in vals {
         batch.send(v);
@@ -37,19 +37,19 @@ fn with_messages(k: Known<u64>, vals: &[u64]) -> Known<u64> {
     k
 }
 
-/// Read a `Known`'s party for assertions.
-fn party_of(k: &Known<u64>) -> Party {
+/// Read a `Peer`'s party for assertions.
+fn party_of(k: &Peer<u64>) -> Party {
     k.inner
         .borrow()
         .party
         .as_ref()
-        .expect("a live Known holds its party")
+        .expect("a live Peer holds its party")
         .dangerously_alias()
 }
 
 /// Drive `child.retire` against `survivor.gossip` over a duplex pipe, asserting
 /// the child retired, and return the (party-grown) survivor.
-fn retire_child_into(mut survivor: Known<u64>, child: Known<u64>) -> Known<u64> {
+fn retire_child_into(survivor: Peer<u64>, child: Peer<u64>) -> Peer<u64> {
     pollster::block_on(async {
         let (a_side, b_side) = tokio::io::duplex(DUPLEX_BUF);
         let (mut a_r, mut a_w) = tokio::io::split(a_side);
@@ -69,14 +69,14 @@ fn retire_child_into(mut survivor: Known<u64>, child: Known<u64>) -> Known<u64> 
 
 /// Drive `provider.gossip` against a fresh `bootstrap`, returning the
 /// post-serve provider and the bootstrapped peer.
-fn bootstrap_from(mut provider: Known<u64>) -> (Known<u64>, Known<u64>) {
+fn bootstrap_from(provider: Peer<u64>) -> (Peer<u64>, Peer<u64>) {
     pollster::block_on(async {
         let (a_side, b_side) = tokio::io::duplex(DUPLEX_BUF);
         let (mut a_r, mut a_w) = tokio::io::split(a_side);
         let (mut b_r, mut b_w) = tokio::io::split(b_side);
         let (provider_out, boot_out) = tokio::join!(
             provider.gossip(&mut a_r, &mut a_w),
-            Known::<u64>::bootstrap(&mut b_r, &mut b_w),
+            Peer::<u64>::bootstrap(&mut b_r, &mut b_w),
         );
         provider_out.expect("provider gossip");
         (
@@ -96,12 +96,12 @@ fn bootstrap_from(mut provider: Known<u64>) -> (Known<u64>, Known<u64>) {
 /// `party.join`, the only place it can arise.
 #[test]
 fn overlapping_retiree_party_is_rejected() {
-    let mut survivor = Known::<u64>::seed();
+    let survivor = Peer::<u64>::seed();
 
     // Forge a retiree sharing the survivor's network and its *exact* party
     // region (not a disjoint fork), with an empty tree so its version equals the
     // survivor's and the survivor takes the absorb branch.
-    let forged = Known::<u64> {
+    let forged = Peer::<u64> {
         network: survivor.network,
         inner: watch::Sender::new(Inner {
             party: Some(party_of(&survivor)),
@@ -134,7 +134,7 @@ fn overlapping_retiree_party_is_rejected() {
 /// leak anywhere would leave the reunited party short of the whole.
 #[test]
 fn retiring_all_forks_reconstitutes_the_seed_party() {
-    let survivor = Known::<u64>::seed();
+    let survivor = Peer::<u64>::seed();
     // Each child is a genuine party-disjoint fork, minted by serving a bootstrap.
     // All are empty, so they share the seed's version, are reflexively dominated,
     // and retire with no prior gossip.
@@ -160,7 +160,7 @@ fn retiring_all_forks_reconstitutes_the_seed_party() {
 /// retire commit are jointly leak-free.
 #[test]
 fn bootstrap_then_retire_reconstitutes_the_seed_party() {
-    let provider = with_messages(Known::<u64>::seed(), &[1, 2, 3]);
+    let provider = with_messages(Peer::<u64>::seed(), &[1, 2, 3]);
 
     let (provider, newcomer) = bootstrap_from(provider);
     // The newcomer pulled all content and is a causal fork (equal version), so
@@ -179,7 +179,7 @@ fn bootstrap_then_retire_reconstitutes_the_seed_party() {
 /// of one into the other afterwards still reconstitutes the whole id-space.
 #[test]
 fn mutual_retire_declines_both() {
-    let survivor = Known::<u64>::seed();
+    let survivor = Peer::<u64>::seed();
     let (survivor, child) = bootstrap_from(survivor);
 
     let (a_out, b_out) = pollster::block_on(async {
@@ -191,7 +191,7 @@ fn mutual_retire_declines_both() {
             child.retire(&mut b_r, &mut b_w),
         )
     });
-    let (Retire::Declined { known: survivor }, Retire::Declined { known: child }) = (a_out, b_out)
+    let (Retire::Declined { peer: survivor }, Retire::Declined { peer: child }) = (a_out, b_out)
     else {
         panic!("mutual retirement must decline both sides intact");
     };
@@ -256,9 +256,9 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for Fuse<W> {
 /// borsh-encoded [`Handshake`](crate::tree::mirror::message::Handshake) body —
 /// since the preamble rework, the version alone), so a [`Fuse`] budget can
 /// land on an exact protocol boundary.
-fn greeting_frame_len(retiree: &Known<u64>) -> usize {
+fn greeting_frame_len(retiree: &Peer<u64>) -> usize {
     let greeting = crate::tree::mirror::message::Handshake {
-        version: retiree.latest().clone(),
+        version: retiree.snapshot().latest().clone(),
     };
     4 + borsh::to_vec(&greeting).expect("serialize greeting").len()
 }
@@ -268,8 +268,8 @@ fn greeting_frame_len(retiree: &Known<u64>) -> usize {
 /// owned by its future, so the failing side's drop surfaces as EOF to the
 /// other rather than deadlocking the join. Returns both outcomes.
 fn severed_retire(
-    retiree: Known<u64>,
-    peer: &mut Known<u64>,
+    retiree: Peer<u64>,
+    peer: &mut Peer<u64>,
     budget: usize,
 ) -> (Retire<u64>, Result<(), Error>) {
     pollster::block_on(async move {
@@ -301,12 +301,12 @@ fn severed_retire(
 /// never in limbo during the descent.
 #[test]
 fn severed_descent_recovers_the_retiree() {
-    let survivor = Known::<u64>::seed();
+    let survivor = Peer::<u64>::seed();
     let (mut survivor, child) = bootstrap_from(survivor);
     // Diverge: the child holds content the survivor lacks, so the retire
     // session must descend, and its frames overflow the fuse's slack.
     let child = with_messages(child, &(0..32).collect::<Vec<u64>>());
-    let hash = child.hash();
+    let hash = child.snapshot().hash();
 
     // Admit exactly the preamble and greeting, plus a slack smaller than any
     // descent frame: the cut provably lands after the handshake completes and
@@ -318,11 +318,11 @@ fn severed_descent_recovers_the_retiree() {
         peer_out.is_err(),
         "the severed wire fails the absorbing side too"
     );
-    let Retire::Recovered { known: child, .. } = child_out else {
+    let Retire::Recovered { peer: child, .. } = child_out else {
         panic!("a pre-hand-off failure must recover the retiree, got {child_out:?}");
     };
     assert_eq!(
-        child.hash(),
+        child.snapshot().hash(),
         hash,
         "the recovered retiree's content is intact"
     );
@@ -344,7 +344,7 @@ fn severed_descent_recovers_the_retiree() {
 /// duplicating the region by surviving alongside a delivered copy.
 #[test]
 fn severed_party_frame_is_uncertain() {
-    let survivor = Known::<u64>::seed();
+    let survivor = Peer::<u64>::seed();
     let (mut survivor, child) = bootstrap_from(survivor);
 
     // Both empty and converged, so the session is exactly preamble + greeting

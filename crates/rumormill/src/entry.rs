@@ -1,6 +1,6 @@
 //! The replicated message schema.
 //!
-//! Everything rumormill knows rides one `Known<Entry>`: chat lines, channel
+//! Everything rumormill knows rides one `Rumors<Entry>`: chat lines, channel
 //! creations, presence heartbeats, and ephemeral system notices all live in
 //! the same replicated set, so a peer that bootstraps from a single contact
 //! learns the whole room — including who else there is to gossip with.

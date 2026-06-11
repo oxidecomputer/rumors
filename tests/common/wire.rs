@@ -1,10 +1,10 @@
 //! Wire helpers for the *asynchronous* gossip path: drive
-//! `rumors::Known::gossip` over an in-memory `tokio::io::duplex` pipe with
+//! `rumors::Rumors::gossip` over an in-memory `tokio::io::duplex` pipe with
 //! both peers running concurrently via `tokio::join!` on a current-thread
 //! runtime. Mirrors `sync_wire.rs`, which drives the synchronous
-//! `sync::Known::gossip` path.
+//! `sync::Rumors::gossip` path.
 //!
-//! Peers are the public asynchronous [`rumors::Known`] (not the synchronous
+//! Peers are the public asynchronous [`rumors::Rumors`] (not the synchronous
 //! wrapper), so these helpers exercise the genuinely-concurrent async
 //! protocol — two tasks making progress against each other through the
 //! duplex — rather than a single thread blocking on the bridged future.
@@ -13,7 +13,7 @@ use std::cell::OnceCell;
 use std::future::Future;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use rumors::Known;
+use rumors::{Peer, Rumors};
 use tokio::runtime::Runtime;
 
 thread_local! {
@@ -41,13 +41,13 @@ pub fn block_on<F: Future>(fut: F) -> F::Output {
 /// and naturally exercises backpressure.
 const DUPLEX_BUF: usize = 8 * 1024;
 
-/// Gossip two async `Known`s through the on-wire protocol. After this
-/// returns, the two `Known`s hold the same live content and version.
+/// Gossip two async `Rumors` through the on-wire protocol. After this
+/// returns, the two rumor sets hold the same live content and version.
 ///
 /// Both ends drive `gossip` concurrently over the two halves of a single
 /// `tokio::io::duplex` pipe, so the session makes real bidirectional
 /// progress rather than serializing one peer behind the other.
-pub fn wire_gossip<T>(a: &mut Known<T>, b: &mut Known<T>)
+pub fn wire_gossip<T>(a: &Rumors<T>, b: &Rumors<T>)
 where
     T: BorshSerialize + BorshDeserialize + Send + Sync + 'static,
 {
@@ -56,7 +56,7 @@ where
 
 /// Awaitable core of [`wire_gossip`], for callers already inside an async
 /// block on this thread's runtime (where a nested [`block_on`] would panic).
-pub async fn wire_gossip_async<T>(a: &mut Known<T>, b: &mut Known<T>)
+pub async fn wire_gossip_async<T>(a: &Rumors<T>, b: &Rumors<T>)
 where
     T: BorshSerialize + BorshDeserialize + Send + Sync + 'static,
 {
@@ -70,7 +70,7 @@ where
     b_result.expect("wire gossip B");
 }
 
-/// Mint a genuine, party-disjoint `Known` from `parent` by serving it a
+/// Mint a genuine, party-disjoint `Rumors` from `parent` by serving it a
 /// bootstrap over an in-memory pipe.
 ///
 /// This is how a test obtains a second *originator*: the returned peer
@@ -79,7 +79,7 @@ where
 /// exactly as a real process joining over the network would. `parent` keeps
 /// its own party (the bootstrap hands the newcomer a freshly-forked slice
 /// of it, in the same critical section that snapshots the served tree).
-pub fn bootstrap_fork<T>(parent: &mut Known<T>) -> Known<T>
+pub fn bootstrap_fork<T>(parent: &Rumors<T>) -> Rumors<T>
 where
     T: BorshSerialize + BorshDeserialize + Send + Sync + Clone + 'static,
 {
@@ -88,7 +88,7 @@ where
 
 /// Awaitable core of [`bootstrap_fork`], for callers already inside an async
 /// block on this thread's runtime (where a nested [`block_on`] would panic).
-pub async fn bootstrap_fork_async<T>(parent: &mut Known<T>) -> Known<T>
+pub async fn bootstrap_fork_async<T>(parent: &Rumors<T>) -> Rumors<T>
 where
     T: BorshSerialize + BorshDeserialize + Send + Sync + Clone + 'static,
 {
@@ -98,10 +98,11 @@ where
 
     let (server_out, boot_out) = tokio::join!(
         parent.gossip(&mut a_r, &mut a_w),
-        Known::<T>::bootstrap(&mut b_r, &mut b_w),
+        Peer::<T>::bootstrap(&mut b_r, &mut b_w),
     );
     server_out.expect("bootstrap server gossip");
     boot_out
         .expect("bootstrap handshake")
         .expect("parent served the bootstrap")
+        .into_rumors()
 }

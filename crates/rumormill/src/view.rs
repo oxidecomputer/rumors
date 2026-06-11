@@ -3,7 +3,7 @@
 //! The owner publishes an [`Arc<View>`](std::sync::Arc) through a
 //! [`tokio::sync::watch`] channel after every state transition; the UI task
 //! renders whatever snapshot is current and keeps only cursor and scroll
-//! state of its own. The types here are plain data — no `Known`, no iroh —
+//! state of its own. The types here are plain data — no `Rumors`, no iroh —
 //! so the renderer needs nothing but this module and ratatui.
 
 use std::time::Instant;

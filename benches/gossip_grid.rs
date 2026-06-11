@@ -1,5 +1,5 @@
 //! Over-the-wire reconciliation benchmark: the divergence grid from
-//! [`grid`], reconciled through [`Known::gossip`] over a simulated wire —
+//! [`grid`], reconciled through [`Rumors::gossip`] over a simulated wire —
 //! the protocol's full cost per cell: handshake, framing, and the
 //! round-trip exchange chain over the divergence it must move.
 //!
@@ -27,7 +27,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread::{self, JoinHandle};
 
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use rumors::sync::Known;
+use rumors::sync::Rumors;
 
 // The shared grid module exposes a superset of helpers; each bench binary uses
 // a subset, so the unused remainder is expected per-binary.
@@ -47,9 +47,9 @@ struct Wire {
     a_write: PipeWriter,
     /// Hands a freshly-built peer B to the worker for the next session. Wrapped
     /// in `Option` so [`Drop`] can close the channel before joining the worker.
-    work: Option<Sender<Known<()>>>,
+    work: Option<Sender<Rumors<()>>>,
     /// Receives the reconciled peer B back from the worker.
-    done: Receiver<Known<()>>,
+    done: Receiver<Rumors<()>>,
     worker: Option<JoinHandle<()>>,
 }
 
@@ -57,8 +57,8 @@ impl Wire {
     fn new() -> Self {
         let (a_to_b_r, a_to_b_w) = pipe().expect("pipe a→b");
         let (b_to_a_r, b_to_a_w) = pipe().expect("pipe b→a");
-        let (work_tx, work_rx) = channel::<Known<()>>();
-        let (done_tx, done_rx) = channel::<Known<()>>();
+        let (work_tx, work_rx) = channel::<Rumors<()>>();
+        let (done_tx, done_rx) = channel::<Rumors<()>>();
 
         // The worker owns peer B's pipe ends for its whole lifetime, gossiping
         // each peer handed to it over `work_rx` and returning the reconciled
@@ -85,7 +85,7 @@ impl Wire {
 
     /// Reconcile one pair over the wire: hand B to the worker, drive A here, and
     /// collect both reconciled peers once the exchange completes.
-    fn round_trip(&mut self, mut a: Known<()>, b: Known<()>) -> (Known<()>, Known<()>) {
+    fn round_trip(&mut self, mut a: Rumors<()>, b: Rumors<()>) -> (Rumors<()>, Rumors<()>) {
         self.work
             .as_ref()
             .expect("worker still running")
@@ -152,7 +152,7 @@ fn bench_gossip(c: &mut Criterion) {
 }
 
 /// Build a cell's peers and warm both trees' lazy memos in untimed setup.
-fn warmed(cell: grid::Cell) -> (Known<()>, Known<()>) {
+fn warmed(cell: grid::Cell) -> (Rumors<()>, Rumors<()>) {
     let (left, right) = grid::build(cell);
     left.warm_caches();
     right.warm_caches();

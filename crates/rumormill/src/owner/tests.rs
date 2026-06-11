@@ -25,10 +25,10 @@ struct Node {
     /// Warp this to move the node's wall clock.
     clock: Arc<AtomicU64>,
     #[allow(dead_code)] // held for lifetime; only the shutdown test joins it
-    task: JoinHandle<(Known<Entry>, Vec<PeerId>)>,
+    task: JoinHandle<(Peer<Entry>, Vec<PeerId>)>,
 }
 
-fn spawn_node(known: Known<Entry>, me: PeerId, name: &str) -> Node {
+fn spawn_node(known: Peer<Entry>, me: PeerId, name: &str) -> Node {
     let clock = Arc::new(AtomicU64::new(T0));
     let tick = clock.clone();
     let (owner, view) = Owner::new(
@@ -49,20 +49,24 @@ fn spawn_node(known: Known<Entry>, me: PeerId, name: &str) -> Node {
 }
 
 /// Mint a second originating peer in `a`'s universe over a duplex pipe.
-async fn bootstrap_from(mut a: Known<Entry>) -> (Known<Entry>, Known<Entry>) {
+/// Serving runs on a `Rumors` handle; the unique `Peer` is reclaimed with
+/// `try_into_peer` once the session is over.
+async fn bootstrap_from(a: Peer<Entry>) -> (Peer<Entry>, Peer<Entry>) {
+    let a = a.into_rumors();
     let (sa, sb) = tokio::io::duplex(64 * 1024);
     let (mut ar, mut aw) = tokio::io::split(sa);
     let (mut br, mut bw) = tokio::io::split(sb);
     let (served, b) = tokio::join!(
         a.gossip(&mut ar, &mut aw),
-        Known::<Entry>::bootstrap(&mut br, &mut bw),
+        Peer::<Entry>::bootstrap(&mut br, &mut bw),
     );
     served.unwrap();
+    let a = a.try_into_peer().await.expect("ours is the sole handle");
     (a, b.unwrap().expect("peer served the bootstrap"))
 }
 
 /// Ask an owner for a session handle, exactly as a connection task would.
-async fn handle(cmd: &mpsc::Sender<Command>) -> Broadcast<Entry> {
+async fn handle(cmd: &mpsc::Sender<Command>) -> Rumors<Entry> {
     let (reply, rx) = oneshot::channel();
     cmd.send(Command::Handle { reply }).await.unwrap();
     rx.await.unwrap()
@@ -72,8 +76,8 @@ async fn handle(cmd: &mpsc::Sender<Command>) -> Broadcast<Entry> {
 /// reconcile over a duplex pipe, and report the outcome — the report is
 /// what triggers each owner's loss sweep, exactly as in production.
 async fn gossip_pair(a: &Node, b: &Node) {
-    let mut ha = handle(&a.cmd).await;
-    let mut hb = handle(&b.cmd).await;
+    let ha = handle(&a.cmd).await;
+    let hb = handle(&b.cmd).await;
     let (sa, sb) = tokio::io::duplex(64 * 1024);
     let (mut ar, mut aw) = tokio::io::split(sa);
     let (mut br, mut bw) = tokio::io::split(sb);
@@ -124,7 +128,7 @@ fn has_chat(view: &View, channel: &str, body: &str) -> bool {
 /// earlier traffic.
 #[tokio::test(flavor = "current_thread")]
 async fn chat_propagates_both_ways() {
-    let (ka, kb) = bootstrap_from(Known::seed()).await;
+    let (ka, kb) = bootstrap_from(Peer::seed()).await;
     let mut a = spawn_node(ka, ALICE, "alice");
     let mut b = spawn_node(kb, BOB, "bob");
 
@@ -155,7 +159,7 @@ async fn chat_propagates_both_ways() {
 /// joins observe gains only.
 #[tokio::test(flavor = "current_thread")]
 async fn expiry_redaction_reaches_the_peer() {
-    let (ka, kb) = bootstrap_from(Known::seed()).await;
+    let (ka, kb) = bootstrap_from(Peer::seed()).await;
     let mut a = spawn_node(ka, ALICE, "alice");
     let mut b = spawn_node(kb, BOB, "bob");
 
@@ -190,7 +194,7 @@ async fn expiry_redaction_reaches_the_peer() {
 /// beat.
 #[tokio::test(flavor = "current_thread")]
 async fn staleness_evicts_and_revival_restores() {
-    let (ka, kb) = bootstrap_from(Known::seed()).await;
+    let (ka, kb) = bootstrap_from(Peer::seed()).await;
     let mut a = spawn_node(ka, ALICE, "alice");
     let mut b = spawn_node(kb, BOB, "bob");
 
@@ -221,8 +225,8 @@ async fn staleness_evicts_and_revival_restores() {
 /// already-abandoned universe is declined.
 #[tokio::test(flavor = "current_thread")]
 async fn network_merge_resets_the_loser() {
-    let mut a = spawn_node(Known::seed(), ALICE, "alice");
-    let mut b = spawn_node(Known::seed(), BOB, "bob");
+    let mut a = spawn_node(Peer::seed(), ALICE, "alice");
+    let mut b = spawn_node(Peer::seed(), BOB, "bob");
     a.cmd
         .send(Command::SendChat {
             channel: HOME_CHANNEL.into(),
@@ -242,10 +246,10 @@ async fn network_merge_resets_the_loser() {
 
     // The contact attempt: both sides gossip and both fail symmetrically
     // with the other's network and event floor.
-    let mut handle_a = handle(&a.cmd).await;
-    let mut handle_b = handle(&b.cmd).await;
-    let ours_a = (handle_a.latest().min_ticks(), handle_a.network());
-    let ours_b = (handle_b.latest().min_ticks(), handle_b.network());
+    let handle_a = handle(&a.cmd).await;
+    let handle_b = handle(&b.cmd).await;
+    let ours_a = (handle_a.snapshot().latest().min_ticks(), handle_a.network());
+    let ours_b = (handle_b.snapshot().latest().min_ticks(), handle_b.network());
     let (sa, sb) = tokio::io::duplex(64 * 1024);
     let (mut ar, mut aw) = tokio::io::split(sa);
     let (mut br, mut bw) = tokio::io::split(sb);
@@ -281,13 +285,13 @@ async fn network_merge_resets_the_loser() {
     // The loser bootstraps from the winner over a fresh pipe and resets.
     // (The owner's fresh observer replays the adopted content; no
     // observation list rides the command.)
-    let mut serve = winner_handle;
+    let serve = winner_handle;
     let (sw, sl) = tokio::io::duplex(64 * 1024);
     let (mut wr, mut ww) = tokio::io::split(sw);
     let (mut lr, mut lw) = tokio::io::split(sl);
     let (served, fresh) = tokio::join!(
         serve.gossip(&mut wr, &mut ww),
-        Known::<Entry>::bootstrap(&mut lr, &mut lw),
+        Peer::<Entry>::bootstrap(&mut lr, &mut lw),
     );
     served.unwrap();
     let fresh = fresh.unwrap().expect("winner served the bootstrap");
@@ -317,7 +321,7 @@ async fn network_merge_resets_the_loser() {
     loser
         .cmd
         .send(Command::Reset {
-            known: Box::new(Known::seed()),
+            known: Box::new(Peer::seed()),
             abandoned,
         })
         .await
@@ -335,7 +339,7 @@ async fn network_merge_resets_the_loser() {
 /// unchanged — channel creation entries are the only durable kind.
 #[tokio::test(flavor = "current_thread")]
 async fn heartbeats_do_not_accumulate() {
-    let mut node = spawn_node(Known::seed(), ALICE, "alice");
+    let mut node = spawn_node(Peer::seed(), ALICE, "alice");
     // Startup originates #general + the online notice; the first tick adds
     // one presence. Live = 3.
     let view = wait_view(&mut node, |v| v.stats.live_entries == 3).await;
@@ -357,11 +361,11 @@ async fn heartbeats_do_not_accumulate() {
     assert_eq!(view.roster.len(), 1);
 }
 
-/// Shutdown says goodbye, redacts our presence, and returns the `Known`
+/// Shutdown says goodbye, redacts our presence, and returns the `Peer`
 /// with retire candidates ordered by recency.
 #[tokio::test(flavor = "current_thread")]
 async fn shutdown_returns_known_and_candidates() {
-    let (ka, kb) = bootstrap_from(Known::seed()).await;
+    let (ka, kb) = bootstrap_from(Peer::seed()).await;
     let mut a = spawn_node(ka, ALICE, "alice");
     let b = spawn_node(kb, BOB, "bob");
     gossip_pair(&a, &b).await;
@@ -370,8 +374,11 @@ async fn shutdown_returns_known_and_candidates() {
     a.cmd.send(Command::Shutdown).await.unwrap();
     let (known, candidates) = a.task.await.unwrap();
     assert_eq!(candidates, vec![BOB]);
-    // Our own presence is redacted; the goodbye notice is live.
-    let snapshot = known.snapshot();
+    // Our own presence is redacted; the goodbye notice is live. (Inspection
+    // goes through a `Rumors` handle's snapshot; the peer is not needed
+    // again.)
+    let rumors = known.into_rumors();
+    let snapshot = rumors.snapshot();
     let live: Vec<&Entry> = snapshot.iter().map(|(_, _, e)| e.as_ref()).collect();
     assert!(
         !live

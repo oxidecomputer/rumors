@@ -1,8 +1,8 @@
-//! Generic `Insert`/`Redact` action sequences for single-`Known` tests.
+//! Generic `Insert`/`Redact` action sequences for single-peer tests.
 //! Shared by `pairwise`, `async_wire`, and `sync_wire`, so all three
 //! exercise the same shapes of input — including redactions. [`build_local`]
-//! applies a sequence to a synchronous `sync::Known`; [`build_local_async`]
-//! applies it to an asynchronous `rumors::Known`. (Sends are synchronous on
+//! applies a sequence to a synchronous `sync::Rumors`; [`build_local_async`]
+//! applies it to an asynchronous `rumors::Rumors`. (Sends are synchronous on
 //! both surfaces now — the names refer to which API surface is built, not to
 //! the function's color.)
 
@@ -62,16 +62,16 @@ pub fn minted_key<T: Send + Sync>(snapshot: &Snapshot<T>, pre: &Version) -> Key 
     key
 }
 
-/// Apply a `LocalAction` sequence to the given `sync::Known<T>`, returning
+/// Apply a `LocalAction` sequence to the given `sync::Rumors<T>`, returning
 /// it.
 ///
 /// The caller supplies `local` already bootstrapped from the shared universe
 /// seed, so independently-built locals stay pairwise disjoint and can later
 /// reconcile over the wire.
 pub fn build_local<T>(
-    local: rumors::sync::Known<T>,
+    local: rumors::sync::Rumors<T>,
     actions: &[LocalAction<T>],
-) -> rumors::sync::Known<T>
+) -> rumors::sync::Rumors<T>
 where
     T: Send + Sync + Clone + BorshSerialize + BorshDeserialize + 'static,
 {
@@ -79,7 +79,7 @@ where
     for a in actions {
         match a {
             LocalAction::Insert(v) => {
-                let pre = local.latest();
+                let pre = local.snapshot().latest().clone();
                 local.send(v.clone());
                 keys.push(minted_key(&local.snapshot(), &pre));
             }
@@ -93,11 +93,14 @@ where
     local
 }
 
-/// Counterpart of [`build_local`] on the asynchronous [`rumors::Known`]: the
+/// Counterpart of [`build_local`] on the asynchronous [`rumors::Rumors`]: the
 /// same `LocalAction` replay for the tests that exercise the genuinely
 /// concurrent wire protocol. As in [`build_local`], `local` must already be
 /// bootstrapped from the shared universe seed.
-pub fn build_local_async<T>(local: rumors::Known<T>, actions: &[LocalAction<T>]) -> rumors::Known<T>
+pub fn build_local_async<T>(
+    local: rumors::Rumors<T>,
+    actions: &[LocalAction<T>],
+) -> rumors::Rumors<T>
 where
     T: Send + Sync + Clone + BorshSerialize + BorshDeserialize + 'static,
 {
@@ -105,7 +108,7 @@ where
     for a in actions {
         match a {
             LocalAction::Insert(v) => {
-                let pre = local.latest();
+                let pre = local.snapshot().latest().clone();
                 local.send(v.clone());
                 keys.push(minted_key(&local.snapshot(), &pre));
             }

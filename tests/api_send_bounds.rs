@@ -9,7 +9,7 @@
 //! regresses to a `!Send` return, this crate fails to compile.
 
 use futures::StreamExt;
-use rumors::{Broadcast, Known, Messages, Snapshot};
+use rumors::{Messages, Peer, Rumors, Snapshot};
 
 /// Compile-time `Send`-bound check. Takes its argument by reference so the
 /// future can be dropped (rather than awaited) afterwards.
@@ -23,8 +23,8 @@ fn require_send_type<T: Send>() {}
 
 #[test]
 fn handle_types_are_send_sync() {
-    require_send_sync::<Known<String>>();
-    require_send_sync::<Broadcast<String>>();
+    require_send_sync::<Peer<String>>();
+    require_send_sync::<Rumors<String>>();
     require_send_sync::<Snapshot<String>>();
     // `Messages` is an exclusively-driven observer: it must move into a
     // spawned task (`Send`), but `&Messages` has no concurrent use, so
@@ -35,10 +35,11 @@ fn handle_types_are_send_sync() {
 
 #[test]
 fn gossip_future_is_send() {
-    let mut alice = Known::<String>::seed();
+    let alice = Peer::<String>::seed();
     let (_, b) = tokio::io::duplex(64);
     let (mut r, mut w) = tokio::io::split(b);
-    let fut = alice.gossip(&mut r, &mut w);
+    let rumors = alice.into_rumors();
+    let fut = rumors.gossip(&mut r, &mut w);
     require_send(&fut);
     drop(fut);
 }
@@ -47,14 +48,14 @@ fn gossip_future_is_send() {
 fn bootstrap_future_is_send() {
     let (_, b) = tokio::io::duplex(64);
     let (mut r, mut w) = tokio::io::split(b);
-    let fut = Known::<String>::bootstrap(&mut r, &mut w);
+    let fut = Peer::<String>::bootstrap(&mut r, &mut w);
     require_send(&fut);
     drop(fut);
 }
 
 #[test]
 fn retire_future_is_send() {
-    let alice = Known::<String>::seed();
+    let alice = Peer::<String>::seed();
     let (_, b) = tokio::io::duplex(64);
     let (mut r, mut w) = tokio::io::split(b);
     let fut = alice.retire(&mut r, &mut w);
@@ -63,17 +64,17 @@ fn retire_future_is_send() {
 }
 
 #[test]
-fn reunite_future_is_send() {
-    let alice = Known::<String>::seed();
-    let broadcast = alice.broadcast();
-    let fut = broadcast.reunite();
+fn try_into_peer_future_is_send() {
+    let alice = Peer::<String>::seed();
+    let rumors = alice.into_rumors();
+    let fut = rumors.try_into_peer();
     require_send(&fut);
     drop(fut);
 }
 
 #[test]
 fn observer_futures_are_send() {
-    let alice = Known::<String>::seed();
+    let alice = Peer::<String>::seed().into_rumors();
     let mut messages = alice.messages();
     {
         let fut = messages.borrow_next();

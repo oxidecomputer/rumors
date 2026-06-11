@@ -13,28 +13,28 @@ pub use crate::{
 };
 pub use ::borsh;
 
-pub struct Known<T>(crate::Known<T>);
+pub struct Peer<T>(crate::Peer<T>);
 
-impl<T> std::fmt::Debug for Known<T> {
+impl<T> std::fmt::Debug for Peer<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(&self.0, f)
     }
 }
 
-pub struct Broadcast<T>(crate::Broadcast<T>);
+pub struct Rumors<T>(crate::Rumors<T>);
 
-impl<T> std::fmt::Debug for Broadcast<T> {
+impl<T> std::fmt::Debug for Rumors<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(&self.0, f)
     }
 }
 
-#[must_use = "a declined or recovered retirement hands the Known back; dropping it leaks the identity"]
+#[must_use = "a declined or recovered retirement hands the Peer back; dropping it leaks the identity"]
 #[derive(Debug)]
 pub enum Retire<T> {
     Retired,
-    Declined { known: Known<T> },
-    Recovered { known: Known<T>, error: Error },
+    Declined { peer: Peer<T> },
+    Recovered { peer: Peer<T>, error: Error },
     Uncertain { error: Error },
 }
 
@@ -62,13 +62,6 @@ impl<T> Messages<T> {
         pollster::block_on(self.0.borrow_next())
     }
 
-    /// Advance to the next message only if one is already available,
-    /// distinguishing a *quiet* observer (nothing new, actors live) from an
-    /// *ended* one — where [`borrow_next`](Self::borrow_next) would block
-    /// through the quiet case. The non-blocking face for callers that catch
-    /// up opportunistically between their own work, e.g.
-    /// `while let TryNext::Message(m) = messages.try_next() { … }` to drain
-    /// whatever is pending.
     pub fn try_next(&mut self) -> TryNext<'_, T>
     where
         T: Send + Sync,
@@ -104,10 +97,6 @@ impl<T> CausalMessages<T> {
         pollster::block_on(self.0.borrow_next())
     }
 
-    /// The non-blocking face, exactly as [`Messages::try_next`]: a message
-    /// only if one is already deliverable, distinguishing quiet from ended.
-    /// Note that a backlog's first message becomes deliverable only once
-    /// its whole pass has been ingested, which this call performs eagerly.
     pub fn try_next(&mut self) -> TryNext<'_, T>
     where
         T: Send + Sync,
@@ -133,14 +122,18 @@ impl<T: Send + Sync + 'static> Iterator for CausalMessages<T> {
     }
 }
 
-impl<T> Known<T> {
+impl<T> Peer<T> {
     pub fn seed() -> Self {
-        Known(crate::Known::seed())
+        Peer(crate::Peer::seed())
     }
 
     #[doc(hidden)]
     pub fn seed_rng<R: rand::RngCore + ?Sized>(rng: &mut R) -> Self {
-        Known(crate::Known::seed_rng(rng))
+        Peer(crate::Peer::seed_rng(rng))
+    }
+
+    pub fn network(&self) -> Network {
+        self.0.network()
     }
 
     pub fn bootstrap<R, W>(read: &mut R, write: &mut W) -> Result<Option<Self>, Error>
@@ -151,40 +144,8 @@ impl<T> Known<T> {
     {
         let mut read = AllowStdIo::new(read).compat();
         let mut write = AllowStdIo::new(write).compat_write();
-        pollster::block_on(crate::Known::<T>::bootstrap(&mut read, &mut write))
-            .map(|known| known.map(Known))
-    }
-
-    pub fn send(&self, message: T) -> Batch<'_, T>
-    where
-        T: BorshSerialize + Send + Sync,
-    {
-        self.0.send(message)
-    }
-
-    pub fn redact(&self, key: Key) -> Batch<'_, T>
-    where
-        T: Send + Sync,
-    {
-        self.0.redact(key)
-    }
-
-    pub fn batch(&self) -> Batch<'_, T>
-    where
-        T: Send + Sync,
-    {
-        self.0.batch()
-    }
-
-    pub fn gossip<R, W>(&mut self, read: &mut R, write: &mut W) -> Result<(), Error>
-    where
-        T: BorshDeserialize + BorshSerialize + Send + Sync,
-        R: Read + Send,
-        W: Write + Send,
-    {
-        let mut read = AllowStdIo::new(read).compat();
-        let mut write = AllowStdIo::new(write).compat_write();
-        pollster::block_on(self.0.gossip(&mut read, &mut write))
+        pollster::block_on(crate::Peer::<T>::bootstrap(&mut read, &mut write))
+            .map(|known| known.map(Peer))
     }
 
     pub fn retire<R, W>(self, read: &mut R, write: &mut W) -> Retire<T>
@@ -197,79 +158,17 @@ impl<T> Known<T> {
         let mut write = AllowStdIo::new(write).compat_write();
         match pollster::block_on(self.0.retire(&mut read, &mut write)) {
             crate::Retire::Retired => Retire::Retired,
-            crate::Retire::Declined { known } => Retire::Declined {
-                known: Known(known),
-            },
-            crate::Retire::Recovered { known, error } => Retire::Recovered {
-                known: Known(known),
+            crate::Retire::Declined { peer } => Retire::Declined { peer: Peer(peer) },
+            crate::Retire::Recovered { peer, error } => Retire::Recovered {
+                peer: Peer(peer),
                 error,
             },
             crate::Retire::Uncertain { error } => Retire::Uncertain { error },
         }
     }
 
-    pub fn broadcast(self) -> Broadcast<T> {
-        Broadcast(self.0.broadcast())
-    }
-
-    pub fn snapshot(&self) -> Snapshot<T> {
-        self.0.snapshot()
-    }
-
-    pub fn network(&self) -> Network {
-        self.0.network()
-    }
-
-    pub fn latest(&self) -> Version {
-        self.0.latest()
-    }
-
-    pub fn earliest(&self) -> Option<Version> {
-        self.0.earliest()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    pub fn hash(&self) -> [u8; 32] {
-        self.0.hash()
-    }
-
-    pub fn get(&self, key: &Key) -> Option<(Version, Arc<T>)> {
-        self.0.get(key)
-    }
-
-    pub fn messages(&self) -> Messages<T>
-    where
-        T: Send + Sync,
-    {
-        self.messages_from(Version::new())
-    }
-
-    pub fn messages_from(&self, since: Version) -> Messages<T>
-    where
-        T: Send + Sync,
-    {
-        Messages(self.0.messages_since(since))
-    }
-
-    pub fn causal_messages(&self) -> CausalMessages<T>
-    where
-        T: Send + Sync,
-    {
-        self.causal_messages_from(Version::new())
-    }
-
-    pub fn causal_messages_from(&self, since: Version) -> CausalMessages<T>
-    where
-        T: Send + Sync,
-    {
-        CausalMessages(self.0.causal_messages_since(since))
+    pub fn into_rumors(self) -> Rumors<T> {
+        Rumors(self.0.into_rumors())
     }
 
     #[doc(hidden)]
@@ -278,13 +177,13 @@ impl<T> Known<T> {
     }
 }
 
-impl<T> Clone for Broadcast<T> {
+impl<T> Clone for Rumors<T> {
     fn clone(&self) -> Self {
-        Broadcast(self.0.clone())
+        Rumors(self.0.clone())
     }
 }
 
-impl<T> Broadcast<T> {
+impl<T> Rumors<T> {
     pub fn send(&self, message: T) -> Batch<'_, T>
     where
         T: BorshSerialize + Send + Sync,
@@ -317,8 +216,8 @@ impl<T> Broadcast<T> {
         pollster::block_on(self.0.gossip(&mut read, &mut write))
     }
 
-    pub fn reunite(self) -> Option<Known<T>> {
-        pollster::block_on(self.0.reunite()).map(Known)
+    pub fn try_into_peer(self) -> Option<Peer<T>> {
+        pollster::block_on(self.0.try_into_peer()).map(Peer)
     }
 
     pub fn messages(&self) -> Messages<T>
@@ -353,32 +252,8 @@ impl<T> Broadcast<T> {
         self.0.network()
     }
 
-    pub fn latest(&self) -> Version {
-        self.0.latest()
-    }
-
-    pub fn earliest(&self) -> Option<Version> {
-        self.0.earliest()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
     pub fn snapshot(&self) -> Snapshot<T> {
         self.0.snapshot()
-    }
-
-    pub fn hash(&self) -> [u8; 32] {
-        self.0.hash()
-    }
-
-    pub fn get(&self, key: &Key) -> Option<(Version, Arc<T>)> {
-        self.0.get(key)
     }
 
     #[doc(hidden)]

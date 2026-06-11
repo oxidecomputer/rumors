@@ -5,7 +5,7 @@
 //! # What it does
 //!
 //! `seed_messages` random `Vec<u8>` payloads are inserted into one seed
-//! [`Known`] *before any fork*, so every party starts from the same shared
+//! [`Rumors`] *before any fork*, so every party starts from the same shared
 //! observations. The seed is then forked (via `bootstrap_fork`) into `parties`
 //! disjoint peers, one per OS thread, and the party count is itself tunable
 //! live (see *Dynamic membership* below). Each party thread runs a tight loop:
@@ -46,7 +46,7 @@
 //!
 //! # Synchronization uses the wire protocol
 //!
-//! Syncs go through [`Known::gossip`] over an in-memory [`tokio::io::duplex`]
+//! Syncs go through [`Rumors::gossip`] over an in-memory [`tokio::io::duplex`]
 //! pipe — the *same* bytes-on-the-wire path a TCP peer would drive. Both ends
 //! of a session run `gossip` concurrently on their own thread's
 //! current-thread runtime, exactly as two networked peers would.
@@ -65,18 +65,18 @@
 //! # Dynamic membership
 //!
 //! The party count is live-tunable, and growing or shrinking it exercises the
-//! bootstrap/[`retire`](Known::retire) algebra directly. A single coordinator
+//! bootstrap/[`retire`](Peer::retire) algebra directly. A single coordinator
 //! thread — the only writer of the peer directory — watches the desired count
 //! against the live one and reconciles a step at a time:
 //!
 //! - **Grow:** pick a random live party, hand it a *fork* command. It mints a
-//!   disjoint child of its own [`Known`] (via `bootstrap_fork`), ships the child
+//!   disjoint child of its own [`Rumors`] (via `bootstrap_fork`), ships the child
 //!   back to the coordinator, and keeps running; the coordinator spawns a fresh
 //!   thread for the child. The parent and child are disjoint sub-parties, so the
 //!   directory stays a partition of the seed's party space.
 //! - **Shrink:** pick two random parties, hand each a *wind-down* command.
 //!   Each finishes any owed session, locks itself out of new ones, ships its
-//!   [`Known`] back, and exits. The coordinator [`retire`](Known::retire)s
+//!   [`Rumors`] back, and exits. The coordinator [`retire`](Peer::retire)s
 //!   one into the other over an in-memory wire — the session's gossip round
 //!   carries any divergent content across, and the survivor absorbs the
 //!   retiree's party region, so the id-space is reclaimed rather than leaked
@@ -134,7 +134,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Sparkline};
-use rumors::{Key, Known, Messages, Retire};
+use rumors::{Key, Messages, Peer, Retire, Rumors};
 use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
 
 /// Mint a genuine party-disjoint peer that inherits `parent`'s content.
@@ -146,23 +146,21 @@ use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
 /// and is handed a fresh disjoint party, forked in the same critical section
 /// that snapshots the served tree. Both halves run concurrently on
 /// `runtime`'s single current thread via [`tokio::join!`].
-fn bootstrap_fork(
-    runtime: &tokio::runtime::Runtime,
-    parent: &mut Known<Payload>,
-) -> Known<Payload> {
+fn bootstrap_fork(runtime: &tokio::runtime::Runtime, parent: &Rumors<Payload>) -> Rumors<Payload> {
     let (a, b) = tokio::io::duplex(16 * 1024);
     let (mut a_r, mut a_w) = tokio::io::split(a);
     let (mut b_r, mut b_w) = tokio::io::split(b);
     let (served, newcomer) = runtime.block_on(async {
         tokio::join!(
             parent.gossip(&mut a_r, &mut a_w),
-            Known::<Payload>::bootstrap(&mut b_r, &mut b_w),
+            Peer::<Payload>::bootstrap(&mut b_r, &mut b_w),
         )
     });
     served.expect("serve bootstrap");
     newcomer
         .expect("bootstrap newcomer")
         .expect("provider served bootstrap")
+        .into_rumors()
 }
 
 /// Message payload type: opaque, randomized bytes. Borsh serializes `Vec<u8>`
@@ -273,7 +271,7 @@ impl Metrics {
 /// data — only the inbox to deliver session endpoints, the engaged flag that
 /// serializes each party into one session at a time, and a gauge of its
 /// current live-message count for the UI.
-struct Peer {
+struct SwarmPeer {
     /// Stable identity for this party, unique across the whole run (never
     /// reused, even after a party retires). Used to exclude self when picking a
     /// peer and to splice the directory on membership changes.
@@ -292,7 +290,7 @@ struct Peer {
 }
 
 /// A membership command sent by the coordinator to a single party. Each carries
-/// a one-shot reply channel for the party to hand its [`Known`] back.
+/// a one-shot reply channel for the party to hand its [`Rumors`] back.
 enum Command {
     /// Fork off a child party and reply with it; the recipient keeps running.
     Fork { reply: Sender<Donation> },
@@ -301,11 +299,11 @@ enum Command {
     WindDown { reply: Sender<Donation> },
 }
 
-/// A party's [`Known`] handed back to the coordinator. The key pool is not
+/// A party's [`Rumors`] handed back to the coordinator. The key pool is not
 /// carried along: the receiving thread rebuilds it by replaying the set
 /// through a fresh [`Messages`] observer.
 struct Donation {
-    known: Known<Payload>,
+    rumors: Rumors<Payload>,
 }
 
 /// Everything the party threads share: the peer directory, live controls,
@@ -315,7 +313,7 @@ struct Net {
     /// only by the coordinator, one membership change at a time. Each entry is
     /// an `Arc` so a party claimed for a session survives its removal from the
     /// directory.
-    peers: ArcSwap<Vec<Arc<Peer>>>,
+    peers: ArcSwap<Vec<Arc<SwarmPeer>>>,
     controls: Controls,
     metrics: Metrics,
     /// Capacity of each in-memory duplex pipe. Immutable for the run.
@@ -338,7 +336,7 @@ fn main() -> io::Result<()> {
     let seed_runtime = tokio::runtime::Builder::new_current_thread()
         .build()
         .expect("build seed runtime");
-    let mut seed: Known<Payload> = Known::seed();
+    let seed: Rumors<Payload> = Peer::seed().into_rumors();
     {
         let mut rng = SmallRng::from_entropy();
         let mut batch = seed.batch();
@@ -351,7 +349,7 @@ fn main() -> io::Result<()> {
     // bootstraps; its forks do all the gossiping.
     let initial: Vec<Donation> = (0..args.parties)
         .map(|_| Donation {
-            known: bootstrap_fork(&seed_runtime, &mut seed),
+            rumors: bootstrap_fork(&seed_runtime, &seed),
         })
         .collect();
     drop(seed);
@@ -420,8 +418,8 @@ fn main() -> io::Result<()> {
 /// and everything learned over the wire, exactly once each.
 fn run_party(
     net: Arc<Net>,
-    me: Arc<Peer>,
-    mut known: Known<Payload>,
+    me: Arc<SwarmPeer>,
+    rumors: Rumors<Payload>,
     inbox: Receiver<SessionEnd>,
     control: Receiver<Command>,
 ) {
@@ -430,19 +428,20 @@ fn run_party(
         .expect("build party runtime");
     let mut rng = SmallRng::from_entropy();
     let mut next_sync = Instant::now() + exponential(&mut rng, &net.controls);
-    let mut observer = known.messages();
+    let mut observer = rumors.messages();
     let mut keys: Vec<Key> = Vec::new();
 
     loop {
         // Catch the key pool up with everything observed since the last turn,
         // and republish our live-message count for the UI gauge.
         drain_keys(&mut observer, &mut keys);
-        me.live.store(known.len() as u64, Ordering::Relaxed);
+        me.live
+            .store(rumors.snapshot().len() as u64, Ordering::Relaxed);
 
         // 1. Serve every inbound session. Our engaged flag was set true by the
         //    initiator that claimed us; clear it once we have reconciled.
         while let Ok(end) = inbox.try_recv() {
-            serve_sync(&runtime, &net, &mut known, end);
+            serve_sync(&runtime, &net, &rumors, end);
             me.engaged.store(false, Ordering::Release);
         }
 
@@ -454,13 +453,13 @@ fn run_party(
                     // so it can independently churn and gossip; its thread
                     // rebuilds the key pool by observer replay. We keep
                     // running unchanged.
-                    let child = bootstrap_fork(&runtime, &mut known);
-                    let _ = reply.send(Donation { known: child });
+                    let child = bootstrap_fork(&runtime, &rumors);
+                    let _ = reply.send(Donation { rumors: child });
                 }
                 Command::WindDown { reply } => {
                     // Finish anything owed, lock ourselves out of new claims,
                     // then hand our whole state over and exit.
-                    let donation = wind_down(&runtime, &net, &me, &inbox, known);
+                    let donation = wind_down(&runtime, &net, &me, &inbox, rumors);
                     let _ = reply.send(donation);
                     return;
                 }
@@ -480,7 +479,7 @@ fn run_party(
         // 3. Time to initiate a sync? Only while still running, and only if we
         //    can claim both ourselves and a peer.
         if net.running.load(Ordering::SeqCst) && Instant::now() >= next_sync {
-            if try_initiate(&runtime, &net, &me, &mut rng, &mut known) {
+            if try_initiate(&runtime, &net, &me, &mut rng, &rumors) {
                 next_sync = Instant::now() + exponential(&mut rng, &net.controls);
             }
             // If the claim failed (peer busy), fall through to local work and
@@ -489,7 +488,7 @@ fn run_party(
         }
 
         // 4. Local churn under the steady-state controller.
-        local_op(&net, &mut rng, &known, &mut keys);
+        local_op(&net, &mut rng, &rumors, &mut keys);
     }
 }
 
@@ -511,13 +510,13 @@ fn drain_keys(observer: &mut Messages<Payload>, keys: &mut Vec<Key>) {
 fn wind_down(
     runtime: &tokio::runtime::Runtime,
     net: &Net,
-    me: &Peer,
+    me: &SwarmPeer,
     inbox: &Receiver<SessionEnd>,
-    mut known: Known<Payload>,
+    rumors: Rumors<Payload>,
 ) -> Donation {
     loop {
         while let Ok(end) = inbox.try_recv() {
-            serve_sync(runtime, net, &mut known, end);
+            serve_sync(runtime, net, &rumors, end);
             me.engaged.store(false, Ordering::Release);
         }
         if me
@@ -532,9 +531,9 @@ fn wind_down(
     }
     // Locked: nothing new can arrive. Drain any straggler for good measure.
     while let Ok(end) = inbox.try_recv() {
-        serve_sync(runtime, net, &mut known, end);
+        serve_sync(runtime, net, &rumors, end);
     }
-    Donation { known }
+    Donation { rumors }
 }
 
 /// Attempt to initiate a sync with a random other party. Returns `true` if a
@@ -543,9 +542,9 @@ fn wind_down(
 fn try_initiate(
     runtime: &tokio::runtime::Runtime,
     net: &Net,
-    me: &Arc<Peer>,
+    me: &Arc<SwarmPeer>,
     rng: &mut SmallRng,
-    known: &mut Known<Payload>,
+    rumors: &Rumors<Payload>,
 ) -> bool {
     // Claim ourselves first. If we are already engaged (a responder claimed us
     // between the inbox drain and now), back off.
@@ -616,7 +615,7 @@ fn try_initiate(
     // (Learned keys surface through the party's observer on its next drain.)
     let start = Instant::now();
     runtime
-        .block_on(known.gossip(&mut reader, &mut writer))
+        .block_on(rumors.gossip(&mut reader, &mut writer))
         .expect("initiator gossip");
     let elapsed = start.elapsed();
 
@@ -631,7 +630,7 @@ fn try_initiate(
 fn serve_sync(
     runtime: &tokio::runtime::Runtime,
     net: &Net,
-    known: &mut Known<Payload>,
+    rumors: &Rumors<Payload>,
     end: SessionEnd,
 ) {
     let (read_half, write_half) = tokio::io::split(end);
@@ -645,7 +644,7 @@ fn serve_sync(
         rounds: None,
     };
     runtime
-        .block_on(known.gossip(&mut reader, &mut writer))
+        .block_on(rumors.gossip(&mut reader, &mut writer))
         .expect("responder gossip");
 }
 
@@ -653,9 +652,9 @@ fn serve_sync(
 /// probability of adding (rather than redacting) is `target / (target + live)`,
 /// so the live set is driven toward `target`. Falls back to an insert when
 /// there is nothing to redact.
-fn local_op(net: &Net, rng: &mut SmallRng, known: &Known<Payload>, keys: &mut Vec<Key>) {
+fn local_op(net: &Net, rng: &mut SmallRng, rumors: &Rumors<Payload>, keys: &mut Vec<Key>) {
     let target = net.controls.target.load(Ordering::Relaxed) as f64;
-    let live = known.len() as f64;
+    let live = rumors.snapshot().len() as f64;
     // p_add = T / (T + L): 1.0 when empty, 0.5 at target, → 0 when far over.
     let p_add = if target <= 0.0 {
         0.0
@@ -666,7 +665,7 @@ fn local_op(net: &Net, rng: &mut SmallRng, known: &Known<Payload>, keys: &mut Ve
     if keys.is_empty() || rng.gen_bool(p_add.clamp(0.0, 1.0)) {
         let size = net.controls.message_size.load(Ordering::Relaxed) as usize;
         // The minted key reaches the pool through the observer's next drain.
-        known.send(random_message(rng, size));
+        rumors.send(random_message(rng, size));
     } else {
         // Swap-remove a random key and redact it: the key leaves our local
         // view and the redaction propagates on our next sync. A key already
@@ -674,7 +673,7 @@ fn local_op(net: &Net, rng: &mut SmallRng, known: &Known<Payload>, keys: &mut Ve
         // it leaves our vector, so stale keys drain out over time.
         let idx = rng.gen_range(0..keys.len());
         let key = keys.swap_remove(idx);
-        known.redact(key);
+        rumors.redact(key);
     }
     net.metrics.local_ops.fetch_add(1, Ordering::Relaxed);
 }
@@ -698,7 +697,7 @@ fn random_message(rng: &mut SmallRng, size: usize) -> Payload {
 
 /// Uniformly pick a directory entry whose `id` is not `me`, cloning its `Arc`.
 /// Returns `None` when there is no other party to pick (fewer than two live).
-fn pick_peer(rng: &mut SmallRng, dir: &[Arc<Peer>], me: u64) -> Option<Arc<Peer>> {
+fn pick_peer(rng: &mut SmallRng, dir: &[Arc<SwarmPeer>], me: u64) -> Option<Arc<SwarmPeer>> {
     if dir.len() < 2 {
         return None;
     }
@@ -751,37 +750,38 @@ fn run_coordinator(net: Arc<Net>, initial: Vec<Donation>) -> Vec<JoinHandle<()>>
 }
 
 /// Build a party's directory entry and channels, spawn its thread, and return
-/// the shared [`Peer`] alongside the join handle. Assigns the next unique id.
+/// the shared [`SwarmPeer`] alongside the join handle. Assigns the next unique
+/// id.
 fn launch_party(
     net: &Arc<Net>,
     next_id: &mut u64,
     donation: Donation,
-) -> (Arc<Peer>, JoinHandle<()>) {
+) -> (Arc<SwarmPeer>, JoinHandle<()>) {
     let id = *next_id;
     *next_id += 1;
     let (inbox_tx, inbox_rx) = channel::<SessionEnd>();
     let (control_tx, control_rx) = channel::<Command>();
-    let peer = Arc::new(Peer {
+    let peer = Arc::new(SwarmPeer {
         id,
         engaged: AtomicBool::new(false),
         inbox: inbox_tx,
         control: control_tx,
-        live: AtomicU64::new(donation.known.len() as u64),
+        live: AtomicU64::new(donation.rumors.snapshot().len() as u64),
     });
     let handle = {
         let net = Arc::clone(net);
         let peer = Arc::clone(&peer);
-        let Donation { known } = donation;
+        let Donation { rumors } = donation;
         thread::Builder::new()
             .name(format!("party-{id}"))
-            .spawn(move || run_party(net, peer, known, inbox_rx, control_rx))
+            .spawn(move || run_party(net, peer, rumors, inbox_rx, control_rx))
             .expect("spawn party thread")
     };
     (peer, handle)
 }
 
-/// Grow by one: fork a random live party's [`Known`] and run the child in a new
-/// thread. The child and parent are disjoint sub-parties, so the directory
+/// Grow by one: fork a random live party's [`Rumors`] and run the child in a
+/// new thread. The child and parent are disjoint sub-parties, so the directory
 /// stays a valid partition of the seed's party space.
 fn grow(net: &Arc<Net>, rng: &mut SmallRng, next_id: &mut u64, handles: &mut Vec<JoinHandle<()>>) {
     let dir = net.peers.load_full();
@@ -808,7 +808,7 @@ fn grow(net: &Arc<Net>, rng: &mut SmallRng, next_id: &mut u64, handles: &mut Vec
     net.peers.store(Arc::new(peers));
 }
 
-/// Shrink by one: wind down two random parties, [`retire`](Known::retire)
+/// Shrink by one: wind down two random parties, [`retire`](Peer::retire)
 /// one into the other over an in-memory wire, and run the survivor in a new
 /// thread. The retire session's gossip round carries any divergent content
 /// across before the party hand-off, and the survivor absorbs the retiree's
@@ -848,15 +848,20 @@ fn shrink(
 
     // Merge: retire b into a over an in-memory wire. The survivor's key pool
     // is rebuilt by observer replay in its new thread, so nothing but the
-    // `Known` needs to move.
-    let mut known = da.known;
+    // `Rumors` needs to move. Retiring requires the unique [`Peer`] handle;
+    // the wound-down party's `Rumors` is the last one standing, so reclaiming
+    // it resolves immediately.
+    let rumors = da.rumors;
+    let retiree = runtime
+        .block_on(db.rumors.try_into_peer())
+        .expect("a wound-down party's handle is unique");
     let (a_side, b_side) = tokio::io::duplex(net.duplex_capacity);
     let (mut a_r, mut a_w) = tokio::io::split(a_side);
     let (mut b_r, mut b_w) = tokio::io::split(b_side);
     let (retired, survived) = runtime.block_on(async {
         tokio::join!(
-            db.known.retire(&mut b_r, &mut b_w),
-            known.gossip(&mut a_r, &mut a_w),
+            retiree.retire(&mut b_r, &mut b_w),
+            rumors.gossip(&mut a_r, &mut a_w),
         )
     });
     survived.expect("survivor gossip");
@@ -865,11 +870,11 @@ fn shrink(
         "two live swarm parties always reconcile, got {retired:?}"
     );
 
-    let (peer, handle) = launch_party(net, next_id, Donation { known });
+    let (peer, handle) = launch_party(net, next_id, Donation { rumors });
     handles.push(handle);
 
     // Swap in a directory without the two retired parties, plus the merged one.
-    let mut peers: Vec<Arc<Peer>> = dir
+    let mut peers: Vec<Arc<SwarmPeer>> = dir
         .iter()
         .filter(|p| p.id != a.id && p.id != b.id)
         .cloned()

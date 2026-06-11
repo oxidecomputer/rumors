@@ -20,28 +20,28 @@ impl<T> Snapshot<T> {
     }
 
     /// The identifier shared by every peer that descends from the same
-    /// [`seed`](crate::Known::seed) as the snapshotted set.
+    /// [`seed`](crate::Peer::seed) as the snapshotted set.
     pub fn network(&self) -> Network {
         self.network
     }
 
-    /// The latest version of any message ever tracked by this [`Known`](crate::Known).
+    /// The latest version of any message ever tracked by the snapshotted set.
     pub fn latest(&self) -> &Version {
         self.tree.latest()
     }
 
-    /// The earliest version of any message currently present in this [`Known`](crate::Known), or
-    /// `None` if it has never seen a message.
+    /// The earliest version of any message currently present in the
+    /// snapshotted set, or `None` if it has never seen a message.
     pub fn earliest(&self) -> Option<&Version> {
         self.tree.earliest()
     }
 
-    /// Determine if there are any current messages in this [`Known`](crate::Known).
+    /// Determine if there are any current messages in this snapshot.
     pub fn is_empty(&self) -> bool {
         self.tree.is_empty()
     }
 
-    /// The number of live messages in this [`Known`](crate::Known).
+    /// The number of live messages in this snapshot.
     pub fn len(&self) -> usize {
         self.tree.len()
     }
@@ -64,7 +64,7 @@ impl<T> Snapshot<T> {
         self.tree.get(key)
     }
 
-    /// Iterate every message currently [`Known`](crate::Known) as `(Key, &Version, &Arc<T>)`.
+    /// Iterate every live message as `(Key, &Version, &Arc<T>)`.
     ///
     /// Order is unspecified, and in particular does *not* follow the causal
     /// order: a message may be yielded before another that causally precedes
@@ -77,11 +77,10 @@ impl<T> Snapshot<T> {
         self.tree.iter()
     }
 
-    /// Iterate the messages whose [`Version`]s fall within the causal
-    /// `range`: a message is yielded iff its version is contained in the
-    /// range's end bound and *not* contained in its start bound — a
-    /// difference of causal down-sets. Per bound kind, for a message at
-    /// version `v`:
+    /// Iterate the messages whose [`Version`]s fall within the causal `range`:
+    /// a message is yielded iff its version is contained in the range's end
+    /// bound and *not* contained in its start bound — a difference of causal
+    /// down-sets. Per bound kind, for a message at version `v`:
     ///
     /// - start [`Unbounded`](std::ops::Bound::Unbounded): nothing excluded;
     ///   [`Excluded(s)`](std::ops::Bound::Excluded): `v <= s` excluded;
@@ -91,31 +90,29 @@ impl<T> Snapshot<T> {
     ///   [`Included(e)`](std::ops::Bound::Included): `v <= e` kept;
     ///   [`Excluded(e)`](std::ops::Bound::Excluded): `v < e` kept.
     ///
-    /// Because [`Version`]s are partially ordered, a start bound of either
-    /// kind keeps versions *concurrent* to it — "everything since `s`"
-    /// must not drop other parties' concurrent messages — while an end
-    /// bound of either kind drops them: keeping demands containment.
+    /// Because [`Version`]s are partially ordered, a start bound of either kind
+    /// keeps versions *concurrent* to it — "everything since `s`" must not drop
+    /// other parties' concurrent messages — while an end bound of either kind
+    /// drops them: keeping demands containment.
     ///
     /// The [`causally`](crate::causally) constructors name every shape:
-    /// `range(causally::since(&s))`,
-    /// `range(causally::delta(&s, &e))`,
-    /// `range(causally::not_before(&s).known_at(&e))`, and so on.
-    /// Plain range syntax also works — `range(&v1..=&v2)`,
-    /// `range(&v1..)` — as does any other
-    /// [`RangeBounds<Version>`](std::ops::RangeBounds) value, such as a
+    /// `range(causally::since(&s))`, `range(causally::delta(&s, &e))`,
+    /// `range(causally::not_before(&s).known_at(&e))`, and so on. Plain range
+    /// syntax also works — `range(&v1..=&v2)`, `range(&v1..)` — as does any
+    /// other [`RangeBounds<Version>`](std::ops::RangeBounds) value, such as a
     /// [`Bound`](std::ops::Bound) tuple.
     ///
-    /// Pruning rides the tree's memoized version bounds, so iterating a
-    /// small causal delta against a large snapshot costs work proportional
-    /// to the delta, not the snapshot. Unlike [`iter`](Self::iter), not an
-    /// [`ExactSizeIterator`]: how many messages fall in the range is
-    /// unknown until they are visited.
+    /// Pruning rides the tree's memoized version bounds, so iterating a small
+    /// causal delta against a large snapshot costs work proportional to the
+    /// delta, not the snapshot. Unlike [`iter`](Self::iter), not an
+    /// [`ExactSizeIterator`]: how many messages fall in the range is unknown
+    /// until they are visited.
     ///
     /// Order is unspecified, and in particular does *not* follow the causal
     /// order: filtering by versions does not mean yielding in version order,
-    /// and a message may be yielded before another that causally precedes
-    /// it. Sort by the yielded [`Version`]s if your application needs an
-    /// ordering consistent with causality.
+    /// and a message may be yielded before another that causally precedes it.
+    /// Sort by the yielded [`Version`]s if your application needs an ordering
+    /// consistent with causality.
     pub fn range<R>(
         &self,
         range: R,

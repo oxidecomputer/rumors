@@ -1,10 +1,11 @@
 //! Lifecycle tests for [`AppState`], driven with real keys and versions
-//! minted by a seeded [`rumors::Known`] (both types are opaque outside the
-//! rumors crate, and real versions carry real causality).
+//! minted through a seeded [`rumors::Peer`]'s [`Rumors`] handle (both types
+//! are opaque outside the rumors crate, and real versions carry real
+//! causality).
 
 use std::collections::HashSet;
 
-use rumors::Known;
+use rumors::{Peer, Rumors};
 
 use crate::timers;
 
@@ -13,19 +14,19 @@ use super::*;
 const ALICE: PeerId = [0xaa; 32];
 const BOB: PeerId = [0xbb; 32];
 
-/// Insert `entries` into `known` as one batch and return each one's
+/// Insert `entries` into `rumors` as one batch and return each one's
 /// `(key, version)` in insertion order. Insertion order is causal order
 /// here: every insert ticks the same party, so the minted versions come
 /// back totally ordered and sorting by them recovers the batch order.
-fn mint(known: &Known<Entry>, entries: Vec<Entry>) -> Vec<(Key, Version)> {
-    let pre = known.latest();
+fn mint(rumors: &Rumors<Entry>, entries: Vec<Entry>) -> Vec<(Key, Version)> {
+    let pre = rumors.snapshot().latest().clone();
     {
-        let mut batch = known.batch();
+        let mut batch = rumors.batch();
         for entry in entries {
             batch.send(entry);
         }
     }
-    let snapshot = known.snapshot();
+    let snapshot = rumors.snapshot();
     let mut minted: Vec<(Key, Version)> = snapshot
         .range(rumors::causally::since(&pre))
         .map(|(key, version, _)| (key, version.clone()))
@@ -37,20 +38,21 @@ fn mint(known: &Known<Entry>, entries: Vec<Entry>) -> Vec<(Key, Version)> {
     minted
 }
 
-/// A party-disjoint fork of `known`, minted by serving a bootstrap over an
+/// A party-disjoint fork of `rumors`, minted by serving a bootstrap over an
 /// in-memory duplex: the only honest source of genuinely concurrent
 /// versions.
-async fn bootstrap_empty_fork(known: &mut Known<Entry>) -> Known<Entry> {
+async fn bootstrap_empty_fork(rumors: &Rumors<Entry>) -> Rumors<Entry> {
     let (sa, sb) = tokio::io::duplex(64 * 1024);
     let (mut ar, mut aw) = tokio::io::split(sa);
     let (mut br, mut bw) = tokio::io::split(sb);
     let (served, fork) = tokio::join!(
-        known.gossip(&mut ar, &mut aw),
-        Known::<Entry>::bootstrap(&mut br, &mut bw),
+        rumors.gossip(&mut ar, &mut aw),
+        Peer::<Entry>::bootstrap(&mut br, &mut bw),
     );
     served.expect("serve the fork's bootstrap");
     fork.expect("bootstrap handshake")
         .expect("the parent served the bootstrap")
+        .into_rumors()
 }
 
 fn chat(body: &str, sent_at: Millis) -> Entry {
@@ -76,7 +78,7 @@ fn beat(peer: PeerId, name: &str, at: Millis) -> Entry {
 /// redacted.
 #[tokio::test(flavor = "current_thread")]
 async fn expiry_policy_on_arrival() {
-    let known: Known<Entry> = Known::seed();
+    let known = Peer::<Entry>::seed().into_rumors();
     let entries = vec![chat("live", 1_000), chat("dead", 2_000)];
     let minted = mint(&known, entries.clone());
     let mut state = AppState::new();
@@ -109,8 +111,8 @@ async fn concurrent_arrival_is_flagged() {
     // Two causal lines: alice's chain, and a concurrent message minted by a
     // disjoint fork that never saw it. The fork is minted while both sides
     // are empty, so the two lines share no history.
-    let mut known: Known<Entry> = Known::seed();
-    let fork = bootstrap_empty_fork(&mut known).await;
+    let known = Peer::<Entry>::seed().into_rumors();
+    let fork = bootstrap_empty_fork(&known).await;
 
     let entries = vec![chat("first", 1_000), chat("second", 2_000)];
     let minted = mint(&known, entries.clone());
@@ -166,7 +168,7 @@ async fn concurrent_arrival_is_flagged() {
 /// order, and the loser is redacted so stale beats never accumulate.
 #[tokio::test(flavor = "current_thread")]
 async fn presence_supersession_is_arrival_order_independent() {
-    let known: Known<Entry> = Known::seed();
+    let known = Peer::<Entry>::seed().into_rumors();
     let entries = vec![beat(ALICE, "alice", 1_000), beat(ALICE, "alice", 2_000)];
     let minted = mint(&known, entries.clone());
 
@@ -196,7 +198,7 @@ async fn presence_supersession_is_arrival_order_independent() {
 /// the only path by which a peer's redaction reaches the screen.
 #[tokio::test(flavor = "current_thread")]
 async fn retain_live_drops_peer_redactions() {
-    let known: Known<Entry> = Known::seed();
+    let known = Peer::<Entry>::seed().into_rumors();
     let entries = vec![
         chat("kept", 1_000),
         chat("redacted-elsewhere", 2_000),
@@ -226,7 +228,7 @@ async fn retain_live_drops_peer_redactions() {
 #[tokio::test(flavor = "current_thread")]
 async fn sweep_stale_boundary() {
     let stale_ms = timers::PRESENCE_STALE.as_millis() as Millis;
-    let known: Known<Entry> = Known::seed();
+    let known = Peer::<Entry>::seed().into_rumors();
     let entries = vec![beat(ALICE, "alice", 1_000), beat(BOB, "bob", 2_000)];
     let minted = mint(&known, entries.clone());
     let mut state = AppState::new();
@@ -250,7 +252,7 @@ async fn sweep_stale_boundary() {
 /// whenever the creation entry shows up.
 #[tokio::test(flavor = "current_thread")]
 async fn channel_creation_is_order_independent() {
-    let known: Known<Entry> = Known::seed();
+    let known = Peer::<Entry>::seed().into_rumors();
     let entries = vec![
         Entry::Chat {
             channel: "dogs".into(),
@@ -281,7 +283,7 @@ async fn channel_creation_is_order_independent() {
 /// `peer_name` resolves through presence and falls back to a short hex id.
 #[tokio::test(flavor = "current_thread")]
 async fn peer_name_resolution() {
-    let known: Known<Entry> = Known::seed();
+    let known = Peer::<Entry>::seed().into_rumors();
     let entries = vec![beat(ALICE, "alice", 1_000)];
     let minted = mint(&known, entries.clone());
     let mut state = AppState::new();

@@ -1,4 +1,4 @@
-//! A simulated peer: a `Known<T>` paired with its observation log, plus
+//! A simulated peer: a `Rumors<T>` paired with its observation log, plus
 //! helpers for the schedule executor (`gossip_step` for one bidirectional
 //! wire gossip session, `quiesce` for full-mesh convergence to a fixed
 //! point).
@@ -13,13 +13,13 @@
 //! simulator's model in `schedule::arb`.
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use rumors::{Key, Known, Version, causally};
+use rumors::{Key, Rumors, Version, causally};
 
 use crate::common::wire::{block_on, wire_gossip_async};
 
 /// One simulated peer.
 pub struct Peer<T> {
-    pub local: Known<T>,
+    pub local: Rumors<T>,
     /// The causal frontier up to which `observations` is complete: each
     /// drain records the live leaves not contained here, then absorbs the
     /// snapshot's ceiling (so redaction ticks, which have no leaves, are
@@ -33,16 +33,16 @@ pub struct Peer<T> {
 }
 
 impl<T: Clone + BorshSerialize + BorshDeserialize + Send + Sync + 'static> Peer<T> {
-    /// Wrap an already-forked `Known` as a simulated peer. Observation
+    /// Wrap an already-forked `Rumors` as a simulated peer. Observation
     /// starts at the wrapped set's current frontier: content already present
     /// is never logged, only what arrives afterwards.
     ///
     /// The caller must mint `local` by bootstrapping from the shared
     /// universe seed (directly, or via another peer), never by an
-    /// independent [`Known::seed`]: only then are all peers pairwise
+    /// independent [`rumors::Peer::seed`]: only then are all peers pairwise
     /// disjoint, the precondition for [`gossip_step`] to succeed.
-    pub fn new(local: Known<T>) -> Self {
-        let checkpoint = local.latest();
+    pub fn new(local: Rumors<T>) -> Self {
+        let checkpoint = local.snapshot().latest().clone();
         Self {
             local,
             checkpoint,
@@ -97,7 +97,7 @@ pub fn gossip_step<T>(a: &mut Peer<T>, b: &mut Peer<T>)
 where
     T: Clone + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
 {
-    block_on(wire_gossip_async(&mut a.local, &mut b.local));
+    block_on(wire_gossip_async(&a.local, &b.local));
     a.drain();
     b.drain();
 }
@@ -120,7 +120,10 @@ where
     for _ in 0..max_rounds {
         let before: Vec<([u8; 32], Version)> = peers
             .iter()
-            .map(|p| (p.local.hash(), p.local.latest()))
+            .map(|p| {
+                let snapshot = p.local.snapshot();
+                (snapshot.hash(), snapshot.latest().clone())
+            })
             .collect();
 
         for i in 0..n {
@@ -130,10 +133,10 @@ where
             }
         }
 
-        let changed = peers
-            .iter()
-            .zip(before.iter())
-            .any(|(p, (hash, latest))| p.local.hash() != *hash || p.local.latest() != *latest);
+        let changed = peers.iter().zip(before.iter()).any(|(p, (hash, latest))| {
+            let snapshot = p.local.snapshot();
+            snapshot.hash() != *hash || snapshot.latest() != latest
+        });
         if !changed {
             return;
         }

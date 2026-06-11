@@ -24,7 +24,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use proptest::prelude::*;
-use rumors::{Broadcast, Error, Known, Retire};
+use rumors::{Error, Peer, Retire, Rumors};
 use tokio::net::{TcpListener, TcpStream};
 
 use crate::common::fault::{self, FaultPlan};
@@ -50,7 +50,7 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(32))]
 
     /// Under arbitrary concurrent gossip — overlapping sessions through
-    /// cloned [`Broadcast`] handles, concurrent sends and redactions,
+    /// cloned [`Rumors`] handles, concurrent sends and redactions,
     /// bootstraps served mid-chaos against the same shared state, and
     /// retirements, over wires cut at arbitrary byte offsets — the global
     /// party invariants hold:
@@ -65,8 +65,8 @@ proptest! {
     #[test]
     fn disrupted_concurrent_gossip_upholds_party_invariants(plan in arb_plan()) {
         mt_runtime().block_on(async {
-            let mut outcome = run_plan(plan).await;
-            quiesce(&mut outcome.peers).await;
+            let outcome = run_plan(plan).await;
+            quiesce(&outcome.peers).await;
             assert_converged(&outcome.peers);
             assert_party_invariants(&outcome.peers, outcome.possible_losses);
         });
@@ -211,19 +211,18 @@ proptest! {
 async fn run_proc_plan(plan: ProcPlan) {
     // Parent fleet: the seed and its clean forks, as shared-state handles
     // so inbound sessions can overlap arbitrarily.
-    let seed = Known::<u64>::seed();
+    let seed = Peer::<u64>::seed().into_rumors();
     {
         let mut batch = seed.batch();
         for &v in &plan.seed_messages {
             batch.send(v);
         }
     }
-    let mut parent_peers = vec![seed];
+    let mut casts: Vec<Rumors<u64>> = vec![seed];
     for _ in 1..plan.n_parent_peers {
-        let fork = bootstrap_fork_async(&mut parent_peers[0]).await;
-        parent_peers.push(fork);
+        let fork = bootstrap_fork_async(&casts[0]).await;
+        casts.push(fork);
     }
-    let casts: Vec<Broadcast<u64>> = parent_peers.into_iter().map(Known::broadcast).collect();
 
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
@@ -249,7 +248,7 @@ async fn run_proc_plan(plan: ProcPlan) {
                 let Ok((socket, _)) = listener.accept().await else {
                     break;
                 };
-                let mut handle = casts[next % casts.len()].clone();
+                let handle = casts[next % casts.len()].clone();
                 next += 1;
                 let serve_errors = Arc::clone(&serve_errors);
                 let dishonest = Arc::clone(&dishonest);
@@ -322,14 +321,22 @@ async fn run_proc_plan(plan: ProcPlan) {
 
     // Wind down: stop the prober and the accept loop (dropping its
     // `JoinSet` aborts any straggling serve task), then reclaim the
-    // parent's `Known`s — `reunite` resolves once every clone is gone.
+    // parent's `Peer`s — `try_into_peer` resolves once every serving clone
+    // is gone, so this is the synchronization point proving quiescence.
+    // The heal phase below runs on the data plane, so each reclaimed
+    // `Peer` converts straight back out.
     done.store(true, Ordering::Release);
     prober.await.expect("prober task");
     accept.abort();
     let _ = accept.await;
     let mut survivors = Vec::new();
     for cast in casts {
-        survivors.push(cast.reunite().await.expect("all serving clones dropped"));
+        survivors.push(
+            cast.try_into_peer()
+                .await
+                .expect("all serving clones dropped")
+                .into_rumors(),
+        );
     }
 
     assert!(
@@ -338,7 +345,7 @@ async fn run_proc_plan(plan: ProcPlan) {
         dishonest.lock().expect("dishonest log")
     );
 
-    quiesce(&mut survivors).await;
+    quiesce(&survivors).await;
     assert_converged(&survivors);
 
     // Every cleanly-retired child's sends must have survived into the
@@ -398,13 +405,13 @@ async fn child_main(addr: String) -> i32 {
     // the parent must hear about (the exit code), and the child joins for
     // real over a clean connection.
     let mut had_boot_loss = false;
-    let mut known: Option<Known<u64>> = None;
+    let mut known: Option<Peer<u64>> = None;
     if !boot.is_clean() {
         let socket = TcpStream::connect(&addr)
             .await
             .expect("connect for faulty bootstrap");
         let (mut r, mut w) = fault::faulty(socket, boot);
-        match Known::<u64>::bootstrap(&mut r, &mut w).await {
+        match Peer::<u64>::bootstrap(&mut r, &mut w).await {
             Ok(Some(k)) => known = Some(k),
             Ok(None) => panic!("the parent never bootstraps"),
             Err(e) => {
@@ -420,7 +427,7 @@ async fn child_main(addr: String) -> i32 {
                 .await
                 .expect("connect for bootstrap");
             let (mut r, mut w) = tokio::io::split(socket);
-            Known::<u64>::bootstrap(&mut r, &mut w)
+            Peer::<u64>::bootstrap(&mut r, &mut w)
                 .await
                 .expect("clean bootstrap")
                 .expect("the parent serves every bootstrap")
@@ -429,7 +436,7 @@ async fn child_main(addr: String) -> i32 {
 
     // Chaos: local sends concurrent with possibly-severed gossip sessions
     // back to the parent.
-    let cast = known.broadcast();
+    let cast = known.into_rumors();
     let sender = {
         let handle = cast.clone();
         tokio::spawn(async move {
@@ -444,7 +451,7 @@ async fn child_main(addr: String) -> i32 {
             .await
             .expect("connect for session");
         let (mut r, mut w) = fault::faulty(socket, fault);
-        let mut handle = cast.clone();
+        let handle = cast.clone();
         assert_honest_gossip(&handle.gossip(&mut r, &mut w).await);
     }
     sender.await.expect("sender task");
@@ -456,16 +463,17 @@ async fn child_main(addr: String) -> i32 {
             .await
             .expect("connect for final gossip");
         let (mut r, mut w) = tokio::io::split(socket);
-        let mut handle = cast.clone();
-        handle
-            .gossip(&mut r, &mut w)
+        cast.gossip(&mut r, &mut w)
             .await
             .expect("clean final gossip");
     }
 
     // Retire home, possibly through a cut wire; a recovered retiree gets
     // one clean retry. Outcomes map to the exit-code protocol.
-    let mut known = cast.reunite().await.expect("sender finished; sole handle");
+    let mut known = cast
+        .try_into_peer()
+        .await
+        .expect("sender finished; sole handle");
     let mut fault = retire_fault;
     for _attempt in 0..2 {
         let socket = TcpStream::connect(&addr).await.expect("connect for retire");
@@ -479,7 +487,7 @@ async fn child_main(addr: String) -> i32 {
                 };
             }
             Retire::Recovered {
-                known: recovered,
+                peer: recovered,
                 error,
             } => {
                 assert_honest_error(&error);

@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 
 use proptest::collection::vec;
 use proptest::prelude::*;
-use rumors::{Key, Known};
+use rumors::Key;
 
 use crate::common::oracle::readout_multiset;
 use crate::common::peer::{Peer, gossip_step, quiesce};
@@ -33,9 +33,9 @@ proptest! {
         value in any::<u64>(),
         redactor_idx in any::<usize>(),
     ) {
-        let mut seed = Known::<u64>::seed();
+        let seed = rumors::Peer::<u64>::seed().into_rumors();
         let mut peers: Vec<Peer<u64>> = (0..n_peers)
-            .map(|_| Peer::new(bootstrap_fork(&mut seed)))
+            .map(|_| Peer::new(bootstrap_fork(&seed)))
             .collect();
 
         let key = peers[0].insert_one(value);
@@ -69,9 +69,9 @@ proptest! {
         b_values in vec(any::<u64>(), 1..=4),
     ) {
         let run = |a_first: bool| -> BTreeMap<u64, usize> {
-            let mut seed = Known::<u64>::seed();
-            let mut a = Peer::new(bootstrap_fork(&mut seed));
-            let mut b = Peer::new(bootstrap_fork(&mut seed));
+            let seed = rumors::Peer::<u64>::seed().into_rumors();
+            let mut a = Peer::new(bootstrap_fork(&seed));
+            let mut b = Peer::new(bootstrap_fork(&seed));
             let mut a_keys: Vec<Key> = Vec::new();
             let mut b_keys: Vec<Key> = Vec::new();
             for v in &a_values { a_keys.push(a.insert_one(*v)); }
@@ -97,7 +97,7 @@ proptest! {
     /// redact is a nil action — the leaf is already gone.)
     #[test]
     fn redact_twice_is_idempotent(value in any::<u64>()) {
-        let mut peer = Peer::<u64>::new(Known::seed());
+        let mut peer = Peer::<u64>::new(rumors::Peer::seed().into_rumors());
         let key = peer.insert_one(value);
         peer.redact_one(key);
 
@@ -117,11 +117,11 @@ proptest! {
     /// this corner.
     #[test]
     fn redact_unknown_key_is_noop(value in any::<u64>()) {
-        let mut seed = Known::<u64>::seed();
-        let mut bob = Peer::new(bootstrap_fork(&mut seed));
+        let seed = rumors::Peer::<u64>::seed().into_rumors();
+        let mut bob = Peer::new(bootstrap_fork(&seed));
         let foreign_key = bob.insert_one(value);
 
-        let mut alice = Peer::new(bootstrap_fork(&mut seed));
+        let mut alice = Peer::new(bootstrap_fork(&seed));
         let readout_before = readout_multiset(&alice.local.snapshot());
         let obs_before = alice.observations.len();
 

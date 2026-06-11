@@ -8,12 +8,12 @@ use crate::{Inner, Key};
 /// An accumulated batch of insertions and redactions against one rumor set,
 /// committed atomically when dropped.
 ///
-/// Returned by [`send`](crate::Known::send), [`redact`](crate::Known::redact),
-/// and [`batch`](crate::Known::batch) on [`Known`](crate::Known) and
-/// [`Broadcast`](crate::Broadcast). Dropping the batch commits it: the
-/// single-action case reads as a plain call (`known.send(message);` commits
-/// at the end of the statement), and chaining accumulates —
-/// `known.batch().send(a).send(b).redact(key);` — into one commit.
+/// Returned by [`send`](crate::Rumors::send), [`redact`](crate::Rumors::redact),
+/// and [`batch`](crate::Rumors::batch) on [`Rumors`](crate::Rumors). Dropping
+/// the batch commits it: the single-action case reads as a plain call
+/// (`rumors.send(message);` commits at the end of the statement), and
+/// chaining accumulates — `rumors.batch().send(a).send(b).redact(key);` —
+/// into one commit.
 ///
 /// Building holds no lock and observes nothing: actions accumulate in the
 /// batch alone, and the rumor set is locked only inside the commit. A batch
@@ -47,9 +47,9 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
     }
 
     /// Append a redaction to the batch. When committed, the corresponding
-    /// message is contagiously purged from the [`Known`](crate::Known) set
-    /// for all peers who gossip with us, and will be unobserved by any
-    /// future peers who did not already observe it.
+    /// message is contagiously purged from the rumor set for all peers who
+    /// gossip with us, and will be unobserved by any future peers who did
+    /// not already observe it.
     pub fn redact(&mut self, key: Key) -> &mut Self {
         self.actions.push(Action::Forget(key));
         self
@@ -64,7 +64,7 @@ impl<T: Send + Sync> Drop for Batch<'_, T> {
         let actions = std::mem::take(&mut self.actions);
         self.inner.send_if_modified(|inner| {
             // The party is present on every reachable handle: `retire`
-            // consumes the `Known`, and the `Known`/`Broadcast` XOR keeps a
+            // consumes the `Peer`, and the `Peer`/`Rumors` XOR keeps a
             // retiring set's handles from coexisting with it.
             let Some(party) = inner.party.as_ref() else {
                 debug_assert!(false, "no party to tick in a `Batch` commit");

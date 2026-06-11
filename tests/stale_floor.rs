@@ -8,11 +8,11 @@
 //! published, were indistinguishable from redacted messages and silently
 //! destroyed by the next gossip round.
 //!
-//! The shared-state `Known` makes that desynchronization unrepresentable:
+//! The shared-state rumor set makes that desynchronization unrepresentable:
 //! there is no snapshot type that can serve a bootstrap, and
-//! `Known::gossip` snapshots the served tree and forks the party in one
+//! `Rumors::gossip` snapshots the served tree and forks the party in one
 //! critical section, so the newcomer's floor always matches its region.
-//! ([`rumors::Snapshot`] is data, not a peer; [`rumors::Broadcast`] clones
+//! ([`rumors::Snapshot`] is data, not a peer; [`rumors::Rumors`] clones
 //! share one synchronized state rather than freezing one.)
 //!
 //! This test pins the sound invariant positively, in the shape that used to
@@ -22,7 +22,7 @@
 mod common;
 
 use common::wire::{block_on, bootstrap_fork_async, wire_gossip_async};
-use rumors::Known;
+use rumors::Peer;
 
 /// A message minted by a freshly-bootstrapped peer survives gossip, no
 /// matter how far the provider had ticked before serving the bootstrap:
@@ -30,7 +30,7 @@ use rumors::Known;
 #[test]
 fn message_minted_after_bootstrap_survives_gossip() {
     block_on(async {
-        let mut f = Known::<u64>::seed();
+        let f = Peer::<u64>::seed().into_rumors();
         // F ticks well past genesis before serving anyone.
         {
             let mut batch = f.batch();
@@ -42,12 +42,12 @@ fn message_minted_after_bootstrap_survives_gossip() {
         // B bootstraps from F and mints a brand-new message: its version
         // must come out above (or concurrent to) everything F published
         // before the fork, never dominated.
-        let mut b = bootstrap_fork_async(&mut f).await;
+        let b = bootstrap_fork_async(&f).await;
         b.send(100);
 
         // Sync the two: a dominated version would read as "already
         // forgotten" and evict the fresh message from both sides.
-        wire_gossip_async(&mut f, &mut b).await;
+        wire_gossip_async(&f, &b).await;
 
         let f_has = f.snapshot().iter().any(|(_, _, m)| **m == 100);
         let b_has = b.snapshot().iter().any(|(_, _, m)| **m == 100);

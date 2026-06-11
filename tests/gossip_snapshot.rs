@@ -1,5 +1,5 @@
 //! Golden byte-level snapshots of a single round of gossip between two
-//! [`rumors::Known`]s.
+//! [`rumors::Rumors`].
 //!
 //! Each test stages a scenario, drives one gossip session through the
 //! recording duplex in [`common::gossip_snapshot`], and pins the exact
@@ -16,7 +16,7 @@ mod common;
 
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
-use rumors::{Key, Known};
+use rumors::{Key, Peer, Rumors};
 
 use crate::common::gossip_snapshot::capture_gossip;
 use crate::common::wire::{block_on, bootstrap_fork, bootstrap_fork_async};
@@ -24,15 +24,15 @@ use crate::common::wire::{block_on, bootstrap_fork, bootstrap_fork_async};
 /// A peer seeded from a fixed RNG, so the [`rumors::Network`] id carried in
 /// the preamble is deterministic and these byte-level captures stay
 /// reproducible across runs.
-fn seeded<T>() -> Known<T> {
-    Known::seed_rng(&mut SmallRng::seed_from_u64(0))
+fn seeded<T>() -> Rumors<T> {
+    Peer::seed_rng(&mut SmallRng::seed_from_u64(0)).into_rumors()
 }
 
 /// The key of the live message holding `value`: how a scenario picks out a
 /// specific message for redaction. Keys are content-addressed and the
 /// scenarios use distinct payloads, so the lookup is unambiguous.
-fn key_for(known: &Known<u64>, value: u64) -> Key {
-    known
+fn key_for(rumors: &Rumors<u64>, value: u64) -> Key {
+    rumors
         .snapshot()
         .iter()
         .find_map(|(k, _, m)| (**m == value).then_some(k))
@@ -45,8 +45,8 @@ fn key_for(known: &Known<u64>, value: u64) -> Key {
 /// conversation.
 #[test]
 fn empty_pair_converges_immediately() {
-    let mut a: Known<u64> = seeded();
-    let b = bootstrap_fork(&mut a);
+    let a: Rumors<u64> = seeded();
+    let b = bootstrap_fork(&a);
     insta::assert_snapshot!(capture_gossip(a, b));
 }
 
@@ -57,10 +57,10 @@ fn empty_pair_converges_immediately() {
 #[test]
 fn one_sided_transfer() {
     let (a, b) = block_on(async {
-        let mut a: Known<u64> = seeded();
+        let a: Rumors<u64> = seeded();
         // B is a genuine disjoint fork of A, minted while A is still empty, so
         // it is an empty peer in the same universe.
-        let b = bootstrap_fork_async(&mut a).await;
+        let b = bootstrap_fork_async(&a).await;
 
         a.batch().send(1).send(2);
         (a, b)
@@ -85,14 +85,14 @@ fn one_sided_transfer() {
 #[test]
 fn fork_insert_redact() {
     let (a, b) = block_on(async {
-        let mut a: Known<u64> = seeded();
+        let a: Rumors<u64> = seeded();
 
         // (1) Two distinct common messages.
         a.batch().send(1).send(2);
 
         // (2) Fork: B is a genuine disjoint fork sharing A's observations
         // (both hold 1 and 2, under the same keys).
-        let b = bootstrap_fork_async(&mut a).await;
+        let b = bootstrap_fork_async(&a).await;
 
         // (3) Each fork inserts one distinct message.
         a.send(3);
@@ -116,9 +116,9 @@ fn fork_insert_redact() {
 #[test]
 fn converged_forks_noop() {
     let (a, b) = block_on(async {
-        let mut a: Known<u64> = seeded();
+        let a: Rumors<u64> = seeded();
         a.batch().send(1).send(2);
-        let b = bootstrap_fork_async(&mut a).await;
+        let b = bootstrap_fork_async(&a).await;
         (a, b)
     });
     insta::assert_snapshot!(capture_gossip(a, b));
@@ -132,9 +132,9 @@ fn converged_forks_noop() {
 #[test]
 fn redaction_only() {
     let (a, b) = block_on(async {
-        let mut a: Known<u64> = seeded();
+        let a: Rumors<u64> = seeded();
         a.batch().send(1).send(2);
-        let b = bootstrap_fork_async(&mut a).await;
+        let b = bootstrap_fork_async(&a).await;
         a.redact(key_for(&a, 1));
         (a, b)
     });
@@ -157,8 +157,8 @@ const DEEP_TRIE_PER_SIDE: u64 = 16;
 #[test]
 fn deep_trie_divergence() {
     let (a, b) = block_on(async {
-        let mut a: Known<u64> = seeded();
-        let b = bootstrap_fork_async(&mut a).await;
+        let a: Rumors<u64> = seeded();
+        let b = bootstrap_fork_async(&a).await;
         {
             let mut batch = a.batch();
             for v in 0..DEEP_TRIE_PER_SIDE {
@@ -184,8 +184,8 @@ fn deep_trie_divergence() {
 #[test]
 fn string_payload() {
     let (a, b) = block_on(async {
-        let mut a: Known<String> = seeded();
-        let b = bootstrap_fork_async(&mut a).await;
+        let a: Rumors<String> = seeded();
+        let b = bootstrap_fork_async(&a).await;
         a.send("hello".to_string());
         b.send("world".to_string());
         (a, b)
@@ -204,9 +204,9 @@ fn string_payload() {
 #[test]
 fn same_live_content_divergent_versions() {
     let (a, b) = block_on(async {
-        let mut a: Known<u64> = seeded();
+        let a: Rumors<u64> = seeded();
         a.send(1);
-        let b = bootstrap_fork_async(&mut a).await;
+        let b = bootstrap_fork_async(&a).await;
 
         // A diverges in version but not in live content: insert 2, then drop it.
         a.send(2);
@@ -225,9 +225,9 @@ fn same_live_content_divergent_versions() {
 #[test]
 fn both_redact_same_key() {
     let (a, b) = block_on(async {
-        let mut a: Known<u64> = seeded();
+        let a: Rumors<u64> = seeded();
         a.batch().send(1).send(2);
-        let b = bootstrap_fork_async(&mut a).await;
+        let b = bootstrap_fork_async(&a).await;
         let k1 = key_for(&a, 1);
         a.redact(k1);
         b.redact(k1);

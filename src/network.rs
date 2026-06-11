@@ -6,24 +6,22 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use rand::RngCore;
 
 /// The random, unique identifier of a causally connected universe of
-/// [`Known`](crate::Known)s.
+/// [`Peer`](crate::Peer)s.
 ///
 /// It exists to catch a failure mode that party disjointness alone cannot: two
-/// `Known`s from *independent* [`seed`](crate::Known::seed)s can end up with
+/// `Peer`s from *independent* [`seed`](crate::Peer::seed)s can end up with
 /// *coincidentally* disjoint parties despite sharing no causal history. Such
 /// peers must never combine.
 ///
-/// Opaque and [`Copy`]: callers can read it off a `Known` with
-/// [`network`](crate::Known::network) and compare two for equality, but cannot
-/// mint one except through [`seed`](crate::Known::seed).
-///
-/// [`Known::seed`]: crate::Known::seed
+/// Opaque and [`Copy`]: callers can read it off a `Peer` with
+/// [`network`](crate::Peer::network) and compare two for equality, but cannot
+/// mint one except through [`seed`](crate::Peer::seed).
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, BorshDeserialize, BorshSerialize)]
 pub struct Network([u8; 16]);
 
 impl Network {
     /// The all-zero placeholder a bootstrapping peer sends in the handshake: it
-    /// has no `Known` yet, hence no real network. It is the one value
+    /// has no rumor set yet, hence no real network. It is the one value
     /// [`from_rng`](Self::from_rng) never mints, so it unambiguously means "I
     /// am bootstrapping" on the wire and suppresses the network-match check.
     pub(crate) const BOOTSTRAP: Network = Network([0u8; 16]);

@@ -8,7 +8,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use before::Area;
+use before::Rank;
 use futures::Stream;
 use tokio::sync::watch;
 
@@ -20,13 +20,13 @@ use super::acausal::Channel;
 /// A causal-order observer of one rumor set: every message not causally
 /// contained in the starting checkpoint, then every message learned afterwards,
 /// each delivered *after* every delivered message it causally depends on —
-/// and `None` once the [`Known`](crate::Known) and every
-/// [`Broadcast`](crate::Broadcast) have dropped and the staged backlog has
+/// and `None` once the [`Peer`](crate::Peer) and every
+/// [`Rumors`](crate::Rumors) have dropped and the staged backlog has
 /// drained.
 ///
 /// The causal-delivery contract: for any two yielded messages with versions
 /// `v` and `w`, if `v < w` then the `v` message is yielded first.
-/// Concurrent messages are delivered in `(`[`Area`]`, `[`Key`]`)` order — a
+/// Concurrent messages are delivered in `(`[`Rank`]`, `[`Key`]`)` order — a
 /// deterministic linear extension of the causal order. Liveness and
 /// multiplicity are exactly [`Messages`](super::Messages)': every message
 /// live at some pass is yielded once; a message staged and then redacted
@@ -48,9 +48,9 @@ use super::acausal::Channel;
 ///    version its own version already covers, because deletion-honoring
 ///    treats absent-and-covered as redacted. Old news never arrives.
 ///
-/// 2. **`(`[`Area`]`, `[`Key`]`)` is a linear extension of causality.**
-///    The rank is strictly monotone (`v < w` implies `area(v) < area(w)`),
-///    so equal areas are never causally ordered and the key tiebreak
+/// 2. **`(`[`Rank`]`, `[`Key`]`)` is a linear extension of causality.**
+///    The rank is strictly monotone (`v < w` implies `rank(v) < rank(w)`),
+///    so equal ranks are never causally ordered and the key tiebreak
 ///    between them is causally safe.
 ///
 /// So the adapter is small: ingest each pass *whole* into an ordered
@@ -85,7 +85,7 @@ pub struct CausalMessages<T> {
     /// The undelivered backlog, in causal-rank order. Always the residue of
     /// a *single* ingest (a new pass opens only once this empties), whose
     /// range start was `checkpoint` and whose ceiling is `ingested`.
-    staged: BTreeMap<(Area, Key), Leaf<T>>,
+    staged: BTreeMap<(Rank, Key), Leaf<T>>,
     /// The most recently delivered leaf, kept alive so its version and
     /// value can be lent to the caller until the next call.
     current: Option<(Key, Leaf<T>)>,
@@ -112,7 +112,7 @@ impl<T> CausalMessages<T> {
     /// complete. The watch read guard lives only long enough to freeze the
     /// walk and capture the ceiling; the walk itself runs unlocked.
     fn ingest(
-        staged: &mut BTreeMap<(Area, Key), Leaf<T>>,
+        staged: &mut BTreeMap<(Rank, Key), Leaf<T>>,
         ingested: &mut Version,
         rx: &mut watch::Receiver<crate::Inner<T>>,
     ) where
@@ -129,7 +129,7 @@ impl<T> CausalMessages<T> {
             )
         };
         while let Some((key, leaf)) = walk.next() {
-            staged.insert((leaf.version().area(), key), leaf);
+            staged.insert((leaf.version().rank(), key), leaf);
         }
         *ingested |= &ceiling;
     }
@@ -192,7 +192,7 @@ impl<T> CausalMessages<T> {
     /// The sound resume point: the causal frontier *behind* the staged
     /// backlog, suitable for persisting across processes or handing to
     /// another replica of the same network — a later
-    /// [`causal_messages_since(checkpoint)`](crate::Broadcast::causal_messages_since)
+    /// [`causal_messages_since(checkpoint)`](crate::Rumors::causal_messages_since)
     /// re-observes nothing already delivered *and drained*, and everything
     /// not yet delivered. While a backlog is draining the checkpoint holds at
     /// the batch's range start (a [`Version`] can only encode a causally

@@ -92,7 +92,7 @@ pub enum Error {
     VersionMismatch { remote_version: u16 },
 
     /// Both peers were gossiping but belong to different [`Network`]s: they
-    /// descend from unrelated [`seed`](crate::Known::seed)s and must not
+    /// descend from unrelated [`seed`](crate::Peer::seed)s and must not
     /// combine, regardless of whether their parties appear disjoint. (A
     /// bootstrapping peer sends the placeholder [`Network`], so a session where
     /// either side is bootstrapping never raises this.)

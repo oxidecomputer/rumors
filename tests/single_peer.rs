@@ -1,4 +1,4 @@
-//! Single-peer correctness for `Known`, with no gossip.
+//! Single-peer correctness for a lone rumor set, with no gossip.
 //!
 //! Exercises the surface area of [`Batch`](rumors::Batch) commits:
 //! live-leaf fan-out, `Key` distinctness within a batch, and strict
@@ -11,14 +11,14 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use proptest::collection::vec;
 use proptest::prelude::*;
-use rumors::sync::Known;
+use rumors::sync::{Peer, Rumors};
 use rumors::{Key, Version, causally};
 
 /// Commit `values` to `peer` as one batch, returning the `(Key, Version)`
 /// pairs it minted (recovered as the live leaves above the pre-commit
 /// frontier).
-fn batch_send(peer: &Known<u64>, values: &[u64]) -> Vec<(Key, Version)> {
-    let pre = peer.latest();
+fn batch_send(peer: &Rumors<u64>, values: &[u64]) -> Vec<(Key, Version)> {
+    let pre = peer.snapshot().latest().clone();
     {
         let mut batch = peer.batch();
         for v in values {
@@ -36,17 +36,17 @@ proptest! {
     /// no duplicates, no omissions.
     #[test]
     fn batch_mints_once_per_value(values in vec(any::<u64>(), 0..=32)) {
-        let peer = Known::<u64>::seed();
+        let peer = Peer::<u64>::seed().into_rumors();
         let minted = batch_send(&peer, &values);
         prop_assert_eq!(minted.len(), values.len());
-        prop_assert_eq!(peer.len(), values.len());
+        prop_assert_eq!(peer.snapshot().len(), values.len());
     }
 
     /// All `Key`s minted within a single batch are distinct, even when
     /// several values in the batch are equal.
     #[test]
     fn distinct_keys_per_batch(values in vec(any::<u64>(), 1..=32)) {
-        let peer = Known::<u64>::seed();
+        let peer = Peer::<u64>::seed().into_rumors();
         let minted = batch_send(&peer, &values);
         prop_assert_eq!(minted.len(), values.len());
         let unique: BTreeSet<_> = minted.iter().map(|(k, _)| *k).collect();
@@ -57,7 +57,7 @@ proptest! {
     /// `n` distinct `Key`s — content equality does not collapse keys.
     #[test]
     fn duplicate_values_get_distinct_keys(n in 1usize..=16, value in any::<u64>()) {
-        let peer = Known::<u64>::seed();
+        let peer = Peer::<u64>::seed().into_rumors();
         let values: Vec<u64> = std::iter::repeat_n(value, n).collect();
         let minted = batch_send(&peer, &values);
         prop_assert_eq!(minted.len(), n);
@@ -74,7 +74,7 @@ proptest! {
     fn local_versions_form_a_chain(
         batches in vec(vec(any::<u64>(), 1..=8), 1..=8),
     ) {
-        let peer = Known::<u64>::seed();
+        let peer = Peer::<u64>::seed().into_rumors();
 
         // Versions in commit order: per batch, the minted versions sorted
         // into their (total) causal order; batches concatenated in commit
@@ -129,7 +129,7 @@ proptest! {
         // need not share a universe). Read the live multiset directly off
         // the snapshot.
         let multiset_of = |values: &[u64]| -> BTreeMap<u64, usize> {
-            let peer = Known::<u64>::seed();
+            let peer = Peer::<u64>::seed().into_rumors();
             batch_send(&peer, values);
             let mut out = BTreeMap::new();
             for (_, _, v) in peer.snapshot().iter() {

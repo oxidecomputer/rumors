@@ -1,5 +1,5 @@
 //! Byte-exact wire-capture helper for `insta` golden snapshots of a single
-//! round of gossip between two [`rumors::Known`]s.
+//! round of gossip between two [`rumors::Rumors`].
 //!
 //! Where [`super::wire`] only checks that the two peers *converge*, this
 //! helper records the *entire conversation*: every byte each peer puts on the
@@ -45,7 +45,7 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use rumors::Known;
+use rumors::Rumors;
 use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
 
 use crate::common::wire::block_on;
@@ -151,10 +151,10 @@ impl AsyncWrite for Recorder {
 /// `insta::assert_snapshot!`.
 ///
 /// Both peers are driven concurrently on a current-thread runtime, so the
-/// returned string is deterministic for a given pair of `Known`s and a given
-/// build of the protocol. The two `Known`s are expected to reconcile cleanly;
-/// a gossip error panics the helper.
-pub fn capture_gossip<T>(mut a: Known<T>, mut b: Known<T>) -> String
+/// returned string is deterministic for a given pair of rumor sets and a
+/// given build of the protocol. The two sets are expected to reconcile
+/// cleanly; a gossip error panics the helper.
+pub fn capture_gossip<T>(a: Rumors<T>, b: Rumors<T>) -> String
 where
     T: BorshSerialize + BorshDeserialize + Send + Sync + 'static,
 {

@@ -1,6 +1,6 @@
 //! Raw protocol preamble exchange (`mirror::remote::preamble`).
 //!
-//! Drives [`rumors::Known::gossip`] against a hand-crafted peer over a
+//! Drives [`rumors::Rumors::gossip`] against a hand-crafted peer over a
 //! [`tokio::io::duplex`] pipe, asserting that a mismatched magic, version,
 //! or intent byte surfaces as the typed error variant rather than
 //! corrupting the local rumor set. The preamble is the *raw*
@@ -11,7 +11,7 @@
 
 mod common;
 
-use rumors::{Error, Known, PROTOCOL_MAGIC, PROTOCOL_VERSION};
+use rumors::{Error, PROTOCOL_MAGIC, PROTOCOL_VERSION, Peer, Rumors};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
 
 use crate::common::wire::bootstrap_fork_async;
@@ -52,8 +52,8 @@ async fn handshake_roundtrip_succeeds() {
     // networks match. (The async fork helper: this test body is already
     // inside the tokio test runtime, where the blocking wrapper would
     // panic.)
-    let mut alice: Known<String> = Known::seed();
-    let mut bob = bootstrap_fork_async(&mut alice).await;
+    let alice: Rumors<String> = Peer::seed().into_rumors();
+    let bob = bootstrap_fork_async(&alice).await;
 
     let (a, b) = duplex(1024);
     let (mut a_r, mut a_w) = tokio::io::split(a);
@@ -86,7 +86,7 @@ async fn magic_mismatch_surfaces_error() {
         b_w.write_all(&reply).await.expect("fake peer write");
     };
 
-    let mut alice: Known<String> = Known::seed();
+    let alice: Rumors<String> = Peer::seed().into_rumors();
     let alice_fut = alice.gossip(&mut a_r, &mut a_w);
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
@@ -117,7 +117,7 @@ async fn version_mismatch_surfaces_error() {
         b_w.write_all(&reply).await.expect("fake peer write");
     };
 
-    let mut alice: Known<String> = Known::seed();
+    let alice: Rumors<String> = Peer::seed().into_rumors();
     let alice_fut = alice.gossip(&mut a_r, &mut a_w);
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
@@ -146,7 +146,7 @@ async fn invalid_intent_surfaces_error() {
         b_w.write_all(&reply).await.expect("fake peer write");
     };
 
-    let mut alice: Known<String> = Known::seed();
+    let alice: Rumors<String> = Peer::seed().into_rumors();
     let alice_fut = alice.gossip(&mut a_r, &mut a_w);
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
@@ -176,7 +176,7 @@ async fn truncated_handshake_io_error() {
         drop(b_w);
     };
 
-    let mut alice: Known<String> = Known::seed();
+    let alice: Rumors<String> = Peer::seed().into_rumors();
     let alice_fut = alice.gossip(&mut a_r, &mut a_w);
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
@@ -213,7 +213,7 @@ async fn handshake_precedes_framed_traffic() {
         b_w.write_all(&reply).await.expect("fake peer write");
     };
 
-    let mut alice: Known<String> = Known::seed();
+    let alice: Rumors<String> = Peer::seed().into_rumors();
     let alice_fut = alice.gossip(&mut a_r, &mut a_w);
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);

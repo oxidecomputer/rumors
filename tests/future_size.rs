@@ -5,8 +5,8 @@
 //! default `recursion_limit = 128` and forces downstream crates to bump
 //! their own limit. We defuse that by type-erasing inside the protocol
 //! (`tree::traverse::mirror::mirror`, `tree::traverse::act`), which leaves
-//! the public futures (`Known::gossip`, `Known::retire`,
-//! `Known::bootstrap`) holding nothing more than a `Pin<Box<dyn Future>>`
+//! the public futures (`Rumors::gossip`, `Peer::retire`,
+//! `Peer::bootstrap`) holding nothing more than a `Pin<Box<dyn Future>>`
 //! plus a few locals.
 //!
 //! This test pins down that arrangement: if someone reintroduces the deep
@@ -23,7 +23,7 @@
 
 use std::mem::size_of_val;
 
-use rumors::Known;
+use rumors::{Peer, Rumors};
 
 /// Upper bound for the unawaited public futures. The budget is set
 /// generously above the measured sizes (a few hundred bytes) so legitimate
@@ -32,7 +32,7 @@ use rumors::Known;
 /// inner protocol state machine leaking out inline) will.
 const PUBLIC_FUTURE_BUDGET: usize = 1024;
 
-/// `Known::gossip` drives the full mirror protocol against a peer; the
+/// `Rumors::gossip` drives the full mirror protocol against a peer; the
 /// public future is type-erased via `mirror()`'s internal `Pin<Box<dyn
 /// Future>>` so the protocol's `Levels` chain doesn't appear in the
 /// caller's layout query.
@@ -42,7 +42,7 @@ fn gossip_future_fits_budget() {
     let (mut a_r, mut a_w) = tokio::io::split(a);
     drop(b);
 
-    let mut alice: Known<()> = Known::seed();
+    let alice: Rumors<()> = Peer::seed().into_rumors();
     let fut = alice.gossip(&mut a_r, &mut a_w);
     let size = size_of_val(&fut);
 
@@ -55,7 +55,7 @@ fn gossip_future_fits_budget() {
     );
 }
 
-/// `Known::retire` is `gossip` plus the party hand-off: the same erasure
+/// `Peer::retire` is `gossip` plus the party hand-off: the same erasure
 /// boundary must keep it flat.
 #[test]
 fn retire_future_fits_budget() {
@@ -63,7 +63,7 @@ fn retire_future_fits_budget() {
     let (mut a_r, mut a_w) = tokio::io::split(a);
     drop(b);
 
-    let alice: Known<()> = Known::seed();
+    let alice: Peer<()> = Peer::seed();
     let fut = alice.retire(&mut a_r, &mut a_w);
     let size = size_of_val(&fut);
 
@@ -74,7 +74,7 @@ fn retire_future_fits_budget() {
     );
 }
 
-/// `Known::bootstrap` runs the same mirror descent from an empty tree.
+/// `Peer::bootstrap` runs the same mirror descent from an empty tree.
 /// Same erasure boundary as `gossip`.
 #[test]
 fn bootstrap_future_fits_budget() {
@@ -82,7 +82,7 @@ fn bootstrap_future_fits_budget() {
     let (mut a_r, mut a_w) = tokio::io::split(a);
     drop(b);
 
-    let fut = Known::<()>::bootstrap(&mut a_r, &mut a_w);
+    let fut = Peer::<()>::bootstrap(&mut a_r, &mut a_w);
     let size = size_of_val(&fut);
 
     assert!(

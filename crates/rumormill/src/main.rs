@@ -2,7 +2,7 @@
 //! `rumors` crate end to end.
 //!
 //! Every replicated fact — chat lines, channel creations, presence
-//! heartbeats, join/leave notices — rides one `Known<Entry>` rumor set. That
+//! heartbeats, join/leave notices — rides one `Rumors<Entry>` rumor set. That
 //! is the demo's central trick: peers learn *who else to gossip with* from
 //! the same state they are gossiping, so one pasted endpoint id bootstraps a
 //! node into the whole room.
@@ -66,7 +66,7 @@ use anyhow::Context as _;
 use clap::Parser as _;
 use ratatui::crossterm::event::{DisableBracketedPaste, EnableBracketedPaste};
 use ratatui::crossterm::execute;
-use rumors::Known;
+use rumors::Peer;
 use tokio::sync::mpsc;
 
 use crate::owner::{Clock, Command, Owner};
@@ -85,7 +85,7 @@ async fn main() -> anyhow::Result<()> {
     eprintln!("rumormill: our endpoint id is {me}");
 
     // Our own universe, until we meet a stronger one.
-    let known: Known<entry::Entry> = Known::seed();
+    let known: Peer<entry::Entry> = Peer::seed();
     let (owner, view_rx) = Owner::new(known, *me.as_bytes(), me.to_string(), name, Clock::system());
     let (cmd_tx, cmd_rx) = mpsc::channel(64);
     let owner_task = tokio::spawn(owner.run(cmd_rx));
@@ -119,9 +119,9 @@ async fn main() -> anyhow::Result<()> {
     ratatui::restore();
 
     // Leave gracefully. Order matters: tear the gossip tasks down first so
-    // their `Broadcast` handle clones drop, then ask the owner to say
-    // goodbye — its shutdown reunites the `Known` out of the broadcast
-    // generation, which resolves exactly when no session handle remains.
+    // their `Rumors` handle clones drop, then ask the owner to say
+    // goodbye — its shutdown reclaims the unique `Peer` out of the `Rumors`
+    // clones, which resolves exactly when no session handle remains.
     cmd_tx.send(Command::Shutdown).await.ok();
     scheduler.abort();
     accept.abort();

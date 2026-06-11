@@ -1,13 +1,13 @@
 //! In-memory benchmarks for the public single-set surface.
 //!
 //! These cover the operations that mutate or read a rumor set entirely in
-//! memory: everything except [`gossip`](rumors::Known::gossip), which
+//! memory: everything except [`gossip`](rumors::Rumors::gossip), which
 //! serializes onto the wire (see `gossip_grid.rs` and `gossip_fixed.rs`).
 //! The message payload is `()`, which borsh-encodes to zero bytes, so each
 //! measurement reflects the tree / clock / hashing work rather than the cost
 //! of serializing a payload.
 //!
-//! The handles here are the asynchronous [`rumors::Known`] and its
+//! The handles here are the asynchronous [`rumors::Rumors`] and its
 //! [`Messages`] observer: every operation measured is synchronous on that
 //! surface (batches commit on drop; observer drains are polled without an
 //! executor via `now_or_never`), so no runtime is involved.
@@ -18,7 +18,7 @@
 //! documents that repeatedly [`fork`](before::Party::fork)ing *the same*
 //! party deepens its id tree linearly (worse memory and per-op cost). To
 //! keep that out of the measurements, every fixture is rebuilt from a fresh
-//! [`Known::seed`](rumors::Known::seed) in untimed setup: no party
+//! [`Peer::seed`](rumors::Peer::seed) in untimed setup: no party
 //! accumulates depth across Criterion iterations.
 //!
 //! # What's measured
@@ -43,7 +43,7 @@ use std::hint::black_box;
 
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use futures::FutureExt;
-use rumors::{CausalMessages, Key, Known, Messages, causally};
+use rumors::{CausalMessages, Key, Messages, Peer, Rumors, causally};
 
 // The shared grid module exposes a superset of helpers; each bench binary uses
 // a subset, so the unused remainder is expected per-binary.
@@ -56,9 +56,9 @@ use grid::{SIZES, sample_size_for};
 /// Causal-delta sizes for the `range_delta` / `observer_delta` sweeps.
 const DELTAS: &[usize] = &[1, 100, 10_000];
 
-/// Commit `n` unit payloads to `known` as one batch.
-fn send_units(known: &Known<()>, n: usize) {
-    let mut batch = known.batch();
+/// Commit `n` unit payloads to `rumors` as one batch.
+fn send_units(rumors: &Rumors<()>, n: usize) {
+    let mut batch = rumors.batch();
     for _ in 0..n {
         batch.send(());
     }
@@ -66,11 +66,11 @@ fn send_units(known: &Known<()>, n: usize) {
 
 /// A freshly seeded rumor set holding `n` messages, paired with its live
 /// keys (in the snapshot's stable order).
-fn build(n: usize) -> (Known<()>, Vec<Key>) {
-    let known: Known<()> = Known::seed();
-    send_units(&known, n);
-    let keys = known.snapshot().iter().map(|(k, _, _)| k).collect();
-    (known, keys)
+fn build(n: usize) -> (Rumors<()>, Vec<Key>) {
+    let rumors: Rumors<()> = Peer::seed().into_rumors();
+    send_units(&rumors, n);
+    let keys = rumors.snapshot().iter().map(|(k, _, _)| k).collect();
+    (rumors, keys)
 }
 
 /// Drain everything `observer` has pending, without blocking, returning how
@@ -87,8 +87,8 @@ fn drain(observer: &mut Messages<()>) -> usize {
 /// `batch_insert`: insert N messages into an empty set in one batch commit.
 ///
 /// `b.iter` builds and drops one set per iteration, so peak memory stays at a
-/// single tree even at N = 1M. The trivial `seed()` is inside the timed body,
-/// but its cost is negligible against N inserts.
+/// single tree even at N = 1M. The trivial `seed().into_rumors()` is inside
+/// the timed body, but its cost is negligible against N inserts.
 fn bench_batch_insert(c: &mut Criterion) {
     let mut group = c.benchmark_group("batch_insert");
     for &n in SIZES {
@@ -96,9 +96,9 @@ fn bench_batch_insert(c: &mut Criterion) {
         group.throughput(Throughput::Elements(n as u64));
         group.bench_function(BenchmarkId::from_parameter(n), |b| {
             b.iter(|| {
-                let known: Known<()> = Known::seed();
-                send_units(&known, black_box(n));
-                known
+                let rumors: Rumors<()> = Peer::seed().into_rumors();
+                send_units(&rumors, black_box(n));
+                rumors
             })
         });
     }
@@ -115,8 +115,8 @@ fn bench_iter(c: &mut Criterion) {
     for &n in SIZES {
         group.sample_size(sample_size_for(n));
         group.throughput(Throughput::Elements(n as u64));
-        let (known, _keys) = build(n);
-        let snapshot = known.snapshot();
+        let (rumors, _keys) = build(n);
+        let snapshot = rumors.snapshot();
         group.bench_function(BenchmarkId::from_parameter(n), |b| {
             b.iter(|| {
                 let mut count = 0usize;
@@ -143,13 +143,13 @@ fn bench_redact(c: &mut Criterion) {
         group.bench_function(BenchmarkId::from_parameter(n), |b| {
             b.iter_batched(
                 || build(n),
-                |(known, keys)| {
-                    let mut batch = known.batch();
+                |(rumors, keys)| {
+                    let mut batch = rumors.batch();
                     for key in keys {
                         batch.redact(black_box(key));
                     }
                     drop(batch);
-                    known
+                    rumors
                 },
                 BatchSize::PerIteration,
             )
@@ -161,13 +161,13 @@ fn bench_redact(c: &mut Criterion) {
 /// A size-`n` set whose last `delta` messages sit above the returned checkpoint,
 /// with the tree's lazy memos warmed so the timed body measures the
 /// version-bounded walk itself rather than first-touch memoization.
-fn build_with_checkpoint(n: usize, delta: usize) -> (Known<()>, rumors::Version) {
-    let known: Known<()> = Known::seed();
-    send_units(&known, n - delta);
-    let checkpoint = known.latest();
-    send_units(&known, delta);
-    known.warm_caches();
-    (known, checkpoint)
+fn build_with_checkpoint(n: usize, delta: usize) -> (Rumors<()>, rumors::Version) {
+    let rumors: Rumors<()> = Peer::seed().into_rumors();
+    send_units(&rumors, n - delta);
+    let checkpoint = rumors.snapshot().latest().clone();
+    send_units(&rumors, delta);
+    rumors.warm_caches();
+    (rumors, checkpoint)
 }
 
 /// `range_delta`: iterate the causal delta above a checkpoint.
@@ -186,8 +186,8 @@ fn bench_range_delta(c: &mut Criterion) {
             }
             group.sample_size(sample_size_for(n));
             group.throughput(Throughput::Elements(delta as u64));
-            let (known, checkpoint) = build_with_checkpoint(n, delta);
-            let snapshot = known.snapshot();
+            let (rumors, checkpoint) = build_with_checkpoint(n, delta);
+            let snapshot = rumors.snapshot();
             group.bench_function(
                 BenchmarkId::from_parameter(format!("n={n},delta={delta}")),
                 |b| {
@@ -215,11 +215,11 @@ fn bench_observer_replay(c: &mut Criterion) {
     for &n in SIZES {
         group.sample_size(sample_size_for(n));
         group.throughput(Throughput::Elements(n as u64));
-        let (known, _keys) = build(n);
-        known.warm_caches();
+        let (rumors, _keys) = build(n);
+        rumors.warm_caches();
         group.bench_function(BenchmarkId::from_parameter(n), |b| {
             b.iter(|| {
-                let mut observer = known.messages();
+                let mut observer = rumors.messages();
                 black_box(drain(&mut observer))
             })
         });
@@ -241,12 +241,12 @@ fn bench_observer_delta(c: &mut Criterion) {
             }
             group.sample_size(sample_size_for(n));
             group.throughput(Throughput::Elements(delta as u64));
-            let (known, checkpoint) = build_with_checkpoint(n, delta);
+            let (rumors, checkpoint) = build_with_checkpoint(n, delta);
             group.bench_function(
                 BenchmarkId::from_parameter(format!("n={n},delta={delta}")),
                 |b| {
                     b.iter(|| {
-                        let mut observer = known.messages_since(checkpoint.clone());
+                        let mut observer = rumors.messages_since(checkpoint.clone());
                         black_box(drain(&mut observer))
                     })
                 },
@@ -277,11 +277,11 @@ fn bench_causal_replay(c: &mut Criterion) {
     for &n in SIZES {
         group.sample_size(sample_size_for(n));
         group.throughput(Throughput::Elements(n as u64));
-        let (known, _keys) = build(n);
-        known.warm_caches();
+        let (rumors, _keys) = build(n);
+        rumors.warm_caches();
         group.bench_function(BenchmarkId::from_parameter(n), |b| {
             b.iter(|| {
-                let mut observer = known.causal_messages();
+                let mut observer = rumors.causal_messages();
                 black_box(drain_causal(&mut observer))
             })
         });
@@ -301,12 +301,12 @@ fn bench_causal_delta(c: &mut Criterion) {
             }
             group.sample_size(sample_size_for(n));
             group.throughput(Throughput::Elements(delta as u64));
-            let (known, checkpoint) = build_with_checkpoint(n, delta);
+            let (rumors, checkpoint) = build_with_checkpoint(n, delta);
             group.bench_function(
                 BenchmarkId::from_parameter(format!("n={n},delta={delta}")),
                 |b| {
                     b.iter(|| {
-                        let mut observer = known.causal_messages_since(checkpoint.clone());
+                        let mut observer = rumors.causal_messages_since(checkpoint.clone());
                         black_box(drain_causal(&mut observer))
                     })
                 },
@@ -317,17 +317,24 @@ fn bench_causal_delta(c: &mut Criterion) {
 }
 
 /// `get`: a point lookup by key — one `O(depth)` descent, never a scan.
+///
+/// Lookups go through [`snapshot`](Rumors::snapshot), so the timed body pays
+/// for acquiring the root handle plus the descent — the same per-call shape
+/// the old handle-level `get` had.
 fn bench_get(c: &mut Criterion) {
     let mut group = c.benchmark_group("get");
     for &n in SIZES {
         group.sample_size(sample_size_for(n));
-        let (known, keys) = build(n);
-        known.warm_caches();
+        let (rumors, keys) = build(n);
+        rumors.warm_caches();
         // A fixed key from the middle of the stable iteration order; any
         // live key costs the same depth-bounded descent.
         let key = keys[keys.len() / 2];
         group.bench_function(BenchmarkId::from_parameter(n), |b| {
-            b.iter(|| black_box(known.get(black_box(&key))))
+            b.iter(|| {
+                let snapshot = rumors.snapshot();
+                black_box(snapshot.get(black_box(&key)));
+            })
         });
     }
     group.finish();

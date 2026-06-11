@@ -19,7 +19,7 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
-use rumors::{Key, Known, Messages, Retire, Version, causally};
+use rumors::{Key, Messages, Peer, Retire, Rumors, Version, causally};
 
 use crate::common::action::minted_key;
 use crate::common::wire::{block_on, bootstrap_fork, wire_gossip};
@@ -61,8 +61,8 @@ fn drain(obs: &mut Messages<u64>) -> (Vec<(Key, Version, u64)>, bool) {
 /// The live `Key → value` map, for comparing against deliveries. (Keys
 /// identify messages uniquely; `Version` is only partially ordered, so it
 /// can't key a comparison set.)
-fn live_map(known: &Known<u64>) -> BTreeMap<Key, u64> {
-    known.snapshot().iter().map(|(k, _, m)| (k, **m)).collect()
+fn live_map(rumors: &Rumors<u64>) -> BTreeMap<Key, u64> {
+    rumors.snapshot().iter().map(|(k, _, m)| (k, **m)).collect()
 }
 
 /// §6.1 Genesis replay: a from-genesis observer on a populated set yields
@@ -70,15 +70,15 @@ fn live_map(known: &Known<u64>) -> BTreeMap<Key, u64> {
 /// completed pass its checkpoint dominates every observed version.
 #[test]
 fn genesis_replay_observes_the_live_set_once() {
-    let known = Known::<u64>::seed();
+    let rumors = Peer::<u64>::seed().into_rumors();
     {
-        let mut batch = known.batch();
+        let mut batch = rumors.batch();
         for v in 0..8u64 {
             batch.send(v);
         }
     }
 
-    let mut obs = known.messages();
+    let mut obs = rumors.messages();
     let (items, ended) = drain(&mut obs);
     assert!(
         !ended,
@@ -89,7 +89,7 @@ fn genesis_replay_observes_the_live_set_once() {
     assert_eq!(observed.len(), items.len(), "no message is observed twice");
     assert_eq!(
         observed,
-        live_map(&known),
+        live_map(&rumors),
         "exactly the live set is observed"
     );
 
@@ -105,12 +105,12 @@ fn genesis_replay_observes_the_live_set_once() {
 /// messages `v_mid` does not causally contain.
 #[test]
 fn checkpoint_start_observes_only_what_it_does_not_contain() {
-    let known = Known::<u64>::seed();
-    known.batch().send(1).send(2).send(3);
-    let v_mid = known.latest();
-    known.batch().send(4).send(5).send(6);
+    let rumors = Peer::<u64>::seed().into_rumors();
+    rumors.batch().send(1).send(2).send(3);
+    let v_mid = rumors.snapshot().latest().clone();
+    rumors.batch().send(4).send(5).send(6);
 
-    let mut obs = known.messages_since(v_mid.clone());
+    let mut obs = rumors.messages_since(v_mid.clone());
     let (items, _) = drain(&mut obs);
 
     let observed: BTreeSet<u64> = items.iter().map(|(_, _, m)| *m).collect();
@@ -129,17 +129,16 @@ fn checkpoint_start_observes_only_what_it_does_not_contain() {
     }
 }
 
-/// §6.3 Live delivery: messages sent through a sibling `Broadcast` clone
+/// §6.3 Live delivery: messages sent through a sibling `Rumors` clone
 /// after subscription are observed, as are messages learned via gossip.
 #[test]
 fn live_sends_and_gossip_learned_messages_are_observed() {
-    let mut a = Known::<u64>::seed();
-    let mut b = bootstrap_fork(&mut a);
+    let a = Peer::<u64>::seed().into_rumors();
+    let b = bootstrap_fork(&a);
 
-    let broadcast = a.broadcast();
-    let sibling = broadcast.clone();
+    let sibling = a.clone();
 
-    let mut obs = broadcast.messages();
+    let mut obs = a.messages();
     let (initial, _) = drain(&mut obs);
     assert!(initial.is_empty(), "nothing to observe yet");
 
@@ -151,11 +150,7 @@ fn live_sends_and_gossip_learned_messages_are_observed() {
 
     // A message learned through gossip.
     b.send(20);
-    let mut a = block_on(async {
-        drop(sibling);
-        broadcast.reunite().await.expect("sole reuniter")
-    });
-    wire_gossip(&mut a, &mut b);
+    wire_gossip(&a, &b);
     let (items, _) = drain(&mut obs);
     assert_eq!(items.len(), 1, "the gossip-learned message is observed");
     assert_eq!(items[0].2, 20);
@@ -167,32 +162,32 @@ fn live_sends_and_gossip_learned_messages_are_observed() {
 /// does not see pre-subscription content.
 #[test]
 fn redactions_are_honored_silently() {
-    let known = Known::<u64>::seed();
+    let rumors = Peer::<u64>::seed().into_rumors();
 
     // Redacted before subscription: never fires.
-    let pre = known.latest();
-    known.send(1);
-    let key_1 = minted_key(&known.snapshot(), &pre);
-    known.redact(key_1);
-    let mut obs = known.messages();
+    let pre = rumors.snapshot().latest().clone();
+    rumors.send(1);
+    let key_1 = minted_key(&rumors.snapshot(), &pre);
+    rumors.redact(key_1);
+    let mut obs = rumors.messages();
     let (items, _) = drain(&mut obs);
     assert!(items.is_empty(), "a pre-subscription redaction never fires");
 
     // Observed, then redacted: nothing further fires.
-    let pre = known.latest();
-    known.send(2);
-    let key_2 = minted_key(&known.snapshot(), &pre);
+    let pre = rumors.snapshot().latest().clone();
+    rumors.send(2);
+    let key_2 = minted_key(&rumors.snapshot(), &pre);
     let (items, _) = drain(&mut obs);
     assert_eq!(items.len(), 1, "the live message fires once");
-    known.redact(key_2);
+    rumors.redact(key_2);
     let (items, _) = drain(&mut obs);
     assert!(items.is_empty(), "a redaction fires no further observation");
 
     // Inserted and redacted wholly between passes: never delivered.
-    let pre = known.latest();
-    known.send(3);
-    let key_3 = minted_key(&known.snapshot(), &pre);
-    known.redact(key_3);
+    let pre = rumors.snapshot().latest().clone();
+    rumors.send(3);
+    let key_3 = minted_key(&rumors.snapshot(), &pre);
+    rumors.redact(key_3);
     let (items, _) = drain(&mut obs);
     assert!(
         items.is_empty(),
@@ -200,26 +195,26 @@ fn redactions_are_honored_silently() {
     );
 
     // A from-now observer does not see pre-subscription content.
-    known.send(4);
-    let mut from_now = known.messages_since(known.latest());
+    rumors.send(4);
+    let mut from_now = rumors.messages_since(rumors.snapshot().latest().clone());
     let (items, _) = drain(&mut from_now);
     assert!(items.is_empty(), "a from-now observer starts quiet");
-    known.send(5);
+    rumors.send(5);
     let (items, _) = drain(&mut from_now);
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].2, 5, "only post-subscription content fires");
 }
 
-/// §6.9 Termination: when the `Known` (and every other handle) drops, the
-/// observer yields the complete final state and then ends.
+/// §6.9 Termination: when the last handle on the set drops, the observer
+/// yields the complete final state and then ends.
 #[test]
 fn observer_drains_the_final_state_then_ends() {
-    let known = Known::<u64>::seed();
-    known.batch().send(1).send(2);
-    let expected = live_map(&known);
+    let rumors = Peer::<u64>::seed().into_rumors();
+    rumors.batch().send(1).send(2);
+    let expected = live_map(&rumors);
 
-    let mut obs = known.messages();
-    drop(known);
+    let mut obs = rumors.messages();
+    drop(rumors);
 
     let (items, ended) = drain(&mut obs);
     assert!(ended, "with every sender gone the observer ends");
@@ -241,13 +236,19 @@ fn observer_drains_the_final_state_then_ends() {
 /// observer's final drain includes everything the session learned.
 #[test]
 fn retire_ends_the_observer() {
-    let mut survivor = Known::<u64>::seed();
-    let retiree = bootstrap_fork(&mut survivor);
+    let survivor = Peer::<u64>::seed().into_rumors();
+    let retiree = bootstrap_fork(&survivor);
     retiree.send(7);
 
     let mut obs = retiree.messages();
 
     let outcome = block_on(async {
+        // An observer is not a handle, so the sole `Rumors` converts back
+        // into the unique `Peer` retirement requires.
+        let retiree = retiree
+            .try_into_peer()
+            .await
+            .expect("the sole handle reclaims the Peer");
         let (a_side, b_side) = tokio::io::duplex(64 * 1024);
         let (mut a_r, mut a_w) = tokio::io::split(a_side);
         let (mut b_r, mut b_w) = tokio::io::split(b_side);
@@ -268,49 +269,52 @@ fn retire_ends_the_observer() {
     );
 }
 
-/// §6.10 Pending while actors live: with a `Known` or `Broadcast` alive, a
+/// §6.10 Pending while actors live: with any handle on the set alive, a
 /// drained observer is quiet, not ended.
 #[test]
 fn observer_stays_quiet_while_actors_live() {
-    let known = Known::<u64>::seed();
-    known.send(1);
+    let rumors = Peer::<u64>::seed().into_rumors();
+    rumors.send(1);
 
-    let mut obs = known.messages();
+    let mut obs = rumors.messages();
     let (_, ended) = drain(&mut obs);
-    assert!(!ended, "a live Known keeps the observer open");
+    assert!(!ended, "a live handle keeps the observer open");
 
-    let broadcast = known.broadcast();
+    let sibling = rumors.clone();
+    drop(rumors);
     let (_, ended) = drain(&mut obs);
-    assert!(!ended, "a live Broadcast keeps the observer open");
+    assert!(!ended, "a surviving clone keeps the observer open");
 
-    drop(broadcast);
+    drop(sibling);
     let (items, ended) = drain(&mut obs);
     assert!(ended, "dropping the last handle ends the observer");
     assert!(items.is_empty());
 }
 
 /// §6.11 Reunite non-interference: an outstanding observer is not an actor —
-/// it neither blocks [`Broadcast::reunite`](rumors::Broadcast::reunite) nor
-/// is ended by it, and it keeps observing the reunited `Known`.
+/// it neither blocks [`Rumors::try_into_peer`](rumors::Rumors::try_into_peer)
+/// nor is ended by it, and it keeps observing across the round-trip.
 #[test]
 fn observer_does_not_block_reunite_and_survives_it() {
-    let known = Known::<u64>::seed();
-    let broadcast = known.broadcast();
+    let rumors = Peer::<u64>::seed().into_rumors();
 
-    let mut obs = broadcast.messages();
+    let mut obs = rumors.messages();
     let (_, ended) = drain(&mut obs);
     assert!(!ended);
 
-    // Reunite resolves immediately despite the outstanding observer.
-    let known = broadcast
-        .reunite()
+    // Reuniting resolves immediately despite the outstanding observer.
+    let peer = rumors
+        .try_into_peer()
         .now_or_never()
         .expect("an observer does not count against quiescence")
-        .expect("the sole reuniter reclaims the Known");
+        .expect("the sole reuniter reclaims the Peer");
 
-    known.send(42);
+    // The round-trip neither ended the observer nor closed the set: a send
+    // through a fresh handle is still observed.
+    let rumors = peer.into_rumors();
+    rumors.send(42);
     let (items, ended) = drain(&mut obs);
-    assert!(!ended, "the reunited Known keeps the set open");
+    assert!(!ended, "the reclaimed Peer keeps the set open");
     assert_eq!(
         items.len(),
         1,
@@ -324,16 +328,16 @@ fn observer_does_not_block_reunite_and_survives_it() {
 /// observer sees their effects on its next passes.
 #[test]
 fn lent_borrows_do_not_block_senders() {
-    let known = Known::<u64>::seed();
-    known.batch().send(1).send(2);
+    let rumors = Peer::<u64>::seed().into_rumors();
+    rumors.batch().send(1).send(2);
 
-    let mut obs = known.messages();
+    let mut obs = rumors.messages();
     let lent = block_on(obs.borrow_next()).expect("first item of the pass");
     let lent_value = *lent.2.clone();
 
     // With the borrow conceptually outstanding (the observer is mid-pass),
     // a send must not deadlock.
-    known.send(3);
+    rumors.send(3);
 
     let (rest, _) = drain(&mut obs);
     assert!(
@@ -351,15 +355,15 @@ fn lent_borrows_do_not_block_senders() {
 /// equal checkpoint.
 #[test]
 fn checkpoint_round_trips_on_an_unchanged_set() {
-    let known = Known::<u64>::seed();
-    known.batch().send(1).send(2).send(3);
+    let rumors = Peer::<u64>::seed().into_rumors();
+    rumors.batch().send(1).send(2).send(3);
 
-    let mut obs = known.messages();
+    let mut obs = rumors.messages();
     let (items, _) = drain(&mut obs);
     assert_eq!(items.len(), 3);
     let checkpoint = obs.checkpoint().clone();
 
-    let mut resumed = known.messages_since(checkpoint.clone());
+    let mut resumed = rumors.messages_since(checkpoint.clone());
     let (items, _) = drain(&mut resumed);
     assert!(items.is_empty(), "nothing fires on an unchanged set");
     assert_eq!(
@@ -374,8 +378,8 @@ fn checkpoint_round_trips_on_an_unchanged_set() {
 /// are skipped, messages B holds that A never saw fire.
 #[test]
 fn checkpoint_is_portable_across_replicas() {
-    let mut a = Known::<u64>::seed();
-    let mut b = bootstrap_fork(&mut a);
+    let a = Peer::<u64>::seed().into_rumors();
+    let b = bootstrap_fork(&a);
 
     a.send(1);
     b.send(2);
@@ -387,7 +391,7 @@ fn checkpoint_is_portable_across_replicas() {
     let checkpoint = obs_a.checkpoint().clone();
 
     // Converge the replicas, then resume against B.
-    wire_gossip(&mut a, &mut b);
+    wire_gossip(&a, &b);
     let mut obs_b = b.messages_since(checkpoint);
     let (items, _) = drain(&mut obs_b);
     assert_eq!(items.len(), 1, "only the message A never observed fires");
@@ -399,12 +403,12 @@ fn checkpoint_is_portable_across_replicas() {
 /// actors live — where `borrow_next` would block) from an *ended* one.
 #[test]
 fn sync_try_next_distinguishes_quiet_from_ended() {
-    use rumors::sync::{Known as SyncKnown, TryNext};
+    use rumors::sync::{Peer as SyncPeer, TryNext};
 
-    let known = SyncKnown::<u64>::seed();
-    known.batch().send(1).send(2);
+    let rumors = SyncPeer::<u64>::seed().into_rumors();
+    rumors.batch().send(1).send(2);
 
-    let mut obs = known.messages();
+    let mut obs = rumors.messages();
     let mut seen = BTreeSet::new();
     while let TryNext::Message((_, _, m)) = obs.try_next() {
         seen.insert(**m);
@@ -412,16 +416,16 @@ fn sync_try_next_distinguishes_quiet_from_ended() {
     assert_eq!(seen, BTreeSet::from([1, 2]), "the pending pass drains");
     assert!(
         matches!(obs.try_next(), TryNext::Quiet),
-        "with the Known live, a drained observer is quiet, not ended"
+        "with a handle live, a drained observer is quiet, not ended"
     );
 
-    known.send(3);
+    rumors.send(3);
     let TryNext::Message((_, _, m)) = obs.try_next() else {
         panic!("the new send is immediately available");
     };
     assert_eq!(**m, 3);
 
-    drop(known);
+    drop(rumors);
     assert!(matches!(obs.try_next(), TryNext::Ended));
     assert!(
         matches!(obs.try_next(), TryNext::Ended),
@@ -435,18 +439,18 @@ fn sync_try_next_distinguishes_quiet_from_ended() {
 fn stream_face_matches_and_terminates() {
     use futures::StreamExt;
 
-    let known = Known::<u64>::seed();
-    known.batch().send(1).send(2);
-    let expected = live_map(&known);
+    let rumors = Peer::<u64>::seed().into_rumors();
+    rumors.batch().send(1).send(2);
+    let expected = live_map(&rumors);
 
-    let mut obs = known.messages();
+    let mut obs = rumors.messages();
     let mut items = BTreeMap::new();
     while let Some(Some((k, _, m))) = obs.next().now_or_never() {
         items.insert(k, *m);
     }
     assert_eq!(items, expected, "the Stream face yields the live set");
 
-    drop(known);
+    drop(rumors);
     assert_eq!(
         obs.next().now_or_never(),
         Some(None),
@@ -458,12 +462,12 @@ fn stream_face_matches_and_terminates() {
 /// the set closing; it yields the complete final state first.
 #[test]
 fn sync_iterator_face_drains_then_ends() {
-    let known = rumors::sync::Known::<u64>::seed();
-    known.batch().send(1).send(2).send(3);
-    let expected: BTreeSet<u64> = known.snapshot().iter().map(|(_, _, m)| **m).collect();
+    let rumors = rumors::sync::Peer::<u64>::seed().into_rumors();
+    rumors.batch().send(1).send(2).send(3);
+    let expected: BTreeSet<u64> = rumors.snapshot().iter().map(|(_, _, m)| **m).collect();
 
-    let obs = known.messages();
-    drop(known);
+    let obs = rumors.messages();
+    drop(rumors);
 
     let observed: BTreeSet<u64> = obs.map(|(_, _, m)| *m).collect();
     assert_eq!(
@@ -484,21 +488,21 @@ fn folding_delivered_versions_can_lose_a_message() {
     // Search deterministic universes for the counterexample shape: the
     // *later*-minted of two messages is delivered first (content-addressed
     // keys vs. causal versions disagree about order roughly half the time).
-    let (known, later_value) = (1u64..256)
+    let (rumors, later_value) = (1u64..256)
         .find_map(|candidate| {
-            let known = Known::<u64>::seed_rng(&mut SmallRng::seed_from_u64(0));
-            known.send(0);
-            known.send(candidate);
-            let snapshot = known.snapshot();
+            let rumors = Peer::<u64>::seed_rng(&mut SmallRng::seed_from_u64(0)).into_rumors();
+            rumors.send(0);
+            rumors.send(candidate);
+            let snapshot = rumors.snapshot();
             let first_yielded = snapshot.iter().next().expect("two live messages");
             let later_first = **first_yielded.2 == candidate;
             drop(snapshot);
-            later_first.then_some((known, candidate))
+            later_first.then_some((rumors, candidate))
         })
         .expect("some candidate must collide into key-before-version order");
 
     // Deliver exactly one item — the later version — and stop mid-pass.
-    let mut obs = known.messages();
+    let mut obs = rumors.messages();
     let Step::Item((_, delivered_version, delivered_value)) = step(&mut obs) else {
         panic!("the populated set delivers an item");
     };
@@ -510,7 +514,7 @@ fn folding_delivered_versions_can_lose_a_message() {
         fold |= &delivered_version;
         fold
     };
-    let mut resumed_from_fold = known.messages_since(fold);
+    let mut resumed_from_fold = rumors.messages_since(fold);
     let (items, _) = drain(&mut resumed_from_fold);
     assert!(
         items.is_empty(),
@@ -519,7 +523,7 @@ fn folding_delivered_versions_can_lose_a_message() {
 
     // The sound resume: the observer's pass checkpoint (genesis — no pass
     // completed) re-delivers both messages. At-least-once, never loss.
-    let mut resumed_from_checkpoint = known.messages_since(obs.checkpoint().clone());
+    let mut resumed_from_checkpoint = rumors.messages_since(obs.checkpoint().clone());
     let (items, _) = drain(&mut resumed_from_checkpoint);
     assert_eq!(
         items.len(),
@@ -533,7 +537,7 @@ const MAX_OPS: usize = 40;
 /// One scripted action against the observed set.
 #[derive(Debug, Clone)]
 enum Op {
-    /// Send this value (through one of two sibling `Broadcast` clones,
+    /// Send this value (through one of two sibling `Rumors` clones,
     /// alternating by op index).
     Send(u64),
     /// Redact the `idx % minted`-th key minted so far (dropped if none).
@@ -560,25 +564,24 @@ proptest! {
     /// the final live set.
     #[test]
     fn exactly_once_under_interleaving(ops in arb_ops()) {
-        let known = Known::<u64>::seed();
-        let broadcast = known.broadcast();
-        let sibling = broadcast.clone();
+        let rumors = Peer::<u64>::seed().into_rumors();
+        let sibling = rumors.clone();
 
-        let mut obs = broadcast.messages();
+        let mut obs = rumors.messages();
         let mut minted: Vec<Key> = Vec::new();
         let mut observed: Vec<(Key, Version, u64)> = Vec::new();
 
         for (i, op) in ops.iter().enumerate() {
             match op {
                 Op::Send(v) => {
-                    let handle = if i % 2 == 0 { &broadcast } else { &sibling };
-                    let pre = handle.latest();
+                    let handle = if i % 2 == 0 { &rumors } else { &sibling };
+                    let pre = handle.snapshot().latest().clone();
                     handle.send(*v);
                     minted.push(minted_key(&handle.snapshot(), &pre));
                 }
                 Op::Redact(idx) => {
                     if !minted.is_empty() {
-                        broadcast.redact(minted[idx % minted.len()]);
+                        rumors.redact(minted[idx % minted.len()]);
                     }
                 }
                 Op::Drain => {
@@ -588,10 +591,9 @@ proptest! {
         }
 
         // Close the set and take the final drain.
-        let final_live = live_map(&block_on(async {
-            drop(sibling);
-            broadcast.reunite().await.expect("sole reuniter")
-        }));
+        let final_live = live_map(&rumors);
+        drop(sibling);
+        drop(rumors);
         let (final_items, ended) = drain(&mut obs);
         prop_assert!(ended, "all handles gone: the observer ends");
         observed.extend(final_items);
@@ -622,9 +624,9 @@ proptest! {
         taken in any::<usize>(),
         complete_pass in any::<bool>(),
     ) {
-        let known = Known::<u64>::seed();
+        let rumors = Peer::<u64>::seed().into_rumors();
         {
-            let mut batch = known.batch();
+            let mut batch = rumors.batch();
             for v in &phase_one {
                 batch.send(*v);
             }
@@ -632,7 +634,7 @@ proptest! {
 
         // Deliver a prefix of the first pass — or, when `complete_pass`,
         // drain to quiescence so the pass commits into the checkpoint.
-        let mut obs = known.messages();
+        let mut obs = rumors.messages();
         let mut first_run: Vec<(Key, Version, u64)> = Vec::new();
         if complete_pass {
             let (items, _) = drain(&mut obs);
@@ -650,16 +652,16 @@ proptest! {
 
         // More traffic after the stop.
         {
-            let mut batch = known.batch();
+            let mut batch = rumors.batch();
             for v in &phase_two {
                 batch.send(*v);
             }
         }
 
         // Resume from the persisted checkpoint and drain to the end.
-        let mut resumed = known.messages_since(checkpoint);
-        let final_live = live_map(&known);
-        drop(known);
+        let mut resumed = rumors.messages_since(checkpoint);
+        let final_live = live_map(&rumors);
+        drop(rumors);
         let (second_run, ended) = drain(&mut resumed);
         prop_assert!(ended);
 

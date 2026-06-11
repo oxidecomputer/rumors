@@ -4,9 +4,9 @@
 //! entry the local set observes (originated, gossiped, or bootstrapped)
 //! is fed through [`observe`](AppState::observe), which places it in the
 //! display structures and returns the [`Effect`]s the caller must apply —
-//! redactions to originate and expiries to schedule. The module does no I/O,
-//! holds no `Known`, and reads no clock (the caller passes `now`), so the
-//! whole lifecycle is testable with synthetic events.
+//! redactions to originate and expiries to schedule. The module does no
+//! I/O, holds no `Rumors` handle, and reads no clock (the caller passes
+//! `now`), so the whole lifecycle is testable with synthetic events.
 //!
 //! **The input contract is causal delivery**: the owner feeds `observe`
 //! from a [`CausalMessages`](rumors::CausalMessages) observer, so an entry
@@ -36,8 +36,8 @@ use crate::entry::{Entry, Millis, PeerId};
 use crate::timers;
 
 /// What the owner must do after a state transition. The state machine never
-/// touches the `Known` or any timer directly; it describes the work and the
-/// owner applies it.
+/// touches the `Rumors` handle or any timer directly; it describes the work
+/// and the owner applies it.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Effect {
     /// Redact this key from the rumor set (and thus, contagiously, from

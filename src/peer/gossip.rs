@@ -1,7 +1,7 @@
-//! The wire-session drivers for [`Known`]: [`bootstrap`](Known::bootstrap),
-//! [`gossip`](Known::gossip), and [`retire`](Known::retire), plus the raw
-//! preamble constants every session leads with and the [`PartyGuard`] that
-//! snaps a speculatively-donated party back in place on failure.
+//! The wire-session drivers for [`Peer`]: [`bootstrap`](Peer::bootstrap),
+//! [`gossip`](crate::Rumors::gossip), and [`retire`](Peer::retire), plus the
+//! raw preamble constants every session leads with and the [`PartyGuard`]
+//! that snaps a speculatively-donated party back in place on failure.
 
 use before::Party;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -14,7 +14,7 @@ use crate::tree::mirror::{local, message::Intent, remote};
 use crate::tree::{self, Tree, mirror};
 use crate::{Error, Network};
 
-use super::{Inner, Known};
+use super::{Inner, Peer};
 
 /// Magic bytes that prefix every `rumors` gossip session.
 pub const PROTOCOL_MAGIC: [u8; 6] = *b"RUMORS";
@@ -25,14 +25,14 @@ pub const PROTOCOL_MAGIC: [u8; 6] = *b"RUMORS";
 /// rejected with [`Error::VersionMismatch`].
 pub const PROTOCOL_VERSION: u16 = 1;
 
-/// The outcome of [`Known::retire`]: whether the identity was handed off,
+/// The outcome of [`Peer::retire`]: whether the identity was handed off,
 /// and what came back if not.
 ///
-/// Marked `must_use` because two variants carry the intact [`Known`] —
+/// Marked `must_use` because two variants carry the intact [`Peer`] —
 /// silently dropping the result of a declined or recovered retirement
 /// destroys the identity that the call was specifically trying to preserve,
 /// leaking its id-region from the universe.
-#[must_use = "a declined or recovered retirement hands the Known back; dropping it leaks the identity"]
+#[must_use = "a declined or recovered retirement hands the Peer back; dropping it leaks the identity"]
 #[derive(Debug)]
 pub enum Retire<T> {
     /// **Retired.** The peer reconciled with us and absorbed our party; the
@@ -43,14 +43,14 @@ pub enum Retire<T> {
     /// handed back intact, to retry elsewhere.
     Declined {
         /// The intact retiree.
-        known: Known<T>,
+        peer: Peer<T>,
     },
     /// **Recovered, unchanged.** The session failed *before* our party ever
     /// crossed the wire; the rumor set is handed back intact, to retry
     /// elsewhere. Nothing was lost.
     Recovered {
         /// The intact retiree.
-        known: Known<T>,
+        peer: Peer<T>,
         /// What failed the session.
         error: Error,
     },
@@ -63,7 +63,7 @@ pub enum Retire<T> {
     },
 }
 
-impl<T> Known<T> {
+impl<T> Peer<T> {
     /// Bootstrap a brand-new rumor set from a remote peer.
     pub async fn bootstrap<'a, R, W>(
         read: &'a mut R,
@@ -117,7 +117,7 @@ impl<T> Known<T> {
     /// that it can be recycled by the network.
     ///
     /// The session begins with a round of gossip: the two peers reconcile
-    /// content exactly as [`gossip`](Self::gossip) would, so everything we
+    /// content exactly as [`gossip`](crate::Rumors::gossip) would, so everything we
     /// hold that the peer had not yet seen survives in it; the peer then
     /// absorbs our party. A peer running ordinary gossip absorbs a retiree
     /// transparently, so the counterparty needs no special call. The four
@@ -128,7 +128,7 @@ impl<T> Known<T> {
     /// [`CausalMessages`](crate::CausalMessages)) drain the *reconciled*
     /// final state — everything the session learned included — before they
     /// end.
-    pub async fn retire<'a, R, W>(mut self, read: &'a mut R, write: &'a mut W) -> Retire<T>
+    pub async fn retire<'a, R, W>(self, read: &'a mut R, write: &'a mut W) -> Retire<T>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
         R: AsyncRead + Unpin + Send,
@@ -137,13 +137,17 @@ impl<T> Known<T> {
         match self.gossip_inner(Intent::Retire, read, write).await {
             (Intent::Retire, Ok(())) => Retire::Retired,
             (Intent::Retire, Err(error)) => Retire::Uncertain { error },
-            (Intent::Remain, Ok(())) => Retire::Declined { known: self },
-            (Intent::Remain, Err(error)) => Retire::Recovered { known: self, error },
+            (Intent::Remain, Ok(())) => Retire::Declined { peer: self },
+            (Intent::Remain, Err(error)) => Retire::Recovered { peer: self, error },
         }
     }
 
     /// Gossip with a remote peer to synchronize rumor sets.
-    pub async fn gossip<'a, R, W>(&mut self, read: &'a mut R, write: &'a mut W) -> Result<(), Error>
+    pub(crate) async fn gossip<'a, R, W>(
+        &self,
+        read: &'a mut R,
+        write: &'a mut W,
+    ) -> Result<(), Error>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
         R: AsyncRead + Unpin + Send,
@@ -162,7 +166,7 @@ impl<T> Known<T> {
     /// fails with an error -- we can't know whether the remote received it or
     /// not, so we have to assume they might have.
     async fn gossip_inner<'a, R, W>(
-        &mut self,
+        &self,
         intent: Intent,
         read: &'a mut R,
         write: &'a mut W,
@@ -205,8 +209,8 @@ impl<T> Known<T> {
             guarded.party = if self_retiring {
                 // Retiring donates our *whole* identity, not a fork of it.
                 //
-                // We only can have our hands on a `Known` when there are no
-                // extant `Broadcast`s, which means that we aren't stepping on
+                // We only can have our hands on a `Peer` when there are no
+                // extant `Rumors`, which means that we aren't stepping on
                 // anyone's toes by doing this.
                 inner.party.take()
             } else if peer_bootstrapping {
@@ -281,7 +285,7 @@ impl<T> Known<T> {
                 Err(e) => {
                     // A retiring donation in limbo must be assumed received:
                     // report `Intent::Retire` alongside the error so that the
-                    // `Known` is not handed back. A lost fork merely leaks its
+                    // `Peer` is not handed back. A lost fork merely leaks its
                     // region; we remain.
                     let outcome = if self_retiring {
                         Intent::Retire
@@ -293,7 +297,7 @@ impl<T> Known<T> {
                 Ok(()) => {
                     if self_retiring {
                         // The point of no return: the peer holds our whole
-                        // party, so this `Known` must not survive the session.
+                        // party, so this `Peer` must not survive the session.
                         outcome = Intent::Retire;
                     }
                 }
@@ -314,7 +318,7 @@ impl<T> Known<T> {
                             return false;
                         }
                     }
-                    // Unreachable in practice: we hold a live `Known` and are
+                    // Unreachable in practice: we hold a live `Peer` and are
                     // not retiring, so our party is present. Adopting the
                     // donation keeps the arm total without a panic path.
                     None => inner.party = Some(party),
@@ -335,8 +339,8 @@ impl<T> Known<T> {
         }
 
         // In the case where we successfully retired (only callable on the
-        // !Clone `Known<T>`), we've given away our inner party and no more
-        // actions are possible, so don't hand back the `Known`.
+        // !Clone `Peer<T>`), we've given away our inner party and no more
+        // actions are possible, so don't hand back the `Peer`.
         (outcome, Ok(()))
     }
 }

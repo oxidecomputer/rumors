@@ -1,7 +1,7 @@
 //! Shared fixtures for the reconciliation benchmarks.
 //!
 //! [`gossip_grid`](../gossip_grid.rs) reconciles two diverged peers over a
-//! simulated wire via [`Known::gossip`](rumors::sync::Known::gossip) across
+//! simulated wire via [`Rumors::gossip`](rumors::sync::Rumors::gossip) across
 //! the divergence grid below; [`in_memory`](../in_memory.rs) shares the size
 //! sweep and sample-size policy for the single-set surface (inserts,
 //! iteration, ranges, observers, lookups).
@@ -31,7 +31,7 @@ use std::io::pipe;
 use std::thread;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use rumors::sync::{Key, Known};
+use rumors::sync::{Key, Peer, Rumors};
 
 /// Mint a genuine party-disjoint originator that inherits `parent`'s content.
 ///
@@ -40,8 +40,10 @@ use rumors::sync::{Key, Known};
 /// region. We mint one by serving a bootstrap from `parent` over a pair of
 /// pipes: the newcomer pulls `parent`'s whole tree through the ordinary
 /// mirror descent and is handed a fresh disjoint party, forked in the same
-/// critical section that snapshots the served tree.
-fn bootstrap_fork<T>(parent: &mut Known<T>) -> Known<T>
+/// critical section that snapshots the served tree. The fixtures only need
+/// the data plane, so the lifecycle handle is collapsed to [`Rumors`] right
+/// away.
+fn bootstrap_fork<T>(parent: &mut Rumors<T>) -> Rumors<T>
 where
     T: BorshSerialize + BorshDeserialize + Clone + Send + Sync + 'static,
 {
@@ -49,9 +51,10 @@ where
     let (mut n2p_r, mut n2p_w) = pipe().expect("pipe newcomer->parent");
     thread::scope(|s| {
         let newcomer = s.spawn(move || {
-            Known::<T>::bootstrap(&mut p2n_r, &mut n2p_w)
+            Peer::<T>::bootstrap(&mut p2n_r, &mut n2p_w)
                 .expect("bootstrap newcomer")
                 .expect("provider served bootstrap")
+                .into_rumors()
         });
         parent
             .gossip(&mut n2p_r, &mut p2n_w)
@@ -79,11 +82,11 @@ pub const DIFFERING: &[usize] = &[0, 1, 10, 100, 1_000, 10_000, 100_000];
 /// (see the module docs). Bounded per cell by `common / 2`.
 pub const REDACTED: &[usize] = &[0, 1, 10, 100, 1_000, 10_000, 100_000];
 
-/// Commit `n` unit payloads to `known` as one batch. `()` borsh-encodes to
+/// Commit `n` unit payloads to `rumors` as one batch. `()` borsh-encodes to
 /// zero bytes, so fixtures measure tree / clock / hashing work, not payload
 /// serialization.
-pub fn send_units(known: &Known<()>, n: usize) {
-    let mut batch = known.batch();
+pub fn send_units(rumors: &Rumors<()>, n: usize) {
+    let mut batch = rumors.batch();
     for _ in 0..n {
         batch.send(());
     }
@@ -164,19 +167,19 @@ pub fn cells() -> impl Iterator<Item = Cell> {
 
 /// Build the two peers for one grid cell.
 ///
-/// `left` is a fresh [`Known::seed`]; `right` is a genuine disjoint peer minted
+/// `left` is a fresh [`Peer::seed`]; `right` is a genuine disjoint peer minted
 /// from it via [`bootstrap_fork`], so their parties are disjoint (the
 /// precondition for `gossip`). The shared prefix is inserted before the
 /// split; the `differing` messages and `redacted` deletions are applied
 /// independently to each side after it.
-pub fn build(cell: Cell) -> (Known<()>, Known<()>) {
+pub fn build(cell: Cell) -> (Rumors<()>, Rumors<()>) {
     let Cell {
         common,
         differing,
         redacted,
     } = cell;
 
-    let mut left: Known<()> = Known::seed();
+    let mut left: Rumors<()> = Peer::seed().into_rumors();
     send_units(&left, common);
     // The shared prefix's keys, for carving the redaction blocks; order is
     // immaterial (the blocks only need to be disjoint and deterministic, and

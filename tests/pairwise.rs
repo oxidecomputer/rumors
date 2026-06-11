@@ -1,6 +1,6 @@
-//! Pairwise gossip semantics for `Known::gossip`, the merge primitive.
+//! Pairwise gossip semantics for `Rumors::gossip`, the merge primitive.
 //!
-//! With the shared-state `Known`, wire gossip *is* the merge: there is no
+//! With the shared-state rumor set, wire gossip *is* the merge: there is no
 //! in-process `join`. These properties pin the algebraic laws of one
 //! bidirectional session — convergence, side-symmetry, idempotence,
 //! order-independence across three peers, and the union of live content —
@@ -11,8 +11,8 @@
 //! is "nothing changed at all".
 //!
 //! Every peer in a test is a genuine, party-disjoint fork of one shared
-//! [`Known::seed`], minted by [`bootstrap_fork`]. They share a
-//! [`Network`](rumors::Network) but tick disjoint parties, so their
+//! [`Peer::seed`](rumors::Peer::seed), minted by [`bootstrap_fork`]. They
+//! share a [`Network`](rumors::Network) but tick disjoint parties, so their
 //! concurrent inserts stay incomparable and gossip between them never
 //! fails.
 
@@ -20,7 +20,7 @@ mod common;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use proptest::prelude::*;
-use rumors::{Known, Version, causally};
+use rumors::{Rumors, Version, causally};
 
 use crate::common::action::{arb_local_actions, build_local_async};
 use crate::common::oracle::readout;
@@ -28,7 +28,7 @@ use crate::common::wire::{bootstrap_fork, wire_gossip};
 
 /// A genuine, party-disjoint copy of `k`'s content: a fresh originator that
 /// holds the same live messages but ticks its own party region.
-fn dup<T>(k: &mut Known<T>) -> Known<T>
+fn dup<T>(k: &Rumors<T>) -> Rumors<T>
 where
     T: Clone + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
 {
@@ -38,8 +38,9 @@ where
 /// The `(hash, latest)` fingerprint of a peer: equal fingerprints mean the
 /// same live content *and* the same causal frontier — gossip between two
 /// peers with equal fingerprints is a guaranteed no-op.
-fn fingerprint<T>(k: &Known<T>) -> ([u8; 32], Version) {
-    (k.hash(), k.latest())
+fn fingerprint<T>(k: &Rumors<T>) -> ([u8; 32], Version) {
+    let snapshot = k.snapshot();
+    (snapshot.hash(), snapshot.latest().clone())
 }
 
 proptest! {
@@ -50,13 +51,12 @@ proptest! {
         a_actions in arb_local_actions(),
         b_actions in arb_local_actions(),
     ) {
-        let mut seed = Known::<u64>::seed();
-        let mut a = build_local_async(dup(&mut seed), &a_actions);
-        let mut b = build_local_async(dup(&mut seed), &b_actions);
-        wire_gossip(&mut a, &mut b);
+        let seed = rumors::Peer::<u64>::seed().into_rumors();
+        let a = build_local_async(dup(&seed), &a_actions);
+        let b = build_local_async(dup(&seed), &b_actions);
+        wire_gossip(&a, &b);
         prop_assert_eq!(readout(&a.snapshot()), readout(&b.snapshot()));
-        prop_assert_eq!(a.hash(), b.hash());
-        prop_assert_eq!(a.latest(), b.latest());
+        prop_assert_eq!(fingerprint(&a), fingerprint(&b));
     }
 
     /// The converged pair is independent of which peer sits on which side
@@ -68,15 +68,15 @@ proptest! {
         a_actions in arb_local_actions(),
         b_actions in arb_local_actions(),
     ) {
-        let mut seed = Known::<u64>::seed();
-        let mut a0 = build_local_async(dup(&mut seed), &a_actions);
-        let mut b0 = build_local_async(dup(&mut seed), &b_actions);
+        let seed = rumors::Peer::<u64>::seed().into_rumors();
+        let a0 = build_local_async(dup(&seed), &a_actions);
+        let b0 = build_local_async(dup(&seed), &b_actions);
 
-        let (mut a_fwd, mut b_fwd) = (dup(&mut a0), dup(&mut b0));
-        wire_gossip(&mut a_fwd, &mut b_fwd);
+        let (a_fwd, b_fwd) = (dup(&a0), dup(&b0));
+        wire_gossip(&a_fwd, &b_fwd);
 
-        let (mut a_rev, mut b_rev) = (dup(&mut a0), dup(&mut b0));
-        wire_gossip(&mut b_rev, &mut a_rev);
+        let (a_rev, b_rev) = (dup(&a0), dup(&b0));
+        wire_gossip(&b_rev, &a_rev);
 
         prop_assert_eq!(readout(&a_fwd.snapshot()), readout(&a_rev.snapshot()));
         prop_assert_eq!(readout(&b_fwd.snapshot()), readout(&b_rev.snapshot()));
@@ -90,16 +90,16 @@ proptest! {
         a_actions in arb_local_actions(),
         b_actions in arb_local_actions(),
     ) {
-        let mut seed = Known::<u64>::seed();
-        let mut a = build_local_async(dup(&mut seed), &a_actions);
-        let mut b = build_local_async(dup(&mut seed), &b_actions);
-        wire_gossip(&mut a, &mut b);
+        let seed = rumors::Peer::<u64>::seed().into_rumors();
+        let a = build_local_async(dup(&seed), &a_actions);
+        let b = build_local_async(dup(&seed), &b_actions);
+        wire_gossip(&a, &b);
 
         let a_before = fingerprint(&a);
         let b_before = fingerprint(&b);
-        let checkpoint = a.latest();
+        let checkpoint = a.snapshot().latest().clone();
 
-        wire_gossip(&mut a, &mut b);
+        wire_gossip(&a, &b);
 
         prop_assert_eq!(fingerprint(&a), a_before);
         prop_assert_eq!(fingerprint(&b), b_before);
@@ -119,20 +119,20 @@ proptest! {
         b_actions in arb_local_actions(),
         c_actions in arb_local_actions(),
     ) {
-        let mut seed = Known::<u64>::seed();
-        let mut a0 = build_local_async(dup(&mut seed), &a_actions);
-        let mut b0 = build_local_async(dup(&mut seed), &b_actions);
-        let mut c0 = build_local_async(dup(&mut seed), &c_actions);
+        let seed = rumors::Peer::<u64>::seed().into_rumors();
+        let a0 = build_local_async(dup(&seed), &a_actions);
+        let b0 = build_local_async(dup(&seed), &b_actions);
+        let c0 = build_local_async(dup(&seed), &c_actions);
 
         // Path one: (a·b), then (a·c).
-        let (mut a1, mut b1, mut c1) = (dup(&mut a0), dup(&mut b0), dup(&mut c0));
-        wire_gossip(&mut a1, &mut b1);
-        wire_gossip(&mut a1, &mut c1);
+        let (a1, b1, c1) = (dup(&a0), dup(&b0), dup(&c0));
+        wire_gossip(&a1, &b1);
+        wire_gossip(&a1, &c1);
 
         // Path two: (b·c), then (a·b).
-        let (mut a2, mut b2, mut c2) = (dup(&mut a0), dup(&mut b0), dup(&mut c0));
-        wire_gossip(&mut b2, &mut c2);
-        wire_gossip(&mut a2, &mut b2);
+        let (a2, b2, c2) = (dup(&a0), dup(&b0), dup(&c0));
+        wire_gossip(&b2, &c2);
+        wire_gossip(&a2, &b2);
 
         prop_assert_eq!(readout(&a1.snapshot()), readout(&a2.snapshot()));
     }
@@ -142,13 +142,13 @@ proptest! {
     /// changes neither side. The "true" idempotence of the merge.
     #[test]
     fn gossip_with_own_fork_is_noop(actions in arb_local_actions()) {
-        let mut seed = Known::<u64>::seed();
-        let mut a = build_local_async(dup(&mut seed), &actions);
-        let mut fork = dup(&mut a);
+        let seed = rumors::Peer::<u64>::seed().into_rumors();
+        let a = build_local_async(dup(&seed), &actions);
+        let fork = dup(&a);
 
         let a_before = fingerprint(&a);
         let fork_before = fingerprint(&fork);
-        wire_gossip(&mut a, &mut fork);
+        wire_gossip(&a, &fork);
 
         prop_assert_eq!(fingerprint(&a), a_before);
         prop_assert_eq!(fingerprint(&fork), fork_before);
@@ -159,13 +159,13 @@ proptest! {
     /// the empty side catches up to the populated side's content.
     #[test]
     fn gossip_with_empty_peer_is_one_sided(actions in arb_local_actions()) {
-        let mut seed = Known::<u64>::seed();
-        let mut empty = dup(&mut seed);
-        let mut a = build_local_async(dup(&mut seed), &actions);
+        let seed = rumors::Peer::<u64>::seed().into_rumors();
+        let empty = dup(&seed);
+        let a = build_local_async(dup(&seed), &actions);
 
         let a_before = fingerprint(&a);
-        let checkpoint = a.latest();
-        wire_gossip(&mut a, &mut empty);
+        let checkpoint = a.snapshot().latest().clone();
+        wire_gossip(&a, &empty);
 
         prop_assert_eq!(fingerprint(&a), a_before, "the populated side is unchanged");
         prop_assert_eq!(
@@ -183,11 +183,11 @@ proptest! {
         a_value in any::<u64>(),
         b_value in any::<u64>(),
     ) {
-        let mut seed = Known::<u64>::seed();
-        let alice = dup(&mut seed);
-        let bob = dup(&mut seed);
+        let seed = rumors::Peer::<u64>::seed().into_rumors();
+        let alice = dup(&seed);
+        let bob = dup(&seed);
 
-        let pre_a = alice.latest();
+        let pre_a = alice.snapshot().latest().clone();
         alice.send(a_value);
         let snap_a = alice.snapshot();
         let (_, va, _) = snap_a
@@ -195,7 +195,7 @@ proptest! {
             .next()
             .expect("alice's insert mints a live leaf");
 
-        let pre_b = bob.latest();
+        let pre_b = bob.snapshot().latest().clone();
         bob.send(b_value);
         let snap_b = bob.snapshot();
         let (_, vb, _) = snap_b
@@ -218,16 +218,16 @@ proptest! {
         a_actions in arb_local_actions(),
         b_actions in arb_local_actions(),
     ) {
-        let mut seed = Known::<u64>::seed();
-        let mut a = build_local_async(dup(&mut seed), &a_actions);
-        let mut b = build_local_async(dup(&mut seed), &b_actions);
+        let seed = rumors::Peer::<u64>::seed().into_rumors();
+        let a = build_local_async(dup(&seed), &a_actions);
+        let b = build_local_async(dup(&seed), &b_actions);
 
         let a_before = readout(&a.snapshot());
         let b_before = readout(&b.snapshot());
         let mut expected = a_before;
         expected.extend(b_before);
 
-        wire_gossip(&mut a, &mut b);
+        wire_gossip(&a, &b);
 
         prop_assert_eq!(readout(&a.snapshot()), expected.clone());
         prop_assert_eq!(readout(&b.snapshot()), expected);

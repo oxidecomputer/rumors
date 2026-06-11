@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use futures::FutureExt;
 use proptest::collection::vec;
 use proptest::prelude::*;
-use rumors::{CausalMessages, Key, Known, Version};
+use rumors::{CausalMessages, Key, Peer, Rumors, Version};
 
 use crate::common::action::minted_key;
 use crate::common::wire::{bootstrap_fork, wire_gossip};
@@ -75,8 +75,8 @@ fn assert_causal(items: &[(Key, Version, u64)]) {
 }
 
 /// The live `Key → value` map, for comparing against deliveries.
-fn live_map(known: &Known<u64>) -> BTreeMap<Key, u64> {
-    known.snapshot().iter().map(|(k, _, m)| (k, **m)).collect()
+fn live_map(rumors: &Rumors<u64>) -> BTreeMap<Key, u64> {
+    rumors.snapshot().iter().map(|(k, _, m)| (k, **m)).collect()
 }
 
 /// A single party's sends form a causal chain, so a fresh observer must
@@ -84,14 +84,14 @@ fn live_map(known: &Known<u64>) -> BTreeMap<Key, u64> {
 /// delivery scrambles roughly half the time.
 #[test]
 fn single_party_backlog_replays_in_send_order() {
-    let known = Known::<u64>::seed();
+    let known = Peer::<u64>::seed().into_rumors();
     for v in 0..8u64 {
         known.send(v); // one batch per send: strictly increasing versions
     }
 
     let mut obs = known.causal_messages();
     let (items, ended) = drain(&mut obs);
-    assert!(!ended, "the Known is live: quiet, not ended");
+    assert!(!ended, "the set is live: quiet, not ended");
     assert_eq!(
         items.iter().map(|(_, _, m)| *m).collect::<Vec<_>>(),
         (0..8).collect::<Vec<_>>(),
@@ -102,11 +102,11 @@ fn single_party_backlog_replays_in_send_order() {
 
 /// A backlog mixing one party's chain with a concurrent peer's (learned via
 /// gossip) is delivered without causal inversions, and concurrent messages
-/// come out in the deterministic `(area, key)` rank order.
+/// come out in the deterministic `(rank, key)` order.
 #[test]
 fn converged_backlog_has_no_inversions() {
-    let mut a = Known::<u64>::seed();
-    let mut b = bootstrap_fork(&mut a);
+    let a = Peer::<u64>::seed().into_rumors();
+    let b = bootstrap_fork(&a);
 
     for v in 0..4u64 {
         a.send(v);
@@ -114,19 +114,19 @@ fn converged_backlog_has_no_inversions() {
     for v in 10..14u64 {
         b.send(v);
     }
-    wire_gossip(&mut a, &mut b);
+    wire_gossip(&a, &b);
 
     let mut obs = a.causal_messages();
     let (items, _) = drain(&mut obs);
     assert_eq!(items.len(), 8, "both chains are in the converged backlog");
     assert_causal(&items);
 
-    // One ingest batch pops in (area, key) order: the delivered sequence is
+    // One ingest batch pops in (rank, key) order: the delivered sequence is
     // sorted by causal rank, which is what makes it deterministic.
-    let ranks: Vec<_> = items.iter().map(|(k, v, _)| (v.area(), *k)).collect();
+    let ranks: Vec<_> = items.iter().map(|(k, v, _)| (v.rank(), *k)).collect();
     assert!(
         ranks.windows(2).all(|w| w[0] < w[1]),
-        "a single backlog drains in strictly increasing (area, key) order"
+        "a single backlog drains in strictly increasing (rank, key) order"
     );
 }
 
@@ -135,16 +135,20 @@ fn converged_backlog_has_no_inversions() {
 /// replica, the insertion order, or the gossip schedule.
 #[test]
 fn delivery_order_is_replica_independent() {
-    let mut a = Known::<u64>::seed();
-    let mut b = bootstrap_fork(&mut a);
+    let a = Peer::<u64>::seed().into_rumors();
+    let b = bootstrap_fork(&a);
 
     a.batch().send(1).send(2);
     b.batch().send(3).send(4);
-    wire_gossip(&mut a, &mut b);
+    wire_gossip(&a, &b);
     a.send(5);
     b.send(6);
-    wire_gossip(&mut a, &mut b);
-    assert_eq!(a.hash(), b.hash(), "the replicas converged");
+    wire_gossip(&a, &b);
+    assert_eq!(
+        a.snapshot().hash(),
+        b.snapshot().hash(),
+        "the replicas converged"
+    );
 
     let (from_a, _) = drain(&mut a.causal_messages());
     let (from_b, _) = drain(&mut b.causal_messages());
@@ -160,8 +164,8 @@ fn delivery_order_is_replica_independent() {
 /// contain a causal predecessor of an earlier pass's message.
 #[test]
 fn live_passes_preserve_causal_order_cumulatively() {
-    let mut a = Known::<u64>::seed();
-    let mut b = bootstrap_fork(&mut a);
+    let a = Peer::<u64>::seed().into_rumors();
+    let b = bootstrap_fork(&a);
 
     let mut obs = a.causal_messages();
     let mut delivered = Vec::new();
@@ -170,12 +174,12 @@ fn live_passes_preserve_causal_order_cumulatively() {
     delivered.extend(drain(&mut obs).0);
 
     b.batch().send(2).send(3);
-    wire_gossip(&mut a, &mut b);
+    wire_gossip(&a, &b);
     delivered.extend(drain(&mut obs).0);
 
     a.send(4);
     b.send(5);
-    wire_gossip(&mut a, &mut b);
+    wire_gossip(&a, &b);
     delivered.extend(drain(&mut obs).0);
 
     assert_eq!(delivered.len(), 5, "every message was delivered live");
@@ -189,8 +193,8 @@ fn live_passes_preserve_causal_order_cumulatively() {
 /// and a resume observes nothing.
 #[test]
 fn checkpoint_lags_until_the_backlog_drains() {
-    let known = Known::<u64>::seed();
-    let genesis = known.latest();
+    let known = Peer::<u64>::seed().into_rumors();
+    let genesis = known.snapshot().latest().clone();
     known.send(1);
     known.send(2);
     known.send(3);
@@ -228,11 +232,11 @@ fn checkpoint_lags_until_the_backlog_drains() {
 /// wholly before its first ingest never appears.
 #[test]
 fn staged_then_redacted_is_still_delivered() {
-    let known = Known::<u64>::seed();
-    let pre = known.latest();
+    let known = Peer::<u64>::seed().into_rumors();
+    let pre = known.snapshot().latest().clone();
     known.send(1);
     let key_1 = minted_key(&known.snapshot(), &pre);
-    let pre = known.latest();
+    let pre = known.snapshot().latest().clone();
     known.send(2);
     let key_2 = minted_key(&known.snapshot(), &pre);
 
@@ -255,7 +259,7 @@ fn staged_then_redacted_is_still_delivered() {
     );
 
     // Redacted wholly before any ingest: never delivered.
-    let pre = known.latest();
+    let pre = known.snapshot().latest().clone();
     known.send(3);
     known.redact(minted_key(&known.snapshot(), &pre));
     let (items, _) = drain(&mut obs);
@@ -267,7 +271,7 @@ fn staged_then_redacted_is_still_delivered() {
 /// ends, and ended is terminal.
 #[test]
 fn observer_drains_the_final_state_causally_then_ends() {
-    let known = Known::<u64>::seed();
+    let known = Peer::<u64>::seed().into_rumors();
     known.batch().send(1).send(2).send(3);
     let expected = live_map(&known);
 
@@ -294,7 +298,7 @@ fn observer_drains_the_final_state_causally_then_ends() {
 fn stream_face_is_causal_and_terminates() {
     use futures::StreamExt;
 
-    let known = Known::<u64>::seed();
+    let known = Peer::<u64>::seed().into_rumors();
     for v in 0..6u64 {
         known.send(v);
     }
@@ -322,7 +326,7 @@ fn stream_face_is_causal_and_terminates() {
 /// items arrive in causal order and whose end is the set closing.
 #[test]
 fn sync_iterator_face_is_causal() {
-    let known = rumors::sync::Known::<u64>::seed();
+    let known = rumors::sync::Peer::<u64>::seed().into_rumors();
     for v in 0..5u64 {
         known.send(v);
     }
@@ -377,8 +381,8 @@ proptest! {
     /// costs nothing in coverage relative to the plain observer.
     #[test]
     fn causal_delivery_under_interleaving(ops in arb_ops()) {
-        let mut a = Known::<u64>::seed();
-        let mut b = bootstrap_fork(&mut a);
+        let a = Peer::<u64>::seed().into_rumors();
+        let b = bootstrap_fork(&a);
 
         let mut obs = a.causal_messages();
         let mut minted: Vec<Key> = Vec::new();
@@ -387,7 +391,7 @@ proptest! {
         for op in &ops {
             match op {
                 Op::SendA(v) => {
-                    let pre = a.latest();
+                    let pre = a.snapshot().latest().clone();
                     a.send(*v);
                     minted.push(minted_key(&a.snapshot(), &pre));
                 }
@@ -399,7 +403,7 @@ proptest! {
                         a.redact(minted[idx % minted.len()]);
                     }
                 }
-                Op::Gossip => wire_gossip(&mut a, &mut b),
+                Op::Gossip => wire_gossip(&a, &b),
                 Op::Drain => delivered.extend(drain(&mut obs).0),
             }
         }
@@ -439,7 +443,7 @@ proptest! {
         taken in any::<usize>(),
         complete_drain in any::<bool>(),
     ) {
-        let known = Known::<u64>::seed();
+        let known = Peer::<u64>::seed().into_rumors();
         for v in &phase_one {
             known.send(*v); // separate batches: a strict causal chain
         }

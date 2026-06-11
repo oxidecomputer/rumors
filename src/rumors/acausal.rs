@@ -8,9 +8,10 @@ use tokio::sync::watch;
 
 /// An observer of one rumor set: every message not causally contained in
 /// the starting checkpoint, then every message learned afterwards — by local
-/// [`send`](crate::Broadcast::send), by gossip, from any handle — and `None` once
-/// the [`Known`](crate::Known) and every [`Broadcast`](crate::Broadcast) have dropped and no further change
-/// is possible, after yielding the complete final state.
+/// [`send`](crate::Rumors::send), by gossip, from any handle — and `None` once
+/// the [`Peer`](crate::Peer) and every [`Rumors`](crate::Rumors) have dropped
+/// and no further change is possible, after yielding the complete final
+/// state.
 ///
 /// Two faces over one engine:
 ///
@@ -41,7 +42,8 @@ use tokio::sync::watch;
 ///
 /// An observer is not an actor: it holds no send handle, does not keep the
 /// rumor set open, and does not count against the quiescence that lets
-/// [`reunite`](crate::Broadcast::reunite) reclaim the [`Known`](crate::Known).
+/// [`try_into_peer`](crate::Rumors::try_into_peer) reclaim the
+/// [`Peer`](crate::Peer).
 pub struct Messages<T> {
     /// The watch channel, or the in-flight wait for it to change. The wait
     /// future owns the receiver and hands it back: the `Stream` face cannot
@@ -153,7 +155,7 @@ impl<T> Messages<T> {
     /// The sound resume point: the causal frontier of the last *completed*
     /// pass, suitable for persisting across processes or handing to another
     /// replica of the same network — a later
-    /// [`messages_since(checkpoint)`](crate::Broadcast::messages_since) re-observes
+    /// [`messages_since(checkpoint)`](crate::Rumors::messages_since) re-observes
     /// nothing from completed passes and everything not yet delivered.
     /// Messages already delivered from the *in-progress* pass are delivered
     /// again (a [`Version`] can only encode a causally closed boundary, and

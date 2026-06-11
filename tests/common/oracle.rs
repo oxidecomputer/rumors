@@ -2,7 +2,7 @@
 //! lens that projects a [`Snapshot<T>`] back into its currently-live
 //! `(Key, T)` map.
 //!
-//! The oracle holds only `BTreeMap`s and `BTreeSet`s (no `Known`, no
+//! The oracle holds only `BTreeMap`s and `BTreeSet`s (no rumor set, no
 //! merging), so a bug in the live merge primitives cannot silently corrupt
 //! the reference state. It records each insert by
 //! the schedule's [`EventIdx`] so the oracle and the live executor
@@ -67,8 +67,8 @@ impl<T: Clone + Ord> Oracle<T> {
 /// A direct read via [`Snapshot::iter`]: it enumerates exactly the live
 /// leaves, so redacted messages — whose leaves the redaction *removed*,
 /// leaving no marker — are simply absent. Taking the [`Snapshot`] (rather
-/// than a handle type) keeps one lens for `Known`, `sync::Known`, and
-/// `Broadcast` alike.
+/// than a handle type) keeps one lens for `Rumors` and `sync::Rumors`
+/// alike.
 pub fn readout<T>(snapshot: &Snapshot<T>) -> BTreeMap<Key, T>
 where
     T: Clone + Send + Sync + 'static,

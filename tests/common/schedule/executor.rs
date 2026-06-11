@@ -8,7 +8,7 @@
 use std::collections::BTreeMap;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use rumors::{Key, Known};
+use rumors::Key;
 
 use super::events::{Event, EventIdx, Schedule};
 use crate::common::oracle::Oracle;
@@ -69,9 +69,9 @@ where
     let mut peers: Vec<Peer<T>> = Vec::with_capacity(schedule.n_peers);
     for i in 0..schedule.n_peers {
         let local = if i == 0 {
-            Known::seed()
+            rumors::Peer::seed().into_rumors()
         } else {
-            bootstrap_fork(&mut peers[schedule.fork_parents[i]].local)
+            bootstrap_fork(&peers[schedule.fork_parents[i]].local)
         };
         peers.push(Peer::new(local));
     }

@@ -10,28 +10,28 @@ pub mod sync;
 
 mod batch;
 mod bookmark;
-mod broadcast;
-mod known;
 mod message;
 mod network;
-pub mod snapshot;
+mod peer;
+mod rumors;
+mod snapshot;
 mod tree;
 
 #[cfg(test)]
 mod tests;
 
 pub use batch::Batch;
-pub use broadcast::{Broadcast, CausalMessages, Messages};
-pub use known::{Known, PROTOCOL_MAGIC, PROTOCOL_VERSION, Retire};
 pub use network::Network;
-pub use snapshot::Snapshot;
+pub use peer::{PROTOCOL_MAGIC, PROTOCOL_VERSION, Peer, Retire};
+pub use rumors::{CausalMessages, Messages, Rumors};
+pub use snapshot::{Iter, Snapshot};
 
-pub(crate) use known::Inner;
+pub(crate) use peer::Inner;
 
-/// The error type returned by [`Known::gossip`].
+/// The error type returned by [`Rumors::gossip`].
 pub use tree::mirror::remote::Error;
 
-/// An opaque identifier for a single message in a [`Known`] rumor set.
+/// An opaque identifier for a single message in a rumor set.
 pub use tree::Key;
 
 /// A causal version vector tagging when a message was observed.
@@ -44,7 +44,7 @@ pub use before::Version;
 
 /// Named, composable constructors for causal [`Version`] ranges
 /// (re-exported from [`before`]): the vocabulary for
-/// [`Snapshot::range`] and [`Known::messages_since`] — e.g.
+/// [`Snapshot::range`] and [`Rumors::messages_since`] — e.g.
 /// `causally::since(&checkpoint)` or `causally::not_before(&s).known_at(&e)`.
 pub use before::causally;
 

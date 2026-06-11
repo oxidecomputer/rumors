@@ -1,5 +1,5 @@
-//! Integration tests for remote bootstrap (`rumors::Known::bootstrap`): a
-//! stateless peer obtaining a fully-formed `Known` from a peer that drives
+//! Integration tests for remote bootstrap (`rumors::Peer::bootstrap`): a
+//! stateless peer obtaining a fully-formed `Peer` from a peer that drives
 //! `gossip` concurrently. Mirrors `async_wire.rs`'s setup — building peers
 //! from the shared `Insert`/`Redact` action shape and driving both ends over
 //! a `tokio::io::duplex` pipe with `tokio::join!`.
@@ -7,7 +7,7 @@
 mod common;
 
 use proptest::prelude::*;
-use rumors::Known;
+use rumors::{Peer, Rumors};
 
 use crate::common::action::{arb_local_actions, arb_string_actions, build_local_async};
 use crate::common::oracle::readout;
@@ -20,7 +20,7 @@ const DUPLEX_BUF: usize = 64 * 1024;
 
 /// Drive a provider's `gossip` against a peer's `bootstrap` over a duplex
 /// pipe, returning whatever the bootstrapper produced.
-fn wire_bootstrap<T>(provider: &mut Known<T>) -> Option<Known<T>>
+fn wire_bootstrap<T>(provider: &Rumors<T>) -> Option<Rumors<T>>
 where
     T: borsh::BorshSerialize + borsh::BorshDeserialize + Send + Sync + 'static,
 {
@@ -31,10 +31,12 @@ where
 
         let (provider_out, bootstrap_out) = tokio::join!(
             provider.gossip(&mut a_r, &mut a_w),
-            Known::<T>::bootstrap(&mut b_r, &mut b_w),
+            Peer::<T>::bootstrap(&mut b_r, &mut b_w),
         );
         provider_out.expect("provider gossip");
-        bootstrap_out.expect("bootstrap handshake")
+        bootstrap_out
+            .expect("bootstrap handshake")
+            .map(Peer::into_rumors)
     })
 }
 
@@ -47,13 +49,13 @@ proptest! {
     /// stale-floored party would silently destroy.
     #[test]
     fn bootstrap_reproduces_a_fork(actions in arb_local_actions()) {
-        let mut seed = Known::<u64>::seed();
-        let mut provider = build_local_async(bootstrap_fork(&mut seed), &actions);
+        let seed = Peer::<u64>::seed().into_rumors();
+        let provider = build_local_async(bootstrap_fork(&seed), &actions);
 
         let control = readout(&provider.snapshot());
 
-        let mut bootstrapped =
-            wire_bootstrap(&mut provider).expect("provider served the bootstrap");
+        let bootstrapped =
+            wire_bootstrap(&provider).expect("provider served the bootstrap");
 
         prop_assert_eq!(
             readout(&bootstrapped.snapshot()), control.clone(),
@@ -68,7 +70,7 @@ proptest! {
         // and floored at the served tree's version, so a fresh origination
         // survives reconciliation on both sides.
         bootstrapped.send(u64::MAX);
-        wire_gossip(&mut provider, &mut bootstrapped);
+        wire_gossip(&provider, &bootstrapped);
         prop_assert!(
             provider.snapshot().iter().any(|(_, _, m)| **m == u64::MAX),
             "the newcomer's origination must survive gossip into the provider",
@@ -80,13 +82,13 @@ proptest! {
     /// round-trip of the whole-tree frame for `T = String`.
     #[test]
     fn bootstrap_reproduces_a_fork_string(actions in arb_string_actions()) {
-        let mut seed = Known::<String>::seed();
-        let mut provider = build_local_async(bootstrap_fork(&mut seed), &actions);
+        let seed = Peer::<String>::seed().into_rumors();
+        let provider = build_local_async(bootstrap_fork(&seed), &actions);
 
         let control = readout(&provider.snapshot());
 
-        let mut bootstrapped =
-            wire_bootstrap(&mut provider).expect("provider served the bootstrap");
+        let bootstrapped =
+            wire_bootstrap(&provider).expect("provider served the bootstrap");
 
         prop_assert_eq!(
             readout(&bootstrapped.snapshot()), control.clone(),
@@ -98,7 +100,7 @@ proptest! {
         );
 
         bootstrapped.send("newcomer's own".to_string());
-        wire_gossip(&mut provider, &mut bootstrapped);
+        wire_gossip(&provider, &bootstrapped);
         prop_assert!(
             provider.snapshot().iter().any(|(_, _, m)| **m == "newcomer's own"),
             "the newcomer's origination must survive gossip into the provider",
@@ -117,8 +119,8 @@ fn both_bootstrapping_bail_with_none() {
         let (mut b_r, mut b_w) = tokio::io::split(b_side);
 
         tokio::join!(
-            Known::<u64>::bootstrap(&mut a_r, &mut a_w),
-            Known::<u64>::bootstrap(&mut b_r, &mut b_w),
+            Peer::<u64>::bootstrap(&mut a_r, &mut a_w),
+            Peer::<u64>::bootstrap(&mut b_r, &mut b_w),
         )
     });
 
@@ -132,16 +134,16 @@ fn both_bootstrapping_bail_with_none() {
     );
 }
 
-/// The synchronous wrapper ([`rumors::sync::Known::bootstrap`]) bootstraps
+/// The synchronous wrapper ([`rumors::sync::Peer::bootstrap`]) bootstraps
 /// over blocking [`std::io::pipe`]s with the provider on another thread,
 /// reproducing the async happy path: matching content, untouched provider.
 #[test]
 fn sync_bootstrap_reproduces_a_fork() {
-    use rumors::sync::Known as SyncKnown;
+    use rumors::sync::Peer as SyncPeer;
     use std::io::pipe;
     use std::thread;
 
-    let mut provider = SyncKnown::<u64>::seed();
+    let mut provider = SyncPeer::<u64>::seed().into_rumors();
     provider.batch().send(10).send(20).send(30);
     let control = readout(&provider.snapshot());
 
@@ -150,7 +152,7 @@ fn sync_bootstrap_reproduces_a_fork() {
     let (mut b2p_r, mut b2p_w) = pipe().expect("pipe bootstrapper→provider");
 
     let boot_thread = thread::spawn(move || {
-        SyncKnown::<u64>::bootstrap(&mut p2b_r, &mut b2p_w).expect("bootstrap handshake")
+        SyncPeer::<u64>::bootstrap(&mut p2b_r, &mut b2p_w).expect("bootstrap handshake")
     });
 
     provider
@@ -159,7 +161,8 @@ fn sync_bootstrap_reproduces_a_fork() {
     let bootstrapped = boot_thread
         .join()
         .expect("join bootstrap thread")
-        .expect("provider served the bootstrap");
+        .expect("provider served the bootstrap")
+        .into_rumors();
 
     assert_eq!(
         readout(&bootstrapped.snapshot()),

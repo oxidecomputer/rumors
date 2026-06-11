@@ -1,17 +1,17 @@
 //! The actor that owns the room's view of the rumor set.
 //!
-//! One task holds the primary [`Broadcast`] handle, the [`CausalMessages`]
+//! One task holds the primary [`Rumors`] handle, the [`CausalMessages`]
 //! observer, the [`AppState`] display machine, and the expiry wheel. Everything
 //! else talks to it through a [`Command`] channel and reads back through a
 //! [`watch`]-published [`View`] snapshot.
 //!
 //! The wiring is deadlock-free by construction: the owner never awaits another
-//! task. [`Command::Handle`] is answered immediately (a [`Broadcast`] clone
+//! task. [`Command::Handle`] is answered immediately (a [`Rumors`] clone
 //! shares the internally-synchronized set), and publishing uses
 //! [`watch::Sender::send_replace`]. Every wait-for edge points from a
 //! connection task toward the owner, so the wait-for graph is acyclic.
 //!
-//! Connection tasks gossip on their own [`Broadcast`] clones; whatever a
+//! Connection tasks gossip on their own [`Rumors`] clones; whatever a
 //! session learns lands in the shared set and reaches the owner through its
 //! [`CausalMessages`] observer, folded into the same select loop the commands
 //! arrive on. Redactions learned from a peer are silent (the leaf is simply
@@ -25,7 +25,7 @@ use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use futures::{FutureExt, StreamExt};
-use rumors::{Broadcast, CausalMessages, Key, Known, Network, Version};
+use rumors::{CausalMessages, Key, Network, Peer, Rumors, Version};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::time::{DelayQueue, delay_queue};
 
@@ -96,20 +96,20 @@ pub enum Command {
         /// The expired entry's key.
         key: Key,
     },
-    /// Hand out a [`Broadcast`] clone for a gossip session. The clone shares
+    /// Hand out a [`Rumors`] clone for a gossip session. The clone shares
     /// the owner's internally-synchronized set, so whatever the session
     /// learns is immediately visible to the owner's observer; there is no
     /// fold-back step.
     Handle {
         /// Where to send the handle.
-        reply: oneshot::Sender<Broadcast<Entry>>,
+        reply: oneshot::Sender<Rumors<Entry>>,
     },
     /// We lost a partition merge: adopt the winning universe wholesale.
     Reset {
         /// The freshly bootstrapped rumor set in the winning network. Its
         /// content reaches the display through the owner's fresh observer,
         /// which replays the set from genesis.
-        known: Box<Known<Entry>>,
+        known: Box<Peer<Entry>>,
         /// The universe we were in when this merge was lost. The owner
         /// adopts only while it is *still* in that universe: the
         /// session-level verdict is the single arbiter of merges, and this
@@ -124,7 +124,7 @@ pub enum Command {
         /// Whether the session completed.
         ok: bool,
     },
-    /// Leave the room: the run loop returns the `Known` for retirement.
+    /// Leave the room: the run loop returns the `Peer` for retirement.
     Shutdown,
 }
 
@@ -132,7 +132,7 @@ pub enum Command {
 /// [`Owner::run`].
 pub struct Owner {
     /// The primary actor handle; sessions gossip on clones of it.
-    broadcast: Broadcast<Entry>,
+    rumors: Rumors<Entry>,
     /// The pull-based observer: every entry that becomes live in the set —
     /// originated here, learned by any session's gossip, or replayed after
     /// a reset — comes through exactly once.
@@ -152,20 +152,20 @@ pub struct Owner {
 }
 
 impl Owner {
-    /// Build an owner around a freshly seeded `Known` and hand back the view
+    /// Build an owner around a freshly seeded `Peer` and hand back the view
     /// channel the UI (and the gossip scheduler) will read.
     pub fn new(
-        known: Known<Entry>,
+        known: Peer<Entry>,
         me: PeerId,
         me_display: String,
         name: String,
         clock: Clock,
     ) -> (Self, watch::Receiver<Arc<View>>) {
         let (view_tx, view_rx) = watch::channel(Arc::new(View::default()));
-        let broadcast = known.broadcast();
-        let observer = broadcast.causal_messages();
+        let rumors = known.into_rumors();
+        let observer = rumors.causal_messages();
         let owner = Owner {
-            broadcast,
+            rumors,
             observer,
             state: AppState::new(),
             me,
@@ -183,14 +183,14 @@ impl Owner {
         (owner, view_rx)
     }
 
-    /// Drive the actor until [`Command::Shutdown`], then return the `Known`
+    /// Drive the actor until [`Command::Shutdown`], then return the `Peer`
     /// (for retirement) and the retire candidates, most recently seen first.
     ///
     /// The heartbeat interval, the expiry wheel, and the [`CausalMessages`]
     /// observer are folded into the same select loop the channel feeds, so
     /// every state transition flows through [`handle`](Self::handle) or
     /// [`observe_all`](Self::observe_all).
-    pub async fn run(mut self, mut rx: mpsc::Receiver<Command>) -> (Known<Entry>, Vec<PeerId>) {
+    pub async fn run(mut self, mut rx: mpsc::Receiver<Command>) -> (Peer<Entry>, Vec<PeerId>) {
         /// One turn of the owner loop: either a command or an observation.
         enum Turn {
             Cmd(Command),
@@ -294,12 +294,12 @@ impl Owner {
             Command::ExpiryDue { key } => {
                 self.expiry_keys.remove(&key);
                 self.state.forget(&key);
-                self.broadcast.redact(key);
+                self.rumors.redact(key);
             }
             Command::Handle { reply } => {
                 // A dropped receiver means the session task died first;
                 // nothing to do.
-                let _ = reply.send(self.broadcast.clone());
+                let _ = reply.send(self.rumors.clone());
             }
             Command::Reset { known, abandoned } => self.reset(*known, abandoned),
             Command::SessionOutcome { ok } => {
@@ -321,7 +321,7 @@ impl Owner {
     /// state machine sees them before the next publish.
     fn originate(&mut self, entries: Vec<Entry>) {
         {
-            let mut batch = self.broadcast.batch();
+            let mut batch = self.rumors.batch();
             for entry in entries {
                 batch.send(entry);
             }
@@ -343,7 +343,7 @@ impl Owner {
     /// only — a key another peer redacted simply stops being live, and this
     /// diff is how that reaches the screen.
     fn sweep_losses(&mut self) {
-        let snapshot = self.broadcast.snapshot();
+        let snapshot = self.rumors.snapshot();
         let live = snapshot.iter().map(|(key, _, _)| key).collect();
         for dead in self.state.retain_live(&live) {
             if let Some(slot) = self.expiry_keys.remove(&dead) {
@@ -359,8 +359,8 @@ impl Owner {
     /// universe it was computed against. Concurrent sessions can race two
     /// resets: the first to land adopts, the second no longer matches and
     /// is dropped (a future session against that universe re-arbitrates).
-    fn reset(&mut self, known: Known<Entry>, abandoned: Network) {
-        if abandoned != self.broadcast.network() || known.network() == self.broadcast.network() {
+    fn reset(&mut self, known: Peer<Entry>, abandoned: Network) {
+        if abandoned != self.rumors.network() || known.network() == self.rumors.network() {
             // Stale or out-raced reset. Dropping `known` abandons the party
             // region the winner forked for us — a leak in a universe we are
             // not adopting, which is the acceptable cost of losing the race.
@@ -368,7 +368,7 @@ impl Owner {
         }
 
         // The old universe is gone wholesale: state, timers, highlights,
-        // handle, observer. Stale `Broadcast` clones still inside session
+        // handle, observer. Stale `Rumors` clones still inside session
         // tasks keep talking to the abandoned set until those sessions end;
         // their universe loses every future merge verdict, so nothing they
         // do can leak back in.
@@ -376,15 +376,15 @@ impl Owner {
         self.expiry.clear();
         self.expiry_keys.clear();
         self.highlights.clear();
-        self.broadcast = known.broadcast();
+        self.rumors = known.into_rumors();
         // A fresh observer replays the adopted universe from genesis; the
         // inline drain below runs it through the state machine so the merge
         // lands on screen atomically with the network switch.
-        self.observer = self.broadcast.causal_messages();
+        self.observer = self.rumors.causal_messages();
         self.stats.merges += 1;
         self.merged_notice = Some(format!(
             "merged into {}",
-            network_short(self.broadcast.network())
+            network_short(self.rumors.network())
         ));
 
         self.drain_observer();
@@ -451,7 +451,7 @@ impl Owner {
             }
         }
         if !redact.is_empty() {
-            let mut batch = self.broadcast.batch();
+            let mut batch = self.rumors.batch();
             for key in redact {
                 batch.redact(key);
             }
@@ -508,7 +508,7 @@ impl Owner {
             .retain(|peer| !self.state.presence.contains_key(peer));
 
         // One consistent snapshot serves both gauges.
-        let snapshot = self.broadcast.snapshot();
+        let snapshot = self.rumors.snapshot();
         self.stats.live_entries = snapshot.len();
         let view = View {
             me: self.me,
@@ -524,10 +524,10 @@ impl Owner {
         self.view_tx.send_replace(Arc::new(view));
     }
 
-    /// Say goodbye, reclaim the `Known` from the broadcast generation, and
+    /// Say goodbye, reclaim the unique `Peer` from the `Rumors` clones, and
     /// hand it back for retirement along with retire candidates ordered by
     /// presence recency.
-    async fn shutdown(mut self) -> (Known<Entry>, Vec<PeerId>) {
+    async fn shutdown(mut self) -> (Peer<Entry>, Vec<PeerId>) {
         let now = self.clock.now();
         // The leave notice and our presence redaction ride out with the
         // retire session's built-in round of reconciliation.
@@ -540,7 +540,7 @@ impl Owner {
         if let Some(rec) = self.state.presence.get(&self.me) {
             let key = rec.key;
             self.state.forget(&key);
-            self.broadcast.redact(key);
+            self.rumors.redact(key);
         }
 
         let mut candidates: Vec<(Millis, PeerId)> = self
@@ -552,12 +552,12 @@ impl Owner {
             .collect();
         candidates.sort_by(|a, b| b.cmp(a));
 
-        // Reunite resolves once every session's handle clone has dropped
-        // (the caller tears the gossip tasks down alongside us); we are the
-        // only reuniter, so the `Known` always comes back to us.
+        // `try_into_peer` resolves once every session's handle clone has
+        // dropped (the caller tears the gossip tasks down alongside us); we
+        // are the only reuniter, so the `Peer` always comes back to us.
         let known = self
-            .broadcast
-            .reunite()
+            .rumors
+            .try_into_peer()
             .await
             .expect("the owner is the sole reuniter");
         (

@@ -130,8 +130,12 @@ proptest! {
         }).prop_filter("distinct peers", |(_, a, b)| a != b),
     ) {
         let mut result = execute_and_quiesce(&schedule);
-        let before_a = (result.peers[a].local.hash(), result.peers[a].local.latest());
-        let before_b = (result.peers[b].local.hash(), result.peers[b].local.latest());
+        let fingerprint = |peer: &crate::common::peer::Peer<u64>| {
+            let snapshot = peer.local.snapshot();
+            (snapshot.hash(), snapshot.latest().clone())
+        };
+        let before_a = fingerprint(&result.peers[a]);
+        let before_b = fingerprint(&result.peers[b]);
         let obs_a_before = result.peers[a].observations.len();
         let obs_b_before = result.peers[b].observations.len();
 
@@ -139,14 +143,8 @@ proptest! {
         let (left, right) = result.peers.split_at_mut(hi);
         gossip_step(&mut left[lo], &mut right[0]);
 
-        prop_assert_eq!(
-            (result.peers[a].local.hash(), result.peers[a].local.latest()),
-            before_a,
-        );
-        prop_assert_eq!(
-            (result.peers[b].local.hash(), result.peers[b].local.latest()),
-            before_b,
-        );
+        prop_assert_eq!(fingerprint(&result.peers[a]), before_a);
+        prop_assert_eq!(fingerprint(&result.peers[b]), before_b);
         prop_assert_eq!(result.peers[a].observations.len(), obs_a_before);
         prop_assert_eq!(result.peers[b].observations.len(), obs_b_before);
     }

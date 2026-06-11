@@ -7,7 +7,7 @@ mod common;
 
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
-use rumors::{Error, Known};
+use rumors::{Error, Peer};
 
 use crate::common::wire::block_on;
 
@@ -16,33 +16,33 @@ const DUPLEX_BUF: usize = 64 * 1024;
 
 /// A peer seeded deterministically, so two seeds with distinct stream ids get
 /// distinct (but reproducible) networks.
-fn seeded<T>(stream: u64) -> Known<T> {
-    Known::seed_rng(&mut SmallRng::seed_from_u64(stream))
+fn seeded<T>(stream: u64) -> Peer<T> {
+    Peer::seed_rng(&mut SmallRng::seed_from_u64(stream))
 }
 
 /// Every handle on one rumor set belongs to the same universe: a
-/// [`Broadcast`](rumors::Broadcast) (and its clones) inherits the
-/// originating `Known`'s [`Network`](rumors::Network) unchanged, and the
-/// reunited `Known` carries it back out.
+/// [`Rumors`](rumors::Rumors) (and its clones) inherits the originating
+/// [`Peer`]'s [`Network`](rumors::Network) unchanged, and the reclaimed
+/// `Peer` carries it back out.
 #[test]
-fn broadcast_preserves_network() {
-    let parent = Known::<u64>::seed();
+fn rumors_preserves_network() {
+    let parent = Peer::<u64>::seed();
     let network = parent.network();
 
-    let broadcast = parent.broadcast();
-    assert_eq!(broadcast.network(), network);
-    assert_eq!(broadcast.clone().network(), network);
+    let rumors = parent.into_rumors();
+    assert_eq!(rumors.network(), network);
+    assert_eq!(rumors.clone().network(), network);
     assert_eq!(
-        broadcast.snapshot().network(),
+        rumors.snapshot().network(),
         network,
         "a snapshot carries its set's universe"
     );
 
-    let parent = block_on(broadcast.reunite()).expect("the sole reuniter reclaims the Known");
+    let parent = block_on(rumors.try_into_peer()).expect("the sole reuniter reclaims the Peer");
     assert_eq!(parent.network(), network);
 }
 
-/// Independent [`seed`](Known::seed)s mint distinct networks — the positive
+/// Independent [`seed`](Peer::seed)s mint distinct networks — the positive
 /// signal that they share no causal history.
 #[test]
 fn independent_seeds_differ() {
@@ -51,13 +51,13 @@ fn independent_seeds_differ() {
     assert_ne!(a.network(), b.network());
 }
 
-/// Two peers from different seeds that try to [`gossip`](Known::gossip) are
-/// both rejected with [`Error::NetworkMismatch`] at the handshake, before any
-/// content crosses the wire.
+/// Two peers from different seeds that try to [`gossip`](rumors::Rumors::gossip)
+/// are both rejected with [`Error::NetworkMismatch`] at the handshake, before
+/// any content crosses the wire.
 #[test]
 fn gossip_rejects_foreign_network() {
-    let mut alice = seeded::<u64>(1);
-    let mut bob = seeded::<u64>(2);
+    let alice = seeded::<u64>(1).into_rumors();
+    let bob = seeded::<u64>(2).into_rumors();
 
     let (alice_out, bob_out) = block_on(async {
         let (a_side, b_side) = tokio::io::duplex(DUPLEX_BUF);
@@ -83,7 +83,7 @@ fn gossip_rejects_foreign_network() {
 /// the universe it was served from and can subsequently combine with it.
 #[test]
 fn bootstrap_adopts_provider_network() {
-    let mut provider = Known::<u64>::seed();
+    let provider = Peer::<u64>::seed().into_rumors();
     provider.batch().send(1).send(2).send(3);
     let provider_network = provider.network();
 
@@ -93,7 +93,7 @@ fn bootstrap_adopts_provider_network() {
         let (mut b_r, mut b_w) = tokio::io::split(b_side);
         let (provider_out, bootstrap_out) = tokio::join!(
             provider.gossip(&mut a_r, &mut a_w),
-            Known::<u64>::bootstrap(&mut b_r, &mut b_w),
+            Peer::<u64>::bootstrap(&mut b_r, &mut b_w),
         );
         provider_out.expect("provider gossip");
         bootstrap_out

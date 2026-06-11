@@ -5,7 +5,6 @@ mod common;
 
 use proptest::collection::vec;
 use proptest::prelude::*;
-use rumors::Known;
 
 use crate::common::oracle::readout_multiset;
 use crate::common::peer::{Peer, quiesce};
@@ -38,8 +37,8 @@ proptest! {
         bob_values in vec(any::<u64>(), 0..=MAX_CLONE_VALUES),
     ) {
         // One universe seed; alice and bob are genuine party-disjoint forks.
-        let mut seed = Known::<u64>::seed();
-        let mut alice = bootstrap_fork(&mut seed);
+        let seed = rumors::Peer::<u64>::seed().into_rumors();
+        let alice = bootstrap_fork(&seed);
         {
             let mut batch = alice.batch();
             for v in &alice_values {
@@ -47,7 +46,7 @@ proptest! {
             }
         }
 
-        let mut bob = bootstrap_fork(&mut seed);
+        let bob = bootstrap_fork(&seed);
         {
             let mut batch = bob.batch();
             for v in &bob_values {
@@ -56,12 +55,12 @@ proptest! {
         }
 
         // Recombine a disjoint copy of alice with a carrier of bob's content.
-        let mut recombined = bootstrap_fork(&mut alice);
-        let mut bob_carrier = bootstrap_fork(&mut bob);
-        wire_gossip(&mut recombined, &mut bob_carrier);
+        let recombined = bootstrap_fork(&alice);
+        let bob_carrier = bootstrap_fork(&bob);
+        wire_gossip(&recombined, &bob_carrier);
 
         // Direct: gossip bob straight into alice.
-        wire_gossip(&mut alice, &mut bob);
+        wire_gossip(&alice, &bob);
 
         prop_assert_eq!(
             readout_multiset(&recombined.snapshot()),
@@ -71,7 +70,7 @@ proptest! {
 }
 
 /// `quiesce` is a no-op on zero or one peer: it returns without
-/// panicking, doesn't gossip the lone peer, and leaves its `Known`
+/// panicking, doesn't gossip the lone peer, and leaves its rumor set's
 /// content and observation log unchanged.
 #[test]
 fn quiesce_handles_zero_or_one_peer() {
@@ -79,16 +78,16 @@ fn quiesce_handles_zero_or_one_peer() {
     quiesce(&mut zero);
     assert!(zero.is_empty());
 
-    let mut peer = Peer::<u64>::new(Known::seed());
+    let mut peer = Peer::<u64>::new(rumors::Peer::seed().into_rumors());
     peer.insert_one(42);
-    let hash_before = peer.local.hash();
-    let latest_before = peer.local.latest();
+    let snapshot_before = peer.local.snapshot();
     let obs_before = peer.observations();
 
     let mut one = vec![peer];
     quiesce(&mut one);
 
-    assert_eq!(one[0].local.hash(), hash_before);
-    assert_eq!(one[0].local.latest(), latest_before);
+    let snapshot_after = one[0].local.snapshot();
+    assert_eq!(snapshot_after.hash(), snapshot_before.hash());
+    assert_eq!(snapshot_after.latest(), snapshot_before.latest());
     assert_eq!(one[0].observations(), obs_before);
 }

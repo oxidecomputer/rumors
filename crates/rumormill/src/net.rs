@@ -2,7 +2,7 @@
 //! Poisson gossip scheduler, and retirement.
 //!
 //! There is no application-level handshake. A session feeds the raw QUIC
-//! bi-stream straight into [`Known::gossip`]; the rumors protocol's own
+//! bi-stream straight into [`Rumors::gossip`]; the rumors protocol's own
 //! preamble and greeting carry everything, including the one piece of
 //! information the merge needs: a gossip attempt against a *different
 //! universe* fails symmetrically on both ends with
@@ -28,7 +28,7 @@ use iroh::endpoint::{Connection, presets};
 use iroh::{Endpoint, EndpointId};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
-use rumors::{Broadcast, Error, Known, Network, Retire};
+use rumors::{Error, Network, Peer, Retire, Rumors};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio::time::{Instant, timeout};
@@ -90,9 +90,9 @@ async fn run_stream(
     mut recv: iroh::endpoint::RecvStream,
     cmd: &mpsc::Sender<Command>,
 ) -> anyhow::Result<()> {
-    let mut handle = request_handle(cmd).await?;
+    let handle = request_handle(cmd).await?;
     // Our side of the merge comparison, from before the attempt.
-    let ours = (handle.latest().min_ticks(), handle.network());
+    let ours = (handle.snapshot().latest().min_ticks(), handle.network());
 
     match handle.gossip(&mut recv, &mut send).await {
         Ok(()) => {
@@ -123,7 +123,7 @@ async fn serve_merge(conn: &Connection, cmd: &mpsc::Sender<Command>) -> anyhow::
     let (mut send, mut recv) = timeout(timers::SESSION_TIMEOUT, conn.accept_bi())
         .await
         .context("waiting for the loser's bootstrap stream")??;
-    let mut handle = request_handle(cmd).await?;
+    let handle = request_handle(cmd).await?;
     handle
         .gossip(&mut recv, &mut send)
         .await
@@ -132,7 +132,7 @@ async fn serve_merge(conn: &Connection, cmd: &mpsc::Sender<Command>) -> anyhow::
     Ok(())
 }
 
-/// Merge, losing side: bootstrap a brand-new `Known` from the winner over a
+/// Merge, losing side: bootstrap a brand-new `Peer` from the winner over a
 /// fresh stream (the mismatched one died mid-protocol) and hand it to the
 /// owner as a [`Command::Reset`]. `abandoned` is the universe the verdict
 /// was computed against; the owner adopts only while it is still in it, and
@@ -146,7 +146,7 @@ async fn request_merge(
         .open_bi()
         .await
         .context("opening the bootstrap stream")?;
-    let known = Known::<Entry>::bootstrap(&mut recv, &mut send)
+    let known = Peer::<Entry>::bootstrap(&mut recv, &mut send)
         .await
         .context("bootstrapping into the winning universe")?
         .context("the winner was itself bootstrapping")?;
@@ -171,9 +171,9 @@ async fn settle(send: &mut iroh::endpoint::SendStream, recv: &mut iroh::endpoint
     let _ = timeout(TEARDOWN_GRACE, recv.read_to_end(64)).await;
 }
 
-/// Ask the owner for a session handle (a `Broadcast` clone of the current
+/// Ask the owner for a session handle (a `Rumors` clone of the current
 /// universe's set).
-async fn request_handle(cmd: &mpsc::Sender<Command>) -> anyhow::Result<Broadcast<Entry>> {
+async fn request_handle(cmd: &mpsc::Sender<Command>) -> anyhow::Result<Rumors<Entry>> {
     let (reply, rx) = oneshot::channel();
     cmd.send(Command::Handle { reply })
         .await
@@ -326,12 +326,12 @@ pub enum Departure {
 }
 
 /// Retire into the first willing candidate, walking the list in presence
-/// recency order. The caller hands us the reunited `Known` — the
-/// `Known`/`Broadcast` XOR means no session can be using the set while we
+/// recency order. The caller hands us the unique `Peer` — the
+/// `Peer`/`Rumors` XOR means no session can be using the set while we
 /// hold it, so retirement's exclusivity holds by construction.
 pub async fn retire(
     endpoint: &Endpoint,
-    mut known: Known<Entry>,
+    mut retiree: Peer<Entry>,
     candidates: Vec<PeerId>,
 ) -> Departure {
     for peer in candidates {
@@ -346,7 +346,7 @@ pub async fn retire(
             continue;
         };
 
-        match known.retire(&mut recv, &mut send).await {
+        match retiree.retire(&mut recv, &mut send).await {
             // Retired: we are gone; the peer holds our party.
             Retire::Retired => {
                 let _ = send.finish();
@@ -355,13 +355,13 @@ pub async fn retire(
             }
             // Declined (the peer was itself retiring): intact, try the
             // next candidate.
-            Retire::Declined { known: intact } => {
-                known = intact;
+            Retire::Declined { peer: intact } => {
+                retiree = intact;
                 conn.close(0u32.into(), b"declined");
             }
             // Failed before the party frame: intact, try elsewhere.
-            Retire::Recovered { known: intact, .. } => {
-                known = intact;
+            Retire::Recovered { peer: intact, .. } => {
+                retiree = intact;
                 conn.close(0u32.into(), b"recovered");
             }
             // Failed during the party frame: the peer may hold our

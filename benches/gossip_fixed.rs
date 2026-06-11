@@ -3,7 +3,7 @@
 //! Every fixture starts with a total universe size of `N = 10_000` possible
 //! actions and varies only where the work lands: shared pre-fork insertions,
 //! post-fork divergent insertions, or post-fork redactions. Each benchmark
-//! drives [`Known::gossip`] over persistent in-memory pipes, so the timed body
+//! drives [`Rumors::gossip`] over persistent in-memory pipes, so the timed body
 //! pays for the gossip session rather than pipe allocation or thread spawn.
 //!
 //! The four Criterion groups are:
@@ -24,7 +24,7 @@ use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, 
 use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
 use rand::{RngCore, SeedableRng};
-use rumors::sync::{Key, Known};
+use rumors::sync::{Key, Peer, Rumors};
 
 // The shared grid module exposes a superset of helpers; this bench only needs
 // its sample-size policy so fixed-N runs line up with the existing benches.
@@ -42,8 +42,10 @@ const REDACT_STEP: usize = 250;
 /// fixture here do) is minted by serving a bootstrap from `parent` over a
 /// pair of pipes: the newcomer pulls `parent`'s whole tree through the
 /// ordinary mirror descent and is handed a fresh disjoint party, forked in
-/// the same critical section that snapshots the served tree.
-fn bootstrap_fork<T>(parent: &mut Known<T>) -> Known<T>
+/// the same critical section that snapshots the served tree. The fixtures
+/// only need the data plane, so the lifecycle handle is collapsed to
+/// [`Rumors`] right away.
+fn bootstrap_fork<T>(parent: &mut Rumors<T>) -> Rumors<T>
 where
     T: BorshSerialize + BorshDeserialize + Clone + Send + Sync + 'static,
 {
@@ -51,9 +53,10 @@ where
     let (mut n2p_r, mut n2p_w) = pipe().expect("pipe newcomer→parent");
     thread::scope(|s| {
         let newcomer = s.spawn(move || {
-            Known::<T>::bootstrap(&mut p2n_r, &mut n2p_w)
+            Peer::<T>::bootstrap(&mut p2n_r, &mut n2p_w)
                 .expect("bootstrap newcomer")
                 .expect("provider served bootstrap")
+                .into_rumors()
         });
         parent
             .gossip(&mut n2p_r, &mut p2n_w)
@@ -67,8 +70,8 @@ where
 struct Wire {
     a_read: PipeReader,
     a_write: PipeWriter,
-    work: Option<Sender<Known<u8>>>,
-    done: Receiver<Known<u8>>,
+    work: Option<Sender<Rumors<u8>>>,
+    done: Receiver<Rumors<u8>>,
     worker: Option<JoinHandle<()>>,
 }
 
@@ -76,8 +79,8 @@ impl Wire {
     fn new() -> Self {
         let (a_to_b_r, a_to_b_w) = pipe().expect("pipe a_to_b");
         let (b_to_a_r, b_to_a_w) = pipe().expect("pipe b_to_a");
-        let (work_tx, work_rx) = channel::<Known<u8>>();
-        let (done_tx, done_rx) = channel::<Known<u8>>();
+        let (work_tx, work_rx) = channel::<Rumors<u8>>();
+        let (done_tx, done_rx) = channel::<Rumors<u8>>();
 
         let worker = thread::spawn(move || {
             let mut read = a_to_b_r;
@@ -99,7 +102,7 @@ impl Wire {
         }
     }
 
-    fn round_trip(&mut self, mut a: Known<u8>, b: Known<u8>) -> (Known<u8>, Known<u8>) {
+    fn round_trip(&mut self, mut a: Rumors<u8>, b: Rumors<u8>) -> (Rumors<u8>, Rumors<u8>) {
         self.work
             .as_ref()
             .expect("worker still running")
@@ -153,7 +156,7 @@ impl Scenario {
         }
     }
 
-    fn build(self, param: usize) -> (Known<u8>, Known<u8>) {
+    fn build(self, param: usize) -> (Rumors<u8>, Rumors<u8>) {
         match self {
             Scenario::BidirInsertions => build_bidir_insertions(param),
             Scenario::BidirRedactions => build_bidir_redactions(param),
@@ -190,7 +193,7 @@ fn bench_gossip_fixed(c: &mut Criterion) {
     }
 }
 
-fn build_bidir_insertions(total_insertions: usize) -> (Known<u8>, Known<u8>) {
+fn build_bidir_insertions(total_insertions: usize) -> (Rumors<u8>, Rumors<u8>) {
     assert!(total_insertions <= N);
     assert_eq!(total_insertions % 2, 0);
 
@@ -210,7 +213,7 @@ fn build_bidir_insertions(total_insertions: usize) -> (Known<u8>, Known<u8>) {
     (left, right)
 }
 
-fn build_unilateral_insertions(total_insertions: usize) -> (Known<u8>, Known<u8>) {
+fn build_unilateral_insertions(total_insertions: usize) -> (Rumors<u8>, Rumors<u8>) {
     assert!(total_insertions <= N);
 
     let mut left = seeded_with_messages(N - total_insertions, 0x70e4_a5b8_cce0_25da);
@@ -227,7 +230,7 @@ fn build_unilateral_insertions(total_insertions: usize) -> (Known<u8>, Known<u8>
     (left, right)
 }
 
-fn build_bidir_redactions(total_redactions: usize) -> (Known<u8>, Known<u8>) {
+fn build_bidir_redactions(total_redactions: usize) -> (Rumors<u8>, Rumors<u8>) {
     assert!(total_redactions <= N / 2);
     assert_eq!(total_redactions % 2, 0);
 
@@ -242,7 +245,7 @@ fn build_bidir_redactions(total_redactions: usize) -> (Known<u8>, Known<u8>) {
     (left, right)
 }
 
-fn build_unilateral_redactions(total_redactions: usize) -> (Known<u8>, Known<u8>) {
+fn build_unilateral_redactions(total_redactions: usize) -> (Rumors<u8>, Rumors<u8>) {
     assert!(total_redactions <= N / 2);
 
     let (mut left, keys) = seeded_with_keys(N, 0x2526_34f4_918f_e1c7);
@@ -254,34 +257,34 @@ fn build_unilateral_redactions(total_redactions: usize) -> (Known<u8>, Known<u8>
     (left, right)
 }
 
-fn send_all(known: &Known<u8>, messages: Vec<u8>) {
-    let mut batch = known.batch();
+fn send_all(rumors: &Rumors<u8>, messages: Vec<u8>) {
+    let mut batch = rumors.batch();
     for message in messages {
         batch.send(message);
     }
 }
 
-fn redact_all(known: &Known<u8>, keys: &[Key]) {
-    let mut batch = known.batch();
+fn redact_all(rumors: &Rumors<u8>, keys: &[Key]) {
+    let mut batch = rumors.batch();
     for key in keys {
         batch.redact(*key);
     }
 }
 
-fn seeded_with_messages(n: usize, seed: u64) -> Known<u8> {
-    let known = Known::seed();
-    send_all(&known, random_bytes(n, seed));
-    known
+fn seeded_with_messages(n: usize, seed: u64) -> Rumors<u8> {
+    let rumors = Peer::seed().into_rumors();
+    send_all(&rumors, random_bytes(n, seed));
+    rumors
 }
 
-fn seeded_with_keys(n: usize, seed: u64) -> (Known<u8>, Vec<Key>) {
-    let known = Known::seed();
-    send_all(&known, random_bytes(n, seed));
-    let keys = known.snapshot().iter().map(|(k, _, _)| k).collect();
-    (known, keys)
+fn seeded_with_keys(n: usize, seed: u64) -> (Rumors<u8>, Vec<Key>) {
+    let rumors = Peer::seed().into_rumors();
+    send_all(&rumors, random_bytes(n, seed));
+    let keys = rumors.snapshot().iter().map(|(k, _, _)| k).collect();
+    (rumors, keys)
 }
 
-fn warmed((left, right): (Known<u8>, Known<u8>)) -> (Known<u8>, Known<u8>) {
+fn warmed((left, right): (Rumors<u8>, Rumors<u8>)) -> (Rumors<u8>, Rumors<u8>) {
     left.warm_caches();
     right.warm_caches();
     (left, right)
