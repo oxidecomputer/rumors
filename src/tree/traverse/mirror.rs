@@ -4,6 +4,39 @@
 //! See [`local`] for the protocol's state machine and asymmetry matrix,
 //! [`protocol`] for the type-level phase schedule, [`message`] for the wire
 //! format, and [`remote`] for the wire-bound proxy and framing.
+//!
+//! # Cost
+//!
+//! Write `N = C + D` for two replicas sharing `C` leaves and differing in
+//! `D`. Content addressing spreads leaves uniformly through the 256-ary,
+//! 32-deep trie, and each exchange descends two heights. Per session, in
+//! expectation:
+//!
+//! - **Round trips:** ≈ `½·log₂₅₆(2·D·N)` exchanges after the opening —
+//!   the descent runs until the disputed paths separate pairwise, and path
+//!   compression does *not* shorten it (the descent pops one prefix byte
+//!   per level). The fixed schedule caps every session at 36 frames (two
+//!   handshake frames plus a 34-message descent covering all 32 levels,
+//!   ≈ 18 round trips), and in-band termination (the emptiness predicates
+//!   in [`protocol`]'s table) ends it the moment nothing remains disputed.
+//! - **Computation, per side:** the disputed frontier, not the tree. Each
+//!   round merge-joins the counterparty's disputed sets against level maps
+//!   that hold nothing already agreed ([`local`]'s zipper). The frontier
+//!   is the union of root-to-leaf paths to the `D` differing leaves —
+//!   `Θ(D·(1 + log₂₅₆(N/D)))` disputed nodes — but each disputed node
+//!   ships and compares its full child list, a ×256 sibling fan through
+//!   the dense levels: `Θ(min(256·D, N)·(1 + log₂₅₆(N/D)))` in all,
+//!   collapsing to `Θ(N)` once `D` exceeds `N/256`.
+//! - **Bytes:** the same frontier in prefix-and-hash records, plus the `D`
+//!   differing message bodies. For small payloads the hash records
+//!   dominate, not the bodies. A redacted leaf drives the descent like any
+//!   other difference but ships no body at all.
+//!
+//! Two boundary cases sit outside the formula. A bootstrap (`D = N`)
+//! bypasses the dispute machinery entirely: the provider drains its root
+//! in one shot — `Θ(N)` work and bytes in `O(1)` rounds. And the first
+//! session after local changes also pays the lazy hash memoization along
+//! the changed paths: divergence-shaped, charged once.
 
 use std::cmp::Ordering;
 
