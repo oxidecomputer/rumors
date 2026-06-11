@@ -119,7 +119,7 @@ pub use version::Version;
 
 /// Named, composable constructors for causal [`Version`] ranges
 /// (re-exported from [`before`](::before)): the vocabulary for
-/// [`Snapshot::range`] and [`Broadcast::listen_from`] — e.g.
+/// [`Snapshot::range`] and [`Known::messages_from`] — e.g.
 /// `causally::since(&cursor)` or `causally::not_before(&s).known_at(&e)`.
 pub use before::causally;
 
@@ -511,6 +511,25 @@ impl<T> Known<T> {
     /// Take a consistent snapshot of the current state.
     pub fn snapshot(&self) -> Snapshot<T> {
         Snapshot::new(self.network, self.inner.borrow().tree.clone())
+    }
+
+    /// Observe every message in this rumor set, from genesis onward. See
+    /// [`Messages`] for the contract; equivalent to
+    /// [`messages_from`](Self::messages_from) at [`Version::new`].
+    pub fn messages(&self) -> Messages<T>
+    where
+        T: Send + Sync,
+    {
+        self.messages_from(Version::new())
+    }
+
+    /// Observe every message not already causally contained in `since`. See
+    /// [`Messages`] for the contract.
+    pub fn messages_from(&self, since: Version) -> Messages<T>
+    where
+        T: Send + Sync,
+    {
+        Messages::subscribe(&self.inner, since)
     }
 
     /// The identifier shared by every peer that descends from the same

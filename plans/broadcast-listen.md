@@ -10,40 +10,43 @@ An earlier revision of this plan built the pass on the `Unknown` traversal
 with a `rebuild: bool` flag; that was superseded before merge by the
 version-filtered borrowing iterator (§2), which subsumes it — no consuming
 walk, no flag through the wire path, and a public dividend
-(`Snapshot::range`).
+(`Snapshot::range`). A later revision then retired the callback-driven
+`listen`/`listen_from` (and the separate `stream`/`stream_from`) in favor
+of `Messages`, the pull-based observer over the frozen walk: pull restores
+control flow to the caller, so early exit is the caller's own `break`,
+pausing is simply not asking, and the `ControlFlow` apparatus dissolves.
 
 ## 1. Shape and intent
 
 ```rust
-impl<T> Broadcast<T> {
-    /// Observe every message from genesis onward.
-    pub fn listen<B, F, Fut>(self, on_message: F)
-        -> impl Future<Output = (Version, Option<B>)> + Send
-    where
-        T: Send + Sync,
-        B: Send,
-        F: FnMut(Key, &Version, &Arc<T>) -> Fut + Send,
-        Fut: Future<Output = ControlFlow<B>> + Send,
-    {
-        self.listen_from(Version::new(), on_message)
-    }
+impl<T> Known<T> {  // and identically on Broadcast<T>
+    pub fn messages(&self) -> Messages<T>;                      // from genesis
+    pub fn messages_from(&self, since: Version) -> Messages<T>; // from a cursor
+}
 
-    /// Observe every message not causally contained in `since`.
-    pub fn listen_from<B, F, Fut>(self, since: Version, on_message: F)
-        -> impl Future<Output = (Version, Option<B>)> + Send
-    where /* same bounds */
+impl<T> Messages<T> {
+    /// The lending face: borrows live until the next call.
+    pub async fn borrow_next(&mut self) -> Option<(Key, &Version, &Arc<T>)>;
+    /// The sound resume point: the last completed pass's frontier.
+    pub fn cursor(&self) -> &Version;
+}
+
+/// The owned-item face, for select!-and-combinate consumers; the sync
+/// mirror exposes the same face as Iterator.
+impl<T: Send + Sync + 'static> Stream for Messages<T> {
+    type Item = (Key, Version, Arc<T>);
 }
 ```
 
 The cursor is a causal `Version`, not a tree. Each time the shared tree
-changes, a version-filtered leaf walk fires `on_message` for precisely the
-leaves the cursor does not dominate, then the cursor absorbs the snapshot's
-ceiling. The callback steers the listener: `Continue(())` keeps listening,
-`Break(value)` stops it immediately. The future resolves to `(cursor,
-Some(value))` on a break (the cursor of the last *completed* pass) or to
-`(cursor, None)` once no further change is possible, having observed the
-complete final state; either cursor is a valid `since` for a later
-`listen_from`.
+changes, a version-filtered leaf walk yields precisely the leaves the
+cursor does not dominate, then the cursor absorbs the snapshot's ceiling.
+The observer is pull-based: early exit is the caller's own `break`,
+pausing is holding the observer (its idle state is a constant-size descent
+spine), and `borrow_next` resolves `None` once no further change is
+possible, having yielded the complete final state. `cursor()` is the
+persistable resume point, valid as a later `since` against any replica of
+the same network.
 
 Advantages over the earlier tree-cursor design:
 
@@ -160,25 +163,23 @@ stayed quiet.
   at pass end `cursor |= ceiling` marks everything in the snapshot
   observed. Exactly-once within one listen call: every fired leaf is `<=`
   the absorbed ceiling, and the next pass filters against it.
-- **Early exit is `ControlFlow::Break`, sound only at pass granularity.**
-  A `Version` can encode only a *causally closed* frontier, and delivery is
-  in key order, not causal order — so the prefix delivered before a
-  mid-pass break need not be causally closed, and no `Version` can cover
-  exactly it. In particular the once-documented recipe of folding the
-  delivered versions (`resume |= version`) is **unsound**: a fold can
-  causally contain a message that was never delivered (deliver `m2@(A:2)`
-  before `m1@(A:1)` in key order, break between them — the fold covers
-  `A:1`), which a resume would then skip *forever*. Loss, not re-delivery.
-  A break therefore resolves with the last completed pass's cursor:
-  at-least-once for the interrupted pass (dedup by `Key` across a break if
-  re-delivery matters), exactly-once everywhere else. *Dropping* the future
-  yields no resume cursor at all — break out instead when you intend to
-  come back. Mid-pass exactness would require delivering each pass in a
-  linear extension of the causal order (any prefix of a topological order
-  is causally closed), at the cost of materializing and sorting every
-  delta by partial-order comparison — a possible future opt-in, not the
-  default. Per-message `Break` payloads carry state out; `Continue` carries
-  none (accumulator state lives in the `FnMut`'s captures).
+- **Resumption is sound only at pass granularity.** A `Version` can encode
+  only a *causally closed* frontier, and delivery is in key order, not
+  causal order — so the prefix delivered before a mid-pass stop need not be
+  causally closed, and no `Version` can cover exactly it. In particular
+  folding the delivered versions (`resume |= version`) is **unsound**: a
+  fold can causally contain a message that was never delivered (deliver
+  `m2@(A:2)` before `m1@(A:1)` in key order, stop between them — the fold
+  covers `A:1`), which a resume would then skip *forever*. Loss, not
+  re-delivery. `Messages::cursor()` therefore exposes the last completed
+  pass's frontier: resuming from it is at-least-once for the in-progress
+  pass (dedup by `Key` if re-delivery matters), exactly-once everywhere
+  else. In-process pause needs no cursor at all — hold the observer, whose
+  idle state is constant-size. Mid-pass exactness would require delivering
+  each pass in a linear extension of the causal order (any prefix of a
+  topological order is causally closed), at the cost of materializing and
+  sorting every delta by partial-order comparison — a possible future
+  opt-in, not the default.
 - **Cursors are portable across replicas.** A `Version` is causal and
   network-global, not replica-local: a cursor earned against replica A is a
   valid `since` against replica B's `Broadcast` in the same universe, and
@@ -273,14 +274,13 @@ agreement). The rest below is gated on the rumors lib compiling again.
 5. **Exactly-once under interleaving** (prop test): arbitrary send/redact
    interleavings from several clones; no key observed twice; observed ⊇
    final live set above `since`.
-6. **Break-resume** (prop test): break a listener at an arbitrary point
-   (callback returns `Break` on a chosen message), resume from the returned
-   cursor; the union of observations covers every message (nothing lost),
-   re-deliveries occur only for messages delivered in the interrupted pass,
-   and the break value round-trips. Negative control: assert that folding
-   delivered versions and resuming from the fold *can* lose a message
-   (the causal-closure counterexample), pinning why the API resolves with
-   the pass cursor.
+6. **Cursor-resume** (prop test): stop an observer at an arbitrary point,
+   resume a fresh one from its `cursor()`; the union of observations covers
+   every message (nothing lost), and re-deliveries occur only for messages
+   delivered in the interrupted pass. Negative control: assert that folding
+   delivered versions and resuming from the fold *can* lose a message (the
+   causal-closure counterexample), pinning why the API exposes the pass
+   cursor instead.
 7. **Cursor round-trip**: terminal `Output` fed to a fresh `listen_from` on
    an unchanged set observes nothing and terminates with an equal cursor.
 8. **Replica portability**: cursor earned on replica A, resumed against

@@ -1,9 +1,10 @@
 use crate::tree::{Frozen, Leaf};
-use crate::{Batch, Error, Key, Known, Network, Snapshot, Version, causally};
+use crate::{Batch, Error, Key, Known, Network, Snapshot, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
 use futures::Stream;
-use std::ops::ControlFlow;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     sync::watch,
@@ -146,204 +147,23 @@ impl<T> Broadcast<T> {
         self.known.get(key)
     }
 
-    /// Observe every message in this rumor set, from genesis onward: the
-    /// returned future fires `on_message` once for every message currently
-    /// live, then follows along with every change, firing once per message
-    /// learned — by local [`send`](Self::send), by gossip, from any handle.
-    ///
-    /// Equivalent to [`listen_from`](Self::listen_from) at [`Version::new`];
-    /// see it for the delivery contract, termination, early exit, and
-    /// resumption.
-    pub fn listen<B, F, Fut>(
-        self,
-        on_message: F,
-    ) -> impl Future<Output = (Version, Option<B>)> + Send
+    /// Observe every message in this rumor set, from genesis onward. See
+    /// [`Messages`] for the contract; equivalent to
+    /// [`messages_from`](Self::messages_from) at [`Version::new`].
+    pub fn messages(&self) -> Messages<T>
     where
         T: Send + Sync,
-        B: Send,
-        F: FnMut(Key, &Version, &Arc<T>) -> Fut + Send,
-        Fut: Future<Output = ControlFlow<B>> + Send,
     {
-        self.listen_from(Version::new(), on_message)
+        self.known.messages()
     }
 
-    /// Observe every message not already causally contained in `since`.
-    ///
-    /// The cursor is a causal [`Version`], not a tree: each time the shared
-    /// state changes, the listener fires `on_message` for precisely the live
-    /// messages whose versions the cursor does not dominate, then absorbs
-    /// the snapshot's ceiling once the pass completes. Every message live at
-    /// some pass is observed exactly once within one uninterrupted listen; a
-    /// message inserted and redacted wholly between passes is never observed
-    /// (already-redacted content is never delivered); redactions themselves
-    /// are honored silently. Delivery order is unspecified and does *not*
-    /// follow the causal order: a message may be observed before another
-    /// that causally precedes it. Order by the [`Version`] handed to the
-    /// callback if causality matters.
-    ///
-    /// The callback steers the listener:
-    /// [`Continue(())`](ControlFlow::Continue) keeps listening, and
-    /// [`Break(value)`](ControlFlow::Break) stops it immediately. The future
-    /// resolves either way to `(cursor, outcome)`. On a break, `(cursor,
-    /// Some(value))`, where the cursor is the *last completed pass's*
-    /// frontier: a [`Version`] can only encode a causally closed boundary,
-    /// and because delivery order is not causal order, the messages
-    /// delivered before a mid-pass break need not form one. Resuming from it
-    /// is therefore *at-least-once for the interrupted pass* — its
-    /// already-delivered messages are delivered again — and exactly-once
-    /// everywhere else; dedup by [`Key`] across a break if re-delivery
-    /// matters. With no break, `(cursor, None)` once no further change is
-    /// possible — after the [`Known`] and every [`Broadcast`] have dropped —
-    /// having observed the complete final state. Either cursor is a valid
-    /// `since` against any replica of the same network.
-    ///
-    /// Consuming `self` dissolves this handle: a listener is an observer, not
-    /// an actor. It does not hold the rumor set open, and it does not block
-    /// the future from [`Known::broadcast`] that reunites the [`Known`].
-    /// *Dropping* the future yields no resume cursor at all: break out with
-    /// [`ControlFlow::Break`] instead when you intend to come back. (Folding
-    /// the delivered versions yourself does **not** make a sound resume
-    /// point: a fold can causally contain a message that was never
-    /// delivered, which a resume would then skip forever.)
-    pub fn listen_from<B, F, Fut>(
-        self,
-        since: Version,
-        mut on_message: F,
-    ) -> impl Future<Output = (Version, Option<B>)> + Send
-    where
-        T: Send + Sync,
-        B: Send,
-        F: FnMut(Key, &Version, &Arc<T>) -> Fut + Send,
-        Fut: Future<Output = ControlFlow<B>> + Send,
-    {
-        // Subscribe while our own sender still holds the channel open, then
-        // dissolve the Broadcast eagerly (when `listen_from` returns, not
-        // when the future first polls): dropping our data sender means the
-        // channel closes when the last *actor* — the `Known` or a
-        // `Broadcast` — goes, which is exactly the listener's termination
-        // signal (holding it would self-pin the listener, waiting on a
-        // channel it keeps open); dropping our liveness receiver means a
-        // listener does not pin `Known::broadcast`'s reunification future.
-        let mut rx = self.known.inner.subscribe();
-        drop(self);
-        async move {
-            let mut cursor = since;
-            loop {
-                // Snapshot under the read guard and release it immediately:
-                // the guard blocks every writer, so it must never be held
-                // across an await. The tree clone is a cheap copy-on-write
-                // handle onto shared structure.
-                let snapshot = rx.borrow_and_update().tree.clone();
-                let ceiling = snapshot.latest().clone();
-
-                // Fire for precisely the leaves the cursor does not dominate.
-                // (`since`, not `not_before`: a leaf at exactly the cursor
-                // was observed by the pass that absorbed it, and must not
-                // re-fire.) Dominated subtrees are pruned by their memoized
-                // version bounds, so a pass costs the delta, not the tree.
-                //
-                // A break resolves with the cursor as it stood at the pass
-                // start: delivery is in key order, not causal order, so the
-                // prefix delivered before a mid-pass break need not be
-                // causally closed, and no `Version` can cover exactly that
-                // prefix (folding the delivered versions can causally
-                // contain an undelivered message, which a resume would skip
-                // forever). The last completed pass is the finest sound
-                // resume point. (The filter borrows a clone so the break can
-                // move the cursor out from under the live iterator.)
-                let pass = cursor.clone();
-                for (key, version, message) in snapshot.range(causally::since(&pass)) {
-                    if let ControlFlow::Break(value) = on_message(key, version, message).await {
-                        return (cursor, Some(value));
-                    }
-                }
-
-                // The pass observed every survivor at or under the snapshot's
-                // ceiling. Absorbing the ceiling (rather than the observed
-                // leaf versions) also covers redaction ticks, which left no
-                // leaves behind to observe.
-                cursor |= &ceiling;
-
-                // `Err` here means every sender is gone: no further change is
-                // possible, and the pass above already drained the final
-                // state.
-                if rx.changed().await.is_err() {
-                    break (cursor, None);
-                }
-            }
-        }
-    }
-
-    /// Observe this rumor set as lent `(Key, &Version, &Arc<T>)` items, from
-    /// genesis onward.
-    ///
-    /// Equivalent to [`messages_from`](Self::messages_from) at
-    /// [`Version::new`]; see it and [`Messages`] for the contract.
-    pub fn messages(self) -> Messages<T>
+    /// Observe every message not already causally contained in `since`. See
+    /// [`Messages`] for the contract.
+    pub fn messages_from(&self, since: Version) -> Messages<T>
     where
         T: Send + Sync,
     {
-        self.messages_from(Version::new())
-    }
-
-    /// Observe every message not already causally contained in `since`, as
-    /// lent items: the zero-copy sibling of [`listen_from`](Self::listen_from)
-    /// and [`stream_from`](Self::stream_from). See [`Messages`].
-    pub fn messages_from(self, since: Version) -> Messages<T>
-    where
-        T: Send + Sync,
-    {
-        // Subscribe-then-dissolve, exactly as `listen_from` does and for the
-        // same reasons.
-        let rx = self.known.inner.subscribe();
-        drop(self);
-        Messages {
-            rx,
-            cursor: since,
-            pass: None,
-            current: None,
-        }
-    }
-
-    /// Observe this rumor set as a [`Stream`] of owned `(Key, Version,
-    /// Arc<T>)` items, from genesis onward.
-    ///
-    /// Equivalent to [`stream_from`](Self::stream_from) at [`Version::new`];
-    /// see it for the delivery contract.
-    pub fn stream(self) -> impl Stream<Item = (Key, Version, Arc<T>)> + Send
-    where
-        T: Send + Sync,
-    {
-        self.stream_from(Version::new())
-    }
-
-    /// Observe every message not already causally contained in `since`, as a
-    /// [`Stream`] of owned `(Key, Version, Arc<T>)` items: the
-    /// [`Stream`]-shaped sibling of [`listen_from`](Self::listen_from), for
-    /// consumers who would rather `select!` and combinate than write
-    /// callbacks. A thin cloning adapter over [`Messages`], which lends the
-    /// same items without the clones.
-    ///
-    /// Same delivery contract as [`listen_from`](Self::listen_from): every
-    /// message live at some pass is yielded exactly once, already-redacted
-    /// content is never yielded, order is unspecified (not causal), and the
-    /// stream ends once the [`Known`] and every [`Broadcast`] have dropped,
-    /// after yielding the complete final state. One difference inherent to
-    /// the shape: dropping the stream yields no resume cursor — for
-    /// resumable consumption use [`listen_from`](Self::listen_from) and
-    /// break with [`ControlFlow::Break`] (folding the yielded versions is
-    /// *not* a sound resume point; see there).
-    pub fn stream_from(self, since: Version) -> impl Stream<Item = (Key, Version, Arc<T>)> + Send
-    where
-        T: Send + Sync,
-    {
-        futures::stream::unfold(self.messages_from(since), |mut messages| async move {
-            let item = messages
-                .next()
-                .await
-                .map(|(key, version, value)| (key, version.clone(), value.clone()));
-            item.map(|item| (item, messages))
-        })
+        self.known.messages_from(since)
     }
 
     /// Force this set's tree to compute its lazy structural memos (observable
@@ -355,34 +175,67 @@ impl<T> Broadcast<T> {
     }
 }
 
-/// A lending observer of one rumor set: each call to
-/// [`next`](Self::next) yields the next message as `(Key, &Version,
-/// &Arc<T>)`, with the borrows lent out of the iterator until the next
-/// call — no per-item `Version` clone, no `Arc` traffic. There is no
-/// standard lending-iterator trait to implement, so `next` is an inherent
-/// method, consumed `while let Some((key, version, value)) =
-/// messages.next().await { … }`.
+/// An observer of one rumor set: every message not causally contained in
+/// the starting cursor, then every message learned afterwards — by local
+/// [`send`](Broadcast::send), by gossip, from any handle — and `None` once
+/// the [`Known`] and every [`Broadcast`] have dropped and no further change
+/// is possible, after yielding the complete final state.
 ///
-/// Same delivery contract as [`Broadcast::listen_from`]: every message live
-/// at some pass is yielded exactly once, already-redacted content is never
-/// yielded, order is unspecified (not causal), and `next` returns [`None`]
-/// once the [`Known`] and every [`Broadcast`] have dropped, after yielding
-/// the complete final state. Dropping the observer yields no resume cursor —
-/// for resumable consumption use [`Broadcast::listen_from`] and break with
-/// [`ControlFlow::Break`].
+/// Two faces over one engine:
 ///
-/// Internally a frozen, fully-owned walk over each pass's snapshot: between
-/// items it holds only a constant-size descent spine (one entry per
-/// materialized branch level along the current path, at most the tree's
-/// depth) — nothing is buffered, and nothing grows with the delta or the
-/// tree.
+/// - [`borrow_next`](Self::borrow_next) lends each message as `(Key,
+///   &Version, &Arc<T>)`, the borrows living until the next call — no
+///   per-item `Version` clone, no `Arc` traffic. There is no standard
+///   lending-iterator trait, so it is an inherent method, consumed
+///   `while let Some((key, version, value)) = messages.borrow_next().await`.
+/// - The [`Stream`] impl (for `T: 'static`) yields owned `(Key, Version,
+///   Arc<T>)` items for `select!`-and-combinate consumers; on the sync
+///   mirror the same face is an [`Iterator`].
+///
+/// The delivery contract: every message live at some pass is yielded
+/// exactly once; a message inserted and redacted wholly between passes is
+/// never yielded (already-redacted content is never delivered); redactions
+/// themselves are honored silently. Order is unspecified and does *not*
+/// follow the causal order — a message may be yielded before another that
+/// causally precedes it; order by the yielded [`Version`]s if causality
+/// matters.
+///
+/// Pausing, cancelling, and resuming are ordinary control flow: between
+/// items the observer holds only a constant-size descent spine (one entry
+/// per materialized branch level, at most the tree's depth — nothing
+/// buffered, nothing growing with the delta or the tree), so hold it as
+/// long as you like and ask again later; drop it to cancel. To resume in a
+/// *later process*, or on another replica of the same network, persist
+/// [`cursor`](Self::cursor) and start a new observer from it.
+///
+/// An observer is not an actor: it holds no send handle, does not keep the
+/// rumor set open, and does not block the future from [`Known::broadcast`]
+/// that reunites the [`Known`].
 pub struct Messages<T> {
-    rx: watch::Receiver<crate::Inner<T>>,
+    /// The watch channel, or the in-flight wait for it to change. The wait
+    /// future owns the receiver and hands it back: the `Stream` face cannot
+    /// hold a borrowing `changed()` future across polls (recreating one per
+    /// poll would drop its waker registration and lose the wakeup), so the
+    /// wait is materialized; `borrow_next` enters it only to finish what a
+    /// `Stream` poll started.
+    channel: Option<Channel<T>>,
     cursor: Version,
     pass: Option<Pass<T>>,
     /// The most recently yielded leaf, kept alive so its version and value
     /// can be lent to the caller until the next call.
     current: Option<(Key, Leaf<T>)>,
+}
+
+/// A wait for the channel to change, owning the receiver; resolves to
+/// whether the channel closed, and the receiver itself.
+type WaitForChange<T> =
+    Pin<Box<dyn Future<Output = (bool, watch::Receiver<crate::Inner<T>>)> + Send>>;
+
+enum Channel<T> {
+    /// The channel is in hand.
+    Ready(watch::Receiver<crate::Inner<T>>),
+    /// A wait for change is in flight.
+    Waiting(WaitForChange<T>),
 }
 
 /// One in-progress pass: the frozen walk over its snapshot, and the
@@ -393,43 +246,146 @@ struct Pass<T> {
 }
 
 impl<T> Messages<T> {
+    pub(crate) fn subscribe(inner: &watch::Sender<crate::Inner<T>>, since: Version) -> Self {
+        Self {
+            channel: Some(Channel::Ready(inner.subscribe())),
+            cursor: since,
+            pass: None,
+            current: None,
+        }
+    }
+
+    /// Open a pass over the latest snapshot if none is in progress. The
+    /// watch read guard lives only long enough to freeze the walk (a root
+    /// handle clone) and capture the ceiling.
+    fn open_pass(
+        pass: &mut Option<Pass<T>>,
+        rx: &mut watch::Receiver<crate::Inner<T>>,
+        cursor: &Version,
+    ) where
+        T: Send + Sync,
+    {
+        if pass.is_none() {
+            let inner = rx.borrow_and_update();
+            *pass = Some(Pass {
+                walk: inner.tree.freeze((
+                    std::ops::Bound::Excluded(cursor.clone()),
+                    std::ops::Bound::Unbounded,
+                )),
+                ceiling: inner.tree.latest().clone(),
+            });
+        }
+    }
+
     /// Advance to the next message, lending its version and value until the
     /// following call. Awaits quietly while the set is unchanged; resolves
     /// [`None`] once no further change is possible.
-    pub async fn next(&mut self) -> Option<(Key, &Version, &Arc<T>)>
+    pub async fn borrow_next(&mut self) -> Option<(Key, &Version, &Arc<T>)>
     where
         T: Send + Sync,
     {
         loop {
-            // Open a pass over the latest snapshot if none is in progress.
-            // The watch read guard lives only long enough to freeze the
-            // walk (a root handle clone) and capture the ceiling.
-            if self.pass.is_none() {
-                let inner = self.rx.borrow_and_update();
-                self.pass = Some(Pass {
-                    walk: inner.tree.freeze((
-                        std::ops::Bound::Excluded(self.cursor.clone()),
-                        std::ops::Bound::Unbounded,
-                    )),
-                    ceiling: inner.tree.latest().clone(),
-                });
-            }
+            match self.channel.as_mut().expect("channel state present") {
+                // Finish a wait the `Stream` face left in flight.
+                Channel::Waiting(wait) => {
+                    let (closed, rx) = wait.as_mut().await;
+                    self.channel = Some(Channel::Ready(rx));
+                    if closed {
+                        return None;
+                    }
+                }
+                Channel::Ready(rx) => {
+                    Self::open_pass(&mut self.pass, rx, &self.cursor);
 
-            // Lend the next leaf out of the walk, parking it in `current`
-            // so the borrows survive the return.
-            let pass = self.pass.as_mut().expect("opened above");
-            if let Some((key, leaf)) = pass.walk.next() {
-                let (key, leaf) = self.current.insert((key, leaf));
-                return Some((*key, leaf.version(), leaf.value()));
-            }
+                    // Lend the next leaf out of the walk, parking it in
+                    // `current` so the borrows survive the return.
+                    let pass = self.pass.as_mut().expect("opened above");
+                    if let Some((key, leaf)) = pass.walk.next() {
+                        let (key, leaf) = self.current.insert((key, leaf));
+                        return Some((*key, leaf.version(), leaf.value()));
+                    }
 
-            // The pass drained: absorb its ceiling as completed, then await
-            // the next change; `Err` means every sender is gone and the
-            // drain above already saw the final state.
-            let Pass { ceiling, .. } = self.pass.take().expect("opened above");
-            self.cursor |= &ceiling;
-            if self.rx.changed().await.is_err() {
-                return None;
+                    // The pass drained: absorb its ceiling as completed,
+                    // then await the next change; `Err` means every sender
+                    // is gone and the drain above already saw the final
+                    // state.
+                    let Pass { ceiling, .. } = self.pass.take().expect("opened above");
+                    self.cursor |= &ceiling;
+                    if rx.changed().await.is_err() {
+                        return None;
+                    }
+                }
+            }
+        }
+    }
+
+    /// The sound resume point: the causal frontier of the last *completed*
+    /// pass, suitable for persisting across processes or handing to another
+    /// replica of the same network — a later
+    /// [`messages_from(cursor)`](Broadcast::messages_from) re-observes
+    /// nothing from completed passes and everything not yet delivered.
+    /// Messages already delivered from the *in-progress* pass are delivered
+    /// again (a [`Version`] can only encode a causally closed boundary, and
+    /// delivery order is not causal order, so a partial pass's prefix need
+    /// not be one); dedup by [`Key`] across such a resume if re-delivery
+    /// matters. For the same reason, folding the yielded versions yourself
+    /// is *not* a sound resume point: the fold can causally contain a
+    /// message that was never delivered, which a resume would then skip
+    /// forever.
+    ///
+    /// After the observer ends (`None`), this is the complete final
+    /// frontier. To merely pause in-process, just hold the observer: its
+    /// idle state is constant-size, and the cursor stays inside it.
+    pub fn cursor(&self) -> &Version {
+        &self.cursor
+    }
+}
+
+/// The owned-item face: `(Key, Version, Arc<T>)` per item, cloned out of
+/// the same engine [`borrow_next`](Messages::borrow_next) lends from.
+/// `T: 'static` because the quiet-period wait is materialized as an owned
+/// future (see the `channel` field).
+impl<T: Send + Sync + 'static> Stream for Messages<T> {
+    type Item = (Key, Version, Arc<T>);
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        loop {
+            match this.channel.as_mut().expect("channel state present") {
+                Channel::Waiting(wait) => match wait.as_mut().poll(cx) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready((closed, rx)) => {
+                        this.channel = Some(Channel::Ready(rx));
+                        if closed {
+                            return Poll::Ready(None);
+                        }
+                    }
+                },
+                Channel::Ready(rx) => {
+                    Self::open_pass(&mut this.pass, rx, &this.cursor);
+
+                    let pass = this.pass.as_mut().expect("opened above");
+                    if let Some((key, leaf)) = pass.walk.next() {
+                        return Poll::Ready(Some((
+                            key,
+                            leaf.version().clone(),
+                            leaf.value().clone(),
+                        )));
+                    }
+
+                    // The pass drained: absorb its ceiling, then enter the
+                    // owned wait (the receiver rides inside the future and
+                    // comes back with the result).
+                    let Pass { ceiling, .. } = this.pass.take().expect("opened above");
+                    this.cursor |= &ceiling;
+                    let Some(Channel::Ready(mut rx)) = this.channel.take() else {
+                        unreachable!("matched Ready above");
+                    };
+                    this.channel = Some(Channel::Waiting(Box::pin(async move {
+                        let closed = rx.changed().await.is_err();
+                        (closed, rx)
+                    })));
+                }
             }
         }
     }

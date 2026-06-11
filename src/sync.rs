@@ -1,9 +1,8 @@
 // Deliberately undocumented for now: the prose lives on the async API at the
 // crate root and will be adapted here once polished.
 
-use std::future::{Future, Ready, ready};
+use std::future::Future;
 use std::io::{Read, Write};
-use std::ops::ControlFlow;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -46,35 +45,24 @@ pub enum Retire<T> {
 pub struct Messages<T>(crate::Messages<T>);
 
 impl<T> Messages<T> {
-    // Deliberately an inherent `next` rather than `Iterator`: the items
-    // borrow from the iterator until the next call (a lending iterator),
-    // which the `Iterator` trait cannot express.
-    #[allow(clippy::should_implement_trait)]
-    pub fn next(&mut self) -> Option<(Key, &Version, &Arc<T>)>
+    pub fn borrow_next(&mut self) -> Option<(Key, &Version, &Arc<T>)>
     where
         T: Send + Sync,
     {
-        pollster::block_on(self.0.next())
+        pollster::block_on(self.0.borrow_next())
+    }
+
+    pub fn cursor(&self) -> &Version {
+        self.0.cursor()
     }
 }
 
-pub struct Cloned<T>(Messages<T>);
-
-impl<T: Send + Sync> Iterator for Cloned<T> {
+impl<T: Send + Sync + 'static> Iterator for Messages<T> {
     type Item = (Key, Version, Arc<T>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0
-            .next()
-            .map(|(key, version, value)| (key, version.clone(), value.clone()))
+        pollster::block_on(futures::StreamExt::next(&mut self.0))
     }
-}
-
-fn into_async<T, R, F>(mut on_message: F) -> impl FnMut(Key, &Version, &Arc<T>) -> Ready<R>
-where
-    F: FnMut(Key, &Version, &Arc<T>) -> R,
-{
-    move |key, version, message| ready(on_message(key, version, message))
 }
 
 impl<T> Known<T> {
@@ -195,6 +183,20 @@ impl<T> Known<T> {
         self.0.get(key)
     }
 
+    pub fn messages(&self) -> Messages<T>
+    where
+        T: Send + Sync,
+    {
+        self.messages_from(Version::new())
+    }
+
+    pub fn messages_from(&self, since: Version) -> Messages<T>
+    where
+        T: Send + Sync,
+    {
+        Messages(self.0.messages_from(since))
+    }
+
     #[doc(hidden)]
     pub fn warm_caches(&self) {
         self.0.warm_caches();
@@ -246,50 +248,18 @@ impl<T> Broadcast<T> {
         pollster::block_on(self.0.gossip(&mut read, &mut write))
     }
 
-    pub fn listen<B, F>(self, on_message: F) -> (Version, Option<B>)
-    where
-        T: Send + Sync,
-        B: Send,
-        F: FnMut(Key, &Version, &Arc<T>) -> ControlFlow<B> + Send,
-    {
-        pollster::block_on(self.0.listen(into_async(on_message)))
-    }
-
-    pub fn messages(self) -> Messages<T>
+    pub fn messages(&self) -> Messages<T>
     where
         T: Send + Sync,
     {
         self.messages_from(Version::new())
     }
 
-    pub fn messages_from(self, since: Version) -> Messages<T>
+    pub fn messages_from(&self, since: Version) -> Messages<T>
     where
         T: Send + Sync,
     {
         Messages(self.0.messages_from(since))
-    }
-
-    pub fn stream(self) -> Cloned<T>
-    where
-        T: Send + Sync,
-    {
-        self.stream_from(Version::new())
-    }
-
-    pub fn stream_from(self, since: Version) -> Cloned<T>
-    where
-        T: Send + Sync,
-    {
-        Cloned(self.messages_from(since))
-    }
-
-    pub fn listen_from<B, F>(self, since: Version, on_message: F) -> (Version, Option<B>)
-    where
-        T: Send + Sync,
-        B: Send,
-        F: FnMut(Key, &Version, &Arc<T>) -> ControlFlow<B> + Send,
-    {
-        pollster::block_on(self.0.listen_from(since, into_async(on_message)))
     }
 
     pub fn network(&self) -> Network {
