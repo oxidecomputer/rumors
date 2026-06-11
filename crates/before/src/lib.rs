@@ -216,7 +216,9 @@ pub mod batch {
     pub use crate::{clock::Batch as Clock, version::Batch as Version};
 }
 
-/// Stack-growth guard shared by the recursive traversals.
+// No outer doc comment: one here would merge with the module's inner docs
+// and shift their link resolution to this scope, where `grow`/`descend!`/
+// `STRIDE` don't resolve. The module documents itself.
 mod recurse;
 
 /// Reference oracle: the paper's recursive trees; ground truth for the

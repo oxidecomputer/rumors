@@ -146,8 +146,10 @@ where
     /// [`Partition`] names one output per cell; the caller folds them into the
     /// outgoing message and the zipper's next two levels.
     ///
-    /// Shared by [`Self::open_initiator`], [`Self::exchange`], and
-    /// [`Self::close_initiator`]. The two "asymmetric root" branches — `else`
+    /// Shared by [`open_initiator`](protocol::OpenInitiator::open_initiator),
+    /// [`exchange`](protocol::Exchange::exchange), and
+    /// [`close_initiator`](protocol::CloseInitiator::close_initiator).
+    /// The two "asymmetric root" branches — `else`
     /// (we lack the parent) and the post-loop drain (we have a parent the
     /// counterparty never mentioned) — are reachable only from
     /// `open_initiator`: in steady-state both sides' frontiers were
@@ -309,8 +311,9 @@ where
     /// according to whether the outgoing message has anything left to
     /// negotiate.
     ///
-    /// Shared by [`Self::exchange`] and [`Self::close_initiator`]; they differ
-    /// only in how they assemble the outgoing message.
+    /// Shared by [`exchange`](protocol::Exchange::exchange) and
+    /// [`close_initiator`](protocol::CloseInitiator::close_initiator); they
+    /// differ only in how they assemble the outgoing message.
     #[allow(clippy::type_complexity)]
     pub(super) fn reply<Request, Response, H>(
         mut self,

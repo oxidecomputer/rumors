@@ -247,7 +247,7 @@ impl Party {
     ///
     /// The byte encoding of a [`Clock`](crate::Clock) is not the
     /// concatenation of the encodings of its [`Party`] and
-    /// [`Version`](crate::Version); see
+    /// [`Version`]; see
     /// [`Clock::encode`](crate::Clock::encode).
     ///
     /// ```

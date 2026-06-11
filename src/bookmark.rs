@@ -3,7 +3,7 @@
 
 //! Identity checkpoints that survive an ungraceful restart.
 //!
-//! A [`Bookmark`] persists *who* a [`Known`](crate::Known) is and how far it
+//! A [`Bookmark`] persists *who* a [`Peer`](crate::Peer) is and how far it
 //! has advanced, so a peer that crashed can recover its identity instead of
 //! leaking it. See the [`Bookmark`] type for the recovery model and the one
 //! rule that keeps it sound.
@@ -19,30 +19,30 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::Network;
 
-/// A persistable checkpoint of a [`Known`](crate::Known)'s identity, used to
+/// A persistable checkpoint of a [`Peer`](crate::Peer)'s identity, used to
 /// recover that identity after an ungraceful restart instead of leaking it.
 ///
-/// A bookmark records *who* a [`Known`](crate::Known) is and how far it has
-/// causally advanced — its identity and its [`Version`](crate::Version) — but
+/// A bookmark records *who* a [`Peer`](crate::Peer) is and how far it has
+/// causally advanced — its identity and its [`Version`] — but
 /// none of *what* it knows. The content is left to be recovered the same way
-/// any peer gets it: by [`gossip`](crate::Known::gossip)ing. One bookmark can
+/// any peer gets it: by [`gossip`](crate::Rumors::gossip)ing. One bookmark can
 /// checkpoint several identities together without confusing them.
 ///
 /// # Identities, and why leaking one is costly
 ///
 /// Every peer in a universe holds a distinct *identity*: its share of a single
-/// space of identities, first minted whole by [`seed`](crate::Known::seed).
-/// [`bootstrap`](crate::Known::bootstrap) splits a share off for a new peer so
-/// it can act independently; [`retire`](crate::Known::retire) hands a share
-/// back, reuniting it. A [`Version`](crate::Version) is a timestamp expressed
+/// space of identities, first minted whole by [`seed`](crate::Peer::seed).
+/// [`bootstrap`](crate::Peer::bootstrap) splits a share off for a new peer so
+/// it can act independently; [`retire`](crate::Peer::retire) hands a share
+/// back, reuniting it. A [`Version`] is a timestamp expressed
 /// relative to these shares, and a share split off through more bootstraps is
 /// more finely subdivided, so its versions cost more bits to represent.
 /// Retiring coalesces shares again, shrinking that cost back down.
 ///
 /// A peer that simply dies takes its share with it: nothing remains to
-/// [`retire`](crate::Known::retire) it back, so the subdivision it represents
+/// [`retire`](crate::Peer::retire) it back, so the subdivision it represents
 /// becomes permanent and every peer's versions stay larger than they need to be
-/// from then on. A graceful [`retire`](crate::Known::retire) avoids this by
+/// from then on. A graceful [`retire`](crate::Peer::retire) avoids this by
 /// handing the share back before leaving, but a crash gives no chance to
 /// retire. A bookmark is the durable record that closes that gap: it lets the
 /// restarted peer recover its old share and fold it back in, rather than
@@ -50,11 +50,11 @@ use crate::Network;
 ///
 /// # Recovering an identity automatically once you have caught up to it
 ///
-/// A crashed peer recovers by [`bootstrap`](crate::Known::bootstrap)ping a
+/// A crashed peer recovers by [`bootstrap`](crate::Peer::bootstrap)ping a
 /// fresh identity from the network, re-learning the content it lost, and then
 /// reclaiming a bookmarked identity as its own. Reclaiming an identity means
 /// resuming as the very peer that wrote the bookmark, which is sound only once
-/// the recovering peer's [`Version`](crate::Version) is **at least as advanced
+/// the recovering peer's [`Version`] is **at least as advanced
 /// as** the one stored in the bookmark.
 ///
 /// The bookmarked version is a high-water mark: it names everything that
@@ -65,13 +65,13 @@ use crate::Network;
 /// Being caught up — your version equal to or beyond the mark — is the proof
 /// that you already know everything that identity ever did, so stepping into it
 /// is indistinguishable from having been it all along. This is the same
-/// condition [`retire`](crate::Known::retire) establishes from the other side:
+/// condition [`retire`](crate::Peer::retire) establishes from the other side:
 /// its in-session round of gossip catches the absorbing peer up to the retiree
 /// before the party changes hands.
 ///
 /// A freshly-recovered peer might have caught up to only *some* of the
 /// identities a bookmark holds, so recovery is incremental: reclaim the ones
-/// you have caught up to, [`gossip`](crate::Known::gossip) to advance, and
+/// you have caught up to, [`gossip`](crate::Rumors::gossip) to advance, and
 /// reclaim more as you do. An identity you have not yet caught up to is simply
 /// kept for a later attempt.
 ///
@@ -84,7 +84,7 @@ use crate::Network;
 /// that turns this tool against itself.
 ///
 /// Reclamation folds back every stored identity the live party has *caught up
-/// to*. But two live peers in one universe [`gossip`](crate::Known::gossip)
+/// to*. But two live peers in one universe [`gossip`](crate::Rumors::gossip)
 /// with one another, so each comes to hold the other's content and thereby to
 /// satisfy that catch-up test for the other's share. If they share a bookmark,
 /// peer `A` — having gossiped `B`'s messages — meets the test for still-live

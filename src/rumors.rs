@@ -16,7 +16,7 @@ use tokio::{
 /// A handle for [`send`](Rumors::send)ing and [`redact`](Rumors::redact)ing
 /// messages, and [`gossip`](Rumors::gossip)ing the result with peers.
 ///
-/// Unlike [`Peer`](crate::Peer), [`Rumors`] is [`Clone`], which means that any
+/// Unlike [`Peer`], [`Rumors`] is [`Clone`], which means that any
 /// number of tasks may concurrently interact with the set of rumors,
 /// arbitrarily. Synchronization is internal: anything one clone learns, all do.
 pub struct Rumors<T> {

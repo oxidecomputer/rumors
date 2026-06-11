@@ -19,7 +19,7 @@
 //! [traversal overview](super::event)).
 //!
 //! Path sums (the running total of stored bases along a root-to-node path)
-//! are threaded as arbitrary-precision [`Base`](crate::codec::Base) offsets,
+//! are threaded as arbitrary-precision [`Base`] offsets,
 //! the same value type as the stored bases and as `join`/`fill`/`grow`.
 //! `decode` admits any normal-form tree, including one whose path sums
 //! exceed `u64::MAX`, so a bounded accumulator could wrap and invert the

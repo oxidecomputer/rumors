@@ -274,8 +274,8 @@ impl<'a, T, R: RangeBounds<Version>> Walk<'a, T, R> {
 /// yields them in descending-key order, and the two ends meet in the middle
 /// without overlap. Keys are content-derived hashes, so key order bears *no*
 /// relation to the causal order on [`Version`]s: a leaf may be yielded
-/// before one that causally precedes it. (The public `on_message` contract
-/// in [`Known`](crate::Known) still promises nothing about order, but
+/// before one that causally precedes it. (The public observers on
+/// [`Rumors`](crate::Rumors) still promise nothing about order, but
 /// [`unknown`](crate::tree::traverse::unknown) and `Tree::join` lean on the
 /// ascending forward order for their own deterministic callback delivery.)
 ///

@@ -197,7 +197,7 @@ impl<T, R, W, V, H: Height> protocol::Stage for Exchange<T, R, W, V, H> {
     /// The reconciled tree lives on the local side; the proxy yields its
     /// framed reader/writer halves back to the caller. A session that needs
     /// a trailing frame after the descent (the fork-last party hand-off when
-    /// serving a [bootstrapping](crate::Known::bootstrap) peer) can then
+    /// serving a [bootstrapping](crate::Peer::bootstrap) peer) can then
     /// read it from the same [`FramedRead`] the descent used, whose buffer
     /// may already hold the trailing frame's leading bytes; a fresh reader
     /// would lose them.

@@ -133,7 +133,7 @@ impl SplitScan {
 /// [`split`](IdReader::split)). `a` keeps the branch's left side (its right
 /// zeroed); `b` keeps the right side (its left zeroed).
 ///
-/// Unlike `sum`, this mostly doesn't use [`IdBuilder`](super::build::IdBuilder):
+/// Unlike `sum`, this mostly doesn't use [`IdBuilder`]:
 /// it is a bulk verbatim splice of already-normal bit ranges with one branch
 /// child replaced by a `0` leaf, which *preserves* normal form by construction
 /// (the kept child is nonempty, so no `(0,0)`/`(1,1)` collapse can arise, and

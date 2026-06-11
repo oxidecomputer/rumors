@@ -5,7 +5,10 @@ pub mod node;
 pub mod path;
 pub mod prefix;
 
-mod untyped;
+// `pub(crate)` so rustdoc elsewhere can link to `typed::untyped::Range`: a
+// private `mod` is unnameable from outside `typed`, so the links would not
+// resolve. The items below are still re-exported as the canonical paths.
+pub(crate) mod untyped;
 
 #[cfg(test)]
 mod tests;

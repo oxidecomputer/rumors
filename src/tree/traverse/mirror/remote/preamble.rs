@@ -21,21 +21,22 @@
 //! - **Network** is the 128-bit universe identifier, doubling as the
 //!   bootstrap signal: a real (non-`ZERO`) value means an ordinary peer,
 //!   while the all-zero placeholder means that side is
-//!   [bootstrapping](crate::Known::bootstrap) and holds no universe yet.
+//!   [bootstrapping](crate::Peer::bootstrap) and holds no universe yet.
 //!   When both sides carry a real network and the two differ, the session
 //!   is rejected as [`Error::NetworkMismatch`]: the peers descend from
-//!   different [`seed`](crate::Known::seed)s and must not combine, even if
+//!   different [`seed`](crate::Peer::seed)s and must not combine, even if
 //!   their parties happen to look disjoint. A bootstrapping side's
 //!   placeholder suppresses that check, and the provider's network becomes
 //!   the value the bootstrapper adopts.
 //!
 //! - **Intent** declares whether the peer participates to remain (`0`) or
-//!   to [retire](crate::Known::retire) its party into us (`1`). Any other
+//!   to [retire](crate::Peer::retire) its party into us (`1`). Any other
 //!   byte is rejected as [`Error::IntentInvalid`], and a peer claiming to
 //!   bootstrap *and* retire in one session is rejected as
 //!   [`Error::BootstrapRetireConflict`].
 //!
-//! The framed [`message::Handshake`] greeting that follows carries the
+//! The framed [`message::Handshake`](crate::tree::mirror::message::Handshake)
+//! greeting that follows carries the
 //! causal [`Version`](crate::Version) alone.
 //!
 //! Both sides drive the preamble's write and read concurrently via
@@ -56,7 +57,8 @@ use super::{Error, recv_msg, send_msg};
 /// BE) | network(16) | intent(1)]` with a peer, before any framed traffic.
 ///
 /// This is the *only* raw (non-length-delimited) exchange in a session; it runs
-/// before the [`message::Handshake`] body and the rest of the protocol, so a
+/// before the [`message::Handshake`](crate::tree::mirror::message::Handshake)
+/// body and the rest of the protocol, so a
 /// non-`rumors` peer (wrong magic) or an incompatible one (wrong version) is
 /// rejected *before* the length-delimited codec ever trusts a peer-supplied
 /// frame length, so that a garbage peer cannot induce a huge-frame allocation.
@@ -133,18 +135,19 @@ where
 
 /// Provider side of the party hand-off that completes bootstrapping a brand-new
 /// peer: fork `party` and ship the give-half as one frame, *after* the mirror
-/// descent has transferred all content. [`Known::retire`](crate::Known::retire)
+/// descent has transferred all content. [`Peer::retire`](crate::Peer::retire)
 /// reuses the same trailing frame in the opposite direction: the retiree ships
 /// its (whole, aliased) party last, for the absorber to [`recv_party`] and
 /// join.
 ///
 /// Bootstrapping is not a separate bulk transfer: a peer holding nothing
 /// greets with the placeholder [`Network::ZERO`](crate::Network) and an
-/// empty tree, then runs the ordinary [mirror descent](super::local), with
+/// empty tree, then runs the ordinary
+/// [mirror descent](crate::tree::mirror::local), with
 /// the empty side pulling all of the provider's content through the usual
 /// `providing` channel. The descent moves content but not parties, so one
 /// thing remains: the provider must hand the newcomer a
-/// [`Party`](before::Party). That is this single frame.
+/// [`Party`]. That is this single frame.
 ///
 /// # Ordering
 ///

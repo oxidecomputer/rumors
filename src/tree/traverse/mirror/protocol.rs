@@ -135,7 +135,7 @@ where
     ///
     /// Returns the opening [`message::Initiate`] (just our root hash) and an
     /// `Exchange` whose zipper is at `Top` (height `Root`). The initiator's
-    /// next call is [`Exchange::open_initiator`], processing the responder's
+    /// next call is [`OpenInitiator::open_initiator`], processing the responder's
     /// [`message::Opening`].
     ///
     /// Always yields [`Step::Continue`]: a side opening the protocol cannot
@@ -280,7 +280,7 @@ where
     /// We absorb the initiator's last batch of nodes, answer any final
     /// `requested` set, and collapse our zipper back to a root. The returned
     /// [`message::Complete`] carries our last outgoing `providing` for the
-    /// initiator to absorb in [`Self::complete_initiator`].
+    /// initiator to absorb in [`CompleteInitiator::complete_initiator`].
     ///
     /// Always yields [`Step::Done`]: the responder's session ends here. The
     /// `Next` slot is [`Infallible`] to encode the impossibility of
@@ -302,7 +302,7 @@ where
     /// Absorbs the responder's last batch of `providing` (from
     /// [`message::Complete`]) and collapses our zipper back to a root. There is
     /// no outgoing message: any `requested` we would have made went out in our
-    /// prior [`Self::close_initiator`] call.
+    /// prior [`CloseInitiator::close_initiator`] call.
     #[allow(clippy::type_complexity)]
     async fn complete_initiator(
         self,

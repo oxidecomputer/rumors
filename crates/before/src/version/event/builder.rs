@@ -114,7 +114,7 @@ impl Builder {
     }
 
     /// A leaf whose base is not yet known: emitted as a placeholder now, filled
-    /// in by [`resolve`](Self::resolve) once the value it depends on exists.
+    /// in by [`resolve_leaf`](Self::resolve_leaf) once the value it depends on exists.
     /// `fill` needs this for the one case the preorder builder cannot emit in
     /// evaluation order: an id-full *left* child collapses to a max-leaf whose
     /// value depends on its right sibling, but preorder must place the left leaf

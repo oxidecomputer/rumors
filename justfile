@@ -56,7 +56,7 @@ fmt-check:
 # ── commit gate (CLAUDE.md: fmt → clippy → docs → test, all clean) ───────────
 
 # Run the pre-commit gate.
-gate: fmt-check clippy docs test doctest
+gate: fmt-check clippy docs docs-internal test doctest
 
 # ── artifacts the gate doesn't reach ─────────────────────────────────────────
 
@@ -90,6 +90,18 @@ viz:
 # Build the rustdoc with warnings denied.
 docs:
     RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
+
+# The public build above never renders private items, so a stale intra-doc
+# link inside a private module sails through it. This pass documents private
+# items too. It cannot replace `docs`: with private items rendered, the
+# `private_intra_doc_links` lint (public docs linking to a private item) no
+# longer fires, so each pass catches a class the other cannot. A separate
+# target dir keeps the two from invalidating each other's fingerprints, which
+# would otherwise re-doc the whole workspace twice on every gate.
+
+# Build the rustdoc including private items, warnings denied.
+docs-internal:
+    RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --document-private-items --target-dir target/doc-internal
 
 # The only build that exercises the bench/release profile; benches otherwise rot silently.
 
@@ -133,4 +145,4 @@ rumormill *args:
 # network-touching viz bundle.
 
 # Everything: the full no-rot sweep.
-all: fmt-check clippy features wasm-check docs test doctest bench-build fuzz-build (fuzz fuzz_smoke_secs) viz
+all: fmt-check clippy features wasm-check docs docs-internal test doctest bench-build fuzz-build (fuzz fuzz_smoke_secs) viz

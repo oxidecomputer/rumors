@@ -191,8 +191,8 @@ where
     /// went.
     ///
     /// Lets the caller dispatch on the peer's `network`/`version`/`intent`,
-    /// deciding whether to [`reconcile`](Self::reconcile) or
-    /// [`stop`](Self::stop), before committing to (or skipping) the descent.
+    /// deciding whether to [`reconcile`](Self::reconcile) or to drop the
+    /// exchange unreconciled, before committing to (or skipping) the descent.
     pub(crate) fn peer(&self) -> &Handshake {
         match self {
             Handshaken::Converged { peer, .. } | Handshaken::Diverged { peer, .. } => peer,
@@ -327,7 +327,10 @@ where
 }
 
 /// Drive a mirror protocol client against a server to synchronize both of
-/// them. A test convenience: the wire entry points in [`crate::Known`] drive
+/// them. A test convenience: the wire entry points
+/// ([`Peer::bootstrap`](crate::Peer::bootstrap),
+/// [`Rumors::gossip`](crate::Rumors::gossip),
+/// [`Peer::retire`](crate::Peer::retire)) drive
 /// [`handshake`] and [`Handshaken::reconcile`] directly so they can dispatch
 /// on the peer's [`Handshake`] in between, so this whole-session shortcut is
 /// only used by the in-process protocol tests.

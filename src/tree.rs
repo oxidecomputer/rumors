@@ -11,7 +11,7 @@ pub use key::Key;
 pub use traverse::mirror;
 
 /// The fully-owned, lifetime-free leaf walk and the leaf handle it yields;
-/// the engine beneath [`Broadcast::messages`](crate::Broadcast) and the
+/// the engine beneath [`Rumors::messages`](crate::Rumors::messages) and the
 /// streams built over it.
 pub use typed::{Frozen, Leaf};
 
@@ -131,10 +131,10 @@ impl<T> Tree<T> {
     /// Create a new, empty tree carrying the empty [`Version`].
     ///
     /// A tree owns no party identity: advancing the version is driven by a
-    /// [`Party`] passed into [`act`](Self::act) by the caller (the
-    /// [`Known`](crate::Known) that owns the party). Forking a tree is a
+    /// [`Party`](before::Party) passed into [`act`](Self::act) by the caller (the
+    /// [`Peer`](crate::Peer) that owns the party). Forking a tree is a
     /// plain [`clone`](Clone); any party split happens on the owning
-    /// [`Known`].
+    /// [`Peer`](crate::Peer).
     pub fn new() -> Self {
         Tree {
             root: Root {

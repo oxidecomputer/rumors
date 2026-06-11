@@ -10,7 +10,8 @@ impl IdReader<'_> {
     ///
     /// Unlike [`sum`](IdReader::sum), `diff` is *total* — overlap is the whole
     /// point, not an error — and its result may be the **empty** `0` leaf,
-    /// exactly when `other` covers `self`. The caller ([`Party::without`])
+    /// exactly when `other` covers `self`. The caller
+    /// ([`Party::without`](crate::Party::without))
     /// maps that empty result to `None`, since a `Party` is a nonzero share.
     ///
     /// The result is always a subregion of `self` (`self \ other ⊆ self`), so it

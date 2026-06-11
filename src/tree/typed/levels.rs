@@ -23,7 +23,8 @@ pub trait Levels: Default + Clone + sealed::Sealed {
     /// The message type of the underlying nodes.
     ///
     /// `Send + Sync` is required because the traversal futures
-    /// ([`Unknown::unknown`], [`Act::act`]) are declared as
+    /// ([`Unknown::unknown`](crate::tree::traverse::unknown::Unknown::unknown),
+    /// [`Act::act`](crate::tree::traverse::act::Act::act)) are declared as
     /// `-> impl Future + Send` so that the recursive `Box::pin` inside each
     /// inductive case can coerce to `Pin<Box<dyn Future + Send>>`. That
     /// coercion discharges the inner state machine's auto-trait check at each

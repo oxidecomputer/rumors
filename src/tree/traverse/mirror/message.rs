@@ -9,7 +9,7 @@
 //! - [`typed::Hash`](crate::tree::typed::Hash): 32 raw bytes.
 //! - [`typed::Prefix<H>`](crate::tree::typed::Prefix): exactly `32 −
 //!   H::HEIGHT` raw bytes, no length prefix (the type pins the byte count).
-//! - [`Version`](crate::Version) and [`Message<T>`](crate::Message):
+//! - [`Version`] and [`Message<T>`](crate::message::Message):
 //!   their existing borsh shapes (see those types). A `Message<T>` serializes
 //!   byte-identically to its inner `T`.
 //! - `Vec<_>`: `u32` length followed by each element in order. Every channel
@@ -105,7 +105,7 @@ pub enum Intent {
     Remain,
     /// The sender is retiring: once reconciliation completes, it will ship its
     /// party as a single trailing frame for the receiver to absorb (see
-    /// [`Known::retire`](crate::Known::retire)).
+    /// [`Peer::retire`](crate::Peer::retire)).
     Retire,
 }
 

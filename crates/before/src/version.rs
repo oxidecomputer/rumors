@@ -14,8 +14,11 @@ use crate::Party;
 use self::compare::EvReader;
 
 mod batch;
-mod compare;
-mod event;
+// `pub(crate)` so sibling modules' rustdoc can link into these two: a
+// private `mod` is unnameable from outside `version`, so intra-doc links
+// like `crate::version::compare` would not resolve.
+pub(crate) mod compare;
+pub(crate) mod event;
 mod rank;
 mod ranked;
 mod working;

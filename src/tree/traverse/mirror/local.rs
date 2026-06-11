@@ -7,7 +7,7 @@
 //!
 //! # State machine
 //!
-//! Each side keeps a [`Levels`](crate::tree::typed::Levels) zipper: a stack of
+//! Each side keeps a [`Levels`] zipper: a stack of
 //! level maps from `Root` down to the height currently under comparison. In one
 //! round, the sender examines its zipper's bottom level, sends a message, and
 //! pushes two new (mostly empty) levels onto the bottom; the receiver's next
@@ -80,7 +80,8 @@ mod partition;
 /// The version state for an [`Exchange`] which has just been initialized but
 /// has not yet connected. Carries the fields the [`Connect`](protocol::Connect)
 /// / [`Accept`](protocol::Accept) step needs to build its outgoing
-/// [`message::Handshake`]: our universe [`Network`], our latest [`Version`], and
+/// [`message::Handshake`]: our universe [`Network`](crate::Network), our
+/// latest [`Version`], and
 /// our [`Intent`](message::Intent) ([`Retire`](message::Intent::Retire) iff we
 /// will hand the peer our party in a trailing frame once reconciliation
 /// completes).
@@ -136,7 +137,8 @@ where
 /// An in-progress mirror synchronization on one side of the wire.
 ///
 /// `L` is our zipper, parameterised by the height of its bottom level; as the
-/// protocol descends, each [`Self::exchange`] call returns a new `Exchange`
+/// protocol descends, each [`exchange`](protocol::Exchange::exchange) call
+/// returns a new `Exchange`
 /// whose `L` is two heights below the previous one.
 pub struct Exchange<V, L> {
     /// Our multi-level zipper: agreed heights live near the top, the height
