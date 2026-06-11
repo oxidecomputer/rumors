@@ -34,13 +34,16 @@
 //!   set (the genesis-replay pass every new observer pays).
 //! - `observer_delta`: one observer pass over a size-D delta in a size-N
 //!   set (the steady-state cost of an up-to-date observer catching up).
+//! - `causal_replay` / `causal_delta`: the same two sweeps through a
+//!   [`CausalMessages`] observer — the column-for-column price of causal
+//!   delivery's rank-ordered staging over the plain passes.
 //! - `get`: a point lookup by [`Key`] in a size-N set.
 
 use std::hint::black_box;
 
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use futures::FutureExt;
-use rumors::{Key, Known, Messages, causally};
+use rumors::{CausalMessages, Key, Known, Messages, causally};
 
 // The shared grid module exposes a superset of helpers; each bench binary uses
 // a subset, so the unused remainder is expected per-binary.
@@ -253,6 +256,66 @@ fn bench_observer_delta(c: &mut Criterion) {
     group.finish();
 }
 
+/// Drain everything `observer` has staged, without blocking, returning how
+/// many messages were yielded: [`drain`]'s twin for the causal face.
+fn drain_causal(observer: &mut CausalMessages<()>) -> usize {
+    let mut count = 0usize;
+    while let Some(Some(item)) = observer.borrow_next().now_or_never() {
+        black_box(item);
+        count += 1;
+    }
+    count
+}
+
+/// `causal_replay`: a fresh causal observer's genesis pass over a size-N
+/// set: the price of causal delivery on top of [`bench_observer_replay`]'s
+/// plain pass. Reordering must buffer, so the causal pass stages every leaf
+/// in a rank-ordered map before the first item comes out; comparing the two
+/// groups column-for-column is the cost of that staging.
+fn bench_causal_replay(c: &mut Criterion) {
+    let mut group = c.benchmark_group("causal_replay");
+    for &n in SIZES {
+        group.sample_size(sample_size_for(n));
+        group.throughput(Throughput::Elements(n as u64));
+        let (known, _keys) = build(n);
+        known.warm_caches();
+        group.bench_function(BenchmarkId::from_parameter(n), |b| {
+            b.iter(|| {
+                let mut observer = known.causal_messages();
+                black_box(drain_causal(&mut observer))
+            })
+        });
+    }
+    group.finish();
+}
+
+/// `causal_delta`: one causal pass over a size-D delta in a size-N set —
+/// the steady-state twin of [`bench_observer_delta`], staging only the
+/// delta, so this too should track D, not N.
+fn bench_causal_delta(c: &mut Criterion) {
+    let mut group = c.benchmark_group("causal_delta");
+    for &n in SIZES {
+        for &delta in DELTAS {
+            if delta > n {
+                continue;
+            }
+            group.sample_size(sample_size_for(n));
+            group.throughput(Throughput::Elements(delta as u64));
+            let (known, checkpoint) = build_with_checkpoint(n, delta);
+            group.bench_function(
+                BenchmarkId::from_parameter(format!("n={n},delta={delta}")),
+                |b| {
+                    b.iter(|| {
+                        let mut observer = known.causal_messages_from(checkpoint.clone());
+                        black_box(drain_causal(&mut observer))
+                    })
+                },
+            );
+        }
+    }
+    group.finish();
+}
+
 /// `get`: a point lookup by key — one `O(depth)` descent, never a scan.
 fn bench_get(c: &mut Criterion) {
     let mut group = c.benchmark_group("get");
@@ -278,6 +341,8 @@ criterion_group!(
     bench_range_delta,
     bench_observer_replay,
     bench_observer_delta,
+    bench_causal_replay,
+    bench_causal_delta,
     bench_get,
 );
 criterion_main!(benches);
