@@ -1,10 +1,2 @@
-/target
-
-# Claude Code per-session worktrees
-.claude/worktrees/
-
-# Added by cargo
-#
-# already existing elements were commented out
-
-#/target
+# Compiled artifacts; derivable from the .tex (tectonic).
+results/*.pdf
