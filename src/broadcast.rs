@@ -1,7 +1,7 @@
+use crate::tree::{Frozen, Leaf};
 use crate::{Batch, Error, Key, Known, Network, Snapshot, Version, causally};
 use borsh::{BorshDeserialize, BorshSerialize};
 use futures::Stream;
-use std::collections::VecDeque;
 use std::ops::ControlFlow;
 use std::sync::Arc;
 use tokio::{
@@ -274,6 +274,37 @@ impl<T> Broadcast<T> {
         }
     }
 
+    /// Observe this rumor set as lent `(Key, &Version, &Arc<T>)` items, from
+    /// genesis onward.
+    ///
+    /// Equivalent to [`messages_from`](Self::messages_from) at
+    /// [`Version::new`]; see it and [`Messages`] for the contract.
+    pub fn messages(self) -> Messages<T>
+    where
+        T: Send + Sync,
+    {
+        self.messages_from(Version::new())
+    }
+
+    /// Observe every message not already causally contained in `since`, as
+    /// lent items: the zero-copy sibling of [`listen_from`](Self::listen_from)
+    /// and [`stream_from`](Self::stream_from). See [`Messages`].
+    pub fn messages_from(self, since: Version) -> Messages<T>
+    where
+        T: Send + Sync,
+    {
+        // Subscribe-then-dissolve, exactly as `listen_from` does and for the
+        // same reasons.
+        let rx = self.known.inner.subscribe();
+        drop(self);
+        Messages {
+            rx,
+            cursor: since,
+            pass: None,
+            current: None,
+        }
+    }
+
     /// Observe this rumor set as a [`Stream`] of owned `(Key, Version,
     /// Arc<T>)` items, from genesis onward.
     ///
@@ -290,7 +321,8 @@ impl<T> Broadcast<T> {
     /// [`Stream`] of owned `(Key, Version, Arc<T>)` items: the
     /// [`Stream`]-shaped sibling of [`listen_from`](Self::listen_from), for
     /// consumers who would rather `select!` and combinate than write
-    /// callbacks.
+    /// callbacks. A thin cloning adapter over [`Messages`], which lends the
+    /// same items without the clones.
     ///
     /// Same delivery contract as [`listen_from`](Self::listen_from): every
     /// message live at some pass is yielded exactly once, already-redacted
@@ -305,37 +337,13 @@ impl<T> Broadcast<T> {
     where
         T: Send + Sync,
     {
-        // Subscribe-then-dissolve, exactly as `listen_from` does and for the
-        // same reasons.
-        let rx = self.known.inner.subscribe();
-        drop(self);
-        futures::stream::unfold(
-            (rx, since, VecDeque::new()),
-            |(mut rx, mut cursor, mut pending)| async move {
-                loop {
-                    if let Some(item) = pending.pop_front() {
-                        return Some((item, (rx, cursor, pending)));
-                    }
-                    // Refill: materialize the pass's delta as owned items
-                    // (the snapshot clone then drops immediately, so slow
-                    // consumers pin only the delta, not the tree), and
-                    // absorb the ceiling as a completed pass.
-                    let snapshot = rx.borrow_and_update().tree.clone();
-                    let ceiling = snapshot.latest().clone();
-                    pending.extend(
-                        snapshot
-                            .range(causally::since(&cursor))
-                            .map(|(key, version, message)| (key, version.clone(), message.clone())),
-                    );
-                    cursor |= &ceiling;
-                    // An empty refill means we are caught up: await the next
-                    // change, ending the stream when every sender is gone.
-                    if pending.is_empty() && rx.changed().await.is_err() {
-                        return None;
-                    }
-                }
-            },
-        )
+        futures::stream::unfold(self.messages_from(since), |mut messages| async move {
+            let item = messages
+                .next()
+                .await
+                .map(|(key, version, value)| (key, version.clone(), value.clone()));
+            item.map(|item| (item, messages))
+        })
     }
 
     /// Force this set's tree to compute its lazy structural memos (observable
@@ -344,5 +352,84 @@ impl<T> Broadcast<T> {
     #[doc(hidden)]
     pub fn warm_caches(&self) {
         self.known.warm_caches();
+    }
+}
+
+/// A lending observer of one rumor set: each call to
+/// [`next`](Self::next) yields the next message as `(Key, &Version,
+/// &Arc<T>)`, with the borrows lent out of the iterator until the next
+/// call — no per-item `Version` clone, no `Arc` traffic. There is no
+/// standard lending-iterator trait to implement, so `next` is an inherent
+/// method, consumed `while let Some((key, version, value)) =
+/// messages.next().await { … }`.
+///
+/// Same delivery contract as [`Broadcast::listen_from`]: every message live
+/// at some pass is yielded exactly once, already-redacted content is never
+/// yielded, order is unspecified (not causal), and `next` returns [`None`]
+/// once the [`Known`] and every [`Broadcast`] have dropped, after yielding
+/// the complete final state. Dropping the observer yields no resume cursor —
+/// for resumable consumption use [`Broadcast::listen_from`] and break with
+/// [`ControlFlow::Break`].
+///
+/// Internally a frozen, fully-owned walk over each pass's snapshot: between
+/// items it holds only the walk's unvisited frontier (bounded by tree
+/// shape, not by the delta), releasing subtrees as it goes — nothing is
+/// buffered.
+pub struct Messages<T> {
+    rx: watch::Receiver<crate::Inner<T>>,
+    cursor: Version,
+    pass: Option<Pass<T>>,
+    /// The most recently yielded leaf, kept alive so its version and value
+    /// can be lent to the caller until the next call.
+    current: Option<(Key, Leaf<T>)>,
+}
+
+/// One in-progress pass: the frozen walk over its snapshot, and the
+/// snapshot's ceiling to absorb into the cursor when the walk drains.
+struct Pass<T> {
+    walk: Frozen<T, (std::ops::Bound<Version>, std::ops::Bound<Version>)>,
+    ceiling: Version,
+}
+
+impl<T> Messages<T> {
+    /// Advance to the next message, lending its version and value until the
+    /// following call. Awaits quietly while the set is unchanged; resolves
+    /// [`None`] once no further change is possible.
+    pub async fn next(&mut self) -> Option<(Key, &Version, &Arc<T>)>
+    where
+        T: Send + Sync,
+    {
+        loop {
+            // Open a pass over the latest snapshot if none is in progress.
+            // The watch read guard lives only long enough to freeze the
+            // walk (a root handle clone) and capture the ceiling.
+            if self.pass.is_none() {
+                let inner = self.rx.borrow_and_update();
+                self.pass = Some(Pass {
+                    walk: inner.tree.freeze((
+                        std::ops::Bound::Excluded(self.cursor.clone()),
+                        std::ops::Bound::Unbounded,
+                    )),
+                    ceiling: inner.tree.latest().clone(),
+                });
+            }
+
+            // Lend the next leaf out of the walk, parking it in `current`
+            // so the borrows survive the return.
+            let pass = self.pass.as_mut().expect("opened above");
+            if let Some((key, leaf)) = pass.walk.next() {
+                let (key, leaf) = self.current.insert((key, leaf));
+                return Some((*key, leaf.version(), leaf.value()));
+            }
+
+            // The pass drained: absorb its ceiling as completed, then await
+            // the next change; `Err` means every sender is gone and the
+            // drain above already saw the final state.
+            let Pass { ceiling, .. } = self.pass.take().expect("opened above");
+            self.cursor |= &ceiling;
+            if self.rx.changed().await.is_err() {
+                return None;
+            }
+        }
     }
 }

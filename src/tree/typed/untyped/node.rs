@@ -8,7 +8,7 @@ use imbl::OrdMap;
 use crate::{message::Message, tree::typed::Hash, version::Version};
 
 mod iter;
-pub use iter::{Iter, Range};
+pub use iter::{Frozen, Iter, Leaf, Range};
 
 pub struct Node<T> {
     inner: Arc<NodeInner<T>>,

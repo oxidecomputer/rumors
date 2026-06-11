@@ -10,6 +10,11 @@ pub use key::Key;
 
 pub use traverse::mirror;
 
+/// The fully-owned, lifetime-free leaf walk and the leaf handle it yields;
+/// the engine beneath [`Broadcast::messages`](crate::Broadcast) and the
+/// streams built over it.
+pub use typed::{Frozen, Leaf};
+
 /// A sparse Merkle radix trie with transparent path compression, whose
 /// leaves store versioned [`Message<T>`]s.
 ///
@@ -206,6 +211,17 @@ impl<T> Tree<T> {
                 .map(typed::node::Root::iter)
                 .unwrap_or_else(typed::Iter::empty),
         )
+    }
+
+    /// Freeze a fully-owned walk over the live leaves whose versions fall
+    /// within the causal `range`: the lifetime-free counterpart of
+    /// [`range`](Self::range), holdable across awaits and in long-lived
+    /// state, pinning only its unvisited frontier.
+    pub fn freeze<R>(&self, range: R) -> Frozen<T, R>
+    where
+        R: std::ops::RangeBounds<Version>,
+    {
+        typed::node::Root::freeze(self.root.root.as_ref(), range)
     }
 
     /// Lazily iterate the live leaves whose versions fall within the causal

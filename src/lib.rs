@@ -33,7 +33,7 @@ mod tests;
 use tree::{Tree, mirror};
 
 pub use batch::Batch;
-pub use broadcast::Broadcast;
+pub use broadcast::{Broadcast, Messages};
 pub use network::Network;
 pub use snapshot::Snapshot;
 

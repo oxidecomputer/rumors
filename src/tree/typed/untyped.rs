@@ -1,2 +1,2 @@
 mod node;
-pub use node::{Iter, Node, Range};
+pub use node::{Frozen, Iter, Leaf, Node, Range};

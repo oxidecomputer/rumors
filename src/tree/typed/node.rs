@@ -293,6 +293,17 @@ impl<T> Node<T, height::Root> {
         self.inner.get(path)
     }
 
+    /// Freeze a fully-owned walk over the leaves of the (possibly absent)
+    /// root `node` whose versions fall within the causal `range`: the
+    /// lifetime-free counterpart of [`range`](Self::range), holdable across
+    /// awaits (see [`untyped::Frozen`]).
+    pub fn freeze<R>(node: Option<&Self>, range: R) -> untyped::Frozen<T, R>
+    where
+        R: std::ops::RangeBounds<Version>,
+    {
+        untyped::Frozen::root(node.map(|node| node.inner.clone()), range)
+    }
+
     /// Lazily iterate the live leaves of the (possibly absent) root `node`
     /// whose versions fall within the causal `range`: a leaf is yielded iff
     /// its version is contained in the range's end bound and *not* contained

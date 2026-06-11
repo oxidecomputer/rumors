@@ -398,3 +398,125 @@ impl<'a, T, R: RangeBounds<Version>> DoubleEndedIterator for Range<'a, T, R> {
         self.walk.step(true)
     }
 }
+
+/// The owned, "frozen" counterpart of the borrowing walk: frames hold cheap
+/// [`Node`] handles (`Arc` clones) instead of `&Node` borrows, so the walk
+/// carries no lifetime and can be held across awaits and stored in
+/// long-lived state. It pins only its *unvisited* frontier — subtrees are
+/// released as they are walked — bounded by the tree's shape (at most the
+/// fan-out per level along the descent), never by how many leaves the range
+/// admits.
+///
+/// Same range semantics and prune/promote logic as the borrowing walk (see
+/// [`Bounds`]); forward-only, since its consumers are subscription drains.
+/// Yields each passing leaf as an owned [`Leaf`] handle alongside its
+/// reconstructed [`Key`](crate::tree::key::Key), which is what lets a caller
+/// lend `&Version` / `&Arc<T>` out of a leaf it keeps.
+pub struct Frozen<T, R> {
+    /// Pending owned frames, ascending key order front-to-back; popped from
+    /// the front, branches re-expanded onto the front.
+    frames: VecDeque<FrozenFrame<T>>,
+    /// The causal range filter (owned, e.g. a `(Bound<Version>,
+    /// Bound<Version>)` pair).
+    range: R,
+}
+
+/// One pending subtree in a [`Frozen`] walk's frontier: as [`Frame`], but
+/// owning its node handle.
+struct FrozenFrame<T> {
+    node: Node<T>,
+    path: ArrayVec<[u8; 32]>,
+    passes: bool,
+}
+
+/// A live leaf popped out of a [`Frozen`] walk: an owned handle on the leaf
+/// node, lending its version and value to whoever holds it.
+pub struct Leaf<T>(Node<T>);
+
+impl<T> Leaf<T> {
+    /// The causal [`Version`] at which this message was observed.
+    pub fn version(&self) -> &Version {
+        self.0.ceiling()
+    }
+
+    /// The message's value.
+    pub fn value(&self) -> &std::sync::Arc<T> {
+        self.0
+            .as_leaf()
+            .expect("a Leaf wraps a leaf node, by construction")
+            .as_arc()
+    }
+}
+
+impl<T, R: RangeBounds<Version>> Frozen<T, R> {
+    /// Walk the leaves of the (possibly absent) height-32 root `node` whose
+    /// versions fall within the causal `range`.
+    pub(crate) fn root(node: Option<Node<T>>, range: R) -> Self {
+        Self {
+            frames: node
+                .map(|node| {
+                    VecDeque::from([FrozenFrame {
+                        node,
+                        path: ArrayVec::new(),
+                        passes: false,
+                    }])
+                })
+                .unwrap_or_default(),
+            range,
+        }
+    }
+
+    /// Advance to the next passing leaf. The same prune/promote resolution
+    /// as the borrowing walk, with the leaf handed out by value.
+    pub(crate) fn next(&mut self) -> Option<(crate::tree::key::Key, Leaf<T>)> {
+        'frontier: while let Some(FrozenFrame {
+            node,
+            mut path,
+            passes,
+        }) = self.frames.pop_front()
+        {
+            // Resolve this subtree against the range, unless an ancestor was
+            // already promoted.
+            let passes = passes || {
+                let bounds = Bounds {
+                    start: self.range.start_bound(),
+                    end: self.range.end_bound(),
+                };
+                if bounds.prunes(&node) {
+                    continue 'frontier;
+                }
+                bounds.promotes(&node)
+            };
+            // Replay the compressed prefix, shallowest byte first.
+            for &byte in node.inner.prefix.iter().rev() {
+                path.push(byte);
+            }
+            if let Children::Branch { children, .. } = &node.inner.children {
+                // Re-expand onto the front, largest-radix-first, so the
+                // frontier stays in ascending key order. Each child handle
+                // is a cheap `Arc` clone; the parent drops here, releasing
+                // its handle on the subtree.
+                for (radix, child) in children.iter().rev() {
+                    let mut child_path = path;
+                    child_path.push(*radix);
+                    self.frames.push_front(FrozenFrame {
+                        node: child.clone(),
+                        path: child_path,
+                        passes,
+                    });
+                }
+                continue 'frontier;
+            }
+            // A leaf: by the prune/promote exhaustiveness argument on the
+            // borrowing walk, an unpruned leaf always passes.
+            debug_assert!(passes, "an unpruned leaf passes its range");
+            debug_assert_eq!(
+                path.len(),
+                32,
+                "a leaf sits at depth 32, so its path is 32 bytes"
+            );
+            return Some((crate::tree::key::Key(path.into_inner()), Leaf(node)));
+        }
+        None
+    }
+}

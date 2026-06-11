@@ -43,16 +43,30 @@ pub enum Retire<T> {
     Uncertain { error: Error },
 }
 
-type BoxedMessages<'a, T> =
-    Pin<Box<dyn futures::Stream<Item = (Key, Version, Arc<T>)> + Send + 'a>>;
+pub struct Messages<T>(crate::Messages<T>);
 
-pub struct Messages<'a, T>(BoxedMessages<'a, T>);
+impl<T> Messages<T> {
+    // Deliberately an inherent `next` rather than `Iterator`: the items
+    // borrow from the iterator until the next call (a lending iterator),
+    // which the `Iterator` trait cannot express.
+    #[allow(clippy::should_implement_trait)]
+    pub fn next(&mut self) -> Option<(Key, &Version, &Arc<T>)>
+    where
+        T: Send + Sync,
+    {
+        pollster::block_on(self.0.next())
+    }
+}
 
-impl<T> Iterator for Messages<'_, T> {
+pub struct Cloned<T>(Messages<T>);
+
+impl<T: Send + Sync> Iterator for Cloned<T> {
     type Item = (Key, Version, Arc<T>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        pollster::block_on(futures::StreamExt::next(&mut self.0))
+        self.0
+            .next()
+            .map(|(key, version, value)| (key, version.clone(), value.clone()))
     }
 }
 
@@ -241,18 +255,32 @@ impl<T> Broadcast<T> {
         pollster::block_on(self.0.listen(into_async(on_message)))
     }
 
-    pub fn stream<'a>(self) -> Messages<'a, T>
+    pub fn messages(self) -> Messages<T>
     where
-        T: Send + Sync + 'a,
+        T: Send + Sync,
     {
-        Messages(Box::pin(self.0.stream()))
+        self.messages_from(Version::new())
     }
 
-    pub fn stream_from<'a>(self, since: Version) -> Messages<'a, T>
+    pub fn messages_from(self, since: Version) -> Messages<T>
     where
-        T: Send + Sync + 'a,
+        T: Send + Sync,
     {
-        Messages(Box::pin(self.0.stream_from(since)))
+        Messages(self.0.messages_from(since))
+    }
+
+    pub fn stream(self) -> Cloned<T>
+    where
+        T: Send + Sync,
+    {
+        self.stream_from(Version::new())
+    }
+
+    pub fn stream_from(self, since: Version) -> Cloned<T>
+    where
+        T: Send + Sync,
+    {
+        Cloned(self.messages_from(since))
     }
 
     pub fn listen_from<B, F>(self, since: Version, on_message: F) -> (Version, Option<B>)
