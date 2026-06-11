@@ -11,10 +11,12 @@ set of messages that peers replicate and keep convergent, reconciling over
 the wire by exchanging only what differs. It is built on `crates/before`, an
 Interval Tree Clock library (`crates/before-viz` visualizes the clocks).
 
-- What a `Known` is, the public API, bootstrap/retire semantics: crate docs
-  (`src/lib.rs`; synchronous wrapper in `src/sync.rs`).
+- The model (membership as custody), the `Peer`/`Rumors` split, the session
+  contract, bootstrap/retire semantics: crate docs (`src/lib.rs`; blocking
+  wrapper in `src/sync.rs`).
 - The tree (sparse Merkle radix trie, path compression, content-addressed
-  leaves): `src/tree.rs` and `src/tree/typed/`.
+  leaves, the memo/version-bounds design): module docs in `src/tree.rs` and
+  `src/tree/typed/`.
 - The mirror protocol: module docs in `src/tree/traverse/mirror/` —
   `local.rs` (state machine, asymmetry matrix), `protocol.rs` (type-level
   phase schedule), `message.rs` (wire format), `remote.rs` (preamble,
@@ -28,8 +30,10 @@ The `justfile` is the source of truth for verification — every artifact in the
 workspace has a recipe there; `just --list` shows them all. The tiers:
 
 - Inner loop: `just check`, `just test <filter>`, `just clippy`, `just fmt`.
-- The gate before every commit: `just gate` (fmt → clippy → docs with
-  `-D warnings` → tests → doctests), all clean.
+- The gate before every commit: `just gate` (fmt → clippy → docs and
+  docs-internal with `-D warnings` → tests → doctests), all clean. The
+  `docs-internal` pass renders private items, so intra-doc links inside
+  private modules rot loudly instead of silently.
 - `just all`: the full no-rot sweep — adds what the gate never touches (the
   `before` feature matrix, the wasm target, bench builds, the fuzz targets,
   the viz bundle).

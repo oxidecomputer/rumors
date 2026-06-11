@@ -90,8 +90,9 @@ pub type Providing<T, H> = Vec<(Prefix<H>, Node<T, H>)>;
 /// This is strictly about the *party hand-off*: it tells the receiver whether
 /// a trailing party frame will follow reconciliation. (Bootstrapping is the
 /// other special intent, but it is signalled by the placeholder
-/// [`Network::ZERO`](crate::Network), not here: a bootstrapper participates in
-/// an ordinary session and *receives* a party, so it greets with [`Remain`].)
+/// [`Network::BOOTSTRAP`](crate::network::Network::BOOTSTRAP), not here: a
+/// bootstrapper participates in an ordinary session and *receives* a party,
+/// so it greets with [`Remain`].)
 ///
 /// On the wire it is a borsh unit-enum: a single `u8` tag, `0x00` for
 /// [`Remain`] and `0x01` for [`Retire`].
