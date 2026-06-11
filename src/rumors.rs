@@ -162,6 +162,20 @@ impl<T> Rumors<T> {
     /// Start an empty [`Batch`], for committing several changes as one
     /// atomic unit: observers and concurrent gossip sessions see either
     /// none of the batch or all of it, never a prefix.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rumors::Peer;
+    ///
+    /// let rumors = Peer::<String>::seed().into_rumors();
+    /// rumors
+    ///     .batch()
+    ///     .send("a".to_string())
+    ///     .send("b".to_string());
+    /// // The batch committed, atomically, when the statement ended.
+    /// assert_eq!(rumors.snapshot().len(), 2);
+    /// ```
     pub fn batch(&self) -> Batch<'_, T>
     where
         T: Send + Sync,

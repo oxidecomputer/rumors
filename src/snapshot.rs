@@ -131,6 +131,26 @@ impl<T> Snapshot<T> {
     /// and a message may be yielded before another that causally precedes it.
     /// Sort by the yielded [`Version`]s if your application needs an ordering
     /// consistent with causality.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rumors::{Peer, causally};
+    ///
+    /// let rumors = Peer::<String>::seed().into_rumors();
+    /// rumors.send("first".to_string());
+    /// let then = rumors.snapshot().latest().clone();
+    /// rumors.send("second".to_string());
+    /// rumors.send("third".to_string());
+    ///
+    /// let snapshot = rumors.snapshot();
+    /// // Everything not already contained in `then`: the two later sends.
+    /// assert_eq!(snapshot.range(causally::since(&then)).count(), 2);
+    /// // Everything `then` already contained: just the first.
+    /// assert_eq!(snapshot.range(causally::known_at(&then)).count(), 1);
+    /// // The two compose into the same partition of the live set.
+    /// assert_eq!(snapshot.range(causally::all()).count(), 3);
+    /// ```
     pub fn range<R>(
         &self,
         range: R,

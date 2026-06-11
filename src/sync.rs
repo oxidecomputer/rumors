@@ -26,6 +26,38 @@
 //! blocking face returns only when the session has finished or failed. Use
 //! the transport's own timeouts (e.g. socket read timeouts, which surface
 //! here as session errors) to bound a stalled counterparty.
+//!
+//! # Example
+//!
+//! The crate-root example, with no runtime anywhere: plain threads and OS
+//! pipes.
+//!
+//! ```
+//! use rumors::sync::Peer;
+//!
+//! let alice = Peer::<String>::seed().into_rumors();
+//! alice.send("the meeting is at noon".to_string());
+//!
+//! // Any Read/Write pair carries a session; here, two OS pipes.
+//! let (mut alice_read, mut bob_write) = std::io::pipe()?;
+//! let (mut bob_read, mut alice_write) = std::io::pipe()?;
+//!
+//! // Alice serves one gossip session from a plain thread...
+//! let mut serve = alice.clone();
+//! let serving = std::thread::spawn(move || {
+//!     serve.gossip(&mut alice_read, &mut alice_write)
+//! });
+//!
+//! // ...and Bob joins through it, blocking until he holds a full replica.
+//! let bob = Peer::<String>::bootstrap(&mut bob_read, &mut bob_write)?
+//!     .expect("alice is established, not herself bootstrapping");
+//! serving.join().expect("serving thread panicked")?;
+//!
+//! let snapshot = bob.into_rumors().snapshot();
+//! let (_key, _version, message) = snapshot.iter().next().expect("one live message");
+//! assert_eq!(message.as_str(), "the meeting is at noon");
+//! # Ok::<(), rumors::Error>(())
+//! ```
 
 use std::io::{Read, Write};
 use std::sync::Arc;

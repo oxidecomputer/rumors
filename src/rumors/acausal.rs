@@ -159,6 +159,41 @@ impl<T> Messages<T> {
     /// After the observer ends (`None`), this is the complete final
     /// frontier. To merely pause in-process, just hold the observer: its
     /// idle state is constant-size, and the checkpoint stays inside it.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use futures::FutureExt;
+    /// use rumors::{Peer, Version};
+    ///
+    /// # tokio::runtime::Builder::new_current_thread()
+    /// #     .build()
+    /// #     .unwrap()
+    /// #     .block_on(async {
+    /// let rumors = Peer::<String>::seed().into_rumors();
+    /// rumors.send("one".to_string());
+    ///
+    /// let mut observer = rumors.messages();
+    /// let (_key, _version, m) = observer.borrow_next().await.expect("one message");
+    /// assert_eq!(m.as_str(), "one");
+    ///
+    /// // Mid-pass, the checkpoint has not moved: resuming here would
+    /// // re-deliver "one" (a partial pass is not a causally closed boundary).
+    /// assert_eq!(observer.checkpoint(), &Version::new());
+    ///
+    /// // One more step finds nothing ready — completing the pass and
+    /// // absorbing its frontier into the checkpoint.
+    /// assert!(observer.borrow_next().now_or_never().is_none());
+    /// let checkpoint = observer.checkpoint().clone();
+    ///
+    /// // A resume from it re-observes nothing from the completed pass and
+    /// // everything not yet delivered.
+    /// rumors.send("two".to_string());
+    /// let mut resumed = rumors.messages_since(checkpoint);
+    /// let (_key, _version, m) = resumed.borrow_next().await.expect("only the new message");
+    /// assert_eq!(m.as_str(), "two");
+    /// # });
+    /// ```
     pub fn checkpoint(&self) -> &Version {
         &self.checkpoint
     }
