@@ -75,8 +75,8 @@ where
     block_on(async move {
         match scenario {
             Scenario::LocalLocal => {
-                let local_a = local::Exchange::silent(a);
-                let local_b = local::Exchange::silent(b);
+                let local_a = local::Exchange::start(a);
+                let local_b = local::Exchange::start(b);
                 match mirror(local_a, local_b).await {
                     Err(e) => match e {},
                     Ok(result) => result.1,
@@ -92,11 +92,11 @@ where
                 let (a_r, a_w) = tokio::io::split(a_side);
                 let (b_r, b_w) = tokio::io::split(b_side);
 
-                let local_a = local::Exchange::silent(a);
+                let local_a = local::Exchange::start(a);
                 let remote_b = remote::Exchange::start(a_r, a_w);
                 let client = mirror(local_a, remote_b);
 
-                let local_b = local::Exchange::silent(b);
+                let local_b = local::Exchange::start(b);
                 let remote_a = remote::Exchange::start(b_r, b_w);
                 let server = mirror(local_b, remote_a);
 
@@ -221,7 +221,7 @@ proptest! {
             ceiling: actions
                 .iter()
                 .fold(Version::default(), |acc, (_, v, _)| acc | v.clone()),
-            root: pollster::block_on(act(None, actions.to_vec(), crate::tree::ignore)),
+            root: act(None, actions.to_vec(), |_| ()),
         };
 
         let tree_a = wrap(&actions_a);

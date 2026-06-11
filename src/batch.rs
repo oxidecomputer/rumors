@@ -1,5 +1,3 @@
-use std::future::ready;
-
 use borsh::BorshSerialize;
 use tokio::sync::watch;
 
@@ -73,13 +71,7 @@ impl<T: Send + Sync> Drop for Batch<'_, T> {
                 return false;
             };
             let hash_before = inner.tree.hash();
-            pollster::block_on(inner.tree.act(
-                |batch| {
-                    batch.tick(party);
-                },
-                actions,
-                |_, _, _| ready(()),
-            ));
+            inner.tree.act(party, actions);
             inner.tree.hash() != hash_before
         });
     }

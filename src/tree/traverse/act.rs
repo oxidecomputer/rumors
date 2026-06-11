@@ -1,9 +1,6 @@
-use std::future::Future;
-use std::pin::Pin;
-
 use itertools::Itertools;
 
-use crate::{Key, message::Message, version::Version};
+use crate::{message::Message, version::Version};
 
 use super::typed::*;
 use height::{Height, Root, S, Z};
@@ -19,88 +16,68 @@ pub enum Action<T> {
 
 /// Perform a sequence of actions (insertions or deletions) on this node.
 ///
-/// Type-erased via `Pin<Box<dyn Future>>` so the deep `S<S<…<Z>>>` chain
-/// produced by recursive `Act` trait dispatch doesn't leak into the
-/// layout queries of every public API that drives the tree.
-pub async fn act<'a, T, F, Fut>(
+/// `on_action` fires once per *effectual* action — a leaf inserted, replaced,
+/// or removed — with that action's version. A forget of a leaf that never
+/// existed observes nothing, which is what lets the caller join versions only
+/// for actions that changed the tree.
+///
+/// `actions` is consumed lazily: the only materialization is the radix sort
+/// at each branch level, so callers can feed a `map` chain straight in.
+pub fn act<T, F, I>(
     node: Option<Node<T, Root>>,
-    actions: Vec<(Path, Version, Action<T>)>,
-    on_action: F,
+    actions: I,
+    mut on_action: F,
 ) -> Option<Node<T, Root>>
 where
-    T: Send + Sync + 'a,
-    F: FnMut(Key, &Version, Option<&Message<T>>) -> Fut + Send + 'a,
-    Fut: Future<Output = ()> + Send + 'a,
+    T: Send + Sync,
+    F: FnMut(&Version),
+    I: IntoIterator<Item = (Path, Version, Action<T>)>,
 {
-    Box::pin(async move {
-        let mut on_action = on_action;
-        Act::act(node, Prefix::new(), actions, &mut on_action).await
-    })
-    .await
+    Act::act(node, actions, &mut on_action)
 }
 
 // The internal implementation of the traversal as a polymorphic-recursive
+// trait: each height implements one inductive step, and the recursion is a
+// plain (synchronous) call one height down (always instantiated at
+// `I = Vec<…>`, the per-radix group the branch level collects).
 
 pub trait Act: Height {
-    // Declared as `-> impl Future + Send` rather than `async fn` so that
-    // implementors produce `Send` futures. The recursive `Box::pin` inside
-    // the inductive `Act::<S<H>>::act` body coerces to `Pin<Box<dyn Future +
-    // Send + '_>>`, and that coercion requires the source state machine to
-    // be `Send`. The accompanying `Send + Sync` bounds on `P` and `T`, and
-    // `Send` bounds on `F` and `Fut`, are what let the auto-trait check at
-    // that coercion site succeed.
-    fn act<T, F, Fut>(
+    fn act<T, F, I>(
         node: Option<Node<T, Self>>,
-        prefix: Prefix<Self>,
-        actions: Vec<(Path<Self>, Version, Action<T>)>,
+        actions: I,
         on_action: &mut F,
-    ) -> impl Future<Output = Option<Node<T, Self>>> + Send
+    ) -> Option<Node<T, Self>>
     where
         T: Send + Sync,
-        F: FnMut(Key, &Version, Option<&Message<T>>) -> Fut + Send,
-        Fut: Future<Output = ()> + Send;
+        F: FnMut(&Version),
+        I: IntoIterator<Item = (Path<Self>, Version, Action<T>)>;
 }
 
 impl<H: Act> Act for S<H>
 where
     S<H>: Height,
 {
-    async fn act<T, F, Fut>(
+    fn act<T, F, I>(
         node: Option<Node<T, S<H>>>,
-        prefix: Prefix<Self>,
-        actions: Vec<(Path<Self>, Version, Action<T>)>,
+        actions: I,
         on_action: &mut F,
     ) -> Option<Node<T, S<H>>>
     where
         T: Send + Sync,
-        F: FnMut(Key, &Version, Option<&Message<T>>) -> Fut + Send,
-        Fut: Future<Output = ()> + Send,
+        F: FnMut(&Version),
+        I: IntoIterator<Item = (Path<Self>, Version, Action<T>)>,
     {
-        // Group the paths by their first element. We collect eagerly into a
-        // `Vec<(radix, group)>` (rather than holding the lazy `ChunkBy`
-        // iterator across the recursive await below): `itertools::ChunkBy`
-        // uses interior `RefCell`/`Cell` state, which is `!Sync` and would
-        // make the surrounding async fn's future `!Send` for callers that
-        // want to `tokio::spawn` it on a multi-threaded runtime.
-        #[allow(clippy::type_complexity)]
-        let by_radix: Vec<(u8, Vec<(Path<H>, Version, Action<T>)>)> = actions
+        // Group the paths by their first element. Each group is consumed (and
+        // its tail of the path collected) before the recursion below runs, so
+        // the lazy `ChunkBy` borrow never overlaps it.
+        let by_radix = actions
             .into_iter()
             .map(|(path, version, action)| {
                 let (child, path) = path.pop();
                 (child, path, version, action)
             })
             .sorted_by_key(|(child, _, _, _)| *child)
-            .chunk_by(|(child, _, _, _)| *child)
-            .into_iter()
-            .map(|(radix, group)| {
-                (
-                    radix,
-                    group
-                        .map(|(_, path, version, action)| (path, version, action))
-                        .collect(),
-                )
-            })
-            .collect();
+            .chunk_by(|(child, _, _, _)| *child);
 
         // Explode the node into its children
         let mut existing_children = node.map(|n| n.into_children()).unwrap_or_default();
@@ -109,7 +86,11 @@ where
         // the original node, pulling each existing child out of the original
         // map exploded from the node
         let mut updated: Vec<_> = Vec::new();
-        for (radix, actions) in by_radix {
+        for (radix, group) in &by_radix {
+            let actions: Vec<_> = group
+                .map(|(_, path, version, action)| (path, version, action))
+                .collect();
+
             // Mutably pull the existing child out of the parent:
             let existing_child = existing_children.remove(&radix);
 
@@ -122,24 +103,7 @@ where
                 continue;
             }
 
-            // Box-and-Send-erase the recursive future. The dyn coercion
-            // discharges the inner state machine's auto-trait check here.
-            // Without the coercion the source type is `Pin<Box<impl Future>>`
-            // and the outer poll's auto-trait walk descends into the inner
-            // state machine, recursing once per height. With the coercion the
-            // outer walk sees only `Pin<Box<dyn Future + Send>>`, which is
-            // trivially `Send` regardless of what's inside.
-            #[allow(clippy::type_complexity)]
-            let recursed: Pin<
-                Box<dyn Future<Output = Option<Node<T, H>>> + Send + '_>,
-            > = Box::pin(Act::act(
-                existing_child,
-                prefix.push(radix),
-                actions,
-                on_action,
-            ));
-            let recursed = recursed.await;
-            if let Some(child) = recursed {
+            if let Some(child) = Act::act(existing_child, actions, on_action) {
                 updated.push((radix, child));
             }
         }
@@ -150,16 +114,15 @@ where
 }
 
 impl Act for Z {
-    async fn act<T, F, Fut>(
+    fn act<T, F, I>(
         mut node: Option<Node<T, Self>>,
-        prefix: Prefix<Self>,
-        actions: Vec<(Path<Self>, Version, Action<T>)>,
+        actions: I,
         on_action: &mut F,
     ) -> Option<Node<T, Z>>
     where
         T: Send + Sync,
-        F: FnMut(Key, &Version, Option<&Message<T>>) -> Fut + Send,
-        Fut: Future<Output = ()> + Send,
+        F: FnMut(&Version),
+        I: IntoIterator<Item = (Path<Self>, Version, Action<T>)>,
     {
         let existed_before = node.is_some();
         let mut greatest_version = Version::default();
@@ -190,18 +153,11 @@ impl Act for Z {
             };
         }
 
-        // Log the action, provided that the net action wasn't nil
+        // Observe the action, provided that the net action wasn't nil
         match (existed_before, &node) {
             // The node stayed empty
             (false, None) => {}
-            (_, node) => {
-                on_action(
-                    prefix.into(),
-                    &greatest_version,
-                    node.as_ref().map(|n| n.message()),
-                )
-                .await
-            }
+            _ => on_action(&greatest_version),
         }
 
         node

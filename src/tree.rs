@@ -278,11 +278,11 @@ impl<T> Tree<T> {
     where
         T: Send + Sync,
     {
-        let mut unknown = Vec::new();
-        traverse::unknown(self.root.clone().into(), version, &mut |k, v, m| {
-            unknown.push((k, v.clone(), m.clone()))
-        });
-        unknown
+        traverse::unknown(self.root.clone().into(), version)
+            .iter()
+            .flat_map(|node| node.leaves(typed::Prefix::new()))
+            .map(|(k, v, m)| (k, v.clone(), m.clone()))
+            .collect()
     }
 
     /// Apply the specified actions as a batch to the tree, advancing its
@@ -310,13 +310,10 @@ impl<T> Tree<T> {
     /// version when several actions address the same key. In that case the
     /// version is incremented once per changed key, regardless of how many
     /// actions pertain to it.
-    pub async fn act<F, I, O, Fut>(&mut self, mut tick: F, actions: I, react: O)
+    pub fn act<I>(&mut self, party: &before::Party, actions: I)
     where
         T: Send + Sync,
-        F: FnMut(&mut before::batch::Version),
         I: IntoIterator<Item = Action<T>>,
-        O: FnMut(Key, &Version, Option<&Message<T>>) -> Fut + Send,
-        Fut: Future<Output = ()> + Send,
     {
         // Track the running version across the batch, ticking the owning party
         // once per action so that (a) content-identical messages produce
@@ -328,42 +325,34 @@ impl<T> Tree<T> {
         // complete no-op.
         let mut new_version = self.latest().clone();
 
-        // Build reactions eagerly so the `party` borrow stays cleanly scoped:
-        // a lazy `map` would hold `&Party` across the `react` await below.
-        //
         // Hold one version `Batch` open across the whole run: each `tick`
         // advances the materialized working form in place, and `snapshot` reads
         // the per-action committed version that keys the leaf. This pays the
         // unpack cost once for the batch rather than once per action — a bare
         // `Version::tick` opens and drops its own batch (an unpack and a repack)
-        // on every call.
-        let reactions: Vec<_> = {
-            let mut batch = new_version.batch();
-            actions
-                .into_iter()
-                .map(|action| {
-                    // Advance the version. It must be unique for every action
-                    // applied to the tree; otherwise the mirror protocol
-                    // wrongly early-aborts when versions compare equal.
-                    tick(&mut batch);
-                    let version = batch.snapshot();
+        // on every call. The reactions flow into `react` lazily; the whole
+        // chain materializes only once, at the traversal's radix sort.
+        let mut batch = new_version.batch();
+        self.react(actions.into_iter().map(|action| {
+            // Advance the version. It must be unique for every action
+            // applied to the tree; otherwise the mirror protocol
+            // wrongly early-aborts when versions compare equal.
+            batch.tick(party);
+            let version = batch.snapshot();
 
-                    // Convert unversioned, unlocalized actions into reactions
-                    // independent of our party and current version. The key is
-                    // derived from the post-tick version, which is unique per
-                    // insert (see [`typed::Path::for_leaf`]).
-                    let (key, value) = match action {
-                        Action::Forget(hash) => (hash, None),
-                        Action::Insert(value) => {
-                            let key = typed::Path::for_leaf(&version, value.bytes()).into();
-                            (key, Some(value))
-                        }
-                    };
-                    (key, version, value)
-                })
-                .collect()
-        };
-        self.react(reactions, react).await;
+            // Convert unversioned, unlocalized actions into reactions
+            // independent of our party and current version. The key is
+            // derived from the post-tick version, which is unique per
+            // insert (see [`typed::Path::for_leaf`]).
+            let (key, value) = match action {
+                Action::Forget(hash) => (hash, None),
+                Action::Insert(value) => {
+                    let key = typed::Path::for_leaf(&version, value.bytes()).into();
+                    (key, Some(value))
+                }
+            };
+            (key, version, value)
+        }));
     }
 
     /// Apply the specified *versioned* actions as a batch to the tree without
@@ -380,16 +369,14 @@ impl<T> Tree<T> {
     /// As with [`act`](Self::act), a batch is applied in a single traversal,
     /// which is more efficient than applying its actions one at a time but
     /// semantically equivalent.
-    pub async fn react<M, I, O, Fut>(&mut self, reactions: I, mut react: O)
+    pub fn react<M, I>(&mut self, reactions: I)
     where
         T: Send + Sync,
         M: Into<Option<Message<T>>>,
         I: IntoIterator<Item = (Key, Version, M)>,
-        O: FnMut(Key, &Version, Option<&Message<T>>) -> Fut + Send,
-        Fut: Future<Output = ()> + Send,
     {
-        // Convert the specified actions into the action specification required
-        // by the inductive traversal of the tree
+        // Convert the specified actions, lazily, into the action specification
+        // required by the inductive traversal of the tree
         let actions = reactions
             .into_iter()
             .map(|(key, version, message)| match message.into() {
@@ -399,47 +386,29 @@ impl<T> Tree<T> {
                     version,
                     traverse::Action::Insert(value),
                 ),
-            })
-            .collect();
+            });
 
         // Traverse the tree from the root, batch-applying the actions.
-        // The version join is deferred to the observer callback so that
-        // zero-effect actions (e.g. forgetting a nonexistent key) do not
+        // The version join is deferred to the effectual-action observer so
+        // that zero-effect actions (e.g. forgetting a nonexistent key) do not
         // bump the root version.
         let root_version = &mut self.root.ceiling;
-        self.root.root = traverse::act(
-            self.root.root.take(),
-            actions,
-            move |k: Key, v: &Version, m: Option<&Message<T>>| {
-                *root_version |= v;
-                react(k, v, m)
-            },
-        )
-        .await;
+        self.root.root = traverse::act(self.root.root.take(), actions, |v: &Version| {
+            *root_version |= v;
+        });
     }
 
     /// Merge `other` into `self` by a single simultaneous recursion over both
-    /// trees, observing each side's gains.
+    /// trees.
     ///
     /// This is the in-memory counterpart to mirroring two local trees (see
-    /// [`traverse::mirror`]) and is observationally identical to it: it produces
-    /// the same merged tree and fires the same callbacks. `on_recv` fires once
-    /// per leaf `self` learns from `other`; `on_send` once per leaf `other`
-    /// would learn from `self`. Either may be [`None`] to skip its observations
-    /// (the version filtering still runs). Deletions are honored by version
+    /// [`traverse::mirror`]) and is observationally identical to it: it
+    /// produces the same merged tree. Deletions are honored by version
     /// dominance: a leaf one side lacks while its version is `<=` that side's
     /// version vector was deleted there and is dropped.
-    pub async fn join<R, RFut, W, WFut>(
-        &mut self,
-        other: Tree<T>,
-        on_recv: Option<R>,
-        on_send: Option<W>,
-    ) where
+    pub fn join(&mut self, other: Tree<T>)
+    where
         T: Send + Sync,
-        R: FnMut(Key, &Version, &Arc<T>) -> RFut + Send,
-        RFut: Future<Output = ()> + Send,
-        W: FnMut(Key, &Version, &Arc<T>) -> WFut + Send,
-        WFut: Future<Output = ()> + Send,
     {
         let Root {
             ceiling: their_version,
@@ -451,15 +420,7 @@ impl<T> Tree<T> {
         // root is written straight back below. Our version stays in place to be
         // read as the deletion filter, then joined with theirs.
         let our_root = std::mem::take(&mut self.root.root);
-        let merged = traverse::join(
-            our_root,
-            their_root,
-            &self.root.ceiling,
-            &their_version,
-            on_recv,
-            on_send,
-        )
-        .await;
+        let merged = traverse::join(our_root, their_root, &self.root.ceiling, &their_version);
 
         self.root.ceiling |= their_version;
         self.root.root = merged;
@@ -468,15 +429,6 @@ impl<T> Tree<T> {
 
 #[cfg(test)]
 mod arb;
-
-/// Test-only no-op callback for [`Tree::act`] / [`Tree::react`]; drops every
-/// observation and returns an already-ready future. The internal counterpart
-/// to passing no callback through the public API, but with the tree's callback
-/// signature (`Option<&Message<T>>` rather than `&Arc<T>`).
-#[cfg(test)]
-pub(crate) fn ignore<T>(_: Key, _: &Version, _: Option<&Message<T>>) -> std::future::Ready<()> {
-    std::future::ready(())
-}
 
 #[cfg(test)]
 mod test;

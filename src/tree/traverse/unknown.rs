@@ -1,34 +1,13 @@
 use std::cmp::Ordering;
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
 
-use crate::{message::Message, tree::key::Key, version::Version};
+use crate::version::Version;
 
 use super::typed::*;
 use height::{Height, S, Z};
-use prefix::Prefix;
 
-/// Adapt a `&Arc<T>` observer into the `&Message<T>` callback [`Unknown`] fires,
-/// so callers that hold the public `Arc`-shaped callback can pass it straight
-/// in.
-///
-/// The return-position `impl FnMut(..)` pins a higher-ranked signature, which is
-/// what lets the adapted callback flow through the `Option<&mut F>` parameter
-/// without a "not general enough" lifetime error (the same wrinkle the sync
-/// layer hits at the async boundary).
-pub(crate) fn from_arc<T, F, Fut>(
-    callback: &mut F,
-) -> impl FnMut(Key, &Version, &Message<T>) -> Fut + '_
-where
-    F: FnMut(Key, &Version, &Arc<T>) -> Fut,
-{
-    move |k, v, m: &Message<T>| callback(k, v, m.as_ref())
-}
-
-/// Perform a batch lookup in the tree by version vector, reporting every
-/// versioned leaf (with its path) that is *unknown* relative to the
-/// specified version.
+/// Perform a batch lookup in the tree by version vector, returning the
+/// subtree of versioned leaves that are *unknown* relative to the specified
+/// version.
 ///
 /// The unknown set is the set of leaves a counterparty holding this version
 /// vector must receive for its tree to become a (non-strict) superset of
@@ -37,55 +16,29 @@ where
 pub fn unknown<T>(
     node: Option<Node<T, height::Root>>,
     known: &Version,
-    with_unknown: &mut (impl FnMut(Key, &Version, &Message<T>) + Send),
 ) -> Option<Node<T, height::Root>>
 where
     T: Send + Sync,
 {
-    let mut wrapper = Some(|k, v: &Version, m: &Message<T>| {
-        with_unknown(k, v, m);
-        std::future::ready(())
-    });
-    pollster::block_on(Unknown::unknown(node, Prefix::new(), known, &mut wrapper))
+    Unknown::unknown(node, known)
 }
 
 pub trait Unknown: Height {
-    // Declared as `-> impl Future + Send` (rather than `async fn`) so that
-    // implementors produce `Send` futures. The recursive `Box::pin` inside
-    // the inductive `Unknown::<S<H>>::unknown` body coerces to
-    // `Pin<Box<dyn Future + Send + '_>>`; the coercion requires the source
-    // state machine to be `Send`, which is what these `Send + Sync` /
-    // `Send` bounds discharge.
-    //
-    // `with_unknown` is [`Option`]al: [`None`] means "filter, but don't
-    // observe", which both removes the callers' need to wrap a maybe-absent
-    // callback and unlocks the keep-whole fast path below.
-    fn unknown<T, F, Fut>(
-        node: Option<Node<T, Self>>,
-        prefix: Prefix<Self>,
-        known: &Version,
-        with_unknown: &mut Option<F>,
-    ) -> impl Future<Output = Option<Node<T, Self>>> + Send
+    /// Filter this subtree down to the nodes a counterparty at `known` is
+    /// missing, honoring deletions: a node causally `<=` `known` is already
+    /// known there (or was deleted there) and drops out.
+    fn unknown<T>(node: Option<Node<T, Self>>, known: &Version) -> Option<Node<T, Self>>
     where
-        T: Send + Sync,
-        F: FnMut(Key, &Version, &Message<T>) -> Fut + Send,
-        Fut: Future<Output = ()> + Send;
+        T: Send + Sync;
 }
 
 impl<H: Unknown> Unknown for S<H>
 where
     S<H>: Height,
 {
-    async fn unknown<T, F, Fut>(
-        node: Option<Node<T, Self>>,
-        prefix: Prefix<Self>,
-        known: &Version,
-        with_unknown: &mut Option<F>,
-    ) -> Option<Node<T, Self>>
+    fn unknown<T>(node: Option<Node<T, Self>>, known: &Version) -> Option<Node<T, Self>>
     where
         T: Send + Sync,
-        F: FnMut(Key, &Version, &Message<T>) -> Fut + Send,
-        Fut: Future<Output = ()> + Send,
     {
         // If the node doesn't exist, we can't return information about it
         let node = node?;
@@ -105,21 +58,14 @@ where
         // `Greater` or incomparable (`None`); a concurrent floor counts, since a
         // counterparty at `known` is still missing it.
         //
-        // Either way the destroy-and-rebuild below would reproduce this subtree
-        // identically (with cold memos), so skip it: if anyone is observing,
-        // fire the callback for every leaf via a read-only leaf walk — which
-        // leaves the subtree and its memoized hash/ceiling/floor untouched —
-        // then return it verbatim (an `Arc` move).
+        // The destroy-and-rebuild below would reproduce this subtree
+        // identically (with cold memos), so skip it and return it verbatim (an
+        // `Arc` move), leaving its memoized hash/ceiling/floor untouched.
         let floor_unknown = matches!(
             node.floor().partial_cmp(known),
             None | Some(Ordering::Greater)
         );
         if floor_unknown {
-            if let Some(with_unknown) = with_unknown.as_mut() {
-                for (key, version, message) in node.leaves(prefix) {
-                    with_unknown(key, version, message).await;
-                }
-            }
             return Some(node);
         }
 
@@ -127,19 +73,7 @@ where
         Node::branch({
             let mut children = Children::default();
             for (radix, child) in node.into_children() {
-                // Box-and-Send-erase the recursive future; see the matching
-                // comment in `act.rs`.
-                #[allow(clippy::type_complexity)]
-                let fut: Pin<
-                    Box<dyn Future<Output = Option<Node<T, H>>> + Send + '_>,
-                > = Box::pin(Unknown::unknown(
-                    Some(child),
-                    prefix.push(radix),
-                    known,
-                    with_unknown,
-                ));
-                let recursed = fut.await;
-                if let Some(child) = recursed {
+                if let Some(child) = Unknown::unknown(Some(child), known) {
                     children.insert(radix, child);
                 }
             }
@@ -149,16 +83,9 @@ where
 }
 
 impl Unknown for Z {
-    async fn unknown<T, F, Fut>(
-        node: Option<Node<T, Self>>,
-        prefix: Prefix,
-        known: &Version,
-        with_unknown: &mut Option<F>,
-    ) -> Option<Node<T, Self>>
+    fn unknown<T>(node: Option<Node<T, Self>>, known: &Version) -> Option<Node<T, Self>>
     where
         T: Send + Sync,
-        F: FnMut(Key, &Version, &Message<T>) -> Fut + Send,
-        Fut: Future<Output = ()> + Send,
     {
         // If the node doesn't exist, we can't return information about it
         let node = node?;
@@ -169,11 +96,7 @@ impl Unknown for Z {
             return None;
         }
 
-        // Otherwise, the node is causally unknown, so observe it (if anyone is
-        // listening) and return its information
-        if let Some(with_unknown) = with_unknown.as_mut() {
-            with_unknown(Path::from(prefix).into(), node.ceiling(), node.message()).await;
-        }
+        // Otherwise, the node is causally unknown: return it
         Some(node)
     }
 }

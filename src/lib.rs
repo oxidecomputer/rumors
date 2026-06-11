@@ -130,11 +130,7 @@ pub use before::causally;
 /// dependency.
 pub use ::borsh;
 
-use crate::tree::mirror::{
-    local::{self, Silent},
-    message::Intent,
-    remote,
-};
+use crate::tree::mirror::{local, message::Intent, remote};
 
 impl<T> Known<T> {
     /// Create the distinguished seed rumor set: the single root from which
@@ -179,7 +175,7 @@ impl<T> Known<T> {
 
         // We hold nothing: we will run the mirror protocol from an *empty* tree
         // to receive all content on the remote side.
-        let l = local::Exchange::start(tree::Root::default(), None::<Silent<T>>, None::<Silent<T>>);
+        let l = local::Exchange::start(tree::Root::default());
         let r = remote::Exchange::start(read, write);
 
         // After the connect phase, a peer that is *also* bootstrapping means
@@ -358,7 +354,7 @@ impl<T> Known<T> {
 
         // Run the connect phase, which exchanges `message::Handshake`s (the
         // causal version; network and intent already rode the raw preamble).
-        let l = local::Exchange::start(prior_tree.root, None::<Silent<T>>, None::<Silent<T>>);
+        let l = local::Exchange::start(prior_tree.root);
         let r = remote::Exchange::start(read, write);
 
         // Run the initial handshake to determine if and how to gossip.
@@ -456,16 +452,11 @@ impl<T> Known<T> {
                 }
             }
 
-            // Join the tree we got via gossip. The join is async only for the
-            // sake of its observation callbacks; with both elided it never
-            // yields, so driving it with `pollster` inside the critical
-            // section completes synchronously, as in `send` and `redact`.
+            // Join the tree we got via gossip: a synchronous, in-memory
+            // merge, run directly inside the critical section, as in `send`
+            // and `redact`.
             let prior_hash = inner.tree.hash();
-            pollster::block_on(inner.tree.join(
-                Tree { root },
-                None::<Silent<T>>,
-                None::<Silent<T>>,
-            ));
+            inner.tree.join(Tree { root });
 
             // We've modified the watch if the peer retired or the tree changed
             peer_retiring || prior_hash != inner.tree.hash()

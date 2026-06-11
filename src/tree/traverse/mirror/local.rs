@@ -57,15 +57,14 @@
 //! Each cell is realized by one arm of the `merge_join_by` inside
 //! [`Exchange::partition_uncertain`].
 
-use std::{convert::Infallible, future::Future, mem, sync::Arc};
+use std::{convert::Infallible, mem};
 
 use itertools::{EitherOrBoth, Itertools};
 
 use crate::{
     tree::{
         self,
-        key::Key,
-        traverse::{unknown, unknown::Unknown},
+        traverse::unknown::Unknown,
         typed::{
             Hash, Level, Levels, Node, Prefix,
             height::{Height, Root, S, Z},
@@ -101,12 +100,6 @@ pub struct Connected {
     our_version: Version,
     their_version: Version,
 }
-
-/// The "no callback" callback type: a bare function pointer with the mirror
-/// callback signature. Used as the `OnSend`/`OnRecv` type parameter when a
-/// side passes [`None`] (see [`Exchange::silent`]); it is never actually
-/// invoked, only named to pin the otherwise-unconstrained type parameter.
-pub type Silent<T> = fn(Key, &Version, &Arc<T>) -> std::future::Ready<()>;
 
 /// The parent prefixes a counterparty may legitimately `provide` against, given
 /// the `requested` and `uncertain` we are about to send: each `requested`
@@ -145,16 +138,7 @@ where
 /// `L` is our zipper, parameterised by the height of its bottom level; as the
 /// protocol descends, each [`Self::exchange`] call returns a new `Exchange`
 /// whose `L` is two heights below the previous one.
-///
-/// Both callbacks are [`Option`]al. A [`None`] `on_recv` lets
-/// [`Self::absorb_providing`] skip the per-leaf discovery walk entirely (the
-/// dominant cost when no observation is wanted, as in callback-less
-/// [`gossip`]); a [`None`] `on_send` skips firing the counterparty-side
-/// notification while still running the version filter that honors
-/// deletions.
-///
-/// [`gossip`]: crate::Known::gossip
-pub struct Exchange<OnSend, OnRecv, V, L> {
+pub struct Exchange<V, L> {
     /// Our multi-level zipper: agreed heights live near the top, the height
     /// currently under comparison lives at the bottom.
     levels: L,
@@ -162,15 +146,6 @@ pub struct Exchange<OnSend, OnRecv, V, L> {
     /// node of ours at or causally prior to this version that they lack must
     /// have been forgotten on their side.
     versions: V,
-    /// Invoked whenever we discover a leaf that was previously unknown to us;
-    /// lets the calling code stream out leaf-level observations as we find
-    /// out about them. [`None`] skips the discovery walk altogether.
-    on_recv: Option<OnRecv>,
-    /// Invoked whenever the version-vector filter discovers a leaf the
-    /// counterparty does not yet know about; lets the calling code stream out
-    /// leaf-level observations as they're discovered by the counterparty.
-    /// [`None`] skips the notification (the filter itself still runs).
-    on_send: Option<OnSend>,
     /// The parent prefixes (raw bytes, height-agnostic) the counterparty is
     /// allowed to `provide` next: those we `requested` last round, plus the
     /// parents of those we listed as `uncertain` (whose siblings the
@@ -184,49 +159,25 @@ pub struct Exchange<OnSend, OnRecv, V, L> {
     expected_parents: std::collections::BTreeSet<Box<[u8]>>,
 }
 
-impl<OnSend, OnRecv, T> Exchange<OnSend, OnRecv, Start, Top<T>>
+impl<T> Exchange<Start, Top<T>>
 where
     T: Send + Sync,
 {
-    pub fn start(node: tree::Root<T>, on_send: Option<OnSend>, on_recv: Option<OnRecv>) -> Self {
+    pub fn start(node: tree::Root<T>) -> Self {
         Self {
             versions: Start {
                 our_version: node.ceiling.clone(),
             },
             levels: Node::levels(Option::from(node)),
-            on_recv,
-            on_send,
             #[cfg(debug_assertions)]
             expected_parents: Default::default(),
         }
     }
 }
 
-// Only the tests construct a both-silent local exchange now: production
-// `join`/`join_then` merge in-process via [`Tree::join`](crate::tree::Tree),
-// and `gossip` pairs a callback-carrying local side with a remote one.
-#[cfg(test)]
-impl<T> Exchange<Silent<T>, Silent<T>, Start, Top<T>>
-where
-    T: Send + Sync,
-{
-    /// Start a side with no callbacks: neither leaf discovery nor
-    /// counterparty-side notification is reported. Equivalent to
-    /// [`Self::start`] with both callbacks [`None`], but pins the
-    /// otherwise-unconstrained callback type parameters to [`Silent`] so the
-    /// caller need not spell them out. This is the path that elides the
-    /// [`absorb_providing`](Self::absorb_providing) discovery walk.
-    pub fn silent(node: tree::Root<T>) -> Self {
-        // Local-local test sessions never run the lib-level network/intent
-        // dispatch, so the placeholder network and `Remain` intent are inert:
-        // the handshake they produce is consumed only for its version.
-        Self::start(node, None, None)
-    }
-}
-
 // A local `Exchange`'s participation in the protocol:
 
-impl<OnSend, OnRecv, V, L> protocol::Stage for Exchange<OnSend, OnRecv, V, L>
+impl<V, L> protocol::Stage for Exchange<V, L>
 where
     L: Levels,
 {
@@ -235,16 +186,11 @@ where
     type Error = Infallible;
 }
 
-impl<T, OnSend, OnSendFut, OnRecv, OnRecvFut> protocol::Connect<T>
-    for Exchange<OnSend, OnRecv, Start, Top<T>>
+impl<T> protocol::Connect<T> for Exchange<Start, Top<T>>
 where
     T: Send + Sync,
-    OnRecv: FnMut(Key, &Version, &Arc<T>) -> OnRecvFut + Send,
-    OnRecvFut: Future<Output = ()> + Send,
-    OnSend: FnMut(Key, &Version, &Arc<T>) -> OnSendFut + Send,
-    OnSendFut: Future<Output = ()> + Send,
 {
-    type Next = Exchange<OnSend, OnRecv, Connecting, Top<T>>;
+    type Next = Exchange<Connecting, Top<T>>;
 
     async fn connect(
         self,
@@ -256,8 +202,6 @@ where
             versions: Connecting {
                 our_version: our_version.clone(),
             },
-            on_recv: self.on_recv,
-            on_send: self.on_send,
             #[cfg(debug_assertions)]
             expected_parents: self.expected_parents,
         };
@@ -271,16 +215,11 @@ where
     }
 }
 
-impl<T, OnSend, OnSendFut, OnRecv, OnRecvFut> protocol::CompleteConnect<T>
-    for Exchange<OnSend, OnRecv, Connecting, Top<T>>
+impl<T> protocol::CompleteConnect<T> for Exchange<Connecting, Top<T>>
 where
     T: Send + Sync,
-    OnRecv: FnMut(Key, &Version, &Arc<T>) -> OnRecvFut + Send,
-    OnRecvFut: Future<Output = ()> + Send,
-    OnSend: FnMut(Key, &Version, &Arc<T>) -> OnSendFut + Send,
-    OnSendFut: Future<Output = ()> + Send,
 {
-    type Next = Exchange<OnSend, OnRecv, Connected, Top<T>>;
+    type Next = Exchange<Connected, Top<T>>;
 
     async fn complete_connect(
         self,
@@ -305,8 +244,6 @@ where
                 our_version,
                 their_version,
             },
-            on_recv: self.on_recv,
-            on_send: self.on_send,
             #[cfg(debug_assertions)]
             expected_parents: self.expected_parents,
         };
@@ -315,16 +252,11 @@ where
     }
 }
 
-impl<T, OnSend, OnSendFut, OnRecv, OnRecvFut> protocol::Accept<T>
-    for Exchange<OnSend, OnRecv, Start, Top<T>>
+impl<T> protocol::Accept<T> for Exchange<Start, Top<T>>
 where
     T: Send + Sync,
-    OnRecv: FnMut(Key, &Version, &Arc<T>) -> OnRecvFut + Send,
-    OnRecvFut: Future<Output = ()> + Send,
-    OnSend: FnMut(Key, &Version, &Arc<T>) -> OnSendFut + Send,
-    OnSendFut: Future<Output = ()> + Send,
 {
-    type Next = Exchange<OnSend, OnRecv, Connected, Top<T>>;
+    type Next = Exchange<Connected, Top<T>>;
 
     async fn accept(
         self,
@@ -352,8 +284,6 @@ where
                 our_version: our_version.clone(),
                 their_version,
             },
-            on_recv: self.on_recv,
-            on_send: self.on_send,
             #[cfg(debug_assertions)]
             expected_parents: self.expected_parents,
         };
@@ -367,16 +297,11 @@ where
     }
 }
 
-impl<T, OnSend, OnSendFut, OnRecv, OnRecvFut> protocol::Initiator<T>
-    for Exchange<OnSend, OnRecv, Connected, Top<T>>
+impl<T> protocol::Initiator<T> for Exchange<Connected, Top<T>>
 where
     T: Send + Sync,
-    OnRecv: FnMut(Key, &Version, &Arc<T>) -> OnRecvFut + Send,
-    OnRecvFut: Future<Output = ()> + Send,
-    OnSend: FnMut(Key, &Version, &Arc<T>) -> OnSendFut + Send,
-    OnSendFut: Future<Output = ()> + Send,
 {
-    type Next = Exchange<OnSend, OnRecv, Connected, Top<T>>;
+    type Next = Exchange<Connected, Top<T>>;
 
     async fn initiator(
         self,
@@ -394,16 +319,11 @@ where
     }
 }
 
-impl<T, OnSend, OnSendFut, OnRecv, OnRecvFut> protocol::Responder<T>
-    for Exchange<OnSend, OnRecv, Connected, Top<T>>
+impl<T> protocol::Responder<T> for Exchange<Connected, Top<T>>
 where
     T: Send + Sync,
-    OnRecv: FnMut(Key, &Version, &Arc<T>) -> OnRecvFut + Send,
-    OnRecvFut: Future<Output = ()> + Send,
-    OnSend: FnMut(Key, &Version, &Arc<T>) -> OnSendFut + Send,
-    OnSendFut: Future<Output = ()> + Send,
 {
-    type Next = Exchange<OnSend, OnRecv, Connected, Below<UnderRoot, Top<T>>>;
+    type Next = Exchange<Connected, Below<UnderRoot, Top<T>>>;
 
     async fn responder(
         mut self,
@@ -441,8 +361,6 @@ where
         let next = Exchange {
             levels,
             versions: self.versions,
-            on_recv: self.on_recv,
-            on_send: self.on_send,
             // The `Opening` carries only `uncertain`; the initiator may answer
             // it with Left-case `providing` whose parents are the parents of
             // these prefixes (it carries no `requested` to honor).
@@ -454,17 +372,12 @@ where
     }
 }
 
-impl<T, OnSend, OnSendFut, OnRecv, OnRecvFut, L> protocol::OpenInitiator<T>
-    for Exchange<OnSend, OnRecv, Connected, L>
+impl<T, L> protocol::OpenInitiator<T> for Exchange<Connected, L>
 where
     T: Send + Sync,
-    OnRecv: FnMut(Key, &Version, &Arc<T>) -> OnRecvFut + Send,
-    OnRecvFut: Future<Output = ()> + Send,
-    OnSend: FnMut(Key, &Version, &Arc<T>) -> OnSendFut + Send,
-    OnSendFut: Future<Output = ()> + Send,
     L: Levels<Message = T, Height = Root>,
 {
-    type Next = Exchange<OnSend, OnRecv, Connected, Below<UnderUnderRoot, Below<UnderRoot, L>>>;
+    type Next = Exchange<Connected, Below<UnderUnderRoot, Below<UnderRoot, L>>>;
 
     async fn open_initiator(
         self,
@@ -473,18 +386,13 @@ where
         protocol::Step<message::Exchange<T, UnderUnderRoot>, Self::Next, Self::Output>,
         Infallible,
     > {
-        Ok(self.reply(request).await)
+        Ok(self.reply(request))
     }
 }
 
-impl<T, H, OnSend, OnSendFut, OnRecv, OnRecvFut, L> protocol::Exchange<T>
-    for Exchange<OnSend, OnRecv, Connected, L>
+impl<T, H, L> protocol::Exchange<T> for Exchange<Connected, L>
 where
     T: Send + Sync,
-    OnRecv: FnMut(Key, &Version, &Arc<T>) -> OnRecvFut + Send,
-    OnRecvFut: Future<Output = ()> + Send,
-    OnSend: FnMut(Key, &Version, &Arc<T>) -> OnSendFut + Send,
-    OnSendFut: Future<Output = ()> + Send,
     L: Levels<Message = T, Height = S<S<H>>>,
     S<S<H>>: Height,
     S<H>: Height,
@@ -492,54 +400,44 @@ where
     // Assumed at impl-validation time so we don't have to case-analyze `H`
     // here: at use sites `H` is concrete and one of the three blanket impls
     // discharges it.
-    Exchange<OnSend, OnRecv, Connected, Below<H, Below<S<H>, L>>>: protocol::AfterExchange<T, H>,
+    Exchange<Connected, Below<H, Below<S<H>, L>>>: protocol::AfterExchange<T, H>,
 {
-    type Next = Exchange<OnSend, OnRecv, Connected, Below<H, Below<S<H>, L>>>;
+    type Next = Exchange<Connected, Below<H, Below<S<H>, L>>>;
 
     async fn exchange(
         self,
         request: message::Exchange<T, S<H>>,
     ) -> Result<protocol::Step<message::Exchange<T, H>, Self::Next, Self::Output>, Infallible> {
-        Ok(self.reply(request).await)
+        Ok(self.reply(request))
     }
 }
 
-impl<T, OnSend, OnSendFut, OnRecv, OnRecvFut, L> protocol::CloseInitiator<T>
-    for Exchange<OnSend, OnRecv, Connected, L>
+impl<T, L> protocol::CloseInitiator<T> for Exchange<Connected, L>
 where
     T: Send + Sync,
-    OnRecv: FnMut(Key, &Version, &Arc<T>) -> OnRecvFut + Send,
-    OnRecvFut: Future<Output = ()> + Send,
-    OnSend: FnMut(Key, &Version, &Arc<T>) -> OnSendFut + Send,
-    OnSendFut: Future<Output = ()> + Send,
     L: Levels<Message = T, Height = S<S<Z>>>,
 {
-    type Next = Exchange<OnSend, OnRecv, Connected, Below<Z, Below<S<Z>, L>>>;
+    type Next = Exchange<Connected, Below<Z, Below<S<Z>, L>>>;
 
     async fn close_initiator(
         self,
         request: message::Exchange<T, S<Z>>,
     ) -> Result<protocol::Step<message::Closing<T>, Self::Next, Self::Output>, Infallible> {
-        Ok(self.reply(request).await)
+        Ok(self.reply(request))
     }
 }
 
-impl<T, OnSend, OnSendFut, OnRecv, OnRecvFut, L> protocol::CompleteResponder<T>
-    for Exchange<OnSend, OnRecv, Connected, L>
+impl<T, L> protocol::CompleteResponder<T> for Exchange<Connected, L>
 where
     T: Send + Sync,
-    OnRecv: FnMut(Key, &Version, &Arc<T>) -> OnRecvFut + Send,
-    OnRecvFut: Future<Output = ()> + Send,
-    OnSend: FnMut(Key, &Version, &Arc<T>) -> OnSendFut + Send,
-    OnSendFut: Future<Output = ()> + Send,
     L: Levels<Message = T, Height = S<Z>>,
 {
     async fn complete_responder(
         mut self,
         request: message::Closing<T>,
     ) -> Result<protocol::Step<message::Complete<T>, Infallible, Self::Output>, Infallible> {
-        self.absorb_providing(request.providing).await;
-        let providing = self.answer_requested(request.requested).await;
+        self.absorb_providing(request.providing);
+        let providing = self.answer_requested(request.requested);
         Ok(protocol::Step::Done {
             msg: message::Complete {
                 providing: providing.into_iter().collect(),
@@ -552,21 +450,16 @@ where
     }
 }
 
-impl<T, OnSend, OnSendFut, OnRecv, OnRecvFut, L> protocol::CompleteInitiator<T>
-    for Exchange<OnSend, OnRecv, Connected, L>
+impl<T, L> protocol::CompleteInitiator<T> for Exchange<Connected, L>
 where
     T: Send + Sync,
-    OnRecv: FnMut(Key, &Version, &Arc<T>) -> OnRecvFut + Send,
-    OnRecvFut: Future<Output = ()> + Send,
-    OnSend: FnMut(Key, &Version, &Arc<T>) -> OnSendFut + Send,
-    OnSendFut: Future<Output = ()> + Send,
     L: Levels<Message = T, Height = Z>,
 {
     async fn complete_initiator(
         mut self,
         request: message::Complete<T>,
     ) -> Result<protocol::Step<(), Infallible, Self::Output>, Infallible> {
-        self.absorb_providing(request.providing).await;
+        self.absorb_providing(request.providing);
         Ok(protocol::Step::Done {
             msg: (),
             output: tree::Root {
@@ -602,12 +495,10 @@ where
     exploded: Level<T, H>,
 }
 
-impl<OnSend, OnRecv, L> Exchange<OnSend, OnRecv, Connected, L>
+impl<L> Exchange<Connected, L>
 where
     L: Levels,
     L::Message: Send + Sync,
-    OnSend: Send,
-    OnRecv: Send,
 {
     /// Insert nodes the counterparty has just sent us (because we requested
     /// them last round, or because they unilaterally knew we lacked them) into
@@ -615,11 +506,9 @@ where
     ///
     /// Each subtree arrives as a whole `(prefix, node)` pair, in ascending
     /// prefix order, and is inserted directly at the named prefix.
-    async fn absorb_providing<H, OnRecvFut>(&mut self, providing: message::Providing<L::Message, H>)
+    fn absorb_providing<H>(&mut self, providing: message::Providing<L::Message, H>)
     where
         L::Message: Send + Sync,
-        OnRecv: FnMut(Key, &Version, &Arc<L::Message>) -> OnRecvFut + Send,
-        OnRecvFut: Future<Output = ()> + Send,
         L: Levels<Height = H>,
         H: Height,
     {
@@ -638,21 +527,6 @@ where
             );
         }
 
-        // Only walk a just-absorbed subtree to fire `on_recv` when there is an
-        // `on_recv` to fire: with no callback the walk does nothing but invoke
-        // a no-op per leaf, and skipping it is the dominant saving for
-        // callback-less gossip.
-        if let Some(on_recv) = self.on_recv.as_mut() {
-            for (prefix, node) in &providing {
-                // Read-only walk: borrow each subtree to fire `on_recv` per
-                // leaf, leaving the node (and its memoized hash/ceiling/floor)
-                // intact to move into the frontier below.
-                for (key, version, message) in node.leaves(*prefix) {
-                    on_recv(key, version, message.as_arc()).await;
-                }
-            }
-        }
-
         // Merge the provided subtrees into the frontier in a single pass. Both
         // sides are sorted ascending by prefix — the wire frame is canonical,
         // and the frontier maintains the `Level` invariant — so this is an
@@ -666,14 +540,9 @@ where
     /// node into its children, filtered against the counterparty's version so
     /// that any subtrees they have deleted disappear locally too. Returns the
     /// outgoing `providing` map, one height below the frontier.
-    async fn answer_requested<H, OnSendFut>(
-        &mut self,
-        requested: Vec<Prefix<S<H>>>,
-    ) -> Level<L::Message, H>
+    fn answer_requested<H>(&mut self, requested: Vec<Prefix<S<H>>>) -> Level<L::Message, H>
     where
         L: Levels<Height = S<H>>,
-        OnSend: FnMut(Key, &Version, &Arc<L::Message>) -> OnSendFut,
-        OnSendFut: Future<Output = ()> + Send,
         S<H>: Unknown,
         H: Height,
     {
@@ -700,15 +569,7 @@ where
                 // we should too. The surviving subtree (if any) carries over
                 // into the rebuilt frontier; its children are sent out as
                 // `providing`.
-                let mut on_send = self.on_send.as_mut().map(unknown::from_arc);
-                if let Some(node) = Unknown::unknown(
-                    Some(node),
-                    prefix,
-                    &self.versions.their_version,
-                    &mut on_send,
-                )
-                .await
-                {
+                if let Some(node) = Unknown::unknown(Some(node), &self.versions.their_version) {
                     for (radix, child) in node.clone().into_children() {
                         providing.push(prefix.push(radix), child);
                     }
@@ -742,13 +603,11 @@ where
     /// constructed by Both-case matches in the previous round and therefore
     /// agree on every parent. The debug-assertions guard against a
     /// steady-state caller silently triggering either branch.
-    async fn partition_uncertain<H, OnSendFut>(
+    fn partition_uncertain<H>(
         &mut self,
         uncertain: Vec<(Prefix<S<H>>, Hash)>,
     ) -> Partition<L::Message, H>
     where
-        OnSend: FnMut(Key, &Version, &Arc<L::Message>) -> OnSendFut,
-        OnSendFut: Future<Output = ()> + Send,
         L: Levels<Height = S<S<H>>>,
         S<S<H>>: Height,
         S<H>: Height + Unknown,
@@ -770,20 +629,17 @@ where
         let at_root = <L::Height as Height>::HEIGHT == <Root as Height>::HEIGHT;
 
         // Group the uncertain prefixes by their parent, so we pull each parent
-        // out of the frontier at most once. We collect into an owned `Vec`
-        // before iterating: `itertools::ChunkBy` uses interior `RefCell`/
-        // `Cell` state, which is `!Sync` and would otherwise make the
-        // surrounding `async fn`'s state machine `!Send`.
-        let by_parent: Vec<(_, Vec<_>)> = uncertain
+        // out of the frontier at most once. The groups are consumed lazily:
+        // each loop iteration fully drains its group (`merge_join_by` and the
+        // `else` arm both run their group to exhaustion) before the next group
+        // is formed.
+        let by_parent = uncertain
             .into_iter()
             .map(|(prefix, hash)| {
                 let (parent_prefix, radix) = prefix.pop();
                 (parent_prefix, radix, hash)
             })
-            .chunk_by(|(parent_prefix, _, _)| *parent_prefix)
-            .into_iter()
-            .map(|(parent_prefix, group)| (parent_prefix, group.collect()))
-            .collect();
+            .chunk_by(|(parent_prefix, _, _)| *parent_prefix);
 
         // Drain the frontier in one pass, co-iterating it (ascending) against
         // the ascending `by_parent` groups. Both are sorted, so each parent is
@@ -793,7 +649,7 @@ where
         // rebuilt frontier) unless we are at Root, where they drain below.
         let mut frontier = mem::take(self.levels.level_mut()).into_iter().peekable();
         let mut kept = Level::default();
-        for (parent_prefix, uncertain_children) in by_parent {
+        for (parent_prefix, uncertain_children) in &by_parent {
             // Frontier parents preceding this group are ones the counterparty
             // never mentioned; below Root they are expected leftovers that stay
             // put (turning them into Left cases would re-send data). At Root
@@ -822,14 +678,8 @@ where
                         // their deletions) and keep a local copy.
                         Left((child_radix, ours)) => {
                             let child_prefix = parent_prefix.push(child_radix);
-                            let mut on_send = self.on_send.as_mut().map(unknown::from_arc);
-                            if let Some(ours) = Unknown::unknown(
-                                Some(ours),
-                                child_prefix,
-                                &self.versions.their_version,
-                                &mut on_send,
-                            )
-                            .await
+                            if let Some(ours) =
+                                Unknown::unknown(Some(ours), &self.versions.their_version)
                             {
                                 providing.push(child_prefix, ours.clone());
                                 matched.push(child_prefix, ours);
@@ -883,15 +733,7 @@ where
             }
             for (child_radix, ours) in parent.into_children() {
                 let child_prefix = parent_prefix.push(child_radix);
-                let mut on_send = self.on_send.as_mut().map(unknown::from_arc);
-                if let Some(ours) = Unknown::unknown(
-                    Some(ours),
-                    child_prefix,
-                    &self.versions.their_version,
-                    &mut on_send,
-                )
-                .await
-                {
+                if let Some(ours) = Unknown::unknown(Some(ours), &self.versions.their_version) {
                     providing.push(child_prefix, ours.clone());
                     matched.push(child_prefix, ours);
                 }
@@ -919,21 +761,17 @@ where
     /// Shared by [`Self::exchange`] and [`Self::close_initiator`]; they differ
     /// only in how they assemble the outgoing message.
     #[allow(clippy::type_complexity)]
-    async fn reply<Request, Response, H, OnRecvFut, OnSendFut>(
+    fn reply<Request, Response, H>(
         mut self,
         request: Request,
     ) -> protocol::Step<
         Response,
-        Exchange<OnSend, OnRecv, Connected, Below<H, Below<S<H>, L>>>,
+        Exchange<Connected, Below<H, Below<S<H>, L>>>,
         tree::Root<L::Message>,
     >
     where
         Request: Into<message::Exchange<L::Message, S<H>>>,
         Response: From<message::Exchange<L::Message, H>>,
-        OnRecv: FnMut(Key, &Version, &Arc<L::Message>) -> OnRecvFut,
-        OnRecvFut: Future<Output = ()> + Send,
-        OnSend: FnMut(Key, &Version, &Arc<L::Message>) -> OnSendFut,
-        OnSendFut: Future<Output = ()> + Send,
         L: Levels<Height = S<S<H>>>,
         S<S<H>>: Height,
         S<H>: Height,
@@ -946,17 +784,17 @@ where
         } = request.into();
 
         // Phase 1: absorb the counterparty's `providing` into our frontier.
-        self.absorb_providing(providing).await;
+        self.absorb_providing(providing);
 
         // Phase 2: answer the counterparty's `requested` set, building the
         // outgoing `providing` map (which Phase 3 may extend with Left-case
         // nodes -- subtrees only we have at the current height).
-        let mut providing = self.answer_requested(requested).await;
+        let mut providing = self.answer_requested(requested);
 
         // Phase 3: partition the counterparty's `uncertain` set by cell of
         // the asymmetry matrix, then merge its Left-case `providing` with
         // the Phase 2 output.
-        let partition = self.partition_uncertain(uncertain).await;
+        let partition = self.partition_uncertain(uncertain);
         providing.extend(partition.providing);
 
         // Descend the zipper by two heights: matched children at S<H>, then
@@ -966,8 +804,6 @@ where
         let mut next = Exchange {
             levels,
             versions: self.versions,
-            on_send: self.on_send,
-            on_recv: self.on_recv,
             #[cfg(debug_assertions)]
             expected_parents: Default::default(),
         };

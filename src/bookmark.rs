@@ -1,3 +1,6 @@
+// Under construction
+#![allow(dead_code)]
+
 //! Identity checkpoints that survive an ungraceful restart.
 //!
 //! A [`Bookmark`] persists *who* a [`Known`](crate::Known) is and how far it

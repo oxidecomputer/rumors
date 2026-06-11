@@ -79,7 +79,7 @@ pub fn arb_root_node(
                     (path, version.clone(), Action::Insert(message))
                 })
                 .collect();
-            pollster::block_on(act(None, actions, crate::tree::ignore))
+            act(None, actions, |_| ())
         })
         .boxed()
 }
@@ -130,7 +130,7 @@ pub fn arb_tree_root(
 /// dominance, the entire deletion mechanism). With zero shared inserts the two
 /// sides are fully disjoint, so this one generator also covers that case.
 pub fn arb_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate::tree::Root<()>)> {
-    use crate::tree::{Action, Tree, ignore};
+    use crate::tree::{Action, Tree};
 
     (
         0usize..6,                // shared inserts (the common base)
@@ -144,41 +144,25 @@ pub fn arb_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate::tree
             let p_a = nth_party(1);
             let p_b = nth_party(2);
 
-            // Common base, capturing the shared keys so each side can redact them.
+            // Common base; at this point the tree holds exactly the shared
+            // inserts, so its live keys are the shared keys each side may
+            // redact.
             let mut base = Tree::new();
-            let mut shared_keys = Vec::new();
-            pollster::block_on(base.act(
-                |b| {
-                    b.tick(&p_s);
-                },
+            base.act(
+                &p_s,
                 (0..n_shared).map(|_| Action::Insert(Message::new(()))),
-                |k, _, _| {
-                    shared_keys.push(k);
-                    std::future::ready(())
-                },
-            ));
+            );
+            let shared_keys: Vec<_> = base.iter().map(|(k, _, _)| k).collect();
 
             let side = |party: &Party, n: usize, redact: &[bool]| {
                 let mut t = base.clone();
-                pollster::block_on(t.act(
-                    |b| {
-                        b.tick(party);
-                    },
-                    (0..n).map(|_| Action::Insert(Message::new(()))),
-                    ignore,
-                ));
+                t.act(party, (0..n).map(|_| Action::Insert(Message::new(()))));
                 let forgets: Vec<_> = shared_keys
                     .iter()
                     .zip(redact)
                     .filter_map(|(k, &r)| r.then_some(Action::Forget(*k)))
                     .collect();
-                pollster::block_on(t.act(
-                    |b| {
-                        b.tick(party);
-                    },
-                    forgets,
-                    ignore,
-                ));
+                t.act(party, forgets);
                 t.root
             };
 
@@ -202,7 +186,7 @@ pub fn arb_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate::tree
 pub fn arb_shared_delta_pair(
     shared: std::ops::Range<usize>,
 ) -> BoxedStrategy<(crate::tree::Root<()>, crate::tree::Root<()>)> {
-    use crate::tree::{Action, Tree, ignore};
+    use crate::tree::{Action, Tree};
 
     (shared, 0usize..6, 0usize..6)
         .prop_map(|(n_shared, n_a, n_b)| {
@@ -215,24 +199,15 @@ pub fn arb_shared_delta_pair(
             // uniformly across the radix space, and a wide base builds the
             // deep, wide trie `diff` must prune through.
             let mut base = Tree::new();
-            pollster::block_on(base.act(
-                |b| {
-                    b.tick(&p_s);
-                },
+            base.act(
+                &p_s,
                 (0..n_shared).map(|_| Action::Insert(Message::new(()))),
-                ignore,
-            ));
+            );
 
             // Each side forks the shared base, then originates its own delta.
             let side = |party: &Party, n: usize| {
                 let mut t = base.clone();
-                pollster::block_on(t.act(
-                    |b| {
-                        b.tick(party);
-                    },
-                    (0..n).map(|_| Action::Insert(Message::new(()))),
-                    ignore,
-                ));
+                t.act(party, (0..n).map(|_| Action::Insert(Message::new(()))));
                 t.root
             };
 
