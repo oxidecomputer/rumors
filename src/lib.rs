@@ -56,6 +56,19 @@ struct Inner<T> {
     tree: Tree<T>,
 }
 
+/// A summary view (network, latest version, live-message count), independent
+/// of `T: Debug`: the messages themselves are not printed.
+impl<T> std::fmt::Debug for Known<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let inner = self.inner.borrow();
+        f.debug_struct("Known")
+            .field("network", &self.network)
+            .field("latest", inner.tree.latest())
+            .field("len", &inner.tree.len())
+            .finish_non_exhaustive()
+    }
+}
+
 /// The error type returned by [`Known::gossip`].
 pub use mirror::remote::Error;
 
@@ -493,6 +506,16 @@ impl<T> Known<T> {
     /// The number of live messages in this [`Known`].
     pub fn len(&self) -> usize {
         self.inner.borrow().tree.len()
+    }
+
+    /// The observable root hash of this set: a 32-byte digest of its live
+    /// content, independent of party identity and insertion order. Two sets
+    /// with equal hashes hold the same live messages. Gossip converges on
+    /// causal versions rather than hashes: peers with equal hashes but
+    /// different versions (for example, after an insert that was then
+    /// redacted) still run a reconciliation pass.
+    pub fn hash(&self) -> [u8; 32] {
+        self.inner.borrow().tree.hash()
     }
 
     /// Force this set's tree to compute its lazy structural memos (observable

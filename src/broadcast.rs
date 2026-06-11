@@ -31,6 +31,19 @@ impl<T> Clone for Broadcast<T> {
     }
 }
 
+/// A summary view (network, latest version, live-message count), independent
+/// of `T: Debug`: the messages themselves are not printed.
+impl<T> std::fmt::Debug for Broadcast<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let inner = self.known.inner.borrow();
+        f.debug_struct("Broadcast")
+            .field("network", &self.known.network)
+            .field("latest", inner.tree.latest())
+            .field("len", &inner.tree.len())
+            .finish_non_exhaustive()
+    }
+}
+
 impl<T> Broadcast<T> {
     /// Send messages to all listeners.
     pub fn send<'a, I>(&'a mut self, messages: I)
@@ -122,6 +135,16 @@ impl<T> Broadcast<T> {
     /// Take a consistent snapshot of the current state.
     pub fn snapshot(&self) -> Snapshot<T> {
         self.known.snapshot()
+    }
+
+    /// The observable root hash of this set: a 32-byte digest of its live
+    /// content, independent of party identity and insertion order. Two sets
+    /// with equal hashes hold the same live messages. Gossip converges on
+    /// causal versions rather than hashes: peers with equal hashes but
+    /// different versions (for example, after an insert that was then
+    /// redacted) still run a reconciliation pass.
+    pub fn hash(&self) -> [u8; 32] {
+        self.known.hash()
     }
 
     /// Observe every message in this rumor set, from genesis onward: the

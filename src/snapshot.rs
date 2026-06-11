@@ -35,6 +35,16 @@ impl<T> Snapshot<T> {
         self.tree.len()
     }
 
+    /// The observable root hash of this snapshot: a 32-byte digest of its
+    /// live content, independent of party identity and insertion order. Two
+    /// snapshots with equal hashes hold the same live messages. Gossip
+    /// converges on causal versions rather than hashes: peers with equal
+    /// hashes but different versions (for example, after an insert that was
+    /// then redacted) still run a reconciliation pass.
+    pub fn hash(&self) -> [u8; 32] {
+        self.tree.hash()
+    }
+
     /// Iterate every message currently [`Known`] as `(Key, &Version, &Arc<T>)`.
     ///
     /// Order is unspecified, and in particular does *not* follow the causal

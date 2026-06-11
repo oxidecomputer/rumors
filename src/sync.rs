@@ -17,7 +17,19 @@ pub use ::borsh;
 
 pub struct Known<T>(crate::Known<T>);
 
+impl<T> std::fmt::Debug for Known<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(&self.0, f)
+    }
+}
+
 pub struct Broadcast<T>(crate::Broadcast<T>);
+
+impl<T> std::fmt::Debug for Broadcast<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(&self.0, f)
+    }
+}
 
 pub struct BroadcastComplete<'a, T>(Pin<Box<dyn Future<Output = crate::Known<T>> + Send + 'a>>);
 
@@ -127,6 +139,10 @@ impl<T> Known<T> {
         self.0.len()
     }
 
+    pub fn hash(&self) -> [u8; 32] {
+        self.0.hash()
+    }
+
     #[doc(hidden)]
     pub fn warm_caches(&self) {
         self.0.warm_caches();
@@ -211,6 +227,10 @@ impl<T> Broadcast<T> {
 
     pub fn snapshot(&self) -> Snapshot<T> {
         self.0.snapshot()
+    }
+
+    pub fn hash(&self) -> [u8; 32] {
+        self.0.hash()
     }
 
     #[doc(hidden)]
