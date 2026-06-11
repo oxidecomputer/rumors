@@ -78,8 +78,6 @@ use crate::tree::typed::{
 };
 use crate::version::Version;
 
-use super::reassemble::{verify_keys_canonical, verify_pairs_canonical};
-
 /// The `providing` channel's payload at height `H`: the subtrees being provided,
 /// each paired with the prefix it lands at, in ascending prefix order. The
 /// receiver inserts each node directly at its named prefix.
@@ -395,3 +393,37 @@ pub type UnderRoot = <Root as Pred>::Pred;
 
 /// The height two levels under the root, i.e. 30.
 pub type UnderUnderRoot = <UnderRoot as Pred>::Pred;
+
+/// An out-of-order or duplicated wire channel: the canonical encoding admits
+/// exactly one byte sequence per value, so a peer that reorders or pads is
+/// rejected before its content is acted on.
+fn not_canonical(what: &'static str) -> borsh::io::Error {
+    borsh::io::Error::new(
+        borsh::io::ErrorKind::InvalidData,
+        format!("{what} not in strictly ascending order"),
+    )
+}
+
+/// Require key→value pairs to be in strictly ascending key order (rejecting
+/// duplicate keys): the `uncertain` channel.
+pub(crate) fn verify_pairs_canonical<K: Ord, V>(
+    pairs: &[(K, V)],
+    what: &'static str,
+) -> borsh::io::Result<()> {
+    if pairs.windows(2).any(|w| w[0].0 >= w[1].0) {
+        return Err(not_canonical(what));
+    }
+    Ok(())
+}
+
+/// Require keys to be in strictly ascending order (rejecting duplicates): the
+/// `requested` channel.
+pub(crate) fn verify_keys_canonical<K: Ord>(
+    keys: &[K],
+    what: &'static str,
+) -> borsh::io::Result<()> {
+    if keys.windows(2).any(|w| w[0] >= w[1]) {
+        return Err(not_canonical(what));
+    }
+    Ok(())
+}

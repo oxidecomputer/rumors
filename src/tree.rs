@@ -165,7 +165,6 @@ impl<T> Tree<T> {
     }
 
     /// Get the root hash for the tree.
-    #[allow(unused)]
     pub fn hash(&self) -> [u8; 32] {
         Node::root_hash(&self.root.clone().into()).into()
     }
@@ -249,40 +248,6 @@ impl<T> Tree<T> {
             // contract hands out only the `&Arc<T>` value, a cheap projection
             // of it.
             .map(|(k, v, m)| (k, v, m.as_arc()))
-    }
-
-    /// Get all the values stored at a list of hash paths in the tree.
-    ///
-    /// A live tree holds at most one leaf per path, so the result has one entry
-    /// per requested path that is present, in unspecified order. This filters
-    /// the lazy leaf walk rather than descending each path: it is a test-only
-    /// helper (no production caller), so simplicity wins over the targeted
-    /// descent a hot path would want.
-    #[cfg(test)]
-    fn get_all<I>(&self, paths: I) -> Vec<(Key, Version, Arc<T>)>
-    where
-        T: Send + Sync,
-        I: IntoIterator<Item = Key>,
-    {
-        let wanted: std::collections::HashSet<Key> = paths.into_iter().collect();
-        self.iter()
-            .filter(|(key, _, _)| wanted.contains(key))
-            .map(|(key, version, message)| (key, version.clone(), message.clone()))
-            .collect()
-    }
-
-    /// Get all the values in this tree which are unknown relative to the given
-    /// version vector.
-    #[cfg(test)]
-    pub fn unknown(&self, version: &Version) -> Vec<(Key, Version, Message<T>)>
-    where
-        T: Send + Sync,
-    {
-        traverse::unknown(self.root.clone().into(), version)
-            .iter()
-            .flat_map(|node| node.leaves(typed::Prefix::new()))
-            .map(|(k, v, m)| (k, v.clone(), m.clone()))
-            .collect()
     }
 
     /// Apply the specified actions as a batch to the tree, advancing its

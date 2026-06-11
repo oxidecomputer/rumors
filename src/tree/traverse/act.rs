@@ -87,18 +87,14 @@ where
         // map exploded from the node
         let mut updated: Vec<_> = Vec::new();
         for (radix, group) in &by_radix {
-            let actions: Vec<_> = group
-                .map(|(_, path, version, action)| (path, version, action))
-                .collect();
+            let mut actions = group.map(|(_, path, version, action)| (path, version, action));
 
             // Mutably pull the existing child out of the parent:
             let existing_child = existing_children.remove(&radix);
 
             // Short-circuit when solely trying to delete from a non-existent child:
             if existing_child.is_none()
-                && actions
-                    .iter()
-                    .all(|(_, _, action)| matches!(action, Action::Forget))
+                && actions.all(|(_, _, action)| matches!(action, Action::Forget))
             {
                 continue;
             }

@@ -112,13 +112,11 @@ where
                 let ours = ours.into_children();
                 let theirs = theirs.into_children();
 
-                let divergent: Vec<_> = ours.diff_owned(&theirs).collect();
-
                 // Start the merged map from *ours* (moved — `diff`'s borrow has
                 // ended) and rewrite only the divergent radixes; every shared
                 // child carries over verbatim by structural sharing.
-                let mut merged = ours;
-                for (radix, our_child, their_child) in divergent {
+                let mut merged = ours.clone();
+                for (radix, our_child, their_child) in ours.diff_owned(&theirs) {
                     match Join::join(our_child, their_child, a_version, b_version) {
                         Some(child) => {
                             merged.insert(radix, child);

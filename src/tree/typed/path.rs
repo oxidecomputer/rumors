@@ -44,21 +44,6 @@ impl Path<Root> {
     }
 }
 
-impl<H: Height> Path<H> {
-    /// Reinterpret a full 32-byte hash as a path cursor positioned at height
-    /// `H` — i.e. with the leading `32 - H::HEIGHT` bytes treated as already
-    /// consumed. The bytes are retained in full; only the height marker (which
-    /// [`pop`](Path::pop) reads from) changes. Used when re-materializing
-    /// provided leaves: a leaf's full content-addressed path is recomputed,
-    /// then descended from the height of the subtree it belongs to.
-    pub(crate) fn at_height(hash: [u8; 32]) -> Self {
-        Self {
-            height: PhantomData,
-            hash,
-        }
-    }
-}
-
 impl<H: Height> Path<S<H>>
 where
     S<H>: Height,

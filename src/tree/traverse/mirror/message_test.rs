@@ -21,13 +21,11 @@ use proptest::prelude::*;
 
 use crate::message::Message;
 use crate::tree::arb::{arb_root_node, arb_version, nth_party};
-use crate::tree::key::Key;
 use crate::tree::typed::height::{Height, Root, S, Z};
-use crate::tree::typed::{Hash, Node, Path, Prefix};
+use crate::tree::typed::{Hash, Node, Prefix};
 use crate::version::Version;
 
 use super::message;
-use super::reassemble::{flatten_providing, reassemble_providing};
 
 /// Build a `Prefix<H>` from a raw byte slice (length `32 - H::HEIGHT`).
 fn prefix_from_bytes<H: Height>(bytes: &[u8]) -> Prefix<H> {
@@ -70,23 +68,6 @@ fn canonical_providing<H: Height>(
         .collect::<BTreeMap<_, _>>()
         .into_iter()
         .collect()
-}
-
-/// A `providing` leaf list in canonical wire form: each leaf tagged with its
-/// true content-addressed-path [`Key`], deduplicated, in strictly ascending key
-/// order. The value is `()` so the path is determined by the version alone.
-/// Drives the retained [`reassemble_providing`]/[`flatten_providing`] tests.
-fn canonical_leaves(versions: Vec<Version>) -> Vec<(Key, Version, Message<()>)> {
-    let mut by_path: BTreeMap<[u8; 32], (Key, Version, Message<()>)> = BTreeMap::new();
-    for version in versions {
-        let message = Message::new(());
-        let path: [u8; 32] = Path::<Root>::for_leaf(&version, message.bytes()).into();
-        by_path.insert(
-            path,
-            (Key::from(Path::<Root>::from(path)), version, message),
-        );
-    }
-    by_path.into_values().collect()
 }
 
 /// Sort and deduplicate `(prefix, hash)` entries into the canonical ascending
@@ -216,33 +197,6 @@ proptest! {
         let bytes = borsh::to_vec(&m).unwrap();
         prop_assert!(message::Complete::<()>::try_from_slice(&bytes).is_err());
     }
-
-    /// Reassembling a leaf list into the `providing` map at a given height and
-    /// flattening it back is the identity: placement is by the transmitted key
-    /// (the leaf's content-addressed path), so the rebuilt subtrees yield exactly
-    /// the original leaves — keys included — in the original order. Exercised
-    /// across heights from leaf (`Z`) up near the root. Pins the retained
-    /// leaf-only conversion in [`super::reassemble`].
-    #[test]
-    fn reassemble_flatten_identity(versions in vec(arb_version(), 0..=6)) {
-        let leaves = canonical_leaves(versions);
-        prop_assert_eq!(
-            flatten_providing(reassemble_providing::<_, Z>(leaves.clone())),
-            leaves.clone()
-        );
-        prop_assert_eq!(
-            flatten_providing(reassemble_providing::<_, S<Z>>(leaves.clone())),
-            leaves.clone()
-        );
-        prop_assert_eq!(
-            flatten_providing(reassemble_providing::<_, S<S<Z>>>(leaves.clone())),
-            leaves.clone()
-        );
-        prop_assert_eq!(
-            flatten_providing(reassemble_providing::<_, message::UnderRoot>(leaves.clone())),
-            leaves
-        );
-    }
 }
 
 /// A single version, ticked once on a fixed party — enough to place one leaf.
@@ -264,22 +218,6 @@ fn providing_rejects_duplicate_prefix() {
     };
     let bytes = borsh::to_vec(&m).unwrap();
     assert!(message::Complete::<()>::try_from_slice(&bytes).is_err());
-}
-
-/// In debug builds, [`reassemble_providing`] recomputes each leaf's path and
-/// asserts it matches the transmitted key, so a key that does not match its
-/// content trips the assert. (Release builds trust the key and skip the check
-/// for the performance win, which is why this test is debug-only.) Pins the
-/// retained leaf-only conversion in [`super::reassemble`].
-#[test]
-#[cfg(debug_assertions)]
-#[should_panic(expected = "does not match its content-addressed path")]
-fn reassemble_rejects_mismatched_key_in_debug() {
-    let version = one_version();
-    let message = Message::new(());
-    // A key that is deliberately *not* this leaf's content-addressed path.
-    let wrong_key = Key::from(Path::<Root>::from([0xab; 32]));
-    let _ = reassemble_providing::<(), Z>(vec![(wrong_key, version, message)]);
 }
 
 /// A `requested` frame whose prefixes descend is rejected.

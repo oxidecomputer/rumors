@@ -14,7 +14,6 @@ pub mod protocol;
 pub mod remote;
 
 pub(crate) mod message;
-mod reassemble;
 
 #[cfg(test)]
 mod message_test;

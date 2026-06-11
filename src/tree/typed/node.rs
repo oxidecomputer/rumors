@@ -8,7 +8,6 @@ use crate::{message::Message, version::Version};
 use super::hash::Hash;
 use super::height::{self, Height, S, Z};
 use super::levels::{Top, levels};
-use super::prefix::Prefix;
 use super::untyped;
 
 /// The typed node with a height of 32; the root of the tree.
@@ -25,6 +24,15 @@ impl<T, H: Height> Default for Children<T, H> {
         Self {
             height: PhantomData,
             inner: OrdMap::new(),
+        }
+    }
+}
+
+impl<T, H: Height> Clone for Children<T, H> {
+    fn clone(&self) -> Self {
+        Self {
+            height: PhantomData,
+            inner: self.inner.clone(),
         }
     }
 }
@@ -180,20 +188,6 @@ impl<T, H: Height> Node<T, H> {
     /// whole (compressed) subtree is kept or dropped — no need to explode it.
     pub fn is_leaf(&self) -> bool {
         self.inner.is_leaf()
-    }
-
-    /// Lazily walk every leaf of this subtree, given the `prefix` path already
-    /// taken to reach it, yielding each leaf's reconstructed [`Key`],
-    /// [`Version`] and [`Message`].
-    ///
-    /// Read-only: it borrows the subtree and leaves it — and its memoized
-    /// hash/ceiling/floor — untouched, which is what lets a caller observe every
-    /// leaf without the destroy-and-rebuild that [`into_children`] incurs.
-    ///
-    /// [`into_children`]: Node::into_children
-    /// [`Key`]: crate::Key
-    pub(crate) fn leaves(&self, prefix: Prefix<H>) -> untyped::Iter<'_, T> {
-        untyped::Iter::within(&self.inner, prefix.as_bytes())
     }
 
     /// Number of path-compressed prefix bytes on this node — i.e., the
