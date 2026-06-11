@@ -232,7 +232,7 @@ impl<T> Broadcast<T> {
 
     /// Observe every message in this rumor set, from genesis onward. See
     /// [`Messages`] for the contract; equivalent to
-    /// [`messages_from`](Self::messages_from) at [`Version::new`].
+    /// [`messages_since`](Self::messages_since) at [`Version::new`].
     pub fn messages(&self) -> Messages<T>
     where
         T: Send + Sync,
@@ -251,7 +251,7 @@ impl<T> Broadcast<T> {
 
     /// Observe every message in this rumor set in *causal order*, from
     /// genesis onward. See [`CausalMessages`] for the contract; equivalent
-    /// to [`causal_messages_from`](Self::causal_messages_from) at
+    /// to [`causal_messages_since`](Self::causal_messages_since) at
     /// [`Version::new`].
     pub fn causal_messages(&self) -> CausalMessages<T>
     where

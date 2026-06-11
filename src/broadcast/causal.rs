@@ -192,7 +192,7 @@ impl<T> CausalMessages<T> {
     /// The sound resume point: the causal frontier *behind* the staged
     /// backlog, suitable for persisting across processes or handing to
     /// another replica of the same network — a later
-    /// [`causal_messages_from(checkpoint)`](crate::Broadcast::causal_messages_from)
+    /// [`causal_messages_since(checkpoint)`](crate::Broadcast::causal_messages_since)
     /// re-observes nothing already delivered *and drained*, and everything
     /// not yet delivered. While a backlog is draining the checkpoint holds at
     /// the batch's range start (a [`Version`] can only encode a causally
