@@ -28,11 +28,11 @@ The `justfile` is the source of truth for verification — every artifact in the
 workspace has a recipe there; `just --list` shows them all. The tiers:
 
 - Inner loop: `just check`, `just test <filter>`, `just clippy`, `just fmt`.
-- The gate before every commit: `just gate` (fmt → clippy → tests → doctests),
-  all clean.
+- The gate before every commit: `just gate` (fmt → clippy → docs with
+  `-D warnings` → tests → doctests), all clean.
 - `just all`: the full no-rot sweep — adds what the gate never touches (the
-  `before` feature matrix, the wasm target, rustdoc `-D warnings`, bench
-  builds, the fuzz targets, the viz bundle).
+  `before` feature matrix, the wasm target, bench builds, the fuzz targets,
+  the viz bundle).
 
 ## Hard rules
 

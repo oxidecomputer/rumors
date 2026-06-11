@@ -1,12 +1,12 @@
 # rumors workspace — every artifact, tiered by feedback speed.
 #
 #   inner loop   just check / just test <filter>     seconds-to-a-minute
-#   commit gate  just gate                           fmt → clippy → tests → doctests
+#   commit gate  just gate                           fmt → clippy → docs → tests → doctests
 #   no-rot sweep just all                            everything below, cheap-first
 #
 # `all` is the superset: it adds the artifacts the gate doesn't reach — the
 # `before` feature matrix, the wasm target, the viz TypeScript bundle, the
-# nightly fuzz targets, rustdoc, and the bench/example builds.
+# nightly fuzz targets, and the bench/example builds.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
@@ -53,10 +53,10 @@ fmt:
 fmt-check:
     cargo fmt --all --check
 
-# ── commit gate (CLAUDE.md: fmt → clippy → test, all clean) ──────────────────
+# ── commit gate (CLAUDE.md: fmt → clippy → docs → test, all clean) ───────────
 
 # Run the pre-commit gate.
-gate: fmt-check clippy test doctest
+gate: fmt-check clippy docs test doctest
 
 # ── artifacts the gate doesn't reach ─────────────────────────────────────────
 
@@ -84,8 +84,8 @@ wasm-check:
 viz:
     ./crates/before-viz/build.sh
 
-# This catches broken intra-doc links, which the normal gate never sees.
-# CLAUDE.md calls the rustdoc the documentation of record, so it's load-bearing.
+# This catches broken intra-doc links. CLAUDE.md calls the rustdoc the
+# documentation of record, so it's load-bearing and part of the gate.
 
 # Build the rustdoc with warnings denied.
 docs:
