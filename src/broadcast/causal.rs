@@ -15,7 +15,7 @@ use tokio::sync::watch;
 use crate::tree::Leaf;
 use crate::{Key, Version};
 
-use super::Channel;
+use super::acausal::Channel;
 
 /// A causal-order observer of one rumor set: every message not causally
 /// contained in the starting checkpoint, then every message learned afterwards,
