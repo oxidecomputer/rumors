@@ -1,8 +1,7 @@
-//! Over-the-wire reconciliation benchmark: the same divergence grid as
-//! `in_memory.rs`, but reconciled through [`Known::gossip`] over a simulated
-//! wire instead of an in-process [`Known::join`]. Comparing the two cell for
-//! cell isolates the cost the gossip protocol adds — handshake, framing, and
-//! the round-trip exchange chain — over the bare in-memory merge.
+//! Over-the-wire reconciliation benchmark: the divergence grid from
+//! [`grid`], reconciled through [`Known::gossip`] over a simulated wire —
+//! the protocol's full cost per cell: handshake, framing, and the
+//! round-trip exchange chain over the divergence it must move.
 //!
 //! # The wire
 //!
@@ -67,9 +66,9 @@ impl Wire {
         let worker = thread::spawn(move || {
             let mut read = a_to_b_r;
             let mut write = b_to_a_w;
-            while let Ok(b) = work_rx.recv() {
-                let b_out = b.gossip(&mut read, &mut write).expect("worker peer gossip");
-                if done_tx.send(b_out).is_err() {
+            while let Ok(mut b) = work_rx.recv() {
+                b.gossip(&mut read, &mut write).expect("worker peer gossip");
+                if done_tx.send(b).is_err() {
                     break;
                 }
             }
@@ -86,17 +85,16 @@ impl Wire {
 
     /// Reconcile one pair over the wire: hand B to the worker, drive A here, and
     /// collect both reconciled peers once the exchange completes.
-    fn round_trip(&mut self, a: Known<()>, b: Known<()>) -> (Known<()>, Known<()>) {
+    fn round_trip(&mut self, mut a: Known<()>, b: Known<()>) -> (Known<()>, Known<()>) {
         self.work
             .as_ref()
             .expect("worker still running")
             .send(b)
             .expect("hand peer B to worker");
-        let a_out = a
-            .gossip(&mut self.a_read, &mut self.a_write)
+        a.gossip(&mut self.a_read, &mut self.a_write)
             .expect("peer A gossip");
         let b_out = self.done.recv().expect("recv reconciled peer B");
-        (a_out, b_out)
+        (a, b_out)
     }
 }
 

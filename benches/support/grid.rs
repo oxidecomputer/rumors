@@ -1,11 +1,10 @@
 //! Shared fixtures for the reconciliation benchmarks.
 //!
-//! Both [`in_memory`](../in_memory.rs) (which reconciles two peers in-process
-//! via [`Known::join`](rumors::sync::Known::join)) and
-//! [`gossip_grid`](../gossip_grid.rs) (which reconciles them over a simulated
-//! wire via [`Known::gossip`](rumors::sync::Known::gossip)) `#[path]`-include
-//! this module so they measure *the same divergence shapes* — the in-memory
-//! merge and the over-the-wire protocol can be compared cell for cell.
+//! [`gossip_grid`](../gossip_grid.rs) reconciles two diverged peers over a
+//! simulated wire via [`Known::gossip`](rumors::sync::Known::gossip) across
+//! the divergence grid below; [`in_memory`](../in_memory.rs) shares the size
+//! sweep and sample-size policy for the single-set surface (inserts,
+//! iteration, ranges, observers, lookups).
 //!
 //! # The divergence grid
 //!
@@ -36,32 +35,33 @@ use rumors::sync::{Key, Known};
 
 /// Mint a genuine party-disjoint originator that inherits `parent`'s content.
 ///
-/// `Known::fork` is gone, so a peer that will independently `message`/`redact`
-/// (as both sides of every grid cell do after the split) needs its own disjoint
-/// Interval Tree Clock region. We mint one by serving a bootstrap from a
-/// [`rumors`](Known::rumors) snapshot of `parent`: the newcomer pulls `parent`'s
-/// whole tree through the ordinary mirror descent and is handed a fresh disjoint
-/// party, exactly as a local fork used to be.
-fn bootstrap_fork<T>(parent: &Known<T>) -> Known<T>
+/// A peer that will independently `send`/`redact` (as both sides of every
+/// grid cell do after the split) needs its own disjoint Interval Tree Clock
+/// region. We mint one by serving a bootstrap from `parent` over a pair of
+/// pipes: the newcomer pulls `parent`'s whole tree through the ordinary
+/// mirror descent and is handed a fresh disjoint party, forked in the same
+/// critical section that snapshots the served tree.
+fn bootstrap_fork<T>(parent: &mut Known<T>) -> Known<T>
 where
     T: BorshSerialize + BorshDeserialize + Clone + Send + Sync + 'static,
 {
     let (mut p2n_r, mut p2n_w) = pipe().expect("pipe parent->newcomer");
     let (mut n2p_r, mut n2p_w) = pipe().expect("pipe newcomer->parent");
-    let newcomer = thread::spawn(move || {
-        Known::<T>::bootstrap(&mut p2n_r, &mut n2p_w)
-            .expect("bootstrap newcomer")
-            .expect("provider served bootstrap")
-    });
-    let server = parent.rumors();
-    server
-        .gossip(&mut n2p_r, &mut p2n_w)
-        .expect("serve bootstrap");
-    newcomer.join().expect("join bootstrap thread")
+    thread::scope(|s| {
+        let newcomer = s.spawn(move || {
+            Known::<T>::bootstrap(&mut p2n_r, &mut n2p_w)
+                .expect("bootstrap newcomer")
+                .expect("provider served bootstrap")
+        });
+        parent
+            .gossip(&mut n2p_r, &mut p2n_w)
+            .expect("serve bootstrap");
+        newcomer.join().expect("join bootstrap thread")
+    })
 }
 
-/// Live message counts for the non-grid benchmarks (`message`, `iter`,
-/// `redact`), spanning three orders of magnitude.
+/// Live message counts for the single-set benchmarks (`batch_insert`,
+/// `iter`, `redact`, `range_delta`, …), spanning three orders of magnitude.
 #[allow(unused)]
 pub const SIZES: &[usize] = &[100, 10_000, 1_000_000];
 
@@ -79,10 +79,14 @@ pub const DIFFERING: &[usize] = &[0, 1, 10, 100, 1_000, 10_000, 100_000];
 /// (see the module docs). Bounded per cell by `common / 2`.
 pub const REDACTED: &[usize] = &[0, 1, 10, 100, 1_000, 10_000, 100_000];
 
-/// An iterator yielding `n` unit payloads. `()` borsh-encodes to zero bytes, so
-/// fixtures measure tree / clock / hashing work, not payload serialization.
-pub fn units(n: usize) -> impl Iterator<Item = ()> + Send {
-    std::iter::repeat_n((), n)
+/// Commit `n` unit payloads to `known` as one batch. `()` borsh-encodes to
+/// zero bytes, so fixtures measure tree / clock / hashing work, not payload
+/// serialization.
+pub fn send_units(known: &Known<()>, n: usize) {
+    let mut batch = known.batch();
+    for _ in 0..n {
+        batch.send(());
+    }
 }
 
 /// Criterion samples for a fixture of the given build magnitude. The largest
@@ -162,8 +166,8 @@ pub fn cells() -> impl Iterator<Item = Cell> {
 ///
 /// `left` is a fresh [`Known::seed`]; `right` is a genuine disjoint peer minted
 /// from it via [`bootstrap_fork`], so their parties are disjoint (the
-/// precondition for `join` / `gossip`). The shared prefix is inserted before
-/// the split; the `differing` messages and `redacted` deletions are applied
+/// precondition for `gossip`). The shared prefix is inserted before the
+/// split; the `differing` messages and `redacted` deletions are applied
 /// independently to each side after it.
 pub fn build(cell: Cell) -> (Known<()>, Known<()>) {
     let Cell {
@@ -173,20 +177,30 @@ pub fn build(cell: Cell) -> (Known<()>, Known<()>) {
     } = cell;
 
     let mut left: Known<()> = Known::seed();
-    let mut shared: Vec<Key> = Vec::with_capacity(common);
-    left.message_then(units(common), |k, _, _| shared.push(k));
+    send_units(&left, common);
+    // The shared prefix's keys, for carving the redaction blocks; order is
+    // immaterial (the blocks only need to be disjoint and deterministic, and
+    // the snapshot iterates in a stable order).
+    let shared: Vec<Key> = left.snapshot().iter().map(|(k, _, _)| k).collect();
 
-    let mut right = bootstrap_fork(&left);
-    left.message(units(differing));
-    right.message(units(differing));
+    let right = bootstrap_fork(&mut left);
+    send_units(&left, differing);
+    send_units(&right, differing);
 
     if redacted > 0 {
         // Disjoint blocks: each side forgets a distinct slice of the shared
         // prefix, so the other must honor `redacted` deletions it never made.
         // `cells` guarantees `common >= 2 * redacted`, so the slices don't
         // overlap and are in bounds.
-        left.redact(shared[..redacted].iter().copied());
-        right.redact(shared[redacted..2 * redacted].iter().copied());
+        let mut batch = left.batch();
+        for key in &shared[..redacted] {
+            batch.redact(*key);
+        }
+        drop(batch);
+        let mut batch = right.batch();
+        for key in &shared[redacted..2 * redacted] {
+            batch.redact(*key);
+        }
     }
 
     (left, right)

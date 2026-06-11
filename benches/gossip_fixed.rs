@@ -38,27 +38,28 @@ const REDACT_STEP: usize = 250;
 
 /// Mint a genuine party-disjoint originator that inherits `parent`'s content.
 ///
-/// `Known::fork` is gone, so a peer that will independently `message`/`redact`
-/// (as both sides of every fixture here do) is minted by serving a bootstrap
-/// from a [`rumors`](Known::rumors) snapshot of `parent`: the newcomer pulls
-/// `parent`'s whole tree through the ordinary mirror descent and is handed a
-/// fresh disjoint party, exactly as a local fork used to be.
-fn bootstrap_fork<T>(parent: &Known<T>) -> Known<T>
+/// A peer that will independently `send`/`redact` (as both sides of every
+/// fixture here do) is minted by serving a bootstrap from `parent` over a
+/// pair of pipes: the newcomer pulls `parent`'s whole tree through the
+/// ordinary mirror descent and is handed a fresh disjoint party, forked in
+/// the same critical section that snapshots the served tree.
+fn bootstrap_fork<T>(parent: &mut Known<T>) -> Known<T>
 where
     T: BorshSerialize + BorshDeserialize + Clone + Send + Sync + 'static,
 {
     let (mut p2n_r, mut p2n_w) = pipe().expect("pipe parent→newcomer");
     let (mut n2p_r, mut n2p_w) = pipe().expect("pipe newcomer→parent");
-    let newcomer = thread::spawn(move || {
-        Known::<T>::bootstrap(&mut p2n_r, &mut n2p_w)
-            .expect("bootstrap newcomer")
-            .expect("provider served bootstrap")
-    });
-    let server = parent.rumors();
-    server
-        .gossip(&mut n2p_r, &mut p2n_w)
-        .expect("serve bootstrap");
-    newcomer.join().expect("join bootstrap thread")
+    thread::scope(|s| {
+        let newcomer = s.spawn(move || {
+            Known::<T>::bootstrap(&mut p2n_r, &mut n2p_w)
+                .expect("bootstrap newcomer")
+                .expect("provider served bootstrap")
+        });
+        parent
+            .gossip(&mut n2p_r, &mut p2n_w)
+            .expect("serve bootstrap");
+        newcomer.join().expect("join bootstrap thread")
+    })
 }
 
 /// A reusable in-memory "wire": two OS pipes plus a persistent worker thread
@@ -81,9 +82,9 @@ impl Wire {
         let worker = thread::spawn(move || {
             let mut read = a_to_b_r;
             let mut write = b_to_a_w;
-            while let Ok(b) = work_rx.recv() {
-                let b_out = b.gossip(&mut read, &mut write).expect("worker peer gossip");
-                if done_tx.send(b_out).is_err() {
+            while let Ok(mut b) = work_rx.recv() {
+                b.gossip(&mut read, &mut write).expect("worker peer gossip");
+                if done_tx.send(b).is_err() {
                     break;
                 }
             }
@@ -98,17 +99,16 @@ impl Wire {
         }
     }
 
-    fn round_trip(&mut self, a: Known<u8>, b: Known<u8>) -> (Known<u8>, Known<u8>) {
+    fn round_trip(&mut self, mut a: Known<u8>, b: Known<u8>) -> (Known<u8>, Known<u8>) {
         self.work
             .as_ref()
             .expect("worker still running")
             .send(b)
             .expect("hand peer B to worker");
-        let a_out = a
-            .gossip(&mut self.a_read, &mut self.a_write)
+        a.gossip(&mut self.a_read, &mut self.a_write)
             .expect("peer A gossip");
         let b_out = self.done.recv().expect("recv reconciled peer B");
-        (a_out, b_out)
+        (a, b_out)
     }
 }
 
@@ -195,17 +195,17 @@ fn build_bidir_insertions(total_insertions: usize) -> (Known<u8>, Known<u8>) {
     assert_eq!(total_insertions % 2, 0);
 
     let mut left = seeded_with_messages(N - total_insertions, 0x1189_2d1a_c54f_a94d);
-    let mut right = bootstrap_fork(&left);
+    let right = bootstrap_fork(&mut left);
     let per_side = total_insertions / 2;
 
-    left.message(random_bytes(
-        per_side,
-        0x7a27_9f20_6c8b_d141 ^ total_insertions as u64,
-    ));
-    right.message(random_bytes(
-        per_side,
-        0xc436_90ed_83f6_5b55 ^ total_insertions as u64,
-    ));
+    send_all(
+        &left,
+        random_bytes(per_side, 0x7a27_9f20_6c8b_d141 ^ total_insertions as u64),
+    );
+    send_all(
+        &right,
+        random_bytes(per_side, 0xc436_90ed_83f6_5b55 ^ total_insertions as u64),
+    );
 
     (left, right)
 }
@@ -214,12 +214,15 @@ fn build_unilateral_insertions(total_insertions: usize) -> (Known<u8>, Known<u8>
     assert!(total_insertions <= N);
 
     let mut left = seeded_with_messages(N - total_insertions, 0x70e4_a5b8_cce0_25da);
-    let right = bootstrap_fork(&left);
+    let right = bootstrap_fork(&mut left);
 
-    left.message(random_bytes(
-        total_insertions,
-        0xf193_d419_8d66_85d1 ^ total_insertions as u64,
-    ));
+    send_all(
+        &left,
+        random_bytes(
+            total_insertions,
+            0xf193_d419_8d66_85d1 ^ total_insertions as u64,
+        ),
+    );
 
     (left, right)
 }
@@ -229,12 +232,12 @@ fn build_bidir_redactions(total_redactions: usize) -> (Known<u8>, Known<u8>) {
     assert_eq!(total_redactions % 2, 0);
 
     let (mut left, keys) = seeded_with_keys(N, 0xc786_a046_6b7d_c9d3);
-    let mut right = bootstrap_fork(&left);
+    let right = bootstrap_fork(&mut left);
     let shuffled = shuffled_keys(keys, 0x84f6_7932_1265_9eec ^ total_redactions as u64);
     let per_side = total_redactions / 2;
 
-    left.redact(shuffled[..per_side].iter().copied());
-    right.redact(shuffled[per_side..total_redactions].iter().copied());
+    redact_all(&left, &shuffled[..per_side]);
+    redact_all(&right, &shuffled[per_side..total_redactions]);
 
     (left, right)
 }
@@ -243,24 +246,38 @@ fn build_unilateral_redactions(total_redactions: usize) -> (Known<u8>, Known<u8>
     assert!(total_redactions <= N / 2);
 
     let (mut left, keys) = seeded_with_keys(N, 0x2526_34f4_918f_e1c7);
-    let right = bootstrap_fork(&left);
+    let right = bootstrap_fork(&mut left);
     let shuffled = shuffled_keys(keys, 0xd4f9_f46b_3c09_1d60 ^ total_redactions as u64);
 
-    left.redact(shuffled[..total_redactions].iter().copied());
+    redact_all(&left, &shuffled[..total_redactions]);
 
     (left, right)
 }
 
+fn send_all(known: &Known<u8>, messages: Vec<u8>) {
+    let mut batch = known.batch();
+    for message in messages {
+        batch.send(message);
+    }
+}
+
+fn redact_all(known: &Known<u8>, keys: &[Key]) {
+    let mut batch = known.batch();
+    for key in keys {
+        batch.redact(*key);
+    }
+}
+
 fn seeded_with_messages(n: usize, seed: u64) -> Known<u8> {
-    let mut known = Known::seed();
-    known.message(random_bytes(n, seed));
+    let known = Known::seed();
+    send_all(&known, random_bytes(n, seed));
     known
 }
 
 fn seeded_with_keys(n: usize, seed: u64) -> (Known<u8>, Vec<Key>) {
-    let mut known = Known::seed();
-    let mut keys = Vec::with_capacity(n);
-    known.message_then(random_bytes(n, seed), |key, _, _| keys.push(key));
+    let known = Known::seed();
+    send_all(&known, random_bytes(n, seed));
+    let keys = known.snapshot().iter().map(|(k, _, _)| k).collect();
     (known, keys)
 }
 
