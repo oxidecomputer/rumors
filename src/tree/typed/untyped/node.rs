@@ -475,4 +475,4 @@ impl<T> PartialEq for Node<T> {
 }
 
 #[cfg(test)]
-mod test;
+mod tests;

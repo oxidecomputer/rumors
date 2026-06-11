@@ -230,4 +230,4 @@ impl<R: borsh::io::Read + ?Sized> borsh::io::Read for TeeReader<'_, R> {
 }
 
 #[cfg(test)]
-mod test;
+mod tests;

@@ -394,4 +394,4 @@ impl<T> Tree<T> {
 mod arb;
 
 #[cfg(test)]
-mod test;
+mod tests;

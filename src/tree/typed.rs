@@ -8,7 +8,7 @@ pub mod prefix;
 mod untyped;
 
 #[cfg(test)]
-mod test;
+mod tests;
 
 pub use hash::Hash;
 pub use levels::{Level, Levels};

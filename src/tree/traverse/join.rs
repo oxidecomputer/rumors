@@ -157,4 +157,4 @@ impl Join for Z {
 }
 
 #[cfg(test)]
-mod test;
+mod tests;

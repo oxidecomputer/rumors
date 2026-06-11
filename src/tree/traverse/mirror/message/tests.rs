@@ -25,7 +25,7 @@ use crate::tree::typed::height::{Height, Root, S, Z};
 use crate::tree::typed::{Hash, Node, Prefix};
 use crate::version::Version;
 
-use super::message;
+use crate::tree::traverse::mirror::message;
 
 /// Build a `Prefix<H>` from a raw byte slice (length `32 - H::HEIGHT`).
 fn prefix_from_bytes<H: Height>(bytes: &[u8]) -> Prefix<H> {

@@ -16,10 +16,7 @@ pub mod remote;
 pub(crate) mod message;
 
 #[cfg(test)]
-mod message_test;
-
-#[cfg(test)]
-mod test;
+mod tests;
 
 #[cfg(test)]
 mod wire_snapshot;

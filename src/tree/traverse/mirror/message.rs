@@ -78,6 +78,9 @@ use crate::tree::typed::{
 };
 use crate::version::Version;
 
+#[cfg(test)]
+mod tests;
+
 /// The `providing` channel's payload at height `H`: the subtrees being provided,
 /// each paired with the prefix it lands at, in ascending prefix order. The
 /// receiver inserts each node directly at its named prefix.

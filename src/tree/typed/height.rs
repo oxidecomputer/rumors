@@ -124,4 +124,4 @@ mod sealed {
 }
 
 #[cfg(test)]
-mod test;
+mod tests;

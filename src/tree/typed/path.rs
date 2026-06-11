@@ -119,4 +119,4 @@ impl From<Path<Root>> for [u8; 32] {
 }
 
 #[cfg(test)]
-mod test;
+mod tests;
