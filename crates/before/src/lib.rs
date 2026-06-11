@@ -55,10 +55,11 @@
 //! (a [`RangeBounds<Version>`](std::ops::RangeBounds) whose membership
 //! predicate is causal containment) for any API that filters by where
 //! versions stand in history. Where a *total* order over versions is
-//! needed, [`Area`] is the exact, strictly-monotone causal rank: ordering
-//! by `(Area, tiebreak)` linearly extends causality, so concurrent
+//! needed, [`Rank`] is the exact, strictly-monotone causal rank: ordering
+//! by `(Rank, tiebreak)` linearly extends causality, so concurrent
 //! versions can be sequenced deterministically without ever inverting a
-//! causal dependency.
+//! causal dependency. [`Ranked`] packages a version with its rank as a
+//! ready-made totally ordered key, tiebroken by canonical bytes.
 //!
 //! By packaging a [`Version`] and a [`Party`] together into a [`Clock`], we get
 //! a causal clock which may be [`tick`](Clock::tick)ed,
@@ -200,7 +201,7 @@ pub use clock::Clock;
 pub mod causally;
 pub mod error;
 pub use party::Party;
-pub use version::{Area, Version};
+pub use version::{Rank, Ranked, Version};
 pub mod batch {
     //! [`batch::Clock`](Clock) and [`batch::Version`](Version) amortize costs
     //! to improve performance on [`Clock`](crate::Clock)s and

@@ -58,7 +58,7 @@ impl Base {
     }
 
     /// The number of trailing zero bits, or `None` for zero (which has no
-    /// lowest set bit). Used by [`Area`](crate::Area) normalization to strip
+    /// lowest set bit). Used by [`Rank`](crate::Rank) normalization to strip
     /// factors of two out of a dyadic numerator.
     pub(crate) fn trailing_zeros(&self) -> Option<u64> {
         match self {

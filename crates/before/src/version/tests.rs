@@ -1,14 +1,14 @@
 //! Version tests: the working-form round-trip, the causal order and its
 //! comparison matrix, the join/meet operator matrices and lattice laws,
-//! complexity (linear-scaling) checks, grow optimality against the
-//! brute-force reference, `min_ticks`, and projection (`/`).
+//! complexity (linear-scaling) checks, grow optimality against the brute-force
+//! reference, `min_ticks`, and projection (`/`).
 
 use std::cmp::Ordering;
 
 use proptest::prelude::*;
 
 use super::working::WorkingVersion;
-use super::{Batch, Version};
+use super::{Batch, Ranked, Version};
 use crate::testing::bridge::{from_oracle_party, from_oracle_version, to_oracle_version};
 use crate::testing::complexity::{assert_linear_scaling, steps_of, MIN_SCALE};
 use crate::testing::generators::{
@@ -1119,13 +1119,13 @@ fn no_maximum_tick_count() {
     }
 }
 
-// ─────────────────────────────── area ───────────────────────────────
+// ─────────────────────────────── rank ───────────────────────────────
 
 /// The raw `(numerator, exponent)` area fold over the reference oracle's
 /// recursive `Version` — a leaf is its base, a node is its base plus half the
 /// sum of its children — normalized through the one shared constructor.
-/// Ground truth for the impl's cursor-threaded fold in [`Version::area`].
-fn oracle_area(v: &crate::oracle::Version) -> super::Area {
+/// Ground truth for the impl's cursor-threaded fold in [`Version::rank`].
+fn oracle_rank(v: &crate::oracle::Version) -> super::Rank {
     use crate::oracle::Version::{Leaf, Node};
     fn raw(v: &crate::oracle::Version) -> (crate::codec::Base, u32) {
         match v {
@@ -1140,66 +1140,66 @@ fn oracle_area(v: &crate::oracle::Version) -> super::Area {
         }
     }
     let (num, exp) = raw(v);
-    super::Area::from_raw(num, exp)
+    super::Rank::from_raw(num, exp)
 }
 
-/// `area` known values: the empty version is zero; a leaf is its integer
+/// `rank` known values: the empty version is zero; a leaf is its integer
 /// base; the pair `min_ticks` cannot separate — `(0, 1, 0) < 1`, both one
-/// tick — gets strictly ordered areas; and two *concurrent* versions may
-/// share an area (the two-peak tree also covers half the interval), which is
+/// tick — gets strictly ordered ranks; and two *concurrent* versions may
+/// share a rank (the two-peak tree also covers half the interval), which is
 /// exactly what the strict-monotonicity contract permits.
 #[test]
-fn area_known_values() {
-    assert_eq!(Version::new().area().to_string(), "0");
-    assert_eq!(Version::try_from(5).unwrap().area().to_string(), "5");
+fn rank_known_values() {
+    assert_eq!(Version::new().rank().to_string(), "0");
+    assert_eq!(Version::try_from(5).unwrap().rank().to_string(), "5");
 
     let half: Version = "(0, 1, 0)".parse().unwrap();
     let one = Version::try_from(1).unwrap();
     assert!(half < one, "strict containment in the causal order");
-    assert!(half.area() < one.area(), "so strictly smaller area");
+    assert!(half.rank() < one.rank(), "so strictly smaller rank");
     assert_eq!(half.min_ticks(), one.min_ticks(), "the floor ties them");
-    assert_eq!(half.area().to_string(), "1/2^1");
+    assert_eq!(half.rank().to_string(), "1/2^1");
 
     let peaks: Version = "(0, (0, 1, 0), (0, 0, 1))".parse().unwrap();
     assert!(half.concurrent(&peaks), "different halves of the interval");
     assert_eq!(
-        half.area(),
-        peaks.area(),
-        "equal area is fine when concurrent"
+        half.rank(),
+        peaks.rank(),
+        "equal rank is fine when concurrent"
     );
 }
 
 proptest! {
-    /// Differential. The impl's cursor-threaded `area` fold matches the
+    /// Differential. The impl's cursor-threaded `rank` fold matches the
     /// recursive oracle fold on every version any causal history produces.
     #[test]
-    fn area_matches_oracle(ops in world_strategy(), i in 0usize..64) {
+    fn rank_matches_oracle(ops in world_strategy(), i in 0usize..64) {
         let cs = run(&ops);
         let vs = versions(&cs);
         let n = vs.len();
-        prop_assert_eq!(from_oracle_version(&vs[i % n]).area(), oracle_area(&vs[i % n]));
+        prop_assert_eq!(from_oracle_version(&vs[i % n]).rank(), oracle_rank(&vs[i % n]));
     }
 
-    /// The contract that makes `area` a causal rank, on causally *related*
+    /// The contract that makes `rank` a causal rank, on causally *related*
     /// versions (an op-trace world is full of comparable pairs): strictly
-    /// ordered versions have strictly ordered areas, in the same direction,
-    /// and equal versions have equal areas. Concurrent pairs are
+    /// ordered versions have strictly ordered ranks, in the same direction,
+    /// and equal versions have equal ranks. Concurrent pairs are
     /// unconstrained.
     #[test]
-    fn area_strictly_monotone_in_histories(ops in world_strategy()) {
+    fn rank_strictly_monotone_in_histories(ops in world_strategy()) {
         let vs: Vec<Version> = versions(&run(&ops)).iter().map(from_oracle_version).collect();
         for a in &vs {
             for b in &vs {
                 match a.partial_cmp(b) {
                     Some(Ordering::Less) => prop_assert!(
-                        a.area() < b.area(),
-                        "{a} < {b} but area {} >= {}", a.area(), b.area(),
+                        a.rank() < b.rank(),
+                        "{a} < {b} but rank {} >= {}", a.rank(), b.rank(),
                     ),
                     Some(Ordering::Greater) => prop_assert!(
-                        a.area() > b.area(),
-                        "{a} > {b} but area {} <= {}", a.area(), b.area(),
+                        a.rank() > b.rank(),
+                        "{a} > {b} but rank {} <= {}", a.rank(), b.rank(),
                     ),
-                    Some(Ordering::Equal) => prop_assert_eq!(a.area(), b.area()),
+                    Some(Ordering::Equal) => prop_assert_eq!(a.rank(), b.rank()),
                     None => {} // concurrent: no constraint
                 }
             }
@@ -1208,41 +1208,112 @@ proptest! {
 
     /// The same contract on arbitrary normal-form pairs (uncoupled from the
     /// op-trace generator's causally related shapes), plus the join probe:
-    /// `a | b` dominates each side, so its area dominates each side's, with
+    /// `a | b` dominates each side, so its rank dominates each side's, with
     /// equality exactly when that side already contained the other.
     #[test]
-    fn area_strictly_monotone_arbitrary(oa in arb_oracle_version(), ob in arb_oracle_version()) {
+    fn rank_strictly_monotone_arbitrary(oa in arb_oracle_version(), ob in arb_oracle_version()) {
         let a = from_oracle_version(&oa);
         let b = from_oracle_version(&ob);
         match a.partial_cmp(&b) {
-            Some(Ordering::Less) => prop_assert!(a.area() < b.area()),
-            Some(Ordering::Greater) => prop_assert!(a.area() > b.area()),
-            Some(Ordering::Equal) => prop_assert_eq!(a.area(), b.area()),
+            Some(Ordering::Less) => prop_assert!(a.rank() < b.rank()),
+            Some(Ordering::Greater) => prop_assert!(a.rank() > b.rank()),
+            Some(Ordering::Equal) => prop_assert_eq!(a.rank(), b.rank()),
             None => {}
         }
         let joined = &a | &b;
         for side in [&a, &b] {
             if joined == *side {
-                prop_assert_eq!(joined.area(), side.area());
+                prop_assert_eq!(joined.rank(), side.rank());
             } else {
-                prop_assert!(joined.area() > side.area(), "the join strictly grew");
+                prop_assert!(joined.rank() > side.rank(), "the join strictly grew");
             }
         }
     }
 
     /// Every `tick`, on any live clock in any causal history, strictly
-    /// increases the area: a tick adds an event the version did not contain.
+    /// increases the rank: a tick adds an event the version did not contain.
     #[test]
-    fn tick_strictly_increases_area(ops in world_strategy(), i in 0usize..64) {
+    fn tick_strictly_increases_rank(ops in world_strategy(), i in 0usize..64) {
         let mut imp = vec![Clock::seed()];
         for op in &ops {
             step_impl(&mut imp, op);
         }
         let n = imp.len();
         let c = &mut imp[i % n];
-        let before = c.version().area();
+        let before = c.version().rank();
         c.tick();
-        prop_assert!(before < c.version().area());
+        prop_assert!(before < c.version().rank());
+    }
+}
+
+// ─────────────────────────────── ranked ───────────────────────────────
+
+/// `Ranked` known values: a concurrent pair sharing a rank (half vs. the
+/// two-peak tree) is tiebroken by canonical bytes — unequal, ordered in
+/// exactly one direction — and `into_parts` returns the version with its
+/// own rank.
+#[test]
+fn ranked_tiebreaks_equal_ranks_by_bytes() {
+    let half: Version = "(0, 1, 0)".parse().unwrap();
+    let peaks: Version = "(0, (0, 1, 0), (0, 0, 1))".parse().unwrap();
+    assert!(half.concurrent(&peaks), "the tie under test is concurrent");
+
+    let (h, p) = (Ranked::from(half), Ranked::from(peaks));
+    assert_eq!(h.rank(), p.rank(), "the pair shares a rank");
+    assert_ne!(h, p, "equality is version equality, not rank equality");
+    assert!((h < p) ^ (p < h), "the byte tiebreak picks one direction");
+
+    let (version, rank) = h.into_parts();
+    assert_eq!(version.rank(), rank, "the carried rank is the version's");
+}
+
+proptest! {
+    /// `Ranked`'s total order linearly extends causality: causally ordered
+    /// versions compare in the same direction, equal versions compare
+    /// equal, and *concurrent* versions are tiebroken — `cmp` returns
+    /// `Equal` exactly when the versions are equal, so `Ord` is consistent
+    /// with `Eq`.
+    #[test]
+    fn ranked_linearly_extends_causality(ops in world_strategy()) {
+        let vs: Vec<Version> = versions(&run(&ops)).iter().map(from_oracle_version).collect();
+        for a in &vs {
+            for b in &vs {
+                let ra = Ranked::from(a.clone());
+                let rb = Ranked::from(b.clone());
+                match a.partial_cmp(b) {
+                    Some(ord) => prop_assert_eq!(ra.cmp(&rb), ord),
+                    None => prop_assert_ne!(
+                        ra.cmp(&rb),
+                        Ordering::Equal,
+                        "concurrent versions are tiebroken, never equal",
+                    ),
+                }
+                prop_assert_eq!(ra == rb, a == b);
+            }
+        }
+    }
+
+    /// A plain sort of `Ranked` keys delivers causes before effects: in
+    /// the sorted sequence, no version is causally dominated by an earlier
+    /// one.
+    // `Version` is a partial order: `!(later < earlier)` also admits
+    // concurrent pairs, which `later >= earlier` would reject.
+    #[allow(clippy::neg_cmp_op_on_partial_ord)]
+    #[test]
+    fn ranked_sort_respects_causality(ops in world_strategy()) {
+        let mut keys: Vec<Ranked> = versions(&run(&ops))
+            .iter()
+            .map(|v| Ranked::from(from_oracle_version(v)))
+            .collect();
+        keys.sort();
+        for i in 0..keys.len() {
+            for j in (i + 1)..keys.len() {
+                prop_assert!(
+                    !(keys[j].version() < keys[i].version()),
+                    "causal inversion survived the sort",
+                );
+            }
+        }
     }
 }
 

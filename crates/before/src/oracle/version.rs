@@ -203,22 +203,22 @@ impl Version {
         }
     }
 
-    /// The exact area under the event tree: a leaf is its base, a node is
-    /// its base plus half the sum of its children. The reference for
-    /// [`Version::area`](crate::Version::area).
-    pub fn area(&self) -> crate::Area {
-        let (num, exp) = self.area_raw();
-        crate::Area::from_raw(num, exp)
+    /// The causal rank — the exact area under the event tree: a leaf is its
+    /// base, a node is its base plus half the sum of its children. The
+    /// reference for [`Version::rank`](crate::Version::rank).
+    pub fn rank(&self) -> crate::Rank {
+        let (num, exp) = self.rank_raw();
+        crate::Rank::from_raw(num, exp)
     }
 
     /// The raw `(numerator, exponent)` area fold, in subtree-relative units
     /// (this subtree's interval has width 1).
-    fn area_raw(&self) -> (Base, u32) {
+    fn rank_raw(&self) -> (Base, u32) {
         match self {
             Version::Leaf(n) => (n.clone(), 0),
             Version::Node(n, l, r) => {
-                let (l_num, l_exp) = l.area_raw();
-                let (r_num, r_exp) = r.area_raw();
+                let (l_num, l_exp) = l.rank_raw();
+                let (r_num, r_exp) = r.rank_raw();
                 let exp = l_exp.max(r_exp);
                 let sum = (l_num << (exp - l_exp)) + (r_num << (exp - r_exp));
                 ((n.clone() << (exp + 1)) + sum, exp + 1)

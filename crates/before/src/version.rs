@@ -13,14 +13,16 @@ use crate::Party;
 
 use self::compare::EvReader;
 
-mod area;
 mod batch;
 mod compare;
 mod event;
+mod rank;
+mod ranked;
 mod working;
 
-pub use area::Area;
 pub use batch::Batch;
+pub use rank::Rank;
+pub use ranked::Ranked;
 
 #[cfg(test)]
 mod tests;
@@ -129,12 +131,12 @@ impl Version {
         self.view().min_ticks()
     }
 
-    /// The exact [`Area`] under this version's event tree: a strictly
-    /// monotone causal rank — `v < w` implies `v.area() < w.area()`, so
-    /// equal areas are never causally ordered (same version, or
-    /// concurrent). Sorting by `(area, some-total-tiebreak)` therefore
+    /// This version's causal [`Rank`], the exact area under its event
+    /// tree: strictly monotone — `v < w` implies `v.rank() < w.rank()`, so
+    /// equal ranks are never causally ordered (same version, or
+    /// concurrent). Sorting by `(rank, some-total-tiebreak)` therefore
     /// yields a linear extension of the causal order: causes always sort
-    /// before their effects. See [`Area`] for the measure itself and why
+    /// before their effects. See [`Rank`] for the measure itself and why
     /// strictness holds.
     ///
     /// Exact at any magnitude (arbitrary-precision numerator), `O(n)` in
@@ -148,12 +150,12 @@ impl Version {
     /// b.tick();
     /// let va = a.version().clone();
     /// let joined = &va | b.version();
-    /// // Ticks grow the area; the join dominates both sides' areas.
-    /// assert!(va.area() < joined.area());
-    /// assert!(b.version().area() < joined.area());
+    /// // Ticks grow the rank; the join dominates both sides' ranks.
+    /// assert!(va.rank() < joined.rank());
+    /// assert!(b.version().rank() < joined.rank());
     /// ```
-    pub fn area(&self) -> Area {
-        self.view().area()
+    pub fn rank(&self) -> Rank {
+        self.view().rank()
     }
 
     /// Begin a batch of operations on this [`Version`].
