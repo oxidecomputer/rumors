@@ -133,6 +133,10 @@ impl<T> Rumors<T> {
     /// `rumors.send(message);` commits at the end of the statement, and
     /// chaining further [`send`](Batch::send)s and [`redact`](Batch::redact)s
     /// accumulates them into one commit.
+    ///
+    /// # Panics
+    ///
+    /// If `message` fails to serialize (see [`Batch::send`]).
     pub fn send(&self, message: T) -> Batch<'_, T>
     where
         T: BorshSerialize + Send + Sync,

@@ -30,7 +30,12 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
         }
     }
 
-    /// Send a message.
+    /// Send a message as part of this batch.
+    ///
+    /// # Panics
+    ///
+    /// If `message` fails to serialize. Serialization runs here, not at
+    /// commit: the failure surfaces at the offending call.
     pub fn send(&mut self, message: T) -> &mut Self
     where
         T: BorshSerialize,
@@ -39,7 +44,8 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
         self
     }
 
-    /// Redact a [`Key`].
+    /// Redact a [`Key`] as part of this batch. Redacting a key not held at
+    /// commit time is a no-op.
     pub fn redact(&mut self, key: Key) -> &mut Self {
         self.actions.push(Action::Forget(key));
         self

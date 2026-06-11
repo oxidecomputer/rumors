@@ -40,18 +40,40 @@
 //!   the application's job; run sessions only over channels you already
 //!   trust.
 //!
+//! # Membership is custody, not configuration
+//!
+//! No shared secret, config value, or registry makes a peer a member of a
+//! universe. Membership is an *identity*: minted once, whole, when the
+//! universe is seeded, and split off a live member each time a new peer
+//! joins. Belonging flows through contact — you are a member because a
+//! member made you one ([`Peer::bootstrap`]), back along a chain of
+//! introductions that ends at the seed — and it flows back out the same
+//! way: a leaving peer returns its identity through any member
+//! ([`Peer::retire`]).
+//!
+//! Identities are returned rather than discarded because identity is
+//! *representational space*: every message's [`Version`] is expressed in
+//! terms of the identity splits that exist, so each split widens
+//! timestamps a little, and each return narrows them again. Hence the
+//! lifecycle's ceremonies. Joining hands you a share; leaving hands it
+//! back; a peer that crashes — or simply drops off without retiring —
+//! strands its share, and the universe's timestamps stay a little wider
+//! forever. Stranding wastes, but never corrupts. (The identity machinery
+//! is [`before`]'s interval tree clocks; see its docs for the model and
+//! for the ITC paper it implements.)
+//!
 //! # The shape of the API
 //!
-//! One replica has two faces. [`Peer`] is the unique `!Clone` anchor,
-//! present only at the edges of a replica's life, where *identity* moves:
-//! minting a universe ([`Peer::seed`]), joining one through any connected
-//! member ([`Peer::bootstrap`]), leaving it ([`Peer::retire`]). Trading
-//! the anchor away ([`Peer::into_rumors`]) opens the working state:
-//! [`Rumors`] clones freely, and clones send, redact, observe, and gossip
-//! concurrently. When the clones are gone, [`Rumors::try_into_peer`]
-//! recovers the anchor. The split is what lets the compiler — rather than
-//! a runtime check — guarantee that identity moves only while nothing else
-//! is touching the replica.
+//! One replica has two faces, split by custody. [`Peer`] is the unique
+//! `!Clone` anchor that holds the identity; it appears only at the edges
+//! of a replica's life, where identity moves: minting a universe
+//! ([`Peer::seed`]), joining one ([`Peer::bootstrap`]), leaving it
+//! ([`Peer::retire`]). Trading the anchor away ([`Peer::into_rumors`])
+//! opens the working state: [`Rumors`] clones freely, and clones send,
+//! redact, observe, and gossip concurrently. When the clones are gone,
+//! [`Rumors::try_into_peer`] recovers the anchor. The split is what lets
+//! the compiler — rather than a runtime check — guarantee that identity
+//! moves only while nothing else is touching the replica.
 //!
 //! Day to day:
 //!
@@ -128,13 +150,12 @@
 //!
 //! The moves that carry identity each need one more sentence. Cancelling a
 //! [`bootstrap`](Peer::bootstrap) is free: no identity exists yet.
-//! Dropping a [`retire`](Peer::retire) mid-session abandons the identity
-//! exactly as a crash would (see the crash note below); let it finish and
-//! inspect the returned [`Retire`], which reports the one genuinely
-//! uncertain outcome explicitly instead of guessing. And a failed or
-//! cancelled session that was serving a bootstrapper can waste the
-//! identity it had already shipped — waste, again, as a crash wastes, with
-//! nothing corrupted.
+//! Dropping a [`retire`](Peer::retire) mid-session strands the identity
+//! exactly as a crash would; let it finish and inspect the returned
+//! [`Retire`], which reports the one genuinely uncertain outcome
+//! explicitly instead of guessing. And a failed or cancelled session that
+//! was serving a bootstrapper can strand the identity split it had
+//! already shipped — again waste, never corruption.
 //!
 //! # One rule the types cannot enforce
 //!
@@ -144,12 +165,6 @@
 //! ([`Error::NetworkMismatch`]). If no distinguished first peer exists,
 //! seed everywhere and let a deterministic tie-break pick the survivors —
 //! the [`Peer`] docs give a complete uncoordinated recipe.
-//!
-//! Relatedly, with no correctness at stake: a peer that vanishes without
-//! [`retire`](Peer::retire)-ing permanently costs the universe a little
-//! bookkeeping (survivors' versions stay larger than they needed to be).
-//! Retire on the way out when you can; crashes merely waste, they do not
-//! corrupt.
 //!
 //! # Which observer should you use?
 //!
@@ -213,8 +228,7 @@
 //! mirror reconciliation protocol and its phase schedule, and the interval
 //! tree clocks ([`before`]) that carry causality — is documented in
 //! rustdoc beside the code, in private modules the public build does not
-//! render. `just docs-internal` (`cargo doc --document-private-items`)
-//! renders all of it.
+//! render.
 
 // Static assertions uses #[allow(unsafe_code)], so we allow it only in tests
 #![cfg_attr(not(test), forbid(unsafe_code))]

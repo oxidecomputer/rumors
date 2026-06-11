@@ -6,7 +6,15 @@ use std::sync::Arc;
 /// exact-size and double-ended.
 pub use crate::tree::Iter;
 
-/// A consistent snapshot of a set of rumors.
+/// A consistent point-in-time view of a set of rumors.
+///
+/// Consistent means atomic: the snapshot holds exactly the live set as of
+/// one moment — never a partially applied [`Batch`](crate::Batch) or a
+/// half-merged gossip session. Taking one
+/// ([`Rumors::snapshot`](crate::Rumors::snapshot)) is cheap:
+/// it shares structure with the live set rather than copying it, and later
+/// changes never show through. Hold it as long as you like; it keeps its
+/// messages alive, not the [`Peer`](crate::Peer).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Snapshot<T> {
     network: Network,
