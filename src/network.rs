@@ -66,3 +66,11 @@ impl fmt::Debug for Network {
         write!(f, "Network({})", hex::encode(self.0))
     }
 }
+
+/// The bare lowercase hex of the 16-byte identifier, with no surrounding
+/// punctuation: the form for logs and operator-facing output.
+impl fmt::Display for Network {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        hex::encode(self.0).fmt(f)
+    }
+}

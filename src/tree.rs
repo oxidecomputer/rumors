@@ -92,6 +92,36 @@ pub enum Action<T> {
     Forget(Key),
 }
 
+/// The iterator of [`Tree::iter`] and [`Snapshot::iter`](crate::Snapshot):
+/// a lazy depth-first walk over every live message as
+/// `(Key, &Version, &Arc<T>)`, in unspecified order. An
+/// [`ExactSizeIterator`] (the live-message count is known up front) and a
+/// [`DoubleEndedIterator`].
+///
+/// A thin shell over the internal leaf walk that projects each leaf's
+/// payload down to its `&Arc<T>` value.
+pub struct Iter<'a, T>(typed::Iter<'a, T>);
+
+impl<'a, T> Iterator for Iter<'a, T> {
+    type Item = (Key, &'a Version, &'a Arc<T>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next().map(|(k, v, m)| (k, v, m.as_arc()))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+}
+
+impl<'a, T> DoubleEndedIterator for Iter<'a, T> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.0.next_back().map(|(k, v, m)| (k, v, m.as_arc()))
+    }
+}
+
+impl<'a, T> ExactSizeIterator for Iter<'a, T> {}
+
 impl<T> Tree<T> {
     /// Create a new, empty tree carrying the empty [`Version`].
     ///
@@ -165,20 +195,17 @@ impl<T> Tree<T> {
 
     /// Lazily iterate every live leaf currently in the tree as
     /// `(Key, &Version, &Arc<T>)`, in unspecified order.
-    pub fn iter(
-        &self,
-    ) -> impl ExactSizeIterator<Item = (Key, &Version, &Arc<T>)> + DoubleEndedIterator + Send + Sync
+    pub fn iter(&self) -> Iter<'_, T>
     where
         T: Send + Sync,
     {
-        self.root
-            .root
-            .as_ref()
-            .map(typed::node::Root::iter)
-            .unwrap_or_else(typed::Iter::empty)
-            // The shared walk yields the full `&Message<T>`; the public contract
-            // hands out only the `&Arc<T>` value, a cheap projection of it.
-            .map(|(k, v, m)| (k, v, m.as_arc()))
+        Iter(
+            self.root
+                .root
+                .as_ref()
+                .map(typed::node::Root::iter)
+                .unwrap_or_else(typed::Iter::empty),
+        )
     }
 
     /// Lazily iterate the live leaves whose versions fall within the causal

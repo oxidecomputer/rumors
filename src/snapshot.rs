@@ -1,6 +1,11 @@
 use crate::{Key, Network, Tree, Version};
 use std::sync::Arc;
 
+/// The iterator of [`Snapshot::iter`], re-exported from the tree internals:
+/// every live message as `(Key, &Version, &Arc<T>)`, unspecified order,
+/// exact-size and double-ended.
+pub use crate::tree::Iter;
+
 /// A consistent snapshot of a set of rumors.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Snapshot<T> {
@@ -59,9 +64,7 @@ impl<T> Snapshot<T> {
     /// order: a message may be yielded before another that causally precedes
     /// it. Sort by the yielded [`Version`]s if your application needs an
     /// ordering consistent with causality.
-    pub fn iter(
-        &self,
-    ) -> impl ExactSizeIterator<Item = (Key, &Version, &Arc<T>)> + DoubleEndedIterator + Send + Sync
+    pub fn iter(&self) -> Iter<'_, T>
     where
         T: Send + Sync,
     {
@@ -124,5 +127,14 @@ impl<T> Snapshot<T> {
     #[doc(hidden)]
     pub fn warm_caches(&self) {
         self.tree.warm_caches();
+    }
+}
+
+impl<'a, T: Send + Sync> IntoIterator for &'a Snapshot<T> {
+    type Item = (Key, &'a Version, &'a Arc<T>);
+    type IntoIter = Iter<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
     }
 }

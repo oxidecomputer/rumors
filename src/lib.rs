@@ -23,7 +23,7 @@ mod bookmark;
 mod broadcast;
 mod message;
 mod network;
-mod snapshot;
+pub mod snapshot;
 mod tree;
 mod version;
 
