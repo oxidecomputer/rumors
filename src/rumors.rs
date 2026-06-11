@@ -16,9 +16,9 @@ use tokio::{
 /// A handle for [`send`](Rumors::send)ing and [`redact`](Rumors::redact)ing
 /// messages, and [`gossip`](Rumors::gossip)ing the result with peers.
 ///
-/// Unlike [`Peer`], [`Rumors`] is [`Clone`], which means that any
-/// number of tasks may concurrently interact with the set of rumors,
-/// arbitrarily. Synchronization is internal: anything one clone learns, all do.
+/// Unlike [`Peer`], [`Rumors`] is [`Clone`], which means that any number of
+/// tasks may concurrently interact with the set of rumors, arbitrarily.
+/// Synchronization is internal: anything one clone learns, all do.
 pub struct Rumors<T> {
     peer: Peer<T>,
     /// This handle's claim to existence; see [`Extant`].
@@ -27,8 +27,8 @@ pub struct Rumors<T> {
 
 /// One handle's share of a broadcast generation's existence. The `token`
 /// [`Arc`]'s strong count *is* the number of extant handles (a pending
-/// [`try_into_peer`](Rumors::try_into_peer) has already shed its share), so
-/// the count reaching zero is the moment the generation has quiesced and the
+/// [`try_into_peer`](Rumors::try_into_peer) has already shed its share), so the
+/// count reaching zero is the moment the generation has quiesced and the
 /// [`Peer`] may be reclaimed.
 #[derive(Clone)]
 struct Extant {
@@ -79,9 +79,9 @@ impl<T> std::fmt::Debug for Rumors<T> {
 }
 
 impl<T> Rumors<T> {
-    /// Assemble the first handle of a fresh broadcast generation around
-    /// `peer`, the only constructor: every other handle is a [`Clone`] of
-    /// this one, so the token count faithfully counts handles.
+    /// Assemble the first handle of a fresh broadcast generation around `peer`,
+    /// the only constructor: every other handle is a [`Clone`] of this one, so
+    /// the token count faithfully counts handles.
     pub(crate) fn new(peer: Peer<T>) -> Self {
         Self {
             peer,
@@ -100,8 +100,8 @@ impl<T> Rumors<T> {
     /// Cancelling a pending [`try_into_peer`](Self::try_into_peer) abandons its
     /// claim: the handle was already consumed, so dropping the future is no
     /// different from having dropped the `Rumors`. If every handle goes away
-    /// with no reunite pending, the `Peer` is gone for good and the set
-    /// closes: observers drain the final state and end.
+    /// with no reunite pending, the `Peer` is gone for good and the set closes:
+    /// observers drain the final state and end.
     pub async fn try_into_peer(self) -> Option<Peer<T>> {
         let Self { peer, extant } = self;
         let token = Arc::downgrade(extant.token.as_ref().expect("Some outside Drop"));
@@ -144,13 +144,13 @@ impl<T> Rumors<T> {
         self.peer.send(message)
     }
 
-    /// Redact a message: remove the live message named by `key` from the
-    /// set, here and — through gossip — everywhere. Redacting a key not
-    /// currently held is a no-op.
+    /// Redact a message: remove the live message named by `key` from the set,
+    /// here and — through gossip — everywhere. Redacting a key not currently
+    /// held is a no-op.
     ///
     /// Returns a [`Batch`] that commits when dropped: a bare
-    /// `rumors.redact(key);` commits at the end of the statement, and
-    /// chaining further [`send`](Batch::send)s and [`redact`](Batch::redact)s
+    /// `rumors.redact(key);` commits at the end of the statement, and chaining
+    /// further [`send`](Batch::send)s and [`redact`](Batch::redact)s
     /// accumulates them into one commit.
     pub fn redact(&self, key: Key) -> Batch<'_, T>
     where
@@ -159,7 +159,9 @@ impl<T> Rumors<T> {
         self.peer.redact(key)
     }
 
-    /// Start an empty [`Batch`].
+    /// Start an empty [`Batch`], for committing several changes as one
+    /// atomic unit: observers and concurrent gossip sessions see either
+    /// none of the batch or all of it, never a prefix.
     pub fn batch(&self) -> Batch<'_, T>
     where
         T: Send + Sync,
@@ -167,7 +169,21 @@ impl<T> Rumors<T> {
         self.peer.batch()
     }
 
-    /// Gossip with a remote peer to synchronize rumor sets.
+    /// Run one reconciliation session with one remote peer over the given
+    /// transport.
+    ///
+    /// On `Ok`, both replicas hold every message either one held when the
+    /// session began (the full contract, including failure and cancellation
+    /// semantics, is in the [crate docs](crate#what-a-session-promises)).
+    /// The counterparty needs no matching "serve" call: one peer's `gossip`
+    /// session is the other's, and a session transparently serves a
+    /// [`bootstrap`](crate::Peer::bootstrap)ping peer or absorbs a
+    /// [`retire`](crate::Peer::retire)-ing one.
+    ///
+    /// Sessions may run concurrently on different clones of the same set;
+    /// each commits atomically when it completes. On `Err`, the replica is
+    /// unchanged, but the transport is mid-frame garbage: discard the
+    /// connection rather than starting another session on it.
     pub async fn gossip<'a, R, W>(&self, read: &'a mut R, write: &'a mut W) -> Result<(), Error>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
@@ -183,7 +199,9 @@ impl<T> Rumors<T> {
         self.peer.network()
     }
 
-    /// Take a consistent snapshot of the current state.
+    /// Take a consistent point-in-time view of the live set: cheap
+    /// (structure-sharing, no copy), atomic, and isolated from every later
+    /// change. See [`Snapshot`] for what it can answer.
     pub fn snapshot(&self) -> Snapshot<T> {
         self.peer.snapshot()
     }
@@ -198,8 +216,14 @@ impl<T> Rumors<T> {
         self.peer.messages()
     }
 
-    /// Observe every message not already causally contained in `since`. See
-    /// [`Messages`].
+    /// Observe every message not already causally contained in `since`,
+    /// then everything learned afterwards. See [`Messages`] for the
+    /// contract.
+    ///
+    /// `since` is usually a persisted [`checkpoint`](Messages::checkpoint)
+    /// from an earlier observer of this set (or of any replica of it):
+    /// that round trip delivers everything at least once and re-delivers at
+    /// most the checkpoint's partial pass.
     pub fn messages_since(&self, since: Version) -> Messages<T>
     where
         T: Send + Sync,
@@ -219,7 +243,10 @@ impl<T> Rumors<T> {
     }
 
     /// Observe every message not already causally contained in `since`, in
-    /// *causal order*. See [`CausalMessages`].
+    /// *causal order*. See [`CausalMessages`] for the ordering contract and
+    /// its cost, and [`messages_since`](Self::messages_since) for how
+    /// `since` pairs with a persisted
+    /// [`checkpoint`](CausalMessages::checkpoint).
     pub fn causal_messages_since(&self, since: Version) -> CausalMessages<T>
     where
         T: Send + Sync,

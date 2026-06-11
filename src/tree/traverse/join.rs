@@ -51,6 +51,8 @@ where
     Join::join(a, b, a_version, b_version)
 }
 
+/// The inductive step of the merge, implemented per [`Height`]; see the
+/// module docs for the four-case analysis each level performs.
 pub trait Join: Unknown {
     fn join<T>(
         a: Option<Node<T, Self>>,

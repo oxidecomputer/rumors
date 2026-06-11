@@ -10,6 +10,10 @@ use crate::{Version, message::Message, tree::typed::Hash};
 mod iter;
 pub use iter::{Frozen, Iter, Leaf, Range};
 
+/// One storage node — a leaf or a branch behind a shared `Arc`, carrying
+/// its compressed prefix and memoized hash. The single representation
+/// beneath the height-typed veneer (see [`typed`](super)); cloning is an
+/// `Arc` bump, and mutation is copy-on-write.
 pub struct Node<T> {
     inner: Arc<NodeInner<T>>,
 }

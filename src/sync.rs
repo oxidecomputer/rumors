@@ -126,9 +126,8 @@ impl<T> Messages<T> {
         pollster::block_on(self.0.borrow_next())
     }
 
-    /// Take one non-blocking step: a message if one is ready, [`Quiet`]
-    /// (ask again later) if not, [`Ended`] if no further message is
-    /// possible.
+    /// Take one non-blocking step: a message if one is ready, [`Quiet`] (ask
+    /// again later) if not, [`Ended`] if no further message is possible.
     ///
     /// [`Quiet`]: TryNext::Quiet
     /// [`Ended`]: TryNext::Ended
@@ -160,8 +159,8 @@ impl<T: Send + Sync + 'static> Iterator for Messages<T> {
 }
 
 /// The blocking face of [`crate::CausalMessages`], the causal-order live
-/// observer; see it for the ordering, cost, and checkpoint contract.
-/// Consumed exactly as [`Messages`] is: blocking [`Iterator`], lending
+/// observer; see it for the ordering, cost, and checkpoint contract. Consumed
+/// exactly as [`Messages`] is: blocking [`Iterator`], lending
 /// [`borrow_next`](Self::borrow_next), non-blocking
 /// [`try_next`](Self::try_next).
 pub struct CausalMessages<T>(crate::CausalMessages<T>);
@@ -329,10 +328,10 @@ impl<T> Rumors<T> {
         pollster::block_on(self.0.gossip(&mut read, &mut write))
     }
 
-    /// Give up this handle and reclaim the [`Peer`], blocking until every
-    /// other handle has dropped — indefinitely, if another thread holds a
-    /// clone it never drops. The blocking [`crate::Rumors::try_into_peer`],
-    /// including its exactly-one-winner contract.
+    /// Give up this handle and reclaim the [`Peer`], blocking until every other
+    /// handle has dropped — indefinitely, if another thread holds a clone it
+    /// never drops. The blocking [`crate::Rumors::try_into_peer`], including
+    /// its exactly-one-winner contract.
     pub fn try_into_peer(self) -> Option<Peer<T>> {
         pollster::block_on(self.0.try_into_peer()).map(Peer)
     }
@@ -364,8 +363,8 @@ impl<T> Rumors<T> {
         self.causal_messages_since(Version::new())
     }
 
-    /// Observe every message, causal order, not already contained in
-    /// `since`; see [`crate::Rumors::causal_messages_since`].
+    /// Observe every message, causal order, not already contained in `since`;
+    /// see [`crate::Rumors::causal_messages_since`].
     pub fn causal_messages_since(&self, since: Version) -> CausalMessages<T>
     where
         T: Send + Sync,

@@ -36,11 +36,11 @@ where
     Act::act(node, actions, &mut on_action)
 }
 
-// The internal implementation of the traversal as a polymorphic-recursive
-// trait: each height implements one inductive step, and the recursion is a
-// plain (synchronous) call one height down (always instantiated at
-// `I = Vec<…>`, the per-radix group the branch level collects).
-
+/// The inductive step of the batch-apply, implemented per [`Height`]: the
+/// internal form of the [`act`] free function as a polymorphic-recursive
+/// trait. Each height implements one step, and the recursion is a plain
+/// (synchronous) call one height down (always instantiated at `I = Vec<…>`,
+/// the per-radix group the branch level collects).
 pub trait Act: Height {
     fn act<T, F, I>(
         node: Option<Node<T, Self>>,

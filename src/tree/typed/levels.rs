@@ -61,6 +61,8 @@ pub trait Levels: Default + Clone + sealed::Sealed {
     }
 }
 
+/// The one-level zipper: just the root level. Every descent starts here,
+/// and every [`collapse`](Levels::collapse) folds back to here.
 pub struct Top<T> {
     root: Level<T, Root>,
 }
@@ -101,6 +103,10 @@ where
     }
 }
 
+/// A zipper extended one level downward: `here` is the new bottom (height
+/// `H`), `above` is the zipper it hangs from (bottoming out at `S<H>`).
+/// Built by [`Levels::down`] as the descent advances; unwound, bottom-up,
+/// by [`collapse`](Levels::collapse).
 pub struct Below<H, A>
 where
     A: Levels<Height = S<H>>,

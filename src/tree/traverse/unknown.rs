@@ -1,3 +1,15 @@
+//! The deletion-honoring filter: prune a subtree down to what a
+//! counterparty at a given version is missing.
+//!
+//! This traversal is where "redaction leaves no tombstone" is cashed out.
+//! A subtree whose version ceiling is contained in the counterparty's
+//! version holds nothing it hasn't already seen — including anything it
+//! has seen *and deleted* — so the subtree drops out of the answer, and a
+//! deletion propagates by the receiver simply never re-learning the leaf.
+//! Both the in-memory [`join`](mod@super::join) and the wire
+//! [`mirror`](super::mirror) delegate their version filtering here, which
+//! is what makes them observationally identical.
+
 use std::cmp::Ordering;
 
 use crate::Version;
@@ -5,6 +17,8 @@ use crate::Version;
 use super::typed::*;
 use height::{Height, S, Z};
 
+/// The inductive step of the filter, implemented per [`Height`]: each level
+/// prunes by its memoized ceiling/floor before descending.
 pub trait Unknown: Height {
     /// Filter this subtree down to the nodes a counterparty at `known` is
     /// missing, honoring deletions: a node causally `<=` `known` is already

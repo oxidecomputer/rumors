@@ -1,3 +1,55 @@
+//! The content tree: a sparse Merkle radix trie that makes replica
+//! difference *observable* and replica union *cheap*.
+//!
+//! End-user documentation lives in the [crate docs](crate); here we discuss
+//! the design.
+//!
+//! # Shape
+//!
+//! Branching factor 256, fixed depth 32: a leaf's path is its 32-byte
+//! content address, one byte per level, derived from the hash of its
+//! `(version, value)` pair ([`Path::for_leaf`](typed::Path::for_leaf)).
+//! Content addressing buys three properties at once:
+//!
+//! - **The set is the tree.** Where a leaf lives is fully determined by
+//!   what it is, so two replicas holding the same messages hold the same
+//!   tree, regardless of insertion order or which peer sent what. Union is
+//!   well-defined node-by-node.
+//! - **Equal hash ⟹ equal subtree.** Each node memoizes a Merkle hash of
+//!   its subtree, so replicas can prune agreement wholesale — the engine of
+//!   the [`mirror`] protocol's divergence-proportional cost.
+//! - **Uniform spread.** Hashed paths are uniform, so the trie is
+//!   expected-balanced with no adversarial input shape; depth bounds are
+//!   real bounds.
+//!
+//! Single-child spines are path-compressed away, and the branch hash rule
+//! is compression-invariant by construction (a one-child level hashes the
+//! same whether materialized or compressed; see
+//! [`Hash::branch`](typed::Hash::branch)).
+//!
+//! # Memos and sharing
+//!
+//! Nodes are persistent (`imbl::OrdMap` children behind `Arc`), so cloning
+//! a tree — every [`Snapshot`](crate::Snapshot), every gossip session's
+//! working copy — is O(1) and shares structure; mutation is copy-on-write.
+//! Each branch lazily memoizes three pure functions of its subtree: the
+//! Merkle **hash** (mirror pruning), and the **ceiling** and **floor** of
+//! its leaves' versions. The version bounds power both deletion honoring
+//! (a subtree whose ceiling the counterparty's version contains holds
+//! nothing it is missing — see [`traverse::unknown`]) and causal range
+//! queries ([`Tree::range`]), which prune whole subtrees without entering
+//! them.
+//!
+//! # The traversal trio
+//!
+//! All mutation and reconciliation is three inductive traversals over the
+//! same structure ([`traverse`]): [`act`](Tree::act) applies a local batch
+//! in one pass; [`join`](Tree::join) merges two in-memory trees;
+//! [`mirror`] reconciles two trees over a wire. `join` and `mirror` are
+//! observationally identical — both delegate deletion honoring to the same
+//! filter — so every convergence property can be tested in-memory and
+//! trusted on the wire.
+
 use std::sync::Arc;
 
 mod key;

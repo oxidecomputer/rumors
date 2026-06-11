@@ -5,6 +5,13 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use super::typed;
 
 /// An opaque key uniquely identifying a message.
+///
+/// Keys are minted by sends and come back out of the observers and
+/// [`Snapshot`](crate::Snapshot) iteration; they go into
+/// [`redact`](crate::Rumors::redact) and [`get`](crate::Snapshot::get). A
+/// key is stable across replicas — the same message has the same key on
+/// every peer in the universe — and is freely persistable as its raw 32
+/// bytes ([`as_bytes`](Self::as_bytes), [`From<[u8; 32]>`](Self#impl-From<[u8;+32]>-for-Key)).
 #[derive(BorshSerialize, BorshDeserialize, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[repr(transparent)]
 pub struct Key(pub(crate) [u8; 32]);

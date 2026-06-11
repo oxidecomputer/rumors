@@ -8,10 +8,8 @@ pub use crate::tree::Iter;
 
 /// A consistent point-in-time view of a set of rumors.
 ///
-/// Consistent means atomic: the snapshot holds exactly the live set as of
-/// one moment — never a partially applied [`Batch`](crate::Batch) or a
-/// half-merged gossip session. Taking one
-/// ([`Rumors::snapshot`](crate::Rumors::snapshot)) is cheap:
+/// Consistent means atomic: the snapshot holds exactly the live set as of one
+/// moment. Taking one ([`Rumors::snapshot`](crate::Rumors::snapshot)) is cheap:
 /// it shares structure with the live set rather than copying it, and later
 /// changes never show through. Hold it as long as you like; it keeps its
 /// messages alive, not the [`Peer`](crate::Peer).
@@ -33,18 +31,28 @@ impl<T> Snapshot<T> {
         self.network
     }
 
-    /// The latest version of any message ever tracked by the snapshotted set.
+    /// The causal frontier of everything this set has ever done: the join
+    /// of every send *and every redaction* it has tracked, not merely the
+    /// latest live message. Two replicas with equal `latest` have seen the
+    /// same history; this is the natural `since` for
+    /// [`messages_since`](crate::Rumors::messages_since) and the bound to
+    /// compare in the bootstrapping-without-consensus recipe
+    /// ([`Peer`](crate::Peer) docs).
     pub fn latest(&self) -> &Version {
         self.tree.latest()
     }
 
-    /// The earliest version of any message currently present in the
-    /// snapshotted set, or `None` if it has never seen a message.
+    /// The floor of the *live* messages' versions: every live message's
+    /// version contains it. `None` when no live message remains — none
+    /// ever sent, or every one since redacted (unlike
+    /// [`latest`](Self::latest), which redactions advance rather than
+    /// erase).
     pub fn earliest(&self) -> Option<&Version> {
         self.tree.earliest()
     }
 
-    /// Determine if there are any current messages in this snapshot.
+    /// Whether no live message remains: none ever sent, or every one since
+    /// redacted.
     pub fn is_empty(&self) -> bool {
         self.tree.is_empty()
     }

@@ -1,15 +1,15 @@
 //! Unordered gossip with redaction.
 //!
 //! `rumors` replicates a set of messages across a fleet of peers with no
-//! coordinator and no reliable connectivity: every peer holds a full
-//! replica, changes it locally without asking anyone, and reconciles
-//! pairwise with whichever peer it can reach next. Replicas that gossip
-//! converge on the same set no matter the order, pairing, or repetition of
-//! their sessions, and a session is priced by divergence, not by history:
-//! bytes on the wire scale with the *difference* between the two replicas,
-//! round trips are bounded by the content trie's fixed depth, and neither
-//! side rescans what the two already share. (The internal protocol docs
-//! quantify each axis; see [Internals](#internals).)
+//! coordinator and no reliable connectivity: every peer holds a full replica,
+//! changes it locally without asking anyone, and reconciles pairwise with
+//! whichever peer it can reach next. Replicas that gossip converge on the same
+//! set no matter the order, pairing, or repetition of their sessions, and a
+//! session is priced by divergence, not by history: bytes on the wire scale
+//! with the *difference* between the two replicas, round trips are bounded by
+//! the content trie's fixed depth, and neither side rescans what the two
+//! already share. (The internal protocol docs quantify each axis; see
+//! [Internals](#internals).)
 //!
 //! Reach for it when shared state must survive partition and peer churn,
 //! and when deleting an entry has to actually delete it:
@@ -43,37 +43,34 @@
 //! # Membership is custody, not configuration
 //!
 //! No shared secret, config value, or registry makes a peer a member of a
-//! universe. Membership is an *identity*: minted once, whole, when the
-//! universe is seeded, and split off a live member each time a new peer
-//! joins. Belonging flows through contact — you are a member because a
-//! member made you one ([`Peer::bootstrap`]), back along a chain of
-//! introductions that ends at the seed — and it flows back out the same
-//! way: a leaving peer returns its identity through any member
-//! ([`Peer::retire`]).
+//! universe. Membership is an *identity*: minted once, whole, when the universe
+//! is seeded, and split off a live member each time a new peer joins. Belonging
+//! flows through contact — you are a member because a member made you one
+//! ([`Peer::bootstrap`]), back along a chain of introductions that ends at the
+//! seed — and it flows back out the same way: a leaving peer returns its
+//! identity through any member ([`Peer::retire`]).
 //!
 //! Identities are returned rather than discarded because identity is
-//! *representational space*: every message's [`Version`] is expressed in
-//! terms of the identity splits that exist, so each split widens
-//! timestamps a little, and each return narrows them again. Hence the
-//! lifecycle's ceremonies. Joining hands you a share; leaving hands it
-//! back; a peer that crashes — or simply drops off without retiring —
-//! strands its share, and the universe's timestamps stay a little wider
-//! forever. Stranding wastes, but never corrupts. (The identity machinery
-//! is [`before`]'s interval tree clocks; see its docs for the model and
-//! for the ITC paper it implements.)
+//! *representational space*: every message's [`Version`] is expressed in terms
+//! of the identity splits that exist, so each split widens timestamps a little,
+//! and each return narrows them again. Hence the lifecycle's ceremonies.
+//! Joining hands you a share; leaving hands it back; a peer that crashes — or
+//! simply drops off without retiring — strands its share, and the universe's
+//! timestamps stay a little wider forever. Stranding wastes, but never
+//! corrupts. (The identity machinery is [`before`]'s interval tree clocks; see
+//! its docs for the model and for the ITC paper it implements.)
 //!
 //! # The shape of the API
 //!
-//! One replica has two faces, split by custody. [`Peer`] is the unique
-//! `!Clone` anchor that holds the identity; it appears only at the edges
-//! of a replica's life, where identity moves: minting a universe
-//! ([`Peer::seed`]), joining one ([`Peer::bootstrap`]), leaving it
-//! ([`Peer::retire`]). Trading the anchor away ([`Peer::into_rumors`])
-//! opens the working state: [`Rumors`] clones freely, and clones send,
-//! redact, observe, and gossip concurrently. When the clones are gone,
-//! [`Rumors::try_into_peer`] recovers the anchor. The split is what lets
-//! the compiler — rather than a runtime check — guarantee that identity
-//! moves only while nothing else is touching the replica.
+//! One replica has two faces, split by custody. [`Peer`] is the unique `!Clone`
+//! anchor that holds the identity; it appears only at the edges of a replica's
+//! life, where identity moves: minting a universe ([`Peer::seed`]), joining one
+//! ([`Peer::bootstrap`]), leaving it ([`Peer::retire`]). Trading the anchor
+//! away ([`Peer::into_rumors`]) opens the working state: [`Rumors`] clones
+//! freely, and clones send, redact, observe, and gossip concurrently. When the
+//! clones are gone, [`Rumors::try_into_peer`] recovers the anchor. The split is
+//! what lets the compiler — rather than a runtime check — guarantee that
+//! identity moves only while nothing else is touching the replica.
 //!
 //! Day to day:
 //!
@@ -225,10 +222,9 @@
 //! # Internals
 //!
 //! The *why* of the design — the content-addressed Merkle radix trie, the
-//! mirror reconciliation protocol and its phase schedule, and the interval
-//! tree clocks ([`before`]) that carry causality — is documented in
-//! rustdoc beside the code, in private modules the public build does not
-//! render.
+//! mirror reconciliation protocol and its phase schedule, and the interval tree
+//! clocks ([`before`]) that carry causality — is documented in rustdoc beside
+//! the code, in private modules the public build does not render.
 
 // Static assertions uses #[allow(unsafe_code)], so we allow it only in tests
 #![cfg_attr(not(test), forbid(unsafe_code))]

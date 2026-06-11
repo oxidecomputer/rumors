@@ -64,11 +64,18 @@ impl<T> Ord for S<T> {
     }
 }
 
+/// Peano zero: the height of the leaves.
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Default)]
 #[repr(C)]
 pub struct Z;
 
+/// A type-level height: how many levels sit between a node at this height
+/// and the leaves. Carrying the height in the type is what lets every
+/// traversal recurse *polymorphically* — each inductive step is a separate
+/// monomorphization that the compiler proves terminates at [`Z`] — instead
+/// of trusting a runtime depth counter.
 pub trait Height: Debug + Clone + Default + sealed::Sealed {
+    /// This height as a plain number (`Z` is 0; [`Root`] is 32).
     const HEIGHT: usize;
 }
 
@@ -107,7 +114,8 @@ impl_heights!(
     _ _ _ _ _ _ _ _
 );
 
-/// The height of the root of the tree: 32 bytes.
+/// The height of the root: 32 levels above the leaves, one per byte of a
+/// leaf's 32-byte content-addressed path.
 #[rustfmt::skip]
 pub type Root =
 // Laid out for your counting convenience in two rows of 16:
