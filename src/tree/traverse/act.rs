@@ -87,14 +87,27 @@ where
         // map exploded from the node
         let mut updated: Vec<_> = Vec::new();
         for (radix, group) in &by_radix {
-            let mut actions = group.map(|(_, path, version, action)| (path, version, action));
+            // This collect is load-bearing: it type-erases the group before
+            // the recursion. `Act` is instantiated once per `Height` level,
+            // so a lazy iterator here would weave this level's iterator type
+            // (closures capturing `I` and all) into the next level's `I`; the
+            // type compounds across all 32 levels and monomorphization
+            // explodes at codegen — tens of GiB of rustc memory in every
+            // downstream crate that links this one. `Vec` resets `I` to the
+            // same flat type at every level. It also lets the short-circuit
+            // below inspect the actions without consuming them.
+            let actions: Vec<_> = group
+                .map(|(_, path, version, action)| (path, version, action))
+                .collect();
 
             // Mutably pull the existing child out of the parent:
             let existing_child = existing_children.remove(&radix);
 
             // Short-circuit when solely trying to delete from a non-existent child:
             if existing_child.is_none()
-                && actions.all(|(_, _, action)| matches!(action, Action::Forget))
+                && actions
+                    .iter()
+                    .all(|(_, _, action)| matches!(action, Action::Forget))
             {
                 continue;
             }
