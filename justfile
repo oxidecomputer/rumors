@@ -72,7 +72,6 @@ features:
     cargo check -p before --no-default-features --features oracle
     cargo check -p before --no-default-features --features serde,borsh
     cargo check -p rumors --no-default-features
-    cargo check -p rumors --features proptest
 
 # The viz engine must keep compiling for its real target, not just the host.
 wasm-check:

@@ -7,14 +7,12 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-proptest = ["dep:proptest"]
 # Test-only introspection surfaces (party aliasing for invariant accounting).
 # Enabled for this crate's own tests via the self-referential dev-dependency
 # below; never enable it in an application.
 test-internals = []
 
 [dependencies]
-proptest = { version = "1", optional = true }
 before = { path = "crates/before", features = ["borsh"] }
 imbl = "7"
 bytes = "1"
