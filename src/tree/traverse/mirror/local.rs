@@ -3,7 +3,8 @@
 //! version vector) vanish; leaves not yet seen are transmitted. The protocol
 //! recurses down the *disjoint frontier* of the two trees, alternating sender
 //! each message, so it costs `O(log n)` round-trips and never re-sends a hash
-//! the other side can already infer.
+//! the other side can already infer (quantified, per axis, in
+//! [`super`](super#cost)'s Cost section).
 //!
 //! # State machine
 //!
