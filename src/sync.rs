@@ -11,7 +11,7 @@ use futures::io::AllowStdIo;
 use tokio_util::compat::{FuturesAsyncReadCompatExt, FuturesAsyncWriteCompatExt};
 
 pub use crate::{
-    Error, Key, Network, PROTOCOL_MAGIC, PROTOCOL_VERSION, Snapshot, Version, causally,
+    Batch, Error, Key, Network, PROTOCOL_MAGIC, PROTOCOL_VERSION, Snapshot, Version, causally,
 };
 pub use ::borsh;
 
@@ -65,20 +65,25 @@ impl<T> Known<T> {
             .map(|known| known.map(Known))
     }
 
-    pub fn send<'a, I>(&'a mut self, messages: I)
+    pub fn send(&self, message: T) -> Batch<'_, T>
     where
-        T: BorshSerialize + Send + Sync + 'a,
-        I: IntoIterator<Item = T> + Send,
-        I::IntoIter: Send,
+        T: BorshSerialize + Send + Sync,
     {
-        self.0.send(messages);
+        self.0.send(message)
     }
 
-    pub fn redact<I: IntoIterator<Item = Key>>(&mut self, redacted: I)
+    pub fn redact(&self, key: Key) -> Batch<'_, T>
     where
         T: Send + Sync,
     {
-        self.0.redact(redacted);
+        self.0.redact(key)
+    }
+
+    pub fn batch(&self) -> Batch<'_, T>
+    where
+        T: Send + Sync,
+    {
+        self.0.batch()
     }
 
     pub fn gossip<R, W>(&mut self, read: &mut R, write: &mut W) -> Result<(), Error>
@@ -166,20 +171,25 @@ impl<T> Clone for Broadcast<T> {
 }
 
 impl<T> Broadcast<T> {
-    pub fn send<'a, I>(&'a mut self, messages: I)
+    pub fn send(&self, message: T) -> Batch<'_, T>
     where
-        T: BorshSerialize + Send + Sync + 'a,
-        I: IntoIterator<Item = T> + Send,
-        I::IntoIter: Send,
+        T: BorshSerialize + Send + Sync,
     {
-        self.0.send(messages);
+        self.0.send(message)
     }
 
-    pub fn redact<I: IntoIterator<Item = Key>>(&mut self, redacted: I)
+    pub fn redact(&self, key: Key) -> Batch<'_, T>
     where
         T: Send + Sync,
     {
-        self.0.redact(redacted);
+        self.0.redact(key)
+    }
+
+    pub fn batch(&self) -> Batch<'_, T>
+    where
+        T: Send + Sync,
+    {
+        self.0.batch()
     }
 
     pub fn gossip<R, W>(&mut self, read: &mut R, write: &mut W) -> Result<(), Error>

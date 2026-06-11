@@ -1,6 +1,5 @@
-use crate::{Error, Key, Known, Message, Network, Snapshot, Version, causally, tree::Action};
+use crate::{Batch, Error, Key, Known, Network, Snapshot, Version, causally};
 use borsh::{BorshDeserialize, BorshSerialize};
-use std::future::ready;
 use std::sync::Arc;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
@@ -45,54 +44,42 @@ impl<T> std::fmt::Debug for Broadcast<T> {
 }
 
 impl<T> Broadcast<T> {
-    /// Send messages to all listeners.
-    pub fn send<'a, I>(&'a mut self, messages: I)
+    /// Send a message to all listeners.
+    ///
+    /// Returns a [`Batch`] that commits when dropped: a bare
+    /// `broadcast.send(message);` commits at the end of the statement, and
+    /// chaining further [`send`](Batch::send)s and
+    /// [`redact`](Batch::redact)s accumulates them into one commit. Building
+    /// holds no lock; see [`batch`](Self::batch).
+    pub fn send(&self, message: T) -> Batch<'_, T>
     where
-        T: BorshSerialize + Send + Sync + 'a,
-        I: IntoIterator<Item = T> + Send,
-        I::IntoIter: Send,
+        T: BorshSerialize + Send + Sync,
     {
-        self.known.inner.send_if_modified(|inner| {
-            let party = inner
-                .party
-                .as_ref()
-                .expect("party must be present for send");
-            let hash_before = inner.tree.hash();
-            pollster::block_on(inner.tree.act(
-                |batch| {
-                    batch.tick(party);
-                },
-                messages.into_iter().map(Message::from).map(Action::Insert),
-                |_, _, _| ready(()),
-            ));
-            inner.tree.hash() != hash_before
-        });
+        self.known.send(message)
     }
 
-    /// Redact the given keys for all listeners.
+    /// Redact a message for all listeners: it is contagiously purged from
+    /// the [`Known`] set for all peers who gossip with us, and will be
+    /// unobserved by any future peers who did not already observe it.
     ///
-    /// The corresponding messages will be contagiously purged from the
-    /// [`Known`] set for all peers who gossip with us, and will be unobserved
-    /// by any future peers who did not already observe the messages.
-    pub fn redact<I: IntoIterator<Item = Key>>(&mut self, redacted: I)
+    /// Returns a [`Batch`] that commits when dropped, exactly as
+    /// [`send`](Self::send) does.
+    pub fn redact(&self, key: Key) -> Batch<'_, T>
     where
         T: Send + Sync,
     {
-        self.known.inner.send_if_modified(|inner| {
-            let party = inner
-                .party
-                .as_ref()
-                .expect("party must be present for redact");
-            let hash_before = inner.tree.hash();
-            pollster::block_on(inner.tree.act(
-                |batch| {
-                    batch.tick(party);
-                },
-                redacted.into_iter().map(Action::Forget),
-                |_, _, _| ready(()),
-            ));
-            inner.tree.hash() != hash_before
-        });
+        self.known.redact(key)
+    }
+
+    /// Start an empty [`Batch`] of insertions and redactions, committed
+    /// atomically when dropped: one tree traversal, one change notification.
+    /// Building holds no lock — the rumor set is locked only inside the
+    /// commit.
+    pub fn batch(&self) -> Batch<'_, T>
+    where
+        T: Send + Sync,
+    {
+        self.known.batch()
     }
 
     /// Gossip with a remote peer to synchronize rumor sets.
