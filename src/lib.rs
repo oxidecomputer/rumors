@@ -23,6 +23,13 @@
 //!   gossip still tells "deleted here" apart from "never arrived" on every
 //!   replica. Use it for retraction, expiry, and data that must not
 //!   outlive its purpose.
+//! - **Sessions spend bandwidth to save round trips.** Reconciliation
+//!   descends a 256-wide hash trie, shipping whole sibling fans
+//!   speculatively so a session finishes in a handful of round trips where
+//!   a binary Merkle descent would take dozens. The protocol is built for
+//!   links where latency, not throughput, is the scarce resource — a rack,
+//!   a data center, ordinary fiber: even at 1 Gb/s with a 2 ms ping, a
+//!   steady-state session is bounded by its round trips, not its bytes.
 //!
 //! # Should you use it?
 //!
@@ -39,6 +46,14 @@
 //!   redact at will. Authenticating peers and securing the transport are
 //!   the application's job; run sessions only over channels you already
 //!   trust.
+//! - **Bandwidth is your scarce resource.** The round-trip thrift above is
+//!   paid for in bytes: at small divergences, each differing message drags
+//!   roughly 10–25 KB of distinguishing hash traffic — for payloads under
+//!   ~20 KB the hashes, not your data, are most of the bill — and a large
+//!   catch-up ships hash records comparable to the bodies. On metered,
+//!   narrow, or high-loss links (cellular, satellite, LoRa), that trade
+//!   runs backwards; `rumors` assumes a link whose bandwidth-delay product
+//!   dwarfs its hash traffic.
 //!
 //! # Membership is custody, not configuration
 //!

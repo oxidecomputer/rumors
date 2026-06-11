@@ -37,6 +37,19 @@
 //! in one shot — `Θ(N)` work and bytes in `O(1)` rounds. And the first
 //! session after local changes also pays the lazy hash memoization along
 //! the changed paths: divergence-shaped, charged once.
+//!
+//! These constants are a deliberate tilt toward latency-dominated links.
+//! The 256 fanout and the two-height stride (effective fan 65,536 per
+//! round) spend cheap bytes — up to ~9 KB of child hashes per disputed
+//! node — to finish the descent in ~2 exchanges at scales where a binary
+//! Merkle descent would take ~30 rounds. The protocol assumes the link's
+//! bandwidth-delay product dwarfs `r̄·W` per session; on a bandwidth-bound
+//! link the trade runs backwards (the crate docs' "Should you use it?"
+//! says so to users). With the descent this short, a session's remaining
+//! latency sits mostly in the fixed phases — preamble, handshake, open,
+//! close — which is where any future round-trip work should aim
+//! (piggybacking the root fan on the handshake, pipelining the
+//! alternation) rather than at the tree.
 
 use std::cmp::Ordering;
 
