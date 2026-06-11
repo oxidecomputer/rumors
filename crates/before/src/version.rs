@@ -133,8 +133,8 @@ impl Version {
     /// equal areas are never causally ordered (same version, or
     /// concurrent). Sorting by `(area, some-total-tiebreak)` therefore
     /// yields a linear extension of the causal order: causes always sort
-    /// before their effects. See [`Area`] for the measure itself and the
-    /// [`area`](self::area) module docs for why strictness holds.
+    /// before their effects. See [`Area`] for the measure itself and why
+    /// strictness holds.
     ///
     /// Exact at any magnitude (arbitrary-precision numerator), `O(n)` in
     /// the event tree.

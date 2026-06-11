@@ -1,30 +1,6 @@
 //! The causal rank: [`Area`], the exact measure of an event tree, and the
-//! fold that computes it.
-//!
-//! An event tree is a height function over the unit id interval: a leaf `n`
-//! is height `n` everywhere, and a node `(n, l, r)` lifts its children by
-//! `n`, each over half the parent's width. The **area** under that function
-//! — `Σ base · 2⁻ᵈᵉᵖᵗʰ` over every node — is a dyadic rational that grows
-//! whenever the function grows anywhere. Since the causal order on
-//! [`Version`](crate::Version)s *is* pointwise comparison of their height
-//! functions, the area is a strictly monotone rank:
-//!
-//! > if `v < w` then `v.area() < w.area()`.
-//!
-//! Heights are step functions on dyadic intervals, so two distinct versions
-//! ordered by `<` differ over an interval of positive width, and the
-//! dominated one strictly loses area there. The contrapositive is what
-//! consumers lean on: **equal areas are never causally ordered** (they are
-//! the same version or concurrent). Any tiebreak between equal areas — a
-//! content hash, [`as_bytes`](crate::Version::as_bytes) — therefore extends
-//! the causal order to a total one, which is what makes `Area` fit for
-//! sorted-container keys that must deliver causes before effects.
-//!
-//! [`min_ticks`](crate::Version::min_ticks) is the integer shadow of this
-//! measure (every width rounded up to the whole interval): a valid but only
-//! *weakly* monotone rank, blind to growth that fills concurrent gaps —
-//! `(0, 1, 0) < 1`, yet both count one tick. The area separates every such
-//! pair exactly.
+//! fold that computes it. The public contract lives on the type and on
+//! [`Version::area`](crate::Version::area); this module is private.
 
 use core::cmp::Ordering;
 use core::fmt;
@@ -36,9 +12,32 @@ use super::compare::EvReader;
 
 /// The exact area under a [`Version`](crate::Version)'s event tree: a
 /// nonnegative dyadic rational `num · 2⁻ᵉˣᵖ`, with arbitrary-precision
-/// numerator. Produced by [`Version::area`](crate::Version::area); see the
-/// [module docs](self) for the strict-monotonicity contract that makes it a
-/// causal rank.
+/// numerator. Produced by [`Version::area`](crate::Version::area).
+///
+/// An event tree is a height function over the unit id interval: a leaf
+/// `n` is height `n` everywhere, and a node `(n, l, r)` lifts its children
+/// by `n`, each over half the parent's width. The area under that function
+/// — `Σ base · 2⁻ᵈᵉᵖᵗʰ` over every node — grows whenever the function
+/// grows anywhere, and the causal order on versions *is* pointwise
+/// comparison of their height functions. The area is therefore a
+/// **strictly monotone rank**:
+///
+/// > if `v < w` then `v.area() < w.area()`.
+///
+/// Heights are step functions on dyadic intervals, so two distinct
+/// versions ordered by `<` differ over an interval of positive width, and
+/// the dominated one strictly loses area there. The contrapositive is what
+/// consumers lean on: **equal areas are never causally ordered** (they are
+/// the same version or concurrent). Any tiebreak between equal areas — a
+/// content hash, [`as_bytes`](crate::Version::as_bytes) — therefore
+/// extends the causal order to a total one, which is what makes `Area` fit
+/// for sorted-container keys that must deliver causes before effects.
+///
+/// [`min_ticks`](crate::Version::min_ticks) is the integer shadow of this
+/// measure (every width rounded up to the whole interval): a valid but
+/// only *weakly* monotone rank, blind to growth that fills concurrent gaps
+/// — `(0, 1, 0) < 1`, yet both count one tick. The area separates every
+/// such pair exactly.
 ///
 /// Totally ordered ([`Ord`]), unlike the versions it ranks. Comparison
 /// aligns the two exponents and compares numerators, exact at any

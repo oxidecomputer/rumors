@@ -1,40 +1,7 @@
 //! [`CausalMessages`]: the [`Messages`](super::Messages) observer with
 //! causal delivery — every message is yielded after every message it
-//! causally depends on.
-//!
-//! # How causal order is recovered from unordered passes
-//!
-//! The plain observer runs in *passes*: each pass walks the leaves of a
-//! frozen snapshot that are not causally contained in the cursor, in key
-//! order — which bears no relation to causal order — and then absorbs the
-//! snapshot's ceiling into the cursor. Causal delivery rests on two facts
-//! about that engine:
-//!
-//! 1. **Inversions are confined to a single pass.** A message delivered by
-//!    a later pass is never a causal predecessor of one delivered earlier:
-//!    every leaf in a pass's snapshot is `<=` that snapshot's ceiling, the
-//!    ceiling is absorbed into the frontier, later passes subtract the
-//!    frontier's causal past — and the tree can never *gain* a leaf whose
-//!    version its own version already covers, because deletion-honoring
-//!    treats absent-and-covered as redacted. Old news never arrives.
-//!
-//! 2. **`(area, key)` is a linear extension of causality.** The
-//!    [`Area`](before::Area) rank is strictly monotone (`v < w` implies
-//!    `area(v) < area(w)`), so equal areas are never causally ordered and
-//!    the key tiebreak between them is causally safe.
-//!
-//! So the adapter is small: ingest each pass *whole* into an ordered
-//! staging map keyed by `(area, key)`, and pop in that order. Within the
-//! staged batch, rank order respects causality (fact 2); across batches,
-//! pass order already does (fact 1).
-//!
-//! The price is the idle state: where [`Messages`](super::Messages) holds a
-//! constant-size descent spine between items, this observer holds the
-//! undelivered backlog — the whole history on a fresh subscription, one
-//! gossip delta in steady state. The first item of a backlog also waits for
-//! its entire pass to be ingested: with leaves stored in key order, the
-//! causally-least may be the last visited, so no observer-side structure
-//! can emit sooner.
+//! causally depends on. The contract and the soundness argument live on
+//! the type; this module is private.
 
 use std::collections::BTreeMap;
 use std::pin::Pin;
@@ -60,11 +27,36 @@ use super::Channel;
 /// The causal-delivery contract: for any two yielded messages with versions
 /// `v` and `w`, if `v < w` then the `v` message is yielded first.
 /// Concurrent messages are delivered in `(`[`Area`]`, `[`Key`]`)` order — a
-/// deterministic linear extension of the causal order (see the [module
-/// docs](self) for why that order is sound). Liveness and multiplicity are
-/// exactly [`Messages`](super::Messages)': every message live at some pass
-/// is yielded once; a message staged and then redacted before delivery is
-/// still yielded; redactions are honored silently.
+/// deterministic linear extension of the causal order. Liveness and
+/// multiplicity are exactly [`Messages`](super::Messages)': every message
+/// live at some pass is yielded once; a message staged and then redacted
+/// before delivery is still yielded; redactions are honored silently.
+///
+/// # How causal order is recovered from unordered passes
+///
+/// The plain observer runs in *passes*: each pass walks the leaves of a
+/// frozen snapshot that are not causally contained in the cursor, in key
+/// order — which bears no relation to causal order — and then absorbs the
+/// snapshot's ceiling into the cursor. Causal delivery rests on two facts
+/// about that engine:
+///
+/// 1. **Inversions are confined to a single pass.** A message delivered by
+///    a later pass is never a causal predecessor of one delivered earlier:
+///    every leaf in a pass's snapshot is `<=` that snapshot's ceiling, the
+///    ceiling is absorbed into the frontier, later passes subtract the
+///    frontier's causal past — and the tree can never *gain* a leaf whose
+///    version its own version already covers, because deletion-honoring
+///    treats absent-and-covered as redacted. Old news never arrives.
+///
+/// 2. **`(`[`Area`]`, `[`Key`]`)` is a linear extension of causality.**
+///    The rank is strictly monotone (`v < w` implies `area(v) < area(w)`),
+///    so equal areas are never causally ordered and the key tiebreak
+///    between them is causally safe.
+///
+/// So the adapter is small: ingest each pass *whole* into an ordered
+/// staging map keyed by the rank, and pop in that order. Within the staged
+/// batch, rank order respects causality (fact 2); across batches, pass
+/// order already does (fact 1).
 ///
 /// Two faces over one engine, as with [`Messages`](super::Messages):
 /// [`borrow_next`](Self::borrow_next) lends `(Key, &Version, &Arc<T>)`, and
