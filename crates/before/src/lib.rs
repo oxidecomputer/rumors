@@ -190,13 +190,10 @@
 //! ## Testing
 //!
 //! Every operation is verified differentially against the paper's naive
-//! recursive implementation — the [`oracle`] module, public under the
-//! `oracle` feature so the benchmarks can time the two against each
-//! other — alongside exhaustive small-scope enumeration of clock shapes,
+//! recursive implementation as well as a nondeterministic function-space
+//! semantics, alongside exhaustive small-scope enumeration of clock shapes,
 //! algebraic-law property suites, and fuzzed codecs (`decode`'s strict
-//! canonicality is asserted inline in the fuzz targets). Every discovered
-//! counterexample's seed is committed under `proptest-regressions/`, so
-//! failures reproduce deterministically forever.
+//! canonicality is asserted inline in the fuzz targets).
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]

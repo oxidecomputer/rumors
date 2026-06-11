@@ -14,10 +14,9 @@
 //! Reach for it when shared state must survive partition and peer churn,
 //! and when deleting an entry has to actually delete it:
 //!
-//! - The set is **unordered**: no leader, no quorum, no sequence numbers,
-//!   so any two peers that can reach each other make progress alone.
-//!   Causality is still tracked — every message carries a [`Version`] —
-//!   and can be imposed at the observer when a consumer needs it.
+//! - **The set is unordered.** Any two peers that can reach each other make
+//!   progress alone. Causality is still tracked: every message carries a
+//!   [`Version`] which can be used when a consumer needs it.
 //! - **Redaction is real deletion.** A redacted message is gone, not
 //!   masked: replicas spend no memory or bandwidth remembering it, yet
 //!   gossip still tells "deleted here" apart from "never arrived" on every
