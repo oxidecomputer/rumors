@@ -39,10 +39,11 @@
 //! the changed paths: divergence-shaped, charged once.
 //!
 //! These constants are a deliberate tilt toward latency-dominated links.
-//! The 256 fanout and the two-height stride (effective fan 65,536 per
-//! round) spend cheap bytes — up to ~9 KB of child hashes per disputed
-//! node — to finish the descent in ~2 exchanges at scales where a binary
-//! Merkle descent would take ~30 rounds. The protocol assumes the link's
+//! The 256 fanout and the two-height stride narrow the search space by
+//! 256² per round — while shipping only the disputed frontier's actual
+//! children, pruned by hash agreement every half-round, up to ~9 KB per
+//! disputed node — finishing the descent in ~2 exchanges at scales where
+//! a binary Merkle descent would take ~30 rounds. The protocol assumes the link's
 //! bandwidth-delay product dwarfs `r̄·W` per session; on a bandwidth-bound
 //! link the trade runs backwards (the crate docs' "Should you use it?"
 //! says so to users). With the descent this short, a session's remaining
