@@ -118,6 +118,22 @@ fn joining_a_historical_clock_rewinds_its_future() {
     }
 }
 
+/// Regression for the orphaned-operand bug: an op whose operand lies inside the future
+/// the op itself would rewind (here: joining a clock with its own causal descendant) is
+/// rejected, leaving prior state intact. Before the rejection existed, the rewind
+/// dropped the operand's creating op and the dangling index silently rebound to an
+/// arbitrary node, joining overlapping ids.
+#[test]
+fn op_orphaning_its_own_operand_is_rejected() {
+    let mut e = Engine::new();
+    e.apply(Op::Fork { x: 0 }).unwrap(); // live: 1, 2
+    e.apply(Op::Send { from: 1, to: 2 }).unwrap(); // 3 descends from 1 via the message edge
+    let before = e.descriptors();
+    let err = e.apply(Op::Join { a: 3, b: 1 }).unwrap_err(); // rewinding 1 would drop 3
+    assert_eq!(err, EngineError::Orphaned { operand: 3 });
+    assert_eq!(e.descriptors(), before); // unchanged
+}
+
 /// Interpret a random command against the engine: act on any node (exercising the
 /// historical-rewind path), guarding joins by disjointness as the UI does. A rejected
 /// op (e.g. an operand that the rewind would orphan) leaves state unchanged, mirroring

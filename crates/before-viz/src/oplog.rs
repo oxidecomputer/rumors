@@ -136,6 +136,21 @@ pub fn anchors_of(op: Op) -> Vec<usize> {
     }
 }
 
+/// Every node an op reads: its anchors plus a send's read-only `from`.
+pub fn operands_of(op: Op) -> Vec<usize> {
+    match op {
+        Op::Tick { x } | Op::Fork { x } => vec![x],
+        Op::Join { a, b } => vec![a, b],
+        Op::Send { from, to } => vec![from, to],
+    }
+}
+
+/// An operand of the applied op lies inside the very future the op would rewind, so
+/// applying it would orphan that operand (e.g. joining a clock with its own causal
+/// descendant). Carries the offending operand's index.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Orphaned(pub usize);
+
 /// Every node reachable from any anchor along any edge (excluding the anchors): the
 /// futures that depend on them.
 pub fn descendant_cone(edges: &[Edge], anchors: &[usize]) -> HashSet<usize> {
@@ -179,9 +194,17 @@ fn remap_op(op: Op, remap: &HashMap<usize, usize>) -> Op {
 /// still-historical operand's future would survive alongside the new lineage and
 /// duplicate its id-space. When all anchors are live tips the cones are empty and this
 /// is a plain append.
-pub fn rewind_and_apply(log: &[Op], op: Op) -> Vec<Op> {
+///
+/// Rejected with [`Orphaned`] when one of `op`'s operands lies inside another
+/// operand's descendant cone: the rewind would drop the very node the op reads
+/// (e.g. joining a clock with its own causal descendant), so the op is incoherent
+/// and the log is left for the caller to keep unchanged.
+pub fn rewind_and_apply(log: &[Op], op: Op) -> Result<Vec<Op>, Orphaned> {
     let Analysis { edges, per_op, .. } = analyze(log);
     let cone = descendant_cone(&edges, &anchors_of(op));
+    if let Some(&orphan) = operands_of(op).iter().find(|n| cone.contains(n)) {
+        return Err(Orphaned(orphan));
+    }
 
     let mut remap: HashMap<usize, usize> = HashMap::new();
     remap.insert(0, 0); // the seed always survives
@@ -199,7 +222,7 @@ pub fn rewind_and_apply(log: &[Op], op: Op) -> Vec<Op> {
         }
     }
     kept.push(remap_op(op, &remap));
-    kept
+    Ok(kept)
 }
 
 // ───────────────────────────── URL-fragment codec ─────────────────────────────

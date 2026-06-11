@@ -48,6 +48,7 @@ pub struct State {
 pub enum EngineError {
     IndexOutOfRange(usize),
     JoinOverlap { a: usize, b: usize },
+    Orphaned { operand: usize },
     Decode(String),
     BadFragment(String),
 }
@@ -58,6 +59,12 @@ impl core::fmt::Display for EngineError {
             EngineError::IndexOutOfRange(i) => write!(f, "node index {i} out of range"),
             EngineError::JoinOverlap { a, b } => {
                 write!(f, "cannot join nodes {a} and {b}: their ids overlap")
+            }
+            EngineError::Orphaned { operand } => {
+                write!(
+                    f,
+                    "cannot apply: operand {operand} is inside the future the op would rewind"
+                )
             }
             EngineError::Decode(e) => write!(f, "failed to decode stored node: {e}"),
             EngineError::BadFragment(e) => write!(f, "bad fragment: {e}"),
@@ -101,7 +108,8 @@ impl Engine {
     /// Apply an op referencing current node indices: rewind the futures it supersedes,
     /// append it, and re-materialize. On error the prior state is left intact.
     pub fn apply(&mut self, op: Op) -> Result<(), EngineError> {
-        let log = rewind_and_apply(&self.log, op);
+        let log = rewind_and_apply(&self.log, op)
+            .map_err(|oplog::Orphaned(operand)| EngineError::Orphaned { operand })?;
         let arena = build(&log)?;
         self.log = log;
         self.arena = arena;
