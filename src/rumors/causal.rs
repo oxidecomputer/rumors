@@ -17,57 +17,22 @@ use crate::{Key, Version};
 
 use super::acausal::Channel;
 
-/// A causal-order observer of one rumor set: every message not causally
-/// contained in the starting checkpoint, then every message learned afterwards,
-/// each delivered *after* every delivered message it causally depends on —
-/// and `None` once the [`Peer`](crate::Peer) and every
-/// [`Rumors`](crate::Rumors) have dropped and the staged backlog has
-/// drained.
+/// An observer of messages sent to a [`Rumors`](crate::Rumors), in some
+/// arbitrary yet causal order.
 ///
-/// The causal-delivery contract: for any two yielded messages with versions
-/// `v` and `w`, if `v < w` then the `v` message is yielded first.
-/// Concurrent messages are delivered in `(`[`Rank`]`, `[`Key`]`)` order — a
-/// deterministic linear extension of the causal order. Liveness and
-/// multiplicity are exactly [`Messages`](super::Messages)': every message
-/// live at some pass is yielded once; a message staged and then redacted
-/// before delivery is still yielded; redactions are honored silently.
+/// For any two yielded messages with versions `v` and `w`, if `v < w` then the
+/// `v` message is yielded first. Concurrent messages are delivered in arbitrary
+/// order, which may differ between [`gossip`](crate::Rumors::gossip)ing
+/// replicas of the same [`Rumors`](crate::Rumors).
 ///
-/// # How causal order is recovered from unordered passes
+/// Unlike [`Messages`](super::Messages), this imposes an additional logarithmic
+/// cost in amortized memory and in the time to retrieve each message, both of
+/// which may have arbitrarily large bursts, up to the total size of the
+/// messages stored in the underlying [`Rumors`](crate::Rumors).
 ///
-/// The plain observer runs in *passes*: each pass walks the leaves of a
-/// frozen snapshot that are not causally contained in the checkpoint, in key
-/// order — which bears no relation to causal order — and then absorbs the
-/// snapshot's ceiling into the checkpoint. Causal delivery rests on two facts
-/// about that engine:
-///
-/// 1. **Inversions are confined to a single pass.** A message delivered by
-///    a later pass is never a causal predecessor of one delivered earlier:
-///    every leaf in a pass's snapshot is `<=` that snapshot's ceiling, the
-///    ceiling is absorbed into the frontier, later passes subtract the
-///    frontier's causal past — and the tree can never *gain* a leaf whose
-///    version its own version already covers, because deletion-honoring
-///    treats absent-and-covered as redacted. Old news never arrives.
-///
-/// 2. **`(`[`Rank`]`, `[`Key`]`)` is a linear extension of causality.**
-///    The rank is strictly monotone (`v < w` implies `rank(v) < rank(w)`),
-///    so equal ranks are never causally ordered and the key tiebreak
-///    between them is causally safe.
-///
-/// So the adapter is small: ingest each pass *whole* into an ordered
-/// staging map keyed by the rank, and pop in that order. Within the staged
-/// batch, rank order respects causality (fact 2); across batches, pass
-/// order already does (fact 1).
-///
-/// Two faces over one engine, as with [`Messages`](super::Messages):
-/// [`borrow_next`](Self::borrow_next) lends `(Key, &Version, &Arc<T>)`, and
-/// the [`Stream`] impl (for `T: 'static`) yields owned items; on the sync
-/// mirror the same face is an [`Iterator`].
-///
-/// Unlike [`Messages`](super::Messages), the idle state is **not**
-/// constant-size: between items the observer holds every ingested,
-/// not-yet-delivered message — the full history on a fresh subscription
-/// until it drains, one gossip burst in steady state. Reordering must
-/// buffer; this is the floor, not an implementation convenience.
+/// This observer does not count against the quiescence that lets
+/// [`try_into_peer`](crate::Rumors::try_into_peer) reclaim the
+/// [`Peer`](crate::Peer).
 pub struct CausalMessages<T> {
     /// The watch channel or the in-flight wait for it to change — the same
     /// owned-wait dance as [`Messages`](super::Messages) (see its field

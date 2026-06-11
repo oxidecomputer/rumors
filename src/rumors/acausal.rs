@@ -6,42 +6,29 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::sync::watch;
 
-/// An observer of one rumor set: every message not causally contained in
-/// the starting checkpoint, then every message learned afterwards — by local
+/// An observer of messages sent to a [`Rumors`](crate::Rumors), in completely
+/// arbitrary (*non-causal*) order.
+///
+/// This enumerates every message not causally contained in the starting
+/// checkpoint, then every message learned afterwards — by local
 /// [`send`](crate::Rumors::send), by gossip, from any handle — and `None` once
 /// the [`Peer`](crate::Peer) and every [`Rumors`](crate::Rumors) have dropped
-/// and no further change is possible, after yielding the complete final
-/// state.
+/// and no further change is possible, after yielding every message learned
+/// prior.
 ///
-/// Two faces over one engine:
+/// There are two ways to use it:
 ///
 /// - [`borrow_next`](Self::borrow_next) lends each message as `(Key,
-///   &Version, &Arc<T>)`, the borrows living until the next call — no
-///   per-item `Version` clone, no `Arc` traffic. There is no standard
-///   lending-iterator trait, so it is an inherent method, consumed
-///   `while let Some((key, version, value)) = messages.borrow_next().await`.
+///   &Version, &Arc<T>)`, the borrows living until the next call.
 /// - The [`Stream`] impl (for `T: 'static`) yields owned `(Key, Version,
-///   Arc<T>)` items for `select!`-and-combinate consumers; on the sync
-///   mirror the same face is an [`Iterator`].
+///   Arc<T>)`.
 ///
-/// The delivery contract: every message live at some pass is yielded
-/// exactly once; a message inserted and redacted wholly between passes is
-/// never yielded (already-redacted content is never delivered); redactions
-/// themselves are honored silently. Order is unspecified and does *not*
-/// follow the causal order — a message may be yielded before another that
-/// causally precedes it; order by the yielded [`Version`]s if causality
-/// matters.
+/// Order is unspecified and does *not* follow the causal order: a message may
+/// be yielded before another that causally precedes it; use
+/// [`CausalMessages`](super::CausalMessages) if you want causal iteration order
+/// (at an amortized logarithmic cost in extra internal bookkeeping).
 ///
-/// Pausing, cancelling, and resuming are ordinary control flow: between
-/// items the observer holds only a constant-size descent spine (one entry
-/// per materialized branch level, at most the tree's depth — nothing
-/// buffered, nothing growing with the delta or the tree), so hold it as
-/// long as you like and ask again later; drop it to cancel. To resume in a
-/// *later process*, or on another replica of the same network, persist
-/// [`checkpoint`](Self::checkpoint) and start a new observer from it.
-///
-/// An observer is not an actor: it holds no send handle, does not keep the
-/// rumor set open, and does not count against the quiescence that lets
+/// This observer does not count against the quiescence that lets
 /// [`try_into_peer`](crate::Rumors::try_into_peer) reclaim the
 /// [`Peer`](crate::Peer).
 pub struct Messages<T> {

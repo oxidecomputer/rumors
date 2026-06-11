@@ -25,13 +25,12 @@ pub const PROTOCOL_MAGIC: [u8; 6] = *b"RUMORS";
 /// rejected with [`Error::VersionMismatch`].
 pub const PROTOCOL_VERSION: u16 = 1;
 
-/// The outcome of [`Peer::retire`]: whether the identity was handed off,
-/// and what came back if not.
+/// The outcome of [`Peer::retire`].
 ///
-/// Marked `must_use` because two variants carry the intact [`Peer`] —
-/// silently dropping the result of a declined or recovered retirement
-/// destroys the identity that the call was specifically trying to preserve,
-/// leaking its id-region from the universe.
+/// Marked `must_use` because two variants carry the intact [`Peer`]: silently
+/// dropping the result of a declined or recovered retirement destroys the
+/// identity that the call was specifically trying to preserve, leaking its
+/// id-region from the universe.
 #[must_use = "a declined or recovered retirement hands the Peer back; dropping it leaks the identity"]
 #[derive(Debug)]
 pub enum Retire<T> {

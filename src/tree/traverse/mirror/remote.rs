@@ -66,6 +66,7 @@ mod preamble;
 pub use preamble::preamble;
 pub(crate) use preamble::{recv_party, send_party};
 
+/// The error type returned by the gossip protocol.
 #[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

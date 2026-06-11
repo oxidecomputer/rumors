@@ -1,16 +1,19 @@
 // Deliberately undocumented for now: the prose lives on the async API at the
 // crate root and will be adapted here once polished.
 
+//! A synchronous interface to the crate.
+//!
+//! Prefer the main crate's interface in an async context.
+
 use std::io::{Read, Write};
 use std::sync::Arc;
 
+use before::Version;
 use borsh::{BorshDeserialize, BorshSerialize};
 use futures::io::AllowStdIo;
 use tokio_util::compat::{FuturesAsyncReadCompatExt, FuturesAsyncWriteCompatExt};
 
-pub use crate::{
-    Batch, Error, Key, Network, PROTOCOL_MAGIC, PROTOCOL_VERSION, Snapshot, Version, causally,
-};
+pub use crate::{Batch, Error, Key, Network, Snapshot};
 pub use ::borsh;
 
 pub struct Peer<T>(crate::Peer<T>);

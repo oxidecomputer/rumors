@@ -70,7 +70,9 @@ impl<T> Snapshot<T> {
     /// order: a message may be yielded before another that causally precedes
     /// it. Sort by the yielded [`Version`]s if your application needs an
     /// ordering consistent with causality.
-    pub fn iter(&self) -> Iter<'_, T>
+    pub fn iter(
+        &self,
+    ) -> impl DoubleEndedIterator<Item = (Key, &Version, &Arc<T>)> + ExactSizeIterator + Send + Sync
     where
         T: Send + Sync,
     {
@@ -138,6 +140,6 @@ impl<'a, T: Send + Sync> IntoIterator for &'a Snapshot<T> {
     type IntoIter = Iter<'a, T>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.iter()
+        self.tree.iter()
     }
 }

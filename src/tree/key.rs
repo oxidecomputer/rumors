@@ -4,10 +4,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use super::typed;
 
-/// The borsh encoding is 32 raw bytes (no length prefix), matching the internal
-/// content-address hash: a key *is* a leaf's content-addressed path. The mirror
-/// protocol's `providing` channel ships whole `(prefix, node)` pairs, so keys
-/// do not ride the wire today.
+/// An opaque key uniquely identifying a message.
 #[derive(BorshSerialize, BorshDeserialize, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[repr(transparent)]
 pub struct Key(pub(crate) [u8; 32]);

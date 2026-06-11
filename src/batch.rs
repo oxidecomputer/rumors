@@ -5,25 +5,18 @@ use crate::message::Message;
 use crate::tree::Action;
 use crate::{Inner, Key};
 
-/// An accumulated batch of insertions and redactions against one rumor set,
-/// committed atomically when dropped.
+/// A batch of insertions and redactions against a [`Rumors`](crate::Rumors),
+/// committed atomically.
 ///
-/// Returned by [`send`](crate::Rumors::send), [`redact`](crate::Rumors::redact),
-/// and [`batch`](crate::Rumors::batch) on [`Rumors`](crate::Rumors). Dropping
-/// the batch commits it: the single-action case reads as a plain call
-/// (`rumors.send(message);` commits at the end of the statement), and
-/// chaining accumulates — `rumors.batch().send(a).send(b).redact(key);` —
-/// into one commit.
+/// Returned by [`send`](crate::Rumors::send),
+/// [`redact`](crate::Rumors::redact), and [`batch`](crate::Rumors::batch) on
+/// [`Rumors`](crate::Rumors). Dropping the batch commits it: the single-action
+/// case reads as a plain call (`rumors.send(message);` commits at the end of
+/// the statement), and chaining accumulates
+/// (`rumors.batch().send(a).send(b).redact(key);`) into one commit.
 ///
-/// Building holds no lock and observes nothing: actions accumulate in the
-/// batch alone, and the rumor set is locked only inside the commit. A batch
-/// commits in one tree traversal and one change notification; each action
-/// still advances the version once, so inserts in a batch carry strictly
-/// increasing versions (content-identical messages get distinct keys), and a
-/// [`redact`](Self::redact) of a key minted earlier in the same batch
-/// overrides that insert (the last action on a key wins).
-///
-/// An empty batch commits nothing.
+/// Building a [`Batch`] holds no lock; the rumor set is locked momentarily when
+/// the batch commits.
 pub struct Batch<'a, T: Send + Sync> {
     inner: &'a watch::Sender<Inner<T>>,
     actions: Vec<Action<T>>,
@@ -37,7 +30,7 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
         }
     }
 
-    /// Append a message insertion to the batch.
+    /// Send a message.
     pub fn send(&mut self, message: T) -> &mut Self
     where
         T: BorshSerialize,
@@ -46,10 +39,7 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
         self
     }
 
-    /// Append a redaction to the batch. When committed, the corresponding
-    /// message is contagiously purged from the rumor set for all peers who
-    /// gossip with us, and will be unobserved by any future peers who did
-    /// not already observe it.
+    /// Redact a [`Key`].
     pub fn redact(&mut self, key: Key) -> &mut Self {
         self.actions.push(Action::Forget(key));
         self

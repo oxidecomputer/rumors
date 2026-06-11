@@ -13,7 +13,12 @@ use tokio::{
     sync::watch,
 };
 
-/// A broadcast handle for a set of rumors.
+/// A handle for [`send`](Rumors::send)ing and [`redact`](Rumors::redact)ing
+/// messages, and [`gossip`](Rumors::gossip)ing the result with peers.
+///
+/// Unlike [`Peer`](crate::Peer), [`Rumors`] is [`Clone`], which means that any
+/// number of tasks may concurrently interact with the set of rumors,
+/// arbitrarily. Synchronization is internal: anything one clone learns, all do.
 pub struct Rumors<T> {
     peer: Peer<T>,
     /// This handle's claim to existence; see [`Extant`].
@@ -122,13 +127,12 @@ impl<T> Rumors<T> {
         }
     }
 
-    /// Send a message to all listeners.
+    /// Send a message.
     ///
     /// Returns a [`Batch`] that commits when dropped: a bare
     /// `broadcast.send(message);` commits at the end of the statement, and
     /// chaining further [`send`](Batch::send)s and [`redact`](Batch::redact)s
-    /// accumulates them into one commit. Building holds no lock; see
-    /// [`batch`](Self::batch).
+    /// accumulates them into one commit.
     pub fn send(&self, message: T) -> Batch<'_, T>
     where
         T: BorshSerialize + Send + Sync,
@@ -136,12 +140,12 @@ impl<T> Rumors<T> {
         self.peer.send(message)
     }
 
-    /// Redact a message for all listeners: it is contagiously purged from the
-    /// rumor set for all peers who gossip with us, and will be unobserved
-    /// by any future peers who did not already observe it.
+    /// Redact a message.
     ///
-    /// Returns a [`Batch`] that commits when dropped, exactly as
-    /// [`send`](Self::send) does.
+    /// Returns a [`Batch`] that commits when dropped: a bare
+    /// `broadcast.send(message);` commits at the end of the statement, and
+    /// chaining further [`send`](Batch::send)s and [`redact`](Batch::redact)s
+    /// accumulates them into one commit.
     pub fn redact(&self, key: Key) -> Batch<'_, T>
     where
         T: Send + Sync,
@@ -149,10 +153,7 @@ impl<T> Rumors<T> {
         self.peer.redact(key)
     }
 
-    /// Start an empty [`Batch`] of insertions and redactions, committed
-    /// atomically when dropped: one tree traversal, one change notification.
-    /// Building holds no lock — the rumor set is locked only inside the
-    /// commit.
+    /// Start an empty [`Batch`].
     pub fn batch(&self) -> Batch<'_, T>
     where
         T: Send + Sync,

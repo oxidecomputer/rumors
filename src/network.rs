@@ -5,15 +5,17 @@ use std::fmt;
 use borsh::{BorshDeserialize, BorshSerialize};
 use rand::RngCore;
 
-/// The random, unique identifier of a causally connected universe of
-/// [`Peer`](crate::Peer)s.
+/// The identifier shared by every [`Rumors`](crate::Rumors) that descends from
+/// the same [`seed`](crate::Peer::seed).
 ///
-/// It exists to catch a failure mode that party disjointness alone cannot: two
-/// `Peer`s from *independent* [`seed`](crate::Peer::seed)s can end up with
-/// *coincidentally* disjoint parties despite sharing no causal history. Such
-/// peers must never combine.
+/// When two [`Rumors`](crate::Rumors) [`gossip`](crate::Rumors::gossip), it is
+/// essential that they belong to the same causal universe. Two
+/// [`Peer`](crate::Peer)s from *independent* [`seed`](crate::Peer::seed)s can
+/// end up with coincidentally and transiently compatible causal state despite
+/// sharing no true causal history. Such peers must never combine, and the
+/// protocol validates that peers belong to the same [`Network`].
 ///
-/// Opaque and [`Copy`]: callers can read it off a `Peer` with
+/// This type is opaque and [`Copy`]: callers can read it off a `Peer` with
 /// [`network`](crate::Peer::network) and compare two for equality, but cannot
 /// mint one except through [`seed`](crate::Peer::seed).
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, BorshDeserialize, BorshSerialize)]
