@@ -104,6 +104,22 @@ impl<T> CausalMessages<T> {
         pollster::block_on(self.0.borrow_next())
     }
 
+    /// The non-blocking face, exactly as [`Messages::try_next`]: a message
+    /// only if one is already deliverable, distinguishing quiet from ended.
+    /// Note that a backlog's first message becomes deliverable only once
+    /// its whole pass has been ingested, which this call performs eagerly.
+    pub fn try_next(&mut self) -> TryNext<'_, T>
+    where
+        T: Send + Sync,
+    {
+        use futures::FutureExt;
+        match self.0.borrow_next().now_or_never() {
+            None => TryNext::Quiet,
+            Some(None) => TryNext::Ended,
+            Some(Some(message)) => TryNext::Message(message),
+        }
+    }
+
     pub fn cursor(&self) -> &Version {
         self.0.cursor()
     }
