@@ -110,7 +110,7 @@ fn checkpoint_start_observes_only_what_it_does_not_contain() {
     let v_mid = known.latest();
     known.batch().send(4).send(5).send(6);
 
-    let mut obs = known.messages_from(v_mid.clone());
+    let mut obs = known.messages_since(v_mid.clone());
     let (items, _) = drain(&mut obs);
 
     let observed: BTreeSet<u64> = items.iter().map(|(_, _, m)| *m).collect();
@@ -201,7 +201,7 @@ fn redactions_are_honored_silently() {
 
     // A from-now observer does not see pre-subscription content.
     known.send(4);
-    let mut from_now = known.messages_from(known.latest());
+    let mut from_now = known.messages_since(known.latest());
     let (items, _) = drain(&mut from_now);
     assert!(items.is_empty(), "a from-now observer starts quiet");
     known.send(5);
@@ -359,7 +359,7 @@ fn checkpoint_round_trips_on_an_unchanged_set() {
     assert_eq!(items.len(), 3);
     let checkpoint = obs.checkpoint().clone();
 
-    let mut resumed = known.messages_from(checkpoint.clone());
+    let mut resumed = known.messages_since(checkpoint.clone());
     let (items, _) = drain(&mut resumed);
     assert!(items.is_empty(), "nothing fires on an unchanged set");
     assert_eq!(
@@ -388,7 +388,7 @@ fn checkpoint_is_portable_across_replicas() {
 
     // Converge the replicas, then resume against B.
     wire_gossip(&mut a, &mut b);
-    let mut obs_b = b.messages_from(checkpoint);
+    let mut obs_b = b.messages_since(checkpoint);
     let (items, _) = drain(&mut obs_b);
     assert_eq!(items.len(), 1, "only the message A never observed fires");
     assert_eq!(items[0].2, 2, "A-observed messages are skipped at B");
@@ -510,7 +510,7 @@ fn folding_delivered_versions_can_lose_a_message() {
         fold |= &delivered_version;
         fold
     };
-    let mut resumed_from_fold = known.messages_from(fold);
+    let mut resumed_from_fold = known.messages_since(fold);
     let (items, _) = drain(&mut resumed_from_fold);
     assert!(
         items.is_empty(),
@@ -519,7 +519,7 @@ fn folding_delivered_versions_can_lose_a_message() {
 
     // The sound resume: the observer's pass checkpoint (genesis — no pass
     // completed) re-delivers both messages. At-least-once, never loss.
-    let mut resumed_from_checkpoint = known.messages_from(obs.checkpoint().clone());
+    let mut resumed_from_checkpoint = known.messages_since(obs.checkpoint().clone());
     let (items, _) = drain(&mut resumed_from_checkpoint);
     assert_eq!(
         items.len(),
@@ -657,7 +657,7 @@ proptest! {
         }
 
         // Resume from the persisted checkpoint and drain to the end.
-        let mut resumed = known.messages_from(checkpoint);
+        let mut resumed = known.messages_since(checkpoint);
         let final_live = live_map(&known);
         drop(known);
         let (second_run, ended) = drain(&mut resumed);

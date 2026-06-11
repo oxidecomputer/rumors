@@ -169,9 +169,7 @@ impl<T> Tree<T> {
         Node::root_hash(&self.root.clone().into()).into()
     }
 
-    /// Look up a single live message by its [`Key`]: one `O(depth)` descent
-    /// (the key *is* the leaf's path), never a scan. `None` when no live
-    /// message has that key — never inserted, or since redacted.
+    /// Look up a single live message by its [`Key`].
     pub fn get(&self, key: &Key) -> Option<(&Version, &Arc<T>)> {
         self.root
             .root

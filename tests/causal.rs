@@ -204,7 +204,7 @@ fn checkpoint_lags_until_the_backlog_drains() {
 
     // A resume from the lagging checkpoint re-delivers the whole batch,
     // including the already-delivered first item: re-delivery, never loss.
-    let mut resumed = known.causal_messages_from(obs.checkpoint().clone());
+    let mut resumed = known.causal_messages_since(obs.checkpoint().clone());
     let (resumed_items, _) = drain(&mut resumed);
     assert_eq!(resumed_items.len(), 3, "the partial batch re-delivers");
     assert!(resumed_items.contains(&first));
@@ -214,7 +214,7 @@ fn checkpoint_lags_until_the_backlog_drains() {
     let (rest, _) = drain(&mut obs);
     assert_eq!(rest.len(), 2);
     assert_causal(&[vec![first], rest].concat());
-    let mut from_drained = known.causal_messages_from(obs.checkpoint().clone());
+    let mut from_drained = known.causal_messages_since(obs.checkpoint().clone());
     let (none, _) = drain(&mut from_drained);
     assert!(none.is_empty(), "a drained backlog's checkpoint is current");
 }
@@ -461,7 +461,7 @@ proptest! {
             known.send(*v);
         }
 
-        let mut resumed = known.causal_messages_from(checkpoint);
+        let mut resumed = known.causal_messages_since(checkpoint);
         let final_live = live_map(&known);
         drop(known);
         let (second_run, ended) = drain(&mut resumed);

@@ -246,7 +246,7 @@ fn bench_observer_delta(c: &mut Criterion) {
                 BenchmarkId::from_parameter(format!("n={n},delta={delta}")),
                 |b| {
                     b.iter(|| {
-                        let mut observer = known.messages_from(checkpoint.clone());
+                        let mut observer = known.messages_since(checkpoint.clone());
                         black_box(drain(&mut observer))
                     })
                 },
@@ -306,7 +306,7 @@ fn bench_causal_delta(c: &mut Criterion) {
                 BenchmarkId::from_parameter(format!("n={n},delta={delta}")),
                 |b| {
                     b.iter(|| {
-                        let mut observer = known.causal_messages_from(checkpoint.clone());
+                        let mut observer = known.causal_messages_since(checkpoint.clone());
                         black_box(drain_causal(&mut observer))
                     })
                 },

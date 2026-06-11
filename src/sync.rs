@@ -255,7 +255,7 @@ impl<T> Known<T> {
     where
         T: Send + Sync,
     {
-        Messages(self.0.messages_from(since))
+        Messages(self.0.messages_since(since))
     }
 
     pub fn causal_messages(&self) -> CausalMessages<T>
@@ -269,7 +269,7 @@ impl<T> Known<T> {
     where
         T: Send + Sync,
     {
-        CausalMessages(self.0.causal_messages_from(since))
+        CausalMessages(self.0.causal_messages_since(since))
     }
 
     #[doc(hidden)]
@@ -325,28 +325,28 @@ impl<T> Broadcast<T> {
     where
         T: Send + Sync,
     {
-        self.messages_from(Version::new())
+        self.messages_since(Version::new())
     }
 
-    pub fn messages_from(&self, since: Version) -> Messages<T>
+    pub fn messages_since(&self, since: Version) -> Messages<T>
     where
         T: Send + Sync,
     {
-        Messages(self.0.messages_from(since))
+        Messages(self.0.messages_since(since))
     }
 
     pub fn causal_messages(&self) -> CausalMessages<T>
     where
         T: Send + Sync,
     {
-        self.causal_messages_from(Version::new())
+        self.causal_messages_since(Version::new())
     }
 
-    pub fn causal_messages_from(&self, since: Version) -> CausalMessages<T>
+    pub fn causal_messages_since(&self, since: Version) -> CausalMessages<T>
     where
         T: Send + Sync,
     {
-        CausalMessages(self.0.causal_messages_from(since))
+        CausalMessages(self.0.causal_messages_since(since))
     }
 
     pub fn network(&self) -> Network {

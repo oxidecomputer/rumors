@@ -496,12 +496,12 @@ impl<T> Known<T> {
     where
         T: Send + Sync,
     {
-        self.messages_from(Version::new())
+        self.messages_since(Version::new())
     }
 
     /// Observe every message not already causally contained in `since`. See
     /// [`Messages`] for the contract.
-    pub fn messages_from(&self, since: Version) -> Messages<T>
+    pub fn messages_since(&self, since: Version) -> Messages<T>
     where
         T: Send + Sync,
     {
@@ -516,7 +516,7 @@ impl<T> Known<T> {
     where
         T: Send + Sync,
     {
-        self.causal_messages_from(Version::new())
+        self.causal_messages_since(Version::new())
     }
 
     /// Observe every message not already causally contained in `since`, in
@@ -524,7 +524,7 @@ impl<T> Known<T> {
     /// message it causally depends on, at the cost of an idle state that
     /// holds the undelivered backlog rather than [`Messages`]' constant
     /// spine. See [`CausalMessages`] for the contract.
-    pub fn causal_messages_from(&self, since: Version) -> CausalMessages<T>
+    pub fn causal_messages_since(&self, since: Version) -> CausalMessages<T>
     where
         T: Send + Sync,
     {

@@ -242,11 +242,11 @@ impl<T> Broadcast<T> {
 
     /// Observe every message not already causally contained in `since`. See
     /// [`Messages`] for the contract.
-    pub fn messages_from(&self, since: Version) -> Messages<T>
+    pub fn messages_since(&self, since: Version) -> Messages<T>
     where
         T: Send + Sync,
     {
-        self.known.messages_from(since)
+        self.known.messages_since(since)
     }
 
     /// Observe every message in this rumor set in *causal order*, from
@@ -262,11 +262,11 @@ impl<T> Broadcast<T> {
 
     /// Observe every message not already causally contained in `since`, in
     /// *causal order*. See [`CausalMessages`] for the contract.
-    pub fn causal_messages_from(&self, since: Version) -> CausalMessages<T>
+    pub fn causal_messages_since(&self, since: Version) -> CausalMessages<T>
     where
         T: Send + Sync,
     {
-        self.known.causal_messages_from(since)
+        self.known.causal_messages_since(since)
     }
 
     /// Force this set's tree to compute its lazy structural memos (observable
