@@ -216,6 +216,11 @@ impl<T> Known<T> {
     /// absorbs our party. A peer running ordinary gossip absorbs a retiree
     /// transparently, so the counterparty needs no special call. The four
     /// outcomes are the [`Retire`] variants; see each for what survived.
+    ///
+    /// The gossip round writes back into the retiring set too: observers of
+    /// a retiring set ([`Messages`], [`CausalMessages`]) drain the
+    /// *reconciled* final state — everything the session learned included —
+    /// before they end.
     pub async fn retire<'a, R, W>(mut self, read: &'a mut R, write: &'a mut W) -> Retire<T>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
