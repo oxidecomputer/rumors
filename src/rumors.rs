@@ -130,7 +130,7 @@ impl<T> Rumors<T> {
     /// Send a message.
     ///
     /// Returns a [`Batch`] that commits when dropped: a bare
-    /// `broadcast.send(message);` commits at the end of the statement, and
+    /// `rumors.send(message);` commits at the end of the statement, and
     /// chaining further [`send`](Batch::send)s and [`redact`](Batch::redact)s
     /// accumulates them into one commit.
     pub fn send(&self, message: T) -> Batch<'_, T>
@@ -140,10 +140,12 @@ impl<T> Rumors<T> {
         self.peer.send(message)
     }
 
-    /// Redact a message.
+    /// Redact a message: remove the live message named by `key` from the
+    /// set, here and — through gossip — everywhere. Redacting a key not
+    /// currently held is a no-op.
     ///
     /// Returns a [`Batch`] that commits when dropped: a bare
-    /// `broadcast.send(message);` commits at the end of the statement, and
+    /// `rumors.redact(key);` commits at the end of the statement, and
     /// chaining further [`send`](Batch::send)s and [`redact`](Batch::redact)s
     /// accumulates them into one commit.
     pub fn redact(&self, key: Key) -> Batch<'_, T>

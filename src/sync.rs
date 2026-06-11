@@ -1,9 +1,31 @@
-// Deliberately undocumented for now: the prose lives on the async API at the
-// crate root and will be adapted here once polished.
-
-//! A synchronous interface to the crate.
+//! The blocking face of the crate, for applications without an async
+//! runtime.
 //!
-//! Prefer the main crate's interface in an async context.
+//! Every type here wraps its namesake at the crate root and blocks the
+//! calling thread where the original returns a future; wire sessions run
+//! over [`std::io::Read`]/[`Write`] instead of tokio's
+//! traits. The semantics — lifecycle, session contract, observer
+//! guarantees — are identical, and are documented once, on the async item
+//! each wrapper names. Read the [crate docs](crate) first; this page only
+//! describes what blocking changes.
+//!
+//! # Which face should you use?
+//!
+//! Use this module when there is no async runtime in the program at all: a
+//! CLI, a plain-threads service, a test harness. If a runtime exists —
+//! even a single-threaded one — use the crate root instead. These calls
+//! block their thread until a whole wire session or observation completes,
+//! and a blocked runtime thread stalls every task scheduled on it; in the
+//! worst case it stalls the very task that was about to serve this
+//! session's counterparty, which is a deadlock. If async code must call a
+//! blocking session anyway, isolate it on a dedicated thread (e.g.
+//! tokio's `spawn_blocking`).
+//!
+//! Blocking calls cannot be cancelled: where the async face lets you drop
+//! a session future ([crate docs](crate#what-a-session-promises)), the
+//! blocking face returns only when the session has finished or failed. Use
+//! the transport's own timeouts (e.g. socket read timeouts, which surface
+//! here as session errors) to bound a stalled counterparty.
 
 use std::io::{Read, Write};
 use std::sync::Arc;
@@ -18,6 +40,9 @@ pub use crate::{
 pub use ::before;
 pub use ::borsh;
 
+/// The blocking face of [`crate::Peer`]: the unique `!Clone` anchor that
+/// seeds, bootstraps, and retires. See [`crate::Peer`] for the model, the
+/// lifecycle, and a complete example.
 pub struct Peer<T>(crate::Peer<T>);
 
 impl<T> std::fmt::Debug for Peer<T> {
@@ -26,6 +51,9 @@ impl<T> std::fmt::Debug for Peer<T> {
     }
 }
 
+/// The blocking face of [`crate::Rumors`]: the cloneable working handle
+/// that sends, redacts, observes, and gossips. See [`crate::Rumors`] for
+/// the contract of every operation.
 pub struct Rumors<T>(crate::Rumors<T>);
 
 impl<T> std::fmt::Debug for Rumors<T> {
@@ -34,15 +62,43 @@ impl<T> std::fmt::Debug for Rumors<T> {
     }
 }
 
+/// The outcome of [`Peer::retire`], carrying this module's [`Peer`]; the
+/// four outcomes and their contracts are those of [`crate::Retire`].
 #[must_use = "a declined or recovered retirement hands the Peer back; dropping it leaks the identity"]
 #[derive(Debug)]
 pub enum Retire<T> {
+    /// **Retired**: the peer absorbed our identity. See
+    /// [`crate::Retire::Retired`].
     Retired,
-    Declined { peer: Peer<T> },
-    Recovered { peer: Peer<T>, error: Error },
-    Uncertain { error: Error },
+    /// **Declined, unchanged**: retry elsewhere. See
+    /// [`crate::Retire::Declined`].
+    Declined {
+        /// The intact retiree.
+        peer: Peer<T>,
+    },
+    /// **Recovered, unchanged**: the session failed before anything was at
+    /// stake; retry. See [`crate::Retire::Recovered`].
+    Recovered {
+        /// The intact retiree.
+        peer: Peer<T>,
+        /// What failed the session.
+        error: Error,
+    },
+    /// **Uncertain**: the identity may be on either side, so the retiree
+    /// is consumed. See [`crate::Retire::Uncertain`].
+    Uncertain {
+        /// What failed the session.
+        error: Error,
+    },
 }
 
+/// The blocking face of [`crate::Messages`], the arbitrary-order live
+/// observer; see it for the delivery and checkpoint contract.
+///
+/// Three ways to consume it: the [`Iterator`] impl blocks for owned items
+/// (`None` is terminal — the set has closed and is fully delivered);
+/// [`borrow_next`](Self::borrow_next) blocks but lends instead of cloning;
+/// [`try_next`](Self::try_next) never blocks.
 pub struct Messages<T>(crate::Messages<T>);
 
 /// The outcome of one non-blocking observer step ([`Messages::try_next`]).
@@ -60,6 +116,9 @@ pub enum TryNext<'a, T> {
 }
 
 impl<T> Messages<T> {
+    /// Block until the next message, lending its version and value until
+    /// the following call; `None` once no further message is possible.
+    /// The blocking [`crate::Messages::borrow_next`].
     pub fn borrow_next(&mut self) -> Option<(Key, &Version, &Arc<T>)>
     where
         T: Send + Sync,
@@ -67,6 +126,12 @@ impl<T> Messages<T> {
         pollster::block_on(self.0.borrow_next())
     }
 
+    /// Take one non-blocking step: a message if one is ready, [`Quiet`]
+    /// (ask again later) if not, [`Ended`] if no further message is
+    /// possible.
+    ///
+    /// [`Quiet`]: TryNext::Quiet
+    /// [`Ended`]: TryNext::Ended
     pub fn try_next(&mut self) -> TryNext<'_, T>
     where
         T: Send + Sync,
@@ -79,6 +144,8 @@ impl<T> Messages<T> {
         }
     }
 
+    /// The sound resume point; the contract is
+    /// [`crate::Messages::checkpoint`]'s.
     pub fn checkpoint(&self) -> &Version {
         self.0.checkpoint()
     }
@@ -92,9 +159,17 @@ impl<T: Send + Sync + 'static> Iterator for Messages<T> {
     }
 }
 
+/// The blocking face of [`crate::CausalMessages`], the causal-order live
+/// observer; see it for the ordering, cost, and checkpoint contract.
+/// Consumed exactly as [`Messages`] is: blocking [`Iterator`], lending
+/// [`borrow_next`](Self::borrow_next), non-blocking
+/// [`try_next`](Self::try_next).
 pub struct CausalMessages<T>(crate::CausalMessages<T>);
 
 impl<T> CausalMessages<T> {
+    /// Block until the next message in causal order, lending its version
+    /// and value until the following call; `None` once no further message
+    /// is possible. The blocking [`crate::CausalMessages::borrow_next`].
     pub fn borrow_next(&mut self) -> Option<(Key, &Version, &Arc<T>)>
     where
         T: Send + Sync,
@@ -102,6 +177,12 @@ impl<T> CausalMessages<T> {
         pollster::block_on(self.0.borrow_next())
     }
 
+    /// Take one non-blocking step: a message if one is ready, [`Quiet`]
+    /// (ask again later) if not, [`Ended`] if no further message is
+    /// possible.
+    ///
+    /// [`Quiet`]: TryNext::Quiet
+    /// [`Ended`]: TryNext::Ended
     pub fn try_next(&mut self) -> TryNext<'_, T>
     where
         T: Send + Sync,
@@ -114,6 +195,8 @@ impl<T> CausalMessages<T> {
         }
     }
 
+    /// The sound resume point; the contract is
+    /// [`crate::CausalMessages::checkpoint`]'s.
     pub fn checkpoint(&self) -> &Version {
         self.0.checkpoint()
     }
@@ -128,6 +211,8 @@ impl<T: Send + Sync + 'static> Iterator for CausalMessages<T> {
 }
 
 impl<T> Peer<T> {
+    /// Mint a fresh universe. Identical to [`crate::Peer::seed`]: no wire,
+    /// nothing to block on.
     pub fn seed() -> Self {
         Peer(crate::Peer::seed())
     }
@@ -137,10 +222,15 @@ impl<T> Peer<T> {
         Peer(crate::Peer::seed_rng(rng))
     }
 
+    /// The universe's identifier; see [`crate::Peer::network`].
     pub fn network(&self) -> Network {
         self.0.network()
     }
 
+    /// Join an existing universe through a connected peer, blocking until
+    /// the session completes: the blocking [`crate::Peer::bootstrap`].
+    /// `Ok(None)` means the counterparty was itself still bootstrapping;
+    /// try a more established peer.
     pub fn bootstrap<R, W>(read: &mut R, write: &mut W) -> Result<Option<Self>, Error>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync,
@@ -153,6 +243,9 @@ impl<T> Peer<T> {
             .map(|known| known.map(Peer))
     }
 
+    /// Leave the universe, donating this identity through any gossiping
+    /// peer, blocking until the session completes: the blocking
+    /// [`crate::Peer::retire`]. The [`Retire`] outcome says what survived.
     pub fn retire<R, W>(self, read: &mut R, write: &mut W) -> Retire<T>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync,
@@ -172,6 +265,8 @@ impl<T> Peer<T> {
         }
     }
 
+    /// Trade the anchor for working handles; see
+    /// [`crate::Peer::into_rumors`].
     pub fn into_rumors(self) -> Rumors<T> {
         Rumors(self.0.into_rumors())
     }
@@ -195,6 +290,8 @@ impl<T> Clone for Rumors<T> {
 }
 
 impl<T> Rumors<T> {
+    /// Send a message. Identical to [`crate::Rumors::send`]: the returned
+    /// [`Batch`] commits when dropped.
     pub fn send(&self, message: T) -> Batch<'_, T>
     where
         T: BorshSerialize + Send + Sync,
@@ -202,6 +299,8 @@ impl<T> Rumors<T> {
         self.0.send(message)
     }
 
+    /// Redact a message. Identical to [`crate::Rumors::redact`]: the
+    /// returned [`Batch`] commits when dropped.
     pub fn redact(&self, key: Key) -> Batch<'_, T>
     where
         T: Send + Sync,
@@ -209,6 +308,7 @@ impl<T> Rumors<T> {
         self.0.redact(key)
     }
 
+    /// Start an empty [`Batch`]; see [`crate::Rumors::batch`].
     pub fn batch(&self) -> Batch<'_, T>
     where
         T: Send + Sync,
@@ -216,6 +316,8 @@ impl<T> Rumors<T> {
         self.0.batch()
     }
 
+    /// Run one reconciliation session with one peer, blocking until it
+    /// completes: the blocking [`crate::Rumors::gossip`].
     pub fn gossip<R, W>(&mut self, read: &mut R, write: &mut W) -> Result<(), Error>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync,
@@ -227,10 +329,16 @@ impl<T> Rumors<T> {
         pollster::block_on(self.0.gossip(&mut read, &mut write))
     }
 
+    /// Give up this handle and reclaim the [`Peer`], blocking until every
+    /// other handle has dropped — indefinitely, if another thread holds a
+    /// clone it never drops. The blocking [`crate::Rumors::try_into_peer`],
+    /// including its exactly-one-winner contract.
     pub fn try_into_peer(self) -> Option<Peer<T>> {
         pollster::block_on(self.0.try_into_peer()).map(Peer)
     }
 
+    /// Observe every message, arbitrary order, from genesis onward; see
+    /// [`crate::Rumors::messages`].
     pub fn messages(&self) -> Messages<T>
     where
         T: Send + Sync,
@@ -238,6 +346,8 @@ impl<T> Rumors<T> {
         self.messages_since(Version::new())
     }
 
+    /// Observe every message, arbitrary order, not already contained in
+    /// `since`; see [`crate::Rumors::messages_since`].
     pub fn messages_since(&self, since: Version) -> Messages<T>
     where
         T: Send + Sync,
@@ -245,6 +355,8 @@ impl<T> Rumors<T> {
         Messages(self.0.messages_since(since))
     }
 
+    /// Observe every message, causal order, from genesis onward; see
+    /// [`crate::Rumors::causal_messages`].
     pub fn causal_messages(&self) -> CausalMessages<T>
     where
         T: Send + Sync,
@@ -252,6 +364,8 @@ impl<T> Rumors<T> {
         self.causal_messages_since(Version::new())
     }
 
+    /// Observe every message, causal order, not already contained in
+    /// `since`; see [`crate::Rumors::causal_messages_since`].
     pub fn causal_messages_since(&self, since: Version) -> CausalMessages<T>
     where
         T: Send + Sync,
@@ -259,10 +373,13 @@ impl<T> Rumors<T> {
         CausalMessages(self.0.causal_messages_since(since))
     }
 
+    /// The universe's identifier; see [`crate::Rumors::network`].
     pub fn network(&self) -> Network {
         self.0.network()
     }
 
+    /// Take a consistent point-in-time snapshot; see
+    /// [`crate::Rumors::snapshot`].
     pub fn snapshot(&self) -> Snapshot<T> {
         self.0.snapshot()
     }

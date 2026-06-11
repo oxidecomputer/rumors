@@ -29,23 +29,22 @@ pub const PROTOCOL_VERSION: u16 = 1;
 ///
 /// Marked `must_use` because two variants carry the intact [`Peer`]: silently
 /// dropping the result of a declined or recovered retirement destroys the
-/// identity that the call was specifically trying to preserve, leaking its
-/// id-region from the universe.
+/// identity that the call was specifically trying to preserve.
 #[must_use = "a declined or recovered retirement hands the Peer back; dropping it leaks the identity"]
 #[derive(Debug)]
 pub enum Retire<T> {
-    /// **Retired.** The peer reconciled with us and absorbed our party; the
-    /// rumor set has left the universe and its id-region is recycled.
+    /// **Retired.** The peer reconciled with us and absorbed our identity;
+    /// this replica has left the universe.
     Retired,
-    /// **Declined, unchanged.** The peer cannot absorb a party — it was
-    /// itself retiring — so nothing touched the wire and the rumor set is
+    /// **Declined, unchanged.** The peer cannot absorb an identity — it was
+    /// itself retiring — so nothing touched the wire and the replica is
     /// handed back intact, to retry elsewhere.
     Declined {
         /// The intact retiree.
         peer: Peer<T>,
     },
-    /// **Recovered, unchanged.** The session failed *before* our party ever
-    /// crossed the wire; the rumor set is handed back intact, to retry
+    /// **Recovered, unchanged.** The session failed *before* our identity
+    /// ever crossed the wire; the replica is handed back intact, to retry
     /// elsewhere. Nothing was lost.
     Recovered {
         /// The intact retiree.
@@ -53,7 +52,7 @@ pub enum Retire<T> {
         /// What failed the session.
         error: Error,
     },
-    /// **Uncertain.** The session failed while the party itself was in
+    /// **Uncertain.** The session failed while the identity itself was in
     /// flight: the peer may or may not hold it, so the retiree is consumed
     /// rather than risk the same identity living twice.
     Uncertain {
@@ -118,7 +117,7 @@ impl<T> Peer<T> {
     /// The session begins with a round of gossip: the two peers reconcile
     /// content exactly as [`gossip`](crate::Rumors::gossip) would, so everything we
     /// hold that the peer had not yet seen survives in it; the peer then
-    /// absorbs our party. A peer running ordinary gossip absorbs a retiree
+    /// absorbs our identity. A peer running ordinary gossip absorbs a retiree
     /// transparently, so the counterparty needs no special call. The four
     /// outcomes are the [`Retire`] variants; see each for what survived.
     ///

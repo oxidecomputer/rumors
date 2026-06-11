@@ -94,7 +94,7 @@ pub enum Error {
 
     /// Both peers were gossiping but belong to different [`Network`]s: they
     /// descend from unrelated [`seed`](crate::Peer::seed)s and must not
-    /// combine, regardless of whether their parties appear disjoint. (A
+    /// combine, even if their causal state happens to look compatible. (A
     /// bootstrapping peer sends the placeholder [`Network`], so a session where
     /// either side is bootstrapping never raises this.)
     #[error("peer belongs to a different network ({remote_network:?})")]
@@ -109,11 +109,10 @@ pub enum Error {
         remote_min_events: u64,
     },
 
-    /// A retiring peer offered a [`Party`](before::Party) whose id-region
-    /// overlaps ours, so it cannot be [`join`](before::Party::join)ed. In a
-    /// well-formed universe every live party is disjoint, so this only arises
-    /// from a buggy or malicious peer; we leave our own party untouched and
-    /// abort the session.
+    /// A retiring peer offered an identity that overlaps one already held
+    /// here. Identities in a well-formed universe are disjoint by
+    /// construction, so this only arises from a buggy or malicious peer;
+    /// the session aborts with our own state untouched.
     #[error("retiring peer's party overlaps ours")]
     PartyOverlap,
 
