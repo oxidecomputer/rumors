@@ -1,5 +1,5 @@
 //! Spec-shaped oracle for the gossip-set semantics, plus a `readout`
-//! lens that projects a `Known<T>` back into its currently-live
+//! lens that projects a [`Snapshot<T>`] back into its currently-live
 //! `(Key, T)` map.
 //!
 //! The oracle holds only `BTreeMap`s and `BTreeSet`s (no `Known`, no
@@ -10,8 +10,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use rumors::Key;
-use rumors::sync::Known;
+use rumors::{Key, Snapshot};
 
 use super::schedule::EventIdx;
 
@@ -63,26 +62,30 @@ impl<T: Clone + Ord> Oracle<T> {
     }
 }
 
-/// Project a `Known<T>` into its currently-live `(Key, T)` map.
+/// Project a [`Snapshot<T>`] into its currently-live `(Key, T)` map.
 ///
-/// A direct read via [`Known::iter`]: it enumerates exactly the live leaves,
-/// so redacted messages — whose leaves the redaction *removed*, leaving no
-/// marker — are simply absent. No mirroring, no throwaway peer, no party
-/// juggling.
-pub fn readout<T>(peer: &Known<T>) -> BTreeMap<Key, T>
+/// A direct read via [`Snapshot::iter`]: it enumerates exactly the live
+/// leaves, so redacted messages — whose leaves the redaction *removed*,
+/// leaving no marker — are simply absent. Taking the [`Snapshot`] (rather
+/// than a handle type) keeps one lens for `Known`, `sync::Known`, and
+/// `Broadcast` alike.
+pub fn readout<T>(snapshot: &Snapshot<T>) -> BTreeMap<Key, T>
 where
     T: Clone + Send + Sync + 'static,
 {
-    peer.iter().map(|(k, _v, m)| (k, (**m).clone())).collect()
+    snapshot
+        .iter()
+        .map(|(k, _v, m)| (k, (**m).clone()))
+        .collect()
 }
 
-/// Multiset (value → count) of a peer's currently-live messages.
-pub fn readout_multiset<T>(peer: &Known<T>) -> BTreeMap<T, usize>
+/// Multiset (value → count) of a snapshot's currently-live messages.
+pub fn readout_multiset<T>(snapshot: &Snapshot<T>) -> BTreeMap<T, usize>
 where
     T: Clone + Ord + Send + Sync + 'static,
 {
     let mut out = BTreeMap::new();
-    for v in readout(peer).into_values() {
+    for v in readout(snapshot).into_values() {
         *out.entry(v).or_insert(0) += 1;
     }
     out

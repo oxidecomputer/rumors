@@ -1,79 +1,56 @@
-//! KNOWN BUG (reproducer, `#[ignore]`d until fixed): party regions can be
-//! transferred without the matching causal floor.
+//! Regression pin for the (fixed) stale-floor family of bugs.
 //!
-//! A [`rumors`](rumors::Known::rumors) snapshot shares its originator's
-//! *party* through the `Arc`, but its *tree* — and therefore the version
-//! floor it serves — is a clone frozen at snapshot time. When a stale
-//! snapshot serves a bootstrap, the newcomer receives a fork of the *live*
-//! party paired with the *stale* version floor. If the originator ticked
-//! since the snapshot was taken, the newcomer's first mints can be causally
-//! dominated by versions the originator already published — and a dominated
-//! version is indistinguishable from a redacted one, so the newcomer's
-//! fresh messages are silently and permanently dropped on the next gossip.
+//! Under the old API, a `rumors()` snapshot shared its originator's *party*
+//! through an `Arc` while serving a *tree* frozen at snapshot time. A stale
+//! snapshot serving a bootstrap therefore handed the newcomer a fork of the
+//! live party paired with a stale version floor — and the newcomer's first
+//! mints, causally dominated by versions the originator had already
+//! published, were indistinguishable from redacted messages and silently
+//! destroyed by the next gossip round.
 //!
-//! The sound invariant (which `retire` establishes by reconciling before the
-//! hand-off, and which canonical bootstrap-serving gets for free because the
-//! served tree is the party's own) is: a party region may only be activated
-//! under a tree whose version dominates every event ever minted in that
-//! region. Snapshot hand-offs break the coupling because the region rides
-//! the shared `Arc` while the floor rides the snapshot's frozen tree.
+//! The shared-state `Known` makes that desynchronization unrepresentable:
+//! there is no snapshot type that can serve a bootstrap, and
+//! `Known::gossip` snapshots the served tree and forks the party in one
+//! critical section, so the newcomer's floor always matches its region.
+//! ([`rumors::Snapshot`] is data, not a peer; [`rumors::Broadcast`] clones
+//! share one synchronized state rather than freezing one.)
 //!
-//! The mirrored direction (a snapshot *absorbing* a retiree: the originator
-//! gains the retiree's region immediately, but the retiree's event floor
-//! stays in the snapshot until it is joined back — or forever, if the
-//! snapshot is dropped) has the same shape, but needs a transitive carrier
-//! (a peer holding both the retiree's events and the originator's) to
-//! manifest as loss, and is not reproduced here.
+//! This test pins the sound invariant positively, in the shape that used to
+//! fail: messages minted by a newcomer bootstrapped from a peer that ticked
+//! heavily beforehand must survive reconciliation in both directions.
 
 mod common;
 
-use common::wire::block_on;
+use common::wire::{block_on, bootstrap_fork_async, wire_gossip_async};
 use rumors::Known;
 
-const DUPLEX_BUF: usize = 64 * 1024;
-
-/// A message minted by a peer bootstrapped from a stale snapshot must survive
-/// gossip. Today it does not: the newcomer's floor is the snapshot's frozen
-/// version, its first mint is dominated by the originator's later ticks, and
-/// the message vanishes from both peers in one reconciliation round.
+/// A message minted by a freshly-bootstrapped peer survives gossip, no
+/// matter how far the provider had ticked before serving the bootstrap:
+/// the served floor and the forked party region are paired atomically.
 #[test]
-#[ignore = "known bug: stale snapshot serves a live party fork with a frozen version floor"]
-fn message_minted_after_stale_snapshot_bootstrap_survives_gossip() {
+fn message_minted_after_bootstrap_survives_gossip() {
     block_on(async {
         let mut f = Known::<u64>::seed();
-        // Snapshot taken while F is empty: its tree floor is the zero version.
-        let s = f.rumors();
-        // F ticks well past the snapshot.
-        for v in 0..16u64 {
-            f.message([v]).await;
+        // F ticks well past genesis before serving anyone.
+        {
+            let mut batch = f.batch();
+            for v in 0..16u64 {
+                batch.send(v);
+            }
         }
 
-        // The stale snapshot serves a bootstrapper, forking the LIVE party.
-        let (a_side, b_side) = tokio::io::duplex(DUPLEX_BUF);
-        let (mut a_r, mut a_w) = tokio::io::split(a_side);
-        let (mut b_r, mut b_w) = tokio::io::split(b_side);
-        let (s_out, b_out) = tokio::join!(
-            s.gossip(&mut a_r, &mut a_w),
-            Known::<u64>::bootstrap(&mut b_r, &mut b_w),
-        );
-        s_out.expect("snapshot serves");
-        let mut b = b_out.expect("bootstrap").expect("served");
+        // B bootstraps from F and mints a brand-new message: its version
+        // must come out above (or concurrent to) everything F published
+        // before the fork, never dominated.
+        let mut b = bootstrap_fork_async(&mut f).await;
+        b.send(100);
 
-        // B mints a brand-new message from its stale floor: its version comes
-        // out strictly dominated by F's latest.
-        b.message([100u64]).await;
+        // Sync the two: a dominated version would read as "already
+        // forgotten" and evict the fresh message from both sides.
+        wire_gossip_async(&mut f, &mut b).await;
 
-        // Sync the two: a dominated version reads as "already forgotten", so
-        // the fresh message is evicted from both sides.
-        let (a_side, b_side) = tokio::io::duplex(DUPLEX_BUF);
-        let (mut a_r, mut a_w) = tokio::io::split(a_side);
-        let (mut b_r, mut b_w) = tokio::io::split(b_side);
-        let (f_out, b_out) =
-            tokio::join!(f.gossip(&mut a_r, &mut a_w), b.gossip(&mut b_r, &mut b_w),);
-        let f = f_out.expect("f gossip");
-        let b = b_out.expect("b gossip");
-        let f_has = f.iter().any(|(_, _, m)| **m == 100);
-        let b_has = b.iter().any(|(_, _, m)| **m == 100);
+        let f_has = f.snapshot().iter().any(|(_, _, m)| **m == 100);
+        let b_has = b.snapshot().iter().any(|(_, _, m)| **m == 100);
         assert!(
             f_has && b_has,
             "message 100 must survive the sync: f_has={f_has} b_has={b_has}"

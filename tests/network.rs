@@ -1,7 +1,7 @@
-//! The per-universe [`rumors::Network`] guard: combining operations must refuse
-//! peers from a different seed, even when their parties happen to look
-//! disjoint. Covers fork inheritance, local `join`, remote `gossip`, and
-//! bootstrap propagation.
+//! The per-universe [`rumors::Network`] guard: combining operations must
+//! refuse peers from a different seed, even when their parties happen to
+//! look disjoint. Covers handle inheritance, remote `gossip`, and bootstrap
+//! propagation.
 
 mod common;
 
@@ -20,13 +20,21 @@ fn seeded<T>(stream: u64) -> Known<T> {
     Known::seed_rng(&mut SmallRng::seed_from_u64(stream))
 }
 
-/// A [`rumors`](Known::rumors) snapshot belongs to the same universe as its
-/// originator: it inherits the originator's [`Network`] unchanged.
+/// Every handle on one rumor set belongs to the same universe: a
+/// [`Broadcast`](rumors::Broadcast) (and its clones) inherits the
+/// originating `Known`'s [`Network`](rumors::Network) unchanged, and the
+/// reunited `Known` carries it back out.
 #[test]
-fn rumors_snapshot_preserves_network() {
+fn broadcast_preserves_network() {
     let parent = Known::<u64>::seed();
-    let child = parent.rumors();
-    assert_eq!(parent.network(), child.network());
+    let network = parent.network();
+
+    let broadcast = parent.broadcast();
+    assert_eq!(broadcast.network(), network);
+    assert_eq!(broadcast.clone().network(), network);
+
+    let parent = block_on(broadcast.reunite()).expect("the sole reuniter reclaims the Known");
+    assert_eq!(parent.network(), network);
 }
 
 /// Independent [`seed`](Known::seed)s mint distinct networks — the positive
@@ -38,32 +46,13 @@ fn independent_seeds_differ() {
     assert_ne!(a.network(), b.network());
 }
 
-/// A local [`join`](Known::join) of two peers from different seeds is rejected,
-/// handing `other` back untouched, even though their fresh parties are
-/// (coincidentally) disjoint.
-#[test]
-fn join_rejects_foreign_network() {
-    let mut a = seeded::<u64>(1);
-    let b = seeded::<u64>(2);
-    let b_network = b.network();
-
-    let returned = a
-        .join(b.rumors())
-        .expect_err("join across networks must fail");
-    assert_eq!(
-        returned.network(),
-        b_network,
-        "the rejected peer is handed back unchanged",
-    );
-}
-
 /// Two peers from different seeds that try to [`gossip`](Known::gossip) are
 /// both rejected with [`Error::NetworkMismatch`] at the handshake, before any
 /// content crosses the wire.
 #[test]
 fn gossip_rejects_foreign_network() {
-    let alice = seeded::<u64>(1);
-    let bob = seeded::<u64>(2);
+    let mut alice = seeded::<u64>(1);
+    let mut bob = seeded::<u64>(2);
 
     let (alice_out, bob_out) = block_on(async {
         let (a_side, b_side) = tokio::io::duplex(DUPLEX_BUF);
@@ -90,7 +79,7 @@ fn gossip_rejects_foreign_network() {
 #[test]
 fn bootstrap_adopts_provider_network() {
     let mut provider = Known::<u64>::seed();
-    block_on(provider.message([1u64, 2, 3]));
+    provider.batch().send(1).send(2).send(3);
     let provider_network = provider.network();
 
     let bootstrapped = block_on(async move {

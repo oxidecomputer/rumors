@@ -1,26 +1,31 @@
 //! Integration tests for `rumors::Known::retire` (and its synchronous twin
-//! `sync::Known::retire`): a peer hands its ITC party back to a peer, so its
+//! `sync::Known::retire`): a peer hands its ITC party to a peer, so its
 //! id-region is reclaimed rather than leaked.
 //!
 //! A retire session begins with a round of gossip — the ordinary mirror
 //! descent — so the absorbing peer comes to causally dominate the retiree
-//! before the party changes hands, and nothing the retiree held is lost. The
-//! assertions here are about *outcomes* (`Ok(None)` retired, `Ok(Some(self))`
-//! declined), content survival across the hand-off, and the invariants the
-//! absorbing peer must preserve when the retiree is already converged (its
-//! tree and version are untouched). Declines remain only for counterparties
-//! that structurally cannot absorb a party: a peer that is itself retiring,
-//! or one that is bootstrapping.
+//! before the party changes hands, and nothing the retiree held is lost.
+//! The assertions here are about *outcomes* (the [`Retire`] variants),
+//! content survival across the hand-off, and the invariants the absorbing
+//! peer must preserve when the retiree is already converged (its tree and
+//! version are untouched). Declines remain only for a counterparty that is
+//! itself retiring; a bootstrapping counterparty *absorbs* the retiree —
+//! it receives the whole tree through the descent and the whole party as
+//! the trailing frame, becoming the retiree's successor.
+//!
+//! (The old typestate-era tests of a retire refused by outstanding
+//! snapshots have no equivalent: the `Known`/`Broadcast` XOR makes "retire
+//! while observers share the party" unrepresentable at compile time. The
+//! party-accounting side — every retire reconstituting the seed's whole
+//! id-space — lives in the crate-level tests, which can read the party.)
 
 mod common;
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use proptest::prelude::*;
-use rumors::{Key, Known, RetireError, Version};
+use rumors::{Known, Retire, causally};
 
 use crate::common::action::{LocalAction, arb_local_actions, build_local, build_local_async};
+use crate::common::oracle::readout;
 use crate::common::sync_wire::{sync_bootstrap_fork, sync_wire_gossip};
 use crate::common::wire::{block_on, bootstrap_fork, wire_gossip};
 
@@ -34,7 +39,7 @@ const DUPLEX_BUF: usize = 64 * 1024;
 /// (a genuine bootstrap fork: its own party region, ready to originate).
 fn async_known(peer: Known<u64>, vals: &[u64]) -> Known<u64> {
     let actions: Vec<LocalAction<u64>> = vals.iter().map(|&v| LocalAction::Insert(v)).collect();
-    block_on(build_local_async(peer, &actions))
+    build_local_async(peer, &actions)
 }
 
 /// Build a synchronous `sync::Known<u64>` by inserting `vals` into a disjoint
@@ -47,8 +52,8 @@ fn sync_known(peer: rumors::sync::Known<u64>, vals: &[u64]) -> rumors::sync::Kno
 // ---- wire harnesses ------------------------------------------------------
 
 /// Drive `retiree.retire` against `peer.gossip` concurrently over a duplex
-/// pipe, returning the retiree's outcome and the (possibly absorbing) peer.
-fn retire_into_gossip(retiree: Known<u64>, peer: Known<u64>) -> (Option<Known<u64>>, Known<u64>) {
+/// pipe, returning the retiree's outcome.
+fn retire_into_gossip(retiree: Known<u64>, peer: &mut Known<u64>) -> Retire<u64> {
     block_on(async move {
         let (a_side, b_side) = tokio::io::duplex(DUPLEX_BUF);
         let (mut a_r, mut a_w) = tokio::io::split(a_side);
@@ -57,64 +62,34 @@ fn retire_into_gossip(retiree: Known<u64>, peer: Known<u64>) -> (Option<Known<u6
             retiree.retire(&mut a_r, &mut a_w),
             peer.gossip(&mut b_r, &mut b_w),
         );
-        (
-            retire_out.expect("retiree"),
-            gossip_out.expect("gossiping peer"),
-        )
+        gossip_out.expect("gossiping peer");
+        retire_out
     })
 }
 
-/// Adapt "count this message" into the higher-ranked async callback shape
-/// `gossip_then` expects (the explicit return type pins the HRTB lifetime, the
-/// same trick `common::action::record_key` uses).
-fn count_into(
-    sink: Arc<AtomicUsize>,
-) -> impl FnMut(Key, &Version, &Arc<u64>) -> std::future::Ready<()> {
-    move |_k: Key, _v: &Version, _m: &Arc<u64>| {
-        sink.fetch_add(1, Ordering::Relaxed);
-        std::future::ready(())
-    }
-}
-
-/// Like [`retire_into_gossip`], but the gossiping peer counts the messages it
-/// is asked to deliver. Returns that count alongside the two outcomes.
-fn retire_into_counting_gossip(
-    retiree: Known<u64>,
-    peer: Known<u64>,
-) -> (Option<Known<u64>>, Known<u64>, usize) {
-    let count = Arc::new(AtomicUsize::new(0));
-    let sink = Arc::clone(&count);
-    let (retire_out, gossip_out) = block_on(async move {
-        let (a_side, b_side) = tokio::io::duplex(DUPLEX_BUF);
-        let (mut a_r, mut a_w) = tokio::io::split(a_side);
-        let (mut b_r, mut b_w) = tokio::io::split(b_side);
-        tokio::join!(
-            retiree.retire(&mut a_r, &mut a_w),
-            peer.gossip_then(&mut b_r, &mut b_w, count_into(sink)),
-        )
-    });
-    (
-        retire_out.expect("retiree"),
-        gossip_out.expect("gossiping peer"),
-        count.load(Ordering::Relaxed),
-    )
+/// Like [`retire_into_gossip`], but also counts the novel messages the
+/// session delivered into the gossiping peer (the live leaves above the
+/// peer's pre-session frontier).
+fn retire_into_counting_gossip(retiree: Known<u64>, peer: &mut Known<u64>) -> (Retire<u64>, usize) {
+    let pre = peer.latest();
+    let outcome = retire_into_gossip(retiree, peer);
+    let novel = peer.snapshot().range(causally::since(&pre)).count();
+    (outcome, novel)
 }
 
 /// Drive `a.retire` against `b.retire` concurrently: a mutual retirement.
-fn retire_into_retire(a: Known<u64>, b: Known<u64>) -> (Option<Known<u64>>, Option<Known<u64>>) {
+fn retire_into_retire(a: Known<u64>, b: Known<u64>) -> (Retire<u64>, Retire<u64>) {
     block_on(async move {
         let (a_side, b_side) = tokio::io::duplex(DUPLEX_BUF);
         let (mut a_r, mut a_w) = tokio::io::split(a_side);
         let (mut b_r, mut b_w) = tokio::io::split(b_side);
-        let (a_out, b_out) =
-            tokio::join!(a.retire(&mut a_r, &mut a_w), b.retire(&mut b_r, &mut b_w));
-        (a_out.expect("retiree A"), b_out.expect("retiree B"))
+        tokio::join!(a.retire(&mut a_r, &mut a_w), b.retire(&mut b_r, &mut b_w))
     })
 }
 
-/// Drive `retiree.retire` against a fresh `bootstrap`: neither can serve the
-/// other. Returns the retiree's outcome and the bootstrapper's.
-fn retire_into_bootstrap(retiree: Known<u64>) -> (Option<Known<u64>>, Option<Known<u64>>) {
+/// Drive `retiree.retire` against a fresh `bootstrap`. Returns the retiree's
+/// outcome and the bootstrapper's.
+fn retire_into_bootstrap(retiree: Known<u64>) -> (Retire<u64>, Option<Known<u64>>) {
     block_on(async move {
         let (a_side, b_side) = tokio::io::duplex(DUPLEX_BUF);
         let (mut a_r, mut a_w) = tokio::io::split(a_side);
@@ -123,10 +98,7 @@ fn retire_into_bootstrap(retiree: Known<u64>) -> (Option<Known<u64>>, Option<Kno
             retiree.retire(&mut a_r, &mut a_w),
             Known::<u64>::bootstrap(&mut b_r, &mut b_w),
         );
-        (
-            retire_out.expect("retiree"),
-            boot_out.expect("bootstrapper"),
-        )
+        (retire_out, boot_out.expect("bootstrapper"))
     })
 }
 
@@ -134,43 +106,46 @@ fn retire_into_bootstrap(retiree: Known<u64>) -> (Option<Known<u64>>, Option<Kno
 /// connected by a pair of `std::io::pipe`s, exactly as `sync_wire_gossip` does.
 fn sync_retire_into_gossip(
     retiree: rumors::sync::Known<u64>,
-    peer: rumors::sync::Known<u64>,
-) -> (Option<rumors::sync::Known<u64>>, rumors::sync::Known<u64>) {
+    peer: &mut rumors::sync::Known<u64>,
+) -> rumors::sync::Retire<u64> {
     let (mut a_to_b_r, mut a_to_b_w) = std::io::pipe().expect("pipe a→b");
     let (mut b_to_a_r, mut b_to_a_w) = std::io::pipe().expect("pipe b→a");
 
-    let peer_thread = std::thread::spawn(move || {
-        peer.gossip(&mut a_to_b_r, &mut b_to_a_w)
-            .expect("sync gossiping peer")
-    });
-    let retire_out = retiree
-        .retire(&mut b_to_a_r, &mut a_to_b_w)
-        .expect("sync retiree");
-    let peer_out = peer_thread.join().expect("join peer thread");
-    (retire_out, peer_out)
+    std::thread::scope(|s| {
+        let peer_thread = s.spawn(move || {
+            peer.gossip(&mut a_to_b_r, &mut b_to_a_w)
+                .expect("sync gossiping peer")
+        });
+        let retire_out = retiree.retire(&mut b_to_a_r, &mut a_to_b_w);
+        peer_thread.join().expect("join peer thread");
+        retire_out
+    })
 }
 
 // ---- async behavioral tests ---------------------------------------------
 
 /// Retiring into a peer that has gossiped to convergence (equal versions, so it
-/// reflexively dominates) succeeds: the retiree drops itself (`Ok(None)`) and
-/// the absorbing peer's tree and version are untouched (no content crosses).
+/// reflexively dominates) succeeds: the retiree is consumed ([`Retire::Retired`])
+/// and the absorbing peer's tree and version are untouched (no content crosses).
 #[test]
 fn retire_into_converged_peer_succeeds() {
-    let seed = Known::<u64>::seed();
-    let a = async_known(bootstrap_fork(&seed), &[1, 2]);
-    let b = async_known(seed, &[3, 4]);
+    let mut seed = Known::<u64>::seed();
+    let mut a = async_known(bootstrap_fork(&mut seed), &[1, 2]);
+    let mut b = async_known(seed, &[3, 4]);
 
-    let (a, b) = wire_gossip(a, b);
+    wire_gossip(&mut a, &mut b);
     let hash = b.hash();
-    let version = b.latest().clone();
+    let version = b.latest();
 
-    let (retired, b) = retire_into_gossip(a, b);
-    assert!(retired.is_none(), "a dominating peer absorbs the retiree");
+    let outcome = retire_into_gossip(a, &mut b);
+    assert!(
+        matches!(outcome, Retire::Retired),
+        "a dominating peer absorbs the retiree, got {outcome:?}"
+    );
     assert_eq!(b.hash(), hash, "absorbing a retiree moves no content");
     assert_eq!(
         b.latest(),
-        &version,
+        version,
         "absorbing a retiree is a version no-op"
     );
 }
@@ -180,33 +155,33 @@ fn retire_into_converged_peer_succeeds() {
 /// no prior gossip.
 #[test]
 fn empty_equal_version_retire_succeeds() {
-    let seed = Known::<u64>::seed();
-    let a = bootstrap_fork(&seed);
-    let b = seed;
+    let mut seed = Known::<u64>::seed();
+    let a = bootstrap_fork(&mut seed);
+    let mut b = seed;
 
-    let (retired, _b) = retire_into_gossip(a, b);
+    let outcome = retire_into_gossip(a, &mut b);
     assert!(
-        retired.is_none(),
-        "equal versions dominate reflexively, so retire commits"
+        matches!(outcome, Retire::Retired),
+        "equal versions dominate reflexively, so retire commits; got {outcome:?}"
     );
 }
 
 /// A retiree whose peer does *not* dominate it (the two diverged concurrently)
-/// is no longer declined: the session's gossip round reconciles the two, after
+/// is not declined: the session's gossip round reconciles the two, after
 /// which the peer dominates by construction and absorbs the retiree. Nothing
 /// either side held is lost.
 #[test]
 fn divergent_retiree_reconciles_then_retires() {
-    let seed = Known::<u64>::seed();
-    let a = async_known(bootstrap_fork(&seed), &[1]);
-    let b = async_known(seed, &[2]);
+    let mut seed = Known::<u64>::seed();
+    let a = async_known(bootstrap_fork(&mut seed), &[1]);
+    let mut b = async_known(seed, &[2]);
 
-    let (retired, b) = retire_into_gossip(a, b);
+    let outcome = retire_into_gossip(a, &mut b);
     assert!(
-        retired.is_none(),
-        "the in-session gossip round brings the peer to dominance, so retire commits"
+        matches!(outcome, Retire::Retired),
+        "the in-session gossip round brings the peer to dominance, got {outcome:?}"
     );
-    let mut live: Vec<u64> = b.iter().map(|(_, _, m)| **m).collect();
+    let mut live: Vec<u64> = b.snapshot().iter().map(|(_, _, m)| **m).collect();
     live.sort_unstable();
     assert_eq!(
         live,
@@ -223,23 +198,24 @@ fn retiree_redaction_propagates_through_retire() {
     // Both peers hold 1 and 2 (inserted before the fork, so the keys are
     // shared); the retiree then redacts 1 while the peer inserts 3.
     let mut seed = Known::<u64>::seed();
-    let mut keys: Vec<(u64, Key)> = Vec::new();
-    block_on(seed.message_then([1u64, 2u64], |k, _, m: &Arc<u64>| {
-        keys.push((**m, k));
-        std::future::ready(())
-    }));
-    let mut a = bootstrap_fork(&seed);
-    let b = async_known(seed, &[3]);
-
-    let key_of_1 = keys
+    seed.batch().send(1).send(2);
+    let key_of_1 = seed
+        .snapshot()
         .iter()
-        .find_map(|&(v, k)| (v == 1).then_some(k))
+        .find_map(|(k, _, m)| (**m == 1).then_some(k))
         .expect("key recorded for 1");
-    a.redact([key_of_1]);
 
-    let (retired, b) = retire_into_gossip(a, b);
-    assert!(retired.is_none(), "the reconciled peer absorbs the retiree");
-    let mut live: Vec<u64> = b.iter().map(|(_, _, m)| **m).collect();
+    let a = bootstrap_fork(&mut seed);
+    let mut b = async_known(seed, &[3]);
+
+    a.redact(key_of_1);
+
+    let outcome = retire_into_gossip(a, &mut b);
+    assert!(
+        matches!(outcome, Retire::Retired),
+        "the reconciled peer absorbs the retiree, got {outcome:?}"
+    );
+    let mut live: Vec<u64> = b.snapshot().iter().map(|(_, _, m)| **m).collect();
     live.sort_unstable();
     assert_eq!(
         live,
@@ -249,81 +225,116 @@ fn retiree_redaction_propagates_through_retire() {
 }
 
 /// Two peers that both try to retire into each other both decline: each sees
-/// the other's retire-intent in the greeting and refuses to absorb a peer that
-/// is itself leaving. Both are handed back intact.
+/// the other's retire-intent in the preamble and refuses to absorb a peer
+/// that is itself leaving. Both are handed back intact.
 #[test]
 fn mutual_retire_declines() {
-    let seed = Known::<u64>::seed();
-    let a = async_known(bootstrap_fork(&seed), &[1, 2]);
+    let mut seed = Known::<u64>::seed();
+    let a = async_known(bootstrap_fork(&mut seed), &[1, 2]);
     let b = async_known(seed, &[3, 4]);
 
+    let a_hash = a.hash();
+    let b_hash = b.hash();
     let (ra, rb) = retire_into_retire(a, b);
-    let mut a = ra.expect("mutual retire declines A");
-    let b = rb.expect("mutual retire declines B");
+    let (Retire::Declined { known: a }, Retire::Declined { known: mut b }) = (ra, rb) else {
+        panic!("mutual retirement must decline both sides intact");
+    };
+    assert_eq!(a.hash(), a_hash, "declined retiree A is handed back intact");
+    assert_eq!(b.hash(), b_hash, "declined retiree B is handed back intact");
+
+    // Both parties are still live and disjoint: a clean retire of one into
+    // the other commits.
+    let outcome = retire_into_gossip(a, &mut b);
     assert!(
-        a.join(b.rumors()).is_ok(),
-        "a mutually-declined retire leaves both parties live and disjoint"
+        matches!(outcome, Retire::Retired),
+        "a declined retire leaves both parties whole, got {outcome:?}"
     );
 }
 
-/// A retiree gets nothing from a peer that is itself bootstrapping (it has no
-/// state to give and cannot dominate), and the bootstrapper gets nothing from a
-/// peer that is retiring (it will not serve). Both bail after the greeting with
-/// no deadlock.
+/// A retiree that meets a *bootstrapping* counterparty is absorbed by it:
+/// the newcomer pulls the retiree's whole tree through the descent, then
+/// receives its whole party as the trailing frame — it *becomes* the
+/// retiree, in the same universe, and its subsequent originations are
+/// first-class.
 #[test]
-fn retire_into_bootstrapper_declines() {
-    let seed = Known::<u64>::seed();
-    let retiree = async_known(bootstrap_fork(&seed), &[1, 2]);
+fn retire_into_bootstrapper_hands_off_the_identity() {
+    let mut seed = Known::<u64>::seed();
+    let retiree = async_known(bootstrap_fork(&mut seed), &[1, 2]);
+    let network = retiree.network();
+    let content = readout(&retiree.snapshot());
 
-    let (retired, bootstrapped) = retire_into_bootstrap(retiree);
+    let (outcome, successor) = retire_into_bootstrap(retiree);
     assert!(
-        retired.is_some(),
-        "a retiree declines against a peer that cannot serve"
+        matches!(outcome, Retire::Retired),
+        "a bootstrapper absorbs the retiree, got {outcome:?}"
     );
+    let mut successor = successor.expect("the retiree served the bootstrap");
+    assert_eq!(
+        successor.network(),
+        network,
+        "the successor joins the universe"
+    );
+    assert_eq!(
+        readout(&successor.snapshot()),
+        content,
+        "the successor holds the retiree's content"
+    );
+
+    // The inherited party is live: an origination from the successor
+    // survives gossip with the rest of the universe.
+    successor.send(99);
+    wire_gossip(&mut successor, &mut seed);
     assert!(
-        bootstrapped.is_none(),
-        "a bootstrapper gets nothing from a retiring peer"
+        seed.snapshot().iter().any(|(_, _, m)| **m == 99),
+        "the successor's origination survives gossip"
     );
 }
 
 /// Ordinary `gossip` learns a divergent retiree's novel content through the
-/// session's gossip round, delivering it to the `on_message` callbacks exactly
-/// as a plain gossip session would, before absorbing the party.
+/// session's gossip round — the messages land above the absorber's
+/// pre-session frontier, observable to any cursor — before absorbing the
+/// party.
 #[test]
 fn gossip_learns_content_from_divergent_retiree() {
-    let seed = Known::<u64>::seed();
-    let a = async_known(bootstrap_fork(&seed), &[1, 2]);
-    let b = async_known(seed, &[3]);
+    let mut seed = Known::<u64>::seed();
+    let a = async_known(bootstrap_fork(&mut seed), &[1, 2]);
+    let mut b = async_known(seed, &[3]);
 
-    let (retired, b, callbacks) = retire_into_counting_gossip(a, b);
-    assert!(retired.is_none(), "the reconciled peer absorbs the retiree");
+    let (outcome, novel) = retire_into_counting_gossip(a, &mut b);
+    assert!(
+        matches!(outcome, Retire::Retired),
+        "the reconciled peer absorbs the retiree, got {outcome:?}"
+    );
     assert_eq!(
-        callbacks, 2,
+        novel, 2,
         "the absorber observes each of the retiree's novel messages"
     );
     assert_eq!(b.len(), 3, "the absorber holds the union of live content");
 }
 
 /// Ordinary `gossip` transparently absorbs an already-converged retiree: the
-/// gossiping peer ends with `Ok(self)`, delivers *zero* messages (no content
+/// gossiping peer ends `Ok(())`, observes *zero* novel messages (no content
 /// moves when it already dominates), and its tree and version are unchanged.
 #[test]
-fn gossip_absorbs_retiree_without_callbacks() {
-    let seed = Known::<u64>::seed();
-    let a = async_known(bootstrap_fork(&seed), &[1, 2]);
-    let b = async_known(seed, &[3, 4]);
+fn gossip_absorbs_retiree_without_observations() {
+    let mut seed = Known::<u64>::seed();
+    let mut a = async_known(bootstrap_fork(&mut seed), &[1, 2]);
+    let mut b = async_known(seed, &[3, 4]);
 
-    let (a, b) = wire_gossip(a, b);
+    wire_gossip(&mut a, &mut b);
     let hash = b.hash();
-    let version = b.latest().clone();
+    let version = b.latest();
 
-    let (retired, b, callbacks) = retire_into_counting_gossip(a, b);
-    assert!(retired.is_none(), "the gossiping peer absorbs the retiree");
-    assert_eq!(callbacks, 0, "absorbing a retiree delivers no messages");
+    let (outcome, novel) = retire_into_counting_gossip(a, &mut b);
+    assert!(
+        matches!(outcome, Retire::Retired),
+        "the gossiping peer absorbs the retiree, got {outcome:?}"
+    );
+    assert_eq!(novel, 0, "absorbing a retiree delivers no messages");
     assert_eq!(b.hash(), hash, "absorbing a retiree moves no content");
     assert_eq!(
         b.latest(),
-        &version,
+        version,
         "absorbing a retiree is a version no-op"
     );
 }
@@ -335,20 +346,23 @@ fn gossip_absorbs_retiree_without_callbacks() {
 /// untouched.
 #[test]
 fn sync_retire_into_converged_peer_succeeds() {
-    let seed = rumors::sync::Known::<u64>::seed();
-    let a = sync_known(sync_bootstrap_fork(&seed), &[1, 2]);
-    let b = sync_known(seed, &[3]);
+    let mut seed = rumors::sync::Known::<u64>::seed();
+    let mut a = sync_known(sync_bootstrap_fork(&mut seed), &[1, 2]);
+    let mut b = sync_known(seed, &[3]);
 
-    let (a, b) = sync_wire_gossip(a, b);
+    sync_wire_gossip(&mut a, &mut b);
     let hash = b.hash();
-    let version = b.latest().clone();
+    let version = b.latest();
 
-    let (retired, b) = sync_retire_into_gossip(a, b);
-    assert!(retired.is_none(), "a dominating peer absorbs the retiree");
+    let outcome = sync_retire_into_gossip(a, &mut b);
+    assert!(
+        matches!(outcome, rumors::sync::Retire::Retired),
+        "a dominating peer absorbs the retiree, got {outcome:?}"
+    );
     assert_eq!(b.hash(), hash, "absorbing a retiree moves no content");
     assert_eq!(
         b.latest(),
-        &version,
+        version,
         "absorbing a retiree is a version no-op"
     );
 }
@@ -358,16 +372,16 @@ fn sync_retire_into_converged_peer_succeeds() {
 /// the retiree's party, and the retiree's content survives.
 #[test]
 fn sync_divergent_retiree_reconciles_then_retires() {
-    let seed = rumors::sync::Known::<u64>::seed();
-    let a = sync_known(sync_bootstrap_fork(&seed), &[1]);
-    let b = sync_known(seed, &[2]);
+    let mut seed = rumors::sync::Known::<u64>::seed();
+    let a = sync_known(sync_bootstrap_fork(&mut seed), &[1]);
+    let mut b = sync_known(seed, &[2]);
 
-    let (retired, b) = sync_retire_into_gossip(a, b);
+    let outcome = sync_retire_into_gossip(a, &mut b);
     assert!(
-        retired.is_none(),
-        "the in-session gossip round brings the peer to dominance, so retire commits"
+        matches!(outcome, rumors::sync::Retire::Retired),
+        "the in-session gossip round brings the peer to dominance, got {outcome:?}"
     );
-    let mut live: Vec<u64> = b.iter().map(|(_, _, m)| **m).collect();
+    let mut live: Vec<u64> = b.snapshot().iter().map(|(_, _, m)| **m).collect();
     live.sort_unstable();
     assert_eq!(
         live,
@@ -376,205 +390,91 @@ fn sync_divergent_retiree_reconciles_then_retires() {
     );
 }
 
-// ---- exclusivity: outstanding snapshots block retirement ------------------
-
-/// A retire attempted while a [`rumors`](Known::rumors) snapshot still shares
-/// the party is refused before any wire traffic: the outcome is
-/// [`RetireError::Outstanding`] carrying the retiree back intact, and not a
-/// single byte is written. A live snapshot can fork the shared party (serving
-/// a bootstrap), so handing the region away under it could duplicate id-space.
-/// Once the snapshot drops, the same retiree retires cleanly.
-#[test]
-fn retire_with_outstanding_snapshot_is_refused_before_any_io() {
-    let seed = Known::<u64>::seed();
-    let retiree = async_known(bootstrap_fork(&seed), &[1, 2]);
-    let hash = retiree.hash();
-    let snapshot = retiree.rumors();
-
-    // No counterparty at all: a refusal must not need (or touch) the wire.
-    let mut read = tokio::io::empty();
-    let mut write: Vec<u8> = Vec::new();
-    let retiree = match block_on(retiree.retire(&mut read, &mut write)) {
-        Err(RetireError::Outstanding { known }) => known,
-        other => panic!("an outstanding snapshot must refuse retire, got {other:?}"),
-    };
-    assert!(write.is_empty(), "a refused retire writes nothing");
-    assert_eq!(
-        retiree.hash(),
-        hash,
-        "the refused retiree is handed back intact"
-    );
-
-    drop(snapshot);
-    let (retired, _peer) = retire_into_gossip(retiree, seed);
-    assert!(retired.is_none(), "with snapshots drained, retire commits");
-}
-
-/// Joining an outstanding snapshot back into its originator — the lossless
-/// drain — releases the share: the subsequent retire commits, and the
-/// retiree's content survives in the absorber.
-#[test]
-fn retire_succeeds_after_snapshot_joins_back() {
-    let seed = Known::<u64>::seed();
-    let mut retiree = async_known(bootstrap_fork(&seed), &[1, 2]);
-    let snapshot = retiree.rumors();
-    retiree.join(snapshot).expect("same-universe peers join");
-
-    let (retired, peer) = retire_into_gossip(retiree, seed);
-    assert!(
-        retired.is_none(),
-        "joining the snapshot back releases the share, so retire commits"
-    );
-    let mut live: Vec<u64> = peer.iter().map(|(_, _, m)| **m).collect();
-    live.sort_unstable();
-    assert_eq!(
-        live,
-        vec![1, 2],
-        "the retiree's content survives in the absorber"
-    );
-}
-
-/// Synchronous parity: the blocking surface refuses a retire while a snapshot
-/// shares the party, hands the retiree back intact, and writes nothing.
-#[test]
-fn sync_retire_with_outstanding_snapshot_is_refused() {
-    let retiree = sync_known(rumors::sync::Known::<u64>::seed(), &[1]);
-    let hash = retiree.hash();
-    let snapshot = retiree.rumors();
-
-    let mut read = std::io::empty();
-    let mut write: Vec<u8> = Vec::new();
-    let retiree = match retiree.retire(&mut read, &mut write) {
-        Err(RetireError::Outstanding { known }) => known,
-        other => panic!("an outstanding snapshot must refuse sync retire, got {other:?}"),
-    };
-    assert!(write.is_empty(), "a refused retire writes nothing");
-    assert_eq!(
-        retiree.hash(),
-        hash,
-        "the refused retiree is handed back intact"
-    );
-    drop(snapshot);
-}
+// ---- wire-equivalence property tests -------------------------------------
 
 proptest! {
-    /// Retire is refused exactly while any snapshot is outstanding: with `n`
-    /// snapshots live, every attempt is refused intact and touches no wire;
-    /// each refusal then drops one snapshot, and once the last is gone the
-    /// retire commits.
-    #[test]
-    fn retire_refused_iff_snapshots_outstanding(n in 0usize..4) {
-        let seed = Known::<u64>::seed();
-        let mut retiree = bootstrap_fork(&seed);
-        let mut snapshots: Vec<_> = (0..n).map(|_| retiree.rumors()).collect();
-
-        while let Some(snapshot) = snapshots.pop() {
-            let mut read = tokio::io::empty();
-            let mut write: Vec<u8> = Vec::new();
-            retiree = match block_on(retiree.retire(&mut read, &mut write)) {
-                Err(RetireError::Outstanding { known }) => known,
-                other => panic!(
-                    "{} outstanding snapshots must refuse retire, got {other:?}",
-                    snapshots.len() + 1
-                ),
-            };
-            prop_assert!(write.is_empty(), "a refused retire writes nothing");
-            drop(snapshot);
-        }
-
-        let (retired, _peer) = retire_into_gossip(retiree, seed);
-        prop_assert!(
-            retired.is_none(),
-            "with all snapshots dropped, retire commits"
-        );
-    }
-}
-
-// ---- wire-equivalence property test -------------------------------------
-
-proptest! {
-    /// Retiring A into B over the wire (after gossiping to convergence) leaves B
-    /// with the same live content (`hash`) and causal version (`latest`) as
-    /// merging A into B with an in-process `join` — the local oracle for
-    /// reunion. Two independently-seeded universes built from identical action
-    /// sequences are compared; `hash`/`latest` are network-independent, so the
+    /// Retiring A into B over the wire (after gossiping to convergence)
+    /// leaves B with the same live content (`hash`) and causal version
+    /// (`latest`) as a plain gossip session in an identically-built
+    /// universe: the party hand-off moves no content and no version. Two
+    /// independently-seeded universes built from identical action sequences
+    /// are compared; `hash`/`latest` are network-independent, so the
     /// distinct `Network` ids do not perturb the comparison.
     #[test]
-    fn retire_matches_local_join(
+    fn retire_matches_plain_gossip(
         a_actions in arb_local_actions(),
         b_actions in arb_local_actions(),
     ) {
         // Wire path: converge, then retire A into B.
-        let (wire_hash, wire_version) = {
-            let seed = Known::<u64>::seed();
-            let a = block_on(build_local_async(bootstrap_fork(&seed), &a_actions));
-            let b = block_on(build_local_async(seed, &b_actions));
-            let (a, b) = wire_gossip(a, b);
-            let (retired, b) = retire_into_gossip(a, b);
-            prop_assert!(retired.is_none(), "a converged peer dominates, so retire commits");
-            (b.hash(), b.latest().clone())
+        let (retire_hash, retire_version) = {
+            let mut seed = Known::<u64>::seed();
+            let mut a = build_local_async(bootstrap_fork(&mut seed), &a_actions);
+            let mut b = build_local_async(seed, &b_actions);
+            wire_gossip(&mut a, &mut b);
+            let outcome = retire_into_gossip(a, &mut b);
+            prop_assert!(
+                matches!(outcome, Retire::Retired),
+                "a converged peer dominates, so retire commits; got {outcome:?}",
+            );
+            (b.hash(), b.latest())
         };
 
-        // Oracle: an in-process content-merge (`join`) of an identically-built
-        // universe; `join` is network-guarded and merges content only.
-        let (join_hash, join_version) = {
-            let seed = Known::<u64>::seed();
-            let a = block_on(build_local_async(bootstrap_fork(&seed), &a_actions));
-            let mut b = block_on(build_local_async(seed, &b_actions));
-            b.join(a.rumors()).expect("same-universe peers join");
-            (b.hash(), b.latest().clone())
+        // Oracle: a plain gossip session in an identically-built universe.
+        let (gossip_hash, gossip_version) = {
+            let mut seed = Known::<u64>::seed();
+            let mut a = build_local_async(bootstrap_fork(&mut seed), &a_actions);
+            let mut b = build_local_async(seed, &b_actions);
+            wire_gossip(&mut a, &mut b);
+            (b.hash(), b.latest())
         };
 
         prop_assert_eq!(
-            wire_hash, join_hash,
-            "retire-over-wire leaves the same live content as a local join"
+            retire_hash, gossip_hash,
+            "retire-over-wire leaves the same live content as plain gossip"
         );
         prop_assert_eq!(
-            wire_version, join_version,
-            "retire-over-wire leaves the same causal version as a local join"
+            retire_version, gossip_version,
+            "retire-over-wire leaves the same causal version as plain gossip"
         );
     }
 
-    /// Retiring A into B over the wire with *no prior synchronization* leaves
-    /// B with the same live content (`hash`) and causal version (`latest`) as
-    /// merging A into B with an in-process `join`: the gossip round inside
-    /// the retire session performs the reconciliation itself. The same
-    /// two-universe comparison construction as [`retire_matches_local_join`].
+    /// Retiring A into B with *no prior synchronization* also matches the
+    /// plain-gossip oracle: the gossip round inside the retire session
+    /// performs the reconciliation itself.
     #[test]
-    fn unsynchronized_retire_matches_local_join(
+    fn unsynchronized_retire_matches_plain_gossip(
         a_actions in arb_local_actions(),
         b_actions in arb_local_actions(),
     ) {
         // Wire path: retire A into B directly, while they may still diverge.
-        let (wire_hash, wire_version) = {
-            let seed = Known::<u64>::seed();
-            let a = block_on(build_local_async(bootstrap_fork(&seed), &a_actions));
-            let b = block_on(build_local_async(seed, &b_actions));
-            let (retired, b) = retire_into_gossip(a, b);
+        let (retire_hash, retire_version) = {
+            let mut seed = Known::<u64>::seed();
+            let a = build_local_async(bootstrap_fork(&mut seed), &a_actions);
+            let mut b = build_local_async(seed, &b_actions);
+            let outcome = retire_into_gossip(a, &mut b);
             prop_assert!(
-                retired.is_none(),
-                "the in-session gossip round always brings the peer to dominance"
+                matches!(outcome, Retire::Retired),
+                "the in-session gossip round always brings the peer to dominance; got {outcome:?}",
             );
-            (b.hash(), b.latest().clone())
+            (b.hash(), b.latest())
         };
 
-        // Oracle: an in-process content-merge (`join`) of an identically-built
-        // universe; `join` is network-guarded and merges content only.
-        let (join_hash, join_version) = {
-            let seed = Known::<u64>::seed();
-            let a = block_on(build_local_async(bootstrap_fork(&seed), &a_actions));
-            let mut b = block_on(build_local_async(seed, &b_actions));
-            b.join(a.rumors()).expect("same-universe peers join");
-            (b.hash(), b.latest().clone())
+        // Oracle: a plain gossip session in an identically-built universe.
+        let (gossip_hash, gossip_version) = {
+            let mut seed = Known::<u64>::seed();
+            let mut a = build_local_async(bootstrap_fork(&mut seed), &a_actions);
+            let mut b = build_local_async(seed, &b_actions);
+            wire_gossip(&mut a, &mut b);
+            (b.hash(), b.latest())
         };
 
         prop_assert_eq!(
-            wire_hash, join_hash,
-            "unsynchronized retire leaves the same live content as a local join"
+            retire_hash, gossip_hash,
+            "unsynchronized retire leaves the same live content as plain gossip"
         );
         prop_assert_eq!(
-            wire_version, join_version,
-            "unsynchronized retire leaves the same causal version as a local join"
+            retire_version, gossip_version,
+            "unsynchronized retire leaves the same causal version as plain gossip"
         );
     }
 }

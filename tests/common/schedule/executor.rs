@@ -8,13 +8,12 @@
 use std::collections::BTreeMap;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use rumors::Key;
-use rumors::sync::Known;
+use rumors::{Key, Known};
 
 use super::events::{Event, EventIdx, Schedule};
 use crate::common::oracle::Oracle;
 use crate::common::peer::{Peer, gossip_step, quiesce};
-use crate::common::sync_wire::sync_bootstrap_fork;
+use crate::common::wire::bootstrap_fork;
 
 pub struct ExecutionResult<T> {
     pub peers: Vec<Peer<T>>,
@@ -33,8 +32,8 @@ where
 }
 
 /// Run the schedule and then drive every peer to a full-mesh fixed
-/// point. After this returns, every `peers[i].local` should equal
-/// every other and match the oracle's projection.
+/// point. After this returns, every `peers[i].local` should hold the
+/// same live content as every other and match the oracle's projection.
 pub fn execute_and_quiesce<T>(schedule: &Schedule<T>) -> ExecutionResult<T>
 where
     T: Clone + Eq + Ord + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
@@ -72,7 +71,7 @@ where
         let local = if i == 0 {
             Known::seed()
         } else {
-            sync_bootstrap_fork(&peers[schedule.fork_parents[i]].local)
+            bootstrap_fork(&mut peers[schedule.fork_parents[i]].local)
         };
         peers.push(Peer::new(local));
     }
@@ -91,12 +90,7 @@ where
                 target_event_idx,
             } => {
                 let key = resolved_keys[target_event_idx];
-                let observed_locally = peers[*peer]
-                    .observations
-                    .lock()
-                    .unwrap()
-                    .iter()
-                    .any(|(k, _, _)| *k == key);
+                let observed_locally = peers[*peer].observations.iter().any(|(k, _, _)| *k == key);
                 if observed_locally {
                     peers[*peer].redact_one(key);
                     oracle.redact(*target_event_idx);

@@ -1,113 +1,112 @@
 //! A simulated peer: a `Known<T>` paired with its observation log, plus
-//! helpers for the schedule executor (`gossip_step` for a bidirectional
-//! `Known::join_then`, `quiesce` for full-mesh convergence to a fixed
+//! helpers for the schedule executor (`gossip_step` for one bidirectional
+//! wire gossip session, `quiesce` for full-mesh convergence to a fixed
 //! point).
-
-use std::sync::{Arc, Mutex};
+//!
+//! Observation is pull-based, mirroring the `Messages` observer one pass at
+//! a time: a [`drain`](Peer::drain) snapshots the peer and records exactly
+//! the live leaves its causal cursor does not contain — local sends and
+//! gossip-learned messages alike — then absorbs the snapshot's ceiling.
+//! Every helper drains after the operation it performs, so the log stays in
+//! event order and a message redacted before it was ever drained is never
+//! observed, matching both the `Messages` delivery contract and the shadow
+//! simulator's model in `schedule::arb`.
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use rumors::sync::Known;
-use rumors::{Key, Version};
+use rumors::{Key, Known, Version, causally};
+
+use crate::common::wire::{block_on, wire_gossip_async};
 
 /// One simulated peer.
-///
-/// The observation log is held behind an `Arc<Mutex<_>>` because the
-/// sync API's callback bounds are `FnMut(...) + Send + 'static` (so the
-/// caller can drive gossip on a spawned thread). A `&mut self.observations`
-/// borrow would force a `'static` reference, which `&mut` can't satisfy;
-/// each helper instead clones the `Arc` into its closure and locks it on
-/// each callback invocation.
 pub struct Peer<T> {
     pub local: Known<T>,
-    /// All observations this peer has accumulated, across `message`,
-    /// `redact`, and `learn` calls. The public API contract says
-    /// callback order within a batch is arbitrary; in practice it is
-    /// deterministic across runs because the underlying tree is an
-    /// `imbl::OrdMap`, so the log is reproducible inside a counterexample.
-    pub observations: Arc<Mutex<Vec<(Key, Version, T)>>>,
+    /// The causal frontier up to which `observations` is complete: each
+    /// drain records the live leaves not contained here, then absorbs the
+    /// snapshot's ceiling (so redaction ticks, which have no leaves, are
+    /// covered too).
+    cursor: Version,
+    /// All observations this peer has accumulated, across `insert_one`,
+    /// `gossip_step`, and `quiesce` calls. Drain order within a pass is the
+    /// tree's iteration order; in practice it is deterministic across runs,
+    /// so the log is reproducible inside a counterexample.
+    pub observations: Vec<(Key, Version, T)>,
 }
 
 impl<T: Clone + BorshSerialize + BorshDeserialize + Send + Sync + 'static> Peer<T> {
-    /// Wrap an already-forked `Known` as a simulated peer.
+    /// Wrap an already-forked `Known` as a simulated peer. Observation
+    /// starts at the wrapped set's current frontier: content already present
+    /// is never logged, only what arrives afterwards.
     ///
     /// The caller must mint `local` by bootstrapping from the shared
     /// universe seed (directly, or via another peer), never by an
     /// independent [`Known::seed`]: only then are all peers pairwise
     /// disjoint, the precondition for [`gossip_step`] to succeed.
     pub fn new(local: Known<T>) -> Self {
+        let cursor = local.latest();
         Self {
             local,
-            observations: Arc::new(Mutex::new(Vec::new())),
+            cursor,
+            observations: Vec::new(),
         }
     }
 
     /// Snapshot of the observation log, in insertion order. Convenience
     /// for tests that read out `peer.observations` for assertions.
     pub fn observations(&self) -> Vec<(Key, Version, T)> {
-        self.observations.lock().unwrap().clone()
+        self.observations.clone()
+    }
+
+    /// Record every live message the cursor does not causally contain,
+    /// then absorb the snapshot's ceiling. Returns how many were new.
+    pub fn drain(&mut self) -> usize {
+        let snapshot = self.local.snapshot();
+        let mut new = 0;
+        for (key, version, message) in snapshot.range(causally::since(&self.cursor)) {
+            self.observations
+                .push((key, version.clone(), (**message).clone()));
+            new += 1;
+        }
+        self.cursor |= snapshot.latest();
+        new
     }
 
     /// Insert a single value, returning the `Key` minted for it.
     pub fn insert_one(&mut self, value: T) -> Key {
-        // Both the observation log and the produced `Key` cross into the
-        // `Send + 'static` callback via `Arc<Mutex<_>>` clones; the outer
-        // function unwraps the single remaining reference after the call
-        // returns.
-        let produced: Arc<Mutex<Option<Key>>> = Arc::new(Mutex::new(None));
-        let observations = Arc::clone(&self.observations);
-        let produced_in = Arc::clone(&produced);
-        self.local.message_then([value], move |k, v, m| {
-            observations
-                .lock()
-                .unwrap()
-                .push((k, v.clone(), T::clone(m)));
-            *produced_in.lock().unwrap() = Some(k);
-        });
-        produced
-            .lock()
-            .unwrap()
-            .expect("Known::message must fire on_message for every inserted value")
+        // Catch the log up first, so the send's drain isolates exactly the
+        // one new observation and its key.
+        self.drain();
+        self.local.send(value);
+        let pre = self.observations.len();
+        let drained = self.drain();
+        assert_eq!(drained, 1, "a send mints exactly one new observation");
+        self.observations[pre].0
     }
 
     pub fn redact_one(&mut self, key: Key) {
-        self.local.redact([key]);
+        self.local.redact(key);
+        // Redactions fire no observation; the drain just absorbs the
+        // version tick into the cursor.
+        self.drain();
     }
 }
 
-/// Bidirectional gossip between two peers: each side merges the other's
-/// state into its own and records observations. After this returns,
-/// `a.local == b.local`.
+/// Bidirectional wire gossip between two peers: one session over an
+/// in-memory duplex, after which both sides hold the same live content and
+/// version, and both observation logs have caught up.
 pub fn gossip_step<T>(a: &mut Peer<T>, b: &mut Peer<T>)
 where
     T: Clone + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
 {
-    let a_snapshot = a.local.rumors();
-    let b_snapshot = b.local.rumors();
-
-    // `join_then` is fallible only on a `Network` mismatch (two independent
-    // seeds); every peer in a test fleet descends from one seed, so they always
-    // match. (`unwrap_or_else` rather than `expect` keeps `T: Debug` off the
-    // bound.)
-    let obs_a = Arc::clone(&a.observations);
-    a.local
-        .join_then(b_snapshot, move |k, v, m| {
-            obs_a.lock().unwrap().push((k, v.clone(), T::clone(m)));
-        })
-        .unwrap_or_else(|_| unreachable!("fleet peers share one network"));
-
-    let obs_b = Arc::clone(&b.observations);
-    b.local
-        .join_then(a_snapshot, move |k, v, m| {
-            obs_b.lock().unwrap().push((k, v.clone(), T::clone(m)));
-        })
-        .unwrap_or_else(|_| unreachable!("fleet peers share one network"));
+    block_on(wire_gossip_async(&mut a.local, &mut b.local));
+    a.drain();
+    b.drain();
 }
 
 /// Drive every pair toward convergence by repeatedly running
 /// `gossip_step` over all pairs in a fixed order until no peer's
-/// `Known` changes for a full round. A bounded outer loop guards
-/// against pathological non-termination (which would itself be a bug
-/// the test should catch).
+/// live content (`hash`) or causal version (`latest`) changes for a
+/// full round. A bounded outer loop guards against pathological
+/// non-termination (which would itself be a bug the test should catch).
 pub fn quiesce<T>(peers: &mut [Peer<T>])
 where
     T: Clone + Eq + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
@@ -119,8 +118,10 @@ where
 
     let max_rounds = MAX_QUIESCE_ROUNDS_PER_PEER * n;
     for _ in 0..max_rounds {
-        let snapshot: Vec<Known<T, rumors::Rumors>> =
-            peers.iter().map(|p| p.local.rumors()).collect();
+        let before: Vec<([u8; 32], Version)> = peers
+            .iter()
+            .map(|p| (p.local.hash(), p.local.latest()))
+            .collect();
 
         for i in 0..n {
             for j in (i + 1)..n {
@@ -131,8 +132,8 @@ where
 
         let changed = peers
             .iter()
-            .zip(snapshot.iter())
-            .any(|(p, s)| &p.local != s);
+            .zip(before.iter())
+            .any(|(p, (hash, latest))| p.local.hash() != *hash || p.local.latest() != *latest);
         if !changed {
             return;
         }

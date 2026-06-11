@@ -1,17 +1,15 @@
 //! Generic `Insert`/`Redact` action sequences for single-`Known` tests.
 //! Shared by `pairwise`, `async_wire`, and `sync_wire`, so all three
-//! exercise the same shapes of input — including redactions, which the
-//! original String-T and Sync wire tests skipped. [`build_local`] applies a
-//! sequence to a synchronous `sync::Known`; [`build_local_async`] applies it
-//! to an asynchronous `rumors::Known` for the concurrent wire test.
-
-use std::sync::Arc;
+//! exercise the same shapes of input — including redactions. [`build_local`]
+//! applies a sequence to a synchronous `sync::Known`; [`build_local_async`]
+//! applies it to an asynchronous `rumors::Known`. (Sends are synchronous on
+//! both surfaces now — the names refer to which API surface is built, not to
+//! the function's color.)
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use proptest::collection::vec;
 use proptest::prelude::*;
-use rumors::sync::Known;
-use rumors::{Key, Version};
+use rumors::{Key, Snapshot, Version, causally};
 
 const MAX_ACTIONS: usize = 16;
 
@@ -50,45 +48,30 @@ pub fn arb_string_actions() -> impl Strategy<Value = Vec<LocalAction<String>>> {
     arb_actions("[a-z]{0,8}".prop_map(String::from))
 }
 
-/// Apply a `LocalAction` sequence to the given `Known<T>`, returning it.
+/// The `Key` of the single live leaf in `snapshot` above the causal frontier
+/// `pre`: how a builder recovers the key a `send` just minted, given the
+/// `latest()` it recorded before sending. Panics unless exactly one leaf
+/// qualifies.
+pub fn minted_key<T: Send + Sync>(snapshot: &Snapshot<T>, pre: &Version) -> Key {
+    let mut fresh = snapshot.range(causally::since(pre)).map(|(k, _, _)| k);
+    let key = fresh.next().expect("a send mints exactly one live leaf");
+    assert!(
+        fresh.next().is_none(),
+        "a single send must mint exactly one live leaf"
+    );
+    key
+}
+
+/// Apply a `LocalAction` sequence to the given `sync::Known<T>`, returning
+/// it.
 ///
 /// The caller supplies `local` already bootstrapped from the shared universe
 /// seed, so independently-built locals stay pairwise disjoint and can later
-/// merge one another's snapshots with [`join`](Known::join).
-pub fn build_local<T>(mut local: Known<T>, actions: &[LocalAction<T>]) -> Known<T>
-where
-    T: Send + Sync + Clone + BorshSerialize + BorshDeserialize + 'static,
-{
-    // The sync callback bound only requires `Send + 'a`, so the closure can
-    // borrow `keys` directly for the duration of each `message` call.
-    let mut keys: Vec<Key> = Vec::new();
-    for a in actions {
-        match a {
-            LocalAction::Insert(v) => {
-                local.message_then([v.clone()], |k, _, _| keys.push(k));
-            }
-            LocalAction::Redact(idx) => {
-                if !keys.is_empty() {
-                    local.redact([keys[idx % keys.len()]]);
-                }
-            }
-        }
-    }
-    local
-}
-
-/// Asynchronous counterpart of [`build_local`]: replay the same
-/// `LocalAction` sequence on an async [`rumors::Known`], so the `async_wire`
-/// test can build peers for the genuinely-concurrent wire protocol without
-/// going through the synchronous wrapper.
-///
-/// Inserts go through the `async` [`rumors::Known::message_then`]; redaction
-/// is synchronous on both surfaces. As in [`build_local`], `local` must
-/// already be bootstrapped from the shared universe seed.
-pub async fn build_local_async<T>(
-    mut local: rumors::Known<T>,
+/// reconcile over the wire.
+pub fn build_local<T>(
+    local: rumors::sync::Known<T>,
     actions: &[LocalAction<T>],
-) -> rumors::Known<T>
+) -> rumors::sync::Known<T>
 where
     T: Send + Sync + Clone + BorshSerialize + BorshDeserialize + 'static,
 {
@@ -96,11 +79,13 @@ where
     for a in actions {
         match a {
             LocalAction::Insert(v) => {
-                local.message_then([v.clone()], record_key(&mut keys)).await;
+                let pre = local.latest();
+                local.send(v.clone());
+                keys.push(minted_key(&local.snapshot(), &pre));
             }
             LocalAction::Redact(idx) => {
                 if !keys.is_empty() {
-                    local.redact([keys[idx % keys.len()]]);
+                    local.redact(keys[idx % keys.len()]);
                 }
             }
         }
@@ -108,18 +93,28 @@ where
     local
 }
 
-/// Adapt "push the observed `Key` into `keys`" into the async callback shape
-/// [`rumors::Known::message_then`] expects.
-///
-/// The explicit return-position `impl FnMut(..) -> Ready<()>` pins the
-/// closure to a higher-ranked signature, which is what lets it flow into the
-/// async layer without a "not general enough" lifetime error (the same trick
-/// the crate's own sync wrapper uses internally).
-fn record_key<T>(
-    keys: &mut Vec<Key>,
-) -> impl FnMut(Key, &Version, &Arc<T>) -> std::future::Ready<()> {
-    move |k: Key, _v: &Version, _m: &Arc<T>| {
-        keys.push(k);
-        std::future::ready(())
+/// Counterpart of [`build_local`] on the asynchronous [`rumors::Known`]: the
+/// same `LocalAction` replay for the tests that exercise the genuinely
+/// concurrent wire protocol. As in [`build_local`], `local` must already be
+/// bootstrapped from the shared universe seed.
+pub fn build_local_async<T>(local: rumors::Known<T>, actions: &[LocalAction<T>]) -> rumors::Known<T>
+where
+    T: Send + Sync + Clone + BorshSerialize + BorshDeserialize + 'static,
+{
+    let mut keys: Vec<Key> = Vec::new();
+    for a in actions {
+        match a {
+            LocalAction::Insert(v) => {
+                let pre = local.latest();
+                local.send(v.clone());
+                keys.push(minted_key(&local.snapshot(), &pre));
+            }
+            LocalAction::Redact(idx) => {
+                if !keys.is_empty() {
+                    local.redact(keys[idx % keys.len()]);
+                }
+            }
+        }
     }
+    local
 }

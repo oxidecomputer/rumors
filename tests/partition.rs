@@ -63,7 +63,7 @@ proptest! {
         let expected = result.oracle.expected_live();
         for (i, peer) in result.peers.iter().enumerate() {
             prop_assert_eq!(
-                readout_multiset(&peer.local), expected.clone(),
+                readout_multiset(&peer.local.snapshot()), expected.clone(),
                 "partitioned peer {} diverged from partitioned oracle", i,
             );
         }

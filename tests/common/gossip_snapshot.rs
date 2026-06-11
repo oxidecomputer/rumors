@@ -154,7 +154,7 @@ impl AsyncWrite for Recorder {
 /// returned string is deterministic for a given pair of `Known`s and a given
 /// build of the protocol. The two `Known`s are expected to reconcile cleanly;
 /// a gossip error panics the helper.
-pub fn capture_gossip<T>(a: Known<T>, b: Known<T>) -> String
+pub fn capture_gossip<T>(mut a: Known<T>, mut b: Known<T>) -> String
 where
     T: BorshSerialize + BorshDeserialize + Send + Sync + 'static,
 {

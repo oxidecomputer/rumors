@@ -1,26 +1,38 @@
 //! Raw protocol preamble exchange (`mirror::remote::preamble`).
 //!
 //! Drives [`rumors::Known::gossip`] against a hand-crafted peer over a
-//! [`tokio::io::duplex`] pipe, asserting that a mismatched magic or version
-//! surfaces as the typed error variant rather than corrupting the local rumor
-//! set. The preamble is the *raw* (non-length-delimited) prefix validated
-//! before any framed traffic; the [`Network`](rumors::Network) rides the
-//! framed greeting that follows, so network-mismatch rejection is exercised
-//! separately in `tests/network.rs`.
+//! [`tokio::io::duplex`] pipe, asserting that a mismatched magic, version,
+//! or intent byte surfaces as the typed error variant rather than
+//! corrupting the local rumor set. The preamble is the *raw*
+//! (non-length-delimited) prefix validated before any framed traffic:
+//! `magic(6) | proto_version(2 BE) | network(16) | intent(1)`. Network
+//! mismatch rejection rides the same preamble but needs a real peer in a
+//! different universe, so it is exercised separately in `tests/network.rs`.
+
+mod common;
 
 use rumors::{Error, Known, PROTOCOL_MAGIC, PROTOCOL_VERSION};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
 
-/// Length of the raw preamble: magic(6) + version(BE u16). The network is no
-/// longer part of the preamble; it travels in the framed greeting that follows.
-const PREAMBLE_LEN: usize = 8;
+use crate::common::wire::bootstrap_fork_async;
 
-/// Assemble a raw preamble by hand, matching the layout the protocol encodes:
-/// `magic(6) | version(BE u16)`.
-fn preamble(magic: [u8; 6], version: u16) -> [u8; PREAMBLE_LEN] {
+/// Length of the raw preamble: magic(6) + version(BE u16) + network(16) +
+/// intent(1).
+const PREAMBLE_LEN: usize = 25;
+
+/// Intent byte for a peer that participates and remains.
+const INTENT_REMAIN: u8 = 0;
+
+/// Assemble a raw preamble by hand, matching the layout the protocol
+/// encodes: `magic(6) | version(BE u16) | network(16) | intent(1)`. The
+/// network bytes are arbitrary: every scenario below fails (or completes)
+/// before the network would be consulted.
+fn preamble(magic: [u8; 6], version: u16, intent: u8) -> [u8; PREAMBLE_LEN] {
     let mut p = [0u8; PREAMBLE_LEN];
     p[..6].copy_from_slice(&magic);
     p[6..8].copy_from_slice(&version.to_be_bytes());
+    p[8..24].copy_from_slice(&[0xAB; 16]);
+    p[24] = intent;
     p
 }
 
@@ -36,13 +48,16 @@ fn protocol_constants_match_spec() {
 /// proceed to a (trivially empty) gossip session.
 #[tokio::test(flavor = "current_thread")]
 async fn handshake_roundtrip_succeeds() {
+    // Same universe: `bob` is a party-disjoint fork of `alice`, so their
+    // networks match. (The async fork helper: this test body is already
+    // inside the tokio test runtime, where the blocking wrapper would
+    // panic.)
+    let mut alice: Known<String> = Known::seed();
+    let mut bob = bootstrap_fork_async(&mut alice).await;
+
     let (a, b) = duplex(1024);
     let (mut a_r, mut a_w) = tokio::io::split(a);
     let (mut b_r, mut b_w) = tokio::io::split(b);
-
-    // Same universe: `bob` is a snapshot of `alice`, so their networks match.
-    let alice: Known<String> = Known::seed();
-    let bob = alice.rumors();
 
     let (alice_out, bob_out) = tokio::join!(
         alice.gossip(&mut a_r, &mut a_w),
@@ -67,11 +82,11 @@ async fn magic_mismatch_surfaces_error() {
         // non-rumors one.
         let mut got = [0u8; PREAMBLE_LEN];
         b_r.read_exact(&mut got).await.expect("fake peer read");
-        let reply = preamble(bad_magic, PROTOCOL_VERSION);
+        let reply = preamble(bad_magic, PROTOCOL_VERSION, INTENT_REMAIN);
         b_w.write_all(&reply).await.expect("fake peer write");
     };
 
-    let alice: Known<String> = Known::seed();
+    let mut alice: Known<String> = Known::seed();
     let alice_fut = alice.gossip(&mut a_r, &mut a_w);
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
@@ -97,12 +112,12 @@ async fn version_mismatch_surfaces_error() {
         let mut got = [0u8; PREAMBLE_LEN];
         b_r.read_exact(&mut got).await.expect("fake peer read");
         // Correct magic, bogus version: the version check fires on the raw
-        // prefix, before any framed greeting is read.
-        let reply = preamble(PROTOCOL_MAGIC, bogus_version);
+        // prefix, before the network or intent bytes are interpreted.
+        let reply = preamble(PROTOCOL_MAGIC, bogus_version, INTENT_REMAIN);
         b_w.write_all(&reply).await.expect("fake peer write");
     };
 
-    let alice: Known<String> = Known::seed();
+    let mut alice: Known<String> = Known::seed();
     let alice_fut = alice.gossip(&mut a_r, &mut a_w);
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
@@ -111,6 +126,35 @@ async fn version_mismatch_surfaces_error() {
             assert_eq!(remote_version, bogus_version);
         }
         other => panic!("expected VersionMismatch, got {other:?}"),
+    }
+}
+
+/// A peer whose intent byte is neither 0 (remain) nor 1 (retire) is
+/// rejected with [`Error::IntentInvalid`]: the intent is peer-supplied and
+/// must be validated rather than assumed.
+#[tokio::test(flavor = "current_thread")]
+async fn invalid_intent_surfaces_error() {
+    let (a, b) = duplex(1024);
+    let (mut a_r, mut a_w) = tokio::io::split(a);
+    let (mut b_r, mut b_w) = tokio::io::split(b);
+
+    let bogus_intent: u8 = 2;
+    let fake_peer = async move {
+        let mut got = [0u8; PREAMBLE_LEN];
+        b_r.read_exact(&mut got).await.expect("fake peer read");
+        let reply = preamble(PROTOCOL_MAGIC, PROTOCOL_VERSION, bogus_intent);
+        b_w.write_all(&reply).await.expect("fake peer write");
+    };
+
+    let mut alice: Known<String> = Known::seed();
+    let alice_fut = alice.gossip(&mut a_r, &mut a_w);
+
+    let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
+    match alice_result {
+        Err(Error::IntentInvalid { byte }) => {
+            assert_eq!(byte, bogus_intent);
+        }
+        other => panic!("expected IntentInvalid, got {other:?}"),
     }
 }
 
@@ -132,7 +176,7 @@ async fn truncated_handshake_io_error() {
         drop(b_w);
     };
 
-    let alice: Known<String> = Known::seed();
+    let mut alice: Known<String> = Known::seed();
     let alice_fut = alice.gossip(&mut a_r, &mut a_w);
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
@@ -169,7 +213,7 @@ async fn handshake_precedes_framed_traffic() {
         b_w.write_all(&reply).await.expect("fake peer write");
     };
 
-    let alice: Known<String> = Known::seed();
+    let mut alice: Known<String> = Known::seed();
     let alice_fut = alice.gossip(&mut a_r, &mut a_w);
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);

@@ -5,8 +5,9 @@
 //! default `recursion_limit = 128` and forces downstream crates to bump
 //! their own limit. We defuse that by type-erasing inside the protocol
 //! (`tree::traverse::mirror::mirror`, `tree::traverse::act`), which leaves
-//! the public futures (`Known::gossip`, `Known::join`, `Known::message`)
-//! holding nothing more than a `Pin<Box<dyn Future>>` plus a few locals.
+//! the public futures (`Known::gossip`, `Known::retire`,
+//! `Known::bootstrap`) holding nothing more than a `Pin<Box<dyn Future>>`
+//! plus a few locals.
 //!
 //! This test pins down that arrangement: if someone reintroduces the deep
 //! chain inline (e.g. by removing the `Box::pin` indirection or by adding
@@ -24,12 +25,11 @@ use std::mem::size_of_val;
 
 use rumors::Known;
 
-/// Upper bound for the unawaited public futures. At time of writing, all
-/// three measure ~170 bytes. The budget is set generously above that
-/// (≈6×) so legitimate growth — an extra captured local, a slightly
-/// fatter error type — doesn't fail the test, but any *order-of-
-/// magnitude* growth (i.e. the inner protocol state machine leaking out
-/// inline) will.
+/// Upper bound for the unawaited public futures. The budget is set
+/// generously above the measured sizes (a few hundred bytes) so legitimate
+/// growth — an extra captured local, a slightly fatter error type —
+/// doesn't fail the test, but any *order-of-magnitude* growth (i.e. the
+/// inner protocol state machine leaking out inline) will.
 const PUBLIC_FUTURE_BUDGET: usize = 1024;
 
 /// `Known::gossip` drives the full mirror protocol against a peer; the
@@ -42,7 +42,7 @@ fn gossip_future_fits_budget() {
     let (mut a_r, mut a_w) = tokio::io::split(a);
     drop(b);
 
-    let alice: Known<()> = Known::seed();
+    let mut alice: Known<()> = Known::seed();
     let fut = alice.gossip(&mut a_r, &mut a_w);
     let size = size_of_val(&fut);
 
@@ -55,34 +55,39 @@ fn gossip_future_fits_budget() {
     );
 }
 
-/// `Known::join` merges a snapshot in-process. Same erasure boundary as
-/// `gossip`, via `tree::traverse::join`.
+/// `Known::retire` is `gossip` plus the party hand-off: the same erasure
+/// boundary must keep it flat.
 #[test]
-fn join_future_fits_budget() {
-    let mut alice: Known<()> = Known::seed();
-    let helper = alice.rumors();
-    let fut = alice.join(helper);
+fn retire_future_fits_budget() {
+    let (a, b) = tokio::io::duplex(64);
+    let (mut a_r, mut a_w) = tokio::io::split(a);
+    drop(b);
+
+    let alice: Known<()> = Known::seed();
+    let fut = alice.retire(&mut a_r, &mut a_w);
     let size = size_of_val(&fut);
 
     assert!(
         size <= PUBLIC_FUTURE_BUDGET,
-        "join future is {size} bytes, exceeds budget {PUBLIC_FUTURE_BUDGET}; \
+        "retire future is {size} bytes, exceeds budget {PUBLIC_FUTURE_BUDGET}; \
          see gossip_future_fits_budget for rationale",
     );
 }
 
-/// `Known::message` drives `Tree::act`, which goes through the recursive
-/// `Act` trait's 32-level chain. Type-erased via `traverse::act`'s
-/// internal `Pin<Box<dyn Future>>`.
+/// `Known::bootstrap` runs the same mirror descent from an empty tree.
+/// Same erasure boundary as `gossip`.
 #[test]
-fn message_future_fits_budget() {
-    let mut alice: Known<()> = Known::seed();
-    let fut = alice.message([()]);
+fn bootstrap_future_fits_budget() {
+    let (a, b) = tokio::io::duplex(64);
+    let (mut a_r, mut a_w) = tokio::io::split(a);
+    drop(b);
+
+    let fut = Known::<()>::bootstrap(&mut a_r, &mut a_w);
     let size = size_of_val(&fut);
 
     assert!(
         size <= PUBLIC_FUTURE_BUDGET,
-        "message future is {size} bytes, exceeds budget {PUBLIC_FUTURE_BUDGET}; \
+        "bootstrap future is {size} bytes, exceeds budget {PUBLIC_FUTURE_BUDGET}; \
          see gossip_future_fits_budget for rationale",
     );
 }

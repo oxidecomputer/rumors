@@ -14,49 +14,39 @@
 
 mod common;
 
-use std::sync::Arc;
-
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
-use rumors::{Key, Known, Version};
+use rumors::{Key, Known};
 
 use crate::common::gossip_snapshot::capture_gossip;
 use crate::common::wire::{block_on, bootstrap_fork, bootstrap_fork_async};
 
 /// A peer seeded from a fixed RNG, so the [`rumors::Network`] id carried in
-/// the greeting is deterministic and these byte-level captures stay
+/// the preamble is deterministic and these byte-level captures stay
 /// reproducible across runs.
 fn seeded<T>() -> Known<T> {
     Known::seed_rng(&mut SmallRng::seed_from_u64(0))
 }
 
-/// Push the observed [`Key`] into `keys`, paired with its value, in the async
-/// callback shape [`Known::message_then`] expects. The value lets a caller
-/// pick out a specific message's key regardless of callback order.
-fn record_keyed<T: Clone>(
-    keys: &mut Vec<(T, Key)>,
-) -> impl FnMut(Key, &Version, &Arc<T>) -> std::future::Ready<()> + '_ {
-    move |k: Key, _v: &Version, m: &Arc<T>| {
-        keys.push(((**m).clone(), k));
-        std::future::ready(())
-    }
+/// The key of the live message holding `value`: how a scenario picks out a
+/// specific message for redaction. Keys are content-addressed and the
+/// scenarios use distinct payloads, so the lookup is unambiguous.
+fn key_for(known: &Known<u64>, value: u64) -> Key {
+    known
+        .snapshot()
+        .iter()
+        .find_map(|(k, _, m)| (**m == value).then_some(k))
+        .unwrap_or_else(|| panic!("no live message holds {value}"))
 }
 
-/// The key the insert callback surfaced for payload `value`.
-fn key_for<T: PartialEq + std::fmt::Debug>(keys: &[(T, Key)], value: &T) -> Key {
-    keys.iter()
-        .find_map(|(v, k)| (v == value).then_some(*k))
-        .unwrap_or_else(|| panic!("no key recorded for value {value:?}"))
-}
-
-/// Two empty peers: the minimal session. After the 8-byte preamble the two
+/// Two empty peers: the minimal session. After the 25-byte preamble the two
 /// sides exchange greetings, find their versions equal, and converge
 /// immediately with no content transfer: the protocol's shortest possible
 /// conversation.
 #[test]
 fn empty_pair_converges_immediately() {
-    let a: Known<u64> = seeded();
-    let b: Known<u64> = bootstrap_fork(&a);
+    let mut a: Known<u64> = seeded();
+    let b = bootstrap_fork(&mut a);
     insta::assert_snapshot!(capture_gossip(a, b));
 }
 
@@ -70,9 +60,9 @@ fn one_sided_transfer() {
         let mut a: Known<u64> = seeded();
         // B is a genuine disjoint fork of A, minted while A is still empty, so
         // it is an empty peer in the same universe.
-        let b = bootstrap_fork_async(&a).await;
+        let b = bootstrap_fork_async(&mut a).await;
 
-        a.message([1u64, 2u64]).await;
+        a.batch().send(1).send(2);
         (a, b)
     });
     insta::assert_snapshot!(capture_gossip(a, b));
@@ -97,21 +87,20 @@ fn fork_insert_redact() {
     let (a, b) = block_on(async {
         let mut a: Known<u64> = seeded();
 
-        // (1) Two distinct common messages; remember their keys for redaction.
-        let mut keys: Vec<(u64, Key)> = Vec::new();
-        a.message_then([1u64, 2u64], record_keyed(&mut keys)).await;
+        // (1) Two distinct common messages.
+        a.batch().send(1).send(2);
 
-        // (2) Fork: B is a genuine disjoint fork sharing A's observations (both
-        // hold 1 and 2).
-        let mut b = bootstrap_fork_async(&a).await;
+        // (2) Fork: B is a genuine disjoint fork sharing A's observations
+        // (both hold 1 and 2, under the same keys).
+        let b = bootstrap_fork_async(&mut a).await;
 
         // (3) Each fork inserts one distinct message.
-        a.message([3u64]).await;
-        b.message([4u64]).await;
+        a.send(3);
+        b.send(4);
 
         // (4) Each fork redacts a different one of the two common messages.
-        a.redact([key_for(&keys, &1)]);
-        b.redact([key_for(&keys, &2)]);
+        a.redact(key_for(&a, 1));
+        b.redact(key_for(&b, 2));
 
         (a, b)
     });
@@ -128,8 +117,8 @@ fn fork_insert_redact() {
 fn converged_forks_noop() {
     let (a, b) = block_on(async {
         let mut a: Known<u64> = seeded();
-        a.message([1u64, 2u64]).await;
-        let b = bootstrap_fork_async(&a).await;
+        a.batch().send(1).send(2);
+        let b = bootstrap_fork_async(&mut a).await;
         (a, b)
     });
     insta::assert_snapshot!(capture_gossip(a, b));
@@ -144,10 +133,9 @@ fn converged_forks_noop() {
 fn redaction_only() {
     let (a, b) = block_on(async {
         let mut a: Known<u64> = seeded();
-        let mut keys: Vec<(u64, Key)> = Vec::new();
-        a.message_then([1u64, 2u64], record_keyed(&mut keys)).await;
-        let b = bootstrap_fork_async(&a).await;
-        a.redact([key_for(&keys, &1)]);
+        a.batch().send(1).send(2);
+        let b = bootstrap_fork_async(&mut a).await;
+        a.redact(key_for(&a, 1));
         (a, b)
     });
     insta::assert_snapshot!(capture_gossip(a, b));
@@ -170,9 +158,19 @@ const DEEP_TRIE_PER_SIDE: u64 = 16;
 fn deep_trie_divergence() {
     let (a, b) = block_on(async {
         let mut a: Known<u64> = seeded();
-        let mut b = bootstrap_fork_async(&a).await;
-        a.message(0..DEEP_TRIE_PER_SIDE).await;
-        b.message(DEEP_TRIE_PER_SIDE..2 * DEEP_TRIE_PER_SIDE).await;
+        let b = bootstrap_fork_async(&mut a).await;
+        {
+            let mut batch = a.batch();
+            for v in 0..DEEP_TRIE_PER_SIDE {
+                batch.send(v);
+            }
+        }
+        {
+            let mut batch = b.batch();
+            for v in DEEP_TRIE_PER_SIDE..2 * DEEP_TRIE_PER_SIDE {
+                batch.send(v);
+            }
+        }
         (a, b)
     });
     insta::assert_snapshot!(capture_gossip(a, b));
@@ -187,9 +185,9 @@ fn deep_trie_divergence() {
 fn string_payload() {
     let (a, b) = block_on(async {
         let mut a: Known<String> = seeded();
-        let mut b = bootstrap_fork_async(&a).await;
-        a.message(["hello".to_string()]).await;
-        b.message(["world".to_string()]).await;
+        let b = bootstrap_fork_async(&mut a).await;
+        a.send("hello".to_string());
+        b.send("world".to_string());
         (a, b)
     });
     insta::assert_snapshot!(capture_gossip(a, b));
@@ -207,13 +205,12 @@ fn string_payload() {
 fn same_live_content_divergent_versions() {
     let (a, b) = block_on(async {
         let mut a: Known<u64> = seeded();
-        let mut keys: Vec<(u64, Key)> = Vec::new();
-        a.message_then([1u64], record_keyed(&mut keys)).await;
-        let b = bootstrap_fork_async(&a).await;
+        a.send(1);
+        let b = bootstrap_fork_async(&mut a).await;
 
         // A diverges in version but not in live content: insert 2, then drop it.
-        a.message_then([2u64], record_keyed(&mut keys)).await;
-        a.redact([key_for(&keys, &2)]);
+        a.send(2);
+        a.redact(key_for(&a, 2));
         (a, b)
     });
     insta::assert_snapshot!(capture_gossip(a, b));
@@ -229,12 +226,11 @@ fn same_live_content_divergent_versions() {
 fn both_redact_same_key() {
     let (a, b) = block_on(async {
         let mut a: Known<u64> = seeded();
-        let mut keys: Vec<(u64, Key)> = Vec::new();
-        a.message_then([1u64, 2u64], record_keyed(&mut keys)).await;
-        let mut b = bootstrap_fork_async(&a).await;
-        let k1 = key_for(&keys, &1);
-        a.redact([k1]);
-        b.redact([k1]);
+        a.batch().send(1).send(2);
+        let b = bootstrap_fork_async(&mut a).await;
+        let k1 = key_for(&a, 1);
+        a.redact(k1);
+        b.redact(k1);
         (a, b)
     });
     insta::assert_snapshot!(capture_gossip(a, b));

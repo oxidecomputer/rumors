@@ -22,9 +22,9 @@ use crate::{Error, Inner, Known, Retire};
 /// size is immaterial.
 const DUPLEX_BUF: usize = 64 * 1024;
 
-/// The raw preamble's wire length: magic(6) + proto_version(2) + network(16)
-/// + intent(1). The fault-injection budgets below land cuts on exact
-/// protocol boundaries relative to this.
+/// The raw preamble's wire length: magic(6) + proto_version(2) +
+/// network(16) + intent(1). The fault-injection budgets below land cuts on
+/// exact protocol boundaries relative to this.
 const PREAMBLE_LEN: usize = 25;
 
 /// Insert each of `vals` into `k` as one committed batch.

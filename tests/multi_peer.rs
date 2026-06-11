@@ -32,19 +32,18 @@ fn schedule_string() -> impl Strategy<Value = Schedule<String>> {
 proptest! {
     /// After the final quiesce phase, every peer's live content (per
     /// `readout`) matches every other's. Compared via `readout` — the
-    /// `(Key, value)` lens the oracle checks also use — rather than
-    /// `Known::eq`, so the assertion is directly about live content.
-    /// (`Known::eq` compares network + tree and already excludes the
-    /// party, so it would work too; `readout` keeps the lens uniform.)
+    /// `(Key, value)` lens the oracle checks also use — so the
+    /// assertion is directly about live content, independent of the
+    /// per-peer party state.
     #[test]
     fn all_peers_converge_after_quiesce(
         schedule in schedule_u64(),
     ) {
         let result = execute_and_quiesce(&schedule);
-        let first = readout(&result.peers[0].local);
+        let first = readout(&result.peers[0].local.snapshot());
         for (i, peer) in result.peers.iter().enumerate().skip(1) {
             prop_assert_eq!(
-                readout(&peer.local), first.clone(),
+                readout(&peer.local.snapshot()), first.clone(),
                 "peer {} diverged from peer 0", i,
             );
         }
@@ -60,7 +59,7 @@ proptest! {
         let result = execute_and_quiesce(&schedule);
         let expected = result.oracle.expected_live();
         for (i, peer) in result.peers.iter().enumerate() {
-            let actual = readout_multiset(&peer.local);
+            let actual = readout_multiset(&peer.local.snapshot());
             prop_assert_eq!(
                 &actual, &expected,
                 "peer {} readout does not match oracle", i,
@@ -86,7 +85,7 @@ proptest! {
             .collect();
 
         for (i, peer) in result.peers.iter().enumerate() {
-            let actual = readout(&peer.local);
+            let actual = readout(&peer.local.snapshot());
             prop_assert_eq!(
                 &actual, &expected,
                 "peer {} readout key→value map does not match canonical", i,
@@ -94,9 +93,9 @@ proptest! {
         }
     }
 
-    /// No `Key` is observed (via `on_message`) more than once at any
-    /// peer across the entire schedule. Re-gossip with an
-    /// already-known message must not re-fire the callback.
+    /// No `Key` is observed more than once at any peer across the
+    /// entire schedule: re-gossip with an already-known message must
+    /// not re-surface it in the observation log.
     #[test]
     fn each_key_observed_at_most_once_per_peer(
         schedule in schedule_u64(),
@@ -104,7 +103,7 @@ proptest! {
         let result = execute_and_quiesce(&schedule);
         for (i, peer) in result.peers.iter().enumerate() {
             let mut counts: BTreeMap<Key, usize> = BTreeMap::new();
-            for (k, _, _) in peer.observations.lock().unwrap().iter() {
+            for (k, _, _) in peer.observations.iter() {
                 *counts.entry(*k).or_insert(0) += 1;
             }
             for (k, c) in &counts {
@@ -117,8 +116,9 @@ proptest! {
         }
     }
 
-    /// Once peers have converged, an additional gossip event fires
-    /// zero `on_message` callbacks and changes no peer's state.
+    /// Once peers have converged, an additional gossip event yields
+    /// zero new observations and changes no peer's state (live
+    /// content and causal version alike).
     /// Picks two distinct peer indices via `prop_flat_map` on the
     /// schedule so the shrinker sees them as first-class inputs
     /// rather than modulo'd seeds.
@@ -130,19 +130,25 @@ proptest! {
         }).prop_filter("distinct peers", |(_, a, b)| a != b),
     ) {
         let mut result = execute_and_quiesce(&schedule);
-        let before_a = result.peers[a].local.rumors();
-        let before_b = result.peers[b].local.rumors();
-        let obs_a_before = result.peers[a].observations.lock().unwrap().len();
-        let obs_b_before = result.peers[b].observations.lock().unwrap().len();
+        let before_a = (result.peers[a].local.hash(), result.peers[a].local.latest());
+        let before_b = (result.peers[b].local.hash(), result.peers[b].local.latest());
+        let obs_a_before = result.peers[a].observations.len();
+        let obs_b_before = result.peers[b].observations.len();
 
         let (lo, hi) = if a < b { (a, b) } else { (b, a) };
         let (left, right) = result.peers.split_at_mut(hi);
         gossip_step(&mut left[lo], &mut right[0]);
 
-        prop_assert_eq!(&result.peers[a].local, &before_a);
-        prop_assert_eq!(&result.peers[b].local, &before_b);
-        prop_assert_eq!(result.peers[a].observations.lock().unwrap().len(), obs_a_before);
-        prop_assert_eq!(result.peers[b].observations.lock().unwrap().len(), obs_b_before);
+        prop_assert_eq!(
+            (result.peers[a].local.hash(), result.peers[a].local.latest()),
+            before_a,
+        );
+        prop_assert_eq!(
+            (result.peers[b].local.hash(), result.peers[b].local.latest()),
+            before_b,
+        );
+        prop_assert_eq!(result.peers[a].observations.len(), obs_a_before);
+        prop_assert_eq!(result.peers[b].observations.len(), obs_b_before);
     }
 
     /// String-T variant of `readout_matches_oracle_after_quiesce`,
@@ -156,7 +162,7 @@ proptest! {
         let result = execute_and_quiesce(&schedule);
         let expected = result.oracle.expected_live();
         for (i, peer) in result.peers.iter().enumerate() {
-            let actual = readout_multiset(&peer.local);
+            let actual = readout_multiset(&peer.local.snapshot());
             prop_assert_eq!(
                 &actual, &expected,
                 "peer {} (string-T) readout does not match oracle", i,

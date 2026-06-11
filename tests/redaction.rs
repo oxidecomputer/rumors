@@ -12,12 +12,11 @@ use std::collections::BTreeMap;
 
 use proptest::collection::vec;
 use proptest::prelude::*;
-use rumors::Key;
-use rumors::sync::Known;
+use rumors::{Key, Known};
 
 use crate::common::oracle::readout_multiset;
 use crate::common::peer::{Peer, gossip_step, quiesce};
-use crate::common::sync_wire::sync_bootstrap_fork;
+use crate::common::wire::bootstrap_fork;
 
 proptest! {
     /// A redaction issued by *any* peer propagates contagiously to
@@ -34,16 +33,16 @@ proptest! {
         value in any::<u64>(),
         redactor_idx in any::<usize>(),
     ) {
-        let seed = Known::<u64>::seed();
+        let mut seed = Known::<u64>::seed();
         let mut peers: Vec<Peer<u64>> = (0..n_peers)
-            .map(|_| Peer::new(sync_bootstrap_fork(&seed)))
+            .map(|_| Peer::new(bootstrap_fork(&mut seed)))
             .collect();
 
         let key = peers[0].insert_one(value);
         quiesce(&mut peers);
 
         for peer in &peers {
-            let live = readout_multiset(&peer.local);
+            let live = readout_multiset(&peer.local.snapshot());
             prop_assert_eq!(live.get(&value).copied(), Some(1));
         }
 
@@ -53,7 +52,7 @@ proptest! {
 
         for (i, peer) in peers.iter().enumerate() {
             prop_assert!(
-                readout_multiset(&peer.local).is_empty(),
+                readout_multiset(&peer.local.snapshot()).is_empty(),
                 "peer {} still has live messages after redaction by peer {}",
                 i, r,
             );
@@ -70,9 +69,9 @@ proptest! {
         b_values in vec(any::<u64>(), 1..=4),
     ) {
         let run = |a_first: bool| -> BTreeMap<u64, usize> {
-            let seed = Known::<u64>::seed();
-            let mut a = Peer::new(sync_bootstrap_fork(&seed));
-            let mut b = Peer::new(sync_bootstrap_fork(&seed));
+            let mut seed = Known::<u64>::seed();
+            let mut a = Peer::new(bootstrap_fork(&mut seed));
+            let mut b = Peer::new(bootstrap_fork(&mut seed));
             let mut a_keys: Vec<Key> = Vec::new();
             let mut b_keys: Vec<Key> = Vec::new();
             for v in &a_values { a_keys.push(a.insert_one(*v)); }
@@ -88,48 +87,47 @@ proptest! {
             }
             let mut peers = [a, b];
             quiesce(&mut peers);
-            readout_multiset(&peers[0].local)
+            readout_multiset(&peers[0].local.snapshot())
         };
         prop_assert_eq!(run(true), run(false));
     }
 
     /// Redacting the same `Key` a second time is idempotent: the live
-    /// readout is unchanged and no callback fires. (The second redact is a
-    /// nil action — the leaf is already gone — so the tree's version is
-    /// also unchanged.)
+    /// readout is unchanged and nothing new is observed. (The second
+    /// redact is a nil action — the leaf is already gone.)
     #[test]
     fn redact_twice_is_idempotent(value in any::<u64>()) {
         let mut peer = Peer::<u64>::new(Known::seed());
         let key = peer.insert_one(value);
         peer.redact_one(key);
 
-        let readout_before = readout_multiset(&peer.local);
-        let obs_before = peer.observations.lock().unwrap().len();
+        let readout_before = readout_multiset(&peer.local.snapshot());
+        let obs_before = peer.observations.len();
 
         peer.redact_one(key);
 
-        prop_assert_eq!(readout_multiset(&peer.local), readout_before);
-        prop_assert_eq!(peer.observations.lock().unwrap().len(), obs_before);
+        prop_assert_eq!(readout_multiset(&peer.local.snapshot()), readout_before);
+        prop_assert_eq!(peer.observations.len(), obs_before);
     }
 
     /// Redacting a `Key` minted on a different peer that this peer
-    /// has never observed has no effect on live content and fires
-    /// no callback. Pins down the currently implemented behavior so
+    /// has never observed has no effect on live content and is not
+    /// observed. Pins down the currently implemented behavior so
     /// future regressions surface; the public docs are silent on
     /// this corner.
     #[test]
     fn redact_unknown_key_is_noop(value in any::<u64>()) {
-        let seed = Known::<u64>::seed();
-        let mut bob = Peer::new(sync_bootstrap_fork(&seed));
+        let mut seed = Known::<u64>::seed();
+        let mut bob = Peer::new(bootstrap_fork(&mut seed));
         let foreign_key = bob.insert_one(value);
 
-        let mut alice = Peer::new(sync_bootstrap_fork(&seed));
-        let readout_before = readout_multiset(&alice.local);
-        let obs_before = alice.observations.lock().unwrap().len();
+        let mut alice = Peer::new(bootstrap_fork(&mut seed));
+        let readout_before = readout_multiset(&alice.local.snapshot());
+        let obs_before = alice.observations.len();
 
         alice.redact_one(foreign_key);
 
-        prop_assert_eq!(readout_multiset(&alice.local), readout_before);
-        prop_assert_eq!(alice.observations.lock().unwrap().len(), obs_before);
+        prop_assert_eq!(readout_multiset(&alice.local.snapshot()), readout_before);
+        prop_assert_eq!(alice.observations.len(), obs_before);
     }
 }

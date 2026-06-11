@@ -50,8 +50,6 @@ proptest! {
         for (p, peer) in result.peers.iter().enumerate() {
             let live_observed: BTreeSet<EventIdx> = peer
                 .observations
-                .lock()
-                .unwrap()
                 .iter()
                 .map(|(k, _, _)| key_to_event_idx[k])
                 .collect();
@@ -62,7 +60,7 @@ proptest! {
                 "peer {} observation set disagrees with shadow", p,
             );
 
-            let live_held: BTreeSet<EventIdx> = readout(&peer.local)
+            let live_held: BTreeSet<EventIdx> = readout(&peer.local.snapshot())
                 .into_keys()
                 .map(|k| key_to_event_idx[&k])
                 .collect();
