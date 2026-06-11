@@ -1,7 +1,0 @@
-# Seeds for failure cases proptest has generated in the past. It is
-# automatically read and these particular cases re-run before any
-# novel cases are generated.
-#
-# It is recommended to check this file in to source control so that
-# everyone who runs the test benefits from these saved cases.
-cc 50f69e52c5b68e680f52d0f2f83c44a1c1dab7673299c3e9e5dafb145d5fb528 # shrinks to trace = [Fork(0), Fork(0), Join(0, 0), Event(355880629998492014, 3), Event(1533583677747717231, 3)]

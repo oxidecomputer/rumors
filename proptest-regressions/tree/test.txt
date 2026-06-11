@@ -9,3 +9,4 @@ cc 437470cf4f7daa4a841fe7327abc91a6a3171cb2ce06b1f37232451bb2e384d6 # shrinks to
 cc a2fb0f6067a04efb3ad3403e60b06ad53685e3c890125c5eb7b159f80c1fff62 # shrinks to values = [[], [0]]
 cc 2c4a19eaa6ce7eb83594b778e8f638c25cb2a152dcd6ff462acab015c3519087 # shrinks to actions = [Insert { party: "", version: 0, value: b"\x01\x01\x01\x01" }, Insert { party: "", version: 1, value: b"\x01\x01\x01\x01" }]
 cc 608982246ad7cd312749428c672a204c591063e4deaa50c13dc788a805440a6f # shrinks to inserts = [b""], deletes = ["0000000000000000000000000000000000000000000000000000000000000000"], interleave = 10681026010300341458, breaks = [true]
+cc c32fac6646b41e7193970d07d906905840f3b176dfeff80295ce926addb13d2f # shrinks to actions = [Insert { party: 0, version: 0, value: b"\0\0\0\0" }], cuts = []

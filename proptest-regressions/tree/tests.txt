@@ -1,7 +1,0 @@
-# Seeds for failure cases proptest has generated in the past. It is
-# automatically read and these particular cases re-run before any
-# novel cases are generated.
-#
-# It is recommended to check this file in to source control so that
-# everyone who runs the test benefits from these saved cases.
-cc c32fac6646b41e7193970d07d906905840f3b176dfeff80295ce926addb13d2f # shrinks to actions = [Insert { party: 0, version: 0, value: b"\0\0\0\0" }], cuts = []
