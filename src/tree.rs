@@ -334,7 +334,7 @@ impl<T> Tree<T> {
     /// As with [`act`](Self::act), a batch is applied in a single traversal,
     /// which is more efficient than applying its actions one at a time but
     /// semantically equivalent.
-    pub fn react<M, I>(&mut self, reactions: I)
+    fn react<M, I>(&mut self, reactions: I)
     where
         T: Send + Sync,
         M: Into<Option<Message<T>>>,

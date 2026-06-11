@@ -5,24 +5,6 @@ use crate::version::Version;
 use super::typed::*;
 use height::{Height, S, Z};
 
-/// Perform a batch lookup in the tree by version vector, returning the
-/// subtree of versioned leaves that are *unknown* relative to the specified
-/// version.
-///
-/// The unknown set is the set of leaves a counterparty holding this version
-/// vector must receive for its tree to become a (non-strict) superset of
-/// this one.
-#[cfg(test)]
-pub fn unknown<T>(
-    node: Option<Node<T, height::Root>>,
-    known: &Version,
-) -> Option<Node<T, height::Root>>
-where
-    T: Send + Sync,
-{
-    Unknown::unknown(node, known)
-}
-
 pub trait Unknown: Height {
     /// Filter this subtree down to the nodes a counterparty at `known` is
     /// missing, honoring deletions: a node causally `<=` `known` is already
