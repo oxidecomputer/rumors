@@ -8,12 +8,14 @@
 use std::io::{Read, Write};
 use std::sync::Arc;
 
-use before::Version;
 use borsh::{BorshDeserialize, BorshSerialize};
 use futures::io::AllowStdIo;
 use tokio_util::compat::{FuturesAsyncReadCompatExt, FuturesAsyncWriteCompatExt};
 
-pub use crate::{Batch, Error, Key, Network, Snapshot};
+pub use crate::{
+    Batch, Error, Key, Network, PROTOCOL_MAGIC, PROTOCOL_VERSION, Snapshot, Version, causally,
+};
+pub use ::before;
 pub use ::borsh;
 
 pub struct Peer<T>(crate::Peer<T>);
@@ -178,6 +180,12 @@ impl<T> Peer<T> {
     pub fn warm_caches(&self) {
         self.0.warm_caches();
     }
+
+    #[cfg(any(test, feature = "test-internals"))]
+    #[doc(hidden)]
+    pub fn dangerously_alias_party(&self) -> Option<before::Party> {
+        self.0.dangerously_alias_party()
+    }
 }
 
 impl<T> Clone for Rumors<T> {
@@ -262,5 +270,11 @@ impl<T> Rumors<T> {
     #[doc(hidden)]
     pub fn warm_caches(&self) {
         self.0.warm_caches();
+    }
+
+    #[cfg(any(test, feature = "test-internals"))]
+    #[doc(hidden)]
+    pub fn dangerously_alias_party(&self) -> Option<before::Party> {
+        self.0.dangerously_alias_party()
     }
 }

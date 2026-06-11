@@ -105,27 +105,34 @@ pub use gossip::{PROTOCOL_MAGIC, PROTOCOL_VERSION, Retire};
 /// # Ok::<(), rumors::Error>(())
 /// ```
 ///
-/// # Guidance for bootstrapping
+/// # Bootstrapping without consensus
 ///
 /// If your application admits a distinguished "first peer" (for example, via
 /// leader election or another consensus mechanism), have that peer call
-/// [`Peer::seed`]. Absent any true consensus mechanism, another reasonable
-/// approach to bootstrapping a [`Network`] is for *every* [`Peer`] to initially
-/// call [`Peer::seed`] and attempt to [`gossip`](Peer::gossip) with all others.
-/// At first, this will lead to many
+/// [`Peer::seed`].
+///
+/// Absent any true consensus mechanism, another reasonable approach to
+/// bootstrapping a [`Network`] is for *every* [`Peer`] to initially call
+/// [`Peer::seed`] and attempt to [`gossip`](crate::Rumors::gossip) with all
+/// others. At first, this will lead to many
 /// [`Error::NetworkMismatch`](crate::Error::NetworkMismatch)es; whenever a peer
 /// observes one, it can use a deterministic metric to decide whether it or its
-/// peer should dominate. A reasonable such metric would be to compare the
-/// `remote_min_ticks` of the peer with your own, so that whichever network with
-/// greater minimal event count wins, letting total comparison on [`Network`]
-/// break ties. Based on this comparison, both sides can come to uncoordinated
-/// consensus on which will persist in its [`Peer`] identity, and which will
-/// attempt to re-[`bootstrap`](Peer::bootstrap) into the dominating
-/// [`Network`]. If peers are reasonably well-connected to one another as the
-/// network gets started, this will quickly lead to a stable and steady state
-/// which can only be disrupted if a group of new peers join only with one
-/// another and spend a long time partitioned from the rest of the network
-/// before reuniting with it.
+/// peer should dominate.
+///
+/// A reasonable such metric would be to compare the `remote_min_ticks` reported
+/// by the peer in the error with your own
+/// [`Snapshot::latest`](crate::Snapshot::latest)'s [`Version::min_ticks`], so
+/// that whichever network with greater minimal event count wins, with total
+/// comparison on [`Network`] breaking ties. Based on this comparison, both
+/// sides can come to uncoordinated consensus on which will persist in its
+/// [`Peer`] identity (the greater), and which will attempt to
+/// re-[`bootstrap`](Peer::bootstrap) into the dominating [`Network`] (the
+/// lesser).
+///
+/// If peers are reasonably well-connected to one another as the network gets
+/// started, this will quickly lead to a stable and steady state which can only
+/// be disrupted if a group of new peers join only with one another and spend a
+/// long time partitioned from the rest of the network before reuniting with it.
 pub struct Peer<T> {
     pub(crate) network: Network,
     pub(crate) inner: watch::Sender<Inner<T>>,
