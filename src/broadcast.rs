@@ -1,5 +1,6 @@
 use crate::{Batch, Error, Key, Known, Network, Snapshot, Version, causally};
 use borsh::{BorshDeserialize, BorshSerialize};
+use std::ops::ControlFlow;
 use std::sync::Arc;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
@@ -149,12 +150,17 @@ impl<T> Broadcast<T> {
     /// learned — by local [`send`](Self::send), by gossip, from any handle.
     ///
     /// Equivalent to [`listen_from`](Self::listen_from) at [`Version::new`];
-    /// see it for the delivery contract, termination, and resumption.
-    pub fn listen<F, Fut>(self, on_message: F) -> impl Future<Output = Version> + Send
+    /// see it for the delivery contract, termination, early exit, and
+    /// resumption.
+    pub fn listen<B, F, Fut>(
+        self,
+        on_message: F,
+    ) -> impl Future<Output = (Version, Option<B>)> + Send
     where
         T: Send + Sync,
+        B: Send,
         F: FnMut(Key, &Version, &Arc<T>) -> Fut + Send,
-        Fut: Future<Output = ()> + Send,
+        Fut: Future<Output = ControlFlow<B>> + Send,
     {
         self.listen_from(Version::new(), on_message)
     }
@@ -163,37 +169,50 @@ impl<T> Broadcast<T> {
     ///
     /// The cursor is a causal [`Version`], not a tree: each time the shared
     /// state changes, the listener fires `on_message` for precisely the live
-    /// messages whose versions the cursor does not dominate, then absorbs the
-    /// snapshot's ceiling. Every message live at some pass is observed
-    /// exactly once; a message inserted and redacted wholly between passes is
-    /// never observed (already-redacted content is never delivered);
-    /// redactions themselves are honored silently. Delivery order is
-    /// unspecified and does *not* follow the causal order: a message may be
-    /// observed before another that causally precedes it. Order by the
-    /// [`Version`] handed to the callback if causality matters.
+    /// messages whose versions the cursor does not dominate, then absorbs
+    /// the snapshot's ceiling once the pass completes. Every message live at
+    /// some pass is observed exactly once within one uninterrupted listen; a
+    /// message inserted and redacted wholly between passes is never observed
+    /// (already-redacted content is never delivered); redactions themselves
+    /// are honored silently. Delivery order is unspecified and does *not*
+    /// follow the causal order: a message may be observed before another
+    /// that causally precedes it. Order by the [`Version`] handed to the
+    /// callback if causality matters.
+    ///
+    /// The callback steers the listener:
+    /// [`Continue(())`](ControlFlow::Continue) keeps listening, and
+    /// [`Break(value)`](ControlFlow::Break) stops it immediately. The future
+    /// resolves either way to `(cursor, outcome)`. On a break, `(cursor,
+    /// Some(value))`, where the cursor is the *last completed pass's*
+    /// frontier: a [`Version`] can only encode a causally closed boundary,
+    /// and because delivery order is not causal order, the messages
+    /// delivered before a mid-pass break need not form one. Resuming from it
+    /// is therefore *at-least-once for the interrupted pass* — its
+    /// already-delivered messages are delivered again — and exactly-once
+    /// everywhere else; dedup by [`Key`] across a break if re-delivery
+    /// matters. With no break, `(cursor, None)` once no further change is
+    /// possible — after the [`Known`] and every [`Broadcast`] have dropped —
+    /// having observed the complete final state. Either cursor is a valid
+    /// `since` against any replica of the same network.
     ///
     /// Consuming `self` dissolves this handle: a listener is an observer, not
     /// an actor. It does not hold the rumor set open, and it does not block
     /// the future from [`Known::broadcast`] that reunites the [`Known`].
-    ///
-    /// The future resolves once no further change is possible — after the
-    /// [`Known`] and every [`Broadcast`] have dropped — having observed the
-    /// complete final state, and yields the version up to which it processed:
-    /// a valid `since` for a later `listen_from` against any replica of the
-    /// same network. To resume after *cancelling* a listener (dropping the
-    /// future loses its internal cursor), fold the observed versions in the
-    /// callback (`resume |= version`) and pass the fold as `since`; every
-    /// previously-fired message is contained in the fold, so nothing
-    /// re-fires.
-    pub fn listen_from<F, Fut>(
+    /// *Dropping* the future yields no resume cursor at all: break out with
+    /// [`ControlFlow::Break`] instead when you intend to come back. (Folding
+    /// the delivered versions yourself does **not** make a sound resume
+    /// point: a fold can causally contain a message that was never
+    /// delivered, which a resume would then skip forever.)
+    pub fn listen_from<B, F, Fut>(
         self,
         since: Version,
         mut on_message: F,
-    ) -> impl Future<Output = Version> + Send
+    ) -> impl Future<Output = (Version, Option<B>)> + Send
     where
         T: Send + Sync,
+        B: Send,
         F: FnMut(Key, &Version, &Arc<T>) -> Fut + Send,
-        Fut: Future<Output = ()> + Send,
+        Fut: Future<Output = ControlFlow<B>> + Send,
     {
         // Subscribe while our own sender still holds the channel open, then
         // dissolve the Broadcast eagerly (when `listen_from` returns, not
@@ -220,8 +239,21 @@ impl<T> Broadcast<T> {
                 // was observed by the pass that absorbed it, and must not
                 // re-fire.) Dominated subtrees are pruned by their memoized
                 // version bounds, so a pass costs the delta, not the tree.
-                for (key, version, message) in snapshot.range(causally::since(&cursor)) {
-                    on_message(key, version, message).await;
+                //
+                // A break resolves with the cursor as it stood at the pass
+                // start: delivery is in key order, not causal order, so the
+                // prefix delivered before a mid-pass break need not be
+                // causally closed, and no `Version` can cover exactly that
+                // prefix (folding the delivered versions can causally
+                // contain an undelivered message, which a resume would skip
+                // forever). The last completed pass is the finest sound
+                // resume point. (The filter borrows a clone so the break can
+                // move the cursor out from under the live iterator.)
+                let pass = cursor.clone();
+                for (key, version, message) in snapshot.range(causally::since(&pass)) {
+                    if let ControlFlow::Break(value) = on_message(key, version, message).await {
+                        return (cursor, Some(value));
+                    }
                 }
 
                 // The pass observed every survivor at or under the snapshot's
@@ -234,7 +266,7 @@ impl<T> Broadcast<T> {
                 // possible, and the pass above already drained the final
                 // state.
                 if rx.changed().await.is_err() {
-                    break cursor;
+                    break (cursor, None);
                 }
             }
         }

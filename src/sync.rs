@@ -3,6 +3,7 @@
 
 use std::future::{Future, Ready, ready};
 use std::io::{Read, Write};
+use std::ops::ControlFlow;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -33,14 +34,11 @@ impl<T> std::fmt::Debug for Broadcast<T> {
 
 pub struct BroadcastComplete<'a, T>(Pin<Box<dyn Future<Output = crate::Known<T>> + Send + 'a>>);
 
-fn into_async<T, F>(mut on_message: F) -> impl FnMut(Key, &Version, &Arc<T>) -> Ready<()>
+fn into_async<T, R, F>(mut on_message: F) -> impl FnMut(Key, &Version, &Arc<T>) -> Ready<R>
 where
-    F: FnMut(Key, &Version, &Arc<T>),
+    F: FnMut(Key, &Version, &Arc<T>) -> R,
 {
-    move |key, version, message| {
-        on_message(key, version, message);
-        ready(())
-    }
+    move |key, version, message| ready(on_message(key, version, message))
 }
 
 impl<T> Known<T> {
@@ -203,18 +201,20 @@ impl<T> Broadcast<T> {
         pollster::block_on(self.0.gossip(&mut read, &mut write))
     }
 
-    pub fn listen<F>(self, on_message: F) -> Version
+    pub fn listen<B, F>(self, on_message: F) -> (Version, Option<B>)
     where
         T: Send + Sync,
-        F: FnMut(Key, &Version, &Arc<T>) + Send,
+        B: Send,
+        F: FnMut(Key, &Version, &Arc<T>) -> ControlFlow<B> + Send,
     {
         pollster::block_on(self.0.listen(into_async(on_message)))
     }
 
-    pub fn listen_from<F>(self, since: Version, on_message: F) -> Version
+    pub fn listen_from<B, F>(self, since: Version, on_message: F) -> (Version, Option<B>)
     where
         T: Send + Sync,
-        F: FnMut(Key, &Version, &Arc<T>) + Send,
+        B: Send,
+        F: FnMut(Key, &Version, &Arc<T>) -> ControlFlow<B> + Send,
     {
         pollster::block_on(self.0.listen_from(since, into_async(on_message)))
     }
