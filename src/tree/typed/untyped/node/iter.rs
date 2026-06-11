@@ -402,10 +402,16 @@ impl<'a, T, R: RangeBounds<Version>> DoubleEndedIterator for Range<'a, T, R> {
 /// The owned, "frozen" counterpart of the borrowing walk: frames hold cheap
 /// [`Node`] handles (`Arc` clones) instead of `&Node` borrows, so the walk
 /// carries no lifetime and can be held across awaits and stored in
-/// long-lived state. It pins only its *unvisited* frontier — subtrees are
-/// released as they are walked — bounded by the tree's shape (at most the
-/// fan-out per level along the descent), never by how many leaves the range
-/// admits.
+/// long-lived state.
+///
+/// Its state is *constant-size*: a descent spine of at most one [`Level`]
+/// per materialized branch level along the current path (≤ 32, under two
+/// kilobytes all told), plus the shared path buffer. Unvisited siblings are
+/// never enumerated — each advance probes the parent's child map for the
+/// next radix at or past the level's cursor — and child handles are cloned
+/// one at a time, lazily, as they are visited. The spine's node handles pin
+/// only the current path's ancestors; everything already walked past is
+/// released.
 ///
 /// Same range semantics and prune/promote logic as the borrowing walk (see
 /// [`Bounds`]); forward-only, since its consumers are subscription drains.
@@ -413,20 +419,34 @@ impl<'a, T, R: RangeBounds<Version>> DoubleEndedIterator for Range<'a, T, R> {
 /// reconstructed [`Key`](crate::tree::key::Key), which is what lets a caller
 /// lend `&Version` / `&Arc<T>` out of a leaf it keeps.
 pub struct Frozen<T, R> {
-    /// Pending owned frames, ascending key order front-to-back; popped from
-    /// the front, branches re-expanded onto the front.
-    frames: VecDeque<FrozenFrame<T>>,
+    /// The not-yet-visited root, consumed by the first advance.
+    start: Option<Node<T>>,
+    /// The descent spine: index 0 is the root's level, the last entry is the
+    /// level currently being walked. Always branch nodes (leaves are yielded,
+    /// never pushed).
+    spine: Vec<Level<T>>,
+    /// The path bytes accumulated along the spine, extended and rolled back
+    /// as the walk descends and ascends; a leaf is yielded exactly when it
+    /// reaches 32 bytes.
+    path: ArrayVec<[u8; 32]>,
     /// The causal range filter (owned, e.g. a `(Bound<Version>,
     /// Bound<Version>)` pair).
     range: R,
 }
 
-/// One pending subtree in a [`Frozen`] walk's frontier: as [`Frame`], but
-/// owning its node handle.
-struct FrozenFrame<T> {
+/// One level of a [`Frozen`] walk's descent spine.
+struct Level<T> {
+    /// The branch node this level walks.
     node: Node<T>,
-    path: ArrayVec<[u8; 32]>,
+    /// The smallest child radix not yet visited; `256` means exhausted.
+    next: u16,
+    /// Whether an ancestor (or this level itself) was promoted: every leaf
+    /// beneath is known to satisfy the range, so descendants skip the
+    /// version comparisons.
     passes: bool,
+    /// The path length to restore when this level is popped: its length
+    /// before this node's radix and compressed prefix were appended.
+    rollback: usize,
 }
 
 /// A live leaf popped out of a [`Frozen`] walk: an owned handle on the leaf
@@ -453,15 +473,12 @@ impl<T, R: RangeBounds<Version>> Frozen<T, R> {
     /// versions fall within the causal `range`.
     pub(crate) fn root(node: Option<Node<T>>, range: R) -> Self {
         Self {
-            frames: node
-                .map(|node| {
-                    VecDeque::from([FrozenFrame {
-                        node,
-                        path: ArrayVec::new(),
-                        passes: false,
-                    }])
-                })
-                .unwrap_or_default(),
+            start: node,
+            // One level per materialized branch along a root-to-leaf path:
+            // never more than the depth, so this is the walk's only
+            // allocation.
+            spine: Vec::with_capacity(32),
+            path: ArrayVec::new(),
             range,
         }
     }
@@ -469,54 +486,90 @@ impl<T, R: RangeBounds<Version>> Frozen<T, R> {
     /// Advance to the next passing leaf. The same prune/promote resolution
     /// as the borrowing walk, with the leaf handed out by value.
     pub(crate) fn next(&mut self) -> Option<(crate::tree::key::Key, Leaf<T>)> {
-        'frontier: while let Some(FrozenFrame {
-            node,
-            mut path,
-            passes,
-        }) = self.frames.pop_front()
-        {
+        loop {
+            // Obtain the next unvisited node — the initial root, or the next
+            // child at the deepest spine level, ascending past exhausted
+            // levels — remembering the path length to roll back to if it
+            // proves not to descend.
+            let (node, inherited, rollback) = match self.start.take() {
+                Some(root) => (root, false, 0),
+                None => loop {
+                    let level = self.spine.last_mut()?;
+                    let next_child = match &level.node.inner.children {
+                        // Probe for the smallest not-yet-visited radix: an
+                        // O(log fan-out) map lookup, so unvisited siblings
+                        // are never enumerated or held.
+                        Children::Branch { children, .. } if level.next <= u8::MAX as u16 => {
+                            children
+                                .range(level.next as u8..)
+                                .next()
+                                .map(|(radix, child)| (*radix, child.clone()))
+                        }
+                        Children::Branch { .. } => None,
+                        Children::Leaf { .. } => {
+                            unreachable!("spine levels are branches, by construction")
+                        }
+                    };
+                    match next_child {
+                        // Exhausted: ascend, restoring the parent's path.
+                        None => {
+                            let rollback = level.rollback;
+                            self.spine.pop();
+                            self.path.truncate(rollback);
+                        }
+                        Some((radix, child)) => {
+                            level.next = radix as u16 + 1;
+                            let passes = level.passes;
+                            let rollback = self.path.len();
+                            self.path.push(radix);
+                            break (child, passes, rollback);
+                        }
+                    }
+                },
+            };
+
             // Resolve this subtree against the range, unless an ancestor was
             // already promoted.
-            let passes = passes || {
+            let passes = inherited || {
                 let bounds = Bounds {
                     start: self.range.start_bound(),
                     end: self.range.end_bound(),
                 };
                 if bounds.prunes(&node) {
-                    continue 'frontier;
+                    self.path.truncate(rollback);
+                    continue;
                 }
                 bounds.promotes(&node)
             };
+
             // Replay the compressed prefix, shallowest byte first.
             for &byte in node.inner.prefix.iter().rev() {
-                path.push(byte);
+                self.path.push(byte);
             }
-            if let Children::Branch { children, .. } = &node.inner.children {
-                // Re-expand onto the front, largest-radix-first, so the
-                // frontier stays in ascending key order. Each child handle
-                // is a cheap `Arc` clone; the parent drops here, releasing
-                // its handle on the subtree.
-                for (radix, child) in children.iter().rev() {
-                    let mut child_path = path;
-                    child_path.push(*radix);
-                    self.frames.push_front(FrozenFrame {
-                        node: child.clone(),
-                        path: child_path,
-                        passes,
-                    });
-                }
-                continue 'frontier;
+
+            if matches!(&node.inner.children, Children::Branch { .. }) {
+                // Descend: this node becomes the new deepest level.
+                self.spine.push(Level {
+                    node,
+                    next: 0,
+                    passes,
+                    rollback,
+                });
+                continue;
             }
+
             // A leaf: by the prune/promote exhaustiveness argument on the
-            // borrowing walk, an unpruned leaf always passes.
+            // borrowing walk, an unpruned leaf always passes. Yield it and
+            // roll the path back to its parent.
             debug_assert!(passes, "an unpruned leaf passes its range");
             debug_assert_eq!(
-                path.len(),
+                self.path.len(),
                 32,
                 "a leaf sits at depth 32, so its path is 32 bytes"
             );
-            return Some((crate::tree::key::Key(path.into_inner()), Leaf(node)));
+            let key = crate::tree::key::Key(self.path.into_inner());
+            self.path.truncate(rollback);
+            return Some((key, Leaf(node)));
         }
-        None
     }
 }

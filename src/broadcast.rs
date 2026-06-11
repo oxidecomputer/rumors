@@ -372,9 +372,10 @@ impl<T> Broadcast<T> {
 /// [`ControlFlow::Break`].
 ///
 /// Internally a frozen, fully-owned walk over each pass's snapshot: between
-/// items it holds only the walk's unvisited frontier (bounded by tree
-/// shape, not by the delta), releasing subtrees as it goes — nothing is
-/// buffered.
+/// items it holds only a constant-size descent spine (one entry per
+/// materialized branch level along the current path, at most the tree's
+/// depth) — nothing is buffered, and nothing grows with the delta or the
+/// tree.
 pub struct Messages<T> {
     rx: watch::Receiver<crate::Inner<T>>,
     cursor: Version,
