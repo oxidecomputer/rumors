@@ -32,6 +32,11 @@ fn broadcast_preserves_network() {
     let broadcast = parent.broadcast();
     assert_eq!(broadcast.network(), network);
     assert_eq!(broadcast.clone().network(), network);
+    assert_eq!(
+        broadcast.snapshot().network(),
+        network,
+        "a snapshot carries its set's universe"
+    );
 
     let parent = block_on(broadcast.reunite()).expect("the sole reuniter reclaims the Known");
     assert_eq!(parent.network(), network);

@@ -508,12 +508,14 @@ impl Owner {
         self.dial_targets
             .retain(|peer| !self.state.presence.contains_key(peer));
 
-        self.stats.live_entries = self.broadcast.len();
+        // One consistent snapshot serves both gauges.
+        let snapshot = self.broadcast.snapshot();
+        self.stats.live_entries = snapshot.len();
         let view = View {
             me: self.me,
             me_display: self.me_display.clone(),
             name: self.name.clone(),
-            network: network_short(self.broadcast.network()),
+            network: network_short(snapshot.network()),
             merged_notice: self.merged_notice.clone(),
             channels,
             roster,

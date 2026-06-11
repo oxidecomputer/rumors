@@ -394,6 +394,41 @@ fn cursor_is_portable_across_replicas() {
     assert_eq!(items[0].2, 2, "A-observed messages are skipped at B");
 }
 
+/// The sync face's non-blocking step: `try_next` lends exactly as
+/// `borrow_next` does, and distinguishes a *quiet* observer (nothing new,
+/// actors live — where `borrow_next` would block) from an *ended* one.
+#[test]
+fn sync_try_next_distinguishes_quiet_from_ended() {
+    use rumors::sync::{Known as SyncKnown, TryNext};
+
+    let known = SyncKnown::<u64>::seed();
+    known.batch().send(1).send(2);
+
+    let mut obs = known.messages();
+    let mut seen = BTreeSet::new();
+    while let TryNext::Message((_, _, m)) = obs.try_next() {
+        seen.insert(**m);
+    }
+    assert_eq!(seen, BTreeSet::from([1, 2]), "the pending pass drains");
+    assert!(
+        matches!(obs.try_next(), TryNext::Quiet),
+        "with the Known live, a drained observer is quiet, not ended"
+    );
+
+    known.send(3);
+    let TryNext::Message((_, _, m)) = obs.try_next() else {
+        panic!("the new send is immediately available");
+    };
+    assert_eq!(**m, 3);
+
+    drop(known);
+    assert!(matches!(obs.try_next(), TryNext::Ended));
+    assert!(
+        matches!(obs.try_next(), TryNext::Ended),
+        "ended is terminal"
+    );
+}
+
 /// The owned-item face: the `Stream` impl yields the same messages as
 /// `borrow_next`, owned, and terminates with `None` once the set closes.
 #[test]
