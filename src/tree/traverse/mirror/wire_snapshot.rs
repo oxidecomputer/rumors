@@ -61,16 +61,19 @@ fn leaf(party: &str, version: u64) -> Node<(), Z> {
 
 // ---------- Hash ----------
 
+/// A `Hash`'s encoding is its 32 raw bytes, no length prefix: all-zero case.
 #[test]
 fn hash_zeros() {
     insta::assert_snapshot!(snap(&Hash([0u8; 32])));
 }
 
+/// All-ones `Hash`: every byte value survives encoding unmangled.
 #[test]
 fn hash_ones() {
     insta::assert_snapshot!(snap(&Hash([0xffu8; 32])));
 }
 
+/// Sequential-byte `Hash`: byte order on the wire is array order.
 #[test]
 fn hash_sequential() {
     let bytes: [u8; 32] = std::array::from_fn(|i| i as u8);
@@ -79,22 +82,29 @@ fn hash_sequential() {
 
 // ---------- Prefix ----------
 
+/// The root `Prefix` (zero bytes consumed) encodes as the empty string.
 #[test]
 fn prefix_root_empty() {
     insta::assert_snapshot!(snap(&Prefix::<Root>::new()));
 }
 
+/// A one-byte `Prefix` (height `UnderRoot`): the length is implied by the
+/// height, so exactly one raw byte crosses the wire.
 #[test]
 fn prefix_under_root_single_byte() {
     insta::assert_snapshot!(snap(&prefix_from_bytes::<message::UnderRoot>(&[0x42])));
 }
 
+/// A 30-byte `Prefix` (height `S<S<Z>>`): the height-implied length scales
+/// to deep prefixes.
 #[test]
 fn prefix_s_s_z() {
     let bytes: Vec<u8> = (0u8..30).collect();
     insta::assert_snapshot!(snap(&prefix_from_bytes::<S<S<Z>>>(&bytes)));
 }
 
+/// A 31-byte `Prefix` ending in `0xff`: the high byte value is preserved
+/// at the boundary position.
 #[test]
 fn prefix_s_z_max_byte() {
     let mut bytes = vec![0u8; 31];
@@ -102,6 +112,7 @@ fn prefix_s_z_max_byte() {
     insta::assert_snapshot!(snap(&prefix_from_bytes::<S<Z>>(&bytes)));
 }
 
+/// The full 32-byte `Prefix` (height `Z`): a complete leaf path.
 #[test]
 fn prefix_z_full_32_bytes() {
     let bytes: [u8; 32] = std::array::from_fn(|i| i as u8);
@@ -110,11 +121,13 @@ fn prefix_z_full_32_bytes() {
 
 // ---------- Node<T, Z>: leaf ----------
 
+/// A bare leaf node: version then message payload.
 #[test]
 fn node_z_leaf() {
     insta::assert_snapshot!(snap(&leaf("a", 1)));
 }
 
+/// A leaf at the empty `Version`: the degenerate-timestamp encoding.
 #[test]
 fn node_z_leaf_empty_version() {
     let l: Node<(), Z> = Node::leaf(Version::default(), Message::new(()));
@@ -123,12 +136,16 @@ fn node_z_leaf_empty_version() {
 
 // ---------- Node<T, S<Z>> ----------
 
+/// A path-compressed single child: the compressed prefix byte rides the
+/// node, not a materialized intermediate level.
 #[test]
 fn node_s_z_singleton_path_compressed_leaf() {
     let n: Node<(), S<Z>> = Node::beneath(leaf("a", 1), 0xab);
     insta::assert_snapshot!(snap(&n));
 }
 
+/// A two-child branch at the radix extremes (`0x00`, `0xff`), in
+/// ascending-radix order.
 #[test]
 fn node_s_z_two_child_branch() {
     let children: Children<(), Z> = [(0x00, leaf("a", 1)), (0xff, leaf("a", 2))]
@@ -138,6 +155,7 @@ fn node_s_z_two_child_branch() {
     insta::assert_snapshot!(snap(&n));
 }
 
+/// The saturated 256-child branch: the maximum fan-out boundary.
 #[test]
 fn node_s_z_full_256_child_branch() {
     let children: Children<(), Z> = (0u16..=255)
@@ -149,12 +167,15 @@ fn node_s_z_full_256_child_branch() {
 
 // ---------- Node<T, Root> ----------
 
+/// The empty tree (`None` root): the smallest possible encoding.
 #[test]
 fn node_root_none() {
     let n: Option<Node<(), Root>> = None;
     insta::assert_snapshot!(snap(&n));
 }
 
+/// One leaf under the root: all 32 levels collapse into a single
+/// compressed prefix on one node.
 #[test]
 fn node_root_single_leaf_full_compression() {
     let n = leaf("a", 1);
@@ -165,6 +186,8 @@ fn node_root_single_leaf_full_compression() {
     insta::assert_snapshot!(snap(&n));
 }
 
+/// Two leaves diverging at the very first byte: a root branch over two
+/// 31-level compressed spines.
 #[test]
 fn node_root_two_leaves_branched_at_root() {
     let n = {
@@ -192,11 +215,14 @@ fn node_root_two_leaves_branched_at_root() {
 
 // ---------- Version ----------
 
+/// The empty `Version` (no events anywhere): the canonical zero encoding.
 #[test]
 fn version_empty() {
     insta::assert_snapshot!(snap(&Version::new()));
 }
 
+/// A `Version` joining ticks from two disjoint parties: a non-trivial
+/// event tree crosses the wire canonically.
 #[test]
 fn version_two_parties_ascending() {
     let v: Version = ticked("a", 1) | ticked("b", 2);
@@ -205,22 +231,26 @@ fn version_two_parties_ascending() {
 
 // ---------- Messages ----------
 
+/// An `Initiate` with nothing uncertain: the convergent-open greeting.
 #[test]
 fn message_initiate_empty() {
     insta::assert_snapshot!(snap(&message::Initiate::default()));
 }
 
+/// An `Initiate` carrying one uncertain root hash: the ordinary opening.
 #[test]
 fn message_initiate_one_entry() {
     let uncertain = vec![(Prefix::<Root>::new(), Hash([1u8; 32]))];
     insta::assert_snapshot!(snap(&message::Initiate { uncertain }));
 }
 
+/// An empty `Opening` reply: the responder with nothing in dispute.
 #[test]
 fn message_opening_empty() {
     insta::assert_snapshot!(snap(&message::Opening::default()));
 }
 
+/// An `Opening` disputing one child hash one level down.
 #[test]
 fn message_opening_one_entry() {
     let uncertain = vec![(
@@ -230,12 +260,15 @@ fn message_opening_one_entry() {
     insta::assert_snapshot!(snap(&message::Opening { uncertain }));
 }
 
+/// An `Exchange` with all three sets empty: the in-band termination shape.
 #[test]
 fn message_exchange_empty() {
     let m: message::Exchange<(), message::UnderRoot> = message::Exchange::default();
     insta::assert_snapshot!(snap(&m));
 }
 
+/// An `Exchange` with all three sets populated — `providing` (a subtree),
+/// `requested`, and `uncertain` — the full steady-state round shape.
 #[test]
 fn message_exchange_populated() {
     let leaf_z: Node<(), Z> = leaf("a", 1);
@@ -268,12 +301,14 @@ fn message_exchange_populated() {
     insta::assert_snapshot!(snap(&m));
 }
 
+/// An empty `Closing`: the initiator's final round with nothing left.
 #[test]
 fn message_closing_empty() {
     let m: message::Closing<()> = message::Closing::default();
     insta::assert_snapshot!(snap(&m));
 }
 
+/// A `Closing` still providing and requesting at the bottom heights.
 #[test]
 fn message_closing_populated() {
     let n_s_z: Node<(), S<Z>> = Node::beneath(leaf("a", 1), 0xab);
@@ -286,12 +321,14 @@ fn message_closing_populated() {
     insta::assert_snapshot!(snap(&m));
 }
 
+/// An empty `Complete`: the responder's sign-off with nothing owed.
 #[test]
 fn message_complete_empty() {
     let m: message::Complete<()> = message::Complete::default();
     insta::assert_snapshot!(snap(&m));
 }
 
+/// A `Complete` shipping one final leaf: the responder's last `providing`.
 #[test]
 fn message_complete_populated() {
     let providing = vec![(prefix_from_bytes::<Z>(&[0u8; 32]), leaf("a", 1))];

@@ -1,4 +1,13 @@
 //! Disjoint parties who can emit events.
+//!
+//! A [`Party`] is a non-empty set of subintervals of `[0, 1)`, stored as a
+//! canonical id-tree: the share of the identifier space its holder may
+//! [`tick`](Party::tick) against. [`fork`](Party::fork) splits a share in
+//! two; [`join`](Party::join) reunites disjoint shares and refuses
+//! overlapping ones, because everything ITCs guarantee rests on the Law of
+//! Disjointness (see the [crate docs](crate)' safety rules). Parties are
+//! deliberately `!Clone` and their operations consume `self`: linearity in
+//! the type system, leaving only serialization boundaries to the caller.
 
 use core::fmt::Display;
 

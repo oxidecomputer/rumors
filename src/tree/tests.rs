@@ -680,6 +680,9 @@ proptest! {
     }
 }
 
+/// Forgetting a key the tree never held is a complete no-op: no leaf, and
+/// — because the action was zero-effect — no version bump either, so the
+/// tree stays equal to a fresh one.
 #[test]
 fn delete_nonexistent_key() {
     let mut tree: Tree<()> = Tree::new();
