@@ -385,7 +385,8 @@ impl<T> Node<T> {
     /// delegate over it, and on the decode side the same shape is
     /// reconstructed via the chain-reader trick that synthesizes per-level
     /// `prefix_len` bytes (see the module docs on
-    /// [`crate::tree::traverse::mirror`] for the full wire-format spec).
+    /// [`mirror::message`](crate::tree::traverse::mirror::message) for the
+    /// full wire-format spec).
     ///
     /// The encoded shape, in order, is:
     ///

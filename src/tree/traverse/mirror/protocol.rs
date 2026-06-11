@@ -82,20 +82,30 @@ pub trait Stage {
     type Error;
 }
 
+/// Open the connect phase on the client side: emit our [`message::Handshake`]
+/// greeting. Always continues (the `Done` slot is [`Infallible`]): a side
+/// cannot know it has converged before hearing the peer's version.
 pub trait Connect<T>: Stage<Height = Root> + Sized
 where
     T: Send + Sync,
 {
+    /// The state that absorbs the peer's version ([`CompleteConnect`]).
     type Next: CompleteConnect<T> + Stage<Output = Self::Output, Height = Root, Error = Self::Error>;
 
     async fn connect(self)
     -> Result<Step<message::Handshake, Self::Next, Infallible>, Self::Error>;
 }
 
+/// Finish the connect phase on the client side: absorb the peer's version.
+/// `Done` here means the versions were equal — already converged, no
+/// descent; `Continue` hands over a state ready to play either role
+/// (`Next` is both [`Initiator`] and [`Responder`]; the byte tiebreak picks
+/// which, see [`descend`](super::descend)).
 pub trait CompleteConnect<T>: Stage<Height = Root> + Sized
 where
     T: Send + Sync,
 {
+    /// The connected state, able to play either descent role.
     type Next: Initiator<T>
         + Responder<T>
         + Stage<Output = Self::Output, Height = Root, Error = Self::Error>;
@@ -106,10 +116,15 @@ where
     ) -> Result<Step<(), Self::Next, Self::Output>, Self::Error>;
 }
 
+/// The connect phase on the server side: ship the client's greeting to the
+/// peer and reply with the peer's own [`message::Handshake`]. `Done` mirrors
+/// [`CompleteConnect`]'s convergence case; the two sides always agree on it
+/// (both compare the same pair of versions).
 pub trait Accept<T>: Stage<Height = Root> + Sized
 where
     T: Send + Sync,
 {
+    /// The connected state, able to play either descent role.
     type Next: Initiator<T>
         + Responder<T>
         + Stage<Output = Self::Output, Height = Root, Error = Self::Error>;
@@ -443,6 +458,9 @@ macro_rules! define_peer {
         {
         }
 
+        /// A [`Peer`] entered through the server side of the connect phase:
+        /// [`Accept`] first, then either descent role. The whole-session
+        /// bound the wire-facing driver takes for the remote party.
         pub trait Server<T>:
             Accept<T, Next: Initiator<T, Next: OpenInitiator<T, Next: $($init_chain)*>> + Responder<T, Next: $($resp_chain)*>>
         where
@@ -457,6 +475,9 @@ macro_rules! define_peer {
         {
         }
 
+        /// A [`Peer`] entered through the client side of the connect phase:
+        /// [`Connect`] then [`CompleteConnect`], then either descent role.
+        /// The whole-session bound the drivers take for the local party.
         pub trait Client<T>:
             Connect<T, Next: CompleteConnect<T, Next: Initiator<T, Next: OpenInitiator<T, Next: $($init_chain)*>> + Responder<T, Next: $($resp_chain)*>>>
         where

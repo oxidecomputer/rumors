@@ -51,6 +51,9 @@ pub struct Messages<T> {
 type WaitForChange<T> =
     Pin<Box<dyn Future<Output = (bool, watch::Receiver<crate::Inner<T>>)> + Send>>;
 
+/// An observer's hold on the watch channel: either the receiver itself, or
+/// the materialized owned wait the `Stream` face left in flight (see the
+/// [`Messages::channel`] field docs for why the wait must be owned).
 pub(super) enum Channel<T> {
     /// The channel is in hand.
     Ready(watch::Receiver<crate::Inner<T>>),

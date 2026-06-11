@@ -166,6 +166,9 @@ impl<T> Exchange<Start, Top<T>>
 where
     T: Send + Sync,
 {
+    /// Open a local exchange over `node`, ready for the connect phase: the
+    /// zipper at the top, the handshake version captured from the root's
+    /// ceiling.
     pub fn start(node: tree::Root<T>) -> Self {
         Self {
             versions: Start {

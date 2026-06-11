@@ -1,0 +1,680 @@
+% Generated from results/mirror-complexity.md (commit a8a3b7a).
+\documentclass[11pt]{article}
+
+\usepackage[margin=1.1in]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{microtype}
+\usepackage[colorlinks=true, linkcolor=blue, urlcolor=blue]{hyperref}
+
+% Monospace treatment for code identifiers and file:line references.
+% Allow line breaks after path separators so long file:line references
+% do not overflow the margin.
+\newcommand{\code}[1]{\texttt{#1}}
+\emergencystretch=3em
+
+\theoremstyle{plain}
+\newtheorem{lemma}{Lemma}
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}{Proposition}
+\newtheorem*{corollary}{Corollary (separation depth)}
+
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+
+\title{The asymptotic complexity of the mirror reconciliation protocol}
+\author{}
+\date{\normalsize\itshape Generated from \code{results/mirror-complexity.md}.}
+
+\begin{document}
+\maketitle
+
+A first-principles derivation of the per-side computation, bandwidth, and
+latency of \code{rumors}' mirror protocol, written for a reader who knows
+basic probability and big-O but has never seen this codebase. Every modeling
+assumption is pinned to a code location; every approximation is named where
+it is used. All file references are relative to the repository root (this
+worktree); line numbers are as of commit \code{a8a3b7a}.
+
+\paragraph{Headline results} (derived in \S6, constants from the code):
+
+\begin{center}
+\begin{tabular}{@{}L{0.16\textwidth}L{0.46\textwidth}L{0.28\textwidth}@{}}
+\toprule
+Axis & Result (expected, uniform leaves) & Empirical fit it refines \\
+\midrule
+Per-side computation &
+$\Theta\bigl(\min(256 \cdot D,\, N) \cdot (1 + \log_{256}(N/D))\bigr)$
+child-hash comparisons; equivalently $\Theta(D \cdot (1 + \log(N/D)))$
+disputed nodes visited, $\times 256$ sibling fan-out each &
+$\sqrt{C \cdot D}$: a true upper bound (\S7), loose by up to
+$\sqrt{C/D}/\ln(C/D)$ \\
+\addlinespace
+Bandwidth &
+$\Theta(D)$ message bodies + the same
+$\min(256 \cdot D,\, N) \cdot (1 + \log_{256}(N/D))$ hash entries
+(${\sim}36$--$64$\,B each) + $\le 36$ frames of framing &
+${\sim}D$: correct up to the slowly-varying log factor \\
+\addlinespace
+Latency &
+$\tfrac{1}{2} \cdot \log_{256}(2 \cdot D \cdot N) + O(1)$ round trips, hard
+ceiling $\approx 18$ RTT (36 frames), floor 1 RTT after the preamble for
+identical versions &
+$\log_{256}(C + D)$: same at $D \approx N$, ${\sim}2\times$ high for
+$D \ll N$ (both tiny) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+where $N = C + D$. One meta-finding up front, developed in \S7: at every
+realistic scale ($N \le 10^7$), the \emph{exact} level-by-level sum tracks
+$\sqrt{C \cdot D}$ to within a factor of ${\sim}2$--$4$ across almost the
+whole $(C, D)$ plane. The smooth $D \cdot \log(N/D)$ form is the asymptote;
+the discrete base-256 staircase underneath it locally mimics a square root.
+The empirical fit was not an accident, and wall-clock benchmarks at these
+scales genuinely cannot refute it --- \S8 gives measurements that can.
+
+\begin{quote}
+\textbf{Source-of-data flag.} \code{benches/hash\_recon.rs} is \emph{not} a
+reconciliation benchmark: it measures worst-case root-hash
+\emph{reconstruction} (32 iterated 8\,KiB BLAKE3 wraps vs.\ 34-byte
+commitments), motivating the per-node hash memo. The reconciliation
+measurements live in \code{benches/gossip\_grid.rs} and
+\code{benches/in\_memory.rs} over the divergence grid in
+\code{benches/support/grid.rs}. Everything below assumes the
+$\sqrt{C \cdot D}$ fit came from that grid.
+\end{quote}
+
+\section{The system, in one page}
+
+Each replica holds a \textbf{sparse Merkle radix trie}: branching factor
+256, fixed depth 32, one path byte per level (\code{src/tree.rs:18-26},
+\code{src/tree/typed/height.rs:110-117}). A leaf's 32-byte path is
+$\mathrm{blake3}\bigl(\mathrm{blake3}(\textit{version}) \,\Vert\,
+\mathrm{blake3}(\textit{value})\bigr)$ --- the \emph{version is folded into
+the path} (\code{src/tree/typed/path.rs:32-44}), so every insert, even of
+identical content, lands at a fresh, computationally-uniform position.
+Single-child runs are path-compressed into a prefix byte string on the node
+(\code{src/tree/typed/untyped.rs:25-47}, invariant ``branches have $\ge 2$
+children'' at \code{untyped.rs:78-81, 128-150}). Each node lazily memoizes
+its subtree hash (\code{untyped.rs:266-288}) and its version ceiling/floor
+(\code{untyped.rs:298-360}); the memos survive copy-on-write clones
+(\code{untyped.rs:100-123}). Hashing is compression-invariant: a compressed
+prefix byte wraps the child hash exactly as a materialized one-child branch
+would (\code{src/tree/typed/hash.rs:54-79}, \code{untyped.rs:268-287}).
+Leaves hash to a constant (\code{hash.rs:45-51}) --- all leaf-distinguishing
+content lives in the \emph{path}.
+
+The \textbf{mirror protocol} reconciles two replicas' trees over a wire.
+After a 25-byte raw preamble (\code{src/tree/traverse/mirror/remote.rs:11-17})
+and a framed version handshake, equal versions terminate immediately
+(\code{src/tree/traverse/mirror/local.rs:230-241, 268-281};
+\code{remote.rs:279-285}). Otherwise both sides run a synchronized descent.
+Each side keeps a \emph{zipper} of per-height levels
+(\code{src/tree/typed/levels.rs}); each message a side sends descends its
+own zipper by \textbf{two heights} (\code{local.rs:395-415};
+\code{partition.rs:354-356}), and because the two sides alternate strictly,
+the conversation's frontier advances \textbf{one depth per message, two per
+round trip}.
+
+Each steady-state message carries three channels
+(\code{src/tree/traverse/mirror/}\allowbreak\code{message.rs:50-70},
+asymmetry matrix at \code{local.rs:46-58}):
+
+\begin{center}
+\begin{tabular}{@{}L{0.14\textwidth}L{0.32\textwidth}L{0.44\textwidth}@{}}
+\toprule
+Channel & Content & Receiver's action \\
+\midrule
+\code{uncertain} &
+$(\textit{prefix}, \textit{hash})$ of the sender's disputed-frontier
+subtrees &
+merge-join against own children: equal hash $\Rightarrow$ drop; differ
+$\Rightarrow$ explode grandchildren (recurse); we-lack $\Rightarrow$
+\code{request}; they-lack $\Rightarrow$ \code{provide} \\
+\addlinespace
+\code{requested} &
+prefixes the sender lacks entirely &
+answer next message by exploding that node's children into \code{providing}
+(\code{partition.rs:91-142}) \\
+\addlinespace
+\code{providing} &
+whole subtrees, full structure on the wire (\code{message.rs:50-58}) &
+insert at the named prefix (\code{partition.rs:57-85}) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All per-round set operations are single linear merges over sorted flat
+vectors (\code{partition.rs:}\allowbreak\code{100-115, 199-203};
+\code{src/tree/typed/}\allowbreak\code{levels/level.rs}), so per-round work
+is linear in the
+frontier and message sizes --- no hidden log factors beyond the \code{imbl}
+\code{OrdMap} child maps (an $O(\log 256)$ constant per child operation,
+absorbed below).
+
+\textbf{Termination is in-band}: a side is done when its outgoing
+\code{requested} and \code{uncertain} are both empty
+(\code{partition.rs:393-410}; \code{remote.rs:34-43, 364-374, 398-409}); a
+sender that just emitted an empty-empty message does not even await a reply
+(\code{remote.rs:398-409}). The schedule has a hard ceiling ---
+\code{mirror\_connected} (\code{src/tree/traverse/mirror.rs:126-137}) is
+\code{initiator} + \code{responder} + \code{open\_initiator} + a \code{seq!}
+loop of \textbf{14 exchange pairs} + \code{close\_initiator} +
+\code{complete\_responder} + \code{complete\_initiator}. Counting frames:
+2 handshake + \code{Initiate} (depth 0) + \code{Opening} (depth 1) +
+\code{Exchange} (depth 2) + 28 exchanges (depths 3--30) + one more responder
+exchange (depth 31) + \code{Closing} + \code{Complete} = \textbf{36 frames
+maximum}, covering all 32 byte-levels (the chain lengths are pinned at the
+type level in \code{src/tree/traverse/mirror/protocol.rs:477-488}).
+
+\textbf{Deletions} leave no tombstones. Every subtree shipped through
+\code{providing} is first filtered by \code{Unknown::unknown}
+(\code{src/tree/traverse/unknown.rs}): a subtree whose version
+\emph{ceiling} is $\le$ the counterparty's version vector is something they
+have already seen --- its absence on their side means they deleted it --- so
+it is dropped in $O(1)$ (one memoized-ceiling comparison,
+\code{unknown.rs:28-34}), \emph{and the local copy is dropped too} (the
+Left arm keeps a node only if it survives the filter,
+\code{partition.rs:232-239}). A floor check keeps wholly-unknown subtrees
+intact without rebuilding them (\code{unknown.rs:38-52}).
+
+\section{Model and assumptions}
+
+\begin{itemize}
+\item \textbf{(A1) Uniform leaf placement.} Leaf paths are BLAKE3 outputs
+  over $(\textit{version}, \textit{value})$ (\code{path.rs:32-44}), and
+  versions are unique per action (\code{src/tree.rs:299-318}). In the
+  random-oracle model the $N$ leaf paths are i.i.d.\ uniform 32-byte
+  strings, \emph{regardless of insertion order, batching, or payload
+  skew} --- an adversary would need structured BLAKE3 preimages to cluster
+  them. This is the load-bearing probabilistic assumption; see \S9.4.
+\item \textbf{(A2) Parameters.} Branching $b = 256$, depth 32
+  (\code{tree.rs:21}, \code{height.rs:110-117}). Hash size $h = 32$ bytes
+  (\code{hash.rs:17}).
+\item \textbf{(A3) Warm memos.} Subtree hashes and version bounds are
+  memoized reads (\code{untyped.rs:266-288}); we count a hash
+  \emph{comparison} as $O(1)$. First-touch costs after local mutation are a
+  separate, additive term (\S9.1) --- the benches warm them in untimed
+  setup (\code{benches/gossip\_grid.rs:119-160}, \code{src/tree.rs:182-196}).
+\item \textbf{(A4) Dispute drives descent.} Only the
+  \emph{Both-and-hashes-differ} cell of the asymmetry matrix recurses
+  (\code{partition.rs:243-254}). The Left cell ships a whole subtree in the
+  same message; the Right cell is requested and answered whole one message
+  later (\code{partition.rs:91-142}). So one-sided differences cost $O(1)$
+  additional messages once they separate from two-sided content.
+\item \textbf{(A5) Two heights per send, one depth per message.} Verified
+  at \code{local.rs:395-415} and the alternation in \code{mirror.rs:126-137}.
+\item \textbf{(A6) No level skipping.} Path compression does \textbf{not}
+  shorten the descent: exploding a compressed node pops exactly one prefix
+  byte and yields a singleton child map (\code{untyped.rs:156-167}).
+  Compression saves hashing and memory, never rounds.
+\item \textbf{(A7) No hash collisions.} A false \code{uncertain} match
+  (probability $\le \textit{pairs} \cdot 2^{-256}$) would silently prune;
+  ignored.
+\item \textbf{(A8) Wire sizes.} An \code{uncertain} entry at depth $k$ is
+  $k$ raw prefix bytes + 32 hash bytes (\code{prefix.rs:127-156},
+  \code{message.rs:61-63}); a \code{providing} node is its full borsh
+  structure: per leaf, a version, the payload, and $\le 32$
+  compressed-prefix bytes (\code{message.rs:21-58},
+  \code{untyped.rs:401-438}). Frames carry a 4-byte length prefix
+  (\code{remote.rs:26-33}).
+\end{itemize}
+
+\section{Notation}
+
+\begin{center}
+\begin{tabular}{@{}lL{0.72\textwidth}@{}}
+\toprule
+Symbol & Meaning \\
+\midrule
+$b$ & branching factor, 256 \\
+$C$ & live messages present on \textbf{both} sides \\
+$D$ & messages present on \textbf{exactly one} side, summed over both sides
+  ($D = D_L + D_R$); redacted-on-one-side leaves count (\S9.3) \\
+$N$ & $C + D$, the size of the union tree \\
+$k$ & depth = prefix length in bytes, $0 \le k \le 32$; height $H = 32 - k$ \\
+$\Delta_k$ & number of \textbf{disputed} depth-$k$ prefixes: prefixes
+  containing $\ge 1$ differing leaf \emph{and} $\ge 1$ leaf on the
+  counterparty's side \\
+$f_k$ & expected occupied-children count of a depth-$k$ node,
+  $\approx \min(b, \max(1, N/b^k))$ \\
+$j_D$, $j_N$ & $\log_b D$, $\log_b N$ (depths where $b^k$ crosses $D$, $N$) \\
+$k^*$ & separation depth: deepest disputed prefix \\
+$W$ & per-side work / total \code{uncertain} entries:
+  $\sum_k \Delta_k \cdot f_k$ \\
+$\bar{s}$, $s_v$ & mean payload size; serialized \code{Version} size (not
+  $O(1)$, \S9.5) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Logs are base $b = 256$ unless written $\ln$. One decimal decade is
+$\log_{256} 10 \approx 0.415$ levels; one level spans 2.4 decades. Keep that
+coarse quantization in mind --- it is the source of the staircase in \S7.
+
+\section{Warm-up: \texorpdfstring{$D = 1$, $N = 10^6$}{D = 1, N = 10\textasciicircum 6}}
+
+One side holds a single extra leaf; the trees otherwise agree on $10^6$
+messages. Trace the protocol:
+
+\begin{enumerate}
+\item \textbf{Handshake} (2 frames): versions differ, descend.
+\item \textbf{\code{Initiate}} (depth 0): one root hash. Differs.
+\item \textbf{\code{Opening}} (depth 1): the responder \emph{unconditionally}
+  explodes its root and lists all its children (\code{local.rs:333-353}) ---
+  at $N = 10^6$, all 256 slots are occupied ($\approx 3{,}906$ leaves each):
+  \textbf{256 entries}.
+\item The initiator merge-joins: 255 child hashes match and drop; the one
+  slot containing the extra leaf differs (Both-case), so its 256
+  grandchildren are exploded and listed: \textbf{256 entries} at depth 2.
+\item The responder finds one depth-2 hash differing; that node has
+  $\approx 10^6/256^2 \approx 15$ occupied children:
+  \textbf{$\approx$ 15 entries} at depth 3.
+\item At depth 3 the extra leaf sits alone in its slot with probability
+  $\approx 1 - N/256^3 \approx 0.94$: a \textbf{Left case}. The whole leaf
+  (a path-compressed spine node carrying its remaining $\approx 29$ path
+  bytes, version, and payload) ships in \code{providing}; nothing is
+  exploded; the outgoing \code{uncertain} and \code{requested} are empty
+  $\Rightarrow$ \textbf{Done}, in-band.
+\end{enumerate}
+
+Totals: $\approx 256 + 256 + 15 \approx 527$ hash entries on the wire and
+compared (${\sim}18$\,KB), 7--8 frames $\approx$ 4 round trips including the
+preamble, one message body. Three things to notice, which the general
+analysis formalizes:
+
+\begin{itemize}
+\item The \emph{visited disputed nodes} number only $\approx 3$ (one per
+  level until separation) --- $D \cdot (1 + \log_b(N/D))$ with $D = 1$.
+\item But each visited node costs its \textbf{full sibling fan} ($\le 256$
+  entries): the per-node constant is $f_k \approx \min(b, N/b^k)$. This
+  factor-256 is the price of the radix-256 tradeoff: few rounds, fat rounds.
+\item Separation happened at depth
+  $\approx \log_b(D \cdot N) = \log_b 10^6 \approx 2.5$ --- not
+  $\log_b N$ levels of \emph{messages saved}, because termination is the
+  in-band emptiness predicate, not bottoming out at depth 32.
+\end{itemize}
+
+\section{Two lemmas}
+
+\begin{lemma}[prefix occupancy / sharing]
+Throw $m$ uniform leaves into the $b^k$ bins at depth $k$. The expected
+number of occupied bins is $b^k \cdot (1 - (1 - b^{-k})^m)$, which is
+$\Theta(\min(b^k, m))$ --- at least $(1 - 1/e) \cdot \min(b^k, m)$, at most
+$\min(b^k, m)$.
+\end{lemma}
+
+\begin{proof}[Proof sketch]
+Linearity of expectation over bins; $(1 - 1/x)^x \le 1/e$. Applied to the
+$D$ differing leaves, this bounds how many distinct ancestors they have at
+each depth: their root-to-leaf paths share prefixes exactly while
+$b^k < D$, and are essentially disjoint below. Summing, the union of the
+$D$ differing root-to-separation paths has
+$\sum_k \min(b^k, D) = \Theta(D \cdot (1 + \log_b(N/D)))$ distinct nodes
+(the geometric head contributes $\Theta(D)$; the plateau contributes $D$
+per level from $j_D$ to the dispute cutoff of Lemma~2).
+\end{proof}
+
+\begin{lemma}[dispute persistence]
+A depth-$k$ prefix is disputed --- i.e.\ recursed into rather than
+resolved --- iff it contains a differing leaf \emph{and} the counterparty
+owns at least one leaf under it (A4: otherwise it is a Left/Right case and
+resolves in $O(1)$ messages). Under A1,
+\begin{equation*}
+\mathbb{E}[\Delta_k] \;\le\; \min\bigl( b^k,\; D,\; 2 \cdot D \cdot N \cdot b^{-k} \bigr)
+\end{equation*}
+and $\Pr(\text{any dispute survives depth } k) \le 2 \cdot D \cdot N \cdot b^{-k}$.
+\end{lemma}
+
+\begin{proof}[Proof sketch]
+The first two bounds are Lemma~1 applied to the differing leaves. For the
+third: a dispute at depth $k$ requires some differing leaf $d$ and some
+leaf $x$ on the side opposite $d$'s holder to share a $k$-byte prefix. Each
+such (ordered) pair shares it with probability $b^{-k}$ (uniform,
+independent paths), and there are at most
+$D_L \cdot (C + D_R) + D_R \cdot (C + D_L) \le 2 \cdot D \cdot N$ pairs.
+Union bound / linearity.
+\end{proof}
+
+\begin{corollary}
+$k^* \le \log_b(2 \cdot D \cdot N) + t$ with probability $\ge 1 - b^{-t}$;
+$\mathbb{E}[k^*] \le \log_b(2DN) + \frac{b}{b-1} \cdot \frac{1}{\ln b}
+\approx \log_b(2DN) + 1$. The fixed 32-level ceiling is unreachable
+probabilistically: hitting it would need $D \cdot N \approx 256^{30}$. (It
+exists because paths are 32 bytes; even a full-depth descent is
+\emph{correct} --- equal full paths imply equal
+$(\textit{version}, \textit{value})$ by construction, \code{tree.rs:22-26}.)
+\end{corollary}
+
+\begin{lemma}[fan-out]
+A depth-$k$ node in the union tree of $N$ uniform leaves has expected
+occupied-children count $f_k = \Theta(\min(b, \max(1, N/b^k)))$, and the
+\emph{total} children over any set of $\Delta$ depth-$k$ nodes is
+$\le \Delta \cdot b$ always and $\Theta(\Delta \cdot f_k)$ in expectation
+(children counts across disjoint subtrees are negatively associated; we
+only ever need linearity). \emph{Caution (Jensen):}
+$\mathbb{E}[\min(X, Y)] \le \min(\mathbb{E}X, \mathbb{E}Y)$, so products of
+the $\min$ envelopes used below are upper envelopes of expectations; the
+matching lower bounds hold within the $(1 - 1/e)$ constants of Lemma~1.
+\end{lemma}
+
+\section{The level-by-level sum}
+
+Per round at depth $k$, the side processing the counterparty's
+\code{uncertain} does (all single-pass, sorted merges ---
+\code{partition.rs:159-304}):
+
+\begin{itemize}
+\item drain its frontier once: $O(|\textit{frontier}_k|)$;
+\item for each disputed parent, merge-join its own occupied children
+  against the listed hashes: $O(\text{own fan} + \text{listed entries})$,
+  each comparison a memoized-hash \code{memcmp} (A3);
+\item explode each hash-differing child's grandchildren into the next
+  level and emit them as the next \code{uncertain}
+  (\code{partition.rs:243-254, 364-373}).
+\end{itemize}
+
+So the entries \emph{listed at depth $k$} are exactly the occupied children
+of the disputed depth-$(k-1)$ parents, and each side's per-session work,
+the total \code{uncertain} traffic, and the zipper/\code{collapse} churn
+(\code{levels.rs:148-197}, linear in total level entries) are all $\Theta$
+of the same master sum:
+\begin{equation*}
+W \;=\; \sum_{k=0}^{32} \Delta_k \cdot f_k
+\;\approx\; \sum_k \min\bigl(b^k,\, D,\, 2DN \cdot b^{-k}\bigr)
+            \cdot \min\bigl(b,\, \max(1,\, N/b^k)\bigr)
+\end{equation*}
+
+Evaluate by regimes (write $j_D = \log_b D$, $j_N = \log_b N$; assume first
+$D \le N/b^2$ so all three regimes are non-empty):
+
+\begin{center}
+\begin{tabular}{@{}L{0.30\textwidth}lL{0.13\textwidth}L{0.26\textwidth}@{}}
+\toprule
+Regime & Depths & Term & Contribution \\
+\midrule
+\textbf{Head} (paths shared) & $k \le j_D$ & $b^k \cdot b$ &
+  geometric, $\approx b \cdot D \cdot (1 + 1/b + \dots) \approx b \cdot D$ \\
+\addlinespace
+\textbf{Plateau} (paths distinct, fans saturated) & $j_D < k \le j_N - 1$ &
+  $D \cdot b$ & $b \cdot D \cdot (\log_b(N/D) - 1)$ \\
+\addlinespace
+\textbf{Tail} (fans thin out, disputes die) & $k > j_N - 1$ &
+  $D \cdot N \cdot b^{-k} \cdot O(1)$ &
+  geometric, $\approx \Theta(D \cdot b)$ at the shoulder, then $\div 256$
+  per level \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{theorem}[per-side computation]
+Under A1--A6, the expected per-side work (hash comparisons + level-entry
+handling, each $O(1)$) and the expected total \code{uncertain} entry count
+are
+\begin{equation*}
+W \;=\; \Theta\bigl( \min(b \cdot D,\, N) \cdot (1 + \log_b(N/D)) \bigr)
+\end{equation*}
+\begin{itemize}
+\item for $D \le N/b$: $W = \Theta(b \cdot D \cdot (1 + \log_b(N/D)))$ ---
+  the prompt-level form $\Theta(D \cdot (1 + \log(N/D)))$ counts
+  \emph{disputed nodes visited}; the protocol pays a $\times b$ sibling fan
+  on each (Lemma~3, \S4);
+\item for $N/b < D \le N$ (heavily diverged / disjoint): the plateau
+  vanishes and the peak term is $\Theta(N)$;
+  $W = \Theta(N) = \Theta(D) \cdot O(b)$ --- linear;
+\item additive $\Theta(D \cdot (1 + s_v))$ for absorbing/filtering the
+  provided subtrees and the final collapse, and $\Theta(1)$ per round of
+  fixed pipeline cost. \qed
+\end{itemize}
+\end{theorem}
+
+Cross-checks: $D = 1$, $N = 10^6$ gives
+$W \approx 256 \cdot (1 + \log_b(N/b)) \approx 640$ vs.\ the \S4 hand count
+of 527 \checkmark. Disjoint trees ($C = 0$, $N = D$) give $\Theta(N)$
+\checkmark{} (matches the one-shot character of bootstrap, \S9.2).
+
+\begin{theorem}[bandwidth]
+Total bytes on the wire, both directions (each depth's \code{uncertain} is
+listed by exactly one side --- the alternation splits levels between them):
+\begin{align*}
+\textit{bytes} \;=\;& W \cdot (h + \bar{k})
+  && \text{[\code{uncertain}: 32-byte hash + $k$-byte prefix, $\bar{k} \le j_N + 1$]} \\
+  &+ \Theta(D) \cdot (\bar{s} + s_v + {\le}32)
+  && \text{[\code{providing}: payloads, versions, compressed spines]} \\
+  &+ O(D) \cdot \bar{k}
+  && \text{[\code{requested}: one prefix per separated they-only subtree]} \\
+  &+ {\le}\, 36 \cdot 4 + 2 \cdot 25 + 2 \cdot s_v
+  && \text{[framing, preamble, handshake]}
+\end{align*}
+In $\Theta$-terms:
+$\Theta(D \cdot (\bar{s} + s_v))
+ + \Theta(\min(b \cdot D, N) \cdot (1 + \log_b(N/D)) \cdot h)$.
+The empirical ``${\sim}D$'' is right in its $D$-scaling; the per-$D$
+constant is the interesting part: at $N/D = 10^2 \dots 10^4$ the hash
+channel runs ${\sim}10$--$40$\,KB \emph{per differing message} (e.g.\ \S4:
+18\,KB to move one message). For small payloads, \textbf{hash traffic
+dominates bandwidth}; bodies dominate only when
+$\bar{s} \gtrsim 36 \cdot W/D$ bytes. \qed
+\end{theorem}
+
+\begin{theorem}[latency]
+Messages strictly alternate and the conversation advances one depth per
+message (A5). Disputes empty at depth $k^*$ (Lemma~2 corollary), plus
+$O(1)$ messages to flush the final
+$\code{requested} \to \code{providing}$ exchange; the in-band predicate
+then stops the session (A6 --- no draining of the remaining schedule):
+\begin{equation*}
+\mathrm{RTT} \;=\; \tfrac{1}{2} \cdot k^* + O(1)
+\;=\; \tfrac{1}{2} \cdot \log_{256}(2 \cdot D \cdot N) + c,
+\qquad c \approx 3\text{--}4
+\end{equation*}
+(preamble $\approx 1$, handshake 1, \code{Initiate}/\code{Opening} 1,
+closing tail ${\sim}1$), hard-ceilinged at 36 frames $\approx$ 18 RTT,
+floored at ${\sim}2$ RTT total for equal versions. Path compression does
+not reduce this (A6). Numerically the \emph{descent} portion is tiny at any
+scale --- 1.8 levels $\approx$ 1 RTT for $(N, D) = (10^6, 1)$ up to 6.1
+levels $\approx$ 3 RTT for $(10^7, 10^7)$; the $O(1)$ dominates. The
+empirical $\log_{256}(C + D)$ agrees at $D \approx N$ (where
+$\tfrac{1}{2} \log DN = \log N$) and is $\approx 2\times$ the true descent
+depth for $D \ll N$, a difference of $< 2$ RTT at any realistic scale ---
+unfalsifiable from timing, trivially checkable by counting frames (\S8). \qed
+\end{theorem}
+
+\section{Against the \texorpdfstring{$\sqrt{C \cdot D}$}{sqrt(C·D)} fit}
+
+\begin{proposition}[the fit is a true upper bound]
+For $1 \le D \le C$:
+\begin{equation*}
+D \cdot \ln(C/D) \;\le\; \frac{2}{e} \cdot \sqrt{C \cdot D},
+\qquad \text{with equality iff } D = C/e^2.
+\end{equation*}
+\end{proposition}
+
+\begin{proof}
+Set $x = D/C \in (0, 1]$ and maximize $g(x) = \sqrt{x} \cdot \ln(1/x)$:
+$g'(x) = (\ln(1/x) - 2)/(2\sqrt{x}) = 0$ at $x = e^{-2}$,
+$g(e^{-2}) = 2/e$. Then
+$D \ln(C/D) = C \cdot x \ln(1/x) = C\sqrt{x} \cdot g(x) \cdots$ ---
+directly,
+$D \cdot \ln(C/D) = \sqrt{CD} \cdot \sqrt{x} \cdot \ln(1/x)
+\le (2/e)\sqrt{CD}$.
+\end{proof}
+
+In base 256:
+$D \cdot \log_{256}(C/D) \le (2/(e \cdot \ln 256)) \cdot \sqrt{CD}
+\approx 0.133 \cdot \sqrt{CD}$. With Theorem~1's constants
+($b/\ln b \approx 46.2$), for $D \le C$:
+\begin{equation*}
+W \;\le\; b \cdot D \cdot (2 + \ln 2)
+        + \frac{2}{e} \cdot \frac{b}{\ln b} \cdot \sqrt{CD}
+\;\approx\; 690 \cdot D + 34 \cdot \sqrt{C \cdot D}
+\;=\; O(\sqrt{C \cdot D}),
+\end{equation*}
+since $D \le \sqrt{CD}$ when $D \le C$. So the empirical
+$\sqrt{C \cdot D}$ is a \emph{correct} upper bound on per-side
+computation --- but loose: the ratio
+$\sqrt{CD}/(D \cdot \log(C/D)) = \sqrt{C/D}/\log(C/D)$ grows without bound
+as $D/C \to 0$, and the bound is tight (constant-factor) only in the band
+$D/C \in [{\sim}10^{-2}, {\sim}\tfrac{1}{2}]$ where $\sqrt{x} \cdot \ln(1/x)$
+stays within $1.5\times$ of its max.
+
+\paragraph{Why the fit nevertheless matched the data: the staircase.}
+The smooth form $b \cdot D \cdot (1 + \log_b(N/D))$ is the envelope of a
+\emph{staircase}: each level of the sum spans a factor of $256 \approx 2.4$
+decades. Inside one span the dominant term is $t_k = D \cdot N/b^k$ ---
+\textbf{linear in $N$ at fixed $D$} --- and the term above it,
+$\min(b, D) \cdot b^k$-shaped, is \emph{flat} in $D$ once $D > b$. The
+exact sum's local log-log slopes therefore wobble around the sqrt's 0.5
+instead of sitting at the asymptotic 0 (in $N$) and 1 (in $D$):
+
+Exact-sum values of $W$ (children examined $\approx$ \code{uncertain}
+entries; computed from the master sum, expectations, constants $\pm 2\times$
+from occupancy corrections), against $\sqrt{C \cdot D}$:
+
+\begin{center}
+\begin{tabular}{@{}rrrrrrr@{}}
+\toprule
+$N$ & $D$ & $W$ & $\sqrt{C \cdot D}$ & $W/\sqrt{CD}$ & $k^*$ & RTT (descent${}+c$) \\
+\midrule
+$10^4$ & $1$      & $295$              & $100$              & $3.0$            & $1.8$ & ${\sim}3.9$ \\
+$10^4$ & $10^2$   & $4.2\,\mathrm{k}$  & $1.0\,\mathrm{k}$  & $4.2$            & $2.6$ & ${\sim}4.3$ \\
+$10^4$ & $10^4$   & $26\,\mathrm{k}$   & $10\,\mathrm{k}$   & $2.6$            & $3.6$ & ${\sim}4.8$ \\
+$10^5$ & $10^2$   & $26\,\mathrm{k}$   & $3.2\,\mathrm{k}$  & $\mathbf{8.2}$   & $3.0$ & ${\sim}4.5$ \\
+$10^5$ & $10^3$   & $67\,\mathrm{k}$   & $10\,\mathrm{k}$   & $6.8$            & $3.5$ & ${\sim}4.7$ \\
+$10^6$ & $1$      & $0.53\,\mathrm{k}$ & $1.0\,\mathrm{k}$  & $\mathbf{0.53}$  & $2.5$ & ${\sim}4.2$ \\
+$10^6$ & $10^2$   & $27\,\mathrm{k}$   & $10\,\mathrm{k}$   & $2.7$            & $3.5$ & ${\sim}4.7$ \\
+$10^6$ & $10^3$   & $81\,\mathrm{k}$   & $32\,\mathrm{k}$   & $2.6$            & $3.9$ & ${\sim}4.9$ \\
+$10^6$ & $10^4$   & $220\,\mathrm{k}$  & $100\,\mathrm{k}$  & $2.2$            & $4.3$ & ${\sim}5.1$ \\
+$10^6$ & $10^5$   & $1.08\,\mathrm{M}$ & $316\,\mathrm{k}$  & $3.6$            & $4.7$ & ${\sim}5.3$ \\
+$10^7$ & $1$      & $0.67\,\mathrm{k}$ & $3.2\,\mathrm{k}$  & $\mathbf{0.21}$  & $2.9$ & ${\sim}4.4$ \\
+$10^7$ & $10^4$   & $1.6\,\mathrm{M}$  & $316\,\mathrm{k}$  & $5.1$            & $4.7$ & ${\sim}5.3$ \\
+$10^7$ & $10^5$   & $10.2\,\mathrm{M}$ & $1.0\,\mathrm{M}$  & $\mathbf{10.2}$  & $5.1$ & ${\sim}5.6$ \\
+$10^7$ & $10^7$   & $29\,\mathrm{M}$   & $10\,\mathrm{M}$   & $2.9$            & $6.1$ & ${\sim}6.0$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Read the ratio column: over five orders of magnitude in each axis it stays
+within $[0.2, 10]$ --- a one-constant sqrt fit (say anchored at the central
+cells, $a \approx 2.6$) leaves residuals of only $0.1\times$--$4\times$,
+and the worst residuals sit at the extreme corners ($D = 1$ at huge $N$;
+$D \approx b \cdot N/b^2$) where wall time is dominated by fixed
+per-session costs (preamble, handshake, ${\sim}8$ frames, thread/pipe
+synchronization in the bench harness) or by the $\Theta(D)$ body-handling
+term. Local log-log slopes of the exact sum, vs.\ sqrt's uniform 0.5:
+
+\begin{itemize}
+\item in $D$ at fixed $N = 10^6$: 0.75, 0.96, \textbf{0.47, 0.43}, 0.69
+  per decade
+  ($D\colon 1 \to 10 \to 10^2 \to 10^3 \to 10^4 \to 10^5$) --- \emph{in the
+  densest benchmark range the true slope is $\approx 0.45$,
+  indistinguishable from 0.5};
+\item in $N$ at fixed $D = 10^3$: 0.80, \textbf{0.08}, 0.43 per decade
+  ($N\colon 10^4 \to 10^5 \to 10^6 \to 10^7$) --- the $10^5 \to 10^6$
+  decade is the smoking gun: the true cost is nearly flat there (it sits
+  between staircase steps: $b^2 = 65{,}536$, $b^3 = 16.8\,\mathrm{M}$),
+  while sqrt demands $\times 3.16$.
+\end{itemize}
+
+\paragraph{Conclusion.} $\sqrt{C \cdot D}$ and
+$\Theta(\min(bD, N)(1 + \log_b(N/D)))$ are empirically indistinguishable
+from wall time on diagonal or $D$-sweeps at grid scales; they separate
+cleanly on \textbf{fixed-$D$, $N$-sweeps across the $10^5 \to 10^6$
+decade}, and on any \emph{count}-based (rather than time-based)
+measurement.
+
+\section{An experiment that distinguishes them}
+
+All using existing infrastructure; no protocol changes.
+
+\begin{enumerate}
+\item \textbf{Byte counting (noise-free, decisive).} In
+  \code{benches/gossip\_grid.rs}, wrap the
+  \code{PipeReader}/\code{PipeWriter} ends of \code{Wire}
+  (\code{gossip\_grid.rs:43-99}) in trivial
+  \code{std::io::Read}/\code{Write} adapters that increment
+  \code{AtomicU64}s, and record bytes per session per cell. Bandwidth is
+  $\Theta(36 \cdot W + \text{body terms})$ by Theorem~2 and is exactly
+  measurable. Regress $\log(\textit{bytes} - a \cdot D)$ on $\log D$ and
+  $\log(N/D)$ over cells with $D \ge 100$: the sqrt model predicts
+  elasticity $\approx 0.5$ in $\log(N/D)$; Theorem~1 predicts $\approx 0$
+  (a log-of-log). Frame \emph{counts} from the same adapter (count 4-byte
+  headers) verify Theorem~3 against
+  $\tfrac{1}{2} \cdot \log_{256}(2DN) + c$ to $\pm 1$ frame.
+\item \textbf{The flat decade.} Fix $\textit{differing} = 1{,}000$,
+  $\textit{redacted} = 0$, sweep
+  $\textit{common} \in \{10^3, 10^4, 10^5\}$ (cells already exist; extend
+  \code{COMMON} in \code{benches/support/grid.rs:74} to $10^6$ for the
+  decisive decade, accepting the 10-sample floor). Predicted wall-time
+  ratios $\textit{common } 10^5 \to 10^6$: sqrt $\times 3.16$; Theorem~1
+  $\times 1.2$ (the $0.08$-slope decade). One afternoon of Criterion time.
+\item \textbf{Direct hash-compare counts.} Drive two
+  \code{local::Exchange}s in-process through the \code{\#[cfg(test)]}
+  \code{mirror::mirror} entry (\code{mirror.rs:337-353}) with grid-shaped
+  trees and count \code{uncertain} entries (e.g.\ instrument in a test, or
+  just count from the byte totals:
+  $\textit{entries} \approx (\textit{uncertain bytes})/(34 \dots 64)$).
+  This measures $W$ itself, bypassing the $\alpha \cdot D + \textit{fixed}$
+  wall-time floor entirely.
+\end{enumerate}
+
+\section{Caveats and edge regimes}
+
+\begin{enumerate}
+\item \textbf{Lazy memoization (first session after writes).} A batch of
+  $m$ local changes leaves cold \code{OnceLock}s on the
+  $\Theta(m \cdot (1 + \log_b(N/m)))$ ancestor nodes of the changed paths
+  (\code{untyped.rs:40-47}; memos survive \code{Arc}-sharing, so
+  \emph{only} changed paths are cold, \code{untyped.rs:100-123}). The
+  first \code{hash()} then pays one branch preimage per cold node --- up
+  to $1 + 33 \cdot 256 \approx 8.4$\,KB of BLAKE3 for a saturated branch,
+  but only 34 bytes per compressed-spine level (\code{untyped.rs:283-287};
+  both conventions measured in \code{benches/hash\_recon.rs}). This cost
+  is additive, amortizes across sessions, and is excluded from the benches
+  by \code{warm\_caches()} (\code{gossip\_grid.rs:154-160}).
+\item \textbf{Bootstrap / one side empty ($D = N$).} No prefix has content
+  on both sides, so there are \emph{zero} disputes: the empty responder
+  sends an empty \code{Opening} (\code{local.rs:337-341}), and the
+  initiator's root-level drain Left-provides every root child in one
+  message (\code{partition.rs:276-294}), filtered through \code{Unknown}
+  against the empty version (everything survives). Cost: $\Theta(N)$
+  transfer and absorption, $O(1)$ rounds. Theorem~1's formula degrades
+  gracefully to $\Theta(N)$ here, but the \emph{mechanism} is different
+  --- the dispute machinery never engages.
+\item \textbf{Deletion honoring.} A redacted leaf (present on A, deleted
+  on B) keeps hashes differing along its path, so it costs descent exactly
+  like a differing leaf --- \textbf{count redactions in $D$} (the grid's
+  throughput accounting already does: \code{grid.rs:115-127}). But it
+  costs no body bytes: at separation, A's Left-provide is killed by the
+  $O(1)$ ceiling check (\code{unknown.rs:28-34}) and A deletes its own
+  copy (\code{partition.rs:232-239}) --- deletion \emph{propagates}
+  through the version ceiling, with no tombstone and no transfer. A whole
+  missing-but-dominated subtree dies the same way: one memoized
+  comparison, no descent below it.
+\item \textbf{Skew.} A1 is enforced by content addressing, not hoped for:
+  because the version is folded into the leaf path (\code{path.rs:32-44}),
+  even a million-message single-party version-batch spreads uniformly ---
+  concentration under few prefixes would require engineered BLAKE3
+  outputs. (Contrast key-ordered Merkle trees, where a contiguous batch
+  \emph{does} cluster.) Even granting an adversary clustered paths, the
+  depth ceiling caps the damage at $W \le 32 \cdot b \cdot D$ and 18 RTT.
+\item \textbf{Version sizes.} ITC \code{Version}s are not constant-size:
+  they ride the handshake, every provided leaf, and every
+  \code{ceiling/floor} $\le$ comparison (\code{unknown.rs:31, 46-49}),
+  contributing the $s_v$ factors in Theorems~1--2. For long-lived
+  universes with many party splits, $s_v$ is the term to watch, orthogonal
+  to the tree combinatorics.
+\item \textbf{The radix constant is the design tradeoff.} Per disputed
+  node the protocol ships a full sibling fan (up to $256 \times 36$ish
+  bytes $\approx$ 9\,KB) to buy a 2.4-decade depth reduction per level.
+  $b = 256$ puts every realistic deployment within ${\sim}3$ levels of
+  separation (RTT-optimal) at the cost of the $\times b$ in $W$ --- which
+  is exactly the constant that made a $\sqrt{C \cdot D}$ fit land in the
+  right numeric range in the first place.
+\end{enumerate}
+
+\end{document}

@@ -81,6 +81,10 @@ pub struct Tree<T> {
     pub(crate) root: Root<T>,
 }
 
+/// A tree's root pair: the node structure (absent when empty) and the
+/// causal ceiling that rides *outside* it. The ceiling outlives the nodes —
+/// it advances on effectual redactions and survives a tree emptying out —
+/// which is exactly what deletion honoring compares against.
 #[derive(Debug, Eq)]
 pub struct Root<T> {
     ceiling: Version,

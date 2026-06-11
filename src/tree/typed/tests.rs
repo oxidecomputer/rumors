@@ -4,10 +4,10 @@ use proptest::prelude::*;
 use crate::tree::typed::height::{Height, Root, S, Z};
 use crate::tree::typed::{Hash, Prefix};
 
-// `Hash` is a fixed-width newtype; its borsh round-trip is the trivial
-// case but worth pinning so a future encoding change to the helper trait
-// surfaces here first.
 proptest! {
+    /// A `Hash` borsh round-trips losslessly as exactly its 32 raw bytes.
+    /// The trivial fixed-width case, pinned so a future encoding change to
+    /// the helper trait surfaces here first.
     #[test]
     fn hash_borsh_round_trip(bytes in any::<[u8; 32]>()) {
         let original = Hash(bytes);

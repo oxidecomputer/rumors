@@ -7,6 +7,11 @@
 //! "cache only the topmost hash" strategy would pay to recompute a
 //! maximally-compressed path from scratch — the depth bound (32) makes it the
 //! worst case.
+//!
+//! Despite the name, this is *not* a reconciliation benchmark: it times
+//! hashing only, no protocol. For reconciliation cost data, see
+//! `gossip_grid.rs` (the divergence grid) and `gossip_fixed.rs` (fixed-size
+//! sweeps).
 
 use std::hint::black_box;
 

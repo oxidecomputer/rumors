@@ -13,7 +13,9 @@ use super::untyped;
 /// The typed node with a height of 32; the root of the tree.
 pub type Root<T> = Node<T, height::Root>;
 
-/// The type of children of a given height.
+/// The radix-indexed children of a branch one level above height `H`: a
+/// typed shell over the untyped persistent map, so inserts and removals
+/// stay height-correct at compile time.
 pub struct Children<T, H: Height> {
     height: PhantomData<fn() -> H>,
     inner: OrdMap<u8, untyped::Node<T>>,
@@ -49,24 +51,35 @@ impl<T, H: Height> Children<T, H> {
         self.inner
     }
 
+    /// Whether no child is present.
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
     }
 
+    /// The number of children present (0..=256).
     pub fn len(&self) -> usize {
         self.inner.len()
     }
 
+    /// Insert `child` at `radix`, returning any child it displaced.
     pub fn insert(&mut self, radix: u8, child: Node<T, H>) -> Option<Node<T, H>> {
         self.inner
             .insert(radix, child.into_untyped())
             .map(Node::from_untyped)
     }
 
+    /// Remove and return the child at `radix`, if any.
     pub fn remove(&mut self, radix: &u8) -> Option<Node<T, H>> {
         self.inner.remove(radix).map(Node::from_untyped)
     }
 
+    /// Walk this map and `other` in lockstep, yielding only the radixes
+    /// whose children differ, as `(radix, ours, theirs)` with `None` for an
+    /// absent side. Spans that are pointer-equal — the shared backing a
+    /// fork leaves behind — prune wholesale without being probed, so a
+    /// small delta against a large shared map costs work proportional to
+    /// the delta. The engine of [`Tree::join`](crate::tree::Tree::join)'s
+    /// recursion.
     #[allow(clippy::type_complexity)]
     pub fn diff_owned<'a>(
         &'a self,
@@ -269,6 +282,9 @@ impl<T> Node<T, Z> {
 }
 
 impl<T> Node<T, height::Root> {
+    /// Open the multi-level zipper over this (possibly absent) root: the
+    /// starting state of a mirror descent (see
+    /// [`Levels`](super::levels::Levels)).
     pub fn levels(node: Option<Root<T>>) -> Top<T> {
         levels(node)
     }
@@ -311,6 +327,7 @@ impl<T> Node<T, height::Root> {
         untyped::Range::root(node.map(|node| &node.inner), range)
     }
 
+    /// The observable hash of a possibly-absent root.
     pub fn root_hash(node: &Option<Root<T>>) -> Hash {
         // An absent root is the empty tree, which hashes as a branch with no
         // children (`blake3(BRANCH_TAG)`), not as the all-zero default.

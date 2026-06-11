@@ -138,6 +138,11 @@ pub struct Peer<T> {
     pub(crate) inner: watch::Sender<Inner<T>>,
 }
 
+/// The replica's shared mutable state, behind the `watch` channel every
+/// handle and observer subscribes to: the identity (absent only while a
+/// retirement has it in flight) and the content tree. Mutations happen
+/// inside `send_if_modified` critical sections so observers wake exactly
+/// once per committed change.
 pub(crate) struct Inner<T> {
     pub(crate) party: Option<Party>,
     pub(crate) tree: Tree<T>,

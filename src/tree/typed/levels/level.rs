@@ -35,6 +35,7 @@ impl<T, H: Height> Clone for Level<T, H> {
 }
 
 impl<T, H: Height> Level<T, H> {
+    /// Whether the level holds no entries.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
