@@ -27,13 +27,19 @@ default:
 check:
     cargo check --workspace --all-targets --all-features
 
+# Codegen-running recipes go through tools/memwatch: a runaway rustc (e.g. a
+# monomorphization bomb — see src/tree/traverse/act.rs) or a runaway test
+# fails the build with the offender named instead of wedging the machine.
+# `check`/`clippy` skip codegen, so they can't detonate one and run bare.
+# Override the limits per-invocation: `PROC_LIMIT_GB=16 just test`.
+
 # Run the test suites; pass a filter to narrow (`just test mirror`).
 test *args:
-    cargo nextest run --workspace --all-features {{args}}
+    {{justfile_directory()}}/tools/memwatch cargo nextest run --workspace --all-features {{args}}
 
 # Doctests — nextest does not run these, so they need their own invocation.
 doctest:
-    cargo test --workspace --doc --all-features
+    {{justfile_directory()}}/tools/memwatch cargo test --workspace --doc --all-features
 
 # Lint every target, warnings denied (the commit-gate setting).
 clippy:
@@ -89,7 +95,7 @@ docs:
 
 # Compile (don't run) the criterion benches.
 bench-build:
-    cargo bench --workspace --no-run
+    {{justfile_directory()}}/tools/memwatch cargo bench --workspace --no-run
 
 # The fuzz targets live in a detached workspace (crates/before/fuzz) precisely
 # so the ordinary gate never compiles them: without this recipe they rot invisibly.
@@ -97,7 +103,7 @@ bench-build:
 # Build the libFuzzer targets (nightly).
 [working-directory: "crates/before/fuzz"]
 fuzz-build:
-    cargo +{{fuzz_toolchain}} fuzz build
+    {{justfile_directory()}}/tools/memwatch cargo +{{fuzz_toolchain}} fuzz build
 
 # The decode invariant (accepted input re-encodes stably and decodes back to
 # itself) is asserted inline in the targets, so any hit is a crash.

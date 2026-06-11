@@ -1,0 +1,87 @@
+#!/bin/bash
+# memwatch — run a build/test command under a memory watchdog.
+#
+# Why this exists: a monomorphization bomb (see the comment in
+# src/tree/traverse/act.rs) once made every leaf-crate rustc invocation
+# consume 25+ GiB at codegen, outrunning jetsam and wedging the machine into
+# repeated watchdog kernel panics. Under memwatch, a recurrence fails the
+# build with the offending crate named instead of taking the machine down.
+#
+# Two layers of protection:
+#   1. Per-process: any build-related process (rustc, clippy-driver, build
+#      scripts, test binaries under target/) whose resident size exceeds
+#      PROC_LIMIT_GB is killed, and its rustc --crate-name is logged.
+#   2. Global: if system swap usage exceeds SWAP_LIMIT_GB, the whole build
+#      is aborted. This is the backstop against compressor exhaustion.
+#
+# Usage:
+#   memwatch cargo nextest run --workspace --all-features
+#   PROC_LIMIT_GB=16 SWAP_LIMIT_GB=24 memwatch cargo bench ...
+#
+# Events are echoed and appended to $LOG (default /tmp/memwatch.log). The
+# swap check is macOS-specific and degrades to a no-op elsewhere.
+
+set -u
+
+PROC_LIMIT_GB="${PROC_LIMIT_GB:-8}"
+SWAP_LIMIT_GB="${SWAP_LIMIT_GB:-16}"
+LOG="${LOG:-/tmp/memwatch.log}"
+INTERVAL="${INTERVAL:-2}"
+HEARTBEAT_EVERY="${HEARTBEAT_EVERY:-60}"   # ticks between status lines
+
+lim_kib=$((PROC_LIMIT_GB * 1024 * 1024))   # ps reports rss in KiB
+swap_lim_mb=$((SWAP_LIMIT_GB * 1024))
+
+note() { echo "$(date +%H:%M:%S) memwatch: $*" | tee -a "$LOG"; }
+
+"$@" &
+ROOT=$!
+trap 'kill "$ROOT" 2>/dev/null' INT TERM
+
+echo "$(date +%H:%M:%S) memwatch: start pid $ROOT, per-proc ${PROC_LIMIT_GB} GiB, swap abort ${SWAP_LIMIT_GB} GiB: $*" >> "$LOG"
+
+# Only these are ever killed by the per-process check.
+is_build_proc() {
+    case "$1" in
+        *rustc*|*clippy-driver*|*build-script-build*|*/target/*/deps/*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+tick=0
+while kill -0 "$ROOT" 2>/dev/null; do
+    biggest_kb=0 biggest_desc=none
+
+    while read -r pid rss cmd; do
+        is_build_proc "$cmd" || continue
+        if [ "$rss" -gt "$biggest_kb" ]; then
+            biggest_kb=$rss
+            biggest_desc="pid $pid ${cmd:0:80}"
+        fi
+        if [ "$rss" -gt "$lim_kib" ]; then
+            crate=$(printf '%s' "$cmd" | sed -n 's/.*--crate-name \([A-Za-z0-9_]*\).*/\1/p')
+            note "KILL pid $pid at $((rss / 1048576)) GiB resident, crate=${crate:-unknown}"
+            echo "    full cmd: $cmd" >> "$LOG"
+            kill -9 "$pid"
+        fi
+    done < <(ps -axo pid=,rss=,command=)
+
+    swap_used_mb=$(sysctl -n vm.swapusage 2>/dev/null | awk '{print $6}' | tr -d 'M' | cut -d. -f1)
+    if [ "${swap_used_mb:-0}" -gt "$swap_lim_mb" ]; then
+        note "ABORT: swap at ${swap_used_mb} MB exceeds ${SWAP_LIMIT_GB} GiB; killing build"
+        kill -9 "$ROOT" 2>/dev/null
+        pkill -9 -x rustc 2>/dev/null
+        pkill -9 -x clippy-driver 2>/dev/null
+        pkill -9 -f 'cargo (check|clippy|build|nextest|test|bench)' 2>/dev/null
+        exit 1
+    fi
+
+    if [ "$tick" -gt 0 ] && [ $((tick % HEARTBEAT_EVERY)) -eq 0 ]; then
+        note "status: largest build proc $((biggest_kb / 1048576)) GiB ($biggest_desc); swap ${swap_used_mb:-0} MB"
+    fi
+    tick=$((tick + 1))
+    sleep "$INTERVAL"
+done
+
+wait "$ROOT"
+exit $?
