@@ -1120,3 +1120,131 @@ fn delete_nonexistent_key() {
     ));
     assert_eq!(tree, Tree::new());
 }
+
+/// Project a borrowed leaf triple to an owned one, for collecting and
+/// comparing walk outputs.
+fn owned<T>((key, version, value): (Key, &Version, &Arc<T>)) -> (Key, Version, Arc<T>) {
+    (key, version.clone(), value.clone())
+}
+
+proptest! {
+    /// The walk machinery's correctness core, differentially: for arbitrary
+    /// divergent trees and an arbitrary causal bound pair (every `Bound`
+    /// kind, over versions sampled from both trees' leaves and ceilings plus
+    /// genesis — so dominated, dominating, equal, and concurrent bounds all
+    /// occur), `Tree::range` yields exactly the leaves that
+    /// `before::causally`'s membership predicate admits from the unfiltered
+    /// walk — the prune/promote shortcuts are pure optimization — in
+    /// ascending key order; and the frozen spine walk (`Tree::freeze`)
+    /// yields the identical sequence. Two independent implementations of
+    /// the same partial-order semantics checking each other.
+    #[test]
+    fn range_and_freeze_match_the_naive_filter(
+        (a, b) in crate::tree::arb::arb_divergent_pair(),
+        start_sel in any::<prop::sample::Index>(),
+        end_sel in any::<prop::sample::Index>(),
+        start_kind in 0u8..3,
+        end_kind in 0u8..3,
+    ) {
+        use std::ops::Bound;
+
+        let tree = Tree { root: a };
+        let other = Tree { root: b };
+
+        // Bound candidates spanning the partial order's relationships to the
+        // walked tree: its own leaf versions and ceiling (dominated/equal),
+        // the divergent sibling's (concurrent), and genesis (bottom).
+        let mut candidates = vec![
+            Version::new(),
+            tree.latest().clone(),
+            other.latest().clone(),
+        ];
+        candidates.extend(tree.iter().map(|(_, v, _)| v.clone()));
+        candidates.extend(other.iter().map(|(_, v, _)| v.clone()));
+
+        let pick = |sel: &prop::sample::Index, kind: u8| match kind {
+            0 => Bound::Unbounded,
+            1 => Bound::Included(candidates[sel.index(candidates.len())].clone()),
+            _ => Bound::Excluded(candidates[sel.index(candidates.len())].clone()),
+        };
+        let start = pick(&start_sel, start_kind);
+        let end = pick(&end_sel, end_kind);
+
+        // Ground truth: compose the equivalent `causally` range and filter
+        // the unfiltered walk by its membership predicate.
+        let admits = |version: &Version| {
+            let mut range = crate::causally::all();
+            match &start {
+                Bound::Included(s) => range = range.not_before(s),
+                Bound::Excluded(s) => range = range.since(s),
+                Bound::Unbounded => {}
+            }
+            match &end {
+                Bound::Included(e) => range = range.known_at(e),
+                Bound::Excluded(e) => range = range.before(e),
+                Bound::Unbounded => {}
+            }
+            range.contains(version)
+        };
+        let naive: Vec<_> = tree
+            .iter()
+            .filter(|(_, version, _)| admits(version))
+            .map(owned)
+            .collect();
+
+        let ranged: Vec<_> = tree.range((start.clone(), end.clone())).map(owned).collect();
+        prop_assert_eq!(&ranged, &naive, "range must equal the naive filter");
+        prop_assert!(
+            ranged.windows(2).all(|pair| pair[0].0 < pair[1].0),
+            "range yields ascending keys",
+        );
+
+        let mut frozen = tree.freeze((start, end));
+        let mut thawed = Vec::new();
+        while let Some((key, leaf)) = frozen.next() {
+            thawed.push((key, leaf.version().clone(), leaf.value().clone()));
+        }
+        prop_assert_eq!(&thawed, &naive, "the frozen walk must equal the naive filter");
+    }
+
+    /// The unfiltered walk is exact and reversible, and the point lookup
+    /// resolves it: `iter`'s size hint equals the tree's length, the
+    /// backward walk is the forward walk reversed, `get` finds every
+    /// iterated key with the same version and value, and a perturbed key
+    /// that names no leaf misses.
+    #[test]
+    fn iteration_and_point_lookup_agree(
+        root in crate::tree::arb::arb_tree_root(0, 0..24),
+        flip in any::<prop::sample::Index>(),
+    ) {
+        let tree = Tree { root };
+
+        let forward: Vec<_> = tree.iter().map(owned).collect();
+        prop_assert_eq!(tree.iter().len(), forward.len());
+        prop_assert_eq!(tree.len(), forward.len());
+
+        let mut backward: Vec<_> = tree.iter().rev().map(owned).collect();
+        backward.reverse();
+        prop_assert_eq!(&backward, &forward, "backward is forward reversed");
+
+        for (key, version, value) in &forward {
+            prop_assert_eq!(
+                tree.get(key),
+                Some((version, value)),
+                "get resolves every iterated key",
+            );
+        }
+
+        if !forward.is_empty() {
+            let (key, ..) = &forward[flip.index(forward.len())];
+            let mut bytes = *key.as_bytes();
+            bytes[31] ^= 1;
+            let perturbed = Key::from(bytes);
+            // The flipped path could, in principle, name another live leaf;
+            // only assert the miss when it does not.
+            if !forward.iter().any(|(k, ..)| *k == perturbed) {
+                prop_assert_eq!(tree.get(&perturbed), None, "a foreign key misses");
+            }
+        }
+    }
+}
