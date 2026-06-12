@@ -3,7 +3,6 @@ members = [
     "crates/before",
     "crates/before-viz",
     "crates/rumormill",
-    "crates/rumormill-soak",
 ]
 
 [package]

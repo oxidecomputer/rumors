@@ -11,10 +11,12 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
 # The fuzz workspace needs libFuzzer, hence nightly.
+
 fuzz_toolchain := "nightly"
 
 # Default fuzz smoke duration per target, in seconds (matches the guidance in
 # crates/before/fuzz/Cargo.toml).
+
 fuzz_smoke_secs := "20"
 
 # List recipes.
@@ -35,11 +37,11 @@ check:
 
 # Run the test suites; pass a filter to narrow (`just test mirror`).
 test *args:
-    {{justfile_directory()}}/tools/memwatch cargo nextest run --workspace --all-features {{args}}
+    {{ justfile_directory() }}/tools/memwatch cargo nextest run --workspace --all-features {{ args }}
 
 # Doctests — nextest does not run these, so they need their own invocation.
 doctest:
-    {{justfile_directory()}}/tools/memwatch cargo test --workspace --doc --all-features
+    {{ justfile_directory() }}/tools/memwatch cargo test --workspace --doc --all-features
 
 # Lint every target, warnings denied (the commit-gate setting).
 clippy:
@@ -59,7 +61,6 @@ fmt-check:
 gate: fmt-check clippy docs docs-internal test doctest
 
 # ── artifacts the gate doesn't reach ─────────────────────────────────────────
-
 # `borsh` is exercised constantly via rumors; `serde` and `oracle` are only
 # ever lit here. The `serde`+`borsh` pair matters because both derive on the
 # same types.
@@ -106,48 +107,38 @@ docs-internal:
 
 # Compile (don't run) the criterion benches.
 bench-build:
-    {{justfile_directory()}}/tools/memwatch cargo bench --workspace --no-run
+    {{ justfile_directory() }}/tools/memwatch cargo bench --workspace --no-run
 
 # The fuzz targets live in a detached workspace (crates/before/fuzz) precisely
 # so the ordinary gate never compiles them: without this recipe they rot invisibly.
 
 # Build the libFuzzer targets (nightly).
-[working-directory: "crates/before/fuzz"]
+[working-directory("crates/before/fuzz")]
 fuzz-build:
-    {{justfile_directory()}}/tools/memwatch cargo +{{fuzz_toolchain}} fuzz build
+    {{ justfile_directory() }}/tools/memwatch cargo +{{ fuzz_toolchain }} fuzz build
 
 # The decode invariant (accepted input re-encodes stably and decodes back to
 # itself) is asserted inline in the targets, so any hit is a crash.
 
 # Short fuzz smoke: run each libFuzzer target for `secs` seconds.
-[working-directory: "crates/before/fuzz"]
+[working-directory("crates/before/fuzz")]
 fuzz secs=fuzz_smoke_secs:
-    cargo +{{fuzz_toolchain}} fuzz run fuzz_decode -- -max_total_time={{secs}}
-    cargo +{{fuzz_toolchain}} fuzz run fuzz_decode_ops -- -max_total_time={{secs}}
+    cargo +{{ fuzz_toolchain }} fuzz run fuzz_decode -- -max_total_time={{ secs }}
+    cargo +{{ fuzz_toolchain }} fuzz run fuzz_decode_ops -- -max_total_time={{ secs }}
 
 # ── conveniences ─────────────────────────────────────────────────────────────
 
 # Run benches, e.g. `just bench -p before party` or `just bench gossip_grid`.
 bench *args:
-    cargo bench {{args}}
+    cargo bench {{ args }}
 
 # Run the chatroom demo, e.g. `just rumormill --name alice` (paste a peer id
+
 # into the dialog) or `just rumormill --name bob --peer <endpoint-id>`.
 rumormill *args:
-    cargo run --release -p rumormill -- {{args}}
-
-# Local stress rehearsal: drive `nodes` real rumormill processes through
-# PTYs over real iroh networking (touches n0 relay/discovery infra), all
-# bootstrapping from one seed. Asserts convergence, consistency, chat
-# latency, and a clean mass quit; ~3–6 minutes at 100 nodes. Extra args go
-# to the harness (`just soak 20 --quiet-secs 5`); tee the output if you
-# want a record.
-soak nodes="100" *args:
-    cargo build --release -p rumormill -p rumormill-soak
-    target/release/rumormill-soak --nodes {{nodes}} --rumormill target/release/rumormill {{args}}
+    cargo run --release -p rumormill -- {{ args }}
 
 # ── the no-rot sweep ─────────────────────────────────────────────────────────
-
 # Ordered cheap-first so failures surface early: formatting, then the lint
 # (which also compiles all host targets), the feature matrix, wasm, docs, the
 # full test+doctest run, bench builds, fuzz build + smoke, and finally the
