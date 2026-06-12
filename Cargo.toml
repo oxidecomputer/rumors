@@ -67,10 +67,6 @@ name = "swarm"
 path = "examples/swarm.rs"
 
 [[bench]]
-name = "hash_recon"
-harness = false
-
-[[bench]]
 name = "in_memory"
 harness = false
 

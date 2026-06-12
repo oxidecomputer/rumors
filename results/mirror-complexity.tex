@@ -96,13 +96,14 @@ The empirical fit was not an accident, and wall-clock benchmarks at these
 scales genuinely cannot refute it --- \S9 gives measurements that can.
 
 \begin{quote}
-\textbf{Source-of-data flag.} \code{benches/hash\_recon.rs} is \emph{not} a
-reconciliation benchmark: it measures worst-case root-hash
+\textbf{Source-of-data flag.} The now-retired \code{benches/hash\_recon.rs}
+was \emph{not} a reconciliation benchmark: it measured worst-case root-hash
 \emph{reconstruction} (32 iterated 8\,KiB BLAKE3 wraps vs.\ 34-byte
-commitments), motivating the per-node hash memo. Note it still models the
-\emph{pre-truncation} 32-byte child records; the shipped tree's constants
-are now ${\approx}4.3$\,KiB and 18\,B (\S10.1), so its absolute numbers
-are ${\sim}2\times$ today's, the comparison's shape unaffected. The
+commitments), motivating the per-node hash memo. It modeled the
+\emph{pre-truncation} 32-byte child records and was retired (2026-06-12)
+rather than re-cut --- \code{benches/branch\_hash.rs} carries the
+branch-preimage question at the current 17-byte records, and the memo it
+motivated is settled design (\S10.1). The
 reconciliation measurements live in \code{benches/gossip\_grid.rs} and
 \code{benches/in\_memory.rs} over the divergence grid in
 \code{benches/support/grid.rs}. Everything below assumes the
@@ -863,11 +864,11 @@ All using existing infrastructure; no protocol changes.
   to $1 + 17 \cdot 256 \approx 4.4$\,KB of BLAKE3 for a saturated branch
   (\code{CHILD\_RECORD\_LEN}, \code{hash.rs:80-83}),
   but only 18 bytes per compressed-spine level (\code{untyped.rs:281-289}).
-  \code{benches/hash\_recon.rs} measures both conventions at the
-  \emph{pre-truncation} width (8\,KiB wraps vs.\ 34-byte commitments) and
-  has not been re-cut to 17-byte child records, unlike
-  \code{benches/branch\_hash.rs}; its comparison shape stands, its
-  absolute numbers are ${\sim}2\times$ today's. This cost
+  (The two conventions were compared in \code{benches/hash\_recon.rs} at
+  the pre-truncation width --- 8\,KiB wraps vs.\ 34-byte commitments ---
+  which settled the memo design and was then retired;
+  \code{benches/branch\_hash.rs} carries the preimage-feeding question at
+  the current 17-byte records.) This cost
   is additive, amortizes across sessions, and is excluded from the benches
   by \code{warm\_caches()} (\code{gossip\_grid.rs:154-160}).
 \item \textbf{Bootstrap / one side empty ($D = N$).} No prefix has content
