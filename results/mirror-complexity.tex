@@ -1,5 +1,6 @@
 % Canonical source for the mirror-protocol complexity analysis (commit
-% a8a3b7a). Supersedes the retired markdown original
+% e6471062, after the 16-byte Merkle-hash truncation in d4eeb8f).
+% Supersedes the retired markdown original
 % (results/mirror-complexity.md).
 \documentclass[11pt]{article}
 
@@ -34,7 +35,9 @@
 \title{The asymptotic complexity of the mirror reconciliation protocol}
 \author{}
 \date{\normalsize\itshape Canonical source; supersedes the retired markdown
-original (\code{results/mirror-complexity.md}).}
+original (\code{results/mirror-complexity.md}). Revised 2026-06-12 for the
+two-width hash construction (16-byte Merkle, 32-byte content; commit
+\code{d4eeb8f}).}
 
 \begin{document}
 \maketitle
@@ -44,7 +47,15 @@ latency of \code{rumors}' mirror protocol, written for a reader who knows
 basic probability and big-O but has never seen this codebase. Every modeling
 assumption is pinned to a code location; every approximation is named where
 it is used. All file references are relative to the repository root (this
-worktree); line numbers are as of commit \code{a8a3b7a}.
+worktree); line numbers are as of commit \code{e6471062}.
+
+This revision reflects the two-width hash construction (commit
+\code{d4eeb8f}): every subtree hash the protocol ships and compares is a
+\textbf{16-byte} truncated BLAKE3 (the Merkle width), while content
+hashes --- the leaf paths --- remain full-width \textbf{32 bytes} (\S10.7
+states the asymmetry argument). Every \emph{count} in this analysis ($W$,
+$\Delta_k$, round trips) is width-independent and unchanged; the
+per-record byte constants roughly halve.
 
 \paragraph{Headline results} (derived in \S6, constants from the code):
 
@@ -63,12 +74,12 @@ $\sqrt{C/D}/\ln(C/D)$ \\
 Bandwidth &
 $\Theta(D)$ message bodies + the same
 $\min(256 \cdot D,\, N) \cdot (1 + \log_{256}(N/D))$ hash entries
-(${\sim}36$--$64$\,B each) + $\le 36$ frames of framing &
+(${\sim}18$--$48$\,B each) + $\le 38$ frames of framing &
 ${\sim}D$: correct up to the slowly-varying log factor \\
 \addlinespace
 Latency &
 $\tfrac{1}{2} \cdot \log_{256}(2 \cdot D \cdot N) + O(1)$ round trips, hard
-ceiling $\approx 18$ RTT (36 frames), floor 1 RTT after the preamble for
+ceiling $\approx 19$ RTT (38 frames), floor 1 RTT after the preamble for
 identical versions &
 $\log_{256}(C + D)$: same at $D \approx N$, ${\sim}2\times$ high for
 $D \ll N$ (both tiny) \\
@@ -88,8 +99,11 @@ scales genuinely cannot refute it --- \S9 gives measurements that can.
 \textbf{Source-of-data flag.} \code{benches/hash\_recon.rs} is \emph{not} a
 reconciliation benchmark: it measures worst-case root-hash
 \emph{reconstruction} (32 iterated 8\,KiB BLAKE3 wraps vs.\ 34-byte
-commitments), motivating the per-node hash memo. The reconciliation
-measurements live in \code{benches/gossip\_grid.rs} and
+commitments), motivating the per-node hash memo. Note it still models the
+\emph{pre-truncation} 32-byte child records; the shipped tree's constants
+are now ${\approx}4.3$\,KiB and 18\,B (\S10.1), so its absolute numbers
+are ${\sim}2\times$ today's, the comparison's shape unaffected. The
+reconciliation measurements live in \code{benches/gossip\_grid.rs} and
 \code{benches/in\_memory.rs} over the divergence grid in
 \code{benches/support/grid.rs}. Everything below assumes the
 $\sqrt{C \cdot D}$ fit came from that grid.
@@ -98,38 +112,45 @@ $\sqrt{C \cdot D}$ fit came from that grid.
 \section{The system, in one page}
 
 Each replica holds a \textbf{sparse Merkle radix trie}: branching factor
-256, fixed depth 32, one path byte per level (\code{src/tree.rs:18-26},
-\code{src/tree/typed/height.rs:110-117}). A leaf's 32-byte path is
+256, fixed depth 32, one path byte per level (\code{src/tree.rs:7-26},
+\code{src/tree/typed/height.rs:108-125}). A leaf's 32-byte path is
 $\mathrm{blake3}\bigl(\mathrm{blake3}(\textit{version}) \,\Vert\,
 \mathrm{blake3}(\textit{value})\bigr)$ --- the \emph{version is folded into
-the path} (\code{src/tree/typed/path.rs:32-44}), so every insert, even of
-identical content, lands at a fresh, computationally-uniform position.
+the path} (\code{src/tree/typed/path.rs:32-50}), so every insert, even of
+identical content, lands at a fresh, computationally-uniform position. Two
+hash widths are in play, deliberately: the path is a full-width 32-byte
+\emph{content} hash, while every subtree hash the protocol ships and
+compares is a 16-byte truncated \emph{Merkle} hash
+(\code{MERKLE\_HASH\_LEN}, \code{src/tree/typed/hash.rs:11}; the asymmetry
+argument is \S10.7).
 Single-child runs are path-compressed into a prefix byte string on the node
-(\code{src/tree/typed/untyped.rs:25-47}, invariant ``branches have $\ge 2$
-children'' at \code{untyped.rs:78-81, 128-150}). Each node lazily memoizes
-its subtree hash (\code{untyped.rs:266-288}) and its version ceiling/floor
-(\code{untyped.rs:298-360}); the memos survive copy-on-write clones
-(\code{untyped.rs:100-123}). Hashing is compression-invariant: a compressed
+(\code{src/tree/typed/untyped.rs:29-51}, invariant ``branches have $\ge 2$
+children'' at \code{untyped.rs:82-84, 129-154}). Each node lazily memoizes
+its subtree hash (\code{untyped.rs:261-292}) and its version ceiling/floor
+(\code{untyped.rs:294-364}); the memos survive copy-on-write clones
+(\code{untyped.rs:104-127}). Hashing is compression-invariant: a compressed
 prefix byte wraps the child hash exactly as a materialized one-child branch
-would (\code{src/tree/typed/hash.rs:54-79}, \code{untyped.rs:268-287}).
-Leaves hash to a constant (\code{hash.rs:45-51}) --- all leaf-distinguishing
-content lives in the \emph{path}.
+would (\code{src/tree/typed/hash.rs:101-126}, \code{untyped.rs:281-289}).
+Leaves hash to a constant (\code{hash.rs:71-75, 92-98}) --- all
+leaf-distinguishing content lives in the \emph{path}.
 
 The \textbf{mirror protocol} reconciles two replicas' trees over a wire.
-After a 25-byte raw preamble (\code{src/tree/traverse/mirror/remote.rs:11-17})
+After a framed preamble (29 bytes on the wire: a 4-byte length prefix over
+magic, protocol version, network id, and intent, exchanged concurrently by
+both sides; \path{src/tree/traverse/mirror/remote/preamble.rs:5-15,66-72})
 and a framed version handshake, equal versions terminate immediately
-(\code{src/tree/traverse/mirror/local.rs:230-241, 268-281};
-\code{remote.rs:279-285}). Otherwise both sides run a synchronized descent.
+(\code{src/tree/traverse/mirror/local.rs:236-245, 274-285};
+\code{remote.rs:269-275}). Otherwise both sides run a synchronized descent.
 Each side keeps a \emph{zipper} of per-height levels
 (\code{src/tree/typed/levels.rs}); each message a side sends descends its
-own zipper by \textbf{two heights} (\code{local.rs:395-415};
-\code{partition.rs:354-356}), and because the two sides alternate strictly,
+own zipper by \textbf{two heights} (\code{local.rs:140-143};
+\code{partition.rs:353-356}), and because the two sides alternate strictly,
 the conversation's frontier advances \textbf{one depth per message, two per
 round trip}.
 
 Each steady-state message carries three channels, per the wire format in
-\path{src/tree/traverse/mirror/message.rs:50-70} and the asymmetry matrix
-at \code{local.rs:46-58}:
+\path{src/tree/traverse/mirror/message.rs:52-72} and the asymmetry matrix
+at \code{local.rs:47-59}:
 
 \begin{center}
 \begin{tabular}{@{}L{0.14\textwidth}L{0.32\textwidth}L{0.44\textwidth}@{}}
@@ -149,15 +170,15 @@ answer next message by exploding that node's children into \code{providing}
 (\code{partition.rs:91-142}) \\
 \addlinespace
 \code{providing} &
-whole subtrees, full structure on the wire (\code{message.rs:50-58}) &
+whole subtrees, full structure on the wire (\code{message.rs:52-60}) &
 insert at the named prefix (\code{partition.rs:57-85}) \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 All per-round set operations are single linear merges over sorted flat
-vectors (\code{partition.rs:}\allowbreak\code{100-115, 199-203};
-\code{src/tree/typed/}\allowbreak\code{levels/level.rs}), so per-round work
+vectors (\code{partition.rs:}\allowbreak\code{100-115, 197-203};
+\code{src/tree/typed/}\allowbreak\code{levels/level.rs:1-10}), so per-round work
 is linear in the
 frontier and message sizes --- no hidden log factors beyond the \code{imbl}
 \code{OrdMap} child maps (an $O(\log 256)$ constant per child operation,
@@ -165,18 +186,20 @@ absorbed below).
 
 \textbf{Termination is in-band}: a side is done when its outgoing
 \code{requested} and \code{uncertain} are both empty
-(\code{partition.rs:393-410}; \code{remote.rs:34-43, 364-374, 398-409}); a
+(\code{partition.rs:393-410}; \code{remote.rs:38-46, 354-364, 388-399}); a
 sender that just emitted an empty-empty message does not even await a reply
-(\code{remote.rs:398-409}). The schedule has a hard ceiling ---
-\code{mirror\_connected} (\code{src/tree/traverse/mirror.rs:126-137}) is
+(\code{remote.rs:388-399}). The schedule has a hard ceiling ---
+\code{mirror\_connected} (\code{src/tree/traverse/mirror.rs:164-185}) is
 \code{initiator} + \code{responder} + \code{open\_initiator} + a \code{seq!}
 loop of \textbf{14 exchange pairs} + \code{close\_initiator} +
 \code{complete\_responder} + \code{complete\_initiator}. Counting frames:
-2 handshake + \code{Initiate} (depth 0) + \code{Opening} (depth 1) +
+2 (concurrent) preamble frames + 2 handshake + \code{Initiate} (depth 0) +
+\code{Opening} (depth 1) +
 \code{Exchange} (depth 2) + 28 exchanges (depths 3--30) + one more responder
-exchange (depth 31) + \code{Closing} + \code{Complete} = \textbf{36 frames
-maximum}, covering all 32 byte-levels (the chain lengths are pinned at the
-type level in \code{src/tree/traverse/mirror/protocol.rs:477-488}).
+exchange (depth 31) + \code{Closing} + \code{Complete} = \textbf{38 frames
+maximum} --- the 36-frame schedule plus the framed preamble pair ---
+covering all 32 byte-levels (the chain lengths are pinned at the
+type level in \code{src/tree/traverse/mirror/protocol.rs:497-508}).
 
 \textbf{Deletions} leave no tombstones. Every subtree shipped through
 \code{providing} is first filtered by \code{Unknown::unknown}
@@ -184,29 +207,32 @@ type level in \code{src/tree/traverse/mirror/protocol.rs:477-488}).
 \emph{ceiling} is $\le$ the counterparty's version vector is something they
 have already seen --- its absence on their side means they deleted it --- so
 it is dropped in $O(1)$ (one memoized-ceiling comparison,
-\code{unknown.rs:28-34}), \emph{and the local copy is dropped too} (the
+\code{unknown.rs:39-47}), \emph{and the local copy is dropped too} (the
 Left arm keeps a node only if it survives the filter,
 \code{partition.rs:232-239}). A floor check keeps wholly-unknown subtrees
-intact without rebuilding them (\code{unknown.rs:38-52}).
+intact without rebuilding them (\code{unknown.rs:49-66}).
 
 \section{Model and assumptions}
 
 \begin{itemize}
 \item \textbf{(A1) Uniform leaf placement.} Leaf paths are BLAKE3 outputs
-  over $(\textit{version}, \textit{value})$ (\code{path.rs:32-44}), and
-  versions are unique per action (\code{src/tree.rs:299-318}). In the
+  over $(\textit{version}, \textit{value})$ (\code{path.rs:32-50}), and
+  versions are unique per action (\code{src/tree.rs:311-323, 341-348}). In the
   random-oracle model the $N$ leaf paths are i.i.d.\ uniform 32-byte
   strings, \emph{regardless of insertion order, batching, or payload
   skew} --- an adversary would need structured BLAKE3 preimages to cluster
   them. This is the load-bearing probabilistic assumption; see \S10.4.
 \item \textbf{(A2) Parameters.} Branching $b = 256$, depth 32
-  (\code{tree.rs:21}, \code{height.rs:110-117}). Hash size $h = 32$ bytes
-  (\code{hash.rs:17}).
+  (\code{tree.rs:9}, \code{height.rs:108-125}). Two hash widths: the
+  Merkle (comparison) hash is $h = 16$ bytes, a prefix truncation of
+  BLAKE3 (\code{MERKLE\_HASH\_LEN}, \code{hash.rs:11}); the content hash
+  --- the leaf path --- stays 32 bytes (\code{ContentHash},
+  \code{hash.rs:153-165}; \code{path.rs:32-50}).
 \item \textbf{(A3) Warm memos.} Subtree hashes and version bounds are
-  memoized reads (\code{untyped.rs:266-288}); we count a hash
+  memoized reads (\code{untyped.rs:261-292}); we count a hash
   \emph{comparison} as $O(1)$. First-touch costs after local mutation are a
   separate, additive term (\S10.1) --- the benches warm them in untimed
-  setup (\code{benches/gossip\_grid.rs:119-160}, \code{src/tree.rs:182-196}).
+  setup (\code{benches/gossip\_grid.rs:119-160}, \code{src/tree.rs:241-256}).
 \item \textbf{(A4) Dispute drives descent.} Only the
   \emph{Both-and-hashes-differ} cell of the asymmetry matrix recurses
   (\code{partition.rs:243-254}). The Left cell ships a whole subtree in the
@@ -214,21 +240,26 @@ intact without rebuilding them (\code{unknown.rs:38-52}).
   later (\code{partition.rs:91-142}). So one-sided differences cost $O(1)$
   additional messages once they separate from two-sided content.
 \item \textbf{(A5) Two heights per send, one depth per message.} Verified
-  at \code{local.rs:395-415} and the alternation in \code{mirror.rs:126-137}.
+  at \code{partition.rs:}\allowbreak\code{353-356} and the alternation in
+  \code{mirror.rs:}\allowbreak\code{164-185}.
 \item \textbf{(A6) No level skipping.} Path compression does \textbf{not}
   shorten the descent: exploding a compressed node pops exactly one prefix
-  byte and yields a singleton child map (\code{untyped.rs:156-167}).
+  byte and yields a singleton child map (\code{untyped.rs:160-170}).
   Compression saves hashing and memory, never rounds.
 \item \textbf{(A7) No hash collisions.} A false \code{uncertain} match
-  (probability $\le \textit{pairs} \cdot 2^{-256}$) would silently prune;
-  ignored.
+  (probability $2^{-128}$ \emph{per comparison} at the 16-byte Merkle
+  width --- pairwise, never birthday-amplified, since the hash at prefix
+  $P$ only ever meets the counterparty's hash at the same $P$) would
+  silently prune one divergent subtree until the next mutation beneath
+  that prefix forces a re-compare. Cumulatively ${\approx}2^{-76}$ over a
+  paranoid fleet lifetime (derived in \code{hash.rs:24-58}); ignored.
 \item \textbf{(A8) Wire sizes.} An \code{uncertain} entry at depth $k$ is
-  $k$ raw prefix bytes + 32 hash bytes (\code{prefix.rs:127-156},
-  \code{message.rs:61-63}); a \code{providing} node is its full borsh
+  $k$ raw prefix bytes + 16 hash bytes (\code{prefix.rs:127-142},
+  \code{message.rs:7-21, 63-65}); a \code{providing} node is its full borsh
   structure: per leaf, a version, the payload, and $\le 32$
-  compressed-prefix bytes (\code{message.rs:21-58},
-  \code{untyped.rs:401-438}). Frames carry a 4-byte length prefix
-  (\code{remote.rs:26-33}).
+  compressed-prefix bytes --- paths keep the full content width
+  (\code{message.rs:29-50}, \code{untyped.rs:383-443}). Frames carry a
+  4-byte length prefix (\code{remote.rs:25-36}).
 \end{itemize}
 
 \section{Notation}
@@ -272,7 +303,7 @@ messages. Trace the protocol:
 \item \textbf{Handshake} (2 frames): versions differ, descend.
 \item \textbf{\code{Initiate}} (depth 0): one root hash. Differs.
 \item \textbf{\code{Opening}} (depth 1): the responder \emph{unconditionally}
-  explodes its root and lists all its children (\code{local.rs:333-353}) ---
+  explodes its root and lists all its children (\code{local.rs:338-357}) ---
   at $N = 10^6$, all 256 slots are occupied ($\approx 3{,}906$ leaves each):
   \textbf{256 entries}.
 \item The initiator merge-joins: 255 child hashes match and drop; the one
@@ -290,8 +321,8 @@ messages. Trace the protocol:
 \end{enumerate}
 
 Totals: $\approx 256 + 256 + 15 \approx 527$ hash entries on the wire and
-compared (${\sim}18$\,KB), 7--8 frames $\approx$ 4 round trips including the
-preamble, one message body. Three things to notice, which the general
+compared (${\sim}9$\,KB at $k + 16$ bytes per entry), 7--8 frames
+$\approx$ 4 round trips including the preamble, one message body. Three things to notice, which the general
 analysis formalizes:
 
 \begin{itemize}
@@ -354,7 +385,7 @@ $\mathbb{E}[k^*] \le \log_b(2DN) + \frac{b}{b-1} \cdot \frac{1}{\ln b}
 probabilistically: hitting it would need $D \cdot N \approx 256^{30}$. (It
 exists because paths are 32 bytes; even a full-depth descent is
 \emph{correct} --- equal full paths imply equal
-$(\textit{version}, \textit{value})$ by construction, \code{tree.rs:22-26}.)
+$(\textit{version}, \textit{value})$ by construction, \code{tree.rs:77-82}.)
 \end{corollary}
 
 \begin{lemma}[fan-out]
@@ -382,13 +413,13 @@ Per round at depth $k$, the side processing the counterparty's
   each comparison a memoized-hash \code{memcmp} (A3);
 \item explode each hash-differing child's grandchildren into the next
   level and emit them as the next \code{uncertain}
-  (\code{partition.rs:243-254, 364-373}).
+  (\code{partition.rs:244-254, 365-373}).
 \end{itemize}
 
 So the entries \emph{listed at depth $k$} are exactly the occupied children
 of the disputed depth-$(k-1)$ parents, and each side's per-session work,
 the total \code{uncertain} traffic, and the zipper/\code{collapse} churn
-(\code{levels.rs:148-197}, linear in total level entries) are all $\Theta$
+(\code{levels.rs:154-203}, linear in total level entries) are all $\Theta$
 of the same master sum:
 \begin{equation*}
 W \;=\; \sum_{k=0}^{32} \Delta_k \cdot f_k
@@ -458,12 +489,12 @@ Total bytes on the wire, both directions (each depth's \code{uncertain} is
 listed by exactly one side --- the alternation splits levels between them):
 \begin{align*}
 \textit{bytes} \;=\;& W \cdot (h + \bar{k})
-  && \text{[\code{uncertain}: 32-byte hash + $k$-byte prefix, $\bar{k} \le j_N + 1$]} \\
+  && \text{[\code{uncertain}: 16-byte hash + $k$-byte prefix, $\bar{k} \le j_N + 1$]} \\
   &+ \Theta(D) \cdot (\bar{s} + s_v + {\le}32)
   && \text{[\code{providing}: payloads, versions, compressed spines]} \\
   &+ O(D) \cdot \bar{k}
   && \text{[\code{requested}: one prefix per separated they-only subtree]} \\
-  &+ {\le}\, 36 \cdot 4 + 2 \cdot 25 + 2 \cdot s_v
+  &+ {\le}\, 36 \cdot 4 + 2 \cdot 29 + 2 \cdot s_v
   && \text{[framing, preamble, handshake]}
 \end{align*}
 In $\Theta$-terms:
@@ -471,12 +502,12 @@ $\Theta(D \cdot (\bar{s} + s_v))
  + \Theta(\min(b \cdot D, N) \cdot (1 + \log_b(N/D)) \cdot h)$.
 The empirical ``${\sim}D$'' is right in its $D$-scaling; the per-$D$
 constant is the interesting part: at $N/D = 10^2 \dots 10^4$ the smooth
-envelope prices the hash channel at ${\sim}10$--$40$\,KB \emph{per
-differing message} (e.g.\ \S4: 18\,KB to move one message). That envelope
+envelope prices the hash channel at ${\sim}5$--$20$\,KB \emph{per
+differing message} (e.g.\ \S4: 9\,KB to move one message). That envelope
 is tight only for $D \lesssim b$; \S8 prices the channel exactly and shows
-the staircase discounts it to ${\sim}0.3$--$6$\,KB once $D \gg b$. For
+the staircase discounts it to ${\sim}0.2$--$3$\,KB once $D \gg b$. For
 small payloads, \textbf{hash traffic dominates bandwidth}; bodies dominate
-only when $\bar{s} \gtrsim 36 \cdot W/D$ bytes (the crossover is solved in
+only when $\bar{s} \gtrsim 20 \cdot W/D$ bytes (the crossover is solved in
 \S8). \qed
 \end{theorem}
 
@@ -492,7 +523,8 @@ then stops the session (A6 --- no draining of the remaining schedule):
 \qquad c \approx 3\text{--}4
 \end{equation*}
 (preamble $\approx 1$, handshake 1, \code{Initiate}/\code{Opening} 1,
-closing tail ${\sim}1$), hard-ceilinged at 36 frames $\approx$ 18 RTT,
+closing tail ${\sim}1$), hard-ceilinged at 38 frames $\approx$ 19 RTT
+(the concurrent preamble pair included),
 floored at ${\sim}2$ RTT total for equal versions. Path compression does
 not reduce this (A6). Numerically the \emph{descent} portion is tiny at any
 scale --- 1.8 levels $\approx$ 1 RTT for $(N, D) = (10^6, 1)$ up to 6.1
@@ -617,7 +649,7 @@ Theorem~2 gave the bandwidth's shape. This section prices it: an explicit
 expectation $E[B](C, D, M)$ --- total bytes on the wire, both directions,
 to reconcile two replicas sharing $C$ live messages and differing in $D$
 leaves, with mean serialized message body $M$. (A \code{Message<T>}
-serializes byte-identically to its inner $T$, \code{message.rs:12-14}, so
+serializes byte-identically to its inner $T$, \code{message.rs:14-16}, so
 $M$ is \S3's $\bar{s}$ as measured on the wire.) Split
 $D = D_{\mathrm{live}} + D_{\mathrm{red}}$ into leaves the counterparty
 must receive and leaves redacted on one side (\S10.3); $N = C + D$ as
@@ -630,10 +662,10 @@ By A4 each differing leaf crosses the wire exactly once: a Left case ships
 in the same message, a Right case is requested and answered whole one
 message later (\code{partition.rs:91-142}), and disputed prefixes never
 ship content, only hashes. A leaf provided alone at pairing depth $d$
-costs, per the node encoding (\code{untyped.rs:406-443}; channel shapes at
-\code{message.rs:50-63}): its pairing \code{Prefix}, $d$ raw bytes (the
+costs, per the node encoding (\code{untyped.rs:383-443}; channel shapes at
+\code{message.rs:52-66}): its pairing \code{Prefix}, $d$ raw bytes (the
 typed height pins the byte count, so there is no length prefix,
-\code{prefix.rs:127-156}); the node's \code{prefix\_len} byte plus its
+\code{prefix.rs:127-142}); the node's \code{prefix\_len} byte plus its
 $32 - d$ compressed path bytes (the spine from depth $d$ down to the
 leaf); its \code{Version}, $s_v$ bytes on average; and its body, $M$
 bytes. The pairing prefix and the compressed spine \emph{partition} the
@@ -647,7 +679,7 @@ helps; the singleton value $\ell = 33$ is the common case, since uniform
 paths rarely co-separate at $D \ll N$. Redacted leaves ship \emph{nothing}
 here: both the Left arm and \code{answer\_requested} filter through
 \code{Unknown::unknown} before anything is serialized
-(\code{partition.rs:91-142, 232-239}; \code{unknown.rs:28-34}), so a
+(\code{partition.rs:91-142, 232-239}; \code{unknown.rs:39-47}), so a
 redacted leaf is billed for descent --- it counts in $D$, hence in
 $W$ --- and at most one \code{requested} record, but zero body bytes.
 In expectation:
@@ -668,29 +700,30 @@ directions summed, is therefore Theorem~1's $W$ itself:
 E[\#\text{records}] \;=\; W
 \;=\; \Theta\bigl(\min(b \cdot D,\, N) \cdot (1 + \log_b(N/D))\bigr).
 \end{equation*}
-A record at depth $k$ is $k$ raw prefix bytes plus the $h = 32$-byte hash
+A record at depth $k$ is $k$ raw prefix bytes plus the $h = 16$-byte hash
 (A8); $W$'s mass sits within a level of the saturation depth $j_N$ (the
 head and shoulder of \S6's regime table), so the mean record size is
 $\bar{r} = h + \bar{k}$ with $\bar{k} \le j_N + 1$: $\bar{r} \approx
-34$--$38$ bytes for $N \le 10^7$. The numbers below use $\bar{r} = 36$.
+18$--$22$ bytes for $N \le 10^7$. The numbers below use $\bar{r} = 20$.
 
 \paragraph{\code{requested}: lower-order.} One bare prefix per separated
 they-only subtree: $R$ records, $R \le D$ (each names a subtree holding at
 least one differing leaf, and nothing is requested twice), each
 $\le k^* + 1 \le 33$ bytes, no hash. So $\le 33 \cdot D$ bytes total ---
-under the hash channel by a factor ${\sim}\bar{r} \cdot b/33 \approx 280$
+under the hash channel by a factor ${\sim}\bar{r} \cdot b/33 \approx 155$
 in the dispute regime $D \le N/b$, and never above the bodies' fixed
 per-leaf overhead. Lower-order everywhere.
 
-\paragraph{Framing and handshake: $O(1)$.} Two 25-byte raw preambles
-(\code{remote.rs:11-17}); two framed \code{Handshake}s carrying one
-\code{Version} each, $4 + s_v$ bytes framed (\code{message.rs:127-144});
-at most 36 frames per session (\S1) at 4 length bytes each
-(\code{remote.rs:26-33}); and a \code{u32} length per channel vector, at
+\paragraph{Framing and handshake: $O(1)$.} Two 29-byte framed preambles
+(4-byte header + 25-byte payload, \code{remote/preamble.rs:66-72}); two
+framed \code{Handshake}s carrying one
+\code{Version} each, $4 + s_v$ bytes framed (\code{message.rs:129-146});
+at most 36 further frames per session (\S1) at 4 length bytes each
+(\code{remote.rs:25-36}); and a \code{u32} length per channel vector, at
 most three per frame (\code{message.rs:4-5}). Total fixed cost
 \begin{equation*}
-F \;\le\; 2 \cdot 25 + 2 \cdot (4 + s_v) + 36 \cdot 4 + 36 \cdot 12
-\;\approx\; 630 + 2 \cdot s_v \text{ bytes},
+F \;\le\; 2 \cdot 29 + 2 \cdot (4 + s_v) + 36 \cdot 4 + 36 \cdot 12
+\;\approx\; 640 + 2 \cdot s_v \text{ bytes},
 \end{equation*}
 independent of $C$, $D$, and $M$.
 
@@ -709,7 +742,7 @@ absorbing the constants:
 E[B] \;=\; \Theta\Bigl( D_{\mathrm{live}} \cdot (M + s_v)
 \;+\; \bar{r} \cdot \min(b \cdot D,\, N) \cdot
 \bigl(1 + \log_b(N/D)\bigr) \Bigr),
-\qquad \bar{r} = h + \bar{k} \approx 36.
+\qquad \bar{r} = h + \bar{k} \approx 20.
 \end{equation*}
 Two caveats, both already on the record. The hash term is the smooth
 envelope of \S7's staircase, so realized values mid-step run several times
@@ -727,24 +760,24 @@ M^* \;=\; \bar{r} \cdot \frac{W}{D_{\mathrm{live}}} \;-\; (\ell + s_v).
 On the smooth envelope with $D \le N/b$ and $D_{\mathrm{red}} = 0$,
 $W/D = b \cdot (1 + \log_b(N/D))$, so
 \begin{equation*}
-M^* \;\approx\; 36 \cdot 256 \cdot \bigl(1 + \log_{256}(N/D)\bigr)
-\;\approx\; 17,\ 21,\ 25\ \text{KB at } N/D = 10^2,\ 10^3,\ 10^4
+M^* \;\approx\; 20 \cdot 256 \cdot \bigl(1 + \log_{256}(N/D)\bigr)
+\;\approx\; 9,\ 12,\ 14\ \text{KB at } N/D = 10^2,\ 10^3,\ 10^4
 \end{equation*}
---- the source of Theorem~2's ``${\sim}10$--$40$\,KB per differing
+--- the source of Theorem~2's ``${\sim}5$--$20$\,KB per differing
 message'' figure (the envelope, $\pm$ Lemma~1's occupancy constants). The
 realized figures, taking $W$ from \S7's exact-sum table, agree with the
 envelope only where it is tight, $D \lesssim b$: there
-$M^* \approx 9$--$24$\,KB (the $D = 1$ rows and the $D = 10^2$ cells).
+$M^* \approx 5$--$13$\,KB (the $D = 1$ rows and the $D = 10^2$ cells).
 For $D \gg b$ the head levels' fans are shared among all $D$ differing
 leaves and the shoulder fan is $N/b^k < b$ --- the same staircase discount
-as \S7 --- and $M^*$ falls to ${\sim}0.3$--$6$\,KB (e.g.\ $W/D = 22$ at
-$(N, D) = (10^6, 10^4)$, so $M^* \approx 0.7$\,KB). Theorem~2's headline
+as \S7 --- and $M^*$ falls to ${\sim}0.2$--$3$\,KB (e.g.\ $W/D = 22$ at
+$(N, D) = (10^6, 10^4)$, so $M^* \approx 0.4$\,KB). Theorem~2's headline
 survives with its regime named: \textbf{hash traffic dominates for bodies
-under ${\sim}10$--$25$\,KB when divergence is sparse ($D \lesssim b$), but
-only under ${\sim}0.3$--$6$\,KB when it is heavy ($D \gg b$)}.
+under ${\sim}5$--$13$\,KB when divergence is sparse ($D \lesssim b$), but
+only under ${\sim}0.2$--$3$\,KB when it is heavy ($D \gg b$)}.
 
 \paragraph{Numbers.} $W$ from \S7's table at $N = 10^6$ (so $C \approx N$),
-$D_{\mathrm{red}} = 0$, $\bar{r} = 36$, $\ell = 33$, and a nominal
+$D_{\mathrm{red}} = 0$, $\bar{r} = 20$, $\ell = 33$, and a nominal
 $s_v = 16$\,B; ``share'' is the hash channel's fraction of $E[B]$
 (requests and framing are negligible at this scale):
 
@@ -756,18 +789,19 @@ $C/D$ & $D$ & $W$ & hash bytes & $M^*$ &
 \cmidrule(l){6-8}
 & & & & & $M = 256$\,B & $M = 4$\,KB & $M = 64$\,KB \\
 \midrule
-${\sim}10^6$ & $1$    & $527$              & $19$\,KB   & $18.9$\,KB & $98\%$ & $82\%$ & $22\%$ \\
-${\sim}10^4$ & $10^2$ & $27\,\mathrm{k}$   & $0.97$\,MB & $9.7$\,KB  & $97\%$ & $70\%$ & $13\%$ \\
-${\sim}10^2$ & $10^4$ & $220\,\mathrm{k}$  & $7.9$\,MB  & $0.74$\,KB & $72\%$ & $16\%$ & $1.2\%$ \\
-$9$          & $10^5$ & $1.08\,\mathrm{M}$ & $39$\,MB   & $0.34$\,KB & $56\%$ & $8.6\%$ & $0.6\%$ \\
+${\sim}10^6$ & $1$    & $527$              & $10.5$\,KB & $10.5$\,KB & $97\%$ & $72\%$ & $14\%$ \\
+${\sim}10^4$ & $10^2$ & $27\,\mathrm{k}$   & $0.54$\,MB & $5.4$\,KB  & $95\%$ & $57\%$ & $7.6\%$ \\
+${\sim}10^2$ & $10^4$ & $220\,\mathrm{k}$  & $4.4$\,MB  & $0.39$\,KB & $59\%$ & $9.6\%$ & $0.7\%$ \\
+$9$          & $10^5$ & $1.08\,\mathrm{M}$ & $22$\,MB   & $0.17$\,KB & $41\%$ & $5.0\%$ & $0.3\%$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 Read against the document's running example: moving one differing message
-through a $10^6$-leaf tree costs ${\approx}19$\,KB of hashes (\S4's
-18\,KB) however small the body --- and that constant is the radix-256
-tradeoff of \S10.6, not a fixable inefficiency.
+through a $10^6$-leaf tree costs ${\approx}10.5$\,KB of hashes (\S4's
+9\,KB hand count) however small the body --- half the pre-truncation
+figure, which is exactly the Merkle-width halving banked; the residual
+constant is the radix-256 tradeoff of \S10.6, not a fixable inefficiency.
 
 \paragraph{Does the $D_L$/$D_R$ split matter?} For the totals, no: each
 live differing leaf ships exactly once whichever side holds it, and $W$
@@ -791,7 +825,7 @@ All using existing infrastructure; no protocol changes.
   (\code{gossip\_grid.rs:43-99}) in trivial
   \code{std::io::Read}/\code{Write} adapters that increment
   \code{AtomicU64}s, and record bytes per session per cell. Bandwidth is
-  $\Theta(36 \cdot W + \text{body terms})$ by Theorem~2 and is exactly
+  $\Theta(20 \cdot W + \text{body terms})$ by Theorem~2 and is exactly
   measurable. Regress $\log(\textit{bytes} - a \cdot D)$ on $\log D$ and
   $\log(N/D)$ over cells with $D \ge 100$: the sqrt model predicts
   elasticity $\approx 0.5$ in $\log(N/D)$; Theorem~1 predicts $\approx 0$
@@ -801,16 +835,18 @@ All using existing infrastructure; no protocol changes.
 \item \textbf{The flat decade.} Fix $\textit{differing} = 1{,}000$,
   $\textit{redacted} = 0$, sweep
   $\textit{common} \in \{10^3, 10^4, 10^5\}$ (cells already exist; extend
-  \code{COMMON} in \code{benches/support/grid.rs:74} to $10^6$ for the
-  decisive decade, accepting the 10-sample floor). Predicted wall-time
+  \code{COMMON} in \code{benches/support/grid.rs:71-74} to $10^6$ for the
+  decisive decade --- it is capped at $10^5$ today precisely because the
+  per-iteration fixture build dominates, so accept a below-floor sample
+  count or a one-off harness). Predicted wall-time
   ratios $\textit{common } 10^5 \to 10^6$: sqrt $\times 3.16$; Theorem~1
   $\times 1.2$ (the $0.08$-slope decade). One afternoon of Criterion time.
 \item \textbf{Direct hash-compare counts.} Drive two
   \code{local::Exchange}s in-process through the \code{\#[cfg(test)]}
-  \code{mirror::mirror} entry (\code{mirror.rs:337-353}) with grid-shaped
+  \code{mirror::mirror} entry (\code{mirror.rs:384-400}) with grid-shaped
   trees and count \code{uncertain} entries (e.g.\ instrument in a test, or
   just count from the byte totals:
-  $\textit{entries} \approx (\textit{uncertain bytes})/(34 \dots 64)$).
+  $\textit{entries} \approx (\textit{uncertain bytes})/(18 \dots 48)$).
   This measures $W$ itself, bypassing the $\alpha \cdot D + \textit{fixed}$
   wall-time floor entirely.
 \end{enumerate}
@@ -821,19 +857,24 @@ All using existing infrastructure; no protocol changes.
 \item \textbf{Lazy memoization (first session after writes).} A batch of
   $m$ local changes leaves cold \code{OnceLock}s on the
   $\Theta(m \cdot (1 + \log_b(N/m)))$ ancestor nodes of the changed paths
-  (\code{untyped.rs:40-47}; memos survive \code{Arc}-sharing, so
-  \emph{only} changed paths are cold, \code{untyped.rs:100-123}). The
+  (\code{untyped.rs:39-51}; memos survive \code{Arc}-sharing, so
+  \emph{only} changed paths are cold, \code{untyped.rs:104-127}). The
   first \code{hash()} then pays one branch preimage per cold node --- up
-  to $1 + 33 \cdot 256 \approx 8.4$\,KB of BLAKE3 for a saturated branch,
-  but only 34 bytes per compressed-spine level (\code{untyped.rs:283-287};
-  both conventions measured in \code{benches/hash\_recon.rs}). This cost
+  to $1 + 17 \cdot 256 \approx 4.4$\,KB of BLAKE3 for a saturated branch
+  (\code{CHILD\_RECORD\_LEN}, \code{hash.rs:80-83}),
+  but only 18 bytes per compressed-spine level (\code{untyped.rs:281-289}).
+  \code{benches/hash\_recon.rs} measures both conventions at the
+  \emph{pre-truncation} width (8\,KiB wraps vs.\ 34-byte commitments) and
+  has not been re-cut to 17-byte child records, unlike
+  \code{benches/branch\_hash.rs}; its comparison shape stands, its
+  absolute numbers are ${\sim}2\times$ today's. This cost
   is additive, amortizes across sessions, and is excluded from the benches
   by \code{warm\_caches()} (\code{gossip\_grid.rs:154-160}).
 \item \textbf{Bootstrap / one side empty ($D = N$).} No prefix has content
   on both sides, so there are \emph{zero} disputes: the empty responder
-  sends an empty \code{Opening} (\code{local.rs:337-341}), and the
+  sends an empty \code{Opening} (\code{local.rs:346-357}), and the
   initiator's root-level drain Left-provides every root child in one
-  message (\code{partition.rs:276-294}), filtered through \code{Unknown}
+  message (\code{partition.rs:282-294}), filtered through \code{Unknown}
   against the empty version (everything survives). Cost: $\Theta(N)$
   transfer and absorption, $O(1)$ rounds. Theorem~1's formula degrades
   gracefully to $\Theta(N)$ here, but the \emph{mechanism} is different
@@ -841,15 +882,15 @@ All using existing infrastructure; no protocol changes.
 \item \textbf{Deletion honoring.} A redacted leaf (present on A, deleted
   on B) keeps hashes differing along its path, so it costs descent exactly
   like a differing leaf --- \textbf{count redactions in $D$} (the grid's
-  throughput accounting already does: \code{grid.rs:115-127}). But it
+  throughput accounting already does: \code{grid.rs:116-127}). But it
   costs no body bytes: at separation, A's Left-provide is killed by the
-  $O(1)$ ceiling check (\code{unknown.rs:28-34}) and A deletes its own
+  $O(1)$ ceiling check (\code{unknown.rs:45-47}) and A deletes its own
   copy (\code{partition.rs:232-239}) --- deletion \emph{propagates}
   through the version ceiling, with no tombstone and no transfer. A whole
   missing-but-dominated subtree dies the same way: one memoized
   comparison, no descent below it.
 \item \textbf{Skew.} A1 is enforced by content addressing, not hoped for:
-  because the version is folded into the leaf path (\code{path.rs:32-44}),
+  because the version is folded into the leaf path (\code{path.rs:32-50}),
   even a million-message single-party version-batch spreads uniformly ---
   concentration under few prefixes would require engineered BLAKE3
   outputs. (Contrast key-ordered Merkle trees, where a contiguous batch
@@ -857,17 +898,34 @@ All using existing infrastructure; no protocol changes.
   depth ceiling caps the damage at $W \le 32 \cdot b \cdot D$ and 18 RTT.
 \item \textbf{Version sizes.} ITC \code{Version}s are not constant-size:
   they ride the handshake, every provided leaf, and every
-  \code{ceiling/floor} $\le$ comparison (\code{unknown.rs:31, 46-49}),
+  \code{ceiling/floor} $\le$ comparison (\code{unknown.rs:45, 60-63}),
   contributing the $s_v$ factors in Theorems~1--2. For long-lived
   universes with many party splits, $s_v$ is the term to watch, orthogonal
   to the tree combinatorics.
 \item \textbf{The radix constant is the design tradeoff.} Per disputed
-  node the protocol ships a full sibling fan (up to $256 \times 36$ish
-  bytes $\approx$ 9\,KB) to buy a 2.4-decade depth reduction per level.
+  node the protocol ships a full sibling fan (up to $256 \times 20$ish
+  bytes $\approx$ 5\,KB --- the figure \code{mirror.rs}'s Cost section
+  quotes) to buy a 2.4-decade depth reduction per level.
   $b = 256$ puts every realistic deployment within ${\sim}3$ levels of
   separation (RTT-optimal) at the cost of the $\times b$ in $W$ --- which
   is exactly the constant that made a $\sqrt{C \cdot D}$ fit land in the
   right numeric range in the first place.
+\item \textbf{The two hash widths are a deliberate asymmetry.} Everything
+  the protocol \emph{compares} is the 16-byte truncated Merkle hash;
+  everything that \emph{identifies} is the full 32-byte content hash.
+  The split is safe because the failure modes differ in kind: a Merkle
+  false-equal (A7) prunes one divergent subtree only until the next
+  mutation beneath that prefix perturbs every branch hash above it ---
+  transient, self-healing, nothing dropped --- while a content-hash (path)
+  collision would be permanent, silent split-brain. The path therefore
+  keeps full width, and so does \emph{every component hash feeding it}: a
+  16-byte inner $H(\textit{value})$ would cap the whole path at $2^{64}$
+  despite its 32-byte output (\code{path.rs:32-50}). The truncation enters
+  this analysis only through $\bar{r}$ and the branch-preimage constants
+  --- it halved Theorem~2's hash term and \S8's crossovers, and changed
+  no count. The full argument, adversarial cases included, lives in
+  \code{hash.rs:24-58} and
+  \code{results/2026-06-11-hash-width-transcript.md}.
 \end{enumerate}
 
 \end{document}
