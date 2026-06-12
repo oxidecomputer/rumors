@@ -79,7 +79,18 @@ async fn main() -> anyhow::Result<()> {
 
     eprintln!("rumormill: binding the iroh endpoint…");
     let endpoint = net::bind().await?;
-    endpoint.online().await;
+    // Bounded: a throttled n0 service must not wedge startup. LAN peers
+    // are reachable through mDNS regardless; remote dialability arrives
+    // whenever the relay/publish path recovers.
+    if tokio::time::timeout(timers::ONLINE_GRACE, endpoint.online())
+        .await
+        .is_err()
+    {
+        eprintln!(
+            "rumormill: still waiting for the n0 relay after {}s; proceeding (LAN peers work via mDNS)",
+            timers::ONLINE_GRACE.as_secs()
+        );
+    }
     let me = endpoint.id();
     // Also on stderr (the TUI header repeats it): the id survives in the
     // scrollback for copy-pasting after the alternate screen exits.

@@ -35,6 +35,12 @@ pub const SYSTEM_TTL: Duration = Duration::from_secs(15);
 /// so this only bounds how stale a backoff expiry can go unnoticed.
 pub const REDIAL_SWEEP: Duration = Duration::from_secs(2);
 
+/// How long startup waits for the endpoint to come online (relay
+/// attached, addresses published) before proceeding anyway. The wait is
+/// advisory: a throttled or unreachable n0 service must not wedge startup,
+/// because same-LAN peers still connect through the mDNS lookup.
+pub const ONLINE_GRACE: Duration = Duration::from_secs(15);
+
 /// How long a dial may take before we give up on the peer for this round.
 pub const DIAL_TIMEOUT: Duration = Duration::from_secs(10);
 

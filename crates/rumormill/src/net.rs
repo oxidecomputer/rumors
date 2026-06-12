@@ -38,6 +38,7 @@ use anyhow::Context as _;
 use futures::StreamExt;
 use iroh::endpoint::{Connection, presets};
 use iroh::{Endpoint, EndpointId};
+use iroh_mdns_address_lookup::MdnsAddressLookup;
 use rumors::{Error, Network, Peer, Retire, Rumors};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::{JoinHandle, JoinSet};
@@ -67,13 +68,28 @@ const MAX_INBOUND: usize = 256;
 const TEARDOWN_GRACE: Duration = Duration::from_secs(5);
 
 /// Bind an endpoint with the default n0 infrastructure (relays + DNS
-/// discovery): peers are dialable by `EndpointId` alone.
+/// discovery) *plus* mDNS address lookup: peers are dialable by
+/// `EndpointId` alone.
+///
+/// The mDNS path is what keeps a roomful of peers working: a crowd behind
+/// one public IP (an office demo, a soak harness) rate-limits the shared
+/// n0 DNS service — observed live as every dial failing with `Failed to
+/// resolve TXT record` — while same-LAN resolution never leaves the
+/// building. The n0 path remains for peers that are genuinely remote.
 pub async fn bind() -> anyhow::Result<Endpoint> {
-    Endpoint::builder(presets::N0)
+    let endpoint = Endpoint::builder(presets::N0)
         .alpns(vec![ALPN.to_vec()])
         .bind()
         .await
-        .context("binding the iroh endpoint")
+        .context("binding the iroh endpoint")?;
+    let mdns = MdnsAddressLookup::builder()
+        .build(endpoint.id())
+        .context("starting mdns address lookup")?;
+    endpoint
+        .address_lookup()
+        .context("registering the mdns address lookup")?
+        .add(mdns);
+    Ok(endpoint)
 }
 
 /// Who survives a meeting of two universes.
