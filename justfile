@@ -136,6 +136,16 @@ bench *args:
 rumormill *args:
     cargo run --release -p rumormill -- {{args}}
 
+# Local stress rehearsal: drive `nodes` real rumormill processes through
+# PTYs over real iroh networking (touches n0 relay/discovery infra), all
+# bootstrapping from one seed. Asserts convergence, consistency, chat
+# latency, and a clean mass quit; ~3–6 minutes at 100 nodes. Extra args go
+# to the harness (`just soak 20 --quiet-secs 5`); tee the output if you
+# want a record.
+soak nodes="100" *args:
+    cargo build --release -p rumormill -p rumormill-soak
+    target/release/rumormill-soak --nodes {{nodes}} --rumormill target/release/rumormill {{args}}
+
 # ── the no-rot sweep ─────────────────────────────────────────────────────────
 
 # Ordered cheap-first so failures surface early: formatting, then the lint

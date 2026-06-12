@@ -126,6 +126,14 @@ pub enum Command {
     SessionOutcome {
         /// Whether the session completed.
         ok: bool,
+        /// The universe the session's handle belonged to, `None` when no
+        /// session was ever established (dial failures). An `ok` outcome
+        /// in the *current* universe proves our state — presence included —
+        /// has reached a peer; that is the signal that makes a manual dial
+        /// target safely droppable (see [`Owner::synced`]). Outcomes from
+        /// an abandoned universe must not count: they can arrive queued
+        /// behind the [`Reset`](Command::Reset) that abandoned them.
+        network: Option<Network>,
     },
     /// Leave the room: the run loop returns the `Peer` for retirement.
     Shutdown,
@@ -152,6 +160,15 @@ pub struct Owner {
     merged_notice: Option<String>,
     stats: Stats,
     view_tx: watch::Sender<Arc<View>>,
+    /// A session has completed in the *current* universe, proving our
+    /// presence has reached at least one peer. Until then, manual dial
+    /// targets stay dialable even when they appear in the roster: a node
+    /// that just reset may hold the roster without holding a single link
+    /// (the smaller-id-dials rule can put every pair's dialing duty on the
+    /// *other* side, and the other side cannot know us until we gossip) —
+    /// dropping its targets then would strand it in a room that has never
+    /// heard of it.
+    synced: bool,
     /// State changed since the last publish; the coalescing tick publishes.
     dirty: bool,
     /// A session finished (or a heartbeat fired) since the last loss sweep;
@@ -187,6 +204,7 @@ impl Owner {
             merged_notice: None,
             stats: Stats::default(),
             view_tx,
+            synced: false,
             dirty: false,
             sweep_pending: false,
         };
@@ -337,9 +355,14 @@ impl Owner {
                 let _ = reply.send(self.rumors.clone());
             }
             Command::Reset { known, abandoned } => self.reset(*known, abandoned),
-            Command::SessionOutcome { ok } => {
+            Command::SessionOutcome { ok, network } => {
                 if ok {
                     self.stats.sessions_ok += 1;
+                    // Only a session in the universe we are still in counts
+                    // as proof of reachability; see the field docs.
+                    if network == Some(self.rumors.network()) {
+                        self.synced = true;
+                    }
                 } else {
                     self.stats.sessions_failed += 1;
                 }
@@ -404,14 +427,19 @@ impl Owner {
         }
 
         // The old universe is gone wholesale: state, timers, highlights,
-        // handle, observer. Stale `Rumors` clones still inside session
-        // tasks keep talking to the abandoned set until those sessions end;
-        // their universe loses every future merge verdict, so nothing they
-        // do can leak back in.
+        // handle, observer. Stale `Rumors` clones still inside connection
+        // tasks keep talking to the abandoned set only until the publish
+        // below reaches them: every drive watches `View::universe` and
+        // tears down when its handle no longer matches (net.rs). Nothing a
+        // stale drive does in the meantime can leak back in — its universe
+        // loses every future merge verdict.
         self.state = AppState::new();
         self.expiry.clear();
         self.expiry_keys.clear();
         self.highlights.clear();
+        // Nobody in the adopted universe has heard from us yet; manual
+        // dial targets become load-bearing again until one session lands.
+        self.synced = false;
         self.rumors = known.into_rumors();
         // A fresh observer replays the adopted universe from genesis; the
         // inline drain below runs it through the state machine so the merge
@@ -538,10 +566,16 @@ impl Owner {
             .collect();
         roster.sort_by(|a, b| b.last_seen.cmp(&a.last_seen).then(a.peer.cmp(&b.peer)));
 
-        // Manual targets that have shown up in the roster are now discovered
-        // through the synced state itself; stop tracking them separately.
-        self.dial_targets
-            .retain(|peer| !self.state.presence.contains_key(peer));
+        // Manual targets that have shown up in the roster are discovered
+        // through the replicated state itself — but only once one of our
+        // sessions has actually carried our presence into this universe.
+        // Before that, the roster is adopted hearsay: it lists peers who
+        // have never heard of us, and the pair rule may oblige none of
+        // them to dial us (see the `synced` field docs).
+        if self.synced {
+            self.dial_targets
+                .retain(|peer| !self.state.presence.contains_key(peer));
+        }
 
         // One consistent snapshot serves both gauges.
         let snapshot = self.rumors.snapshot();
@@ -551,6 +585,7 @@ impl Owner {
             me_display: self.me_display.clone(),
             name: self.name.clone(),
             network: network_short(snapshot.network()),
+            universe: Some(snapshot.network()),
             merged_notice: self.merged_notice.clone(),
             channels,
             roster,

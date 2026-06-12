@@ -10,7 +10,7 @@
 
 use std::time::Instant;
 
-use rumors::Key;
+use rumors::{Key, Network};
 
 use crate::entry::{Millis, PeerId};
 
@@ -27,6 +27,14 @@ pub struct View {
     /// Short identifier of the universe we currently belong to; changes when
     /// a partition merge resets us into a winning network.
     pub network: String,
+    /// The full universe identifier behind [`network`](Self::network),
+    /// `None` only before the owner's first publish. Connection drivers
+    /// compare their session handle's network against this and tear down
+    /// when a reset has made the handle stale: a stale drive gossips the
+    /// abandoned universe forever (same network on both ends, so no
+    /// `NetworkMismatch` ever fires) while the connector counts the peer
+    /// as connected — stranding the remote in a dead world.
+    pub universe: Option<Network>,
     /// Set when the last reset happened: a "merged into …" notice.
     pub merged_notice: Option<String>,
     /// Channels in name order.

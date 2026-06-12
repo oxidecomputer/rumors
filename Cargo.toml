@@ -1,5 +1,10 @@
 [workspace]
-members = ["crates/before", "crates/before-viz", "crates/rumormill"]
+members = [
+    "crates/before",
+    "crates/before-viz",
+    "crates/rumormill",
+    "crates/rumormill-soak",
+]
 
 [package]
 name = "rumors"

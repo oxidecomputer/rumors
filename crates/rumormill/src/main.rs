@@ -98,7 +98,7 @@ async fn main() -> anyhow::Result<()> {
             .context("owner task died during startup")?;
     }
 
-    let accept = net::spawn_accept_loop(endpoint.clone(), cmd_tx.clone());
+    let accept = net::spawn_accept_loop(endpoint.clone(), cmd_tx.clone(), view_rx.clone());
     let connector = net::spawn_connector(endpoint.clone(), cmd_tx.clone(), view_rx.clone());
 
     // The terminal. `ratatui::init` installs a restore-on-panic hook;

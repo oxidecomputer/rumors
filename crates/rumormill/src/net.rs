@@ -21,6 +21,14 @@
 //! always ours to dial), so a pair settles on one connection. The roster
 //! itself comes from the replicated Presence state — after the first manual
 //! contact, peers are discovered through the very state being synchronized.
+//!
+//! Long-lived drives have one hazard of their own: a drive captures its
+//! [`Rumors`] handle once, so a reset on *another* connection leaves it
+//! gossiping the abandoned universe — agreeing with its peer about a dead
+//! world, raising no mismatch, and stranding whoever is on the other end.
+//! Every drive therefore watches the owner's published universe
+//! ([`View::universe`]) and tears down the moment its handle goes stale;
+//! the connector's backoff then redials and the fresh handles re-arbitrate.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -91,6 +99,20 @@ pub fn decide(ours: (u64, Network), theirs: (u64, Network)) -> Verdict {
     }
 }
 
+/// How a drive ended (besides a transport-level error).
+enum End {
+    /// The peer said goodbye at a session boundary.
+    Clean,
+    /// A local reset made this drive's handle stale: it was gossiping a
+    /// universe the owner has abandoned. Tear the connection down so the
+    /// pair re-arbitrates on fresh handles — a stale drive never raises
+    /// `NetworkMismatch` (both ends *agree* on the dead universe), so left
+    /// alone it strands the remote in a world nobody else inhabits.
+    Stale,
+    /// The protocol reported an error (`NetworkMismatch` included).
+    Failed(Error),
+}
+
 /// Drive one established connection with change-driven gossip until it
 /// ends, reporting each completed session to the owner and handling the
 /// partition-merge dance if the peer turns out to live in another universe.
@@ -99,36 +121,71 @@ pub fn decide(ours: (u64, Network), theirs: (u64, Network)) -> Verdict {
 /// loop only accounts for them. The driver's terminal `Err` ends it: the
 /// stream pair is garbage afterwards, but the QUIC *connection* is fine,
 /// which is what the merge dance rides on (it opens a fresh stream).
+///
+/// The drive also watches the owner's published universe and ends
+/// ([`End::Stale`]) when a reset on *another* connection abandons the
+/// universe this drive's handle belongs to; see [`View::universe`].
 async fn drive_connection(
     conn: &Connection,
     mut send: iroh::endpoint::SendStream,
     mut recv: iroh::endpoint::RecvStream,
     cmd: &mpsc::Sender<Command>,
+    mut view: watch::Receiver<Arc<View>>,
 ) -> anyhow::Result<()> {
     let handle = request_handle(cmd).await?;
+    let stale = |view: &watch::Receiver<Arc<View>>| {
+        view.borrow()
+            .universe
+            .is_some_and(|u| u != handle.network())
+    };
     let mut sessions = handle.gossip_when(handle.changes(), &mut recv, &mut send);
-    let terminal = loop {
-        match sessions.next().await {
-            Some(Ok(_session)) => {
-                let _ = cmd.send(Command::SessionOutcome { ok: true }).await;
+    let end = loop {
+        // The handle was current when requested; a reset since then makes
+        // every further session wasted work in a dead universe.
+        if stale(&view) {
+            break End::Stale;
+        }
+        // Racing `next()` is cancel-safe (driver state lives in the
+        // stream), so the watch arm loses nothing mid-session.
+        tokio::select! {
+            next = sessions.next() => match next {
+                Some(Ok(_session)) => {
+                    let outcome = Command::SessionOutcome {
+                        ok: true,
+                        network: Some(handle.network()),
+                    };
+                    let _ = cmd.send(outcome).await;
+                }
+                Some(Err(e)) => break End::Failed(e),
+                None => break End::Clean,
+            },
+            changed = view.changed() => {
+                if changed.is_err() {
+                    break End::Clean; // owner gone: shutting down
+                }
             }
-            Some(Err(e)) => break Some(e),
-            // Clean end: the peer said goodbye at a session boundary.
-            None => break None,
         }
     };
     drop(sessions);
 
-    match terminal {
-        None => {
+    match end {
+        End::Clean => {
             settle(&mut send, &mut recv).await;
             Ok(())
         }
-        Some(Error::NetworkMismatch {
+        // No settle: the peer isn't ending its half. Dropping the driver
+        // forfeits the connection; the caller closes it, the connector's
+        // backoff redials, and the fresh handles re-arbitrate the merge.
+        End::Stale => Ok(()),
+        End::Failed(Error::NetworkMismatch {
             remote_network,
             remote_min_events,
         }) => {
-            let _ = cmd.send(Command::SessionOutcome { ok: false }).await;
+            let outcome = Command::SessionOutcome {
+                ok: false,
+                network: Some(handle.network()),
+            };
+            let _ = cmd.send(outcome).await;
             // Our side of the merge comparison: the universe this driver's
             // handle belongs to, as it stands at the mismatch. (After a
             // concurrent reset the handle can be a stale universe; the
@@ -142,8 +199,12 @@ async fn drive_connection(
                 Verdict::Lose => request_merge(conn, cmd, ours.1).await,
             }
         }
-        Some(e) => {
-            let _ = cmd.send(Command::SessionOutcome { ok: false }).await;
+        End::Failed(e) => {
+            let outcome = Command::SessionOutcome {
+                ok: false,
+                network: Some(handle.network()),
+            };
+            let _ = cmd.send(outcome).await;
             Err(e).context("gossip driver")
         }
     }
@@ -220,6 +281,7 @@ async fn dial_and_drive(
     endpoint: &Endpoint,
     peer: PeerId,
     cmd: &mpsc::Sender<Command>,
+    view: watch::Receiver<Arc<View>>,
 ) -> anyhow::Result<()> {
     // Replicated bytes that are not a valid public key: a peer published
     // garbage; the backoff in the connector keeps the retry cost bounded.
@@ -229,7 +291,7 @@ async fn dial_and_drive(
         .context("dial timed out")?
         .context("dial failed")?;
     let (send, recv) = conn.open_bi().await.context("opening the gossip stream")?;
-    let result = drive_connection(&conn, send, recv, cmd).await;
+    let result = drive_connection(&conn, send, recv, cmd, view).await;
     conn.close(0u32.into(), b"done");
     result
 }
@@ -239,7 +301,11 @@ async fn dial_and_drive(
 /// Aborting the returned handle aborts every in-flight session with it (the
 /// `JoinSet` drops), which releases their snapshots — the exclusivity
 /// [`retire`] requires.
-pub fn spawn_accept_loop(endpoint: Endpoint, cmd: mpsc::Sender<Command>) -> JoinHandle<()> {
+pub fn spawn_accept_loop(
+    endpoint: Endpoint,
+    cmd: mpsc::Sender<Command>,
+    view: watch::Receiver<Arc<View>>,
+) -> JoinHandle<()> {
     tokio::spawn(async move {
         let limit = Arc::new(tokio::sync::Semaphore::new(MAX_INBOUND));
         let mut sessions: JoinSet<()> = JoinSet::new();
@@ -251,6 +317,7 @@ pub fn spawn_accept_loop(endpoint: Endpoint, cmd: mpsc::Sender<Command>) -> Join
                 Err(_) => return,
             };
             let cmd = cmd.clone();
+            let view = view.clone();
             sessions.spawn(async move {
                 let _permit = permit;
                 let Ok(conn) = incoming.await else { return };
@@ -266,7 +333,7 @@ pub fn spawn_accept_loop(endpoint: Endpoint, cmd: mpsc::Sender<Command>) -> Join
                 };
                 // Per-session outcomes (and any terminal failure) are
                 // reported from inside the drive.
-                let _ = drive_connection(&conn, send, recv, &cmd).await;
+                let _ = drive_connection(&conn, send, recv, &cmd, view).await;
                 conn.close(0u32.into(), b"done");
             });
         }
@@ -296,8 +363,9 @@ pub fn spawn_connector(
                 active.insert(peer);
                 let endpoint = endpoint.clone();
                 let cmd = cmd.clone();
+                let view = view.clone();
                 drivers.spawn(async move {
-                    let ok = dial_and_drive(&endpoint, peer, &cmd).await.is_ok();
+                    let ok = dial_and_drive(&endpoint, peer, &cmd, view).await.is_ok();
                     (peer, ok)
                 });
             }
@@ -312,8 +380,13 @@ pub fn spawn_connector(
                         active.remove(&peer);
                         backoff.insert(peer, Instant::now() + timers::PEER_BACKOFF);
                         // Dial failures never reach the per-session
-                        // accounting inside the drive; count them here.
-                        if !ok && cmd.send(Command::SessionOutcome { ok: false }).await.is_err() {
+                        // accounting inside the drive; count them here. No
+                        // session means no universe to attribute.
+                        let outcome = Command::SessionOutcome {
+                            ok: false,
+                            network: None,
+                        };
+                        if !ok && cmd.send(outcome).await.is_err() {
                             return;
                         }
                     }

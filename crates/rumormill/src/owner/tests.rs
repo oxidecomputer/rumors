@@ -85,11 +85,17 @@ async fn gossip_pair(a: &Node, b: &Node) {
     ra.unwrap();
     rb.unwrap();
     a.cmd
-        .send(Command::SessionOutcome { ok: true })
+        .send(Command::SessionOutcome {
+            ok: true,
+            network: Some(ha.network()),
+        })
         .await
         .unwrap();
     b.cmd
-        .send(Command::SessionOutcome { ok: true })
+        .send(Command::SessionOutcome {
+            ok: true,
+            network: Some(hb.network()),
+        })
         .await
         .unwrap();
 }
@@ -359,6 +365,47 @@ async fn heartbeats_do_not_accumulate() {
     let view = wait_view(&mut node, |v| has_chat(v, HOME_CHANNEL, "x")).await;
     assert_eq!(view.stats.live_entries, 4);
     assert_eq!(view.roster.len(), 1);
+}
+
+/// A clean departure reaches the survivor's screen: the retiree's presence
+/// redaction and leave notice ride the retire session into the absorber,
+/// whose roster drops the departed peer after the outcome-triggered sweep.
+/// (This is the demo's goodbye path: without it, every departed peer
+/// ghosts in every roster until the staleness sweep, and a retiring node
+/// walks dead candidates through dial timeouts.)
+#[tokio::test(flavor = "current_thread")]
+async fn departure_shrinks_the_survivors_roster() {
+    let (ka, kb) = bootstrap_from(Peer::seed()).await;
+    let mut a = spawn_node(ka, ALICE, "alice");
+    let b = spawn_node(kb, BOB, "bob");
+    gossip_pair(&a, &b).await;
+    wait_view(&mut a, |v| v.roster.iter().any(|p| p.peer == BOB)).await;
+
+    // Bob leaves: the owner's shutdown path (goodbye notice, presence
+    // redaction, candidate list), then a retire into Alice — served by a
+    // session handle exactly as the accept loop's driver would serve it.
+    b.cmd.send(Command::Shutdown).await.unwrap();
+    let (known, candidates) = b.task.await.unwrap();
+    assert_eq!(candidates, vec![ALICE]);
+    let ha = handle(&a.cmd).await;
+    let (sb, sa) = tokio::io::duplex(64 * 1024);
+    let (mut br, mut bw) = tokio::io::split(sb);
+    let (mut ar, mut aw) = tokio::io::split(sa);
+    let (outcome, served) =
+        tokio::join!(known.retire(&mut br, &mut bw), ha.gossip(&mut ar, &mut aw),);
+    served.unwrap();
+    assert!(matches!(outcome, rumors::Retire::Retired));
+    a.cmd
+        .send(Command::SessionOutcome {
+            ok: true,
+            network: Some(ha.network()),
+        })
+        .await
+        .unwrap();
+
+    // The survivor's roster drops Bob and the goodbye notice shows.
+    wait_view(&mut a, |v| !v.roster.iter().any(|p| p.peer == BOB)).await;
+    wait_view(&mut a, |v| has_chat(v, HOME_CHANNEL, "bob left")).await;
 }
 
 /// Shutdown says goodbye, redacts our presence, and returns the `Peer`
