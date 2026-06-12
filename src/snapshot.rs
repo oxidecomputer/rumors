@@ -71,9 +71,9 @@ impl<T> Snapshot<T> {
     ///
     /// The hash is a comparison signal, not a content commitment: it is
     /// built from the tree's truncated Merkle hashes, sized for comparing
-    /// replicas within a universe's trust domain (see the crate docs'
-    /// trust rules). Use [`Key`]s — full-width content hashes — where
-    /// identity is at stake.
+    /// replicas within a universe's trust domain (see [the crate
+    /// docs](crate) for the trust rules). Use [`Key`]s — full-width
+    /// content hashes — where identity is at stake.
     pub fn hash(&self) -> [u8; tree::MERKLE_HASH_LEN] {
         self.tree.hash()
     }
