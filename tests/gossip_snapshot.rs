@@ -39,8 +39,8 @@ fn key_for(rumors: &Rumors<u64>, value: u64) -> Key {
         .unwrap_or_else(|| panic!("no live message holds {value}"))
 }
 
-/// Two empty peers: the minimal session. After the 25-byte preamble the two
-/// sides exchange greetings, find their versions equal, and converge
+/// Two empty peers: the minimal session. After the 29-byte preamble frame
+/// the two sides exchange greetings, find their versions equal, and converge
 /// immediately with no content transfer: the protocol's shortest possible
 /// conversation.
 #[test]

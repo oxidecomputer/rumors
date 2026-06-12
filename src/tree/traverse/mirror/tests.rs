@@ -93,11 +93,17 @@ where
                 let (b_r, b_w) = tokio::io::split(b_side);
 
                 let local_a = local::Exchange::start(a);
-                let remote_b = remote::Exchange::start(a_r, a_w);
+                let remote_b = remote::Exchange::start(
+                    remote::FrameRead::new(a_r),
+                    remote::FrameWrite::new(a_w),
+                );
                 let client = mirror(local_a, remote_b);
 
                 let local_b = local::Exchange::start(b);
-                let remote_a = remote::Exchange::start(b_r, b_w);
+                let remote_a = remote::Exchange::start(
+                    remote::FrameRead::new(b_r),
+                    remote::FrameWrite::new(b_w),
+                );
                 let server = mirror(local_b, remote_a);
 
                 // Both sides poll on the same current-thread task; no
@@ -301,8 +307,8 @@ impl<W: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for HoldUntilFlush<
 /// Regression: the protocol preamble must make progress over a transport that
 /// delivers bytes only on flush.
 ///
-/// Each peer writes an 8-byte preamble (magic + version) and then `read_exact`s
-/// the peer's 8 bytes before sending anything further. If the preamble is left
+/// Each peer writes its fixed-size preamble frame and then reads the peer's
+/// before sending anything further. If the preamble is left
 /// sitting in a buffering writer (`write_all` reaches only the buffer, never the
 /// wire), both peers block forever — a deadlock that a raw socket hides because
 /// the kernel forwards immediately, but that any compression/buffering layer
@@ -325,13 +331,16 @@ fn handshake_flushes_over_buffering_transport() {
             // half in `HoldUntilFlush` makes delivery contingent on the
             // handshake flushing its preamble.
             let (a_side, b_side) = tokio::io::duplex(64);
-            let (mut a_r, a_w) = tokio::io::split(a_side);
-            let (mut b_r, b_w) = tokio::io::split(b_side);
-            let mut a_w = HoldUntilFlush::new(a_w);
-            let mut b_w = HoldUntilFlush::new(b_w);
+            let (a_r, a_w) = tokio::io::split(a_side);
+            let (b_r, b_w) = tokio::io::split(b_side);
+            let mut a_r = remote::FrameRead::new(a_r);
+            let mut b_r = remote::FrameRead::new(b_r);
+            let mut a_w = remote::FrameWrite::new(HoldUntilFlush::new(a_w));
+            let mut b_w = remote::FrameWrite::new(HoldUntilFlush::new(b_w));
 
-            // The preamble carries only magic + version + network, so this exercises
-            // purely the flush/deadlock behavior of the raw prefix exchange.
+            // The preamble carries only magic + version + network + intent, so
+            // this exercises purely the flush/deadlock behavior of the framed
+            // greeting exchange.
             let (ra, rb) = tokio::join!(
                 remote::preamble(Network::BOOTSTRAP, Intent::Remain, &mut a_r, &mut a_w),
                 remote::preamble(Network::BOOTSTRAP, Intent::Remain, &mut b_r, &mut b_w),

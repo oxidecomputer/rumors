@@ -10,8 +10,8 @@
 //!
 //! # Handshake
 //!
-//! Every gossip session begins with a 25-byte raw preamble, exchanged
-//! concurrently by both sides before any framed traffic; see
+//! Every gossip session begins with the fixed-size preamble frame, exchanged
+//! concurrently by both sides before any variable-length traffic; see
 //! [`mod@preamble`] for the byte layout, the rejection rules, and the
 //! exchange itself. The framed [`message::Handshake`] greeting that follows
 //! carries the causal [`Version`](crate::Version) alone.
@@ -24,13 +24,16 @@
 //!
 //! # Framing
 //!
-//! After the handshake, each borsh-encoded message is shipped as a single
-//! length-delimited frame via [`tokio_util::codec::LengthDelimitedCodec`]
-//! (4-byte big-endian length prefix). The codec's `max_frame_length` is raised
-//! to `usize::MAX` so that arbitrarily large subtrees can travel in one frame;
-//! the protocol's height schedule names the type each side expects next, and
-//! the frame boundary tells the async reader exactly how many bytes belong to
-//! that next message.
+//! Each borsh-encoded message is shipped as a single length-delimited frame
+//! (4-byte big-endian length prefix) through [`framing`]'s exact-read
+//! [`FrameRead`]/[`FrameWrite`]: the protocol's height schedule names the
+//! type each side expects next, and the frame boundary tells the reader
+//! exactly how many bytes belong to that next message. Frame lengths are
+//! uncapped — arbitrarily large subtrees travel in one frame — because by
+//! the time any length is trusted, the preamble has already vetted the
+//! counterparty. The reader never consumes a byte past the frame it was
+//! asked for; [`framing`]'s docs explain how that guarantee is what lets one
+//! connection host back-to-back sessions.
 //!
 //! # In-band termination
 //!
@@ -45,10 +48,7 @@
 use std::convert::Infallible;
 use std::marker::PhantomData;
 
-use bytes::Bytes;
-use futures_util::{SinkExt, StreamExt};
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
@@ -61,8 +61,10 @@ use crate::tree::typed::{
 use super::message::{self, UnderRoot, UnderUnderRoot};
 use super::protocol::{self, Step};
 
+pub mod framing;
 mod preamble;
 
+pub use framing::{FrameRead, FrameWrite};
 pub use preamble::preamble;
 pub(crate) use preamble::{recv_party, send_party};
 
@@ -120,6 +122,14 @@ pub enum Error {
     #[error("peer sent an invalid intent byte ({byte:#04x})")]
     IntentInvalid { byte: u8 },
 
+    /// The peer's preamble frame declared a length other than the preamble's
+    /// fixed size, despite carrying our magic and protocol version. No honest
+    /// peer produces this — a version bump accompanies any layout change —
+    /// so it indicates a buggy or malicious counterparty; the stream is
+    /// desynchronized and the connection must be discarded.
+    #[error("peer's preamble frame declared {declared} bytes")]
+    PreambleLengthInvalid { declared: u32 },
+
     /// The peer declared the bootstrap placeholder [`Network`] together with a
     /// retiring intent. Retiring donates a party and bootstrapping receives
     /// one, so no honest peer combines them; rejecting the combination in the
@@ -145,32 +155,23 @@ pub struct Start;
 pub struct Connected;
 
 /// A wire-bound proxy of the counterparty at protocol height `H`. Holds the
-/// underlying reader/writer (each wrapped in a length-delimited codec) and a
+/// underlying reader/writer (each wrapped for exact-read framing) and a
 /// phantom tag pinning the height; the counterparty's actual zipper lives on
 /// the far side of the wire.
 pub struct Exchange<T, R, W, V, H: Height> {
-    reader: FramedRead<R, LengthDelimitedCodec>,
-    writer: FramedWrite<W, LengthDelimitedCodec>,
+    reader: FrameRead<R>,
+    writer: FrameWrite<W>,
     #[allow(clippy::type_complexity)]
     _phantom: PhantomData<fn() -> (T, V, H)>,
 }
 
-/// Construct a length-delimited codec with the frame-length cap raised to
-/// `usize::MAX`. The protocol can ship whole subtrees in a single frame, and
-/// we don't want the default 8 MiB cap to fail those legitimately.
-pub(super) fn make_codec() -> LengthDelimitedCodec {
-    let mut codec = LengthDelimitedCodec::new();
-    codec.set_max_frame_length(usize::MAX);
-    codec
-}
-
 impl<T, R, W> Exchange<T, R, W, Start, Root> {
-    /// Wrap a `(reader, writer)` pair as an [`Exchange`], ready to start
-    /// the protocol.
-    pub fn start(reader: R, writer: W) -> Self {
+    /// Wrap the framed halves the [`preamble()`] exchange already used as an
+    /// [`Exchange`], ready to start the protocol.
+    pub fn start(reader: FrameRead<R>, writer: FrameWrite<W>) -> Self {
         Self {
-            reader: FramedRead::new(reader, make_codec()),
-            writer: FramedWrite::new(writer, make_codec()),
+            reader,
+            writer,
             _phantom: PhantomData,
         }
     }
@@ -179,10 +180,7 @@ impl<T, R, W> Exchange<T, R, W, Start, Root> {
 impl<T, R, W, H: Height> Exchange<T, R, W, Connected, H> {
     /// Construct a [`Connected`]-state [`Exchange`] from already-framed
     /// reader/writer halves, threading them through from a predecessor stage.
-    fn connected(
-        reader: FramedRead<R, LengthDelimitedCodec>,
-        writer: FramedWrite<W, LengthDelimitedCodec>,
-    ) -> Self {
+    fn connected(reader: FrameRead<R>, writer: FrameWrite<W>) -> Self {
         Self {
             reader,
             writer,
@@ -194,60 +192,52 @@ impl<T, R, W, H: Height> Exchange<T, R, W, Connected, H> {
 impl<T, R, W, V, H: Height> protocol::Stage for Exchange<T, R, W, V, H> {
     type Height = H;
     /// The reconciled tree lives on the local side; the proxy yields its
-    /// framed reader/writer halves back to the caller. A session that needs
-    /// a trailing frame after the descent (the fork-last party hand-off when
-    /// serving a [bootstrapping](crate::Peer::bootstrap) peer) can then
-    /// read it from the same [`FramedRead`] the descent used, whose buffer
-    /// may already hold the trailing frame's leading bytes; a fresh reader
-    /// would lose them.
-    type Output = (
-        FramedRead<R, LengthDelimitedCodec>,
-        FramedWrite<W, LengthDelimitedCodec>,
-    );
+    /// framed reader/writer halves back to the caller, which stays the
+    /// stream's single owner. A session that needs a trailing frame after
+    /// the descent (the party hand-off when serving a
+    /// [bootstrapping](crate::Peer::bootstrap) peer or absorbing a
+    /// [retiring](crate::Peer::retire) one) reads it from the same
+    /// [`FrameRead`] the descent used.
+    type Output = (FrameRead<R>, FrameWrite<W>);
     type Error = Error;
 }
 
 /// Borsh-encode `msg` into a single length-delimited frame and ship it.
 ///
-/// `SinkExt::send` calls `poll_ready`, `start_send`, and `poll_flush` in
-/// sequence, so on a clean return the bytes have reached the underlying
-/// writer's flush boundary (typically the OS write buffer).
-pub(super) async fn send_msg<M, W>(
-    writer: &mut FramedWrite<W, LengthDelimitedCodec>,
-    msg: &M,
-) -> Result<(), Error>
+/// [`FrameWrite::frame`] flushes, so on a clean return the bytes have
+/// reached the underlying writer's flush boundary (typically the OS write
+/// buffer).
+pub(super) async fn send_msg<M, W>(writer: &mut FrameWrite<W>, msg: &M) -> Result<(), Error>
 where
     W: AsyncWrite + Unpin,
     M: BorshSerialize,
 {
     let mut buf = Vec::new();
     msg.serialize(&mut buf).map_err(Error::Io)?;
-    writer.send(Bytes::from(buf)).await.map_err(Error::Io)?;
+    writer.frame(&buf).await.map_err(Error::Io)?;
     Ok(())
 }
 
 /// Pull one length-delimited frame off the wire and borsh-decode it as `M`.
 ///
-/// A clean end-of-stream (peer closed before sending the expected message)
-/// is surfaced as an [`UnexpectedEof`](borsh::io::ErrorKind::UnexpectedEof)
-/// borsh I/O error.
-pub(super) async fn recv_msg<M, R>(
-    reader: &mut FramedRead<R, LengthDelimitedCodec>,
-) -> Result<M, Error>
+/// A peer that closes the stream instead of sending the message — cleanly
+/// or mid-frame — surfaces as an
+/// [`UnexpectedEof`](borsh::io::ErrorKind::UnexpectedEof) borsh I/O error.
+pub(super) async fn recv_msg<M, R>(reader: &mut FrameRead<R>) -> Result<M, Error>
 where
     R: AsyncRead + Unpin,
     M: BorshDeserialize,
 {
     let frame = reader
-        .next()
+        .frame()
         .await
-        .ok_or_else(|| {
-            borsh::io::Error::new(
+        .map_err(|e| match e.kind() {
+            borsh::io::ErrorKind::UnexpectedEof => borsh::io::Error::new(
                 borsh::io::ErrorKind::UnexpectedEof,
                 "peer closed before sending expected message",
-            )
+            ),
+            _ => e,
         })
-        .map_err(Error::Io)?
         .map_err(Error::Io)?;
     M::try_from_slice(&frame).map_err(Error::Io)
 }

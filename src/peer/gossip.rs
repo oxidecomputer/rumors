@@ -1,6 +1,6 @@
 //! The wire-session drivers for [`Peer`]: [`bootstrap`](Peer::bootstrap),
 //! [`gossip`](crate::Rumors::gossip), and [`retire`](Peer::retire), plus the
-//! raw preamble constants every session leads with and the [`PartyGuard`]
+//! preamble constants every session leads with and the [`PartyGuard`]
 //! that snaps a speculatively-donated party back in place on failure.
 
 use before::Party;
@@ -16,7 +16,7 @@ use crate::{Error, Network};
 
 use super::{Inner, Peer};
 
-/// Magic bytes that prefix every `rumors` gossip session.
+/// Magic bytes that open every `rumors` gossip session's preamble frame.
 pub const PROTOCOL_MAGIC: [u8; 6] = *b"RUMORS";
 
 /// On-the-wire protocol version that follows [`PROTOCOL_MAGIC`].
@@ -72,9 +72,12 @@ impl<T> Peer<T> {
         R: AsyncRead + Unpin + Send,
         W: AsyncWrite + Unpin + Send,
     {
-        // Raw magic/version/network/intent preamble first.
+        // Magic/version/network/intent preamble first, through the same
+        // exact-read framing every later frame uses.
+        let mut reader = remote::FrameRead::new(read);
+        let mut writer = remote::FrameWrite::new(write);
         let (remote_network, remote_intent) =
-            remote::preamble(Network::BOOTSTRAP, Intent::Remain, read, write).await?;
+            remote::preamble(Network::BOOTSTRAP, Intent::Remain, &mut reader, &mut writer).await?;
 
         // In the bootstrap case, it doesn't matter whether the remote intends
         // to remain or retire; they will hand us a party regardless, and we can
@@ -84,7 +87,7 @@ impl<T> Peer<T> {
         // We hold nothing: we will run the mirror protocol from an *empty* tree
         // to receive all content on the remote side.
         let l = local::Exchange::start(tree::Root::default());
-        let r = remote::Exchange::start(read, write);
+        let r = remote::Exchange::start(reader, writer);
 
         // After the connect phase, a peer that is *also* bootstrapping means
         // there is nothing to receive: bail symmetrically.
@@ -174,10 +177,12 @@ impl<T> Peer<T> {
         R: AsyncRead + Unpin + Send,
         W: AsyncWrite + Unpin + Send,
     {
-        // Raw magic/version preamble: reject a non-rumors or incompatible peer
-        // before the codec trusts any peer-supplied frame length.
+        // Magic/version preamble: reject a non-rumors or incompatible peer
+        // before the framing trusts any peer-supplied frame length.
+        let mut reader = remote::FrameRead::new(read);
+        let mut writer = remote::FrameWrite::new(write);
         let (remote_network, remote_intent) =
-            match remote::preamble(self.network, intent, read, write).await {
+            match remote::preamble(self.network, intent, &mut reader, &mut writer).await {
                 Err(e) => return (Intent::Remain, Err(e)),
                 Ok(output) => output,
             };
@@ -224,9 +229,9 @@ impl<T> Peer<T> {
         let prior_tree = prior_tree.expect("set in closure");
 
         // Run the connect phase, which exchanges `message::Handshake`s (the
-        // causal version; network and intent already rode the raw preamble).
+        // causal version; network and intent already rode the preamble).
         let l = local::Exchange::start(prior_tree.root);
-        let r = remote::Exchange::start(read, write);
+        let r = remote::Exchange::start(reader, writer);
 
         // Run the initial handshake to determine if and how to gossip.
         //

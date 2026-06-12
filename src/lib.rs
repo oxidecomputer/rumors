@@ -154,10 +154,13 @@
 //! A [`gossip`](Rumors::gossip) that returns `Ok` leaves both replicas
 //! holding every message either one held when the session began; changes
 //! made concurrently with the session are simply not part of it, and ride
-//! a later one. A session that fails — or whose future is dropped —
-//! commits nothing: the replica is never left partially merged. The
-//! *connection* is dead mid-frame after any failure or cancellation;
-//! discard it and dial again.
+//! a later one. An `Ok` also leaves the *connection* at a session
+//! boundary — not a byte of later traffic consumed — so the same
+//! reader/writer pair can host the next session, even one the
+//! counterparty eagerly opened before this side's call returned. A session
+//! that fails — or whose future is dropped — commits nothing: the replica
+//! is never left partially merged. The *connection* is dead mid-frame
+//! after any failure or cancellation; discard it and dial again.
 //!
 //! The moves that carry identity each need one more sentence. Cancelling a
 //! [`bootstrap`](Peer::bootstrap) is free: no identity exists yet.
@@ -209,10 +212,11 @@
 //!
 //! # Wire compatibility
 //!
-//! Every session opens with [`PROTOCOL_MAGIC`] and [`PROTOCOL_VERSION`]; a
-//! counterparty that is not speaking `rumors`, or speaks an incompatible
-//! version, is rejected before any length-prefixed frame is trusted
-//! ([`Error::MagicMismatch`], [`Error::VersionMismatch`]).
+//! Every session opens with a fixed-size preamble frame carrying
+//! [`PROTOCOL_MAGIC`] and [`PROTOCOL_VERSION`]; a counterparty that is not
+//! speaking `rumors`, or speaks an incompatible version, is rejected before
+//! any peer-declared frame length is trusted ([`Error::MagicMismatch`],
+//! [`Error::VersionMismatch`]).
 //!
 //! # Stability and testing
 //!

@@ -25,9 +25,9 @@ tinyvec = { version = "1.11", features = ["alloc"] }
 thiserror = "2.0"
 hex = "0.4"
 tokio = { version = "1", default-features = false, features = ["io-util", "sync"] }
-tokio-util = { version = "0.7", default-features = false, features = ["codec", "compat"] }
+tokio-util = { version = "0.7", default-features = false, features = ["compat"] }
 futures = { version = "0.3", default-features = false, features = ["std"] }
-futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 pollster = "0.4"
 rand = "0.8"
 

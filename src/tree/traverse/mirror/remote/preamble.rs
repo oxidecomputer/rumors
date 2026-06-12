@@ -1,14 +1,17 @@
-//! The raw session preamble and the trailing party hand-off frame: the
-//! unframed bytes a session leads with, and the one framed message that can
-//! follow the mirror descent.
+//! The session preamble and the trailing party hand-off frame: the fixed
+//! greeting a session leads with, and the one message that can follow the
+//! mirror descent.
 //!
 //! # Preamble
 //!
-//! Every gossip session begins with a 25-byte raw preamble, exchanged
-//! concurrently by both sides before any framed traffic:
+//! Every gossip session begins with a fixed-size preamble, exchanged
+//! concurrently by both sides. It rides the same [`framing`](super::framing)
+//! as all other traffic — one length-delimited frame — but at a length known
+//! in advance:
 //!
 //! ```text
-//! [ magic = b"RUMORS": 6B | version: 2B (big-endian) | network: 16B | intent: 1B ]
+//! [ length = 25: 4B (big-endian)
+//! | magic = b"RUMORS": 6B | version: 2B (big-endian) | network: 16B | intent: 1B ]
 //! ```
 //!
 //! - **Magic** is [`crate::PROTOCOL_MAGIC`] (`b"RUMORS"`). A peer that opens
@@ -35,6 +38,13 @@
 //!   bootstrap *and* retire in one session is rejected as
 //!   [`Error::BootstrapRetireConflict`].
 //!
+//! Although the preamble is framed, its peer-declared length is never
+//! *used*: the frame is read at the fixed size via
+//! [`FrameRead::frame_exact`], and the declared length is merely validated —
+//! after the magic and version, whose mismatches are the better diagnoses —
+//! so a garbage peer cannot induce a huge-frame allocation before it has
+//! identified itself ([`Error::PreambleLengthInvalid`]).
+//!
 //! The framed [`message::Handshake`](crate::tree::mirror::message::Handshake)
 //! greeting that follows carries the
 //! causal [`Version`](crate::Version) alone.
@@ -45,42 +55,48 @@
 //! write buffer.
 
 use before::Party;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
+use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::network::Network;
 use crate::tree::mirror::message::Intent;
 
+use super::framing::{FrameRead, FrameWrite};
 use super::{Error, recv_msg, send_msg};
 
-/// Exchange and validate the raw protocol preamble `[magic(6) | proto_version(2
-/// BE) | network(16) | intent(1)]` with a peer, before any framed traffic.
+/// Exchange and validate the protocol preamble frame
+/// `[len(4 BE) | magic(6) | proto_version(2 BE) | network(16) | intent(1)]`
+/// with a peer, before any peer-declared frame length is trusted.
 ///
-/// This is the *only* raw (non-length-delimited) exchange in a session; it runs
-/// before the [`message::Handshake`](crate::tree::mirror::message::Handshake)
-/// body and the rest of the protocol, so a
+/// This runs before the
+/// [`message::Handshake`](crate::tree::mirror::message::Handshake) body and
+/// the rest of the protocol, and reads the preamble frame at its *known*
+/// size ([`FrameRead::frame_exact`]) rather than the peer-declared one, so a
 /// non-`rumors` peer (wrong magic) or an incompatible one (wrong version) is
-/// rejected *before* the length-delimited codec ever trusts a peer-supplied
-/// frame length, so that a garbage peer cannot induce a huge-frame allocation.
+/// rejected before the framing ever trusts a peer-supplied length: a garbage
+/// peer cannot induce a huge-frame allocation.
 ///
 /// Both sides write and read concurrently via [`futures_util::future::try_join`]:
 /// a peer that reads before writing would deadlock against another doing the
 /// same on a transport whose write buffer is smaller than the preamble.
+/// ([`FrameWrite::frame`] flushes, which the same concurrency relies on: the
+/// peer reads our preamble before sending anything further.)
 ///
-/// Returns [`Error::MagicMismatch`] when the peer's first six bytes are not
-/// [`crate::PROTOCOL_MAGIC`], or [`Error::VersionMismatch`] when the magic
-/// matches but the version does not.
+/// Returns [`Error::MagicMismatch`] when the peer's magic bytes are not
+/// [`crate::PROTOCOL_MAGIC`], [`Error::VersionMismatch`] when the magic
+/// matches but the version does not, and [`Error::PreambleLengthInvalid`]
+/// when magic and version both match but the frame declares the wrong
+/// length.
 pub async fn preamble<R, W>(
     network: Network,
     intent: Intent,
-    read: &mut R,
-    write: &mut W,
+    reader: &mut FrameRead<R>,
+    writer: &mut FrameWrite<W>,
 ) -> Result<(Network, Intent), Error>
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
-    // Preamble layout: [magic(6) | proto_version(2 BE) | network(16) | intent(1)].
+    // Preamble payload: [magic(6) | proto_version(2 BE) | network(16) | intent(1)].
     const PREAMBLE_LEN: usize = 6 + 2 + 16 + 1;
 
     let mut local = [0u8; PREAMBLE_LEN];
@@ -89,26 +105,19 @@ where
     local[8..24].copy_from_slice(&network.to_bytes());
     local[24] = if intent.retiring() { 1 } else { 0 };
 
-    let mut remote = [0u8; PREAMBLE_LEN];
-    // Flush after writing: `write_all` alone only reaches the writer's buffer,
-    // and a buffering transport (a compression layer, a `BufWriter`, a TLS
-    // record buffer) may hold the whole preamble back. Since the peer
-    // concurrently `read_exact`s the preamble before sending anything further,
-    // an unflushed preamble deadlocks both sides. A raw socket forwards
-    // immediately and masks the problem, but the `AsyncWrite` contract does
-    // not promise it.
-    let write_fut = async {
-        write.write_all(&local).await.map_err(Error::Io)?;
-        write.flush().await.map_err(Error::Io)
-    };
+    let write_fut = async { writer.frame(&local).await.map_err(Error::Io) };
     let read_fut = async {
-        read.read_exact(&mut remote)
+        reader
+            .frame_exact::<PREAMBLE_LEN>()
             .await
-            .map(|_| ())
             .map_err(Error::Io)
     };
-    futures_util::future::try_join(write_fut, read_fut).await?;
+    let ((), (declared, remote)) = futures_util::future::try_join(write_fut, read_fut).await?;
 
+    // Validation order is diagnosis order: magic identifies the protocol,
+    // version identifies the dialect, and only then is the frame length held
+    // to this dialect's fixed size — so a future, longer preamble is
+    // reported as the version mismatch it is, not as a malformed frame.
     let remote_magic: [u8; 6] = remote[..6].try_into().expect("6 bytes");
     if remote_magic != crate::PROTOCOL_MAGIC {
         return Err(Error::MagicMismatch { remote_magic });
@@ -116,6 +125,9 @@ where
     let remote_version = u16::from_be_bytes([remote[6], remote[7]]);
     if remote_version != crate::PROTOCOL_VERSION {
         return Err(Error::VersionMismatch { remote_version });
+    }
+    if declared as usize != PREAMBLE_LEN {
+        return Err(Error::PreambleLengthInvalid { declared });
     }
     let remote_network = Network::from_bytes(remote[8..24].try_into().expect("16 bytes"));
     let remote_intent = match remote[24] {
@@ -164,14 +176,10 @@ where
 /// costs only a slice of the id space, never causal correctness: the
 /// provider's retained half stays a valid, disjoint party.
 ///
-/// The frame travels on the same [`FramedWrite`] the descent used (surfaced
-/// back to the caller as the remote exchange's output), because the
-/// descent's reader on the far side may already have buffered this frame's
-/// leading bytes.
-pub(crate) async fn send_party<W>(
-    give: Party,
-    writer: &mut FramedWrite<W, LengthDelimitedCodec>,
-) -> Result<(), Error>
+/// The frame travels on the same [`FrameWrite`] the descent used (surfaced
+/// back to the caller as the remote exchange's output), the stream's single
+/// owner throughout the session.
+pub(crate) async fn send_party<W>(give: Party, writer: &mut FrameWrite<W>) -> Result<(), Error>
 where
     W: AsyncWrite + Unpin,
 {
@@ -181,9 +189,7 @@ where
 /// Receiving side of the hand-off: read the party the peer ships after the
 /// descent (a bootstrap provider's fork, or a retiree's whole party), off the
 /// same reader the descent used. See [`send_party`] for why it sits last.
-pub(crate) async fn recv_party<R>(
-    reader: &mut FramedRead<R, LengthDelimitedCodec>,
-) -> Result<Party, Error>
+pub(crate) async fn recv_party<R>(reader: &mut FrameRead<R>) -> Result<Party, Error>
 where
     R: AsyncRead + Unpin,
 {

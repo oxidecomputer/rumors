@@ -195,9 +195,11 @@ impl<T> Rumors<T> {
     /// [`retire`](crate::Peer::retire)-ing one.
     ///
     /// Sessions may run concurrently on different clones of the same set;
-    /// each commits atomically when it completes. On `Err`, the replica is
-    /// unchanged, but the transport is mid-frame garbage: discard the
-    /// connection rather than starting another session on it.
+    /// each commits atomically when it completes. On `Ok`, the transport
+    /// rests exactly at the session boundary, ready to host this pair's
+    /// next session. On `Err`, the replica is unchanged, but the transport
+    /// is mid-frame garbage: discard the connection rather than starting
+    /// another session on it.
     pub async fn gossip<'a, R, W>(&self, read: &'a mut R, write: &'a mut W) -> Result<(), Error>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
