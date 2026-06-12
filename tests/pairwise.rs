@@ -38,7 +38,7 @@ where
 /// The `(hash, latest)` fingerprint of a peer: equal fingerprints mean the
 /// same live content *and* the same causal frontier — gossip between two
 /// peers with equal fingerprints is a guaranteed no-op.
-fn fingerprint<T>(k: &Rumors<T>) -> ([u8; 32], Version) {
+fn fingerprint<T>(k: &Rumors<T>) -> ([u8; rumors::MERKLE_HASH_LEN], Version) {
     let snapshot = k.snapshot();
     (snapshot.hash(), snapshot.latest().clone())
 }

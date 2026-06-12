@@ -274,6 +274,7 @@ pub use peer::{Peer, Retire};
 pub use rumors::{CausalMessages, Messages, Rumors};
 pub use snapshot::Snapshot;
 pub use tree::Key;
+pub use tree::MERKLE_HASH_LEN;
 pub use tree::mirror::remote::Error;
 
 pub(crate) use peer::Inner;

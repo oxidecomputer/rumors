@@ -19,7 +19,7 @@ use crate::Version;
 use crate::message::Message;
 use crate::tree::arb::{arb_root_node, arb_version, nth_party};
 use crate::tree::typed::height::{Height, Root, S, Z};
-use crate::tree::typed::{Hash, Node, Prefix};
+use crate::tree::typed::{Hash, Node, Prefix, hash::MERKLE_HASH_LEN};
 
 use crate::tree::traverse::mirror::message;
 
@@ -36,7 +36,7 @@ fn arb_prefix<H: Height + 'static>() -> BoxedStrategy<Prefix<H>> {
 }
 
 fn arb_hash() -> BoxedStrategy<Hash> {
-    any::<[u8; 32]>().prop_map(Hash).boxed()
+    any::<[u8; MERKLE_HASH_LEN]>().prop_map(Hash).boxed()
 }
 
 fn arb_leaf() -> BoxedStrategy<Node<(), Z>> {
@@ -235,8 +235,8 @@ fn requested_rejects_descending_order() {
 fn uncertain_rejects_duplicate_prefix() {
     let m = message::Initiate {
         uncertain: vec![
-            (prefix_from_bytes::<Root>(&[]), Hash([0; 32])),
-            (prefix_from_bytes::<Root>(&[]), Hash([1; 32])),
+            (prefix_from_bytes::<Root>(&[]), Hash([0; MERKLE_HASH_LEN])),
+            (prefix_from_bytes::<Root>(&[]), Hash([1; MERKLE_HASH_LEN])),
         ],
     };
     let bytes = borsh::to_vec(&m).unwrap();

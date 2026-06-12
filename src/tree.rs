@@ -59,6 +59,7 @@ mod typed;
 use crate::{Version, message::Message, tree::typed::Node};
 
 pub use key::Key;
+pub use typed::hash::MERKLE_HASH_LEN;
 
 pub use traverse::mirror;
 
@@ -221,7 +222,7 @@ impl<T> Tree<T> {
     }
 
     /// Get the root hash for the tree.
-    pub fn hash(&self) -> [u8; 32] {
+    pub fn hash(&self) -> [u8; MERKLE_HASH_LEN] {
         Node::root_hash(&self.root.clone().into()).into()
     }
 

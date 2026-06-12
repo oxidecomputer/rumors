@@ -1,4 +1,4 @@
-use crate::{Key, Network, Version, tree::Tree};
+use crate::{Key, Network, Version, tree, tree::Tree};
 use std::sync::Arc;
 
 /// The iterator of [`Snapshot::iter`], re-exported from the tree internals:
@@ -62,13 +62,19 @@ impl<T> Snapshot<T> {
         self.tree.len()
     }
 
-    /// The observable root hash of this snapshot: a 32-byte digest of its
+    /// The observable root hash of this snapshot: a 16-byte digest of its
     /// live content, independent of party identity and insertion order. Two
     /// snapshots with equal hashes hold the same live messages. Gossip
     /// converges on causal versions rather than hashes: peers with equal
     /// hashes but different versions (for example, after an insert that was
     /// then redacted) still run a reconciliation pass.
-    pub fn hash(&self) -> [u8; 32] {
+    ///
+    /// The hash is a comparison signal, not a content commitment: it is
+    /// built from the tree's truncated Merkle hashes, sized for comparing
+    /// replicas within a universe's trust domain (see the crate docs'
+    /// trust rules). Use [`Key`]s — full-width content hashes — where
+    /// identity is at stake.
+    pub fn hash(&self) -> [u8; tree::MERKLE_HASH_LEN] {
         self.tree.hash()
     }
 

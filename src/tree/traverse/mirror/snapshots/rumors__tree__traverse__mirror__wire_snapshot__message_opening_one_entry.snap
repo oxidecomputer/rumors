@@ -3,5 +3,4 @@ source: src/tree/traverse/mirror/wire_snapshot.rs
 expression: "snap(&message::Opening { uncertain })"
 ---
 0000: 01 00 00 00 42 02 02 02 02 02 02 02 02 02 02 02
-0010: 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02
-0020: 02 02 02 02 02
+0010: 02 02 02 02 02

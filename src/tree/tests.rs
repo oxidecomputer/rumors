@@ -112,8 +112,10 @@ fn insert_at(
 /// implementation as a ground truth. A leaf hashes to `blake3(LEAF_TAG)`; at
 /// each level above, a branch hashes `blake3(BRANCH_TAG ‖ r₀ ‖ h₀ ‖ …)` over
 /// its *present* children in ascending radix order (absent slots are omitted,
-/// not zero-filled). The empty tree is the branch with no children. The
-/// compressed tree's root hash must match this regardless of how it compresses.
+/// not zero-filled), each hash truncated to its leading
+/// [`MERKLE_HASH_LEN`](crate::tree::typed::hash::MERKLE_HASH_LEN) bytes. The
+/// empty tree is the branch with no children. The compressed tree's root hash
+/// must match this regardless of how it compresses.
 fn reference_hash(values: &[(Version, Bytes)]) -> Hash {
     const LEAF_TAG: u8 = 0;
     const BRANCH_TAG: u8 = 1;
@@ -121,7 +123,7 @@ fn reference_hash(values: &[(Version, Bytes)]) -> Hash {
     let leaf_hash = || -> Hash {
         let mut hasher = Hasher::new();
         hasher.update(&[LEAF_TAG]);
-        hasher.finalize()
+        hasher.finalize().truncate()
     };
 
     let hash_branch = |children: &HashMap<u8, Hash>| -> Hash {
@@ -133,7 +135,7 @@ fn reference_hash(values: &[(Version, Bytes)]) -> Hash {
             hasher.update(&[radix]);
             hasher.update(h.as_bytes());
         }
-        hasher.finalize()
+        hasher.finalize().truncate()
     };
 
     // Level 32 (the value level): every distinct path maps to a leaf. The tree

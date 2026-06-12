@@ -3,18 +3,52 @@ use std::sync::LazyLock;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-/// 32-byte hash newtype. Wraps a fixed-size byte array so borsh can be
-/// derived without a length prefix and so the rest of the crate does not
+/// Width in bytes of the tree's Merkle hashes: the subtree-comparison
+/// digests gossip exchanges, surfaced as
+/// [`Snapshot::hash`](crate::Snapshot::hash). Half the width of a
+/// [`Key`](crate::Key): a comparison signal tolerates truncation that an
+/// identity cannot.
+pub const MERKLE_HASH_LEN: usize = 16;
+
+/// 16-byte Merkle hash newtype. Wraps a fixed-size byte array so borsh can
+/// be derived without a length prefix and so the rest of the crate does not
 /// depend on the underlying hash crate.
 ///
-/// The underlying primitive is [`blake3`], but that is an implementation
-/// detail: callers use [`Hash::of`] or [`Hasher`] and never touch the
-/// `blake3` types directly.
+/// The underlying primitive is [`blake3`], truncated to its leading
+/// [`MERKLE_HASH_LEN`] bytes — BLAKE3 is an extendable-output function, so
+/// prefix truncation is the sanctioned narrow form, with collision
+/// resistance 2⁶⁴ and preimage resistance 2¹²⁸. Callers use [`Hash::of`]
+/// (or [`ContentHash`] for the full width) and never touch the `blake3`
+/// types directly.
+///
+/// # Why 16 bytes here, and 32 for content
+///
+/// A Merkle hash is only ever an equality probe between two peers'
+/// subtrees at the same prefix (the mirror protocol's `uncertain`
+/// channel). It is never an identity: a false-equal prunes one divergent
+/// subtree as already-matching, and heals on the next mutation beneath
+/// that prefix, which perturbs every branch hash above it and forces a
+/// re-compare. Nothing is dropped; the failure is delayed propagation,
+/// not corruption. Identity — and with it all content integrity — rides
+/// on the leaf's *path*, the full-width [`ContentHash`] of `(version,
+/// value)` (see [`Path::for_leaf`](super::Path::for_leaf)), where a
+/// collision would be permanent, silent split-brain. That asymmetry is
+/// the whole argument: the comparison signal can afford to lose the
+/// bits, halving the protocol's dominant hash traffic, and the identity
+/// cannot.
+///
+/// The risk figures behind this are derived, not measured (assumptions:
+/// comparisons are prefix-paired, so accidental false-equals accumulate
+/// per-comparison at 2⁻¹²⁸ rather than birthday-amplified; peers in a
+/// universe trust each other, so an adversary who could grind branch
+/// preimages — online, through honest insertions — is dominated by a
+/// compromised member, who desyncs peers for free). See
+/// `results/2026-06-11-hash-width-transcript.md` for the full analysis.
 #[derive(
     BorshSerialize, BorshDeserialize, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Default,
 )]
 #[repr(transparent)]
-pub struct Hash(pub [u8; 32]);
+pub struct Hash(pub [u8; MERKLE_HASH_LEN]);
 
 impl Debug for Hash {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -33,13 +67,14 @@ const LEAF_TAG: u8 = 0;
 const BRANCH_TAG: u8 = 1;
 
 /// Bytes a single child contributes to a branch preimage: its radix byte
-/// followed by its 32-byte hash.
-const CHILD_RECORD_LEN: usize = 1 + 32;
+/// followed by its [`MERKLE_HASH_LEN`]-byte hash.
+const CHILD_RECORD_LEN: usize = 1 + MERKLE_HASH_LEN;
 
 impl Hash {
-    /// One-shot hash of a contiguous byte slice.
+    /// One-shot Merkle hash of a contiguous byte slice: the leading
+    /// [`MERKLE_HASH_LEN`] bytes of the full-width hash of the same bytes.
     pub fn of(bytes: &[u8]) -> Self {
-        Hash(*blake3::hash(bytes).as_bytes())
+        ContentHash::of(bytes).truncate()
     }
 
     /// The hash of a leaf node: `blake3(LEAF_TAG)`, a constant.
@@ -85,27 +120,69 @@ impl Hash {
         *EMPTY_ROOT
     }
 
+    /// Reference to the raw [`MERKLE_HASH_LEN`] bytes.
+    pub fn as_bytes(&self) -> &[u8; MERKLE_HASH_LEN] {
+        &self.0
+    }
+}
+
+impl From<[u8; MERKLE_HASH_LEN]> for Hash {
+    fn from(bytes: [u8; MERKLE_HASH_LEN]) -> Self {
+        Hash(bytes)
+    }
+}
+
+impl From<Hash> for [u8; MERKLE_HASH_LEN] {
+    fn from(hash: Hash) -> Self {
+        hash.0
+    }
+}
+
+/// Full-width 32-byte BLAKE3 hash: the content-addressing primitive.
+///
+/// This is the width that carries identity. A leaf's path *is* a hash of
+/// this width over its `(version, value)` (see
+/// [`Path::for_leaf`](super::Path::for_leaf)), and `join` resolves
+/// identical paths as identical contents, so a collision here would be
+/// permanent, undetectable divergence — full width is load-bearing, and
+/// every hash that feeds a path must use it (a single [`MERKLE_HASH_LEN`]
+/// component would cap the whole path's collision resistance at 2⁶⁴). A
+/// `ContentHash` is never stored in a branch and never travels as a hash
+/// on the wire; it reaches the protocol only as a leaf's path bytes.
+pub struct ContentHash([u8; 32]);
+
+impl ContentHash {
+    /// One-shot full-width hash of a contiguous byte slice.
+    pub fn of(bytes: &[u8]) -> Self {
+        ContentHash(*blake3::hash(bytes).as_bytes())
+    }
+
+    /// Truncate to the Merkle width: the leading [`MERKLE_HASH_LEN`] bytes.
+    ///
+    /// This is the *only* bridge between the two widths, and it states the
+    /// convention: a Merkle [`struct@Hash`] is the prefix truncation of
+    /// the full-width hash of the same preimage.
+    pub fn truncate(self) -> Hash {
+        let mut out = [0u8; MERKLE_HASH_LEN];
+        out.copy_from_slice(&self.0[..MERKLE_HASH_LEN]);
+        Hash(out)
+    }
+
     /// Reference to the raw 32 bytes.
     pub fn as_bytes(&self) -> &[u8; 32] {
         &self.0
     }
 }
 
-impl From<[u8; 32]> for Hash {
-    fn from(bytes: [u8; 32]) -> Self {
-        Hash(bytes)
-    }
-}
-
-impl From<Hash> for [u8; 32] {
-    fn from(hash: Hash) -> Self {
+impl From<ContentHash> for [u8; 32] {
+    fn from(hash: ContentHash) -> Self {
         hash.0
     }
 }
 
-/// Streaming hasher: equivalent to feeding the concatenation of every
-/// `update` chunk through [`Hash::of`], without allocating an intermediate
-/// buffer.
+/// Streaming full-width hasher: equivalent to feeding the concatenation of
+/// every `update` chunk through [`ContentHash::of`], without allocating an
+/// intermediate buffer.
 #[derive(Default)]
 pub struct Hasher(blake3::Hasher);
 
@@ -122,8 +199,8 @@ impl Hasher {
     }
 
     /// Finalize the hash and consume the hasher.
-    pub fn finalize(self) -> Hash {
-        Hash(*self.0.finalize().as_bytes())
+    pub fn finalize(self) -> ContentHash {
+        ContentHash(*self.0.finalize().as_bytes())
     }
 }
 

@@ -17,15 +17,13 @@ received 29 bytes               │ received 29 bytes
 sent 9 bytes                    │ sent 9 bytes
   0000: 00 00 00 05 01 00 00 00 │   0000: 00 00 00 05 01 00 00 00
   0008: cd                      │   0008: 40
-received 9 bytes                │ received 49 bytes
+received 9 bytes                │ received 33 bytes
   0000: 00 00 00 05 01 00 00 00 │   0000: 00 00 00 05 01 00 00 00
-  0008: 40                      │   0008: cd 00 00 00 24 01 00 00
-sent 40 bytes                   │   0010: 00 69 3c a1 32 18 87 90
-  0000: 00 00 00 24 01 00 00 00 │   0018: 50 7c f7 57 79 2a af 6c
-  0008: 69 3c a1 32 18 87 90 50 │   0020: ff a1 5c 24 cf 9e 52 dc
-  0010: 7c f7 57 79 2a af 6c ff │   0028: 76 c4 41 88 02 6a 82 2e
-  0018: a1 5c 24 cf 9e 52 dc 76 │   0030: 39
-  0020: c4 41 88 02 6a 82 2e 39 │ sent 8 bytes
+  0008: 40                      │   0008: cd 00 00 00 14 01 00 00
+sent 24 bytes                   │   0010: 00 d9 74 25 d9 9a 64 55
+  0000: 00 00 00 14 01 00 00 00 │   0018: b8 03 d2 d9 d4 da fe e0
+  0008: d9 74 25 d9 9a 64 55 b8 │   0020: 86
+  0010: 03 d2 d9 d4 da fe e0 86 │ sent 8 bytes
 received 8 bytes                │   0000: 00 00 00 04 00 00 00 00
   0000: 00 00 00 04 00 00 00 00 │ received 108 bytes
 sent 108 bytes                  │   0000: 00 00 00 68 02 00 00 00

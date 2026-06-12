@@ -1,14 +1,17 @@
 //! Pins the wire-visible hash preimage convention, so the contiguous-buffer
 //! `branch` rewrite cannot silently change any on-the-wire hash.
 
-use super::{BRANCH_TAG, Hash, LEAF_TAG};
+use super::{BRANCH_TAG, Hash, LEAF_TAG, MERKLE_HASH_LEN};
 
 /// A branch commits to exactly `BRANCH_TAG ‖ (radix ‖ child_hash)*` over its
-/// children in the iteration order given — radix byte first, then the 32-byte
+/// children in the iteration order given — radix byte first, then the 16-byte
 /// child hash, with no length prefix or padding.
 #[test]
 fn branch_preimage_is_tag_then_radix_hash_records() {
-    let children = [(7u8, Hash([0xab; 32])), (200u8, Hash([0x11; 32]))];
+    let children = [
+        (7u8, Hash([0xab; MERKLE_HASH_LEN])),
+        (200u8, Hash([0x11; MERKLE_HASH_LEN])),
+    ];
 
     let mut expected = vec![BRANCH_TAG];
     for (radix, child) in &children {

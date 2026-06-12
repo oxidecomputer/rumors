@@ -565,7 +565,7 @@ pub async fn quiesce(peers: &[Rumors<u64>]) {
     }
     let max_rounds = MAX_QUIESCE_ROUNDS_PER_PEER * n;
     for _ in 0..max_rounds {
-        let before: Vec<([u8; 32], Version)> = peers
+        let before: Vec<([u8; rumors::MERKLE_HASH_LEN], Version)> = peers
             .iter()
             .map(|p| {
                 let snapshot = p.snapshot();

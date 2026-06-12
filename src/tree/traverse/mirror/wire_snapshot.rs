@@ -9,7 +9,7 @@ use borsh::BorshDeserialize;
 use super::message;
 use crate::tree::arb::nth_party;
 use crate::tree::typed::height::{Height, Root, S, Z};
-use crate::tree::typed::{Children, Hash, Node, Prefix};
+use crate::tree::typed::{Children, Hash, Node, Prefix, hash::MERKLE_HASH_LEN};
 use crate::{Version, message::Message};
 
 /// Map a single-letter party label to its disjoint-party index (see
@@ -61,22 +61,22 @@ fn leaf(party: &str, version: u64) -> Node<(), Z> {
 
 // ---------- Hash ----------
 
-/// A `Hash`'s encoding is its 32 raw bytes, no length prefix: all-zero case.
+/// A `Hash`'s encoding is its 16 raw bytes, no length prefix: all-zero case.
 #[test]
 fn hash_zeros() {
-    insta::assert_snapshot!(snap(&Hash([0u8; 32])));
+    insta::assert_snapshot!(snap(&Hash([0u8; MERKLE_HASH_LEN])));
 }
 
 /// All-ones `Hash`: every byte value survives encoding unmangled.
 #[test]
 fn hash_ones() {
-    insta::assert_snapshot!(snap(&Hash([0xffu8; 32])));
+    insta::assert_snapshot!(snap(&Hash([0xffu8; MERKLE_HASH_LEN])));
 }
 
 /// Sequential-byte `Hash`: byte order on the wire is array order.
 #[test]
 fn hash_sequential() {
-    let bytes: [u8; 32] = std::array::from_fn(|i| i as u8);
+    let bytes: [u8; MERKLE_HASH_LEN] = std::array::from_fn(|i| i as u8);
     insta::assert_snapshot!(snap(&Hash(bytes)));
 }
 
@@ -240,7 +240,7 @@ fn message_initiate_empty() {
 /// An `Initiate` carrying one uncertain root hash: the ordinary opening.
 #[test]
 fn message_initiate_one_entry() {
-    let uncertain = vec![(Prefix::<Root>::new(), Hash([1u8; 32]))];
+    let uncertain = vec![(Prefix::<Root>::new(), Hash([1u8; MERKLE_HASH_LEN]))];
     insta::assert_snapshot!(snap(&message::Initiate { uncertain }));
 }
 
@@ -255,7 +255,7 @@ fn message_opening_empty() {
 fn message_opening_one_entry() {
     let uncertain = vec![(
         prefix_from_bytes::<message::UnderRoot>(&[0x42]),
-        Hash([2u8; 32]),
+        Hash([2u8; MERKLE_HASH_LEN]),
     )];
     insta::assert_snapshot!(snap(&message::Opening { uncertain }));
 }
@@ -290,7 +290,7 @@ fn message_exchange_populated() {
     let requested = vec![Prefix::<Root>::new()];
     let uncertain = vec![(
         prefix_from_bytes::<message::UnderRoot>(&[0xcc]),
-        Hash([3u8; 32]),
+        Hash([3u8; MERKLE_HASH_LEN]),
     )];
 
     let m: message::Exchange<(), message::UnderRoot> = message::Exchange {

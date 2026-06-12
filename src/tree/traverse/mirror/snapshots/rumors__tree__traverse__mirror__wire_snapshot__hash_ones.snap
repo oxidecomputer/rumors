@@ -1,6 +1,5 @@
 ---
 source: src/tree/traverse/mirror/wire_snapshot.rs
-expression: "snap(&Hash([0xffu8; 32]))"
+expression: "snap(&Hash([0xffu8; MERKLE_HASH_LEN]))"
 ---
 0000: ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
-0010: ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff

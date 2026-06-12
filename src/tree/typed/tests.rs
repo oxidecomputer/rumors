@@ -2,17 +2,17 @@ use borsh::BorshDeserialize;
 use proptest::prelude::*;
 
 use crate::tree::typed::height::{Height, Root, S, Z};
-use crate::tree::typed::{Hash, Prefix};
+use crate::tree::typed::{Hash, Prefix, hash::MERKLE_HASH_LEN};
 
 proptest! {
-    /// A `Hash` borsh round-trips losslessly as exactly its 32 raw bytes.
+    /// A `Hash` borsh round-trips losslessly as exactly its 16 raw bytes.
     /// The trivial fixed-width case, pinned so a future encoding change to
     /// the helper trait surfaces here first.
     #[test]
-    fn hash_borsh_round_trip(bytes in any::<[u8; 32]>()) {
+    fn hash_borsh_round_trip(bytes in any::<[u8; MERKLE_HASH_LEN]>()) {
         let original = Hash(bytes);
         let serialized = borsh::to_vec(&original).unwrap();
-        prop_assert_eq!(serialized.len(), 32);
+        prop_assert_eq!(serialized.len(), MERKLE_HASH_LEN);
         let deserialized = Hash::try_from_slice(&serialized).unwrap();
         prop_assert_eq!(original, deserialized);
     }

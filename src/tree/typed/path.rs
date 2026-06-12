@@ -2,7 +2,7 @@ use std::{fmt::Debug, marker::PhantomData};
 
 use bytes::Bytes;
 
-use super::hash::{Hash, Hasher};
+use super::hash::{ContentHash, Hasher};
 use super::height::{Height, Root, S};
 use crate::Version;
 
@@ -32,10 +32,16 @@ impl Path<Root> {
     pub fn for_leaf(version: &Version, value: &Bytes) -> Self {
         // We form the hash for a value as the binary depth-1 merkle tree of
         // version, value. This ensures no length malleability issues.
+        //
+        // Every component is the full-width `ContentHash`, never the
+        // truncated Merkle `Hash`: the path's collision resistance is the
+        // minimum over its component hashes, and a path collision is
+        // permanent split-brain (see `ContentHash`). A 16-byte inner hash
+        // here would cap the whole path at 2^64 despite its 32-byte output.
 
         let mut hasher = Hasher::new();
-        hasher.update(Hash::of(version.as_bytes()).as_bytes());
-        hasher.update(Hash::of(value.as_ref()).as_bytes());
+        hasher.update(ContentHash::of(version.as_bytes()).as_bytes());
+        hasher.update(ContentHash::of(value.as_ref()).as_bytes());
 
         Self {
             height: PhantomData,
