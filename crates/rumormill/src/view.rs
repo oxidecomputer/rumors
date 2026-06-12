@@ -1,10 +1,12 @@
 //! Immutable render snapshots.
 //!
 //! The owner publishes an [`Arc<View>`](std::sync::Arc) through a
-//! [`tokio::sync::watch`] channel after every state transition; the UI task
-//! renders whatever snapshot is current and keeps only cursor and scroll
-//! state of its own. The types here are plain data — no `Rumors`, no iroh —
-//! so the renderer needs nothing but this module and ratatui.
+//! [`tokio::sync::watch`] channel on its coalescing tick
+//! ([`timers::VIEW_COALESCE`](crate::timers::VIEW_COALESCE)) whenever state
+//! changed since the last publish; the UI task renders whatever snapshot is
+//! current and keeps only cursor and scroll state of its own. The types here
+//! are plain data — no `Rumors`, no iroh — so the renderer needs nothing but
+//! this module and ratatui.
 
 use std::time::Instant;
 

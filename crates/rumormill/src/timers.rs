@@ -8,14 +8,19 @@
 use std::time::Duration;
 
 /// How often we publish a fresh [`Entry::Presence`](crate::entry::Entry)
-/// heartbeat (and redact the previous one).
-pub const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
+/// heartbeat (and redact the previous one). This is also the room's idle
+/// gossip budget: every beat advances the causal frontier, and in a full
+/// mesh each advance costs every node a (cheap, usually already-converged)
+/// session on nearly every link — O(n²) sessions room-wide per beat. 30s
+/// keeps a ~100-peer room comfortable while the lifecycle still plays out
+/// within a demo session.
+pub const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 
 /// A peer whose newest presence is older than this is considered gone; any
 /// peer that notices redacts the stale presence entry. Three missed
 /// heartbeats: long enough to ride out gossip latency, short enough to watch
-/// eviction happen live.
-pub const PRESENCE_STALE: Duration = Duration::from_secs(30);
+/// eviction happen within a demo session.
+pub const PRESENCE_STALE: Duration = Duration::from_secs(90);
 
 /// How long a chat message lives before every holder redacts it. Five
 /// minutes: messages visibly vanish within a demo session.
@@ -41,6 +46,15 @@ pub const SESSION_TIMEOUT: Duration = Duration::from_secs(30);
 /// After a connection ends — failed dial, failed drive, or the peer's own
 /// goodbye — leave the peer alone for this long before redialing.
 pub const PEER_BACKOFF: Duration = Duration::from_secs(15);
+
+/// The owner's coalescing tick: deferred loss sweeps and view publishes
+/// run at most once per tick. Both jobs are O(everything on screen), and
+/// session outcomes arrive at mesh rate (every entry anyone originates
+/// costs every node a session on nearly every link), so running them per
+/// event would bury the owner at scale; per-tick execution caps the work
+/// at ten rounds a second regardless of how hot the mesh runs. The UI
+/// repaints on [`UI_TICK`] anyway, so the deferral is invisible.
+pub const VIEW_COALESCE: Duration = Duration::from_millis(100);
 
 /// UI input poll / render tick.
 pub const UI_TICK: Duration = Duration::from_millis(50);

@@ -43,10 +43,15 @@ use crate::view::View;
 /// The ALPN identifying rumormill sessions.
 pub const ALPN: &[u8] = b"rumormill/0";
 
-/// Concurrent inbound connections held at once; excess waits. Connections
-/// are long-lived now, so this bounds the inbound half of the mesh, not a
-/// session burst.
-const MAX_INBOUND: usize = 32;
+/// Concurrent inbound connections held at once; excess waits behind a
+/// blocked accept loop. A permit lives as long as its connection, and
+/// connections are long-lived, so this bounds the inbound half of the
+/// mesh — and under the smaller-id-dials rule the largest endpoint id
+/// accepts nearly every roster pair. The cap must therefore comfortably
+/// exceed the room size: at the cap this node stops accepting entirely,
+/// every dial toward it times out, and a newcomer whose only contact is
+/// this node can never bootstrap.
+const MAX_INBOUND: usize = 256;
 
 /// How long [`settle`] waits for the peer's FIN before giving up and
 /// letting the connection close anyway.

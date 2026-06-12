@@ -43,7 +43,7 @@
 //! 5. `kill -STOP` C, chat on A and B, `kill -CONT` C: the missed messages
 //!    arrive on C in causal order, highlighted where they don't follow
 //!    from what C already shows.
-//! 6. `kill -9` B: within ~30s the survivors drop B from the roster (stale
+//! 6. `kill -9` B: within ~90s the survivors drop B from the roster (stale
 //!    presence redacted).
 //! 7. Wait ~15s after any join/leave: the notice vanishes everywhere (TTL
 //!    redaction propagating).

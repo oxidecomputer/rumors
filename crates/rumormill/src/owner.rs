@@ -15,10 +15,13 @@
 //! session learns lands in the shared set and reaches the owner through its
 //! [`CausalMessages`] observer, folded into the same select loop the commands
 //! arrive on. Redactions learned from a peer are silent (the leaf is simply
-//! gone), so the owner diffs its display state against the live key set after
-//! every finished session ([`Command::SessionOutcome`]) and on every heartbeat.
-//! A lost partition merge arrives as [`Command::Reset`], which swaps the whole
-//! world out.
+//! gone), so the owner diffs its display state against the live key set
+//! whenever a finished session ([`Command::SessionOutcome`]) or a heartbeat
+//! has marked a sweep pending. The sweep and the view publish are both
+//! O(display state) while session outcomes arrive at mesh rate, so neither
+//! runs per event: a coalescing tick ([`timers::VIEW_COALESCE`]) executes
+//! whatever is pending at most ten times a second. A lost partition merge
+//! arrives as [`Command::Reset`], which swaps the whole world out.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -149,6 +152,11 @@ pub struct Owner {
     merged_notice: Option<String>,
     stats: Stats,
     view_tx: watch::Sender<Arc<View>>,
+    /// State changed since the last publish; the coalescing tick publishes.
+    dirty: bool,
+    /// A session finished (or a heartbeat fired) since the last loss sweep;
+    /// the coalescing tick sweeps before it publishes.
+    sweep_pending: bool,
 }
 
 impl Owner {
@@ -179,6 +187,8 @@ impl Owner {
             merged_notice: None,
             stats: Stats::default(),
             view_tx,
+            dirty: false,
+            sweep_pending: false,
         };
         (owner, view_rx)
     }
@@ -186,15 +196,17 @@ impl Owner {
     /// Drive the actor until [`Command::Shutdown`], then return the `Peer`
     /// (for retirement) and the retire candidates, most recently seen first.
     ///
-    /// The heartbeat interval, the expiry wheel, and the [`CausalMessages`]
-    /// observer are folded into the same select loop the channel feeds, so
-    /// every state transition flows through [`handle`](Self::handle) or
-    /// [`observe_all`](Self::observe_all).
+    /// The heartbeat interval, the expiry wheel, the coalescing tick, and
+    /// the [`CausalMessages`] observer are folded into the same select loop
+    /// the channel feeds, so every state transition flows through
+    /// [`handle`](Self::handle) or [`observe_all`](Self::observe_all).
     pub async fn run(mut self, mut rx: mpsc::Receiver<Command>) -> (Peer<Entry>, Vec<PeerId>) {
-        /// One turn of the owner loop: either a command or an observation.
+        /// One turn of the owner loop: a command, an observation, or the
+        /// coalescing tick that executes deferred sweeps and publishes.
         enum Turn {
             Cmd(Command),
             Observed((Key, Version, Arc<Entry>)),
+            Refresh,
         }
 
         // Announce ourselves to the (initially one-node) universe, presence
@@ -222,6 +234,7 @@ impl Owner {
         self.publish();
 
         let mut heartbeat = tokio::time::interval(timers::HEARTBEAT_INTERVAL);
+        let mut refresh = tokio::time::interval(timers::VIEW_COALESCE);
         loop {
             // The select borrows the wheel and the observer; bundling its
             // outcome into a `Turn` ends those borrows before `self` is
@@ -232,6 +245,7 @@ impl Owner {
                 tokio::select! {
                     Some(cmd) = rx.recv() => Turn::Cmd(cmd),
                     _ = heartbeat.tick() => Turn::Cmd(Command::HeartbeatTick),
+                    _ = refresh.tick() => Turn::Refresh,
                     // The guard keeps an empty wheel from being polled at all;
                     // `DelayQueue` ends its stream when empty rather than
                     // registering a waker for future inserts.
@@ -246,12 +260,33 @@ impl Owner {
             };
             match turn {
                 Turn::Cmd(Command::Shutdown) => break,
-                Turn::Cmd(cmd) => self.handle(cmd),
-                Turn::Observed(observed) => self.observe_all(vec![observed]),
+                Turn::Cmd(cmd) => {
+                    self.handle(cmd);
+                    self.dirty = true;
+                }
+                Turn::Observed(observed) => {
+                    self.observe_all(vec![observed]);
+                    self.dirty = true;
+                }
+                Turn::Refresh => self.refresh(),
             }
-            self.publish();
         }
         self.shutdown().await
+    }
+
+    /// One coalescing tick: run the deferred loss sweep, then publish a
+    /// fresh view if any turn changed state since the last one. Sweep
+    /// before publish, so a view never shows a key the sweep is about to
+    /// drop.
+    fn refresh(&mut self) {
+        if self.sweep_pending {
+            self.sweep_pending = false;
+            self.sweep_losses();
+        }
+        if self.dirty {
+            self.dirty = false;
+            self.publish();
+        }
     }
 
     /// Apply one command to the state machine.
@@ -289,7 +324,7 @@ impl Owner {
                 }]);
                 let effects = self.state.sweep_stale(now);
                 self.apply(effects);
-                self.sweep_losses();
+                self.sweep_pending = true;
             }
             Command::ExpiryDue { key } => {
                 self.expiry_keys.remove(&key);
@@ -309,9 +344,10 @@ impl Owner {
                     self.stats.sessions_failed += 1;
                 }
                 // The session may have learned peer redactions, which are
-                // silent (the leaf is simply gone): diff the display state
-                // against the live set.
-                self.sweep_losses();
+                // silent (the leaf is simply gone): mark the live-set diff
+                // pending. Deferred, not run inline — outcomes arrive at
+                // mesh rate, and the diff walks the whole live set.
+                self.sweep_pending = true;
             }
             Command::Shutdown => unreachable!("run() intercepts Shutdown"),
         }
