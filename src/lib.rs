@@ -1,113 +1,112 @@
-//! Unordered gossip with redaction.
+//! Lightspeed causal gossip for high-bandwidth networks.
 //!
 //! `rumors` replicates a set of messages across a fleet of peers with no
-//! coordinator and no reliable connectivity: every peer holds a full replica,
-//! changes it locally without asking anyone, and reconciles pairwise with
-//! whichever peer it can reach next. Replicas that gossip converge on the same
-//! set no matter the order, pairing, or repetition of their sessions, and a
-//! session is priced by divergence, not by history: bytes on the wire scale
-//! with the *difference* between the two replicas, round trips are bounded by
-//! the content trie's fixed depth, and neither side rescans what the two
-//! already share. (The internal protocol docs quantify each axis; see
-//! [Internals](#internals).)
+//! coordination: every peer holds a full replica, changes it locally (inserting
+//! *or* removing messages), and reconciles pairwise with whichever peer(s) it
+//! can reach. Replicas which transitively gossip eventually converge on the
+//! same set of messages; `rumors` works hard to turn "eventually" into "ASAP".
 //!
-//! Reach for it when shared state must survive partition and peer churn,
-//! and when deleting an entry has to actually delete it:
+//! Unlike many gossip protocols, `rumors` features **redaction**. When any peer
+//! redacts a message, it is contagiously purged from every peer's memory,
+//! allowing superseded messages to be garbage-collected without global
+//! coordination. Redaction is effectively free along every axis: it costs little
+//! additional communication to convey an arbitrary quantity of redactions, and
+//! zero residual local bookkeeping after messages are redacted. This means that
+//! memory usage scales up *and down* with the live set of messages, and bandwidth
+//! scales up *and down* with the quantity of previously-unknown messages.
 //!
-//! - **The set is unordered.** Any two peers that can reach each other make
-//!   progress alone. Causality is still tracked: every message carries a
-//!   [`Version`] which can be used when a consumer needs it.
-//! - **Redaction is real deletion.** A redacted message is gone, not
-//!   masked: replicas spend no memory or bandwidth remembering it, yet
-//!   gossip still tells "deleted here" apart from "never arrived" on every
-//!   replica. Use it for retraction, expiry, and data that must not
-//!   outlive its purpose.
-//! - **Sessions spend bandwidth to save round trips.** Reconciliation
-//!   descends a 256-wide hash trie, shipping whole sibling fans
-//!   speculatively so a session finishes in a handful of round trips where
-//!   a binary Merkle descent would take dozens. The protocol is built for
-//!   links where latency, not throughput, is the scarce resource — a rack,
-//!   a data center, ordinary fiber: even at 1 Gb/s with a 2 ms ping, a
-//!   steady-state session is bounded by its round trips, not its bytes.
+//! # When *should* you use it?
 //!
-//! # Should you use it?
+//! **If bandwidth is abundant and latency matters.**
 //!
-//! No, if any of these hold:
+//! Most gossip protocols are designed to be thrifty with bandwidth, trading
+//! increased rounds of communication for smaller metadata overhead. However,
+//! bandwidth is only getting cheaper and more plentiful, whereas *latency* is
+//! capped by the laws of physics. `rumors` is designed for today and tomorrow;
+//! it optimizes for extremely fast convergence when bandwidth is not a primary
+//! constraint.
 //!
-//! - **The set outgrows its smallest peer.** Every peer replicates the
-//!   whole set, in memory. Sharding, spill-to-disk, or unbounded growth
-//!   call for a database instead.
-//! - **You need an ordered, durable history.** A replicated log gives you
-//!   sequence, replay, and audit; `rumors` deliberately has none of them.
-//! - **You don't control the peers.** Peers in one universe trust one
-//!   another: the protocol rejects malformed and mismatched sessions, but
-//!   it is not Byzantine-tolerant — a compromised member can fabricate and
-//!   redact at will. Authenticating peers and securing the transport are
-//!   the application's job; run sessions only over channels you already
-//!   trust.
-//! - **Bandwidth is your scarce resource.** The round-trip thrift above is
-//!   paid for in bytes: at small divergences, each differing message drags
-//!   on the order of 10 KB of distinguishing hash traffic, so for payloads under
-//!   ~10 KB the hashes, not your data, are most of the bill, and a large
-//!   catch-up ships hash records comparable to the bodies. On metered,
-//!   narrow, or high-loss links (cellular, satellite, etc.), that trade
-//!   runs backwards; `rumors` assumes a link whose bandwidth-delay product
-//!   dwarfs its hash traffic.
+//! **`rumors` could be a particularly excellent fit if:**
 //!
-//! # Membership is custody, not configuration
+//! - peers produce in total **less than 10,000 messages/second**, and
+//! - each peer-to-peer link offers **1 Gb/s or better**.
 //!
-//! No shared secret, config value, or registry makes a peer a member of a
-//! universe. Membership is an *identity*: minted once, whole, when the universe
-//! is seeded, and split off a live member each time a new peer joins. Belonging
-//! flows through contact — you are a member because a member made you one
-//! ([`Peer::bootstrap`]), back along a chain of introductions that ends at the
-//! seed — and it flows back out the same way: a leaving peer returns its
-//! identity through any member ([`Peer::retire`]).
+//! In this regime, every change propagates at the pace of a few network round
+//! trips per gossip hop, for any message set size that fits in memory. Required
+//! bandwidth scales linearly down with message rate (for example, 100
+//! messages/s at 10 Mb/s), and total set size increases cost only by a (very
+//! slow-growing) logarithmic factor. These figures price `rumors`' own metadata
+//! overhead; message bodies ride on top at their raw byte rate (at 10,000
+//! messages/s, about 80 Mb/s per KB of mean body size). That term is a rounding
+//! error for sub-KB bodies, and overtakes the metadata around 10 KB; past that,
+//! you are paying to move your data, not to coordinate it, a cost no
+//! replication scheme escapes.
 //!
-//! Identities are returned rather than discarded because identity is
-//! *representational space*: every message's [`Version`] is expressed in terms
-//! of the identity splits that exist, so each split widens timestamps a little,
-//! and each return narrows them again. Hence the lifecycle's ceremonies.
-//! Joining hands you a share; leaving hands it back; a peer that crashes — or
-//! simply drops off without retiring — strands its share, and the universe's
-//! timestamps stay a little wider forever. Stranding wastes, but never
-//! corrupts. (The identity machinery is [`before`]'s interval tree clocks; see
-//! its docs for the model and for the ITC paper it implements.)
+//! **At the limits:** A link up to roughly an order of magnitude thinner (or a
+//! message rate an order of magnitude faster) than these bounds degrades
+//! gracefully rather than failing outright; peers may still converge, but may
+//! run stale proportionately to approximately the square of the bandwidth
+//! shortfall; with even less bandwidth (or even faster message rates) still,
+//! they will likely fall behind regardless of gossip frequency. In the other
+//! direction, past ~10 Gb/s, the network ceases to be the limit at all: message
+//! rate becomes limited by CPU, and set size becomes limited by RAM.
+//!
+//! # When *shouldn't* you use it?
+//!
+//! - **If the set of live messages outgrows its smallest peer.** Every peer
+//!   replicates the whole set; sharding is not supported.
+//! - **If you need a consistently ordered, durable history.** A replicated log
+//!   gives you sequencing; `rumors` only gives you causal ordering, which may
+//!   be linearized differently between peers.
+//! - **If you don't control the peers.** Peers trust one another: the protocol
+//!   rejects malformed and mismatched sessions, but it is not Byzantine-tolerant:
+//!   a compromised member can fabricate, redact, and deny service. Authenticating
+//!   peers and securing the transport are the application's job.
+//! - **If bandwidth is your scarce resource.** `rumors` is optimized to minimize
+//!   round-trip latency, but it pays for this in bandwidth: when reconciling small
+//!   divergences, payloads under ~10 KB use more bandwidth for metadata than for
+//!   messages. On the bright side, reconciling larger divergences amortizes much
+//!   of this cost: the more catching-up there is to do, the higher throughput
+//!   `rumors` can deliver. That notwithstanding, on metered, narrow, or high-loss
+//!   links, this crate strikes the wrong balance.
+//!
+//! # Network membership is identity custody
+//!
+//! No global shared secret initiates a peer into a gossip network. Instead,
+//! membership in the network is contagious, just like messages. Initially, a new
+//! gossip network is created by some single call to [`Peer::seed`], and then all
+//! other members join via [`Peer::bootstrap`]ping themselves from some
+//! already-bootstrapped peer, back along a chain of introductions that ends at the
+//! seed.
+//!
+//! Peers may also [`Peer::retire`] from the network, donating their identity to
+//! an arbitrary recipient. Identities are returned to circulation rather than
+//! discarded because peer identity consumes *representational space*: every
+//! message's [`Version`] is expressed in terms of the tree of bootstrapped
+//! identities, so each [`Peer::bootstrap`] widens timestamps a little, and each
+//! [`Peer::retire`] narrows them again. A peer that drops off without retiring
+//! strands its identity, and the universe's timestamps stay a little wider
+//! forever, wasting a few bits of space but not corrupting anything. (The
+//! identity machinery is [`before`]'s interval tree clocks; see its docs for
+//! the model and for the [paper it
+//! implements](https://gsd.di.uminho.pt/members/cbm/ps/itc2008.pdf).)
 //!
 //! # The shape of the API
 //!
-//! One replica has two faces, split by custody. [`Peer`] is the unique `!Clone`
-//! anchor that holds the identity; it appears only at the edges of a replica's
-//! life, where identity moves: minting a universe ([`Peer::seed`]), joining one
-//! ([`Peer::bootstrap`]), leaving it ([`Peer::retire`]). Trading the anchor
-//! away ([`Peer::into_rumors`]) opens the working state: [`Rumors`] clones
-//! freely, and clones send, redact, observe, and gossip concurrently. When the
-//! clones are gone, [`Rumors::try_into_peer`] recovers the anchor. The split is
-//! what lets the compiler — rather than a runtime check — guarantee that
-//! identity moves only while nothing else is touching the replica.
+//! One replica has two faces, split by functionality. [`Peer`] is the unique
+//! `!Clone` anchor that holds the peer's identity; it appears only at the edges
+//! of a replica's life, where identity can move between peers: minting a
+//! universe ([`Peer::seed`]), joining one ([`Peer::bootstrap`]), leaving it
+//! ([`Peer::retire`]).
 //!
-//! Day to day:
-//!
-//! - [`Rumors::send`] and [`Rumors::redact`] change the set;
-//!   [`Rumors::batch`] groups changes into one atomic commit ([`Batch`]).
-//!   Messages are any `T` serializable with [`borsh`] (re-exported, so
-//!   application and crate agree on its version), and every send mints a
-//!   distinct [`Key`] — even for equal bytes — so a redaction targets one
-//!   occurrence, never a set of values.
-//! - [`Rumors::gossip`] runs one reconciliation session over any
-//!   [`AsyncRead`](tokio::io::AsyncRead) /
-//!   [`AsyncWrite`](tokio::io::AsyncWrite) pair. `rumors` never opens
-//!   connections, spawns tasks, or sets timers: transport, scheduling, and
-//!   who talks to whom are the application's.
-//! - [`Rumors::gossip_when`] drives a *long-lived* connection with
-//!   sessions: it initiates whenever a caller-supplied policy stream says
-//!   to (and something actually changed), and serves whenever the remote
-//!   initiates. [`Rumors::changes`] is the change signal to feed it; every
-//!   cadence decision — debounce, jitter, heartbeats — is a stream adapter
-//!   in the caller's hands, so the no-timers rule above survives intact.
-//! - [`Rumors::messages`], [`Rumors::causal_messages`], and
-//!   [`Rumors::snapshot`] observe the set; see
-//!   [below](#which-observer-should-you-use).
+//! Trading the anchor away ([`Peer::into_rumors`]) opens the working state:
+//! [`Rumors`] clones freely, and cloned handles may [`send`](Rumors::send),
+//! [`redact`](Rumors::redact), observe [`messages`](Rumors::messages), and
+//! [`gossip`](Rumors::gossip) concurrently with one another, among other
+//! operations. When all other clones are gone, [`Rumors::try_into_peer`]
+//! recovers the anchor. This temporal partitioning lets the compiler guarantee
+//! that your whole peer identity is transferred in or out only when you have
+//! exclusive ownership of it.
 //!
 //! The [`Peer`] docs walk the full lifecycle as one runnable example,
 //! including every retirement outcome and bootstrapping a universe without
@@ -155,38 +154,7 @@
 //! # Ok::<(), rumors::Error>(())
 //! ```
 //!
-//! # What a session promises
-//!
-//! A [`gossip`](Rumors::gossip) that returns `Ok` leaves both replicas
-//! holding every message either one held when the session began; changes
-//! made concurrently with the session are simply not part of it, and ride
-//! a later one. An `Ok` also leaves the *connection* at a session
-//! boundary — not a byte of later traffic consumed — so the same
-//! reader/writer pair can host the next session, even one the
-//! counterparty eagerly opened before this side's call returned. A session
-//! that fails — or whose future is dropped — commits nothing: the replica
-//! is never left partially merged. The *connection* is dead mid-frame
-//! after any failure or cancellation; discard it and dial again.
-//!
-//! The moves that carry identity each need one more sentence. Cancelling a
-//! [`bootstrap`](Peer::bootstrap) is free: no identity exists yet.
-//! Dropping a [`retire`](Peer::retire) mid-session strands the identity
-//! exactly as a crash would; let it finish and inspect the returned
-//! [`Retire`], which reports the one genuinely uncertain outcome
-//! explicitly instead of guessing. And a failed or cancelled session that
-//! was serving a bootstrapper can strand the identity split it had
-//! already shipped — again waste, never corruption.
-//!
-//! # One rule the types cannot enforce
-//!
-//! **Seed once per universe.** Every cooperating deployment must descend
-//! from exactly one [`Peer::seed`]; peers seeded separately belong to
-//! disjoint universes, and the wire refuses to mix them
-//! ([`Error::NetworkMismatch`]). If no distinguished first peer exists,
-//! seed everywhere and let a deterministic tie-break pick the survivors —
-//! the [`Peer`] docs give a complete uncoordinated recipe.
-//!
-//! # Which observer should you use?
+//! # How should you observe messages?
 //!
 //! - [`Snapshot`] ([`Rumors::snapshot`]) is a **point-in-time value**:
 //!   iterate it, look up a [`Key`] ([`Snapshot::get`]), or slice it by
@@ -206,28 +174,26 @@
 //!   persist-on-change, UI refresh. It is not delivery; pair it with a
 //!   checkpoint-bearing observer for that.
 //!
-//! The live message observers expose a
-//! [`checkpoint`](Messages::checkpoint): the sound resume point for
-//! delivery across restarts. Its docs state exactly what a resume
-//! re-observes, and why folding the yielded versions yourself is not a
-//! substitute.
+//! The live message observers expose a [`checkpoint`](Messages::checkpoint):
+//! the sound resume point for delivery across restarts. Its docs state exactly
+//! what a resume re-observes, and why folding the yielded versions yourself is
+//! not a substitute.
 //!
 //! # Async and sync
 //!
-//! Everything async here is runtime-agnostic: sessions and observers are
-//! plain futures and streams, driven entirely by the caller. The I/O
-//! *traits* are tokio's; from another runtime, bridge with
-//! [`tokio_util::compat`]. With no async runtime at all, use the [`sync`]
-//! module — the same engine behind blocking calls over
-//! [`std::io::Read`]/[`Write`](std::io::Write). Do not call that blocking
-//! face from async context.
+//! Everything async here is runtime-agnostic: sessions and observers are plain
+//! futures and streams, driven entirely by the caller. The I/O *traits* are
+//! tokio's; from another runtime, bridge with [`tokio_util::compat`]. With no
+//! async runtime at all, use the [`sync`] module — the same engine behind
+//! blocking calls over [`std::io::Read`]/[`Write`](std::io::Write). Do not call
+//! that blocking face from async context.
 //!
 //! # Wire compatibility
 //!
 //! Every session opens with a fixed-size preamble frame carrying
 //! [`PROTOCOL_MAGIC`] and [`PROTOCOL_VERSION`]; a counterparty that is not
-//! speaking `rumors`, or speaks an incompatible version, is rejected before
-//! any peer-declared frame length is trusted ([`Error::MagicMismatch`],
+//! speaking `rumors`, or speaks an incompatible version, is rejected before any
+//! peer-declared frame length is trusted ([`Error::MagicMismatch`],
 //! [`Error::VersionMismatch`]).
 //!
 //! # Stability and testing
@@ -237,24 +203,9 @@
 //! deliberate [`PROTOCOL_VERSION`] bump.
 //!
 //! The crate is validated by property tests stating the model's invariants
-//! (convergence under arbitrary gossip schedules, deletion honoring,
-//! observer soundness), with every discovered counterexample's seed
-//! committed under `proptest-regressions/`; by the wire-format snapshots;
-//! and, underneath, by the differential oracles and fuzzed codecs of the
-//! clock library it is built on. Found a gap? An issue or a test is very
-//! welcome.
-//!
-//! # Feature flags
-//!
-//! - `test-internals` — introspection hooks for this crate's own test
-//!   suites, all `#[doc(hidden)]`. Never enable it in an application.
-//!
-//! # Internals
-//!
-//! The *why* of the design — the content-addressed Merkle radix trie, the
-//! mirror reconciliation protocol and its phase schedule, and the interval tree
-//! clocks ([`before`]) that carry causality — is documented in rustdoc beside
-//! the code, in private modules the public build does not render.
+//! (convergence under arbitrary gossip schedules, deletion honoring, observer
+//! soundness); by the wire-format snapshots. Found a gap? An issue or a test is
+//! very welcome.
 
 // Static assertions uses #[allow(unsafe_code)], so we allow it only in tests
 #![cfg_attr(not(test), forbid(unsafe_code))]
