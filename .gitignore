@@ -1,2 +1,3 @@
 # Compiled artifacts; derivable from the .tex (tectonic).
 results/*.pdf
+target/

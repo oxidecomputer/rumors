@@ -47,10 +47,10 @@
 //!   trust.
 //! - **Bandwidth is your scarce resource.** The round-trip thrift above is
 //!   paid for in bytes: at small divergences, each differing message drags
-//!   roughly 5–13 KB of distinguishing hash traffic — for payloads under
-//!   ~10 KB the hashes, not your data, are most of the bill — and a large
+//!   on the order of 10 KB of distinguishing hash traffic, so for payloads under
+//!   ~10 KB the hashes, not your data, are most of the bill, and a large
 //!   catch-up ships hash records comparable to the bodies. On metered,
-//!   narrow, or high-loss links (cellular, satellite, LoRa), that trade
+//!   narrow, or high-loss links (cellular, satellite, etc.), that trade
 //!   runs backwards; `rumors` assumes a link whose bandwidth-delay product
 //!   dwarfs its hash traffic.
 //!
