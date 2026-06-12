@@ -1,7 +1,7 @@
 //! Pins the wire-visible hash preimage convention, so the contiguous-buffer
 //! `branch` rewrite cannot silently change any on-the-wire hash.
 
-use super::{BRANCH_TAG, Hash, LEAF_TAG, MERKLE_HASH_LEN};
+use super::{BRANCH_TAG, ContentHash, Hash, LEAF_TAG, MERKLE_HASH_LEN};
 
 /// A branch commits to exactly `BRANCH_TAG ‖ (radix ‖ child_hash)*` over its
 /// children in the iteration order given — radix byte first, then the 16-byte
@@ -29,4 +29,17 @@ fn empty_root_and_leaf_are_their_bare_tags() {
     assert_eq!(Hash::empty_root(), Hash::of(&[BRANCH_TAG]));
     assert_eq!(Hash::leaf(), Hash::of(&[LEAF_TAG]));
     assert_ne!(Hash::empty_root(), Hash::leaf());
+}
+
+/// A Merkle hash is the prefix truncation of the full-width content hash of
+/// the same preimage: the leading `MERKLE_HASH_LEN` bytes, nothing
+/// rearranged or re-hashed. Pinned so an accidental change to either
+/// primitive's construction trips here before it reaches the wire
+/// snapshots.
+#[test]
+fn merkle_hash_is_prefix_of_full_width() {
+    let preimage = b"any preimage at all";
+    let truncated = Hash::of(preimage);
+    let full = ContentHash::of(preimage);
+    assert_eq!(truncated.as_bytes()[..], full.as_bytes()[..MERKLE_HASH_LEN]);
 }

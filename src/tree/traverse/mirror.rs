@@ -41,7 +41,7 @@
 //! These constants are a deliberate tilt toward latency-dominated links.
 //! The 256 fanout and the two-height stride narrow the search space by
 //! 256² per round — while shipping only the disputed frontier's actual
-//! children, pruned by hash agreement every half-round, up to ~9 KB per
+//! children, pruned by hash agreement every half-round, up to ~5 KB per
 //! disputed node — finishing the descent in ~2 exchanges at scales where
 //! a binary Merkle descent would take ~30 rounds. The protocol assumes the link's
 //! bandwidth-delay product dwarfs `r̄·W` per session; on a bandwidth-bound

@@ -1,7 +1,8 @@
 //! Scratch microbenchmark: how should `Hash::branch` feed Blake3?
 //!
-//! The branch preimage is `BRANCH_TAG ‖ (radix ‖ 32-byte child hash)*` — each
-//! child is a 33-byte record that straddles Blake3's 64-byte block boundary.
+//! The branch preimage is `BRANCH_TAG ‖ (radix ‖ 16-byte child hash)*` — each
+//! child is a 17-byte record, so several records share one of Blake3's
+//! 64-byte blocks.
 //! The original implementation streamed two `update` calls per child (the radix
 //! byte alone, then the 32-byte hash); this bench asked whether assembling a
 //! contiguous buffer first is faster, across realistic fan-outs — it is, and
@@ -9,7 +10,7 @@
 //!
 //! Strategies:
 //!   - `stream2`: the original — `update(&[radix]); update(&hash)` per child.
-//!   - `stream1`: one `update` per child of a 33-byte stack record.
+//!   - `stream1`: one `update` per child of a 17-byte stack record.
 //!   - `buffer_oneshot`: fill a reused contiguous buffer, then `blake3::hash`
 //!     (what `Hash::branch` ships today).
 //!
@@ -25,13 +26,17 @@ use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
 const BRANCH_TAG: u8 = 1;
 
+/// Width of a child hash in a branch preimage: the tree's truncated
+/// Merkle width.
+const HASH_LEN: usize = rumors::MERKLE_HASH_LEN;
+
 /// Fan-outs to sweep: 1 is the path-compressed singleton (worst-case
 /// reconstruction), 256 is a saturated branch, the rest fill in between.
 const FANOUTS: &[usize] = &[1, 2, 4, 8, 16, 64, 256];
 
 /// A deterministic set of `k` (radix, hash) children. Radixes need not be
 /// distinct for a hashing microbench; the byte content only has to be fixed.
-fn children(k: usize) -> Vec<(u8, [u8; 32])> {
+fn children(k: usize) -> Vec<(u8, [u8; HASH_LEN])> {
     (0..k)
         .map(|i| {
             let r = (i as u8).wrapping_mul(7).wrapping_add(3);
@@ -42,7 +47,7 @@ fn children(k: usize) -> Vec<(u8, [u8; 32])> {
 }
 
 /// The original implementation: two `update` calls per child.
-fn stream2(children: &[(u8, [u8; 32])]) -> [u8; 32] {
+fn stream2(children: &[(u8, [u8; HASH_LEN])]) -> [u8; 32] {
     let mut hasher = blake3::Hasher::new();
     hasher.update(&[BRANCH_TAG]);
     for (radix, hash) in children {
@@ -52,11 +57,11 @@ fn stream2(children: &[(u8, [u8; 32])]) -> [u8; 32] {
     *hasher.finalize().as_bytes()
 }
 
-/// One `update` per child of a 33-byte stack record.
-fn stream1(children: &[(u8, [u8; 32])]) -> [u8; 32] {
+/// One `update` per child of a 17-byte stack record.
+fn stream1(children: &[(u8, [u8; HASH_LEN])]) -> [u8; 32] {
     let mut hasher = blake3::Hasher::new();
     hasher.update(&[BRANCH_TAG]);
-    let mut record = [0u8; 33];
+    let mut record = [0u8; 1 + HASH_LEN];
     for (radix, hash) in children {
         record[0] = *radix;
         record[1..].copy_from_slice(hash);
@@ -67,7 +72,7 @@ fn stream1(children: &[(u8, [u8; 32])]) -> [u8; 32] {
 
 /// Assemble a contiguous buffer, then a single one-shot hash. `buf` is reused
 /// across calls so the cost measured is the fill + hash, not allocation.
-fn buffer_oneshot(children: &[(u8, [u8; 32])], buf: &mut Vec<u8>) -> [u8; 32] {
+fn buffer_oneshot(children: &[(u8, [u8; HASH_LEN])], buf: &mut Vec<u8>) -> [u8; 32] {
     buf.clear();
     buf.push(BRANCH_TAG);
     for (radix, hash) in children {
@@ -88,7 +93,7 @@ fn bench(c: &mut Criterion) {
             b.iter(|| stream1(black_box(kids)))
         });
         group.bench_with_input(BenchmarkId::new("buffer_oneshot", k), &kids, |b, kids| {
-            let mut buf = Vec::with_capacity(1 + 33 * k);
+            let mut buf = Vec::with_capacity(1 + (1 + HASH_LEN) * k);
             b.iter(|| buffer_oneshot(black_box(kids), &mut buf))
         });
     }
