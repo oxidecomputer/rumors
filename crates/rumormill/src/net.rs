@@ -46,6 +46,7 @@ use tokio::time::{Instant, timeout};
 use crate::entry::{Entry, PeerId};
 use crate::owner::Command;
 use crate::timers;
+use crate::trace::trace;
 use crate::view::View;
 
 /// The ALPN identifying rumormill sessions.
@@ -170,17 +171,32 @@ async fn drive_connection(
 
     match end {
         End::Clean => {
+            trace(|| format!("drive {}: clean end", conn.remote_id().fmt_short()));
             settle(&mut send, &mut recv).await;
             Ok(())
         }
         // No settle: the peer isn't ending its half. Dropping the driver
         // forfeits the connection; the caller closes it, the connector's
         // backoff redials, and the fresh handles re-arbitrate the merge.
-        End::Stale => Ok(()),
+        End::Stale => {
+            trace(|| {
+                format!(
+                    "drive {}: stale handle, torn down",
+                    conn.remote_id().fmt_short()
+                )
+            });
+            Ok(())
+        }
         End::Failed(Error::NetworkMismatch {
             remote_network,
             remote_min_events,
         }) => {
+            trace(|| {
+                format!(
+                    "drive {}: mismatch, theirs ({remote_min_events}, {remote_network:?})",
+                    conn.remote_id().fmt_short()
+                )
+            });
             let outcome = Command::SessionOutcome {
                 ok: false,
                 network: Some(handle.network()),
@@ -192,14 +208,31 @@ async fn drive_connection(
             // owner's reset guard refuses a double adoption, so the worst
             // case is one wasted bootstrap.)
             let ours = (handle.snapshot().latest().min_ticks(), handle.network());
-            match decide(ours, (remote_min_events, remote_network)) {
+            let verdict = decide(ours, (remote_min_events, remote_network));
+            trace(|| {
+                format!(
+                    "merge {}: ours {ours:?}, verdict {verdict:?}",
+                    conn.remote_id().fmt_short()
+                )
+            });
+            let result = match verdict {
                 // The peer saw the same mismatch and the opposite verdict:
                 // it will open a fresh stream and bootstrap from us.
                 Verdict::Win => serve_merge(conn, cmd).await,
                 Verdict::Lose => request_merge(conn, cmd, ours.1).await,
+            };
+            if let Err(e) = &result {
+                trace(|| {
+                    format!(
+                        "merge {}: {verdict:?} dance failed: {e:#}",
+                        conn.remote_id().fmt_short()
+                    )
+                });
             }
+            result
         }
         End::Failed(e) => {
+            trace(|| format!("drive {}: failed: {e}", conn.remote_id().fmt_short()));
             let outcome = Command::SessionOutcome {
                 ok: false,
                 network: Some(handle.network()),
@@ -286,10 +319,17 @@ async fn dial_and_drive(
     // Replicated bytes that are not a valid public key: a peer published
     // garbage; the backoff in the connector keeps the retry cost bounded.
     let target = EndpointId::from_bytes(&peer).context("peer id is not a valid key")?;
-    let conn = timeout(timers::DIAL_TIMEOUT, endpoint.connect(target, ALPN))
-        .await
-        .context("dial timed out")?
-        .context("dial failed")?;
+    let conn = match timeout(timers::DIAL_TIMEOUT, endpoint.connect(target, ALPN)).await {
+        Ok(Ok(conn)) => conn,
+        Ok(Err(e)) => {
+            trace(|| format!("dial {}: failed: {e:#}", target.fmt_short()));
+            return Err(e).context("dial failed");
+        }
+        Err(elapsed) => {
+            trace(|| format!("dial {}: timed out", target.fmt_short()));
+            return Err(elapsed).context("dial timed out");
+        }
+    };
     let (send, recv) = conn.open_bi().await.context("opening the gossip stream")?;
     let result = drive_connection(&conn, send, recv, cmd, view).await;
     conn.close(0u32.into(), b"done");

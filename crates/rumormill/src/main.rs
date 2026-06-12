@@ -59,6 +59,7 @@ mod net;
 mod owner;
 mod state;
 mod timers;
+mod trace;
 mod ui;
 mod view;
 

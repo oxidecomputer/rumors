@@ -423,8 +423,22 @@ impl Owner {
             // Stale or out-raced reset. Dropping `known` abandons the party
             // region the winner forked for us — a leak in a universe we are
             // not adopting, which is the acceptable cost of losing the race.
+            crate::trace::trace(|| {
+                format!(
+                    "reset declined: abandoned {abandoned:?}, adopted-candidate {:?}, current {:?}",
+                    known.network(),
+                    self.rumors.network()
+                )
+            });
             return;
         }
+        crate::trace::trace(|| {
+            format!(
+                "reset adopted: {:?} -> {:?}",
+                self.rumors.network(),
+                known.network()
+            )
+        });
 
         // The old universe is gone wholesale: state, timers, highlights,
         // handle, observer. Stale `Rumors` clones still inside connection

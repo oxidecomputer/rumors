@@ -91,8 +91,15 @@ pub struct Node {
 
 impl Node {
     /// Spawn the rumormill binary under a fresh PTY, dialing `peer` if
-    /// given (which also skips the connect dialog).
-    pub fn spawn(bin: &Path, name: &str, peer: Option<&str>) -> anyhow::Result<Node> {
+    /// given (which also skips the connect dialog). With `trace_dir`, the
+    /// node writes its connection-lifecycle trace to `<dir>/<name>.log`
+    /// (rumormill's `RUMORMILL_TRACE`).
+    pub fn spawn(
+        bin: &Path,
+        name: &str,
+        peer: Option<&str>,
+        trace_dir: Option<&Path>,
+    ) -> anyhow::Result<Node> {
         let pty = native_pty_system()
             .openpty(PtySize {
                 rows: ROWS,
@@ -107,6 +114,9 @@ impl Node {
             cmd.args(["--peer", peer]);
         }
         cmd.env("TERM", "xterm-256color");
+        if let Some(dir) = trace_dir {
+            cmd.env("RUMORMILL_TRACE", dir.join(format!("{name}.log")));
+        }
         let child = pty.slave.spawn_command(cmd).context("spawning rumormill")?;
         drop(pty.slave);
 

@@ -80,6 +80,11 @@ struct Args {
     /// can walk dial timeouts during a quit storm).
     #[arg(long, default_value_t = 180)]
     quit_secs: u64,
+
+    /// Directory for per-node connection-lifecycle traces
+    /// (`RUMORMILL_TRACE`); created if missing.
+    #[arg(long, default_value = "/tmp/rumormill-soak-trace")]
+    trace_dir: PathBuf,
 }
 
 /// Spacing between sends during the all-nodes flood: fast enough to be a
@@ -153,9 +158,17 @@ fn run(args: &Args) -> anyhow::Result<bool> {
     let n = args.nodes;
     let nonce = std::process::id();
 
+    // Fresh traces per run: stale logs from a previous run would mislead.
+    let _ = std::fs::remove_dir_all(&args.trace_dir);
+    std::fs::create_dir_all(&args.trace_dir).context("creating the trace dir")?;
+    let trace_dir = Some(args.trace_dir.as_path());
+    log.say(&format!("node traces: {}", args.trace_dir.display()));
+
     // ── seed ────────────────────────────────────────────────────────────
     log.say("spawning the seed node n000");
-    fleet.nodes.push(Node::spawn(&rumormill, "n000", None)?);
+    fleet
+        .nodes
+        .push(Node::spawn(&rumormill, "n000", None, trace_dir)?);
     let seed_id = await_value(Duration::from_secs(30), POLL, || {
         scrape::endpoint_id(&fleet.nodes[0].raw())
     })
@@ -198,6 +211,7 @@ fn run(args: &Args) -> anyhow::Result<bool> {
             &rumormill,
             &format!("n{i:03}"),
             Some(&seed_id),
+            trace_dir,
         )?);
     }
 
@@ -410,6 +424,18 @@ fn run(args: &Args) -> anyhow::Result<bool> {
                     .or_default() += 1;
                 histogram
             });
+        // Attribution data: a stuck node whose *live count* dropped and
+        // whose screen shows a goodbye notice received the retire delta
+        // (display problem); one with neither never got it (set problem).
+        for node in stuck.iter().take(5) {
+            let screen = node.screen();
+            let live = scrape::header_stats(&screen).map(|s| s.live);
+            let goodbye = screen.contains(" left");
+            log.say(&format!(
+                "stuck survivor {}: live={live:?} goodbye-visible={goodbye}",
+                node.name
+            ));
+        }
         report.warnings.push(format!(
             "survivor rosters had not all shrunk to peers ({survivors}) within 60s of the quit \
              storm (stuck: {histogram:?}): leaked retirements age out only via the staleness \
