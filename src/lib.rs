@@ -99,6 +99,12 @@
 //!   [`AsyncWrite`](tokio::io::AsyncWrite) pair. `rumors` never opens
 //!   connections, spawns tasks, or sets timers: transport, scheduling, and
 //!   who talks to whom are the application's.
+//! - [`Rumors::gossip_when`] drives a *long-lived* connection with
+//!   sessions: it initiates whenever a caller-supplied policy stream says
+//!   to (and something actually changed), and serves whenever the remote
+//!   initiates. [`Rumors::changes`] is the change signal to feed it; every
+//!   cadence decision — debounce, jitter, heartbeats — is a stream adapter
+//!   in the caller's hands, so the no-timers rule above survives intact.
 //! - [`Rumors::messages`], [`Rumors::causal_messages`], and
 //!   [`Rumors::snapshot`] observe the set; see
 //!   [below](#which-observer-should-you-use).
@@ -194,11 +200,17 @@
 //!   causally depends on, for an amortized logarithmic surcharge with
 //!   bursts up to the size of the set. Use it only when consumers require
 //!   causal delivery.
+//! - [`Changes`] ([`Rumors::changes`]) is the **live signal, no content**:
+//!   one coalesced `()` per observed advance of the set, for waking work
+//!   that reacts to change without consuming it — gossip drivers,
+//!   persist-on-change, UI refresh. It is not delivery; pair it with a
+//!   checkpoint-bearing observer for that.
 //!
-//! The live observers expose a [`checkpoint`](Messages::checkpoint): the
-//! sound resume point for delivery across restarts. Its docs state exactly
-//! what a resume re-observes, and why folding the yielded versions
-//! yourself is not a substitute.
+//! The live message observers expose a
+//! [`checkpoint`](Messages::checkpoint): the sound resume point for
+//! delivery across restarts. Its docs state exactly what a resume
+//! re-observes, and why folding the yielded versions yourself is not a
+//! substitute.
 //!
 //! # Async and sync
 //!
@@ -270,8 +282,8 @@ pub use ::borsh;
 pub use batch::Batch;
 pub use before::{Version, causally};
 pub use network::Network;
-pub use peer::{Peer, Retire};
-pub use rumors::{CausalMessages, Messages, Rumors};
+pub use peer::{Led, Peer, Retire, Session};
+pub use rumors::{CausalMessages, Changes, Messages, Rumors};
 pub use snapshot::Snapshot;
 pub use tree::Key;
 pub use tree::MERKLE_HASH_LEN;

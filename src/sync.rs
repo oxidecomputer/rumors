@@ -27,6 +27,11 @@
 //! the transport's own timeouts (e.g. socket read timeouts, which surface
 //! here as session errors) to bound a stalled counterparty.
 //!
+//! The change-driven driver ([`crate::Rumors::gossip_when`]) has no
+//! blocking face: it is one task racing a policy stream against the wire,
+//! which is concurrency a blocking call cannot express. A blocking
+//! application schedules its own [`gossip`](Rumors::gossip) calls instead.
+//!
 //! # Example
 //!
 //! The crate-root example, with no runtime anywhere: plain threads and OS

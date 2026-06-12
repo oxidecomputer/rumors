@@ -12,7 +12,7 @@ use crate::{Batch, CausalMessages, Key, Messages, Network, Rumors, Snapshot, Ver
 
 mod gossip;
 
-pub use gossip::{PROTOCOL_MAGIC, PROTOCOL_VERSION, Retire};
+pub use gossip::{Led, PROTOCOL_MAGIC, PROTOCOL_VERSION, Retire, Session};
 
 /// The start and end of the lifecycle of a [`Rumors`].
 ///

@@ -64,8 +64,8 @@ use super::protocol::{self, Step};
 pub mod framing;
 mod preamble;
 
-pub use framing::{FrameRead, FrameWrite};
-pub use preamble::preamble;
+pub use framing::{Fill, FrameRead, FrameWrite};
+pub use preamble::{Staged, preamble};
 pub(crate) use preamble::{recv_party, send_party};
 
 /// The error type returned by the gossip protocol.

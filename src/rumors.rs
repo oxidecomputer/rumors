@@ -1,11 +1,14 @@
 mod acausal;
 mod causal;
+mod changes;
 
 pub use acausal::Messages;
 pub use causal::CausalMessages;
+pub use changes::Changes;
 
-use crate::{Batch, Error, Key, Network, Peer, Snapshot, Version};
+use crate::{Batch, Error, Key, Network, Peer, Session, Snapshot, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
+use futures::Stream;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::{
@@ -209,6 +212,115 @@ impl<T> Rumors<T> {
         self.peer.gossip(read, write).await
     }
 
+    /// Drives a long-lived connection: runs one gossip session per `when`
+    /// tick — if the set changed since this connection last converged — and
+    /// serves every session the remote initiates, until `when` ends or the
+    /// connection fails.
+    ///
+    /// `when` is the entire initiation policy: [`changes`](Self::changes)
+    /// gossips on change, an interval stream adds periodic anti-entropy,
+    /// debounce/jitter adapters set cadence, and a pending stream only ever
+    /// serves. Ticks coalesce — one pending tick covers all missed ones —
+    /// but an always-ready stream (`stream::repeat`) busy-loops while
+    /// suppressed: a tick stream should go quiet between reasons to gossip.
+    /// One-shot [`gossip`](Self::gossip) is the degenerate case: a single
+    /// immediate tick, drained.
+    ///
+    /// The returned stream is `Unpin`, progresses only while polled, and
+    /// yields one [`Session`] per completed session, remote-led included.
+    /// It ends three ways:
+    ///
+    /// - the connection fails: one final `Err` (replica unchanged, the
+    ///   transport mid-frame garbage — discard it);
+    /// - `when` ends: cleanly, after finishing any session in flight;
+    /// - the remote hangs up at a session boundary: cleanly — its goodbye.
+    ///
+    /// # Suppression
+    ///
+    /// A tick initiates only if the local frontier has advanced past this
+    /// connection's last [`converged`](Session::converged) version. A
+    /// driver fed by [`changes`](Self::changes) therefore never echoes a
+    /// session back after its own join, and an idle heartbeat costs nothing
+    /// on the wire — but a suppressed tick never *pulls*: each side pushes
+    /// its own news (remote news always arrives remote-led), and probing a
+    /// silent connection for liveness is the transport's job (keepalives),
+    /// not a tick's.
+    ///
+    /// # Cancellation and connection reuse
+    ///
+    /// Polling is cancel-safe: all driver state lives in the stream, never
+    /// in a `next()` future, so racing `next()` in a `select!` and dropping
+    /// the loser loses nothing. Dropping the *stream* is cancellation with
+    /// the [session contract](crate#what-a-session-promises)'s semantics —
+    /// including the identity hazards of whatever session was in flight —
+    /// plus one of its own: the driver may already hold the first bytes of
+    /// a remote initiation, which die with it. **A dropped driver forfeits
+    /// the connection; one that ended leaves it at a session boundary**,
+    /// ready for whatever speaks the protocol next — another driver,
+    /// one-shot [`gossip`](Self::gossip), a [`retire`](crate::Peer::retire).
+    ///
+    /// # Examples
+    ///
+    /// Two replicas keep one connection converged, each end driving with
+    /// its own change signal:
+    ///
+    /// ```
+    /// use futures::StreamExt;
+    /// use rumors::Peer;
+    ///
+    /// # tokio::runtime::Builder::new_current_thread()
+    /// #     .build()
+    /// #     .unwrap()
+    /// #     .block_on(async {
+    /// let alice = Peer::<String>::seed().into_rumors();
+    /// # let (near, far) = tokio::io::duplex(64 * 1024);
+    /// # let serve = alice.clone();
+    /// # let server = tokio::spawn(async move {
+    /// #     let (mut read, mut write) = tokio::io::split(far);
+    /// #     serve.gossip(&mut read, &mut write).await.unwrap();
+    /// # });
+    /// # let (mut read, mut write) = tokio::io::split(near);
+    /// let bob = Peer::<String>::bootstrap(&mut read, &mut write)
+    ///     .await?
+    ///     .expect("alice is established")
+    ///     .into_rumors();
+    /// # server.await.unwrap();
+    ///
+    /// // A long-lived connection between them, one driver per end.
+    /// let (alice_side, bob_side) = tokio::io::duplex(64 * 1024);
+    /// let (mut a_read, mut a_write) = tokio::io::split(alice_side);
+    /// let (mut b_read, mut b_write) = tokio::io::split(bob_side);
+    ///
+    /// alice.send("psst".to_string());
+    ///
+    /// let mut alice_drive = alice.gossip_when(alice.changes(), &mut a_read, &mut a_write);
+    /// let mut bob_drive = bob.gossip_when(bob.changes(), &mut b_read, &mut b_write);
+    ///
+    /// // Alice's change signal initiates; Bob's driver serves. One session
+    /// // converges the pair, and each driver reports it.
+    /// let (pushed, served) = tokio::join!(alice_drive.next(), bob_drive.next());
+    /// pushed.expect("driver running")?;
+    /// served.expect("driver running")?;
+    /// assert_eq!(bob.snapshot().len(), 1);
+    /// # Ok::<(), rumors::Error>(())
+    /// # })?;
+    /// # Ok::<(), rumors::Error>(())
+    /// ```
+    pub fn gossip_when<'a, R, W, S>(
+        &'a self,
+        when: S,
+        read: &'a mut R,
+        write: &'a mut W,
+    ) -> impl Stream<Item = Result<Session, Error>> + Unpin + 'a
+    where
+        T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
+        R: AsyncRead + Unpin + Send,
+        W: AsyncWrite + Unpin + Send,
+        S: Stream<Item = ()> + 'a,
+    {
+        self.peer.gossip_when(when, read, write)
+    }
+
     /// The identifier shared by every peer that descends from the same
     /// [`seed`](Peer::seed).
     pub fn network(&self) -> Network {
@@ -268,6 +380,15 @@ impl<T> Rumors<T> {
         T: Send + Sync,
     {
         self.peer.causal_messages_since(since)
+    }
+
+    /// Observe *that* this set changes, without observing what changed: a
+    /// coalescing stream that yields `()` immediately on first poll and then
+    /// once per observed advance of the set's causal frontier. See
+    /// [`Changes`] for the contract — including why this signal alone must
+    /// not drive [`gossip`](Self::gossip) directly.
+    pub fn changes(&self) -> Changes<T> {
+        Changes::subscribe(&self.peer.inner)
     }
 
     /// Force this set's tree to compute its lazy structural memos (observable

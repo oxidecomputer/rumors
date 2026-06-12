@@ -337,13 +337,27 @@ fn handshake_flushes_over_buffering_transport() {
             let mut b_r = remote::FrameRead::new(b_r);
             let mut a_w = remote::FrameWrite::new(HoldUntilFlush::new(a_w));
             let mut b_w = remote::FrameWrite::new(HoldUntilFlush::new(b_w));
+            let mut a_staged = remote::Staged::new();
+            let mut b_staged = remote::Staged::new();
 
             // The preamble carries only magic + version + network + intent, so
             // this exercises purely the flush/deadlock behavior of the framed
             // greeting exchange.
             let (ra, rb) = tokio::join!(
-                remote::preamble(Network::BOOTSTRAP, Intent::Remain, &mut a_r, &mut a_w),
-                remote::preamble(Network::BOOTSTRAP, Intent::Remain, &mut b_r, &mut b_w),
+                remote::preamble(
+                    Network::BOOTSTRAP,
+                    Intent::Remain,
+                    &mut a_staged,
+                    &mut a_r,
+                    &mut a_w
+                ),
+                remote::preamble(
+                    Network::BOOTSTRAP,
+                    Intent::Remain,
+                    &mut b_staged,
+                    &mut b_r,
+                    &mut b_w
+                ),
             );
             ra.is_ok() && rb.is_ok()
         });

@@ -43,9 +43,10 @@ impl<R: AsyncRead + Unpin> FrameRead<R> {
     /// Read one frame, allocating room for the peer-declared length.
     ///
     /// The length is peer-supplied and trusted without a cap, so this must
-    /// only run after the preamble has validated the counterparty (see
-    /// [`frame_exact`](Self::frame_exact), which is how the preamble itself
-    /// avoids that trust). A close mid-frame surfaces as
+    /// only run after the preamble has validated the counterparty (the
+    /// preamble itself avoids that trust by arriving through
+    /// [`fill_exact`](Self::fill_exact) at its known size). A close
+    /// mid-frame surfaces as
     /// [`UnexpectedEof`](std::io::ErrorKind::UnexpectedEof).
     pub async fn frame(&mut self) -> std::io::Result<Vec<u8>> {
         let mut header = [0u8; 4];
@@ -56,25 +57,59 @@ impl<R: AsyncRead + Unpin> FrameRead<R> {
         Ok(payload)
     }
 
-    /// Read one frame whose payload size is known to be `N` in advance,
-    /// never allocating from the peer-declared length.
+    /// Drive `buf` toward full from the stream, *cancel-safely*: all
+    /// progress lives in (`buf`, `filled`), none in the returned future, so
+    /// the future can be dropped (say, by losing a `select!`) and a later
+    /// call resumes exactly where the read left off. This is how a gossip
+    /// driver holds a pending read for a remote-led session while staying
+    /// free to initiate one itself.
     ///
-    /// Returns the peer's declared length alongside the `N` payload bytes
-    /// actually read; the *caller* judges a `declared != N` mismatch, so it
-    /// can first inspect the payload for a better diagnosis (wrong magic,
-    /// wrong protocol version) before condemning the length. On a mismatch
-    /// the stream is desynchronized — `N` bytes were consumed where
-    /// `declared` were framed — and the caller must abandon the connection,
-    /// which it was about to do anyway: every mismatch path is a protocol
-    /// rejection.
-    pub async fn frame_exact<const N: usize>(&mut self) -> std::io::Result<(u32, [u8; N])> {
-        let mut header = [0u8; 4];
-        self.read.read_exact(&mut header).await?;
-        let declared = u32::from_be_bytes(header);
-        let mut payload = [0u8; N];
-        self.read.read_exact(&mut payload).await?;
-        Ok((declared, payload))
+    /// Resolves [`Fill::Filled`] once `*filled == buf.len()`, and
+    /// [`Fill::Closed`] if the stream ends *before the first byte* — the
+    /// one EOF that is a boundary, not a truncation. An EOF with the buffer
+    /// part-full is a truncation and surfaces as
+    /// [`UnexpectedEof`](std::io::ErrorKind::UnexpectedEof).
+    pub async fn fill_exact(
+        &mut self,
+        buf: &mut [u8],
+        filled: &mut usize,
+    ) -> std::io::Result<Fill> {
+        std::future::poll_fn(|cx| {
+            while *filled < buf.len() {
+                let mut chunk = tokio::io::ReadBuf::new(&mut buf[*filled..]);
+                match std::pin::Pin::new(&mut self.read).poll_read(cx, &mut chunk) {
+                    std::task::Poll::Pending => return std::task::Poll::Pending,
+                    std::task::Poll::Ready(Err(e)) => return std::task::Poll::Ready(Err(e)),
+                    std::task::Poll::Ready(Ok(())) => match chunk.filled().len() {
+                        0 if *filled == 0 => {
+                            return std::task::Poll::Ready(Ok(Fill::Closed));
+                        }
+                        0 => {
+                            return std::task::Poll::Ready(Err(std::io::Error::new(
+                                std::io::ErrorKind::UnexpectedEof,
+                                "peer closed mid-frame",
+                            )));
+                        }
+                        n => *filled += n,
+                    },
+                }
+            }
+            std::task::Poll::Ready(Ok(Fill::Filled))
+        })
+        .await
     }
+}
+
+/// How a [`fill_exact`](FrameRead::fill_exact) drive ended, separating the
+/// two meanings of end-of-stream: a peer that hung up *between* frames
+/// closed at a boundary ([`Closed`](Fill::Closed)); one that hung up inside
+/// a frame truncated it (an error, not a variant).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Fill {
+    /// The buffer is full.
+    Filled,
+    /// The stream ended cleanly before the first byte of the buffer.
+    Closed,
 }
 
 /// The write half of a session's transport, shipping one frame at a time.
