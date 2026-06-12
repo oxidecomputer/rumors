@@ -32,7 +32,7 @@ pub struct View {
     /// Live peers, most recently seen first.
     pub roster: Vec<PeerView>,
     /// Manually added dial targets (paste dialog / --peer) that have not yet
-    /// shown up in the roster; the gossip scheduler unions them in.
+    /// shown up in the roster; the connector unions them in.
     pub dial_targets: Vec<PeerId>,
     /// Session counters for the status line.
     pub stats: Stats,

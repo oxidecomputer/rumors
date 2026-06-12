@@ -153,7 +153,7 @@ pub struct Owner {
 
 impl Owner {
     /// Build an owner around a freshly seeded `Peer` and hand back the view
-    /// channel the UI (and the gossip scheduler) will read.
+    /// channel the UI (and the connector) will read.
     pub fn new(
         known: Peer<Entry>,
         me: PeerId,

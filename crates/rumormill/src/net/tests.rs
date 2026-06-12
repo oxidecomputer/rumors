@@ -56,3 +56,65 @@ fn ties_break_on_network_id() {
     assert_eq!(decide((7, hi), (7, lo)), Verdict::Win);
     assert_eq!(decide((7, lo), (7, hi)), Verdict::Lose);
 }
+
+/// One PeerView roster entry around `peer`, everything else defaulted.
+fn roster_of(peer: PeerId) -> View {
+    View {
+        roster: vec![crate::view::PeerView {
+            peer,
+            name: String::new(),
+            last_seen: 0,
+        }],
+        ..View::default()
+    }
+}
+
+proptest! {
+    /// The dialing tie-break covers every roster pair exactly once: for any
+    /// two distinct peers, exactly one side lists the other as a dial
+    /// candidate, so the steady-state mesh settles on one connection per
+    /// pair with neither a dial storm nor an orphaned pair.
+    #[test]
+    fn exactly_one_roster_side_dials(a in any::<[u8; 32]>(), b in any::<[u8; 32]>()) {
+        prop_assume!(a != b);
+        let (active, backoff) = (HashSet::new(), HashMap::new());
+        let a_dials = !dial_candidates(&roster_of(b), &active, &backoff, a).is_empty();
+        let b_dials = !dial_candidates(&roster_of(a), &active, &backoff, b).is_empty();
+        prop_assert!(a_dials ^ b_dials);
+    }
+}
+
+/// A manual dial target is always ours to dial — the other side may not
+/// know us yet, so the roster tie-break cannot apply — but live connections
+/// and backed-off peers are still excluded.
+#[test]
+fn manual_targets_are_always_ours_to_dial() {
+    let me = [9u8; 32];
+    let target = [1u8; 32]; // smaller than `me`: the tie-break would defer
+    let view = View {
+        dial_targets: vec![target],
+        ..View::default()
+    };
+
+    let (active, backoff) = (HashSet::new(), HashMap::new());
+    assert_eq!(dial_candidates(&view, &active, &backoff, me), vec![target]);
+
+    let connected = HashSet::from([target]);
+    assert!(dial_candidates(&view, &connected, &backoff, me).is_empty());
+
+    let resting = HashMap::from([(target, Instant::now() + Duration::from_secs(60))]);
+    assert!(dial_candidates(&view, &active, &resting, me).is_empty());
+}
+
+/// Self never appears as a dial candidate, from the roster or the manual
+/// targets: a node must not gossip with itself.
+#[test]
+fn self_is_never_a_candidate() {
+    let me = [7u8; 32];
+    let view = View {
+        dial_targets: vec![me],
+        ..roster_of(me)
+    };
+    let (active, backoff) = (HashSet::new(), HashMap::new());
+    assert!(dial_candidates(&view, &active, &backoff, me).is_empty());
+}

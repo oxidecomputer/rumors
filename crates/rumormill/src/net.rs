@@ -1,9 +1,9 @@
-//! The iroh transport: dialing, accepting, the partition-merge dance, the
-//! Poisson gossip scheduler, and retirement.
+//! The iroh transport: long-lived change-driven connections, the
+//! partition-merge dance, and retirement.
 //!
-//! There is no application-level handshake. A session feeds the raw QUIC
-//! bi-stream straight into [`Rumors::gossip`]; the rumors protocol's own
-//! preamble and greeting carry everything, including the one piece of
+//! There is no application-level handshake. A connection feeds the raw QUIC
+//! bi-stream straight into [`Rumors::gossip_when`]; the rumors protocol's
+//! own preamble and greeting carry everything, including the one piece of
 //! information the merge needs: a gossip attempt against a *different
 //! universe* fails symmetrically on both ends with
 //! [`Error::NetworkMismatch`], which names the remote's [`Network`] and a
@@ -12,22 +12,24 @@
 //! another byte: the loser opens a fresh stream and bootstraps into the
 //! winner's universe, resetting itself wholesale ([`Command::Reset`]).
 //!
-//! Gossip initiations form a Poisson process (exponentially distributed
-//! delays, a uniformly random live peer each event): independent nodes never
-//! beat in lockstep, and random pairing over the whole roster keeps the mesh
-//! connected. The roster itself comes from the replicated Presence state —
-//! after the first manual contact, peers are discovered through the very
-//! state being synchronized.
+//! Gossip is change-driven, with no debounce: every connection runs
+//! [`Rumors::gossip_when`] fed by [`Rumors::changes`], so a local commit is
+//! on the wire the moment it lands, the driver's suppression keeps a
+//! converged link silent, and the replicated presence heartbeat doubles as
+//! a periodic anti-entropy tick. Connections are held open: for each
+//! roster pair the smaller endpoint id dials (manual dial targets are
+//! always ours to dial), so a pair settles on one connection. The roster
+//! itself comes from the replicated Presence state — after the first manual
+//! contact, peers are discovered through the very state being synchronized.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context as _;
+use futures::StreamExt;
 use iroh::endpoint::{Connection, presets};
 use iroh::{Endpoint, EndpointId};
-use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
 use rumors::{Error, Network, Peer, Retire, Rumors};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::{JoinHandle, JoinSet};
@@ -41,8 +43,10 @@ use crate::view::View;
 /// The ALPN identifying rumormill sessions.
 pub const ALPN: &[u8] = b"rumormill/0";
 
-/// Concurrent inbound sessions served at once; excess streams wait.
-const MAX_INBOUND: usize = 8;
+/// Concurrent inbound connections held at once; excess waits. Connections
+/// are long-lived now, so this bounds the inbound half of the mesh, not a
+/// session burst.
+const MAX_INBOUND: usize = 32;
 
 /// How long [`settle`] waits for the peer's FIN before giving up and
 /// letting the connection close anyway.
@@ -82,29 +86,50 @@ pub fn decide(ours: (u64, Network), theirs: (u64, Network)) -> Verdict {
     }
 }
 
-/// Run one gossip session over an established stream pair, handling the
+/// Drive one established connection with change-driven gossip until it
+/// ends, reporting each completed session to the owner and handling the
 /// partition-merge dance if the peer turns out to live in another universe.
-async fn run_stream(
+///
+/// Sessions learned content reaches the owner through its observer; this
+/// loop only accounts for them. The driver's terminal `Err` ends it: the
+/// stream pair is garbage afterwards, but the QUIC *connection* is fine,
+/// which is what the merge dance rides on (it opens a fresh stream).
+async fn drive_connection(
     conn: &Connection,
     mut send: iroh::endpoint::SendStream,
     mut recv: iroh::endpoint::RecvStream,
     cmd: &mpsc::Sender<Command>,
 ) -> anyhow::Result<()> {
     let handle = request_handle(cmd).await?;
-    // Our side of the merge comparison, from before the attempt.
-    let ours = (handle.snapshot().latest().min_ticks(), handle.network());
+    let mut sessions = handle.gossip_when(handle.changes(), &mut recv, &mut send);
+    let terminal = loop {
+        match sessions.next().await {
+            Some(Ok(_session)) => {
+                let _ = cmd.send(Command::SessionOutcome { ok: true }).await;
+            }
+            Some(Err(e)) => break Some(e),
+            // Clean end: the peer said goodbye at a session boundary.
+            None => break None,
+        }
+    };
+    drop(sessions);
 
-    match handle.gossip(&mut recv, &mut send).await {
-        Ok(()) => {
-            // Whatever the session learned is already in the shared set,
-            // on its way to the owner through its observer.
+    match terminal {
+        None => {
             settle(&mut send, &mut recv).await;
             Ok(())
         }
-        Err(Error::NetworkMismatch {
+        Some(Error::NetworkMismatch {
             remote_network,
             remote_min_events,
         }) => {
+            let _ = cmd.send(Command::SessionOutcome { ok: false }).await;
+            // Our side of the merge comparison: the universe this driver's
+            // handle belongs to, as it stands at the mismatch. (After a
+            // concurrent reset the handle can be a stale universe; the
+            // owner's reset guard refuses a double adoption, so the worst
+            // case is one wasted bootstrap.)
+            let ours = (handle.snapshot().latest().min_ticks(), handle.network());
             match decide(ours, (remote_min_events, remote_network)) {
                 // The peer saw the same mismatch and the opposite verdict:
                 // it will open a fresh stream and bootstrap from us.
@@ -112,7 +137,10 @@ async fn run_stream(
                 Verdict::Lose => request_merge(conn, cmd, ours.1).await,
             }
         }
-        Err(e) => Err(e).context("gossip session"),
+        Some(e) => {
+            let _ = cmd.send(Command::SessionOutcome { ok: false }).await;
+            Err(e).context("gossip driver")
+        }
     }
 }
 
@@ -181,18 +209,22 @@ async fn request_handle(cmd: &mpsc::Sender<Command>) -> anyhow::Result<Rumors<En
     rx.await.context("owner dropped the handle request")
 }
 
-/// Dial `peer` and run one session.
-async fn dial_session(
+/// Dial `peer`, open the connection's one gossip stream, and drive it with
+/// change-driven sessions until it ends.
+async fn dial_and_drive(
     endpoint: &Endpoint,
-    peer: EndpointId,
+    peer: PeerId,
     cmd: &mpsc::Sender<Command>,
 ) -> anyhow::Result<()> {
-    let conn = timeout(timers::DIAL_TIMEOUT, endpoint.connect(peer, ALPN))
+    // Replicated bytes that are not a valid public key: a peer published
+    // garbage; the backoff in the connector keeps the retry cost bounded.
+    let target = EndpointId::from_bytes(&peer).context("peer id is not a valid key")?;
+    let conn = timeout(timers::DIAL_TIMEOUT, endpoint.connect(target, ALPN))
         .await
         .context("dial timed out")?
         .context("dial failed")?;
     let (send, recv) = conn.open_bi().await.context("opening the gossip stream")?;
-    let result = run_stream(&conn, send, recv, cmd).await;
+    let result = drive_connection(&conn, send, recv, cmd).await;
     conn.close(0u32.into(), b"done");
     result
 }
@@ -217,6 +249,9 @@ pub fn spawn_accept_loop(endpoint: Endpoint, cmd: mpsc::Sender<Command>) -> Join
             sessions.spawn(async move {
                 let _permit = permit;
                 let Ok(conn) = incoming.await else { return };
+                // The dialer opens the connection's one gossip stream
+                // promptly; only that wait is bounded — the drive itself
+                // lives as long as the connection.
                 let Ok((send, recv)) = timeout(timers::SESSION_TIMEOUT, conn.accept_bi())
                     .await
                     .map_err(anyhow::Error::from)
@@ -224,89 +259,87 @@ pub fn spawn_accept_loop(endpoint: Endpoint, cmd: mpsc::Sender<Command>) -> Join
                 else {
                     return;
                 };
-                let ok = timeout(timers::SESSION_TIMEOUT, run_stream(&conn, send, recv, &cmd))
-                    .await
-                    .map(|r| r.is_ok())
-                    .unwrap_or(false);
-                let _ = cmd.send(Command::SessionOutcome { ok }).await;
+                // Per-session outcomes (and any terminal failure) are
+                // reported from inside the drive.
+                let _ = drive_connection(&conn, send, recv, &cmd).await;
+                conn.close(0u32.into(), b"done");
             });
         }
     })
 }
 
-/// Initiate gossip as a Poisson process: sleep an exponentially distributed
-/// delay, pick a uniformly random live peer (replicated presence plus the
-/// manual dial targets), run one session, repeat. Failed peers are left
-/// alone for [`timers::PEER_BACKOFF`].
-pub fn spawn_scheduler(
+/// Maintain one live, change-driven connection per dialable peer: spawn a
+/// [`dial_and_drive`] for every candidate not already connected, and react
+/// to roster changes, finished drivers, and backoff expiry. A peer whose
+/// connection ends — failure or goodbye — is left alone for
+/// [`timers::PEER_BACKOFF`] before redialing, so a flapping peer cannot
+/// induce a dial storm.
+pub fn spawn_connector(
     endpoint: Endpoint,
     cmd: mpsc::Sender<Command>,
-    view: watch::Receiver<Arc<View>>,
+    mut view: watch::Receiver<Arc<View>>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let me = endpoint.id();
-        let mut rng = StdRng::from_entropy();
         let mut backoff: HashMap<PeerId, Instant> = HashMap::new();
+        let mut active: HashSet<PeerId> = HashSet::new();
+        let mut drivers: JoinSet<(PeerId, bool)> = JoinSet::new();
         loop {
-            tokio::time::sleep(poisson_delay(&mut rng)).await;
             let now = Instant::now();
             backoff.retain(|_, until| *until > now);
-            let Some(peer) = pick_peer(&view.borrow(), &backoff, &me, &mut rng) else {
-                continue;
-            };
-            let Ok(target) = EndpointId::from_bytes(&peer) else {
-                // Replicated bytes that are not a valid public key: a peer
-                // published garbage. Skip it forever via backoff.
-                backoff.insert(peer, now + Duration::from_secs(u64::MAX / 4));
-                continue;
-            };
-            let ok = timeout(
-                timers::SESSION_TIMEOUT,
-                dial_session(&endpoint, target, &cmd),
-            )
-            .await
-            .map(|r| r.is_ok())
-            .unwrap_or(false);
-            if !ok {
-                backoff.insert(peer, Instant::now() + timers::PEER_BACKOFF);
+            for peer in dial_candidates(&view.borrow(), &active, &backoff, *me.as_bytes()) {
+                active.insert(peer);
+                let endpoint = endpoint.clone();
+                let cmd = cmd.clone();
+                drivers.spawn(async move {
+                    let ok = dial_and_drive(&endpoint, peer, &cmd).await.is_ok();
+                    (peer, ok)
+                });
             }
-            if cmd.send(Command::SessionOutcome { ok }).await.is_err() {
-                return; // owner gone: shutting down
+            tokio::select! {
+                changed = view.changed() => {
+                    if changed.is_err() {
+                        return; // owner gone: shutting down
+                    }
+                }
+                Some(finished) = drivers.join_next(), if !drivers.is_empty() => {
+                    if let Ok((peer, ok)) = finished {
+                        active.remove(&peer);
+                        backoff.insert(peer, Instant::now() + timers::PEER_BACKOFF);
+                        // Dial failures never reach the per-session
+                        // accounting inside the drive; count them here.
+                        if !ok && cmd.send(Command::SessionOutcome { ok: false }).await.is_err() {
+                            return;
+                        }
+                    }
+                }
+                // Backoff expiry has no event of its own: sweep for it.
+                _ = tokio::time::sleep(timers::REDIAL_SWEEP) => {}
             }
         }
     })
 }
 
-/// One exponentially distributed gossip delay with mean
-/// [`timers::GOSSIP_MEAN_INTERVAL`], clamped to the configured bounds.
-fn poisson_delay(rng: &mut StdRng) -> Duration {
-    // (0, 1]: never ln(0). (`r#gen`: `gen` is a keyword in edition 2024.)
-    let u: f64 = 1.0 - rng.r#gen::<f64>();
-    let mean = timers::GOSSIP_MEAN_INTERVAL.as_secs_f64();
-    Duration::from_secs_f64(-mean * u.ln())
-        .clamp(timers::GOSSIP_DELAY_MIN, timers::GOSSIP_DELAY_MAX)
-}
-
-/// A uniformly random gossip target: anyone in the roster or the manual
-/// dial targets, except ourselves and anyone backed off.
-fn pick_peer(
+/// Everyone we should be dialing right now: for roster pairs, the smaller
+/// endpoint id dials (exactly one side of each pair, so the mesh settles on
+/// one connection per pair); manual dial targets are always ours to dial
+/// (the other side may not know us yet). Excludes ourselves, live
+/// connections, and backed-off peers.
+fn dial_candidates(
     view: &View,
+    active: &HashSet<PeerId>,
     backoff: &HashMap<PeerId, Instant>,
-    me: &EndpointId,
-    rng: &mut StdRng,
-) -> Option<PeerId> {
-    let candidates: Vec<PeerId> = view
+    mine: PeerId,
+) -> Vec<PeerId> {
+    let candidates: HashSet<PeerId> = view
         .roster
         .iter()
         .map(|p| p.peer)
+        .filter(|p| mine < *p)
         .chain(view.dial_targets.iter().copied())
-        .filter(|p| p != me.as_bytes() && !backoff.contains_key(p))
+        .filter(|p| *p != mine && !active.contains(p) && !backoff.contains_key(p))
         .collect();
-    if candidates.is_empty() {
-        None
-    } else {
-        Some(candidates[rng.gen_range(0..candidates.len())])
-    }
+    candidates.into_iter().collect()
 }
 
 /// How leaving the universe went.

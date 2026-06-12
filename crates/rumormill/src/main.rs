@@ -99,7 +99,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let accept = net::spawn_accept_loop(endpoint.clone(), cmd_tx.clone());
-    let scheduler = net::spawn_scheduler(endpoint.clone(), cmd_tx.clone(), view_rx.clone());
+    let connector = net::spawn_connector(endpoint.clone(), cmd_tx.clone(), view_rx.clone());
 
     // The terminal. `ratatui::init` installs a restore-on-panic hook;
     // bracketed paste makes a pasted endpoint id arrive as one event.
@@ -123,9 +123,9 @@ async fn main() -> anyhow::Result<()> {
     // goodbye — its shutdown reclaims the unique `Peer` out of the `Rumors`
     // clones, which resolves exactly when no session handle remains.
     cmd_tx.send(Command::Shutdown).await.ok();
-    scheduler.abort();
+    connector.abort();
     accept.abort();
-    let _ = scheduler.await;
+    let _ = connector.await;
     let _ = accept.await;
     let (known, candidates) = owner_task.await.context("owner task panicked")?;
 

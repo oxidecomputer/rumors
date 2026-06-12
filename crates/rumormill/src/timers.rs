@@ -25,26 +25,21 @@ pub const CHAT_TTL: Duration = Duration::from_secs(300);
 /// churn makes redaction traffic easy to observe.
 pub const SYSTEM_TTL: Duration = Duration::from_secs(15);
 
-/// Mean of the exponential inter-gossip delay. Gossip initiations form a
-/// Poisson process so independent nodes never sync up into a thundering
-/// herd; a converged session costs only a handshake, so the mean can be
-/// aggressive.
-pub const GOSSIP_MEAN_INTERVAL: Duration = Duration::from_millis(500);
-
-/// Bounds on a single sampled gossip delay: the exponential distribution has
-/// unbounded support, so clamp the tail (and keep a floor so a tiny sample
-/// cannot spin-dial).
-pub const GOSSIP_DELAY_MIN: Duration = Duration::from_millis(200);
-pub const GOSSIP_DELAY_MAX: Duration = Duration::from_secs(20);
+/// How often the connector re-sweeps for dialable peers whose backoff has
+/// expired; roster changes and finished connections wake it immediately,
+/// so this only bounds how stale a backoff expiry can go unnoticed.
+pub const REDIAL_SWEEP: Duration = Duration::from_secs(2);
 
 /// How long a dial may take before we give up on the peer for this round.
 pub const DIAL_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Ceiling on one whole gossip session, dial through join-back. A wedged
-/// stream should never wedge the scheduler.
+/// Ceiling on the bounded waits around a connection's start: the dialer
+/// opening its gossip stream, and the merge dance's fresh stream. The
+/// drive itself is unbounded — connections are long-lived by design.
 pub const SESSION_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// After a failed dial or session, leave the peer alone for this long.
+/// After a connection ends — failed dial, failed drive, or the peer's own
+/// goodbye — leave the peer alone for this long before redialing.
 pub const PEER_BACKOFF: Duration = Duration::from_secs(15);
 
 /// UI input poll / render tick.
