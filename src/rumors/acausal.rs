@@ -144,17 +144,10 @@ impl<T> Messages<T> {
 
     /// The sound resume point: the causal frontier of the last *completed*
     /// pass, suitable for persisting across processes or handing to another
-    /// replica of the same network — a later
-    /// [`messages_since(checkpoint)`](crate::Rumors::messages_since) re-observes
-    /// nothing from completed passes and everything not yet delivered.
-    /// Messages already delivered from the *in-progress* pass are delivered
-    /// again (a [`Version`] can only encode a causally closed boundary, and
-    /// delivery order is not causal order, so a partial pass's prefix need
-    /// not be one); dedup by [`Key`] across such a resume if re-delivery
-    /// matters. For the same reason, folding the yielded versions yourself
-    /// is *not* a sound resume point: the fold can causally contain a
-    /// message that was never delivered, which a resume would then skip
-    /// forever.
+    /// replica of the same network.
+    ///
+    /// Resuming from this checkpoint will never skip messages, but it may
+    /// replay an arbitrary number of them.
     ///
     /// After the observer ends (`None`), this is the complete final
     /// frontier. To merely pause in-process, just hold the observer: its

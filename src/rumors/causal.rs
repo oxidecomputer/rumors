@@ -1,8 +1,3 @@
-//! [`CausalMessages`]: the [`Messages`](super::Messages) observer with
-//! causal delivery — every message is yielded after every message it
-//! causally depends on. The contract and the soundness argument live on
-//! the type; this module is private.
-
 use std::collections::BTreeMap;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -154,23 +149,15 @@ impl<T> CausalMessages<T> {
         self.pop()
     }
 
-    /// The sound resume point: the causal frontier *behind* the staged
-    /// backlog, suitable for persisting across processes or handing to
-    /// another replica of the same network — a later
-    /// [`causal_messages_since(checkpoint)`](crate::Rumors::causal_messages_since)
-    /// re-observes nothing already delivered *and drained*, and everything
-    /// not yet delivered. While a backlog is draining the checkpoint holds at
-    /// the batch's range start (a [`Version`] can only encode a causally
-    /// closed boundary, and a half-delivered rank prefix need not be one),
-    /// so a resume re-delivers the partially drained batch; dedup by
-    /// [`Key`] across such a resume if re-delivery matters. For the same
-    /// reason, folding the yielded versions yourself is *not* a sound
-    /// resume point: deliver `a` then `b`, and their fold can cover an
-    /// undelivered `c = a | b` that sorts after both, which a resume would
-    /// then skip forever.
+    /// The sound resume point: the causal frontier *behind* any internally
+    /// staged backlog, suitable for persisting across processes or handing to
+    /// another replica of the same network.
     ///
-    /// After the observer ends (`None`), this is the complete final
-    /// frontier.
+    /// It is guaranteed that resuming from this [`Version`] will never skip
+    /// messages; however, it may replay an arbitrary number of them.
+    ///
+    /// After the observer ends (`None`), this is the final [`Version`] of the
+    /// [`Rumors`].
     pub fn checkpoint(&self) -> &Version {
         &self.checkpoint
     }
