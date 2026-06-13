@@ -157,7 +157,7 @@ impl<T> CausalMessages<T> {
     /// messages; however, it may replay an arbitrary number of them.
     ///
     /// After the observer ends (`None`), this is the final [`Version`] of the
-    /// [`Rumors`].
+    /// [`Rumors`](crate::Rumors).
     pub fn checkpoint(&self) -> &Version {
         &self.checkpoint
     }

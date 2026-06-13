@@ -108,3 +108,46 @@ async fn observer_does_not_block_peer_reclaim() {
     let _changes = rumors.changes();
     assert!(rumors.try_into_peer().await.is_some());
 }
+
+/// The blocking face carries the same contract through `TryTick`: a fresh
+/// signal's first step ticks, commits between steps coalesce into one tick,
+/// a reported signal is quiet (not ended) while handles live, the `Iterator`
+/// face delivers a tick still owed at set closure, and `Ended` is terminal.
+#[test]
+fn sync_face_ticks_coalesce_quiet_and_end() {
+    use rumors::sync::{Peer as SyncPeer, TryTick};
+
+    let rumors = SyncPeer::<u64>::seed().into_rumors();
+    rumors.batch().send(1).send(2);
+
+    let mut changes = rumors.changes();
+    assert!(
+        matches!(changes.try_next(), TryTick::Tick),
+        "a fresh signal's first step is a tick: the whole set is news"
+    );
+    assert!(
+        matches!(changes.try_next(), TryTick::Quiet),
+        "with a handle live, a reported signal is quiet, not ended"
+    );
+
+    rumors.send(3);
+    rumors.send(4);
+    assert!(
+        matches!(changes.try_next(), TryTick::Tick),
+        "commits between steps coalesce into one tick"
+    );
+    assert!(matches!(changes.try_next(), TryTick::Quiet));
+
+    rumors.send(5);
+    drop(rumors);
+    assert_eq!(
+        changes.next(),
+        Some(()),
+        "a tick owed at closure is delivered before the end"
+    );
+    assert!(matches!(changes.try_next(), TryTick::Ended));
+    assert!(
+        matches!(changes.try_next(), TryTick::Ended),
+        "ended is terminal"
+    );
+}

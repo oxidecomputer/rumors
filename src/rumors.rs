@@ -223,7 +223,7 @@ impl<T> Rumors<T> {
     /// pending-always stream only ever serves in response to remote initiation.
     ///
     /// Do not provide an always-ready stream (e.g.
-    /// [`stream::repeat`](futures::stream::repeat::repeat)), because this would
+    /// [`stream::repeat`](futures::stream::repeat)), because this would
     /// busy-loop: a tick stream should go quiet between reasons to gossip.
     ///
     /// The returned stream *must be polled* for gossip to continue. It yields

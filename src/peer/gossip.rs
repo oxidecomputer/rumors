@@ -39,24 +39,23 @@ pub enum Retire<T> {
     /// **Retired.** The peer reconciled with us and absorbed our identity;
     /// this replica has left the universe.
     Retired,
-    /// **Declined, unchanged.** The peer cannot absorb an identity — it was
-    /// itself retiring — so nothing touched the wire and the replica is
-    /// handed back intact, to retry elsewhere.
+    /// **Declined, unchanged.** The peer was itself retiring, so nothing our
+    /// replica is handed back intact, to try retiring elsewhere.
     Declined {
         /// The intact retiree.
         peer: Peer<T>,
     },
-    /// **Recovered, unchanged.** The session failed *before* our identity
-    /// ever crossed the wire; the replica is handed back intact, to retry
-    /// elsewhere. Nothing was lost.
+    /// **Recovered, unchanged.** The session failed *before* our identity ever
+    /// crossed the wire; the replica is handed back intact, to try retiring
+    /// elsewhere.
     Recovered {
         /// The intact retiree.
         peer: Peer<T>,
         /// What failed the session.
         error: Error,
     },
-    /// **Uncertain.** The session failed while the identity itself was in
-    /// flight: the peer may or may not hold it, so the retiree is consumed
+    /// **Uncertain.** The session failed while our identity itself was in
+    /// flight: the peer may or may not hold it, so our peer is consumed
     /// rather than risk the same identity living twice.
     Uncertain {
         /// What failed the session.
@@ -64,30 +63,30 @@ pub enum Retire<T> {
     },
 }
 
-/// One completed session of a
-/// [`gossip_when`](crate::Rumors::gossip_when) driver: the driver's stream
-/// yields one of these per session, successful sessions only (a failed
-/// session is the stream's terminal `Err`).
+/// One completed session of [`gossip_when`](crate::Rumors::gossip_when).
+///
+/// The output stream from [`gossip_when`](crate::Rumors::gossip_when) yields
+/// one of these each time a successful gossip session occurs (a failed session
+/// is the stream's terminal `Err`).
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct Session {
-    /// The causal frontier the two replicas converged on: at the instant
-    /// the session committed, both held exactly this version. It is also
-    /// the driver's suppression token — a later tick initiates only once
-    /// the local frontier has moved past it — so a consumer watching these
-    /// values watches the suppression contract itself.
+    /// The causal frontier the two replicas converged on.
+    ///
+    /// At the instant the session committed, both held exactly this version.
     pub converged: Version,
-    /// Which trigger entered the session on this side.
+    /// Which trigger initiated the session on this side.
     pub led: Led,
 }
 
-/// Which trigger entered a [`gossip_when`](crate::Rumors::gossip_when)
-/// session on this side of the connection: diagnostic, not protocol. The
-/// session itself is symmetric, and when both sides' triggers fire close
-/// together, each side may record `Local` for what becomes one session.
+/// Which side initiated a round of gossip during
+/// [`gossip_when`](crate::Rumors::gossip_when).
+///
+/// The session protocol itself is symmetric, and when both sides' triggers fire
+/// close together, each side may record `Local` for what becomes one session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Led {
-    /// The `when` stream yielded: this side initiated.
+    /// The `when` stream yielded `()`: this side initiated.
     Local,
     /// The remote's preamble arrived first: this side responded.
     Remote,
@@ -138,6 +137,7 @@ impl<T> Peer<T> {
         // Otherwise reconcile, pulling the provider's whole tree through the
         // descent, then read the provider's party frame off the same reader,
         // and adopt its network alongside.
+        //
         // Boxed: the descent state machine is a large future, and the codec
         // buffers inflate it past the crate-wide `large_futures` ceiling.
         let (root, (mut reader, _writer)) = Box::pin(handshaken.reconcile())

@@ -2,12 +2,13 @@
 //! runtime.
 //!
 //! Every type here wraps its namesake at the crate root and blocks the
-//! calling thread where the original returns a future; wire sessions run
-//! over [`std::io::Read`]/[`Write`] instead of tokio's
-//! traits. The semantics — lifecycle, session contract, observer
-//! guarantees — are identical, and are documented once, on the async item
-//! each wrapper names. Read the [crate docs](crate) first; this page only
-//! describes what blocking changes.
+//! calling thread wherever the original would await: futures become plain
+//! calls, streams become [`Iterator`]s, and wire sessions run over
+//! [`std::io::Read`]/[`Write`] instead of tokio's traits. The semantics —
+//! lifecycle, session contract, observer guarantees — are identical, and
+//! are documented once, on the async item each wrapper names. Read the
+//! [crate docs](crate) first; this page only describes what blocking
+//! changes.
 //!
 //! # Which face should you use?
 //!
@@ -29,8 +30,12 @@
 //!
 //! The change-driven driver ([`crate::Rumors::gossip_when`]) has no
 //! blocking face: it is one task racing a policy stream against the wire,
-//! which is concurrency a blocking call cannot express. A blocking
-//! application schedules its own [`gossip`](Rumors::gossip) calls instead.
+//! which is concurrency a blocking call cannot express. Its report types
+//! ([`crate::Session`], [`crate::Led`]) are therefore deliberately absent
+//! here as well. A blocking application schedules its own
+//! [`gossip`](Rumors::gossip) calls instead; [`Changes`] can wake other
+//! change-driven work, but is not a gossip schedule by itself (its docs
+//! say why).
 //!
 //! # Example
 //!
@@ -72,7 +77,8 @@ use futures::io::AllowStdIo;
 use tokio_util::compat::{FuturesAsyncReadCompatExt, FuturesAsyncWriteCompatExt};
 
 pub use crate::{
-    Batch, Error, Key, Network, PROTOCOL_MAGIC, PROTOCOL_VERSION, Snapshot, Version, causally,
+    Batch, Error, Key, MERKLE_HASH_LEN, Network, PROTOCOL_MAGIC, PROTOCOL_VERSION, Snapshot,
+    Version, causally,
 };
 pub use ::before;
 pub use ::borsh;
@@ -138,7 +144,8 @@ pub enum Retire<T> {
 /// [`try_next`](Self::try_next) never blocks.
 pub struct Messages<T>(crate::Messages<T>);
 
-/// The outcome of one non-blocking observer step ([`Messages::try_next`]).
+/// The outcome of one non-blocking observer step ([`Messages::try_next`],
+/// [`CausalMessages::try_next`]).
 #[derive(Debug)]
 pub enum TryNext<'a, T> {
     /// The observer yielded a message, lent until the observer's next call
@@ -240,6 +247,57 @@ impl<T> CausalMessages<T> {
 
 impl<T: Send + Sync + 'static> Iterator for CausalMessages<T> {
     type Item = (Key, Version, Arc<T>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        pollster::block_on(futures::StreamExt::next(&mut self.0))
+    }
+}
+
+/// The blocking face of [`crate::Changes`], the content-free change signal;
+/// see it for the coalescing tick contract — including why this signal
+/// alone must not schedule [`gossip`](Rumors::gossip). Two ways to consume
+/// it: the [`Iterator`] impl blocks until the set next advances (`None` is
+/// terminal — no further change is possible);
+/// [`try_next`](Self::try_next) never blocks.
+pub struct Changes<T>(crate::Changes<T>);
+
+/// The outcome of one non-blocking change-signal step
+/// ([`Changes::try_next`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TryTick {
+    /// The set advanced since the last report (a fresh signal's first step
+    /// is always a tick).
+    Tick,
+    /// No advance since the last report; handles are still live, so more
+    /// may come. Ask again later.
+    Quiet,
+    /// Every handle is gone and no further change is possible.
+    Ended,
+}
+
+impl<T> Changes<T> {
+    /// Take one non-blocking step: [`Tick`] if the set advanced since the
+    /// last report, [`Quiet`] (ask again later) if not, [`Ended`] if no
+    /// further change is possible.
+    ///
+    /// [`Tick`]: TryTick::Tick
+    /// [`Quiet`]: TryTick::Quiet
+    /// [`Ended`]: TryTick::Ended
+    pub fn try_next(&mut self) -> TryTick
+    where
+        T: Send + Sync + 'static,
+    {
+        use futures::FutureExt;
+        match futures::StreamExt::next(&mut self.0).now_or_never() {
+            None => TryTick::Quiet,
+            Some(None) => TryTick::Ended,
+            Some(Some(())) => TryTick::Tick,
+        }
+    }
+}
+
+impl<T: Send + Sync + 'static> Iterator for Changes<T> {
+    type Item = ();
 
     fn next(&mut self) -> Option<Self::Item> {
         pollster::block_on(futures::StreamExt::next(&mut self.0))
@@ -407,6 +465,12 @@ impl<T> Rumors<T> {
         T: Send + Sync,
     {
         CausalMessages(self.0.causal_messages_since(since))
+    }
+
+    /// Observe *that* the set changes, without what changed; see
+    /// [`crate::Rumors::changes`].
+    pub fn changes(&self) -> Changes<T> {
+        Changes(self.0.changes())
     }
 
     /// The universe's identifier; see [`crate::Rumors::network`].
