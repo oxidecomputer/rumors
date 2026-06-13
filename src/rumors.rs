@@ -28,7 +28,7 @@ pub struct Rumors<T> {
     extant: Extant,
 }
 
-/// One handle's share of a broadcast generation's existence. The `token`
+/// One handle's share of a [`Rumors`] generation's existence. The `token`
 /// [`Arc`]'s strong count *is* the number of extant handles (a pending
 /// [`try_into_peer`](Rumors::try_into_peer) has already shed its share), so the
 /// count reaching zero is the moment the generation has quiesced and the
@@ -219,45 +219,45 @@ impl<T> Rumors<T> {
     ///
     /// `when` is the entire initiation policy: [`changes`](Self::changes)
     /// gossips on change, an interval stream adds periodic anti-entropy,
-    /// debounce/jitter adapters set cadence, and a pending stream only ever
-    /// serves. Ticks coalesce — one pending tick covers all missed ones —
-    /// but an always-ready stream (`stream::repeat`) busy-loops while
-    /// suppressed: a tick stream should go quiet between reasons to gossip.
-    /// One-shot [`gossip`](Self::gossip) is the degenerate case: a single
-    /// immediate tick, drained.
+    /// debounce/jitter/rate-limit adapters can set cadence, and a
+    /// pending-always stream only ever serves in response to remote initiation.
     ///
-    /// The returned stream is `Unpin`, progresses only while polled, and
-    /// yields one [`Session`] per completed session, remote-led included.
-    /// It ends three ways:
+    /// Do not provide an always-ready stream (e.g.
+    /// [`stream::repeat`](futures::stream::repeat::repeat)), because this would
+    /// busy-loop: a tick stream should go quiet between reasons to gossip.
+    ///
+    /// The returned stream *must be polled* for gossip to continue. It yields
+    /// one [`Session`] per completed session, remote-led included. It
+    /// terminates in one of three ways:
     ///
     /// - the connection fails: one final `Err` (replica unchanged, the
-    ///   transport mid-frame garbage — discard it);
-    /// - `when` ends: cleanly, after finishing any session in flight;
-    /// - the remote hangs up at a session boundary: cleanly — its goodbye.
+    ///   transport is now mid-frame garbage: discard the transport);
+    /// - `when` ends, cleanly, after finishing any session in flight;
+    /// - the remote hangs up at a session boundary, cleanly.
     ///
     /// # Suppression
     ///
-    /// A tick initiates only if the local frontier has advanced past this
-    /// connection's last [`converged`](Session::converged) version. A
+    /// A tick initiates gossip only if the local frontier has advanced past
+    /// this connection's last [`converged`](Session::converged) version. A
     /// driver fed by [`changes`](Self::changes) therefore never echoes a
-    /// session back after its own join, and an idle heartbeat costs nothing
-    /// on the wire — but a suppressed tick never *pulls*: each side pushes
-    /// its own news (remote news always arrives remote-led), and probing a
-    /// silent connection for liveness is the transport's job (keepalives),
-    /// not a tick's.
+    /// session back after its own gossip, and an idle heartbeat costs nothing
+    /// unless changes occur. However, a tick never *pulls* from the other side:
+    /// each side pushes its own news, so probing a silent connection for
+    /// liveness must be the transport's job (e.g. TCP keepalives), not the
+    /// tick-stream's.
     ///
     /// # Cancellation and connection reuse
     ///
-    /// Polling is cancel-safe: all driver state lives in the stream, never
-    /// in a `next()` future, so racing `next()` in a `select!` and dropping
-    /// the loser loses nothing. Dropping the *stream* is cancellation with
+    /// Polling is cancel-safe: all driver state lives in the stream, never in a
+    /// `next()` future, so racing `next()` in a `select!` and dropping the
+    /// loser loses nothing. Dropping the *result stream* is cancellation with
     /// the [session contract](crate#what-a-session-promises)'s semantics —
-    /// including the identity hazards of whatever session was in flight —
-    /// plus one of its own: the driver may already hold the first bytes of
-    /// a remote initiation, which die with it. **A dropped driver forfeits
-    /// the connection; one that ended leaves it at a session boundary**,
-    /// ready for whatever speaks the protocol next — another driver,
-    /// one-shot [`gossip`](Self::gossip), a [`retire`](crate::Peer::retire).
+    /// including the identity hazards of whatever session was in flight — plus
+    /// one of its own: the driver may already hold the first bytes of a remote
+    /// initiation, which die with it. **A dropped driver forfeits the
+    /// connection; one that ended leaves it at a session boundary**, ready for
+    /// whatever speaks the protocol next — another driver, one-shot
+    /// [`gossip`](Self::gossip), a [`retire`](crate::Peer::retire).
     ///
     /// # Examples
     ///
