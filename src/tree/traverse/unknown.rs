@@ -39,30 +39,35 @@ where
         // If the node doesn't exist, we can't return information about it
         let node = node?;
 
-        // If the node is causally prior or at the known version vector, it's
-        // already known (and so are all its children, since they are always in
-        // the causal past or present of their parent), so don't return anything
-        if node.ceiling() <= known {
-            return None;
+        // There are two fast paths here:
+        //
+        // 1. floor concurrent with or > known
+        // 2. ceiling <= known
+        //
+        // We check them in this order because it's expected that the first
+        // comparison is *cheaper* (the meet of random versions is likely to be
+        // small because it's the greatest-common-ancestor) and because it's
+        // more likely to happen *higher* in the tree, *and* because it's the
+        // only one of the two comparisons which can early-terminate during the
+        // `partial_cmp` (because the `None` verdict can bail early in version
+        // comparison). This gives a measurable, if small win in benchmarks, by
+        // skipping the second comparison more of the time.
+
+        // If the node's floor is concurrent with or greater than the known
+        // version vector, it's definitely unknown (and so are all its children,
+        // since they are always in the causal future or present of their
+        // parent's floor), so return the node unchanged:
+        match node.floor().partial_cmp(known) {
+            None | Some(Ordering::Greater) => return Some(node),
+            _ => {}
         }
 
-        // Keep-whole fast path: if this subtree's meet (the floor, the minimal
-        // version among its leaves) is *not* dominated by `known`, then no leaf
-        // can be either — any leaf `v` with `v <= known` would force
-        // `floor <= v <= known` — so every leaf is unknown and none would be
-        // filtered out. The floor is undominated exactly when the comparison is
-        // `Greater` or incomparable (`None`); a concurrent floor counts, since a
-        // counterparty at `known` is still missing it.
-        //
-        // The destroy-and-rebuild below would reproduce this subtree
-        // identically (with cold memos), so skip it and return it verbatim (an
-        // `Arc` move), leaving its memoized hash/ceiling/floor untouched.
-        let floor_unknown = matches!(
-            node.floor().partial_cmp(known),
-            None | Some(Ordering::Greater)
-        );
-        if floor_unknown {
-            return Some(node);
+        // If the node's ceiling is causally prior to or at the known version
+        // vector, it's already known (and so are all its children, since they
+        // are always in the causal past or present of their parent's ceiling),
+        // so don't return anything at all:
+        if node.ceiling() <= known {
+            return None;
         }
 
         // Recursively process each child, re-assembling only the unknown children
