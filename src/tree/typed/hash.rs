@@ -3,40 +3,38 @@ use std::sync::LazyLock;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-/// Width in bytes of the tree's Merkle hashes: the subtree-comparison
-/// digests gossip exchanges, surfaced as
+/// Width in bytes of the tree's Merkle hashes.
+///
+/// The subtree-comparison digests gossip exchanges, surfaced as
 /// [`Snapshot::hash`](crate::Snapshot::hash). Half the width of a
-/// [`Key`](crate::Key): a comparison signal tolerates truncation that an
-/// identity cannot.
+/// [`Key`](crate::Key).
 pub const MERKLE_HASH_LEN: usize = 16;
 
-/// 16-byte Merkle hash newtype. Wraps a fixed-size byte array so borsh can
-/// be derived without a length prefix and so the rest of the crate does not
-/// depend on the underlying hash crate.
+/// 16-byte Merkle hash newtype. Wraps a fixed-size byte array so borsh can be
+/// derived without a length prefix and so the rest of the crate does not depend
+/// on the underlying hash crate.
 ///
 /// The underlying primitive is [`blake3`], truncated to its leading
 /// [`MERKLE_HASH_LEN`] bytes — BLAKE3 is an extendable-output function, so
-/// prefix truncation is the sanctioned narrow form, with collision
-/// resistance 2⁶⁴ and preimage resistance 2¹²⁸. Callers use [`Hash::of`]
-/// (or [`ContentHash`] for the full width) and never touch the `blake3`
-/// types directly.
+/// prefix truncation is the sanctioned narrow form, with collision resistance
+/// 2⁶⁴ and preimage resistance 2¹²⁸. Callers use [`Hash::of`] (or
+/// [`ContentHash`] for the full width) and never touch the `blake3` types
+/// directly.
 ///
 /// # Why 16 bytes here, and 32 for content
 ///
-/// A Merkle hash is only ever an equality probe between two peers'
-/// subtrees at the same prefix (the mirror protocol's
-/// [`uncertain`](crate::tree::mirror::message::Exchange::uncertain)
-/// channel). It is never an identity: a false-equal prunes one divergent
-/// subtree as already-matching, and heals on the next mutation beneath
-/// that prefix, which perturbs every branch hash above it and forces a
-/// re-compare. Nothing is dropped; the failure is delayed propagation,
-/// not corruption. Identity — and with it all content integrity — rides
-/// on the leaf's *path*, the full-width [`ContentHash`] of `(version,
-/// value)` (see [`Path::for_leaf`](super::Path::for_leaf)), where a
-/// collision would be permanent, silent split-brain. That asymmetry is
-/// the whole argument: the comparison signal can afford to lose the
-/// bits, halving the protocol's dominant hash traffic, and the identity
-/// cannot.
+/// A Merkle hash is only ever an equality probe between two peers' subtrees at
+/// the same prefix (the mirror protocol's
+/// [`uncertain`](crate::tree::mirror::message::Exchange::uncertain) channel).
+/// It is never an identity: a false-equal prunes one divergent subtree as
+/// already-matching, and heals on the next mutation beneath that prefix, which
+/// perturbs every branch hash above it and forces a re-compare. Nothing is
+/// dropped; the failure is delayed propagation, not corruption. Content
+/// integrity rides on the leaf's *path*, the full-width [`ContentHash`] of
+/// `(version, value)` (see [`Path::for_leaf`](super::Path::for_leaf)), where a
+/// collision would be permanent, silent split-brain. The comparison signal can
+/// afford to lose the bits, halving the protocol's dominant hash traffic, and
+/// the identity cannot.
 ///
 /// The width is sized against both failure sources, derived (not
 /// measured) from the comparison structure and the trust model:
@@ -49,7 +47,7 @@ pub const MERKLE_HASH_LEN: usize = 16;
 ///   ≈2⁻⁷⁶; machine failure modes dominate long before the hash does.
 /// - **Attack.** Peers in a universe trust one another ([the crate
 ///   docs](crate) make a compromised member's powers explicit), and the
-///   mirror protocol inserts provided subtrees without re-hashing — so a
+///   mirror protocol inserts provided subtrees without re-hashing, so a
 ///   member who could grind the 2⁶⁴ collision floor already desyncs peers
 ///   for free, at any width. A non-member cannot grind at all: branch
 ///   preimages inherit child hashes from what honest peers actually hold,
@@ -152,16 +150,16 @@ impl From<Hash> for [u8; MERKLE_HASH_LEN] {
 
 /// Full-width 32-byte BLAKE3 hash: the content-addressing primitive.
 ///
-/// This is the width that carries identity. A leaf's path *is* a hash of
-/// this width over its `(version, value)` (see
+/// This is the width that carries identity. A leaf's path *is* a hash of this
+/// width over its `(version, value)` (see
 /// [`Path::for_leaf`](super::Path::for_leaf)), and
-/// [`join`](crate::tree::traverse::join) resolves identical paths as
-/// identical contents, so a collision here would be
-/// permanent, undetectable divergence — full width is load-bearing, and
-/// every hash that feeds a path must use it (a single Merkle-width
-/// component would cap the whole path's collision resistance at 2⁶⁴). A
-/// `ContentHash` is never stored in a branch and never travels as a hash
-/// on the wire; it reaches the protocol only as a leaf's path bytes.
+/// [`join`](crate::tree::traverse::join) resolves identical paths as identical
+/// contents, so a collision here would be permanent, undetectable divergence —
+/// full width is load-bearing, and every hash that feeds a path must use it (a
+/// single Merkle-width component would cap the whole path's collision
+/// resistance at 2⁶⁴). A `ContentHash` is never stored in a branch and never
+/// travels as a hash on the wire; it reaches the protocol only as a leaf's path
+/// bytes.
 pub struct ContentHash([u8; 32]);
 
 impl ContentHash {
