@@ -17,6 +17,22 @@ pub(crate) fn bytes_as_bits(bytes: &[u8]) -> &BitsSlice {
     bytes.view_bits::<Msb0>()
 }
 
+/// Zero the dead bits past the live length, making the packed bytes
+/// ([`BitVec::as_raw_slice`]) canonical: byte-equal if and only if the bit
+/// content is equal.
+///
+/// The tree builders write into a reused buffer, and a collapsing node (the
+/// party `sum`/`diff` ops, via `IdBuilder::close_node`) `truncate`s it,
+/// shrinking the live length while leaving the bits it shed in the final
+/// partial byte. `as_raw_slice` exposes those stale bits, so two equal parties
+/// built different ways would serialize to different bytes and a joined party
+/// could fail to decode on the wire. Calling this before a [`Bits`] becomes a
+/// stored `Party`/`Version` restores the canonical-storage invariant that
+/// `as_bytes`, [`Hash`](core::hash::Hash), and the borsh wire form rest on.
+pub(crate) fn zero_dead_bits(bits: &mut Bits) {
+    bits.set_uninitialized(false);
+}
+
 /// Streams a bit-concatenation of canonical bit slices to a writer, packing
 /// MSB-first into bytes and zero-padding the final partial byte — with no
 /// intermediate buffer. `Clock::encode_to` writes the id stream then the event

@@ -139,6 +139,54 @@ proptest! {
     }
 }
 
+proptest! {
+    /// Every should-be-equivalent encoding view of a live `Party`/`Version`/
+    /// `Clock` agrees, over an arbitrary *impl-driven* history.
+    ///
+    /// The oracle-lowered round-trip tests (and [`master_differential`] above)
+    /// only ever compare `encode`d bytes; the `as_bytes_matches_encode` tests
+    /// only build via the oracle. Neither combination drives the impl's own
+    /// `fork`/`join`/`sync` *and* reads `as_bytes` — the exact seam where a
+    /// normalizing `join` once left stale bits in the stored buffer, so that
+    /// `as_bytes` (the borsh wire form) diverged from the canonical `encode`.
+    ///
+    /// For each clock reached by the trace this asserts the three packed views
+    /// coincide — `as_bytes == encode`, and `decode` of *either* recovers the
+    /// value — and the textual [`Display`]/[`FromStr`] view round-trips.
+    #[test]
+    fn encoding_views_agree_over_impl_history(ops in world_strategy()) {
+        let mut imp = vec![Clock::seed()];
+        for op in &ops {
+            step_impl(&mut imp, op);
+        }
+        for c in &imp {
+            let (p, v) = (c.party(), c.version());
+
+            // The raw stored bytes are canonical: identical to the re-packed
+            // encoding, and decodable as either.
+            let (pe, ve) = (p.encode(), v.encode());
+            prop_assert_eq!(p.as_bytes(), pe.as_slice());
+            prop_assert_eq!(&Party::decode(p.as_bytes()).unwrap(), p);
+            prop_assert_eq!(&Party::decode(&pe[..]).unwrap(), p);
+
+            prop_assert_eq!(v.as_bytes(), ve.as_slice());
+            prop_assert_eq!(&Version::decode(v.as_bytes()).unwrap(), v);
+            prop_assert_eq!(&Version::decode(&ve[..]).unwrap(), v);
+
+            // The textual view round-trips for both components and the pair.
+            prop_assert_eq!(&p.to_string().parse::<Party>().unwrap(), p);
+            prop_assert_eq!(&v.to_string().parse::<Version>().unwrap(), v);
+
+            let back = Clock::decode(&c.encode()[..]).unwrap();
+            prop_assert_eq!(back.party(), p);
+            prop_assert_eq!(back.version(), v);
+            let parsed: Clock = c.to_string().parse().unwrap();
+            prop_assert_eq!(parsed.party(), p);
+            prop_assert_eq!(parsed.version(), v);
+        }
+    }
+}
+
 // ───────────────────────────── protocol semantics ─────────────────────────────
 
 proptest! {

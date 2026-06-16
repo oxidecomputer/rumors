@@ -47,8 +47,6 @@ fn mt_runtime() -> tokio::runtime::Runtime {
 // ---- intra-process ----------------------------------------------------------
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(32))]
-
     /// Under arbitrary concurrent gossip — overlapping sessions through
     /// cloned [`Rumors`] handles, concurrent sends and redactions,
     /// bootstraps served mid-chaos against the same shared state, and
@@ -192,7 +190,7 @@ impl Drop for KillOnDrop {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(4))]
+    #![proptest_config(ProptestConfig::with_cases(8))]
 
     /// The same four invariants as the intra-process simulation, with the
     /// fleet split across OS processes gossiping over real TCP sockets

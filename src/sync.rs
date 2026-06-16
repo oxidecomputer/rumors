@@ -69,26 +69,64 @@
 //! # Ok::<(), rumors::Error>(())
 //! ```
 
+use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::sync::Arc;
 
+use ::before::Clock;
 use borsh::{BorshDeserialize, BorshSerialize};
 use futures::io::AllowStdIo;
 use tokio_util::compat::{FuturesAsyncReadCompatExt, FuturesAsyncWriteCompatExt};
 
 pub use crate::{
-    Batch, Error, Key, MERKLE_HASH_LEN, Network, PROTOCOL_MAGIC, PROTOCOL_VERSION, Snapshot,
-    Version, causally,
+    Batch, Error, Key, MERKLE_HASH_LEN, Network, NoBookmark, PROTOCOL_MAGIC, PROTOCOL_VERSION,
+    Snapshot, Version, causally,
 };
 pub use ::before;
 pub use ::borsh;
 
+/// The blocking counterpart to [`crate::Bookmark`].
+///
+/// Application-supplied persistent storage for a [`Peer`]'s identity, with
+/// synchronous [`read`](Bookmark::read)/[`write`](Bookmark::write).
+pub trait Bookmark {
+    /// What a failed [`read`](Self::read) or [`write`](Self::write) reports;
+    /// see [`crate::Bookmark::Error`].
+    type Error: std::error::Error + Send + Sync + 'static;
+
+    /// Read the persisted record, or an empty map if nothing is stored yet.
+    fn read(&self) -> Result<BTreeMap<Network, Vec<Clock>>, Self::Error>;
+
+    /// Durably (atomically) replace the persisted record with `bookmarks`.
+    fn write(&self, bookmarks: &BTreeMap<Network, Vec<Clock>>) -> Result<(), Self::Error>;
+}
+
+/// Adapts a blocking [`Bookmark`] to the async [`crate::Bookmark`] the engine
+/// expects, by running the synchronous call inline when the future is polled.
+///
+/// Sound because the whole blocking face drives the engine under
+/// [`pollster::block_on`] on the caller's thread: the inline call blocks
+/// exactly the thread that would otherwise be parked awaiting the I/O.
+struct Blocking<B>(B);
+
+impl<B: Bookmark + Send + Sync> crate::Bookmark for Blocking<B> {
+    type Error = B::Error;
+
+    async fn read(&self) -> Result<BTreeMap<Network, Vec<Clock>>, Self::Error> {
+        self.0.read()
+    }
+
+    async fn write(&self, bookmarks: &BTreeMap<Network, Vec<Clock>>) -> Result<(), Self::Error> {
+        self.0.write(bookmarks)
+    }
+}
+
 /// The blocking face of [`crate::Peer`]: the unique `!Clone` anchor that
 /// seeds, bootstraps, and retires. See [`crate::Peer`] for the model, the
 /// lifecycle, and a complete example.
-pub struct Peer<T>(crate::Peer<T>);
+pub struct Peer<T, B: crate::Bookmark = NoBookmark>(crate::Peer<T, B>);
 
-impl<T> std::fmt::Debug for Peer<T> {
+impl<T, B: crate::Bookmark> std::fmt::Debug for Peer<T, B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(&self.0, f)
     }
@@ -97,9 +135,9 @@ impl<T> std::fmt::Debug for Peer<T> {
 /// The blocking face of [`crate::Rumors`]: the cloneable working handle
 /// that sends, redacts, observes, and gossips. See [`crate::Rumors`] for
 /// the contract of every operation.
-pub struct Rumors<T>(crate::Rumors<T>);
+pub struct Rumors<T, B: crate::Bookmark = NoBookmark>(crate::Rumors<T, B>);
 
-impl<T> std::fmt::Debug for Rumors<T> {
+impl<T, B: crate::Bookmark> std::fmt::Debug for Rumors<T, B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(&self.0, f)
     }
@@ -109,7 +147,7 @@ impl<T> std::fmt::Debug for Rumors<T> {
 /// four outcomes and their contracts are those of [`crate::Retire`].
 #[must_use = "a declined or recovered retirement hands the Peer back; dropping it leaks the identity"]
 #[derive(Debug)]
-pub enum Retire<T> {
+pub enum Retire<T, B: crate::Bookmark = NoBookmark> {
     /// **Retired**: the peer absorbed our identity. See
     /// [`crate::Retire::Retired`].
     Retired,
@@ -117,21 +155,21 @@ pub enum Retire<T> {
     /// [`crate::Retire::Declined`].
     Declined {
         /// The intact retiree.
-        peer: Peer<T>,
+        peer: Peer<T, B>,
     },
     /// **Recovered, unchanged**: the session failed before anything was at
     /// stake; retry. See [`crate::Retire::Recovered`].
     Recovered {
         /// The intact retiree.
-        peer: Peer<T>,
+        peer: Peer<T, B>,
         /// What failed the session.
-        error: Error,
+        error: Error<B>,
     },
     /// **Uncertain**: the identity may be on either side, so the retiree
     /// is consumed. See [`crate::Retire::Uncertain`].
     Uncertain {
         /// What failed the session.
-        error: Error,
+        error: Error<B>,
     },
 }
 
@@ -316,11 +354,6 @@ impl<T> Peer<T> {
         Peer(crate::Peer::seed_rng(rng))
     }
 
-    /// The universe's identifier; see [`crate::Peer::network`].
-    pub fn network(&self) -> Network {
-        self.0.network()
-    }
-
     /// Join an existing universe through a connected peer, blocking until
     /// the session completes: the blocking [`crate::Peer::bootstrap`].
     /// `Ok(None)` means the counterparty was itself still bootstrapping;
@@ -336,11 +369,59 @@ impl<T> Peer<T> {
         pollster::block_on(crate::Peer::<T>::bootstrap(&mut read, &mut write))
             .map(|known| known.map(Peer))
     }
+}
+
+impl<T, B: Bookmark + Send + Sync> Peer<T, Blocking<B>> {
+    /// Mint a fresh universe, saving identity locally using the provided
+    /// [`Bookmark`].
+    ///
+    /// The blocking [`crate::Peer::seed_with_bookmark`]; no wire, nothing to
+    /// block on.
+    pub fn seed_with_bookmark(bookmark: B) -> Self {
+        Peer(crate::Peer::seed_with_bookmark(Blocking(bookmark)))
+    }
+
+    #[doc(hidden)]
+    pub fn seed_rng_with_bookmark<R: rand::RngCore + ?Sized>(rng: &mut R, bookmark: B) -> Self {
+        Peer(crate::Peer::seed_rng_with_bookmark(rng, Blocking(bookmark)))
+    }
+
+    /// Join an existing universe through a connected peer, saving identity
+    /// locally using the provided [`Bookmark`].
+    ///
+    /// `Ok(None)` means the counterparty was itself still bootstrapping; try a
+    /// more established peer.
+    pub fn bootstrap_with_bookmark<R, W>(
+        bookmark: B,
+        read: &mut R,
+        write: &mut W,
+    ) -> Result<Option<Self>, Error<Blocking<B>>>
+    where
+        T: BorshDeserialize + BorshSerialize + Send + Sync,
+        R: Read + Send,
+        W: Write + Send,
+    {
+        let mut read = AllowStdIo::new(read).compat();
+        let mut write = AllowStdIo::new(write).compat_write();
+        pollster::block_on(crate::Peer::<T, _>::bootstrap_with_bookmark(
+            Blocking(bookmark),
+            &mut read,
+            &mut write,
+        ))
+        .map(|known| known.map(Peer))
+    }
+}
+
+impl<T, B: crate::Bookmark> Peer<T, B> {
+    /// The universe's identifier; see [`crate::Peer::network`].
+    pub fn network(&self) -> Network {
+        self.0.network()
+    }
 
     /// Leave the universe, donating this identity through any gossiping
     /// peer, blocking until the session completes: the blocking
     /// [`crate::Peer::retire`]. The [`Retire`] outcome says what survived.
-    pub fn retire<R, W>(self, read: &mut R, write: &mut W) -> Retire<T>
+    pub fn retire<R, W>(self, read: &mut R, write: &mut W) -> Retire<T, B>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync,
         R: Read + Send,
@@ -361,7 +442,7 @@ impl<T> Peer<T> {
 
     /// Trade the anchor for working handles; see
     /// [`crate::Peer::into_rumors`].
-    pub fn into_rumors(self) -> Rumors<T> {
+    pub fn into_rumors(self) -> Rumors<T, B> {
         Rumors(self.0.into_rumors())
     }
 
@@ -377,13 +458,13 @@ impl<T> Peer<T> {
     }
 }
 
-impl<T> Clone for Rumors<T> {
+impl<T, B: crate::Bookmark> Clone for Rumors<T, B> {
     fn clone(&self) -> Self {
         Rumors(self.0.clone())
     }
 }
 
-impl<T> Rumors<T> {
+impl<T, B: crate::Bookmark> Rumors<T, B> {
     /// Send a message. Identical to [`crate::Rumors::send`]: the returned
     /// [`Batch`] commits when dropped.
     pub fn send(&self, message: T) -> Batch<'_, T>
@@ -412,7 +493,7 @@ impl<T> Rumors<T> {
 
     /// Run one reconciliation session with one peer, blocking until it
     /// completes: the blocking [`crate::Rumors::gossip`].
-    pub fn gossip<R, W>(&mut self, read: &mut R, write: &mut W) -> Result<(), Error>
+    pub fn gossip<R, W>(&mut self, read: &mut R, write: &mut W) -> Result<(), Error<B>>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync,
         R: Read + Send,
@@ -427,7 +508,7 @@ impl<T> Rumors<T> {
     /// handle has dropped — indefinitely, if another thread holds a clone it
     /// never drops. The blocking [`crate::Rumors::try_into_peer`], including
     /// its exactly-one-winner contract.
-    pub fn try_into_peer(self) -> Option<Peer<T>> {
+    pub fn try_into_peer(self) -> Option<Peer<T, B>> {
         pollster::block_on(self.0.try_into_peer()).map(Peer)
     }
 

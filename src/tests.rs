@@ -11,9 +11,12 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use before::Party;
+use std::sync::Arc;
 use tokio::io::AsyncWrite;
-use tokio::sync::watch;
 
+use tokio::sync::{Mutex, watch};
+
+use crate::bookmark::{Bookmarked, NoBookmark};
 use crate::tree::{Root, Tree};
 use crate::{Error, Inner, Peer, Retire};
 
@@ -109,6 +112,7 @@ fn overlapping_retiree_party_is_rejected() {
                 root: Root::default(),
             },
         }),
+        bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
     };
 
     let (_retire_out, survivor_out) = pollster::block_on(async {

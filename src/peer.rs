@@ -2,11 +2,14 @@
 //! API for sending, redacting, and observing messages. The wire-session
 //! drivers (bootstrap, gossip, retire) live in [`gossip`].
 
+use std::sync::Arc;
+
 use before::Party;
 use borsh::BorshSerialize;
 use rand::{RngCore, rngs::OsRng};
-use tokio::sync::watch;
+use tokio::sync::{Mutex, watch};
 
+use crate::bookmark::{Bookmark, Bookmarked, NoBookmark};
 use crate::tree::Tree;
 use crate::{Batch, CausalMessages, Key, Messages, Network, Rumors, Snapshot, Version};
 
@@ -133,9 +136,14 @@ pub use gossip::{Led, PROTOCOL_MAGIC, PROTOCOL_VERSION, Retire, Session};
 /// started, this will quickly lead to a stable and steady state which can only
 /// be disrupted if a group of new peers join only with one another and spend a
 /// long time partitioned from the rest of the network before reuniting with it.
-pub struct Peer<T> {
+pub struct Peer<T, B: Bookmark = NoBookmark> {
     pub(crate) network: Network,
     pub(crate) inner: watch::Sender<Inner<T>>,
+    /// The identity bookmark: persistence handle and its in-memory record,
+    /// behind an async mutex and shared with every [`Rumors`] clone. Separate
+    /// from `inner` because persisting is `async` and the record is `!Clone`;
+    /// see [`Bookmarked`].
+    pub(crate) bookmark: Arc<Mutex<Bookmarked<B>>>,
 }
 
 /// The replica's shared mutable state, behind the `watch` channel every
@@ -150,7 +158,7 @@ pub(crate) struct Inner<T> {
 
 /// A summary view (network, latest version, live-message count), independent
 /// of `T: Debug`: the messages themselves are not printed.
-impl<T> std::fmt::Debug for Peer<T> {
+impl<T, B: Bookmark> std::fmt::Debug for Peer<T, B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let inner = self.inner.borrow();
         f.debug_struct("Peer")
@@ -174,12 +182,32 @@ impl<T> Peer<T> {
     /// identifier from a caller-supplied RNG instead of [`OsRng`].
     #[doc(hidden)]
     pub fn seed_rng<R: RngCore + ?Sized>(rng: &mut R) -> Self {
+        Self::seed_rng_with_bookmark(rng, NoBookmark)
+    }
+}
+
+impl<T, B: Bookmark> Peer<T, B> {
+    /// Create the distinguished seed rumor set: the single root from which
+    /// every other participant must [`bootstrap`](Peer::bootstrap), saving
+    /// identity locally using the provided [`Bookmark`].
+    ///
+    /// Call this exactly once per universe of cooperating peers.
+    pub fn seed_with_bookmark(bookmark: B) -> Peer<T, B> {
+        Self::seed_rng_with_bookmark(&mut OsRng, bookmark)
+    }
+
+    /// Like [`seed`](Self::seed), but draws the universe's [`Network`]
+    /// identifier from a caller-supplied RNG instead of [`OsRng`], saving
+    /// identity locally using the provided [`Bookmark`].
+    #[doc(hidden)]
+    pub fn seed_rng_with_bookmark<R: RngCore + ?Sized>(rng: &mut R, bookmark: B) -> Self {
         Self {
             network: Network::from_rng(rng),
             inner: watch::Sender::new(Inner {
                 party: Some(Party::seed()),
                 tree: Tree::new(),
             }),
+            bookmark: Arc::new(Mutex::new(Bookmarked::new(bookmark))),
         }
     }
 
@@ -195,7 +223,7 @@ impl<T> Peer<T> {
     /// concurrently. Once only one remaining [`Rumors`] exists again, it can be
     /// converted back into a [`Peer`] using
     /// [`try_into_peer`](Rumors::try_into_peer).
-    pub fn into_rumors(self) -> Rumors<T> {
+    pub fn into_rumors(self) -> Rumors<T, B> {
         Rumors::new(self)
     }
 

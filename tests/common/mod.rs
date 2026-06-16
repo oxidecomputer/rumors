@@ -11,6 +11,7 @@
 
 pub mod action;
 pub mod fault;
+pub mod flaky;
 pub mod gossip_snapshot;
 pub mod oracle;
 pub mod peer;

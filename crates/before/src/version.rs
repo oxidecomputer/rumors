@@ -75,7 +75,7 @@ impl Version {
         let mut bits = codec::Bits::new();
         bits.push(false); // leaf flag
         codec::encode_int(&mut bits, &codec::Base::ZERO);
-        Version(bits)
+        Version::from_bits(bits)
     }
 
     /// Advance the [`Version`] from the perspective of [`Party`].
@@ -231,7 +231,7 @@ impl Version {
         // canonical up to `end`), so decoding allocates no more than before.
         let mut bits = codec::Bits::from_vec(buf);
         bits.truncate(end);
-        Ok(Version(bits))
+        Ok(Version::from_bits(bits))
     }
 
     /// The exact length in bits of [`encode`](Self::encode) before its zero-pad
@@ -263,7 +263,13 @@ impl Version {
     /// assert_eq!(v.as_bytes(), v.encode().as_slice());
     /// ```
     pub fn as_bytes(&self) -> &[u8] {
-        self.0.as_raw_slice()
+        let raw = self.0.as_raw_slice();
+        debug_assert_eq!(
+            raw,
+            self.encode().as_slice(),
+            "non-canonical Version storage: as_bytes must equal encode (dead bits not zeroed)",
+        );
+        raw
     }
 
     /// The packed preorder bit stream (no trailing padding). Internal.
@@ -271,8 +277,17 @@ impl Version {
         &self.0
     }
 
-    /// Wrap a canonical packed bit stream. Internal; callers guarantee normal form.
-    pub(crate) fn from_bits(bits: codec::Bits) -> Self {
+    /// Wrap a normal-form packed bit stream as a `Version`, canonicalizing its
+    /// storage. The single gate every built/parsed `Version` passes through.
+    ///
+    /// Callers guarantee normal *event-tree* form; this zeroes the dead bits
+    /// past the live length so the stored bytes are canonical. A `Version`'s
+    /// mutable form is the separate `WorkingVersion`, so its packed bits cannot
+    /// today carry the stale tail a `Party` can — this is defense-in-depth that
+    /// keeps the canonical-storage invariant uniform across both types (see
+    /// [`codec::zero_dead_bits`]).
+    pub(crate) fn from_bits(mut bits: codec::Bits) -> Self {
+        codec::zero_dead_bits(&mut bits);
         Version(bits)
     }
 }

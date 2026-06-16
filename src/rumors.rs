@@ -6,6 +6,7 @@ pub use acausal::Messages;
 pub use causal::CausalMessages;
 pub use changes::Changes;
 
+use crate::bookmark::{Bookmark, NoBookmark};
 use crate::{Batch, Error, Key, Network, Peer, Session, Snapshot, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
 use futures::Stream;
@@ -22,8 +23,8 @@ use tokio::{
 /// Unlike [`Peer`], [`Rumors`] is [`Clone`], which means that any number of
 /// tasks may concurrently interact with the set of rumors, arbitrarily.
 /// Synchronization is internal: anything one clone learns, all do.
-pub struct Rumors<T> {
-    peer: Peer<T>,
+pub struct Rumors<T, B: Bookmark = NoBookmark> {
+    peer: Peer<T, B>,
     /// This handle's claim to existence; see [`Extant`].
     extant: Extant,
 }
@@ -56,12 +57,13 @@ impl Drop for Extant {
     }
 }
 
-impl<T> Clone for Rumors<T> {
+impl<T, B: Bookmark> Clone for Rumors<T, B> {
     fn clone(&self) -> Self {
         Self {
             peer: Peer {
                 network: self.peer.network,
                 inner: self.peer.inner.clone(),
+                bookmark: Arc::clone(&self.peer.bookmark),
             },
             extant: self.extant.clone(),
         }
@@ -70,7 +72,7 @@ impl<T> Clone for Rumors<T> {
 
 /// A summary view (network, latest version, live-message count), independent
 /// of `T: Debug`: the messages themselves are not printed.
-impl<T> std::fmt::Debug for Rumors<T> {
+impl<T, B: Bookmark> std::fmt::Debug for Rumors<T, B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let inner = self.peer.inner.borrow();
         f.debug_struct("Rumors")
@@ -81,11 +83,11 @@ impl<T> std::fmt::Debug for Rumors<T> {
     }
 }
 
-impl<T> Rumors<T> {
+impl<T, B: Bookmark> Rumors<T, B> {
     /// Assemble the first handle of a fresh broadcast generation around `peer`,
     /// the only constructor: every other handle is a [`Clone`] of this one, so
     /// the token count faithfully counts handles.
-    pub(crate) fn new(peer: Peer<T>) -> Self {
+    pub(crate) fn new(peer: Peer<T, B>) -> Self {
         Self {
             peer,
             extant: Extant {
@@ -105,7 +107,7 @@ impl<T> Rumors<T> {
     /// different from having dropped the `Rumors`. If every handle goes away
     /// with no reunite pending, the `Peer` is gone for good and the set closes:
     /// observers drain the final state and end.
-    pub async fn try_into_peer(self) -> Option<Peer<T>> {
+    pub async fn try_into_peer(self) -> Option<Peer<T, B>> {
         let Self { peer, extant } = self;
         let token = Arc::downgrade(extant.token.as_ref().expect("Some outside Drop"));
         let claimed = Arc::clone(&extant.claimed);
@@ -203,7 +205,7 @@ impl<T> Rumors<T> {
     /// next session. On `Err`, the replica is unchanged, but the transport
     /// is mid-frame garbage: discard the connection rather than starting
     /// another session on it.
-    pub async fn gossip<'a, R, W>(&self, read: &'a mut R, write: &'a mut W) -> Result<(), Error>
+    pub async fn gossip<'a, R, W>(&self, read: &'a mut R, write: &'a mut W) -> Result<(), Error<B>>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
         R: AsyncRead + Unpin + Send,
@@ -311,7 +313,7 @@ impl<T> Rumors<T> {
         when: S,
         read: &'a mut R,
         write: &'a mut W,
-    ) -> impl Stream<Item = Result<Session, Error>> + Unpin + 'a
+    ) -> impl Stream<Item = Result<Session, Error<B>>> + Unpin + 'a
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
         R: AsyncRead + Unpin + Send,

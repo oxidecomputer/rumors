@@ -2,12 +2,12 @@
 //!
 //! A [`Party`] is a non-empty set of subintervals of `[0, 1)`, stored as a
 //! canonical id-tree: the share of the identifier space its holder may
-//! [`tick`](Party::tick) against. [`fork`](Party::fork) splits a share in
-//! two; [`join`](Party::join) reunites disjoint shares and refuses
-//! overlapping ones, because everything ITCs guarantee rests on the Law of
-//! Disjointness (see the [crate docs](crate)' safety rules). Parties are
-//! deliberately `!Clone` and their operations consume `self`: linearity in
-//! the type system, leaving only serialization boundaries to the caller.
+//! [`tick`](Party::tick) against. [`fork`](Party::fork) splits a share in two;
+//! [`join`](Party::join) reunites disjoint shares and refuses overlapping ones,
+//! because everything ITCs guarantee rests on the Law of Disjointness (see the
+//! [crate docs](crate)' safety rules). Parties are deliberately `!Clone` and
+//! their operations consume `self`: linearity in the type system, leaving only
+//! serialization boundaries to the caller.
 
 use core::fmt::Display;
 
@@ -36,10 +36,10 @@ mod tests;
 /// | [`a.is_disjoint(&b)`](Party::is_disjoint) | whether `a` and `b` share no region, hence may safely interact            |
 /// | `a == b`                                  | whether `a` is exactly the same [`Party`] as `b`                          |
 ///
-/// A [`Party`] is not ordered. Use [`is_disjoint`](Party::is_disjoint) to
-/// tell whether two parties may [`join`](Party::join). There is likewise no
-/// `Party | Party`: reuniting is the fallible [`join`](Party::join), which
-/// verifies disjointness itself.
+/// A [`Party`] is not ordered. Use [`is_disjoint`](Party::is_disjoint) to tell
+/// whether two parties may [`join`](Party::join). There is likewise no `Party |
+/// Party`: reuniting is the fallible [`join`](Party::join), which verifies
+/// disjointness itself.
 ///
 /// Like [`Clock`](crate::Clock), [`Party`] is [`!Clone`](Clone): duplicating a
 /// live party would violate the linearity which interval tree clocks require.
@@ -71,7 +71,7 @@ impl Party {
         let mut bits = codec::Bits::with_capacity(2);
         bits.push(false); // leaf flag
         bits.push(true); // value 1
-        Party(bits)
+        Party::from_bits(bits)
     }
 
     /// Advance the [`Version`] from the perspective of [`Party`].
@@ -103,8 +103,8 @@ impl Party {
     /// ```
     pub fn fork(&mut self) -> Party {
         let (keep, give) = self.view().split();
-        self.0 = keep;
-        Party(give)
+        *self = Party::from_bits(keep);
+        Party::from_bits(give)
     }
 
     /// Reunite two disjoint [`Party`]s.
@@ -124,7 +124,7 @@ impl Party {
     pub fn join(&mut self, other: Party) -> Result<(), Party> {
         match self.view().sum(other.view()) {
             Some(bits) => {
-                self.0 = bits;
+                *self = Party::from_bits(bits);
                 Ok(())
             }
             None => Err(other),
@@ -152,12 +152,12 @@ impl Party {
     /// Test whether `self`'s owned region contains all of `other`'s
     /// (`self ⊇ other`).
     ///
-    /// This is the asymmetric companion of
-    /// [`is_disjoint`](Party::is_disjoint). Two arbitrary parties are
-    /// disjoint (they share nothing), nested (one covers the other), or
-    /// partially overlapping (neither covers the other). For parties
-    /// descended from one [`seed`](Party::seed) via [`fork`](Party::fork)
-    /// and [`join`](Party::join), partial overlap cannot arise.
+    /// This is the asymmetric companion of [`is_disjoint`](Party::is_disjoint).
+    /// Two arbitrary parties are disjoint (they share nothing), nested (one
+    /// covers the other), or partially overlapping (neither covers the other).
+    /// For parties descended from one [`seed`](Party::seed) via
+    /// [`fork`](Party::fork) and [`join`](Party::join), partial overlap cannot
+    /// arise.
     ///
     /// Covering is reflexive and transitive, a partial order on regions with
     /// the whole [`seed`](Party::seed) on top:
@@ -169,8 +169,8 @@ impl Party {
     ///
     /// Covering a non-empty region implies the two are not
     /// [disjoint](Party::is_disjoint), so a party that has come to cover
-    /// another's region can no longer [`join`](Party::join) it. This is how
-    /// a caller recognizes an outstanding share as fully reabsorbed.
+    /// another's region can no longer [`join`](Party::join) it. This is how a
+    /// caller recognizes an outstanding share as fully reabsorbed.
     ///
     /// [`dangerously_alias`]: Party::dangerously_alias
     ///
@@ -230,13 +230,12 @@ impl Party {
     ///
     /// [`Party`] is [`!Clone`](Clone) because two live handles to one region
     /// break the Law of Disjointness: the alias is not
-    /// [disjoint](Party::is_disjoint) from the original, so if both copies
-    /// (or any of their [`fork`](Party::fork)s) go on to
-    /// [`tick`](Party::tick) or [`join`](Party::join), causal history can be
-    /// corrupted arbitrarily. The caller must ensure that at most one of the
-    /// two copies is ever treated as live; the other must be dropped without
-    /// further use. The same rule applies to any [`Clock`](crate::Clock)
-    /// built from such a party.
+    /// [disjoint](Party::is_disjoint) from the original, so if both copies (or
+    /// any of their [`fork`](Party::fork)s) go on to [`tick`](Party::tick) or
+    /// [`join`](Party::join), causal history can be corrupted arbitrarily. The
+    /// caller must ensure that at most one of the two copies is ever treated as
+    /// live; the other must be dropped without further use. The same rule
+    /// applies to any [`Clock`](crate::Clock) built from such a party.
     ///
     /// This method exists for handing a party across a boundary where
     /// ownership transfers to exactly one side based on an outcome not known
@@ -249,7 +248,7 @@ impl Party {
     /// assert!(!p.is_disjoint(&q));
     /// ```
     pub fn dangerously_alias(&self) -> Self {
-        Party(self.0.clone())
+        Party::from_bits(self.0.clone())
     }
 
     /// Encode a [`Party`] to bytes.
@@ -318,7 +317,7 @@ impl Party {
         if codec::id_is_empty(&id) {
             return Err(Decode::Anonymous);
         }
-        Ok(Party(id))
+        Ok(Party::from_bits(id))
     }
 
     /// The anonymous (zero) id, `Leaf(false)`. Internal and transient only
@@ -331,7 +330,7 @@ impl Party {
         let mut bits = codec::Bits::with_capacity(2);
         bits.push(false); // leaf flag
         bits.push(false); // value 0
-        Party(bits)
+        Party::from_bits(bits)
     }
 
     /// A read-only [`IdReader`] cursor at the root of this party's packed id bits.
@@ -340,16 +339,16 @@ impl Party {
     }
 
     /// The canonical packed bytes of this [`Party`]: what
-    /// [`encode`](Self::encode) produces, borrowed without copying. The
-    /// final partial byte is zero-padded in the stored form, so these bytes
-    /// are a canonical identity: byte-equal if and only if the parties are
-    /// equal, and consistent with [`hash`](core::hash::Hash).
+    /// [`encode`](Self::encode) produces, borrowed without copying. The final
+    /// partial byte is zero-padded in the stored form, so these bytes are a
+    /// canonical identity: byte-equal if and only if the parties are equal, and
+    /// consistent with [`hash`](core::hash::Hash).
     ///
-    /// A [`Party`] is not ordered (see the type docs). The lexicographic
-    /// order of these bytes is an arbitrary total order with no semantic
-    /// meaning, useful only as a deterministic tiebreak. Use
-    /// [`is_disjoint`](Self::is_disjoint) to reason about whether two
-    /// parties may interact.
+    /// A [`Party`] is not ordered (see the type docs). The lexicographic order
+    /// of these bytes is an arbitrary total order with no semantic meaning,
+    /// useful only as a deterministic tiebreak. Use
+    /// [`is_disjoint`](Self::is_disjoint) to reason about whether two parties
+    /// may interact.
     ///
     /// ```
     /// use before::Party;
@@ -357,7 +356,13 @@ impl Party {
     /// assert_eq!(p.as_bytes(), p.encode().as_slice());
     /// ```
     pub fn as_bytes(&self) -> &[u8] {
-        self.0.as_raw_slice()
+        let raw = self.0.as_raw_slice();
+        debug_assert_eq!(
+            raw,
+            self.encode().as_slice(),
+            "non-canonical Party storage: as_bytes must equal encode (dead bits not zeroed)",
+        );
+        raw
     }
 
     /// The packed preorder bit stream (no trailing padding). Internal.
@@ -365,8 +370,15 @@ impl Party {
         &self.0
     }
 
-    /// Wrap a canonical packed bit stream. Internal; callers guarantee normal form.
-    pub(crate) fn from_bits(bits: codec::Bits) -> Self {
+    /// Wrap a normal-form packed bit stream as a `Party`, canonicalizing its
+    /// storage. The single gate every built/parsed `Party` passes through.
+    ///
+    /// Callers guarantee normal *tree* form (a nonempty, normalized id); this
+    /// zeroes the dead bits past the live length so the stored bytes are
+    /// canonical — see [`codec::zero_dead_bits`] for why a tree op can leave
+    /// them non-zero, and what byte-canonicity underpins.
+    pub(crate) fn from_bits(mut bits: codec::Bits) -> Self {
+        codec::zero_dead_bits(&mut bits);
         Party(bits)
     }
 }

@@ -4,18 +4,22 @@
 //! that snaps a speculatively-donated party back in place on failure.
 
 use std::pin::Pin;
+use std::sync::Arc;
 
 use before::Party;
 use borsh::{BorshDeserialize, BorshSerialize};
 use futures_util::{Stream, StreamExt};
 use tokio::{
     io::{AsyncRead, AsyncWrite},
-    sync::watch,
+    sync::{Mutex, watch},
 };
 
-use crate::tree::mirror::{local, message::Intent, remote};
 use crate::tree::{self, Tree, mirror};
 use crate::{Error, Network, Version};
+use crate::{
+    bookmark::{Bookmark, Bookmarked, NoBookmark},
+    tree::mirror::{local, message::Intent, remote},
+};
 
 use super::{Inner, Peer};
 
@@ -35,7 +39,7 @@ pub const PROTOCOL_VERSION: u16 = 1;
 /// identity that the call was specifically trying to preserve.
 #[must_use = "a declined or recovered retirement hands the Peer back; dropping it leaks the identity"]
 #[derive(Debug)]
-pub enum Retire<T> {
+pub enum Retire<T, B: Bookmark = NoBookmark> {
     /// **Retired.** The peer reconciled with us and absorbed our identity;
     /// this replica has left the universe.
     Retired,
@@ -43,23 +47,23 @@ pub enum Retire<T> {
     /// replica is handed back intact, to try retiring elsewhere.
     Declined {
         /// The intact retiree.
-        peer: Peer<T>,
+        peer: Peer<T, B>,
     },
     /// **Recovered, unchanged.** The session failed *before* our identity ever
     /// crossed the wire; the replica is handed back intact, to try retiring
     /// elsewhere.
     Recovered {
         /// The intact retiree.
-        peer: Peer<T>,
+        peer: Peer<T, B>,
         /// What failed the session.
-        error: Error,
+        error: Error<B>,
     },
     /// **Uncertain.** The session failed while our identity itself was in
     /// flight: the peer may or may not hold it, so our peer is consumed
     /// rather than risk the same identity living twice.
     Uncertain {
         /// What failed the session.
-        error: Error,
+        error: Error<B>,
     },
 }
 
@@ -93,11 +97,31 @@ pub enum Led {
 }
 
 impl<T> Peer<T> {
-    /// Bootstrap a brand-new rumor set from a remote peer.
     pub async fn bootstrap<'a, R, W>(
         read: &'a mut R,
         write: &'a mut W,
     ) -> Result<Option<Self>, Error>
+    where
+        T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
+        R: AsyncRead + Unpin + Send,
+        W: AsyncWrite + Unpin + Send,
+    {
+        Self::bootstrap_with_bookmark(NoBookmark, read, write).await
+    }
+}
+
+impl<T, B: Bookmark> Peer<T, B> {
+    /// Bootstrap a brand-new rumor set from a remote peer, using the given
+    /// bookmark for identity persistence.
+    ///
+    /// The received identity is persisted *eagerly*, before this returns: the
+    /// provider has already forked it away to us, so a crash before the first
+    /// gossip would otherwise strand it.
+    pub async fn bootstrap_with_bookmark<'a, R, W>(
+        bookmark: B,
+        read: &'a mut R,
+        write: &'a mut W,
+    ) -> Result<Option<Self>, Error<B>>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
         R: AsyncRead + Unpin + Send,
@@ -115,7 +139,8 @@ impl<T> Peer<T> {
             &mut reader,
             &mut writer,
         )
-        .await?;
+        .await
+        .map_err(|e| e.widen())?;
 
         // In the bootstrap case, it doesn't matter whether the remote intends
         // to remain or retire; they will hand us a party regardless, and we can
@@ -129,7 +154,9 @@ impl<T> Peer<T> {
 
         // After the connect phase, a peer that is *also* bootstrapping means
         // there is nothing to receive: bail symmetrically.
-        let handshaken = mirror::handshake(l, r).await.map_err(server_error)?;
+        let handshaken = mirror::handshake(l, r)
+            .await
+            .map_err(|e| server_error(e).widen())?;
         if remote_network.is_bootstrap() {
             return Ok(None);
         }
@@ -142,15 +169,26 @@ impl<T> Peer<T> {
         // buffers inflate it past the crate-wide `large_futures` ceiling.
         let (root, (mut reader, _writer)) = Box::pin(handshaken.reconcile())
             .await
-            .map_err(server_error)?;
-        let party = remote::recv_party(&mut reader).await?;
-        Ok(Some(Self {
+            .map_err(|e| server_error(e).widen())?;
+        let party = remote::recv_party(&mut reader)
+            .await
+            .map_err(|e| e.widen())?;
+        let peer = Self {
             network: remote_network,
             inner: watch::Sender::new(Inner {
                 party: Some(party),
                 tree: Tree { root },
             }),
-        }))
+            bookmark: Arc::new(Mutex::new(Bookmarked::new(bookmark))),
+        };
+
+        // Eagerly persist the received identity: it is ours the instant the
+        // provider forked it, so it must outlive a crash even before our first
+        // gossip. A persistence failure here surfaces rather than handing back
+        // an un-bookmarked peer (the leaked fork is a few stranded bits, not
+        // corruption).
+        peer.bookmark_update().await.map_err(Error::Bookmark)?;
+        Ok(Some(peer))
     }
 
     /// Retire this rumor set into a remote peer, handing it our identity so
@@ -168,7 +206,7 @@ impl<T> Peer<T> {
     /// [`CausalMessages`](crate::CausalMessages)) drain the *reconciled*
     /// final state — everything the session learned included — before they
     /// end.
-    pub async fn retire<'a, R, W>(self, read: &'a mut R, write: &'a mut W) -> Retire<T>
+    pub async fn retire<'a, R, W>(self, read: &'a mut R, write: &'a mut W) -> Retire<T, B>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
         R: AsyncRead + Unpin + Send,
@@ -191,7 +229,7 @@ impl<T> Peer<T> {
         &self,
         read: &'a mut R,
         write: &'a mut W,
-    ) -> Result<(), Error>
+    ) -> Result<(), Error<B>>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
         R: AsyncRead + Unpin + Send,
@@ -202,6 +240,66 @@ impl<T> Peer<T> {
             .await
             .1
             .map(|_converged| ())
+    }
+
+    /// Reflect the live identity into the bookmark before a session transmits
+    /// versioned state: reclaim every stranded identity the party has caught
+    /// up to (growing the live party in place) and persist.
+    ///
+    /// Holds the bookmark mutex across a brief `watch` critical section — where
+    /// the party grows atomically with the record — and the persisting write,
+    /// so the two stores never diverge. The lock order is always
+    /// bookmark-then-`watch`; no path takes them the other way, so it cannot
+    /// deadlock.
+    ///
+    /// Suppressed when the live `(party, version)` still matches what was last
+    /// persisted: between updates nothing else touches the record, so re-running
+    /// would reclaim nothing and re-record an identical alias. A change to
+    /// *either* — the version advancing on new content, or the party growing on
+    /// an absorbed retiree — defeats the suppression and persists afresh.
+    async fn bookmark_update(&self) -> Result<(), B::Error> {
+        let mut bookmark = self.bookmark.lock().await;
+
+        // Read the live frontier and party under one `watch` borrow, dropped
+        // before any `send_if_modified` (holding it across one would deadlock).
+        let (version, suppressed) = {
+            let inner = self.inner.borrow();
+            let version = inner.tree.latest().clone();
+            let suppressed = inner
+                .party
+                .as_ref()
+                .is_some_and(|party| bookmark.is_current(party, &version));
+            (version, suppressed)
+        };
+        if suppressed {
+            return Ok(());
+        }
+
+        bookmark.ensure_loaded().await?;
+        self.inner.send_if_modified(|inner| {
+            if let Some(party) = inner.party.as_mut() {
+                // `reclaim` stages the suppression token for this
+                // `(party, version)`; the `write` below commits it (or, on
+                // failure, clears it so the next update retries).
+                bookmark.reclaim(self.network, party, &version);
+            }
+            // Reclaiming widens the party's id-region but records no new event,
+            // so the observable frontier is unchanged: no observer wakeup is due.
+            false
+        });
+        bookmark.write().await
+    }
+
+    /// Slice a donated `party` out of the bookmark before it crosses the wire,
+    /// and persist. The party has already left `Inner` (forked off or taken
+    /// whole), so this needs no `watch` critical section.
+    async fn bookmark_donate(&self, party: &Party) -> Result<(), B::Error> {
+        let mut bookmark = self.bookmark.lock().await;
+        bookmark.ensure_loaded().await?;
+        // Donating shrinks our identity, so `slice` invalidates the suppression
+        // token; the next update re-records the true current identity.
+        bookmark.slice(self.network, party);
+        bookmark.write().await
     }
 
     /// Synchronize with a remote peer, optionally trying to retire afterwards.
@@ -231,7 +329,7 @@ impl<T> Peer<T> {
         staged: &mut remote::Staged,
         read: &'a mut R,
         write: &'a mut W,
-    ) -> (Intent, Result<Version, Error>)
+    ) -> (Intent, Result<Version, Error<B>>)
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
         R: AsyncRead + Unpin + Send,
@@ -243,7 +341,7 @@ impl<T> Peer<T> {
         let mut writer = remote::FrameWrite::new(write);
         let (remote_network, remote_intent) =
             match remote::preamble(self.network, intent, staged, &mut reader, &mut writer).await {
-                Err(e) => return (Intent::Remain, Err(e)),
+                Err(e) => return (Intent::Remain, Err(e.widen())),
                 Ok(output) => output,
             };
         let peer_bootstrapping = remote_network.is_bootstrap();
@@ -254,6 +352,16 @@ impl<T> Peer<T> {
         if self_retiring && peer_retiring {
             let unchanged = self.inner.borrow().tree.latest().clone();
             return (Intent::Remain, Ok(unchanged));
+        }
+
+        // Bookmark our identity at its current version before any of it crosses
+        // the wire, reclaiming any stranded identities we have since caught up
+        // to. Reclaiming grows the live party in place, so it must precede the
+        // speculative fork below: a fork or donation then carries the grown
+        // identity. (`retire` reaches here too, through its `gossip_inner`
+        // call, so a retiring set is bookmarked before donating itself.)
+        if let Err(e) = self.bookmark_update().await {
+            return (Intent::Remain, Err(Error::Bookmark(e)));
         }
 
         // Clone out the most-recent tree and *speculatively* remove any party
@@ -300,7 +408,7 @@ impl<T> Peer<T> {
         // want to receive the peer's version, so we can report the
         // `remote_min_events` count computed over the peer's version.
         let handshaken = match mirror::handshake(l, r).await.map_err(server_error) {
-            Err(e) => return (Intent::Remain, Err(e)),
+            Err(e) => return (Intent::Remain, Err(e.widen())),
             Ok(handshaken) => handshaken,
         };
 
@@ -319,7 +427,7 @@ impl<T> Peer<T> {
         // version and messages
         let (root, (mut reader, mut writer)) =
             match Box::pin(handshaken.reconcile()).await.map_err(server_error) {
-                Err(e) => return (Intent::Remain, Err(e)),
+                Err(e) => return (Intent::Remain, Err(e.widen())),
                 Ok(outcome) => outcome,
             };
 
@@ -336,15 +444,26 @@ impl<T> Peer<T> {
             // retire, and we bailed early if we were retiring too, so no
             // party of ours is in flight here: `guarded.party` is `None`.
             absorbed = match remote::recv_party(&mut reader).await {
-                Err(e) => return (Intent::Remain, Err(e)),
+                Err(e) => return (Intent::Remain, Err(e.widen())),
                 Ok(donated_party) => Some(donated_party),
             };
-        } else if let Some(donated) = guarded.party.take() {
+        } else if guarded.party.is_some() {
             // We are donating: our whole party if we are retiring, or a fresh
-            // fork of it if the peer is bootstrapping from us. Taking it out
-            // of the guard defuses drop-recovery: from here the peer may hold
-            // the party even if the send errors, so it can never be safely
-            // re-joined.
+            // fork of it if the peer is bootstrapping from us.
+            //
+            // First slice the donation out of the bookmark, while it is still
+            // held in the guard: if persisting fails we abort *before* the
+            // party crosses the wire, and the guard re-joins it on the way out,
+            // so a bookmark failure here never strands a region.
+            let donated = guarded.party.as_ref().expect("is_some");
+            if let Err(e) = self.bookmark_donate(donated).await {
+                return (Intent::Remain, Err(Error::Bookmark(e)));
+            }
+
+            // Now take it out of the guard, defusing drop-recovery: from here
+            // the peer may hold the party even if the send errors, so it can
+            // never be safely re-joined.
+            let donated = guarded.party.take().expect("is_some");
             match remote::send_party(donated, &mut writer).await {
                 Err(e) => {
                     // A retiring donation in limbo must be assumed received:
@@ -356,7 +475,7 @@ impl<T> Peer<T> {
                     } else {
                         Intent::Remain
                     };
-                    return (outcome, Err(e));
+                    return (outcome, Err(e.widen()));
                 }
                 Ok(()) => {
                     if self_retiring {
@@ -408,6 +527,17 @@ impl<T> Peer<T> {
             return (Intent::Remain, Err(Error::PartyOverlap));
         }
 
+        // Persist an absorbed retiree's identity before declaring success. The
+        // join above grew our live party in memory only; the retiree has already
+        // sliced that region out of its own bookmark, so until we write it down a
+        // crash here would strand it — held by no one, recorded nowhere. This
+        // mirrors the eager persist a peer does after receiving a bootstrap fork
+        // (`bootstrap_with_bookmark`). A failed write surfaces as an error rather
+        // than a silent leak: our caller learns the absorption is not yet durable.
+        if peer_retiring && let Err(e) = self.bookmark_update().await {
+            return (Intent::Remain, Err(Error::Bookmark(e)));
+        }
+
         // In the case where we successfully retired (only callable on the
         // !Clone `Peer<T>`), we've given away our inner party and no more
         // actions are possible, so don't hand back the `Peer`.
@@ -422,7 +552,7 @@ impl<T> Peer<T> {
         when: S,
         read: &'a mut R,
         write: &'a mut W,
-    ) -> impl Stream<Item = Result<Session, Error>> + Unpin + 'a
+    ) -> impl Stream<Item = Result<Session, Error<B>>> + Unpin + 'a
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
         R: AsyncRead + Unpin + Send,
@@ -463,7 +593,7 @@ impl<T> Peer<T> {
                     let led = match trigger {
                         Trigger::Arrival(Err(e)) => {
                             drive.done = true;
-                            return Some((Err(e), drive));
+                            return Some((Err(e.widen()), drive));
                         }
                         // A hang-up on an idle boundary — not one preamble byte
                         // arrived — is the peer's clean goodbye: end in kind.
@@ -537,8 +667,8 @@ enum Trigger {
 /// The state a [`gossip_when`](Peer::gossip_when) driver carries between
 /// sessions: the transport halves, the policy stream, the preamble staging
 /// buffer, and the suppression token.
-struct Drive<'a, T, R, W, S> {
-    peer: &'a Peer<T>,
+struct Drive<'a, T, B: Bookmark, R, W, S> {
+    peer: &'a Peer<T, B>,
     read: &'a mut R,
     write: &'a mut W,
     when: Pin<Box<S>>,

@@ -52,6 +52,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
+use crate::bookmark::{Bookmark, NoBookmark};
 use crate::network::Network;
 use crate::tree::typed::{
     Node,
@@ -69,9 +70,14 @@ pub use preamble::{Staged, preamble};
 pub(crate) use preamble::{recv_party, send_party};
 
 /// The error type returned by the gossip protocol.
+///
+/// Generic over the [`Bookmark`] in play only to carry its
+/// [`Error`](Bookmark::Error) in the [`Bookmark`](Self::Bookmark) variant;
+/// every other variant is bookmark-independent. The default `B = NoBookmark`
+/// has an [uninhabited](std::convert::Infallible) bookmark error.
 #[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+pub enum Error<B: Bookmark = NoBookmark> {
     /// An underlying reader/writer error, or a borsh framing error encountered
     /// while parsing a message off the wire.
     #[error(transparent)]
@@ -96,9 +102,7 @@ pub enum Error {
 
     /// Both peers were gossiping but belong to different [`Network`]s: they
     /// descend from unrelated [`seed`](crate::Peer::seed)s and must not
-    /// combine, even if their causal state happens to look compatible. (A
-    /// bootstrapping peer sends the placeholder [`Network`], so a session where
-    /// either side is bootstrapping never raises this.)
+    /// combine, even if their causal state happens to look compatible.
     #[error("peer belongs to a different network ({remote_network:?})")]
     NetworkMismatch {
         /// The network identifier for the remote network.
@@ -111,10 +115,10 @@ pub enum Error {
         remote_min_events: u64,
     },
 
-    /// A retiring peer offered an identity that overlaps one already held
-    /// here. Identities in a well-formed universe are disjoint by
-    /// construction, so this only arises from a buggy or malicious peer;
-    /// the session aborts with our own state untouched.
+    /// A retiring peer offered an identity that overlaps one already held here.
+    /// Identities in a well-formed universe are disjoint by construction, so
+    /// this only arises from a buggy or malicious peer; the session aborts with
+    /// our own state untouched.
     #[error("retiring peer's party overlaps ours")]
     PartyOverlap,
 
@@ -124,9 +128,7 @@ pub enum Error {
 
     /// The peer's preamble frame declared a length other than the preamble's
     /// fixed size, despite carrying our magic and protocol version. No honest
-    /// peer produces this — a version bump accompanies any layout change —
-    /// so it indicates a buggy or malicious counterparty; the stream is
-    /// desynchronized and the connection must be discarded.
+    /// peer produces this, so it indicates a buggy or malicious counterparty.
     #[error("peer's preamble frame declared {declared} bytes")]
     PreambleLengthInvalid { declared: u32 },
 
@@ -138,11 +140,47 @@ pub enum Error {
     /// orphan the fork's id-region.
     #[error("peer claimed to bootstrap and retire in the same session")]
     BootstrapRetireConflict,
+
+    /// The application's [`Bookmark`] failed to persist or load the local
+    /// identity during the session. The wire is unaffected, but the session
+    /// aborts: proceeding past an unpersisted identity is exactly the leak the
+    /// bookmark exists to prevent.
+    #[error(transparent)]
+    Bookmark(B::Error),
 }
 
-impl From<borsh::io::Error> for Error {
+impl<B: Bookmark> From<borsh::io::Error> for Error<B> {
     fn from(e: borsh::io::Error) -> Self {
         Error::Io(e)
+    }
+}
+
+impl Error<NoBookmark> {
+    /// Re-tag a bookmark-free error under any [`Bookmark`].
+    ///
+    /// The wire-level session machinery is generic-free and produces
+    /// `Error<NoBookmark>`; the peer-level drivers return `Error<B>`. Every
+    /// variant but [`Bookmark`](Self::Bookmark) is bookmark-independent, and
+    /// that one is uninhabited here, so this is a total, lossless re-tag.
+    pub(crate) fn widen<B: Bookmark>(self) -> Error<B> {
+        match self {
+            Error::Io(e) => Error::Io(e),
+            Error::MagicMismatch { remote_magic } => Error::MagicMismatch { remote_magic },
+            Error::VersionMismatch { remote_version } => Error::VersionMismatch { remote_version },
+            Error::NetworkMismatch {
+                remote_network,
+                remote_min_events,
+            } => Error::NetworkMismatch {
+                remote_network,
+                remote_min_events,
+            },
+            Error::PartyOverlap => Error::PartyOverlap,
+            Error::IntentInvalid { byte } => Error::IntentInvalid { byte },
+            Error::PreambleLengthInvalid { declared } => Error::PreambleLengthInvalid { declared },
+            Error::BootstrapRetireConflict => Error::BootstrapRetireConflict,
+            // Uninhabited at `NoBookmark`: `Infallible` has no values.
+            Error::Bookmark(never) => match never {},
+        }
     }
 }
 

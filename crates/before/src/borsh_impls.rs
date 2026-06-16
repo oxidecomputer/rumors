@@ -65,3 +65,6 @@ impl BorshDeserialize for Clock {
         Clock::decode(&bytes[..]).map_err(|e| Error::new(ErrorKind::InvalidData, e))
     }
 }
+
+#[cfg(test)]
+mod tests;

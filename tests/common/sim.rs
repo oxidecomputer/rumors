@@ -209,14 +209,23 @@ pub fn arb_plan() -> impl Strategy<Value = Plan> {
 // ---- honesty of failures ---------------------------------------------------
 
 /// Every error an honest, single-universe simulation can surface is an
-/// injected I/O fault. Anything else — [`Error::PartyOverlap`] above all,
-/// but also network/protocol mismatches — is an invariant violation, not a
+/// injected I/O fault that *truncated* a frame. Anything else —
+/// [`Error::PartyOverlap`] above all, network/protocol mismatches, or a frame
+/// that arrived whole but failed to parse — is an invariant violation, not a
 /// disruption, and fails the test on the spot.
+///
+/// A wire cut stops the byte stream mid-frame, so a faulted read surfaces as an
+/// I/O error whose kind is `UnexpectedEof` (or a write/broken-pipe variant) —
+/// never a complete-but-malformed frame. A decode failure (`InvalidData`) is
+/// therefore a protocol/codec bug, not a fault: it is exactly how a
+/// non-canonical [`Party`] on the wire once slipped through, so reject it
+/// alongside the non-I/O variants.
 pub fn assert_honest_error(e: &Error) {
+    let honest = matches!(e, Error::Io(io) if io.kind() != std::io::ErrorKind::InvalidData);
     assert!(
-        matches!(e, Error::Io(_)),
-        "an honest, single-universe simulation must only surface injected \
-         I/O faults, got: {e:?}"
+        honest,
+        "an honest, single-universe simulation must only surface injected I/O \
+         faults that truncate a frame (a cut never corrupts one); got: {e:?}"
     );
 }
 
