@@ -188,9 +188,16 @@ impl<B, M: Mode> Bookmarked<B, M> {
     /// re-recording it would be a no-op. The suppression test for
     /// [`update`](crate::Peer::bookmark_update).
     pub(crate) fn is_current(&self, party: &Party, version: &Version) -> bool {
-        self.last
-            .as_ref()
-            .is_some_and(|(p, v)| p == party && v == version)
+        self.last.as_ref().is_some_and(|(p, v)| {
+            // We only need to record the bookmark when the two versions
+            // *quotiented by our current party* are not equal, because
+            // we're trying to ensure that we persist prior to gossiping any
+            // messages which originate from our own party. If the version
+            // advances in a region that is not overlapping with our party,
+            // then this is irrelevant: it would be *correct* to persist
+            // then, but it is *unnecessary*.
+            p == party && v / p == version / p
+        })
     }
 }
 
