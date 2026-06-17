@@ -289,7 +289,8 @@ impl World {
                     write_faults[label].clone(),
                 )));
                 let bookmark = FlakyInMemoryBookmark::new(store.clone(), faults.clone(), label);
-                let peer = Peer::<Msg, FlakyInMemoryBookmark>::seed_with_bookmark(bookmark);
+                let peer = block_on(Peer::<Msg>::seed().bookmark(bookmark))
+                    .expect("a pristine seed attaches its bookmark without touching storage");
                 let network = peer.network();
                 Node {
                     state: NodeState::Live(peer.into_rumors()),
@@ -327,7 +328,8 @@ impl World {
         let store = Arc::new(Mutex::new(BTreeMap::new()));
         let faults = reliable();
         let bookmark = FlakyInMemoryBookmark::new(store.clone(), faults.clone(), 0);
-        let peer = Peer::<Msg, FlakyInMemoryBookmark>::seed_with_bookmark(bookmark);
+        let peer = block_on(Peer::<Msg>::seed().bookmark(bookmark))
+            .expect("a pristine seed attaches its bookmark without touching storage");
         let network = peer.network();
         let mut nodes = vec![Node {
             state: NodeState::Live(peer.into_rumors()),
@@ -572,12 +574,14 @@ impl World {
             let (mut serve_r, mut serve_w) = tokio::io::split(serve_side);
             // Spawn both sides so a failing one drops its halves (see `gossip`).
             let boot = tokio::spawn(async move {
-                Peer::<Msg, FlakyInMemoryBookmark>::bootstrap_with_bookmark(
-                    bookmark,
-                    &mut boot_r,
-                    &mut boot_w,
-                )
-                .await
+                // `Ok(None)` cannot happen (the server is gossiping, not
+                // bootstrapping); a wire fault drops us to `None`, as does an
+                // injected persistence failure in the eager bookmark attach.
+                let peer = Peer::<Msg>::bootstrap(&mut boot_r, &mut boot_w)
+                    .await
+                    .ok()
+                    .flatten()?;
+                peer.bookmark(bookmark).await.ok()
             });
             let serve =
                 tokio::spawn(async move { server_rumors.gossip(&mut serve_r, &mut serve_w).await });
@@ -587,7 +591,7 @@ impl World {
         });
 
         match booted {
-            Ok(Some(peer)) => {
+            Some(peer) => {
                 self.nodes[who].network = peer.network();
                 self.nodes[who].state = NodeState::Live(peer.into_rumors());
                 // The eager bootstrap persist secures `who`'s reclaimed identity;
@@ -596,9 +600,7 @@ impl World {
                 self.secure(server);
                 true
             }
-            // `Ok(None)` cannot happen (the server is gossiping, not
-            // bootstrapping); `Err(_)` is an injected persistence failure.
-            _ => false,
+            None => false,
         }
     }
 
@@ -623,7 +625,8 @@ impl World {
         // vanishes, so secure what was persisted and lose the rest.
         self.secure_and_lose(who);
         let bookmark = self.nodes[who].bookmark();
-        let peer = Peer::<Msg, FlakyInMemoryBookmark>::seed_with_bookmark(bookmark);
+        let peer = block_on(Peer::<Msg>::seed().bookmark(bookmark))
+            .expect("a pristine seed attaches its bookmark without touching storage");
         self.nodes[who].network = peer.network();
         self.nodes[who].state = NodeState::Live(peer.into_rumors());
     }
@@ -1075,7 +1078,11 @@ fn retire_into_rebooted_absorber_absorbs_cleanly() {
     block_on(async move {
         // A seeds, B bootstraps from A. Then each reboots once, reclaiming its
         // region from its bookmark (drop = crash; re-bootstrap = revive).
-        let a = Peer::<Msg, _>::seed_with_bookmark(bm_a()).into_rumors();
+        let a = Peer::<Msg>::seed()
+            .bookmark(bm_a())
+            .await
+            .expect("a pristine seed attaches its bookmark without touching storage")
+            .into_rumors();
         let b = boot_from_async(&a, bm_b()).await;
         drop(a);
         let a = boot_from_async(&b, bm_a()).await; // A reclaims
@@ -1130,16 +1137,21 @@ async fn boot_from_async(
     let (mut boot_r, mut boot_w) = tokio::io::split(boot_side);
     let (mut serve_r, mut serve_w) = tokio::io::split(serve_side);
     let boot = tokio::spawn(async move {
-        Peer::<Msg, _>::bootstrap_with_bookmark(bm, &mut boot_r, &mut boot_w).await
+        let peer = Peer::<Msg>::bootstrap(&mut boot_r, &mut boot_w)
+            .await
+            .expect("bootstrap ok")
+            .expect("got a peer");
+        // Clean wires, reliable store: the eager persist of the reclaimed
+        // identity must succeed.
+        match peer.bookmark(bm).await {
+            Ok(peer) => peer,
+            Err(_) => panic!("bookmark ok"),
+        }
     });
     let serve = tokio::spawn(async move { server.gossip(&mut serve_r, &mut serve_w).await });
     let (boot_out, serve_out) = tokio::join!(boot, serve);
     serve_out.unwrap().expect("serve bootstrap");
-    boot_out
-        .unwrap()
-        .expect("bootstrap ok")
-        .expect("got a peer")
-        .into_rumors()
+    boot_out.unwrap().into_rumors()
 }
 
 /// Execute a reliable-recovery plan to its post-heal end state.

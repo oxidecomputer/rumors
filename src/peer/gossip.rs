@@ -67,6 +67,24 @@ pub enum Retire<T, B: Bookmark = NoBookmark> {
     },
 }
 
+/// The failure outcome of [`Peer::bookmark`].
+///
+/// This indicates that the bookmark could not be read or persisted, so the
+/// [`Peer`] is handed back unchanged and still unbookmarked.
+///
+/// Marked `must_use` because dropping it discards the [`Peer`], the very
+/// identity the failed call was trying to make durable. Take
+/// [`peer`](Self::peer) back to drop it deliberately or to retry.
+#[must_use = "a failed `Peer::bookmark` hands the `Peer` back; dropping it strands the identity"]
+#[derive(Debug)]
+pub struct Unbookmarked<T, B: Bookmark> {
+    /// The peer, its identity intact and no bookmark attached.
+    pub peer: Peer<T>,
+    /// What the bookmark's [`read`](crate::Bookmark::read) or
+    /// [`write`](crate::Bookmark::write) reported.
+    pub error: B::Error,
+}
+
 /// One completed session of [`gossip_when`](crate::Rumors::gossip_when).
 ///
 /// The output stream from [`gossip_when`](crate::Rumors::gossip_when) yields
@@ -97,31 +115,21 @@ pub enum Led {
 }
 
 impl<T> Peer<T> {
+    /// Bootstrap a brand-new rumor set from a remote peer.
+    ///
+    /// The peer arrives [unbookmarked](NoBookmark): its identity has been
+    /// forked away to us but not yet persisted, so a crash before it is
+    /// recorded strands it (a few stranded bits, never corruption). To make
+    /// the received identity durable, attach a [`Bookmark`] with
+    /// [`bookmark`](Peer::bookmark) immediately, before the first gossip.
+    ///
+    /// `Ok(None)` means the counterparty was itself still bootstrapping, so
+    /// neither side held a universe to share; nothing was exchanged. Connect
+    /// to a more established peer and try again.
     pub async fn bootstrap<'a, R, W>(
         read: &'a mut R,
         write: &'a mut W,
     ) -> Result<Option<Self>, Error>
-    where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
-        R: AsyncRead + Unpin + Send,
-        W: AsyncWrite + Unpin + Send,
-    {
-        Self::bootstrap_with_bookmark(NoBookmark, read, write).await
-    }
-}
-
-impl<T, B: Bookmark> Peer<T, B> {
-    /// Bootstrap a brand-new rumor set from a remote peer, using the given
-    /// bookmark for identity persistence.
-    ///
-    /// The received identity is persisted *eagerly*, before this returns: the
-    /// provider has already forked it away to us, so a crash before the first
-    /// gossip would otherwise strand it.
-    pub async fn bootstrap_with_bookmark<'a, R, W>(
-        bookmark: B,
-        read: &'a mut R,
-        write: &'a mut W,
-    ) -> Result<Option<Self>, Error<B>>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
         R: AsyncRead + Unpin + Send,
@@ -139,8 +147,7 @@ impl<T, B: Bookmark> Peer<T, B> {
             &mut reader,
             &mut writer,
         )
-        .await
-        .map_err(|e| e.widen())?;
+        .await?;
 
         // In the bootstrap case, it doesn't matter whether the remote intends
         // to remain or retire; they will hand us a party regardless, and we can
@@ -154,9 +161,7 @@ impl<T, B: Bookmark> Peer<T, B> {
 
         // After the connect phase, a peer that is *also* bootstrapping means
         // there is nothing to receive: bail symmetrically.
-        let handshaken = mirror::handshake(l, r)
-            .await
-            .map_err(|e| server_error(e).widen())?;
+        let handshaken = mirror::handshake(l, r).await.map_err(server_error)?;
         if remote_network.is_bootstrap() {
             return Ok(None);
         }
@@ -169,28 +174,83 @@ impl<T, B: Bookmark> Peer<T, B> {
         // buffers inflate it past the crate-wide `large_futures` ceiling.
         let (root, (mut reader, _writer)) = Box::pin(handshaken.reconcile())
             .await
-            .map_err(|e| server_error(e).widen())?;
-        let party = remote::recv_party(&mut reader)
-            .await
-            .map_err(|e| e.widen())?;
+            .map_err(server_error)?;
+        let party = remote::recv_party(&mut reader).await?;
         let peer = Self {
             network: remote_network,
             inner: watch::Sender::new(Inner {
                 party: Some(party),
                 tree: Tree { root },
             }),
-            bookmark: Arc::new(Mutex::new(Bookmarked::new(bookmark))),
+            bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
         };
-
-        // Eagerly persist the received identity: it is ours the instant the
-        // provider forked it, so it must outlive a crash even before our first
-        // gossip. A persistence failure here surfaces rather than handing back
-        // an un-bookmarked peer (the leaked fork is a few stranded bits, not
-        // corruption).
-        peer.bookmark_update().await.map_err(Error::Bookmark)?;
         Ok(Some(peer))
     }
 
+    /// Attach `bookmark` to this [`Peer`], persisting its identity before
+    /// returning.
+    ///
+    /// This peer's own identity is [`read`](crate::Bookmark::read) into the
+    /// record and [`written`](crate::Bookmark::write) back *eagerly*, here, so a
+    /// freshly received fork cannot strand on a crash before the first gossip.
+    /// Reclaiming *other* stranded identities — which grows the live party — is
+    /// left to the first gossip, behind that path's persist gate, never done at
+    /// attach.
+    ///
+    /// A pristine [`seed`](Peer::seed), with nothing sent and no identity yet
+    /// donated or absorbed, has nothing worth persisting, so this touches
+    /// storage only once the peer *knows* something: any content, or any
+    /// identity beyond the undivided seed.
+    ///
+    /// # Errors
+    ///
+    /// If the bookmark cannot be read or written, nothing reaches storage and
+    /// the peer is handed back **untouched**, still unbookmarked, inside
+    /// [`Unbookmarked`], to drop or retry. Because the attach never reclaims, the
+    /// live party is exactly as it was: a failed attach cannot leave a reclaimed
+    /// region live in this peer yet stranded on disk.
+    pub async fn bookmark<B: Bookmark>(
+        self,
+        bookmark: B,
+    ) -> Result<Peer<T, B>, Unbookmarked<T, B>> {
+        let Peer { network, inner, .. } = self;
+        let peer = Peer {
+            network,
+            inner,
+            bookmark: Arc::new(Mutex::new(Bookmarked::new(bookmark))),
+        };
+
+        // A pristine seed has no identity worth recording yet; persisting it
+        // would only force a write the lazy load already defers. Anything the
+        // peer *knows* (any messages advancing the version, or a
+        // forked/absorbed identity) must be made durable immediately.
+        let pristine = {
+            let inner = peer.inner.borrow();
+            inner.tree.latest().is_empty() && inner.party.as_ref().is_some_and(Party::is_seed)
+        };
+        if pristine {
+            return Ok(peer);
+        }
+
+        // Eagerly persist our own identity. `bookmark_record` never reclaims, so
+        // it never grows the live party: on failure it has discarded the
+        // in-memory record (nothing reached storage) and left the party exactly
+        // as it was, so the handed-back peer is genuinely untouched.
+        match peer.bookmark_record().await {
+            Ok(()) => Ok(peer),
+            Err(error) => Err(Unbookmarked {
+                peer: Peer {
+                    network: peer.network,
+                    inner: peer.inner,
+                    bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
+                },
+                error,
+            }),
+        }
+    }
+}
+
+impl<T, B: Bookmark> Peer<T, B> {
     /// Retire this rumor set into a remote peer, handing it our identity so
     /// that it can be recycled by the network.
     ///
@@ -240,6 +300,29 @@ impl<T, B: Bookmark> Peer<T, B> {
             .await
             .1
             .map(|_converged| ())
+    }
+
+    /// Durably record this peer's *own* identity at its current version, without
+    /// reclaiming anything: the attach-time persist behind
+    /// [`bookmark`](Peer::bookmark).
+    ///
+    /// Unlike [`bookmark_update`](Self::bookmark_update), this never grows the
+    /// live party — it only notes who we are, so a freshly received fork cannot
+    /// strand on an early crash — and so a failed [`write`](Bookmarked::write)
+    /// leaves the party exactly as it was. Reclaiming, with its party growth and
+    /// the gating that protects it, is left to the first gossip. Holds the
+    /// bookmark mutex across a brief `watch` borrow (read-only here) and the
+    /// write; lock order is bookmark-then-`watch`, as everywhere.
+    async fn bookmark_record(&self) -> Result<(), B::Error> {
+        let mut bookmark = self.bookmark.lock().await;
+        bookmark.ensure_loaded().await?;
+        {
+            let inner = self.inner.borrow();
+            if let Some(party) = inner.party.as_ref() {
+                bookmark.record(self.network, party, inner.tree.latest());
+            }
+        }
+        bookmark.write().await
     }
 
     /// Reflect the live identity into the bookmark before a session transmits
@@ -528,12 +611,13 @@ impl<T, B: Bookmark> Peer<T, B> {
         }
 
         // Persist an absorbed retiree's identity before declaring success. The
-        // join above grew our live party in memory only; the retiree has already
-        // sliced that region out of its own bookmark, so until we write it down a
-        // crash here would strand it — held by no one, recorded nowhere. This
-        // mirrors the eager persist a peer does after receiving a bootstrap fork
-        // (`bootstrap_with_bookmark`). A failed write surfaces as an error rather
-        // than a silent leak: our caller learns the absorption is not yet durable.
+        // join above grew our live party in memory only; the retiree has
+        // already sliced that region out of its own bookmark, so until we write
+        // it down a crash here would strand it — held by no one, recorded
+        // nowhere. This mirrors the eager persist `Peer::bookmark` does when a
+        // freshly bootstrapped fork is bookmarked. A failed write surfaces as
+        // an error rather than a silent leak: our caller learns the absorption
+        // is not yet durable.
         if peer_retiring && let Err(e) = self.bookmark_update().await {
             return (Intent::Remain, Err(Error::Bookmark(e)));
         }

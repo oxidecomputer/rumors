@@ -78,6 +78,19 @@ impl Version {
         Version::from_bits(bits)
     }
 
+    /// Whether this version records no events: equal to [`Version::new`].
+    ///
+    /// ```
+    /// use before::{Party, Version};
+    /// let mut v = Version::new();
+    /// assert!(v.is_empty());
+    /// v.tick(&Party::seed());
+    /// assert!(!v.is_empty());
+    /// ```
+    pub fn is_empty(&self) -> bool {
+        *self == Version::new()
+    }
+
     /// Advance the [`Version`] from the perspective of [`Party`].
     ///
     /// ```

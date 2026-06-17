@@ -74,6 +74,27 @@ impl Party {
         Party::from_bits(bits)
     }
 
+    /// Whether this party is the whole, undivided seed region: equal to
+    /// [`Party::seed`].
+    ///
+    /// True only before any [`fork`](Party::fork) has split a region away, and
+    /// again once every fork has been [`join`](Party::join)ed back. A
+    /// bootstrapped descendant, holding a forked sub-region, is never the seed.
+    ///
+    /// ```
+    /// use before::Party;
+    /// let mut p = Party::seed();
+    /// assert!(p.is_seed());
+    /// let q = p.fork();
+    /// assert!(!p.is_seed()); // a party that has forked no longer owns the whole
+    /// assert!(!q.is_seed());
+    /// p.join(q).unwrap();
+    /// assert!(p.is_seed()); // ... until the whole is reunited
+    /// ```
+    pub fn is_seed(&self) -> bool {
+        *self == Party::seed()
+    }
+
     /// Advance the [`Version`] from the perspective of [`Party`].
     ///
     /// ```

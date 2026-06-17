@@ -15,7 +15,7 @@ use crate::{Batch, CausalMessages, Key, Messages, Network, Rumors, Snapshot, Ver
 
 mod gossip;
 
-pub use gossip::{Led, PROTOCOL_MAGIC, PROTOCOL_VERSION, Retire, Session};
+pub use gossip::{Led, PROTOCOL_MAGIC, PROTOCOL_VERSION, Retire, Session, Unbookmarked};
 
 /// The start and end of the lifecycle of a [`Rumors`].
 ///
@@ -182,35 +182,18 @@ impl<T> Peer<T> {
     /// identifier from a caller-supplied RNG instead of [`OsRng`].
     #[doc(hidden)]
     pub fn seed_rng<R: RngCore + ?Sized>(rng: &mut R) -> Self {
-        Self::seed_rng_with_bookmark(rng, NoBookmark)
-    }
-}
-
-impl<T, B: Bookmark> Peer<T, B> {
-    /// Create the distinguished seed rumor set: the single root from which
-    /// every other participant must [`bootstrap`](Peer::bootstrap), saving
-    /// identity locally using the provided [`Bookmark`].
-    ///
-    /// Call this exactly once per universe of cooperating peers.
-    pub fn seed_with_bookmark(bookmark: B) -> Peer<T, B> {
-        Self::seed_rng_with_bookmark(&mut OsRng, bookmark)
-    }
-
-    /// Like [`seed`](Self::seed), but draws the universe's [`Network`]
-    /// identifier from a caller-supplied RNG instead of [`OsRng`], saving
-    /// identity locally using the provided [`Bookmark`].
-    #[doc(hidden)]
-    pub fn seed_rng_with_bookmark<R: RngCore + ?Sized>(rng: &mut R, bookmark: B) -> Self {
         Self {
             network: Network::from_rng(rng),
             inner: watch::Sender::new(Inner {
                 party: Some(Party::seed()),
                 tree: Tree::new(),
             }),
-            bookmark: Arc::new(Mutex::new(Bookmarked::new(bookmark))),
+            bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
         }
     }
+}
 
+impl<T, B: Bookmark> Peer<T, B> {
     /// The globally unique identifier for this network of gossiping [`Peer`]s.
     pub fn network(&self) -> Network {
         self.network

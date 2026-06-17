@@ -48,7 +48,7 @@ pub trait Bookmark {
 
     /// Durably replace the persisted record with `bookmarks`.
     ///
-    /// Must commit atomically.
+    /// Must commit atomically, and must return an error if it cannot commit.
     fn write(
         &self,
         bookmarks: &BTreeMap<Network, Vec<Clock>>,
@@ -198,6 +198,30 @@ impl<B: Bookmark> Bookmarked<B> {
         // retirement) — persisting nothing while the live identity has grown
         // back past what is on disk.
         self.last = None;
+    }
+
+    /// Record `party`'s identity at `version` without reclaiming anything:
+    /// append our current alias to the network's clocks, leaving every other
+    /// stored entry exactly as it lies.
+    ///
+    /// The attach-time persist behind [`Peer::bookmark`](crate::Peer::bookmark),
+    /// where the live party **must not move** — not even transiently — so that a
+    /// failed [`write`](Self::write) can hand the peer back untouched. Reclaiming
+    /// (which grows the live party) is therefore deferred to the first gossip,
+    /// behind that path's persist gate, rather than done here. Run under the
+    /// bookmark mutex, after [`ensure_loaded`](Self::ensure_loaded), before
+    /// [`write`](Self::write).
+    ///
+    /// The suppression token is deliberately *not* staged: the next
+    /// [`reclaim`](Self::reclaim) must run rather than be suppressed against this
+    /// record, so any stranded region this peer already dominates is folded back
+    /// in at the first gossip rather than stranded until the next event.
+    pub(crate) fn record(&mut self, network: Network, party: &Party, version: &Version) {
+        let inner = self.inner.as_mut().expect("loaded before mutation");
+        inner.entry(network).or_default().push(Clock::from_parts(
+            party.dangerously_alias(),
+            version.clone(),
+        ));
     }
 
     /// Fold the live `party` and `version` into the record, reclaiming every

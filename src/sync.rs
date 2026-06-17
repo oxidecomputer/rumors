@@ -1,41 +1,31 @@
-//! The blocking face of the crate, for applications without an async
+//! A synchronous interface to the crate, for applications without an async
 //! runtime.
 //!
-//! Every type here wraps its namesake at the crate root and blocks the
-//! calling thread wherever the original would await: futures become plain
-//! calls, streams become [`Iterator`]s, and wire sessions run over
-//! [`std::io::Read`]/[`Write`] instead of tokio's traits. The semantics —
-//! lifecycle, session contract, observer guarantees — are identical, and
-//! are documented once, on the async item each wrapper names. Read the
-//! [crate docs](crate) first; this page only describes what blocking
-//! changes.
+//! Every type here wraps its namesake at the crate root and blocks the calling
+//! thread wherever the original would await. Async functions become ordinary
+//! functions, streams become [`Iterator`]s, and gossip runs over
+//! [`std::io::Read`]/[`Write`] instead of [`tokio`]'s
+//! [`AsyncRead`](tokio::io::AsyncRead)/[`AsyncWrite`](tokio::io::AsyncWrite).
 //!
-//! # Which face should you use?
+//! Modulo blocking, the behavior is identical to the main asynchronous
+//! interface. Read the [crate docs](crate) first.
 //!
-//! Use this module when there is no async runtime in the program at all: a
-//! CLI, a plain-threads service, a test harness. If a runtime exists —
-//! even a single-threaded one — use the crate root instead. These calls
-//! block their thread until a whole wire session or observation completes,
-//! and a blocked runtime thread stalls every task scheduled on it; in the
-//! worst case it stalls the very task that was about to serve this
-//! session's counterparty, which is a deadlock. If async code must call a
-//! blocking session anyway, isolate it on a dedicated thread (e.g.
-//! tokio's `spawn_blocking`).
+//! # Differences from the asynchronous interface
 //!
-//! Blocking calls cannot be cancelled: where the async face lets you drop
-//! a session future ([crate docs](crate#what-a-session-promises)), the
-//! blocking face returns only when the session has finished or failed. Use
-//! the transport's own timeouts (e.g. socket read timeouts, which surface
-//! here as session errors) to bound a stalled counterparty.
+//! Blocking calls cannot be cancelled: where the main asynchronous interface
+//! lets you drop a session future ([crate
+//! docs](crate#what-a-session-promises)), the synchronous interface returns
+//! only when the session has finished or failed. Use your transport's own
+//! timeouts (e.g. socket read timeouts, which surface here as session errors)
+//! to bound a stalled counterparty.
 //!
-//! The change-driven driver ([`crate::Rumors::gossip_when`]) has no
-//! blocking face: it is one task racing a policy stream against the wire,
-//! which is concurrency a blocking call cannot express. Its report types
-//! ([`crate::Session`], [`crate::Led`]) are therefore deliberately absent
-//! here as well. A blocking application schedules its own
-//! [`gossip`](Rumors::gossip) calls instead; [`Changes`] can wake other
-//! change-driven work, but is not a gossip schedule by itself (its docs
-//! say why).
+//! The change-driven driver ([`crate::Rumors::gossip_when`]) has no blocking
+//! equivalent: it is one task racing a policy stream against the wire, which is
+//! concurrency a blocking call cannot express. A blocking application schedules
+//! its own [`gossip`](Rumors::gossip) calls instead; [`Changes`] can wake other
+//! change-driven work, but is not a gossip schedule by itself, because one must
+//! wait concurrently for local and remote changes to implement bidirectional
+//! push-based gossip.
 //!
 //! # Example
 //!
@@ -85,10 +75,7 @@ pub use crate::{
 pub use ::before;
 pub use ::borsh;
 
-/// The blocking counterpart to [`crate::Bookmark`].
-///
-/// Application-supplied persistent storage for a [`Peer`]'s identity, with
-/// synchronous [`read`](Bookmark::read)/[`write`](Bookmark::write).
+/// The synchronous [`crate::Bookmark`].
 pub trait Bookmark {
     /// What a failed [`read`](Self::read) or [`write`](Self::write) reports;
     /// see [`crate::Bookmark::Error`].
@@ -101,13 +88,12 @@ pub trait Bookmark {
     fn write(&self, bookmarks: &BTreeMap<Network, Vec<Clock>>) -> Result<(), Self::Error>;
 }
 
-/// Adapts a blocking [`Bookmark`] to the async [`crate::Bookmark`] the engine
-/// expects, by running the synchronous call inline when the future is polled.
+/// Adapt a synchronous [`Bookmark`] to be a [`crate::Bookmark`].
 ///
-/// Sound because the whole blocking face drives the engine under
-/// [`pollster::block_on`] on the caller's thread: the inline call blocks
-/// exactly the thread that would otherwise be parked awaiting the I/O.
-struct Blocking<B>(B);
+/// You do not construct this; [`Peer::bookmark`] wraps your [`Bookmark`] in it.
+/// It surfaces only in the type of a bookmarked blocking peer, [`Peer<T,
+/// Blocking<B>>`](Peer), should you need to name one.
+pub struct Blocking<B>(B);
 
 impl<B: Bookmark + Send + Sync> crate::Bookmark for Blocking<B> {
     type Error = B::Error;
@@ -121,9 +107,7 @@ impl<B: Bookmark + Send + Sync> crate::Bookmark for Blocking<B> {
     }
 }
 
-/// The blocking face of [`crate::Peer`]: the unique `!Clone` anchor that
-/// seeds, bootstraps, and retires. See [`crate::Peer`] for the model, the
-/// lifecycle, and a complete example.
+/// A synchronous [`crate::Peer`].
 pub struct Peer<T, B: crate::Bookmark = NoBookmark>(crate::Peer<T, B>);
 
 impl<T, B: crate::Bookmark> std::fmt::Debug for Peer<T, B> {
@@ -132,9 +116,7 @@ impl<T, B: crate::Bookmark> std::fmt::Debug for Peer<T, B> {
     }
 }
 
-/// The blocking face of [`crate::Rumors`]: the cloneable working handle
-/// that sends, redacts, observes, and gossips. See [`crate::Rumors`] for
-/// the contract of every operation.
+/// The synchronous [`crate::Rumors`].
 pub struct Rumors<T, B: crate::Bookmark = NoBookmark>(crate::Rumors<T, B>);
 
 impl<T, B: crate::Bookmark> std::fmt::Debug for Rumors<T, B> {
@@ -143,8 +125,7 @@ impl<T, B: crate::Bookmark> std::fmt::Debug for Rumors<T, B> {
     }
 }
 
-/// The outcome of [`Peer::retire`], carrying this module's [`Peer`]; the
-/// four outcomes and their contracts are those of [`crate::Retire`].
+/// The synchronous [`crate::Retire`].
 #[must_use = "a declined or recovered retirement hands the Peer back; dropping it leaks the identity"]
 #[derive(Debug)]
 pub enum Retire<T, B: crate::Bookmark = NoBookmark> {
@@ -173,17 +154,29 @@ pub enum Retire<T, B: crate::Bookmark = NoBookmark> {
     },
 }
 
-/// The blocking face of [`crate::Messages`], the arbitrary-order live
-/// observer; see it for the delivery and checkpoint contract.
+/// The synchronous [`crate::Unbookmarked`].
+#[must_use = "a failed `Peer::bookmark` hands the `Peer` back; dropping it strands the identity"]
+#[derive(Debug)]
+pub struct Unbookmarked<T, B: Bookmark> {
+    /// The peer, its identity intact and no bookmark attached.
+    pub peer: Peer<T>,
+    /// What the bookmark's [`read`](Bookmark::read) or
+    /// [`write`](Bookmark::write) reported.
+    pub error: B::Error,
+}
+
+/// The synchronous [`crate::Messages`].
 ///
-/// Three ways to consume it: the [`Iterator`] impl blocks for owned items
-/// (`None` is terminal — the set has closed and is fully delivered);
-/// [`borrow_next`](Self::borrow_next) blocks but lends instead of cloning;
-/// [`try_next`](Self::try_next) never blocks.
+/// There are three ways to consume it:
+///
+/// - The [`Iterator`] impl blocks for owned items (`None` means the set has
+///   closed and is fully delivered);
+/// - [`borrow_next`](Self::borrow_next) blocks but lends instead of cloning;
+/// - [`try_next`](Self::try_next) never blocks, returning [`TryNext`] to provide
+///   either a value or a reason why one can't.
 pub struct Messages<T>(crate::Messages<T>);
 
-/// The outcome of one non-blocking observer step ([`Messages::try_next`],
-/// [`CausalMessages::try_next`]).
+/// The outcome of [`Messages::try_next`] or [`CausalMessages::try_next`].
 #[derive(Debug)]
 pub enum TryNext<'a, T> {
     /// The observer yielded a message, lent until the observer's next call
@@ -198,9 +191,7 @@ pub enum TryNext<'a, T> {
 }
 
 impl<T> Messages<T> {
-    /// Block until the next message, lending its version and value until
-    /// the following call; `None` once no further message is possible.
-    /// The blocking [`crate::Messages::borrow_next`].
+    /// The synchronous [`crate::Messages::borrow_next`].
     pub fn borrow_next(&mut self) -> Option<(Key, &Version, &Arc<T>)>
     where
         T: Send + Sync,
@@ -225,8 +216,7 @@ impl<T> Messages<T> {
         }
     }
 
-    /// The sound resume point; the contract is
-    /// [`crate::Messages::checkpoint`]'s.
+    /// The synchronous [`crate::Messages::checkpoint`].
     pub fn checkpoint(&self) -> &Version {
         self.0.checkpoint()
     }
@@ -240,17 +230,19 @@ impl<T: Send + Sync + 'static> Iterator for Messages<T> {
     }
 }
 
-/// The blocking face of [`crate::CausalMessages`], the causal-order live
-/// observer; see it for the ordering, cost, and checkpoint contract. Consumed
-/// exactly as [`Messages`] is: blocking [`Iterator`], lending
-/// [`borrow_next`](Self::borrow_next), non-blocking
-/// [`try_next`](Self::try_next).
+/// The synchronous [`crate::CausalMessages`].
+///
+/// There are three ways to consume it:
+///
+/// - The [`Iterator`] impl blocks for owned items (`None` means the set has
+///   closed and is fully delivered);
+/// - [`borrow_next`](Self::borrow_next) blocks but lends instead of cloning;
+/// - [`try_next`](Self::try_next) never blocks, returning [`TryNext`] to provide
+///   either a value or a reason why one can't.
 pub struct CausalMessages<T>(crate::CausalMessages<T>);
 
 impl<T> CausalMessages<T> {
-    /// Block until the next message in causal order, lending its version
-    /// and value until the following call; `None` once no further message
-    /// is possible. The blocking [`crate::CausalMessages::borrow_next`].
+    /// The synchronous [`crate::CausalMessages::borrow_next`].
     pub fn borrow_next(&mut self) -> Option<(Key, &Version, &Arc<T>)>
     where
         T: Send + Sync,
@@ -258,9 +250,8 @@ impl<T> CausalMessages<T> {
         pollster::block_on(self.0.borrow_next())
     }
 
-    /// Take one non-blocking step: a message if one is ready, [`Quiet`]
-    /// (ask again later) if not, [`Ended`] if no further message is
-    /// possible.
+    /// Take one non-blocking step: a message if one is ready, [`Quiet`] (ask
+    /// again later) if not, [`Ended`] if no further message is possible.
     ///
     /// [`Quiet`]: TryNext::Quiet
     /// [`Ended`]: TryNext::Ended
@@ -276,8 +267,7 @@ impl<T> CausalMessages<T> {
         }
     }
 
-    /// The sound resume point; the contract is
-    /// [`crate::CausalMessages::checkpoint`]'s.
+    /// The synchronous [`crate::CausalMessages::checkpoint`].
     pub fn checkpoint(&self) -> &Version {
         self.0.checkpoint()
     }
@@ -291,16 +281,10 @@ impl<T: Send + Sync + 'static> Iterator for CausalMessages<T> {
     }
 }
 
-/// The blocking face of [`crate::Changes`], the content-free change signal;
-/// see it for the coalescing tick contract — including why this signal
-/// alone must not schedule [`gossip`](Rumors::gossip). Two ways to consume
-/// it: the [`Iterator`] impl blocks until the set next advances (`None` is
-/// terminal — no further change is possible);
-/// [`try_next`](Self::try_next) never blocks.
+/// The synchronous [`crate::Changes`].
 pub struct Changes<T>(crate::Changes<T>);
 
-/// The outcome of one non-blocking change-signal step
-/// ([`Changes::try_next`]).
+/// The outcome of [`Changes::try_next`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TryTick {
     /// The set advanced since the last report (a fresh signal's first step
@@ -343,8 +327,7 @@ impl<T: Send + Sync + 'static> Iterator for Changes<T> {
 }
 
 impl<T> Peer<T> {
-    /// Mint a fresh universe. Identical to [`crate::Peer::seed`]: no wire,
-    /// nothing to block on.
+    /// The synchronous [`crate::Peer::seed`].
     pub fn seed() -> Self {
         Peer(crate::Peer::seed())
     }
@@ -354,10 +337,7 @@ impl<T> Peer<T> {
         Peer(crate::Peer::seed_rng(rng))
     }
 
-    /// Join an existing universe through a connected peer, blocking until
-    /// the session completes: the blocking [`crate::Peer::bootstrap`].
-    /// `Ok(None)` means the counterparty was itself still bootstrapping;
-    /// try a more established peer.
+    /// The synchronous [`crate::Peer::bootstrap`].
     pub fn bootstrap<R, W>(read: &mut R, write: &mut W) -> Result<Option<Self>, Error>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync,
@@ -369,58 +349,29 @@ impl<T> Peer<T> {
         pollster::block_on(crate::Peer::<T>::bootstrap(&mut read, &mut write))
             .map(|known| known.map(Peer))
     }
-}
 
-impl<T, B: Bookmark + Send + Sync> Peer<T, Blocking<B>> {
-    /// Mint a fresh universe, saving identity locally using the provided
-    /// [`Bookmark`].
-    ///
-    /// The blocking [`crate::Peer::seed_with_bookmark`]; no wire, nothing to
-    /// block on.
-    pub fn seed_with_bookmark(bookmark: B) -> Self {
-        Peer(crate::Peer::seed_with_bookmark(Blocking(bookmark)))
-    }
-
-    #[doc(hidden)]
-    pub fn seed_rng_with_bookmark<R: rand::RngCore + ?Sized>(rng: &mut R, bookmark: B) -> Self {
-        Peer(crate::Peer::seed_rng_with_bookmark(rng, Blocking(bookmark)))
-    }
-
-    /// Join an existing universe through a connected peer, saving identity
-    /// locally using the provided [`Bookmark`].
-    ///
-    /// `Ok(None)` means the counterparty was itself still bootstrapping; try a
-    /// more established peer.
-    pub fn bootstrap_with_bookmark<R, W>(
+    /// The synchronous [`crate::Peer::bookmark`].
+    pub fn bookmark<B: Bookmark + Send + Sync>(
+        self,
         bookmark: B,
-        read: &mut R,
-        write: &mut W,
-    ) -> Result<Option<Self>, Error<Blocking<B>>>
-    where
-        T: BorshDeserialize + BorshSerialize + Send + Sync,
-        R: Read + Send,
-        W: Write + Send,
-    {
-        let mut read = AllowStdIo::new(read).compat();
-        let mut write = AllowStdIo::new(write).compat_write();
-        pollster::block_on(crate::Peer::<T, _>::bootstrap_with_bookmark(
-            Blocking(bookmark),
-            &mut read,
-            &mut write,
-        ))
-        .map(|known| known.map(Peer))
+    ) -> Result<Peer<T, Blocking<B>>, Unbookmarked<T, B>> {
+        match pollster::block_on(self.0.bookmark(Blocking(bookmark))) {
+            Ok(peer) => Ok(Peer(peer)),
+            Err(crate::Unbookmarked { peer, error }) => Err(Unbookmarked {
+                peer: Peer(peer),
+                error,
+            }),
+        }
     }
 }
 
 impl<T, B: crate::Bookmark> Peer<T, B> {
-    /// The universe's identifier; see [`crate::Peer::network`].
+    /// The synchronous [`crate::Peer::network`].
     pub fn network(&self) -> Network {
         self.0.network()
     }
 
-    /// Leave the universe, donating this identity through any gossiping
-    /// peer, blocking until the session completes: the blocking
-    /// [`crate::Peer::retire`]. The [`Retire`] outcome says what survived.
+    /// The synchronous [`crate::Peer::retire`].
     pub fn retire<R, W>(self, read: &mut R, write: &mut W) -> Retire<T, B>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync,
@@ -440,8 +391,7 @@ impl<T, B: crate::Bookmark> Peer<T, B> {
         }
     }
 
-    /// Trade the anchor for working handles; see
-    /// [`crate::Peer::into_rumors`].
+    /// The synchronous [`crate::Peer::into_rumors`].
     pub fn into_rumors(self) -> Rumors<T, B> {
         Rumors(self.0.into_rumors())
     }
@@ -465,8 +415,7 @@ impl<T, B: crate::Bookmark> Clone for Rumors<T, B> {
 }
 
 impl<T, B: crate::Bookmark> Rumors<T, B> {
-    /// Send a message. Identical to [`crate::Rumors::send`]: the returned
-    /// [`Batch`] commits when dropped.
+    /// The synchronous [`crate::Rumors::send`].
     pub fn send(&self, message: T) -> Batch<'_, T>
     where
         T: BorshSerialize + Send + Sync,
@@ -474,8 +423,7 @@ impl<T, B: crate::Bookmark> Rumors<T, B> {
         self.0.send(message)
     }
 
-    /// Redact a message. Identical to [`crate::Rumors::redact`]: the
-    /// returned [`Batch`] commits when dropped.
+    /// The synchronous [`crate::Rumors::redact`].
     pub fn redact(&self, key: Key) -> Batch<'_, T>
     where
         T: Send + Sync,
@@ -483,7 +431,7 @@ impl<T, B: crate::Bookmark> Rumors<T, B> {
         self.0.redact(key)
     }
 
-    /// Start an empty [`Batch`]; see [`crate::Rumors::batch`].
+    /// The synchronous [`crate::Rumors::batch`].
     pub fn batch(&self) -> Batch<'_, T>
     where
         T: Send + Sync,
@@ -491,8 +439,7 @@ impl<T, B: crate::Bookmark> Rumors<T, B> {
         self.0.batch()
     }
 
-    /// Run one reconciliation session with one peer, blocking until it
-    /// completes: the blocking [`crate::Rumors::gossip`].
+    /// The synchronous [`crate::Rumors::gossip`].
     pub fn gossip<R, W>(&mut self, read: &mut R, write: &mut W) -> Result<(), Error<B>>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync,
@@ -504,16 +451,12 @@ impl<T, B: crate::Bookmark> Rumors<T, B> {
         pollster::block_on(self.0.gossip(&mut read, &mut write))
     }
 
-    /// Give up this handle and reclaim the [`Peer`], blocking until every other
-    /// handle has dropped — indefinitely, if another thread holds a clone it
-    /// never drops. The blocking [`crate::Rumors::try_into_peer`], including
-    /// its exactly-one-winner contract.
+    /// The synchronous [`crate::Rumors::try_into_peer`].
     pub fn try_into_peer(self) -> Option<Peer<T, B>> {
         pollster::block_on(self.0.try_into_peer()).map(Peer)
     }
 
-    /// Observe every message, arbitrary order, from genesis onward; see
-    /// [`crate::Rumors::messages`].
+    /// The synchronous [`crate::Rumors::messages`].
     pub fn messages(&self) -> Messages<T>
     where
         T: Send + Sync,
@@ -521,8 +464,7 @@ impl<T, B: crate::Bookmark> Rumors<T, B> {
         self.messages_since(Version::new())
     }
 
-    /// Observe every message, arbitrary order, not already contained in
-    /// `since`; see [`crate::Rumors::messages_since`].
+    /// The synchronous [`crate::Rumors::messages_since].
     pub fn messages_since(&self, since: Version) -> Messages<T>
     where
         T: Send + Sync,
@@ -530,8 +472,7 @@ impl<T, B: crate::Bookmark> Rumors<T, B> {
         Messages(self.0.messages_since(since))
     }
 
-    /// Observe every message, causal order, from genesis onward; see
-    /// [`crate::Rumors::causal_messages`].
+    /// The synchronous [`crate::Rumors::causal_messages].
     pub fn causal_messages(&self) -> CausalMessages<T>
     where
         T: Send + Sync,
@@ -539,8 +480,7 @@ impl<T, B: crate::Bookmark> Rumors<T, B> {
         self.causal_messages_since(Version::new())
     }
 
-    /// Observe every message, causal order, not already contained in `since`;
-    /// see [`crate::Rumors::causal_messages_since`].
+    /// The synchronous [`crate::Rumors::causal_messages_since`].
     pub fn causal_messages_since(&self, since: Version) -> CausalMessages<T>
     where
         T: Send + Sync,
@@ -548,19 +488,17 @@ impl<T, B: crate::Bookmark> Rumors<T, B> {
         CausalMessages(self.0.causal_messages_since(since))
     }
 
-    /// Observe *that* the set changes, without what changed; see
-    /// [`crate::Rumors::changes`].
+    /// The synchronous [`crate::Rumors::changes`].
     pub fn changes(&self) -> Changes<T> {
         Changes(self.0.changes())
     }
 
-    /// The universe's identifier; see [`crate::Rumors::network`].
+    /// The synchronous [`crate::Rumors::network`].
     pub fn network(&self) -> Network {
         self.0.network()
     }
 
-    /// Take a consistent point-in-time snapshot; see
-    /// [`crate::Rumors::snapshot`].
+    /// The synchronous [`crate::Rumors::snapshot`].
     pub fn snapshot(&self) -> Snapshot<T> {
         self.0.snapshot()
     }

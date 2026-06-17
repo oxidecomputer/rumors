@@ -234,7 +234,7 @@ pub use batch::Batch;
 pub use before::{Version, causally};
 pub use bookmark::{Bookmark, NoBookmark};
 pub use network::Network;
-pub use peer::{Led, Peer, Retire, Session};
+pub use peer::{Led, Peer, Retire, Session, Unbookmarked};
 pub use rumors::{CausalMessages, Changes, Messages, Rumors};
 pub use snapshot::Snapshot;
 pub use tree::Key;
