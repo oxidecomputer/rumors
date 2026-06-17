@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use before::Party;
 use borsh::{BorshDeserialize, BorshSerialize};
-use futures::Stream;
 use futures::io::AllowStdIo;
 use rand::{RngCore, rngs::OsRng};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -126,10 +125,9 @@ pub use gossip::{Gossiped, Led, PROTOCOL_MAGIC, PROTOCOL_VERSION, Retire, Unbook
 /// Absent any true consensus mechanism, another reasonable approach to
 /// bootstrapping a [`Network`] is for *every* [`Peer`] to initially call
 /// [`Peer::seed`] and attempt to [`gossip`](crate::Rumors::gossip) with all
-/// others. At first, this will lead to many
-/// [`Error::NetworkMismatch`](crate::Error::NetworkMismatch)es; whenever a peer
-/// observes one, it can use a deterministic metric to decide whether it or its
-/// peer should dominate.
+/// others. At first, this will lead to many [`Error::NetworkMismatch`]es;
+/// whenever a peer observes one, it can use a deterministic metric to decide
+/// whether it or its peer should dominate.
 ///
 /// A reasonable such metric would be to compare the `remote_min_ticks` reported
 /// by the peer in the error with your own

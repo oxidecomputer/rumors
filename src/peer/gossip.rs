@@ -3,22 +3,19 @@
 //! preamble constants every session leads with and the [`PartyGuard`]
 //! that snaps a speculatively-donated party back in place on failure.
 
-use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::Arc;
 
 use before::Party;
 use borsh::{BorshDeserialize, BorshSerialize};
-use futures::io::AllowStdIo;
 use futures_util::{Stream, StreamExt};
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     sync::{Mutex, watch},
 };
-use tokio_util::compat::{FuturesAsyncReadCompatExt, FuturesAsyncWriteCompatExt};
 
-use crate::mode::{Async, Blocking, Mode};
+use crate::mode::{Async, Mode};
 use crate::tree::{self, Tree, mirror};
 use crate::{Error, Network, Version};
 use crate::{
