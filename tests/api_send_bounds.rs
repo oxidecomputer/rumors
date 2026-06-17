@@ -9,7 +9,7 @@
 //! regresses to a `!Send` return, this crate fails to compile.
 
 use futures::StreamExt;
-use rumors::{Messages, Peer, Rumors, Snapshot};
+use rumors::{Peer, Rumors, Snapshot, UnorderedMessages};
 
 /// Compile-time `Send`-bound check. Takes its argument by reference so the
 /// future can be dropped (rather than awaited) afterwards.
@@ -33,7 +33,7 @@ fn handle_types_are_send_sync() {
     // spawned task (`Send`), but `&Messages` has no concurrent use, so
     // `Sync` is not part of its contract (the materialized quiet-period
     // wait future is `Send`-only).
-    require_send_type::<Messages<String>>();
+    require_send_type::<UnorderedMessages<String>>();
 }
 
 /// `Rumors::gossip`'s future is `Send`: a session can be `tokio::spawn`ed.
@@ -85,7 +85,7 @@ fn try_into_peer_future_is_send() {
 #[test]
 fn observer_futures_are_send() {
     let alice = Peer::<String>::seed().into_rumors();
-    let mut messages = alice.messages();
+    let mut messages = alice.unordered_messages();
     {
         let fut = messages.borrow_next();
         require_send(&fut);

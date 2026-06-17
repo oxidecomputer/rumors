@@ -92,8 +92,8 @@ pub type Retire<T, B = NoBookmark> = crate::Retire<T, B, Blocking>;
 /// The synchronous [`Unbookmarked`](crate::Unbookmarked).
 pub type Unbookmarked<T, B = NoBookmark> = crate::Unbookmarked<T, B, Blocking>;
 
-/// The synchronous [`Messages`](crate::Messages).
-pub type Messages<T> = crate::Messages<T, Blocking>;
+/// The synchronous [`UnorderedMessages`](crate::UnorderedMessages).
+pub type Messages<T> = crate::UnorderedMessages<T, Blocking>;
 
 /// The synchronous [`CausalMessages`](crate::CausalMessages).
 pub type CausalMessages<T> = crate::CausalMessages<T, Blocking>;

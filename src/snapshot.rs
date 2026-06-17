@@ -1,4 +1,4 @@
-use crate::{Key, Network, Version, tree, tree::Tree};
+use crate::{Key, Network, Version, tree::Tree};
 use std::sync::Arc;
 
 /// The iterator of [`Snapshot::iter`], re-exported from the tree internals:
@@ -31,22 +31,20 @@ impl<T> Snapshot<T> {
         self.network
     }
 
-    /// The causal frontier of everything this set has ever done: the join
-    /// of every send *and every redaction* it has tracked, not merely the
-    /// latest live message. Two replicas with equal `latest` have seen the
-    /// same history; this is the natural `since` for
-    /// [`messages_since`](crate::Rumors::messages_since) and the bound to
-    /// compare in the bootstrapping-without-consensus recipe
-    /// ([`Peer`](crate::Peer) docs).
+    /// The causal frontier of everything this set has ever done.
+    ///
+    /// This is the join of the [`Version`] of every send *and every redaction*
+    /// it has tracked, not merely the latest live message. Two replicas with
+    /// the same [`Network`] and equal `latest` have seen the same history.
     pub fn latest(&self) -> &Version {
         self.tree.latest()
     }
 
     /// The floor of the *live* messages' versions: every live message's
-    /// version contains it. `None` when no live message remains — none
-    /// ever sent, or every one since redacted (unlike
-    /// [`latest`](Self::latest), which redactions advance rather than
-    /// erase).
+    /// version contains it.
+    ///
+    /// Returns `None` when `self.is_empty()` (unlike [`latest`](Self::latest),
+    /// which is advanced by all operations and always returns a [`Version`]).
     pub fn earliest(&self) -> Option<&Version> {
         self.tree.earliest()
     }
@@ -62,26 +60,15 @@ impl<T> Snapshot<T> {
         self.tree.len()
     }
 
-    /// The observable root hash of this snapshot: a 16-byte digest of its
-    /// live content, independent of party identity and insertion order. Two
-    /// snapshots with equal hashes hold the same live messages. Gossip
-    /// converges on causal versions rather than hashes: peers with equal
-    /// hashes but different versions (for example, after an insert that was
-    /// then redacted) still run a reconciliation pass.
+    /// The observable root hash of this snapshot.
     ///
-    /// The hash is a comparison signal, not a content commitment: it is
-    /// built from the tree's truncated Merkle hashes, sized for comparing
-    /// replicas within a universe's trust domain (see [the crate
-    /// docs](crate) for the trust rules). Use [`Key`]s — full-width
-    /// content hashes — where identity is at stake.
-    pub fn hash(&self) -> [u8; tree::MERKLE_HASH_LEN] {
+    /// Two snapshots with equal hashes represent the exact same set of messages
+    /// and point in causal time.
+    pub fn hash(&self) -> [u8; crate::MERKLE_HASH_LEN] {
         self.tree.hash()
     }
 
-    /// Look up a single live message by its [`Key`]: one `O(depth)` descent
-    /// (the key *is* the leaf's content-addressed path), never a scan.
-    /// `None` when no live message has that key — never inserted, or since
-    /// redacted.
+    /// Look up a single live message by its [`Key`].
     pub fn get(&self, key: &Key) -> Option<(&Version, &Arc<T>)> {
         self.tree.get(key)
     }
@@ -101,10 +88,11 @@ impl<T> Snapshot<T> {
         self.tree.iter()
     }
 
-    /// Iterate the messages whose [`Version`]s fall within the causal `range`:
-    /// a message is yielded iff its version is contained in the range's end
-    /// bound and *not* contained in its start bound — a difference of causal
-    /// down-sets. Per bound kind, for a message at version `v`:
+    /// Iterate the messages whose [`Version`]s fall within the causal `range`.
+    ///
+    /// A message is yielded if and only if its version is contained in the
+    /// range's end bound and *not* contained in its start bound. Per bound
+    /// kind, for a message at version `v`:
     ///
     /// - start [`Unbounded`](std::ops::Bound::Unbounded): nothing excluded;
     ///   [`Excluded(s)`](std::ops::Bound::Excluded): `v <= s` excluded;
@@ -115,28 +103,29 @@ impl<T> Snapshot<T> {
     ///   [`Excluded(e)`](std::ops::Bound::Excluded): `v < e` kept.
     ///
     /// Because [`Version`]s are partially ordered, a start bound of either kind
-    /// keeps versions *concurrent* to it — "everything since `s`" must not drop
-    /// other parties' concurrent messages — while an end bound of either kind
-    /// drops them: keeping demands containment.
+    /// keeps versions *concurrent* to it, while an end bound of either kind
+    /// drops them.
     ///
-    /// The [`causally`](crate::causally) constructors name every shape:
-    /// `range(causally::since(&s))`, `range(causally::delta(&s, &e))`,
+    /// The [`causally`](crate::causally) constructors are an idiomatic way to
+    /// specify causal ranges: `range(causally::since(&s))`,
+    /// `range(causally::delta(&s, &e))`,
     /// `range(causally::not_before(&s).known_at(&e))`, and so on. Plain range
-    /// syntax also works — `range(&v1..=&v2)`, `range(&v1..)` — as does any
-    /// other [`RangeBounds<Version>`](std::ops::RangeBounds) value, such as a
-    /// [`Bound`](std::ops::Bound) tuple.
+    /// syntax like `&v1..=&v2`, `&v1..` also works, as does any other
+    /// [`RangeBounds<Version>`](std::ops::RangeBounds) value, such as a
+    /// tuple of [`Bound`](std::ops::Bound)s.
     ///
-    /// Pruning rides the tree's memoized version bounds, so iterating a small
-    /// causal delta against a large snapshot costs work proportional to the
-    /// delta, not the snapshot. Unlike [`iter`](Self::iter), not an
+    /// Iterating a small causal delta against a large snapshot costs work
+    /// proportional to the delta, not the snapshot.
+    ///
+    /// Unlike [`iter`](Self::iter), this does not produce an
     /// [`ExactSizeIterator`]: how many messages fall in the range is unknown
     /// until they are visited.
     ///
-    /// Order is unspecified, and in particular does *not* follow the causal
-    /// order: filtering by versions does not mean yielding in version order,
-    /// and a message may be yielded before another that causally precedes it.
-    /// Sort by the yielded [`Version`]s if your application needs an ordering
-    /// consistent with causality.
+    /// Order of iteration is unspecified, and in particular does *not* follow
+    /// the causal order: filtering by versions does not mean yielding in
+    /// version order, and a message may be yielded before another that causally
+    /// precedes it. Sort by the yielded [`Version`]s if your application needs
+    /// an ordering consistent with causality.
     ///
     /// # Examples
     ///

@@ -101,7 +101,7 @@
 //!
 //! Trading the anchor away ([`Peer::into_rumors`]) opens the working state:
 //! [`Rumors`] clones freely, and cloned handles may [`send`](Rumors::send),
-//! [`redact`](Rumors::redact), observe [`messages`](Rumors::messages), and
+//! [`redact`](Rumors::redact), observe [`messages`](Rumors::unordered_messages), and
 //! [`gossip`](Rumors::gossip) concurrently with one another, among other
 //! operations. When all other clones are gone, [`Rumors::try_into_peer`]
 //! recovers the anchor. This temporal partitioning lets the compiler guarantee
@@ -160,7 +160,7 @@
 //!   iterate it, look up a [`Key`] ([`Snapshot::get`]), or slice it by
 //!   causal range ([`Snapshot::range`]). Taking one is cheap and never
 //!   waits.
-//! - [`Messages`] ([`Rumors::messages`]) is the **live stream, arbitrary
+//! - [`UnorderedMessages`] ([`Rumors::unordered_messages`]) is the **live stream, arbitrary
 //!   order**: everything not already inside your starting checkpoint, then
 //!   everything learned afterwards, at the lowest cost. Use it by default.
 //! - [`CausalMessages`] ([`Rumors::causal_messages`]) is the **live
@@ -174,7 +174,7 @@
 //!   persist-on-change, UI refresh. It is not delivery; pair it with a
 //!   checkpoint-bearing observer for that.
 //!
-//! The live message observers expose a [`checkpoint`](Messages::checkpoint):
+//! The live message observers expose a [`checkpoint`](UnorderedMessages::checkpoint):
 //! the sound resume point for delivery across restarts. Its docs state exactly
 //! what a resume re-observes, and why folding the yielded versions yourself is
 //! not a substitute.
@@ -236,7 +236,7 @@ pub use bookmark::{Bookmark, BookmarkError};
 pub use mode::{Async, Blocking, Mode};
 pub use network::Network;
 pub use peer::{Gossiped, Led, Peer, Retire, Unbookmarked};
-pub use rumors::{CausalMessages, Changes, Messages, Rumors};
+pub use rumors::{CausalMessages, Changes, Rumors, UnorderedMessages};
 pub use snapshot::Snapshot;
 pub use tree::Key;
 pub use tree::MERKLE_HASH_LEN;

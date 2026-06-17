@@ -1,10 +1,10 @@
-mod acausal;
 mod causal;
 mod changes;
+mod unordered;
 
-pub use acausal::{Messages, TryNext};
 pub use causal::CausalMessages;
 pub use changes::{Changes, TryTick};
+pub use unordered::{TryNext, UnorderedMessages};
 
 use crate::bookmark::{Bookmark, BookmarkError, NoBookmark};
 use crate::mode::{Async, Blocking, Mode};
@@ -201,35 +201,30 @@ impl<T, B: BookmarkError, M: Mode> Rumors<T, B, M> {
         self.peer.snapshot()
     }
 
-    /// Observe every message in this rumor set, from genesis onward. See
-    /// [`Messages`] for the contract; equivalent to
-    /// [`messages_since`](Self::messages_since) at [`Version::new`].
-    pub fn messages(&self) -> Messages<T, M>
+    /// Monitor every message sent to in this [`Rumors`], in arbitrary
+    /// (*non-causal*) order.
+    ///
+    /// See [`UnorderedMessages`] for details.
+    pub fn unordered_messages(&self) -> UnorderedMessages<T, M>
     where
         T: Send + Sync,
     {
-        self.peer.messages()
+        self.peer.unordered_messages()
     }
 
-    /// Observe every message not already causally contained in `since`,
-    /// then everything learned afterwards. See [`Messages`] for the
-    /// contract.
-    ///
-    /// `since` is usually a persisted [`checkpoint`](Messages::checkpoint)
-    /// from an earlier observer of this set (or of any replica of it):
-    /// that round trip delivers everything at least once and re-delivers at
-    /// most the checkpoint's partial pass.
-    pub fn messages_since(&self, since: Version) -> Messages<T, M>
+    /// Monitor every message sent to this [`Rumors`] which is not already
+    /// causally contained in `since`, then everything learned afterwards, in
+    /// arbitrary (*non-causal*) order.
+    pub fn unordered_messages_since(&self, since: Version) -> UnorderedMessages<T, M>
     where
         T: Send + Sync,
     {
         self.peer.messages_since(since)
     }
 
-    /// Observe every message in this rumor set in *causal order*, from genesis
-    /// onward. See [`CausalMessages`]; equivalent to
-    /// [`causal_messages_since`](Self::causal_messages_since) at
-    /// [`Version::new`].
+    /// Monitor every message sent to this [`Rumors`], in *causal order*.
+    ///
+    /// See [`CausalMessages`] for details.
     pub fn causal_messages(&self) -> CausalMessages<T, M>
     where
         T: Send + Sync,
@@ -237,11 +232,10 @@ impl<T, B: BookmarkError, M: Mode> Rumors<T, B, M> {
         self.peer.causal_messages()
     }
 
-    /// Observe every message not already causally contained in `since`, in
-    /// *causal order*. See [`CausalMessages`] for the ordering contract and
-    /// its cost, and [`messages_since`](Self::messages_since) for how
-    /// `since` pairs with a persisted
-    /// [`checkpoint`](CausalMessages::checkpoint).
+    /// Monitor every message sent to this [`Rumors`] which is not already
+    /// causally contained in `since`, in *causal order*.
+    ///
+    /// See [`CausalMessages`] for details.
     pub fn causal_messages_since(&self, since: Version) -> CausalMessages<T, M>
     where
         T: Send + Sync,
@@ -249,11 +243,12 @@ impl<T, B: BookmarkError, M: Mode> Rumors<T, B, M> {
         self.peer.causal_messages_since(since)
     }
 
-    /// Observe *that* this set changes, without observing what changed: a
-    /// coalescing stream that yields `()` immediately on first poll and then
-    /// once per observed advance of the set's causal frontier. See
-    /// [`Changes`] for the contract — including why this signal alone must
-    /// not drive [`gossip`](Self::gossip) directly.
+    /// Observe *that* this [`Rumors`] changes, without observing what changed.
+    ///
+    /// The result is a coalescing stream that yields `()` immediately on first
+    /// poll and then once per observed advance of the set's causal frontier.
+    ///
+    /// See [`Changes`] for details.
     pub fn changes(&self) -> Changes<T, M> {
         Changes::subscribe(&self.peer.inner)
     }
@@ -283,8 +278,8 @@ impl<T, B: Bookmark> Rumors<T, B, Async> {
     /// Cancelling a pending [`try_into_peer`](Self::try_into_peer) abandons its
     /// claim: the handle was already consumed, so dropping the future is no
     /// different from having dropped the `Rumors`. If every handle goes away
-    /// with no reunite pending, the `Peer` is gone for good and the set closes:
-    /// observers drain the final state and end.
+    /// with no [`try_into_peer`](Self::try_into_peer) pending, the `Peer` is
+    /// gone for good: observers drain the final state and stop.
     pub async fn try_into_peer(self) -> Option<Peer<T, B, Async>> {
         self.try_into_peer_inner().await
     }
@@ -295,17 +290,14 @@ impl<T, B: Bookmark> Rumors<T, B, Async> {
     /// On `Ok`, both replicas hold every message either one held when the
     /// session began (the full contract, including failure and cancellation
     /// semantics, is in the [crate docs](crate#what-a-session-promises)).
-    /// The counterparty needs no matching "serve" call: one peer's `gossip`
-    /// session is the other's, and a session transparently serves a
-    /// [`bootstrap`](crate::Peer::bootstrap)ping peer or absorbs a
-    /// [`retire`](crate::Peer::retire)-ing one.
     ///
-    /// Sessions may run concurrently on different clones of the same set;
-    /// each commits atomically when it completes. On `Ok`, the transport
-    /// rests exactly at the session boundary, ready to host this pair's
-    /// next session. On `Err`, the replica is unchanged, but the transport
-    /// is mid-frame garbage: discard the connection rather than starting
-    /// another session on it.
+    /// Gossip sessions may run concurrently on different clones of the same
+    /// [`Rumors`]; each commits atomically when it completes.
+    ///
+    /// On `Ok`, the transport rests exactly at the session boundary, ready to
+    /// host this pair's next session. On `Err`, the replica is unchanged, but
+    /// the transport is mid-frame garbage: discard the connection rather than
+    /// starting another session on it.
     pub async fn gossip<'a, R, W>(&self, read: &'a mut R, write: &'a mut W) -> Result<(), Error<B>>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
@@ -315,22 +307,22 @@ impl<T, B: Bookmark> Rumors<T, B, Async> {
         self.peer.gossip(read, write).await
     }
 
-    /// Drives a long-lived connection: runs one gossip session per `when`
-    /// tick — if the set changed since this connection last converged — and
-    /// serves every session the remote initiates, until `when` ends or the
-    /// connection fails.
+    /// Drive a long-lived connection: run one gossip session per `when` tick
+    /// (if there's been local change since the last gossip), and serve every
+    /// session the remote initiates, until `when` ends or the connection fails.
     ///
-    /// `when` is the entire initiation policy: [`changes`](Self::changes)
-    /// gossips on change, an interval stream adds periodic anti-entropy,
-    /// debounce/jitter/rate-limit adapters can set cadence, and a
-    /// pending-always stream only ever serves in response to remote initiation.
+    /// `when` defines the local initiation policy: providing
+    /// [`self.changes()`](Self::changes) implements push-on-change; an interval
+    /// stream gossips regularly; adding debounce/jitter/rate-limit adapters can
+    /// set cadence; an always-pending stream only ever serves in response to
+    /// remote initiation.
     ///
     /// Do not provide an always-ready stream (e.g.
     /// [`stream::repeat`](futures::stream::repeat)), because this would
-    /// busy-loop: a tick stream should go quiet between reasons to gossip.
+    /// busy-loop: `when` should go quiet between reasons to gossip.
     ///
-    /// The returned stream *must be polled* for gossip to continue. It yields
-    /// one [`Gossiped`] per completed session, remote-led included. It
+    /// The returned stream from this method *must be polled* for gossip to
+    /// continue. It yields one [`Gossiped`] per completed gossip session. It
     /// terminates in one of three ways:
     ///
     /// - the connection fails: one final `Err` (replica unchanged, the
@@ -340,27 +332,20 @@ impl<T, B: Bookmark> Rumors<T, B, Async> {
     ///
     /// # Suppression
     ///
-    /// A tick initiates gossip only if the local frontier has advanced past
-    /// this connection's last [`converged`](Gossiped::converged) version. A
-    /// driver fed by [`changes`](Self::changes) therefore never echoes a
-    /// session back after its own gossip, and an idle heartbeat costs nothing
-    /// unless changes occur. However, a tick never *pulls* from the other side:
-    /// each side pushes its own news, so probing a silent connection for
-    /// liveness must be the transport's job (e.g. TCP keepalives), not the
-    /// tick-stream's.
+    /// A tick from the `when` stream initiates gossip only if the local
+    /// [`Rumors`] has advanced past this connection's last
+    /// [`converged`](Gossiped::converged) version. Providing
+    /// [`changes`](Self::changes) as `when` therefore never echoes a session
+    /// back after its own gossip. However, a local tick from the `when` stream
+    /// never *pulls* from the other side: each side pushes its own news, so
+    /// probing a silent connection for liveness must be the transport's job
+    /// (e.g. TCP keepalives), not the `when`-stream's.
     ///
     /// # Cancellation and connection reuse
     ///
-    /// Polling is cancel-safe: all driver state lives in the stream, never in a
-    /// `next()` future, so racing `next()` in a `select!` and dropping the
-    /// loser loses nothing. Dropping the *result stream* is cancellation with
-    /// the [session contract](crate#what-a-session-promises)'s semantics —
-    /// including the identity hazards of whatever session was in flight — plus
-    /// one of its own: the driver may already hold the first bytes of a remote
-    /// initiation, which die with it. **A dropped driver forfeits the
-    /// connection; one that ended leaves it at a session boundary**, ready for
-    /// whatever speaks the protocol next — another driver, one-shot
-    /// [`gossip`](Self::gossip), a [`retire`](crate::Peer::retire).
+    /// Futures derived from polling the result-stream are cancel-safe: all
+    /// driver state lives in the stream itself. Dropping the result stream,
+    /// however, is *not* cancellation-safe.
     ///
     /// # Examples
     ///

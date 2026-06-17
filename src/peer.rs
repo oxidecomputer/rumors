@@ -18,7 +18,8 @@ use crate::bookmark::{BookmarkError, Bookmarked, NoBookmark};
 use crate::mode::{Async, Mode};
 use crate::tree::Tree;
 use crate::{
-    Batch, Bookmark, CausalMessages, Error, Key, Messages, Network, Rumors, Snapshot, Version,
+    Batch, Bookmark, CausalMessages, Error, Key, Network, Rumors, Snapshot, UnorderedMessages,
+    Version,
 };
 
 mod gossip;
@@ -323,18 +324,18 @@ impl<T, B: BookmarkError, M: Mode> Peer<T, B, M> {
         Snapshot::new(self.network, self.inner.borrow().tree.clone())
     }
 
-    pub(crate) fn messages(&self) -> Messages<T, M>
+    pub(crate) fn unordered_messages(&self) -> UnorderedMessages<T, M>
     where
         T: Send + Sync,
     {
         self.messages_since(Version::new())
     }
 
-    pub(crate) fn messages_since(&self, since: Version) -> Messages<T, M>
+    pub(crate) fn messages_since(&self, since: Version) -> UnorderedMessages<T, M>
     where
         T: Send + Sync,
     {
-        Messages::subscribe(&self.inner, since)
+        UnorderedMessages::subscribe(&self.inner, since)
     }
 
     pub(crate) fn causal_messages(&self) -> CausalMessages<T, M>

@@ -43,7 +43,7 @@ use std::hint::black_box;
 
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use futures::FutureExt;
-use rumors::{CausalMessages, Key, Messages, Peer, Rumors, causally};
+use rumors::{CausalMessages, Key, Peer, Rumors, UnorderedMessages, causally};
 
 // The shared grid module exposes a superset of helpers; each bench binary uses
 // a subset, so the unused remainder is expected per-binary.
@@ -75,7 +75,7 @@ fn build(n: usize) -> (Rumors<()>, Vec<Key>) {
 
 /// Drain everything `observer` has pending, without blocking, returning how
 /// many messages were yielded.
-fn drain(observer: &mut Messages<()>) -> usize {
+fn drain(observer: &mut UnorderedMessages<()>) -> usize {
     let mut count = 0usize;
     while let Some(Some(item)) = observer.borrow_next().now_or_never() {
         black_box(item);
@@ -219,7 +219,7 @@ fn bench_observer_replay(c: &mut Criterion) {
         rumors.warm_caches();
         group.bench_function(BenchmarkId::from_parameter(n), |b| {
             b.iter(|| {
-                let mut observer = rumors.messages();
+                let mut observer = rumors.unordered_messages();
                 black_box(drain(&mut observer))
             })
         });
@@ -246,7 +246,7 @@ fn bench_observer_delta(c: &mut Criterion) {
                 BenchmarkId::from_parameter(format!("n={n},delta={delta}")),
                 |b| {
                     b.iter(|| {
-                        let mut observer = rumors.messages_since(checkpoint.clone());
+                        let mut observer = rumors.unordered_messages_since(checkpoint.clone());
                         black_box(drain(&mut observer))
                     })
                 },

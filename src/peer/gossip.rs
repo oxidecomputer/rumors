@@ -250,7 +250,7 @@ impl<T, B: Persist<M>, M: Mode> Peer<T, B, M> {
     /// four outcomes are the [`Retire`] variants; see each for what survived.
     ///
     /// The gossip round writes back into the retiring set too: observers of a
-    /// retiring set ([`Messages`](crate::Messages),
+    /// retiring set ([`UnorderedMessages`](crate::UnorderedMessages),
     /// [`CausalMessages`](crate::CausalMessages)) drain the *reconciled* final
     /// state — everything the session learned included — before they end.
     ///

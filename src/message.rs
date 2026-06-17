@@ -133,6 +133,12 @@ impl<T> Message<T> {
 }
 
 impl<T: BorshSerialize> From<T> for Message<T> {
+    /// Create a new `Message` pairing the given object with its cached
+    /// serialization.
+    ///
+    /// # Panics
+    ///
+    /// If the message cannot be serialized.
     fn from(message: T) -> Self {
         Self::new(message)
     }

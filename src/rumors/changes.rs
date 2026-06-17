@@ -8,7 +8,7 @@ use tokio::sync::watch;
 use crate::Version;
 use crate::mode::{Async, Blocking, Mode};
 
-use super::acausal::Channel;
+use super::unordered::Channel;
 
 /// A content-free observer of a [`Rumors`](crate::Rumors) set: one `()` per
 /// observed change.
@@ -17,7 +17,7 @@ use super::acausal::Channel;
 /// without consuming the changes themselves. Above all, this is useful as the
 /// `when` input to [`gossip_when`](crate::Rumors::gossip_when), but equally a
 /// persist-on-change loop or a UI refresh. For the changes *themselves*, use
-/// [`Messages`](crate::Messages) or [`CausalMessages`](crate::CausalMessages).
+/// [`UnorderedMessages`](crate::UnorderedMessages) or [`CausalMessages`](crate::CausalMessages).
 ///
 /// # Ticks are a signal, not a ledger
 ///
@@ -45,7 +45,7 @@ use super::acausal::Channel;
 /// stream to it rather than calling `gossip` yourself to gossip-on-change.
 pub struct Changes<T, M: Mode = Async> {
     /// The watch channel, or the in-flight wait for it to change; the same
-    /// materialized-wait dance as [`Messages`](crate::Messages) (see its
+    /// materialized-wait dance as [`UnorderedMessages`](crate::UnorderedMessages) (see its
     /// `channel` field docs for why the wait must own the receiver).
     channel: Option<Channel<T>>,
     /// The frontier most recently reported to the consumer: `None` until the
@@ -144,7 +144,7 @@ impl<T: Send + Sync + 'static> Iterator for Changes<T, Blocking> {
 }
 
 /// `T: 'static` because the quiet-period wait is materialized as an owned
-/// future, exactly as in [`Messages`](crate::Messages).
+/// future, exactly as in [`UnorderedMessages`](crate::UnorderedMessages).
 impl<T: Send + Sync + 'static> Stream for Changes<T, Async> {
     type Item = ();
 

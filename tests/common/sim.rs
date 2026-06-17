@@ -329,7 +329,7 @@ async fn run_activity(handle: Rumors<u64>, script: Vec<Activity>) {
 async fn run_observers(handle: Rumors<u64>, done: Arc<AtomicBool>) {
     use futures::FutureExt;
 
-    let mut plain = handle.messages();
+    let mut plain = handle.unordered_messages();
     let mut causal = handle.causal_messages();
     let mut plain_seen: BTreeSet<Key> = BTreeSet::new();
     let mut causal_seen: BTreeSet<Key> = BTreeSet::new();

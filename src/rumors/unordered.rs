@@ -33,7 +33,7 @@ use tokio::sync::watch;
 /// This observer does not count against the quiescence that lets
 /// [`try_into_peer`](crate::Rumors::try_into_peer) reclaim the
 /// [`Peer`](crate::Peer).
-pub struct Messages<T, M: Mode = Async> {
+pub struct UnorderedMessages<T, M: Mode = Async> {
     /// The watch channel, or the in-flight wait for it to change. The wait
     /// future owns the receiver and hands it back: the `Stream` face cannot
     /// hold a borrowing `changed()` future across polls (recreating one per
@@ -50,7 +50,7 @@ pub struct Messages<T, M: Mode = Async> {
     marker: PhantomData<fn() -> M>,
 }
 
-/// The outcome of [`Messages::try_next`] or [`CausalMessages::try_next`].
+/// The outcome of [`UnorderedMessages::try_next`] or [`CausalMessages::try_next`].
 ///
 /// A non-blocking step that either yields a message or says why it can't.
 ///
@@ -58,7 +58,7 @@ pub struct Messages<T, M: Mode = Async> {
 #[derive(Debug)]
 pub enum TryNext<'a, T> {
     /// A message was ready, lent until the next call (as
-    /// [`borrow_next`](Messages::borrow_next) lends it).
+    /// [`borrow_next`](UnorderedMessages::borrow_next) lends it).
     Message((Key, &'a Version, &'a Arc<T>)),
     /// No message is ready yet, but handles are still live: ask again later.
     Quiet,
@@ -73,7 +73,7 @@ type WaitForChange<T> =
 
 /// An observer's hold on the watch channel: either the receiver itself, or
 /// the materialized owned wait the `Stream` face left in flight (see the
-/// [`Messages::channel`] field docs for why the wait must be owned).
+/// [`UnorderedMessages::channel`] field docs for why the wait must be owned).
 pub(super) enum Channel<T> {
     /// The channel is in hand.
     Ready(watch::Receiver<crate::Inner<T>>),
@@ -88,7 +88,7 @@ struct Pass<T> {
     ceiling: Version,
 }
 
-impl<T, M: Mode> Messages<T, M> {
+impl<T, M: Mode> UnorderedMessages<T, M> {
     pub(crate) fn subscribe(inner: &watch::Sender<crate::Inner<T>>, since: Version) -> Self {
         Self {
             channel: Some(Channel::Ready(inner.subscribe())),
@@ -122,7 +122,7 @@ impl<T, M: Mode> Messages<T, M> {
     }
 
     /// The mode-agnostic engine behind the async and blocking
-    /// [`borrow_next`](Messages::borrow_next): advances to the next message and
+    /// [`borrow_next`](UnorderedMessages::borrow_next): advances to the next message and
     /// lends it. The async face awaits it; the blocking face drives it to
     /// completion.
     pub(crate) async fn borrow_next_inner(&mut self) -> Option<(Key, &Version, &Arc<T>)>
@@ -214,7 +214,7 @@ impl<T, M: Mode> Messages<T, M> {
     }
 }
 
-impl<T> Messages<T, Async> {
+impl<T> UnorderedMessages<T, Async> {
     /// Advance to the next message, lending its version and value until the
     /// following call. Awaits quietly while the set is unchanged; resolves
     /// [`None`] once no further change is possible.
@@ -226,8 +226,8 @@ impl<T> Messages<T, Async> {
     }
 }
 
-impl<T> Messages<T, Blocking> {
-    /// Blocking [`borrow_next`](Messages::borrow_next): blocks the calling
+impl<T> UnorderedMessages<T, Blocking> {
+    /// Blocking [`borrow_next`](UnorderedMessages::borrow_next): blocks the calling
     /// thread (via [`pollster`], with no async runtime) until a message is
     /// ready or the set has closed, instead of awaiting.
     pub fn borrow_next(&mut self) -> Option<(Key, &Version, &Arc<T>)>
@@ -256,10 +256,10 @@ impl<T> Messages<T, Blocking> {
 }
 
 /// The owned-item face: `(Key, Version, Arc<T>)` per item, cloned out of
-/// the same engine [`borrow_next`](Messages::borrow_next) lends from.
+/// the same engine [`borrow_next`](UnorderedMessages::borrow_next) lends from.
 /// `T: 'static` because the quiet-period wait is materialized as an owned
 /// future (see the `channel` field).
-impl<T: Send + Sync + 'static> Stream for Messages<T, Async> {
+impl<T: Send + Sync + 'static> Stream for UnorderedMessages<T, Async> {
     type Item = (Key, Version, Arc<T>);
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -307,10 +307,10 @@ impl<T: Send + Sync + 'static> Stream for Messages<T, Async> {
 
 /// The blocking owned-item face: the [`Iterator`] analogue of the [`Stream`]
 /// impl, cloning each item out of the same engine
-/// [`borrow_next`](Messages::borrow_next) lends from. [`next`](Iterator::next)
+/// [`borrow_next`](UnorderedMessages::borrow_next) lends from. [`next`](Iterator::next)
 /// blocks the calling thread (via [`pollster`]) until an item is ready;
 /// [`None`] means the set has closed and is fully delivered.
-impl<T: Send + Sync + 'static> Iterator for Messages<T, Blocking> {
+impl<T: Send + Sync + 'static> Iterator for UnorderedMessages<T, Blocking> {
     type Item = (Key, Version, Arc<T>);
 
     fn next(&mut self) -> Option<Self::Item> {

@@ -134,7 +134,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Sparkline};
-use rumors::{Key, Messages, Peer, Retire, Rumors};
+use rumors::{Key, Peer, Retire, Rumors, UnorderedMessages};
 use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
 
 /// Mint a genuine party-disjoint peer that inherits `parent`'s content.
@@ -428,7 +428,7 @@ fn run_party(
         .expect("build party runtime");
     let mut rng = SmallRng::from_entropy();
     let mut next_sync = Instant::now() + exponential(&mut rng, &net.controls);
-    let mut observer = rumors.messages();
+    let mut observer = rumors.unordered_messages();
     let mut keys: Vec<Key> = Vec::new();
 
     loop {
@@ -495,7 +495,7 @@ fn run_party(
 /// Pull every message the observer has pending — without blocking — and push
 /// its key into the pool. Each message is yielded exactly once across the
 /// party's lifetime, so the pool never holds duplicates.
-fn drain_keys(observer: &mut Messages<Payload>, keys: &mut Vec<Key>) {
+fn drain_keys(observer: &mut UnorderedMessages<Payload>, keys: &mut Vec<Key>) {
     while let Some(Some((key, _, _))) = observer.borrow_next().now_or_never() {
         keys.push(key);
     }

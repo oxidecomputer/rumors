@@ -19,7 +19,7 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
-use rumors::{Key, Messages, Peer, Retire, Rumors, Version, causally};
+use rumors::{Key, Peer, Retire, Rumors, UnorderedMessages, Version, causally};
 
 use crate::common::action::minted_key;
 use crate::common::wire::{block_on, bootstrap_fork, wire_gossip};
@@ -37,7 +37,7 @@ enum Step {
 }
 
 /// Poll `borrow_next` exactly once without an executor.
-fn step(obs: &mut Messages<u64>) -> Step {
+fn step(obs: &mut UnorderedMessages<u64>) -> Step {
     match obs.borrow_next().now_or_never() {
         None => Step::Quiet,
         Some(None) => Step::Ended,
@@ -47,7 +47,7 @@ fn step(obs: &mut Messages<u64>) -> Step {
 
 /// Drain the observer until it goes quiet or ends, returning the items in
 /// delivery order and whether it ended.
-fn drain(obs: &mut Messages<u64>) -> (Vec<(Key, Version, u64)>, bool) {
+fn drain(obs: &mut UnorderedMessages<u64>) -> (Vec<(Key, Version, u64)>, bool) {
     let mut items = Vec::new();
     loop {
         match step(obs) {
@@ -78,7 +78,7 @@ fn genesis_replay_observes_the_live_set_once() {
         }
     }
 
-    let mut obs = rumors.messages();
+    let mut obs = rumors.unordered_messages();
     let (items, ended) = drain(&mut obs);
     assert!(
         !ended,
@@ -110,7 +110,7 @@ fn checkpoint_start_observes_only_what_it_does_not_contain() {
     let v_mid = rumors.snapshot().latest().clone();
     rumors.batch().send(4).send(5).send(6);
 
-    let mut obs = rumors.messages_since(v_mid.clone());
+    let mut obs = rumors.unordered_messages_since(v_mid.clone());
     let (items, _) = drain(&mut obs);
 
     let observed: BTreeSet<u64> = items.iter().map(|(_, _, m)| *m).collect();
@@ -138,7 +138,7 @@ fn live_sends_and_gossip_learned_messages_are_observed() {
 
     let sibling = a.clone();
 
-    let mut obs = a.messages();
+    let mut obs = a.unordered_messages();
     let (initial, _) = drain(&mut obs);
     assert!(initial.is_empty(), "nothing to observe yet");
 
@@ -169,7 +169,7 @@ fn redactions_are_honored_silently() {
     rumors.send(1);
     let key_1 = minted_key(&rumors.snapshot(), &pre);
     rumors.redact(key_1);
-    let mut obs = rumors.messages();
+    let mut obs = rumors.unordered_messages();
     let (items, _) = drain(&mut obs);
     assert!(items.is_empty(), "a pre-subscription redaction never fires");
 
@@ -196,7 +196,7 @@ fn redactions_are_honored_silently() {
 
     // A from-now observer does not see pre-subscription content.
     rumors.send(4);
-    let mut from_now = rumors.messages_since(rumors.snapshot().latest().clone());
+    let mut from_now = rumors.unordered_messages_since(rumors.snapshot().latest().clone());
     let (items, _) = drain(&mut from_now);
     assert!(items.is_empty(), "a from-now observer starts quiet");
     rumors.send(5);
@@ -213,7 +213,7 @@ fn observer_drains_the_final_state_then_ends() {
     rumors.batch().send(1).send(2);
     let expected = live_map(&rumors);
 
-    let mut obs = rumors.messages();
+    let mut obs = rumors.unordered_messages();
     drop(rumors);
 
     let (items, ended) = drain(&mut obs);
@@ -240,7 +240,7 @@ fn retire_ends_the_observer() {
     let retiree = bootstrap_fork(&survivor);
     retiree.send(7);
 
-    let mut obs = retiree.messages();
+    let mut obs = retiree.unordered_messages();
 
     let outcome = block_on(async {
         // An observer is not a handle, so the sole `Rumors` converts back
@@ -276,7 +276,7 @@ fn observer_stays_quiet_while_actors_live() {
     let rumors = Peer::<u64>::seed().into_rumors();
     rumors.send(1);
 
-    let mut obs = rumors.messages();
+    let mut obs = rumors.unordered_messages();
     let (_, ended) = drain(&mut obs);
     assert!(!ended, "a live handle keeps the observer open");
 
@@ -298,7 +298,7 @@ fn observer_stays_quiet_while_actors_live() {
 fn observer_does_not_block_reunite_and_survives_it() {
     let rumors = Peer::<u64>::seed().into_rumors();
 
-    let mut obs = rumors.messages();
+    let mut obs = rumors.unordered_messages();
     let (_, ended) = drain(&mut obs);
     assert!(!ended);
 
@@ -331,7 +331,7 @@ fn lent_borrows_do_not_block_senders() {
     let rumors = Peer::<u64>::seed().into_rumors();
     rumors.batch().send(1).send(2);
 
-    let mut obs = rumors.messages();
+    let mut obs = rumors.unordered_messages();
     let lent = block_on(obs.borrow_next()).expect("first item of the pass");
     let lent_value = *lent.2.clone();
 
@@ -358,12 +358,12 @@ fn checkpoint_round_trips_on_an_unchanged_set() {
     let rumors = Peer::<u64>::seed().into_rumors();
     rumors.batch().send(1).send(2).send(3);
 
-    let mut obs = rumors.messages();
+    let mut obs = rumors.unordered_messages();
     let (items, _) = drain(&mut obs);
     assert_eq!(items.len(), 3);
     let checkpoint = obs.checkpoint().clone();
 
-    let mut resumed = rumors.messages_since(checkpoint.clone());
+    let mut resumed = rumors.unordered_messages_since(checkpoint.clone());
     let (items, _) = drain(&mut resumed);
     assert!(items.is_empty(), "nothing fires on an unchanged set");
     assert_eq!(
@@ -385,14 +385,14 @@ fn checkpoint_is_portable_across_replicas() {
     b.send(2);
 
     // Observe everything A has, completing the pass to earn the checkpoint.
-    let mut obs_a = a.messages();
+    let mut obs_a = a.unordered_messages();
     let (items, _) = drain(&mut obs_a);
     assert_eq!(items.len(), 1);
     let checkpoint = obs_a.checkpoint().clone();
 
     // Converge the replicas, then resume against B.
     wire_gossip(&a, &b);
-    let mut obs_b = b.messages_since(checkpoint);
+    let mut obs_b = b.unordered_messages_since(checkpoint);
     let (items, _) = drain(&mut obs_b);
     assert_eq!(items.len(), 1, "only the message A never observed fires");
     assert_eq!(items[0].2, 2, "A-observed messages are skipped at B");
@@ -408,7 +408,7 @@ fn sync_try_next_distinguishes_quiet_from_ended() {
     let rumors = SyncPeer::<u64>::seed().into_rumors();
     rumors.batch().send(1).send(2);
 
-    let mut obs = rumors.messages();
+    let mut obs = rumors.unordered_messages();
     let mut seen = BTreeSet::new();
     while let TryNext::Message((_, _, m)) = obs.try_next() {
         seen.insert(**m);
@@ -443,7 +443,7 @@ fn stream_face_matches_and_terminates() {
     rumors.batch().send(1).send(2);
     let expected = live_map(&rumors);
 
-    let mut obs = rumors.messages();
+    let mut obs = rumors.unordered_messages();
     let mut items = BTreeMap::new();
     while let Some(Some((k, _, m))) = obs.next().now_or_never() {
         items.insert(k, *m);
@@ -466,7 +466,7 @@ fn sync_iterator_face_drains_then_ends() {
     rumors.batch().send(1).send(2).send(3);
     let expected: BTreeSet<u64> = rumors.snapshot().iter().map(|(_, _, m)| **m).collect();
 
-    let obs = rumors.messages();
+    let obs = rumors.unordered_messages();
     drop(rumors);
 
     let observed: BTreeSet<u64> = obs.map(|(_, _, m)| *m).collect();
@@ -502,7 +502,7 @@ fn folding_delivered_versions_can_lose_a_message() {
         .expect("some candidate must collide into key-before-version order");
 
     // Deliver exactly one item — the later version — and stop mid-pass.
-    let mut obs = rumors.messages();
+    let mut obs = rumors.unordered_messages();
     let Step::Item((_, delivered_version, delivered_value)) = step(&mut obs) else {
         panic!("the populated set delivers an item");
     };
@@ -514,7 +514,7 @@ fn folding_delivered_versions_can_lose_a_message() {
         fold |= &delivered_version;
         fold
     };
-    let mut resumed_from_fold = rumors.messages_since(fold);
+    let mut resumed_from_fold = rumors.unordered_messages_since(fold);
     let (items, _) = drain(&mut resumed_from_fold);
     assert!(
         items.is_empty(),
@@ -523,7 +523,7 @@ fn folding_delivered_versions_can_lose_a_message() {
 
     // The sound resume: the observer's pass checkpoint (genesis — no pass
     // completed) re-delivers both messages. At-least-once, never loss.
-    let mut resumed_from_checkpoint = rumors.messages_since(obs.checkpoint().clone());
+    let mut resumed_from_checkpoint = rumors.unordered_messages_since(obs.checkpoint().clone());
     let (items, _) = drain(&mut resumed_from_checkpoint);
     assert_eq!(
         items.len(),
@@ -567,7 +567,7 @@ proptest! {
         let rumors = Peer::<u64>::seed().into_rumors();
         let sibling = rumors.clone();
 
-        let mut obs = rumors.messages();
+        let mut obs = rumors.unordered_messages();
         let mut minted: Vec<Key> = Vec::new();
         let mut observed: Vec<(Key, Version, u64)> = Vec::new();
 
@@ -634,7 +634,7 @@ proptest! {
 
         // Deliver a prefix of the first pass — or, when `complete_pass`,
         // drain to quiescence so the pass commits into the checkpoint.
-        let mut obs = rumors.messages();
+        let mut obs = rumors.unordered_messages();
         let mut first_run: Vec<(Key, Version, u64)> = Vec::new();
         if complete_pass {
             let (items, _) = drain(&mut obs);
@@ -659,7 +659,7 @@ proptest! {
         }
 
         // Resume from the persisted checkpoint and drain to the end.
-        let mut resumed = rumors.messages_since(checkpoint);
+        let mut resumed = rumors.unordered_messages_since(checkpoint);
         let final_live = live_map(&rumors);
         drop(rumors);
         let (second_run, ended) = drain(&mut resumed);

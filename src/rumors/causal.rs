@@ -13,7 +13,7 @@ use crate::mode::{Async, Blocking, Mode};
 use crate::tree::Leaf;
 use crate::{Key, Version};
 
-use super::acausal::{Channel, TryNext};
+use super::unordered::{Channel, TryNext};
 
 /// An observer of messages sent to a [`Rumors`](crate::Rumors), in some
 /// arbitrary yet causal order.
@@ -23,7 +23,7 @@ use super::acausal::{Channel, TryNext};
 /// order, which may differ between [`gossip`](crate::Rumors::gossip)ing
 /// replicas of the same [`Rumors`](crate::Rumors).
 ///
-/// Unlike [`Messages`](super::Messages), this imposes an additional logarithmic
+/// Unlike [`UnorderedMessages`](super::UnorderedMessages), this imposes an additional logarithmic
 /// cost in amortized memory and in the time to retrieve each message, both of
 /// which may have arbitrarily large bursts, up to the total size of the
 /// messages stored in the underlying [`Rumors`](crate::Rumors).
@@ -33,7 +33,7 @@ use super::acausal::{Channel, TryNext};
 /// [`Peer`](crate::Peer).
 pub struct CausalMessages<T, M: Mode = Async> {
     /// The watch channel or the in-flight wait for it to change — the same
-    /// owned-wait dance as [`Messages`](super::Messages) (see its field
+    /// owned-wait dance as [`UnorderedMessages`](super::UnorderedMessages) (see its field
     /// docs for why the wait is materialized).
     channel: Option<Channel<T>>,
     /// The ingest frontier: the causal past already staged (or delivered).
@@ -72,7 +72,7 @@ impl<T, M: Mode> CausalMessages<T, M> {
     /// leaf not causally contained in the ingest frontier, keyed by its
     /// causal rank, then absorb the snapshot's ceiling into the frontier.
     ///
-    /// Eager where [`Messages`](super::Messages) is lazy, by necessity: a
+    /// Eager where [`UnorderedMessages`](super::UnorderedMessages) is lazy, by necessity: a
     /// pass arrives in key order, so any leaf might causally precede one
     /// staged earlier, and nothing can be delivered until the pass is
     /// complete. The watch read guard lives only long enough to freeze the
@@ -214,7 +214,7 @@ impl<T> CausalMessages<T, Blocking> {
 /// The owned-item face: `(Key, Version, Arc<T>)` per item, popped from the
 /// same staged backlog [`borrow_next`](CausalMessages::borrow_next) lends
 /// from. `T: 'static` because the quiet-period wait is materialized as an
-/// owned future (see [`Messages`](super::Messages)' `channel` field).
+/// owned future (see [`UnorderedMessages`](super::UnorderedMessages)' `channel` field).
 impl<T: Send + Sync + 'static> Stream for CausalMessages<T, Async> {
     type Item = (Key, Version, Arc<T>);
 

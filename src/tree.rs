@@ -67,7 +67,7 @@ pub use typed::hash::MERKLE_HASH_LEN;
 pub use traverse::mirror;
 
 /// The fully-owned, lifetime-free leaf walk and the leaf handle it yields;
-/// the engine beneath [`Rumors::messages`](crate::Rumors::messages) and the
+/// the engine beneath [`Rumors::unordered_messages`](crate::Rumors::unordered_messages) and the
 /// streams built over it.
 pub use typed::{Frozen, Leaf};
 
