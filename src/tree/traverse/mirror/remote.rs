@@ -52,7 +52,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use crate::bookmark::{Bookmark, NoBookmark};
+use crate::bookmark::{BookmarkError, NoBookmark};
 use crate::network::Network;
 use crate::tree::typed::{
     Node,
@@ -71,13 +71,16 @@ pub(crate) use preamble::{recv_party, send_party};
 
 /// The error type returned by the gossip protocol.
 ///
-/// Generic over the [`Bookmark`] in play only to carry its
-/// [`Error`](Bookmark::Error) in the [`Bookmark`](Self::Bookmark) variant;
-/// every other variant is bookmark-independent. The default `B = NoBookmark`
-/// has an [uninhabited](std::convert::Infallible) bookmark error.
+/// Generic over the bookmark `B` in play only to carry its
+/// [`Error`](BookmarkError::Error) in the [`Bookmark`](Self::Bookmark) variant;
+/// every other variant is bookmark-independent. `B` is bounded by
+/// [`BookmarkError`] alone — not the full [`Bookmark`](crate::Bookmark) /
+/// [`sync::Bookmark`](crate::sync::Bookmark) face — so one error type serves
+/// both I/O modes. The default `B = NoBookmark` has an
+/// [uninhabited](std::convert::Infallible) bookmark error.
 #[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
-pub enum Error<B: Bookmark = NoBookmark> {
+pub enum Error<B: BookmarkError = NoBookmark> {
     /// An underlying reader/writer error, or a borsh framing error encountered
     /// while parsing a message off the wire.
     #[error(transparent)]
@@ -141,28 +144,28 @@ pub enum Error<B: Bookmark = NoBookmark> {
     #[error("peer claimed to bootstrap and retire in the same session")]
     BootstrapRetireConflict,
 
-    /// The application's [`Bookmark`] failed to persist or load the local
-    /// identity during the session. The wire is unaffected, but the session
-    /// aborts: proceeding past an unpersisted identity is exactly the leak the
-    /// bookmark exists to prevent.
+    /// The application's [`Bookmark`](crate::Bookmark) failed to persist or load
+    /// the local identity during the session. The wire is unaffected, but the
+    /// session aborts: proceeding past an unpersisted identity is exactly the
+    /// leak the bookmark exists to prevent.
     #[error(transparent)]
     Bookmark(B::Error),
 }
 
-impl<B: Bookmark> From<borsh::io::Error> for Error<B> {
+impl<B: BookmarkError> From<borsh::io::Error> for Error<B> {
     fn from(e: borsh::io::Error) -> Self {
         Error::Io(e)
     }
 }
 
 impl Error<NoBookmark> {
-    /// Re-tag a bookmark-free error under any [`Bookmark`].
+    /// Re-tag a bookmark-free error under any bookmark `B`.
     ///
     /// The wire-level session machinery is generic-free and produces
     /// `Error<NoBookmark>`; the peer-level drivers return `Error<B>`. Every
     /// variant but [`Bookmark`](Self::Bookmark) is bookmark-independent, and
     /// that one is uninhabited here, so this is a total, lossless re-tag.
-    pub(crate) fn widen<B: Bookmark>(self) -> Error<B> {
+    pub(crate) fn widen<B: BookmarkError>(self) -> Error<B> {
         match self {
             Error::Io(e) => Error::Io(e),
             Error::MagicMismatch { remote_magic } => Error::MagicMismatch { remote_magic },

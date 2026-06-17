@@ -3,21 +3,26 @@
 //! preamble constants every session leads with and the [`PartyGuard`]
 //! that snaps a speculatively-donated party back in place on failure.
 
+use std::io::{Read, Write};
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::Arc;
 
 use before::Party;
 use borsh::{BorshDeserialize, BorshSerialize};
+use futures::io::AllowStdIo;
 use futures_util::{Stream, StreamExt};
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     sync::{Mutex, watch},
 };
+use tokio_util::compat::{FuturesAsyncReadCompatExt, FuturesAsyncWriteCompatExt};
 
+use crate::mode::{Async, Blocking, Mode};
 use crate::tree::{self, Tree, mirror};
 use crate::{Error, Network, Version};
 use crate::{
-    bookmark::{Bookmark, Bookmarked, NoBookmark},
+    bookmark::{Bookmark, BookmarkError, Bookmarked, NoBookmark, Persist},
     tree::mirror::{local, message::Intent, remote},
 };
 
@@ -39,7 +44,7 @@ pub const PROTOCOL_VERSION: u16 = 1;
 /// identity that the call was specifically trying to preserve.
 #[must_use = "a declined or recovered retirement hands the Peer back; dropping it leaks the identity"]
 #[derive(Debug)]
-pub enum Retire<T, B: Bookmark = NoBookmark> {
+pub enum Retire<T, B: BookmarkError = NoBookmark, M: Mode = Async> {
     /// **Retired.** The peer reconciled with us and absorbed our identity;
     /// this replica has left the universe.
     Retired,
@@ -47,14 +52,14 @@ pub enum Retire<T, B: Bookmark = NoBookmark> {
     /// replica is handed back intact, to try retiring elsewhere.
     Declined {
         /// The intact retiree.
-        peer: Peer<T, B>,
+        peer: Peer<T, B, M>,
     },
     /// **Recovered, unchanged.** The session failed *before* our identity ever
     /// crossed the wire; the replica is handed back intact, to try retiring
     /// elsewhere.
     Recovered {
         /// The intact retiree.
-        peer: Peer<T, B>,
+        peer: Peer<T, B, M>,
         /// What failed the session.
         error: Error<B>,
     },
@@ -77,9 +82,9 @@ pub enum Retire<T, B: Bookmark = NoBookmark> {
 /// [`peer`](Self::peer) back to drop it deliberately or to retry.
 #[must_use = "a failed `Peer::bookmark` hands the `Peer` back; dropping it strands the identity"]
 #[derive(Debug)]
-pub struct Unbookmarked<T, B: Bookmark> {
+pub struct Unbookmarked<T, B: BookmarkError, M: Mode = Async> {
     /// The peer, its identity intact and no bookmark attached.
-    pub peer: Peer<T>,
+    pub peer: Peer<T, NoBookmark, M>,
     /// What the bookmark's [`read`](crate::Bookmark::read) or
     /// [`write`](crate::Bookmark::write) reported.
     pub error: B::Error,
@@ -92,7 +97,7 @@ pub struct Unbookmarked<T, B: Bookmark> {
 /// is the stream's terminal `Err`).
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub struct Session {
+pub struct Gossiped {
     /// The causal frontier the two replicas converged on.
     ///
     /// At the instant the session committed, both held exactly this version.
@@ -114,19 +119,12 @@ pub enum Led {
     Remote,
 }
 
-impl<T> Peer<T> {
-    /// Bootstrap a brand-new rumor set from a remote peer.
-    ///
-    /// The peer arrives [unbookmarked](NoBookmark): its identity has been
-    /// forked away to us but not yet persisted, so a crash before it is
-    /// recorded strands it (a few stranded bits, never corruption). To make
-    /// the received identity durable, attach a [`Bookmark`] with
-    /// [`bookmark`](Peer::bookmark) immediately, before the first gossip.
-    ///
-    /// `Ok(None)` means the counterparty was itself still bootstrapping, so
-    /// neither side held a universe to share; nothing was exchanged. Connect
-    /// to a more established peer and try again.
-    pub async fn bootstrap<'a, R, W>(
+impl<T, M: Mode> Peer<T, NoBookmark, M> {
+    /// The mode-agnostic engine behind [`bootstrap`](Peer::bootstrap): runs the
+    /// join over any [`AsyncRead`]/[`AsyncWrite`] pair and builds a peer in
+    /// mode `M`. The async face awaits it; the blocking face drives it to
+    /// completion over [`std::io`].
+    pub(crate) async fn bootstrap_inner<'a, R, W>(
         read: &'a mut R,
         write: &'a mut W,
     ) -> Result<Option<Self>, Error>
@@ -183,41 +181,27 @@ impl<T> Peer<T> {
                 tree: Tree { root },
             }),
             bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
+            marker: PhantomData,
         };
         Ok(Some(peer))
     }
 
-    /// Attach `bookmark` to this [`Peer`], persisting its identity before
-    /// returning.
-    ///
-    /// This peer's own identity is [`read`](crate::Bookmark::read) into the
-    /// record and [`written`](crate::Bookmark::write) back *eagerly*, here, so a
-    /// freshly received fork cannot strand on a crash before the first gossip.
-    /// Reclaiming *other* stranded identities — which grows the live party — is
-    /// left to the first gossip, behind that path's persist gate, never done at
-    /// attach.
-    ///
-    /// A pristine [`seed`](Peer::seed), with nothing sent and no identity yet
-    /// donated or absorbed, has nothing worth persisting, so this touches
-    /// storage only once the peer *knows* something: any content, or any
-    /// identity beyond the undivided seed.
-    ///
-    /// # Errors
-    ///
-    /// If the bookmark cannot be read or written, nothing reaches storage and
-    /// the peer is handed back **untouched**, still unbookmarked, inside
-    /// [`Unbookmarked`], to drop or retry. Because the attach never reclaims, the
-    /// live party is exactly as it was: a failed attach cannot leave a reclaimed
-    /// region live in this peer yet stranded on disk.
-    pub async fn bookmark<B: Bookmark>(
+    /// The mode-agnostic engine behind [`bookmark`](Peer::bookmark): attaches
+    /// `bookmark` and eagerly persists, preserving the peer's mode `M`. It
+    /// drives the bookmark through [`Persist<M>`](Persist), so the async face
+    /// awaits real I/O and the blocking face runs the same body to completion
+    /// over the synchronous calls — with no wrapper type, the stored `B` is the
+    /// caller's own bookmark either way.
+    pub(crate) async fn bookmark_inner<B: Persist<M>>(
         self,
         bookmark: B,
-    ) -> Result<Peer<T, B>, Unbookmarked<T, B>> {
+    ) -> Result<Peer<T, B, M>, Unbookmarked<T, B, M>> {
         let Peer { network, inner, .. } = self;
         let peer = Peer {
             network,
             inner,
             bookmark: Arc::new(Mutex::new(Bookmarked::new(bookmark))),
+            marker: PhantomData,
         };
 
         // A pristine seed has no identity worth recording yet; persisting it
@@ -243,6 +227,7 @@ impl<T> Peer<T> {
                     network: peer.network,
                     inner: peer.inner,
                     bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
+                    marker: PhantomData,
                 },
                 error,
             }),
@@ -250,23 +235,35 @@ impl<T> Peer<T> {
     }
 }
 
-impl<T, B: Bookmark> Peer<T, B> {
+// `Persist` is the crate-internal I/O driver, but it constrains `B` in the
+// public `Peer<T, B, M>` self type, so `private_bounds` flags it. It is not a
+// leak: every method here is `pub(crate)`, and the public entry points
+// (`gossip`, `retire`, `bookmark`, ...) bind the public `Bookmark` /
+// `sync::Bookmark` faces, so `Persist` never appears in the public API.
+#[allow(private_bounds)]
+impl<T, B: Persist<M>, M: Mode> Peer<T, B, M> {
     /// Retire this rumor set into a remote peer, handing it our identity so
     /// that it can be recycled by the network.
     ///
     /// The session begins with a round of gossip: the two peers reconcile
-    /// content exactly as [`gossip`](crate::Rumors::gossip) would, so everything we
-    /// hold that the peer had not yet seen survives in it; the peer then
-    /// absorbs our identity. A peer running ordinary gossip absorbs a retiree
-    /// transparently, so the counterparty needs no special call. The four
-    /// outcomes are the [`Retire`] variants; see each for what survived.
+    /// content exactly as [`gossip`](crate::Rumors::gossip) would, so
+    /// everything we hold that the peer had not yet seen survives in it; the
+    /// peer then absorbs our identity. A peer running ordinary gossip absorbs a
+    /// retiree transparently, so the counterparty needs no special call. The
+    /// four outcomes are the [`Retire`] variants; see each for what survived.
     ///
-    /// The gossip round writes back into the retiring set too: observers of
-    /// a retiring set ([`Messages`](crate::Messages),
-    /// [`CausalMessages`](crate::CausalMessages)) drain the *reconciled*
-    /// final state — everything the session learned included — before they
-    /// end.
-    pub async fn retire<'a, R, W>(self, read: &'a mut R, write: &'a mut W) -> Retire<T, B>
+    /// The gossip round writes back into the retiring set too: observers of a
+    /// retiring set ([`Messages`](crate::Messages),
+    /// [`CausalMessages`](crate::CausalMessages)) drain the *reconciled* final
+    /// state — everything the session learned included — before they end.
+    ///
+    /// The mode-agnostic body behind the async and blocking
+    /// [`retire`](Peer::retire); see those for the public contract.
+    pub(crate) async fn retire_inner<'a, R, W>(
+        self,
+        read: &'a mut R,
+        write: &'a mut W,
+    ) -> Retire<T, B, M>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
         R: AsyncRead + Unpin + Send,
@@ -309,8 +306,8 @@ impl<T, B: Bookmark> Peer<T, B> {
     /// Unlike [`bookmark_update`](Self::bookmark_update), this never grows the
     /// live party — it only notes who we are, so a freshly received fork cannot
     /// strand on an early crash — and so a failed [`write`](Bookmarked::write)
-    /// leaves the party exactly as it was. Reclaiming, with its party growth and
-    /// the gating that protects it, is left to the first gossip. Holds the
+    /// leaves the party exactly as it was. Reclaiming, with its party growth
+    /// and the gating that protects it, is left to the first gossip. Holds the
     /// bookmark mutex across a brief `watch` borrow (read-only here) and the
     /// write; lock order is bookmark-then-`watch`, as everywhere.
     async fn bookmark_record(&self) -> Result<(), B::Error> {
@@ -627,7 +624,9 @@ impl<T, B: Bookmark> Peer<T, B> {
         // actions are possible, so don't hand back the `Peer`.
         (outcome, Ok(converged))
     }
+}
 
+impl<T, B: Bookmark> Peer<T, B, Async> {
     /// Run the change-driven gossip driver behind
     /// [`Rumors::gossip_when`](crate::Rumors::gossip_when); the public
     /// contract lives there.
@@ -636,7 +635,7 @@ impl<T, B: Bookmark> Peer<T, B> {
         when: S,
         read: &'a mut R,
         write: &'a mut W,
-    ) -> impl Stream<Item = Result<Session, Error<B>>> + Unpin + 'a
+    ) -> impl Stream<Item = Result<Gossiped, Error<B>>> + Unpin + 'a
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
         R: AsyncRead + Unpin + Send,
@@ -726,7 +725,7 @@ impl<T, B: Bookmark> Peer<T, B> {
                             // suppression token.
                             drive.staged = remote::Staged::new();
                             drive.converged = Some(converged.clone());
-                            Some((Ok(Session { converged, led }), drive))
+                            Some((Ok(Gossiped { converged, led }), drive))
                         }
                         Err(e) => {
                             drive.done = true;
@@ -751,7 +750,7 @@ enum Trigger {
 /// The state a [`gossip_when`](Peer::gossip_when) driver carries between
 /// sessions: the transport halves, the policy stream, the preamble staging
 /// buffer, and the suppression token.
-struct Drive<'a, T, B: Bookmark, R, W, S> {
+struct Drive<'a, T, B: BookmarkError, R, W, S> {
     peer: &'a Peer<T, B>,
     read: &'a mut R,
     write: &'a mut W,

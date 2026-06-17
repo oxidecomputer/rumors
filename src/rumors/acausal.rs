@@ -1,6 +1,8 @@
+use crate::mode::{Async, Blocking, Mode};
 use crate::tree::{Frozen, Leaf};
 use crate::{Key, Version};
 use futures::Stream;
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -31,7 +33,7 @@ use tokio::sync::watch;
 /// This observer does not count against the quiescence that lets
 /// [`try_into_peer`](crate::Rumors::try_into_peer) reclaim the
 /// [`Peer`](crate::Peer).
-pub struct Messages<T> {
+pub struct Messages<T, M: Mode = Async> {
     /// The watch channel, or the in-flight wait for it to change. The wait
     /// future owns the receiver and hands it back: the `Stream` face cannot
     /// hold a borrowing `changed()` future across polls (recreating one per
@@ -44,6 +46,24 @@ pub struct Messages<T> {
     /// The most recently yielded leaf, kept alive so its version and value
     /// can be lent to the caller until the next call.
     current: Option<(Key, Leaf<T>)>,
+    /// The I/O [`Mode`] witness; see [`Peer`](crate::Peer)'s `marker`.
+    marker: PhantomData<fn() -> M>,
+}
+
+/// The outcome of [`Messages::try_next`] or [`CausalMessages::try_next`].
+///
+/// A non-blocking step that either yields a message or says why it can't.
+///
+/// [`CausalMessages::try_next`]: super::CausalMessages::try_next
+#[derive(Debug)]
+pub enum TryNext<'a, T> {
+    /// A message was ready, lent until the next call (as
+    /// [`borrow_next`](Messages::borrow_next) lends it).
+    Message((Key, &'a Version, &'a Arc<T>)),
+    /// No message is ready yet, but handles are still live: ask again later.
+    Quiet,
+    /// Every handle is gone and no further message is possible.
+    Ended,
 }
 
 /// A wait for the channel to change, owning the receiver; resolves to
@@ -68,13 +88,14 @@ struct Pass<T> {
     ceiling: Version,
 }
 
-impl<T> Messages<T> {
+impl<T, M: Mode> Messages<T, M> {
     pub(crate) fn subscribe(inner: &watch::Sender<crate::Inner<T>>, since: Version) -> Self {
         Self {
             channel: Some(Channel::Ready(inner.subscribe())),
             checkpoint: since,
             pass: None,
             current: None,
+            marker: PhantomData,
         }
     }
 
@@ -100,10 +121,11 @@ impl<T> Messages<T> {
         }
     }
 
-    /// Advance to the next message, lending its version and value until the
-    /// following call. Awaits quietly while the set is unchanged; resolves
-    /// [`None`] once no further change is possible.
-    pub async fn borrow_next(&mut self) -> Option<(Key, &Version, &Arc<T>)>
+    /// The mode-agnostic engine behind the async and blocking
+    /// [`borrow_next`](Messages::borrow_next): advances to the next message and
+    /// lends it. The async face awaits it; the blocking face drives it to
+    /// completion.
+    pub(crate) async fn borrow_next_inner(&mut self) -> Option<(Key, &Version, &Arc<T>)>
     where
         T: Send + Sync,
     {
@@ -192,11 +214,52 @@ impl<T> Messages<T> {
     }
 }
 
+impl<T> Messages<T, Async> {
+    /// Advance to the next message, lending its version and value until the
+    /// following call. Awaits quietly while the set is unchanged; resolves
+    /// [`None`] once no further change is possible.
+    pub async fn borrow_next(&mut self) -> Option<(Key, &Version, &Arc<T>)>
+    where
+        T: Send + Sync,
+    {
+        self.borrow_next_inner().await
+    }
+}
+
+impl<T> Messages<T, Blocking> {
+    /// Blocking [`borrow_next`](Messages::borrow_next): blocks the calling
+    /// thread (via [`pollster`], with no async runtime) until a message is
+    /// ready or the set has closed, instead of awaiting.
+    pub fn borrow_next(&mut self) -> Option<(Key, &Version, &Arc<T>)>
+    where
+        T: Send + Sync,
+    {
+        pollster::block_on(self.borrow_next_inner())
+    }
+
+    /// Take one non-blocking step: a message if one is ready, [`Quiet`] (ask
+    /// again later) if not, [`Ended`] if no further message is possible.
+    ///
+    /// [`Quiet`]: TryNext::Quiet
+    /// [`Ended`]: TryNext::Ended
+    pub fn try_next(&mut self) -> TryNext<'_, T>
+    where
+        T: Send + Sync,
+    {
+        use futures::FutureExt;
+        match self.borrow_next_inner().now_or_never() {
+            None => TryNext::Quiet,
+            Some(None) => TryNext::Ended,
+            Some(Some(message)) => TryNext::Message(message),
+        }
+    }
+}
+
 /// The owned-item face: `(Key, Version, Arc<T>)` per item, cloned out of
 /// the same engine [`borrow_next`](Messages::borrow_next) lends from.
 /// `T: 'static` because the quiet-period wait is materialized as an owned
 /// future (see the `channel` field).
-impl<T: Send + Sync + 'static> Stream for Messages<T> {
+impl<T: Send + Sync + 'static> Stream for Messages<T, Async> {
     type Item = (Key, Version, Arc<T>);
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -239,5 +302,19 @@ impl<T: Send + Sync + 'static> Stream for Messages<T> {
                 }
             }
         }
+    }
+}
+
+/// The blocking owned-item face: the [`Iterator`] analogue of the [`Stream`]
+/// impl, cloning each item out of the same engine
+/// [`borrow_next`](Messages::borrow_next) lends from. [`next`](Iterator::next)
+/// blocks the calling thread (via [`pollster`]) until an item is ready;
+/// [`None`] means the set has closed and is fully delivered.
+impl<T: Send + Sync + 'static> Iterator for Messages<T, Blocking> {
+    type Item = (Key, Version, Arc<T>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (key, version, value) = pollster::block_on(self.borrow_next_inner())?;
+        Some((key, version.clone(), value.clone()))
     }
 }

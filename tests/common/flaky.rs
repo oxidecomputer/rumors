@@ -27,7 +27,7 @@ use std::fmt;
 use std::sync::{Arc, Mutex};
 
 use before::Clock;
-use rumors::{Bookmark, Network};
+use rumors::{Bookmark, BookmarkError, Network};
 
 /// The error a scheduled read/write failure reports. Carries which operation
 /// tripped, only for legible test diagnostics.
@@ -131,9 +131,11 @@ fn round_trip(record: &BTreeMap<Network, Vec<Clock>>) -> BTreeMap<Network, Vec<C
     borsh::from_slice(&bytes).expect("decode bookmark record")
 }
 
-impl Bookmark for FlakyInMemoryBookmark {
+impl BookmarkError for FlakyInMemoryBookmark {
     type Error = FlakyError;
+}
 
+impl Bookmark for FlakyInMemoryBookmark {
     async fn read(&self) -> Result<BTreeMap<Network, Vec<Clock>>, Self::Error> {
         let _ = self.label;
         if self.faults.lock().unwrap().next_read() {

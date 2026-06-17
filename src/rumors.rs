@@ -2,20 +2,25 @@ mod acausal;
 mod causal;
 mod changes;
 
-pub use acausal::Messages;
+pub use acausal::{Messages, TryNext};
 pub use causal::CausalMessages;
-pub use changes::Changes;
+pub use changes::{Changes, TryTick};
 
-use crate::bookmark::{Bookmark, NoBookmark};
-use crate::{Batch, Error, Key, Network, Peer, Session, Snapshot, Version};
+use crate::bookmark::{Bookmark, BookmarkError, NoBookmark};
+use crate::mode::{Async, Blocking, Mode};
+use crate::{Batch, Error, Gossiped, Key, Network, Peer, Snapshot, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
 use futures::Stream;
+use futures::io::AllowStdIo;
+use std::io::{Read, Write};
+use std::marker::PhantomData;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     sync::watch,
 };
+use tokio_util::compat::{FuturesAsyncReadCompatExt, FuturesAsyncWriteCompatExt};
 
 /// A handle for [`send`](Rumors::send)ing and [`redact`](Rumors::redact)ing
 /// messages, and [`gossip`](Rumors::gossip)ing the result with peers.
@@ -23,8 +28,8 @@ use tokio::{
 /// Unlike [`Peer`], [`Rumors`] is [`Clone`], which means that any number of
 /// tasks may concurrently interact with the set of rumors, arbitrarily.
 /// Synchronization is internal: anything one clone learns, all do.
-pub struct Rumors<T, B: Bookmark = NoBookmark> {
-    peer: Peer<T, B>,
+pub struct Rumors<T, B: BookmarkError = NoBookmark, M: Mode = Async> {
+    peer: Peer<T, B, M>,
     /// This handle's claim to existence; see [`Extant`].
     extant: Extant,
 }
@@ -57,13 +62,14 @@ impl Drop for Extant {
     }
 }
 
-impl<T, B: Bookmark> Clone for Rumors<T, B> {
+impl<T, B: BookmarkError, M: Mode> Clone for Rumors<T, B, M> {
     fn clone(&self) -> Self {
         Self {
             peer: Peer {
                 network: self.peer.network,
                 inner: self.peer.inner.clone(),
                 bookmark: Arc::clone(&self.peer.bookmark),
+                marker: PhantomData,
             },
             extant: self.extant.clone(),
         }
@@ -72,7 +78,7 @@ impl<T, B: Bookmark> Clone for Rumors<T, B> {
 
 /// A summary view (network, latest version, live-message count), independent
 /// of `T: Debug`: the messages themselves are not printed.
-impl<T, B: Bookmark> std::fmt::Debug for Rumors<T, B> {
+impl<T, B: BookmarkError, M: Mode> std::fmt::Debug for Rumors<T, B, M> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let inner = self.peer.inner.borrow();
         f.debug_struct("Rumors")
@@ -83,11 +89,11 @@ impl<T, B: Bookmark> std::fmt::Debug for Rumors<T, B> {
     }
 }
 
-impl<T, B: Bookmark> Rumors<T, B> {
+impl<T, B: BookmarkError, M: Mode> Rumors<T, B, M> {
     /// Assemble the first handle of a fresh broadcast generation around `peer`,
     /// the only constructor: every other handle is a [`Clone`] of this one, so
     /// the token count faithfully counts handles.
-    pub(crate) fn new(peer: Peer<T, B>) -> Self {
+    pub(crate) fn new(peer: Peer<T, B, M>) -> Self {
         Self {
             peer,
             extant: Extant {
@@ -98,16 +104,10 @@ impl<T, B: Bookmark> Rumors<T, B> {
         }
     }
 
-    /// Give up this handle and reclaim the [`Peer`] once no more other handles
-    /// exist: resolves when no [`Rumors`] for this set remains, handing the
-    /// `Peer` to exactly one caller.
-    ///
-    /// Cancelling a pending [`try_into_peer`](Self::try_into_peer) abandons its
-    /// claim: the handle was already consumed, so dropping the future is no
-    /// different from having dropped the `Rumors`. If every handle goes away
-    /// with no reunite pending, the `Peer` is gone for good and the set closes:
-    /// observers drain the final state and end.
-    pub async fn try_into_peer(self) -> Option<Peer<T, B>> {
+    /// The mode-agnostic body behind the async and blocking
+    /// [`try_into_peer`](Rumors::try_into_peer); see those for the public
+    /// contract.
+    pub(crate) async fn try_into_peer_inner(self) -> Option<Peer<T, B, M>> {
         let Self { peer, extant } = self;
         let token = Arc::downgrade(extant.token.as_ref().expect("Some outside Drop"));
         let claimed = Arc::clone(&extant.claimed);
@@ -188,6 +188,107 @@ impl<T, B: Bookmark> Rumors<T, B> {
         self.peer.batch()
     }
 
+    /// The identifier shared by every peer that descends from the same
+    /// [`seed`](Peer::seed).
+    pub fn network(&self) -> Network {
+        self.peer.network()
+    }
+
+    /// Take a consistent point-in-time view of the live set: cheap
+    /// (structure-sharing, no copy), atomic, and isolated from every later
+    /// change. See [`Snapshot`] for what it can answer.
+    pub fn snapshot(&self) -> Snapshot<T> {
+        self.peer.snapshot()
+    }
+
+    /// Observe every message in this rumor set, from genesis onward. See
+    /// [`Messages`] for the contract; equivalent to
+    /// [`messages_since`](Self::messages_since) at [`Version::new`].
+    pub fn messages(&self) -> Messages<T, M>
+    where
+        T: Send + Sync,
+    {
+        self.peer.messages()
+    }
+
+    /// Observe every message not already causally contained in `since`,
+    /// then everything learned afterwards. See [`Messages`] for the
+    /// contract.
+    ///
+    /// `since` is usually a persisted [`checkpoint`](Messages::checkpoint)
+    /// from an earlier observer of this set (or of any replica of it):
+    /// that round trip delivers everything at least once and re-delivers at
+    /// most the checkpoint's partial pass.
+    pub fn messages_since(&self, since: Version) -> Messages<T, M>
+    where
+        T: Send + Sync,
+    {
+        self.peer.messages_since(since)
+    }
+
+    /// Observe every message in this rumor set in *causal order*, from genesis
+    /// onward. See [`CausalMessages`]; equivalent to
+    /// [`causal_messages_since`](Self::causal_messages_since) at
+    /// [`Version::new`].
+    pub fn causal_messages(&self) -> CausalMessages<T, M>
+    where
+        T: Send + Sync,
+    {
+        self.peer.causal_messages()
+    }
+
+    /// Observe every message not already causally contained in `since`, in
+    /// *causal order*. See [`CausalMessages`] for the ordering contract and
+    /// its cost, and [`messages_since`](Self::messages_since) for how
+    /// `since` pairs with a persisted
+    /// [`checkpoint`](CausalMessages::checkpoint).
+    pub fn causal_messages_since(&self, since: Version) -> CausalMessages<T, M>
+    where
+        T: Send + Sync,
+    {
+        self.peer.causal_messages_since(since)
+    }
+
+    /// Observe *that* this set changes, without observing what changed: a
+    /// coalescing stream that yields `()` immediately on first poll and then
+    /// once per observed advance of the set's causal frontier. See
+    /// [`Changes`] for the contract — including why this signal alone must
+    /// not drive [`gossip`](Self::gossip) directly.
+    pub fn changes(&self) -> Changes<T, M> {
+        Changes::subscribe(&self.peer.inner)
+    }
+
+    /// Force this set's tree to compute its lazy structural memos (observable
+    /// hash and ceiling/floor version bounds), so a subsequent operation is
+    /// timed against its own work. For benchmark and test calibration only.
+    #[doc(hidden)]
+    pub fn warm_caches(&self) {
+        self.peer.warm_caches();
+    }
+
+    /// Alias this set's live party for invariant assertions in tests; see
+    /// [`Peer::dangerously_alias_party`] for the contract.
+    #[cfg(any(test, feature = "test-internals"))]
+    #[doc(hidden)]
+    pub fn dangerously_alias_party(&self) -> Option<before::Party> {
+        self.peer.dangerously_alias_party()
+    }
+}
+
+impl<T, B: Bookmark> Rumors<T, B, Async> {
+    /// Give up this handle and reclaim the [`Peer`] once no more other handles
+    /// exist: resolves when no [`Rumors`] for this set remains, handing the
+    /// `Peer` to exactly one caller.
+    ///
+    /// Cancelling a pending [`try_into_peer`](Self::try_into_peer) abandons its
+    /// claim: the handle was already consumed, so dropping the future is no
+    /// different from having dropped the `Rumors`. If every handle goes away
+    /// with no reunite pending, the `Peer` is gone for good and the set closes:
+    /// observers drain the final state and end.
+    pub async fn try_into_peer(self) -> Option<Peer<T, B, Async>> {
+        self.try_into_peer_inner().await
+    }
+
     /// Run one reconciliation session with one remote peer over the given
     /// transport.
     ///
@@ -229,7 +330,7 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// busy-loop: a tick stream should go quiet between reasons to gossip.
     ///
     /// The returned stream *must be polled* for gossip to continue. It yields
-    /// one [`Session`] per completed session, remote-led included. It
+    /// one [`Gossiped`] per completed session, remote-led included. It
     /// terminates in one of three ways:
     ///
     /// - the connection fails: one final `Err` (replica unchanged, the
@@ -240,7 +341,7 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// # Suppression
     ///
     /// A tick initiates gossip only if the local frontier has advanced past
-    /// this connection's last [`converged`](Session::converged) version. A
+    /// this connection's last [`converged`](Gossiped::converged) version. A
     /// driver fed by [`changes`](Self::changes) therefore never echoes a
     /// session back after its own gossip, and an idle heartbeat costs nothing
     /// unless changes occur. However, a tick never *pulls* from the other side:
@@ -313,7 +414,7 @@ impl<T, B: Bookmark> Rumors<T, B> {
         when: S,
         read: &'a mut R,
         write: &'a mut W,
-    ) -> impl Stream<Item = Result<Session, Error<B>>> + Unpin + 'a
+    ) -> impl Stream<Item = Result<Gossiped, Error<B>>> + Unpin + 'a
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
         R: AsyncRead + Unpin + Send,
@@ -322,90 +423,23 @@ impl<T, B: Bookmark> Rumors<T, B> {
     {
         self.peer.gossip_when(when, read, write)
     }
+}
 
-    /// The identifier shared by every peer that descends from the same
-    /// [`seed`](Peer::seed).
-    pub fn network(&self) -> Network {
-        self.peer.network()
+impl<T, B: crate::sync::Bookmark + Send + Sync> Rumors<T, B, Blocking> {
+    /// Blocking [`try_into_peer`](Rumors::try_into_peer).
+    pub fn try_into_peer(self) -> Option<Peer<T, B, Blocking>> {
+        pollster::block_on(self.try_into_peer_inner())
     }
 
-    /// Take a consistent point-in-time view of the live set: cheap
-    /// (structure-sharing, no copy), atomic, and isolated from every later
-    /// change. See [`Snapshot`] for what it can answer.
-    pub fn snapshot(&self) -> Snapshot<T> {
-        self.peer.snapshot()
-    }
-
-    /// Observe every message in this rumor set, from genesis onward. See
-    /// [`Messages`] for the contract; equivalent to
-    /// [`messages_since`](Self::messages_since) at [`Version::new`].
-    pub fn messages(&self) -> Messages<T>
+    /// Blocking [`gossip`](Rumors::gossip) over [`std::io`].
+    pub fn gossip<R, W>(&mut self, read: &mut R, write: &mut W) -> Result<(), Error<B>>
     where
-        T: Send + Sync,
+        T: BorshDeserialize + BorshSerialize + Send + Sync,
+        R: Read + Send,
+        W: Write + Send,
     {
-        self.peer.messages()
-    }
-
-    /// Observe every message not already causally contained in `since`,
-    /// then everything learned afterwards. See [`Messages`] for the
-    /// contract.
-    ///
-    /// `since` is usually a persisted [`checkpoint`](Messages::checkpoint)
-    /// from an earlier observer of this set (or of any replica of it):
-    /// that round trip delivers everything at least once and re-delivers at
-    /// most the checkpoint's partial pass.
-    pub fn messages_since(&self, since: Version) -> Messages<T>
-    where
-        T: Send + Sync,
-    {
-        self.peer.messages_since(since)
-    }
-
-    /// Observe every message in this rumor set in *causal order*, from genesis
-    /// onward. See [`CausalMessages`]; equivalent to
-    /// [`causal_messages_since`](Self::causal_messages_since) at
-    /// [`Version::new`].
-    pub fn causal_messages(&self) -> CausalMessages<T>
-    where
-        T: Send + Sync,
-    {
-        self.peer.causal_messages()
-    }
-
-    /// Observe every message not already causally contained in `since`, in
-    /// *causal order*. See [`CausalMessages`] for the ordering contract and
-    /// its cost, and [`messages_since`](Self::messages_since) for how
-    /// `since` pairs with a persisted
-    /// [`checkpoint`](CausalMessages::checkpoint).
-    pub fn causal_messages_since(&self, since: Version) -> CausalMessages<T>
-    where
-        T: Send + Sync,
-    {
-        self.peer.causal_messages_since(since)
-    }
-
-    /// Observe *that* this set changes, without observing what changed: a
-    /// coalescing stream that yields `()` immediately on first poll and then
-    /// once per observed advance of the set's causal frontier. See
-    /// [`Changes`] for the contract — including why this signal alone must
-    /// not drive [`gossip`](Self::gossip) directly.
-    pub fn changes(&self) -> Changes<T> {
-        Changes::subscribe(&self.peer.inner)
-    }
-
-    /// Force this set's tree to compute its lazy structural memos (observable
-    /// hash and ceiling/floor version bounds), so a subsequent operation is
-    /// timed against its own work. For benchmark and test calibration only.
-    #[doc(hidden)]
-    pub fn warm_caches(&self) {
-        self.peer.warm_caches();
-    }
-
-    /// Alias this set's live party for invariant assertions in tests; see
-    /// [`Peer::dangerously_alias_party`] for the contract.
-    #[cfg(any(test, feature = "test-internals"))]
-    #[doc(hidden)]
-    pub fn dangerously_alias_party(&self) -> Option<before::Party> {
-        self.peer.dangerously_alias_party()
+        let mut read = AllowStdIo::new(read).compat();
+        let mut write = AllowStdIo::new(write).compat_write();
+        pollster::block_on(self.peer.gossip(&mut read, &mut write))
     }
 }

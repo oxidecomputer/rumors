@@ -26,7 +26,7 @@ use futures::channel::mpsc::{UnboundedSender, unbounded};
 use futures::stream;
 use futures::{FutureExt, StreamExt};
 use proptest::prelude::*;
-use rumors::{Error, Led, Peer, Rumors, Session};
+use rumors::{Error, Gossiped, Led, Peer, Rumors};
 use tokio::io::{AsyncWriteExt, DuplexStream, ReadHalf, WriteHalf, duplex};
 use tokio::time::timeout;
 
@@ -71,9 +71,9 @@ fn ticks() -> (UnboundedSender<()>, impl stream::Stream<Item = ()>) {
 /// One session under two hand-driven drivers: tick one (or both) sides,
 /// then await one item from each driver, asserting both are `Ok`.
 async fn one_round(
-    a_sessions: &mut (impl stream::Stream<Item = Result<Session, Error>> + Unpin),
-    b_sessions: &mut (impl stream::Stream<Item = Result<Session, Error>> + Unpin),
-) -> (Session, Session) {
+    a_sessions: &mut (impl stream::Stream<Item = Result<Gossiped, Error>> + Unpin),
+    b_sessions: &mut (impl stream::Stream<Item = Result<Gossiped, Error>> + Unpin),
+) -> (Gossiped, Gossiped) {
     let (a_item, b_item) = timeout(
         DEADLINE,
         futures::future::join(a_sessions.next(), b_sessions.next()),

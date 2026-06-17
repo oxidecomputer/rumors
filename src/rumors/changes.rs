@@ -1,3 +1,4 @@
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -5,6 +6,7 @@ use futures::Stream;
 use tokio::sync::watch;
 
 use crate::Version;
+use crate::mode::{Async, Blocking, Mode};
 
 use super::acausal::Channel;
 
@@ -41,7 +43,7 @@ use super::acausal::Channel;
 /// A driver must also enter a session when the *remote* initiates, which is
 /// exactly what [`gossip_when`](crate::Rumors::gossip_when) adds; feed this
 /// stream to it rather than calling `gossip` yourself to gossip-on-change.
-pub struct Changes<T> {
+pub struct Changes<T, M: Mode = Async> {
     /// The watch channel, or the in-flight wait for it to change; the same
     /// materialized-wait dance as [`Messages`](crate::Messages) (see its
     /// `channel` field docs for why the wait must own the receiver).
@@ -49,20 +51,101 @@ pub struct Changes<T> {
     /// The frontier most recently reported to the consumer: `None` until the
     /// first yield, so the first poll always finds news.
     seen: Option<Version>,
+    /// The I/O [`Mode`] witness; see [`Peer`](crate::Peer)'s `marker`.
+    marker: PhantomData<fn() -> M>,
 }
 
-impl<T> Changes<T> {
+/// The outcome of [`Changes::try_next`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TryTick {
+    /// The set advanced since the last report (a fresh signal's first step
+    /// is always a tick).
+    Tick,
+    /// No advance since the last report; handles are still live, so more
+    /// may come. Ask again later.
+    Quiet,
+    /// Every handle is gone and no further change is possible.
+    Ended,
+}
+
+impl<T, M: Mode> Changes<T, M> {
     pub(crate) fn subscribe(inner: &watch::Sender<crate::Inner<T>>) -> Self {
         Self {
             channel: Some(Channel::Ready(inner.subscribe())),
             seen: None,
+            marker: PhantomData,
         }
+    }
+
+    /// The mode-agnostic engine behind the blocking [`Iterator`] and
+    /// [`try_next`](Changes::try_next): await-based, mirroring the [`Stream`]
+    /// poll. The async face is the [`Stream`] impl directly.
+    pub(crate) async fn next_inner(&mut self) -> Option<()>
+    where
+        T: Send + Sync + 'static,
+    {
+        loop {
+            match self.channel.as_mut().expect("channel state present") {
+                Channel::Waiting(wait) => {
+                    let (closed, rx) = wait.as_mut().await;
+                    self.channel = Some(Channel::Ready(rx));
+                    if closed {
+                        return None;
+                    }
+                }
+                Channel::Ready(rx) => {
+                    let latest = rx.borrow_and_update().tree.latest().clone();
+                    if self.seen.as_ref() != Some(&latest) {
+                        self.seen = Some(latest);
+                        return Some(());
+                    }
+                    // Frontier unchanged since the last report: await the next
+                    // change. `Err` means every sender is gone and the
+                    // comparison above already saw the final state.
+                    if rx.changed().await.is_err() {
+                        return None;
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl<T> Changes<T, Blocking> {
+    /// Take one non-blocking step: [`Tick`] if the set advanced since the
+    /// last report, [`Quiet`] (ask again later) if not, [`Ended`] if no
+    /// further change is possible.
+    ///
+    /// [`Tick`]: TryTick::Tick
+    /// [`Quiet`]: TryTick::Quiet
+    /// [`Ended`]: TryTick::Ended
+    pub fn try_next(&mut self) -> TryTick
+    where
+        T: Send + Sync + 'static,
+    {
+        use futures::FutureExt;
+        match self.next_inner().now_or_never() {
+            None => TryTick::Quiet,
+            Some(None) => TryTick::Ended,
+            Some(Some(())) => TryTick::Tick,
+        }
+    }
+}
+
+/// The blocking signal face: the [`Iterator`] analogue of the [`Stream`] impl.
+/// [`next`](Iterator::next) blocks the calling thread (via [`pollster`]) until
+/// the set advances; [`None`] means every handle is gone.
+impl<T: Send + Sync + 'static> Iterator for Changes<T, Blocking> {
+    type Item = ();
+
+    fn next(&mut self) -> Option<Self::Item> {
+        pollster::block_on(self.next_inner())
     }
 }
 
 /// `T: 'static` because the quiet-period wait is materialized as an owned
 /// future, exactly as in [`Messages`](crate::Messages).
-impl<T: Send + Sync + 'static> Stream for Changes<T> {
+impl<T: Send + Sync + 'static> Stream for Changes<T, Async> {
     type Item = ();
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {

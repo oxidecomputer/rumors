@@ -12,10 +12,20 @@
 //! nothing (see the crate docs on membership as custody).
 
 use std::collections::BTreeMap;
+use std::marker::PhantomData;
 
 use before::{Clock, Party, Version};
 
 use crate::Network;
+use crate::mode::{Async, Mode};
+
+/// The error a [`Bookmark`] (or a [`sync::Bookmark`](crate::sync::Bookmark))
+/// reports when persistence fails.
+pub trait BookmarkError {
+    /// What a [`read`](Bookmark::read) or [`write`](Bookmark::write)
+    /// reports when it fails.
+    type Error: std::error::Error + Send + Sync + 'static;
+}
 
 /// Application-supplied persistent storage for a [`Peer`](crate::Peer)'s
 /// identity.
@@ -24,8 +34,12 @@ use crate::Network;
 /// none of *what* it knows: content is recovered the same way any peer gets it,
 /// by [`gossip`](crate::Rumors::gossip)ing. The crate reads the record once,
 /// folds the live identity in before each gossip round, and writes it back; the
-/// implementor supplies only the durable [`read`](Bookmark::read) and
+/// implementor supplies the [`Error`](BookmarkError::Error) type (on the
+/// [`BookmarkError`] supertrait) and the durable [`read`](Bookmark::read) and
 /// [`write`](Bookmark::write).
+///
+/// This is for asynchronous use; the blocking version is
+/// [`sync::Bookmark`](crate::sync::Bookmark).
 ///
 /// # One bookmark per peer, handled linearly
 ///
@@ -35,10 +49,7 @@ use crate::Network;
 /// stored identity the live party has caught up to, so a shared bookmark can
 /// hand the same identity to two live parties at once. A bookmark, like the
 /// identity it records, **must be persisted atomically and never duplicated**.
-pub trait Bookmark {
-    /// What a failed [`read`](Self::read) or [`write`](Self::write) reports.
-    type Error: std::error::Error + Send + Sync + 'static;
-
+pub trait Bookmark: BookmarkError {
     /// Read the persisted record, or an empty map if nothing is stored yet.
     ///
     /// Called once per [`Peer`](crate::Peer), lazily, before the first write.
@@ -55,6 +66,51 @@ pub trait Bookmark {
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
 
+/// The crate-internal, uniformly-awaitable persistence driver the engine calls,
+/// indexed by I/O [`Mode`] so one async body serves both faces.
+///
+/// The engine ([`Bookmarked`], the gossip helpers) is a single `async` body
+/// that does `persist.read().await`. An async [`Bookmark`] already has that
+/// shape; a blocking [`sync::Bookmark`](crate::sync::Bookmark) does not, so this
+/// trait gives its plain `read`/`write` an awaitable face by settling them into
+/// a ready future. The adaptation a wrapper type would otherwise perform is thus
+/// anonymous and internal, so a bookmarked blocking peer is
+/// `Peer<T, B, Blocking>` over the user's own `B`.
+///
+/// `M` is a *type parameter*, not an associated type, on purpose: the two
+/// blanket impls below target the distinct trait references `Persist<Async>`
+/// and `Persist<Blocking>`, so they never overlap even though a type (e.g.
+/// [`NoBookmark`]) may implement both faces. Collapsing `M` to an associated
+/// type would make both impls target one trait, which coherence rejects.
+pub(crate) trait Persist<M: Mode>: BookmarkError {
+    /// Read the persisted record. Async on the async face; a ready future over
+    /// the blocking call on the blocking face.
+    fn read(
+        &self,
+    ) -> impl Future<Output = Result<BTreeMap<Network, Vec<Clock>>, Self::Error>> + Send;
+
+    /// Durably replace the persisted record with `bookmarks`.
+    fn write(
+        &self,
+        bookmarks: &BTreeMap<Network, Vec<Clock>>,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+}
+
+impl<B: Bookmark> Persist<Async> for B {
+    fn read(
+        &self,
+    ) -> impl Future<Output = Result<BTreeMap<Network, Vec<Clock>>, Self::Error>> + Send {
+        Bookmark::read(self)
+    }
+
+    fn write(
+        &self,
+        bookmarks: &BTreeMap<Network, Vec<Clock>>,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
+        Bookmark::write(self, bookmarks)
+    }
+}
+
 /// The placeholder [`Bookmark`] that persists nothing.
 ///
 /// The default for every [`Peer`](crate::Peer); a peer using it never recovers a
@@ -62,9 +118,11 @@ pub trait Bookmark {
 #[derive(Debug)]
 pub struct NoBookmark;
 
-impl Bookmark for NoBookmark {
+impl BookmarkError for NoBookmark {
     type Error = std::convert::Infallible;
+}
 
+impl Bookmark for NoBookmark {
     async fn read(&self) -> Result<BTreeMap<Network, Vec<Clock>>, Self::Error> {
         Ok(Default::default())
     }
@@ -93,7 +151,7 @@ impl Bookmark for NoBookmark {
 /// by [`ensure_loaded`](Self::ensure_loaded) on first use, the first point a
 /// write could otherwise clobber it. The mutex serializes access, so the read
 /// is the record's first content rather than a merge.
-pub(crate) struct Bookmarked<B: Bookmark> {
+pub(crate) struct Bookmarked<B, M: Mode> {
     persist: B,
     /// The in-memory record, or `None` until [`read`](Bookmark::read) has run.
     /// `None` is the unloaded state: a fresh cache is not yet authoritative,
@@ -109,15 +167,20 @@ pub(crate) struct Bookmarked<B: Bookmark> {
     /// matches the token is a no-op and is suppressed, since it would only
     /// re-record an identical alias.
     last: Option<(Party, Version)>,
+    /// The I/O [`Mode`] witness, pinning which [`Persist`] face
+    /// [`ensure_loaded`](Self::ensure_loaded) and [`write`](Self::write) drive.
+    /// `fn() -> M` so `M` constrains neither variance nor auto-traits.
+    marker: PhantomData<fn() -> M>,
 }
 
-impl<B: Bookmark> Bookmarked<B> {
+impl<B, M: Mode> Bookmarked<B, M> {
     /// Pair `persist` with an unloaded record and no recorded identity.
     pub(crate) fn new(persist: B) -> Self {
         Bookmarked {
             persist,
             inner: None,
             last: None,
+            marker: PhantomData,
         }
     }
 
@@ -129,7 +192,9 @@ impl<B: Bookmark> Bookmarked<B> {
             .as_ref()
             .is_some_and(|(p, v)| p == party && v == version)
     }
+}
 
+impl<M: Mode, B: Persist<M>> Bookmarked<B, M> {
     /// Read the stored record on first use, returning it for mutation. A no-op
     /// once loaded; the mutex serializes access, and no mutation precedes a
     /// load, so the read is the record's first content.

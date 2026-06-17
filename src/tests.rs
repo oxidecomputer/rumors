@@ -113,6 +113,7 @@ fn overlapping_retiree_party_is_rejected() {
             },
         }),
         bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
+        marker: std::marker::PhantomData,
     };
 
     let (_retire_out, survivor_out) = pollster::block_on(async {

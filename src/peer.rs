@@ -2,20 +2,29 @@
 //! API for sending, redacting, and observing messages. The wire-session
 //! drivers (bootstrap, gossip, retire) live in [`gossip`].
 
+use std::io::{Read, Write};
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 use before::Party;
-use borsh::BorshSerialize;
+use borsh::{BorshDeserialize, BorshSerialize};
+use futures::Stream;
+use futures::io::AllowStdIo;
 use rand::{RngCore, rngs::OsRng};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{Mutex, watch};
+use tokio_util::compat::{FuturesAsyncReadCompatExt as _, FuturesAsyncWriteCompatExt as _};
 
-use crate::bookmark::{Bookmark, Bookmarked, NoBookmark};
+use crate::bookmark::{BookmarkError, Bookmarked, NoBookmark};
+use crate::mode::{Async, Mode};
 use crate::tree::Tree;
-use crate::{Batch, CausalMessages, Key, Messages, Network, Rumors, Snapshot, Version};
+use crate::{
+    Batch, Bookmark, CausalMessages, Error, Key, Messages, Network, Rumors, Snapshot, Version,
+};
 
 mod gossip;
 
-pub use gossip::{Led, PROTOCOL_MAGIC, PROTOCOL_VERSION, Retire, Session, Unbookmarked};
+pub use gossip::{Gossiped, Led, PROTOCOL_MAGIC, PROTOCOL_VERSION, Retire, Unbookmarked};
 
 /// The start and end of the lifecycle of a [`Rumors`].
 ///
@@ -136,14 +145,19 @@ pub use gossip::{Led, PROTOCOL_MAGIC, PROTOCOL_VERSION, Retire, Session, Unbookm
 /// started, this will quickly lead to a stable and steady state which can only
 /// be disrupted if a group of new peers join only with one another and spend a
 /// long time partitioned from the rest of the network before reuniting with it.
-pub struct Peer<T, B: Bookmark = NoBookmark> {
+pub struct Peer<T, B: BookmarkError = NoBookmark, M: Mode = Async> {
     pub(crate) network: Network,
     pub(crate) inner: watch::Sender<Inner<T>>,
     /// The identity bookmark: persistence handle and its in-memory record,
     /// behind an async mutex and shared with every [`Rumors`] clone. Separate
     /// from `inner` because persisting is `async` and the record is `!Clone`;
     /// see [`Bookmarked`].
-    pub(crate) bookmark: Arc<Mutex<Bookmarked<B>>>,
+    pub(crate) bookmark: Arc<Mutex<Bookmarked<B, M>>>,
+    /// The I/O [`Mode`] witness: selects the async or blocking face. Purely
+    /// type-level — it carries no data and never affects the engine, only which
+    /// `impl` block a caller reaches. `fn() -> M` so `M` constrains neither
+    /// variance nor auto-traits.
+    pub(crate) marker: PhantomData<fn() -> M>,
 }
 
 /// The replica's shared mutable state, behind the `watch` channel every
@@ -158,7 +172,7 @@ pub(crate) struct Inner<T> {
 
 /// A summary view (network, latest version, live-message count), independent
 /// of `T: Debug`: the messages themselves are not printed.
-impl<T, B: Bookmark> std::fmt::Debug for Peer<T, B> {
+impl<T, B: BookmarkError, M: Mode> std::fmt::Debug for Peer<T, B, M> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let inner = self.inner.borrow();
         f.debug_struct("Peer")
@@ -169,7 +183,7 @@ impl<T, B: Bookmark> std::fmt::Debug for Peer<T, B> {
     }
 }
 
-impl<T> Peer<T> {
+impl<T, M: Mode> Peer<T, NoBookmark, M> {
     /// Create the distinguished seed rumor set: the single root from which
     /// every other participant must [`bootstrap`](Peer::bootstrap).
     ///
@@ -189,11 +203,83 @@ impl<T> Peer<T> {
                 tree: Tree::new(),
             }),
             bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
+            marker: PhantomData,
         }
     }
 }
 
+impl<T> Peer<T> {
+    /// Bootstrap a brand-new rumor set from a remote peer.
+    ///
+    /// `Ok(None)` means the counterparty was itself still bootstrapping, so
+    /// neither side had anything to share and nothing was exchanged. Connect to
+    /// another peer and try again.
+    ///
+    /// The peer arrives unbookmarked: its identity has been forked away to us
+    /// but not yet persisted, so a crash before it is recorded strands it. To
+    /// make the received identity durable, attach a [`Bookmark`] with
+    /// [`bookmark`](Peer::bookmark) immediately.
+    pub async fn bootstrap<'a, R, W>(
+        read: &'a mut R,
+        write: &'a mut W,
+    ) -> Result<Option<Self>, Error>
+    where
+        T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
+        R: AsyncRead + Unpin + Send,
+        W: AsyncWrite + Unpin + Send,
+    {
+        Self::bootstrap_inner(read, write).await
+    }
+
+    /// Attach `bookmark` to this [`Peer`], persisting its identity before
+    /// returning.
+    ///
+    /// This peer's own identity is [`read`](crate::Bookmark::read) into the
+    /// record and [`written`](crate::Bookmark::write) back *eagerly*, here, so a
+    /// freshly received fork cannot strand on a crash before the first gossip.
+    /// Reclaiming *other* stranded identities — which grows the live party — is
+    /// left to the first gossip, behind that path's persist gate, never done at
+    /// attach.
+    ///
+    /// A pristine [`seed`](Peer::seed), with nothing sent and no identity yet
+    /// donated or absorbed, has nothing worth persisting, so this touches
+    /// storage only once the peer *knows* something: any content, or any
+    /// identity beyond the undivided seed.
+    ///
+    /// # Errors
+    ///
+    /// If the bookmark cannot be read or written, nothing reaches storage and
+    /// the peer is handed back **untouched**, still unbookmarked, inside
+    /// [`Unbookmarked`], to drop or retry. Because the attach never reclaims, the
+    /// live party is exactly as it was: a failed attach cannot leave a reclaimed
+    /// region live in this peer yet stranded on disk.
+    pub async fn bookmark<B: Bookmark>(
+        self,
+        bookmark: B,
+    ) -> Result<Peer<T, B, Async>, Unbookmarked<T, B, Async>> {
+        self.bookmark_inner(bookmark).await
+    }
+}
+
 impl<T, B: Bookmark> Peer<T, B> {
+    /// Retire this rumor set into a remote peer, handing it our identity so
+    /// that it can be recycled by the network.
+    ///
+    /// See the [type-level lifecycle example](Peer) for how the four
+    /// [`Retire`] outcomes are handled; in brief, a session reconciles content
+    /// exactly as [`gossip`](crate::Rumors::gossip) would and then the peer
+    /// absorbs our identity, with the outcome reporting what survived.
+    pub async fn retire<'a, R, W>(self, read: &'a mut R, write: &'a mut W) -> Retire<T, B, Async>
+    where
+        T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
+        R: AsyncRead + Unpin + Send,
+        W: AsyncWrite + Unpin + Send,
+    {
+        self.retire_inner(read, write).await
+    }
+}
+
+impl<T, B: BookmarkError, M: Mode> Peer<T, B, M> {
     /// The globally unique identifier for this network of gossiping [`Peer`]s.
     pub fn network(&self) -> Network {
         self.network
@@ -206,7 +292,7 @@ impl<T, B: Bookmark> Peer<T, B> {
     /// concurrently. Once only one remaining [`Rumors`] exists again, it can be
     /// converted back into a [`Peer`] using
     /// [`try_into_peer`](Rumors::try_into_peer).
-    pub fn into_rumors(self) -> Rumors<T, B> {
+    pub fn into_rumors(self) -> Rumors<T, B, M> {
         Rumors::new(self)
     }
 
@@ -239,28 +325,28 @@ impl<T, B: Bookmark> Peer<T, B> {
         Snapshot::new(self.network, self.inner.borrow().tree.clone())
     }
 
-    pub(crate) fn messages(&self) -> Messages<T>
+    pub(crate) fn messages(&self) -> Messages<T, M>
     where
         T: Send + Sync,
     {
         self.messages_since(Version::new())
     }
 
-    pub(crate) fn messages_since(&self, since: Version) -> Messages<T>
+    pub(crate) fn messages_since(&self, since: Version) -> Messages<T, M>
     where
         T: Send + Sync,
     {
         Messages::subscribe(&self.inner, since)
     }
 
-    pub(crate) fn causal_messages(&self) -> CausalMessages<T>
+    pub(crate) fn causal_messages(&self) -> CausalMessages<T, M>
     where
         T: Send + Sync,
     {
         self.causal_messages_since(Version::new())
     }
 
-    pub(crate) fn causal_messages_since(&self, since: Version) -> CausalMessages<T>
+    pub(crate) fn causal_messages_since(&self, since: Version) -> CausalMessages<T, M>
     where
         T: Send + Sync,
     {
@@ -289,5 +375,42 @@ impl<T, B: Bookmark> Peer<T, B> {
             .party
             .as_ref()
             .map(Party::dangerously_alias)
+    }
+}
+
+impl<T> crate::sync::Peer<T> {
+    /// Blocking [`bootstrap`](Peer::bootstrap), over [`std::io`].
+    pub fn bootstrap<R, W>(read: &mut R, write: &mut W) -> Result<Option<Self>, Error>
+    where
+        T: BorshDeserialize + BorshSerialize + Send + Sync,
+        R: Read + Send,
+        W: Write + Send,
+    {
+        let mut read = AllowStdIo::new(read).compat();
+        let mut write = AllowStdIo::new(write).compat_write();
+        pollster::block_on(Self::bootstrap_inner(&mut read, &mut write))
+    }
+
+    /// Blocking [`bookmark`](Peer::bookmark), attaching a
+    /// [`sync::Bookmark`](crate::sync::Bookmark).
+    pub fn bookmark<B: crate::sync::Bookmark + Send + Sync>(
+        self,
+        bookmark: B,
+    ) -> Result<crate::sync::Peer<T, B>, crate::sync::Unbookmarked<T, B>> {
+        pollster::block_on(self.bookmark_inner(bookmark))
+    }
+}
+
+impl<T, B: crate::sync::Bookmark + Send + Sync> crate::sync::Peer<T, B> {
+    /// Blocking [`retire`](Peer::retire), over [`std::io`].
+    pub fn retire<R, W>(self, read: &mut R, write: &mut W) -> crate::sync::Retire<T, B>
+    where
+        T: BorshDeserialize + BorshSerialize + Send + Sync,
+        R: Read + Send,
+        W: Write + Send,
+    {
+        let mut read = AllowStdIo::new(read).compat();
+        let mut write = AllowStdIo::new(write).compat_write();
+        pollster::block_on(self.retire_inner(&mut read, &mut write))
     }
 }

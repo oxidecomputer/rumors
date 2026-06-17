@@ -184,9 +184,7 @@
 //! Everything async here is runtime-agnostic: sessions and observers are plain
 //! futures and streams, driven entirely by the caller. The I/O *traits* are
 //! tokio's; from another runtime, bridge with [`tokio_util::compat`]. With no
-//! async runtime at all, use the [`sync`] module — the same engine behind
-//! blocking calls over [`std::io::Read`]/[`Write`](std::io::Write). Do not call
-//! that blocking face from async context.
+//! async runtime at all, use the [`sync`] module's types.
 //!
 //! # Wire compatibility
 //!
@@ -218,6 +216,7 @@ pub mod sync;
 mod batch;
 mod bookmark;
 mod message;
+mod mode;
 mod network;
 mod peer;
 mod rumors;
@@ -232,9 +231,11 @@ pub use ::before;
 pub use ::borsh;
 pub use batch::Batch;
 pub use before::{Version, causally};
-pub use bookmark::{Bookmark, NoBookmark};
+pub use bookmark::{Bookmark, BookmarkError};
+#[doc(hidden)]
+pub use mode::{Async, Blocking, Mode};
 pub use network::Network;
-pub use peer::{Led, Peer, Retire, Session, Unbookmarked};
+pub use peer::{Gossiped, Led, Peer, Retire, Unbookmarked};
 pub use rumors::{CausalMessages, Changes, Messages, Rumors};
 pub use snapshot::Snapshot;
 pub use tree::Key;
