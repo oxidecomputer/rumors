@@ -188,7 +188,7 @@ impl<T, M: Mode> UnorderedMessages<T, M> {
     /// let rumors = Peer::<String>::seed().into_rumors();
     /// rumors.send("one".to_string());
     ///
-    /// let mut observer = rumors.messages();
+    /// let mut observer = rumors.unordered_messages();
     /// let (_key, _version, m) = observer.borrow_next().await.expect("one message");
     /// assert_eq!(m.as_str(), "one");
     ///
@@ -204,7 +204,7 @@ impl<T, M: Mode> UnorderedMessages<T, M> {
     /// // A resume from it re-observes nothing from the completed pass and
     /// // everything not yet delivered.
     /// rumors.send("two".to_string());
-    /// let mut resumed = rumors.messages_since(checkpoint);
+    /// let mut resumed = rumors.unordered_messages_since(checkpoint);
     /// let (_key, _version, m) = resumed.borrow_next().await.expect("only the new message");
     /// assert_eq!(m.as_str(), "two");
     /// # });
