@@ -1,0 +1,17 @@
+error[E0080]: evaluation panicked: a `Party` cannot split into zero shares
+ --> src/party/forks.rs
+  |
+  |         const { assert!(N >= 1, "a `Party` cannot split into zero shares") }
+  |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `before::party::forks::<impl std::convert::From<before::Party> for [before::Party; 0]>::from::{constant#1}` failed here
+
+note: erroneous constant encountered
+ --> src/party/forks.rs
+  |
+  |         const { assert!(N >= 1, "a `Party` cannot split into zero shares") }
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn before::party::forks::<impl From<before::Party> for [before::Party; 0]>::from`
+ --> $RUST/core/src/convert/mod.rs
+  |
+  |         U::from(self)
+  |         ^^^^^^^^^^^^^

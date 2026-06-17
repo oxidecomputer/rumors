@@ -18,7 +18,10 @@ use crate::error::{Decode, Parse};
 use crate::idbits::IdReader;
 use crate::Version;
 
+mod forks;
 mod ops;
+
+pub use forks::Forks;
 
 #[cfg(test)]
 mod tests;
@@ -112,8 +115,9 @@ impl Party {
     /// # Warning
     ///
     /// Repeatedly forking the same [`Party`] produces an imbalanced internal
-    /// tree, with worse memory use and performance. Prefer to vary which
-    /// party is forked.
+    /// tree, with worse memory use and performance. Prefer to vary which party
+    /// is forked, or use [`forks`](Party::forks) to generate a fixed number of
+    /// balanced forks.
     ///
     /// ```
     /// use before::Party;
@@ -126,6 +130,39 @@ impl Party {
         let (keep, give) = self.view().split();
         *self = Party::from_bits(keep);
         Party::from_bits(give)
+    }
+
+    /// Split `n` balanced shares off this [`Party`], as a lazy
+    /// [`ExactSizeIterator`].
+    ///
+    /// A single balanced split: the region is divided into `n + 1` subregions
+    /// whose id tree has minimal depth `⌈log₂(n + 1)⌉`. The iterator hands out
+    /// `n` of them and `self` keeps the last, so unlike repeatedly calling
+    /// [`fork`](Party::fork), which deepens one spine into a linear tree (see
+    /// its warning), every share here stays shallow.
+    ///
+    /// A [`Party`] is never empty, so `self` retains its residual share even
+    /// once the iterator is fully drained; shares not taken before the iterator
+    /// drops are [`join`](Party::join)ed back into `self`. The handed-out
+    /// shares together with `self` reconstruct the original region.
+    ///
+    /// For the consuming counterpart that splits into exactly `N` shares with no
+    /// residual, see [`From<Party>`](Party) for `[Party; N]`.
+    ///
+    /// ```
+    /// use before::Party;
+    /// let mut p = Party::seed();
+    /// let shares: Vec<Party> = p.forks(3).collect();
+    /// assert_eq!(shares.len(), 3); // three shares handed out...
+    /// for s in &shares {
+    ///     assert!(p.is_disjoint(s)); // ...each disjoint from the keeper
+    /// }
+    /// // `self` kept the fourth; rejoining all four recovers the whole seed.
+    /// p.join_all(shares).unwrap();
+    /// assert!(p.is_seed());
+    /// ```
+    pub fn forks(&mut self, n: usize) -> Forks<'_> {
+        Forks::new(self, n)
     }
 
     /// Reunite two disjoint [`Party`]s.
@@ -149,6 +186,51 @@ impl Party {
                 Ok(())
             }
             None => Err(other),
+        }
+    }
+
+    /// Reunite every disjoint [`Party`] in `iter` into `self`: the fold of the
+    /// partial commutative monoid that [`join`](Party::join) generates.
+    ///
+    /// Total where a free function could not be — `self` seeds the fold, so an
+    /// empty `iter` simply leaves `self` unchanged. (Contrast
+    /// [`Version::join_all`](crate::Version::join_all), an associated function
+    /// with the empty version for its identity; the [`Party`] monoid has none,
+    /// since the empty region is not a party.) The natural "retire this whole
+    /// set of peers" primitive.
+    ///
+    /// Best-effort: every party [disjoint](Party::is_disjoint) from the region
+    /// accumulated so far is folded in, so `self` ends owning its original
+    /// region plus all of them.
+    ///
+    /// # Errors
+    ///
+    /// Returns the parties that *overlapped* — those that intersect `self`'s
+    /// growing region and so cannot be folded in — and drops nothing: each input
+    /// is either joined into `self` or handed back. Overlap is tested against
+    /// the running union, so for a malformed (aliased) input which parties come
+    /// back can depend on iteration order. For parties descended from one
+    /// [`seed`](Party::seed) the error is unreachable — they are pairwise
+    /// disjoint — and the returned `Vec` is then never allocated.
+    ///
+    /// ```
+    /// use before::Party;
+    /// let mut p = Party::seed();
+    /// let shares: Vec<Party> = p.forks(3).collect();
+    /// p.join_all(shares).unwrap(); // the residual and three shares reunite
+    /// assert!(p.is_seed());
+    /// ```
+    pub fn join_all<I: IntoIterator<Item = Party>>(&mut self, iter: I) -> Result<(), Vec<Party>> {
+        let mut overlapping = Vec::new();
+        for other in iter {
+            if let Err(back) = self.join(other) {
+                overlapping.push(back);
+            }
+        }
+        if overlapping.is_empty() {
+            Ok(())
+        } else {
+            Err(overlapping)
         }
     }
 

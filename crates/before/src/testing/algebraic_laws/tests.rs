@@ -12,7 +12,7 @@ use proptest::prelude::*;
 
 use crate::oracle;
 use crate::testing::generators::{arb_oracle_party, arb_oracle_party_nonempty, arb_oracle_version};
-use crate::{Party, Version};
+use crate::{Party, Rank, Version};
 
 /// `a <= b` under the impl event causal order (concurrency is not-`<=`).
 fn le(a: &Version, b: &Version) -> bool {
@@ -138,6 +138,45 @@ proptest! {
     }
 }
 
+// ───────────────────────────── lattice: distributivity ─────────────────────────────
+
+proptest! {
+    /// Meet distributes over join: `a & (b | c) == (a & b) | (a & c)`. The
+    /// version lattice is a sublattice of a function space into the chain of
+    /// naturals (pointwise min/max), so it is distributive; this pins that the
+    /// impl's `&`/`|` realize it, beyond the lattice laws absorption already
+    /// fixes. Holds by the ITC algebra, independent of the oracle.
+    #[test]
+    fn meet_distributes_over_join(
+        a in arb_oracle_version(),
+        b in arb_oracle_version(),
+        c in arb_oracle_version(),
+    ) {
+        let (va, vb, vc) = (ver(&a), ver(&b), ver(&c));
+        let left = &va & (&vb | &vc);
+        let right = (&va & &vb) | (&va & &vc);
+        prop_assert!(left == right, "a & (b | c) != (a & b) | (a & c)");
+    }
+}
+
+proptest! {
+    /// Join distributes over meet: `a | (b & c) == (a | b) & (a | c)`, the
+    /// dual law. In any lattice each distributive law implies the other;
+    /// asserting both guards against an impl that realized one direction but
+    /// not its dual.
+    #[test]
+    fn join_distributes_over_meet(
+        a in arb_oracle_version(),
+        b in arb_oracle_version(),
+        c in arb_oracle_version(),
+    ) {
+        let (va, vb, vc) = (ver(&a), ver(&b), ver(&c));
+        let left = &va | (&vb & &vc);
+        let right = (&va | &vb) & (&va | &vc);
+        prop_assert!(left == right, "a | (b & c) != (a | b) & (a | c)");
+    }
+}
+
 // ───────────────────────────── causal order: partial order ─────────────────────────────
 
 proptest! {
@@ -238,6 +277,105 @@ proptest! {
     }
 }
 
+// ───────────────────────────── id: balanced n-way fork ─────────────────────────────
+
+proptest! {
+    /// The two balanced-fork forms agree: `From<Party>` for `[Party; N]` equals
+    /// the residual the borrowing `forks(N - 1)` keeps, followed by the shares
+    /// it yields. Both are one balanced split of the same region in the same
+    /// preorder, so the consuming array and the borrowing iterator hand out
+    /// identical shares — the array is just `[residual] ++ forks`.
+    #[test]
+    fn forks_matches_from_array(p in arb_oracle_party_nonempty()) {
+        const N: usize = 4;
+        let array: [Party; N] = party(&p).into();
+
+        let mut keeper = party(&p);
+        let yielded: Vec<Party> = keeper.forks(N - 1).collect();
+        // [residual] ++ yielded, compared element-wise (`Party` is `!Clone`, so
+        // the array cannot be cloned into a `Vec` to compare).
+        let reconstructed: Vec<Party> = std::iter::once(keeper).chain(yielded).collect();
+
+        prop_assert!(
+            array.iter().eq(reconstructed.iter()),
+            "From<Party> array != [residual] ++ forks",
+        );
+    }
+}
+
+proptest! {
+    /// Dropping `forks` early folds the untaken shares back: after pulling 2 of
+    /// 5, the borrowed party holds everything it did not hand out, so rejoining
+    /// the 2 taken shares recovers the original region. This is the drop-time
+    /// reabsorption the iterator promises.
+    #[test]
+    fn forks_partial_drop_folds_back(p in arb_oracle_party_nonempty()) {
+        let original = party(&p);
+        let mut keeper = party(&p);
+        let taken: Vec<Party> = keeper.forks(5).take(2).collect(); // iterator dropped after 2
+        keeper
+            .join_all(taken)
+            .expect("the taken shares are disjoint from the residual");
+        prop_assert!(keeper == original, "early-drop did not fold the remainder back");
+    }
+}
+
+// ───────────────────────────── id: join_all, the partial-monoid fold ─────────────────────────────
+
+proptest! {
+    /// `join_all` reunites a fork: splitting a party with `forks` and folding
+    /// the shares back with `join_all` recovers the original region. `self`
+    /// seeds the fold, and balanced-fork shares are pairwise disjoint, so the
+    /// fold is defined the whole way.
+    #[test]
+    fn party_join_all_reunites_a_fork(p in arb_oracle_party_nonempty()) {
+        let original = party(&p);
+        let mut keeper = party(&p);
+        let shares: Vec<Party> = keeper.forks(3).collect();
+        keeper
+            .join_all(shares)
+            .expect("balanced-fork shares are pairwise disjoint");
+        prop_assert!(keeper == original, "join_all of a fork did not recover the original");
+    }
+}
+
+proptest! {
+    /// `join_all` is total because `self` seeds the fold: an empty iterator
+    /// leaves the party unchanged (the partial monoid has no identity element of
+    /// its own to stand in).
+    #[test]
+    fn party_join_all_empty_is_identity(p in arb_oracle_party_nonempty()) {
+        let original = party(&p);
+        let mut q = party(&p);
+        q.join_all(std::iter::empty::<Party>())
+            .expect("the empty join cannot overlap");
+        prop_assert!(q == original, "empty join_all changed the party");
+    }
+}
+
+proptest! {
+    /// `join_all` is best-effort and lossless: it folds in every disjoint share
+    /// and hands back only those that overlapped, dropping nothing. Given a
+    /// clashing alias of `self` *followed by* a genuine disjoint share, the
+    /// share is still absorbed — only the alias comes back. (Fail-fast would
+    /// instead abandon the share after the clash; this is what distinguishes the
+    /// two.)
+    #[test]
+    fn party_join_all_best_effort(p in arb_oracle_party_nonempty()) {
+        let original = party(&p);
+        let mut keeper = party(&p);
+        let share = keeper.fork(); // keeper now holds the left half...
+        let clash = keeper.dangerously_alias(); // ...and this aliases it (overlaps)
+        let returned = keeper
+            .join_all([clash, share])
+            .expect_err("the alias of keeper overlaps the running union");
+        prop_assert_eq!(returned.len(), 1, "only the overlapping alias should be handed back");
+        // The disjoint `share` was folded in despite the earlier clash, so the
+        // fork is reunited and `keeper` is whole again.
+        prop_assert!(keeper == original, "best-effort did not absorb the disjoint share");
+    }
+}
+
 // ───────────────────────────── codec: section of canonical bytes ─────────────────────────────
 
 proptest! {
@@ -280,5 +418,75 @@ proptest! {
         let bytes = original.encode();
         let decoded = Party::decode(&bytes[..]).expect("a nonzero share decodes");
         prop_assert!(decoded == party(&wrapped), "Party decode∘encode is not the identity");
+    }
+}
+
+// ───────────────────────────── rank: valuation & the causal metric ─────────────────────────────
+
+proptest! {
+    /// The valuation law: `rank(a | b) + rank(a & b) == rank(a) + rank(b)`.
+    /// Rank is the area under the event tree — a linear functional — and
+    /// `max + min == sum` holds pointwise, so area is a lattice valuation. This
+    /// is the identity that makes [`Version::distance`] a metric, and it
+    /// exercises `Rank` addition against the lattice ops. Holds by the ITC
+    /// algebra, independent of the oracle.
+    #[test]
+    fn rank_is_a_valuation(a in arb_oracle_version(), b in arb_oracle_version()) {
+        let (va, vb) = (ver(&a), ver(&b));
+        let lhs = (&va | &vb).rank() + (&va & &vb).rank();
+        let rhs = va.rank() + vb.rank();
+        prop_assert!(lhs == rhs, "rank(a|b) + rank(a&b) != rank(a) + rank(b)");
+    }
+}
+
+proptest! {
+    /// `distance` is symmetric and separating: `d(a, b) == d(b, a)`, `d(a, a)
+    /// == 0`, and `d(a, b) > 0` for distinct versions. These are the metric
+    /// point laws, following from `rank` being a *strictly* monotone valuation.
+    #[test]
+    fn distance_is_symmetric_and_separating(
+        a in arb_oracle_version(),
+        b in arb_oracle_version(),
+    ) {
+        let (va, vb) = (ver(&a), ver(&b));
+        prop_assert!(va.distance(&vb) == vb.distance(&va), "distance is not symmetric");
+        prop_assert_eq!(va.distance(&va), Rank::ZERO, "distance(a, a) != 0");
+        if va != vb {
+            prop_assert!(va.distance(&vb) > Rank::ZERO, "distinct versions at distance 0");
+        }
+    }
+}
+
+proptest! {
+    /// The triangle inequality: `d(a, c) <= d(a, b) + d(b, c)`. The defining
+    /// metric law; it holds because the strictly monotone valuation `rank`
+    /// lives on a *distributive* lattice (see the distributivity laws above).
+    #[test]
+    fn distance_triangle_inequality(
+        a in arb_oracle_version(),
+        b in arb_oracle_version(),
+        c in arb_oracle_version(),
+    ) {
+        let (va, vb, vc) = (ver(&a), ver(&b), ver(&c));
+        let direct = va.distance(&vc);
+        let detour = va.distance(&vb) + vb.distance(&vc);
+        prop_assert!(direct <= detour, "triangle inequality violated");
+    }
+}
+
+proptest! {
+    /// `lag` is the directed half of `distance`: the two directions sum to it,
+    /// `a.lag(b) + b.lag(a) == a.distance(b)`, and `lag` vanishes exactly when
+    /// `self` already dominates `other` (nothing left to learn).
+    #[test]
+    fn lag_halves_sum_to_distance(a in arb_oracle_version(), b in arb_oracle_version()) {
+        let (va, vb) = (ver(&a), ver(&b));
+        prop_assert!(
+            va.lag(&vb) + vb.lag(&va) == va.distance(&vb),
+            "lag halves do not sum to distance",
+        );
+        if le(&vb, &va) {
+            prop_assert_eq!(va.lag(&vb), Rank::ZERO, "lag is nonzero though other <= self");
+        }
     }
 }

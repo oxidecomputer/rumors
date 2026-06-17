@@ -223,6 +223,23 @@ pub mod batch {
     //! ```
     pub use crate::{clock::Batch as Clock, version::Batch as Version};
 }
+pub mod iter {
+    //! Lazy balanced-fork iterators: [`iter::Party`](Party) and
+    //! [`iter::Clock`](Clock) hand out `n` shallow shares of a
+    //! [`Party`](crate::Party) (or [`Clock`](crate::Clock)) in one balanced
+    //! split — see [`Party::forks`](crate::Party::forks) — generating each share
+    //! on demand and folding any unconsumed shares back when dropped.
+    //!
+    //! ```
+    //! use before::{iter, Party};
+    //! let mut p = Party::seed();
+    //! let forks: iter::Party<'_> = p.forks(3);
+    //! assert_eq!(forks.len(), 3); // an ExactSizeIterator of three shares
+    //! let shares: Vec<Party> = forks.collect();
+    //! assert_eq!(shares.len(), 3);
+    //! ```
+    pub use crate::{clock::Forks as Clock, party::Forks as Party};
+}
 
 // No outer doc comment: one here would merge with the module's inner docs
 // and shift their link resolution to this scope, where `grow`/`descend!`/

@@ -4,6 +4,8 @@
 
 use core::cmp::Ordering;
 use core::fmt;
+use core::iter::Sum;
+use core::ops::{Add, AddAssign};
 
 use crate::codec::Base;
 use crate::recurse::descend;
@@ -64,6 +66,46 @@ pub struct Rank {
 }
 
 impl Rank {
+    /// The zero rank: the area under the empty [`Version`](crate::Version),
+    /// and the identity for [`Rank`] addition. Equal to
+    /// [`Version::new().rank()`](crate::Version::rank).
+    ///
+    /// ```
+    /// use before::{Rank, Version};
+    /// assert_eq!(Version::new().rank(), Rank::ZERO);
+    /// assert_eq!(Version::try_from(7).unwrap().rank() + Rank::ZERO,
+    ///            Version::try_from(7).unwrap().rank());
+    /// ```
+    pub const ZERO: Rank = Rank {
+        num: Base::ZERO,
+        exp: 0,
+    };
+
+    /// The difference `self - rhs`, or [`None`] when `rhs` exceeds `self`.
+    ///
+    /// Ranks are nonnegative dyadic rationals — a totally ordered commutative
+    /// monoid under [`+`](Add), not a group — so subtraction is partial. The
+    /// difference exists exactly when `rhs <= self`; the
+    /// [`distance`](crate::Version::distance) and [`lag`](crate::Version::lag)
+    /// measures call this where the lattice guarantees the minuend dominates,
+    /// so the [`None`] arm is unreachable for them.
+    ///
+    /// ```
+    /// use before::Version;
+    /// let five = Version::try_from(5).unwrap().rank();
+    /// let three = Version::try_from(3).unwrap().rank();
+    /// assert_eq!(five.checked_sub(&three).unwrap().to_string(), "2");
+    /// assert!(three.checked_sub(&five).is_none()); // 3 - 5 has no nonnegative value
+    /// ```
+    pub fn checked_sub(&self, rhs: &Rank) -> Option<Rank> {
+        // Align to the common exponent, then subtract numerators; below it,
+        // `self < rhs` and the difference would be negative (not a `Rank`).
+        let e = self.exp.max(rhs.exp);
+        let a = self.num.clone() << (e - self.exp);
+        let b = rhs.num.clone() << (e - rhs.exp);
+        (a >= b).then(|| Rank::from_raw(a - &b, e))
+    }
+
     /// Normalize raw fold output `num · 2⁻ᵉˣᵖ` into canonical form: strip
     /// the factors of two shared by numerator and denominator, and pin zero
     /// to exponent zero, so structural equality is value equality.
@@ -108,6 +150,81 @@ impl Ord for Rank {
 impl PartialOrd for Rank {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
+    }
+}
+
+// `Rank` under `+` is a commutative monoid with identity [`Rank::ZERO`]: the
+// exact sum of two dyadic rationals, normalized so equal values stay
+// structurally equal. It is *not* the [`Version`](crate::Version) join — the
+// join takes a pointwise maximum, whereas this adds areas — but the two meet in
+// the valuation law `rank(a | b) + rank(a & b) == rank(a) + rank(b)`, which is
+// what makes [`Version::distance`](crate::Version::distance) a metric. The four
+// reference forms mirror [`Base`]'s own `Add` matrix so callers need not place
+// borrows by hand.
+
+/// Addition of two ranks: align exponents, add numerators, renormalize. Exact
+/// at any magnitude (the numerator spills to a bignum).
+impl Add<&Rank> for &Rank {
+    type Output = Rank;
+    fn add(self, rhs: &Rank) -> Rank {
+        let e = self.exp.max(rhs.exp);
+        let a = self.num.clone() << (e - self.exp);
+        let b = rhs.num.clone() << (e - rhs.exp);
+        Rank::from_raw(a + &b, e)
+    }
+}
+
+impl Add<Rank> for Rank {
+    type Output = Rank;
+    fn add(self, rhs: Rank) -> Rank {
+        &self + &rhs
+    }
+}
+
+impl Add<&Rank> for Rank {
+    type Output = Rank;
+    fn add(self, rhs: &Rank) -> Rank {
+        &self + rhs
+    }
+}
+
+impl Add<Rank> for &Rank {
+    type Output = Rank;
+    fn add(self, rhs: Rank) -> Rank {
+        self + &rhs
+    }
+}
+
+impl AddAssign<&Rank> for Rank {
+    fn add_assign(&mut self, rhs: &Rank) {
+        *self = &*self + rhs;
+    }
+}
+
+impl AddAssign<Rank> for Rank {
+    fn add_assign(&mut self, rhs: Rank) {
+        *self = &*self + &rhs;
+    }
+}
+
+/// The empty sum is [`Rank::ZERO`], the additive identity.
+impl Sum<Rank> for Rank {
+    fn sum<I: Iterator<Item = Rank>>(iter: I) -> Rank {
+        iter.fold(Rank::ZERO, |acc, r| acc + r)
+    }
+}
+
+/// The empty sum is [`Rank::ZERO`], the additive identity.
+impl<'a> Sum<&'a Rank> for Rank {
+    fn sum<I: Iterator<Item = &'a Rank>>(iter: I) -> Rank {
+        iter.fold(Rank::ZERO, |acc, r| acc + r)
+    }
+}
+
+/// [`Rank::ZERO`], the additive identity.
+impl Default for Rank {
+    fn default() -> Self {
+        Rank::ZERO
     }
 }
 

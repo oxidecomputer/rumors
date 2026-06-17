@@ -3,6 +3,7 @@
 
 use core::cmp::Ordering;
 use core::fmt::Display;
+use core::iter::Sum;
 use core::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Div, DivAssign};
 
 use bitvec::prelude::*;
@@ -147,16 +148,14 @@ impl Version {
         self.view().min_ticks()
     }
 
-    /// This version's causal [`Rank`], the exact area under its event
-    /// tree: strictly monotone — `v < w` implies `v.rank() < w.rank()`, so
-    /// equal ranks are never causally ordered (same version, or
-    /// concurrent). Sorting by `(rank, some-total-tiebreak)` therefore
-    /// yields a linear extension of the causal order: causes always sort
-    /// before their effects. See [`Rank`] for the measure itself and why
+    /// This [`Version`]'s exact causal [`Rank`], strictly monotone: `v < w`
+    /// implies `v.rank() < w.rank()`, so equal ranks are never causally ordered
+    /// (same version, or concurrent). Sorting by `(rank, some-total-tiebreak)`
+    /// therefore yields a linear extension of the causal order: causes always
+    /// sort before their effects. See [`Rank`] for the measure itself and why
     /// strictness holds.
     ///
-    /// Exact at any magnitude (arbitrary-precision numerator), `O(n)` in
-    /// the event tree.
+    /// `O(n)` in the event tree.
     ///
     /// ```
     /// use before::Clock;
@@ -172,6 +171,116 @@ impl Version {
     /// ```
     pub fn rank(&self) -> Rank {
         self.view().rank()
+    }
+
+    /// The causal distance between two versions: the [`Rank`] of their
+    /// symmetric difference, `rank(self | other) - rank(self & other)`.
+    ///
+    /// This is a metric on the version lattice. [`Rank`] is the area under the
+    /// event tree, so it is a *valuation*: `rank(a | b) + rank(a & b) ==
+    /// rank(a) + rank(b)`. A strictly monotone valuation on a distributive
+    /// lattice induces a metric, so `distance` is symmetric, zero only between
+    /// equal versions, and obeys the triangle inequality. It measures how much
+    /// history two replicas would have to exchange to converge: zero when they
+    /// agree, growing with every event neither shares.
+    ///
+    /// `O(n + m)` in the two event trees.
+    ///
+    /// ```
+    /// use before::{Clock, Rank, Version};
+    /// let mut a = Clock::seed();
+    /// let mut b = a.fork();
+    /// let va = a.tick().clone();
+    /// let vb = b.tick().clone(); // concurrent to va
+    ///
+    /// assert_eq!(va.distance(&va), Rank::ZERO);   // identity of indiscernibles
+    /// assert_eq!(va.distance(&vb), vb.distance(&va)); // symmetric
+    /// // One event on each disjoint half: the join knows both, the meet
+    /// // neither, so the two versions stand a distance of two ticks apart.
+    /// assert_eq!(va.distance(&vb).to_string(), "1");
+    /// ```
+    pub fn distance(&self, other: &Version) -> Rank {
+        let join = (self | other).rank();
+        let meet = (self & other).rank();
+        join.checked_sub(&meet)
+            .expect("the join dominates the meet, so its rank is at least the meet's")
+    }
+
+    /// How far `self` lags behind `other`: the [`Rank`] of the history `other`
+    /// records that `self` does not, `rank(self | other) - rank(self)`.
+    ///
+    /// The directed half of [`distance`](Self::distance): exactly the size of
+    /// the [`causally::delta`](crate::causally::delta) a replica at `self` must
+    /// receive to reach `self | other`. Zero when `other <= self` (`self`
+    /// already knows everything `other` does), and the two directions sum to
+    /// the symmetric distance: `a.lag(b) + b.lag(a) == a.distance(b)`.
+    ///
+    /// `O(n + m)` in the two event trees.
+    ///
+    /// ```
+    /// use before::{Clock, Rank, Version};
+    /// let mut a = Clock::seed();
+    /// let mut b = a.fork();
+    /// let va = a.tick().clone();
+    /// let vb = b.tick().clone(); // concurrent to va
+    ///
+    /// assert!(va.lag(&va) == Rank::ZERO);     // nothing to learn from yourself
+    /// assert!(va.lag(&vb) > Rank::ZERO);      // vb has an event va lacks
+    /// assert_eq!(va.lag(&vb) + vb.lag(&va), va.distance(&vb)); // halves sum
+    /// ```
+    pub fn lag(&self, other: &Version) -> Rank {
+        let join = (self | other).rank();
+        join.checked_sub(&self.rank())
+            .expect("the join dominates self, so its rank is at least self's")
+    }
+
+    /// The join (least upper bound) of every version in `iter`, or the empty
+    /// [`Version`] for an empty iterator.
+    ///
+    /// The join-semilattice is a commutative idempotent monoid under `|` with
+    /// identity [`Version::new`], so folding any collection is well defined and
+    /// order-independent. The merged version dominates every input: it is the
+    /// combined causal history of all of them.
+    ///
+    /// The meet has no such fold: the lattice has no top element (a version can
+    /// always [`tick`](Self::tick) higher), so the empty meet has no value; see
+    /// [`meet_all`](Self::meet_all), which returns [`Option`] for that reason.
+    ///
+    /// ```
+    /// use before::{Clock, Version};
+    /// let mut a = Clock::seed();
+    /// let mut b = a.fork();
+    /// let va = a.tick().clone();
+    /// let vb = b.tick().clone();
+    /// let all = Version::join_all([va.clone(), vb.clone()]);
+    /// assert!(all >= va && all >= vb);
+    /// assert_eq!(Version::join_all(Vec::<Version>::new()), Version::new());
+    /// ```
+    pub fn join_all<I: IntoIterator<Item = Version>>(iter: I) -> Version {
+        iter.into_iter().fold(Version::new(), |acc, v| acc | v)
+    }
+
+    /// The meet (greatest lower bound) of every version in `iter`, or [`None`]
+    /// if it is empty: the history every input shares.
+    ///
+    /// Unlike [`join_all`](Self::join_all) this returns an [`Option`], because
+    /// the meet-semilattice has no identity. The empty meet would be the the
+    /// version dominating all others, but no such [`Version`] exists (every
+    /// version can [`tick`](Self::tick) higher), so an empty iterator yields
+    /// [`None`].
+    ///
+    /// ```
+    /// use before::{Clock, Version};
+    /// let mut a = Clock::seed();
+    /// let mut b = a.fork();
+    /// let va = a.tick().clone();
+    /// let vb = b.tick().clone();
+    /// let common = Version::meet_all([va.clone(), vb.clone()]).unwrap();
+    /// assert!(common <= va && common <= vb);
+    /// assert!(Version::meet_all(Vec::<Version>::new()).is_none()); // no top to return
+    /// ```
+    pub fn meet_all<I: IntoIterator<Item = Version>>(iter: I) -> Option<Version> {
+        iter.into_iter().reduce(|acc, v| acc & v)
     }
 
     /// Begin a batch of operations on this [`Version`].
@@ -313,6 +422,42 @@ impl Version {
 impl Default for Version {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// `Version` under `|` is a commutative idempotent monoid with identity
+// [`Version::new`], so it folds from an iterator both ways std offers: `.sum()`
+// over an `Iterator` and `.collect()` into a `Version`. Both are
+// [`join_all`](Version::join_all) (the empty case is the empty version); the
+// borrowed forms clone each element into the running join. There is
+// deliberately no meet counterpart here — the meet has no identity, so its fold
+// is the `Option`-returning [`Version::meet_all`].
+
+/// Joins the iterator's versions; the empty sum is [`Version::new`].
+impl Sum<Version> for Version {
+    fn sum<I: Iterator<Item = Version>>(iter: I) -> Version {
+        Version::join_all(iter)
+    }
+}
+
+/// Joins the iterator's versions; the empty sum is [`Version::new`].
+impl<'a> Sum<&'a Version> for Version {
+    fn sum<I: Iterator<Item = &'a Version>>(iter: I) -> Version {
+        iter.fold(Version::new(), |acc, v| acc | v)
+    }
+}
+
+/// Collects by joining; the empty collection is [`Version::new`].
+impl FromIterator<Version> for Version {
+    fn from_iter<I: IntoIterator<Item = Version>>(iter: I) -> Version {
+        Version::join_all(iter)
+    }
+}
+
+/// Collects by joining; the empty collection is [`Version::new`].
+impl<'a> FromIterator<&'a Version> for Version {
+    fn from_iter<I: IntoIterator<Item = &'a Version>>(iter: I) -> Version {
+        iter.into_iter().fold(Version::new(), |acc, v| acc | v)
     }
 }
 

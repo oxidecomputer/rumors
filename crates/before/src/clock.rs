@@ -13,8 +13,10 @@ use crate::{
 };
 
 mod batch;
+mod forks;
 
 pub use batch::Batch;
+pub use forks::Forks;
 
 #[cfg(test)]
 mod tests;
@@ -86,8 +88,9 @@ impl Clock {
     /// # Warning
     ///
     /// Repeatedly forking the same [`Clock`] produces an imbalanced internal
-    /// tree, with worse memory use and performance. Prefer to vary which
-    /// clock is forked.
+    /// tree, with worse memory use and performance. Prefer to vary which clock
+    /// is forked, or use [`forks`](Clock::forks) to generate a fixed number of
+    /// balanced forks.
     ///
     /// ```
     /// use before::Clock;
@@ -97,6 +100,37 @@ impl Clock {
     /// ```
     pub fn fork(&mut self) -> Clock {
         self.batch().fork()
+    }
+
+    /// Split `n` balanced child clocks off this [`Clock`], as a lazy
+    /// [`ExactSizeIterator`].
+    ///
+    /// The clock analogue of [`Party::forks`]: one balanced split of the
+    /// underlying [`Party`] into `n + 1` shares of minimal-depth (`⌈log₂(n +
+    /// 1)⌉`) id tree, each child carrying a clone of this clock's [`Version`]
+    /// (as [`fork`](Clock::fork) does).
+    ///
+    /// The iterator yields `n` children and `self` keeps the last share, so it
+    /// stays a valid clock even once the iterator is fully drained; children
+    /// not taken before the iterator drops have their party shares rejoined
+    /// into `self`, so no `Party` is lost. Prefer this to repeated
+    /// [`fork`](Clock::fork), which deepens one spine into a linear tree.
+    ///
+    /// For the consuming counterpart that splits into exactly `N` clocks, see
+    /// [`From<Clock>`](Clock) for `[Clock; N]`.
+    ///
+    /// ```
+    /// use before::Clock;
+    /// let mut parent = Clock::seed();
+    /// let children: Vec<Clock> = parent.forks(3).collect();
+    /// assert_eq!(children.len(), 3);
+    /// for child in &children {
+    ///     assert!(parent.party().is_disjoint(child.party()));
+    ///     assert_eq!(child.version(), parent.version()); // every child copies the version
+    /// }
+    /// ```
+    pub fn forks(&mut self, n: usize) -> Forks<'_> {
+        Forks::new(self, n)
     }
 
     /// Absorb a *disjoint* [`Clock`]'s [`Party`] and [`Version`], returning the
@@ -118,6 +152,50 @@ impl Clock {
     pub fn join(&mut self, other: Clock) -> Result<&Version, Clock> {
         self.batch().join(other)?;
         Ok(self.version())
+    }
+
+    /// Absorb every disjoint [`Clock`] in `iter` into `self`, returning the
+    /// merged [`Version`].
+    ///
+    /// The collective form of [`join`](Clock::join): `self` seeds the fold, so
+    /// an empty `iter` is a no-op returning `self`'s current version. The
+    /// "reabsorb this whole set of retired peers" primitive.
+    ///
+    /// Best-effort: every clock whose [`Party`] is disjoint from the region
+    /// accumulated so far has its party reunited and its [`Version`] merged into
+    /// `self`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the clocks whose parties *overlapped* `self`'s growing region and
+    /// so could not be folded in, dropping nothing: each input is either merged
+    /// into `self` or handed back. Overlap is tested against the running union,
+    /// so for malformed (aliased) input which clocks come back can depend on
+    /// iteration order. Unreachable for clocks descended from one
+    /// [`seed`](Clock::seed): their parties are pairwise disjoint.
+    ///
+    /// ```
+    /// use before::Clock;
+    /// let mut parent = Clock::seed();
+    /// let children: Vec<Clock> = parent.forks(3).collect();
+    /// parent.join_all(children).unwrap(); // reabsorb the three children
+    /// assert_eq!(parent.party().to_string(), "1"); // the whole seed region again
+    /// ```
+    pub fn join_all<I: IntoIterator<Item = Clock>>(
+        &mut self,
+        iter: I,
+    ) -> Result<&Version, Vec<Clock>> {
+        let mut overlapping = Vec::new();
+        for other in iter {
+            if let Err(back) = self.join(other) {
+                overlapping.push(back);
+            }
+        }
+        if overlapping.is_empty() {
+            Ok(self.version())
+        } else {
+            Err(overlapping)
+        }
     }
 
     /// Reconcile two *disjoint* [`Clock`]s: join their [`Version`]s and
