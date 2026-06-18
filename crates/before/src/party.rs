@@ -266,7 +266,7 @@ impl Party {
     /// the whole [`seed`](Party::seed) on top:
     ///
     /// - `seed` covers every [`Party`];
-    /// - a [`Party`] covers itself (and any [`dangerously_alias`] of it);
+    /// - a [`Party`] covers itself;
     /// - the parent of a [`fork`](Party::fork) covers both halves, and a
     ///   [`join`](Party::join) covers each of its parts.
     ///
@@ -274,8 +274,6 @@ impl Party {
     /// [disjoint](Party::is_disjoint), so a party that has come to cover
     /// another's region can no longer [`join`](Party::join) it. This is how a
     /// caller recognizes an outstanding share as fully reabsorbed.
-    ///
-    /// [`dangerously_alias`]: Party::dangerously_alias
     ///
     /// ```
     /// use before::Party;
@@ -326,8 +324,8 @@ impl Party {
         }
     }
 
-    /// Duplicate this party, producing a second handle to the same identity
-    /// in violation of linearity.
+    /// Duplicate this party, producing a second handle to the same identity, in
+    /// violation of linearity.
     ///
     /// # Warning
     ///
@@ -340,9 +338,9 @@ impl Party {
     /// live; the other must be dropped without further use. The same rule
     /// applies to any [`Clock`](crate::Clock) built from such a party.
     ///
-    /// This method exists for handing a party across a boundary where
-    /// ownership transfers to exactly one side based on an outcome not known
-    /// at the time of transfer.
+    /// This method exists for handing a party across a boundary where ownership
+    /// transfers to exactly one side based on an outcome not known at the time
+    /// of transfer.
     ///
     /// ```
     /// use before::Party;

@@ -407,6 +407,37 @@ impl Clock {
     pub fn encoded_bits(&self) -> usize {
         8 * self.party().encoded_bits().div_ceil(8) + self.version().encoded_bits()
     }
+
+    /// Duplicate this clock, producing a second handle to the same clock, in
+    /// violation of linearity.
+    ///
+    /// # Warning
+    ///
+    /// [`Clock`] is [`!Clone`](Clone) because two live handles to one region
+    /// break the Law of Disjointness: the alias's [`Party`] is not
+    /// [disjoint](Party::is_disjoint) from the original, so if both copies (or
+    /// any of their [`fork`](Clock::fork)s) go on to [`tick`](Clock::tick) or
+    /// [`join`](Clock::join), causal history can be corrupted arbitrarily. The
+    /// caller must ensure that at most one of the two copies is ever treated as
+    /// live; the other must be dropped without further use. The same rule
+    /// applies to any [`Party`] built from such a clock.
+    ///
+    /// This method exists for handing a clock across a boundary where ownership
+    /// transfers to exactly one side based on an outcome not known at the time
+    /// of transfer.
+    ///
+    /// ```
+    /// use before::Clock;
+    /// let c = Clock::seed();
+    /// let d = c.dangerously_alias();
+    /// assert!(!c.party().is_disjoint(d.party()));
+    /// ```
+    pub fn dangerously_alias(&self) -> Self {
+        Self {
+            party: self.party.dangerously_alias(),
+            version: self.version.clone(),
+        }
+    }
 }
 
 /// Format a [`Clock`] using the notation in the original paper: `(<id>,

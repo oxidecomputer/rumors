@@ -10,11 +10,12 @@
 //!
 //! ## The types
 //!
-//! | Type        | Is                                              | Core operations                                                                                                                                                           |
-//! |-------------|-------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-//! | [`Party`]   | a distinct entity which may emit events         | [`tick`](Party::tick), [`fork`](Party::fork), [`join`](Party::join), [`is_disjoint`](Party::is_disjoint)                                                                  |
-//! | [`Version`] | a causal timestamp (a history of seen events)   | [`tick`](Version::tick), compare (`<`, `<=`, [`concurrent`](Version::concurrent)), merge (`\|`)                                                                           |
-//! | [`Clock`]   | a [`Party`] paired with its current [`Version`] | [`tick`](Clock::tick), [`fork`](Clock::fork), [`join`](Clock::join), [`sync`](Clock::sync), [`send`](Clock::send), [`recv`](Clock::recv), merge (`\|`) with [`Version`]   |
+//! | Type                | Is                                              | Core operations                                                                                                                                                   |
+//! |---------------------|-------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+//! | [`Party`]           | a distinct entity which may emit events         | [`tick`](Party::tick), [`fork`](Party::fork)([`s`](Party::forks)), [`join`](Party::join), [`is_disjoint`](Party::is_disjoint)                                     |
+//! | [`Version`]         | a causal timestamp (history of known events)    | [`tick`](Version::tick), [`PartialOrd`] (`<`, `<=`, [`concurrent`](Version::concurrent)), join (`\|`), [`rank`](Version::rank)                                    |
+//! | [`Clock`]           | a [`Party`] paired with its current [`Version`] | [`tick`](Clock::tick), [`fork`](Clock::fork)([`s`](Clock::forks)), [`join`](Clock::join), [`send`](Clock::send), [`recv`](Clock::recv), join (`\|`) a [`Version`] |
+//! | [`Rank`]/[`Ranked`] | the total causal ordering for [`Version`]       | [`Ord`] (`<`, `==`, `>`, etc.), summation (`+`), [`checked_sub`](Rank::checked_sub)                                                                               |
 //!
 //! [`Party`]s and [`Clock`]s are linear ([`!Clone`](Clone)); [`Version`]s are
 //! freely [`Clone`]able.
@@ -49,18 +50,6 @@
 //! strictly upward. Two histories with no containing order are
 //! *[`concurrent`](Version::concurrent)*.
 //!
-//! The [`causally`] module names that order's down-sets: composable
-//! constructors — [`since`](causally::since), [`before`](causally::before),
-//! [`delta`](causally::delta), and friends — build a [`causally::Range`]
-//! (a [`RangeBounds<Version>`](std::ops::RangeBounds) whose membership
-//! predicate is causal containment) for any API that filters by where
-//! versions stand in history. Where a *total* order over versions is
-//! needed, [`Rank`] is the exact, strictly-monotone causal rank: ordering
-//! by `(Rank, tiebreak)` linearly extends causality, so concurrent
-//! versions can be sequenced deterministically without ever inverting a
-//! causal dependency. [`Ranked`] packages a version with its rank as a
-//! ready-made totally ordered key, tiebroken by canonical bytes.
-//!
 //! By packaging a [`Version`] and a [`Party`] together into a [`Clock`], we get
 //! a causal clock which may be [`tick`](Clock::tick)ed,
 //! [`fork`](Clock::fork)ed, and [`join`](Clock::join)ed, in addition to derived
@@ -69,6 +58,19 @@
 //! vectors*](https://en.wikipedia.org/wiki/Version_vector) and [*vector
 //! clocks*](https://en.wikipedia.org/wiki/Vector_clock), depending on how you
 //! use it.
+//!
+//! ## Additional utilities
+//!
+//! The [`causally`] module gives convenience constructors for causal orderings
+//! in terms of [`Version`]s: [`since`](causally::since),
+//! [`before`](causally::before), [`delta`](causally::delta), and friends build
+//! a [`causally::Range`] (a [`RangeBounds<Version>`](std::ops::RangeBounds)
+//! whose membership predicate is causal containment). Where a *total* order
+//! over versions is needed, [`Rank`] is the exact, strictly-monotone causal
+//! rank: ordering by `(Rank, tiebreak)` linearly extends causality, so
+//! concurrent versions can be sequenced deterministically. [`Ranked`] packages
+//! a version with its rank as a ready-made totally ordered key, tiebroken by
+//! canonical bytes.
 //!
 //! ## Example
 //!
