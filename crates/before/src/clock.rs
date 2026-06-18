@@ -514,12 +514,14 @@ where
 // operand uniformly to `&Version`, so one `@cell` arm per position covers
 // both forms.
 
-/// Generates the `Clock` join matrix. A `|` cell owns its clock operand
-/// (whichever side it is on) and returns it; a `|=` cell merges into the
-/// receiver in place. Each position — `op_l`/`op_r` for the clock as the left or
-/// right `|` operand, `as_clock`/`as_batch` for the `|=` receiver — has its own
-/// `@cell` arm so the receiver `self` is written in the same expansion as the
-/// method it belongs to (`self` cannot cross a macro-invocation boundary).
+/// Generates the `Clock` join matrix.
+///
+/// A `|` cell owns its clock operand (whichever side it is on) and returns it;
+/// a `|=` cell merges into the receiver in place. Each position — `op_l`/`op_r`
+/// for the clock as the left or right `|` operand, `as_clock`/`as_batch` for
+/// the `|=` receiver — has its own `@cell` arm so the receiver `self` is
+/// written in the same expansion as the method it belongs to (`self` cannot
+/// cross a macro-invocation boundary).
 macro_rules! clock_join_matrix {
     ($($kind:tt $lhs:ty, $rhs:ty);* $(;)?) => {
         $( clock_join_matrix!(@cell $kind $lhs, $rhs); )*

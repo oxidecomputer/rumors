@@ -1,4 +1,6 @@
-//! Test-only traversal step counter. Every node-header read calls
+//! Test-only traversal step counter.
+//!
+//! Every node-header read calls
 //! [`step!`](crate::step); the complexity tests reset it, run one operation,
 //! and assert the count is `O(n + m)` — proving no traversal re-scans (which
 //! would be `O(n²)` on a deep spine). A deterministic stand-in for wall-clock

@@ -33,7 +33,9 @@ fn gamma_row(n: u64) -> String {
 }
 
 /// Elias-gamma code of `m = n + 1`: `floor(log2 m)` leading zeros, then `m` in
-/// `floor(log2 m) + 1` bits MSB-first. The golden table pins the layout across
+/// `floor(log2 m) + 1` bits MSB-first.
+///
+/// The golden table pins the layout across
 /// magnitudes — powers of two and their neighbours (where the unary prefix grows), plus
 /// a value past `u64::MAX` to witness the arbitrary-width (`BigUint`) code: the integer
 /// magnitude has no cap, so the code must extend cleanly beyond 64 bits.
@@ -95,7 +97,9 @@ fn version_block(v: &Version) -> String {
 }
 
 /// Canonical encoded forms of representative `Party` values: the seed (whole space), a
-/// single fork, and a deeper asymmetric id. Pins both the unpadded bit stream and the
+/// single fork, and a deeper asymmetric id.
+///
+/// Pins both the unpadded bit stream and the
 /// padded bytes, so any change to the preorder id encoding or its padding shows up here.
 #[test]
 fn party_canonical_forms() {
@@ -123,7 +127,9 @@ fn party_canonical_forms() {
 
 /// Canonical encoded forms of representative `Version` values: the empty event (seed
 /// version `0`), a flat leaf with a multi-bit base, and a node with an asymmetric event
-/// subtree. Pins the event encoding (per-node base via the gamma code) and its padding.
+/// subtree.
+///
+/// Pins the event encoding (per-node base via the gamma code) and its padding.
 #[test]
 fn version_canonical_forms() {
     let zero = Version::new();
@@ -174,7 +180,9 @@ fn clock_canonical_form() {
     ");
 }
 
-/// The paper's §5.1 worked example, rendered step by step as `Clock` `Display`. The same
+/// The paper's §5.1 worked example, rendered step by step as `Clock` `Display`.
+///
+/// The same
 /// run the clock-level `worked_example` correctness test drives, but here the *concrete
 /// clock states* (id region + event tree) are pinned as a readable trace, so the example in the
 /// paper has a literal counterpart in the test suite. (`Party`/`Clock` are not `Clone`,

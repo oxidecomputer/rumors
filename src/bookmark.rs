@@ -154,6 +154,7 @@ impl Bookmark for NoBookmark {
 pub(crate) struct Bookmarked<B, M: Mode> {
     persist: B,
     /// The in-memory record, or `None` until [`read`](Bookmark::read) has run.
+    ///
     /// `None` is the unloaded state: a fresh cache is not yet authoritative,
     /// and is distinct from a loaded-but-empty `Some(BTreeMap::new())`. A
     /// failed [`write`](Self::write) resets it to `None`, so the diverged,
@@ -161,9 +162,11 @@ pub(crate) struct Bookmarked<B, M: Mode> {
     /// authoritative on-disk state.
     inner: Option<BTreeMap<Network, Vec<Clock>>>,
     /// The `(party, version)` last recorded by [`reclaim`](Self::reclaim) and
-    /// believed persisted, or `None` when no token is valid — before the first
-    /// reclaim, after a [`slice`](Self::slice) shrinks the identity, or after a
-    /// failed [`write`](Self::write). An update whose live identity still
+    /// believed persisted, or `None` when no token is valid.
+    ///
+    /// No token is valid before the first reclaim, after a
+    /// [`slice`](Self::slice) shrinks the identity, or after a failed
+    /// [`write`](Self::write). An update whose live identity still
     /// matches the token is a no-op and is suppressed, since it would only
     /// re-record an identical alias.
     last: Option<(Party, Version)>,
@@ -217,7 +220,9 @@ impl<M: Mode, B: Persist<M>> Bookmarked<B, M> {
         Ok(())
     }
 
-    /// Persist the current record. A no-op while unloaded (nothing has been
+    /// Persist the current record.
+    ///
+    /// A no-op while unloaded (nothing has been
     /// mutated to persist). Run under the bookmark mutex, after a
     /// [`reclaim`](Self::reclaim) (which has already staged the suppression
     /// token) or a [`slice`](Self::slice).

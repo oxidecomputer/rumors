@@ -1,5 +1,7 @@
 //! The seed-derived op-trace generator: a proptest strategy that produces a sequence of
-//! fork/tick/send/sync/join steps, plus the appliers that run a trace against an oracle
+//! fork/tick/send/sync/join steps.
+//!
+//! Plus the appliers that run a trace against an oracle
 //! population ([`run`]) or an impl population ([`step_impl`]). Values are always generated
 //! via operations from a single seed, so every member is valid normal form and the
 //! population is pairwise party-disjoint. Used by both the oracle property suite and the

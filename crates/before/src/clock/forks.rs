@@ -10,11 +10,11 @@ use crate::{party, Clock, Party, Version};
 
 /// A lazy iterator of balanced child [`Clock`]s, returned by [`Clock::forks`].
 ///
-/// Yields exactly `n` disjoint clocks — an [`ExactSizeIterator`] — each pairing
-/// one balanced [`Party`] share with a clone of the parent's [`Version`]. The
-/// clock it borrows keeps the residual party share and its version, and is
-/// never left empty; party shares not taken before the iterator drops are
-/// rejoined into it (its version untouched).
+/// Yields exactly `n` disjoint clocks, each pairing one balanced [`Party`]
+/// share with a clone of the parent's [`Version`]. The clock it borrows keeps
+/// the residual party share and its version, and is never left empty; party
+/// shares not taken before the iterator drops are rejoined into it (its version
+/// untouched).
 pub struct Forks<'a> {
     /// The lazy partition of party shares; its [`Drop`] folds unconsumed shares
     /// back into the borrowed clock's party.

@@ -74,10 +74,11 @@ impl Batch<'_> {
     }
 
     /// The view-taking core of [`join`](Self::join): join an arbitrary
-    /// event-tree view into this batch's in-progress history. Any operand
-    /// with a [`view`](Self::view) (a [`Version`] or another [`Batch`],
-    /// owned or borrowed) joins through here, so the `|`/`|=` matrix below
-    /// accepts a [`Batch`] on either side without transcoding.
+    /// event-tree view into this batch's in-progress history.
+    ///
+    /// Any operand with a [`view`](Self::view) (a [`Version`] or another
+    /// [`Batch`], owned or borrowed) joins through here, so the `|`/`|=` matrix
+    /// below accepts a [`Batch`] on either side without transcoding.
     pub(super) fn join_view(&mut self, incoming: EvReader<'_>) -> &mut Self {
         let current = self.view();
         if current.trivially_eq(&incoming) {
@@ -90,9 +91,11 @@ impl Batch<'_> {
 
     /// The view-taking meet core, the dual of
     /// [`join_view`](Self::join_view): meet an arbitrary event-tree view
-    /// into this batch's in-progress history. The `&`/`&=` matrix routes
-    /// through here just as the `|`/`|=` matrix routes through `join_view`,
-    /// and accepts a [`Batch`] on either side without transcoding.
+    /// into this batch's in-progress history.
+    ///
+    /// The `&`/`&=` matrix routes through here just as the `|`/`|=` matrix
+    /// routes through `join_view`, and accepts a [`Batch`] on either side
+    /// without transcoding.
     pub(super) fn meet_view(&mut self, incoming: EvReader<'_>) -> &mut Self {
         let current = self.view();
         if current.trivially_eq(&incoming) {

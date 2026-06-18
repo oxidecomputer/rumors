@@ -16,7 +16,9 @@ impl IdReader<'_> {
     }
 
     /// Whether `self` (a normal-form id) *covers* `other` — every region `other`
-    /// owns is also owned by `self` (`self ⊇ other`). `O(n + m)`: both cursors
+    /// owns is also owned by `self` (`self ⊇ other`).
+    ///
+    /// `O(n + m)`: both cursors
     /// are threaded, and a side is skipped only where the other's leaf dominates
     /// it, exactly as in [`is_disjoint`](IdReader::is_disjoint).
     ///
@@ -45,7 +47,9 @@ fn skip_present_children(a: &mut IdReader, node: IdNode) {
 
 /// One subtree of the [`covers`](IdReader::covers) walk, advancing both `&mut`
 /// readers past their subtrees; `false` the moment an uncovered region is found
-/// unwinds the whole walk (the `&&` short-circuits). The asymmetric counterpart
+/// unwinds the whole walk (the `&&` short-circuits).
+///
+/// The asymmetric counterpart
 /// of [`disjoint_rec`]: a full `self` dominates anything (skip the other to
 /// resync); an empty `other` is covered by anything (skip the rest of `self`);
 /// an empty `self` against a nonempty `other`, or a node `self` against a full
@@ -84,7 +88,9 @@ fn covers_rec(a: &mut IdReader, b: &mut IdReader, depth: usize) -> bool {
 
 /// One subtree of the [`is_disjoint`](IdReader::is_disjoint) walk, advancing
 /// both `&mut` readers past their subtrees; `false` the moment an overlap is
-/// found unwinds the whole walk (the `&&` short-circuits). Reads as a match on
+/// found unwinds the whole walk (the `&&` short-circuits).
+///
+/// Reads as a match on
 /// the two id nodes: an empty side is disjoint from anything (skip the other to
 /// resync); a full side overlaps any nonempty other; two nodes descend.
 fn disjoint_rec(a: &mut IdReader, b: &mut IdReader, depth: usize) -> bool {

@@ -1,11 +1,11 @@
 //! Named, composable constructors for causal [`Version`] ranges.
 //!
-//! On totally ordered values a range is an interval. On causal [`Version`]s
-//! — which are only *partially* ordered — the useful generalization is a
-//! **difference of down-sets**: keep the versions contained in the end
-//! bound, subtract the versions contained in the start bound. The
-//! constructors here name each bound's meaning so a filter reads as a
-//! sentence, and every start composes with every end:
+//! On totally ordered values a range is an interval. On causal [`Version`]s,
+//! which are only *partially* ordered, the useful generalization is a
+//! **difference of down-sets**: keep the versions contained in the end bound,
+//! subtract the versions contained in the start bound. The constructors here
+//! name each bound's meaning so a filter reads as a sentence, and every start
+//! composes with every end:
 //!
 //! | | end unbounded | [`known_at(e)`](known_at): `v <= e` | [`before(e)`](before): `v < e` |
 //! |---|---|---|---|
@@ -13,15 +13,15 @@
 //! | **[`not_before(s)`](not_before): subtract `v < s`** | `not_before(&s)` | `not_before(&s).known_at(&e)` | `not_before(&s).before(&e)` |
 //! | **[`since(s)`](since): subtract `v <= s`** | `since(&s)` | `since(&s).known_at(&e)`, a.k.a. [`delta`] | `since(&s).before(&e)`, a.k.a. [`delta_before`] |
 //!
-//! The asymmetry inherent to the partial order: a start bound of either
-//! kind keeps versions *concurrent* to it (subtraction removes only the
-//! bound's causal past — "everything since `s`" must not drop other
-//! parties' concurrent versions), while an end bound of either kind drops
-//! them (keeping demands containment).
+//! The asymmetry inherent to the partial order: a start bound of either kind
+//! keeps versions *concurrent* to it (subtraction removes only the bound's
+//! causal past — "everything since `s`" must not drop other parties' concurrent
+//! versions), while an end bound of either kind drops them (keeping demands
+//! containment).
 //!
 //! Every constructor returns a [`Range`], which implements
-//! [`RangeBounds<Version>`] so it can be handed to any version-ranged API,
-//! and offers [`contains`](Range::contains) as the authoritative membership
+//! [`RangeBounds<Version>`] so it can be handed to any version-ranged API, and
+//! offers [`contains`](Range::contains) as the authoritative membership
 //! predicate.
 //!
 //! ```
@@ -57,9 +57,7 @@ use std::ops::{Bound, RangeBounds};
 
 use crate::Version;
 
-/// A causal version range: a pair of [`Bound`]s denoting a difference of
-/// causal down-sets (see the [module docs](self) for the semantics and the
-/// full constructor table).
+/// A causal version range: a pair of [`Bound`]s.
 ///
 /// Build one with the module's constructors and refine it with the
 /// same-named methods; every composition is valid, in any order, and
@@ -77,8 +75,9 @@ pub struct Range<'a> {
     end: Bound<&'a Version>,
 }
 
-/// The unbounded range: every version. The identity for composition —
-/// refine it with any of [`Range`]'s methods.
+/// The unbounded range: every version.
+///
+/// The identity for composition; refine it with any of [`Range`]'s methods.
 pub fn all<'a>() -> Range<'a> {
     Range {
         start: Bound::Unbounded,
@@ -86,24 +85,26 @@ pub fn all<'a>() -> Range<'a> {
     }
 }
 
-/// Everything *strictly since* `start`: versions not contained in `start`,
-/// i.e. its causal future and everything concurrent to it. `start` itself
-/// is excluded — this is the resume/subscription shape, where the boundary
-/// version has already been seen.
+/// Everything *strictly since* `start`: its causal future and everything
+/// concurrent to it.
+///
+/// `start` itself is excluded; this is the resume/subscription shape, where
+/// the boundary version has already been seen.
 pub fn since(start: &Version) -> Range<'_> {
     all().since(start)
 }
 
-/// Everything *not strictly before* `start`: like [`since`], but `start`
-/// itself is included — the replay-the-boundary shape. (The name follows
-/// X.509's `notBefore`: on a partial order, "not before" is honest where
-/// "at or after" would not be, since concurrent versions are neither.)
+/// Everything *not strictly before* `start`: like [`since`], but `start` itself
+/// is included.
+///
+/// The name follows X.509's `notBefore`: on a partial order, "not before" is
+/// unambiguous where "at or after" would not be, since concurrent versions are
+/// neither.
 pub fn not_before(start: &Version) -> Range<'_> {
     all().not_before(start)
 }
 
-/// Everything *known at* `end`: versions contained in `end` — its causal
-/// past, inclusive.
+/// Everything *known at* `end`: its causal past, inclusive.
 pub fn known_at(end: &Version) -> Range<'_> {
     all().known_at(end)
 }
@@ -114,16 +115,18 @@ pub fn before(end: &Version) -> Range<'_> {
     all().before(end)
 }
 
-/// The causal delta from `start` to `end`: everything known at `end` but
-/// not at `start` — exactly what a replica at `start` must receive to reach
-/// `end`. Shorthand for [`since(start)`](since)[`.known_at(end)`](Range::known_at).
+/// The causal delta from `start` to `end`: everything known at `end` but not at
+/// `start`.
+///
+/// Shorthand for [`since(start)`](since)[`.known_at(end)`](Range::known_at).
 pub fn delta<'a>(start: &'a Version, end: &'a Version) -> Range<'a> {
     since(start).known_at(end)
 }
 
 /// The half-open causal delta: everything strictly since `start` and
-/// strictly before `end`. Shorthand for
-/// [`since(start)`](since)[`.before(end)`](Range::before).
+/// strictly before `end`.
+///
+/// Shorthand for [`since(start)`](since)[`.before(end)`](Range::before).
 pub fn delta_before<'a>(start: &'a Version, end: &'a Version) -> Range<'a> {
     since(start).before(end)
 }
@@ -162,9 +165,10 @@ impl<'a> Range<'a> {
         }
     }
 
-    /// The causal membership predicate: whether `version` is contained in
-    /// the end bound and *not* contained in the start bound. Equivalent to
-    /// [`placement_of`](Self::placement_of) returning
+    /// The causal membership predicate: whether `version` is contained in the
+    /// end bound and *not* contained in the start bound.
+    ///
+    /// Equivalent to [`placement_of`](Self::placement_of) returning
     /// [`Equal`](Ordering::Equal).
     ///
     /// Per bound kind, for a version `v`:
@@ -181,11 +185,12 @@ impl<'a> Range<'a> {
         self.placement_of(version) == Ordering::Equal
     }
 
-    /// Totally order `version` against this range: where the causal order
-    /// on [`Version`]s alone is partial, a version's placement relative to
-    /// a range is always one of exactly three cases.
+    /// Totally order `version` against this range.
     ///
-    /// - [`Less`](Ordering::Less): the start bound subtracts it — it is in
+    /// Where the causal order on [`Version`]s alone is partial, a version's
+    /// placement relative to a range is always one of exactly three cases:
+    ///
+    /// - [`Less`](Ordering::Less): the start bound subtracts it; it is in
     ///   the range's past.
     /// - [`Equal`](Ordering::Equal): the range [`contains`](Self::contains)
     ///   it.

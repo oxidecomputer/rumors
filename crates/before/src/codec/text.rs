@@ -65,9 +65,10 @@ fn parse_base(cur: &mut Cur) -> Result<Base, Parse> {
 }
 
 /// Parse one id tree in the paper's grammar (`0 | 1 | (i1, i2)`) into canonical
-/// bits, strictly validating normal form. Recursive, guarded by
-/// [`crate::recurse`] so deep nesting grows the stack onto the heap rather than
-/// overflowing.
+/// bits, strictly validating normal form.
+///
+/// Recursive, guarded by [`crate::recurse`] so deep nesting grows the stack onto
+/// the heap rather than overflowing.
 pub(crate) fn parse_id_str(s: &str) -> Result<Bits, Parse> {
     let mut cur = Cur::new(s);
     let mut bits = Bits::new();
@@ -92,6 +93,7 @@ enum IdKind {
 }
 
 /// Parse one id subtree, appending its canonical bits and reporting what it was.
+///
 /// A `0` emits nothing (absence); a node reserves a 2-bit tag, parses its
 /// children, then patches the tag to their presence — rejecting a collapsible
 /// `(0, 0)` / `(1, 1)`. Routed through the amortized stack-growth guard.

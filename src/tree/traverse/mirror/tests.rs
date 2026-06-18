@@ -19,7 +19,9 @@ use super::{local, mirror, remote};
 
 thread_local! {
     /// One current-thread tokio runtime per test thread, initialized lazily on
-    /// first use. Cargo's test harness gives each test its own thread, and
+    /// first use.
+    ///
+    /// Cargo's test harness gives each test its own thread, and
     /// proptest cases within a test run sequentially on that thread, so a
     /// single runtime per thread serves every case without contention.
     static RT: OnceCell<Runtime> = const { OnceCell::new() };
@@ -55,7 +57,9 @@ enum Scenario {
     LocalRemote,
 }
 
-/// In-memory full-duplex byte channel capacity, in bytes. The mirror
+/// In-memory full-duplex byte channel capacity, in bytes.
+///
+/// The mirror
 /// protocol strictly alternates messages within a session, so the receiver
 /// is always reading by the time the sender writes; a small buffer is
 /// sufficient and exercises backpressure naturally.
@@ -245,7 +249,9 @@ proptest! {
 }
 
 /// A write transport that delivers nothing to its inner writer until an
-/// explicit flush — the defining property of a buffering layer such as a
+/// explicit flush.
+///
+/// This is the defining property of a buffering layer such as a
 /// compression codec or a [`std::io::BufWriter`], and exactly the property
 /// [`tokio::io::duplex`] lacks (it forwards every write immediately, which is
 /// why the other scenarios never exercised the flush path).

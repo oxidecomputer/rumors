@@ -86,9 +86,11 @@ pub struct Tree<T> {
 }
 
 /// A tree's root pair: the node structure (absent when empty) and the
-/// causal ceiling that rides *outside* it. The ceiling outlives the nodes —
-/// it advances on effectual redactions and survives a tree emptying out —
-/// which is exactly what deletion honoring compares against.
+/// causal ceiling that rides *outside* it.
+///
+/// The ceiling outlives the nodes — it advances on effectual redactions and
+/// survives a tree emptying out — which is exactly what deletion honoring
+/// compares against.
 #[derive(Debug, Eq)]
 pub struct Root<T> {
     ceiling: Version,
@@ -159,8 +161,9 @@ pub enum Action<T> {
 
 /// The iterator of [`Snapshot::iter`](crate::Snapshot::iter):
 /// a lazy depth-first walk over every live message as
-/// `(Key, &Version, &Arc<T>)`, in unspecified order. An
-/// [`ExactSizeIterator`] (the live-message count is known up front) and a
+/// `(Key, &Version, &Arc<T>)`, in unspecified order.
+///
+/// An [`ExactSizeIterator`] (the live-message count is known up front) and a
 /// [`DoubleEndedIterator`].
 ///
 /// A thin shell over the internal leaf walk that projects each leaf's
@@ -271,9 +274,11 @@ impl<T> Tree<T> {
     }
 
     /// Freeze a fully-owned walk over the live leaves whose versions fall
-    /// within the causal `range`: the lifetime-free counterpart of
-    /// [`range`](Self::range), holdable across awaits and in long-lived
-    /// state, pinning only its unvisited frontier.
+    /// within the causal `range`.
+    ///
+    /// The lifetime-free counterpart of [`range`](Self::range), holdable
+    /// across awaits and in long-lived state, pinning only its unvisited
+    /// frontier.
     pub fn freeze<R>(&self, range: R) -> Frozen<T, R>
     where
         R: std::ops::RangeBounds<Version>,
@@ -282,7 +287,9 @@ impl<T> Tree<T> {
     }
 
     /// Lazily iterate the live leaves whose versions fall within the causal
-    /// `range`: a leaf is yielded iff its version is contained in the
+    /// `range`.
+    ///
+    /// A leaf is yielded iff its version is contained in the
     /// range's end bound and *not* contained in its start bound — a
     /// difference of causal down-sets (see
     /// [`untyped::Range`](typed::untyped::Range) for the
@@ -379,9 +386,10 @@ impl<T> Tree<T> {
     }
 
     /// Apply the specified *versioned* actions as a batch to the tree without
-    /// incrementing its internal version vector. In the specified iterator,
-    /// `Some(message)` indicates an insert, and `None` indicates that the key
-    /// should be forgotten.
+    /// incrementing its internal version vector.
+    ///
+    /// In the specified iterator, `Some(message)` indicates an insert, and
+    /// `None` indicates that the key should be forgotten.
     ///
     /// If multiple actions refer to the same leaf of the tree, the causally
     /// latest action wins, with order of specification breaking concurrency

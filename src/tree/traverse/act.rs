@@ -38,7 +38,9 @@ where
 
 /// The inductive step of the batch-apply, implemented per [`Height`]: the
 /// internal form of the [`act`] free function as a polymorphic-recursive
-/// trait. Each height implements one step, and the recursion is a plain
+/// trait.
+///
+/// Each height implements one step, and the recursion is a plain
 /// (synchronous) call one height down (always instantiated at `I = Vec<…>`,
 /// the per-radix group the branch level collects).
 pub trait Act: Height {

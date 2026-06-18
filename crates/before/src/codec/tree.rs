@@ -14,8 +14,10 @@ enum IdFrame {
 }
 
 /// Parse one packed id tree at `pos`, validating id normal form (no node with
-/// two terminal children, that is `(1, 1)`). Returns the position just past the
-/// tree. Iterative: depth lives on an explicit stack, never the call stack.
+/// two terminal children, that is `(1, 1)`).
+///
+/// Returns the position just past the tree. Iterative: depth lives on an
+/// explicit stack, never the call stack.
 ///
 /// Each node is a 2-bit presence tag (bit 0 = left child follows, bit 1 = right
 /// child follows): `00` a terminal, `10`/`01` a unary node, `11` a both-present

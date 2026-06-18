@@ -1,11 +1,13 @@
-//! `borsh` support (feature-gated). Each type serializes as its canonical byte
-//! encoding ([`encode`](crate::Clock::encode)) wrapped in borsh's length-prefixed
+//! `borsh` support (feature-gated).
+//!
+//! Each type serializes as its canonical byte encoding
+//! ([`encode`](crate::Clock::encode)) wrapped in borsh's length-prefixed
 //! byte-sequence framing, and deserializes back through the strict validator
-//! ([`decode`](crate::Clock::decode)). So the payload is exactly the wire form, a
-//! deserialized value is guaranteed canonical, and — because the framing is the
-//! same `u32`-length-prefixed shape borsh gives `Vec<u8>` — these values are
-//! self-delimiting and compose inside a larger borsh stream (the rumors mirror
-//! protocol relies on this to ship a [`Version`] frame mid-message).
+//! ([`decode`](crate::Clock::decode)). So the payload is exactly the wire form,
+//! a deserialized value is guaranteed canonical, and — because the framing is
+//! the same `u32`-length-prefixed shape borsh gives `Vec<u8>` — these values
+//! are self-delimiting and compose inside a larger borsh stream (the rumors
+//! mirror protocol relies on this to ship a [`Version`] frame mid-message).
 
 use borsh::io::{Error, ErrorKind, Read, Write};
 use borsh::{BorshDeserialize, BorshSerialize};

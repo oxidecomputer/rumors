@@ -9,11 +9,13 @@ use super::Party;
 
 type Cost = (u32, u32); // (#expansions, depth), lexicographic
 
-/// Event component. Bases are arbitrary-precision `Base` (`num_bigint::BigUint`),
-/// matching the implementation's working form, so large-base differentials
-/// lower losslessly — there is no `u64` truncation point. Literal/`u64` construction
-/// still works via `Version::leaf`/`Version::node` (both take `impl Into<Base>`) and
-/// the [`From<u64>`](Version) conversion.
+/// Event component.
+///
+/// Bases are arbitrary-precision `Base` (`num_bigint::BigUint`), matching the
+/// implementation's working form, so large-base differentials lower losslessly
+/// — there is no `u64` truncation point. Literal/`u64` construction still works
+/// via `Version::leaf`/`Version::node` (both take `impl Into<Base>`) and the
+/// [`From<u64>`](Version) conversion.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Version {
     Leaf(Base),
@@ -115,10 +117,12 @@ impl Version {
         Version::node(0u64, l, r)
     }
 
-    /// Meet (GLB) of two event trees, offset-threaded. The order-theoretic dual
-    /// of [`join_off`](Self::join_off): pointwise *minimum* in place of maximum,
-    /// identical structure otherwise (a leaf still broadcasts as the constant
-    /// `(n, 0, 0)` to both of the other side's children).
+    /// Meet (GLB) of two event trees, offset-threaded.
+    ///
+    /// The order-theoretic dual of [`join_off`](Self::join_off): pointwise
+    /// *minimum* in place of maximum, identical structure otherwise (a leaf
+    /// still broadcasts as the constant `(n, 0, 0)` to both of the other side's
+    /// children).
     fn meet_off(&self, so: &Base, other: &Version, oo: &Base) -> Version {
         if let (Version::Leaf(sn), Version::Leaf(on)) = (self, other) {
             return Version::Leaf((so + sn).min(oo + on));
@@ -140,9 +144,10 @@ impl Version {
     }
 
     /// Lift this event tree into absolute value by adding `off` to its root base
-    /// (every value in the subtree rises by `off`). Normal form is preserved —
-    /// the children are untouched, so neither the one-zero-base nor the
-    /// non-collapsible invariant can break.
+    /// (every value in the subtree rises by `off`).
+    ///
+    /// Normal form is preserved — the children are untouched, so neither the
+    /// one-zero-base nor the non-collapsible invariant can break.
     fn shift(&self, off: &Base) -> Version {
         match self {
             Version::Leaf(n) => Version::Leaf(n + off),
@@ -150,11 +155,13 @@ impl Version {
         }
     }
 
-    /// `project(id, self)` carrying the accumulated ancestor base `off`: keep the
-    /// value where `id` owns the region (as an absolute value lifted by `off`),
-    /// and zero it everywhere `id` does not own. Masking rebuilds from
-    /// **absolute** values because a non-negative event base cannot be undone
-    /// below a split — the same reason the impl's `project` threads its offset.
+    /// `project(id, self)` carrying the accumulated ancestor base `off`: keep
+    /// the value where `id` owns the region (as an absolute value lifted by
+    /// `off`), and zero it everywhere `id` does not own.
+    ///
+    /// Masking rebuilds from **absolute** values because a non-negative event
+    /// base cannot be undone below a split — the same reason the impl's
+    /// `project` threads its offset.
     fn project_off(&self, id: &Party, off: &Base) -> Version {
         match id {
             // Owned outright: keep the value, lifted to absolute by `off`.
@@ -319,23 +326,26 @@ impl Version {
         }
     }
 
-    /// `fill(id, self)` — `pub(crate)` so tests can detect when `event` takes the `grow`
-    /// branch (`fill` left the tree unchanged) versus the `fill` branch.
+    /// `fill(id, self)` — `pub(crate)` so tests can detect when `event` takes
+    /// the `grow` branch (`fill` left the tree unchanged) versus the `fill`
+    /// branch.
     #[cfg(test)]
     pub(crate) fn fill_for_test(&self, id: &Party) -> Version {
         self.fill(id)
     }
 
-    /// `grow(id, self)` → (raw tree, cost) — `pub(crate)` so the grow-optimality tests can
-    /// compare the DP's chosen inflation and its reported cost against the brute-force
-    /// search (`testing::grow_brute_force::best_inflation`/`min_inflation_cost`).
+    /// `grow(id, self)` → (raw tree, cost).
+    ///
+    /// `pub(crate)` so the grow-optimality tests can compare the DP's chosen
+    /// inflation and its reported cost against the brute-force search
+    /// (`testing::grow_brute_force::best_inflation`/`min_inflation_cost`).
     #[cfg(test)]
     pub(crate) fn grow_for_test(&self, id: &Party) -> (Version, (u32, u32)) {
         self.grow(id)
     }
 
-    /// `norm(self)` — `pub(crate)` so tests can normalize a raw `grow` output before
-    /// comparing it to `event`'s (normalized) result.
+    /// `norm(self)` — `pub(crate)` so tests can normalize a raw `grow` output
+    /// before comparing it to `event`'s (normalized) result.
     #[cfg(test)]
     pub(crate) fn normalized_for_test(&self) -> Version {
         self.normalized()
@@ -392,11 +402,11 @@ impl BitOrAssign<Version> for Version {
     }
 }
 
-// `&`/`&=` are the meet (GLB), the dual of `|`/`|=`, on `Version` only. They are
-// deliberately *not* offered on `Clock`: the id (`Party`) component has no safe
-// meet — intersecting two small disjoint shares could synthesize an ancestor
-// they share with a third live party, violating disjoint linearity — so the meet
-// lives purely on the event component.
+// `&`/`&=` are the meet (GLB), the dual of `|`/`|=`, on `Version` only. They
+// are deliberately *not* offered on `Clock`: the id (`Party`) component has no
+// safe meet — intersecting two small disjoint shares could synthesize an
+// ancestor they share with a third live party, violating disjoint linearity —
+// so the meet lives purely on the event component.
 impl BitAnd<Version> for Version {
     type Output = Version;
     fn bitand(self, rhs: Version) -> Version {
@@ -410,10 +420,11 @@ impl BitAndAssign<Version> for Version {
     }
 }
 
-// `/`/`/=` project a `Version` onto a `Party`'s region (the quotient), mirroring
-// the impl's `Div<&Party> for Version`. Unlike the impl, the oracle `Party` is
-// `Clone`, so the borrow is incidental — but the surface is kept identical (a
-// borrowed party) so the operator reads the same in differential tests.
+// `/`/`/=` project a `Version` onto a `Party`'s region (the quotient),
+// mirroring the impl's `Div<&Party> for Version`. Unlike the impl, the oracle
+// `Party` is `Clone`, so the borrow is incidental — but the surface is kept
+// identical (a borrowed party) so the operator reads the same in differential
+// tests.
 impl Div<&Party> for &Version {
     type Output = Version;
     fn div(self, party: &Party) -> Version {

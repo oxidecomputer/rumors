@@ -99,9 +99,11 @@ impl Party {
     }
 
     /// Whether `self`'s owned region contains all of `other`'s (`self ⊇
-    /// other`). The asymmetric companion of [`is_disjoint`](Self::is_disjoint):
-    /// where disjointness asks whether two regions *share nothing*, this asks
-    /// whether one region *subsumes* the other.
+    /// other`).
+    ///
+    /// The asymmetric companion of [`is_disjoint`](Self::is_disjoint): where
+    /// disjointness asks whether two regions *share nothing*, this asks whether
+    /// one region *subsumes* the other.
     pub fn covers(&self, other: &Party) -> bool {
         match (self, other) {
             // Nothing to cover: every region contains the empty region.
@@ -128,9 +130,11 @@ impl Party {
     }
 
     /// The region difference `self \ other`: the part of `self` that `other`
-    /// does not own. May be the empty `Leaf(false)` (when `other` covers
-    /// `self`). The reference for [`Party::without`](crate::Party::without),
-    /// which maps that empty result to `None`.
+    /// does not own.
+    ///
+    /// May be the empty `Leaf(false)` (when `other` covers `self`). The reference
+    /// for [`Party::without`](crate::Party::without), which maps that empty result
+    /// to `None`.
     pub fn without(&self, other: &Party) -> Party {
         match (self, other) {
             // diff(0, _) = 0 and diff(_, 1) = 0: nothing of `self` survives.

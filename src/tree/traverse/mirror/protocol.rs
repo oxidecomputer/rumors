@@ -59,14 +59,18 @@ use super::message::{self, UnderRoot, UnderUnderRoot};
 pub enum Step<Msg, Next, Output> {
     /// Continue the session: send `msg`, then transition to `next`.
     Continue { msg: Msg, next: Next },
-    /// Terminate the session. `msg` is the implementation's final outgoing
-    /// frame (it may carry non-vacuous `providing` that the peer still needs);
-    /// `output` is the implementation's final value (the reconciled root for
-    /// `local`, `()` for `remote`).
+    /// Terminate the session.
+    ///
+    /// `msg` is the implementation's final outgoing frame (it may carry
+    /// non-vacuous `providing` that the peer still needs); `output` is the
+    /// implementation's final value (the reconciled root for `local`, `()` for
+    /// `remote`).
     Done { msg: Msg, output: Output },
 }
 
-/// Any stage in the protocol is identified by this trait. Each stage declares
+/// Any stage in the protocol is identified by this trait.
+///
+/// Each stage declares
 /// its height, its end-of-protocol output, and the error type its methods may
 /// raise. `local::Exchange` sets `Error = Infallible` (a purely in-memory
 /// traversal cannot fail); wire-bound implementations (`remote::Exchange`) set
@@ -97,6 +101,7 @@ where
 }
 
 /// Finish the connect phase on the client side: absorb the peer's version.
+///
 /// `Done` here means the versions were equal — already converged, no
 /// descent; `Continue` hands over a state ready to play either role
 /// (`Next` is both [`Initiator`] and [`Responder`]; the byte tiebreak picks
@@ -117,9 +122,10 @@ where
 }
 
 /// The connect phase on the server side: ship the client's greeting to the
-/// peer and reply with the peer's own [`message::Handshake`]. `Done` mirrors
-/// [`CompleteConnect`]'s convergence case; the two sides always agree on it
-/// (both compare the same pair of versions).
+/// peer and reply with the peer's own [`message::Handshake`].
+///
+/// `Done` mirrors [`CompleteConnect`]'s convergence case; the two sides always
+/// agree on it (both compare the same pair of versions).
 pub trait Accept<T>: Stage<Height = Root> + Sized
 where
     T: Send + Sync,
@@ -372,7 +378,9 @@ where
 
 /// Declare the [`Peer`] trait and its blanket impl with the long `::Next`
 /// chains spelled out as nested associated-type bounds in supertrait
-/// position. The macro emits the chains tt-munched ahead of time: the
+/// position.
+///
+/// The macro emits the chains tt-munched ahead of time: the
 /// initiator side wraps `$init_terminal` in N `Exchange<T, Next: …>`
 /// layers (where N is the count of `_` tokens in `init: […]`), and the
 /// responder side does the same for `$resp_terminal`.
@@ -434,8 +442,9 @@ macro_rules! define_peer {
         init_chain: ($($init_chain:tt)*),
         resp_chain: ($($resp_chain:tt)*) $(,)?
     ) => {
-        /// A type that can play either side of the mirror protocol: it
-        /// implements both [`Initiator`] and [`Responder`] at the root, and
+        /// A type that can play either side of the mirror protocol.
+        ///
+        /// It implements both [`Initiator`] and [`Responder`] at the root, and
         /// in either role the entire chain of `::Next` projections the
         /// session driver walks implements the right protocol trait at
         /// every height.

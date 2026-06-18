@@ -150,7 +150,9 @@ impl Version {
 
     /// This [`Version`]'s exact causal [`Rank`], strictly monotone: `v < w`
     /// implies `v.rank() < w.rank()`, so equal ranks are never causally ordered
-    /// (same version, or concurrent). Sorting by `(rank, some-total-tiebreak)`
+    /// (same version, or concurrent).
+    ///
+    /// Sorting by `(rank, some-total-tiebreak)`
     /// therefore yields a linear extension of the causal order: causes always
     /// sort before their effects. See [`Rank`] for the measure itself and why
     /// strictness holds.
@@ -369,7 +371,9 @@ impl Version {
     }
 
     /// The canonical packed bytes of this [`Version`]: what
-    /// [`encode`](Self::encode) produces, borrowed without copying. The
+    /// [`encode`](Self::encode) produces, borrowed without copying.
+    ///
+    /// The
     /// final partial byte is zero-padded in the stored form, so these bytes
     /// are a canonical identity: byte-equal if and only if the versions are
     /// equal, and consistent with [`hash`](core::hash::Hash).
@@ -550,6 +554,7 @@ where
 // `Batch::meet_view` for meet.
 
 /// Generates one binary-operator family's full matrix across {Version, Batch}².
+///
 /// Parameterized over the value operator `$Op::$op` (e.g. `BitOr::bitor`), its
 /// assigning form `$Assign::$assign` (e.g. `BitOrAssign::bitor_assign`), and the
 /// view-folding method `$view` every cell routes through (`join_view` or

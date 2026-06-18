@@ -53,10 +53,12 @@ proptest! {
 }
 
 /// The integer code is Elias-gamma of `n + 1`, so its bit cost is `2⌊log2(n+1)⌋
-/// + 1`: `0` costs a single bit, and the cost steps up by two at each
-/// power-of-two boundary of `n + 1` (`1`/`2` → 3 bits, `6` → 5, `7` → 7).
-/// Pinning these widths guards the canonical prefix-code property the
-/// byte-equality `Eq`/`Hash` relies on.
+/// + 1`.
+///
+/// `0` costs a single bit, and the cost steps up by two at each power-of-two
+/// boundary of `n + 1` (`1`/`2` → 3 bits, `6` → 5, `7` → 7). Pinning these
+/// widths guards the canonical prefix-code property the byte-equality
+/// `Eq`/`Hash` relies on.
 #[test]
 fn gamma_costs() {
     let cost = |n: u64| {
@@ -120,9 +122,10 @@ proptest! {
 
 proptest! {
     /// `encode_to` writes the same bytes as `encode` to an arbitrary writer —
-    /// here a `BufWriter`, a distinct buffered `Write` impl. For `Clock` this
-    /// exercises the streamed id/event boundary (the partial byte merged across
-    /// the two component streams with no combined buffer).
+    /// here a `BufWriter`, a distinct buffered `Write` impl.
+    ///
+    /// For `Clock` this exercises the streamed id/event boundary (the partial
+    /// byte merged across the two component streams with no combined buffer).
     #[test]
     fn encode_to_matches_encode(ops in world_strategy(), i in 0usize..64) {
         use std::io::BufWriter;
@@ -176,15 +179,16 @@ proptest! {
 proptest! {
     /// `Clock::encode` is injective on normal forms, asserted *directly* on
     /// `Clock` (which has no `PartialEq`, so the encoding-injectivity property
-    /// only reaches it transitively through the harness): two clocks encode to
-    /// identical bytes **iff** they lower to the same `(Party, Version)` oracle
-    /// structure. Both directions matter — equal structure must produce
-    /// identical bytes (well-defined canonical encoding), and *distinct*
-    /// structure must produce *distinct* bytes (injectivity, the property
-    /// byte-equality `Eq`/`Hash` relies on). The clock encoding is
-    /// `enc_id(party) ‖ enc_ev(version)` with no padding between the two
-    /// halves, so this also pins that the id/event boundary is unambiguous: a
-    /// difference in *either* component alone changes the bytes.
+    /// only reaches it transitively through the harness).
+    ///
+    /// Two clocks encode to identical bytes **iff** they lower to the same
+    /// `(Party, Version)` oracle structure. Both directions matter — equal
+    /// structure must produce identical bytes (well-defined canonical
+    /// encoding), and *distinct* structure must produce *distinct* bytes
+    /// (injectivity, the property byte-equality `Eq`/`Hash` relies on). The
+    /// clock encoding is `enc_id(party) ‖ enc_ev(version)` with no padding
+    /// between the two halves, so this also pins that the id/event boundary is
+    /// unambiguous: a difference in *either* component alone changes the bytes.
     ///
     /// Inputs are arbitrary normal-form trees, so the pairs are genuinely
     /// unrelated structures spanning shapes and base magnitudes the op pipeline
@@ -228,11 +232,13 @@ proptest! {
 
 // ───────────────────────── decode rejection of non-canonical input ─────────────────────────
 
-/// The only collapsible id node representable in the pruned encoding is `(1, 1)`
-/// — a node with two terminal children — which must be rejected as
-/// `NotCanonical` (it collapses to `1`). The other collapsible form, `(0, 0)`,
-/// cannot even be written: a `0` is the *absence* of a child, so a node with two
-/// `0` children has no bits and simply is `0`.
+/// The only collapsible id node representable in the pruned encoding is `(1,
+/// 1)` — a node with two terminal children — which must be rejected as
+/// `NotCanonical` (it collapses to `1`).
+///
+/// The other collapsible form, `(0, 0)`, cannot even be written: a `0` is the
+/// *absence* of a child, so a node with two `0` children has no bits and simply
+/// is `0`.
 #[test]
 fn reject_noncanonical_id() {
     use oracle::Party::{Leaf, Node};
@@ -244,9 +250,10 @@ fn reject_noncanonical_id() {
     );
 }
 
-/// The id validator runs bottom-up by recursion, so a collapsible `(v,
-/// v)` node buried under deep, otherwise-canonical nesting must still be caught
-/// — the `NotCanonical` check fires when *any* node completes, not only at the
+/// The id validator runs bottom-up by recursion, so a collapsible `(v, v)` node
+/// buried under deep, otherwise-canonical nesting must still be caught.
+///
+/// The `NotCanonical` check fires when *any* node completes, not only at the
 /// root. Build a left-leaning spine `(((… (1,1) …, 0), 0), 0)` whose deepest
 /// node is the denormal `(1, 1)`, exercising the validator's recursion past a
 /// single byte.
@@ -274,8 +281,9 @@ fn reject_deep_nested_denormal_id() {
 }
 
 /// Padding rejection is bit-granular, not byte-granular: a complete tree that
-/// ends mid-byte must have *every* remaining bit of that final byte be zero. A
-/// non-zero bit inside the same byte as the tree (intra-byte padding) is
+/// ends mid-byte must have *every* remaining bit of that final byte be zero.
+///
+/// A non-zero bit inside the same byte as the tree (intra-byte padding) is
 /// `TrailingBits`, just as a whole spurious trailing byte is. The id leaf `1`
 /// encodes to the two-bit terminal tag (`0, 0`) packed as `0000_0000`; setting
 /// any padding bit within that byte must be rejected.
@@ -332,11 +340,12 @@ fn reject_noncanonical_event() {
 
 /// The byte `decode` paths are the only ones that yield a top-level `Party`
 /// without passing through `finish_id`; both reject the anonymous identity `0`,
-/// so an empty-region `Party`/`Clock` cannot be constructed. The paper forbids
-/// `event` on an anonymous stamp (§3, `i ≠ 0`), and a standalone party is by
-/// definition a nonzero share. In the pruned encoding the anonymous id `0` is
-/// the empty bit stream, so a party with no bytes — and a clock whose
-/// byte-aligned party prefix is empty — is the anonymous case.
+/// so an empty-region `Party`/`Clock` cannot be constructed.
+///
+/// The paper forbids `event` on an anonymous stamp (§3, `i ≠ 0`), and a
+/// standalone party is by definition a nonzero share. In the pruned encoding
+/// the anonymous id `0` is the empty bit stream, so a party with no bytes — and
+/// a clock whose byte-aligned party prefix is empty — is the anonymous case.
 #[test]
 fn decode_rejects_anonymous_id() {
     // The anonymous id `0` encodes to no bits at all; as a bare party that is
@@ -352,14 +361,15 @@ fn decode_rejects_anonymous_id() {
 }
 
 /// `Clock::decode` can never yield a clock with an anonymous (`0`) party — the
-/// invariant the whole stack rests on (paper §3: a live share is `i ≠ 0`). The
-/// party is the byte-aligned prefix, `Party::decode` rejects the empty id, and
-/// the only empty prefix is the empty stream (itself rejected as `Anonymous`),
-/// so an anonymous-party clock has *no* encoding: its bytes (just the version,
-/// since the `0` party contributes none) decode to a *different*, non-anonymous
-/// clock or fail canonicity — never round-trip back. This sweeps every byte
-/// string up to two bytes, where the empty-prefix boundary lives: each either
-/// fails to decode or yields a nonzero party, and none panics.
+/// invariant the whole stack rests on (paper §3: a live share is `i ≠ 0`).
+///
+/// The party is the byte-aligned prefix, `Party::decode` rejects the empty id,
+/// and the only empty prefix is the empty stream (itself rejected as
+/// `Anonymous`), so an anonymous-party clock has *no* encoding: its bytes (just
+/// the version, since the `0` party contributes none) decode to a *different*,
+/// non-anonymous clock or fail canonicity — never round-trip back. This sweeps
+/// every byte string up to two bytes, where the empty-prefix boundary lives:
+/// each either fails to decode or yields a nonzero party, and none panics.
 #[test]
 fn decode_never_yields_anonymous_party() {
     // A test-only anonymous clock encodes to just its version bytes; decoding
@@ -493,10 +503,11 @@ fn assert_all_accept_canonical(bytes: &[u8]) {
 proptest! {
     /// Flipping any single bit of a valid clock encoding yields a stream that
     /// `decode` either rejects or accepts canonically (normal-form,
-    /// re-encode-stable) — for every bit position and every decoder. Single-bit
-    /// flips are the most targeted mutation: each lands one Hamming step from
-    /// the accepted language, where a validator that under-checks would leak a
-    /// non-canonical accept.
+    /// re-encode-stable) — for every bit position and every decoder.
+    ///
+    /// Single-bit flips are the most targeted mutation: each lands one Hamming
+    /// step from the accepted language, where a validator that under-checks
+    /// would leak a non-canonical accept.
     ///
     /// Regression guard for the trailing-zero-byte defect (fixed in
     /// `require_zero_padding`): a flip can shift the tree to end on a byte
@@ -526,10 +537,12 @@ proptest! {
 
 proptest! {
     /// Truncating a valid encoding at any byte boundary yields a stream that
-    /// `decode` rejects or accepts canonically. A prefix of a complete tree is
-    /// almost always `Truncated`, but a prefix can occasionally itself be a
-    /// complete smaller tree (e.g. the leading id leaf of a clock) — which must
-    /// then decode canonically, never to a malformed value.
+    /// `decode` rejects or accepts canonically.
+    ///
+    /// A prefix of a complete tree is almost always `Truncated`, but a prefix
+    /// can occasionally itself be a complete smaller tree (e.g. the leading id
+    /// leaf of a clock) — which must then decode canonically, never to a
+    /// malformed value.
     ///
     /// Regression guard for the trailing-zero-byte defect (fixed in
     /// `require_zero_padding`): a truncation can cut a valid stream just
@@ -595,12 +608,13 @@ fn trailing_zero_byte_rejected_witness() {
 }
 
 proptest! {
-    /// The trailing bits of the final byte are zero padding. Setting any one of
-    /// them must be rejected (`TrailingBits`) — never silently accepted —
-    /// because a non-zero padding bit makes the stream non-canonical, which
-    /// would break the byte-equality `Eq`/`Hash` contract. The whole-byte and
-    /// intra-byte cases are pinned by hand in the canonical-rejection suite;
-    /// this sweeps every padding position over arbitrary trees.
+    /// The trailing bits of the final byte are zero padding, and setting any
+    /// one of them must be rejected (`TrailingBits`), never silently accepted.
+    ///
+    /// A non-zero padding bit makes the stream non-canonical, which would break
+    /// the byte-equality `Eq`/`Hash` contract. The whole-byte and intra-byte
+    /// cases are pinned by hand in the canonical-rejection suite; this sweeps
+    /// every padding position over arbitrary trees.
     #[test]
     fn padding_perturbation_rejects(pa in arb_oracle_party_nonempty()) {
         let party = from_oracle_party(&pa);

@@ -3,10 +3,11 @@ use crate::codec::{Base, Bits};
 use crate::version::compare::{EvNode, EvReader};
 use crate::version::working::WorkingVersion;
 
-/// Accumulates the output event tree in preorder. A node's base is written as a
-/// placeholder when the node opens and finalized by
-/// [`close_node`](Self::close_node) once its children are in place. This is the
-/// canonical output path shared by every emitting walk (`join`, `fill`, the
+/// Accumulates the output event tree in preorder.
+///
+/// A node's base is written as a placeholder when the node opens and finalized
+/// by [`close_node`](Self::close_node) once its children are in place. This is
+/// the canonical output path shared by every emitting walk (`join`, `fill`, the
 /// [`grow`](super::grow) emit); it is the single place event normalization
 /// lives, so callers never re-implement the sink/collapse.
 pub(super) struct Builder {
@@ -45,8 +46,9 @@ impl Builder {
     }
 
     /// Copy the whole subtree at `src` verbatim (it is already normal form),
-    /// advancing `src` past it and returning the output root. Iterative single
-    /// pass: the same pending-children scan as the shared
+    /// advancing `src` past it and returning the output root.
+    ///
+    /// Iterative single pass: the same pending-children scan as the shared
     /// [`idbits::skip_subtree`](crate::idbits::skip_subtree) core, but it emits
     /// each visited node into the output as it goes rather than only computing
     /// the end. A synthetic `Zero` subtree copies as a fresh `Leaf(0)`.
@@ -74,9 +76,11 @@ impl Builder {
     }
 
     /// Finalize the internal node at `node` whose left child is at `node + 1`
-    /// and right child at `right`. Sinks the children's common minimum into the
-    /// node's base (`O(1)`) and collapses `(n, m, m)` of two equal leaves to a
-    /// single leaf, preserving normal form. The node's root index is unchanged.
+    /// and right child at `right`.
+    ///
+    /// Sinks the children's common minimum into the node's base (`O(1)`) and
+    /// collapses `(n, m, m)` of two equal leaves to a single leaf, preserving
+    /// normal form. The node's root index is unchanged.
     ///
     /// Adjacency precondition for the collapse: it fires only when *both*
     /// children are leaves (the `!self.topo[..]` guards). A leaf occupies
@@ -114,7 +118,9 @@ impl Builder {
     }
 
     /// A leaf whose base is not yet known: emitted as a placeholder now, filled
-    /// in by [`resolve_leaf`](Self::resolve_leaf) once the value it depends on exists.
+    /// in by [`resolve_leaf`](Self::resolve_leaf) once the value it depends on
+    /// exists.
+    ///
     /// `fill` needs this for the one case the preorder builder cannot emit in
     /// evaluation order: an id-full *left* child collapses to a max-leaf whose
     /// value depends on its right sibling, but preorder must place the left leaf
@@ -153,9 +159,11 @@ pub(super) struct Slot(usize);
 pub(super) struct Leaf(usize);
 
 /// A just-opened internal node, awaiting its children and a
-/// [`close_node`](Builder::close_node). `!Clone` and `#[must_use]`: the token
-/// must be closed exactly once, and the borrow checker stops it being reused or
-/// dropped silently — so an open with no matching close cannot compile.
+/// [`close_node`](Builder::close_node).
+///
+/// `!Clone` and `#[must_use]`: the token must be closed exactly once, and the
+/// borrow checker stops it being reused or dropped silently — so an open with
+/// no matching close cannot compile.
 #[must_use = "an opened node must be closed with close_node"]
 pub(super) struct Node(usize);
 

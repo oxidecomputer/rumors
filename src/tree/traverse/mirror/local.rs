@@ -1,10 +1,11 @@
 //! Two replicas reconcile their trees while honoring deletions: leaves one side
 //! has and the other has since *forgotten* (their version is `<=` the other's
-//! version vector) vanish; leaves not yet seen are transmitted. The protocol
-//! recurses down the *disjoint frontier* of the two trees, alternating sender
-//! each message, so it costs `O(log n)` round-trips and never re-sends a hash
-//! the other side can already infer (quantified, per axis, in
-//! [`super`](super#cost)'s Cost section).
+//! version vector) vanish; leaves not yet seen are transmitted.
+//!
+//! The protocol recurses down the *disjoint frontier* of the two trees,
+//! alternating sender each message, so it costs `O(log n)` round-trips and
+//! never re-sends a hash the other side can already infer (quantified, per
+//! axis, in [`super`](super#cost)'s Cost section).
 //!
 //! # State machine
 //!
@@ -79,8 +80,10 @@ use super::protocol;
 mod partition;
 
 /// The version state for an [`Exchange`] which has just been initialized but
-/// has not yet connected. Carries the fields the [`Connect`](protocol::Connect)
-/// / [`Accept`](protocol::Accept) step needs to build its outgoing
+/// has not yet connected.
+///
+/// Carries the fields the [`Connect`](protocol::Connect) /
+/// [`Accept`](protocol::Accept) step needs to build its outgoing
 /// [`message::Handshake`]: our universe [`Network`](crate::Network), our
 /// latest [`Version`], and
 /// our [`Intent`](message::Intent) ([`Retire`](message::Intent::Retire) iff we
@@ -104,12 +107,13 @@ pub struct Connected {
 }
 
 /// The parent prefixes a counterparty may legitimately `provide` against, given
-/// the `requested` and `uncertain` we are about to send: each `requested`
-/// prefix is the parent of the subtree-children it will answer with, and each
-/// `uncertain` prefix's parent is the parent of the Left-case siblings it may
-/// unilaterally provide. Returned as raw bytes so the membership test in
-/// [`Exchange::absorb_providing`] is height-agnostic. Debug-only: it backs a
-/// `debug_assert!`.
+/// the `requested` and `uncertain` we are about to send.
+///
+/// Each `requested` prefix is the parent of the subtree-children it will answer
+/// with, and each `uncertain` prefix's parent is the parent of the Left-case
+/// siblings it may unilaterally provide. Returned as raw bytes so the
+/// membership test in [`Exchange::absorb_providing`] is height-agnostic.
+/// Debug-only: it backs a `debug_assert!`.
 #[cfg(debug_assertions)]
 fn expected_providing_parents<A, B>(
     requested: &[Prefix<A>],
@@ -150,11 +154,13 @@ pub struct Exchange<V, L> {
     /// have been forgotten on their side.
     versions: V,
     /// The parent prefixes (raw bytes, height-agnostic) the counterparty is
-    /// allowed to `provide` next: those we `requested` last round, plus the
+    /// allowed to `provide` next.
+    ///
+    /// Those we `requested` last round, plus the
     /// parents of those we listed as `uncertain` (whose siblings the
     /// counterparty may unilaterally provide as the Left case). Used by
-    /// [`absorb_providing`](Self::absorb_providing) to reject a peer that
-    /// provides subtrees we had no basis to receive.
+    /// [`absorb_providing`](Self::absorb_providing) to reject a peer
+    /// that provides subtrees we had no basis to receive.
     ///
     /// Tracked only in debug builds, since it backs a `debug_assert!`: release
     /// builds carry no field and pay nothing to maintain it.

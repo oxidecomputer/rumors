@@ -1,8 +1,9 @@
 //! The event-tree mutation core: `merge` (the join `|` and its dual meet
 //! `&`, the pointwise lattice combine in [`combine`]) and `tick` (`fill`,
-//! falling back to [`grow`]). Every operation works on the fixed-width
-//! working form, walking the packed id ([`idbits`](crate::idbits)) alongside
-//! it where needed.
+//! falling back to [`grow`]).
+//!
+//! Every operation works on the fixed-width working form, walking the packed
+//! id ([`idbits`](crate::idbits)) alongside it where needed.
 //!
 //! All three are `O(n + m)` in their inputs. Output is built into fresh
 //! `topo`/`base` arrays in preorder via a [`Builder`], the one type that owns
@@ -88,10 +89,11 @@ mod project;
 
 use builder::{Builder, Slot};
 
-/// Advance `id`'s component of the event tree by one event. `fill` first (it
-/// may simplify the tree using the available id); if it changes nothing,
-/// `grow`. The id is the packed `enc_id` stream; `ev` is the current working
-/// form. `O(n + m)`.
+/// Advance `id`'s component of the event tree by one event.
+///
+/// `fill` first (it may simplify the tree using the available id); if it
+/// changes nothing, `grow`. The id is the packed `enc_id` stream; `ev` is the
+/// current working form. `O(n + m)`.
 pub(crate) fn tick(id: &BitsSlice, ev: &WorkingVersion) -> WorkingVersion {
     // `fill` and `grow` each consume a cursor (cursors are single-use), so build
     // a fresh one per pass from the source working form rather than reusing one.

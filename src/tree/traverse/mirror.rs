@@ -200,9 +200,10 @@ pub(crate) type ClientConnected<C, T> = <<C as Connect<T>>::Next as CompleteConn
 pub(crate) type ServerConnected<S, T> = <S as Accept<T>>::Next;
 
 /// The result of the connect phase ([`handshake`]): the [`Handshake`]s have
-/// been exchanged, so the caller can inspect the peer's
-/// `network`/`version`/`intent` and decide whether to descend, absorb a
-/// retiree, serve a bootstrapper, and so on.
+/// been exchanged.
+///
+/// The caller can inspect the peer's `network`/`version`/`intent` and decide
+/// whether to descend, absorb a retiree, serve a bootstrapper, and so on.
 pub(crate) enum Handshaken<C, S, T>
 where
     T: Send + Sync,
@@ -278,8 +279,9 @@ where
 
 /// Run the connect phase: the client emits its [`Handshake`], the server
 /// ships it and replies with the peer's, and the client absorbs the peer's
-/// version. Stops there, handing the outcome back for dispatch (see
-/// [`Handshaken`]).
+/// version.
+///
+/// Stops there, handing the outcome back for dispatch (see [`Handshaken`]).
 pub(crate) async fn handshake<C, S, T>(
     c: C,
     s: S,
@@ -374,7 +376,9 @@ where
 }
 
 /// Drive a mirror protocol client against a server to synchronize both of
-/// them. A test convenience: the wire entry points
+/// them.
+///
+/// A test convenience: the wire entry points
 /// ([`Peer::bootstrap`](crate::Peer::bootstrap),
 /// [`Rumors::gossip`](crate::Rumors::gossip),
 /// [`Peer::retire`](crate::Peer::retire)) drive

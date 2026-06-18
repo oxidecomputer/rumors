@@ -141,11 +141,12 @@ proptest! {
 // ───────────────────────────── lattice: distributivity ─────────────────────────────
 
 proptest! {
-    /// Meet distributes over join: `a & (b | c) == (a & b) | (a & c)`. The
-    /// version lattice is a sublattice of a function space into the chain of
-    /// naturals (pointwise min/max), so it is distributive; this pins that the
-    /// impl's `&`/`|` realize it, beyond the lattice laws absorption already
-    /// fixes. Holds by the ITC algebra, independent of the oracle.
+    /// Meet distributes over join: `a & (b | c) == (a & b) | (a & c)`.
+    ///
+    /// The version lattice is a sublattice of a function space into the chain
+    /// of naturals (pointwise min/max), so it is distributive; this pins that
+    /// the impl's `&`/`|` realize it, beyond the lattice laws absorption
+    /// already fixes. Holds by the ITC algebra, independent of the oracle.
     #[test]
     fn meet_distributes_over_join(
         a in arb_oracle_version(),
@@ -161,9 +162,10 @@ proptest! {
 
 proptest! {
     /// Join distributes over meet: `a | (b & c) == (a | b) & (a | c)`, the
-    /// dual law. In any lattice each distributive law implies the other;
-    /// asserting both guards against an impl that realized one direction but
-    /// not its dual.
+    /// dual law.
+    ///
+    /// In any lattice each distributive law implies the other; asserting both
+    /// guards against an impl that realized one direction but not its dual.
     #[test]
     fn join_distributes_over_meet(
         a in arb_oracle_version(),
@@ -203,11 +205,12 @@ proptest! {
 }
 
 proptest! {
-    /// Transitivity: `a <= b && b <= c ⇒ a <= c`. The arbitrary generators
-    /// rarely produce three causally-chained versions by chance, so we
-    /// *construct* a chain that always satisfies the antecedent — `a <= a|b <=
-    /// a|b|c` — by the upper-bound law, then assert the conclusion holds across
-    /// the impl's order directly.
+    /// Transitivity: `a <= b && b <= c ⇒ a <= c`.
+    ///
+    /// The arbitrary generators rarely produce three causally-chained versions
+    /// by chance, so we *construct* a chain that always satisfies the
+    /// antecedent — `a <= a|b <= a|b|c` — by the upper-bound law, then assert
+    /// the conclusion holds across the impl's order directly.
     #[test]
     fn order_transitive(
         a in arb_oracle_version(),
@@ -227,9 +230,10 @@ proptest! {
 
 proptest! {
     /// Transitivity, unconstructed: whenever three *arbitrary* generated
-    /// versions happen to chain (`a <= b` and `b <= c`), the endpoints must
-    /// too. Complements [`order_transitive`] by exercising chains the
-    /// generators stumble into rather than ones we built.
+    /// versions happen to chain (`a <= b` and `b <= c`), the endpoints must too.
+    ///
+    /// Complements [`order_transitive`] by exercising chains the generators
+    /// stumble into rather than ones we built.
     #[test]
     fn order_transitive_incidental(
         a in arb_oracle_version(),
@@ -246,9 +250,11 @@ proptest! {
 // ───────────────────────────── id: fork / join / split / sum ─────────────────────────────
 
 proptest! {
-    /// `fork` then `join` round-trips: forking a non-empty share yields two
-    /// halves whose `join` reconstructs the original id exactly. (`fork` keeps
-    /// one half in place and returns the other; `join` sums them back.)
+    /// `fork` then `join` round-trips.
+    ///
+    /// Forking a non-empty share yields two halves whose `join` reconstructs
+    /// the original id exactly. (`fork` keeps one half in place and returns the
+    /// other; `join` sums them back.)
     #[test]
     fn fork_join_roundtrip(p in arb_oracle_party_nonempty()) {
         let original = party(&p);
@@ -262,8 +268,10 @@ proptest! {
 proptest! {
     /// `split` ⊕ `sum` disjointness: the two halves a `fork` produces are
     /// disjoint, the relation is symmetric, and neither half is the anonymous
-    /// id (a `fork` always hands out a real share). This is the invariant that
-    /// keeps a forked population pairwise `join`-able.
+    /// id (a `fork` always hands out a real share).
+    ///
+    /// This is the invariant that keeps a forked population pairwise
+    /// `join`-able.
     #[test]
     fn fork_halves_disjoint(p in arb_oracle_party_nonempty()) {
         let mut kept = party(&p);
@@ -282,9 +290,11 @@ proptest! {
 proptest! {
     /// The two balanced-fork forms agree: `From<Party>` for `[Party; N]` equals
     /// the residual the borrowing `forks(N - 1)` keeps, followed by the shares
-    /// it yields. Both are one balanced split of the same region in the same
-    /// preorder, so the consuming array and the borrowing iterator hand out
-    /// identical shares — the array is just `[residual] ++ forks`.
+    /// it yields.
+    ///
+    /// Both are one balanced split of the same region in the same preorder, so
+    /// the consuming array and the borrowing iterator hand out identical
+    /// shares — the array is just `[residual] ++ forks`.
     #[test]
     fn forks_matches_from_array(p in arb_oracle_party_nonempty()) {
         const N: usize = 4;
@@ -306,8 +316,9 @@ proptest! {
 proptest! {
     /// Dropping `forks` early folds the untaken shares back: after pulling 2 of
     /// 5, the borrowed party holds everything it did not hand out, so rejoining
-    /// the 2 taken shares recovers the original region. This is the drop-time
-    /// reabsorption the iterator promises.
+    /// the 2 taken shares recovers the original region.
+    ///
+    /// This is the drop-time reabsorption the iterator promises.
     #[test]
     fn forks_partial_drop_folds_back(p in arb_oracle_party_nonempty()) {
         let original = party(&p);
@@ -324,9 +335,10 @@ proptest! {
 
 proptest! {
     /// `join_all` reunites a fork: splitting a party with `forks` and folding
-    /// the shares back with `join_all` recovers the original region. `self`
-    /// seeds the fold, and balanced-fork shares are pairwise disjoint, so the
-    /// fold is defined the whole way.
+    /// the shares back with `join_all` recovers the original region.
+    ///
+    /// `self` seeds the fold, and balanced-fork shares are pairwise disjoint, so
+    /// the fold is defined the whole way.
     #[test]
     fn party_join_all_reunites_a_fork(p in arb_oracle_party_nonempty()) {
         let original = party(&p);
@@ -355,9 +367,10 @@ proptest! {
 
 proptest! {
     /// `join_all` is best-effort and lossless: it folds in every disjoint share
-    /// and hands back only those that overlapped, dropping nothing. Given a
-    /// clashing alias of `self` *followed by* a genuine disjoint share, the
-    /// share is still absorbed — only the alias comes back. (Fail-fast would
+    /// and hands back only those that overlapped, dropping nothing.
+    ///
+    /// Given a clashing alias of `self` *followed by* a genuine disjoint share,
+    /// the share is still absorbed — only the alias comes back. (Fail-fast would
     /// instead abandon the share after the clash; this is what distinguishes the
     /// two.)
     #[test]
@@ -394,8 +407,10 @@ proptest! {
 proptest! {
     /// `decode ∘ encode == id` on `Version`, including the large-base events
     /// (path sums that would overflow `u64`) the [`arb_oracle_version`]
-    /// generator draws near and beyond `u64::MAX`: the widened Elias-gamma code
-    /// must round-trip arbitrary-width bases as a canonical prefix code.
+    /// generator draws near and beyond `u64::MAX`.
+    ///
+    /// The widened Elias-gamma code must round-trip arbitrary-width bases as a
+    /// canonical prefix code.
     #[test]
     fn version_codec_roundtrip(v in arb_oracle_version()) {
         let original = ver(&v);
@@ -408,9 +423,11 @@ proptest! {
 proptest! {
     /// An arbitrary (possibly anonymous) id still round-trips through the codec
     /// *as a sub-tree*: wrapping it under a `seed` sibling makes a nonzero
-    /// share that `decode` accepts, so the anonymous leaf is exercised on the
-    /// codec path too (a standalone anonymous `Party` is rejected by design and
-    /// cannot be encoded as a top-level value).
+    /// share that `decode` accepts.
+    ///
+    /// So the anonymous leaf is exercised on the codec path too (a standalone
+    /// anonymous `Party` is rejected by design and cannot be encoded as a
+    /// top-level value).
     #[test]
     fn party_codec_roundtrip_with_anonymous_subtree(p in arb_oracle_party()) {
         let wrapped = oracle::Party::node(oracle::Party::seed(), p);
@@ -425,6 +442,7 @@ proptest! {
 
 proptest! {
     /// The valuation law: `rank(a | b) + rank(a & b) == rank(a) + rank(b)`.
+    ///
     /// Rank is the area under the event tree — a linear functional — and
     /// `max + min == sum` holds pointwise, so area is a lattice valuation. This
     /// is the identity that makes [`Version::distance`] a metric, and it

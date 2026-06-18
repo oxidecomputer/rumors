@@ -42,9 +42,11 @@ fn joined_party_roundtrips_through_borsh() {
 proptest! {
     /// Every `Party`/`Version`/`Clock` reachable by an arbitrary impl-driven
     /// history (`fork`/`join`/`sync`/`tick` via [`step_impl`]) round-trips
-    /// through borsh — the on-wire form the gossip protocol ships. Drives the
-    /// impl's own operations, not oracle-lowered values, so it covers the
-    /// reused-buffer path that the per-view equivalence test also guards.
+    /// through borsh — the on-wire form the gossip protocol ships.
+    ///
+    /// Drives the impl's own operations, not oracle-lowered values, so it
+    /// covers the reused-buffer path that the per-view equivalence test also
+    /// guards.
     #[test]
     fn borsh_roundtrips_over_impl_history(ops in world_strategy()) {
         let mut imp = vec![Clock::seed()];

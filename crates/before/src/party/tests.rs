@@ -78,10 +78,11 @@ proptest! {
 proptest! {
     /// Complexity. `is_disjoint` is `O(n + m)`: a *misaligned* disjoint pair (a
     /// shallow `0`-leaf on one side aligned with the other's whole deep
-    /// subtree) drives the bounded lazy-skip at scale. The pair is disjoint, so
-    /// the walk runs to completion (no early `false`) and the skip dominates;
-    /// steps stay linear from `scale` to `4 * scale`, proving each node is
-    /// skipped at most once (no per-node re-scan).
+    /// subtree) drives the bounded lazy-skip at scale.
+    ///
+    /// The pair is disjoint, so the walk runs to completion (no early `false`)
+    /// and the skip dominates; steps stay linear from `scale` to `4 * scale`,
+    /// proving each node is skipped at most once (no per-node re-scan).
     #[test]
     fn is_disjoint_is_linear(scale in MIN_SCALE..256) {
         let measure = |s: usize| {
@@ -97,10 +98,11 @@ proptest! {
 proptest! {
     /// Complexity. `covers` is `O(n + m)`: a *covering* misaligned pair (`a`'s
     /// full `1` leaf at each level aligned against `b`'s small owned subtree)
-    /// drives the bounded lazy-skip at scale. `a` covers `b`, so the walk runs
-    /// to completion (no early `false`) and the skip dominates; steps stay
-    /// linear from `scale` to `4 * scale`, proving each node is skipped at most
-    /// once (no per-node re-scan).
+    /// drives the bounded lazy-skip at scale.
+    ///
+    /// `a` covers `b`, so the walk runs to completion (no early `false`) and the
+    /// skip dominates; steps stay linear from `scale` to `4 * scale`, proving
+    /// each node is skipped at most once (no per-node re-scan).
     #[test]
     fn covers_is_linear(scale in MIN_SCALE..256) {
         let measure = |s: usize| {
@@ -115,11 +117,13 @@ proptest! {
 
 proptest! {
     /// Complexity. `diff` is `O(n + m)`: on the same misaligned disjoint pair
-    /// as `is_disjoint` (a shallow `0`-leaf on `a` aligned against `b`'s whole
-    /// deep subtree), every level drives the bounded lazy-skip once via the
-    /// `diff(0, b) = 0` arm. The pair is disjoint, so the walk runs to
-    /// completion and the skip dominates; steps stay linear from `scale` to `4 *
-    /// scale`, proving each node is skipped at most once (no per-node re-scan).
+    /// as `is_disjoint`, every level drives the bounded lazy-skip once via the
+    /// `diff(0, b) = 0` arm.
+    ///
+    /// That pair is a shallow `0`-leaf on `a` aligned against `b`'s whole deep
+    /// subtree. The pair is disjoint, so the walk runs to completion and the
+    /// skip dominates; steps stay linear from `scale` to `4 * scale`, proving
+    /// each node is skipped at most once (no per-node re-scan).
     #[test]
     fn diff_is_linear(scale in MIN_SCALE..256) {
         let measure = |s: usize| {
@@ -138,6 +142,7 @@ proptest! {
     /// `covers` on arbitrary id pairs — typically *unrelated* and frequently
     /// *overlapping* — agrees with the oracle, including the partial-overlap
     /// case (neither covers the other) that the seed pipeline never produces.
+    ///
     /// Covering is *antisymmetric*: two regions cover each other exactly when
     /// they are equal.
     #[test]
@@ -153,11 +158,12 @@ proptest! {
 }
 
 proptest! {
-    /// On seed-derived parties, covering tracks the fork/join lattice: the whole
-    /// [`Party::seed`] covers every live party, a party covers itself (and any
-    /// alias), a fork's parent covers both resulting halves, and the rejoin of
-    /// two halves covers each part. Disjoint live halves cover neither other —
-    /// the partial-overlap-free shadow of [`Party::is_disjoint`].
+    /// On seed-derived parties, covering tracks the fork/join lattice.
+    ///
+    /// The whole [`Party::seed`] covers every live party, a party covers itself
+    /// (and any alias), a fork's parent covers both resulting halves, and the
+    /// rejoin of two halves covers each part. Disjoint live halves cover neither
+    /// other — the partial-overlap-free shadow of [`Party::is_disjoint`].
     #[test]
     fn covers_tracks_fork_join(ops in world_strategy(), i in 0usize..64) {
         let cs = run(&ops);
@@ -215,8 +221,9 @@ proptest! {
 proptest! {
     /// `dangerously_alias` yields a byte-identical, `Eq` copy that aliases the
     /// original's entire region: the two are therefore *not* disjoint — the
-    /// deliberate linearity violation the method documents. (The caller alone is
-    /// responsible for keeping at most one of them live.)
+    /// deliberate linearity violation the method documents.
+    ///
+    /// (The caller alone is responsible for keeping at most one of them live.)
     #[test]
     fn dangerously_alias_aliases_region(op in arb_oracle_party_nonempty()) {
         let p = from_oracle_party(&op);
@@ -230,9 +237,11 @@ proptest! {
 // ───────────────────────── paper-notation TryFrom ─────────────────────────
 
 /// `TryFrom` numeric/tuple literals build parties via the same paper notation
-/// as the string parser: the seed `1`, a flat `(1, 0)`, and a nested `((0, 1),
-/// (1, (1, 0)))` all construct, while the anonymous bare `0` is rejected (a
-/// standalone id must own some region).
+/// as the string parser.
+///
+/// The seed `1`, a flat `(1, 0)`, and a nested `((0, 1), (1, (1, 0)))` all
+/// construct, while the anonymous bare `0` is rejected (a standalone id must
+/// own some region).
 #[test]
 fn parse_bare_notation() {
     let _party: Party = 1.try_into().unwrap();
@@ -270,8 +279,10 @@ proptest! {
 proptest! {
     /// `split` (the structural op behind `fork`) on an arbitrary non-empty id
     /// matches the oracle's `split`, structurally — on shapes the seed pipeline
-    /// never forks. The two halves are read straight off the impl's packed
-    /// `IdReader::split` output and lowered for comparison.
+    /// never forks.
+    ///
+    /// The two halves are read straight off the impl's packed `IdReader::split`
+    /// output and lowered for comparison.
     #[test]
     fn split_arbitrary(op in arb_oracle_party_nonempty()) {
         let mut oracle_self = op.clone();
@@ -290,9 +301,10 @@ proptest! {
 proptest! {
     /// `sum` on arbitrary id pairs agrees with the oracle: it returns the
     /// merged id exactly when the pair is disjoint (matching
-    /// `oracle::Party::join`), and `None` on overlap. The op pipeline only ever
-    /// sums disjoint halves, so the overlap `None` arm is otherwise untested at
-    /// arbitrary shapes.
+    /// `oracle::Party::join`), and `None` on overlap.
+    ///
+    /// The op pipeline only ever sums disjoint halves, so the overlap `None` arm
+    /// is otherwise untested at arbitrary shapes.
     #[test]
     fn sum_arbitrary(
         oa in arb_oracle_party(),
@@ -315,8 +327,10 @@ proptest! {
 proptest! {
     /// `without` on arbitrary id pairs — typically *unrelated* and frequently
     /// *overlapping* — agrees with the oracle's `without`, mapping the oracle's
-    /// empty result to `None`. Reaches the partial-overlap shapes the
-    /// seed-derived pipeline never produces.
+    /// empty result to `None`.
+    ///
+    /// Reaches the partial-overlap shapes the seed-derived pipeline never
+    /// produces.
     ///
     /// It also pins the two characterizations the type encodes: the result is
     /// `None` exactly when `other` covers `self`, and whenever a remainder
@@ -349,8 +363,9 @@ proptest! {
 proptest! {
     /// `without` is the partial inverse of `join` on the fork/join lattice:
     /// carving a forked-off share back out of the parent recovers the kept
-    /// half, and removing a *disjoint* share is a no-op. Removing a covering
-    /// share (a party from itself) empties it to `None`.
+    /// half, and removing a *disjoint* share is a no-op.
+    ///
+    /// Removing a covering share (a party from itself) empties it to `None`.
     #[test]
     fn without_inverts_fork(ops in world_strategy(), i in 0usize..64) {
         let cs = run(&ops);
@@ -380,9 +395,10 @@ proptest! {
 
 proptest! {
     /// `decode ∘ encode == identity` over arbitrary non-empty normal-form ids,
-    /// and the decoded value lowers to the same oracle tree. (The anonymous
-    /// tree is excluded: a standalone `Party` must own a region, and `decode`
-    /// rejects it.)
+    /// and the decoded value lowers to the same oracle tree.
+    ///
+    /// (The anonymous tree is excluded: a standalone `Party` must own a region,
+    /// and `decode` rejects it.)
     #[test]
     fn decode_encode_arbitrary(op in arb_oracle_party_nonempty()) {
         let p = from_oracle_party(&op);

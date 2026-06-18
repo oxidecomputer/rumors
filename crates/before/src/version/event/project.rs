@@ -1,7 +1,8 @@
 //! `project`: mask an event tree onto a party's id — keep the value wherever the
-//! party owns the region, zero it everywhere else. This is the engine behind
-//! [`Version / &Party`](crate::Version) ("the party's contribution to the
-//! version").
+//! party owns the region, zero it everywhere else.
+//!
+//! This is the engine behind [`Version / &Party`](crate::Version) ("the party's
+//! contribution to the version").
 //!
 //! Masking cannot be a relative-base rewrite: zeroing an unowned region whose
 //! value comes from an *ancestor* base would need that base undone below the
@@ -47,9 +48,10 @@ struct ProjectWalk {
 
 impl ProjectWalk {
     /// Project the event subtree at `ev`, whose root-to-parent path sum is
-    /// `off`, onto the id subtree at `id`. Advances both readers past their
-    /// subtrees, emitting into `out`, and routes through the amortized
-    /// stack-growth guard. Returns the output root.
+    /// `off`, onto the id subtree at `id`.
+    ///
+    /// Advances both readers past their subtrees, emitting into `out`, and
+    /// routes through the amortized stack-growth guard. Returns the output root.
     fn rec(&mut self, id: &mut IdReader, ev: &mut EvReader, off: &Base, depth: usize) -> Slot {
         match id.read() {
             // Unowned: the whole region is masked to zero; drop the event.

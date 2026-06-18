@@ -1,11 +1,9 @@
-//! Crate-level unit tests for party mechanics that the public integration
-//! tests can't reach: they need either a *forged* `Peer` (private fields) or
-//! to read a `Peer`'s [`Party`] and compare it to [`Party::seed`]. Both
-//! require in-crate access, so they live here rather than in `tests/`.
+//! Crate-level unit tests for party mechanics that the public integration tests
+//! can't reach.
 //!
-//! (The old typestate-era test of a retire refused by an outstanding
-//! snapshot has no equivalent: the `Peer`/`Rumors` XOR makes "retire
-//! while observers share the party" unrepresentable at compile time.)
+//! They need either a *forged* `Peer` (private fields) or to read a `Peer`'s
+//! [`Party`] and compare it to [`Party::seed`]. Both require in-crate access,
+//! so they live here rather than in `tests/`.
 
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -92,11 +90,12 @@ fn bootstrap_from(provider: Peer<u64>) -> (Peer<u64>, Peer<u64>) {
 }
 
 /// A peer that absorbs a retiree whose party **overlaps** its own rejects it
-/// with [`Error::PartyOverlap`] rather than corrupting its clock. A correct
-/// universe never produces this (live parties are always disjoint); we forge it
-/// with [`Party::dangerously_alias`] — a copy of the absorber's *exact* region —
-/// to model a buggy or malicious peer. The overlap is detected by the absorbing
-/// `party.join`, the only place it can arise.
+/// with [`Error::PartyOverlap`] rather than corrupting its clock.
+///
+/// A correct universe never produces this (live parties are always disjoint);
+/// we forge it with [`Party::dangerously_alias`] — a copy of the absorber's
+/// *exact* region — to model a buggy or malicious peer. The overlap is detected
+/// by the absorbing `party.join`, the only place it can arise.
 #[test]
 fn overlapping_retiree_party_is_rejected() {
     let survivor = Peer::<u64>::seed();
@@ -134,9 +133,11 @@ fn overlapping_retiree_party_is_rejected() {
 
 /// Retiring every fork back into the peer they descended from reclaims the whole
 /// id-space with no leak: the survivor's party normalizes back to exactly
-/// [`Party::seed`] (`"1"`, the whole interval). Each bootstrap hands a child a
-/// disjoint slice of the seed's region; each `retire` hands a slice back, and a
-/// leak anywhere would leave the reunited party short of the whole.
+/// [`Party::seed`] (`"1"`, the whole interval).
+///
+/// Each bootstrap hands a child a disjoint slice of the seed's region; each
+/// `retire` hands a slice back, and a leak anywhere would leave the reunited
+/// party short of the whole.
 #[test]
 fn retiring_all_forks_reconstitutes_the_seed_party() {
     let survivor = Peer::<u64>::seed();
@@ -159,10 +160,11 @@ fn retiring_all_forks_reconstitutes_the_seed_party() {
 }
 
 /// Bootstrap mints a fresh party by forking the provider's; retiring that peer
-/// back must reclaim exactly that minted region. Provider with real content,
-/// bootstrap (a wire fork), then retire the newcomer home: the provider's party
-/// normalizes back to [`Party::seed`], proving the bootstrap hand-off and the
-/// retire commit are jointly leak-free.
+/// back must reclaim exactly that minted region.
+///
+/// Provider with real content, bootstrap (a wire fork), then retire the
+/// newcomer home: the provider's party normalizes back to [`Party::seed`],
+/// proving the bootstrap hand-off and the retire commit are jointly leak-free.
 #[test]
 fn bootstrap_then_retire_reconstitutes_the_seed_party() {
     let provider = with_messages(Peer::<u64>::seed(), &[1, 2, 3]);
@@ -180,8 +182,10 @@ fn bootstrap_then_retire_reconstitutes_the_seed_party() {
 }
 
 /// A retiree whose counterparty is *also* retiring is declined cleanly after
-/// the preamble: both come back intact, parties untouched, and a clean retire
-/// of one into the other afterwards still reconstitutes the whole id-space.
+/// the preamble.
+///
+/// Both come back intact, parties untouched, and a clean retire of one into the
+/// other afterwards still reconstitutes the whole id-space.
 #[test]
 fn mutual_retire_declines_both() {
     let survivor = Peer::<u64>::seed();
@@ -213,8 +217,9 @@ fn mutual_retire_declines_both() {
 
 /// An [`AsyncWrite`] wrapper that forwards writes until a byte budget is
 /// exhausted, then fails every write with [`BrokenPipe`]: a deterministic
-/// stand-in for a connection severed at a chosen point in the session. Reads
-/// are not budgeted; the counterparty observes the cut as EOF once the
+/// stand-in for a connection severed at a chosen point in the session.
+///
+/// Reads are not budgeted; the counterparty observes the cut as EOF once the
 /// session's halves drop.
 ///
 /// [`BrokenPipe`]: std::io::ErrorKind::BrokenPipe
@@ -257,10 +262,12 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for Fuse<W> {
     }
 }
 
-/// The wire length of `retiree`'s greeting frame (4-byte length prefix +
-/// borsh-encoded [`Handshake`](crate::tree::mirror::message::Handshake) body —
-/// since the preamble rework, the version alone), so a [`Fuse`] budget can
+/// The wire length of `retiree`'s greeting frame, so a [`Fuse`] budget can
 /// land on an exact protocol boundary.
+///
+/// The frame is a 4-byte length prefix + borsh-encoded
+/// [`Handshake`](crate::tree::mirror::message::Handshake) body — since the
+/// preamble rework, the version alone.
 fn greeting_frame_len(retiree: &Peer<u64>) -> usize {
     let greeting = crate::tree::mirror::message::Handshake {
         version: retiree.snapshot().latest().clone(),
@@ -269,9 +276,11 @@ fn greeting_frame_len(retiree: &Peer<u64>) -> usize {
 }
 
 /// Drive `retiree.retire` against `peer.gossip` over a duplex whose
-/// retiree-side writer is fused to `budget` bytes. Each side's I/O halves are
-/// owned by its future, so the failing side's drop surfaces as EOF to the
-/// other rather than deadlocking the join. Returns both outcomes.
+/// retiree-side writer is fused to `budget` bytes.
+///
+/// Each side's I/O halves are owned by its future, so the failing side's drop
+/// surfaces as EOF to the other rather than deadlocking the join. Returns both
+/// outcomes.
 fn severed_retire(
     retiree: Peer<u64>,
     peer: &mut Peer<u64>,
@@ -298,12 +307,13 @@ fn severed_retire(
     })
 }
 
-/// A session severed during the reconciliation descent costs nothing: the
-/// trailing party frame was provably never sent, so the retiree comes back
-/// intact ([`Retire::Recovered`]) — same content, still-live party — and
-/// a subsequent clean retire of the recovered set reconstitutes the seed's
-/// whole id-space. This pins retire's fork-last ordering: the id-region is
-/// never in limbo during the descent.
+/// A session severed during the reconciliation descent costs nothing.
+///
+/// The trailing party frame was provably never sent, so the retiree comes back
+/// intact ([`Retire::Recovered`]) — same content, still-live party — and a
+/// subsequent clean retire of the recovered set reconstitutes the seed's whole
+/// id-space. This pins retire's fork-last ordering: the id-region is never in
+/// limbo during the descent.
 #[test]
 fn severed_descent_recovers_the_retiree() {
     let survivor = Peer::<u64>::seed();
@@ -344,7 +354,9 @@ fn severed_descent_recovers_the_retiree() {
 }
 
 /// A session severed on the trailing party frame itself is the irreducible
-/// two-generals window: the retiree cannot know whether the peer received its
+/// two-generals window.
+///
+/// The retiree cannot know whether the peer received its
 /// party, so it is consumed ([`Retire::Uncertain`]) rather than risk
 /// duplicating the region by surviving alongside a delivered copy.
 #[test]

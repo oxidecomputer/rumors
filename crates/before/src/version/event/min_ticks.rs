@@ -5,8 +5,9 @@ use crate::version::compare::EvReader;
 impl EvReader<'_> {
     /// The sum of every base in this event subtree, saturating at [`u64::MAX`]:
     /// the minimum number of `tick`s that could have produced it (see
-    /// [`Version::min_ticks`](crate::Version::min_ticks)). Advances the cursor
-    /// past the subtree. `O(n)`.
+    /// [`Version::min_ticks`](crate::Version::min_ticks)).
+    ///
+    /// Advances the cursor past the subtree. `O(n)`.
     ///
     /// The sibling of [`max`](Self::max): both fold the event tree, but `max`
     /// takes the largest root-to-leaf path sum (a single causal chain), whereas

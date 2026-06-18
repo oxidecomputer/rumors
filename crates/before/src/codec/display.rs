@@ -3,9 +3,11 @@ use crate::recurse::descend;
 use super::{decode_int, BitsSlice};
 
 /// Write an id tree in the paper's grammar with `sep` between a node's two
-/// children (`", "`). Leaves render as `0`/`1`, nodes as `(l<sep>r)`. Recursive,
-/// guarded by [`crate::recurse`] so deep ids do not overflow the formatter. The
-/// empty `0` id (no bits) renders as `0`.
+/// children (`", "`).
+///
+/// Leaves render as `0`/`1`, nodes as `(l<sep>r)`. Recursive, guarded by
+/// [`crate::recurse`] so deep ids do not overflow the formatter. The empty `0`
+/// id (no bits) renders as `0`.
 pub(crate) fn write_id(
     bits: &BitsSlice,
     f: &mut core::fmt::Formatter<'_>,
@@ -17,10 +19,11 @@ pub(crate) fn write_id(
     descend!(0, write_id_node(bits, 0, f, sep, 0)).map(|_end| ())
 }
 
-/// Write the id subtree at `pos`, returning the position just past it. Each node
-/// is a 2-bit presence tag (bit 0 = left present, bit 1 = right present); a
-/// terminal renders as `1` and an absent child as `0`. Routed through the
-/// amortized stack-growth guard.
+/// Write the id subtree at `pos`, returning the position just past it.
+///
+/// Each node is a 2-bit presence tag (bit 0 = left present, bit 1 = right
+/// present); a terminal renders as `1` and an absent child as `0`. Routed
+/// through the amortized stack-growth guard.
 fn write_id_node(
     bits: &BitsSlice,
     pos: usize,

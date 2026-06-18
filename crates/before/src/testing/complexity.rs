@@ -22,9 +22,10 @@ pub(crate) fn steps_of(f: impl FnOnce()) -> u64 {
 }
 
 /// Assert that `steps`, measured at two input sizes whose node counts differ by
-/// `4×`, grows roughly linearly rather than quadratically. Linear predicts
-/// `~4×` more steps; quadratic predicts `~16×`. The `6×` threshold sits
-/// comfortably between, independent of any constant factor.
+/// `4×`, grows roughly linearly rather than quadratically.
+///
+/// Linear predicts `~4×` more steps; quadratic predicts `~16×`. The `6×`
+/// threshold sits comfortably between, independent of any constant factor.
 pub(crate) fn assert_linear_scaling(small_steps: u64, big_steps: u64) {
     assert!(
         big_steps <= 6 * small_steps,

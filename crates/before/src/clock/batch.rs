@@ -1,6 +1,7 @@
-//! The amortizing mutation handle for a [`Clock`]: [`Batch`] borrows the
-//! clock's party directly and wraps its version in a [`version::Batch`],
-//! repacking once when dropped.
+//! The amortizing mutation handle for a [`Clock`].
+//!
+//! [`Batch`] borrows the clock's party directly and wraps its version in a
+//! [`version::Batch`], repacking once when dropped.
 
 use crate::error::Overlap;
 use crate::{version, Party, Version};

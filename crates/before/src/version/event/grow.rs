@@ -38,10 +38,11 @@ use crate::version::compare::EvReader;
 use crate::version::working::WorkingVersion;
 
 /// Lexicographic inflation cost `(expansions, depth)`: prefer fewer
-/// leaf-to-node expansions, then a shallower spot. `MAX` ([`COST_MAX`]) marks
-/// an infeasible (empty-id) region. Ties between a node's two children favor
-/// the *right* child, to match the oracle's choice (see
-/// [`grow_probe`](EvReader::grow_probe)'s `left_chosen`).
+/// leaf-to-node expansions, then a shallower spot.
+///
+/// `MAX` ([`COST_MAX`]) marks an infeasible (empty-id) region. Ties between a
+/// node's two children favor the *right* child, to match the oracle's choice
+/// (see [`grow_probe`](EvReader::grow_probe)'s `left_chosen`).
 type Cost = (u32, u32);
 
 /// The cost of an infeasible region: an empty-id subtree can never be inflated.
@@ -49,11 +50,13 @@ const COST_MAX: Cost = (u32::MAX, u32::MAX);
 
 /// The probe → emit channel: the cheapest inflation's route to the leaf it
 /// grows, as one direction *bit* per branch node — `true` = descend the left
-/// child, `false` = the right. The paper's `grow` settles a single root-to-leaf
-/// path; this records its turns. It is *keyed by branch position* rather than
-/// stored as one linear path because the emit pass walks only the chosen path
-/// while the probe visited every branch, so emit must look up its direction by
-/// where it is, not read it off a sequence.
+/// child, `false` = the right.
+///
+/// The paper's `grow` settles a single root-to-leaf path; this records its
+/// turns. It is *keyed by branch position* rather than stored as one linear
+/// path because the emit pass walks only the chosen path while the probe
+/// visited every branch, so emit must look up its direction by where it is, not
+/// read it off a sequence.
 ///
 /// A branch is keyed by id bit-position (`Expand`/`Both`, where the id is a
 /// node) or by event position (`FullEvNode`, where the id is a full `1`-leaf).
@@ -123,8 +126,10 @@ enum Kind {
 impl EvReader<'_> {
     /// Probe the cheapest inflation of this event tree (`self`), recording the
     /// chosen child direction (`true` = left) per `(id, ev)` branch node into
-    /// `route`. Read-only; `O(n + m)`. The event side is lazy-skipped where an
-    /// empty id region prunes it.
+    /// `route`.
+    ///
+    /// Read-only; `O(n + m)`. The event side is lazy-skipped where an empty id
+    /// region prunes it.
     ///
     /// This is the cost-finding half of the recursive form of
     /// `oracle::Version::grow` (the paper's `grow`): where the oracle recurses
@@ -138,9 +143,11 @@ impl EvReader<'_> {
     }
 
     /// Emit the grown tree (`self` is the source event tree) following the
-    /// probe's `route`, in normal form. `O(n + m)`: only the chosen root-to-leaf
-    /// path is rebuilt (with the inflation and the sink); every off-path subtree
-    /// is copied or skipped exactly once.
+    /// probe's `route`, in normal form.
+    ///
+    /// `O(n + m)`: only the chosen root-to-leaf path is rebuilt (with the
+    /// inflation and the sink); every off-path subtree is copied or skipped
+    /// exactly once.
     ///
     /// This is the rebuilding half of the recursive form of
     /// `oracle::Version::grow`, replaying the directions
@@ -154,10 +161,12 @@ impl EvReader<'_> {
 }
 
 /// `grow(id, ev)`: register a new event on the event tree `ev` by the cheapest
-/// available inflation, in normal form. Two passes — a read-only cost probe,
-/// then an emit along the chosen path — each `O(n + m)`. The probe and emit are
-/// the same traversal; see the module doc for the `(id, ev)`-coordinate
-/// contract that links them through the [`Route`].
+/// available inflation, in normal form.
+///
+/// Two passes — a read-only cost probe, then an emit along the chosen path —
+/// each `O(n + m)`. The probe and emit are the same traversal; see the module
+/// doc for the `(id, ev)`-coordinate contract that links them through the
+/// [`Route`].
 ///
 /// Takes the source working form rather than a cursor: each pass builds its own
 /// fresh cursor from it (as `tick` does), so the one operation that reads a tree
@@ -182,11 +191,13 @@ struct ProbeWalk<'a> {
 impl ProbeWalk<'_> {
     /// Probe the cheapest inflation of the event subtree at `ev` under the id
     /// subtree at `id`, advancing both readers past their subtrees and routing
-    /// through the amortized stack-growth guard. Returns the subtree's cheapest
-    /// [`Cost`]. A leaf/full side broadcasts a fresh synthetic — `grow`'s
-    /// virtual leaf [`Zero`](EvReader::Zero) for an expanded event leaf, a
-    /// [`Full`](IdReader::Full) id re-presented to both event children — read
-    /// like any real node, so no sentinel guards are needed.
+    /// through the amortized stack-growth guard.
+    ///
+    /// Returns the subtree's cheapest [`Cost`]. A leaf/full side broadcasts a
+    /// fresh synthetic — `grow`'s virtual leaf [`Zero`](EvReader::Zero) for an
+    /// expanded event leaf, a [`Full`](IdReader::Full) id re-presented to both
+    /// event children — read like any real node, so no sentinel guards are
+    /// needed.
     fn rec(&mut self, id: &mut IdReader, ev: &mut EvReader, depth: usize) -> Cost {
         // Capture the keying positions before the reads advance the cursors. The
         // keying side (id for `Expand`/`Both`, ev for `FullEvNode`) is always a
@@ -265,10 +276,11 @@ struct EmitWalk<'a> {
 impl EmitWalk<'_> {
     /// Emit the grown event subtree at `ev` under the id subtree at `id`,
     /// following the probe's chosen path, copying every off-path subtree once,
-    /// and advancing both readers. Routed through the amortized stack-growth
-    /// guard; returns the output root. The event side bottoms out at
-    /// [`Zero`](EvReader::Zero), the id-full side at [`Full`](IdReader::Full),
-    /// each read like any real node.
+    /// and advancing both readers.
+    ///
+    /// Routed through the amortized stack-growth guard; returns the output root.
+    /// The event side bottoms out at [`Zero`](EvReader::Zero), the id-full side
+    /// at [`Full`](IdReader::Full), each read like any real node.
     fn rec(&mut self, id: &mut IdReader, ev: &mut EvReader, depth: usize) -> Slot {
         let id_pos = id.pos_opt();
         let id_node = id.read();

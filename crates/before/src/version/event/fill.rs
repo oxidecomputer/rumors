@@ -10,10 +10,11 @@ use super::{Builder, Slot};
 impl EvReader<'_> {
     /// `fill(id, ev)`: use the available id to simplify this event tree
     /// (`self`) without registering a new event — wherever the id is full over
-    /// a subtree, collapse that subtree to its maximum. Produces normal form.
-    /// `O(n + m)`: the event drives (every event node visited once, threaded),
-    /// and the id is lazy-skipped only where the event prunes it (an event leaf
-    /// under an id node).
+    /// a subtree, collapse that subtree to its maximum.
+    ///
+    /// Produces normal form. `O(n + m)`: the event drives (every event node
+    /// visited once, threaded), and the id is lazy-skipped only where the event
+    /// prunes it (an event leaf under an id node).
     ///
     /// The recursive form of `oracle::Version::fill` (the paper's `fill`): the
     /// walk reads as the oracle's `match (id, ev)`, threading an [`IdReader`] and
@@ -46,8 +47,9 @@ struct FillWalk {
 impl FillWalk {
     /// Fill the event subtree at `ev` under the id subtree at `id`, emitting into
     /// `out`, advancing both readers past their subtrees, and routing through the
-    /// amortized stack-growth guard. Returns the output root. Reads as the
-    /// paper's `fill`:
+    /// amortized stack-growth guard.
+    ///
+    /// Returns the output root. Reads as the paper's `fill`:
     ///
     /// - `fill(0, e) = e`           — id empty: copy the event unchanged.
     /// - `fill(1, e) = max(e)`      — id full: collapse to a single max-leaf.

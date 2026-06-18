@@ -8,9 +8,10 @@ use super::{OverlapError, Party, Version};
 
 /// The reference [`Clock`](crate::Clock): the paper's recursive trees,
 /// mirroring the optimized type's API one-to-one so the differential tests
-/// can drive both with the same script. Contracts live on the real type;
-/// this one is deliberately naive (and `Clone`, so tests can branch
-/// histories the linear type forbids).
+/// can drive both with the same script.
+///
+/// Contracts live on the real type; this one is deliberately naive (and
+/// `Clone`, so tests can branch histories the linear type forbids).
 #[derive(Clone, Debug)]
 pub struct Clock {
     party: Party,

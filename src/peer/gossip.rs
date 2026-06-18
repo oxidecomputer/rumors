@@ -1,5 +1,7 @@
 //! The wire-session drivers for [`Peer`]: [`bootstrap`](Peer::bootstrap),
-//! [`gossip`](crate::Rumors::gossip), and [`retire`](Peer::retire), plus the
+//! [`gossip`](crate::Rumors::gossip), and [`retire`](Peer::retire).
+//!
+//! Plus the
 //! preamble constants every session leads with and the [`PartyGuard`]
 //! that snaps a speculatively-donated party back in place on failure.
 
@@ -119,7 +121,9 @@ pub enum Led {
 impl<T, M: Mode> Peer<T, NoBookmark, M> {
     /// The mode-agnostic engine behind [`bootstrap`](Peer::bootstrap): runs the
     /// join over any [`AsyncRead`]/[`AsyncWrite`] pair and builds a peer in
-    /// mode `M`. The async face awaits it; the blocking face drives it to
+    /// mode `M`.
+    ///
+    /// The async face awaits it; the blocking face drives it to
     /// completion over [`std::io`].
     pub(crate) async fn bootstrap_inner<'a, R, W>(
         read: &'a mut R,
@@ -184,7 +188,9 @@ impl<T, M: Mode> Peer<T, NoBookmark, M> {
     }
 
     /// The mode-agnostic engine behind [`bookmark`](Peer::bookmark): attaches
-    /// `bookmark` and eagerly persists, preserving the peer's mode `M`. It
+    /// `bookmark` and eagerly persists, preserving the peer's mode `M`.
+    ///
+    /// It
     /// drives the bookmark through [`Persist<M>`](Persist), so the async face
     /// awaits real I/O and the blocking face runs the same body to completion
     /// over the synchronous calls — with no wrapper type, the stored `B` is the
@@ -737,6 +743,7 @@ impl<T, B: Bookmark> Peer<T, B, Async> {
 
 /// What woke the [`gossip_when`](Peer::gossip_when) driver out of its idle
 /// select: the remote's preamble (or its absence), or the `when` stream.
+///
 /// Materialized so the racing borrows end before the session consumes the
 /// driver's transport halves.
 enum Trigger {
@@ -794,7 +801,9 @@ impl<T> Drop for PartyGuard<T> {
     }
 }
 
-/// Collapse a mirror error down to the wire-bound server error. The client side
+/// Collapse a mirror error down to the wire-bound server error.
+///
+/// The client side
 /// of every wire session is the in-memory local exchange, whose error type is
 /// [`Infallible`](std::convert::Infallible), so the
 /// [`Client`](mirror::Error::Client) arm is uninhabitable.

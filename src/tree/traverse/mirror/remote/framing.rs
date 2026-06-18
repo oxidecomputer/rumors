@@ -25,7 +25,9 @@
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 /// The read half of a session's transport, yielding one exact frame at a
-/// time. Stateless beyond the reader it wraps: it buffers nothing, so
+/// time.
+///
+/// Stateless beyond the reader it wraps: it buffers nothing, so
 /// dropping it (or constructing a fresh one over the same reader) never
 /// loses stream bytes.
 pub struct FrameRead<R> {
@@ -57,8 +59,9 @@ impl<R: AsyncRead + Unpin> FrameRead<R> {
         Ok(payload)
     }
 
-    /// Drive `buf` toward full from the stream, *cancel-safely*: all
-    /// progress lives in (`buf`, `filled`), none in the returned future, so
+    /// Drive `buf` toward full from the stream, *cancel-safely*.
+    ///
+    /// All progress lives in (`buf`, `filled`), none in the returned future, so
     /// the future can be dropped (say, by losing a `select!`) and a later
     /// call resumes exactly where the read left off. This is how a gossip
     /// driver holds a pending read for a remote-led session while staying
@@ -101,9 +104,11 @@ impl<R: AsyncRead + Unpin> FrameRead<R> {
 }
 
 /// How a [`fill_exact`](FrameRead::fill_exact) drive ended, separating the
-/// two meanings of end-of-stream: a peer that hung up *between* frames
-/// closed at a boundary ([`Closed`](Fill::Closed)); one that hung up inside
-/// a frame truncated it (an error, not a variant).
+/// two meanings of end-of-stream.
+///
+/// A peer that hung up *between* frames closed at a boundary
+/// ([`Closed`](Fill::Closed)); one that hung up inside a frame truncated it
+/// (an error, not a variant).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Fill {
     /// The buffer is full.

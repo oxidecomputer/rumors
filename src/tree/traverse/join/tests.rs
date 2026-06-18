@@ -1,7 +1,9 @@
 //! `Tree::join` is observationally identical to mirroring two local trees: for
 //! any divergent pair it produces the same merged tree, including honoring
-//! deletions by version dominance. The oracle is the mirror engine driven
-//! directly (not `Known::join_then`, which *is* `Tree::join` now).
+//! deletions by version dominance.
+//!
+//! The oracle is the mirror engine driven directly (not `Known::join_then`,
+//! which *is* `Tree::join` now).
 
 use proptest::prelude::*;
 
@@ -48,7 +50,9 @@ proptest! {
 
     /// A small delta against a *wide shared* (forked) prefix: the steady-state
     /// gossip shape `join_small_delta` benchmarks, and the case `join`'s
-    /// `OrdMap::diff` exists to make cheap. A wide shared base gives the children
+    /// `OrdMap::diff` exists to make cheap.
+    ///
+    /// A wide shared base gives the children
     /// maps real B-tree depth, so this drives `diff`'s cross-level pointer-
     /// pruning (which the narrow `arb_divergent_pair` bases never reach) and
     /// confirms it still enumerates *exactly* the divergent radixes — no more, no
@@ -78,7 +82,9 @@ proptest! {
         prop_assert_eq!(join_tree(a.clone(), b.clone()), join_tree(b, a));
     }
 
-    /// The merge is associative over three mutually-disjoint trees. (Uses
+    /// The merge is associative over three mutually-disjoint trees.
+    ///
+    /// (Uses
     /// `arb_tree_root` on three distinct party indices so the three are pairwise
     /// disjoint; `arb_divergent_pair` bakes in parties 0/1/2 and so cannot be
     /// composed three-way. Associativity in the presence of redactions is

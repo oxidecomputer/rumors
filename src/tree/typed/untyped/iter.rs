@@ -40,11 +40,13 @@ struct Bounds<'a> {
 
 impl Bounds<'_> {
     /// Whether *no* leaf of a subtree with the given memoized version
-    /// bounds can pass: every leaf falls inside the subtracted start
-    /// down-set (each is at most the node's ceiling), or none falls inside
-    /// the kept end down-set (each is at least the node's floor, and
-    /// containment composes through `<=`). Conservative in the right
-    /// direction: `false` merely means the walk must look deeper.
+    /// bounds can pass.
+    ///
+    /// Holds when every leaf falls inside the subtracted start down-set (each
+    /// is at most the node's ceiling), or none falls inside the kept end
+    /// down-set (each is at least the node's floor, and containment composes
+    /// through `<=`). Conservative in the right direction: `false` merely
+    /// means the walk must look deeper.
     fn prunes<T>(&self, node: &Node<T>) -> bool {
         let below_start = match self.start {
             Bound::Unbounded => false,
@@ -68,7 +70,9 @@ impl Bounds<'_> {
     /// Whether *every* leaf of a subtree with the given memoized version
     /// bounds passes: the node's floor already escapes the subtracted start
     /// down-set, and its ceiling is already contained in the kept end
-    /// down-set. For a leaf — whose floor and ceiling are both its version —
+    /// down-set.
+    ///
+    /// For a leaf — whose floor and ceiling are both its version —
     /// prune-or-promote is exhaustive: an unpruned leaf always passes.
     fn promotes<T>(&self, node: &Node<T>) -> bool {
         let clears_start = match self.start {
@@ -107,10 +111,11 @@ struct Frame<'a, T> {
 
 /// The shared frontier engine beneath [`Iter`] and [`Range`]: a lazy
 /// depth-first walk over a subtree's live leaves, filtered by a causal
-/// [`RangeBounds<Version>`] range (see [`Bounds`] for the semantics;
-/// [`RangeFull`] is the unfiltered walk and never touches a version),
-/// yielding each leaf's reconstructed 32-byte path [`Key`], its [`Version`],
-/// and a borrowed handle to its [`Message`].
+/// [`RangeBounds<Version>`] range.
+///
+/// See [`Bounds`] for the semantics; [`RangeFull`] is the unfiltered walk and
+/// never touches a version. The walk yields each leaf's reconstructed 32-byte
+/// path [`Key`], its [`Version`], and a borrowed handle to its [`Message`].
 ///
 /// The walk is lazy: a single step descends only far enough to reach the
 /// next leaf, so the first item is produced after walking one root-to-leaf
@@ -133,13 +138,16 @@ struct Frame<'a, T> {
 /// [`Key`]: crate::tree::key::Key
 struct Walk<'a, T, R> {
     /// Pending [`Frame`]s, held in ascending key order front-to-back.
+    ///
     /// Forward steps consume the front, backward steps the back; a branch is
     /// expanded in place into its children (preserving the ordering), so the
     /// frontier always describes exactly the not-yet-yielded leaves. Empty
     /// once exhausted.
     frames: VecDeque<Frame<'a, T>>,
     /// Leaves not yet visited — the leaf count still reachable from the
-    /// frontier. Seeded from the root's [`Node::len`], decremented once per
+    /// frontier.
+    ///
+    /// Seeded from the root's [`Node::len`], decremented once per
     /// yielded leaf and by a pruned subtree's whole count. Exploding a branch
     /// into its children preserves it (a branch's `len` is the sum of its
     /// children's). With [`RangeFull`] nothing is ever pruned, so this is
@@ -174,9 +182,10 @@ impl<'a, T, R: RangeBounds<Version>> Walk<'a, T, R> {
         }
     }
 
-    /// Advance from one end of the frontier to the next passing leaf. `back`
-    /// selects the end: `false` pops the smallest pending subtree off the
-    /// front (the `next` direction), `true` pops the largest off the back
+    /// Advance from one end of the frontier to the next passing leaf.
+    ///
+    /// `back` selects the end: `false` pops the smallest pending subtree off
+    /// the front (the `next` direction), `true` pops the largest off the back
     /// (`next_back`). A popped branch is expanded back onto the *same* end,
     /// ordered so the frontier stays ascending front-to-back; the two ends
     /// therefore never yield the same leaf and meet cleanly when the frontier
@@ -262,8 +271,9 @@ impl<'a, T, R: RangeBounds<Version>> Walk<'a, T, R> {
 
 /// A lazy depth-first iterator over every live leaf in a subtree, yielding
 /// each leaf's reconstructed 32-byte path [`Key`], its [`Version`], and a
-/// borrowed handle to its [`Message`]. For the same walk filtered to a
-/// causal range, see [`Range`].
+/// borrowed handle to its [`Message`].
+///
+/// For the same walk filtered to a causal range, see [`Range`].
 ///
 /// The [`Message`] is the richest leaf payload (it carries the cached
 /// serialization alongside the `Arc<T>`); callers that only want the value
@@ -294,10 +304,12 @@ impl<'a, T> Iter<'a, T> {
         Self::within(node, &[])
     }
 
-    /// Iterate the subtree rooted at `node` when it does *not* sit at the top of
-    /// the tree: `path` carries the bytes already walked to reach it (the
-    /// ancestors' radixes, shallowest-first), which the descent extends so each
-    /// leaf still reconstructs a full 32-byte [`Key`](crate::tree::key::Key).
+    /// Iterate the subtree rooted at `node` when it does *not* sit at the top
+    /// of the tree.
+    ///
+    /// `path` carries the bytes already walked to reach it (the ancestors'
+    /// radixes, shallowest-first), which the descent extends so each leaf
+    /// still reconstructs a full 32-byte [`Key`](crate::tree::key::Key).
     /// `path.len()` plus the height of `node` must therefore be 32.
     pub(crate) fn within(node: &'a Node<T>, path: &[u8]) -> Self {
         Self {
@@ -336,9 +348,10 @@ impl<'a, T> DoubleEndedIterator for Iter<'a, T> {
 
 impl<'a, T> ExactSizeIterator for Iter<'a, T> {}
 
-/// The leaf walk filtered to a causal [`RangeBounds<Version>`] range: a leaf
-/// with version `v` is yielded iff it is contained in the range's end bound
-/// and *not* contained in its start bound — a difference of causal
+/// The leaf walk filtered to a causal [`RangeBounds<Version>`] range.
+///
+/// A leaf with version `v` is yielded iff it is contained in the range's end
+/// bound and *not* contained in its start bound — a difference of causal
 /// down-sets. Per bound kind:
 ///
 /// - start [`Unbounded`](Bound::Unbounded): nothing subtracted;
@@ -400,8 +413,9 @@ impl<'a, T, R: RangeBounds<Version>> DoubleEndedIterator for Range<'a, T, R> {
 }
 
 /// The owned, "frozen" counterpart of the borrowing walk: frames hold cheap
-/// [`Node`] handles (`Arc` clones) instead of `&Node` borrows, so the walk
-/// carries no lifetime and can be held across awaits and stored in
+/// [`Node`] handles (`Arc` clones) instead of `&Node` borrows.
+///
+/// The walk carries no lifetime and can be held across awaits and stored in
 /// long-lived state.
 ///
 /// Its state is *constant-size*: a descent spine of at most one [`Level`]

@@ -79,9 +79,12 @@ fn impl_events(depth: usize) -> Vec<Version> {
 
 // ───────────────────────────── id op families ─────────────────────────────
 
-/// Every id tree round-trips: the impl is itself normal form (`decode` accepts only
-/// canonical bits), and lowering after `decode∘encode` recovers the same oracle tree. The
-/// anonymous id is excluded (a standalone `Party` must own a region; `decode` rejects `0`).
+/// Every id tree round-trips: the impl is itself normal form (`decode` accepts
+/// only canonical bits), and lowering after `decode∘encode` recovers the same
+/// oracle tree.
+///
+/// The anonymous id is excluded (a standalone `Party` must own a region;
+/// `decode` rejects `0`).
 fn check_id_codec(ids: &[oracle::Party], imp: &[Party]) {
     (0..ids.len()).into_par_iter().for_each(|i| {
         let oa = &ids[i];
@@ -157,9 +160,11 @@ fn check_ev_codec(evs: &[oracle::Version], imp: &[Version]) {
     });
 }
 
-/// `partial_cmp`, `|` (merge / LUB), and `&` (meet / GLB) over every *ordered pair* of events
-/// agree with the oracle, structurally — reaching the concurrent (`None`) verdict and the
-/// join/meet arm selection on shapes the op pipeline never builds.
+/// `partial_cmp`, `|` (merge / LUB), and `&` (meet / GLB) over every *ordered
+/// pair* of events agree with the oracle, structurally.
+///
+/// Reaching the concurrent (`None`) verdict and the join/meet arm selection on
+/// shapes the op pipeline never builds.
 fn check_ev_pairs(evs: &[oracle::Version], imp: &[Version]) {
     par_for_pairs(evs.len(), |i, j| {
         let (oa, ob) = (&evs[i], &evs[j]);
@@ -187,13 +192,15 @@ fn check_ev_pairs(evs: &[oracle::Version], imp: &[Version]) {
 
 // ───────────────────────── (id, event) op families ─────────────────────────
 
-/// `tick` (= `fill` then, on no fill, `grow`) over every (non-empty id, event) pair matches
-/// the oracle's `event`. When the pair takes the `grow` branch, the impl's inflation is
-/// additionally pinned to the brute-force cost-minimal, right-favoring region
-/// ([`best_inflation`]) — holding the packed `grow`'s DP to the global optimum directly, not
-/// merely to the oracle that realizes the same DP — and the metamorphic minimality condition
-/// (no feasible candidate sits strictly between `e` and `e'`) is checked on the impl's own
-/// causal order.
+/// `tick` (= `fill` then, on no fill, `grow`) over every (non-empty id, event)
+/// pair matches the oracle's `event`.
+///
+/// When the pair takes the `grow` branch, the impl's inflation is additionally
+/// pinned to the brute-force cost-minimal, right-favoring region
+/// ([`best_inflation`]) — holding the packed `grow`'s DP to the global optimum
+/// directly, not merely to the oracle that realizes the same DP — and the
+/// metamorphic minimality condition (no feasible candidate sits strictly
+/// between `e` and `e'`) is checked on the impl's own causal order.
 fn check_tick(
     ids: &[oracle::Party],
     imp_ids: &[Party],
@@ -247,9 +254,12 @@ fn check_tick(
 
 // ─────────────────────────────── drivers ───────────────────────────────
 
-/// Run every differential op family over the ids enumerated at `id_depth` and the events at
-/// `ev_depth` (the two corpora grow at different rates, so their bounds are decoupled — see
-/// the module doc). Each corpus is lowered to its impl form once and the pair loops borrow it.
+/// Run every differential op family over the ids enumerated at `id_depth` and
+/// the events at `ev_depth`.
+///
+/// The two corpora grow at different rates, so their bounds are decoupled — see
+/// the module doc. Each corpus is lowered to its impl form once and the pair
+/// loops borrow it.
 fn run_all_at(id_depth: usize, ev_depth: usize) {
     let ids = all_normal_ids(id_depth);
     let evs = all_normal_events(ev_depth);
@@ -266,9 +276,12 @@ fn run_all_at(id_depth: usize, ev_depth: usize) {
     check_tick(&ids, &imp_ids, &evs, &imp_evs);
 }
 
-/// Sanity-check that the enumeration deduplicates to canonical normal form: every
-/// enumerated id and event is `is_normal`, and the corpus has no duplicates (the de-dup key
-/// is injective over canonical trees, so equal trees would have collided).
+/// Sanity-check that the enumeration deduplicates to canonical normal form:
+/// every enumerated id and event is `is_normal`, and the corpus has no
+/// duplicates.
+///
+/// The de-dup key is injective over canonical trees, so equal trees would have
+/// collided.
 #[test]
 fn corpus_is_canonical() {
     let ids = all_normal_ids(ID_SMALL_DEPTH);
@@ -293,19 +306,24 @@ fn corpus_is_canonical() {
     );
 }
 
-/// Every operation, on every enumerated tree and ordered pair, agrees with the oracle at
-/// the small depth bound — deterministic coverage of the close-up corners (root-tie `grow`,
-/// empty-child spine, `close_node` adjacency, overlap/concurrent verdicts) that random
+/// Every operation, on every enumerated tree and ordered pair, agrees with the
+/// oracle at the small depth bound.
+///
+/// Deterministic coverage of the close-up corners (root-tie `grow`, empty-child
+/// spine, `close_node` adjacency, overlap/concurrent verdicts) that random
 /// sampling under-hits. Runs in the normal gate.
 #[test]
 fn exhaustive_small() {
     run_all_at(ID_SMALL_DEPTH, EV_SMALL_DEPTH);
 }
 
-/// The same total cross-product at the deep depth bound. The id corpus jumps to 65536 trees,
-/// so the `O(corpus²)` id pair-product (~4.3 billion pairs) dominates; with the per-tree
-/// precompute and `rayon` parallelism it completes in ~4.5 minutes on a 16-core M4 Max
-/// (measured: 270s). It is `#[ignore]`d to keep the normal gate fast. Run it explicitly with:
+/// The same total cross-product at the deep depth bound.
+///
+/// The id corpus jumps to 65536 trees, so the `O(corpus²)` id pair-product
+/// (~4.3 billion pairs) dominates; with the per-tree precompute and `rayon`
+/// parallelism it completes in ~4.5 minutes on a 16-core M4 Max (measured:
+/// 270s). It is `#[ignore]`d to keep the normal gate fast. Run it explicitly
+/// with:
 ///
 /// ```text
 /// cargo nextest run -p before --release --all-features \
@@ -321,13 +339,14 @@ fn exhaustive_deep() {
 
 // ───────────────────────────── intrinsic symmetry laws ─────────────────────────────
 //
-// The op symmetries are intrinsic algebraic properties of the impl, so they are tested
-// DIRECTLY on the impl — no oracle, and not folded into the differential checks above. Two
-// payoffs: a symmetry bug the oracle happened to *share* is still caught here, and (being
-// deterministic + total over the small-scope corpus) the guarantee is total, not sampled.
+// The op symmetries are intrinsic algebraic properties of the impl, so they are
+// tested DIRECTLY on the impl — no oracle, and not folded into the differential
+// checks above. Two payoffs: a symmetry bug the oracle happened to *share* is
+// still caught here, and (being deterministic + total over the small-scope
+// corpus) the guarantee is total, not sampled.
 
-/// `is_disjoint` is symmetric: `a.is_disjoint(b) == b.is_disjoint(a)` for every ordered pair
-/// of enumerated ids (including the reflexive `a == b` diagonal).
+/// `is_disjoint` is symmetric: `a.is_disjoint(b) == b.is_disjoint(a)` for every
+/// ordered pair of enumerated ids (including the reflexive `a == b` diagonal).
 #[test]
 fn id_is_disjoint_is_symmetric() {
     let imp = impl_ids(ID_SMALL_DEPTH);
@@ -340,8 +359,9 @@ fn id_is_disjoint_is_symmetric() {
     });
 }
 
-/// `sum` is commutative: `sum(a, b)` and `sum(b, a)` are byte-identical (and both `None`
-/// exactly when the ids overlap), over every ordered pair of enumerated ids.
+/// `sum` is commutative: `sum(a, b)` and `sum(b, a)` are byte-identical (and
+/// both `None` exactly when the ids overlap), over every ordered pair of
+/// enumerated ids.
 #[test]
 fn id_sum_is_commutative() {
     let imp = impl_ids(ID_SMALL_DEPTH);
@@ -352,7 +372,8 @@ fn id_sum_is_commutative() {
     });
 }
 
-/// event `partial_cmp` is anti-symmetric, over every ordered pair of enumerated events.
+/// event `partial_cmp` is anti-symmetric, over every ordered pair of enumerated
+/// events.
 #[test]
 fn event_partial_cmp_is_antisymmetric() {
     let imp = impl_events(EV_SMALL_DEPTH);
@@ -365,8 +386,8 @@ fn event_partial_cmp_is_antisymmetric() {
     });
 }
 
-/// event merge (`|`, the join / least upper bound) is commutative: `a | b == b | a`, over
-/// every ordered pair of enumerated events.
+/// event merge (`|`, the join / least upper bound) is commutative: `a | b == b
+/// | a`, over every ordered pair of enumerated events.
 #[test]
 fn event_merge_is_commutative() {
     let imp = impl_events(EV_SMALL_DEPTH);
@@ -377,8 +398,9 @@ fn event_merge_is_commutative() {
     });
 }
 
-/// event meet (`&`, the meet / greatest lower bound) is commutative: `a & b == b & a`, over
-/// every ordered pair of enumerated events. The dual of [`event_merge_is_commutative`].
+/// event meet (`&`, the meet / greatest lower bound) is commutative: `a & b ==
+/// b & a`, over every ordered pair of enumerated events. The dual of
+/// [`event_merge_is_commutative`].
 #[test]
 fn event_meet_is_commutative() {
     let imp = impl_events(EV_SMALL_DEPTH);

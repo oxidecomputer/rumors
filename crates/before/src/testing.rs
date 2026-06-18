@@ -1,4 +1,7 @@
-//! Test-only harness: the oracle⇄impl bridge, input generators, the brute-force
+//! Test-only harness: the differential-testing scaffolding and cross-cutting
+//! suites.
+//!
+//! It holds the oracle⇄impl bridge, input generators, the brute-force
 //! grow-optimality reference, the step-scaling helpers, the function-space
 //! (semantic) oracle, and the cross-cutting suites (exhaustive small-scope,
 //! algebraic laws, documentation snapshots). Compiled only under `cfg(test)`;

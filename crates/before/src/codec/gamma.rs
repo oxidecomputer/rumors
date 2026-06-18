@@ -20,8 +20,9 @@ use crate::error::Decode;
 use super::{Base, Bits, BitsSlice};
 
 /// Append `n` as the Elias gamma code of `m = n + 1`: `floor(log2(m))` zero
-/// bits, then `m` in `floor(log2(m)) + 1` bits, most-significant first. Cost is
-/// `2*floor(log2(n+1)) + 1` bits; `0` costs a single bit. Canonical and
+/// bits, then `m` in `floor(log2(m)) + 1` bits, most-significant first.
+///
+/// Cost is `2*floor(log2(n+1)) + 1` bits; `0` costs a single bit. Canonical and
 /// prefix-free, for an arbitrary-width non-negative `n` (there is no value
 /// cap).
 pub(crate) fn encode_int(out: &mut Bits, n: &Base) {
@@ -40,10 +41,12 @@ pub(crate) fn encode_int(out: &mut Bits, n: &Base) {
 }
 
 /// Read an Elias-gamma-coded integer at `pos`, returning the value and the new
-/// position. Running past the end is `Truncated`. Decodes an arbitrary-width
-/// value (no cap): the unary prefix length `k` is bounded by the available
-/// bits, which the `Truncated` checks enforce, so a declared code can never
-/// exceed the input.
+/// position.
+///
+/// Running past the end is `Truncated`. Decodes an arbitrary-width value (no
+/// cap): the unary prefix length `k` is bounded by the available bits, which
+/// the `Truncated` checks enforce, so a declared code can never exceed the
+/// input.
 pub(crate) fn decode_int(bits: &BitsSlice, pos: usize) -> Result<(Base, usize), Decode> {
     let mut k = 0usize;
     loop {

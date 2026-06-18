@@ -23,7 +23,9 @@ pub struct Network([u8; 16]);
 
 impl Network {
     /// The all-zero placeholder a bootstrapping peer sends in the handshake: it
-    /// has no rumor set yet, hence no real network. It is the one value
+    /// has no rumor set yet, hence no real network.
+    ///
+    /// It is the one value
     /// [`from_rng`](Self::from_rng) never mints, so it unambiguously means "I
     /// am bootstrapping" on the wire and suppresses the network-match check.
     pub(crate) const BOOTSTRAP: Network = Network([0u8; 16]);

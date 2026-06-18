@@ -103,8 +103,9 @@ impl Staged {
     }
 
     /// Drive the staging buffer toward a full preamble frame, cancel-safely:
-    /// progress survives the future being dropped. See
-    /// [`FrameRead::fill_exact`] for the EOF split — [`Fill::Closed`] only
+    /// progress survives the future being dropped.
+    ///
+    /// See [`FrameRead::fill_exact`] for the EOF split — [`Fill::Closed`] only
     /// ever means a hang-up *before the first byte*.
     pub async fn fill<R>(&mut self, reader: &mut FrameRead<R>) -> Result<Fill, Error>
     where
@@ -215,7 +216,9 @@ where
 
 /// Provider side of the party hand-off that completes bootstrapping a brand-new
 /// peer: fork `party` and ship the give-half as one frame, *after* the mirror
-/// descent has transferred all content. [`Peer::retire`](crate::Peer::retire)
+/// descent has transferred all content.
+///
+/// [`Peer::retire`](crate::Peer::retire)
 /// reuses the same trailing frame in the opposite direction: the retiree ships
 /// its (whole, aliased) party last, for the absorber to [`recv_party`] and
 /// join.

@@ -199,10 +199,11 @@ where
     S<H>: Height,
     H: Height,
 {
-    /// Subtrees the counterparty does not have. Populated from two sources:
-    /// nodes they `requested` in the previous round, and nodes we unilaterally
-    /// know they lack (because they did not list them in the previous round's
-    /// `uncertain`).
+    /// Subtrees the counterparty does not have.
+    ///
+    /// Populated from two sources: nodes they `requested` in the previous
+    /// round, and nodes we unilaterally know they lack (because they did not
+    /// list them in the previous round's `uncertain`).
     ///
     /// In both cases the subtrees are filtered against the counterparty's
     /// version vector: anything causally `<=` their version has either been
@@ -218,9 +219,11 @@ where
     /// them into our zipper. Strictly ascending; duplicates are rejected.
     pub requested: Vec<Prefix<S<H>>>,
     /// Hashes of our subtrees at this round's frontier, for the counterparty
-    /// to compare against their own. Each entry routes to one cell of the
-    /// asymmetry matrix (see the [`super::local`] module docs) on the
-    /// receiving side. Strictly ascending by prefix.
+    /// to compare against their own.
+    ///
+    /// Each entry routes to one cell of the asymmetry matrix (see the
+    /// [`super::local`] module docs) on the receiving side. Strictly ascending
+    /// by prefix.
     pub uncertain: Vec<(Prefix<H>, Hash)>,
 }
 
@@ -354,8 +357,9 @@ impl<T> Default for Closing<T> {
     }
 }
 
-/// The responder's closing message: the final `providing` at leaf height,
-/// emitted by
+/// The responder's closing message: the final `providing` at leaf height.
+///
+/// Emitted by
 /// [`complete_responder`](super::protocol::CompleteResponder::complete_responder)
 /// for the initiator to absorb in
 /// [`complete_initiator`](super::protocol::CompleteInitiator::complete_initiator).

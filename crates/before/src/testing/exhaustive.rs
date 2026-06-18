@@ -43,20 +43,23 @@ mod tests;
 
 use crate::oracle;
 
-/// Inclusive id depth bound for the fast, gate-resident enumeration. A "depth"
-/// is the number of interior-node levels: depth 0 is a bare leaf, depth 1 is a
-/// node over two leaves, etc. Depth 3 yields 256 ids — enough to reach the
-/// close-up corners while the `corpus²` id cross-product (~65k pairs) stays
-/// well under a second.
+/// Inclusive id depth bound for the fast, gate-resident enumeration.
+///
+/// A "depth" is the number of interior-node levels: depth 0 is a bare leaf,
+/// depth 1 is a node over two leaves, etc. Depth 3 yields 256 ids — enough to
+/// reach the close-up corners while the `corpus²` id cross-product (~65k pairs)
+/// stays well under a second.
 pub(crate) const ID_SMALL_DEPTH: usize = 3;
 
-/// Inclusive event depth bound for the fast, gate-resident enumeration. Held
-/// one level below [`ID_SMALL_DEPTH`]: depth 2 yields 691 events (depth 3 would
-/// be ~1.4M, whose `O(corpus²)` cross-product is intractable). 691 events
+/// Inclusive event depth bound for the fast, gate-resident enumeration.
+///
+/// Held one level below [`ID_SMALL_DEPTH`]: depth 2 yields 691 events (depth 3
+/// would be ~1.4M, whose `O(corpus²)` cross-product is intractable). 691 events
 /// already exercises every base-ordering at a node.
 pub(crate) const EV_SMALL_DEPTH: usize = 2;
 
 /// Inclusive id depth bound for the `#[ignore]`d deep enumeration: 65536 ids.
+///
 /// The id cross-product is `O(corpus²)` (~4.3 billion pairs); with the
 /// per-tree precompute and `rayon` it runs in ~4.5 minutes on a 16-core M4
 /// Max. See [`tests::exhaustive_deep`].
@@ -67,10 +70,12 @@ pub(crate) const ID_DEEP_DEPTH: usize = 4;
 /// intractable even off the gate.
 pub(crate) const EV_DEEP_DEPTH: usize = 2;
 
-/// The event-base alphabet for the exhaustive enumeration: `{0, 1, 2}`. Zero is
-/// required for normal form (every event node carries a zero-base child); `1`
-/// and `2` give both a minimal nonzero increment and a value that can dominate
-/// it, so relative-base orderings at a node are exercised in both directions.
+/// The event-base alphabet for the exhaustive enumeration: `{0, 1, 2}`.
+///
+/// Zero is required for normal form (every event node carries a zero-base
+/// child); `1` and `2` give both a minimal nonzero increment and a value that
+/// can dominate it, so relative-base orderings at a node are exercised in both
+/// directions.
 const BASES: [u64; 3] = [0, 1, 2];
 
 /// Every distinct **normal-form** id tree of depth `≤ depth`.
@@ -118,9 +123,11 @@ pub(crate) fn all_normal_ids(depth: usize) -> Vec<oracle::Party> {
 }
 
 /// Every distinct **normal-form** event tree of depth `≤ depth` with every base
-/// in [`BASES`]. Built and deduped exactly as [`all_normal_ids`], folding each
-/// raw node through [`oracle::Version::node`] (which enforces the
-/// zero-base-child rule and collapses equal leaves).
+/// in [`BASES`].
+///
+/// Built and deduped exactly as [`all_normal_ids`], folding each raw node
+/// through [`oracle::Version::node`] (which enforces the zero-base-child rule
+/// and collapses equal leaves).
 pub(crate) fn all_normal_events(depth: usize) -> Vec<oracle::Version> {
     use oracle::Version as V;
     use std::collections::BTreeSet;

@@ -30,9 +30,10 @@ use crate::codec::BitsSlice;
 use crate::step;
 
 /// A decoded id node: the empty `0` leaf, the full `1` leaf, or an internal
-/// node tagged with which of its children are present. The id-side analogue of
-/// the event side's `EvNode` — the clean shape the operations recurse on (the
-/// paper's id grammar `i ::= 0 | 1 | (i1, i2)`).
+/// node tagged with which of its children are present.
+///
+/// The id-side analogue of the event side's `EvNode` — the clean shape the
+/// operations recurse on (the paper's id grammar `i ::= 0 | 1 | (i1, i2)`).
 ///
 /// `Empty` is never decoded from the stream — a `0` occupies no bits — so it
 /// arises only from the synthetic [`IdReader::Empty`], handed in for an absent
@@ -49,11 +50,13 @@ pub(crate) enum IdNode {
     Internal { left: bool, right: bool },
 }
 
-/// A cursor into a packed id tree, or a synthetic leaf. The id-side analogue of
-/// the event side's [`EvReader`](crate::version::compare): it *consumes* —
+/// A cursor into a packed id tree, or a synthetic leaf.
+///
+/// The id-side analogue of the event side's
+/// [`EvReader`](crate::version::compare): it *consumes* —
 /// [`read`](IdReader::read) decodes the node at the cursor and advances it in
-/// place — so operations thread `&mut` readers and read as the paper's recursive
-/// `match`.
+/// place — so operations thread `&mut` readers and read as the paper's
+/// recursive `match`.
 ///
 /// - `At`: a bit offset into the packed id stream.
 /// - `Full`: a synthetic terminal that consumes nothing — the id-side analogue
@@ -130,10 +133,11 @@ impl<'a> IdReader<'a> {
     }
 
     /// Decode the node at this cursor *without* advancing — a look at the
-    /// current node. `fill` uses it to test whether a child is fully owned
-    /// before deciding to collapse it (a shortcut) or recurse into it. (Not a
-    /// duplication: it reads the node in place, leaving the single cursor where
-    /// it was.)
+    /// current node.
+    ///
+    /// `fill` uses it to test whether a child is fully owned before deciding to
+    /// collapse it (a shortcut) or recurse into it. (Not a duplication: it reads
+    /// the node in place, leaving the single cursor where it was.)
     pub(crate) fn peek(&self) -> IdNode {
         match self {
             IdReader::Full => IdNode::Full,
@@ -161,9 +165,10 @@ impl<'a> IdReader<'a> {
     }
 
     /// The underlying packed bit stream, or the empty slice for a synthetic
-    /// reader (which addresses no bits). Used for `sum`/`diff` capacity hints,
-    /// where an anonymous (`0`) operand is a synthetic [`Empty`](IdReader::Empty)
-    /// contributing zero bits.
+    /// reader (which addresses no bits).
+    ///
+    /// Used for `sum`/`diff` capacity hints, where an anonymous (`0`) operand is
+    /// a synthetic [`Empty`](IdReader::Empty) contributing zero bits.
     pub(crate) fn bits(&self) -> &'a BitsSlice {
         match self {
             IdReader::At { bits, .. } => bits,
@@ -183,9 +188,11 @@ impl<'a> IdReader<'a> {
     }
 
     /// This reader's bit offset if it addresses a real tree, or `None` for a
-    /// synthetic reader. `grow` captures it (before a read advances the cursor)
-    /// to key its position-indexed `Route`; the synthetic side of a branch is
-    /// never the keying side, so its `None` is never unwrapped.
+    /// synthetic reader.
+    ///
+    /// `grow` captures it (before a read advances the cursor) to key its
+    /// position-indexed `Route`; the synthetic side of a branch is never the
+    /// keying side, so its `None` is never unwrapped.
     pub(crate) fn pos_opt(&self) -> Option<usize> {
         match self {
             IdReader::At { pos, .. } => Some(*pos),
@@ -195,12 +202,13 @@ impl<'a> IdReader<'a> {
 }
 
 /// Position just past the whole subtree rooted at `at` of any preorder tree
-/// encoding, driven by a caller-supplied header probe. Iterative: a
-/// pending-children counter, never the call stack — deep inputs cannot
-/// overflow. `header(at)` reports `(child_count, next)`: how many children the
-/// node at `at` has (so they follow) and the position just past its header. The
-/// counter starts with one subtree outstanding and, per node, spends one (the
-/// node itself) and adds its children; the subtree ends when nothing is
+/// encoding, driven by a caller-supplied header probe.
+///
+/// Iterative: a pending-children counter, never the call stack — deep inputs
+/// cannot overflow. `header(at)` reports `(child_count, next)`: how many children
+/// the node at `at` has (so they follow) and the position just past its header.
+/// The counter starts with one subtree outstanding and, per node, spends one
+/// (the node itself) and adds its children; the subtree ends when nothing is
 /// outstanding. This admits unary nodes (one child, net zero), which the id
 /// encoding uses; a full binary encoding only ever reports `0` or `2`.
 ///

@@ -26,8 +26,7 @@ pub use forks::Forks;
 #[cfg(test)]
 mod tests;
 
-/// A disjoint party: a share of the unit interval `[0, 1)`, identified by its
-/// place in the fork tree.
+/// A causal party: a disjoint share of the unit interval `[0, 1)`.
 ///
 /// A party is primarily manipulated by these operations:
 ///
@@ -235,7 +234,9 @@ impl Party {
     }
 
     /// Test whether `self` and `other` are *disjoint*: their owned regions
-    /// share nothing. All live descendants of a single
+    /// share nothing.
+    ///
+    /// All live descendants of a single
     /// [`seed`](Party::seed), evolved by linear [`fork`](Party::fork) and
     /// [`join`](Party::join), are pairwise disjoint.
     ///
@@ -422,7 +423,9 @@ impl Party {
     }
 
     /// The anonymous (zero) id: the empty bit stream, since a `0` is structural
-    /// absence in the pruned encoding. Internal and transient only (i.e. for use
+    /// absence in the pruned encoding.
+    ///
+    /// Internal and transient only (i.e. for use
     /// in `mem::swap`) and *never* a publicly constructible value (a `Party` is
     /// a nonzero share).
     ///
@@ -438,7 +441,9 @@ impl Party {
     }
 
     /// The canonical packed bytes of this [`Party`]: what
-    /// [`encode`](Self::encode) produces, borrowed without copying. The final
+    /// [`encode`](Self::encode) produces, borrowed without copying.
+    ///
+    /// The final
     /// partial byte is zero-padded in the stored form, so these bytes are a
     /// canonical identity: byte-equal if and only if the parties are equal, and
     /// consistent with [`hash`](core::hash::Hash).
@@ -529,7 +534,9 @@ fn finish_id(bits: codec::Bits) -> Result<Party, Parse> {
 }
 
 /// An id literal that can ground out a [`Party`] tuple: the `u8` leaves `0`/`1` and
-/// nested `(left, right)` tuples. Sealed and hidden — an implementation detail enabling
+/// nested `(left, right)` tuples.
+///
+/// Sealed and hidden — an implementation detail enabling
 /// `Party::try_from(..)` literals. Unlike the public `TryFrom`, an `IdLit` leaf of `0`
 /// is allowed (it is a valid *sub-tree*); the anonymous check happens only once the
 /// whole id is assembled (see [`finish_id`]).

@@ -33,9 +33,10 @@ fn empty_root_and_leaf_are_their_bare_tags() {
 
 /// A Merkle hash is the prefix truncation of the full-width content hash of
 /// the same preimage: the leading `MERKLE_HASH_LEN` bytes, nothing
-/// rearranged or re-hashed. Pinned so an accidental change to either
-/// primitive's construction trips here before it reaches the wire
-/// snapshots.
+/// rearranged or re-hashed.
+///
+/// Pinned so an accidental change to either primitive's construction trips
+/// here before it reaches the wire snapshots.
 #[test]
 fn merkle_hash_is_prefix_of_full_width() {
     let preimage = b"any preimage at all";

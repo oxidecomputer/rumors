@@ -58,7 +58,9 @@ use crate::oracle;
 
 /// Grid exponent ceiling for the comparison and resolution scans: a scan
 /// samples `2^g` points with `g` the resolution actually in hand
-/// ([`id_res`]/[`ev_res`]), and this caps `g`. Set well above the resolution
+/// ([`id_res`]/[`ev_res`]), and this caps `g`.
+///
+/// Set well above the resolution
 /// the tests reach (arbitrary generators cap at 4; a single-seed op trace
 /// tops out near 7, since the random `fork` only deepens at the paper's
 /// rate), so it never bites. The headroom is required for correctness:
@@ -138,7 +140,9 @@ pub(crate) fn sum(a: Id, b: Id) -> Id {
 }
 
 /// Id difference `⟦i1⟧ \ ⟦i2⟧`: the region `a` owns that `b` does not, pointwise
-/// `a ∧ ¬b`. The function-space realization of [`Party::without`](crate::Party::without)
+/// `a ∧ ¬b`.
+///
+/// The function-space realization of [`Party::without`](crate::Party::without)
 /// — total (overlap is the point) and possibly empty (the all-`false` function,
 /// when `b` covers `a`).
 pub(crate) fn diff(a: Id, b: Id) -> Id {
@@ -146,8 +150,9 @@ pub(crate) fn diff(a: Id, b: Id) -> Id {
 }
 
 /// Event projection `⟦e⟧ / ⟦i⟧`: keep the value where `i` owns the region, zero
-/// it everywhere else (pointwise `if i(x) { e(x) } else { 0 }`). The
-/// function-space realization of the quotient [`Version / &Party`](crate::Version).
+/// it everywhere else (pointwise `if i(x) { e(x) } else { 0 }`).
+///
+/// The function-space realization of the quotient [`Version / &Party`](crate::Version).
 pub(crate) fn project(e: Event, i: Id) -> Event {
     Rc::new(move |x| if i(x) { e(x) } else { Base::ZERO })
 }
@@ -180,7 +185,9 @@ pub(crate) fn meet(a: Event, b: Event) -> Event {
 // ───────────────────────────── cell indexing ─────────────────────────────
 
 /// The index, at resolution `level`, of the cell containing `x` — the top
-/// `level` bits of `x` (always `< 2^level`). The random operations draw a
+/// `level` bits of `x` (always `< 2^level`).
+///
+/// The random operations draw a
 /// per-cell decision into a table indexed this way, so a closure maps a sampled
 /// point back to its cell to look that decision up.
 fn cell_at(x: Dyadic, level: u32) -> usize {
@@ -194,7 +201,9 @@ fn cell_at(x: Dyadic, level: u32) -> usize {
 
 // ───────────────────────────── the under-determined operations ─────────────────────────────
 
-/// `event`: a *random* §4-valid inflation, freshly drawn each call. §4 pins
+/// `event`: a *random* §4-valid inflation, freshly drawn each call.
+///
+/// §4 pins
 /// only `⟦e'⟧ = ⟦e⟧ + f·⟦i⟧` for some `f` with `f·⟦i⟧ ▷ 0` (strictly positive
 /// somewhere the id owns); the old fixed `add-one` and the impl's minimal
 /// `grow` are two particular `f`. Here `f` is arbitrary: each owned cell (at
@@ -231,7 +240,9 @@ pub(crate) fn event(i: &Id, e: Event, rng: &mut StdRng) -> Event {
     })
 }
 
-/// `fork`/`split`: a *random* §4-valid partition, freshly drawn each call. §4
+/// `fork`/`split`: a *random* §4-valid partition, freshly drawn each call.
+///
+/// §4
 /// pins only `⟦i₁⟧ + ⟦i₂⟧ = ⟦i⟧` and `⟦i₁⟧ · ⟦i₂⟧ = 0` (a disjoint cover of the
 /// owned region); the paper's `split` is one particular choice. Here the
 /// region's maximal constant pieces — its owned cells at its *own* resolution —
@@ -293,7 +304,9 @@ fn owned_cells(i: &Id, level: u32) -> Vec<usize> {
 }
 
 /// The resolution of an id: the finest dyadic level at which `⟦i⟧` actually
-/// changes value (`0` if constant). Probed from the function, not tracked — so
+/// changes value (`0` if constant).
+///
+/// Probed from the function, not tracked — so
 /// a `sum` that recombines into a coarser region (e.g. two halves back to the
 /// whole `[0,1)`) reports its *true*, collapsed resolution, keeping the
 /// comparison grid no finer than necessary.
@@ -313,7 +326,9 @@ pub(crate) fn ev_res(e: &Event) -> u32 {
 }
 
 /// Finest boundary level present in a row of `2^GRID_N` cell samples: the
-/// deepest level at which two adjacent cells disagree (`0` if all equal). The
+/// deepest level at which two adjacent cells disagree (`0` if all equal).
+///
+/// The
 /// boundary between cells `k-1` and `k` sits at level `GRID_N − v₂(k)`, so the
 /// finest disagreement is the resolution.
 fn resolution<T: PartialEq>(samples: &[T]) -> u32 {
@@ -373,7 +388,9 @@ fn eval_ev(t: &oracle::Version, mut x: Dyadic) -> Base {
 }
 
 /// One step of the §4 descent: which half of `[0,1)` the point lies in, and the
-/// point rescaled into that half (`2x` on the left, `2x − 1` on the right). A
+/// point rescaled into that half (`2x` on the left, `2x − 1` on the right).
+///
+/// A
 /// point coarser than the tree (`exp == 0`) is the left endpoint `0`, so it
 /// descends left and stays `0`.
 fn descend(x: Dyadic) -> (bool, Dyadic) {
@@ -422,7 +439,9 @@ pub(crate) fn ev_order(a: &Event, b: &Event, g: u32) -> Option<Ordering> {
 }
 
 /// Party containment order over the sampled regions: an ancestor (larger owned
-/// region) reads as `Less`; `le` is `a ⊇ b`, `ge` is `b ⊇ a`. The geometric
+/// region) reads as `Less`; `le` is `a ⊇ b`, `ge` is `b ⊇ a`.
+///
+/// The geometric
 /// counterpart of the tree side's `Party::covers` (`covers` ⟺ `Less`/`Equal`,
 /// as `covers_realizes_containment` pins); `Party` itself is deliberately
 /// unordered.
@@ -453,9 +472,11 @@ pub(crate) fn disjoint(a: &Id, b: &Id, g: u32) -> bool {
 }
 
 /// `min_ticks` recovered from the step function `⟦e⟧`: the sum of the per-node
-/// floors pulled up the dyadic subdivision — the *geometric* mirror of event-tree
-/// normalization, sharing no code with the tree (it samples the closure and
-/// recurses on halves). A cell already constant is a leaf: its value (relative to
+/// floors pulled up the dyadic subdivision.
+///
+/// The *geometric* mirror of event-tree normalization, sharing no code with the
+/// tree (it samples the closure and recurses on halves). A cell already constant
+/// is a leaf: its value (relative to
 /// the floor pulled up above it) is its only base; otherwise the cell's minimum
 /// is pulled up and the two halves recurse with it subtracted, so the total is
 /// `local + left + right`. The result is the sum of every base in the normal-form
@@ -490,8 +511,9 @@ pub(crate) fn min_ticks(e: &Event, g: u32) -> Base {
 }
 
 /// `rank` recovered from the step function `⟦e⟧`: the plain Riemann sum
-/// `Σₖ e(k/2ᵍ) · 2⁻ᵍ` over the level-`g` grid — exact, not approximate,
-/// because `g` resolves `e`, so the function is constant on every level-`g`
+/// `Σₖ e(k/2ᵍ) · 2⁻ᵍ` over the level-`g` grid — exact, not approximate.
+///
+/// Because `g` resolves `e`, the function is constant on every level-`g`
 /// cell and each sample is its cell's true height. Shares no structure with
 /// either tree fold (no recursion, no per-node bases, no normalization
 /// sink): the geometric ground truth for

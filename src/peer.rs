@@ -148,22 +148,25 @@ pub struct Peer<T, B: BookmarkError = NoBookmark, M: Mode = Async> {
     pub(crate) network: Network,
     pub(crate) inner: watch::Sender<Inner<T>>,
     /// The identity bookmark: persistence handle and its in-memory record,
-    /// behind an async mutex and shared with every [`Rumors`] clone. Separate
-    /// from `inner` because persisting is `async` and the record is `!Clone`;
-    /// see [`Bookmarked`].
+    /// behind an async mutex and shared with every [`Rumors`] clone.
+    ///
+    /// Separate from `inner` because persisting is `async` and the record is
+    /// `!Clone`; see [`Bookmarked`].
     pub(crate) bookmark: Arc<Mutex<Bookmarked<B, M>>>,
-    /// The I/O [`Mode`] witness: selects the async or blocking face. Purely
-    /// type-level — it carries no data and never affects the engine, only which
-    /// `impl` block a caller reaches. `fn() -> M` so `M` constrains neither
-    /// variance nor auto-traits.
+    /// The I/O [`Mode`] witness: selects the async or blocking face.
+    ///
+    /// Purely type-level — it carries no data and never affects the engine,
+    /// only which `impl` block a caller reaches. `fn() -> M` so `M` constrains
+    /// neither variance nor auto-traits.
     pub(crate) marker: PhantomData<fn() -> M>,
 }
 
 /// The replica's shared mutable state, behind the `watch` channel every
 /// handle and observer subscribes to: the identity (absent only while a
-/// retirement has it in flight) and the content tree. Mutations happen
-/// inside `send_if_modified` critical sections so observers wake exactly
-/// once per committed change.
+/// retirement has it in flight) and the content tree.
+///
+/// Mutations happen inside `send_if_modified` critical sections so observers
+/// wake exactly once per committed change.
 pub(crate) struct Inner<T> {
     pub(crate) party: Option<Party>,
     pub(crate) tree: Tree<T>,
@@ -363,6 +366,7 @@ impl<T, B: BookmarkError, M: Mode> Peer<T, B, M> {
     /// Alias this set's live party for invariant assertions in tests:
     /// compare it, [`join`](Party::join) it into an accounting fold, or test
     /// [`is_disjoint`](Party::is_disjoint) — never use it as an identity.
+    ///
     /// The alias shares the live party's id-region without forking it, so
     /// treating it as a participant violates the linearity everything else
     /// rests on. `None` only while a retirement has the party in flight.

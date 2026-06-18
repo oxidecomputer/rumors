@@ -11,9 +11,11 @@ mod iter;
 pub use iter::{Frozen, Iter, Leaf, Range};
 
 /// One storage node — a leaf or a branch behind a shared `Arc`, carrying
-/// its compressed prefix and memoized hash. The single representation
-/// beneath the height-typed veneer (see [`typed`](super)); cloning is an
-/// `Arc` bump, and mutation is copy-on-write.
+/// its compressed prefix and memoized hash.
+///
+/// The single representation beneath the height-typed veneer (see
+/// [`typed`](super)); cloning is an `Arc` bump, and mutation is
+/// copy-on-write.
 pub struct Node<T> {
     inner: Arc<NodeInner<T>>,
 }
@@ -38,6 +40,7 @@ struct NodeInner<T> {
     prefix: Vec<u8>,
     /// The node's observable hash (the hash of the subtree as seen from the top
     /// of its compressed prefix), computed lazily on first read and memoized.
+    ///
     /// Unlike the ceiling/floor memos, this lives on `NodeInner` rather than
     /// inside [`Children::Branch`] so a path-compressed leaf memoizes its hash
     /// too: a deep single-leaf spine costs the wrap only once. The memo is a
@@ -250,6 +253,7 @@ impl<T> Node<T> {
 
     /// Whether two nodes share the same backing allocation: a sufficient
     /// (not necessary) test for structural equality that touches no hash.
+    ///
     /// Forked trees share their unchanged subtrees by `Arc`, so an in-memory
     /// merge can short-circuit those in `O(1)`, even with cold memos, before
     /// falling back to the content hash for subtrees that diverged in memory
@@ -364,10 +368,12 @@ impl<T> Node<T> {
     }
 
     /// Whether this node's content is a single leaf (regardless of any
-    /// path-compressed prefix above it). A leaf carries exactly one version,
-    /// so its [`floor`](Self::floor) and [`ceiling`](Self::ceiling) coincide —
-    /// which lets callers decide "keep or drop this whole subtree" from the
-    /// version check alone, without exploding the compressed prefix.
+    /// path-compressed prefix above it).
+    ///
+    /// A leaf carries exactly one version, so its [`floor`](Self::floor) and
+    /// [`ceiling`](Self::ceiling) coincide — which lets callers decide "keep
+    /// or drop this whole subtree" from the version check alone, without
+    /// exploding the compressed prefix.
     pub fn is_leaf(&self) -> bool {
         matches!(self.inner.children, Children::Leaf { .. })
     }
@@ -380,9 +386,10 @@ impl<T> Node<T> {
         self.inner.prefix.len()
     }
 
-    /// Borsh-serialize the node in its in-memory layout. This is the
-    /// canonical encoder: the typed `BorshSerialize` impl is a thin
-    /// delegate over it, and on the decode side the same shape is
+    /// Borsh-serialize the node in its in-memory layout.
+    ///
+    /// This is the canonical encoder: the typed `BorshSerialize` impl is a
+    /// thin delegate over it, and on the decode side the same shape is
     /// reconstructed via the chain-reader trick that synthesizes per-level
     /// `prefix_len` bytes (see the module docs on
     /// [`mirror::message`](crate::tree::traverse::mirror::message) for the
@@ -443,7 +450,9 @@ impl<T> Node<T> {
     }
 
     /// Place a node beneath the given child index, increasing its height by
-    /// one. Pushing onto the prefix raises the observable hash by one virtual
+    /// one.
+    ///
+    /// Pushing onto the prefix raises the observable hash by one virtual
     /// level, so the memoized hash is invalidated and recomputed lazily on the
     /// next read.
     pub fn beneath(mut self, index: u8) -> Node<T> {
@@ -454,9 +463,10 @@ impl<T> Node<T> {
     }
 
     /// Return `true` if no node in the tree violates path compression: every
-    /// branch must have at least two children. The empty tree is represented by
-    /// the absence of a root, so empty and one-child branches are never valid
-    /// anywhere in the tree.
+    /// branch must have at least two children.
+    ///
+    /// The empty tree is represented by the absence of a root, so empty and
+    /// one-child branches are never valid anywhere in the tree.
     #[cfg(test)]
     fn is_max_compressed(&self) -> bool {
         match &self.inner.children {

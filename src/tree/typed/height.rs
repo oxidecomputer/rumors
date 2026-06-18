@@ -70,10 +70,12 @@ impl<T> Ord for S<T> {
 pub struct Z;
 
 /// A type-level height: how many levels sit between a node at this height
-/// and the leaves. Carrying the height in the type is what lets every
-/// traversal recurse *polymorphically* — each inductive step is a separate
-/// monomorphization that the compiler proves terminates at [`Z`] — instead
-/// of trusting a runtime depth counter.
+/// and the leaves.
+///
+/// Carrying the height in the type is what lets every traversal recurse
+/// *polymorphically* — each inductive step is a separate monomorphization
+/// that the compiler proves terminates at [`Z`] — instead of trusting a
+/// runtime depth counter.
 pub trait Height: Debug + Clone + Default + sealed::Sealed {
     /// This height as a plain number (`Z` is 0; [`Root`] is 32).
     const HEIGHT: usize;

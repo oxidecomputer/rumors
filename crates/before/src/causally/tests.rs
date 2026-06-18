@@ -149,8 +149,10 @@ fn since_genesis_is_every_ticked_version() {
 
 /// Version-to-range placement is total — every version classifies as
 /// exactly one of below (`Less`), contained (`Equal`), or beyond the end
-/// bound (`Greater`) — even where version-to-version comparison is
-/// undefined; and `contains` is exactly the `Equal` case.
+/// bound (`Greater`).
+///
+/// Totality holds even where version-to-version comparison is undefined; and
+/// `contains` is exactly the `Equal` case.
 #[test]
 fn placement_is_total() {
     use std::cmp::Ordering;

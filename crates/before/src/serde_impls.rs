@@ -1,7 +1,10 @@
-//! `serde` support (feature-gated). Each type serializes as its canonical byte
-//! encoding ([`encode`](crate::Clock::encode)) and deserializes back through the strict
-//! validator ([`decode`](crate::Clock::decode)), so the serialized form is exactly the
-//! wire form and a deserialized value is guaranteed to be in canonical normal form.
+//! `serde` support (feature-gated).
+//!
+//! Each type serializes as its canonical byte encoding
+//! ([`encode`](crate::Clock::encode)) and deserializes back through the strict
+//! validator ([`decode`](crate::Clock::decode)), so the serialized form is
+//! exactly the wire form and a deserialized value is guaranteed to be in
+//! canonical normal form.
 
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};

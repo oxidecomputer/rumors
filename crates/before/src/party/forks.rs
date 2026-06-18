@@ -116,11 +116,12 @@ impl Iterator for Forks<'_> {
 impl ExactSizeIterator for Forks<'_> {}
 
 impl Drop for Forks<'_> {
-    /// Fold every unconsumed share back into the borrowed party. Whatever the
-    /// consumer did not take remains as coarse, un-subdivided subregions on the
-    /// stack — pairwise disjoint and disjoint from the residual — so
-    /// [`join`](Party::join) cannot overlap, and joining a coarse region is the
-    /// same union as joining the leaves it would have split into.
+    /// Fold every unconsumed share back into the borrowed party.
+    ///
+    /// Whatever the consumer did not take remains as coarse, un-subdivided
+    /// subregions on the stack — pairwise disjoint and disjoint from the
+    /// residual — so [`join`](Party::join) cannot overlap, and joining a coarse
+    /// region is the same union as joining the leaves it would have split into.
     fn drop(&mut self) {
         let rest = &mut *self.rest;
         for (region, _count) in self.split.stack.drain(..) {

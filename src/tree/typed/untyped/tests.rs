@@ -9,10 +9,11 @@ use crate::{Version, message::Message};
 
 use super::Node;
 
-/// Upper bound on the depth of trees generated in property tests. Each test
-/// samples a depth in `0..=MAX_TEST_DEPTH` so that proptest shrinks tree
-/// height as well as structure when a counterexample is found. Kept modest to
-/// keep generated structures small and shrinking fast.
+/// Upper bound on the depth of trees generated in property tests.
+///
+/// Each test samples a depth in `0..=MAX_TEST_DEPTH` so that proptest shrinks
+/// tree height as well as structure when a counterexample is found. Kept
+/// modest to keep generated structures small and shrinking fast.
 const MAX_TEST_DEPTH: usize = 4;
 
 /// Maximum children per branch in generated trees. Capped at the alphabet
@@ -21,7 +22,9 @@ const MAX_TEST_DEPTH: usize = 4;
 const MAX_BRANCHING: usize = 256;
 
 /// Upper bound on the number of leaves in any generated tree, used as a
-/// branching budget. Each branch divides its budget randomly across its
+/// branching budget.
+///
+/// Each branch divides its budget randomly across its
 /// children — every child gets at least 1, and the parts sum to the parent's
 /// budget — so a branch that fans out as wide as its budget forces every
 /// child down to a single leaf, and any deeper branch beneath such a child is
@@ -32,7 +35,9 @@ const TREE_LEAF_BUDGET: usize = 16;
 
 /// Generate an arbitrary tree of uniform depth `depth` with at most `budget`
 /// leaves, constructed only via the public smart constructors `Node::leaf` and
-/// `Node::branch`. At depth 0 the strategy produces a bare leaf; at depth N > 0
+/// `Node::branch`.
+///
+/// At depth 0 the strategy produces a bare leaf; at depth N > 0
 /// it produces a branch with 1..=min(MAX_BRANCHING, budget) children at
 /// distinct indices, the parent's budget divided randomly among them (each
 /// child gets at least 1 and the shares sum to the parent's budget). This
@@ -82,7 +87,9 @@ fn arb_tree(depth: usize, budget: usize) -> BoxedStrategy<Node<()>> {
 }
 
 /// Walk a tree via the public `into_children` API and collect every
-/// (path, version, leaf) triple. Paths list the child indices from
+/// (path, version, leaf) triple.
+///
+/// Paths list the child indices from
 /// shallowest to deepest, matching the order in which `into_children`
 /// yields them. The version is the leaf's own version as recorded by
 /// `Node::leaf`, and is preserved across path compression because
@@ -109,7 +116,9 @@ fn enumerate_leaves(node: Node<()>, path: Vec<u8>) -> Vec<(Vec<u8>, Version, Mes
 }
 
 /// Recursively traverse a tree via the public smart constructors, mapping
-/// each leaf's bytes through `f` and rebuilding the tree bottom-up. With
+/// each leaf's bytes through `f` and rebuilding the tree bottom-up.
+///
+/// With
 /// `f = |b| b.clone()` this is an identity functor that decomposes and
 /// rebuilds; with a constant `f` it swaps every leaf's payload. The
 /// branching structure and every node's `version` are preserved exactly:
@@ -139,7 +148,9 @@ where
 }
 
 /// A branch with zero children is not a legal node: the smart constructor
-/// must reject it rather than materialize an empty `Branch`. This is the
+/// must reject it rather than materialize an empty `Branch`.
+///
+/// This is the
 /// "no empty nodes anywhere" half of the path-compression invariant; the
 /// one-child case is handled by `beneath`-collapse instead.
 #[test]
@@ -161,6 +172,7 @@ proptest! {
     /// Decomposing a tree into its leaves via `into_children` and rebuilding
     /// bottom-up with `Node::leaf` + `Node::branch` must produce a tree
     /// with the same root hash and the same root version as the original.
+    ///
     /// This is the strongest statement that hash and version are pure
     /// functions of the public structural API: any node we can take apart,
     /// we can put back together, and the observable invariants are the
@@ -180,7 +192,9 @@ proptest! {
     /// Enumerating a generated tree's leaves via the public API yields
     /// exactly as many leaves as the tree holds, every leaf sits at path
     /// length equal to the generated depth, and no two leaves share a
-    /// path. This pins down three independent claims in one place: that
+    /// path.
+    ///
+    /// This pins down three independent claims in one place: that
     /// `into_children` unpacks exactly one prefix byte per step, that all
     /// leaves live at a common depth (the `arb_tree` contract), and that
     /// branch indices are distinct so leaf paths are unique.
@@ -200,6 +214,7 @@ proptest! {
     }
 
     /// Every node's ceiling is the join of its descendant leaves' versions.
+    ///
     /// At the root this means: (a) every leaf's version is ≤ the root
     /// ceiling, and (b) the root ceiling is exactly the join of all leaf
     /// versions, with no larger component, so the root never over-reports
@@ -225,7 +240,9 @@ proptest! {
     }
 
     /// Wrapping a child in N nested singleton branches accumulates an
-    /// N-byte compressed prefix above it. The observable hash must equal
+    /// N-byte compressed prefix above it.
+    ///
+    /// The observable hash must equal
     /// the result of N successive virtual-branch wraps of the child's
     /// hash, where each wrap is `blake3(BRANCH_TAG ‖ index ‖ child_hash)`.
     /// This recomputes the expected value independently of `beneath`, so a
@@ -251,7 +268,9 @@ proptest! {
 
     /// Popping the topmost compressed-prefix byte (via `into_children`)
     /// must produce a node whose hash matches a freshly-built node with
-    /// the same children and the shortened prefix. Pop shortens the prefix
+    /// the same children and the shortened prefix.
+    ///
+    /// Pop shortens the prefix
     /// and resets the lazy hash memo, so the recomputed value must match the
     /// from-scratch reference; a missing memo reset would surface here.
     #[test]
@@ -294,7 +313,9 @@ proptest! {
     }
 
     /// A one-child branch at index `i` hashes as a single-child branch
-    /// `blake3(BRANCH_TAG ‖ i ‖ child_hash)`. `Node::branch` collapses the
+    /// `blake3(BRANCH_TAG ‖ i ‖ child_hash)`.
+    ///
+    /// `Node::branch` collapses the
     /// one-child case into `beneath`, which path-compresses by pushing a byte
     /// onto the child's prefix rather than materializing a branch node. The
     /// observable hash must match that single-child commitment so path
@@ -311,7 +332,9 @@ proptest! {
         prop_assert_eq!(wrapped.hash(), wrap_reference(index, child_hash));
     }
 
-    /// `beneath` must invalidate the memoized hash. We force the child's hash
+    /// `beneath` must invalidate the memoized hash.
+    ///
+    /// We force the child's hash
     /// to be computed and cached *first*, then wrap it; the wrapped node's
     /// observable hash must reflect the new top level (the single-child
     /// commitment over the child's hash), not the stale cached child hash.
@@ -330,6 +353,7 @@ proptest! {
     }
 
     /// `into_children` popping a prefix byte must invalidate the memoized hash.
+    ///
     /// We force the wrapped node's hash to be cached at its top level first,
     /// then pop; the popped child's observable hash must drop back to the
     /// child's own hash, not retain the stale top-level value.

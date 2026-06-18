@@ -1,7 +1,9 @@
-//! Cross-check the three references (the production impl, the recursive tree
-//! [`oracle`], and the function-space [`super`] model) by replaying one
-//! single-seed op trace against all three and requiring their final clock
-//! populations to agree on every pairwise comparison. Also a law suite
+//! Cross-check the three references by replaying one single-seed op trace
+//! against all three and requiring their final clock populations to agree on
+//! every pairwise comparison.
+//!
+//! The three references are the production impl, the recursive tree
+//! [`oracle`], and the function-space [`super`] model. Also a law suite
 //! proving the function-space operations are a sound ITC, and unit anchors
 //! pinning the embedding against a value the paper states.
 
@@ -34,7 +36,9 @@ fn id_eq(a: &Id, b: &Id, g: u32) -> bool {
 }
 
 /// A grid exponent that resolves an oracle event/id pair, with one level of headroom, capped
-/// at [`GRID_N`]. The semantic event's step structure sits at the id's fork boundaries, so the
+/// at [`GRID_N`].
+///
+/// The semantic event's step structure sits at the id's fork boundaries, so the
 /// id depth bounds it too — hence both are folded in.
 fn grid_for(parts: &[u32]) -> u32 {
     (parts.iter().copied().max().unwrap_or(0) + 1).min(GRID_N)
@@ -44,7 +48,9 @@ fn grid_for(parts: &[u32]) -> u32 {
 
 /// Play `ops` (starting from `seeds` independent seed clocks) against all
 /// three references in lockstep, asserting they agree on every fallible op's
-/// outcome, and return the three final populations (index-aligned). Every
+/// outcome, and return the three final populations (index-aligned).
+///
+/// Every
 /// caller passes `seeds = 1`: the invariance the keystone asserts holds only
 /// for a proper single-seed system (see
 /// [`replay_matches_across_references`]). A `Join`/`Sync` on overlapping
@@ -135,7 +141,9 @@ fn replay(
 }
 
 proptest! {
-    /// The keystone check. After the same op trace, every ordered pair of final clocks has the
+    /// The keystone check.
+    ///
+    /// After the same op trace, every ordered pair of final clocks has the
     /// same comparison descriptor — (version causal order, party disjointness) — under all
     /// three references. The function space computes its descriptor
     /// purely by sampling its closures; the impl and oracle use their native ops. Agreement
@@ -194,6 +202,7 @@ proptest! {
 proptest! {
     /// The tree oracle's `meet` (`&`) realizes the function-space pointwise
     /// minimum: lifting `a & b` to the function space equals `meet(⟦a⟧, ⟦b⟧)`.
+    ///
     /// This is the explicit, shares-no-recursion proof that the tree recursion
     /// computes the true GLB — the dual of the pointwise maximum that the
     /// keystone replay exercises implicitly through `join`/`send`. Resolved at
@@ -210,7 +219,9 @@ proptest! {
 proptest! {
     /// The tree oracle's `without` (id region difference) realizes the
     /// function-space pointwise mask `a ∧ ¬b`: lifting `a.without(&b)` equals
-    /// `diff(⟦a⟧, ⟦b⟧)`. The id-side analogue of [`meet_realizes_pointwise_min`],
+    /// `diff(⟦a⟧, ⟦b⟧)`.
+    ///
+    /// The id-side analogue of [`meet_realizes_pointwise_min`],
     /// sharing no recursion with the tree model — the independent witness that
     /// the tree difference carves exactly the unowned-by-`b` part of `a`.
     /// Arbitrary (often overlapping, sometimes covering) pairs reach the empty
@@ -227,7 +238,9 @@ proptest! {
 proptest! {
     /// The tree oracle's quotient `v / p` realizes the function-space mask
     /// `project(⟦v⟧, ⟦p⟧)`: keep the value where `p` owns the region, zero it
-    /// everywhere else. Shares no recursion with the tree model — the
+    /// everywhere else.
+    ///
+    /// Shares no recursion with the tree model — the
     /// independent witness that projection masks exactly the owned region (the
     /// event-side analogue of [`meet_realizes_pointwise_min`]).
     #[test]
@@ -241,9 +254,11 @@ proptest! {
 
 proptest! {
     /// The tree oracle's `covers` realizes function-space region containment:
-    /// `a.covers(&b)` holds exactly when `⟦a⟧ ⊇ ⟦b⟧` — every point `b` owns is
-    /// owned by `a` too — which `id_order` reports as `Less`/`Equal` (an
-    /// ancestor reads as `Less`). The independent witness that tree covering is
+    /// `a.covers(&b)` holds exactly when `⟦a⟧ ⊇ ⟦b⟧`.
+    ///
+    /// Every point `b` owns is owned by `a` too — which `id_order` reports as
+    /// `Less`/`Equal` (an ancestor reads as `Less`). The independent witness
+    /// that tree covering is
     /// geometric containment, including the partial-overlap case where neither
     /// covers the other (`id_order` is `None`).
     #[test]
@@ -258,7 +273,9 @@ proptest! {
 proptest! {
     /// The tree oracle's `min_ticks` (sum of every base) is recovered from the
     /// step function by `min_ticks` pulling up per-node floors over the dyadic
-    /// subdivision — the geometric mirror of normalization, sharing no code with
+    /// subdivision.
+    ///
+    /// The geometric mirror of normalization, sharing no code with
     /// the tree. Resolved at the grid the lifted event settles on.
     #[test]
     fn min_ticks_realizes_base_sum(v in arb_oracle_version()) {
@@ -272,7 +289,9 @@ proptest! {
 proptest! {
     /// All three references agree on the causal rank: the impl's
     /// cursor-threaded `rank` fold, the tree oracle's recursive fold, and the
-    /// function space's plain Riemann sum over the resolving grid — which
+    /// function space's plain Riemann sum over the resolving grid.
+    ///
+    /// The Riemann sum
     /// shares no recursion, no per-node bases, and no normalization with
     /// either tree, so a formula bug the folds shared could not hide here.
     #[test]
@@ -322,7 +341,9 @@ proptest! {
     }
 
     /// `meet` is the greatest lower bound: idempotent, commutative, associative, and a lower
-    /// bound (`a∧b ≤ a`). The order-theoretic dual of [`join_is_the_lub`], and the function-space
+    /// bound (`a∧b ≤ a`).
+    ///
+    /// The order-theoretic dual of [`join_is_the_lub`], and the function-space
     /// witness that the pointwise minimum is a sound GLB.
     #[test]
     fn meet_is_the_glb(a in arb_oracle_version(), b in arb_oracle_version(), c in arb_oracle_version()) {
@@ -341,7 +362,9 @@ proptest! {
     }
 
     /// `fork` partitions, whatever the random split: the two halves are disjoint, both nonempty,
-    /// and recombine (`sum`) to the original (the §4 fork law). It need *not* match the paper's
+    /// and recombine (`sum`) to the original (the §4 fork law).
+    ///
+    /// It need *not* match the paper's
     /// split — only obey the law — which is the whole point of randomizing it.
     #[test]
     fn fork_partitions(p in arb_oracle_party_nonempty(), seed in any::<u64>()) {
@@ -396,7 +419,9 @@ proptest! {
 
 /// The embedding reproduces the paper's worked function value: `⟦(1, 2, (0, (1, 0, 2), 0))⟧`
 /// (§4, event tree graphical-notation example) samples to `[3, 3, 3, 3, 2, 4, 1, 1]` at depth
-/// 3. Pins the embedding + sampling against a value the paper states, with no tree recursion
+/// 3.
+///
+/// Pins the embedding + sampling against a value the paper states, with no tree recursion
 /// in the comparison.
 #[test]
 fn embedding_matches_paper_worked_value() {
@@ -444,7 +469,9 @@ fn lifted_event_is_constant_within_a_leaf_interval() {
 
 /// Guard the soundness premise: the chosen grid must fully resolve every function the keystone
 /// scans, i.e. the finest boundary observed over a wide op-trace sweep must stay below
-/// [`GRID_N`] (else sampling could alias). This covers *both* the oracle's tree depth and the
+/// [`GRID_N`] (else sampling could alias).
+///
+/// This covers *both* the oracle's tree depth and the
 /// function space's probed resolution — the random `fork` refines up to two levels per call
 /// (vs. the paper's one), so its resolution can run ahead of the oracle's, and it is the binding
 /// constraint. Pins that headroom.

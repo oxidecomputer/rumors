@@ -119,6 +119,7 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     },
 
     /// A retiring peer offered an identity that overlaps one already held here.
+    ///
     /// Identities in a well-formed universe are disjoint by construction, so
     /// this only arises from a buggy or malicious peer; the session aborts with
     /// our own state untouched.
@@ -136,7 +137,9 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     PreambleLengthInvalid { declared: u32 },
 
     /// The peer declared the bootstrap placeholder [`Network`] together with a
-    /// retiring intent. Retiring donates a party and bootstrapping receives
+    /// retiring intent.
+    ///
+    /// Retiring donates a party and bootstrapping receives
     /// one, so no honest peer combines them; rejecting the combination in the
     /// preamble exchange keeps a buggy or malicious peer from maneuvering us
     /// into both forking it a party and absorbing its donation, which would
@@ -145,9 +148,10 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     BootstrapRetireConflict,
 
     /// The application's [`Bookmark`](crate::Bookmark) failed to persist or load
-    /// the local identity during the session. The wire is unaffected, but the
-    /// session aborts: proceeding past an unpersisted identity is exactly the
-    /// leak the bookmark exists to prevent.
+    /// the local identity during the session.
+    ///
+    /// The wire is unaffected, but the session aborts: proceeding past an
+    /// unpersisted identity is exactly the leak the bookmark exists to prevent.
     #[error(transparent)]
     Bookmark(B::Error),
 }
@@ -195,9 +199,10 @@ pub struct Start;
 /// with its peer, and so can proceed to the rest of the protocol.
 pub struct Connected;
 
-/// A wire-bound proxy of the counterparty at protocol height `H`. Holds the
-/// underlying reader/writer (each wrapped for exact-read framing) and a
-/// phantom tag pinning the height; the counterparty's actual zipper lives on
+/// A wire-bound proxy of the counterparty at protocol height `H`.
+///
+/// Holds the underlying reader/writer (each wrapped for exact-read framing) and
+/// a phantom tag pinning the height; the counterparty's actual zipper lives on
 /// the far side of the wire.
 pub struct Exchange<T, R, W, V, H: Height> {
     reader: FrameRead<R>,
@@ -234,7 +239,9 @@ impl<T, R, W, V, H: Height> protocol::Stage for Exchange<T, R, W, V, H> {
     type Height = H;
     /// The reconciled tree lives on the local side; the proxy yields its
     /// framed reader/writer halves back to the caller, which stays the
-    /// stream's single owner. A session that needs a trailing frame after
+    /// stream's single owner.
+    ///
+    /// A session that needs a trailing frame after
     /// the descent (the party hand-off when serving a
     /// [bootstrapping](crate::Peer::bootstrap) peer or absorbing a
     /// [retiring](crate::Peer::retire) one) reads it from the same

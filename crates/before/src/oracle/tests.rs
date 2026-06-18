@@ -146,10 +146,11 @@ proptest! {
 proptest! {
     /// Meet (`&`) is a meet-semilattice and the greatest lower bound:
     /// commutative, associative, idempotent; lower bound; and greatest (above
-    /// any common lower bound). The order-theoretic dual of [`lattice`]. There is
-    /// no top element — a version can always tick higher — so meet has no
-    /// identity; instead `Version::new()` (the bottom) is *absorbing*: `a & 0 ==
-    /// 0`.
+    /// any common lower bound).
+    ///
+    /// The order-theoretic dual of [`lattice`]. There is no top element — a
+    /// version can always tick higher — so meet has no identity; instead
+    /// `Version::new()` (the bottom) is *absorbing*: `a & 0 == 0`.
     #[test]
     fn meet_semilattice(ops in world_strategy(),
                   i in 0usize..64, j in 0usize..64, k in 0usize..64, l in 0usize..64) {
@@ -544,6 +545,7 @@ fn event_fills_to_single_integer() {
 
 proptest! {
     /// The oracle's `grow` reports the *globally* minimal inflation cost.
+    ///
     /// `min_inflation_cost` enumerates the whole feasible single-region
     /// inflation space (descending both children everywhere, no pruning) and
     /// takes the flat minimum; the DP's greedy local choice must match it. This
@@ -561,11 +563,12 @@ proptest! {
 
 proptest! {
     /// The oracle's `grow` chooses exactly the brute-force right-favoring
-    /// minimal inflation — the same raw tree and cost. `best_inflation` selects
-    /// the globally cost-minimal candidate with the paper's root-ward tie-break
-    /// (`cl < cr` goes left, else right), weighing each child by its
-    /// full-enumeration minimum. So a match confirms both the cost minimality
-    /// and the correct tie-break direction.
+    /// minimal inflation — the same raw tree and cost.
+    ///
+    /// `best_inflation` selects the globally cost-minimal candidate with the
+    /// paper's root-ward tie-break (`cl < cr` goes left, else right), weighing
+    /// each child by its full-enumeration minimum. So a match confirms both the
+    /// cost minimality and the correct tie-break direction.
     #[test]
     fn grow_matches_brute_force_choice(
         id in arb_oracle_party_nonempty(),
@@ -580,8 +583,10 @@ proptest! {
 proptest! {
     /// The brute-force selection is internally consistent: `best_inflation` is
     /// one of the enumerated candidates, and its cost equals the global
-    /// minimum. Guards the brute-force oracle itself, so the two checks above
-    /// stand on solid ground.
+    /// minimum.
+    ///
+    /// Guards the brute-force oracle itself, so the two checks above stand on
+    /// solid ground.
     #[test]
     fn best_inflation_is_a_min_cost_candidate(
         id in arb_oracle_party_nonempty(),
@@ -600,18 +605,20 @@ proptest! {
 }
 
 proptest! {
-    /// §3 (the event condition), metamorphic form. `grow` "dominates no more
-    /// events than needed": no *feasible inflation* `x` sits strictly between
-    /// `e` and the grown `e'` — there is no `x` reachable by inflating `(id,
-    /// e)` with `e ≤ x < e'`. This is the correct, scoped reading of the
-    /// paper's `x < e' ⇒ x ≤ e`: the relevant `x` are the event components the
-    /// system can produce (the inflation candidates), not arbitrary fabricated
-    /// step functions. (Over the *full* pointwise lattice the literal `x < e' ⇒
-    /// x ≤ e` is false even for a single `+1` increment — e.g. `e = 0`, `e' =
-    /// 1`, `x = (0,1,0)` has `x < e'` but `x ≰ e` — because that lattice is
-    /// dense and `fill` collapses owned regions to their max; the §3 condition
-    /// is about system states, not arbitrary functions.) `grow` runs directly
-    /// here, independent of whether `event` would have taken the `fill` branch.
+    /// §3 (the event condition), metamorphic form: `grow` "dominates no more
+    /// events than needed".
+    ///
+    /// No *feasible inflation* `x` sits strictly between `e` and the grown `e'`
+    /// — there is no `x` reachable by inflating `(id, e)` with `e ≤ x < e'`.
+    /// This is the correct, scoped reading of the paper's `x < e' ⇒ x ≤ e`: the
+    /// relevant `x` are the event components the system can produce (the
+    /// inflation candidates), not arbitrary fabricated step functions. (Over
+    /// the *full* pointwise lattice the literal `x < e' ⇒ x ≤ e` is false even
+    /// for a single `+1` increment — e.g. `e = 0`, `e' = 1`, `x = (0,1,0)` has
+    /// `x < e'` but `x ≰ e` — because that lattice is dense and `fill`
+    /// collapses owned regions to their max; the §3 condition is about system
+    /// states, not arbitrary functions.) `grow` runs directly here, independent
+    /// of whether `event` would have taken the `fill` branch.
     #[test]
     fn grow_dominates_no_more_than_needed(
         id in arb_oracle_party_nonempty(),
@@ -634,10 +641,11 @@ proptest! {
 }
 
 /// §5.1. Run the paper's example end-to-end and assert its published
-/// qualitative outcomes: three participants, ids always summing to the whole
-/// space, the third fork reusing existing id subtrees (not deepening the
-/// spine), and a post-join event that collapses the event component to a single
-/// integer.
+/// qualitative outcomes.
+///
+/// Three participants, ids always summing to the whole space, the third fork
+/// reusing existing id subtrees (not deepening the spine), and a post-join
+/// event that collapses the event component to a single integer.
 #[test]
 fn worked_example() {
     // seed → fork into two.
@@ -704,8 +712,10 @@ fn worked_example() {
 proptest! {
     /// `covers` is a partial order on regions over *arbitrary* (often
     /// overlapping or unrelated) parties: reflexive, antisymmetric (mutual
-    /// covering ⇔ equality), and transitive. The whole `seed` covers every
-    /// party, and covering a *nonempty* region rules out disjointness.
+    /// covering ⇔ equality), and transitive.
+    ///
+    /// The whole `seed` covers every party, and covering a *nonempty* region
+    /// rules out disjointness.
     #[test]
     fn party_covers(a in arb_oracle_party(), b in arb_oracle_party(), c in arb_oracle_party()) {
         prop_assert!(a.covers(&a)); // reflexive
@@ -782,9 +792,10 @@ proptest! {
 
 proptest! {
     /// `min_ticks` is the sum of every base, so it is `0` only for the zero
-    /// version, additive under a disjoint-support join (`(a|b)` over fork halves
-    /// sums their counts), and dominated by neither operand alone. A single
-    /// whole-interval tick costs exactly one.
+    /// version, additive under a disjoint-support join (`(a|b)` over fork
+    /// halves sums their counts), and dominated by neither operand alone.
+    ///
+    /// A single whole-interval tick costs exactly one.
     #[test]
     fn version_min_ticks(ops in world_strategy(), i in 0usize..64) {
         let cs = run(&ops);

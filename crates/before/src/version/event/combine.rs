@@ -6,40 +6,45 @@ use crate::version::working::WorkingVersion;
 
 use super::{Builder, Slot};
 
-/// How two aligned leaf values combine pointwise. The join (least upper bound)
-/// takes their maximum; the meet (greatest lower bound) their minimum. This is
-/// the *only* thing that distinguishes the two walks — the broadcast of a leaf
-/// to both of a node's children, and the normalizing sink, are identical — so
-/// the walk is shared and the lattice direction is this one function.
+/// How two aligned leaf values combine pointwise.
+///
+/// The join (least upper bound) takes their maximum; the meet (greatest lower
+/// bound) their minimum. This is the *only* thing that distinguishes the two
+/// walks — the broadcast of a leaf to both of a node's children, and the
+/// normalizing sink, are identical — so the walk is shared and the lattice
+/// direction is this one function.
 type LeafOp = fn(Base, Base) -> Base;
 
 impl<'a> EvReader<'a> {
     /// The least upper bound of `self` and `other` (the paper's `join` over
-    /// event trees), produced in normal form. Reads either storage form via
-    /// [`EvReader`]; `O(n + m)`. The recursive, offset-threaded form of
-    /// `oracle::Version::join_off`: aligned leaves join to their pointwise
-    /// maximum.
+    /// event trees), produced in normal form.
+    ///
+    /// Reads either storage form via [`EvReader`]; `O(n + m)`. The recursive,
+    /// offset-threaded form of `oracle::Version::join_off`: aligned leaves join
+    /// to their pointwise maximum.
     pub(crate) fn join(self, other: EvReader<'a>) -> WorkingVersion {
         self.combine(other, Ord::max)
     }
 
     /// The greatest lower bound of `self` and `other` (the meet over event
-    /// trees), produced in normal form. The order-theoretic dual of
-    /// [`join`](Self::join): aligned leaves meet to their pointwise *minimum*,
-    /// every other step identical. Reads either storage form via [`EvReader`];
-    /// `O(n + m)`. The recursive, offset-threaded form of
-    /// `oracle::Version::meet_off`.
+    /// trees), produced in normal form.
+    ///
+    /// The order-theoretic dual of [`join`](Self::join): aligned leaves meet to
+    /// their pointwise *minimum*, every other step identical. Reads either
+    /// storage form via [`EvReader`]; `O(n + m)`. The recursive, offset-threaded
+    /// form of `oracle::Version::meet_off`.
     pub(crate) fn meet(self, other: EvReader<'a>) -> WorkingVersion {
         self.combine(other, Ord::min)
     }
 
     /// The shared pointwise combine of [`join`](Self::join) and
     /// [`meet`](Self::meet), parameterized by the leaf combiner `leaf_op`
-    /// (`max` for the join, `min` for the meet). Guarded by [`crate::recurse`]
-    /// so deep trees grow the stack onto the heap rather than overflowing. An
-    /// internal side descends into its children; a leaf side broadcasts a fresh
-    /// [`Zero`](EvReader::Zero) to both of the other side's children; each side
-    /// hands its node sum to both children.
+    /// (`max` for the join, `min` for the meet).
+    ///
+    /// Guarded by [`crate::recurse`] so deep trees grow the stack onto the heap
+    /// rather than overflowing. An internal side descends into its children; a
+    /// leaf side broadcasts a fresh [`Zero`](EvReader::Zero) to both of the
+    /// other side's children; each side hands its node sum to both children.
     fn combine(self, other: EvReader<'a>, leaf_op: LeafOp) -> WorkingVersion {
         let mut walk = CombineWalk {
             out: Builder::with_capacity(self.node_capacity_bound() + other.node_capacity_bound()),

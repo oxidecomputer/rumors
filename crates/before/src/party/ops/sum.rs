@@ -7,7 +7,9 @@ use super::build::{Built, IdBuilder};
 impl IdReader<'_> {
     /// Sum `self` and `other` (normal-form ids) — the union of their regions —
     /// producing a normalized id, or `None` if they overlap (share a region, so
-    /// no disjoint union exists). This is the single point of overlap
+    /// no disjoint union exists).
+    ///
+    /// This is the single point of overlap
     /// detection: callers (`Party::join`) need not pre-check
     /// [`is_disjoint`](IdReader::is_disjoint), since a successful `sum` *is* the
     /// disjointness proof. `O(n + m)`: the both-internal case threads (no
@@ -38,7 +40,9 @@ struct SumWalk {
 impl SumWalk {
     /// Sum the subtrees at the two `&mut` readers, emitting into `out`,
     /// advancing both readers past their subtrees, and routing through the
-    /// amortized stack-growth guard. Returns the output, or `None` the instant
+    /// amortized stack-growth guard.
+    ///
+    /// Returns the output, or `None` the instant
     /// an overlap is found (unwinding the whole walk). Reads as a match on the
     /// two id nodes: `sum(0, b) = b`, `sum(a, 0) = a` (copy the nonempty side,
     /// skip the empty one), two nodes recurse and normalize on close, and a full

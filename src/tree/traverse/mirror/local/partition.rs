@@ -1,8 +1,10 @@
 //! The reconciliation internals of the local [`Exchange`]: the per-round
-//! pipeline ([`Exchange::reply`]) and its three phases — absorb the incoming
-//! `providing`, answer the incoming `requested`, and partition the incoming
-//! `uncertain` by cell of the asymmetry matrix (see the [`super`] module docs
-//! for the matrix and the channel vocabulary).
+//! pipeline ([`Exchange::reply`]) and its three phases.
+//!
+//! The three phases absorb the incoming `providing`, answer the incoming
+//! `requested`, and partition the incoming `uncertain` by cell of the
+//! asymmetry matrix (see the [`super`] module docs for the matrix and the
+//! channel vocabulary).
 
 use std::mem;
 
@@ -86,8 +88,9 @@ where
 
     /// Answer the counterparty's `requested` set by exploding each requested
     /// node into its children, filtered against the counterparty's version so
-    /// that any subtrees they have deleted disappear locally too. Returns the
-    /// outgoing `providing` map, one height below the frontier.
+    /// that any subtrees they have deleted disappear locally too.
+    ///
+    /// Returns the outgoing `providing` map, one height below the frontier.
     pub(super) fn answer_requested<H>(
         &mut self,
         requested: Vec<Prefix<S<H>>>,
@@ -142,9 +145,10 @@ where
     }
 
     /// Partition the counterparty's `uncertain` hashes against our own tree by
-    /// cell of the asymmetry matrix (see module docs). The returned
-    /// [`Partition`] names one output per cell; the caller folds them into the
-    /// outgoing message and the zipper's next two levels.
+    /// cell of the asymmetry matrix (see module docs).
+    ///
+    /// The returned [`Partition`] names one output per cell; the caller folds
+    /// them into the outgoing message and the zipper's next two levels.
     ///
     /// Shared by [`open_initiator`](protocol::OpenInitiator::open_initiator),
     /// [`exchange`](protocol::Exchange::exchange), and
@@ -305,11 +309,12 @@ where
 
     /// Run a steady-state round end-to-end: absorb the incoming `providing`,
     /// answer the incoming `requested`, partition the incoming `uncertain`, and
-    /// descend the zipper by two heights. Returns the next-level outgoing
-    /// `providing` / `requested` / `uncertain` and a descended [`Exchange`],
-    /// wrapped in [`protocol::Step::Continue`] or [`protocol::Step::Done`]
-    /// according to whether the outgoing message has anything left to
-    /// negotiate.
+    /// descend the zipper by two heights.
+    ///
+    /// Returns the next-level outgoing `providing` / `requested` / `uncertain`
+    /// and a descended [`Exchange`], wrapped in
+    /// [`protocol::Step::Continue`] or [`protocol::Step::Done`] according to
+    /// whether the outgoing message has anything left to negotiate.
     ///
     /// Shared by [`exchange`](protocol::Exchange::exchange) and
     /// [`close_initiator`](protocol::CloseInitiator::close_initiator); they

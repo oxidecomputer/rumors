@@ -4,6 +4,7 @@ use crate::step;
 
 impl IdReader<'_> {
     /// Split this id (`self`) into two non-overlapping ids that sum to it.
+    ///
     /// `O(n)`: descend the *spine* — the chain of unary nodes, each owning
     /// exactly one present child — to the *branch* (the first node with both
     /// children present) or the spine's terminal `1` leaf, then build both
@@ -35,7 +36,9 @@ enum SpineEnd {
     Terminal,
 }
 
-/// Build the two split halves of the id rooted at `start` in `bits`. Walks the
+/// Build the two split halves of the id rooted at `start` in `bits`.
+///
+/// Walks the
 /// unary spine to the branch (or terminal), then splices: each half is the
 /// spine prefix, a retagged node, and the kept child — a bulk verbatim copy of
 /// already-normal bit ranges, normal by construction (the kept child is

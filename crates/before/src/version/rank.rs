@@ -12,9 +12,10 @@ use crate::recurse::descend;
 
 use super::compare::EvReader;
 
-/// The causal rank of a [`Version`](crate::Version): the exact area under
-/// its event tree, a nonnegative dyadic rational `num · 2⁻ᵉˣᵖ` with
-/// arbitrary-precision numerator. Produced by
+/// The causal rank of a [`Version`](crate::Version).
+///
+/// The exact area under its event tree, a nonnegative dyadic rational `num ·
+/// 2⁻ᵉˣᵖ` with arbitrary-precision numerator. Produced by
 /// [`Version::rank`](crate::Version::rank).
 ///
 /// An event tree is a height function over the unit id interval: a leaf
@@ -109,6 +110,7 @@ impl Rank {
     /// Normalize raw fold output `num · 2⁻ᵉˣᵖ` into canonical form: strip
     /// the factors of two shared by numerator and denominator, and pin zero
     /// to exponent zero, so structural equality is value equality.
+    ///
     /// `pub(crate)` for the reference computations (the oracle's tree fold,
     /// the semantic oracle's Riemann sum), which produce the same raw form.
     pub(crate) fn from_raw(num: Base, exp: u32) -> Self {
@@ -265,10 +267,11 @@ impl EvReader<'_> {
 
 /// The area of the subtree at `ev` as a raw `(numerator, exponent)` pair in
 /// subtree-relative units (the subtree's interval has width 1), advancing
-/// `ev` past it: a leaf is its base; a node is its base plus half the sum of
-/// its children's areas. The recursive form, routed through the amortized
-/// stack-growth guard so a deep tree grows the stack onto the heap rather
-/// than overflowing.
+/// `ev` past it.
+///
+/// A leaf is its base; a node is its base plus half the sum of its children's
+/// areas. The recursive form, routed through the amortized stack-growth guard
+/// so a deep tree grows the stack onto the heap rather than overflowing.
 fn rank_rec(ev: &mut EvReader, depth: usize) -> (Base, u32) {
     let node = ev.read();
     let base = node.base().clone();

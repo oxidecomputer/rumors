@@ -121,7 +121,9 @@ impl Bookmark for NoBookmark {
 }
 
 /// Give a blocking [`Bookmark`] the awaitable shape the engine's one async body
-/// expects, by settling each blocking call into a ready future. Sound because a
+/// expects, by settling each blocking call into a ready future.
+///
+/// Sound because a
 /// [`Blocking`] peer drives that body to completion with [`pollster`] on the
 /// calling thread: the "await" never yields to a runtime, so blocking inside it
 /// blocks exactly the thread the caller already devoted to the session.

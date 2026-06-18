@@ -55,7 +55,9 @@ impl EvNode {
 }
 
 /// The sole cursor into an event tree, in either storage form, or a synthetic
-/// zero. It reads both representations in place (no transcode) and *consumes* —
+/// zero.
+///
+/// It reads both representations in place (no transcode) and *consumes* —
 /// [`read`](EvReader::read) decodes the node at the cursor and advances it in
 /// place, so operations thread `&mut` readers rather than bare positions.
 ///
@@ -132,8 +134,9 @@ impl<'a> EvReader<'a> {
         }
     }
 
-    /// Advance this cursor just past the whole subtree at it. Iterative: a
-    /// pending-children counter (the shared
+    /// Advance this cursor just past the whole subtree at it.
+    ///
+    /// Iterative: a pending-children counter (the shared
     /// [`skip_subtree`](crate::idbits::skip_subtree) scan), never the call
     /// stack. Packed skips the gamma-coded base without decoding it. `Zero` is a
     /// leaf: nothing to skip.
@@ -164,9 +167,11 @@ impl<'a> EvReader<'a> {
     }
 
     /// This reader's position if it addresses a real tree, or `None` for the
-    /// synthetic `Zero`. `grow` captures it (before a read advances the cursor)
-    /// to key its position-indexed `Route`; the synthetic side of a branch is
-    /// never the keying side, so its `None` is never unwrapped.
+    /// synthetic `Zero`.
+    ///
+    /// `grow` captures it (before a read advances the cursor) to key its
+    /// position-indexed `Route`; the synthetic side of a branch is never the
+    /// keying side, so its `None` is never unwrapped.
     pub(super) fn pos_opt(&self) -> Option<usize> {
         match self {
             EvReader::Packed { pos, .. } | EvReader::Working { pos, .. } => Some(*pos),
@@ -176,8 +181,10 @@ impl<'a> EvReader<'a> {
 
     /// Whether two readers are *trivially* equal: the same storage form with
     /// byte-for-byte identical contents (a whole-representation check,
-    /// independent of position). Both forms are always canonical normal form, so
-    /// identical contents is exactly semantic equality — which lets
+    /// independent of position).
+    ///
+    /// Both forms are always canonical normal form, so identical contents is
+    /// exactly semantic equality — which lets
     /// [`causal_cmp`](EvReader::causal_cmp) settle `Equal` with one
     /// length-checked memcmp instead of the full `O(n + m)` walk. A
     /// representation mismatch declines to `false` and falls through: proving
@@ -192,10 +199,11 @@ impl<'a> EvReader<'a> {
         }
     }
 
-    /// A conservative node-count capacity for output builders. Packed event
-    /// nodes occupy at least two bits (flag + gamma(0)), so this avoids a full
-    /// counting pass while keeping over-allocation bounded for normal
-    /// small-base trees.
+    /// A conservative node-count capacity for output builders.
+    ///
+    /// Packed event nodes occupy at least two bits (flag + gamma(0)), so this
+    /// avoids a full counting pass while keeping over-allocation bounded for
+    /// normal small-base trees.
     pub(super) fn node_capacity_bound(&self) -> usize {
         match self {
             EvReader::Packed { bits, .. } => bits.len().div_ceil(2),
@@ -257,6 +265,7 @@ impl CmpWalk {
     /// Compare the aligned subtrees at the two `&mut` readers and path-sum
     /// offsets, advancing each reader past its subtree (so a right sibling
     /// resumes from it), routing through the amortized stack-growth guard.
+    ///
     /// `None` signals a decided `concurrent` that unwinds the whole walk.
     ///
     /// Reads as the paper's `leq`: settle the local direction from the path

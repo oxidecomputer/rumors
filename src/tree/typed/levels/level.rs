@@ -41,9 +41,11 @@ impl<T, H: Height> Level<T, H> {
     }
 
     /// Wrap a `Vec` that is already strictly ascending by prefix — e.g. a
-    /// canonical wire `providing` frame — as a `Level` without re-sorting. Debug
-    /// builds assert the invariant. Pairs with [`Level::extend`] to absorb a
-    /// sorted batch in one O(n+m) merge rather than m binary-search inserts.
+    /// canonical wire `providing` frame — as a `Level` without re-sorting.
+    ///
+    /// Debug builds assert the invariant. Pairs with [`Level::extend`] to
+    /// absorb a sorted batch in one O(n+m) merge rather than m binary-search
+    /// inserts.
     pub fn from_sorted(entries: Vec<(Prefix<H>, Node<T, H>)>) -> Self {
         debug_assert!(
             entries.windows(2).all(|w| w[0].0 < w[1].0),
@@ -59,10 +61,12 @@ impl<T, H: Height> Level<T, H> {
     }
 
     /// Append `(prefix, node)`, which must be strictly greater than the level's
-    /// current last prefix. The mirror descent produces every level in ascending
-    /// prefix order, so this O(1) append is the common build path; an
-    /// out-of-order push trips a debug assertion (in release it would silently
-    /// break the invariant the binary searches rely on).
+    /// current last prefix.
+    ///
+    /// The mirror descent produces every level in ascending prefix order, so
+    /// this O(1) append is the common build path; an out-of-order push trips a
+    /// debug assertion (in release it would silently break the invariant the
+    /// binary searches rely on).
     pub fn push(&mut self, prefix: Prefix<H>, node: Node<T, H>) {
         debug_assert!(
             self.entries.last().is_none_or(|(last, _)| *last < prefix),
@@ -79,10 +83,11 @@ impl<T, H: Height> Level<T, H> {
         }
     }
 
-    /// Merge `other` into `self`, preserving the ascending invariant. Both sides
-    /// are already sorted, so this is a single linear merge rather than a
-    /// binary-search insert per element; on a duplicate prefix `other`'s node
-    /// wins (matching `BTreeMap::extend`).
+    /// Merge `other` into `self`, preserving the ascending invariant.
+    ///
+    /// Both sides are already sorted, so this is a single linear merge rather
+    /// than a binary-search insert per element; on a duplicate prefix
+    /// `other`'s node wins (matching `BTreeMap::extend`).
     pub fn extend(&mut self, other: Self) {
         if other.is_empty() {
             return;
@@ -119,10 +124,12 @@ impl<T, H: Height> Level<T, H> {
 }
 
 impl<T, H: Height> FromIterator<(Prefix<H>, Node<T, H>)> for Level<T, H> {
-    /// Collect `(prefix, node)` pairs into a level. Callers feed pairs already
-    /// in ascending prefix order (a node's children, sorted by radix), so this
-    /// sorts only to defend the invariant and `debug_assert`s the input was
-    /// canonical (strictly ascending, no duplicates).
+    /// Collect `(prefix, node)` pairs into a level.
+    ///
+    /// Callers feed pairs already in ascending prefix order (a node's
+    /// children, sorted by radix), so this sorts only to defend the invariant
+    /// and `debug_assert`s the input was canonical (strictly ascending, no
+    /// duplicates).
     fn from_iter<I: IntoIterator<Item = (Prefix<H>, Node<T, H>)>>(iter: I) -> Self {
         let mut entries: Vec<(Prefix<H>, Node<T, H>)> = iter.into_iter().collect();
         entries.sort_by(|(a, _), (b, _)| a.cmp(b));

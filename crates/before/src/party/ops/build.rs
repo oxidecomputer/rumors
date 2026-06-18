@@ -1,7 +1,9 @@
 use crate::codec::Bits;
 use crate::idbits::{IdNode, IdReader};
 
-/// Single-buffer builder for normalized id output. A node reserves a 2-bit tag
+/// Single-buffer builder for normalized id output.
+///
+/// A node reserves a 2-bit tag
 /// placeholder before its children are emitted; [`close_node`](Self::close_node)
 /// patches the tag from which children turned out present, collapsing
 /// `(1, 1) → 1` (both terminal) and `(0, 0) → 0` (both empty). This mirrors the
@@ -11,10 +13,12 @@ pub(super) struct IdBuilder {
 }
 
 /// What an emitted child turned out to be, so its parent's
-/// [`close_node`](IdBuilder::close_node) can pick a tag and collapse: `Empty`
-/// contributed no bits (a `0`), `Terminal` a lone owned leaf (a `1`), `Node` an
-/// internal subtree. Carries no position: the tag is patched in place at the
-/// parent's reserved slot and the children already sit contiguously after it.
+/// [`close_node`](IdBuilder::close_node) can pick a tag and collapse.
+///
+/// `Empty` contributed no bits (a `0`), `Terminal` a lone owned leaf (a `1`),
+/// `Node` an internal subtree. Carries no position: the tag is patched in place
+/// at the parent's reserved slot and the children already sit contiguously
+/// after it.
 #[derive(Clone, Copy)]
 pub(super) enum Built {
     /// The empty `0` region: no bits emitted.
@@ -26,7 +30,9 @@ pub(super) enum Built {
 }
 
 /// A just-reserved tag placeholder, awaiting its children and a
-/// [`close_node`](IdBuilder::close_node). `!Clone` and `#[must_use]`: the token
+/// [`close_node`](IdBuilder::close_node).
+///
+/// `!Clone` and `#[must_use]`: the token
 /// must be closed exactly once, and the borrow checker stops it being reused or
 /// dropped silently — so an open with no matching close cannot compile.
 #[must_use = "an opened node must be closed with close_node"]
@@ -57,7 +63,9 @@ impl IdBuilder {
     }
 
     /// Copy one already-normal source subtree into the output, advancing `src`
-    /// past it and reporting what it was. The source subtree is copied exactly
+    /// past it and reporting what it was.
+    ///
+    /// The source subtree is copied exactly
     /// once (a verbatim bit-range splice). A synthetic empty reader contributes
     /// nothing and reports [`Built::Empty`].
     pub(super) fn copy_reader(&mut self, src: &mut IdReader) -> Built {

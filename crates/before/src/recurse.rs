@@ -47,10 +47,12 @@ pub(crate) fn grow<R>(f: impl FnOnce() -> R) -> R {
 }
 
 /// Recurse into one child, guarding the descent without wrapping the caller's
-/// body in a closure: the common path is a direct call (the body stays one
-/// frame and inlines), and only every [`STRIDE`] levels is the call routed
-/// through [`grow`]. Use at each recursive call site:
-/// `descend!(depth + 1, self.rec(child_args, depth + 1))`.
+/// body in a closure.
+///
+/// The common path is a direct call (the body stays one frame and inlines), and
+/// only every [`STRIDE`] levels is the call routed through [`grow`]. Use at
+/// each recursive call site: `descend!(depth + 1, self.rec(child_args, depth +
+/// 1))`.
 macro_rules! descend {
     ($depth:expr, $call:expr) => {
         if $crate::recurse::should_grow($depth) {

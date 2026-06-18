@@ -1,7 +1,9 @@
-//! Version tests: the working-form round-trip, the causal order and its
-//! comparison matrix, the join/meet operator matrices and lattice laws,
-//! complexity (linear-scaling) checks, grow optimality against the brute-force
-//! reference, `min_ticks`, and projection (`/`).
+//! Version tests.
+//!
+//! The working-form round-trip, the causal order and its comparison matrix,
+//! the join/meet operator matrices and lattice laws, complexity
+//! (linear-scaling) checks, grow optimality against the brute-force reference,
+//! `min_ticks`, and projection (`/`).
 
 use std::cmp::Ordering;
 
@@ -61,13 +63,15 @@ proptest! {
 // ───────────────────────────── causal order ─────────────────────────────
 
 proptest! {
-    /// Complexity. The causal order is `O(n + m)`: comparing `a` against `b = a
-    /// | extra` drives the bounded lazy-skip at scale. `a <= b` always holds
-    /// (so the walk traverses fully, no early `false`), and where `extra` added
-    /// structure that `a` lacks, `a`'s leaf aligns with `b`'s subtree, so `b`'s
-    /// dominated subtree is skipped once under that leaf. Building `a` and
-    /// `extra` from independent shapes maximizes such misalignments. Steps stay
-    /// linear from `scale` to `4 * scale`.
+    /// Complexity. The causal order is `O(n + m)`.
+    ///
+    /// Comparing `a` against `b = a | extra` drives the bounded lazy-skip at
+    /// scale. `a <= b` always holds (so the walk traverses fully, no early
+    /// `false`), and where `extra` added structure that `a` lacks, `a`'s leaf
+    /// aligns with `b`'s subtree, so `b`'s dominated subtree is skipped once
+    /// under that leaf. Building `a` and `extra` from independent shapes
+    /// maximizes such misalignments. Steps stay linear from `scale` to
+    /// `4 * scale`.
     #[test]
     fn leq_is_linear(
         shape_a in arb_shape(),
@@ -156,12 +160,13 @@ proptest! {
 
 proptest! {
     /// Parity holds once the working form is *materialized*, exercising the
-    /// equality short-circuit's working-form arms. Merging the join identity
-    /// (`Version::new()`) forces `work = Some(..)` without changing the value,
-    /// so each batch now compares as a working form. The matrix — materialized
-    /// vs materialized (Working/Working), materialized vs packed (the mixed arm
-    /// that declines and falls through) — still equals the bare version
-    /// comparison.
+    /// equality short-circuit's working-form arms.
+    ///
+    /// Merging the join identity (`Version::new()`) forces `work = Some(..)`
+    /// without changing the value, so each batch now compares as a working
+    /// form. The matrix — materialized vs materialized (Working/Working),
+    /// materialized vs packed (the mixed arm that declines and falls through)
+    /// — still equals the bare version comparison.
     #[test]
     fn materialized_batch_parity(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
@@ -185,14 +190,16 @@ proptest! {
     }
 }
 
-/// Assert one comparison-matrix cell agrees with `expected`: its `partial_cmp`
-/// (`PartialOrd`) and `==`/`!=` (`PartialEq`), plus the four ordering operators
-/// `partial_cmp` derives. Generic over the operand types, so each call resolves
-/// to exactly the impl for `(L, R)` — `assert_cmp_cell(&a, b, ..)` exercises the
-/// `&Lhs`/`Rhs` cell, `assert_cmp_cell(a, &b, ..)` the `Lhs`/`&Rhs` cell, `&`/`&`
-/// the std blanket — with no method-resolution ambiguity to mask which cell ran.
-/// A cell wired into a delegation cycle overflows the stack here rather than
-/// diverging silently in production.
+/// Assert one comparison-matrix cell agrees with `expected`.
+///
+/// Checks its `partial_cmp` (`PartialOrd`) and `==`/`!=` (`PartialEq`), plus
+/// the four ordering operators `partial_cmp` derives. Generic over the operand
+/// types, so each call resolves to exactly the impl for `(L, R)` —
+/// `assert_cmp_cell(&a, b, ..)` exercises the `&Lhs`/`Rhs` cell,
+/// `assert_cmp_cell(a, &b, ..)` the `Lhs`/`&Rhs` cell, `&`/`&` the std blanket
+/// — with no method-resolution ambiguity to mask which cell ran. A cell wired
+/// into a delegation cycle overflows the stack here rather than diverging
+/// silently in production.
 fn assert_cmp_cell<L, R>(lhs: L, rhs: R, expected: Option<Ordering>) -> Result<(), TestCaseError>
 where
     L: PartialEq<R> + PartialOrd<R>,
@@ -214,14 +221,16 @@ where
 }
 
 proptest! {
-    /// The full comparison matrix over {Version, Batch}² — every owned and
-    /// borrowed form of each operand, covering all twenty-four generated
-    /// `PartialEq`/`PartialOrd` impls plus the `&Lhs`/`&Rhs` std blanket forms —
-    /// agrees with the oracle's verdict on the same pair. Pinning every cell to
-    /// one source of truth is the "the cells can't drift out of sync" guarantee;
-    /// invoking every cell is the "no cell recurses forever" guarantee. Each
-    /// `Batch` operand is a fresh batch over a clone (read-only here, so reused
-    /// across the operators within a cell).
+    /// The full comparison matrix over {Version, Batch}² agrees with the
+    /// oracle's verdict on the same pair.
+    ///
+    /// Every owned and borrowed form of each operand, covering all twenty-four
+    /// generated `PartialEq`/`PartialOrd` impls plus the `&Lhs`/`&Rhs` std
+    /// blanket forms. Pinning every cell to one source of truth is the "the
+    /// cells can't drift out of sync" guarantee; invoking every cell is the "no
+    /// cell recurses forever" guarantee. Each `Batch` operand is a fresh batch
+    /// over a clone (read-only here, so reused across the operators within a
+    /// cell).
     #[test]
     fn compare_matrix_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
@@ -357,9 +366,11 @@ proptest! {
 proptest! {
     /// Every assigning / batch join surface on `Version` yields the same result
     /// as `a | b`, which `merge_matches_oracle` already pins to the oracle's
-    /// `join`. Covers `Version |= Version`, the `From<&mut Version>` batch
-    /// conversion, and the `Batch |= &Version` operator (committed on drop) —
-    /// none of which the by-value `|` differential reaches.
+    /// `join`.
+    ///
+    /// Covers `Version |= Version`, the `From<&mut Version>` batch conversion,
+    /// and the `Batch |= &Version` operator (committed on drop) — none of which
+    /// the by-value `|` differential reaches.
     #[test]
     fn version_assign_join_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
@@ -387,8 +398,9 @@ proptest! {
 
 proptest! {
     /// The full `|` (BitOr) matrix over {Version, Batch}² — every owned and
-    /// borrowed form of each operand — equals the oracle's `join`, which
-    /// `merge_matches_oracle` already pins for the bare Version×Version case. A
+    /// borrowed form of each operand — equals the oracle's `join`.
+    ///
+    /// `merge_matches_oracle` already pins the bare Version×Version case. A
     /// fresh `Batch` reflects its `Version`, so each of the sixteen
     /// representation/reference cells must agree. Each `Batch` operand gets its
     /// own clone in a tight scope: an owned-`Batch` operand is consumed by `|`
@@ -433,10 +445,12 @@ proptest! {
 }
 
 proptest! {
-    /// The full `|=` (BitOrAssign) matrix: {Version, Batch} left operands against
-    /// {Version, Batch} right operands, every reference form, all landing on the
-    /// oracle's `join`. A `Batch` left operand commits on drop, so it is scoped
-    /// and its underlying `Version` checked afterward.
+    /// The full `|=` (BitOrAssign) matrix: {Version, Batch} left operands
+    /// against {Version, Batch} right operands, every reference form, all
+    /// landing on the oracle's `join`.
+    ///
+    /// A `Batch` left operand commits on drop, so it is scoped and its
+    /// underlying `Version` checked afterward.
     #[test]
     fn join_assign_matrix_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
@@ -468,10 +482,12 @@ proptest! {
 
 proptest! {
     /// The join matrix holds once the `Batch` operands are *materialized* to
-    /// working form, exercising `snapshot`'s repack and `join_view` joining a
-    /// Working-form incoming view (the fresh-batch cells above all read packed
-    /// views). Merging the join identity (`Version::new()`) forces
-    /// `work = Some(..)` without changing the value.
+    /// working form.
+    ///
+    /// Exercises `snapshot`'s repack and `join_view` joining a Working-form
+    /// incoming view (the fresh-batch cells above all read packed views).
+    /// Merging the join identity (`Version::new()`) forces `work = Some(..)`
+    /// without changing the value.
     #[test]
     fn materialized_join_parity(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
@@ -508,12 +524,13 @@ proptest! {
 proptest! {
     /// The full `&` (BitAnd) matrix over {Version, Batch}² — every owned and
     /// borrowed form of each operand — equals the oracle's `meet`, dual to
-    /// [`join_matrix_matches_oracle`]. `meet_matches_oracle` pins the bare
-    /// Version×Version cell; a fresh `Batch` reflects its `Version`, so each of
-    /// the sixteen representation/reference cells must agree. Each `Batch`
-    /// operand gets its own clone in a tight scope: an owned-`Batch` operand is
-    /// consumed by `&` and commits (unchanged) on drop, so a fresh one is built
-    /// per cell.
+    /// [`join_matrix_matches_oracle`].
+    ///
+    /// `meet_matches_oracle` pins the bare Version×Version cell; a fresh
+    /// `Batch` reflects its `Version`, so each of the sixteen
+    /// representation/reference cells must agree. Each `Batch` operand gets its
+    /// own clone in a tight scope: an owned-`Batch` operand is consumed by `&`
+    /// and commits (unchanged) on drop, so a fresh one is built per cell.
     #[test]
     fn meet_matrix_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
@@ -555,10 +572,12 @@ proptest! {
 
 proptest! {
     /// The full `&=` (BitAndAssign) matrix: {Version, Batch} left operands
-    /// against {Version, Batch} right operands, every reference form, all landing
-    /// on the oracle's `meet`. Dual to [`join_assign_matrix_matches_oracle`]. A
-    /// `Batch` left operand commits on drop, so it is scoped and its underlying
-    /// `Version` checked afterward.
+    /// against {Version, Batch} right operands, every reference form, all
+    /// landing on the oracle's `meet`.
+    ///
+    /// Dual to [`join_assign_matrix_matches_oracle`]. A `Batch` left operand
+    /// commits on drop, so it is scoped and its underlying `Version` checked
+    /// afterward.
     #[test]
     fn meet_assign_matrix_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
@@ -590,11 +609,12 @@ proptest! {
 
 proptest! {
     /// The meet matrix holds once the `Batch` operands are *materialized* to
-    /// working form, exercising `snapshot`'s repack and `meet_view` meeting a
-    /// Working-form incoming view (the fresh-batch cells above all read packed
-    /// views). Dual to [`materialized_join_parity`]; materializing with the join
-    /// identity (`Version::new()`) forces `work = Some(..)` without changing the
-    /// value.
+    /// working form.
+    ///
+    /// Exercises `snapshot`'s repack and `meet_view` meeting a Working-form
+    /// incoming view (the fresh-batch cells above all read packed views). Dual
+    /// to [`materialized_join_parity`]; materializing with the join identity
+    /// (`Version::new()`) forces `work = Some(..)` without changing the value.
     #[test]
     fn materialized_meet_parity(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
@@ -738,12 +758,14 @@ proptest! {
 }
 
 proptest! {
-    /// Complexity. `grow`'s multi-region cost comparison is `O(n + m)`. Ticking
-    /// the empty history (`Leaf(0)`) against a deep *bushy* id forces `grow`
-    /// (here `fill` is a no-op: the id is a node over an event leaf), and the
-    /// bushy id's many owned regions at varying depths make the probe genuinely
-    /// weigh two feasible children at each branch (`cl < cr` with neither a
-    /// `COST_MAX` loser). Steps stay linear from `scale` to `4 * scale`.
+    /// Complexity. `grow`'s multi-region cost comparison is `O(n + m)`.
+    ///
+    /// Ticking the empty history (`Leaf(0)`) against a deep *bushy* id forces
+    /// `grow` (here `fill` is a no-op: the id is a node over an event leaf),
+    /// and the bushy id's many owned regions at varying depths make the probe
+    /// genuinely weigh two feasible children at each branch (`cl < cr` with
+    /// neither a `COST_MAX` loser). Steps stay linear from `scale` to
+    /// `4 * scale`.
     #[test]
     fn grow_bushy_is_linear(scale in MIN_SCALE..256) {
         let measure = |s: usize| {
@@ -773,10 +795,12 @@ proptest! {
 }
 
 proptest! {
-    /// Complexity. `meet` (`&`) is `O(n + m)`: meeting two deep event trees of
-    /// the same shape stays linear, dual to [`merge_is_linear`]. The operands
-    /// are independent shapes so the walk genuinely descends both sides (`a & a`
-    /// would short-circuit on `trivially_eq`).
+    /// Complexity. `meet` (`&`) is `O(n + m)`.
+    ///
+    /// Meeting two deep event trees of the same shape stays linear, dual to
+    /// [`merge_is_linear`]. The operands are independent shapes so the walk
+    /// genuinely descends both sides (`a & a` would short-circuit on
+    /// `trivially_eq`).
     #[test]
     fn meet_is_linear(shape_a in arb_shape(), shape_b in arb_shape(), scale in MIN_SCALE..256) {
         let measure = |s: usize| {
@@ -793,11 +817,13 @@ proptest! {
 // ───────────────────────────── path-sum overflow regression ─────────────────────────────
 
 /// A normal-form tree whose root-to-leaf path sum exceeds `u64::MAX` compares
-/// correctly: with arbitrary-precision base values there is no overflow class,
-/// so the answer is `Greater` in every build profile (no debug panic, no
-/// release wrap that would invert the causal order). `decode`/`try_from` admit
-/// such trees — `parse_ev` validates only *relative* bases and never sums a
-/// path — so the comparison must thread the path sum at full precision.
+/// correctly.
+///
+/// With arbitrary-precision base values there is no overflow class, so the
+/// answer is `Greater` in every build profile (no debug panic, no release wrap
+/// that would invert the causal order). `decode`/`try_from` admit such trees —
+/// `parse_ev` validates only *relative* bases and never sums a path — so the
+/// comparison must thread the path sum at full precision.
 #[test]
 fn path_sum_beyond_u64_compares_greater() {
     let big = 1u64 << 63;
@@ -833,10 +859,12 @@ fn stored_base_beyond_u64_ticks_and_merges() {
 // for the large-base (path-sum-overflow) regression class.
 
 proptest! {
-    /// `partial_cmp` on arbitrary, typically *unrelated* event-tree pairs agrees
-    /// with the oracle — including the concurrent (`None`) verdict the op pipeline rarely
-    /// produces, and large-base pairs whose root-to-leaf path sums exceed `u64::MAX`:
-    /// with arbitrary-precision bases the answer must still match.
+    /// `partial_cmp` on arbitrary, typically *unrelated* event-tree pairs
+    /// agrees with the oracle.
+    ///
+    /// Including the concurrent (`None`) verdict the op pipeline rarely
+    /// produces, and large-base pairs whose root-to-leaf path sums exceed
+    /// `u64::MAX`: with arbitrary-precision bases the answer must still match.
     #[test]
     fn causal_cmp_arbitrary(oa in arb_oracle_version(), ob in arb_oracle_version()) {
         let (ia, ib) = (from_oracle_version(&oa), from_oracle_version(&ob));
@@ -866,9 +894,11 @@ proptest! {
 
 proptest! {
     /// `&` (meet / GLB) on arbitrary unrelated event trees agrees with the
-    /// oracle's `meet`, structurally — dual to [`merge_arbitrary`]. Exercises the
-    /// meet's arm selection and `close_node` sink/collapse on shapes the op
-    /// pipeline never builds, with large bases threaded losslessly.
+    /// oracle's `meet`, structurally — dual to [`merge_arbitrary`].
+    ///
+    /// Exercises the meet's arm selection and `close_node` sink/collapse on
+    /// shapes the op pipeline never builds, with large bases threaded
+    /// losslessly.
     #[test]
     fn meet_arbitrary(oa in arb_oracle_version(), ob in arb_oracle_version()) {
         let met = from_oracle_version(&oa) & from_oracle_version(&ob);
@@ -881,11 +911,12 @@ proptest! {
 
 proptest! {
     /// `tick` (= `fill` then, if no fill, `grow`) on an arbitrary `(id, event)`
-    /// pair with *unrelated* shapes matches the oracle's `event`. This is where
-    /// the `Kind` arm selection, the cost folding, and the root-ward tie-break
-    /// live; feeding unrelated id/event shapes drives the `fill` full-subtree
-    /// arms and the multi-region `grow` cost comparison that same-clock
-    /// `(party, version)` pairs under-hit.
+    /// pair with *unrelated* shapes matches the oracle's `event`.
+    ///
+    /// This is where the `Kind` arm selection, the cost folding, and the
+    /// root-ward tie-break live; feeding unrelated id/event shapes drives the
+    /// `fill` full-subtree arms and the multi-region `grow` cost comparison
+    /// that same-clock `(party, version)` pairs under-hit.
     #[test]
     fn tick_arbitrary(
         op in arb_oracle_party_nonempty(),
@@ -916,6 +947,7 @@ proptest! {
     /// When `tick` takes the `grow` branch (`fill` leaves the tree unchanged),
     /// the impl inflates exactly the brute-force cost-minimal, right-favoring
     /// region: `tick` lowered to the oracle equals `best_inflation` normalized.
+    ///
     /// This holds the packed `grow`'s dynamic program to the full-enumeration
     /// global optimum directly — not merely to the recursive oracle (which
     /// realizes the same DP). Large bases are threaded losslessly, so the cost
@@ -943,13 +975,14 @@ proptest! {
 }
 
 proptest! {
-    /// §3 (the event condition), metamorphic form, on the impl. When `tick`
-    /// takes the `grow` branch, the inflated `e'` "dominates no more than
-    /// needed": no feasible single-region inflation candidate `x` of `(id, e)`
-    /// satisfies `e ≤ x < e'`. This is the correctly scoped reading of the
-    /// paper's `x < e' ⇒ x ≤ e` (the literal form over the dense pointwise
-    /// lattice is false even for a single increment — see the oracle twin
-    /// `grow_dominates_no_more_than_needed`). Run on the impl's own causal
+    /// §3 (the event condition), metamorphic form, on the impl.
+    ///
+    /// When `tick` takes the `grow` branch, the inflated `e'` "dominates no
+    /// more than needed": no feasible single-region inflation candidate `x` of
+    /// `(id, e)` satisfies `e ≤ x < e'`. This is the correctly scoped reading
+    /// of the paper's `x < e' ⇒ x ≤ e` (the literal form over the dense
+    /// pointwise lattice is false even for a single increment — see the oracle
+    /// twin `grow_dominates_no_more_than_needed`). Run on the impl's own causal
     /// order, with the candidate set enumerated by the brute-force oracle.
     /// Cross-checked against the oracle order on the same values.
     #[test]
@@ -980,9 +1013,10 @@ proptest! {
 
 proptest! {
     /// `decode ∘ encode == identity` over arbitrary normal-form event trees,
-    /// including large-base ones: the widened Elias-gamma code round-trips
-    /// every magnitude the working form can hold, and the decoded value lowers
-    /// to the same oracle tree.
+    /// including large-base ones.
+    ///
+    /// The widened Elias-gamma code round-trips every magnitude the working
+    /// form can hold, and the decoded value lowers to the same oracle tree.
     #[test]
     fn decode_encode_arbitrary(ov in arb_oracle_version()) {
         let v = from_oracle_version(&ov);
@@ -994,10 +1028,11 @@ proptest! {
 }
 
 proptest! {
-    /// `as_bytes` returns exactly the canonical `encode` bytes: the stored form
-    /// keeps its final partial byte zero-padded, so the raw storage slice is
-    /// byte-identical to the packed encoding. Exercises the literal/`extend`
-    /// construction path over arbitrary normal-form trees.
+    /// `as_bytes` returns exactly the canonical `encode` bytes.
+    ///
+    /// The stored form keeps its final partial byte zero-padded, so the raw
+    /// storage slice is byte-identical to the packed encoding. Exercises the
+    /// literal/`extend` construction path over arbitrary normal-form trees.
     #[test]
     fn as_bytes_matches_encode(ov in arb_oracle_version()) {
         let v = from_oracle_version(&ov);
@@ -1022,10 +1057,12 @@ proptest! {
 // ─────────────────────────────── min_ticks ───────────────────────────────
 
 /// The number of `tick`s a trace performs against the impl population, derived
-/// straight from the op list. `Tick` advances once; `Send` advances twice (the
-/// sender `tick`s, the receiver `recv`s = join-then-`tick`); `Fork`, `Sync`,
-/// and `Join` never `tick`. Each `Tick`/`Send` always executes fully (no index
-/// guard can skip it), so this count is exact — it mirrors `step_impl`.
+/// straight from the op list.
+///
+/// `Tick` advances once; `Send` advances twice (the sender `tick`s, the
+/// receiver `recv`s = join-then-`tick`); `Fork`, `Sync`, and `Join` never
+/// `tick`. Each `Tick`/`Send` always executes fully (no index guard can skip
+/// it), so this count is exact — it mirrors `step_impl`.
 fn trace_ticks(ops: &[Op]) -> u64 {
     ops.iter()
         .map(|op| match op {
@@ -1062,8 +1099,10 @@ fn min_ticks_known_values() {
 proptest! {
     /// `min_ticks` is a true floor: for *every* live clock in *any* causal
     /// history of fork/tick/send/sync/join, its version's `min_ticks` never
-    /// exceeds the ticks actually performed. Cross-checks the fold itself
-    /// against the independent oracle sum-of-bases.
+    /// exceeds the ticks actually performed.
+    ///
+    /// Cross-checks the fold itself against the independent oracle
+    /// sum-of-bases.
     #[test]
     fn min_ticks_floors_every_history(ops in world_strategy()) {
         let total = trace_ticks(&ops);
@@ -1088,8 +1127,10 @@ proptest! {
 
 /// There is no *maximum* tick count: leaf `1` can be built by arbitrarily many
 /// ticks — `n` disjoint forks each ticking once, then all joined — yet
-/// `min_ticks` stays `1`. This witnesses the unboundedness of the dual quantity
-/// while pinning the floor.
+/// `min_ticks` stays `1`.
+///
+/// This witnesses the unboundedness of the dual quantity while pinning the
+/// floor.
 #[test]
 fn no_maximum_tick_count() {
     for n in 1usize..=16 {
@@ -1122,9 +1163,11 @@ fn no_maximum_tick_count() {
 // ─────────────────────────────── rank ───────────────────────────────
 
 /// The raw `(numerator, exponent)` area fold over the reference oracle's
-/// recursive `Version` — a leaf is its base, a node is its base plus half the
-/// sum of its children — normalized through the one shared constructor.
-/// Ground truth for the impl's cursor-threaded fold in [`Version::rank`].
+/// recursive `Version`.
+///
+/// A leaf is its base, a node is its base plus half the sum of its children —
+/// normalized through the one shared constructor. Ground truth for the impl's
+/// cursor-threaded fold in [`Version::rank`].
 fn oracle_rank(v: &crate::oracle::Version) -> super::Rank {
     use crate::oracle::Version::{Leaf, Node};
     fn raw(v: &crate::oracle::Version) -> (crate::codec::Base, u32) {
@@ -1143,11 +1186,13 @@ fn oracle_rank(v: &crate::oracle::Version) -> super::Rank {
     super::Rank::from_raw(num, exp)
 }
 
-/// `rank` known values: the empty version is zero; a leaf is its integer
-/// base; the pair `min_ticks` cannot separate — `(0, 1, 0) < 1`, both one
-/// tick — gets strictly ordered ranks; and two *concurrent* versions may
-/// share a rank (the two-peak tree also covers half the interval), which is
-/// exactly what the strict-monotonicity contract permits.
+/// `rank` known values.
+///
+/// The empty version is zero; a leaf is its integer base; the pair `min_ticks`
+/// cannot separate — `(0, 1, 0) < 1`, both one tick — gets strictly ordered
+/// ranks; and two *concurrent* versions may share a rank (the two-peak tree
+/// also covers half the interval), which is exactly what the
+/// strict-monotonicity contract permits.
 #[test]
 fn rank_known_values() {
     assert_eq!(Version::new().rank().to_string(), "0");
@@ -1181,9 +1226,10 @@ proptest! {
     }
 
     /// The contract that makes `rank` a causal rank, on causally *related*
-    /// versions (an op-trace world is full of comparable pairs): strictly
-    /// ordered versions have strictly ordered ranks, in the same direction,
-    /// and equal versions have equal ranks. Concurrent pairs are
+    /// versions (an op-trace world is full of comparable pairs).
+    ///
+    /// Strictly ordered versions have strictly ordered ranks, in the same
+    /// direction, and equal versions have equal ranks. Concurrent pairs are
     /// unconstrained.
     #[test]
     fn rank_strictly_monotone_in_histories(ops in world_strategy()) {
@@ -1207,7 +1253,8 @@ proptest! {
     }
 
     /// The same contract on arbitrary normal-form pairs (uncoupled from the
-    /// op-trace generator's causally related shapes), plus the join probe:
+    /// op-trace generator's causally related shapes), plus the join probe.
+    ///
     /// `a | b` dominates each side, so its rank dominates each side's, with
     /// equality exactly when that side already contained the other.
     #[test]
@@ -1268,9 +1315,10 @@ fn ranked_tiebreaks_equal_ranks_by_bytes() {
 }
 
 proptest! {
-    /// `Ranked`'s total order linearly extends causality: causally ordered
-    /// versions compare in the same direction, equal versions compare
-    /// equal, and *concurrent* versions are tiebroken — `cmp` returns
+    /// `Ranked`'s total order linearly extends causality.
+    ///
+    /// Causally ordered versions compare in the same direction, equal versions
+    /// compare equal, and *concurrent* versions are tiebroken — `cmp` returns
     /// `Equal` exactly when the versions are equal, so `Ord` is consistent
     /// with `Eq`.
     #[test]
@@ -1319,10 +1367,12 @@ proptest! {
 
 // ─────────────────────── projection onto a party (`/`) ───────────────────────
 
-/// Projection decomposes a version along a fork: each half's contribution is a
-/// sub-version, the two rejoin to the whole, and their supports are disjoint (so
-/// their meet is empty). The whole-interval seed party is the identity, and
-/// projecting onto a *disjoint* party keeps nothing.
+/// Projection decomposes a version along a fork.
+///
+/// Each half's contribution is a sub-version, the two rejoin to the whole, and
+/// their supports are disjoint (so their meet is empty). The whole-interval
+/// seed party is the identity, and projecting onto a *disjoint* party keeps
+/// nothing.
 #[test]
 fn div_decomposes_along_fork() {
     let mut a = Clock::seed();
@@ -1361,11 +1411,12 @@ fn div_assign_matches_div() {
     assert_eq!(z, Version::new()); // none of a's tick lies in b's region
 }
 
-/// Projection can *raise* `min_ticks`: it is not monotone under `<=`. A single
-/// whole-interval tick (`leaf 1`, `min_ticks` 1) projected onto a "comb" region
-/// — two quarters in different halves — becomes two concurrent peaks, which no
-/// single tick can produce, forcing `min_ticks` to 2 even though the projection
-/// is a sub-version.
+/// Projection can *raise* `min_ticks`: it is not monotone under `<=`.
+///
+/// A single whole-interval tick (`leaf 1`, `min_ticks` 1) projected onto a
+/// "comb" region — two quarters in different halves — becomes two concurrent
+/// peaks, which no single tick can produce, forcing `min_ticks` to 2 even
+/// though the projection is a sub-version.
 #[test]
 fn div_can_fragment_and_raise_min_ticks() {
     // Fork a seed into quarters, then rejoin two that lie in different halves.

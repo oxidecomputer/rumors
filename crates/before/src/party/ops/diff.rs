@@ -48,7 +48,9 @@ struct DiffWalk {
 
 impl DiffWalk {
     /// Difference the subtrees at the two `&mut` readers, emitting into `out`
-    /// and advancing both readers past their subtrees. Reads as a match on the
+    /// and advancing both readers past their subtrees.
+    ///
+    /// Reads as a match on the
     /// two id nodes: `diff(0, b) = 0` and `diff(a, 1) = 0` keep nothing (skip
     /// both sides), `diff(a, 0) = a` copies the survivor verbatim, `diff(1, b) =
     /// complement(b)` keeps what `b` lacks, and two nodes recurse and normalize
@@ -123,7 +125,9 @@ impl DiffWalk {
     }
 
     /// Emit `complement(b)` — the region `b` does *not* own — advancing `b` past
-    /// its subtree. `complement(0) = 1`, `complement(1) = 0`, and an internal
+    /// its subtree.
+    ///
+    /// `complement(0) = 1`, `complement(1) = 0`, and an internal
     /// node complements each child (an absent child is a `0`, complementing to a
     /// terminal). A complemented normal id is already normal (flipping the
     /// leaves of a non-collapsible node cannot make it collapsible), so

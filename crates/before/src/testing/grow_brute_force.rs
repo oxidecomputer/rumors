@@ -31,7 +31,9 @@ use crate::oracle;
 pub(crate) type GrowCost = (u32, u32);
 
 /// Every feasible single-region inflation of `(id, e)`, each paired with its true
-/// `(expansions, depth)` cost — the full search space `grow` optimizes over, enumerated
+/// `(expansions, depth)` cost.
+///
+/// The full search space `grow` optimizes over, enumerated
 /// without pruning. Empty iff the id owns nothing here (an empty region can never be
 /// inflated). Trees are raw (un-normalized), exactly as the paper's `grow` builds them;
 /// callers normalize before comparing to `event`'s output. Recursive over a bounded test
@@ -105,7 +107,9 @@ pub(crate) fn min_inflation_cost(id: &oracle::Party, e: &oracle::Version) -> Opt
 
 /// The single inflation the paper's `grow` must choose: globally cost-minimal,
 /// with the root-ward (right-favoring) tie-break applied *locally* at each
-/// branch node. Returns the raw (un-normalized) tree and its cost, or `None` if
+/// branch node.
+///
+/// Returns the raw (un-normalized) tree and its cost, or `None` if
 /// the id owns nothing.
 ///
 /// Independent of `grow`'s greedy DP in the way that matters: each child's

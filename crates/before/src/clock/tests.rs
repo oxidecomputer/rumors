@@ -51,8 +51,10 @@ proptest! {
 proptest! {
     /// A seed-derived op trace, applied in lockstep to the oracle and the impl,
     /// agrees structurally on every live clock after every step, and all live
-    /// impl parties stay pairwise disjoint (so `join`/`sync` never error in
-    /// correct usage). Agreement is by structural lowering — `to_oracle_clock`
+    /// impl parties stay pairwise disjoint.
+    ///
+    /// Pairwise disjointness means `join`/`sync` never error in correct usage.
+    /// Agreement is by structural lowering — `to_oracle_clock`
     /// rebuilds the oracle's tree shape from the impl's internal packed bits —
     /// not via the byte codec, which the per-trace round-trip below exercises
     /// separately.
@@ -308,10 +310,11 @@ proptest! {
 
     /// Assigning forms. The `Clock` assigning / batch join surfaces merge the
     /// version and leave the party untouched, matching the oracle —
-    /// complementing the by-value `Clock | Version` above. Covers `Clock |=
-    /// Version`, the `From<&mut Clock>` batch conversion, the `clock::Batch |=
-    /// &Version` operator (committed on drop), and the `clock::Batch::party`
-    /// accessor.
+    /// complementing the by-value `Clock | Version` above.
+    ///
+    /// Covers `Clock |= Version`, the `From<&mut Clock>` batch conversion, the
+    /// `clock::Batch |= &Version` operator (committed on drop), and the
+    /// `clock::Batch::party` accessor.
     #[test]
     fn clock_assign_join_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
         let cs = run(&ops);
@@ -440,10 +443,11 @@ proptest! {
 proptest! {
     /// `encoded_bits` is the pre-final-pad bit length of `encode`: for every live
     /// clock (and its party and version), `encode().len()` is `encoded_bits()`
-    /// rounded up to whole bytes. A `Clock` byte-concatenates its party and
-    /// version (each byte-aligned), so its bit length is the *byte-aligned* party
-    /// length plus the version's own bit length — the party's padding lies
-    /// between the two parts.
+    /// rounded up to whole bytes.
+    ///
+    /// A `Clock` byte-concatenates its party and version (each byte-aligned),
+    /// so its bit length is the *byte-aligned* party length plus the version's
+    /// own bit length — the party's padding lies between the two parts.
     #[test]
     fn encoded_bits_matches_encode_len(ops in world_strategy()) {
         for oc in &run(&ops) {
@@ -461,9 +465,12 @@ proptest! {
 
 /// Deep structures (a depth-100k id spine, and the deep event tree a tick
 /// builds over it) survive every public op, the codec, and the `Debug`
-/// printer with no stack overflow: each traversal recurses, but
+/// printer with no stack overflow.
+///
+/// Each traversal recurses, but
 /// [`crate::recurse`] grows the stack onto the heap before a deep input can
-/// overflow it. Beyond the single-clock ops (tick, fork, join, partial_cmp,
+/// overflow it.
+/// Beyond the single-clock ops (tick, fork, join, partial_cmp,
 /// `|`, encode, decode, Debug), this drives the composite ops on deep
 /// structures: `sync` between two deep clocks, `send`/`recv` of a deep
 /// version, and version comparison and concurrency at depth. Impl-only: the
@@ -557,13 +564,14 @@ fn deep_tree_stack_safety() {
 }
 
 proptest! {
-    /// `decode` of arbitrary bytes never panics; it returns `Ok` or `Err`. Any
-    /// accepted value satisfies the keystone invariant `decode(b) == Ok(x) ⟹
-    /// is_normal(x)`: lowering it to the oracle yields a normal-form tree. This
-    /// — not the re-encode round-trip alone — is what makes the byte-equality
-    /// `Eq`/`Hash` sound: a non-normal accept would give two distinct byte
-    /// strings for one logical value. The re-encode-then-decode round-trip is
-    /// also asserted (canonical encoding is stable).
+    /// `decode` of arbitrary bytes never panics; it returns `Ok` or `Err`.
+    ///
+    /// Any accepted value satisfies the keystone invariant `decode(b) == Ok(x)
+    /// ⟹ is_normal(x)`: lowering it to the oracle yields a normal-form tree.
+    /// This — not the re-encode round-trip alone — is what makes the
+    /// byte-equality `Eq`/`Hash` sound: a non-normal accept would give two
+    /// distinct byte strings for one logical value. The re-encode-then-decode
+    /// round-trip is also asserted (canonical encoding is stable).
     #[test]
     fn decode_never_panics(bytes in prop::collection::vec(any::<u8>(), 0..512)) {
         if let Ok(p) = Party::decode(&bytes[..]) {
@@ -595,6 +603,7 @@ proptest! {
 // extracted from a decoded clock is encoded on its own.
 
 /// The seed's id is two bits, so its event starts at a non-byte-aligned offset.
+///
 /// Decoding the seed and re-encoding the recovered version must reproduce the
 /// canonical encoding (and survive its own `decode`), not an offset-shifted
 /// one.
@@ -612,7 +621,9 @@ fn decoded_seed_version_encodes_canonically() {
 proptest! {
     /// For any seed-derived clock, decoding it preserves each component's
     /// canonical byte encoding, and the extracted party and version each
-    /// round-trip through their own `decode`. Guards the whole class of
+    /// round-trip through their own `decode`.
+    ///
+    /// Guards the whole class of
     /// non-byte-aligned offset extraction.
     #[test]
     fn decode_preserves_component_canonicity(ops in world_strategy(), i in 0usize..64) {
@@ -633,11 +644,12 @@ proptest! {
 
 // ───────────────────────────── worked example ─────────────────────────────
 
-/// Paper §5.1. The paper's example run, step by step: seed forks to two; one
-/// ticks then forks; the other ticks twice; one of three ticks while the other
-/// two sync; finally all rejoin to the whole space and a tick collapses the
-/// event tree to a single integer. Mirrors the oracle's `worked_example` on the
-/// impl.
+/// Paper §5.1's example run, step by step.
+///
+/// Seed forks to two; one ticks then forks; the other ticks twice; one of three
+/// ticks while the other two sync; finally all rejoin to the whole space and a
+/// tick collapses the event tree to a single integer. Mirrors the oracle's
+/// `worked_example` on the impl.
 #[test]
 fn worked_example() {
     // Whole-space region check, computed structurally (parties are not `Clone`).
@@ -845,13 +857,14 @@ proptest! {
 
     /// `serde_json` represents `serialize_bytes` as a JSON number-array,
     /// decoded back via `visit_seq` — so it never exercises the binary
-    /// `serialize_bytes`/`visit_bytes` path. Pin that path through two non-JSON
-    /// formats: `postcard` (non-self-describing, length-prefixed bytes) and
-    /// `ciborium` (self-describing CBOR, which emits a *typed* byte-string —
-    /// CBOR major type 2). Every type must round-trip through both: the
-    /// serialized form is the canonical encoding, deserialization re-validates
-    /// it, and the CBOR typed-bytes path is the one `serde_json` alone can
-    /// never reach.
+    /// `serialize_bytes`/`visit_bytes` path.
+    ///
+    /// Pin that path through two non-JSON formats: `postcard`
+    /// (non-self-describing, length-prefixed bytes) and `ciborium`
+    /// (self-describing CBOR, which emits a *typed* byte-string — CBOR major
+    /// type 2). Every type must round-trip through both: the serialized form is
+    /// the canonical encoding, deserialization re-validates it, and the CBOR
+    /// typed-bytes path is the one `serde_json` alone can never reach.
     #[test]
     fn serde_roundtrip_binary_formats(ops in world_strategy(), i in 0usize..64) {
         let cs = run(&ops);
@@ -919,7 +932,9 @@ proptest! {
 
     /// The borsh payload is the canonical encoding under borsh's `Vec<u8>`
     /// framing (a `u32` length prefix), so `to_vec` of a value equals borsh's
-    /// own encoding of that value's `encode()` vector — and the framing is
+    /// own encoding of that value's `encode()` vector.
+    ///
+    /// And the framing is
     /// self-delimiting, so two values concatenated decode back in order.
     #[test]
     fn borsh_frames_as_canonical_bytes(ops in world_strategy(), i in 0usize..64) {

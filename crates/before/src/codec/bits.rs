@@ -35,11 +35,12 @@ pub(crate) fn zero_dead_bits(bits: &mut Bits) {
 
 /// Streams a bit-concatenation of canonical bit slices to a writer, packing
 /// MSB-first into bytes and zero-padding the final partial byte — with no
-/// intermediate buffer. `Clock::encode_to` writes the id stream then the event
-/// stream through one of these, so the cross-stream byte (the partial id tail
-/// merged with the leading event bits) is produced on the fly rather than via a
-/// combined `BitVec`; single-stream `Party`/`Version` go through
-/// [`pack_to_writer`].
+/// intermediate buffer.
+///
+/// `Clock::encode_to` writes the id stream then the event stream through one of
+/// these, so the cross-stream byte (the partial id tail merged with the leading
+/// event bits) is produced on the fly rather than via a combined `BitVec`;
+/// single-stream `Party`/`Version` go through [`pack_to_writer`].
 pub(crate) struct BitWriter<'w, W: io::Write> {
     w: &'w mut W,
     /// The byte under construction: `filled` valid bits in its high positions
@@ -81,7 +82,9 @@ impl<'w, W: io::Write> BitWriter<'w, W> {
         }
     }
 
-    /// Append a canonical bit slice (MSB-first). The slice starts on a byte
+    /// Append a canonical bit slice (MSB-first).
+    ///
+    /// The slice starts on a byte
     /// boundary in its own backing store (every stored `Party`/`Version` does):
     /// when the writer is itself byte-aligned the whole-byte body is emitted in
     /// one `write_all`; otherwise it is merged byte-by-byte across the boundary.
@@ -141,7 +144,9 @@ pub(crate) fn pack_to_writer<W: io::Write>(bits: &BitsSlice, w: &mut W) -> io::R
 }
 
 /// Require that the bits from `pos` onward are exactly the canonical padding: a
-/// run of zeros shorter than a byte. [`pack_to_writer`] only pads the final
+/// run of zeros shorter than a byte.
+///
+/// [`pack_to_writer`] only pads the final
 /// partial byte, so a canonical stream has at most 7 trailing zero bits; both a
 /// nonzero padding bit AND a whole spurious zero byte (`>= 8` trailing bits,
 /// even if all zero) are non-canonical. Bounding the length is what makes

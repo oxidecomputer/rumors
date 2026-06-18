@@ -1,6 +1,5 @@
-//! What can go wrong, and which operations raise it: [`Overlap`] (joining
-//! non-disjoint parties), [`Decode`] (rejecting non-canonical bytes), and
-//! [`Parse`] (rejecting malformed display text).
+//! What can go wrong: [`Overlap`] (non-disjoint parties), [`Decode`]
+//! (non-canonical bytes), and [`Parse`] (malformed display text).
 
 /// Two parties were not disjoint during [`Party::join`](crate::Party::join) or
 /// [`Clock::join`](crate::Clock::join).

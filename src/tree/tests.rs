@@ -30,8 +30,9 @@ fn insert_action(b: Bytes) -> Action<Bytes> {
 }
 
 /// Generate a vector of distinct `Bytes`, deduplicated so every element maps
-/// to a unique leaf path when inserted under the same party and version. Many
-/// of the hash-invariance properties below are only meaningful when no two
+/// to a unique leaf path when inserted under the same party and version.
+///
+/// Many of the hash-invariance properties below are only meaningful when no two
 /// inserts collide by path; collision semantics are exercised separately.
 fn distinct_bytes(max: usize) -> impl Strategy<Value = Vec<Bytes>> {
     proptest::collection::hash_set(any::<Vec<u8>>(), 0..=max)
@@ -55,8 +56,9 @@ fn distinct_bytes_and_permutation(max: usize) -> impl Strategy<Value = (Vec<Byte
         })
 }
 
-/// Map a human-readable party label to a small disjoint-party index. The
-/// distinct labels the tests use ("A"/"B"/"C"/"P", or proptest-generated
+/// Map a human-readable party label to a small disjoint-party index.
+///
+/// The distinct labels the tests use ("A"/"B"/"C"/"P", or proptest-generated
 /// strings) map to distinct indices, so [`party_of`] yields mutually
 /// disjoint parties.
 fn idx(label: impl AsRef<[u8]>) -> usize {
@@ -85,19 +87,22 @@ fn version_for(party: impl AsRef<[u8]>, ticks: u64) -> Version {
 }
 
 /// Compute the leaf-path `Key` that `Tree::act` assigns for an insert of
-/// `value` at the version a party reaches after `scalar` events. The path is
-/// derived from the version's canonical bytes (see [`Path::for_leaf`]), and the
-/// tree hashes over the *serialized* message bytes, so we feed the cached
-/// serialization through. This matches what the tree derives internally for the
-/// same post-tick version.
+/// `value` at the version a party reaches after `scalar` events.
+///
+/// The path is derived from the version's canonical bytes (see
+/// [`Path::for_leaf`]), and the tree hashes over the *serialized* message
+/// bytes, so we feed the cached serialization through. This matches what the
+/// tree derives internally for the same post-tick version.
 fn leaf_path(party: impl AsRef<[u8]>, scalar: u64, value: &Bytes) -> Key {
     Path::for_leaf(&version_for(party, scalar), msg(value.clone()).bytes()).into()
 }
 
 /// Build a versioned insert triple of the shape `Tree::react` expects:
-/// `(leaf_path, version, message)`. The leaf path matches what `act` would
-/// have computed for the given party label and scalar version. Wrapping the
-/// boilerplate keeps the test bodies focused on the property under test.
+/// `(leaf_path, version, message)`.
+///
+/// The leaf path matches what `act` would have computed for the given party
+/// label and scalar version. Wrapping the boilerplate keeps the test bodies
+/// focused on the property under test.
 fn insert_at(
     version: Version,
     party: impl AsRef<[u8]>,
@@ -109,7 +114,9 @@ fn insert_at(
 
 /// Compute the root hash of the fully-expanded (un-path-compressed) 256-ary
 /// trie over the given set of values, recomputed independently of the
-/// implementation as a ground truth. A leaf hashes to `blake3(LEAF_TAG)`; at
+/// implementation as a ground truth.
+///
+/// A leaf hashes to `blake3(LEAF_TAG)`; at
 /// each level above, a branch hashes `blake3(BRANCH_TAG ‖ r₀ ‖ h₀ ‖ …)` over
 /// its *present* children in ascending radix order (absent slots are omitted,
 /// not zero-filled), each hash truncated to its leading
@@ -202,6 +209,7 @@ fn single_value_hash_matches_reference() {
 proptest! {
     /// The compressed tree's root hash must equal the hash computed over the
     /// fully-expanded uncompressed trie, for any sequence of inserted values.
+    ///
     /// This is the ground-truth invariant for path compression: the hash
     /// depends on the set of leaves, not on how the tree chooses to compress
     /// them. Each insert in the batch claims a fresh scalar version, so the
@@ -224,7 +232,9 @@ proptest! {
 
     /// A list of versioned actions applied through `react` must produce the
     /// same tree hash regardless of how the list is partitioned across react
-    /// calls. This is the batching-transparency claim in `react`'s doc: the
+    /// calls.
+    ///
+    /// This is the batching-transparency claim in `react`'s doc: the
     /// "single traversal" optimization is only a speedup, not a semantic
     /// change.
     #[test]
@@ -261,7 +271,9 @@ proptest! {
     }
 
     /// Two action sequences that end with the same set of leaves must produce
-    /// the same root hash. Concretely, a sequence of individual `act` calls
+    /// the same root hash.
+    ///
+    /// Concretely, a sequence of individual `act` calls
     /// (each bumping the scalar version) must agree with a single `react`
     /// call that re-presents those same inserts at the versions `act`
     /// implicitly assigned them.
@@ -292,7 +304,9 @@ proptest! {
     }
 
     /// The size and version accessors agree with an independent walk of the
-    /// tree. Inserting `n` distinct values must make `len` report `n`, `iter`
+    /// tree.
+    ///
+    /// Inserting `n` distinct values must make `len` report `n`, `iter`
     /// yield `n` leaves, and `is_empty` track `n == 0`. `iter` is moreover an
     /// honest `ExactSizeIterator`: its reported length starts at `n` and falls
     /// by exactly one per yielded leaf, hitting zero precisely at the end.
@@ -336,7 +350,9 @@ proptest! {
         }
     }
 
-    /// The leaf iterator is a consistent `DoubleEndedIterator`: the forward
+    /// The leaf iterator is a consistent `DoubleEndedIterator`.
+    ///
+    /// The forward
     /// walk is in strictly ascending key order, reverse iteration yields exactly
     /// that sequence reversed, and consuming alternately from both ends visits
     /// every leaf exactly once — the ends meet in the middle with no overlap and
@@ -376,7 +392,9 @@ proptest! {
 
     /// Inserting a value and then deleting its leaf path via two separate
     /// `act` calls must leave the tree empty (the empty-tree hash), with the
-    /// version two ticks along: inserts and effectual forgets each claim a
+    /// version two ticks along.
+    ///
+    /// Inserts and effectual forgets each claim a
     /// fresh version, so the mirror protocol can distinguish "I forgot this"
     /// from "I never knew about it."
     #[test]
@@ -436,7 +454,9 @@ proptest! {
 
     /// Every insert in an `act` batch advances the owning party's version by
     /// one, so a run of batches totalling `n` inserts leaves the tree's
-    /// version exactly `n` ticks along. Each insert claims a fresh version
+    /// version exactly `n` ticks along.
+    ///
+    /// Each insert claims a fresh version
     /// so that content-identical messages produce distinct keys. (Effectual
     /// forgets advance the version too, pinned by
     /// `insert_then_delete_is_empty`; ineffectual ones do not, pinned by
@@ -485,7 +505,9 @@ proptest! {
 
     /// Two disjoint batches of versioned inserts applied via `react` must
     /// commute: the order in which the batches are applied does not change
-    /// the resulting tree. "Disjoint" here is ensured by giving the two
+    /// the resulting tree.
+    ///
+    /// "Disjoint" here is ensured by giving the two
     /// batches different scalar versions, which produces different leaf
     /// paths regardless of any overlap in values.
     #[test]
@@ -534,9 +556,10 @@ proptest! {
     }
 
     /// Replaying a history of versioned actions in any order produces the
-    /// same tree, as long as the actions do not conflict on a path. Giving
-    /// every action a unique scalar version makes every leaf path unique,
-    /// so no last-writer-wins tie-breaking can mask a reordering bug.
+    /// same tree, as long as the actions do not conflict on a path.
+    ///
+    /// Giving every action a unique scalar version makes every leaf path
+    /// unique, so no last-writer-wins tie-breaking can mask a reordering bug.
     #[test]
     fn react_replay_order_invariant(
         (base, shuffled) in distinct_bytes_and_permutation(12),
@@ -573,8 +596,9 @@ proptest! {
 
     /// Strong eventual consistency: if two parties each apply their own
     /// actions locally and then cross-react to each other's recorded event
-    /// history, their trees converge to the same leaf multiset, so the
-    /// observable invariants (`hash()` and `latest()`) must agree.
+    /// history, their trees converge to the same leaf multiset.
+    ///
+    /// The observable invariants (`hash()` and `latest()`) must agree.
     #[test]
     fn two_party_sec_cross_replay(
         a_inserts in distinct_bytes(4),
@@ -628,7 +652,9 @@ proptest! {
         prop_assert_eq!(cloned, tree);
     }
 
-    /// Structural equality implies hash equality. `Eq` compares root nodes
+    /// Structural equality implies hash equality.
+    ///
+    /// `Eq` compares root nodes
     /// directly, so if two trees are `Eq` their root hashes — a pure
     /// function of the root node — must agree. Two independently-built
     /// trees that applied the same batch of actions are expected to be
@@ -645,7 +671,9 @@ proptest! {
     }
 
     /// Inserting the same value under different parties produces different
-    /// leaf paths, and therefore different root hashes. The path derives from
+    /// leaf paths, and therefore different root hashes.
+    ///
+    /// The path derives from
     /// the leaf's version (never the party itself; see `Path::for_leaf`), and
     /// disjoint parties tick structurally distinct versions, so two parties
     /// can concurrently write the same value without colliding.
@@ -663,6 +691,7 @@ proptest! {
     /// Inserting the same value twice under the same party via two `act`
     /// calls produces two distinct leaves: the scalar version participates
     /// in the path, so the second insert does not overwrite the first.
+    ///
     /// Both leaves hold the same value, and both are retrievable by their
     /// respective paths.
     #[test]
@@ -699,7 +728,9 @@ fn owned<T>((key, version, value): (Key, &Version, &Arc<T>)) -> (Key, Version, A
 }
 
 proptest! {
-    /// The walk machinery's correctness core, differentially: for arbitrary
+    /// The walk machinery's correctness core, differentially.
+    ///
+    /// For arbitrary
     /// divergent trees and an arbitrary causal bound pair (every `Bound`
     /// kind, over versions sampled from both trees' leaves and ceilings plus
     /// genesis — so dominated, dominating, equal, and concurrent bounds all
@@ -779,7 +810,9 @@ proptest! {
     }
 
     /// The unfiltered walk is exact and reversible, and the point lookup
-    /// resolves it: `iter`'s size hint equals the tree's length, the
+    /// resolves it.
+    ///
+    /// `iter`'s size hint equals the tree's length, the
     /// backward walk is the forward walk reversed, `get` finds every
     /// iterated key with the same version and value, and a perturbed key
     /// that names no leaf misses.

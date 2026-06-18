@@ -22,27 +22,26 @@
 //!
 //! ## A conceptual sketch
 //!
-//! The insight of the original ITC paper is that a [`Party`] can be
-//! represented as a *tree* denoting a non-empty set of subintervals of
-//! `[0, 1)`, giving both compact representation and dynamic membership. The
-//! initial [`Party`], [`Party::seed`], is `{ [0, 1) }`; a
-//! [`fork`](Party::fork) splits an interval in half, so the first fork yields
-//! `{ [0, 1/2) }` and `{ [1/2, 1) }`. Disjoint interval sets are
-//! [`join`](Party::join)ed by set union, merging adjacent intervals:
-//! `{ [0, 1/2), [5/8, 3/4) }` ∪ `{ [3/4, 1) }` = `{ [0, 1/2), [5/8, 1) }`.
-//! Parties can therefore be minted and recycled freely while their
-//! representations stay small.
+//! The insight of the original ITC paper is that a [`Party`] can be represented
+//! as a *tree* denoting a non-empty set of subintervals of `[0, 1)`, giving
+//! both compact representation and dynamic membership. The initial [`Party`],
+//! [`Party::seed`], is `{ [0, 1) }`; a [`fork`](Party::fork) splits an interval
+//! in half, so the first fork yields `{ [0, 1/2) }` and `{ [1/2, 1) }`.
+//! Disjoint interval sets are [`join`](Party::join)ed by set union, merging
+//! adjacent intervals: `{ [0, 1/2), [5/8, 3/4) }` ∪ `{ [3/4, 1) }` = `{ [0,
+//! 1/2), [5/8, 1) }`. Parties can therefore be minted and recycled freely while
+//! their representations stay small.
 //!
-//! A [`Version`] is then a function from `[0, 1)` to the natural numbers,
-//! also represented as a tree, with the initial [`Version`] the
-//! constantly-zero function. To register an event for a [`Party`], it
-//! suffices to increment the function over any non-empty region owned by that
-//! party. Any such choice yields a valid causal timestamp, and the freedom of
-//! choice lets the implementation simplify a [`Version`]'s tree on
-//! [`tick`](Version::tick). As parties and versions are forked and joined
-//! over the lifetime of a distributed system, their typical size therefore
-//! stays small: hundreds to low thousands of bytes, even for hundreds of
-//! communicating processes and millions of events.
+//! A [`Version`] is then a function from `[0, 1)` to the natural numbers, also
+//! represented as a tree, with the initial [`Version`] the constantly-zero
+//! function. To register an event for a [`Party`], it suffices to increment the
+//! function over any non-empty region owned by that party. Any such choice
+//! yields a valid causal timestamp, and the freedom of choice lets the
+//! implementation simplify a [`Version`]'s tree on [`tick`](Version::tick). As
+//! parties and versions are forked and joined over the lifetime of a
+//! distributed system, their typical size therefore stays small: hundreds to
+//! low thousands of bytes, even for hundreds of communicating processes and
+//! millions of events.
 //!
 //! That lattice is the [`Version`] API: the partial order `<=` tests whether
 //! one version's history is contained in another's, the join `|` combines two
@@ -214,8 +213,7 @@ pub use party::Party;
 pub use version::{Rank, Ranked, Version};
 pub mod batch {
     //! [`batch::Clock`](Clock) and [`batch::Version`](Version) amortize costs
-    //! to improve performance on [`Clock`](crate::Clock)s and
-    //! [`Version`](crate::Version)s.
+    //! to improve performance.
     //!
     //! ```
     //! use before::{batch, Clock};
@@ -227,10 +225,12 @@ pub mod batch {
 }
 pub mod iter {
     //! Lazy balanced-fork iterators: [`iter::Party`](Party) and
-    //! [`iter::Clock`](Clock) hand out `n` shallow shares of a
-    //! [`Party`](crate::Party) (or [`Clock`](crate::Clock)) in one balanced
-    //! split — see [`Party::forks`](crate::Party::forks) — generating each share
-    //! on demand and folding any unconsumed shares back when dropped.
+    //! [`iter::Clock`](Clock).
+    //!
+    //! They hand out `n` shallow shares of a [`Party`](crate::Party) (or
+    //! [`Clock`](crate::Clock)) in one balanced split — see
+    //! [`Party::forks`](crate::Party::forks) — generating each share on demand
+    //! and folding any unconsumed shares back when dropped.
     //!
     //! ```
     //! use before::{iter, Party};

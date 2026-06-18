@@ -14,10 +14,12 @@
 use crate::codec::{self, decode_int, Base, Bits, BitsSlice};
 use crate::step;
 
-/// Preorder topology + payload split. `topo[i]` is `true` iff node `i` is
-/// internal (two children); `base[i]` is its stored (relative) integer. The
-/// left child of an internal node is the next node in preorder; the right child
-/// follows the left subtree. `topo.len() == base.len() == node count`.
+/// Preorder topology + payload split.
+///
+/// `topo[i]` is `true` iff node `i` is internal (two children); `base[i]` is
+/// its stored (relative) integer. The left child of an internal node is the
+/// next node in preorder; the right child follows the left subtree.
+/// `topo.len() == base.len() == node count`.
 pub(crate) struct WorkingVersion {
     pub(crate) topo: Bits,
     pub(crate) base: Vec<Base>,
@@ -32,10 +34,11 @@ impl WorkingVersion {
 }
 
 impl WorkingVersion {
-    /// Unpack a canonical packed event tree into the working form. One forward
-    /// pass over the preorder stream: each node contributes one topology bit
-    /// (its flag) and one base. The input must be exactly one `enc_ev` tree (a
-    /// `Version`'s stored bits).
+    /// Unpack a canonical packed event tree into the working form.
+    ///
+    /// One forward pass over the preorder stream: each node contributes one
+    /// topology bit (its flag) and one base. The input must be exactly one
+    /// `enc_ev` tree (a `Version`'s stored bits).
     pub(crate) fn unpack(packed: &BitsSlice) -> WorkingVersion {
         // Grow `topo`/`base` by `push` rather than pre-sizing: the working
         // form is transient (built, compared, dropped) and these are

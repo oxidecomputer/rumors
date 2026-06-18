@@ -2,11 +2,12 @@ use crate::error::Parse;
 
 use super::{encode_int, parse_id, validate_ev, validate_id, Base, Bits, BitsSlice};
 
-/// Whether a normal-form id stream is the anonymous (empty) identity. In the
-/// pruned encoding a `0` is structural absence, so the only empty id is the
-/// empty bit stream — an O(1) check. Callers must pass already-validated bits;
-/// the O(1) shortcut is only sound for normal-form input, so we assert that in
-/// debug builds.
+/// Whether a normal-form id stream is the anonymous (empty) identity.
+///
+/// In the pruned encoding a `0` is structural absence, so the only empty id is
+/// the empty bit stream — an O(1) check. Callers must pass already-validated
+/// bits; the O(1) shortcut is only sound for normal-form input, so we assert
+/// that in debug builds.
 pub(crate) fn id_is_empty(bits: &BitsSlice) -> bool {
     debug_assert!(
         matches!(parse_id(bits, 0), Ok(end) if end == bits.len()),
@@ -41,6 +42,7 @@ fn id_is_terminal(bits: &BitsSlice) -> bool {
 
 /// Assemble an id node from two already-normal child streams: a `0` child is the
 /// empty stream (absent), so the 2-bit tag records which children are present.
+///
 /// Rejects a collapsible `(0, 0)` or `(1, 1)`, then validates the result.
 pub(crate) fn id_node(l: &BitsSlice, r: &BitsSlice) -> Result<Bits, Parse> {
     if l.is_empty() && r.is_empty() {

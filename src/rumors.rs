@@ -34,7 +34,9 @@ pub struct Rumors<T, B: BookmarkError = NoBookmark, M: Mode = Async> {
     extant: Extant,
 }
 
-/// One handle's share of a [`Rumors`] generation's existence. The `token`
+/// One handle's share of a [`Rumors`] generation's existence.
+///
+/// The `token`
 /// [`Arc`]'s strong count *is* the number of extant handles (a pending
 /// [`try_into_peer`](Rumors::try_into_peer) has already shed its share), so the
 /// count reaching zero is the moment the generation has quiesced and the

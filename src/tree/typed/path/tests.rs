@@ -8,10 +8,12 @@ use super::*;
 proptest! {
     /// `for_leaf` commits to its `(version, value)` through *full-width*
     /// component hashes: the path is `blake3(blake3(version) ‖
-    /// blake3(value))`, 32 bytes wide at every stage. Full width at every
-    /// component is what keeps a path collision at 2^128 birthday strength;
-    /// a truncated Merkle-width hash anywhere in the construction would cap
-    /// the whole path at 2^64, and this pin fails under that wrong reading.
+    /// blake3(value))`, 32 bytes wide at every stage.
+    ///
+    /// Full width at every component is what keeps a path collision at 2^128
+    /// birthday strength; a truncated Merkle-width hash anywhere in the
+    /// construction would cap the whole path at 2^64, and this pin fails under
+    /// that wrong reading.
     #[test]
     fn for_leaf_components_are_full_width(
         version in arb_version(),

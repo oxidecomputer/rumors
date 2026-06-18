@@ -101,7 +101,9 @@ impl<T, M: Mode> CausalMessages<T, M> {
     }
 
     /// Pop the causally least staged message, parking it in `current` so
-    /// its borrows survive the return, and let the resume point catch up
+    /// its borrows survive the return.
+    ///
+    /// Lets the resume point catch up
     /// when this empties the backlog (the popped message is in the caller's
     /// hands by the time the checkpoint can be read).
     fn pop(&mut self) -> Option<(Key, &Version, &Arc<T>)> {
@@ -115,7 +117,9 @@ impl<T, M: Mode> CausalMessages<T, M> {
 
     /// The mode-agnostic engine behind the async and blocking
     /// [`borrow_next`](CausalMessages::borrow_next): advances to the next
-    /// message in causal order and lends it. The async face awaits it; the
+    /// message in causal order and lends it.
+    ///
+    /// The async face awaits it; the
     /// blocking face drives it to completion.
     pub(crate) async fn borrow_next_inner(&mut self) -> Option<(Key, &Version, &Arc<T>)>
     where
@@ -171,7 +175,9 @@ impl<T, M: Mode> CausalMessages<T, M> {
 
 impl<T> CausalMessages<T, Async> {
     /// Advance to the next message in causal order, lending its version and
-    /// value until the following call. Awaits quietly while the set is
+    /// value until the following call.
+    ///
+    /// Awaits quietly while the set is
     /// unchanged; resolves [`None`] once no further change is possible and
     /// the backlog has drained.
     pub async fn borrow_next(&mut self) -> Option<(Key, &Version, &Arc<T>)>
@@ -213,7 +219,9 @@ impl<T> CausalMessages<T, Blocking> {
 
 /// The owned-item face: `(Key, Version, Arc<T>)` per item, popped from the
 /// same staged backlog [`borrow_next`](CausalMessages::borrow_next) lends
-/// from. `T: 'static` because the quiet-period wait is materialized as an
+/// from.
+///
+/// `T: 'static` because the quiet-period wait is materialized as an
 /// owned future (see [`UnorderedMessages`](super::UnorderedMessages)' `channel` field).
 impl<T: Send + Sync + 'static> Stream for CausalMessages<T, Async> {
     type Item = (Key, Version, Arc<T>);
@@ -261,6 +269,7 @@ impl<T: Send + Sync + 'static> Stream for CausalMessages<T, Async> {
 /// The blocking owned-item face: the [`Iterator`] analogue of the [`Stream`]
 /// impl, cloning each item out of the same staged backlog
 /// [`borrow_next`](CausalMessages::borrow_next) lends from.
+///
 /// [`next`](Iterator::next) blocks the calling thread (via [`pollster`]) until
 /// an item is ready; [`None`] means the set has closed and is fully delivered.
 impl<T: Send + Sync + 'static> Iterator for CausalMessages<T, Blocking> {

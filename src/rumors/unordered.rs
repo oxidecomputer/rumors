@@ -34,7 +34,9 @@ use tokio::sync::watch;
 /// [`try_into_peer`](crate::Rumors::try_into_peer) reclaim the
 /// [`Peer`](crate::Peer).
 pub struct UnorderedMessages<T, M: Mode = Async> {
-    /// The watch channel, or the in-flight wait for it to change. The wait
+    /// The watch channel, or the in-flight wait for it to change.
+    ///
+    /// The wait
     /// future owns the receiver and hands it back: the `Stream` face cannot
     /// hold a borrowing `changed()` future across polls (recreating one per
     /// poll would drop its waker registration and lose the wakeup), so the
@@ -257,6 +259,7 @@ impl<T> UnorderedMessages<T, Blocking> {
 
 /// The owned-item face: `(Key, Version, Arc<T>)` per item, cloned out of
 /// the same engine [`borrow_next`](UnorderedMessages::borrow_next) lends from.
+///
 /// `T: 'static` because the quiet-period wait is materialized as an owned
 /// future (see the `channel` field).
 impl<T: Send + Sync + 'static> Stream for UnorderedMessages<T, Async> {
@@ -307,7 +310,9 @@ impl<T: Send + Sync + 'static> Stream for UnorderedMessages<T, Async> {
 
 /// The blocking owned-item face: the [`Iterator`] analogue of the [`Stream`]
 /// impl, cloning each item out of the same engine
-/// [`borrow_next`](UnorderedMessages::borrow_next) lends from. [`next`](Iterator::next)
+/// [`borrow_next`](UnorderedMessages::borrow_next) lends from.
+///
+/// [`next`](Iterator::next)
 /// blocks the calling thread (via [`pollster`]) until an item is ready;
 /// [`None`] means the set has closed and is fully delivered.
 impl<T: Send + Sync + 'static> Iterator for UnorderedMessages<T, Blocking> {

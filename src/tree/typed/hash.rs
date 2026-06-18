@@ -66,8 +66,9 @@ impl Debug for Hash {
     }
 }
 
-/// Domain-separation tag prefixed to a leaf's hash preimage. Leaves are
-/// content-addressed (the path is the leaf's content hash; see
+/// Domain-separation tag prefixed to a leaf's hash preimage.
+///
+/// Leaves are content-addressed (the path is the leaf's content hash; see
 /// [`Path::for_leaf`](super::Path::for_leaf)), so a leaf carries no
 /// hash-distinguishing content and commits to nothing but this tag.
 const LEAF_TAG: u8 = 0;
