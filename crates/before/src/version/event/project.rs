@@ -60,14 +60,16 @@ impl ProjectWalk {
             // Owned: keep the event verbatim, lifted into absolute value by `off`.
             IdNode::Full => self.copy_shifted(ev, off),
             // The id splits this region: descend, pushing any event base down so
-            // the masked side can still reach zero.
-            IdNode::Internal => match ev.read() {
+            // the masked side can still reach zero. An absent id child (a pruned
+            // `0`) is threaded as a synthetic `Empty`, taking the unowned arm
+            // above (which skips its event child and emits zero).
+            IdNode::Internal { left, right } => match ev.read() {
                 EvNode::Internal(base) => {
                     let off2 = off + &base;
                     let node = self.out.open(Base::ZERO);
-                    let _left = descend!(depth + 1, self.rec(id, ev, &off2, depth + 1));
-                    let right = descend!(depth + 1, self.rec(id, ev, &off2, depth + 1));
-                    self.out.close_node(node, right)
+                    let _left = self.child(id, left, ev, &off2, depth);
+                    let right_slot = self.child(id, right, ev, &off2, depth);
+                    self.out.close_node(node, right_slot)
                 }
                 EvNode::Leaf(n) => {
                     // A constant `off + n` over a region the id subdivides:
@@ -76,13 +78,29 @@ impl ProjectWalk {
                     let val = off + &n;
                     let node = self.out.open(Base::ZERO);
                     let mut z1 = EvReader::Zero;
+                    let _left = self.child(id, left, &mut z1, &val, depth);
                     let mut z2 = EvReader::Zero;
-                    let _left = descend!(depth + 1, self.rec(id, &mut z1, &val, depth + 1));
-                    let right = descend!(depth + 1, self.rec(id, &mut z2, &val, depth + 1));
-                    self.out.close_node(node, right)
+                    let right_slot = self.child(id, right, &mut z2, &val, depth);
+                    self.out.close_node(node, right_slot)
                 }
             },
         }
+    }
+
+    /// Project one id child over its event child: thread the real cursor where
+    /// the child is present, a synthetic [`Empty`](IdReader::Empty) (the unowned
+    /// arm, which masks to zero) where it is absent.
+    fn child(
+        &mut self,
+        id: &mut IdReader,
+        present: bool,
+        ev: &mut EvReader,
+        off: &Base,
+        depth: usize,
+    ) -> Slot {
+        let mut empty = IdReader::Empty;
+        let c = if present { id } else { &mut empty };
+        descend!(depth + 1, self.rec(c, ev, off, depth + 1))
     }
 
     /// Emit the event subtree at `ev` lifted by `off` into absolute value: its

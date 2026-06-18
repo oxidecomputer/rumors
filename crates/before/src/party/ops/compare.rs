@@ -29,6 +29,20 @@ impl IdReader<'_> {
     }
 }
 
+/// Skip the present children of an already-read id node, resyncing its cursor
+/// past the whole subtree. A terminal (`Full`) has none; an internal node has
+/// the children its tag declared.
+fn skip_present_children(a: &mut IdReader, node: IdNode) {
+    if let IdNode::Internal { left, right } = node {
+        if left {
+            a.skip();
+        }
+        if right {
+            a.skip();
+        }
+    }
+}
+
 /// One subtree of the [`covers`](IdReader::covers) walk, advancing both `&mut`
 /// readers past their subtrees; `false` the moment an uncovered region is found
 /// unwinds the whole walk (the `&&` short-circuits). The asymmetric counterpart
@@ -44,20 +58,24 @@ fn covers_rec(a: &mut IdReader, b: &mut IdReader, depth: usize) -> bool {
     }
     let b_node = b.read();
     if let IdNode::Empty = b_node {
-        // b owns nothing here: trivially covered. Skip the rest of a's subtree
-        // (its two children) if a is a node; a leaf is already consumed.
-        if let IdNode::Internal = a_node {
-            a.skip();
-            a.skip();
-        }
+        // b owns nothing here: trivially covered. Skip the rest of a's subtree.
+        skip_present_children(a, a_node);
         return true;
     }
     match (a_node, b_node) {
-        // Both internal: a covers b iff it covers b on both halves.
-        (IdNode::Internal, IdNode::Internal) => {
-            descend!(depth + 1, covers_rec(a, b, depth + 1))
-                && descend!(depth + 1, covers_rec(a, b, depth + 1))
-        }
+        // Both internal: a covers b iff it covers b on both child pairs
+        // (threading the real cursor into present children, a synthetic `Empty`
+        // into absent ones).
+        (
+            IdNode::Internal {
+                left: al,
+                right: ar,
+            },
+            IdNode::Internal {
+                left: bl,
+                right: br,
+            },
+        ) => covers_child(a, al, b, bl, depth) && covers_child(a, ar, b, br, depth),
         // A region b owns that a does not: a empty under a nonempty b, or a
         // node under a full b (a owns only part of what b owns in full).
         _ => false,
@@ -77,22 +95,54 @@ fn disjoint_rec(a: &mut IdReader, b: &mut IdReader, depth: usize) -> bool {
     }
     let b_node = b.read();
     if let IdNode::Empty = b_node {
-        // b owns nothing: disjoint. Skip the rest of a's subtree (its two
-        // children) if a is a node; a leaf is already consumed.
-        if let IdNode::Internal = a_node {
-            a.skip();
-            a.skip();
-        }
+        // b owns nothing: disjoint. Skip the rest of a's subtree.
+        skip_present_children(a, a_node);
         return true;
     }
     match (a_node, b_node) {
-        // Both internal: descend in lockstep, each cursor threaded through its
-        // left subtree then its right.
-        (IdNode::Internal, IdNode::Internal) => {
-            descend!(depth + 1, disjoint_rec(a, b, depth + 1))
-                && descend!(depth + 1, disjoint_rec(a, b, depth + 1))
-        }
+        // Both internal: descend in lockstep over each child pair.
+        (
+            IdNode::Internal {
+                left: al,
+                right: ar,
+            },
+            IdNode::Internal {
+                left: bl,
+                right: br,
+            },
+        ) => disjoint_child(a, al, b, bl, depth) && disjoint_child(a, ar, b, br, depth),
         // One side full, the other nonempty (neither is empty): overlap.
         _ => false,
     }
+}
+
+/// Recurse on one child pair of [`covers_rec`], threading the real cursor where
+/// the child is present, a synthetic [`Empty`](IdReader::Empty) where absent.
+fn covers_child(
+    a: &mut IdReader,
+    a_present: bool,
+    b: &mut IdReader,
+    b_present: bool,
+    depth: usize,
+) -> bool {
+    let mut empty_a = IdReader::Empty;
+    let mut empty_b = IdReader::Empty;
+    let ca = if a_present { a } else { &mut empty_a };
+    let cb = if b_present { b } else { &mut empty_b };
+    descend!(depth + 1, covers_rec(ca, cb, depth + 1))
+}
+
+/// Recurse on one child pair of [`disjoint_rec`], as [`covers_child`].
+fn disjoint_child(
+    a: &mut IdReader,
+    a_present: bool,
+    b: &mut IdReader,
+    b_present: bool,
+    depth: usize,
+) -> bool {
+    let mut empty_a = IdReader::Empty;
+    let mut empty_b = IdReader::Empty;
+    let ca = if a_present { a } else { &mut empty_a };
+    let cb = if b_present { b } else { &mut empty_b };
+    descend!(depth + 1, disjoint_rec(ca, cb, depth + 1))
 }

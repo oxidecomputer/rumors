@@ -438,11 +438,12 @@ proptest! {
 // ───────────────────────── encoded_bits ↔ encode ─────────────────────────
 
 proptest! {
-    /// `encoded_bits` is the exact pre-pad bit length of `encode`: for every live
+    /// `encoded_bits` is the pre-final-pad bit length of `encode`: for every live
     /// clock (and its party and version), `encode().len()` is `encoded_bits()`
-    /// rounded up to whole bytes. A `Clock`'s bit length is the unrounded sum of
-    /// its party's and version's (it packs the two streams contiguously, padding
-    /// once) — *not* the sum of their byte lengths.
+    /// rounded up to whole bytes. A `Clock` byte-concatenates its party and
+    /// version (each byte-aligned), so its bit length is the *byte-aligned* party
+    /// length plus the version's own bit length — the party's padding lies
+    /// between the two parts.
     #[test]
     fn encoded_bits_matches_encode_len(ops in world_strategy()) {
         for oc in &run(&ops) {
@@ -451,7 +452,7 @@ proptest! {
             prop_assert_eq!(c.encode().len(), c.encoded_bits().div_ceil(8));
             prop_assert_eq!(p.encode().len(), p.encoded_bits().div_ceil(8));
             prop_assert_eq!(v.encode().len(), v.encoded_bits().div_ceil(8));
-            prop_assert_eq!(c.encoded_bits(), p.encoded_bits() + v.encoded_bits());
+            prop_assert_eq!(c.encode().len(), p.encode().len() + v.encode().len());
         }
     }
 }

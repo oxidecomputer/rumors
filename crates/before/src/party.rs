@@ -72,8 +72,8 @@ impl Party {
     /// ```
     pub fn seed() -> Self {
         let mut bits = codec::Bits::with_capacity(2);
-        bits.push(false); // leaf flag
-        bits.push(true); // value 1
+        bits.push(false); // terminal tag `00`: the whole interval, owned
+        bits.push(false);
         Party::from_bits(bits)
     }
 
@@ -389,7 +389,7 @@ impl Party {
     /// to a byte boundary.
     ///
     /// ```
-    /// // The seed is a single `1` leaf: a flag bit plus a value bit.
+    /// // The seed is a single terminal: a 2-bit presence tag (`00`).
     /// assert_eq!(before::Party::seed().encoded_bits(), 2);
     /// ```
     pub fn encoded_bits(&self) -> usize {
@@ -423,17 +423,15 @@ impl Party {
         Ok(Party::from_bits(id))
     }
 
-    /// The anonymous (zero) id, `Leaf(false)`. Internal and transient only
-    /// (i.e. for use in `mem::swap`) and *never* a publicly constructible value
-    /// (a `Party` is a nonzero share).
+    /// The anonymous (zero) id: the empty bit stream, since a `0` is structural
+    /// absence in the pruned encoding. Internal and transient only (i.e. for use
+    /// in `mem::swap`) and *never* a publicly constructible value (a `Party` is
+    /// a nonzero share).
     ///
     /// Used as a placeholder when moving a party out of a `&mut` during `sync`,
     /// immediately overwritten by the re-split half.
     pub(crate) fn anonymous() -> Party {
-        let mut bits = codec::Bits::with_capacity(2);
-        bits.push(false); // leaf flag
-        bits.push(false); // value 0
-        Party::from_bits(bits)
+        Party::from_bits(codec::Bits::new())
     }
 
     /// A read-only [`IdReader`] cursor at the root of this party's packed id bits.

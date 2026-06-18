@@ -55,18 +55,26 @@ impl FillWalk {
     ///   lazy-skip the dominated id subtree.
     /// - `fill((il,ir), (n,el,er)) = norm((n, fill(il,el), fill(ir,er)))` — with
     ///   the two `is_full` shortcuts below.
+    ///
+    /// An absent id child (a pruned `0`) is threaded as a synthetic
+    /// [`Empty`](IdReader::Empty) via [`child`](Self::child), so it takes the
+    /// `fill(0, e) = e` arm exactly as a stored `0` leaf would.
     fn rec(&mut self, id: &mut IdReader, ev: &mut EvReader, depth: usize) -> Slot {
-        match id.read() {
+        let (left, right) = match id.read() {
             IdNode::Empty => return self.out.copy_reader(ev), // fill(0, e) = e
             IdNode::Full => return self.out.leaf(ev.max()).into(), // fill(1, e) = max(e)
-            IdNode::Internal => {}                            // id now at `il`
-        }
+            IdNode::Internal { left, right } => (left, right), // id at its first child
+        };
         let ev_base = match ev.read() {
             EvNode::Leaf(n) => {
                 // fill((il,ir), Leaf n) = Leaf n: lazy-skip the dominated id
-                // subtree (both children, `il` then `ir`).
-                id.skip();
-                id.skip();
+                // subtree (only its present children).
+                if left {
+                    id.skip();
+                }
+                if right {
+                    id.skip();
+                }
                 return self.out.leaf(n).into();
             }
             EvNode::Internal(base) => base, // ev now at `el`
@@ -75,7 +83,10 @@ impl FillWalk {
         // id node, event node. A fully-owned child collapses to a single leaf
         // valued `max(child events) ⊔ (sibling's filled base)` — raising the
         // owned side to meet the sibling, which is what lets the tree simplify.
-        // [`peek`](IdReader::peek) tests a child's fullness without consuming it.
+        // [`peek`](IdReader::peek) tests a child's fullness without consuming it;
+        // an absent child is never full, so the `left &&`/`right &&` guards keep
+        // the peek off the cursor (which a pruned left child has already
+        // advanced past).
         //
         // The two shortcuts are mirror images, but the preorder builder treats
         // them asymmetrically: a collapsed *left* child must be emitted before
@@ -83,29 +94,37 @@ impl FillWalk {
         // [`deferred_leaf`](Builder::deferred_leaf) resolved after the right is
         // built; a collapsed *right* child is emitted after its left sibling,
         // so its value is already known.
-        if let IdNode::Full = id.peek() {
+        let node = self.out.open(ev_base);
+        if left && matches!(id.peek(), IdNode::Full) {
             // `il` full: defer the collapsed left, fill the right, then resolve.
-            let node = self.out.open(ev_base);
-            let left = self.out.deferred_leaf();
+            let leaf = self.out.deferred_leaf();
             id.skip(); // consume the `il` 1-leaf → id at `ir`
             let max_el = ev.max(); // ev past `el` → at `er`
-            let right = descend!(depth + 1, self.rec(id, ev, depth + 1));
-            let value = max_el.max(self.out.base_of(right).clone());
-            self.out.resolve_leaf(left, value);
-            return self.out.close_node(node, right);
+            let right_slot = self.child(id, right, ev, depth);
+            let value = max_el.max(self.out.base_of(right_slot).clone());
+            self.out.resolve_leaf(leaf, value);
+            return self.out.close_node(node, right_slot);
         }
-        // `il` not full: fill the left child (id → `ir`, ev → `er`), then check `ir`.
-        let node = self.out.open(ev_base);
-        let left = descend!(depth + 1, self.rec(id, ev, depth + 1));
-        if let IdNode::Full = id.peek() {
+        // `il` not full (or absent): fill the left child, then check `ir`.
+        let left_slot = self.child(id, left, ev, depth);
+        if right && matches!(id.peek(), IdNode::Full) {
             // `ir` full: emit the collapsed right directly over the filled left.
             id.skip(); // consume the `ir` 1-leaf
             let max_er = ev.max(); // ev past `er`
-            let value = max_er.max(self.out.base_of(left).clone());
+            let value = max_er.max(self.out.base_of(left_slot).clone());
             let right_leaf = self.out.leaf(value);
             return self.out.close_node(node, right_leaf);
         }
-        let right = descend!(depth + 1, self.rec(id, ev, depth + 1));
-        self.out.close_node(node, right)
+        let right_slot = self.child(id, right, ev, depth);
+        self.out.close_node(node, right_slot)
+    }
+
+    /// Fill one id child over its event child: thread the real cursor where the
+    /// child is present, a synthetic [`Empty`](IdReader::Empty) (the
+    /// `fill(0, e) = e` arm, copying the event unchanged) where it is absent.
+    fn child(&mut self, id: &mut IdReader, present: bool, ev: &mut EvReader, depth: usize) -> Slot {
+        let mut empty = IdReader::Empty;
+        let c = if present { id } else { &mut empty };
+        descend!(depth + 1, self.rec(c, ev, depth + 1))
     }
 }

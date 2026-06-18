@@ -2,7 +2,7 @@ use crate::codec::Bits;
 use crate::idbits::{IdNode, IdReader};
 use crate::recurse::descend;
 
-use super::build::{IdBuilder, Slot};
+use super::build::{Built, IdBuilder};
 
 impl IdReader<'_> {
     /// Sum `self` and `other` (normal-form ids) — the union of their regions —
@@ -38,15 +38,15 @@ struct SumWalk {
 impl SumWalk {
     /// Sum the subtrees at the two `&mut` readers, emitting into `out`,
     /// advancing both readers past their subtrees, and routing through the
-    /// amortized stack-growth guard. Returns the output root, or `None` the
-    /// instant an overlap is found (unwinding the whole walk). Reads as a match
-    /// on the two id nodes: `sum(0, b) = b`, `sum(a, 0) = a` (copy the nonempty
-    /// side, skip the empty one), two nodes recurse and normalize on close, and
-    /// a full side over a nonempty other is an overlap.
+    /// amortized stack-growth guard. Returns the output, or `None` the instant
+    /// an overlap is found (unwinding the whole walk). Reads as a match on the
+    /// two id nodes: `sum(0, b) = b`, `sum(a, 0) = a` (copy the nonempty side,
+    /// skip the empty one), two nodes recurse and normalize on close, and a full
+    /// side over a nonempty other is an overlap.
     ///
     /// The nodes are [`peek`](IdReader::peek)ed, not read: the copied side must
     /// stay unconsumed so `copy_reader` can splice its whole subtree.
-    fn rec(&mut self, a: &mut IdReader, b: &mut IdReader, depth: usize) -> Option<Slot> {
+    fn rec(&mut self, a: &mut IdReader, b: &mut IdReader, depth: usize) -> Option<Built> {
         match (a.peek(), b.peek()) {
             (IdNode::Empty, _) => {
                 a.skip(); // sum(0, b) = b: skip the `0`, copy b
@@ -60,16 +60,44 @@ impl SumWalk {
             // A `1` (full) leaf meets a nonempty subtree: the two ids share a
             // region, so there is no disjoint union.
             (IdNode::Full, _) | (_, IdNode::Full) => None,
-            // Both internal: consume the node headers, descend (the cursors
-            // thread left then right), then close the node, which normalizes.
-            (IdNode::Internal, IdNode::Internal) => {
+            // Both internal: consume the node headers, sum each child pair
+            // (threading the real cursor into present children, a synthetic
+            // `Empty` into absent ones), then close the node, which normalizes.
+            (
+                IdNode::Internal {
+                    left: al,
+                    right: ar,
+                },
+                IdNode::Internal {
+                    left: bl,
+                    right: br,
+                },
+            ) => {
                 a.read();
                 b.read();
                 let node = self.out.open();
-                descend!(depth + 1, self.rec(a, b, depth + 1))?; // left (out root is node + 1)
-                let right = descend!(depth + 1, self.rec(a, b, depth + 1))?;
-                Some(self.out.close_node(node, right))
+                let left = self.child(a, al, b, bl, depth)?;
+                let right = self.child(a, ar, b, br, depth)?;
+                Some(self.out.close_node(node, left, right))
             }
         }
+    }
+
+    /// Sum one child pair: thread the real cursor where the child is present, a
+    /// synthetic [`Empty`](IdReader::Empty) where it is absent, so the
+    /// `(Empty, …)` arms fire for a pruned `0` child exactly as for a stored one.
+    fn child(
+        &mut self,
+        a: &mut IdReader,
+        a_present: bool,
+        b: &mut IdReader,
+        b_present: bool,
+        depth: usize,
+    ) -> Option<Built> {
+        let mut empty_a = IdReader::Empty;
+        let mut empty_b = IdReader::Empty;
+        let ca = if a_present { a } else { &mut empty_a };
+        let cb = if b_present { b } else { &mut empty_b };
+        descend!(depth + 1, self.rec(ca, cb, depth + 1))
     }
 }

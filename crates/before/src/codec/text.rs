@@ -79,31 +79,51 @@ pub(crate) fn parse_id_str(s: &str) -> Result<Bits, Parse> {
     Ok(bits)
 }
 
-/// Parse one id subtree, appending its canonical bits. Routed through the
-/// amortized stack-growth guard.
-fn parse_id_node(cur: &mut Cur, bits: &mut Bits, depth: usize) -> Result<(), Parse> {
+/// What a parsed id subtree turned out to be, so its parent can pick a presence
+/// tag and reject a collapsible `(0, 0)` / `(1, 1)`.
+#[derive(Clone, Copy, PartialEq)]
+enum IdKind {
+    /// A `0`: no bits emitted (absence).
+    Empty,
+    /// A `1`: the terminal tag `00`.
+    Terminal,
+    /// An internal node.
+    Node,
+}
+
+/// Parse one id subtree, appending its canonical bits and reporting what it was.
+/// A `0` emits nothing (absence); a node reserves a 2-bit tag, parses its
+/// children, then patches the tag to their presence — rejecting a collapsible
+/// `(0, 0)` / `(1, 1)`. Routed through the amortized stack-growth guard.
+fn parse_id_node(cur: &mut Cur, bits: &mut Bits, depth: usize) -> Result<IdKind, Parse> {
     match cur.bump() {
         Some(b'(') => {
-            bits.push(true);
-            descend!(depth + 1, parse_id_node(cur, bits, depth + 1))?; // left
+            let tag = bits.len();
+            bits.push(false); // placeholder, patched once the children are known
+            bits.push(false);
+            let left = descend!(depth + 1, parse_id_node(cur, bits, depth + 1))?;
             if cur.bump() != Some(b',') {
                 return Err(Parse::Syntax);
             }
-            descend!(depth + 1, parse_id_node(cur, bits, depth + 1))?; // right
+            let right = descend!(depth + 1, parse_id_node(cur, bits, depth + 1))?;
             if cur.bump() != Some(b')') {
                 return Err(Parse::Syntax);
             }
-            Ok(())
+            match (left, right) {
+                (IdKind::Empty, IdKind::Empty) => Err(Parse::NotCanonical), // (0, 0)
+                (IdKind::Terminal, IdKind::Terminal) => Err(Parse::NotCanonical), // (1, 1)
+                _ => {
+                    bits.set(tag, left != IdKind::Empty); // bit 0 = left present
+                    bits.set(tag + 1, right != IdKind::Empty); // bit 1 = right present
+                    Ok(IdKind::Node)
+                }
+            }
         }
-        Some(b'0') => {
-            bits.push(false);
-            bits.push(false);
-            Ok(())
-        }
+        Some(b'0') => Ok(IdKind::Empty), // a `0` is absence: no bits
         Some(b'1') => {
+            bits.push(false); // terminal tag `00`
             bits.push(false);
-            bits.push(true);
-            Ok(())
+            Ok(IdKind::Terminal)
         }
         _ => Err(Parse::Syntax),
     }

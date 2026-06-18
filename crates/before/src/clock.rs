@@ -356,10 +356,14 @@ impl Clock {
     /// assert_eq!(buf, Clock::seed().encode());
     /// ```
     pub fn encode_to<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        let mut writer = codec::BitWriter::new(writer);
-        writer.write(self.party.as_bits())?;
-        writer.write(self.version.as_bits())?;
-        writer.finish()
+        // The clock's bytes are the byte-aligned [`Party`] encoding followed by
+        // the byte-aligned [`Version`] encoding. Each part is independently
+        // canonical and the party is self-delimiting (a decoder parses its id to
+        // find the split), so the two concatenate with no bit-level packing —
+        // at the cost of at most one padding byte between them. Decoding then
+        // reuses `Party::decode`/`Version::decode` on the two byte ranges.
+        self.party.encode_to(writer)?;
+        self.version.encode_to(writer)
     }
 
     /// Decode from a reader of canonical bytes, strictly rejecting malformed or
@@ -373,46 +377,35 @@ impl Clock {
     pub fn decode<R: std::io::Read>(mut reader: R) -> Result<Self, Decode> {
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf).map_err(Decode::Io)?;
-        // The party begins at bit 0 (byte-aligned); the version begins at
-        // `after_id`, a generally non-byte-aligned offset, so it is copied
-        // logically into a fresh offset-0 stream to restore canonicity (a
-        // byte-offset copy would leave it non-canonical and mis-pack on
-        // re-encode). The party then reuses the read buffer as its backing
-        // store, so decoding allocates no more than before.
-        let (after_id, version) = {
+        // The party is the byte-aligned prefix: parse its id to find its bit
+        // length, round up to the byte boundary the version starts on, then
+        // decode each part independently. `Party::decode` checks the party's
+        // canonicity, padding, and the anonymous-id rejection (paper §3: a
+        // standalone share is `i ≠ 0`); `Version::decode` checks the version.
+        let id_bytes = {
             let bits = codec::bytes_as_bits(&buf);
-            let after_id = codec::parse_id(bits, 0)?;
-            let after_ev = codec::parse_ev(bits, after_id)?;
-            codec::require_zero_padding(bits, after_ev)?;
-            if codec::id_is_empty(&bits[..after_id]) {
-                // A standalone `Clock` carries a nonzero share (paper §3: `event`
-                // requires `i ≠ 0`); the anonymous id `0` is not a decodable
-                // top-level party.
-                return Err(Decode::Anonymous);
-            }
-            let mut version_bits = codec::Bits::new();
-            version_bits.extend_from_bitslice(&bits[after_id..after_ev]);
-            (after_id, Version::from_bits(version_bits))
+            codec::parse_id(bits, 0)?.div_ceil(8)
         };
-        let mut party_bits = codec::Bits::from_vec(buf);
-        party_bits.truncate(after_id);
-        let party = Party::from_bits(party_bits);
+        let party = Party::decode(&buf[..id_bytes])?;
+        let version = Version::decode(&buf[id_bytes..])?;
         Ok(Clock::from_parts(party, version))
     }
 
-    /// Count the number of bits in the encoding of this [`Clock`], not
-    /// including padding to the nearest byte.
+    /// Count the number of bits in the encoding of this [`Clock`], not including
+    /// the final byte's padding.
+    ///
+    /// The encoding byte-concatenates the [`Party`] and [`Version`] (see
+    /// [`encode`](Self::encode)), so the party occupies whole bytes and only the
+    /// version's last byte is padded: this is the byte-aligned party length plus
+    /// the version's own bit length.
     ///
     /// ```
     /// use before::Clock;
     /// let clock = Clock::seed();
-    /// assert_eq!(
-    ///     clock.encoded_bits(),
-    ///     clock.party().encoded_bits() + clock.version().encoded_bits(),
-    /// );
+    /// assert_eq!(clock.encode().len(), clock.encoded_bits().div_ceil(8));
     /// ```
     pub fn encoded_bits(&self) -> usize {
-        self.party().encoded_bits() + self.version().encoded_bits()
+        8 * self.party().encoded_bits().div_ceil(8) + self.version().encoded_bits()
     }
 }
 

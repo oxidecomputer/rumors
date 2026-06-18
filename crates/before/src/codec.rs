@@ -19,7 +19,7 @@ mod tests;
 
 pub use base::Base;
 pub(crate) use bits::{
-    bytes_as_bits, pack_to_writer, require_zero_padding, zero_dead_bits, BitWriter, Bits, BitsSlice,
+    bytes_as_bits, pack_to_writer, require_zero_padding, zero_dead_bits, Bits, BitsSlice,
 };
 pub(crate) use display::{write_ev, write_id};
 pub(crate) use gamma::{decode_int, encode_int, skip_int};

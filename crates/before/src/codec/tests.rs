@@ -228,22 +228,20 @@ proptest! {
 
 // ───────────────────────── decode rejection of non-canonical input ─────────────────────────
 
-/// A collapsible id node `(v, v)` is non-canonical, for *both* leaf values: a
-/// `(1, 1)` node collapses to `1`, and a `(0, 0)` node to `0`. Both cases are
-/// checked; the `(0, 0)` case is distinct because `0`-leaf children also form
-/// the anonymous share, so it must be rejected as `NotCanonical` (a collapsible
-/// node) rather than slipping through to the `Anonymous` empty-id check.
+/// The only collapsible id node representable in the pruned encoding is `(1, 1)`
+/// — a node with two terminal children — which must be rejected as
+/// `NotCanonical` (it collapses to `1`). The other collapsible form, `(0, 0)`,
+/// cannot even be written: a `0` is the *absence* of a child, so a node with two
+/// `0` children has no bits and simply is `0`.
 #[test]
 fn reject_noncanonical_id() {
     use oracle::Party::{Leaf, Node};
-    for v in [false, true] {
-        let denormal = Node(Box::new(Leaf(v)), Box::new(Leaf(v)));
-        let bytes = from_oracle_party(&denormal).encode();
-        assert!(
-            matches!(Party::decode(&bytes[..]), Err(Decode::NotCanonical)),
-            "collapsible id node ({v}, {v}) must be rejected as NotCanonical",
-        );
-    }
+    let denormal = Node(Box::new(Leaf(true)), Box::new(Leaf(true)));
+    let bytes = from_oracle_party(&denormal).encode();
+    assert!(
+        matches!(Party::decode(&bytes[..]), Err(Decode::NotCanonical)),
+        "collapsible id node (1, 1) must be rejected as NotCanonical",
+    );
 }
 
 /// The id validator runs bottom-up by recursion, so a collapsible `(v,
@@ -279,12 +277,12 @@ fn reject_deep_nested_denormal_id() {
 /// ends mid-byte must have *every* remaining bit of that final byte be zero. A
 /// non-zero bit inside the same byte as the tree (intra-byte padding) is
 /// `TrailingBits`, just as a whole spurious trailing byte is. The id leaf `1`
-/// encodes to two bits (`0, 1`) packed as `0100_0000`; setting any padding bit
-/// within that byte must be rejected.
+/// encodes to the two-bit terminal tag (`0, 0`) packed as `0000_0000`; setting
+/// any padding bit within that byte must be rejected.
 #[test]
 fn reject_intra_byte_padding() {
-    // `Leaf(true)` = bits [0, 1] → one byte 0b0100_0000; bits 2..8 are zero
-    // padding.
+    // `Leaf(true)` = the terminal tag bits [0, 0] → one byte 0b0000_0000; bits
+    // 2..8 are zero padding.
     let clean = from_oracle_party(&oracle::Party::Leaf(true)).encode();
     assert_eq!(clean.len(), 1, "an id leaf fits in a single byte");
     assert!(Party::decode(&clean[..]).is_ok(), "clean padding decodes");
@@ -333,28 +331,24 @@ fn reject_noncanonical_event() {
 }
 
 /// The byte `decode` paths are the only ones that yield a top-level `Party`
-/// without passing through `finish_id`; both reject the anonymous identity `0`
-/// (the empty id region), so an empty-region `Party`/`Clock` cannot be
-/// constructed. The paper forbids `event` on an anonymous stamp (§3, `i ≠ 0`),
-/// and a standalone party is by definition a nonzero share.
+/// without passing through `finish_id`; both reject the anonymous identity `0`,
+/// so an empty-region `Party`/`Clock` cannot be constructed. The paper forbids
+/// `event` on an anonymous stamp (§3, `i ≠ 0`), and a standalone party is by
+/// definition a nonzero share. In the pruned encoding the anonymous id `0` is
+/// the empty bit stream, so a party with no bytes — and a clock whose
+/// byte-aligned party prefix is empty — is the anonymous case.
 #[test]
 fn decode_rejects_anonymous_id() {
-    // The single `0` leaf is the only canonical empty id; encode it as a bare
-    // party.
+    // The anonymous id `0` encodes to no bits at all; as a bare party that is
+    // the empty byte stream, rejected as `Anonymous`.
     let anon = from_oracle_party(&oracle::Party::Leaf(false)).encode();
+    assert!(anon.is_empty(), "the anonymous id encodes to no bytes");
     assert!(matches!(Party::decode(&anon[..]), Err(Decode::Anonymous)));
 
-    // The same id as a clock's party region (id `0`, event `0`) must also be
-    // rejected.
-    let anon_clock = from_oracle_clock(&oracle::Clock::from_parts(
-        oracle::Party::Leaf(false),
-        oracle::Version::new(),
-    ))
-    .encode();
-    assert!(matches!(
-        Clock::decode(&anon_clock[..]),
-        Err(Decode::Anonymous)
-    ));
+    // A clock byte-concatenates its (byte-aligned) party and version. The only
+    // empty party prefix is the empty stream, so the anonymous clock is rejected
+    // when its party region decodes as anonymous.
+    assert!(matches!(Clock::decode(&[][..]), Err(Decode::Anonymous)));
 }
 
 /// A stream that ends mid-tree is `Truncated`.
@@ -534,7 +528,7 @@ proptest! {
 /// `(2, 0, 1)` is the smallest witness: its canonical encoding is the 2 bytes
 /// `[180, 128]` (16 bits exactly — no intra-byte padding), so a third `0x00`
 /// byte is unambiguously a spurious trailing byte, not padding. A bare party
-/// leaf `(1, (0, 1))` = `[177]` exhibits the same with one appended `0x00`.
+/// `(1, (0, 1))` = `[196]` exhibits the same with one appended `0x00`.
 #[test]
 fn trailing_zero_byte_rejected_witness() {
     // Canonical encoding of the event `(2, 0, 1)` is exactly two bytes.
@@ -553,7 +547,7 @@ fn trailing_zero_byte_rejected_witness() {
     // The same for an id (party): `(1, (0, 1))` packs to one byte; a second
     // zero byte is spurious.
     let party = "(1, (0, 1))".parse::<Party>().unwrap().encode();
-    assert_eq!(party, vec![177], "witness party canonical encoding");
+    assert_eq!(party, vec![196], "witness party canonical encoding");
     let mut party_zero = party.clone();
     party_zero.push(0);
     assert!(

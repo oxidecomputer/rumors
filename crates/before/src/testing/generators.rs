@@ -197,22 +197,20 @@ pub(crate) fn shape_party(shape: Shape, scale: usize) -> Party {
 /// bits, with a single owned region at the deep-left tip. Used by the
 /// stack-safety test, which needs structures far deeper than the recursive
 /// oracle bridge (`emit_id`) or the oracle's own recursive `Drop` could build
-/// or tear down. The preorder `enc_id` stream is `depth` node flags, then
-/// `Leaf(true)` (`01`), then `depth` `Leaf(false)` right children (`00`) — a
-/// normal-form id (every node mixes a `true`/node child with a `false` child,
-/// so nothing collapses). Built with a flat loop: no recursion at any depth, in
-/// the builder or in `Drop` (the packed form is a flat `BitVec`).
+/// or tear down. In the pruned encoding each spine node is a `Left-only` tag
+/// (`10`: left child present, right absent — the `0` right children take no
+/// bits), and the deep-left tip is a terminal (`00`). The result `(((…(1, 0)…),
+/// 0), 0)` is normal form (no node has two terminal children). Built with a flat
+/// loop: no recursion at any depth, in the builder or in `Drop` (the packed form
+/// is a flat `BitVec`).
 pub(crate) fn deep_left_spine_party(depth: usize) -> Party {
-    let mut bits = codec::Bits::with_capacity(3 * depth + 2);
+    let mut bits = codec::Bits::with_capacity(2 * depth + 2);
     for _ in 0..depth {
-        bits.push(true); // node flag
+        bits.push(true); // Left-only tag `10`: left child present ...
+        bits.push(false); //   ... right child absent
     }
-    bits.push(false); // Leaf
-    bits.push(true); //   value 1 (the deep-left owned tip)
-    for _ in 0..depth {
-        bits.push(false); // Leaf
-        bits.push(false); //   value 0 (each node's right child)
-    }
+    bits.push(false); // terminal tag `00`: the deep-left owned tip
+    bits.push(false);
     Party::from_bits(bits)
 }
 

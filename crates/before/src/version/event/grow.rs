@@ -210,22 +210,34 @@ impl ProbeWalk<'_> {
                 let right = descend!(depth + 1, self.rec(&mut full, ev, depth + 1));
                 self.combine(Kind::FullEvNode, ev_pos.unwrap(), left, right)
             }
-            IdNode::Internal if !ev.read().is_internal() => {
+            IdNode::Internal { left, right } if !ev.read().is_internal() => {
                 // id node, event leaf/virtual: expand and descend the id, the
-                // event a virtual `Zero` on both sides.
+                // event a virtual `Zero` on both sides. An absent id child is a
+                // synthetic `Empty` (infeasible, `COST_MAX`).
                 let mut z1 = EvReader::Zero;
                 let mut z2 = EvReader::Zero;
-                let left = descend!(depth + 1, self.rec(id, &mut z1, depth + 1));
-                let right = descend!(depth + 1, self.rec(id, &mut z2, depth + 1));
-                self.combine(Kind::Expand, id_pos.unwrap(), left, right)
+                let lcost = self.child(id, left, &mut z1, depth);
+                let rcost = self.child(id, right, &mut z2, depth);
+                self.combine(Kind::Expand, id_pos.unwrap(), lcost, rcost)
             }
-            IdNode::Internal => {
-                // id node, event node: descend both, threading both cursors.
-                let left = descend!(depth + 1, self.rec(id, ev, depth + 1));
-                let right = descend!(depth + 1, self.rec(id, ev, depth + 1));
-                self.combine(Kind::Both, id_pos.unwrap(), left, right)
+            IdNode::Internal { left, right } => {
+                // id node, event node: descend both, threading both cursors (a
+                // synthetic `Empty` for an absent id child, which lazy-skips its
+                // event child to stay in sync).
+                let lcost = self.child(id, left, ev, depth);
+                let rcost = self.child(id, right, ev, depth);
+                self.combine(Kind::Both, id_pos.unwrap(), lcost, rcost)
             }
         }
+    }
+
+    /// Probe one id child over its event child: thread the real cursor where the
+    /// child is present, a synthetic [`Empty`](IdReader::Empty) (infeasible,
+    /// `COST_MAX`) where it is absent.
+    fn child(&mut self, id: &mut IdReader, present: bool, ev: &mut EvReader, depth: usize) -> Cost {
+        let mut empty = IdReader::Empty;
+        let c = if present { id } else { &mut empty };
+        descend!(depth + 1, self.rec(c, ev, depth + 1))
     }
 
     /// Pick the cheaper child, record the direction at `key`, and fold the
@@ -264,7 +276,13 @@ impl EmitWalk<'_> {
         let ev_node = ev.read();
         let ev_internal = ev_node.is_internal();
         let ev_base = ev_node.base().clone();
-        let id_internal = matches!(id_node, IdNode::Internal);
+        let id_internal = matches!(id_node, IdNode::Internal { .. });
+        // Which id children are present, so an off-path absent child (a pruned
+        // `0`) is not skipped — there is nothing in the stream to skip past.
+        let (il_present, ir_present) = match id_node {
+            IdNode::Internal { left, right } => (left, right),
+            _ => (false, false),
+        };
         // The inflation point: id full over a leaf/virtual event — increment.
         if !id_internal && !ev_internal {
             // Invariant: the chosen path never reaches an empty (`0`-leaf) id. A
@@ -278,8 +296,8 @@ impl EmitWalk<'_> {
             return self.out.leaf(ev_base + 1u32).into();
         }
         let kind = match id_node {
-            IdNode::Internal if ev_internal => Kind::Both,
-            IdNode::Internal => Kind::Expand,
+            IdNode::Internal { .. } if ev_internal => Kind::Both,
+            IdNode::Internal { .. } => Kind::Expand,
             _ => Kind::FullEvNode, // id full leaf, event node
         };
         let key = match kind {
@@ -302,13 +320,17 @@ impl EmitWalk<'_> {
                 Kind::Both => {
                     descend!(depth + 1, self.rec(id, ev, depth + 1)); // left `il`/`el`
                     let right = self.out.copy_reader(ev); // off-path `er`
-                    id.skip(); // off-path `ir`
+                    if ir_present {
+                        id.skip(); // off-path `ir`
+                    }
                     right
                 }
                 Kind::Expand => {
                     let mut z = EvReader::Zero;
                     descend!(depth + 1, self.rec(id, &mut z, depth + 1)); // left `il`, virtual
-                    id.skip(); // off-path `ir`
+                    if ir_present {
+                        id.skip(); // off-path `ir`
+                    }
                     self.out.leaf(Base::ZERO).into() // off-path sibling is a fresh Leaf(0)
                 }
             };
@@ -323,12 +345,16 @@ impl EmitWalk<'_> {
                 }
                 Kind::Both => {
                     self.out.copy_reader(ev); // off-path `el`
-                    id.skip(); // off-path `il`
+                    if il_present {
+                        id.skip(); // off-path `il`
+                    }
                     descend!(depth + 1, self.rec(id, ev, depth + 1)) // right `ir`/`er`
                 }
                 Kind::Expand => {
                     self.out.leaf(Base::ZERO); // off-path sibling is a fresh Leaf(0)
-                    id.skip(); // off-path `il`
+                    if il_present {
+                        id.skip(); // off-path `il`
+                    }
                     let mut z = EvReader::Zero;
                     descend!(depth + 1, self.rec(id, &mut z, depth + 1)) // right `ir`, virtual
                 }

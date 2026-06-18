@@ -2,15 +2,15 @@ use crate::codec::Bits;
 use crate::idbits::{IdNode, IdReader};
 use crate::recurse::descend;
 
-use super::build::{IdBuilder, Slot};
+use super::build::{Built, IdBuilder};
 
 impl IdReader<'_> {
     /// The region *difference* `self \ other` (normal-form ids): the part of
     /// `self`'s region that `other` does not own, as a normalized id.
     ///
     /// Unlike [`sum`](IdReader::sum), `diff` is *total* — overlap is the whole
-    /// point, not an error — and its result may be the **empty** `0` leaf,
-    /// exactly when `other` covers `self`. The caller
+    /// point, not an error — and its result may be the **empty** `0` id (the
+    /// empty bit stream), exactly when `other` covers `self`. The caller
     /// ([`Party::without`](crate::Party::without))
     /// maps that empty result to `None`, since a `Party` is a nonzero share.
     ///
@@ -56,13 +56,13 @@ impl DiffWalk {
     ///
     /// The kept side is [`peek`](IdReader::peek)ed, not read, so `copy_reader`
     /// can splice its whole subtree.
-    fn rec(&mut self, a: &mut IdReader, b: &mut IdReader, depth: usize) -> Slot {
+    fn rec(&mut self, a: &mut IdReader, b: &mut IdReader, depth: usize) -> Built {
         match (a.peek(), b.peek()) {
             // diff(0, b) = 0: `self` owns nothing here. Skip both to resync.
             (IdNode::Empty, _) => {
                 a.skip();
                 b.skip();
-                self.out.leaf(false).into()
+                Built::Empty
             }
             // diff(a, 0) = a: `other` owns nothing here, so keep `a` verbatim.
             (_, IdNode::Empty) => {
@@ -74,7 +74,7 @@ impl DiffWalk {
             (_, IdNode::Full) => {
                 a.skip();
                 b.skip();
-                self.out.leaf(false).into()
+                Built::Empty
             }
             // diff(1, b) = complement(b): `self` owns everything here, so the
             // survivors are exactly the region `b` does *not* own.
@@ -82,35 +82,71 @@ impl DiffWalk {
                 a.skip(); // consume the full `1` leaf
                 self.complement(b, depth)
             }
-            // Both internal: difference each half (the cursors thread left then
-            // right), then close the node, which normalizes.
-            (IdNode::Internal, IdNode::Internal) => {
+            // Both internal: difference each child pair (threading the real
+            // cursor into present children, a synthetic `Empty` into absent
+            // ones), then close the node, which normalizes.
+            (
+                IdNode::Internal {
+                    left: al,
+                    right: ar,
+                },
+                IdNode::Internal {
+                    left: bl,
+                    right: br,
+                },
+            ) => {
                 a.read();
                 b.read();
                 let node = self.out.open();
-                descend!(depth + 1, self.rec(a, b, depth + 1));
-                let right = descend!(depth + 1, self.rec(a, b, depth + 1));
-                self.out.close_node(node, right)
+                let left = self.child(a, al, b, bl, depth);
+                let right = self.child(a, ar, b, br, depth);
+                self.out.close_node(node, left, right)
             }
         }
     }
 
+    /// Difference one child pair: thread the real cursor where the child is
+    /// present, a synthetic [`Empty`](IdReader::Empty) where it is absent.
+    fn child(
+        &mut self,
+        a: &mut IdReader,
+        a_present: bool,
+        b: &mut IdReader,
+        b_present: bool,
+        depth: usize,
+    ) -> Built {
+        let mut empty_a = IdReader::Empty;
+        let mut empty_b = IdReader::Empty;
+        let ca = if a_present { a } else { &mut empty_a };
+        let cb = if b_present { b } else { &mut empty_b };
+        descend!(depth + 1, self.rec(ca, cb, depth + 1))
+    }
+
     /// Emit `complement(b)` — the region `b` does *not* own — advancing `b` past
     /// its subtree. `complement(0) = 1`, `complement(1) = 0`, and an internal
-    /// node complements each child. A complemented normal id is already normal
-    /// (flipping the leaves of a non-collapsible node cannot make it
-    /// collapsible), so `close_node` never actually collapses here; it is used
-    /// for uniformity with the rest of the builder.
-    fn complement(&mut self, b: &mut IdReader, depth: usize) -> Slot {
+    /// node complements each child (an absent child is a `0`, complementing to a
+    /// terminal). A complemented normal id is already normal (flipping the
+    /// leaves of a non-collapsible node cannot make it collapsible), so
+    /// `close_node` never actually collapses here; it is used for uniformity
+    /// with the rest of the builder.
+    fn complement(&mut self, b: &mut IdReader, depth: usize) -> Built {
         match b.read() {
-            IdNode::Empty => self.out.leaf(true).into(),
-            IdNode::Full => self.out.leaf(false).into(),
-            IdNode::Internal => {
+            IdNode::Empty => self.out.terminal(),
+            IdNode::Full => Built::Empty,
+            IdNode::Internal { left, right } => {
                 let node = self.out.open();
-                descend!(depth + 1, self.complement(b, depth + 1));
-                let right = descend!(depth + 1, self.complement(b, depth + 1));
-                self.out.close_node(node, right)
+                let left_built = self.complement_child(b, left, depth);
+                let right_built = self.complement_child(b, right, depth);
+                self.out.close_node(node, left_built, right_built)
             }
         }
+    }
+
+    /// Complement one child: thread the real cursor where present, a synthetic
+    /// [`Empty`](IdReader::Empty) (complementing to a terminal) where absent.
+    fn complement_child(&mut self, b: &mut IdReader, present: bool, depth: usize) -> Built {
+        let mut empty = IdReader::Empty;
+        let cb = if present { b } else { &mut empty };
+        descend!(depth + 1, self.complement(cb, depth + 1))
     }
 }

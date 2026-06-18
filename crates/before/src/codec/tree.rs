@@ -4,53 +4,69 @@ use super::{decode_int, Base, BitsSlice};
 
 /// While building a node bottom-up, what we still need from the stream.
 enum IdFrame {
-    /// Parsed the node flag; the next subtree is the left child.
-    NeedLeft,
-    /// Parsed the left child (a leaf with this value, or `None` if internal); the
-    /// next subtree is the right child.
-    NeedRight { left_leaf: Option<bool> },
+    /// A both-present node: the next subtree is its left child.
+    BothNeedLeft,
+    /// A both-present node whose left child is parsed (a terminal? — needed for
+    /// the `(1, 1)` check); the next subtree is its right child.
+    BothNeedRight { left_terminal: bool },
+    /// A unary node (left- or right-only): the next subtree is its one child.
+    UnaryNeedChild,
 }
 
-/// Parse one `enc_id` tree at `pos`, validating id normal form (no node whose
-/// two children are leaves of equal value). Returns the position just past the
+/// Parse one packed id tree at `pos`, validating id normal form (no node with
+/// two terminal children, that is `(1, 1)`). Returns the position just past the
 /// tree. Iterative: depth lives on an explicit stack, never the call stack.
+///
+/// Each node is a 2-bit presence tag (bit 0 = left child follows, bit 1 = right
+/// child follows): `00` a terminal, `10`/`01` a unary node, `11` a both-present
+/// node. A `0` is never a node, so an empty input is the `0` tree itself (only
+/// valid at the root; `Party::decode` rejects the resulting anonymous id).
 pub(crate) fn parse_id(bits: &BitsSlice, mut pos: usize) -> Result<usize, Decode> {
     let mut stack: Vec<IdFrame> = Vec::new();
     loop {
-        if pos >= bits.len() {
+        // The empty `0` tree, reachable only as the whole (root) input.
+        if pos == bits.len() && stack.is_empty() {
+            return Ok(pos);
+        }
+        if pos + 2 > bits.len() {
             return Err(Decode::Truncated);
         }
-        let flag = bits[pos];
-        pos += 1;
+        let left = bits[pos];
+        let right = bits[pos + 1];
+        pos += 2;
 
-        // `enc_id(Leaf v) = 0, v`; `enc_id(Node l r) = 1, l, r`.
-        let mut summary: Option<bool> = if flag {
-            stack.push(IdFrame::NeedLeft);
-            continue; // descend into the left child
-        } else {
-            if pos >= bits.len() {
-                return Err(Decode::Truncated);
+        // `summary` is whether the just-completed subtree is a terminal — the
+        // only fact a parent needs, to reject `(1, 1)`.
+        let mut summary = match (left, right) {
+            (true, true) => {
+                stack.push(IdFrame::BothNeedLeft);
+                continue; // descend into the left child
             }
-            let v = bits[pos];
-            pos += 1;
-            Some(v)
+            (true, false) | (false, true) => {
+                stack.push(IdFrame::UnaryNeedChild);
+                continue; // descend into the one present child
+            }
+            (false, false) => true, // a terminal
         };
 
         // Attach the completed subtree to its parent, possibly completing it too.
         loop {
             match stack.pop() {
                 None => return Ok(pos), // the root is complete
-                Some(IdFrame::NeedLeft) => {
-                    stack.push(IdFrame::NeedRight { left_leaf: summary });
+                Some(IdFrame::BothNeedLeft) => {
+                    stack.push(IdFrame::BothNeedRight {
+                        left_terminal: summary,
+                    });
                     break; // go parse the right child
                 }
-                Some(IdFrame::NeedRight { left_leaf }) => {
-                    if let (Some(a), Some(b)) = (left_leaf, summary) {
-                        if a == b {
-                            return Err(Decode::NotCanonical); // collapsible (v,v)
-                        }
+                Some(IdFrame::BothNeedRight { left_terminal }) => {
+                    if left_terminal && summary {
+                        return Err(Decode::NotCanonical); // collapsible (1, 1)
                     }
-                    summary = None; // this node is internal to its own parent
+                    summary = false; // this node is internal to its own parent
+                }
+                Some(IdFrame::UnaryNeedChild) => {
+                    summary = false; // a unary node is internal, never a terminal
                 }
             }
         }

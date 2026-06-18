@@ -16,14 +16,24 @@ use crate::{Clock, Party, Version};
 
 // ───────────────────────────── oracle → impl ─────────────────────────────
 
+/// Whether an oracle id subtree is the empty `0` region. In normal form that is
+/// exactly the `Leaf(false)`; the bridge only ever emits normalized oracle trees.
+fn id_is_zero(t: &oracle::Party) -> bool {
+    matches!(t, oracle::Party::Leaf(false))
+}
+
 fn emit_id(out: &mut Bits, t: &oracle::Party) {
     match t {
-        oracle::Party::Leaf(b) => {
+        oracle::Party::Leaf(false) => {} // `0`: absence, no bits
+        oracle::Party::Leaf(true) => {
+            out.push(false); // terminal tag `00`
             out.push(false);
-            out.push(*b);
         }
         oracle::Party::Node(l, r) => {
-            out.push(true);
+            // 2-bit presence tag, then the present children (a `0` child emits
+            // nothing).
+            out.push(!id_is_zero(l)); // bit 0 = left present
+            out.push(!id_is_zero(r)); // bit 1 = right present
             emit_id(out, l);
             emit_id(out, r);
         }
@@ -80,13 +90,28 @@ pub(crate) fn from_oracle_clock(c: &oracle::Clock) -> Clock {
 // equality.
 
 fn read_id(bits: &codec::BitsSlice, pos: usize) -> (oracle::Party, usize) {
-    if bits[pos] {
-        let (l, after_l) = read_id(bits, pos + 1);
-        let (r, after_r) = read_id(bits, after_l);
-        (oracle::Party::Node(Box::new(l), Box::new(r)), after_r)
-    } else {
-        (oracle::Party::Leaf(bits[pos + 1]), pos + 2)
+    let left = bits[pos];
+    let right = bits[pos + 1];
+    if !left && !right {
+        return (oracle::Party::Leaf(true), pos + 2); // terminal = `1`
     }
+    // Read the present children; an absent child lowers to the `0` leaf.
+    let mut next = pos + 2;
+    let l = if left {
+        let (l, np) = read_id(bits, next);
+        next = np;
+        l
+    } else {
+        oracle::Party::Leaf(false)
+    };
+    let r = if right {
+        let (r, np) = read_id(bits, next);
+        next = np;
+        r
+    } else {
+        oracle::Party::Leaf(false)
+    };
+    (oracle::Party::Node(Box::new(l), Box::new(r)), next)
 }
 
 fn read_ev(bits: &codec::BitsSlice, pos: usize) -> (oracle::Version, usize) {
@@ -105,6 +130,9 @@ fn read_ev(bits: &codec::BitsSlice, pos: usize) -> (oracle::Version, usize) {
 
 /// Lower an impl `Party` to the oracle's structural tree by reading its packed bits.
 pub(crate) fn to_oracle_party(p: &Party) -> oracle::Party {
+    if p.as_bits().is_empty() {
+        return oracle::Party::Leaf(false); // the anonymous `0` id
+    }
     read_id(p.as_bits(), 0).0
 }
 

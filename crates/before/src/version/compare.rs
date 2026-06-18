@@ -146,14 +146,18 @@ impl<'a> EvReader<'a> {
                     step!();
                     let internal = bits[p];
                     let next = skip_int(bits, p + 1).expect("canonical event bits");
-                    (internal, next)
+                    // Event nodes are full binary: a node has two children, a
+                    // leaf none.
+                    (if internal { 2 } else { 0 }, next)
                 });
             }
             EvReader::Working { work, pos } => {
                 let work = *work;
                 *pos = idbits::skip_subtree(*pos, |p| {
                     step!();
-                    (work.topo[p], p + 1)
+                    // Event nodes are full binary: an internal node has two
+                    // children, a leaf none.
+                    (if work.topo[p] { 2 } else { 0 }, p + 1)
                 });
             }
         }
