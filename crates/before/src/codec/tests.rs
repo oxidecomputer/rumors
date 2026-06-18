@@ -351,6 +351,44 @@ fn decode_rejects_anonymous_id() {
     assert!(matches!(Clock::decode(&[][..]), Err(Decode::Anonymous)));
 }
 
+/// `Clock::decode` can never yield a clock with an anonymous (`0`) party — the
+/// invariant the whole stack rests on (paper §3: a live share is `i ≠ 0`). The
+/// party is the byte-aligned prefix, `Party::decode` rejects the empty id, and
+/// the only empty prefix is the empty stream (itself rejected as `Anonymous`),
+/// so an anonymous-party clock has *no* encoding: its bytes (just the version,
+/// since the `0` party contributes none) decode to a *different*, non-anonymous
+/// clock or fail canonicity — never round-trip back. This sweeps every byte
+/// string up to two bytes, where the empty-prefix boundary lives: each either
+/// fails to decode or yields a nonzero party, and none panics.
+#[test]
+fn decode_never_yields_anonymous_party() {
+    // A test-only anonymous clock encodes to just its version bytes; decoding
+    // reinterprets them and never recovers the anonymous party.
+    let anon = from_oracle_clock(&oracle::Clock::from_parts(
+        oracle::Party::Leaf(false),
+        oracle::Version::from(5u64),
+    ));
+    if let Ok(c) = Clock::decode(&anon.encode()[..]) {
+        assert!(
+            !c.party().as_bytes().is_empty(),
+            "an anonymous-party clock must not round-trip",
+        );
+    }
+
+    // Exhaustive over the small-clock space (`len = 0` is the empty stream).
+    for len in 0..=2usize {
+        for v in 0u32..(1u32 << (8 * len)) {
+            let bytes = &v.to_be_bytes()[4 - len..];
+            if let Ok(c) = Clock::decode(bytes) {
+                assert!(
+                    !c.party().as_bytes().is_empty(),
+                    "decoded an anonymous-party clock from {bytes:?}",
+                );
+            }
+        }
+    }
+}
+
 /// A stream that ends mid-tree is `Truncated`.
 #[test]
 fn reject_truncated() {
