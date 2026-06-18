@@ -169,8 +169,8 @@ fn clock_canonical_form() {
     assert_snapshot!(fields, @"
     display: (1, 1)
     debug:   Clock { party: 1, version: 1 }
-    bits:    010010 (6 bits)
-    bytes:   48
+    bits:    000010 (6 bits)
+    bytes:   00 20
     ");
 }
 
