@@ -15,6 +15,10 @@ stacker = "0.1"
 thiserror = "2"
 serde = { version = "1", optional = true, default-features = false, features = ["derive", "alloc"] }
 borsh = { version = "1", optional = true }
+# Base64-embeds the space-consumption diagram into the crate-level rustdoc at
+# doc-build time (see `lib.rs`). Doc-only and gated behind `doc-images`, so a
+# normal `cargo build` never pulls it.
+embed-doc-image = { version = "0.1", optional = true }
 
 [dev-dependencies]
 proptest = "1"
@@ -47,6 +51,9 @@ before = { path = ".", features = ["oracle"] }
 default = []
 serde = ["dep:serde"]
 borsh = ["dep:borsh"]
+# Renders the space-consumption diagram in the crate-level rustdoc. Doc-only;
+# `cargo doc --all-features` (the `just docs` gate) turns it on.
+doc-images = ["dep:embed-doc-image"]
 # Re-exports the reference oracle (`src/oracle.rs`) as `before::oracle`, so the benchmark
 # suite can time it against the optimized implementation. Bench/test-only.
 oracle = []
