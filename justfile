@@ -57,8 +57,18 @@ fmt-check:
 
 # ── commit gate (CLAUDE.md: fmt → clippy → docs → test, all clean) ───────────
 
+# rustdoc renders a doc comment's first paragraph as the item's summary — the
+# one-liner shown in module index tables and search. tools/doclint fails the
+# gate when that paragraph grows past a one-liner, the same trees the audited
+# rustdoc covers (before's library and rumors). It needs no build, so it runs
+# first for fast failure.
+
+# Flag doc-comment summaries that have outgrown a one-liner.
+doclint:
+    ./tools/doclint crates/before/src src
+
 # Run the pre-commit gate.
-gate: fmt-check clippy docs docs-internal test doctest
+gate: fmt-check doclint clippy docs docs-internal test doctest
 
 # ── artifacts the gate doesn't reach ─────────────────────────────────────────
 # `borsh` is exercised constantly via rumors; `serde` and `oracle` are only
@@ -145,4 +155,4 @@ rumormill *args:
 # network-touching viz bundle.
 
 # Everything: the full no-rot sweep.
-all: fmt-check clippy features wasm-check docs docs-internal test doctest bench-build fuzz-build (fuzz fuzz_smoke_secs) viz
+all: fmt-check doclint clippy features wasm-check docs docs-internal test doctest bench-build fuzz-build (fuzz fuzz_smoke_secs) viz

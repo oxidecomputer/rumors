@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+# doclint — flag doc comments whose summary paragraph is too long to be a
+# one-liner.
+#
+# Why this exists: rustdoc treats the first paragraph of a doc comment (every
+# line up to the first blank `///`) as the item's *summary*. That summary is
+# what renders in module index tables, search results, and tooltips, where it
+# is expected to be a single, self-contained sentence. When the first paragraph
+# grows into a multi-sentence block, rustdoc concatenates it into one over-long
+# cell and the listing reads as a wall of text instead of a scannable
+# one-liner.
+#
+# The rule this enforces: a doc comment's first paragraph stays under
+# MAX_SUMMARY_CHARS once its soft-wrapped source lines are joined the way
+# Markdown renders them. The codebase idiomatically wraps a single-sentence
+# summary across two or three 80-column lines — those join to well under the
+# budget. Crossing it signals a paragraph of several sentences, whose tail
+# belongs below a blank `///` line where it becomes body prose that never
+# reaches the summary. This applies to both outer (`///`) and inner (`//!`)
+# doc comments — a module's first paragraph is the summary the *parent* listing
+# shows for it.
+#
+# Usage:
+#   doclint PATH...        # lint every .rs file under each PATH (file or dir)
+#
+# Exits non-zero if any violation is found, printing `file:line` for the start
+# of each offending doc comment followed by the summary paragraph it found, so
+# the offender is named the way the rest of the gate names its failures.
+
+import sys
+from pathlib import Path
+
+# The longest a summary may render before it stops reading as a one-liner.
+# Calibrated to the workspace: the median summary renders to ~180 characters
+# (a single sentence over two or three wrapped lines) and stays; the threshold
+# catches the multi-sentence paragraphs above it.
+MAX_SUMMARY_CHARS = 220
+
+# A doc-comment line is `///` or `//!` followed by end-of-line or a non-slash
+# character. The non-slash guard excludes `////…` separator rules, which
+# rustdoc treats as ordinary comments, not documentation.
+def doc_marker(stripped):
+    for marker in ("///", "//!"):
+        if stripped.startswith(marker):
+            rest = stripped[len(marker):]
+            if not rest or rest[0] != "/":
+                return marker
+    return None
+
+
+def doc_content(stripped, marker):
+    """The text of a doc line with its marker and one optional space removed."""
+    rest = stripped[len(marker):]
+    return rest[1:] if rest.startswith(" ") else rest
+
+
+def rendered_length(summary):
+    """Length of a summary as Markdown renders it: soft-wraps joined by spaces."""
+    return len(" ".join(line.strip() for line in summary if line.strip()))
+
+
+def violations(path):
+    """Yield (line_number, summary_lines) for each over-long summary in a file.
+
+    `line_number` is 1-based and points at the first line of the doc comment;
+    `summary_lines` is the list of content lines making up its first paragraph.
+    A summary is over-long when its rendered length exceeds MAX_SUMMARY_CHARS.
+    """
+    lines = path.read_text(encoding="utf-8").splitlines()
+    i = 0
+    n = len(lines)
+    while i < n:
+        marker = doc_marker(lines[i].lstrip())
+        if marker is None:
+            i += 1
+            continue
+
+        # Walk to the end of this contiguous run of doc-comment lines, then
+        # measure only its first paragraph: the content lines before the first
+        # blank doc line. A fenced code block can hold blank lines that are not
+        # paragraph breaks, so track fence state while scanning.
+        start = i
+        summary = []
+        in_fence = False
+        paragraph_open = True
+        while i < n and doc_marker(lines[i].lstrip()) is not None:
+            content = doc_content(lines[i].lstrip(), marker)
+            if paragraph_open:
+                if content.lstrip().startswith("```"):
+                    in_fence = not in_fence
+                    summary.append(content)
+                elif content.strip() == "" and not in_fence:
+                    paragraph_open = False
+                else:
+                    summary.append(content)
+            i += 1
+
+        if rendered_length(summary) > MAX_SUMMARY_CHARS:
+            yield (start + 1, summary)
+
+
+def rust_files(root):
+    if root.is_file():
+        return [root] if root.suffix == ".rs" else []
+    return sorted(root.rglob("*.rs"))
+
+
+def main(argv):
+    roots = [Path(a) for a in argv[1:]]
+    if not roots:
+        print("usage: doclint PATH...", file=sys.stderr)
+        return 2
+
+    found = False
+    for root in roots:
+        for path in rust_files(root):
+            for line, summary in violations(path):
+                found = True
+                length = rendered_length(summary)
+                print(f"{path}:{line}: doc summary renders to {length} chars "
+                      f"(max {MAX_SUMMARY_CHARS})")
+                for text in summary:
+                    print(f"    | {text}")
+    if found:
+        print(
+            f"\nA doc comment's first paragraph is its summary: keep it under "
+            f"{MAX_SUMMARY_CHARS}\nrendered characters. Move the rest below a "
+            f"blank `///` line.",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
