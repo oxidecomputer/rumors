@@ -4,9 +4,28 @@
 //!
 //! Interval tree clocks use much less space than traditional representations of
 //! version vectors and vector clocks, often by more than an order of magnitude.
-//! In dynamic settings where participants join and leave, they can also
-//! *recycle identifiers* without violating causality, so they avoid the
-//! unbounded growth that affects naïve sparse clocks and vectors.
+//! In dynamic settings where participants arrive and leave, they can also
+//! *recycle identifiers* via a [`join`](Clock::join) without violating
+//! causality, so they avoid the unbounded growth that affects naïve sparse
+//! clocks and vectors.
+//!
+//! ## Efficiency
+//!
+//! For a system with `N` parties and `E` total events, this crate's
+//! implementation represents an individual [`Party`] in approximately `⌈ln(N) /
+//! 2⌉` bytes and a [`Version`] in approximately `⌈N / 2 + N · log₂(E / N) /
+//! 24⌉` bytes. To give a sense of scale, at 100 parties and 1,000,000 events
+//! the expected size of a [`Party`] is about 3 bytes and the expected size of a
+//! [`Version`] is about 100 bytes. These figures assume static membership;
+//! continually [`fork`](Clock::fork)ing and [`join`](Clock::join)ing causes
+//! these to grow, but with reasonable bounds. Under sustained membership churn,
+//! those same 100 parties will each stabilize at around 50 bytes (linear in
+//! `N`) and their corresponding versions at around 2,000 bytes (roughly `N²`).
+//!
+//! This crate implements cache-friendly, optimized versions of the operations
+//! in the original paper, in addition to a host of useful operations not
+//! described therein. Compared to a 1-to-1 transliteration of the paper into
+//! Rust, [`before`](crate) is between 2–20× faster.
 //!
 //! ## The types
 //!
