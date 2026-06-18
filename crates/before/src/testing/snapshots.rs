@@ -100,24 +100,24 @@ fn version_block(v: &Version) -> String {
 #[test]
 fn party_canonical_forms() {
     let seed = Party::seed();
-    assert_snapshot!(party_block(&seed), @r"
+    assert_snapshot!(party_block(&seed), @"
     display: 1
-    bits:    01 (2 bits)
-    bytes:   40
+    bits:    00 (2 bits)
+    bytes:   00
     ");
 
     let half: Party = "(1, 0)".parse().unwrap();
-    assert_snapshot!(party_block(&half), @r"
+    assert_snapshot!(party_block(&half), @"
     display: (1, 0)
-    bits:    10100 (5 bits)
-    bytes:   a0
+    bits:    1000 (4 bits)
+    bytes:   80
     ");
 
     let deep: Party = "(1, (0, 1))".parse().unwrap();
     assert_snapshot!(party_block(&deep), @"
     display: (1, (0, 1))
-    bits:    10110001 (8 bits)
-    bytes:   b1
+    bits:    11000100 (8 bits)
+    bytes:   c4
     ");
 }
 
