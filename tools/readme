@@ -1,0 +1,156 @@
+#!/usr/bin/env python3
+"""Mirror each crate's crate-level rustdoc into its README, intra-doc links removed.
+
+cargo-rdme copies the `//!` docs from a crate root into its README between the
+`<!-- cargo-rdme start/end -->` markers. It cannot, however, turn this
+workspace's intra-doc links into anything a README reader can follow: the public
+types are re-exported from private submodules (`pub use peer::Peer`), and the
+docs lean on rustdoc's *shortcut* link form (`[`Peer`]`), which cargo-rdme's
+lightweight resolver doesn't follow. Left alone those links render as literal
+`[Peer]` brackets or as dangling relative hyperlinks (`[send](Rumors::send)`) on
+GitHub and crates.io. cargo-rdme's own `--intralinks-strip-links` doesn't
+recognize these forms either, so we strip them here, down to the link *text*,
+leaving real (http/https) links untouched.
+
+    tools/readme write    regenerate every crate's README in place
+    tools/readme check    re-derive into a scratch copy and diff; nonzero on drift
+
+`check` never touches the committed files — it generates into a temp copy of
+each README (preserving that README's exact preamble) and diffs. The justfile
+exposes both as `just readme` / `just readme-check`; the latter rides in the gate.
+"""
+
+from __future__ import annotations
+
+import re
+import subprocess
+import sys
+import tempfile
+from dataclasses import dataclass, field
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+@dataclass(frozen=True)
+class Crate:
+    """One crate whose README mirrors its crate-level rustdoc.
+
+    `rdme_args` selects the crate for cargo-rdme (empty for the workspace root
+    package); `readme` is the file it writes, relative to the workspace root.
+    `image_refs` maps a reference-style image label to a path (relative to the
+    README) to inline, repairing image references whose definitions rustdoc
+    injects at doc-build time and cargo-rdme therefore can't see.
+    """
+
+    name: str
+    readme: str
+    rdme_args: list[str] = field(default_factory=list)
+    image_refs: dict[str, str] = field(default_factory=dict)
+
+
+CRATES = [
+    Crate(name="rumors", readme="README.md"),
+    Crate(
+        name="before",
+        readme="crates/before/README.md",
+        rdme_args=["-w", "before"],
+        # `before`'s space-consumption diagram is embedded by embed-doc-image at
+        # doc-build time; cargo-rdme can't see that definition, so supply one.
+        # An absolute raw URL is the only form that renders in every venue:
+        # GitHub strips `data:` URIs (no base64-embed), and crates.io resolves a
+        # *subdirectory* crate's relative paths against the repo root, not the
+        # crate dir (rust-lang/crates.io#5318), so a relative path breaks there.
+        image_refs={
+            "space-consumption": (
+                "https://raw.githubusercontent.com/oxidecomputer/rumors/HEAD/"
+                "crates/before/results/space_consumption/itc_space_consumption.svg"
+            ),
+        },
+    ),
+]
+
+# A Rust path destination: a bare item or a `::`-separated path, no slashes,
+# dots, or URL scheme. This is what distinguishes an intra-doc link's target
+# (`Party::is_disjoint`, `std::ops::RangeBounds`, `crate`) from a real link.
+RUST_PATH = r"[A-Za-z_]\w*(?:::[A-Za-z_]\w*)*"
+
+# `[text](Rust::path)` -> `text`. Text is kept verbatim with its own markup
+# (it may be code, *italic*, or plain), so only the link wrapper is removed.
+WITH_DEST = re.compile(r"\[([^\]]+)\]\((" + RUST_PATH + r")\)")
+
+# `[`code`]` shortcut link not continued by a destination `(`, another
+# reference `[`, or a definition `:`. Intra-doc shortcut links are always
+# code-spanned, so keying off the backticks keeps this from eating real
+# reference-style links or footnotes.
+SHORTCUT = re.compile(r"\[(`[^`]+`)\](?![(\[:])")
+
+
+def strip_intra_doc_links(md: str, image_refs: dict[str, str]) -> str:
+    """Remove intra-doc links from rendered Markdown, leaving real links intact."""
+    for label, path in image_refs.items():
+        # Rewrite `![alt][label]` to an inline image at `path`.
+        md = md.replace(f"][{label}]", f"]({path})")
+    md = WITH_DEST.sub(r"\1", md)
+    md = SHORTCUT.sub(r"\1", md)
+    return md
+
+
+def render(crate: Crate, readme_path: Path) -> str:
+    """Regenerate `readme_path` from `crate`'s rustdoc and return the stripped text.
+
+    cargo-rdme rewrites the file in place between its markers; `-r` aims it at
+    `readme_path` (which already carries the right preamble and markers), `-f`
+    lets it run with the worktree dirty.
+    """
+    subprocess.run(
+        # `--intralinks-strip-links` keeps cargo-rdme from resolving the links it
+        # *does* recognize (`[`x`](crate)`, `(::std::…)`) into docs.rs URLs that
+        # would 404 until first publish; the post-processor strips the rest.
+        ["cargo", "rdme", "-f", "--intralinks-strip-links", "-r", str(readme_path), *crate.rdme_args],
+        cwd=ROOT,
+        check=True,
+    )
+    rendered = readme_path.read_text()
+    return strip_intra_doc_links(rendered, crate.image_refs)
+
+
+def write() -> int:
+    for crate in CRATES:
+        readme = ROOT / crate.readme
+        readme.write_text(render(crate, readme))
+        print(f"wrote {crate.readme}")
+    return 0
+
+
+def check() -> int:
+    drift = False
+    for crate in CRATES:
+        readme = ROOT / crate.readme
+        committed = readme.read_text()
+        # Generate into a copy so the committed README is never mutated; the copy
+        # carries the same preamble, so any diff is genuine body drift.
+        with tempfile.NamedTemporaryFile(
+            "w+", suffix=".md", dir=readme.parent, delete=False
+        ) as tmp:
+            tmp.write(committed)
+            scratch = Path(tmp.name)
+        try:
+            regenerated = render(crate, scratch)
+        finally:
+            scratch.unlink()
+        if regenerated != committed:
+            drift = True
+            print(f"README out of date: {crate.readme} (run `just readme`)", file=sys.stderr)
+    return 1 if drift else 0
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) != 2 or argv[1] not in ("write", "check"):
+        print(f"usage: {argv[0]} <write|check>", file=sys.stderr)
+        return 2
+    return write() if argv[1] == "write" else check()
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

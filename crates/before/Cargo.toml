@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "Interval Tree Clocks (Almeida, Baquero & Fonte, 2008): packed BitVec storage, transient fixed-width working form, linear-typed API."
 license = "MPL-2.0"
+readme = "README.md"
 
 [dependencies]
 bitvec = "1"

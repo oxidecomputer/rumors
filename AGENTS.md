@@ -30,12 +30,15 @@ The `justfile` is the source of truth for verification — every artifact in the
 workspace has a recipe there; `just --list` shows them all. The tiers:
 
 - Inner loop: `just check`, `just test <filter>`, `just clippy`, `just fmt`.
-- The gate before every commit: `just gate` (fmt → doclint → clippy → docs and
-  docs-internal with `-D warnings` → tests → doctests), all clean. The
-  `docs-internal` pass renders private items, so intra-doc links inside
-  private modules rot loudly instead of silently. `doclint` (`tools/doclint`)
-  fails when a doc comment's first paragraph — the summary rustdoc shows in
-  index tables — outgrows a one-liner; move the rest below a blank `///` line.
+- The gate before every commit: `just gate` (fmt → doclint → readme-check →
+  clippy → docs and docs-internal with `-D warnings` → tests → doctests), all
+  clean. The `docs-internal` pass renders private items, so intra-doc links
+  inside private modules rot loudly instead of silently. `doclint`
+  (`tools/doclint`) fails when a doc comment's first paragraph — the summary
+  rustdoc shows in index tables — outgrows a one-liner; move the rest below a
+  blank `///` line. `readme-check` (`tools/readme`) re-derives each crate's
+  README from its crate-level rustdoc (via cargo-rdme, intra-doc links
+  stripped) and fails on drift; run `just readme` after editing crate docs.
 - `just all`: the full no-rot sweep — adds what the gate never touches (the
   `before` feature matrix, the wasm target, bench builds, the fuzz targets,
   the viz bundle).

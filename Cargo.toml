@@ -9,6 +9,7 @@ members = [
 name = "rumors"
 version = "0.1.0"
 edition = "2024"
+readme = "README.md"
 
 [features]
 # Test-only introspection surfaces (party aliasing for invariant accounting).

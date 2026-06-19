@@ -67,8 +67,24 @@ fmt-check:
 doclint:
     ./tools/doclint crates/before/src src
 
+# tools/readme mirrors each crate's crate-level rustdoc into its README via
+# cargo-rdme, then strips the intra-doc links cargo-rdme can't resolve (the
+# public types are re-exported from private submodules, and the docs use
+# rustdoc's shortcut link form) down to plain code spans. `readme-check`
+# re-derives the READMEs into scratch copies and diffs — the same no-rot
+# contract as fmt-check, so a rustdoc edit can't silently desync the README.
+# Needs cargo-rdme: `cargo install cargo-rdme`.
+
+# Regenerate every crate's README from its crate-level rustdoc.
+readme:
+    ./tools/readme write
+
+# Verify every README is in sync with its rustdoc (the gate variant of `readme`).
+readme-check:
+    ./tools/readme check
+
 # Run the pre-commit gate.
-gate: fmt-check doclint clippy docs docs-internal test doctest
+gate: fmt-check doclint readme-check clippy docs docs-internal test doctest
 
 # ── artifacts the gate doesn't reach ─────────────────────────────────────────
 # `borsh` is exercised constantly via rumors; `serde` and `oracle` are only
@@ -161,7 +177,7 @@ rumormill *args:
 # affordance while CI keeps the targets from rotting by building them.
 
 # Build everything (no fuzz run): the no-rot sweep as CI runs it.
-ci: fmt-check doclint clippy features wasm-check docs docs-internal test doctest bench-build fuzz-build viz
+ci: fmt-check doclint readme-check clippy features wasm-check docs docs-internal test doctest bench-build fuzz-build viz
 
 # Everything: the no-rot sweep, plus a short fuzz smoke on top of `ci`.
 all: ci (fuzz fuzz_smoke_secs)
