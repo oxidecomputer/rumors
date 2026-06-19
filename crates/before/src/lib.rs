@@ -235,7 +235,6 @@
     doc = "[space-consumption]: # \"build with the `doc-images` feature \
            (enabled by `cargo doc --all-features`) to render this diagram\""
 )]
-
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
