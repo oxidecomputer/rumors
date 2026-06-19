@@ -149,10 +149,19 @@ rumormill *args:
     cargo run --release -p rumormill -- {{ args }}
 
 # ── the no-rot sweep ─────────────────────────────────────────────────────────
-# Ordered cheap-first so failures surface early: formatting, then the lint
-# (which also compiles all host targets), the feature matrix, wasm, docs, the
-# full test+doctest run, bench builds, fuzz build + smoke, and finally the
-# network-touching viz bundle.
+# `ci` is the build-everything tier: the gate's checks plus the feature matrix,
+# wasm, bench builds, the fuzz-target *build*, and the viz bundle. It is ordered
+# cheap-first so failures surface early — formatting, then the lint (which also
+# compiles all host targets), the feature matrix, wasm, docs, the full
+# test+doctest run, bench builds, the fuzz build, and finally the
+# network-touching viz bundle. GitHub CI runs exactly this.
+#
+# `all` is `ci` plus the one thing CI omits: actually *running* a short fuzz
+# smoke. libFuzzer minutes are a poor per-commit spend, so the run stays a local
+# affordance while CI keeps the targets from rotting by building them.
 
-# Everything: the full no-rot sweep.
-all: fmt-check doclint clippy features wasm-check docs docs-internal test doctest bench-build fuzz-build (fuzz fuzz_smoke_secs) viz
+# Build everything (no fuzz run): the no-rot sweep as CI runs it.
+ci: fmt-check doclint clippy features wasm-check docs docs-internal test doctest bench-build fuzz-build viz
+
+# Everything: the no-rot sweep, plus a short fuzz smoke on top of `ci`.
+all: ci (fuzz fuzz_smoke_secs)

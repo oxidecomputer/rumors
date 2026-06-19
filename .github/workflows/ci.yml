@@ -1,0 +1,75 @@
+# Run the no-rot sweep (`just ci`) on every push to main and every pull request.
+#
+# `ci` is the gate's superset minus one thing: fmt-check → doclint → clippy → the
+# `before` feature matrix → wasm-check → docs → docs-internal → test → doctest →
+# bench-build → fuzz-build → the viz bundle. It builds the fuzz targets but does
+# not run the smoke (`just all` adds that locally — libFuzzer minutes are a poor
+# per-commit spend). CI invokes the recipe rather than re-listing its steps, so
+# the sweep has exactly one definition (the justfile) and the two can't drift.
+#
+# What the runner has to supply that a dev machine already has:
+#   - a current stable toolchain (edition 2024 needs 1.85+), with clippy + rustfmt
+#     and the wasm32-unknown-unknown target (wasm-check, viz),
+#   - a nightly toolchain + cargo-fuzz to build (not run) the fuzz targets,
+#   - `just`, `cargo-nextest` (just test), and `wasm-pack` (viz),
+#   - node + npm for the viz TypeScript typecheck and bundle,
+#   - python3 for tools/doclint and bash for tools/memwatch (both preinstalled).
+# memwatch's swap backstop is sysctl-based and degrades to a no-op off macOS, so
+# wrapping the test/doctest/bench recipes is harmless here; its 8 GiB per-process
+# cap sits well above anything a normal Linux build reaches.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A new push to a branch supersedes the sweep already running on it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+          targets: wasm32-unknown-unknown
+
+      # The fuzz workspace needs nightly + libFuzzer; the justfile pins its
+      # toolchain to `nightly`, so the runner needs it alongside stable.
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install just, cargo-nextest, cargo-fuzz, and wasm-pack
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just,cargo-nextest,cargo-fuzz,wasm-pack
+
+      # The viz bundle (`just viz`) runs `npm install`, a strict TypeScript
+      # typecheck, and an esbuild bundle.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: crates/before-viz/www/package-lock.json
+
+      - name: Cache cargo build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          # The detached fuzz workspace has its own lockfile; cache it too so a
+          # nightly libFuzzer rebuild doesn't start cold every run.
+          workspaces: |
+            .
+            crates/before/fuzz
+
+      - name: just ci
+        run: just ci
