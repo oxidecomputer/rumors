@@ -38,9 +38,8 @@ pub trait BookmarkError {
 ///
 /// `store` hands this closure a writer; the closure writes the framed record
 /// into it. It is a *boxed* future because it both borrows the writer across an
-/// `.await` and must be [`Send`] (the engine's futures are `Send`) — naming the
-/// future as a trait object is the stable way to carry both bounds at once. The
-/// cost is one small allocation, on the cold persist path.
+/// `.await` and must be [`Send`] (the engine's futures are `Send`); naming the
+/// future as a trait object is the stable way to carry both bounds at once.
 pub type Serialized<'a> = Pin<Box<dyn Future<Output = std::io::Result<()>> + Send + 'a>>;
 
 /// Application-supplied byte storage for a [`Peer`](crate::Peer)'s identity.
@@ -48,11 +47,10 @@ pub type Serialized<'a> = Pin<Box<dyn Future<Output = std::io::Result<()>> + Sen
 /// A bookmark records *who* a peer is and how far it has causally advanced, but
 /// none of *what* it knows: content is recovered the same way any peer gets it,
 /// by [`gossip`](crate::Rumors::gossip)ing. The crate owns the on-disk *format*
-/// — a magic-tagged, versioned, integrity-hashed frame — and asks the
-/// implementor only for raw byte storage: a reader to [`load`](Bookmark::load)
-/// the stored bytes and a writer to atomically [`store`](Bookmark::store) them.
-/// The implementor also supplies the [`Error`](BookmarkError::Error) type, on
-/// the [`BookmarkError`] supertrait.
+/// and asks the implementor only for raw byte storage: a reader to
+/// [`load`](Bookmark::load) the stored bytes and a writer to atomically
+/// [`store`](Bookmark::store) them. The implementor also supplies the
+/// [`Error`](BookmarkError::Error) type, on the [`BookmarkError`] supertrait.
 ///
 /// This is for asynchronous use; the blocking version is
 /// [`sync::Bookmark`](crate::sync::Bookmark).
@@ -88,15 +86,12 @@ pub trait Bookmark: BookmarkError {
         F: for<'a> FnOnce(&'a mut (dyn AsyncWrite + Unpin + Send)) -> Serialized<'a> + Send;
 }
 
-/// What a bookmark round trip failed at: the backend's own I/O, or the crate's
-/// framing of the bytes it lends.
+/// What a bookmark round trip failed at: I/O, or stored format.
 ///
-/// [`Io`](Self::Io) is the implementor's [`Error`](BookmarkError::Error) —
-/// opening, staging, or committing the storage. [`Format`](Self::Format) is the
-/// crate's: a stream fault while reading the lent bytes, or a frame that is
-/// foreign, too new, or corrupt (see [`FormatError`]). The split says *whose*
-/// failure it was — "your disk" versus "these bytes" — even though both ride the
-/// one bookmark error channel.
+/// [`Io`](Self::Io) is the implementor's [`Error`](BookmarkError::Error),
+/// recording failures opening, staging, or committing the storage.
+/// [`Format`](Self::Format) is this crate's: a stream fault while reading the
+/// lent bytes, or a format that is foreign or corrupt (see [`FormatError`]).
 #[derive(Debug, thiserror::Error)]
 pub enum BookmarkIo<E> {
     /// The backend could not open, stage, or commit its storage.
@@ -177,8 +172,8 @@ impl<B: Bookmark> Persist<Async> for B {
 
 /// The placeholder [`Bookmark`] that persists nothing.
 ///
-/// The default for every [`Peer`](crate::Peer); a peer using it never recovers a
-/// stranded identity, because it never recorded one.
+/// The default for every [`Peer`](crate::Peer); a peer using it never recovers
+/// a stranded identity, because it never recorded one.
 #[derive(Debug)]
 pub struct NoBookmark;
 
