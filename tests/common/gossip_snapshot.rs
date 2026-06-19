@@ -39,6 +39,7 @@
 //! peer) into one shared, ordered [`Log`], tagged with the acting party. The
 //! renderer then demultiplexes the log into the two per-party transcripts.
 
+use std::future::Future;
 use std::io;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -46,7 +47,7 @@ use std::task::{Context, Poll};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use rumors::Rumors;
-use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
+use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf, ReadHalf, WriteHalf};
 
 use crate::common::wire::block_on;
 
@@ -96,7 +97,10 @@ impl Log {
 
 /// An [`AsyncRead`] + [`AsyncWrite`] wrapper around one end of a duplex pipe
 /// that records every byte crossing it into a shared [`Log`].
-struct Recorder {
+///
+/// Public only so it can name the read/write halves a [`capture_session`]
+/// driver receives; its fields and recording behavior stay private.
+pub struct Recorder {
     inner: DuplexStream,
     peer: &'static str,
     log: Log,
@@ -146,17 +150,27 @@ impl AsyncWrite for Recorder {
     }
 }
 
-/// Gossip `a` and `b` through an interposed, recording duplex pipe and render
-/// the captured conversation as a stable, human-legible timeline suitable for
-/// `insta::assert_snapshot!`.
+/// Drive an arbitrary pair of protocol sessions — plain gossip, bootstrap,
+/// retire, or any mix — through an interposed, recording duplex pipe and
+/// render the captured conversation as a stable, human-legible timeline
+/// suitable for `insta::assert_snapshot!`.
 ///
-/// Both peers are driven concurrently on a current-thread runtime, so the
-/// returned string is deterministic for a given pair of rumor sets and a
-/// given build of the protocol. The two sets are expected to reconcile
-/// cleanly; a gossip error panics the helper.
-pub fn capture_gossip<T>(a: Rumors<T>, b: Rumors<T>) -> String
+/// Each side is a closure handed the read and write halves of its recorded
+/// pipe end; it returns the future that drives its role (`gossip`,
+/// `bootstrap`, `retire`, …). The two futures run concurrently on a
+/// current-thread runtime (see [`super::wire::block_on`]), so the returned
+/// string is deterministic for a given pair of roles and a given build of the
+/// protocol. A driver is expected to run its session to completion and assert
+/// its own outcome; a panic inside a driver fails the capture.
+///
+/// [`capture_gossip`] is the gossip/gossip specialization; the bootstrap and
+/// retire snapshot suites build the asymmetric pairings on top of this.
+pub fn capture_session<DriveA, DriveB, FutA, FutB>(drive_a: DriveA, drive_b: DriveB) -> String
 where
-    T: BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+    DriveA: FnOnce(ReadHalf<Recorder>, WriteHalf<Recorder>) -> FutA,
+    DriveB: FnOnce(ReadHalf<Recorder>, WriteHalf<Recorder>) -> FutB,
+    FutA: Future<Output = ()>,
+    FutB: Future<Output = ()>,
 {
     let log = Log::default();
     block_on(async {
@@ -171,16 +185,30 @@ where
             peer: "B",
             log: log.clone(),
         };
-        let (mut a_r, mut a_w) = tokio::io::split(a_rec);
-        let (mut b_r, mut b_w) = tokio::io::split(b_rec);
+        let (a_r, a_w) = tokio::io::split(a_rec);
+        let (b_r, b_w) = tokio::io::split(b_rec);
 
-        let (a_result, b_result) =
-            tokio::join!(a.gossip(&mut a_r, &mut a_w), b.gossip(&mut b_r, &mut b_w));
-        a_result.expect("gossip A");
-        b_result.expect("gossip B");
+        tokio::join!(drive_a(a_r, a_w), drive_b(b_r, b_w));
     });
 
     render(&log.0.lock().unwrap())
+}
+
+/// Gossip `a` and `b` through the recording pipe (the gossip/gossip
+/// specialization of [`capture_session`]). The two sets are expected to
+/// reconcile cleanly; a gossip error panics the helper.
+pub fn capture_gossip<T>(a: Rumors<T>, b: Rumors<T>) -> String
+where
+    T: BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+{
+    capture_session(
+        move |mut r, mut w| async move {
+            a.gossip(&mut r, &mut w).await.expect("gossip A");
+        },
+        move |mut r, mut w| async move {
+            b.gossip(&mut r, &mut w).await.expect("gossip B");
+        },
+    )
 }
 
 /// Render the event log as two per-party transcripts laid out side by side,
