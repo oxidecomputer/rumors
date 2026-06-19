@@ -1124,17 +1124,18 @@ fn compute(net: &Net, prev: &Snapshot, now: &Snapshot) -> Stats {
     };
 
     let d_syncs = now.syncs - prev.syncs;
-    let (latency, roundtrips, sync_rate) = if d_syncs > 0 {
-        let lat = Duration::from_nanos((now.sync_nanos - prev.sync_nanos) / d_syncs);
-        let rt = (now.roundtrips - prev.roundtrips) as f64 / d_syncs as f64;
-        (
-            format_duration(lat),
-            format!("{rt:.1}"),
-            d_syncs as f64 / dt,
-        )
-    } else {
-        ("--".to_string(), "--".to_string(), 0.0)
-    };
+    let (latency, roundtrips, sync_rate) =
+        if let Some(lat_nanos) = (now.sync_nanos - prev.sync_nanos).checked_div(d_syncs) {
+            let lat = Duration::from_nanos(lat_nanos);
+            let rt = (now.roundtrips - prev.roundtrips) as f64 / d_syncs as f64;
+            (
+                format_duration(lat),
+                format!("{rt:.1}"),
+                d_syncs as f64 / dt,
+            )
+        } else {
+            ("--".to_string(), "--".to_string(), 0.0)
+        };
 
     let live_total: u64 = dir.iter().map(|p| p.live.load(Ordering::Relaxed)).sum();
 

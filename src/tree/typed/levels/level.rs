@@ -86,8 +86,8 @@ impl<T, H: Height> Level<T, H> {
     /// Merge `other` into `self`, preserving the ascending invariant.
     ///
     /// Both sides are already sorted, so this is a single linear merge rather
-    /// than a binary-search insert per element; on a duplicate prefix
-    /// `other`'s node wins (matching `BTreeMap::extend`).
+    /// than a binary-search insert per element; on a duplicate prefix `other`'s
+    /// node wins (matching `BTreeMap::extend`).
     pub fn extend(&mut self, other: Self) {
         if other.is_empty() {
             return;
@@ -126,13 +126,13 @@ impl<T, H: Height> Level<T, H> {
 impl<T, H: Height> FromIterator<(Prefix<H>, Node<T, H>)> for Level<T, H> {
     /// Collect `(prefix, node)` pairs into a level.
     ///
-    /// Callers feed pairs already in ascending prefix order (a node's
-    /// children, sorted by radix), so this sorts only to defend the invariant
-    /// and `debug_assert`s the input was canonical (strictly ascending, no
+    /// Callers feed pairs already in ascending prefix order (a node's children,
+    /// sorted by radix), so this sorts only to defend the invariant and
+    /// `debug_assert`s the input was canonical (strictly ascending, no
     /// duplicates).
     fn from_iter<I: IntoIterator<Item = (Prefix<H>, Node<T, H>)>>(iter: I) -> Self {
         let mut entries: Vec<(Prefix<H>, Node<T, H>)> = iter.into_iter().collect();
-        entries.sort_by(|(a, _), (b, _)| a.cmp(b));
+        entries.sort_by_key(|(a, _)| *a);
         debug_assert!(
             entries.windows(2).all(|w| w[0].0 != w[1].0),
             "Level built from an iterator with duplicate prefixes",
