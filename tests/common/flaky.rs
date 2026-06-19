@@ -1,21 +1,20 @@
 //! A flaky in-memory [`Bookmark`] for adversarial identity-persistence tests.
 //!
 //! [`FlakyInMemoryBookmark`] is the durable identity store a real deployment
-//! would back with a disk: it holds the canonical `BTreeMap<Network,
-//! Vec<Clock>>` record and survives a peer's in-memory crash. Two things make
-//! it a test instrument rather than a toy:
+//! would back with a disk: it holds the exact framed bytes the crate serialized
+//! (or `None` until the first write) and survives a peer's in-memory crash. Two
+//! things make it a test instrument rather than a toy:
 //!
 //! - **It fails on a schedule.** Each read and each write consults a
 //!   [`FaultFeed`] — a proptest-generated, shrinkable sequence of booleans —
 //!   and returns [`FlakyError`] when the next decision says so. A failed write
 //!   is exactly the moment the crate's `Bookmarked` cache reverts to its
 //!   on-disk state, the persistence gap this whole test exists to probe.
-//! - **It round-trips through Borsh.** A [`Clock`] owns an identity region and
-//!   is `!Clone`, so the store cannot hand out owned copies by cloning. Every
-//!   [`read`](Bookmark::read) re-decodes the record from bytes and every
-//!   [`write`](Bookmark::write) re-encodes it — which also faithfully models a
-//!   real store's serialize-to-disk / deserialize-on-load round trip, rather
-//!   than aliasing the live record.
+//! - **It stores opaque bytes.** The crate owns the on-disk format, so this
+//!   store only shuttles the framed bytes it is handed — keeping it a faithful
+//!   model of a real disk-backed store, which sees bytes and not records. Tests
+//!   that need to inspect *what* was persisted decode through
+//!   [`persisted_record`].
 //!
 //! The `store` and `faults` are held behind [`Arc`]s so a crashed peer recovers
 //! by wrapping a *fresh* `FlakyInMemoryBookmark` around the *same* durable
@@ -27,7 +26,30 @@ use std::fmt;
 use std::sync::{Arc, Mutex};
 
 use before::Clock;
-use rumors::{Bookmark, BookmarkError, Network};
+use rumors::{BOOKMARK_MAGIC, Bookmark, BookmarkError, Network, Serialized};
+use tokio::io::AsyncWrite;
+
+/// The durable "disk": the framed bytes last persisted, or `None` until the
+/// first write. Shared across a node's incarnations so it outlives a crash.
+pub type DurableStore = Arc<Mutex<Option<Vec<u8>>>>;
+
+/// The fixed-header width of a bookmark frame — magic, the 2-byte format
+/// version, and the 32-byte BLAKE3 integrity hash — before the borsh payload.
+///
+/// Mirrors the crate-private `format::HEADER_LEN`. Integration tests cannot
+/// reach the crate's codec, so they strip this known header to read the payload;
+/// the format-pin snapshots guard the layout against drift.
+const FRAME_HEADER_LEN: usize = BOOKMARK_MAGIC.len() + 2 + 32;
+
+/// Decode the record a persisted store holds, or an empty record if nothing has
+/// been written. Strips the crate's frame header and borsh-decodes the payload.
+pub fn persisted_record(store: &DurableStore) -> BTreeMap<Network, Vec<Clock>> {
+    match &*store.lock().unwrap() {
+        None => BTreeMap::new(),
+        Some(bytes) => borsh::from_slice(&bytes[FRAME_HEADER_LEN..])
+            .expect("decode persisted bookmark payload"),
+    }
+}
 
 /// The error a scheduled read/write failure reports. Carries which operation
 /// tripped, only for legible test diagnostics.
@@ -47,7 +69,7 @@ impl std::error::Error for FlakyError {}
 /// One peer's bookmark fail schedule, consumed in call order.
 ///
 /// `reads` and `writes` are independent queues of "fail this one?" decisions;
-/// each [`read`](Bookmark::read)/[`write`](Bookmark::write) pops the next. An
+/// each bookmark load/store pops the next. An
 /// exhausted queue defaults to success, so shrinking a schedule toward empty
 /// shrinks monotonically toward fault-free — the minimal counterexample is the
 /// shortest prefix of failures that still reproduces a bug.
@@ -91,9 +113,9 @@ impl FaultFeed {
 /// `faults` [`Arc`]s outlive it, so the next incarnation reloads the same
 /// record and the same remaining schedule.
 pub struct FlakyInMemoryBookmark {
-    /// The canonical persisted record — the "disk". Shared so it survives the
-    /// peer that wrote it.
-    store: Arc<Mutex<BTreeMap<Network, Vec<Clock>>>>,
+    /// The persisted framed bytes — the "disk". Shared so they survive the peer
+    /// that wrote them.
+    store: DurableStore,
     /// The fail schedule, shared for the same reason.
     faults: Arc<Mutex<FaultFeed>>,
     /// The owning peer's label, for diagnostics only.
@@ -110,11 +132,7 @@ impl fmt::Debug for FlakyInMemoryBookmark {
 
 impl FlakyInMemoryBookmark {
     /// Wrap shared durable `store` and `faults` for peer `label`.
-    pub fn new(
-        store: Arc<Mutex<BTreeMap<Network, Vec<Clock>>>>,
-        faults: Arc<Mutex<FaultFeed>>,
-        label: usize,
-    ) -> Self {
+    pub fn new(store: DurableStore, faults: Arc<Mutex<FaultFeed>>, label: usize) -> Self {
         Self {
             store,
             faults,
@@ -123,34 +141,36 @@ impl FlakyInMemoryBookmark {
     }
 }
 
-/// Deep-copy a record by round-tripping it through Borsh, the only way to
-/// duplicate `!Clone` [`Clock`]s — and the same byte round trip a real store
-/// makes against its disk.
-fn round_trip(record: &BTreeMap<Network, Vec<Clock>>) -> BTreeMap<Network, Vec<Clock>> {
-    let bytes = borsh::to_vec(record).expect("encode bookmark record");
-    borsh::from_slice(&bytes).expect("decode bookmark record")
-}
-
 impl BookmarkError for FlakyInMemoryBookmark {
     type Error = FlakyError;
 }
 
 impl Bookmark for FlakyInMemoryBookmark {
-    async fn read(&self) -> Result<BTreeMap<Network, Vec<Clock>>, Self::Error> {
+    type Reader = std::io::Cursor<Vec<u8>>;
+
+    async fn load(&self) -> Result<Option<Self::Reader>, Self::Error> {
         let _ = self.label;
         if self.faults.lock().unwrap().next_read() {
             return Err(FlakyError { op: "read" });
         }
-        Ok(round_trip(&self.store.lock().unwrap()))
+        Ok(self.store.lock().unwrap().clone().map(std::io::Cursor::new))
     }
 
-    async fn write(&self, bookmarks: &BTreeMap<Network, Vec<Clock>>) -> Result<(), Self::Error> {
+    async fn store<F>(&self, write: F) -> Result<(), Self::Error>
+    where
+        F: for<'a> FnOnce(&'a mut (dyn AsyncWrite + Unpin + Send)) -> Serialized<'a> + Send,
+    {
+        // The fault stands in for a commit that never lands: return before
+        // touching the durable bytes, so a failed write leaves the prior frame
+        // exactly as it was — the atomicity the crate's recovery relies on.
         if self.faults.lock().unwrap().next_write() {
             return Err(FlakyError { op: "write" });
         }
-        // Commit a private deep copy: the durable record must not alias the
-        // caller's live one, exactly as a serialize-to-disk write would not.
-        *self.store.lock().unwrap() = round_trip(bookmarks);
+        let mut buf: Vec<u8> = Vec::new();
+        write(&mut buf)
+            .await
+            .expect("writing to an in-memory buffer is infallible");
+        *self.store.lock().unwrap() = Some(buf);
         Ok(())
     }
 }

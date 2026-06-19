@@ -13,30 +13,46 @@
 
 use std::collections::BTreeMap;
 use std::marker::PhantomData;
+use std::pin::Pin;
 
 use before::{Clock, Party, Version};
+use futures_util::FutureExt;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::Network;
 use crate::mode::{Async, Mode};
 
+pub(crate) mod format;
+
+pub use format::{BOOKMARK_FORMAT_VERSION, BOOKMARK_MAGIC, FormatError};
+
 /// The error a [`Bookmark`] (or a [`sync::Bookmark`](crate::sync::Bookmark))
 /// reports when persistence fails.
 pub trait BookmarkError {
-    /// What a [`read`](Bookmark::read) or [`write`](Bookmark::write)
+    /// What a [`load`](Bookmark::load) or [`store`](Bookmark::store)
     /// reports when it fails.
     type Error: std::error::Error + Send + Sync + 'static;
 }
 
-/// Application-supplied persistent storage for a [`Peer`](crate::Peer)'s
-/// identity.
+/// The crate's serialize step, lent to [`Bookmark::store`] as a boxed future.
+///
+/// `store` hands this closure a writer; the closure writes the framed record
+/// into it. It is a *boxed* future because it both borrows the writer across an
+/// `.await` and must be [`Send`] (the engine's futures are `Send`) — naming the
+/// future as a trait object is the stable way to carry both bounds at once. The
+/// cost is one small allocation, on the cold persist path.
+pub type Serialized<'a> = Pin<Box<dyn Future<Output = std::io::Result<()>> + Send + 'a>>;
+
+/// Application-supplied byte storage for a [`Peer`](crate::Peer)'s identity.
 ///
 /// A bookmark records *who* a peer is and how far it has causally advanced, but
 /// none of *what* it knows: content is recovered the same way any peer gets it,
-/// by [`gossip`](crate::Rumors::gossip)ing. The crate reads the record once,
-/// folds the live identity in before each gossip round, and writes it back; the
-/// implementor supplies the [`Error`](BookmarkError::Error) type (on the
-/// [`BookmarkError`] supertrait) and the durable [`read`](Bookmark::read) and
-/// [`write`](Bookmark::write).
+/// by [`gossip`](crate::Rumors::gossip)ing. The crate owns the on-disk *format*
+/// — a magic-tagged, versioned, integrity-hashed frame — and asks the
+/// implementor only for raw byte storage: a reader to [`load`](Bookmark::load)
+/// the stored bytes and a writer to atomically [`store`](Bookmark::store) them.
+/// The implementor also supplies the [`Error`](BookmarkError::Error) type, on
+/// the [`BookmarkError`] supertrait.
 ///
 /// This is for asynchronous use; the blocking version is
 /// [`sync::Bookmark`](crate::sync::Bookmark).
@@ -50,20 +66,46 @@ pub trait BookmarkError {
 /// hand the same identity to two live parties at once. A bookmark, like the
 /// identity it records, **must be persisted atomically and never duplicated**.
 pub trait Bookmark: BookmarkError {
-    /// Read the persisted record, or an empty map if nothing is stored yet.
+    /// The byte source [`load`](Self::load) hands back.
+    type Reader: AsyncRead + Unpin + Send;
+
+    /// Open the stored record for reading, or `Ok(None)` if nothing is stored.
     ///
     /// Called once per [`Peer`](crate::Peer), lazily, before the first write.
-    fn read(
-        &self,
-    ) -> impl Future<Output = Result<BTreeMap<Network, Vec<Clock>>, Self::Error>> + Send;
+    /// `Ok(None)` means *nothing has ever been written*. A present-but-short or
+    /// unreadable bookmark is **not** `None`: it surfaces as a corruption error
+    /// once the crate validates the frame.
+    fn load(&self) -> impl Future<Output = Result<Option<Self::Reader>, Self::Error>> + Send;
 
-    /// Durably replace the persisted record with `bookmarks`.
+    /// Atomically replace the stored record.
     ///
-    /// Must commit atomically, and must return an error if it cannot commit.
-    fn write(
-        &self,
-        bookmarks: &BTreeMap<Network, Vec<Clock>>,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+    /// The crate serializes the framed record by calling `write` with a lent
+    /// writer. The implementor **must commit the written bytes atomically iff
+    /// `write` returns `Ok`** and must report an error rather than leave a
+    /// partial frame where the next [`load`](Self::load) could read it.
+    fn store<F>(&self, write: F) -> impl Future<Output = Result<(), Self::Error>> + Send
+    where
+        F: for<'a> FnOnce(&'a mut (dyn AsyncWrite + Unpin + Send)) -> Serialized<'a> + Send;
+}
+
+/// What a bookmark round trip failed at: the backend's own I/O, or the crate's
+/// framing of the bytes it lends.
+///
+/// [`Io`](Self::Io) is the implementor's [`Error`](BookmarkError::Error) —
+/// opening, staging, or committing the storage. [`Format`](Self::Format) is the
+/// crate's: a stream fault while reading the lent bytes, or a frame that is
+/// foreign, too new, or corrupt (see [`FormatError`]). The split says *whose*
+/// failure it was — "your disk" versus "these bytes" — even though both ride the
+/// one bookmark error channel.
+#[derive(Debug, thiserror::Error)]
+pub enum BookmarkIo<E> {
+    /// The backend could not open, stage, or commit its storage.
+    #[error(transparent)]
+    Io(E),
+
+    /// The crate could not read or validate the stored frame.
+    #[error(transparent)]
+    Format(#[from] FormatError),
 }
 
 /// The crate-internal, uniformly-awaitable persistence driver the engine calls,
@@ -71,11 +113,11 @@ pub trait Bookmark: BookmarkError {
 ///
 /// The engine ([`Bookmarked`], the gossip helpers) is a single `async` body
 /// that does `persist.read().await`. An async [`Bookmark`] already has that
-/// shape; a blocking [`sync::Bookmark`](crate::sync::Bookmark) does not, so this
-/// trait gives its plain `read`/`write` an awaitable face by settling them into
-/// a ready future. The adaptation a wrapper type would otherwise perform is thus
-/// anonymous and internal, so a bookmarked blocking peer is
-/// `Peer<T, B, Blocking>` over the user's own `B`.
+/// shape; a blocking [`sync::Bookmark`](crate::sync::Bookmark) does not, so
+/// this trait gives its plain `load`/`store` an awaitable face by settling them
+/// into a ready future. The adaptation a wrapper type would otherwise perform
+/// is thus anonymous and internal, so a bookmarked blocking peer is `Peer<T, B,
+/// Blocking>` over the user's own `B`.
 ///
 /// `M` is a *type parameter*, not an associated type, on purpose: the two
 /// blanket impls below target the distinct trait references `Persist<Async>`
@@ -83,31 +125,53 @@ pub trait Bookmark: BookmarkError {
 /// [`NoBookmark`]) may implement both faces. Collapsing `M` to an associated
 /// type would make both impls target one trait, which coherence rejects.
 pub(crate) trait Persist<M: Mode>: BookmarkError {
-    /// Read the persisted record. Async on the async face; a ready future over
-    /// the blocking call on the blocking face.
+    /// Read and decode the persisted record, or an empty map if nothing is
+    /// stored. Async on the async face; a ready future over the blocking call on
+    /// the blocking face.
     fn read(
         &self,
-    ) -> impl Future<Output = Result<BTreeMap<Network, Vec<Clock>>, Self::Error>> + Send;
+    ) -> impl Future<Output = Result<BTreeMap<Network, Vec<Clock>>, BookmarkIo<Self::Error>>> + Send;
 
-    /// Durably replace the persisted record with `bookmarks`.
+    /// Encode and durably replace the persisted record with `bookmarks`.
     fn write(
         &self,
         bookmarks: &BTreeMap<Network, Vec<Clock>>,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+    ) -> impl Future<Output = Result<(), BookmarkIo<Self::Error>>> + Send;
 }
 
+// The trait methods are called eagerly (outside any `async` block) and their
+// already-`Send` futures adapted with combinators, never re-wrapped in an
+// `async` body. Wrapping would capture `&self` across an `.await` and so demand
+// `B: Sync`; forwarding the trait's own `Send` guarantee keeps the blanket impl
+// free of that bound, exactly as the byte-level traits promise.
 impl<B: Bookmark> Persist<Async> for B {
     fn read(
         &self,
-    ) -> impl Future<Output = Result<BTreeMap<Network, Vec<Clock>>, Self::Error>> + Send {
-        Bookmark::read(self)
+    ) -> impl Future<Output = Result<BTreeMap<Network, Vec<Clock>>, BookmarkIo<Self::Error>>> + Send
+    {
+        Bookmark::load(self).then(|loaded| async move {
+            let mut reader = match loaded.map_err(BookmarkIo::Io)? {
+                None => return Ok(BTreeMap::new()),
+                Some(reader) => reader,
+            };
+            let mut bytes = Vec::new();
+            reader
+                .read_to_end(&mut bytes)
+                .await
+                .map_err(|e| BookmarkIo::Format(FormatError::Read(e)))?;
+            format::decode(&bytes).map_err(BookmarkIo::Format)
+        })
     }
 
     fn write(
         &self,
         bookmarks: &BTreeMap<Network, Vec<Clock>>,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        Bookmark::write(self, bookmarks)
+    ) -> impl Future<Output = Result<(), BookmarkIo<Self::Error>>> + Send {
+        let bytes = format::encode(bookmarks);
+        Bookmark::store(self, move |w| {
+            Box::pin(async move { w.write_all(&bytes).await })
+        })
+        .map(|result| result.map_err(BookmarkIo::Io))
     }
 }
 
@@ -123,21 +187,27 @@ impl BookmarkError for NoBookmark {
 }
 
 impl Bookmark for NoBookmark {
-    async fn read(&self) -> Result<BTreeMap<Network, Vec<Clock>>, Self::Error> {
-        Ok(Default::default())
+    type Reader = tokio::io::Empty;
+
+    async fn load(&self) -> Result<Option<Self::Reader>, Self::Error> {
+        Ok(None)
     }
 
-    async fn write(&self, _: &BTreeMap<Network, Vec<Clock>>) -> Result<(), Self::Error> {
+    async fn store<F>(&self, _write: F) -> Result<(), Self::Error>
+    where
+        F: for<'a> FnOnce(&'a mut (dyn AsyncWrite + Unpin + Send)) -> Serialized<'a> + Send,
+    {
+        // Persisting nothing: the serializer is never invoked, so the in-memory
+        // record stays exactly as it was — the same no-op as before.
         Ok(())
     }
 }
 
-/// The crate-internal pairing of a [`Bookmark`] with its in-memory record,
-/// held behind an async [`Mutex`](tokio::sync::Mutex) on the
-/// [`Peer`](crate::Peer).
+/// The crate-internal pairing of a [`Bookmark`] with its in-memory record, held
+/// behind an async [`Mutex`](tokio::sync::Mutex) on the [`Peer`](crate::Peer).
 ///
 /// It does not live in the `watch`-guarded [`Inner`](crate::Inner) because its
-/// [`read`](Bookmark::read)/[`write`](Bookmark::write) are `async` and the
+/// [`load`](Bookmark::load)/[`store`](Bookmark::store) are `async` and the
 /// record's [`Clock`]s are `!Clone` (a clock owns an identity region), so the
 /// record can be neither borrowed across an `.await` from under a `watch` guard
 /// nor copied out to persist outside one. Instead a session locks this mutex,
@@ -147,13 +217,13 @@ impl Bookmark for NoBookmark {
 /// record move together — and [`write`](Self::write)s, all without releasing
 /// the lock.
 ///
-/// Loading is *lazy*: the record is born unloaded (`None`) and read from storage
-/// by [`ensure_loaded`](Self::ensure_loaded) on first use, the first point a
-/// write could otherwise clobber it. The mutex serializes access, so the read
-/// is the record's first content rather than a merge.
+/// Loading is *lazy*: the record is born unloaded (`None`) and read from
+/// storage by [`ensure_loaded`](Self::ensure_loaded) on first use, the first
+/// point a write could otherwise clobber it. The mutex serializes access, so
+/// the read is the record's first content rather than a merge.
 pub(crate) struct Bookmarked<B, M: Mode> {
     persist: B,
-    /// The in-memory record, or `None` until [`read`](Bookmark::read) has run.
+    /// The in-memory record, or `None` until [`load`](Bookmark::load) has run.
     ///
     /// `None` is the unloaded state: a fresh cache is not yet authoritative,
     /// and is distinct from a loaded-but-empty `Some(BTreeMap::new())`. A
@@ -166,9 +236,9 @@ pub(crate) struct Bookmarked<B, M: Mode> {
     ///
     /// No token is valid before the first reclaim, after a
     /// [`slice`](Self::slice) shrinks the identity, or after a failed
-    /// [`write`](Self::write). An update whose live identity still
-    /// matches the token is a no-op and is suppressed, since it would only
-    /// re-record an identical alias.
+    /// [`write`](Self::write). An update whose live identity still matches the
+    /// token is a no-op and is suppressed, since it would only re-record an
+    /// identical alias.
     last: Option<(Party, Version)>,
     /// The I/O [`Mode`] witness, pinning which [`Persist`] face
     /// [`ensure_loaded`](Self::ensure_loaded) and [`write`](Self::write) drive.
@@ -213,7 +283,7 @@ impl<M: Mode, B: Persist<M>> Bookmarked<B, M> {
     ///
     /// Run under the bookmark mutex, before [`reclaim`](Self::reclaim) or
     /// [`slice`](Self::slice).
-    pub(crate) async fn ensure_loaded(&mut self) -> Result<(), B::Error> {
+    pub(crate) async fn ensure_loaded(&mut self) -> Result<(), BookmarkIo<B::Error>> {
         if self.inner.is_none() {
             self.inner = Some(self.persist.read().await?);
         }
@@ -222,10 +292,9 @@ impl<M: Mode, B: Persist<M>> Bookmarked<B, M> {
 
     /// Persist the current record.
     ///
-    /// A no-op while unloaded (nothing has been
-    /// mutated to persist). Run under the bookmark mutex, after a
-    /// [`reclaim`](Self::reclaim) (which has already staged the suppression
-    /// token) or a [`slice`](Self::slice).
+    /// A no-op while unloaded (nothing has been mutated to persist). Run under
+    /// the bookmark mutex, after a [`reclaim`](Self::reclaim) (which has
+    /// already staged the suppression token) or a [`slice`](Self::slice).
     ///
     /// On failure both the record and the suppression token are reset to
     /// `None`: the in-memory mutation never reached storage, so it is discarded
@@ -234,7 +303,7 @@ impl<M: Mode, B: Persist<M>> Bookmarked<B, M> {
     /// [`slice`](Self::slice) whose donation could not be persisted), and
     /// clearing the token forces the next update to re-record rather than
     /// suppress against a `(party, version)` that never reached storage.
-    pub(crate) async fn write(&mut self) -> Result<(), B::Error> {
+    pub(crate) async fn write(&mut self) -> Result<(), BookmarkIo<B::Error>> {
         let result = match &self.inner {
             Some(inner) => self.persist.write(inner).await,
             None => return Ok(()),
@@ -283,18 +352,20 @@ impl<M: Mode, B: Persist<M>> Bookmarked<B, M> {
     /// append our current alias to the network's clocks, leaving every other
     /// stored entry exactly as it lies.
     ///
-    /// The attach-time persist behind [`Peer::bookmark`](crate::Peer::bookmark),
-    /// where the live party **must not move** — not even transiently — so that a
-    /// failed [`write`](Self::write) can hand the peer back untouched. Reclaiming
+    /// The attach-time persist behind
+    /// [`Peer::bookmark`](crate::Peer::bookmark), where the live party **must
+    /// not move** — not even transiently — so that a failed
+    /// [`write`](Self::write) can hand the peer back untouched. Reclaiming
     /// (which grows the live party) is therefore deferred to the first gossip,
     /// behind that path's persist gate, rather than done here. Run under the
     /// bookmark mutex, after [`ensure_loaded`](Self::ensure_loaded), before
     /// [`write`](Self::write).
     ///
     /// The suppression token is deliberately *not* staged: the next
-    /// [`reclaim`](Self::reclaim) must run rather than be suppressed against this
-    /// record, so any stranded region this peer already dominates is folded back
-    /// in at the first gossip rather than stranded until the next event.
+    /// [`reclaim`](Self::reclaim) must run rather than be suppressed against
+    /// this record, so any stranded region this peer already dominates is
+    /// folded back in at the first gossip rather than stranded until the next
+    /// event.
     pub(crate) fn record(&mut self, network: Network, party: &Party, version: &Version) {
         let inner = self.inner.as_mut().expect("loaded before mutation");
         inner.entry(network).or_default().push(Clock::from_parts(

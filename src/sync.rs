@@ -67,11 +67,13 @@
 use std::collections::BTreeMap;
 
 use crate::Blocking;
-use crate::bookmark::{NoBookmark, Persist};
+use crate::bookmark::{NoBookmark, Persist, format};
 use ::before::Clock;
 
 // Re-exports to keep `crate::sync` at parity with `crate`:
-pub use crate::bookmark::BookmarkError;
+pub use crate::bookmark::{
+    BOOKMARK_FORMAT_VERSION, BOOKMARK_MAGIC, BookmarkError, BookmarkIo, FormatError,
+};
 pub use crate::{
     Batch, Error, Key, MERKLE_HASH_LEN, Network, PROTOCOL_MAGIC, PROTOCOL_VERSION, Snapshot,
     Version, causally,
@@ -102,42 +104,66 @@ pub type CausalMessages<T> = crate::CausalMessages<T, Blocking>;
 pub type Changes<T> = crate::Changes<T, Blocking>;
 
 /// The synchronous [`Bookmark`](crate::Bookmark).
+///
+/// The blocking counterpart of the async trait: it lends plain
+/// [`Read`](std::io::Read)/[`Write`](std::io::Write) byte storage and the crate
+/// owns the framed format.
 pub trait Bookmark: BookmarkError {
-    /// Read the persisted record, or an empty map if nothing is stored yet.
-    fn read(&self) -> Result<BTreeMap<Network, Vec<Clock>>, Self::Error>;
+    /// The byte source [`load`](Self::load) hands back.
+    type Reader: std::io::Read;
 
-    /// Durably (atomically) replace the persisted record with `bookmarks`.
-    fn write(&self, bookmarks: &BTreeMap<Network, Vec<Clock>>) -> Result<(), Self::Error>;
+    /// Open the stored record for reading, or `Ok(None)` if nothing is stored.
+    ///
+    /// The blocking [`Bookmark::load`](crate::Bookmark::load).
+    fn load(&self) -> Result<Option<Self::Reader>, Self::Error>;
+
+    /// Atomically replace the stored record by writing the crate's serialized
+    /// frame into the lent writer.
+    ///
+    /// The blocking [`Bookmark::store`](crate::Bookmark::store).
+    fn store<F>(&self, write: F) -> Result<(), Self::Error>
+    where
+        F: FnOnce(&mut dyn std::io::Write) -> std::io::Result<()>;
 }
 
 impl Bookmark for NoBookmark {
-    fn read(&self) -> Result<BTreeMap<Network, Vec<Clock>>, Self::Error> {
-        Ok(Default::default())
+    type Reader = std::io::Empty;
+
+    fn load(&self) -> Result<Option<Self::Reader>, Self::Error> {
+        Ok(None)
     }
 
-    fn write(&self, _: &BTreeMap<Network, Vec<Clock>>) -> Result<(), Self::Error> {
+    fn store<F>(&self, _write: F) -> Result<(), Self::Error>
+    where
+        F: FnOnce(&mut dyn std::io::Write) -> std::io::Result<()>,
+    {
         Ok(())
     }
 }
 
 /// Give a blocking [`Bookmark`] the awaitable shape the engine's one async body
 /// expects, by settling each blocking call into a ready future.
-///
-/// Sound because a
-/// [`Blocking`] peer drives that body to completion with [`pollster`] on the
-/// calling thread: the "await" never yields to a runtime, so blocking inside it
-/// blocks exactly the thread the caller already devoted to the session.
 impl<B: Bookmark> Persist<Blocking> for B {
     fn read(
         &self,
-    ) -> impl Future<Output = Result<BTreeMap<Network, Vec<Clock>>, Self::Error>> + Send {
-        std::future::ready(Bookmark::read(self))
+    ) -> impl Future<Output = Result<BTreeMap<Network, Vec<Clock>>, BookmarkIo<Self::Error>>> + Send
+    {
+        std::future::ready((|| match Bookmark::load(self).map_err(BookmarkIo::Io)? {
+            None => Ok(BTreeMap::new()),
+            Some(mut reader) => {
+                let mut bytes = Vec::new();
+                std::io::Read::read_to_end(&mut reader, &mut bytes)
+                    .map_err(|e| BookmarkIo::Format(FormatError::Read(e)))?;
+                format::decode(&bytes).map_err(BookmarkIo::Format)
+            }
+        })())
     }
 
     fn write(
         &self,
         bookmarks: &BTreeMap<Network, Vec<Clock>>,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        std::future::ready(Bookmark::write(self, bookmarks))
+    ) -> impl Future<Output = Result<(), BookmarkIo<Self::Error>>> + Send {
+        let bytes = format::encode(bookmarks);
+        std::future::ready(Bookmark::store(self, |w| w.write_all(&bytes)).map_err(BookmarkIo::Io))
     }
 }

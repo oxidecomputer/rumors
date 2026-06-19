@@ -61,12 +61,12 @@ use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
-use before::{Clock, Party};
+use before::Party;
 use proptest::prelude::*;
 use rumors::{Error, Key, MERKLE_HASH_LEN, Network, Peer, Retire, Rumors, Version};
 
 use crate::common::fault::{self, FaultPlan};
-use crate::common::flaky::{FaultFeed, FlakyInMemoryBookmark};
+use crate::common::flaky::{DurableStore, FaultFeed, FlakyInMemoryBookmark, persisted_record};
 use crate::common::sim::arb_fault;
 use crate::common::wire::block_on;
 
@@ -178,15 +178,11 @@ impl EmissionLog {
     }
 }
 
-/// Decode the versions a node has durably persisted, per network, via the same
-/// Borsh round trip the bookmark itself makes. Used to decide which pending
+/// Decode the versions a node has durably persisted, per network, through the
+/// same frame the bookmark itself stored. Used to decide which pending
 /// emissions the store now covers.
-fn decompose_store(
-    store: &Arc<Mutex<BTreeMap<Network, Vec<Clock>>>>,
-) -> BTreeMap<Network, Vec<Version>> {
-    let bytes = borsh::to_vec(&*store.lock().unwrap()).expect("encode store");
-    let record: BTreeMap<Network, Vec<Clock>> = borsh::from_slice(&bytes).expect("decode store");
-    record
+fn decompose_store(store: &DurableStore) -> BTreeMap<Network, Vec<Version>> {
+    persisted_record(store)
         .into_iter()
         .map(|(network, clocks)| {
             (
@@ -215,13 +211,8 @@ fn store_covers(record: &BTreeMap<Network, Vec<Version>>, emission: &Emission) -
 /// [`decompose_store`]: that keeps each clock's version (for durability), this
 /// keeps each clock's [`Party`] (for coverage). A region recorded here is one a
 /// crashed peer can still reclaim, so it counts as *held*, not leaked.
-fn store_parties(
-    store: &Arc<Mutex<BTreeMap<Network, Vec<Clock>>>>,
-    network: Network,
-) -> Vec<Party> {
-    let bytes = borsh::to_vec(&*store.lock().unwrap()).expect("encode store");
-    let record: BTreeMap<Network, Vec<Clock>> = borsh::from_slice(&bytes).expect("decode store");
-    record
+fn store_parties(store: &DurableStore, network: Network) -> Vec<Party> {
+    persisted_record(store)
         .into_iter()
         .filter(|(net, _)| *net == network)
         .flat_map(|(_, clocks)| clocks.into_iter().map(|clock| clock.into_parts().0))
@@ -235,8 +226,8 @@ fn store_parties(
 /// schedule — that outlives any single incarnation.
 struct Node {
     state: NodeState,
-    /// The durable identity record (the "disk"), shared with every incarnation.
-    store: Arc<Mutex<BTreeMap<Network, Vec<Clock>>>>,
+    /// The durable identity bytes (the "disk"), shared with every incarnation.
+    store: DurableStore,
     /// The bookmark fail schedule, shared for the same reason.
     faults: Arc<Mutex<FaultFeed>>,
     /// The network this node currently belongs to (its last-known one while
@@ -283,7 +274,7 @@ impl World {
     fn seed(n: usize, read_faults: Vec<Vec<bool>>, write_faults: Vec<Vec<bool>>) -> Self {
         let nodes = (0..n)
             .map(|label| {
-                let store = Arc::new(Mutex::new(BTreeMap::new()));
+                let store = Arc::new(Mutex::new(None));
                 let faults = Arc::new(Mutex::new(FaultFeed::new(
                     read_faults[label].clone(),
                     write_faults[label].clone(),
@@ -325,7 +316,7 @@ impl World {
         assert!(n >= 1, "a fleet needs at least one node");
         let reliable = || Arc::new(Mutex::new(FaultFeed::new(Vec::new(), Vec::new())));
 
-        let store = Arc::new(Mutex::new(BTreeMap::new()));
+        let store = Arc::new(Mutex::new(None));
         let faults = reliable();
         let bookmark = FlakyInMemoryBookmark::new(store.clone(), faults.clone(), 0);
         let peer = block_on(Peer::<Msg>::seed().bookmark(bookmark))
@@ -343,7 +334,7 @@ impl World {
         // them live forks of its identity.
         nodes.extend((1..n).map(|label| Node {
             state: NodeState::Dormant,
-            store: Arc::new(Mutex::new(BTreeMap::new())),
+            store: Arc::new(Mutex::new(None)),
             faults: reliable(),
             network,
             pending: Vec::new(),
@@ -1068,9 +1059,9 @@ fn arb_reliable_plan() -> impl Strategy<Value = Plan> {
 /// clean.
 #[test]
 fn retire_into_rebooted_absorber_absorbs_cleanly() {
-    let store_a = Arc::new(Mutex::new(BTreeMap::new()));
+    let store_a = Arc::new(Mutex::new(None));
     let faults_a = Arc::new(Mutex::new(FaultFeed::new(Vec::new(), Vec::new())));
-    let store_b = Arc::new(Mutex::new(BTreeMap::new()));
+    let store_b = Arc::new(Mutex::new(None));
     let faults_b = Arc::new(Mutex::new(FaultFeed::new(Vec::new(), Vec::new())));
     let bm_a = || FlakyInMemoryBookmark::new(store_a.clone(), faults_a.clone(), 0);
     let bm_b = || FlakyInMemoryBookmark::new(store_b.clone(), faults_b.clone(), 1);

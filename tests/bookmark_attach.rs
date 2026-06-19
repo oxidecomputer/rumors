@@ -9,12 +9,11 @@
 
 mod common;
 
-use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use rumors::{Peer, Rumors, Unbookmarked};
 
-use crate::common::flaky::{FaultFeed, FlakyInMemoryBookmark};
+use crate::common::flaky::{FaultFeed, FlakyInMemoryBookmark, persisted_record};
 use crate::common::wire::block_on;
 
 /// Capacity for the in-memory duplex carrying a bootstrap session.
@@ -46,7 +45,7 @@ async fn bootstrap_unbookmarked(server: &Rumors<String, FlakyInMemoryBookmark>) 
 #[test]
 fn pristine_seed_attaches_without_touching_storage() {
     block_on(async {
-        let store = Arc::new(Mutex::new(BTreeMap::new()));
+        let store = Arc::new(Mutex::new(None));
         let faults = Arc::new(Mutex::new(FaultFeed::new(vec![], vec![true])));
         let bookmark = FlakyInMemoryBookmark::new(store.clone(), faults, 0);
 
@@ -56,7 +55,7 @@ fn pristine_seed_attaches_without_touching_storage() {
             .expect("a pristine seed attaches without attempting a write");
 
         assert!(
-            store.lock().unwrap().is_empty(),
+            store.lock().unwrap().is_none(),
             "a pristine seed must persist nothing at attach time",
         );
     });
@@ -76,7 +75,7 @@ fn failed_persist_returns_peer_for_retry() {
         let network = peer.network();
 
         // Attach over a store whose first write is scheduled to fail.
-        let store = Arc::new(Mutex::new(BTreeMap::new()));
+        let store = Arc::new(Mutex::new(None));
         let failing = FlakyInMemoryBookmark::new(
             store.clone(),
             Arc::new(Mutex::new(FaultFeed::new(vec![], vec![true]))),
@@ -92,7 +91,7 @@ fn failed_persist_returns_peer_for_retry() {
             "the surfaced error must be the bookmark's own",
         );
         assert!(
-            store.lock().unwrap().is_empty(),
+            store.lock().unwrap().is_none(),
             "a failed write must leave storage untouched",
         );
 
@@ -107,7 +106,7 @@ fn failed_persist_returns_peer_for_retry() {
             .await
             .expect("the retry over healthy storage persists");
         assert!(
-            store.lock().unwrap().contains_key(&network),
+            persisted_record(&store).contains_key(&network),
             "the retry must record this peer's identity",
         );
     });
@@ -131,7 +130,7 @@ fn failed_attach_does_not_reclaim_into_an_unbookmarked_peer() {
     let reliable = || Arc::new(Mutex::new(FaultFeed::new(vec![], vec![])));
     block_on(async {
         // A seeds network N over a reliable store and gossips it onward.
-        let store_a = Arc::new(Mutex::new(BTreeMap::new()));
+        let store_a = Arc::new(Mutex::new(None));
         let a = Peer::<String>::seed()
             .bookmark(FlakyInMemoryBookmark::new(store_a, reliable(), 0))
             .await
@@ -140,7 +139,7 @@ fn failed_attach_does_not_reclaim_into_an_unbookmarked_peer() {
 
         // B bootstraps a fork from A and records it durably, then "crashes":
         // its region survives only as a stranded entry in B's store.
-        let store_b = Arc::new(Mutex::new(BTreeMap::new()));
+        let store_b = Arc::new(Mutex::new(None));
         let b = bootstrap_unbookmarked(&a)
             .await
             .bookmark(FlakyInMemoryBookmark::new(store_b.clone(), reliable(), 1))
@@ -188,9 +187,7 @@ fn failed_attach_does_not_reclaim_into_an_unbookmarked_peer() {
             "a failed attach must leave the live party untouched",
         );
         assert!(
-            store_b
-                .lock()
-                .unwrap()
+            persisted_record(&store_b)
                 .get(&peer.network())
                 .is_some_and(|clocks| clocks
                     .iter()

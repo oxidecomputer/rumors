@@ -52,7 +52,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use crate::bookmark::{BookmarkError, NoBookmark};
+use crate::bookmark::{BookmarkError, BookmarkIo, NoBookmark};
 use crate::network::Network;
 use crate::tree::typed::{
     Node,
@@ -148,12 +148,13 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     BootstrapRetireConflict,
 
     /// The application's [`Bookmark`](crate::Bookmark) failed to persist or load
-    /// the local identity during the session.
+    /// the local identity during the session, or the stored bytes would not
+    /// frame back into a record.
     ///
     /// The wire is unaffected, but the session aborts: proceeding past an
     /// unpersisted identity is exactly the leak the bookmark exists to prevent.
     #[error(transparent)]
-    Bookmark(B::Error),
+    Bookmark(BookmarkIo<B::Error>),
 }
 
 impl<B: BookmarkError> From<borsh::io::Error> for Error<B> {
@@ -185,8 +186,15 @@ impl Error<NoBookmark> {
             Error::IntentInvalid { byte } => Error::IntentInvalid { byte },
             Error::PreambleLengthInvalid { declared } => Error::PreambleLengthInvalid { declared },
             Error::BootstrapRetireConflict => Error::BootstrapRetireConflict,
-            // Uninhabited at `NoBookmark`: `Infallible` has no values.
-            Error::Bookmark(never) => match never {},
+            // The backend slot is uninhabited at `NoBookmark` (`Infallible` has
+            // no values), but `BookmarkIo::Format` is a real type even there.
+            // The wire layer never constructs a bookmark error, so this arm is
+            // dead; it stays total by re-tagging the inhabited `Format` variant
+            // and discharging the uninhabited backend one.
+            Error::Bookmark(io) => match io {
+                BookmarkIo::Io(never) => match never {},
+                BookmarkIo::Format(f) => Error::Bookmark(BookmarkIo::Format(f)),
+            },
         }
     }
 }

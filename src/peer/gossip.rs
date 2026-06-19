@@ -21,7 +21,7 @@ use crate::mode::{Async, Mode};
 use crate::tree::{self, Tree, mirror};
 use crate::{Error, Network, Version};
 use crate::{
-    bookmark::{Bookmark, BookmarkError, Bookmarked, NoBookmark, Persist},
+    bookmark::{Bookmark, BookmarkError, BookmarkIo, Bookmarked, NoBookmark, Persist},
     tree::mirror::{local, message::Intent, remote},
 };
 
@@ -84,9 +84,10 @@ pub enum Retire<T, B: BookmarkError = NoBookmark, M: Mode = Async> {
 pub struct Unbookmarked<T, B: BookmarkError, M: Mode = Async> {
     /// The peer, its identity intact and no bookmark attached.
     pub peer: Peer<T, NoBookmark, M>,
-    /// What the bookmark's [`read`](crate::Bookmark::read) or
-    /// [`write`](crate::Bookmark::write) reported.
-    pub error: B::Error,
+    /// What the bookmark's [`load`](crate::Bookmark::load) or
+    /// [`store`](crate::Bookmark::store) reported, or the framing failure the
+    /// crate hit reading the stored bytes.
+    pub error: BookmarkIo<B::Error>,
 }
 
 /// One completed session of [`gossip_when`](crate::Rumors::gossip_when).
@@ -313,7 +314,7 @@ impl<T, B: Persist<M>, M: Mode> Peer<T, B, M> {
     /// and the gating that protects it, is left to the first gossip. Holds the
     /// bookmark mutex across a brief `watch` borrow (read-only here) and the
     /// write; lock order is bookmark-then-`watch`, as everywhere.
-    async fn bookmark_record(&self) -> Result<(), B::Error> {
+    async fn bookmark_record(&self) -> Result<(), BookmarkIo<B::Error>> {
         let mut bookmark = self.bookmark.lock().await;
         bookmark.ensure_loaded().await?;
         {
@@ -340,7 +341,7 @@ impl<T, B: Persist<M>, M: Mode> Peer<T, B, M> {
     /// would reclaim nothing and re-record an identical alias. A change to
     /// *either* — the version advancing on new content, or the party growing on
     /// an absorbed retiree — defeats the suppression and persists afresh.
-    async fn bookmark_update(&self) -> Result<(), B::Error> {
+    async fn bookmark_update(&self) -> Result<(), BookmarkIo<B::Error>> {
         let mut bookmark = self.bookmark.lock().await;
 
         // Read the live frontier and party under one `watch` borrow, dropped
@@ -376,7 +377,7 @@ impl<T, B: Persist<M>, M: Mode> Peer<T, B, M> {
     /// Slice a donated `party` out of the bookmark before it crosses the wire,
     /// and persist. The party has already left `Inner` (forked off or taken
     /// whole), so this needs no `watch` critical section.
-    async fn bookmark_donate(&self, party: &Party) -> Result<(), B::Error> {
+    async fn bookmark_donate(&self, party: &Party) -> Result<(), BookmarkIo<B::Error>> {
         let mut bookmark = self.bookmark.lock().await;
         bookmark.ensure_loaded().await?;
         // Donating shrinks our identity, so `slice` invalidates the suppression

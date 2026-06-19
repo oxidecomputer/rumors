@@ -231,7 +231,10 @@ pub use ::before;
 pub use ::borsh;
 pub use batch::Batch;
 pub use before::{Version, causally};
-pub use bookmark::{Bookmark, BookmarkError};
+pub use bookmark::{
+    BOOKMARK_FORMAT_VERSION, BOOKMARK_MAGIC, Bookmark, BookmarkError, BookmarkIo, FormatError,
+    Serialized,
+};
 #[doc(hidden)]
 pub use mode::{Async, Blocking, Mode};
 pub use network::Network;

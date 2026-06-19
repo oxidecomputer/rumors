@@ -29,13 +29,13 @@
 //!
 //! # The instrument
 //!
-//! [`Probe`] is a faithful in-memory store — it round-trips the record through
-//! Borsh on every call, exactly as a real disk-backed store would, since a
-//! [`Clock`] is `!Clone` (see [`common::flaky`] for the same technique) — that
-//! additionally appends a [`Io::Read`] or [`Io::Write`] marker to a shared log
-//! on each call. It never injects faults: a clean run is the precondition for
-//! reasoning about *exact* call counts, since a failed write would reset the
-//! cache and re-arm the next write.
+//! [`Probe`] is a faithful in-memory store — it holds the exact framed bytes
+//! the crate serializes, exactly as a real disk-backed store would (see
+//! [`common::flaky`] for the same technique) — that additionally appends a
+//! [`Io::Read`] or [`Io::Write`] marker to a shared log on each call. It never
+//! injects faults: a clean run is the precondition for reasoning about *exact*
+//! call counts, since a failed write would reset the cache and re-arm the next
+//! write.
 //!
 //! # The model
 //!
@@ -56,14 +56,12 @@
 
 mod common;
 
-use std::collections::BTreeMap;
 use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
 
-use before::Clock;
 use proptest::prelude::*;
-use rumors::{Bookmark, BookmarkError, Key, Network, Peer, Retire, Rumors};
-use tokio::io::{duplex, split};
+use rumors::{Bookmark, BookmarkError, Key, Peer, Retire, Rumors, Serialized};
+use tokio::io::{AsyncWrite, duplex, split};
 
 use crate::common::wire::block_on;
 
@@ -82,13 +80,13 @@ enum Io {
 /// A faithful in-memory [`Bookmark`] that logs the *timing* of every read and
 /// write.
 ///
-/// `store` is the durable "disk"; `log` records each call. Both are behind
-/// [`Arc`]s so the test inspects them while the peer holds the `Probe`. Reads
-/// and writes round-trip the record through Borsh — the only way to duplicate
-/// `!Clone` [`Clock`]s, and the same byte trip a real store makes — and never
-/// fail, so call counts are exact.
+/// `store` is the durable "disk" — the raw framed bytes the crate serializes,
+/// or `None` when nothing has been written yet; `log` records each call. Both
+/// are behind [`Arc`]s so the test inspects them while the peer holds the
+/// `Probe`. The crate owns the format, so the `Probe` only shuttles bytes; it
+/// never fails, so call counts are exact.
 struct Probe {
-    store: Arc<Mutex<BTreeMap<Network, Vec<Clock>>>>,
+    store: Arc<Mutex<Option<Vec<u8>>>>,
     log: Arc<Mutex<Vec<Io>>>,
 }
 
@@ -98,26 +96,30 @@ impl std::fmt::Debug for Probe {
     }
 }
 
-/// Deep-copy a record through Borsh: the only way to clone `!Clone` [`Clock`]s,
-/// and the serialize/deserialize round trip a real disk-backed store performs.
-fn round_trip(record: &BTreeMap<Network, Vec<Clock>>) -> BTreeMap<Network, Vec<Clock>> {
-    let bytes = borsh::to_vec(record).expect("encode bookmark record");
-    borsh::from_slice(&bytes).expect("decode bookmark record")
-}
-
 impl BookmarkError for Probe {
     type Error = Infallible;
 }
 
 impl Bookmark for Probe {
-    async fn read(&self) -> Result<BTreeMap<Network, Vec<Clock>>, Self::Error> {
+    type Reader = std::io::Cursor<Vec<u8>>;
+
+    async fn load(&self) -> Result<Option<Self::Reader>, Self::Error> {
         self.log.lock().unwrap().push(Io::Read);
-        Ok(round_trip(&self.store.lock().unwrap()))
+        Ok(self.store.lock().unwrap().clone().map(std::io::Cursor::new))
     }
 
-    async fn write(&self, bookmarks: &BTreeMap<Network, Vec<Clock>>) -> Result<(), Self::Error> {
+    async fn store<F>(&self, write: F) -> Result<(), Self::Error>
+    where
+        F: for<'a> FnOnce(&'a mut (dyn AsyncWrite + Unpin + Send)) -> Serialized<'a> + Send,
+    {
         self.log.lock().unwrap().push(Io::Write);
-        *self.store.lock().unwrap() = round_trip(bookmarks);
+        // Serialize into a fresh buffer, then swap it in: an atomic replace, the
+        // same all-or-nothing a temp-file-and-rename store would make.
+        let mut buf: Vec<u8> = Vec::new();
+        write(&mut buf)
+            .await
+            .expect("writing to an in-memory buffer is infallible");
+        *self.store.lock().unwrap() = Some(buf);
         Ok(())
     }
 }
@@ -136,7 +138,7 @@ impl Instrument {
     fn pristine_seed() -> Self {
         block_on(async {
             let log = Arc::new(Mutex::new(Vec::new()));
-            let store = Arc::new(Mutex::new(BTreeMap::new()));
+            let store = Arc::new(Mutex::new(None));
             let probe = Probe {
                 store,
                 log: Arc::clone(&log),
@@ -409,7 +411,7 @@ struct Birth {
 /// attach-time I/O each origin promises.
 async fn birth(origin: Origin) -> Birth {
     let log = Arc::new(Mutex::new(Vec::new()));
-    let store = Arc::new(Mutex::new(BTreeMap::new()));
+    let store = Arc::new(Mutex::new(None));
     let probe = Probe {
         store,
         log: Arc::clone(&log),

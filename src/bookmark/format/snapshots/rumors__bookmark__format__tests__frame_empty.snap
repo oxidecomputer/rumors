@@ -1,0 +1,5 @@
+---
+source: src/bookmark/format/tests.rs
+expression: "hex::encode(encode(&BTreeMap::new()))"
+---
+52554d4f5253424f4f4b4d41524b0001380c7c75ea38ba420fedc88b6ae1f1cbd12b5b3cfbd41529bd3dd1a89e5a0a6900000000

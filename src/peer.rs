@@ -236,8 +236,8 @@ impl<T> Peer<T> {
     /// Attach `bookmark` to this [`Peer`], persisting its identity before
     /// returning.
     ///
-    /// This peer's own identity is [`read`](crate::Bookmark::read) into the
-    /// record and [`written`](crate::Bookmark::write) back *eagerly*, here, so a
+    /// This peer's own identity is [`load`](crate::Bookmark::load)ed into the
+    /// record and [`store`](crate::Bookmark::store)d back *eagerly*, here, so a
     /// freshly received fork cannot strand on a crash before the first gossip.
     /// Reclaiming *other* stranded identities — which grows the live party — is
     /// left to the first gossip, behind that path's persist gate, never done at
