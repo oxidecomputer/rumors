@@ -17,7 +17,7 @@
 //! `TRYBUILD=overwrite`.
 //!
 //! `trybuild` `.stderr` output can drift between rustc versions; these
-//! snapshots were captured under rustc 1.93.1. If a future toolchain reformats
+//! snapshots were captured under rustc 1.96.0. If a future toolchain reformats
 //! the diagnostics, overwrite the snapshots and confirm the *cause* of each
 //! failure is unchanged (still a missing `Clone` / a use-after-move / a missing
 //! `BitOr` / the `N >= 1` const assert).

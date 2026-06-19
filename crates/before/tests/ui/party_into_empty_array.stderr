@@ -1,8 +1,13 @@
 error[E0080]: evaluation panicked: a `Party` cannot split into zero shares
- --> src/party/forks.rs
+ --> $RUST/core/src/panic.rs
+  |
+  |         $crate::panicking::panic_fmt($crate::const_format_args!($($t)+));
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `before::party::forks::<impl std::convert::From<before::Party> for [before::Party; 0]>::from::{constant#1}` failed here
+  |
+ ::: src/party/forks.rs
   |
   |         const { assert!(N >= 1, "a `Party` cannot split into zero shares") }
-  |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `before::party::forks::<impl std::convert::From<before::Party> for [before::Party; 0]>::from::{constant#1}` failed here
+  |                 ---------------------------------------------------------- in this macro invocation
 
 note: erroneous constant encountered
  --> src/party/forks.rs
