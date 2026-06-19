@@ -38,16 +38,19 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install stable toolchain
+      # Install nightly *first* so the stable install below wins the default:
+      # each dtolnay/rust-toolchain step runs `rustup default`, last one sticks.
+      # The fuzz workspace pins its toolchain to `nightly` and invokes it as
+      # `cargo +nightly`, so nightly only needs to exist, not be the default —
+      # whereas the gate's bare `cargo fmt`/`clippy`/`check` must hit stable.
+      - name: Install nightly toolchain (for cargo +nightly fuzz build)
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install stable toolchain (default)
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
           targets: wasm32-unknown-unknown
-
-      # The fuzz workspace needs nightly + libFuzzer; the justfile pins its
-      # toolchain to `nightly`, so the runner needs it alongside stable.
-      - name: Install nightly toolchain
-        uses: dtolnay/rust-toolchain@nightly
 
       - name: Install just, cargo-nextest, cargo-fuzz, and wasm-pack
         uses: taiki-e/install-action@v2
