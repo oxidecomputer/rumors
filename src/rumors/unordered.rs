@@ -1,5 +1,5 @@
 use crate::mode::{Async, Blocking, Mode};
-use crate::tree::{IterOwned, Leaf};
+use crate::tree::{RangeOwned, Leaf};
 use crate::{Key, Version};
 use futures::Stream;
 use std::marker::PhantomData;
@@ -86,7 +86,7 @@ pub(super) enum Channel<T> {
 /// One in-progress pass: the frozen walk over its snapshot, and the
 /// snapshot's ceiling to absorb into the checkpoint when the walk drains.
 struct Pass<T> {
-    walk: IterOwned<T, (std::ops::Bound<Version>, std::ops::Bound<Version>)>,
+    walk: RangeOwned<T, (std::ops::Bound<Version>, std::ops::Bound<Version>)>,
     ceiling: Version,
 }
 
@@ -114,7 +114,7 @@ impl<T, M: Mode> UnorderedMessages<T, M> {
         if pass.is_none() {
             let inner = rx.borrow_and_update();
             *pass = Some(Pass {
-                walk: inner.tree.iter_owned((
+                walk: inner.tree.range_owned((
                     std::ops::Bound::Excluded(checkpoint.clone()),
                     std::ops::Bound::Unbounded,
                 )),

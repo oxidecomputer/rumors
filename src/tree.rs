@@ -70,7 +70,7 @@ pub use traverse::mirror;
 /// The fully-owned, lifetime-free leaf walk and the leaf handle it yields;
 /// the engine beneath [`Rumors::unordered_messages`](crate::Rumors::unordered_messages) and the
 /// streams built over it.
-pub use typed::{IterOwned, Leaf};
+pub use typed::{RangeOwned, Leaf};
 
 /// A sparse Merkle radix trie with transparent path compression, whose
 /// leaves store versioned [`Message<T>`]s.
@@ -280,11 +280,11 @@ impl<T> Tree<T> {
     /// The lifetime-free counterpart of [`range`](Self::range), holdable
     /// across awaits and in long-lived state, pinning only its unvisited
     /// frontier.
-    pub fn iter_owned<R>(&self, range: R) -> IterOwned<T, R>
+    pub fn range_owned<R>(&self, range: R) -> RangeOwned<T, R>
     where
         R: std::ops::RangeBounds<Version>,
     {
-        typed::node::Root::freeze(self.root.root.as_ref(), range)
+        typed::node::Root::range_owned(self.root.root.as_ref(), range)
     }
 
     /// Lazily iterate the live leaves whose versions fall within the causal

@@ -432,7 +432,7 @@ impl<'a, T, R: RangeBounds<Version>> DoubleEndedIterator for Range<'a, T, R> {
 /// Yields each passing leaf as an owned [`Leaf`] handle alongside its
 /// reconstructed [`Key`](crate::tree::key::Key), which is what lets a caller
 /// lend `&Version` / `&Arc<T>` out of a leaf it keeps.
-pub struct IterOwned<T, R> {
+pub struct RangeOwned<T, R> {
     /// The not-yet-visited root, consumed by the first advance.
     start: Option<Node<T>>,
     /// The descent spine: index 0 is the root's level, the last entry is the
@@ -482,7 +482,7 @@ impl<T> Leaf<T> {
     }
 }
 
-impl<T, R: RangeBounds<Version>> IterOwned<T, R> {
+impl<T, R: RangeBounds<Version>> RangeOwned<T, R> {
     /// Walk the leaves of the (possibly absent) height-32 root `node` whose
     /// versions fall within the causal `range`.
     pub(crate) fn root(node: Option<Node<T>>, range: R) -> Self {

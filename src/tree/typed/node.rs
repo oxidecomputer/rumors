@@ -295,6 +295,12 @@ impl<T> Node<T, height::Root> {
         levels(node)
     }
 
+    /// Look up the live leaf whose full 32-byte path is `path`, by a single
+    /// `O(depth)` descent.
+    pub fn get(&self, path: &[u8]) -> Option<(&Version, &Message<T>)> {
+        self.inner.get(path)
+    }
+
     /// Lazily iterate every live leaf in this root subtree as
     /// `(Key, &Version, &Arc<T>)`.
     ///
@@ -305,22 +311,16 @@ impl<T> Node<T, height::Root> {
         untyped::Iter::root(&self.inner)
     }
 
-    /// Look up the live leaf whose full 32-byte path is `path`, by a single
-    /// `O(depth)` descent.
-    pub fn get(&self, path: &[u8]) -> Option<(&Version, &Message<T>)> {
-        self.inner.get(path)
-    }
-
     /// Freeze a fully-owned walk over the leaves of the (possibly absent)
     /// root `node` whose versions fall within the causal `range`.
     ///
     /// The lifetime-free counterpart of [`range`](Self::range), holdable
-    /// across awaits (see [`untyped::IterOwned`]).
-    pub fn freeze<R>(node: Option<&Self>, range: R) -> untyped::IterOwned<T, R>
+    /// across awaits (see [`untyped::RangeOwned`]).
+    pub fn range_owned<R>(node: Option<&Self>, range: R) -> untyped::RangeOwned<T, R>
     where
         R: std::ops::RangeBounds<Version>,
     {
-        untyped::IterOwned::root(node.map(|node| node.inner.clone()), range)
+        untyped::RangeOwned::root(node.map(|node| node.inner.clone()), range)
     }
 
     /// Lazily iterate the live leaves of the (possibly absent) root `node`
