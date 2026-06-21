@@ -30,4 +30,4 @@ pub use levels::{Level, Levels};
 pub use node::{Children, Node};
 pub use path::Path;
 pub use prefix::Prefix;
-pub use untyped::{Frozen, Iter, Leaf};
+pub use untyped::{IterOwned, Iter, Leaf};

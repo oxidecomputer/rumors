@@ -56,6 +56,7 @@
 use std::sync::Arc;
 
 mod key;
+mod stream;
 mod traverse;
 mod typed;
 
@@ -69,7 +70,7 @@ pub use traverse::mirror;
 /// The fully-owned, lifetime-free leaf walk and the leaf handle it yields;
 /// the engine beneath [`Rumors::unordered_messages`](crate::Rumors::unordered_messages) and the
 /// streams built over it.
-pub use typed::{Frozen, Leaf};
+pub use typed::{IterOwned, Leaf};
 
 /// A sparse Merkle radix trie with transparent path compression, whose
 /// leaves store versioned [`Message<T>`]s.
@@ -279,7 +280,7 @@ impl<T> Tree<T> {
     /// The lifetime-free counterpart of [`range`](Self::range), holdable
     /// across awaits and in long-lived state, pinning only its unvisited
     /// frontier.
-    pub fn freeze<R>(&self, range: R) -> Frozen<T, R>
+    pub fn iter_owned<R>(&self, range: R) -> IterOwned<T, R>
     where
         R: std::ops::RangeBounds<Version>,
     {

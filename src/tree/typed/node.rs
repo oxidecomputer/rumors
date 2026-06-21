@@ -315,12 +315,12 @@ impl<T> Node<T, height::Root> {
     /// root `node` whose versions fall within the causal `range`.
     ///
     /// The lifetime-free counterpart of [`range`](Self::range), holdable
-    /// across awaits (see [`untyped::Frozen`]).
-    pub fn freeze<R>(node: Option<&Self>, range: R) -> untyped::Frozen<T, R>
+    /// across awaits (see [`untyped::IterOwned`]).
+    pub fn freeze<R>(node: Option<&Self>, range: R) -> untyped::IterOwned<T, R>
     where
         R: std::ops::RangeBounds<Version>,
     {
-        untyped::Frozen::root(node.map(|node| node.inner.clone()), range)
+        untyped::IterOwned::root(node.map(|node| node.inner.clone()), range)
     }
 
     /// Lazily iterate the live leaves of the (possibly absent) root `node`

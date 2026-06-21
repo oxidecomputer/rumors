@@ -87,7 +87,7 @@ impl<T, M: Mode> CausalMessages<T, M> {
         let (mut walk, ceiling) = {
             let inner = rx.borrow_and_update();
             (
-                inner.tree.freeze((
+                inner.tree.iter_owned((
                     std::ops::Bound::Excluded(ingested.clone()),
                     std::ops::Bound::Unbounded,
                 )),
