@@ -448,7 +448,7 @@ pub struct RangeOwned<T, R> {
     range: R,
 }
 
-/// One level of a [`Frozen`] walk's descent spine.
+/// One level of a [`RangeOwned`] walk's descent spine.
 struct Level<T> {
     /// The branch node this level walks.
     node: Node<T>,
@@ -463,7 +463,7 @@ struct Level<T> {
     rollback: usize,
 }
 
-/// A live leaf popped out of a [`Frozen`] walk: an owned handle on the leaf
+/// A live leaf popped out of a [`RangeOwned`] walk: an owned handle on the leaf
 /// node, lending its version and value to whoever holds it.
 pub struct Leaf<T>(Node<T>);
 

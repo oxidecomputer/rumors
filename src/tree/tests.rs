@@ -801,7 +801,7 @@ proptest! {
             "range yields ascending keys",
         );
 
-        let mut frozen = tree.freeze((start, end));
+        let mut frozen = tree.range_owned((start, end));
         let mut thawed = Vec::new();
         while let Some((key, leaf)) = frozen.next() {
             thawed.push((key, leaf.version().clone(), leaf.value().clone()));

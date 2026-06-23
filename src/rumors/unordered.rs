@@ -1,5 +1,5 @@
 use crate::mode::{Async, Blocking, Mode};
-use crate::tree::{RangeOwned, Leaf};
+use crate::tree::{Leaf, RangeOwned};
 use crate::{Key, Version};
 use futures::Stream;
 use std::marker::PhantomData;

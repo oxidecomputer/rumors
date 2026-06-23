@@ -47,9 +47,9 @@ freely `Clone`able.
 The insight of the original ITC paper is that a `Party` can be represented
 as a *tree* denoting a non-empty set of subintervals of `[0, 1)`, giving
 both compact representation and dynamic membership. The initial `Party`,
-`Party::seed`, is `{ 0, 1) }`; a [`fork` splits an interval
-in half, so the first fork yields `{ 0, 1/2) }` and `{ [1/2, 1) }`.
-Disjoint interval sets are [`join`ed by set union, merging
+`Party::seed`, is `{ [0, 1) }`; a `fork` splits an interval
+in half, so the first fork yields `{ [0, 1/2) }` and `{ [1/2, 1) }`.
+Disjoint interval sets are `join`ed by set union, merging
 adjacent intervals: `{ [0, 1/2), [5/8, 3/4) }` ∪ `{ [3/4, 1) }` = `{ [0,
 1/2), [5/8, 1) }`. Parties can therefore be minted and recycled freely while
 their representations stay small.

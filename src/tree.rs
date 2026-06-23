@@ -56,7 +56,6 @@
 use std::sync::Arc;
 
 mod key;
-mod stream;
 mod traverse;
 mod typed;
 
@@ -70,7 +69,7 @@ pub use traverse::mirror;
 /// The fully-owned, lifetime-free leaf walk and the leaf handle it yields;
 /// the engine beneath [`Rumors::unordered_messages`](crate::Rumors::unordered_messages) and the
 /// streams built over it.
-pub use typed::{RangeOwned, Leaf};
+pub use typed::{Leaf, RangeOwned};
 
 /// A sparse Merkle radix trie with transparent path compression, whose
 /// leaves store versioned [`Message<T>`]s.

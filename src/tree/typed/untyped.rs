@@ -8,7 +8,7 @@ use imbl::OrdMap;
 use crate::{Version, message::Message, tree::typed::Hash};
 
 mod iter;
-pub use iter::{RangeOwned, Iter, Leaf, Range};
+pub use iter::{Iter, Leaf, Range, RangeOwned};
 
 /// One storage node — a leaf or a branch behind a shared `Arc`, carrying
 /// its compressed prefix and memoized hash.
