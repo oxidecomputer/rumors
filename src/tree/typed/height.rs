@@ -76,7 +76,7 @@ pub struct Z;
 /// *polymorphically* — each inductive step is a separate monomorphization
 /// that the compiler proves terminates at [`Z`] — instead of trusting a
 /// runtime depth counter.
-pub trait Height: Debug + Clone + Default + sealed::Sealed {
+pub trait Height: Debug + Clone + Default + sealed::Sealed + 'static {
     /// This height as a plain number (`Z` is 0; [`Root`] is 32).
     const HEIGHT: usize;
 }

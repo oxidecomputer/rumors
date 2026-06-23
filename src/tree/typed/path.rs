@@ -1,7 +1,5 @@
 use std::{fmt::Debug, marker::PhantomData};
 
-use bytes::Bytes;
-
 use super::hash::{ContentHash, Hasher};
 use super::height::{Height, Root, S};
 use crate::Version;
@@ -29,7 +27,7 @@ impl Path<Root> {
     /// shared seed by disjoint forks, so their versions are structurally
     /// distinct too; the version alone therefore disambiguates without also
     /// folding in the party.
-    pub fn for_leaf(version: &Version, value: &Bytes) -> Self {
+    pub fn for_leaf(version: &Version, value: &[u8]) -> Self {
         // We form the hash for a value as the binary depth-1 merkle tree of
         // version, value. This ensures no length malleability issues.
         //
@@ -41,7 +39,7 @@ impl Path<Root> {
 
         let mut hasher = Hasher::new();
         hasher.update(ContentHash::of(version.as_bytes()).as_bytes());
-        hasher.update(ContentHash::of(value.as_ref()).as_bytes());
+        hasher.update(ContentHash::of(value).as_bytes());
 
         Self {
             height: PhantomData,

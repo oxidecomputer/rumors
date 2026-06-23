@@ -32,15 +32,33 @@ impl Prefix<Root> {
     }
 }
 
-impl From<Prefix<Z>> for Path {
+impl From<Prefix> for Path {
     fn from(value: Prefix) -> Self {
         value.hash.into_inner().into()
     }
 }
 
-impl From<Prefix<Z>> for Key {
+impl From<Prefix> for Key {
     fn from(value: Prefix) -> Self {
         Path::from(value).into()
+    }
+}
+
+impl From<Key> for Prefix {
+    fn from(value: Key) -> Self {
+        Self {
+            height: PhantomData,
+            hash: <[u8; 32]>::from(value).into(),
+        }
+    }
+}
+
+impl From<Path> for Prefix {
+    fn from(value: Path) -> Self {
+        Self {
+            height: PhantomData,
+            hash: <[u8; 32]>::from(value).into(),
+        }
     }
 }
 

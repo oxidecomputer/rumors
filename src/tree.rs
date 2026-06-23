@@ -56,6 +56,7 @@
 use std::sync::Arc;
 
 mod key;
+mod stream;
 mod traverse;
 mod typed;
 
