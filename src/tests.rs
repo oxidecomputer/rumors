@@ -269,7 +269,7 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for Fuse<W> {
 /// [`Handshake`](crate::tree::mirror::message::Handshake) body — since the
 /// preamble rework, the version alone.
 fn greeting_frame_len(retiree: &Peer<u64>) -> usize {
-    let greeting = crate::tree::mirror::message::Handshake {
+    let greeting = crate::tree::mirror::alternating::message::Handshake {
         version: retiree.snapshot().latest().clone(),
     };
     4 + borsh::to_vec(&greeting).expect("serialize greeting").len()

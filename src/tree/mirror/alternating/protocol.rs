@@ -44,10 +44,10 @@ use std::convert::Infallible;
 
 use crate::{
     Version,
-    tree::typed::height::{Height, Pred, Root, S, Z},
+    tree::typed::height::{Height, Pred, Root, S, UnderRoot, UnderUnderRoot, Z},
 };
 
-use super::message::{self, UnderRoot, UnderUnderRoot};
+use super::message;
 
 /// One step in a protocol session.
 ///
@@ -70,11 +70,10 @@ pub enum Step<Msg, Next, Output> {
 
 /// Any stage in the protocol is identified by this trait.
 ///
-/// Each stage declares
-/// its height, its end-of-protocol output, and the error type its methods may
-/// raise. `local::Exchange` sets `Error = Infallible` (a purely in-memory
-/// traversal cannot fail); wire-bound implementations (`remote::Exchange`) set
-/// `Error` to a concrete type covering I/O and framing failures.
+/// Each stage declares its height, its end-of-protocol output, and the error type
+/// its methods may raise. `local::Exchange` sets `Error = Infallible` (a purely
+/// in-memory traversal cannot fail); wire-bound implementations (`remote::Exchange`)
+/// set `Error` to a concrete type covering I/O and framing failures.
 pub trait Stage {
     /// The height in the protocol, starting at the root.
     type Height: Height;

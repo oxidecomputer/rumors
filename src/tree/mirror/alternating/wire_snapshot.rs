@@ -8,7 +8,7 @@ use borsh::BorshDeserialize;
 
 use super::message;
 use crate::tree::arb::nth_party;
-use crate::tree::typed::height::{Height, Root, S, Z};
+use crate::tree::typed::height::{Height, Root, S, UnderRoot, Z};
 use crate::tree::typed::{Children, Hash, Node, Prefix, hash::MERKLE_HASH_LEN};
 use crate::{Version, message::Message};
 
@@ -92,7 +92,7 @@ fn prefix_root_empty() {
 /// height, so exactly one raw byte crosses the wire.
 #[test]
 fn prefix_under_root_single_byte() {
-    insta::assert_snapshot!(snap(&prefix_from_bytes::<message::UnderRoot>(&[0x42])));
+    insta::assert_snapshot!(snap(&prefix_from_bytes::<UnderRoot>(&[0x42])));
 }
 
 /// A 30-byte `Prefix` (height `S<S<Z>>`): the height-implied length scales
@@ -254,7 +254,7 @@ fn message_opening_empty() {
 #[test]
 fn message_opening_one_entry() {
     let uncertain = vec![(
-        prefix_from_bytes::<message::UnderRoot>(&[0x42]),
+        prefix_from_bytes::<UnderRoot>(&[0x42]),
         Hash([2u8; MERKLE_HASH_LEN]),
     )];
     insta::assert_snapshot!(snap(&message::Opening { uncertain }));
@@ -263,7 +263,7 @@ fn message_opening_one_entry() {
 /// An `Exchange` with all three sets empty: the in-band termination shape.
 #[test]
 fn message_exchange_empty() {
-    let m: message::Exchange<(), message::UnderRoot> = message::Exchange::default();
+    let m: message::Exchange<(), UnderRoot> = message::Exchange::default();
     insta::assert_snapshot!(snap(&m));
 }
 
@@ -289,11 +289,11 @@ fn message_exchange_populated() {
     let providing = vec![(Prefix::<Root>::new(), n_root)];
     let requested = vec![Prefix::<Root>::new()];
     let uncertain = vec![(
-        prefix_from_bytes::<message::UnderRoot>(&[0xcc]),
+        prefix_from_bytes::<UnderRoot>(&[0xcc]),
         Hash([3u8; MERKLE_HASH_LEN]),
     )];
 
-    let m: message::Exchange<(), message::UnderRoot> = message::Exchange {
+    let m: message::Exchange<(), UnderRoot> = message::Exchange {
         providing,
         requested,
         uncertain,

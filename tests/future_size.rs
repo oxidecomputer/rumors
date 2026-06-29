@@ -4,7 +4,7 @@
 //! enough that any layout query that traverses it inline blows past the
 //! default `recursion_limit = 128` and forces downstream crates to bump
 //! their own limit. We defuse that by type-erasing inside the protocol
-//! (`tree::traverse::mirror::mirror`, `tree::traverse::act`), which leaves
+//! (`tree::mirror::alternating::mirror`, `tree::traverse::act`), which leaves
 //! the public futures (`Rumors::gossip`, `Peer::retire`,
 //! `Peer::bootstrap`) holding nothing more than a `Pin<Box<dyn Future>>`
 //! plus a few locals.

@@ -10,12 +10,11 @@ use tokio::runtime::Runtime;
 
 use crate::Network;
 use crate::tree::arb::{arb_tree_root, nth_party};
-use crate::tree::mirror::message::Intent;
 use crate::tree::traverse::{Action, act};
 use crate::tree::typed::Path;
 use crate::{Version, message::Message};
 
-use super::{local, mirror, remote};
+use super::{local, message::Intent, mirror, remote};
 
 thread_local! {
     /// One current-thread tokio runtime per test thread, initialized lazily on

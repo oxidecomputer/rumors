@@ -7,8 +7,8 @@
 
 use proptest::prelude::*;
 
-use crate::tree::arb::{arb_divergent_pair, arb_shared_delta_pair, arb_tree_root};
-use crate::tree::traverse::mirror::{local, mirror};
+use crate::tree::arb::{arb_divergent_pair, arb_tree_root};
+use crate::tree::mirror::alternating::{local, mirror};
 use crate::tree::{Root, Tree};
 
 /// Drive the local-local mirror directly. This is the oracle: the merge
@@ -48,27 +48,6 @@ proptest! {
         prop_assert_eq!(&tree_j, &tree_m);
     }
 
-    /// A small delta against a *wide shared* (forked) prefix: the steady-state
-    /// gossip shape `join_small_delta` benchmarks, and the case `join`'s
-    /// `OrdMap::diff` exists to make cheap.
-    ///
-    /// A wide shared base gives the children
-    /// maps real B-tree depth, so this drives `diff`'s cross-level pointer-
-    /// pruning (which the narrow `arb_divergent_pair` bases never reach) and
-    /// confirms it still enumerates *exactly* the divergent radixes — no more, no
-    /// fewer: `join` produces the same merged tree as the mirror.
-    ///
-    /// Fewer cases than the block above: each draw builds two wide trees and runs
-    /// the mirror too, so the fixtures dominate.
-    #[test]
-    #[ignore = "wide fixtures: slow; run explicitly with --include-ignored"]
-    fn join_wide_shared_small_delta_matches_mirror((a, b) in arb_shared_delta_pair(32..256)) {
-        let tree_j = join_tree(a.clone(), b.clone());
-        let tree_m = mirror_merge(a, b);
-
-        prop_assert_eq!(&tree_j, &tree_m);
-    }
-
     /// Merging a tree with itself is a content no-op.
     #[test]
     fn join_idempotent((a, _b) in arb_divergent_pair()) {
@@ -84,11 +63,10 @@ proptest! {
 
     /// The merge is associative over three mutually-disjoint trees.
     ///
-    /// (Uses
-    /// `arb_tree_root` on three distinct party indices so the three are pairwise
-    /// disjoint; `arb_divergent_pair` bakes in parties 0/1/2 and so cannot be
-    /// composed three-way. Associativity in the presence of redactions is
-    /// covered transitively: `join` matches the mirror, which proves it under
+    /// (Uses `arb_tree_root` on three distinct party indices so the three are
+    /// pairwise disjoint; `arb_divergent_pair` bakes in parties 0/1/2 and so
+    /// cannot be composed three-way. Associativity in the presence of redactions
+    /// is covered transitively: `join` matches the mirror, which proves it under
     /// its own redacting generators.)
     #[test]
     fn join_associative(

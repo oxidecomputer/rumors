@@ -45,7 +45,7 @@
 //! so a garbage peer cannot induce a huge-frame allocation before it has
 //! identified itself ([`Error::PreambleLengthInvalid`]).
 //!
-//! The framed [`message::Handshake`](crate::tree::mirror::message::Handshake)
+//! The framed [`message::Handshake`](super::message::Handshake)
 //! greeting that follows carries the
 //! causal [`Version`](crate::Version) alone.
 //!
@@ -58,9 +58,9 @@ use before::Party;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::network::Network;
-use crate::tree::mirror::message::Intent;
 
 use super::framing::{Fill, FrameRead, FrameWrite};
+use super::message::Intent;
 use super::{Error, recv_msg, send_msg};
 
 /// Length of the preamble frame's payload:
@@ -159,7 +159,7 @@ impl Staged {
 /// with a peer, before any peer-declared frame length is trusted.
 ///
 /// This runs before the
-/// [`message::Handshake`](crate::tree::mirror::message::Handshake) body and
+/// [`message::Handshake`](super::message::Handshake) body and
 /// the rest of the protocol, and reads the preamble frame at its *known*
 /// size (into `staged`, which a gossip driver may have partly — or wholly —
 /// filled already) rather than at the peer-declared one, so a non-`rumors`
@@ -226,7 +226,7 @@ where
 /// Bootstrapping is not a separate bulk transfer: a peer holding nothing
 /// greets with the placeholder [`Network::ZERO`](crate::Network) and an
 /// empty tree, then runs the ordinary
-/// [mirror descent](crate::tree::mirror::local), with
+/// [mirror descent](super::super::local), with
 /// the empty side pulling all of the provider's content through the usual
 /// `providing` channel. The descent moves content but not parties, so one
 /// thing remains: the provider must hand the newcomer a

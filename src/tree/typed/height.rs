@@ -91,6 +91,12 @@ impl<H: Height> Pred for S<H> {
     type Pred = H;
 }
 
+/// The height just under the root, i.e. 31.
+pub type UnderRoot = <Root as Pred>::Pred;
+
+/// The height two levels under the root, i.e. 30.
+pub type UnderUnderRoot = <UnderRoot as Pred>::Pred;
+
 /// Enumerate `Height` (and its `Sealed` supertrait) for the Peano numbers
 /// `Z`, `S<Z>`, ..., `S^N<Z>`, where `N` is the count of `_` tokens passed.
 /// Each successor also gets a `Pred` impl pointing back at its predecessor.

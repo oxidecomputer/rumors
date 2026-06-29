@@ -56,7 +56,6 @@
 use std::sync::Arc;
 
 mod key;
-mod stream;
 mod traverse;
 mod typed;
 
@@ -65,7 +64,7 @@ use crate::{Version, message::Message, tree::typed::Node};
 pub use key::Key;
 pub use typed::hash::MERKLE_HASH_LEN;
 
-pub use traverse::mirror;
+pub mod mirror;
 
 /// The fully-owned, lifetime-free leaf walk and the leaf handle it yields;
 /// the engine beneath [`Rumors::unordered_messages`](crate::Rumors::unordered_messages) and the
@@ -434,7 +433,7 @@ impl<T> Tree<T> {
     /// trees.
     ///
     /// This is the in-memory counterpart to mirroring two local trees (see
-    /// [`traverse::mirror`]) and is observationally identical to it: it
+    /// [`mirror::alternating`]) and is observationally identical to it: it
     /// produces the same merged tree. Deletions are honored by version
     /// dominance: a leaf one side lacks while its version is `<=` that side's
     /// version vector was deleted there and is dropped.

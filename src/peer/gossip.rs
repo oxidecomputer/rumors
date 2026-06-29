@@ -18,11 +18,11 @@ use tokio::{
 };
 
 use crate::mode::{Async, Mode};
-use crate::tree::{self, Tree, mirror};
+use crate::tree::{self, Tree};
 use crate::{Error, Network, Version};
 use crate::{
     bookmark::{Bookmark, BookmarkError, BookmarkIo, Bookmarked, NoBookmark, Persist},
-    tree::mirror::{local, message::Intent, remote},
+    tree::mirror::alternating::{self, local, message::Intent, remote},
 };
 
 use super::{Inner, Peer};
@@ -161,7 +161,7 @@ impl<T, M: Mode> Peer<T, NoBookmark, M> {
 
         // After the connect phase, a peer that is *also* bootstrapping means
         // there is nothing to receive: bail symmetrically.
-        let handshaken = mirror::handshake(l, r).await.map_err(server_error)?;
+        let handshaken = alternating::handshake(l, r).await.map_err(server_error)?;
         if remote_network.is_bootstrap() {
             return Ok(None);
         }
@@ -491,7 +491,7 @@ impl<T, B: Persist<M>, M: Mode> Peer<T, B, M> {
         // We do this *even if we already know the networks mismatch* because we
         // want to receive the peer's version, so we can report the
         // `remote_min_events` count computed over the peer's version.
-        let handshaken = match mirror::handshake(l, r).await.map_err(server_error) {
+        let handshaken = match alternating::handshake(l, r).await.map_err(server_error) {
             Err(e) => return (Intent::Remain, Err(e.widen())),
             Ok(handshaken) => handshaken,
         };
@@ -807,10 +807,10 @@ impl<T> Drop for PartyGuard<T> {
 /// The client side
 /// of every wire session is the in-memory local exchange, whose error type is
 /// [`Infallible`](std::convert::Infallible), so the
-/// [`Client`](mirror::Error::Client) arm is uninhabitable.
-fn server_error(e: mirror::Error<std::convert::Infallible, Error>) -> Error {
+/// [`Client`](alternating::Error::Client) arm is uninhabitable.
+fn server_error(e: alternating::Error<std::convert::Infallible, Error>) -> Error {
     match e {
-        mirror::Error::Server(e) => e,
-        mirror::Error::Client(never) => match never {},
+        alternating::Error::Server(e) => e,
+        alternating::Error::Client(never) => match never {},
     }
 }

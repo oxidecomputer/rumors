@@ -56,9 +56,9 @@ use std::cmp::Ordering;
 
 use seq_macro::seq;
 
-pub mod local;
+pub mod backend;
 pub mod protocol;
-pub mod remote;
+pub use backend::{local, remote};
 
 pub(crate) mod message;
 

@@ -24,36 +24,18 @@ pub const MERKLE_HASH_LEN: usize = 16;
 /// # Why 16 bytes here, and 32 for content
 ///
 /// A Merkle hash is only ever an equality probe between two peers' subtrees at
-/// the same prefix (the mirror protocol's
-/// [`uncertain`](crate::tree::mirror::message::Exchange::uncertain) channel).
-/// It is never an identity: a false-equal prunes one divergent subtree as
-/// already-matching, and heals on the next mutation beneath that prefix, which
-/// perturbs every branch hash above it and forces a re-compare. Nothing is
-/// dropped; the failure is delayed propagation, not corruption. Content
-/// integrity rides on the leaf's *path*, the full-width [`ContentHash`] of
-/// `(version, value)` (see [`Path::for_leaf`](super::Path::for_leaf)), where a
-/// collision would be permanent, silent split-brain. The comparison signal can
-/// afford to lose the bits, halving the protocol's dominant hash traffic, and
-/// the identity cannot.
-///
-/// The width is sized against both failure sources, derived (not
-/// measured) from the comparison structure and the trust model:
+/// the same prefix. The width is sized against both failure sources, derived
+/// from the comparison structure and the trust model:
 ///
 /// - **Accident.** The hash at prefix `P` is only ever compared against
 ///   the counterparty's hash at the same `P`, so a false-equal is a
 ///   per-comparison event at 2⁻¹²⁸ — pairwise, never birthday-amplified
-///   across the tree's population. A fleet running a million
-///   divergent-subtree comparisons every second for a century accumulates
-///   ≈2⁻⁷⁶; machine failure modes dominate long before the hash does.
+///   across the tree's population.
 /// - **Attack.** Peers in a universe trust one another ([the crate
 ///   docs](crate) make a compromised member's powers explicit), and the
 ///   mirror protocol inserts provided subtrees without re-hashing, so a
 ///   member who could grind the 2⁶⁴ collision floor already desyncs peers
-///   for free, at any width. A non-member cannot grind at all: branch
-///   preimages inherit child hashes from what honest peers actually hold,
-///   so each attempt costs an honest insertion rather than an offline
-///   hash, and the prize is the transient, self-healing false-equal
-///   above, not corruption.
+///   for free, at any width.
 #[derive(
     BorshSerialize, BorshDeserialize, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Default,
 )]

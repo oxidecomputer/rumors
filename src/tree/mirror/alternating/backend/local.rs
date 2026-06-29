@@ -68,14 +68,13 @@ use crate::{
         traverse::unknown::Unknown,
         typed::{
             Hash, Levels, Node, Prefix,
-            height::{Height, Root, S, Z},
+            height::{Height, Root, S, UnderRoot, UnderUnderRoot, Z},
             levels::{Below, Top},
         },
     },
 };
 
-use super::message::{self, UnderRoot, UnderUnderRoot};
-use super::protocol;
+use super::super::{message, protocol};
 
 mod partition;
 

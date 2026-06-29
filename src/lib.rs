@@ -243,6 +243,6 @@ pub use rumors::{CausalMessages, Changes, Rumors, UnorderedMessages};
 pub use snapshot::Snapshot;
 pub use tree::Key;
 pub use tree::MERKLE_HASH_LEN;
-pub use tree::mirror::remote::Error;
+pub use tree::mirror::alternating::remote::Error;
 
 pub(crate) use peer::Inner;

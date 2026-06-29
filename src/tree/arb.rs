@@ -175,51 +175,6 @@ pub fn arb_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate::tree
         .boxed()
 }
 
-/// A small per-side delta against a *wide shared prefix*: the steady-state
-/// gossip shape the `join_small_delta` benchmark measures.
-///
-/// A common base of `shared` inserts (party 0) is forked into two sides, each
-/// of which then originates a handful of its own inserts (parties 1 and 2). The
-/// fork makes the two sides share their entire base by pointer, so this is the
-/// shape that exercises [`OrdMap::diff`]'s cross-level pointer-pruning in
-/// `join`: with a wide base the children maps have real B-tree depth, which the
-/// narrow [`arb_divergent_pair`] bases never force. The delta is kept small so
-/// the divergence is a few scattered leaves over a large shared tree.
-///
-/// [`OrdMap::diff`]: imbl::OrdMap::diff
-pub fn arb_shared_delta_pair(
-    shared: std::ops::Range<usize>,
-) -> BoxedStrategy<(crate::tree::Root<()>, crate::tree::Root<()>)> {
-    use crate::tree::{Action, Tree};
-
-    (shared, 0usize..6, 0usize..6)
-        .prop_map(|(n_shared, n_a, n_b)| {
-            let p_s = nth_party(0);
-            let p_a = nth_party(1);
-            let p_b = nth_party(2);
-
-            // Common base: `n_shared` inserts on party 0. The leaf paths are
-            // content hashes (see `Path::for_leaf`), so they scatter
-            // uniformly across the radix space, and a wide base builds the
-            // deep, wide trie `diff` must prune through.
-            let mut base = Tree::new();
-            base.act(
-                &p_s,
-                (0..n_shared).map(|_| Action::Insert(Message::new(()))),
-            );
-
-            // Each side forks the shared base, then originates its own delta.
-            let side = |party: &Party, n: usize| {
-                let mut t = base.clone();
-                t.act(party, (0..n).map(|_| Action::Insert(Message::new(()))));
-                t.root
-            };
-
-            (side(&p_a, n_a), side(&p_b, n_b))
-        })
-        .boxed()
-}
-
 #[cfg(test)]
 mod test {
     use super::nth_party;

@@ -40,7 +40,7 @@
 //! The protocol's own emptiness predicate drives session termination: a side
 //! has converged when its outgoing message has `requested.is_empty() &&
 //! uncertain.is_empty()`. Each protocol method reads its response, inspects the
-//! appropriate predicate (per the table in [`super::protocol`]), and yields
+//! appropriate predicate (per the table in [`super::super::protocol`]), and yields
 //! [`Step::Continue`] or [`Step::Done`] accordingly. The stream is never closed
 //! by the protocol itself: a `(reader, writer)` pair can host multiple
 //! back-to-back sync sessions.
@@ -56,11 +56,13 @@ use crate::bookmark::{BookmarkError, BookmarkIo, NoBookmark};
 use crate::network::Network;
 use crate::tree::typed::{
     Node,
-    height::{Height, Root, S, Z},
+    height::{Height, Root, S, UnderRoot, UnderUnderRoot, Z},
 };
 
-use super::message::{self, UnderRoot, UnderUnderRoot};
-use super::protocol::{self, Step};
+use super::super::{
+    message,
+    protocol::{self, Step},
+};
 
 pub mod framing;
 mod preamble;

@@ -76,7 +76,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use crate::Version;
 use crate::tree::typed::{
     Hash, Node, Prefix,
-    height::{Height, Pred, Root, S, Z},
+    height::{Height, Root, S, UnderRoot, Z},
 };
 
 #[cfg(test)]
@@ -395,13 +395,6 @@ impl<T> Default for Complete<T> {
         }
     }
 }
-
-/// The height just under the root, i.e. 31. The responder's opening message
-/// carries hashes at this height -- one for each child of its root.
-pub type UnderRoot = <Root as Pred>::Pred;
-
-/// The height two levels under the root, i.e. 30.
-pub type UnderUnderRoot = <UnderRoot as Pred>::Pred;
 
 /// An out-of-order or duplicated wire channel: the canonical encoding admits
 /// exactly one byte sequence per value, so a peer that reorders or pads is
