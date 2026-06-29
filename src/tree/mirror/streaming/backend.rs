@@ -51,7 +51,7 @@ where
     type Node<H: Height>: Node<Height = H>;
 
     /// The type of errors returned by this backend.
-    type Error<H: Height>;
+    type Error;
 
     /// Assemble a stream of children at height `H` into a stream of parents at height `H + 1`.
     ///
@@ -73,15 +73,11 @@ where
 }
 
 /// Type synonym for a fallible [`Stream`] of prefix-keyed nodes represented by a given backend.
-pub trait NodeStream<B: Backend<T> + ?Sized, T, H: Height>:
-    Stream<Item = Result<(Prefix<H>, B::Node<H>), B::Error<H>>> + Send
-where
-    B::Node<Z>: Leaf<T>,
+pub trait NodeStream<B: Backend<T, Node<Z>: Leaf<T>> + ?Sized, T, H: Height>:
+    Stream<Item = Result<(Prefix<H>, B::Node<H>), B::Error>> + Send
 {
 }
-impl<N, B: Backend<T> + ?Sized, T, H: Height> NodeStream<B, T, H> for N
-where
-    B::Node<Z>: Leaf<T>,
-    N: Stream<Item = Result<(Prefix<H>, B::Node<H>), B::Error<H>>> + Send,
+impl<N, B: Backend<T, Node<Z>: Leaf<T>> + ?Sized, T, H: Height> NodeStream<B, T, H> for N where
+    N: Stream<Item = Result<(Prefix<H>, B::Node<H>), B::Error>> + Send
 {
 }

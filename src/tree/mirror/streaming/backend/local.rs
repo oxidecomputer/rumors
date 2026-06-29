@@ -49,7 +49,7 @@ pub struct Local;
 
 impl<T: Send + Sync> Backend<T> for Local {
     type Node<H: Height> = typed::Node<T, H>;
-    type Error<H: Height> = Infallible;
+    type Error = Infallible;
 
     fn parents<H>(&self, children: impl NodeStream<Self, T, H>) -> impl NodeStream<Self, T, S<H>>
     where
@@ -61,8 +61,9 @@ impl<T: Send + Sync> Backend<T> for Local {
         // when the prefix changes, then once more when the input ends. `fuse`
         // keeps the poll after that final flush well-defined.
         stream::unfold(
-            // Our state is the pair of the children stream (which we'll pull from)
-            // and an optional pair of our current prefix and its children:
+            // Our state is the pair of the children stream (which we'll pull
+            // from) and an optional pair of our current prefix and its
+            // children.
             (Box::pin(children.fuse()), None::<(_, Children<_, _>)>),
             |(mut children, mut current)| async move {
                 // Loop internally to the single output future, pulling children...

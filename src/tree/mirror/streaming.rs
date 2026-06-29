@@ -2,6 +2,7 @@
 #![allow(unused)]
 
 mod backend;
+mod convert;
 mod message;
 mod protocol;
 

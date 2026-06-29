@@ -2,113 +2,149 @@ use std::convert::Infallible;
 
 use crate::{
     Version,
-    tree::typed::height::{Height, Pred, Root, S, UnderRoot, UnderUnderRoot, Z},
+    tree::{
+        mirror::streaming::{Backend, Leaf},
+        typed::height::{Height, Pred, Root, S, UnderRoot, UnderUnderRoot, Z},
+    },
 };
 
 use super::message;
 
-mod peer;
-pub use peer::Peer;
+use futures::Stream;
 
 pub trait Stage {
     type Height: Height;
+    type Error;
 }
 
-pub trait Connect<T: Send + Sync>: Stage<Height = Root> + Sized {
-    type Next: CompleteConnect<T> + Stage<Height = Root>;
-
-    // async fn connect(self)
-    // -> Result<Step<message::Handshake, Self::Next, Infallible>, Self::Error>;
+pub enum Error<I, E> {
+    Internal(I),
+    External(E),
 }
 
-pub trait CompleteConnect<T: Send + Sync>: Stage<Height = Root> + Sized {
-    type Next: Initiator<T> + Responder<T> + Stage<Height = Root>;
-
-    // async fn complete_connect(
-    //     self,
-    //     their_version: Version,
-    // ) -> Result<Step<(), Self::Next, Self::Output>, Self::Error>;
+// Trait synonym for messages of type `M` sent between `S` and `B`, carrying type `T` leaves.
+pub trait Messages<M, S: Stage + ?Sized, B: Backend<T, Node<Z>: Leaf<T>>, T>:
+    Stream<Item = Result<M, Error<S::Error, B::Error>>> + Send
+{
+}
+impl<X, M, S: Stage + ?Sized, B: Backend<T, Node<Z>: Leaf<T>>, T> Messages<M, S, B, T> for X where
+    X: Stream<Item = Result<M, Error<S::Error, B::Error>>> + Send
+{
 }
 
-pub trait Accept<T: Send + Sync>: Stage<Height = Root> + Sized {
-    type Next: Initiator<T> + Responder<T> + Stage<Height = Root>;
-
-    // async fn accept(
-    //     self,
-    //     request: message::Handshake,
-    // ) -> Result<Step<message::Handshake, Self::Next, Self::Output>, Self::Error>;
+pub trait Connect<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>: Stage<Height = Root> {
+    async fn connect(
+        self,
+    ) -> Result<
+        (
+            message::Handshake,
+            impl CompleteConnect<B, T> + Stage<Height = Root, Error = Self::Error>,
+        ),
+        Error<Self::Error, B::Error>,
+    >;
 }
 
-pub trait Initiator<T: Send + Sync>: Stage<Height = Root> + Sized {
-    type Next: OpenInitiator<T> + Stage<Height = Root>;
-
-    // async fn initiator(
-    //     self,
-    // ) -> Result<Step<message::Initiate, Self::Next, Infallible>, Self::Error>;
+pub trait Accept<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>: Stage<Height = Root> {
+    async fn accept(
+        self,
+        request: message::Handshake,
+    ) -> Result<
+        (
+            message::Handshake,
+            impl Initiator<B, T> + Responder<B, T> + Stage<Height = Root, Error = Self::Error>,
+        ),
+        Error<Self::Error, B::Error>,
+    >;
 }
 
-pub trait Responder<T: Send + Sync>: Stage<Height = Root> + Sized {
-    type Next: Exchange<T> + Stage<Height = UnderRoot>;
-
-    // async fn responder(
-    //     self,
-    //     request: message::Initiate,
-    // ) -> Result<Step<message::Opening, Self::Next, Self::Output>, Self::Error>;
+pub trait CompleteConnect<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
+    Stage<Height = Root>
+{
+    async fn complete_connect(
+        self,
+        their_version: Version,
+    ) -> Result<
+        impl Initiator<B, T> + Responder<B, T> + Stage<Height = Root, Error = Self::Error>,
+        Error<Self::Error, B::Error>,
+    >;
 }
 
-pub trait OpenInitiator<T: Send + Sync>: Stage<Height = Root> + Sized {
-    type Next: Exchange<T> + Stage<Height = UnderUnderRoot>;
-
-    // async fn open_initiator(
-    //     self,
-    //     request: message::Opening,
-    // ) -> Result<Step<message::Exchange<T, UnderUnderRoot>, Self::Next, Self::Output>, Self::Error>;
+pub trait Initiator<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>: Stage<Height = Root> {
+    fn initiator(
+        self,
+    ) -> (
+        impl Messages<message::Initiate, Self, B, T>,
+        impl OpenInitiator<B, T> + Stage<Height = Root, Error = Self::Error>,
+    );
 }
 
-pub trait Exchange<T: Send + Sync>: Stage + Sized
+pub trait Responder<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>: Stage<Height = Root> {
+    fn responder(
+        self,
+        requests: impl Messages<message::Initiate, Self, B, T>,
+    ) -> (
+        impl Messages<message::Opening, Self, B, T>,
+        impl Exchange<B, T> + Stage<Height = UnderRoot, Error = Self::Error>,
+    );
+}
+
+pub trait OpenInitiator<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
+    Stage<Height = Root> + Sized
+{
+    fn open_initiator(
+        self,
+        requests: impl Messages<message::Opening, Self, B, T>,
+    ) -> (
+        impl Messages<message::Exchange<B, T, UnderUnderRoot>, Self, B, T>,
+        impl Exchange<B, T> + Stage<Height = UnderUnderRoot, Error = Self::Error>,
+    );
+}
+
+pub trait Exchange<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>: Stage + Sized
 where
     Self::Height: Pred,
     <Self::Height as Pred>::Pred: Pred,
     S<<Self::Height as Pred>::Pred>: Height,
     S<<<Self::Height as Pred>::Pred as Pred>::Pred>: Height,
 {
-    type Next: AfterExchange<T, <<Self::Height as Pred>::Pred as Pred>::Pred>
-        + Stage<Height = <<Self::Height as Pred>::Pred as Pred>::Pred>;
-
-    // async fn exchange(
-    //     self,
-    //     request: message::Exchange<T, <Self::Height as Pred>::Pred>,
-    // ) -> Result<
-    //     Step<
-    //         message::Exchange<T, <<Self::Height as Pred>::Pred as Pred>::Pred>,
-    //         Self::Next,
-    //         Self::Output,
-    //     >,
-    //     Self::Error,
-    // >;
+    fn exchange(
+        self,
+        requests: impl Messages<message::Exchange<B, T, <Self::Height as Pred>::Pred>, Self, B, T>,
+    ) -> (
+        impl Messages<message::Exchange<B, T, <<Self::Height as Pred>::Pred as Pred>::Pred>, Self, B, T>,
+        impl AfterExchange<B, T, <<Self::Height as Pred>::Pred as Pred>::Pred>
+        + Stage<Height = <<Self::Height as Pred>::Pred as Pred>::Pred, Error = Self::Error>,
+    );
 }
 
-pub trait CloseInitiator<T: Send + Sync>: Stage<Height = S<S<Z>>> + Sized {
-    type Next: CompleteInitiator<T> + Stage<Height = Z>;
-
-    // async fn close_initiator(
-    //     self,
-    //     request: message::Exchange<T, S<Z>>,
-    // ) -> Result<Step<message::Closing<T>, Self::Next, Self::Output>, Self::Error>;
+pub trait CloseInitiator<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
+    Stage<Height = S<S<Z>>> + Sized
+{
+    fn close_initiator(
+        self,
+        requests: impl Messages<message::Exchange<B, T, S<Z>>, Self, B, T>,
+    ) -> (
+        impl Messages<message::Closing<B, T>, Self, B, T>,
+        impl CompleteInitiator<B, T> + Stage<Height = Z, Error = Self::Error>,
+    );
 }
 
-pub trait CompleteResponder<T: Send + Sync>: Stage<Height = S<Z>> + Sized {
-    // async fn complete_responder(
-    //     self,
-    //     request: message::Closing<T>,
-    // ) -> Result<Step<message::Complete<T>, Infallible, Self::Output>, Self::Error>;
+pub trait CompleteResponder<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
+    Stage<Height = S<Z>> + Sized
+{
+    fn complete_responder(
+        self,
+        requests: impl Messages<message::Closing<B, T>, Self, B, T>,
+    ) -> impl Messages<message::Complete<B, T>, Self, B, T>;
 }
 
-pub trait CompleteInitiator<T: Send + Sync>: Stage<Height = Z> + Sized {
-    // async fn complete_initiator(
-    //     self,
-    //     request: message::Complete<T>,
-    // ) -> Result<Step<(), Infallible, Self::Output>, Self::Error>;
+pub trait CompleteInitiator<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
+    Stage<Height = Z> + Sized
+{
+    fn complete_initiator(
+        self,
+        requests: impl Messages<message::Complete<B, T>, Self, B, T>,
+    ) -> impl Future<Output = Result<(), Error<Self::Error, B::Error>>> + Send;
 }
 
 /// Blanket marker trait keyed by the height `H` just produced by an exchange:
@@ -122,19 +158,26 @@ pub trait CompleteInitiator<T: Send + Sync>: Stage<Height = Z> + Sized {
 ///
 /// Height `Z` is never reached as the result of an exchange (the leaf-height
 /// uncertain map would be vacuous), so there is no `AfterExchange<Z>` impl.
-pub trait AfterExchange<T: Send + Sync, H: Height>: Sized {}
+pub trait AfterExchange<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync, H: Height>: Sized {}
 
-impl<T: Send + Sync, X: CompleteResponder<T>> AfterExchange<T, S<Z>> for X {}
+impl<T: Send + Sync, B: Backend<T, Node<Z>: Leaf<T>>, X: CompleteResponder<B, T>>
+    AfterExchange<B, T, S<Z>> for X
+{
+}
 
-impl<T: Send + Sync, X: CloseInitiator<T>> AfterExchange<T, S<S<Z>>> for X {}
+impl<T: Send + Sync, B: Backend<T, Node<Z>: Leaf<T>>, X: CloseInitiator<B, T>>
+    AfterExchange<B, T, S<S<Z>>> for X
+{
+}
 
-impl<T, H, X> AfterExchange<T, S<S<S<H>>>> for X
+impl<T, B, H, X> AfterExchange<B, T, S<S<S<H>>>> for X
 where
+    B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync,
     H: Height,
     S<H>: Height,
     S<S<H>>: Height,
     S<S<S<H>>>: Height,
-    X: Exchange<T> + Stage<Height = S<S<S<H>>>>,
+    X: Exchange<B, T> + Stage<Height = S<S<S<H>>>>,
 {
 }
