@@ -84,8 +84,8 @@ where
         C::Node<Z>: Leaf<T>,
         C::Error: From<B::Error>,
     {
-        let children = from.children::<H>(stream);
+        let children = from.clone().children::<H>(stream);
         let converted = H::convert::<B, C, T>(from, to, children);
-        to.parents::<H>(converted)
+        to.clone().parents::<H>(converted)
     }
 }

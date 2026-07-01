@@ -9,9 +9,11 @@ mod dispute;
 mod merge;
 mod message;
 mod protocol;
+mod session;
 mod unknown;
 
-pub use backend::{Backend, Handshaking, Leaf, Local, Node};
+pub use backend::{Backend, Leaf, Local, Node, Root};
+pub use session::Handshaking;
 
 use std::cmp::Ordering;
 
@@ -198,10 +200,18 @@ where
 {
     use std::convert::Infallible;
 
-    let (client, local_recovered) =
-        Handshaking::start(network, message::Intent::Remain, local.clone());
-    let (server, remote_recovered) =
-        Handshaking::start(network, message::Intent::Remain, remote.clone());
+    let (client, local_recovered) = Handshaking::start(
+        Local,
+        network,
+        message::Intent::Remain,
+        local.clone().into(),
+    );
+    let (server, remote_recovered) = Handshaking::start(
+        Local,
+        network,
+        message::Intent::Remain,
+        remote.clone().into(),
+    );
 
     let handshaken = handshake::<_, _, Local, T, Infallible>(client, server)
         .await
@@ -212,7 +222,7 @@ where
         .expect("local reconciliation is infallible");
 
     (
-        local_recovered.await.unwrap_or(local),
-        remote_recovered.await.unwrap_or(remote),
+        local_recovered.await.map(Into::into).unwrap_or(local),
+        remote_recovered.await.map(Into::into).unwrap_or(remote),
     )
 }

@@ -5,13 +5,13 @@ use crate::{
     message::Message,
     tree::typed::{
         Hash, Prefix,
-        height::{Height, S, Z},
+        height::{self, Height, S, Z},
     },
 };
 
 // The specific backends:
 mod local;
-pub use local::{Handshaking, Local};
+pub use local::Local;
 
 /// The fundamental operations required by a backend's individual node type.
 pub trait Node {
@@ -43,29 +43,41 @@ pub trait Leaf<T>: Node<Height = Z> {
 ///
 /// A backend must know how to assemble and disassemble its own node types in a prefix-ordered
 /// streaming fashion.
-pub trait Backend<T>
+///
+/// A backend value is a cheap cloneable *handle* to its storage — an
+/// in-memory tree's is zero-sized, a persistent one's is an `Arc` of its
+/// state — never the storage itself. The [session](super::session) machinery
+/// clones one handle per concurrently scheduled worker, which is what the
+/// supertraits require: handles are shared freely (`Clone`), cross into owned
+/// futures (`Send + 'static`), and are borrowed from streams that must
+/// themselves be `Send` (`Sync`).
+pub trait Backend<T>: Clone + Send + Sync + 'static
 where
     Self::Node<Z>: Leaf<T>,
 {
     /// The type of nodes carrying messages of type `T`, indexed by height `H`.
     ///
-    /// Nodes are [`Send`] and `'static`: they ride the [`NodeStream`]s the
-    /// protocol threads between stages, which buffer items in channels drained
-    /// by independently scheduled (and so owned, `'static`-boxed) pump
-    /// futures.
-    type Node<H: Height>: Node<Height = H> + Send + 'static;
+    /// Nodes are handles too: they ride the [`NodeStream`]s the protocol
+    /// threads between its workers (`Send + 'static`), and the session keeps
+    /// a node while separately providing its children to the counterparty
+    /// (`Clone`).
+    type Node<H: Height>: Node<Height = H> + Clone + Send + 'static;
 
     /// The type of errors returned by this backend.
     ///
-    /// [`Send`] and `'static` for the same reason as [`Node`](Self::Node):
-    /// errors ride the node streams as their failure arm.
+    /// `Send + 'static` for the same reason as [`Node`](Self::Node): errors
+    /// ride the node streams as their failure arm.
     type Error: Send + 'static;
 
     /// Assemble a stream of children at height `H` into a stream of parents at height `H + 1`.
     ///
     /// This may assume that the children are in strictly increasing prefix order, and it
-    /// must produce parents also in strictly increasing prefix order.
-    fn parents<H>(&self, children: impl NodeStream<Self, T, H>) -> impl NodeStream<Self, T, S<H>>
+    /// must produce parents also in strictly increasing prefix order, propagating the
+    /// input's errors.
+    ///
+    /// Takes the handle by value so the returned stream owns it and stays
+    /// `'static`; callers clone the handle they keep.
+    fn parents<H>(self, children: impl NodeStream<Self, T, H>) -> impl NodeStream<Self, T, S<H>>
     where
         H: Height,
         S<H>: Height;
@@ -73,19 +85,42 @@ where
     /// Disassemble a stream of parents at height `H + 1` into a stream of children at height `H`.
     ///
     /// This may assume that the parents are in strictly increasing prefix order, and it
-    /// must produce children also in strictly increasing prefix order.
-    fn children<H>(&self, parents: impl NodeStream<Self, T, S<H>>) -> impl NodeStream<Self, T, H>
+    /// must produce children also in strictly increasing prefix order, propagating the
+    /// input's errors.
+    ///
+    /// Takes the handle by value so the returned stream owns it and stays
+    /// `'static`; callers clone the handle they keep.
+    fn children<H>(self, parents: impl NodeStream<Self, T, S<H>>) -> impl NodeStream<Self, T, H>
     where
         H: Height,
         S<H>: Height;
 }
 
 /// Type synonym for a fallible [`Stream`] of prefix-keyed nodes represented by a given backend.
-pub trait NodeStream<B: Backend<T, Node<Z>: Leaf<T>> + ?Sized, T, H: Height>:
+pub trait NodeStream<B: Backend<T, Node<Z>: Leaf<T>>, T, H: Height>:
     Stream<Item = Result<(Prefix<H>, B::Node<H>), B::Error>> + Send
 {
 }
-impl<N, B: Backend<T, Node<Z>: Leaf<T>> + ?Sized, T, H: Height> NodeStream<B, T, H> for N where
+impl<N, B: Backend<T, Node<Z>: Leaf<T>>, T, H: Height> NodeStream<B, T, H> for N where
     N: Stream<Item = Result<(Prefix<H>, B::Node<H>), B::Error>> + Send
 {
+}
+
+/// A backend's whole tree at rest: what a mirror session consumes and
+/// produces.
+///
+/// This is the backend-generic form of [`tree::Root`](crate::tree::Root); the
+/// `Local` backend converts between the two with [`From`]. The ceiling rides
+/// separately from the root node because the two can disagree: redaction
+/// advances a tree's version while removing nodes, so an empty tree still
+/// carries the version at which it became empty — which is exactly what
+/// deletion honoring compares against on the next reconciliation.
+pub struct Root<B, T>
+where
+    B: Backend<T, Node<Z>: Leaf<T>>,
+{
+    /// The maximum version this tree has incorporated.
+    pub ceiling: Version,
+    /// The root node, or nothing when the tree is empty.
+    pub root: Option<B::Node<height::Root>>,
 }

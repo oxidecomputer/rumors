@@ -42,23 +42,23 @@ use itertools::EitherOrBoth;
 
 use crate::Version;
 use crate::tree::typed::{
-    self, Hash, Prefix,
+    Hash, Prefix,
     height::{Height, S, Z},
 };
 
-use super::super::super::dispute::{Routed, classify};
-use super::super::super::merge::merge_join_by;
-use super::super::super::message;
-use super::super::super::protocol::Messages;
-use super::super::super::unknown::{Unknown, unknown};
-use super::super::{Backend, Node};
-use super::{BoxNodeStream, FAN, LOCAL, Level, Local};
+use super::super::backend::{Backend, Leaf, Node};
+use super::super::dispute::{Routed, classify};
+use super::super::merge::merge_join_by;
+use super::super::message;
+use super::super::protocol::Messages;
+use super::super::unknown::{Unknown, unknown};
+use super::{BoxNodeStream, FAN, Level};
 
 /// A run of uncertain children under one parent: their prefixes and hashes.
 type Hashes<C> = Vec<(Prefix<C>, Hash)>;
 
 /// One demuxed wire reaction, keyed by the frontier-height prefix it answers.
-type Reaction<T, M> = (Prefix<S<M>>, Incoming<T, M>);
+type Reaction<B, T, M> = (Prefix<S<M>>, Incoming<B, T, M>);
 
 /// One incoming wire reaction, grouped under the frontier-height prefix it
 /// concerns.
@@ -71,12 +71,14 @@ type Reaction<T, M> = (Prefix<S<M>>, Incoming<T, M>);
 /// mutually exclusive per prefix: each reacts to a different channel of our
 /// previous message (`Requested`/`Uncertain` answer our `uncertain`,
 /// `Providing` answers our `requested` or our inferred lack).
-pub(super) enum Incoming<T, C: Height>
+pub(super) enum Incoming<B, T, C>
 where
+    B: Backend<T, Node<Z>: Leaf<T>>,
+    C: Height,
     S<C>: Height,
 {
     /// A subtree we asked for (or provably lacked): absorb it.
-    Providing(typed::Node<T, S<C>>),
+    Providing(B::Node<S<C>>),
     /// The counterparty lacks our subtree at this prefix: explode and provide
     /// its children, pruned against their version.
     Requested,
@@ -92,10 +94,11 @@ where
 /// through keyed by their own prefix. Requires the input to be globally
 /// prefix-ascending — which the canonical wire order guarantees — and
 /// produces strictly ascending keys.
-pub(super) fn demux<T, M, E>(
-    messages: impl Messages<message::Exchange<Local, T, M>, E>,
-) -> impl Stream<Item = Result<Reaction<T, M>, E>> + Send
+pub(super) fn demux<B, T, M, E>(
+    messages: impl Messages<message::Exchange<B, T, M>, E>,
+) -> impl Stream<Item = Result<Reaction<B, T, M>, E>> + Send
 where
+    B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     M: Height,
     S<M>: Height,
@@ -145,18 +148,20 @@ where
 /// The walk's wire-bound output: the three channels of the outgoing message,
 /// before being wrapped in the stage's concrete message type.
 ///
-/// [`protocol::Exchange`](super::super::super::protocol::Exchange) stages map
+/// [`protocol::Exchange`](super::super::protocol::Exchange) stages map
 /// all three onto [`message::Exchange`];
-/// [`close_initiator`](super::super::super::protocol::CloseInitiator) drops
+/// [`close_initiator`](super::super::protocol::CloseInitiator) drops
 /// `Uncertain` (vacuous at leaf height, exactly as the alternating
 /// [`Closing`](message::Closing) does) and maps the rest onto
 /// [`message::Closing`].
-pub(super) enum Out<T, G: Height>
+pub(super) enum Out<B, T, G>
 where
+    B: Backend<T, Node<Z>: Leaf<T>>,
+    G: Height,
     S<G>: Height,
 {
     /// A subtree the counterparty lacks, already pruned against their version.
-    Providing(Prefix<S<G>>, typed::Node<T, S<G>>),
+    Providing(Prefix<S<G>>, B::Node<S<G>>),
     /// A prefix the counterparty listed that we lack entirely.
     Requested(Prefix<S<G>>),
     /// A disputed subtree's child hash, for the counterparty's next classify.
@@ -171,23 +176,25 @@ where
 /// in the [module docs](self). `down` receives disputed subtrees exploded to
 /// height `G` (the next stage's frontier); `keep` receives reconciled nodes at
 /// the frontier height; `level` receives reconciled children one level below.
-pub(super) fn walk<T, G, E>(
+pub(super) fn walk<B, T, G, E>(
+    backend: B,
     their_version: Version,
-    frontier: BoxNodeStream<T, S<S<G>>>,
-    messages: impl Messages<message::Exchange<Local, T, S<G>>, E>,
-    mut down: mpsc::Sender<Level<T, G>>,
-    mut keep: mpsc::Sender<Level<T, S<S<G>>>>,
-    mut level: mpsc::Sender<Level<T, S<G>>>,
-) -> impl Stream<Item = Result<Out<T, G>, E>> + Send
+    frontier: BoxNodeStream<B, T, S<S<G>>>,
+    messages: impl Messages<message::Exchange<B, T, S<G>>, E>,
+    mut down: mpsc::Sender<Level<B, T, G>>,
+    mut keep: mpsc::Sender<Level<B, T, S<S<G>>>>,
+    mut level: mpsc::Sender<Level<B, T, S<G>>>,
+) -> impl Stream<Item = Result<Out<B, T, G>, E>> + Send
 where
+    B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     G: Height + Unknown,
     S<G>: Height,
     S<S<G>>: Height,
-    E: Send,
+    E: From<B::Error> + Send,
 {
     try_stream! {
-        let frontier = frontier.map(|item| item.map_err(|error| match error {}));
+        let frontier = frontier.map(|item| item.map_err(E::from));
         let joined = merge_join_by(
             frontier,
             demux(messages),
@@ -211,14 +218,17 @@ where
                 // The surviving node stays ours; its children go on the wire.
                 EitherOrBoth::Both((prefix, node), (_, Incoming::Requested)) => {
                     let one = stream::once(async move { Ok((prefix, node)) });
-                    let mut pruned = unknown(&LOCAL, &their_version, one);
+                    let mut pruned = unknown(&backend, &their_version, one);
                     while let Some(item) = pruned.next().await {
-                        let Ok((prefix, node)) = item;
+                        let (prefix, node) = item?;
                         if keep.send((prefix, node.clone())).await.is_err() {
                             return;
                         }
-                        for (radix, child) in node.into_children() {
-                            yield Out::Providing(prefix.push(radix), child);
+                        let one = stream::once(async move { Ok((prefix, node)) });
+                        let mut children = pin!(backend.clone().children(one));
+                        while let Some(item) = children.next().await {
+                            let (child_prefix, child) = item?;
+                            yield Out::Providing(child_prefix, child);
                         }
                     }
                 }
@@ -226,12 +236,12 @@ where
                 // They dispute this subtree: compare children via the
                 // asymmetry matrix, one verdict per child prefix.
                 EitherOrBoth::Both((prefix, node), (_, Incoming::Uncertain(theirs))) => {
-                    let ours = LOCAL.children(stream::once(async move { Ok((prefix, node)) }));
+                    let one = stream::once(async move { Ok((prefix, node)) });
+                    let ours = backend.clone().children(one);
                     let theirs = stream::iter(theirs.into_iter().map(Ok));
-                    let verdicts = classify(&LOCAL, &their_version, ours, theirs);
+                    let verdicts = classify(&backend, &their_version, ours, theirs);
                     for await verdict in verdicts {
-                        let Ok(verdict) = verdict;
-                        match verdict {
+                        match verdict? {
                             // We have it, they lack it (already pruned by
                             // classify): send it and keep it.
                             Routed::Provide(prefix, node) => {
@@ -252,8 +262,10 @@ where
                             // out as the next `uncertain`; the children
                             // themselves become the next stage's frontier.
                             Routed::Dispute(prefix, node) => {
-                                for (radix, child) in node.into_children() {
-                                    let child_prefix = prefix.push(radix);
+                                let one = stream::once(async move { Ok((prefix, node)) });
+                                let mut children = pin!(backend.clone().children(one));
+                                while let Some(item) = children.next().await {
+                                    let (child_prefix, child) = item?;
                                     yield Out::Uncertain(child_prefix, child.hash());
                                     if down.send((child_prefix, child)).await.is_err() {
                                         return;
@@ -300,18 +312,20 @@ where
 /// [`walk`] minus the classify arm: silence keeps, `requested` explodes into
 /// pruned leaf `providing`, and incoming `providing` is absorbed. All
 /// reconciled nodes land at the frontier height through `level`.
-pub(super) fn complete_walk<T, E>(
+pub(super) fn complete_walk<B, T, E>(
+    backend: B,
     their_version: Version,
-    frontier: BoxNodeStream<T, S<Z>>,
-    messages: impl Messages<message::Closing<Local, T>, E>,
-    mut level: mpsc::Sender<Level<T, S<Z>>>,
-) -> impl Stream<Item = Result<message::Complete<Local, T>, E>> + Send
+    frontier: BoxNodeStream<B, T, S<Z>>,
+    messages: impl Messages<message::Closing<B, T>, E>,
+    mut level: mpsc::Sender<Level<B, T, S<Z>>>,
+) -> impl Stream<Item = Result<message::Complete<B, T>, E>> + Send
 where
+    B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
-    E: Send,
+    E: From<B::Error> + Send,
 {
     try_stream! {
-        let frontier = frontier.map(|item| item.map_err(|error| match error {}));
+        let frontier = frontier.map(|item| item.map_err(E::from));
         // `Some(node)` for an incoming `providing`, `None` for a `requested`;
         // both kinds key by their own prefix at the frontier height.
         let incoming = messages.map(|item| {
@@ -341,15 +355,18 @@ where
                 // the survivor, and send its leaves as the final providing.
                 EitherOrBoth::Both((prefix, node), (_, None)) => {
                     let one = stream::once(async move { Ok((prefix, node)) });
-                    let mut pruned = unknown(&LOCAL, &their_version, one);
+                    let mut pruned = unknown(&backend, &their_version, one);
                     while let Some(item) = pruned.next().await {
-                        let Ok((prefix, node)) = item;
+                        let (prefix, node) = item?;
                         if level.send((prefix, node.clone())).await.is_err() {
                             return;
                         }
-                        for (radix, child) in node.into_children() {
+                        let one = stream::once(async move { Ok((prefix, node)) });
+                        let mut children = pin!(backend.clone().children(one));
+                        while let Some(item) = children.next().await {
+                            let (child_prefix, child) = item?;
                             yield message::Complete::Providing(message::Providing {
-                                prefix: prefix.push(radix),
+                                prefix: child_prefix,
                                 node: child,
                             });
                         }
@@ -383,19 +400,20 @@ where
 ///
 /// The two sets are disjoint: our frontier holds leaves under parents *we*
 /// disputed, while the responder provides only leaves under parents we
-/// requested (and so lack entirely). Driving this join is what forces the
-/// whole session; see
-/// [`complete_initiator`](super::super::super::protocol::CompleteInitiator).
-pub(super) async fn absorb_leaves<T, E>(
-    frontier: BoxNodeStream<T, Z>,
-    messages: impl Messages<message::Complete<Local, T>, E>,
-    mut leaves: mpsc::Sender<Level<T, Z>>,
+/// requested (and so lack entirely). See
+/// [`complete_initiator`](super::super::protocol::CompleteInitiator), which
+/// drives this concurrently with the session's accumulated pumps.
+pub(super) async fn absorb_leaves<B, T, E>(
+    frontier: BoxNodeStream<B, T, Z>,
+    messages: impl Messages<message::Complete<B, T>, E>,
+    mut leaves: mpsc::Sender<Level<B, T, Z>>,
 ) -> Result<(), E>
 where
+    B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
-    E: Send,
+    E: From<B::Error> + Send,
 {
-    let frontier = frontier.map(|item| item.map_err(|error| match error {}));
+    let frontier = frontier.map(|item| item.map_err(E::from));
     let incoming = messages.map(|item| {
         item.map(|message| match message {
             message::Complete::Providing(message::Providing { prefix, node }) => (prefix, node),

@@ -138,9 +138,9 @@ where
                 // children, and reassemble. A child list that prunes away
                 // entirely collapses to nothing (`parents` emits no node).
                 let one = stream::once(async move { Ok((prefix, node)) });
-                let children = Box::pin(backend.children::<H>(one));
+                let children = Box::pin(backend.clone().children::<H>(one));
                 let pruned = H::unknown(backend, known, children);
-                let parents = backend.parents::<H>(pruned);
+                let parents = backend.clone().parents::<H>(pruned);
                 for await parent in parents {
                     yield parent?;
                 }
