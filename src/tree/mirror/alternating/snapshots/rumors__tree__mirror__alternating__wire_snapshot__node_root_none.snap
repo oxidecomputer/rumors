@@ -1,0 +1,5 @@
+---
+source: src/tree/mirror/alternating/wire_snapshot.rs
+expression: snap(&n)
+---
+0000: 00

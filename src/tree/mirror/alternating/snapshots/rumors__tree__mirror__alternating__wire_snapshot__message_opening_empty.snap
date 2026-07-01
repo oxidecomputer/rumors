@@ -1,5 +1,5 @@
 ---
-source: src/tree/traverse/mirror/wire_snapshot.rs
+source: src/tree/mirror/alternating/wire_snapshot.rs
 expression: "snap(&message::Opening::default())"
 ---
 0000: 00 00 00 00

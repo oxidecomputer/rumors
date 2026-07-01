@@ -1,5 +1,0 @@
----
-source: src/tree/traverse/mirror/wire_snapshot.rs
-expression: "snap(&prefix_from_bytes::<message::UnderRoot>(&[0x42]))"
----
-0000: 42

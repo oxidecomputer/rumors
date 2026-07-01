@@ -1,0 +1,5 @@
+---
+source: src/tree/mirror/alternating/wire_snapshot.rs
+expression: "snap(&prefix_from_bytes::<UnderRoot>(&[0x42]))"
+---
+0000: 42
