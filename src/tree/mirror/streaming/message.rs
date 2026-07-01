@@ -1,8 +1,8 @@
+use crate::Version;
 use crate::tree::typed::{
-    Hash, Node, Prefix,
+    Hash, Prefix,
     height::{Height, Root, S, UnderRoot, Z},
 };
-use crate::{Network, Version};
 
 use super::{Backend, Leaf};
 

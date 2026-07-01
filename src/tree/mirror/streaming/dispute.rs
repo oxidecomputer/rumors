@@ -26,7 +26,7 @@
 //! [`Request`]: Routed::Request
 
 use async_stream::try_stream;
-use futures::stream::{self, Stream, StreamExt};
+use futures::stream::{Stream, StreamExt};
 use itertools::EitherOrBoth;
 
 use crate::Version;
@@ -35,7 +35,7 @@ use crate::tree::typed::{
     height::{Height, Z},
 };
 
-use super::backend::{Backend, Leaf, Node, NodeStream};
+use super::backend::{Backend, Leaf, Node, NodeStream, one};
 use super::merge::merge_join_by;
 use super::unknown::{Unknown, unknown};
 
@@ -92,8 +92,7 @@ where
                 // We have it, they lack it: honor their deletions, then provide
                 // the surviving subtree (if any) and keep it.
                 EitherOrBoth::Left((prefix, node)) => {
-                    let one = stream::once(async move { Ok((prefix, node)) });
-                    let mut pruned = unknown(backend, their_version, one);
+                    let mut pruned = unknown(backend, their_version, one(prefix, node));
                     while let Some(survived) = pruned.next().await {
                         let (prefix, node) = survived?;
                         yield Routed::Provide(prefix, node);

@@ -14,7 +14,7 @@
 //!   ([`message::Exchange`]), forwarded by the stage's wire pump into the
 //!   channel the counterparty reads;
 //! - the **next stage's frontier** (`down`) — disputed subtrees exploded one
-//!   level, sent through a [`FAN`]-bounded channel;
+//!   level, sent through a [`FAN`](super::FAN)-bounded channel;
 //! - the **reconciled level at the frontier height** (`keep`) — nodes the
 //!   counterparty matched by silence, request-answer survivors, and absorbed
 //!   `providing`;
@@ -22,12 +22,12 @@
 //!   `Provide` verdicts from [`classify`].
 //!
 //! The two reconciled-level channels feed the stage's upward reassembly (see
-//! [`super`]); their [`FAN`] bound is what pins the whole session's memory to a
+//! [`super`]); their [`FAN`](super::FAN) bound is what pins the whole session's memory to a
 //! single parent's fan regardless of diff size.
 //!
 //! # Channel discipline
 //!
-//! Every channel send backpressures at [`FAN`] entries. A closed channel means
+//! Every channel send backpressures at [`FAN`](super::FAN) entries. A closed channel means
 //! the consuming half of the session was dropped; the walk then ends its output
 //! stream rather than erroring, and the counterparty observes an ordinary
 //! end-of-stream.
@@ -46,13 +46,13 @@ use crate::tree::typed::{
     height::{Height, S, Z},
 };
 
-use super::super::backend::{Backend, Leaf, Node};
+use super::super::backend::{Backend, Leaf, Node, one};
 use super::super::dispute::{Routed, classify};
 use super::super::merge::merge_join_by;
 use super::super::message;
 use super::super::protocol::Messages;
 use super::super::unknown::{Unknown, unknown};
-use super::{BoxNodeStream, FAN, Level};
+use super::{BoxNodeStream, Level};
 
 /// A run of uncertain children under one parent: their prefixes and hashes.
 type Hashes<C> = Vec<(Prefix<C>, Hash)>;
@@ -180,8 +180,8 @@ where
         let joined = merge_join_by(
             frontier,
             demux(messages),
-            |(prefix, _): &(Prefix<S<S<G>>>, _)| *prefix,
-            |(prefix, _): &(Prefix<S<S<G>>>, _)| *prefix,
+            |(prefix, _)| *prefix,
+            |(prefix, _)| *prefix,
         );
 
         for await cell in joined {
@@ -199,15 +199,13 @@ where
                 // that they lack were deleted there, so we forget them too.
                 // The surviving node stays ours; its children go on the wire.
                 EitherOrBoth::Both((prefix, node), (_, Incoming::Requested)) => {
-                    let one = stream::once(async move { Ok((prefix, node)) });
-                    let mut pruned = unknown(&backend, &their_version, one);
+                    let mut pruned = unknown(&backend, &their_version, one(prefix, node));
                     while let Some(item) = pruned.next().await {
                         let (prefix, node) = item?;
                         if keep.send((prefix, node.clone())).await.is_err() {
                             return;
                         }
-                        let one = stream::once(async move { Ok((prefix, node)) });
-                        let mut children = pin!(backend.clone().children(one));
+                        let mut children = pin!(backend.clone().children(one(prefix, node)));
                         while let Some(item) = children.next().await {
                             let (child_prefix, child) = item?;
                             yield message::Exchange::Providing(message::Providing {
@@ -221,8 +219,7 @@ where
                 // They dispute this subtree: compare children via the
                 // asymmetry matrix, one verdict per child prefix.
                 EitherOrBoth::Both((prefix, node), (_, Incoming::Uncertain(theirs))) => {
-                    let one = stream::once(async move { Ok((prefix, node)) });
-                    let ours = backend.clone().children(one);
+                    let ours = backend.clone().children(one(prefix, node));
                     let theirs = stream::iter(theirs.into_iter().map(Ok));
                     let verdicts = classify(&backend, &their_version, ours, theirs);
                     for await verdict in verdicts {
@@ -252,8 +249,7 @@ where
                             // out as the next `uncertain`; the children
                             // themselves become the next stage's frontier.
                             Routed::Dispute(prefix, node) => {
-                                let one = stream::once(async move { Ok((prefix, node)) });
-                                let mut children = pin!(backend.clone().children(one));
+                                let mut children = pin!(backend.clone().children(one(prefix, node)));
                                 while let Some(item) = children.next().await {
                                     let (child_prefix, child) = item?;
                                     yield message::Exchange::Uncertain(message::Uncertain {
@@ -332,8 +328,8 @@ where
         let joined = merge_join_by(
             frontier,
             incoming,
-            |(prefix, _): &(Prefix<S<Z>>, _)| *prefix,
-            |(prefix, _): &(Prefix<S<Z>>, _)| *prefix,
+            |(prefix, _)| *prefix,
+            |(prefix, _)| *prefix,
         );
 
         for await cell in joined {
@@ -347,15 +343,13 @@ where
                 // They lack it entirely: prune against their version, keep
                 // the survivor, and send its leaves as the final providing.
                 EitherOrBoth::Both((prefix, node), (_, None)) => {
-                    let one = stream::once(async move { Ok((prefix, node)) });
-                    let mut pruned = unknown(&backend, &their_version, one);
+                    let mut pruned = unknown(&backend, &their_version, one(prefix, node));
                     while let Some(item) = pruned.next().await {
                         let (prefix, node) = item?;
                         if level.send((prefix, node.clone())).await.is_err() {
                             return;
                         }
-                        let one = stream::once(async move { Ok((prefix, node)) });
-                        let mut children = pin!(backend.clone().children(one));
+                        let mut children = pin!(backend.clone().children(one(prefix, node)));
                         while let Some(item) = children.next().await {
                             let (child_prefix, child) = item?;
                             yield message::Complete::Providing(message::Providing {
@@ -415,8 +409,8 @@ where
     let joined = merge_join_by(
         frontier,
         incoming,
-        |(prefix, _): &(Prefix<Z>, _)| *prefix,
-        |(prefix, _): &(Prefix<Z>, _)| *prefix,
+        |(prefix, _)| *prefix,
+        |(prefix, _)| *prefix,
     );
 
     let mut joined = pin!(joined);

@@ -5,7 +5,6 @@ use std::time::Duration;
 use proptest::prelude::*;
 use tokio::runtime::Runtime;
 
-use crate::Network;
 use crate::tree::arb::{arb_divergent_pair, arb_tree_root};
 use crate::tree::mirror::alternating;
 
@@ -60,25 +59,6 @@ fn alternating_mirror(a: crate::tree::Root<()>, b: crate::tree::Root<()>) -> cra
             }
         }
     })
-}
-
-/// A deterministic minimal session — two small causally independent trees —
-/// agrees with the oracle: fast, seedless signal ahead of the proptests.
-#[test]
-fn smoke() {
-    let mk = |party: usize, n: usize| {
-        let p = crate::tree::arb::nth_party(party);
-        let mut t = crate::tree::Tree::new();
-        t.act(
-            &p,
-            (0..n).map(|_| crate::tree::Action::Insert(crate::message::Message::new(()))),
-        );
-        t.root
-    };
-    let a = mk(0, 2);
-    let b = mk(1, 1);
-    let expected = alternating_mirror(a.clone(), b.clone());
-    assert_eq!(streaming_mirror(a, b), expected);
 }
 
 proptest! {

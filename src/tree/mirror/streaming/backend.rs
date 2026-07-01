@@ -1,4 +1,4 @@
-use futures::Stream;
+use futures::{Stream, future, stream};
 
 use crate::{
     Version,
@@ -104,6 +104,19 @@ pub trait NodeStream<B: Backend<T, Node<Z>: Leaf<T>>, T, H: Height>:
 impl<N, B: Backend<T, Node<Z>: Leaf<T>>, T, H: Height> NodeStream<B, T, H> for N where
     N: Stream<Item = Result<(Prefix<H>, B::Node<H>), B::Error>> + Send
 {
+}
+
+/// A stream of one prefix-keyed node.
+///
+/// The seed for anything that operates on a single subtree through the
+/// stream algebra: exploding it one level via [`Backend::children`], or
+/// pruning it via [`unknown`](super::unknown::unknown).
+pub(super) fn one<B, T, H>(prefix: Prefix<H>, node: B::Node<H>) -> impl NodeStream<B, T, H>
+where
+    B: Backend<T, Node<Z>: Leaf<T>>,
+    H: Height,
+{
+    stream::once(future::ready(Ok((prefix, node))))
 }
 
 /// A backend's whole tree at rest: what a mirror session consumes and

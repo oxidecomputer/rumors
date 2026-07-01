@@ -14,7 +14,6 @@ use futures::Stream;
 
 pub trait Stage {
     type Height: Height;
-    type Node;
     type Error;
 }
 

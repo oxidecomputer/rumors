@@ -1,7 +1,8 @@
 // TODO-integration: the streaming mirror is complete and oracle-tested but
 // not yet wired into the crate's session layer, so outside `cfg(test)` the
-// whole module is dead code. Remove this allow when `Peer` adopts it.
-#![allow(unused)]
+// whole module is dead code (imports are still checked). Remove this allow
+// and the re-export allows below when `Peer` adopts it.
+#![allow(dead_code)]
 
 mod backend;
 mod convert;
@@ -12,7 +13,9 @@ mod protocol;
 mod session;
 mod unknown;
 
+#[allow(unused_imports)]
 pub use backend::{Backend, Leaf, Local, Node, Root};
+#[allow(unused_imports)]
 pub use session::Handshaking;
 
 use std::cmp::Ordering;
@@ -47,18 +50,13 @@ macro_rules! x {
         let (msgs, $peer) = $peer.$method::<E>($($arg),*);
         let $msgs = boxed(msgs);
     };
-    ($sender:ident . $sender_method:ident == $msgs:ident => $receiver:ident . $receiver_method:ident) => {
+    ($sender:ident . $sender_method:ident == $msgs:ident => $receiver:ident) => {
         #[allow(unused)]
         let ($msgs, $sender, $receiver) = {
             let (msgs, next) = $sender.$sender_method::<E>($msgs);
             (boxed(msgs), next, $receiver)
         };
     };
-    // The session's terminal: the initiator's completion and the responder's
-    // drive future are joined, so every pump on both sides is polled
-    // unconditionally until the whole session is done (see
-    // `CompleteResponder::complete_responder` for why the responder's wire
-    // stream alone is not enough).
     ($initiator:ident . complete_initiator <= $msgs:ident == $responder:ident . complete_responder) => {{
         let (msgs, drive) = $responder.complete_responder::<E>($msgs);
         let msgs = boxed(msgs);
@@ -66,7 +64,7 @@ macro_rules! x {
             futures::future::join($initiator.complete_initiator::<E>(msgs), drive).await;
         initiated.and(driven)
     }};
-    ($receiver:ident . $receiver_method:ident <= $msgs:ident == $sender:ident . $sender_method:ident) => {
+    ($receiver:ident <= $msgs:ident == $sender:ident . $sender_method:ident) => {
         #[allow(unused)]
         let ($msgs, $receiver, $sender) = {
             let (msgs, next) = $sender.$sender_method::<E>($msgs);
@@ -84,14 +82,14 @@ where
     E: From<I::Error> + From<R::Error> + From<B::Error> + Send + 'static,
 {
     x! { let x = i.initiator() }
-    x! { i.open_initiator <=x== r.responder }
-    x! { i.open_initiator ==x=> r.exchange }
+    x! { i <=x== r.responder }
+    x! { i.open_initiator ==x=> r }
     seq!(_ in 0..14 {
-        x! { i.exchange <=x== r.exchange }
-        x! { i.exchange ==x=> r.exchange }
+        x! { i <=x== r.exchange }
+        x! { i.exchange ==x=> r }
     });
-    x! { i.close_initiator    <=x== r.exchange }
-    x! { i.close_initiator    ==x=> r.complete_responder }
+    x! { i <=x== r.exchange }
+    x! { i.close_initiator ==x=> r }
     x! { i.complete_initiator <=x== r.complete_responder }
 }
 

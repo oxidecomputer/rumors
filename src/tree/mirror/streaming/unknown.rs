@@ -26,15 +26,11 @@ use std::cmp::Ordering;
 use std::pin::Pin;
 
 use async_stream::try_stream;
-use futures::stream::{self, Stream};
 
 use crate::Version;
-use crate::tree::typed::{
-    Prefix,
-    height::{Height, S, Z},
-};
+use crate::tree::typed::height::{Height, S, Z};
 
-use super::backend::{Backend, Leaf, Node, NodeStream};
+use super::backend::{Backend, Leaf, Node, NodeStream, one};
 
 /// Prune `stream` down to the nodes a counterparty at `known` is missing.
 ///
@@ -137,8 +133,7 @@ where
                 // Mixed: descend. Explode just this node one level, prune its
                 // children, and reassemble. A child list that prunes away
                 // entirely collapses to nothing (`parents` emits no node).
-                let one = stream::once(async move { Ok((prefix, node)) });
-                let children = Box::pin(backend.clone().children::<H>(one));
+                let children = Box::pin(backend.clone().children::<H>(one(prefix, node)));
                 let pruned = H::unknown(backend, known, children);
                 let parents = backend.clone().parents::<H>(pruned);
                 for await parent in parents {

@@ -25,14 +25,14 @@ use futures::stream::{self, StreamExt};
 use std::pin::{Pin, pin};
 
 use crate::{
-    Network, Version,
+    Version,
     tree::typed::{
         Prefix,
         height::{self, Height, S, UnderRoot, UnderUnderRoot, Z},
     },
 };
 
-use super::backend::{Backend, Leaf, Node, NodeStream, Root};
+use super::backend::{Backend, Leaf, Node, NodeStream, Root, one};
 use super::dispute::{Routed, classify};
 use super::merge::merge_disjoint;
 use super::message;
@@ -81,24 +81,29 @@ type Level<B, T, H> = (Prefix<H>, <B as Backend<T>>::Node<H>);
 /// failure arm.
 type Pump<E> = BoxFuture<'static, Result<(), E>>;
 
-/// Box a stage's outgoing wire stream as the [`Pump`] that forwards it into
-/// the stage's wire channel.
+/// Open a stage's outgoing wire: push the [`Pump`] that forwards `messages`
+/// into a fresh [`FAN`]-bounded channel, and return the receiving half.
 ///
 /// The receiving half is what the stage returns as its outgoing [`Messages`]:
-/// the counterparty reads a plain channel while this pump — not the
-/// counterparty's demand — advances the walk behind it. Ends when the wire
-/// ends or the counterparty drops the receiver (session teardown). Never
-/// fails: errors ride the forwarded items.
-fn pump<M, E, X>(wire: impl Messages<M, E> + 'static, tx: mpsc::Sender<Result<M, E>>) -> Pump<X>
+/// the counterparty reads a plain channel while the pushed pump — not the
+/// counterparty's demand — advances the walk behind it. The pump ends when
+/// the wire ends or the counterparty drops the receiver (session teardown),
+/// and never fails: errors ride the forwarded items.
+fn wire<M, E, X>(
+    pumps: &mut Vec<Pump<X>>,
+    messages: impl Messages<M, E> + 'static,
+) -> mpsc::Receiver<Result<M, E>>
 where
     M: Send + 'static,
     E: Send + 'static,
     X: Send + 'static,
 {
-    Box::pin(async move {
-        let _ = wire.map(Ok).forward(tx).await;
+    let (tx, rx) = mpsc::channel(FAN);
+    pumps.push(Box::pin(async move {
+        let _ = messages.map(Ok).forward(tx).await;
         Ok(())
-    })
+    }));
+    rx
 }
 
 /// The [`Pump`] that reassembles one stage's slice of the reconciled tree.
@@ -180,13 +185,29 @@ where
     })
 }
 
+/// Drive every accumulated pump to completion, surfacing the first backend
+/// failure once all have settled.
+///
+/// The set is not cancelled on failure: a failed pump drops its channel
+/// endpoints, which its neighbors observe as ordinary end-of-stream, so the
+/// rest of the session winds down cleanly before the error is reported.
+async fn drive<X, E>(pumps: Vec<Pump<X>>) -> Result<(), E>
+where
+    X: Send + 'static,
+    E: From<X>,
+{
+    for pumped in future::join_all(pumps).await {
+        pumped?;
+    }
+    Ok(())
+}
+
 /// The version state of a stage that has been opened but has not yet sent its
 /// handshake.
 ///
 /// Carries what the [`connect`](protocol::Connect::connect) /
 /// [`accept`](protocol::Accept::accept) step folds into its outgoing
-/// [`message::Handshake`]: our universe [`Network`], our latest [`Version`]
-/// (the tree's ceiling), and our [`Intent`](message::Intent).
+/// [`message::Handshake`]: our latest [`Version`], the tree's ceiling.
 pub struct Start {
     our_version: Version,
 }
@@ -211,7 +232,7 @@ pub struct Connected {
 /// whole tree is held intact as `root` until reconciliation begins at
 /// [`initiator`](protocol::Initiator::initiator) /
 /// [`responder`](protocol::Responder::responder).
-pub struct Handshaking<B, V, T>
+pub struct Handshaking<B, T, V>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
 {
@@ -221,7 +242,7 @@ where
     recover: oneshot::Sender<Root<B, T>>,
 }
 
-impl<B, T> Handshaking<B, Start, T>
+impl<B, T> Handshaking<B, T, Start>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
 {
@@ -248,21 +269,20 @@ where
     }
 }
 
-impl<B, V, T> protocol::Stage for Handshaking<B, V, T>
+impl<B, T, V> protocol::Stage for Handshaking<B, T, V>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
 {
     type Height = height::Root;
-    type Node = B::Node<height::Root>;
     type Error = B::Error;
 }
 
-impl<B, T> protocol::Connect<B, T> for Handshaking<B, Start, T>
+impl<B, T> protocol::Connect<B, T> for Handshaking<B, T, Start>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    type Next = Handshaking<B, Connecting, T>;
+    type Next = Handshaking<B, T, Connecting>;
 
     async fn connect<E>(self) -> Result<(message::Handshake, Self::Next), E>
     where
@@ -283,12 +303,12 @@ where
     }
 }
 
-impl<B, T> protocol::CompleteConnect<B, T> for Handshaking<B, Connecting, T>
+impl<B, T> protocol::CompleteConnect<B, T> for Handshaking<B, T, Connecting>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    type Next = Handshaking<B, Connected, T>;
+    type Next = Handshaking<B, T, Connected>;
 
     async fn complete_connect<E>(self, their_version: Version) -> Result<Self::Next, E>
     where
@@ -306,12 +326,12 @@ where
     }
 }
 
-impl<B, T> protocol::Accept<B, T> for Handshaking<B, Start, T>
+impl<B, T> protocol::Accept<B, T> for Handshaking<B, T, Start>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    type Next = Handshaking<B, Connected, T>;
+    type Next = Handshaking<B, T, Connected>;
 
     async fn accept<E>(
         self,
@@ -338,7 +358,7 @@ where
     }
 }
 
-impl<B, T> protocol::Initiator<B, T> for Handshaking<B, Connected, T>
+impl<B, T> protocol::Initiator<B, T> for Handshaking<B, T, Connected>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
@@ -364,7 +384,7 @@ where
     }
 }
 
-impl<B, T> protocol::Responder<B, T> for Handshaking<B, Connected, T>
+impl<B, T> protocol::Responder<B, T> for Handshaking<B, T, Connected>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
@@ -384,7 +404,6 @@ where
             root,
             recover,
         } = self;
-        let (wire_tx, wire_rx) = mpsc::channel(FAN);
         let (down_tx, down_rx) = mpsc::channel(FAN);
         let (up_tx, up_rx) = mpsc::channel(FAN);
 
@@ -396,7 +415,7 @@ where
         // through the steady-state pipeline. A single termination path on the
         // wire beats a special case.
         let explode = backend.clone();
-        let wire = try_stream! {
+        let outgoing = try_stream! {
             let mut down = down_tx;
             for await item in requests {
                 // The initiate's content is not used (we explode
@@ -404,8 +423,7 @@ where
                 item?;
             }
             if let Some(node) = root.root {
-                let one = stream::once(async move { Ok((Prefix::new(), node)) });
-                let mut children = pin!(explode.children(one));
+                let mut children = pin!(explode.children(one(Prefix::new(), node)));
                 while let Some(item) = children.next().await {
                     let (prefix, child) = item?;
                     yield message::Opening::Uncertain(message::Uncertain {
@@ -423,7 +441,8 @@ where
         // one fold reassembles the root for delivery.
         let ceiling = versions.our_version | versions.their_version.clone();
         let top = backend.clone().parents(up_rx.map(Ok::<_, B::Error>));
-        let pumps = vec![pump(wire, wire_tx), deliver(top, ceiling, recover)];
+        let mut pumps = vec![deliver(top, ceiling, recover)];
+        let wire_rx = wire(&mut pumps, outgoing);
 
         let next = Descending {
             backend,
@@ -436,7 +455,7 @@ where
     }
 }
 
-impl<B, T> protocol::OpenInitiator<B, T> for Handshaking<B, Connected, T>
+impl<B, T> protocol::OpenInitiator<B, T> for Handshaking<B, T, Connected>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
@@ -460,7 +479,6 @@ where
             recover,
         } = self;
         let their_version = versions.their_version.clone();
-        let (wire_tx, wire_rx) = mpsc::channel(FAN);
         let (down_tx, down_rx) = mpsc::channel(FAN);
         let (level_tx, level_rx) = mpsc::channel(FAN);
         let (up_tx, up_rx) = mpsc::channel(FAN);
@@ -474,7 +492,7 @@ where
         // holds as `Request`, and an empty side degenerates to all-`Provide`
         // or all-`Request` with no special casing.
         let open = backend.clone();
-        let wire = try_stream! {
+        let outgoing = try_stream! {
             let mut down = down_tx;
             let mut level = level_tx;
 
@@ -482,14 +500,14 @@ where
             let mut theirs = Vec::new();
             for await item in requests {
                 let message::Opening::Uncertain(message::Uncertain { prefix, hash }) = item?;
-                theirs.push(Ok((prefix, hash)));
+                theirs.push((prefix, hash));
             }
 
             match root.root {
                 Some(node) => {
-                    let one = stream::once(async move { Ok((Prefix::new(), node)) });
-                    let ours = open.clone().children(one);
-                    let verdicts = classify(&open, &their_version, ours, stream::iter(theirs));
+                    let ours = open.clone().children(one(Prefix::new(), node));
+                    let theirs = stream::iter(theirs.into_iter().map(Ok));
+                    let verdicts = classify(&open, &their_version, ours, theirs);
                     for await verdict in verdicts {
                         match verdict? {
                             Routed::Provide(prefix, node) => {
@@ -510,8 +528,7 @@ where
                                 yield message::Exchange::Requested(message::Requested { prefix });
                             }
                             Routed::Dispute(prefix, node) => {
-                                let one = stream::once(async move { Ok((prefix, node)) });
-                                let mut children = pin!(open.clone().children(one));
+                                let mut children = pin!(open.clone().children(one(prefix, node)));
                                 while let Some(item) = children.next().await {
                                     let (child_prefix, child) = item?;
                                     yield message::Exchange::Uncertain(message::Uncertain {
@@ -528,8 +545,7 @@ where
                 }
                 None => {
                     // We are empty: request everything the responder listed.
-                    for item in theirs {
-                        let (prefix, _hash) = item?;
+                    for (prefix, _hash) in theirs {
                         yield message::Exchange::Requested(message::Requested { prefix });
                     }
                 }
@@ -545,7 +561,8 @@ where
             backend.clone().parents(up_rx.map(Ok)),
             |(prefix, _)| *prefix,
         ));
-        let pumps = vec![pump(wire, wire_tx), deliver(top, ceiling, recover)];
+        let mut pumps = vec![deliver(top, ceiling, recover)];
+        let wire_rx = wire(&mut pumps, outgoing);
 
         let next = Descending {
             backend,
@@ -589,8 +606,67 @@ where
     H: Height,
 {
     type Height = H;
-    type Node = B::Node<H>;
     type Error = B::Error;
+}
+
+impl<B, T, G> Descending<B, T, S<S<G>>>
+where
+    B: Backend<T, Node<Z>: Leaf<T>>,
+    T: Send + Sync + 'static,
+    G: Height + Unknown,
+    S<G>: Height,
+    S<S<G>>: Height,
+{
+    /// One step of the descent: start this stage's [`walk`](reconcile::walk)
+    /// and [`ascend`] pumps and construct the successor two heights finer.
+    ///
+    /// Shared by [`exchange`](protocol::Exchange::exchange) and
+    /// [`close_initiator`](protocol::CloseInitiator::close_initiator). The
+    /// returned stream is the walk's raw outgoing wire; the caller seals it
+    /// into its stage's concrete message type and opens the wire channel
+    /// with [`wire`].
+    fn descend<E>(
+        self,
+        requests: impl Messages<message::Exchange<B, T, S<G>>, E> + 'static,
+    ) -> (
+        impl Messages<message::Exchange<B, T, G>, E> + 'static,
+        Descending<B, T, G>,
+    )
+    where
+        E: From<B::Error> + Send + 'static,
+    {
+        let Descending {
+            backend,
+            their_version,
+            frontier,
+            up,
+            mut pumps,
+        } = self;
+        let (down_tx, down_rx) = mpsc::channel(FAN);
+        let (keep_tx, keep_rx) = mpsc::channel(FAN);
+        let (level_tx, level_rx) = mpsc::channel(FAN);
+        let (below_tx, below_rx) = mpsc::channel(FAN);
+
+        let walk = reconcile::walk(
+            backend.clone(),
+            their_version.clone(),
+            frontier,
+            requests,
+            down_tx,
+            keep_tx,
+            level_tx,
+        );
+        pumps.push(ascend(backend.clone(), keep_rx, level_rx, below_rx, up));
+
+        let next = Descending {
+            backend,
+            their_version,
+            frontier: Box::pin(down_rx.map(Ok::<_, B::Error>)),
+            up: below_tx,
+            pumps,
+        };
+        (walk, next)
+    }
 }
 
 impl<B, T, H> protocol::Exchange<B, T> for Descending<B, T, S<S<S<H>>>>
@@ -618,39 +694,10 @@ where
     where
         E: From<B::Error> + Send + 'static,
     {
-        let Descending {
-            backend,
-            their_version,
-            frontier,
-            up,
-            mut pumps,
-        } = self;
-        let (wire_tx, wire_rx) = mpsc::channel(FAN);
-        let (down_tx, down_rx) = mpsc::channel(FAN);
-        let (keep_tx, keep_rx) = mpsc::channel(FAN);
-        let (level_tx, level_rx) = mpsc::channel(FAN);
-        let (below_tx, below_rx) = mpsc::channel(FAN);
-
-        let wire = reconcile::walk(
-            backend.clone(),
-            their_version.clone(),
-            frontier,
-            requests,
-            down_tx,
-            keep_tx,
-            level_tx,
-        );
-        pumps.push(pump(wire, wire_tx));
-        pumps.push(ascend(backend.clone(), keep_rx, level_rx, below_rx, up));
-
-        let next = Descending {
-            backend,
-            their_version,
-            frontier: Box::pin(down_rx.map(Ok::<_, B::Error>)),
-            up: below_tx,
-            pumps,
-        };
-        (wire_rx, next)
+        // A steady-state stage's wire is the walk's output verbatim.
+        let (walk, mut next) = self.descend(requests);
+        let wire = wire(&mut next.pumps, walk);
+        (wire, next)
     }
 }
 
@@ -671,29 +718,8 @@ where
     where
         E: From<B::Error> + Send + 'static,
     {
-        let Descending {
-            backend,
-            their_version,
-            frontier,
-            up,
-            mut pumps,
-        } = self;
-        let (wire_tx, wire_rx) = mpsc::channel(FAN);
-        let (down_tx, down_rx) = mpsc::channel(FAN);
-        let (keep_tx, keep_rx) = mpsc::channel(FAN);
-        let (level_tx, level_rx) = mpsc::channel(FAN);
-        let (below_tx, below_rx) = mpsc::channel(FAN);
-
-        let wire = reconcile::walk(
-            backend.clone(),
-            their_version.clone(),
-            frontier,
-            requests,
-            down_tx,
-            keep_tx,
-            level_tx,
-        )
-        .filter_map(|item| {
+        let (walk, mut next) = self.descend(requests);
+        let closing = walk.filter_map(|item| {
             future::ready(match item {
                 Ok(message::Exchange::Providing(providing)) => {
                     Some(Ok(message::Closing::Providing(providing)))
@@ -709,17 +735,8 @@ where
                 Err(error) => Some(Err(error)),
             })
         });
-        pumps.push(pump(wire, wire_tx));
-        pumps.push(ascend(backend.clone(), keep_rx, level_rx, below_rx, up));
-
-        let next = Descending {
-            backend,
-            their_version,
-            frontier: Box::pin(down_rx.map(Ok::<_, B::Error>)),
-            up: below_tx,
-            pumps,
-        };
-        (wire_rx, next)
+        let wire = wire(&mut next.pumps, closing);
+        (wire, next)
     }
 }
 
@@ -745,25 +762,17 @@ where
             up,
             mut pumps,
         } = self;
-        let (wire_tx, wire_rx) = mpsc::channel(FAN);
 
         // The terminal walk reconciles everything at the frontier height, so
         // its level output *is* this stage's contribution to the reassembly:
         // no ascent of its own, just the level sent straight up.
-        let wire = reconcile::complete_walk(backend, their_version, frontier, requests, up);
-        pumps.push(pump(wire, wire_tx));
+        let complete = reconcile::complete_walk(backend, their_version, frontier, requests, up);
+        let wire = wire(&mut pumps, complete);
 
-        // The responder's terminal drive: every pump of this side's session,
-        // polled to completion concurrently with the initiator's terminal
-        // (the driver joins the two). Protocol errors ride the wire streams;
-        // what a pump itself reports is a backend failure.
-        let drive = async move {
-            for pumped in future::join_all(pumps).await {
-                pumped?;
-            }
-            Ok(())
-        };
-        (wire_rx, drive)
+        // The responder's terminal: every pump of this side's session, driven
+        // to completion concurrently with the initiator's terminal (the
+        // driver joins the two).
+        (wire, drive(pumps))
     }
 }
 
@@ -792,11 +801,7 @@ where
         // ascent of its own) while driving every pump of this side's session
         // to completion.
         let absorb = reconcile::absorb_leaves(frontier, requests, up);
-        let (absorbed, pumped) = future::join(absorb, future::join_all(pumps)).await;
-        absorbed?;
-        for pumped in pumped {
-            pumped?;
-        }
-        Ok(())
+        let (absorbed, pumped) = future::join(absorb, drive(pumps)).await;
+        absorbed.and(pumped)
     }
 }
