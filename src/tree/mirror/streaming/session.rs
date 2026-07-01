@@ -3,21 +3,19 @@
 //!
 //! A stage is one node in the protocol's descending schedule. Unlike the
 //! alternating backend — which materializes a `Levels` zipper and pushes two
-//! levels per round — the streaming stages thread lazy boxed node streams:
-//! our frontier subtrees flow downward to be disassembled, and reconciled
-//! nodes flow upward to be reassembled, a hylomorphism in strict prefix
-//! order.
+//! levels per round — the streaming stages thread lazy boxed node streams: our
+//! frontier subtrees flow downward to be disassembled, and reconciled nodes
+//! flow upward to be reassembled, a hylomorphism in strict prefix order.
 //!
 //! Every dataflow edge is a [`FAN`]-bounded channel and every worker is a
-//! [`Pump`]. Each descent stage contributes two: its walk (the frontier
-//! against the incoming wire, fanning out to the wire/down/keep/level
-//! channels) and its ascent (folding the reconciled levels back toward the
-//! root). The accumulated set is driven concurrently at the session's two
-//! terminals — [`complete_initiator`](protocol::CompleteInitiator) on the
-//! initiator, the drive future returned by
-//! [`complete_responder`](protocol::CompleteResponder) on the responder — and
-//! each side's reconciled [`Root`] is delivered through the oneshot handed
-//! out by [`Handshaking::start`].
+//! [`Pump`]. Each descent stage contributes two: its walk (the frontier against
+//! the incoming wire, fanning out to the wire/down/keep/level channels) and its
+//! ascent (folding the reconciled levels back toward the root). The accumulated
+//! set is driven concurrently at the session's two terminals —
+//! [`complete_initiator`](protocol::CompleteInitiator) on the initiator, the
+//! drive future returned by [`complete_responder`](protocol::CompleteResponder)
+//! on the responder — and each side's reconciled [`Root`] is delivered through
+//! the oneshot handed out by [`Handshaking::start`].
 
 use async_stream::try_stream;
 use futures::SinkExt;
@@ -42,7 +40,6 @@ use super::protocol::{self, Messages};
 use super::unknown::Unknown;
 
 mod reconcile;
-use reconcile::Out;
 
 /// The bound on every internal channel: one node's child fan (the radix).
 ///
@@ -191,8 +188,6 @@ where
 /// [`message::Handshake`]: our universe [`Network`], our latest [`Version`]
 /// (the tree's ceiling), and our [`Intent`](message::Intent).
 pub struct Start {
-    network: Network,
-    intent: message::Intent,
     our_version: Version,
 }
 
@@ -237,19 +232,12 @@ where
     /// completes; it is dropped unresolved if the session never reaches
     /// reconciliation (in particular, when the peers' versions are equal and
     /// there is nothing to reconcile) or if the backend fails mid-session.
-    pub fn start(
-        backend: B,
-        network: Network,
-        intent: message::Intent,
-        root: Root<B, T>,
-    ) -> (Self, oneshot::Receiver<Root<B, T>>) {
+    pub fn start(backend: B, root: Root<B, T>) -> (Self, oneshot::Receiver<Root<B, T>>) {
         let (recover, recovered) = oneshot::channel();
         (
             Self {
                 backend,
                 versions: Start {
-                    network,
-                    intent,
                     our_version: root.ceiling.clone(),
                 },
                 root,
@@ -280,15 +268,9 @@ where
     where
         E: From<B::Error> + Send + 'static,
     {
-        let Start {
-            network,
-            intent,
-            our_version,
-        } = self.versions;
+        let Start { our_version } = self.versions;
 
         let handshake = message::Handshake {
-            network,
-            intent,
             version: our_version.clone(),
         };
         let next = Handshaking {
@@ -338,15 +320,9 @@ where
     where
         E: From<B::Error> + Send + 'static,
     {
-        let Start {
-            network,
-            intent,
-            our_version,
-        } = self.versions;
+        let Start { our_version } = self.versions;
 
         let handshake = message::Handshake {
-            network,
-            intent,
             version: our_version.clone(),
         };
         let next = Handshaking {
@@ -663,20 +639,7 @@ where
             down_tx,
             keep_tx,
             level_tx,
-        )
-        .map(|item| {
-            item.map(|out| match out {
-                Out::Providing(prefix, node) => {
-                    message::Exchange::Providing(message::Providing { prefix, node })
-                }
-                Out::Requested(prefix) => {
-                    message::Exchange::Requested(message::Requested { prefix })
-                }
-                Out::Uncertain(prefix, hash) => {
-                    message::Exchange::Uncertain(message::Uncertain { prefix, hash })
-                }
-            })
-        });
+        );
         pumps.push(pump(wire, wire_tx));
         pumps.push(ascend(backend.clone(), keep_rx, level_rx, below_rx, up));
 
@@ -732,22 +695,17 @@ where
         )
         .filter_map(|item| {
             future::ready(match item {
-                Ok(Out::Providing(prefix, node)) => {
-                    Some(Ok(message::Closing::Providing(message::Providing {
-                        prefix,
-                        node,
-                    })))
+                Ok(message::Exchange::Providing(providing)) => {
+                    Some(Ok(message::Closing::Providing(providing)))
                 }
-                Ok(Out::Requested(prefix)) => {
-                    Some(Ok(message::Closing::Requested(message::Requested {
-                        prefix,
-                    })))
+                Ok(message::Exchange::Requested(requested)) => {
+                    Some(Ok(message::Closing::Requested(requested)))
                 }
                 // Vacuous at leaf height (see [`message::Closing`]): the
                 // disputed leaves still descend into the terminal frontier and
                 // stay ours, exactly as the alternating oracle keeps its
                 // exploded bottom level.
-                Ok(Out::Uncertain(..)) => None,
+                Ok(message::Exchange::Uncertain(..)) => None,
                 Err(error) => Some(Err(error)),
             })
         });

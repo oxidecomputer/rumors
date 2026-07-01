@@ -10,9 +10,9 @@
 //! prefix. Every verdict of the asymmetry matrix routes to one of four
 //! destinations:
 //!
-//! - the **outgoing wire** — the walk's direct output ([`Out::Providing`],
-//!   [`Out::Requested`], [`Out::Uncertain`]), forwarded by the stage's wire
-//!   pump into the channel the counterparty reads;
+//! - the **outgoing wire** — the walk's direct output, already in wire form
+//!   ([`message::Exchange`]), forwarded by the stage's wire pump into the
+//!   channel the counterparty reads;
 //! - the **next stage's frontier** (`down`) — disputed subtrees exploded one
 //!   level, sent through a [`FAN`]-bounded channel;
 //! - the **reconciled level at the frontier height** (`keep`) — nodes the
@@ -22,15 +22,15 @@
 //!   `Provide` verdicts from [`classify`].
 //!
 //! The two reconciled-level channels feed the stage's upward reassembly (see
-//! [`super`]); their [`FAN`] bound is what pins the whole session's memory to
-//! a single parent's fan regardless of diff size.
+//! [`super`]); their [`FAN`] bound is what pins the whole session's memory to a
+//! single parent's fan regardless of diff size.
 //!
 //! # Channel discipline
 //!
 //! Every channel send backpressures at [`FAN`] entries. A closed channel means
-//! the consuming half of the session was dropped; the walk then ends its
-//! output stream rather than erroring, and the counterparty observes an
-//! ordinary end-of-stream.
+//! the consuming half of the session was dropped; the walk then ends its output
+//! stream rather than erroring, and the counterparty observes an ordinary
+//! end-of-stream.
 
 use std::pin::pin;
 
@@ -63,14 +63,14 @@ type Reaction<B, T, M> = (Prefix<S<M>>, Incoming<B, T, M>);
 /// One incoming wire reaction, grouped under the frontier-height prefix it
 /// concerns.
 ///
-/// The wire interleaves kinds in one globally prefix-ascending stream; what
-/// the walk's merge-join needs is one item per frontier prefix. `Providing`
-/// and `Requested` already sit at the frontier height and key by their own
-/// prefix; a run of `Uncertain` children keys by their shared parent, and
-/// [`demux`] coalesces each run into one `Uncertain` entry. The kinds are
-/// mutually exclusive per prefix: each reacts to a different channel of our
-/// previous message (`Requested`/`Uncertain` answer our `uncertain`,
-/// `Providing` answers our `requested` or our inferred lack).
+/// The wire interleaves kinds in one globally prefix-ascending stream; what the
+/// walk's merge-join needs is one item per frontier prefix. `Providing` and
+/// `Requested` already sit at the frontier height and key by their own prefix;
+/// a run of `Uncertain` children keys by their shared parent, and [`demux`]
+/// coalesces each run into one `Uncertain` entry. The kinds are mutually
+/// exclusive per prefix: each reacts to a different channel of our previous
+/// message (`Requested`/`Uncertain` answer our `uncertain`, `Providing` answers
+/// our `requested` or our inferred lack).
 pub(super) enum Incoming<B, T, C>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
@@ -92,8 +92,8 @@ where
 /// `Uncertain` items at height `M` coalesce into per-parent runs at `S<M>`
 /// (buffering at most one parent's fan); `Providing`/`Requested` items pass
 /// through keyed by their own prefix. Requires the input to be globally
-/// prefix-ascending — which the canonical wire order guarantees — and
-/// produces strictly ascending keys.
+/// prefix-ascending — which the canonical wire order guarantees — and produces
+/// strictly ascending keys.
 pub(super) fn demux<B, T, M, E>(
     messages: impl Messages<message::Exchange<B, T, M>, E>,
 ) -> impl Stream<Item = Result<Reaction<B, T, M>, E>> + Send
@@ -145,29 +145,6 @@ where
     }
 }
 
-/// The walk's wire-bound output: the three channels of the outgoing message,
-/// before being wrapped in the stage's concrete message type.
-///
-/// [`protocol::Exchange`](super::super::protocol::Exchange) stages map
-/// all three onto [`message::Exchange`];
-/// [`close_initiator`](super::super::protocol::CloseInitiator) drops
-/// `Uncertain` (vacuous at leaf height, exactly as the alternating
-/// [`Closing`](message::Closing) does) and maps the rest onto
-/// [`message::Closing`].
-pub(super) enum Out<B, T, G>
-where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    G: Height,
-    S<G>: Height,
-{
-    /// A subtree the counterparty lacks, already pruned against their version.
-    Providing(Prefix<S<G>>, B::Node<S<G>>),
-    /// A prefix the counterparty listed that we lack entirely.
-    Requested(Prefix<S<G>>),
-    /// A disputed subtree's child hash, for the counterparty's next classify.
-    Uncertain(Prefix<G>, Hash),
-}
-
 /// Run one descent stage's reconciliation: our frontier at `S<S<G>>` against
 /// the incoming message at `S<G>`, producing the outgoing wire at `S<G>`/`G`.
 ///
@@ -176,6 +153,11 @@ where
 /// in the [module docs](self). `down` receives disputed subtrees exploded to
 /// height `G` (the next stage's frontier); `keep` receives reconciled nodes at
 /// the frontier height; `level` receives reconciled children one level below.
+///
+/// [`protocol::Exchange`](super::super::protocol::Exchange) stages return the
+/// output as-is; [`close_initiator`](super::super::protocol::CloseInitiator)
+/// filters it down to [`message::Closing`], dropping `Uncertain` (vacuous at
+/// leaf height, exactly as the alternating `Closing` does).
 pub(super) fn walk<B, T, G, E>(
     backend: B,
     their_version: Version,
@@ -184,7 +166,7 @@ pub(super) fn walk<B, T, G, E>(
     mut down: mpsc::Sender<Level<B, T, G>>,
     mut keep: mpsc::Sender<Level<B, T, S<S<G>>>>,
     mut level: mpsc::Sender<Level<B, T, S<G>>>,
-) -> impl Stream<Item = Result<Out<B, T, G>, E>> + Send
+) -> impl Messages<message::Exchange<B, T, G>, E>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
@@ -228,7 +210,10 @@ where
                         let mut children = pin!(backend.clone().children(one));
                         while let Some(item) = children.next().await {
                             let (child_prefix, child) = item?;
-                            yield Out::Providing(child_prefix, child);
+                            yield message::Exchange::Providing(message::Providing {
+                                prefix: child_prefix,
+                                node: child,
+                            });
                         }
                     }
                 }
@@ -248,7 +233,10 @@ where
                                 if level.send((prefix, node.clone())).await.is_err() {
                                     return;
                                 }
-                                yield Out::Providing(prefix, node);
+                                yield message::Exchange::Providing(message::Providing {
+                                    prefix,
+                                    node,
+                                });
                             }
                             // Hashes agree: keep ours, say nothing.
                             Routed::Matched(prefix, node) => {
@@ -257,7 +245,9 @@ where
                                 }
                             }
                             // They have it, we lack it: ask for it.
-                            Routed::Request(prefix) => yield Out::Requested(prefix),
+                            Routed::Request(prefix) => {
+                                yield message::Exchange::Requested(message::Requested { prefix });
+                            }
                             // Hashes differ: descend. The children's hashes go
                             // out as the next `uncertain`; the children
                             // themselves become the next stage's frontier.
@@ -266,7 +256,10 @@ where
                                 let mut children = pin!(backend.clone().children(one));
                                 while let Some(item) = children.next().await {
                                     let (child_prefix, child) = item?;
-                                    yield Out::Uncertain(child_prefix, child.hash());
+                                    yield message::Exchange::Uncertain(message::Uncertain {
+                                        prefix: child_prefix,
+                                        hash: child.hash(),
+                                    });
                                     if down.send((child_prefix, child)).await.is_err() {
                                         return;
                                     }

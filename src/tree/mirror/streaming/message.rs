@@ -14,8 +14,6 @@ pub enum Intent {
 }
 
 pub struct Handshake {
-    pub network: Network,
-    pub intent: Intent,
     pub version: Version,
 }
 

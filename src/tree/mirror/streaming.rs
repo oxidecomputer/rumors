@@ -191,7 +191,6 @@ where
 /// each side's tree is already converged and returned unchanged.
 #[cfg(test)]
 pub(crate) async fn mirror<T>(
-    network: crate::Network,
     local: crate::tree::Root<T>,
     remote: crate::tree::Root<T>,
 ) -> (crate::tree::Root<T>, crate::tree::Root<T>)
@@ -200,18 +199,8 @@ where
 {
     use std::convert::Infallible;
 
-    let (client, local_recovered) = Handshaking::start(
-        Local,
-        network,
-        message::Intent::Remain,
-        local.clone().into(),
-    );
-    let (server, remote_recovered) = Handshaking::start(
-        Local,
-        network,
-        message::Intent::Remain,
-        remote.clone().into(),
-    );
+    let (client, local_recovered) = Handshaking::start(Local, local.clone().into());
+    let (server, remote_recovered) = Handshaking::start(Local, remote.clone().into());
 
     let handshaken = handshake::<_, _, Local, T, Infallible>(client, server)
         .await

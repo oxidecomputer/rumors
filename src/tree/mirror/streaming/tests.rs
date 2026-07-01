@@ -41,7 +41,7 @@ fn block_on<F: Future>(fut: F) -> F::Output {
 /// Reconcile `a` and `b` through the streaming local backend, asserting the
 /// two sides converge to the same root, and return it.
 fn streaming_mirror(a: crate::tree::Root<()>, b: crate::tree::Root<()>) -> crate::tree::Root<()> {
-    let (ours, theirs) = block_on(super::mirror(Network::BOOTSTRAP, a, b));
+    let (ours, theirs) = block_on(super::mirror(a, b));
     assert_eq!(ours, theirs, "streaming endpoints should converge");
     ours
 }
