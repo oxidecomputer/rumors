@@ -57,8 +57,8 @@ impl Convert for Z {
         C::Node<Z>: Leaf<T>,
         C::Error: From<B::Error>,
     {
-        stream.map(|item| {
-            let (prefix, leaf) = item.map_err(Into::into)?;
+        stream.map(|item| -> Result<_, C::Error> {
+            let (prefix, leaf) = item?;
             // A leaf's ceiling and floor are both equal to its version:
             let version = leaf.ceiling().clone();
             let message = leaf.message().clone();
