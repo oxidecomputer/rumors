@@ -33,6 +33,7 @@ tokio = { version = "1", default-features = false, features = ["io-util", "macro
 tokio-util = { version = "0.7", default-features = false, features = ["compat"] }
 futures = { version = "0.3", default-features = false, features = ["std"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
+async-stream = "0.3"
 pollster = "0.4"
 rand = "0.8"
 

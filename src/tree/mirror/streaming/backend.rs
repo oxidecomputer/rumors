@@ -11,7 +11,7 @@ use crate::{
 
 // The specific backends:
 mod local;
-pub use local::Local;
+pub use local::{Handshaking, Local};
 
 /// The fundamental operations required by a backend's individual node type.
 pub trait Node {
@@ -48,10 +48,18 @@ where
     Self::Node<Z>: Leaf<T>,
 {
     /// The type of nodes carrying messages of type `T`, indexed by height `H`.
-    type Node<H: Height>: Node<Height = H>;
+    ///
+    /// Nodes are [`Send`] and `'static`: they ride the [`NodeStream`]s the
+    /// protocol threads between stages, which buffer items in channels drained
+    /// by independently scheduled (and so owned, `'static`-boxed) pump
+    /// futures.
+    type Node<H: Height>: Node<Height = H> + Send + 'static;
 
     /// The type of errors returned by this backend.
-    type Error;
+    ///
+    /// [`Send`] and `'static` for the same reason as [`Node`](Self::Node):
+    /// errors ride the node streams as their failure arm.
+    type Error: Send + 'static;
 
     /// Assemble a stream of children at height `H` into a stream of parents at height `H + 1`.
     ///

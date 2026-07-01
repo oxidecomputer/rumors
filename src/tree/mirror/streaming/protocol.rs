@@ -27,7 +27,7 @@ pub trait Connect<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
 {
     type Next: CompleteConnect<B, T> + Stage<Height = Root, Error = Self::Error>;
 
-    fn connect<E: From<Self::Error> + From<B::Error>>(
+    fn connect<E: From<Self::Error> + From<B::Error> + Send + 'static>(
         self,
     ) -> impl Future<Output = Result<(message::Handshake, Self::Next), E>> + Send;
 }
@@ -37,7 +37,7 @@ pub trait Accept<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
 {
     type Next: Initiator<B, T> + Responder<B, T> + Stage<Height = Root, Error = Self::Error>;
 
-    fn accept<E: From<Self::Error> + From<B::Error>>(
+    fn accept<E: From<Self::Error> + From<B::Error> + Send + 'static>(
         self,
         request: message::Handshake,
     ) -> impl Future<Output = Result<(message::Handshake, Self::Next), E>> + Send;
@@ -48,7 +48,7 @@ pub trait CompleteConnect<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
 {
     type Next: Initiator<B, T> + Responder<B, T> + Stage<Height = Root, Error = Self::Error>;
 
-    fn complete_connect<E: From<Self::Error> + From<B::Error>>(
+    fn complete_connect<E: From<Self::Error> + From<B::Error> + Send + 'static>(
         self,
         their_version: Version,
     ) -> impl Future<Output = Result<Self::Next, E>> + Send;
@@ -59,9 +59,9 @@ pub trait Initiator<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
 {
     type Next: OpenInitiator<B, T> + Stage<Height = Root, Error = Self::Error>;
 
-    fn initiator<E: From<Self::Error> + From<B::Error>>(
+    fn initiator<E: From<Self::Error> + From<B::Error> + Send + 'static>(
         self,
-    ) -> (impl Messages<message::Initiate, E>, Self::Next);
+    ) -> (impl Messages<message::Initiate, E> + 'static, Self::Next);
 }
 
 pub trait Responder<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
@@ -69,10 +69,10 @@ pub trait Responder<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
 {
     type Next: Exchange<B, T> + Stage<Height = UnderRoot, Error = Self::Error>;
 
-    fn responder<E: From<Self::Error> + From<B::Error>>(
+    fn responder<E: From<Self::Error> + From<B::Error> + Send + 'static>(
         self,
-        requests: impl Messages<message::Initiate, E>,
-    ) -> (impl Messages<message::Opening, E>, Self::Next);
+        requests: impl Messages<message::Initiate, E> + 'static,
+    ) -> (impl Messages<message::Opening, E> + 'static, Self::Next);
 }
 
 pub trait OpenInitiator<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
@@ -80,11 +80,11 @@ pub trait OpenInitiator<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
 {
     type Next: Exchange<B, T> + Stage<Height = UnderUnderRoot, Error = Self::Error>;
 
-    fn open_initiator<E: From<Self::Error> + From<B::Error>>(
+    fn open_initiator<E: From<Self::Error> + From<B::Error> + Send + 'static>(
         self,
-        requests: impl Messages<message::Opening, E>,
+        requests: impl Messages<message::Opening, E> + 'static,
     ) -> (
-        impl Messages<message::Exchange<B, T, UnderUnderRoot>, E>,
+        impl Messages<message::Exchange<B, T, UnderUnderRoot>, E> + 'static,
         Self::Next,
     );
 }
@@ -99,11 +99,12 @@ where
     type Next: AfterExchange<B, T, <<Self::Height as Pred>::Pred as Pred>::Pred>
         + Stage<Height = <<Self::Height as Pred>::Pred as Pred>::Pred, Error = Self::Error>;
 
-    fn exchange<E: From<Self::Error> + From<B::Error>>(
+    fn exchange<E: From<Self::Error> + From<B::Error> + Send + 'static>(
         self,
-        requests: impl Messages<message::Exchange<B, T, <Self::Height as Pred>::Pred>, E>,
+        requests: impl Messages<message::Exchange<B, T, <Self::Height as Pred>::Pred>, E> + 'static,
     ) -> (
-        impl Messages<message::Exchange<B, T, <<Self::Height as Pred>::Pred as Pred>::Pred>, E>,
+        impl Messages<message::Exchange<B, T, <<Self::Height as Pred>::Pred as Pred>::Pred>, E>
+        + 'static,
         Self::Next,
     );
 }
@@ -113,27 +114,41 @@ pub trait CloseInitiator<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
 {
     type Next: CompleteInitiator<B, T> + Stage<Height = Z, Error = Self::Error>;
 
-    fn close_initiator<E: From<Self::Error> + From<B::Error>>(
+    fn close_initiator<E: From<Self::Error> + From<B::Error> + Send + 'static>(
         self,
-        requests: impl Messages<message::Exchange<B, T, S<Z>>, E>,
-    ) -> (impl Messages<message::Closing<B, T>, E>, Self::Next);
+        requests: impl Messages<message::Exchange<B, T, S<Z>>, E> + 'static,
+    ) -> (
+        impl Messages<message::Closing<B, T>, E> + 'static,
+        Self::Next,
+    );
 }
 
 pub trait CompleteResponder<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
     Stage<Height = S<Z>> + Sized
 {
-    fn complete_responder<E: From<Self::Error> + From<B::Error>>(
+    /// End the responder's session: the final `Complete` wire stream, plus
+    /// the drive future that finishes the responder's own reassembly.
+    ///
+    /// The responder's work outlives its last wire item: reconciled levels
+    /// are still climbing toward its root after everything owed to the
+    /// counterparty has been said. The driver must poll the drive future to
+    /// completion concurrently with delivering the wire stream — the wire
+    /// alone stops being demanded once the initiator has absorbed it.
+    fn complete_responder<E: From<Self::Error> + From<B::Error> + Send + 'static>(
         self,
-        requests: impl Messages<message::Closing<B, T>, E>,
-    ) -> impl Messages<message::Complete<B, T>, E>;
+        requests: impl Messages<message::Closing<B, T>, E> + 'static,
+    ) -> (
+        impl Messages<message::Complete<B, T>, E> + 'static,
+        impl Future<Output = Result<(), E>> + Send,
+    );
 }
 
 pub trait CompleteInitiator<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
     Stage<Height = Z> + Sized
 {
-    fn complete_initiator<E: From<Self::Error> + From<B::Error>>(
+    fn complete_initiator<E: From<Self::Error> + From<B::Error> + Send + 'static>(
         self,
-        requests: impl Messages<message::Complete<B, T>, E>,
+        requests: impl Messages<message::Complete<B, T>, E> + 'static,
     ) -> impl Future<Output = Result<(), E>> + Send;
 }
 

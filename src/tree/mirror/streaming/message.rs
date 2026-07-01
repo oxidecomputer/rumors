@@ -55,7 +55,7 @@ where
     H: Height,
 {
     Providing(Providing<B, T, S<H>>),
-    Requested(Requested<H>),
+    Requested(Requested<S<H>>),
     Uncertain(Uncertain<H>),
 }
 
