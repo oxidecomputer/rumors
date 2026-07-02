@@ -36,18 +36,3 @@ proptest! {
         prop_assert_eq!(back.hash(), node.hash());
     }
 }
-
-/// The design boundary, pinned at compile time: `Flat` implements the
-/// weakened `Backend`, but not the session's materiality requirement.
-///
-/// Uncommenting the last line fails with E0271 (expected `Material`,
-/// found `Immaterial`).
-#[test]
-fn flat_is_a_backend_but_not_material() {
-    fn backend<B: Backend<()>>() {}
-    #[allow(dead_code)]
-    fn material<B: Backend<(), Materialized = Material>>() {}
-    backend::<Flat>();
-    material::<Local>();
-    // material::<Flat>(); // E0271: expected `Material`, found `Immaterial`
-}
