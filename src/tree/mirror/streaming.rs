@@ -1,29 +1,9 @@
 //! The streaming mirror: fixed-memory reconciliation over lazy node streams.
 //!
-//! The pieces, bottom up:
-//!
-//! - [`backend`]: what a party must provide. [`Backend`] itself asks only
-//!   for prefix-ordered re-chunking of opaque nodes — weak enough for a
-//!   wire party whose "nodes" are framed leaf sequences — with the
-//!   inspection operations dispatched by [`Materiality`]: the session's
-//!   walks demand `Materialized = `[`Material`], the layers above accept
-//!   either. [`Leaf`] is the crossing currency every party represents
-//!   faithfully.
-//! - [`protocol`]: the type-level phase schedule both parties advance
-//!   through, generic over any backend.
-//! - [`session`]: the schedule implemented once for every *material*
-//!   backend, as concurrent walks over lazy streams.
-//! - [`convert`]: the party boundary, where one side's nodes re-represent
-//!   in the other's types by meeting at the leaves — what a wire transport
-//!   will do implicitly when it serializes one side and deserializes into
-//!   the other.
-//!
 //! The drivers here run any two protocol implementors against each other
-//! ([`mirror`], or [`handshake`] and [`Handshaken::reconcile`] separately
+//! ([`mirror`], or [`handshake`] then [`Handshaken::reconcile`] separately
 //! around the version exchange); implementors backed by trees start with
-//! [`Handshaking::start`]. A remote party's implementor — the stage chain
-//! that frames messages onto a wire instead of walking a tree — is a later
-//! phase.
+//! [`Handshaking::start`].
 
 // TODO: remove this when integrated
 #![allow(dead_code, unused_imports)]
@@ -165,9 +145,8 @@ macro_rules! mirror {
 ///
 /// The streaming traits expose each step as `(outgoing_stream, next_state)`, so
 /// unlike the alternating driver there is no per-message `Step` to inspect and
-/// no early return: the schedule is a straight line, one `mirror!` phase per
-/// stage, each stage's outgoing stream [wired](wire) across the party boundary
-/// to the counterparty's next stage.
+/// no early return: the schedule is a straight line, each stage's outgoing
+/// stream [wired](wire) to the counterparty's next one.
 async fn mirror_connected<B, C, I, R, T>(
     initiator: B,
     responder: C,
@@ -184,6 +163,9 @@ where
     let i = (initiator, i);
     let r = (responder, r);
 
+    // This is a fancy macro that makes it easy to see the stages without any
+    // noise. The `..` is an anaphora for the stream being threaded between the
+    // stages, with it implicitly bound as the result of each method call.
     let (i, r) = mirror! {
         i.initiator();
         r.responder(..);
@@ -340,19 +322,16 @@ where
 /// streaming protocol, both parties polled concurrently on the current task,
 /// returning both sides' reconciled roots.
 ///
-/// The implementors need not be backed by materialized trees — any pair of
-/// [`Client`] and [`Server`] stage chains will do, each speaking in its own
-/// backend's node types; the backend handles are what the party boundary
-/// converts through. The two backends deliberately differ: an implementor
-/// fronting a remote peer speaks an *immaterial* backend whose nodes are the
-/// wire's own leaf frames, so crossing the boundary toward it is an explode —
-/// no node is ever constructed on the wire side — while crossing from it is
-/// exactly the assembly the local side needs anyway. Start a tree-backed
-/// session with [`Handshaking::start`].
+/// The implementors need not be backed by materialized trees: any pair of
+/// [`Client`] and [`Server`] will do, each speaking in its own backend's node
+/// types; the backend handles are what the party boundary converts through. The
+/// two backends deliberately differ: an implementor fronting a remote peer
+/// speaks an *immaterial* backend whose nodes are the wire's own leaf frames,
+/// whereas a local peer has a *material* backend. Start a tree-backed session
+/// with [`Handshaking::start`].
 ///
 /// Returns `None` when the handshake versions were equal and there is nothing
-/// to reconcile, in which case each side keeps whatever it came with; a caller
-/// holding trees falls back to the roots it started its sessions from.
+/// to reconcile, in which case each side keeps whatever it came with.
 pub(crate) async fn mirror<C, S, L, R, T>(
     local_backend: L,
     remote_backend: R,

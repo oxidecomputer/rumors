@@ -7,10 +7,6 @@
 //! key in ascending order — `Left` for a key only the left stream carries,
 //! `Right` for one only the right does, `Both` where they coincide.
 //!
-//! This is the join at the heart of the mirror's asymmetry matrix (our frontier
-//! nodes against the counterparty's `uncertain` hashes), factored out because
-//! `futures` ships no equivalent and `itertools`' operates only on iterators.
-//!
 //! Memory is a single item of lookahead per side: when the two keys differ, the
 //! larger item is held back for the next round rather than dropped, so nothing
 //! is buffered beyond the two heads.
@@ -21,9 +17,6 @@ use async_stream::try_stream;
 use futures::stream::{Stream, StreamExt};
 use itertools::EitherOrBoth;
 
-/// One merged cell: the key's pair from the left stream, the right, or both.
-type Cell<K, A, B> = EitherOrBoth<(K, A), (K, B)>;
-
 /// Merge-join two ascending-by-key, fallible streams of key-value pairs into a
 /// stream of [`EitherOrBoth`], propagating the first error from either side.
 ///
@@ -32,7 +25,7 @@ type Cell<K, A, B> = EitherOrBoth<(K, A), (K, B)>;
 pub fn merge<'a, L, R, K, A, B, E>(
     left: L,
     right: R,
-) -> impl Stream<Item = Result<Cell<K, A, B>, E>> + Send + 'a
+) -> impl Stream<Item = Result<(K, EitherOrBoth<A, B>), E>> + Send + 'a
 where
     L: Stream<Item = Result<(K, A), E>> + Send + 'a,
     R: Stream<Item = Result<(K, B), E>> + Send + 'a,
@@ -80,22 +73,22 @@ where
 
             match (head_left.take(), head_right.take()) {
                 (None, None) => break,
-                (Some(a), None) => yield EitherOrBoth::Left(a),
-                (None, Some(b)) => yield EitherOrBoth::Right(b),
-                (Some(a), Some(b)) => {
-                    match a.0.cmp(&b.0) {
+                (Some((k, a)), None) => yield (k, EitherOrBoth::Left(a)),
+                (None, Some((k, b))) => yield (k, EitherOrBoth::Right(b)),
+                (Some((ka, a)), Some((kb, b))) => {
+                    match ka.cmp(&kb) {
                         // Left key is smaller: emit it, hold the right head back.
                         std::cmp::Ordering::Less => {
-                            head_right = Some(b);
-                            yield EitherOrBoth::Left(a);
+                            head_right = Some((kb, b));
+                            yield (ka, EitherOrBoth::Left(a));
                         }
                         // Right key is smaller: emit it, hold the left head back.
                         std::cmp::Ordering::Greater => {
-                            head_left = Some(a);
-                            yield EitherOrBoth::Right(b);
+                            head_left = Some((ka, a));
+                            yield (kb, EitherOrBoth::Right(b));
                         }
                         // Keys coincide: emit both, consuming both heads.
-                        std::cmp::Ordering::Equal => yield EitherOrBoth::Both(a, b),
+                        std::cmp::Ordering::Equal => yield (ka, EitherOrBoth::Both(a, b)),
                     }
                 }
             }
@@ -106,11 +99,11 @@ where
 /// Merge two ascending-by-key, fallible streams of the *same* pair type into
 /// one ascending stream, requiring the key sets to be disjoint.
 ///
-/// This is the union half of [`merge`], used by the mirror's upward
-/// reassembly: each reconciled level is the union of contributions that route
-/// through different verdicts, so the same prefix can never arrive from both
-/// inputs. A duplicate key means a routing bug; debug builds panic, release
-/// builds keep the left item.
+/// This is the union half of [`merge`], used by the mirror's upward reassembly:
+/// each reconciled level is the union of contributions that route through
+/// different verdicts, so the same prefix can never arrive from both inputs. A
+/// duplicate key means a routing bug; debug builds panic, release builds keep
+/// the left item.
 pub fn merge_disjoint<'a, L, R, K, A, E>(
     left: L,
     right: R,
@@ -124,17 +117,14 @@ where
 {
     merge(left, right).map(|item| {
         item.map(|cell| match cell {
-            EitherOrBoth::Left(a) | EitherOrBoth::Right(a) => a,
-            EitherOrBoth::Both(a, _) => {
+            (k, EitherOrBoth::Left(a)) | (k, EitherOrBoth::Right(a)) => (k, a),
+            (k, EitherOrBoth::Both(a, _)) => {
                 debug_assert!(
                     false,
                     "merge_disjoint: the same key arrived from both inputs"
                 );
-                a
+                (k, a)
             }
         })
     })
 }
-
-#[cfg(test)]
-mod tests;

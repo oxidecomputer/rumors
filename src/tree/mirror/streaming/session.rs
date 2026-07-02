@@ -2,8 +2,8 @@
 //! once for every [`Backend`].
 //!
 //! A stage is one node in the protocol's descending schedule. Unlike the
-//! alternating backend — which materializes a `Levels` zipper and pushes two
-//! levels per round — the streaming stages thread lazy boxed node streams: our
+//! alternating backend, which materializes a `Levels` zipper and pushes two
+//! levels per round, the streaming stages thread lazy boxed node streams: our
 //! frontier subtrees flow downward to be disassembled, and reconciled nodes
 //! flow upward to be reassembled, a hylomorphism in strict prefix order.
 //!
@@ -14,13 +14,13 @@
 //! root). The accumulated `work` is driven concurrently at the session's two
 //! terminals ([`complete_initiator`](super::protocol::CompleteInitiator), and
 //! the future returned by
-//! [`complete_responder`](super::protocol::CompleteResponder)),
-//! each of which resolves to its side's reconciled [`Root`].
+//! [`complete_responder`](super::protocol::CompleteResponder)), each of which
+//! resolves to its side's reconciled [`Root`].
 //!
 //! The stage schedule lives in [`handshake`] (the root-height phases) and
 //! [`descend`] (the height-recursive rounds); the per-round walks live in
-//! [`reconcile`]. This module holds what they share: the channel bound and
-//! the futures plumbing every stage threads through.
+//! [`reconcile`]. This module holds what they share: the channel bound and the
+//! futures plumbing every stage threads through.
 
 use futures::channel::mpsc;
 use futures::future::{self, BoxFuture};
@@ -48,10 +48,10 @@ pub use handshake::Handshaking;
 
 /// The bound on every internal channel: one node's child fan (the radix).
 ///
-/// The walk's producers and consumers advance in lockstep per parent — the
-/// merge-join holds one item of lookahead per input, and a parent contributes
-/// at most one fan of children before the walk must pull its inputs again —
-/// so a single fan of slack absorbs the maximum skew between the wire, the
+/// The walk's producers and consumers advance in lockstep per parent: the merge
+/// operation holds one item of lookahead per input, and a parent contributes at
+/// most one fan of children before its walk must pull its inputs again, so a
+/// single fan's worth of slack absorbs the maximum skew between the wire, the
 /// descending frontier, and the upward reassembly. This bound is what makes
 /// reconciliation fixed-memory regardless of diff size.
 pub(super) const FAN: usize = 256;
@@ -65,11 +65,10 @@ type Level<B, T, H> = (Prefix<H>, <B as Backend<T>>::Node<H>);
 /// receiving half.
 ///
 /// The receiving half is what the stage returns as its outgoing [`Messages`]:
-/// the counterparty reads a plain channel while the forwarding future — not
-/// the counterparty's demand — advances the walk behind it. Forwarding ends
-/// when the wire ends or the counterparty drops the receiver (session
-/// teardown), and never fails: errors ride the forwarded items — which is
-/// why the work set's error type `X` is unconstrained here.
+/// the counterparty reads a plain channel while the forwarding future advances
+/// the walk behind it. Forwarding ends when the wire ends or the counterparty
+/// drops the receiver (session teardown), and never fails: errors come with the
+/// forwarded items.
 fn outgoing<M, E, X>(
     work: &mut Vec<BoxFuture<'static, Result<(), X>>>,
     messages: impl Messages<M, E> + 'static,
@@ -91,7 +90,7 @@ where
 ///
 /// A stage with its frontier at `S<S<H>>` sees reconciled nodes at three
 /// heights: kept frontier nodes (`keep`), walk verdicts one level below
-/// (`level`), and — once the stages beneath have resolved them — reconciled
+/// (`level`), and (once the stages beneath have resolved them) reconciled
 /// disputes two levels below, arriving through `below`. The three sets are
 /// prefix-disjoint because they route through mutually exclusive verdicts, so
 /// the stage's reconciled frontier level is two folds and two disjoint merges;
@@ -133,9 +132,9 @@ where
 /// Drain the reconciled root level into this side's reconciled [`Root`]: the
 /// future the session's terminal resolves to.
 ///
-/// The root level holds at most one node: the reassembled root, or nothing
-/// when the reconciled tree is empty. A backend error means there is no
-/// trustworthy result.
+/// The root level holds at most one node: the reassembled root, or nothing when
+/// the reconciled tree is empty. A backend error means there is no trustworthy
+/// result.
 fn reassemble<B, T>(
     top: impl NodeStream<B, T, height::Root> + 'static,
     ceiling: Version,
@@ -159,12 +158,8 @@ where
     })
 }
 
-/// Drive the session's accumulated `work` and its root reassembly to
-/// completion together, resolving to the reconciled [`Root`].
-///
-/// A failed worker explains anything odd about the reassembly — a truncated
-/// channel chain can still fold to a plausible-looking root — so worker
-/// errors outrank the fold's own result.
+/// Drive the session's accumulated `work` and its root reassembly to completion
+/// together, resolving to the reconciled [`Root`], only if no errors occurred.
 async fn settle<B, T, E>(
     work: Vec<BoxFuture<'static, Result<(), B::Error>>>,
     finish: BoxFuture<'static, Result<Root<B, T>, B::Error>>,

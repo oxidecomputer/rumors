@@ -1,9 +1,9 @@
-//! The height-recursive descent: one [`Descending`] stage per exchange
-//! round, down to the two terminals.
+//! The height-recursive descent: one [`Descending`] stage per exchange round,
+//! down to the two terminals.
 //!
-//! Each stage's walk lives in [`reconcile`]; this module owns the stage
-//! state that rides between rounds and the terminal futures that drive the
-//! session's accumulated work to its reconciled [`Root`].
+//! Each stage's walk lives in [`reconcile`]; this module owns the stage state
+//! that travels between rounds and the terminal futures that drive the session's
+//! accumulated work to its reconciled [`Root`].
 
 use futures::channel::mpsc;
 use futures::future::BoxFuture;
@@ -24,18 +24,18 @@ use super::super::protocol::{self, Messages};
 use super::super::unknown::Unknown;
 use super::{FAN, Level, ascend, outgoing, reconcile, settle};
 
-/// A mirror stage inside the descent: its frontier at height `H` flows
-/// downward as a stream while the levels above reassemble concurrently.
+/// A mirror stage inside the descent: its frontier at height `H` flows downward
+/// as a stream while the levels above reassemble concurrently.
 ///
 /// `frontier` holds this side's disputed subtrees at `H`, fed by the previous
-/// stage's walk through a [`FAN`]-bounded channel; `up` is where this
-/// stage's [`ascend`] future sends the reconciled level at `H`, feeding the
-/// previous stage's ascent in turn; `work` accumulates every concurrent
-/// future the session has created so far, and `finish` is the fold their
-/// reassembly converges to: the reconciled [`Root`] the terminal resolves
-/// to. Each [`exchange`](protocol::Exchange::exchange) consumes the stage
-/// and produces its successor two heights finer, until the terminal stages
-/// drive the accumulated work to completion.
+/// stage's walk through a [`FAN`]-bounded channel; `up` is where this stage's
+/// [`ascend`] future sends the reconciled level at `H`, feeding the previous
+/// stage's ascent in turn; `work` accumulates every concurrent future the
+/// session has created so far, and `finish` is the fold their reassembly
+/// converges to: the reconciled [`Root`] the terminal resolves to. Each
+/// [`exchange`](protocol::Exchange::exchange) consumes the stage and produces
+/// its successor two heights finer, until the terminal stages drive the
+/// accumulated work to completion.
 pub struct Descending<B, T, H>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,

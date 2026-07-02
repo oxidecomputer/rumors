@@ -90,7 +90,7 @@ where
             match cell? {
                 // We have it, they lack it: honor their deletions, then provide
                 // the surviving subtree (if any) and keep it.
-                EitherOrBoth::Left((prefix, node)) => {
+                (prefix, EitherOrBoth::Left(node)) => {
                     let mut pruned = unknown(backend, their_version, one(prefix, node));
                     while let Some(survived) = pruned.next().await {
                         let (prefix, node) = survived?;
@@ -98,10 +98,10 @@ where
                     }
                 }
                 // We lack it, they have it: request it.
-                EitherOrBoth::Right((prefix, _hash)) => yield Routed::Request(prefix),
+                (prefix, EitherOrBoth::Right(_)) => yield Routed::Request(prefix),
                 // We both have it: agree on hash means keep it; disagree means
                 // recurse one level finer.
-                EitherOrBoth::Both((prefix, node), (_, hash)) => {
+                (prefix, EitherOrBoth::Both(node, hash)) => {
                     if node.hash() == hash {
                         yield Routed::Matched(prefix, node);
                     } else {

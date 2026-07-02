@@ -22,15 +22,15 @@
 //!   `Provide` verdicts from [`classify`].
 //!
 //! The two reconciled-level channels feed the stage's upward reassembly (see
-//! [`super`]); their [`FAN`](super::FAN) bound is what pins the whole session's memory to a
-//! single parent's fan regardless of diff size.
+//! [`super`]); their [`FAN`](super::FAN) bound is what pins the whole session's
+//! memory to a single parent's fan regardless of diff size.
 //!
 //! # Channel discipline
 //!
-//! Every channel send backpressures at [`FAN`](super::FAN) entries. A closed channel means
-//! the consuming half of the session was dropped; the walk then ends its output
-//! stream rather than erroring, and the counterparty observes an ordinary
-//! end-of-stream.
+//! Every channel send backpressures at [`FAN`](super::FAN) entries. A closed
+//! channel means the consuming half of the session was dropped; the walk then
+//! ends its output stream rather than erroring, and the counterparty observes
+//! an ordinary end-of-stream.
 
 use std::pin::pin;
 
@@ -292,7 +292,7 @@ where
             match cell? {
                 // Matched by silence: the counterparty compared our hash and
                 // agreed, so neither side says anything further. Keep our copy.
-                EitherOrBoth::Left((prefix, node)) => {
+                (prefix, EitherOrBoth::Left(node)) => {
                     if keep.send((prefix, node)).await.is_err() {
                         return;
                     }
@@ -300,7 +300,7 @@ where
 
                 // They lack this subtree entirely: keep what survives their
                 // deletions, provide its children (see [`provide`]).
-                EitherOrBoth::Both((prefix, node), (_, message::Exchange::Requested)) => {
+                (prefix, EitherOrBoth::Both(node, message::Exchange::Requested)) => {
                     let provided = provide::<B, T, S<H>, E>(
                         backend.clone(),
                         their_version.clone(),
@@ -312,17 +312,17 @@ where
                         let (child_prefix, child) = item?;
                         yield (child_prefix, message::Exchange::Providing(child));
                     }
-                    // `provide` swallows channel closure to end its own
-                    // stream; for the walk it means session teardown.
+                    // `provide` swallows channel closure to end its own stream;
+                    // for the walk it means session teardown.
                     if keep.is_closed() {
                         return;
                     }
                 }
 
-                // They dispute this subtree: compare children via the
-                // asymmetry matrix, one verdict per child prefix, each routed
-                // by the shared `route`.
-                EitherOrBoth::Both((prefix, node), (_, message::Exchange::Uncertain(children))) => {
+                // They dispute this subtree: compare children via the asymmetry
+                // matrix, one verdict per child prefix, each routed by the
+                // shared `route`.
+                (prefix, EitherOrBoth::Both(node, message::Exchange::Uncertain(children))) => {
                     let ours = backend.clone().children(one(prefix, node));
                     let theirs = stream::iter(
                         children
@@ -349,7 +349,7 @@ where
 
                 // A subtree we asked for (or provably lacked): absorb it into
                 // the reconciled frontier level.
-                EitherOrBoth::Right((prefix, message::Exchange::Providing(node))) => {
+                (prefix, EitherOrBoth::Right(message::Exchange::Providing(node))) => {
                     if keep.send((prefix, node)).await.is_err() {
                         return;
                     }
@@ -358,14 +358,13 @@ where
                 // The counterparty may only provide against prefixes we lack,
                 // and may only request or dispute prefixes we listed; anything
                 // else means the peer is misbehaving, or we are.
-                EitherOrBoth::Both((prefix, _), (_, message::Exchange::Providing(_))) => {
+                (prefix, EitherOrBoth::Both(_, message::Exchange::Providing(_))) => {
                     debug_assert!(
                         false,
                         "counterparty provided prefix {prefix:?} we already hold",
                     );
                 }
-                EitherOrBoth::Right((
-                    prefix,
+                (prefix, EitherOrBoth::Right(
                     message::Exchange::Requested | message::Exchange::Uncertain(_),
                 )) => {
                     debug_assert!(
@@ -402,14 +401,14 @@ where
         for await cell in merge(frontier.map(|item| item.map_err(E::from)), messages) {
             match cell? {
                 // Matched by silence: keep our copy.
-                EitherOrBoth::Left((prefix, node)) => {
+                (prefix, EitherOrBoth::Left(node)) => {
                     if level.send((prefix, node)).await.is_err() {
                         return;
                     }
                 }
                 // They lack it entirely: keep what survives their deletions,
                 // send its leaves as the final providing (see [`provide`]).
-                EitherOrBoth::Both((prefix, node), (_, message::Closing::Requested)) => {
+                (prefix, EitherOrBoth::Both(node, message::Closing::Requested)) => {
                     let provided = provide::<B, T, Z, E>(
                         backend.clone(),
                         their_version.clone(),
@@ -428,18 +427,18 @@ where
                     }
                 }
                 // A subtree we asked for: absorb it.
-                EitherOrBoth::Right((prefix, message::Closing::Providing(node))) => {
+                (prefix, EitherOrBoth::Right(message::Closing::Providing(node))) => {
                     if level.send((prefix, node)).await.is_err() {
                         return;
                     }
                 }
-                EitherOrBoth::Both((prefix, _), (_, message::Closing::Providing(_))) => {
+                (prefix, EitherOrBoth::Both(_, message::Closing::Providing(_))) => {
                     debug_assert!(
                         false,
                         "counterparty provided prefix {prefix:?} we already hold",
                     );
                 }
-                EitherOrBoth::Right((prefix, message::Closing::Requested)) => {
+                (prefix, EitherOrBoth::Right(message::Closing::Requested)) => {
                     debug_assert!(
                         false,
                         "counterparty requested prefix {prefix:?} we never listed",
@@ -476,14 +475,16 @@ where
     let mut joined = pin!(joined);
     while let Some(cell) = joined.next().await {
         let sent = match cell? {
-            EitherOrBoth::Left(leaf) | EitherOrBoth::Right(leaf) => leaves.send(leaf).await,
-            EitherOrBoth::Both(ours, _) => {
+            (prefix, EitherOrBoth::Left(leaf) | EitherOrBoth::Right(leaf)) => {
+                leaves.send((prefix, leaf)).await
+            }
+            (prefix, EitherOrBoth::Both(ours, _)) => {
                 debug_assert!(
                     false,
                     "counterparty provided leaf {:?} we already hold",
-                    ours.0,
+                    prefix,
                 );
-                leaves.send(ours).await
+                leaves.send((prefix, ours)).await
             }
         };
         if sent.is_err() {
