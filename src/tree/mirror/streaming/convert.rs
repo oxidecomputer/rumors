@@ -115,7 +115,7 @@ where
         while let Some(item) = leaves.next().await {
             let (prefix, leaf) = item?;
             // The crossing: a leaf re-represents by value, no backend work.
-            let version = leaf.ceiling().clone();
+            let version = leaf.version().clone();
             let message = leaf.message().clone();
             if tx
                 .send(Ok((prefix, Leaf::leaf(version, message))))

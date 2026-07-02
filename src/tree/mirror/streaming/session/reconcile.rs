@@ -46,7 +46,7 @@ use crate::tree::typed::{
     height::{self, Height, S, UnderRoot, UnderUnderRoot, Z},
 };
 
-use super::super::backend::{Backend, BoxNodeStream, Leaf, Node, NodeStream, one};
+use super::super::backend::{Backend, BoxNodeStream, Leaf, Material, Node, NodeStream, one};
 use super::super::dispute::{Routed, classify};
 use super::super::merge::merge;
 use super::super::message;
@@ -68,7 +68,7 @@ pub(super) fn respond<B, T, E>(
     mut down: mpsc::Sender<Level<B, T, UnderRoot>>,
 ) -> impl Messages<message::Opening, E>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     E: From<B::Error> + Send,
 {
@@ -112,7 +112,7 @@ pub(super) fn open<B, T, E>(
     level: mpsc::Sender<Level<B, T, UnderRoot>>,
 ) -> impl Messages<message::Exchanged<B, T, UnderRoot>, E>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     E: From<B::Error> + Send + 'static,
 {
@@ -167,7 +167,7 @@ fn provide<B, T, C, E>(
     mut kept: mpsc::Sender<Level<B, T, S<C>>>,
 ) -> impl Stream<Item = Result<Level<B, T, C>, E>> + Send
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     C: Height + Unknown,
     S<C>: Height,
@@ -208,7 +208,7 @@ pub(super) fn route<B, T, H, E>(
     mut level: mpsc::Sender<Level<B, T, S<H>>>,
 ) -> impl Messages<message::Exchanged<B, T, S<H>>, E>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     H: Height + Unknown,
     S<H>: Height + Unknown,
@@ -280,7 +280,7 @@ pub(super) fn walk<B, T, H, E>(
     level: mpsc::Sender<Level<B, T, S<H>>>,
 ) -> impl Messages<message::Exchanged<B, T, S<H>>, E>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     H: Height + Unknown,
     S<H>: Height,
@@ -394,7 +394,7 @@ pub(super) fn complete_walk<B, T, E>(
     mut level: mpsc::Sender<Level<B, T, S<Z>>>,
 ) -> impl Stream<Item = Result<(Prefix<Z>, message::Complete<B, T>), E>> + Send
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     E: From<B::Error> + Send,
 {
@@ -464,7 +464,7 @@ pub(super) async fn absorb_leaves<B, T, E>(
     mut leaves: mpsc::Sender<Level<B, T, Z>>,
 ) -> Result<(), E>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     E: From<B::Error> + Send,
 {

@@ -10,7 +10,7 @@ mod protocol;
 mod session;
 mod unknown;
 
-pub use backend::{Backend, Leaf, Local, Node, Root};
+pub use backend::{Backend, Immaterial, Leaf, Local, Material, Materiality, Node, Root};
 pub use session::Handshaking;
 
 use std::cmp::Ordering;
@@ -261,8 +261,8 @@ pub(crate) async fn mirror<B, C, T>(
 ) -> Result<(Root<B, T>, Root<C, T>), Error<B::Error, C::Error>>
 where
     T: Send + Sync + 'static,
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    C: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
+    C: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
 {
     let client = Handshaking::start(local_backend.clone(), local.clone());
     let server = Handshaking::start(remote_backend.clone(), remote.clone());

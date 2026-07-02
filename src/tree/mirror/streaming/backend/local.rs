@@ -15,17 +15,11 @@ use crate::{
     },
 };
 
-use super::{Backend, Leaf, Node, NodeStream, Root};
+use super::{Backend, Leaf, Material, Node, NodeStream, Root};
 
 impl<T, H: Height> Node for typed::Node<T, H> {
-    type Height = H;
-
     fn hash(&self) -> typed::Hash {
         self.hash()
-    }
-
-    fn len(&self) -> usize {
-        self.len()
     }
 
     fn ceiling(&self) -> &Version {
@@ -38,6 +32,13 @@ impl<T, H: Height> Node for typed::Node<T, H> {
 }
 
 impl<T> Leaf<T> for typed::Node<T, Z> {
+    // Delegates to the same inherent `ceiling` the `Node` impl uses,
+    // keeping `Leaf::version` and `Node::ceiling` one method in disguise
+    // (the coherence contract on `Leaf::version`).
+    fn version(&self) -> &Version {
+        self.ceiling()
+    }
+
     fn message(&self) -> &Message<T> {
         self.message()
     }
@@ -55,6 +56,7 @@ impl<T> Leaf<T> for typed::Node<T, Z> {
 pub struct Local;
 
 impl<T: Send + Sync + 'static> Backend<T> for Local {
+    type Materialized = Material;
     type Node<H: Height> = typed::Node<T, H>;
     type Error = Infallible;
 

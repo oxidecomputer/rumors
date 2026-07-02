@@ -3,7 +3,7 @@
 use crate::{
     Version,
     tree::{
-        mirror::streaming::{Backend, Leaf},
+        mirror::streaming::Backend,
         typed::{
             Prefix,
             height::{Height, Pred, Root, S, UnderRoot, UnderUnderRoot, Z},
@@ -23,9 +23,7 @@ pub trait Stage {
 pub trait Messages<M, E>: Stream<Item = Result<M, E>> + Send {}
 impl<X, M, E> Messages<M, E> for X where X: Stream<Item = Result<M, E>> + Send {}
 
-pub trait Connect<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
-    Stage<Height = Root> + Sized
-{
+pub trait Connect<B: Backend<T>, T: Send + Sync>: Stage<Height = Root> + Sized {
     type Next: CompleteConnect<B, T> + Stage<Height = Root>;
 
     fn connect<E: From<B::Error> + Send + 'static>(
@@ -33,9 +31,7 @@ pub trait Connect<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
     ) -> impl Future<Output = Result<(message::Handshake, Self::Next), E>> + Send;
 }
 
-pub trait Accept<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
-    Stage<Height = Root> + Sized
-{
+pub trait Accept<B: Backend<T>, T: Send + Sync>: Stage<Height = Root> + Sized {
     type Next: Initiator<B, T> + Responder<B, T> + Stage<Height = Root>;
 
     fn accept<E: From<B::Error> + Send + 'static>(
@@ -44,9 +40,7 @@ pub trait Accept<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
     ) -> impl Future<Output = Result<(message::Handshake, Self::Next), E>> + Send;
 }
 
-pub trait CompleteConnect<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
-    Stage<Height = Root> + Sized
-{
+pub trait CompleteConnect<B: Backend<T>, T: Send + Sync>: Stage<Height = Root> + Sized {
     type Next: Initiator<B, T> + Responder<B, T> + Stage<Height = Root>;
 
     fn complete_connect<E: From<B::Error> + Send + 'static>(
@@ -55,9 +49,7 @@ pub trait CompleteConnect<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
     ) -> impl Future<Output = Result<Self::Next, E>> + Send;
 }
 
-pub trait Initiator<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
-    Stage<Height = Root> + Sized
-{
+pub trait Initiator<B: Backend<T>, T: Send + Sync>: Stage<Height = Root> + Sized {
     type Next: OpenInitiator<B, T> + Stage<Height = Root>;
 
     fn initiator<E: From<B::Error> + Send + 'static>(
@@ -65,9 +57,7 @@ pub trait Initiator<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
     ) -> (impl Messages<message::Initiate, E> + 'static, Self::Next);
 }
 
-pub trait Responder<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
-    Stage<Height = Root> + Sized
-{
+pub trait Responder<B: Backend<T>, T: Send + Sync>: Stage<Height = Root> + Sized {
     type Next: Exchange<B, T> + Stage<Height = UnderRoot>;
 
     fn responder<E: From<B::Error> + Send + 'static>(
@@ -76,9 +66,7 @@ pub trait Responder<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
     ) -> (impl Messages<message::Opening, E> + 'static, Self::Next);
 }
 
-pub trait OpenInitiator<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
-    Stage<Height = Root> + Sized
-{
+pub trait OpenInitiator<B: Backend<T>, T: Send + Sync>: Stage<Height = Root> + Sized {
     type Next: Exchange<B, T> + Stage<Height = UnderUnderRoot>;
 
     fn open_initiator<E: From<B::Error> + Send + 'static>(
@@ -90,7 +78,7 @@ pub trait OpenInitiator<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
     );
 }
 
-pub trait Exchange<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>: Stage + Sized
+pub trait Exchange<B: Backend<T>, T: Send + Sync>: Stage + Sized
 where
     Self::Height: Pred,
     <Self::Height as Pred>::Pred: Pred,
@@ -114,9 +102,7 @@ where
     );
 }
 
-pub trait CloseInitiator<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
-    Stage<Height = S<S<Z>>> + Sized
-{
+pub trait CloseInitiator<B: Backend<T>, T: Send + Sync>: Stage<Height = S<S<Z>>> + Sized {
     type Next: CompleteInitiator<B, T> + Stage<Height = Z>;
 
     fn close_initiator<E: From<B::Error> + Send + 'static>(
@@ -128,9 +114,7 @@ pub trait CloseInitiator<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
     );
 }
 
-pub trait CompleteResponder<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
-    Stage<Height = S<Z>> + Sized
-{
+pub trait CompleteResponder<B: Backend<T>, T: Send + Sync>: Stage<Height = S<Z>> + Sized {
     fn complete_responder<E: From<B::Error> + Send + 'static>(
         self,
         requests: impl Messages<(Prefix<S<Z>>, message::Closing<B, T>), E> + 'static,
@@ -140,9 +124,7 @@ pub trait CompleteResponder<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
     );
 }
 
-pub trait CompleteInitiator<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
-    Stage<Height = Z> + Sized
-{
+pub trait CompleteInitiator<B: Backend<T>, T: Send + Sync>: Stage<Height = Z> + Sized {
     fn complete_initiator<E: From<B::Error> + Send + 'static>(
         self,
         requests: impl Messages<(Prefix<Z>, message::Complete<B, T>), E> + 'static,
@@ -160,21 +142,15 @@ pub trait CompleteInitiator<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
 ///
 /// Height `Z` is never reached as the result of an exchange (the leaf-height
 /// uncertain map would be vacuous), so there is no `AfterExchange<Z>` impl.
-pub trait AfterExchange<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync, H: Height>: Sized {}
+pub trait AfterExchange<B: Backend<T>, T: Send + Sync, H: Height>: Sized {}
 
-impl<T: Send + Sync, B: Backend<T, Node<Z>: Leaf<T>>, X: CompleteResponder<B, T>>
-    AfterExchange<B, T, S<Z>> for X
-{
-}
+impl<T: Send + Sync, B: Backend<T>, X: CompleteResponder<B, T>> AfterExchange<B, T, S<Z>> for X {}
 
-impl<T: Send + Sync, B: Backend<T, Node<Z>: Leaf<T>>, X: CloseInitiator<B, T>>
-    AfterExchange<B, T, S<S<Z>>> for X
-{
-}
+impl<T: Send + Sync, B: Backend<T>, X: CloseInitiator<B, T>> AfterExchange<B, T, S<S<Z>>> for X {}
 
 impl<T, B, H, X> AfterExchange<B, T, S<S<S<H>>>> for X
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T>,
     T: Send + Sync,
     H: Height,
     S<H>: Height,
@@ -236,14 +212,14 @@ macro_rules! define_peer {
             Initiator<B, T, Next: OpenInitiator<B, T, Next: $($init_chain)*>>
             + Responder<B, T, Next: $($resp_chain)*>
         where
-            B: Backend<T, Node<Z>: Leaf<T>>,
+            B: Backend<T>,
             T: Send + Sync,
         {
         }
 
         impl<X, B, T> Peer<B, T> for X
         where
-            B: Backend<T, Node<Z>: Leaf<T>>,
+            B: Backend<T>,
             T: Send + Sync,
             X: Initiator<B, T, Next: OpenInitiator<B, T, Next: $($init_chain)*>>
                 + Responder<B, T, Next: $($resp_chain)*>,
@@ -253,14 +229,14 @@ macro_rules! define_peer {
         pub trait Server<B, T>:
             Accept<B, T, Next: Initiator<B, T, Next: OpenInitiator<B, T, Next: $($init_chain)*>> + Responder<B, T, Next: $($resp_chain)*>>
         where
-            B: Backend<T, Node<Z>: Leaf<T>>,
+            B: Backend<T>,
             T: Send + Sync,
         {
         }
 
         impl<X, B, T> Server<B, T> for X
         where
-            B: Backend<T, Node<Z>: Leaf<T>>,
+            B: Backend<T>,
             T: Send + Sync,
             X: Accept<B, T, Next: Initiator<B, T, Next: OpenInitiator<B, T, Next: $($init_chain)*>> + Responder<B, T, Next: $($resp_chain)*>>,
         {
@@ -269,14 +245,14 @@ macro_rules! define_peer {
         pub trait Client<B, T>:
             Connect<B, T, Next: CompleteConnect<B, T, Next: Initiator<B, T, Next: OpenInitiator<B, T, Next: $($init_chain)*>> + Responder<B, T, Next: $($resp_chain)*>>>
         where
-            B: Backend<T, Node<Z>: Leaf<T>>,
+            B: Backend<T>,
             T: Send + Sync,
         {
         }
 
         impl<X, B, T> Client<B, T> for X
         where
-            B: Backend<T, Node<Z>: Leaf<T>>,
+            B: Backend<T>,
             T: Send + Sync,
             X: Connect<B, T, Next: CompleteConnect<B, T, Next: Initiator<B, T, Next: OpenInitiator<B, T, Next: $($init_chain)*>> + Responder<B, T, Next: $($resp_chain)*>>>,
         {

@@ -14,7 +14,7 @@ use crate::tree::typed::{
     height::{Height, S, Z},
 };
 
-use super::{Backend, Leaf};
+use super::Backend;
 
 // The initial handshake message:
 
@@ -44,10 +44,7 @@ pub enum Opening {
 pub type Exchanged<B, T, H> = (Prefix<H>, Exchange<B, T, H>);
 
 /// One steady-state reaction about the subtree at the paired key.
-pub enum Exchange<B: Backend<T>, T, H: Height>
-where
-    B::Node<Z>: Leaf<T>,
-{
+pub enum Exchange<B: Backend<T>, T, H: Height> {
     /// The subtree which the counterparty asked for or provably lacks.
     Providing(B::Node<H>),
     /// The sender lacks the subtree: it asks the counterparty to provide.
@@ -59,18 +56,12 @@ where
 
 /// The initiator's leaf-parent-height reaction: [`Exchange`] minus `Uncertain`,
 /// which is unused at leaf height.
-pub enum Closing<B: Backend<T>, T>
-where
-    B::Node<Z>: Leaf<T>,
-{
+pub enum Closing<B: Backend<T>, T> {
     Providing(B::Node<S<Z>>),
     Requested,
 }
 
 /// The responder's final word: the leaves the initiator requested.
-pub enum Complete<B: Backend<T>, T>
-where
-    B::Node<Z>: Leaf<T>,
-{
+pub enum Complete<B: Backend<T>, T> {
     Providing(B::Node<Z>),
 }

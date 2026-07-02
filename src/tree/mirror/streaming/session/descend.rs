@@ -18,7 +18,7 @@ use crate::{
     },
 };
 
-use super::super::backend::{Backend, BoxNodeStream, Leaf, Root};
+use super::super::backend::{Backend, BoxNodeStream, Leaf, Material, Root};
 use super::super::message;
 use super::super::protocol::{self, Messages};
 use super::super::unknown::Unknown;
@@ -38,7 +38,7 @@ use super::{FAN, Level, ascend, outgoing, reconcile, settle};
 /// drive the accumulated work to completion.
 pub struct Descending<B, T, H>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     H: Height,
 {
@@ -52,7 +52,7 @@ where
 
 impl<B, T, H> Descending<B, T, H>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     H: Height,
 {
@@ -79,7 +79,7 @@ where
 
 impl<B, T, H> protocol::Stage for Descending<B, T, H>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     H: Height,
 {
@@ -88,7 +88,7 @@ where
 
 impl<B, T, H> Descending<B, T, S<S<H>>>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     H: Height + Unknown,
     S<H>: Height,
@@ -141,7 +141,7 @@ where
 
 impl<B, T, H> protocol::Exchange<B, T> for Descending<B, T, S<S<S<H>>>>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     H: Height + Unknown,
     S<H>: Height,
@@ -171,7 +171,7 @@ where
 
 impl<B, T> protocol::CloseInitiator<B, T> for Descending<B, T, S<S<Z>>>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
     type Next = Descending<B, T, Z>;
@@ -209,7 +209,7 @@ where
 
 impl<B, T> protocol::CompleteResponder<B, T> for Descending<B, T, S<Z>>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
     fn complete_responder<E>(
@@ -239,7 +239,7 @@ where
 
 impl<B, T> protocol::CompleteInitiator<B, T> for Descending<B, T, Z>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
     async fn complete_initiator<E>(

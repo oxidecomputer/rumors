@@ -14,7 +14,7 @@ use crate::{
     tree::typed::height::{self, UnderRoot, UnderUnderRoot, Z},
 };
 
-use super::super::backend::{Backend, Leaf, Node, Root};
+use super::super::backend::{Backend, Leaf, Material, Node, Root};
 use super::super::merge::merge_disjoint;
 use super::super::message;
 use super::super::protocol::{self, Messages};
@@ -49,7 +49,7 @@ pub struct Connected {
 /// [`responder`](protocol::Responder::responder).
 pub struct Handshaking<B, T, V>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
 {
     backend: B,
     versions: V,
@@ -58,7 +58,7 @@ where
 
 impl<B, T> Handshaking<B, T, Start>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
 {
     pub fn start(backend: B, root: Root<B, T>) -> Self {
         Self {
@@ -73,14 +73,14 @@ where
 
 impl<B, T, V> protocol::Stage for Handshaking<B, T, V>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
 {
     type Height = height::Root;
 }
 
 impl<B, T> protocol::Connect<B, T> for Handshaking<B, T, Start>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
     type Next = Handshaking<B, T, Connecting>;
@@ -105,7 +105,7 @@ where
 
 impl<B, T> protocol::CompleteConnect<B, T> for Handshaking<B, T, Connecting>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
     type Next = Handshaking<B, T, Connected>;
@@ -127,7 +127,7 @@ where
 
 impl<B, T> protocol::Accept<B, T> for Handshaking<B, T, Start>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
     type Next = Handshaking<B, T, Connected>;
@@ -158,7 +158,7 @@ where
 
 impl<B, T> protocol::Initiator<B, T> for Handshaking<B, T, Connected>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
     type Next = Self;
@@ -178,7 +178,7 @@ where
 
 impl<B, T> protocol::Responder<B, T> for Handshaking<B, T, Connected>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
     type Next = Descending<B, T, UnderRoot>;
@@ -222,7 +222,7 @@ where
 
 impl<B, T> protocol::OpenInitiator<B, T> for Handshaking<B, T, Connected>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
     type Next = Descending<B, T, UnderUnderRoot>;
