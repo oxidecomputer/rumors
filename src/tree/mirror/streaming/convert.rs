@@ -1,10 +1,10 @@
 //! Re-represent nodes from one backend in the node types of another.
 //!
-//! [`Convertible`] re-represents one wire message, converting the node its
-//! `providing` payload carries (every other message kind crosses backends
-//! unchanged). It is what the in-process driver's party boundary maps over —
-//! and what a wire transport does implicitly when it serializes one side's
-//! nodes and deserializes them into the other's.
+//! [`Convertible`] re-represents one wire item — a keyed message pair —
+//! converting the node a `providing` payload carries (every other message
+//! kind crosses backends unchanged). It is what the in-process driver's
+//! party boundary maps over — and what a wire transport does implicitly when
+//! it serializes one side's nodes and deserializes them into the other's.
 //!
 //! A node converts by exploding to leaves in the source backend and
 //! reassembling in the target, the two halves running concurrently through
@@ -191,67 +191,65 @@ where
     }
 }
 
-impl<B, C, T, H> Convertible<B, C, T> for message::Exchange<B, T, H>
+impl<B, C, T, H> Convertible<B, C, T> for (Prefix<H>, message::Exchange<B, T, H>)
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     C: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
-    H: Height,
-    S<H>: Convert,
+    H: Convert,
 {
-    type Converted = message::Exchange<C, T, H>;
+    type Converted = (Prefix<H>, message::Exchange<C, T, H>);
 
     async fn convert(self, from: &B, to: &C) -> Result<Self::Converted, CombinedError<C, B, T>> {
-        Ok(match self {
-            message::Exchange::Providing(message::Providing { prefix, node }) => {
-                message::Exchange::Providing(message::Providing {
-                    prefix,
-                    node: subtree(from, to, prefix, node).await?,
-                })
-            }
-            message::Exchange::Requested(requested) => message::Exchange::Requested(requested),
-            message::Exchange::Uncertain(uncertain) => message::Exchange::Uncertain(uncertain),
-        })
+        let (prefix, message) = self;
+        Ok((
+            prefix,
+            match message {
+                message::Exchange::Providing(node) => {
+                    message::Exchange::Providing(subtree(from, to, prefix, node).await?)
+                }
+                message::Exchange::Requested => message::Exchange::Requested,
+                message::Exchange::Uncertain(children) => message::Exchange::Uncertain(children),
+            },
+        ))
     }
 }
 
-impl<B, C, T> Convertible<B, C, T> for message::Closing<B, T>
+impl<B, C, T> Convertible<B, C, T> for (Prefix<S<Z>>, message::Closing<B, T>)
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     C: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    type Converted = message::Closing<C, T>;
+    type Converted = (Prefix<S<Z>>, message::Closing<C, T>);
 
     async fn convert(self, from: &B, to: &C) -> Result<Self::Converted, CombinedError<C, B, T>> {
-        Ok(match self {
-            message::Closing::Providing(message::Providing { prefix, node }) => {
-                message::Closing::Providing(message::Providing {
-                    prefix,
-                    node: subtree(from, to, prefix, node).await?,
-                })
-            }
-            message::Closing::Requested(requested) => message::Closing::Requested(requested),
-        })
+        let (prefix, message) = self;
+        Ok((
+            prefix,
+            match message {
+                message::Closing::Providing(node) => {
+                    message::Closing::Providing(subtree(from, to, prefix, node).await?)
+                }
+                message::Closing::Requested => message::Closing::Requested,
+            },
+        ))
     }
 }
 
-impl<B, C, T> Convertible<B, C, T> for message::Complete<B, T>
+impl<B, C, T> Convertible<B, C, T> for (Prefix<Z>, message::Complete<B, T>)
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     C: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    type Converted = message::Complete<C, T>;
+    type Converted = (Prefix<Z>, message::Complete<C, T>);
 
     async fn convert(self, from: &B, to: &C) -> Result<Self::Converted, CombinedError<C, B, T>> {
-        Ok(match self {
-            message::Complete::Providing(message::Providing { prefix, node }) => {
-                message::Complete::Providing(message::Providing {
-                    prefix,
-                    node: subtree(from, to, prefix, node).await?,
-                })
-            }
-        })
+        let (prefix, message::Complete::Providing(node)) = self;
+        Ok((
+            prefix,
+            message::Complete::Providing(subtree(from, to, prefix, node).await?),
+        ))
     }
 }

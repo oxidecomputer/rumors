@@ -301,12 +301,11 @@ where
     where
         E: From<B::Error> + Send + 'static,
     {
-        let initiate = self.root.root.as_ref().map(|node| {
-            Ok(message::Initiate::Uncertain(message::Uncertain {
-                prefix: Prefix::new(),
-                hash: node.hash(),
-            }))
-        });
+        let initiate = self
+            .root
+            .root
+            .as_ref()
+            .map(|node| Ok(message::Initiate::Uncertain(node.hash())));
         (stream::iter(initiate), self)
     }
 }
@@ -348,16 +347,16 @@ where
             }
             if let Some(node) = root.root {
                 let mut children = pin!(explode.children(one(Prefix::new(), node)));
+                let mut listing = Vec::new();
                 while let Some(item) = children.next().await {
                     let (prefix, child) = item?;
-                    yield message::Opening::Uncertain(message::Uncertain {
-                        prefix,
-                        hash: child.hash(),
-                    });
+                    let (_, radix) = prefix.pop();
+                    listing.push((radix, child.hash()));
                     if down.send((prefix, child)).await.is_err() {
                         return;
                     }
                 }
+                yield message::Opening::Uncertain(listing);
             }
         };
 
@@ -392,7 +391,7 @@ where
         self,
         requests: impl Messages<message::Opening, E> + 'static,
     ) -> (
-        impl Messages<message::Exchange<B, T, UnderUnderRoot>, E> + 'static,
+        impl Messages<message::Exchanged<B, T, UnderRoot>, E> + 'static,
         Self::Next,
     )
     where
@@ -420,11 +419,15 @@ where
         let sendable = try_stream! {
             let (down, level) = (down_tx, level_tx);
 
-            // Buffer the responder's opening level: at most one root fan.
+            // The responder's opening listing: at most one message, and an
+            // empty responder sends none. The parent is statically the root.
             let mut theirs = Vec::new();
             for await item in requests {
-                let message::Opening::Uncertain(message::Uncertain { prefix, hash }) = item?;
-                theirs.push((prefix, hash));
+                let message::Opening::Uncertain(children) = item?;
+                theirs = children
+                    .into_iter()
+                    .map(|(radix, hash)| (Prefix::new().push(radix), hash))
+                    .collect();
             }
 
             match root.root {
@@ -446,7 +449,7 @@ where
                 None => {
                     // We are empty: request everything the responder listed.
                     for (prefix, _hash) in theirs {
-                        yield message::Exchange::Requested(message::Requested { prefix });
+                        yield (prefix, message::Exchange::Requested);
                     }
                 }
             }
@@ -525,11 +528,12 @@ where
     ///
     /// Shared by [`exchange`](protocol::Exchange::exchange) and
     /// [`close_initiator`](protocol::CloseInitiator::close_initiator).
+    #[allow(clippy::type_complexity)]
     fn descend<E>(
         self,
-        requests: impl Messages<message::Exchange<B, T, S<H>>, E> + 'static,
+        requests: impl Messages<message::Exchanged<B, T, S<S<H>>>, E> + 'static,
     ) -> (
-        impl Messages<message::Exchange<B, T, H>, E> + 'static,
+        impl Messages<message::Exchanged<B, T, S<H>>, E> + 'static,
         Descending<B, T, H>,
     )
     where
@@ -587,9 +591,9 @@ where
 
     fn exchange<E>(
         self,
-        requests: impl Messages<message::Exchange<B, T, S<S<H>>>, E> + 'static,
+        requests: impl Messages<(Prefix<S<S<S<H>>>>, message::Exchange<B, T, S<S<S<H>>>>), E> + 'static,
     ) -> (
-        impl Messages<message::Exchange<B, T, S<H>>, E> + 'static,
+        impl Messages<message::Exchanged<B, T, S<S<H>>>, E> + 'static,
         Self::Next,
     )
     where
@@ -610,9 +614,9 @@ where
 
     fn close_initiator<E>(
         self,
-        requests: impl Messages<message::Exchange<B, T, S<Z>>, E> + 'static,
+        requests: impl Messages<message::Exchanged<B, T, S<S<Z>>>, E> + 'static,
     ) -> (
-        impl Messages<message::Closing<B, T>, E> + 'static,
+        impl Messages<(Prefix<S<Z>>, message::Closing<B, T>), E> + 'static,
         Self::Next,
     )
     where
@@ -621,16 +625,16 @@ where
         let (walk, mut next) = self.descend(requests);
         let closing = walk.filter_map(|item| {
             future::ready(match item {
-                Ok(message::Exchange::Providing(providing)) => {
-                    Some(Ok(message::Closing::Providing(providing)))
+                Ok((prefix, message::Exchange::Providing(node))) => {
+                    Some(Ok((prefix, message::Closing::Providing(node))))
                 }
-                Ok(message::Exchange::Requested(requested)) => {
-                    Some(Ok(message::Closing::Requested(requested)))
+                Ok((prefix, message::Exchange::Requested)) => {
+                    Some(Ok((prefix, message::Closing::Requested)))
                 }
                 // Vacuous at leaf height (see [`message::Closing`]) because
                 // it's not possible to be uncertain about a leaf: you either
                 // know you have it, or know you don't.
-                Ok(message::Exchange::Uncertain(..)) => None,
+                Ok((_, message::Exchange::Uncertain(..))) => None,
                 Err(error) => Some(Err(error)),
             })
         });
@@ -646,9 +650,9 @@ where
 {
     fn complete_responder<E>(
         self,
-        requests: impl Messages<message::Closing<B, T>, E> + 'static,
+        requests: impl Messages<(Prefix<S<Z>>, message::Closing<B, T>), E> + 'static,
     ) -> (
-        impl Messages<message::Complete<B, T>, E> + 'static,
+        impl Messages<(Prefix<Z>, message::Complete<B, T>), E> + 'static,
         impl Future<Output = Result<Root<B, T>, E>> + Send,
     )
     where
@@ -684,7 +688,7 @@ where
 {
     async fn complete_initiator<E>(
         self,
-        requests: impl Messages<message::Complete<B, T>, E> + 'static,
+        requests: impl Messages<(Prefix<Z>, message::Complete<B, T>), E> + 'static,
     ) -> Result<Root<B, T>, E>
     where
         E: From<B::Error> + Send + 'static,

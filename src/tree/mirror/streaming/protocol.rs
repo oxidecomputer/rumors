@@ -4,7 +4,10 @@ use crate::{
     Version,
     tree::{
         mirror::streaming::{Backend, Leaf},
-        typed::height::{Height, Pred, Root, S, UnderRoot, UnderUnderRoot, Z},
+        typed::{
+            Prefix,
+            height::{Height, Pred, Root, S, UnderRoot, UnderUnderRoot, Z},
+        },
     },
 };
 
@@ -82,7 +85,7 @@ pub trait OpenInitiator<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
         self,
         requests: impl Messages<message::Opening, E> + 'static,
     ) -> (
-        impl Messages<message::Exchange<B, T, UnderUnderRoot>, E> + 'static,
+        impl Messages<(Prefix<UnderRoot>, message::Exchange<B, T, UnderRoot>), E> + 'static,
         Self::Next,
     );
 }
@@ -91,18 +94,22 @@ pub trait Exchange<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>: Stage + Siz
 where
     Self::Height: Pred,
     <Self::Height as Pred>::Pred: Pred,
-    S<<Self::Height as Pred>::Pred>: Height,
-    S<<<Self::Height as Pred>::Pred as Pred>::Pred>: Height,
 {
     type Next: AfterExchange<B, T, <<Self::Height as Pred>::Pred as Pred>::Pred>
         + Stage<Height = <<Self::Height as Pred>::Pred as Pred>::Pred>;
 
     fn exchange<E: From<B::Error> + Send + 'static>(
         self,
-        requests: impl Messages<message::Exchange<B, T, <Self::Height as Pred>::Pred>, E> + 'static,
-    ) -> (
-        impl Messages<message::Exchange<B, T, <<Self::Height as Pred>::Pred as Pred>::Pred>, E>
+        requests: impl Messages<(Prefix<Self::Height>, message::Exchange<B, T, Self::Height>), E>
         + 'static,
+    ) -> (
+        impl Messages<
+            (
+                Prefix<<Self::Height as Pred>::Pred>,
+                message::Exchange<B, T, <Self::Height as Pred>::Pred>,
+            ),
+            E,
+        > + 'static,
         Self::Next,
     );
 }
@@ -114,9 +121,9 @@ pub trait CloseInitiator<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
 
     fn close_initiator<E: From<B::Error> + Send + 'static>(
         self,
-        requests: impl Messages<message::Exchange<B, T, S<Z>>, E> + 'static,
+        requests: impl Messages<(Prefix<S<S<Z>>>, message::Exchange<B, T, S<S<Z>>>), E> + 'static,
     ) -> (
-        impl Messages<message::Closing<B, T>, E> + 'static,
+        impl Messages<(Prefix<S<Z>>, message::Closing<B, T>), E> + 'static,
         Self::Next,
     );
 }
@@ -126,9 +133,9 @@ pub trait CompleteResponder<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
 {
     fn complete_responder<E: From<B::Error> + Send + 'static>(
         self,
-        requests: impl Messages<message::Closing<B, T>, E> + 'static,
+        requests: impl Messages<(Prefix<S<Z>>, message::Closing<B, T>), E> + 'static,
     ) -> (
-        impl Messages<message::Complete<B, T>, E> + 'static,
+        impl Messages<(Prefix<Z>, message::Complete<B, T>), E> + 'static,
         impl Future<Output = Result<backend::Root<B, T>, E>> + Send,
     );
 }
@@ -138,7 +145,7 @@ pub trait CompleteInitiator<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
 {
     fn complete_initiator<E: From<B::Error> + Send + 'static>(
         self,
-        requests: impl Messages<message::Complete<B, T>, E> + 'static,
+        requests: impl Messages<(Prefix<Z>, message::Complete<B, T>), E> + 'static,
     ) -> impl Future<Output = Result<backend::Root<B, T>, E>> + Send;
 }
 

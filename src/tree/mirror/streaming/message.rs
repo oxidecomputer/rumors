@@ -1,7 +1,17 @@
+//! The streaming mirror's wire vocabulary.
+//!
+//! Every stream message rides as a `(Prefix<H>, kind)` pair: the prefix is
+//! the stream's key — the protocol keeps each stream strictly
+//! prefix-ascending, and the walk merge-joins it against the frontier
+//! directly — so it lives in the pair, not the payload. `H` is the key's
+//! height; a message about a subtree's *children* ([`Exchange::Uncertain`],
+//! [`Opening::Uncertain`]) identifies each child by the single hash byte
+//! below the key.
+
 use crate::Version;
 use crate::tree::typed::{
     Hash, Prefix,
-    height::{Height, Root, S, UnderRoot, Z},
+    height::{Height, S, Z},
 };
 
 use super::{Backend, Leaf};
@@ -17,57 +27,50 @@ pub struct Handshake {
     pub version: Version,
 }
 
-// The three kinds of messages that can be streamed:
-
-pub struct Providing<B: Backend<T>, T, H: Height>
-where
-    B::Node<Z>: Leaf<T>,
-{
-    pub prefix: Prefix<H>,
-    pub node: B::Node<H>,
-}
-
-pub struct Requested<H: Height> {
-    pub prefix: Prefix<H>,
-}
-
-pub struct Uncertain<H: Height> {
-    pub prefix: Prefix<H>,
-    pub hash: Hash,
-}
-
 // The five kinds of stream messages:
 
 pub enum Initiate {
-    Uncertain(Uncertain<Root>),
+    /// The initiator's root hash.
+    Uncertain(Hash),
 }
 
 pub enum Opening {
-    Uncertain(Uncertain<UnderRoot>),
+    /// The responder's unconditional listing of its root's children.
+    Uncertain(Vec<(u8, Hash)>),
 }
 
-pub enum Exchange<B: Backend<T>, T, H>
+/// One keyed steady-state wire item: the prefix of the subtree an
+/// [`Exchange`] concerns, paired with it.
+pub type Exchanged<B, T, H> = (Prefix<H>, Exchange<B, T, H>);
+
+/// One steady-state reaction about the subtree at the paired key.
+pub enum Exchange<B: Backend<T>, T, H: Height>
 where
     B::Node<Z>: Leaf<T>,
-    S<H>: Height,
-    H: Height,
 {
-    Providing(Providing<B, T, S<H>>),
-    Requested(Requested<S<H>>),
-    Uncertain(Uncertain<H>),
+    /// The subtree which the counterparty asked for or provably lacks.
+    Providing(B::Node<H>),
+    /// The sender lacks the subtree: it asks the counterparty to provide.
+    Requested,
+    /// The sender disputes the subtree: its children's hashes, each child below
+    /// the prefix, ascending by radix.
+    Uncertain(Vec<(u8, Hash)>),
 }
 
+/// The initiator's leaf-parent-height reaction: [`Exchange`] minus `Uncertain`,
+/// which is unused at leaf height.
 pub enum Closing<B: Backend<T>, T>
 where
     B::Node<Z>: Leaf<T>,
 {
-    Providing(Providing<B, T, S<Z>>),
-    Requested(Requested<S<Z>>),
+    Providing(B::Node<S<Z>>),
+    Requested,
 }
 
+/// The responder's final word: the leaves the initiator requested.
 pub enum Complete<B: Backend<T>, T>
 where
     B::Node<Z>: Leaf<T>,
 {
-    Providing(Providing<B, T, Z>),
+    Providing(B::Node<Z>),
 }
