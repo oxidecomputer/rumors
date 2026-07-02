@@ -77,11 +77,11 @@ where
     F: Backend<T, Node<Z>: Leaf<T>>,
     G: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
-    // `N` names the converted message type rather than projecting it from
-    // `M`: the source pins `M`, the receiving stage pins `N`, and inference
-    // meets in this bound — a projection in return position would have to be
-    // concrete before the receiver constrains it (the boxed wires erase to
-    // `dyn`, whose item type is fixed at the coercion).
+    // `N` names the converted message type rather than projecting it from `M`:
+    // the source pins `M`, the receiving stage pins `N`, and inference meets in
+    // this bound — a projection in return position would have to be concrete
+    // before the receiver constrains it (the boxed wires erase to `dyn`, whose
+    // item type is fixed at the coercion).
     M: Convertible<F, G, T, Converted = N> + 'static,
     N: Send + 'static,
 {
@@ -96,63 +96,78 @@ where
     })
 }
 
-/// Expand one run of protocol phases into the driver's step statements.
+/// Expand the protocol phase schedule into the driver's body: one line per
+/// phase, evaluating to both parties' joined terminal results.
 ///
-/// Each line is one phase: the named party's stage consumes the pending
-/// stream (`..`) and its own outgoing stream becomes pending in turn. The
-/// parties alternate, so a crossing's producer is always the counterparty
-/// of the line consuming it, and [`wire`] converts each crossing from the
-/// producer's node vocabulary into the consumer's — which is also why a
-/// misordered schedule fails to type-check instead of misrouting.
+/// Each line is one phase: the named party's stage consumes the pending stream
+/// (`..`) and its own outgoing stream becomes pending in turn. The parties
+/// alternate, so a crossing's producer is always the counterparty of the line
+/// consuming it, and [`wire`] converts each crossing from the producer's node
+/// vocabulary into the consumer's — which is also why a misordered schedule
+/// fails to type-check instead of misrouting. `initiator()` — no stream
+/// pending yet — opens the schedule; a `for _ in lo..hi { … }` run of phases
+/// repeats by delegation to `seq!`; and the final phase closes the schedule,
+/// `join!`ing its party's terminal future with the counterparty's into the
+/// invocation's value, ordered `(final phase's party, counterparty)`.
 ///
-/// Macro hygiene gives every expansion its own locals, so the pending
-/// stream cannot ride a plain `msgs` between invocations; instead each
-/// party ident stays bound to a `(backend handle, state)` pair, with the
-/// pending stream stashed inside the producer's state slot. A run resuming
-/// mid-schedule recovers the pending party from its second line (by
-/// alternation, the first line's counterparty). `initiator()` — no stream
-/// pending yet — opens the schedule, and `complete_initiator(..)`,
-/// matched by name, closes it, leaving both idents bound to their terminal
-/// futures for the caller's `join!`.
+/// Each party ident stays bound to a `(backend handle, state)` pair, with the
+/// pending stream stashed inside the producer's state slot, because the loop
+/// body expands to one pasted invocation per iteration and macro hygiene gives
+/// every expansion its own locals: only the caller's own idents can carry the
+/// stream from one iteration to the next.
 macro_rules! mirror {
-    // The terminal crossing (matched by name, ahead of the general rule):
-    // afterwards both parties are bare futures.
-    (@pending($a:ident) $b:ident.complete_initiator(..);) => {
-        let (handle, (msgs, state)) = $a;
-        let $a = state;
-        let msgs = wire(&handle, &$b.0, msgs);
-        let $b = $b.1.complete_initiator(msgs);
-    };
-    // One phase: un-pend the counterparty, convert the crossing, and leave
-    // this line's party pending.
-    (@pending($a:ident) $b:ident.$m:ident(..); $($rest:tt)*) => {
+    // The shared phase step: un-pend the counterparty `$a`, convert the
+    // crossing, leave `$b` pending.
+    (@one $a:ident >> $b:ident.$m:ident) => {
         let (handle, (msgs, state)) = $a;
         let $a = (handle, state);
         let msgs = wire(&$a.0, &$b.0, msgs);
         let $b = ($b.0, $b.1.$m(msgs));
-        mirror!(@pending($b) $($rest)*);
     };
-    // A run is done; the pending stream stays stashed for the next one.
-    (@pending($a:ident)) => {};
+    // The terminal crossing, matched ahead of the general phase rule: a
+    // phase with nothing after it is the schedule's last, and the whole
+    // expansion evaluates to the joined `(its party, counterparty)` results.
+    (@pending($a:ident) $b:ident.$m:ident(..);) => {{
+        let (handle, (msgs, state)) = $a;
+        let msgs = wire(&handle, &$b.0, msgs);
+        join!($b.1.$m(msgs), state)
+    }};
+    // A repeated run of phases, one statement-form (`@step`) expansion pasted
+    // per iteration. The body must leave pending the party it began from —
+    // the alternation does, and the types check it.
+    (@pending($a:ident) for _ in $lo:tt..$hi:tt { $($body:tt)* } $($rest:tt)*) => {{
+        seq!(_ in $lo..$hi {
+            mirror!(@step($a) $($body)*);
+        });
+        mirror!(@pending($a) $($rest)*)
+    }};
+    // One phase, continuing in tail position so the terminal value bubbles
+    // out through the nested blocks.
+    (@pending($a:ident) $b:ident.$m:ident(..); $($rest:tt)*) => {{
+        mirror!(@one $a >> $b.$m);
+        mirror!(@pending($b) $($rest)*)
+    }};
+    // Statement-form phases for loop bodies: rebindings must outlive their
+    // expansion so the next pasted iteration sees them.
+    (@step($a:ident) $b:ident.$m:ident(..); $($rest:tt)*) => {
+        mirror!(@one $a >> $b.$m);
+        mirror!(@step($b) $($rest)*);
+    };
+    (@step($a:ident)) => {};
     // Opening the schedule: no stream is pending yet.
-    ($a:ident.$m:ident(); $($rest:tt)*) => {
+    ($a:ident.$m:ident(); $($rest:tt)*) => {{
         let $a = ($a.0, $a.1.$m());
-        mirror!(@pending($a) $($rest)*);
-    };
-    // Resuming mid-schedule: the pending party is the first line's
-    // counterparty — by alternation, the second line's party.
-    ($b:ident.$m:ident(..); $c:ident.$m2:ident(..); $($rest:tt)*) => {
-        mirror!(@pending($c) $b.$m(..); $c.$m2(..); $($rest)*);
-    };
+        mirror!(@pending($a) $($rest)*)
+    }};
 }
 
 /// Drive the full protocol schedule between two connected peers.
 ///
-/// The streaming traits expose each step as `(outgoing_stream, next_state)`,
-/// so unlike the alternating driver there is no per-message `Step` to
-/// inspect and no early return: the schedule is a straight line, one
-/// `mirror!` phase per stage, each stage's outgoing stream [wired](wire)
-/// across the party boundary to the counterparty's next stage.
+/// The streaming traits expose each step as `(outgoing_stream, next_state)`, so
+/// unlike the alternating driver there is no per-message `Step` to inspect and
+/// no early return: the schedule is a straight line, one `mirror!` phase per
+/// stage, each stage's outgoing stream [wired](wire) across the party boundary
+/// to the counterparty's next stage.
 async fn mirror_connected<B, C, I, R, T>(
     initiator: B,
     responder: C,
@@ -169,27 +184,22 @@ where
     let i = (initiator, i);
     let r = (responder, r);
 
-    mirror! {
+    let (i, r) = mirror! {
         i.initiator();
         r.responder(..);
         i.open_initiator(..);
-    }
 
-    seq!(_ in 0..14 {
-        mirror! {
+        for _ in 0..14 {
             r.exchange(..);
             i.exchange(..);
         }
-    });
 
-    mirror! {
         r.exchange(..);
         i.close_initiator(..);
         r.complete_responder(..);
         i.complete_initiator(..);
-    }
+    };
 
-    let (i, r) = join!(i, r);
     Ok((i?, r.map_err(Error::flip)?))
 }
 
@@ -228,9 +238,9 @@ where
     /// Reconcile the two connected sessions, returning both sides' reconciled
     /// roots.
     ///
-    /// Returns `None` when the handshake versions were equal and the trees
-    /// are already converged, in which case each side's root is whatever the
-    /// caller already holds.
+    /// Returns `None` when the handshake versions were equal and the trees are
+    /// already converged, in which case each side's root is whatever the caller
+    /// already holds.
     pub(crate) async fn reconcile(
         self,
     ) -> Result<Option<(Root<B, T>, Root<C, T>)>, Error<B::Error, C::Error>> {
@@ -319,31 +329,30 @@ where
             .map(|(theirs, ours)| Some((ours, theirs)))
             .map_err(Error::flip),
         // Equal versions mean already-converged trees: nothing to reconcile,
-        // and each side keeps the root it came with. Both parties compare
-        // the same two versions, so a remote counterparty concludes this
+        // and each side keeps the root it came with. Both parties compare the
+        // same two versions, so a remote counterparty concludes this
         // identically on its own side: no message needs to say so.
         Ordering::Equal => Ok(None),
     }
 }
 
-/// Run two arbitrary protocol implementors against each other through the
-/// full streaming protocol, both parties polled concurrently on the current
-/// task, returning both sides' reconciled roots.
+/// Run two arbitrary protocol implementors against each other through the full
+/// streaming protocol, both parties polled concurrently on the current task,
+/// returning both sides' reconciled roots.
 ///
 /// The implementors need not be backed by materialized trees — any pair of
 /// [`Client`] and [`Server`] stage chains will do, each speaking in its own
 /// backend's node types; the backend handles are what the party boundary
 /// converts through. The two backends deliberately differ: an implementor
-/// fronting a remote peer speaks an *immaterial* backend whose nodes are
-/// the wire's own leaf frames, so crossing the boundary toward it is an
-/// explode — no node is ever constructed on the wire side — while crossing
-/// from it is exactly the assembly the local side needs anyway. Start a
-/// tree-backed session with [`Handshaking::start`].
+/// fronting a remote peer speaks an *immaterial* backend whose nodes are the
+/// wire's own leaf frames, so crossing the boundary toward it is an explode —
+/// no node is ever constructed on the wire side — while crossing from it is
+/// exactly the assembly the local side needs anyway. Start a tree-backed
+/// session with [`Handshaking::start`].
 ///
-/// Returns `None` when the handshake versions were equal and there is
-/// nothing to reconcile, in which case each side keeps whatever it came
-/// with; a caller holding trees falls back to the roots it started its
-/// sessions from.
+/// Returns `None` when the handshake versions were equal and there is nothing
+/// to reconcile, in which case each side keeps whatever it came with; a caller
+/// holding trees falls back to the roots it started its sessions from.
 pub(crate) async fn mirror<P, Q, B, C, T>(
     local_backend: B,
     remote_backend: C,
