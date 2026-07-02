@@ -15,6 +15,12 @@ use crate::{
 mod local;
 pub use local::Local;
 
+// The test-only immaterial backend: a wire party's shape without a wire.
+#[cfg(test)]
+mod flat;
+#[cfg(test)]
+pub use flat::Flat;
+
 /// The materiality of a backend's nodes: [`Material`] nodes carry real
 /// Merkle hashes and version bounds, [`Immaterial`] nodes are opaque
 /// transport cargo.
