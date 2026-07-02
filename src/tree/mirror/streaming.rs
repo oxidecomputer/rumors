@@ -75,11 +75,7 @@ where
 /// so unlike the alternating driver there is no per-message `Step` to
 /// inspect and no early return: the schedule is a straight line, each stage's
 /// outgoing stream [wired](wire) across the party boundary to the
-/// counterparty's next stage. Each party runs at its own [`CombinedError`]
-/// frame (the protocol traits' `E`), so every error travels in-band to
-/// whichever terminal it interrupts. `B` is the initiator's backend and `C`
-/// the responder's; the result is the initiator's frame, and [`descend`]
-/// flips it back when the version tiebreak swapped the roles.
+/// counterparty's next stage.
 async fn mirror_connected<B, C, I, R, T>(
     initiator: B,
     responder: C,
@@ -95,24 +91,32 @@ where
 {
     let (msgs, i) = i.initiator();
     let msgs = wire(&initiator, &responder, msgs);
+
     let (msgs, r) = r.responder(msgs);
     let msgs = wire(&responder, &initiator, msgs);
+
     let (msgs, i) = i.open_initiator(msgs);
     let msgs = wire(&initiator, &responder, msgs);
+
     seq!(_ in 0..14 {
         let (msgs, r) = r.exchange(msgs);
         let msgs = wire(&responder, &initiator, msgs);
+
         let (msgs, i) = i.exchange(msgs);
         let msgs = wire(&initiator, &responder, msgs);
     });
+
     let (msgs, r) = r.exchange(msgs);
     let msgs = wire(&responder, &initiator, msgs);
+
     let (msgs, i) = i.close_initiator(msgs);
     let msgs = wire(&initiator, &responder, msgs);
-    let (msgs, drive) = r.complete_responder(msgs);
+
+    let (msgs, r) = r.complete_responder(msgs);
     let msgs = wire(&responder, &initiator, msgs);
-    let (initiated, driven) = join!(i.complete_initiator(msgs), drive);
-    Ok((initiated?, driven.map_err(Error::flip)?))
+
+    let (i, r) = join!(i.complete_initiator(msgs), r);
+    Ok((i?, r.map_err(Error::flip)?))
 }
 
 type ClientConnected<C, B, T> = <<C as Connect<B, T>>::Next as CompleteConnect<B, T>>::Next;
@@ -249,12 +253,6 @@ where
 /// Reconcile two trees held by (possibly different) backends through the full
 /// streaming protocol, both parties polled concurrently on the current task,
 /// returning both sides' reconciled roots.
-///
-/// [`wire`] re-represents each message's nodes across the two backends — the
-/// in-process analog of a wire transport's serialization. A session that
-/// never reaches reconciliation (the versions were equal) returns both trees
-/// unchanged: they are already converged.
-#[cfg(test)]
 pub(crate) async fn mirror<B, C, T>(
     local_backend: B,
     remote_backend: C,
