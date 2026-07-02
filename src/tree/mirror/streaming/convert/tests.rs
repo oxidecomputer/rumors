@@ -6,7 +6,7 @@ use proptest::prelude::*;
 use crate::tree::arb::arb_root_node;
 use crate::tree::typed::{Prefix, height};
 
-use super::super::backend::{Backend, Flat, Local, Material};
+use super::super::backend::{Flat, Local};
 use super::subtree;
 
 proptest! {

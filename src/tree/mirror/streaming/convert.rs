@@ -1,15 +1,10 @@
 //! Re-represent nodes from one backend in the node types of another.
 //!
-//! The driver never converts — both implementors it pumps messages between
-//! share a backend type. This machinery is for the implementors themselves:
-//! it is what an adapter fronting a differently-represented party maps its
-//! crossing messages over, and what a wire party does implicitly when it
-//! serializes one side's nodes and deserializes them into the other's —
-//! decoding into an arbitrary backend through exactly these operations.
-//!
 //! [`Convertible`] re-represents one wire item — a keyed message pair —
 //! converting the node a `providing` payload carries (every other message
-//! kind crosses backends unchanged).
+//! kind crosses backends unchanged). It is what the in-process driver's
+//! party boundary maps over — and what a wire transport does implicitly when
+//! it serializes one side's nodes and deserializes them into the other's.
 //!
 //! A node converts by exploding to leaves in the source backend and
 //! reassembling in the target, the two halves running concurrently through

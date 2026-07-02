@@ -10,8 +10,8 @@ fn streaming_mirror(a: crate::tree::Root<()>, b: crate::tree::Root<()>) -> crate
     let (a, b): (super::Root<Local, ()>, super::Root<Local, ()>) = (a.into(), b.into());
     let client = Handshaking::start(Local, a.clone());
     let server = Handshaking::start(Local, b.clone());
-    let (ours, theirs) = pollster::block_on(super::mirror(client, server))
-        .unwrap_or_else(|e| match e {})
+    let (ours, theirs) = pollster::block_on(super::mirror(Local, Local, client, server))
+        .expect("local mirror is infallible")
         // Equal handshake versions: already converged, both sides unchanged.
         .unwrap_or((a, b));
     let (ours, theirs) = (ours.into(), theirs.into());
