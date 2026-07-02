@@ -96,13 +96,63 @@ where
     })
 }
 
+/// Expand one run of protocol phases into the driver's step statements.
+///
+/// Each line is one phase: the named party's stage consumes the pending
+/// stream (`..`) and its own outgoing stream becomes pending in turn. The
+/// parties alternate, so a crossing's producer is always the counterparty
+/// of the line consuming it, and [`wire`] converts each crossing from the
+/// producer's node vocabulary into the consumer's — which is also why a
+/// misordered schedule fails to type-check instead of misrouting.
+///
+/// Macro hygiene gives every expansion its own locals, so the pending
+/// stream cannot ride a plain `msgs` between invocations; instead each
+/// party ident stays bound to a `(backend handle, state)` pair, with the
+/// pending stream stashed inside the producer's state slot. A run resuming
+/// mid-schedule recovers the pending party from its second line (by
+/// alternation, the first line's counterparty). `initiator()` — no stream
+/// pending yet — opens the schedule, and `complete_initiator(..)`,
+/// matched by name, closes it, leaving both idents bound to their terminal
+/// futures for the caller's `join!`.
+macro_rules! mirror {
+    // The terminal crossing (matched by name, ahead of the general rule):
+    // afterwards both parties are bare futures.
+    (@pending($a:ident) $b:ident.complete_initiator(..);) => {
+        let (handle, (msgs, state)) = $a;
+        let $a = state;
+        let msgs = wire(&handle, &$b.0, msgs);
+        let $b = $b.1.complete_initiator(msgs);
+    };
+    // One phase: un-pend the counterparty, convert the crossing, and leave
+    // this line's party pending.
+    (@pending($a:ident) $b:ident.$m:ident(..); $($rest:tt)*) => {
+        let (handle, (msgs, state)) = $a;
+        let $a = (handle, state);
+        let msgs = wire(&$a.0, &$b.0, msgs);
+        let $b = ($b.0, $b.1.$m(msgs));
+        mirror!(@pending($b) $($rest)*);
+    };
+    // A run is done; the pending stream stays stashed for the next one.
+    (@pending($a:ident)) => {};
+    // Opening the schedule: no stream is pending yet.
+    ($a:ident.$m:ident(); $($rest:tt)*) => {
+        let $a = ($a.0, $a.1.$m());
+        mirror!(@pending($a) $($rest)*);
+    };
+    // Resuming mid-schedule: the pending party is the first line's
+    // counterparty — by alternation, the second line's party.
+    ($b:ident.$m:ident(..); $c:ident.$m2:ident(..); $($rest:tt)*) => {
+        mirror!(@pending($c) $b.$m(..); $c.$m2(..); $($rest)*);
+    };
+}
+
 /// Drive the full protocol schedule between two connected peers.
 ///
 /// The streaming traits expose each step as `(outgoing_stream, next_state)`,
 /// so unlike the alternating driver there is no per-message `Step` to
-/// inspect and no early return: the schedule is a straight line, each stage's
-/// outgoing stream [wired](wire) across the party boundary to the
-/// counterparty's next stage.
+/// inspect and no early return: the schedule is a straight line, one
+/// `mirror!` phase per stage, each stage's outgoing stream [wired](wire)
+/// across the party boundary to the counterparty's next stage.
 async fn mirror_connected<B, C, I, R, T>(
     initiator: B,
     responder: C,
@@ -116,33 +166,30 @@ where
     I: Peer<B, T>,
     R: Peer<C, T>,
 {
-    let (msgs, i) = i.initiator();
-    let msgs = wire(&initiator, &responder, msgs);
+    let i = (initiator, i);
+    let r = (responder, r);
 
-    let (msgs, r) = r.responder(msgs);
-    let msgs = wire(&responder, &initiator, msgs);
-
-    let (msgs, i) = i.open_initiator(msgs);
-    let msgs = wire(&initiator, &responder, msgs);
+    mirror! {
+        i.initiator();
+        r.responder(..);
+        i.open_initiator(..);
+    }
 
     seq!(_ in 0..14 {
-        let (msgs, r) = r.exchange(msgs);
-        let msgs = wire(&responder, &initiator, msgs);
-
-        let (msgs, i) = i.exchange(msgs);
-        let msgs = wire(&initiator, &responder, msgs);
+        mirror! {
+            r.exchange(..);
+            i.exchange(..);
+        }
     });
 
-    let (msgs, r) = r.exchange(msgs);
-    let msgs = wire(&responder, &initiator, msgs);
+    mirror! {
+        r.exchange(..);
+        i.close_initiator(..);
+        r.complete_responder(..);
+        i.complete_initiator(..);
+    }
 
-    let (msgs, i) = i.close_initiator(msgs);
-    let msgs = wire(&initiator, &responder, msgs);
-
-    let (msgs, r) = r.complete_responder(msgs);
-    let msgs = wire(&responder, &initiator, msgs);
-
-    let (i, r) = join!(i.complete_initiator(msgs), r);
+    let (i, r) = join!(i, r);
     Ok((i?, r.map_err(Error::flip)?))
 }
 
