@@ -184,12 +184,7 @@ where
     match r {}
 }
 
-/// An error which can occur during mirroring: either a client error or a server one.
-#[derive(Debug, Clone, thiserror::Error)]
-pub enum Error<C, S> {
-    Client(C),
-    Server(S),
-}
+pub use super::Error;
 
 /// The client's exchange after the connect phase: the [`Peer`] it has descended
 /// to once `connect` then `complete_connect` have run.
@@ -366,10 +361,7 @@ where
         // Running the remote as initiator, rearrange the result back to (local, remote).
         Ordering::Greater => match mirror_connected(remote, local).await {
             Ok((r, l)) => Ok((l, r)),
-            Err(e) => Err(match e {
-                Error::Server(l) => Error::Client(l),
-                Error::Client(r) => Error::Server(r),
-            }),
+            Err(e) => Err(e.flip()),
         },
         Ordering::Equal => unreachable!("distinct versions have distinct canonical bytes"),
     }

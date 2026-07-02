@@ -1,3 +1,5 @@
+use std::pin::Pin;
+
 use futures::{Stream, future, stream};
 
 use crate::{
@@ -106,6 +108,14 @@ impl<N, B: Backend<T, Node<Z>: Leaf<T>>, T, H: Height> NodeStream<B, T, H> for N
 {
 }
 
+/// A [`NodeStream`] erased to one level of type depth.
+///
+/// Every height-recursive transducer over node streams boxes at each level:
+/// an `impl Stream` threaded through the full height of the tree would nest
+/// each level's stream type inside the next and balloon the compiler's types
+/// past any bound.
+pub(super) type BoxNodeStream<B, T, H> = Pin<Box<dyn NodeStream<B, T, H>>>;
+
 /// A stream of one prefix-keyed node.
 ///
 /// The seed for anything that operates on a single subtree through the
@@ -128,6 +138,7 @@ where
 /// advances a tree's version while removing nodes, so an empty tree still
 /// carries the version at which it became empty — which is exactly what
 /// deletion honoring compares against on the next reconciliation.
+#[derive(Debug)]
 pub struct Root<B, T>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
@@ -136,4 +147,18 @@ where
     pub ceiling: Version,
     /// The root node, or nothing when the tree is empty.
     pub root: Option<B::Node<height::Root>>,
+}
+
+// Manual because the derive would demand `T: Clone`; nodes are cloneable
+// handles regardless of the message type they carry.
+impl<B, T> Clone for Root<B, T>
+where
+    B: Backend<T, Node<Z>: Leaf<T>>,
+{
+    fn clone(&self) -> Self {
+        Root {
+            ceiling: self.ceiling.clone(),
+            root: self.root.clone(),
+        }
+    }
 }

@@ -22,7 +22,7 @@ use futures::SinkExt;
 use futures::channel::{mpsc, oneshot};
 use futures::future::{self, BoxFuture};
 use futures::stream::{self, StreamExt};
-use std::pin::{Pin, pin};
+use std::pin::pin;
 
 use crate::{
     Version,
@@ -32,7 +32,7 @@ use crate::{
     },
 };
 
-use super::backend::{Backend, Leaf, Node, NodeStream, Root, one};
+use super::backend::{Backend, BoxNodeStream, Leaf, Node, NodeStream, Root, one};
 use super::dispute::{Routed, classify};
 use super::merge::merge_disjoint;
 use super::message;
@@ -50,14 +50,6 @@ mod reconcile;
 /// descending frontier, and the upward reassembly. This bound is what makes
 /// reconciliation fixed-memory regardless of diff size.
 const FAN: usize = 256;
-
-/// A boxed, prefix-ordered stream of a backend's nodes at height `H`.
-///
-/// Every stage boundary boxes: an `impl Stream` threaded through the 32-deep
-/// descent would nest each stage's stream type inside the next and balloon
-/// the compiler's types past any bound (the same reason
-/// [`unknown`](super::unknown) boxes per height).
-type BoxNodeStream<B, T, H> = Pin<Box<dyn NodeStream<B, T, H>>>;
 
 /// A prefix-keyed node at height `H`: the item of every level-carrying
 /// channel between pumps.
@@ -274,7 +266,6 @@ where
     B: Backend<T, Node<Z>: Leaf<T>>,
 {
     type Height = height::Root;
-    type Error = B::Error;
 }
 
 impl<B, T> protocol::Connect<B, T> for Handshaking<B, T, Start>
@@ -374,7 +365,7 @@ where
         // way, so an empty `Initiate` carries exactly as much information as
         // the empty tree's constant hash would. Pure data — the one wire
         // stream that needs no pump behind it.
-        let initiate: Option<Result<message::Initiate, E>> = self.root.root.as_ref().map(|node| {
+        let initiate = self.root.root.as_ref().map(|node| {
             Ok(message::Initiate::Uncertain(message::Uncertain {
                 prefix: Prefix::new(),
                 hash: node.hash(),
@@ -408,12 +399,10 @@ where
         let (up_tx, up_rx) = mpsc::channel(FAN);
 
         // Always explode our root one level and enumerate the resulting
-        // children, regardless of the initiator's root hash: an empty
-        // `Opening` is the unambiguous "responder has no children" signal
-        // that drives the initiator's all-`Provide` opening classify when we
-        // are empty, and a matched root costs one fan of hashes pushed
-        // through the steady-state pipeline. A single termination path on the
-        // wire beats a special case.
+        // children, regardless of the initiator's root hash: the root hashes
+        // will always differ at this point, because they can only match when
+        // the versions are the same (with well-behaved parties), and this
+        // already would have short-circuited before we got here.
         let explode = backend.clone();
         let outgoing = try_stream! {
             let mut down = down_tx;
@@ -606,16 +595,15 @@ where
     H: Height,
 {
     type Height = H;
-    type Error = B::Error;
 }
 
-impl<B, T, G> Descending<B, T, S<S<G>>>
+impl<B, T, H> Descending<B, T, S<S<H>>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
-    G: Height + Unknown,
-    S<G>: Height,
-    S<S<G>>: Height,
+    H: Height + Unknown,
+    S<H>: Height,
+    S<S<H>>: Height,
 {
     /// One step of the descent: start this stage's [`walk`](reconcile::walk)
     /// and [`ascend`] pumps and construct the successor two heights finer.
@@ -627,10 +615,10 @@ where
     /// with [`wire`].
     fn descend<E>(
         self,
-        requests: impl Messages<message::Exchange<B, T, S<G>>, E> + 'static,
+        requests: impl Messages<message::Exchange<B, T, S<H>>, E> + 'static,
     ) -> (
-        impl Messages<message::Exchange<B, T, G>, E> + 'static,
-        Descending<B, T, G>,
+        impl Messages<message::Exchange<B, T, H>, E> + 'static,
+        Descending<B, T, H>,
     )
     where
         E: From<B::Error> + Send + 'static,

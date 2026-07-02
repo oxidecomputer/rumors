@@ -1,46 +1,15 @@
-use std::cell::OnceCell;
-use std::future::Future;
-use std::time::Duration;
-
 use proptest::prelude::*;
-use tokio::runtime::Runtime;
 
 use crate::tree::arb::{arb_divergent_pair, arb_tree_root};
 use crate::tree::mirror::alternating;
-
-thread_local! {
-    /// One current-thread tokio runtime per test thread, initialized lazily on
-    /// first use (see the alternating tests for the rationale).
-    static RT: OnceCell<Runtime> = const { OnceCell::new() };
-}
-
-/// The per-case deadline. The streaming session is a set of channel-coupled
-/// pumps driven concurrently; a scheduling bug in it manifests as a deadlock,
-/// so every drive is bounded to turn a hang into a failure.
-const DEADLINE: Duration = Duration::from_secs(30);
-
-/// Drive an async future to completion on the per-thread runtime, panicking
-/// if it exceeds [`DEADLINE`].
-fn block_on<F: Future>(fut: F) -> F::Output {
-    RT.with(|cell| {
-        cell.get_or_init(|| {
-            tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("build tokio current-thread runtime")
-        })
-        .block_on(async {
-            tokio::time::timeout(DEADLINE, fut)
-                .await
-                .expect("streaming mirror session deadlocked")
-        })
-    })
-}
+use crate::tree::mirror::streaming::Local;
 
 /// Reconcile `a` and `b` through the streaming local backend, asserting the
 /// two sides converge to the same root, and return it.
 fn streaming_mirror(a: crate::tree::Root<()>, b: crate::tree::Root<()>) -> crate::tree::Root<()> {
-    let (ours, theirs) = block_on(super::mirror(a, b));
+    let (ours, theirs) = pollster::block_on(super::mirror(Local, Local, a.into(), b.into()))
+        .expect("local mirror is infallible");
+    let (ours, theirs) = (ours.into(), theirs.into());
     assert_eq!(ours, theirs, "streaming endpoints should converge");
     ours
 }
@@ -48,7 +17,7 @@ fn streaming_mirror(a: crate::tree::Root<()>, b: crate::tree::Root<()>) -> crate
 /// Reconcile `a` and `b` through the alternating implementation: the
 /// behavioral oracle the streaming protocol must reproduce exactly.
 fn alternating_mirror(a: crate::tree::Root<()>, b: crate::tree::Root<()>) -> crate::tree::Root<()> {
-    block_on(async {
+    pollster::block_on(async {
         let local_a = alternating::local::Exchange::start(a);
         let local_b = alternating::local::Exchange::start(b);
         match alternating::mirror(local_a, local_b).await {
