@@ -36,7 +36,7 @@ use crate::tree::typed::{
 };
 
 use super::backend::{Backend, Leaf, Node, NodeStream, one};
-use super::merge::merge_join_by;
+use super::merge::merge;
 use super::unknown::{Unknown, unknown};
 
 /// The asymmetry-matrix verdict for one prefix, at the height its children are
@@ -86,8 +86,7 @@ where
     C: Unknown,
 {
     try_stream! {
-        let joined = merge_join_by(ours, theirs, |(prefix, _)| *prefix, |(prefix, _)| *prefix);
-        for await cell in joined {
+        for await cell in merge(ours, theirs) {
             match cell? {
                 // We have it, they lack it: honor their deletions, then provide
                 // the surviving subtree (if any) and keep it.

@@ -1,6 +1,6 @@
-//! The streaming [`merge_join_by`](super::merge_join_by) must produce exactly
-//! the sequence [`itertools::Itertools::merge_join_by`] produces on the same
-//! two ascending inputs.
+//! The streaming [`merge`](super::merge) must produce exactly the sequence
+//! [`itertools::Itertools::merge_join_by`] produces on the same two ascending
+//! inputs.
 
 use std::convert::Infallible;
 
@@ -9,10 +9,10 @@ use itertools::Itertools;
 use proptest::collection::btree_map;
 use proptest::prelude::*;
 
-use super::merge_join_by;
+use super::merge;
 
-/// A sorted, duplicate-free key/value list, the shape `merge_join_by` requires
-/// of each side. `BTreeMap` gives ascending, unique keys for free.
+/// A sorted, duplicate-free key/value list, the shape `merge` requires of
+/// each side. `BTreeMap` gives ascending, unique keys for free.
 fn ascending() -> impl Strategy<Value = Vec<(u8, i32)>> {
     btree_map(any::<u8>(), any::<i32>(), 0..=16).prop_map(|m| m.into_iter().collect())
 }
@@ -22,11 +22,9 @@ proptest! {
     #[test]
     fn agrees_with_itertools(left in ascending(), right in ascending()) {
         let streamed = pollster::block_on(
-            merge_join_by(
+            merge(
                 stream::iter(left.clone()).map(Ok::<_, Infallible>),
                 stream::iter(right.clone()).map(Ok::<_, Infallible>),
-                |&(k, _)| k,
-                |&(k, _)| k,
             )
             .try_collect::<Vec<_>>(),
         )

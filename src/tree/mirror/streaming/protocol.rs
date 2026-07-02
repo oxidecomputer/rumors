@@ -8,7 +8,7 @@ use crate::{
     },
 };
 
-use super::message;
+use super::{backend, message};
 
 use futures::Stream;
 
@@ -129,7 +129,7 @@ pub trait CompleteResponder<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
         requests: impl Messages<message::Closing<B, T>, E> + 'static,
     ) -> (
         impl Messages<message::Complete<B, T>, E> + 'static,
-        impl Future<Output = Result<(), E>> + Send,
+        impl Future<Output = Result<backend::Root<B, T>, E>> + Send,
     );
 }
 
@@ -139,7 +139,7 @@ pub trait CompleteInitiator<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
     fn complete_initiator<E: From<B::Error> + Send + 'static>(
         self,
         requests: impl Messages<message::Complete<B, T>, E> + 'static,
-    ) -> impl Future<Output = Result<(), E>> + Send;
+    ) -> impl Future<Output = Result<backend::Root<B, T>, E>> + Send;
 }
 
 /// Blanket marker trait keyed by the height `H` just produced by an exchange:

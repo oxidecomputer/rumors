@@ -7,19 +7,18 @@
 //! frontier subtrees flow downward to be disassembled, and reconciled nodes
 //! flow upward to be reassembled, a hylomorphism in strict prefix order.
 //!
-//! Every dataflow edge is a [`FAN`]-bounded channel and every worker is a
-//! [`Pump`]. Each descent stage contributes two: its walk (the frontier against
-//! the incoming wire, fanning out to the wire/down/keep/level channels) and its
-//! ascent (folding the reconciled levels back toward the root). The accumulated
-//! set is driven concurrently at the session's two terminals —
-//! [`complete_initiator`](protocol::CompleteInitiator) on the initiator, the
-//! drive future returned by [`complete_responder`](protocol::CompleteResponder)
-//! on the responder — and each side's reconciled [`Root`] is delivered through
-//! the oneshot handed out by [`Handshaking::start`].
+//! Every dataflow edge is a [`FAN`]-bounded channel. Each descent stage
+//! contributes two futures which must be driven concurrently: its walk (the
+//! frontier against the incoming wire, fanning out to the wire/down/keep/level
+//! channels) and its ascent (folding the reconciled levels back toward the
+//! root). The accumulated `work` is driven concurrently at the session's two
+//! terminals ([`complete_initiator`](protocol::CompleteInitiator), and the
+//! future returned by [`complete_responder`](protocol::CompleteResponder)),
+//! each of which resolves to its side's reconciled [`Root`].
 
 use async_stream::try_stream;
 use futures::SinkExt;
-use futures::channel::{mpsc, oneshot};
+use futures::channel::mpsc;
 use futures::future::{self, BoxFuture};
 use futures::stream::{self, StreamExt};
 use std::pin::pin;
@@ -33,7 +32,6 @@ use crate::{
 };
 
 use super::backend::{Backend, BoxNodeStream, Leaf, Node, NodeStream, Root, one};
-use super::dispute::{Routed, classify};
 use super::merge::merge_disjoint;
 use super::message;
 use super::protocol::{self, Messages};
@@ -49,40 +47,23 @@ mod reconcile;
 /// so a single fan of slack absorbs the maximum skew between the wire, the
 /// descending frontier, and the upward reassembly. This bound is what makes
 /// reconciliation fixed-memory regardless of diff size.
-const FAN: usize = 256;
+pub(super) const FAN: usize = 256;
 
 /// A prefix-keyed node at height `H`: the item of every level-carrying
-/// channel between pumps.
+/// channel between a stage's walk and the ascents that fold it back up.
 type Level<B, T, H> = (Prefix<H>, <B as Backend<T>>::Node<H>);
 
-/// One independently scheduled worker of a session.
-///
-/// Every dataflow edge of the session is a [`FAN`]-bounded channel, and every
-/// node of the dataflow graph is a pump: a boxed future that pulls its input
-/// channels and pushes its output channels until they close. Stages
-/// accumulate pumps as they descend (see [`Descending`]); the terminal stages
-/// drive the whole set with `join_all`, concurrently with the counterparty's
-/// set. A pump's only suspension points are channel operations, and the
-/// channel graph is acyclic — wire and `down` edges flow toward later stages,
-/// reconciled levels flow up a separate spine into [`deliver`] — so driving
-/// every pump unconditionally means a pump parked on a full or empty channel
-/// always has its counterpart still scheduled: the session cannot deadlock.
-///
-/// A pump resolves to `Err` only on a backend failure (`E` is the backend's
-/// error); protocol errors ride the wire streams instead, as their items'
-/// failure arm.
-type Pump<E> = BoxFuture<'static, Result<(), E>>;
-
-/// Open a stage's outgoing wire: push the [`Pump`] that forwards `messages`
-/// into a fresh [`FAN`]-bounded channel, and return the receiving half.
+/// Open a stage's outgoing wire: push the future that forwards `messages`
+/// into a fresh [`FAN`]-bounded channel onto `work`, and return the
+/// receiving half.
 ///
 /// The receiving half is what the stage returns as its outgoing [`Messages`]:
-/// the counterparty reads a plain channel while the pushed pump — not the
-/// counterparty's demand — advances the walk behind it. The pump ends when
-/// the wire ends or the counterparty drops the receiver (session teardown),
-/// and never fails: errors ride the forwarded items.
-fn wire<M, E, X>(
-    pumps: &mut Vec<Pump<X>>,
+/// the counterparty reads a plain channel while the forwarding future — not
+/// the counterparty's demand — advances the walk behind it. Forwarding ends
+/// when the wire ends or the counterparty drops the receiver (session
+/// teardown), and never fails: errors ride the forwarded items.
+fn outgoing<M, E, X>(
+    work: &mut Vec<BoxFuture<'static, Result<(), X>>>,
     messages: impl Messages<M, E> + 'static,
 ) -> mpsc::Receiver<Result<M, E>>
 where
@@ -91,29 +72,29 @@ where
     X: Send + 'static,
 {
     let (tx, rx) = mpsc::channel(FAN);
-    pumps.push(Box::pin(async move {
+    work.push(Box::pin(async move {
         let _ = messages.map(Ok).forward(tx).await;
         Ok(())
     }));
     rx
 }
 
-/// The [`Pump`] that reassembles one stage's slice of the reconciled tree.
+/// Reassemble one stage's slice of the reconciled tree.
 ///
 /// A stage with its frontier at `S<S<H>>` sees reconciled nodes at three
 /// heights: kept frontier nodes (`keep`), classify verdicts one level below
 /// (`level`), and — once the stages beneath have resolved them — reconciled
 /// disputes two levels below, arriving through `below`. The three sets are
 /// prefix-disjoint because they route through mutually exclusive verdicts, so
-/// the stage's reconciled frontier level is two folds and two disjoint
-/// merges; it flows out through `up`, becoming the previous stage's `below`.
+/// the stage's reconciled frontier level is two folds and two disjoint merges;
+/// it flows out through `up`, becoming the previous stage's `below`.
 fn ascend<B, T, H>(
     backend: B,
     keep: mpsc::Receiver<Level<B, T, S<S<H>>>>,
     level: mpsc::Receiver<Level<B, T, S<H>>>,
     below: mpsc::Receiver<Level<B, T, H>>,
     mut up: mpsc::Sender<Level<B, T, S<S<H>>>>,
-) -> Pump<B::Error>
+) -> BoxFuture<'static, Result<(), B::Error>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
@@ -126,15 +107,13 @@ where
         backend.clone().parents(merge_disjoint(
             level.map(Ok),
             backend.parents(below.map(Ok)),
-            |(prefix, _)| *prefix,
         )),
-        |(prefix, _)| *prefix,
     );
     Box::pin(async move {
         let mut reconciled = pin!(reconciled);
         while let Some(item) = reconciled.next().await {
-            // A closed channel means the consumer of this level is gone and
-            // the session is being torn down.
+            // A closed channel means the consumer of this level is gone and the
+            // session is being torn down.
             if up.send(item?).await.is_err() {
                 break;
             }
@@ -143,20 +122,16 @@ where
     })
 }
 
-/// The topmost [`Pump`]: drain the reconciled root level into this side's
-/// reconciled [`Root`] and deliver it through the session's recovery slot.
+/// Drain the reconciled root level into this side's reconciled [`Root`]: the
+/// future the session's terminal resolves to.
 ///
-/// The root level holds at most one node — the reassembled root, or nothing
-/// when the reconciled tree is empty. The ceiling is the join of both
-/// parties' versions, which is what deletion honoring compares against on the
-/// next reconciliation. A dropped receiver means the caller no longer wants
-/// the result; a backend error means there is no trustworthy result, and the
-/// recovery slot drops unresolved.
-fn deliver<B, T>(
+/// The root level holds at most one node: the reassembled root, or nothing
+/// when the reconciled tree is empty. A backend error means there is no
+/// trustworthy result.
+fn finish<B, T>(
     top: impl NodeStream<B, T, height::Root> + 'static,
     ceiling: Version,
-    recover: oneshot::Sender<Root<B, T>>,
-) -> Pump<B::Error>
+) -> BoxFuture<'static, Result<Root<B, T>, B::Error>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
@@ -165,33 +140,15 @@ where
         let mut top = pin!(top);
         let mut root = None;
         while let Some(item) = top.next().await {
-            let (_prefix, node) = item?;
             debug_assert!(
                 root.is_none(),
                 "upward reassembly produced more than one root node",
             );
+            let (_prefix, node) = item?;
             root = Some(node);
         }
-        let _ = recover.send(Root { ceiling, root });
-        Ok(())
+        Ok(Root { ceiling, root })
     })
-}
-
-/// Drive every accumulated pump to completion, surfacing the first backend
-/// failure once all have settled.
-///
-/// The set is not cancelled on failure: a failed pump drops its channel
-/// endpoints, which its neighbors observe as ordinary end-of-stream, so the
-/// rest of the session winds down cleanly before the error is reported.
-async fn drive<X, E>(pumps: Vec<Pump<X>>) -> Result<(), E>
-where
-    X: Send + 'static,
-    E: From<X>,
-{
-    for pumped in future::join_all(pumps).await {
-        pumped?;
-    }
-    Ok(())
 }
 
 /// The version state of a stage that has been opened but has not yet sent its
@@ -231,33 +188,20 @@ where
     backend: B,
     versions: V,
     root: Root<B, T>,
-    recover: oneshot::Sender<Root<B, T>>,
 }
 
 impl<B, T> Handshaking<B, T, Start>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
 {
-    /// Open a mirror session over `root`, advertising `network` and `intent`.
-    ///
-    /// The handshake version is the tree's ceiling. The returned receiver
-    /// resolves with this side's reconciled [`Root`] once its session
-    /// completes; it is dropped unresolved if the session never reaches
-    /// reconciliation (in particular, when the peers' versions are equal and
-    /// there is nothing to reconcile) or if the backend fails mid-session.
-    pub fn start(backend: B, root: Root<B, T>) -> (Self, oneshot::Receiver<Root<B, T>>) {
-        let (recover, recovered) = oneshot::channel();
-        (
-            Self {
-                backend,
-                versions: Start {
-                    our_version: root.ceiling.clone(),
-                },
-                root,
-                recover,
+    pub fn start(backend: B, root: Root<B, T>) -> Self {
+        Self {
+            backend,
+            versions: Start {
+                our_version: root.ceiling.clone(),
             },
-            recovered,
-        )
+            root,
+        }
     }
 }
 
@@ -288,7 +232,6 @@ where
             backend: self.backend,
             versions: Connecting { our_version },
             root: self.root,
-            recover: self.recover,
         };
         Ok((handshake, next))
     }
@@ -312,7 +255,6 @@ where
                 their_version,
             },
             root: self.root,
-            recover: self.recover,
         })
     }
 }
@@ -343,7 +285,6 @@ where
                 their_version: request.version,
             },
             root: self.root,
-            recover: self.recover,
         };
         Ok((handshake, next))
     }
@@ -360,11 +301,6 @@ where
     where
         E: From<B::Error> + Send + 'static,
     {
-        // A single uncertain root hash, or nothing at all when the tree is
-        // empty: the responder explodes its own root unconditionally either
-        // way, so an empty `Initiate` carries exactly as much information as
-        // the empty tree's constant hash would. Pure data — the one wire
-        // stream that needs no pump behind it.
         let initiate = self.root.root.as_ref().map(|node| {
             Ok(message::Initiate::Uncertain(message::Uncertain {
                 prefix: Prefix::new(),
@@ -393,7 +329,6 @@ where
             backend,
             versions,
             root,
-            recover,
         } = self;
         let (down_tx, down_rx) = mpsc::channel(FAN);
         let (up_tx, up_rx) = mpsc::channel(FAN);
@@ -404,7 +339,7 @@ where
         // the versions are the same (with well-behaved parties), and this
         // already would have short-circuited before we got here.
         let explode = backend.clone();
-        let outgoing = try_stream! {
+        let sendable = try_stream! {
             let mut down = down_tx;
             for await item in requests {
                 // The initiate's content is not used (we explode
@@ -427,20 +362,22 @@ where
         };
 
         // The responder's reconciled root-child level arrives on `up` whole:
-        // one fold reassembles the root for delivery.
+        // one fold reassembles the root the terminal resolves to.
         let ceiling = versions.our_version | versions.their_version.clone();
         let top = backend.clone().parents(up_rx.map(Ok::<_, B::Error>));
-        let mut pumps = vec![deliver(top, ceiling, recover)];
-        let wire_rx = wire(&mut pumps, outgoing);
+        let finish = finish(top, ceiling);
+        let mut work = Vec::new();
+        let sending = outgoing(&mut work, sendable);
 
         let next = Descending {
             backend,
             their_version: versions.their_version,
             frontier: Box::pin(down_rx.map(Ok::<_, B::Error>)),
             up: up_tx,
-            pumps,
+            work,
+            finish,
         };
-        (wire_rx, next)
+        (sending, next)
     }
 }
 
@@ -465,7 +402,6 @@ where
             backend,
             versions,
             root,
-            recover,
         } = self;
         let their_version = versions.their_version.clone();
         let (down_tx, down_rx) = mpsc::channel(FAN);
@@ -473,17 +409,16 @@ where
         let (up_tx, up_rx) = mpsc::channel(FAN);
 
         // The opening round is the one asymmetric-root round: the responder
-        // listed its root's children unconditionally, so silence about a
-        // child means the responder *lacks* it (everywhere below Root,
-        // silence means the hash matched). Feeding the whole opening level
-        // into one classify realizes exactly that: children only we hold come
-        // out as `Provide` (deletion-pruned), children only the responder
-        // holds as `Request`, and an empty side degenerates to all-`Provide`
-        // or all-`Request` with no special casing.
+        // listed its root's children unconditionally, so silence about a child
+        // means the responder *lacks* it (everywhere below Root, silence means
+        // the hash matched). Feeding the whole opening level into one classify
+        // realizes exactly that: children only we hold come out as `Provide`
+        // (deletion-pruned), children only the responder holds as `Request`,
+        // and an empty side degenerates to all-`Provide` or all-`Request` with
+        // no special casing.
         let open = backend.clone();
-        let outgoing = try_stream! {
-            let mut down = down_tx;
-            let mut level = level_tx;
+        let sendable = try_stream! {
+            let (down, level) = (down_tx, level_tx);
 
             // Buffer the responder's opening level: at most one root fan.
             let mut theirs = Vec::new();
@@ -496,40 +431,16 @@ where
                 Some(node) => {
                     let ours = open.clone().children(one(Prefix::new(), node));
                     let theirs = stream::iter(theirs.into_iter().map(Ok));
-                    let verdicts = classify(&open, &their_version, ours, theirs);
-                    for await verdict in verdicts {
-                        match verdict? {
-                            Routed::Provide(prefix, node) => {
-                                if level.send((prefix, node.clone())).await.is_err() {
-                                    return;
-                                }
-                                yield message::Exchange::Providing(message::Providing {
-                                    prefix,
-                                    node,
-                                });
-                            }
-                            Routed::Matched(prefix, node) => {
-                                if level.send((prefix, node)).await.is_err() {
-                                    return;
-                                }
-                            }
-                            Routed::Request(prefix) => {
-                                yield message::Exchange::Requested(message::Requested { prefix });
-                            }
-                            Routed::Dispute(prefix, node) => {
-                                let mut children = pin!(open.clone().children(one(prefix, node)));
-                                while let Some(item) = children.next().await {
-                                    let (child_prefix, child) = item?;
-                                    yield message::Exchange::Uncertain(message::Uncertain {
-                                        prefix: child_prefix,
-                                        hash: child.hash(),
-                                    });
-                                    if down.send((child_prefix, child)).await.is_err() {
-                                        return;
-                                    }
-                                }
-                            }
-                        }
+                    let routed = reconcile::route::<B, T, UnderUnderRoot, E>(
+                        open,
+                        their_version.clone(),
+                        ours,
+                        theirs,
+                        down,
+                        level,
+                    );
+                    for await item in routed {
+                        yield item?;
                     }
                 }
                 None => {
@@ -543,24 +454,26 @@ where
 
         // The initiator's root-child level is this round's classify verdicts
         // (`level`) joined with the resolved disputes climbing out of the
-        // descent (`up`); two folds reassemble the root for delivery.
+        // descent (`up`); two folds reassemble the root the terminal
+        // resolves to.
         let ceiling = versions.our_version | versions.their_version.clone();
         let top = backend.clone().parents(merge_disjoint(
             level_rx.map(Ok::<_, B::Error>),
             backend.clone().parents(up_rx.map(Ok)),
-            |(prefix, _)| *prefix,
         ));
-        let mut pumps = vec![deliver(top, ceiling, recover)];
-        let wire_rx = wire(&mut pumps, outgoing);
+        let finish = finish(top, ceiling);
+        let mut work = Vec::new();
+        let sending = outgoing(&mut work, sendable);
 
         let next = Descending {
             backend,
             their_version: versions.their_version,
             frontier: Box::pin(down_rx.map(Ok::<_, B::Error>)),
             up: up_tx,
-            pumps,
+            work,
+            finish,
         };
-        (wire_rx, next)
+        (sending, next)
     }
 }
 
@@ -569,12 +482,13 @@ where
 ///
 /// `frontier` holds this side's disputed subtrees at `H`, fed by the previous
 /// stage's classify through a [`FAN`]-bounded channel; `up` is where this
-/// stage's [`ascend`] pump sends the reconciled level at `H`, feeding the
-/// previous stage's ascent in turn; `pumps` accumulates every pump the
-/// session has created so far. Each
-/// [`exchange`](protocol::Exchange::exchange) consumes the stage and produces
-/// its successor two heights finer, until the terminal stages drive the
-/// accumulated pumps to completion.
+/// stage's [`ascend`] future sends the reconciled level at `H`, feeding the
+/// previous stage's ascent in turn; `work` accumulates every concurrent
+/// future the session has created so far, and `finish` is the fold their
+/// reassembly converges to: the reconciled [`Root`] the terminal resolves
+/// to. Each [`exchange`](protocol::Exchange::exchange) consumes the stage
+/// and produces its successor two heights finer, until the terminal stages
+/// drive the accumulated work to completion.
 pub struct Descending<B, T, H>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
@@ -585,7 +499,8 @@ where
     their_version: Version,
     frontier: BoxNodeStream<B, T, H>,
     up: mpsc::Sender<Level<B, T, H>>,
-    pumps: Vec<Pump<B::Error>>,
+    work: Vec<BoxFuture<'static, Result<(), B::Error>>>,
+    finish: BoxFuture<'static, Result<Root<B, T>, B::Error>>,
 }
 
 impl<B, T, H> protocol::Stage for Descending<B, T, H>
@@ -606,13 +521,10 @@ where
     S<S<H>>: Height,
 {
     /// One step of the descent: start this stage's [`walk`](reconcile::walk)
-    /// and [`ascend`] pumps and construct the successor two heights finer.
+    /// and [`ascend`] futures and construct the successor two heights finer.
     ///
     /// Shared by [`exchange`](protocol::Exchange::exchange) and
-    /// [`close_initiator`](protocol::CloseInitiator::close_initiator). The
-    /// returned stream is the walk's raw outgoing wire; the caller seals it
-    /// into its stage's concrete message type and opens the wire channel
-    /// with [`wire`].
+    /// [`close_initiator`](protocol::CloseInitiator::close_initiator).
     fn descend<E>(
         self,
         requests: impl Messages<message::Exchange<B, T, S<H>>, E> + 'static,
@@ -628,7 +540,8 @@ where
             their_version,
             frontier,
             up,
-            mut pumps,
+            mut work,
+            finish,
         } = self;
         let (down_tx, down_rx) = mpsc::channel(FAN);
         let (keep_tx, keep_rx) = mpsc::channel(FAN);
@@ -644,14 +557,15 @@ where
             keep_tx,
             level_tx,
         );
-        pumps.push(ascend(backend.clone(), keep_rx, level_rx, below_rx, up));
+        work.push(ascend(backend.clone(), keep_rx, level_rx, below_rx, up));
 
         let next = Descending {
             backend,
             their_version,
             frontier: Box::pin(down_rx.map(Ok::<_, B::Error>)),
             up: below_tx,
-            pumps,
+            work,
+            finish,
         };
         (walk, next)
     }
@@ -666,8 +580,7 @@ where
     S<S<H>>: Height,
     S<S<S<H>>>: Height,
     // Discharged at each concrete height by one of the three `AfterExchange`
-    // blanket impls; carrying it here keeps this impl from having to
-    // case-analyze `H`.
+    // blanket impls; cannot be proven generically by the trait solver.
     Descending<B, T, S<H>>: protocol::AfterExchange<B, T, S<H>>,
 {
     type Next = Descending<B, T, S<H>>;
@@ -682,10 +595,9 @@ where
     where
         E: From<B::Error> + Send + 'static,
     {
-        // A steady-state stage's wire is the walk's output verbatim.
         let (walk, mut next) = self.descend(requests);
-        let wire = wire(&mut next.pumps, walk);
-        (wire, next)
+        let sending = outgoing(&mut next.work, walk);
+        (sending, next)
     }
 }
 
@@ -715,16 +627,15 @@ where
                 Ok(message::Exchange::Requested(requested)) => {
                     Some(Ok(message::Closing::Requested(requested)))
                 }
-                // Vacuous at leaf height (see [`message::Closing`]): the
-                // disputed leaves still descend into the terminal frontier and
-                // stay ours, exactly as the alternating oracle keeps its
-                // exploded bottom level.
+                // Vacuous at leaf height (see [`message::Closing`]) because
+                // it's not possible to be uncertain about a leaf: you either
+                // know you have it, or know you don't.
                 Ok(message::Exchange::Uncertain(..)) => None,
                 Err(error) => Some(Err(error)),
             })
         });
-        let wire = wire(&mut next.pumps, closing);
-        (wire, next)
+        let sending = outgoing(&mut next.work, closing);
+        (sending, next)
     }
 }
 
@@ -738,7 +649,7 @@ where
         requests: impl Messages<message::Closing<B, T>, E> + 'static,
     ) -> (
         impl Messages<message::Complete<B, T>, E> + 'static,
-        impl Future<Output = Result<(), E>> + Send,
+        impl Future<Output = Result<Root<B, T>, E>> + Send,
     )
     where
         E: From<B::Error> + Send + 'static,
@@ -748,19 +659,21 @@ where
             their_version,
             frontier,
             up,
-            mut pumps,
+            mut work,
+            finish,
         } = self;
 
-        // The terminal walk reconciles everything at the frontier height, so
-        // its level output *is* this stage's contribution to the reassembly:
-        // no ascent of its own, just the level sent straight up.
         let complete = reconcile::complete_walk(backend, their_version, frontier, requests, up);
-        let wire = wire(&mut pumps, complete);
-
-        // The responder's terminal: every pump of this side's session, driven
-        // to completion concurrently with the initiator's terminal (the
-        // driver joins the two).
-        (wire, drive(pumps))
+        let sending = outgoing(&mut work, complete);
+        (sending, async move {
+            let (finished, root) = future::join(future::join_all(work), finish).await;
+            // A failed worker explains anything odd about the fold's result,
+            // so it outranks the fold.
+            for result in finished {
+                result?;
+            }
+            Ok(root?)
+        })
     }
 }
 
@@ -772,7 +685,7 @@ where
     async fn complete_initiator<E>(
         self,
         requests: impl Messages<message::Complete<B, T>, E> + 'static,
-    ) -> Result<(), E>
+    ) -> Result<Root<B, T>, E>
     where
         E: From<B::Error> + Send + 'static,
     {
@@ -781,15 +694,17 @@ where
             their_version: _,
             frontier,
             up,
-            pumps,
+            work,
+            finish,
         } = self;
 
-        // The initiator's terminal: absorb the final `providing` into the
-        // reconciled leaf level (sent straight up — the terminal stage has no
-        // ascent of its own) while driving every pump of this side's session
-        // to completion.
         let absorb = reconcile::absorb_leaves(frontier, requests, up);
-        let (absorbed, pumped) = future::join(absorb, drive(pumps)).await;
-        absorbed.and(pumped)
+        let (absorbed, finished, root) =
+            future::join3(absorb, future::join_all(work), finish).await;
+        absorbed?;
+        for result in finished {
+            result?;
+        }
+        Ok(root?)
     }
 }
