@@ -104,11 +104,11 @@ where
 /// alternate, so a crossing's producer is always the counterparty of the line
 /// consuming it, and [`wire`] converts each crossing from the producer's node
 /// vocabulary into the consumer's — which is also why a misordered schedule
-/// fails to type-check instead of misrouting. `initiator()` — no stream
-/// pending yet — opens the schedule; a `for _ in lo..hi { … }` run of phases
-/// repeats by delegation to `seq!`; and the final phase closes the schedule,
-/// `join!`ing its party's terminal future with the counterparty's into the
-/// invocation's value, ordered `(final phase's party, counterparty)`.
+/// fails to type-check instead of misrouting. `initiator()` — no stream pending
+/// yet — opens the schedule; a `for _ in lo..hi { … }` run of phases repeats by
+/// delegation to `seq!`; and the final phase closes the schedule, `join!`ing
+/// its party's terminal future with the counterparty's into the invocation's
+/// value, ordered `(final phase's party, counterparty)`.
 ///
 /// Each party ident stays bound to a `(backend handle, state)` pair, with the
 /// pending stream stashed inside the producer's state slot, because the loop
@@ -353,18 +353,18 @@ where
 /// Returns `None` when the handshake versions were equal and there is nothing
 /// to reconcile, in which case each side keeps whatever it came with; a caller
 /// holding trees falls back to the roots it started its sessions from.
-pub(crate) async fn mirror<P, Q, B, C, T>(
-    local_backend: B,
-    remote_backend: C,
-    client: P,
-    server: Q,
-) -> Result<Option<(Root<B, T>, Root<C, T>)>, Error<B::Error, C::Error>>
+pub(crate) async fn mirror<C, S, L, R, T>(
+    local_backend: L,
+    remote_backend: R,
+    client: C,
+    server: S,
+) -> Result<Option<(Root<L, T>, Root<R, T>)>, Error<L::Error, R::Error>>
 where
     T: Send + Sync + 'static,
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    C: Backend<T, Node<Z>: Leaf<T>>,
-    P: Client<B, T>,
-    Q: Server<C, T>,
+    L: Backend<T, Node<Z>: Leaf<T>>,
+    R: Backend<T, Node<Z>: Leaf<T>>,
+    C: Client<L, T>,
+    S: Server<R, T>,
 {
     handshake(local_backend, remote_backend, client, server)
         .await?
