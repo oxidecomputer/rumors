@@ -2,13 +2,18 @@ use proptest::prelude::*;
 
 use crate::tree::arb::{arb_divergent_pair, arb_tree_root};
 use crate::tree::mirror::alternating;
-use crate::tree::mirror::streaming::Local;
+use crate::tree::mirror::streaming::{Handshaking, Local};
 
 /// Reconcile `a` and `b` through the streaming local backend, asserting the
 /// two sides converge to the same root, and return it.
 fn streaming_mirror(a: crate::tree::Root<()>, b: crate::tree::Root<()>) -> crate::tree::Root<()> {
-    let (ours, theirs) = pollster::block_on(super::mirror(Local, Local, a.into(), b.into()))
-        .expect("local mirror is infallible");
+    let (a, b): (super::Root<Local, ()>, super::Root<Local, ()>) = (a.into(), b.into());
+    let client = Handshaking::start(Local, a.clone());
+    let server = Handshaking::start(Local, b.clone());
+    let (ours, theirs) = pollster::block_on(super::mirror(Local, Local, client, server))
+        .expect("local mirror is infallible")
+        // Equal handshake versions: already converged, both sides unchanged.
+        .unwrap_or((a, b));
     let (ours, theirs) = (ours.into(), theirs.into());
     assert_eq!(ours, theirs, "streaming endpoints should converge");
     ours

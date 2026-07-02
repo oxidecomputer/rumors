@@ -250,27 +250,35 @@ where
     }
 }
 
-/// Reconcile two trees held by (possibly different) backends through the full
-/// streaming protocol, both parties polled concurrently on the current task,
-/// returning both sides' reconciled roots.
-pub(crate) async fn mirror<B, C, T>(
+/// Run two arbitrary protocol implementors against each other through the
+/// full streaming protocol, both parties polled concurrently on the current
+/// task, returning both sides' reconciled roots.
+///
+/// The implementors need not be backed by materialized trees — any pair of
+/// [`Client`] and [`Server`] stage chains will do, each speaking in its own
+/// backend's node types; the backend handles are what the party boundary
+/// converts through. Start a tree-backed session with
+/// [`Handshaking::start`].
+///
+/// Returns `None` when the handshake versions were equal and there is
+/// nothing to reconcile, in which case each side keeps whatever it came
+/// with; a caller holding trees falls back to the roots it started its
+/// sessions from.
+pub(crate) async fn mirror<P, Q, B, C, T>(
     local_backend: B,
     remote_backend: C,
-    local: Root<B, T>,
-    remote: Root<C, T>,
-) -> Result<(Root<B, T>, Root<C, T>), Error<B::Error, C::Error>>
+    client: P,
+    server: Q,
+) -> Result<Option<(Root<B, T>, Root<C, T>)>, Error<B::Error, C::Error>>
 where
     T: Send + Sync + 'static,
-    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
-    C: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
+    B: Backend<T, Node<Z>: Leaf<T>>,
+    C: Backend<T, Node<Z>: Leaf<T>>,
+    P: Client<B, T>,
+    Q: Server<C, T>,
 {
-    let client = Handshaking::start(local_backend.clone(), local.clone());
-    let server = Handshaking::start(remote_backend.clone(), remote.clone());
-
-    let reconciled = handshake(local_backend, remote_backend, client, server)
+    handshake(local_backend, remote_backend, client, server)
         .await?
         .reconcile()
-        .await?;
-
-    Ok(reconciled.unwrap_or((local, remote)))
+        .await
 }
