@@ -1,8 +1,5 @@
-// TODO-integration: the streaming mirror is complete and oracle-tested but
-// not yet wired into the crate's session layer, so outside `cfg(test)` the
-// whole module is dead code (imports are still checked). Remove this allow
-// and the re-export allows below when `Peer` adopts it.
-#![allow(dead_code)]
+// TODO: remove this when integrated
+#![allow(dead_code, unused_imports)]
 
 mod backend;
 mod convert;
@@ -13,15 +10,14 @@ mod protocol;
 mod session;
 mod unknown;
 
-#[allow(unused_imports)]
 pub use backend::{Backend, Leaf, Local, Node, Root};
-#[allow(unused_imports)]
 pub use session::Handshaking;
 
 use std::cmp::Ordering;
 use std::pin::Pin;
 
 use async_stream::try_stream;
+use futures::join;
 use seq_macro::seq;
 
 use super::Error;
@@ -97,32 +93,30 @@ where
     I: Peer<B, T>,
     R: Peer<C, T>,
 {
-    let (msgs, i) = i.initiator::<CombinedError<B, C, T>>();
+    let (msgs, i) = i.initiator();
     let msgs = wire(&initiator, &responder, msgs);
-    let (msgs, r) = r.responder::<CombinedError<C, B, T>>(msgs);
+    let (msgs, r) = r.responder(msgs);
     let msgs = wire(&responder, &initiator, msgs);
-    let (msgs, i) = i.open_initiator::<CombinedError<B, C, T>>(msgs);
+    let (msgs, i) = i.open_initiator(msgs);
     let msgs = wire(&initiator, &responder, msgs);
     seq!(_ in 0..14 {
-        let (msgs, r) = r.exchange::<CombinedError<C, B, T>>(msgs);
+        let (msgs, r) = r.exchange(msgs);
         let msgs = wire(&responder, &initiator, msgs);
-        let (msgs, i) = i.exchange::<CombinedError<B, C, T>>(msgs);
+        let (msgs, i) = i.exchange(msgs);
         let msgs = wire(&initiator, &responder, msgs);
     });
-    let (msgs, r) = r.exchange::<CombinedError<C, B, T>>(msgs);
+    let (msgs, r) = r.exchange(msgs);
     let msgs = wire(&responder, &initiator, msgs);
-    let (msgs, i) = i.close_initiator::<CombinedError<B, C, T>>(msgs);
+    let (msgs, i) = i.close_initiator(msgs);
     let msgs = wire(&initiator, &responder, msgs);
-    let (msgs, drive) = r.complete_responder::<CombinedError<C, B, T>>(msgs);
+    let (msgs, drive) = r.complete_responder(msgs);
     let msgs = wire(&responder, &initiator, msgs);
-    let (initiated, driven) =
-        futures::future::join(i.complete_initiator::<CombinedError<B, C, T>>(msgs), drive).await;
+    let (initiated, driven) = join!(i.complete_initiator(msgs), drive);
     Ok((initiated?, driven.map_err(Error::flip)?))
 }
 
-pub(crate) type ClientConnected<C, B, T> =
-    <<C as Connect<B, T>>::Next as CompleteConnect<B, T>>::Next;
-pub(crate) type ServerConnected<S, B, T> = <S as Accept<B, T>>::Next;
+type ClientConnected<C, B, T> = <<C as Connect<B, T>>::Next as CompleteConnect<B, T>>::Next;
+type ServerConnected<S, B, T> = <S as Accept<B, T>>::Next;
 
 pub(crate) struct Handshaken<P, Q, B, C, T>
 where

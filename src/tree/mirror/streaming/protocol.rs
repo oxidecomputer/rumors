@@ -284,6 +284,10 @@ macro_rules! define_peer {
     };
 }
 
+// One `_` per exchange round: the initiator descends heights 30 → 2 in
+// fourteen rounds of two heights each, the responder 31 → 1 in fifteen.
+// `mirror_connected` in streaming.rs drives this same schedule; the counts
+// must move together.
 define_peer! {
     init: [_ _ _ _ _ _ _ _ _ _ _ _ _ _],
     resp: [_ _ _ _ _ _ _ _ _ _ _ _ _ _ _],

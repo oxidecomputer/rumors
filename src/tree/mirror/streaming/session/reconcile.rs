@@ -43,16 +43,150 @@ use itertools::EitherOrBoth;
 use crate::Version;
 use crate::tree::typed::{
     Hash, Prefix,
-    height::{Height, S, Z},
+    height::{self, Height, S, UnderRoot, UnderUnderRoot, Z},
 };
 
-use super::super::backend::{Backend, Leaf, Node, NodeStream, one};
+use super::super::backend::{Backend, BoxNodeStream, Leaf, Node, NodeStream, one};
 use super::super::dispute::{Routed, classify};
 use super::super::merge::merge;
 use super::super::message;
 use super::super::protocol::Messages;
 use super::super::unknown::{Unknown, unknown};
-use super::{BoxNodeStream, Level};
+use super::Level;
+
+/// The responder's opening walk: explode the root one level and list every
+/// child on the wire while feeding the subtrees to `down` as the first
+/// frontier.
+///
+/// The listing is unconditional, regardless of the initiator's root hash:
+/// the root hashes always differ here, because they can only match when the
+/// versions match — and that already short-circuited the session.
+pub(super) fn respond<B, T, E>(
+    backend: B,
+    root: Option<B::Node<height::Root>>,
+    requests: impl Messages<message::Initiate, E> + 'static,
+    mut down: mpsc::Sender<Level<B, T, UnderRoot>>,
+) -> impl Messages<message::Opening, E>
+where
+    B: Backend<T, Node<Z>: Leaf<T>>,
+    T: Send + Sync + 'static,
+    E: From<B::Error> + Send,
+{
+    try_stream! {
+        for await item in requests {
+            // The initiate's content is not used (we explode
+            // unconditionally), but its errors are ours to propagate.
+            item?;
+        }
+        if let Some(node) = root {
+            let mut children = pin!(backend.clone().children(one(Prefix::new(), node)));
+            let mut listing = Vec::new();
+            while let Some(item) = children.next().await {
+                let (prefix, child) = item?;
+                let (_, radix) = prefix.pop();
+                listing.push((radix, child.hash()));
+                if down.send((prefix, child)).await.is_err() {
+                    return;
+                }
+            }
+            yield message::Opening::Uncertain(listing);
+        }
+    }
+}
+
+/// The initiator's opening walk: the one asymmetric-root round.
+///
+/// The responder listed its root's children unconditionally, so silence
+/// about a child means the responder *lacks* it (everywhere below the root,
+/// silence means the hash matched). Feeding the whole opening level into one
+/// [`route`] realizes exactly that: children only we hold come out as
+/// `Provide` (deletion-pruned), children only the responder holds as
+/// `Request`, and an empty side degenerates to all-`Provide` or
+/// all-`Request` with no special casing.
+pub(super) fn open<B, T, E>(
+    backend: B,
+    their_version: Version,
+    root: Option<B::Node<height::Root>>,
+    requests: impl Messages<message::Opening, E> + 'static,
+    down: mpsc::Sender<Level<B, T, UnderUnderRoot>>,
+    level: mpsc::Sender<Level<B, T, UnderRoot>>,
+) -> impl Messages<message::Exchanged<B, T, UnderRoot>, E>
+where
+    B: Backend<T, Node<Z>: Leaf<T>>,
+    T: Send + Sync + 'static,
+    E: From<B::Error> + Send + 'static,
+{
+    try_stream! {
+        // The responder's opening listing: at most one message, and an empty
+        // responder sends none. The parent is statically the root.
+        let mut theirs = Vec::new();
+        for await item in requests {
+            let message::Opening::Uncertain(children) = item?;
+            theirs = children
+                .into_iter()
+                .map(|(radix, hash)| (Prefix::new().push(radix), hash))
+                .collect();
+        }
+
+        match root {
+            Some(node) => {
+                let ours = backend.clone().children(one(Prefix::new(), node));
+                let theirs = stream::iter(theirs.into_iter().map(Ok));
+                let routed =
+                    route::<B, T, UnderUnderRoot, E>(backend, their_version, ours, theirs, down, level);
+                for await item in routed {
+                    yield item?;
+                }
+            }
+            None => {
+                // We are empty: request everything the responder listed.
+                for (prefix, _hash) in theirs {
+                    yield (prefix, message::Exchange::Requested);
+                }
+            }
+        }
+    }
+}
+
+/// Answer a `requested` subtree: honor the counterparty's deletions, keep
+/// the survivors, and yield their children for the wire.
+///
+/// The subtree is pruned against `their_version` first — parts causally at
+/// or before their version that they lack were deleted there, so we forget
+/// them too. Each surviving node goes to `kept` (it stays ours); its
+/// children are yielded for the caller to wrap in its wire message kind.
+///
+/// Shared by [`walk`] and [`complete_walk`]. A closed channel ends the
+/// stream early: callers observe the teardown by checking the sender they
+/// kept.
+fn provide<B, T, C, E>(
+    backend: B,
+    their_version: Version,
+    prefix: Prefix<S<C>>,
+    node: B::Node<S<C>>,
+    mut kept: mpsc::Sender<Level<B, T, S<C>>>,
+) -> impl Stream<Item = Result<Level<B, T, C>, E>> + Send
+where
+    B: Backend<T, Node<Z>: Leaf<T>>,
+    T: Send + Sync + 'static,
+    C: Height + Unknown,
+    S<C>: Height,
+    E: From<B::Error> + Send,
+{
+    try_stream! {
+        let mut pruned = unknown(&backend, &their_version, one(prefix, node));
+        while let Some(item) = pruned.next().await {
+            let (prefix, node) = item?;
+            if kept.send((prefix, node.clone())).await.is_err() {
+                return;
+            }
+            let mut children = pin!(backend.clone().children(one(prefix, node)));
+            while let Some(item) = children.next().await {
+                yield item?;
+            }
+        }
+    }
+}
 
 /// Route one disputed parent's [`classify`] verdicts to their destinations.
 ///
@@ -81,8 +215,7 @@ where
     E: From<B::Error> + Send,
 {
     try_stream! {
-        let verdicts = classify(&backend, &their_version, ours, theirs);
-        for await verdict in verdicts {
+        for await verdict in classify(&backend, &their_version, ours, theirs) {
             match verdict? {
                 // We have it, they lack it (already pruned by classify): send
                 // it and keep it.
@@ -155,12 +288,7 @@ where
     E: From<B::Error> + Send,
 {
     try_stream! {
-        let frontier = frontier.map(|item| item.map_err(E::from));
-        // Wire items are (prefix, message) pairs keyed at the frontier
-        // height, so the wire is the join's right side verbatim.
-        let joined = merge(frontier, messages);
-
-        for await cell in joined {
+        for await cell in merge(frontier.map(|item| item.map_err(E::from)), messages) {
             match cell? {
                 // Matched by silence: the counterparty compared our hash and
                 // agreed, so neither side says anything further. Keep our copy.
@@ -170,22 +298,24 @@ where
                     }
                 }
 
-                // They lack this subtree entirely. Prune it against their
-                // version first: parts causally at or before their version
-                // that they lack were deleted there, so we forget them too.
-                // The surviving node stays ours; its children go on the wire.
+                // They lack this subtree entirely: keep what survives their
+                // deletions, provide its children (see [`provide`]).
                 EitherOrBoth::Both((prefix, node), (_, message::Exchange::Requested)) => {
-                    let mut pruned = unknown(&backend, &their_version, one(prefix, node));
-                    while let Some(item) = pruned.next().await {
-                        let (prefix, node) = item?;
-                        if keep.send((prefix, node.clone())).await.is_err() {
-                            return;
-                        }
-                        let mut children = pin!(backend.clone().children(one(prefix, node)));
-                        while let Some(item) = children.next().await {
-                            let (child_prefix, child) = item?;
-                            yield (child_prefix, message::Exchange::Providing(child));
-                        }
+                    let provided = provide::<B, T, S<H>, E>(
+                        backend.clone(),
+                        their_version.clone(),
+                        prefix,
+                        node,
+                        keep.clone(),
+                    );
+                    for await item in provided {
+                        let (child_prefix, child) = item?;
+                        yield (child_prefix, message::Exchange::Providing(child));
+                    }
+                    // `provide` swallows channel closure to end its own
+                    // stream; for the walk it means session teardown.
+                    if keep.is_closed() {
+                        return;
                     }
                 }
 
@@ -269,10 +399,7 @@ where
     E: From<B::Error> + Send,
 {
     try_stream! {
-        let frontier = frontier.map(|item| item.map_err(E::from));
-        let joined = merge(frontier, messages);
-
-        for await cell in joined {
+        for await cell in merge(frontier.map(|item| item.map_err(E::from)), messages) {
             match cell? {
                 // Matched by silence: keep our copy.
                 EitherOrBoth::Left((prefix, node)) => {
@@ -280,20 +407,24 @@ where
                         return;
                     }
                 }
-                // They lack it entirely: prune against their version, keep
-                // the survivor, and send its leaves as the final providing.
+                // They lack it entirely: keep what survives their deletions,
+                // send its leaves as the final providing (see [`provide`]).
                 EitherOrBoth::Both((prefix, node), (_, message::Closing::Requested)) => {
-                    let mut pruned = unknown(&backend, &their_version, one(prefix, node));
-                    while let Some(item) = pruned.next().await {
-                        let (prefix, node) = item?;
-                        if level.send((prefix, node.clone())).await.is_err() {
-                            return;
-                        }
-                        let mut children = pin!(backend.clone().children(one(prefix, node)));
-                        while let Some(item) = children.next().await {
-                            let (child_prefix, child) = item?;
-                            yield (child_prefix, message::Complete::Providing(child));
-                        }
+                    let provided = provide::<B, T, Z, E>(
+                        backend.clone(),
+                        their_version.clone(),
+                        prefix,
+                        node,
+                        level.clone(),
+                    );
+                    for await item in provided {
+                        let (child_prefix, child) = item?;
+                        yield (child_prefix, message::Complete::Providing(child));
+                    }
+                    // `provide` swallows channel closure to end its own
+                    // stream; here it means session teardown.
+                    if level.is_closed() {
+                        return;
                     }
                 }
                 // A subtree we asked for: absorb it.
