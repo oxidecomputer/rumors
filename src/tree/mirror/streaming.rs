@@ -1,3 +1,30 @@
+//! The streaming mirror: fixed-memory reconciliation over lazy node streams.
+//!
+//! The pieces, bottom up:
+//!
+//! - [`backend`]: what a party must provide. [`Backend`] itself asks only
+//!   for prefix-ordered re-chunking of opaque nodes — weak enough for a
+//!   wire party whose "nodes" are framed leaf sequences — with the
+//!   inspection operations dispatched by [`Materiality`]: the session's
+//!   walks demand `Materialized = `[`Material`], the layers above accept
+//!   either. [`Leaf`] is the crossing currency every party represents
+//!   faithfully.
+//! - [`protocol`]: the type-level phase schedule both parties advance
+//!   through, generic over any backend.
+//! - [`session`]: the schedule implemented once for every *material*
+//!   backend, as concurrent walks over lazy streams.
+//! - [`convert`]: the party boundary, where one side's nodes re-represent
+//!   in the other's types by meeting at the leaves — what a wire transport
+//!   will do implicitly when it serializes one side and deserializes into
+//!   the other.
+//!
+//! The drivers here run any two protocol implementors against each other
+//! ([`mirror`], or [`handshake`] and [`Handshaken::reconcile`] separately
+//! around the version exchange); implementors backed by trees start with
+//! [`Handshaking::start`]. A remote party's implementor — the stage chain
+//! that frames messages onto a wire instead of walking a tree — is a later
+//! phase.
+
 // TODO: remove this when integrated
 #![allow(dead_code, unused_imports)]
 
