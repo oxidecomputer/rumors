@@ -12,9 +12,12 @@ use futures::stream::StreamExt;
 
 use crate::{
     Version,
-    tree::typed::{
-        Prefix,
-        height::{Height, S, Z},
+    tree::{
+        mirror::streaming::BoxMessages,
+        typed::{
+            Prefix,
+            height::{Height, S, Z},
+        },
     },
 };
 
@@ -77,13 +80,15 @@ where
     }
 }
 
-impl<B, T, H> protocol::Stage for Descending<B, T, H>
+impl<B, T, H> protocol::Protocol for Descending<B, T, H>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     H: Height,
 {
     type Height = H;
+    type Output = Root<B, T>;
+    type Error = B::Error;
 }
 
 impl<B, T, H> Descending<B, T, S<S<H>>>
@@ -153,19 +158,16 @@ where
 {
     type Next = Descending<B, T, S<H>>;
 
-    fn exchange<E>(
+    fn exchange(
         self,
-        requests: impl Messages<message::Exchanged<B, T, S<S<S<H>>>>, E> + 'static,
+        requests: impl Messages<message::Exchanged<B, T, S<S<S<H>>>>, Self::Error>,
     ) -> (
-        impl Messages<message::Exchanged<B, T, S<S<H>>>, E> + 'static,
+        BoxMessages<message::Exchanged<B, T, S<S<H>>>, Self::Error>,
         Self::Next,
-    )
-    where
-        E: From<B::Error> + Send + 'static,
-    {
+    ) {
         let (walk, mut next) = self.descend(requests);
         let sending = outgoing(&mut next.work, walk);
-        (sending, next)
+        (Box::pin(sending), next)
     }
 }
 
@@ -176,16 +178,13 @@ where
 {
     type Next = Descending<B, T, Z>;
 
-    fn close_initiator<E>(
+    fn close_initiator(
         self,
-        requests: impl Messages<message::Exchanged<B, T, S<S<Z>>>, E> + 'static,
+        requests: impl Messages<message::Exchanged<B, T, S<S<Z>>>, Self::Error>,
     ) -> (
-        impl Messages<(Prefix<S<Z>>, message::Closing<B, T>), E> + 'static,
+        BoxMessages<(Prefix<S<Z>>, message::Closing<B, T>), Self::Error>,
         Self::Next,
-    )
-    where
-        E: From<B::Error> + Send + 'static,
-    {
+    ) {
         let (walk, mut next) = self.descend(requests);
         let closing = walk.filter_map(|item| async {
             match item {
@@ -203,7 +202,7 @@ where
             }
         });
         let sending = outgoing(&mut next.work, closing);
-        (sending, next)
+        (Box::pin(sending), next)
     }
 }
 
@@ -212,16 +211,13 @@ where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    fn complete_responder<E>(
+    fn complete_responder(
         self,
-        requests: impl Messages<(Prefix<S<Z>>, message::Closing<B, T>), E> + 'static,
+        requests: impl Messages<(Prefix<S<Z>>, message::Closing<B, T>), Self::Error>,
     ) -> (
-        impl Messages<(Prefix<Z>, message::Complete<B, T>), E> + 'static,
-        impl Future<Output = Result<Root<B, T>, E>> + Send,
-    )
-    where
-        E: From<B::Error> + Send + 'static,
-    {
+        BoxMessages<(Prefix<Z>, message::Complete<B, T>), Self::Error>,
+        impl Future<Output = Result<Root<B, T>, Self::Error>> + Send,
+    ) {
         let Descending {
             backend,
             their_version,
@@ -233,7 +229,7 @@ where
 
         let complete = reconcile::complete_walk(backend, their_version, frontier, requests, up);
         let sending = outgoing(&mut work, complete);
-        (sending, settle(work, finish))
+        (Box::pin(sending), settle(work, finish))
     }
 }
 
@@ -242,13 +238,10 @@ where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    async fn complete_initiator<E>(
+    async fn complete_initiator(
         self,
-        requests: impl Messages<(Prefix<Z>, message::Complete<B, T>), E> + 'static,
-    ) -> Result<Root<B, T>, E>
-    where
-        E: From<B::Error> + Send + 'static,
-    {
+        requests: impl Messages<(Prefix<Z>, message::Complete<B, T>), Self::Error>,
+    ) -> Result<Root<B, T>, Self::Error> {
         let Descending {
             backend: _,
             their_version: _,

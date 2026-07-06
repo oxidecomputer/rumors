@@ -9,6 +9,7 @@
 use futures::channel::mpsc;
 use futures::stream::{self, StreamExt};
 
+use crate::tree::mirror::streaming::BoxMessages;
 use crate::{
     Version,
     tree::typed::height::{self, UnderRoot, UnderUnderRoot, Z},
@@ -71,11 +72,13 @@ where
     }
 }
 
-impl<B, T, V> protocol::Stage for Handshaking<B, T, V>
+impl<B, T, V> protocol::Protocol for Handshaking<B, T, V>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
 {
     type Height = height::Root;
+    type Output = Root<B, T>;
+    type Error = B::Error;
 }
 
 impl<B, T> protocol::Connect<B, T> for Handshaking<B, T, Start>
@@ -85,10 +88,7 @@ where
 {
     type Next = Handshaking<B, T, Connecting>;
 
-    async fn connect<E>(self) -> Result<(message::Handshake, Self::Next), E>
-    where
-        E: From<B::Error> + Send + 'static,
-    {
+    async fn connect(self) -> Result<(message::Handshake, Self::Next), Self::Error> {
         let Start { our_version } = self.versions;
 
         let handshake = message::Handshake {
@@ -110,10 +110,7 @@ where
 {
     type Next = Handshaking<B, T, Connected>;
 
-    async fn complete_connect<E>(self, their_version: Version) -> Result<Self::Next, E>
-    where
-        E: From<B::Error> + Send + 'static,
-    {
+    async fn complete_connect(self, their_version: Version) -> Result<Self::Next, Self::Error> {
         Ok(Handshaking {
             backend: self.backend,
             versions: Connected {
@@ -132,13 +129,10 @@ where
 {
     type Next = Handshaking<B, T, Connected>;
 
-    async fn accept<E>(
+    async fn accept(
         self,
         request: message::Handshake,
-    ) -> Result<(message::Handshake, Self::Next), E>
-    where
-        E: From<B::Error> + Send + 'static,
-    {
+    ) -> Result<(message::Handshake, Self::Next), Self::Error> {
         let Start { our_version } = self.versions;
 
         let handshake = message::Handshake {
@@ -163,10 +157,7 @@ where
 {
     type Next = Self;
 
-    fn initiator<E>(self) -> (impl Messages<message::Initiate, E> + 'static, Self::Next)
-    where
-        E: From<B::Error> + Send + 'static,
-    {
+    fn initiator(self) -> (impl Messages<message::Initiate, Self::Error>, Self::Next) {
         let initiate = self
             .root
             .root
@@ -183,13 +174,13 @@ where
 {
     type Next = Descending<B, T, UnderRoot>;
 
-    fn responder<E>(
+    fn responder(
         self,
-        requests: impl Messages<message::Initiate, E> + 'static,
-    ) -> (impl Messages<message::Opening, E> + 'static, Self::Next)
-    where
-        E: From<B::Error> + Send + 'static,
-    {
+        requests: impl Messages<message::Initiate, Self::Error>,
+    ) -> (
+        impl Messages<message::Opening, Self::Error> + 'static,
+        Self::Next,
+    ) {
         let Handshaking {
             backend,
             versions,
@@ -227,16 +218,13 @@ where
 {
     type Next = Descending<B, T, UnderUnderRoot>;
 
-    fn open_initiator<E>(
+    fn open_initiator(
         self,
-        requests: impl Messages<message::Opening, E> + 'static,
+        requests: impl Messages<message::Opening, Self::Error>,
     ) -> (
-        impl Messages<message::Exchanged<B, T, UnderRoot>, E> + 'static,
+        BoxMessages<message::Exchanged<B, T, UnderRoot>, Self::Error>,
         Self::Next,
-    )
-    where
-        E: From<B::Error> + Send + 'static,
-    {
+    ) {
         let Handshaking {
             backend,
             versions,
@@ -276,6 +264,6 @@ where
             work,
             finish,
         );
-        (sending, next)
+        (Box::pin(sending), next)
     }
 }

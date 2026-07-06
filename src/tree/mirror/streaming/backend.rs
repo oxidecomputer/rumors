@@ -15,12 +15,6 @@ use crate::{
 mod local;
 pub use local::Local;
 
-// The test-only immaterial backend: a wire party's shape without a wire.
-#[cfg(test)]
-mod flat;
-#[cfg(test)]
-pub use flat::Flat;
-
 /// A backend value is a cheap cloneable *handle* to its storage.
 ///
 /// A backend must know how to assemble and disassemble its own node types in a
@@ -39,7 +33,7 @@ pub trait Backend<T>: Clone + Send + Sync + 'static {
     /// The [`Node`] bound dispatches through
     /// [`Materialized`](Self::Materialized), so it holds at every height for
     /// material and immaterial backends alike.
-    type Node<H: Height>: Node<Self::Materialized> + Clone + Send + 'static;
+    type Node<H: Height>: Node<Self::Materialized> + Send + 'static;
 
     /// The type of errors returned by this backend.
     type Error: Send + 'static;
@@ -74,15 +68,18 @@ pub trait Backend<T>: Clone + Send + Sync + 'static {
 /// bounds and hashes, which is what the session's walks require. An
 /// [`Immaterial`] impl is three unit returns; it exists so the [`Backend`] GAT
 /// bound holds uniformly at every height while promising nothing.
-pub trait Node<M: Materiality = Material> {
+pub trait Node<M: Materiality = Material>: Sized {
     /// The maximum version of any node under this one.
-    fn ceiling(&self) -> &M::Version;
+    fn ceiling<'a>(&'a self) -> M::Version<'a>;
 
     /// The minimum version of any node under this one.
-    fn floor(&self) -> &M::Version;
+    fn floor<'a>(&'a self) -> M::Version<'a>;
 
     /// The merkle hash of this node.
     fn hash(&self) -> M::Hash;
+
+    /// Duplicate this node.
+    fn clone(&self) -> M::Materialized<Self>;
 }
 
 /// What crosses between backends at the conversion boundary, and the one node
@@ -120,11 +117,15 @@ pub trait Leaf<T> {
 pub trait Materiality: sealed::Sealed + 'static {
     /// What this materiality knows about version bounds: [`Version`] when
     /// material, `()` when immaterial.
-    type Version;
+    type Version<'a>;
 
     /// What this materiality knows about Merkle hashes: [`struct@Hash`]
     /// when material, `()` when immaterial.
     type Hash;
+
+    /// What happens when you clone this: `Self` when material, `()` when
+    /// immaterial.
+    type Materialized<T>;
 }
 
 /// The materiality of backends whose nodes are inspectable: every node
@@ -140,13 +141,15 @@ pub enum Material {}
 pub enum Immaterial {}
 
 impl Materiality for Material {
-    type Version = Version;
+    type Version<'a> = &'a Version;
     type Hash = Hash;
+    type Materialized<T> = T;
 }
 
 impl Materiality for Immaterial {
-    type Version = ();
+    type Version<'a> = ();
     type Hash = ();
+    type Materialized<T> = ();
 }
 
 mod sealed {
@@ -206,12 +209,12 @@ where
 // handles regardless of the message type they carry.
 impl<B, T> Clone for Root<B, T>
 where
-    B: Backend<T>,
+    B: Backend<T, Materialized = Material>,
 {
     fn clone(&self) -> Self {
         Root {
             ceiling: self.ceiling.clone(),
-            root: self.root.clone(),
+            root: self.root.as_ref().map(|r| r.clone()),
         }
     }
 }

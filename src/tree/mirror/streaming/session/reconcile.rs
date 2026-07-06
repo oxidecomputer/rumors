@@ -64,13 +64,13 @@ use super::Level;
 pub(super) fn respond<B, T, E>(
     backend: B,
     root: Option<B::Node<height::Root>>,
-    requests: impl Messages<message::Initiate, E> + 'static,
+    requests: impl Messages<message::Initiate, E>,
     mut down: mpsc::Sender<Level<B, T, UnderRoot>>,
 ) -> impl Messages<message::Opening, E>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
-    E: From<B::Error> + Send,
+    E: From<B::Error> + Send + 'static,
 {
     try_stream! {
         for await item in requests {
@@ -171,7 +171,7 @@ where
     T: Send + Sync + 'static,
     C: Height + Unknown,
     S<C>: Height,
-    E: From<B::Error> + Send,
+    E: From<B::Error> + Send + 'static,
 {
     try_stream! {
         let mut pruned = unknown(&backend, &their_version, one(prefix, node));
@@ -212,7 +212,7 @@ where
     T: Send + Sync + 'static,
     H: Height + Unknown,
     S<H>: Height + Unknown,
-    E: From<B::Error> + Send,
+    E: From<B::Error> + Send + 'static,
 {
     try_stream! {
         for await verdict in classify(&backend, &their_version, ours, theirs) {
@@ -285,7 +285,7 @@ where
     H: Height + Unknown,
     S<H>: Height,
     S<S<H>>: Height,
-    E: From<B::Error> + Send,
+    E: From<B::Error> + Send + 'static,
 {
     try_stream! {
         for await cell in merge(frontier.map(|item| item.map_err(E::from)), messages) {
@@ -395,7 +395,7 @@ pub(super) fn complete_walk<B, T, E>(
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
-    E: From<B::Error> + Send,
+    E: From<B::Error> + Send + 'static,
 {
     try_stream! {
         for await cell in merge(frontier.map(|item| item.map_err(E::from)), messages) {

@@ -18,9 +18,6 @@ use std::pin::pin;
 use futures::channel::mpsc;
 use futures::{SinkExt, StreamExt};
 
-#[cfg(test)]
-mod tests;
-
 use crate::tree::typed::{
     Prefix,
     height::{Height, S, Z},

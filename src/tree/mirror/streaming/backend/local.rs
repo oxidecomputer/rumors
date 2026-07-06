@@ -29,6 +29,10 @@ impl<T, H: Height> Node for typed::Node<T, H> {
     fn floor(&self) -> &Version {
         self.floor()
     }
+
+    fn clone(&self) -> Self {
+        <Self as Clone>::clone(self)
+    }
 }
 
 impl<T> Leaf<T> for typed::Node<T, Z> {
