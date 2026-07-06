@@ -2,19 +2,24 @@
 //!
 //! [`Convertible`] re-represents one wire item — a keyed message pair —
 //! converting the node a `providing` payload carries (every other message
-//! kind crosses backends unchanged). It is what the in-process driver's
-//! party boundary maps over — and what a wire transport does implicitly when
-//! it serializes one side's nodes and deserializes them into the other's.
+//! kind crosses backends unchanged). It is how a session stage speaks its
+//! counterparty's vocabulary: the protocol methods that emit node-carrying
+//! output run their walks in their own node types and [`converted`] maps the
+//! result into the output backend's — the same re-representation a wire
+//! transport performs implicitly when it serializes one side's nodes and
+//! deserializes them into the other's.
 //!
 //! A node converts by exploding to leaves in the source backend and
 //! reassembling in the target, the two halves running concurrently through
 //! one [`FAN`]-bounded channel ([`subtree`]). Meeting at the leaf level keeps
 //! each half single-backend — and keeps each backend's errors on its own
-//! side, combined only at the join into the two-sided [`Error`]. No error is
+//! side, combined only at the join into the two-sided [`Error`], in the
+//! producer's frame: its own errors first, the target's second. No error is
 //! ever re-represented in the other backend's error type.
 
 use std::pin::pin;
 
+use async_stream::try_stream;
 use futures::channel::mpsc;
 use futures::{SinkExt, StreamExt};
 
@@ -25,6 +30,7 @@ use crate::tree::typed::{
 
 use super::backend::{Backend, BoxNodeStream, Leaf, Node, one};
 use super::message;
+use super::protocol::Messages;
 use super::session::FAN;
 use super::{CombinedError, Error};
 
@@ -93,21 +99,22 @@ where
 /// The node [explodes](Convert::explode) to leaves in `from` while `to`
 /// concurrently [reassembles](Convert::assemble) them, the halves joined by a
 /// [`FAN`]-bounded leaf channel; the cost is the subtree's size in time and
-/// one fan in memory. Errors return in the target's frame: `to`'s reassembly
-/// failures in first position, `from`'s explosion failures in second.
-async fn subtree<B, C, T, H>(
+/// one fan in memory. Errors return in the producer's frame: `from`'s
+/// explosion failures in first position, `to`'s reassembly failures in
+/// second.
+async fn subtree<B, O, T, H>(
     from: &B,
-    to: &C,
+    to: &O,
     prefix: Prefix<H>,
     node: B::Node<H>,
-) -> Result<C::Node<H>, CombinedError<C, B, T>>
+) -> Result<O::Node<H>, CombinedError<B, O, T>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    C: Backend<T, Node<Z>: Leaf<T>>,
+    O: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     H: Convert,
 {
-    let (tx, rx) = mpsc::channel::<Result<(Prefix<Z>, C::Node<Z>), C::Error>>(FAN);
+    let (tx, rx) = mpsc::channel::<Result<(Prefix<Z>, O::Node<Z>), O::Error>>(FAN);
 
     let feed = async move {
         let mut tx = tx;
@@ -138,21 +145,21 @@ where
     let (fed, built) = futures::future::join(feed, build).await;
     // A feed failure truncates the leaf stream, which explains anything odd
     // downstream of it, so it outranks whatever the build half produced.
-    fed.map_err(Error::Server)?;
+    fed.map_err(Error::Client)?;
     built
         .expect("a subtree's leaves reassemble to exactly one node")
         .map(|(_prefix, node)| node)
-        .map_err(Error::Client)
+        .map_err(Error::Server)
 }
 
 /// A wire message re-representable across backends.
 ///
 /// Only `providing` payloads carry nodes; every other message kind crosses
-/// unchanged. Errors come back in the target's frame, as with [`subtree`].
-pub(super) trait Convertible<B, C, T>: Sized + Send
+/// unchanged. Errors come back in the producer's frame, as with [`subtree`].
+pub(super) trait Convertible<B, O, T>: Sized + Send
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    C: Backend<T, Node<Z>: Leaf<T>>,
+    O: Backend<T, Node<Z>: Leaf<T>>,
 {
     /// `Self`, in `to`'s node vocabulary.
     type Converted: Send + 'static;
@@ -161,46 +168,76 @@ where
     fn convert(
         self,
         from: &B,
-        to: &C,
-    ) -> impl Future<Output = Result<Self::Converted, CombinedError<C, B, T>>> + Send;
+        to: &O,
+    ) -> impl Future<Output = Result<Self::Converted, CombinedError<B, O, T>>> + Send;
 }
 
-impl<B, C, T> Convertible<B, C, T> for message::Initiate
+/// Re-represent a whole outgoing stream in `to`'s node vocabulary.
+///
+/// This is the adapter the node-carrying protocol methods wrap their walks
+/// in: the walk runs entirely in the session's own backend `B` and errors in
+/// `B::Error`; the adapter [converts](Convertible) each message into `to`'s
+/// node types and lifts the walk's own errors into the first position of the
+/// producer-frame [`CombinedError`], where `to`'s reassembly failures occupy
+/// the second.
+pub(super) fn converted<B, O, T, M>(
+    from: B,
+    to: O,
+    messages: impl Messages<M, B::Error>,
+) -> impl Messages<M::Converted, CombinedError<B, O, T>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    C: Backend<T, Node<Z>: Leaf<T>>,
+    O: Backend<T, Node<Z>: Leaf<T>>,
+    T: Send + Sync + 'static,
+    M: Convertible<B, O, T>,
+{
+    try_stream! {
+        let mut messages = pin!(messages);
+        while let Some(item) = messages.next().await {
+            // The `?` lifts the walk's own error into the sum's first
+            // position, through the one asymmetric `From` impl on `Error`.
+            let message = item?;
+            yield message.convert(&from, &to).await?;
+        }
+    }
+}
+
+impl<B, O, T> Convertible<B, O, T> for message::Initiate
+where
+    B: Backend<T, Node<Z>: Leaf<T>>,
+    O: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
     type Converted = message::Initiate;
 
-    async fn convert(self, _from: &B, _to: &C) -> Result<Self, CombinedError<C, B, T>> {
+    async fn convert(self, _from: &B, _to: &O) -> Result<Self, CombinedError<B, O, T>> {
         Ok(self)
     }
 }
 
-impl<B, C, T> Convertible<B, C, T> for message::Opening
+impl<B, O, T> Convertible<B, O, T> for message::Opening
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    C: Backend<T, Node<Z>: Leaf<T>>,
+    O: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
     type Converted = message::Opening;
 
-    async fn convert(self, _from: &B, _to: &C) -> Result<Self, CombinedError<C, B, T>> {
+    async fn convert(self, _from: &B, _to: &O) -> Result<Self, CombinedError<B, O, T>> {
         Ok(self)
     }
 }
 
-impl<B, C, T, H> Convertible<B, C, T> for (Prefix<H>, message::Exchange<B, T, H>)
+impl<B, O, T, H> Convertible<B, O, T> for (Prefix<H>, message::Exchange<B, T, H>)
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    C: Backend<T, Node<Z>: Leaf<T>>,
+    O: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     H: Convert,
 {
-    type Converted = (Prefix<H>, message::Exchange<C, T, H>);
+    type Converted = (Prefix<H>, message::Exchange<O, T, H>);
 
-    async fn convert(self, from: &B, to: &C) -> Result<Self::Converted, CombinedError<C, B, T>> {
+    async fn convert(self, from: &B, to: &O) -> Result<Self::Converted, CombinedError<B, O, T>> {
         let (prefix, message) = self;
         Ok((
             prefix,
@@ -215,15 +252,15 @@ where
     }
 }
 
-impl<B, C, T> Convertible<B, C, T> for (Prefix<S<Z>>, message::Closing<B, T>)
+impl<B, O, T> Convertible<B, O, T> for (Prefix<S<Z>>, message::Closing<B, T>)
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    C: Backend<T, Node<Z>: Leaf<T>>,
+    O: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    type Converted = (Prefix<S<Z>>, message::Closing<C, T>);
+    type Converted = (Prefix<S<Z>>, message::Closing<O, T>);
 
-    async fn convert(self, from: &B, to: &C) -> Result<Self::Converted, CombinedError<C, B, T>> {
+    async fn convert(self, from: &B, to: &O) -> Result<Self::Converted, CombinedError<B, O, T>> {
         let (prefix, message) = self;
         Ok((
             prefix,
@@ -237,15 +274,15 @@ where
     }
 }
 
-impl<B, C, T> Convertible<B, C, T> for (Prefix<Z>, message::Complete<B, T>)
+impl<B, O, T> Convertible<B, O, T> for (Prefix<Z>, message::Complete<B, T>)
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    C: Backend<T, Node<Z>: Leaf<T>>,
+    O: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    type Converted = (Prefix<Z>, message::Complete<C, T>);
+    type Converted = (Prefix<Z>, message::Complete<O, T>);
 
-    async fn convert(self, from: &B, to: &C) -> Result<Self::Converted, CombinedError<C, B, T>> {
+    async fn convert(self, from: &B, to: &O) -> Result<Self::Converted, CombinedError<B, O, T>> {
         let (prefix, message::Complete::Providing(node)) = self;
         Ok((
             prefix,

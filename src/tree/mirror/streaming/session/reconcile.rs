@@ -11,8 +11,10 @@
 //! asymmetry matrix routes to one of four destinations:
 //!
 //! - the **outgoing wire** — the walk's direct output, already in wire form
-//!   ([`message::Exchange`]), forwarded by [`outgoing`](super::outgoing) into
-//!   the channel the counterparty reads;
+//!   ([`message::Exchange`]) but still in our own backend's node vocabulary
+//!   and error type; the stage [converts](super::super::convert) it into the
+//!   counterparty's before [`outgoing`](super::outgoing) forwards it into the
+//!   channel the counterparty reads;
 //! - the **next stage's frontier** (`down`) — disputed subtrees exploded one
 //!   level, sent through a [`FAN`](super::FAN)-bounded channel;
 //! - the **reconciled level at the frontier height** (`keep`) — nodes the
@@ -50,7 +52,7 @@ use super::super::backend::{Backend, BoxNodeStream, Leaf, Material, Node, NodeSt
 use super::super::dispute::{Routed, classify};
 use super::super::merge::merge;
 use super::super::message;
-use super::super::protocol::Messages;
+use super::super::protocol::{Messages, Requests};
 use super::super::unknown::{Unknown, unknown};
 use super::Level;
 
@@ -61,23 +63,21 @@ use super::Level;
 /// The listing is unconditional, regardless of the initiator's root hash:
 /// the root hashes always differ here, because they can only match when the
 /// versions match — and that already short-circuited the session.
-pub(super) fn respond<B, T, E>(
+pub(super) fn respond<B, T>(
     backend: B,
     root: Option<B::Node<height::Root>>,
-    requests: impl Messages<message::Initiate, E>,
+    requests: impl Requests<message::Initiate>,
     mut down: mpsc::Sender<Level<B, T, UnderRoot>>,
-) -> impl Messages<message::Opening, E>
+) -> impl Messages<message::Opening, B::Error>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
-    E: From<B::Error> + Send + 'static,
 {
     try_stream! {
-        for await item in requests {
-            // The initiate's content is not used (we explode
-            // unconditionally), but its errors are ours to propagate.
-            item?;
-        }
+        // The initiate's content is not used (we explode unconditionally),
+        // but draining it first keeps the schedule's pacing: we answer only
+        // once the initiator has spoken.
+        for await _item in requests {}
         if let Some(node) = root {
             let mut children = pin!(backend.clone().children(one(Prefix::new(), node)));
             let mut listing = Vec::new();
@@ -103,25 +103,24 @@ where
 /// `Provide` (deletion-pruned), children only the responder holds as
 /// `Request`, and an empty side degenerates to all-`Provide` or
 /// all-`Request` with no special casing.
-pub(super) fn open<B, T, E>(
+pub(super) fn open<B, T>(
     backend: B,
     their_version: Version,
     root: Option<B::Node<height::Root>>,
-    requests: impl Messages<message::Opening, E> + 'static,
+    requests: impl Requests<message::Opening>,
     down: mpsc::Sender<Level<B, T, UnderUnderRoot>>,
     level: mpsc::Sender<Level<B, T, UnderRoot>>,
-) -> impl Messages<message::Exchanged<B, T, UnderRoot>, E>
+) -> impl Messages<message::Exchanged<B, T, UnderRoot>, B::Error>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
-    E: From<B::Error> + Send + 'static,
 {
     try_stream! {
         // The responder's opening listing: at most one message, and an empty
         // responder sends none. The parent is statically the root.
         let mut theirs = Vec::new();
         for await item in requests {
-            let message::Opening::Uncertain(children) = item?;
+            let message::Opening::Uncertain(children) = item;
             theirs = children
                 .into_iter()
                 .map(|(radix, hash)| (Prefix::new().push(radix), hash))
@@ -133,7 +132,7 @@ where
                 let ours = backend.clone().children(one(Prefix::new(), node));
                 let theirs = stream::iter(theirs.into_iter().map(Ok));
                 let routed =
-                    route::<B, T, UnderUnderRoot, E>(backend, their_version, ours, theirs, down, level);
+                    route::<B, T, UnderUnderRoot>(backend, their_version, ours, theirs, down, level);
                 for await item in routed {
                     yield item?;
                 }
@@ -159,19 +158,18 @@ where
 /// Shared by [`walk`] and [`complete_walk`]. A closed channel ends the
 /// stream early: callers observe the teardown by checking the sender they
 /// kept.
-fn provide<B, T, C, E>(
+fn provide<B, T, C>(
     backend: B,
     their_version: Version,
     prefix: Prefix<S<C>>,
     node: B::Node<S<C>>,
     mut kept: mpsc::Sender<Level<B, T, S<C>>>,
-) -> impl Stream<Item = Result<Level<B, T, C>, E>> + Send
+) -> impl Stream<Item = Result<Level<B, T, C>, B::Error>> + Send
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     C: Height + Unknown,
     S<C>: Height,
-    E: From<B::Error> + Send + 'static,
 {
     try_stream! {
         let mut pruned = unknown(&backend, &their_version, one(prefix, node));
@@ -199,20 +197,19 @@ where
 /// ([`open_initiator`](super::super::protocol::OpenInitiator)). A closed
 /// channel ends the stream early: callers observe the teardown on their own
 /// next send, or by checking the senders they kept.
-pub(super) fn route<B, T, H, E>(
+pub(super) fn route<B, T, H>(
     backend: B,
     their_version: Version,
     ours: impl NodeStream<B, T, S<H>> + 'static,
     theirs: impl Stream<Item = Result<(Prefix<S<H>>, Hash), B::Error>> + Send + 'static,
     mut down: mpsc::Sender<Level<B, T, H>>,
     mut level: mpsc::Sender<Level<B, T, S<H>>>,
-) -> impl Messages<message::Exchanged<B, T, S<H>>, E>
+) -> impl Messages<message::Exchanged<B, T, S<H>>, B::Error>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     H: Height + Unknown,
     S<H>: Height + Unknown,
-    E: From<B::Error> + Send + 'static,
 {
     try_stream! {
         for await verdict in classify(&backend, &their_version, ours, theirs) {
@@ -270,25 +267,24 @@ where
 /// output as-is; [`close_initiator`](super::super::protocol::CloseInitiator)
 /// filters it down to [`message::Closing`], dropping `Uncertain` (vacuous at
 /// leaf height, exactly as the alternating `Closing` does).
-pub(super) fn walk<B, T, H, E>(
+pub(super) fn walk<B, T, H>(
     backend: B,
     their_version: Version,
     frontier: BoxNodeStream<B, T, S<S<H>>>,
-    messages: impl Messages<message::Exchanged<B, T, S<S<H>>>, E>,
+    messages: impl Requests<message::Exchanged<B, T, S<S<H>>>>,
     down: mpsc::Sender<Level<B, T, H>>,
     mut keep: mpsc::Sender<Level<B, T, S<S<H>>>>,
     level: mpsc::Sender<Level<B, T, S<H>>>,
-) -> impl Messages<message::Exchanged<B, T, S<H>>, E>
+) -> impl Messages<message::Exchanged<B, T, S<H>>, B::Error>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     H: Height + Unknown,
     S<H>: Height,
     S<S<H>>: Height,
-    E: From<B::Error> + Send + 'static,
 {
     try_stream! {
-        for await cell in merge(frontier.map(|item| item.map_err(E::from)), messages) {
+        for await cell in merge(frontier, messages.map(Ok)) {
             match cell? {
                 // Matched by silence: the counterparty compared our hash and
                 // agreed, so neither side says anything further. Keep our copy.
@@ -301,7 +297,7 @@ where
                 // They lack this subtree entirely: keep what survives their
                 // deletions, provide its children (see [`provide`]).
                 (prefix, EitherOrBoth::Both(node, message::Exchange::Requested)) => {
-                    let provided = provide::<B, T, S<H>, E>(
+                    let provided = provide::<B, T, S<H>>(
                         backend.clone(),
                         their_version.clone(),
                         prefix,
@@ -329,7 +325,7 @@ where
                             .into_iter()
                             .map(move |(radix, hash)| Ok((prefix.push(radix), hash))),
                     );
-                    let routed = route::<B, T, H, E>(
+                    let routed = route::<B, T, H>(
                         backend.clone(),
                         their_version.clone(),
                         ours,
@@ -385,20 +381,19 @@ where
 /// [`walk`] minus the classify arm: silence keeps, `requested` explodes into
 /// pruned leaf `providing`, and incoming `providing` is absorbed. All
 /// reconciled nodes land at the frontier height through `level`.
-pub(super) fn complete_walk<B, T, E>(
+pub(super) fn complete_walk<B, T>(
     backend: B,
     their_version: Version,
     frontier: BoxNodeStream<B, T, S<Z>>,
-    messages: impl Messages<(Prefix<S<Z>>, message::Closing<B, T>), E>,
+    messages: impl Requests<(Prefix<S<Z>>, message::Closing<B, T>)>,
     mut level: mpsc::Sender<Level<B, T, S<Z>>>,
-) -> impl Stream<Item = Result<(Prefix<Z>, message::Complete<B, T>), E>> + Send
+) -> impl Messages<(Prefix<Z>, message::Complete<B, T>), B::Error>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
-    E: From<B::Error> + Send + 'static,
 {
     try_stream! {
-        for await cell in merge(frontier.map(|item| item.map_err(E::from)), messages) {
+        for await cell in merge(frontier, messages.map(Ok)) {
             match cell? {
                 // Matched by silence: keep our copy.
                 (prefix, EitherOrBoth::Left(node)) => {
@@ -409,7 +404,7 @@ where
                 // They lack it entirely: keep what survives their deletions,
                 // send its leaves as the final providing (see [`provide`]).
                 (prefix, EitherOrBoth::Both(node, message::Closing::Requested)) => {
-                    let provided = provide::<B, T, Z, E>(
+                    let provided = provide::<B, T, Z>(
                         backend.clone(),
                         their_version.clone(),
                         prefix,
@@ -457,19 +452,16 @@ where
 /// requested (and so lack entirely). See
 /// [`complete_initiator`](super::super::protocol::CompleteInitiator), which
 /// drives this concurrently with the session's accumulated work.
-pub(super) async fn absorb_leaves<B, T, E>(
+pub(super) async fn absorb_leaves<B, T>(
     frontier: BoxNodeStream<B, T, Z>,
-    messages: impl Messages<(Prefix<Z>, message::Complete<B, T>), E>,
+    messages: impl Requests<(Prefix<Z>, message::Complete<B, T>)>,
     mut leaves: mpsc::Sender<Level<B, T, Z>>,
-) -> Result<(), E>
+) -> Result<(), B::Error>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
-    E: From<B::Error> + Send,
 {
-    let frontier = frontier.map(|item| item.map_err(E::from));
-    let incoming = messages
-        .map(|item| item.map(|(prefix, message::Complete::Providing(node))| (prefix, node)));
+    let incoming = messages.map(|(prefix, message::Complete::Providing(node))| Ok((prefix, node)));
     let joined = merge(frontier, incoming);
 
     let mut joined = pin!(joined);

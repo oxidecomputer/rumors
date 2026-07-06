@@ -23,21 +23,24 @@ pub use session::Handshaking;
 use std::cmp::Ordering;
 use std::pin::{Pin, pin};
 
-use async_stream::try_stream;
+use async_stream::stream;
 use futures::{StreamExt, join};
 use seq_macro::seq;
 use tokio::sync::mpsc;
 
 use super::Error;
 use crate::{Version, tree::typed::height::Z};
-use convert::Convertible;
 use protocol::*;
 
 #[cfg(test)]
 mod tests;
 
-/// The two-sided session [`Error`], seen from one party's perspective.
-type CombinedError<B, C, T> = Error<<B as Backend<T>>::Error, <C as Backend<T>>::Error>;
+/// The two-sided [`Error`] over two backends' error types.
+///
+/// The frame is the first parameter's: a producer instantiates this with its
+/// own backend first, so its own errors occupy the first (`Client`) position
+/// and the output backend's the second.
+type CombinedError<B, O, T> = Error<<B as Backend<T>>::Error, <O as Backend<T>>::Error>;
 
 /// The root returned, if the backend is materialized.
 type RootIfMaterial<B, T> =
@@ -46,29 +49,31 @@ type RootIfMaterial<B, T> =
 /// A boxed [`Messages`] stream.
 type BoxMessages<M, E> = Pin<Box<dyn Messages<M, E>>>;
 
-/// One direction of the party boundary: messages pass through unchanged
-/// (both parties speak the same backend's node types), while the producer's
-/// errors leave the schedule out of band, into the driver's error slot.
+/// One direction of the party boundary: messages pass through unchanged,
+/// while the producer's errors leave the schedule out of band, into the
+/// driver's error slot.
 ///
-/// The consumer never has to represent the producer's error type, so the
-/// returned stream is infallible at any error type it's asked for — which is
-/// why `F` is free. On an error the stream parks (`Pending` forever) rather
-/// than ending: end-of-stream means phase completion to the consumer, and a
+/// Messages need no re-representation here because the producer already
+/// emitted them in the consumer's node types.
+///
+/// This is what makes the incoming [`Requests`] streams structurally
+/// non-erroring: the consumer never has to represent the producer's error
+/// type. On an error the stream parks (`Pending` forever) rather than
+/// ending: end-of-stream means phase completion to the consumer, and a
 /// truncated phase would be misread, whereas a parked consumer merely stops —
 /// the driver has already been handed the error and abandons the session.
-fn divert<M, E, D, W, F>(
+fn divert<M, E, D, W>(
     messages: impl Messages<M, E>,
     slot: mpsc::Sender<D>,
     wrap: W,
-) -> impl Messages<M, F>
+) -> impl Requests<M>
 where
     M: Send + 'static,
     E: Send + 'static,
     D: Send + 'static,
-    F: Send + 'static,
     W: Fn(E) -> D + Send + 'static,
 {
-    try_stream! {
+    stream! {
         let mut messages = pin!(messages);
         while let Some(item) = messages.next().await {
             match item {
@@ -84,58 +89,109 @@ where
     }
 }
 
-/// Expand the protocol phase schedule into the driver's body: one line per
-/// phase, evaluating to both parties' joined terminal results.
+/// Map a fault from the client party's producer frame into the session sum.
 ///
-/// Each party ident stays bound to a `(state, error slot)` pair: the slot
-/// (sender, wrapper) travels with its party so every crossing can [`divert`]
-/// the producer's errors, tagged with the producer's side of the sum, out to
-/// the driver.
+/// The client's own errors keep their side; an assembly fault belongs to the
+/// server, whose backend failed to represent its own incoming nodes, and lifts
+/// into the server's error vernacular.
+fn client<C, S, E>(fault: Error<C, E>) -> Error<C, S>
+where
+    S: From<E>,
+{
+    match fault {
+        Error::Client(own) => Error::Client(own),
+        Error::Server(theirs) => Error::Server(theirs.into()),
+    }
+}
+
+/// [`client`] from the server party's frame: the sides flip as the fault
+/// crosses into the session sum.
+fn server<C, S, E>(fault: Error<S, E>) -> Error<C, S>
+where
+    C: From<E>,
+{
+    match fault {
+        Error::Client(own) => Error::Server(own),
+        Error::Server(theirs) => Error::Client(theirs.into()),
+    }
+}
+
+/// Expand the protocol phase schedule into the driver's whole body: one
+/// line per phase.
+///
+/// The expansion creates the shared one-error slot, threads each phase's
+/// outgoing stream to the counterparty's next phase, races the schedule
+/// against the first diverted fault, and resolves both terminals into the
+/// session's `Result` — early-returning the fault if the slot fires, so it
+/// must expand in tail position of a function with the session's return
+/// type.
+///
+/// The parties' sides are inferred from call order: the party that opens
+/// the schedule is the client — the first position of the session sum — and
+/// must also close it (the terminal join yields its result first, and the
+/// resolution reads the pair positionally). Each party ident stays bound to
+/// a `(state, error slot)` pair: the slot (sender, fault wrapper) travels
+/// with its party so every crossing can [`divert`] the producer's errors
+/// out to the driver — lifted into the producer's combined frame (node-free
+/// phases error narrowly, in the party's own type), then wrapped into the
+/// session sum by the party's side of [`client`]/[`server`].
 macro_rules! mirror {
-    // The shared phase step: un-pend the counterparty `$a`, divert the
-    // crossing's errors out of band (the messages themselves cross
-    // unchanged: both parties speak the same backend's node types), leave
-    // `$b` pending.
     (@one $a:ident >> $b:ident.$m:ident) => {
         let ((msgs, state), (tx, wrap)) = $a;
-        let msgs = divert(msgs, tx.clone(), wrap);
+        let msgs = divert(msgs, tx.clone(), move |e| wrap(e.into()));
         let $a = (state, (tx, wrap));
         let $b = ($b.0.$m(msgs), $b.1);
     };
-    // The terminal crossing, matched ahead of the general phase rule: a
-    // phase with nothing after it is the schedule's last, and the whole
-    // expansion evaluates to the joined `(its party, counterparty)` results.
-    (@pending($a:ident) $b:ident.$m:ident(..);) => {{
+    (@pending($a:ident) $b:ident.$m:ident;) => {{
         let ((msgs, state), (tx, wrap)) = $a;
-        let msgs = divert(msgs, tx, wrap);
+        let msgs = divert(msgs, tx, move |e| wrap(e.into()));
         join!($b.0.$m(msgs), state)
     }};
-    // A repeated run of phases, one statement-form (`@step`) expansion pasted
-    // per iteration. The body must leave pending the party it began from —
-    // the alternation does, and the types check it.
     (@pending($a:ident) for _ in $lo:tt..$hi:tt { $($body:tt)* } $($rest:tt)*) => {{
         seq!(_ in $lo..$hi {
             mirror!(@step($a) $($body)*);
         });
         mirror!(@pending($a) $($rest)*)
     }};
-    // One phase, continuing in tail position so the terminal value bubbles
-    // out through the nested blocks.
-    (@pending($a:ident) $b:ident.$m:ident(..); $($rest:tt)*) => {{
+    (@pending($a:ident) $b:ident.$m:ident; $($rest:tt)*) => {{
         mirror!(@one $a >> $b.$m);
         mirror!(@pending($b) $($rest)*)
     }};
-    // Statement-form phases for loop bodies: rebindings must outlive their
-    // expansion so the next pasted iteration sees them.
-    (@step($a:ident) $b:ident.$m:ident(..); $($rest:tt)*) => {
+    (@step($a:ident) $b:ident.$m:ident; $($rest:tt)*) => {
         mirror!(@one $a >> $b.$m);
         mirror!(@step($b) $($rest)*);
     };
     (@step($a:ident)) => {};
-    // Opening the schedule: no stream is pending yet.
-    ($a:ident.$m:ident(); $($rest:tt)*) => {{
+    // Opening the schedule inside the session: no stream is pending yet.
+    (@run $a:ident.$m:ident; $($rest:tt)*) => {{
         let $a = ($a.0.$m(), $a.1);
         mirror!(@pending($a) $($rest)*)
+    }};
+    // The whole driver: the opener is the client, its counterparty (named by
+    // the next line) the server.
+    ($a:ident.$m:ident; $b:ident.$n:ident; $($rest:tt)*) => {{
+        let (errors, mut first_error) = mpsc::channel(1);
+        let $a = ($a, (errors.clone(), client));
+        let $b = ($b, (errors, server));
+
+        let session = async { mirror!(@run $a.$m; $b.$n; $($rest)*) };
+
+        // A diverted error parks its consumer, so the session can no longer
+        // finish once the slot has fired: the error branch abandons it. If
+        // instead every slot sender drops without an error, the boundary is
+        // quiet for good: the `Some` pattern disables the branch and the
+        // session runs out on its own.
+        let (client, server) = tokio::select! {
+            results = session => results,
+            Some(error) = first_error.recv() => return Err(error),
+        };
+
+        // The terminals resolve in their own parties' error types; each
+        // lifts into its own side of the sum.
+        Ok((
+            client.map_err(Error::Client)?,
+            server.map_err(Error::Server)?,
+        ))
     }};
 }
 
@@ -146,86 +202,67 @@ macro_rules! mirror {
 /// no early return: the schedule is a straight line, each stage's outgoing
 /// stream handed to the counterparty's next one.
 ///
-/// Both parties speak the same backend's node types, so messages cross the
+/// The parties may speak different backends: each one emits its node-carrying
+/// output already converted into its counterparty's node types (a session holds
+/// its counterparty's backend handle for exactly this), so messages cross the
 /// party boundary unchanged, and errors never cross at all: each crossing
-/// [`divert`]s the producer's errors out of band into a shared one-error
-/// slot, already tagged with the producer's side of the sum, and the driver
-/// races the session against the slot. A party therefore never has to
-/// represent — or even be able to represent — its counterparty's errors,
-/// which is what lets an [`Infallible`](std::convert::Infallible)-erroring
-/// peer pair with a fallible one.
-async fn mirror_connected<B, I, R, T>(
+/// [`divert`]s the producer's errors out of band into a shared one-error slot
+/// and the driver races the session against the slot.
+async fn mirror_connected<BI, BR, I, R, T>(
     i: I,
     r: R,
 ) -> Result<(I::Output, R::Output), Error<I::Error, R::Error>>
 where
     T: Send + Sync + 'static,
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    I: Peer<B, T>,
-    R: Peer<B, T>,
+    BI: Backend<T>,
+    BR: Backend<T>,
+    I: Peer<BI, BR, T>,
+    R: Peer<BR, BI, T>,
+    I::Error: From<BI::Error>,
+    R::Error: From<BR::Error>,
 {
-    let (errors, mut first_error) = mpsc::channel(1);
-    let i = (i, (errors.clone(), Error::Client));
-    let r = (r, (errors, Error::Server));
-
     // This is a fancy macro that makes it easy to see the stages without any
-    // noise. The `..` is an anaphora for the stream being threaded between the
-    // stages, with it implicitly bound as the result of each method call.
-    let session = async {
-        mirror! {
-            i.initiator();
-            r.responder(..);
-            i.open_initiator(..);
-
-            for _ in 0..14 {
-                r.exchange(..);
-                i.exchange(..);
-            }
-
-            r.exchange(..);
-            i.close_initiator(..);
-            r.complete_responder(..);
-            i.complete_initiator(..);
+    // noise. Invisibly, there is a stream and error-handling threaded between
+    // all the stages.
+    mirror! {
+        i.initiator;
+        r.responder;
+        i.open_initiator;
+        for _ in 0..14 {
+            r.exchange;
+            i.exchange;
         }
-    };
-
-    // A diverted error parks its consumer, so the session can no longer
-    // finish once the slot has fired: the error branch abandons it. If
-    // instead every slot sender drops without an error, the boundary is
-    // quiet for good: the `Some` pattern disables the branch and the
-    // session runs out on its own.
-    let (i, r) = tokio::select! {
-        results = session => results,
-        Some(error) = first_error.recv() => return Err(error),
-    };
-
-    // The terminals resolve in their own parties' error types; each lifts
-    // into its own side of the sum.
-    Ok((i.map_err(Error::Client)?, r.map_err(Error::Server)?))
+        r.exchange;
+        i.close_initiator;
+        r.complete_responder;
+        i.complete_initiator;
+    }
 }
 
 type ClientConnected<C, B, T> = <<C as Connect<B, T>>::Next as CompleteConnect<B, T>>::Next;
 type ServerConnected<S, B, T> = <S as Accept<B, T>>::Next;
 
-pub(crate) struct Handshaken<C, S, B, T>
+pub(crate) struct Handshaken<C, S, BC, BS, T>
 where
     T: Send + Sync + 'static,
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    C: Client<B, T>,
-    S: Server<B, T>,
+    BC: Backend<T>,
+    BS: Backend<T>,
+    C: Client<BC, BS, T>,
+    S: Server<BS, BC, T>,
 {
-    client: ClientConnected<C, B, T>,
-    server: ServerConnected<S, B, T>,
+    client: ClientConnected<C, BC, T>,
+    server: ServerConnected<S, BS, T>,
     our_version: Version,
     peer: message::Handshake,
 }
 
-impl<C, S, B, T> Handshaken<C, S, B, T>
+impl<C, S, BC, BS, T> Handshaken<C, S, BC, BS, T>
 where
     T: Send + Sync + 'static,
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    C: Client<B, T>,
-    S: Server<B, T>,
+    BC: Backend<T>,
+    BS: Backend<T>,
+    C: Client<BC, BS, T>,
+    S: Server<BS, BC, T>,
 {
     pub(crate) fn peer(&self) -> &message::Handshake {
         let Handshaken { peer, .. } = self;
@@ -240,7 +277,11 @@ where
     /// already holds.
     pub(crate) async fn reconcile(
         self,
-    ) -> Result<Option<(C::Output, S::Output)>, Error<C::Error, S::Error>> {
+    ) -> Result<Option<(C::Output, S::Output)>, Error<C::Error, S::Error>>
+    where
+        C::Error: From<BC::Error>,
+        S::Error: From<BS::Error>,
+    {
         let Handshaken {
             client: local,
             server: remote,
@@ -251,15 +292,16 @@ where
     }
 }
 
-pub(crate) async fn handshake<C, S, B, T>(
+pub(crate) async fn handshake<C, S, BC, BS, T>(
     c: C,
     s: S,
-) -> Result<Handshaken<C, S, B, T>, Error<C::Error, S::Error>>
+) -> Result<Handshaken<C, S, BC, BS, T>, Error<C::Error, S::Error>>
 where
     T: Send + Sync + 'static,
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    C: Client<B, T>,
-    S: Server<B, T>,
+    BC: Backend<T>,
+    BS: Backend<T>,
+    C: Client<BC, BS, T>,
+    S: Server<BS, BC, T>,
 {
     // The handshake carries only versions, so it crosses the party boundary
     // without conversion; each side's errors wrap into its own arm here.
@@ -279,7 +321,7 @@ where
     })
 }
 
-pub(crate) async fn descend<L, R, B, T>(
+pub(crate) async fn descend<L, R, BL, BR, T>(
     local: L,
     remote: R,
     local_version: Version,
@@ -287,9 +329,12 @@ pub(crate) async fn descend<L, R, B, T>(
 ) -> Result<Option<(L::Output, R::Output)>, Error<L::Error, R::Error>>
 where
     T: Send + Sync + 'static,
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    L: Peer<B, T>,
-    R: Peer<B, T>,
+    BL: Backend<T>,
+    BR: Backend<T>,
+    L: Peer<BL, BR, T>,
+    R: Peer<BR, BL, T>,
+    L::Error: From<BL::Error>,
+    R::Error: From<BR::Error>,
 {
     // Their causal order is only partial (they may be concurrent), so to pick
     // an initiator we compare canonical bytes lexicographically: an arbitrary
@@ -314,17 +359,24 @@ where
 /// streaming protocol, both parties polled concurrently on the current task,
 /// returning both sides' reconciled roots.
 ///
+/// The parties may implement different backends: each one holds its
+/// counterparty's backend handle and emits its node-carrying output already
+/// converted into that backend's node types.
+///
 /// Returns `None` when the handshake versions were equal and there is nothing
 /// to reconcile, in which case each side keeps whatever it came with.
-pub(crate) async fn mirror<C, S, B, T>(
+pub(crate) async fn mirror<C, S, BC, BS, T>(
     client: C,
     server: S,
 ) -> Result<Option<(C::Output, S::Output)>, Error<C::Error, S::Error>>
 where
     T: Send + Sync + 'static,
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    C: Client<B, T>,
-    S: Server<B, T>,
+    BC: Backend<T>,
+    BS: Backend<T>,
+    C: Client<BC, BS, T>,
+    S: Server<BS, BC, T>,
+    C::Error: From<BC::Error>,
+    S::Error: From<BS::Error>,
 {
     handshake(client, server).await?.reconcile().await
 }

@@ -1,11 +1,14 @@
 //! The streaming mirror session: the protocol's stage schedule, implemented
-//! once for every [`Backend`].
+//! once for every pair of [`Backend`]s.
 //!
-//! A stage is one node in the protocol's descending schedule. Unlike the
-//! alternating backend, which materializes a `Levels` zipper and pushes two
-//! levels per round, the streaming stages thread lazy boxed node streams: our
-//! frontier subtrees flow downward to be disassembled, and reconciled nodes
-//! flow upward to be reassembled, a hylomorphism in strict prefix order.
+//! A stage is one node in the protocol's descending schedule, walked in the
+//! session's own backend `B` and holding the counterparty's backend `O`, in
+//! whose node types the stage's node-carrying output leaves (see
+//! [`convert`](super::convert)). Unlike the alternating backend, which
+//! materializes a `Levels` zipper and pushes two levels per round, the
+//! streaming stages thread lazy boxed node streams: our frontier subtrees
+//! flow downward to be disassembled, and reconciled nodes flow upward to be
+//! reassembled, a hylomorphism in strict prefix order.
 //!
 //! Every dataflow edge is a [`FAN`]-bounded channel. Each descent stage
 //! contributes two futures which must be driven concurrently: its walk (the

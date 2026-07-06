@@ -8,8 +8,8 @@ use crate::tree::mirror::streaming::{Handshaking, Local};
 /// two sides converge to the same root, and return it.
 fn streaming_mirror(a: crate::tree::Root<()>, b: crate::tree::Root<()>) -> crate::tree::Root<()> {
     let (a, b): (super::Root<Local, ()>, super::Root<Local, ()>) = (a.into(), b.into());
-    let client = Handshaking::start(Local, a.clone());
-    let server = Handshaking::start(Local, b.clone());
+    let client = Handshaking::start(Local, Local, a.clone());
+    let server = Handshaking::start(Local, Local, b.clone());
     let (ours, theirs) = pollster::block_on(super::mirror(client, server))
         .unwrap_or_else(|e| match e {})
         // Equal handshake versions: already converged, both sides unchanged.

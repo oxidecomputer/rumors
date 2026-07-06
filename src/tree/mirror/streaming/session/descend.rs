@@ -22,8 +22,9 @@ use crate::{
 };
 
 use super::super::backend::{Backend, BoxNodeStream, Leaf, Material, Root};
+use super::super::convert::{Convert, converted};
 use super::super::message;
-use super::super::protocol::{self, Messages};
+use super::super::protocol::{self, Messages, OutputError, Requests};
 use super::super::unknown::Unknown;
 use super::{FAN, Level, ascend, outgoing, reconcile, settle};
 
@@ -35,17 +36,21 @@ use super::{FAN, Level, ascend, outgoing, reconcile, settle};
 /// [`ascend`] future sends the reconciled level at `H`, feeding the previous
 /// stage's ascent in turn; `work` accumulates every concurrent future the
 /// session has created so far, and `finish` is the fold their reassembly
-/// converges to: the reconciled [`Root`] the terminal resolves to. Each
+/// converges to: the reconciled [`Root`] the terminal resolves to. `into` is
+/// the counterparty's backend, whose node types the stage's node-carrying
+/// output [converts](super::super::convert) into. Each
 /// [`exchange`](protocol::Exchange::exchange) consumes the stage and produces
 /// its successor two heights finer, until the terminal stages drive the
 /// accumulated work to completion.
-pub struct Descending<B, T, H>
+pub struct Descending<B, O, T, H>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
+    O: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     H: Height,
 {
     backend: B,
+    into: O,
     their_version: Version,
     frontier: BoxNodeStream<B, T, H>,
     up: mpsc::Sender<Level<B, T, H>>,
@@ -53,9 +58,10 @@ where
     finish: BoxFuture<'static, Result<Root<B, T>, B::Error>>,
 }
 
-impl<B, T, H> Descending<B, T, H>
+impl<B, O, T, H> Descending<B, O, T, H>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
+    O: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     H: Height,
 {
@@ -63,6 +69,7 @@ where
     #[allow(clippy::type_complexity)]
     pub(super) fn new(
         backend: B,
+        into: O,
         their_version: Version,
         frontier: mpsc::Receiver<Level<B, T, H>>,
         up: mpsc::Sender<Level<B, T, H>>,
@@ -71,6 +78,7 @@ where
     ) -> Self {
         Self {
             backend,
+            into,
             their_version,
             frontier: Box::pin(frontier.map(Ok)),
             up,
@@ -80,9 +88,10 @@ where
     }
 }
 
-impl<B, T, H> protocol::Protocol for Descending<B, T, H>
+impl<B, O, T, H> protocol::Protocol for Descending<B, O, T, H>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
+    O: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     H: Height,
 {
@@ -91,9 +100,10 @@ where
     type Error = B::Error;
 }
 
-impl<B, T, H> Descending<B, T, S<S<H>>>
+impl<B, O, T, H> Descending<B, O, T, S<S<H>>>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
+    O: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     H: Height + Unknown,
     S<H>: Height,
@@ -102,21 +112,21 @@ where
     /// One step of the descent: start this stage's [`walk`](reconcile::walk)
     /// and [`ascend`] futures and construct the successor two heights finer.
     ///
+    /// The returned walk output is still in this side's own node vocabulary
+    /// and error type; the callers convert it into the counterparty's.
     /// Shared by [`exchange`](protocol::Exchange::exchange) and
     /// [`close_initiator`](protocol::CloseInitiator::close_initiator).
     #[allow(clippy::type_complexity)]
-    fn descend<E>(
+    fn descend(
         self,
-        requests: impl Messages<message::Exchanged<B, T, S<S<H>>>, E> + 'static,
+        requests: impl Requests<message::Exchanged<B, T, S<S<H>>>>,
     ) -> (
-        impl Messages<message::Exchanged<B, T, S<H>>, E> + 'static,
-        Descending<B, T, H>,
-    )
-    where
-        E: From<B::Error> + Send + 'static,
-    {
+        impl Messages<message::Exchanged<B, T, S<H>>, B::Error>,
+        Descending<B, O, T, H>,
+    ) {
         let Descending {
             backend,
+            into,
             their_version,
             frontier,
             up,
@@ -139,52 +149,68 @@ where
         );
         work.push(ascend(backend.clone(), keep_rx, level_rx, below_rx, up));
 
-        let next = Descending::new(backend, their_version, down_rx, below_tx, work, finish);
+        let next = Descending::new(
+            backend,
+            into,
+            their_version,
+            down_rx,
+            below_tx,
+            work,
+            finish,
+        );
         (walk, next)
     }
 }
 
-impl<B, T, H> protocol::Exchange<B, T> for Descending<B, T, S<S<S<H>>>>
+impl<B, O, T, H> protocol::Exchange<B, O, T> for Descending<B, O, T, S<S<S<H>>>>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
+    O: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
-    H: Height + Unknown,
+    // `Convert` so the outgoing wire (keyed one level below the frontier)
+    // can be re-represented in `O`'s node types.
+    H: Convert + Unknown,
     S<H>: Height,
     S<S<H>>: Height,
     S<S<S<H>>>: Height,
     // Discharged at each concrete height by one of the three `AfterExchange`
     // blanket impls; cannot be proven generically by the trait solver.
-    Descending<B, T, S<H>>: protocol::AfterExchange<B, T, S<H>>,
+    Descending<B, O, T, S<H>>: protocol::AfterExchange<B, O, T, S<H>>,
 {
-    type Next = Descending<B, T, S<H>>;
+    type Next = Descending<B, O, T, S<H>>;
 
     fn exchange(
         self,
-        requests: impl Messages<message::Exchanged<B, T, S<S<S<H>>>>, Self::Error>,
+        requests: impl Requests<message::Exchanged<B, T, S<S<S<H>>>>>,
     ) -> (
-        BoxMessages<message::Exchanged<B, T, S<S<H>>>, Self::Error>,
+        BoxMessages<message::Exchanged<O, T, S<S<H>>>, OutputError<Self, O, T>>,
         Self::Next,
     ) {
+        let backend = self.backend.clone();
+        let into = self.into.clone();
         let (walk, mut next) = self.descend(requests);
-        let sending = outgoing(&mut next.work, walk);
+        let sending = outgoing(&mut next.work, converted(backend, into, walk));
         (Box::pin(sending), next)
     }
 }
 
-impl<B, T> protocol::CloseInitiator<B, T> for Descending<B, T, S<S<Z>>>
+impl<B, O, T> protocol::CloseInitiator<B, O, T> for Descending<B, O, T, S<S<Z>>>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
+    O: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    type Next = Descending<B, T, Z>;
+    type Next = Descending<B, O, T, Z>;
 
     fn close_initiator(
         self,
-        requests: impl Messages<message::Exchanged<B, T, S<S<Z>>>, Self::Error>,
+        requests: impl Requests<message::Exchanged<B, T, S<S<Z>>>>,
     ) -> (
-        BoxMessages<(Prefix<S<Z>>, message::Closing<B, T>), Self::Error>,
+        BoxMessages<(Prefix<S<Z>>, message::Closing<O, T>), OutputError<Self, O, T>>,
         Self::Next,
     ) {
+        let backend = self.backend.clone();
+        let into = self.into.clone();
         let (walk, mut next) = self.descend(requests);
         let closing = walk.filter_map(|item| async {
             match item {
@@ -201,25 +227,27 @@ where
                 Err(error) => Some(Err(error)),
             }
         });
-        let sending = outgoing(&mut next.work, closing);
+        let sending = outgoing(&mut next.work, converted(backend, into, closing));
         (Box::pin(sending), next)
     }
 }
 
-impl<B, T> protocol::CompleteResponder<B, T> for Descending<B, T, S<Z>>
+impl<B, O, T> protocol::CompleteResponder<B, O, T> for Descending<B, O, T, S<Z>>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
+    O: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
     fn complete_responder(
         self,
-        requests: impl Messages<(Prefix<S<Z>>, message::Closing<B, T>), Self::Error>,
+        requests: impl Requests<(Prefix<S<Z>>, message::Closing<B, T>)>,
     ) -> (
-        BoxMessages<(Prefix<Z>, message::Complete<B, T>), Self::Error>,
+        BoxMessages<(Prefix<Z>, message::Complete<O, T>), OutputError<Self, O, T>>,
         impl Future<Output = Result<Root<B, T>, Self::Error>> + Send,
     ) {
         let Descending {
             backend,
+            into,
             their_version,
             frontier,
             up,
@@ -227,23 +255,26 @@ where
             finish,
         } = self;
 
-        let complete = reconcile::complete_walk(backend, their_version, frontier, requests, up);
-        let sending = outgoing(&mut work, complete);
+        let complete =
+            reconcile::complete_walk(backend.clone(), their_version, frontier, requests, up);
+        let sending = outgoing(&mut work, converted(backend, into, complete));
         (Box::pin(sending), settle(work, finish))
     }
 }
 
-impl<B, T> protocol::CompleteInitiator<B, T> for Descending<B, T, Z>
+impl<B, O, T> protocol::CompleteInitiator<B, T> for Descending<B, O, T, Z>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
+    O: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
     async fn complete_initiator(
         self,
-        requests: impl Messages<(Prefix<Z>, message::Complete<B, T>), Self::Error>,
+        requests: impl Requests<(Prefix<Z>, message::Complete<B, T>)>,
     ) -> Result<Root<B, T>, Self::Error> {
         let Descending {
             backend: _,
+            into: _,
             their_version: _,
             frontier,
             up,
