@@ -10,15 +10,12 @@
 
 mod backend;
 mod convert;
-mod dispute;
-mod merge;
+mod materialized;
 mod message;
 mod protocol;
-mod session;
-mod unknown;
 
 pub use backend::{Backend, Immaterial, Leaf, Local, Material, Materiality, Node, Root};
-pub use session::Handshaking;
+pub use materialized::Handshaking;
 
 use std::cmp::Ordering;
 use std::pin::{Pin, pin};
@@ -35,26 +32,19 @@ use protocol::*;
 #[cfg(test)]
 mod tests;
 
-/// The two-sided [`Error`] over two backends' error types.
+/// The bound on every internal channel: one node's child fan (the radix).
 ///
-/// The frame is the first parameter's: a producer instantiates this with its
-/// own backend first, so its own errors occupy the first (`Client`) position
-/// and the output backend's the second.
-type CombinedError<B, O, T> = Error<<B as Backend<T>>::Error, <O as Backend<T>>::Error>;
-
-/// The root returned, if the backend is materialized.
-type RootIfMaterial<B, T> =
-    <<B as Backend<T>>::Materialized as Materiality>::Materialized<Root<B, T>>;
-
-/// A boxed [`Messages`] stream.
-type BoxMessages<M, E> = Pin<Box<dyn Messages<M, E>>>;
+/// The walk's producers and consumers advance in lockstep per parent: the merge
+/// operation holds one item of lookahead per input, and a parent contributes at
+/// most one fan of children before its walk must pull its inputs again, so a
+/// single fan's worth of slack absorbs the maximum skew between the wire, the
+/// descending frontier, and the upward reassembly. This bound is what makes
+/// reconciliation fixed-memory regardless of diff size.
+pub(super) const FAN: usize = u8::MAX as usize;
 
 /// One direction of the party boundary: messages pass through unchanged,
 /// while the producer's errors leave the schedule out of band, into the
 /// driver's error slot.
-///
-/// Messages need no re-representation here because the producer already
-/// emitted them in the consumer's node types.
 ///
 /// This is what makes the incoming [`Requests`] streams structurally
 /// non-erroring: the consumer never has to represent the producer's error
@@ -63,7 +53,7 @@ type BoxMessages<M, E> = Pin<Box<dyn Messages<M, E>>>;
 /// truncated phase would be misread, whereas a parked consumer merely stops —
 /// the driver has already been handed the error and abandons the session.
 fn divert<M, E, D, W>(
-    messages: impl Messages<M, E>,
+    messages: impl Responses<M, E>,
     slot: mpsc::Sender<D>,
     wrap: W,
 ) -> impl Requests<M>
@@ -116,25 +106,14 @@ where
     }
 }
 
-/// Expand the protocol phase schedule into the driver's whole body: one
-/// line per phase.
+/// Expand the protocol phase schedule into the driver's whole body: one line
+/// per phase.
 ///
 /// The expansion creates the shared one-error slot, threads each phase's
-/// outgoing stream to the counterparty's next phase, races the schedule
-/// against the first diverted fault, and resolves both terminals into the
-/// session's `Result` — early-returning the fault if the slot fires, so it
-/// must expand in tail position of a function with the session's return
-/// type.
-///
-/// The parties' sides are inferred from call order: the party that opens
-/// the schedule is the client — the first position of the session sum — and
-/// must also close it (the terminal join yields its result first, and the
-/// resolution reads the pair positionally). Each party ident stays bound to
-/// a `(state, error slot)` pair: the slot (sender, fault wrapper) travels
-/// with its party so every crossing can [`divert`] the producer's errors
-/// out to the driver — lifted into the producer's combined frame (node-free
-/// phases error narrowly, in the party's own type), then wrapped into the
-/// session sum by the party's side of [`client`]/[`server`].
+/// outgoing stream to the counterparty's next phase, races the schedule against
+/// the first diverted fault, and resolves both terminals into the session's
+/// `Result`, early-returning the fault if the slot fires, so it must expand in
+/// tail position of a function with the session's return type.
 macro_rules! mirror {
     (@one $a:ident >> $b:ident.$m:ident) => {
         let ((msgs, state), (tx, wrap)) = $a;
@@ -162,32 +141,19 @@ macro_rules! mirror {
         mirror!(@step($b) $($rest)*);
     };
     (@step($a:ident)) => {};
-    // Opening the schedule inside the session: no stream is pending yet.
     (@run $a:ident.$m:ident; $($rest:tt)*) => {{
         let $a = ($a.0.$m(), $a.1);
         mirror!(@pending($a) $($rest)*)
     }};
-    // The whole driver: the opener is the client, its counterparty (named by
-    // the next line) the server.
     ($a:ident.$m:ident; $b:ident.$n:ident; $($rest:tt)*) => {{
         let (errors, mut first_error) = mpsc::channel(1);
         let $a = ($a, (errors.clone(), client));
         let $b = ($b, (errors, server));
-
         let session = async { mirror!(@run $a.$m; $b.$n; $($rest)*) };
-
-        // A diverted error parks its consumer, so the session can no longer
-        // finish once the slot has fired: the error branch abandons it. If
-        // instead every slot sender drops without an error, the boundary is
-        // quiet for good: the `Some` pattern disables the branch and the
-        // session runs out on its own.
         let (client, server) = tokio::select! {
             results = session => results,
             Some(error) = first_error.recv() => return Err(error),
         };
-
-        // The terminals resolve in their own parties' error types; each
-        // lifts into its own side of the sum.
         Ok((
             client.map_err(Error::Client)?,
             server.map_err(Error::Server)?,
@@ -221,9 +187,6 @@ where
     I::Error: From<BI::Error>,
     R::Error: From<BR::Error>,
 {
-    // This is a fancy macro that makes it easy to see the stages without any
-    // noise. Invisibly, there is a stream and error-handling threaded between
-    // all the stages.
     mirror! {
         i.initiator;
         r.responder;

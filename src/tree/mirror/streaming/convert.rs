@@ -1,21 +1,8 @@
 //! Re-represent nodes from one backend in the node types of another.
 //!
-//! [`Convertible`] re-represents one wire item — a keyed message pair —
-//! converting the node a `providing` payload carries (every other message
-//! kind crosses backends unchanged). It is how a session stage speaks its
-//! counterparty's vocabulary: the protocol methods that emit node-carrying
-//! output run their walks in their own node types and [`converted`] maps the
-//! result into the output backend's — the same re-representation a wire
-//! transport performs implicitly when it serializes one side's nodes and
-//! deserializes them into the other's.
-//!
 //! A node converts by exploding to leaves in the source backend and
-//! reassembling in the target, the two halves running concurrently through
-//! one [`FAN`]-bounded channel ([`subtree`]). Meeting at the leaf level keeps
-//! each half single-backend — and keeps each backend's errors on its own
-//! side, combined only at the join into the two-sided [`Error`], in the
-//! producer's frame: its own errors first, the target's second. No error is
-//! ever re-represented in the other backend's error type.
+//! reassembling in the target, the two halves running concurrently through one
+//! [`FAN`]-bounded channel ([`subtree`]).
 
 use std::pin::pin;
 
@@ -23,16 +10,16 @@ use async_stream::try_stream;
 use futures::channel::mpsc;
 use futures::{SinkExt, StreamExt};
 
+use crate::tree::mirror::streaming::FAN;
 use crate::tree::typed::{
     Prefix,
     height::{Height, S, Z},
 };
 
+use super::Error;
 use super::backend::{Backend, BoxNodeStream, Leaf, Node, one};
 use super::message;
-use super::protocol::Messages;
-use super::session::FAN;
-use super::{CombinedError, Error};
+use super::protocol::Responses;
 
 /// A height whose subtrees convert across backends: they explode to the leaf
 /// stream beneath them and reassemble from one.
@@ -107,7 +94,7 @@ async fn subtree<B, O, T, H>(
     to: &O,
     prefix: Prefix<H>,
     node: B::Node<H>,
-) -> Result<O::Node<H>, CombinedError<B, O, T>>
+) -> Result<O::Node<H>, Error<B::Error, O::Error>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     O: Backend<T, Node<Z>: Leaf<T>>,
@@ -169,7 +156,7 @@ where
         self,
         from: &B,
         to: &O,
-    ) -> impl Future<Output = Result<Self::Converted, CombinedError<B, O, T>>> + Send;
+    ) -> impl Future<Output = Result<Self::Converted, Error<B::Error, O::Error>>> + Send;
 }
 
 /// Re-represent a whole outgoing stream in `to`'s node vocabulary.
@@ -183,8 +170,8 @@ where
 pub(super) fn converted<B, O, T, M>(
     from: B,
     to: O,
-    messages: impl Messages<M, B::Error>,
-) -> impl Messages<M::Converted, CombinedError<B, O, T>>
+    messages: impl Responses<M, B::Error>,
+) -> impl Responses<M::Converted, Error<B::Error, O::Error>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     O: Backend<T, Node<Z>: Leaf<T>>,
@@ -210,7 +197,7 @@ where
 {
     type Converted = message::Initiate;
 
-    async fn convert(self, _from: &B, _to: &O) -> Result<Self, CombinedError<B, O, T>> {
+    async fn convert(self, _from: &B, _to: &O) -> Result<Self, Error<B::Error, O::Error>> {
         Ok(self)
     }
 }
@@ -223,7 +210,7 @@ where
 {
     type Converted = message::Opening;
 
-    async fn convert(self, _from: &B, _to: &O) -> Result<Self, CombinedError<B, O, T>> {
+    async fn convert(self, _from: &B, _to: &O) -> Result<Self, Error<B::Error, O::Error>> {
         Ok(self)
     }
 }
@@ -237,7 +224,7 @@ where
 {
     type Converted = (Prefix<H>, message::Exchange<O, T, H>);
 
-    async fn convert(self, from: &B, to: &O) -> Result<Self::Converted, CombinedError<B, O, T>> {
+    async fn convert(self, from: &B, to: &O) -> Result<Self::Converted, Error<B::Error, O::Error>> {
         let (prefix, message) = self;
         Ok((
             prefix,
@@ -260,7 +247,7 @@ where
 {
     type Converted = (Prefix<S<Z>>, message::Closing<O, T>);
 
-    async fn convert(self, from: &B, to: &O) -> Result<Self::Converted, CombinedError<B, O, T>> {
+    async fn convert(self, from: &B, to: &O) -> Result<Self::Converted, Error<B::Error, O::Error>> {
         let (prefix, message) = self;
         Ok((
             prefix,
@@ -282,7 +269,7 @@ where
 {
     type Converted = (Prefix<Z>, message::Complete<O, T>);
 
-    async fn convert(self, from: &B, to: &O) -> Result<Self::Converted, CombinedError<B, O, T>> {
+    async fn convert(self, from: &B, to: &O) -> Result<Self::Converted, Error<B::Error, O::Error>> {
         let (prefix, message::Complete::Providing(node)) = self;
         Ok((
             prefix,

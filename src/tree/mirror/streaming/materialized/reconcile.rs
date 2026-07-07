@@ -38,23 +38,53 @@ use std::pin::pin;
 
 use async_stream::try_stream;
 use futures::SinkExt;
-use futures::channel::mpsc;
+use futures::future::BoxFuture;
 use futures::stream::{self, Stream, StreamExt};
 use itertools::EitherOrBoth;
+use tokio::sync::mpsc::{self, Receiver, Sender};
 
 use crate::Version;
+use crate::tree::mirror::streaming::FAN;
 use crate::tree::typed::{
     Hash, Prefix,
     height::{self, Height, S, UnderRoot, UnderUnderRoot, Z},
 };
 
 use super::super::backend::{Backend, BoxNodeStream, Leaf, Material, Node, NodeStream, one};
-use super::super::dispute::{Routed, classify};
-use super::super::merge::merge;
 use super::super::message;
-use super::super::protocol::{Messages, Requests};
-use super::super::unknown::{Unknown, unknown};
-use super::Level;
+use super::super::protocol::{Requests, Responses};
+use super::dispute::{Routed, classify};
+use super::merge::merge;
+use super::unknown::{Unknown, unknown};
+
+/// Open a stage's outgoing wire: push the future that forwards `messages`
+/// into a fresh [`FAN`]-bounded channel onto `work`, and return the
+/// receiving half.
+///
+/// The receiving half is what the stage returns as its outgoing [`Messages`]:
+/// the counterparty reads a plain channel while the forwarding future advances
+/// the walk behind it. Forwarding ends when the wire ends or the counterparty
+/// drops the receiver (session teardown), and never fails: errors come with the
+/// forwarded items.
+pub(super) fn outgoing<M, E, X>(
+    work: &mut Vec<BoxFuture<'static, Result<(), X>>>,
+    messages: impl Responses<M, E>,
+) -> Receiver<Result<M, E>>
+where
+    M: Send + 'static,
+    E: Send + 'static,
+    X: Send + 'static,
+{
+    let (tx, rx) = mpsc::channel(FAN);
+    work.push(Box::pin(async move {
+        let mut messages = pin!(messages);
+        while let Some(Ok(message)) = messages.next().await {
+            let _ = tx.send(Ok(message)).await;
+        }
+        Ok(())
+    }));
+    rx
+}
 
 /// The responder's opening walk: explode the root one level and list every
 /// child on the wire while feeding the subtrees to `down` as the first
@@ -67,8 +97,8 @@ pub(super) fn respond<B, T>(
     backend: B,
     root: Option<B::Node<height::Root>>,
     requests: impl Requests<message::Initiate>,
-    mut down: mpsc::Sender<Level<B, T, UnderRoot>>,
-) -> impl Messages<message::Opening, B::Error>
+    down: Sender<(Prefix<UnderRoot>, B::Node<UnderRoot>)>,
+) -> impl Responses<message::Opening, B::Error>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
@@ -108,9 +138,9 @@ pub(super) fn open<B, T>(
     their_version: Version,
     root: Option<B::Node<height::Root>>,
     requests: impl Requests<message::Opening>,
-    down: mpsc::Sender<Level<B, T, UnderUnderRoot>>,
-    level: mpsc::Sender<Level<B, T, UnderRoot>>,
-) -> impl Messages<message::Exchanged<B, T, UnderRoot>, B::Error>
+    down: Sender<(Prefix<UnderUnderRoot>, B::Node<UnderUnderRoot>)>,
+    level: Sender<(Prefix<UnderRoot>, B::Node<UnderRoot>)>,
+) -> impl Responses<message::Exchanged<B, T, UnderRoot>, B::Error>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
@@ -158,18 +188,18 @@ where
 /// Shared by [`walk`] and [`complete_walk`]. A closed channel ends the
 /// stream early: callers observe the teardown by checking the sender they
 /// kept.
-fn provide<B, T, C>(
+fn provide<B, T, H>(
     backend: B,
     their_version: Version,
-    prefix: Prefix<S<C>>,
-    node: B::Node<S<C>>,
-    mut kept: mpsc::Sender<Level<B, T, S<C>>>,
-) -> impl Stream<Item = Result<Level<B, T, C>, B::Error>> + Send
+    prefix: Prefix<S<H>>,
+    node: B::Node<S<H>>,
+    kept: Sender<(Prefix<S<H>>, B::Node<S<H>>)>,
+) -> impl Stream<Item = Result<(Prefix<H>, B::Node<H>), B::Error>> + Send
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
-    C: Height + Unknown,
-    S<C>: Height,
+    H: Height + Unknown,
+    S<H>: Height,
 {
     try_stream! {
         let mut pruned = unknown(&backend, &their_version, one(prefix, node));
@@ -202,9 +232,9 @@ pub(super) fn route<B, T, H>(
     their_version: Version,
     ours: impl NodeStream<B, T, S<H>> + 'static,
     theirs: impl Stream<Item = Result<(Prefix<S<H>>, Hash), B::Error>> + Send + 'static,
-    mut down: mpsc::Sender<Level<B, T, H>>,
-    mut level: mpsc::Sender<Level<B, T, S<H>>>,
-) -> impl Messages<message::Exchanged<B, T, S<H>>, B::Error>
+    down: Sender<(Prefix<H>, B::Node<H>)>,
+    level: Sender<(Prefix<S<H>>, B::Node<S<H>>)>,
+) -> impl Responses<message::Exchanged<B, T, S<H>>, B::Error>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
@@ -253,14 +283,14 @@ where
     }
 }
 
-/// Run one descent stage's reconciliation: our frontier at `S<S<G>>` against
+/// Run one descent stage's reconciliation: our frontier at `S<S<H>>` against
 /// the incoming wire keyed at the same height, producing the outgoing wire
 /// keyed one level below.
 ///
 /// The returned stream is the outgoing wire and the walk's engine: pulling it
 /// advances the merge-join, which routes every prefix's verdict as described
 /// in the [module docs](self). `down` receives disputed subtrees exploded to
-/// height `G` (the next stage's frontier); `keep` receives reconciled nodes at
+/// height `H` (the next stage's frontier); `keep` receives reconciled nodes at
 /// the frontier height; `level` receives reconciled children one level below.
 ///
 /// [`protocol::Exchange`](super::super::protocol::Exchange) stages return the
@@ -272,10 +302,10 @@ pub(super) fn walk<B, T, H>(
     their_version: Version,
     frontier: BoxNodeStream<B, T, S<S<H>>>,
     messages: impl Requests<message::Exchanged<B, T, S<S<H>>>>,
-    down: mpsc::Sender<Level<B, T, H>>,
-    mut keep: mpsc::Sender<Level<B, T, S<S<H>>>>,
-    level: mpsc::Sender<Level<B, T, S<H>>>,
-) -> impl Messages<message::Exchanged<B, T, S<H>>, B::Error>
+    down: Sender<(Prefix<H>, B::Node<H>)>,
+    keep: Sender<(Prefix<S<S<H>>>, B::Node<S<S<H>>>)>,
+    level: Sender<(Prefix<S<H>>, B::Node<S<H>>)>,
+) -> impl Responses<message::Exchanged<B, T, S<H>>, B::Error>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
@@ -386,8 +416,8 @@ pub(super) fn complete_walk<B, T>(
     their_version: Version,
     frontier: BoxNodeStream<B, T, S<Z>>,
     messages: impl Requests<(Prefix<S<Z>>, message::Closing<B, T>)>,
-    mut level: mpsc::Sender<Level<B, T, S<Z>>>,
-) -> impl Messages<(Prefix<Z>, message::Complete<B, T>), B::Error>
+    level: Sender<(Prefix<S<Z>>, B::Node<S<Z>>)>,
+) -> impl Responses<(Prefix<Z>, message::Complete<B, T>), B::Error>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
@@ -455,7 +485,7 @@ where
 pub(super) async fn absorb_leaves<B, T>(
     frontier: BoxNodeStream<B, T, Z>,
     messages: impl Requests<(Prefix<Z>, message::Complete<B, T>)>,
-    mut leaves: mpsc::Sender<Level<B, T, Z>>,
+    leaves: Sender<(Prefix<Z>, B::Node<Z>)>,
 ) -> Result<(), B::Error>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,

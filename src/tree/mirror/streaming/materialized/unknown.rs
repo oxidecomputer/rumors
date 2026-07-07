@@ -30,7 +30,7 @@ use async_stream::try_stream;
 use crate::Version;
 use crate::tree::typed::height::{Height, S, Z};
 
-use super::backend::{Backend, Leaf, Material, Node, NodeStream, one};
+use super::super::backend::{Backend, Leaf, Material, Node, NodeStream, one};
 
 /// Prune `stream` down to the nodes a counterparty at `known` is missing.
 ///

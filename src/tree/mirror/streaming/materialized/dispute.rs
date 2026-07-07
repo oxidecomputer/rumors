@@ -3,12 +3,7 @@
 //! [`classify`] is the streaming heart of one mirror round: it merge-joins our
 //! frontier's children against the counterparty's `uncertain` hashes and emits,
 //! per prefix in ascending order, a single [`Routed`] verdict naming which cell
-//! of the asymmetry matrix that prefix fell into. It is the streaming analog of
-//! the `merge_join_by` inside the alternating
-//! [`partition_uncertain`](crate::tree::mirror::alternating) — the same four
-//! cells, one [`Routed`] variant each — but factored so the *routing* (which
-//! verdict feeds the wire, which feeds our upward reassembly) is the caller's
-//! job, not the transducer's.
+//! of the asymmetry matrix that prefix fell into.
 //!
 //! # The four cells
 //!
@@ -35,18 +30,12 @@ use crate::tree::typed::{
     height::{Height, Z},
 };
 
-use super::backend::{Backend, Leaf, Material, Node, NodeStream, one};
+use super::super::backend::{Backend, Leaf, Material, Node, NodeStream, one};
 use super::merge::merge;
 use super::unknown::{Unknown, unknown};
 
 /// The asymmetry-matrix verdict for one prefix, at the height its children are
 /// compared.
-///
-/// One variant per reachable cell (see the [module docs](self)). The caller
-/// routes each to its channel: [`Provide`](Self::Provide) feeds both the
-/// outgoing `providing` and our own reassembly; [`Matched`](Self::Matched)
-/// feeds only reassembly; [`Request`](Self::Request) feeds the outgoing
-/// `requested`; [`Dispute`](Self::Dispute) descends one level finer.
 pub(super) enum Routed<B, T, C>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
@@ -69,11 +58,6 @@ where
 /// Merge-join our children `ours` against the counterparty's `uncertain` hashes
 /// `theirs`, both ascending by prefix at height `C`, into one ascending stream
 /// of [`Routed`] verdicts.
-///
-/// The counterparty's deletions are honored inside the [`Provide`](Routed::Provide)
-/// arm: a we-have-they-lack subtree is first pruned by [`unknown`] against
-/// `their_version`, so a subtree they have forgotten vanishes rather than being
-/// re-provided. A subtree that prunes away entirely yields no verdict.
 pub(super) fn classify<'a, B, T, C>(
     backend: &'a B,
     their_version: &'a Version,

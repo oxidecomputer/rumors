@@ -5,15 +5,19 @@
 //! that travels between rounds and the terminal futures that drive the session's
 //! accumulated work to its reconciled [`Root`].
 
-use futures::channel::mpsc;
-use futures::future::BoxFuture;
+use std::pin::pin;
+
+use futures::future::{self, BoxFuture};
 use futures::join;
 use futures::stream::StreamExt;
+use tokio::sync::mpsc::{self, Receiver, Sender};
+use tokio_stream::wrappers::ReceiverStream;
 
+use crate::tree::mirror::streaming::protocol::BoxResponses;
 use crate::{
     Version,
     tree::{
-        mirror::streaming::BoxMessages,
+        mirror::streaming::materialized::merge::merge_disjoint,
         typed::{
             Prefix,
             height::{Height, S, Z},
@@ -24,24 +28,12 @@ use crate::{
 use super::super::backend::{Backend, BoxNodeStream, Leaf, Material, Root};
 use super::super::convert::{Convert, converted};
 use super::super::message;
-use super::super::protocol::{self, Messages, OutputError, Requests};
-use super::super::unknown::Unknown;
-use super::{FAN, Level, ascend, outgoing, reconcile, settle};
+use super::super::protocol::{self, OutputError, Requests, Responses};
+use super::unknown::Unknown;
+use super::{FAN, reconcile};
 
 /// A mirror stage inside the descent: its frontier at height `H` flows downward
 /// as a stream while the levels above reassemble concurrently.
-///
-/// `frontier` holds this side's disputed subtrees at `H`, fed by the previous
-/// stage's walk through a [`FAN`]-bounded channel; `up` is where this stage's
-/// [`ascend`] future sends the reconciled level at `H`, feeding the previous
-/// stage's ascent in turn; `work` accumulates every concurrent future the
-/// session has created so far, and `finish` is the fold their reassembly
-/// converges to: the reconciled [`Root`] the terminal resolves to. `into` is
-/// the counterparty's backend, whose node types the stage's node-carrying
-/// output [converts](super::super::convert) into. Each
-/// [`exchange`](protocol::Exchange::exchange) consumes the stage and produces
-/// its successor two heights finer, until the terminal stages drive the
-/// accumulated work to completion.
 pub struct Descending<B, O, T, H>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
@@ -49,11 +41,11 @@ where
     T: Send + Sync + 'static,
     H: Height,
 {
-    backend: B,
+    from: B,
     into: O,
     their_version: Version,
     frontier: BoxNodeStream<B, T, H>,
-    up: mpsc::Sender<Level<B, T, H>>,
+    up: Sender<(Prefix<H>, B::Node<H>)>,
     work: Vec<BoxFuture<'static, Result<(), B::Error>>>,
     finish: BoxFuture<'static, Result<Root<B, T>, B::Error>>,
 }
@@ -71,16 +63,16 @@ where
         backend: B,
         into: O,
         their_version: Version,
-        frontier: mpsc::Receiver<Level<B, T, H>>,
-        up: mpsc::Sender<Level<B, T, H>>,
+        frontier: Receiver<(Prefix<H>, B::Node<H>)>,
+        up: Sender<(Prefix<H>, B::Node<H>)>,
         work: Vec<BoxFuture<'static, Result<(), B::Error>>>,
         finish: BoxFuture<'static, Result<Root<B, T>, B::Error>>,
     ) -> Self {
         Self {
-            backend,
+            from: backend,
             into,
             their_version,
-            frontier: Box::pin(frontier.map(Ok)),
+            frontier: Box::pin(ReceiverStream::new(frontier).map(Ok)),
             up,
             work,
             finish,
@@ -109,23 +101,16 @@ where
     S<H>: Height,
     S<S<H>>: Height,
 {
-    /// One step of the descent: start this stage's [`walk`](reconcile::walk)
-    /// and [`ascend`] futures and construct the successor two heights finer.
-    ///
-    /// The returned walk output is still in this side's own node vocabulary
-    /// and error type; the callers convert it into the counterparty's.
-    /// Shared by [`exchange`](protocol::Exchange::exchange) and
-    /// [`close_initiator`](protocol::CloseInitiator::close_initiator).
     #[allow(clippy::type_complexity)]
     fn descend(
         self,
         requests: impl Requests<message::Exchanged<B, T, S<S<H>>>>,
     ) -> (
-        impl Messages<message::Exchanged<B, T, S<H>>, B::Error>,
+        impl Responses<message::Exchanged<B, T, S<H>>, B::Error>,
         Descending<B, O, T, H>,
     ) {
         let Descending {
-            backend,
+            from: backend,
             into,
             their_version,
             frontier,
@@ -183,14 +168,14 @@ where
         self,
         requests: impl Requests<message::Exchanged<B, T, S<S<S<H>>>>>,
     ) -> (
-        BoxMessages<message::Exchanged<O, T, S<S<H>>>, OutputError<Self, O, T>>,
+        BoxResponses<message::Exchanged<O, T, S<S<H>>>, OutputError<Self, O, T>>,
         Self::Next,
     ) {
-        let backend = self.backend.clone();
+        let backend = self.from.clone();
         let into = self.into.clone();
         let (walk, mut next) = self.descend(requests);
-        let sending = outgoing(&mut next.work, converted(backend, into, walk));
-        (Box::pin(sending), next)
+        let sending = reconcile::outgoing(&mut next.work, converted(backend, into, walk));
+        (Box::pin(ReceiverStream::new(sending)), next)
     }
 }
 
@@ -206,10 +191,10 @@ where
         self,
         requests: impl Requests<message::Exchanged<B, T, S<S<Z>>>>,
     ) -> (
-        BoxMessages<(Prefix<S<Z>>, message::Closing<O, T>), OutputError<Self, O, T>>,
+        BoxResponses<(Prefix<S<Z>>, message::Closing<O, T>), OutputError<Self, O, T>>,
         Self::Next,
     ) {
-        let backend = self.backend.clone();
+        let backend = self.from.clone();
         let into = self.into.clone();
         let (walk, mut next) = self.descend(requests);
         let closing = walk.filter_map(|item| async {
@@ -227,8 +212,8 @@ where
                 Err(error) => Some(Err(error)),
             }
         });
-        let sending = outgoing(&mut next.work, converted(backend, into, closing));
-        (Box::pin(sending), next)
+        let sending = reconcile::outgoing(&mut next.work, converted(backend, into, closing));
+        (Box::pin(ReceiverStream::new(sending)), next)
     }
 }
 
@@ -242,11 +227,11 @@ where
         self,
         requests: impl Requests<(Prefix<S<Z>>, message::Closing<B, T>)>,
     ) -> (
-        BoxMessages<(Prefix<Z>, message::Complete<O, T>), OutputError<Self, O, T>>,
+        BoxResponses<(Prefix<Z>, message::Complete<O, T>), OutputError<Self, O, T>>,
         impl Future<Output = Result<Root<B, T>, Self::Error>> + Send,
     ) {
         let Descending {
-            backend,
+            from: backend,
             into,
             their_version,
             frontier,
@@ -257,8 +242,8 @@ where
 
         let complete =
             reconcile::complete_walk(backend.clone(), their_version, frontier, requests, up);
-        let sending = outgoing(&mut work, converted(backend, into, complete));
-        (Box::pin(sending), settle(work, finish))
+        let sending = reconcile::outgoing(&mut work, converted(backend, into, complete));
+        (Box::pin(ReceiverStream::new(sending)), settle(work, finish))
     }
 }
 
@@ -273,7 +258,7 @@ where
         requests: impl Requests<(Prefix<Z>, message::Complete<B, T>)>,
     ) -> Result<Root<B, T>, Self::Error> {
         let Descending {
-            backend: _,
+            from: _,
             into: _,
             their_version: _,
             frontier,
@@ -287,4 +272,65 @@ where
         absorbed?;
         settled
     }
+}
+
+/// Reassemble one stage's slice of the reconciled tree.
+///
+/// A stage with its frontier at `S<S<H>>` sees reconciled nodes at three
+/// heights: kept frontier nodes (`keep`), walk verdicts one level below
+/// (`level`), and (once the stages beneath have resolved them) reconciled
+/// disputes two levels below, arriving through `below`. The three sets are
+/// prefix-disjoint because they route through mutually exclusive verdicts, so
+/// the stage's reconciled frontier level is two folds and two disjoint merges;
+/// it flows out through `up`, becoming the previous stage's `below`.
+fn ascend<B, T, H>(
+    backend: B,
+    keep: Receiver<(Prefix<S<S<H>>>, B::Node<S<S<H>>>)>,
+    level: Receiver<(Prefix<S<H>>, B::Node<S<H>>)>,
+    below: Receiver<(Prefix<H>, B::Node<H>)>,
+    up: Sender<(Prefix<S<S<H>>>, B::Node<S<S<H>>>)>,
+) -> BoxFuture<'static, Result<(), B::Error>>
+where
+    B: Backend<T, Node<Z>: Leaf<T>>,
+    T: Send + Sync + 'static,
+    H: Height,
+    S<H>: Height,
+    S<S<H>>: Height,
+{
+    let reconciled = merge_disjoint(
+        ReceiverStream::new(keep).map(Ok),
+        backend.clone().parents(merge_disjoint(
+            ReceiverStream::new(level).map(Ok),
+            backend.parents(ReceiverStream::new(below).map(Ok)),
+        )),
+    );
+    Box::pin(async move {
+        let mut reconciled = pin!(reconciled);
+        while let Some(item) = reconciled.next().await {
+            // A closed channel means the consumer of this level is gone and the
+            // session is being torn down.
+            if up.send(item?).await.is_err() {
+                break;
+            }
+        }
+        Ok(())
+    })
+}
+
+/// Drive the session's accumulated `work` and its root reassembly to completion
+/// together, resolving to the reconciled [`Root`], only if no errors occurred.
+async fn settle<B, T, E>(
+    work: Vec<BoxFuture<'static, Result<(), B::Error>>>,
+    finish: BoxFuture<'static, Result<Root<B, T>, B::Error>>,
+) -> Result<Root<B, T>, E>
+where
+    B: Backend<T, Node<Z>: Leaf<T>>,
+    T: Send + Sync + 'static,
+    E: From<B::Error>,
+{
+    let (finished, root) = join!(future::join_all(work), finish);
+    for result in finished {
+        result?;
+    }
+    Ok(root?)
 }

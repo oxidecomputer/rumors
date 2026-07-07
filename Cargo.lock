@@ -4109,6 +4109,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tinyvec",
  "tokio",
+ "tokio-stream",
  "tokio-util",
  "zstd",
 ]

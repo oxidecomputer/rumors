@@ -15,7 +15,7 @@ use crate::tree::traverse::unknown::Unknown;
 use crate::tree::traverse::{Action, act};
 use crate::tree::typed::{self, Path, Prefix, height::Root};
 
-use super::super::Local;
+use super::super::super::Local;
 use super::unknown;
 
 /// Build a root from `flags_a.len()` party-0 leaves and `flags_b.len()` party-1

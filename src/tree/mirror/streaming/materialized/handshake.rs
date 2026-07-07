@@ -6,10 +6,15 @@
 //! disassemble it into streams, handing off to a [`Descending`] stage. The
 //! opening walks themselves live in [`reconcile`].
 
-use futures::channel::mpsc;
-use futures::stream::{self, StreamExt};
+use std::pin::pin;
 
-use crate::tree::mirror::streaming::BoxMessages;
+use futures::future::BoxFuture;
+use futures::stream::{self, StreamExt};
+use tokio::sync::mpsc::{self, Receiver, Sender};
+use tokio_stream::wrappers::ReceiverStream;
+
+use crate::tree::mirror::streaming::backend::NodeStream;
+use crate::tree::mirror::streaming::protocol::BoxResponses;
 use crate::{
     Version,
     tree::typed::height::{self, UnderRoot, UnderUnderRoot, Z},
@@ -17,11 +22,11 @@ use crate::{
 
 use super::super::backend::{Backend, Leaf, Material, Node, Root};
 use super::super::convert::converted;
-use super::super::merge::merge_disjoint;
 use super::super::message;
-use super::super::protocol::{self, Messages, OutputError, Requests};
+use super::super::protocol::{self, OutputError, Requests, Responses};
 use super::descend::Descending;
-use super::{FAN, outgoing, reassemble, reconcile};
+use super::merge::merge_disjoint;
+use super::{FAN, reconcile};
 
 /// The version state of a stage that has been opened but has not yet sent its
 /// handshake.
@@ -172,7 +177,7 @@ where
 {
     type Next = Self;
 
-    fn initiator(self) -> (impl Messages<message::Initiate, Self::Error>, Self::Next) {
+    fn initiator(self) -> (impl Responses<message::Initiate, Self::Error>, Self::Next) {
         let initiate = self
             .root
             .root
@@ -194,7 +199,7 @@ where
         self,
         requests: impl Requests<message::Initiate>,
     ) -> (
-        impl Messages<message::Opening, Self::Error> + 'static,
+        impl Responses<message::Opening, Self::Error> + 'static,
         Self::Next,
     ) {
         let Handshaking {
@@ -211,10 +216,12 @@ where
         // The responder's reconciled root-child level arrives on `up` whole:
         // one fold reassembles the root the terminal resolves to.
         let ceiling = versions.our_version | versions.their_version.clone();
-        let top = backend.clone().parents(up_rx.map(Ok::<_, B::Error>));
+        let top = backend
+            .clone()
+            .parents(ReceiverStream::new(up_rx).map(Ok::<_, B::Error>));
         let finish = reassemble(top, ceiling);
         let mut work = Vec::new();
-        let sending = outgoing(&mut work, listing);
+        let sending = reconcile::outgoing(&mut work, listing);
 
         let next = Descending::new(
             backend,
@@ -225,7 +232,7 @@ where
             work,
             finish,
         );
-        (sending, next)
+        (ReceiverStream::new(sending), next)
     }
 }
 
@@ -241,7 +248,7 @@ where
         self,
         requests: impl Requests<message::Opening>,
     ) -> (
-        BoxMessages<message::Exchanged<O, T, UnderRoot>, OutputError<Self, O, T>>,
+        BoxResponses<message::Exchanged<O, T, UnderRoot>, OutputError<Self, O, T>>,
         Self::Next,
     ) {
         let Handshaking {
@@ -269,12 +276,13 @@ where
         // resolves to.
         let ceiling = versions.our_version | versions.their_version.clone();
         let top = backend.clone().parents(merge_disjoint(
-            level_rx.map(Ok::<_, B::Error>),
-            backend.clone().parents(up_rx.map(Ok)),
+            ReceiverStream::new(level_rx).map(Ok),
+            backend.clone().parents(ReceiverStream::new(up_rx).map(Ok)),
         ));
         let finish = reassemble(top, ceiling);
         let mut work = Vec::new();
-        let sending = outgoing(&mut work, converted(backend.clone(), into.clone(), opening));
+        let sending =
+            reconcile::outgoing(&mut work, converted(backend.clone(), into.clone(), opening));
 
         let next = Descending::new(
             backend,
@@ -285,6 +293,35 @@ where
             work,
             finish,
         );
-        (Box::pin(sending), next)
+        (Box::pin(ReceiverStream::new(sending)), next)
     }
+}
+
+/// Drain the reconciled root level into this side's reconciled [`Root`]: the
+/// future the session's terminal resolves to.
+///
+/// The root level holds at most one node: the reassembled root, or nothing when
+/// the reconciled tree is empty. A backend error means there is no trustworthy
+/// result.
+fn reassemble<B, T>(
+    top: impl NodeStream<B, T, height::Root> + 'static,
+    ceiling: Version,
+) -> BoxFuture<'static, Result<Root<B, T>, B::Error>>
+where
+    B: Backend<T, Node<Z>: Leaf<T>>,
+    T: Send + Sync + 'static,
+{
+    Box::pin(async move {
+        let mut top = pin!(top);
+        let mut root = None;
+        while let Some(item) = top.next().await {
+            debug_assert!(
+                root.is_none(),
+                "upward reassembly produced more than one root node",
+            );
+            let (_prefix, node) = item?;
+            root = Some(node);
+        }
+        Ok(Root { ceiling, root })
+    })
 }
