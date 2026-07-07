@@ -158,6 +158,10 @@ mod sealed {
     impl Sealed for super::Immaterial {}
 }
 
+/// Type synonym for one prefix-keyed node of a backend: the item of a
+/// [`NodeStream`], and what the session's internal channels carry.
+pub(super) type Keyed<B, T, H> = (Prefix<H>, <B as Backend<T>>::Node<H>);
+
 /// Type synonym for a fallible [`Stream`] of prefix-keyed nodes represented by
 /// a given backend.
 pub trait NodeStream<B: Backend<T>, T, H: Height>:
@@ -181,7 +185,7 @@ pub(super) type BoxNodeStream<B, T, H> = Pin<Box<dyn NodeStream<B, T, H>>>;
 ///
 /// The seed for anything that operates on a single subtree through the stream
 /// algebra: exploding it one level via [`Backend::children`], or pruning it via
-/// [`unknown`](super::unknown::unknown).
+/// [`unknown`](super::materialized::unknown::unknown).
 pub(super) fn one<B, T, H>(prefix: Prefix<H>, node: B::Node<H>) -> impl NodeStream<B, T, H>
 where
     B: Backend<T>,

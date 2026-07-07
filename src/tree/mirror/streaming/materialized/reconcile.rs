@@ -13,10 +13,10 @@
 //! - the **outgoing wire** — the walk's direct output, already in wire form
 //!   ([`message::Exchange`]) but still in our own backend's node vocabulary
 //!   and error type; the stage [converts](super::super::convert) it into the
-//!   counterparty's before [`outgoing`](super::outgoing) forwards it into the
+//!   counterparty's before [`outgoing`] forwards it into the
 //!   channel the counterparty reads;
 //! - the **next stage's frontier** (`down`) — disputed subtrees exploded one
-//!   level, sent through a [`FAN`](super::FAN)-bounded channel;
+//!   level, sent through a [`FAN`]-bounded channel;
 //! - the **reconciled level at the frontier height** (`keep`) — nodes the
 //!   counterparty matched by silence, request-answer survivors, and absorbed
 //!   `providing`;
@@ -24,12 +24,12 @@
 //!   `Provide` verdicts from [`classify`].
 //!
 //! The two reconciled-level channels feed the stage's upward reassembly (see
-//! [`super`]); their [`FAN`](super::FAN) bound is what pins the whole session's
+//! [`super`]); their [`FAN`] bound is what pins the whole session's
 //! memory to a single parent's fan regardless of diff size.
 //!
 //! # Channel discipline
 //!
-//! Every channel send backpressures at [`FAN`](super::FAN) entries. A closed
+//! Every channel send backpressures at [`FAN`] entries. A closed
 //! channel means the consuming half of the session was dropped; the walk then
 //! ends its output stream rather than erroring, and the counterparty observes
 //! an ordinary end-of-stream.
@@ -50,7 +50,7 @@ use crate::tree::typed::{
     height::{self, Height, S, UnderRoot, UnderUnderRoot, Z},
 };
 
-use super::super::backend::{Backend, BoxNodeStream, Leaf, Material, Node, NodeStream, one};
+use super::super::backend::{Backend, BoxNodeStream, Keyed, Leaf, Material, Node, NodeStream, one};
 use super::super::message;
 use super::super::protocol::{Requests, Responses};
 use super::dispute::{Routed, classify};
@@ -61,7 +61,7 @@ use super::unknown::{Unknown, unknown};
 /// into a fresh [`FAN`]-bounded channel onto `work`, and return the
 /// receiving half.
 ///
-/// The receiving half is what the stage returns as its outgoing [`Messages`]:
+/// The receiving half is what the stage returns as its outgoing [`Responses`]:
 /// the counterparty reads a plain channel while the forwarding future advances
 /// the walk behind it. Forwarding ends when the wire ends or the counterparty
 /// drops the receiver (session teardown), and never fails: errors come with the
@@ -97,7 +97,7 @@ pub(super) fn respond<B, T>(
     backend: B,
     root: Option<B::Node<height::Root>>,
     requests: impl Requests<message::Initiate>,
-    down: Sender<(Prefix<UnderRoot>, B::Node<UnderRoot>)>,
+    down: Sender<Keyed<B, T, UnderRoot>>,
 ) -> impl Responses<message::Opening, B::Error>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
@@ -138,8 +138,8 @@ pub(super) fn open<B, T>(
     their_version: Version,
     root: Option<B::Node<height::Root>>,
     requests: impl Requests<message::Opening>,
-    down: Sender<(Prefix<UnderUnderRoot>, B::Node<UnderUnderRoot>)>,
-    level: Sender<(Prefix<UnderRoot>, B::Node<UnderRoot>)>,
+    down: Sender<Keyed<B, T, UnderUnderRoot>>,
+    level: Sender<Keyed<B, T, UnderRoot>>,
 ) -> impl Responses<message::Exchanged<B, T, UnderRoot>, B::Error>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
@@ -193,8 +193,8 @@ fn provide<B, T, H>(
     their_version: Version,
     prefix: Prefix<S<H>>,
     node: B::Node<S<H>>,
-    kept: Sender<(Prefix<S<H>>, B::Node<S<H>>)>,
-) -> impl Stream<Item = Result<(Prefix<H>, B::Node<H>), B::Error>> + Send
+    kept: Sender<Keyed<B, T, S<H>>>,
+) -> impl NodeStream<B, T, H>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
@@ -232,8 +232,8 @@ pub(super) fn route<B, T, H>(
     their_version: Version,
     ours: impl NodeStream<B, T, S<H>> + 'static,
     theirs: impl Stream<Item = Result<(Prefix<S<H>>, Hash), B::Error>> + Send + 'static,
-    down: Sender<(Prefix<H>, B::Node<H>)>,
-    level: Sender<(Prefix<S<H>>, B::Node<S<H>>)>,
+    down: Sender<Keyed<B, T, H>>,
+    level: Sender<Keyed<B, T, S<H>>>,
 ) -> impl Responses<message::Exchanged<B, T, S<H>>, B::Error>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
@@ -302,9 +302,9 @@ pub(super) fn walk<B, T, H>(
     their_version: Version,
     frontier: BoxNodeStream<B, T, S<S<H>>>,
     messages: impl Requests<message::Exchanged<B, T, S<S<H>>>>,
-    down: Sender<(Prefix<H>, B::Node<H>)>,
-    keep: Sender<(Prefix<S<S<H>>>, B::Node<S<S<H>>>)>,
-    level: Sender<(Prefix<S<H>>, B::Node<S<H>>)>,
+    down: Sender<Keyed<B, T, H>>,
+    keep: Sender<Keyed<B, T, S<S<H>>>>,
+    level: Sender<Keyed<B, T, S<H>>>,
 ) -> impl Responses<message::Exchanged<B, T, S<H>>, B::Error>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
@@ -416,7 +416,7 @@ pub(super) fn complete_walk<B, T>(
     their_version: Version,
     frontier: BoxNodeStream<B, T, S<Z>>,
     messages: impl Requests<(Prefix<S<Z>>, message::Closing<B, T>)>,
-    level: Sender<(Prefix<S<Z>>, B::Node<S<Z>>)>,
+    level: Sender<Keyed<B, T, S<Z>>>,
 ) -> impl Responses<(Prefix<Z>, message::Complete<B, T>), B::Error>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
@@ -485,7 +485,7 @@ where
 pub(super) async fn absorb_leaves<B, T>(
     frontier: BoxNodeStream<B, T, Z>,
     messages: impl Requests<(Prefix<Z>, message::Complete<B, T>)>,
-    leaves: Sender<(Prefix<Z>, B::Node<Z>)>,
+    leaves: Sender<Keyed<B, T, Z>>,
 ) -> Result<(), B::Error>
 where
     B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,

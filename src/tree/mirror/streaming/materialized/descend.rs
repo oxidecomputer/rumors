@@ -25,7 +25,7 @@ use crate::{
     },
 };
 
-use super::super::backend::{Backend, BoxNodeStream, Leaf, Material, Root};
+use super::super::backend::{Backend, BoxNodeStream, Keyed, Leaf, Material, Root};
 use super::super::convert::{Convert, converted};
 use super::super::message;
 use super::super::protocol::{self, OutputError, Requests, Responses};
@@ -45,7 +45,7 @@ where
     into: O,
     their_version: Version,
     frontier: BoxNodeStream<B, T, H>,
-    up: Sender<(Prefix<H>, B::Node<H>)>,
+    up: Sender<Keyed<B, T, H>>,
     work: Vec<BoxFuture<'static, Result<(), B::Error>>>,
     finish: BoxFuture<'static, Result<Root<B, T>, B::Error>>,
 }
@@ -63,8 +63,8 @@ where
         backend: B,
         into: O,
         their_version: Version,
-        frontier: Receiver<(Prefix<H>, B::Node<H>)>,
-        up: Sender<(Prefix<H>, B::Node<H>)>,
+        frontier: Receiver<Keyed<B, T, H>>,
+        up: Sender<Keyed<B, T, H>>,
         work: Vec<BoxFuture<'static, Result<(), B::Error>>>,
         finish: BoxFuture<'static, Result<Root<B, T>, B::Error>>,
     ) -> Self {
@@ -285,10 +285,10 @@ where
 /// it flows out through `up`, becoming the previous stage's `below`.
 fn ascend<B, T, H>(
     backend: B,
-    keep: Receiver<(Prefix<S<S<H>>>, B::Node<S<S<H>>>)>,
-    level: Receiver<(Prefix<S<H>>, B::Node<S<H>>)>,
-    below: Receiver<(Prefix<H>, B::Node<H>)>,
-    up: Sender<(Prefix<S<S<H>>>, B::Node<S<S<H>>>)>,
+    keep: Receiver<Keyed<B, T, S<S<H>>>>,
+    level: Receiver<Keyed<B, T, S<H>>>,
+    below: Receiver<Keyed<B, T, H>>,
+    up: Sender<Keyed<B, T, S<S<H>>>>,
 ) -> BoxFuture<'static, Result<(), B::Error>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,

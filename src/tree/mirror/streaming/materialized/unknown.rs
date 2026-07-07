@@ -18,7 +18,7 @@
 //! but an `impl Stream` return would nest each level's `async_stream` type
 //! inside the next; erasing to a trait object at each step keeps that type flat
 //! (and its `Send`-ness asserted rather than proven through the whole tower) —
-//! the same reason [`Local`](super::Local)'s own `children`/`parents` box. An
+//! the same reason [`Local`](super::super::Local)'s own `children`/`parents` box. An
 //! `impl Stream` return here makes the compiler's type balloon past any memory
 //! bound.
 

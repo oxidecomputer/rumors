@@ -165,7 +165,7 @@ where
 /// in: the walk runs entirely in the session's own backend `B` and errors in
 /// `B::Error`; the adapter [converts](Convertible) each message into `to`'s
 /// node types and lifts the walk's own errors into the first position of the
-/// producer-frame [`CombinedError`], where `to`'s reassembly failures occupy
+/// producer-frame [`Error`] sum, where `to`'s reassembly failures occupy
 /// the second.
 pub(super) fn converted<B, O, T, M>(
     from: B,

@@ -27,6 +27,8 @@ mod dispute;
 mod handshake;
 mod merge;
 mod reconcile;
-mod unknown;
+// `pub(super)` (not plain `mod`) so sibling modules' docs can link into it:
+// `backend::one` names `unknown::unknown` as the other consumer of its seeds.
+pub(super) mod unknown;
 
 pub use handshake::Handshaking;
