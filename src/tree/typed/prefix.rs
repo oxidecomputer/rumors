@@ -84,6 +84,18 @@ impl<H: Height> Prefix<H> {
         &self.hash
     }
 
+    /// The prefix naming the height-`H` subtree that contains `path`: its
+    /// first `32 - H::HEIGHT` bytes.
+    pub(crate) fn containing(path: &Path) -> Self {
+        Prefix {
+            height: PhantomData,
+            hash: <[u8; 32]>::from(*path)[..32 - H::HEIGHT]
+                .iter()
+                .copied()
+                .collect(),
+        }
+    }
+
     /// Pop one hash byte off the end of the prefix, yielding the byte and the
     /// remainder of the prefix.
     pub fn pop(mut self) -> (Prefix<S<H>>, u8)

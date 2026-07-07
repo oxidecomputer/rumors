@@ -13,6 +13,7 @@ mod convert;
 mod materialized;
 mod message;
 mod protocol;
+mod remote;
 
 pub use backend::{Backend, Immaterial, Leaf, Local, Material, Materiality, Node, Root};
 pub use materialized::Handshaking;
