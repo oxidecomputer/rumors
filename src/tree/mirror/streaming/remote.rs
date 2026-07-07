@@ -11,6 +11,28 @@
 //! reassembles incoming leaves into that party's node types ([`codec`]).
 
 mod codec;
+mod level;
+
+/// The stream tag of the node-carrying level keyed at `height`.
+///
+/// The schedule sends exactly one stream per height — `exchanged` at 31
+/// down to 2, `closing` at 1, `complete` at 0 — so a level's position in
+/// the schedule is a pure function of height, independent of which side
+/// the proxy plays: tags 2 through 33, with [`INITIATE`] and [`OPENING`]
+/// ahead of them and [`HANDSHAKE`] out of schedule entirely.
+pub(super) fn level(height: usize) -> u8 {
+    debug_assert!(height <= 31, "node-carrying levels sit under the root");
+    (33 - height) as u8
+}
+
+/// The initiator's root-hash level.
+pub(super) const INITIATE: u8 = 0;
+
+/// The responder's root-listing level.
+pub(super) const OPENING: u8 = 1;
+
+/// The out-of-schedule stream carrying the pre-session version exchange.
+pub(super) const HANDSHAKE: u8 = 255;
 
 /// A protocol violation observed on the wire.
 ///
@@ -36,6 +58,15 @@ pub enum Violation {
     /// A subtree carried no leaves at all.
     #[error("empty subtree")]
     EmptySubtree,
+
+    /// An item arrived that its level's message vocabulary cannot express
+    /// (or that interrupted a leaf run).
+    #[error("item foreign to its level")]
+    UnexpectedItem,
+
+    /// A level's message prefixes were not strictly ascending.
+    #[error("message prefixes not strictly ascending")]
+    MessageOrder,
 }
 
 /// The error of a remote session, generic over the local backend's error `E`.
@@ -48,8 +79,8 @@ pub enum Violation {
 /// materialized implementation's conversion faults do.)
 #[derive(Debug, thiserror::Error)]
 pub enum Error<E> {
-    /// An underlying reader/writer error, or a borsh framing error
-    /// encountered while parsing a frame off the wire.
+    /// An underlying transport error, or a borsh error encountered while
+    /// parsing items off a level's stream.
     #[error(transparent)]
     Io(std::io::Error),
 
@@ -70,5 +101,21 @@ pub enum Error<E> {
 impl<E> From<E> for Error<E> {
     fn from(backend: E) -> Self {
         Error::Backend(backend)
+    }
+}
+
+/// A wire-layer fault with no backend involvement: what the transport and
+/// the grammar alone can produce.
+pub(super) type WireError = Error<std::convert::Infallible>;
+
+impl WireError {
+    /// Re-tag a backend-free fault under any backend error type: a total,
+    /// lossless re-tag, since the backend arm is uninhabited here.
+    pub(super) fn widen<E>(self) -> Error<E> {
+        match self {
+            Error::Io(error) => Error::Io(error),
+            Error::Violation(violation) => Error::Violation(violation),
+            Error::Backend(never) => match never {},
+        }
     }
 }

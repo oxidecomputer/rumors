@@ -12,6 +12,19 @@ pub enum Error<C, S> {
 }
 
 impl<C, S> Error<C, S> {
+    /// Re-dress the client-position fault, leaving a server-position one
+    /// unchanged: how a layer lifts a first-position error into its own
+    /// vernacular without disturbing the second's.
+    pub(crate) fn map_client<F, D>(self, map: F) -> Error<D, S>
+    where
+        F: FnOnce(C) -> D,
+    {
+        match self {
+            Error::Client(client) => Error::Client(map(client)),
+            Error::Server(server) => Error::Server(server),
+        }
+    }
+
     /// The same fault, seen from the counterparty's frame.
     ///
     /// The drivers run the descent in initiator/responder order regardless of

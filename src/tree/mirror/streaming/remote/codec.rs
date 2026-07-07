@@ -2,7 +2,7 @@
 //! `(version, message)` pairs, their paths derived on receipt.
 //!
 //! A `providing` subtree never crosses the wire whole: it streams as
-//! bounded per-leaf items, so the driver can interleave other levels'
+//! bounded per-leaf items, so the transport can interleave other levels'
 //! traffic between them and neither side ever materializes a wire-form
 //! subtree. The encoder explodes the node to its leaf stream through the
 //! sending party's backend ([`Convert::explode`]); the decoder reassembles
@@ -51,7 +51,7 @@ use crate::tree::typed::{Path, Prefix, height::Z};
 
 use super::super::backend::{Backend, Keyed, Leaf, one};
 use super::super::convert::Convert;
-use super::Violation;
+use super::{Violation, WireError};
 
 /// Encode the subtree at `prefix` as its leaf run: each leaf's
 /// `(version, message)` pair, in ascending path order.
@@ -84,15 +84,19 @@ where
 ///
 /// [`decode`] pulls through this, letting a level adapter lend out its own
 /// incoming stream without handing over ownership. `None` is the run's
-/// end-of-subtree terminator; a source whose underlying stream dies
-/// mid-run reports [`Violation::Truncated`] itself rather than fabricating
-/// an end.
+/// end-of-subtree terminator; a source whose underlying stream dies or
+/// fins mid-run reports the fault itself ([`Violation::Truncated`], or the
+/// transport's own error) rather than fabricating an end.
 pub(in super::super) trait Leaves<T>: Send {
     /// Pull the run's next leaf, or `None` at the run's end.
     fn next(
         &mut self,
-    ) -> impl Future<Output = Result<Option<(Version, Message<T>)>, Violation>> + Send;
+    ) -> impl Future<Output = Result<Option<(Version, Message<T>)>, WireError>> + Send;
 }
+
+/// What decoding a run yields when it fails: wire faults first (in the
+/// producer's frame), the reassembling backend's own faults second.
+pub(in super::super) type DecodeError<E> = Error<WireError, E>;
 
 /// Decode one leaf run from `leaves`, reassembling the subtree through
 /// `backend` and deriving where it belongs.
@@ -103,8 +107,8 @@ pub(in super::super) trait Leaves<T>: Send {
 /// placement, the leaves prove it. Feeding runs concurrently with
 /// [`Convert::assemble`] through a [`FAN`]-bounded channel, as
 /// [`convert`](super::super::convert) does when crossing backends. Wire
-/// faults ([`Violation`]) return in the first position, the reassembling
-/// backend's own faults in the second.
+/// faults ([`WireError`]: the transport's and the grammar's) return in the
+/// first position, the reassembling backend's own faults in the second.
 ///
 /// Everything reaching the backend is validated first: strictly ascending
 /// derived paths (the [`assemble`](Convert::assemble) contract), every leaf
@@ -114,7 +118,7 @@ pub(in super::super) trait Leaves<T>: Send {
 pub(in super::super) async fn decode<B, T, H>(
     backend: &B,
     leaves: &mut impl Leaves<T>,
-) -> Result<(Prefix<H>, B::Node<H>), Error<Violation, B::Error>>
+) -> Result<(Prefix<H>, B::Node<H>), DecodeError<B::Error>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
@@ -136,10 +140,10 @@ where
                 None => derived = Some((Prefix::containing(&path), bytes)),
                 Some((prefix, last)) => {
                     if prefix.as_bytes() != &bytes[..32 - H::HEIGHT] {
-                        return Err(Violation::Misplaced);
+                        return Err(WireError::Violation(Violation::Misplaced));
                     }
                     if *last >= bytes {
-                        return Err(Violation::LeafOrder);
+                        return Err(WireError::Violation(Violation::LeafOrder));
                     }
                     *last = bytes;
                 }
@@ -157,7 +161,7 @@ where
         }
         match derived {
             Some((prefix, _last)) => Ok(prefix),
-            None => Err(Violation::EmptySubtree),
+            None => Err(WireError::Violation(Violation::EmptySubtree)),
         }
     };
 

@@ -9,10 +9,10 @@ use crate::message::Message;
 use crate::tree::arb::arb_tree_root;
 use crate::tree::mirror::Error;
 use crate::tree::mirror::streaming::Local;
-use crate::tree::mirror::streaming::remote::Violation;
+use crate::tree::mirror::streaming::remote::{Violation, WireError};
 use crate::tree::typed::{Node, Path, Prefix, height};
 
-use super::{Leaves, decode, encode};
+use super::{DecodeError, Leaves, decode, encode};
 
 /// A scripted leaf source: a queue of leaves, ending cleanly (the run's
 /// terminator) or by truncation.
@@ -22,11 +22,11 @@ struct Feed {
 }
 
 impl Leaves<()> for Feed {
-    async fn next(&mut self) -> Result<Option<(Version, Message<()>)>, Violation> {
+    async fn next(&mut self) -> Result<Option<(Version, Message<()>)>, WireError> {
         match self.leaves.pop_front() {
             Some(leaf) => Ok(Some(leaf)),
             None if self.terminated => Ok(None),
-            None => Err(Violation::Truncated),
+            None => Err(WireError::Violation(Violation::Truncated)),
         }
     }
 }
@@ -41,9 +41,9 @@ fn run(node: &Node<(), height::Root>) -> VecDeque<(Version, Message<()>)> {
     )
 }
 
-/// What decoding through `Local` yields: the placed node, or the violation
-/// or (uninhabited) backend fault that stopped it.
-type Decoded<H> = Result<(Prefix<H>, Node<(), H>), Error<Violation, Infallible>>;
+/// What decoding through `Local` yields: the placed node, or the wire
+/// fault or (uninhabited) backend fault that stopped it.
+type Decoded<H> = Result<(Prefix<H>, Node<(), H>), DecodeError<Infallible>>;
 
 /// Decode one subtree at height `H` from `feed` through `Local`.
 fn decoded<H: super::Convert>(feed: &mut Feed) -> Decoded<H> {
@@ -51,9 +51,10 @@ fn decoded<H: super::Convert>(feed: &mut Feed) -> Decoded<H> {
 }
 
 /// Project a decode failure onto the wire violation it must be.
-fn violation(error: Error<Violation, Infallible>) -> Violation {
+fn violation(error: DecodeError<Infallible>) -> Violation {
     match error {
-        Error::Client(violation) => violation,
+        Error::Client(WireError::Violation(violation)) => violation,
+        Error::Client(other) => panic!("expected a violation, got {other:?}"),
         Error::Server(never) => match never {},
     }
 }
