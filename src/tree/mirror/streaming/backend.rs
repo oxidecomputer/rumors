@@ -18,17 +18,24 @@ pub use local::Local;
 /// A backend value is a cheap cloneable *handle* to its storage.
 ///
 /// A backend must know how to assemble and disassemble its own node types in a
-/// prefix-ordered streaming fashion. These operations are pure re-chunking of
-/// keys: nothing here requires nodes to carry hashes or version bounds, which
-/// is what lets a remote party, whose intermediate "nodes" are framed leaf
-/// sequences, implement `Backend` at [`Materialized`](Self::Materialized) `=
-/// `[`Immaterial`].
+/// prefix-ordered streaming fashion. Those two operations are pure re-chunking
+/// of keys — no leaf is added, dropped, or reordered by either — and together
+/// with [`Node`]'s hashes and version bounds they are everything a session's
+/// walks ask of storage.
+///
+/// A backend is also the whole vocabulary of a session: both parties name one,
+/// and its [`Node`](Self::Node) types are what cross the wire, because a
+/// received node is fed directly into the receiver's own
+/// [`parents`](Self::parents) reassembly. A party that owns no tree — the
+/// [`remote`](super::remote) proxy — therefore defines no backend, but is
+/// parameterized by its counterparty's; two parties whose trees live in
+/// *different* backends pair by wrapping one of them in a
+/// [`Converted`](super::Converted) party.
 pub trait Backend<T>: Clone + Send + Sync + 'static {
     /// The type of nodes carrying messages of type `T`, indexed by height `H`.
     ///
-    /// The [`Node`] bound dispatches through
-    /// [`Materialized`](Self::Materialized), so it holds at every height for
-    /// material and immaterial backends alike.
+    /// The [`Node`] bound holds at every height: a branch and a leaf alike
+    /// answer for their hash and their version bounds.
     type Node<H: Height>: Node + Clone + Send + 'static;
 
     /// The type of errors returned by this backend.
@@ -57,13 +64,12 @@ pub trait Backend<T>: Clone + Send + Sync + 'static {
         S<H>: Height;
 }
 
-/// The inspection operations of a backend's individual node type, dispatched
-/// by materiality.
+/// The inspection operations of a backend's individual node type.
 ///
-/// The default `M = Material` is the interesting instantiation: real version
-/// bounds and hashes, which is what the session's walks require. An
-/// [`Immaterial`] impl is three unit returns; it exists so the [`Backend`] GAT
-/// bound holds uniformly at every height while promising nothing.
+/// These three are what every verdict in a session is routed on: the hashes
+/// decide whether a subtree matches, is disputed, or is held by one side
+/// alone, and the version bounds are what honor the counterparty's deletions
+/// without a tombstone to read.
 pub trait Node {
     /// The maximum version of any node under this one.
     fn ceiling(&self) -> &Version;
@@ -82,8 +88,9 @@ pub trait Leaf<T> {
     ///
     /// # Contract
     ///
-    /// For a [`Material`] backend's leaf this must equal [`Node::ceiling`] and
-    /// [`Node::floor`]: a leaf's ceiling and floor *are* its version.
+    /// This must equal both [`Node::ceiling`] and [`Node::floor`]: a leaf's
+    /// ceiling and floor *are* its version. A backend that disagrees will see
+    /// its own leaves pruned as already-known, or never pruned at all.
     fn version(&self) -> &Version;
 
     /// The message stored at this leaf node.

@@ -88,9 +88,11 @@ fn streaming_mirror_with_timeout(a: Root<()>, b: Root<()>) -> Root<()> {
 }
 
 /// Build a divergent pair whose every difference is one-sided, shaped by
-/// `spec`: for each `(radix, shared, extra)` root child, both trees hold
-/// `shared` identical leaves under it and `b` additionally holds `extra`
-/// concurrent ones.
+/// `spec`.
+///
+/// For each `(radix, shared, extra)` root child, both trees hold `shared`
+/// identical leaves under it and `b` additionally holds `extra` concurrent
+/// ones.
 ///
 /// Leaves are placed at hand-picked paths (first byte the root radix, second
 /// byte a counter), not content-addressed ones: the reconciliation machinery
