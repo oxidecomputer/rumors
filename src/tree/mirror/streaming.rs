@@ -81,6 +81,11 @@ where
 /// the first diverted fault, and resolves both terminals into the session's
 /// `Result`, early-returning the fault if the slot fires, so it must expand in
 /// tail position of a function with the session's return type.
+///
+/// Which party holds the last stage depends on the parity of the schedule, so
+/// `parties` carries the two party identifiers down the recursion: the terminal
+/// binds each result back to its own party's name, and the expansion yields
+/// them in the order the caller wrote them rather than the order they finish.
 macro_rules! mirror {
     (@one $a:ident >> $b:ident.$m:ident) => {
         let ((msgs, state), (tx, wrap)) = $a;
@@ -88,29 +93,30 @@ macro_rules! mirror {
         let $a = (state, (tx, wrap));
         let $b = ($b.0.$m(msgs), $b.1);
     };
-    (@pending($a:ident) $b:ident.$m:ident;) => {{
+    (@pending($a:ident) parties($p:ident, $q:ident) $b:ident.$m:ident;) => {{
         let ((msgs, state), (tx, wrap)) = $a;
         let msgs = divert(msgs, tx, wrap);
-        join!($b.0.$m(msgs), state)
+        let ($b, $a) = join!($b.0.$m(msgs), state);
+        ($p, $q)
     }};
-    (@pending($a:ident) for _ in $lo:tt..$hi:tt { $($body:tt)* } $($rest:tt)*) => {{
+    (@pending($a:ident) parties($p:ident, $q:ident) for _ in $lo:tt..$hi:tt { $($body:tt)* } $($rest:tt)*) => {{
         seq!(_ in $lo..$hi {
             mirror!(@step($a) $($body)*);
         });
-        mirror!(@pending($a) $($rest)*)
+        mirror!(@pending($a) parties($p, $q) $($rest)*)
     }};
-    (@pending($a:ident) $b:ident.$m:ident; $($rest:tt)*) => {{
+    (@pending($a:ident) parties($p:ident, $q:ident) $b:ident.$m:ident; $($rest:tt)*) => {{
         mirror!(@one $a >> $b.$m);
-        mirror!(@pending($b) $($rest)*)
+        mirror!(@pending($b) parties($p, $q) $($rest)*)
     }};
     (@step($a:ident) $b:ident.$m:ident; $($rest:tt)*) => {
         mirror!(@one $a >> $b.$m);
         mirror!(@step($b) $($rest)*);
     };
     (@step($a:ident)) => {};
-    (@run $a:ident.$m:ident; $($rest:tt)*) => {{
+    (@run parties($p:ident, $q:ident) $a:ident.$m:ident; $($rest:tt)*) => {{
         let $a = ($a.0.$m(), $a.1);
-        mirror!(@pending($a) $($rest)*)
+        mirror!(@pending($a) parties($p, $q) $($rest)*)
     }};
     ($a:ident.$m:ident; $b:ident.$n:ident; $($rest:tt)*) => {{
         let (errors, mut first_error) = mpsc::channel(1);
@@ -118,7 +124,7 @@ macro_rules! mirror {
         // crosses, so the two variant constructors are the whole mapping.
         let $a = ($a, (errors.clone(), Error::Client));
         let $b = ($b, (errors, Error::Server));
-        let session = async { mirror!(@run $a.$m; $b.$n; $($rest)*) };
+        let session = async { mirror!(@run parties($a, $b) $a.$m; $b.$n; $($rest)*) };
         let (client, server) = tokio::select! {
             results = session => results,
             Some(error) = first_error.recv() => return Err(error),
@@ -153,16 +159,15 @@ where
 {
     mirror! {
         i.initiator;
-        r.responder;
-        i.open_initiator;
+        r.open_responder;
         for _ in 0..14 {
-            r.exchange;
             i.exchange;
+            r.exchange;
         }
-        r.exchange;
-        i.close_initiator;
-        r.complete_responder;
+        i.exchange;
+        r.close_responder;
         i.complete_initiator;
+        r.complete_responder;
     }
 }
 

@@ -85,17 +85,17 @@ where
     rx
 }
 
-/// The responder's opening walk: explode the root one level and list every
+/// The initiator's opening walk: explode the root one level and list every
 /// child on the wire while feeding the subtrees to `down` as the first
 /// frontier.
 ///
-/// The listing is unconditional, regardless of the initiator's root hash:
-/// the root hashes always differ here, because they can only match when the
-/// versions match — and that already short-circuited the session.
-pub(super) fn respond<B, T>(
+/// Nothing precedes this on the wire, and the listing is unconditional: the
+/// two roots' hashes always differ here, because they can only match when the
+/// versions match — and that already short-circuited the session. So there is
+/// no root hash worth exchanging first, and nothing to wait for.
+pub(super) fn initiate<B, T>(
     backend: B,
     root: Option<B::Node<height::Root>>,
-    requests: impl Requests<message::Initiate>,
     down: Sender<Keyed<B, T, UnderRoot>>,
 ) -> impl Responses<message::Opening, B::Error>
 where
@@ -103,10 +103,6 @@ where
     T: Send + Sync + 'static,
 {
     try_stream! {
-        // The initiate's content is not used (we explode unconditionally),
-        // but draining it first keeps the schedule's pacing: we answer only
-        // once the initiator has spoken.
-        for await _item in requests {}
         if let Some(node) = root {
             let mut children = pin!(backend.clone().children(one(Prefix::new(), node)));
             let mut listing = Vec::new();
@@ -123,16 +119,16 @@ where
     }
 }
 
-/// The initiator's opening walk: the one asymmetric-root round.
+/// The responder's opening walk: the one asymmetric-root round.
 ///
-/// The responder listed its root's children unconditionally, so silence
-/// about a child means the responder *lacks* it (everywhere below the root,
+/// The initiator listed its root's children unconditionally, so silence
+/// about a child means the initiator *lacks* it (everywhere below the root,
 /// silence means the hash matched). Feeding the whole opening level into one
 /// [`route`] realizes exactly that: children only we hold come out as
-/// `Provide` (deletion-pruned), children only the responder holds as
+/// `Provide` (deletion-pruned), children only the initiator holds as
 /// `Request`, and an empty side degenerates to all-`Provide` or
 /// all-`Request` with no special casing.
-pub(super) fn open<B, T>(
+pub(super) fn respond<B, T>(
     backend: B,
     their_version: Version,
     root: Option<B::Node<height::Root>>,
@@ -145,8 +141,8 @@ where
     T: Send + Sync + 'static,
 {
     try_stream! {
-        // The responder's opening listing: at most one message, and an empty
-        // responder sends none. The parent is statically the root.
+        // The initiator's opening listing: at most one message, and an empty
+        // initiator sends none. The parent is statically the root.
         let mut theirs = Vec::new();
         for await item in requests {
             let message::Opening::Uncertain(children) = item;
@@ -167,7 +163,7 @@ where
                 }
             }
             None => {
-                // We are empty: request everything the responder listed.
+                // We are empty: request everything the initiator listed.
                 for (prefix, _hash) in theirs {
                     yield (prefix, message::Exchange::Requested);
                 }
@@ -223,7 +219,7 @@ where
 /// `down` as the next stage's frontier.
 ///
 /// Shared by [`walk`]'s dispute arm and the opening round
-/// ([`open_initiator`](super::super::protocol::OpenInitiator)). A closed
+/// ([`open_responder`](super::super::protocol::OpenResponder)). A closed
 /// channel ends the stream early: callers observe the teardown on their own
 /// next send, or by checking the senders they kept.
 pub(super) fn route<B, T, H>(
@@ -293,7 +289,7 @@ where
 /// the frontier height; `level` receives reconciled children one level below.
 ///
 /// [`protocol::Exchange`](super::super::protocol::Exchange) stages return the
-/// output as-is; [`close_initiator`](super::super::protocol::CloseInitiator)
+/// output as-is; [`close_responder`](super::super::protocol::CloseResponder)
 /// filters it down to [`message::Closing`], dropping `Uncertain` (vacuous at
 /// leaf height, exactly as the alternating `Closing` does).
 pub(super) fn walk<B, T, H>(
@@ -402,8 +398,8 @@ where
     }
 }
 
-/// The responder's terminal walk: our frontier at `S<Z>` against the
-/// initiator's [`message::Closing`], producing the final
+/// The initiator's terminal walk: our frontier at `S<Z>` against the
+/// responder's [`message::Closing`], producing the final
 /// [`message::Complete`] wire items.
 ///
 /// A `Closing` carries no `uncertain` (vacuous at leaf height), so this is
@@ -473,13 +469,13 @@ where
     }
 }
 
-/// The initiator's terminal absorb: merge our kept disputed leaves with the
-/// responder's final `providing` into the reconciled leaf level.
+/// The responder's terminal absorb: merge our kept disputed leaves with the
+/// initiator's final `providing` into the reconciled leaf level.
 ///
 /// The two sets are disjoint: our frontier holds leaves under parents *we*
-/// disputed, while the responder provides only leaves under parents we
+/// disputed, while the initiator provides only leaves under parents we
 /// requested (and so lack entirely). See
-/// [`complete_initiator`](super::super::protocol::CompleteInitiator), which
+/// [`complete_responder`](super::super::protocol::CompleteResponder), which
 /// drives this concurrently with the session's accumulated work.
 pub(super) async fn absorb_leaves<B, T>(
     frontier: BoxNodeStream<B, T, Z>,

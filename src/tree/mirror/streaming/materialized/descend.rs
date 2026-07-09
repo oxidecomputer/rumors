@@ -157,14 +157,14 @@ where
     }
 }
 
-impl<B, T> protocol::CloseInitiator<B, T> for Descending<B, T, S<S<Z>>>
+impl<B, T> protocol::CloseResponder<B, T> for Descending<B, T, S<S<Z>>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
     type Next = Descending<B, T, Z>;
 
-    fn close_initiator(
+    fn close_responder(
         self,
         requests: impl Requests<message::Exchanged<B, T, S<S<Z>>>>,
     ) -> (
@@ -192,12 +192,12 @@ where
     }
 }
 
-impl<B, T> protocol::CompleteResponder<B, T> for Descending<B, T, S<Z>>
+impl<B, T> protocol::CompleteInitiator<B, T> for Descending<B, T, S<Z>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    fn complete_responder(
+    fn complete_initiator(
         self,
         requests: impl Requests<(Prefix<S<Z>>, message::Closing<B, T>)>,
     ) -> (
@@ -219,12 +219,12 @@ where
     }
 }
 
-impl<B, T> protocol::CompleteInitiator<B, T> for Descending<B, T, Z>
+impl<B, T> protocol::CompleteResponder<B, T> for Descending<B, T, Z>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    async fn complete_initiator(
+    async fn complete_responder(
         self,
         requests: impl Requests<(Prefix<Z>, message::Complete<B, T>)>,
     ) -> Result<Root<B, T>, Self::Error> {

@@ -60,7 +60,7 @@ pub trait Connect<I: Backend<T>, T: Send + Sync>: Protocol<Height = Root> + Size
 
 pub trait Accept<I: Backend<T>, T: Send + Sync>: Protocol<Height = Root> + Sized {
     type Next: Initiator<I, T>
-        + Responder<I, T>
+        + OpenResponder<I, T>
         + Protocol<Height = Root, Output = Self::Output, Error = Self::Error>;
 
     fn accept(
@@ -71,7 +71,7 @@ pub trait Accept<I: Backend<T>, T: Send + Sync>: Protocol<Height = Root> + Sized
 
 pub trait CompleteConnect<I: Backend<T>, T: Send + Sync>: Protocol<Height = Root> + Sized {
     type Next: Initiator<I, T>
-        + Responder<I, T>
+        + OpenResponder<I, T>
         + Protocol<Height = Root, Output = Self::Output, Error = Self::Error>;
 
     fn complete_connect(
@@ -80,26 +80,29 @@ pub trait CompleteConnect<I: Backend<T>, T: Send + Sync>: Protocol<Height = Root
     ) -> impl Future<Output = Result<Self::Next, Self::Error>> + Send;
 }
 
+/// The opening burst: the initiator speaks first, and unprompted.
+///
+/// Nothing precedes this stage on the wire. A root hash would be the natural
+/// thing to send, and it is exactly what the session never needs: two roots
+/// hash equal only when their versions are equal, and equal versions
+/// short-circuit the session before it reaches the protocol at all. So the
+/// initiator skips straight to its root's children.
 pub trait Initiator<I: Backend<T>, T: Send + Sync>: Protocol<Height = Root> + Sized {
-    type Next: Protocol<Height = Root, Output = Self::Output, Error = Self::Error>;
-
-    fn initiator(self) -> (impl Responses<message::Initiate, Self::Error>, Self::Next);
-}
-
-pub trait Responder<I: Backend<T>, T: Send + Sync>: Protocol<Height = Root> + Sized {
     type Next: Protocol<Height = UnderRoot, Output = Self::Output, Error = Self::Error>;
 
-    fn responder(
-        self,
-        requests: impl Requests<message::Initiate>,
-    ) -> (impl Responses<message::Opening, Self::Error>, Self::Next);
+    fn initiator(self) -> (impl Responses<message::Opening, Self::Error>, Self::Next);
 }
 
-pub trait OpenInitiator<I: Backend<T>, T: Send + Sync>: Protocol<Height = Root> + Sized {
-    type Next: Exchange<I, T>
-        + Protocol<Height = UnderUnderRoot, Output = Self::Output, Error = Self::Error>;
+pub trait OpenResponder<I: Backend<T>, T: Send + Sync>: Protocol<Height = Root> + Sized {
+    // Like [`Initiator::Next`], this is left un-bounded by [`Exchange`]: both
+    // openings hand off to the descent, but only [`Peer`] spells the chain out.
+    // Naming `Exchange` here instead would make it a bound `Accept::Next` and
+    // `CompleteConnect::Next` must discharge, which no generic wrapper — see
+    // [`Converted`](super::convert::Converted) — can do without the concrete
+    // height.
+    type Next: Protocol<Height = UnderUnderRoot, Output = Self::Output, Error = Self::Error>;
 
-    fn open_initiator(
+    fn open_responder(
         self,
         requests: impl Requests<message::Opening>,
     ) -> (
@@ -133,13 +136,13 @@ where
     );
 }
 
-pub trait CloseInitiator<I: Backend<T>, T: Send + Sync>:
+pub trait CloseResponder<I: Backend<T>, T: Send + Sync>:
     Protocol<Height = S<S<Z>>> + Sized
 {
-    type Next: CompleteInitiator<I, T>
+    type Next: CompleteResponder<I, T>
         + Protocol<Height = Z, Output = Self::Output, Error = Self::Error>;
 
-    fn close_initiator(
+    fn close_responder(
         self,
         requests: impl Requests<message::Exchanged<I, T, S<S<Z>>>>,
     ) -> (
@@ -150,10 +153,10 @@ pub trait CloseInitiator<I: Backend<T>, T: Send + Sync>:
     );
 }
 
-pub trait CompleteResponder<I: Backend<T>, T: Send + Sync>:
+pub trait CompleteInitiator<I: Backend<T>, T: Send + Sync>:
     Protocol<Height = S<Z>> + Sized
 {
-    fn complete_responder(
+    fn complete_initiator(
         self,
         requests: impl Requests<(Prefix<S<Z>>, message::Closing<I, T>)>,
     ) -> (
@@ -162,8 +165,8 @@ pub trait CompleteResponder<I: Backend<T>, T: Send + Sync>:
     );
 }
 
-pub trait CompleteInitiator<I: Backend<T>, T: Send + Sync>: Protocol<Height = Z> + Sized {
-    fn complete_initiator(
+pub trait CompleteResponder<I: Backend<T>, T: Send + Sync>: Protocol<Height = Z> + Sized {
+    fn complete_responder(
         self,
         requests: impl Requests<(Prefix<Z>, message::Complete<I, T>)>,
     ) -> impl Future<Output = Result<Self::Output, Self::Error>> + Send;
@@ -171,8 +174,8 @@ pub trait CompleteInitiator<I: Backend<T>, T: Send + Sync>: Protocol<Height = Z>
 
 /// Blanket marker trait keyed by the height `H` just produced by an exchange:
 ///
-/// - `H = S<Z>`: must impl [`CompleteResponder`].
-/// - `H = S<S<Z>>`: must impl [`CloseInitiator`].
+/// - `H = S<Z>`: must impl [`CompleteInitiator`].
+/// - `H = S<S<Z>>`: must impl [`CloseResponder`].
 /// - `H = S<S<S<_>>>`: must impl [`Exchange`] at two heights finer.
 ///
 /// Heights `S<Z>` and `S<S<Z>>` are handled via the blanket impls below,
@@ -182,9 +185,9 @@ pub trait CompleteInitiator<I: Backend<T>, T: Send + Sync>: Protocol<Height = Z>
 /// uncertain map would be vacuous), so there is no `AfterExchange<Z>` impl.
 pub trait AfterExchange<I: Backend<T>, T: Send + Sync, H: Height>: Sized {}
 
-impl<T: Send + Sync, I: Backend<T>, X: CompleteResponder<I, T>> AfterExchange<I, T, S<Z>> for X {}
+impl<T: Send + Sync, I: Backend<T>, X: CompleteInitiator<I, T>> AfterExchange<I, T, S<Z>> for X {}
 
-impl<T: Send + Sync, I: Backend<T>, X: CloseInitiator<I, T>> AfterExchange<I, T, S<S<Z>>> for X {}
+impl<T: Send + Sync, I: Backend<T>, X: CloseResponder<I, T>> AfterExchange<I, T, S<S<Z>>> for X {}
 
 impl<T, I, H, X> AfterExchange<I, T, S<S<S<H>>>> for X
 where

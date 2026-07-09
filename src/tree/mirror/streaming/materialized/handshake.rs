@@ -1,15 +1,15 @@
 //! The root-height stages: version exchange, then the asymmetric opening.
 //!
 //! [`Handshaking`] holds the whole tree intact while the parties trade
-//! versions; the [`responder`](protocol::Responder::responder) and
-//! [`open_initiator`](protocol::OpenInitiator::open_initiator) steps then
+//! versions; the [`initiator`](protocol::Initiator::initiator) and
+//! [`open_responder`](protocol::OpenResponder::open_responder) steps then
 //! disassemble it into streams, handing off to a [`Descending`] stage. The
 //! opening walks themselves live in [`reconcile`].
 
 use std::pin::pin;
 
 use futures::future::BoxFuture;
-use futures::stream::{self, StreamExt};
+use futures::stream::StreamExt;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -20,7 +20,7 @@ use crate::{
     tree::typed::height::{self, UnderRoot, UnderUnderRoot, Z},
 };
 
-use super::super::backend::{Backend, Leaf, Node, Root};
+use super::super::backend::{Backend, Leaf, Root};
 use super::super::message;
 use super::super::protocol::{self, Requests, Responses};
 use super::descend::Descending;
@@ -52,8 +52,8 @@ pub struct Connected {
 /// `V` is the version state ([`Start`] → [`Connecting`] → [`Connected`]). The
 /// whole tree is held intact as `root` until reconciliation begins at
 /// [`initiator`](protocol::Initiator::initiator) /
-/// [`responder`](protocol::Responder::responder). The session's outgoing
-/// messages carry `backend`'s own node types, which are the ones its
+/// [`open_responder`](protocol::OpenResponder::open_responder). The session's
+/// outgoing messages carry `backend`'s own node types, which are the ones its
 /// counterparty reads.
 pub struct Handshaking<B, T, V>
 where
@@ -162,28 +162,10 @@ where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    type Next = Self;
-
-    fn initiator(self) -> (impl Responses<message::Initiate, Self::Error>, Self::Next) {
-        let initiate = self
-            .root
-            .root
-            .as_ref()
-            .map(|node| Ok(message::Initiate::Uncertain(node.hash())));
-        (stream::iter(initiate), self)
-    }
-}
-
-impl<B, T> protocol::Responder<B, T> for Handshaking<B, T, Connected>
-where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
-{
     type Next = Descending<B, T, UnderRoot>;
 
-    fn responder(
+    fn initiator(
         self,
-        requests: impl Requests<message::Initiate>,
     ) -> (
         impl Responses<message::Opening, Self::Error> + 'static,
         Self::Next,
@@ -196,9 +178,9 @@ where
         let (down_tx, down_rx) = mpsc::channel(FAN);
         let (up_tx, up_rx) = mpsc::channel(FAN);
 
-        let listing = reconcile::respond(backend.clone(), root.root, requests, down_tx);
+        let listing = reconcile::initiate(backend.clone(), root.root, down_tx);
 
-        // The responder's reconciled root-child level arrives on `up` whole:
+        // The initiator's reconciled root-child level arrives on `up` whole:
         // one fold reassembles the root the terminal resolves to.
         let ceiling = versions.our_version | versions.their_version.clone();
         let top = backend
@@ -220,14 +202,14 @@ where
     }
 }
 
-impl<B, T> protocol::OpenInitiator<B, T> for Handshaking<B, T, Connected>
+impl<B, T> protocol::OpenResponder<B, T> for Handshaking<B, T, Connected>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
     type Next = Descending<B, T, UnderUnderRoot>;
 
-    fn open_initiator(
+    fn open_responder(
         self,
         requests: impl Requests<message::Opening>,
     ) -> (
@@ -243,7 +225,7 @@ where
         let (level_tx, level_rx) = mpsc::channel(FAN);
         let (up_tx, up_rx) = mpsc::channel(FAN);
 
-        let opening = reconcile::open(
+        let opening = reconcile::respond(
             backend.clone(),
             versions.their_version.clone(),
             root.root,
@@ -252,7 +234,7 @@ where
             level_tx,
         );
 
-        // The initiator's root-child level is the opening's verdicts
+        // The responder's root-child level is the opening's verdicts
         // (`level`) joined with the resolved disputes climbing out of the
         // descent (`up`); two folds reassemble the root the terminal
         // resolves to.

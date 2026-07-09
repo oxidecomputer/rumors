@@ -196,19 +196,6 @@ where
     }
 }
 
-impl<B, O, T> Convertible<B, O, T> for message::Initiate
-where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    O: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
-{
-    type Converted = message::Initiate;
-
-    async fn convert(self, _from: &B, _to: &O) -> Result<Self, Error<B::Error, O::Error>> {
-        Ok(self)
-    }
-}
-
 impl<B, O, T> Convertible<B, O, T> for message::Opening
 where
     B: Backend<T, Node<Z>: Leaf<T>>,

@@ -21,7 +21,7 @@
 //! incoming stream, and the stage's own outgoing stream — racing the slot —
 //! surfaces the fault as an ordinary outgoing error, where the driver's
 //! `divert` picks it up and abandons the session. The terminal stage
-//! ([`CompleteInitiator`](protocol::CompleteInitiator)), which has no outgoing
+//! ([`CompleteResponder`](protocol::CompleteResponder)), which has no outgoing
 //! stream, races the slot against its output future instead.
 //!
 //! Parking rather than ending matters for the same reason it does in the
@@ -258,8 +258,8 @@ where
     }
 }
 
-// The opening stages: `Initiate` is a bare root hash and `Opening` a listing of
-// hashes, so the first node to cross is the initiator's opening reaction.
+// The opening stages: `Opening` is a listing of hashes, so the first node to
+// cross is the responder's opening reaction.
 
 impl<P, A, B, T> protocol::Initiator<B, T> for Converted<P, A, B, T>
 where
@@ -271,36 +271,11 @@ where
 {
     type Next = Converted<P::Next, A, B, T>;
 
-    fn initiator(self) -> (impl Responses<message::Initiate, Self::Error>, Self::Next) {
+    fn initiator(self) -> (impl Responses<message::Opening, Self::Error>, Self::Next) {
         let Converted {
             party, from, to, ..
         } = self;
-        let (initiate, party) = party.initiator();
-        (
-            initiate.map(|item| item.map_err(Error::Client)),
-            Converted::new(party, from, to),
-        )
-    }
-}
-
-impl<P, A, B, T> protocol::Responder<B, T> for Converted<P, A, B, T>
-where
-    P: protocol::Responder<A, T> + protocol::Protocol<Error = A::Error>,
-    P::Next: protocol::Protocol<Error = A::Error>,
-    A: Backend<T, Node<Z>: Leaf<T>>,
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
-{
-    type Next = Converted<P::Next, A, B, T>;
-
-    fn responder(
-        self,
-        requests: impl Requests<message::Initiate>,
-    ) -> (impl Responses<message::Opening, Self::Error>, Self::Next) {
-        let Converted {
-            party, from, to, ..
-        } = self;
-        let (opening, party) = party.responder(requests);
+        let (opening, party) = party.initiator();
         (
             opening.map(|item| item.map_err(Error::Client)),
             Converted::new(party, from, to),
@@ -308,19 +283,19 @@ where
     }
 }
 
-impl<P, A, B, T> protocol::OpenInitiator<B, T> for Converted<P, A, B, T>
+impl<P, A, B, T> protocol::OpenResponder<B, T> for Converted<P, A, B, T>
 where
-    P: protocol::OpenInitiator<A, T> + protocol::Protocol<Error = A::Error>,
+    P: protocol::OpenResponder<A, T> + protocol::Protocol<Error = A::Error>,
     P::Next: protocol::Protocol<Error = A::Error>,
     A: Backend<T, Node<Z>: Leaf<T>>,
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
-    Converted<P::Next, A, B, T>: protocol::Exchange<B, T>
-        + protocol::Protocol<Height = UnderUnderRoot, Output = P::Output, Error = Fault<A, B, T>>,
+    Converted<P::Next, A, B, T>:
+        protocol::Protocol<Height = UnderUnderRoot, Output = P::Output, Error = Fault<A, B, T>>,
 {
     type Next = Converted<P::Next, A, B, T>;
 
-    fn open_initiator(
+    fn open_responder(
         self,
         requests: impl Requests<message::Opening>,
     ) -> (
@@ -331,7 +306,7 @@ where
             party, from, to, ..
         } = self;
         // Nothing inbound carries a node, so this stage needs no slot.
-        let (opening, party) = party.open_initiator(requests);
+        let (opening, party) = party.open_responder(requests);
         let sending = converted(from.clone(), to.clone(), opening);
         (Box::pin(sending), Converted::new(party, from, to))
     }
@@ -380,19 +355,19 @@ where
     }
 }
 
-impl<P, A, B, T> protocol::CloseInitiator<B, T> for Converted<P, A, B, T>
+impl<P, A, B, T> protocol::CloseResponder<B, T> for Converted<P, A, B, T>
 where
-    P: protocol::CloseInitiator<A, T> + protocol::Protocol<Error = A::Error>,
+    P: protocol::CloseResponder<A, T> + protocol::Protocol<Error = A::Error>,
     P::Next: protocol::Protocol<Error = A::Error>,
     A: Backend<T, Node<Z>: Leaf<T>>,
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
-    Converted<P::Next, A, B, T>: protocol::CompleteInitiator<B, T>
+    Converted<P::Next, A, B, T>: protocol::CompleteResponder<B, T>
         + protocol::Protocol<Height = Z, Output = P::Output, Error = Fault<A, B, T>>,
 {
     type Next = Converted<P::Next, A, B, T>;
 
-    fn close_initiator(
+    fn close_responder(
         self,
         requests: impl Requests<message::Exchanged<B, T, S<S<Z>>>>,
     ) -> (
@@ -404,23 +379,23 @@ where
         } = self;
         let (faults, raised) = mpsc::channel(1);
         let requests = absorbed(to.clone(), from.clone(), requests, faults);
-        let (closing, party) = party.close_initiator(requests);
+        let (closing, party) = party.close_responder(requests);
         let sending = emitted(from.clone(), to.clone(), closing, raised);
         (Box::pin(sending), Converted::new(party, from, to))
     }
 }
 
-// The two terminals: the responder still has an outgoing stream to surface an
-// inbound fault through; the initiator has only its output future.
+// The two terminals: the initiator still has an outgoing stream to surface an
+// inbound fault through; the responder has only its output future.
 
-impl<P, A, B, T> protocol::CompleteResponder<B, T> for Converted<P, A, B, T>
+impl<P, A, B, T> protocol::CompleteInitiator<B, T> for Converted<P, A, B, T>
 where
-    P: protocol::CompleteResponder<A, T> + protocol::Protocol<Error = A::Error>,
+    P: protocol::CompleteInitiator<A, T> + protocol::Protocol<Error = A::Error>,
     A: Backend<T, Node<Z>: Leaf<T>>,
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    fn complete_responder(
+    fn complete_initiator(
         self,
         requests: impl Requests<(Prefix<S<Z>>, message::Closing<B, T>)>,
     ) -> (
@@ -432,7 +407,7 @@ where
         } = self;
         let (faults, raised) = mpsc::channel(1);
         let requests = absorbed(to.clone(), from.clone(), requests, faults);
-        let (complete, settled) = party.complete_responder(requests);
+        let (complete, settled) = party.complete_initiator(requests);
         let sending = emitted(from, to, complete, raised);
         (Box::pin(sending), async move {
             settled.await.map_err(Error::Client)
@@ -440,14 +415,14 @@ where
     }
 }
 
-impl<P, A, B, T> protocol::CompleteInitiator<B, T> for Converted<P, A, B, T>
+impl<P, A, B, T> protocol::CompleteResponder<B, T> for Converted<P, A, B, T>
 where
-    P: protocol::CompleteInitiator<A, T> + protocol::Protocol<Error = A::Error> + Send,
+    P: protocol::CompleteResponder<A, T> + protocol::Protocol<Error = A::Error> + Send,
     A: Backend<T, Node<Z>: Leaf<T>>,
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    async fn complete_initiator(
+    async fn complete_responder(
         self,
         requests: impl Requests<(Prefix<Z>, message::Complete<B, T>)>,
     ) -> Result<Self::Output, Self::Error> {
@@ -461,7 +436,7 @@ where
         // position left, so the slot races it directly. A parked incoming
         // stream would otherwise hang the terminal forever.
         tokio::select! {
-            absorbed = party.complete_initiator(requests) => absorbed.map_err(Error::Client),
+            absorbed = party.complete_responder(requests) => absorbed.map_err(Error::Client),
             Some(fault) = raised.recv() => Err(fault),
         }
     }

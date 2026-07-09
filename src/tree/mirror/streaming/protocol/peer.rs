@@ -9,8 +9,8 @@ macro_rules! define_peer {
         define_peer!(@step
             init: [$($init_count)*],
             resp: [$($resp_count)*],
-            init_chain: (CloseInitiator<I, T>),
-            resp_chain: (CompleteResponder<I, T>),
+            init_chain: (CompleteInitiator<I, T>),
+            resp_chain: (CloseResponder<I, T>),
         );
     };
 
@@ -49,8 +49,8 @@ macro_rules! define_peer {
         resp_chain: ($($resp_chain:tt)*) $(,)?
     ) => {
         pub trait Peer<I, T>:
-            Initiator<I, T, Next: OpenInitiator<I, T, Next: $($init_chain)*>>
-            + Responder<I, T, Next: $($resp_chain)*>
+            Initiator<I, T, Next: $($init_chain)*>
+            + OpenResponder<I, T, Next: $($resp_chain)*>
         where
             I: Backend<T>,
             T: Send + Sync,
@@ -61,13 +61,13 @@ macro_rules! define_peer {
         where
             I: Backend<T>,
             T: Send + Sync,
-            X: Initiator<I, T, Next: OpenInitiator<I, T, Next: $($init_chain)*>>
-                + Responder<I, T, Next: $($resp_chain)*>,
+            X: Initiator<I, T, Next: $($init_chain)*>
+                + OpenResponder<I, T, Next: $($resp_chain)*>,
         {
         }
 
         pub trait Server<I, T>:
-            Accept<I, T, Next: Initiator<I, T, Next: OpenInitiator<I, T, Next: $($init_chain)*>> + Responder<I, T, Next: $($resp_chain)*>>
+            Accept<I, T, Next: Initiator<I, T, Next: $($init_chain)*> + OpenResponder<I, T, Next: $($resp_chain)*>>
         where
             I: Backend<T>,
             T: Send + Sync,
@@ -78,12 +78,12 @@ macro_rules! define_peer {
         where
             I: Backend<T>,
             T: Send + Sync,
-            X: Accept<I, T, Next: Initiator<I, T, Next: OpenInitiator<I, T, Next: $($init_chain)*>> + Responder<I, T, Next: $($resp_chain)*>>,
+            X: Accept<I, T, Next: Initiator<I, T, Next: $($init_chain)*> + OpenResponder<I, T, Next: $($resp_chain)*>>,
         {
         }
 
         pub trait Client<I, T>:
-            Connect<I, T, Next: CompleteConnect<I, T, Next: Initiator<I, T, Next: OpenInitiator<I, T, Next: $($init_chain)*>> + Responder<I, T, Next: $($resp_chain)*>>>
+            Connect<I, T, Next: CompleteConnect<I, T, Next: Initiator<I, T, Next: $($init_chain)*> + OpenResponder<I, T, Next: $($resp_chain)*>>>
         where
             I: Backend<T>,
             T: Send + Sync,
@@ -94,17 +94,17 @@ macro_rules! define_peer {
         where
             I: Backend<T>,
             T: Send + Sync,
-            X: Connect<I, T, Next: CompleteConnect<I, T, Next: Initiator<I, T, Next: OpenInitiator<I, T, Next: $($init_chain)*>> + Responder<I, T, Next: $($resp_chain)*>>>,
+            X: Connect<I, T, Next: CompleteConnect<I, T, Next: Initiator<I, T, Next: $($init_chain)*> + OpenResponder<I, T, Next: $($resp_chain)*>>>,
         {
         }
     };
 }
 
-// One `_` per exchange round: the initiator descends heights 30 → 2 in
-// fourteen rounds of two heights each, the responder 31 → 1 in fifteen.
+// One `_` per exchange round: the initiator descends heights 31 → 1 in
+// fifteen rounds of two heights each, the responder 30 → 2 in fourteen.
 // `mirror_connected` in streaming.rs drives this same schedule; the counts
 // must move together.
 define_peer! {
-    init: [_ _ _ _ _ _ _ _ _ _ _ _ _ _],
-    resp: [_ _ _ _ _ _ _ _ _ _ _ _ _ _ _],
+    init: [_ _ _ _ _ _ _ _ _ _ _ _ _ _ _],
+    resp: [_ _ _ _ _ _ _ _ _ _ _ _ _ _],
 }

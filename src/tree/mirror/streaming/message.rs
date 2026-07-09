@@ -27,15 +27,10 @@ pub struct Handshake {
     pub version: Version,
 }
 
-// The five kinds of stream messages:
-
-pub enum Initiate {
-    /// The initiator's root hash.
-    Uncertain(Hash),
-}
+// The four kinds of stream messages:
 
 pub enum Opening {
-    /// The responder's unconditional listing of its root's children.
+    /// The initiator's unconditional listing of its root's children.
     Uncertain(Vec<(u8, Hash)>),
 }
 
@@ -54,14 +49,14 @@ pub enum Exchange<B: Backend<T>, T, H: Height> {
     Uncertain(Vec<(u8, Hash)>),
 }
 
-/// The initiator's leaf-parent-height reaction: [`Exchange`] minus `Uncertain`,
+/// The responder's leaf-parent-height reaction: [`Exchange`] minus `Uncertain`,
 /// which is unused at leaf height.
 pub enum Closing<B: Backend<T>, T> {
     Providing(B::Node<S<Z>>),
     Requested,
 }
 
-/// The responder's final word: the leaves the initiator requested.
+/// The initiator's final word: the leaves the responder requested.
 pub enum Complete<B: Backend<T>, T> {
     Providing(B::Node<Z>),
 }
