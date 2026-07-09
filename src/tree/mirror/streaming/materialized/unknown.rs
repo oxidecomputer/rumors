@@ -30,7 +30,7 @@ use async_stream::try_stream;
 use crate::Version;
 use crate::tree::typed::height::{Height, S, Z};
 
-use super::super::backend::{Backend, Leaf, Material, Node, NodeStream, one};
+use super::super::backend::{Backend, Leaf, Node, NodeStream, one};
 
 /// Prune `stream` down to the nodes a counterparty at `known` is missing.
 ///
@@ -43,7 +43,7 @@ pub fn unknown<'a, B, T, H>(
     stream: impl NodeStream<B, T, H> + 'a,
 ) -> Pin<Box<dyn NodeStream<B, T, H> + 'a>>
 where
-    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>> + Sync + 'a,
+    B: Backend<T, Node<Z>: Leaf<T>> + Sync + 'a,
     T: Send + Sync + 'a,
     H: Unknown,
 {
@@ -64,7 +64,7 @@ pub trait Unknown: Height {
         stream: Pin<Box<dyn NodeStream<B, T, Self> + 'a>>,
     ) -> Pin<Box<dyn NodeStream<B, T, Self> + 'a>>
     where
-        B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>> + Sync + 'a,
+        B: Backend<T, Node<Z>: Leaf<T>> + Sync + 'a,
         T: Send + Sync + 'a;
 }
 
@@ -75,7 +75,7 @@ impl Unknown for Z {
         stream: Pin<Box<dyn NodeStream<B, T, Z> + 'a>>,
     ) -> Pin<Box<dyn NodeStream<B, T, Z> + 'a>>
     where
-        B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>> + Sync + 'a,
+        B: Backend<T, Node<Z>: Leaf<T>> + Sync + 'a,
         T: Send + Sync + 'a,
     {
         // A leaf is known iff its ceiling is causally at or before `known`;
@@ -106,7 +106,7 @@ where
         stream: Pin<Box<dyn NodeStream<B, T, S<H>> + 'a>>,
     ) -> Pin<Box<dyn NodeStream<B, T, S<H>> + 'a>>
     where
-        B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>> + Sync + 'a,
+        B: Backend<T, Node<Z>: Leaf<T>> + Sync + 'a,
         T: Send + Sync + 'a,
     {
         Box::pin(try_stream! {

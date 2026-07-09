@@ -1,8 +1,11 @@
 //! The streaming protocol implemented generically for every materialized
 //! backend.
 //!
-//! Any [`Backend`] whose `Materialized = Material` automatically can be used
-//! here, with no further ceremony.
+//! Any [`Backend`] holding a real tree — one whose nodes answer
+//! [`Node`](super::backend::Node)'s hash and version bounds, and whose leaves
+//! are [`Leaf`]s — can be used here,
+//! with no further ceremony. The stages speak that backend's node types on
+//! both sides of the wire: what a walk emits is what the counterparty reads.
 
 use futures::channel::mpsc::{self, Receiver, Sender};
 use futures::future::{self, BoxFuture};

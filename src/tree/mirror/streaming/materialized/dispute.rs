@@ -30,7 +30,7 @@ use crate::tree::typed::{
     height::{Height, Z},
 };
 
-use super::super::backend::{Backend, Leaf, Material, Node, NodeStream, one};
+use super::super::backend::{Backend, Leaf, Node, NodeStream, one};
 use super::merge::merge;
 use super::unknown::{Unknown, unknown};
 
@@ -38,7 +38,7 @@ use super::unknown::{Unknown, unknown};
 /// compared.
 pub(super) enum Routed<B, T, C>
 where
-    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
+    B: Backend<T, Node<Z>: Leaf<T>>,
     C: Height,
 {
     /// We have it, the counterparty lacks it. Carries the subtree already
@@ -65,7 +65,7 @@ pub(super) fn classify<'a, B, T, C>(
     theirs: impl Stream<Item = Result<(Prefix<C>, Hash), B::Error>> + Send + 'a,
 ) -> impl Stream<Item = Result<Routed<B, T, C>, B::Error>> + Send + 'a
 where
-    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>> + Sync + 'a,
+    B: Backend<T, Node<Z>: Leaf<T>> + Sync + 'a,
     T: Send + Sync + 'a,
     C: Unknown,
 {

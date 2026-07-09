@@ -3,6 +3,10 @@
 //! A node converts by exploding to leaves in the source backend and
 //! reassembling in the target, the two halves running concurrently through one
 //! [`FAN`]-bounded channel ([`subtree`]).
+//!
+//! The protocol itself converts nowhere: both parties of a session name one
+//! backend, and a homogeneous session pays nothing. This module is what lets a
+//! heterogeneous pair meet, by wrapping one side in a [`Converted`] party.
 
 use std::pin::pin;
 
@@ -20,6 +24,9 @@ use super::Error;
 use super::backend::{Backend, BoxNodeStream, Leaf, Node, one};
 use super::message;
 use super::protocol::Responses;
+
+mod party;
+pub use party::Converted;
 
 /// A height whose subtrees convert across backends: they explode to the leaf
 /// stream beneath them and reassemble from one.

@@ -11,10 +11,9 @@
 //! asymmetry matrix routes to one of four destinations:
 //!
 //! - the **outgoing wire** — the walk's direct output, already in wire form
-//!   ([`message::Exchange`]) but still in our own backend's node vocabulary
-//!   and error type; the stage [converts](super::super::convert) it into the
-//!   counterparty's before [`outgoing`] forwards it into the
-//!   channel the counterparty reads;
+//!   ([`message::Exchange`]) and in the backend's node vocabulary the
+//!   counterparty reads, which [`outgoing`] forwards into the channel it
+//!   reads it from;
 //! - the **next stage's frontier** (`down`) — disputed subtrees exploded one
 //!   level, sent through a [`FAN`]-bounded channel;
 //! - the **reconciled level at the frontier height** (`keep`) — nodes the
@@ -50,7 +49,7 @@ use crate::tree::typed::{
     height::{self, Height, S, UnderRoot, UnderUnderRoot, Z},
 };
 
-use super::super::backend::{Backend, BoxNodeStream, Keyed, Leaf, Material, Node, NodeStream, one};
+use super::super::backend::{Backend, BoxNodeStream, Keyed, Leaf, Node, NodeStream, one};
 use super::super::message;
 use super::super::protocol::{Requests, Responses};
 use super::dispute::{Routed, classify};
@@ -100,7 +99,7 @@ pub(super) fn respond<B, T>(
     down: Sender<Keyed<B, T, UnderRoot>>,
 ) -> impl Responses<message::Opening, B::Error>
 where
-    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
+    B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
     try_stream! {
@@ -142,7 +141,7 @@ pub(super) fn open<B, T>(
     level: Sender<Keyed<B, T, UnderRoot>>,
 ) -> impl Responses<message::Exchanged<B, T, UnderRoot>, B::Error>
 where
-    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
+    B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
     try_stream! {
@@ -196,7 +195,7 @@ fn provide<B, T, H>(
     kept: Sender<Keyed<B, T, S<H>>>,
 ) -> impl NodeStream<B, T, H>
 where
-    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
+    B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     H: Height + Unknown,
     S<H>: Height,
@@ -236,7 +235,7 @@ pub(super) fn route<B, T, H>(
     level: Sender<Keyed<B, T, S<H>>>,
 ) -> impl Responses<message::Exchanged<B, T, S<H>>, B::Error>
 where
-    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
+    B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     H: Height + Unknown,
     S<H>: Height + Unknown,
@@ -307,7 +306,7 @@ pub(super) fn walk<B, T, H>(
     level: Sender<Keyed<B, T, S<H>>>,
 ) -> impl Responses<message::Exchanged<B, T, S<H>>, B::Error>
 where
-    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
+    B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     H: Height + Unknown,
     S<H>: Height,
@@ -419,7 +418,7 @@ pub(super) fn complete_walk<B, T>(
     level: Sender<Keyed<B, T, S<Z>>>,
 ) -> impl Responses<(Prefix<Z>, message::Complete<B, T>), B::Error>
 where
-    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
+    B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
     try_stream! {
@@ -488,7 +487,7 @@ pub(super) async fn absorb_leaves<B, T>(
     leaves: Sender<Keyed<B, T, Z>>,
 ) -> Result<(), B::Error>
 where
-    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
+    B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
     let incoming = messages.map(|(prefix, message::Complete::Providing(node))| Ok((prefix, node)));

@@ -1,4 +1,11 @@
-//! The streaming protocol's traits, generic over both parties' backends.
+//! The streaming protocol's traits, generic over the session's backend.
+//!
+//! Both parties of a session speak one backend `I`: the messages a stage
+//! consumes and the messages it produces are keyed by the same node types.
+//! A party that owns no tree — the [`remote`](super::remote) proxy — is
+//! parameterized by its local counterparty's backend rather than defining one
+//! of its own, which is what lets the node types meet in the middle without a
+//! conversion anywhere in the schedule.
 
 #![allow(clippy::type_complexity)]
 
@@ -7,7 +14,7 @@ use std::pin::Pin;
 use crate::{
     Version,
     tree::{
-        mirror::{Error, streaming::Backend},
+        mirror::streaming::Backend,
         typed::{
             Prefix,
             height::{Height, Pred, Root, S, UnderRoot, UnderUnderRoot, Z},
@@ -22,7 +29,7 @@ use futures::Stream;
 mod peer;
 pub use peer::{Client, Peer, Server};
 
-pub trait Protocol {
+pub trait Protocol: Send {
     type Height: Height;
     // `Send + 'static` because these traits' outgoing streams carry it, both
     // bare and inside an `OutputError`, and the driver moves it into its
@@ -41,12 +48,6 @@ impl<X, M, E> Responses<M, E> for X where X: Stream<Item = Result<M, E>> + Send 
 
 /// A boxed [`Responses`] stream.
 pub type BoxResponses<M, E> = Pin<Box<dyn Responses<M, E>>>;
-
-/// The error of node-carrying outgoing streams, in the producer's frame.
-///
-/// The implementor's own faults come first, faults from assembling into the
-/// output backend `O`'s node types second.
-pub type OutputError<P, O, T> = Error<<P as Protocol>::Error, <O as Backend<T>>::Error>;
 
 pub trait Connect<I: Backend<T>, T: Send + Sync>: Protocol<Height = Root> + Sized {
     type Next: CompleteConnect<I, T>
@@ -94,10 +95,8 @@ pub trait Responder<I: Backend<T>, T: Send + Sync>: Protocol<Height = Root> + Si
     ) -> (impl Responses<message::Opening, Self::Error>, Self::Next);
 }
 
-pub trait OpenInitiator<I: Backend<T>, O: Backend<T>, T: Send + Sync>:
-    Protocol<Height = Root> + Sized
-{
-    type Next: Exchange<I, O, T>
+pub trait OpenInitiator<I: Backend<T>, T: Send + Sync>: Protocol<Height = Root> + Sized {
+    type Next: Exchange<I, T>
         + Protocol<Height = UnderUnderRoot, Output = Self::Output, Error = Self::Error>;
 
     fn open_initiator(
@@ -106,17 +105,17 @@ pub trait OpenInitiator<I: Backend<T>, O: Backend<T>, T: Send + Sync>:
     ) -> (
         // IMPORTANT: This must be boxed because otherwise `rustc` explodes on
         // an exponentially-sized type!
-        BoxResponses<message::Exchanged<O, T, UnderRoot>, OutputError<Self, O, T>>,
+        BoxResponses<message::Exchanged<I, T, UnderRoot>, Self::Error>,
         Self::Next,
     );
 }
 
-pub trait Exchange<I: Backend<T>, O: Backend<T>, T: Send + Sync>: Protocol + Sized
+pub trait Exchange<I: Backend<T>, T: Send + Sync>: Protocol + Sized
 where
     Self::Height: Pred,
     <Self::Height as Pred>::Pred: Pred,
 {
-    type Next: AfterExchange<I, O, T, <<Self::Height as Pred>::Pred as Pred>::Pred>
+    type Next: AfterExchange<I, T, <<Self::Height as Pred>::Pred as Pred>::Pred>
         + Protocol<
             Height = <<Self::Height as Pred>::Pred as Pred>::Pred,
             Output = Self::Output,
@@ -129,15 +128,12 @@ where
     ) -> (
         // IMPORTANT: This must be boxed because otherwise `rustc` explodes on
         // an exponentially-sized type!
-        BoxResponses<
-            message::Exchanged<O, T, <Self::Height as Pred>::Pred>,
-            OutputError<Self, O, T>,
-        >,
+        BoxResponses<message::Exchanged<I, T, <Self::Height as Pred>::Pred>, Self::Error>,
         Self::Next,
     );
 }
 
-pub trait CloseInitiator<I: Backend<T>, O: Backend<T>, T: Send + Sync>:
+pub trait CloseInitiator<I: Backend<T>, T: Send + Sync>:
     Protocol<Height = S<S<Z>>> + Sized
 {
     type Next: CompleteInitiator<I, T>
@@ -149,19 +145,19 @@ pub trait CloseInitiator<I: Backend<T>, O: Backend<T>, T: Send + Sync>:
     ) -> (
         // IMPORTANT: This must be boxed because otherwise `rustc` explodes on
         // an exponentially-sized type!
-        BoxResponses<(Prefix<S<Z>>, message::Closing<O, T>), OutputError<Self, O, T>>,
+        BoxResponses<(Prefix<S<Z>>, message::Closing<I, T>), Self::Error>,
         Self::Next,
     );
 }
 
-pub trait CompleteResponder<I: Backend<T>, O: Backend<T>, T: Send + Sync>:
+pub trait CompleteResponder<I: Backend<T>, T: Send + Sync>:
     Protocol<Height = S<Z>> + Sized
 {
     fn complete_responder(
         self,
         requests: impl Requests<(Prefix<S<Z>>, message::Closing<I, T>)>,
     ) -> (
-        BoxResponses<(Prefix<Z>, message::Complete<O, T>), OutputError<Self, O, T>>,
+        BoxResponses<(Prefix<Z>, message::Complete<I, T>), Self::Error>,
         impl Future<Output = Result<Self::Output, Self::Error>> + Send,
     );
 }
@@ -184,27 +180,20 @@ pub trait CompleteInitiator<I: Backend<T>, T: Send + Sync>: Protocol<Height = Z>
 ///
 /// Height `Z` is never reached as the result of an exchange (the leaf-height
 /// uncertain map would be vacuous), so there is no `AfterExchange<Z>` impl.
-pub trait AfterExchange<I: Backend<T>, O: Backend<T>, T: Send + Sync, H: Height>: Sized {}
+pub trait AfterExchange<I: Backend<T>, T: Send + Sync, H: Height>: Sized {}
 
-impl<T: Send + Sync, I: Backend<T>, O: Backend<T>, X: CompleteResponder<I, O, T>>
-    AfterExchange<I, O, T, S<Z>> for X
-{
-}
+impl<T: Send + Sync, I: Backend<T>, X: CompleteResponder<I, T>> AfterExchange<I, T, S<Z>> for X {}
 
-impl<T: Send + Sync, I: Backend<T>, O: Backend<T>, X: CloseInitiator<I, O, T>>
-    AfterExchange<I, O, T, S<S<Z>>> for X
-{
-}
+impl<T: Send + Sync, I: Backend<T>, X: CloseInitiator<I, T>> AfterExchange<I, T, S<S<Z>>> for X {}
 
-impl<T, I, O, H, X> AfterExchange<I, O, T, S<S<S<H>>>> for X
+impl<T, I, H, X> AfterExchange<I, T, S<S<S<H>>>> for X
 where
     I: Backend<T>,
-    O: Backend<T>,
     T: Send + Sync,
     H: Height,
     S<H>: Height,
     S<S<H>>: Height,
     S<S<S<H>>>: Height,
-    X: Exchange<I, O, T> + Protocol<Height = S<S<S<H>>>>,
+    X: Exchange<I, T> + Protocol<Height = S<S<S<H>>>>,
 {
 }

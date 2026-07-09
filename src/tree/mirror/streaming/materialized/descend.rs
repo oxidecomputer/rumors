@@ -25,24 +25,21 @@ use crate::{
     },
 };
 
-use super::super::backend::{Backend, BoxNodeStream, Keyed, Leaf, Material, Root};
-use super::super::convert::{Convert, converted};
+use super::super::backend::{Backend, BoxNodeStream, Keyed, Leaf, Root};
 use super::super::message;
-use super::super::protocol::{self, OutputError, Requests, Responses};
+use super::super::protocol::{self, Requests, Responses};
 use super::unknown::Unknown;
 use super::{FAN, reconcile};
 
 /// A mirror stage inside the descent: its frontier at height `H` flows downward
 /// as a stream while the levels above reassemble concurrently.
-pub struct Descending<B, O, T, H>
+pub struct Descending<B, T, H>
 where
-    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
-    O: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     H: Height,
 {
-    from: B,
-    into: O,
+    backend: B,
     their_version: Version,
     frontier: BoxNodeStream<B, T, H>,
     up: Sender<Keyed<B, T, H>>,
@@ -50,10 +47,9 @@ where
     finish: BoxFuture<'static, Result<Root<B, T>, B::Error>>,
 }
 
-impl<B, O, T, H> Descending<B, O, T, H>
+impl<B, T, H> Descending<B, T, H>
 where
-    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
-    O: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     H: Height,
 {
@@ -61,7 +57,6 @@ where
     #[allow(clippy::type_complexity)]
     pub(super) fn new(
         backend: B,
-        into: O,
         their_version: Version,
         frontier: Receiver<Keyed<B, T, H>>,
         up: Sender<Keyed<B, T, H>>,
@@ -69,8 +64,7 @@ where
         finish: BoxFuture<'static, Result<Root<B, T>, B::Error>>,
     ) -> Self {
         Self {
-            from: backend,
-            into,
+            backend,
             their_version,
             frontier: Box::pin(ReceiverStream::new(frontier).map(Ok)),
             up,
@@ -80,10 +74,9 @@ where
     }
 }
 
-impl<B, O, T, H> protocol::Protocol for Descending<B, O, T, H>
+impl<B, T, H> protocol::Protocol for Descending<B, T, H>
 where
-    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
-    O: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     H: Height,
 {
@@ -92,10 +85,9 @@ where
     type Error = B::Error;
 }
 
-impl<B, O, T, H> Descending<B, O, T, S<S<H>>>
+impl<B, T, H> Descending<B, T, S<S<H>>>
 where
-    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
-    O: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     H: Height + Unknown,
     S<H>: Height,
@@ -107,11 +99,10 @@ where
         requests: impl Requests<message::Exchanged<B, T, S<S<H>>>>,
     ) -> (
         impl Responses<message::Exchanged<B, T, S<H>>, B::Error>,
-        Descending<B, O, T, H>,
+        Descending<B, T, H>,
     ) {
         let Descending {
-            from: backend,
-            into,
+            backend,
             their_version,
             frontier,
             up,
@@ -134,68 +125,52 @@ where
         );
         work.push(ascend(backend.clone(), keep_rx, level_rx, below_rx, up));
 
-        let next = Descending::new(
-            backend,
-            into,
-            their_version,
-            down_rx,
-            below_tx,
-            work,
-            finish,
-        );
+        let next = Descending::new(backend, their_version, down_rx, below_tx, work, finish);
         (walk, next)
     }
 }
 
-impl<B, O, T, H> protocol::Exchange<B, O, T> for Descending<B, O, T, S<S<S<H>>>>
+impl<B, T, H> protocol::Exchange<B, T> for Descending<B, T, S<S<S<H>>>>
 where
-    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
-    O: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
-    // `Convert` so the outgoing wire (keyed one level below the frontier)
-    // can be re-represented in `O`'s node types.
-    H: Convert + Unknown,
+    H: Height + Unknown,
     S<H>: Height,
     S<S<H>>: Height,
     S<S<S<H>>>: Height,
     // Discharged at each concrete height by one of the three `AfterExchange`
     // blanket impls; cannot be proven generically by the trait solver.
-    Descending<B, O, T, S<H>>: protocol::AfterExchange<B, O, T, S<H>>,
+    Descending<B, T, S<H>>: protocol::AfterExchange<B, T, S<H>>,
 {
-    type Next = Descending<B, O, T, S<H>>;
+    type Next = Descending<B, T, S<H>>;
 
     fn exchange(
         self,
         requests: impl Requests<message::Exchanged<B, T, S<S<S<H>>>>>,
     ) -> (
-        BoxResponses<message::Exchanged<O, T, S<S<H>>>, OutputError<Self, O, T>>,
+        BoxResponses<message::Exchanged<B, T, S<S<H>>>, Self::Error>,
         Self::Next,
     ) {
-        let backend = self.from.clone();
-        let into = self.into.clone();
         let (walk, mut next) = self.descend(requests);
-        let sending = reconcile::outgoing(&mut next.work, converted(backend, into, walk));
+        let sending = reconcile::outgoing(&mut next.work, walk);
         (Box::pin(ReceiverStream::new(sending)), next)
     }
 }
 
-impl<B, O, T> protocol::CloseInitiator<B, O, T> for Descending<B, O, T, S<S<Z>>>
+impl<B, T> protocol::CloseInitiator<B, T> for Descending<B, T, S<S<Z>>>
 where
-    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
-    O: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    type Next = Descending<B, O, T, Z>;
+    type Next = Descending<B, T, Z>;
 
     fn close_initiator(
         self,
         requests: impl Requests<message::Exchanged<B, T, S<S<Z>>>>,
     ) -> (
-        BoxResponses<(Prefix<S<Z>>, message::Closing<O, T>), OutputError<Self, O, T>>,
+        BoxResponses<(Prefix<S<Z>>, message::Closing<B, T>), Self::Error>,
         Self::Next,
     ) {
-        let backend = self.from.clone();
-        let into = self.into.clone();
         let (walk, mut next) = self.descend(requests);
         let closing = walk.filter_map(|item| async {
             match item {
@@ -212,27 +187,25 @@ where
                 Err(error) => Some(Err(error)),
             }
         });
-        let sending = reconcile::outgoing(&mut next.work, converted(backend, into, closing));
+        let sending = reconcile::outgoing(&mut next.work, closing);
         (Box::pin(ReceiverStream::new(sending)), next)
     }
 }
 
-impl<B, O, T> protocol::CompleteResponder<B, O, T> for Descending<B, O, T, S<Z>>
+impl<B, T> protocol::CompleteResponder<B, T> for Descending<B, T, S<Z>>
 where
-    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
-    O: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
     fn complete_responder(
         self,
         requests: impl Requests<(Prefix<S<Z>>, message::Closing<B, T>)>,
     ) -> (
-        BoxResponses<(Prefix<Z>, message::Complete<O, T>), OutputError<Self, O, T>>,
+        BoxResponses<(Prefix<Z>, message::Complete<B, T>), Self::Error>,
         impl Future<Output = Result<Root<B, T>, Self::Error>> + Send,
     ) {
         let Descending {
-            from: backend,
-            into,
+            backend,
             their_version,
             frontier,
             up,
@@ -240,17 +213,15 @@ where
             finish,
         } = self;
 
-        let complete =
-            reconcile::complete_walk(backend.clone(), their_version, frontier, requests, up);
-        let sending = reconcile::outgoing(&mut work, converted(backend, into, complete));
+        let complete = reconcile::complete_walk(backend, their_version, frontier, requests, up);
+        let sending = reconcile::outgoing(&mut work, complete);
         (Box::pin(ReceiverStream::new(sending)), settle(work, finish))
     }
 }
 
-impl<B, O, T> protocol::CompleteInitiator<B, T> for Descending<B, O, T, Z>
+impl<B, T> protocol::CompleteInitiator<B, T> for Descending<B, T, Z>
 where
-    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
-    O: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
     async fn complete_initiator(
@@ -258,8 +229,7 @@ where
         requests: impl Requests<(Prefix<Z>, message::Complete<B, T>)>,
     ) -> Result<Root<B, T>, Self::Error> {
         let Descending {
-            from: _,
-            into: _,
+            backend: _,
             their_version: _,
             frontier,
             up,

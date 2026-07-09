@@ -15,7 +15,8 @@ mod message;
 mod protocol;
 mod remote;
 
-pub use backend::{Backend, Immaterial, Leaf, Local, Material, Materiality, Node, Root};
+pub use backend::{Backend, Leaf, Local, Node, Root};
+pub use convert::Converted;
 pub use materialized::Handshaking;
 
 use std::cmp::Ordering;
@@ -33,15 +34,7 @@ use protocol::*;
 #[cfg(test)]
 mod tests;
 
-/// The bound on every internal channel: one node's child fan (the radix).
-///
-/// The walk's producers and consumers advance in lockstep per parent: the merge
-/// operation holds one item of lookahead per input, and a parent contributes at
-/// most one fan of children before its walk must pull its inputs again, so a
-/// single fan's worth of slack absorbs the maximum skew between the wire, the
-/// descending frontier, and the upward reassembly. This bound is what makes
-/// reconciliation fixed-memory regardless of diff size.
-pub(super) const FAN: usize = u8::MAX as usize;
+pub(super) const FAN: usize = 256;
 
 /// One direction of the party boundary: messages pass through unchanged,
 /// while the producer's errors leave the schedule out of band, into the
@@ -80,33 +73,6 @@ where
     }
 }
 
-/// Map a fault from the client party's producer frame into the session sum.
-///
-/// The client's own errors keep their side; an assembly fault belongs to the
-/// server, whose backend failed to represent its own incoming nodes, and lifts
-/// into the server's error vernacular.
-fn client<C, S, E>(fault: Error<C, E>) -> Error<C, S>
-where
-    S: From<E>,
-{
-    match fault {
-        Error::Client(own) => Error::Client(own),
-        Error::Server(theirs) => Error::Server(theirs.into()),
-    }
-}
-
-/// [`client`] from the server party's frame: the sides flip as the fault
-/// crosses into the session sum.
-fn server<C, S, E>(fault: Error<S, E>) -> Error<C, S>
-where
-    C: From<E>,
-{
-    match fault {
-        Error::Client(own) => Error::Server(own),
-        Error::Server(theirs) => Error::Client(theirs.into()),
-    }
-}
-
 /// Expand the protocol phase schedule into the driver's whole body: one line
 /// per phase.
 ///
@@ -118,13 +84,13 @@ where
 macro_rules! mirror {
     (@one $a:ident >> $b:ident.$m:ident) => {
         let ((msgs, state), (tx, wrap)) = $a;
-        let msgs = divert(msgs, tx.clone(), move |e| wrap(e.into()));
+        let msgs = divert(msgs, tx.clone(), wrap);
         let $a = (state, (tx, wrap));
         let $b = ($b.0.$m(msgs), $b.1);
     };
     (@pending($a:ident) $b:ident.$m:ident;) => {{
         let ((msgs, state), (tx, wrap)) = $a;
-        let msgs = divert(msgs, tx, move |e| wrap(e.into()));
+        let msgs = divert(msgs, tx, wrap);
         join!($b.0.$m(msgs), state)
     }};
     (@pending($a:ident) for _ in $lo:tt..$hi:tt { $($body:tt)* } $($rest:tt)*) => {{
@@ -148,8 +114,10 @@ macro_rules! mirror {
     }};
     ($a:ident.$m:ident; $b:ident.$n:ident; $($rest:tt)*) => {{
         let (errors, mut first_error) = mpsc::channel(1);
-        let $a = ($a, (errors.clone(), client));
-        let $b = ($b, (errors, server));
+        // Each party's faults enter the session sum on its own side; nothing
+        // crosses, so the two variant constructors are the whole mapping.
+        let $a = ($a, (errors.clone(), Error::Client));
+        let $b = ($b, (errors, Error::Server));
         let session = async { mirror!(@run $a.$m; $b.$n; $($rest)*) };
         let (client, server) = tokio::select! {
             results = session => results,
@@ -169,24 +137,19 @@ macro_rules! mirror {
 /// no early return: the schedule is a straight line, each stage's outgoing
 /// stream handed to the counterparty's next one.
 ///
-/// The parties may speak different backends: each one emits its node-carrying
-/// output already converted into its counterparty's node types (a session holds
-/// its counterparty's backend handle for exactly this), so messages cross the
-/// party boundary unchanged, and errors never cross at all: each crossing
-/// [`divert`]s the producer's errors out of band into a shared one-error slot
-/// and the driver races the session against the slot.
-async fn mirror_connected<BI, BR, I, R, T>(
+/// Both parties speak one backend `B`, so a message crosses the party boundary
+/// in the node types the receiver already reads. Errors never cross at all:
+/// each crossing [`divert`]s the producer's errors out of band into a shared
+/// one-error slot, and the driver races the session against the slot.
+async fn mirror_connected<B, I, R, T>(
     i: I,
     r: R,
 ) -> Result<(I::Output, R::Output), Error<I::Error, R::Error>>
 where
     T: Send + Sync + 'static,
-    BI: Backend<T>,
-    BR: Backend<T>,
-    I: Peer<BI, BR, T>,
-    R: Peer<BR, BI, T>,
-    I::Error: From<BI::Error>,
-    R::Error: From<BR::Error>,
+    B: Backend<T>,
+    I: Peer<B, T>,
+    R: Peer<B, T>,
 {
     mirror! {
         i.initiator;
@@ -206,27 +169,25 @@ where
 type ClientConnected<C, B, T> = <<C as Connect<B, T>>::Next as CompleteConnect<B, T>>::Next;
 type ServerConnected<S, B, T> = <S as Accept<B, T>>::Next;
 
-pub(crate) struct Handshaken<C, S, BC, BS, T>
+pub(crate) struct Handshaken<C, S, B, T>
 where
     T: Send + Sync + 'static,
-    BC: Backend<T>,
-    BS: Backend<T>,
-    C: Client<BC, BS, T>,
-    S: Server<BS, BC, T>,
+    B: Backend<T>,
+    C: Client<B, T>,
+    S: Server<B, T>,
 {
-    client: ClientConnected<C, BC, T>,
-    server: ServerConnected<S, BS, T>,
+    client: ClientConnected<C, B, T>,
+    server: ServerConnected<S, B, T>,
     our_version: Version,
     peer: message::Handshake,
 }
 
-impl<C, S, BC, BS, T> Handshaken<C, S, BC, BS, T>
+impl<C, S, B, T> Handshaken<C, S, B, T>
 where
     T: Send + Sync + 'static,
-    BC: Backend<T>,
-    BS: Backend<T>,
-    C: Client<BC, BS, T>,
-    S: Server<BS, BC, T>,
+    B: Backend<T>,
+    C: Client<B, T>,
+    S: Server<B, T>,
 {
     pub(crate) fn peer(&self) -> &message::Handshake {
         let Handshaken { peer, .. } = self;
@@ -241,11 +202,7 @@ where
     /// already holds.
     pub(crate) async fn reconcile(
         self,
-    ) -> Result<Option<(C::Output, S::Output)>, Error<C::Error, S::Error>>
-    where
-        C::Error: From<BC::Error>,
-        S::Error: From<BS::Error>,
-    {
+    ) -> Result<Option<(C::Output, S::Output)>, Error<C::Error, S::Error>> {
         let Handshaken {
             client: local,
             server: remote,
@@ -256,16 +213,15 @@ where
     }
 }
 
-pub(crate) async fn handshake<C, S, BC, BS, T>(
+pub(crate) async fn handshake<C, S, B, T>(
     c: C,
     s: S,
-) -> Result<Handshaken<C, S, BC, BS, T>, Error<C::Error, S::Error>>
+) -> Result<Handshaken<C, S, B, T>, Error<C::Error, S::Error>>
 where
     T: Send + Sync + 'static,
-    BC: Backend<T>,
-    BS: Backend<T>,
-    C: Client<BC, BS, T>,
-    S: Server<BS, BC, T>,
+    B: Backend<T>,
+    C: Client<B, T>,
+    S: Server<B, T>,
 {
     // The handshake carries only versions, so it crosses the party boundary
     // without conversion; each side's errors wrap into its own arm here.
@@ -285,7 +241,7 @@ where
     })
 }
 
-pub(crate) async fn descend<L, R, BL, BR, T>(
+pub(crate) async fn descend<L, R, B, T>(
     local: L,
     remote: R,
     local_version: Version,
@@ -293,12 +249,9 @@ pub(crate) async fn descend<L, R, BL, BR, T>(
 ) -> Result<Option<(L::Output, R::Output)>, Error<L::Error, R::Error>>
 where
     T: Send + Sync + 'static,
-    BL: Backend<T>,
-    BR: Backend<T>,
-    L: Peer<BL, BR, T>,
-    R: Peer<BR, BL, T>,
-    L::Error: From<BL::Error>,
-    R::Error: From<BR::Error>,
+    B: Backend<T>,
+    L: Peer<B, T>,
+    R: Peer<B, T>,
 {
     // Their causal order is only partial (they may be concurrent), so to pick
     // an initiator we compare canonical bytes lexicographically: an arbitrary
@@ -323,24 +276,21 @@ where
 /// streaming protocol, both parties polled concurrently on the current task,
 /// returning both sides' reconciled roots.
 ///
-/// The parties may implement different backends: each one holds its
-/// counterparty's backend handle and emits its node-carrying output already
-/// converted into that backend's node types.
+/// The two implementors share one backend `B`, whose node types are the wire
+/// vocabulary between them; they need not be the same implementor, only agree
+/// on how a node is represented.
 ///
 /// Returns `None` when the handshake versions were equal and there is nothing
 /// to reconcile, in which case each side keeps whatever it came with.
-pub(crate) async fn mirror<C, S, BC, BS, T>(
+pub(crate) async fn mirror<C, S, B, T>(
     client: C,
     server: S,
 ) -> Result<Option<(C::Output, S::Output)>, Error<C::Error, S::Error>>
 where
     T: Send + Sync + 'static,
-    BC: Backend<T>,
-    BS: Backend<T>,
-    C: Client<BC, BS, T>,
-    S: Server<BS, BC, T>,
-    C::Error: From<BC::Error>,
-    S::Error: From<BS::Error>,
+    B: Backend<T>,
+    C: Client<B, T>,
+    S: Server<B, T>,
 {
     handshake(client, server).await?.reconcile().await
 }

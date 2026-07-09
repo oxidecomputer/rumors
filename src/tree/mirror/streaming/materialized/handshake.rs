@@ -20,10 +20,9 @@ use crate::{
     tree::typed::height::{self, UnderRoot, UnderUnderRoot, Z},
 };
 
-use super::super::backend::{Backend, Leaf, Material, Node, Root};
-use super::super::convert::converted;
+use super::super::backend::{Backend, Leaf, Node, Root};
 use super::super::message;
-use super::super::protocol::{self, OutputError, Requests, Responses};
+use super::super::protocol::{self, Requests, Responses};
 use super::descend::Descending;
 use super::merge::merge_disjoint;
 use super::{FAN, reconcile};
@@ -53,29 +52,25 @@ pub struct Connected {
 /// `V` is the version state ([`Start`] → [`Connecting`] → [`Connected`]). The
 /// whole tree is held intact as `root` until reconciliation begins at
 /// [`initiator`](protocol::Initiator::initiator) /
-/// [`responder`](protocol::Responder::responder). `into` is the
-/// counterparty's backend: the session's node-carrying output is
-/// [converted](super::super::convert) into its node types as it is produced.
-pub struct Handshaking<B, O, T, V>
+/// [`responder`](protocol::Responder::responder). The session's outgoing
+/// messages carry `backend`'s own node types, which are the ones its
+/// counterparty reads.
+pub struct Handshaking<B, T, V>
 where
-    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
-    O: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Node<Z>: Leaf<T>>,
 {
     backend: B,
-    into: O,
     versions: V,
     root: Root<B, T>,
 }
 
-impl<B, O, T> Handshaking<B, O, T, Start>
+impl<B, T> Handshaking<B, T, Start>
 where
-    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
-    O: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Node<Z>: Leaf<T>>,
 {
-    pub fn start(backend: B, into: O, root: Root<B, T>) -> Self {
+    pub fn start(backend: B, root: Root<B, T>) -> Self {
         Self {
             backend,
-            into,
             versions: Start {
                 our_version: root.ceiling.clone(),
             },
@@ -84,23 +79,21 @@ where
     }
 }
 
-impl<B, O, T, V> protocol::Protocol for Handshaking<B, O, T, V>
+impl<B, T, V: Send> protocol::Protocol for Handshaking<B, T, V>
 where
-    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
-    O: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Node<Z>: Leaf<T>>,
 {
     type Height = height::Root;
     type Output = Root<B, T>;
     type Error = B::Error;
 }
 
-impl<B, O, T> protocol::Connect<B, T> for Handshaking<B, O, T, Start>
+impl<B, T> protocol::Connect<B, T> for Handshaking<B, T, Start>
 where
-    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
-    O: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    type Next = Handshaking<B, O, T, Connecting>;
+    type Next = Handshaking<B, T, Connecting>;
 
     async fn connect(self) -> Result<(message::Handshake, Self::Next), Self::Error> {
         let Start { our_version } = self.versions;
@@ -110,7 +103,6 @@ where
         };
         let next = Handshaking {
             backend: self.backend,
-            into: self.into,
             versions: Connecting { our_version },
             root: self.root,
         };
@@ -118,18 +110,16 @@ where
     }
 }
 
-impl<B, O, T> protocol::CompleteConnect<B, T> for Handshaking<B, O, T, Connecting>
+impl<B, T> protocol::CompleteConnect<B, T> for Handshaking<B, T, Connecting>
 where
-    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
-    O: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    type Next = Handshaking<B, O, T, Connected>;
+    type Next = Handshaking<B, T, Connected>;
 
     async fn complete_connect(self, their_version: Version) -> Result<Self::Next, Self::Error> {
         Ok(Handshaking {
             backend: self.backend,
-            into: self.into,
             versions: Connected {
                 our_version: self.versions.our_version,
                 their_version,
@@ -139,13 +129,12 @@ where
     }
 }
 
-impl<B, O, T> protocol::Accept<B, T> for Handshaking<B, O, T, Start>
+impl<B, T> protocol::Accept<B, T> for Handshaking<B, T, Start>
 where
-    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
-    O: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    type Next = Handshaking<B, O, T, Connected>;
+    type Next = Handshaking<B, T, Connected>;
 
     async fn accept(
         self,
@@ -158,7 +147,6 @@ where
         };
         let next = Handshaking {
             backend: self.backend,
-            into: self.into,
             versions: Connected {
                 our_version,
                 their_version: request.version,
@@ -169,10 +157,9 @@ where
     }
 }
 
-impl<B, O, T> protocol::Initiator<B, T> for Handshaking<B, O, T, Connected>
+impl<B, T> protocol::Initiator<B, T> for Handshaking<B, T, Connected>
 where
-    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
-    O: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
     type Next = Self;
@@ -187,13 +174,12 @@ where
     }
 }
 
-impl<B, O, T> protocol::Responder<B, T> for Handshaking<B, O, T, Connected>
+impl<B, T> protocol::Responder<B, T> for Handshaking<B, T, Connected>
 where
-    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
-    O: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    type Next = Descending<B, O, T, UnderRoot>;
+    type Next = Descending<B, T, UnderRoot>;
 
     fn responder(
         self,
@@ -204,7 +190,6 @@ where
     ) {
         let Handshaking {
             backend,
-            into,
             versions,
             root,
         } = self;
@@ -225,7 +210,6 @@ where
 
         let next = Descending::new(
             backend,
-            into,
             versions.their_version,
             down_rx,
             up_tx,
@@ -236,24 +220,22 @@ where
     }
 }
 
-impl<B, O, T> protocol::OpenInitiator<B, O, T> for Handshaking<B, O, T, Connected>
+impl<B, T> protocol::OpenInitiator<B, T> for Handshaking<B, T, Connected>
 where
-    B: Backend<T, Materialized = Material, Node<Z>: Leaf<T>>,
-    O: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    type Next = Descending<B, O, T, UnderUnderRoot>;
+    type Next = Descending<B, T, UnderUnderRoot>;
 
     fn open_initiator(
         self,
         requests: impl Requests<message::Opening>,
     ) -> (
-        BoxResponses<message::Exchanged<O, T, UnderRoot>, OutputError<Self, O, T>>,
+        BoxResponses<message::Exchanged<B, T, UnderRoot>, Self::Error>,
         Self::Next,
     ) {
         let Handshaking {
             backend,
-            into,
             versions,
             root,
         } = self;
@@ -281,12 +263,10 @@ where
         ));
         let finish = reassemble(top, ceiling);
         let mut work = Vec::new();
-        let sending =
-            reconcile::outgoing(&mut work, converted(backend.clone(), into.clone(), opening));
+        let sending = reconcile::outgoing(&mut work, opening);
 
         let next = Descending::new(
             backend,
-            into,
             versions.their_version,
             down_rx,
             up_tx,

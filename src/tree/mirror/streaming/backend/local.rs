@@ -15,7 +15,7 @@ use crate::{
     },
 };
 
-use super::{Backend, Leaf, Material, Node, NodeStream, Root};
+use super::{Backend, Leaf, Node, NodeStream, Root};
 
 impl<T, H: Height> Node for typed::Node<T, H> {
     fn hash(&self) -> typed::Hash {
@@ -28,10 +28,6 @@ impl<T, H: Height> Node for typed::Node<T, H> {
 
     fn floor(&self) -> &Version {
         self.floor()
-    }
-
-    fn clone(&self) -> Self {
-        <Self as Clone>::clone(self)
     }
 }
 
@@ -60,7 +56,6 @@ impl<T> Leaf<T> for typed::Node<T, Z> {
 pub struct Local;
 
 impl<T: Send + Sync + 'static> Backend<T> for Local {
-    type Materialized = Material;
     type Node<H: Height> = typed::Node<T, H>;
     type Error = Infallible;
 

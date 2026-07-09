@@ -9,8 +9,8 @@ macro_rules! define_peer {
         define_peer!(@step
             init: [$($init_count)*],
             resp: [$($resp_count)*],
-            init_chain: (CloseInitiator<I, O, T>),
-            resp_chain: (CompleteResponder<I, O, T>),
+            init_chain: (CloseInitiator<I, T>),
+            resp_chain: (CompleteResponder<I, T>),
         );
     };
 
@@ -23,7 +23,7 @@ macro_rules! define_peer {
         define_peer!(@step
             init: [$($init_rest)*],
             resp: [$($resp_count)*],
-            init_chain: (Exchange<I, O, T, Next: $($init_chain)*>),
+            init_chain: (Exchange<I, T, Next: $($init_chain)*>),
             resp_chain: ($($resp_chain)*),
         );
     };
@@ -38,7 +38,7 @@ macro_rules! define_peer {
             init: [],
             resp: [$($resp_rest)*],
             init_chain: ($($init_chain)*),
-            resp_chain: (Exchange<I, O, T, Next: $($resp_chain)*>),
+            resp_chain: (Exchange<I, T, Next: $($resp_chain)*>),
         );
     };
 
@@ -48,59 +48,53 @@ macro_rules! define_peer {
         init_chain: ($($init_chain:tt)*),
         resp_chain: ($($resp_chain:tt)*) $(,)?
     ) => {
-        pub trait Peer<I, O, T>:
-            Initiator<I, T, Next: OpenInitiator<I, O, T, Next: $($init_chain)*>>
+        pub trait Peer<I, T>:
+            Initiator<I, T, Next: OpenInitiator<I, T, Next: $($init_chain)*>>
             + Responder<I, T, Next: $($resp_chain)*>
         where
             I: Backend<T>,
-            O: Backend<T>,
             T: Send + Sync,
         {
         }
 
-        impl<X, I, O, T> Peer<I, O, T> for X
+        impl<X, I, T> Peer<I, T> for X
         where
             I: Backend<T>,
-            O: Backend<T>,
             T: Send + Sync,
-            X: Initiator<I, T, Next: OpenInitiator<I, O, T, Next: $($init_chain)*>>
+            X: Initiator<I, T, Next: OpenInitiator<I, T, Next: $($init_chain)*>>
                 + Responder<I, T, Next: $($resp_chain)*>,
         {
         }
 
-        pub trait Server<I, O, T>:
-            Accept<I, T, Next: Initiator<I, T, Next: OpenInitiator<I, O, T, Next: $($init_chain)*>> + Responder<I, T, Next: $($resp_chain)*>>
+        pub trait Server<I, T>:
+            Accept<I, T, Next: Initiator<I, T, Next: OpenInitiator<I, T, Next: $($init_chain)*>> + Responder<I, T, Next: $($resp_chain)*>>
         where
             I: Backend<T>,
-            O: Backend<T>,
             T: Send + Sync,
         {
         }
 
-        impl<X, I, O, T> Server<I, O, T> for X
+        impl<X, I, T> Server<I, T> for X
         where
             I: Backend<T>,
-            O: Backend<T>,
             T: Send + Sync,
-            X: Accept<I, T, Next: Initiator<I, T, Next: OpenInitiator<I, O, T, Next: $($init_chain)*>> + Responder<I, T, Next: $($resp_chain)*>>,
+            X: Accept<I, T, Next: Initiator<I, T, Next: OpenInitiator<I, T, Next: $($init_chain)*>> + Responder<I, T, Next: $($resp_chain)*>>,
         {
         }
 
-        pub trait Client<I, O, T>:
-            Connect<I, T, Next: CompleteConnect<I, T, Next: Initiator<I, T, Next: OpenInitiator<I, O, T, Next: $($init_chain)*>> + Responder<I, T, Next: $($resp_chain)*>>>
+        pub trait Client<I, T>:
+            Connect<I, T, Next: CompleteConnect<I, T, Next: Initiator<I, T, Next: OpenInitiator<I, T, Next: $($init_chain)*>> + Responder<I, T, Next: $($resp_chain)*>>>
         where
             I: Backend<T>,
-            O: Backend<T>,
             T: Send + Sync,
         {
         }
 
-        impl<X, I, O, T> Client<I, O, T> for X
+        impl<X, I, T> Client<I, T> for X
         where
             I: Backend<T>,
-            O: Backend<T>,
             T: Send + Sync,
-            X: Connect<I, T, Next: CompleteConnect<I, T, Next: Initiator<I, T, Next: OpenInitiator<I, O, T, Next: $($init_chain)*>> + Responder<I, T, Next: $($resp_chain)*>>>,
+            X: Connect<I, T, Next: CompleteConnect<I, T, Next: Initiator<I, T, Next: OpenInitiator<I, T, Next: $($init_chain)*>> + Responder<I, T, Next: $($resp_chain)*>>>,
         {
         }
     };

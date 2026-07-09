@@ -24,16 +24,12 @@ pub use local::Local;
 /// sequences, implement `Backend` at [`Materialized`](Self::Materialized) `=
 /// `[`Immaterial`].
 pub trait Backend<T>: Clone + Send + Sync + 'static {
-    /// Whether this backend's nodes are inspectable ([`Material`]) or opaque
-    /// ([`Immaterial`]).
-    type Materialized: Materiality;
-
     /// The type of nodes carrying messages of type `T`, indexed by height `H`.
     ///
     /// The [`Node`] bound dispatches through
     /// [`Materialized`](Self::Materialized), so it holds at every height for
     /// material and immaterial backends alike.
-    type Node<H: Height>: Node<Self::Materialized> + Send + 'static;
+    type Node<H: Height>: Node + Clone + Send + 'static;
 
     /// The type of errors returned by this backend.
     type Error: Send + 'static;
@@ -68,18 +64,15 @@ pub trait Backend<T>: Clone + Send + Sync + 'static {
 /// bounds and hashes, which is what the session's walks require. An
 /// [`Immaterial`] impl is three unit returns; it exists so the [`Backend`] GAT
 /// bound holds uniformly at every height while promising nothing.
-pub trait Node<M: Materiality = Material>: Sized {
+pub trait Node {
     /// The maximum version of any node under this one.
-    fn ceiling<'a>(&'a self) -> M::Version<'a>;
+    fn ceiling(&self) -> &Version;
 
     /// The minimum version of any node under this one.
-    fn floor<'a>(&'a self) -> M::Version<'a>;
+    fn floor(&self) -> &Version;
 
     /// The merkle hash of this node.
-    fn hash(&self) -> M::Hash;
-
-    /// Duplicate this node.
-    fn clone(&self) -> M::Materialized<Self>;
+    fn hash(&self) -> Hash;
 }
 
 /// What crosses between backends at the conversion boundary, and the one node
@@ -98,64 +91,6 @@ pub trait Leaf<T> {
 
     /// Construct a leaf node.
     fn leaf(version: Version, message: Message<T>) -> Self;
-}
-
-/// The materiality of a backend's nodes: [`Material`] nodes carry real
-/// Merkle hashes and version bounds, [`Immaterial`] nodes are opaque
-/// transport cargo.
-///
-/// This is the type-level switch [`Backend`] dispatches its node requirements
-/// through: the [`Node`] operations' return types project through the backend's
-/// [`Materialized`](Backend::Materialized), so a material backend's nodes
-/// answer with real [`Version`]s and [`struct@Hash`]es while an immaterial
-/// backend's answer with units. Session code that *walks* trees (comparing
-/// hashes, pruning by version bounds) demands `Materialized = Material`;
-/// everything that merely moves nodes around (the protocol schedule, the
-/// drivers, the conversion boundary) accepts either.
-///
-/// Sealed: exactly these two materialities exist.
-pub trait Materiality: sealed::Sealed + 'static {
-    /// What this materiality knows about version bounds: [`Version`] when
-    /// material, `()` when immaterial.
-    type Version<'a>;
-
-    /// What this materiality knows about Merkle hashes: [`struct@Hash`]
-    /// when material, `()` when immaterial.
-    type Hash;
-
-    /// What happens when you clone this: `Self` when material, `()` when
-    /// immaterial.
-    type Materialized<T>;
-}
-
-/// The materiality of backends whose nodes are inspectable: every node
-/// reports its Merkle hash and version bounds.
-pub enum Material {}
-
-/// The materiality of backends whose nodes are opaque transport cargo:
-/// re-chunkable by prefix, but carrying no intermediate hashes or version
-/// bounds.
-///
-/// This is the shape of a wire party, whose node payloads are framed leaf
-/// sequences.
-pub enum Immaterial {}
-
-impl Materiality for Material {
-    type Version<'a> = &'a Version;
-    type Hash = Hash;
-    type Materialized<T> = T;
-}
-
-impl Materiality for Immaterial {
-    type Version<'a> = ();
-    type Hash = ();
-    type Materialized<T> = ();
-}
-
-mod sealed {
-    pub trait Sealed {}
-    impl Sealed for super::Material {}
-    impl Sealed for super::Immaterial {}
 }
 
 /// Type synonym for one prefix-keyed node of a backend: the item of a
@@ -213,7 +148,7 @@ where
 // handles regardless of the message type they carry.
 impl<B, T> Clone for Root<B, T>
 where
-    B: Backend<T, Materialized = Material>,
+    B: Backend<T>,
 {
     fn clone(&self) -> Self {
         Root {
