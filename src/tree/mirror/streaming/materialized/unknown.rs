@@ -26,11 +26,26 @@ use std::cmp::Ordering;
 use std::pin::Pin;
 
 use async_stream::try_stream;
+use tokio_stream::StreamExt;
 
 use crate::Version;
+use crate::tree::mirror::streaming::backend::{BoxNodeStream, BoxOptionNodeStream};
 use crate::tree::typed::height::{Height, S, Z};
 
 use super::super::backend::{Backend, Leaf, Node, NodeStream, one};
+
+/// True iff a node's whole subtree is causally at or before `version`: a
+/// counterparty at that version either has everything under it or deleted
+/// it — either way, nothing under it needs to travel.
+///
+/// A concurrent ceiling compares as `None` and is *not* known: it carries
+/// history the counterparty has never seen.
+pub(super) fn known(node: &impl Node, version: &Version) -> bool {
+    matches!(
+        node.ceiling().partial_cmp(version),
+        Some(Ordering::Less | Ordering::Equal)
+    )
+}
 
 /// Prune `stream` down to the nodes a counterparty at `known` is missing.
 ///
@@ -41,13 +56,16 @@ pub fn unknown<'a, B, T, H>(
     backend: &'a B,
     known: &'a Version,
     stream: impl NodeStream<B, T, H> + 'a,
-) -> Pin<Box<dyn NodeStream<B, T, H> + 'a>>
+) -> impl NodeStream<B, T, H> + 'a
 where
     B: Backend<T, Node<Z>: Leaf<T>> + Sync + 'a,
     T: Send + Sync + 'a,
     H: Unknown,
 {
-    H::unknown(backend, known, Box::pin(stream))
+    H::unknown(backend, known, Box::pin(stream)).filter_map(|result| match result {
+        Ok((prefix, node)) => node.map(|node| Ok((prefix, node))),
+        Err(e) => Some(Err(e)),
+    })
 }
 
 /// The inductive step of the streaming filter, implemented per [`Height`].
@@ -61,8 +79,8 @@ pub trait Unknown: Height {
     fn unknown<'a, B, T>(
         backend: &'a B,
         known: &'a Version,
-        stream: Pin<Box<dyn NodeStream<B, T, Self> + 'a>>,
-    ) -> Pin<Box<dyn NodeStream<B, T, Self> + 'a>>
+        stream: BoxNodeStream<'a, B, T, Self>,
+    ) -> BoxOptionNodeStream<'a, B, T, Self>
     where
         B: Backend<T, Node<Z>: Leaf<T>> + Sync + 'a,
         T: Send + Sync + 'a;
@@ -72,8 +90,8 @@ impl Unknown for Z {
     fn unknown<'a, B, T>(
         _backend: &'a B,
         known: &'a Version,
-        stream: Pin<Box<dyn NodeStream<B, T, Z> + 'a>>,
-    ) -> Pin<Box<dyn NodeStream<B, T, Z> + 'a>>
+        stream: BoxNodeStream<'a, B, T, Z>,
+    ) -> BoxOptionNodeStream<'a, B, T, Z>
     where
         B: Backend<T, Node<Z>: Leaf<T>> + Sync + 'a,
         T: Send + Sync + 'a,
@@ -83,13 +101,10 @@ impl Unknown for Z {
         Box::pin(try_stream! {
             for await item in stream {
                 let (prefix, node) = item?;
-                let known = matches!(
-                    node.ceiling().partial_cmp(known),
-                    Some(Ordering::Less | Ordering::Equal)
-                );
-                if !known {
-                    yield (prefix, node);
-                }
+                let keep = !self::known(&node, known);
+
+                // Unconditionally report the node, filtering out known ones to None.
+                yield (prefix, Some(node).filter(|_| keep));
             }
         })
     }
@@ -103,8 +118,8 @@ where
     fn unknown<'a, B, T>(
         backend: &'a B,
         known: &'a Version,
-        stream: Pin<Box<dyn NodeStream<B, T, S<H>> + 'a>>,
-    ) -> Pin<Box<dyn NodeStream<B, T, S<H>> + 'a>>
+        stream: BoxNodeStream<'a, B, T, S<H>>,
+    ) -> BoxOptionNodeStream<'a, B, T, S<H>>
     where
         B: Backend<T, Node<Z>: Leaf<T>> + Sync + 'a,
         T: Send + Sync + 'a,
@@ -118,7 +133,7 @@ where
                 // greater than `known` means the whole subtree is unknown.
                 match node.floor().partial_cmp(known) {
                     None | Some(Ordering::Greater) => {
-                        yield (prefix, node);
+                        yield (prefix, Some(node));
                         continue;
                     }
                     _ => {}
@@ -127,6 +142,7 @@ where
                 // A ceiling causally at or before `known` means the whole
                 // subtree is already known (or was deleted): drop it.
                 if node.ceiling() <= known {
+                    yield (prefix, None);
                     continue;
                 }
 
@@ -137,7 +153,8 @@ where
                 let pruned = H::unknown(backend, known, children);
                 let parents = backend.clone().parents::<H>(pruned);
                 for await parent in parents {
-                    yield parent?;
+                    let (prefix, parent) = parent?;
+                    yield (prefix, Some(parent));
                 }
             }
         })

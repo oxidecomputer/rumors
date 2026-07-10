@@ -15,7 +15,7 @@ use crate::tree::{
     traverse::unknown::Unknown,
     typed::{
         Hash, Level, Levels, Prefix,
-        height::{Height, Root, S},
+        height::{Height, Root, S, Z},
         levels::Below,
     },
 };
@@ -43,6 +43,24 @@ where
     /// `Both`-case grandchildren of children whose hashes disagreed. Become the
     /// new bottom of the zipper, and next round's outgoing `uncertain`.
     exploded: Level<T, H>,
+}
+
+/// The output of [`Exchange::partition_leaf_uncertain`]: the leaf-height
+/// [`Partition`], with the dispute cell gone (a leaf never recurses) and the
+/// matched-and-kept leaves named `kept`.
+struct LeafPartition<T> {
+    /// Leaves only we hold that the counterparty has not deleted: joins the
+    /// outgoing `providing`.
+    providing: Level<T, Z>,
+    /// Leaves only the counterparty holds: the outgoing `requested`. Built in
+    /// strictly ascending order.
+    requested: Vec<Prefix<Z>>,
+    /// Every leaf we keep under the disputed parents: matched leaves plus the
+    /// surviving `providing`.
+    ///
+    /// Becomes the zipper's new bottom, where the counterparty's answers to
+    /// `requested` join it before `collapse` reassembles the union parents.
+    kept: Level<T, Z>,
 }
 
 impl<L> Exchange<Connected, L>
@@ -86,28 +104,30 @@ where
             .extend(Level::from_sorted(providing));
     }
 
-    /// Answer the counterparty's `requested` set by exploding each requested
-    /// node into its children, filtered against the counterparty's version so
-    /// that any subtrees they have deleted disappear locally too.
+    /// Drain the frontier against the counterparty's ascending `requested`
+    /// set, keeping each requested node's pruned survivor and handing it to
+    /// `provide`.
     ///
-    /// Returns the outgoing `providing` map, one height below the frontier.
-    pub(super) fn answer_requested<H>(
+    /// Pruning is against their version: anything causally prior to it that
+    /// they lack was deleted there, so it vanishes here too — deletion
+    /// honored on both sides in one arm.
+    ///
+    /// Factored over what "providing" means per height: branch rounds
+    /// provide a requested node's children
+    /// ([`answer_requested`](Self::answer_requested)), the closing round the
+    /// leaf itself ([`answer_requested_leaves`](Self::answer_requested_leaves)).
+    fn answer_requested_surviving<H>(
         &mut self,
-        requested: Vec<Prefix<S<H>>>,
-    ) -> Level<L::Message, H>
-    where
-        L: Levels<Height = S<H>>,
-        S<H>: Unknown,
-        H: Height,
+        requested: Vec<Prefix<H>>,
+        mut provide: impl FnMut(Prefix<H>, &tree::typed::Node<L::Message, H>),
+    ) where
+        L: Levels<Height = H>,
+        H: Height + Unknown,
     {
-        // Drain the frontier in one pass, co-iterating it against the ascending
-        // `requested` set (a subset of the frontier's prefixes). Requested
-        // nodes are exploded into the outgoing `providing`; their surviving
-        // selves and every un-requested node carry over into the rebuilt
-        // frontier. Both the frontier and `requested` are sorted, so this is
-        // O(n) rather than a binary-search `remove`/`insert` per requested
-        // prefix.
-        let mut providing = Level::default();
+        // Co-iterate the frontier against `requested` (a subset of its
+        // prefixes) in one pass; both are sorted, so this is O(n) rather than
+        // a binary-search `remove`/`insert` per requested prefix.
+        //
         // Grow `kept` by `push` rather than pre-sizing to `frontier.len()`: these
         // levels are allocated and freed every round, and `Vec`'s power-of-two
         // growth recycles through the allocator's size classes across rounds far
@@ -118,15 +138,8 @@ where
         for (prefix, node) in mem::take(self.levels.level_mut()) {
             if requested.peek() == Some(&prefix) {
                 requested.next();
-                // Filter against the counterparty's version: anything causally
-                // prior to it that they lack, they have already deleted -- so
-                // we should too. The surviving subtree (if any) carries over
-                // into the rebuilt frontier; its children are sent out as
-                // `providing`.
                 if let Some(node) = Unknown::unknown(Some(node), &self.versions.their_version) {
-                    for (radix, child) in node.clone().into_children() {
-                        providing.push(prefix.push(radix), child);
-                    }
+                    provide(prefix, &node);
                     kept.push(prefix, node);
                 }
             } else {
@@ -141,6 +154,28 @@ where
             panic!("counterparty requested unknown prefix {:?}", prefix);
         }
         *self.levels.level_mut() = kept;
+    }
+
+    /// Answer the counterparty's `requested` set by exploding each requested
+    /// node into its children, filtered against the counterparty's version so
+    /// that any subtrees they have deleted disappear locally too.
+    ///
+    /// Returns the outgoing `providing` map, one height below the frontier.
+    pub(super) fn answer_requested<H>(
+        &mut self,
+        requested: Vec<Prefix<S<H>>>,
+    ) -> Level<L::Message, H>
+    where
+        L: Levels<Height = S<H>>,
+        S<H>: Unknown,
+        H: Height,
+    {
+        let mut providing = Level::default();
+        self.answer_requested_surviving(requested, |prefix, node| {
+            for (radix, child) in node.clone().into_children() {
+                providing.push(prefix.push(radix), child);
+            }
+        });
         providing
     }
 
@@ -152,7 +187,7 @@ where
     ///
     /// Shared by [`open_initiator`](protocol::OpenInitiator::open_initiator),
     /// [`exchange`](protocol::Exchange::exchange), and
-    /// [`close_initiator`](protocol::CloseInitiator::close_initiator).
+    /// [`close_responder`](protocol::CloseResponder::close_responder).
     /// The two "asymmetric root" branches — `else`
     /// (we lack the parent) and the post-loop drain (we have a parent the
     /// counterparty never mentioned) — are reachable only from
@@ -307,6 +342,213 @@ where
         }
     }
 
+    /// Answer the counterparty's leaf-height `requested` set: the leaf itself
+    /// is provided, not exploded — there is nothing beneath it.
+    ///
+    /// The same pruning as [`answer_requested`](Self::answer_requested)
+    /// applies, and does double duty: a requested leaf causally at or before
+    /// the counterparty's version is one they deleted, so it is dropped
+    /// locally instead of provided — deletion honored on both sides in one
+    /// arm.
+    pub(super) fn answer_requested_leaves(
+        &mut self,
+        requested: Vec<Prefix<Z>>,
+    ) -> Level<L::Message, Z>
+    where
+        L: Levels<Height = Z>,
+    {
+        let mut providing = Level::default();
+        self.answer_requested_surviving(requested, |prefix, leaf| {
+            providing.push(prefix, leaf.clone());
+        });
+        providing
+    }
+
+    /// Partition the counterparty's leaf-height `uncertain` — its leaf
+    /// listing under each still-disputed leaf-parent — against our own
+    /// leaves.
+    ///
+    /// This is [`partition_uncertain`](Self::partition_uncertain) with the
+    /// dispute arm gone: two parties holding a leaf at the same path hold
+    /// the same leaf, so a `Both` cell is always a match and nothing recurses.
+    /// Each disputed parent leaves the frontier; its reconciled leaves land
+    /// in the returned `kept` level, which the caller pushes down the zipper
+    /// so `collapse` reassembles the union parent.
+    fn partition_leaf_uncertain(
+        &mut self,
+        uncertain: Vec<(Prefix<Z>, Hash)>,
+    ) -> LeafPartition<L::Message>
+    where
+        L: Levels<Height = S<Z>>,
+    {
+        let mut providing = Level::default();
+        let mut requested = Vec::new();
+        let mut kept_leaves = Level::default();
+
+        let by_parent = uncertain
+            .into_iter()
+            .map(|(prefix, hash)| {
+                let (parent_prefix, radix) = prefix.pop();
+                (parent_prefix, radix, hash)
+            })
+            .chunk_by(|(parent_prefix, _, _)| *parent_prefix);
+
+        // Drain the frontier in one pass, co-iterating it (ascending) against
+        // the ascending `by_parent` groups; parents the counterparty never
+        // mentioned carry over untouched, exactly as in `partition_uncertain`.
+        let mut frontier = mem::take(self.levels.level_mut()).into_iter().peekable();
+        let mut kept_parents = Level::default();
+        for (parent_prefix, uncertain_leaves) in &by_parent {
+            while frontier.peek().is_some_and(|(fp, _)| *fp < parent_prefix) {
+                let (fp, fnode) = frontier.next().unwrap();
+                kept_parents.push(fp, fnode);
+            }
+
+            if frontier.peek().is_some_and(|(fp, _)| *fp == parent_prefix) {
+                let (_, parent) = frontier.next().unwrap();
+                for cell in parent
+                    .into_children()
+                    .into_iter()
+                    .merge_join_by(uncertain_leaves, |(child_radix, _), (_, hash_radix, _)| {
+                        child_radix.cmp(hash_radix)
+                    })
+                {
+                    use EitherOrBoth::*;
+                    match cell {
+                        // We have it, they lack it: they deleted it if it is
+                        // at or before their version; otherwise provide it
+                        // and keep it.
+                        Left((radix, ours)) => {
+                            let leaf_prefix = parent_prefix.push(radix);
+                            if let Some(ours) =
+                                Unknown::unknown(Some(ours), &self.versions.their_version)
+                            {
+                                providing.push(leaf_prefix, ours.clone());
+                                kept_leaves.push(leaf_prefix, ours);
+                            }
+                        }
+                        // We both have it: the same path holds the same leaf.
+                        Both((radix, ours), (parent_prefix, _, theirs)) => {
+                            debug_assert!(
+                                ours.hash() == theirs,
+                                "two leaves at one path must hash identically",
+                            );
+                            kept_leaves.push(parent_prefix.push(radix), ours);
+                        }
+                        // They have it, we lack it: ask for it. The answer
+                        // prunes against our version, so a leaf we deleted
+                        // never comes back — it drops on their side instead.
+                        Right((parent_prefix, hash_radix, _)) => {
+                            requested.push(parent_prefix.push(hash_radix));
+                        }
+                    }
+                }
+            } else {
+                // The steady state guarantees both sides agree on disputed
+                // parents; a group without a frontier parent means the
+                // counterparty is misbehaving, or we are. Requesting every
+                // listed leaf is the harmless recovery.
+                debug_assert!(
+                    false,
+                    "counterparty listed leaves under unknown parent prefix {:?}",
+                    parent_prefix,
+                );
+                for (parent, hash_radix, _) in uncertain_leaves {
+                    requested.push(parent.push(hash_radix));
+                }
+            }
+        }
+        for (fp, fnode) in frontier {
+            kept_parents.push(fp, fnode);
+        }
+
+        *self.levels.level_mut() = kept_parents;
+
+        LeafPartition {
+            providing,
+            requested,
+            kept: kept_leaves,
+        }
+    }
+
+    /// Run the responder's closing round end-to-end: absorb the incoming
+    /// `providing`, answer the incoming `requested`, partition the incoming
+    /// leaf-height `uncertain`, and descend the zipper to leaf height.
+    ///
+    /// The leaf-height twin of [`reply`](Self::reply), producing the
+    /// [`message::Closing`] and the descended [`Exchange`] whose `Z` level
+    /// holds the reconciled leaves under every parent that was disputed.
+    /// [`Step::Done`](protocol::Step::Done) when nothing was requested:
+    /// the counterparty's [`message::Complete`] would carry nothing.
+    #[allow(clippy::type_complexity)]
+    pub(super) fn close(
+        mut self,
+        request: message::Exchange<L::Message, Z>,
+    ) -> protocol::Step<
+        message::Closing<L::Message>,
+        Exchange<Connected, Below<Z, L>>,
+        tree::Root<L::Message>,
+    >
+    where
+        L: Levels<Height = S<Z>>,
+    {
+        let message::Exchange {
+            providing,
+            requested,
+            uncertain,
+        } = request;
+
+        self.absorb_providing(providing);
+        let mut providing = self.answer_requested(requested);
+        let partition = self.partition_leaf_uncertain(uncertain);
+        providing.extend(partition.providing);
+
+        let levels = self.levels.down(partition.kept);
+        #[cfg_attr(not(debug_assertions), allow(unused_mut))]
+        let mut next = Exchange {
+            levels,
+            versions: self.versions,
+            #[cfg(debug_assertions)]
+            expected_parents: Default::default(),
+        };
+
+        let response = message::Closing {
+            providing: providing.into_iter().collect(),
+            requested: partition.requested,
+        };
+
+        // The counterparty may only answer the leaves we just requested.
+        // `expected_providing_parents` doesn't fit here: a requested *leaf*
+        // is answered by the leaf itself, so the expected parent is the
+        // leaf's parent, not (as at branch heights) the requested prefix.
+        #[cfg(debug_assertions)]
+        {
+            next.expected_parents = response
+                .requested
+                .iter()
+                .map(|prefix| {
+                    let bytes = prefix.as_bytes();
+                    Box::from(&bytes[..bytes.len() - 1])
+                })
+                .collect();
+        }
+
+        if response.requested.is_empty() {
+            protocol::Step::Done {
+                msg: response,
+                output: tree::Root {
+                    ceiling: next.versions.our_version | next.versions.their_version,
+                    root: next.levels.collapse(),
+                },
+            }
+        } else {
+            protocol::Step::Continue {
+                msg: response,
+                next,
+            }
+        }
+    }
+
     /// Run a steady-state round end-to-end: absorb the incoming `providing`,
     /// answer the incoming `requested`, partition the incoming `uncertain`, and
     /// descend the zipper by two heights.
@@ -317,7 +559,7 @@ where
     /// whether the outgoing message has anything left to negotiate.
     ///
     /// Shared by [`exchange`](protocol::Exchange::exchange) and
-    /// [`close_initiator`](protocol::CloseInitiator::close_initiator); they
+    /// [`close_responder`](protocol::CloseResponder::close_responder); they
     /// differ only in how they assemble the outgoing message.
     #[allow(clippy::type_complexity)]
     pub(super) fn reply<Request, Response, H>(

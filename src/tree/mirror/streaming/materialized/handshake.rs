@@ -183,9 +183,10 @@ where
         // The initiator's reconciled root-child level arrives on `up` whole:
         // one fold reassembles the root the terminal resolves to.
         let ceiling = versions.our_version | versions.their_version.clone();
-        let top = backend
-            .clone()
-            .parents(ReceiverStream::new(up_rx).map(Ok::<_, B::Error>));
+        let top = backend.clone().parents(
+            ReceiverStream::new(up_rx)
+                .map(|(prefix, node)| Ok::<_, B::Error>((prefix, Some(node)))),
+        );
         let finish = reassemble(top, ceiling);
         let mut work = Vec::new();
         let sending = reconcile::outgoing(&mut work, listing);
@@ -213,7 +214,7 @@ where
         self,
         requests: impl Requests<message::Opening>,
     ) -> (
-        BoxResponses<message::Exchanged<B, T, UnderRoot>, Self::Error>,
+        BoxResponses<message::Exchange<B, T, UnderRoot>, Self::Error>,
         Self::Next,
     ) {
         let Handshaking {
@@ -240,8 +241,14 @@ where
         // resolves to.
         let ceiling = versions.our_version | versions.their_version.clone();
         let top = backend.clone().parents(merge_disjoint(
-            ReceiverStream::new(level_rx).map(Ok),
-            backend.clone().parents(ReceiverStream::new(up_rx).map(Ok)),
+            ReceiverStream::new(level_rx).map(|(prefix, node)| Ok((prefix, Some(node)))),
+            backend
+                .clone()
+                .parents(
+                    ReceiverStream::new(up_rx)
+                        .map(|(prefix, node)| Ok::<_, B::Error>((prefix, Some(node)))),
+                )
+                .map(|item| item.map(|(prefix, node)| (prefix, Some(node)))),
         ));
         let finish = reassemble(top, ceiling);
         let mut work = Vec::new();

@@ -7,6 +7,7 @@ use crate::{
     message::Message,
     tree::{
         self,
+        mirror::streaming::backend::OptionNodeStream,
         typed::{
             self,
             height::{Height, S, Z},
@@ -32,13 +33,6 @@ impl<T, H: Height> Node for typed::Node<T, H> {
 }
 
 impl<T> Leaf<T> for typed::Node<T, Z> {
-    // Delegates to the same inherent `ceiling` the `Node` impl uses,
-    // keeping `Leaf::version` and `Node::ceiling` one method in disguise
-    // (the coherence contract on `Leaf::version`).
-    fn version(&self) -> &Version {
-        self.ceiling()
-    }
-
     fn message(&self) -> &Message<T> {
         self.message()
     }
@@ -59,7 +53,10 @@ impl<T: Send + Sync + 'static> Backend<T> for Local {
     type Node<H: Height> = typed::Node<T, H>;
     type Error = Infallible;
 
-    fn parents<H>(self, children: impl NodeStream<Self, T, H>) -> impl NodeStream<Self, T, S<H>>
+    fn parents<H>(
+        self,
+        children: impl OptionNodeStream<Self, T, H>,
+    ) -> impl NodeStream<Self, T, S<H>>
     where
         H: Height,
         S<H>: Height,
@@ -78,6 +75,12 @@ impl<T: Send + Sync + 'static> Backend<T> for Local {
                 while let Some(Ok((path, child))) = children.next().await
                     && let (prefix, radix) = path.pop()
                 {
+                    // We don't have to do anything special to delete a missing
+                    // child; we just don't include it in the re-assembly.
+                    let Some(child) = child else {
+                        continue;
+                    };
+
                     if let Some((current_prefix, current_children)) = &mut current
                         && *current_prefix == prefix
                     {

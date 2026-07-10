@@ -14,7 +14,7 @@ use std::pin::Pin;
 use crate::{
     Version,
     tree::{
-        mirror::streaming::Backend,
+        mirror::streaming::{Backend, Leaf},
         typed::{
             Prefix,
             height::{Height, Pred, Root, S, UnderRoot, UnderUnderRoot, Z},
@@ -49,7 +49,9 @@ impl<X, M, E> Responses<M, E> for X where X: Stream<Item = Result<M, E>> + Send 
 /// A boxed [`Responses`] stream.
 pub type BoxResponses<M, E> = Pin<Box<dyn Responses<M, E>>>;
 
-pub trait Connect<I: Backend<T>, T: Send + Sync>: Protocol<Height = Root> + Sized {
+pub trait Connect<I: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
+    Protocol<Height = Root> + Sized
+{
     type Next: CompleteConnect<I, T>
         + Protocol<Height = Root, Output = Self::Output, Error = Self::Error>;
 
@@ -58,7 +60,9 @@ pub trait Connect<I: Backend<T>, T: Send + Sync>: Protocol<Height = Root> + Size
     ) -> impl Future<Output = Result<(message::Handshake, Self::Next), Self::Error>> + Send;
 }
 
-pub trait Accept<I: Backend<T>, T: Send + Sync>: Protocol<Height = Root> + Sized {
+pub trait Accept<I: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
+    Protocol<Height = Root> + Sized
+{
     type Next: Initiator<I, T>
         + OpenResponder<I, T>
         + Protocol<Height = Root, Output = Self::Output, Error = Self::Error>;
@@ -69,7 +73,9 @@ pub trait Accept<I: Backend<T>, T: Send + Sync>: Protocol<Height = Root> + Sized
     ) -> impl Future<Output = Result<(message::Handshake, Self::Next), Self::Error>> + Send;
 }
 
-pub trait CompleteConnect<I: Backend<T>, T: Send + Sync>: Protocol<Height = Root> + Sized {
+pub trait CompleteConnect<I: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
+    Protocol<Height = Root> + Sized
+{
     type Next: Initiator<I, T>
         + OpenResponder<I, T>
         + Protocol<Height = Root, Output = Self::Output, Error = Self::Error>;
@@ -87,19 +93,22 @@ pub trait CompleteConnect<I: Backend<T>, T: Send + Sync>: Protocol<Height = Root
 /// hash equal only when their versions are equal, and equal versions
 /// short-circuit the session before it reaches the protocol at all. So the
 /// initiator skips straight to its root's children.
-pub trait Initiator<I: Backend<T>, T: Send + Sync>: Protocol<Height = Root> + Sized {
+pub trait Initiator<I: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
+    Protocol<Height = Root> + Sized
+{
     type Next: Protocol<Height = UnderRoot, Output = Self::Output, Error = Self::Error>;
 
     fn initiator(self) -> (impl Responses<message::Opening, Self::Error>, Self::Next);
 }
 
-pub trait OpenResponder<I: Backend<T>, T: Send + Sync>: Protocol<Height = Root> + Sized {
+pub trait OpenResponder<I: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
+    Protocol<Height = Root> + Sized
+{
     // Like [`Initiator::Next`], this is left un-bounded by [`Exchange`]: both
     // openings hand off to the descent, but only [`Peer`] spells the chain out.
     // Naming `Exchange` here instead would make it a bound `Accept::Next` and
-    // `CompleteConnect::Next` must discharge, which no generic wrapper — see
-    // [`Converted`](super::convert::Converted) — can do without the concrete
-    // height.
+    // `CompleteConnect::Next` must discharge, which no generic wrapper can do
+    // without the concrete height.
     type Next: Protocol<Height = UnderUnderRoot, Output = Self::Output, Error = Self::Error>;
 
     fn open_responder(
@@ -108,12 +117,12 @@ pub trait OpenResponder<I: Backend<T>, T: Send + Sync>: Protocol<Height = Root> 
     ) -> (
         // IMPORTANT: This must be boxed because otherwise `rustc` explodes on
         // an exponentially-sized type!
-        BoxResponses<message::Exchanged<I, T, UnderRoot>, Self::Error>,
+        BoxResponses<message::Exchange<I, T, UnderRoot>, Self::Error>,
         Self::Next,
     );
 }
 
-pub trait Exchange<I: Backend<T>, T: Send + Sync>: Protocol + Sized
+pub trait Exchange<I: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>: Protocol + Sized
 where
     Self::Height: Pred,
     <Self::Height as Pred>::Pred: Pred,
@@ -127,16 +136,16 @@ where
 
     fn exchange(
         self,
-        requests: impl Requests<message::Exchanged<I, T, Self::Height>>,
+        requests: impl Requests<message::Exchange<I, T, Self::Height>>,
     ) -> (
         // IMPORTANT: This must be boxed because otherwise `rustc` explodes on
         // an exponentially-sized type!
-        BoxResponses<message::Exchanged<I, T, <Self::Height as Pred>::Pred>, Self::Error>,
+        BoxResponses<message::Exchange<I, T, <Self::Height as Pred>::Pred>, Self::Error>,
         Self::Next,
     );
 }
 
-pub trait CloseResponder<I: Backend<T>, T: Send + Sync>:
+pub trait CloseResponder<I: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
     Protocol<Height = S<S<Z>>> + Sized
 {
     type Next: CompleteResponder<I, T>
@@ -144,54 +153,94 @@ pub trait CloseResponder<I: Backend<T>, T: Send + Sync>:
 
     fn close_responder(
         self,
-        requests: impl Requests<message::Exchanged<I, T, S<S<Z>>>>,
+        requests: impl Requests<message::Exchange<I, T, S<S<Z>>>>,
     ) -> (
         // IMPORTANT: This must be boxed because otherwise `rustc` explodes on
         // an exponentially-sized type!
-        BoxResponses<(Prefix<S<Z>>, message::Closing<I, T>), Self::Error>,
+        BoxResponses<message::Exchange<I, T, S<Z>>, Self::Error>,
         Self::Next,
     );
 }
 
-pub trait CompleteInitiator<I: Backend<T>, T: Send + Sync>:
+/// The initiator's closing reply: consume the responder's leaf-parent
+/// verdicts, answer their `uncertain` leaf listings through the degenerate
+/// leaf-height matrix, and emit [`message::Closing`].
+///
+/// An incoming `uncertain` here lists the responder's leaves under a parent
+/// both sides hold; leaves never dispute, so each one resolves in place —
+/// ours-only pruned and provided, theirs-only requested, shared kept in
+/// silence. The kept leaves descend to the terminal, where the responder's
+/// answers join them.
+pub trait CloseInitiator<I: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
     Protocol<Height = S<Z>> + Sized
 {
-    fn complete_initiator(
+    type Next: CompleteInitiator<I, T>
+        + Protocol<Height = Z, Output = Self::Output, Error = Self::Error>;
+
+    fn close_initiator(
         self,
-        requests: impl Requests<(Prefix<S<Z>>, message::Closing<I, T>)>,
+        requests: impl Requests<message::Exchange<I, T, S<Z>>>,
     ) -> (
-        BoxResponses<(Prefix<Z>, message::Complete<I, T>), Self::Error>,
+        BoxResponses<message::Closing<I, T>, Self::Error>,
+        Self::Next,
+    );
+}
+
+/// The responder's terminal: absorb the initiator's [`message::Closing`]
+/// and answer it with the final [`message::Complete`].
+///
+/// Each `Requested` leaf is answered pruned against the initiator's
+/// version, so a leaf the initiator deleted drops here instead of shipping.
+pub trait CompleteResponder<I: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
+    Protocol<Height = Z> + Sized
+{
+    fn complete_responder(
+        self,
+        requests: impl Requests<message::Closing<I, T>>,
+    ) -> (
+        BoxResponses<message::Complete<I, T>, Self::Error>,
         impl Future<Output = Result<Self::Output, Self::Error>> + Send,
     );
 }
 
-pub trait CompleteResponder<I: Backend<T>, T: Send + Sync>: Protocol<Height = Z> + Sized {
-    fn complete_responder(
+/// The initiator's terminal: absorb the responder's final
+/// [`message::Complete`] and resolve to the reconciled root.
+pub trait CompleteInitiator<I: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
+    Protocol<Height = Z> + Sized
+{
+    fn complete_initiator(
         self,
-        requests: impl Requests<(Prefix<Z>, message::Complete<I, T>)>,
+        requests: impl Requests<message::Complete<I, T>>,
     ) -> impl Future<Output = Result<Self::Output, Self::Error>> + Send;
 }
 
 /// Blanket marker trait keyed by the height `H` just produced by an exchange:
 ///
-/// - `H = S<Z>`: must impl [`CompleteInitiator`].
+/// - `H = S<Z>`: must impl [`CloseInitiator`].
 /// - `H = S<S<Z>>`: must impl [`CloseResponder`].
 /// - `H = S<S<S<_>>>`: must impl [`Exchange`] at two heights finer.
 ///
 /// Heights `S<Z>` and `S<S<Z>>` are handled via the blanket impls below,
-/// keyed off the appropriate terminal trait.
+/// keyed off the appropriate closing trait.
 ///
-/// Height `Z` is never reached as the result of an exchange (the leaf-height
-/// uncertain map would be vacuous), so there is no `AfterExchange<Z>` impl.
-pub trait AfterExchange<I: Backend<T>, T: Send + Sync, H: Height>: Sized {}
+/// Height `Z` is never reached as the result of an exchange (the closing
+/// stages name their `Z`-height terminals directly through their `Next`
+/// bounds), so there is no `AfterExchange<Z>` impl.
+pub trait AfterExchange<I: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync, H: Height>: Sized {}
 
-impl<T: Send + Sync, I: Backend<T>, X: CompleteInitiator<I, T>> AfterExchange<I, T, S<Z>> for X {}
+impl<T: Send + Sync, I: Backend<T, Node<Z>: Leaf<T>>, X: CloseInitiator<I, T>>
+    AfterExchange<I, T, S<Z>> for X
+{
+}
 
-impl<T: Send + Sync, I: Backend<T>, X: CloseResponder<I, T>> AfterExchange<I, T, S<S<Z>>> for X {}
+impl<T: Send + Sync, I: Backend<T, Node<Z>: Leaf<T>>, X: CloseResponder<I, T>>
+    AfterExchange<I, T, S<S<Z>>> for X
+{
+}
 
 impl<T, I, H, X> AfterExchange<I, T, S<S<S<H>>>> for X
 where
-    I: Backend<T>,
+    I: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync,
     H: Height,
     S<H>: Height,

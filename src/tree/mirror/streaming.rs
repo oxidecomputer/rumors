@@ -16,7 +16,6 @@ mod protocol;
 mod remote;
 
 pub use backend::{Backend, Leaf, Local, Node, Root};
-pub use convert::Converted;
 pub use materialized::Handshaking;
 
 use std::cmp::Ordering;
@@ -153,7 +152,7 @@ async fn mirror_connected<B, I, R, T>(
 ) -> Result<(I::Output, R::Output), Error<I::Error, R::Error>>
 where
     T: Send + Sync + 'static,
-    B: Backend<T>,
+    B: Backend<T, Node<Z>: Leaf<T>>,
     I: Peer<B, T>,
     R: Peer<B, T>,
 {
@@ -166,8 +165,9 @@ where
         }
         i.exchange;
         r.close_responder;
-        i.complete_initiator;
+        i.close_initiator;
         r.complete_responder;
+        i.complete_initiator;
     }
 }
 
@@ -177,7 +177,7 @@ type ServerConnected<S, B, T> = <S as Accept<B, T>>::Next;
 pub(crate) struct Handshaken<C, S, B, T>
 where
     T: Send + Sync + 'static,
-    B: Backend<T>,
+    B: Backend<T, Node<Z>: Leaf<T>>,
     C: Client<B, T>,
     S: Server<B, T>,
 {
@@ -190,7 +190,7 @@ where
 impl<C, S, B, T> Handshaken<C, S, B, T>
 where
     T: Send + Sync + 'static,
-    B: Backend<T>,
+    B: Backend<T, Node<Z>: Leaf<T>>,
     C: Client<B, T>,
     S: Server<B, T>,
 {
@@ -224,7 +224,7 @@ pub(crate) async fn handshake<C, S, B, T>(
 ) -> Result<Handshaken<C, S, B, T>, Error<C::Error, S::Error>>
 where
     T: Send + Sync + 'static,
-    B: Backend<T>,
+    B: Backend<T, Node<Z>: Leaf<T>>,
     C: Client<B, T>,
     S: Server<B, T>,
 {
@@ -254,7 +254,7 @@ pub(crate) async fn descend<L, R, B, T>(
 ) -> Result<Option<(L::Output, R::Output)>, Error<L::Error, R::Error>>
 where
     T: Send + Sync + 'static,
-    B: Backend<T>,
+    B: Backend<T, Node<Z>: Leaf<T>>,
     L: Peer<B, T>,
     R: Peer<B, T>,
 {
@@ -293,7 +293,7 @@ pub(crate) async fn mirror<C, S, B, T>(
 ) -> Result<Option<(C::Output, S::Output)>, Error<C::Error, S::Error>>
 where
     T: Send + Sync + 'static,
-    B: Backend<T>,
+    B: Backend<T, Node<Z>: Leaf<T>>,
     C: Client<B, T>,
     S: Server<B, T>,
 {

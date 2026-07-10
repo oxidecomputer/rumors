@@ -15,10 +15,11 @@
 //! - **Round trips:** ≈ `½·log₂₅₆(2·D·N)` exchanges after the opening —
 //!   the descent runs until the disputed paths separate pairwise, and path
 //!   compression does *not* shorten it (the descent pops one prefix byte
-//!   per level). The fixed schedule caps every session at 36 frames (two
-//!   handshake frames plus a 34-message descent covering all 32 levels,
-//!   ≈ 18 round trips), and in-band termination (the emptiness predicates
-//!   in [`protocol`]'s table) ends it the moment nothing remains disputed.
+//!   per level). The fixed schedule caps every session at 37 frames (two
+//!   handshake frames plus a 35-message descent covering all 32 levels and
+//!   the leaf-height closing exchange, ≈ 18 round trips), and in-band
+//!   termination (the emptiness predicates in [`protocol`]'s table) ends it
+//!   the moment nothing remains disputed.
 //! - **Computation, per side:** the disputed frontier, not the tree. Each
 //!   round merge-joins the counterparty's disputed sets against level maps
 //!   that hold nothing already agreed ([`local`]'s zipper). The frontier
@@ -177,11 +178,12 @@ where
         x! { i.exchange <=x== r.exchange }
         x! { i.exchange ==x=> r.exchange }
     });
-    x! { i.close_initiator    <=x== r.exchange           }
-    x! { i.close_initiator    ==x=> r.complete_responder }
-    x! { i.complete_initiator <=x== r.complete_responder }
+    x! { i.exchange           <=x== r.exchange           }
+    x! { i.exchange           ==x=> r.close_responder    }
+    x! { i.complete_initiator <=x== r.close_responder    }
+    x! { i.complete_initiator ==x=> r.complete_responder }
 
-    match r {}
+    match i {}
 }
 
 pub use super::Error;

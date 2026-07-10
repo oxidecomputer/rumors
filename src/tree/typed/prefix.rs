@@ -80,13 +80,13 @@ impl<H: Height> Prefix<H> {
     /// The accumulated path bytes, shallowest-first. Exactly `32 - H::HEIGHT`
     /// long, so appending the remaining `H::HEIGHT` bytes of a descent below
     /// this point reconstructs a full 32-byte [`Key`].
-    pub(crate) fn as_bytes(&self) -> &[u8] {
+    pub fn as_bytes(&self) -> &[u8] {
         &self.hash
     }
 
     /// The prefix naming the height-`H` subtree that contains `path`: its
     /// first `32 - H::HEIGHT` bytes.
-    pub(crate) fn containing(path: &Path) -> Self {
+    pub fn containing(path: &Path) -> Self {
         Prefix {
             height: PhantomData,
             hash: <[u8; 32]>::from(*path)[..32 - H::HEIGHT]

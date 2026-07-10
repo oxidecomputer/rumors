@@ -18,7 +18,7 @@ use proptest::prelude::*;
 use crate::Version;
 use crate::message::Message;
 use crate::tree::arb::{arb_root_node, arb_version, nth_party};
-use crate::tree::typed::height::{Height, Root, S, Z};
+use crate::tree::typed::height::{Height, Root, Z};
 use crate::tree::typed::{Hash, Node, Prefix, hash::MERKLE_HASH_LEN};
 
 use super as message;
@@ -42,15 +42,6 @@ fn arb_hash() -> BoxedStrategy<Hash> {
 fn arb_leaf() -> BoxedStrategy<Node<(), Z>> {
     arb_version()
         .prop_map(|version| Node::leaf(version, Message::new(())))
-        .boxed()
-}
-
-/// `Node<(), S<Z>>` wrapping a leaf with a singleton path-compression byte.
-/// Covers the path-compressed branch case at the lowest interesting typed
-/// height.
-fn arb_s_z_node() -> BoxedStrategy<Node<(), S<Z>>> {
-    (arb_leaf(), any::<u8>())
-        .prop_map(|(leaf, byte)| Node::beneath(leaf, byte))
         .boxed()
 }
 
@@ -142,12 +133,12 @@ proptest! {
         prop_assert_eq!(decoded.uncertain, uncertain);
     }
 
-    /// `Closing` carries `providing` subtrees at `S<Z>` and an ascending
-    /// `requested` at `S<Z>`.
+    /// `Closing` carries leaf-height `providing` and an ascending
+    /// `requested`, both at `Z`.
     #[test]
     fn closing_borsh_round_trip(
-        providing_entries in vec((arb_prefix::<S<Z>>(), arb_s_z_node()), 0..=4),
-        requested in vec(arb_prefix::<S<Z>>(), 0..=4),
+        providing_entries in vec((arb_prefix::<Z>(), arb_leaf()), 0..=4),
+        requested in vec(arb_prefix::<Z>(), 0..=4),
     ) {
         let providing = canonical_providing(providing_entries);
         let requested = canonical_keys(requested);
@@ -222,8 +213,8 @@ fn requested_rejects_descending_order() {
     let m = message::Closing::<()> {
         providing: Vec::new(),
         requested: vec![
-            prefix_from_bytes::<S<Z>>(&[2u8; 31]),
-            prefix_from_bytes::<S<Z>>(&[1u8; 31]),
+            prefix_from_bytes::<Z>(&[2u8; 32]),
+            prefix_from_bytes::<Z>(&[1u8; 32]),
         ],
     };
     let bytes = borsh::to_vec(&m).unwrap();

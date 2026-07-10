@@ -6,15 +6,18 @@ use proptest::prelude::*;
 use crate::Version;
 use crate::message::Message;
 use crate::tree::Root;
-use crate::tree::arb::{arb_divergent_pair, arb_tree_root, nth_party};
-use crate::tree::mirror::streaming::{Converted, Handshaking, Local};
+use crate::tree::arb::{
+    arb_divergent_pair, arb_tree_root, leaf_parent_dispute_pair, leaf_parent_redaction_pair,
+    nth_party,
+};
+use crate::tree::mirror::streaming::{Handshaking, Local};
 use crate::tree::mirror::{Error, alternating};
 use crate::tree::traverse::{Action, act};
 use crate::tree::typed::{Node, Path, height};
 
-/// Reconcile `a` and `b` through the streaming local backend, asserting the
-/// two sides converge to the same root, and return it.
-fn streaming_mirror(a: Root<()>, b: Root<()>) -> Root<()> {
+/// Reconcile `a` and `b` through the streaming local backend, returning both
+/// sides' reconciled roots in argument order, with no convergence assertion.
+fn streaming_mirror_sides(a: Root<()>, b: Root<()>) -> (Root<()>, Root<()>) {
     let (a, b): (super::Root<Local, ()>, super::Root<Local, ()>) = (a.into(), b.into());
     let client = Handshaking::start(Local, a.clone());
     let server = Handshaking::start(Local, b.clone());
@@ -22,69 +25,59 @@ fn streaming_mirror(a: Root<()>, b: Root<()>) -> Root<()> {
         .unwrap_or_else(|e| match e {})
         // Equal handshake versions: already converged, both sides unchanged.
         .unwrap_or((a, b));
-    let (ours, theirs) = (ours.into(), theirs.into());
+    (ours.into(), theirs.into())
+}
+
+/// Reconcile `a` and `b` through the streaming local backend, asserting the
+/// two sides converge to the same root, and return it.
+fn streaming_mirror(a: Root<()>, b: Root<()>) -> Root<()> {
+    let (ours, theirs) = streaming_mirror_sides(a, b);
     assert_eq!(ours, theirs, "streaming endpoints should converge");
     ours
 }
 
-/// Reconcile `a` and `b` with the server wrapped in [`Converted`], asserting
-/// the two sides converge, and return the client's root.
-///
-/// `Local` converts to itself, so this pairs a backend with its own node types
-/// through the whole conversion machinery — every crossing node explodes to
-/// leaves and reassembles — rather than through the identity the unwrapped
-/// session enjoys. It pins two things at once: that a wrapped party still
-/// satisfies [`Server`](super::protocol::Server), and that a round trip
-/// through [`Converted`] is the identity on nodes.
-fn converted_mirror(a: Root<()>, b: Root<()>) -> Root<()> {
-    let (a, b): (super::Root<Local, ()>, super::Root<Local, ()>) = (a.into(), b.into());
-    let client = Handshaking::start(Local, a.clone());
-    let server = Converted::new(Handshaking::start(Local, b.clone()), Local, Local);
-    let (ours, theirs) = pollster::block_on(super::mirror(client, server))
-        .unwrap_or_else(|e| match e {
-            Error::Client(e) => match e {},
-            // The server's faults are its own or its counterparty's
-            // representation of a node; `Local` is infallible in both.
-            Error::Server(e) => match e {
-                Error::Client(e) | Error::Server(e) => match e {},
-            },
-        })
-        .unwrap_or((a, b));
-    let (ours, theirs) = (ours.into(), theirs.into());
-    assert_eq!(ours, theirs, "converted endpoints should converge");
-    ours
-}
-
-/// Reconcile `a` and `b` through the alternating implementation: the
-/// behavioral oracle the streaming protocol must reproduce exactly.
-fn alternating_mirror(a: Root<()>, b: Root<()>) -> Root<()> {
+/// Reconcile `a` and `b` through the alternating implementation — the
+/// behavioral oracle the streaming protocol must reproduce exactly —
+/// returning both sides' roots in argument order, with no convergence
+/// assertion.
+fn alternating_mirror_sides(a: Root<()>, b: Root<()>) -> (Root<()>, Root<()>) {
     pollster::block_on(async {
         let local_a = alternating::local::Exchange::start(a);
         let local_b = alternating::local::Exchange::start(b);
         match alternating::mirror(local_a, local_b).await {
             Err(e) => match e {},
-            Ok((ours, theirs)) => {
-                assert_eq!(ours, theirs, "oracle endpoints should converge");
-                ours
-            }
+            Ok(pair) => pair,
         }
     })
 }
 
-/// Run [`streaming_mirror`] under a watchdog: a deadlocked session fails the
-/// test in bounded time instead of hanging the suite.
-fn streaming_mirror_with_timeout(a: Root<()>, b: Root<()>) -> Root<()> {
+/// Reconcile `a` and `b` through the alternating oracle, asserting the two
+/// sides converge to the same root, and return it.
+fn alternating_mirror(a: Root<()>, b: Root<()>) -> Root<()> {
+    let (ours, theirs) = alternating_mirror_sides(a, b);
+    assert_eq!(ours, theirs, "oracle endpoints should converge");
+    ours
+}
+
+/// Run `f` under a watchdog: a deadlocked session fails the test in bounded
+/// time instead of hanging the suite.
+fn with_watchdog<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'static) -> R {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        let _ = tx.send(streaming_mirror(a, b));
+        let _ = tx.send(f());
     });
     match rx.recv_timeout(Duration::from_secs(10)) {
-        Ok(root) => root,
+        Ok(result) => result,
         Err(RecvTimeoutError::Timeout) => {
             panic!("streaming mirror deadlocked: no result within the watchdog timeout")
         }
         Err(RecvTimeoutError::Disconnected) => panic!("streaming mirror worker panicked"),
     }
+}
+
+/// Run [`streaming_mirror`] under the watchdog.
+fn streaming_mirror_with_timeout(a: Root<()>, b: Root<()>) -> Root<()> {
+    with_watchdog(move || streaming_mirror(a, b))
 }
 
 /// Build a divergent pair whose every difference is one-sided, shaped by
@@ -156,6 +149,34 @@ fn one_sided_pair(spec: &[(u8, u8, u8)]) -> (Root<()>, Root<()>) {
     (root(a_node), root(b_node))
 }
 
+/// A dispute that survives to leaf-parent height — both sides hold the same
+/// `S<Z>` prefix with different leaf sets — converges to the union.
+///
+/// The responder's closing `uncertain` lists its leaves, and the leaf-height
+/// `Closing`/`Complete` words carry the difference in both directions.
+#[test]
+fn converges_on_leaf_parent_dispute() {
+    let (a, b, expected) = leaf_parent_dispute_pair();
+    assert_eq!(
+        with_watchdog(move || streaming_mirror(a, b)),
+        expected,
+        "both sides should hold the union",
+    );
+}
+
+/// A leaf redacted on one side under a disputed leaf-parent must disappear
+/// from the other side too: the closing request for it prunes against the
+/// redactor's version and drops on both sides instead of shipping.
+#[test]
+fn honors_redaction_under_leaf_parent_dispute() {
+    let (a, b, expected) = leaf_parent_redaction_pair();
+    assert_eq!(
+        with_watchdog(move || streaming_mirror(a, b)),
+        expected,
+        "the redacted leaf should survive nowhere",
+    );
+}
+
 /// A stage's walk may route more reconciled children into its reassembly
 /// channels than one fan before anything beneath it resolves; the session
 /// must keep draining rather than deadlock.
@@ -202,26 +223,6 @@ proptest! {
     ) {
         let expected = alternating_mirror(a.clone(), b.clone());
         prop_assert_eq!(streaming_mirror(a, b), expected);
-    }
-
-    /// A session with one party wrapped in `Converted` reconciles to exactly
-    /// the same root as the unwrapped session: re-representing every node that
-    /// crosses the wire changes nothing an endpoint can observe.
-    #[test]
-    fn converted_matches_oracle_on_divergent_pair((a, b) in arb_divergent_pair()) {
-        let expected = alternating_mirror(a.clone(), b.clone());
-        prop_assert_eq!(converted_mirror(a, b), expected);
-    }
-
-    /// Wrapping survives the bootstrap shape, where one side is empty and every
-    /// leaf in the tree crosses the conversion boundary.
-    #[test]
-    fn converted_matches_oracle_on_independent_trees(
-        a in arb_tree_root(0, 0..=8),
-        b in arb_tree_root(1, 0..=8),
-    ) {
-        let expected = alternating_mirror(a.clone(), b.clone());
-        prop_assert_eq!(converted_mirror(a, b), expected);
     }
 
     /// Mirroring a tree with itself is a no-op: the handshake versions are

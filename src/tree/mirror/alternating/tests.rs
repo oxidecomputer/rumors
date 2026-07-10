@@ -9,7 +9,9 @@ use proptest::prelude::*;
 use tokio::runtime::Runtime;
 
 use crate::Network;
-use crate::tree::arb::{arb_tree_root, nth_party};
+use crate::tree::arb::{
+    arb_tree_root, leaf_parent_dispute_pair, leaf_parent_redaction_pair, nth_party,
+};
 use crate::tree::traverse::{Action, act};
 use crate::tree::typed::Path;
 use crate::{Version, message::Message};
@@ -82,7 +84,10 @@ where
                 let local_b = local::Exchange::start(b);
                 match mirror(local_a, local_b).await {
                     Err(e) => match e {},
-                    Ok(result) => result.1,
+                    Ok((ours, theirs)) => {
+                        assert_eq!(ours, theirs, "local-local endpoints should converge");
+                        theirs
+                    }
                 }
             }
 
@@ -122,6 +127,30 @@ where
 }
 
 const SCENARIOS: [Scenario; 2] = [Scenario::LocalLocal, Scenario::LocalRemote];
+
+/// A dispute that survives to leaf-parent height — both sides holding the
+/// same `S<Z>` prefix with different leaf sets — must still converge to the
+/// union.
+///
+/// The closing rounds carry the leaf-level difference in both directions.
+#[test]
+fn converges_on_leaf_parent_dispute() {
+    for scenario in SCENARIOS {
+        let (a, b, expected) = leaf_parent_dispute_pair();
+        assert_eq!(mirror_via(a, b, scenario), expected, "{scenario:?}");
+    }
+}
+
+/// A leaf redacted on one side under a disputed leaf-parent must disappear
+/// from the other side too: its version is at or before the redactor's
+/// ceiling, and absence plus version dominance is the entire deletion signal.
+#[test]
+fn honors_redaction_under_leaf_parent_dispute() {
+    for scenario in SCENARIOS {
+        let (a, b, expected) = leaf_parent_redaction_pair();
+        assert_eq!(mirror_via(a, b, scenario), expected, "{scenario:?}");
+    }
+}
 
 proptest! {
 

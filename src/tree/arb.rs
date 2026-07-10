@@ -175,6 +175,148 @@ pub fn arb_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate::tree
         .boxed()
 }
 
+/// A path all-zero except its final byte: siblings under a single leaf-parent
+/// (`S<Z>`) prefix.
+///
+/// Real leaves are content-addressed, so two distinct messages share a
+/// 31-byte prefix only under a hash-prefix collision; these hand-picked
+/// paths let a test construct that shape deliberately.
+fn leaf_sibling_path(last: u8) -> Path {
+    let mut bytes = [0u8; 32];
+    bytes[31] = last;
+    Path::from(bytes)
+}
+
+/// Wrap an optional root node in a [`tree::Root`](crate::tree::Root) with the
+/// given ceiling.
+fn root_with_ceiling(node: Option<Node<(), Root>>, ceiling: Version) -> crate::tree::Root<()> {
+    crate::tree::Root {
+        ceiling,
+        root: node,
+    }
+}
+
+/// A pair of trees sharing one leaf and each holding one more, all under the
+/// same leaf-parent (`S<Z>`) prefix, plus the union both sides must converge
+/// to.
+///
+/// The paths differ only in their final byte, so every level from the root
+/// down to `S<Z>` holds exactly one child on each side and disputes at every
+/// height: the difference survives to the closing rounds, where each side
+/// must provide its own extra and absorb the other's.
+pub fn leaf_parent_dispute_pair() -> (
+    crate::tree::Root<()>,
+    crate::tree::Root<()>,
+    crate::tree::Root<()>,
+) {
+    // The shared leaf: one tick on party 0, literally the same node in both
+    // trees (each side is built on top of `base`).
+    let mut shared_version = Version::new();
+    shared_version.tick(&nth_party(0));
+    let base = act(
+        None,
+        vec![(
+            leaf_sibling_path(0x00),
+            shared_version.clone(),
+            Action::Insert(Message::new(())),
+        )],
+        |_| (),
+    );
+
+    // Each side's extra rides its own disjoint party, so both extras are
+    // causally concurrent with everything else and survive deletion-pruning.
+    let mut a_version = Version::new();
+    a_version.tick(&nth_party(1));
+    let a_node = act(
+        base.clone(),
+        vec![(
+            leaf_sibling_path(0x01),
+            a_version.clone(),
+            Action::Insert(Message::new(())),
+        )],
+        |_| (),
+    );
+
+    let mut b_version = Version::new();
+    b_version.tick(&nth_party(2));
+    let b_extra = (
+        leaf_sibling_path(0x02),
+        b_version.clone(),
+        Action::Insert(Message::new(())),
+    );
+    let b_node = act(base, vec![b_extra.clone()], |_| ());
+
+    let union = act(a_node.clone(), vec![b_extra], |_| ());
+
+    let a_ceiling = shared_version.clone() | a_version;
+    let b_ceiling = shared_version | b_version;
+    let expected = root_with_ceiling(union, a_ceiling.clone() | b_ceiling.clone());
+    (
+        root_with_ceiling(a_node, a_ceiling),
+        root_with_ceiling(b_node, b_ceiling),
+        expected,
+    )
+}
+
+/// A pair of trees where `b` has redacted the one leaf `a` still holds, and
+/// concurrently inserted a sibling under the same leaf-parent (`S<Z>`)
+/// prefix, plus the tree both sides must converge to.
+///
+/// The redacted leaf's version is causally at or before `b`'s ceiling while
+/// `b` lacks the leaf, so reconciliation must delete it from `a` too — with
+/// no tombstone to say so, only the version bounds. The surviving tree is
+/// `b`'s: the concurrent insert alone.
+pub fn leaf_parent_redaction_pair() -> (
+    crate::tree::Root<()>,
+    crate::tree::Root<()>,
+    crate::tree::Root<()>,
+) {
+    // a's only leaf, on party 0.
+    let mut a_version = Version::new();
+    a_version.tick(&nth_party(0));
+    let a_node = act(
+        None,
+        vec![(
+            leaf_sibling_path(0x00),
+            a_version.clone(),
+            Action::Insert(Message::new(())),
+        )],
+        |_| (),
+    );
+
+    // b: built on a's history, inserts a concurrent sibling, then forgets
+    // a's leaf. The forget leaves no tombstone; b remembers only through its
+    // ceiling, which dominates the forgotten leaf's version.
+    let mut b_version = Version::new();
+    b_version.tick(&nth_party(1));
+    let b_insert = (
+        leaf_sibling_path(0x01),
+        b_version.clone(),
+        Action::Insert(Message::new(())),
+    );
+    let mut forget_version = b_version.clone();
+    forget_version.tick(&nth_party(1));
+    let b_node = act(
+        act(a_node.clone(), vec![b_insert.clone()], |_| ()),
+        vec![(
+            leaf_sibling_path(0x00),
+            forget_version.clone(),
+            Action::Forget,
+        )],
+        |_| (),
+    );
+
+    let survivor = act(None, vec![b_insert], |_| ());
+
+    let b_ceiling = a_version.clone() | forget_version;
+    let expected = root_with_ceiling(survivor, a_version.clone() | b_ceiling.clone());
+    (
+        root_with_ceiling(a_node, a_version),
+        root_with_ceiling(b_node, b_ceiling),
+        expected,
+    )
+}
+
 #[cfg(test)]
 mod test {
     use super::nth_party;

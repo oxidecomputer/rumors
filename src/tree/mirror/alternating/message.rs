@@ -290,23 +290,35 @@ where
     }
 }
 
-/// The initiator's closing message: a final `providing`/`requested` pair at
-/// `S<Z>`, emitted by
-/// [`close_initiator`](super::protocol::CloseInitiator::close_initiator).
+/// The responder's closing message: a leaf-height `providing`/`requested`
+/// pair.
 ///
-/// Distinct from [`Exchange`] by the absence of `uncertain`: at leaf height,
-/// any two parties either have a leaf at the same path (in which case the
-/// leaf hashes match, both being the constant leaf hash) or one of them
-/// lacks it (in which case the receiver routes the missing prefix to
-/// `requested`, never `uncertain`). Encoding the vacuity in the type system
-/// lets
-/// [`complete_responder`](super::protocol::CompleteResponder::complete_responder)
+/// Emitted by
+/// [`close_responder`](super::protocol::CloseResponder::close_responder) in
+/// answer to the initiator's final [`Exchange`], whose `uncertain` lists the
+/// leaves under still-disputed leaf-parents.
+///
+/// Distinct from [`Exchange`] by the absence of `uncertain`: at leaf height
+/// the dispute cell of the asymmetry matrix is empty — two parties holding a
+/// leaf at the same path hold the same leaf (both hash to the constant leaf
+/// hash) — so every leaf routes to `providing`, `requested`, or silence,
+/// never to a finer round. Encoding the vacuity in the type system lets
+/// [`complete_initiator`](super::protocol::CompleteInitiator::complete_initiator)
 /// consume `Closing` directly, without a runtime check against an
-/// out-of-spec initiator.
+/// out-of-spec responder.
 #[derive(Clone)]
 pub struct Closing<T> {
-    pub providing: Providing<T, S<Z>>,
-    pub requested: Vec<Prefix<S<Z>>>,
+    /// Leaves only the responder holds that the initiator has not deleted:
+    /// answers to the initiator's final `requested`, plus leaves the
+    /// initiator's `uncertain` listing proved it lacks.
+    pub providing: Providing<T, Z>,
+    /// Leaves the initiator listed under disputed parents that the responder
+    /// lacks entirely.
+    ///
+    /// The initiator answers in [`Complete`], pruning first: a requested
+    /// leaf at or before the responder's version was deleted there, and
+    /// drops on both sides instead of shipping.
+    pub requested: Vec<Prefix<Z>>,
 }
 
 impl<T> BorshSerialize for Closing<T> {
@@ -322,29 +334,14 @@ where
     T: BorshDeserialize,
 {
     fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
-        let providing: Providing<T, S<Z>> = BorshDeserialize::deserialize_reader(reader)?;
+        let providing: Providing<T, Z> = BorshDeserialize::deserialize_reader(reader)?;
         verify_pairs_canonical(&providing, "Closing.providing")?;
-        let requested: Vec<Prefix<S<Z>>> = BorshDeserialize::deserialize_reader(reader)?;
+        let requested: Vec<Prefix<Z>> = BorshDeserialize::deserialize_reader(reader)?;
         verify_keys_canonical(&requested, "Closing.requested")?;
         Ok(Self {
             providing,
             requested,
         })
-    }
-}
-
-impl<T> From<Exchange<T, Z>> for Closing<T> {
-    fn from(
-        Exchange {
-            providing,
-            requested,
-            uncertain: _,
-        }: Exchange<T, Z>,
-    ) -> Self {
-        Closing {
-            providing,
-            requested,
-        }
     }
 }
 
@@ -357,14 +354,15 @@ impl<T> Default for Closing<T> {
     }
 }
 
-/// The responder's closing message: the final `providing` at leaf height.
+/// The initiator's terminal message: the final `providing` at leaf height,
+/// answering the responder's closing `requested`.
 ///
 /// Emitted by
-/// [`complete_responder`](super::protocol::CompleteResponder::complete_responder)
-/// for the initiator to absorb in
-/// [`complete_initiator`](super::protocol::CompleteInitiator::complete_initiator).
+/// [`complete_initiator`](super::protocol::CompleteInitiator::complete_initiator)
+/// for the responder to absorb in
+/// [`complete_responder`](super::protocol::CompleteResponder::complete_responder).
 ///
-/// No `requested` (the initiator never replies after this) and no `uncertain`
+/// No `requested` (the responder never replies after this) and no `uncertain`
 /// (vacuous at leaf height, same reasoning as [`Closing`]).
 #[derive(Clone)]
 pub struct Complete<T> {

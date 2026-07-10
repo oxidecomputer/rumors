@@ -472,7 +472,7 @@ where
     }
 }
 
-impl<T, R, W> protocol::CloseInitiator<T> for Exchange<T, R, W, Connected, S<S<Z>>>
+impl<T, R, W> protocol::CloseResponder<T> for Exchange<T, R, W, Connected, S<Z>>
 where
     T: BorshDeserialize + Send + Sync,
     R: AsyncRead + Unpin,
@@ -480,9 +480,9 @@ where
 {
     type Next = Exchange<T, R, W, Connected, Z>;
 
-    async fn close_initiator(
+    async fn close_responder(
         mut self,
-        request: message::Exchange<T, S<Z>>,
+        request: message::Exchange<T, Z>,
     ) -> Result<Step<message::Closing<T>, Self::Next, Self::Output>, Error> {
         // If the message we just sent will cause the other party to be done,
         // they won't ever respond, so don't await their response.
@@ -499,21 +499,27 @@ where
 
         let response: message::Closing<T> = recv_msg(&mut self.reader).await?;
 
-        // `CloseInitiator` is the protocol's natural endgame: always `Done`.
-        Ok(Step::Done {
-            msg: response,
-            output: (self.reader, self.writer),
-        })
+        if response.requested.is_empty() {
+            Ok(Step::Done {
+                msg: response,
+                output: (self.reader, self.writer),
+            })
+        } else {
+            Ok(Step::Continue {
+                msg: response,
+                next: Exchange::connected(self.reader, self.writer),
+            })
+        }
     }
 }
 
-impl<T, R, W> protocol::CompleteResponder<T> for Exchange<T, R, W, Connected, S<Z>>
+impl<T, R, W> protocol::CompleteInitiator<T> for Exchange<T, R, W, Connected, Z>
 where
     T: BorshDeserialize + Send + Sync,
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
-    async fn complete_responder(
+    async fn complete_initiator(
         mut self,
         request: message::Closing<T>,
     ) -> Result<Step<message::Complete<T>, Infallible, Self::Output>, Error> {
@@ -532,7 +538,7 @@ where
 
         let response: message::Complete<T> = recv_msg(&mut self.reader).await?;
 
-        // `CompleteResponder` is statically `Done`: the `Next` slot is
+        // `CompleteInitiator` is statically `Done`: the `Next` slot is
         // `Infallible`, so `Continue` is uninhabitable here.
         Ok(Step::Done {
             msg: response,
@@ -541,17 +547,17 @@ where
     }
 }
 
-impl<T, R, W> protocol::CompleteInitiator<T> for Exchange<T, R, W, Connected, Z>
+impl<T, R, W> protocol::CompleteResponder<T> for Exchange<T, R, W, Connected, Z>
 where
     T: Send + Sync,
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
-    async fn complete_initiator(
+    async fn complete_responder(
         mut self,
         request: message::Complete<T>,
     ) -> Result<Step<(), Infallible, Self::Output>, Error> {
-        // Final write; the real initiator absorbs this and is done.
+        // Final write; the real responder absorbs this and is done.
         send_msg(&mut self.writer, &request).await?;
         Ok(Step::Done {
             msg: (),

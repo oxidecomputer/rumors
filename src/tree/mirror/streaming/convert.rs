@@ -6,7 +6,7 @@
 //!
 //! The protocol itself converts nowhere: both parties of a session name one
 //! backend, and a homogeneous session pays nothing. This module is what lets a
-//! heterogeneous pair meet, by wrapping one side in a [`Converted`] party.
+//! heterogeneous pair meet, by re-representing each node-carrying message.
 
 use std::pin::pin;
 
@@ -15,6 +15,7 @@ use futures::channel::mpsc;
 use futures::{SinkExt, StreamExt};
 
 use crate::tree::mirror::streaming::FAN;
+use crate::tree::mirror::streaming::message::{Closing, Complete, Exchange};
 use crate::tree::typed::{
     Prefix,
     height::{Height, S, Z},
@@ -24,9 +25,6 @@ use super::Error;
 use super::backend::{Backend, BoxNodeStream, Leaf, Node, one};
 use super::message;
 use super::protocol::Responses;
-
-mod party;
-pub use party::Converted;
 
 /// A height whose subtrees convert across backends: they explode to the leaf
 /// stream beneath them and reassemble from one.
@@ -84,7 +82,11 @@ where
         T: Send + Sync + 'static,
     {
         let below = H::assemble(backend.clone(), leaves);
-        Box::pin(backend.parents::<H>(below))
+        Box::pin(backend.parents::<H>(
+            // Re-assembly should not trigger deletion, so we wrap each node
+            // in `Some` to say that it is kept:
+            below.map(|result| result.map(|(prefix, node)| (prefix, Some(node)))),
+        ))
     }
 }
 
@@ -92,10 +94,9 @@ where
 ///
 /// The node [explodes](Convert::explode) to leaves in `from` while `to`
 /// concurrently [reassembles](Convert::assemble) them, the halves joined by a
-/// [`FAN`]-bounded leaf channel; the cost is the subtree's size in time and
-/// one fan in memory. Errors return in the producer's frame: `from`'s
-/// explosion failures in first position, `to`'s reassembly failures in
-/// second.
+/// [`FAN`]-bounded leaf channel; the cost is the subtree's size in time and one
+/// fan in memory. Errors return in the producer's frame: `from`'s explosion
+/// failures in first position, `to`'s reassembly failures in second.
 async fn subtree<B, O, T, H>(
     from: &B,
     to: &O,
@@ -115,8 +116,9 @@ where
         let mut leaves = pin!(H::explode(from.clone(), Box::pin(one(prefix, node))));
         while let Some(item) = leaves.next().await {
             let (prefix, leaf) = item?;
+
             // The crossing: a leaf re-represents by value, no backend work.
-            let version = leaf.version().clone();
+            let version = leaf.ceiling().clone();
             let message = leaf.message().clone();
             if tx
                 .send(Ok((prefix, Leaf::leaf(version, message))))
@@ -209,65 +211,59 @@ where
     }
 }
 
-impl<B, O, T, H> Convertible<B, O, T> for (Prefix<H>, message::Exchange<B, T, H>)
+impl<B, O, T, H> Convertible<B, O, T> for Exchange<B, T, H>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     O: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     H: Convert,
 {
-    type Converted = (Prefix<H>, message::Exchange<O, T, H>);
+    type Converted = Exchange<O, T, H>;
 
     async fn convert(self, from: &B, to: &O) -> Result<Self::Converted, Error<B::Error, O::Error>> {
-        let (prefix, message) = self;
-        Ok((
-            prefix,
-            match message {
-                message::Exchange::Providing(node) => {
-                    message::Exchange::Providing(subtree(from, to, prefix, node).await?)
-                }
-                message::Exchange::Requested => message::Exchange::Requested,
-                message::Exchange::Uncertain(children) => message::Exchange::Uncertain(children),
-            },
-        ))
+        Ok(match self {
+            Exchange::Providing(prefix, node) => {
+                Exchange::Providing(prefix, subtree(from, to, prefix, node).await?)
+            }
+            Exchange::Matched => Exchange::Matched,
+            Exchange::Requested => Exchange::Requested,
+            Exchange::Uncertain(children) => Exchange::Uncertain(children),
+        })
     }
 }
 
-impl<B, O, T> Convertible<B, O, T> for (Prefix<S<Z>>, message::Closing<B, T>)
+impl<B, O, T> Convertible<B, O, T> for Closing<B, T>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     O: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    type Converted = (Prefix<S<Z>>, message::Closing<O, T>);
+    type Converted = Closing<O, T>;
 
     async fn convert(self, from: &B, to: &O) -> Result<Self::Converted, Error<B::Error, O::Error>> {
-        let (prefix, message) = self;
-        Ok((
-            prefix,
-            match message {
-                message::Closing::Providing(node) => {
-                    message::Closing::Providing(subtree(from, to, prefix, node).await?)
-                }
-                message::Closing::Requested => message::Closing::Requested,
-            },
-        ))
+        Ok(match self {
+            Closing::Providing(prefix, node) => {
+                Closing::Providing(prefix, subtree(from, to, prefix, node).await?)
+            }
+            Closing::Matched => Closing::Matched,
+            Closing::Requested => Closing::Requested,
+        })
     }
 }
 
-impl<B, O, T> Convertible<B, O, T> for (Prefix<Z>, message::Complete<B, T>)
+impl<B, O, T> Convertible<B, O, T> for Complete<B, T>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     O: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    type Converted = (Prefix<Z>, message::Complete<O, T>);
+    type Converted = Complete<O, T>;
 
     async fn convert(self, from: &B, to: &O) -> Result<Self::Converted, Error<B::Error, O::Error>> {
-        let (prefix, message::Complete::Providing(node)) = self;
-        Ok((
+        let Complete::Providing(prefix, node) = self;
+        Ok(Complete::Providing(
             prefix,
-            message::Complete::Providing(subtree(from, to, prefix, node).await?),
+            subtree(from, to, prefix, node).await?,
         ))
     }
 }

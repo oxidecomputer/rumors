@@ -22,9 +22,9 @@
 //! | [`Responder`]         | [`message::Initiate`]           | [`message::Opening`]              | [`Exchange`] (first steady round)     |
 //! | [`OpenInitiator`]     | [`message::Opening`]            | `message::Exchange<_, U²>`        | [`Exchange`] (first steady round)     |
 //! | [`Exchange`]          | [`message::Exchange`]           | [`message::Exchange`]             | [`AfterExchange<H>`] (see below)      |
-//! | [`CloseInitiator`]    | `message::Exchange<_, S<Z>>`    | [`message::Closing`]              | [`CompleteInitiator`]                 |
-//! | [`CompleteResponder`] | [`message::Closing`]            | [`message::Complete`]             | terminal                              |
-//! | [`CompleteInitiator`] | [`message::Complete`]           | --                                | terminal                              |
+//! | [`CloseResponder`]    | `message::Exchange<_, Z>`       | [`message::Closing`]              | [`CompleteResponder`]                 |
+//! | [`CompleteInitiator`] | [`message::Closing`]            | [`message::Complete`]             | terminal                              |
+//! | [`CompleteResponder`] | [`message::Complete`]           | --                                | terminal                              |
 //!
 //! # The `Exchange<H>::Next` ambiguity
 //!
@@ -33,9 +33,9 @@
 //!
 //! | `H` after `exchange` | Next legal call                     |
 //! |----------------------|-------------------------------------|
-//! | `S<Z>`               | `complete_responder`                |
-//! | `S<S<Z>>`            | `close_initiator`                   |
-//! | `S<S<S<_>>>`         | `exchange` again, two heights lower |
+//! | `Z`                  | `complete_initiator`                |
+//! | `S<Z>`               | `close_responder`                   |
+//! | `S<S<Z>>` and below  | `exchange` again, two heights lower |
 //!
 //! The helper trait [`AfterExchange<H>`] partitions `H` and dispatches to the
 //! correct follow-up trait via three non-overlapping blanket impls.
@@ -232,7 +232,7 @@ where
     S<<Self::Height as Pred>::Pred>: Height,
     S<<<Self::Height as Pred>::Pred as Pred>::Pred>: Height,
 {
-    /// Whichever of [`Exchange`], [`CloseInitiator`], or [`CompleteResponder`]
+    /// Whichever of [`Exchange`], [`CloseResponder`], or [`CompleteInitiator`]
     /// is appropriate at the outgoing message's height. See [`AfterExchange`].
     type Next: AfterExchange<T, <<Self::Height as Pred>::Pred as Pred>::Pred>
         + Stage<
@@ -262,69 +262,72 @@ where
     >;
 }
 
-/// The initiator's final sending round; emits [`message::Closing`] instead of
-/// the vacuous leaf-height [`message::Exchange`].
-pub trait CloseInitiator<T>: Stage<Height = S<S<Z>>> + Sized
+/// The responder's closing round; consumes the initiator's final leaf-height
+/// [`message::Exchange`] and emits [`message::Closing`].
+///
+/// The incoming `uncertain` is the initiator's leaf listing under each
+/// still-disputed leaf-parent. The response answers it through the ordinary
+/// asymmetry matrix minus its dispute cell — vacuous at leaf height, since
+/// two leaves at one path are the same leaf — so the reply carries only
+/// `providing` and `requested`, which is exactly what [`message::Closing`]
+/// encodes.
+pub trait CloseResponder<T>: Stage<Height = S<Z>> + Sized
 where
     T: Send + Sync,
 {
-    /// The terminal initiator state.
-    type Next: CompleteInitiator<T> + Stage<Output = Self::Output, Height = Z, Error = Self::Error>;
+    /// The terminal responder state.
+    type Next: CompleteResponder<T> + Stage<Output = Self::Output, Height = Z, Error = Self::Error>;
 
-    /// The initiator's last sending round, descending the zipper from
-    /// `S<S<Z>>` to `Z` and emitting [`message::Closing`].
+    /// The responder's closing round, descending the zipper from `S<Z>` to
+    /// `Z` and emitting [`message::Closing`].
     ///
-    /// Like [`Exchange::exchange`] internally, but emits `Closing` rather
-    /// than `Exchange<_, Z>`: the leaf-height `uncertain` the steady-state
-    /// path would produce is structurally vacuous (every leaf has the same
-    /// constant hash, so any "Both" case is necessarily a match), so it is
-    /// omitted from the wire. [`CompleteResponder`] can then consume
-    /// `Closing` directly, without a runtime check that a well-behaved peer
-    /// would never trip.
+    /// Yields [`Step::Done`] when the response requests nothing: the
+    /// counterparty's [`message::Complete`] would carry nothing, so neither
+    /// side sends again.
     #[allow(clippy::type_complexity)]
-    async fn close_initiator(
+    async fn close_responder(
         self,
-        request: message::Exchange<T, S<Z>>,
+        request: message::Exchange<T, Z>,
     ) -> Result<Step<message::Closing<T>, Self::Next, Self::Output>, Self::Error>;
 }
 
-/// The responder's terminal round; absorbs the initiator's [`message::Closing`]
-/// and emits [`message::Complete`].
-pub trait CompleteResponder<T>: Stage<Height = S<Z>> + Sized
-where
-    T: Send + Sync,
-{
-    /// The responder's final round, processing the initiator's
-    /// [`message::Closing`].
-    ///
-    /// We absorb the initiator's last batch of nodes, answer any final
-    /// `requested` set, and collapse our zipper back to a root. The returned
-    /// [`message::Complete`] carries our last outgoing `providing` for the
-    /// initiator to absorb in [`CompleteInitiator::complete_initiator`].
-    ///
-    /// Always yields [`Step::Done`]: the responder's session ends here. The
-    /// `Next` slot is [`Infallible`] to encode the impossibility of
-    /// `Continue` in the type system.
-    #[allow(clippy::type_complexity)]
-    async fn complete_responder(
-        self,
-        request: message::Closing<T>,
-    ) -> Result<Step<message::Complete<T>, Infallible, Self::Output>, Self::Error>;
-}
-
-/// The initiator's terminal round; absorbs the responder's [`message::Complete`].
+/// The initiator's terminal round; absorbs the responder's
+/// [`message::Closing`] and answers it with [`message::Complete`].
 pub trait CompleteInitiator<T>: Stage<Height = Z> + Sized
 where
     T: Send + Sync,
 {
     /// The initiator's final round.
     ///
-    /// Absorbs the responder's last batch of `providing` (from
-    /// [`message::Complete`]) and collapses our zipper back to a root. There is
-    /// no outgoing message: any `requested` we would have made went out in our
-    /// prior [`CloseInitiator::close_initiator`] call.
+    /// Absorbs the responder's last batch of `providing`, answers its final
+    /// leaf-height `requested` — pruning against the responder's version, so
+    /// a leaf the responder deleted drops here instead of shipping — and
+    /// collapses our zipper back to a root.
+    ///
+    /// Always yields [`Step::Done`]: the initiator's session ends here. The
+    /// `Next` slot is [`Infallible`] to encode the impossibility of
+    /// `Continue` in the type system.
     #[allow(clippy::type_complexity)]
     async fn complete_initiator(
+        self,
+        request: message::Closing<T>,
+    ) -> Result<Step<message::Complete<T>, Infallible, Self::Output>, Self::Error>;
+}
+
+/// The responder's terminal round; absorbs the initiator's
+/// [`message::Complete`].
+pub trait CompleteResponder<T>: Stage<Height = Z> + Sized
+where
+    T: Send + Sync,
+{
+    /// The responder's final round.
+    ///
+    /// Absorbs the initiator's last batch of `providing` (from
+    /// [`message::Complete`]) and collapses our zipper back to a root. There
+    /// is no outgoing message: any `requested` we would have made went out in
+    /// our prior [`CloseResponder::close_responder`] call.
+    #[allow(clippy::type_complexity)]
+    async fn complete_responder(
         self,
         request: message::Complete<T>,
     ) -> Result<Step<(), Infallible, Self::Output>, Self::Error>;
@@ -334,15 +337,16 @@ where
 /// [`Exchange::exchange`] call. A state type satisfying `AfterExchange<H>` is
 /// "the right kind of state to follow an exchange that ended at height `H`":
 ///
-/// - `H = S<Z>`: must impl [`CompleteResponder`].
-/// - `H = S<S<Z>>`: must impl [`CloseInitiator`].
-/// - `H = S<S<S<_>>>`: must impl [`Exchange`] at two heights finer.
+/// - `H = Z`: must impl [`CompleteInitiator`] — the exchange that produced a
+///   leaf-height message was the initiator's last, and the responder's
+///   [`message::Closing`] answers it.
+/// - `H = S<Z>`: must impl [`CloseResponder`].
+/// - `H = S<S<Z>>` or `S<S<S<_>>>`: must impl [`Exchange`] at two heights
+///   finer.
 ///
-/// Heights `S<Z>` and `S<S<Z>>` are handled via the blanket impls below,
-/// keyed off the appropriate terminal trait.
-///
-/// Height `Z` is never reached as the result of an exchange (the leaf-height
-/// uncertain map would be vacuous), so there is no `AfterExchange<Z>` impl.
+/// Heights `Z` and `S<Z>` are handled via the blanket impls below, keyed off
+/// the appropriate terminal trait. `S<S<Z>>` needs its own blanket only
+/// because it does not unify with the `S<S<S<H>>>` pattern.
 pub trait AfterExchange<T, H>: Sized
 where
     T: Send + Sync,
@@ -350,17 +354,24 @@ where
 {
 }
 
+impl<T, X> AfterExchange<T, Z> for X
+where
+    T: Send + Sync,
+    X: CompleteInitiator<T>,
+{
+}
+
 impl<T, X> AfterExchange<T, S<Z>> for X
 where
     T: Send + Sync,
-    X: CompleteResponder<T>,
+    X: CloseResponder<T>,
 {
 }
 
 impl<T, X> AfterExchange<T, S<S<Z>>> for X
 where
     T: Send + Sync,
-    X: CloseInitiator<T>,
+    X: Exchange<T> + Stage<Height = S<S<Z>>>,
 {
 }
 
@@ -397,8 +408,8 @@ macro_rules! define_peer {
         define_peer!(@step
             init: [$($init_count)*],
             resp: [$($resp_count)*],
-            init_chain: (CloseInitiator<T>),
-            resp_chain: (CompleteResponder<T>),
+            init_chain: (CompleteInitiator<T>),
+            resp_chain: (CloseResponder<T>),
         );
     };
 
@@ -503,15 +514,15 @@ macro_rules! define_peer {
     };
 }
 
-// The initiator chain visits 14 `Exchange` levels (heights `S^30 → S^28 →
-// … → S^4`) before terminating in `CloseInitiator` at `S<S<Z>>`. The
-// terminal `CompleteInitiator` after `CloseInitiator` is already implied
-// by `CloseInitiator::Next`'s own trait bound, so it doesn't need
-// re-stating here.
+// The initiator chain visits 15 `Exchange` levels (heights `S^30 → S^28 →
+// … → S<S<Z>>`) before terminating in `CompleteInitiator` at `Z`.
 //
 // The responder chain visits 15 `Exchange` levels (heights `S^31 → S^29
-// → … → S^3`) before terminating in `CompleteResponder` at `S<Z>`.
+// → … → S^3`) before closing in `CloseResponder` at `S<Z>`. The terminal
+// `CompleteResponder` after `CloseResponder` is already implied by
+// `CloseResponder::Next`'s own trait bound, so it doesn't need re-stating
+// here.
 define_peer! {
-    init: [_ _ _ _ _ _ _ _ _ _ _ _ _ _],
+    init: [_ _ _ _ _ _ _ _ _ _ _ _ _ _ _],
     resp: [_ _ _ _ _ _ _ _ _ _ _ _ _ _ _],
 }

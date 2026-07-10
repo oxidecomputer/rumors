@@ -40,21 +40,24 @@ use futures::SinkExt;
 use futures::future::BoxFuture;
 use futures::stream::{self, Stream, StreamExt};
 use itertools::EitherOrBoth;
+use tokio::join;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 
 use crate::Version;
 use crate::tree::mirror::streaming::FAN;
+use crate::tree::mirror::streaming::backend::BoxOptionNodeStream;
+use crate::tree::mirror::streaming::protocol::Exchange;
 use crate::tree::typed::{
     Hash, Prefix,
     height::{self, Height, S, UnderRoot, UnderUnderRoot, Z},
 };
 
-use super::super::backend::{Backend, BoxNodeStream, Keyed, Leaf, Node, NodeStream, one};
+use super::super::backend::{Backend, BoxNodeStream, Leaf, Node, NodeStream, one};
 use super::super::message;
 use super::super::protocol::{Requests, Responses};
 use super::dispute::{Routed, classify};
-use super::merge::merge;
-use super::unknown::{Unknown, unknown};
+use super::merge::{merge, merge_disjoint};
+use super::unknown::{Unknown, known, unknown};
 
 /// Open a stage's outgoing wire: push the future that forwards `messages`
 /// into a fresh [`FAN`]-bounded channel onto `work`, and return the
@@ -85,6 +88,32 @@ where
     rx
 }
 
+/// Drain a prefix-keyed node stream into a channel.
+///
+/// The dual of [`outgoing`] for the reassembly side: where `outgoing`
+/// forwards a walk's *messages* into the channel the counterparty reads,
+/// this forwards its reconciled *nodes* into the channel the level above
+/// folds. A closed channel means the consumer is gone and the session is
+/// being torn down; the drain ends quietly and the driver observes the
+/// teardown elsewhere.
+pub(super) async fn forward<B, T, H>(
+    nodes: impl NodeStream<B, T, H>,
+    tx: Sender<(Prefix<H>, B::Node<H>)>,
+) -> Result<(), B::Error>
+where
+    B: Backend<T, Node<Z>: Leaf<T>>,
+    T: Send + Sync + 'static,
+    H: Height,
+{
+    let mut nodes = pin!(nodes);
+    while let Some(item) = nodes.next().await {
+        if tx.send(item?).await.is_err() {
+            break;
+        }
+    }
+    Ok(())
+}
+
 /// The initiator's opening walk: explode the root one level and list every
 /// child on the wire while feeding the subtrees to `down` as the first
 /// frontier.
@@ -96,7 +125,7 @@ where
 pub(super) fn initiate<B, T>(
     backend: B,
     root: Option<B::Node<height::Root>>,
-    down: Sender<Keyed<B, T, UnderRoot>>,
+    down: Sender<(Prefix<UnderRoot>, B::Node<UnderRoot>)>,
 ) -> impl Responses<message::Opening, B::Error>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
@@ -133,9 +162,9 @@ pub(super) fn respond<B, T>(
     their_version: Version,
     root: Option<B::Node<height::Root>>,
     requests: impl Requests<message::Opening>,
-    down: Sender<Keyed<B, T, UnderUnderRoot>>,
-    level: Sender<Keyed<B, T, UnderRoot>>,
-) -> impl Responses<message::Exchanged<B, T, UnderRoot>, B::Error>
+    down: Sender<(Prefix<UnderUnderRoot>, B::Node<UnderUnderRoot>)>,
+    level: Sender<(Prefix<UnderRoot>, B::Node<UnderRoot>)>,
+) -> impl Responses<message::Exchange<B, T, UnderRoot>, B::Error>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
@@ -156,16 +185,14 @@ where
             Some(node) => {
                 let ours = backend.clone().children(one(Prefix::new(), node));
                 let theirs = stream::iter(theirs.into_iter().map(Ok));
-                let routed =
-                    route::<B, T, UnderUnderRoot>(backend, their_version, ours, theirs, down, level);
-                for await item in routed {
+                for await item in route(backend, their_version, ours, theirs, down, level) {
                     yield item?;
                 }
             }
             None => {
                 // We are empty: request everything the initiator listed.
-                for (prefix, _hash) in theirs {
-                    yield (prefix, message::Exchange::Requested);
+                for (_, _hash) in theirs {
+                    yield message::Exchange::Requested;
                 }
             }
         }
@@ -180,7 +207,7 @@ where
 /// them too. Each surviving node goes to `kept` (it stays ours); its
 /// children are yielded for the caller to wrap in its wire message kind.
 ///
-/// Shared by [`walk`] and [`complete_walk`]. A closed channel ends the
+/// Shared by [`walk`] and [`close_walk`]. A closed channel ends the
 /// stream early: callers observe the teardown by checking the sender they
 /// kept.
 fn provide<B, T, H>(
@@ -188,7 +215,7 @@ fn provide<B, T, H>(
     their_version: Version,
     prefix: Prefix<S<H>>,
     node: B::Node<S<H>>,
-    kept: Sender<Keyed<B, T, S<H>>>,
+    kept: Sender<(Prefix<S<H>>, B::Node<S<H>>)>,
 ) -> impl NodeStream<B, T, H>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
@@ -227,9 +254,9 @@ pub(super) fn route<B, T, H>(
     their_version: Version,
     ours: impl NodeStream<B, T, S<H>> + 'static,
     theirs: impl Stream<Item = Result<(Prefix<S<H>>, Hash), B::Error>> + Send + 'static,
-    down: Sender<Keyed<B, T, H>>,
-    level: Sender<Keyed<B, T, S<H>>>,
-) -> impl Responses<message::Exchanged<B, T, S<H>>, B::Error>
+    down: Sender<(Prefix<H>, B::Node<H>)>,
+    level: Sender<(Prefix<S<H>>, B::Node<S<H>>)>,
+) -> impl Responses<message::Exchange<B, T, S<H>>, B::Error>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
@@ -242,36 +269,43 @@ where
                 // We have it, they lack it (already pruned by classify): send
                 // it and keep it.
                 Routed::Provide(prefix, node) => {
-                    if level.send((prefix, node.clone())).await.is_err() {
+                    yield message::Exchange::Providing(prefix, node.clone());
+                    if level.send((prefix, node)).await.is_err() {
                         return;
                     }
-                    yield (prefix, message::Exchange::Providing(node));
                 }
-                // Hashes agree: keep ours, say nothing.
+                // Hashes agree: keep ours, indicate that it matched.
                 Routed::Matched(prefix, node) => {
+                    yield message::Exchange::Matched;
                     if level.send((prefix, node)).await.is_err() {
                         return;
                     }
                 }
                 // They have it, we lack it: ask for it.
-                Routed::Request(prefix) => {
-                    yield (prefix, message::Exchange::Requested);
+                Routed::Request(_prefix) => {
+                    yield message::Exchange::Requested;
                 }
                 // Hashes differ: descend. The children's hashes go out as one
                 // `uncertain` batch; the children themselves become the next
                 // stage's frontier.
                 Routed::Dispute(prefix, node) => {
                     let mut children = pin!(backend.clone().children(one(prefix, node)));
+
                     let mut listing = Vec::new();
+                    let mut downward = Vec::new();
                     while let Some(item) = children.next().await {
                         let (child_prefix, child) = item?;
                         let (_, radix) = child_prefix.pop();
                         listing.push((radix, child.hash()));
+                        downward.push((child_prefix, child));
+                    }
+
+                    yield message::Exchange::Uncertain(listing.clone());
+                    for (child_prefix, child) in downward {
                         if down.send((child_prefix, child)).await.is_err() {
                             return;
                         }
                     }
-                    yield (prefix, message::Exchange::Uncertain(listing));
                 }
             }
         }
@@ -295,12 +329,12 @@ where
 pub(super) fn walk<B, T, H>(
     backend: B,
     their_version: Version,
-    frontier: BoxNodeStream<B, T, S<S<H>>>,
-    messages: impl Requests<message::Exchanged<B, T, S<S<H>>>>,
-    down: Sender<Keyed<B, T, H>>,
-    keep: Sender<Keyed<B, T, S<S<H>>>>,
-    level: Sender<Keyed<B, T, S<H>>>,
-) -> impl Responses<message::Exchanged<B, T, S<H>>, B::Error>
+    frontier: BoxNodeStream<'static, B, T, S<S<H>>>,
+    messages: impl Requests<message::Exchange<B, T, S<S<H>>>>,
+    down: Sender<(Prefix<H>, B::Node<H>)>,
+    keep: Sender<(Prefix<S<S<H>>>, B::Node<S<S<H>>>)>,
+    level: Sender<(Prefix<S<H>>, B::Node<S<H>>)>,
+) -> impl Responses<message::Exchange<B, T, S<H>>, B::Error>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
@@ -309,205 +343,289 @@ where
     S<S<H>>: Height,
 {
     try_stream! {
-        for await cell in merge(frontier, messages.map(Ok)) {
-            match cell? {
-                // Matched by silence: the counterparty compared our hash and
-                // agreed, so neither side says anything further. Keep our copy.
-                (prefix, EitherOrBoth::Left(node)) => {
+        let mut frontier = pin!(frontier);
+        let mut messages = pin!(messages);
+
+        while let Some(message) = messages.next().await {
+            use message::Exchange::*;
+            match message {
+                Providing(prefix, node) => {
                     if keep.send((prefix, node)).await.is_err() {
                         return;
                     }
-                }
-
-                // They lack this subtree entirely: keep what survives their
-                // deletions, provide its children (see [`provide`]).
-                (prefix, EitherOrBoth::Both(node, message::Exchange::Requested)) => {
-                    let provided = provide::<B, T, S<H>>(
-                        backend.clone(),
-                        their_version.clone(),
-                        prefix,
-                        node,
-                        keep.clone(),
-                    );
-                    for await item in provided {
-                        let (child_prefix, child) = item?;
-                        yield (child_prefix, message::Exchange::Providing(child));
+                },
+                Matched => {
+                    match frontier.next().await.transpose() {
+                        Err(e) => yield Err(e)?,
+                        Ok(None) => return,
+                        Ok(Some((prefix, node))) => if keep.send((prefix, node)).await.is_err() {
+                            return;
+                        },
                     }
-                    // `provide` swallows channel closure to end its own stream;
-                    // for the walk it means session teardown.
-                    if keep.is_closed() {
-                        return;
+                },
+                Requested => {
+                    match frontier.next().await.transpose() {
+                        Err(e) => yield Err(e)?,
+                        Ok(None) => return,
+                        Ok(Some((prefix, node))) => {
+                            for await item in provide(
+                                backend.clone(),
+                                their_version.clone(),
+                                prefix,
+                                node,
+                                keep.clone(),
+                            ) {
+                                let (prefix, child) = item?;
+                                yield message::Exchange::Providing(prefix, child);
+                            }
+                            // `provide` swallows channel closure to end its own stream;
+                            // for the walk it means session teardown.
+                            if keep.is_closed() {
+                                return;
+                            }
+                        },
                     }
-                }
-
-                // They dispute this subtree: compare children via the asymmetry
-                // matrix, one verdict per child prefix, each routed by the
-                // shared `route`.
-                (prefix, EitherOrBoth::Both(node, message::Exchange::Uncertain(children))) => {
-                    let ours = backend.clone().children(one(prefix, node));
-                    let theirs = stream::iter(
-                        children
-                            .into_iter()
-                            .map(move |(radix, hash)| Ok((prefix.push(radix), hash))),
-                    );
-                    let routed = route::<B, T, H>(
-                        backend.clone(),
-                        their_version.clone(),
-                        ours,
-                        theirs,
-                        down.clone(),
-                        level.clone(),
-                    );
-                    for await item in routed {
-                        yield item?;
+                },
+                Uncertain(children) => {
+                    match frontier.next().await.transpose() {
+                        Err(e) => yield Err(e)?,
+                        Ok(None) => return,
+                        Ok(Some((prefix, node))) => {
+                            let ours = backend.clone().children(one(prefix, node));
+                            let theirs = stream::iter(
+                                children
+                                    .into_iter()
+                                    .map(move |(radix, hash)| Ok((prefix.push(radix), hash))),
+                            );
+                            for await item in route(
+                                backend.clone(),
+                                their_version.clone(),
+                                ours,
+                                theirs,
+                                down.clone(),
+                                level.clone(),
+                            ) {
+                                yield item?;
+                            }
+                            // `route` swallows channel closure to end its own stream;
+                            // for the walk it means the session is tearing down.
+                            if down.is_closed() || level.is_closed() {
+                                return;
+                            }
+                        }
                     }
-                    // `route` swallows channel closure to end its own stream;
-                    // for the walk it means the session is tearing down.
-                    if down.is_closed() || level.is_closed() {
-                        return;
-                    }
-                }
-
-                // A subtree we asked for (or provably lacked): absorb it into
-                // the reconciled frontier level.
-                (prefix, EitherOrBoth::Right(message::Exchange::Providing(node))) => {
-                    if keep.send((prefix, node)).await.is_err() {
-                        return;
-                    }
-                }
-
-                // The counterparty may only provide against prefixes we lack,
-                // and may only request or dispute prefixes we listed; anything
-                // else means the peer is misbehaving, or we are.
-                (prefix, EitherOrBoth::Both(_, message::Exchange::Providing(_))) => {
-                    debug_assert!(
-                        false,
-                        "counterparty provided prefix {prefix:?} we already hold",
-                    );
-                }
-                (prefix, EitherOrBoth::Right(
-                    message::Exchange::Requested | message::Exchange::Uncertain(_),
-                )) => {
-                    debug_assert!(
-                        false,
-                        "counterparty mentioned prefix {prefix:?} we never listed",
-                    );
-                }
+                },
             }
         }
     }
 }
 
-/// The initiator's terminal walk: our frontier at `S<Z>` against the
-/// responder's [`message::Closing`], producing the final
-/// [`message::Complete`] wire items.
+/// The initiator's closing walk: our frontier at `S<Z>` against the
+/// responder's leaf-parent verdicts, producing the leaf-height
+/// [`message::Closing`] words.
 ///
-/// A `Closing` carries no `uncertain` (vacuous at leaf height), so this is
-/// [`walk`] minus the classify arm: silence keeps, `requested` explodes into
-/// pruned leaf `providing`, and incoming `providing` is absorbed. All
-/// reconciled nodes land at the frontier height through `level`.
-pub(super) fn complete_walk<B, T>(
+/// This is [`walk`] with the classify arm degenerated to leaf height. An
+/// incoming `uncertain` lists the counterparty's leaves under a parent both
+/// sides hold, and leaves never dispute — two leaves at one path are the
+/// same leaf — so every cell of the matrix resolves in place: ours-only
+/// leaves are pruned against their version and provided, theirs-only leaves
+/// requested, shared leaves matched. Kept leaves flow to `down`, the
+/// terminal's frontier, where the counterparty's answers join them for the
+/// upward reassembly of each disputed parent; undisputed parents flow whole
+/// to `keep`.
+pub(super) fn close_walk<B, T>(
     backend: B,
     their_version: Version,
-    frontier: BoxNodeStream<B, T, S<Z>>,
-    messages: impl Requests<(Prefix<S<Z>>, message::Closing<B, T>)>,
-    level: Sender<Keyed<B, T, S<Z>>>,
-) -> impl Responses<(Prefix<Z>, message::Complete<B, T>), B::Error>
+    frontier: BoxNodeStream<'static, B, T, S<Z>>,
+    messages: impl Requests<message::Exchange<B, T, S<Z>>>,
+    down: Sender<(Prefix<Z>, B::Node<Z>)>,
+    keep: Sender<(Prefix<S<Z>>, B::Node<S<Z>>)>,
+) -> impl Responses<message::Closing<B, T>, B::Error>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
     try_stream! {
-        for await cell in merge(frontier, messages.map(Ok)) {
-            match cell? {
-                // Matched by silence: keep our copy.
-                (prefix, EitherOrBoth::Left(node)) => {
-                    if level.send((prefix, node)).await.is_err() {
+        let mut frontier = pin!(frontier);
+        let mut messages = pin!(messages);
+
+        while let Some(message) = messages.next().await {
+            use message::Exchange::*;
+            match message {
+                Providing(prefix, node) => {
+                    if keep.send((prefix, node)).await.is_err() {
                         return;
                     }
-                }
-                // They lack it entirely: keep what survives their deletions,
-                // send its leaves as the final providing (see [`provide`]).
-                (prefix, EitherOrBoth::Both(node, message::Closing::Requested)) => {
-                    let provided = provide::<B, T, Z>(
-                        backend.clone(),
-                        their_version.clone(),
-                        prefix,
-                        node,
-                        level.clone(),
-                    );
-                    for await item in provided {
-                        let (child_prefix, child) = item?;
-                        yield (child_prefix, message::Complete::Providing(child));
+                },
+                Matched => {
+                    match frontier.next().await.transpose() {
+                        Err(e) => yield Err(e)?,
+                        Ok(None) => return,
+                        Ok(Some((prefix, node))) => if keep.send((prefix, node)).await.is_err() {
+                            return;
+                        },
                     }
-                    // `provide` swallows channel closure to end its own
-                    // stream; here it means session teardown.
-                    if level.is_closed() {
-                        return;
+                },
+                Requested => {
+                    match frontier.next().await.transpose() {
+                        Err(e) => yield Err(e)?,
+                        Ok(None) => return,
+                        Ok(Some((prefix, node))) => {
+                            for await item in provide(
+                                backend.clone(),
+                                their_version.clone(),
+                                prefix,
+                                node,
+                                keep.clone(),
+                            ) {
+                                let (prefix, child) = item?;
+                                yield message::Closing::Providing(prefix, child);
+                            }
+                            // `provide` swallows channel closure to end its own stream;
+                            // for the walk it means session teardown.
+                            if keep.is_closed() {
+                                return;
+                            }
+                        },
                     }
-                }
-                // A subtree we asked for: absorb it.
-                (prefix, EitherOrBoth::Right(message::Closing::Providing(node))) => {
-                    if level.send((prefix, node)).await.is_err() {
-                        return;
+                },
+                Uncertain(children) => {
+                    match frontier.next().await.transpose() {
+                        Err(e) => yield Err(e)?,
+                        Ok(None) => return,
+                        Ok(Some((prefix, node))) => {
+                            let ours = backend.clone().children(one(prefix, node));
+                            let theirs = stream::iter(
+                                children
+                                    .into_iter()
+                                    .map(move |(radix, hash)| Ok::<_, B::Error>((prefix.push(radix), hash))),
+                            );
+                            for await cell in merge(ours, theirs) {
+                                match cell? {
+                                    // Ours alone: they deleted it if it is at
+                                    // or before their version; otherwise
+                                    // provide it and keep it.
+                                    (leaf_prefix, EitherOrBoth::Left(leaf)) => {
+                                        if !known(&leaf, &their_version) {
+                                            yield message::Closing::Providing(
+                                                leaf_prefix,
+                                                leaf.clone(),
+                                            );
+                                            if down.send((leaf_prefix, leaf)).await.is_err() {
+                                                return;
+                                            }
+                                        }
+                                    }
+                                    // Both: two leaves at one path are the
+                                    // same leaf. Say so — the word is
+                                    // positional, pairing with the next leaf
+                                    // they listed — and keep ours.
+                                    (leaf_prefix, EitherOrBoth::Both(leaf, _hash)) => {
+                                        yield message::Closing::Matched;
+                                        if down.send((leaf_prefix, leaf)).await.is_err() {
+                                            return;
+                                        }
+                                    }
+                                    // Theirs alone: ask for it. Their answer
+                                    // prunes against our version, so a leaf
+                                    // we deleted drops there instead of
+                                    // coming back.
+                                    (_leaf_prefix, EitherOrBoth::Right(_hash)) => {
+                                        yield message::Closing::Requested;
+                                    }
+                                }
+                            }
+                        }
                     }
-                }
-                (prefix, EitherOrBoth::Both(_, message::Closing::Providing(_))) => {
-                    debug_assert!(
-                        false,
-                        "counterparty provided prefix {prefix:?} we already hold",
-                    );
-                }
-                (prefix, EitherOrBoth::Right(message::Closing::Requested)) => {
-                    debug_assert!(
-                        false,
-                        "counterparty requested prefix {prefix:?} we never listed",
-                    );
-                }
+                },
             }
         }
     }
 }
 
-/// The responder's terminal absorb: merge our kept disputed leaves with the
-/// initiator's final `providing` into the reconciled leaf level.
+/// The responder's terminal walk: pair the initiator's closing words with
+/// our kept disputed leaves, answering its `Requested` leaves with the final
+/// [`message::Complete`].
 ///
-/// The two sets are disjoint: our frontier holds leaves under parents *we*
-/// disputed, while the initiator provides only leaves under parents we
-/// requested (and so lack entirely). See
-/// [`complete_responder`](super::super::protocol::CompleteResponder), which
+/// The frontier holds exactly the leaves we listed under disputed parents,
+/// in listing order, and the initiator speaks one positional word per listed
+/// leaf: `Matched` keeps ours, `Requested` answers it pruned against the
+/// initiator's version — at or before it means the initiator deleted the
+/// leaf, and it drops here instead of shipping. `Providing` rides keyed
+/// between them, absorbing a leaf only the initiator held without consuming
+/// a frontier leaf.
+pub(super) fn respond_leaves<B, T>(
+    their_version: Version,
+    frontier: BoxNodeStream<'static, B, T, Z>,
+    messages: impl Requests<message::Closing<B, T>>,
+    leaves: Sender<(Prefix<Z>, B::Node<Z>)>,
+) -> impl Responses<message::Complete<B, T>, B::Error>
+where
+    B: Backend<T, Node<Z>: Leaf<T>>,
+    T: Send + Sync + 'static,
+{
+    try_stream! {
+        let mut frontier = pin!(frontier);
+        let mut messages = pin!(messages);
+
+        while let Some(message) = messages.next().await {
+            use message::Closing::*;
+            match message {
+                Providing(prefix, leaf) => {
+                    if leaves.send((prefix, leaf)).await.is_err() {
+                        return;
+                    }
+                },
+                Matched => {
+                    match frontier.next().await.transpose() {
+                        Err(e) => yield Err(e)?,
+                        Ok(None) => return,
+                        Ok(Some((prefix, leaf))) => if leaves.send((prefix, leaf)).await.is_err() {
+                            return;
+                        },
+                    }
+                },
+                Requested => {
+                    match frontier.next().await.transpose() {
+                        Err(e) => yield Err(e)?,
+                        Ok(None) => return,
+                        Ok(Some((prefix, leaf))) => {
+                            if !known(&leaf, &their_version) {
+                                yield message::Complete::Providing(prefix, leaf.clone());
+                                if leaves.send((prefix, leaf)).await.is_err() {
+                                    return;
+                                }
+                            }
+                        },
+                    }
+                },
+            }
+        }
+    }
+}
+
+/// The initiator's terminal absorb: merge our kept closing leaves with the
+/// responder's final `providing` into the reconciled leaf level.
+///
+/// The two sets are disjoint: our frontier holds the leaves [`close_walk`]
+/// kept — shared ones and our own survivors — while the responder provides
+/// only the leaves we `Requested`, which we lack by construction. See
+/// [`complete_initiator`](super::super::protocol::CompleteInitiator), which
 /// drives this concurrently with the session's accumulated work.
 pub(super) async fn absorb_leaves<B, T>(
-    frontier: BoxNodeStream<B, T, Z>,
-    messages: impl Requests<(Prefix<Z>, message::Complete<B, T>)>,
-    leaves: Sender<Keyed<B, T, Z>>,
+    frontier: BoxNodeStream<'static, B, T, Z>,
+    messages: impl Requests<message::Complete<B, T>>,
+    leaves: Sender<(Prefix<Z>, B::Node<Z>)>,
 ) -> Result<(), B::Error>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    let incoming = messages.map(|(prefix, message::Complete::Providing(node))| Ok((prefix, node)));
-    let joined = merge(frontier, incoming);
-
-    let mut joined = pin!(joined);
-    while let Some(cell) = joined.next().await {
-        let sent = match cell? {
-            (prefix, EitherOrBoth::Left(leaf) | EitherOrBoth::Right(leaf)) => {
-                leaves.send((prefix, leaf)).await
-            }
-            (prefix, EitherOrBoth::Both(ours, _)) => {
-                debug_assert!(
-                    false,
-                    "counterparty provided leaf {:?} we already hold",
-                    prefix,
-                );
-                leaves.send((prefix, ours)).await
-            }
-        };
-        if sent.is_err() {
-            // The reassembly was dropped; the session is being torn down.
-            break;
-        }
-    }
-    Ok(())
+    let providing = messages.map(|message| {
+        let message::Complete::Providing(prefix, node) = message;
+        Ok((prefix, node))
+    });
+    // Both inputs ascend by prefix and the reassembly above requires the
+    // union in ascending order, so this is a merge, not a concatenation.
+    forward::<B, T, Z>(merge_disjoint(frontier, providing), leaves).await
 }

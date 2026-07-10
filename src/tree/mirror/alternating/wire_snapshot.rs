@@ -301,19 +301,18 @@ fn message_exchange_populated() {
     insta::assert_snapshot!(snap(&m));
 }
 
-/// An empty `Closing`: the initiator's final round with nothing left.
+/// An empty `Closing`: the responder's closing round with nothing left.
 #[test]
 fn message_closing_empty() {
     let m: message::Closing<()> = message::Closing::default();
     insta::assert_snapshot!(snap(&m));
 }
 
-/// A `Closing` still providing and requesting at the bottom heights.
+/// A `Closing` still providing and requesting leaves.
 #[test]
 fn message_closing_populated() {
-    let n_s_z: Node<(), S<Z>> = Node::beneath(leaf("a", 1), 0xab);
-    let providing = vec![(prefix_from_bytes::<S<Z>>(&[0u8; 31]), n_s_z)];
-    let requested = vec![prefix_from_bytes::<S<Z>>(&[0xffu8; 31])];
+    let providing = vec![(prefix_from_bytes::<Z>(&[0u8; 32]), leaf("a", 1))];
+    let requested = vec![prefix_from_bytes::<Z>(&[0xffu8; 32])];
     let m: message::Closing<()> = message::Closing {
         providing,
         requested,
@@ -321,14 +320,14 @@ fn message_closing_populated() {
     insta::assert_snapshot!(snap(&m));
 }
 
-/// An empty `Complete`: the responder's sign-off with nothing owed.
+/// An empty `Complete`: the initiator's sign-off with nothing owed.
 #[test]
 fn message_complete_empty() {
     let m: message::Complete<()> = message::Complete::default();
     insta::assert_snapshot!(snap(&m));
 }
 
-/// A `Complete` shipping one final leaf: the responder's last `providing`.
+/// A `Complete` shipping one final leaf: the initiator's last `providing`.
 #[test]
 fn message_complete_populated() {
     let providing = vec![(prefix_from_bytes::<Z>(&[0u8; 32]), leaf("a", 1))];

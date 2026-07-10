@@ -9,7 +9,7 @@ macro_rules! define_peer {
         define_peer!(@step
             init: [$($init_count)*],
             resp: [$($resp_count)*],
-            init_chain: (CompleteInitiator<I, T>),
+            init_chain: (CloseInitiator<I, T>),
             resp_chain: (CloseResponder<I, T>),
         );
     };
@@ -52,14 +52,14 @@ macro_rules! define_peer {
             Initiator<I, T, Next: $($init_chain)*>
             + OpenResponder<I, T, Next: $($resp_chain)*>
         where
-            I: Backend<T>,
+            I: Backend<T, Node<Z>: Leaf<T>>,
             T: Send + Sync,
         {
         }
 
         impl<X, I, T> Peer<I, T> for X
         where
-            I: Backend<T>,
+            I: Backend<T, Node<Z>: Leaf<T>>,
             T: Send + Sync,
             X: Initiator<I, T, Next: $($init_chain)*>
                 + OpenResponder<I, T, Next: $($resp_chain)*>,
@@ -69,14 +69,14 @@ macro_rules! define_peer {
         pub trait Server<I, T>:
             Accept<I, T, Next: Initiator<I, T, Next: $($init_chain)*> + OpenResponder<I, T, Next: $($resp_chain)*>>
         where
-            I: Backend<T>,
+            I: Backend<T, Node<Z>: Leaf<T>>,
             T: Send + Sync,
         {
         }
 
         impl<X, I, T> Server<I, T> for X
         where
-            I: Backend<T>,
+            I: Backend<T, Node<Z>: Leaf<T>>,
             T: Send + Sync,
             X: Accept<I, T, Next: Initiator<I, T, Next: $($init_chain)*> + OpenResponder<I, T, Next: $($resp_chain)*>>,
         {
@@ -85,14 +85,14 @@ macro_rules! define_peer {
         pub trait Client<I, T>:
             Connect<I, T, Next: CompleteConnect<I, T, Next: Initiator<I, T, Next: $($init_chain)*> + OpenResponder<I, T, Next: $($resp_chain)*>>>
         where
-            I: Backend<T>,
+            I: Backend<T, Node<Z>: Leaf<T>>,
             T: Send + Sync,
         {
         }
 
         impl<X, I, T> Client<I, T> for X
         where
-            I: Backend<T>,
+            I: Backend<T, Node<Z>: Leaf<T>>,
             T: Send + Sync,
             X: Connect<I, T, Next: CompleteConnect<I, T, Next: Initiator<I, T, Next: $($init_chain)*> + OpenResponder<I, T, Next: $($resp_chain)*>>>,
         {

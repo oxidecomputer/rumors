@@ -423,32 +423,32 @@ where
     }
 }
 
-impl<T, L> protocol::CloseInitiator<T> for Exchange<Connected, L>
-where
-    T: Send + Sync,
-    L: Levels<Message = T, Height = S<S<Z>>>,
-{
-    type Next = Exchange<Connected, Below<Z, Below<S<Z>, L>>>;
-
-    async fn close_initiator(
-        self,
-        request: message::Exchange<T, S<Z>>,
-    ) -> Result<protocol::Step<message::Closing<T>, Self::Next, Self::Output>, Infallible> {
-        Ok(self.reply(request))
-    }
-}
-
-impl<T, L> protocol::CompleteResponder<T> for Exchange<Connected, L>
+impl<T, L> protocol::CloseResponder<T> for Exchange<Connected, L>
 where
     T: Send + Sync,
     L: Levels<Message = T, Height = S<Z>>,
 {
-    async fn complete_responder(
+    type Next = Exchange<Connected, Below<Z, L>>;
+
+    async fn close_responder(
+        self,
+        request: message::Exchange<T, Z>,
+    ) -> Result<protocol::Step<message::Closing<T>, Self::Next, Self::Output>, Infallible> {
+        Ok(self.close(request))
+    }
+}
+
+impl<T, L> protocol::CompleteInitiator<T> for Exchange<Connected, L>
+where
+    T: Send + Sync,
+    L: Levels<Message = T, Height = Z>,
+{
+    async fn complete_initiator(
         mut self,
         request: message::Closing<T>,
     ) -> Result<protocol::Step<message::Complete<T>, Infallible, Self::Output>, Infallible> {
         self.absorb_providing(request.providing);
-        let providing = self.answer_requested(request.requested);
+        let providing = self.answer_requested_leaves(request.requested);
         Ok(protocol::Step::Done {
             msg: message::Complete {
                 providing: providing.into_iter().collect(),
@@ -461,12 +461,12 @@ where
     }
 }
 
-impl<T, L> protocol::CompleteInitiator<T> for Exchange<Connected, L>
+impl<T, L> protocol::CompleteResponder<T> for Exchange<Connected, L>
 where
     T: Send + Sync,
     L: Levels<Message = T, Height = Z>,
 {
-    async fn complete_initiator(
+    async fn complete_responder(
         mut self,
         request: message::Complete<T>,
     ) -> Result<protocol::Step<(), Infallible, Self::Output>, Infallible> {

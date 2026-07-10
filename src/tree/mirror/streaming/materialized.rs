@@ -3,9 +3,12 @@
 //!
 //! Any [`Backend`] holding a real tree — one whose nodes answer
 //! [`Node`](super::backend::Node)'s hash and version bounds, and whose leaves
-//! are [`Leaf`]s — can be used here,
-//! with no further ceremony. The stages speak that backend's node types on
-//! both sides of the wire: what a walk emits is what the counterparty reads.
+//! are [`Leaf`]s — can be used here, with no further ceremony. The stages speak
+//! that backend's node types on both sides of the wire: what a walk emits is
+//! what the counterparty reads.
+
+// Where we're going, we need to write some Complex Types.
+#![allow(clippy::type_complexity)]
 
 use futures::channel::mpsc::{self, Receiver, Sender};
 use futures::future::{self, BoxFuture};
@@ -30,8 +33,6 @@ mod dispute;
 mod handshake;
 mod merge;
 mod reconcile;
-// `pub(super)` (not plain `mod`) so sibling modules' docs can link into it:
-// `backend::one` names `unknown::unknown` as the other consumer of its seeds.
 pub(super) mod unknown;
 
 pub use handshake::Handshaking;
