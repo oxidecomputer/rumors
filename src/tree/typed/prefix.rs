@@ -96,6 +96,19 @@ impl<H: Height> Prefix<H> {
         }
     }
 
+    /// Decrement to the largest same-height prefix strictly below this one.
+    ///
+    /// A big-endian decrement of the accumulated path bytes: the rightmost
+    /// nonzero byte drops by one and every byte after it becomes `0xff`.
+    /// Returns `None` when every byte is zero — no prefix lies below — which
+    /// includes the empty root prefix, vacuously all-zeros.
+    pub fn pred(mut self) -> Option<Self> {
+        let last = self.hash.iter().rposition(|&byte| byte != 0)?;
+        self.hash[last] -= 1;
+        self.hash[last + 1..].fill(0xff);
+        Some(self)
+    }
+
     /// Pop one hash byte off the end of the prefix, yielding the byte and the
     /// remainder of the prefix.
     pub fn pop(mut self) -> (Prefix<S<H>>, u8)
