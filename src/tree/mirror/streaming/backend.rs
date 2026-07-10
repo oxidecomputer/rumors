@@ -71,20 +71,30 @@ where
         S<H>: Height;
 }
 
-/// Reassemble an ascending child stream into its parent level, one complete
-/// radix group at a time.
+/// Reassemble an ascending marked child stream into its marked parent level,
+/// one complete radix group at a time.
 ///
-/// Children of a given parent arrive contiguously, so each run of equal
-/// parent prefixes coalesces into one group, flushed through
-/// [`Backend::parent`] when the prefix changes and once more when the input
-/// ends. The input is all-real — reassembling an already-reconciled level
-/// deletes nothing — so every group is non-empty and construction always
-/// yields a parent; a `None` from the backend is a contract violation (debug
-/// builds panic, release builds drop the parent).
+/// The stream is *marked* (see [`merge`](super::materialized)'s module
+/// docs): real children interleave with watermarks, `(k, None)` items
+/// asserting nothing keyed at or below `k` follows. Children of a given
+/// parent arrive contiguously, so each run of equal parent prefixes
+/// coalesces into one group, flushed through [`Backend::parent`] when the
+/// prefix changes, when the input ends, or when a watermark covers the open
+/// parent — the trigger that cannot wait for the next real child, because in
+/// a one-sided region none is coming. A watermark never joins a group (it is
+/// not a delete entry — that vocabulary belongs to [`Backend::parent`]'s
+/// callers in `unknown`); it translates up a height: a watermark at the
+/// maximal child `q·0xff` guarantees `q` itself, any other child watermark
+/// guarantees `q`'s predecessor, and the translated watermark is emitted
+/// only where it advances past the last yielded key (a real item implies its
+/// own key's passage, so echoes carry nothing). Groups therefore stay
+/// all-real and non-empty and construction always yields a parent; a `None`
+/// from the backend is a contract violation (debug builds panic, release
+/// builds drop the parent).
 pub(super) fn fold_parents<B, T, H>(
     backend: B,
-    children: impl NodeStream<B, T, H>,
-) -> impl NodeStream<B, T, S<H>>
+    children: impl OptionNodeStream<B, T, H>,
+) -> impl OptionNodeStream<B, T, S<H>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
@@ -116,23 +126,52 @@ where
     try_stream! {
         let mut children = pin!(children);
         let mut open: Option<(_, Vec<_>)> = None;
+        // The last key yielded, real or watermark. Real yields ascend by
+        // construction (their input does); watermark yields are gated on
+        // advancing it, which is also what suppresses an echo of a key a
+        // flush just carried.
+        let mut last: Option<Prefix<S<H>>> = None;
         while let Some(item) = children.next().await {
             let (path, child) = item?;
             let (prefix, radix) = path.pop();
-            match &mut open {
-                Some((current, group)) if *current == prefix => {
-                    group.push((radix, Some(child)));
-                }
-                _ => {
-                    let finished = open.replace((prefix, vec![(radix, Some(child))]));
-                    if let Some(parent) = flush(&backend, finished).await? {
-                        yield parent;
+            match child {
+                Some(child) => match &mut open {
+                    Some((current, group)) if *current == prefix => {
+                        group.push((radix, Some(child)));
+                    }
+                    _ => {
+                        let finished = open.replace((prefix, vec![(radix, Some(child))]));
+                        if let Some((flushed, parent)) = flush(&backend, finished).await? {
+                            last = Some(flushed);
+                            yield (flushed, Some(parent));
+                        }
+                    }
+                },
+                None => {
+                    // Translate the watermark one level up. At the maximal
+                    // child no sibling can follow, so the parent itself is
+                    // covered; below it, later siblings may still come, so
+                    // the guarantee steps back to the parent's predecessor —
+                    // and at all-zeros there is nothing below to speak of.
+                    let guarantee = if radix == 0xff { Some(prefix) } else { prefix.pred() };
+                    let Some(guarantee) = guarantee else { continue };
+                    // The covered open parent's child run is complete even
+                    // though no prefix change or input end has said so.
+                    let covered = open.as_ref().is_some_and(|(current, _)| *current <= guarantee);
+                    let finished = if covered { open.take() } else { None };
+                    if let Some((flushed, parent)) = flush(&backend, finished).await? {
+                        last = Some(flushed);
+                        yield (flushed, Some(parent));
+                    }
+                    if last.is_none_or(|l| guarantee > l) {
+                        last = Some(guarantee);
+                        yield (guarantee, None);
                     }
                 }
             }
         }
-        if let Some(parent) = flush(&backend, open.take()).await? {
-            yield parent;
+        if let Some((flushed, parent)) = flush(&backend, open.take()).await? {
+            yield (flushed, Some(parent));
         }
     }
 }
@@ -230,3 +269,6 @@ where
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

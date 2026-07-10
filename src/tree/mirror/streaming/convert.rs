@@ -91,8 +91,21 @@ where
         B: Backend<T, Node<Z>: Leaf<T>>,
         T: Send + Sync + 'static,
     {
-        let below = H::assemble(backend.clone(), leaves);
-        Box::pin(fold_parents(backend, below))
+        // The conversion tower is all-real: no watermark goes in, so none
+        // can come out, and the lift/strip pair is vacuous at runtime. It
+        // exists to keep `fold_parents` singular — the one grouping
+        // combinator — rather than forking an unmarked twin.
+        let below = H::assemble(backend.clone(), leaves)
+            .map(|item| item.map(|(prefix, node)| (prefix, Some(node))));
+        let folded = fold_parents(backend, below);
+        Box::pin(try_stream! {
+            let mut folded = pin!(folded);
+            while let Some(item) = folded.next().await {
+                if let (prefix, Some(node)) = item? {
+                    yield (prefix, node);
+                }
+            }
+        })
     }
 }
 

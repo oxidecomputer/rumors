@@ -51,7 +51,9 @@ use crate::tree::typed::{
     height::{self, Height, S, UnderRoot, UnderUnderRoot, Z},
 };
 
-use super::super::backend::{Backend, BoxNodeStream, Leaf, Node, NodeStream, one};
+use super::super::backend::{
+    Backend, BoxNodeStream, Leaf, Node, NodeStream, OptionNodeStream, one,
+};
 use super::super::message;
 use super::super::protocol::{Requests, Responses};
 use super::dispute::{Routed, classify};
@@ -79,25 +81,25 @@ where
     let (tx, rx) = mpsc::channel(FAN);
     work.push(Box::pin(async move {
         let mut messages = pin!(messages);
-        while let Some(Ok(message)) = messages.next().await {
-            let _ = tx.send(Ok(message)).await;
+        while let Some(item) = messages.next().await {
+            let _ = tx.send(item).await;
         }
         Ok(())
     }));
     rx
 }
 
-/// Drain a prefix-keyed node stream into a channel.
+/// Drain a marked prefix-keyed node stream into a channel.
 ///
 /// The dual of [`outgoing`] for the reassembly side: where `outgoing`
 /// forwards a walk's *messages* into the channel the counterparty reads,
-/// this forwards its reconciled *nodes* into the channel the level above
-/// folds. A closed channel means the consumer is gone and the session is
-/// being torn down; the drain ends quietly and the driver observes the
-/// teardown elsewhere.
+/// this forwards its reconciled *nodes* — and their watermarks — into the
+/// channel the level above folds. A closed channel means the consumer is
+/// gone and the session is being torn down; the drain ends quietly and the
+/// driver observes the teardown elsewhere.
 pub(super) async fn forward<B, T, H>(
-    nodes: impl NodeStream<B, T, H>,
-    tx: Sender<(Prefix<H>, B::Node<H>)>,
+    nodes: impl OptionNodeStream<B, T, H>,
+    tx: Sender<(Prefix<H>, Option<B::Node<H>>)>,
 ) -> Result<(), B::Error>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
@@ -124,7 +126,7 @@ where
 pub(super) fn initiate<B, T>(
     backend: B,
     root: Option<B::Node<height::Root>>,
-    down: Sender<(Prefix<UnderRoot>, B::Node<UnderRoot>)>,
+    down: Sender<(Prefix<UnderRoot>, Option<B::Node<UnderRoot>>)>,
 ) -> impl Responses<message::Opening, B::Error>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
@@ -138,7 +140,7 @@ where
                 let (prefix, child) = item?;
                 let (_, radix) = prefix.pop();
                 listing.push((radix, child.hash()));
-                if down.send((prefix, child)).await.is_err() {
+                if down.send((prefix, Some(child))).await.is_err() {
                     return;
                 }
             }
@@ -161,8 +163,8 @@ pub(super) fn respond<B, T>(
     their_version: Version,
     root: Option<B::Node<height::Root>>,
     requests: impl Requests<message::Opening>,
-    down: Sender<(Prefix<UnderUnderRoot>, B::Node<UnderUnderRoot>)>,
-    level: Sender<(Prefix<UnderRoot>, B::Node<UnderRoot>)>,
+    down: Sender<(Prefix<UnderUnderRoot>, Option<B::Node<UnderUnderRoot>>)>,
+    level: Sender<(Prefix<UnderRoot>, Option<B::Node<UnderRoot>>)>,
 ) -> impl Responses<message::Exchange<B, T, UnderRoot>, B::Error>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
@@ -214,7 +216,7 @@ fn provide<B, T, H>(
     their_version: Version,
     prefix: Prefix<S<H>>,
     node: B::Node<S<H>>,
-    kept: Sender<(Prefix<S<H>>, B::Node<S<H>>)>,
+    kept: Sender<(Prefix<S<H>>, Option<B::Node<S<H>>>)>,
 ) -> impl NodeStream<B, T, H>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
@@ -226,7 +228,7 @@ where
         let mut pruned = unknown(&backend, &their_version, one(prefix, node));
         while let Some(item) = pruned.next().await {
             let (prefix, node) = item?;
-            if kept.send((prefix, node.clone())).await.is_err() {
+            if kept.send((prefix, Some(node.clone()))).await.is_err() {
                 return;
             }
             let mut children = pin!(backend.clone().children(prefix, node));
@@ -253,8 +255,8 @@ pub(super) fn route<B, T, H>(
     their_version: Version,
     ours: impl NodeStream<B, T, S<H>> + 'static,
     theirs: impl Stream<Item = Result<(Prefix<S<H>>, Hash), B::Error>> + Send + 'static,
-    down: Sender<(Prefix<H>, B::Node<H>)>,
-    level: Sender<(Prefix<S<H>>, B::Node<S<H>>)>,
+    down: Sender<(Prefix<H>, Option<B::Node<H>>)>,
+    level: Sender<(Prefix<S<H>>, Option<B::Node<S<H>>>)>,
 ) -> impl Responses<message::Exchange<B, T, S<H>>, B::Error>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
@@ -269,14 +271,14 @@ where
                 // it and keep it.
                 Routed::Provide(prefix, node) => {
                     yield message::Exchange::Providing(prefix, node.clone());
-                    if level.send((prefix, node)).await.is_err() {
+                    if level.send((prefix, Some(node))).await.is_err() {
                         return;
                     }
                 }
                 // Hashes agree: keep ours, indicate that it matched.
                 Routed::Matched(prefix, node) => {
                     yield message::Exchange::Matched;
-                    if level.send((prefix, node)).await.is_err() {
+                    if level.send((prefix, Some(node))).await.is_err() {
                         return;
                     }
                 }
@@ -301,7 +303,7 @@ where
 
                     yield message::Exchange::Uncertain(listing.clone());
                     for (child_prefix, child) in downward {
-                        if down.send((child_prefix, child)).await.is_err() {
+                        if down.send((child_prefix, Some(child))).await.is_err() {
                             return;
                         }
                     }
@@ -330,9 +332,9 @@ pub(super) fn walk<B, T, H>(
     their_version: Version,
     frontier: BoxNodeStream<'static, B, T, S<S<H>>>,
     messages: impl Requests<message::Exchange<B, T, S<S<H>>>>,
-    down: Sender<(Prefix<H>, B::Node<H>)>,
-    keep: Sender<(Prefix<S<S<H>>>, B::Node<S<S<H>>>)>,
-    level: Sender<(Prefix<S<H>>, B::Node<S<H>>)>,
+    down: Sender<(Prefix<H>, Option<B::Node<H>>)>,
+    keep: Sender<(Prefix<S<S<H>>>, Option<B::Node<S<S<H>>>>)>,
+    level: Sender<(Prefix<S<H>>, Option<B::Node<S<H>>>)>,
 ) -> impl Responses<message::Exchange<B, T, S<H>>, B::Error>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
@@ -349,7 +351,7 @@ where
             use message::Exchange::*;
             match message {
                 Providing(prefix, node) => {
-                    if keep.send((prefix, node)).await.is_err() {
+                    if keep.send((prefix, Some(node))).await.is_err() {
                         return;
                     }
                 },
@@ -357,7 +359,7 @@ where
                     match frontier.next().await.transpose() {
                         Err(e) => yield Err(e)?,
                         Ok(None) => return,
-                        Ok(Some((prefix, node))) => if keep.send((prefix, node)).await.is_err() {
+                        Ok(Some((prefix, node))) => if keep.send((prefix, Some(node))).await.is_err() {
                             return;
                         },
                     }
@@ -437,8 +439,8 @@ pub(super) fn close_walk<B, T>(
     their_version: Version,
     frontier: BoxNodeStream<'static, B, T, S<Z>>,
     messages: impl Requests<message::Exchange<B, T, S<Z>>>,
-    down: Sender<(Prefix<Z>, B::Node<Z>)>,
-    keep: Sender<(Prefix<S<Z>>, B::Node<S<Z>>)>,
+    down: Sender<(Prefix<Z>, Option<B::Node<Z>>)>,
+    keep: Sender<(Prefix<S<Z>>, Option<B::Node<S<Z>>>)>,
 ) -> impl Responses<message::Closing<B, T>, B::Error>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
@@ -452,7 +454,7 @@ where
             use message::Exchange::*;
             match message {
                 Providing(prefix, node) => {
-                    if keep.send((prefix, node)).await.is_err() {
+                    if keep.send((prefix, Some(node))).await.is_err() {
                         return;
                     }
                 },
@@ -460,7 +462,7 @@ where
                     match frontier.next().await.transpose() {
                         Err(e) => yield Err(e)?,
                         Ok(None) => return,
-                        Ok(Some((prefix, node))) => if keep.send((prefix, node)).await.is_err() {
+                        Ok(Some((prefix, node))) => if keep.send((prefix, Some(node))).await.is_err() {
                             return;
                         },
                     }
@@ -510,25 +512,25 @@ where
                                                 leaf_prefix,
                                                 leaf.clone(),
                                             );
-                                            if down.send((leaf_prefix, leaf)).await.is_err() {
+                                            if down.send((leaf_prefix, Some(leaf))).await.is_err() {
                                                 return;
                                             }
                                         }
                                     }
-                                    // Both: two leaves at one path are the
-                                    // same leaf. Say so — the word is
-                                    // positional, pairing with the next leaf
-                                    // they listed — and keep ours.
+                                    // Both: two leaves at one path are the same
+                                    // leaf. Say so — the word is positional,
+                                    // pairing with the next leaf they listed —
+                                    // and keep ours.
                                     (leaf_prefix, EitherOrBoth::Both(leaf, _hash)) => {
                                         yield message::Closing::Matched;
-                                        if down.send((leaf_prefix, leaf)).await.is_err() {
+                                        if down.send((leaf_prefix, Some(leaf))).await.is_err() {
                                             return;
                                         }
                                     }
                                     // Theirs alone: ask for it. Their answer
-                                    // prunes against our version, so a leaf
-                                    // we deleted drops there instead of
-                                    // coming back.
+                                    // prunes against our version, so a leaf we
+                                    // deleted drops there instead of coming
+                                    // back.
                                     (_leaf_prefix, EitherOrBoth::Right(_hash)) => {
                                         yield message::Closing::Requested;
                                     }
@@ -557,7 +559,7 @@ pub(super) fn respond_leaves<B, T>(
     their_version: Version,
     frontier: BoxNodeStream<'static, B, T, Z>,
     messages: impl Requests<message::Closing<B, T>>,
-    leaves: Sender<(Prefix<Z>, B::Node<Z>)>,
+    leaves: Sender<(Prefix<Z>, Option<B::Node<Z>>)>,
 ) -> impl Responses<message::Complete<B, T>, B::Error>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
@@ -571,7 +573,7 @@ where
             use message::Closing::*;
             match message {
                 Providing(prefix, leaf) => {
-                    if leaves.send((prefix, leaf)).await.is_err() {
+                    if leaves.send((prefix, Some(leaf))).await.is_err() {
                         return;
                     }
                 },
@@ -579,7 +581,7 @@ where
                     match frontier.next().await.transpose() {
                         Err(e) => yield Err(e)?,
                         Ok(None) => return,
-                        Ok(Some((prefix, leaf))) => if leaves.send((prefix, leaf)).await.is_err() {
+                        Ok(Some((prefix, leaf))) => if leaves.send((prefix, Some(leaf))).await.is_err() {
                             return;
                         },
                     }
@@ -591,7 +593,7 @@ where
                         Ok(Some((prefix, leaf))) => {
                             if !known(&leaf, &their_version) {
                                 yield message::Complete::Providing(prefix, leaf.clone());
-                                if leaves.send((prefix, leaf)).await.is_err() {
+                                if leaves.send((prefix, Some(leaf))).await.is_err() {
                                     return;
                                 }
                             }
@@ -614,17 +616,18 @@ where
 pub(super) async fn absorb_leaves<B, T>(
     frontier: BoxNodeStream<'static, B, T, Z>,
     messages: impl Requests<message::Complete<B, T>>,
-    leaves: Sender<(Prefix<Z>, B::Node<Z>)>,
+    leaves: Sender<(Prefix<Z>, Option<B::Node<Z>>)>,
 ) -> Result<(), B::Error>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
+    let kept = frontier.map(|item| item.map(|(prefix, leaf)| (prefix, Some(leaf))));
     let providing = messages.map(|message| {
         let message::Complete::Providing(prefix, node) = message;
-        Ok((prefix, node))
+        Ok((prefix, Some(node)))
     });
     // Both inputs ascend by prefix and the reassembly above requires the
     // union in ascending order, so this is a merge, not a concatenation.
-    forward::<B, T, Z>(merge_disjoint(frontier, providing), leaves).await
+    forward::<B, T, Z>(merge_disjoint(kept, providing), leaves).await
 }

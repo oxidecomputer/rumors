@@ -33,6 +33,13 @@ use super::{FAN, reconcile};
 
 /// A mirror stage inside the descent: its frontier at height `H` flows downward
 /// as a stream while the levels above reassemble concurrently.
+///
+/// The session channels between stages are *marked* (see
+/// [`merge`](super::merge)'s module docs): they carry
+/// `(Prefix<H>, Option<Node>)`, ascending, where a `None` is a watermark —
+/// nothing keyed at or below its prefix follows on that channel. This is
+/// the watermark reading of the shape, not [`unknown`](super::unknown)'s
+/// delete-verdict reading; the two plumbings never meet.
 pub struct Descending<B, T, H>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
@@ -42,7 +49,7 @@ where
     backend: B,
     their_version: Version,
     frontier: BoxNodeStream<'static, B, T, H>,
-    up: Sender<(Prefix<H>, B::Node<H>)>,
+    up: Sender<(Prefix<H>, Option<B::Node<H>>)>,
     work: Vec<BoxFuture<'static, Result<(), B::Error>>>,
     finish: BoxFuture<'static, Result<Root<B, T>, B::Error>>,
 }
@@ -58,15 +65,21 @@ where
     pub(super) fn new(
         backend: B,
         their_version: Version,
-        frontier: Receiver<(Prefix<H>, B::Node<H>)>,
-        up: Sender<(Prefix<H>, B::Node<H>)>,
+        frontier: Receiver<(Prefix<H>, Option<B::Node<H>>)>,
+        up: Sender<(Prefix<H>, Option<B::Node<H>>)>,
         work: Vec<BoxFuture<'static, Result<(), B::Error>>>,
         finish: BoxFuture<'static, Result<Root<B, T>, B::Error>>,
     ) -> Self {
         Self {
             backend,
             their_version,
-            frontier: Box::pin(ReceiverStream::new(frontier).map(Ok)),
+            // TODO: don't skip watermarks once walks consume watermarked
+            // streams.
+            frontier: Box::pin(
+                ReceiverStream::new(frontier).filter_map(|(prefix, node)| {
+                    future::ready(node.map(|node| Ok((prefix, node))))
+                }),
+            ),
             up,
             work,
             finish,
@@ -281,9 +294,9 @@ where
 /// through `up`, becoming the stage above's `below`.
 fn ascend_closing<B, T>(
     backend: B,
-    keep: Receiver<(Prefix<S<Z>>, B::Node<S<Z>>)>,
-    below: Receiver<(Prefix<Z>, B::Node<Z>)>,
-    up: Sender<(Prefix<S<Z>>, B::Node<S<Z>>)>,
+    keep: Receiver<(Prefix<S<Z>>, Option<B::Node<S<Z>>>)>,
+    below: Receiver<(Prefix<Z>, Option<B::Node<Z>>)>,
+    up: Sender<(Prefix<S<Z>>, Option<B::Node<S<Z>>>)>,
 ) -> BoxFuture<'static, Result<(), B::Error>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
@@ -309,10 +322,10 @@ where
 /// it flows out through `up`, becoming the previous stage's `below`.
 fn ascend<B, T, H>(
     backend: B,
-    keep: Receiver<(Prefix<S<S<H>>>, B::Node<S<S<H>>>)>,
-    level: Receiver<(Prefix<S<H>>, B::Node<S<H>>)>,
-    below: Receiver<(Prefix<H>, B::Node<H>)>,
-    up: Sender<(Prefix<S<S<H>>>, B::Node<S<S<H>>>)>,
+    keep: Receiver<(Prefix<S<S<H>>>, Option<B::Node<S<S<H>>>>)>,
+    level: Receiver<(Prefix<S<H>>, Option<B::Node<S<H>>>)>,
+    below: Receiver<(Prefix<H>, Option<B::Node<H>>)>,
+    up: Sender<(Prefix<S<S<H>>>, Option<B::Node<S<S<H>>>>)>,
 ) -> BoxFuture<'static, Result<(), B::Error>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,

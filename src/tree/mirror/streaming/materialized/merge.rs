@@ -7,6 +7,17 @@
 //! key in ascending order — `Left` for a key only the left stream carries,
 //! `Right` for one only the right does, `Both` where they coincide.
 //!
+//! [`merge_disjoint`] specializes the union case to *marked* streams, the
+//! session channels' vocabulary: items are `(key, Option<node>)`, and a
+//! `(k, None)` item is a *watermark* — an assertion that its stream will
+//! yield nothing keyed at or below `k`. Watermarks obey the same strict
+//! ascension as real items, and a real item implies its own key's passage,
+//! so an equal-key watermark after it is a contract violation on the way in
+//! and never produced on the way out. That shared ascension is what lets
+//! this merge carry watermarks through untouched: a held watermark head
+//! releases the other side's smaller real items through the ordinary
+//! comparison arms, no floor bookkeeping required.
+//!
 //! Memory is a single item of lookahead per side: when the two keys differ, the
 //! larger item is held back for the next round rather than dropped, so nothing
 //! is buffered beyond the two heads.
@@ -96,21 +107,25 @@ where
     }
 }
 
-/// Merge two ascending-by-key, fallible streams of the *same* pair type into
-/// one ascending stream, requiring the key sets to be disjoint.
+/// Merge two ascending-by-key, fallible *marked* streams into one ascending
+/// marked stream, requiring the real items' key sets to be disjoint.
 ///
-/// This is the union half of [`merge`], used by the mirror's upward reassembly:
-/// each reconciled level is the union of contributions that route through
-/// different verdicts, so the same prefix can never arrive from both inputs. A
-/// duplicate key means a routing bug; debug builds panic, release builds keep
-/// the left item.
+/// This is the union half of [`merge`], used by the mirror's upward
+/// reassembly: each reconciled level is the union of contributions that
+/// route through mutually exclusive verdicts, so the same key can never
+/// arrive *real* from both inputs — that means a routing bug; debug builds
+/// panic, release builds keep the left item. A watermark's key, though, may
+/// legally coincide with the other side's real key: the watermark promised
+/// only its own side's silence at-or-below it, so the real item takes the
+/// slot, its key's passage subsuming the floor. Two watermarks at one key
+/// collapse to one.
 pub fn merge_disjoint<'a, L, R, K, A, E>(
     left: L,
     right: R,
-) -> impl Stream<Item = Result<(K, A), E>> + Send + 'a
+) -> impl Stream<Item = Result<(K, Option<A>), E>> + Send + 'a
 where
-    L: Stream<Item = Result<(K, A), E>> + Send + 'a,
-    R: Stream<Item = Result<(K, A), E>> + Send + 'a,
+    L: Stream<Item = Result<(K, Option<A>), E>> + Send + 'a,
+    R: Stream<Item = Result<(K, Option<A>), E>> + Send + 'a,
     K: Ord + Send + 'a,
     A: Send + 'a,
     E: Send + 'a,
@@ -118,13 +133,16 @@ where
     merge(left, right).map(|item| {
         item.map(|cell| match cell {
             (k, EitherOrBoth::Left(a)) | (k, EitherOrBoth::Right(a)) => (k, a),
-            (k, EitherOrBoth::Both(a, _)) => {
+            (k, EitherOrBoth::Both(a, b)) => {
                 debug_assert!(
-                    false,
-                    "merge_disjoint: the same key arrived from both inputs"
+                    a.is_none() || b.is_none(),
+                    "merge_disjoint: the same key arrived real from both inputs"
                 );
-                (k, a)
+                (k, a.or(b))
             }
         })
     })
 }
+
+#[cfg(test)]
+mod tests;

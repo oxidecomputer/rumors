@@ -13,7 +13,7 @@ use futures::stream::StreamExt;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio_stream::wrappers::ReceiverStream;
 
-use crate::tree::mirror::streaming::backend::NodeStream;
+use crate::tree::mirror::streaming::backend::OptionNodeStream;
 use crate::tree::mirror::streaming::protocol::BoxResponses;
 use crate::{
     Version,
@@ -269,11 +269,12 @@ where
 /// Drain the reconciled root level into this side's reconciled [`Root`]: the
 /// future the session's terminal resolves to.
 ///
-/// The root level holds at most one node: the reassembled root, or nothing when
-/// the reconciled tree is empty. A backend error means there is no trustworthy
-/// result.
+/// The root level holds at most one real node — the reassembled root, or
+/// nothing when the reconciled tree is empty — and the session's watermarks
+/// end here: at root height there is no level above to release, so they are
+/// dropped. A backend error means there is no trustworthy result.
 fn reassemble<B, T>(
-    top: impl NodeStream<B, T, height::Root> + 'static,
+    top: impl OptionNodeStream<B, T, height::Root> + 'static,
     ceiling: Version,
 ) -> BoxFuture<'static, Result<Root<B, T>, B::Error>>
 where
@@ -284,11 +285,12 @@ where
         let mut top = pin!(top);
         let mut root = None;
         while let Some(item) = top.next().await {
+            let (_prefix, node) = item?;
+            let Some(node) = node else { continue };
             debug_assert!(
                 root.is_none(),
                 "upward reassembly produced more than one root node",
             );
-            let (_prefix, node) = item?;
             root = Some(node);
         }
         Ok(Root { ceiling, root })
