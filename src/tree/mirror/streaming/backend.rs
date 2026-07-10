@@ -64,18 +64,12 @@ where
     fn parent<H>(
         self,
         prefix: Prefix<S<H>>,
-        children: Group<Self::Node<H>>,
+        children: Vec<(u8, Option<Self::Node<H>>)>,
     ) -> impl Future<Output = Result<Option<Self::Node<S<H>>>, Self::Error>> + Send
     where
         H: Height,
         S<H>: Height;
 }
-
-/// One parent's radix-keyed child group: the argument of [`Backend::parent`].
-///
-/// Entries ascend strictly by radix; a `None` node is an explicit child
-/// deletion.
-pub type Group<N> = Vec<(u8, Option<N>)>;
 
 /// Reassemble an ascending child stream into its parent level, one complete
 /// radix group at a time.
@@ -97,13 +91,10 @@ where
     H: Height,
     S<H>: Height,
 {
-    /// A group mid-accumulation: its parent prefix and the children so far.
-    type Open<P, N> = Option<(P, Group<N>)>;
-
     /// Flush a completed group, if any, into its parent.
     async fn flush<B, T, H>(
         backend: &B,
-        finished: Open<Prefix<S<H>>, B::Node<H>>,
+        finished: Option<(Prefix<S<H>>, Vec<(u8, Option<B::Node<H>>)>)>,
     ) -> Result<Option<(Prefix<S<H>>, B::Node<S<H>>)>, B::Error>
     where
         B: Backend<T, Node<Z>: Leaf<T>>,
@@ -124,7 +115,7 @@ where
 
     try_stream! {
         let mut children = pin!(children);
-        let mut open: Open<Prefix<S<H>>, B::Node<H>> = None;
+        let mut open: Option<(_, Vec<_>)> = None;
         while let Some(item) = children.next().await {
             let (path, child) = item?;
             let (prefix, radix) = path.pop();
@@ -186,6 +177,20 @@ impl<N, B: Backend<T, Node<Z>: Leaf<T>>, T, H: Height> NodeStream<B, T, H> for N
 
 /// A [`NodeStream`] erased to one level of type depth.
 pub(super) type BoxNodeStream<'a, B, T, H> = Pin<Box<dyn NodeStream<B, T, H> + 'a>>;
+
+/// Type synonym for a fallible [`Stream`] of prefix-keyed optional nodes
+/// represented by a given backend.
+pub trait OptionNodeStream<B: Backend<T, Node<Z>: Leaf<T>>, T, H: Height>:
+    Stream<Item = Result<(Prefix<H>, Option<B::Node<H>>), B::Error>> + Send
+{
+}
+impl<N, B: Backend<T, Node<Z>: Leaf<T>>, T, H: Height> OptionNodeStream<B, T, H> for N where
+    N: Stream<Item = Result<(Prefix<H>, Option<B::Node<H>>), B::Error>> + Send
+{
+}
+
+/// An [`OptionNodeStream`] erased to one level of type depth.
+pub type BoxOptionNodeStream<'a, B, T, H> = Pin<Box<dyn OptionNodeStream<B, T, H> + 'a>>;
 
 /// A stream of one prefix-keyed node: the seed for the stream transducers
 /// that recurse over whole subtrees.

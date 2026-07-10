@@ -14,7 +14,7 @@ use crate::{
     },
 };
 
-use super::{Backend, Group, Leaf, Node, NodeStream, Root};
+use super::{Backend, Leaf, Node, NodeStream, Root};
 
 impl<T, H: Height> Node for typed::Node<T, H> {
     fn hash(&self) -> typed::Hash {
@@ -71,7 +71,7 @@ impl<T: Send + Sync + 'static> Backend<T> for Local {
     fn parent<H>(
         self,
         _prefix: Prefix<S<H>>,
-        children: Group<Self::Node<H>>,
+        children: Vec<(u8, Option<Self::Node<H>>)>,
     ) -> impl Future<Output = Result<Option<Self::Node<S<H>>>, Self::Error>> + Send
     where
         H: Height,

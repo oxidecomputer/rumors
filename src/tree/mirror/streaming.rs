@@ -7,6 +7,8 @@
 
 // TODO: remove this when integrated
 #![allow(dead_code, unused_imports)]
+// There are just a lot of complex types here, and this lint is too eager.
+#![allow(clippy::type_complexity)]
 
 mod backend;
 mod convert;
@@ -15,7 +17,7 @@ mod message;
 mod protocol;
 mod remote;
 
-pub use backend::{Backend, Group, Leaf, Local, Node, Root};
+pub use backend::{Backend, Leaf, Local, Node, Root};
 pub use materialized::Handshaking;
 
 use std::cmp::Ordering;
