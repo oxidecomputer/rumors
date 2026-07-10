@@ -10,29 +10,47 @@
 //! Unlike the materialized filter, which walks one owned subtree, this version
 //! is generic over any [`Backend`] and consumes the tree as a stream. It never
 //! materializes more than the [`children`](Backend::children) /
-//! [`parents`](Backend::parents) fan of a single recursing node, so it stays
+//! [`parent`](Backend::parent) fan of a single recursing node, so it stays
 //! constant-memory and reusable across the in-memory and persistent backends
 //! alike.
 //!
-//! Every height returns a boxed [`NodeStream`]. The descent is only 32 deep,
-//! but an `impl Stream` return would nest each level's `async_stream` type
-//! inside the next; erasing to a trait object at each step keeps that type flat
-//! (and its `Send`-ness asserted rather than proven through the whole tower) —
-//! the same reason [`Local`](super::super::Local)'s own `children`/`parents` box. An
-//! `impl Stream` return here makes the compiler's type balloon past any memory
-//! bound.
+//! Every height returns a boxed [`VerdictStream`]. The descent is only 32
+//! deep, but an `impl Stream` return would nest each level's `async_stream`
+//! type inside the next; erasing to a trait object at each step keeps that
+//! type flat (and its `Send`-ness asserted rather than proven through the
+//! whole tower). An `impl Stream` return here makes the compiler's type
+//! balloon past any memory bound.
 
 use std::cmp::Ordering;
 use std::pin::Pin;
 
 use async_stream::try_stream;
+use futures::Stream;
 use tokio_stream::StreamExt;
 
 use crate::Version;
-use crate::tree::mirror::streaming::backend::{BoxNodeStream, BoxOptionNodeStream};
+use crate::tree::mirror::streaming::backend::BoxNodeStream;
+use crate::tree::typed::Prefix;
 use crate::tree::typed::height::{Height, S, Z};
 
 use super::super::backend::{Backend, Leaf, Node, NodeStream, one};
+
+/// Type synonym for the recursion's per-node verdict stream.
+///
+/// Each input node reappears at its own prefix: `Some` carries the pruned
+/// survivor, `None` reports a subtree the counterparty already knows whole —
+/// the delete verdict the caller folds into its parent's child group.
+pub trait VerdictStream<B: Backend<T, Node<Z>: Leaf<T>>, T, H: Height>:
+    Stream<Item = Result<(Prefix<H>, Option<B::Node<H>>), B::Error>> + Send
+{
+}
+impl<N, B: Backend<T, Node<Z>: Leaf<T>>, T, H: Height> VerdictStream<B, T, H> for N where
+    N: Stream<Item = Result<(Prefix<H>, Option<B::Node<H>>), B::Error>> + Send
+{
+}
+
+/// A [`VerdictStream`] erased to one level of type depth.
+pub type BoxVerdictStream<'a, B, T, H> = Pin<Box<dyn VerdictStream<B, T, H> + 'a>>;
 
 /// True iff a node's whole subtree is causally at or before `version`: a
 /// counterparty at that version either has everything under it or deleted
@@ -80,7 +98,7 @@ pub trait Unknown: Height {
         backend: &'a B,
         known: &'a Version,
         stream: BoxNodeStream<'a, B, T, Self>,
-    ) -> BoxOptionNodeStream<'a, B, T, Self>
+    ) -> BoxVerdictStream<'a, B, T, Self>
     where
         B: Backend<T, Node<Z>: Leaf<T>> + Sync + 'a,
         T: Send + Sync + 'a;
@@ -91,7 +109,7 @@ impl Unknown for Z {
         _backend: &'a B,
         known: &'a Version,
         stream: BoxNodeStream<'a, B, T, Z>,
-    ) -> BoxOptionNodeStream<'a, B, T, Z>
+    ) -> BoxVerdictStream<'a, B, T, Z>
     where
         B: Backend<T, Node<Z>: Leaf<T>> + Sync + 'a,
         T: Send + Sync + 'a,
@@ -119,7 +137,7 @@ where
         backend: &'a B,
         known: &'a Version,
         stream: BoxNodeStream<'a, B, T, S<H>>,
-    ) -> BoxOptionNodeStream<'a, B, T, S<H>>
+    ) -> BoxVerdictStream<'a, B, T, S<H>>
     where
         B: Backend<T, Node<Z>: Leaf<T>> + Sync + 'a,
         T: Send + Sync + 'a,
@@ -147,15 +165,18 @@ where
                 }
 
                 // Mixed: descend. Explode just this node one level, prune its
-                // children, and reassemble. A child list that prunes away
-                // entirely collapses to nothing (`parents` emits no node).
-                let children = Box::pin(backend.clone().children::<H>(one(prefix, node)));
-                let pruned = H::unknown(backend, known, children);
-                let parents = backend.clone().parents::<H>(pruned);
-                for await parent in parents {
-                    let (prefix, parent) = parent?;
-                    yield (prefix, Some(parent));
+                // children, and reassemble the survivors from the pruned radix
+                // group — `None` entries are the children that pruned away. A
+                // group that prunes away entirely reassembles to `None`,
+                // reporting the whole node known one level up.
+                let children = Box::pin(backend.clone().children::<H>(prefix, node));
+                let mut group = Vec::new();
+                for await verdict in H::unknown(backend, known, children) {
+                    let (child_prefix, child) = verdict?;
+                    let (_, radix) = child_prefix.pop();
+                    group.push((radix, child));
                 }
+                yield (prefix, backend.clone().parent::<H>(prefix, group).await?);
             }
         })
     }

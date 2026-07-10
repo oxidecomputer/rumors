@@ -45,7 +45,6 @@ use tokio::sync::mpsc::{self, Receiver, Sender};
 
 use crate::Version;
 use crate::tree::mirror::streaming::FAN;
-use crate::tree::mirror::streaming::backend::BoxOptionNodeStream;
 use crate::tree::mirror::streaming::protocol::Exchange;
 use crate::tree::typed::{
     Hash, Prefix,
@@ -133,7 +132,7 @@ where
 {
     try_stream! {
         if let Some(node) = root {
-            let mut children = pin!(backend.clone().children(one(Prefix::new(), node)));
+            let mut children = pin!(backend.clone().children(Prefix::new(), node));
             let mut listing = Vec::new();
             while let Some(item) = children.next().await {
                 let (prefix, child) = item?;
@@ -183,7 +182,7 @@ where
 
         match root {
             Some(node) => {
-                let ours = backend.clone().children(one(Prefix::new(), node));
+                let ours = backend.clone().children(Prefix::new(), node);
                 let theirs = stream::iter(theirs.into_iter().map(Ok));
                 for await item in route(backend, their_version, ours, theirs, down, level) {
                     yield item?;
@@ -230,7 +229,7 @@ where
             if kept.send((prefix, node.clone())).await.is_err() {
                 return;
             }
-            let mut children = pin!(backend.clone().children(one(prefix, node)));
+            let mut children = pin!(backend.clone().children(prefix, node));
             while let Some(item) = children.next().await {
                 yield item?;
             }
@@ -289,7 +288,7 @@ where
                 // `uncertain` batch; the children themselves become the next
                 // stage's frontier.
                 Routed::Dispute(prefix, node) => {
-                    let mut children = pin!(backend.clone().children(one(prefix, node)));
+                    let mut children = pin!(backend.clone().children(prefix, node));
 
                     let mut listing = Vec::new();
                     let mut downward = Vec::new();
@@ -391,7 +390,7 @@ where
                         Err(e) => yield Err(e)?,
                         Ok(None) => return,
                         Ok(Some((prefix, node))) => {
-                            let ours = backend.clone().children(one(prefix, node));
+                            let ours = backend.clone().children(prefix, node);
                             let theirs = stream::iter(
                                 children
                                     .into_iter()
@@ -494,7 +493,7 @@ where
                         Err(e) => yield Err(e)?,
                         Ok(None) => return,
                         Ok(Some((prefix, node))) => {
-                            let ours = backend.clone().children(one(prefix, node));
+                            let ours = backend.clone().children(prefix, node);
                             let theirs = stream::iter(
                                 children
                                     .into_iter()

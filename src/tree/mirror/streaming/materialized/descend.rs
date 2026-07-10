@@ -13,7 +13,6 @@ use futures::stream::StreamExt;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio_stream::wrappers::ReceiverStream;
 
-use crate::tree::mirror::streaming::backend::BoxOptionNodeStream;
 use crate::tree::mirror::streaming::protocol::BoxResponses;
 use crate::{
     Version,
@@ -26,7 +25,7 @@ use crate::{
     },
 };
 
-use super::super::backend::{Backend, BoxNodeStream, Leaf, Root};
+use super::super::backend::{Backend, BoxNodeStream, Leaf, Root, fold_parents};
 use super::super::message;
 use super::super::protocol::{self, Requests, Responses};
 use super::unknown::Unknown;
@@ -291,10 +290,10 @@ where
     T: Send + Sync + 'static,
 {
     // As in `ascend`: reassembling an already-reconciled level deletes
-    // nothing, so every child arrives as `Some`.
+    // nothing, so the fold runs all-real.
     let reconciled = merge_disjoint(
         ReceiverStream::new(keep).map(Ok),
-        backend.parents(ReceiverStream::new(below).map(|(prefix, node)| Ok((prefix, Some(node))))),
+        fold_parents(backend, ReceiverStream::new(below).map(Ok)),
     );
     Box::pin(reconcile::forward::<B, T, _>(reconciled, up))
 }
@@ -322,17 +321,18 @@ where
     S<H>: Height,
     S<S<H>>: Height,
 {
-    // Reassembling an already-reconciled level deletes nothing: every child the
-    // `parents` folds see is one this stage agreed to keep, so each arrives as
-    // `Some`. Pruning — and the `None`s that report it — happens in `unknown`.
+    // Reassembling an already-reconciled level deletes nothing: every child
+    // the folds see is one this stage agreed to keep, so they run all-real.
+    // Pruning — and the delete verdicts that report it — happens in `unknown`.
     let reconciled = merge_disjoint(
         ReceiverStream::new(keep).map(Ok),
-        backend.clone().parents(merge_disjoint(
-            ReceiverStream::new(level).map(|(prefix, node)| Ok((prefix, Some(node)))),
-            backend
-                .parents(ReceiverStream::new(below).map(|(prefix, node)| Ok((prefix, Some(node)))))
-                .map(|item| item.map(|(prefix, node)| (prefix, Some(node)))),
-        )),
+        fold_parents(
+            backend.clone(),
+            merge_disjoint(
+                ReceiverStream::new(level).map(Ok),
+                fold_parents(backend, ReceiverStream::new(below).map(Ok)),
+            ),
+        ),
     );
     Box::pin(reconcile::forward::<B, T, _>(reconciled, up))
 }

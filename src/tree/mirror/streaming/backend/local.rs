@@ -1,22 +1,20 @@
 use std::convert::Infallible;
 
-use futures::stream::{self, StreamExt};
+use futures::{future, stream};
 
 use crate::{
     Version,
     message::Message,
     tree::{
         self,
-        mirror::streaming::backend::OptionNodeStream,
         typed::{
-            self,
+            self, Prefix,
             height::{Height, S, Z},
-            node::Children,
         },
     },
 };
 
-use super::{Backend, Leaf, Node, NodeStream, Root};
+use super::{Backend, Group, Leaf, Node, NodeStream, Root};
 
 impl<T, H: Height> Node for typed::Node<T, H> {
     fn hash(&self) -> typed::Hash {
@@ -53,76 +51,40 @@ impl<T: Send + Sync + 'static> Backend<T> for Local {
     type Node<H: Height> = typed::Node<T, H>;
     type Error = Infallible;
 
-    fn parents<H>(
+    fn children<H>(
         self,
-        children: impl OptionNodeStream<Self, T, H>,
-    ) -> impl NodeStream<Self, T, S<H>>
+        prefix: Prefix<S<H>>,
+        parent: Self::Node<S<H>>,
+    ) -> impl NodeStream<Self, T, H>
     where
         H: Height,
         S<H>: Height,
     {
-        // Children of a given parent arrive contiguously, so coalesce each run
-        // of equal parent prefixes into one branch node: flush the open parent
-        // when the prefix changes, then once more when the input ends. `fuse`
-        // keeps the poll after that final flush well-defined.
-        stream::unfold(
-            // Our state is the pair of the children stream (which we'll pull
-            // from) and an optional pair of our current prefix and its
-            // children.
-            (Box::pin(children.fuse()), None::<(_, Children<_, _>)>),
-            |(mut children, mut current)| async move {
-                // Loop internally to the single output future, pulling children...
-                while let Some(Ok((path, child))) = children.next().await
-                    && let (prefix, radix) = path.pop()
-                {
-                    // We don't have to do anything special to delete a missing
-                    // child; we just don't include it in the re-assembly.
-                    let Some(child) = child else {
-                        continue;
-                    };
-
-                    if let Some((current_prefix, current_children)) = &mut current
-                        && *current_prefix == prefix
-                    {
-                        // If the current prefix matches, append to children:
-                        current_children.insert(radix, child);
-                    } else if let Some((finished_prefix, finished_children)) =
-                        current.replace((prefix, Children::from_iter([(radix, child)])))
-                        && let Some(finished_parent) = typed::Node::branch(finished_children)
-                    {
-                        // Otherwise, pull out a finished prefix and children and
-                        // construct the corresponding parent output:
-                        let output = (finished_prefix, finished_parent);
-                        return Some((Ok(output), (children, current)));
-                    }
-                }
-
-                // When there are no more children in the input stream, flush any remaining
-                // single buffered parent:
-                current
-                    .take()
-                    .and_then(|(current_prefix, current_children)| {
-                        typed::Node::branch(current_children)
-                            .map(|parent| (Ok((current_prefix, parent)), (children, None)))
-                    })
-            },
+        stream::iter(
+            parent
+                .into_children()
+                .into_iter()
+                .map(move |(radix, child)| Ok((prefix.push(radix), child))),
         )
     }
 
-    fn children<H>(self, parents: impl NodeStream<Self, T, S<H>>) -> impl NodeStream<Self, T, H>
+    fn parent<H>(
+        self,
+        _prefix: Prefix<S<H>>,
+        children: Group<Self::Node<H>>,
+    ) -> impl Future<Output = Result<Option<Self::Node<S<H>>>, Self::Error>> + Send
     where
         H: Height,
         S<H>: Height,
     {
-        // We box the stream so that traversing down the whole 32-deep tree
-        // does not build a gigantic stream type.
-        Box::pin(parents.fuse().flat_map(move |Ok((prefix, node))| {
-            stream::iter(
-                node.into_children()
-                    .into_iter()
-                    .map(move |(radix, child)| Ok((prefix.push(radix), child))),
-            )
-        }))
+        // A deleted child simply doesn't join the reassembly, and deleting
+        // every child deletes the parent: `branch` of the empty set is `None`.
+        future::ready(Ok(typed::Node::branch(
+            children
+                .into_iter()
+                .filter_map(|(radix, child)| Some((radix, child?)))
+                .collect(),
+        )))
     }
 }
 

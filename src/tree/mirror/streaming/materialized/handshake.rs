@@ -20,7 +20,7 @@ use crate::{
     tree::typed::height::{self, UnderRoot, UnderUnderRoot, Z},
 };
 
-use super::super::backend::{Backend, Leaf, Root};
+use super::super::backend::{Backend, Leaf, Root, fold_parents};
 use super::super::message;
 use super::super::protocol::{self, Requests, Responses};
 use super::descend::Descending;
@@ -183,9 +183,9 @@ where
         // The initiator's reconciled root-child level arrives on `up` whole:
         // one fold reassembles the root the terminal resolves to.
         let ceiling = versions.our_version | versions.their_version.clone();
-        let top = backend.clone().parents(
-            ReceiverStream::new(up_rx)
-                .map(|(prefix, node)| Ok::<_, B::Error>((prefix, Some(node)))),
+        let top = fold_parents(
+            backend.clone(),
+            ReceiverStream::new(up_rx).map(Ok::<_, B::Error>),
         );
         let finish = reassemble(top, ceiling);
         let mut work = Vec::new();
@@ -240,16 +240,16 @@ where
         // descent (`up`); two folds reassemble the root the terminal
         // resolves to.
         let ceiling = versions.our_version | versions.their_version.clone();
-        let top = backend.clone().parents(merge_disjoint(
-            ReceiverStream::new(level_rx).map(|(prefix, node)| Ok((prefix, Some(node)))),
-            backend
-                .clone()
-                .parents(
-                    ReceiverStream::new(up_rx)
-                        .map(|(prefix, node)| Ok::<_, B::Error>((prefix, Some(node)))),
-                )
-                .map(|item| item.map(|(prefix, node)| (prefix, Some(node)))),
-        ));
+        let top = fold_parents(
+            backend.clone(),
+            merge_disjoint(
+                ReceiverStream::new(level_rx).map(Ok),
+                fold_parents(
+                    backend.clone(),
+                    ReceiverStream::new(up_rx).map(Ok::<_, B::Error>),
+                ),
+            ),
+        );
         let finish = reassemble(top, ceiling);
         let mut work = Vec::new();
         let sending = reconcile::outgoing(&mut work, opening);

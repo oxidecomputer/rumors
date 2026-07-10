@@ -22,7 +22,7 @@ use crate::tree::typed::{
 };
 
 use super::Error;
-use super::backend::{Backend, BoxNodeStream, Leaf, Node, one};
+use super::backend::{Backend, BoxNodeStream, Leaf, Node, fold_parents, one};
 use super::message;
 use super::protocol::Responses;
 
@@ -72,7 +72,17 @@ where
         B: Backend<T, Node<Z>: Leaf<T>>,
         T: Send + Sync + 'static,
     {
-        let below: BoxNodeStream<B, T, H> = Box::pin(backend.clone().children::<H>(stream));
+        // Explode each node of the level singularly, in order: children of
+        // distinct parents concatenate into the level below, still ascending.
+        let exploded = backend.clone();
+        let below: BoxNodeStream<B, T, H> = Box::pin(try_stream! {
+            for await item in stream {
+                let (prefix, node) = item?;
+                for await child in exploded.clone().children::<H>(prefix, node) {
+                    yield child?;
+                }
+            }
+        });
         H::explode(backend, below)
     }
 
@@ -82,11 +92,7 @@ where
         T: Send + Sync + 'static,
     {
         let below = H::assemble(backend.clone(), leaves);
-        Box::pin(backend.parents::<H>(
-            // Re-assembly should not trigger deletion, so we wrap each node
-            // in `Some` to say that it is kept:
-            below.map(|result| result.map(|(prefix, node)| (prefix, Some(node)))),
-        ))
+        Box::pin(fold_parents(backend, below))
     }
 }
 

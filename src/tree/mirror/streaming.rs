@@ -15,7 +15,7 @@ mod message;
 mod protocol;
 mod remote;
 
-pub use backend::{Backend, Leaf, Local, Node, Root};
+pub use backend::{Backend, Group, Leaf, Local, Node, Root};
 pub use materialized::Handshaking;
 
 use std::cmp::Ordering;

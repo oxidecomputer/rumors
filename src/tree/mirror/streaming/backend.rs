@@ -1,6 +1,8 @@
-use std::pin::Pin;
+use std::pin::{Pin, pin};
 
-use futures::{Stream, future, stream};
+use async_stream::try_stream;
+use futures::stream::StreamExt;
+use futures::{Stream, stream};
 
 use crate::{
     Version,
@@ -17,8 +19,15 @@ pub use local::Local;
 
 /// A backend value is a cheap cloneable *handle* to its storage.
 ///
-/// A backend must know how to assemble and disassemble its own node types in a
-/// prefix-ordered streaming fashion.
+/// A backend speaks two singular operations, one per direction: [`children`]
+/// explodes one node into its child stream, and [`parent`] assembles one node
+/// from one radix-keyed child group. Everything level-shaped — coalescing an
+/// ascending child stream into parent groups — lives above the trait in
+/// [`fold_parents`], so a backend never sees more than one node's fan at once
+/// and carries no cross-parent ordering obligations.
+///
+/// [`children`]: Backend::children
+/// [`parent`]: Backend::parent
 pub trait Backend<T>: Clone + Send + Sync + 'static
 where
     Self::Node<Z>: Leaf<T>,
@@ -29,33 +38,112 @@ where
     /// The type of errors returned by this backend.
     type Error: Send + 'static;
 
-    /// Assemble a stream of children at height `H` into a stream of parents at
-    /// height `H + 1`.
+    /// Explode one parent node at `prefix` into its children, one height down.
     ///
-    /// This may assume that the children are in strictly increasing prefix
-    /// order, and it must produce parents also in strictly increasing prefix
-    /// order, propagating the input's errors.
-    ///
-    /// If a child is reported as `None`, this should be interpreted as an
-    /// explicit "delete" for the backend.
-    fn parents<H>(
+    /// The children are produced in strictly increasing prefix order, each
+    /// keyed by the parent's prefix extended with the child's radix.
+    fn children<H>(
         self,
-        children: impl OptionNodeStream<Self, T, H>,
-    ) -> impl NodeStream<Self, T, S<H>>
+        prefix: Prefix<S<H>>,
+        parent: Self::Node<S<H>>,
+    ) -> impl NodeStream<Self, T, H>
     where
         H: Height,
         S<H>: Height;
 
-    /// Disassemble a stream of parents at height `H + 1` into a stream of
-    /// children at height `H`.
+    /// Assemble one parent node at `prefix` from one radix-keyed child group.
     ///
-    /// This may assume that the parents are in strictly increasing prefix
-    /// order, and it must produce children also in strictly increasing prefix
-    /// order, propagating the input's errors.
-    fn children<H>(self, parents: impl NodeStream<Self, T, S<H>>) -> impl NodeStream<Self, T, H>
+    /// The group is the parent's entire child set, in strictly increasing
+    /// radix order, at least one entry. A `None` entry is an explicit child
+    /// *deletion*: the child does not join the parent, and the backend may
+    /// drop whatever it stores beneath that radix. A `None` return means no
+    /// child survived — the parent itself is deleted — which the caller
+    /// propagates as a `None` entry one level up, cascading deletion to
+    /// parents whose entire child set was deleted. Given at least one real
+    /// child, construction always yields a parent.
+    fn parent<H>(
+        self,
+        prefix: Prefix<S<H>>,
+        children: Group<Self::Node<H>>,
+    ) -> impl Future<Output = Result<Option<Self::Node<S<H>>>, Self::Error>> + Send
     where
         H: Height,
         S<H>: Height;
+}
+
+/// One parent's radix-keyed child group: the argument of [`Backend::parent`].
+///
+/// Entries ascend strictly by radix; a `None` node is an explicit child
+/// deletion.
+pub type Group<N> = Vec<(u8, Option<N>)>;
+
+/// Reassemble an ascending child stream into its parent level, one complete
+/// radix group at a time.
+///
+/// Children of a given parent arrive contiguously, so each run of equal
+/// parent prefixes coalesces into one group, flushed through
+/// [`Backend::parent`] when the prefix changes and once more when the input
+/// ends. The input is all-real — reassembling an already-reconciled level
+/// deletes nothing — so every group is non-empty and construction always
+/// yields a parent; a `None` from the backend is a contract violation (debug
+/// builds panic, release builds drop the parent).
+pub(super) fn fold_parents<B, T, H>(
+    backend: B,
+    children: impl NodeStream<B, T, H>,
+) -> impl NodeStream<B, T, S<H>>
+where
+    B: Backend<T, Node<Z>: Leaf<T>>,
+    T: Send + Sync + 'static,
+    H: Height,
+    S<H>: Height,
+{
+    /// A group mid-accumulation: its parent prefix and the children so far.
+    type Open<P, N> = Option<(P, Group<N>)>;
+
+    /// Flush a completed group, if any, into its parent.
+    async fn flush<B, T, H>(
+        backend: &B,
+        finished: Open<Prefix<S<H>>, B::Node<H>>,
+    ) -> Result<Option<(Prefix<S<H>>, B::Node<S<H>>)>, B::Error>
+    where
+        B: Backend<T, Node<Z>: Leaf<T>>,
+        T: Send + Sync + 'static,
+        H: Height,
+        S<H>: Height,
+    {
+        let Some((prefix, group)) = finished else {
+            return Ok(None);
+        };
+        let parent = backend.clone().parent(prefix, group).await?;
+        debug_assert!(
+            parent.is_some(),
+            "an all-real child group failed to construct its parent",
+        );
+        Ok(parent.map(|parent| (prefix, parent)))
+    }
+
+    try_stream! {
+        let mut children = pin!(children);
+        let mut open: Open<Prefix<S<H>>, B::Node<H>> = None;
+        while let Some(item) = children.next().await {
+            let (path, child) = item?;
+            let (prefix, radix) = path.pop();
+            match &mut open {
+                Some((current, group)) if *current == prefix => {
+                    group.push((radix, Some(child)));
+                }
+                _ => {
+                    let finished = open.replace((prefix, vec![(radix, Some(child))]));
+                    if let Some(parent) = flush(&backend, finished).await? {
+                        yield parent;
+                    }
+                }
+            }
+        }
+        if let Some(parent) = flush(&backend, open.take()).await? {
+            yield parent;
+        }
+    }
 }
 
 /// The inspection operations of a backend's individual node type.
@@ -99,21 +187,8 @@ impl<N, B: Backend<T, Node<Z>: Leaf<T>>, T, H: Height> NodeStream<B, T, H> for N
 /// A [`NodeStream`] erased to one level of type depth.
 pub(super) type BoxNodeStream<'a, B, T, H> = Pin<Box<dyn NodeStream<B, T, H> + 'a>>;
 
-/// Type synonym for a fallible [`Stream`] of prefix-keyed nodes represented by
-/// a given backend, which may be missing.
-pub trait OptionNodeStream<B: Backend<T, Node<Z>: Leaf<T>>, T, H: Height>:
-    Stream<Item = Result<(Prefix<H>, Option<B::Node<H>>), B::Error>> + Send
-{
-}
-impl<N, B: Backend<T, Node<Z>: Leaf<T>>, T, H: Height> OptionNodeStream<B, T, H> for N where
-    N: Stream<Item = Result<(Prefix<H>, Option<B::Node<H>>), B::Error>> + Send
-{
-}
-
-/// An [`OptionNodeStream`] erased to one level of type depth.
-pub(super) type BoxOptionNodeStream<'a, B, T, H> = Pin<Box<dyn OptionNodeStream<B, T, H> + 'a>>;
-
-/// A stream of one prefix-keyed node.
+/// A stream of one prefix-keyed node: the seed for the stream transducers
+/// that recurse over whole subtrees.
 pub(super) fn one<B, T, H>(prefix: Prefix<H>, node: B::Node<H>) -> impl NodeStream<B, T, H>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
