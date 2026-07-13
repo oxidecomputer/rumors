@@ -29,10 +29,7 @@ use super::backend::{Backend, Leaf, NodeStream, Root};
 use super::protocol::Responses;
 
 mod descend;
-mod dispute;
 mod handshake;
-mod merge;
-mod reconcile;
 pub(super) mod unknown;
 
 pub use handshake::Handshaking;

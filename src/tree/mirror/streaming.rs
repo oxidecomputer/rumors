@@ -160,12 +160,12 @@ where
 {
     mirror! {
         i.initiator;
-        r.open_responder;
+        r.responder;
         for _ in 0..14 {
-            i.exchange;
-            r.exchange;
+            i.reply;
+            r.reply;
         }
-        i.exchange;
+        i.reply;
         r.close_responder;
         i.close_initiator;
         r.complete_responder;

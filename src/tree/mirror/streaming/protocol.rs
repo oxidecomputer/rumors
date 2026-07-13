@@ -98,7 +98,7 @@ pub trait Initiator<I: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
 {
     type Next: Protocol<Height = UnderRoot, Output = Self::Output, Error = Self::Error>;
 
-    fn initiator(self) -> (impl Responses<message::Opening, Self::Error>, Self::Next);
+    fn initiator(self) -> (impl Responses<message::Initiate, Self::Error>, Self::Next);
 }
 
 pub trait OpenResponder<I: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
@@ -111,13 +111,13 @@ pub trait OpenResponder<I: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
     // without the concrete height.
     type Next: Protocol<Height = UnderUnderRoot, Output = Self::Output, Error = Self::Error>;
 
-    fn open_responder(
+    fn responder(
         self,
-        requests: impl Requests<message::Opening>,
+        requests: impl Requests<message::Initiate>,
     ) -> (
         // IMPORTANT: This must be boxed because otherwise `rustc` explodes on
         // an exponentially-sized type!
-        BoxResponses<message::Exchange<I, T, UnderRoot>, Self::Error>,
+        BoxResponses<message::Reply<I, T, UnderRoot>, Self::Error>,
         Self::Next,
     );
 }
@@ -134,13 +134,13 @@ where
             Error = Self::Error,
         >;
 
-    fn exchange(
+    fn reply(
         self,
-        requests: impl Requests<message::Exchange<I, T, Self::Height>>,
+        requests: impl Requests<message::Reply<I, T, Self::Height>>,
     ) -> (
         // IMPORTANT: This must be boxed because otherwise `rustc` explodes on
         // an exponentially-sized type!
-        BoxResponses<message::Exchange<I, T, <Self::Height as Pred>::Pred>, Self::Error>,
+        BoxResponses<message::Reply<I, T, <Self::Height as Pred>::Pred>, Self::Error>,
         Self::Next,
     );
 }
@@ -153,11 +153,11 @@ pub trait CloseResponder<I: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
 
     fn close_responder(
         self,
-        requests: impl Requests<message::Exchange<I, T, S<S<Z>>>>,
+        requests: impl Requests<message::Reply<I, T, S<S<Z>>>>,
     ) -> (
         // IMPORTANT: This must be boxed because otherwise `rustc` explodes on
         // an exponentially-sized type!
-        BoxResponses<message::Exchange<I, T, S<Z>>, Self::Error>,
+        BoxResponses<message::Reply<I, T, S<Z>>, Self::Error>,
         Self::Next,
     );
 }
@@ -179,11 +179,8 @@ pub trait CloseInitiator<I: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
 
     fn close_initiator(
         self,
-        requests: impl Requests<message::Exchange<I, T, S<Z>>>,
-    ) -> (
-        BoxResponses<message::Closing<I, T>, Self::Error>,
-        Self::Next,
-    );
+        requests: impl Requests<message::Reply<I, T, S<Z>>>,
+    ) -> (BoxResponses<message::Close<I, T>, Self::Error>, Self::Next);
 }
 
 /// The responder's terminal: absorb the initiator's [`message::Closing`]
@@ -196,7 +193,7 @@ pub trait CompleteResponder<I: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync>:
 {
     fn complete_responder(
         self,
-        requests: impl Requests<message::Closing<I, T>>,
+        requests: impl Requests<message::Close<I, T>>,
     ) -> (
         BoxResponses<message::Complete<I, T>, Self::Error>,
         impl Future<Output = Result<Self::Output, Self::Error>> + Send,

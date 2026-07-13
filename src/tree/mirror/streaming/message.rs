@@ -30,55 +30,62 @@ pub struct Handshake {
 
 // The four kinds of stream messages:
 
-pub enum Opening {
-    /// The initiator's unconditional listing of its root's children.
+pub struct Initiate {
+    /// The hashes of all the children of the initiator's root.
+    uncertain: Vec<(u8, Hash)>,
+}
+
+pub struct Reply<B: Backend<T, Node<Z>: Leaf<T>>, T, H: Height> {
+    /// The reactions to a single previous query.
+    pub replies: Vec<Reaction<B, T, H>>,
+}
+
+/// Reactions are positionally keyed against the corresponding
+/// [`Reaction::Uncertain`] query, with the exception of
+/// [`Reaction::Providing`], which indicates its radix because it represents
+/// information that the counterparty could not have known to ask about.
+pub enum Reaction<B: Backend<T, Node<Z>: Leaf<T>>, T, H: Height> {
+    /// Having inferred that the counterparty lacks this node through its
+    /// absence in the counterparty's listing of hashes, we provide it, at this
+    /// radix (the counterparty cannot infer the radix because only we know it
+    /// exists in the first place).
+    Providing(u8, B::Node<H>),
+    /// Having inferred that we and the counterparty agree about this node, as
+    /// its hash is the same on both sides, we indicate such.
+    Matched,
+    /// Having inferred that we ourselves lack this node through its presence in
+    /// the counterparty's listing of hashes (and its absence in our own tree),
+    /// we request it.
+    Requested,
+    /// Having inferred that we both have this node but disagree about its
+    /// contents, we recur, informing the counterparty about the hashes of this
+    /// node's children and implicitly requesting that they reply about each of
+    /// those children (as well as providing any children which we didn't know
+    /// to ask about).
     Uncertain(Vec<(u8, Hash)>),
 }
 
-/// One steady-state reaction about the subtree at the paired key.
-pub enum Exchange<B: Backend<T, Node<Z>: Leaf<T>>, T, H: Height> {
-    /// The subtree which the counterparty asked for or provably lacks.
-    Providing(Prefix<H>, B::Node<H>),
-    /// The sender matches the subtree: it need not be transferred, because the
-    /// receiver already has it.
-    Matched,
-    /// The sender lacks the subtree: it asks the counterparty to provide.
-    Requested,
-    /// The sender disputes the subtree: its children's hashes, each child below
-    /// the prefix, ascending by radix.
-    Uncertain(Vec<(u8, Hash)>),
+pub struct Close<B: Backend<T, Node<Z>: Leaf<T>>, T> {
+    /// The reactions to a single previous bottom-level query, which statically
+    /// cannot be [`Reaction::Uncertain`], as content never differs at a full
+    /// leaf path since leaves are content-addressed.
+    pub replies: Vec<CloseReaction<B, T>>,
 }
 
-/// The initiator's closing reply: leaf-height words answering the
-/// responder's leaf-parent verdicts.
-///
-/// This is [`Exchange`] at leaf height minus `Uncertain`, which is
-/// structurally vacuous: leaves never dispute, because two parties holding
-/// a leaf at one path hold the same leaf. `Matched` and `Requested` are
-/// positional — each pairs, in order, with one leaf of the `uncertain`
-/// listing the receiver spoke and still holds — while `Providing` carries
-/// its prefix: it is the one word the receiver cannot anticipate, naming a
-/// leaf only the sender holds.
-pub enum Closing<B: Backend<T, Node<Z>: Leaf<T>>, T> {
-    /// A leaf the responder provably lacks and has not deleted.
-    Providing(Prefix<Z>, B::Node<Z>),
-    /// The next listed leaf is shared: the responder keeps its copy.
+pub enum CloseReaction<B: Backend<T, Node<Z>: Leaf<T>>, T> {
+    /// See [`Reaction::Providing`].
+    Providing(u8, B::Node<Z>),
+    /// See [`Reaction::Matched`].
     Matched,
-    /// The sender lacks the next listed leaf: asks the responder to provide
-    /// it in [`Complete`].
-    ///
-    /// The answer prunes against the sender's version first: a requested
-    /// leaf causally at or before it was deleted by the sender, and drops on
-    /// the responder's side instead of shipping.
+    /// See [`Reaction::Requested`].
     Requested,
 }
 
-/// The responder's final word: the leaves the initiator requested.
-///
-/// Keyed rather than positional even though each item answers a specific
-/// `Requested`: answers prune against the requester's version, so this
-/// stream is a subsequence of the questions, and position cannot carry the
-/// pairing.
-pub enum Complete<B: Backend<T, Node<Z>: Leaf<T>>, T> {
-    Providing(Prefix<Z>, B::Node<Z>),
+pub struct Complete<B: Backend<T, Node<Z>: Leaf<T>>, T> {
+    /// A [`ClosingReaction::Requested`] can still occur during closing, meaning
+    /// that the counterparty needs to provide the leaf; this is that final
+    /// provision. It is optional because the counterparty may discover, during
+    /// the course of providing the leaf, that the leaf ought to have been
+    /// causally pruned.
+    providing: Option<B::Node<Z>>,
 }

@@ -23,9 +23,7 @@ use crate::{
 use super::super::backend::{Backend, Leaf, Root, fold_parents};
 use super::super::message;
 use super::super::protocol::{self, Requests, Responses};
-use super::descend::Descending;
-use super::merge::merge_disjoint;
-use super::{FAN, reconcile};
+use super::FAN;
 
 /// The version state of a stage that has been opened but has not yet sent its
 /// handshake.
@@ -167,7 +165,7 @@ where
     fn initiator(
         self,
     ) -> (
-        impl Responses<message::Opening, Self::Error> + 'static,
+        impl Responses<message::Initiate, Self::Error> + 'static,
         Self::Next,
     ) {
         let Handshaking {
@@ -210,11 +208,11 @@ where
 {
     type Next = Descending<B, T, UnderUnderRoot>;
 
-    fn open_responder(
+    fn responder(
         self,
-        requests: impl Requests<message::Opening>,
+        requests: impl Requests<message::Initiate>,
     ) -> (
-        BoxResponses<message::Exchange<B, T, UnderRoot>, Self::Error>,
+        BoxResponses<message::Reply<B, T, UnderRoot>, Self::Error>,
         Self::Next,
     ) {
         let Handshaking {

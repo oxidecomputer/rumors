@@ -41,7 +41,7 @@ use super::super::backend::{Backend, Leaf, Node, NodeStream, one};
 ///
 /// A concurrent ceiling compares as `None` and is *not* known: it carries
 /// history the counterparty has never seen.
-pub(super) fn known(node: &impl Node, version: &Version) -> bool {
+pub(super) fn known<T>(node: &impl Node<T>, version: &Version) -> bool {
     matches!(
         node.ceiling().partial_cmp(version),
         Some(Ordering::Less | Ordering::Equal)

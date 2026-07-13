@@ -16,7 +16,10 @@ use crate::{
 
 use super::{Backend, Leaf, Node, NodeStream, Root};
 
-impl<T, H: Height> Node for typed::Node<T, H> {
+impl<T: Send + Sync + 'static, H: Height> Node<T> for typed::Node<T, H> {
+    type Backend = Local;
+    type Height = H;
+
     fn hash(&self) -> typed::Hash {
         self.hash()
     }
@@ -30,7 +33,7 @@ impl<T, H: Height> Node for typed::Node<T, H> {
     }
 }
 
-impl<T> Leaf<T> for typed::Node<T, Z> {
+impl<T: Send + Sync + 'static> Leaf<T> for typed::Node<T, Z> {
     fn message(&self) -> &Message<T> {
         self.message()
     }

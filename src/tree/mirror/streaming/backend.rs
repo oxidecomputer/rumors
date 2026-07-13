@@ -33,7 +33,7 @@ where
     Self::Node<Z>: Leaf<T>,
 {
     /// The type of nodes carrying messages of type `T`, indexed by height `H`.
-    type Node<H: Height>: Node + Clone + Send + 'static;
+    type Node<H: Height>: Node<T, Height = H, Backend = Self> + Clone + Send + 'static;
 
     /// The type of errors returned by this backend.
     type Error: Send + 'static;
@@ -177,12 +177,13 @@ where
 }
 
 /// The inspection operations of a backend's individual node type.
-///
-/// These three are what every verdict in a session is routed on: the hashes
-/// decide whether a subtree matches, is disputed, or is held by one side
-/// alone, and the version bounds are what honor the counterparty's deletions
-/// without a tombstone to read.
-pub trait Node {
+pub trait Node<T> {
+    /// The backend to which this node belongs.
+    type Backend: Backend<T, Node<Z>: Leaf<T>, Node<Self::Height> = Self>;
+
+    /// The height of the node above the leaf level.
+    type Height: Height;
+
     /// The maximum version of any node under this one.
     fn ceiling(&self) -> &Version;
 
@@ -195,7 +196,7 @@ pub trait Node {
 
 /// What crosses between backends at the conversion boundary, and the one node
 /// shape every backend must represent faithfully.
-pub trait Leaf<T>: Node {
+pub trait Leaf<T>: Node<T> {
     /// The message stored at this leaf node.
     fn message(&self) -> &Message<T>;
 
