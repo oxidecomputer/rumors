@@ -23,7 +23,7 @@ macro_rules! define_peer {
         define_peer!(@step
             init: [$($init_rest)*],
             resp: [$($resp_count)*],
-            init_chain: (Exchange<I, T, Next: $($init_chain)*>),
+            init_chain: (Reply<I, T, Next: $($init_chain)*>),
             resp_chain: ($($resp_chain)*),
         );
     };
@@ -38,7 +38,7 @@ macro_rules! define_peer {
             init: [],
             resp: [$($resp_rest)*],
             init_chain: ($($init_chain)*),
-            resp_chain: (Exchange<I, T, Next: $($resp_chain)*>),
+            resp_chain: (Reply<I, T, Next: $($resp_chain)*>),
         );
     };
 
@@ -50,51 +50,51 @@ macro_rules! define_peer {
     ) => {
         pub trait Peer<I, T>:
             Initiator<I, T, Next: $($init_chain)*>
-            + OpenResponder<I, T, Next: $($resp_chain)*>
+            + Responder<I, T, Next: $($resp_chain)*>
         where
             I: Backend<T, Node<Z>: Leaf<T>>,
-            T: Send + Sync,
+            T: Send + Sync + 'static,
         {
         }
 
         impl<X, I, T> Peer<I, T> for X
         where
             I: Backend<T, Node<Z>: Leaf<T>>,
-            T: Send + Sync,
+            T: Send + Sync + 'static,
             X: Initiator<I, T, Next: $($init_chain)*>
-                + OpenResponder<I, T, Next: $($resp_chain)*>,
+                + Responder<I, T, Next: $($resp_chain)*>,
         {
         }
 
         pub trait Server<I, T>:
-            Accept<I, T, Next: Initiator<I, T, Next: $($init_chain)*> + OpenResponder<I, T, Next: $($resp_chain)*>>
+            Accept<I, T, Next: Initiator<I, T, Next: $($init_chain)*> + Responder<I, T, Next: $($resp_chain)*>>
         where
             I: Backend<T, Node<Z>: Leaf<T>>,
-            T: Send + Sync,
+            T: Send + Sync + 'static,
         {
         }
 
         impl<X, I, T> Server<I, T> for X
         where
             I: Backend<T, Node<Z>: Leaf<T>>,
-            T: Send + Sync,
-            X: Accept<I, T, Next: Initiator<I, T, Next: $($init_chain)*> + OpenResponder<I, T, Next: $($resp_chain)*>>,
+            T: Send + Sync + 'static,
+            X: Accept<I, T, Next: Initiator<I, T, Next: $($init_chain)*> + Responder<I, T, Next: $($resp_chain)*>>,
         {
         }
 
         pub trait Client<I, T>:
-            Connect<I, T, Next: CompleteConnect<I, T, Next: Initiator<I, T, Next: $($init_chain)*> + OpenResponder<I, T, Next: $($resp_chain)*>>>
+            Connect<I, T, Next: CompleteConnect<I, T, Next: Initiator<I, T, Next: $($init_chain)*> + Responder<I, T, Next: $($resp_chain)*>>>
         where
             I: Backend<T, Node<Z>: Leaf<T>>,
-            T: Send + Sync,
+            T: Send + Sync + 'static,
         {
         }
 
         impl<X, I, T> Client<I, T> for X
         where
             I: Backend<T, Node<Z>: Leaf<T>>,
-            T: Send + Sync,
-            X: Connect<I, T, Next: CompleteConnect<I, T, Next: Initiator<I, T, Next: $($init_chain)*> + OpenResponder<I, T, Next: $($resp_chain)*>>>,
+            T: Send + Sync + 'static,
+            X: Connect<I, T, Next: CompleteConnect<I, T, Next: Initiator<I, T, Next: $($init_chain)*> + Responder<I, T, Next: $($resp_chain)*>>>,
         {
         }
     };

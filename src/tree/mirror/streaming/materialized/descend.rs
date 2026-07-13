@@ -23,7 +23,7 @@ use crate::{
     },
 };
 
-use super::super::backend::{Backend, BoxNodeStream, Leaf, Root, fold_parents};
+use super::super::backend::{Backend, BoxNodeStream, Leaf, Root};
 use super::super::message;
 use super::super::protocol::{self, Requests, Responses};
 use super::FAN;

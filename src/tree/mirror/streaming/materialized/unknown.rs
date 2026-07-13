@@ -33,7 +33,7 @@ use crate::tree::mirror::streaming::backend::{BoxNodeStream, BoxOptionNodeStream
 use crate::tree::typed::Prefix;
 use crate::tree::typed::height::{Height, S, Z};
 
-use super::super::backend::{Backend, Leaf, Node, NodeStream, one};
+use super::super::backend::{Backend, Leaf, Node, NodeStream};
 
 /// True iff a node's whole subtree is causally at or before `version`: a
 /// counterparty at that version either has everything under it or deleted
@@ -41,7 +41,7 @@ use super::super::backend::{Backend, Leaf, Node, NodeStream, one};
 ///
 /// A concurrent ceiling compares as `None` and is *not* known: it carries
 /// history the counterparty has never seen.
-pub(super) fn known<T>(node: &impl Node<T>, version: &Version) -> bool {
+pub(super) fn known<T: Send + Sync + 'static>(node: &impl Node<T>, version: &Version) -> bool {
     matches!(
         node.ceiling().partial_cmp(version),
         Some(Ordering::Less | Ordering::Equal)
@@ -60,7 +60,7 @@ pub fn unknown<'a, B, T, H>(
 ) -> impl NodeStream<B, T, H> + 'a
 where
     B: Backend<T, Node<Z>: Leaf<T>> + Sync + 'a,
-    T: Send + Sync + 'a,
+    T: Send + Sync + 'static,
     H: Unknown,
 {
     H::unknown(backend, known, Box::pin(stream)).filter_map(|result| match result {

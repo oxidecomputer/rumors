@@ -35,7 +35,7 @@ pub struct Initiate {
     uncertain: Vec<(u8, Hash)>,
 }
 
-pub struct Reply<B: Backend<T, Node<Z>: Leaf<T>>, T, H: Height> {
+pub struct Reply<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height> {
     /// The reactions to a single previous query.
     pub replies: Vec<Reaction<B, T, H>>,
 }
@@ -44,46 +44,42 @@ pub struct Reply<B: Backend<T, Node<Z>: Leaf<T>>, T, H: Height> {
 /// [`Reaction::Uncertain`] query, with the exception of
 /// [`Reaction::Providing`], which indicates its radix because it represents
 /// information that the counterparty could not have known to ask about.
-pub enum Reaction<B: Backend<T, Node<Z>: Leaf<T>>, T, H: Height> {
+pub enum Reaction<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height> {
     /// Having inferred that the counterparty lacks this node through its
     /// absence in the counterparty's listing of hashes, we provide it, at this
     /// radix (the counterparty cannot infer the radix because only we know it
     /// exists in the first place).
-    Providing(u8, B::Node<H>),
+    Supply(u8, B::Node<H>),
     /// Having inferred that we and the counterparty agree about this node, as
     /// its hash is the same on both sides, we indicate such.
-    Matched,
-    /// Having inferred that we ourselves lack this node through its presence in
-    /// the counterparty's listing of hashes (and its absence in our own tree),
-    /// we request it.
-    Requested,
+    Match,
     /// Having inferred that we both have this node but disagree about its
-    /// contents, we recur, informing the counterparty about the hashes of this
-    /// node's children and implicitly requesting that they reply about each of
-    /// those children (as well as providing any children which we didn't know
-    /// to ask about).
-    Uncertain(Vec<(u8, Hash)>),
+    /// contents (or that we lack the node entirely), we recur, informing the
+    /// counterparty about the hashes of this node's children and implicitly
+    /// requesting that they reply about each of those children (as well as
+    /// providing any children which we didn't know to ask about).
+    Query(Vec<(u8, Hash)>),
 }
 
-pub struct Close<B: Backend<T, Node<Z>: Leaf<T>>, T> {
+pub struct Close<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> {
     /// The reactions to a single previous bottom-level query, which statically
     /// cannot be [`Reaction::Uncertain`], as content never differs at a full
     /// leaf path since leaves are content-addressed.
     pub replies: Vec<CloseReaction<B, T>>,
 }
 
-pub enum CloseReaction<B: Backend<T, Node<Z>: Leaf<T>>, T> {
-    /// See [`Reaction::Providing`].
-    Providing(u8, B::Node<Z>),
-    /// See [`Reaction::Matched`].
-    Matched,
-    /// See [`Reaction::Requested`].
-    Requested,
+pub enum CloseReaction<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> {
+    /// See [`Reaction::Provide`].
+    Supply(u8, B::Node<Z>),
+    /// See [`Reaction::Match`].
+    Match,
+    /// Like [`Reaction::Query`], but for a leaf: request that the counterparty
+    Query,
 }
 
-pub struct Complete<B: Backend<T, Node<Z>: Leaf<T>>, T> {
-    /// A [`ClosingReaction::Requested`] can still occur during closing, meaning
-    /// that the counterparty needs to provide the leaf; this is that final
+pub struct Complete<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> {
+    /// A [`CloseReaction::Query`] can still occur during closing, meaning that
+    /// the counterparty needs to provide the leaf; this is that final
     /// provision. It is optional because the counterparty may discover, during
     /// the course of providing the leaf, that the leaf ought to have been
     /// causally pruned.

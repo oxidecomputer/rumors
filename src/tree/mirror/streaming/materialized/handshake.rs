@@ -20,7 +20,7 @@ use crate::{
     tree::typed::height::{self, UnderRoot, UnderUnderRoot, Z},
 };
 
-use super::super::backend::{Backend, Leaf, Root, fold_parents};
+use super::super::backend::{Backend, Leaf, Root};
 use super::super::message;
 use super::super::protocol::{self, Requests, Responses};
 use super::FAN;
@@ -173,35 +173,12 @@ where
             versions,
             root,
         } = self;
-        let (down_tx, down_rx) = mpsc::channel(FAN);
-        let (up_tx, up_rx) = mpsc::channel(FAN);
 
-        let listing = reconcile::initiate(backend.clone(), root.root, down_tx);
-
-        // The initiator's reconciled root-child level arrives on `up` whole:
-        // one fold reassembles the root the terminal resolves to.
-        let ceiling = versions.our_version | versions.their_version.clone();
-        let top = fold_parents(
-            backend.clone(),
-            ReceiverStream::new(up_rx).map(Ok::<_, B::Error>),
-        );
-        let finish = reassemble(top, ceiling);
-        let mut work = Vec::new();
-        let sending = reconcile::outgoing(&mut work, listing);
-
-        let next = Descending::new(
-            backend,
-            versions.their_version,
-            down_rx,
-            up_tx,
-            work,
-            finish,
-        );
-        (ReceiverStream::new(sending), next)
+        todo!()
     }
 }
 
-impl<B, T> protocol::OpenResponder<B, T> for Handshaking<B, T, Connected>
+impl<B, T> protocol::Responder<B, T> for Handshaking<B, T, Connected>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
@@ -220,77 +197,7 @@ where
             versions,
             root,
         } = self;
-        let (down_tx, down_rx) = mpsc::channel(FAN);
-        let (level_tx, level_rx) = mpsc::channel(FAN);
-        let (up_tx, up_rx) = mpsc::channel(FAN);
 
-        let opening = reconcile::respond(
-            backend.clone(),
-            versions.their_version.clone(),
-            root.root,
-            requests,
-            down_tx,
-            level_tx,
-        );
-
-        // The responder's root-child level is the opening's verdicts
-        // (`level`) joined with the resolved disputes climbing out of the
-        // descent (`up`); two folds reassemble the root the terminal
-        // resolves to.
-        let ceiling = versions.our_version | versions.their_version.clone();
-        let top = fold_parents(
-            backend.clone(),
-            merge_disjoint(
-                ReceiverStream::new(level_rx).map(Ok),
-                fold_parents(
-                    backend.clone(),
-                    ReceiverStream::new(up_rx).map(Ok::<_, B::Error>),
-                ),
-            ),
-        );
-        let finish = reassemble(top, ceiling);
-        let mut work = Vec::new();
-        let sending = reconcile::outgoing(&mut work, opening);
-
-        let next = Descending::new(
-            backend,
-            versions.their_version,
-            down_rx,
-            up_tx,
-            work,
-            finish,
-        );
-        (Box::pin(ReceiverStream::new(sending)), next)
+        todo!()
     }
-}
-
-/// Drain the reconciled root level into this side's reconciled [`Root`]: the
-/// future the session's terminal resolves to.
-///
-/// The root level holds at most one real node — the reassembled root, or
-/// nothing when the reconciled tree is empty — and the session's watermarks
-/// end here: at root height there is no level above to release, so they are
-/// dropped. A backend error means there is no trustworthy result.
-fn reassemble<B, T>(
-    top: impl OptionNodeStream<B, T, height::Root> + 'static,
-    ceiling: Version,
-) -> BoxFuture<'static, Result<Root<B, T>, B::Error>>
-where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
-{
-    Box::pin(async move {
-        let mut top = pin!(top);
-        let mut root = None;
-        while let Some(item) = top.next().await {
-            let (_prefix, node) = item?;
-            let Some(node) = node else { continue };
-            debug_assert!(
-                root.is_none(),
-                "upward reassembly produced more than one root node",
-            );
-            root = Some(node);
-        }
-        Ok(Root { ceiling, root })
-    })
 }

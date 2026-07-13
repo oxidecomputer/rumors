@@ -14,7 +14,7 @@ use crate::{
     },
 };
 
-use super::{Backend, Leaf, Node, NodeStream, Root};
+use super::{Backend, Convert, Leaf, Node, NodeStream, Root};
 
 impl<T: Send + Sync + 'static, H: Height> Node<T> for typed::Node<T, H> {
     type Backend = Local;

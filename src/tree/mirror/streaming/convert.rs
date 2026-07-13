@@ -12,9 +12,10 @@ use std::pin::pin;
 
 use async_stream::try_stream;
 use futures::channel::mpsc;
-use futures::{SinkExt, StreamExt};
+use futures::{SinkExt, StreamExt, stream};
 
 use crate::tree::mirror::streaming::FAN;
+use crate::tree::mirror::streaming::backend::{NodeStream, OptionNodeStream};
 use crate::tree::mirror::streaming::message::{Close, Complete, Reply};
 use crate::tree::typed::{
     Prefix,
@@ -22,7 +23,7 @@ use crate::tree::typed::{
 };
 
 use super::Error;
-use super::backend::{Backend, BoxNodeStream, Leaf, Node, fold_parents, one};
+use super::backend::{Backend, BoxNodeStream, Leaf, Node};
 use super::message;
 use super::protocol::Responses;
 
@@ -72,8 +73,6 @@ where
         B: Backend<T, Node<Z>: Leaf<T>>,
         T: Send + Sync + 'static,
     {
-        // Explode each node of the level singularly, in order: children of
-        // distinct parents concatenate into the level below, still ascending.
         let exploded = backend.clone();
         let below: BoxNodeStream<B, T, H> = Box::pin(try_stream! {
             for await item in stream {
@@ -91,19 +90,13 @@ where
         B: Backend<T, Node<Z>: Leaf<T>>,
         T: Send + Sync + 'static,
     {
-        // The conversion tower is all-real: no watermark goes in, so none
-        // can come out, and the lift/strip pair is vacuous at runtime. It
-        // exists to keep `fold_parents` singular — the one grouping
-        // combinator — rather than forking an unmarked twin.
-        let below = H::assemble(backend.clone(), leaves)
-            .map(|item| item.map(|(prefix, node)| (prefix, Some(node))));
+        let below = H::assemble(backend.clone(), leaves);
         let folded = fold_parents(backend, below);
         Box::pin(try_stream! {
             let mut folded = pin!(folded);
             while let Some(item) = folded.next().await {
-                if let (prefix, Some(node)) = item? {
-                    yield (prefix, node);
-                }
+                let (prefix, node) = item?;
+                yield (prefix, node);
             }
         })
     }
@@ -132,7 +125,10 @@ where
 
     let feed = async move {
         let mut tx = tx;
-        let mut leaves = pin!(H::explode(from.clone(), Box::pin(one(prefix, node))));
+        let mut leaves = pin!(H::explode(
+            from.clone(),
+            Box::pin(stream::once(async move { Ok((prefix, node)) })),
+        ));
         while let Some(item) = leaves.next().await {
             let (prefix, leaf) = item?;
 
@@ -165,4 +161,58 @@ where
         .expect("a subtree's leaves reassemble to exactly one node")
         .map(|(_prefix, node)| node)
         .map_err(Error::Server)
+}
+
+/// Reassemble an ascending marked child stream into its marked parent level,
+/// one complete radix group at a time.
+pub(super) fn fold_parents<B, T, H>(
+    backend: B,
+    children: impl NodeStream<B, T, H>,
+) -> impl NodeStream<B, T, S<H>>
+where
+    B: Backend<T, Node<Z>: Leaf<T>>,
+    T: Send + Sync + 'static,
+    H: Height,
+    S<H>: Height,
+{
+    /// Flush a completed group, if any, into its parent.
+    async fn flush<B, T, H>(
+        backend: &B,
+        finished: Option<(Prefix<S<H>>, Vec<(u8, Option<B::Node<H>>)>)>,
+    ) -> Result<Option<(Prefix<S<H>>, B::Node<S<H>>)>, B::Error>
+    where
+        B: Backend<T, Node<Z>: Leaf<T>>,
+        T: Send + Sync + 'static,
+        H: Height,
+        S<H>: Height,
+    {
+        let Some((prefix, group)) = finished else {
+            return Ok(None);
+        };
+        let parent = backend.clone().parent(prefix, group).await?;
+        Ok(parent.map(|parent| (prefix, parent)))
+    }
+
+    try_stream! {
+        let mut children = pin!(children);
+        let mut open: Option<(_, Vec<_>)> = None;
+        while let Some(item) = children.next().await {
+            let (path, child) = item?;
+            let (prefix, radix) = path.pop();
+            match &mut open {
+                Some((current, group)) if *current == prefix => {
+                    group.push((radix, Some(child)));
+                }
+                _ => {
+                    let finished = open.replace((prefix, vec![(radix, Some(child))]));
+                    if let Some((flushed, parent)) = flush(&backend, finished).await? {
+                        yield (flushed, parent);
+                    }
+                }
+            }
+        }
+        if let Some((flushed, parent)) = flush(&backend, open.take()).await? {
+            yield (flushed, parent);
+        }
+    }
 }
