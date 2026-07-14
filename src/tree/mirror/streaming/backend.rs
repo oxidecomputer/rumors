@@ -1,16 +1,16 @@
-use std::pin::{Pin, pin};
+use std::pin::Pin;
 
-use async_stream::try_stream;
-use futures::stream::StreamExt;
 use futures::{Stream, stream};
 
-use crate::tree::mirror::streaming::convert::Convert;
 use crate::{
     Version,
     message::Message,
-    tree::typed::{
-        Hash, Prefix,
-        height::{self, Height, S, Z},
+    tree::{
+        mirror::streaming::convert::Convert,
+        typed::{
+            Hash, Prefix,
+            height::{self, Height, S, Z},
+        },
     },
 };
 
@@ -19,16 +19,6 @@ mod local;
 pub use local::Local;
 
 /// A backend value is a cheap cloneable *handle* to its storage.
-///
-/// A backend speaks two singular operations, one per direction: [`children`]
-/// explodes one node into its child stream, and [`parent`] assembles one node
-/// from one radix-keyed child group. Everything level-shaped — coalescing an
-/// ascending child stream into parent groups — lives above the trait in
-/// [`fold_parents`], so a backend never sees more than one node's fan at once
-/// and carries no cross-parent ordering obligations.
-///
-/// [`children`]: Backend::children
-/// [`parent`]: Backend::parent
 pub trait Backend<T: Send + Sync + 'static>: Clone + Send + Sync + 'static
 where
     Self::Node<Z>: Leaf<T>,
@@ -46,8 +36,10 @@ where
     /// not join the parent, and the backend may drop whatever it stores beneath
     /// that radix. A `None` return means no child survived, should propagate as
     /// a `None` entry one level up, cascading deletion to parents whose entire
-    /// child set was deleted. Given at least one real child, construction
-    /// should always yield a parent.
+    /// child set was deleted. The group may also be empty outright — a scope
+    /// that resolved to nothing at all, such as the pruned-to-nothing reply to
+    /// a request — and resolves to `None` the same way. Given at least one
+    /// real child, construction should always yield a parent.
     fn parent<H>(
         self,
         prefix: Prefix<S<H>>,
@@ -129,24 +121,7 @@ where
 }
 
 /// A [`NodeStream`] erased to one level of type depth.
-pub(super) type BoxNodeStream<'a, B, T: Send + Sync, H> = Pin<Box<dyn NodeStream<B, T, H> + 'a>>;
-
-/// Type synonym for a fallible [`Stream`] of prefix-keyed optional nodes
-/// represented by a given backend.
-pub trait OptionNodeStream<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height>:
-    Stream<Item = Result<(Prefix<H>, Option<B::Node<H>>), B::Error>> + Send
-{
-}
-impl<N, B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height>
-    OptionNodeStream<B, T, H> for N
-where
-    N: Stream<Item = Result<(Prefix<H>, Option<B::Node<H>>), B::Error>> + Send,
-{
-}
-
-/// An [`OptionNodeStream`] erased to one level of type depth.
-pub type BoxOptionNodeStream<'a, B, T: Send + Sync, H> =
-    Pin<Box<dyn OptionNodeStream<B, T, H> + 'a>>;
+pub(super) type BoxNodeStream<'a, B, T, H> = Pin<Box<dyn NodeStream<B, T, H> + 'a>>;
 
 /// A backend's whole tree at rest: what a mirror session consumes and produces.
 ///
@@ -170,6 +145,3 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> Clone for Root<B
         }
     }
 }
-
-#[cfg(test)]
-mod tests;

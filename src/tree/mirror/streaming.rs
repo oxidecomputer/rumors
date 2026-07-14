@@ -7,7 +7,7 @@
 
 // TODO: remove this when integrated
 #![allow(dead_code, unused_imports)]
-// There are just a lot of complex types here, and this lint is too eager.
+// Where we're going, we need to write some Complex Types.
 #![allow(clippy::type_complexity)]
 
 mod backend;
@@ -21,7 +21,7 @@ pub use backend::{Backend, Leaf, Local, Node, Root};
 pub use materialized::Handshaking;
 
 use std::cmp::Ordering;
-use std::pin::{Pin, pin};
+use std::pin::pin;
 
 use async_stream::stream;
 use futures::{StreamExt, join};
@@ -29,50 +29,11 @@ use seq_macro::seq;
 use tokio::sync::mpsc;
 
 use super::Error;
-use crate::{Version, tree::typed::height::Z};
+use crate::{
+    Version,
+    tree::typed::height::{Height, Z},
+};
 use protocol::*;
-
-#[cfg(test)]
-mod tests;
-
-pub(super) const FAN: usize = 256;
-
-/// One direction of the party boundary: messages pass through unchanged,
-/// while the producer's errors leave the schedule out of band, into the
-/// driver's error slot.
-///
-/// This is what makes the incoming [`Requests`] streams structurally
-/// non-erroring: the consumer never has to represent the producer's error
-/// type. On an error the stream parks (`Pending` forever) rather than
-/// ending: end-of-stream means phase completion to the consumer, and a
-/// truncated phase would be misread, whereas a parked consumer merely stops —
-/// the driver has already been handed the error and abandons the session.
-fn divert<M, E, D, W>(
-    messages: impl Responses<M, E>,
-    slot: mpsc::Sender<D>,
-    wrap: W,
-) -> impl Requests<M>
-where
-    M: Send + 'static,
-    E: Send + 'static,
-    D: Send + 'static,
-    W: Fn(E) -> D + Send + 'static,
-{
-    stream! {
-        let mut messages = pin!(messages);
-        while let Some(item) = messages.next().await {
-            match item {
-                Ok(message) => yield message,
-                Err(error) => {
-                    // First error wins; a later crossing finding the slot
-                    // already claimed loses the race and is dropped.
-                    let _ = slot.try_send(wrap(error));
-                    std::future::pending::<()>().await;
-                }
-            }
-        }
-    }
-}
 
 /// Expand the protocol phase schedule into the driver's whole body: one line
 /// per phase.
@@ -121,8 +82,6 @@ macro_rules! mirror {
     }};
     ($a:ident.$m:ident; $b:ident.$n:ident; $($rest:tt)*) => {{
         let (errors, mut first_error) = mpsc::channel(1);
-        // Each party's faults enter the session sum on its own side; nothing
-        // crosses, so the two variant constructors are the whole mapping.
         let $a = ($a, (errors.clone(), Error::Client));
         let $b = ($b, (errors, Error::Server));
         let session = async { mirror!(@run parties($a, $b) $a.$m; $b.$n; $($rest)*) };
@@ -161,13 +120,11 @@ where
     mirror! {
         i.initiator;
         r.responder;
-        for _ in 0..14 {
+        for _ in 0..15 {
             i.reply;
             r.reply;
         }
         i.reply;
-        r.close_responder;
-        i.close_initiator;
         r.complete_responder;
         i.complete_initiator;
     }
@@ -218,6 +175,29 @@ where
         } = self;
         descend(local, remote, our_version, peer.version).await
     }
+}
+
+/// Run two arbitrary protocol implementors against each other through the full
+/// streaming protocol, both parties polled concurrently on the current task,
+/// returning both sides' reconciled roots.
+///
+/// The two implementors share one backend `B`, whose node types are the wire
+/// vocabulary between them; they need not be the same implementor, only agree
+/// on how a node is represented.
+///
+/// Returns `None` when the handshake versions were equal and there is nothing
+/// to reconcile, in which case each side keeps whatever it came with.
+pub(crate) async fn mirror<C, S, B, T>(
+    client: C,
+    server: S,
+) -> Result<Option<(C::Output, S::Output)>, Error<C::Error, S::Error>>
+where
+    T: Send + Sync + 'static,
+    B: Backend<T, Node<Z>: Leaf<T>>,
+    C: Client<B, T>,
+    S: Server<B, T>,
+{
+    handshake(client, server).await?.reconcile().await
 }
 
 pub(crate) async fn handshake<C, S, B, T>(
@@ -279,25 +259,44 @@ where
     }
 }
 
-/// Run two arbitrary protocol implementors against each other through the full
-/// streaming protocol, both parties polled concurrently on the current task,
-/// returning both sides' reconciled roots.
+/// One direction of the party boundary: messages pass through unchanged,
+/// while the producer's errors leave the schedule out of band, into the
+/// driver's error slot.
 ///
-/// The two implementors share one backend `B`, whose node types are the wire
-/// vocabulary between them; they need not be the same implementor, only agree
-/// on how a node is represented.
-///
-/// Returns `None` when the handshake versions were equal and there is nothing
-/// to reconcile, in which case each side keeps whatever it came with.
-pub(crate) async fn mirror<C, S, B, T>(
-    client: C,
-    server: S,
-) -> Result<Option<(C::Output, S::Output)>, Error<C::Error, S::Error>>
+/// This is what makes the incoming [`Requests`] streams structurally
+/// non-erroring: the consumer never has to represent the producer's error
+/// type. On an error the stream parks (`Pending` forever) rather than
+/// ending: end-of-stream means phase completion to the consumer, and a
+/// truncated phase would be misread, whereas a parked consumer merely stops —
+/// the driver has already been handed the error and abandons the session.
+fn divert<B, T, H, E, D, W>(
+    messages: impl Responses<B, T, H, E>,
+    slot: mpsc::Sender<D>,
+    wrap: W,
+) -> impl Requests<B, T, H>
 where
     T: Send + Sync + 'static,
     B: Backend<T, Node<Z>: Leaf<T>>,
-    C: Client<B, T>,
-    S: Server<B, T>,
+    H: Height,
+    E: Send + 'static,
+    D: Send + 'static,
+    W: Fn(E) -> D + Send + 'static,
 {
-    handshake(client, server).await?.reconcile().await
+    stream! {
+        let mut messages = pin!(messages);
+        while let Some(item) = messages.next().await {
+            match item {
+                Ok(message) => yield message,
+                Err(error) => {
+                    // First error wins; a later crossing finding the slot
+                    // already claimed loses the race and is dropped.
+                    let _ = slot.try_send(wrap(error));
+                    std::future::pending::<()>().await;
+                }
+            }
+        }
+    }
 }
+
+#[cfg(test)]
+mod tests;

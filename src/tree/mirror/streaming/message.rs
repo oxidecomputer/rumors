@@ -1,21 +1,30 @@
-//! The streaming mirror's wire vocabulary.
+//! The streaming mirror's wire vocabulary: one reply per question.
 //!
-//! Every stream message rides as a `(Prefix<H>, kind)` pair: the prefix is
-//! the stream's key — the protocol keeps each stream strictly
-//! prefix-ascending, and the walk merge-joins it against the frontier
-//! directly — so it lives in the pair, not the payload. `H` is the key's
-//! height; a message about a subtree's *children* ([`Exchange::Uncertain`],
-//! [`Opening::Uncertain`]) identifies each child by the single hash byte
-//! below the key.
+//! After the handshake, every stream message is the complete reply to a
+//! single earlier question. The first [`Reply`] asks the implicit root
+//! question, and every subsequent `Reply` answers the k-th
+//! question its receiver asked, in order. No message carries a prefix —
+//! scope is determined by pairing against the receiver's own query queue —
+//! and a reply is a finite value, so completeness is structural: having
+//! read the k-th message, the receiver holds *everything* the counterparty
+//! will ever say about the k-th scope. That structural completeness is
+//! what lets the session resolve a scope the moment its reply arrives (see
+//! [`materialized`](crate::tree::mirror::streaming::materialized) for the ordering argument).
+//!
+//! The memory unit is one reply: a maximally disputed reply is 256
+//! reactions × a 256-entry listing ≈ fan² hashes ≈ 2 MB, transient, at
+//! most one in flight per stage.
 
-use crate::Version;
-use crate::tree::mirror::streaming::Leaf;
-use crate::tree::typed::{
-    Hash, Prefix,
-    height::{Height, S, Z},
+use crate::{
+    Version,
+    tree::{
+        mirror::streaming::{Backend, Leaf},
+        typed::{
+            Hash,
+            height::{Height, Z},
+        },
+    },
 };
-
-use super::Backend;
 
 // The initial handshake message:
 
@@ -28,60 +37,37 @@ pub struct Handshake {
     pub version: Version,
 }
 
-// The four kinds of stream messages:
-
-pub struct Initiate {
-    /// The hashes of all the children of the initiator's root.
-    uncertain: Vec<(u8, Hash)>,
-}
-
+/// The sole stream message.
 pub struct Reply<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height> {
     /// The reactions to a single previous query.
     pub replies: Vec<Reaction<B, T, H>>,
 }
 
 /// Reactions are positionally keyed against the corresponding
-/// [`Reaction::Uncertain`] query, with the exception of
-/// [`Reaction::Providing`], which indicates its radix because it represents
-/// information that the counterparty could not have known to ask about.
+/// [`Reaction::Query`] query.
+///
+/// The exception is [`Reaction::Supply`], which indicates its radix because
+/// it represents information that the counterparty could not have known to
+/// ask about.
 pub enum Reaction<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height> {
     /// Having inferred that the counterparty lacks this node through its
-    /// absence in the counterparty's listing of hashes, we provide it, at this
-    /// radix (the counterparty cannot infer the radix because only we know it
-    /// exists in the first place).
+    /// absence in the counterparty's listing of hashes, we provide it, at
+    /// this radix.
+    ///
+    /// The counterparty cannot infer the radix because only we know the node
+    /// exists in the first place.
     Supply(u8, B::Node<H>),
     /// Having inferred that we and the counterparty agree about this node, as
     /// its hash is the same on both sides, we indicate such.
     Match,
     /// Having inferred that we both have this node but disagree about its
-    /// contents (or that we lack the node entirely), we recur, informing the
-    /// counterparty about the hashes of this node's children and implicitly
-    /// requesting that they reply about each of those children (as well as
-    /// providing any children which we didn't know to ask about).
+    /// contents (or that we lack the node entirely), we recur.
+    ///
+    /// The listing informs the counterparty of the hashes of this node's
+    /// children, implicitly requesting that they reply about each of those
+    /// children (as well as providing any children which we didn't know to
+    /// ask about). An empty listing is the request for the whole node: an
+    /// internal node always has at least one child, so emptiness is
+    /// unambiguous; it can only mean we lack the node.
     Query(Vec<(u8, Hash)>),
-}
-
-pub struct Close<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> {
-    /// The reactions to a single previous bottom-level query, which statically
-    /// cannot be [`Reaction::Uncertain`], as content never differs at a full
-    /// leaf path since leaves are content-addressed.
-    pub replies: Vec<CloseReaction<B, T>>,
-}
-
-pub enum CloseReaction<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> {
-    /// See [`Reaction::Provide`].
-    Supply(u8, B::Node<Z>),
-    /// See [`Reaction::Match`].
-    Match,
-    /// Like [`Reaction::Query`], but for a leaf: request that the counterparty
-    Query,
-}
-
-pub struct Complete<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> {
-    /// A [`CloseReaction::Query`] can still occur during closing, meaning that
-    /// the counterparty needs to provide the leaf; this is that final
-    /// provision. It is optional because the counterparty may discover, during
-    /// the course of providing the leaf, that the leaf ought to have been
-    /// causally pruned.
-    providing: Option<B::Node<Z>>,
 }

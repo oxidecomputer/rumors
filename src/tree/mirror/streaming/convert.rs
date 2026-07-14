@@ -2,7 +2,7 @@
 //!
 //! A node converts by exploding to leaves in the source backend and
 //! reassembling in the target, the two halves running concurrently through one
-//! [`FAN`]-bounded channel ([`subtree`]).
+//! one-slot channel ([`subtree`]).
 //!
 //! The protocol itself converts nowhere: both parties of a session name one
 //! backend, and a homogeneous session pays nothing. This module is what lets a
@@ -11,21 +11,23 @@
 use std::pin::pin;
 
 use async_stream::try_stream;
-use futures::channel::mpsc;
-use futures::{SinkExt, StreamExt, stream};
+use futures::{StreamExt, stream};
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
 
-use crate::tree::mirror::streaming::FAN;
-use crate::tree::mirror::streaming::backend::{NodeStream, OptionNodeStream};
-use crate::tree::mirror::streaming::message::{Close, Complete, Reply};
-use crate::tree::typed::{
-    Prefix,
-    height::{Height, S, Z},
+use crate::tree::{
+    mirror::{
+        Error,
+        streaming::{
+            Backend, Leaf, Node,
+            backend::{BoxNodeStream, NodeStream},
+        },
+    },
+    typed::{
+        Prefix,
+        height::{Height, S, Z},
+    },
 };
-
-use super::Error;
-use super::backend::{Backend, BoxNodeStream, Leaf, Node};
-use super::message;
-use super::protocol::Responses;
 
 /// A height whose subtrees convert across backends: they explode to the leaf
 /// stream beneath them and reassemble from one.
@@ -106,9 +108,9 @@ where
 ///
 /// The node [explodes](Convert::explode) to leaves in `from` while `to`
 /// concurrently [reassembles](Convert::assemble) them, the halves joined by a
-/// [`FAN`]-bounded leaf channel; the cost is the subtree's size in time and one
-/// fan in memory. Errors return in the producer's frame: `from`'s explosion
-/// failures in first position, `to`'s reassembly failures in second.
+/// one-slot leaf channel; the cost is the subtree's size in time and one leaf
+/// in buffered memory. Errors return in the producer's frame: `from`'s
+/// explosion failures in first position, `to`'s reassembly failures in second.
 async fn subtree<B, O, T, H>(
     from: &B,
     to: &O,
@@ -121,10 +123,9 @@ where
     T: Send + Sync + 'static,
     H: Convert,
 {
-    let (tx, rx) = mpsc::channel::<Result<(Prefix<Z>, O::Node<Z>), O::Error>>(FAN);
+    let (tx, rx) = mpsc::channel::<Result<(Prefix<Z>, O::Node<Z>), O::Error>>(1);
 
     let feed = async move {
-        let mut tx = tx;
         let mut leaves = pin!(H::explode(
             from.clone(),
             Box::pin(stream::once(async move { Ok((prefix, node)) })),
@@ -149,7 +150,7 @@ where
     };
 
     let build = async {
-        let mut nodes = pin!(H::assemble(to.clone(), Box::pin(rx)));
+        let mut nodes = pin!(H::assemble(to.clone(), Box::pin(ReceiverStream::new(rx))));
         nodes.next().await
     };
 
@@ -163,9 +164,10 @@ where
         .map_err(Error::Server)
 }
 
-/// Reassemble an ascending marked child stream into its marked parent level,
-/// one complete radix group at a time.
-pub(super) fn fold_parents<B, T, H>(
+/// Reassemble an ascending child stream into its parent level, one complete
+/// radix group at a time: a group flushes when the prefix changes or the
+/// input ends.
+fn fold_parents<B, T, H>(
     backend: B,
     children: impl NodeStream<B, T, H>,
 ) -> impl NodeStream<B, T, S<H>>
@@ -216,3 +218,6 @@ where
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

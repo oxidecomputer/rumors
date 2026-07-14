@@ -2,7 +2,7 @@
 //!
 //! Both parties of a session speak one backend `I`: the messages a stage
 //! consumes and the messages it produces are keyed by the same node types.
-//! A party that owns no tree — the [`remote`](super::remote) proxy — is
+//! A party that owns no tree — the [`remote`](crate::tree::mirror::streaming::remote) proxy — is
 //! parameterized by its local counterparty's backend rather than defining one
 //! of its own, which is what lets the node types meet in the middle without a
 //! conversion anywhere in the schedule.
@@ -11,20 +11,15 @@
 
 use std::pin::Pin;
 
+use futures::Stream;
+
 use crate::{
     Version,
     tree::{
-        mirror::streaming::{Backend, Leaf},
-        typed::{
-            Prefix,
-            height::{Height, Pred, Root, S, UnderRoot, UnderUnderRoot, Z},
-        },
+        mirror::streaming::{Backend, Leaf, message},
+        typed::height::{Height, Root, S, UnderRoot, UnderUnderRoot, Z},
     },
 };
-
-use super::message;
-
-use futures::Stream;
 
 mod peer;
 pub use peer::{Client, Peer, Server};
@@ -39,20 +34,36 @@ pub trait Protocol: Send {
 }
 
 /// Trait synonym: non-erroring message streams, the shape of incoming streams.
-pub trait Requests<M>: Stream<Item = M> + Send + 'static {}
-impl<X, M> Requests<M> for X where X: Stream<Item = M> + Send + 'static {}
+pub trait Requests<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height>:
+    Stream<Item = message::Reply<B, T, H>> + Send + 'static
+{
+}
+impl<X, B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height> Requests<B, T, H>
+    for X
+where
+    X: Stream<Item = message::Reply<B, T, H>> + Send + 'static,
+{
+}
 
 /// Trait synonym: fallible message streams, the shape of outgoing streams.
-pub trait Responses<M, E>: Stream<Item = Result<M, E>> + Send + 'static {}
-impl<X, M, E> Responses<M, E> for X where X: Stream<Item = Result<M, E>> + Send + 'static {}
+pub trait Responses<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height, E>:
+    Stream<Item = Result<message::Reply<B, T, H>, E>> + Send + 'static
+{
+}
+impl<X, B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height, E>
+    Responses<B, T, H, E> for X
+where
+    X: Stream<Item = Result<message::Reply<B, T, H>, E>> + Send + 'static,
+{
+}
 
 /// A boxed [`Responses`] stream.
-pub type BoxResponses<M, E> = Pin<Box<dyn Responses<M, E>>>;
+pub type BoxResponses<B, T, H, E> = Pin<Box<dyn Responses<B, T, H, E>>>;
 
-pub trait Connect<I: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
+pub trait Connect<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
     Protocol<Height = Root> + Sized
 {
-    type Next: CompleteConnect<I, T>
+    type Next: CompleteConnect<B, T>
         + Protocol<Height = Root, Output = Self::Output, Error = Self::Error>;
 
     fn connect(
@@ -60,11 +71,11 @@ pub trait Connect<I: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
     ) -> impl Future<Output = Result<(message::Handshake, Self::Next), Self::Error>> + Send;
 }
 
-pub trait Accept<I: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
+pub trait Accept<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
     Protocol<Height = Root> + Sized
 {
-    type Next: Initiator<I, T>
-        + Responder<I, T>
+    type Next: Initiator<B, T>
+        + Responder<B, T>
         + Protocol<Height = Root, Output = Self::Output, Error = Self::Error>;
 
     fn accept(
@@ -73,11 +84,11 @@ pub trait Accept<I: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
     ) -> impl Future<Output = Result<(message::Handshake, Self::Next), Self::Error>> + Send;
 }
 
-pub trait CompleteConnect<I: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
+pub trait CompleteConnect<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
     Protocol<Height = Root> + Sized
 {
-    type Next: Initiator<I, T>
-        + Responder<I, T>
+    type Next: Initiator<B, T>
+        + Responder<B, T>
         + Protocol<Height = Root, Output = Self::Output, Error = Self::Error>;
 
     fn complete_connect(
@@ -93,160 +104,100 @@ pub trait CompleteConnect<I: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'sta
 /// hash equal only when their versions are equal, and equal versions
 /// short-circuit the session before it reaches the protocol at all. So the
 /// initiator skips straight to its root's children.
-pub trait Initiator<I: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
+pub trait Initiator<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
     Protocol<Height = Root> + Sized
 {
     type Next: Protocol<Height = UnderRoot, Output = Self::Output, Error = Self::Error>;
 
-    fn initiator(self) -> (impl Responses<message::Initiate, Self::Error>, Self::Next);
+    fn initiator(self) -> (impl Responses<B, T, UnderRoot, Self::Error>, Self::Next);
 }
 
-pub trait Responder<I: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
+pub trait Responder<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
     Protocol<Height = Root> + Sized
 {
-    // Like [`Initiator::Next`], this is left un-bounded by [`Exchange`]: both
+    // Like [`Initiator::Next`], this is left un-bounded by [`Reply`]: both
     // openings hand off to the descent, but only [`Peer`] spells the chain out.
-    // Naming `Exchange` here instead would make it a bound `Accept::Next` and
+    // Naming `Reply` here instead would make it a bound `Accept::Next` and
     // `CompleteConnect::Next` must discharge, which no generic wrapper can do
     // without the concrete height.
     type Next: Protocol<Height = UnderUnderRoot, Output = Self::Output, Error = Self::Error>;
 
     fn responder(
         self,
-        requests: impl Requests<message::Initiate>,
+        requests: impl Requests<B, T, UnderRoot>,
     ) -> (
         // IMPORTANT: This must be boxed because otherwise `rustc` explodes on
         // an exponentially-sized type!
-        BoxResponses<message::Reply<I, T, UnderRoot>, Self::Error>,
+        BoxResponses<B, T, UnderRoot, Self::Error>,
         Self::Next,
     );
 }
 
-pub trait Reply<I: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
-    Protocol + Sized
+/// The height transition of a reply phase.
+pub trait ReplyHeight: Height {
+    type Output: Height;
+    type Next: Height;
+}
+
+impl ReplyHeight for S<Z> {
+    type Output = Z;
+    type Next = Z;
+}
+
+impl<H> ReplyHeight for S<S<H>>
 where
-    Self::Height: Pred,
-    <Self::Height as Pred>::Pred: Pred,
+    H: Height,
+    S<H>: Height,
+    S<S<H>>: Height,
 {
-    type Next: AfterExchange<I, T, <<Self::Height as Pred>::Pred as Pred>::Pred>
-        + Protocol<
-            Height = <<Self::Height as Pred>::Pred as Pred>::Pred,
+    type Output = S<H>;
+    type Next = H;
+}
+
+pub trait Reply<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
+    Protocol<Height: ReplyHeight> + Sized
+{
+    type Next: Protocol<
+            Height = <Self::Height as ReplyHeight>::Next,
             Output = Self::Output,
             Error = Self::Error,
         >;
 
     fn reply(
         self,
-        requests: impl Requests<message::Reply<I, T, Self::Height>>,
+        requests: impl Requests<B, T, Self::Height>,
     ) -> (
         // IMPORTANT: This must be boxed because otherwise `rustc` explodes on
         // an exponentially-sized type!
-        BoxResponses<message::Reply<I, T, <Self::Height as Pred>::Pred>, Self::Error>,
+        BoxResponses<B, T, <Self::Height as ReplyHeight>::Output, Self::Error>,
         Self::Next,
     );
 }
 
-pub trait CloseResponder<I: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
-    Protocol<Height = S<S<Z>>> + Sized
-{
-    type Next: CompleteResponder<I, T>
-        + Protocol<Height = Z, Output = Self::Output, Error = Self::Error>;
-
-    fn close_responder(
-        self,
-        requests: impl Requests<message::Reply<I, T, S<S<Z>>>>,
-    ) -> (
-        // IMPORTANT: This must be boxed because otherwise `rustc` explodes on
-        // an exponentially-sized type!
-        BoxResponses<message::Reply<I, T, S<Z>>, Self::Error>,
-        Self::Next,
-    );
-}
-
-/// The initiator's closing reply: consume the responder's leaf-parent
-/// verdicts, answer their `uncertain` leaf listings through the degenerate
-/// leaf-height matrix, and emit [`message::Closing`].
+/// The responder's terminal: absorb the initiator's leaf replies and answer
+/// each requested leaf with one leaf-height [`Reply`].
 ///
-/// An incoming `uncertain` here lists the responder's leaves under a parent
-/// both sides hold; leaves never dispute, so each one resolves in place —
-/// ours-only pruned and provided, theirs-only requested, shared kept in
-/// silence. The kept leaves descend to the terminal, where the responder's
-/// answers join them.
-pub trait CloseInitiator<I: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
-    Protocol<Height = S<Z>> + Sized
-{
-    type Next: CompleteInitiator<I, T>
-        + Protocol<Height = Z, Output = Self::Output, Error = Self::Error>;
-
-    fn close_initiator(
-        self,
-        requests: impl Requests<message::Reply<I, T, S<Z>>>,
-    ) -> (BoxResponses<message::Close<I, T>, Self::Error>, Self::Next);
-}
-
-/// The responder's terminal: absorb the initiator's [`message::Closing`]
-/// and answer it with the final [`message::Complete`].
-///
-/// Each `Requested` leaf is answered pruned against the initiator's
-/// version, so a leaf the initiator deleted drops here instead of shipping.
-pub trait CompleteResponder<I: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
+/// Each requested leaf is answered pruned against the initiator's version,
+/// so a leaf the initiator deleted drops here instead of shipping.
+pub trait CompleteResponder<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
     Protocol<Height = Z> + Sized
 {
     fn complete_responder(
         self,
-        requests: impl Requests<message::Close<I, T>>,
+        requests: impl Requests<B, T, Z>,
     ) -> (
-        BoxResponses<message::Complete<I, T>, Self::Error>,
+        BoxResponses<B, T, Z, Self::Error>,
         impl Future<Output = Result<Self::Output, Self::Error>> + Send,
     );
 }
 
-/// The initiator's terminal: absorb the responder's final
-/// [`message::Complete`] and resolve to the reconciled root.
-pub trait CompleteInitiator<I: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
+/// The initiator's terminal: absorb the responder's final leaf replies and
+/// resolve to the reconciled root.
+pub trait CompleteInitiator<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
     Protocol<Height = Z> + Sized
 {
     fn complete_initiator(
         self,
-        requests: impl Requests<message::Complete<I, T>>,
+        requests: impl Requests<B, T, Z>,
     ) -> impl Future<Output = Result<Self::Output, Self::Error>> + Send;
-}
-
-/// Blanket marker trait keyed by the height `H` just produced by an exchange:
-///
-/// - `H = S<Z>`: must impl [`CloseInitiator`].
-/// - `H = S<S<Z>>`: must impl [`CloseResponder`].
-/// - `H = S<S<S<_>>>`: must impl [`Exchange`] at two heights finer.
-///
-/// Heights `S<Z>` and `S<S<Z>>` are handled via the blanket impls below,
-/// keyed off the appropriate closing trait.
-///
-/// Height `Z` is never reached as the result of an exchange (the closing
-/// stages name their `Z`-height terminals directly through their `Next`
-/// bounds), so there is no `AfterExchange<Z>` impl.
-pub trait AfterExchange<I: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height>:
-    Sized
-{
-}
-
-impl<T: Send + Sync + 'static, I: Backend<T, Node<Z>: Leaf<T>>, X: CloseInitiator<I, T>>
-    AfterExchange<I, T, S<Z>> for X
-{
-}
-
-impl<T: Send + Sync + 'static, I: Backend<T, Node<Z>: Leaf<T>>, X: CloseResponder<I, T>>
-    AfterExchange<I, T, S<S<Z>>> for X
-{
-}
-
-impl<T, I, H, X> AfterExchange<I, T, S<S<S<H>>>> for X
-where
-    I: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
-    H: Height,
-    S<H>: Height,
-    S<S<H>>: Height,
-    S<S<S<H>>>: Height,
-    X: Reply<I, T> + Protocol<Height = S<S<S<H>>>>,
-{
 }

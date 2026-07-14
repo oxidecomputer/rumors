@@ -1,22 +1,20 @@
-//! The streaming [`unknown`](super::unknown) prune must agree, node for node,
+//! The streaming [`unknown`] prune must agree, node for node,
 //! with the materialized [`Unknown`](crate::tree::traverse::unknown::Unknown)
 //! oracle it mirrors.
 
-use std::convert::Infallible;
-
-use futures::stream::{self, TryStreamExt};
 use proptest::collection::vec;
 use proptest::prelude::*;
 
-use crate::Version;
-use crate::message::Message;
-use crate::tree::arb::nth_party;
-use crate::tree::traverse::unknown::Unknown;
-use crate::tree::traverse::{Action, act};
-use crate::tree::typed::{self, Path, Prefix, height::Root};
-
-use super::super::super::Local;
-use super::unknown;
+use crate::{
+    Version,
+    message::Message,
+    tree::{
+        arb::nth_party,
+        mirror::streaming::{Local, materialized::unknown::unknown},
+        traverse::{Action, act, unknown::Unknown},
+        typed::{self, Path, Prefix, height::Root},
+    },
+};
 
 /// Build a root from `flags_a.len()` party-0 leaves and `flags_b.len()` party-1
 /// leaves, inserted with strictly ascending versions, plus a `known` version
@@ -48,18 +46,21 @@ fn tree_and_known(flags_a: &[bool], flags_b: &[bool]) -> (Option<typed::node::Ro
     (act(None, actions, |_| ()), known)
 }
 
-/// Collect the streaming prune of a single-rooted stream back into an optional
-/// root, driving the in-memory stream to completion with a trivial executor.
+/// Prune an optional root through the single-node streaming filter, driving
+/// the future to completion with a trivial executor.
 fn stream_prune(
     root: Option<typed::node::Root<()>>,
     known: &Version,
 ) -> Option<typed::node::Root<()>> {
-    let input = root.map(|node| Ok::<_, Infallible>((Prefix::new(), node)));
-    let collected = pollster::block_on(
-        unknown::<Local, (), Root>(&Local, known, stream::iter(input)).try_collect::<Vec<_>>(),
-    )
-    .unwrap_or_else(|e| match e {});
-    collected.into_iter().next().map(|(_prefix, node)| node)
+    root.and_then(|node| {
+        pollster::block_on(unknown::<Local, (), Root>(
+            &Local,
+            known,
+            Prefix::new(),
+            node,
+        ))
+        .unwrap_or_else(|e| match e {})
+    })
 }
 
 proptest! {

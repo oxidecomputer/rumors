@@ -10,19 +10,23 @@ use crate::tree::arb::{
     arb_divergent_pair, arb_tree_root, leaf_parent_dispute_pair, leaf_parent_redaction_pair,
     nth_party,
 };
-use crate::tree::mirror::streaming::{Handshaking, Local};
-use crate::tree::mirror::{Error, alternating};
+use crate::tree::mirror::alternating;
+use crate::tree::mirror::streaming::{
+    Handshaking, Local, Root as StreamingRoot, mirror as drive_streaming,
+};
 use crate::tree::traverse::{Action, act};
 use crate::tree::typed::{Node, Path, height};
 
 /// Reconcile `a` and `b` through the streaming local backend, returning both
 /// sides' reconciled roots in argument order, with no convergence assertion.
 fn streaming_mirror_sides(a: Root<()>, b: Root<()>) -> (Root<()>, Root<()>) {
-    let (a, b): (super::Root<Local, ()>, super::Root<Local, ()>) = (a.into(), b.into());
+    let (a, b): (StreamingRoot<Local, ()>, StreamingRoot<Local, ()>) = (a.into(), b.into());
     let client = Handshaking::start(Local, a.clone());
     let server = Handshaking::start(Local, b.clone());
-    let (ours, theirs) = pollster::block_on(super::mirror(client, server))
-        .unwrap_or_else(|e| match e {})
+    let (ours, theirs) = pollster::block_on(drive_streaming(client, server))
+        // `Local` is infallible, so the session's only inhabited errors are
+        // violations — which two honest local endpoints must never speak.
+        .expect("local mirror speaks no violations")
         // Equal handshake versions: already converged, both sides unchanged.
         .unwrap_or((a, b));
     (ours.into(), theirs.into())

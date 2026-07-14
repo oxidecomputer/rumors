@@ -1,4 +1,13 @@
-use super::*;
+use crate::tree::{
+    mirror::streaming::{
+        Backend, Leaf,
+        protocol::{
+            Accept, CompleteConnect, CompleteInitiator, CompleteResponder, Connect, Initiator,
+            Reply, Responder,
+        },
+    },
+    typed::height::Z,
+};
 
 macro_rules! define_peer {
     (
@@ -9,8 +18,8 @@ macro_rules! define_peer {
         define_peer!(@step
             init: [$($init_count)*],
             resp: [$($resp_count)*],
-            init_chain: (CloseInitiator<I, T>),
-            resp_chain: (CloseResponder<I, T>),
+            init_chain: (Reply<I, T, Next: CompleteInitiator<I, T>>),
+            resp_chain: (Reply<I, T, Next: CompleteResponder<I, T>>),
         );
     };
 
