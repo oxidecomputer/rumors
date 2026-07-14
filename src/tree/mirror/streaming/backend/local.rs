@@ -15,6 +15,11 @@ use crate::{
     },
 };
 
+#[cfg(test)]
+mod adversarial;
+#[cfg(test)]
+pub use adversarial::with_schedule;
+
 impl<T: Send + Sync + 'static, H: Height> Node<T> for typed::Node<T, H> {
     type Backend = Local;
     type Height = H;
@@ -62,12 +67,16 @@ impl<T: Send + Sync + 'static> Backend<T> for Local {
         H: Height,
         S<H>: Height,
     {
-        stream::iter(
+        let children = stream::iter(
             parent
                 .into_children()
                 .into_iter()
                 .map(move |(radix, child)| Ok((prefix.push(radix), child))),
-        )
+        );
+        #[cfg(test)]
+        return adversarial::stream(adversarial::Role::Children { height: H::HEIGHT }, children);
+        #[cfg(not(test))]
+        children
     }
 
     fn parent<H>(
@@ -81,12 +90,21 @@ impl<T: Send + Sync + 'static> Backend<T> for Local {
     {
         // A deleted child simply doesn't join the reassembly, and deleting
         // every child deletes the parent: `branch` of the empty set is `None`.
-        future::ready(Ok(typed::Node::branch(
+        let parent = future::ready(Ok(typed::Node::branch(
             children
                 .into_iter()
                 .filter_map(|(radix, child)| Some((radix, child?)))
                 .collect(),
-        )))
+        )));
+        #[cfg(test)]
+        return adversarial::future(
+            adversarial::Role::Parent {
+                height: <S<H>>::HEIGHT,
+            },
+            parent,
+        );
+        #[cfg(not(test))]
+        parent
     }
 }
 

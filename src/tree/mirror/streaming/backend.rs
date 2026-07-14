@@ -17,6 +17,8 @@ use crate::{
 // The specific backends:
 mod local;
 pub use local::Local;
+#[cfg(test)]
+pub(super) use local::with_schedule as with_local_schedule;
 
 /// A backend value is a cheap cloneable *handle* to its storage.
 pub trait Backend<T: Send + Sync + 'static>: Clone + Send + Sync + 'static

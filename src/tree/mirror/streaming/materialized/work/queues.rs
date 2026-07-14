@@ -4,11 +4,13 @@
 //! choices here makes them reviewable alongside the exact item type and keeps
 //! queue arithmetic out of the walk itself.
 //!
-//! Query and resolution queues rely on the walk's progress invariant: publish
-//! a scope's resolution before sending the dependent work that fulfills its
-//! `Pending` slots, and launch all such work before publishing its parent
-//! resolution. That ordering makes one buffered item sufficient everywhere
-//! except the inter-level return boundary documented below.
+//! Recursive query and resolution queues rely on two halves of the walk's
+//! progress invariant: publish a scope's resolution before sending the work
+//! that fulfills its `Pending` slots, then launch all such work before
+//! publishing the enclosing parent resolution. That ordering makes one slot
+//! sufficient for those queues. The constructors below document the separate
+//! cardinality or flow argument for every other one-slot edge; only the
+//! inter-level return boundary needs a fan.
 
 #[cfg(not(test))]
 use tokio_stream::wrappers::ReceiverStream;
@@ -18,7 +20,7 @@ use crate::tree::{
         Backend, Leaf, Node,
         materialized::{
             Error, OkReceiverStream, Query, Resolution,
-            channel::{Receiver, Sender, channel},
+            channel::{QueueKind, QueueRole, Receiver, Sender, channel},
             ok_channel,
         },
         message::Reply,
@@ -47,7 +49,7 @@ where
     T: Send + Sync + 'static,
     H: Height,
 {
-    let (sender, receiver) = channel(1);
+    let (sender, receiver) = channel(QueueRole::new(QueueKind::OutgoingResponses, H::HEIGHT), 1);
     #[cfg(test)]
     let responses = Box::pin(receiver);
     #[cfg(not(test))]
@@ -55,11 +57,21 @@ where
     (sender, responses)
 }
 
-/// Buffer completed lower-level nodes until their parent resolution arrives.
+/// Buffer lower-level completions until their enclosing resolution arrives.
 ///
-/// One parent reply may start a full fan of lower scopes, all of which can
-/// finish before that reply publishes the resolution whose `Pending` slots
-/// consume them. The whole fan must fit to let the resolution be published.
+/// Processing one incoming reply can launch a full fan of disputed child
+/// scopes. Their lower assemblers may finish immediately and send completed
+/// nodes here, but this queue's consumer first waits for the enclosing parent
+/// resolution: only its ordered `Pending` slots tell the assembler to drain
+/// those nodes. The walk cannot construct and publish that resolution until it
+/// has processed every reaction in the reply.
+///
+/// Capacity `FAN` therefore lets every child completion enqueue while the walk
+/// finishes the reaction loop. A smaller queue can sometimes progress because
+/// blocked sends live in independently driven work futures, but correctness
+/// would then depend on that incidental scheduling slack. Once the parent
+/// resolution arrives, assembly drains the completions in order, so the bound
+/// does not multiply with tree width or depth.
 pub(super) fn assembly_level_returns<B, T, H>() -> (
     Sender<Option<B::Node<H>>>,
     OkReceiverStream<Option<B::Node<H>>, Error<B::Error>>,
@@ -69,7 +81,10 @@ where
     T: Send + Sync + 'static,
     H: Height,
 {
-    ok_channel(FAN)
+    ok_channel(
+        QueueRole::new(QueueKind::AssemblyLevelReturns, H::HEIGHT),
+        FAN,
+    )
 }
 
 /// Carry the initiator's single root query.
@@ -84,7 +99,10 @@ where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    channel(1)
+    channel(
+        QueueRole::new(QueueKind::InitiatorRootQuery, UnderRoot::HEIGHT),
+        1,
+    )
 }
 
 /// Carry the initiator's single completed root.
@@ -99,15 +117,19 @@ where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    channel(1)
+    channel(
+        QueueRole::new(QueueKind::InitiatorRootReturn, Root::HEIGHT),
+        1,
+    )
 }
 
 /// Stream the responder opening's child queries through one slot.
 ///
-/// The opening reply is published before these queries, so its counterparty
-/// can answer each query and let the next stage drain it. Early completed
-/// children are absorbed by [`responder_root_returns`] instead of accumulating
-/// here as query values which may each own a fan.
+/// The opening wire reply and root resolution are published before these
+/// queries. The next stage can therefore accept and resolve each buffered query
+/// while the root assembler consumes its return through
+/// [`responder_root_returns`]. One slot streams the whole fan without retaining
+/// a fan of [`Query`] values, each of which may itself own a fan of node handles.
 pub(super) fn responder_child_queries<B, T>() -> (
     Sender<Query<B, T, UnderUnderRoot>>,
     Receiver<Query<B, T, UnderUnderRoot>>,
@@ -116,7 +138,10 @@ where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    channel(1)
+    channel(
+        QueueRole::new(QueueKind::ResponderChildQueries, UnderUnderRoot::HEIGHT),
+        1,
+    )
 }
 
 /// Carry the responder's single root resolution.
@@ -131,7 +156,10 @@ where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    ok_channel(1)
+    ok_channel(
+        QueueRole::new(QueueKind::ResponderRootResolution, UnderRoot::HEIGHT),
+        1,
+    )
 }
 
 /// Buffer the responder opening's completed child scopes.
@@ -147,7 +175,10 @@ where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    ok_channel(1)
+    ok_channel(
+        QueueRole::new(QueueKind::ResponderRootReturns, UnderRoot::HEIGHT),
+        1,
+    )
 }
 
 /// Buffer the child queries emitted by one internal walk.
@@ -162,7 +193,10 @@ where
     H: Height,
     S<H>: Height,
 {
-    channel(1)
+    channel(
+        QueueRole::new(QueueKind::InternalChildQueries, H::HEIGHT),
+        1,
+    )
 }
 
 /// Buffer parent-scope resolutions produced by an internal walk.
@@ -182,7 +216,10 @@ where
     S<S<H>>: Height,
     S<S<S<H>>>: Height,
 {
-    ok_channel(1)
+    ok_channel(
+        QueueRole::new(QueueKind::InternalParentResolutions, <S<S<H>>>::HEIGHT),
+        1,
+    )
 }
 
 /// Buffer child-scope resolutions produced by an internal walk.
@@ -201,7 +238,10 @@ where
     S<H>: Height,
     S<S<H>>: Height,
 {
-    ok_channel(1)
+    ok_channel(
+        QueueRole::new(QueueKind::InternalChildResolutions, <S<H>>::HEIGHT),
+        1,
+    )
 }
 
 /// Buffer the leaf requests emitted by a leaf-parent walk.
@@ -210,7 +250,7 @@ where
 /// request can therefore advance the terminal stage and the assembler waiting
 /// on that resolution.
 pub(super) fn leaf_requests() -> (Sender<Prefix<Z>>, Receiver<Prefix<Z>>) {
-    channel(1)
+    channel(QueueRole::new(QueueKind::LeafRequests, Z::HEIGHT), 1)
 }
 
 /// Buffer leaf-parent resolutions awaiting their reconstructed children.
@@ -226,7 +266,10 @@ where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    ok_channel(1)
+    ok_channel(
+        QueueRole::new(QueueKind::LeafParentResolutions, <S<Z>>::HEIGHT),
+        1,
+    )
 }
 
 /// Buffer leaf-scope resolutions produced within one leaf-parent reply.
@@ -242,7 +285,10 @@ where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    ok_channel(1)
+    ok_channel(
+        QueueRole::new(QueueKind::LeafChildResolutions, Z::HEIGHT),
+        1,
+    )
 }
 
 /// Stream terminal leaf resolutions one at a time.
@@ -257,5 +303,8 @@ where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    ok_channel(1)
+    ok_channel(
+        QueueRole::new(QueueKind::TerminalLeafResolutions, Z::HEIGHT),
+        1,
+    )
 }

@@ -52,9 +52,11 @@
 //! can dispute a full fan of children. While the walk is still examining those
 //! reactions and constructing their parent resolution, already-launched lower
 //! scopes can all finish, but the parent resolution containing their `Pending`
-//! slots cannot be published until the reaction loop ends. The completed fan
-//! must therefore fit. Once that resolution is published, active assembly
-//! drains the boundary, so capacity need not grow with width or depth.
+//! slots cannot be published until the reaction loop ends. Capacity for one
+//! full fan lets every completion enqueue without relying on how many blocked
+//! sender futures happen to remain independently runnable. Once the resolution
+//! is published, active assembly drains the boundary, so capacity need not grow
+//! with width or depth.
 //!
 //! # Memory model
 //!
@@ -99,6 +101,48 @@ macro_rules! send_or_return {
     };
 }
 
+/// Publish one disputed scope in its progress-critical order.
+///
+/// The `yield` expression must be written inside the invocation so
+/// `async_stream` can lower it before this macro expands. Keeping all three
+/// phases in one expansion prevents a caller from sending dependent work
+/// before its resolution or publishing either before the wire reply.
+macro_rules! yield_resolve_query {
+    (
+        $work:expr, $scope:expr;
+        $yielded:expr;
+        $resolutions:expr => $resolution:expr;
+        $queries:expr => $next_queries:expr;
+    ) => {{
+        let _scope = $scope;
+        #[cfg(test)]
+        progress::wire($work, _scope);
+        $yielded;
+        let resolution = $resolution;
+        #[cfg(test)]
+        progress::resolution($work, &resolution);
+        send_or_return!($resolutions, resolution);
+        for query in $next_queries {
+            #[cfg(test)]
+            progress::dependent($work, &query);
+            send_or_return!($queries, query);
+        }
+    }};
+    (
+        $work:expr, $scope:expr;
+        $yielded:expr;
+        $ready:expr;
+    ) => {{
+        let _scope = $scope;
+        #[cfg(test)]
+        progress::wire($work, _scope);
+        $yielded;
+        #[cfg(test)]
+        progress::ready($work, _scope);
+        $ready;
+    }};
+}
+
 /// Construct a protocol-violation result for return or try-stream propagation.
 macro_rules! violation {
     ($violation:ident) => {
@@ -123,6 +167,8 @@ macro_rules! next_or_pending {
 pub(super) mod channel;
 mod common;
 mod error;
+#[cfg(test)]
+pub(super) mod progress;
 pub(super) mod unknown;
 mod work;
 use channel::{Receiver, Sender};

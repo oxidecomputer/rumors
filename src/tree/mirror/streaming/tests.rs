@@ -1,4 +1,12 @@
-use std::time::Duration;
+use std::{
+    future::Future,
+    pin::pin,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    task::{Context, Poll, Wake, Waker},
+};
 
 use proptest::prelude::*;
 
@@ -10,7 +18,11 @@ use crate::tree::arb::{
     nth_party,
 };
 use crate::tree::mirror::alternating;
-use crate::tree::mirror::streaming::materialized::channel::{with_capacity_limit, with_schedule};
+use crate::tree::mirror::streaming::backend::with_local_schedule;
+use crate::tree::mirror::streaming::materialized::channel::{
+    QueueKind, with_kind_capacity, with_observation, with_schedule,
+};
+use crate::tree::mirror::streaming::materialized::progress::with_trace;
 use crate::tree::mirror::streaming::{
     Handshaking, Local, Root as StreamingRoot, mirror as drive_streaming,
 };
@@ -20,35 +32,120 @@ use crate::tree::typed::{Node as TreeNode, Path, height};
 /// Reconcile `a` and `b` through the streaming local backend, returning both
 /// sides' reconciled roots in argument order, with no convergence assertion.
 fn streaming_mirror_sides(a: Root<()>, b: Root<()>) -> (Root<()>, Root<()>) {
-    streaming_mirror_sides_with_schedule(a, b, Vec::new(), Duration::from_secs(5))
+    streaming_mirror_sides_with_schedule(a, b, Vec::new())
 }
 
-/// Reconcile under an explicit channel-poll schedule and cancellable timeout.
+/// Why polling stopped before the session completed.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Quiescence {
+    /// The future returned `Pending` without arranging another poll.
+    Stalled,
+    /// The future kept self-waking beyond the test's runaway guard.
+    PollBudget,
+}
+
+struct WakeFlag(AtomicBool);
+
+impl Wake for WakeFlag {
+    fn wake(self: Arc<Self>) {
+        self.0.store(true, Ordering::Release);
+    }
+
+    fn wake_by_ref(self: &Arc<Self>) {
+        self.0.store(true, Ordering::Release);
+    }
+}
+
+/// Poll a closed, in-memory session until it completes or becomes quiescent.
+///
+/// The local backend starts no external I/O: every legitimate suspension is
+/// paired with a synchronous channel wake or a test-injected self-wake. A
+/// `Pending` poll with no wake is therefore a deterministic deadlock witness,
+/// not a wall-clock guess that the machine has taken too long.
+fn run_to_quiescence<F: Future>(
+    runtime: &tokio::runtime::Runtime,
+    future: F,
+) -> Result<F::Output, Quiescence> {
+    const MAX_POLLS: usize = 1_000_000;
+
+    let _entered = runtime.enter();
+    let wake = Arc::new(WakeFlag(AtomicBool::new(true)));
+    let waker = Waker::from(wake.clone());
+    let mut cx = Context::from_waker(&waker);
+    let mut future = pin!(future);
+
+    for _ in 0..MAX_POLLS {
+        wake.0.store(false, Ordering::Release);
+        match future.as_mut().poll(&mut cx) {
+            Poll::Ready(output) => return Ok(output),
+            Poll::Pending if !wake.0.swap(false, Ordering::AcqRel) => {
+                return Err(Quiescence::Stalled);
+            }
+            Poll::Pending => {}
+        }
+    }
+    Err(Quiescence::PollBudget)
+}
+
+/// Quiescence distinguishes a legitimate self-wake from a permanently parked future.
+#[test]
+fn quiescence_detector_observes_wake_contract() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("the test runtime should build");
+    let mut first = true;
+    let self_waking = std::future::poll_fn(move |cx| {
+        if std::mem::take(&mut first) {
+            cx.waker().wake_by_ref();
+            Poll::Pending
+        } else {
+            Poll::Ready(7)
+        }
+    });
+    assert_eq!(run_to_quiescence(&runtime, self_waking), Ok(7));
+    assert_eq!(
+        run_to_quiescence(&runtime, std::future::pending::<()>()),
+        Err(Quiescence::Stalled),
+    );
+}
+
+/// Reconcile under an explicit, shrinkable channel-poll schedule.
 fn streaming_mirror_sides_with_schedule(
     a: Root<()>,
     b: Root<()>,
     schedule: Vec<u8>,
-    timeout: Duration,
+) -> (Root<()>, Root<()>) {
+    streaming_mirror_sides_with_schedules(a, b, schedule, Vec::new())
+}
+
+/// Reconcile under independent channel and Local-backend poll schedules.
+fn streaming_mirror_sides_with_schedules(
+    a: Root<()>,
+    b: Root<()>,
+    channel_schedule: Vec<u8>,
+    backend_schedule: Vec<u8>,
 ) -> (Root<()>, Root<()>) {
     let (a, b): (StreamingRoot<Local, ()>, StreamingRoot<Local, ()>) = (a.into(), b.into());
     let client = Handshaking::start(Local, a.clone());
     let server = Handshaking::start(Local, b.clone());
     let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_time()
         .build()
         .expect("the test runtime should build");
-    let result = with_schedule(schedule, || {
-        runtime.block_on(async move {
-            tokio::time::timeout(timeout, drive_streaming(client, server)).await
+    let (result, trace) = with_trace(|| {
+        with_schedule(channel_schedule, || {
+            with_local_schedule(backend_schedule, || {
+                run_to_quiescence(&runtime, drive_streaming(client, server))
+            })
         })
     });
     let (ours, theirs) = result
-        .expect("streaming mirror made no progress before its timeout")
+        .expect("streaming mirror became quiescent before completion")
         // `Local` is infallible, so the session's only inhabited errors are
         // violations — which two honest local endpoints must never speak.
         .expect("local mirror speaks no violations")
         // Equal handshake versions: already converged, both sides unchanged.
         .unwrap_or((a, b));
+    trace.assert_valid();
     (ours.into(), theirs.into())
 }
 
@@ -61,13 +158,8 @@ fn streaming_mirror(a: Root<()>, b: Root<()>) -> Root<()> {
 }
 
 /// Reconcile under an explicit channel-poll schedule, asserting convergence.
-fn scheduled_streaming_mirror(
-    a: Root<()>,
-    b: Root<()>,
-    schedule: Vec<u8>,
-    timeout: Duration,
-) -> Root<()> {
-    let (ours, theirs) = streaming_mirror_sides_with_schedule(a, b, schedule, timeout);
+fn scheduled_streaming_mirror(a: Root<()>, b: Root<()>, schedule: Vec<u8>) -> Root<()> {
+    let (ours, theirs) = streaming_mirror_sides_with_schedule(a, b, schedule);
     assert_eq!(
         ours, theirs,
         "scheduled streaming endpoints should converge"
@@ -75,21 +167,35 @@ fn scheduled_streaming_mirror(
     ours
 }
 
-/// Whether the same session parks when the fan-sized return queue is forced to one.
-fn underbuffered_mirror_times_out(a: Root<()>, b: Root<()>) -> bool {
+/// Reconcile under independent channel and Local-backend poll schedules.
+fn fully_scheduled_streaming_mirror(
+    a: Root<()>,
+    b: Root<()>,
+    channel_schedule: Vec<u8>,
+    backend_schedule: Vec<u8>,
+) -> Root<()> {
+    let (ours, theirs) =
+        streaming_mirror_sides_with_schedules(a, b, channel_schedule, backend_schedule);
+    assert_eq!(
+        ours, theirs,
+        "fully scheduled streaming endpoints should converge"
+    );
+    ours
+}
+
+/// Whether the session stalls at a selected capacity for the fan return queue.
+fn underbuffered_mirror_stalls(a: Root<()>, b: Root<()>, capacity: usize) -> bool {
     let (a, b): (StreamingRoot<Local, ()>, StreamingRoot<Local, ()>) = (a.into(), b.into());
     let client = Handshaking::start(Local, a);
     let server = Handshaking::start(Local, b);
     let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_time()
         .build()
         .expect("the test runtime should build");
-    with_capacity_limit(1, || {
-        runtime.block_on(async move {
-            tokio::time::timeout(Duration::from_millis(500), drive_streaming(client, server))
-                .await
-                .is_err()
-        })
+    with_kind_capacity(QueueKind::AssemblyLevelReturns, capacity, || {
+        matches!(
+            run_to_quiescence(&runtime, drive_streaming(client, server)),
+            Err(Quiescence::Stalled)
+        )
     })
 }
 
@@ -327,11 +433,26 @@ fn converges_on_leaf_parent_dispute() {
 #[test]
 fn honors_redaction_under_leaf_parent_dispute() {
     let (a, b, expected) = leaf_parent_redaction_pair();
-    assert_eq!(
-        streaming_mirror(a, b),
-        expected,
-        "the redacted leaf should survive nowhere",
-    );
+    for (left, right) in [(a.clone(), b.clone()), (b, a)] {
+        for (channel_schedule, backend_schedule) in [
+            (Vec::new(), Vec::new()),
+            (
+                vec![2; 2_048],
+                (0..2_048).map(|step| (step % 3) as u8).collect(),
+            ),
+        ] {
+            assert_eq!(
+                fully_scheduled_streaming_mirror(
+                    left.clone(),
+                    right.clone(),
+                    channel_schedule,
+                    backend_schedule,
+                ),
+                expected,
+                "the redacted leaf should survive nowhere",
+            );
+        }
+    }
 }
 
 /// Check one structural stress case under endpoint and poll-order variations.
@@ -339,18 +460,24 @@ fn assert_capacity_case(name: &'static str, pair: (Root<()>, Root<()>)) {
     let (a, b) = pair;
     let expected = alternating_mirror(a.clone(), b.clone());
     let schedules = [
-        Vec::new(),
-        vec![2; 16_384],
-        (0..16_384).map(|step| (step % 3) as u8).collect(),
+        (Vec::new(), Vec::new()),
+        (
+            vec![2; 16_384],
+            (0..16_384).map(|step| (step % 3) as u8).collect(),
+        ),
+        (
+            (0..16_384).map(|step| (step % 3) as u8).collect(),
+            vec![2; 16_384],
+        ),
     ];
 
     for (orientation, left, right) in [("forward", &a, &b), ("reverse", &b, &a)] {
-        for (schedule_index, schedule) in schedules.iter().enumerate() {
-            let actual = scheduled_streaming_mirror(
+        for (schedule_index, (channel_schedule, backend_schedule)) in schedules.iter().enumerate() {
+            let actual = fully_scheduled_streaming_mirror(
                 left.clone(),
                 right.clone(),
-                schedule.clone(),
-                Duration::from_secs(10),
+                channel_schedule.clone(),
+                backend_schedule.clone(),
             );
             assert_eq!(
                 actual, expected,
@@ -403,33 +530,100 @@ fn capacity_stress_matrix() {
     );
 }
 
+/// Every named, height-carrying queue is exercised at its documented capacity.
+#[test]
+fn capacity_stress_covers_every_queue_role() {
+    let (pair, report) = with_observation(|| {
+        let (a, b) = pyramid_pair(&[4, 4, 2], 2, LeafOrder::Interleaved);
+        let pair = scheduled_streaming_mirror(a, b, vec![2; 16_384]);
+        let (a, b, _) = leaf_parent_dispute_pair();
+        scheduled_streaming_mirror(a, b, vec![2; 16_384]);
+        pair
+    });
+    drop(pair);
+
+    for kind in QueueKind::ALL {
+        let stats = report.kind(kind);
+        assert!(
+            stats.channels > 0,
+            "queue role {kind:?} was not constructed"
+        );
+        assert!(stats.sends > 0, "queue role {kind:?} sent no test item");
+        assert!(
+            stats.receives > 0,
+            "queue role {kind:?} received no test item"
+        );
+        let expected = if kind == QueueKind::AssemblyLevelReturns {
+            256
+        } else {
+            1
+        };
+        assert_eq!(
+            stats.effective_capacity, expected,
+            "queue role {kind:?} did not use its documented capacity"
+        );
+        assert!(
+            stats.high_water <= expected,
+            "queue role {kind:?} exceeded its effective capacity: {stats:?}"
+        );
+    }
+
+    let internal_heights = report
+        .roles()
+        .filter(|(role, _)| role.kind == QueueKind::InternalChildQueries)
+        .map(|(role, _)| role.height)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(
+        internal_heights.len() > 1,
+        "recursive queue observations lost their typed heights: {internal_heights:?}"
+    );
+    assert!(
+        report
+            .roles()
+            .any(|(_, stats)| stats.blocked_send_polls > 0),
+        "the scheduled run never applied backpressure to a sender"
+    );
+}
+
 /// The recursive witness proves that the inter-level return queue needs a fan.
 #[test]
 fn capacity_stress_witness_requires_inter_level_fan() {
     let (a, b) = pyramid_pair(&[32, 256], 1, LeafOrder::Reversed);
     let expected = alternating_mirror(a.clone(), b.clone());
+    let (actual, report) =
+        with_observation(|| scheduled_streaming_mirror(a.clone(), b.clone(), vec![2; 16_384]));
     assert_eq!(
-        scheduled_streaming_mirror(
-            a.clone(),
-            b.clone(),
-            vec![2; 16_384],
-            Duration::from_secs(10),
-        ),
-        expected,
+        actual, expected,
         "the full-fan witness must complete at the documented capacities",
     );
     assert!(
-        underbuffered_mirror_times_out(a, b),
-        "the stress witness no longer reaches the inter-level fan-capacity deadlock",
+        report.kind(QueueKind::AssemblyLevelReturns).high_water >= 254,
+        "the witness did not create its expected near-fan return backlog: {:?}",
+        report.kind(QueueKind::AssemblyLevelReturns),
+    );
+    assert!(
+        underbuffered_mirror_stalls(a.clone(), b.clone(), 253),
+        "the stress witness no longer stalls just below its required return capacity",
+    );
+    assert!(
+        !underbuffered_mirror_stalls(a, b, 254),
+        "the stress witness should complete once its near-fan return backlog fits",
     );
 }
 
 /// Generate shrinkable structured fan-out without exponential test cases.
 fn arb_stress_widths() -> impl Strategy<Value = Vec<usize>> {
-    proptest::collection::vec(1usize..=4, 1..=6).prop_filter(
+    let compact = proptest::collection::vec(1usize..=4, 1..=6).prop_filter(
         "the cartesian pyramid must stay within 128 deepest cells",
         |widths| widths.iter().product::<usize>() <= 128,
-    )
+    );
+    let boundary =
+        (0usize..=30, prop_oneof![Just(255usize), Just(256usize)]).prop_map(|(depth, width)| {
+            let mut widths = vec![1; depth + 1];
+            widths[depth] = width;
+            widths
+        });
+    prop_oneof![4 => compact, 1 => boundary]
 }
 
 /// Generate every meaningful relative order of matches, supplies, and queries.
@@ -443,28 +637,30 @@ fn arb_leaf_order() -> impl Strategy<Value = LeafOrder> {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        cases: 48,
-        max_shrink_iters: 4_096,
+        cases: 64,
+        max_shrink_iters: 8_192,
         ..ProptestConfig::default()
     })]
 
-    /// Structured disputes terminate under shrinkable channel-poll schedules.
+    /// Structured disputes terminate under independently shrinkable channel
+    /// and Local-backend poll schedules.
     #[test]
     fn scheduled_structured_disputes_match_oracle(
         widths in arb_stress_widths(),
         shared in 1usize..=3,
         order in arb_leaf_order(),
-        schedule in proptest::collection::vec(0u8..=2, 0..=512),
+        channel_schedule in proptest::collection::vec(0u8..=2, 0..=2_048),
+        backend_schedule in proptest::collection::vec(0u8..=2, 0..=2_048),
         reverse in any::<bool>(),
     ) {
         let (a, b) = pyramid_pair(&widths, shared, order);
         let expected = alternating_mirror(a.clone(), b.clone());
         let (left, right) = if reverse { (b, a) } else { (a, b) };
-        let actual = scheduled_streaming_mirror(
+        let actual = fully_scheduled_streaming_mirror(
             left,
             right,
-            schedule,
-            Duration::from_secs(2),
+            channel_schedule,
+            backend_schedule,
         );
         prop_assert_eq!(actual, expected);
     }

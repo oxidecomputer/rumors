@@ -15,6 +15,9 @@ mod resolver;
 
 use queues::*;
 
+#[cfg(test)]
+use super::progress;
+
 use crate::tree::{
     mirror::streaming::{
         Backend, Leaf, Node, Root,
@@ -41,6 +44,8 @@ where
 {
     backend: B,
     tasks: Vec<BoxFuture<'static, Result<(), Error<B::Error>>>>,
+    #[cfg(test)]
+    trace_id: usize,
 }
 
 impl<B, T> Work<B, T>
@@ -53,6 +58,8 @@ where
         Self {
             backend,
             tasks: Vec::new(),
+            #[cfg(test)]
+            trace_id: progress::new_work(),
         }
     }
 
@@ -126,9 +133,9 @@ where
 
     /// Assemble one level upward and return its lower-level sender.
     ///
-    /// The sender needs a full fan: lower scopes can all finish before the
-    /// parent resolution containing their [`Resolve::Pending`] slots is
-    /// published, and that resolution is what lets this assembler drain them.
+    /// A full fan lets every lower scope enqueue before the parent resolution
+    /// containing its [`Resolve::Pending`] slots is published, without relying
+    /// on blocked sender futures remaining independently runnable.
     pub fn assemble<H>(
         &mut self,
         returns: Sender<Option<B::Node<S<H>>>>,
@@ -172,23 +179,28 @@ where
         let (queries, queries_rx) = initiator_root_query();
         let (returns, mut returns_rx) = initiator_root_return::<B, T>();
         let backend = self.backend();
+        #[cfg(test)]
+        let trace_id = self.trace_id;
 
         let responses = try_stream! {
             let fan = match root.root {
                 Some(node) => children_of(&backend, Prefix::new(), node).await?,
                 None => Vec::new(),
             };
-            // Progress invariant: expose the wire query before publishing its
-            // in-process twin to the stage which will pair it with the reply.
+            #[cfg(test)]
+            progress::wire(trace_id, Prefix::new());
             yield Reply {
                 replies: vec![message::Reaction::Query(
                     fan.iter().map(|(radix, node)| (*radix, node.hash())).collect()
                 )],
             };
-            send_or_return!(queries, Query {
+            let query = Query {
                 prefix: Prefix::new(),
                 ours: fan,
-            });
+            };
+            #[cfg(test)]
+            progress::initial_query(trace_id, &query);
+            send_or_return!(queries, query);
         };
 
         let finish = Box::pin(async move {
@@ -219,6 +231,8 @@ where
         let (asked, asked_rx) = responder_child_queries();
         let (resolution, resolution_rx) = responder_root_resolution();
         let assembling = backend.clone();
+        #[cfg(test)]
+        let trace_id = self.trace_id;
 
         let responses = try_stream! {
             let mut requests = pin!(requests);
@@ -240,18 +254,15 @@ where
                 theirs.clone(),
             )
             .await?;
-            // Progress invariant: expose the wire reply before publishing its
-            // in-process resolution.
-            yield Reply { replies: reactions };
-            // Progress invariant: expose the Pending slots before launching
-            // the child queries whose returns fill them.
-            send_or_return!(resolution, Resolution {
-                prefix: Prefix::new(),
-                resolved,
-            });
-            for query in next_queries {
-                send_or_return!(asked, query);
-            }
+            yield_resolve_query!(
+                trace_id, Prefix::new();
+                yield Reply { replies: reactions };
+                resolution => Resolution {
+                    prefix: Prefix::new(),
+                    resolved,
+                };
+                asked => next_queries;
+            );
         };
 
         let (returns, returns_rx) = responder_root_returns::<B, T>();
@@ -291,6 +302,8 @@ where
         let (asked, asked_rx) = internal_child_queries();
         let (upper, upper_rx) = internal_parent_resolutions();
         let (lower, lower_rx) = internal_child_resolutions();
+        #[cfg(test)]
+        let trace_id = self.trace_id;
 
         let responses = try_stream! {
             let mut requests = pin!(requests);
@@ -314,10 +327,11 @@ where
                             .into_iter()
                             .map(|(radix, child)| Reaction::Supply(radix, child))
                             .collect();
-                        // Progress invariant: expose the wire supply before
-                        // recording it in the in-process resolution.
-                        yield Reply { replies };
-                        resolver.ready(radix, node);
+                        yield_resolve_query!(
+                            trace_id, child_prefix;
+                            yield Reply { replies };
+                            resolver.ready(radix, node);
+                        );
                         continue;
                     }
 
@@ -330,27 +344,23 @@ where
                         listing,
                     )
                     .await?;
-                    // Progress invariant: expose the wire reply before
-                    // publishing its in-process resolution.
-                    yield Reply { replies: reactions };
-                    // Progress invariant: expose the Pending slots before
-                    // launching the child queries whose returns fill them.
-                    send_or_return!(
-                        lower,
-                        Resolution {
+                    yield_resolve_query!(
+                        trace_id, child_prefix;
+                        yield Reply { replies: reactions };
+                        lower => Resolution {
                             prefix: child_prefix,
                             resolved,
-                        }
+                        };
+                        asked => next_queries;
                     );
-                    for query in next_queries {
-                        send_or_return!(asked, query);
-                    }
                     resolver.pending(radix);
                 }
 
                 // The reaction loop launches the work for every Pending slot
                 // before making their parent resolution visible.
                 let resolution = resolver.finish()?;
+                #[cfg(test)]
+                progress::parent_resolution(trace_id, &resolution);
                 send_or_return!(upper, resolution);
             }
 
@@ -381,6 +391,8 @@ where
         let (asked, asked_rx) = leaf_requests();
         let (upper, upper_rx) = leaf_parent_resolutions();
         let (lower, lower_rx) = leaf_child_resolutions();
+        #[cfg(test)]
+        let trace_id = self.trace_id;
 
         let responses = try_stream! {
             let mut requests = pin!(requests);
@@ -404,37 +416,34 @@ where
                             .into_iter()
                             .map(|(radix, leaf)| Reaction::Supply(radix, leaf))
                             .collect();
-                        // Progress invariant: expose the wire supply before
-                        // recording it in the in-process resolution.
-                        yield Reply { replies };
-                        resolver.ready(radix, node);
+                        yield_resolve_query!(
+                            trace_id, child_prefix;
+                            yield Reply { replies };
+                            resolver.ready(radix, node);
+                        );
                         continue;
                     }
 
                     let leaves = children_of(&backend, child_prefix, node).await?;
                     let (replies, next_queries, resolved) =
                         answer::leaf_parent(&their_version, child_prefix, leaves, listing);
-                    // Progress invariant: expose the wire reply before
-                    // publishing its in-process resolution.
-                    yield Reply { replies };
-                    // Progress invariant: expose the Pending slots before
-                    // launching the leaf work whose returns fill them.
-                    send_or_return!(
-                        lower,
-                        Resolution {
+                    yield_resolve_query!(
+                        trace_id, child_prefix;
+                        yield Reply { replies };
+                        lower => Resolution {
                             prefix: child_prefix,
                             resolved,
-                        }
+                        };
+                        asked => next_queries;
                     );
-                    for query in next_queries {
-                        send_or_return!(asked, query);
-                    }
                     resolver.pending(radix);
                 }
 
                 // The reaction loop launches the work for every Pending slot
                 // before making their parent resolution visible.
                 let resolution = resolver.finish()?;
+                #[cfg(test)]
+                progress::parent_resolution(trace_id, &resolution);
                 send_or_return!(upper, resolution);
             }
 
@@ -457,6 +466,8 @@ where
         OkReceiverStream<Resolution<B, T, Z>, Error<B::Error>>,
     ) {
         let (upper, upper_rx) = terminal_leaf_resolutions();
+        #[cfg(test)]
+        let trace_id = self.trace_id;
 
         let responses = try_stream! {
             let mut requests = pin!(requests);
@@ -467,19 +478,22 @@ where
 
                 let mut resolver = Resolver::new(query);
                 for reaction in replies {
-                    let Some((_, radix, node, listing)) = resolver.react(reaction)? else {
+                    let Some((prefix, radix, node, listing)) = resolver.react(reaction)? else {
                         continue;
                     };
 
                     let (replies, node) =
                         answer::leaf(&their_version, radix, node, listing).map_err(Error::Violation)?;
-                    // Progress invariant: expose the wire reply before
-                    // recording it in the in-process resolution.
-                    yield Reply { replies };
-                    resolver.ready(radix, node);
+                    yield_resolve_query!(
+                        trace_id, prefix.push(radix);
+                        yield Reply { replies };
+                        resolver.ready(radix, node);
+                    );
                 }
 
                 let resolution = resolver.finish()?;
+                #[cfg(test)]
+                progress::parent_resolution(trace_id, &resolution);
                 send_or_return!(upper, resolution);
             }
 

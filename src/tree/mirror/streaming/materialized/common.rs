@@ -12,7 +12,7 @@ use crate::tree::{
     },
 };
 
-use super::channel::{Receiver, Sender, channel};
+use super::channel::{QueueRole, Receiver, Sender, channel};
 
 /// Collect one node's children, addressed by radix.
 pub async fn children_of<B, T, H>(
@@ -38,8 +38,11 @@ where
 
 /// Create a pair of a sender and a receiver stream, where the receiver
 /// wraps items in `Ok`.
-pub fn ok_channel<T: Send, E>(buffer: usize) -> (Sender<T>, OkReceiverStream<T, E>) {
-    ok_channel_with(channel(buffer))
+pub fn ok_channel<T: Send, E>(
+    role: QueueRole,
+    buffer: usize,
+) -> (Sender<T>, OkReceiverStream<T, E>) {
+    ok_channel_with(channel(role, buffer))
 }
 
 fn ok_channel_with<T: Send, E>(
