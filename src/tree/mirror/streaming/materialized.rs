@@ -369,6 +369,14 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Accept
     }
 }
 
+impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::CompleteEqual<B, T>
+    for Handshaking<B, T, Connected>
+{
+    async fn complete_equal(self) -> Result<Root<B, T>, Self::Error> {
+        Ok(self.root)
+    }
+}
+
 impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol::Initiator<B, T>
     for Handshaking<B, T, Connected>
 {

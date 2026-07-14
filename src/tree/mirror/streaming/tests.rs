@@ -142,9 +142,7 @@ fn streaming_mirror_sides_with_schedules(
         .expect("streaming mirror became quiescent before completion")
         // `Local` is infallible, so the session's only inhabited errors are
         // violations — which two honest local endpoints must never speak.
-        .expect("local mirror speaks no violations")
-        // Equal handshake versions: already converged, both sides unchanged.
-        .unwrap_or((a, b));
+        .expect("local mirror speaks no violations");
     trace.assert_valid();
     (ours.into(), theirs.into())
 }
@@ -453,6 +451,23 @@ fn honors_redaction_under_leaf_parent_dispute() {
             );
         }
     }
+}
+
+/// Equal versions return both connected states' outputs without opening the
+/// descent.
+#[test]
+fn equal_versions_return_outputs_without_descent() {
+    let (_, root) = one_sided_pair(&[(0x20, 2, 1)]);
+    let ((ours, theirs), report) =
+        with_observation(|| streaming_mirror_sides(root.clone(), root.clone()));
+
+    assert_eq!(ours, root);
+    assert_eq!(theirs, root);
+    assert_eq!(
+        report.roles().count(),
+        0,
+        "the equal-version path must not construct descent queues",
+    );
 }
 
 /// Check one structural stress case under endpoint and poll-order variations.

@@ -74,7 +74,8 @@ pub trait Connect<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
 pub trait Accept<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
     Protocol<Height = Root> + Sized
 {
-    type Next: Initiator<B, T>
+    type Next: CompleteEqual<B, T>
+        + Initiator<B, T>
         + Responder<B, T>
         + Protocol<Height = Root, Output = Self::Output, Error = Self::Error>;
 
@@ -87,7 +88,8 @@ pub trait Accept<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
 pub trait CompleteConnect<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
     Protocol<Height = Root> + Sized
 {
-    type Next: Initiator<B, T>
+    type Next: CompleteEqual<B, T>
+        + Initiator<B, T>
         + Responder<B, T>
         + Protocol<Height = Root, Output = Self::Output, Error = Self::Error>;
 
@@ -95,6 +97,18 @@ pub trait CompleteConnect<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'sta
         self,
         their_version: Version,
     ) -> impl Future<Output = Result<Self::Next, Self::Error>> + Send;
+}
+
+/// Resolve a connected session directly when the handshake versions match.
+///
+/// Equal versions prove that no descent is needed, but each connected state
+/// must still be converted into its normal output. A materialized state returns
+/// the root it already holds; a remote proxy returns its transport halves so
+/// the caller can continue with trailing session frames.
+pub trait CompleteEqual<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
+    Protocol<Height = Root> + Sized
+{
+    fn complete_equal(self) -> impl Future<Output = Result<Self::Output, Self::Error>> + Send;
 }
 
 /// The opening burst: the initiator speaks first, and unprompted.

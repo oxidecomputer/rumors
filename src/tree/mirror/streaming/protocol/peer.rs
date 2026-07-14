@@ -2,8 +2,8 @@ use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
         protocol::{
-            Accept, CompleteConnect, CompleteInitiator, CompleteResponder, Connect, Initiator,
-            Reply, Responder,
+            Accept, CompleteConnect, CompleteEqual, CompleteInitiator, CompleteResponder, Connect,
+            Initiator, Reply, Responder,
         },
     },
     typed::height::Z,
@@ -58,7 +58,8 @@ macro_rules! define_peer {
         resp_chain: ($($resp_chain:tt)*) $(,)?
     ) => {
         pub trait Peer<I, T>:
-            Initiator<I, T, Next: $($init_chain)*>
+            CompleteEqual<I, T>
+            + Initiator<I, T, Next: $($init_chain)*>
             + Responder<I, T, Next: $($resp_chain)*>
         where
             I: Backend<T, Node<Z>: Leaf<T>>,
@@ -70,7 +71,8 @@ macro_rules! define_peer {
         where
             I: Backend<T, Node<Z>: Leaf<T>>,
             T: Send + Sync + 'static,
-            X: Initiator<I, T, Next: $($init_chain)*>
+            X: CompleteEqual<I, T>
+                + Initiator<I, T, Next: $($init_chain)*>
                 + Responder<I, T, Next: $($resp_chain)*>,
         {
         }

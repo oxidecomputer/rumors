@@ -158,15 +158,13 @@ where
         peer
     }
 
-    /// Reconcile the two connected sessions, returning both sides' reconciled
-    /// roots.
+    /// Reconcile the two connected sessions, returning both sides' outputs.
     ///
-    /// Returns `None` when the handshake versions were equal and the trees are
-    /// already converged, in which case each side's root is whatever the caller
-    /// already holds.
+    /// Equal handshake versions resolve each connected state directly to its
+    /// output without opening the descent.
     pub(crate) async fn reconcile(
         self,
-    ) -> Result<Option<(C::Output, S::Output)>, Error<C::Error, S::Error>> {
+    ) -> Result<(C::Output, S::Output), Error<C::Error, S::Error>> {
         let Handshaken {
             client: local,
             server: remote,
@@ -185,12 +183,12 @@ where
 /// vocabulary between them; they need not be the same implementor, only agree
 /// on how a node is represented.
 ///
-/// Returns `None` when the handshake versions were equal and there is nothing
-/// to reconcile, in which case each side keeps whatever it came with.
+/// Equal handshake versions resolve each connected state directly to its
+/// output without opening the descent.
 pub(crate) async fn mirror<C, S, B, T>(
     client: C,
     server: S,
-) -> Result<Option<(C::Output, S::Output)>, Error<C::Error, S::Error>>
+) -> Result<(C::Output, S::Output), Error<C::Error, S::Error>>
 where
     T: Send + Sync + 'static,
     B: Backend<T, Node<Z>: Leaf<T>>,
@@ -233,7 +231,7 @@ pub(crate) async fn descend<L, R, B, T>(
     remote: R,
     local_version: Version,
     remote_version: Version,
-) -> Result<Option<(L::Output, R::Output)>, Error<L::Error, R::Error>>
+) -> Result<(L::Output, R::Output), Error<L::Error, R::Error>>
 where
     T: Send + Sync + 'static,
     B: Backend<T, Node<Z>: Leaf<T>>,
@@ -244,18 +242,23 @@ where
     // an initiator we compare canonical bytes lexicographically: an arbitrary
     // but total, deterministic tiebreak (not a causal order).
     match remote_version.as_bytes().cmp(local_version.as_bytes()) {
-        Ordering::Less => mirror_connected(local, remote).await.map(Some),
+        Ordering::Less => mirror_connected(local, remote).await,
         // Running the remote as initiator, flip the roots and the error's
         // sides back.
         Ordering::Greater => mirror_connected(remote, local)
             .await
-            .map(|(theirs, ours)| Some((ours, theirs)))
+            .map(|(theirs, ours)| (ours, theirs))
             .map_err(Error::flip),
-        // Equal versions mean already-converged trees: nothing to reconcile,
-        // and each side keeps the root it came with. Both parties compare the
-        // same two versions, so a remote counterparty concludes this
-        // identically on its own side: no message needs to say so.
-        Ordering::Equal => Ok(None),
+        // Both parties compare the same two versions and conclude identically:
+        // no message needs to say that the trees are already converged. Still
+        // resolve each connected state so owned resources reach the caller.
+        Ordering::Equal => {
+            let (local, remote) = join!(local.complete_equal(), remote.complete_equal());
+            Ok((
+                local.map_err(Error::Client)?,
+                remote.map_err(Error::Server)?,
+            ))
+        }
     }
 }
 
