@@ -23,37 +23,52 @@
 //!
 //! Every await in the system is for the k-th item of one specific stream,
 //! and every producer produces items 1..k in that order: replies pair with
-//! queries, returns pair with queries, resolutions precede the `Pending`s
-//! they consume, level items arrive in resolution order. No component ever
-//! waits on a channel that may stay silent, because completeness travels
-//! *inside* message and item boundaries, never in their absence. Bounded
-//! channels therefore provide backpressure only: a full channel's release
-//! is always "the consumer processes its next item," producible from
-//! already-published information — by induction over (stream index, query
-//! index), grounded at the opener.
+//! queries, returns pair with queries, and level items arrive in resolution
+//! order. Completeness travels *inside* message and item boundaries, never in
+//! their absence.
 //!
-//! Completed node returns flowing upward need only one slot. At recursive
-//! levels, query queues and both resolution streams need 256 slots: one reply
-//! can create a fan of child disputes before assembly can publish their
-//! completed parent. A fan of capacity reaches that boundary; active assembly
-//! drains across boundaries, so capacity need not grow with the traversal. The
-//! root and leaf terminals have fixed cardinality and use one slot too.
+//! The first progress-critical ordering invariant is **wire before internal
+//! publication**. The walk yields every outgoing query or reply before
+//! enqueuing or recording its in-process twin. Backpressure on internal state
+//! therefore cannot withhold the wire action that lets the counterparty
+//! advance.
+//!
+//! The second is **resolution before dependent work**. For every disputed
+//! child, the walk publishes the [`Resolution`] containing its
+//! [`Resolve::Pending`] slots before it sends the child queries whose returns
+//! fill those slots. The responder does the same at the root. Before a parent
+//! resolution is published, all of the descendant work needed to fulfill it
+//! has already been launched. Thus a blocked one-slot query sender has made its
+//! resolution available, while a blocked resolution sender is behind an older
+//! resolution whose dependent work is already in flight.
+//!
+//! This makes one slot sufficient for every query and resolution channel. A
+//! blocked response pump has likewise already published the response which
+//! releases it; the initiator's root query and return and the responder's root
+//! resolution each occur exactly once; leaf resolutions contain no `Pending`
+//! slots and can be assembled immediately.
+//!
+//! [`Work::assemble`]'s inter-level return queue is the one exception. A reply
+//! can dispute a full fan of children. While the walk is still examining those
+//! reactions and constructing their parent resolution, already-launched lower
+//! scopes can all finish, but the parent resolution containing their `Pending`
+//! slots cannot be published until the reaction loop ends. The completed fan
+//! must therefore fit. Once that resolution is published, active assembly
+//! drains the boundary, so capacity need not grow with width or depth.
 //!
 //! # Memory model
 //!
 //! At most one backend query per prefix: whoever explodes a node carries
 //! the fan to every consumer that needs it (queries carry their children;
 //! pruning returns the survivors it built), so [`Backend::children`] — which
-//! may be a database read — is never repeated. The price is that a query
-//! walk may hold a fan of queries containing a fan of node handles apiece,
-//! at most fan² handles per stage at full fan-out. On the wire, the memory unit
-//! is one reply message.
+//! may be a database read — is never repeated. The price is that an answer's
+//! local batch may hold a fan of queries containing a fan of node handles
+//! apiece, at most fan² handles per recursive stage at full fan-out. Bounded
+//! query and resolution channels retain only one item; the exceptional fan
+//! queue retains completed node handles. On the wire, the memory unit is one
+//! reply message.
 
 use std::pin::pin;
-
-use before::Version;
-use futures::{StreamExt, future::BoxFuture};
-use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::tree::{
     mirror::streaming::{
@@ -67,6 +82,8 @@ use crate::tree::{
         height::{self, Height, S, UnderRoot, UnderUnderRoot, Z},
     },
 };
+use before::Version;
+use futures::{StreamExt, future::BoxFuture};
 
 /// Send a channel item or return when its consumer has been dropped.
 macro_rules! send_or_return {
@@ -103,10 +120,12 @@ macro_rules! next_or_pending {
     };
 }
 
+pub(super) mod channel;
 mod common;
 mod error;
 pub(super) mod unknown;
 mod work;
+use channel::{Receiver, Sender};
 use common::*;
 
 pub use error::{Error, Violation};

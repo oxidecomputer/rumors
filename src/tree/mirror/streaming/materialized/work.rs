@@ -7,17 +7,21 @@ use futures::{
     future::{self, BoxFuture},
     stream,
 };
-use tokio::sync::mpsc::{self, Receiver, Sender, channel};
-use tokio_stream::{StreamExt, wrappers::ReceiverStream};
+use tokio_stream::StreamExt;
 
 mod answer;
+mod queues;
 mod resolver;
+
+use queues::*;
 
 use crate::tree::{
     mirror::streaming::{
         Backend, Leaf, Node, Root,
         materialized::{
-            Error, OkReceiverStream, Query, Resolution, Resolve, children_of, ok_channel,
+            Error, OkReceiverStream, Query, Resolution, Resolve,
+            channel::{Receiver, Sender},
+            children_of,
             unknown::{Unknown, unknown_providing},
             work::resolver::Resolver,
         },
@@ -29,10 +33,6 @@ use crate::tree::{
         height::{self, Height, S, UnderRoot, UnderUnderRoot, Z},
     },
 };
-
-/// The safe buffer size for channels which must accommodate up to the tree's
-/// branching factor without backpressure.
-const FAN: usize = 256;
 
 pub struct Work<B, T>
 where
@@ -62,11 +62,16 @@ where
     }
 
     /// Add a new work queue item to actively drive the stream of responses.
+    ///
+    /// One buffered response is sufficient: whenever the pump blocks, that
+    /// response is already available to advance the counterparty and release
+    /// the slot. Buffering a fan here would retain whole protocol messages
+    /// without breaking any additional dependency.
     fn respond<H: Height>(
         &mut self,
         messages: impl Responses<B, T, H, Error<B::Error>>,
     ) -> BoxResponses<B, T, H, Error<B::Error>> {
-        let (tx, rx) = mpsc::channel(1);
+        let (tx, responses) = outgoing_responses();
         self.tasks.push(Box::pin(async move {
             let mut messages = pin!(messages);
             while let Some(item) = messages.next().await {
@@ -74,7 +79,7 @@ where
             }
             Ok(())
         }));
-        Box::pin(ReceiverStream::new(rx))
+        responses
     }
 
     /// Forward a stream of ndoes into a sender, returning them upwards.
@@ -119,7 +124,11 @@ where
         }
     }
 
-    /// Assemble one level upward and return its one-slot lower-level sender.
+    /// Assemble one level upward and return its lower-level sender.
+    ///
+    /// The sender needs a full fan: lower scopes can all finish before the
+    /// parent resolution containing their [`Resolve::Pending`] slots is
+    /// published, and that resolution is what lets this assembler drain them.
     pub fn assemble<H>(
         &mut self,
         returns: Sender<Option<B::Node<S<H>>>>,
@@ -129,7 +138,7 @@ where
         H: Height,
         S<H>: Height,
     {
-        let (level, level_rx) = ok_channel(1);
+        let (level, level_rx) = assembly_level_returns::<B, T, H>();
         self.return_into(
             returns,
             assemble(self.backend.clone(), resolutions, level_rx),
@@ -160,8 +169,8 @@ where
         Sender<Option<B::Node<height::Root>>>,
         BoxFuture<'static, Result<Root<B, T>, Error<B::Error>>>,
     ) {
-        let (queries, queries_rx) = channel(1);
-        let (returns, mut returns_rx) = channel(1);
+        let (queries, queries_rx) = initiator_root_query();
+        let (returns, mut returns_rx) = initiator_root_return::<B, T>();
         let backend = self.backend();
 
         let responses = try_stream! {
@@ -169,6 +178,8 @@ where
                 Some(node) => children_of(&backend, Prefix::new(), node).await?,
                 None => Vec::new(),
             };
+            // Progress invariant: expose the wire query before publishing its
+            // in-process twin to the stage which will pair it with the reply.
             yield Reply {
                 replies: vec![message::Reaction::Query(
                     fan.iter().map(|(radix, node)| (*radix, node.hash())).collect()
@@ -205,8 +216,8 @@ where
         B: Sync,
     {
         let backend = self.backend();
-        let (asked, asked_rx) = mpsc::channel(1);
-        let (resolution, resolution_rx) = ok_channel(1);
+        let (asked, asked_rx) = responder_child_queries();
+        let (resolution, resolution_rx) = responder_root_resolution();
         let assembling = backend.clone();
 
         let responses = try_stream! {
@@ -229,17 +240,21 @@ where
                 theirs.clone(),
             )
             .await?;
+            // Progress invariant: expose the wire reply before publishing its
+            // in-process resolution.
             yield Reply { replies: reactions };
-            for query in next_queries {
-                send_or_return!(asked, query);
-            }
+            // Progress invariant: expose the Pending slots before launching
+            // the child queries whose returns fill them.
             send_or_return!(resolution, Resolution {
                 prefix: Prefix::new(),
                 resolved,
             });
+            for query in next_queries {
+                send_or_return!(asked, query);
+            }
         };
 
-        let (returns, returns_rx) = ok_channel(1);
+        let (returns, returns_rx) = responder_root_returns::<B, T>();
         let assembled = assemble(assembling, resolution_rx, returns_rx);
         let finish = Box::pin(async move {
             let mut assembled = pin!(assembled);
@@ -273,9 +288,9 @@ where
         S<S<S<H>>>: Height,
     {
         let backend = self.backend();
-        let (asked, asked_rx) = mpsc::channel(FAN);
-        let (upper, upper_rx) = ok_channel(FAN);
-        let (lower, lower_rx) = ok_channel(FAN);
+        let (asked, asked_rx) = internal_child_queries();
+        let (upper, upper_rx) = internal_parent_resolutions();
+        let (lower, lower_rx) = internal_child_resolutions();
 
         let responses = try_stream! {
             let mut requests = pin!(requests);
@@ -299,6 +314,8 @@ where
                             .into_iter()
                             .map(|(radix, child)| Reaction::Supply(radix, child))
                             .collect();
+                        // Progress invariant: expose the wire supply before
+                        // recording it in the in-process resolution.
                         yield Reply { replies };
                         resolver.ready(radix, node);
                         continue;
@@ -313,10 +330,11 @@ where
                         listing,
                     )
                     .await?;
+                    // Progress invariant: expose the wire reply before
+                    // publishing its in-process resolution.
                     yield Reply { replies: reactions };
-                    for query in next_queries {
-                        send_or_return!(asked, query);
-                    }
+                    // Progress invariant: expose the Pending slots before
+                    // launching the child queries whose returns fill them.
                     send_or_return!(
                         lower,
                         Resolution {
@@ -324,9 +342,14 @@ where
                             resolved,
                         }
                     );
+                    for query in next_queries {
+                        send_or_return!(asked, query);
+                    }
                     resolver.pending(radix);
                 }
 
+                // The reaction loop launches the work for every Pending slot
+                // before making their parent resolution visible.
                 let resolution = resolver.finish()?;
                 send_or_return!(upper, resolution);
             }
@@ -355,9 +378,9 @@ where
         B: Sync,
     {
         let backend = self.backend();
-        let (asked, asked_rx) = mpsc::channel(FAN);
-        let (upper, upper_rx) = ok_channel(FAN);
-        let (lower, lower_rx) = ok_channel(FAN);
+        let (asked, asked_rx) = leaf_requests();
+        let (upper, upper_rx) = leaf_parent_resolutions();
+        let (lower, lower_rx) = leaf_child_resolutions();
 
         let responses = try_stream! {
             let mut requests = pin!(requests);
@@ -381,6 +404,8 @@ where
                             .into_iter()
                             .map(|(radix, leaf)| Reaction::Supply(radix, leaf))
                             .collect();
+                        // Progress invariant: expose the wire supply before
+                        // recording it in the in-process resolution.
                         yield Reply { replies };
                         resolver.ready(radix, node);
                         continue;
@@ -389,10 +414,11 @@ where
                     let leaves = children_of(&backend, child_prefix, node).await?;
                     let (replies, next_queries, resolved) =
                         answer::leaf_parent(&their_version, child_prefix, leaves, listing);
+                    // Progress invariant: expose the wire reply before
+                    // publishing its in-process resolution.
                     yield Reply { replies };
-                    for query in next_queries {
-                        send_or_return!(asked, query);
-                    }
+                    // Progress invariant: expose the Pending slots before
+                    // launching the leaf work whose returns fill them.
                     send_or_return!(
                         lower,
                         Resolution {
@@ -400,9 +426,14 @@ where
                             resolved,
                         }
                     );
+                    for query in next_queries {
+                        send_or_return!(asked, query);
+                    }
                     resolver.pending(radix);
                 }
 
+                // The reaction loop launches the work for every Pending slot
+                // before making their parent resolution visible.
                 let resolution = resolver.finish()?;
                 send_or_return!(upper, resolution);
             }
@@ -425,7 +456,7 @@ where
         BoxResponses<B, T, Z, Error<B::Error>>,
         OkReceiverStream<Resolution<B, T, Z>, Error<B::Error>>,
     ) {
-        let (upper, upper_rx) = ok_channel(1);
+        let (upper, upper_rx) = terminal_leaf_resolutions();
 
         let responses = try_stream! {
             let mut requests = pin!(requests);
@@ -442,6 +473,8 @@ where
 
                     let (replies, node) =
                         answer::leaf(&their_version, radix, node, listing).map_err(Error::Violation)?;
+                    // Progress invariant: expose the wire reply before
+                    // recording it in the in-process resolution.
                     yield Reply { replies };
                     resolver.ready(radix, node);
                 }
