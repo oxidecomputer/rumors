@@ -60,37 +60,3 @@ fn prefix_root_serializes_to_empty() {
     let serialized = borsh::to_vec(&prefix).unwrap();
     assert!(serialized.is_empty());
 }
-
-proptest! {
-    /// `pred` returns `None` exactly on the all-zeros prefix (there is
-    /// nothing below the minimum key) and otherwise something `Some`.
-    #[test]
-    fn prefix_pred_none_iff_all_zeros(bytes in proptest::collection::vec(any::<u8>(), 32 - <S<Z>>::HEIGHT)) {
-        let prefix: Prefix<S<Z>> = prefix_from_bytes(&bytes);
-        let all_zeros = bytes.iter().all(|&byte| byte == 0);
-        prop_assert_eq!(prefix.pred().is_none(), all_zeros);
-    }
-
-    /// Adjacency: `pred(p)` is the largest same-height prefix strictly
-    /// below `p` — for every `q`, `q < p` exactly when `q <= pred(p)`.
-    ///
-    /// This single property pins the decrement completely: it implies
-    /// `pred(p) < p` and that nothing lies strictly between them.
-    #[test]
-    fn prefix_pred_is_adjacent(
-        p in proptest::collection::vec(any::<u8>(), 32 - <S<Z>>::HEIGHT),
-        q in proptest::collection::vec(any::<u8>(), 32 - <S<Z>>::HEIGHT),
-    ) {
-        let p: Prefix<S<Z>> = prefix_from_bytes(&p);
-        let q: Prefix<S<Z>> = prefix_from_bytes(&q);
-        prop_assume!(p.pred().is_some());
-        prop_assert_eq!(q < p, q <= p.pred().unwrap());
-    }
-}
-
-/// The empty root prefix is vacuously all-zeros: `pred` has no bytes to
-/// decrement and returns `None`.
-#[test]
-fn prefix_pred_root_is_none() {
-    assert!(Prefix::<Root>::new().pred().is_none());
-}

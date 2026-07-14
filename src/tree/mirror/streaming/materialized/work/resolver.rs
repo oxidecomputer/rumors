@@ -59,7 +59,7 @@ where
             }
             Reaction::Query(listing) => {
                 let Some((radix, node)) = self.fan.next() else {
-                    return violation!(UnexpectedMatch);
+                    return violation!(UnexpectedQuery);
                 };
                 return Ok(Some((self.prefix, radix, node, listing)));
             }
