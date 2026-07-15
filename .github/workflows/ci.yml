@@ -11,7 +11,7 @@
 # What the runner has to supply that a dev machine already has:
 #   - a current stable toolchain (edition 2024 needs 1.85+), with clippy + rustfmt
 #     and the wasm32-unknown-unknown target (wasm-check, viz),
-#   - a nightly toolchain + cargo-fuzz to build (not run) the fuzz targets,
+#   - a nightly toolchain for merged doctests and cargo-fuzz's target build,
 #   - `just`, `cargo-nextest` (just test), `cargo-rdme` (readme-check), and
 #     `wasm-pack` (viz),
 #   - node + npm for the viz TypeScript typecheck and bundle,
@@ -43,10 +43,10 @@ jobs:
 
       # Install nightly *first* so the stable install below wins the default:
       # each dtolnay/rust-toolchain step runs `rustup default`, last one sticks.
-      # The fuzz workspace pins its toolchain to `nightly` and invokes it as
-      # `cargo +nightly`, so nightly only needs to exist, not be the default —
-      # whereas the gate's bare `cargo fmt`/`clippy`/`check` must hit stable.
-      - name: Install nightly toolchain (for cargo +nightly fuzz build)
+      # The doctest and fuzz recipes invoke `cargo +nightly`, so nightly only
+      # needs to exist, not be the default — whereas the gate's bare
+      # `cargo fmt`/`clippy`/`check` must hit stable.
+      - name: Install nightly toolchain (merged doctests and fuzz build)
         uses: dtolnay/rust-toolchain@nightly
 
       - name: Install stable toolchain (default)
@@ -71,8 +71,9 @@ jobs:
       - name: Cache cargo build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          # The detached fuzz workspace has its own lockfile; cache it too so a
-          # nightly libFuzzer rebuild doesn't start cold every run.
+          # The root workspace contains the isolated nightly doctest target;
+          # the detached fuzz workspace has its own lockfile and target. Cache
+          # both so neither nightly build starts cold every run.
           workspaces: |
             .
             crates/before/fuzz

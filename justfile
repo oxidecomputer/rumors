@@ -10,9 +10,9 @@
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
-# The fuzz workspace needs libFuzzer, hence nightly.
+# Merged doctests and the fuzz workspace's libFuzzer build need nightly.
 
-fuzz_toolchain := "nightly"
+nightly_toolchain := "nightly"
 
 # Default fuzz smoke duration per target, in seconds (matches the guidance in
 # crates/before/fuzz/Cargo.toml).
@@ -40,8 +40,12 @@ test *args:
     {{ justfile_directory() }}/tools/memwatch cargo nextest run --workspace --all-features {{ args }}
 
 # Doctests — nextest does not run these, so they need their own invocation.
+# Stable rustdoc compiles one executable per example; `before` has nearly 100,
+# and their macOS link work dominates the gate. Nightly's merged mode compiles
+# one harness per crate instead. Keep its target separate so switching compilers
+# cannot invalidate the stable gate artifacts (or vice versa).
 doctest:
-    {{ justfile_directory() }}/tools/memwatch cargo test --workspace --doc --all-features
+    RUSTDOCFLAGS="-Z unstable-options --merge-doctests yes" {{ justfile_directory() }}/tools/memwatch cargo +{{ nightly_toolchain }} test --workspace --doc --all-features --target-dir target/doctest-nightly
 
 # Lint every target, warnings denied (the commit-gate setting).
 clippy:
@@ -146,7 +150,7 @@ bench-build:
 # Build the libFuzzer targets (nightly).
 [working-directory("crates/before/fuzz")]
 fuzz-build:
-    {{ justfile_directory() }}/tools/memwatch cargo +{{ fuzz_toolchain }} fuzz build
+    {{ justfile_directory() }}/tools/memwatch cargo +{{ nightly_toolchain }} fuzz build
 
 # The decode invariant (accepted input re-encodes stably and decodes back to
 # itself) is asserted inline in the targets, so any hit is a crash.
@@ -154,8 +158,8 @@ fuzz-build:
 # Short fuzz smoke: run each libFuzzer target for `secs` seconds.
 [working-directory("crates/before/fuzz")]
 fuzz secs=fuzz_smoke_secs:
-    cargo +{{ fuzz_toolchain }} fuzz run fuzz_decode -- -max_total_time={{ secs }}
-    cargo +{{ fuzz_toolchain }} fuzz run fuzz_decode_ops -- -max_total_time={{ secs }}
+    cargo +{{ nightly_toolchain }} fuzz run fuzz_decode -- -max_total_time={{ secs }}
+    cargo +{{ nightly_toolchain }} fuzz run fuzz_decode_ops -- -max_total_time={{ secs }}
 
 # ── conveniences ─────────────────────────────────────────────────────────────
 
