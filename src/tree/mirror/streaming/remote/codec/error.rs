@@ -4,7 +4,7 @@ use std::fmt;
 
 use crate::tree::mirror::framing::LengthOverflow;
 
-use super::signal::{InvalidWireSignal, Speaker, Stream};
+use super::signal::{DecodeSignalError, InvalidSignalPlacement, Speaker, Stream};
 
 /// The speaker and, when known, logical stream which produced an error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,6 +71,8 @@ pub enum EncodeLeafError {
 /// Why an outgoing frame could not be encoded.
 #[derive(Debug, thiserror::Error)]
 pub enum EncodeErrorKind {
+    #[error(transparent)]
+    InvalidSignal(#[from] InvalidSignalPlacement),
     #[error("could not write the frame's {part}")]
     Write {
         part: FramePart,
@@ -134,7 +136,7 @@ pub enum DecodeErrorKind {
         source: borsh::io::Error,
     },
     #[error(transparent)]
-    UnknownSignal(#[from] InvalidWireSignal),
+    InvalidSignal(#[from] DecodeSignalError),
     #[error("frame ended before its {missing}")]
     Truncated {
         missing: FramePart,

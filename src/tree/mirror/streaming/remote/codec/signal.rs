@@ -86,6 +86,17 @@ impl Stream {
             }
         }
     }
+
+    /// Classify the protocol phase carried by this speaker's stream.
+    fn class(self, speaker: Speaker) -> StreamClass {
+        match (speaker, self.0) {
+            (Speaker::Initiator, Self::FIRST) => StreamClass::OpeningQuestion,
+            (Speaker::Responder, Self::FIRST) => StreamClass::OpeningReply,
+            (Speaker::Initiator, Self::MAX) => StreamClass::LeafParentReplies,
+            (Speaker::Responder, Self::MAX) => StreamClass::TerminalLeafReplies,
+            (_, _) => StreamClass::InteriorReplies,
+        }
+    }
 }
 
 /// A programmatic stream index outside the wire's logical streams.
@@ -100,6 +111,21 @@ pub enum StreamError {
 pub enum Speaker {
     Initiator,
     Responder,
+}
+
+/// The phase-specific signal grammar of a logical stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum StreamClass {
+    #[error("the initiator's opening question")]
+    OpeningQuestion,
+    #[error("the responder's opening reply")]
+    OpeningReply,
+    #[error("an interior reply stream")]
+    InteriorReplies,
+    #[error("the initiator's leaf-parent replies")]
+    LeafParentReplies,
+    #[error("the responder's terminal leaf replies")]
+    TerminalLeafReplies,
 }
 
 /// A logical reply or stream boundary.
@@ -217,6 +243,17 @@ impl Signal {
             .copied()
             .ok_or(InvalidSignalState { state })
     }
+
+    /// Return a reaction's flow, distinguishing it from a bare end.
+    fn flow(self) -> Option<Flow> {
+        match self {
+            Signal::Match(flow)
+            | Signal::QueryEmpty(flow)
+            | Signal::Query(flow)
+            | Signal::Supply(flow) => Some(flow),
+            Signal::End(_) => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -242,16 +279,30 @@ impl WireSignal {
     /// Bytes occupied by a densely encoded signal.
     pub const ENCODED_LEN: usize = std::mem::size_of::<u8>();
 
-    /// Byte values occupied by the valid `(signal state, stream)` product.
+    /// Byte values occupied by the syntactic `(signal state, stream)` product.
     pub const BYTE_COUNT: u8 = Signal::STATE_COUNT * Stream::COUNT;
 
-    /// Pair a checked stream with a semantic signal.
-    pub fn new(stream: Stream, signal: Signal) -> Self {
+    /// Pair a stream with a signal valid for its speaker and protocol phase.
+    pub fn new(
+        speaker: Speaker,
+        stream: Stream,
+        signal: Signal,
+    ) -> Result<Self, InvalidSignalPlacement> {
+        Self::pair(stream, signal).validate(speaker)
+    }
+
+    /// Parse and validate a dense wire byte for its speaker's protocol phase.
+    pub fn from_byte(speaker: Speaker, byte: u8) -> Result<Self, DecodeSignalError> {
+        Self::parse(byte)?.validate(speaker).map_err(Into::into)
+    }
+
+    /// Pair raw grammar components before speaker-specific validation.
+    fn pair(stream: Stream, signal: Signal) -> Self {
         Self { stream, signal }
     }
 
-    /// Parse a dense wire byte into its stream and semantic signal.
-    pub fn from_byte(byte: u8) -> Result<Self, InvalidWireSignal> {
+    /// Parse the speaker-independent dense grammar.
+    fn parse(byte: u8) -> Result<Self, InvalidWireSignal> {
         let stream = Stream(byte % Stream::COUNT);
         let signal =
             Signal::from_state(byte / Stream::COUNT).map_err(|source| InvalidWireSignal {
@@ -262,6 +313,38 @@ impl WireSignal {
         Ok(Self { stream, signal })
     }
 
+    /// Enforce the signal subset admitted by this speaker's stream phase.
+    fn validate(self, speaker: Speaker) -> Result<Self, InvalidSignalPlacement> {
+        let class = self.stream.class(speaker);
+        let valid = match class {
+            StreamClass::OpeningQuestion => matches!(
+                self.signal,
+                Signal::QueryEmpty(Flow::End(End::Stream)) | Signal::Query(Flow::End(End::Stream))
+            ),
+            StreamClass::OpeningReply => {
+                matches!(self.signal, Signal::End(End::Stream))
+                    || matches!(
+                        self.signal.flow(),
+                        Some(Flow::Continue | Flow::End(End::Stream))
+                    )
+            }
+            StreamClass::InteriorReplies => true,
+            StreamClass::LeafParentReplies => !matches!(self.signal, Signal::Query(_)),
+            StreamClass::TerminalLeafReplies => matches!(
+                self.signal,
+                Signal::Supply(Flow::End(End::Reply | End::Stream)) | Signal::End(_)
+            ),
+        };
+        if valid {
+            Ok(self)
+        } else {
+            Err(InvalidSignalPlacement {
+                byte: self.to_byte(),
+                class,
+            })
+        }
+    }
+
     /// Render the paired stream and semantic signal as one dense wire byte.
     pub fn to_byte(self) -> u8 {
         self.signal.state() * Stream::COUNT + self.stream.index()
@@ -270,6 +353,45 @@ impl WireSignal {
     /// Separate the checked stream and semantic signal.
     pub fn into_parts(self) -> (Stream, Signal) {
         (self.stream, self.signal)
+    }
+}
+
+/// A valid signal state placed on a stream where the protocol forbids it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("signal byte {byte:#04x} is invalid for {class}")]
+pub struct InvalidSignalPlacement {
+    byte: u8,
+    class: StreamClass,
+}
+
+impl InvalidSignalPlacement {
+    /// Return the rejected dense wire byte.
+    pub fn byte(self) -> u8 {
+        self.byte
+    }
+
+    /// Return the protocol phase whose signal grammar was violated.
+    pub fn class(self) -> StreamClass {
+        self.class
+    }
+}
+
+/// A syntactically invalid signal byte or a valid state in an invalid phase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum DecodeSignalError {
+    #[error(transparent)]
+    Reserved(#[from] InvalidWireSignal),
+    #[error(transparent)]
+    Placement(#[from] InvalidSignalPlacement),
+}
+
+impl DecodeSignalError {
+    /// Return the stream component decoded from the rejected byte.
+    pub fn stream(self) -> Stream {
+        match self {
+            DecodeSignalError::Reserved(invalid) => invalid.stream(),
+            DecodeSignalError::Placement(invalid) => Stream(invalid.byte() % Stream::COUNT),
+        }
     }
 }
 

@@ -32,7 +32,7 @@ pub fn decode<T: BorshDeserialize>(
     read_exact(read, &mut byte, FramePart::Signal)
         .map_err(|kind| DecodeError::direction(speaker, kind))?;
     let signal_byte = *byte.first().expect("a signal occupies one byte");
-    let wire = WireSignal::from_byte(signal_byte)
+    let wire = WireSignal::from_byte(speaker, signal_byte)
         .map_err(|invalid| DecodeError::stream(speaker, invalid.stream(), invalid.into()))?;
     let (stream, signal) = wire.into_parts();
 

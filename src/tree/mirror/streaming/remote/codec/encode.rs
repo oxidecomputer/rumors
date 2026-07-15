@@ -17,30 +17,35 @@ pub fn encode<T, W: Write>(
     out: &mut W,
 ) -> Result<(), EncodeError> {
     let (stream, frame) = wire;
-    encode_frame(frame, *stream, out).map_err(|kind| EncodeError::new(speaker, *stream, kind))
+    encode_frame(speaker, frame, *stream, out)
+        .map_err(|kind| EncodeError::new(speaker, *stream, kind))
 }
 
 fn encode_frame<T, W: Write>(
+    speaker: Speaker,
     frame: &Frame<T>,
     stream: Stream,
     out: &mut W,
 ) -> Result<(), EncodeErrorKind> {
-    match frame {
-        Frame::Reaction(Reaction::Match, flow) => {
-            write(
-                out,
-                FramePart::Signal,
-                &[WireSignal::new(stream, Signal::Match(*flow)).to_byte()],
-            )?;
-        }
+    let signal = match frame {
+        Frame::Reaction(Reaction::Match, flow) => Signal::Match(*flow),
         Frame::Reaction(Reaction::Query(children), flow) if children.is_empty() => {
-            write(
-                out,
-                FramePart::Signal,
-                &[WireSignal::new(stream, Signal::QueryEmpty(*flow)).to_byte()],
-            )?;
+            Signal::QueryEmpty(*flow)
         }
-        Frame::Reaction(Reaction::Query(children), flow) => {
+        Frame::Reaction(Reaction::Query(_), flow) => Signal::Query(*flow),
+        Frame::Reaction(Reaction::Supply(_, _), flow) => Signal::Supply(*flow),
+        Frame::End(end) => Signal::End(*end),
+    };
+    let signal = WireSignal::new(speaker, stream, signal)?.to_byte();
+
+    match frame {
+        Frame::Reaction(Reaction::Match, _) => {
+            write(out, FramePart::Signal, &[signal])?;
+        }
+        Frame::Reaction(Reaction::Query(children), _) if children.is_empty() => {
+            write(out, FramePart::Signal, &[signal])?;
+        }
+        Frame::Reaction(Reaction::Query(children), _) => {
             if children.len() > MAX_QUERY_CHILDREN {
                 return Err(EncodeErrorKind::QueryTooWide {
                     count: children.len(),
@@ -49,18 +54,14 @@ fn encode_frame<T, W: Write>(
             let count = u8::try_from(children.len() - QUERY_COUNT_BIAS)
                 .expect("a query within the protocol fan has a one-byte count");
             validate_children(children)?;
-            write(
-                out,
-                FramePart::Signal,
-                &[WireSignal::new(stream, Signal::Query(*flow)).to_byte()],
-            )?;
+            write(out, FramePart::Signal, &[signal])?;
             write(out, FramePart::QueryCount, &[count])?;
             for (radix, hash) in children {
                 write(out, FramePart::QueryChildren, &[*radix])?;
                 write(out, FramePart::QueryChildren, hash.as_bytes())?;
             }
         }
-        Frame::Reaction(Reaction::Supply(version, message), flow) => {
+        Frame::Reaction(Reaction::Supply(version, message), _) => {
             let version_len = version.as_bytes().len();
             let message_len = message.as_slice().len();
             let len = version_len.checked_add(message_len).ok_or(
@@ -70,11 +71,7 @@ fn encode_frame<T, W: Write>(
                 },
             )?;
             let header = length_header(len)?;
-            write(
-                out,
-                FramePart::Signal,
-                &[WireSignal::new(stream, Signal::Supply(*flow)).to_byte()],
-            )?;
+            write(out, FramePart::Signal, &[signal])?;
             write(out, FramePart::SupplyLength, &header)?;
             version
                 .serialize(&mut *out)
@@ -83,11 +80,7 @@ fn encode_frame<T, W: Write>(
                 .serialize(&mut *out)
                 .map_err(EncodeLeafError::Message)?;
         }
-        Frame::End(end) => write(
-            out,
-            FramePart::Signal,
-            &[WireSignal::new(stream, Signal::End(*end)).to_byte()],
-        )?,
+        Frame::End(_) => write(out, FramePart::Signal, &[signal])?,
     }
     Ok(())
 }

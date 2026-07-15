@@ -5,6 +5,9 @@
 //! each continuing, ending its reply, or ending its stream and reply, plus bare
 //! reply and stream ends — and 17 streams. `state * 17 + stream` occupies values
 //! 0 through 237; the other 18 byte values are invalid.
+//! Speaker and stream then select a phase-specific subset: 223 placements per
+//! direction are valid, while 15 are rejected before their frame body is read
+//! or written.
 //!
 //! An empty query is wholly represented by its signal. A nonempty query carries
 //! `count - 1` in one byte, covering 1 through 256. A supply body is the
@@ -26,7 +29,9 @@ pub use error::{
     FramePart, Origin, QueryOrderError,
 };
 pub use frame::{Frame, Reaction, WireFrame};
-pub use signal::{End, Flow, Speaker, Stream, StreamError};
+pub use signal::{
+    DecodeSignalError, End, Flow, InvalidSignalPlacement, Speaker, Stream, StreamClass, StreamError,
+};
 
 #[cfg(test)]
 mod tests;

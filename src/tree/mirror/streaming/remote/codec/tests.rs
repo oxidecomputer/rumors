@@ -7,6 +7,7 @@ use proptest::{
 };
 
 use super::frame::MAX_QUERY_CHILDREN;
+use super::signal::{Signal, WireSignal};
 use super::*;
 use crate::{
     Version,
@@ -22,6 +23,30 @@ const MAX_EXHAUSTIVE_BRANCHING: usize = 2;
 
 /// Frames produced by the bounded exhaustive enumeration.
 const EXHAUSTIVE_FRAME_CASES: usize = 1_677_883;
+
+/// Bounded exhaustive frames admitted in the initiator direction.
+const INITIATOR_EXHAUSTIVE_FRAME_CASES: usize = 1_513_393;
+
+/// Bounded exhaustive frames admitted in the responder direction.
+const RESPONDER_EXHAUSTIVE_FRAME_CASES: usize = 1_546_288;
+
+/// Every semantic signal state, independent of its stream placement.
+const SIGNALS: &[Signal] = &[
+    Signal::Match(Flow::Continue),
+    Signal::Match(Flow::End(End::Reply)),
+    Signal::Match(Flow::End(End::Stream)),
+    Signal::QueryEmpty(Flow::Continue),
+    Signal::QueryEmpty(Flow::End(End::Reply)),
+    Signal::QueryEmpty(Flow::End(End::Stream)),
+    Signal::Query(Flow::Continue),
+    Signal::Query(Flow::End(End::Reply)),
+    Signal::Query(Flow::End(End::Stream)),
+    Signal::Supply(Flow::Continue),
+    Signal::Supply(Flow::End(End::Reply)),
+    Signal::Supply(Flow::End(End::Stream)),
+    Signal::End(End::Reply),
+    Signal::End(End::Stream),
+];
 
 /// Exclusive upper bound for arbitrary bytes following a decoded frame.
 const MAX_ARBITRARY_SUFFIX_LEN: usize = 32;
@@ -80,7 +105,11 @@ proptest! {
             Speaker::Responder
         };
         let mut encoded = Vec::new();
-        encode(speaker, &frame, &mut encoded).unwrap();
+        if let Err(error) = encode(speaker, &frame, &mut encoded) {
+            prop_assert!(matches!(error.kind, EncodeErrorKind::InvalidSignal(_)));
+            prop_assert!(encoded.is_empty());
+            return Ok(());
+        }
         let frame_len = encoded.len();
         encoded.extend_from_slice(&suffix);
 
@@ -95,10 +124,65 @@ proptest! {
     }
 }
 
-/// Every frame with at most two zero-hash children round-trips for both speakers.
+/// All 476 placements either round-trip or fail before a frame body is touched.
+#[test]
+fn signal_placements_are_enforced_exhaustively() {
+    for speaker in [Speaker::Initiator, Speaker::Responder] {
+        for index in 0..Stream::COUNT {
+            let stream = Stream::new(index).unwrap();
+            for &signal in SIGNALS {
+                let frame = representative_frame(signal);
+                match WireSignal::new(speaker, stream, signal) {
+                    Ok(wire) => {
+                        let mut encoded = Vec::new();
+                        encode(speaker, &(stream, frame.clone()), &mut encoded).unwrap();
+                        assert_eq!(encoded.first(), Some(&wire.to_byte()));
+                        assert_eq!(
+                            decode_exact::<()>(speaker, &encoded).unwrap(),
+                            (stream, frame)
+                        );
+                    }
+                    Err(invalid) => {
+                        let mut encoded = Vec::new();
+                        let error = encode(speaker, &(stream, frame), &mut encoded).unwrap_err();
+                        assert_eq!(error.origin, Origin::stream(speaker, stream));
+                        assert!(encoded.is_empty());
+                        assert!(matches!(
+                            error.kind,
+                            EncodeErrorKind::InvalidSignal(source) if source == invalid
+                        ));
+
+                        let error = decode_exact::<()>(speaker, &[invalid.byte()]).unwrap_err();
+                        assert_eq!(error.origin, Origin::stream(speaker, stream));
+                        assert!(matches!(
+                            error.kind,
+                            DecodeErrorKind::InvalidSignal(DecodeSignalError::Placement(source))
+                                if source == invalid
+                        ));
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn representative_frame(signal: Signal) -> Frame<()> {
+    match signal {
+        Signal::Match(flow) => Frame::Reaction(Reaction::Match, flow),
+        Signal::QueryEmpty(flow) => Frame::Reaction(Reaction::Query(Vec::new()), flow),
+        Signal::Query(flow) => Frame::Reaction(Reaction::Query(vec![(0, Hash::default())]), flow),
+        Signal::Supply(flow) => {
+            Frame::Reaction(Reaction::Supply(Version::new(), Message::new(())), flow)
+        }
+        Signal::End(end) => Frame::End(end),
+    }
+}
+
+/// Every bounded frame round-trips exactly where its speaker admits its signal.
 #[test]
 fn bounded_frames_round_trip_exhaustively() {
     let mut frames = 0;
+    let mut accepted = [0; 2];
     for index in 0_u8..Stream::COUNT {
         let stream = Stream::new(index).unwrap();
         for flow in [
@@ -106,30 +190,46 @@ fn bounded_frames_round_trip_exhaustively() {
             Flow::End(End::Reply),
             Flow::End(End::Stream),
         ] {
-            round_trip_both((stream, Frame::Reaction(Reaction::Match, flow)));
+            check_both(
+                (stream, Frame::Reaction(Reaction::Match, flow)),
+                &mut accepted,
+            );
             frames += 1;
 
-            round_trip_both((
-                stream,
-                Frame::Reaction(Reaction::Supply(Version::new(), Message::new(())), flow),
-            ));
+            check_both(
+                (
+                    stream,
+                    Frame::Reaction(Reaction::Supply(Version::new(), Message::new(())), flow),
+                ),
+                &mut accepted,
+            );
             frames += 1;
 
             enumerate_queries(0, &mut Vec::new(), &mut |children| {
-                round_trip_both((
-                    stream,
-                    Frame::Reaction(Reaction::Query(children.to_vec()), flow),
-                ));
+                check_both(
+                    (
+                        stream,
+                        Frame::Reaction(Reaction::Query(children.to_vec()), flow),
+                    ),
+                    &mut accepted,
+                );
                 frames += 1;
             });
         }
 
         for end in [End::Reply, End::Stream] {
-            round_trip_both((stream, Frame::End(end)));
+            check_both((stream, Frame::End(end)), &mut accepted);
             frames += 1;
         }
     }
     assert_eq!(frames, EXHAUSTIVE_FRAME_CASES);
+    assert_eq!(
+        accepted,
+        [
+            INITIATOR_EXHAUSTIVE_FRAME_CASES,
+            RESPONDER_EXHAUSTIVE_FRAME_CASES,
+        ]
+    );
 }
 
 fn enumerate_queries(
@@ -148,11 +248,22 @@ fn enumerate_queries(
     }
 }
 
-fn round_trip_both(frame: WireFrame<()>) {
-    for speaker in [Speaker::Initiator, Speaker::Responder] {
+fn check_both(frame: WireFrame<()>, accepted: &mut [usize; 2]) {
+    for (direction, speaker) in [Speaker::Initiator, Speaker::Responder]
+        .into_iter()
+        .enumerate()
+    {
         let mut encoded = Vec::new();
-        encode(speaker, &frame, &mut encoded).unwrap();
-        assert_eq!(decode_exact::<()>(speaker, &encoded).unwrap(), frame);
+        match encode(speaker, &frame, &mut encoded) {
+            Ok(()) => {
+                accepted[direction] += 1;
+                assert_eq!(decode_exact::<()>(speaker, &encoded).unwrap(), frame);
+            }
+            Err(error) => {
+                assert!(encoded.is_empty());
+                assert!(matches!(error.kind, EncodeErrorKind::InvalidSignal(_)));
+            }
+        }
     }
 }
 

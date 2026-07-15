@@ -34,7 +34,9 @@ fn stream(index: u8) -> Stream {
 }
 
 fn signal(stream: Stream, signal: Signal) -> u8 {
-    WireSignal::new(stream, signal).to_byte()
+    WireSignal::new(Speaker::Initiator, stream, signal)
+        .unwrap()
+        .to_byte()
 }
 
 fn arb_speaker() -> impl Strategy<Value = Speaker> {
@@ -128,7 +130,7 @@ proptest! {
     /// Supply framing is exact for arbitrary backend-neutral leaves.
     #[test]
     fn supplied_leaf_is_framed_exactly(
-        index in 0_u8..Stream::COUNT,
+        index in 1_u8..Stream::MAX,
         speaker in arb_speaker(),
         flow in arb_flow(),
         version in arb_version(),
@@ -158,7 +160,7 @@ proptest! {
     /// Every query wider than the radix fan reports its exact origin and count.
     #[test]
     fn oversized_query_count_is_rejected(
-        index in 0_u8..Stream::COUNT,
+        index in 1_u8..Stream::MAX,
         speaker in arb_speaker(),
         extra in MIN_OVERSIZED_QUERY_EXTRA..MAX_OVERSIZED_QUERY_EXTRA,
     ) {
@@ -187,7 +189,7 @@ proptest! {
     /// Every adjacent non-ascending pair reports its values and origin.
     #[test]
     fn unordered_query_is_rejected(
-        index in 0_u8..Stream::COUNT,
+        index in 1_u8..Stream::MAX,
         speaker in arb_speaker(),
         previous in any::<u8>(),
         radix in any::<u8>(),

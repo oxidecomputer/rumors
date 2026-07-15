@@ -7,6 +7,9 @@
 //! (`Match`, empty/nonempty `Query`, and `Supply`) continuing, closing its
 //! reply, or closing its stream and reply, plus bare `ReplyEnd` and
 //! `StreamEnd`. Values 238 through 255 are invalid.
+//! The phase schedule narrows that syntactic product further: each speaker
+//! admits 223 placements and rejects 15 immediately after the signal byte,
+//! before any frame body is read or written.
 //!
 //! An empty query occupies its signal alone; a nonempty query's one-byte
 //! count-minus-one admits every fan from 1 through 256. A supplied leaf is the

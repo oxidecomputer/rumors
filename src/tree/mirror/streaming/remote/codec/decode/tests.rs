@@ -7,7 +7,7 @@ use crate::tree::arb::arb_version;
 use super::super::{
     error::{Origin, QueryOrderError},
     frame::{QUERY_COUNT_BIAS, QUERY_COUNT_LEN},
-    signal::{End, Flow, Speaker, Stream, StreamError},
+    signal::{DecodeSignalError, End, Flow, Speaker, Stream, StreamError},
 };
 
 const SPEAKERS: [Speaker; 2] = [Speaker::Initiator, Speaker::Responder];
@@ -20,7 +20,9 @@ fn stream(index: u8) -> Stream {
 }
 
 fn signal(stream: Stream, signal: Signal) -> u8 {
-    WireSignal::new(stream, signal).to_byte()
+    WireSignal::new(Speaker::Initiator, stream, signal)
+        .unwrap()
+        .to_byte()
 }
 
 fn supply(stream: Stream, flow: Flow, body: &[u8]) -> Vec<u8> {
@@ -52,14 +54,18 @@ fn invalid_signals_are_rejected() {
         })
     );
     for byte in WireSignal::BYTE_COUNT..=u8::MAX {
-        let invalid = WireSignal::from_byte(byte).unwrap_err();
         for speaker in SPEAKERS {
+            let invalid = WireSignal::from_byte(speaker, byte).unwrap_err();
+            let DecodeSignalError::Reserved(reserved) = invalid else {
+                panic!("unexpected signal error")
+            };
             let error = decode_exact::<u64>(speaker, &[byte]).unwrap_err();
-            assert_eq!(error.origin, Origin::stream(speaker, invalid.stream()));
-            let DecodeErrorKind::UnknownSignal(source) = error.kind else {
+            assert_eq!(error.origin, Origin::stream(speaker, reserved.stream()));
+            let DecodeErrorKind::InvalidSignal(DecodeSignalError::Reserved(source)) = error.kind
+            else {
                 panic!("unexpected error kind");
             };
-            assert_eq!(source, invalid);
+            assert_eq!(source, reserved);
             assert_eq!(source.byte(), byte);
             assert_eq!(source.state(), byte / Stream::COUNT);
             assert!(std::error::Error::source(&source).is_some());
@@ -119,7 +125,7 @@ proptest! {
     /// Arbitrary supplied leaves decode once into their backend-neutral pair.
     #[test]
     fn supplied_leaf_is_decoded_immediately(
-        index in 0_u8..Stream::COUNT,
+        index in 1_u8..Stream::MAX,
         speaker in arb_speaker(),
         flow in arb_flow(),
         version in arb_version(),
@@ -186,7 +192,7 @@ proptest! {
     /// Every adjacent non-ascending pair reports its values and origin.
     #[test]
     fn unordered_query_is_rejected(
-        index in 0_u8..Stream::COUNT,
+        index in 1_u8..Stream::MAX,
         speaker in arb_speaker(),
         previous in any::<u8>(),
         radix in any::<u8>(),
