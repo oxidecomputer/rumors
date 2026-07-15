@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::fmt::Write;
 use std::io::Cursor;
 
 use proptest::{
@@ -18,6 +19,8 @@ use crate::{
     },
 };
 
+mod error_atlas;
+
 /// Largest query fan in the exhaustive small-scope enumeration.
 const MAX_EXHAUSTIVE_BRANCHING: usize = 2;
 
@@ -30,8 +33,17 @@ const INITIATOR_EXHAUSTIVE_FRAME_CASES: usize = 1_513_393;
 /// Bounded exhaustive frames admitted in the responder direction.
 const RESPONDER_EXHAUSTIVE_FRAME_CASES: usize = 1_546_288;
 
+/// Elected speaker directions represented by the codec.
+const SPEAKER_COUNT: usize = 2;
+
+/// Semantic signal states represented by the dense grammar.
+const SIGNAL_COUNT: usize = 14;
+
+/// Speaker, stream, and signal buckets in the exhaustive corpus manifest.
+const CORPUS_BUCKET_COUNT: usize = SPEAKER_COUNT * Stream::COUNT as usize * SIGNAL_COUNT;
+
 /// Every semantic signal state, independent of its stream placement.
-const SIGNALS: &[Signal] = &[
+const SIGNALS: [Signal; SIGNAL_COUNT] = [
     Signal::Match(Flow::Continue),
     Signal::Match(Flow::End(End::Reply)),
     Signal::Match(Flow::End(End::Stream)),
@@ -124,13 +136,16 @@ proptest! {
     }
 }
 
-/// All 476 placements either round-trip or fail before a frame body is touched.
+/// All 476 placements pin either their canonical frame bytes or typed rejection.
 #[test]
-fn signal_placements_are_enforced_exhaustively() {
+fn canonical_frame_atlas_snapshot() {
+    let mut atlas = String::new();
     for speaker in [Speaker::Initiator, Speaker::Responder] {
+        writeln!(atlas, "{speaker:?}").unwrap();
         for index in 0..Stream::COUNT {
             let stream = Stream::new(index).unwrap();
-            for &signal in SIGNALS {
+            writeln!(atlas, "  stream {index:02}").unwrap();
+            for signal in SIGNALS {
                 let frame = representative_frame(signal);
                 match WireSignal::new(speaker, stream, signal) {
                     Ok(wire) => {
@@ -141,6 +156,10 @@ fn signal_placements_are_enforced_exhaustively() {
                             decode_exact::<()>(speaker, &encoded).unwrap(),
                             (stream, frame)
                         );
+                        write!(atlas, "    {signal:?}: accepted len {} hex ", encoded.len())
+                            .unwrap();
+                        write_hex(&mut atlas, &encoded);
+                        atlas.push('\n');
                     }
                     Err(invalid) => {
                         let mut encoded = Vec::new();
@@ -159,10 +178,24 @@ fn signal_placements_are_enforced_exhaustively() {
                             DecodeErrorKind::InvalidSignal(DecodeSignalError::Placement(source))
                                 if source == invalid
                         ));
+                        writeln!(
+                            atlas,
+                            "    {signal:?}: rejected byte {:02x} class {:?}",
+                            invalid.byte(),
+                            invalid.class(),
+                        )
+                        .unwrap();
                     }
                 }
             }
         }
+    }
+    insta::assert_snapshot!(atlas);
+}
+
+fn write_hex(out: &mut impl Write, bytes: &[u8]) {
+    for byte in bytes {
+        write!(out, "{byte:02x}").unwrap();
     }
 }
 
@@ -178,11 +211,14 @@ fn representative_frame(signal: Signal) -> Frame<()> {
     }
 }
 
-/// Every bounded frame round-trips exactly where its speaker admits its signal.
+/// Every bounded frame's exact codec outcome is pinned by speaker, stream, and signal.
 #[test]
-fn bounded_frames_round_trip_exhaustively() {
+fn bounded_corpus_manifest_snapshot() {
     let mut frames = 0;
     let mut accepted = [0; 2];
+    let mut buckets = (0..CORPUS_BUCKET_COUNT)
+        .map(|_| CorpusBucket::default())
+        .collect::<Vec<_>>();
     for index in 0_u8..Stream::COUNT {
         let stream = Stream::new(index).unwrap();
         for flow in [
@@ -193,6 +229,7 @@ fn bounded_frames_round_trip_exhaustively() {
             check_both(
                 (stream, Frame::Reaction(Reaction::Match, flow)),
                 &mut accepted,
+                &mut buckets,
             );
             frames += 1;
 
@@ -202,6 +239,7 @@ fn bounded_frames_round_trip_exhaustively() {
                     Frame::Reaction(Reaction::Supply(Version::new(), Message::new(())), flow),
                 ),
                 &mut accepted,
+                &mut buckets,
             );
             frames += 1;
 
@@ -212,13 +250,14 @@ fn bounded_frames_round_trip_exhaustively() {
                         Frame::Reaction(Reaction::Query(children.to_vec()), flow),
                     ),
                     &mut accepted,
+                    &mut buckets,
                 );
                 frames += 1;
             });
         }
 
         for end in [End::Reply, End::Stream] {
-            check_both((stream, Frame::End(end)), &mut accepted);
+            check_both((stream, Frame::End(end)), &mut accepted, &mut buckets);
             frames += 1;
         }
     }
@@ -230,6 +269,67 @@ fn bounded_frames_round_trip_exhaustively() {
             RESPONDER_EXHAUSTIVE_FRAME_CASES,
         ]
     );
+
+    let mut manifest = String::new();
+    for (direction, speaker) in [Speaker::Initiator, Speaker::Responder]
+        .into_iter()
+        .enumerate()
+    {
+        writeln!(manifest, "{speaker:?}").unwrap();
+        for index in 0..Stream::COUNT {
+            writeln!(manifest, "  stream {index:02}").unwrap();
+            for (signal_index, signal) in SIGNALS.into_iter().enumerate() {
+                let bucket = &buckets[corpus_bucket(direction, index, signal_index)];
+                writeln!(
+                    manifest,
+                    "    {signal:?}: cases {} accepted {} rejected {} rejection {:?} digest {}",
+                    bucket.cases,
+                    bucket.accepted,
+                    bucket.rejected,
+                    bucket.rejection,
+                    bucket.hasher.clone().finalize().to_hex(),
+                )
+                .unwrap();
+            }
+        }
+    }
+    insta::assert_snapshot!(manifest);
+}
+
+#[derive(Default)]
+struct CorpusBucket {
+    cases: usize,
+    accepted: usize,
+    rejected: usize,
+    rejection: Option<StreamClass>,
+    hasher: blake3::Hasher,
+}
+
+impl CorpusBucket {
+    fn accept(&mut self, encoded: &[u8]) {
+        const ACCEPTED: u8 = 1;
+
+        self.cases += 1;
+        self.accepted += 1;
+        self.hasher.update(&[ACCEPTED]);
+        self.hasher.update(&(encoded.len() as u64).to_be_bytes());
+        self.hasher.update(encoded);
+    }
+
+    fn reject(&mut self, invalid: InvalidSignalPlacement) {
+        const REJECTED: u8 = 0;
+
+        let class = invalid.class();
+        assert!(self.rejection.is_none_or(|previous| previous == class));
+        self.cases += 1;
+        self.rejected += 1;
+        self.rejection = Some(class);
+        self.hasher.update(&[REJECTED, invalid.byte()]);
+    }
+}
+
+fn corpus_bucket(direction: usize, stream: u8, signal: usize) -> usize {
+    (direction * usize::from(Stream::COUNT) + usize::from(stream)) * SIGNAL_COUNT + signal
 }
 
 fn enumerate_queries(
@@ -248,22 +348,44 @@ fn enumerate_queries(
     }
 }
 
-fn check_both(frame: WireFrame<()>, accepted: &mut [usize; 2]) {
+fn check_both(frame: WireFrame<()>, accepted: &mut [usize; 2], buckets: &mut [CorpusBucket]) {
+    let signal = frame_signal(&frame.1);
+    let signal_index = SIGNALS
+        .iter()
+        .position(|candidate| *candidate == signal)
+        .expect("every frame maps to a semantic signal state");
     for (direction, speaker) in [Speaker::Initiator, Speaker::Responder]
         .into_iter()
         .enumerate()
     {
         let mut encoded = Vec::new();
+        let bucket = &mut buckets[corpus_bucket(direction, frame.0.index(), signal_index)];
         match encode(speaker, &frame, &mut encoded) {
             Ok(()) => {
                 accepted[direction] += 1;
                 assert_eq!(decode_exact::<()>(speaker, &encoded).unwrap(), frame);
+                bucket.accept(&encoded);
             }
             Err(error) => {
                 assert!(encoded.is_empty());
-                assert!(matches!(error.kind, EncodeErrorKind::InvalidSignal(_)));
+                let EncodeErrorKind::InvalidSignal(invalid) = error.kind else {
+                    panic!("bounded canonical frames fail only by signal placement")
+                };
+                bucket.reject(invalid);
             }
         }
+    }
+}
+
+fn frame_signal<T>(frame: &Frame<T>) -> Signal {
+    match frame {
+        Frame::Reaction(Reaction::Match, flow) => Signal::Match(*flow),
+        Frame::Reaction(Reaction::Query(children), flow) if children.is_empty() => {
+            Signal::QueryEmpty(*flow)
+        }
+        Frame::Reaction(Reaction::Query(_), flow) => Signal::Query(*flow),
+        Frame::Reaction(Reaction::Supply(_, _), flow) => Signal::Supply(*flow),
+        Frame::End(end) => Signal::End(*end),
     }
 }
 

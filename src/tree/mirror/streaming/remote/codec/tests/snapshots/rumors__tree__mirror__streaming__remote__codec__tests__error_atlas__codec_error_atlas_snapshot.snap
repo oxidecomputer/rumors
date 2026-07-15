@@ -1,0 +1,324 @@
+---
+source: src/tree/mirror/streaming/remote/codec/tests/error_atlas.rs
+expression: atlas
+---
+ENCODE
+  Initiator/write/signal
+    display: Initiator stream 8: could not write the frame's signal byte
+    origin: Initiator stream 8
+    kind: Write(part=Signal, io=Other)
+    source[0]: could not write the frame's signal byte
+    source[1]: Io(Other)
+  Initiator/write/query-count
+    display: Initiator stream 8: could not write the frame's query count
+    origin: Initiator stream 8
+    kind: Write(part=QueryCount, io=Other)
+    source[0]: could not write the frame's query count
+    source[1]: Io(Other)
+  Initiator/write/query-children
+    display: Initiator stream 8: could not write the frame's query child listing
+    origin: Initiator stream 8
+    kind: Write(part=QueryChildren, io=Other)
+    source[0]: could not write the frame's query child listing
+    source[1]: Io(Other)
+  Initiator/write/supply-length
+    display: Initiator stream 8: could not write the frame's supply length
+    origin: Initiator stream 8
+    kind: Write(part=SupplyLength, io=Other)
+    source[0]: could not write the frame's supply length
+    source[1]: Io(Other)
+  Initiator/leaf/version
+    display: Initiator stream 8: supplied version could not be encoded
+    origin: Initiator stream 8
+    kind: InvalidLeaf::Version(io=Other)
+    source[0]: supplied version could not be encoded
+    source[1]: Io(Other)
+  Initiator/leaf/message
+    display: Initiator stream 8: supplied message could not be encoded
+    origin: Initiator stream 8
+    kind: InvalidLeaf::Message(io=Other)
+    source[0]: supplied message could not be encoded
+    source[1]: Io(Other)
+  Initiator/query-too-wide
+    display: Initiator stream 8: query contains 257 children, exceeding the one-byte radix fan
+    origin: Initiator stream 8
+    kind: QueryTooWide(count=257)
+    source[0]: query contains 257 children, exceeding the one-byte radix fan
+  Initiator/query-out-of-order
+    display: Initiator stream 8: query child radix 1 does not follow 2 in ascending order
+    origin: Initiator stream 8
+    kind: QueryOutOfOrder(previous=2, radix=1)
+    source[0]: query child radix 1 does not follow 2 in ascending order
+  Responder/write/signal
+    display: Responder stream 8: could not write the frame's signal byte
+    origin: Responder stream 8
+    kind: Write(part=Signal, io=Other)
+    source[0]: could not write the frame's signal byte
+    source[1]: Io(Other)
+  Responder/write/query-count
+    display: Responder stream 8: could not write the frame's query count
+    origin: Responder stream 8
+    kind: Write(part=QueryCount, io=Other)
+    source[0]: could not write the frame's query count
+    source[1]: Io(Other)
+  Responder/write/query-children
+    display: Responder stream 8: could not write the frame's query child listing
+    origin: Responder stream 8
+    kind: Write(part=QueryChildren, io=Other)
+    source[0]: could not write the frame's query child listing
+    source[1]: Io(Other)
+  Responder/write/supply-length
+    display: Responder stream 8: could not write the frame's supply length
+    origin: Responder stream 8
+    kind: Write(part=SupplyLength, io=Other)
+    source[0]: could not write the frame's supply length
+    source[1]: Io(Other)
+  Responder/leaf/version
+    display: Responder stream 8: supplied version could not be encoded
+    origin: Responder stream 8
+    kind: InvalidLeaf::Version(io=Other)
+    source[0]: supplied version could not be encoded
+    source[1]: Io(Other)
+  Responder/leaf/message
+    display: Responder stream 8: supplied message could not be encoded
+    origin: Responder stream 8
+    kind: InvalidLeaf::Message(io=Other)
+    source[0]: supplied message could not be encoded
+    source[1]: Io(Other)
+  Responder/query-too-wide
+    display: Responder stream 8: query contains 257 children, exceeding the one-byte radix fan
+    origin: Responder stream 8
+    kind: QueryTooWide(count=257)
+    source[0]: query contains 257 children, exceeding the one-byte radix fan
+  Responder/query-out-of-order
+    display: Responder stream 8: query child radix 1 does not follow 2 in ascending order
+    origin: Responder stream 8
+    kind: QueryOutOfOrder(previous=2, radix=1)
+    source[0]: query child radix 1 does not follow 2 in ascending order
+  placement/opening-question
+    display: Initiator stream 0: signal byte 0x00 is invalid for the initiator's opening question
+    origin: Initiator stream 0
+    kind: InvalidSignal(byte=00, class=OpeningQuestion)
+    source[0]: signal byte 0x00 is invalid for the initiator's opening question
+  placement/opening-reply
+    display: Responder stream 0: signal byte 0x11 is invalid for the responder's opening reply
+    origin: Responder stream 0
+    kind: InvalidSignal(byte=11, class=OpeningReply)
+    source[0]: signal byte 0x11 is invalid for the responder's opening reply
+  placement/leaf-parent
+    display: Initiator stream 16: signal byte 0x76 is invalid for the initiator's leaf-parent replies
+    origin: Initiator stream 16
+    kind: InvalidSignal(byte=76, class=LeafParentReplies)
+    source[0]: signal byte 0x76 is invalid for the initiator's leaf-parent replies
+  placement/terminal-leaf
+    display: Responder stream 16: signal byte 0x10 is invalid for the responder's terminal leaf replies
+    origin: Responder stream 16
+    kind: InvalidSignal(byte=10, class=TerminalLeafReplies)
+    source[0]: signal byte 0x10 is invalid for the responder's terminal leaf replies
+DECODE
+  Initiator/read/signal
+    display: Initiator direction: could not read the frame's signal byte
+    origin: Initiator direction
+    kind: Read(part=Signal, io=Other)
+    source[0]: could not read the frame's signal byte
+    source[1]: Io(Other)
+  Initiator/read/query-count
+    display: Initiator stream 8: could not read the frame's query count
+    origin: Initiator stream 8
+    kind: Read(part=QueryCount, io=Other)
+    source[0]: could not read the frame's query count
+    source[1]: Io(Other)
+  Initiator/read/query-children
+    display: Initiator stream 8: could not read the frame's query child listing
+    origin: Initiator stream 8
+    kind: Read(part=QueryChildren, io=Other)
+    source[0]: could not read the frame's query child listing
+    source[1]: Io(Other)
+  Initiator/read/supply-length
+    display: Initiator stream 8: could not read the frame's supply length
+    origin: Initiator stream 8
+    kind: Read(part=SupplyLength, io=Other)
+    source[0]: could not read the frame's supply length
+    source[1]: Io(Other)
+  Initiator/read/supply-leaf
+    display: Initiator stream 8: could not read the frame's supply leaf
+    origin: Initiator stream 8
+    kind: Read(part=SupplyLeaf, io=Other)
+    source[0]: could not read the frame's supply leaf
+    source[1]: Io(Other)
+  Initiator/truncated/signal
+    display: Initiator direction: frame ended before its signal byte
+    origin: Initiator direction
+    kind: Truncated(missing=Signal, io=UnexpectedEof)
+    source[0]: frame ended before its signal byte
+    source[1]: Io(UnexpectedEof)
+  Initiator/truncated/query-count
+    display: Initiator stream 8: frame ended before its query count
+    origin: Initiator stream 8
+    kind: Truncated(missing=QueryCount, io=UnexpectedEof)
+    source[0]: frame ended before its query count
+    source[1]: Io(UnexpectedEof)
+  Initiator/truncated/query-children
+    display: Initiator stream 8: frame ended before its query child listing
+    origin: Initiator stream 8
+    kind: Truncated(missing=QueryChildren, io=UnexpectedEof)
+    source[0]: frame ended before its query child listing
+    source[1]: Io(UnexpectedEof)
+  Initiator/truncated/supply-length
+    display: Initiator stream 8: frame ended before its supply length
+    origin: Initiator stream 8
+    kind: Truncated(missing=SupplyLength, io=UnexpectedEof)
+    source[0]: frame ended before its supply length
+    source[1]: Io(UnexpectedEof)
+  Initiator/truncated/supply-leaf
+    display: Initiator stream 8: frame ended before its supply leaf
+    origin: Initiator stream 8
+    kind: Truncated(missing=SupplyLeaf, io=UnexpectedEof)
+    source[0]: frame ended before its supply leaf
+    source[1]: Io(UnexpectedEof)
+  Initiator/reserved-signal
+    display: Initiator stream 0: signal byte 0xee encodes an invalid semantic state
+    origin: Initiator stream 0
+    kind: InvalidSignal::Reserved(byte=ee, state=14)
+    source[0]: signal byte 0xee encodes an invalid semantic state
+    source[1]: semantic signal state 14 is outside the valid range
+  Initiator/query-out-of-order
+    display: Initiator stream 8: query child radix 1 does not follow 2 in ascending order
+    origin: Initiator stream 8
+    kind: QueryOutOfOrder(previous=2, radix=1)
+    source[0]: query child radix 1 does not follow 2 in ascending order
+  Initiator/leaf/version
+    display: Initiator stream 8: supplied Version could not be decoded
+    origin: Initiator stream 8
+    kind: InvalidLeaf::Version(io=UnexpectedEof)
+    source[0]: supplied Version could not be decoded
+    source[1]: Io(UnexpectedEof)
+  Initiator/leaf/message
+    display: Initiator stream 8: supplied Message could not be decoded
+    origin: Initiator stream 8
+    kind: InvalidLeaf::Message(io=InvalidData)
+    source[0]: supplied Message could not be decoded
+    source[1]: Io(InvalidData)
+  Initiator/leaf/trailing
+    display: Initiator stream 8: 1 trailing bytes follow the supplied Version and Message
+    origin: Initiator stream 8
+    kind: InvalidLeaf::TrailingBytes(count=1)
+    source[0]: 1 trailing bytes follow the supplied Version and Message
+  Initiator/frame/trailing
+    display: Initiator stream 8: 1 trailing bytes follow the frame
+    origin: Initiator stream 8
+    kind: TrailingBytes(count=1)
+    source[0]: 1 trailing bytes follow the frame
+  Responder/read/signal
+    display: Responder direction: could not read the frame's signal byte
+    origin: Responder direction
+    kind: Read(part=Signal, io=Other)
+    source[0]: could not read the frame's signal byte
+    source[1]: Io(Other)
+  Responder/read/query-count
+    display: Responder stream 8: could not read the frame's query count
+    origin: Responder stream 8
+    kind: Read(part=QueryCount, io=Other)
+    source[0]: could not read the frame's query count
+    source[1]: Io(Other)
+  Responder/read/query-children
+    display: Responder stream 8: could not read the frame's query child listing
+    origin: Responder stream 8
+    kind: Read(part=QueryChildren, io=Other)
+    source[0]: could not read the frame's query child listing
+    source[1]: Io(Other)
+  Responder/read/supply-length
+    display: Responder stream 8: could not read the frame's supply length
+    origin: Responder stream 8
+    kind: Read(part=SupplyLength, io=Other)
+    source[0]: could not read the frame's supply length
+    source[1]: Io(Other)
+  Responder/read/supply-leaf
+    display: Responder stream 8: could not read the frame's supply leaf
+    origin: Responder stream 8
+    kind: Read(part=SupplyLeaf, io=Other)
+    source[0]: could not read the frame's supply leaf
+    source[1]: Io(Other)
+  Responder/truncated/signal
+    display: Responder direction: frame ended before its signal byte
+    origin: Responder direction
+    kind: Truncated(missing=Signal, io=UnexpectedEof)
+    source[0]: frame ended before its signal byte
+    source[1]: Io(UnexpectedEof)
+  Responder/truncated/query-count
+    display: Responder stream 8: frame ended before its query count
+    origin: Responder stream 8
+    kind: Truncated(missing=QueryCount, io=UnexpectedEof)
+    source[0]: frame ended before its query count
+    source[1]: Io(UnexpectedEof)
+  Responder/truncated/query-children
+    display: Responder stream 8: frame ended before its query child listing
+    origin: Responder stream 8
+    kind: Truncated(missing=QueryChildren, io=UnexpectedEof)
+    source[0]: frame ended before its query child listing
+    source[1]: Io(UnexpectedEof)
+  Responder/truncated/supply-length
+    display: Responder stream 8: frame ended before its supply length
+    origin: Responder stream 8
+    kind: Truncated(missing=SupplyLength, io=UnexpectedEof)
+    source[0]: frame ended before its supply length
+    source[1]: Io(UnexpectedEof)
+  Responder/truncated/supply-leaf
+    display: Responder stream 8: frame ended before its supply leaf
+    origin: Responder stream 8
+    kind: Truncated(missing=SupplyLeaf, io=UnexpectedEof)
+    source[0]: frame ended before its supply leaf
+    source[1]: Io(UnexpectedEof)
+  Responder/reserved-signal
+    display: Responder stream 0: signal byte 0xee encodes an invalid semantic state
+    origin: Responder stream 0
+    kind: InvalidSignal::Reserved(byte=ee, state=14)
+    source[0]: signal byte 0xee encodes an invalid semantic state
+    source[1]: semantic signal state 14 is outside the valid range
+  Responder/query-out-of-order
+    display: Responder stream 8: query child radix 1 does not follow 2 in ascending order
+    origin: Responder stream 8
+    kind: QueryOutOfOrder(previous=2, radix=1)
+    source[0]: query child radix 1 does not follow 2 in ascending order
+  Responder/leaf/version
+    display: Responder stream 8: supplied Version could not be decoded
+    origin: Responder stream 8
+    kind: InvalidLeaf::Version(io=UnexpectedEof)
+    source[0]: supplied Version could not be decoded
+    source[1]: Io(UnexpectedEof)
+  Responder/leaf/message
+    display: Responder stream 8: supplied Message could not be decoded
+    origin: Responder stream 8
+    kind: InvalidLeaf::Message(io=InvalidData)
+    source[0]: supplied Message could not be decoded
+    source[1]: Io(InvalidData)
+  Responder/leaf/trailing
+    display: Responder stream 8: 1 trailing bytes follow the supplied Version and Message
+    origin: Responder stream 8
+    kind: InvalidLeaf::TrailingBytes(count=1)
+    source[0]: 1 trailing bytes follow the supplied Version and Message
+  Responder/frame/trailing
+    display: Responder stream 8: 1 trailing bytes follow the frame
+    origin: Responder stream 8
+    kind: TrailingBytes(count=1)
+    source[0]: 1 trailing bytes follow the frame
+  placement/opening-question/decode
+    display: Initiator stream 0: signal byte 0x00 is invalid for the initiator's opening question
+    origin: Initiator stream 0
+    kind: InvalidSignal::Placement(byte=00, class=OpeningQuestion)
+    source[0]: signal byte 0x00 is invalid for the initiator's opening question
+  placement/opening-reply/decode
+    display: Responder stream 0: signal byte 0x11 is invalid for the responder's opening reply
+    origin: Responder stream 0
+    kind: InvalidSignal::Placement(byte=11, class=OpeningReply)
+    source[0]: signal byte 0x11 is invalid for the responder's opening reply
+  placement/leaf-parent/decode
+    display: Initiator stream 16: signal byte 0x76 is invalid for the initiator's leaf-parent replies
+    origin: Initiator stream 16
+    kind: InvalidSignal::Placement(byte=76, class=LeafParentReplies)
+    source[0]: signal byte 0x76 is invalid for the initiator's leaf-parent replies
+  placement/terminal-leaf/decode
+    display: Responder stream 16: signal byte 0x10 is invalid for the responder's terminal leaf replies
+    origin: Responder stream 16
+    kind: InvalidSignal::Placement(byte=10, class=TerminalLeafReplies)
+    source[0]: signal byte 0x10 is invalid for the responder's terminal leaf replies
