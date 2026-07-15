@@ -17,14 +17,14 @@ pub fn encode<T, W: Write>(
     out: &mut W,
 ) -> Result<(), EncodeError> {
     let (stream, frame) = wire;
-    encode_frame(speaker, frame, *stream, out)
+    encode_frame(speaker, *stream, frame, out)
         .map_err(|kind| EncodeError::new(speaker, *stream, kind))
 }
 
 fn encode_frame<T, W: Write>(
     speaker: Speaker,
-    frame: &Frame<T>,
     stream: Stream,
+    frame: &Frame<T>,
     out: &mut W,
 ) -> Result<(), EncodeErrorKind> {
     let signal = match frame {
