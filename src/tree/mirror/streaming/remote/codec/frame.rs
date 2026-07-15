@@ -41,6 +41,16 @@ pub enum Frame<T> {
     End(End),
 }
 
+impl<T> Frame<T> {
+    /// Return the reply or stream boundary carried by this frame, if any.
+    pub fn end(&self) -> Option<End> {
+        match self {
+            Frame::Reaction(_, Flow::Continue) => None,
+            Frame::Reaction(_, Flow::End(end)) | Frame::End(end) => Some(*end),
+        }
+    }
+}
+
 /// A frame paired with the logical stream named by its signal byte.
 pub type WireFrame<T> = (Stream, Frame<T>);
 

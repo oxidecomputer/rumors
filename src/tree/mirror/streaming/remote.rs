@@ -24,6 +24,13 @@
 //! question publishable, derives supplied radices from leaf content, and uses
 //! the backend's existing conversion fold to reconstruct one node per ascending
 //! leaf run.
+//!
+//! [`session`] performs the physical multiplexing. Each logical stream has one
+//! incoming and one outgoing handoff slot; a full slot propagates pressure to
+//! the transport. Outgoing frames carry an exact, cancellation-safe
+//! acknowledgement which releases their attached question only after the
+//! frame is written and flushed.
 
 mod adapter;
 mod codec;
+mod session;
