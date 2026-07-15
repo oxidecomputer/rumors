@@ -1,4 +1,4 @@
-use std::{convert::Infallible, future::Future, pin::Pin, pin::pin};
+use std::{future::Future, pin::Pin, pin::pin};
 
 use async_stream::try_stream;
 use futures::{Stream, StreamExt};
@@ -109,13 +109,13 @@ where
     )
 }
 
-/// Encode one leaf-height reply, where a further query is impossible.
+/// Encode one leaf-height reply, where only an empty request for the leaf is valid.
 pub fn encode_leaf_reply<B, T>(
     backend: B,
     scope: Scope<Z>,
     reply: Reply<B, T, Z>,
     end: End,
-) -> Frames<T, B::Error, Infallible>
+) -> Frames<T, B::Error, Scope<Z>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
@@ -130,7 +130,13 @@ where
                 let _ = scope.next();
                 Ok(None)
             }
-            ProtocolReaction::Query(_) => Err(ScopeError::LeafQuery),
+            ProtocolReaction::Query(listing) if !listing.is_empty() => {
+                Err(ScopeError::NonemptyLeafQuery)
+            }
+            ProtocolReaction::Query(_) => {
+                let (_, prefix) = scope.next().ok_or(ScopeError::UnpositionedQuery)?;
+                Ok(Some(Scope::leaf(prefix)))
+            }
             ProtocolReaction::Supply(_, _) => Ok(None),
         },
     )

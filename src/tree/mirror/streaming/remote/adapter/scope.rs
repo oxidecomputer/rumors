@@ -1,6 +1,6 @@
 use crate::tree::typed::{
     Hash, Prefix,
-    height::{Height, S, UnderRoot},
+    height::{Height, S, UnderRoot, Z},
 };
 
 /// The local knowledge needed to interpret one future prefix-free reply.
@@ -46,6 +46,18 @@ where
     /// Resolve a keyed supply to its claimed child prefix.
     pub fn supplied(&self, radix: u8) -> Prefix<H> {
         self.parent.push(radix)
+    }
+}
+
+impl Scope<Z> {
+    /// Retain the one leaf position requested by a terminal empty query.
+    pub fn leaf(prefix: Prefix<Z>) -> Self {
+        let (parent, radix) = prefix.pop();
+        Self {
+            parent,
+            children: vec![radix],
+            next: 0,
+        }
     }
 }
 

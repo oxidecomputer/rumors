@@ -12,6 +12,7 @@ use crate::{
     tree::typed::{Hash, Path},
 };
 
+mod backend_errors;
 mod malformed;
 mod opening;
 mod properties;

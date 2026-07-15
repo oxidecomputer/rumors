@@ -4,9 +4,9 @@ pub enum ScopeError {
     /// A positional query followed all children named by its question.
     #[error("a query has no remaining child in its question")]
     UnpositionedQuery,
-    /// Queries cannot descend below leaf height.
-    #[error("a leaf-height reply contains a query")]
-    LeafQuery,
+    /// A nonempty query cannot descend below leaf height.
+    #[error("a leaf-height reply contains a nonempty query")]
+    NonemptyLeafQuery,
 }
 
 /// The initiator's distinguished opening reply did not contain its one query.

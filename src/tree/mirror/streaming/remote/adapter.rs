@@ -19,8 +19,11 @@
 //! positionally; a nested `Query` thereby creates the lower scope which will
 //! interpret its future reply. `Supply` does not consume the positional cursor:
 //! its content-derived path recovers its child radix independently. The
-//! initiator's opening query is the sole exception to “one reply answers one
-//! earlier question,” so it seeds the root scope directly.
+//! leaf-height exception is an empty `Query`: it consumes its leaf position and
+//! requests that leaf itself, creating a terminal scope at the same height
+//! rather than descending. The initiator's opening query is the sole exception
+//! to “one reply answers one earlier question,” so it seeds the root scope
+//! directly.
 //!
 //! Encoding attaches a newly created scope to the exact frame containing its
 //! `Query`. [`Encoded::write_with`] releases that scope only after the supplied

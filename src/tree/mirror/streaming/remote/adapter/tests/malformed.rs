@@ -1,6 +1,6 @@
 //! Focused malformed-wire cases which are not naturally height-parametric.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, convert::Infallible};
 
 use before::Version;
 use futures::{StreamExt, TryStreamExt, stream};
@@ -18,7 +18,8 @@ use crate::{
 
 use super::{
     super::{
-        DecodeError, EncodeError, Scope, ScopeError, decode_leaf_reply, decode_reply, encode_reply,
+        DecodeError, EncodeError, Scope, ScopeError, decode_leaf_reply, decode_reply,
+        encode_leaf_reply, encode_reply,
     },
     LeafCase, hash, runtime,
 };
@@ -67,7 +68,7 @@ fn an_unpositioned_query_is_rejected_in_both_directions() {
     let path = Path::for_leaf(&Version::new(), &[0]);
     let parent = Prefix::<S<S<Z>>>::containing(&path);
     let listing = vec![(1, hash(1))];
-    let frames = vec![Frame::Reaction(
+    let frames: Vec<Frame<()>> = vec![Frame::Reaction(
         WireReaction::Query(listing.clone()),
         Flow::End(End::Reply),
     )];
@@ -98,6 +99,102 @@ fn an_unpositioned_query_is_rejected_in_both_directions() {
         encode_error,
         EncodeError::Scope(ScopeError::UnpositionedQuery)
     ));
+}
+
+/// All sixteen leaf-query states pin validity, error precedence, framing, and publication.
+#[test]
+fn leaf_query_matrix_is_exhaustive() {
+    let path = Path::for_leaf(&Version::new(), &[0]);
+    let parent = Prefix::<S<Z>>::containing(&path);
+    let radix = 3;
+    let mut checked = 0;
+
+    for positioned in [false, true] {
+        for nonempty in [false, true] {
+            for end in [End::Reply, End::Stream] {
+                let scope_listing = if positioned {
+                    vec![(radix, hash(1))]
+                } else {
+                    Vec::new()
+                };
+                let query_listing = if nonempty {
+                    vec![(1, hash(2))]
+                } else {
+                    Vec::new()
+                };
+                let expected_error = if nonempty {
+                    Some(ScopeError::NonemptyLeafQuery)
+                } else if !positioned {
+                    Some(ScopeError::UnpositionedQuery)
+                } else {
+                    None
+                };
+                let expected_frame =
+                    Frame::Reaction(WireReaction::Query(query_listing.clone()), Flow::End(end));
+
+                let reply = Reply::<Local, (), Z> {
+                    replies: vec![Reaction::Query(query_listing.clone())],
+                };
+                let encoded = runtime().block_on(async {
+                    encode_leaf_reply(Local, Scope::new(parent, &scope_listing), reply, end)
+                        .map_ok(|encoded| encoded.into_parts())
+                        .try_collect::<Vec<_>>()
+                        .await
+                });
+                match expected_error {
+                    Some(expected) => {
+                        let error = encoded.expect_err("this matrix cell must reject");
+                        assert_eq!(encode_scope_error(error), expected);
+                    }
+                    None => {
+                        let encoded = encoded.expect("this matrix cell must encode");
+                        let [(frame, question)] = encoded.as_slice() else {
+                            panic!("a leaf query encodes as exactly one frame")
+                        };
+                        assert_eq!(frame, &expected_frame);
+                        assert_eq!(question, &Some(Scope::leaf(parent.push(radix))));
+                    }
+                }
+                checked += 1;
+
+                let decoded = runtime().block_on(async {
+                    let mut frames = stream::iter([expected_frame]);
+                    decode_leaf_reply(Local, Scope::new(parent, &scope_listing), &mut frames).await
+                });
+                match expected_error {
+                    Some(expected) => {
+                        let error = decoded.err().expect("this matrix cell must reject");
+                        assert_eq!(decode_scope_error(error), expected);
+                    }
+                    None => {
+                        let decoded = decoded.expect("this matrix cell must decode");
+                        assert_eq!(decoded.end, end);
+                        assert_eq!(decoded.questions, vec![Scope::leaf(parent.push(radix))]);
+                        let [Reaction::Query(listing)] = decoded.reply.replies.as_slice() else {
+                            panic!("the decoded reaction must remain a query")
+                        };
+                        assert!(listing.is_empty());
+                    }
+                }
+                checked += 1;
+            }
+        }
+    }
+    assert_eq!(checked, 16);
+}
+
+fn encode_scope_error(error: EncodeError<Infallible>) -> ScopeError {
+    match error {
+        EncodeError::Scope(error) => error,
+        EncodeError::Backend(error) => match error {},
+    }
+}
+
+fn decode_scope_error(error: DecodeError<Infallible>) -> ScopeError {
+    match error {
+        DecodeError::Scope(error) => error,
+        other => panic!("expected a scope error, got {other:?}"),
+    }
 }
 
 fn under_root_pair() -> [(Version, Message<u64>, Path); 2] {

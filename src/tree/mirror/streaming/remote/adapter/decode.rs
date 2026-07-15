@@ -1,4 +1,4 @@
-use std::{convert::Infallible, pin::pin};
+use std::pin::pin;
 
 use futures::{Stream, StreamExt};
 use tokio::sync::mpsc;
@@ -76,28 +76,25 @@ where
     .await
 }
 
-/// Decode one leaf-height reply, where a further query is impossible.
+/// Decode one leaf-height reply, where only an empty request for the leaf is valid.
 pub async fn decode_leaf_reply<B, T, F>(
     backend: B,
     scope: Scope<Z>,
     frames: &mut F,
-) -> Result<Decoded<B, T, Z, ()>, DecodeError<B::Error>>
+) -> Result<Decoded<B, T, Z, Vec<Scope<Z>>>, DecodeError<B::Error>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     F: Stream<Item = Frame<T>> + Unpin,
 {
-    let decoded: Decoded<B, T, Z, Vec<Infallible>> =
-        decode(backend, scope, frames, |_scope, _listing| {
-            Err(ScopeError::LeafQuery)
-        })
-        .await?;
-    debug_assert!(decoded.questions.is_empty());
-    Ok(Decoded {
-        reply: decoded.reply,
-        end: decoded.end,
-        questions: (),
+    decode(backend, scope, frames, |scope, listing| {
+        if !listing.is_empty() {
+            return Err(ScopeError::NonemptyLeafQuery);
+        }
+        let (_, prefix) = scope.next().ok_or(ScopeError::UnpositionedQuery)?;
+        Ok(Scope::leaf(prefix))
     })
+    .await
 }
 
 async fn decode<B, T, H, F, Q, N>(

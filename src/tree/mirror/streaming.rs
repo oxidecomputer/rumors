@@ -16,9 +16,13 @@ mod materialized;
 mod message;
 mod protocol;
 mod remote;
+#[cfg(test)]
+mod testing;
 
 pub use backend::{Backend, Leaf, Local, Node, Root};
 pub use materialized::Handshaking;
+#[cfg(test)]
+pub use testing::{Failing, FailingNode, Failure, Faulting, Operation};
 
 use std::cmp::Ordering;
 use std::pin::pin;
