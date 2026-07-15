@@ -4,9 +4,9 @@ use std::fmt::Write;
 use super::*;
 
 /// Protocol-valid signal placements in either speaker direction.
-const VALID_PLACEMENTS_PER_SPEAKER: usize = 223;
+const VALID_PLACEMENTS: [usize; 2] = [161, 163];
 
-/// The semantic signal product maps bijectively onto bytes 0 through 237.
+/// The semantic signal product maps bijectively onto bytes 0 through 169.
 #[test]
 fn encoding_is_bijective() {
     let mut bytes = BTreeSet::new();
@@ -47,7 +47,10 @@ fn encoding_is_bijective() {
 /// Both directions accept exactly their protocol-valid subset of the product.
 #[test]
 fn placements_match_the_phase_schedule_exhaustively() {
-    for speaker in [Speaker::Initiator, Speaker::Responder] {
+    for (direction, speaker) in [Speaker::Initiator, Speaker::Responder]
+        .into_iter()
+        .enumerate()
+    {
         let mut accepted = 0;
         for index in 0..Stream::COUNT {
             let stream = Stream::new(index).unwrap();
@@ -69,7 +72,7 @@ fn placements_match_the_phase_schedule_exhaustively() {
                 }
             }
         }
-        assert_eq!(accepted, VALID_PLACEMENTS_PER_SPEAKER);
+        assert_eq!(accepted, VALID_PLACEMENTS[direction]);
     }
 }
 
@@ -112,21 +115,13 @@ fn placement_is_valid(speaker: Speaker, index: u8, signal: Signal) -> bool {
     match (speaker, index) {
         (Speaker::Initiator, 0) => matches!(
             signal,
-            Signal::QueryEmpty(Flow::End(End::Stream)) | Signal::Query(Flow::End(End::Stream))
+            Signal::QueryEmpty(Flow::End) | Signal::Query(Flow::End) | Signal::End(End::Stream)
         ),
-        (Speaker::Responder, 0) => matches!(
-            signal,
-            Signal::Match(Flow::Continue | Flow::End(End::Stream))
-                | Signal::QueryEmpty(Flow::Continue | Flow::End(End::Stream))
-                | Signal::Query(Flow::Continue | Flow::End(End::Stream))
-                | Signal::Supply(Flow::Continue | Flow::End(End::Stream))
-                | Signal::End(End::Stream)
-        ),
+        (Speaker::Responder, 0) => true,
         (Speaker::Initiator, Stream::MAX) => !matches!(signal, Signal::Query(_)),
-        (Speaker::Responder, Stream::MAX) => matches!(
-            signal,
-            Signal::Supply(Flow::End(End::Reply | End::Stream)) | Signal::End(_)
-        ),
+        (Speaker::Responder, Stream::MAX) => {
+            matches!(signal, Signal::Supply(Flow::End) | Signal::End(_))
+        }
         (_, _) => true,
     }
 }

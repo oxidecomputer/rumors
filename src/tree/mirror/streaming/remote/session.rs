@@ -2,9 +2,13 @@
 //!
 //! [`incoming()`] builds the stream-lifecycle boundary: decoded frames enter one
 //! of 17 one-slot queues, and a full queue stops the sole reader so pressure
-//! reaches the transport. [`outgoing()`] builds the scheduler: it chooses the
-//! bottom-most ready stream and acknowledges each frame only after its bytes
-//! are written and flushed. The codec remains the byte-validation boundary.
+//! reaches the transport. It consumes stream-end controls rather than exposing
+//! them as empty protocol replies. [`outgoing()`] builds the scheduler: it
+//! chooses the bottom-most ready stream and acknowledges each frame only after
+//! its bytes are written and flushed. [`ReplyFrame`] excludes stream-end control
+//! from [`FrameSender::frame`], while [`FrameSender::finish`] consumes the sender
+//! and emits that control after the producer's last reply. The codec remains
+//! the byte-validation boundary.
 
 use tokio::sync::mpsc;
 
@@ -16,7 +20,9 @@ mod outgoing;
 
 pub use coordinator::{DriveError, Drivers};
 pub use incoming::{Demux, DemuxError, Incoming, incoming};
-pub use outgoing::{FrameSender, Mux, MuxError, Outgoing, SendError, outgoing};
+pub use outgoing::{
+    FrameSender, Mux, MuxError, Outgoing, ReplyFrame, ReplyFrameError, SendError, outgoing,
+};
 
 /// Number of logical streams multiplexed in one transport direction.
 const STREAM_COUNT: usize = Stream::COUNT as usize;

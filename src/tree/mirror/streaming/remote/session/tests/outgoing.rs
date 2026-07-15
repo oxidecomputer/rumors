@@ -9,46 +9,71 @@ use std::{
 use futures::poll;
 use tokio::io::AsyncWrite;
 
-use super::super::{MuxError, STREAM_COUNT, outgoing as build_outgoing, stream_at};
-use super::{RecordingWriter, SPEAKERS, closing_frame};
+use super::super::{
+    MuxError, ReplyFrame, ReplyFrameError, STREAM_COUNT, outgoing as build_outgoing, stream_at,
+};
+use super::{RecordingWriter, SPEAKERS, ending_reply, reply, stream_end};
 use crate::tree::mirror::streaming::remote::codec::{
-    EncodeErrorKind, Flow, Frame, Origin, Reaction, Speaker, Stream, decode,
+    EncodeErrorKind, End, Flow, Frame, Origin, Reaction, Speaker, Stream, decode,
 };
 
-/// When every stream is ready together, the mux emits complete frames from
-/// the leaf-most stream upward and acknowledges every physical write.
+/// Only reply frames cross the producer API; stream control requires `finish`.
+#[test]
+fn reply_frame_excludes_stream_end_control() {
+    assert_eq!(
+        ReplyFrame::try_from(Frame::<()>::End(End::Stream)),
+        Err(ReplyFrameError::StreamEnd),
+    );
+    assert!(ReplyFrame::try_from(Frame::<()>::End(End::Reply)).is_ok());
+    assert!(ReplyFrame::try_from(Frame::Reaction(Reaction::<()>::Match, Flow::End)).is_ok());
+}
+
+/// When every stream is ready together, the mux chooses the leaf-most one and
+/// preserves each stream's reply-before-control order through completion.
 #[tokio::test]
 async fn prefers_the_bottom_most_ready_stream() {
     for speaker in SPEAKERS {
         let (mux, mut outgoing) = build_outgoing(speaker, RecordingWriter::default());
-        let mut senders = (0..STREAM_COUNT)
+        let senders = (0..STREAM_COUNT)
             .map(|index| outgoing.take(stream_at(index)))
             .collect::<Vec<_>>();
         let mut sending = senders
-            .iter_mut()
+            .into_iter()
             .enumerate()
-            .map(|(index, sender)| {
-                Box::pin(sender.frame(closing_frame::<()>(speaker, stream_at(index))))
+            .map(|(index, mut sender)| {
+                Box::pin(async move {
+                    sender
+                        .frame(reply(ending_reply::<()>(speaker, stream_at(index))))
+                        .await?;
+                    sender.finish().await
+                })
             })
             .collect::<Vec<_>>();
-        for frame in &mut sending {
-            assert!(poll!(frame).is_pending());
+        for stream in &mut sending {
+            assert!(poll!(stream).is_pending());
         }
 
-        let written = mux.run().await.unwrap().bytes;
-        for frame in sending {
-            frame.await.unwrap();
+        let (written, finished) = tokio::join!(mux.run(), futures::future::join_all(sending));
+        let written = written.unwrap().bytes;
+        for result in finished {
+            result.unwrap();
         }
 
         let mut rest = written.as_slice();
-        for index in (0..STREAM_COUNT).rev() {
-            let stream = stream_at(index);
-            assert_eq!(
-                decode::<()>(speaker, &mut rest).unwrap(),
-                (stream, closing_frame(speaker, stream)),
-            );
+        let mut frames = Vec::new();
+        while !rest.is_empty() {
+            frames.push(decode::<()>(speaker, &mut rest).unwrap());
         }
-        assert!(rest.is_empty());
+        assert_eq!(frames[0].0, stream_at(STREAM_COUNT - 1));
+        for index in 0..STREAM_COUNT {
+            let stream = stream_at(index);
+            let own = frames
+                .iter()
+                .filter(|(actual, _)| *actual == stream)
+                .map(|(_, frame)| frame.clone())
+                .collect::<Vec<_>>();
+            assert_eq!(own, [ending_reply(speaker, stream), stream_end()]);
+        }
     }
 }
 
@@ -65,13 +90,13 @@ async fn acknowledgements_are_bound_to_their_exact_frame() {
 
     {
         let first = Frame::Reaction(Reaction::<()>::Match, Flow::Continue);
-        let mut cancelled = Box::pin(sender.frame(first));
+        let mut cancelled = Box::pin(sender.frame(reply(first)));
         assert!(poll!(&mut cancelled).is_pending());
     }
 
     let mut running = Box::pin(mux.run());
-    let second = closing_frame::<()>(speaker, logical);
-    let mut sending = Box::pin(sender.frame(second));
+    let second = ending_reply::<()>(speaker, logical);
+    let mut sending = Box::pin(sender.frame(reply(second)));
     tokio::select! {
         result = &mut sending => result.unwrap(),
         result = &mut running => panic!("mux stopped before the second frame: {result:?}"),
@@ -131,7 +156,7 @@ async fn acknowledges_only_after_a_successful_flush() {
     let stream = stream_at(8);
     let (mux, mut outgoing) = build_outgoing(speaker, FlushFailure);
     let mut sender = outgoing.take(stream);
-    let mut sending = Box::pin(sender.frame(closing_frame::<()>(speaker, stream)));
+    let mut sending = Box::pin(sender.frame(reply(ending_reply::<()>(speaker, stream))));
     assert!(poll!(&mut sending).is_pending());
 
     let Err(MuxError::Codec(error)) = mux.run().await else {

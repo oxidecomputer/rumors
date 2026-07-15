@@ -138,27 +138,27 @@ pub enum StreamClass {
     TerminalLeafReplies,
 }
 
-/// A logical reply or stream boundary.
+/// A logical reply boundary or transport-level stream boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum End {
     /// End the current reply while leaving its stream open.
     Reply,
-    /// End the stream and its current reply.
+    /// End a logical stream between replies.
     Stream,
 }
 
-/// Whether another reaction follows or this reaction ends a boundary.
+/// Whether another reaction follows or this reaction ends its reply.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Flow {
     /// Another reaction follows in the current reply.
     Continue,
-    /// This reaction ends its reply or stream.
-    End(End),
+    /// This reaction ends its reply.
+    End,
 }
 
 impl Flow {
     /// Signal states occupied by each reaction form's flow variants.
-    const STATE_COUNT: u8 = 3;
+    const STATE_COUNT: u8 = 2;
 
     /// Offset of a continuing reaction within its reaction form.
     const CONTINUE_STATE: u8 = 0;
@@ -166,14 +166,10 @@ impl Flow {
     /// Offset of a reply-ending reaction within its reaction form.
     const REPLY_END_STATE: u8 = 1;
 
-    /// Offset of a stream-ending reaction within its reaction form.
-    const STREAM_END_STATE: u8 = 2;
-
     fn offset(self) -> u8 {
         match self {
             Flow::Continue => Self::CONTINUE_STATE,
-            Flow::End(End::Reply) => Self::REPLY_END_STATE,
-            Flow::End(End::Stream) => Self::STREAM_END_STATE,
+            Flow::End => Self::REPLY_END_STATE,
         }
     }
 }
@@ -221,17 +217,13 @@ impl Signal {
 
     const STATES: [Signal; Self::STATE_COUNT as usize] = [
         Signal::Match(Flow::Continue),
-        Signal::Match(Flow::End(End::Reply)),
-        Signal::Match(Flow::End(End::Stream)),
+        Signal::Match(Flow::End),
         Signal::QueryEmpty(Flow::Continue),
-        Signal::QueryEmpty(Flow::End(End::Reply)),
-        Signal::QueryEmpty(Flow::End(End::Stream)),
+        Signal::QueryEmpty(Flow::End),
         Signal::Query(Flow::Continue),
-        Signal::Query(Flow::End(End::Reply)),
-        Signal::Query(Flow::End(End::Stream)),
+        Signal::Query(Flow::End),
         Signal::Supply(Flow::Continue),
-        Signal::Supply(Flow::End(End::Reply)),
-        Signal::Supply(Flow::End(End::Stream)),
+        Signal::Supply(Flow::End),
         Signal::End(End::Reply),
         Signal::End(End::Stream),
     ];
@@ -252,17 +244,6 @@ impl Signal {
             .get(usize::from(state))
             .copied()
             .ok_or(InvalidSignalState { state })
-    }
-
-    /// Return a reaction's flow, distinguishing it from a bare end.
-    fn flow(self) -> Option<Flow> {
-        match self {
-            Signal::Match(flow)
-            | Signal::QueryEmpty(flow)
-            | Signal::Query(flow)
-            | Signal::Supply(flow) => Some(flow),
-            Signal::End(_) => None,
-        }
     }
 }
 
@@ -334,21 +315,14 @@ impl WireSignal {
         let valid = match class {
             StreamClass::OpeningQuestion => matches!(
                 self.signal,
-                Signal::QueryEmpty(Flow::End(End::Stream)) | Signal::Query(Flow::End(End::Stream))
+                Signal::QueryEmpty(Flow::End) | Signal::Query(Flow::End) | Signal::End(End::Stream)
             ),
-            StreamClass::OpeningReply => {
-                matches!(self.signal, Signal::End(End::Stream))
-                    || matches!(
-                        self.signal.flow(),
-                        Some(Flow::Continue | Flow::End(End::Stream))
-                    )
-            }
+            StreamClass::OpeningReply => true,
             StreamClass::InteriorReplies => true,
             StreamClass::LeafParentReplies => !matches!(self.signal, Signal::Query(_)),
-            StreamClass::TerminalLeafReplies => matches!(
-                self.signal,
-                Signal::Supply(Flow::End(End::Reply | End::Stream)) | Signal::End(_)
-            ),
+            StreamClass::TerminalLeafReplies => {
+                matches!(self.signal, Signal::Supply(Flow::End) | Signal::End(_))
+            }
         };
         if valid {
             Ok(self)

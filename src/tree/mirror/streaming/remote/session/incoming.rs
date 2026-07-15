@@ -43,7 +43,7 @@ impl<T> Incoming<T> {
 /// Routes decoded frames into their logical streams.
 ///
 /// Each sender slot transitions exactly once from open (`Some`) to ended
-/// (`None`) after its stream-end frame is delivered. A local receiver drop
+/// (`None`) after its stream-end control is consumed. A local receiver drop
 /// terminates the driver instead of masquerading as a peer stream end.
 pub struct Demux<R, T> {
     speaker: Speaker,
@@ -71,18 +71,23 @@ where
                     origin: Origin::stream(self.speaker, stream),
                 });
             };
-            let end = frame.end();
+            if matches!(frame, Frame::End(End::Stream)) {
+                if send.is_closed() {
+                    return Err(DemuxError::ReceiverDropped {
+                        origin: Origin::stream(self.speaker, stream),
+                    });
+                }
+                self.senders[index] = None;
+                if self.senders.iter().all(Option::is_none) {
+                    return Ok(self.read.into_inner());
+                }
+                continue;
+            }
             send.send(frame)
                 .await
                 .map_err(|_| DemuxError::ReceiverDropped {
                     origin: Origin::stream(self.speaker, stream),
                 })?;
-            if end == Some(End::Stream) {
-                self.senders[index] = None;
-                if self.senders.iter().all(Option::is_none) {
-                    return Ok(self.read.into_inner());
-                }
-            }
         }
     }
 

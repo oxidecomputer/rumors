@@ -149,11 +149,11 @@ DECODE
     source[0]: frame ended before its supply leaf
     source[1]: Io(UnexpectedEof)
   Initiator/reserved-signal
-    display: Initiator stream 0: signal byte 0xee encodes an invalid semantic state
+    display: Initiator stream 0: signal byte 0xaa encodes an invalid semantic state
     origin: Initiator stream 0
-    kind: InvalidSignal::Reserved(byte=ee, state=14)
-    source[0]: signal byte 0xee encodes an invalid semantic state
-    source[1]: semantic signal state 14 is outside the valid range
+    kind: InvalidSignal::Reserved(byte=aa, state=10)
+    source[0]: signal byte 0xaa encodes an invalid semantic state
+    source[1]: semantic signal state 10 is outside the valid range
   Initiator/query-out-of-order
     display: Initiator stream 8: query child radix 1 does not follow 2 in ascending order
     origin: Initiator stream 8
@@ -242,11 +242,11 @@ DECODE
     source[0]: frame ended before its supply leaf
     source[1]: Io(UnexpectedEof)
   Responder/reserved-signal
-    display: Responder stream 0: signal byte 0xee encodes an invalid semantic state
+    display: Responder stream 0: signal byte 0xaa encodes an invalid semantic state
     origin: Responder stream 0
-    kind: InvalidSignal::Reserved(byte=ee, state=14)
-    source[0]: signal byte 0xee encodes an invalid semantic state
-    source[1]: semantic signal state 14 is outside the valid range
+    kind: InvalidSignal::Reserved(byte=aa, state=10)
+    source[0]: signal byte 0xaa encodes an invalid semantic state
+    source[1]: semantic signal state 10 is outside the valid range
   Responder/query-out-of-order
     display: Responder stream 8: query child radix 1 does not follow 2 in ascending order
     origin: Responder stream 8
@@ -279,16 +279,11 @@ DECODE
     origin: Initiator stream 0
     kind: InvalidSignal::Placement(byte=00, class=OpeningQuestion)
     source[0]: signal byte 0x00 is invalid for the initiator's opening question
-  placement/opening-reply/decode
-    display: Responder stream 0: signal byte 0x11 is invalid for the responder's opening reply
-    origin: Responder stream 0
-    kind: InvalidSignal::Placement(byte=11, class=OpeningReply)
-    source[0]: signal byte 0x11 is invalid for the responder's opening reply
   placement/leaf-parent/decode
-    display: Initiator stream 16: signal byte 0x76 is invalid for the initiator's leaf-parent replies
+    display: Initiator stream 16: signal byte 0x54 is invalid for the initiator's leaf-parent replies
     origin: Initiator stream 16
-    kind: InvalidSignal::Placement(byte=76, class=LeafParentReplies)
-    source[0]: signal byte 0x76 is invalid for the initiator's leaf-parent replies
+    kind: InvalidSignal::Placement(byte=54, class=LeafParentReplies)
+    source[0]: signal byte 0x54 is invalid for the initiator's leaf-parent replies
   placement/terminal-leaf/decode
     display: Responder stream 16: signal byte 0x10 is invalid for the responder's terminal leaf replies
     origin: Responder stream 16

@@ -93,13 +93,57 @@ pub struct FrameSender<T> {
     send: mpsc::Sender<WriteRequest<T>>,
 }
 
+/// A protocol reply frame, statically excluding stream-end transport control.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplyFrame<T>(Frame<T>);
+
+impl<T> TryFrom<Frame<T>> for ReplyFrame<T> {
+    type Error = ReplyFrameError;
+
+    /// Check that a general wire frame belongs to a protocol reply.
+    fn try_from(frame: Frame<T>) -> Result<Self, Self::Error> {
+        if matches!(frame, Frame::End(End::Stream)) {
+            Err(ReplyFrameError::StreamEnd)
+        } else {
+            Ok(Self(frame))
+        }
+    }
+}
+
+impl<T> From<ReplyFrame<T>> for Frame<T> {
+    /// Recover the general wire frame for transport encoding.
+    fn from(frame: ReplyFrame<T>) -> Self {
+        frame.0
+    }
+}
+
+/// A general wire frame was transport control rather than a protocol reply.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum ReplyFrameError {
+    /// Stream end is emitted only by [`FrameSender::finish`].
+    #[error("stream-end control is not a protocol reply frame")]
+    StreamEnd,
+}
+
 impl<T> FrameSender<T> {
-    /// Enqueue `frame` and return only after it has been written and flushed.
+    /// Enqueue one reply frame and return after it is written and flushed.
     ///
     /// The mutable borrow deliberately permits only one in-flight frame from
     /// this logical producer. The per-frame receipt additionally makes a
     /// cancelled wait impossible to reuse as a later frame's acknowledgement.
-    pub async fn frame(&mut self, frame: Frame<T>) -> Result<(), SendError> {
+    /// Stream-end control is excluded by [`ReplyFrame`] and emitted only by
+    /// [`Self::finish`].
+    pub async fn frame(&mut self, frame: ReplyFrame<T>) -> Result<(), SendError> {
+        self.send(frame.into()).await
+    }
+
+    /// End this logical stream after all of its replies have been flushed.
+    pub async fn finish(mut self) -> Result<(), SendError> {
+        self.send(Frame::End(End::Stream)).await
+    }
+
+    /// Enqueue one frame and await its exact physical-write receipt.
+    async fn send(&mut self, frame: Frame<T>) -> Result<(), SendError> {
         let (request, receipt) = WriteRequest::new(frame);
         self.send.send(request).await.map_err(|_| SendError {
             origin: self.origin,
@@ -120,7 +164,7 @@ pub struct SendError {
 /// Schedules logical streams onto one frame writer.
 ///
 /// Each receiver slot transitions exactly once from open (`Some`) to ended
-/// (`None`) after its stream-end frame is flushed. A sender disappearing first
+/// (`None`) after its stream-end control is flushed. A sender disappearing first
 /// terminates the driver instead of silently completing that logical stream.
 pub struct Mux<W, T> {
     speaker: Speaker,

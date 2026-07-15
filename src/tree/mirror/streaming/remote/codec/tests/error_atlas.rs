@@ -175,19 +175,13 @@ fn decode_errors(atlas: &mut String) {
     }
 }
 
-fn placement_witnesses() -> [(&'static str, Speaker, Stream, Frame<u8>); 4] {
+fn placement_witnesses() -> [(&'static str, Speaker, Stream, Frame<u8>); 3] {
     [
         (
             "placement/opening-question",
             Speaker::Initiator,
             Stream::new(0).unwrap(),
             Frame::Reaction(Reaction::Match, Flow::Continue),
-        ),
-        (
-            "placement/opening-reply",
-            Speaker::Responder,
-            Stream::new(0).unwrap(),
-            Frame::Reaction(Reaction::Match, Flow::End(End::Reply)),
         ),
         (
             "placement/leaf-parent",

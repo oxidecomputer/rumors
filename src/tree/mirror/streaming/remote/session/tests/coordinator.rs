@@ -10,7 +10,7 @@ use futures::StreamExt;
 use tokio::io::AsyncWrite;
 
 use super::super::{DriveError, Drivers, MuxError, STREAM_COUNT, stream_at};
-use super::{RecordingWriter, closing_frame, encoded};
+use super::{RecordingWriter, encoded, reply, reply_sequence, stream_end};
 use crate::tree::mirror::streaming::remote::codec::{
     EncodeErrorKind, Flow, Frame, Origin, Reaction, Speaker, decode,
 };
@@ -20,17 +20,22 @@ use crate::tree::mirror::streaming::remote::codec::{
 #[error("protocol marker")]
 struct ProtocolError;
 
-/// Successful coordination returns the protocol result and both raw transport
-/// halves without consuming bytes beyond the final incoming stream end.
+/// Successful coordination preserves every reply and returns all three outputs.
+///
+/// A representative interior stream carries several complete replies before
+/// its separate stream end in both directions; the other phases carry one.
 #[tokio::test]
 async fn returns_all_three_outputs_after_every_branch_completes() {
     const SUFFIX: &[u8] = &[0xfa, 0xfb];
 
     for local in [Speaker::Initiator, Speaker::Responder] {
         let remote = local.other();
-        let frames = (0..STREAM_COUNT).map(|index| {
+        let frames = (0..STREAM_COUNT).flat_map(|index| {
             let stream = stream_at(index);
-            (stream, closing_frame::<()>(remote, stream))
+            reply_sequence::<()>(remote, stream)
+                .into_iter()
+                .chain([stream_end()])
+                .map(move |frame| (stream, frame))
         });
         let mut bytes = encoded(remote, frames);
         bytes.extend_from_slice(SUFFIX);
@@ -41,16 +46,21 @@ async fn returns_all_three_outputs_after_every_branch_completes() {
             for index in 0..STREAM_COUNT {
                 let stream = stream_at(index);
                 let mut frames = incoming.take(stream);
-                assert_eq!(frames.next().await, Some(closing_frame(remote, stream)));
+                for expected in reply_sequence(remote, stream) {
+                    assert_eq!(frames.next().await, Some(expected));
+                }
                 assert_eq!(frames.next().await, None);
             }
             for index in 0..STREAM_COUNT {
                 let stream = stream_at(index);
                 let mut sender = outgoing.take(stream);
-                sender
-                    .frame(closing_frame::<()>(local, stream))
-                    .await
-                    .map_err(|_| ProtocolError)?;
+                for frame in reply_sequence(local, stream) {
+                    sender
+                        .frame(reply(frame))
+                        .await
+                        .map_err(|_| ProtocolError)?;
+                }
+                sender.finish().await.map_err(|_| ProtocolError)?;
             }
             Ok::<_, ProtocolError>(42)
         };
@@ -62,9 +72,12 @@ async fn returns_all_three_outputs_after_every_branch_completes() {
         let mut bytes = written.bytes.as_slice();
         for index in 0..STREAM_COUNT {
             let stream = stream_at(index);
+            for frame in reply_sequence(local, stream) {
+                assert_eq!(decode::<()>(local, &mut bytes).unwrap(), (stream, frame));
+            }
             assert_eq!(
                 decode::<()>(local, &mut bytes).unwrap(),
-                (stream, closing_frame(local, stream)),
+                (stream, stream_end())
             );
         }
         assert!(bytes.is_empty());
@@ -142,7 +155,7 @@ async fn outgoing_error_precedes_receipt_close_symptom() {
         let stream = stream_at(8);
         let mut sender = outgoing.take(stream);
         sender
-            .frame(Frame::Reaction(Reaction::Match, Flow::Continue))
+            .frame(reply(Frame::Reaction(Reaction::Match, Flow::Continue)))
             .await
             .map_err(|_| ProtocolError)
     };

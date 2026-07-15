@@ -84,7 +84,6 @@ where
                 backend.clone(),
                 Scope::new(parent, &listing),
                 Reply { replies },
-                End::Reply,
             );
             let (yielded, error, ended) = runtime.block_on(async {
                 let mut yielded = Vec::new();
@@ -120,11 +119,11 @@ where
             );
 
             let backend = Failing::after(Local, fail_after);
-            let sentinel = Frame::End(End::Stream);
+            let sentinel = Frame::End(End::Reply);
             let mut frames = stream::iter([
                 Frame::Reaction(
                     WireReaction::Supply(leaf.version.clone(), leaf.message.clone()),
-                    Flow::End(End::Reply),
+                    Flow::End,
                 ),
                 sentinel.clone(),
             ]);

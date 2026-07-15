@@ -32,12 +32,12 @@ pub enum Reaction<T> {
     Supply(Version, Message<T>),
 }
 
-/// The body and boundary state of one complete wire frame.
+/// A protocol reaction frame or a boundary-only frame.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Frame<T> {
     /// A reaction and whether another follows in its reply.
     Reaction(Reaction<T>, Flow),
-    /// An empty reply or stream.
+    /// An empty reply or a transport-level stream-end control.
     End(End),
 }
 
@@ -46,7 +46,8 @@ impl<T> Frame<T> {
     pub fn end(&self) -> Option<End> {
         match self {
             Frame::Reaction(_, Flow::Continue) => None,
-            Frame::Reaction(_, Flow::End(end)) | Frame::End(end) => Some(*end),
+            Frame::Reaction(_, Flow::End) => Some(End::Reply),
+            Frame::End(end) => Some(*end),
         }
     }
 }

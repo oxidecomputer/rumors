@@ -37,11 +37,7 @@ fn arb_speaker() -> impl Strategy<Value = Speaker> {
 }
 
 fn arb_flow() -> impl Strategy<Value = Flow> {
-    prop_oneof![
-        Just(Flow::Continue),
-        Just(Flow::End(End::Reply)),
-        Just(Flow::End(End::Stream)),
-    ]
+    prop_oneof![Just(Flow::Continue), Just(Flow::End)]
 }
 
 /// Reserved signal states retain the stream encoded alongside them.
@@ -306,8 +302,8 @@ fn async_invalid_signal_does_not_consume_a_body() {
                 stream(0),
                 Speaker::Responder,
                 Signal::Match(Flow::Continue),
-                Signal::QueryEmpty(Flow::End(End::Stream)),
-                Frame::Reaction(Reaction::Query(Vec::new()), Flow::End(End::Stream)),
+                Signal::QueryEmpty(Flow::End),
+                Frame::Reaction(Reaction::Query(Vec::new()), Flow::End),
             ),
             Speaker::Responder => (
                 stream(Stream::MAX),

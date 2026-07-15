@@ -1,13 +1,20 @@
 //! The self-delimiting frame grammar shared by every logical wire stream.
 //!
 //! A signal byte densely encodes `(frame state, stream)` rather than imposing a
-//! bit-field boundary. There are fourteen frame states — four reaction forms,
-//! each continuing, ending its reply, or ending its stream and reply, plus bare
-//! reply and stream ends — and 17 streams. `state * 17 + stream` occupies values
-//! 0 through 237; the other 18 byte values are invalid.
-//! Speaker and stream then select a phase-specific subset: 223 placements per
-//! direction are valid, while 15 are rejected before their frame body is read
-//! or written.
+//! bit-field boundary. There are ten frame states — four reaction forms, each
+//! continuing or ending its reply, plus a bare empty-reply end and a bare
+//! stream-end control — and 17 streams. `state * 17 + stream` occupies values 0
+//! through 169; the other 86 byte values are reserved. Speaker and stream then
+//! select a phase-specific subset: the initiator admits 161 placements and the
+//! responder 163, rejecting the rest before their frame body is read.
+//!
+//! Reply and stream lifetimes are deliberately orthogonal. Every nonempty
+//! reply ends on its final reaction; an empty reply is one bare reply-end
+//! frame. After its final reply, a producer sends a separate bare stream-end
+//! control. The session demultiplexer consumes that control and closes the
+//! logical receiver, so the protocol adapter sees only complete replies. This
+//! lets a lazy reply stream flush each item immediately without looking ahead
+//! to discover whether that item is also the stream's last.
 //!
 //! An empty query is wholly represented by its signal. A nonempty query carries
 //! `count - 1` in one byte, covering 1 through 256. A supply body is the

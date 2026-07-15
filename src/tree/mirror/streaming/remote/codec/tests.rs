@@ -28,19 +28,19 @@ mod error_atlas;
 const MAX_EXHAUSTIVE_BRANCHING: usize = 2;
 
 /// Frames produced by the bounded exhaustive enumeration.
-const EXHAUSTIVE_FRAME_CASES: usize = 1_677_883;
+const EXHAUSTIVE_FRAME_CASES: usize = 1_118_600;
 
 /// Bounded exhaustive frames admitted in the initiator direction.
-const INITIATOR_EXHAUSTIVE_FRAME_CASES: usize = 1_513_393;
+const INITIATOR_EXHAUSTIVE_FRAME_CASES: usize = 1_019_906;
 
 /// Bounded exhaustive frames admitted in the responder direction.
-const RESPONDER_EXHAUSTIVE_FRAME_CASES: usize = 1_546_288;
+const RESPONDER_EXHAUSTIVE_FRAME_CASES: usize = 1_052_803;
 
 /// Elected speaker directions represented by the codec.
 const SPEAKER_COUNT: usize = 2;
 
 /// Semantic signal states represented by the dense grammar.
-const SIGNAL_COUNT: usize = 14;
+const SIGNAL_COUNT: usize = 10;
 
 /// Speaker, stream, and signal buckets in the exhaustive corpus manifest.
 const CORPUS_BUCKET_COUNT: usize = SPEAKER_COUNT * Stream::COUNT as usize * SIGNAL_COUNT;
@@ -48,17 +48,13 @@ const CORPUS_BUCKET_COUNT: usize = SPEAKER_COUNT * Stream::COUNT as usize * SIGN
 /// Every semantic signal state, independent of its stream placement.
 const SIGNALS: [Signal; SIGNAL_COUNT] = [
     Signal::Match(Flow::Continue),
-    Signal::Match(Flow::End(End::Reply)),
-    Signal::Match(Flow::End(End::Stream)),
+    Signal::Match(Flow::End),
     Signal::QueryEmpty(Flow::Continue),
-    Signal::QueryEmpty(Flow::End(End::Reply)),
-    Signal::QueryEmpty(Flow::End(End::Stream)),
+    Signal::QueryEmpty(Flow::End),
     Signal::Query(Flow::Continue),
-    Signal::Query(Flow::End(End::Reply)),
-    Signal::Query(Flow::End(End::Stream)),
+    Signal::Query(Flow::End),
     Signal::Supply(Flow::Continue),
-    Signal::Supply(Flow::End(End::Reply)),
-    Signal::Supply(Flow::End(End::Stream)),
+    Signal::Supply(Flow::End),
     Signal::End(End::Reply),
     Signal::End(End::Stream),
 ];
@@ -80,11 +76,7 @@ fn arb_query() -> impl Strategy<Value = Vec<(u8, Hash)>> {
 }
 
 fn arb_flow() -> impl Strategy<Value = Flow> {
-    prop_oneof![
-        Just(Flow::Continue),
-        Just(Flow::End(End::Reply)),
-        Just(Flow::End(End::Stream)),
-    ]
+    prop_oneof![Just(Flow::Continue), Just(Flow::End)]
 }
 
 fn arb_frame() -> impl Strategy<Value = WireFrame<u64>> {
@@ -211,7 +203,7 @@ async fn async_duplex_preserves_adjacent_frame_boundaries() {
             stream,
             Frame::Reaction(
                 Reaction::Supply(Version::new(), Message::new(42_u64)),
-                Flow::End(End::Reply),
+                Flow::End,
             ),
         );
         let (send, receive) = tokio::io::duplex(1);
@@ -232,7 +224,7 @@ async fn async_duplex_preserves_adjacent_frame_boundaries() {
     }
 }
 
-/// All 476 placements pin either their canonical frame bytes or typed rejection.
+/// All 340 placements pin either their canonical frame bytes or typed rejection.
 #[test]
 fn canonical_frame_atlas_snapshot() {
     let mut atlas = String::new();
@@ -308,11 +300,7 @@ fn bounded_corpus_manifest_snapshot() {
         .collect::<Vec<_>>();
     for index in 0_u8..Stream::COUNT {
         let stream = Stream::new(index).unwrap();
-        for flow in [
-            Flow::Continue,
-            Flow::End(End::Reply),
-            Flow::End(End::Stream),
-        ] {
+        for flow in [Flow::Continue, Flow::End] {
             check_both(
                 (stream, Frame::Reaction(Reaction::Match, flow)),
                 &mut accepted,
@@ -479,7 +467,7 @@ fn generic_io_preserves_frame_boundaries() {
         stream,
         Frame::Reaction(
             Reaction::Supply(Version::new(), Message::new(())),
-            Flow::End(End::Reply),
+            Flow::End,
         ),
     );
     let mut writer = Cursor::new(Vec::new());

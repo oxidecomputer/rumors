@@ -4,33 +4,19 @@ expression: rejected
 ---
 Initiator
   00: stream 00 Match(Continue) -> OpeningQuestion
-  11: stream 00 Match(End(Reply)) -> OpeningQuestion
-  22: stream 00 Match(End(Stream)) -> OpeningQuestion
-  33: stream 00 QueryEmpty(Continue) -> OpeningQuestion
-  44: stream 00 QueryEmpty(End(Reply)) -> OpeningQuestion
-  66: stream 00 Query(Continue) -> OpeningQuestion
-  77: stream 00 Query(End(Reply)) -> OpeningQuestion
-  99: stream 00 Supply(Continue) -> OpeningQuestion
-  aa: stream 00 Supply(End(Reply)) -> OpeningQuestion
-  bb: stream 00 Supply(End(Stream)) -> OpeningQuestion
-  cc: stream 00 End(Reply) -> OpeningQuestion
-  dd: stream 00 End(Stream) -> OpeningQuestion
-  76: stream 16 Query(Continue) -> LeafParentReplies
-  87: stream 16 Query(End(Reply)) -> LeafParentReplies
-  98: stream 16 Query(End(Stream)) -> LeafParentReplies
+  11: stream 00 Match(End) -> OpeningQuestion
+  22: stream 00 QueryEmpty(Continue) -> OpeningQuestion
+  44: stream 00 Query(Continue) -> OpeningQuestion
+  66: stream 00 Supply(Continue) -> OpeningQuestion
+  77: stream 00 Supply(End) -> OpeningQuestion
+  88: stream 00 End(Reply) -> OpeningQuestion
+  54: stream 16 Query(Continue) -> LeafParentReplies
+  65: stream 16 Query(End) -> LeafParentReplies
 Responder
-  11: stream 00 Match(End(Reply)) -> OpeningReply
-  44: stream 00 QueryEmpty(End(Reply)) -> OpeningReply
-  77: stream 00 Query(End(Reply)) -> OpeningReply
-  aa: stream 00 Supply(End(Reply)) -> OpeningReply
-  cc: stream 00 End(Reply) -> OpeningReply
   10: stream 16 Match(Continue) -> TerminalLeafReplies
-  21: stream 16 Match(End(Reply)) -> TerminalLeafReplies
-  32: stream 16 Match(End(Stream)) -> TerminalLeafReplies
-  43: stream 16 QueryEmpty(Continue) -> TerminalLeafReplies
-  54: stream 16 QueryEmpty(End(Reply)) -> TerminalLeafReplies
-  65: stream 16 QueryEmpty(End(Stream)) -> TerminalLeafReplies
-  76: stream 16 Query(Continue) -> TerminalLeafReplies
-  87: stream 16 Query(End(Reply)) -> TerminalLeafReplies
-  98: stream 16 Query(End(Stream)) -> TerminalLeafReplies
-  a9: stream 16 Supply(Continue) -> TerminalLeafReplies
+  21: stream 16 Match(End) -> TerminalLeafReplies
+  32: stream 16 QueryEmpty(Continue) -> TerminalLeafReplies
+  43: stream 16 QueryEmpty(End) -> TerminalLeafReplies
+  54: stream 16 Query(Continue) -> TerminalLeafReplies
+  65: stream 16 Query(End) -> TerminalLeafReplies
+  76: stream 16 Supply(Continue) -> TerminalLeafReplies

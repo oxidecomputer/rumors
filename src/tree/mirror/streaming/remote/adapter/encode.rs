@@ -71,7 +71,7 @@ where
     };
     let scope = Scope::opening(&listing);
     Ok(Encoded {
-        frame: Frame::Reaction(WireReaction::Query(listing), Flow::End(End::Stream)),
+        frame: Frame::Reaction(WireReaction::Query(listing), Flow::End),
         question: Some(scope),
     })
 }
@@ -81,7 +81,6 @@ pub fn encode_reply<B, T, H>(
     backend: B,
     scope: Scope<S<H>>,
     reply: Reply<B, T, S<H>>,
-    end: End,
 ) -> Frames<T, B::Error, Scope<H>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
@@ -90,23 +89,17 @@ where
     S<H>: Convert,
     S<S<H>>: Height,
 {
-    render(
-        backend,
-        scope,
-        reply,
-        end,
-        |scope, reaction| match reaction {
-            ProtocolReaction::Match => {
-                let _ = scope.next();
-                Ok(None)
-            }
-            ProtocolReaction::Query(listing) => {
-                let (_, prefix) = scope.next().ok_or(ScopeError::UnpositionedQuery)?;
-                Ok(Some(Scope::new(prefix, listing)))
-            }
-            ProtocolReaction::Supply(_, _) => Ok(None),
-        },
-    )
+    render(backend, scope, reply, |scope, reaction| match reaction {
+        ProtocolReaction::Match => {
+            let _ = scope.next();
+            Ok(None)
+        }
+        ProtocolReaction::Query(listing) => {
+            let (_, prefix) = scope.next().ok_or(ScopeError::UnpositionedQuery)?;
+            Ok(Some(Scope::new(prefix, listing)))
+        }
+        ProtocolReaction::Supply(_, _) => Ok(None),
+    })
 }
 
 /// Encode one leaf-height reply, where only an empty request for the leaf is valid.
@@ -114,39 +107,31 @@ pub fn encode_leaf_reply<B, T>(
     backend: B,
     scope: Scope<Z>,
     reply: Reply<B, T, Z>,
-    end: End,
 ) -> Frames<T, B::Error, Scope<Z>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    render(
-        backend,
-        scope,
-        reply,
-        end,
-        |scope, reaction| match reaction {
-            ProtocolReaction::Match => {
-                let _ = scope.next();
-                Ok(None)
-            }
-            ProtocolReaction::Query(listing) if !listing.is_empty() => {
-                Err(ScopeError::NonemptyLeafQuery)
-            }
-            ProtocolReaction::Query(_) => {
-                let (_, prefix) = scope.next().ok_or(ScopeError::UnpositionedQuery)?;
-                Ok(Some(Scope::leaf(prefix)))
-            }
-            ProtocolReaction::Supply(_, _) => Ok(None),
-        },
-    )
+    render(backend, scope, reply, |scope, reaction| match reaction {
+        ProtocolReaction::Match => {
+            let _ = scope.next();
+            Ok(None)
+        }
+        ProtocolReaction::Query(listing) if !listing.is_empty() => {
+            Err(ScopeError::NonemptyLeafQuery)
+        }
+        ProtocolReaction::Query(_) => {
+            let (_, prefix) = scope.next().ok_or(ScopeError::UnpositionedQuery)?;
+            Ok(Some(Scope::leaf(prefix)))
+        }
+        ProtocolReaction::Supply(_, _) => Ok(None),
+    })
 }
 
 fn render<B, T, H, Q, D>(
     backend: B,
     mut scope: Scope<H>,
     reply: Reply<B, T, H>,
-    end: End,
     mut derive: D,
 ) -> Frames<T, B::Error, Q>
 where
@@ -214,11 +199,11 @@ where
 
         match pending {
             Some((reaction, question)) => yield Encoded {
-                frame: Frame::Reaction(reaction, Flow::End(end)),
+                frame: Frame::Reaction(reaction, Flow::End),
                 question,
             },
             None => yield Encoded {
-                frame: Frame::End(end),
+                frame: Frame::End(End::Reply),
                 question: None,
             },
         }

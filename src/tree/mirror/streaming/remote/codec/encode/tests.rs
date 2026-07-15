@@ -22,11 +22,7 @@ use super::super::{
 };
 
 const SPEAKERS: [Speaker; 2] = [Speaker::Initiator, Speaker::Responder];
-const FLOWS: [Flow; 3] = [
-    Flow::Continue,
-    Flow::End(End::Reply),
-    Flow::End(End::Stream),
-];
+const FLOWS: [Flow; 2] = [Flow::Continue, Flow::End];
 
 fn stream(index: u8) -> Stream {
     Stream::new(index).unwrap()
@@ -43,11 +39,7 @@ fn arb_speaker() -> impl Strategy<Value = Speaker> {
 }
 
 fn arb_flow() -> impl Strategy<Value = Flow> {
-    prop_oneof![
-        Just(Flow::Continue),
-        Just(Flow::End(End::Reply)),
-        Just(Flow::End(End::Stream)),
-    ]
+    prop_oneof![Just(Flow::Continue), Just(Flow::End)]
 }
 
 /// Every query fan and flow state has one canonical count representation.
@@ -94,18 +86,8 @@ fn one_byte_frames_are_exhaustive() {
             signal(stream, Signal::Match(Flow::Continue)),
         ),
         (
-            (
-                stream,
-                Frame::Reaction(Reaction::Match, Flow::End(End::Reply)),
-            ),
-            signal(stream, Signal::Match(Flow::End(End::Reply))),
-        ),
-        (
-            (
-                stream,
-                Frame::Reaction(Reaction::Match, Flow::End(End::Stream)),
-            ),
-            signal(stream, Signal::Match(Flow::End(End::Stream))),
+            (stream, Frame::Reaction(Reaction::Match, Flow::End)),
+            signal(stream, Signal::Match(Flow::End)),
         ),
         (
             (stream, Frame::End(End::Reply)),

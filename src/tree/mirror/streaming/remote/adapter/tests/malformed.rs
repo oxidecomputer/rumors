@@ -70,7 +70,7 @@ fn an_unpositioned_query_is_rejected_in_both_directions() {
     let listing = vec![(1, hash(1))];
     let frames: Vec<Frame<()>> = vec![Frame::Reaction(
         WireReaction::Query(listing.clone()),
-        Flow::End(End::Reply),
+        Flow::End,
     )];
 
     let decode_error = runtime().block_on(async {
@@ -89,7 +89,7 @@ fn an_unpositioned_query_is_rejected_in_both_directions() {
         replies: vec![Reaction::Query(listing)],
     };
     let encode_error = runtime().block_on(async {
-        encode_reply(Local, Scope::new(parent, &[]), reply, End::Reply)
+        encode_reply(Local, Scope::new(parent, &[]), reply)
             .try_collect::<Vec<_>>()
             .await
             .err()
@@ -101,7 +101,7 @@ fn an_unpositioned_query_is_rejected_in_both_directions() {
     ));
 }
 
-/// All sixteen leaf-query states pin validity, error precedence, framing, and publication.
+/// All eight leaf-query paths pin validity, error precedence, framing, and publication.
 #[test]
 fn leaf_query_matrix_is_exhaustive() {
     let path = Path::for_leaf(&Version::new(), &[0]);
@@ -111,76 +111,91 @@ fn leaf_query_matrix_is_exhaustive() {
 
     for positioned in [false, true] {
         for nonempty in [false, true] {
-            for end in [End::Reply, End::Stream] {
-                let scope_listing = if positioned {
-                    vec![(radix, hash(1))]
-                } else {
-                    Vec::new()
-                };
-                let query_listing = if nonempty {
-                    vec![(1, hash(2))]
-                } else {
-                    Vec::new()
-                };
-                let expected_error = if nonempty {
-                    Some(ScopeError::NonemptyLeafQuery)
-                } else if !positioned {
-                    Some(ScopeError::UnpositionedQuery)
-                } else {
-                    None
-                };
-                let expected_frame =
-                    Frame::Reaction(WireReaction::Query(query_listing.clone()), Flow::End(end));
+            let scope_listing = if positioned {
+                vec![(radix, hash(1))]
+            } else {
+                Vec::new()
+            };
+            let query_listing = if nonempty {
+                vec![(1, hash(2))]
+            } else {
+                Vec::new()
+            };
+            let expected_error = if nonempty {
+                Some(ScopeError::NonemptyLeafQuery)
+            } else if !positioned {
+                Some(ScopeError::UnpositionedQuery)
+            } else {
+                None
+            };
+            let expected_frame =
+                Frame::Reaction(WireReaction::Query(query_listing.clone()), Flow::End);
 
-                let reply = Reply::<Local, (), Z> {
-                    replies: vec![Reaction::Query(query_listing.clone())],
-                };
-                let encoded = runtime().block_on(async {
-                    encode_leaf_reply(Local, Scope::new(parent, &scope_listing), reply, end)
-                        .map_ok(|encoded| encoded.into_parts())
-                        .try_collect::<Vec<_>>()
-                        .await
-                });
-                match expected_error {
-                    Some(expected) => {
-                        let error = encoded.expect_err("this matrix cell must reject");
-                        assert_eq!(encode_scope_error(error), expected);
-                    }
-                    None => {
-                        let encoded = encoded.expect("this matrix cell must encode");
-                        let [(frame, question)] = encoded.as_slice() else {
-                            panic!("a leaf query encodes as exactly one frame")
-                        };
-                        assert_eq!(frame, &expected_frame);
-                        assert_eq!(question, &Some(Scope::leaf(parent.push(radix))));
-                    }
+            let reply = Reply::<Local, (), Z> {
+                replies: vec![Reaction::Query(query_listing.clone())],
+            };
+            let encoded = runtime().block_on(async {
+                encode_leaf_reply(Local, Scope::new(parent, &scope_listing), reply)
+                    .map_ok(|encoded| encoded.into_parts())
+                    .try_collect::<Vec<_>>()
+                    .await
+            });
+            match expected_error {
+                Some(expected) => {
+                    let error = encoded.expect_err("this matrix cell must reject");
+                    assert_eq!(encode_scope_error(error), expected);
                 }
-                checked += 1;
-
-                let decoded = runtime().block_on(async {
-                    let mut frames = stream::iter([expected_frame]);
-                    decode_leaf_reply(Local, Scope::new(parent, &scope_listing), &mut frames).await
-                });
-                match expected_error {
-                    Some(expected) => {
-                        let error = decoded.err().expect("this matrix cell must reject");
-                        assert_eq!(decode_scope_error(error), expected);
-                    }
-                    None => {
-                        let decoded = decoded.expect("this matrix cell must decode");
-                        assert_eq!(decoded.end, end);
-                        assert_eq!(decoded.questions, vec![Scope::leaf(parent.push(radix))]);
-                        let [Reaction::Query(listing)] = decoded.reply.replies.as_slice() else {
-                            panic!("the decoded reaction must remain a query")
-                        };
-                        assert!(listing.is_empty());
-                    }
+                None => {
+                    let encoded = encoded.expect("this matrix cell must encode");
+                    let [(frame, question)] = encoded.as_slice() else {
+                        panic!("a leaf query encodes as exactly one frame")
+                    };
+                    assert_eq!(frame, &expected_frame);
+                    assert_eq!(question, &Some(Scope::leaf(parent.push(radix))));
                 }
-                checked += 1;
             }
+            checked += 1;
+
+            let decoded = runtime().block_on(async {
+                let mut frames = stream::iter([expected_frame]);
+                decode_leaf_reply(Local, Scope::new(parent, &scope_listing), &mut frames).await
+            });
+            match expected_error {
+                Some(expected) => {
+                    let error = decoded.err().expect("this matrix cell must reject");
+                    assert_eq!(decode_scope_error(error), expected);
+                }
+                None => {
+                    let decoded = decoded.expect("this matrix cell must decode");
+                    assert_eq!(decoded.questions, vec![Scope::leaf(parent.push(radix))]);
+                    let [Reaction::Query(listing)] = decoded.reply.replies.as_slice() else {
+                        panic!("the decoded reaction must remain a query")
+                    };
+                    assert!(listing.is_empty());
+                }
+            }
+            checked += 1;
         }
     }
-    assert_eq!(checked, 16);
+    assert_eq!(checked, 8);
+}
+
+/// Transport stream-end control is rejected if it leaks past demultiplexing.
+#[test]
+fn stream_end_is_not_a_protocol_reply() {
+    let path = Path::for_leaf(&Version::new(), &[0]);
+    let parent = Prefix::<S<Z>>::containing(&path);
+    let mut frames = stream::iter([Frame::<()>::End(End::Stream)]);
+
+    let error = runtime()
+        .block_on(decode_leaf_reply(
+            Local,
+            Scope::new(parent, &[]),
+            &mut frames,
+        ))
+        .err()
+        .expect("stream control must be consumed below the adapter");
+    assert!(matches!(error, DecodeError::UnexpectedStreamEnd));
 }
 
 fn encode_scope_error(error: EncodeError<Infallible>) -> ScopeError {
@@ -224,7 +239,7 @@ fn a_multi_leaf_run_is_one_supplied_subtree() {
         ),
         Frame::Reaction(
             WireReaction::Supply(leaves[1].0.clone(), leaves[1].1.clone()),
-            Flow::End(End::Reply),
+            Flow::End,
         ),
     ];
     let scope = Scope::<UnderRoot>::opening(&[]);
@@ -247,7 +262,7 @@ fn a_multi_leaf_run_is_one_supplied_subtree() {
             .expect("the local backend is infallible");
         assert_eq!(rebuilt.len(), 2);
 
-        encode_reply(Local, scope, decoded.reply, End::Reply)
+        encode_reply(Local, scope, decoded.reply)
             .map_ok(|encoded| encoded.into_parts().0)
             .try_collect::<Vec<_>>()
             .await
@@ -268,7 +283,7 @@ fn a_supply_run_cannot_resume_after_another_reaction() {
         Frame::Reaction(WireReaction::Match, Flow::Continue),
         Frame::Reaction(
             WireReaction::Supply(leaves[1].0.clone(), leaves[1].1.clone()),
-            Flow::End(End::Reply),
+            Flow::End,
         ),
     ];
 

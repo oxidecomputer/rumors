@@ -82,7 +82,7 @@ fn a_question_is_released_only_after_its_writer_succeeds() {
                 .write_with(|frame| async move {
                     assert!(matches!(
                         frame,
-                        Frame::Reaction(WireReaction::Query(_), Flow::End(End::Stream),)
+                        Frame::Reaction(WireReaction::Query(_), Flow::End)
                     ));
                     Ok::<_, &str>(())
                 }),
@@ -111,11 +111,7 @@ fn opening_rejections_are_exhaustive() {
     };
     assert_eq!(encode_opening(supplied).err(), Some(OpeningError::NotQuery));
 
-    let flows = [
-        Flow::Continue,
-        Flow::End(End::Reply),
-        Flow::End(End::Stream),
-    ];
+    let flows = [Flow::Continue, Flow::End];
     let bodies = [
         WireReaction::Match,
         WireReaction::Query(Vec::new()),
@@ -125,10 +121,10 @@ fn opening_rejections_are_exhaustive() {
     let mut checked = 0;
     for body in bodies {
         for flow in flows {
-            let valid = matches!(body, WireReaction::Query(_)) && flow == Flow::End(End::Stream);
+            let valid = matches!(body, WireReaction::Query(_)) && flow == Flow::End;
             let decoded = decode_opening::<Local, ()>(Frame::Reaction(body.clone(), flow));
             if valid {
-                decoded.expect("a stream-ending query is the canonical opening");
+                decoded.expect("a reply-ending query is the canonical opening");
             } else {
                 assert_eq!(decoded.err(), Some(OpeningError::InvalidFrame));
             }
@@ -142,5 +138,5 @@ fn opening_rejections_are_exhaustive() {
         );
         checked += 1;
     }
-    assert_eq!(checked, 14);
+    assert_eq!(checked, 10);
 }

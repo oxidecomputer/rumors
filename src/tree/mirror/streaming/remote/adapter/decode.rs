@@ -23,7 +23,7 @@ use super::{
     scope::Scope,
 };
 
-/// One reconstructed reply, its boundary, and any questions it asks next.
+/// One reconstructed reply and any questions it asks next.
 pub struct Decoded<B, T, H, Q>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
@@ -31,7 +31,6 @@ where
     H: Height,
 {
     pub reply: Reply<B, T, H>,
-    pub end: End,
     pub questions: Q,
 }
 
@@ -43,7 +42,7 @@ where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    let Frame::Reaction(WireReaction::Query(listing), Flow::End(End::Stream)) = frame else {
+    let Frame::Reaction(WireReaction::Query(listing), Flow::End) = frame else {
         return Err(OpeningError::InvalidFrame);
     };
     let scope = Scope::opening(&listing);
@@ -115,24 +114,17 @@ where
     let read = read_reply::<B, T, H, _, _, _>(scope, frames, question, tx);
     let assemble = assemble_supplies::<B, T, H>(backend, rx);
     let (read, assembled) = futures::future::join(read, assemble).await;
-    let Some((
-        ReadReply {
-            skeleton,
-            questions,
-            ..
-        },
-        end,
-    )) = read?
+    let Some(ReadReply {
+        skeleton,
+        questions,
+        ..
+    }) = read?
     else {
         assembled?;
         unreachable!("the assembler accepts leaves until it returns an error")
     };
     let reply = reify(skeleton, assembled?);
-    Ok(Decoded {
-        reply,
-        end,
-        questions,
-    })
+    Ok(Decoded { reply, questions })
 }
 
 /// Read and validate exactly one reply while streaming its leaves to assembly.
@@ -141,7 +133,7 @@ async fn read_reply<B, T, H, F, Q, N>(
     frames: &mut F,
     mut question: Q,
     leaves: mpsc::Sender<Result<(Prefix<Z>, B::Node<Z>), B::Error>>,
-) -> Result<Option<(ReadReply<H, N>, End)>, DecodeError<B::Error>>
+) -> Result<Option<ReadReply<H, N>>, DecodeError<B::Error>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
@@ -151,15 +143,14 @@ where
     Q: FnMut(&mut Scope<H>, &[(u8, Hash)]) -> Result<N, ScopeError>,
 {
     let mut read = ReadReply::new();
-    let end = loop {
+    loop {
         let Some(frame) = frames.next().await else {
             return Err(DecodeError::TruncatedReply);
         };
         let (reaction, flow) = match frame {
             Frame::Reaction(reaction, flow) => (reaction, flow),
-            Frame::End(end) if read.skeleton.is_empty() => {
-                break end;
-            }
+            Frame::End(End::Reply) if read.skeleton.is_empty() => break,
+            Frame::End(End::Stream) => return Err(DecodeError::UnexpectedStreamEnd),
             Frame::End(_) => return Err(DecodeError::BareEndAfterReaction),
         };
 
@@ -188,11 +179,11 @@ where
             }
         }
 
-        if let Flow::End(end) = flow {
-            break end;
+        if flow == Flow::End {
+            break;
         }
-    };
-    Ok(Some((read, end)))
+    }
+    Ok(Some(read))
 }
 
 /// Fold the reply's one-slot leaf stream into complete height-`H` nodes.

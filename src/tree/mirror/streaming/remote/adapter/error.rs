@@ -18,8 +18,8 @@ pub enum OpeningError {
     /// The opening reaction must ask the implicit root question.
     #[error("the opening reply does not contain a query")]
     NotQuery,
-    /// The opening wire frame must close its stream on that query.
-    #[error("the opening frame is not a stream-ending query")]
+    /// The opening wire frame must end its one-reaction reply on that query.
+    #[error("the opening frame is not a reply-ending query")]
     InvalidFrame,
 }
 
@@ -46,6 +46,9 @@ pub enum DecodeError<E> {
     /// A bare end followed one or more reaction frames.
     #[error("a nonempty reply uses a bare end frame")]
     BareEndAfterReaction,
+    /// Transport control leaked through the demultiplexer into reply decoding.
+    #[error("a stream-end control reached the protocol reply decoder")]
+    UnexpectedStreamEnd,
     /// A supplied leaf's content-derived path is outside the expected scope.
     #[error("supplied leaf {actual:02x?} is outside reply scope {expected:02x?}")]
     LeafOutsideScope { expected: Vec<u8>, actual: [u8; 32] },
