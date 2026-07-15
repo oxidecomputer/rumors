@@ -4,6 +4,8 @@
 pub mod alternating;
 pub mod streaming;
 
+pub(crate) mod framing;
+
 /// An error which can occur during mirroring: either a client error or a server one.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum Error<C, S> {
