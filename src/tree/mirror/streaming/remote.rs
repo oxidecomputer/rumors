@@ -18,5 +18,12 @@
 //! Once its whole body arrives the frame codec decodes that backend-neutral
 //! pair exactly once; constructing a backend leaf and validating its
 //! content-derived path belong to the incoming adapter.
+//!
+//! [`adapter`] retains the question scope omitted from protocol replies. It
+//! attaches each newly asked scope to the exact outgoing frame which makes the
+//! question publishable, derives supplied radices from leaf content, and uses
+//! the backend's existing conversion fold to reconstruct one node per ascending
+//! leaf run.
 
+mod adapter;
 mod codec;
