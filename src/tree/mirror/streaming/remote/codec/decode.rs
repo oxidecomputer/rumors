@@ -16,6 +16,10 @@ use crate::{
     },
 };
 
+mod async_io;
+
+pub use async_io::FrameRead;
+
 use super::{
     error::{DecodeError, DecodeErrorKind, DecodeLeafError, FramePart},
     frame::{Frame, QUERY_CHILD_LEN, QUERY_COUNT_BIAS, Reaction, WireFrame, validate_children},
@@ -71,10 +75,7 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
         let byte = self
             .byte(FramePart::Signal)
             .map_err(|kind| DecodeError::direction(self.speaker, kind))?;
-        let wire = WireSignal::from_byte(self.speaker, byte).map_err(|invalid| {
-            DecodeError::stream(self.speaker, invalid.stream(), invalid.into())
-        })?;
-        Ok(wire.into_parts())
+        decode_signal(self.speaker, byte)
     }
 
     fn body<T: BorshDeserialize>(&mut self, signal: Signal) -> Result<Frame<T>, DecodeErrorKind> {
@@ -97,17 +98,7 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
         let mut listing = vec![0; count * QUERY_CHILD_LEN];
         self.read_exact(&mut listing, FramePart::QueryChildren)?;
 
-        let mut children = Vec::with_capacity(count);
-        for record in listing.chunks_exact(QUERY_CHILD_LEN) {
-            let (&radix, encoded_hash) = record
-                .split_first()
-                .expect("a query child record contains its radix");
-            let mut hash = [0; MERKLE_HASH_LEN];
-            hash.copy_from_slice(encoded_hash);
-            children.push((radix, Hash(hash)));
-        }
-        validate_children(&children)?;
-        Ok(children)
+        parse_query(&listing)
     }
 
     fn supply<T: BorshDeserialize>(&mut self) -> Result<(Version, Message<T>), DecodeErrorKind> {
@@ -116,14 +107,7 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
         let mut leaf = vec![0; u32::from_be_bytes(header) as usize];
         self.read_exact(&mut leaf, FramePart::SupplyLeaf)?;
 
-        // The exact body makes both Borsh values a single, non-retrying parse.
-        let mut input = leaf.as_slice();
-        let version = Version::deserialize(&mut input).map_err(DecodeLeafError::Version)?;
-        let message = Message::deserialize(&mut input).map_err(DecodeLeafError::Message)?;
-        if !input.is_empty() {
-            return Err(DecodeLeafError::TrailingBytes { count: input.len() }.into());
-        }
-        Ok((version, message))
+        parse_supply(&leaf)
     }
 
     fn byte(&mut self, part: FramePart) -> Result<u8, DecodeErrorKind> {
@@ -143,6 +127,39 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
                 _ => DecodeErrorKind::Read { part, source },
             })
     }
+}
+
+fn decode_signal(speaker: Speaker, byte: u8) -> Result<(Stream, Signal), DecodeError> {
+    let wire = WireSignal::from_byte(speaker, byte)
+        .map_err(|invalid| DecodeError::stream(speaker, invalid.stream(), invalid.into()))?;
+    Ok(wire.into_parts())
+}
+
+fn parse_query(listing: &[u8]) -> Result<Vec<(u8, Hash)>, DecodeErrorKind> {
+    let mut children = Vec::with_capacity(listing.len() / QUERY_CHILD_LEN);
+    for record in listing.chunks_exact(QUERY_CHILD_LEN) {
+        let (&radix, encoded_hash) = record
+            .split_first()
+            .expect("a query child record contains its radix");
+        let mut hash = [0; MERKLE_HASH_LEN];
+        hash.copy_from_slice(encoded_hash);
+        children.push((radix, Hash(hash)));
+    }
+    validate_children(&children)?;
+    Ok(children)
+}
+
+fn parse_supply<T: BorshDeserialize>(
+    leaf: &[u8],
+) -> Result<(Version, Message<T>), DecodeErrorKind> {
+    // The exact body makes both Borsh values a single, non-retrying parse.
+    let mut input = leaf;
+    let version = Version::deserialize(&mut input).map_err(DecodeLeafError::Version)?;
+    let message = Message::deserialize(&mut input).map_err(DecodeLeafError::Message)?;
+    if !input.is_empty() {
+        return Err(DecodeLeafError::TrailingBytes { count: input.len() }.into());
+    }
+    Ok((version, message))
 }
 
 #[cfg(test)]

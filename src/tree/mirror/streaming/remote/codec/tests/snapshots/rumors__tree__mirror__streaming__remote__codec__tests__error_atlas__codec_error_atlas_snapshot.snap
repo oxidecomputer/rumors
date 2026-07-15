@@ -39,16 +39,12 @@ ENCODE
     kind: InvalidLeaf::Message(io=Other)
     source[0]: supplied message could not be encoded
     source[1]: Io(Other)
-  Initiator/query-too-wide
-    display: Initiator stream 8: query contains 257 children, exceeding the one-byte radix fan
+  Initiator/flush
+    display: Initiator stream 8: could not flush the completed frame
     origin: Initiator stream 8
-    kind: QueryTooWide(count=257)
-    source[0]: query contains 257 children, exceeding the one-byte radix fan
-  Initiator/query-out-of-order
-    display: Initiator stream 8: query child radix 1 does not follow 2 in ascending order
-    origin: Initiator stream 8
-    kind: QueryOutOfOrder(previous=2, radix=1)
-    source[0]: query child radix 1 does not follow 2 in ascending order
+    kind: Flush(io=Other)
+    source[0]: could not flush the completed frame
+    source[1]: Io(Other)
   Responder/write/signal
     display: Responder stream 8: could not write the frame's signal byte
     origin: Responder stream 8
@@ -85,36 +81,12 @@ ENCODE
     kind: InvalidLeaf::Message(io=Other)
     source[0]: supplied message could not be encoded
     source[1]: Io(Other)
-  Responder/query-too-wide
-    display: Responder stream 8: query contains 257 children, exceeding the one-byte radix fan
+  Responder/flush
+    display: Responder stream 8: could not flush the completed frame
     origin: Responder stream 8
-    kind: QueryTooWide(count=257)
-    source[0]: query contains 257 children, exceeding the one-byte radix fan
-  Responder/query-out-of-order
-    display: Responder stream 8: query child radix 1 does not follow 2 in ascending order
-    origin: Responder stream 8
-    kind: QueryOutOfOrder(previous=2, radix=1)
-    source[0]: query child radix 1 does not follow 2 in ascending order
-  placement/opening-question
-    display: Initiator stream 0: signal byte 0x00 is invalid for the initiator's opening question
-    origin: Initiator stream 0
-    kind: InvalidSignal(byte=00, class=OpeningQuestion)
-    source[0]: signal byte 0x00 is invalid for the initiator's opening question
-  placement/opening-reply
-    display: Responder stream 0: signal byte 0x11 is invalid for the responder's opening reply
-    origin: Responder stream 0
-    kind: InvalidSignal(byte=11, class=OpeningReply)
-    source[0]: signal byte 0x11 is invalid for the responder's opening reply
-  placement/leaf-parent
-    display: Initiator stream 16: signal byte 0x76 is invalid for the initiator's leaf-parent replies
-    origin: Initiator stream 16
-    kind: InvalidSignal(byte=76, class=LeafParentReplies)
-    source[0]: signal byte 0x76 is invalid for the initiator's leaf-parent replies
-  placement/terminal-leaf
-    display: Responder stream 16: signal byte 0x10 is invalid for the responder's terminal leaf replies
-    origin: Responder stream 16
-    kind: InvalidSignal(byte=10, class=TerminalLeafReplies)
-    source[0]: signal byte 0x10 is invalid for the responder's terminal leaf replies
+    kind: Flush(io=Other)
+    source[0]: could not flush the completed frame
+    source[1]: Io(Other)
 DECODE
   Initiator/read/signal
     display: Initiator direction: could not read the frame's signal byte

@@ -4,7 +4,7 @@ use std::fmt;
 
 use crate::tree::mirror::framing::LengthOverflow;
 
-use super::signal::{DecodeSignalError, InvalidSignalPlacement, Speaker, Stream};
+use super::signal::{DecodeSignalError, Speaker, Stream};
 
 /// The speaker and, when known, logical stream which produced an error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,18 +71,14 @@ pub enum EncodeLeafError {
 /// Why an outgoing frame could not be encoded.
 #[derive(Debug, thiserror::Error)]
 pub enum EncodeErrorKind {
-    #[error(transparent)]
-    InvalidSignal(#[from] InvalidSignalPlacement),
     #[error("could not write the frame's {part}")]
     Write {
         part: FramePart,
         #[source]
         source: borsh::io::Error,
     },
-    #[error("query contains {count} children, exceeding the one-byte radix fan")]
-    QueryTooWide { count: usize },
-    #[error(transparent)]
-    QueryOutOfOrder(#[from] QueryOrderError),
+    #[error("could not flush the completed frame")]
+    Flush(#[source] borsh::io::Error),
     #[error(transparent)]
     InvalidLeaf(#[from] EncodeLeafError),
     #[error(

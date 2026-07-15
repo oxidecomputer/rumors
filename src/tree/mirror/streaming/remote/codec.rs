@@ -15,6 +15,13 @@
 //! length. The codec decodes that leaf once after its whole body arrives; the
 //! adapter constructs its backend-specific leaf and validates its
 //! content-addressed path.
+//!
+//! Encoding trusts the protocol and adapter to produce phase-correct,
+//! canonically ordered frames; it performs no redundant semantic validation.
+//! Decoding is the trust boundary and validates every peer-controlled signal,
+//! query, and supplied leaf before returning a frame. [`FrameRead`] and
+//! [`FrameWrite`] apply that same grammar directly to Tokio byte streams
+//! without buffering a complete outgoing frame.
 
 mod decode;
 mod encode;
@@ -22,8 +29,8 @@ mod error;
 mod frame;
 mod signal;
 
-pub use decode::{decode, decode_exact};
-pub use encode::encode;
+pub use decode::{FrameRead, decode, decode_exact};
+pub use encode::{FrameWrite, encode};
 pub use error::{
     DecodeError, DecodeErrorKind, DecodeLeafError, EncodeError, EncodeErrorKind, EncodeLeafError,
     FramePart, Origin, QueryOrderError,

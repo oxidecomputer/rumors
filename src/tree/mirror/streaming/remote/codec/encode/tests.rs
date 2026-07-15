@@ -1,5 +1,10 @@
 use borsh::BorshSerialize;
 use proptest::prelude::*;
+use std::{
+    pin::Pin,
+    task::{Context, Poll},
+};
+use tokio::io::AsyncWrite;
 
 use super::*;
 use crate::{
@@ -11,7 +16,7 @@ use crate::{
 };
 
 use super::super::{
-    error::{Origin, QueryOrderError},
+    error::Origin,
     frame::{MAX_QUERY_CHILDREN, QUERY_CHILD_LEN, QUERY_COUNT_BIAS, QUERY_COUNT_LEN},
     signal::{End, Flow, Speaker, Stream},
 };
@@ -22,12 +27,6 @@ const FLOWS: [Flow; 3] = [
     Flow::End(End::Reply),
     Flow::End(End::Stream),
 ];
-
-/// Smallest amount by which a generated query exceeds the protocol fan.
-const MIN_OVERSIZED_QUERY_EXTRA: usize = 1;
-
-/// Exclusive upper bound for generated children beyond the protocol fan.
-const MAX_OVERSIZED_QUERY_EXTRA: usize = 64;
 
 fn stream(index: u8) -> Stream {
     Stream::new(index).unwrap()
@@ -157,65 +156,6 @@ proptest! {
         prop_assert_eq!(encoded, expected);
     }
 
-    /// Every query wider than the radix fan reports its exact origin and count.
-    #[test]
-    fn oversized_query_count_is_rejected(
-        index in 1_u8..Stream::MAX,
-        speaker in arb_speaker(),
-        extra in MIN_OVERSIZED_QUERY_EXTRA..MAX_OVERSIZED_QUERY_EXTRA,
-    ) {
-        let stream = stream(index);
-        let count = MAX_QUERY_CHILDREN + extra;
-        let children = (0..count)
-            .map(|index| (index as u8, Hash::default()))
-            .collect();
-        let error = encode(
-            speaker,
-            &(
-                stream,
-                Frame::<u64>::Reaction(Reaction::Query(children), Flow::Continue),
-            ),
-            &mut Vec::new(),
-        )
-        .unwrap_err();
-        prop_assert_eq!(error.origin, Origin::stream(speaker, stream));
-        let correct = matches!(
-            error.kind,
-            EncodeErrorKind::QueryTooWide { count: actual } if actual == count
-        );
-        prop_assert!(correct);
-    }
-
-    /// Every adjacent non-ascending pair reports its values and origin.
-    #[test]
-    fn unordered_query_is_rejected(
-        index in 1_u8..Stream::MAX,
-        speaker in arb_speaker(),
-        previous in any::<u8>(),
-        radix in any::<u8>(),
-    ) {
-        prop_assume!(previous >= radix);
-        let stream = stream(index);
-        let children = vec![(previous, Hash::default()), (radix, Hash::default())];
-        let error = encode(
-            speaker,
-            &(
-                stream,
-                Frame::<u64>::Reaction(Reaction::Query(children), Flow::Continue),
-            ),
-            &mut Vec::new(),
-        )
-        .unwrap_err();
-        prop_assert_eq!(error.origin, Origin::stream(speaker, stream));
-        let correct = matches!(
-            error.kind,
-            EncodeErrorKind::QueryOutOfOrder(QueryOrderError {
-                previous: actual_previous,
-                radix: actual_radix,
-            }) if actual_previous == previous && actual_radix == radix
-        );
-        prop_assert!(correct);
-    }
 }
 
 struct FailingWriter;
@@ -244,6 +184,66 @@ fn writer_errors_are_contextual() {
                 part: FramePart::Signal,
                 source,
             } if source.kind() == borsh::io::ErrorKind::Other
+        ));
+    }
+}
+
+#[derive(Clone, Copy)]
+enum AsyncFailure {
+    Write,
+    Flush,
+}
+
+struct FailingAsyncWriter(AsyncFailure);
+
+impl AsyncWrite for FailingAsyncWriter {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        bytes: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        match self.0 {
+            AsyncFailure::Write => Poll::Ready(Err(std::io::ErrorKind::Other.into())),
+            AsyncFailure::Flush => Poll::Ready(Ok(bytes.len())),
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        match self.0 {
+            AsyncFailure::Write => Poll::Ready(Ok(())),
+            AsyncFailure::Flush => Poll::Ready(Err(std::io::ErrorKind::Other.into())),
+        }
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+}
+
+/// Async write and flush failures retain their exact operation, stream, and speaker.
+#[test]
+fn async_writer_errors_are_contextual() {
+    let stream = stream(12);
+    let frame: WireFrame<()> = (stream, Frame::End(End::Reply));
+    for speaker in SPEAKERS {
+        let mut writer = FrameWrite::new(speaker, FailingAsyncWriter(AsyncFailure::Write));
+        let error = pollster::block_on(writer.frame(&frame)).unwrap_err();
+        assert_eq!(error.origin, Origin::stream(speaker, stream));
+        assert!(matches!(
+            error.kind,
+            EncodeErrorKind::Write {
+                part: FramePart::Signal,
+                source,
+            } if source.kind() == borsh::io::ErrorKind::Other
+        ));
+
+        let mut writer = FrameWrite::new(speaker, FailingAsyncWriter(AsyncFailure::Flush));
+        let error = pollster::block_on(writer.frame(&frame)).unwrap_err();
+        assert_eq!(error.origin, Origin::stream(speaker, stream));
+        assert!(matches!(
+            error.kind,
+            EncodeErrorKind::Flush(source)
+                if source.kind() == borsh::io::ErrorKind::Other
         ));
     }
 }

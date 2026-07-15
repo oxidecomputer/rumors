@@ -250,6 +250,95 @@ fn exact_decode_rejects_trailing_frame() {
     }
 }
 
+/// Async EOF is clean only before a signal; every partial body reports the
+/// same missing part and stream context as synchronous decoding.
+#[test]
+fn async_eof_distinguishes_close_from_truncation() {
+    let stream = stream(4);
+    for speaker in SPEAKERS {
+        let mut closed = FrameRead::new(speaker, &[][..]);
+        assert_eq!(pollster::block_on(closed.frame::<u64>()).unwrap(), None);
+
+        let cases = [
+            (
+                vec![signal(stream, Signal::Query(Flow::Continue))],
+                FramePart::QueryCount,
+            ),
+            (
+                vec![signal(stream, Signal::Query(Flow::Continue)), u8::MIN],
+                FramePart::QueryChildren,
+            ),
+            (
+                vec![signal(stream, Signal::Supply(Flow::Continue))],
+                FramePart::SupplyLength,
+            ),
+            (
+                {
+                    let mut frame = vec![signal(stream, Signal::Supply(Flow::Continue))];
+                    frame.extend_from_slice(&1_u32.to_be_bytes());
+                    frame
+                },
+                FramePart::SupplyLeaf,
+            ),
+        ];
+        for (encoded, missing) in cases {
+            let mut reader = FrameRead::new(speaker, encoded.as_slice());
+            let error = pollster::block_on(reader.frame::<u64>()).unwrap_err();
+            assert_eq!(error.origin, Origin::stream(speaker, stream));
+            assert!(matches!(
+                error.kind,
+                DecodeErrorKind::Truncated {
+                    missing: actual,
+                    source,
+                } if actual == missing && source.kind() == borsh::io::ErrorKind::UnexpectedEof
+            ));
+        }
+    }
+}
+
+/// An invalid async signal consumes only itself, leaving the following valid
+/// frame at the next exact boundary.
+#[test]
+fn async_invalid_signal_does_not_consume_a_body() {
+    for speaker in SPEAKERS {
+        let (stream, other, invalid_signal, valid_signal, valid_frame) = match speaker {
+            Speaker::Initiator => (
+                stream(0),
+                Speaker::Responder,
+                Signal::Match(Flow::Continue),
+                Signal::QueryEmpty(Flow::End(End::Stream)),
+                Frame::Reaction(Reaction::Query(Vec::new()), Flow::End(End::Stream)),
+            ),
+            Speaker::Responder => (
+                stream(Stream::MAX),
+                Speaker::Initiator,
+                Signal::Match(Flow::Continue),
+                Signal::End(End::Reply),
+                Frame::End(End::Reply),
+            ),
+        };
+        let invalid = WireSignal::new(other, stream, invalid_signal)
+            .unwrap()
+            .to_byte();
+        let valid = WireSignal::new(speaker, stream, valid_signal)
+            .unwrap()
+            .to_byte();
+        let bytes = [invalid, valid];
+        let mut reader = FrameRead::new(speaker, bytes.as_slice());
+
+        let error = pollster::block_on(reader.frame::<u64>()).unwrap_err();
+        assert_eq!(error.origin, Origin::stream(speaker, stream));
+        assert!(matches!(
+            error.kind,
+            DecodeErrorKind::InvalidSignal(DecodeSignalError::Placement(_))
+        ));
+        assert_eq!(
+            pollster::block_on(reader.frame::<u64>()).unwrap(),
+            Some((stream, valid_frame)),
+        );
+    }
+}
+
 struct FailingReader;
 
 impl borsh::io::Read for FailingReader {

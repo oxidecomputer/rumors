@@ -1,14 +1,21 @@
 //! Stable witnesses for every codec error reachable without resource exhaustion.
 
-use std::{error::Error, fmt::Write as _, io};
+use std::{
+    error::Error,
+    fmt::Write as _,
+    io,
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 use borsh::BorshSerialize;
+use tokio::io::AsyncWrite;
 
 use super::super::{
     DecodeError, DecodeErrorKind, DecodeLeafError, DecodeSignalError, EncodeError, EncodeErrorKind,
-    EncodeLeafError, End, Flow, Frame, FramePart, Reaction, Speaker, Stream, WireFrame, decode,
-    decode_exact, encode,
-    frame::{MAX_QUERY_CHILDREN, QUERY_CHILD_LEN},
+    EncodeLeafError, End, Flow, Frame, FramePart, FrameWrite, Reaction, Speaker, Stream, WireFrame,
+    decode, decode_exact, encode,
+    frame::QUERY_CHILD_LEN,
     signal::{Signal, WireSignal},
 };
 use crate::{Version, message::Message, tree::typed::Hash};
@@ -62,38 +69,9 @@ fn encode_errors(atlas: &mut String) {
             record_encode(atlas, &format!("{speaker:?}/{label}"), &error);
         }
 
-        let too_wide = (0..=MAX_QUERY_CHILDREN)
-            .map(|index| (index as u8, Hash::default()))
-            .collect();
-        let error = encode(
-            speaker,
-            &(
-                stream,
-                Frame::<u8>::Reaction(Reaction::Query(too_wide), Flow::Continue),
-            ),
-            &mut Vec::new(),
-        )
-        .unwrap_err();
-        record_encode(atlas, &format!("{speaker:?}/query-too-wide"), &error);
-
-        let error = encode(
-            speaker,
-            &(
-                stream,
-                Frame::<u8>::Reaction(
-                    Reaction::Query(vec![(2, Hash::default()), (1, Hash::default())]),
-                    Flow::Continue,
-                ),
-            ),
-            &mut Vec::new(),
-        )
-        .unwrap_err();
-        record_encode(atlas, &format!("{speaker:?}/query-out-of-order"), &error);
-    }
-
-    for (label, speaker, stream, frame) in placement_witnesses() {
-        let error = encode(speaker, &(stream, frame), &mut Vec::new()).unwrap_err();
-        record_encode(atlas, label, &error);
+        let mut writer = FrameWrite::new(speaker, FlushFailingWriter);
+        let error = pollster::block_on(writer.frame(&query)).unwrap_err();
+        record_encode(atlas, &format!("{speaker:?}/flush"), &error);
     }
 }
 
@@ -266,25 +244,10 @@ fn record_encode(atlas: &mut String, label: &str, error: &EncodeError) {
 
 fn describe_encode_kind(out: &mut String, kind: &EncodeErrorKind) {
     match kind {
-        EncodeErrorKind::InvalidSignal(invalid) => write!(
-            out,
-            "InvalidSignal(byte={:02x}, class={:?})",
-            invalid.byte(),
-            invalid.class()
-        )
-        .unwrap(),
         EncodeErrorKind::Write { part, source } => {
             write!(out, "Write(part={part:?}, io={:?})", source.kind()).unwrap()
         }
-        EncodeErrorKind::QueryTooWide { count } => {
-            write!(out, "QueryTooWide(count={count})").unwrap()
-        }
-        EncodeErrorKind::QueryOutOfOrder(error) => write!(
-            out,
-            "QueryOutOfOrder(previous={}, radix={})",
-            error.previous, error.radix
-        )
-        .unwrap(),
+        EncodeErrorKind::Flush(source) => write!(out, "Flush(io={:?})", source.kind()).unwrap(),
         EncodeErrorKind::InvalidLeaf(EncodeLeafError::Version(source)) => {
             write!(out, "InvalidLeaf::Version(io={:?})", source.kind()).unwrap()
         }
@@ -395,6 +358,26 @@ impl borsh::io::Write for FailAfterWriter {
 
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
+    }
+}
+
+struct FlushFailingWriter;
+
+impl AsyncWrite for FlushFailingWriter {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        bytes: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Poll::Ready(Ok(bytes.len()))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Err(io::ErrorKind::Other.into()))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
     }
 }
 

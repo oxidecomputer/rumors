@@ -1,11 +1,14 @@
 use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::io::Cursor;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 use proptest::{
     collection::{btree_map, vec},
     prelude::*,
 };
+use tokio::io::AsyncWrite;
 
 use super::frame::MAX_QUERY_CHILDREN;
 use super::signal::{Signal, WireSignal};
@@ -116,12 +119,9 @@ proptest! {
         } else {
             Speaker::Responder
         };
+        prop_assume!(WireSignal::new(speaker, frame.0, frame_signal(&frame.1)).is_ok());
         let mut encoded = Vec::new();
-        if let Err(error) = encode(speaker, &frame, &mut encoded) {
-            prop_assert!(matches!(error.kind, EncodeErrorKind::InvalidSignal(_)));
-            prop_assert!(encoded.is_empty());
-            return Ok(());
-        }
+        encode(speaker, &frame, &mut encoded).unwrap();
         let frame_len = encoded.len();
         encoded.extend_from_slice(&suffix);
 
@@ -133,6 +133,102 @@ proptest! {
         let mut canonical = Vec::new();
         encode(speaker, &decoded, &mut canonical).unwrap();
         prop_assert_eq!(canonical, encoded[..frame_len].to_vec());
+    }
+
+    /// The async bridge emits the synchronous codec's exact bytes and decodes
+    /// them back without retaining state at EOF, for both speaker directions.
+    #[test]
+    fn async_frame_round_trips_canonically(
+        frame in arb_frame(),
+        initiator in any::<bool>(),
+    ) {
+        let speaker = if initiator {
+            Speaker::Initiator
+        } else {
+            Speaker::Responder
+        };
+        prop_assume!(WireSignal::new(speaker, frame.0, frame_signal(&frame.1)).is_ok());
+        let mut canonical = Vec::new();
+        encode(speaker, &frame, &mut canonical).unwrap();
+        let mut writer = FrameWrite::new(speaker, RecordingWrite::default());
+        pollster::block_on(writer.frame(&frame)).unwrap();
+        let written = writer.into_inner();
+        prop_assert_eq!(written.flushes, 1);
+        prop_assert_eq!(&written.bytes, &canonical);
+
+        let mut reader = FrameRead::new(speaker, written.bytes.as_slice());
+        let decoded = pollster::block_on(reader.frame::<u64>()).unwrap();
+        prop_assert_eq!(decoded, Some(frame));
+        prop_assert_eq!(pollster::block_on(reader.frame::<u64>()).unwrap(), None);
+    }
+}
+
+#[derive(Default)]
+struct RecordingWrite {
+    bytes: Vec<u8>,
+    flushes: usize,
+}
+
+impl AsyncWrite for RecordingWrite {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        bytes: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        // Force `write_all` to preserve every frame part across partial writes.
+        let written = bytes.len().min(3);
+        self.bytes.extend_from_slice(&bytes[..written]);
+        Poll::Ready(Ok(written))
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        self.flushes += 1;
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+}
+
+/// A one-byte duplex forces async frame pieces through backpressure while two
+/// adjacent variable bodies retain their exact boundary.
+#[tokio::test]
+async fn async_duplex_preserves_adjacent_frame_boundaries() {
+    let stream = Stream::new(7).unwrap();
+    for speaker in [Speaker::Initiator, Speaker::Responder] {
+        let first = (
+            stream,
+            Frame::Reaction(
+                Reaction::Query(vec![
+                    (1, Hash([1; MERKLE_HASH_LEN])),
+                    (2, Hash([2; MERKLE_HASH_LEN])),
+                ]),
+                Flow::Continue,
+            ),
+        );
+        let second = (
+            stream,
+            Frame::Reaction(
+                Reaction::Supply(Version::new(), Message::new(42_u64)),
+                Flow::End(End::Reply),
+            ),
+        );
+        let (send, receive) = tokio::io::duplex(1);
+        let sent_first = first.clone();
+        let sent_second = second.clone();
+        let sending = async {
+            let mut writer = FrameWrite::new(speaker, send);
+            writer.frame(&sent_first).await.unwrap();
+            writer.frame(&sent_second).await.unwrap();
+        };
+        let receiving = async {
+            let mut reader = FrameRead::new(speaker, receive);
+            assert_eq!(reader.frame::<u64>().await.unwrap(), Some(first));
+            assert_eq!(reader.frame::<u64>().await.unwrap(), Some(second));
+            assert_eq!(reader.frame::<u64>().await.unwrap(), None);
+        };
+        futures::join!(sending, receiving);
     }
 }
 
@@ -162,15 +258,6 @@ fn canonical_frame_atlas_snapshot() {
                         atlas.push('\n');
                     }
                     Err(invalid) => {
-                        let mut encoded = Vec::new();
-                        let error = encode(speaker, &(stream, frame), &mut encoded).unwrap_err();
-                        assert_eq!(error.origin, Origin::stream(speaker, stream));
-                        assert!(encoded.is_empty());
-                        assert!(matches!(
-                            error.kind,
-                            EncodeErrorKind::InvalidSignal(source) if source == invalid
-                        ));
-
                         let error = decode_exact::<()>(speaker, &[invalid.byte()]).unwrap_err();
                         assert_eq!(error.origin, Origin::stream(speaker, stream));
                         assert!(matches!(
@@ -358,21 +445,16 @@ fn check_both(frame: WireFrame<()>, accepted: &mut [usize; 2], buckets: &mut [Co
         .into_iter()
         .enumerate()
     {
-        let mut encoded = Vec::new();
         let bucket = &mut buckets[corpus_bucket(direction, frame.0.index(), signal_index)];
-        match encode(speaker, &frame, &mut encoded) {
-            Ok(()) => {
+        match WireSignal::new(speaker, frame.0, signal) {
+            Ok(_) => {
+                let mut encoded = Vec::new();
+                encode(speaker, &frame, &mut encoded).unwrap();
                 accepted[direction] += 1;
                 assert_eq!(decode_exact::<()>(speaker, &encoded).unwrap(), frame);
                 bucket.accept(&encoded);
             }
-            Err(error) => {
-                assert!(encoded.is_empty());
-                let EncodeErrorKind::InvalidSignal(invalid) = error.kind else {
-                    panic!("bounded canonical frames fail only by signal placement")
-                };
-                bucket.reject(invalid);
-            }
+            Err(invalid) => bucket.reject(invalid),
         }
     }
 }

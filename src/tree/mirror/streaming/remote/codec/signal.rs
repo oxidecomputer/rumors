@@ -296,6 +296,11 @@ impl WireSignal {
         Self::parse(byte)?.validate(speaker).map_err(Into::into)
     }
 
+    /// Render protocol-produced components without revalidating their phase.
+    pub fn encode(stream: Stream, signal: Signal) -> u8 {
+        Self::pair(stream, signal).to_byte()
+    }
+
     /// Pair raw grammar components before speaker-specific validation.
     fn pair(stream: Stream, signal: Signal) -> Self {
         Self { stream, signal }
