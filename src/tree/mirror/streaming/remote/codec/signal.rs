@@ -1,12 +1,38 @@
 //! The dense signal byte and its semantic components.
 
-/// One of the 17 logical streams carried in a direction.
+use crate::tree::typed::height::{Height, Root, UnderRoot, Z};
+
+/// Lowest node height carried by a logical stream.
+pub const LEAF_HEIGHT: usize = <Z as Height>::HEIGHT;
+
+/// Highest node height carried on the wire, immediately beneath the root.
+pub const HIGHEST_STREAM_HEIGHT: usize = <UnderRoot as Height>::HEIGHT;
+
+/// Number of streamed node heights, also the first height outside their range.
+pub const STREAMED_HEIGHT_COUNT: usize = <Root as Height>::HEIGHT;
+
+/// Successive streams for one speaker descend two node heights at a time.
+const STREAM_HEIGHT_STRIDE: usize = 2;
+
+/// Distance remainder selecting an initiator-owned interior height.
+const INITIATOR_HEIGHT_PHASE: usize = 1;
+
+/// Distance remainder selecting a responder-owned interior height.
+const RESPONDER_HEIGHT_PHASE: usize = 0;
+
+/// One of the logical streams carried in a direction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Stream(u8);
 
 impl Stream {
-    const COUNT: u8 = 17;
-    const MAX: u8 = Self::COUNT - 1;
+    /// Logical streams multiplexed into each transport direction.
+    pub const COUNT: u8 = 17;
+
+    /// Index of the final logical stream in a direction.
+    pub const MAX: u8 = Self::COUNT - 1;
+
+    /// Index shared by both speakers for the first, under-root stream.
+    const FIRST: u8 = 0;
 
     /// Validate a wire stream index.
     pub fn new(index: u8) -> Result<Self, StreamError> {
@@ -24,35 +50,48 @@ impl Stream {
 
     /// Find the stream carrying nodes at `height` for `speaker`.
     pub fn at_height(speaker: Speaker, height: usize) -> Option<Self> {
-        let index = match (speaker, height) {
-            (_, 31) => 0,
-            (Speaker::Initiator, height) if height <= 30 && height.is_multiple_of(2) => {
-                (32 - height) / 2
+        if height == HIGHEST_STREAM_HEIGHT {
+            return Some(Self(Self::FIRST));
+        }
+        if height == LEAF_HEIGHT {
+            return Some(Self(Self::MAX));
+        }
+        let distance = HIGHEST_STREAM_HEIGHT.checked_sub(height)?;
+        let div_rem = (
+            distance / STREAM_HEIGHT_STRIDE,
+            distance % STREAM_HEIGHT_STRIDE,
+        );
+        let index = match (speaker, div_rem) {
+            (Speaker::Initiator, (quotient, INITIATOR_HEIGHT_PHASE)) => {
+                quotient + INITIATOR_HEIGHT_PHASE
             }
-            (Speaker::Responder, height) if height <= 29 && !height.is_multiple_of(2) => {
-                (31 - height) / 2
-            }
-            (Speaker::Responder, 0) => 16,
+            (Speaker::Responder, (quotient, RESPONDER_HEIGHT_PHASE)) => quotient,
             _ => return None,
         };
-        Some(Self(index as u8))
+        Some(Self(u8::try_from(index).expect(
+            "a streamed tree height yields a one-byte stream index",
+        )))
     }
 
     /// Find the node height carried by this stream for `speaker`.
     pub fn height(self, speaker: Speaker) -> usize {
         match (speaker, self.0) {
-            (_, 0) => 31,
-            (Speaker::Initiator, index) => 32 - usize::from(index) * 2,
-            (Speaker::Responder, 16) => 0,
-            (Speaker::Responder, index) => 31 - usize::from(index) * 2,
+            (_, Self::FIRST) => HIGHEST_STREAM_HEIGHT,
+            (Speaker::Initiator, index) => {
+                STREAMED_HEIGHT_COUNT - usize::from(index) * STREAM_HEIGHT_STRIDE
+            }
+            (Speaker::Responder, Self::MAX) => LEAF_HEIGHT,
+            (Speaker::Responder, index) => {
+                HIGHEST_STREAM_HEIGHT - usize::from(index) * STREAM_HEIGHT_STRIDE
+            }
         }
     }
 }
 
-/// A programmatic stream index outside the wire's 17 streams.
+/// A programmatic stream index outside the wire's logical streams.
 #[derive(Debug, Clone, Copy, thiserror::Error, PartialEq, Eq)]
 pub enum StreamError {
-    #[error("wire stream index {index} is outside 0..=16")]
+    #[error("wire stream index {index} is outside the valid range")]
     Invalid { index: u8 },
 }
 
@@ -82,18 +121,30 @@ pub enum Flow {
 }
 
 impl Flow {
+    /// Signal states occupied by each reaction form's flow variants.
+    const STATE_COUNT: u8 = 3;
+
+    /// Offset of a continuing reaction within its reaction form.
+    const CONTINUE_STATE: u8 = 0;
+
+    /// Offset of a reply-ending reaction within its reaction form.
+    const REPLY_END_STATE: u8 = 1;
+
+    /// Offset of a stream-ending reaction within its reaction form.
+    const STREAM_END_STATE: u8 = 2;
+
     fn offset(self) -> u8 {
         match self {
-            Flow::Continue => 0,
-            Flow::End(End::Reply) => 1,
-            Flow::End(End::Stream) => 2,
+            Flow::Continue => Self::CONTINUE_STATE,
+            Flow::End(End::Reply) => Self::REPLY_END_STATE,
+            Flow::End(End::Stream) => Self::STREAM_END_STATE,
         }
     }
 }
 
 /// The semantic state carried alongside a stream id in one signal byte.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Signal {
+pub enum Signal {
     Match(Flow),
     QueryEmpty(Flow),
     Query(Flow),
@@ -102,7 +153,37 @@ pub(super) enum Signal {
 }
 
 impl Signal {
-    const STATES: [Signal; 14] = [
+    /// Distance between adjacent dense semantic state codes.
+    const STATE_STRIDE: u8 = 1;
+
+    /// Reaction forms represented by the signal grammar.
+    const REACTION_COUNT: u8 = 4;
+
+    /// Bare end forms represented by the signal grammar.
+    const END_COUNT: u8 = 2;
+
+    /// First state occupied by a match reaction.
+    const MATCH_STATE: u8 = Flow::CONTINUE_STATE;
+
+    /// First state occupied by an empty-query reaction.
+    const QUERY_EMPTY_STATE: u8 = Self::MATCH_STATE + Flow::STATE_COUNT;
+
+    /// First state occupied by a nonempty-query reaction.
+    const QUERY_STATE: u8 = Self::QUERY_EMPTY_STATE + Flow::STATE_COUNT;
+
+    /// First state occupied by a supplied-leaf reaction.
+    const SUPPLY_STATE: u8 = Self::QUERY_STATE + Flow::STATE_COUNT;
+
+    /// State occupied by a bare reply end.
+    const REPLY_END_STATE: u8 = Self::SUPPLY_STATE + Flow::STATE_COUNT;
+
+    /// State occupied by a bare stream end.
+    const STREAM_END_STATE: u8 = Self::REPLY_END_STATE + Self::STATE_STRIDE;
+
+    /// Total semantic states in a signal, before pairing with a stream.
+    const STATE_COUNT: u8 = Flow::STATE_COUNT * Self::REACTION_COUNT + Self::END_COUNT;
+
+    const STATES: [Signal; Self::STATE_COUNT as usize] = [
         Signal::Match(Flow::Continue),
         Signal::Match(Flow::End(End::Reply)),
         Signal::Match(Flow::End(End::Stream)),
@@ -119,16 +200,14 @@ impl Signal {
         Signal::End(End::Stream),
     ];
 
-    const STATE_COUNT: u8 = Self::STATES.len() as u8;
-
     fn state(self) -> u8 {
         match self {
-            Signal::Match(flow) => flow.offset(),
-            Signal::QueryEmpty(flow) => 3 + flow.offset(),
-            Signal::Query(flow) => 6 + flow.offset(),
-            Signal::Supply(flow) => 9 + flow.offset(),
-            Signal::End(End::Reply) => 12,
-            Signal::End(End::Stream) => 13,
+            Signal::Match(flow) => Self::MATCH_STATE + flow.offset(),
+            Signal::QueryEmpty(flow) => Self::QUERY_EMPTY_STATE + flow.offset(),
+            Signal::Query(flow) => Self::QUERY_STATE + flow.offset(),
+            Signal::Supply(flow) => Self::SUPPLY_STATE + flow.offset(),
+            Signal::End(End::Reply) => Self::REPLY_END_STATE,
+            Signal::End(End::Stream) => Self::STREAM_END_STATE,
         }
     }
 
@@ -140,57 +219,84 @@ impl Signal {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("semantic signal state {state} is outside the valid range")]
 struct InvalidSignalState {
     state: u8,
 }
 
+impl InvalidSignalState {
+    fn state(self) -> u8 {
+        self.state
+    }
+}
+
 /// A semantic signal paired with the logical stream encoded beside it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct WireSignal {
+pub struct WireSignal {
     stream: Stream,
     signal: Signal,
 }
 
 impl WireSignal {
-    pub(super) const BYTE_COUNT: u8 = Signal::STATE_COUNT * Stream::COUNT;
+    /// Bytes occupied by a densely encoded signal.
+    pub const ENCODED_LEN: usize = std::mem::size_of::<u8>();
 
-    pub(super) fn new(stream: Stream, signal: Signal) -> Self {
+    /// Byte values occupied by the valid `(signal state, stream)` product.
+    pub const BYTE_COUNT: u8 = Signal::STATE_COUNT * Stream::COUNT;
+
+    /// Pair a checked stream with a semantic signal.
+    pub fn new(stream: Stream, signal: Signal) -> Self {
         Self { stream, signal }
     }
 
     /// Parse a dense wire byte into its stream and semantic signal.
-    pub(super) fn from_byte(byte: u8) -> Result<Self, InvalidWireSignal> {
+    pub fn from_byte(byte: u8) -> Result<Self, InvalidWireSignal> {
         let stream = Stream(byte % Stream::COUNT);
-        let signal = Signal::from_state(byte / Stream::COUNT)
-            .map_err(|_| InvalidWireSignal { byte, stream })?;
+        let signal =
+            Signal::from_state(byte / Stream::COUNT).map_err(|source| InvalidWireSignal {
+                byte,
+                stream,
+                source,
+            })?;
         Ok(Self { stream, signal })
     }
 
     /// Render the paired stream and semantic signal as one dense wire byte.
-    pub(super) fn to_byte(self) -> u8 {
+    pub fn to_byte(self) -> u8 {
         self.signal.state() * Stream::COUNT + self.stream.index()
     }
 
-    pub(super) fn into_parts(self) -> (Stream, Signal) {
+    /// Separate the checked stream and semantic signal.
+    pub fn into_parts(self) -> (Stream, Signal) {
         (self.stream, self.signal)
     }
 }
 
 /// A reserved dense signal byte and the stream encoded within it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct InvalidWireSignal {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("signal byte {byte:#04x} encodes an invalid semantic state")]
+pub struct InvalidWireSignal {
     byte: u8,
     stream: Stream,
+    #[source]
+    source: InvalidSignalState,
 }
 
 impl InvalidWireSignal {
-    pub(super) fn byte(self) -> u8 {
+    /// Return the rejected dense wire byte.
+    pub fn byte(self) -> u8 {
         self.byte
     }
 
-    pub(super) fn stream(self) -> Stream {
+    /// Return the stream component which was valid independently of the state.
+    pub fn stream(self) -> Stream {
         self.stream
+    }
+
+    /// Return the invalid semantic state component.
+    pub fn state(self) -> u8 {
+        self.source.state()
     }
 }
 

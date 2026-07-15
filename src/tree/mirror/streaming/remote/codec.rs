@@ -19,14 +19,14 @@ mod error;
 mod frame;
 mod signal;
 
-pub(super) use decode::{decode, decode_exact};
-pub(super) use encode::encode;
-pub(super) use error::{
+pub use decode::{decode, decode_exact};
+pub use encode::encode;
+pub use error::{
     DecodeError, DecodeErrorKind, DecodeLeafError, EncodeError, EncodeErrorKind, EncodeLeafError,
     FramePart, Origin, QueryOrderError,
 };
-pub(super) use frame::{Frame, Reaction, WireFrame};
-pub(super) use signal::{End, Flow, Speaker, Stream, StreamError};
+pub use frame::{Frame, Reaction, WireFrame};
+pub use signal::{End, Flow, Speaker, Stream, StreamError};
 
 #[cfg(test)]
 mod tests;

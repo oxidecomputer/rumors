@@ -28,6 +28,8 @@ fn encoding_is_bijective() {
             Err(invalid) => {
                 assert_eq!(invalid.byte(), byte);
                 assert_eq!(invalid.stream(), Stream(byte % Stream::COUNT));
+                assert_eq!(invalid.state(), byte / Stream::COUNT);
+                assert!(std::error::Error::source(&invalid).is_some());
                 assert!(byte >= WireSignal::BYTE_COUNT);
             }
         }
@@ -49,18 +51,15 @@ fn stream_height_mappings_are_bijective() {
         }
     }
 
-    for height in 0..=32 {
-        let expected = match height {
-            31 => 2,
-            0 => 2,
-            1..=30 => 1,
-            32 => 0,
-            _ => unreachable!(),
-        };
-        let actual = [Speaker::Initiator, Speaker::Responder]
-            .into_iter()
-            .filter(|speaker| Stream::at_height(*speaker, height).is_some())
-            .count();
-        assert_eq!(actual, expected, "height {height}");
+    for height in LEAF_HEIGHT..=STREAMED_HEIGHT_COUNT {
+        let [initiator, responder] = [Speaker::Initiator, Speaker::Responder]
+            .map(|speaker| Stream::at_height(speaker, height).is_some());
+        if height == LEAF_HEIGHT || height == HIGHEST_STREAM_HEIGHT {
+            assert!(initiator && responder, "height {height}");
+        } else if height < STREAMED_HEIGHT_COUNT {
+            assert_ne!(initiator, responder, "height {height}");
+        } else {
+            assert!(!initiator && !responder, "height {height}");
+        }
     }
 }

@@ -6,6 +6,7 @@ use proptest::{
     prelude::*,
 };
 
+use super::frame::MAX_QUERY_CHILDREN;
 use super::*;
 use crate::{
     Version,
@@ -16,11 +17,17 @@ use crate::{
     },
 };
 
+/// Largest query fan in the exhaustive small-scope enumeration.
 const MAX_EXHAUSTIVE_BRANCHING: usize = 2;
+
+/// Frames produced by the bounded exhaustive enumeration.
 const EXHAUSTIVE_FRAME_CASES: usize = 1_677_883;
 
+/// Exclusive upper bound for arbitrary bytes following a decoded frame.
+const MAX_ARBITRARY_SUFFIX_LEN: usize = 32;
+
 fn arb_stream() -> impl Strategy<Value = Stream> {
-    (0_u8..17).prop_map(|index| Stream::new(index).unwrap())
+    (0_u8..Stream::COUNT).prop_map(|index| Stream::new(index).unwrap())
 }
 
 fn arb_hash() -> impl Strategy<Value = Hash> {
@@ -28,7 +35,7 @@ fn arb_hash() -> impl Strategy<Value = Hash> {
 }
 
 fn arb_query() -> impl Strategy<Value = Vec<(u8, Hash)>> {
-    btree_map(any::<u8>(), arb_hash(), 0..=256)
+    btree_map(any::<u8>(), arb_hash(), 0..=MAX_QUERY_CHILDREN)
         .prop_map(|children: BTreeMap<_, _>| children.into_iter().collect())
 }
 
@@ -64,7 +71,7 @@ proptest! {
     #[test]
     fn frame_round_trips(
         frame in arb_frame(),
-        suffix in vec(any::<u8>(), 0..32),
+        suffix in vec(any::<u8>(), 0..MAX_ARBITRARY_SUFFIX_LEN),
         initiator in any::<bool>(),
     ) {
         let speaker = if initiator {
@@ -92,7 +99,7 @@ proptest! {
 #[test]
 fn bounded_frames_round_trip_exhaustively() {
     let mut frames = 0;
-    for index in 0_u8..17 {
+    for index in 0_u8..Stream::COUNT {
         let stream = Stream::new(index).unwrap();
         for flow in [
             Flow::Continue,

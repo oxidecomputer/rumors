@@ -2,7 +2,9 @@
 
 use std::fmt;
 
-use super::signal::{Speaker, Stream};
+use crate::tree::mirror::framing::LengthOverflow;
+
+use super::signal::{InvalidWireSignal, Speaker, Stream};
 
 /// The speaker and, when known, logical stream which produced an error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,14 +77,21 @@ pub enum EncodeErrorKind {
         #[source]
         source: borsh::io::Error,
     },
-    #[error("query contains {count} children, exceeding the radix fan of 256")]
+    #[error("query contains {count} children, exceeding the one-byte radix fan")]
     QueryTooWide { count: usize },
     #[error(transparent)]
     QueryOutOfOrder(#[from] QueryOrderError),
     #[error(transparent)]
     InvalidLeaf(#[from] EncodeLeafError),
-    #[error("supply leaf body is {len} bytes, exceeding its u32 length")]
-    SupplyTooLarge { len: usize },
+    #[error(
+        "supplied Version ({version_len} bytes) and Message ({message_len} bytes) overflow usize"
+    )]
+    SupplyLengthOverflow {
+        version_len: usize,
+        message_len: usize,
+    },
+    #[error(transparent)]
+    SupplyTooLarge(#[from] LengthOverflow),
 }
 
 /// An outgoing codec failure with its speaker and stream.
@@ -95,7 +104,8 @@ pub struct EncodeError {
 }
 
 impl EncodeError {
-    pub(super) fn new(speaker: Speaker, stream: Stream, kind: EncodeErrorKind) -> Self {
+    /// Attach the frame's protocol origin to an encoding failure.
+    pub fn new(speaker: Speaker, stream: Stream, kind: EncodeErrorKind) -> Self {
         Self {
             origin: Origin::stream(speaker, stream),
             kind,
@@ -110,8 +120,8 @@ pub enum DecodeLeafError {
     Version(#[source] borsh::io::Error),
     #[error("supplied Message could not be decoded")]
     Message(#[source] borsh::io::Error),
-    #[error("trailing bytes follow the supplied Version and Message")]
-    TrailingBytes,
+    #[error("{count} trailing bytes follow the supplied Version and Message")]
+    TrailingBytes { count: usize },
 }
 
 /// Why an incoming frame could not be decoded.
@@ -123,10 +133,14 @@ pub enum DecodeErrorKind {
         #[source]
         source: borsh::io::Error,
     },
-    #[error("signal byte {signal:#04x} is outside the 238 valid frame/stream states")]
-    UnknownSignal { signal: u8 },
+    #[error(transparent)]
+    UnknownSignal(#[from] InvalidWireSignal),
     #[error("frame ended before its {missing}")]
-    Truncated { missing: FramePart },
+    Truncated {
+        missing: FramePart,
+        #[source]
+        source: borsh::io::Error,
+    },
     #[error(transparent)]
     QueryOutOfOrder(#[from] QueryOrderError),
     #[error(transparent)]
@@ -145,14 +159,16 @@ pub struct DecodeError {
 }
 
 impl DecodeError {
-    pub(super) fn direction(speaker: Speaker, kind: DecodeErrorKind) -> Self {
+    /// Attach a speaker when decoding failed before the stream was known.
+    pub fn direction(speaker: Speaker, kind: DecodeErrorKind) -> Self {
         Self {
             origin: Origin::direction(speaker),
             kind,
         }
     }
 
-    pub(super) fn stream(speaker: Speaker, stream: Stream, kind: DecodeErrorKind) -> Self {
+    /// Attach the decoded speaker and stream to a frame-body failure.
+    pub fn stream(speaker: Speaker, stream: Stream, kind: DecodeErrorKind) -> Self {
         Self {
             origin: Origin::stream(speaker, stream),
             kind,

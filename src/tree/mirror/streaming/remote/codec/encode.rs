@@ -6,7 +6,7 @@ use crate::tree::mirror::framing::length_header;
 
 use super::{
     error::{EncodeError, EncodeErrorKind, EncodeLeafError, FramePart},
-    frame::{Frame, Reaction, WireFrame, validate_children},
+    frame::{Frame, MAX_QUERY_CHILDREN, QUERY_COUNT_BIAS, Reaction, WireFrame, validate_children},
     signal::{Signal, Speaker, Stream, WireSignal},
 };
 
@@ -41,10 +41,13 @@ fn encode_frame<T, W: Write>(
             )?;
         }
         Frame::Reaction(Reaction::Query(children), flow) => {
-            let count =
-                u8::try_from(children.len() - 1).map_err(|_| EncodeErrorKind::QueryTooWide {
+            if children.len() > MAX_QUERY_CHILDREN {
+                return Err(EncodeErrorKind::QueryTooWide {
                     count: children.len(),
-                })?;
+                });
+            }
+            let count = u8::try_from(children.len() - QUERY_COUNT_BIAS)
+                .expect("a query within the protocol fan has a one-byte count");
             validate_children(children)?;
             write(
                 out,
@@ -58,12 +61,15 @@ fn encode_frame<T, W: Write>(
             }
         }
         Frame::Reaction(Reaction::Supply(version, message), flow) => {
-            let len = version
-                .as_bytes()
-                .len()
-                .checked_add(message.as_slice().len())
-                .ok_or(EncodeErrorKind::SupplyTooLarge { len: usize::MAX })?;
-            let header = length_header(len).map_err(|_| EncodeErrorKind::SupplyTooLarge { len })?;
+            let version_len = version.as_bytes().len();
+            let message_len = message.as_slice().len();
+            let len = version_len.checked_add(message_len).ok_or(
+                EncodeErrorKind::SupplyLengthOverflow {
+                    version_len,
+                    message_len,
+                },
+            )?;
+            let header = length_header(len)?;
             write(
                 out,
                 FramePart::Signal,

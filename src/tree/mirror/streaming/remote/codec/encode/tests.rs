@@ -12,6 +12,7 @@ use crate::{
 
 use super::super::{
     error::{Origin, QueryOrderError},
+    frame::{MAX_QUERY_CHILDREN, QUERY_CHILD_LEN, QUERY_COUNT_BIAS, QUERY_COUNT_LEN},
     signal::{End, Flow, Speaker, Stream},
 };
 
@@ -21,6 +22,12 @@ const FLOWS: [Flow; 3] = [
     Flow::End(End::Reply),
     Flow::End(End::Stream),
 ];
+
+/// Smallest amount by which a generated query exceeds the protocol fan.
+const MIN_OVERSIZED_QUERY_EXTRA: usize = 1;
+
+/// Exclusive upper bound for generated children beyond the protocol fan.
+const MAX_OVERSIZED_QUERY_EXTRA: usize = 64;
 
 fn stream(index: u8) -> Stream {
     Stream::new(index).unwrap()
@@ -46,7 +53,7 @@ fn arb_flow() -> impl Strategy<Value = Flow> {
 #[test]
 fn query_count_covers_every_fan_and_flow() {
     let stream = stream(7);
-    for count in 0..=256 {
+    for count in 0..=MAX_QUERY_CHILDREN {
         let children = (0..count)
             .map(|radix| {
                 let radix = radix as u8;
@@ -65,8 +72,11 @@ fn query_count_covers_every_fan_and_flow() {
                     assert_eq!(encoded, [signal(stream, Signal::QueryEmpty(flow))]);
                 } else {
                     assert_eq!(encoded[0], signal(stream, Signal::Query(flow)));
-                    assert_eq!(encoded[1], (count - 1) as u8);
-                    assert_eq!(encoded.len(), 2 + count * (1 + MERKLE_HASH_LEN));
+                    assert_eq!(encoded[1], (count - QUERY_COUNT_BIAS) as u8);
+                    assert_eq!(
+                        encoded.len(),
+                        WireSignal::ENCODED_LEN + QUERY_COUNT_LEN + count * QUERY_CHILD_LEN
+                    );
                 }
             }
         }
@@ -77,7 +87,7 @@ fn query_count_covers_every_fan_and_flow() {
 #[test]
 fn one_byte_frames_are_exhaustive() {
     let stream = stream(4);
-    let cases: [(WireFrame<u64>, u8); 5] = [
+    let cases: Vec<(WireFrame<u64>, u8)> = vec![
         (
             (stream, Frame::Reaction(Reaction::Match, Flow::Continue)),
             signal(stream, Signal::Match(Flow::Continue)),
@@ -118,7 +128,7 @@ proptest! {
     /// Supply framing is exact for arbitrary backend-neutral leaves.
     #[test]
     fn supplied_leaf_is_framed_exactly(
-        index in 0_u8..17,
+        index in 0_u8..Stream::COUNT,
         speaker in arb_speaker(),
         flow in arb_flow(),
         version in arb_version(),
@@ -148,12 +158,12 @@ proptest! {
     /// Every query wider than the radix fan reports its exact origin and count.
     #[test]
     fn oversized_query_count_is_rejected(
-        index in 0_u8..17,
+        index in 0_u8..Stream::COUNT,
         speaker in arb_speaker(),
-        extra in 1_usize..64,
+        extra in MIN_OVERSIZED_QUERY_EXTRA..MAX_OVERSIZED_QUERY_EXTRA,
     ) {
         let stream = stream(index);
-        let count = 256 + extra;
+        let count = MAX_QUERY_CHILDREN + extra;
         let children = (0..count)
             .map(|index| (index as u8, Hash::default()))
             .collect();
@@ -177,7 +187,7 @@ proptest! {
     /// Every adjacent non-ascending pair reports its values and origin.
     #[test]
     fn unordered_query_is_rejected(
-        index in 0_u8..17,
+        index in 0_u8..Stream::COUNT,
         speaker in arb_speaker(),
         previous in any::<u8>(),
         radix in any::<u8>(),

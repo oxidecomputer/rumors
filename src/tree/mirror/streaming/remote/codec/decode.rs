@@ -8,12 +8,18 @@ use borsh::{
 use crate::{
     Version,
     message::Message,
-    tree::typed::{Hash, hash::MERKLE_HASH_LEN},
+    tree::{
+        mirror::framing::LENGTH_HEADER_LEN,
+        typed::{Hash, hash::MERKLE_HASH_LEN},
+    },
 };
 
 use super::{
     error::{DecodeError, DecodeErrorKind, DecodeLeafError, FramePart},
-    frame::{Frame, Reaction, WireFrame, validate_children},
+    frame::{
+        Frame, QUERY_CHILD_LEN, QUERY_COUNT_BIAS, QUERY_COUNT_LEN, Reaction, WireFrame,
+        validate_children,
+    },
     signal::{Signal, Speaker, WireSignal},
 };
 
@@ -22,18 +28,12 @@ pub fn decode<T: BorshDeserialize>(
     speaker: Speaker,
     read: &mut impl Read,
 ) -> Result<WireFrame<T>, DecodeError> {
-    let mut byte = [0];
+    let mut byte = [0; WireSignal::ENCODED_LEN];
     read_exact(read, &mut byte, FramePart::Signal)
         .map_err(|kind| DecodeError::direction(speaker, kind))?;
-    let wire = WireSignal::from_byte(byte[0]).map_err(|invalid| {
-        DecodeError::stream(
-            speaker,
-            invalid.stream(),
-            DecodeErrorKind::UnknownSignal {
-                signal: invalid.byte(),
-            },
-        )
-    })?;
+    let signal_byte = *byte.first().expect("a signal occupies one byte");
+    let wire = WireSignal::from_byte(signal_byte)
+        .map_err(|invalid| DecodeError::stream(speaker, invalid.stream(), invalid.into()))?;
     let (stream, signal) = wire.into_parts();
 
     decode_frame(read, signal)
@@ -73,17 +73,20 @@ fn decode_frame<T: BorshDeserialize>(
 }
 
 fn decode_query<T>(read: &mut impl Read) -> Result<Reaction<T>, DecodeErrorKind> {
-    let mut count = [0];
+    let mut count = [0; QUERY_COUNT_LEN];
     read_exact(read, &mut count, FramePart::QueryCount)?;
-    let count = usize::from(count[0]) + 1;
-    let mut listing = vec![0; count * (1 + MERKLE_HASH_LEN)];
+    let encoded_count = *count.first().expect("a query count occupies one byte");
+    let count = usize::from(encoded_count) + QUERY_COUNT_BIAS;
+    let mut listing = vec![0; count * QUERY_CHILD_LEN];
     read_exact(read, &mut listing, FramePart::QueryChildren)?;
 
     let mut children = Vec::with_capacity(count);
-    for record in listing.chunks_exact(1 + MERKLE_HASH_LEN) {
-        let radix = record[0];
+    for record in listing.chunks_exact(QUERY_CHILD_LEN) {
+        let (&radix, encoded_hash) = record
+            .split_first()
+            .expect("a query child record contains its radix");
         let mut hash = [0; MERKLE_HASH_LEN];
-        hash.copy_from_slice(&record[1..]);
+        hash.copy_from_slice(encoded_hash);
         children.push((radix, Hash(hash)));
     }
     validate_children(&children)?;
@@ -93,7 +96,7 @@ fn decode_query<T>(read: &mut impl Read) -> Result<Reaction<T>, DecodeErrorKind>
 fn decode_supply<T: BorshDeserialize>(
     read: &mut impl Read,
 ) -> Result<Reaction<T>, DecodeErrorKind> {
-    let mut header = [0; 4];
+    let mut header = [0; LENGTH_HEADER_LEN];
     read_exact(read, &mut header, FramePart::SupplyLength)?;
     let len = u32::from_be_bytes(header) as usize;
     let mut leaf = vec![0; len];
@@ -103,7 +106,7 @@ fn decode_supply<T: BorshDeserialize>(
     let version = Version::deserialize(&mut leaf).map_err(DecodeLeafError::Version)?;
     let message = Message::<T>::deserialize(&mut leaf).map_err(DecodeLeafError::Message)?;
     if !leaf.is_empty() {
-        return Err(DecodeLeafError::TrailingBytes.into());
+        return Err(DecodeLeafError::TrailingBytes { count: leaf.len() }.into());
     }
     Ok(Reaction::Supply(version, message))
 }
@@ -115,7 +118,10 @@ fn read_exact(
 ) -> Result<(), DecodeErrorKind> {
     read.read_exact(bytes).map_err(|source| {
         if source.kind() == ErrorKind::UnexpectedEof {
-            DecodeErrorKind::Truncated { missing: part }
+            DecodeErrorKind::Truncated {
+                missing: part,
+                source,
+            }
         } else {
             DecodeErrorKind::Read { part, source }
         }

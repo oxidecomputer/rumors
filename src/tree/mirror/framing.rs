@@ -21,14 +21,23 @@ use std::{pin::Pin, task::Poll};
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
+/// Bytes occupied by the big-endian `u32` payload-length header.
+pub(crate) const LENGTH_HEADER_LEN: usize = std::mem::size_of::<u32>();
+
+/// A payload length which cannot be represented by the framing header.
+#[derive(Debug, thiserror::Error)]
+#[error("payload length {len} exceeds the u32 framing limit")]
+pub(crate) struct LengthOverflow {
+    /// The unrepresentable payload length.
+    pub(crate) len: usize,
+    /// The failed integer conversion.
+    #[source]
+    source: std::num::TryFromIntError,
+}
+
 /// Encode the checked big-endian length header shared by both wire codecs.
-pub(crate) fn length_header(len: usize) -> std::io::Result<[u8; 4]> {
-    let len = u32::try_from(len).map_err(|_| {
-        std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "frame payload exceeds the u32 length header",
-        )
-    })?;
+pub(crate) fn length_header(len: usize) -> Result<[u8; LENGTH_HEADER_LEN], LengthOverflow> {
+    let len = u32::try_from(len).map_err(|source| LengthOverflow { len, source })?;
     Ok(len.to_be_bytes())
 }
 
@@ -54,7 +63,7 @@ impl<R: AsyncRead + Unpin> FrameRead<R> {
     /// run after the preamble validates the counterparty. A close mid-frame
     /// surfaces as [`UnexpectedEof`](std::io::ErrorKind::UnexpectedEof).
     pub async fn frame(&mut self) -> std::io::Result<Vec<u8>> {
-        let mut header = [0u8; 4];
+        let mut header = [0u8; LENGTH_HEADER_LEN];
         self.read.read_exact(&mut header).await?;
         let len = u32::from_be_bytes(header) as usize;
         let mut payload = vec![0u8; len];
@@ -126,7 +135,8 @@ impl<W: AsyncWrite + Unpin> FrameWrite<W> {
     ///
     /// Rejects payloads longer than `u32::MAX` before writing anything.
     pub async fn frame(&mut self, payload: &[u8]) -> std::io::Result<()> {
-        let header = length_header(payload.len())?;
+        let header = length_header(payload.len())
+            .map_err(|source| std::io::Error::new(std::io::ErrorKind::InvalidInput, source))?;
         self.write.write_all(&header).await?;
         self.write.write_all(payload).await?;
         self.write.flush().await

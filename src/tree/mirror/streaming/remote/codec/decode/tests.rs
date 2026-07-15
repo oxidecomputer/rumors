@@ -6,10 +6,14 @@ use crate::tree::arb::arb_version;
 
 use super::super::{
     error::{Origin, QueryOrderError},
+    frame::{QUERY_COUNT_BIAS, QUERY_COUNT_LEN},
     signal::{End, Flow, Speaker, Stream, StreamError},
 };
 
 const SPEAKERS: [Speaker; 2] = [Speaker::Initiator, Speaker::Responder];
+
+/// A one-byte prefix of a Version whose gamma integer is incomplete.
+const TRUNCATED_VERSION: &[u8] = &[1];
 
 fn stream(index: u8) -> Stream {
     Stream::new(index).unwrap()
@@ -41,16 +45,24 @@ fn arb_flow() -> impl Strategy<Value = Flow> {
 /// Reserved signal states retain the stream encoded alongside them.
 #[test]
 fn invalid_signals_are_rejected() {
-    assert_eq!(Stream::new(17), Err(StreamError::Invalid { index: 17 }));
+    assert_eq!(
+        Stream::new(Stream::COUNT),
+        Err(StreamError::Invalid {
+            index: Stream::COUNT
+        })
+    );
     for byte in WireSignal::BYTE_COUNT..=u8::MAX {
         let invalid = WireSignal::from_byte(byte).unwrap_err();
         for speaker in SPEAKERS {
             let error = decode_exact::<u64>(speaker, &[byte]).unwrap_err();
             assert_eq!(error.origin, Origin::stream(speaker, invalid.stream()));
-            assert!(matches!(
-                error.kind,
-                DecodeErrorKind::UnknownSignal { signal } if signal == byte
-            ));
+            let DecodeErrorKind::UnknownSignal(source) = error.kind else {
+                panic!("unexpected error kind");
+            };
+            assert_eq!(source, invalid);
+            assert_eq!(source.byte(), byte);
+            assert_eq!(source.state(), byte / Stream::COUNT);
+            assert!(std::error::Error::source(&source).is_some());
         }
     }
 }
@@ -68,7 +80,7 @@ fn truncated_bodies_are_rejected() {
                 Origin::stream(speaker, stream),
             ),
             (
-                vec![signal(stream, Signal::Query(Flow::Continue)), 0],
+                vec![signal(stream, Signal::Query(Flow::Continue)), u8::MIN],
                 FramePart::QueryChildren,
                 Origin::stream(speaker, stream),
             ),
@@ -78,7 +90,11 @@ fn truncated_bodies_are_rejected() {
                 Origin::stream(speaker, stream),
             ),
             (
-                vec![signal(stream, Signal::Supply(Flow::Continue)), 0, 0, 0, 1],
+                {
+                    let mut frame = vec![signal(stream, Signal::Supply(Flow::Continue))];
+                    frame.extend_from_slice(&1_u32.to_be_bytes());
+                    frame
+                },
                 FramePart::SupplyLeaf,
                 Origin::stream(speaker, stream),
             ),
@@ -86,10 +102,15 @@ fn truncated_bodies_are_rejected() {
         for (encoded, missing, origin) in cases {
             let error = decode_exact::<u64>(speaker, &encoded).unwrap_err();
             assert_eq!(error.origin, origin);
-            assert!(matches!(
-                error.kind,
-                DecodeErrorKind::Truncated { missing: actual } if actual == missing
-            ));
+            let DecodeErrorKind::Truncated {
+                missing: actual,
+                source,
+            } = error.kind
+            else {
+                panic!("unexpected error kind");
+            };
+            assert_eq!(actual, missing);
+            assert_eq!(source.kind(), borsh::io::ErrorKind::UnexpectedEof);
         }
     }
 }
@@ -98,7 +119,7 @@ proptest! {
     /// Arbitrary supplied leaves decode once into their backend-neutral pair.
     #[test]
     fn supplied_leaf_is_decoded_immediately(
-        index in 0_u8..17,
+        index in 0_u8..Stream::COUNT,
         speaker in arb_speaker(),
         flow in arb_flow(),
         version in arb_version(),
@@ -127,7 +148,8 @@ fn supplied_leaf_errors_are_typed() {
     let stream = stream(8);
     for speaker in SPEAKERS {
         let invalid_version =
-            decode_exact::<u64>(speaker, &supply(stream, Flow::Continue, &[1])).unwrap_err();
+            decode_exact::<u64>(speaker, &supply(stream, Flow::Continue, TRUNCATED_VERSION))
+                .unwrap_err();
         assert_eq!(invalid_version.origin, Origin::stream(speaker, stream));
         let DecodeErrorKind::InvalidLeaf(DecodeLeafError::Version(source)) = invalid_version.kind
         else {
@@ -147,13 +169,15 @@ fn supplied_leaf_errors_are_typed() {
         assert_eq!(source.kind(), borsh::io::ErrorKind::InvalidData);
 
         0_u64.serialize(&mut version).unwrap();
-        version.push(0);
+        version.push(u8::MIN);
         let trailing =
             decode_exact::<u64>(speaker, &supply(stream, Flow::Continue, &version)).unwrap_err();
         assert_eq!(trailing.origin, Origin::stream(speaker, stream));
         assert!(matches!(
             trailing.kind,
-            DecodeErrorKind::InvalidLeaf(DecodeLeafError::TrailingBytes)
+            DecodeErrorKind::InvalidLeaf(DecodeLeafError::TrailingBytes {
+                count: WireSignal::ENCODED_LEN
+            })
         ));
     }
 }
@@ -162,7 +186,7 @@ proptest! {
     /// Every adjacent non-ascending pair reports its values and origin.
     #[test]
     fn unordered_query_is_rejected(
-        index in 0_u8..17,
+        index in 0_u8..Stream::COUNT,
         speaker in arb_speaker(),
         previous in any::<u8>(),
         radix in any::<u8>(),
@@ -170,7 +194,12 @@ proptest! {
         prop_assume!(previous >= radix);
         let stream = stream(index);
         let children = vec![(previous, Hash::default()), (radix, Hash::default())];
-        let mut encoded = vec![signal(stream, Signal::Query(Flow::Continue)), 1];
+        let encoded_count = u8::try_from(children.len() - QUERY_COUNT_BIAS).unwrap();
+        let mut encoded = Vec::with_capacity(WireSignal::ENCODED_LEN + QUERY_COUNT_LEN);
+        encoded.extend_from_slice(&[
+            signal(stream, Signal::Query(Flow::Continue)),
+            encoded_count,
+        ]);
         for (radix, hash) in &children {
             encoded.push(*radix);
             encoded.extend_from_slice(hash.as_bytes());
@@ -200,7 +229,9 @@ fn exact_decode_rejects_trailing_frame() {
         assert_eq!(error.origin, Origin::stream(speaker, stream));
         assert!(matches!(
             error.kind,
-            DecodeErrorKind::TrailingBytes { count: 1 }
+            DecodeErrorKind::TrailingBytes {
+                count: WireSignal::ENCODED_LEN
+            }
         ));
 
         let mut rest = encoded.as_slice();
