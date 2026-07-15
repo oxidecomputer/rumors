@@ -34,6 +34,7 @@ fn prefix_from_bytes<H: Height>(bytes: &[u8]) -> Prefix<H> {
 macro_rules! prefix_roundtrip_test {
     ($name:ident, $height:ty) => {
         proptest! {
+            /// The prefix's fixed-width Borsh form round-trips exactly at this height.
             #[test]
             fn $name(bytes in proptest::collection::vec(any::<u8>(), 32 - <$height>::HEIGHT)) {
                 let prefix: Prefix<$height> = prefix_from_bytes(&bytes);

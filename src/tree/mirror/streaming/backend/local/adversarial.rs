@@ -129,6 +129,7 @@ mod tests {
 
     use super::{Role, future as delayed_future, stream as delayed_stream, with_schedule};
 
+    /// Scheduled wrappers self-wake for every delay, then preserve the backend result or item.
     #[test]
     fn future_and_stream_delays_self_wake_then_complete() {
         let waker = Waker::noop();

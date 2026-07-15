@@ -1,0 +1,142 @@
+#!/usr/bin/env python3
+"""Report Rust test functions which have no attached outer doc comment.
+
+Usage:
+    testdoc PATH...
+    testdoc --self-test
+
+The checker is deliberately lexical. Rust test entry points advertise
+themselves with an attribute, so recognizing those attributes and the item
+preamble is both faster and less brittle than depending on a Rust parser.
+"""
+
+import os
+import re
+import sys
+from pathlib import Path
+
+
+IGNORED_DIRECTORIES = {".git", "node_modules", "target"}
+TEST_ATTRIBUTE = re.compile(
+    r"^\s*#\[\s*(?:test|tokio::test|async_std::test|rstest|test_case)"
+    r"\s*(?:\([^]]*\))?\s*\]\s*$"
+)
+FUNCTION = re.compile(r"\b(?:async\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def is_outer_doc(line):
+    """Whether `line` is an outer line-doc comment (`///`, but not `////`)."""
+    stripped = line.lstrip()
+    return stripped.startswith("///") and not stripped.startswith("////")
+
+
+def has_attached_doc(lines, attribute):
+    """Whether the attribute block containing `attribute` is led by `///`."""
+    line = attribute - 1
+    while line >= 0:
+        stripped = lines[line].strip()
+        if is_outer_doc(lines[line]):
+            return True
+        if stripped.startswith("//") and not stripped.startswith(("//!", "////")):
+            line -= 1
+            continue
+        if stripped.startswith("#[") and stripped.endswith("]"):
+            line -= 1
+            continue
+        return False
+    return False
+
+
+def test_name(lines, attribute):
+    """Find the function named by a test attribute for a useful diagnostic."""
+    for line in lines[attribute : attribute + 16]:
+        match = FUNCTION.search(line)
+        if match:
+            return match.group(1)
+    return "<unknown>"
+
+
+def missing_test_docs(lines):
+    """Yield `(line_number, test_name)` for undocumented test attributes."""
+    for index, line in enumerate(lines):
+        if TEST_ATTRIBUTE.match(line) and not has_attached_doc(lines, index):
+            yield index + 1, test_name(lines, index)
+
+
+def rust_files(root):
+    """Yield repository source files without descending into generated trees."""
+    if root.is_file():
+        if root.suffix == ".rs":
+            yield root
+        return
+    for directory, children, files in os.walk(root):
+        children[:] = sorted(
+            child for child in children if child not in IGNORED_DIRECTORIES
+        )
+        for filename in sorted(files):
+            if filename.endswith(".rs"):
+                yield Path(directory, filename)
+
+
+def self_test():
+    """Pin the lexical forms the gate relies on."""
+    cases = [
+        ("/// significance\n#[test]\nfn documented() {}", []),
+        ("#[test]\nfn missing() {}", [(1, "missing")]),
+        (
+            "/// significance\n#[ignore]\n#[test]\nfn attributed() {}",
+            [],
+        ),
+        (
+            "/// significance\n// implementation rationale\n"
+            "#[allow(dead_code)]\n#[test]\nfn explained() {}",
+            [],
+        ),
+        (
+            "/// significance\n#[tokio::test(flavor = \"current_thread\")]\n"
+            "async fn asynchronous() {}",
+            [],
+        ),
+        ("// ordinary comment\n#[test]\nfn ordinary() {}", [(2, "ordinary")]),
+        ("//! module docs\n#[test]\nfn module_only() {}", [(2, "module_only")]),
+        ("//// separator\n#[test]\nfn separator() {}", [(2, "separator")]),
+    ]
+    for source, expected in cases:
+        actual = list(missing_test_docs(source.splitlines()))
+        if actual != expected:
+            raise AssertionError(f"expected {expected}, got {actual} for:\n{source}")
+
+
+def main(argv):
+    if argv[1:] == ["--self-test"]:
+        self_test()
+        return 0
+    roots = [Path(argument) for argument in argv[1:]]
+    if not roots:
+        print("usage: testdoc PATH...", file=sys.stderr)
+        return 2
+
+    found = False
+    seen = set()
+    for root in roots:
+        for path in rust_files(root):
+            resolved = path.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            lines = path.read_text(encoding="utf-8").splitlines()
+            for line, name in missing_test_docs(lines):
+                found = True
+                print(f"{path}:{line}: test `{name}` is missing a `///` doc comment")
+    if found:
+        print(
+            "\nDocument each test's behavior and significance immediately before "
+            "its attribute block.",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

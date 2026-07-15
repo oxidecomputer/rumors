@@ -1,6 +1,6 @@
 # Run the no-rot sweep (`just ci`) on every push to main and every pull request.
 #
-# `ci` is the gate's superset minus one thing: fmt-check → doclint → readme-check
+# `ci` is the gate's superset minus one thing: fmt-check → doclint → testdoc → readme-check
 # → clippy → the `before` feature matrix → wasm-check → docs → docs-internal →
 # test → doctest → bench-build → fuzz-build → the viz bundle. It builds the fuzz
 # targets but does
