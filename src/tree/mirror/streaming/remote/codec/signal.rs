@@ -113,6 +113,16 @@ pub enum Speaker {
     Responder,
 }
 
+impl Speaker {
+    /// Return the role speaking in the opposite transport direction.
+    pub fn other(self) -> Self {
+        match self {
+            Speaker::Initiator => Speaker::Responder,
+            Speaker::Responder => Speaker::Initiator,
+        }
+    }
+}
+
 /// The phase-specific signal grammar of a logical stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum StreamClass {

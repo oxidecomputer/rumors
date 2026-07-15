@@ -10,9 +10,11 @@ use tokio::sync::mpsc;
 
 use super::codec::Stream;
 
+mod coordinator;
 mod incoming;
 mod outgoing;
 
+pub use coordinator::{DriveError, Drivers};
 pub use incoming::{Demux, DemuxError, Incoming, incoming};
 pub use outgoing::{FrameSender, Mux, MuxError, Outgoing, SendError, outgoing};
 

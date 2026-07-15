@@ -16,6 +16,7 @@ use crate::tree::mirror::streaming::remote::codec::{
     End, Flow, Frame, Reaction, Speaker, Stream, WireFrame,
 };
 
+mod coordinator;
 mod incoming;
 mod outgoing;
 
