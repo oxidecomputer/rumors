@@ -17,7 +17,7 @@ use num_bigint::BigUint;
 
 use crate::error::Decode;
 
-use super::{Base, Bits, BitsSlice};
+use super::{Base, BitCursor, Bits, BitsSlice, SliceCursor};
 
 /// Append `n` as the Elias gamma code of `m = n + 1`: `floor(log2(m))` zero
 /// bits, then `m` in `floor(log2(m)) + 1` bits, most-significant first.
@@ -48,44 +48,40 @@ pub(crate) fn encode_int(out: &mut Bits, n: &Base) {
 /// the `Truncated` checks enforce, so a declared code can never exceed the
 /// input.
 pub(crate) fn decode_int(bits: &BitsSlice, pos: usize) -> Result<(Base, usize), Decode> {
+    let mut cursor = SliceCursor::new(bits, pos);
+    let base = decode_int_from(&mut cursor)?;
+    Ok((base, cursor.position()))
+}
+
+/// Read one Elias-gamma-coded integer from a sequential bit cursor.
+pub(crate) fn decode_int_from(cursor: &mut impl BitCursor) -> Result<Base, Decode> {
     let mut k = 0usize;
-    loop {
-        let idx = pos + k;
-        if idx >= bits.len() {
-            return Err(Decode::Truncated);
-        }
-        if bits[idx] {
-            break; // the leading 1 of m
-        }
-        k += 1;
+    while !cursor.read_bit()? {
+        k = k.checked_add(1).ok_or(Decode::NotCanonical)?;
     }
-    let start = pos + k;
-    if start + k + 1 > bits.len() {
-        return Err(Decode::Truncated);
-    }
-    let end = start + k + 1;
 
     // Common case: read small codes into a machine integer, then widen once.
     if k < u64::BITS as usize {
-        let mut m = 0u64;
-        for i in 0..=k {
+        let mut m = 1u64;
+        for _ in 0..k {
             m <<= 1;
-            if bits[start + i] {
+            if cursor.read_bit()? {
                 m |= 1;
             }
         }
-        return Ok((Base::from(m - 1), end));
+        return Ok(Base::from(m - 1));
     }
 
-    // Wide fallback: read the `k + 1` bits of `m` most-significant first into a `BigUint`.
-    let mut m = BigUint::ZERO;
-    for i in 0..=k {
+    // Wide fallback: the leading 1 has already been consumed; accumulate the
+    // remaining `k` bits of `m` into a `BigUint`.
+    let mut m = BigUint::from(1u32);
+    for _ in 0..k {
         m <<= 1;
-        if bits[start + i] {
+        if cursor.read_bit()? {
             m |= BigUint::from(1u32);
         }
     }
-    Ok((Base::from(m - 1u32), end))
+    Ok(Base::from(m - 1u32))
 }
 
 /// Skip an Elias-gamma-coded integer at `pos`, returning the position just past

@@ -1,70 +1,120 @@
 //! `borsh` support (feature-gated).
 //!
-//! Each type serializes as its canonical byte encoding
-//! ([`encode`](crate::Clock::encode)) wrapped in borsh's length-prefixed
-//! byte-sequence framing, and deserializes back through the strict validator
-//! ([`decode`](crate::Clock::decode)). So the payload is exactly the wire form,
-//! a deserialized value is guaranteed canonical, and — because the framing is
-//! the same `u32`-length-prefixed shape borsh gives `Vec<u8>` — these values
-//! are self-delimiting and compose inside a larger borsh stream (the rumors
-//! mirror protocol relies on this to ship a [`Version`] frame mid-message).
+//! Each type's borsh representation is exactly its canonical byte encoding:
+//! [`Party::as_bytes`], [`Version::as_bytes`], or [`Clock::encode`]. The tree
+//! encodings are prefix-free, so a decoder finds their ends from the encoding
+//! itself; no borsh length prefix is needed. This also lets values compose
+//! inside a larger borsh stream while preserving their in-memory wire form.
 
 use borsh::io::{Error, ErrorKind, Read, Write};
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use crate::{Clock, Party, Version};
+use crate::{
+    codec::{self, BitCursor, Bits},
+    error::Decode,
+    Clock, Party, Version,
+};
 
-/// Write `bytes` with borsh's `Vec<u8>` framing (a `u32` little-endian length
-/// prefix followed by the raw bytes), without first copying into a `Vec`.
-fn serialize_bytes<W: Write>(bytes: &[u8], writer: &mut W) -> borsh::io::Result<()> {
-    let len = u32::try_from(bytes.len())
-        .map_err(|_| Error::new(ErrorKind::InvalidData, "encoded length exceeds u32"))?;
-    len.serialize(writer)?;
-    writer.write_all(bytes)
+/// A bit cursor which reads only as far as one canonical tree requires.
+struct ReaderCursor<'a, R> {
+    reader: &'a mut R,
+    bits: Bits,
+    position: usize,
 }
 
-/// Read the length-prefixed bytes written by [`serialize_bytes`]. Symmetric with
-/// borsh's own `Vec<u8>` decoding, so either side accepts the other's framing.
-fn deserialize_bytes<R: Read>(reader: &mut R) -> borsh::io::Result<Vec<u8>> {
-    <Vec<u8>>::deserialize_reader(reader)
+impl<'a, R> ReaderCursor<'a, R> {
+    fn new(reader: &'a mut R) -> Self {
+        ReaderCursor {
+            reader,
+            bits: Bits::new(),
+            position: 0,
+        }
+    }
+
+    fn finish(mut self) -> Result<Bits, Decode> {
+        codec::require_zero_padding(&self.bits, self.position)?;
+        self.bits.truncate(self.position);
+        Ok(self.bits)
+    }
+}
+
+impl<R: Read> BitCursor for ReaderCursor<'_, R> {
+    fn read_bit(&mut self) -> Result<bool, Decode> {
+        if self.position == self.bits.len() {
+            let mut byte = [0];
+            self.reader.read_exact(&mut byte).map_err(Decode::Io)?;
+            self.bits.extend_from_bitslice(codec::bytes_as_bits(&byte));
+        }
+        let bit = self.bits[self.position];
+        self.position += 1;
+        Ok(bit)
+    }
+
+    fn position(&self) -> usize {
+        self.position
+    }
+}
+
+/// Read and validate one byte-aligned canonical id tree.
+fn deserialize_id<R: Read>(reader: &mut R) -> borsh::io::Result<Bits> {
+    let mut cursor = ReaderCursor::new(reader);
+    codec::parse_id_from(&mut cursor).map_err(decode_error)?;
+    cursor.finish().map_err(decode_error)
+}
+
+/// Read and validate one byte-aligned canonical event tree.
+fn deserialize_event<R: Read>(reader: &mut R) -> borsh::io::Result<Bits> {
+    let mut cursor = ReaderCursor::new(reader);
+    codec::parse_ev_from(&mut cursor).map_err(decode_error)?;
+    cursor.finish().map_err(decode_error)
+}
+
+fn decode_error(error: Decode) -> Error {
+    match error {
+        Decode::Io(source) => source,
+        error => Error::new(ErrorKind::InvalidData, error),
+    }
 }
 
 impl BorshSerialize for Party {
     fn serialize<W: Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
-        serialize_bytes(self.as_bytes(), writer)
+        writer.write_all(self.as_bytes())
     }
 }
 
 impl BorshDeserialize for Party {
     fn deserialize_reader<R: Read>(reader: &mut R) -> borsh::io::Result<Self> {
-        let bytes = deserialize_bytes(reader)?;
-        Party::decode(&bytes[..]).map_err(|e| Error::new(ErrorKind::InvalidData, e))
+        let bits = deserialize_id(reader)?;
+        if codec::id_is_empty(&bits) {
+            return Err(decode_error(Decode::Anonymous));
+        }
+        Ok(Party::from_bits(bits))
     }
 }
 
 impl BorshSerialize for Version {
     fn serialize<W: Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
-        serialize_bytes(self.as_bytes(), writer)
+        writer.write_all(self.as_bytes())
     }
 }
 
 impl BorshDeserialize for Version {
     fn deserialize_reader<R: Read>(reader: &mut R) -> borsh::io::Result<Self> {
-        let bytes = deserialize_bytes(reader)?;
-        Version::decode(&bytes[..]).map_err(|e| Error::new(ErrorKind::InvalidData, e))
+        deserialize_event(reader).map(Version::from_bits)
     }
 }
 
 impl BorshSerialize for Clock {
     fn serialize<W: Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
-        serialize_bytes(&self.encode(), writer)
+        self.encode_to(writer)
     }
 }
 
 impl BorshDeserialize for Clock {
     fn deserialize_reader<R: Read>(reader: &mut R) -> borsh::io::Result<Self> {
-        let bytes = deserialize_bytes(reader)?;
-        Clock::decode(&bytes[..]).map_err(|e| Error::new(ErrorKind::InvalidData, e))
+        let party = Party::deserialize_reader(reader)?;
+        let version = Version::deserialize_reader(reader)?;
+        Ok(Clock::from_parts(party, version))
     }
 }
 

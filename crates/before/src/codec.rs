@@ -8,6 +8,7 @@
 
 mod base;
 mod bits;
+mod cursor;
 mod display;
 mod gamma;
 mod literal;
@@ -21,8 +22,9 @@ pub use base::Base;
 pub(crate) use bits::{
     bytes_as_bits, pack_to_writer, require_zero_padding, zero_dead_bits, Bits, BitsSlice,
 };
+pub(crate) use cursor::{BitCursor, SliceCursor};
 pub(crate) use display::{write_ev, write_id};
-pub(crate) use gamma::{decode_int, encode_int, skip_int};
+pub(crate) use gamma::{decode_int, decode_int_from, encode_int, skip_int};
 pub(crate) use literal::{ev_leaf, ev_node, id_is_empty, id_leaf, id_node};
 pub(crate) use text::{parse_clock_str, parse_ev_str, parse_id_str};
-pub(crate) use tree::{parse_ev, parse_id, validate_ev, validate_id};
+pub(crate) use tree::{parse_ev, parse_ev_from, parse_id, parse_id_from, validate_ev, validate_id};

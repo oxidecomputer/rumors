@@ -55,9 +55,17 @@ proptest! {
         }
         for c in &imp {
             let (p, v) = (c.party(), c.version());
-            prop_assert_eq!(&Party::try_from_slice(&borsh::to_vec(p).unwrap()).unwrap(), p);
-            prop_assert_eq!(&Version::try_from_slice(&borsh::to_vec(v).unwrap()).unwrap(), v);
-            let back = Clock::try_from_slice(&borsh::to_vec(c).unwrap()).unwrap();
+            let party_bytes = borsh::to_vec(p).unwrap();
+            let version_bytes = borsh::to_vec(v).unwrap();
+            let clock_bytes = borsh::to_vec(c).unwrap();
+
+            prop_assert_eq!(party_bytes.as_slice(), p.as_bytes());
+            prop_assert_eq!(version_bytes.as_slice(), v.as_bytes());
+            prop_assert_eq!(&clock_bytes, &c.encode());
+
+            prop_assert_eq!(&Party::try_from_slice(&party_bytes).unwrap(), p);
+            prop_assert_eq!(&Version::try_from_slice(&version_bytes).unwrap(), v);
+            let back = Clock::try_from_slice(&clock_bytes).unwrap();
             prop_assert_eq!(back.party(), p);
             prop_assert_eq!(back.version(), v);
         }

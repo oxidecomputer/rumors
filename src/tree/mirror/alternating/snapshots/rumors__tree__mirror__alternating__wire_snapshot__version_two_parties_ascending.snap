@@ -2,4 +2,4 @@
 source: src/tree/mirror/alternating/wire_snapshot.rs
 expression: snap(&v)
 ---
-0000: 02 00 00 00 f4 c8
+0000: f4 c8

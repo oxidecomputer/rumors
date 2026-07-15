@@ -1,6 +1,6 @@
 use crate::error::{Decode, Parse};
 
-use super::{decode_int, Base, BitsSlice};
+use super::{decode_int_from, Base, BitCursor, BitsSlice, SliceCursor};
 
 /// While building a node bottom-up, what we still need from the stream.
 enum IdFrame {
@@ -23,19 +23,21 @@ enum IdFrame {
 /// child follows): `00` a terminal, `10`/`01` a unary node, `11` a both-present
 /// node. A `0` is never a node, so an empty input is the `0` tree itself (only
 /// valid at the root; `Party::decode` rejects the resulting anonymous id).
-pub(crate) fn parse_id(bits: &BitsSlice, mut pos: usize) -> Result<usize, Decode> {
+pub(crate) fn parse_id(bits: &BitsSlice, pos: usize) -> Result<usize, Decode> {
+    // The empty `0` tree is representable only as an empty root input.
+    if pos == bits.len() {
+        return Ok(pos);
+    }
+    let mut cursor = SliceCursor::new(bits, pos);
+    parse_id_from(&mut cursor)
+}
+
+/// Parse and validate one id tree from a sequential bit cursor.
+pub(crate) fn parse_id_from(cursor: &mut impl BitCursor) -> Result<usize, Decode> {
     let mut stack: Vec<IdFrame> = Vec::new();
     loop {
-        // The empty `0` tree, reachable only as the whole (root) input.
-        if pos == bits.len() && stack.is_empty() {
-            return Ok(pos);
-        }
-        if pos + 2 > bits.len() {
-            return Err(Decode::Truncated);
-        }
-        let left = bits[pos];
-        let right = bits[pos + 1];
-        pos += 2;
+        let left = cursor.read_bit()?;
+        let right = cursor.read_bit()?;
 
         // `summary` is whether the just-completed subtree is a terminal — the
         // only fact a parent needs, to reject `(1, 1)`.
@@ -54,7 +56,7 @@ pub(crate) fn parse_id(bits: &BitsSlice, mut pos: usize) -> Result<usize, Decode
         // Attach the completed subtree to its parent, possibly completing it too.
         loop {
             match stack.pop() {
-                None => return Ok(pos), // the root is complete
+                None => return Ok(cursor.position()), // the root is complete
                 Some(IdFrame::BothNeedLeft) => {
                     stack.push(IdFrame::BothNeedRight {
                         left_terminal: summary,
@@ -95,16 +97,17 @@ enum EvFrame {
 /// Parse one `enc_ev` tree at `pos`, validating event normal form: every node
 /// has at least one child with base `0`, and no node's two children are
 /// equal-valued leaves. Returns the position just past the tree. Iterative.
-pub(crate) fn parse_ev(bits: &BitsSlice, mut pos: usize) -> Result<usize, Decode> {
+pub(crate) fn parse_ev(bits: &BitsSlice, pos: usize) -> Result<usize, Decode> {
+    let mut cursor = SliceCursor::new(bits, pos);
+    parse_ev_from(&mut cursor)
+}
+
+/// Parse and validate one event tree from a sequential bit cursor.
+pub(crate) fn parse_ev_from(cursor: &mut impl BitCursor) -> Result<usize, Decode> {
     let mut stack: Vec<EvFrame> = Vec::new();
     loop {
-        if pos >= bits.len() {
-            return Err(Decode::Truncated);
-        }
-        let flag = bits[pos];
-        pos += 1;
-        let (base, next) = decode_int(bits, pos)?;
-        pos = next;
+        let flag = cursor.read_bit()?;
+        let base = decode_int_from(cursor)?;
 
         // `enc_ev(Leaf n) = 0, gamma(n)`; `enc_ev(Node n l r) = 1, gamma(n), l, r`.
         let mut summary = if flag {
@@ -119,7 +122,7 @@ pub(crate) fn parse_ev(bits: &BitsSlice, mut pos: usize) -> Result<usize, Decode
 
         loop {
             match stack.pop() {
-                None => return Ok(pos),
+                None => return Ok(cursor.position()),
                 Some(EvFrame::NeedLeft { base: node_base }) => {
                     stack.push(EvFrame::NeedRight {
                         base: node_base,

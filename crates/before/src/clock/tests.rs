@@ -910,9 +910,7 @@ proptest! {
 
 #[cfg(feature = "borsh")]
 proptest! {
-    /// Every value round-trips through borsh: it serializes as its canonical
-    /// encoding (length-prefixed) and deserializes back through the strict
-    /// validator.
+    /// Every value round-trips through its raw canonical borsh encoding.
     #[test]
     fn borsh_roundtrip(ops in world_strategy(), i in 0usize..64) {
         let cs = run(&ops);
@@ -930,25 +928,21 @@ proptest! {
         prop_assert_eq!(c2.encode(), c.encode());
     }
 
-    /// The borsh payload is the canonical encoding under borsh's `Vec<u8>`
-    /// framing (a `u32` length prefix), so `to_vec` of a value equals borsh's
-    /// own encoding of that value's `encode()` vector.
-    ///
-    /// And the framing is
-    /// self-delimiting, so two values concatenated decode back in order.
+    /// The borsh payload is exactly the canonical in-memory representation,
+    /// and the representation is self-delimiting, so two concatenated values
+    /// decode back in order.
     #[test]
     fn borsh_frames_as_canonical_bytes(ops in world_strategy(), i in 0usize..64) {
         let cs = run(&ops);
         let n = cs.len();
         let v = from_oracle_version(&cs[i % n].version());
 
-        let framed = borsh::to_vec(&v).unwrap();
-        let bytes_framed = borsh::to_vec(&v.encode()).unwrap();
-        prop_assert_eq!(&framed, &bytes_framed);
+        let encoded = borsh::to_vec(&v).unwrap();
+        prop_assert_eq!(encoded.as_slice(), v.as_bytes());
 
         // Two concatenated versions decode back in order: proof of self-delimitation.
-        let mut buf = framed.clone();
-        buf.extend_from_slice(&framed);
+        let mut buf = encoded.clone();
+        buf.extend_from_slice(&encoded);
         let mut reader = &buf[..];
         let a = <Version as borsh::BorshDeserialize>::deserialize_reader(&mut reader).unwrap();
         let b = <Version as borsh::BorshDeserialize>::deserialize_reader(&mut reader).unwrap();
@@ -969,7 +963,6 @@ proptest! {
         let mut body = v.encode();
         body.push(0x00);
         prop_assume!(Version::decode(&body[..]).is_err());
-        let framed = borsh::to_vec(&body).unwrap();
-        prop_assert!(borsh::from_slice::<Version>(&framed).is_err());
+        prop_assert!(borsh::from_slice::<Version>(&body).is_err());
     }
 }
