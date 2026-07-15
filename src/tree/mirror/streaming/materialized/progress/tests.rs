@@ -40,3 +40,43 @@ fn rejects_dependent_work_before_resolution() {
 fn rejects_parent_before_lower_resolution() {
     Trace(vec![event(&[], Kind::ParentResolution { pending: 1 })]).assert_valid();
 }
+
+/// A scope cannot resolve while an already-resolved sibling still owes work.
+///
+/// Without sibling contiguity, publishing every resolution before any query
+/// satisfies the other checks and deadlocks the cap-1 child-resolution queue.
+#[test]
+#[should_panic(expected = "still owes 1 dependent work items")]
+fn rejects_sibling_resolution_before_dependent_work() {
+    Trace(vec![
+        event(&[1], Kind::Wire),
+        event(&[1], Kind::Resolution { pending: 1 }),
+        event(&[2], Kind::Wire),
+        event(&[2], Kind::Resolution { pending: 0 }),
+    ])
+    .assert_valid();
+}
+
+/// Publications for one scope's children must leave in radix order.
+///
+/// Positional pairing is the protocol's only correlation mechanism: no
+/// message or return carries a key, so a consumer knows the k-th item's
+/// scope only because producers never reorder within a channel.
+#[test]
+#[should_panic(expected = "violates radix order")]
+fn rejects_out_of_order_sibling_wires() {
+    Trace(vec![event(&[2], Kind::Wire), event(&[1], Kind::Wire)]).assert_valid();
+}
+
+/// Radix order applies per event kind, including dependent work slots.
+#[test]
+#[should_panic(expected = "violates radix order")]
+fn rejects_out_of_order_dependent_work() {
+    Trace(vec![
+        event(&[1], Kind::Wire),
+        event(&[1], Kind::Resolution { pending: 2 }),
+        event(&[1, 2], Kind::DependentWork),
+        event(&[1, 1], Kind::DependentWork),
+    ])
+    .assert_valid();
+}

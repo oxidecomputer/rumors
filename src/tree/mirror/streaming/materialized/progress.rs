@@ -37,13 +37,41 @@ struct Event {
 pub struct Trace(Vec<Event>);
 
 impl Trace {
-    /// Check the two publication-order invariants for every traced scope.
+    /// Check the publication-order invariants for every traced scope.
+    ///
+    /// Five checks: every internal publication consumes a prior wire
+    /// action for its scope (wire before internal publication); dependent
+    /// work follows its scope's resolution, exactly `pending` items per
+    /// resolution (resolution before dependent work); a parent resolution
+    /// follows the lower resolutions it counts; a resolution may not
+    /// arrive while an already-resolved sibling still owes dependent work
+    /// (sibling contiguity); and each event kind leaves a parent scope in
+    /// strictly increasing radix order (radix order). Sibling contiguity
+    /// is what makes one slot sufficient for the child-resolution queues:
+    /// without it, a walk that published all its resolutions before any
+    /// of their queries would satisfy the other checks and deadlock.
+    /// Radix order is what positional pairing rests on: no message or
+    /// return carries a key, so a consumer's only way to know which scope
+    /// the k-th item describes is that producers never reorder within a
+    /// channel.
     pub fn assert_valid(&self) {
         let mut wires = BTreeMap::<(usize, Vec<u8>), usize>::new();
         let mut dependent = BTreeMap::<(usize, Vec<u8>), usize>::new();
         let mut lower = BTreeMap::<(usize, Vec<u8>), usize>::new();
+        let mut wire_order = BTreeMap::<(usize, Vec<u8>), u8>::new();
+        let mut resolution_order = BTreeMap::<(usize, Vec<u8>), u8>::new();
+        let mut dependent_order = BTreeMap::<(usize, Vec<u8>), u8>::new();
+        let mut parent_order = BTreeMap::<(usize, Vec<u8>), u8>::new();
 
         for (index, event) in self.0.iter().enumerate() {
+            match event.kind {
+                Kind::Wire => in_radix_order(&mut wire_order, event, index),
+                Kind::Resolution { .. } => in_radix_order(&mut resolution_order, event, index),
+                Kind::DependentWork => in_radix_order(&mut dependent_order, event, index),
+                Kind::ParentResolution { .. } => in_radix_order(&mut parent_order, event, index),
+                Kind::InitialQuery | Kind::Ready => {}
+            }
+
             let key = (event.work, event.scope.clone());
             match event.kind {
                 Kind::Wire => *wires.entry(key).or_default() += 1,
@@ -56,6 +84,19 @@ impl Trace {
                     *available -= 1;
 
                     if let Kind::Resolution { pending } = event.kind {
+                        if let Some(scope_parent) = parent(&event.scope) {
+                            let owing = dependent.iter().find(|((work, sibling), remaining)| {
+                                *work == event.work
+                                    && **remaining > 0
+                                    && *sibling != event.scope
+                                    && parent(sibling) == Some(scope_parent.clone())
+                            });
+                            if let Some(((_, sibling), remaining)) = owing {
+                                panic!(
+                                    "resolution {event:?} at trace index {index} arrived while resolved sibling {sibling:?} still owes {remaining} dependent work items"
+                                );
+                            }
+                        }
                         dependent.insert(key.clone(), pending);
                         if let Some(parent) = parent(&event.scope) {
                             *lower.entry((event.work, parent)).or_default() += 1;
@@ -244,6 +285,24 @@ fn record_bytes(work: usize, scope: &[u8], kind: Kind) {
 
 fn parent(scope: &[u8]) -> Option<Vec<u8>> {
     scope.split_last().map(|(_, parent)| parent.to_vec())
+}
+
+/// Panic unless the event's scope strictly exceeds, in final radix, every
+/// same-kind event already seen under the same parent.
+///
+/// Root-scoped events have no parent and no radix; they are exempt.
+fn in_radix_order(ledger: &mut BTreeMap<(usize, Vec<u8>), u8>, event: &Event, index: usize) {
+    let Some((radix, parent)) = event.scope.split_last() else {
+        return;
+    };
+    let key = (event.work, parent.to_vec());
+    if let Some(previous) = ledger.get(&key) {
+        assert!(
+            radix > previous,
+            "event {event:?} at trace index {index} violates radix order: an event of its kind already left this scope at radix {previous:#04x}"
+        );
+    }
+    ledger.insert(key, *radix);
 }
 
 #[cfg(test)]
