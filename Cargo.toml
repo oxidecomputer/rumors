@@ -12,10 +12,17 @@ edition = "2024"
 readme = "README.md"
 
 [features]
-# Test-only introspection surfaces (party aliasing for invariant accounting).
+# Test-only introspection and deterministic scheduling infrastructure.
 # Enabled for this crate's own tests via the self-referential dev-dependency
 # below; never enable it in an application.
-test-internals = []
+test-internals = ["tokio/rt"]
+# The original strictly alternating wire protocol (`Protocol::V1`), kept for
+# wire compatibility with V1 peers and comparative measurement. Off by
+# default: its per-height state machines are a large monomorphization
+# surface, so binaries that never speak V1 should not compile it. (The
+# crate's own tests always see it as streaming's behavioral oracle,
+# independent of this feature.)
+protocol-v1 = []
 
 [dependencies]
 before = { path = "crates/before", features = ["borsh"] }
@@ -30,12 +37,10 @@ tinyvec = { version = "1.11", features = ["alloc"] }
 thiserror = "2.0"
 hex = "0.4"
 tokio = { version = "1", default-features = false, features = ["io-util", "macros", "sync"] }
-tokio-util = { version = "0.7", default-features = false, features = ["compat"] }
 tokio-stream = "0.1"
 futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 async-stream = "0.3"
-pollster = "0.4"
 rand = "0.8"
 
 [dev-dependencies]
@@ -53,21 +58,13 @@ tokio = { version = "1", features = [
     "time",
 ] }
 clap = { version = "4", features = ["derive"] }
-csv = "1"
-indicatif = { version = "0.17", features = ["rayon"] }
-rayon = "1"
 rand = { version = "0.8", features = ["small_rng"] }
 arc-swap = "1"
-zstd = "0.13"
-async-compression = { version = "0.4", features = ["tokio", "zstd"] }
+pollster = { version = "0.4", features = ["macro"] }
 ratatui = "0.30"
 
 [profile.dev]
 debug = "line-tables-only"
-
-[[example]]
-name = "network_profile"
-path = "examples/network_profile.rs"
 
 [[example]]
 name = "swarm"

@@ -1,32 +1,37 @@
 //! Self-delimiting frame decoding.
 
+#[cfg(test)]
 use std::slice;
 
-use borsh::{
-    BorshDeserialize,
-    io::{ErrorKind, Read},
-};
+use borsh::BorshDeserialize;
+#[cfg(test)]
+use borsh::io::{ErrorKind, Read};
 
+#[cfg(test)]
+use crate::tree::mirror::framing::LENGTH_HEADER_LEN;
 use crate::{
     Version,
     message::Message,
-    tree::{
-        mirror::framing::LENGTH_HEADER_LEN,
-        typed::{Hash, hash::MERKLE_HASH_LEN},
-    },
+    tree::typed::{Hash, hash::MERKLE_HASH_LEN},
 };
 
 mod async_io;
 
 pub use async_io::FrameRead;
 
+#[cfg(test)]
 use super::{
-    error::{DecodeError, DecodeErrorKind, DecodeLeafError, FramePart},
-    frame::{Frame, QUERY_CHILD_LEN, QUERY_COUNT_BIAS, Reaction, WireFrame, validate_children},
+    error::FramePart,
+    frame::{Frame, QUERY_COUNT_BIAS, Reaction, WireFrame},
+};
+use super::{
+    error::{DecodeError, DecodeErrorKind, DecodeLeafError},
+    frame::{QUERY_CHILD_LEN, validate_children},
     signal::{Signal, Speaker, Stream, WireSignal},
 };
 
 /// Decode one frame from `read`, leaving subsequent bytes untouched.
+#[cfg(test)]
 pub fn decode<T: BorshDeserialize>(
     speaker: Speaker,
     read: &mut impl Read,
@@ -35,6 +40,7 @@ pub fn decode<T: BorshDeserialize>(
 }
 
 /// Decode exactly one frame from a slice, rejecting bytes after it.
+#[cfg(test)]
 pub fn decode_exact<T: BorshDeserialize>(
     speaker: Speaker,
     input: &[u8],
@@ -53,11 +59,13 @@ pub fn decode_exact<T: BorshDeserialize>(
 }
 
 /// Frame reader that adds protocol context as soon as the signal reveals it.
+#[cfg(test)]
 struct FrameDecoder<'a, R> {
     speaker: Speaker,
     read: &'a mut R,
 }
 
+#[cfg(test)]
 impl<'a, R: Read> FrameDecoder<'a, R> {
     fn new(speaker: Speaker, read: &'a mut R) -> Self {
         Self { speaker, read }

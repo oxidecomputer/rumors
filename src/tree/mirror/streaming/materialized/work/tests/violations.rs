@@ -5,7 +5,7 @@ use std::{collections::BTreeSet, convert::Infallible};
 use futures::stream::{self, StreamExt};
 use proptest::prelude::*;
 
-use super::{leaf, parent_prefix};
+use super::leaf;
 use crate::{
     Version,
     tree::mirror::streaming::{

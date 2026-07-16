@@ -12,7 +12,6 @@
 //! nothing (see the crate docs on membership as custody).
 
 use std::collections::BTreeMap;
-use std::marker::PhantomData;
 use std::pin::Pin;
 
 use before::{Clock, Party, Version};
@@ -20,14 +19,12 @@ use futures_util::FutureExt;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::Network;
-use crate::mode::{Async, Mode};
 
 pub(crate) mod format;
 
 pub use format::{BOOKMARK_FORMAT_VERSION, BOOKMARK_MAGIC, FormatError};
 
-/// The error a [`Bookmark`] (or a [`sync::Bookmark`](crate::sync::Bookmark))
-/// reports when persistence fails.
+/// The error a [`Bookmark`] reports when persistence fails.
 pub trait BookmarkError {
     /// What a [`load`](Bookmark::load) or [`store`](Bookmark::store)
     /// reports when it fails.
@@ -51,9 +48,6 @@ pub type Serialized<'a> = Pin<Box<dyn Future<Output = std::io::Result<()>> + Sen
 /// [`load`](Bookmark::load) the stored bytes and a writer to atomically
 /// [`store`](Bookmark::store) them. The implementor also supplies the
 /// [`Error`](BookmarkError::Error) type, on the [`BookmarkError`] supertrait.
-///
-/// This is for asynchronous use; the blocking version is
-/// [`sync::Bookmark`](crate::sync::Bookmark).
 ///
 /// # One bookmark per peer, handled linearly
 ///
@@ -103,26 +97,13 @@ pub enum BookmarkIo<E> {
     Format(#[from] FormatError),
 }
 
-/// The crate-internal, uniformly-awaitable persistence driver the engine calls,
-/// indexed by I/O [`Mode`] so one async body serves both faces.
+/// The crate-internal decoded persistence driver used by [`Bookmarked`].
 ///
-/// The engine ([`Bookmarked`], the gossip helpers) is a single `async` body
-/// that does `persist.read().await`. An async [`Bookmark`] already has that
-/// shape; a blocking [`sync::Bookmark`](crate::sync::Bookmark) does not, so
-/// this trait gives its plain `load`/`store` an awaitable face by settling them
-/// into a ready future. The adaptation a wrapper type would otherwise perform
-/// is thus anonymous and internal, so a bookmarked blocking peer is `Peer<T, B,
-/// Blocking>` over the user's own `B`.
-///
-/// `M` is a *type parameter*, not an associated type, on purpose: the two
-/// blanket impls below target the distinct trait references `Persist<Async>`
-/// and `Persist<Blocking>`, so they never overlap even though a type (e.g.
-/// [`NoBookmark`]) may implement both faces. Collapsing `M` to an associated
-/// type would make both impls target one trait, which coherence rejects.
-pub(crate) trait Persist<M: Mode>: BookmarkError {
+/// [`Bookmark`] deliberately exposes raw storage while this layer owns the
+/// durable format and its validation.
+pub(crate) trait Persist: BookmarkError {
     /// Read and decode the persisted record, or an empty map if nothing is
-    /// stored. Async on the async face; a ready future over the blocking call on
-    /// the blocking face.
+    /// stored.
     fn read(
         &self,
     ) -> impl Future<Output = Result<BTreeMap<Network, Vec<Clock>>, BookmarkIo<Self::Error>>> + Send;
@@ -134,12 +115,10 @@ pub(crate) trait Persist<M: Mode>: BookmarkError {
     ) -> impl Future<Output = Result<(), BookmarkIo<Self::Error>>> + Send;
 }
 
-// The trait methods are called eagerly (outside any `async` block) and their
-// already-`Send` futures adapted with combinators, never re-wrapped in an
-// `async` body. Wrapping would capture `&self` across an `.await` and so demand
-// `B: Sync`; forwarding the trait's own `Send` guarantee keeps the blanket impl
-// free of that bound, exactly as the byte-level traits promise.
-impl<B: Bookmark> Persist<Async> for B {
+// The trait methods are called eagerly and their already-`Send` futures are
+// adapted with combinators. Re-wrapping them in an `async` body would capture
+// `&self` across an await and unnecessarily require `B: Sync`.
+impl<B: Bookmark> Persist for B {
     fn read(
         &self,
     ) -> impl Future<Output = Result<BTreeMap<Network, Vec<Clock>>, BookmarkIo<Self::Error>>> + Send
@@ -216,7 +195,7 @@ impl Bookmark for NoBookmark {
 /// storage by [`ensure_loaded`](Self::ensure_loaded) on first use, the first
 /// point a write could otherwise clobber it. The mutex serializes access, so
 /// the read is the record's first content rather than a merge.
-pub(crate) struct Bookmarked<B, M: Mode> {
+pub(crate) struct Bookmarked<B> {
     persist: B,
     /// The in-memory record, or `None` until [`load`](Bookmark::load) has run.
     ///
@@ -235,20 +214,15 @@ pub(crate) struct Bookmarked<B, M: Mode> {
     /// token is a no-op and is suppressed, since it would only re-record an
     /// identical alias.
     last: Option<(Party, Version)>,
-    /// The I/O [`Mode`] witness, pinning which [`Persist`] face
-    /// [`ensure_loaded`](Self::ensure_loaded) and [`write`](Self::write) drive.
-    /// `fn() -> M` so `M` constrains neither variance nor auto-traits.
-    marker: PhantomData<fn() -> M>,
 }
 
-impl<B, M: Mode> Bookmarked<B, M> {
+impl<B> Bookmarked<B> {
     /// Pair `persist` with an unloaded record and no recorded identity.
     pub(crate) fn new(persist: B) -> Self {
         Bookmarked {
             persist,
             inner: None,
             last: None,
-            marker: PhantomData,
         }
     }
 
@@ -271,7 +245,7 @@ impl<B, M: Mode> Bookmarked<B, M> {
     }
 }
 
-impl<M: Mode, B: Persist<M>> Bookmarked<B, M> {
+impl<B: Persist> Bookmarked<B> {
     /// Read the stored record on first use, returning it for mutation. A no-op
     /// once loaded; the mutex serializes access, and no mutation precedes a
     /// load, so the read is the record's first content.

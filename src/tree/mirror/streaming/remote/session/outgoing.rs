@@ -120,7 +120,7 @@ impl<T> From<ReplyFrame<T>> for Frame<T> {
 /// A general wire frame was transport control rather than a protocol reply.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum ReplyFrameError {
-    /// Stream end is emitted only by [`FrameSender::finish`].
+    /// Stream end is emitted only by the internal `FrameSender::finish` path.
     #[error("stream-end control is not a protocol reply frame")]
     StreamEnd,
 }

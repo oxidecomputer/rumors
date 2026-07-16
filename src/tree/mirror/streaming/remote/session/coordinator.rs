@@ -70,11 +70,14 @@ where
                 result = &mut protocol, if protocol_output.is_none() => {
                     protocol_output = Some(result.map_err(DriveError::Protocol)?);
                 }
-                result = &mut incoming, if read.is_none() => {
-                    read = Some(result.map_err(DriveError::Incoming)?);
-                }
                 result = &mut outgoing, if write.is_none() => {
                     write = Some(result.map_err(DriveError::Outgoing)?);
+                }
+                // Poll output before input to preserve the protocol's
+                // reply-first discipline and keep a ready response from being
+                // starved by further peer input.
+                result = &mut incoming, if read.is_none() => {
+                    read = Some(result.map_err(DriveError::Incoming)?);
                 }
             }
         }

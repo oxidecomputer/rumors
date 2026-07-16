@@ -2,15 +2,16 @@
 source: tests/retire_snapshot.rs
 expression: capture
 ---
-party A                         │ party B
-─────────────────────────────── │ ───────────────────────────────
-sent 25 bytes                   │ sent 25 bytes
-  0000: 52 55 4d 4f 52 53 00 01 │   0000: 52 55 4d 4f 52 53 00 01
-  0008: 8c 18 96 68 c9 e4 83 72 │   0008: 8c 18 96 68 c9 e4 83 72
-  0010: 37 bf 31 e0 2d 7f 6b 70 │   0010: 37 bf 31 e0 2d 7f 6b 70
-  0018: 01                      │   0018: 01
-received 25 bytes               │ received 25 bytes
-  0000: 52 55 4d 4f 52 53 00 01 │   0000: 52 55 4d 4f 52 53 00 01
-  0008: 8c 18 96 68 c9 e4 83 72 │   0008: 8c 18 96 68 c9 e4 83 72
-  0010: 37 bf 31 e0 2d 7f 6b 70 │   0010: 37 bf 31 e0 2d 7f 6b 70
-  0018: 01                      │   0018: 01
+direction A -> B
+preamble: 25 bytes
+  0000: 52 55 4d 4f 52 53 00 02
+  0008: 8c 18 96 68 c9 e4 83 72
+  0010: 37 bf 31 e0 2d 7f 6b 70
+  0018: 01
+
+direction B -> A
+preamble: 25 bytes
+  0000: 52 55 4d 4f 52 53 00 02
+  0008: 8c 18 96 68 c9 e4 83 72
+  0010: 37 bf 31 e0 2d 7f 6b 70
+  0018: 01

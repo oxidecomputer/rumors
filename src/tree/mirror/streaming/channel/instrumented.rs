@@ -29,11 +29,6 @@ pub struct RoleStats {
 pub struct ChannelReport(BTreeMap<QueueRole, RoleStats>);
 
 impl ChannelReport {
-    /// Return the aggregated statistics for `role`.
-    pub fn role(&self, role: QueueRole) -> RoleStats {
-        self.0.get(&role).copied().unwrap_or_default()
-    }
-
     /// Aggregate statistics for `kind` over all instantiated heights.
     pub fn kind(&self, kind: QueueKind) -> RoleStats {
         self.0.iter().filter(|(role, _)| role.kind == kind).fold(
@@ -216,8 +211,6 @@ struct Schedule {
 
 std::thread_local! {
     static SCHEDULE: RefCell<Option<Schedule>> = const { RefCell::new(None) };
-    static CAPACITY_LIMIT: RefCell<Option<usize>> = const { RefCell::new(None) };
-    static ROLE_CAPACITIES: RefCell<BTreeMap<QueueRole, usize>> = const { RefCell::new(BTreeMap::new()) };
     static KIND_CAPACITIES: RefCell<BTreeMap<QueueKind, usize>> = const { RefCell::new(BTreeMap::new()) };
     static OBSERVATIONS: RefCell<Option<Vec<Arc<Stats>>>> = const { RefCell::new(None) };
 }
@@ -234,51 +227,6 @@ pub fn with_schedule<R>(delays: Vec<u8>, f: impl FnOnce() -> R) -> R {
 
     let previous = SCHEDULE.with(|schedule| schedule.replace(Some(Schedule { delays, step: 0 })));
     let _restore = Restore(previous);
-    f()
-}
-
-/// Run `f` with every requested channel capacity capped at `limit`.
-pub fn with_capacity_limit<R>(limit: usize, f: impl FnOnce() -> R) -> R {
-    struct Restore(Option<usize>);
-
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            CAPACITY_LIMIT.with(|capacity| capacity.replace(self.0.take()));
-        }
-    }
-
-    assert!(limit > 0);
-    let previous = CAPACITY_LIMIT.with(|capacity| capacity.replace(Some(limit)));
-    let _restore = Restore(previous);
-    f()
-}
-
-/// Run `f` with one named queue's requested capacity capped at `limit`.
-pub fn with_role_capacity<R>(role: QueueRole, limit: usize, f: impl FnOnce() -> R) -> R {
-    struct Restore {
-        role: QueueRole,
-        previous: Option<usize>,
-    }
-
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            ROLE_CAPACITIES.with(|capacities| {
-                let mut capacities = capacities.borrow_mut();
-                match self.previous {
-                    Some(previous) => {
-                        capacities.insert(self.role, previous);
-                    }
-                    None => {
-                        capacities.remove(&self.role);
-                    }
-                }
-            });
-        }
-    }
-
-    assert!(limit > 0);
-    let previous = ROLE_CAPACITIES.with(|capacities| capacities.borrow_mut().insert(role, limit));
-    let _restore = Restore { role, previous };
     f()
 }
 
@@ -342,19 +290,11 @@ pub fn with_observation<R>(f: impl FnOnce() -> R) -> (R, ChannelReport) {
 }
 
 fn limit_capacity(role: QueueRole, capacity: usize) -> usize {
-    let capacity = CAPACITY_LIMIT
-        .with(|limit| (*limit.borrow()).map_or(capacity, |limit| capacity.min(limit)));
-    ROLE_CAPACITIES.with(|capacities| {
-        let capacity = capacities
+    KIND_CAPACITIES.with(|capacities| {
+        capacities
             .borrow()
-            .get(&role)
-            .map_or(capacity, |limit| capacity.min(*limit));
-        KIND_CAPACITIES.with(|capacities| {
-            capacities
-                .borrow()
-                .get(&role.kind)
-                .map_or(capacity, |limit| capacity.min(*limit))
-        })
+            .get(&role.kind)
+            .map_or(capacity, |limit| capacity.min(*limit))
     })
 }
 

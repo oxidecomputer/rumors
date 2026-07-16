@@ -20,18 +20,18 @@
 
 mod common;
 
-use std::time::Duration;
+use std::{future::poll_fn, task::Poll, time::Duration};
 
 use futures::channel::mpsc::{UnboundedSender, unbounded};
 use futures::stream;
 use futures::{FutureExt, StreamExt};
 use proptest::prelude::*;
-use rumors::{Error, Gossiped, Led, Peer, Rumors};
+use rumors::{Error, Gossiped, Led, Peer, Rumors, testing::run_to_quiescence};
 use tokio::io::{AsyncWriteExt, DuplexStream, ReadHalf, WriteHalf, duplex};
 use tokio::time::timeout;
 
 use crate::common::fault::{FaultPlan, faulty};
-use crate::common::wire::{block_on, bootstrap_fork_async, wire_gossip_async};
+use crate::common::wire::{bootstrap_fork_async, tokio_block_on as block_on, wire_gossip_async};
 
 /// Generous wall-clock bound: everything here is in-memory and finishes in
 /// microseconds, so hitting the deadline means a wedged driver, not a slow
@@ -309,7 +309,7 @@ async fn when_exhaustion_then_hangup_both_end_cleanly() {
 /// byte-identical to their pre-session state, and a fresh connection
 /// afterwards converges the pair from scratch. (The forfeited connection
 /// itself is gone — that is the documented price of the drop.)
-#[tokio::test(flavor = "current_thread")]
+#[pollster::test]
 async fn dropping_a_driver_mid_session_commits_nothing() {
     let (a, b) = pair().await;
     a.send(1);
@@ -358,9 +358,12 @@ async fn dropping_a_driver_mid_session_commits_nothing() {
 /// Polling is cancel-safe, as documented: a consumer that creates and
 /// drops a fresh `next()` future on every poll — never holding one across
 /// an await — still drives sessions to completion with nothing lost.
-#[tokio::test(flavor = "current_thread")]
-async fn dropping_next_futures_loses_nothing() {
-    let (a, b) = pair().await;
+#[test]
+fn dropping_next_futures_loses_nothing() {
+    // Deliberately use a minimal executor rather than Tokio: besides avoiding
+    // Tokio's cooperative task budget in this manual-poll test, this pins the
+    // public driver's promise that it does not require a Tokio runtime.
+    let (a, b) = pollster::block_on(pair());
     let (mut a_r, mut a_w, mut b_r, mut b_w) = halves();
     let (a_tx, a_when) = ticks();
     let mut a_sessions = a.gossip_when(a_when, &mut a_r, &mut a_w);
@@ -369,11 +372,12 @@ async fn dropping_next_futures_loses_nothing() {
     a.send(1);
     a_tx.unbounded_send(()).expect("driver alive");
 
-    // Every iteration polls each driver exactly once via a `next()` future
-    // that is dropped immediately after — the adversarial consumer the
-    // cancel-safety contract promises to survive.
+    // Every poll creates each driver's `next()` future afresh, polls it once,
+    // and drops it. Self-waking asks the quiescence detector for another poll;
+    // the detector supplies the deterministic progress guard for this closed
+    // in-memory system.
     let (mut a_item, mut b_item) = (None, None);
-    for _ in 0..10_000 {
+    run_to_quiescence(poll_fn(|cx| {
         if a_item.is_none() {
             a_item = a_sessions.next().now_or_never().flatten();
         }
@@ -381,10 +385,14 @@ async fn dropping_next_futures_loses_nothing() {
             b_item = b_sessions.next().now_or_never().flatten();
         }
         if a_item.is_some() && b_item.is_some() {
-            break;
+            Poll::Ready(())
+        } else {
+            cx.waker().wake_by_ref();
+            Poll::Pending
         }
-    }
-    a_item.expect("A's session completed").expect("A's session");
+    }))
+    .expect("dropped next futures stalled the session");
+    a_item.unwrap().expect("A's session");
     b_item.expect("B's session completed").expect("B's session");
     assert_eq!(a.snapshot().hash(), b.snapshot().hash());
 }
@@ -453,7 +461,7 @@ async fn a_clean_end_leaves_the_connection_reusable() {
 
 /// Dropping a driver releases its `Rumors` clone like any other: the
 /// remaining handle reclaims the `Peer`.
-#[tokio::test(flavor = "current_thread")]
+#[pollster::test]
 async fn a_dropped_driver_does_not_block_peer_reclaim() {
     let rumors: Rumors<u64> = Peer::seed().into_rumors();
     let (mut a_r, mut a_w, _b_r, _b_w) = halves();

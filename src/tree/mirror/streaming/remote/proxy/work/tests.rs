@@ -3,10 +3,10 @@ use std::future;
 use tokio::io::{duplex, split};
 
 use super::Work;
+use crate::testing::run_to_quiescence;
 use crate::tree::mirror::streaming::{
     Failing, Failure, Local, Operation,
     remote::{adapter::EncodeError, codec::Speaker, proxy::Error, session::Drivers},
-    testing::run_to_quiescence,
 };
 
 /// A pump error cancels parked peers and retains its original error identity.

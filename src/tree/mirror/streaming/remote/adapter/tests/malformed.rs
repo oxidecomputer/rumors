@@ -3,7 +3,7 @@
 use std::{collections::BTreeMap, convert::Infallible};
 
 use before::Version;
-use futures::{StreamExt, TryStreamExt, stream};
+use futures::{TryStreamExt, stream};
 
 use crate::{
     message::Message,

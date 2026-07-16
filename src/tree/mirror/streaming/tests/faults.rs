@@ -4,13 +4,14 @@ use proptest::prelude::*;
 
 use super::{
     fixtures::{LeafOrder, full_depth_comb_pair, one_sided_pair},
-    run_to_quiescence, streaming_mirror_sides,
+    streaming_mirror_sides,
 };
+use crate::testing::run_to_quiescence;
 use crate::tree::arb::arb_divergent_pair;
 use crate::tree::mirror::{
     Error as MirrorError,
     streaming::{
-        Failing, FailingNode, Failure, Faulting, Local, Operation, Root as StreamingRoot,
+        Failing, FailingNode, Failure, Faulting, Local, Root as StreamingRoot,
         materialized::{
             Error as MaterializedError, Handshaking, Violation,
             channel::{with_observation, with_schedule},

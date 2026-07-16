@@ -2,21 +2,24 @@
 source: tests/retire_snapshot.rs
 expression: "capture_retire(seed, retiree)"
 ---
-party A                         │ party B
-─────────────────────────────── │ ───────────────────────────────
-sent 25 bytes                   │ sent 25 bytes
-  0000: 52 55 4d 4f 52 53 00 01 │   0000: 52 55 4d 4f 52 53 00 01
-  0008: 8c 18 96 68 c9 e4 83 72 │   0008: 8c 18 96 68 c9 e4 83 72
-  0010: 37 bf 31 e0 2d 7f 6b 70 │   0010: 37 bf 31 e0 2d 7f 6b 70
-  0018: 00                      │   0018: 01
-received 25 bytes               │ received 25 bytes
-  0000: 52 55 4d 4f 52 53 00 01 │   0000: 52 55 4d 4f 52 53 00 01
-  0008: 8c 18 96 68 c9 e4 83 72 │   0008: 8c 18 96 68 c9 e4 83 72
-  0010: 37 bf 31 e0 2d 7f 6b 70 │   0010: 37 bf 31 e0 2d 7f 6b 70
-  0018: 01                      │   0018: 00
-sent 5 bytes                    │ sent 5 bytes
-  0000: 00 00 00 01 40          │   0000: 00 00 00 01 40
-received 10 bytes               │ received 5 bytes
-  0000: 00 00 00 01 40 00 00 00 │   0000: 00 00 00 01 40
-  0008: 01 40                   │ sent 5 bytes
-                                │   0000: 00 00 00 01 40
+direction A -> B
+preamble: 25 bytes
+  0000: 52 55 4d 4f 52 53 00 02
+  0008: 8c 18 96 68 c9 e4 83 72
+  0010: 37 bf 31 e0 2d 7f 6b 70
+  0018: 00
+version: 0
+version frame: 5 bytes
+  0000: 00 00 00 01 40
+
+direction B -> A
+preamble: 25 bytes
+  0000: 52 55 4d 4f 52 53 00 02
+  0008: 8c 18 96 68 c9 e4 83 72
+  0010: 37 bf 31 e0 2d 7f 6b 70
+  0018: 01
+version: 0
+version frame: 5 bytes
+  0000: 00 00 00 01 40
+trailing frame: 5 bytes
+  0000: 00 00 00 01 40

@@ -322,26 +322,6 @@ fn stream_face_is_causal_and_terminates() {
     );
 }
 
-/// The synchronous mirror: `sync::CausalMessages` is an `Iterator` whose
-/// items arrive in causal order and whose end is the set closing.
-#[test]
-fn sync_iterator_face_is_causal() {
-    let known = rumors::sync::Peer::<u64>::seed().into_rumors();
-    for v in 0..5u64 {
-        known.send(v);
-    }
-
-    let obs = known.causal_messages();
-    drop(known);
-
-    let values: Vec<u64> = obs.map(|(_, _, m)| *m).collect();
-    assert_eq!(
-        values,
-        (0..5).collect::<Vec<_>>(),
-        "the sync iterator replays the chain in order, then ends"
-    );
-}
-
 const MAX_OPS: usize = 32;
 
 /// One scripted action against a two-replica universe observed at `a`.

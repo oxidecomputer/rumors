@@ -1,8 +1,7 @@
 //! Convergence test for the *asynchronous* gossip path:
 //! `rumors::Rumors::gossip` driven concurrently with `tokio::join!` over a
 //! `tokio::io::duplex` pipe must converge both peers on the union of their
-//! pre-session live content. Mirrors `sync_wire.rs`, which exercises the
-//! synchronous `sync::Rumors::gossip` path over `std::io::pipe`s.
+//! pre-session live content.
 //!
 //! (The old in-process `join` is gone — wire gossip *is* the merge —
 //! so the oracle is the abstract union of the two pre-session readouts:
@@ -18,7 +17,7 @@ mod common;
 use proptest::prelude::*;
 use rumors::Peer;
 
-use crate::common::action::{arb_local_actions, arb_string_actions, build_local_async};
+use crate::common::action::{arb_local_actions, arb_string_actions, build_local};
 use crate::common::oracle::readout;
 use crate::common::wire::{bootstrap_fork, wire_gossip};
 
@@ -42,8 +41,8 @@ proptest! {
         b_actions in arb_local_actions(),
     ) {
         let seed = Peer::<u64>::seed().into_rumors();
-        let a = build_local_async(bootstrap_fork(&seed), &a_actions);
-        let b = build_local_async(bootstrap_fork(&seed), &b_actions);
+        let a = build_local(bootstrap_fork(&seed), &a_actions);
+        let b = build_local(bootstrap_fork(&seed), &b_actions);
 
         let mut expected = readout(&a.snapshot());
         expected.extend(readout(&b.snapshot()));
@@ -64,8 +63,8 @@ proptest! {
         b_actions in arb_string_actions(),
     ) {
         let seed = Peer::<String>::seed().into_rumors();
-        let a = build_local_async(bootstrap_fork(&seed), &a_actions);
-        let b = build_local_async(bootstrap_fork(&seed), &b_actions);
+        let a = build_local(bootstrap_fork(&seed), &a_actions);
+        let b = build_local(bootstrap_fork(&seed), &b_actions);
 
         let mut expected = readout(&a.snapshot());
         expected.extend(readout(&b.snapshot()));

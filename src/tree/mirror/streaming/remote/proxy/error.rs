@@ -5,6 +5,15 @@ use crate::tree::mirror::streaming::remote::{adapter, session};
 /// A protocol or adapter failure while proxying one remote counterparty.
 #[derive(Debug, thiserror::Error)]
 pub enum Error<E> {
+    /// Reading the peer's causal-version handshake frame failed.
+    #[error("failed to read streaming handshake")]
+    HandshakeRead(#[source] std::io::Error),
+    /// The peer's handshake body was not one canonical causal version.
+    #[error("failed to decode streaming handshake")]
+    HandshakeDecode(#[source] std::io::Error),
+    /// Writing and flushing the local causal-version handshake frame failed.
+    #[error("failed to write streaming handshake")]
+    HandshakeWrite(#[source] std::io::Error),
     /// The locally-produced distinguished opening could not be encoded.
     #[error("local opening reply is invalid")]
     OpeningEncode(#[source] adapter::OpeningError),

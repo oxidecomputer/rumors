@@ -3,10 +3,8 @@
 use proptest::prelude::*;
 
 use super::fixtures::{LeafOrder, full_depth_comb_pair, one_sided_pair, pyramid_pair};
-use super::{
-    Quiescence, alternating_mirror, fully_scheduled_streaming_mirror, run_to_quiescence,
-    scheduled_streaming_mirror,
-};
+use super::{alternating_mirror, fully_scheduled_streaming_mirror, scheduled_streaming_mirror};
+use crate::testing::{Quiescence, run_to_quiescence};
 use crate::tree::{
     Root,
     arb::leaf_parent_dispute_pair,

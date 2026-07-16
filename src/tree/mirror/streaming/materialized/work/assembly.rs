@@ -9,7 +9,7 @@ use tokio_stream::StreamExt;
 use super::{Work, queues::assembly_level_returns};
 use crate::tree::{
     mirror::streaming::{
-        Backend, Leaf, Node,
+        Backend, Leaf,
         materialized::{Error, Resolution, Resolve, channel::Sender},
         tasks::next_or_cancelled,
     },

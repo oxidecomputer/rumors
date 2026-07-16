@@ -76,7 +76,7 @@ fn beat(peer: PeerId, name: &str, at: Millis) -> Entry {
 /// A live message is displayed and gets an expiry scheduled at
 /// `sent_at + ttl`; an already-expired one is never displayed, only
 /// redacted.
-#[tokio::test(flavor = "current_thread")]
+#[pollster::test]
 async fn expiry_policy_on_arrival() {
     let known = Peer::<Entry>::seed().into_rumors();
     let entries = vec![chat("live", 1_000), chat("dead", 2_000)];
@@ -106,7 +106,7 @@ async fn expiry_policy_on_arrival() {
 /// history is flagged as a [`Effect::ConcurrentArrival`] for the UI to
 /// highlight. Display order is plain arrival order — sound because the
 /// owner feeds `observe` from a `CausalMessages` observer.
-#[tokio::test(flavor = "current_thread")]
+#[pollster::test]
 async fn concurrent_arrival_is_flagged() {
     // Two causal lines: alice's chain, and a concurrent message minted by a
     // disjoint fork that never saw it. The fork is minted while both sides
@@ -166,7 +166,7 @@ async fn concurrent_arrival_is_flagged() {
 
 /// Presence supersession: the causally newer beat wins regardless of arrival
 /// order, and the loser is redacted so stale beats never accumulate.
-#[tokio::test(flavor = "current_thread")]
+#[pollster::test]
 async fn presence_supersession_is_arrival_order_independent() {
     let known = Peer::<Entry>::seed().into_rumors();
     let entries = vec![beat(ALICE, "alice", 1_000), beat(ALICE, "alice", 2_000)];
@@ -196,7 +196,7 @@ async fn presence_supersession_is_arrival_order_independent() {
 /// The removal diff: any tracked key absent from the live set is dropped
 /// from every display structure and returned for timer cancellation. This is
 /// the only path by which a peer's redaction reaches the screen.
-#[tokio::test(flavor = "current_thread")]
+#[pollster::test]
 async fn retain_live_drops_peer_redactions() {
     let known = Peer::<Entry>::seed().into_rumors();
     let entries = vec![
@@ -225,7 +225,7 @@ async fn retain_live_drops_peer_redactions() {
 
 /// The staleness sweep evicts exactly the peers whose newest beat is at
 /// least [`timers::PRESENCE_STALE`] old, redacting their presence keys.
-#[tokio::test(flavor = "current_thread")]
+#[pollster::test]
 async fn sweep_stale_boundary() {
     let stale_ms = timers::PRESENCE_STALE.as_millis() as Millis;
     let known = Peer::<Entry>::seed().into_rumors();
@@ -250,7 +250,7 @@ async fn sweep_stale_boundary() {
 /// Channels exist as soon as either a creation entry or a message naming
 /// them arrives (delivery is unordered), and creation metadata fills in
 /// whenever the creation entry shows up.
-#[tokio::test(flavor = "current_thread")]
+#[pollster::test]
 async fn channel_creation_is_order_independent() {
     let known = Peer::<Entry>::seed().into_rumors();
     let entries = vec![
@@ -281,7 +281,7 @@ async fn channel_creation_is_order_independent() {
 }
 
 /// `peer_name` resolves through presence and falls back to a short hex id.
-#[tokio::test(flavor = "current_thread")]
+#[pollster::test]
 async fn peer_name_resolution() {
     let known = Peer::<Entry>::seed().into_rumors();
     let entries = vec![beat(ALICE, "alice", 1_000)];

@@ -3,13 +3,10 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use std::marker::PhantomData;
-
 use before::Rank;
 use futures::Stream;
 use tokio::sync::watch;
 
-use crate::mode::{Async, Blocking, Mode};
 use crate::tree::Leaf;
 use crate::{Key, Version};
 
@@ -31,7 +28,7 @@ use super::unordered::{Channel, TryNext};
 /// This observer does not count against the quiescence that lets
 /// [`try_into_peer`](crate::Rumors::try_into_peer) reclaim the
 /// [`Peer`](crate::Peer).
-pub struct CausalMessages<T, M: Mode = Async> {
+pub struct CausalMessages<T> {
     /// The watch channel or the in-flight wait for it to change — the same
     /// owned-wait dance as [`UnorderedMessages`](super::UnorderedMessages) (see its field
     /// docs for why the wait is materialized).
@@ -52,11 +49,9 @@ pub struct CausalMessages<T, M: Mode = Async> {
     /// The most recently delivered leaf, kept alive so its version and
     /// value can be lent to the caller until the next call.
     current: Option<(Key, Leaf<T>)>,
-    /// The I/O [`Mode`] witness; see [`Peer`](crate::Peer)'s `marker`.
-    marker: PhantomData<fn() -> M>,
 }
 
-impl<T, M: Mode> CausalMessages<T, M> {
+impl<T> CausalMessages<T> {
     pub(crate) fn subscribe(inner: &watch::Sender<crate::Inner<T>>, since: Version) -> Self {
         Self {
             channel: Some(Channel::Ready(inner.subscribe())),
@@ -64,7 +59,6 @@ impl<T, M: Mode> CausalMessages<T, M> {
             checkpoint: since,
             staged: BTreeMap::new(),
             current: None,
-            marker: PhantomData,
         }
     }
 
@@ -115,12 +109,7 @@ impl<T, M: Mode> CausalMessages<T, M> {
         Some((*key, leaf.version(), leaf.value()))
     }
 
-    /// The mode-agnostic engine behind the async and blocking
-    /// [`borrow_next`](CausalMessages::borrow_next): advances to the next
-    /// message in causal order and lends it.
-    ///
-    /// The async face awaits it; the
-    /// blocking face drives it to completion.
+    /// Advance to the next message in causal order and lend it.
     pub(crate) async fn borrow_next_inner(&mut self) -> Option<(Key, &Version, &Arc<T>)>
     where
         T: Send + Sync,
@@ -173,7 +162,7 @@ impl<T, M: Mode> CausalMessages<T, M> {
     }
 }
 
-impl<T> CausalMessages<T, Async> {
+impl<T> CausalMessages<T> {
     /// Advance to the next message in causal order, lending its version and
     /// value until the following call.
     ///
@@ -186,19 +175,6 @@ impl<T> CausalMessages<T, Async> {
     {
         self.borrow_next_inner().await
     }
-}
-
-impl<T> CausalMessages<T, Blocking> {
-    /// Blocking [`borrow_next`](CausalMessages::borrow_next): blocks the
-    /// calling thread (via [`pollster`], with no async runtime) until a
-    /// message is ready or the set has closed, instead of awaiting.
-    pub fn borrow_next(&mut self) -> Option<(Key, &Version, &Arc<T>)>
-    where
-        T: Send + Sync,
-    {
-        pollster::block_on(self.borrow_next_inner())
-    }
-
     /// Take one non-blocking step: a message if one is ready, [`Quiet`] (ask
     /// again later) if not, [`Ended`] if no further message is possible.
     ///
@@ -223,7 +199,7 @@ impl<T> CausalMessages<T, Blocking> {
 ///
 /// `T: 'static` because the quiet-period wait is materialized as an
 /// owned future (see [`UnorderedMessages`](super::UnorderedMessages)' `channel` field).
-impl<T: Send + Sync + 'static> Stream for CausalMessages<T, Async> {
+impl<T: Send + Sync + 'static> Stream for CausalMessages<T> {
     type Item = (Key, Version, Arc<T>);
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -263,20 +239,5 @@ impl<T: Send + Sync + 'static> Stream for CausalMessages<T, Async> {
                 }
             }
         }
-    }
-}
-
-/// The blocking owned-item face: the [`Iterator`] analogue of the [`Stream`]
-/// impl, cloning each item out of the same staged backlog
-/// [`borrow_next`](CausalMessages::borrow_next) lends from.
-///
-/// [`next`](Iterator::next) blocks the calling thread (via [`pollster`]) until
-/// an item is ready; [`None`] means the set has closed and is fully delivered.
-impl<T: Send + Sync + 'static> Iterator for CausalMessages<T, Blocking> {
-    type Item = (Key, Version, Arc<T>);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let (key, version, value) = pollster::block_on(self.borrow_next_inner())?;
-        Some((key, version.clone(), value.clone()))
     }
 }

@@ -2,14 +2,14 @@
 
 use super::harness::{self, FrameMutation, FrameSelector, Script};
 use crate::message::Message;
+use crate::testing::run_to_quiescence;
 use crate::tree::{
     Action, Tree,
     arb::nth_party,
     mirror::{
         Error as MirrorError,
-        streaming::{
-            remote::{CodecDecodeErrorKind, DecodeSignalError, DemuxError, Error as RemoteError},
-            testing::run_to_quiescence,
+        streaming::remote::{
+            CodecDecodeErrorKind, DecodeSignalError, DemuxError, Error as RemoteError,
         },
     },
 };

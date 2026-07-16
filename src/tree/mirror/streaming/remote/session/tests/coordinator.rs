@@ -24,7 +24,7 @@ struct ProtocolError;
 ///
 /// A representative interior stream carries several complete replies before
 /// its separate stream end in both directions; the other phases carry one.
-#[tokio::test]
+#[pollster::test]
 async fn returns_all_three_outputs_after_every_branch_completes() {
     const SUFFIX: &[u8] = &[0xfa, 0xfb];
 
@@ -86,7 +86,7 @@ async fn returns_all_three_outputs_after_every_branch_completes() {
 
 /// An immediate semantic failure wins over the sender and receiver closures
 /// caused by dropping the protocol's logical-stream endpoints.
-#[tokio::test]
+#[pollster::test]
 async fn protocol_error_precedes_its_channel_drop_symptoms() {
     let (drivers, incoming, outgoing) =
         Drivers::<_, _, ()>::new(Speaker::Initiator, &[][..], RecordingWriter::default());
@@ -103,7 +103,7 @@ async fn protocol_error_precedes_its_channel_drop_symptoms() {
 
 /// A physical input failure is returned while the protocol still owns every
 /// logical endpoint, rather than being translated into a local channel close.
-#[tokio::test]
+#[pollster::test]
 async fn incoming_error_precedes_protocol_cancellation() {
     let (drivers, incoming, outgoing) =
         Drivers::<_, _, ()>::new(Speaker::Initiator, &[][..], RecordingWriter::default());
@@ -145,7 +145,7 @@ impl AsyncWrite for FlushFailure {
 
 /// A physical output failure is returned in the poll which causes the paired
 /// receipt to close, before the protocol can reduce it to `SendError`.
-#[tokio::test]
+#[pollster::test]
 async fn outgoing_error_precedes_receipt_close_symptom() {
     let (keep_open, read) = tokio::io::duplex(1);
     let (drivers, incoming, mut outgoing) =

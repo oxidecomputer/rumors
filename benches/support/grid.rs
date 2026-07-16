@@ -1,7 +1,7 @@
 //! Shared fixtures for the reconciliation benchmarks.
 //!
 //! [`gossip_grid`](../gossip_grid.rs) reconciles two diverged peers over a
-//! simulated wire via [`Rumors::gossip`](rumors::sync::Rumors::gossip) across
+//! simulated wire via [`Rumors::gossip`](rumors::Rumors::gossip) across
 //! the divergence grid below; [`in_memory`](../in_memory.rs) shares the size
 //! sweep and sample-size policy for the single-set surface (inserts,
 //! iteration, ranges, observers, lookups).
@@ -27,41 +27,10 @@
 //! - small-delta = `common = n,  differing = k, redacted = 0` (small `k`)
 //! - identical   = `common = n,  differing = 0, redacted = 0`
 
-use std::io::pipe;
-use std::thread;
+use rumors::{Key, Peer, Protocol, Rumors};
 
-use borsh::{BorshDeserialize, BorshSerialize};
-use rumors::sync::{Key, Peer, Rumors};
-
-/// Mint a genuine party-disjoint originator that inherits `parent`'s content.
-///
-/// A peer that will independently `send`/`redact` (as both sides of every
-/// grid cell do after the split) needs its own disjoint Interval Tree Clock
-/// region. We mint one by serving a bootstrap from `parent` over a pair of
-/// pipes: the newcomer pulls `parent`'s whole tree through the ordinary
-/// mirror descent and is handed a fresh disjoint party, forked in the same
-/// critical section that snapshots the served tree. The fixtures only need
-/// the data plane, so the lifecycle handle is collapsed to [`Rumors`] right
-/// away.
-fn bootstrap_fork<T>(parent: &mut Rumors<T>) -> Rumors<T>
-where
-    T: BorshSerialize + BorshDeserialize + Clone + Send + Sync + 'static,
-{
-    let (mut p2n_r, mut p2n_w) = pipe().expect("pipe parent->newcomer");
-    let (mut n2p_r, mut n2p_w) = pipe().expect("pipe newcomer->parent");
-    thread::scope(|s| {
-        let newcomer = s.spawn(move || {
-            Peer::<T>::bootstrap(&mut p2n_r, &mut n2p_w)
-                .expect("bootstrap newcomer")
-                .expect("provider served bootstrap")
-                .into_rumors()
-        });
-        parent
-            .gossip(&mut n2p_r, &mut p2n_w)
-            .expect("serve bootstrap");
-        newcomer.join().expect("join bootstrap thread")
-    })
-}
+#[path = "wire.rs"]
+pub mod wire;
 
 /// Live message counts for the single-set benchmarks (`batch_insert`,
 /// `iter`, `redact`, `range_delta`, …), spanning three orders of magnitude.
@@ -179,14 +148,14 @@ pub fn build(cell: Cell) -> (Rumors<()>, Rumors<()>) {
         redacted,
     } = cell;
 
-    let mut left: Rumors<()> = Peer::seed().into_rumors();
+    let left: Rumors<()> = Peer::seed().into_rumors();
     send_units(&left, common);
     // The shared prefix's keys, for carving the redaction blocks; order is
     // immaterial (the blocks only need to be disjoint and deterministic, and
     // the snapshot iterates in a stable order).
     let shared: Vec<Key> = left.snapshot().iter().map(|(k, _, _)| k).collect();
 
-    let right = bootstrap_fork(&mut left);
+    let right = wire::bootstrap_fork(&left, Protocol::V2);
     send_units(&left, differing);
     send_units(&right, differing);
 

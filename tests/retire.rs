@@ -1,6 +1,5 @@
-//! Integration tests for `rumors::Peer::retire` (and its synchronous twin
-//! `sync::Peer::retire`): a peer hands its ITC party to a peer, so its
-//! id-region is reclaimed rather than leaked.
+//! Integration tests for `rumors::Peer::retire`: a peer hands its ITC party
+//! to a peer, so its id-region is reclaimed rather than leaked.
 //!
 //! A retire session begins with a round of gossip — the ordinary mirror
 //! descent — so the absorbing peer comes to causally dominate the retiree
@@ -24,9 +23,8 @@ mod common;
 use proptest::prelude::*;
 use rumors::{Peer, Retire, Rumors, causally};
 
-use crate::common::action::{LocalAction, arb_local_actions, build_local, build_local_async};
+use crate::common::action::{LocalAction, arb_local_actions, build_local};
 use crate::common::oracle::readout;
-use crate::common::sync_wire::{sync_bootstrap_fork, sync_wire_gossip};
 use crate::common::wire::{block_on, bootstrap_fork, wire_gossip};
 
 /// Capacity for the in-memory duplex pipe. A divergent retiree's session moves
@@ -38,13 +36,6 @@ const DUPLEX_BUF: usize = 64 * 1024;
 /// Build an async `Rumors<u64>` by inserting `vals` into a disjoint originator
 /// (a genuine bootstrap fork: its own party region, ready to originate).
 fn async_known(peer: Rumors<u64>, vals: &[u64]) -> Rumors<u64> {
-    let actions: Vec<LocalAction<u64>> = vals.iter().map(|&v| LocalAction::Insert(v)).collect();
-    build_local_async(peer, &actions)
-}
-
-/// Build a synchronous `sync::Rumors<u64>` by inserting `vals` into a disjoint
-/// originator (a genuine bootstrap fork: its own party region).
-fn sync_known(peer: rumors::sync::Rumors<u64>, vals: &[u64]) -> rumors::sync::Rumors<u64> {
     let actions: Vec<LocalAction<u64>> = vals.iter().map(|&v| LocalAction::Insert(v)).collect();
     build_local(peer, &actions)
 }
@@ -114,29 +105,6 @@ fn retire_into_bootstrap(retiree: Rumors<u64>) -> (Retire<u64>, Option<Rumors<u6
             retire_out,
             boot_out.expect("bootstrapper").map(Peer::into_rumors),
         )
-    })
-}
-
-/// Synchronous counterpart of [`retire_into_gossip`]: one peer per OS thread,
-/// connected by a pair of `std::io::pipe`s, exactly as `sync_wire_gossip` does.
-fn sync_retire_into_gossip(
-    retiree: rumors::sync::Rumors<u64>,
-    peer: &mut rumors::sync::Rumors<u64>,
-) -> rumors::sync::Retire<u64> {
-    let retiree = retiree
-        .try_into_peer()
-        .expect("the sole handle reclaims the Peer");
-    let (mut a_to_b_r, mut a_to_b_w) = std::io::pipe().expect("pipe a→b");
-    let (mut b_to_a_r, mut b_to_a_w) = std::io::pipe().expect("pipe b→a");
-
-    std::thread::scope(|s| {
-        let peer_thread = s.spawn(move || {
-            peer.gossip(&mut a_to_b_r, &mut b_to_a_w)
-                .expect("sync gossiping peer")
-        });
-        let retire_out = retiree.retire(&mut b_to_a_r, &mut a_to_b_w);
-        peer_thread.join().expect("join peer thread");
-        retire_out
     })
 }
 
@@ -372,58 +340,6 @@ fn gossip_absorbs_retiree_without_observations() {
     );
 }
 
-// ---- synchronous parity tests -------------------------------------------
-
-/// The synchronous `retire` surface behaves like the async one: retiring into a
-/// converged (dominating) peer succeeds and leaves that peer's tree and version
-/// untouched.
-#[test]
-fn sync_retire_into_converged_peer_succeeds() {
-    let mut seed = rumors::sync::Peer::<u64>::seed().into_rumors();
-    let mut a = sync_known(sync_bootstrap_fork(&mut seed), &[1, 2]);
-    let mut b = sync_known(seed, &[3]);
-
-    sync_wire_gossip(&mut a, &mut b);
-    let pre = b.snapshot();
-    let (hash, version) = (pre.hash(), pre.latest().clone());
-
-    let outcome = sync_retire_into_gossip(a, &mut b);
-    assert!(
-        matches!(outcome, rumors::sync::Retire::Retired),
-        "a dominating peer absorbs the retiree, got {outcome:?}"
-    );
-    let post = b.snapshot();
-    assert_eq!(post.hash(), hash, "absorbing a retiree moves no content");
-    assert_eq!(
-        post.latest(),
-        &version,
-        "absorbing a retiree is a version no-op"
-    );
-}
-
-/// Synchronous divergence parity: over the blocking wire, the retire session's
-/// gossip round reconciles a divergent pair before the absorbing peer takes
-/// the retiree's party, and the retiree's content survives.
-#[test]
-fn sync_divergent_retiree_reconciles_then_retires() {
-    let mut seed = rumors::sync::Peer::<u64>::seed().into_rumors();
-    let a = sync_known(sync_bootstrap_fork(&mut seed), &[1]);
-    let mut b = sync_known(seed, &[2]);
-
-    let outcome = sync_retire_into_gossip(a, &mut b);
-    assert!(
-        matches!(outcome, rumors::sync::Retire::Retired),
-        "the in-session gossip round brings the peer to dominance, got {outcome:?}"
-    );
-    let mut live: Vec<u64> = b.snapshot().iter().map(|(_, _, m)| **m).collect();
-    live.sort_unstable();
-    assert_eq!(
-        live,
-        vec![1, 2],
-        "the retiree's content survives in the absorber"
-    );
-}
-
 // ---- wire-equivalence property tests -------------------------------------
 
 proptest! {
@@ -442,8 +358,8 @@ proptest! {
         // Wire path: converge, then retire A into B.
         let (retire_hash, retire_version) = {
             let seed = Peer::<u64>::seed().into_rumors();
-            let a = build_local_async(bootstrap_fork(&seed), &a_actions);
-            let b = build_local_async(seed, &b_actions);
+            let a = build_local(bootstrap_fork(&seed), &a_actions);
+            let b = build_local(seed, &b_actions);
             wire_gossip(&a, &b);
             let outcome = retire_into_gossip(a, &b);
             prop_assert!(
@@ -457,8 +373,8 @@ proptest! {
         // Oracle: a plain gossip session in an identically-built universe.
         let (gossip_hash, gossip_version) = {
             let seed = Peer::<u64>::seed().into_rumors();
-            let a = build_local_async(bootstrap_fork(&seed), &a_actions);
-            let b = build_local_async(seed, &b_actions);
+            let a = build_local(bootstrap_fork(&seed), &a_actions);
+            let b = build_local(seed, &b_actions);
             wire_gossip(&a, &b);
             let snapshot = b.snapshot();
             (snapshot.hash(), snapshot.latest().clone())
@@ -485,8 +401,8 @@ proptest! {
         // Wire path: retire A into B directly, while they may still diverge.
         let (retire_hash, retire_version) = {
             let seed = Peer::<u64>::seed().into_rumors();
-            let a = build_local_async(bootstrap_fork(&seed), &a_actions);
-            let b = build_local_async(seed, &b_actions);
+            let a = build_local(bootstrap_fork(&seed), &a_actions);
+            let b = build_local(seed, &b_actions);
             let outcome = retire_into_gossip(a, &b);
             prop_assert!(
                 matches!(outcome, Retire::Retired),
@@ -499,8 +415,8 @@ proptest! {
         // Oracle: a plain gossip session in an identically-built universe.
         let (gossip_hash, gossip_version) = {
             let seed = Peer::<u64>::seed().into_rumors();
-            let a = build_local_async(bootstrap_fork(&seed), &a_actions);
-            let b = build_local_async(seed, &b_actions);
+            let a = build_local(bootstrap_fork(&seed), &a_actions);
+            let b = build_local(seed, &b_actions);
             wire_gossip(&a, &b);
             let snapshot = b.snapshot();
             (snapshot.hash(), snapshot.latest().clone())

@@ -18,7 +18,7 @@
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-use crate::Network;
+use crate::{Network, Protocol};
 
 /// Bytes occupied by the fixed protocol marker.
 const MAGIC_LEN: usize = crate::PROTOCOL_MAGIC.len();
@@ -88,17 +88,17 @@ pub(crate) struct Preamble {
 
 impl Preamble {
     /// Render one complete fixed-width preamble.
-    fn encode(self) -> [u8; PREAMBLE_LEN] {
+    fn encode(self, protocol: Protocol) -> [u8; PREAMBLE_LEN] {
         let mut bytes = [0; PREAMBLE_LEN];
         bytes[..MAGIC_LEN].copy_from_slice(&crate::PROTOCOL_MAGIC);
-        bytes[VERSION_AT..NETWORK_AT].copy_from_slice(&crate::PROTOCOL_VERSION.to_be_bytes());
+        bytes[VERSION_AT..NETWORK_AT].copy_from_slice(&(protocol as u16).to_be_bytes());
         bytes[NETWORK_AT..INTENT_AT].copy_from_slice(&self.network.to_bytes());
         bytes[INTENT_AT] = self.intent.to_byte();
         bytes
     }
 
     /// Parse and validate one complete peer-controlled preamble.
-    fn decode(bytes: &[u8; PREAMBLE_LEN]) -> Result<Self, Error> {
+    fn decode(bytes: &[u8; PREAMBLE_LEN], protocol: Protocol) -> Result<Self, Error> {
         let remote_magic = bytes[..MAGIC_LEN].try_into().expect("magic width");
         if remote_magic != crate::PROTOCOL_MAGIC {
             return Err(Error::MagicMismatch { remote_magic });
@@ -108,8 +108,11 @@ impl Preamble {
                 .try_into()
                 .expect("version width"),
         );
-        if remote_version != crate::PROTOCOL_VERSION {
-            return Err(Error::VersionMismatch { remote_version });
+        if remote_version != protocol as u16 {
+            return Err(Error::VersionMismatch {
+                local_protocol: protocol,
+                remote_version,
+            });
         }
 
         let network = Network::from_bytes(
@@ -135,11 +138,11 @@ pub(crate) enum Error {
     #[error("peer is not a rumors stream (remote magic: {remote_magic:x?})")]
     MagicMismatch { remote_magic: [u8; 6] },
     /// The peer speaks a different wire dialect.
-    #[error(
-        "peer speaks rumors protocol version {remote_version}, we speak {}",
-        crate::PROTOCOL_VERSION
-    )]
-    VersionMismatch { remote_version: u16 },
+    #[error("peer speaks rumors protocol version {remote_version}, we selected {local_protocol:?}")]
+    VersionMismatch {
+        local_protocol: Protocol,
+        remote_version: u16,
+    },
     /// The peer's intent byte has no defined meaning.
     #[error("peer sent an invalid intent byte ({byte:#04x})")]
     IntentInvalid { byte: u8 },
@@ -171,7 +174,7 @@ impl Staged {
     /// Continue receiving the fixed frame without losing cancelled progress.
     pub(crate) async fn fill<R>(&mut self, reader: &mut R) -> Result<Fill, Error>
     where
-        R: AsyncRead + Unpin,
+        R: AsyncRead + Unpin + ?Sized,
     {
         while self.filled < self.buf.len() {
             match reader.read(&mut self.buf[self.filled..]).await? {
@@ -189,14 +192,15 @@ impl Staged {
     }
 
     /// Validate a completely received frame in diagnostic order.
-    fn validate(&self) -> Result<Preamble, Error> {
+    fn validate(&self, protocol: Protocol) -> Result<Preamble, Error> {
         debug_assert_eq!(self.filled, PREAMBLE_LEN, "validate before full");
-        Preamble::decode(&self.buf)
+        Preamble::decode(&self.buf, protocol)
     }
 }
 
 /// Exchange the fixed preamble before either protocol trusts framed traffic.
 pub(crate) async fn preamble<R, W>(
+    protocol: Protocol,
     network: Network,
     intent: Intent,
     staged: &mut Staged,
@@ -204,10 +208,10 @@ pub(crate) async fn preamble<R, W>(
     writer: &mut W,
 ) -> Result<Preamble, Error>
 where
-    R: AsyncRead + Unpin,
-    W: AsyncWrite + Unpin,
+    R: AsyncRead + Unpin + ?Sized,
+    W: AsyncWrite + Unpin + ?Sized,
 {
-    let local = Preamble { network, intent }.encode();
+    let local = Preamble { network, intent }.encode(protocol);
 
     let write = async {
         writer.write_all(&local).await.map_err(Error::Io)?;
@@ -223,7 +227,7 @@ where
         }
     };
     futures_util::future::try_join(write, read).await?;
-    staged.validate()
+    staged.validate(protocol)
 }
 
 /// Progress of a cancel-safe preamble arrival.

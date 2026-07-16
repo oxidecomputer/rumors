@@ -66,9 +66,8 @@ impl<T: Clone + Ord> Oracle<T> {
 ///
 /// A direct read via [`Snapshot::iter`]: it enumerates exactly the live
 /// leaves, so redacted messages — whose leaves the redaction *removed*,
-/// leaving no marker — are simply absent. Taking the [`Snapshot`] (rather
-/// than a handle type) keeps one lens for `Rumors` and `sync::Rumors`
-/// alike.
+/// leaving no marker — are simply absent. Taking the [`Snapshot`] rather
+/// than a live handle also keeps this oracle independent of observer state.
 pub fn readout<T>(snapshot: &Snapshot<T>) -> BTreeMap<Key, T>
 where
     T: Clone + Send + Sync + 'static,

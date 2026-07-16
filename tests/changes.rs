@@ -14,7 +14,7 @@ use crate::common::wire::{bootstrap_fork_async, wire_gossip_async};
 
 /// A fresh observer yields immediately — even on an empty set — because a
 /// new subscriber has seen nothing, so whatever the set holds is news.
-#[tokio::test(flavor = "current_thread")]
+#[pollster::test]
 async fn first_poll_yields_immediately() {
     let rumors: Rumors<u64> = Peer::seed().into_rumors();
     let mut changes = rumors.changes();
@@ -25,7 +25,7 @@ async fn first_poll_yields_immediately() {
 
 /// Each commit observed in isolation produces exactly one tick: a send, a
 /// redact, and a multi-change batch are one frontier advance apiece.
-#[tokio::test(flavor = "current_thread")]
+#[pollster::test]
 async fn one_tick_per_observed_commit() {
     let rumors: Rumors<u64> = Peer::seed().into_rumors();
     let mut changes = rumors.changes();
@@ -54,7 +54,7 @@ async fn one_tick_per_observed_commit() {
 
 /// Ticks coalesce: any number of commits between polls is one tick — the
 /// stream is a signal, not a ledger.
-#[tokio::test(flavor = "current_thread")]
+#[pollster::test]
 async fn unpolled_commits_coalesce_to_one_tick() {
     let rumors: Rumors<u64> = Peer::seed().into_rumors();
     let mut changes = rumors.changes();
@@ -69,7 +69,7 @@ async fn unpolled_commits_coalesce_to_one_tick() {
 
 /// A join learned by gossip is a commit like any other: an observer on the
 /// receiving side ticks when the session lands content from the peer.
-#[tokio::test(flavor = "current_thread")]
+#[pollster::test]
 async fn gossip_join_ticks_the_observer() {
     let a: Rumors<u64> = Peer::seed().into_rumors();
     let b = bootstrap_fork_async(&a).await;
@@ -86,7 +86,7 @@ async fn gossip_join_ticks_the_observer() {
 /// The stream ends once the set closes: with the `Peer` and every `Rumors`
 /// gone no further change is possible, and a tick still owed (committed
 /// after the last poll) is delivered before the end.
-#[tokio::test(flavor = "current_thread")]
+#[pollster::test]
 async fn set_closure_ends_the_stream() {
     let rumors: Rumors<u64> = Peer::seed().into_rumors();
     let mut changes = rumors.changes();
@@ -102,22 +102,22 @@ async fn set_closure_ends_the_stream() {
 
 /// Holding a `Changes` does not count against the quiescence that lets
 /// [`Rumors::try_into_peer`] reclaim the `Peer`.
-#[tokio::test(flavor = "current_thread")]
+#[pollster::test]
 async fn observer_does_not_block_peer_reclaim() {
     let rumors: Rumors<u64> = Peer::seed().into_rumors();
     let _changes = rumors.changes();
     assert!(rumors.try_into_peer().await.is_some());
 }
 
-/// The blocking face carries the same contract through `TryTick`: a fresh
+/// The non-blocking `TryTick` face carries the same contract: a fresh
 /// signal's first step ticks, commits between steps coalesce into one tick,
-/// a reported signal is quiet (not ended) while handles live, the `Iterator`
-/// face delivers a tick still owed at set closure, and `Ended` is terminal.
+/// a reported signal is quiet (not ended) while handles live, the stream
+/// delivers a tick still owed at set closure, and `Ended` is terminal.
 #[test]
-fn sync_face_ticks_coalesce_quiet_and_end() {
-    use rumors::sync::{Peer as SyncPeer, TryTick};
+fn try_tick_coalesces_quiet_and_end() {
+    use rumors::TryTick;
 
-    let rumors = SyncPeer::<u64>::seed().into_rumors();
+    let rumors = Peer::<u64>::seed().into_rumors();
     rumors.batch().send(1).send(2);
 
     let mut changes = rumors.changes();
@@ -141,8 +141,8 @@ fn sync_face_ticks_coalesce_quiet_and_end() {
     rumors.send(5);
     drop(rumors);
     assert_eq!(
-        changes.next(),
-        Some(()),
+        changes.next().now_or_never(),
+        Some(Some(())),
         "a tick owed at closure is delivered before the end"
     );
     assert!(matches!(changes.try_next(), TryTick::Ended));

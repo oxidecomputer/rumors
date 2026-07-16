@@ -1,10 +1,10 @@
 //! Exact-read length-delimited framing shared by the mirror wire protocols.
 //!
 //! A framed body is a 4-byte big-endian length followed by exactly that many
-//! payload bytes. The alternating protocol uses this envelope for every
-//! message; the streaming protocol uses it for its variable-width supplied
-//! leaves, while its signal-delimited fixed bodies remain bare. The reader
-//! never consumes a byte beyond the frame requested.
+//! payload bytes. The streaming protocol uses it for its causal-version
+//! handshake, variable-width supplied leaves, and trailing identity hand-off;
+//! signal-delimited fixed bodies remain bare. The reader never consumes a byte
+//! beyond the frame requested.
 //!
 //! That guarantee makes a session boundary a stream position. A buffering
 //! reader can slurp leading bytes of traffic belonging after the current
@@ -52,6 +52,15 @@ impl<R> FrameRead<R> {
     pub fn new(read: R) -> Self {
         Self { read }
     }
+
+    /// Unwrap the exact-frame reader at a frame boundary.
+    ///
+    /// Only the alternating protocol hands framed halves back to raw
+    /// transport, so this rides its feature gate.
+    #[cfg(any(test, feature = "protocol-v1"))]
+    pub fn into_inner(self) -> R {
+        self.read
+    }
 }
 
 impl<R: AsyncRead + Unpin> FrameRead<R> {
@@ -82,6 +91,15 @@ impl<W> FrameWrite<W> {
     /// Wrap `write` for frame-at-a-time writing.
     pub fn new(write: W) -> Self {
         Self { write }
+    }
+
+    /// Unwrap the frame writer after its last flushed frame.
+    ///
+    /// Only the alternating protocol hands framed halves back to raw
+    /// transport, so this rides its feature gate.
+    #[cfg(any(test, feature = "protocol-v1"))]
+    pub fn into_inner(self) -> W {
+        self.write
     }
 }
 

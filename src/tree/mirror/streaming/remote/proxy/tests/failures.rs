@@ -6,6 +6,9 @@ use proptest::prelude::*;
 
 use super::{harness, injected_operation, reconcile_locally, reconcile_with_stacked_failures};
 use crate::message::Message;
+use crate::testing::{
+    InjectedIo, IoFault, IoFaultUnit, IoOperation, IoPlan, IoReport, IoSide, run_to_quiescence,
+};
 use crate::tree::{
     Action, Tree,
     arb::arb_divergent_pair,
@@ -18,10 +21,6 @@ use crate::tree::{
                 CodecDecodeErrorKind, CodecEncodeErrorKind, DemuxError, EncodeLeafError,
                 Error as RemoteError, MuxError,
             },
-            testing::{
-                InjectedIo, IoFault, IoFaultUnit, IoOperation, IoPlan, IoReport, IoSide,
-                run_to_quiescence,
-            },
         },
     },
 };
@@ -29,6 +28,7 @@ use crate::tree::{
 /// Find the typed injected source retained anywhere below a remote failure.
 fn injected<E>(error: &RemoteError<E>) -> Option<InjectedIo> {
     let source = match error {
+        RemoteError::HandshakeRead(source) | RemoteError::HandshakeWrite(source) => source,
         RemoteError::Incoming(DemuxError::Codec(error)) => match &error.kind {
             CodecDecodeErrorKind::Read { source, .. }
             | CodecDecodeErrorKind::Truncated { source, .. } => source,
@@ -73,9 +73,15 @@ fn injected_io(error: &io::Error) -> Option<InjectedIo> {
 /// Transport direction errors must enter through their corresponding driver.
 fn has_expected_surface(error: &RemoteError<Infallible>, operation: IoOperation) -> bool {
     match operation {
-        IoOperation::Read => matches!(error, RemoteError::Incoming(DemuxError::Codec(_))),
+        IoOperation::Read => matches!(
+            error,
+            RemoteError::HandshakeRead(_) | RemoteError::Incoming(DemuxError::Codec(_))
+        ),
         IoOperation::Write | IoOperation::Flush => {
-            matches!(error, RemoteError::Outgoing(MuxError::Codec(_)))
+            matches!(
+                error,
+                RemoteError::HandshakeWrite(_) | RemoteError::Outgoing(MuxError::Codec(_))
+            )
         }
     }
 }

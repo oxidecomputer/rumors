@@ -9,6 +9,7 @@ use std::{convert::Infallible, future};
 use proptest::prelude::*;
 
 use super::driver::try_join_mapped;
+use crate::testing::run_to_quiescence;
 use crate::tree::arb::{
     arb_divergent_pair, arb_tree_root, leaf_parent_dispute_pair, leaf_parent_redaction_pair,
 };
@@ -16,7 +17,6 @@ use crate::tree::mirror::alternating;
 use crate::tree::mirror::streaming::backend::with_local_schedule;
 use crate::tree::mirror::streaming::materialized::channel::with_schedule;
 use crate::tree::mirror::streaming::materialized::progress::with_trace;
-use crate::tree::mirror::streaming::testing::{Quiescence, run_to_quiescence};
 use crate::tree::mirror::streaming::{
     Local, Root as StreamingRoot, materialized::Handshaking, mirror as drive_streaming,
 };
@@ -150,6 +150,19 @@ fn alternating_mirror(a: Root<()>, b: Root<()>) -> Root<()> {
     ours
 }
 
+/// Generated relationships for the independent alternating oracle.
+///
+/// The union covers shared-history divergence (including redactions and
+/// matched subtrees), independent party histories (including empty bootstrap
+/// shapes), and the equal-version short circuit.
+fn arb_oracle_pair() -> impl Strategy<Value = (Root<()>, Root<()>)> {
+    prop_oneof![
+        4 => arb_divergent_pair(),
+        2 => (arb_tree_root(0, 0..=8), arb_tree_root(1, 0..=8)),
+        1 => arb_tree_root(0, 0..=8).prop_map(|root| (root.clone(), root)),
+    ]
+}
+
 /// A dispute that survives to leaf-parent height — both sides hold the same
 /// `S<Z>` prefix with different leaf sets — converges to the union.
 ///
@@ -194,32 +207,19 @@ fn honors_redaction_under_leaf_parent_dispute() {
 }
 
 proptest! {
-    /// On divergent trees sharing causal history — matched subtrees, one-sided
-    /// inserts, and redactions the other side must honor — the streaming
-    /// mirror reconciles both sides to exactly the alternating oracle's root.
+    /// Streaming and the alternating oracle agree in both orientations.
+    ///
+    /// Across every generated causal relationship, both implementations
+    /// return the same two roots and converge their endpoints. This is the
+    /// design-of-record property tying selectable V1 to default V2 semantics.
     #[test]
-    fn matches_oracle_on_divergent_pair((a, b) in arb_divergent_pair()) {
-        let expected = alternating_mirror(a.clone(), b.clone());
-        prop_assert_eq!(streaming_mirror(a, b), expected);
-    }
-
-    /// On causally independent trees — including the bootstrap shape, where
-    /// one side is empty and receives everything — the streaming mirror
-    /// matches the alternating oracle.
-    #[test]
-    fn matches_oracle_on_independent_trees(
-        a in arb_tree_root(0, 0..=8),
-        b in arb_tree_root(1, 0..=8),
-    ) {
-        let expected = alternating_mirror(a.clone(), b.clone());
-        prop_assert_eq!(streaming_mirror(a, b), expected);
-    }
-
-    /// Mirroring a tree with itself is a no-op: the handshake versions are
-    /// equal, the session short-circuits before reconciliation, and both
-    /// sides come back unchanged.
-    #[test]
-    fn idempotent(a in arb_tree_root(0, 0..=8)) {
-        prop_assert_eq!(streaming_mirror(a.clone(), a.clone()), a);
+    fn streaming_matches_alternating_oracle((a, b) in arb_oracle_pair()) {
+        for (left, right) in [(a.clone(), b.clone()), (b, a)] {
+            let expected = alternating_mirror_sides(left.clone(), right.clone());
+            let actual = streaming_mirror_sides(left, right);
+            prop_assert_eq!(&actual, &expected);
+            prop_assert_eq!(&actual.0, &actual.1);
+            prop_assert_eq!(&expected.0, &expected.1);
+        }
     }
 }

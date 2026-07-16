@@ -1,4 +1,3 @@
-use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -6,7 +5,6 @@ use futures::Stream;
 use tokio::sync::watch;
 
 use crate::Version;
-use crate::mode::{Async, Blocking, Mode};
 
 use super::unordered::Channel;
 
@@ -43,7 +41,7 @@ use super::unordered::Channel;
 /// A driver must also enter a session when the *remote* initiates, which is
 /// exactly what [`gossip_when`](crate::Rumors::gossip_when) adds; feed this
 /// stream to it rather than calling `gossip` yourself to gossip-on-change.
-pub struct Changes<T, M: Mode = Async> {
+pub struct Changes<T> {
     /// The watch channel, or the in-flight wait for it to change; the same
     /// materialized-wait dance as [`UnorderedMessages`](crate::UnorderedMessages) (see its
     /// `channel` field docs for why the wait must own the receiver).
@@ -51,8 +49,6 @@ pub struct Changes<T, M: Mode = Async> {
     /// The frontier most recently reported to the consumer: `None` until the
     /// first yield, so the first poll always finds news.
     seen: Option<Version>,
-    /// The I/O [`Mode`] witness; see [`Peer`](crate::Peer)'s `marker`.
-    marker: PhantomData<fn() -> M>,
 }
 
 /// The outcome of [`Changes::try_next`].
@@ -68,18 +64,15 @@ pub enum TryTick {
     Ended,
 }
 
-impl<T, M: Mode> Changes<T, M> {
+impl<T> Changes<T> {
     pub(crate) fn subscribe(inner: &watch::Sender<crate::Inner<T>>) -> Self {
         Self {
             channel: Some(Channel::Ready(inner.subscribe())),
             seen: None,
-            marker: PhantomData,
         }
     }
 
-    /// The mode-agnostic engine behind the blocking [`Iterator`] and
-    /// [`try_next`](Changes::try_next): await-based, mirroring the [`Stream`]
-    /// poll. The async face is the [`Stream`] impl directly.
+    /// Await the next coalesced change, sharing the [`Stream`] state machine.
     pub(crate) async fn next_inner(&mut self) -> Option<()>
     where
         T: Send + Sync + 'static,
@@ -109,9 +102,6 @@ impl<T, M: Mode> Changes<T, M> {
             }
         }
     }
-}
-
-impl<T> Changes<T, Blocking> {
     /// Take one non-blocking step: [`Tick`] if the set advanced since the
     /// last report, [`Quiet`] (ask again later) if not, [`Ended`] if no
     /// further change is possible.
@@ -132,20 +122,9 @@ impl<T> Changes<T, Blocking> {
     }
 }
 
-/// The blocking signal face: the [`Iterator`] analogue of the [`Stream`] impl.
-/// [`next`](Iterator::next) blocks the calling thread (via [`pollster`]) until
-/// the set advances; [`None`] means every handle is gone.
-impl<T: Send + Sync + 'static> Iterator for Changes<T, Blocking> {
-    type Item = ();
-
-    fn next(&mut self) -> Option<Self::Item> {
-        pollster::block_on(self.next_inner())
-    }
-}
-
 /// `T: 'static` because the quiet-period wait is materialized as an owned
 /// future, exactly as in [`UnorderedMessages`](crate::UnorderedMessages).
-impl<T: Send + Sync + 'static> Stream for Changes<T, Async> {
+impl<T: Send + Sync + 'static> Stream for Changes<T> {
     type Item = ();
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {

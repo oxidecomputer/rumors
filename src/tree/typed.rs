@@ -7,11 +7,13 @@
 //! [`Z`](height::Z) instead of trusting a runtime depth counter. This
 //! module is the adapter: [`Node<T, H>`](Node) pairs an untyped node with
 //! a phantom [`Height`](height::Height), and the typed surface
-//! ([`Path`], [`Children`], [`Levels`]) keeps every pop, descent, and
-//! reassembly height-correct at compile time.
+//! ([`Path`], [`Children`]) keeps every descent and reassembly height-correct
+//! at compile time. The selectable alternating protocol also retains its typed
+//! level stack.
 
 pub mod hash;
 pub mod height;
+#[cfg(any(test, feature = "protocol-v1"))]
 pub mod levels;
 pub mod node;
 pub mod path;
@@ -26,6 +28,7 @@ pub(crate) mod untyped;
 mod tests;
 
 pub use hash::Hash;
+#[cfg(any(test, feature = "protocol-v1"))]
 pub use levels::{Level, Levels};
 pub use node::{Children, Node};
 pub use path::Path;

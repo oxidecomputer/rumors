@@ -271,9 +271,11 @@ impl WireSignal {
     pub const ENCODED_LEN: usize = std::mem::size_of::<u8>();
 
     /// Byte values occupied by the syntactic `(signal state, stream)` product.
+    #[cfg(test)]
     pub const BYTE_COUNT: u8 = Signal::STATE_COUNT * Stream::COUNT;
 
     /// Pair a stream with a signal valid for its speaker and protocol phase.
+    #[cfg(test)]
     pub fn new(
         speaker: Speaker,
         stream: Stream,

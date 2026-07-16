@@ -432,9 +432,9 @@ impl<T> Tree<T> {
     /// Merge `other` into `self` by a single simultaneous recursion over both
     /// trees.
     ///
-    /// This is the in-memory counterpart to mirroring two local trees (see
-    /// [`mirror::alternating`]) and is observationally identical to it: it
-    /// produces the same merged tree. Deletions are honored by version
+    /// This is the in-memory counterpart to [`mirror::streaming`] and is
+    /// observationally identical to it: it produces the same merged tree.
+    /// Deletions are honored by version
     /// dominance: a leaf one side lacks while its version is `<=` that side's
     /// version vector was deleted there and is dropped.
     pub fn join(&mut self, other: Tree<T>)

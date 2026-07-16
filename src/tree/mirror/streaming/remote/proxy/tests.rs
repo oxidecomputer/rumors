@@ -7,11 +7,10 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 use tokio::io::{duplex, split};
 
+use crate::testing::{IoPlan, IoReportHandle, IoSide, Quiescence, run_to_quiescence, wrap_io};
+use crate::tree::mirror::handshake::{self, Intent};
 use crate::tree::mirror::streaming::channel::{
     ChannelReport, QueueKind, with_observation, with_schedule,
-};
-use crate::tree::mirror::streaming::testing::{
-    IoPlan, IoReportHandle, IoSide, Quiescence, run_to_quiescence, wrap_io,
 };
 use crate::tree::{
     Action, Root as TreeRoot, Tree,
@@ -44,20 +43,85 @@ const TRANSPORT_CAPACITY: usize = 37;
 
 /// Drive two local starts, each paired directly with its remote protocol start.
 async fn reconcile(a: TreeRoot<()>, b: TreeRoot<()>) -> (TreeRoot<()>, TreeRoot<()>) {
-    let a_version = a.ceiling.clone();
-    let b_version = b.ceiling.clone();
     let a = Handshaking::start(Local, Root::from(a));
     let b = Handshaking::start(Local, Root::from(b));
 
     let (a_transport, b_transport) = duplex(TRANSPORT_CAPACITY);
     let (a_read, a_write) = split(a_transport);
     let (b_read, b_write) = split(b_transport);
-    let remote_b = RemoteHandshaking::start(Local, b_version, a_read, a_write);
-    let remote_a = RemoteHandshaking::start(Local, a_version, b_read, b_write);
+    let remote_b = RemoteHandshaking::start(Local, a_read, a_write);
+    let remote_a = RemoteHandshaking::start(Local, b_read, b_write);
 
     let (a, b) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(remote_a, b)));
     let (a, _transport) = a.expect("endpoint A should reconcile through its proxy");
     let (_transport, b) = b.expect("endpoint B should reconcile through its proxy");
+    (a.into(), b.into())
+}
+
+/// Drive the production topology: each materialized local is the client of
+/// its own proxy, so both physical endpoints execute `Accept` concurrently.
+async fn reconcile_symmetric_accepts<T>(
+    a: TreeRoot<T>,
+    b: TreeRoot<T>,
+    transport_capacity: usize,
+) -> (TreeRoot<T>, TreeRoot<T>)
+where
+    T: borsh::BorshDeserialize + Send + Sync + 'static,
+{
+    let a = Handshaking::start(Local, Root::from(a));
+    let b = Handshaking::start(Local, Root::from(b));
+    let (a_transport, b_transport) = duplex(transport_capacity);
+    let (a_read, a_write) = split(a_transport);
+    let (b_read, b_write) = split(b_transport);
+    let remote_b = RemoteHandshaking::start(Local, a_read, a_write);
+    let remote_a = RemoteHandshaking::start(Local, b_read, b_write);
+
+    let (a, b) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(b, remote_a)),);
+    let (a, _transport) = a.expect("endpoint A should reconcile through its proxy");
+    let (b, _transport) = b.expect("endpoint B should reconcile through its proxy");
+    (a.into(), b.into())
+}
+
+/// Drive the production proxy topology after the shared preamble on the same
+/// transport halves, proving that neither phase consumes the other's bytes.
+async fn reconcile_after_preamble<T>(a: TreeRoot<T>, b: TreeRoot<T>) -> (TreeRoot<T>, TreeRoot<T>)
+where
+    T: borsh::BorshDeserialize + Send + Sync + 'static,
+{
+    let a = Handshaking::start(Local, Root::from(a));
+    let b = Handshaking::start(Local, Root::from(b));
+    let (a_transport, b_transport) = duplex(64 * 1024);
+    let (mut a_read, mut a_write) = split(a_transport);
+    let (mut b_read, mut b_write) = split(b_transport);
+    let network = crate::Network::from_bytes([1; 16]);
+    let mut a_staged = handshake::Staged::new();
+    let mut b_staged = handshake::Staged::new();
+    let (seen_a, seen_b) = join!(
+        handshake::preamble(
+            crate::Protocol::V2,
+            network,
+            Intent::Remain,
+            &mut a_staged,
+            &mut a_read,
+            &mut a_write,
+        ),
+        handshake::preamble(
+            crate::Protocol::V2,
+            network,
+            Intent::Remain,
+            &mut b_staged,
+            &mut b_read,
+            &mut b_write,
+        ),
+    );
+    seen_a.expect("A preamble");
+    seen_b.expect("B preamble");
+
+    let remote_b = RemoteHandshaking::start(Local, &mut a_read, &mut a_write);
+    let remote_a = RemoteHandshaking::start(Local, &mut b_read, &mut b_write);
+    let (a, b) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(b, remote_a)),);
+    let (a, _transport) = a.expect("endpoint A should reconcile through its proxy");
+    let (b, _transport) = b.expect("endpoint B should reconcile through its proxy");
     (a.into(), b.into())
 }
 
@@ -102,8 +166,6 @@ async fn reconcile_with_stacked_failures(
     (Result<(), LeftFailure>, Result<(), RightFailure>),
     IoReportHandle,
 ) {
-    let a_version = a.ceiling.clone();
-    let b_version = b.ceiling.clone();
     let a = Handshaking::start(Failing::after(Local, usize::MAX), failing_root(a));
     let b = Handshaking::start(Failing::after(Local, usize::MAX), failing_root(b));
 
@@ -140,8 +202,8 @@ async fn reconcile_with_stacked_failures(
     } else {
         failing
     };
-    let remote_b = RemoteHandshaking::start(left_backend, b_version, a_read, a_write);
-    let remote_a = RemoteHandshaking::start(right_backend, a_version, b_read, b_write);
+    let remote_b = RemoteHandshaking::start(left_backend, a_read, a_write);
+    let remote_a = RemoteHandshaking::start(right_backend, b_read, b_write);
 
     let (left, right) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(remote_a, b)));
     (
@@ -164,7 +226,7 @@ fn injected_operation(error: &ProxyFailure) -> Option<Operation> {
 }
 
 /// Equal versions close every unused logical stream without opening descent.
-#[tokio::test]
+#[pollster::test]
 async fn equal_versions_return_both_roots() {
     let root = TreeRoot {
         ceiling: Version::new(),
@@ -176,7 +238,7 @@ async fn equal_versions_return_both_roots() {
 }
 
 /// Concurrent content-addressed leaves cross every proxy layer and converge.
-#[tokio::test]
+#[pollster::test]
 async fn divergent_leaves_converge() {
     let mut a = Tree::new();
     a.act(&nth_party(0), [Action::Insert(Message::new(()))]);
@@ -190,7 +252,51 @@ async fn divergent_leaves_converge() {
     assert_eq!(b, expected.root);
 }
 
+/// The same client/proxy pairing used by both public API endpoints remains
+/// live under deterministic closed-world polling.
+#[test]
+fn symmetric_accept_handshakes_are_live() {
+    let mut a = Tree::new();
+    a.act(&nth_party(0), [Action::Insert(Message::new(()))]);
+    let mut b = Tree::new();
+    b.act(&nth_party(1), [Action::Insert(Message::new(()))]);
+
+    let (a, b) = run_to_quiescence(reconcile_symmetric_accepts(a.root, b.root, 1))
+        .expect("the production proxy topology became quiescent");
+    assert_eq!(a, b);
+}
+
+/// Distinct payloads exercise supplied-leaf paths different from the unit
+/// payload used by the broad protocol properties.
+#[test]
+fn symmetric_accepts_with_distinct_payloads_are_live() {
+    let mut a_party = before::Party::seed();
+    let b_party = a_party.fork();
+    let mut a = Tree::new();
+    a.act(&a_party, [Action::Insert(Message::new(1_u64))]);
+    let mut b = Tree::new();
+    b.act(&b_party, [Action::Insert(Message::new(2_u64))]);
+
+    let (a, b) = run_to_quiescence(reconcile_after_preamble(a.root, b.root))
+        .expect("distinct-payload proxy topology became quiescent");
+    assert_eq!(a, b);
+}
+
 proptest! {
+    /// The production topology, in which both endpoints connect their local
+    /// participant to an accepting proxy concurrently, remains live and
+    /// matches the materialized protocol for arbitrary valid divergence.
+    #[test]
+    fn symmetric_accepts_match_local((a, b) in arb_divergent_pair()) {
+        let expected = run_to_quiescence(reconcile_locally(a.clone(), b.clone()))
+            .expect("local reconciliation should remain live");
+        let actual = run_to_quiescence(reconcile_symmetric_accepts(a, b, TRANSPORT_CAPACITY))
+            .map_err(|stopped| TestCaseError::fail(format!(
+                "symmetric proxy reconciliation became quiescent: {stopped:?}",
+            )))?;
+        prop_assert_eq!(actual, expected);
+    }
+
     /// For arbitrary valid divergence, crossing the codec and multiplexed
     /// transport is observationally identical to the in-process protocol.
     #[test]

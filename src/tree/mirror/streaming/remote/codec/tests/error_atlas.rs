@@ -13,8 +13,8 @@ use tokio::io::AsyncWrite;
 
 use super::super::{
     DecodeError, DecodeErrorKind, DecodeLeafError, DecodeSignalError, EncodeError, EncodeErrorKind,
-    EncodeLeafError, End, Flow, Frame, FramePart, FrameWrite, Reaction, Speaker, Stream, WireFrame,
-    decode, decode_exact, encode,
+    EncodeLeafError, Flow, Frame, FrameWrite, Reaction, Speaker, Stream, WireFrame, decode,
+    decode_exact, encode,
     frame::QUERY_CHILD_LEN,
     signal::{Signal, WireSignal},
 };

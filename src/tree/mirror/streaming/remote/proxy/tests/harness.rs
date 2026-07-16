@@ -11,6 +11,7 @@ use std::{
 use futures::join;
 use tokio::io::{AsyncRead, AsyncWrite, duplex, split};
 
+use crate::testing::{IoPlan, IoReportHandle, IoSide, wrap_io};
 use crate::tree::{
     Root as TreeRoot,
     mirror::{
@@ -20,7 +21,6 @@ use crate::tree::{
             materialized::{Error as MaterializedError, Handshaking},
             mirror,
             remote::{Error as RemoteError, Handshaking as RemoteHandshaking},
-            testing::{IoPlan, IoReportHandle, IoSide, wrap_io},
         },
     },
 };
@@ -103,6 +103,7 @@ impl Script {
 pub struct ScriptedWrite<W> {
     inner: W,
     script: Option<Script>,
+    handshake: bool,
     frame: Vec<u8>,
     output: Vec<u8>,
     sent: usize,
@@ -114,6 +115,7 @@ impl<W> ScriptedWrite<W> {
         Self {
             inner,
             script,
+            handshake: true,
             frame: Vec::new(),
             output: Vec::new(),
             sent: 0,
@@ -126,6 +128,11 @@ impl<W> ScriptedWrite<W> {
             return;
         }
         self.output.clone_from(&self.frame);
+        // The first flush is the framed causal Version. Mutations target the
+        // multiplexed codec which begins only after that protocol handshake.
+        if self.handshake {
+            return;
+        }
         let Some(script) = &self.script else {
             return;
         };
@@ -186,6 +193,7 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for ScriptedWrite<W> {
         }
         match Pin::new(&mut this.inner).poll_flush(cx) {
             Poll::Ready(Ok(())) => {
+                this.handshake = false;
                 this.frame.clear();
                 this.output.clear();
                 this.sent = 0;
@@ -270,12 +278,10 @@ where
     RR: AsyncRead + Unpin + Send,
     RW: AsyncWrite + Unpin + Send,
 {
-    let left_version = left.ceiling.clone();
-    let right_version = right.ceiling.clone();
     let left = Handshaking::start(Local, Root::from(left));
     let right = Handshaking::start(Local, Root::from(right));
-    let remote_right = RemoteHandshaking::start(Local, right_version, left_read, left_write);
-    let remote_left = RemoteHandshaking::start(Local, left_version, right_read, right_write);
+    let remote_right = RemoteHandshaking::start(Local, left_read, left_write);
+    let remote_left = RemoteHandshaking::start(Local, right_read, right_write);
     let (left, right) = join!(
         Box::pin(mirror(left, remote_right)),
         Box::pin(mirror(remote_left, right)),

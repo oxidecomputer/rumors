@@ -7,10 +7,10 @@
 //! plain gossip would run — and then the absorbing peer takes the retiree's
 //! party as a trailing frame. Each test stages the pair, drives one retire
 //! through the recording duplex in
-//! [`common::gossip_snapshot::capture_session`], and pins the exact
-//! byte-by-byte conversation against an `insta` snapshot. Drift in the
-//! reconciliation round or the party hand-off shows up here as a diff;
-//! re-accept only after a deliberate protocol change.
+//! [`common::gossip_snapshot::capture_session`], and pins every wire byte. V2
+//! traffic is grouped by logical stream while preserving exact order within
+//! each stream; a representative V1 case pins its strictly alternating
+//! timeline. Drift in reconciliation or the hand-off shows up as a diff.
 //!
 //! Party convention: **A is the absorber** — the counterparty that survives the
 //! session and takes the retiree's party — and **B is the retiree**, running
@@ -24,18 +24,23 @@
 
 mod common;
 
+use rand::{SeedableRng as _, rngs::SmallRng};
+#[cfg(feature = "protocol-v1")]
+use rumors::Protocol;
 use rumors::{Peer, Retire, Rumors};
 
 use crate::common::gossip_snapshot::capture_session;
+#[cfg(feature = "protocol-v1")]
+use crate::common::gossip_snapshot::capture_session_v1;
 use crate::common::wire::bootstrap_fork;
+#[cfg(feature = "protocol-v1")]
+use crate::common::wire::{block_on, bootstrap_fork_async_with_protocol};
 
 /// A seed universe from a fixed RNG, so the [`rumors::Network`] id and every
 /// party forked from it are deterministic and these captures stay reproducible.
 /// The retiree is always a [`bootstrap_fork`] of this seed: a genuine disjoint
 /// originator, which is what retirement reclaims.
 fn seeded() -> Rumors<u64> {
-    use rand::SeedableRng;
-    use rand::rngs::SmallRng;
     Peer::seed_rng(&mut SmallRng::seed_from_u64(0)).into_rumors()
 }
 
@@ -87,6 +92,38 @@ fn divergent_retire() {
     retiree.send(1);
     seed.send(2);
     insta::assert_snapshot!(capture_retire(seed, retiree));
+}
+
+/// V1 retirement retains the original alternating reconciliation followed by
+/// the retiree-to-absorber party hand-off.
+#[cfg(feature = "protocol-v1")]
+#[test]
+fn v1_divergent_retire() {
+    let (absorber, retiree) = block_on(async {
+        let absorber = Peer::<u64>::seed_rng(&mut SmallRng::seed_from_u64(0))
+            .protocol(Protocol::V1)
+            .into_rumors();
+        let retiree = bootstrap_fork_async_with_protocol(&absorber, Protocol::V1).await;
+        absorber.send(2);
+        retiree.send(1);
+        (absorber, retiree)
+    });
+    let capture = capture_session_v1(
+        move |mut r, mut w| async move {
+            absorber
+                .gossip(&mut r, &mut w)
+                .await
+                .expect("V1 absorber gossip");
+        },
+        move |mut r, mut w| async move {
+            let retiree = retiree.try_into_peer().await.expect("sole V1 handle");
+            assert!(matches!(
+                retiree.retire(&mut r, &mut w).await,
+                Retire::Retired,
+            ));
+        },
+    );
+    insta::assert_snapshot!(capture);
 }
 
 /// Both sides try to retire into each other: each reads the other's

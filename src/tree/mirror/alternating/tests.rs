@@ -12,6 +12,7 @@ use crate::Network;
 use crate::tree::arb::{
     arb_tree_root, leaf_parent_dispute_pair, leaf_parent_redaction_pair, nth_party,
 };
+use crate::tree::mirror::framing::{FrameRead, FrameWrite};
 use crate::tree::traverse::{Action, act};
 use crate::tree::typed::Path;
 use crate::{Version, message::Message};
@@ -102,17 +103,11 @@ where
                 let (b_r, b_w) = tokio::io::split(b_side);
 
                 let local_a = local::Exchange::start(a);
-                let remote_b = remote::Exchange::start(
-                    remote::FrameRead::new(a_r),
-                    remote::FrameWrite::new(a_w),
-                );
+                let remote_b = remote::Exchange::start(FrameRead::new(a_r), FrameWrite::new(a_w));
                 let client = mirror(local_a, remote_b);
 
                 let local_b = local::Exchange::start(b);
-                let remote_a = remote::Exchange::start(
-                    remote::FrameRead::new(b_r),
-                    remote::FrameWrite::new(b_w),
-                );
+                let remote_a = remote::Exchange::start(FrameRead::new(b_r), FrameWrite::new(b_w));
                 let server = mirror(local_b, remote_a);
 
                 // Both sides poll on the same current-thread task; no
@@ -380,6 +375,7 @@ fn handshake_flushes_over_buffering_transport() {
             // greeting exchange.
             let (ra, rb) = tokio::join!(
                 handshake::preamble(
+                    crate::Protocol::V1,
                     Network::BOOTSTRAP,
                     Intent::Remain,
                     &mut a_staged,
@@ -387,6 +383,7 @@ fn handshake_flushes_over_buffering_transport() {
                     &mut a_w
                 ),
                 handshake::preamble(
+                    crate::Protocol::V1,
                     Network::BOOTSTRAP,
                     Intent::Remain,
                     &mut b_staged,

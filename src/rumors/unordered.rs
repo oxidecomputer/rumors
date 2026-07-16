@@ -1,8 +1,6 @@
-use crate::mode::{Async, Blocking, Mode};
 use crate::tree::{Leaf, RangeOwned};
 use crate::{Key, Version};
 use futures::Stream;
-use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -33,7 +31,7 @@ use tokio::sync::watch;
 /// This observer does not count against the quiescence that lets
 /// [`try_into_peer`](crate::Rumors::try_into_peer) reclaim the
 /// [`Peer`](crate::Peer).
-pub struct UnorderedMessages<T, M: Mode = Async> {
+pub struct UnorderedMessages<T> {
     /// The watch channel, or the in-flight wait for it to change.
     ///
     /// The wait
@@ -48,8 +46,6 @@ pub struct UnorderedMessages<T, M: Mode = Async> {
     /// The most recently yielded leaf, kept alive so its version and value
     /// can be lent to the caller until the next call.
     current: Option<(Key, Leaf<T>)>,
-    /// The I/O [`Mode`] witness; see [`Peer`](crate::Peer)'s `marker`.
-    marker: PhantomData<fn() -> M>,
 }
 
 /// The outcome of [`UnorderedMessages::try_next`] or [`CausalMessages::try_next`].
@@ -90,14 +86,13 @@ struct Pass<T> {
     ceiling: Version,
 }
 
-impl<T, M: Mode> UnorderedMessages<T, M> {
+impl<T> UnorderedMessages<T> {
     pub(crate) fn subscribe(inner: &watch::Sender<crate::Inner<T>>, since: Version) -> Self {
         Self {
             channel: Some(Channel::Ready(inner.subscribe())),
             checkpoint: since,
             pass: None,
             current: None,
-            marker: PhantomData,
         }
     }
 
@@ -123,10 +118,7 @@ impl<T, M: Mode> UnorderedMessages<T, M> {
         }
     }
 
-    /// The mode-agnostic engine behind the async and blocking
-    /// [`borrow_next`](UnorderedMessages::borrow_next): advances to the next message and
-    /// lends it. The async face awaits it; the blocking face drives it to
-    /// completion.
+    /// Advance to the next message and lend it until the following call.
     pub(crate) async fn borrow_next_inner(&mut self) -> Option<(Key, &Version, &Arc<T>)>
     where
         T: Send + Sync,
@@ -216,7 +208,7 @@ impl<T, M: Mode> UnorderedMessages<T, M> {
     }
 }
 
-impl<T> UnorderedMessages<T, Async> {
+impl<T> UnorderedMessages<T> {
     /// Advance to the next message, lending its version and value until the
     /// following call. Awaits quietly while the set is unchanged; resolves
     /// [`None`] once no further change is possible.
@@ -226,19 +218,6 @@ impl<T> UnorderedMessages<T, Async> {
     {
         self.borrow_next_inner().await
     }
-}
-
-impl<T> UnorderedMessages<T, Blocking> {
-    /// Blocking [`borrow_next`](UnorderedMessages::borrow_next): blocks the calling
-    /// thread (via [`pollster`], with no async runtime) until a message is
-    /// ready or the set has closed, instead of awaiting.
-    pub fn borrow_next(&mut self) -> Option<(Key, &Version, &Arc<T>)>
-    where
-        T: Send + Sync,
-    {
-        pollster::block_on(self.borrow_next_inner())
-    }
-
     /// Take one non-blocking step: a message if one is ready, [`Quiet`] (ask
     /// again later) if not, [`Ended`] if no further message is possible.
     ///
@@ -262,7 +241,7 @@ impl<T> UnorderedMessages<T, Blocking> {
 ///
 /// `T: 'static` because the quiet-period wait is materialized as an owned
 /// future (see the `channel` field).
-impl<T: Send + Sync + 'static> Stream for UnorderedMessages<T, Async> {
+impl<T: Send + Sync + 'static> Stream for UnorderedMessages<T> {
     type Item = (Key, Version, Arc<T>);
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -305,21 +284,5 @@ impl<T: Send + Sync + 'static> Stream for UnorderedMessages<T, Async> {
                 }
             }
         }
-    }
-}
-
-/// The blocking owned-item face: the [`Iterator`] analogue of the [`Stream`]
-/// impl, cloning each item out of the same engine
-/// [`borrow_next`](UnorderedMessages::borrow_next) lends from.
-///
-/// [`next`](Iterator::next)
-/// blocks the calling thread (via [`pollster`]) until an item is ready;
-/// [`None`] means the set has closed and is fully delivered.
-impl<T: Send + Sync + 'static> Iterator for UnorderedMessages<T, Blocking> {
-    type Item = (Key, Version, Arc<T>);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let (key, version, value) = pollster::block_on(self.borrow_next_inner())?;
-        Some((key, version.clone(), value.clone()))
     }
 }

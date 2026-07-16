@@ -8,7 +8,7 @@ use crate::tree::mirror::streaming::remote::codec::{Flow, Frame, Origin, Reactio
 
 /// Every interleaved incoming frame reaches only its named logical stream, and
 /// the byte following the final stream end remains untouched for the caller.
-#[tokio::test]
+#[pollster::test]
 async fn routes_all_streams_and_preserves_the_trailing_boundary() {
     const SUFFIX: &[u8] = &[0xfe, 0xff];
 
@@ -38,7 +38,7 @@ async fn routes_all_streams_and_preserves_the_trailing_boundary() {
 
 /// EOF reports precisely the logical streams whose stream-end frame has not
 /// arrived, without treating a transport close as normal phase completion.
-#[tokio::test]
+#[pollster::test]
 async fn reports_every_stream_left_open_at_eof() {
     for speaker in SPEAKERS {
         let closed = stream_at(STREAM_COUNT / 2);
@@ -57,7 +57,7 @@ async fn reports_every_stream_left_open_at_eof() {
 }
 
 /// A peer cannot reopen a logical stream after its stream-end frame.
-#[tokio::test]
+#[pollster::test]
 async fn rejects_a_frame_after_stream_end() {
     for speaker in SPEAKERS {
         let stream = stream_at(8);
@@ -79,7 +79,7 @@ async fn rejects_a_frame_after_stream_end() {
 
 /// Losing a protocol consumer is distinguished from peer or codec failure and
 /// names the logical stream whose bounded queue can no longer make progress.
-#[tokio::test]
+#[pollster::test]
 async fn reports_a_dropped_receiver() {
     for speaker in SPEAKERS {
         let stream = stream_at(8);
@@ -99,7 +99,7 @@ async fn reports_a_dropped_receiver() {
 ///
 /// The peer's control must not disguise a protocol consumer which disappeared
 /// before the logical stream closed.
-#[tokio::test]
+#[pollster::test]
 async fn reports_a_dropped_receiver_at_stream_end() {
     for speaker in SPEAKERS {
         let stream = stream_at(8);
@@ -116,7 +116,7 @@ async fn reports_a_dropped_receiver_at_stream_end() {
 
 /// A full logical-stream slot stops the sole demultiplexer before it can read
 /// another frame, so consumer pressure propagates directly to the transport.
-#[tokio::test]
+#[pollster::test]
 async fn has_exactly_one_pending_frame_per_stream() {
     for speaker in SPEAKERS {
         let stream = stream_at(8);

@@ -48,12 +48,16 @@
 //! half its plans).
 
 use std::collections::BTreeSet;
+use std::convert::Infallible;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use before::Party;
 use proptest::prelude::*;
-use rumors::{Error, Key, Peer, Retire, Rumors, Version};
+use rumors::error::{
+    CodecDecodeErrorKind, CodecEncodeErrorKind, DemuxError, EncodeLeafError, MuxError, RemoteError,
+};
+use rumors::{Error, Key, MirrorError, Peer, Retire, Rumors, Version};
 use tokio::io::duplex;
 
 use crate::common::fault::{self, FaultPlan};
@@ -221,12 +225,56 @@ pub fn arb_plan() -> impl Strategy<Value = Plan> {
 /// non-canonical [`Party`] on the wire once slipped through, so reject it
 /// alongside the non-I/O variants.
 pub fn assert_honest_error(e: &Error) {
-    let honest = matches!(e, Error::Io(io) if io.kind() != std::io::ErrorKind::InvalidData);
     assert!(
-        honest,
+        is_honest_error(e),
         "an honest, single-universe simulation must only surface injected I/O \
          faults that truncate a frame (a cut never corrupts one); got: {e:?}"
     );
+}
+
+/// Whether an error is exactly one of the disruption harness's wire cuts.
+pub fn is_honest_error(error: &Error) -> bool {
+    match error {
+        Error::Io(error) => honest_io(error),
+        Error::Mirror(MirrorError::Server(error)) => honest_remote(error),
+        _ => false,
+    }
+}
+
+/// Whether an I/O source is one of the fault harness's severed-wire outcomes.
+fn honest_io(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::BrokenPipe
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::UnexpectedEof
+    )
+}
+
+/// Recognize only typed V2 surfaces directly caused by a severed transport.
+fn honest_remote(error: &RemoteError<Infallible>) -> bool {
+    match error {
+        RemoteError::HandshakeRead(source) | RemoteError::HandshakeWrite(source) => {
+            honest_io(source)
+        }
+        RemoteError::Incoming(DemuxError::PrematureEof { .. }) => true,
+        RemoteError::Incoming(DemuxError::Codec(error)) => match &error.kind {
+            CodecDecodeErrorKind::Read { source, .. }
+            | CodecDecodeErrorKind::Truncated { source, .. } => honest_io(source),
+            _ => false,
+        },
+        RemoteError::Outgoing(MuxError::Codec(error)) => match &error.kind {
+            CodecEncodeErrorKind::Write { source, .. } | CodecEncodeErrorKind::Flush(source) => {
+                honest_io(source)
+            }
+            CodecEncodeErrorKind::InvalidLeaf(EncodeLeafError::Version(source))
+            | CodecEncodeErrorKind::InvalidLeaf(EncodeLeafError::Message(source)) => {
+                honest_io(source)
+            }
+            _ => false,
+        },
+        _ => false,
+    }
 }
 
 /// [`assert_honest_error`] over a session outcome.

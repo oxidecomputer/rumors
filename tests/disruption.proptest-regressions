@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 819e392f40e747b523333860d7a8ec83554283bba9917cee6c51705721fb1f3a # shrinks to plan = ProcPlan { n_parent_peers: 1, seed_messages: [], children: [ChildPlan { n_sends: 0, boot: FaultPlan { write_cut: None, read_cut: None }, sessions: [FaultPlan { write_cut: None, read_cut: None }], retire: FaultPlan { write_cut: Some(0), read_cut: None } }] }
+cc 77e3022b1bac70f21fe51a76afec5dd6387ff0fa27c10e186a2e81835977ed96 # shrinks to plan = ProcPlan { n_parent_peers: 1, seed_messages: [8910283091], children: [ChildPlan { n_sends: 2, boot: FaultPlan { write_cut: Some(1198), read_cut: None }, sessions: [FaultPlan { write_cut: Some(124), read_cut: None }, FaultPlan { write_cut: Some(1308), read_cut: Some(935) }], retire: FaultPlan { write_cut: None, read_cut: None } }] }

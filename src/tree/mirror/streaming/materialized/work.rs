@@ -21,7 +21,7 @@ mod resolver;
 use super::progress;
 use crate::tree::{
     mirror::streaming::{
-        Backend, Leaf, Node,
+        Backend, Leaf,
         materialized::{Error, channel::Sender},
         protocol::{BoxResponses, Responses},
         tasks::{complete, park_after_published_error},

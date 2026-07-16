@@ -2,31 +2,130 @@
 source: tests/gossip_snapshot.rs
 expression: "capture_gossip(a, b)"
 ---
-party A                         │ party B
-─────────────────────────────── │ ───────────────────────────────
-sent 25 bytes                   │ sent 25 bytes
-  0000: 52 55 4d 4f 52 53 00 01 │   0000: 52 55 4d 4f 52 53 00 01
-  0008: 8c 18 96 68 c9 e4 83 72 │   0008: 8c 18 96 68 c9 e4 83 72
-  0010: 37 bf 31 e0 2d 7f 6b 70 │   0010: 37 bf 31 e0 2d 7f 6b 70
-  0018: 00                      │   0018: 00
-received 25 bytes               │ received 25 bytes
-  0000: 52 55 4d 4f 52 53 00 01 │   0000: 52 55 4d 4f 52 53 00 01
-  0008: 8c 18 96 68 c9 e4 83 72 │   0008: 8c 18 96 68 c9 e4 83 72
-  0010: 37 bf 31 e0 2d 7f 6b 70 │   0010: 37 bf 31 e0 2d 7f 6b 70
-  0018: 00                      │   0018: 00
-sent 6 bytes                    │ sent 5 bytes
-  0000: 00 00 00 02 a3 40       │   0000: 00 00 00 01 20
-received 5 bytes                │ received 30 bytes
-  0000: 00 00 00 01 20          │   0000: 00 00 00 02 a3 40 00 00
-sent 24 bytes                   │   0008: 00 14 01 00 00 00 51 e6
-  0000: 00 00 00 14 01 00 00 00 │   0010: 38 ad d2 e7 26 9e d6 a6
-  0008: 51 e6 38 ad d2 e7 26 9e │   0018: 43 5f 32 50 fd b2
-  0010: d6 a6 43 5f 32 50 fd b2 │ sent 25 bytes
-received 25 bytes               │   0000: 00 00 00 15 01 00 00 00
-  0000: 00 00 00 15 01 00 00 00 │   0008: b8 e2 69 03 f3 86 d2 6a
-  0008: b8 e2 69 03 f3 86 d2 6a │   0010: 4e 81 67 00 95 f9 ea 34
-  0010: 4e 81 67 00 95 f9 ea 34 │   0018: 75
-  0018: 75                      │ received 16 bytes
-sent 16 bytes                   │   0000: 00 00 00 0c 00 00 00 00
-  0000: 00 00 00 0c 00 00 00 00 │   0008: 00 00 00 00 00 00 00 00
-  0008: 00 00 00 00 00 00 00 00 │
+direction A -> B
+preamble: 25 bytes
+  0000: 52 55 4d 4f 52 53 00 02
+  0008: 8c 18 96 68 c9 e4 83 72
+  0010: 37 bf 31 e0 2d 7f 6b 70
+  0018: 00
+version: (1, 2, 0)
+version frame: 6 bytes
+  0000: 00 00 00 02 a3 40
+Initiator stream 0 (height 31)
+  frame 0: Query(End)
+    0000: 55 00 b8 e2 69 03 f3 86
+    0008: d2 6a 4e 81 67 00 95 f9
+    0010: ea 34 75
+  frame 1: End(Stream)
+    0000: 99
+Initiator stream 1 (height 30)
+  frame 0: End(Stream)
+    0000: 9a
+Initiator stream 2 (height 28)
+  frame 0: End(Stream)
+    0000: 9b
+Initiator stream 3 (height 26)
+  frame 0: End(Stream)
+    0000: 9c
+Initiator stream 4 (height 24)
+  frame 0: End(Stream)
+    0000: 9d
+Initiator stream 5 (height 22)
+  frame 0: End(Stream)
+    0000: 9e
+Initiator stream 6 (height 20)
+  frame 0: End(Stream)
+    0000: 9f
+Initiator stream 7 (height 18)
+  frame 0: End(Stream)
+    0000: a0
+Initiator stream 8 (height 16)
+  frame 0: End(Stream)
+    0000: a1
+Initiator stream 9 (height 14)
+  frame 0: End(Stream)
+    0000: a2
+Initiator stream 10 (height 12)
+  frame 0: End(Stream)
+    0000: a3
+Initiator stream 11 (height 10)
+  frame 0: End(Stream)
+    0000: a4
+Initiator stream 12 (height 8)
+  frame 0: End(Stream)
+    0000: a5
+Initiator stream 13 (height 6)
+  frame 0: End(Stream)
+    0000: a6
+Initiator stream 14 (height 4)
+  frame 0: End(Stream)
+    0000: a7
+Initiator stream 15 (height 2)
+  frame 0: End(Stream)
+    0000: a8
+Initiator stream 16 (height 0)
+  frame 0: End(Stream)
+    0000: a9
+
+direction B -> A
+preamble: 25 bytes
+  0000: 52 55 4d 4f 52 53 00 02
+  0008: 8c 18 96 68 c9 e4 83 72
+  0010: 37 bf 31 e0 2d 7f 6b 70
+  0018: 00
+version: 1
+version frame: 5 bytes
+  0000: 00 00 00 01 20
+Responder stream 0 (height 31)
+  frame 0: Match(End)
+    0000: 11
+  frame 1: End(Stream)
+    0000: 99
+Responder stream 1 (height 29)
+  frame 0: End(Stream)
+    0000: 9a
+Responder stream 2 (height 27)
+  frame 0: End(Stream)
+    0000: 9b
+Responder stream 3 (height 25)
+  frame 0: End(Stream)
+    0000: 9c
+Responder stream 4 (height 23)
+  frame 0: End(Stream)
+    0000: 9d
+Responder stream 5 (height 21)
+  frame 0: End(Stream)
+    0000: 9e
+Responder stream 6 (height 19)
+  frame 0: End(Stream)
+    0000: 9f
+Responder stream 7 (height 17)
+  frame 0: End(Stream)
+    0000: a0
+Responder stream 8 (height 15)
+  frame 0: End(Stream)
+    0000: a1
+Responder stream 9 (height 13)
+  frame 0: End(Stream)
+    0000: a2
+Responder stream 10 (height 11)
+  frame 0: End(Stream)
+    0000: a3
+Responder stream 11 (height 9)
+  frame 0: End(Stream)
+    0000: a4
+Responder stream 12 (height 7)
+  frame 0: End(Stream)
+    0000: a5
+Responder stream 13 (height 5)
+  frame 0: End(Stream)
+    0000: a6
+Responder stream 14 (height 3)
+  frame 0: End(Stream)
+    0000: a7
+Responder stream 15 (height 1)
+  frame 0: End(Stream)
+    0000: a8
+Responder stream 16 (height 0)
+  frame 0: End(Stream)
+    0000: a9

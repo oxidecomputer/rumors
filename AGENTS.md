@@ -12,8 +12,7 @@ the wire by exchanging only what differs. It is built on `crates/before`, an
 Interval Tree Clock library (`crates/before-viz` visualizes the clocks).
 
 - The model (membership as custody), the `Peer`/`Rumors` split, the session
-  contract, bootstrap/retire semantics: crate docs (`src/lib.rs`; blocking
-  wrapper in `src/sync.rs`).
+  contract, and bootstrap/retire semantics: crate docs (`src/lib.rs`).
 - The tree (sparse Merkle radix trie, path compression, content-addressed
   leaves, the memo/version-bounds design): module docs in `src/tree.rs` and
   `src/tree/typed/`.

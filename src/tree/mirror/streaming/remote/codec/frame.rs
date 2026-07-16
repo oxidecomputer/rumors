@@ -13,12 +13,14 @@ use super::signal::{End, Flow, Stream};
 pub const QUERY_COUNT_BIAS: usize = 1;
 
 /// Largest query fan representable by a count-minus-one byte.
+#[cfg(test)]
 pub const MAX_QUERY_CHILDREN: usize = u8::MAX as usize + QUERY_COUNT_BIAS;
 
 /// Bytes occupied by one query child: its radix followed by its Merkle hash.
 pub const QUERY_CHILD_LEN: usize = std::mem::size_of::<u8>() + MERKLE_HASH_LEN;
 
 /// Bytes occupied by the count-minus-one field of a nonempty query.
+#[cfg(test)]
 pub const QUERY_COUNT_LEN: usize = std::mem::size_of::<u8>();
 
 /// Items in the adjacent-child window used to validate strict ordering.

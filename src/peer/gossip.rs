@@ -5,26 +5,31 @@
 //! preamble constants every session leads with and the [`PartyGuard`]
 //! that snaps a speculatively-donated party back in place on failure.
 
-use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::Arc;
 
 use before::Party;
 use borsh::{BorshDeserialize, BorshSerialize};
-use futures_util::{Stream, StreamExt};
+use futures::{Stream, future::BoxFuture};
+use futures_util::StreamExt;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     sync::{Mutex, watch},
 };
 
-use crate::mode::{Async, Mode};
+#[cfg(any(test, feature = "protocol-v1"))]
+use crate::tree::mirror::{
+    alternating::{self, local as alternating_local, remote as alternating_remote},
+    framing::{FrameRead, FrameWrite},
+};
 use crate::tree::{self, Tree};
-use crate::{Error, Network, Version};
+use crate::{Error, Network, Protocol, Version};
 use crate::{
     bookmark::{Bookmark, BookmarkError, BookmarkIo, Bookmarked, NoBookmark, Persist},
     tree::mirror::{
-        alternating::{self, local, remote},
         handshake::{self, Intent},
+        party,
+        streaming::{self, Local, materialized, remote as streaming_remote},
     },
 };
 
@@ -33,11 +38,23 @@ use super::{Inner, Peer};
 /// Magic bytes that open every `rumors` gossip session's preamble frame.
 pub const PROTOCOL_MAGIC: [u8; 6] = *b"RUMORS";
 
-/// On-the-wire protocol version that follows [`PROTOCOL_MAGIC`].
+/// A session's read half with its concrete transport type erased.
 ///
-/// Bumped whenever the wire format changes. A peer whose version differs is
-/// rejected with [`Error::VersionMismatch`].
-pub const PROTOCOL_VERSION: u16 = 1;
+/// Every session entry point coerces its caller's `&mut R` to this (and its
+/// `&mut W` to [`DynWrite`]) before entering a reconciliation protocol. The
+/// protocol state machines carry their transport type parameters through every
+/// height of the descent, so each distinct transport type would otherwise
+/// re-instantiate both towers — and, because generic code monomorphizes in the
+/// crate that supplies the concrete types, it would do so once per downstream
+/// binary per transport. Erasing here caps that at one instantiation per
+/// payload type. The price is one vtable call per `poll_read`/`poll_write`
+/// beneath the framing layers, which buffer whole frames on both sides.
+type DynRead<'a> = &'a mut (dyn AsyncRead + Unpin + Send + 'a);
+
+/// A session's write half with its concrete transport type erased.
+///
+/// See [`DynRead`] for why the erasure exists and what it costs.
+type DynWrite<'a> = &'a mut (dyn AsyncWrite + Unpin + Send + 'a);
 
 /// The outcome of [`Peer::retire`].
 ///
@@ -46,7 +63,7 @@ pub const PROTOCOL_VERSION: u16 = 1;
 /// identity that the call was specifically trying to preserve.
 #[must_use = "a declined or recovered retirement hands the Peer back; dropping it leaks the identity"]
 #[derive(Debug)]
-pub enum Retire<T, B: BookmarkError = NoBookmark, M: Mode = Async> {
+pub enum Retire<T, B: BookmarkError = NoBookmark> {
     /// **Retired.** The peer reconciled with us and absorbed our identity;
     /// this replica has left the universe.
     Retired,
@@ -54,14 +71,14 @@ pub enum Retire<T, B: BookmarkError = NoBookmark, M: Mode = Async> {
     /// replica is handed back intact, to try retiring elsewhere.
     Declined {
         /// The intact retiree.
-        peer: Peer<T, B, M>,
+        peer: Peer<T, B>,
     },
     /// **Recovered, unchanged.** The session failed *before* our identity ever
     /// crossed the wire; the replica is handed back intact, to try retiring
     /// elsewhere.
     Recovered {
         /// The intact retiree.
-        peer: Peer<T, B, M>,
+        peer: Peer<T, B>,
         /// What failed the session.
         error: Error<B>,
     },
@@ -84,9 +101,9 @@ pub enum Retire<T, B: BookmarkError = NoBookmark, M: Mode = Async> {
 /// [`peer`](Self::peer) back to drop it deliberately or to retry.
 #[must_use = "a failed `Peer::bookmark` hands the `Peer` back; dropping it strands the identity"]
 #[derive(Debug)]
-pub struct Unbookmarked<T, B: BookmarkError, M: Mode = Async> {
+pub struct Unbookmarked<T, B: BookmarkError> {
     /// The peer, its identity intact and no bookmark attached.
-    pub peer: Peer<T, NoBookmark, M>,
+    pub peer: Peer<T, NoBookmark>,
     /// What the bookmark's [`load`](crate::Bookmark::load) or
     /// [`store`](crate::Bookmark::store) reported, or the framing failure the
     /// crate hit reading the stored bytes.
@@ -122,89 +139,130 @@ pub enum Led {
     Remote,
 }
 
-impl<T, M: Mode> Peer<T, NoBookmark, M> {
-    /// The mode-agnostic engine behind [`bootstrap`](Peer::bootstrap): runs the
-    /// join over any [`AsyncRead`]/[`AsyncWrite`] pair and builds a peer in
-    /// mode `M`.
+impl<T> Peer<T, NoBookmark> {
+    /// Run bootstrap over any asynchronous transport pair.
     ///
-    /// The async face awaits it; the blocking face drives it to
-    /// completion over [`std::io`].
-    pub(crate) async fn bootstrap_inner<'a, R, W>(
+    /// A thin generic funnel: the only monomorphized-per-transport code is
+    /// the unsized coercion to [`DynRead`]/[`DynWrite`] here.
+    pub(crate) fn bootstrap_inner<'a, R, W>(
+        protocol: Protocol,
         read: &'a mut R,
         write: &'a mut W,
-    ) -> Result<Option<Self>, Error>
+    ) -> BoxFuture<'a, Result<Option<Self>, Error>>
     where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
+        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
         R: AsyncRead + Unpin + Send,
         W: AsyncWrite + Unpin + Send,
     {
-        // Magic/version/network/intent preamble first, before either protocol
-        // is allowed to trust peer-declared frame lengths.
-        let mut staged = handshake::Staged::new();
-        let remote =
-            handshake::preamble(Network::BOOTSTRAP, Intent::Remain, &mut staged, read, write)
-                .await
-                .map_err(remote::Error::from)?;
-        let reader = remote::FrameRead::new(read);
-        let writer = remote::FrameWrite::new(write);
-
-        // In the bootstrap case, it doesn't matter whether the remote intends
-        // to remain or retire; they will hand us a party regardless, and we can
-        // absorb it.
-        let _ = remote.intent;
-
-        // We hold nothing: we will run the mirror protocol from an *empty* tree
-        // to receive all content on the remote side.
-        let l = local::Exchange::start(tree::Root::default());
-        let r = remote::Exchange::start(reader, writer);
-
-        // After the connect phase, a peer that is *also* bootstrapping means
-        // there is nothing to receive: bail symmetrically.
-        let handshaken = alternating::handshake(l, r).await.map_err(server_error)?;
-        if remote.network.is_bootstrap() {
-            return Ok(None);
-        }
-
-        // Otherwise reconcile, pulling the provider's whole tree through the
-        // descent, then read the provider's party frame off the same reader,
-        // and adopt its network alongside.
-        //
-        // Boxed: the descent state machine is a large future, and the codec
-        // buffers inflate it past the crate-wide `large_futures` ceiling.
-        let (root, (mut reader, _writer)) = Box::pin(handshaken.reconcile())
-            .await
-            .map_err(server_error)?;
-        let party = remote::recv_party(&mut reader).await?;
-        let peer = Self {
-            network: remote.network,
-            inner: watch::Sender::new(Inner {
-                party: Some(party),
-                tree: Tree { root },
-            }),
-            bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
-            marker: PhantomData,
-        };
-        Ok(Some(peer))
+        Self::bootstrap_erased(protocol, read, write)
     }
 
-    /// The mode-agnostic engine behind [`bookmark`](Peer::bookmark): attaches
-    /// `bookmark` and eagerly persists, preserving the peer's mode `M`.
+    /// The transport-erased bootstrap body behind [`bootstrap_inner`].
     ///
-    /// It
-    /// drives the bookmark through [`Persist<M>`](Persist), so the async face
-    /// awaits real I/O and the blocking face runs the same body to completion
-    /// over the synchronous calls — with no wrapper type, the stored `B` is the
-    /// caller's own bookmark either way.
-    pub(crate) async fn bookmark_inner<B: Persist<M>>(
+    /// [`bootstrap_inner`]: Self::bootstrap_inner
+    fn bootstrap_erased<'a>(
+        protocol: Protocol,
+        read: DynRead<'a>,
+        write: DynWrite<'a>,
+    ) -> BoxFuture<'a, Result<Option<Self>, Error>>
+    where
+        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
+    {
+        Box::pin(async move {
+            // Magic/version/network/intent preamble first, before either protocol
+            // is allowed to trust peer-declared frame lengths.
+            let mut staged = handshake::Staged::new();
+            let remote = handshake::preamble(
+                protocol,
+                Network::BOOTSTRAP,
+                Intent::Remain,
+                &mut staged,
+                read,
+                write,
+            )
+            .await
+            .map_err(Error::from)?;
+
+            // In the bootstrap case, it doesn't matter whether the remote intends
+            // to remain or retire; they will hand us a party regardless, and we can
+            // absorb it.
+            let _ = remote.intent;
+
+            // Reconcile from an empty tree using the selected wire protocol. Both
+            // branches return the same lifecycle boundary: a materialized root and
+            // the raw reader positioned at the trailing party frame.
+            // `BoxFuture` is the compile-time boundary: `Box::pin` alone would
+            // allocate the state while still exposing its enormous concrete type.
+            #[allow(clippy::type_complexity)]
+            let reconcile: BoxFuture<
+                '_,
+                Result<Option<(tree::Root<T>, DynRead<'a>)>, Error>,
+            > = match protocol {
+                Protocol::V2 => Box::pin(async move {
+                    let local_root: streaming::Root<Local, T> = tree::Root::default().into();
+                    let local = materialized::Handshaking::start(Local, local_root);
+                    let proxy = streaming_remote::Handshaking::start(Local, read, write);
+                    let handshaken = streaming::handshake(local, proxy)
+                        .await
+                        .map_err(streaming_error)?;
+                    if remote.network.is_bootstrap() {
+                        return Ok(None);
+                    }
+                    let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
+                    let (root, (read, _write)) = descent.await.map_err(streaming_error)?;
+                    Ok(Some((root.into(), read)))
+                }),
+                #[cfg(any(test, feature = "protocol-v1"))]
+                Protocol::V1 => Box::pin(async move {
+                    let local = alternating_local::Exchange::start(tree::Root::default());
+                    let proxy = alternating_remote::Exchange::start(
+                        FrameRead::new(read),
+                        FrameWrite::new(write),
+                    );
+                    let handshaken = alternating::handshake(local, proxy)
+                        .await
+                        .map_err(alternating_error)?;
+                    if remote.network.is_bootstrap() {
+                        return Ok(None);
+                    }
+                    let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
+                    let (root, (read, _write)) = descent.await.map_err(alternating_error)?;
+                    Ok(Some((root, read.into_inner())))
+                }),
+            };
+            let Some((root, read)) = reconcile.await? else {
+                return Ok(None);
+            };
+            let party = party::receive(read).await?;
+            let peer = Self {
+                network: remote.network,
+                protocol,
+                inner: watch::Sender::new(Inner {
+                    party: Some(party),
+                    tree: Tree { root },
+                }),
+                bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
+            };
+            Ok(Some(peer))
+        })
+    }
+
+    /// Attach and eagerly persist an asynchronous bookmark.
+    pub(crate) async fn bookmark_inner<B: Persist>(
         self,
         bookmark: B,
-    ) -> Result<Peer<T, B, M>, Unbookmarked<T, B, M>> {
-        let Peer { network, inner, .. } = self;
+    ) -> Result<Peer<T, B>, Unbookmarked<T, B>> {
+        let Peer {
+            network,
+            protocol,
+            inner,
+            ..
+        } = self;
         let peer = Peer {
             network,
+            protocol,
             inner,
             bookmark: Arc::new(Mutex::new(Bookmarked::new(bookmark))),
-            marker: PhantomData,
         };
 
         // A pristine seed has no identity worth recording yet; persisting it
@@ -228,9 +286,9 @@ impl<T, M: Mode> Peer<T, NoBookmark, M> {
             Err(error) => Err(Unbookmarked {
                 peer: Peer {
                     network: peer.network,
+                    protocol: peer.protocol,
                     inner: peer.inner,
                     bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
-                    marker: PhantomData,
                 },
                 error,
             }),
@@ -238,13 +296,11 @@ impl<T, M: Mode> Peer<T, NoBookmark, M> {
     }
 }
 
-// `Persist` is the crate-internal I/O driver, but it constrains `B` in the
-// public `Peer<T, B, M>` self type, so `private_bounds` flags it. It is not a
-// leak: every method here is `pub(crate)`, and the public entry points
-// (`gossip`, `retire`, `bookmark`, ...) bind the public `Bookmark` /
-// `sync::Bookmark` faces, so `Persist` never appears in the public API.
+// `Persist` is the crate-internal decoded driver, but it constrains `B` in the
+// public `Peer<T, B>` self type. Every method here is crate-private; public
+// entry points bind the public `Bookmark` trait.
 #[allow(private_bounds)]
-impl<T, B: Persist<M>, M: Mode> Peer<T, B, M> {
+impl<T, B: Persist> Peer<T, B> {
     /// Retire this rumor set into a remote peer, handing it our identity so
     /// that it can be recycled by the network.
     ///
@@ -260,15 +316,14 @@ impl<T, B: Persist<M>, M: Mode> Peer<T, B, M> {
     /// [`CausalMessages`](crate::CausalMessages)) drain the *reconciled* final
     /// state — everything the session learned included — before they end.
     ///
-    /// The mode-agnostic body behind the async and blocking
-    /// [`retire`](Peer::retire); see those for the public contract.
+    /// The shared transactional body behind [`retire`](Peer::retire).
     pub(crate) async fn retire_inner<'a, R, W>(
         self,
         read: &'a mut R,
         write: &'a mut W,
-    ) -> Retire<T, B, M>
+    ) -> Retire<T, B>
     where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
+        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
         R: AsyncRead + Unpin + Send,
         W: AsyncWrite + Unpin + Send,
     {
@@ -291,7 +346,7 @@ impl<T, B: Persist<M>, M: Mode> Peer<T, B, M> {
         write: &'a mut W,
     ) -> Result<(), Error<B>>
     where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
+        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
         R: AsyncRead + Unpin + Send,
         W: AsyncWrite + Unpin + Send,
     {
@@ -406,26 +461,29 @@ impl<T, B: Persist<M>, M: Mode> Peer<T, B, M> {
     /// of the remote's greeting.
     ///
     /// [`gossip_when`]: crate::Rumors::gossip_when
-    async fn gossip_inner<'a, R, W>(
+    ///
+    /// Takes the transport pre-erased ([`DynRead`]/[`DynWrite`]): every
+    /// generic caller funnels through here, so the protocol towers this
+    /// drives instantiate once per payload type, not once per transport.
+    async fn gossip_inner<'a>(
         &self,
         intent: Intent,
         staged: &mut handshake::Staged,
-        read: &'a mut R,
-        write: &'a mut W,
+        read: DynRead<'a>,
+        write: DynWrite<'a>,
     ) -> (Intent, Result<Version, Error<B>>)
     where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
-        R: AsyncRead + Unpin + Send,
-        W: AsyncWrite + Unpin + Send,
+        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
     {
         // Magic/version preamble: reject a non-rumors or incompatible peer
         // before the framing trusts any peer-supplied frame length.
-        let remote = match handshake::preamble(self.network, intent, staged, read, write).await {
-            Err(error) => return (Intent::Remain, Err(remote::Error::from(error).widen())),
-            Ok(remote) => remote,
-        };
-        let reader = remote::FrameRead::new(read);
-        let writer = remote::FrameWrite::new(write);
+        let remote =
+            match handshake::preamble(self.protocol, self.network, intent, staged, read, write)
+                .await
+            {
+                Err(error) => return (Intent::Remain, Err(Error::from(error).widen())),
+                Ok(remote) => remote,
+            };
         let peer_bootstrapping = remote.network.is_bootstrap();
         let self_retiring = intent == Intent::Retire;
         let peer_retiring = remote.intent == Intent::Retire;
@@ -479,39 +537,58 @@ impl<T, B: Persist<M>, M: Mode> Peer<T, B, M> {
         });
         let prior_tree = prior_tree.expect("set in closure");
 
-        // Run the connect phase, which exchanges `message::Handshake`s (the
-        // causal version; network and intent already rode the preamble).
-        let l = local::Exchange::start(prior_tree.root);
-        let r = remote::Exchange::start(reader, writer);
-
-        // Run the initial handshake to determine if and how to gossip.
-        //
-        // We do this *even if we already know the networks mismatch* because we
-        // want to receive the peer's version, so we can report the
-        // `remote_min_events` count computed over the peer's version.
-        let handshaken = match alternating::handshake(l, r).await.map_err(server_error) {
-            Err(e) => return (Intent::Remain, Err(e.widen())),
-            Ok(handshaken) => handshaken,
+        // Reconcile using this peer's selected protocol. Both branches meet at
+        // the lifecycle boundary the surrounding transaction needs: a local
+        // root plus raw transport halves positioned after reconciliation.
+        // The explicit `BoxFuture` coercion prevents either concrete protocol
+        // state machine from becoming part of this outer session future.
+        let network = self.network;
+        #[allow(clippy::type_complexity)]
+        let reconcile: BoxFuture<
+            '_,
+            Result<(tree::Root<T>, DynRead<'a>, DynWrite<'a>), Error>,
+        > = match self.protocol {
+            Protocol::V2 => Box::pin(async move {
+                let local = materialized::Handshaking::start(Local, prior_tree.root.into());
+                let proxy = streaming_remote::Handshaking::start(Local, read, write);
+                let handshaken = streaming::handshake(local, proxy)
+                    .await
+                    .map_err(streaming_error)?;
+                if !peer_bootstrapping && remote.network != network {
+                    return Err(Error::NetworkMismatch {
+                        remote_network: remote.network,
+                        remote_min_events: handshaken.peer().version.min_ticks(),
+                    });
+                }
+                let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
+                let (root, (read, write)) = descent.await.map_err(streaming_error)?;
+                Ok((root.into(), read, write))
+            }),
+            #[cfg(any(test, feature = "protocol-v1"))]
+            Protocol::V1 => Box::pin(async move {
+                let local = alternating_local::Exchange::start(prior_tree.root);
+                let proxy = alternating_remote::Exchange::start(
+                    FrameRead::new(read),
+                    FrameWrite::new(write),
+                );
+                let handshaken = alternating::handshake(local, proxy)
+                    .await
+                    .map_err(alternating_error)?;
+                if !peer_bootstrapping && remote.network != network {
+                    return Err(Error::NetworkMismatch {
+                        remote_network: remote.network,
+                        remote_min_events: handshaken.peer().version.min_ticks(),
+                    });
+                }
+                let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
+                let (root, (read, write)) = descent.await.map_err(alternating_error)?;
+                Ok((root, read.into_inner(), write.into_inner()))
+            }),
         };
-
-        // Abort if the networks mismatch
-        if !peer_bootstrapping && remote.network != self.network {
-            return (
-                Intent::Remain,
-                Err(Error::NetworkMismatch {
-                    remote_network: remote.network,
-                    remote_min_events: handshaken.peer().version.min_ticks(),
-                }),
-            );
-        }
-
-        // Run content reconciliation, so that we both have exactly the same
-        // version and messages
-        let (root, (mut reader, mut writer)) =
-            match Box::pin(handshaken.reconcile()).await.map_err(server_error) {
-                Err(e) => return (Intent::Remain, Err(e.widen())),
-                Ok(outcome) => outcome,
-            };
+        let (root, read, write) = match reconcile.await {
+            Ok(reconciled) => reconciled,
+            Err(error) => return (Intent::Remain, Err(error.widen())),
+        };
 
         // The reconciliation has made both sides causally converged; what
         // remains is the party hand-off, if either side is donating one.
@@ -525,7 +602,7 @@ impl<T, B: Persist<M>, M: Mode> Peer<T, B, M> {
             // The preamble rejects a peer that claims to both bootstrap and
             // retire, and we bailed early if we were retiring too, so no
             // party of ours is in flight here: `guarded.party` is `None`.
-            absorbed = match remote::recv_party(&mut reader).await {
+            absorbed = match party::receive(read).await {
                 Err(e) => return (Intent::Remain, Err(e.widen())),
                 Ok(donated_party) => Some(donated_party),
             };
@@ -546,7 +623,7 @@ impl<T, B: Persist<M>, M: Mode> Peer<T, B, M> {
             // the peer may hold the party even if the send errors, so it can
             // never be safely re-joined.
             let donated = guarded.party.take().expect("is_some");
-            match remote::send_party(donated, &mut writer).await {
+            match party::send(donated, write).await {
                 Err(e) => {
                     // A retiring donation in limbo must be assumed received:
                     // report `Intent::Retire` alongside the error so that the
@@ -628,7 +705,7 @@ impl<T, B: Persist<M>, M: Mode> Peer<T, B, M> {
     }
 }
 
-impl<T, B: Bookmark> Peer<T, B, Async> {
+impl<T, B: Bookmark> Peer<T, B> {
     /// Run the change-driven gossip driver behind
     /// [`Rumors::gossip_when`](crate::Rumors::gossip_when); the public
     /// contract lives there.
@@ -639,15 +716,18 @@ impl<T, B: Bookmark> Peer<T, B, Async> {
         write: &'a mut W,
     ) -> impl Stream<Item = Result<Gossiped, Error<B>>> + Unpin + 'a
     where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'a,
+        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
         R: AsyncRead + Unpin + Send,
         W: AsyncWrite + Unpin + Send,
         S: Stream<Item = ()> + 'a,
     {
+        // The transport erases here ([`DynRead`]'s contract); `when` stays
+        // generic because erasing it would cost callers the stream's
+        // auto-`Send`, and the driver below is all that re-instantiates.
         let drive = Drive {
             peer: self,
-            read,
-            write,
+            read: read as DynRead<'a>,
+            write: write as DynWrite<'a>,
             when: Box::pin(when),
             staged: handshake::Staged::new(),
             converged: None,
@@ -677,7 +757,7 @@ impl<T, B: Bookmark> Peer<T, B, Async> {
                     let led = match trigger {
                         Trigger::Arrival(Err(e)) => {
                             drive.done = true;
-                            return Some((Err(remote::Error::from(e).widen()), drive));
+                            return Some((Err(Error::from(e).widen()), drive));
                         }
                         // A hang-up on an idle boundary — not one preamble byte
                         // arrived — is the peer's clean goodbye: end in kind.
@@ -752,10 +832,10 @@ enum Trigger {
 /// The state a [`gossip_when`](Peer::gossip_when) driver carries between
 /// sessions: the transport halves, the policy stream, the preamble staging
 /// buffer, and the suppression token.
-struct Drive<'a, T, B: BookmarkError, R, W, S> {
+struct Drive<'a, T, B: BookmarkError, S> {
     peer: &'a Peer<T, B>,
-    read: &'a mut R,
-    write: &'a mut W,
+    read: DynRead<'a>,
+    write: DynWrite<'a>,
     when: Pin<Box<S>>,
     staged: handshake::Staged,
     /// The frontier this connection last converged on: a tick initiates
@@ -799,15 +879,27 @@ impl<T> Drop for PartyGuard<T> {
     }
 }
 
-/// Collapse a mirror error down to the wire-bound server error.
+/// Retain which streaming participant detected a reconciliation failure.
 ///
-/// The client side
-/// of every wire session is the in-memory local exchange, whose error type is
-/// [`Infallible`](std::convert::Infallible), so the
-/// [`Client`](alternating::Error::Client) arm is uninhabitable.
-fn server_error(e: alternating::Error<std::convert::Infallible, Error>) -> Error {
-    match e {
-        alternating::Error::Server(e) => e,
-        alternating::Error::Client(never) => match never {},
+/// The local backend itself is infallible, but its materialized participant
+/// can still diagnose semantic violations in peer-controlled replies. The
+/// remote participant additionally retains adapter, codec, session, and
+/// transport context, so neither side can be collapsed without losing useful
+/// information.
+fn streaming_error(
+    error: tree::mirror::Error<
+        materialized::Error<std::convert::Infallible>,
+        streaming_remote::Error<std::convert::Infallible>,
+    >,
+) -> Error {
+    Error::Mirror(error)
+}
+
+/// Collapse the alternating oracle's infallible local side to its wire error.
+#[cfg(any(test, feature = "protocol-v1"))]
+fn alternating_error(error: tree::mirror::Error<std::convert::Infallible, Error>) -> Error {
+    match error {
+        tree::mirror::Error::Client(never) => match never {},
+        tree::mirror::Error::Server(error) => error,
     }
 }

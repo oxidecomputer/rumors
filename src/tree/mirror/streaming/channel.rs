@@ -2,7 +2,7 @@
 //!
 //! Production uses Tokio's channel types directly. Unit tests substitute a
 //! wrapper which preserves Tokio's capacity and wakeup behavior while exposing
-//! named queue statistics, per-role capacity limits, and shrinkable delays at
+//! named queue statistics, per-kind capacity limits, and shrinkable delays at
 //! every send and receive poll.
 
 /// One semantic edge in the materialized protocol's channel graph.
@@ -29,6 +29,7 @@ pub enum QueueKind {
 
 impl QueueKind {
     /// Every materialized semantic edge, for its coverage assertions.
+    #[cfg(test)]
     pub const ALL: [Self; 14] = [
         Self::OutgoingResponses,
         Self::AssemblyLevelReturns,
@@ -47,6 +48,7 @@ impl QueueKind {
     ];
 
     /// Every remote-proxy semantic edge, for its coverage assertions.
+    #[cfg(test)]
     pub const PROXY: [Self; 3] = [
         Self::ProxyResponses,
         Self::ProxyLocalQuestions,
@@ -81,8 +83,7 @@ pub fn channel<T>(_: QueueRole, capacity: usize) -> (Sender<T>, Receiver<T>) {
 
 #[cfg(test)]
 pub use instrumented::{
-    ChannelReport, Receiver, RoleStats, Sender, channel, with_capacity_limit, with_kind_capacity,
-    with_observation, with_role_capacity, with_schedule,
+    ChannelReport, Receiver, Sender, channel, with_kind_capacity, with_observation, with_schedule,
 };
 
 #[cfg(test)]

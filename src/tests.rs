@@ -105,6 +105,7 @@ fn overlapping_retiree_party_is_rejected() {
     // survivor's and the survivor takes the absorb branch.
     let forged = Peer::<u64> {
         network: survivor.network,
+        protocol: survivor.protocol,
         inner: watch::Sender::new(Inner {
             party: Some(party_of(&survivor)),
             tree: Tree {
@@ -112,7 +113,6 @@ fn overlapping_retiree_party_is_rejected() {
             },
         }),
         bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
-        marker: std::marker::PhantomData,
     };
 
     let (_retire_out, survivor_out) = pollster::block_on(async {
@@ -262,17 +262,10 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for Fuse<W> {
     }
 }
 
-/// The wire length of `retiree`'s greeting frame, so a [`Fuse`] budget can
-/// land on an exact protocol boundary.
-///
-/// The frame is a 4-byte length prefix + borsh-encoded
-/// [`Handshake`](crate::tree::mirror::message::Handshake) body — since the
-/// preamble rework, the version alone.
+/// The wire length of `retiree`'s causal-version frame, so a [`Fuse`] budget
+/// can land on an exact protocol boundary.
 fn greeting_frame_len(retiree: &Peer<u64>) -> usize {
-    let greeting = crate::tree::mirror::alternating::message::Handshake {
-        version: retiree.snapshot().latest().clone(),
-    };
-    4 + borsh::to_vec(&greeting).expect("serialize greeting").len()
+    crate::tree::mirror::framing::LENGTH_HEADER_LEN + retiree.snapshot().latest().as_bytes().len()
 }
 
 /// Drive `retiree.retire` against `peer.gossip` over a duplex whose

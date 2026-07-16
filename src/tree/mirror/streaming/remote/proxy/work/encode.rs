@@ -10,7 +10,7 @@ use futures::StreamExt;
 
 use crate::tree::{
     mirror::streaming::{
-        Backend, Leaf, Node,
+        Backend, Leaf,
         channel::{Receiver, Sender},
         convert::Convert,
         protocol::Requests,

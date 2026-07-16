@@ -17,15 +17,15 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use super::Work;
 use crate::tree::{
     mirror::streaming::{
-        Backend, Leaf, Node,
+        Backend, Leaf,
         channel::Receiver,
         convert::Convert,
         protocol::{BoxResponses, Requests},
         remote::{
             adapter::{Decoded, Scope, decode_leaf_reply, decode_opening, decode_reply},
-            codec::{Frame, Stream},
+            codec::Frame,
             proxy::Error,
-            session::{FrameSender, Incoming, Outgoing},
+            session::FrameSender,
         },
     },
     typed::height::{Height, S, UnderRoot, UnderUnderRoot, Z},
@@ -239,32 +239,6 @@ where
             Ok((read, write))
         };
         (responses, completion)
-    }
-
-    /// Close every unused logical stream and wait for the peer to do likewise.
-    pub async fn complete_equal(
-        self,
-        mut incoming: Incoming<T>,
-        mut outgoing: Outgoing<T>,
-    ) -> Result<(R, W), Error<B::Error>>
-    where
-        R: Send,
-        W: Send,
-    {
-        let finish = async move {
-            for index in 0..Stream::COUNT {
-                let stream = Stream::new(index).expect("a session index names a logical stream");
-                outgoing.take(stream).finish().await?;
-            }
-            for index in 0..Stream::COUNT {
-                let stream = Stream::new(index).expect("a session index names a logical stream");
-                let mut frames = incoming.take(stream);
-                reject_extra(&mut frames).await?;
-            }
-            Ok(())
-        };
-        let ((), read, write) = self.execute(finish).await?;
-        Ok((read, write))
     }
 }
 

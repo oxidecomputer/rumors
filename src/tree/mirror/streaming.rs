@@ -1,18 +1,17 @@
 //! The streaming mirror: fixed-memory reconciliation over lazy node streams.
 //!
-//! The drivers here run any two protocol implementors against each other
-//! ([`mirror`], or [`handshake`] then [`Handshaken::reconcile`] separately
-//! around the version exchange); implementors backed by trees start with
-//! either [`materialized::Handshaking::start`] or
-//! [`remote::Handshaking::start`].
+//! The drivers here run any two protocol implementors against each other. The
+//! peer path uses [`handshake`] then [`Handshaken::reconcile`] around the
+//! version exchange; tests also expose a whole-session convenience.
+//! Implementors backed by trees start with either
+//! [`materialized::Handshaking::start`] or [`remote::Handshaking::start`].
 //!
 //! On a wire connection, the peer-level driver first exchanges the shared
 //! fixed [`super::handshake`] preamble. Network and intent therefore resolve
 //! before the atomic tree snapshot/party fork; this module begins with the
-//! subsequent causal-version handshake, exactly as [`super::alternating`] does.
+//! subsequent causal-version handshake. The selectable V1 alternating
+//! protocol is retained as an independent behavioral oracle.
 
-// TODO: remove this when integrated
-#![allow(dead_code, unused_imports)]
 // Where we're going, we need to write some Complex Types.
 #![allow(clippy::type_complexity)]
 
@@ -34,11 +33,10 @@ pub use testing::{Failing, FailingNode, Failure, Faulting, Operation};
 
 use std::cmp::Ordering;
 
+use futures::future::BoxFuture;
+
 use super::Error;
-use crate::{
-    Version,
-    tree::typed::height::{Height, Z},
-};
+use crate::{Version, tree::typed::height::Z};
 use driver::{mirror_connected, try_join_mapped};
 use protocol::*;
 
@@ -74,16 +72,21 @@ where
     ///
     /// Equal handshake versions resolve each connected state directly to its
     /// output without opening the descent.
-    pub(crate) async fn reconcile(
+    pub(crate) fn reconcile<'a>(
         self,
-    ) -> Result<(C::Output, S::Output), Error<C::Error, S::Error>> {
-        let Handshaken {
-            client: local,
-            server: remote,
-            our_version,
-            peer,
-        } = self;
-        descend(local, remote, our_version, peer.version).await
+    ) -> BoxFuture<'a, Result<(C::Output, S::Output), Error<C::Error, S::Error>>>
+    where
+        Self: 'a,
+    {
+        Box::pin(async move {
+            let Handshaken {
+                client: local,
+                server: remote,
+                our_version,
+                peer,
+            } = self;
+            descend(local, remote, our_version, peer.version).await
+        })
     }
 }
 
@@ -92,6 +95,7 @@ where
 /// Both implementations share one backend `B`, whose node types are the
 /// vocabulary crossing between them. Equal handshake versions resolve both
 /// connected states without opening the descent.
+#[cfg(test)]
 pub(crate) async fn mirror<C, S, B, T>(
     client: C,
     server: S,

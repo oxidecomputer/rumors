@@ -55,6 +55,7 @@
 
 use std::cmp::Ordering;
 
+use futures::future::BoxFuture;
 use seq_macro::seq;
 
 pub mod backend;
@@ -71,6 +72,7 @@ mod wire_snapshot;
 
 use protocol::*;
 
+use super::Error;
 use crate::Version;
 use message::Handshake;
 
@@ -186,8 +188,6 @@ where
     match i {}
 }
 
-pub use super::Error;
-
 /// The client's exchange after the connect phase: the [`Peer`] it has descended
 /// to once `connect` then `complete_connect` have run.
 pub(crate) type ClientConnected<C, T> = <<C as Connect<T>>::Next as CompleteConnect<T>>::Next;
@@ -196,11 +196,8 @@ pub(crate) type ClientConnected<C, T> = <<C as Connect<T>>::Next as CompleteConn
 /// to once `accept` has run.
 pub(crate) type ServerConnected<S, T> = <S as Accept<T>>::Next;
 
-/// The result of the connect phase ([`handshake`]): the [`Handshake`]s have
-/// been exchanged.
-///
-/// The caller can inspect the peer's `network`/`version`/`intent` and decide
-/// whether to descend, absorb a retiree, serve a bootstrapper, and so on.
+/// The result of the connect phase ([`handshake`]): the causal versions have
+/// been exchanged and either agree or are ready for descent.
 pub(crate) enum Handshaken<C, S, T>
 where
     T: Send + Sync,
@@ -208,16 +205,15 @@ where
     S: Server<T>,
 {
     /// The two versions were equal: already converged, no descent. Carries the
-    /// client's reconciled root, the server's output (the remote side's framed
-    /// halves over the wire), and the peer's [`Handshake`].
+    /// client's reconciled root and the server's output (the remote side's
+    /// framed halves over the wire).
     Converged {
         local_root: C::Output,
         remote_out: S::Output,
         peer: Handshake,
     },
     /// The versions differ: the connected exchanges are ready for [`descend`].
-    /// Carries our version and the peer's [`Handshake`] for the caller's
-    /// dispatch and the descent's role tiebreak.
+    /// Carries both versions for the descent's role tiebreak.
     Diverged {
         local: ClientConnected<C, T>,
         remote: ServerConnected<S, T>,
@@ -232,45 +228,45 @@ where
     C: Client<T>,
     S: Server<T>,
 {
-    /// The peer's [`Handshake`], available whichever way the connect phase
-    /// went.
-    ///
-    /// Lets the caller dispatch on the peer's `network`/`version`/`intent`,
-    /// deciding whether to [`reconcile`](Self::reconcile) or to drop the
-    /// exchange unreconciled, before committing to (or skipping) the descent.
+    /// The peer's causal-version greeting.
     pub(crate) fn peer(&self) -> &Handshake {
         match self {
-            Handshaken::Converged { peer, .. } | Handshaken::Diverged { peer, .. } => peer,
+            Self::Converged { peer, .. } | Self::Diverged { peer, .. } => peer,
         }
     }
 
     /// Reconcile the two trees to convergence, **descending** the divergent
     /// tries if the versions differ (a no-op if they already converged).
     ///
-    /// Hands back the reconciled root, the remote wire halves (for any trailing
-    /// party hand-off the caller appends), and the peer's [`Handshake`]. This is
-    /// the path that moves content: a steady-state gossip, or serving a
-    /// bootstrapper its first copy.
-    pub(crate) async fn reconcile(
+    /// Hands back both outputs. This is the path that moves content in the
+    /// test-only oracle; equal versions return the outputs already produced by
+    /// the handshake.
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn reconcile<'a>(
         self,
-    ) -> Result<(C::Output, S::Output), Error<C::Error, S::Error>> {
-        match self {
-            Handshaken::Converged {
-                local_root,
-                remote_out,
-                ..
-            } => Ok((local_root, remote_out)),
-            Handshaken::Diverged {
-                local,
-                remote,
-                our_version,
-                peer,
-            } => {
-                let (root, remote_out) =
-                    descend(local, remote, our_version, peer.version.clone()).await?;
-                Ok((root, remote_out))
+    ) -> BoxFuture<'a, Result<(C::Output, S::Output), Error<C::Error, S::Error>>>
+    where
+        Self: 'a,
+    {
+        Box::pin(async move {
+            match self {
+                Handshaken::Converged {
+                    local_root,
+                    remote_out,
+                    ..
+                } => Ok((local_root, remote_out)),
+                Handshaken::Diverged {
+                    local,
+                    remote,
+                    our_version,
+                    peer,
+                } => {
+                    let (root, remote_out) =
+                        descend(local, remote, our_version, peer.version.clone()).await?;
+                    Ok((root, remote_out))
+                }
             }
-        }
+        })
     }
 }
 
@@ -278,7 +274,7 @@ where
 /// ships it and replies with the peer's, and the client absorbs the peer's
 /// version.
 ///
-/// Stops there, handing the outcome back for dispatch (see [`Handshaken`]).
+/// Stops there, handing the equal/divergent outcome to [`Handshaken`].
 pub(crate) async fn handshake<C, S, T>(
     c: C,
     s: S,

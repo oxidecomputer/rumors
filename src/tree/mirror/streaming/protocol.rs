@@ -30,7 +30,7 @@ pub trait Protocol: Send {
     // bare and inside an `OutputError`, and the driver moves it into its
     // error slot.
     type Error: Send + 'static;
-    type Output;
+    type Output: Send;
 }
 
 /// Trait synonym: non-erroring message streams, the shape of incoming streams.

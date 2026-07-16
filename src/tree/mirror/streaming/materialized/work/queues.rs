@@ -17,7 +17,7 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use crate::tree::{
     mirror::streaming::{
-        Backend, Leaf, Node,
+        Backend, Leaf,
         materialized::{
             Error, OkReceiverStream, Query, Resolution,
             channel::{QueueKind, QueueRole, Receiver, Sender, channel},

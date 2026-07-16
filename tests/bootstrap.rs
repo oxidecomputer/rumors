@@ -8,8 +8,10 @@ mod common;
 
 use proptest::prelude::*;
 use rumors::{Peer, Rumors};
+#[cfg(feature = "protocol-v1")]
+use rumors::{Protocol, Retire};
 
-use crate::common::action::{arb_local_actions, arb_string_actions, build_local_async};
+use crate::common::action::{arb_local_actions, arb_string_actions, build_local};
 use crate::common::oracle::readout;
 use crate::common::wire::{block_on, bootstrap_fork, wire_gossip};
 
@@ -50,7 +52,7 @@ proptest! {
     #[test]
     fn bootstrap_reproduces_a_fork(actions in arb_local_actions()) {
         let seed = Peer::<u64>::seed().into_rumors();
-        let provider = build_local_async(bootstrap_fork(&seed), &actions);
+        let provider = build_local(bootstrap_fork(&seed), &actions);
 
         let control = readout(&provider.snapshot());
 
@@ -83,7 +85,7 @@ proptest! {
     #[test]
     fn bootstrap_reproduces_a_fork_string(actions in arb_string_actions()) {
         let seed = Peer::<String>::seed().into_rumors();
-        let provider = build_local_async(bootstrap_fork(&seed), &actions);
+        let provider = build_local(bootstrap_fork(&seed), &actions);
 
         let control = readout(&provider.snapshot());
 
@@ -134,44 +136,53 @@ fn both_bootstrapping_bail_with_none() {
     );
 }
 
-/// The synchronous wrapper ([`rumors::sync::Peer::bootstrap`]) bootstraps
-/// over blocking [`std::io::pipe`]s with the provider on another thread,
-/// reproducing the async happy path: matching content, untouched provider.
+/// Explicit V1 selection applies to both bootstrap and every later session:
+/// the original alternating wire remains a usable compatibility path rather
+/// than merely a protocol-level test oracle.
+#[cfg(feature = "protocol-v1")]
 #[test]
-fn sync_bootstrap_reproduces_a_fork() {
-    use rumors::sync::Peer as SyncPeer;
-    use std::io::pipe;
-    use std::thread;
+fn v1_bootstrap_selection_persists_into_gossip() {
+    let provider = Peer::<u64>::seed().protocol(Protocol::V1).into_rumors();
+    provider.send(1);
 
-    let mut provider = SyncPeer::<u64>::seed().into_rumors();
-    provider.batch().send(10).send(20).send(30);
-    let control = readout(&provider.snapshot());
-
-    // provider → bootstrapper, and bootstrapper → provider.
-    let (mut p2b_r, mut p2b_w) = pipe().expect("pipe provider→bootstrapper");
-    let (mut b2p_r, mut b2p_w) = pipe().expect("pipe bootstrapper→provider");
-
-    let boot_thread = thread::spawn(move || {
-        SyncPeer::<u64>::bootstrap(&mut p2b_r, &mut b2p_w).expect("bootstrap handshake")
+    let newcomer = block_on(async {
+        let (provider_side, newcomer_side) = tokio::io::duplex(DUPLEX_BUF);
+        let (mut provider_read, mut provider_write) = tokio::io::split(provider_side);
+        let (mut newcomer_read, mut newcomer_write) = tokio::io::split(newcomer_side);
+        let (served, joined) = tokio::join!(
+            provider.gossip(&mut provider_read, &mut provider_write),
+            Peer::<u64>::bootstrap_with_protocol(
+                Protocol::V1,
+                &mut newcomer_read,
+                &mut newcomer_write,
+            ),
+        );
+        served.expect("V1 provider serves bootstrap");
+        joined
+            .expect("V1 bootstrap succeeds")
+            .expect("provider is established")
+            .into_rumors()
     });
 
-    provider
-        .gossip(&mut b2p_r, &mut p2b_w)
-        .expect("provider gossip");
-    let bootstrapped = boot_thread
-        .join()
-        .expect("join bootstrap thread")
-        .expect("provider served the bootstrap")
-        .into_rumors();
+    newcomer.send(2);
+    wire_gossip(&provider, &newcomer);
+    assert_eq!(readout(&provider.snapshot()), readout(&newcomer.snapshot()));
+    assert_eq!(provider.snapshot().len(), 2);
 
-    assert_eq!(
-        readout(&bootstrapped.snapshot()),
-        control,
-        "bootstrapped content must match the provider snapshot"
-    );
-    assert_eq!(
-        readout(&provider.snapshot()),
-        control,
-        "serving must not change provider content"
-    );
+    let retired = block_on(async {
+        let newcomer = newcomer
+            .try_into_peer()
+            .await
+            .expect("sole V1 handle reclaims its peer");
+        let (provider_side, newcomer_side) = tokio::io::duplex(DUPLEX_BUF);
+        let (mut provider_read, mut provider_write) = tokio::io::split(provider_side);
+        let (mut newcomer_read, mut newcomer_write) = tokio::io::split(newcomer_side);
+        let (served, retired) = tokio::join!(
+            provider.gossip(&mut provider_read, &mut provider_write),
+            newcomer.retire(&mut newcomer_read, &mut newcomer_write),
+        );
+        served.expect("V1 provider absorbs retiree");
+        retired
+    });
+    assert!(matches!(retired, Retire::Retired));
 }

@@ -11,7 +11,7 @@ use crate::tree::mirror::streaming::protocol::*;
 use crate::tree::{
     mirror::{
         Error,
-        streaming::{Backend, Leaf, Node, tasks::cancelled},
+        streaming::{Backend, Leaf, tasks::cancelled},
     },
     typed::height::{Height, Z},
 };

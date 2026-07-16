@@ -7,6 +7,7 @@ use crate::{Version, message::Message};
 
 use super::hash::Hash;
 use super::height::{self, Height, S, Z};
+#[cfg(any(test, feature = "protocol-v1"))]
 use super::levels::{Top, levels};
 use super::untyped;
 
@@ -291,6 +292,7 @@ impl<T> Node<T, height::Root> {
     /// Open the multi-level zipper over this (possibly absent) root: the
     /// starting state of a mirror descent (see
     /// [`Levels`](super::levels::Levels)).
+    #[cfg(any(test, feature = "protocol-v1"))]
     pub fn levels(node: Option<Root<T>>) -> Top<T> {
         levels(node)
     }

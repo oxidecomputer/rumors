@@ -1,4 +1,4 @@
-//! Pairwise gossip semantics for `Rumors::gossip`, the merge primitive.
+//! Pairwise gossip semantics for `Rumors::gossip`, the wire merge primitive.
 //!
 //! With the shared-state rumor set, wire gossip *is* the merge: there is no
 //! in-process `join`. These properties pin the algebraic laws of one
@@ -22,7 +22,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use proptest::prelude::*;
 use rumors::{Rumors, Version, causally};
 
-use crate::common::action::{arb_local_actions, build_local_async};
+use crate::common::action::{arb_local_actions, build_local};
 use crate::common::oracle::readout;
 use crate::common::wire::{bootstrap_fork, wire_gossip};
 
@@ -52,8 +52,8 @@ proptest! {
         b_actions in arb_local_actions(),
     ) {
         let seed = rumors::Peer::<u64>::seed().into_rumors();
-        let a = build_local_async(dup(&seed), &a_actions);
-        let b = build_local_async(dup(&seed), &b_actions);
+        let a = build_local(dup(&seed), &a_actions);
+        let b = build_local(dup(&seed), &b_actions);
         wire_gossip(&a, &b);
         prop_assert_eq!(readout(&a.snapshot()), readout(&b.snapshot()));
         prop_assert_eq!(fingerprint(&a), fingerprint(&b));
@@ -69,8 +69,8 @@ proptest! {
         b_actions in arb_local_actions(),
     ) {
         let seed = rumors::Peer::<u64>::seed().into_rumors();
-        let a0 = build_local_async(dup(&seed), &a_actions);
-        let b0 = build_local_async(dup(&seed), &b_actions);
+        let a0 = build_local(dup(&seed), &a_actions);
+        let b0 = build_local(dup(&seed), &b_actions);
 
         let (a_fwd, b_fwd) = (dup(&a0), dup(&b0));
         wire_gossip(&a_fwd, &b_fwd);
@@ -91,8 +91,8 @@ proptest! {
         b_actions in arb_local_actions(),
     ) {
         let seed = rumors::Peer::<u64>::seed().into_rumors();
-        let a = build_local_async(dup(&seed), &a_actions);
-        let b = build_local_async(dup(&seed), &b_actions);
+        let a = build_local(dup(&seed), &a_actions);
+        let b = build_local(dup(&seed), &b_actions);
         wire_gossip(&a, &b);
 
         let a_before = fingerprint(&a);
@@ -120,9 +120,9 @@ proptest! {
         c_actions in arb_local_actions(),
     ) {
         let seed = rumors::Peer::<u64>::seed().into_rumors();
-        let a0 = build_local_async(dup(&seed), &a_actions);
-        let b0 = build_local_async(dup(&seed), &b_actions);
-        let c0 = build_local_async(dup(&seed), &c_actions);
+        let a0 = build_local(dup(&seed), &a_actions);
+        let b0 = build_local(dup(&seed), &b_actions);
+        let c0 = build_local(dup(&seed), &c_actions);
 
         // Path one: (a·b), then (a·c).
         let (a1, b1, c1) = (dup(&a0), dup(&b0), dup(&c0));
@@ -143,7 +143,7 @@ proptest! {
     #[test]
     fn gossip_with_own_fork_is_noop(actions in arb_local_actions()) {
         let seed = rumors::Peer::<u64>::seed().into_rumors();
-        let a = build_local_async(dup(&seed), &actions);
+        let a = build_local(dup(&seed), &actions);
         let fork = dup(&a);
 
         let a_before = fingerprint(&a);
@@ -161,7 +161,7 @@ proptest! {
     fn gossip_with_empty_peer_is_one_sided(actions in arb_local_actions()) {
         let seed = rumors::Peer::<u64>::seed().into_rumors();
         let empty = dup(&seed);
-        let a = build_local_async(dup(&seed), &actions);
+        let a = build_local(dup(&seed), &actions);
 
         let a_before = fingerprint(&a);
         let checkpoint = a.snapshot().latest().clone();
@@ -219,8 +219,8 @@ proptest! {
         b_actions in arb_local_actions(),
     ) {
         let seed = rumors::Peer::<u64>::seed().into_rumors();
-        let a = build_local_async(dup(&seed), &a_actions);
-        let b = build_local_async(dup(&seed), &b_actions);
+        let a = build_local(dup(&seed), &a_actions);
+        let b = build_local(dup(&seed), &b_actions);
 
         let a_before = readout(&a.snapshot());
         let b_before = readout(&b.snapshot());

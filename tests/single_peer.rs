@@ -11,8 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use proptest::collection::vec;
 use proptest::prelude::*;
-use rumors::sync::{Peer, Rumors};
-use rumors::{Key, Version, causally};
+use rumors::{Key, Peer, Rumors, Version, causally};
 
 /// Commit `values` to `peer` as one batch, returning the `(Key, Version)`
 /// pairs it minted (recovered as the live leaves above the pre-commit

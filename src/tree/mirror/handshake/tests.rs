@@ -1,13 +1,13 @@
 use tokio::io::{duplex, split};
 
 use super::{Error, Intent, PREAMBLE_LEN, Preamble, Staged, preamble};
-use crate::Network;
+use crate::{Network, Protocol};
 
 /// Construct a fully received preamble with one caller-selected intent byte.
 fn staged(network: Network, intent: u8) -> Staged {
     let mut staged = Staged::new();
     staged.buf[..6].copy_from_slice(&crate::PROTOCOL_MAGIC);
-    staged.buf[6..8].copy_from_slice(&crate::PROTOCOL_VERSION.to_be_bytes());
+    staged.buf[6..8].copy_from_slice(&(Protocol::V2 as u16).to_be_bytes());
     staged.buf[8..24].copy_from_slice(&network.to_bytes());
     staged.buf[24] = intent;
     staged.filled = PREAMBLE_LEN;
@@ -33,6 +33,7 @@ fn fragmented_exchange_is_symmetric() {
     let (seen_by_left, seen_by_right) = pollster::block_on(async {
         tokio::join!(
             preamble(
+                Protocol::V2,
                 left,
                 Intent::Remain,
                 &mut left_staged,
@@ -40,6 +41,7 @@ fn fragmented_exchange_is_symmetric() {
                 &mut left_write,
             ),
             preamble(
+                Protocol::V2,
                 right,
                 Intent::Retire,
                 &mut right_staged,
@@ -71,7 +73,7 @@ fn fragmented_exchange_is_symmetric() {
 fn intent_byte_space_is_exhaustive() {
     let network = Network::from_bytes([1; 16]);
     for byte in u8::MIN..=u8::MAX {
-        match (byte, staged(network, byte).validate()) {
+        match (byte, staged(network, byte).validate(Protocol::V2)) {
             (0, Ok(preamble)) => assert_eq!(preamble.intent, Intent::Remain),
             (1, Ok(preamble)) => assert_eq!(preamble.intent, Intent::Retire),
             (0 | 1, other) => panic!("defined intent {byte} was rejected: {other:?}"),
@@ -86,14 +88,16 @@ fn intent_byte_space_is_exhaustive() {
 #[test]
 fn bootstrap_intent_matrix_is_exhaustive() {
     assert_eq!(
-        staged(Network::BOOTSTRAP, 0).validate().unwrap(),
+        staged(Network::BOOTSTRAP, 0)
+            .validate(Protocol::V2)
+            .unwrap(),
         Preamble {
             network: Network::BOOTSTRAP,
             intent: Intent::Remain,
         }
     );
     assert!(matches!(
-        staged(Network::BOOTSTRAP, 1).validate(),
+        staged(Network::BOOTSTRAP, 1).validate(Protocol::V2),
         Err(Error::BootstrapRetireConflict)
     ));
 }

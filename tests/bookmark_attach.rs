@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use rumors::{Peer, Rumors, Unbookmarked};
 
 use crate::common::flaky::{FaultFeed, FlakyInMemoryBookmark, persisted_record};
-use crate::common::wire::block_on;
+use crate::common::wire::tokio_block_on as block_on;
 
 /// Capacity for the in-memory duplex carrying a bootstrap session.
 const DUPLEX_BUF: usize = 64 * 1024;

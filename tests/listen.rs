@@ -398,14 +398,14 @@ fn checkpoint_is_portable_across_replicas() {
     assert_eq!(items[0].2, 2, "A-observed messages are skipped at B");
 }
 
-/// The sync face's non-blocking step: `try_next` lends exactly as
+/// The observer's non-blocking step lends exactly as
 /// `borrow_next` does, and distinguishes a *quiet* observer (nothing new,
 /// actors live — where `borrow_next` would block) from an *ended* one.
 #[test]
-fn sync_try_next_distinguishes_quiet_from_ended() {
-    use rumors::sync::{Peer as SyncPeer, TryNext};
+fn try_next_distinguishes_quiet_from_ended() {
+    use rumors::TryNext;
 
-    let rumors = SyncPeer::<u64>::seed().into_rumors();
+    let rumors = Peer::<u64>::seed().into_rumors();
     rumors.batch().send(1).send(2);
 
     let mut obs = rumors.unordered_messages();
@@ -455,24 +455,6 @@ fn stream_face_matches_and_terminates() {
         obs.next().now_or_never(),
         Some(None),
         "the Stream ends once the set closes"
-    );
-}
-
-/// The synchronous mirror: `sync::Messages` is an `Iterator` whose end is
-/// the set closing; it yields the complete final state first.
-#[test]
-fn sync_iterator_face_drains_then_ends() {
-    let rumors = rumors::sync::Peer::<u64>::seed().into_rumors();
-    rumors.batch().send(1).send(2).send(3);
-    let expected: BTreeSet<u64> = rumors.snapshot().iter().map(|(_, _, m)| **m).collect();
-
-    let obs = rumors.unordered_messages();
-    drop(rumors);
-
-    let observed: BTreeSet<u64> = obs.map(|(_, _, m)| *m).collect();
-    assert_eq!(
-        observed, expected,
-        "the sync iterator yields the final state, then ends"
     );
 }
 

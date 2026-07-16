@@ -41,5 +41,8 @@ mod error;
 mod proxy;
 mod session;
 
+#[cfg(any(test, feature = "test-internals"))]
+pub(crate) use codec::render_v2_capture;
 pub use error::*;
+pub use proxy::Error;
 pub use proxy::Handshaking;

@@ -12,7 +12,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::tree::{
     mirror::streaming::{
-        Backend, Leaf, Node,
+        Backend, Leaf,
         protocol::{BoxResponses, Responses},
         remote::{
             proxy::{Error, send_or_cancel},

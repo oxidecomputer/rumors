@@ -1,4 +1,4 @@
-//! Stackable, deterministic adversity for test transports.
+//! Stackable, deterministic adversity for test transports across the crate.
 
 use std::{
     io,
@@ -429,7 +429,7 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex, split};
 
     use super::{IoPlan, Side, wrap_io};
-    use crate::tree::mirror::streaming::testing::run_to_quiescence;
+    use crate::testing::run_to_quiescence;
 
     /// Flush buffering keeps completed writes invisible to the peer until the
     /// corresponding flush is polled.

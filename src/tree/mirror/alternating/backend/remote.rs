@@ -24,14 +24,16 @@
 //! # Framing
 //!
 //! Each borsh-encoded message is shipped as a single length-delimited frame
-//! (4-byte big-endian length prefix) through [`framing`]'s exact-read
+//! (4-byte big-endian length prefix) through
+//! [`crate::tree::mirror::framing`]'s exact-read
 //! [`FrameRead`]/[`FrameWrite`]: the protocol's height schedule names the
 //! type each side expects next, and the frame boundary tells the reader
 //! exactly how many bytes belong to that next message. Frame lengths are
 //! uncapped — arbitrarily large subtrees travel in one frame — because by
 //! the time any length is trusted, the preamble has already vetted the
 //! counterparty. The reader never consumes a byte past the frame it was
-//! asked for; [`framing`]'s docs explain how that guarantee is what lets one
+//! asked for; [`crate::tree::mirror::framing`]'s docs explain how that
+//! guarantee is what lets one
 //! connection host back-to-back sessions.
 //!
 //! # In-band termination
@@ -51,9 +53,8 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use crate::bookmark::{BookmarkError, BookmarkIo, NoBookmark};
-use crate::network::Network;
-use crate::tree::mirror::handshake;
+use crate::Error;
+use crate::tree::mirror::framing::{FrameRead, FrameWrite};
 use crate::tree::typed::{
     Node,
     height::{Height, Root, S, UnderRoot, UnderUnderRoot, Z},
@@ -63,151 +64,6 @@ use super::super::{
     message,
     protocol::{self, Step},
 };
-
-pub mod framing;
-mod party;
-
-pub use framing::{FrameRead, FrameWrite};
-pub(crate) use party::{recv_party, send_party};
-
-/// The error type returned by the gossip protocol.
-///
-/// Generic over the bookmark `B` in play only to carry its
-/// [`Error`](BookmarkError::Error) in the [`Bookmark`](Self::Bookmark) variant;
-/// every other variant is bookmark-independent. `B` is bounded by
-/// [`BookmarkError`] alone — not the full [`Bookmark`](crate::Bookmark) /
-/// [`sync::Bookmark`](crate::sync::Bookmark) face — so one error type serves
-/// both I/O modes. The default `B = NoBookmark` has an
-/// [uninhabited](std::convert::Infallible) bookmark error.
-#[non_exhaustive]
-#[derive(Debug, thiserror::Error)]
-pub enum Error<B: BookmarkError = NoBookmark> {
-    /// An underlying reader/writer error, or a borsh framing error encountered
-    /// while parsing a message off the wire.
-    #[error(transparent)]
-    Io(borsh::io::Error),
-
-    /// The peer's preamble did not begin with [`PROTOCOL_MAGIC`]: the
-    /// connection is not speaking the `rumors` protocol at all.
-    ///
-    /// [`PROTOCOL_MAGIC`]: crate::PROTOCOL_MAGIC
-    #[error("peer is not a rumors stream (remote magic: {remote_magic:x?})")]
-    MagicMismatch { remote_magic: [u8; 6] },
-
-    /// The peer's magic matched but its protocol version differs from ours.
-    /// See [`PROTOCOL_VERSION`].
-    ///
-    /// [`PROTOCOL_VERSION`]: crate::PROTOCOL_VERSION
-    #[error(
-        "peer speaks rumors protocol version {remote_version}, we speak {}",
-        crate::PROTOCOL_VERSION
-    )]
-    VersionMismatch { remote_version: u16 },
-
-    /// Both peers were gossiping but belong to different [`Network`]s: they
-    /// descend from unrelated [`seed`](crate::Peer::seed)s and must not
-    /// combine, even if their causal state happens to look compatible.
-    #[error("peer belongs to a different network ({remote_network:?})")]
-    NetworkMismatch {
-        /// The network identifier for the remote network.
-        remote_network: Network,
-        /// A lower-bound for the number of events which have ever been recorded
-        /// in the remote network.
-        ///
-        /// This can be useful as a tie-break heuristic to resolve in favor of
-        /// an older network.
-        remote_min_events: u64,
-    },
-
-    /// A retiring peer offered an identity that overlaps one already held here.
-    ///
-    /// Identities in a well-formed universe are disjoint by construction, so
-    /// this only arises from a buggy or malicious peer; the session aborts with
-    /// our own state untouched.
-    #[error("retiring peer's party overlaps ours")]
-    PartyOverlap,
-
-    /// The peer's preamble intent byte was neither 0 (remain) nor 1 (retire).
-    #[error("peer sent an invalid intent byte ({byte:#04x})")]
-    IntentInvalid { byte: u8 },
-
-    /// The peer declared the bootstrap placeholder [`Network`] together with a
-    /// retiring intent.
-    ///
-    /// Retiring donates a party and bootstrapping receives
-    /// one, so no honest peer combines them; rejecting the combination in the
-    /// preamble exchange keeps a buggy or malicious peer from maneuvering us
-    /// into both forking it a party and absorbing its donation, which would
-    /// orphan the fork's id-region.
-    #[error("peer claimed to bootstrap and retire in the same session")]
-    BootstrapRetireConflict,
-
-    /// The application's [`Bookmark`](crate::Bookmark) failed to persist or load
-    /// the local identity during the session, or the stored bytes would not
-    /// frame back into a record.
-    ///
-    /// The wire is unaffected, but the session aborts: proceeding past an
-    /// unpersisted identity is exactly the leak the bookmark exists to prevent.
-    #[error(transparent)]
-    Bookmark(BookmarkIo<B::Error>),
-}
-
-impl<B: BookmarkError> From<borsh::io::Error> for Error<B> {
-    fn from(e: borsh::io::Error) -> Self {
-        Error::Io(e)
-    }
-}
-
-impl From<handshake::Error> for Error<NoBookmark> {
-    fn from(error: handshake::Error) -> Self {
-        match error {
-            handshake::Error::Io(error) => Error::Io(error),
-            handshake::Error::MagicMismatch { remote_magic } => {
-                Error::MagicMismatch { remote_magic }
-            }
-            handshake::Error::VersionMismatch { remote_version } => {
-                Error::VersionMismatch { remote_version }
-            }
-            handshake::Error::IntentInvalid { byte } => Error::IntentInvalid { byte },
-            handshake::Error::BootstrapRetireConflict => Error::BootstrapRetireConflict,
-        }
-    }
-}
-
-impl Error<NoBookmark> {
-    /// Re-tag a bookmark-free error under any bookmark `B`.
-    ///
-    /// The wire-level session machinery is generic-free and produces
-    /// `Error<NoBookmark>`; the peer-level drivers return `Error<B>`. Every
-    /// variant but [`Bookmark`](Self::Bookmark) is bookmark-independent, and
-    /// that one is uninhabited here, so this is a total, lossless re-tag.
-    pub(crate) fn widen<B: BookmarkError>(self) -> Error<B> {
-        match self {
-            Error::Io(e) => Error::Io(e),
-            Error::MagicMismatch { remote_magic } => Error::MagicMismatch { remote_magic },
-            Error::VersionMismatch { remote_version } => Error::VersionMismatch { remote_version },
-            Error::NetworkMismatch {
-                remote_network,
-                remote_min_events,
-            } => Error::NetworkMismatch {
-                remote_network,
-                remote_min_events,
-            },
-            Error::PartyOverlap => Error::PartyOverlap,
-            Error::IntentInvalid { byte } => Error::IntentInvalid { byte },
-            Error::BootstrapRetireConflict => Error::BootstrapRetireConflict,
-            // The backend slot is uninhabited at `NoBookmark` (`Infallible` has
-            // no values), but `BookmarkIo::Format` is a real type even there.
-            // The wire layer never constructs a bookmark error, so this arm is
-            // dead; it stays total by re-tagging the inhabited `Format` variant
-            // and discharging the uninhabited backend one.
-            Error::Bookmark(io) => match io {
-                BookmarkIo::Io(never) => match never {},
-                BookmarkIo::Format(f) => Error::Bookmark(BookmarkIo::Format(f)),
-            },
-        }
-    }
-}
 
 /// The version state for an [`Exchange`] which has just been initialized but
 /// has not yet connected.
@@ -253,7 +109,7 @@ impl<T, R, W, H: Height> Exchange<T, R, W, Connected, H> {
     }
 }
 
-impl<T, R, W, V, H: Height> protocol::Stage for Exchange<T, R, W, V, H> {
+impl<T, R: Send, W: Send, V, H: Height> protocol::Stage for Exchange<T, R, W, V, H> {
     type Height = H;
     /// The reconciled tree lives on the local side; the proxy yields its
     /// framed reader/writer halves back to the caller, which stays the
@@ -275,7 +131,7 @@ impl<T, R, W, V, H: Height> protocol::Stage for Exchange<T, R, W, V, H> {
 /// buffer).
 pub(super) async fn send_msg<M, W>(writer: &mut FrameWrite<W>, msg: &M) -> Result<(), Error>
 where
-    W: AsyncWrite + Unpin,
+    W: AsyncWrite + Unpin + Send,
     M: BorshSerialize,
 {
     let mut buf = Vec::new();
@@ -291,7 +147,7 @@ where
 /// [`UnexpectedEof`](borsh::io::ErrorKind::UnexpectedEof) borsh I/O error.
 pub(super) async fn recv_msg<M, R>(reader: &mut FrameRead<R>) -> Result<M, Error>
 where
-    R: AsyncRead + Unpin,
+    R: AsyncRead + Unpin + Send,
     M: BorshDeserialize,
 {
     let frame = reader
@@ -314,8 +170,8 @@ where
 
 impl<T, R, W> protocol::Accept<T> for Exchange<T, R, W, Start, Root>
 where
-    R: AsyncRead + Unpin,
-    W: AsyncWrite + Unpin,
+    R: AsyncRead + Unpin + Send,
+    W: AsyncWrite + Unpin + Send,
     T: BorshSerialize + BorshDeserialize + Send + Sync,
 {
     type Next = Exchange<T, R, W, Connected, Root>;
@@ -350,8 +206,8 @@ where
 impl<T, R, W> protocol::Initiator<T> for Exchange<T, R, W, Connected, Root>
 where
     T: BorshDeserialize + Send + Sync,
-    R: AsyncRead + Unpin,
-    W: AsyncWrite + Unpin,
+    R: AsyncRead + Unpin + Send,
+    W: AsyncWrite + Unpin + Send,
     Node<T, UnderRoot>: BorshDeserialize,
 {
     type Next = Exchange<T, R, W, Connected, Root>;
@@ -372,8 +228,8 @@ where
 impl<T, R, W> protocol::Responder<T> for Exchange<T, R, W, Connected, Root>
 where
     T: BorshDeserialize + Send + Sync,
-    R: AsyncRead + Unpin,
-    W: AsyncWrite + Unpin,
+    R: AsyncRead + Unpin + Send,
+    W: AsyncWrite + Unpin + Send,
     Node<T, UnderRoot>: BorshDeserialize,
 {
     type Next = Exchange<T, R, W, Connected, UnderRoot>;
@@ -400,8 +256,8 @@ where
 impl<T, R, W> protocol::OpenInitiator<T> for Exchange<T, R, W, Connected, Root>
 where
     T: BorshDeserialize + Send + Sync,
-    R: AsyncRead + Unpin,
-    W: AsyncWrite + Unpin,
+    R: AsyncRead + Unpin + Send,
+    W: AsyncWrite + Unpin + Send,
     Node<T, UnderRoot>: BorshDeserialize,
 {
     type Next = Exchange<T, R, W, Connected, UnderUnderRoot>;
@@ -434,8 +290,8 @@ where
 impl<T, R, W, H> protocol::Exchange<T> for Exchange<T, R, W, Connected, S<S<H>>>
 where
     T: BorshDeserialize + Send + Sync,
-    R: AsyncRead + Unpin,
-    W: AsyncWrite + Unpin,
+    R: AsyncRead + Unpin + Send,
+    W: AsyncWrite + Unpin + Send,
     H: Height,
     S<H>: Height,
     S<S<H>>: Height,
@@ -483,8 +339,8 @@ where
 impl<T, R, W> protocol::CloseResponder<T> for Exchange<T, R, W, Connected, S<Z>>
 where
     T: BorshDeserialize + Send + Sync,
-    R: AsyncRead + Unpin,
-    W: AsyncWrite + Unpin,
+    R: AsyncRead + Unpin + Send,
+    W: AsyncWrite + Unpin + Send,
 {
     type Next = Exchange<T, R, W, Connected, Z>;
 
@@ -524,8 +380,8 @@ where
 impl<T, R, W> protocol::CompleteInitiator<T> for Exchange<T, R, W, Connected, Z>
 where
     T: BorshDeserialize + Send + Sync,
-    R: AsyncRead + Unpin,
-    W: AsyncWrite + Unpin,
+    R: AsyncRead + Unpin + Send,
+    W: AsyncWrite + Unpin + Send,
 {
     async fn complete_initiator(
         mut self,
@@ -558,8 +414,8 @@ where
 impl<T, R, W> protocol::CompleteResponder<T> for Exchange<T, R, W, Connected, Z>
 where
     T: Send + Sync,
-    R: AsyncRead + Unpin,
-    W: AsyncWrite + Unpin,
+    R: AsyncRead + Unpin + Send,
+    W: AsyncWrite + Unpin + Send,
 {
     async fn complete_responder(
         mut self,

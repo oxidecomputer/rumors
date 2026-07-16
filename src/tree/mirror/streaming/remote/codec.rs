@@ -30,22 +30,32 @@
 //! [`FrameWrite`] apply that same grammar directly to Tokio byte streams
 //! without buffering a complete outgoing frame.
 
+#[cfg(any(test, feature = "test-internals"))]
+mod capture;
 mod decode;
 mod encode;
 mod error;
 mod frame;
 mod signal;
 
-pub use decode::{FrameRead, decode, decode_exact};
-pub use encode::{FrameWrite, encode};
+#[cfg(any(test, feature = "test-internals"))]
+pub use capture::render_v2_capture;
+pub use decode::FrameRead;
+#[cfg(test)]
+pub use decode::{decode, decode_exact};
+pub use encode::FrameWrite;
+#[cfg(test)]
+pub use encode::encode;
 pub use error::{
     DecodeError, DecodeErrorKind, DecodeLeafError, EncodeError, EncodeErrorKind, EncodeLeafError,
     FramePart, Origin, QueryOrderError,
 };
-pub use frame::{Frame, Reaction, WireFrame};
+#[cfg(test)]
+pub use frame::WireFrame;
+pub use frame::{Frame, Reaction};
 pub use signal::{
     DecodeSignalError, End, Flow, InvalidSignalPlacement, InvalidWireSignal, Speaker, Stream,
-    StreamClass, StreamError,
+    StreamClass,
 };
 
 #[cfg(test)]

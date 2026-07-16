@@ -4,12 +4,8 @@ use proptest::prelude::*;
 
 use super::{harness, reconcile_locally};
 use crate::message::Message;
-use crate::tree::{
-    Action, Tree,
-    arb::arb_divergent_pair,
-    arb::nth_party,
-    mirror::streaming::testing::{IoPlan, run_to_quiescence},
-};
+use crate::testing::{IoPlan, run_to_quiescence};
+use crate::tree::{Action, Tree, arb::arb_divergent_pair, arb::nth_party};
 
 fn plan(read_chunk: usize, write_chunk: usize, delays: Vec<u8>, hold_until_flush: bool) -> IoPlan {
     IoPlan {

@@ -184,9 +184,10 @@ where
 
 // A local `Exchange`'s participation in the protocol:
 
-impl<V, L> protocol::Stage for Exchange<V, L>
+impl<V: Send, L> protocol::Stage for Exchange<V, L>
 where
-    L: Levels,
+    L: Levels + Send,
+    L::Message: Send,
 {
     type Height = L::Height;
     type Output = tree::Root<L::Message>;
@@ -382,7 +383,7 @@ where
 impl<T, L> protocol::OpenInitiator<T> for Exchange<Connected, L>
 where
     T: Send + Sync,
-    L: Levels<Message = T, Height = Root>,
+    L: Levels<Message = T, Height = Root> + Send,
 {
     type Next = Exchange<Connected, Below<UnderUnderRoot, Below<UnderRoot, L>>>;
 
@@ -400,7 +401,7 @@ where
 impl<T, H, L> protocol::Exchange<T> for Exchange<Connected, L>
 where
     T: Send + Sync,
-    L: Levels<Message = T, Height = S<S<H>>>,
+    L: Levels<Message = T, Height = S<S<H>>> + Send,
     S<S<H>>: Height,
     S<H>: Height,
     H: Height + Unknown,
@@ -422,7 +423,7 @@ where
 impl<T, L> protocol::CloseResponder<T> for Exchange<Connected, L>
 where
     T: Send + Sync,
-    L: Levels<Message = T, Height = S<Z>>,
+    L: Levels<Message = T, Height = S<Z>> + Send,
 {
     type Next = Exchange<Connected, Below<Z, L>>;
 
@@ -437,7 +438,7 @@ where
 impl<T, L> protocol::CompleteInitiator<T> for Exchange<Connected, L>
 where
     T: Send + Sync,
-    L: Levels<Message = T, Height = Z>,
+    L: Levels<Message = T, Height = Z> + Send,
 {
     async fn complete_initiator(
         mut self,
@@ -460,7 +461,7 @@ where
 impl<T, L> protocol::CompleteResponder<T> for Exchange<Connected, L>
 where
     T: Send + Sync,
-    L: Levels<Message = T, Height = Z>,
+    L: Levels<Message = T, Height = Z> + Send,
 {
     async fn complete_responder(
         mut self,

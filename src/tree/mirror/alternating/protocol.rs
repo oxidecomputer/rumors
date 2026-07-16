@@ -40,7 +40,7 @@
 //! The helper trait [`AfterExchange<H>`] partitions `H` and dispatches to the
 //! correct follow-up trait via three non-overlapping blanket impls.
 
-use std::convert::Infallible;
+use std::{convert::Infallible, future::Future};
 
 use crate::{
     Version,
@@ -74,15 +74,15 @@ pub enum Step<Msg, Next, Output> {
 /// its methods may raise. `local::Exchange` sets `Error = Infallible` (a purely
 /// in-memory traversal cannot fail); wire-bound implementations (`remote::Exchange`)
 /// set `Error` to a concrete type covering I/O and framing failures.
-pub trait Stage {
+pub trait Stage: Send {
     /// The height in the protocol, starting at the root.
     type Height: Height;
 
     /// The end result of the protocol.
-    type Output;
+    type Output: Send;
 
     /// The error type raised by this stage's protocol methods.
-    type Error;
+    type Error: Send;
 }
 
 /// Open the connect phase on the client side: emit our [`message::Handshake`]
@@ -95,8 +95,9 @@ where
     /// The state that absorbs the peer's version ([`CompleteConnect`]).
     type Next: CompleteConnect<T> + Stage<Output = Self::Output, Height = Root, Error = Self::Error>;
 
-    async fn connect(self)
-    -> Result<Step<message::Handshake, Self::Next, Infallible>, Self::Error>;
+    fn connect(
+        self,
+    ) -> impl Future<Output = Result<Step<message::Handshake, Self::Next, Infallible>, Self::Error>> + Send;
 }
 
 /// Finish the connect phase on the client side: absorb the peer's version.
@@ -114,10 +115,10 @@ where
         + Responder<T>
         + Stage<Output = Self::Output, Height = Root, Error = Self::Error>;
 
-    async fn complete_connect(
+    fn complete_connect(
         self,
         their_version: Version,
-    ) -> Result<Step<(), Self::Next, Self::Output>, Self::Error>;
+    ) -> impl Future<Output = Result<Step<(), Self::Next, Self::Output>, Self::Error>> + Send;
 }
 
 /// The connect phase on the server side: ship the client's greeting to the
@@ -134,10 +135,12 @@ where
         + Responder<T>
         + Stage<Output = Self::Output, Height = Root, Error = Self::Error>;
 
-    async fn accept(
+    fn accept(
         self,
         request: message::Handshake,
-    ) -> Result<Step<message::Handshake, Self::Next, Self::Output>, Self::Error>;
+    ) -> impl Future<
+        Output = Result<Step<message::Handshake, Self::Next, Self::Output>, Self::Error>,
+    > + Send;
 }
 
 /// Continue the protocol as the initiator.
@@ -161,9 +164,9 @@ where
     /// Always yields [`Step::Continue`]: a side opening the protocol cannot
     /// have converged yet. The [`Step::Done`]'s `Output` slot is
     /// [`Infallible`] to encode that impossibility in the type system.
-    async fn initiator(
+    fn initiator(
         self,
-    ) -> Result<Step<message::Initiate, Self::Next, Infallible>, Self::Error>;
+    ) -> impl Future<Output = Result<Step<message::Initiate, Self::Next, Infallible>, Self::Error>> + Send;
 }
 
 /// Continue the protocol as the responder.
@@ -183,10 +186,10 @@ where
     /// has not yet learned what the initiator holds. (Equal versions end the
     /// session in the connect phase, before this step; an empty `Opening` is
     /// how an empty responder asks the initiator to provide everything.)
-    async fn responder(
+    fn responder(
         self,
         request: message::Initiate,
-    ) -> Result<Step<message::Opening, Self::Next, Self::Output>, Self::Error>;
+    ) -> impl Future<Output = Result<Step<message::Opening, Self::Next, Self::Output>, Self::Error>> + Send;
 }
 
 /// Process the responder's [`message::Opening`].
@@ -212,10 +215,15 @@ where
     /// root prefix) we lack entirely, a normal case here, but one that would
     /// indicate a protocol bug if it recurred in `Exchange::exchange`.
     #[allow(clippy::type_complexity)]
-    async fn open_initiator(
+    fn open_initiator(
         self,
         request: message::Opening,
-    ) -> Result<Step<message::Exchange<T, UnderUnderRoot>, Self::Next, Self::Output>, Self::Error>;
+    ) -> impl Future<
+        Output = Result<
+            Step<message::Exchange<T, UnderUnderRoot>, Self::Next, Self::Output>,
+            Self::Error,
+        >,
+    > + Send;
 }
 
 /// One steady-state round, as either party.
@@ -249,17 +257,19 @@ where
     /// emitted unconditionally, because the counterparty may need its
     /// contents to converge.
     #[allow(clippy::type_complexity)]
-    async fn exchange(
+    fn exchange(
         self,
         request: message::Exchange<T, <Self::Height as Pred>::Pred>,
-    ) -> Result<
-        Step<
-            message::Exchange<T, <<Self::Height as Pred>::Pred as Pred>::Pred>,
-            Self::Next,
-            Self::Output,
+    ) -> impl Future<
+        Output = Result<
+            Step<
+                message::Exchange<T, <<Self::Height as Pred>::Pred as Pred>::Pred>,
+                Self::Next,
+                Self::Output,
+            >,
+            Self::Error,
         >,
-        Self::Error,
-    >;
+    > + Send;
 }
 
 /// The responder's closing round; consumes the initiator's final leaf-height
@@ -285,10 +295,12 @@ where
     /// counterparty's [`message::Complete`] would carry nothing, so neither
     /// side sends again.
     #[allow(clippy::type_complexity)]
-    async fn close_responder(
+    fn close_responder(
         self,
         request: message::Exchange<T, Z>,
-    ) -> Result<Step<message::Closing<T>, Self::Next, Self::Output>, Self::Error>;
+    ) -> impl Future<
+        Output = Result<Step<message::Closing<T>, Self::Next, Self::Output>, Self::Error>,
+    > + Send;
 }
 
 /// The initiator's terminal round; absorbs the responder's
@@ -308,10 +320,12 @@ where
     /// `Next` slot is [`Infallible`] to encode the impossibility of
     /// `Continue` in the type system.
     #[allow(clippy::type_complexity)]
-    async fn complete_initiator(
+    fn complete_initiator(
         self,
         request: message::Closing<T>,
-    ) -> Result<Step<message::Complete<T>, Infallible, Self::Output>, Self::Error>;
+    ) -> impl Future<
+        Output = Result<Step<message::Complete<T>, Infallible, Self::Output>, Self::Error>,
+    > + Send;
 }
 
 /// The responder's terminal round; absorbs the initiator's
@@ -327,10 +341,10 @@ where
     /// is no outgoing message: any `requested` we would have made went out in
     /// our prior [`CloseResponder::close_responder`] call.
     #[allow(clippy::type_complexity)]
-    async fn complete_responder(
+    fn complete_responder(
         self,
         request: message::Complete<T>,
-    ) -> Result<Step<(), Infallible, Self::Output>, Self::Error>;
+    ) -> impl Future<Output = Result<Step<(), Infallible, Self::Output>, Self::Error>> + Send;
 }
 
 /// Blanket marker trait keyed by the height `H` just produced by an

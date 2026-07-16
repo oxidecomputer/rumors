@@ -1,17 +1,28 @@
-//! Mirror-sync between two replicas of the typed tree: the [`alternating`]
-//! and [`streaming`] protocol implementations, and the vocabulary they share.
+//! Mirror-sync between two replicas of the typed tree.
+//!
+//! [`streaming`] is the default protocol. `alternating` serves as streaming's
+//! behavioral oracle in this crate's tests, and remains selectable on the
+//! wire behind the `protocol-v1` cargo feature: its state machines are a
+//! large monomorphization surface, so binaries that never speak V1 should
+//! not spend compile time on it.
 
-pub mod alternating;
+#[cfg(any(test, feature = "protocol-v1"))]
+pub(crate) mod alternating;
 pub mod streaming;
 
 pub(crate) mod framing;
 pub(crate) mod handshake;
+pub(crate) mod party;
 
 /// An error which can occur during mirroring: either a client error or a server one.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum Error<C, S> {
-    Client(C),
-    Server(S),
+    /// The protocol participant supplied in the client position failed.
+    #[error("mirror client failed")]
+    Client(#[source] C),
+    /// The protocol participant supplied in the server position failed.
+    #[error("mirror server failed")]
+    Server(#[source] S),
 }
 
 impl<C, S> Error<C, S> {

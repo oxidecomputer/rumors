@@ -30,7 +30,7 @@ fn reply_frame_excludes_stream_end_control() {
 
 /// When every stream is ready together, the mux chooses the leaf-most one and
 /// preserves each stream's reply-before-control order through completion.
-#[tokio::test]
+#[pollster::test]
 async fn prefers_the_bottom_most_ready_stream() {
     for speaker in SPEAKERS {
         let (mux, mut outgoing) = build_outgoing(speaker, RecordingWriter::default());
@@ -79,7 +79,7 @@ async fn prefers_the_bottom_most_ready_stream() {
 
 /// Cancelling one frame wait cannot leave an acknowledgement that lets the
 /// following frame return before its own transport flush.
-#[tokio::test]
+#[pollster::test]
 async fn acknowledgements_are_bound_to_their_exact_frame() {
     let speaker = Speaker::Responder;
     let logical = stream_at(8);
@@ -114,7 +114,7 @@ async fn acknowledgements_are_bound_to_their_exact_frame() {
 
 /// A logical producer must finish with a stream end rather than silently
 /// disappearing and leaving session completion permanently ambiguous.
-#[tokio::test]
+#[pollster::test]
 async fn reports_a_sender_dropped_before_stream_end() {
     let (mux, mut outgoing) =
         build_outgoing::<_, ()>(Speaker::Initiator, RecordingWriter::default());
@@ -150,7 +150,7 @@ impl AsyncWrite for FlushFailure {
 
 /// A queued frame is not acknowledged when its bytes were accepted but its
 /// required flush failed, while the mux retains the contextual codec error.
-#[tokio::test]
+#[pollster::test]
 async fn acknowledges_only_after_a_successful_flush() {
     let speaker = Speaker::Initiator;
     let stream = stream_at(8);

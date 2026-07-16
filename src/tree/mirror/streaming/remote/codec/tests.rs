@@ -185,7 +185,7 @@ impl AsyncWrite for RecordingWrite {
 
 /// A one-byte duplex forces async frame pieces through backpressure while two
 /// adjacent variable bodies retain their exact boundary.
-#[tokio::test]
+#[pollster::test]
 async fn async_duplex_preserves_adjacent_frame_boundaries() {
     let stream = Stream::new(7).unwrap();
     for speaker in [Speaker::Initiator, Speaker::Responder] {

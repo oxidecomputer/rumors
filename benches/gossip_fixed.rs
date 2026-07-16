@@ -3,10 +3,13 @@
 //! Every fixture starts with a total universe size of `N = 10_000` possible
 //! actions and varies only where the work lands: shared pre-fork insertions,
 //! post-fork divergent insertions, or post-fork redactions. Each benchmark
-//! drives [`Rumors::gossip`] over persistent in-memory pipes, so the timed body
-//! pays for the gossip session rather than pipe allocation or thread spawn.
+//! drives [`Rumors::gossip`] over one persistent in-memory duplex, so the timed
+//! body pays for the gossip session rather than transport allocation.
 //!
-//! The four Criterion groups are:
+//! Each of the four Criterion groups measures [`Protocol::V2`] on the same
+//! fixtures — and [`Protocol::V1`] alongside it when the `protocol-v1`
+//! feature is enabled (`cargo bench --features protocol-v1 gossip_fixed`),
+//! which is the comparative-measurement path that feature exists for:
 //!
 //! - `gossip_fixed_bidir_insertions`: total post-fork insertions `I`.
 //! - `gossip_fixed_bidir_redactions`: total post-fork redactions `R`.
@@ -14,17 +17,12 @@
 //! - `gossip_fixed_unilateral_redactions`: one-side post-fork redactions `R`.
 
 use std::hint::black_box;
-use std::io::{PipeReader, PipeWriter, pipe};
-use std::sync::mpsc::{Receiver, Sender, channel};
-use std::thread::{self, JoinHandle};
-
-use borsh::{BorshDeserialize, BorshSerialize};
 
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
 use rand::{RngCore, SeedableRng};
-use rumors::sync::{Key, Peer, Rumors};
+use rumors::{Key, Peer, Protocol, Rumors};
 
 // The shared grid module exposes a superset of helpers; this bench only needs
 // its sample-size policy so fixed-N runs line up with the existing benches.
@@ -36,93 +34,11 @@ const N: usize = 10_000;
 const INSERT_STEP: usize = 500;
 const REDACT_STEP: usize = 250;
 
-/// Mint a genuine party-disjoint originator that inherits `parent`'s content.
-///
-/// A peer that will independently `send`/`redact` (as both sides of every
-/// fixture here do) is minted by serving a bootstrap from `parent` over a
-/// pair of pipes: the newcomer pulls `parent`'s whole tree through the
-/// ordinary mirror descent and is handed a fresh disjoint party, forked in
-/// the same critical section that snapshots the served tree. The fixtures
-/// only need the data plane, so the lifecycle handle is collapsed to
-/// [`Rumors`] right away.
-fn bootstrap_fork<T>(parent: &mut Rumors<T>) -> Rumors<T>
-where
-    T: BorshSerialize + BorshDeserialize + Clone + Send + Sync + 'static,
-{
-    let (mut p2n_r, mut p2n_w) = pipe().expect("pipe parent→newcomer");
-    let (mut n2p_r, mut n2p_w) = pipe().expect("pipe newcomer→parent");
-    thread::scope(|s| {
-        let newcomer = s.spawn(move || {
-            Peer::<T>::bootstrap(&mut p2n_r, &mut n2p_w)
-                .expect("bootstrap newcomer")
-                .expect("provider served bootstrap")
-                .into_rumors()
-        });
-        parent
-            .gossip(&mut n2p_r, &mut p2n_w)
-            .expect("serve bootstrap");
-        newcomer.join().expect("join bootstrap thread")
-    })
-}
-
-/// A reusable in-memory "wire": two OS pipes plus a persistent worker thread
-/// driving peer B.
-struct Wire {
-    a_read: PipeReader,
-    a_write: PipeWriter,
-    work: Option<Sender<Rumors<u8>>>,
-    done: Receiver<Rumors<u8>>,
-    worker: Option<JoinHandle<()>>,
-}
-
-impl Wire {
-    fn new() -> Self {
-        let (a_to_b_r, a_to_b_w) = pipe().expect("pipe a_to_b");
-        let (b_to_a_r, b_to_a_w) = pipe().expect("pipe b_to_a");
-        let (work_tx, work_rx) = channel::<Rumors<u8>>();
-        let (done_tx, done_rx) = channel::<Rumors<u8>>();
-
-        let worker = thread::spawn(move || {
-            let mut read = a_to_b_r;
-            let mut write = b_to_a_w;
-            while let Ok(mut b) = work_rx.recv() {
-                b.gossip(&mut read, &mut write).expect("worker peer gossip");
-                if done_tx.send(b).is_err() {
-                    break;
-                }
-            }
-        });
-
-        Wire {
-            a_read: b_to_a_r,
-            a_write: a_to_b_w,
-            work: Some(work_tx),
-            done: done_rx,
-            worker: Some(worker),
-        }
-    }
-
-    fn round_trip(&mut self, mut a: Rumors<u8>, b: Rumors<u8>) -> (Rumors<u8>, Rumors<u8>) {
-        self.work
-            .as_ref()
-            .expect("worker still running")
-            .send(b)
-            .expect("hand peer B to worker");
-        a.gossip(&mut self.a_read, &mut self.a_write)
-            .expect("peer A gossip");
-        let b_out = self.done.recv().expect("recv reconciled peer B");
-        (a, b_out)
-    }
-}
-
-impl Drop for Wire {
-    fn drop(&mut self) {
-        self.work.take();
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
-        }
-    }
-}
+/// The protocols under measurement: V1 joins the sweep only when built in.
+#[cfg(feature = "protocol-v1")]
+const PROTOCOLS: [Protocol; 2] = [Protocol::V1, Protocol::V2];
+#[cfg(not(feature = "protocol-v1"))]
+const PROTOCOLS: [Protocol; 1] = [Protocol::V2];
 
 #[derive(Clone, Copy)]
 enum Scenario {
@@ -156,18 +72,18 @@ impl Scenario {
         }
     }
 
-    fn build(self, param: usize) -> (Rumors<u8>, Rumors<u8>) {
+    fn build(self, protocol: Protocol, param: usize) -> (Rumors<u8>, Rumors<u8>) {
         match self {
-            Scenario::BidirInsertions => build_bidir_insertions(param),
-            Scenario::BidirRedactions => build_bidir_redactions(param),
-            Scenario::UnilateralInsertions => build_unilateral_insertions(param),
-            Scenario::UnilateralRedactions => build_unilateral_redactions(param),
+            Scenario::BidirInsertions => build_bidir_insertions(protocol, param),
+            Scenario::BidirRedactions => build_bidir_redactions(protocol, param),
+            Scenario::UnilateralInsertions => build_unilateral_insertions(protocol, param),
+            Scenario::UnilateralRedactions => build_unilateral_redactions(protocol, param),
         }
     }
 }
 
 fn bench_gossip_fixed(c: &mut Criterion) {
-    let mut wire = Wire::new();
+    let mut wire = grid::wire::Wire::new();
 
     for scenario in [
         Scenario::BidirInsertions,
@@ -180,25 +96,27 @@ fn bench_gossip_fixed(c: &mut Criterion) {
 
         for param in (0..=scenario.max_param()).step_by(scenario.step()) {
             group.throughput(Throughput::Elements(param as u64));
-            group.bench_function(BenchmarkId::from_parameter(param), |b| {
-                b.iter_batched(
-                    || warmed(scenario.build(param)),
-                    |(left, right)| black_box(wire.round_trip(left, right)),
-                    BatchSize::PerIteration,
-                )
-            });
+            for protocol in PROTOCOLS {
+                group.bench_function(BenchmarkId::new(format!("{protocol:?}"), param), |b| {
+                    b.iter_batched(
+                        || warmed(scenario.build(protocol, param)),
+                        |(left, right)| black_box(wire.round_trip(left, right)),
+                        BatchSize::PerIteration,
+                    )
+                });
+            }
         }
 
         group.finish();
     }
 }
 
-fn build_bidir_insertions(total_insertions: usize) -> (Rumors<u8>, Rumors<u8>) {
+fn build_bidir_insertions(protocol: Protocol, total_insertions: usize) -> (Rumors<u8>, Rumors<u8>) {
     assert!(total_insertions <= N);
     assert_eq!(total_insertions % 2, 0);
 
-    let mut left = seeded_with_messages(N - total_insertions, 0x1189_2d1a_c54f_a94d);
-    let right = bootstrap_fork(&mut left);
+    let left = seeded_with_messages(protocol, N - total_insertions, 0x1189_2d1a_c54f_a94d);
+    let right = grid::wire::bootstrap_fork(&left, protocol);
     let per_side = total_insertions / 2;
 
     send_all(
@@ -213,11 +131,14 @@ fn build_bidir_insertions(total_insertions: usize) -> (Rumors<u8>, Rumors<u8>) {
     (left, right)
 }
 
-fn build_unilateral_insertions(total_insertions: usize) -> (Rumors<u8>, Rumors<u8>) {
+fn build_unilateral_insertions(
+    protocol: Protocol,
+    total_insertions: usize,
+) -> (Rumors<u8>, Rumors<u8>) {
     assert!(total_insertions <= N);
 
-    let mut left = seeded_with_messages(N - total_insertions, 0x70e4_a5b8_cce0_25da);
-    let right = bootstrap_fork(&mut left);
+    let left = seeded_with_messages(protocol, N - total_insertions, 0x70e4_a5b8_cce0_25da);
+    let right = grid::wire::bootstrap_fork(&left, protocol);
 
     send_all(
         &left,
@@ -230,12 +151,12 @@ fn build_unilateral_insertions(total_insertions: usize) -> (Rumors<u8>, Rumors<u
     (left, right)
 }
 
-fn build_bidir_redactions(total_redactions: usize) -> (Rumors<u8>, Rumors<u8>) {
+fn build_bidir_redactions(protocol: Protocol, total_redactions: usize) -> (Rumors<u8>, Rumors<u8>) {
     assert!(total_redactions <= N / 2);
     assert_eq!(total_redactions % 2, 0);
 
-    let (mut left, keys) = seeded_with_keys(N, 0xc786_a046_6b7d_c9d3);
-    let right = bootstrap_fork(&mut left);
+    let (left, keys) = seeded_with_keys(protocol, N, 0xc786_a046_6b7d_c9d3);
+    let right = grid::wire::bootstrap_fork(&left, protocol);
     let shuffled = shuffled_keys(keys, 0x84f6_7932_1265_9eec ^ total_redactions as u64);
     let per_side = total_redactions / 2;
 
@@ -245,11 +166,14 @@ fn build_bidir_redactions(total_redactions: usize) -> (Rumors<u8>, Rumors<u8>) {
     (left, right)
 }
 
-fn build_unilateral_redactions(total_redactions: usize) -> (Rumors<u8>, Rumors<u8>) {
+fn build_unilateral_redactions(
+    protocol: Protocol,
+    total_redactions: usize,
+) -> (Rumors<u8>, Rumors<u8>) {
     assert!(total_redactions <= N / 2);
 
-    let (mut left, keys) = seeded_with_keys(N, 0x2526_34f4_918f_e1c7);
-    let right = bootstrap_fork(&mut left);
+    let (left, keys) = seeded_with_keys(protocol, N, 0x2526_34f4_918f_e1c7);
+    let right = grid::wire::bootstrap_fork(&left, protocol);
     let shuffled = shuffled_keys(keys, 0xd4f9_f46b_3c09_1d60 ^ total_redactions as u64);
 
     redact_all(&left, &shuffled[..total_redactions]);
@@ -271,14 +195,14 @@ fn redact_all(rumors: &Rumors<u8>, keys: &[Key]) {
     }
 }
 
-fn seeded_with_messages(n: usize, seed: u64) -> Rumors<u8> {
-    let rumors = Peer::seed().into_rumors();
+fn seeded_with_messages(protocol: Protocol, n: usize, seed: u64) -> Rumors<u8> {
+    let rumors = Peer::seed().protocol(protocol).into_rumors();
     send_all(&rumors, random_bytes(n, seed));
     rumors
 }
 
-fn seeded_with_keys(n: usize, seed: u64) -> (Rumors<u8>, Vec<Key>) {
-    let rumors = Peer::seed().into_rumors();
+fn seeded_with_keys(protocol: Protocol, n: usize, seed: u64) -> (Rumors<u8>, Vec<Key>) {
+    let rumors = Peer::seed().protocol(protocol).into_rumors();
     send_all(&rumors, random_bytes(n, seed));
     let keys = rumors.snapshot().iter().map(|(k, _, _)| k).collect();
     (rumors, keys)

@@ -17,12 +17,12 @@ mod violations;
 use crate::{
     Version,
     message::Message,
+    testing::run_to_quiescence,
     tree::{
         arb::nth_party,
         mirror::streaming::{
             Backend, Failing, Failure, Local, Operation,
             materialized::{Error, Resolution, Resolve, Violation},
-            testing::run_to_quiescence,
         },
         typed::{
             self, Path, Prefix,

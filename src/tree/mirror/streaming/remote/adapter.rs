@@ -60,7 +60,7 @@ mod error;
 mod scope;
 
 pub use decode::{Decoded, decode_leaf_reply, decode_opening, decode_reply};
-pub use encode::{Encoded, Frames, encode_leaf_reply, encode_opening, encode_reply};
+pub use encode::{Encoded, encode_leaf_reply, encode_opening, encode_reply};
 pub use error::{DecodeError, EncodeError, OpeningError, ScopeError};
 pub use scope::Scope;
 

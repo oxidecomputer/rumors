@@ -1,43 +1,37 @@
-//! Byte-exact wire-capture helper for `insta` golden snapshots of a single
-//! round of gossip between two [`rumors::Rumors`].
+//! Byte-exact wire-capture helpers for `insta` golden snapshots of one
+//! session between two peers.
 //!
 //! Where [`super::wire`] only checks that the two peers *converge*, this
 //! helper records the *entire conversation*: every byte each peer puts on the
-//! wire and every byte it pulls back off. It is rendered as two transcripts
-//! side by side, one per party, so a drift in framing, message content, or the
-//! send/receive ordering of either party surfaces as a snapshot diff.
-//! Re-accept a snapshot only after a deliberate protocol change.
+//! wire. V2 traffic is rendered by physical direction, then demultiplexed by
+//! logical stream: ordering within each stream is exact, while incidental
+//! scheduling between independent streams is discarded. Representative V1
+//! tests retain its strict send/receive timeline. Re-accept a snapshot only
+//! after a deliberate protocol change.
 //!
 //! # Robustness to read/write framing
 //!
-//! A party's transcript is *collapsed by direction*: consecutive bytes it
-//! sends with no intervening receive (and vice versa) are coalesced into one
-//! block, regardless of how many `poll_write` / `poll_read` calls the
-//! buffering happened to split them across. The capture therefore pins *what*
-//! each party sent and received, and in *what order it switched direction* —
-//! the protocol's observable behavior — without pinning the incidental chunk
-//! boundaries an async reader/writer is free to choose. A party's own
-//! send/receive order is fixed by its protocol logic, not by buffering, so the
-//! collapsed transcript is both deterministic and framing-independent.
+//! V2 concatenates every byte sent in each physical direction before parsing
+//! it into the fixed preamble, exact-framed version, logical stream frames,
+//! and any trailing party hand-off. V1 collapses consecutive events in the
+//! same direction. Neither representation retains incidental boundaries
+//! between individual `poll_write` or `poll_read` calls.
 //!
 //! # Determinism
 //!
-//! Both peers are driven by `tokio::join!` on a single-threaded current-thread
-//! runtime (see [`super::wire::block_on`]). Cooperative polling on one thread
-//! makes the order in which the two `gossip` futures make progress fully
-//! deterministic, so the capture is reproducible run to run — the property a
-//! golden snapshot needs. (The synchronous path in [`super::sync_wire`] uses
-//! real OS threads, whose interleaving is *not* reproducible, and so is
-//! unsuitable for golden capture.)
+//! V2's independent streams may be scheduled in different physical orders,
+//! so its renderer sorts stream groups while preserving every exact byte and
+//! the complete order within each group. V1 is strictly alternating, and its
+//! two peers are driven by `tokio::join!` on a single-threaded runtime so its
+//! direction-switching timeline is reproducible.
 //!
 //! # Interposition
 //!
 //! Each end of an in-memory `tokio::io::duplex` pipe is wrapped in a
-//! [`Recorder`] before being split into the read/write halves handed to
-//! `gossip`. The wrapper logs every byte accepted by `poll_write` (a *send* by
-//! that peer) and every byte delivered by `poll_read` (a *receive* by that
-//! peer) into one shared, ordered [`Log`], tagged with the acting party. The
-//! renderer then demultiplexes the log into the two per-party transcripts.
+//! [`Recorder`] before being split into the read/write halves handed to the
+//! session. The wrapper logs every accepted write and delivered read into one
+//! shared, ordered [`Log`], tagged with the acting party. The selected
+//! renderer then derives either the stable V2 streams or the V1 timeline.
 
 use std::future::Future;
 use std::io;
@@ -46,7 +40,7 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use rumors::Rumors;
+use rumors::{Rumors, testing::render_v2_capture};
 use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf, ReadHalf, WriteHalf};
 
 use crate::common::wire::block_on;
@@ -150,22 +144,41 @@ impl AsyncWrite for Recorder {
     }
 }
 
-/// Drive an arbitrary pair of protocol sessions — plain gossip, bootstrap,
-/// retire, or any mix — through an interposed, recording duplex pipe and
-/// render the captured conversation as a stable, human-legible timeline
-/// suitable for `insta::assert_snapshot!`.
+/// Capture and render an arbitrary pair of V2 protocol sessions.
 ///
 /// Each side is a closure handed the read and write halves of its recorded
 /// pipe end; it returns the future that drives its role (`gossip`,
-/// `bootstrap`, `retire`, …). The two futures run concurrently on a
-/// current-thread runtime (see [`super::wire::block_on`]), so the returned
-/// string is deterministic for a given pair of roles and a given build of the
-/// protocol. A driver is expected to run its session to completion and assert
-/// its own outcome; a panic inside a driver fails the capture.
+/// `bootstrap`, `retire`, …). The renderer preserves exact physical bytes but
+/// groups multiplexed frames by logical stream, whose internal order is the
+/// V2 protocol's deterministic observable ordering. A driver must run its
+/// session to completion and assert its own outcome.
 ///
 /// [`capture_gossip`] is the gossip/gossip specialization; the bootstrap and
 /// retire snapshot suites build the asymmetric pairings on top of this.
 pub fn capture_session<DriveA, DriveB, FutA, FutB>(drive_a: DriveA, drive_b: DriveB) -> String
+where
+    DriveA: FnOnce(ReadHalf<Recorder>, WriteHalf<Recorder>) -> FutA,
+    DriveB: FnOnce(ReadHalf<Recorder>, WriteHalf<Recorder>) -> FutB,
+    FutA: Future<Output = ()>,
+    FutB: Future<Output = ()>,
+{
+    let events = capture_events(drive_a, drive_b);
+    render_v2_capture(&sent("A", &events), &sent("B", &events))
+}
+
+/// Capture one V1 session in its strict direction-switching timeline.
+pub fn capture_session_v1<DriveA, DriveB, FutA, FutB>(drive_a: DriveA, drive_b: DriveB) -> String
+where
+    DriveA: FnOnce(ReadHalf<Recorder>, WriteHalf<Recorder>) -> FutA,
+    DriveB: FnOnce(ReadHalf<Recorder>, WriteHalf<Recorder>) -> FutB,
+    FutA: Future<Output = ()>,
+    FutB: Future<Output = ()>,
+{
+    render_v1(&capture_events(drive_a, drive_b))
+}
+
+/// Drive both roles and return the complete physical I/O event log.
+fn capture_events<DriveA, DriveB, FutA, FutB>(drive_a: DriveA, drive_b: DriveB) -> Vec<Event>
 where
     DriveA: FnOnce(ReadHalf<Recorder>, WriteHalf<Recorder>) -> FutA,
     DriveB: FnOnce(ReadHalf<Recorder>, WriteHalf<Recorder>) -> FutB,
@@ -191,7 +204,8 @@ where
         tokio::join!(drive_a(a_r, a_w), drive_b(b_r, b_w));
     });
 
-    render(&log.0.lock().unwrap())
+    let mut events = log.0.lock().unwrap();
+    std::mem::take(&mut *events)
 }
 
 /// Gossip `a` and `b` through the recording pipe (the gossip/gossip
@@ -211,12 +225,36 @@ where
     )
 }
 
+/// Capture the strict V1 timeline for a gossip/gossip session.
+pub fn capture_gossip_v1<T>(a: Rumors<T>, b: Rumors<T>) -> String
+where
+    T: BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+{
+    capture_session_v1(
+        move |mut r, mut w| async move {
+            a.gossip(&mut r, &mut w).await.expect("V1 gossip A");
+        },
+        move |mut r, mut w| async move {
+            b.gossip(&mut r, &mut w).await.expect("V1 gossip B");
+        },
+    )
+}
+
 /// Render the event log as two per-party transcripts laid out side by side,
 /// each collapsed by direction (see the module docs).
-fn render(events: &[Event]) -> String {
+fn render_v1(events: &[Event]) -> String {
     let left = transcript("A", events);
     let right = transcript("B", events);
     side_by_side(&left, &right)
+}
+
+/// Concatenate every byte one party sent, erasing physical write chunking.
+fn sent(peer: &str, events: &[Event]) -> Vec<u8> {
+    events
+        .iter()
+        .filter(|event| event.peer == peer && event.op == Op::Send)
+        .flat_map(|event| event.bytes.iter().copied())
+        .collect()
 }
 
 /// Build one party's transcript as a list of text lines: a column header and

@@ -1,8 +1,7 @@
 //! Re-represent nodes from one backend in the node types of another.
 //!
 //! A node converts by exploding to leaves in the source backend and
-//! reassembling in the target, the two halves running concurrently through one
-//! one-slot channel ([`subtree`]).
+//! reassembling in the target.
 //!
 //! The protocol itself converts nowhere: both parties of a session name one
 //! backend, and a homogeneous session pays nothing. This module is what lets a
@@ -11,17 +10,12 @@
 use std::pin::pin;
 
 use async_stream::try_stream;
-use futures::{StreamExt, stream};
-use tokio::sync::mpsc;
-use tokio_stream::wrappers::ReceiverStream;
+use futures::StreamExt;
 
 use crate::tree::{
-    mirror::{
-        Error,
-        streaming::{
-            Backend, Leaf, Node,
-            backend::{BoxNodeStream, NodeStream},
-        },
+    mirror::streaming::{
+        Backend, Leaf,
+        backend::{BoxNodeStream, NodeStream},
     },
     typed::{
         Prefix,
@@ -102,66 +96,6 @@ where
             }
         })
     }
-}
-
-/// Re-represent a single node of `from`'s in `to`'s node type.
-///
-/// The node [explodes](Convert::explode) to leaves in `from` while `to`
-/// concurrently [reassembles](Convert::assemble) them, the halves joined by a
-/// one-slot leaf channel; the cost is the subtree's size in time and one leaf
-/// in buffered memory. Errors return in the producer's frame: `from`'s
-/// explosion failures in first position, `to`'s reassembly failures in second.
-async fn subtree<B, O, T, H>(
-    from: &B,
-    to: &O,
-    prefix: Prefix<H>,
-    node: B::Node<H>,
-) -> Result<O::Node<H>, Error<B::Error, O::Error>>
-where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    O: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
-    H: Convert,
-{
-    let (tx, rx) = mpsc::channel::<Result<(Prefix<Z>, O::Node<Z>), O::Error>>(1);
-
-    let feed = async move {
-        let mut leaves = pin!(H::explode(
-            from.clone(),
-            Box::pin(stream::once(async move { Ok((prefix, node)) })),
-        ));
-        while let Some(item) = leaves.next().await {
-            let (prefix, leaf) = item?;
-
-            // The crossing: a leaf re-represents by value, no backend work.
-            let version = leaf.ceiling().clone();
-            let message = leaf.message().clone();
-            if tx
-                .send(Ok((prefix, Leaf::leaf(version, message))))
-                .await
-                .is_err()
-            {
-                // The build side stopped pulling: its own failure already
-                // ends the conversion, so there is nothing left to feed.
-                break;
-            }
-        }
-        Ok::<_, B::Error>(())
-    };
-
-    let build = async {
-        let mut nodes = pin!(H::assemble(to.clone(), Box::pin(ReceiverStream::new(rx))));
-        nodes.next().await
-    };
-
-    let (fed, built) = futures::future::join(feed, build).await;
-    // A feed failure truncates the leaf stream, which explains anything odd
-    // downstream of it, so it outranks whatever the build half produced.
-    fed.map_err(Error::Client)?;
-    built
-        .expect("a subtree's leaves reassemble to exactly one node")
-        .map(|(_prefix, node)| node)
-        .map_err(Error::Server)
 }
 
 /// Reassemble an ascending child stream into its parent level, one complete

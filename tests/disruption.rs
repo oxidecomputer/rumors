@@ -24,14 +24,14 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use proptest::prelude::*;
-use rumors::{Error, Peer, Retire, Rumors};
+use rumors::{Peer, Retire, Rumors};
 use tokio::net::{TcpListener, TcpStream};
 
 use crate::common::fault::{self, FaultPlan};
 use crate::common::oracle::readout;
 use crate::common::sim::{
     arb_fault, arb_plan, assert_converged, assert_honest_error, assert_honest_gossip,
-    assert_party_invariants, probe_disjointness, quiesce, run_plan,
+    assert_party_invariants, is_honest_error, probe_disjointness, quiesce, run_plan,
 };
 use crate::common::wire::bootstrap_fork_async;
 
@@ -254,7 +254,7 @@ async fn run_proc_plan(plan: ProcPlan) {
                     let (mut r, mut w) = tokio::io::split(socket);
                     if let Err(e) = handle.gossip(&mut r, &mut w).await {
                         serve_errors.fetch_add(1, Ordering::Relaxed);
-                        if !matches!(e, Error::Io(_)) {
+                        if !is_honest_error(&e) {
                             dishonest
                                 .lock()
                                 .expect("dishonest log")

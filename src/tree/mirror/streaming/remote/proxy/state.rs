@@ -11,7 +11,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::tree::{
     mirror::streaming::{
-        Backend, Leaf, Node,
+        Backend, Leaf,
         channel::Receiver,
         convert::Convert,
         protocol::{self, BoxResponses, Requests, Responses},
@@ -64,7 +64,17 @@ where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    session: Session<B, T, R, W>,
+    state: ConnectedState<B, T, R, W>,
+}
+
+/// Equal versions need no multiplexed session; divergent versions own one.
+enum ConnectedState<B, T, R, W>
+where
+    B: Backend<T, Node<Z>: Leaf<T>>,
+    T: Send + Sync + 'static,
+{
+    Equal(R, W),
+    Diverged(Box<Session<B, T, R, W>>),
 }
 
 impl<B, T, R, W> Connected<B, T, R, W>
@@ -83,12 +93,27 @@ where
         drivers: Drivers<R, W, T>,
     ) -> Self {
         Self {
-            session: Session {
+            state: ConnectedState::Diverged(Box::new(Session {
                 remote,
                 incoming,
                 outgoing,
                 work: Work::new(backend, drivers),
-            },
+            })),
+        }
+    }
+
+    /// Retain untouched transport halves when the versions already agree.
+    pub fn equal(read: R, write: W) -> Self {
+        Self {
+            state: ConnectedState::Equal(read, write),
+        }
+    }
+
+    /// Extract the session guaranteed by the driver's divergent-version path.
+    fn diverged(self) -> Session<B, T, R, W> {
+        match self.state {
+            ConnectedState::Diverged(session) => *session,
+            ConnectedState::Equal(..) => unreachable!("descent opened for equal versions"),
         }
     }
 }
@@ -160,15 +185,12 @@ where
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
 {
-    /// Close every unused logical stream and wait for the peer to do likewise.
+    /// Return the untouched transport; equal versions never opened a session.
     async fn complete_equal(self) -> Result<(R, W), Self::Error> {
-        let Session {
-            incoming,
-            outgoing,
-            work,
-            ..
-        } = self.session;
-        work.complete_equal(incoming, outgoing).await
+        match self.state {
+            ConnectedState::Equal(read, write) => Ok((read, write)),
+            ConnectedState::Diverged(..) => unreachable!("equal completion for divergent versions"),
+        }
     }
 }
 
@@ -182,14 +204,12 @@ where
     type Next = Descending<B, T, UnderRoot, R, W>;
 
     /// Decode the remote initiator's distinguished opening question.
-    fn initiator(mut self) -> (impl Responses<B, T, UnderRoot, Self::Error>, Self::Next) {
-        debug_assert_eq!(self.session.remote, Speaker::Initiator);
-        let incoming = self.session.incoming::<UnderRoot>();
-        let (responses, scopes) = self.session.work.initiator(incoming);
-        let next = Descending {
-            session: self.session,
-            scopes,
-        };
+    fn initiator(self) -> (impl Responses<B, T, UnderRoot, Self::Error>, Self::Next) {
+        let mut session = self.diverged();
+        debug_assert_eq!(session.remote, Speaker::Initiator);
+        let incoming = session.incoming::<UnderRoot>();
+        let (responses, scopes) = session.work.initiator(incoming);
+        let next = Descending { session, scopes };
         (responses, next)
     }
 }
@@ -206,18 +226,16 @@ where
 
     /// Proxy the distinguished opening in both physical directions.
     fn responder(
-        mut self,
+        self,
         requests: impl Requests<B, T, UnderRoot>,
     ) -> (BoxResponses<B, T, UnderRoot, Self::Error>, Self::Next) {
-        debug_assert_eq!(self.session.remote, Speaker::Responder);
-        let incoming = self.session.incoming::<UnderRoot>();
-        let outgoing = self.session.outgoing::<UnderRoot>();
-        let (responses, next_scopes) = self
-            .session
-            .work
-            .opening_responder(requests, incoming, outgoing);
+        let mut session = self.diverged();
+        debug_assert_eq!(session.remote, Speaker::Responder);
+        let incoming = session.incoming::<UnderRoot>();
+        let outgoing = session.outgoing::<UnderRoot>();
+        let (responses, next_scopes) = session.work.opening_responder(requests, incoming, outgoing);
         let next = Descending {
-            session: self.session,
+            session,
             scopes: next_scopes,
         };
         (responses, next)

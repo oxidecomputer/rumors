@@ -179,26 +179,33 @@
 //! what a resume re-observes, and why folding the yielded versions yourself is
 //! not a substitute.
 //!
-//! # Async and sync
+//! # Runtime independence
 //!
-//! Everything async here is runtime-agnostic: sessions and observers are plain
-//! futures and streams, driven entirely by the caller. The I/O *traits* are
-//! tokio's; from another runtime, bridge with [`tokio_util::compat`]. With no
-//! async runtime at all, use the [`sync`] module's types.
+//! Sessions and observers are plain futures and streams, driven entirely by
+//! the caller. The I/O traits are Tokio's runtime-independent
+//! [`AsyncRead`](tokio::io::AsyncRead) and [`AsyncWrite`](tokio::io::AsyncWrite);
+//! no Tokio runtime, spawning, sockets, or timers are required by this crate.
 //!
 //! # Wire compatibility
 //!
 //! Every session opens with a fixed 25-byte preamble carrying
-//! [`PROTOCOL_MAGIC`], [`PROTOCOL_VERSION`], the network, and session intent.
+//! [`PROTOCOL_MAGIC`], the selected [`Protocol`]'s version, the network, and
+//! session intent.
 //! A counterparty that is not speaking `rumors`, or speaks an incompatible
 //! version, is rejected before any peer-declared frame length is trusted
 //! ([`Error::MagicMismatch`], [`Error::VersionMismatch`]).
+//! [`Protocol::V2`] is the default; `Protocol::V1` (behind the `protocol-v1`
+//! cargo feature) can be selected on an established [`Peer`] with
+//! [`Peer::protocol`], or while joining with
+//! [`Peer::bootstrap_with_protocol`]. Both endpoints must select the same
+//! protocol.
 //!
 //! # Stability and testing
 //!
 //! Pre-1.0: the Rust API may still reshape. The wire format is steadier by
-//! design — pinned byte-for-byte by snapshot tests, changed only with a
-//! deliberate [`PROTOCOL_VERSION`] bump.
+//! design — each [`Protocol`] is pinned byte-for-byte by snapshot tests, and a
+//! wire change introduces a new protocol version rather than silently changing
+//! an existing one.
 //!
 //! The crate is validated by property tests stating the model's invariants
 //! (convergence under arbitrary gossip schedules, deletion honoring, observer
@@ -211,22 +218,24 @@
 // check to make sure it's not an issue
 #![deny(clippy::large_futures)]
 
-pub mod sync;
-
 mod batch;
 mod bookmark;
+pub mod error;
 mod message;
-mod mode;
 mod network;
 mod peer;
+mod protocol;
 mod rumors;
 mod snapshot;
+#[cfg(any(test, feature = "test-internals"))]
+#[doc(hidden)]
+pub mod testing;
 mod tree;
 
 #[cfg(test)]
 mod tests;
 
-pub use crate::peer::{PROTOCOL_MAGIC, PROTOCOL_VERSION};
+pub use crate::peer::PROTOCOL_MAGIC;
 pub use ::before;
 pub use ::borsh;
 pub use batch::Batch;
@@ -235,14 +244,12 @@ pub use bookmark::{
     BOOKMARK_FORMAT_VERSION, BOOKMARK_MAGIC, Bookmark, BookmarkError, BookmarkIo, FormatError,
     Serialized,
 };
-#[doc(hidden)]
-pub use mode::{Async, Blocking, Mode};
+pub use error::{Error, MirrorError};
 pub use network::Network;
+pub(crate) use peer::Inner;
 pub use peer::{Gossiped, Led, Peer, Retire, Unbookmarked};
-pub use rumors::{CausalMessages, Changes, Rumors, UnorderedMessages};
+pub use protocol::Protocol;
+pub use rumors::{CausalMessages, Changes, Rumors, TryNext, TryTick, UnorderedMessages};
 pub use snapshot::Snapshot;
 pub use tree::Key;
 pub use tree::MERKLE_HASH_LEN;
-pub use tree::mirror::alternating::remote::Error;
-
-pub(crate) use peer::Inner;

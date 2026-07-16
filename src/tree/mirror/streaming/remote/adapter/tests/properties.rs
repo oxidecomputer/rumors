@@ -7,12 +7,12 @@ use proptest::{collection::btree_set, prelude::*, test_runner::TestCaseResult};
 
 use crate::tree::{
     mirror::streaming::{
-        Backend, Leaf, Local, Node,
+        Backend, Leaf, Local,
         convert::Convert,
         message::{Reaction, Reply},
     },
     typed::{
-        self, Hash, Path, Prefix,
+        self, Hash, Prefix,
         height::{Height, S, Z},
     },
 };

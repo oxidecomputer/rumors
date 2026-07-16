@@ -68,7 +68,7 @@ use rumors::{Error, Key, MERKLE_HASH_LEN, Network, Peer, Retire, Rumors, Version
 use crate::common::fault::{self, FaultPlan};
 use crate::common::flaky::{DurableStore, FaultFeed, FlakyInMemoryBookmark, persisted_record};
 use crate::common::sim::arb_fault;
-use crate::common::wire::block_on;
+use crate::common::wire::tokio_block_on as block_on;
 
 /// The message payload: a simulation-unique id that is also the message's
 /// emission sequence number, so a single per-[`World`] counter mints both at

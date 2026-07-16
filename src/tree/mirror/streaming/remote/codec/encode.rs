@@ -1,5 +1,6 @@
 //! Canonical frame encoding.
 
+#[cfg(test)]
 use borsh::{BorshSerialize, io::Write};
 
 use crate::{
@@ -16,12 +17,19 @@ mod async_io;
 pub use async_io::FrameWrite;
 
 use super::{
-    error::{EncodeError, EncodeErrorKind, EncodeLeafError, FramePart},
-    frame::{Frame, QUERY_COUNT_BIAS, Reaction, WireFrame},
-    signal::{Signal, Speaker, Stream, WireSignal},
+    error::EncodeErrorKind,
+    frame::{Frame, QUERY_COUNT_BIAS, Reaction},
+    signal::{Signal, Stream, WireSignal},
+};
+#[cfg(test)]
+use super::{
+    error::{EncodeError, EncodeLeafError, FramePart},
+    frame::WireFrame,
+    signal::Speaker,
 };
 
 /// Append `wire`'s canonical representation to `out`.
+#[cfg(test)]
 pub fn encode<T, W: Write>(
     speaker: Speaker,
     wire: &WireFrame<T>,
@@ -100,6 +108,7 @@ impl<'a, T> FrameEncoding<'a, T> {
         Ok(Self { signal, body })
     }
 
+    #[cfg(test)]
     fn write(&self, out: &mut impl Write) -> Result<(), EncodeErrorKind> {
         write(out, FramePart::Signal, &self.signal)?;
         match &self.body {
@@ -129,6 +138,7 @@ impl<'a, T> FrameEncoding<'a, T> {
     }
 }
 
+#[cfg(test)]
 fn write(out: &mut impl Write, part: FramePart, bytes: &[u8]) -> Result<(), EncodeErrorKind> {
     out.write_all(bytes)
         .map_err(|source| EncodeErrorKind::Write { part, source })

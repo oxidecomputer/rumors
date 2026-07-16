@@ -5,9 +5,10 @@
 //! The companion to `gossip_snapshot.rs` for the *bootstrap* leg of the
 //! protocol. Each test stages a provider, drives one bootstrap through the
 //! recording duplex in [`common::gossip_snapshot::capture_session`], and pins
-//! the exact byte-by-byte conversation against an `insta` snapshot. Drift in
-//! the preamble, the whole-tree frame, or the trailing party hand-off shows up
-//! here as a diff; re-accept only after a deliberate protocol change.
+//! every wire byte. V2 traffic is grouped by logical stream while preserving
+//! its exact per-stream order; a representative V1 case pins its strictly
+//! alternating timeline. Drift in the preamble, reconciliation, or trailing
+//! party hand-off shows up as a diff.
 //!
 //! Party convention: **A is the provider** — the established peer serving its
 //! state through `gossip` — and **B is the bootstrapping newcomer**, running
@@ -23,9 +24,13 @@ mod common;
 use borsh::{BorshDeserialize, BorshSerialize};
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
+#[cfg(feature = "protocol-v1")]
+use rumors::Protocol;
 use rumors::{Peer, Rumors};
 
 use crate::common::gossip_snapshot::capture_session;
+#[cfg(feature = "protocol-v1")]
+use crate::common::gossip_snapshot::capture_session_v1;
 
 /// A provider seeded from a fixed RNG, so the [`rumors::Network`] id carried in
 /// the preamble — and the party region it forks off for the newcomer — are
@@ -76,6 +81,32 @@ fn populated_provider() {
     let provider: Rumors<u64> = seeded();
     provider.batch().send(1).send(2).send(3);
     insta::assert_snapshot!(capture_bootstrap(provider));
+}
+
+/// V1 bootstrap retains its original preamble, alternating descent, and
+/// trailing party hand-off through the public compatibility entry point.
+#[cfg(feature = "protocol-v1")]
+#[test]
+fn v1_populated_provider() {
+    let provider: Rumors<u64> = Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
+        .protocol(Protocol::V1)
+        .into_rumors();
+    provider.batch().send(1).send(2).send(3);
+    let capture = capture_session_v1(
+        move |mut r, mut w| async move {
+            provider
+                .gossip(&mut r, &mut w)
+                .await
+                .expect("V1 provider gossip");
+        },
+        move |mut r, mut w| async move {
+            Peer::<u64>::bootstrap_with_protocol(Protocol::V1, &mut r, &mut w)
+                .await
+                .expect("V1 bootstrap handshake")
+                .expect("V1 provider served the bootstrap");
+        },
+    );
+    insta::assert_snapshot!(capture);
 }
 
 /// Bootstrap of a non-primitive, variable-length payload. `u64` borsh-encodes

@@ -27,8 +27,10 @@ default:
 # ── inner loop ───────────────────────────────────────────────────────────────
 
 # Type-check every host target: libs, tests, benches, examples.
+# Default features only, so the inner loop skips the `protocol-v1` towers;
+# the gate's clippy/docs/test-all still build every feature.
 check:
-    cargo check --workspace --all-targets --all-features
+    cargo check --workspace --all-targets
 
 # Codegen-running recipes go through tools/memwatch: a runaway rustc (e.g. a
 # monomorphization bomb — see src/tree/traverse/act.rs) or a runaway test
@@ -37,7 +39,13 @@ check:
 # Override the limits per-invocation: `PROC_LIMIT_GB=16 just test`.
 
 # Run the test suites; pass a filter to narrow (`just test mirror`).
+# Default features only: the V1 wire tests (and the V1 towers in every test
+# binary) build only in `test-all`, which the gate runs.
 test *args:
+    {{ justfile_directory() }}/tools/memwatch cargo nextest run --workspace {{ args }}
+
+# The gate's test run: every feature, including the `protocol-v1` wire tests.
+test-all *args:
     {{ justfile_directory() }}/tools/memwatch cargo nextest run --workspace --all-features {{ args }}
 
 # Doctests — nextest does not run these, so they need their own invocation.
@@ -94,7 +102,7 @@ readme-check:
     ./tools/readme check
 
 # Run the pre-commit gate.
-gate: fmt-check doclint testdoc readme-check clippy docs docs-internal test doctest
+gate: fmt-check doclint testdoc readme-check clippy docs docs-internal test-all doctest
 
 # ── artifacts the gate doesn't reach ─────────────────────────────────────────
 # `borsh` is exercised constantly via rumors; `serde` and `oracle` are only
@@ -109,6 +117,7 @@ features:
     cargo check -p before --no-default-features --features oracle
     cargo check -p before --no-default-features --features serde,borsh
     cargo check -p rumors --no-default-features
+    cargo check -p rumors --features protocol-v1
 
 # The viz engine must keep compiling for its real target, not just the host.
 wasm-check:
@@ -206,7 +215,7 @@ rumormill *args:
 # the kernel-checked proofs and the eventdag oracle/schedule gate.
 
 # Build everything (no fuzz run): the no-rot sweep as CI runs it.
-ci: fmt-check doclint testdoc readme-check clippy features wasm-check docs docs-internal test doctest bench-build fuzz-build viz
+ci: fmt-check doclint testdoc readme-check clippy features wasm-check docs docs-internal test-all doctest bench-build fuzz-build viz
 
 # Everything: the no-rot sweep, plus the fuzz smoke and the formal tier.
 all: ci (fuzz fuzz_smoke_secs) lean eventdag

@@ -391,9 +391,7 @@ impl<T> Node<T> {
     /// This is the canonical encoder: the typed `BorshSerialize` impl is a
     /// thin delegate over it, and on the decode side the same shape is
     /// reconstructed via the chain-reader trick that synthesizes per-level
-    /// `prefix_len` bytes (see the module docs on
-    /// [`mirror::message`](crate::tree::mirror::alternating::message) for the
-    /// full wire-format spec).
+    /// `prefix_len` bytes.
     ///
     /// The encoded shape, in order, is:
     ///

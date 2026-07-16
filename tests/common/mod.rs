@@ -17,5 +17,4 @@ pub mod oracle;
 pub mod peer;
 pub mod schedule;
 pub mod sim;
-pub mod sync_wire;
 pub mod wire;
