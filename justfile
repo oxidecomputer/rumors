@@ -6,7 +6,8 @@
 #
 # `all` is the superset: it adds the artifacts the gate doesn't reach — the
 # `before` feature matrix, the wasm target, the viz TypeScript bundle, the
-# nightly fuzz targets, and the bench/example builds.
+# nightly fuzz targets, the bench/example builds, and the formal tier
+# (the Lean proofs and the eventdag oracle).
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
@@ -161,6 +162,25 @@ fuzz secs=fuzz_smoke_secs:
     cargo +{{ nightly_toolchain }} fuzz run fuzz_decode -- -max_total_time={{ secs }}
     cargo +{{ nightly_toolchain }} fuzz run fuzz_decode_ops -- -max_total_time={{ secs }}
 
+# ── the formal tier (formal/lean; needs elan) ────────────────────────────────
+# The proofs are kernel-checked by `lake build` (pins, negative controls,
+# invariant preservation); `eventdag` is the progress-lemma oracle and
+# schedule-candidate gate (formal/PROGRESS.md §3/§5): DAG acyclicity, totals
+# cross-checks, greedy/candidate linearization, replay of the candidate as a
+# real model run, a random-skeleton fuzz sweep, and self-testing negative
+# controls. Both are local-only: the CI runner has no Lean toolchain.
+
+# Kernel-check the Lean theorem artifact (all proofs, pins, controls).
+[working-directory("formal/lean")]
+lean:
+    PATH="$HOME/.elan/bin:$PATH" lake build
+
+# Run the event-DAG oracle + schedule gate; override seeds: `just eventdag 300`.
+[working-directory("formal/lean")]
+eventdag fuzz_seeds="100":
+    PATH="$HOME/.elan/bin:$PATH" lake build eventdag
+    PATH="$HOME/.elan/bin:$PATH" lake exe eventdag eventdag-out {{ fuzz_seeds }}
+
 # ── conveniences ─────────────────────────────────────────────────────────────
 
 # Run benches, e.g. `just bench -p before party` or `just bench gossip_grid`.
@@ -181,12 +201,12 @@ rumormill *args:
 # test+doctest run, bench builds, the fuzz build, and finally the
 # network-touching viz bundle. GitHub CI runs exactly this.
 #
-# `all` is `ci` plus the one thing CI omits: actually *running* a short fuzz
-# smoke. libFuzzer minutes are a poor per-commit spend, so the run stays a local
-# affordance while CI keeps the targets from rotting by building them.
+# `all` is `ci` plus what CI cannot run: a short libFuzzer smoke (poor
+# per-commit spend) and the formal tier (the runner has no Lean toolchain) —
+# the kernel-checked proofs and the eventdag oracle/schedule gate.
 
 # Build everything (no fuzz run): the no-rot sweep as CI runs it.
 ci: fmt-check doclint testdoc readme-check clippy features wasm-check docs docs-internal test doctest bench-build fuzz-build viz
 
-# Everything: the no-rot sweep, plus a short fuzz smoke on top of `ci`.
-all: ci (fuzz fuzz_smoke_secs)
+# Everything: the no-rot sweep, plus the fuzz smoke and the formal tier.
+all: ci (fuzz fuzz_smoke_secs) lean eventdag

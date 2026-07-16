@@ -290,6 +290,24 @@ phase 2 ⟹ k+1/k+1; phase ≥3 ⟹ stage totals), canonical prefix ledgers,
 committed-arm coherence for all four obligations, `asm(R,1)` never in
 phase 1 at height-1 scopes without kids.
 
+**How the merge τ (§5) discharges these [derived].** Define
+`μ(P) = τ(P's earliest UNPERFORMED trace event)` — trace position, not
+execution order, so a walk committed to a later-in-trace obligation
+still gets its μ from the earliest event it owes (the §1 "next event"
+should be read this way). Then every starve-mode blame is the same
+three-step: (1) `Inv`'s counts show the awaited `snd(c,n)` is
+unperformed by its owner `Q` (the §2 counting layer refutes "Q is
+done"); (2) unperformed ⟹ `μ(Q) ≤ τ(snd(c,n))` by trace monotonicity —
+by construction of the merge, no per-shape positional arithmetic;
+(3) `τ(snd(c,n)) < τ(rcv(c,n)) ≤ μ(P₀)` by the E1 edge. Jam modes are
+the mirror image through the E2 edge. What remains per-shape is only
+step (1), which is exactly the `Inv` bookkeeping the table's
+done-refutation column already names. This also dissolves the old
+worry that a blocked launcher committed to `.parent` while owing a
+query needs a parent-vs-query τ fact the DAG cannot supply: with μ
+over unperformed trace events, whichever of the two is trace-earlier
+bounds μ(Q), and both are bounded by the awaited send.
+
 ## 7. Remaining work, in order
 
 1. ~~Executable candidate schedule + eventdag validation~~ — done

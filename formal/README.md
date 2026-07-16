@@ -338,17 +338,32 @@ positional timestamps, explicitly NOT a protocol finding: crossed-kid
 skeletons stay count-consistent and complete); and the `eventdag`
 control (`lake exe eventdag`), which checked the forced-order event DAG
 acyclic on the full pinned matrix + jam with totals cross-validated
-against `sentOf`/`recvdOf`. The central design fact, with its refuted
-alternatives, lives in PROGRESS.md §4: the progress potential is
-tree-recursive (a canonical schedule construction), not a closed-form
-lex formula — back-pressure injects consumer-timeline positions into
-producer sends, so per-scope role tables cannot express it.
+against `sentOf`/`recvdOf`. The refuted design alternatives live in
+PROGRESS.md §4: not a closed-form lex formula, and not static
+DFS positions either — stalls relocate walk-side events, so τ is
+merge-emergent.
 
-Next: the canonical schedule construction (PROGRESS.md §5 workflow:
-validate against eventdag, then prove), the blame lemmas (§6), the
-argmin assembly → `deadlock_free`; then ITF-witness negative controls
-(incl. the level-parameterized DropW existential) and termination —
-whose witness the schedule construction supplies for free.
+**The §5 schedule candidate has landed at the executable tier**
+(`EventDag.schedCandidate`): the deterministic priority merge of the
+per-process event traces, validated four ways in the tool's gate —
+edge-check + permutation on the pins, greedy-trace coherence, replay
+of the schedule as a real model run to `terminal` (each schedule is an
+explicit termination witness), and a 300-seed random-skeleton sweep
+with self-testing negative controls. The sweep also confirmed, both
+directions with zero mismatches, the session's central finding:
+**`wellFormed` alone does not imply schedulability** — the event DAG
+is acyclic iff every scope has `dCount ≤ capLevel + 2`
+(`EventDag.schedulable`; `pyramidC1` violates it, `jam` sits exactly
+on the boundary; Rust's `capLevel = FAN` has margin 2), so the
+progress theorem must carry a capLevel hypothesis.
+
+Next: decide the hypothesis form (tight vs Rust-faithful), transcribe
+the merge into `Proofs/Sched.lean` (edge-respect and trace
+monotonicity are by construction; merge completeness is the real
+content), the blame lemmas (§6), the argmin assembly →
+`deadlock_free`; then ITF-witness negative controls (incl. the
+level-parameterized DropW existential) and termination — whose witness
+the schedule construction already supplies executably.
 
 ## Phase map
 

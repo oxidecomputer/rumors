@@ -27,6 +27,12 @@ workflow requires a candidate to pass this tool's edge check on every
 pinned skeleton BEFORE proof effort is spent on it. The depth tables
 already refuted the closed-form lex-timestamp design (PROGRESS.md §4):
 depths jump at subtree boundaries, so the potential is tree-recursive.
+The §5 candidate itself lives here too (`schedCandidate`, the
+deterministic priority merge), gated by `validateSchedule`,
+`replaySchedule` (the schedule re-run as real model actions to
+`terminal`), the random-skeleton sweep (`runFuzz`, which also pins the
+`schedulable` ⟺ acyclic conjecture), and the self-testing negative
+controls at the end of `runAll`.
 -/
 import StreamingMirror
 import Std.Data.HashMap
@@ -61,7 +67,9 @@ def chanStr : Chan → String
   | .rootrets => "rootrets"
   | .rootres => "rootres"
 
-/-- Injective Nat key for a channel (heights < 1000 assumed). -/
+/-- Injective Nat key for a channel (heights < 1000 assumed; a
+violation aliases two channels and fails loud as a duplicate-node /
+duplicate-event error in both the analyzer and the validator). -/
 def chanKey : Chan → Nat
   | .wire p h => 10000 + 1000 * pn p + h
   | .asked p h => 20000 + 1000 * pn p + h
