@@ -216,12 +216,15 @@ def pendAt (p : Party) (j i : Nat) : Nat := (sk.asmResList p j).getD i 0
 /-- Fan/back-pressure compatibility: no scope disputes more than
 `capLevel + 2` children. This is the progress lemma's hypothesis beyond
 `wellFormed`, which does NOT imply it — `Pin.pyramid 1` is well-formed
-yet no schedule whatsoever completes it (`pyramid1_not_schedulable`,
-Statement.lean). Not a Quint transcription: it is the schedulability
-boundary found by the event-DAG analysis (formal/PROGRESS.md §5),
-conjectured equivalent to acyclicity of the session's event DAG and
-checked in both directions by `lake exe eventdag` (pins, boundary
-probes, the random sweep). The bound is exact on both sides:
+yet fails the bound (`pyramid1_not_schedulable`, Statement.lean), and
+its greedy run under the full mode is kernel-checked stuck
+(`Control.pyramid1_not_deadlockFree`). The stronger claim that NO
+schedule completes a bound-violating session is the event-DAG
+analysis's checked, not kernel-proven, equivalence: this predicate is
+conjectured equivalent to acyclicity of the session's event DAG,
+checked in both directions by `lake exe eventdag` (pins, the
+capLevel-parametric boundary matrix in its self-test, the random
+sweep — formal/PROGRESS.md §5). The bound is exact on both sides:
 `Control.jam` sits ON it (a 3-D-kid parent at `capLevel = 1`) and
 completes; `pyramid 1` (4 D kids, `capLevel = 1`) is minimally past it
 and jams. `leafReqs` needs no bound. The Rust implementation has

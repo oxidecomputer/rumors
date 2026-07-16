@@ -11,11 +11,13 @@ reader must read, in full:
   claim covers;
 - `Skel.schedulable` (Skel.lean, 2 lines) — the fan/back-pressure bound
   the progress lemma additionally assumes (`dCount ≤ capLevel + 2` per
-  scope). It is not implied by `wellFormed`: `pyramid1_not_schedulable`
-  below exhibits a well-formed skeleton past the bound, and the event-DAG
-  analysis (formal/PROGRESS.md §5) shows no schedule completes it — the
-  hypothesis excludes only sessions that cannot finish under ANY
-  interleaving, so it does not weaken the claim on the sessions that can;
+  scope). It is not implied by `wellFormed`, and dropping it makes the
+  target false: `pyramid1_not_schedulable` below exhibits a well-formed
+  skeleton past the bound, and `Control.pyramid1_not_deadlockFree`
+  kernel-checks that its greedy run under `.full` jams. That the
+  hypothesis excludes ONLY sessions no interleaving whatsoever can
+  finish is the event-DAG analysis's checked (not kernel-proven)
+  equivalence — formal/PROGRESS.md §5;
 - `AxMode` and `AxMode.full` (Skel.lean, 10 lines) — which send-order
   axioms are assumed; the mapping to the Rust `Trace::assert_valid`
   ledgers is the table in formal/README.md;
@@ -61,14 +63,15 @@ open Model
 reachable state of the session is stuck — every interleaving either can
 still move or has completed. The target theorem is
 `sk.wellFormed → sk.schedulable → DeadlockFree sk AxMode.full` (the
-six-ledger interface), pending the progress lemma; both hypotheses are
-load-bearing, and that is a THEOREM in each case, not a promise:
-`Control.jam_not_deadlockFree` refutes this very statement for the
-pre-finding-#6 interface (`Control.fullNoD4` — everything but wire
-contiguity) by a kernel-checked stuck run on a well-formed skeleton,
-and `pyramid1_not_schedulable` below marks the skeleton on which
-dropping `schedulable` would make the statement false (no schedule
-completes it — see formal/PROGRESS.md §3, the cap-1 cycle). -/
+six-ledger interface), pending the progress lemma. The mode index and
+the `schedulable` hypothesis are each load-bearing, and each is a
+THEOREM, not a promise: `Control.jam_not_deadlockFree` refutes this
+very statement for the pre-finding-#6 interface (`Control.fullNoD4` —
+everything but wire contiguity) by a kernel-checked stuck run on a
+well-formed skeleton, and `Control.pyramid1_not_deadlockFree` refutes
+it under `.full` for `Pin.pyramid 1` — well-formed, one D child past
+the `schedulable` bound (`pyramid1_not_schedulable` below), greedy run
+kernel-checked stuck. -/
 def DeadlockFree (sk : Skel) (ax : AxMode) : Prop :=
   ∀ s : State, Reachable sk ax s → stuck sk ax s = false
 

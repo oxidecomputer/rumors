@@ -126,8 +126,10 @@ theorem jam_wellFormed : jam.wellFormed = true := by decide
 /-- `jam` sits exactly ON the schedulability boundary — scope A disputes
 `capLevel + 2` children, the most `Skel.schedulable` admits — and
 `jam_completes_full` below shows it completes there. Together with
-`pyramid1_not_schedulable` (one D kid more, and no schedule completes),
-this pins the bound as exact from both sides. -/
+`pyramid1_not_deadlockFree` below (one D kid more, and the greedy run
+jams; the event-DAG analysis upgrades that to no-schedule-completes,
+checked not kernel-proven), this pins the bound as exact from both
+sides. -/
 theorem jam_on_boundary :
     jam.schedulable = true ∧ jam.dCount 1 = jam.capLevel + 2 := by decide
 
@@ -171,5 +173,64 @@ set_option maxRecDepth 8000 in
 strengthened mode — `d4` removes schedules, not sessions. -/
 theorem jam_completes_full :
     terminal jam (drain jam .full 300 (init jam)) = true := by decide
+
+/-- `firstM` over `Option` succeeds only through one of its elements. -/
+private theorem firstM_eq_some {α β : Type _} {f : α → Option β} {b : β} :
+    ∀ {l : List α}, l.firstM f = some b → ∃ a ∈ l, f a = some b := by
+  intro l
+  induction l with
+  | nil => intro h; simp [List.firstM] at h
+  | cons x xs ih =>
+      intro h
+      cases hfx : f x with
+      | some b' =>
+          simp [List.firstM, hfx] at h
+          exact ⟨x, List.mem_cons_self .., by rw [hfx, h]⟩
+      | none =>
+          simp [List.firstM, hfx] at h
+          obtain ⟨a, ha, hfa⟩ := ih h
+          exact ⟨a, List.mem_cons_of_mem x ha, hfa⟩
+
+/-- The greedy drain preserves reachability: every step it takes is the
+application of some enabled action. -/
+theorem drain_reachable (sk : Skel) (ax : AxMode) (fuel : Nat) :
+    ∀ {s : State}, Reachable sk ax s →
+      Reachable sk ax (drain sk ax fuel s) := by
+  induction fuel with
+  | zero => intro s h; exact h
+  | succ n ih =>
+      intro s h
+      unfold drain
+      cases hf : (allActions sk).firstM (fun a => apply sk ax a s) with
+      | none => exact h
+      | some s' =>
+          obtain ⟨a, -, ha⟩ := firstM_eq_some hf
+          exact ih (.step a h ha)
+
+set_option maxRecDepth 16000 in
+/-- The greedy run on `pyramid 1` jams under the FULL axiom mode: one D
+child past the `Skel.schedulable` bound, the drained state is stuck.
+Kernel-`decide`d, like `jam_completes_full` — no schedule witness is
+needed because pyramid 1 jams greedily. -/
+theorem pyramid1_stuck :
+    stuck (Pin.pyramid 1) .full
+      (drain (Pin.pyramid 1) .full 600 (init (Pin.pyramid 1))) = true := by
+  decide
+
+/-- The `schedulable` hypothesis of the Phase C target is load-bearing,
+as a THEOREM: `pyramid 1` is well-formed (`pyramid1_not_schedulable`
+pins the wellFormed half in Statement.lean) yet not deadlock-free under
+the full mode — dropping the hypothesis makes the target statement
+false. The stronger claim that NO schedule completes pyramid 1 (not
+just the greedy one) is the event-DAG cyclicity analysis, checked by
+`lake exe eventdag`, not kernel-proven. -/
+theorem pyramid1_not_deadlockFree :
+    ¬ DeadlockFree (Pin.pyramid 1) AxMode.full := by
+  intro h
+  have hs := pyramid1_stuck
+  have hr := drain_reachable (Pin.pyramid 1) .full 600
+    (Reachable.init (sk := Pin.pyramid 1) (ax := AxMode.full))
+  rw [h _ hr] at hs
+  exact Bool.false_ne_true hs
 
 end StreamingMirror.Control

@@ -40,6 +40,7 @@ want and the gate certifies as behavior-preserving:
   events unemitted. Open; see PROGRESS.md §7.
 -/
 import StreamingMirror.Model
+import StreamingMirror.Instances
 
 namespace StreamingMirror.Sched
 
@@ -280,6 +281,15 @@ private theorem take_len_append {α : Type _} (l₁ l₂ : List α) :
     (l₁ ++ l₂).take l₁.length = l₁ := by
   rw [take_append_le _ _ _ (Nat.le_refl _), List.take_length]
 
+/-- Taking one past the left part of an append captures its head. -/
+private theorem take_append_succ {α : Type _} :
+    ∀ (l₁ : List α) (a : α) (l₂ : List α),
+      (l₁ ++ a :: l₂).take (l₁.length + 1) = l₁ ++ [a]
+  | [], _, _ => by simp
+  | x :: l₁, a, l₂ => by
+      simp only [List.cons_append, List.length_cons, List.take_succ_cons,
+        take_append_succ l₁ a l₂]
+
 /-- Sends on `c` in a prefix — the count the E1 guard consults. -/
 def sndCount (c : Chan) (l : List Ev) : Nat :=
   (l.filter fun e => decide (e.1 = c) && e.2.1).length
@@ -314,6 +324,21 @@ theorem rcvCount_append_rcv (c c' : Chan) (l : List Ev) (n : Nat) :
   · have h' : ¬(c = c') := fun hh => h hh.symm
     simp [rcvCount, List.filter_append, h, h']
 
+/-- Filter-length of the traces' emitted prefixes: for each
+`(trace, remainder)` pair, the prefix is `t.take (t.length - r.length)`
+(under `rem_struct`'s decomposition that IS the emitted prefix), and
+the counts sum across pairs. -/
+def emittedCount (p : Ev → Bool) : List (List Ev) → List (List Ev) → Nat
+  | t :: ts, r :: rs =>
+      ((t.take (t.length - r.length)).filter p).length + emittedCount p ts rs
+  | _, _ => 0
+
+/-- Nothing is emitted while every remainder is its whole trace. -/
+private theorem emittedCount_refl (p : Ev → Bool) :
+    ∀ l : List (List Ev), emittedCount p l l = 0
+  | [] => rfl
+  | _ :: ts => by simp [emittedCount, emittedCount_refl p ts]
+
 /-- The merge invariant, relative to the original trace list.
 
 `rem_struct` is trace monotonicity in structural form: each trace is
@@ -322,7 +347,12 @@ remaining suffix — no event-distinctness assumption anywhere.
 `e1_hist`/`e2_hist` are edge-respect in positional form: at the index
 where a receive (send) sits, its guard's count inequality held over
 the strict prefix — exactly the τ-indexed facts the §6 blame lemmas
-consume. -/
+consume. `out_count` is provenance: under every predicate, `out` has
+exactly as many events as the traces' emitted prefixes — without it,
+an `out` padded with duplicated sends satisfies every other field
+(`rem_struct` bounds `out` from below only), and the canonical
+per-channel numbering layer could not key the schedule's n-th send on
+a channel to its producing trace's n-th. -/
 structure MInv (procs₀ : List (List Ev)) (st : MState) : Prop where
   rem_struct : Forall2
     (fun t r => ∃ pre, t = pre ++ r ∧ pre.Sublist st.out) procs₀ st.rem
@@ -332,20 +362,25 @@ structure MInv (procs₀ : List (List Ev)) (st : MState) : Prop where
     n < sndCount c (st.out.take k)
   e2_hist : ∀ k c n, st.out[k]? = some (c, true, n) →
     n < rcvCount c (st.out.take k) + sk.cap c
+  out_count : ∀ p : Ev → Bool,
+    (st.out.filter p).length = emittedCount p procs₀ st.rem
 
 /-- The initial merge state satisfies the invariant. -/
 theorem minv_init (procs₀ : List (List Ev)) :
     MInv sk procs₀ ⟨[], fun _ => 0, fun _ => 0, procs₀⟩ := by
-  refine ⟨?_, ?_, ?_, ?_, ?_⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩
   · exact Forall2.self fun t _ => ⟨[], rfl, List.nil_sublist _⟩
   · intro c; rfl
   · intro c; rfl
   · intro k c n h; simp at h
   · intro k c n h; simp at h
+  · intro p; simp [emittedCount_refl]
 
 /-- What one successful `scan` does to the suffix structure: the
 emitted event is some trace's enabled head, that trace advances by
-one, and every emitted prefix stays a sublist of the grown output. -/
+one, every emitted prefix stays a sublist of the grown output, and the
+emitted-prefix counts grow by exactly the one event, under every
+predicate. -/
 theorem scan_step (out : List Ev) (sent rcvd : Chan → Nat)
     {procs₀ ts ts' : List (List Ev)} {e : Ev}
     (hrs : Forall2
@@ -354,12 +389,14 @@ theorem scan_step (out : List Ev) (sent rcvd : Chan → Nat)
     enabled sk sent rcvd e = true ∧
     Forall2
       (fun t r => ∃ pre, t = pre ++ r ∧ pre.Sublist (out ++ [e]))
-      procs₀ ts' := by
+      procs₀ ts' ∧
+    ∀ p : Ev → Bool, emittedCount p procs₀ ts'
+      = (if p e then 1 else 0) + emittedCount p procs₀ ts := by
   induction ts generalizing procs₀ ts' with
   | nil => cases hrs; simp [scan] at hscan
   | cons t₀ ts₁ ih =>
       cases hrs with
-      | cons hpair htail =>
+      | @cons tr₀ ps₁ _ _ hpair htail =>
         obtain ⟨pre, hpre, hsub⟩ := hpair
         match t₀ with
         | [] =>
@@ -370,18 +407,35 @@ theorem scan_step (out : List Ev) (sent rcvd : Chan → Nat)
                 rw [scan, hrec] at hscan
                 simp only [Option.map] at hscan
                 cases hscan
-                obtain ⟨hen, hrest⟩ := ih htail hrec
-                exact ⟨hen, .cons
+                obtain ⟨hen, hrest, hcnt⟩ := ih htail hrec
+                refine ⟨hen, .cons
                   ⟨pre, hpre, hsub.trans (List.sublist_append_left ..)⟩
-                  hrest⟩
+                  hrest, ?_⟩
+                intro p
+                have hc := hcnt p
+                simp only [emittedCount]
+                omega
         | ev :: rest =>
             by_cases hen : enabled sk sent rcvd ev = true
             · rw [scan, if_pos hen] at hscan
               cases hscan
-              refine ⟨hen, .cons ⟨pre ++ [e], by simp [hpre], ?_⟩ ?_⟩
+              subst hpre
+              refine ⟨hen, .cons ⟨pre ++ [e], by simp, ?_⟩ ?_, ?_⟩
               · exact hsub.append (List.Sublist.refl [e])
               · exact htail.imp fun t r ⟨pre', h', hs'⟩ =>
                   ⟨pre', h', hs'.trans (List.sublist_append_left ..)⟩
+              · intro p
+                simp only [emittedCount]
+                have hL1 : (pre ++ e :: rest).length - rest.length
+                    = pre.length + 1 := by
+                  simp only [List.length_append, List.length_cons]; omega
+                have hL2 : (pre ++ e :: rest).length - (e :: rest).length
+                    = pre.length := by
+                  simp only [List.length_append, List.length_cons]; omega
+                rw [hL1, hL2, take_append_succ,
+                  take_append_le _ _ _ (Nat.le_refl _), List.take_length,
+                  List.filter_append, List.length_append]
+                cases hpe : p e <;> simp [hpe] <;> omega
             · cases hrec : scan sk sent rcvd ts₁ with
               | none =>
                   rw [scan, if_neg hen, hrec] at hscan; simp at hscan
@@ -390,10 +444,14 @@ theorem scan_step (out : List Ev) (sent rcvd : Chan → Nat)
                   rw [scan, if_neg hen, hrec] at hscan
                   simp only [Option.map] at hscan
                   cases hscan
-                  obtain ⟨hen', hrest⟩ := ih htail hrec
-                  exact ⟨hen', .cons
+                  obtain ⟨hen', hrest, hcnt⟩ := ih htail hrec
+                  refine ⟨hen', .cons
                     ⟨pre, hpre, hsub.trans (List.sublist_append_left ..)⟩
-                    hrest⟩
+                    hrest, ?_⟩
+                  intro p
+                  have hc := hcnt p
+                  simp only [emittedCount]
+                  omega
 
 /-- One merge step preserves the invariant. -/
 theorem step_preserves {procs₀ : List (List Ev)} {st st' : MState}
@@ -406,13 +464,13 @@ theorem step_preserves {procs₀ : List (List Ev)} {st st' : MState}
     obtain ⟨e, rem'⟩ := pr
     rw [hscan] at hstep
     simp only [Option.map] at hstep
-    obtain ⟨hen, hrs'⟩ := scan_step sk st.out st.sent st.rcvd
+    obtain ⟨hen, hrs', hcnt⟩ := scan_step sk st.out st.sent st.rcvd
       hinv.rem_struct hscan
     obtain ⟨c, sd, n⟩ := e
     cases sd with
     | true =>
         cases hstep
-        refine ⟨hrs', ?_, ?_, ?_, ?_⟩
+        refine ⟨hrs', ?_, ?_, ?_, ?_, ?_⟩
         · intro c'
           rw [sndCount_append_snd]
           by_cases h : c' = c <;> simp [h, hinv.sent_eq]
@@ -444,13 +502,17 @@ theorem step_preserves {procs₀ : List (List Ev)} {st st' : MState}
                 have hkl : k = st.out.length := by omega
                 subst hkl
                 rw [take_len_append]
-                have hcnt := hinv.rcvd_eq c
+                have hrc := hinv.rcvd_eq c
                 simp only [enabled, decide_eq_true_eq] at hen
                 omega
             | succ m => rw [hm] at hk; simp at hk
+        · intro p
+          have hc := hcnt p
+          rw [List.filter_append, List.length_append, hinv.out_count p, hc]
+          cases hpe : p (c, true, n) <;> simp [hpe] <;> omega
     | false =>
         cases hstep
-        refine ⟨hrs', ?_, ?_, ?_, ?_⟩
+        refine ⟨hrs', ?_, ?_, ?_, ?_, ?_⟩
         · intro c'
           rw [sndCount_append_rcv]
           exact hinv.sent_eq c'
@@ -473,7 +535,7 @@ theorem step_preserves {procs₀ : List (List Ev)} {st st' : MState}
                 have hkl : k = st.out.length := by omega
                 subst hkl
                 rw [take_len_append]
-                have hcnt := hinv.sent_eq c
+                have hsc := hinv.sent_eq c
                 simp only [enabled, decide_eq_true_eq] at hen
                 omega
             | succ m => rw [hm] at hk; simp at hk
@@ -486,6 +548,10 @@ theorem step_preserves {procs₀ : List (List Ev)} {st st' : MState}
             cases hm : k - st.out.length with
             | zero => rw [hm] at hk; simp at hk
             | succ m => rw [hm] at hk; simp at hk
+        · intro p
+          have hc := hcnt p
+          rw [List.filter_append, List.length_append, hinv.out_count p, hc]
+          cases hpe : p (c, false, n) <;> simp [hpe] <;> omega
 
 /-- The invariant survives any amount of fuel. -/
 theorem mergeN_preserves {procs₀ : List (List Ev)} (fuel : Nat)
@@ -532,5 +598,34 @@ theorem schedule_e2 (k : Nat) (c : Chan) (n : Nat)
     (h : (schedule sk)[k]? = some (c, true, n)) :
     n < rcvCount c ((schedule sk).take k) + sk.cap c :=
   (schedule_inv sk).e2_hist k c n h
+
+/-- Provenance: under every predicate, the schedule counts exactly what
+the traces' emitted prefixes count — the output cannot hold an event no
+trace emitted, nor an extra copy of one. This is what lets the
+canonical-numbering layer key the schedule's n-th send on a channel to
+the producing trace's n-th (`rem_struct` alone bounds the output from
+below only). -/
+theorem schedule_count (p : Ev → Bool) :
+    ((schedule sk).filter p).length
+      = emittedCount p (procs sk) (finalState sk).rem :=
+  (schedule_inv sk).out_count p
+
+-- ===================================== kernel-tier non-vacuity anchor
+-- Every theorem above is generic over the merge input and would hold
+-- vacuously if the merge never stepped: `schedule = []` satisfies all
+-- of them (`[][k]? = none`; monotone prefixes may be empty). The
+-- executable gate pins non-vacuity continuously against the oracle;
+-- the anchor below pins it in the KERNEL, so `lake build` alone
+-- certifies the merge actually runs — and it is simultaneously the
+-- first kernel-checked instance of merge completeness (PROGRESS.md
+-- §7's open obligation), on the smallest pin.
+
+set_option maxRecDepth 16000 in
+/-- The merge drains every smokeChain trace: the final remainders are
+all empty, so the schedule holds the pin's whole event set and the
+theorems above range over a real, completed merge. -/
+theorem smokeChain_merge_complete :
+    ((finalState Pin.smokeChain).rem.all List.isEmpty) = true := by
+  decide
 
 end StreamingMirror.Sched

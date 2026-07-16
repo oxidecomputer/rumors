@@ -210,6 +210,24 @@ open) predecessors emitted. Two properties hold by construction:
   the bulk of what the §6 blame lemmas consume (the blamed process's
   unperformed successor bounds its μ).
 
+Both by-construction properties are now kernel-checked theorems
+(`Proofs/Sched.lean`, 2026-07-16, transcription pinned to the tool by
+the exact-equality gate): monotonicity structurally, against the final
+state's actual remainder; edge-respect in counted guard-history form
+(seq < prefix count at every emission index). Both are generic over
+the trace list — no distinctness or numbering assumptions — so the
+per-channel canonical-numbering layer and completeness are the only
+Sched obligations left (§7 item 3). [proven] Two review-driven
+hardenings of the same date: `MInv.out_count` (provenance — under
+every predicate the output counts exactly the traces' emitted
+prefixes; without it a duplicated-send output satisfies every other
+field, and the numbering layer could not key the schedule's n-th send
+to its producer's n-th), and `smokeChain_merge_complete` — a
+kernel-`decide`d anchor that the merge drains every smokeChain trace,
+which both blocks whole-file vacuity (a never-stepping merge satisfies
+every generic theorem) and is the first kernel-checked INSTANCE of
+merge completeness. [proven]
+
 One linearization choice is load-bearing: the walk trace pins the
 floating parent send **immediately after the scope's final resolution**
 (after rcvA when no D kids), NOT at the scope's end. Parent-last
@@ -243,10 +261,16 @@ return of D kid `q−1−capLevel`; that receive sits (asm E3) behind
 same parent, i.e. when some scope has `dCount ≥ capLevel + 3`.
 Conjecture: the event DAG is acyclic **iff `∀ s, dCount(s) ≤
 capLevel + 2`** (now `Skel.schedulable`) [checked: both directions
-hold on all pins, on targeted probes at the boundary (interior and
-leaf shapes, mixed kinds), and on all 300 seeds of the random sweep —
-zero mismatches; `leafReqs` is confirmed unconstrained — a single
-height-1 D scope with `leafReqs ≫ capLevel` stays acyclic]. `jam`
+hold on all pins, on the capLevel-parametric boundary matrix in
+`runAll`'s self-test (`boundaryProbe`, both sides at capLevel
+1/2/3/4/6 — deterministic coverage the fuzz envelope cannot always
+reach; an adversarial review caught the original sweep's fan cap
+sitting BELOW `capLevel + 3` for capLevel ≥ 3, leaving the
+theorem-critical direction unexercised on the boundary — the fan cap
+is now 7 and the matrix pins it outright), and on all 300 seeds of the
+random sweep — zero mismatches; `leafReqs` is confirmed
+unconstrained — a single height-1 D scope with `leafReqs ≫ capLevel`
+stays acyclic]. `jam`
 (`capLevel = 1`, a 3-D-kid parent) sits exactly ON the boundary and
 passes; `pyramid 1` (4 D kids, capLevel 1) violates it and jams. The
 Rust implementation has `capLevel = FAN ≥ kids ≥ dCount` — margin 2 —
@@ -257,9 +281,13 @@ progress statement MUST carry the hypothesis; `wellFormed`'s
 **Hypothesis form: DECIDED (2026-07-16) — the tight bound, promoted to
 `Skel.schedulable` on the statement layer's audit surface.** [proven —
 the definition plus kernel-`decide`d anchors: `pyramid1_not_schedulable`
-and `positives_schedulable` (Statement.lean), `jam_on_boundary`
-(Controls.lean); the ⟺-acyclicity claim itself remains checked, not
-proven.] Tight over Rust-faithful (`dCount ≤ capLevel`) because: (a) it
+and `positives_schedulable` (Statement.lean), `jam_on_boundary` and
+`pyramid1_not_deadlockFree` (Controls.lean — the latter, a greedy
+stuck run under `.full` via `drain_reachable`, makes the hypothesis's
+load-bearing-ness itself a theorem, not just its non-redundancy; the
+⟺-acyclicity claim and the universal "no schedule completes a
+violating session" remain checked, not proven.] Tight over
+Rust-faithful (`dCount ≤ capLevel`) because: (a) it
 is the exact executable boundary, so the predicate coincides with "some
 schedule exists" rather than with one proof strategy's slack; (b) `jam`
 sits ON the boundary and is a pinned positive — the Rust-faithful form
@@ -335,15 +363,36 @@ bounds μ(Q), and both are bounded by the awaited send.
    statement layer~~ — done: the tight form as `Skel.schedulable`
    (§5, decision paragraph), with kernel-checked anchors pinning
    non-redundancy (`pyramid1_not_schedulable`), positive-matrix
-   coverage (`positives_schedulable`), and boundary exactness
-   (`jam_on_boundary`). The Phase C target statement is now
+   coverage (`positives_schedulable`), boundary exactness
+   (`jam_on_boundary`), and — post-review — load-bearing-ness itself
+   (`pyramid1_not_deadlockFree`: the greedy run under `.full` is
+   kernel-checked stuck one D kid past the bound). The Phase C target
+   statement is now
    `sk.wellFormed → sk.schedulable → DeadlockFree sk .full`
    (Statement.lean's `DeadlockFree` docstring).
-3. `Proofs/Sched.lean`: transcribe the merge (traces as skeleton folds;
-   merge as a fuel-indexed fixpoint) + edge-respect and trace-
-   monotonicity (both by construction) + merge COMPLETENESS — the real
-   content, where the capLevel hypothesis enters; the reserve shape is
-   the Phase B stage-compositional induction.
+3. `Proofs/Sched.lean`: ~~transcribe the merge + the by-construction
+   lemmas~~ — done. Traces as prefix-sum folds (`wiresBefore` &c.
+   replace the running counters, connecting the traces to the counting
+   layer), merge as a fuel-indexed fixpoint over remaining-suffix
+   lists, pinned event-for-event to the tool's `schedCandidate` by the
+   eventdag gate (all pins + 300 seeds, exact equality). Kernel-checked
+   and generic over ANY trace list: `trace_monotone` (structural form,
+   pinned to `finalState.rem` — an existentially-quantified suffix is
+   trivially satisfiable at `pre = []`; see the docstring),
+   `schedule_e1`/`schedule_e2` (counted guard-history form, τ-indexed),
+   plus the review-driven `MInv.out_count` (provenance: the output
+   counts exactly the emitted trace prefixes under every predicate —
+   added while the merge induction was open precisely so the numbering
+   layer never has to reopen it) and the `smokeChain_merge_complete`
+   kernel anchor (non-vacuity + the first completeness instance).
+   Still open in Sched, in order: (a) the canonical per-channel
+   numbering layer — each channel's sends appear in the traces with
+   consecutive seqs from 0 and belong to one producer; with
+   `out_count` + `Sublist.filter` this upgrades counted E1 to
+   "`snd(c,n)` precedes `rcv(c,n)`" and gives τ its injectivity;
+   (b) merge COMPLETENESS (`finalState.rem` all empty) — the real
+   content, where `Skel.schedulable` enters; the reserve shape is the
+   Phase B stage-compositional induction.
 4. Opener/asm enabledness mirrors of the pillar (small).
 5. The blame lemmas (§6 table), consuming §2 + Sched (trace
    monotonicity replaces most positional arithmetic).

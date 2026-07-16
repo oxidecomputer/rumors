@@ -363,12 +363,29 @@ matrix satisfies it (`positives_schedulable`), and the bound is exact
 from both sides (`jam_on_boundary`). The Phase C target reads
 `sk.wellFormed → sk.schedulable → DeadlockFree sk .full`.
 
-Next: transcribe the merge into `Proofs/Sched.lean` (edge-respect and trace
-monotonicity are by construction; merge completeness is the real
-content), the blame lemmas (§6), the argmin assembly →
-`deadlock_free`; then ITF-witness negative controls (incl. the
-level-parameterized DropW existential) and termination — whose witness
-the schedule construction already supplies executably.
+The merge is transcribed (`Proofs/Sched.lean`: traces as prefix-sum
+folds, the merge as a fuel-indexed fixpoint, pinned event-for-event to
+the tool's `schedCandidate` by the gate), and the two by-construction
+properties are kernel-checked theorems, generic over any trace list:
+`trace_monotone` (each trace = an in-order-subsequence prefix of the
+schedule + its actual unemitted remainder) and `schedule_e1`/`_e2`
+(counted guard history at every emission index). An adversarial
+review pass hardened the layer: `MInv.out_count` (output provenance,
+added while the merge induction was open), the
+`smokeChain_merge_complete` kernel anchor (non-vacuity — and the first
+kernel-checked completeness instance), `Control.pyramid1_not_deadlockFree`
+(the `schedulable` hypothesis's load-bearing-ness as a theorem, via a
+kernel-decided greedy stuck run), and the tool's capLevel-parametric
+boundary matrix (the ⟺ conjecture's exactness at capLevels the fuzz
+envelope could not reach).
+
+Next: the canonical per-channel numbering layer (upgrades counted E1
+to "`snd(c,n)` precedes `rcv(c,n)`"), merge completeness — the real
+content, where `Skel.schedulable` enters — then the blame lemmas (§6),
+the argmin assembly → `deadlock_free`; then ITF-witness negative
+controls (incl. the level-parameterized DropW existential) and
+termination — whose witness the schedule construction already supplies
+executably.
 
 ## Phase map
 

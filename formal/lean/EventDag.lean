@@ -721,10 +721,13 @@ def draw (st bound : Nat) : Nat × Nat :=
   ((s / 65536) % bound, s)
 
 /-- Random well-formed skeleton from a seed: BFS-generated, rootH in
-{2, 4, 6}, capLevel 1–4, kid counts 0–5, D-kind with probability 2/3,
-height-1 D scopes draw leafReqs 0–5. Covers what the pins cannot: mixed
-kinds, uneven fans, stalls crossing scope and stage boundaries, and
-both sides of the §5 capLevel boundary. -/
+{2, 4, 6}, capLevel 1–4, kid counts 0–7, D-kind with probability 2/3,
+height-1 D scopes draw leafReqs 0–7. Covers what the pins cannot: mixed
+kinds, uneven fans, stalls crossing scope and stage boundaries, and —
+the fan cap (7) exceeding capLevel + 3 at every drawn capLevel — both
+sides of the §5 boundary. The deterministic per-capLevel exactness
+matrix (including capLevels past this generator's range) is `runAll`'s
+boundary self-test, via `boundaryProbe`. -/
 def genSkel (seed : Nat) : Skel := Id.run do
   let mut st := seed
   let (rh2, st') := draw st 3
@@ -733,7 +736,7 @@ def genSkel (seed : Nat) : Skel := Id.run do
   let (cl, st') := draw st 4
   st := st'
   let capLevel := cl + 1
-  let maxFan := 5
+  let maxFan := 7
   let mut scopes : Array Scope := #[]
   let mut nextId := 1
   let (rk, st') := draw st maxFan
@@ -809,6 +812,17 @@ def skels : List (String × Skel) :=
    ("pyramid4", Pin.pyramid 4),
    ("pyramid2", Pin.pyramid 2),
    ("jam", Control.jam)]
+
+/-- capLevel-parametric boundary probe: a lone parent at height 3
+disputing `d` childless D scopes. `d = capLevel + 2` sits ON the
+schedulability boundary, `d = capLevel + 3` minimally past it — shapes
+`genSkel`'s fan cap cannot always reach, so `runAll`'s boundary matrix
+pins the §5 conjecture's exactness deterministically per capLevel. -/
+def boundaryProbe (capLevel d : Nat) : Skel :=
+  { scopes := ⟨Kind.D, 4, [1], 0⟩
+      :: ⟨Kind.D, 3, (List.range d).map (· + 2), 0⟩
+      :: (List.range d).map (fun _ => ⟨Kind.D, 2, [], 0⟩)
+    rootH := 4, fan := max d 1, capLevel := capLevel }
 
 /-- Channels of the jam trap neighborhood (finding #6). -/
 def jamTrapChans : List Chan :=
@@ -972,6 +986,26 @@ def runAll (outDir : System.FilePath) : IO Bool := do
       let m2Neg := validateSchedule mutSk m
       IO.println s!"  E2-swapped mutation flagged: {!m2Neg.isEmpty} (want true)"
       if m2Neg.isEmpty then allOk := false
+  -- Boundary matrix: the §5 conjecture's exactness per capLevel, both
+  -- sides, on shapes the fuzz envelope cannot always reach. ON the
+  -- boundary: acyclic, schedulable, candidate valid, replays to
+  -- terminal, transcription matches; one past: cyclic, not schedulable.
+  IO.println "  boundary matrix (dCount = capLevel+2 completes, +3 jams):"
+  for cl in [1, 2, 3, 4, 6] do
+    let onB := boundaryProbe cl (cl + 2)
+    let over := boundaryProbe cl (cl + 3)
+    let aOn := analyze onB
+    let aOver := analyze over
+    let cand := schedCandidate onB
+    let (stuckAt, term) := replaySchedule onB cand
+    let ok := onB.wellFormed && over.wellFormed
+      && aOn.acyclic && onB.schedulable
+      && !aOver.acyclic && !over.schedulable
+      && (validateSchedule onB cand).isEmpty
+      && stuckAt.isNone && term
+      && (Sched.schedule onB == cand.toList)
+    IO.println s!"    capLevel={cl}: {if ok then "OK" else "FAIL"}"
+    if !ok then allOk := false
   IO.println "=== verdict table ==="
   for l in table do
     IO.println l
