@@ -477,17 +477,24 @@ bounds μ(Q), and both are bounded by the awaited send.
      control). The weave is NOT the schedule: τ and the blame
      lemmas stay with the merge; the weave only witnesses that a
      valid completion exists.
-   - *Remaining Lean obligations for (b), in order:* transcribe
-     `weaveOrder` as a total structural recursion (heights decrease;
-     fuel only for the pumps, Numbering-style); prove weave validity
-     — permutation (counting layer) and edge-respect by induction
-     over the recursion, with `schedulable` entering ONLY in the
-     pump-progress lemmas at the emission points (E2-lower/upper/
-     level windows open when the weave needs them); per-channel
-     totals (snd = rcv, counting style); the blame-reduction lemmas
-     (mostly 3a corollaries); the small argmin assembly (stalled
-     state ⟹ blame edge drops weave position ⟹ argmin
-     contradiction ⟹ `finalState.rem` all empty).
+   - *~~Transcription~~ — done (`Proofs/Sched/Weave.lean`,
+     2026-07-16): `Sched.weave` as a total mutual recursion
+     (`weaveScope`/`weaveKids`, lex `(h, tier, kids)` termination),
+     with the KEY reuse: the weave state IS `MState` and the pump IS
+     `mergeN` restricted to the pump traces, so the whole `MInv`
+     layer applies to weave states unchanged. Pinned event-for-event
+     to the tool's `weaveOrder` by the eventdag gate (pins + seeds;
+     the tool pump was aligned to `mergeN`'s scan order).*
+   - *Remaining Lean obligations for (b), in order:* prove weave
+     validity — permutation (counting layer) and edge-respect by
+     induction over the recursion, with `schedulable` entering ONLY
+     in the pump-progress lemmas at the emission points
+     (E2-lower/upper/level windows open when the weave needs them);
+     per-channel totals (snd = rcv, counting style); the
+     blame-reduction lemmas (mostly 3a corollaries); the small
+     argmin assembly (stalled state ⟹ blame edge drops weave
+     position ⟹ argmin contradiction ⟹ `finalState.rem` all
+     empty).
 4. Opener/asm enabledness mirrors of the pillar (small).
 5. The blame lemmas (§6 table), consuming §2 + Sched (trace
    monotonicity replaces most positional arithmetic).

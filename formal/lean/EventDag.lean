@@ -946,24 +946,23 @@ def WV.emit (st : WV) (sk : Skel) (e : Ev) : WV :=
     { st with out := st.out.push e
               rcvd := st.rcvd.insert (chanKey c) (st.rcvd.getD (chanKey c) 0 + 1) }
 
-/-- Greedily drain the pump traces: emit every enabled head until no
-trace can move. Pump emissions only raise counts, so greedy pumping is
-confluent — it reaches the unique maximal pumped state. -/
+/-- Greedily drain the pump traces: repeatedly emit the FIRST enabled
+head in priority order, until none moves — `mergeN` restricted to the
+pump traces, exactly the proof layer's `wPump`. Pump emissions only
+raise counts, so greedy pumping is confluent. -/
 def WV.pump (st : WV) (sk : Skel) : WV := Id.run do
   let mut st := st
   let fuel := (st.pumps.map (·.size)).foldl (· + ·) 0
   for _ in [0:fuel + 1] do
-    let mut moved := false
+    let mut fired := false
     for i in [0:st.pumps.size] do
-      let t := st.pumps[i]!
-      let mut c := st.pumpCur[i]!
-      for _ in [c:t.size] do
+      if !fired then
+        let t := st.pumps[i]!
+        let c := st.pumpCur[i]!
         if c < t.size && st.ok sk t[c]! then
-          st := st.emit sk t[c]!
-          c := c + 1
-          moved := true
-      st := { st with pumpCur := st.pumpCur.set! i c }
-    if !moved then
+          st := { st.emit sk t[c]! with pumpCur := st.pumpCur.set! i (c + 1) }
+          fired := true
+    if !fired then
       return st
   return st
 
@@ -1203,6 +1202,8 @@ def runFuzz (n : Nat) : Array String := Id.run do
             errs := errs.push s!"seed {seed}: {bErrs[0]!}"
           else if !wErrs.isEmpty then
             errs := errs.push s!"seed {seed}: weave invalid ({wErrs.size} errors, first: {wErrs[0]!})"
+          else if Sched.weave sk != weave.toList then
+            errs := errs.push s!"seed {seed}: Weave.lean transcription diverges from the tool weave"
           else
             let (stuckAt, term) := replaySchedule sk cand
             if let some i := stuckAt then
@@ -1335,6 +1336,15 @@ def runAll (outDir : System.FilePath) : IO Bool := do
       for e in wvErrs.toSubarray 0 (min wvErrs.size 20) do
         IO.println s!"  WEAVE INVALID: {e}"
     IO.println s!"  weave order: {weave.size} events, valid: {wvErrs.isEmpty}"
+    -- transcription coherence: the proof layer's structural recursion
+    -- (Proofs/Sched/Weave.lean) must reproduce the weave exactly
+    if Sched.weave sk != weave.toList then
+      allOk := false
+      match ((Sched.weave sk).zip weave.toList).findIdx? (fun (a, b) => a != b) with
+      | some i => IO.println s!"  WEAVE TRANSCRIPTION DIVERGES at index {i}"
+      | none => IO.println s!"  WEAVE TRANSCRIPTION DIVERGES in length: {(Sched.weave sk).length} vs {weave.size}"
+    else
+      IO.println "  Proofs/Sched/Weave.lean transcription matches the weave: OK"
     if a.acyclic && wvErrs.isEmpty then
       let f := outDir / s!"{name}.weave.tsv"
       IO.FS.writeFile f (String.intercalate "\n"
