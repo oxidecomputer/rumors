@@ -21,3 +21,4 @@ import StreamingMirror.Proofs.Sched.Numbering
 import StreamingMirror.Proofs.Sched.Weave
 import StreamingMirror.Proofs.Sched.Weave.Count
 import StreamingMirror.Proofs.Sched.Weave.Expand
+import StreamingMirror.Proofs.Sched.Weave.Align

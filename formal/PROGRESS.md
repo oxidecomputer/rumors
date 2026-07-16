@@ -506,9 +506,16 @@ bounds μ(Q), and both are bounded by the awaited send.
    - *Remaining Lean obligations for (b), in order:* the initial
      alignment (`weaveState_wcount`'s two hypotheses: per-owner
      filters of the opening worklist's futures = the manual traces —
-     the recursion emits each trace in trace order; needs the BFS
-     kid-alignment from `wellFormed` and fuel sufficiency for
-     `goEvents`); edge-respect (`e1_hist`/`e2_hist` for weave
+     the recursion emits each trace in trace order). Its design of
+     record is `Weave/Align.lean`'s module doc (the three-clause
+     subtree induction over `opEvents`: own-stage filter =
+     `scopeBlock`, descendant-stage filters = contiguous `descIdx`
+     runs, feed filter = the feed; fuel discharged by
+     `Expand.goEvents_weave`); the Skel-arithmetic base layer is
+     done (`kidBase_eq_wiresBefore`, `wiresBefore_total`,
+     `stageScope_kid`, `qCount_eq_kid_nChildren` — the BFS conjunct
+     consumed positionally), the master induction itself is next.
+     Then edge-respect (`e1_hist`/`e2_hist` for weave
      states), with `schedulable` entering ONLY in the pump-progress
      lemmas at the emission points (E2-lower/upper/level windows
      open when the weave needs them) — including the final pump
