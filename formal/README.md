@@ -1,5 +1,9 @@
 # Formal verification of the streaming mirror protocol
 
+**CAVEAT LECTOR:** This development was *entirely* "vibe-verified" using Claude
+Fable 5, and has not been checked by a human expert in any of these verification
+tools for correctness. It exists primarily as an experiment.
+
 Machine-checked deadlock-freedom for `src/tree/mirror/streaming/`, built in
 phases (see the design doc [`MODEL.md`](MODEL.md) for the model itself and
 its soundness argument). Phase A (this directory's current content): a Quint
