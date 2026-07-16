@@ -773,6 +773,45 @@ def genSkel (seed : Nat) : Skel := Id.run do
     h := h - 1
   return { scopes := scopes.toList, rootH, fan := maxFan, capLevel }
 
+/-- Canonical per-channel numbering of the proof layer's trace family
+(PROGRESS.md §7 item 3a), checked BEFORE the Lean lemmas are written —
+validate-then-prove applied to the numbering layer's own statements.
+Three claims, per (channel, side): (a) each trace of `Sched.procs`
+projects to consecutive seqs from 0 (canon shape); (b) at most one
+trace projects nonempty (one producer, one consumer per channel);
+(c) the consumer form — the merged schedule's own projection is canon,
+i.e. the n-th send (receive) on every channel carries seq n. -/
+def numberingErrs (sk : Skel) : Array String := Id.run do
+  let procs := (Sched.procs sk).toArray
+  let mut errs : Array String := #[]
+  -- (chanKey, side) → (first producing trace, seqs in trace order)
+  let mut tbl : Std.HashMap (Nat × Bool) (Nat × Chan × Array Nat) := {}
+  for i in [0:procs.size] do
+    for (c, sd, sq) in procs[i]! do
+      let key := (chanKey c, sd)
+      match tbl.get? key with
+      | none => tbl := tbl.insert key (i, c, #[sq])
+      | some (j, c₀, seqs) =>
+          if j != i then
+            errs := errs.push
+              s!"numbering: {chanStr c} side={sd}: traces {j} and {i} both project"
+          tbl := tbl.insert key (j, c₀, seqs.push sq)
+  for (_, (i, c, seqs)) in tbl.toList do
+    for t in [0:seqs.size] do
+      if seqs[t]! != t then
+        errs := errs.push
+          s!"numbering: {chanStr c} (trace {i}): seq {seqs[t]!} at projection index {t} (want {t})"
+  -- consumer form, on the merged schedule
+  let mut next : Std.HashMap (Nat × Bool) Nat := {}
+  for (c, sd, sq) in Sched.schedule sk do
+    let key := (chanKey c, sd)
+    let want := next.getD key 0
+    if sq != want then
+      errs := errs.push
+        s!"numbering: schedule {chanStr c} side={sd}: seq {sq} arrives {want}-th"
+    next := next.insert key (want + 1)
+  return errs
+
 /-- The random-skeleton sweep: per seed, (a) acyclicity must equal the
 `Skel.schedulable` condition (both directions of the §5 conjecture),
 (b) on acyclic skeletons the candidate must validate AND replay to
@@ -795,6 +834,8 @@ def runFuzz (n : Nat) : Array String := Id.run do
           errs := errs.push s!"seed {seed}: candidate invalid ({vErrs.size} errors, first: {vErrs[0]!})"
         else if Sched.schedule sk != cand.toList then
           errs := errs.push s!"seed {seed}: Proofs/Sched.lean transcription diverges from candidate"
+        else if !(numberingErrs sk).isEmpty then
+          errs := errs.push s!"seed {seed}: {(numberingErrs sk)[0]!}"
         else
           let (stuckAt, term) := replaySchedule sk cand
           if let some i := stuckAt then
@@ -908,6 +949,15 @@ def runAll (outDir : System.FilePath) : IO Bool := do
       | none => IO.println s!"  TRANSCRIPTION DIVERGES in length: Sched {schedF.length} vs candidate {cand.size}"
     else
       IO.println "  Proofs/Sched.lean transcription matches the candidate: OK"
+    -- numbering: canon per-channel projections, one producer/consumer
+    -- per channel, on the traces and on the merged schedule (§7 3a)
+    let nErrs := numberingErrs sk
+    if !nErrs.isEmpty then
+      allOk := false
+      for e in nErrs.toSubarray 0 (min nErrs.size 20) do
+        IO.println s!"  NUMBERING: {e}"
+    else
+      IO.println "  per-channel canonical numbering (traces + schedule): OK"
     -- replay: the candidate must be a genuine model run to terminal
     -- (guards adjudicate every ordering; E3 completeness check)
     let (stuckAt, term) := replaySchedule sk cand
