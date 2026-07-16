@@ -1,3 +1,13 @@
 # Compiled artifacts; derivable from the .tex (tectonic).
 results/*.pdf
 target/
+
+# Lean build outputs and fetched packages; lake restores from lake-manifest.json.
+formal/lean/.lake/
+
+# Fetched npm dependencies (pinned in package-lock.json) and Apalache run scratch.
+formal/quint/node_modules/
+formal/quint/_apalache-out/
+
+# Fetched TLC binary; the sha256 pin alongside it is the artifact of record.
+formal/tla/tla2tools.jar
