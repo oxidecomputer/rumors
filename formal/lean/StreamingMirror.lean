@@ -19,3 +19,4 @@ import StreamingMirror.Proofs.Progress
 import StreamingMirror.Proofs.Sched
 import StreamingMirror.Proofs.Sched.Numbering
 import StreamingMirror.Proofs.Sched.Weave
+import StreamingMirror.Proofs.Sched.Weave.Count

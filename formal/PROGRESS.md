@@ -478,23 +478,45 @@ bounds μ(Q), and both are bounded by the awaited send.
      lemmas stay with the merge; the weave only witnesses that a
      valid completion exists.
    - *~~Transcription~~ — done (`Proofs/Sched/Weave.lean`,
-     2026-07-16): `Sched.weave` as a total mutual recursion
-     (`weaveScope`/`weaveKids`, lex `(h, tier, kids)` termination),
-     with the KEY reuse: the weave state IS `MState` and the pump IS
-     `mergeN` restricted to the pump traces, so the whole `MInv`
-     layer applies to weave states unchanged. Pinned event-for-event
-     to the tool's `weaveOrder` by the eventdag gate (pins + seeds;
-     the tool pump was aligned to `mergeN`'s scan order).*
-   - *Remaining Lean obligations for (b), in order:* prove weave
-     validity — permutation (counting layer) and edge-respect by
-     induction over the recursion, with `schedulable` entering ONLY
-     in the pump-progress lemmas at the emission points
-     (E2-lower/upper/level windows open when the weave needs them);
-     per-channel totals (snd = rcv, counting style); the
-     blame-reduction lemmas (mostly 3a corollaries); the small
-     argmin assembly (stalled state ⟹ blame edge drops weave
-     position ⟹ argmin contradiction ⟹ `finalState.rem` all
-     empty).
+     2026-07-16): `Sched.weave` as a fuel-indexed WORKLIST
+     interpreter (`WOp`/`weaveGo` — restructured from the first-cut
+     mutual recursion because `WellFounded.fix` does not iota-reduce
+     in the kernel, and structural fuel both reduces under `decide`
+     and hands the validity proofs one induction principle), with the
+     KEY reuse: the weave state IS `MState` and the pump IS `mergeN`
+     restricted to the pump traces, so the whole `MInv` layer applies
+     to weave states unchanged. Pinned event-for-event to the tool's
+     `weaveOrder` by the eventdag gate (pins + seeds; the tool pump
+     was aligned to `mergeN`'s scan order); kernel anchors pin
+     length + Nodup on the smallest pin.*
+   - *~~Weave counting layer~~ — done (`Proofs/Sched/Weave/
+     Count.lean`, 2026-07-16): the `WCount` invariant — `MInv` for
+     weave states, with the manual traces' remainders RECOVERED from
+     the worklist by ownership (`manFilters` filters the ghost
+     futures `goEvents`, the fuel-locked twin of `weaveGo`, by
+     `evOwner` from 3a) rather than carried as state. Preservation is
+     closed through `wEmit` (the owner's remainder advances by
+     exactly the emitted event), the pump (`scan_step` re-consumed
+     verbatim on the pump suffix of `procs`), and the `weaveGo`
+     master induction; NO enabledness hypothesis anywhere, per the
+     permutation/edge-respect split. `weaveState_wcount` reduces the
+     layer to two open alignment hypotheses: the opening worklist's
+     per-owner filters ARE the manual traces, and every future is
+     manual-owned.*
+   - *Remaining Lean obligations for (b), in order:* the initial
+     alignment (`weaveState_wcount`'s two hypotheses: per-owner
+     filters of the opening worklist's futures = the manual traces —
+     the recursion emits each trace in trace order; needs the BFS
+     kid-alignment from `wellFormed` and fuel sufficiency for
+     `goEvents`); edge-respect (`e1_hist`/`e2_hist` for weave
+     states), with `schedulable` entering ONLY in the pump-progress
+     lemmas at the emission points (E2-lower/upper/level windows
+     open when the weave needs them) — including the final pump
+     DRAIN (empty pump remainders); per-channel totals (snd = rcv,
+     counting style); the blame-reduction lemmas (mostly 3a
+     corollaries); the small argmin assembly (stalled state ⟹ blame
+     edge drops weave position ⟹ argmin contradiction ⟹
+     `finalState.rem` all empty).
 4. Opener/asm enabledness mirrors of the pillar (small).
 5. The blame lemmas (§6 table), consuming §2 + Sched (trace
    monotonicity replaces most positional arithmetic).

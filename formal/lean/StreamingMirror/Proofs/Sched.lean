@@ -266,6 +266,44 @@ theorem Forall2.exists_of_mem_left {α β : Type _} {R : α → β → Prop} :
       · obtain ⟨b, hb, hr⟩ := t.exists_of_mem_left ha'
         exact ⟨b, List.mem_cons_of_mem _ hb, hr⟩
 
+/-- Pointwise-related lists have equal length. -/
+theorem Forall2.length_eq {α β : Type _} {R : α → β → Prop} :
+    ∀ {la : List α} {lb : List β}, Forall2 R la lb →
+      la.length = lb.length
+  | _, _, .nil => rfl
+  | _, _, .cons _ t => by
+      simp only [List.length_cons, t.length_eq]
+
+/-- Glue two pointwise relations end to end. -/
+theorem Forall2.append {α β : Type _} {R : α → β → Prop} :
+    ∀ {la : List α} {lb : List β} {la' : List α} {lb' : List β},
+      Forall2 R la lb → Forall2 R la' lb' →
+      Forall2 R (la ++ la') (lb ++ lb')
+  | _, _, _, _, .nil, h₂ => h₂
+  | _, _, _, _, .cons hab t, h₂ => .cons hab (t.append h₂)
+
+/-- Split a pointwise relation at a distinguished right-side cell:
+the left list decomposes around a partner for `x`, with the flanks
+related to `A` and `B`. -/
+theorem Forall2.append_cons_right {α β : Type _} {R : α → β → Prop} :
+    ∀ {A : List β} {x : β} {B : List β} {ts : List α},
+      Forall2 R ts (A ++ x :: B) →
+      ∃ ts₁ t ts₂, ts = ts₁ ++ t :: ts₂ ∧ ts₁.length = A.length
+        ∧ Forall2 R ts₁ A ∧ R t x ∧ Forall2 R ts₂ B := by
+  intro A
+  induction A with
+  | nil =>
+      intro x B ts h
+      cases h with
+      | cons hab t => exact ⟨[], _, _, rfl, rfl, .nil, hab, t⟩
+  | cons a A' ih =>
+      intro x B ts h
+      cases h with
+      | cons hab t =>
+          obtain ⟨ts₁, tm, ts₂, rfl, hlen, h₁, hm, h₂⟩ := ih t
+          exact ⟨_ :: ts₁, tm, ts₂, rfl, by simp [hlen],
+            .cons hab h₁, hm, h₂⟩
+
 /-- Taking at most the left part of an append never sees the right. -/
 private theorem take_append_le {α : Type _} :
     ∀ (n : Nat) (l₁ l₂ : List α), n ≤ l₁.length →
@@ -277,12 +315,12 @@ private theorem take_append_le {α : Type _} :
       rw [take_append_le n l₁ l₂ (by simpa using h)]
 
 /-- Taking exactly the left part of an append recovers it. -/
-private theorem take_len_append {α : Type _} (l₁ l₂ : List α) :
+theorem take_len_append {α : Type _} (l₁ l₂ : List α) :
     (l₁ ++ l₂).take l₁.length = l₁ := by
   rw [take_append_le _ _ _ (Nat.le_refl _), List.take_length]
 
 /-- Taking one past the left part of an append captures its head. -/
-private theorem take_append_succ {α : Type _} :
+theorem take_append_succ {α : Type _} :
     ∀ (l₁ : List α) (a : α) (l₂ : List α),
       (l₁ ++ a :: l₂).take (l₁.length + 1) = l₁ ++ [a]
   | [], _, _ => by simp
@@ -334,7 +372,7 @@ def emittedCount (p : Ev → Bool) : List (List Ev) → List (List Ev) → Nat
   | _, _ => 0
 
 /-- Nothing is emitted while every remainder is its whole trace. -/
-private theorem emittedCount_refl (p : Ev → Bool) :
+theorem emittedCount_refl (p : Ev → Bool) :
     ∀ l : List (List Ev), emittedCount p l l = 0
   | [] => rfl
   | _ :: ts => by simp [emittedCount, emittedCount_refl p ts]

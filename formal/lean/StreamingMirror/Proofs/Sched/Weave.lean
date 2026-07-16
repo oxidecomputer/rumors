@@ -152,15 +152,27 @@ def weavePumps : List (List Ev) :=
     ++ sk.asmKeys.map (asmEvents sk)
     ++ [[(Chan.rootret, false, 0)], finEvents sk]
 
+/-- The weave's opening worklist: the openers as plain emits, then
+the root scope with ropen's root queries as its feed. -/
+def weaveOps : List WOp :=
+  ((iopenEvents sk) ++ (ropenEvents sk).take 3).map WOp.emit
+    ++ [WOp.scope (sk.rootH - 1) 0 ((ropenEvents sk).drop 3)]
+
+/-- The weave's starting state: nothing emitted, zero counters, the
+pump traces racked in `rem`. -/
+def weaveInit : MState :=
+  ⟨[], fun _ => 0, fun _ => 0, weavePumps sk⟩
+
+/-- The weave's final state: run the worklist to the fuel's end, then
+pump once more — the validity lemmas speak about this state. -/
+def weaveState : MState :=
+  wPump sk (weaveGo sk (weaveFuel sk) (weaveOps sk) (weaveInit sk))
+
 /-- The weave: openers, then the root scope's descent (ropen's root
 queries as its feed), then a final pump — a full linearization of the
 event set, kept event-for-event equal to `EventDag.weaveOrder` by the
 tool's gate. -/
-def weave : List Ev :=
-  let st : MState := ⟨[], fun _ => 0, fun _ => 0, weavePumps sk⟩
-  let ops := ((iopenEvents sk) ++ (ropenEvents sk).take 3).map WOp.emit
-    ++ [WOp.scope (sk.rootH - 1) 0 ((ropenEvents sk).drop 3)]
-  (wPump sk (weaveGo sk (weaveFuel sk) ops st)).out
+def weave : List Ev := (weaveState sk).out
 
 -- ===================================================== kernel anchors
 -- Non-vacuity for the definition above, in the kernel: on the

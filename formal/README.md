@@ -412,9 +412,19 @@ all pins, all 300 acyclic fuzz seeds, and the capLevel boundary
 matrix, completing exactly ON `dCount = capLevel + 2` and failing one
 past.
 
-Next: transcribe the weave to Lean and prove it valid (permutation +
-edge-respect by induction over the recursion; `Skel.schedulable`
-enters only in the pump-progress lemmas), then the blame-reduction
+The weave is transcribed to the proof layer
+(`Proofs/Sched/Weave.lean`, a fuel-indexed worklist interpreter whose
+state IS the merge's `MState` and whose pump IS `mergeN`, pinned
+event-for-event to the tool and kernel-anchored on the smallest pin),
+and its counting layer is closed (`Weave/Count.lean`): the `WCount`
+invariant recovers each manual trace's unemitted remainder from the
+worklist by 3a's ownership functions and rides the interpreter with
+no enabledness hypothesis, reducing the permutation half of weave
+validity to the initial-alignment facts.
+
+Next: the initial alignment (the opening worklist's per-owner filters
+are the manual traces), then weave edge-respect — `Skel.schedulable`
+enters only in the pump-progress lemmas — then the blame-reduction
 lemmas + argmin assembly closing merge completeness, the blame lemmas
 (§6), and `deadlock_free`; then ITF-witness negative controls (incl.
 the level-parameterized DropW existential) and termination — whose
