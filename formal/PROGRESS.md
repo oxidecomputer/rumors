@@ -105,6 +105,22 @@ Verdict (2026-07-16): **acyclic on all six pins** (positive matrix +
 monotone in seq. Acyclicity of this DAG is precisely "a valid τ
 exists"; the depth tables are the oracle for §5.
 
+**The cap-1 experiment [checked]** (the `capOne` knob in `analyze`):
+rebuild every E2 edge with all capacities forced to 1 and re-run Kahn.
+Result: still acyclic on smokeChain, rMix, comb6, and `jam` (which
+already runs at `capLevel = 1`), but **cyclic on both pyramids** — the
+cycle is `lower rcv 2 → lower snd 3 → upper snd 0 → upper rcv 0 →
+level rcv 0 → level snd 1 → (wrap)` at `(R, 2)`: the walk's floating
+parent-send closes a loop through the asker-asm's level intake and the
+answerer-asm below when the level channel loses its slack. Two
+consequences. (1) It upgrades the Phase A `pyramidC1` negative from
+"the greedy scheduler jams" to "**no schedule whatsoever** completes
+the session" — cyclicity of the event DAG refutes every schedule, not
+one. (2) It pins that `capLevel ≥ 2` slack on the level channels is
+**load-bearing** for fan-shaped skeletons: the §5 construction must
+consume the real `capLevel`, and any cap-1 simplification of the
+E2 lemma family is refuted in advance.
+
 ## 4. Refuted designs — do not retry these
 
 The natural candidate was a closed-form lex timestamp

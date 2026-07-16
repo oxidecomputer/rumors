@@ -277,7 +277,11 @@ structure Analysis where
   maxDepth : Nat
   monoErrs : Array String      -- per-channel-side seq/depth monotonicity
 
-def analyze (sk : Skel) (fuel : Nat := 50000) : Analysis := Id.run do
+/-- Full DAG analysis. `capOne` overrides every channel capacity to 1 in
+the E2 back-pressure edges (an experiment knob, not the model); the
+cap-1 pass also skips the greedy empirical drain, which is capacity-
+independent and thus pure repeat work. -/
+def analyze (sk : Skel) (fuel : Nat := 50000) (capOne : Bool := false) : Analysis := Id.run do
   let (nodes, procEdges) := procTraces sk
   let nN := nodes.size
   let mut errs : Array String := #[]
@@ -288,10 +292,6 @@ def analyze (sk : Skel) (fuel : Nat := 50000) : Analysis := Id.run do
     let k := chanKey c
     if sd then sndCnt := sndCnt.insert k (sndCnt.getD k 0 + 1)
     else rcvCnt := rcvCnt.insert k (rcvCnt.getD k 0 + 1)
-  -- empirical: greedy run to terminal
-  let fin := drainFull sk fuel (init sk)
-  if !(terminal sk fin) then
-    errs := errs.push "greedy run did NOT reach terminal"
   let chans := chanList sk
   let mut chanKeys : Std.HashSet Nat := {}
   for c in chans do
@@ -299,22 +299,28 @@ def analyze (sk : Skel) (fuel : Nat := 50000) : Analysis := Id.run do
   for (c, _sd, _sq) in nodes do
     if !chanKeys.contains (chanKey c) then
       errs := errs.push s!"event channel {chanStr c} not in allChans"
-  for c in chans do
-    let eSnd := sentOf sk fin c
-    let eRcv := recvdOf sk fin c
-    let aSnd := sndCnt.getD (chanKey c) 0
-    let aRcv := rcvCnt.getD (chanKey c) 0
-    if aSnd != eSnd then
-      errs := errs.push s!"{chanStr c}: analytic snd {aSnd} != sentOf {eSnd}"
-    if aRcv != eRcv then
-      errs := errs.push s!"{chanStr c}: analytic rcv {aRcv} != recvdOf {eRcv}"
-    if eSnd != eRcv then
-      errs := errs.push s!"{chanStr c}: sentOf {eSnd} != recvdOf {eRcv} at terminal"
+  -- empirical: greedy run to terminal (capacity-independent; skipped
+  -- under the cap-1 experiment to avoid repeating identical work)
+  if !capOne then
+    let fin := drainFull sk fuel (init sk)
+    if !(terminal sk fin) then
+      errs := errs.push "greedy run did NOT reach terminal"
+    for c in chans do
+      let eSnd := sentOf sk fin c
+      let eRcv := recvdOf sk fin c
+      let aSnd := sndCnt.getD (chanKey c) 0
+      let aRcv := rcvCnt.getD (chanKey c) 0
+      if aSnd != eSnd then
+        errs := errs.push s!"{chanStr c}: analytic snd {aSnd} != sentOf {eSnd}"
+      if aRcv != eRcv then
+        errs := errs.push s!"{chanStr c}: analytic rcv {aRcv} != recvdOf {eRcv}"
+      if eSnd != eRcv then
+        errs := errs.push s!"{chanStr c}: sentOf {eSnd} != recvdOf {eRcv} at terminal"
   -- E1 (message) and E2 (back-pressure) edges
   let mut allEdges := procEdges
   for c in chans do
     let t := sndCnt.getD (chanKey c) 0
-    let cap := sk.cap c
+    let cap := if capOne then 1 else sk.cap c
     for n in [0:t] do
       allEdges := allEdges.push ((c, true, n), (c, false, n))
       if n + cap < t then
@@ -471,6 +477,14 @@ def runAll (outDir : System.FilePath) : IO Bool := do
             let (c', _sd, _sq) := a.nodes[i]!
             if chanKey c' == chanKey c then
               IO.println s!"    depth {a.depths[i]!}\t{evStr a.nodes[i]!}"
+    -- cap-1 experiment: does acyclicity survive every capacity forced
+    -- to 1?  Informational only: never affects allOk or the dumps.
+    let a1 := analyze sk (capOne := true)
+    IO.println s!"  cap1: acyclic={a1.acyclic} maxDepth={a1.maxDepth}"
+    if !a1.acyclic then
+      IO.println "  cap1 CYCLE FOUND (listed along edge direction):"
+      for l in a1.cycle do
+        IO.println s!"    {l}"
   IO.println "=== verdict table ==="
   for l in table do
     IO.println l
