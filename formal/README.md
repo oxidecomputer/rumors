@@ -379,13 +379,24 @@ kernel-decided greedy stuck run), and the tool's capLevel-parametric
 boundary matrix (the ⟺ conjecture's exactness at capLevels the fuzz
 envelope could not reach).
 
-Next: the canonical per-channel numbering layer (upgrades counted E1
-to "`snd(c,n)` precedes `rcv(c,n)`"), merge completeness — the real
-content, where `Skel.schedulable` enters — then the blame lemmas (§6),
-the argmin assembly → `deadlock_free`; then ITF-witness negative
-controls (incl. the level-parameterized DropW existential) and
-termination — whose witness the schedule construction already supplies
-executably.
+The canonical numbering layer is kernel-checked
+(`Proofs/Sched/Numbering.lean`, its claims first validated
+executably by the tool's `numberingErrs` gate): every trace projects,
+on every channel-side, to consecutive seqs from zero (`procs_canon` —
+the parent splice is proven projection-invisible), and ownership
+(`sndOwner`/`rcvOwner`, one trace index per channel-side) makes the
+producer unique, so the SCHEDULE's own projections are canon
+(`schedule_proj_canon`). That upgrades counted E1 to positional —
+"`snd(c,n)` precedes `rcv(c,n)`" (`schedule_e1_pos`) — and gives τ
+its injectivity (`schedule_inj`), with `decide` anchors on the
+smallest pin (`smokeChain_schedule_nodup`, `smokeChain_level_canon`).
+
+Next: merge completeness — the real content, where `Skel.schedulable`
+enters (invariant to be instrumented in the tool before any Lean) —
+then the blame lemmas (§6), the argmin assembly → `deadlock_free`;
+then ITF-witness negative controls (incl. the level-parameterized
+DropW existential) and termination — whose witness the schedule
+construction already supplies executably.
 
 ## Phase map
 

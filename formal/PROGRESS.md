@@ -385,14 +385,35 @@ bounds μ(Q), and both are bounded by the awaited send.
    added while the merge induction was open precisely so the numbering
    layer never has to reopen it) and the `smokeChain_merge_complete`
    kernel anchor (non-vacuity + the first completeness instance).
-   Still open in Sched, in order: (a) the canonical per-channel
-   numbering layer — each channel's sends appear in the traces with
-   consecutive seqs from 0 and belong to one producer; with
-   `out_count` + `Sublist.filter` this upgrades counted E1 to
-   "`snd(c,n)` precedes `rcv(c,n)`" and gives τ its injectivity;
-   (b) merge COMPLETENESS (`finalState.rem` all empty) — the real
-   content, where `Skel.schedulable` enters; the reserve shape is the
-   Phase B stage-compositional induction.
+   ~~(a) the canonical per-channel numbering layer~~ — done
+   (`Proofs/Sched/Numbering.lean`), and the eventdag gate now checks
+   the layer's own claims (`numberingErrs`: canon per-trace
+   projections, one producer/consumer per channel-side, canon schedule
+   projections) on every pin and acyclic seed — validated before any
+   Lean was written. The shape: `proj`/`seg`/`canon` name the
+   projection algebra; every block projects to a segment whose offset
+   is a Skel prefix sum, so each trace folds to canon
+   (`procs_canon`) — the parent splice is proven projection-invisible
+   (`proj_scopeSends`), and the in-scope rank totals (`dRank_total`,
+   `qSum_total`) meet the outer telescopes (`wiresBefore_succ` &c.)
+   exactly. Cross-trace uniqueness is OWNERSHIP, not pairwise
+   disjointness: `sndOwner`/`rcvOwner : Chan → Nat` name each
+   channel-side's unique trace index and every family proves its
+   events point at itself (`procs_snd_owned`/`procs_rcv_owned`, the
+   only lemmas needing `wellFormed` — parity and `rootH ≥ 2`); two
+   producers would name two indices at once. The consumer
+   (`emitted_canon` → `schedule_proj_canon`) squeezes `out_count`
+   between `Sublist.filter` and the canon prefixes: the SCHEDULE's own
+   projections are canon. Corollaries: `schedule_e1_pos`
+   ("`snd(c,n)` precedes `rcv(c,n)`", positional E1) and
+   `schedule_inj` (τ injectivity); kernel anchors
+   `smokeChain_schedule_nodup`, `smokeChain_level_canon`.
+   Still open in Sched: (b) merge COMPLETENESS (`finalState.rem` all
+   empty) — the real content, where `Skel.schedulable` enters; the
+   reserve shape is the Phase B stage-compositional induction. Before
+   writing Lean: sketch the stall-refutation invariant on paper and
+   instrument the merge in the tool to check it at every step
+   (validate-then-prove applied to the induction invariant).
 4. Opener/asm enabledness mirrors of the pillar (small).
 5. The blame lemmas (§6 table), consuming §2 + Sched (trace
    monotonicity replaces most positional arithmetic).

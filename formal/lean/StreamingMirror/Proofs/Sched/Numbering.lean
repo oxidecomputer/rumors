@@ -32,6 +32,7 @@ validate-then-prove discipline.
   quadratic disjointness sweep.
 -/
 import StreamingMirror.Proofs.Sched
+import StreamingMirror.Proofs.Lemmas
 
 namespace StreamingMirror.Sched
 
@@ -1033,5 +1034,636 @@ theorem procs_canon (c : Chan) (b : Bool) :
       · exact h1 ⟨hc.symm, hcb.symm⟩
       · cases he
   · exact fin_canon sk c b
+
+-- ===================== cross-trace uniqueness: the ownership layer
+-- Rather than a quadratic disjointness sweep over trace pairs, each
+-- trace proves its own events name its index via an owner function;
+-- two traces sharing a channel-side would then name two indices at
+-- once — a Nat contradiction.
+
+/-- Positional ownership: every side-`b` event of every trace names
+its trace's position (counting from `i`) via `f`. -/
+def Owned (f : Chan → Nat) (b : Bool) : Nat → List (List Ev) → Prop
+  | _, [] => True
+  | i, t :: ts => (∀ e ∈ t, e.2.1 = b → f e.1 = i) ∧ Owned f b (i + 1) ts
+
+private theorem owned_append {f : Chan → Nat} {b : Bool} :
+    ∀ {ts₁ : List (List Ev)} {i : Nat} {ts₂ : List (List Ev)},
+      Owned f b i ts₁ → Owned f b (i + ts₁.length) ts₂ →
+      Owned f b i (ts₁ ++ ts₂) := by
+  intro ts₁
+  induction ts₁ with
+  | nil => intro i ts₂ _ h₂; exact h₂
+  | cons t ts ih =>
+      intro i ts₂ h₁ h₂
+      refine ⟨h₁.1, ih h₁.2 ?_⟩
+      have hL : i + (t :: ts).length = (i + 1) + ts.length := by
+        rw [List.length_cons]; omega
+      rwa [hL] at h₂
+
+private theorem owned_map_range {f : Chan → Nat} {b : Bool}
+    {g : Nat → List Ev} :
+    ∀ (n i : Nat), (∀ j, j < n → ∀ e ∈ g j, e.2.1 = b → f e.1 = i + j) →
+      Owned f b i ((List.range n).map g)
+  | 0, _, _ => trivial
+  | n + 1, i, h => by
+      rw [List.range_succ, List.map_append]
+      refine owned_append
+        (owned_map_range n i fun j hj => h j (Nat.lt_succ_of_lt hj)) ?_
+      rw [List.length_map, List.length_range]
+      exact ⟨fun e he hs => h n (Nat.lt_succ_self n) e he hs, trivial⟩
+
+private theorem owned_ge {f : Chan → Nat} {b : Bool} :
+    ∀ {i : Nat} {ts : List (List Ev)}, Owned f b i ts →
+      ∀ t ∈ ts, ∀ e ∈ t, e.2.1 = b → i ≤ f e.1 := by
+  intro i ts
+  induction ts generalizing i with
+  | nil => intro _ t ht; cases ht
+  | cons t' ts' ih =>
+      intro h t ht e he hs
+      rcases ht with _ | ⟨_, ht⟩
+      · exact Nat.le_of_eq (h.1 e he hs).symm
+      · exact Nat.le_trans (Nat.le_succ i) (ih h.2 t ht e he hs)
+
+/-- Index of the walk at consumed-height `h` in `procs`. -/
+def walkIdx (h : Nat) : Nat := 2 + (sk.rootH - 1 - h)
+
+/-- Index of the assembler `(p, j)` in `procs`. -/
+def asmIdx : Party → Nat → Nat
+  | .I, j => 3 + sk.rootH + (j - 1)
+  | .R, j => 3 + 2 * sk.rootH + (j - 1)
+
+/-- The producing trace of each channel, as an index into `procs`
+(unconstrained on channels no trace sends — ownership is consulted
+only at actual events). -/
+def sndOwner : Chan → Nat
+  | .wire p h =>
+      if h = sk.rootH then (if p = Party.I then 0 else 1)
+      else walkIdx sk h
+  | .asked p h =>
+      if p = Party.I ∧ h + 1 = sk.rootH then 0
+      else if p = Party.R ∧ h + 2 = sk.rootH then 1
+      else walkIdx sk (h + 2)
+  | .leafRequests => walkIdx sk 1
+  | .upper _ h => walkIdx sk h
+  | .lower _ h => walkIdx sk h
+  | .level p j =>
+      if p = Party.I ∧ j = 0 then 2 + sk.rootH
+      else asmIdx sk p j
+  | .rootret => asmIdx sk Party.I sk.rootH
+  | .rootrets => asmIdx sk Party.R (sk.rootH - 1)
+  | .rootres => 1
+
+/-- The consuming trace of each channel, as an index into `procs`. -/
+def rcvOwner : Chan → Nat
+  | .wire p h =>
+      if p = Party.I ∧ h = sk.rootH then 1
+      else if h = 0 then 2 + sk.rootH
+      else walkIdx sk (h - 1)
+  | .asked _ h => walkIdx sk h
+  | .leafRequests => 2 + sk.rootH
+  | .upper p h => asmIdx sk p (h + 1)
+  | .lower p j => asmIdx sk p j
+  | .level p j => asmIdx sk p (j + 1)
+  | .rootret => 3 * sk.rootH + 2
+  | .rootrets => 3 * sk.rootH + 3
+  | .rootres => 3 * sk.rootH + 3
+
+-- ============================ per-family ownership membership proofs
+
+private theorem walk_snd_owner (hwf : sk.wellFormed = true)
+    {pk : Party × Nat} (hh : pk.2 < sk.rootH) :
+    ∀ e ∈ walkEvents sk pk, e.2.1 = true →
+      sndOwner sk e.1 = walkIdx sk pk.2 := by
+  have hge := (wf_rootH hwf).2
+  intro e he hs
+  rcases (walkEvents_support sk pk e he).1 hs with h | h | h | ⟨h, hnz⟩
+  · rw [h]; rfl
+  · rw [h]
+    simp only [wireOut, sndOwner]
+    rw [if_neg (by omega)]
+  · rw [h]; rfl
+  · rw [h]
+    unfold askedOut
+    by_cases h2 : pk.2 < 2
+    · rw [if_pos h2]
+      have h1 : pk.2 = 1 := by omega
+      simp only [sndOwner, h1]
+    · rw [if_neg h2]
+      simp only [sndOwner]
+      rw [if_neg fun hcon => absurd hcon.2 (by omega),
+        if_neg fun hcon => absurd hcon.2 (by omega)]
+      have h22 : pk.2 - 2 + 2 = pk.2 := by omega
+      rw [h22]
+
+private theorem walk_rcv_owner {pk : Party × Nat}
+    (hR : pk.1 = Party.R → pk.2 + 1 ≠ sk.rootH) :
+    ∀ e ∈ walkEvents sk pk, e.2.1 = false →
+      rcvOwner sk e.1 = walkIdx sk pk.2 := by
+  intro e he hs
+  rcases (walkEvents_support sk pk e he).2 hs with h | h
+  · rw [h]
+    simp only [wireIn, rcvOwner]
+    have hc1 : ¬(pk.1.other = Party.I ∧ pk.2 + 1 = sk.rootH) := by
+      rintro ⟨hpI, hh1⟩
+      have hpR : pk.1 = Party.R := by
+        cases hp : pk.1 with
+        | I => rw [hp] at hpI; exact absurd hpI (by simp [Party.other])
+        | R => rfl
+      exact hR hpR hh1
+    rw [if_neg hc1, if_neg (by omega)]
+    have h21 : pk.2 + 1 - 1 = pk.2 := by omega
+    rw [h21]
+  · rw [h]; rfl
+
+private theorem asm_snd_owner {p : Party} {j : Nat} (hj1 : 1 ≤ j) :
+    ∀ e ∈ asmEvents sk (p, j), e.2.1 = true →
+      sndOwner sk e.1 = asmIdx sk p j := by
+  intro e he hs
+  rw [(asmEvents_support sk (p, j) e he).1 hs]
+  cases p with
+  | I =>
+      by_cases hjr : j = sk.rootH
+      · subst hjr
+        simp [Skel.asmOutChan, sndOwner]
+      · have hout : sk.asmOutChan (Party.I, j) = Chan.level Party.I j := by
+          simp [Skel.asmOutChan, hjr]
+        rw [hout]
+        simp only [sndOwner]
+        rw [if_neg fun hcon => absurd hcon.2 (by omega)]
+  | R =>
+      by_cases hjr : j = sk.rootH - 1
+      · subst hjr
+        simp [Skel.asmOutChan, sndOwner]
+      · have hout : sk.asmOutChan (Party.R, j) = Chan.level Party.R j := by
+          simp [Skel.asmOutChan, hjr]
+        rw [hout]
+        simp only [sndOwner]
+        rw [if_neg fun hcon => Party.noConfusion hcon.1]
+
+private theorem asm_rcv_owner {p : Party} {j : Nat} (hj1 : 1 ≤ j) :
+    ∀ e ∈ asmEvents sk (p, j), e.2.1 = false →
+      rcvOwner sk e.1 = asmIdx sk p j := by
+  intro e he hs
+  have hj11 : j - 1 + 1 = j := by omega
+  rcases (asmEvents_support sk (p, j) e he).2 hs with h | h
+  · rw [h]
+    unfold asmResChan
+    split
+    · simp only [rcvOwner]
+      rw [hj11]
+    · rfl
+  · rw [h]
+    simp only [asmLevelChan, rcvOwner]
+    rw [hj11]
+
+-- ================================= the whole trace family, owned
+
+/-- Sends: every trace's send events name that trace's index — one
+producer per channel. -/
+theorem procs_snd_owned (hwf : sk.wellFormed = true) :
+    Owned (sndOwner sk) true 0 (procs sk) := by
+  have hge := (wf_rootH hwf).2
+  simp only [procs, Skel.asmKeys, List.map_append, List.map_map]
+  refine owned_append (owned_append (owned_append
+    (owned_append ?openers ?walks) ?absorb) ?asms) ?fins
+  case openers =>
+    refine ⟨?io, ?ro, trivial⟩
+    case io =>
+      intro e he hs
+      unfold iopenEvents at he
+      rcases he with _ | ⟨_, he⟩
+      · simp [sndOwner]
+      · rcases he with _ | ⟨_, he⟩
+        · simp only [sndOwner]
+          have hx : sk.rootH - 1 + 1 = sk.rootH := by omega
+          simp [hx]
+        · cases he
+    case ro =>
+      intro e he hs
+      unfold ropenEvents at he
+      rcases he with _ | ⟨_, he⟩
+      · exact Bool.noConfusion hs
+      · rcases he with _ | ⟨_, he⟩
+        · simp [sndOwner]
+        · rcases he with _ | ⟨_, he⟩
+          · rfl
+          · obtain ⟨q, -, rfl⟩ := List.mem_map.1 he
+            simp only [sndOwner]
+            have hx : sk.rootH - 2 + 2 = sk.rootH := by omega
+            simp [hx]
+  case walks =>
+    refine owned_map_range _ _ fun j hj e he hs => ?_
+    rw [walk_snd_owner sk hwf (by omega : sk.rootH - 1 - j < sk.rootH) e
+      he hs]
+    show 2 + (sk.rootH - 1 - (sk.rootH - 1 - j)) = _
+    simp only [List.length_cons, List.length_nil]
+    omega
+  case absorb =>
+    refine ⟨?_, trivial⟩
+    intro e he hs
+    unfold absorbEvents at he
+    obtain ⟨q, -, he⟩ := List.mem_flatMap.1 he
+    rcases he with _ | ⟨_, he⟩
+    · exact Bool.noConfusion hs
+    · rcases he with _ | ⟨_, he⟩
+      · exact Bool.noConfusion hs
+      · rcases he with _ | ⟨_, he⟩
+        · simp only [sndOwner]
+          rw [if_pos ⟨trivial, trivial⟩]
+          simp only [List.length_append, List.length_cons, List.length_nil,
+            List.length_map, List.length_range]
+          omega
+        · cases he
+  case asms =>
+    refine owned_append ?asmI ?asmR
+    case asmI =>
+      refine owned_map_range _ _ fun j hj e he hs => ?_
+      rw [asm_snd_owner sk (p := Party.I) (j := j + 1) (by omega) e he hs]
+      show 3 + sk.rootH + (j + 1 - 1) = _
+      simp only [List.length_append, List.length_cons, List.length_nil,
+        List.length_map, List.length_range]
+      omega
+    case asmR =>
+      refine owned_map_range _ _ fun j hj e he hs => ?_
+      rw [asm_snd_owner sk (p := Party.R) (j := j + 1) (by omega) e he hs]
+      show 3 + 2 * sk.rootH + (j + 1 - 1) = _
+      simp only [List.length_append, List.length_cons, List.length_nil,
+        List.length_map, List.length_range]
+      omega
+  case fins =>
+    refine ⟨?_, ?_, trivial⟩
+    · intro e he hs
+      rcases he with _ | ⟨_, he⟩
+      · exact Bool.noConfusion hs
+      · cases he
+    · intro e he hs
+      unfold finEvents at he
+      rcases he with _ | ⟨_, he⟩
+      · exact Bool.noConfusion hs
+      · obtain ⟨q, -, rfl⟩ := List.mem_map.1 he
+        exact Bool.noConfusion hs
+
+/-- Receives: every trace's receive events name that trace's index —
+one consumer per channel. -/
+theorem procs_rcv_owned (hwf : sk.wellFormed = true) :
+    Owned (rcvOwner sk) false 0 (procs sk) := by
+  have hge := (wf_rootH hwf).2
+  have hev := (wf_rootH hwf).1
+  simp only [procs, Skel.asmKeys, List.map_append, List.map_map]
+  refine owned_append (owned_append (owned_append
+    (owned_append ?openers ?walks) ?absorb) ?asms) ?fins
+  case openers =>
+    refine ⟨?io, ?ro, trivial⟩
+    case io =>
+      intro e he hs
+      unfold iopenEvents at he
+      rcases he with _ | ⟨_, he⟩
+      · exact Bool.noConfusion hs
+      · rcases he with _ | ⟨_, he⟩
+        · exact Bool.noConfusion hs
+        · cases he
+    case ro =>
+      intro e he hs
+      unfold ropenEvents at he
+      rcases he with _ | ⟨_, he⟩
+      · simp only [rcvOwner]
+        rw [if_pos ⟨trivial, trivial⟩]
+      · rcases he with _ | ⟨_, he⟩
+        · exact Bool.noConfusion hs
+        · rcases he with _ | ⟨_, he⟩
+          · exact Bool.noConfusion hs
+          · obtain ⟨q, -, rfl⟩ := List.mem_map.1 he
+            exact Bool.noConfusion hs
+  case walks =>
+    refine owned_map_range _ _ fun j hj e he hs => ?_
+    rw [walk_rcv_owner sk ?hpar e he hs]
+    · show 2 + (sk.rootH - 1 - (sk.rootH - 1 - j)) = _
+      simp only [List.length_cons, List.length_nil]
+      omega
+    case hpar =>
+      intro hRR hcon
+      dsimp only at hRR hcon
+      have hodd : ((sk.rootH - 1 - j) % 2 == 1) = true := by
+        have hm : (sk.rootH - 1 - j) % 2 = 1 := by omega
+        simpa using hm
+      rw [hodd] at hRR
+      exact absurd hRR (by simp)
+  case absorb =>
+    refine ⟨?_, trivial⟩
+    intro e he hs
+    unfold absorbEvents at he
+    obtain ⟨q, -, he⟩ := List.mem_flatMap.1 he
+    rcases he with _ | ⟨_, he⟩
+    · simp only [rcvOwner]
+      rw [if_neg fun hcon => Party.noConfusion hcon.1, if_pos trivial]
+      simp only [List.length_append, List.length_cons, List.length_nil,
+        List.length_map, List.length_range]
+      omega
+    · rcases he with _ | ⟨_, he⟩
+      · simp only [rcvOwner]
+        simp only [List.length_append, List.length_cons, List.length_nil,
+          List.length_map, List.length_range]
+        omega
+      · rcases he with _ | ⟨_, he⟩
+        · exact Bool.noConfusion hs
+        · cases he
+  case asms =>
+    refine owned_append ?asmI ?asmR
+    case asmI =>
+      refine owned_map_range _ _ fun j hj e he hs => ?_
+      rw [asm_rcv_owner sk (p := Party.I) (j := j + 1) (by omega) e he hs]
+      show 3 + sk.rootH + (j + 1 - 1) = _
+      simp only [List.length_append, List.length_cons, List.length_nil,
+        List.length_map, List.length_range]
+      omega
+    case asmR =>
+      refine owned_map_range _ _ fun j hj e he hs => ?_
+      rw [asm_rcv_owner sk (p := Party.R) (j := j + 1) (by omega) e he hs]
+      show 3 + 2 * sk.rootH + (j + 1 - 1) = _
+      simp only [List.length_append, List.length_cons, List.length_nil,
+        List.length_map, List.length_range]
+      omega
+  case fins =>
+    refine ⟨?fl, ?fn, trivial⟩
+    case fl =>
+      intro e he hs
+      rcases he with _ | ⟨_, he⟩
+      · show 3 * sk.rootH + 2 = _
+        simp only [List.length_append, List.length_cons, List.length_nil,
+          List.length_map, List.length_range]
+        omega
+      · cases he
+    case fn =>
+      intro e he hs
+      unfold finEvents at he
+      have hval : (3 : Nat) * sk.rootH + 3 = 3 * sk.rootH + 3 := rfl
+      rcases he with _ | ⟨_, he⟩
+      · show 3 * sk.rootH + 3 = _
+        simp only [List.length_append, List.length_cons, List.length_nil,
+          List.length_map, List.length_range]
+        omega
+      · obtain ⟨q, -, rfl⟩ := List.mem_map.1 he
+        show 3 * sk.rootH + 3 = _
+        simp only [List.length_append, List.length_cons, List.length_nil,
+          List.length_map, List.length_range]
+        omega
+
+-- ================== the consumer: the SCHEDULE's projections are canon
+-- `out_count` says the schedule holds exactly the traces' emitted
+-- prefixes; ownership says each channel-side is fed by one trace; the
+-- per-trace canon shape then transfers to the schedule itself.
+
+/-- A prefix of a canonical projection is the canonical projection of
+its own length. -/
+private theorem prefix_canon {c : Chan} {b : Bool} {m : Nat} {l : List Ev}
+    (h : l <+: canon c b m) : l = canon c b l.length := by
+  obtain ⟨s, hs⟩ := h
+  have htake : (canon c b m).take l.length = canon c b l.length := by
+    unfold canon
+    rw [← List.map_take, List.take_range]
+    have hle : l.length ≤ m := by
+      have := congrArg List.length hs
+      simp [canon] at this
+      omega
+    rw [Nat.min_eq_left hle]
+  rw [← htake, ← hs, List.take_left]
+
+/-- Prefixes project to prefixes: the emitted part of a trace never
+projects past the trace's own canon stream. -/
+private theorem proj_prefix {c : Chan} {b : Bool} {pre r : List Ev} :
+    proj c b pre <+: proj c b (pre ++ r) := by
+  rw [proj_append]
+  exact List.prefix_append ..
+
+/-- All-empty traces emit nothing on the channel-side. -/
+private theorem emitted_nil {c : Chan} {b : Bool} {out : List Ev} :
+    ∀ {ts rs : List (List Ev)},
+      Forall2 (fun t r => ∃ pre, t = pre ++ r ∧ pre.Sublist out) ts rs →
+      (∀ t ∈ ts, proj c b t = []) →
+      emittedCount (fun e => decide (e.1 = c) && (e.2.1 == b)) ts rs = 0
+  | _, _, .nil, _ => rfl
+  | _, _, .cons (a := t) (la := ts) (b := r) (lb := rs)
+      ⟨pre, hpre, _⟩ htail, hnil => by
+      have hcount : emittedCount
+          (fun e => decide (e.1 = c) && (e.2.1 == b)) (t :: ts) (r :: rs)
+          = (proj c b (t.take (t.length - r.length))).length
+            + emittedCount (fun e => decide (e.1 = c) && (e.2.1 == b))
+                ts rs := rfl
+      have hpretake : t.take (t.length - r.length) = pre := by
+        subst hpre
+        have hlen : (pre ++ r).length - r.length = pre.length := by simp
+        rw [hlen, List.take_left]
+      have hp : proj c b pre = [] := by
+        have h0 := hnil t (List.mem_cons_self ..)
+        rw [hpre, proj_append, List.append_eq_nil_iff] at h0
+        exact h0.1
+      rw [hcount, hpretake, hp, emitted_nil htail fun t' ht' =>
+        hnil t' (List.mem_cons_of_mem _ ht')]
+      rfl
+
+/-- The emitted prefixes of an owned, per-trace-canon family project
+to one canonical stream inside `out`: at most one trace feeds the
+channel-side, and its emitted prefix is a canon prefix. -/
+private theorem emitted_canon {c : Chan} {b : Bool} {out : List Ev}
+    {f : Chan → Nat} :
+    ∀ {i : Nat} {ts rs : List (List Ev)},
+      Forall2 (fun t r => ∃ pre, t = pre ++ r ∧ pre.Sublist out) ts rs →
+      Owned f b i ts →
+      (∀ t ∈ ts, ∃ m, proj c b t = canon c b m) →
+      ∃ pre', pre'.Sublist out ∧ proj c b pre' = canon c b
+        (emittedCount (fun e => decide (e.1 = c) && (e.2.1 == b)) ts rs)
+  | _, _, _, .nil, _, _ => ⟨[], List.nil_sublist _, rfl⟩
+  | i, _, _, .cons (a := t) (la := ts) (b := r) (lb := rs)
+      ⟨pre, hpre, hsub⟩ htail, hown, hcanon => by
+      obtain ⟨m, hm⟩ := hcanon t (List.mem_cons_self ..)
+      have hcount : emittedCount
+          (fun e => decide (e.1 = c) && (e.2.1 == b)) (t :: ts) (r :: rs)
+          = (proj c b (t.take (t.length - r.length))).length
+            + emittedCount (fun e => decide (e.1 = c) && (e.2.1 == b))
+                ts rs :=
+        rfl
+      have hpretake : t.take (t.length - r.length) = pre := by
+        subst hpre
+        have hlen : (pre ++ r).length - r.length = pre.length := by simp
+        rw [hlen, List.take_left]
+      by_cases hpt : proj c b t = []
+      · -- the head is silent on this channel-side: recurse
+        obtain ⟨pre', hsub', hpre'⟩ :=
+          emitted_canon htail hown.2 fun t' ht' =>
+            hcanon t' (List.mem_cons_of_mem _ ht')
+        refine ⟨pre', hsub', ?_⟩
+        rw [hcount, hpretake]
+        have hp : proj c b pre = [] := by
+          subst hpre
+          rw [proj_append, List.append_eq_nil_iff] at hpt
+          exact hpt.1
+        rw [hp]
+        simpa using hpre'
+      · -- the head owns the channel-side: the tail is silent
+        have hfc : f c = i := by
+          cases hq : proj c b t with
+          | nil => exact absurd hq hpt
+          | cons e rest =>
+              have hemem : e ∈ proj c b t := by
+                rw [hq]; exact List.mem_cons_self ..
+              have hin := List.mem_filter.1 hemem
+              simp only [Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq]
+                at hin
+              rw [← hin.2.1]
+              exact hown.1 e hin.1 hin.2.2
+        have htail_nil : ∀ t' ∈ ts, proj c b t' = [] := by
+          intro t' ht'
+          cases hq : proj c b t' with
+          | nil => rfl
+          | cons e' rest' =>
+              have hemem' : e' ∈ proj c b t' := by
+                rw [hq]; exact List.mem_cons_self ..
+              have hin' := List.mem_filter.1 hemem'
+              simp only [Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq]
+                at hin'
+              have hge := owned_ge hown.2 t' ht' e' hin'.1 hin'.2.2
+              rw [hin'.2.1, hfc] at hge
+              omega
+        refine ⟨pre, hsub, ?_⟩
+        rw [hcount, hpretake, emitted_nil htail htail_nil, Nat.add_zero]
+        have hpref : proj c b pre <+: canon c b m := by
+          rw [← hm, hpre]
+          exact proj_prefix
+        exact prefix_canon hpref
+
+/-- The schedule's own projections are canonical: on every channel and
+side, the merge emits seqs `0, 1, 2, …` in order. This is the
+numbering layer's conclusion; positional E1 and τ injectivity read off
+it. -/
+theorem schedule_proj_canon (hwf : sk.wellFormed = true) (c : Chan)
+    (b : Bool) : ∃ m, proj c b (schedule sk) = canon c b m := by
+  have howned : Owned (if b then sndOwner sk else rcvOwner sk) b 0
+      (procs sk) := by
+    cases b
+    · exact procs_rcv_owned sk hwf
+    · exact procs_snd_owned sk hwf
+  obtain ⟨pre, hsub, hpre⟩ :=
+    emitted_canon (trace_monotone sk) howned (procs_canon sk c b)
+  refine ⟨emittedCount (fun e => decide (e.1 = c) && (e.2.1 == b))
+    (procs sk) (finalState sk).rem, ?_⟩
+  have hcount : (proj c b (schedule sk)).length
+      = emittedCount (fun e => decide (e.1 = c) && (e.2.1 == b))
+        (procs sk) (finalState sk).rem := schedule_count sk _
+  have hlenpre : (proj c b pre).length
+      = emittedCount (fun e => decide (e.1 = c) && (e.2.1 == b))
+        (procs sk) (finalState sk).rem := by
+    rw [hpre]
+    simp [canon]
+  have hsubp : (proj c b pre).Sublist (proj c b (schedule sk)) :=
+    hsub.filter _
+  have heq : proj c b pre = proj c b (schedule sk) :=
+    hsubp.eq_of_length (by rw [hlenpre, hcount])
+  rw [← heq, hpre]
+
+-- ==================================== the corollaries the blame layer
+-- and the argmin assembly consume
+
+/-- Positional E1: every receive in the schedule is preceded by the
+send with ITS OWN seq — the counted form (`schedule_e1`) upgraded
+through canonical numbering. -/
+theorem schedule_e1_pos (hwf : sk.wellFormed = true) (k : Nat) (c : Chan)
+    (n : Nat) (h : (schedule sk)[k]? = some (c, false, n)) :
+    ∃ j, j < k ∧ (schedule sk)[j]? = some (c, true, n) := by
+  have hcount := schedule_e1 sk k c n h
+  rw [sndCount_eq_proj] at hcount
+  obtain ⟨m, hm⟩ := schedule_proj_canon sk hwf c true
+  have hpref : proj c true ((schedule sk).take k) <+: canon c true m := by
+    rw [← hm]
+    conv => rhs; rw [← List.take_append_drop k (schedule sk)]
+    exact proj_prefix
+  have htake := prefix_canon hpref
+  have hmem : ((c, true, n) : Ev) ∈ proj c true ((schedule sk).take k) := by
+    rw [htake]
+    exact List.mem_map.2 ⟨n, List.mem_range.2 hcount, rfl⟩
+  have hmem' : ((c, true, n) : Ev) ∈ (schedule sk).take k :=
+    (List.mem_filter.1 hmem).1
+  obtain ⟨j, hj⟩ := List.mem_iff_getElem?.1 hmem'
+  rw [List.getElem?_take] at hj
+  by_cases hjk : j < k
+  · rw [if_pos hjk] at hj
+    exact ⟨j, hjk, hj⟩
+  · rw [if_neg hjk] at hj
+    cases hj
+
+private theorem count_canon (c : Chan) (b : Bool) (n : Nat) :
+    ∀ m, (canon c b m).count (c, b, n) = if n < m then 1 else 0
+  | 0 => by simp [canon_zero]
+  | m + 1 => by
+      rw [canon_succ, List.count_append, count_canon c b n m]
+      by_cases hn : n = m
+      · subst hn
+        rw [if_neg (by omega), if_pos (by omega)]
+        simp
+      · have hb : (((c, b, m) : Ev) == (c, b, n)) = false := by
+          simp
+          omega
+        rw [List.count_cons, List.count_nil, hb]
+        by_cases hlt : n < m
+        · rw [if_pos hlt, if_pos (show n < m + 1 by omega)]
+          all_goals simp
+        · rw [if_neg hlt, if_neg (show ¬n < m + 1 by omega)]
+          all_goals simp
+
+private theorem two_at_lt {l : List Ev} {i j : Nat} {e : Ev} (hij : i < j)
+    (hi : l[i]? = some e) (hj : l[j]? = some e) : 2 ≤ l.count e := by
+  have h1 : e ∈ l.take j :=
+    List.mem_iff_getElem?.2 ⟨i, by rw [List.getElem?_take, if_pos hij]; exact hi⟩
+  have h2 : e ∈ l.drop j :=
+    List.mem_iff_getElem?.2 ⟨0, by rw [List.getElem?_drop]; simpa using hj⟩
+  have hc1 : 0 < (l.take j).count e := List.count_pos_iff.2 h1
+  have hc2 : 0 < (l.drop j).count e := List.count_pos_iff.2 h2
+  have hsplit : l.count e = (l.take j).count e + (l.drop j).count e := by
+    conv => lhs; rw [← List.take_append_drop j l]
+    exact List.count_append
+  omega
+
+/-- τ injectivity: the schedule holds each event at most once, so
+position-in-schedule is a well-defined timestamp for the event set. -/
+theorem schedule_inj (hwf : sk.wellFormed = true) {i j : Nat} {e : Ev}
+    (hi : (schedule sk)[i]? = some e) (hj : (schedule sk)[j]? = some e) :
+    i = j := by
+  obtain ⟨c, b, n⟩ := e
+  obtain ⟨m, hm⟩ := schedule_proj_canon sk hwf c b
+  have hpred : (fun e : Ev => decide (e.1 = c) && (e.2.1 == b))
+      (c, b, n) = true := by simp
+  have hcle : (schedule sk).count (c, b, n) ≤ 1 := by
+    rw [← List.count_filter
+      (p := fun e : Ev => decide (e.1 = c) && (e.2.1 == b))
+      (l := schedule sk) hpred]
+    rw [show (schedule sk).filter _ = proj c b (schedule sk) from rfl, hm,
+      count_canon]
+    split <;> omega
+  by_contra hne
+  rcases Nat.lt_or_ge i j with hij | hij
+  · have := two_at_lt hij hi hj
+    omega
+  · have := two_at_lt (by omega : j < i) hj hi
+    omega
+
+-- ===================================== kernel-tier non-vacuity anchors
+-- The theorems above hold for every well-formed skeleton; the anchors
+-- below instantiate them on the smallest pin and make the kernel
+-- COMPUTE the canon shapes, so `lake build` alone certifies the layer
+-- is about the real merge output.
+
+set_option maxRecDepth 16000 in
+/-- The smallest pin's schedule holds no duplicate event: τ injectivity,
+computed. -/
+theorem smokeChain_schedule_nodup : (schedule Pin.smokeChain).Nodup := by
+  decide
+
+set_option maxRecDepth 16000 in
+/-- The smallest pin's level-return stream is canon: the merge emits
+`level I 0` receives with seqs `0, 1, …` in order. -/
+theorem smokeChain_level_canon :
+    proj (Chan.level Party.I 0) false (schedule Pin.smokeChain)
+      = canon (Chan.level Party.I 0) false
+          Pin.smokeChain.totalLeafReqs := by decide
 
 end StreamingMirror.Sched
