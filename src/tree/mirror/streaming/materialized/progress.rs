@@ -39,22 +39,56 @@ pub struct Trace(Vec<Event>);
 impl Trace {
     /// Check the publication-order invariants for every traced scope.
     ///
-    /// Five checks: every internal publication consumes a prior wire
+    /// Six checks: every internal publication consumes a prior wire
     /// action for its scope (wire before internal publication); dependent
     /// work follows its scope's resolution, exactly `pending` items per
     /// resolution (resolution before dependent work); a parent resolution
     /// follows the lower resolutions it counts; a resolution may not
     /// arrive while an already-resolved sibling still owes dependent work
-    /// (sibling contiguity); and each event kind leaves a parent scope in
-    /// strictly increasing radix order (radix order). Sibling contiguity
-    /// is what makes one slot sufficient for the child-resolution queues:
-    /// without it, a walk that published all its resolutions before any
-    /// of their queries would satisfy the other checks and deadlock.
-    /// Radix order is what positional pairing rests on: no message or
-    /// return carries a key, so a consumer's only way to know which scope
-    /// the k-th item describes is that producers never reorder within a
-    /// channel.
+    /// (sibling contiguity); a wire may not depart while an earlier
+    /// disputed sibling is unresolved or any resolved sibling still owes
+    /// dependent work (wire contiguity); and each event kind leaves a
+    /// parent scope in strictly increasing radix order (radix order).
+    /// Sibling contiguity is what makes one slot sufficient for the
+    /// child-resolution queues: without it, a walk that published all its
+    /// resolutions before any of their queries would satisfy the other
+    /// checks and deadlock. Wire contiguity is its wire-stream twin
+    /// (finding #6): without it, a wire stream that runs ahead of an
+    /// earlier sibling's resolution or queries satisfies the other checks
+    /// and deadlocks a three-walk wait cycle at uneven fan — the
+    /// kernel-checked witness is
+    /// `formal/lean/StreamingMirror/Controls.lean`. On wire-disciplined
+    /// traces wire contiguity subsumes sibling contiguity; both stay, as
+    /// independent statements of intent. Radix order is what positional
+    /// pairing rests on: no message or return carries a key, so a
+    /// consumer's only way to know which scope the k-th item describes is
+    /// that producers never reorder within a channel.
     pub fn assert_valid(&self) {
+        self.assert_valid_with_wire_contiguity(true);
+    }
+
+    /// Check every invariant except wire contiguity.
+    ///
+    /// This test-only entry point keeps the sibling-contiguity check
+    /// independently falsifiable even though wire contiguity subsumes it on a
+    /// complete, valid trace.
+    #[cfg(test)]
+    fn assert_valid_without_wire_contiguity(&self) {
+        self.assert_valid_with_wire_contiguity(false);
+    }
+
+    /// Check the trace, optionally omitting the stronger wire-level check.
+    fn assert_valid_with_wire_contiguity(&self, check_wire_contiguity: bool) {
+        // Wire contiguity's "unresolved earlier sibling" arm needs to know
+        // which scopes are disputed at all, which only the completed trace
+        // can say: a scope is disputed iff it ever resolves.
+        let mut resolutions_at = BTreeMap::<(usize, Vec<u8>), usize>::new();
+        for (index, event) in self.0.iter().enumerate() {
+            if let Kind::Resolution { .. } = event.kind {
+                resolutions_at.insert((event.work, event.scope.clone()), index);
+            }
+        }
+
         let mut wires = BTreeMap::<(usize, Vec<u8>), usize>::new();
         let mut dependent = BTreeMap::<(usize, Vec<u8>), usize>::new();
         let mut lower = BTreeMap::<(usize, Vec<u8>), usize>::new();
@@ -74,7 +108,37 @@ impl Trace {
 
             let key = (event.work, event.scope.clone());
             match event.kind {
-                Kind::Wire => *wires.entry(key).or_default() += 1,
+                Kind::Wire => {
+                    if check_wire_contiguity && let Some(scope_parent) = parent(&event.scope) {
+                        let owing = dependent.iter().find(|((work, sibling), remaining)| {
+                            *work == event.work
+                                && **remaining > 0
+                                && *sibling != event.scope
+                                && parent(sibling) == Some(scope_parent.clone())
+                        });
+                        if let Some(((_, sibling), remaining)) = owing {
+                            panic!(
+                                "wire {event:?} at trace index {index} departed while resolved sibling {sibling:?} still owes {remaining} dependent work items"
+                            );
+                        }
+                        let unresolved =
+                            resolutions_at
+                                .iter()
+                                .find(|((work, sibling), resolved_at)| {
+                                    *work == event.work
+                                        && *sibling != event.scope
+                                        && parent(sibling) == Some(scope_parent.clone())
+                                        && sibling.last() < event.scope.last()
+                                        && **resolved_at > index
+                                });
+                        if let Some(((_, sibling), _)) = unresolved {
+                            panic!(
+                                "wire {event:?} at trace index {index} preceded disputed sibling {sibling:?}'s resolution"
+                            );
+                        }
+                    }
+                    *wires.entry(key).or_default() += 1
+                }
                 Kind::InitialQuery | Kind::Ready | Kind::Resolution { .. } => {
                     let available = wires.entry(key.clone()).or_default();
                     assert!(

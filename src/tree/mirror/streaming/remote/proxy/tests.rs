@@ -10,7 +10,9 @@ use tokio::io::{duplex, split};
 use crate::tree::mirror::streaming::channel::{
     ChannelReport, QueueKind, with_observation, with_schedule,
 };
-use crate::tree::mirror::streaming::testing::{Quiescence, run_to_quiescence};
+use crate::tree::mirror::streaming::testing::{
+    IoPlan, IoReportHandle, IoSide, Quiescence, run_to_quiescence, wrap_io,
+};
 use crate::tree::{
     Action, Root as TreeRoot, Tree,
     arb::{arb_divergent_pair, nth_party},
@@ -31,6 +33,11 @@ type LocalFailure = MaterializedError<BackendFailure>;
 type ProxyFailure = RemoteError<BackendFailure>;
 type LeftFailure = MirrorError<LocalFailure, ProxyFailure>;
 type RightFailure = MirrorError<ProxyFailure, LocalFailure>;
+
+mod failures;
+mod harness;
+mod malformed;
+mod transport;
 
 /// Bytes available in each direction before transport backpressure applies.
 const TRANSPORT_CAPACITY: usize = 37;
@@ -79,6 +86,22 @@ async fn reconcile_with_failing_proxy(
     failing: Failing<Local>,
     fail_left: bool,
 ) -> (Result<(), LeftFailure>, Result<(), RightFailure>) {
+    reconcile_with_stacked_failures(a, b, failing, fail_left, IoPlan::default())
+        .await
+        .0
+}
+
+/// Reconcile with independently stackable backend and transport failures.
+async fn reconcile_with_stacked_failures(
+    a: TreeRoot<()>,
+    b: TreeRoot<()>,
+    failing: Failing<Local>,
+    fail_left: bool,
+    io_plan: IoPlan,
+) -> (
+    (Result<(), LeftFailure>, Result<(), RightFailure>),
+    IoReportHandle,
+) {
     let a_version = a.ceiling.clone();
     let b_version = b.ceiling.clone();
     let a = Handshaking::start(Failing::after(Local, usize::MAX), failing_root(a));
@@ -87,6 +110,26 @@ async fn reconcile_with_failing_proxy(
     let (a_transport, b_transport) = duplex(TRANSPORT_CAPACITY);
     let (a_read, a_write) = split(a_transport);
     let (b_read, b_write) = split(b_transport);
+    let (a_read, a_write, a_io) = wrap_io(
+        IoSide::Left,
+        if fail_left {
+            io_plan.clone()
+        } else {
+            IoPlan::default()
+        },
+        a_read,
+        a_write,
+    );
+    let (b_read, b_write, b_io) = wrap_io(
+        IoSide::Right,
+        if fail_left {
+            IoPlan::default()
+        } else {
+            io_plan
+        },
+        b_read,
+        b_write,
+    );
     let left_backend = if fail_left {
         failing.clone()
     } else {
@@ -101,7 +144,10 @@ async fn reconcile_with_failing_proxy(
     let remote_a = RemoteHandshaking::start(right_backend, a_version, b_read, b_write);
 
     let (left, right) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(remote_a, b)));
-    (left.map(|_| ()), right.map(|_| ()))
+    (
+        (left.map(|_| ()), right.map(|_| ())),
+        if fail_left { a_io } else { b_io },
+    )
 }
 
 /// Extract the injected backend operation from a proxy conversion failure.

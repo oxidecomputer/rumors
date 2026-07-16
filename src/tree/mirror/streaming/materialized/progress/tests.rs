@@ -54,6 +54,41 @@ fn rejects_sibling_resolution_before_dependent_work() {
         event(&[2], Kind::Wire),
         event(&[2], Kind::Resolution { pending: 0 }),
     ])
+    .assert_valid_without_wire_contiguity();
+}
+
+/// A wire may not depart while a resolved sibling still owes dependent work.
+///
+/// The wire-stream twin of sibling contiguity (finding #6): a wire stream
+/// that runs ahead of its siblings' dependent work satisfies the other
+/// checks and deadlocks a three-walk wait cycle at uneven fan. The
+/// kernel-checked witness is `formal/lean/StreamingMirror/Controls.lean`.
+#[test]
+#[should_panic(expected = "departed while resolved sibling")]
+fn rejects_wire_while_sibling_owes_dependent_work() {
+    Trace(vec![
+        event(&[1], Kind::Wire),
+        event(&[1], Kind::Resolution { pending: 1 }),
+        event(&[2], Kind::Wire),
+    ])
+    .assert_valid();
+}
+
+/// A wire may not overtake an earlier disputed sibling's resolution.
+///
+/// The other arm of wire contiguity (finding #6): the deadlock witness
+/// sends wire B2 *before* res B1, so at wire time the earlier sibling owes
+/// nothing yet — only the completed trace reveals it was disputed. Without
+/// this arm the owes-work check alone would pass the deadlocking order.
+#[test]
+#[should_panic(expected = "preceded disputed sibling")]
+fn rejects_wire_before_earlier_sibling_resolution() {
+    Trace(vec![
+        event(&[1], Kind::Wire),
+        event(&[2], Kind::Wire),
+        event(&[1], Kind::Resolution { pending: 0 }),
+        event(&[2], Kind::Resolution { pending: 0 }),
+    ])
     .assert_valid();
 }
 
