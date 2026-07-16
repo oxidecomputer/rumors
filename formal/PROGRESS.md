@@ -242,7 +242,7 @@ return of D kid `q−1−capLevel`; that receive sits (asm E3) behind
 `snd res(q+1)` — a cycle exactly when both endpoints are kids of the
 same parent, i.e. when some scope has `dCount ≥ capLevel + 3`.
 Conjecture: the event DAG is acyclic **iff `∀ s, dCount(s) ≤
-capLevel + 2`** (`EventDag.schedulable`) [checked: both directions
+capLevel + 2`** (now `Skel.schedulable`) [checked: both directions
 hold on all pins, on targeted probes at the boundary (interior and
 leaf shapes, mixed kinds), and on all 300 seeds of the random sweep —
 zero mismatches; `leafReqs` is confirmed unconstrained — a single
@@ -251,10 +251,25 @@ height-1 D scope with `leafReqs ≫ capLevel` stays acyclic]. `jam`
 passes; `pyramid 1` (4 D kids, capLevel 1) violates it and jams. The
 Rust implementation has `capLevel = FAN ≥ kids ≥ dCount` — margin 2 —
 so this is a model-tightness fact, not an implementation bug, but the
-progress statement MUST carry the hypothesis (the Rust-faithful
-`∀ s, dCount(s) ≤ capLevel` is the safe choice unless the tight form
-proves as easily); `wellFormed`'s `capLevel ≥ 1` alone is refuted by
-`pyramid 1`.
+progress statement MUST carry the hypothesis; `wellFormed`'s
+`capLevel ≥ 1` alone is refuted by `pyramid 1`.
+
+**Hypothesis form: DECIDED (2026-07-16) — the tight bound, promoted to
+`Skel.schedulable` on the statement layer's audit surface.** [proven —
+the definition plus kernel-`decide`d anchors: `pyramid1_not_schedulable`
+and `positives_schedulable` (Statement.lean), `jam_on_boundary`
+(Controls.lean); the ⟺-acyclicity claim itself remains checked, not
+proven.] Tight over Rust-faithful (`dCount ≤ capLevel`) because: (a) it
+is the exact executable boundary, so the predicate coincides with "some
+schedule exists" rather than with one proof strategy's slack; (b) `jam`
+sits ON the boundary and is a pinned positive — the Rust-faithful form
+would exclude it from the theorem's coverage and orphan the finding-#6
+narrative from `deadlock_free`; (c) Rust coverage is identical either
+way (margin 2). The proof-risk hedge inverts cleanly: if merge
+completeness (§7 item 3) wants slack, weaken the THEOREM's hypothesis
+and leave the predicate — a strengthening TODO, not a statement-layer
+re-mint. `EventDag.schedulable` was deleted in favor of the promoted
+predicate; `runFuzz` pins the model definition directly.
 
 The §5 design risk (mutual recursion of the wavefronts) resolved by
 giving up static positions entirely (§4's third refuted design): all
@@ -316,10 +331,14 @@ bounds μ(Q), and both are bounded by the awaited send.
    self-testing negative controls: pyramid-1 cyclicity, pyramid-1
    candidate rejection, E1-swap mutation), model replay to terminal
    (`replaySchedule`), and the greedy-trace coherence pin.
-2. Decide the capLevel hypothesis form (tight `dCount ≤ capLevel + 2`
-   vs Rust-faithful `dCount ≤ capLevel`) and thread it into
-   `DeadlockFree`'s statement (or promote `EventDag.schedulable` to a
-   `Skel` predicate alongside `wellFormed`).
+2. ~~Decide the capLevel hypothesis form and thread it into the
+   statement layer~~ — done: the tight form as `Skel.schedulable`
+   (§5, decision paragraph), with kernel-checked anchors pinning
+   non-redundancy (`pyramid1_not_schedulable`), positive-matrix
+   coverage (`positives_schedulable`), and boundary exactness
+   (`jam_on_boundary`). The Phase C target statement is now
+   `sk.wellFormed → sk.schedulable → DeadlockFree sk .full`
+   (Statement.lean's `DeadlockFree` docstring).
 3. `Proofs/Sched.lean`: transcribe the merge (traces as skeleton folds;
    merge as a fuel-indexed fixpoint) + edge-respect and trace-
    monotonicity (both by construction) + merge COMPLETENESS — the real

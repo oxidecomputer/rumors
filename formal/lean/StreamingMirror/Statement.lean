@@ -9,6 +9,13 @@ reader must read, in full:
 
 - `Skel.wellFormed` (Skel.lean, ~25 lines) — which dispute skeletons the
   claim covers;
+- `Skel.schedulable` (Skel.lean, 2 lines) — the fan/back-pressure bound
+  the progress lemma additionally assumes (`dCount ≤ capLevel + 2` per
+  scope). It is not implied by `wellFormed`: `pyramid1_not_schedulable`
+  below exhibits a well-formed skeleton past the bound, and the event-DAG
+  analysis (formal/PROGRESS.md §5) shows no schedule completes it — the
+  hypothesis excludes only sessions that cannot finish under ANY
+  interleaving, so it does not weaken the claim on the sessions that can;
 - `AxMode` and `AxMode.full` (Skel.lean, 10 lines) — which send-order
   axioms are assumed; the mapping to the Rust `Trace::assert_valid`
   ledgers is the table in formal/README.md;
@@ -52,12 +59,16 @@ open Model
 
 /-- Deadlock-freedom, the Phase C target: under axiom mode `ax`, no
 reachable state of the session is stuck — every interleaving either can
-still move or has completed. The target instance is `AxMode.full` (the
-six-ledger interface), pending the progress lemma. The mode index is
-load-bearing, and that is a THEOREM, not a promise:
+still move or has completed. The target theorem is
+`sk.wellFormed → sk.schedulable → DeadlockFree sk AxMode.full` (the
+six-ledger interface), pending the progress lemma; both hypotheses are
+load-bearing, and that is a THEOREM in each case, not a promise:
 `Control.jam_not_deadlockFree` refutes this very statement for the
 pre-finding-#6 interface (`Control.fullNoD4` — everything but wire
-contiguity), by a kernel-checked stuck run on a well-formed skeleton. -/
+contiguity) by a kernel-checked stuck run on a well-formed skeleton,
+and `pyramid1_not_schedulable` below marks the skeleton on which
+dropping `schedulable` would make the statement false (no schedule
+completes it — see formal/PROGRESS.md §3, the cap-1 cycle). -/
 def DeadlockFree (sk : Skel) (ax : AxMode) : Prop :=
   ∀ s : State, Reachable sk ax s → stuck sk ax s = false
 
@@ -69,6 +80,25 @@ theorem smokeChain_wellFormed : Pin.smokeChain.wellFormed = true := by
 /-- Non-vacuity of the skeleton class. -/
 theorem wellFormed_satisfiable : ∃ sk : Skel, sk.wellFormed = true :=
   ⟨Pin.smokeChain, smokeChain_wellFormed⟩
+
+/-- The `schedulable` hypothesis is not redundant: a well-formed
+skeleton can violate it. `pyramid 1` is the witness (4 D kids under one
+parent, `capLevel = 1`, one past the bound) — the Phase A negative whose
+greedy jam the event-DAG analysis upgraded to "no schedule completes
+it". Kernel-`decide`d, like the anchors around it. -/
+theorem pyramid1_not_schedulable :
+    (Pin.pyramid 1).wellFormed = true ∧ (Pin.pyramid 1).schedulable = false := by
+  decide
+
+/-- The positive Phase A matrix sits inside the progress lemma's
+hypothesis class: every pinned skeleton that completes is schedulable
+(the boundary case, `Control.jam`, is pinned in Controls.lean, which
+this file cannot import). -/
+theorem positives_schedulable :
+    Pin.smokeChain.schedulable && Pin.rMix.schedulable &&
+    Pin.comb6.schedulable && (Pin.pyramid 4).schedulable &&
+    (Pin.pyramid 2).schedulable = true := by
+  decide
 
 /-- Non-vacuity of reachability: the initial state is always reachable,
 so `DeadlockFree` quantifies over an inhabited set. -/

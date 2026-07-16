@@ -31,8 +31,9 @@ The §5 candidate itself lives here too (`schedCandidate`, the
 deterministic priority merge), gated by `validateSchedule`,
 `replaySchedule` (the schedule re-run as real model actions to
 `terminal`), the random-skeleton sweep (`runFuzz`, which also pins the
-`schedulable` ⟺ acyclic conjecture), and the self-testing negative
-controls at the end of `runAll`.
+`Skel.schedulable` ⟺ acyclic conjecture — the predicate itself lives in
+Skel.lean, on the statement layer's audit surface), and the
+self-testing negative controls at the end of `runAll`.
 -/
 import StreamingMirror
 import Std.Data.HashMap
@@ -769,14 +770,10 @@ def genSkel (seed : Nat) : Skel := Id.run do
     h := h - 1
   return { scopes := scopes.toList, rootH, fan := maxFan, capLevel }
 
-/-- The §5 schedulability condition, conjectured ⟺ DAG acyclicity. -/
-def schedulable (sk : Skel) : Bool :=
-  (List.range sk.scopes.length).all fun i => sk.dCount i ≤ sk.capLevel + 2
-
 /-- The random-skeleton sweep: per seed, (a) acyclicity must equal the
-`schedulable` condition (both directions of the §5 conjecture), (b) on
-acyclic skeletons the candidate must validate AND replay to terminal.
-Returns error lines (empty = clean sweep). -/
+`Skel.schedulable` condition (both directions of the §5 conjecture),
+(b) on acyclic skeletons the candidate must validate AND replay to
+terminal. Returns error lines (empty = clean sweep). -/
 def runFuzz (n : Nat) : Array String := Id.run do
   let mut errs : Array String := #[]
   let mut tested := 0
@@ -785,9 +782,9 @@ def runFuzz (n : Nat) : Array String := Id.run do
     if sk.wellFormed then
       tested := tested + 1
       let a := analyze sk
-      if a.acyclic != schedulable sk then
+      if a.acyclic != sk.schedulable then
         errs := errs.push
-          s!"seed {seed}: acyclic={a.acyclic} but schedulable={schedulable sk}"
+          s!"seed {seed}: acyclic={a.acyclic} but schedulable={sk.schedulable}"
       if a.acyclic then
         let cand := schedCandidate sk
         let vErrs := validateSchedule sk cand

@@ -213,6 +213,24 @@ def pendsBefore (p : Party) (j k : Nat) : Nat :=
 Quint: `pendAt`. -/
 def pendAt (p : Party) (j i : Nat) : Nat := (sk.asmResList p j).getD i 0
 
+/-- Fan/back-pressure compatibility: no scope disputes more than
+`capLevel + 2` children. This is the progress lemma's hypothesis beyond
+`wellFormed`, which does NOT imply it — `Pin.pyramid 1` is well-formed
+yet no schedule whatsoever completes it (`pyramid1_not_schedulable`,
+Statement.lean). Not a Quint transcription: it is the schedulability
+boundary found by the event-DAG analysis (formal/PROGRESS.md §5),
+conjectured equivalent to acyclicity of the session's event DAG and
+checked in both directions by `lake exe eventdag` (pins, boundary
+probes, the random sweep). The bound is exact on both sides:
+`Control.jam` sits ON it (a 3-D-kid parent at `capLevel = 1`) and
+completes; `pyramid 1` (4 D kids, `capLevel = 1`) is minimally past it
+and jams. `leafReqs` needs no bound. The Rust implementation has
+`capLevel = FAN ≥ kids ≥ dCount` — margin 2 — so every skeleton it can
+generate satisfies this with room to spare; the bound is a
+model-tightness fact, not an implementation constraint. -/
+def schedulable : Bool :=
+  (List.range sk.scopes.length).all fun s => sk.dCount s ≤ sk.capLevel + 2
+
 end Skel
 
 /-- The axiom mode: which `Trace::assert_valid` ledgers guard the

@@ -123,6 +123,14 @@ def trap : List Action := [
 refutation below is not an artifact of ill-formedness. -/
 theorem jam_wellFormed : jam.wellFormed = true := by decide
 
+/-- `jam` sits exactly ON the schedulability boundary — scope A disputes
+`capLevel + 2` children, the most `Skel.schedulable` admits — and
+`jam_completes_full` below shows it completes there. Together with
+`pyramid1_not_schedulable` (one D kid more, and no schedule completes),
+this pins the bound as exact from both sides. -/
+theorem jam_on_boundary :
+    jam.schedulable = true ∧ jam.dCount 1 = jam.capLevel + 2 := by decide
+
 /-- Under the pre-d4 interface, the trap schedule executes fully and
 ends in a non-terminal state where no action is enabled. -/
 theorem trap_stuck :

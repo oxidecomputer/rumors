@@ -353,12 +353,17 @@ with self-testing negative controls. The sweep also confirmed, both
 directions with zero mismatches, the session's central finding:
 **`wellFormed` alone does not imply schedulability** — the event DAG
 is acyclic iff every scope has `dCount ≤ capLevel + 2`
-(`EventDag.schedulable`; `pyramidC1` violates it, `jam` sits exactly
-on the boundary; Rust's `capLevel = FAN` has margin 2), so the
-progress theorem must carry a capLevel hypothesis.
+(`pyramidC1` violates it, `jam` sits exactly on the boundary; Rust's
+`capLevel = FAN` has margin 2), so the progress theorem must carry a
+capLevel hypothesis. That hypothesis is now on the statement layer as
+**`Skel.schedulable`** (the tight form — see PROGRESS.md §5 for the
+decision rationale), with kernel-checked anchors: the hypothesis is
+not implied by `wellFormed` (`pyramid1_not_schedulable`), the positive
+matrix satisfies it (`positives_schedulable`), and the bound is exact
+from both sides (`jam_on_boundary`). The Phase C target reads
+`sk.wellFormed → sk.schedulable → DeadlockFree sk .full`.
 
-Next: decide the hypothesis form (tight vs Rust-faithful), transcribe
-the merge into `Proofs/Sched.lean` (edge-respect and trace
+Next: transcribe the merge into `Proofs/Sched.lean` (edge-respect and trace
 monotonicity are by construction; merge completeness is the real
 content), the blame lemmas (§6), the argmin assembly →
 `deadlock_free`; then ITF-witness negative controls (incl. the
