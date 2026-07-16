@@ -410,10 +410,58 @@ bounds μ(Q), and both are bounded by the awaited send.
    `smokeChain_schedule_nodup`, `smokeChain_level_canon`.
    Still open in Sched: (b) merge COMPLETENESS (`finalState.rem` all
    empty) — the real content, where `Skel.schedulable` enters; the
-   reserve shape is the Phase B stage-compositional induction. Before
-   writing Lean: sketch the stall-refutation invariant on paper and
-   instrument the merge in the tool to check it at every step
-   (validate-then-prove applied to the induction invariant).
+   reserve shape is the Phase B stage-compositional induction.
+   **Stall-refutation design: DECIDED and tool-validated
+   (2026-07-16).** The shape is the §1 argmin transplanted to the
+   Sched layer — no cycle-chasing, no path induction:
+   - *Reduction 1 (fuel, generic).* Each `step` drains one event and
+     fuel = `totalEvents`, so a non-empty `finalState.rem` forces a
+     reachable STALLED state: some trace non-empty, every non-empty
+     trace's head disabled.
+   - *Reduction 2 (blame is a function, from 3a).* At a reachable
+     state, a disabled head names its blocker: `rcv(c,n)` starved
+     (`n ≥ sent c`) blames `snd(c, sent c)`; `snd(c,n)` jammed
+     (`n ≥ rcvd c + cap c`) blames `rcv(c, rcvd c)`. By canon +
+     ownership (3a) + per-channel totals (snd total = rcv total,
+     already tool-checked in `analyze`), the blocker exists, is
+     unemitted, and sits in the remaining suffix of its unique owner
+     trace — at or after that trace's head.
+   - *The invariant: a WEAK POTENTIAL φ : Ev → Nat*, strictly
+     increasing across every E1 edge (`φ(snd(c,n)) < φ(rcv(c,n))`)
+     and every E2 edge (`φ(rcv(c,n)) < φ(snd(c, n + cap c))` — where
+     `schedulable` must enter, on the level channels), and *weakly*
+     increasing along every trace of `procs`. Then at a stalled
+     state, blamed-head φ < blocked-head φ (weak up the owner's
+     suffix, strict across the blocking edge, weak along same-channel
+     sends/rcvs), and the argmin head over non-empty traces is a
+     contradiction. §4's refutations do not apply: φ is a coarse
+     rank with massive ties (E3 only weak), not a position order.
+   - *Tool validation (`EventDag.weakPotential` + `blameProbe`, in
+     both gates).* `weakPotential` computes the pointwise-least φ
+     (weighted Kahn: E1/E2 edges weight 1, trace-consecutive weight
+     0; exists iff acyclic). `blameProbe` replays the merge and at
+     EVERY reachable state checks, for every disabled head: blocker
+     owner exists and is unique, φ strictly drops from blocked head
+     to owner's head, and blame chains reach an enabled head with no
+     trace revisited. Green on all six pins and all 300 acyclic fuzz
+     seeds; negative controls: `pyramid 1`'s probe must find a blame
+     cycle at its stall and its `weakPotential` must be `none`. The
+     observed blame-edge alphabet (`.blame.tsv` per pin) matches the
+     §6 table exactly.
+   - *Open: the Lean φ.* The minimal φ is NOT per-channel affine in
+     seq (`.phi.tsv` dumps: jam's `asked I 1` snds sit at φ 2, 5, 12
+     — jumps at subtree boundaries, §4's mechanism recurring at the
+     potential level), so the Lean φ will be TREE-RECURSIVE:
+     per-scope wavefront times by structural recursion over the
+     skeleton with subtree-sized slack (prefix sums), per-event
+     offsets within a scope. Next step, validate-then-prove: define
+     the candidate φ executably in EventDag, gate the three edge
+     families (E1-strict, E2-strict, trace-weak) on pins + seeds,
+     iterate until green, only then transcribe to Lean. The Lean
+     obligations after that: the three edge lemmas (E2-level-strict
+     consumes `schedulable`), per-channel totals (counting layer
+     style), the blame-reduction lemmas (mostly 3a corollaries), and
+     the small argmin assembly.
 4. Opener/asm enabledness mirrors of the pillar (small).
 5. The blame lemmas (§6 table), consuming §2 + Sched (trace
    monotonicity replaces most positional arithmetic).

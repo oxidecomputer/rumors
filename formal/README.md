@@ -391,11 +391,24 @@ producer unique, so the SCHEDULE's own projections are canon
 its injectivity (`schedule_inj`), with `decide` anchors on the
 smallest pin (`smokeChain_schedule_nodup`, `smokeChain_level_canon`).
 
-Next: merge completeness — the real content, where `Skel.schedulable`
-enters (invariant to be instrumented in the tool before any Lean) —
-then the blame lemmas (§6), the argmin assembly → `deadlock_free`;
-then ITF-witness negative controls (incl. the level-parameterized
-DropW existential) and termination — whose witness the schedule
+The completeness invariant is decided and tool-validated
+(PROGRESS.md §7 3b): a stalled merge state gives every blocked head a
+unique blame target (canon + ownership + totals), and a *weak
+potential* φ — strict across E1/E2 edges, weak along traces — makes
+the argmin head a contradiction, with `Skel.schedulable` entering in
+the level-channel E2 arithmetic. The tool's `blameProbe` checks the
+whole reduction at every reachable merge state (owner unique, φ
+drops, chains terminate) on all pins and acyclic fuzz seeds;
+`pyramid 1` pins the negative (its probe finds the blame cycle, its
+potential does not exist).
+
+Next: the Lean φ — tree-recursive per-scope wavefront times (the
+minimal potential's subtree-boundary jumps rule out per-channel
+affine forms), to be fitted and gated executably before any Lean —
+then the three edge lemmas + argmin assembly closing merge
+completeness, the blame lemmas (§6), and `deadlock_free`; then
+ITF-witness negative controls (incl. the level-parameterized DropW
+existential) and termination — whose witness the schedule
 construction already supplies executably.
 
 ## Phase map

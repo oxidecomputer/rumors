@@ -812,6 +812,210 @@ def numberingErrs (sk : Skel) : Array String := Id.run do
     next := next.insert key (want + 1)
   return errs
 
+-- ================================ §7 3b: weak potential + blame probes
+
+/-- The minimal *weak potential* φ (§7 3b): longest path in the event
+DAG where message (E1) and back-pressure (E2) edges weigh 1 and
+trace-order (E3-linearization) edges weigh 0. φ is then E1/E2-STRICT
+and trace-WEAK — exactly what the completeness argmin consumes: at a
+stalled state, a blocked head's blame target holds an earlier-φ head,
+contradicting minimality. Exists iff the DAG is acyclic (`none` on
+cycles); as the pointwise-least valid potential it is the mining
+surface for a closed form. Returned as `evKey → φ`. -/
+def weakPotential (sk : Skel) : Option (Std.HashMap Nat Nat) := Id.run do
+  let procs := (Sched.procs sk).toArray.map List.toArray
+  let mut nodes : Array Ev := #[]
+  for t in procs do
+    for e in t do nodes := nodes.push e
+  let nN := nodes.size
+  let mut idOf : Std.HashMap Nat Nat := {}
+  for i in [0:nN] do
+    idOf := idOf.insert (evKey nodes[i]!) i
+  -- weighted edges: (u, v, w)
+  let mut edges : Array (Nat × Nat × Nat) := #[]
+  for t in procs do
+    for i in [0:t.size] do
+      if i + 1 < t.size then
+        edges := edges.push
+          (idOf.getD (evKey t[i]!) 0, idOf.getD (evKey t[i+1]!) 0, 0)
+  -- E1/E2 at weight 1, generated per channel as in `dagEdges`
+  let mut sndCnt : Std.HashMap Nat (Chan × Nat) := {}
+  for (c, sd, _sq) in nodes do
+    if sd then
+      let k := chanKey c
+      sndCnt := sndCnt.insert k (c, (sndCnt.getD k (c, 0)).2 + 1)
+  for (_, (c, tot)) in sndCnt.toList do
+    for n in [0:tot] do
+      match idOf.get? (evKey (c, true, n)), idOf.get? (evKey (c, false, n)) with
+      | some u, some v =>
+          edges := edges.push (u, v, 1)
+          if n + sk.cap c < tot then
+            edges := edges.push (v, idOf.getD (evKey (c, true, n + sk.cap c)) 0, 1)
+      | _, _ => pure ()  -- unpaired message: the totals gate reports it
+  -- weighted Kahn
+  let mut indeg : Array Nat := Array.replicate nN 0
+  let mut adj : Array (Array (Nat × Nat)) := Array.replicate nN #[]
+  for (u, v, w) in edges do
+    indeg := indeg.set! v (indeg[v]! + 1)
+    adj := adj.set! u (adj[u]!.push (v, w))
+  let mut phi : Array Nat := Array.replicate nN 0
+  let mut queue : Array Nat := #[]
+  for i in [0:nN] do
+    if indeg[i]! == 0 then queue := queue.push i
+  let mut head := 0
+  let mut emitted := 0
+  for _ in [0:nN] do
+    if head < queue.size then
+      let u := queue[head]!
+      head := head + 1
+      emitted := emitted + 1
+      for (v, w) in adj[u]! do
+        phi := phi.set! v (max phi[v]! (phi[u]! + w))
+        indeg := indeg.set! v (indeg[v]! - 1)
+        if indeg[v]! == 0 then queue := queue.push v
+  if emitted != nN then
+    return none
+  let mut out : Std.HashMap Nat Nat := {}
+  for i in [0:nN] do
+    out := out.insert (evKey nodes[i]!) phi[i]!
+  return some out
+
+/-- One line per event, sorted by φ then event key: the `.phi.tsv`
+mining dump for the §7 3b closed form. Empty when the DAG is cyclic. -/
+def phiDump (sk : Skel) : Array String := Id.run do
+  match weakPotential sk with
+  | none => return #[]
+  | some phi =>
+      let mut evs : Array (Nat × Ev) := #[]
+      for t in Sched.procs sk do
+        for e in t do
+          evs := evs.push (phi.getD (evKey e) 0, e)
+      let sorted := evs.qsort fun a b =>
+        a.1 < b.1 || (a.1 == b.1 && evKey a.2 < evKey b.2)
+      return sorted.map fun (p, e) => s!"{p}\t{evStr e}"
+
+/-- Trace labels in `Sched.procs` order, for the blame alphabet. -/
+def traceLabels (sk : Skel) : Array String :=
+  #["iopen", "ropen"]
+  ++ ((List.range sk.rootH).map fun i =>
+        let h := sk.rootH - 1 - i
+        s!"walk{pStr (if h % 2 == 1 then Party.I else Party.R)}{h}").toArray
+  ++ #["absorb"]
+  ++ (sk.asmKeys.map fun pk => s!"asm{pStr pk.1}{pk.2}").toArray
+  ++ #["float", "fin"]
+
+/-- §7 3b instrumentation (validate-then-prove applied to the
+completeness invariant): replay the merge; at EVERY state, for every
+non-empty trace with a disabled head, derive the blame edge — the
+blocking event is the earliest unemitted event on the blocking
+channel-side (`snd(c, sent c)` for an E1-starved receive,
+`rcv(c, rcvd c)` for an E2-jammed send), its owner the unique trace
+holding it in its remaining suffix — and check executably what the
+Lean proof will assert: (a) the blocker exists and its owner is
+unique (ownership + totals), (b) the weak potential strictly drops
+from the blocked head to the owner's head (the argmin step), (c) blame
+chains reach an enabled head without revisiting a trace. Returns
+(errors, alphabet); the alphabet aggregates observed blame edges with
+counts — the §7 3b mining surface for WHERE `schedulable` binds. On a
+cyclic skeleton the merge stalls and (c) reports the blame cycle: the
+`pyramid 1` negative control pins that this probe can fail. -/
+def blameProbe (sk : Skel) : Array String × Array String := Id.run do
+  let procs := (Sched.procs sk).toArray.map List.toArray
+  let labels := traceLabels sk
+  let phi? := weakPotential sk
+  let mut cur := Array.replicate procs.size 0
+  let mut sent : Std.HashMap Nat Nat := {}
+  let mut rcvd : Std.HashMap Nat Nat := {}
+  let mut errs : Array String := #[]
+  let mut alpha : Std.HashMap String Nat := {}
+  let fuel := (procs.map (·.size)).foldl (· + ·) 0
+  for _step in [0:fuel + 1] do
+    -- enabledness of every head, blame edges of the disabled ones
+    let enabledAt : Nat → Option Bool := fun i => Id.run do
+      if cur[i]! < procs[i]!.size then
+        let (c, sd, n) := procs[i]![cur[i]!]!
+        if sd then return some (decide (n < rcvd.getD (chanKey c) 0 + sk.cap c))
+        else return some (decide (n < sent.getD (chanKey c) 0))
+      else return none
+    let blameOf := fun (i : Nat) => Id.run do
+      -- pre: head of i exists and is disabled
+      let (c, sd, _n) := procs[i]![cur[i]!]!
+      let blocker : Ev :=
+        if sd then (c, false, rcvd.getD (chanKey c) 0)
+        else (c, true, sent.getD (chanKey c) 0)
+      let mut owners : Array Nat := #[]
+      for j in [0:procs.size] do
+        for idx in [cur[j]!:procs[j]!.size] do
+          if procs[j]![idx]! == blocker then
+            owners := owners.push j
+      return (blocker, owners)
+    let mut anyEnabled := false
+    let mut anyNonEmpty := false
+    for i in [0:procs.size] do
+      match enabledAt i with
+      | none => pure ()
+      | some true => anyNonEmpty := true; anyEnabled := true
+      | some false =>
+          anyNonEmpty := true
+          let head := procs[i]![cur[i]!]!
+          let (blocker, owners) := blameOf i
+          if owners.size != 1 then
+            errs := errs.push
+              s!"blame: {labels[i]!} head [{evStr head}] blocker [{evStr blocker}]: {owners.size} owners"
+          else
+            let j := owners[0]!
+            let key := s!"{labels[i]!} [{evStr head}] blames {labels[j]!} [{evStr blocker}]"
+            alpha := alpha.insert key (alpha.getD key 0 + 1)
+            if let some phi := phi? then
+              let pHead := phi.getD (evKey head) 0
+              let pOwnerHead := phi.getD (evKey procs[j]![cur[j]!]!) 0
+              if pOwnerHead ≥ pHead then
+                errs := errs.push
+                  s!"blame: phi does not drop: {labels[i]!} [{evStr head}] phi={pHead} -> {labels[j]!} head phi={pOwnerHead}"
+    -- chain check from every disabled head
+    for i0 in [0:procs.size] do
+      if enabledAt i0 == some false then
+        let mut visited : Array Nat := #[i0]
+        let mut curT := i0
+        let mut walking := true
+        for _hop in [0:procs.size + 1] do
+          if walking then
+            match enabledAt curT with
+            | some true => walking := false
+            | none =>
+                errs := errs.push s!"blame chain from {labels[i0]!} hit drained trace {labels[curT]!}"
+                walking := false
+            | some false =>
+                let (_, owners) := blameOf curT
+                if owners.size != 1 then
+                  walking := false  -- already reported above
+                else
+                  let nxt := owners[0]!
+                  if visited.contains nxt then
+                    errs := errs.push
+                      (s!"blame CYCLE from {labels[i0]!}: "
+                        ++ String.intercalate " -> " ((visited.push nxt).toList.map (labels[·]!)))
+                    walking := false
+                  else
+                    visited := visited.push nxt
+                    curT := nxt
+    -- one merge step: first enabled head, in priority order
+    let mut fired := false
+    for i in [0:procs.size] do
+      if !fired && enabledAt i == some true then
+        fired := true
+        let (c, sd, _n) := procs[i]![cur[i]!]!
+        cur := cur.set! i (cur[i]! + 1)
+        if sd then sent := sent.insert (chanKey c) (sent.getD (chanKey c) 0 + 1)
+        else rcvd := rcvd.insert (chanKey c) (rcvd.getD (chanKey c) 0 + 1)
+    if !fired then
+      if anyNonEmpty && !anyEnabled then
+        errs := errs.push "blame: merge STALLED (expected on cyclic skeletons only)"
+      break
+  let alphaLines := (alpha.toArray.qsort fun a b => a.1 < b.1).map
+    fun (k, n) => s!"{n}\t{k}"
+  return (errs, alphaLines)
+
 /-- The random-skeleton sweep: per seed, (a) acyclicity must equal the
 `Skel.schedulable` condition (both directions of the §5 conjecture),
 (b) on acyclic skeletons the candidate must validate AND replay to
@@ -837,11 +1041,15 @@ def runFuzz (n : Nat) : Array String := Id.run do
         else if !(numberingErrs sk).isEmpty then
           errs := errs.push s!"seed {seed}: {(numberingErrs sk)[0]!}"
         else
-          let (stuckAt, term) := replaySchedule sk cand
-          if let some i := stuckAt then
-            errs := errs.push s!"seed {seed}: replay refused at event {i}"
-          else if !term then
-            errs := errs.push s!"seed {seed}: replay missed terminal"
+          let bErrs := (blameProbe sk).1
+          if !bErrs.isEmpty then
+            errs := errs.push s!"seed {seed}: {bErrs[0]!}"
+          else
+            let (stuckAt, term) := replaySchedule sk cand
+            if let some i := stuckAt then
+              errs := errs.push s!"seed {seed}: replay refused at event {i}"
+            else if !term then
+              errs := errs.push s!"seed {seed}: replay missed terminal"
   if tested == 0 then
     errs := errs.push "fuzz generated zero well-formed skeletons"
   return errs
@@ -958,6 +1166,23 @@ def runAll (outDir : System.FilePath) : IO Bool := do
         IO.println s!"  NUMBERING: {e}"
     else
       IO.println "  per-channel canonical numbering (traces + schedule): OK"
+    -- §7 3b: weak potential + blame reduction, checked at every merge
+    -- state; alphabet + phi dumps are the closed-form mining surface
+    let (bErrs, bAlpha) := blameProbe sk
+    if !bErrs.isEmpty then
+      allOk := false
+      for e in bErrs.toSubarray 0 (min bErrs.size 20) do
+        IO.println s!"  BLAME: {e}"
+    else
+      IO.println "  blame reduction (owner unique, phi drops, chains terminate): OK"
+    if a.acyclic then
+      let f := outDir / s!"{name}.phi.tsv"
+      IO.FS.writeFile f
+        (String.intercalate "\n" (phiDump sk).toList ++ "\n")
+      let g := outDir / s!"{name}.blame.tsv"
+      IO.FS.writeFile g
+        (String.intercalate "\n" bAlpha.toList ++ "\n")
+      IO.println s!"  phi dump: {f}  blame alphabet: {g}"
     -- replay: the candidate must be a genuine model run to terminal
     -- (guards adjudicate every ordering; E3 completeness check)
     let (stuckAt, term) := replaySchedule sk cand
@@ -995,6 +1220,14 @@ def runAll (outDir : System.FilePath) : IO Bool := do
   let cNeg := validateSchedule pyr1 (schedCandidate pyr1)
   IO.println s!"  pyramid1 candidate rejected: {!cNeg.isEmpty} (want true)"
   if cNeg.isEmpty then allOk := false
+  -- the blame probe must FIND the cycle at pyramid1's stall (and the
+  -- weak potential must not exist): pins that §7 3b's probe can fail
+  let (bNeg, _) := blameProbe pyr1
+  let cycleFound := bNeg.any (·.startsWith "blame CYCLE")
+  IO.println s!"  pyramid1 blame probe finds a cycle: {cycleFound} (want true)"
+  if !cycleFound then allOk := false
+  IO.println s!"  pyramid1 weak potential absent: {(weakPotential pyr1).isNone} (want true)"
+  if (weakPotential pyr1).isSome then allOk := false
   -- Mutation controls run on pyramid2: its channels carry multiple
   -- messages (smokeChain's all carry one, leaving E2 nothing to swap).
   let mutSk := Pin.pyramid 2
