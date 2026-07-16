@@ -93,7 +93,18 @@ def wellFormed : Bool :=
   perScope &&
   (kidCount == n - 1) && (kidList.eraseDups.length == n - 1) &&
   (!kidList.contains 0) &&
-  decide (sk.capLevel ≥ 1)
+  decide (sk.capLevel ≥ 1) &&
+  -- The BFS promise above ("ids are BFS order"), made checkable at the
+  -- only place it binds: each stage's kid lists, flattened in scope
+  -- order, ARE the next stage down. Per-scope ascending kids alone
+  -- admit cross-parent crossings (kids [4] before kids [3]); counts
+  -- stay consistent and the greedy schedule still completes on such a
+  -- skeleton, but the progress proof's schedule construction keys each
+  -- channel's n-th message to the n-th scope of the consuming stage,
+  -- and that correspondence is exactly this equation.
+  ((List.range sk.rootH).all fun h =>
+    (sk.scopesAt (h + 1)).flatMap (fun s => (sk.scope s).kids)
+      == sk.scopesAt h)
 
 /-- Walk stage keys: (party, consumed message index). Initiator stages
 consume odd indices `rootH-1, rootH-3, …, 1`; responder even

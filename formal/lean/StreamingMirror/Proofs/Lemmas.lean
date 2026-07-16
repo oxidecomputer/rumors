@@ -162,7 +162,7 @@ theorem wf_scope_bounds {sk : Skel} (hwf : sk.wellFormed = true)
     (sk.scope i).kids.length ≤ sk.fan ∧ (sk.scope i).leafReqs ≤ sk.fan := by
   unfold Skel.wellFormed at hwf
   simp only [Bool.and_eq_true, List.all_eq_true, decide_eq_true_eq] at hwf
-  have hper := hwf.1.1.1.1.2
+  have hper := hwf.1.1.1.1.1.2
   have hbody := hper i (List.mem_range.mpr hi)
   exact ⟨hbody.1.1.1.1.1.2, hbody.1.1.1.1.2⟩
 
@@ -176,12 +176,24 @@ theorem wf_rootH {sk : Skel} (hwf : sk.wellFormed = true) :
   unfold Skel.wellFormed at hwf
   simp only [Bool.and_eq_true, List.all_eq_true, decide_eq_true_eq,
     beq_iff_eq] at hwf
-  have hn := hwf.1.1.1.1.1.1.1.1
-  have hh0 := hwf.1.1.1.1.1.1.1.2
-  have hev := hwf.1.1.1.1.1.2
-  have hper := hwf.1.1.1.1.2
+  have hn := hwf.1.1.1.1.1.1.1.1.1
+  have hh0 := hwf.1.1.1.1.1.1.1.1.2
+  have hev := hwf.1.1.1.1.1.1.2
+  have hper := hwf.1.1.1.1.1.2
   have hge1 := (hper 0 (List.mem_range.mpr hn)).1.1.1.1.1.1
   omega
+
+/-- The BFS-alignment conjunct of `wellFormed`, extracted: each stage's
+kid lists flattened in scope order are the next stage down. The progress
+proof's schedule construction keys a channel's n-th message to the n-th
+scope of the consuming stage; this equation is that correspondence. -/
+theorem wf_bfs_aligned {sk : Skel} (hwf : sk.wellFormed = true)
+    {h : Nat} (hh : h < sk.rootH) :
+    (sk.scopesAt (h + 1)).flatMap (fun s => (sk.scope s).kids)
+      = sk.scopesAt h := by
+  unfold Skel.wellFormed at hwf
+  simp only [Bool.and_eq_true, List.all_eq_true, beq_iff_eq] at hwf
+  exact hwf.2 h (List.mem_range.mpr hh)
 
 /-- A stage cursor in range denotes a real scope id. -/
 theorem stageScope_lt_scopes (sk : Skel) {h k : Nat}
