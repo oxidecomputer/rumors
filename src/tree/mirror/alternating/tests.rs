@@ -16,7 +16,8 @@ use crate::tree::traverse::{Action, act};
 use crate::tree::typed::Path;
 use crate::{Version, message::Message};
 
-use super::{local, message::Intent, mirror, remote};
+use super::{local, mirror, remote};
+use crate::tree::mirror::handshake::{self, Intent};
 
 thread_local! {
     /// One current-thread tokio runtime per test thread, initialized lazily on
@@ -367,25 +368,25 @@ fn handshake_flushes_over_buffering_transport() {
             let (a_side, b_side) = tokio::io::duplex(64);
             let (a_r, a_w) = tokio::io::split(a_side);
             let (b_r, b_w) = tokio::io::split(b_side);
-            let mut a_r = remote::FrameRead::new(a_r);
-            let mut b_r = remote::FrameRead::new(b_r);
-            let mut a_w = remote::FrameWrite::new(HoldUntilFlush::new(a_w));
-            let mut b_w = remote::FrameWrite::new(HoldUntilFlush::new(b_w));
-            let mut a_staged = remote::Staged::new();
-            let mut b_staged = remote::Staged::new();
+            let mut a_r = a_r;
+            let mut b_r = b_r;
+            let mut a_w = HoldUntilFlush::new(a_w);
+            let mut b_w = HoldUntilFlush::new(b_w);
+            let mut a_staged = handshake::Staged::new();
+            let mut b_staged = handshake::Staged::new();
 
             // The preamble carries only magic + version + network + intent, so
             // this exercises purely the flush/deadlock behavior of the framed
             // greeting exchange.
             let (ra, rb) = tokio::join!(
-                remote::preamble(
+                handshake::preamble(
                     Network::BOOTSTRAP,
                     Intent::Remain,
                     &mut a_staged,
                     &mut a_r,
                     &mut a_w
                 ),
-                remote::preamble(
+                handshake::preamble(
                     Network::BOOTSTRAP,
                     Intent::Remain,
                     &mut b_staged,

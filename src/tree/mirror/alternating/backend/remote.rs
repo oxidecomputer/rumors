@@ -10,10 +10,9 @@
 //!
 //! # Handshake
 //!
-//! Every gossip session begins with the fixed-size preamble frame, exchanged
-//! concurrently by both sides before any variable-length traffic; see
-//! [`mod@preamble`] for the byte layout, the rejection rules, and the
-//! exchange itself. The framed [`message::Handshake`] greeting that follows
+//! Every gossip session begins with the shared fixed-size
+//! [`crate::tree::mirror::handshake`] preamble before this adapter
+//! is constructed. The framed [`message::Handshake`] greeting that follows
 //! carries the causal [`Version`](crate::Version) alone.
 //!
 //! # Direction
@@ -54,6 +53,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::bookmark::{BookmarkError, BookmarkIo, NoBookmark};
 use crate::network::Network;
+use crate::tree::mirror::handshake;
 use crate::tree::typed::{
     Node,
     height::{Height, Root, S, UnderRoot, UnderUnderRoot, Z},
@@ -65,11 +65,10 @@ use super::super::{
 };
 
 pub mod framing;
-mod preamble;
+mod party;
 
-pub use framing::{Fill, FrameRead, FrameWrite};
-pub use preamble::{Staged, preamble};
-pub(crate) use preamble::{recv_party, send_party};
+pub use framing::{FrameRead, FrameWrite};
+pub(crate) use party::{recv_party, send_party};
 
 /// The error type returned by the gossip protocol.
 ///
@@ -132,12 +131,6 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     #[error("peer sent an invalid intent byte ({byte:#04x})")]
     IntentInvalid { byte: u8 },
 
-    /// The peer's preamble frame declared a length other than the preamble's
-    /// fixed size, despite carrying our magic and protocol version. No honest
-    /// peer produces this, so it indicates a buggy or malicious counterparty.
-    #[error("peer's preamble frame declared {declared} bytes")]
-    PreambleLengthInvalid { declared: u32 },
-
     /// The peer declared the bootstrap placeholder [`Network`] together with a
     /// retiring intent.
     ///
@@ -165,6 +158,22 @@ impl<B: BookmarkError> From<borsh::io::Error> for Error<B> {
     }
 }
 
+impl From<handshake::Error> for Error<NoBookmark> {
+    fn from(error: handshake::Error) -> Self {
+        match error {
+            handshake::Error::Io(error) => Error::Io(error),
+            handshake::Error::MagicMismatch { remote_magic } => {
+                Error::MagicMismatch { remote_magic }
+            }
+            handshake::Error::VersionMismatch { remote_version } => {
+                Error::VersionMismatch { remote_version }
+            }
+            handshake::Error::IntentInvalid { byte } => Error::IntentInvalid { byte },
+            handshake::Error::BootstrapRetireConflict => Error::BootstrapRetireConflict,
+        }
+    }
+}
+
 impl Error<NoBookmark> {
     /// Re-tag a bookmark-free error under any bookmark `B`.
     ///
@@ -186,7 +195,6 @@ impl Error<NoBookmark> {
             },
             Error::PartyOverlap => Error::PartyOverlap,
             Error::IntentInvalid { byte } => Error::IntentInvalid { byte },
-            Error::PreambleLengthInvalid { declared } => Error::PreambleLengthInvalid { declared },
             Error::BootstrapRetireConflict => Error::BootstrapRetireConflict,
             // The backend slot is uninhabited at `NoBookmark` (`Infallible` has
             // no values), but `BookmarkIo::Format` is a real type even there.
@@ -222,8 +230,8 @@ pub struct Exchange<T, R, W, V, H: Height> {
 }
 
 impl<T, R, W> Exchange<T, R, W, Start, Root> {
-    /// Wrap the framed halves the [`preamble()`] exchange already used as an
-    /// [`Exchange`], ready to start the protocol.
+    /// Begin an [`Exchange`] on transport halves wrapped after the shared raw
+    /// preamble has completed.
     pub fn start(reader: FrameRead<R>, writer: FrameWrite<W>) -> Self {
         Self {
             reader,

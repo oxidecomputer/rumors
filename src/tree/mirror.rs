@@ -5,6 +5,7 @@ pub mod alternating;
 pub mod streaming;
 
 pub(crate) mod framing;
+pub(crate) mod handshake;
 
 /// An error which can occur during mirroring: either a client error or a server one.
 #[derive(Debug, Clone, thiserror::Error)]

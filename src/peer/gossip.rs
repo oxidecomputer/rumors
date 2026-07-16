@@ -22,7 +22,10 @@ use crate::tree::{self, Tree};
 use crate::{Error, Network, Version};
 use crate::{
     bookmark::{Bookmark, BookmarkError, BookmarkIo, Bookmarked, NoBookmark, Persist},
-    tree::mirror::alternating::{self, local, message::Intent, remote},
+    tree::mirror::{
+        alternating::{self, local, remote},
+        handshake::{self, Intent},
+    },
 };
 
 use super::{Inner, Peer};
@@ -135,24 +138,20 @@ impl<T, M: Mode> Peer<T, NoBookmark, M> {
         R: AsyncRead + Unpin + Send,
         W: AsyncWrite + Unpin + Send,
     {
-        // Magic/version/network/intent preamble first, through the same
-        // exact-read framing every later frame uses.
-        let mut staged = remote::Staged::new();
-        let mut reader = remote::FrameRead::new(read);
-        let mut writer = remote::FrameWrite::new(write);
-        let (remote_network, remote_intent) = remote::preamble(
-            Network::BOOTSTRAP,
-            Intent::Remain,
-            &mut staged,
-            &mut reader,
-            &mut writer,
-        )
-        .await?;
+        // Magic/version/network/intent preamble first, before either protocol
+        // is allowed to trust peer-declared frame lengths.
+        let mut staged = handshake::Staged::new();
+        let remote =
+            handshake::preamble(Network::BOOTSTRAP, Intent::Remain, &mut staged, read, write)
+                .await
+                .map_err(remote::Error::from)?;
+        let reader = remote::FrameRead::new(read);
+        let writer = remote::FrameWrite::new(write);
 
         // In the bootstrap case, it doesn't matter whether the remote intends
         // to remain or retire; they will hand us a party regardless, and we can
         // absorb it.
-        let _ = remote_intent;
+        let _ = remote.intent;
 
         // We hold nothing: we will run the mirror protocol from an *empty* tree
         // to receive all content on the remote side.
@@ -162,7 +161,7 @@ impl<T, M: Mode> Peer<T, NoBookmark, M> {
         // After the connect phase, a peer that is *also* bootstrapping means
         // there is nothing to receive: bail symmetrically.
         let handshaken = alternating::handshake(l, r).await.map_err(server_error)?;
-        if remote_network.is_bootstrap() {
+        if remote.network.is_bootstrap() {
             return Ok(None);
         }
 
@@ -177,7 +176,7 @@ impl<T, M: Mode> Peer<T, NoBookmark, M> {
             .map_err(server_error)?;
         let party = remote::recv_party(&mut reader).await?;
         let peer = Self {
-            network: remote_network,
+            network: remote.network,
             inner: watch::Sender::new(Inner {
                 party: Some(party),
                 tree: Tree { root },
@@ -273,7 +272,7 @@ impl<T, B: Persist<M>, M: Mode> Peer<T, B, M> {
         R: AsyncRead + Unpin + Send,
         W: AsyncWrite + Unpin + Send,
     {
-        let mut staged = remote::Staged::new();
+        let mut staged = handshake::Staged::new();
         match self
             .gossip_inner(Intent::Retire, &mut staged, read, write)
             .await
@@ -296,7 +295,7 @@ impl<T, B: Persist<M>, M: Mode> Peer<T, B, M> {
         R: AsyncRead + Unpin + Send,
         W: AsyncWrite + Unpin + Send,
     {
-        let mut staged = remote::Staged::new();
+        let mut staged = handshake::Staged::new();
         self.gossip_inner(Intent::Remain, &mut staged, read, write)
             .await
             .1
@@ -410,7 +409,7 @@ impl<T, B: Persist<M>, M: Mode> Peer<T, B, M> {
     async fn gossip_inner<'a, R, W>(
         &self,
         intent: Intent,
-        staged: &mut remote::Staged,
+        staged: &mut handshake::Staged,
         read: &'a mut R,
         write: &'a mut W,
     ) -> (Intent, Result<Version, Error<B>>)
@@ -421,16 +420,15 @@ impl<T, B: Persist<M>, M: Mode> Peer<T, B, M> {
     {
         // Magic/version preamble: reject a non-rumors or incompatible peer
         // before the framing trusts any peer-supplied frame length.
-        let mut reader = remote::FrameRead::new(read);
-        let mut writer = remote::FrameWrite::new(write);
-        let (remote_network, remote_intent) =
-            match remote::preamble(self.network, intent, staged, &mut reader, &mut writer).await {
-                Err(e) => return (Intent::Remain, Err(e.widen())),
-                Ok(output) => output,
-            };
-        let peer_bootstrapping = remote_network.is_bootstrap();
+        let remote = match handshake::preamble(self.network, intent, staged, read, write).await {
+            Err(error) => return (Intent::Remain, Err(remote::Error::from(error).widen())),
+            Ok(remote) => remote,
+        };
+        let reader = remote::FrameRead::new(read);
+        let writer = remote::FrameWrite::new(write);
+        let peer_bootstrapping = remote.network.is_bootstrap();
         let self_retiring = intent == Intent::Retire;
-        let peer_retiring = remote_intent == Intent::Retire;
+        let peer_retiring = remote.intent == Intent::Retire;
 
         // Stop cleanly, early if we're both trying to retire into each other
         if self_retiring && peer_retiring {
@@ -497,11 +495,11 @@ impl<T, B: Persist<M>, M: Mode> Peer<T, B, M> {
         };
 
         // Abort if the networks mismatch
-        if !peer_bootstrapping && remote_network != self.network {
+        if !peer_bootstrapping && remote.network != self.network {
             return (
                 Intent::Remain,
                 Err(Error::NetworkMismatch {
-                    remote_network,
+                    remote_network: remote.network,
                     remote_min_events: handshaken.peer().version.min_ticks(),
                 }),
             );
@@ -651,7 +649,7 @@ impl<T, B: Bookmark> Peer<T, B, Async> {
             read,
             write,
             when: Box::pin(when),
-            staged: remote::Staged::new(),
+            staged: handshake::Staged::new(),
             converged: None,
             done: false,
         };
@@ -671,23 +669,22 @@ impl<T, B: Bookmark> Peer<T, B, Async> {
                     // The staging buffer keeps the arrival's progress outside
                     // the racing futures, so the losing arm loses no bytes.
                     let trigger = {
-                        let mut reader = remote::FrameRead::new(&mut *drive.read);
                         tokio::select! {
-                            arrival = drive.staged.fill(&mut reader) => Trigger::Arrival(arrival),
+                            arrival = drive.staged.fill(&mut *drive.read) => Trigger::Arrival(arrival),
                             tick = drive.when.next() => Trigger::Tick(tick),
                         }
                     };
                     let led = match trigger {
                         Trigger::Arrival(Err(e)) => {
                             drive.done = true;
-                            return Some((Err(e.widen()), drive));
+                            return Some((Err(remote::Error::from(e).widen()), drive));
                         }
                         // A hang-up on an idle boundary — not one preamble byte
                         // arrived — is the peer's clean goodbye: end in kind.
                         // (Returning `None` is itself the unfold's terminal
                         // state; no latch needed on paths that end here.)
-                        Trigger::Arrival(Ok(remote::Fill::Closed)) => return None,
-                        Trigger::Arrival(Ok(remote::Fill::Filled)) => Led::Remote,
+                        Trigger::Arrival(Ok(handshake::Fill::Closed)) => return None,
+                        Trigger::Arrival(Ok(handshake::Fill::Filled)) => Led::Remote,
                         // The `when` stream is exhausted: end — after honoring
                         // a remote initiation already on the wire, whose bytes
                         // we may have consumed into the staging buffer.
@@ -727,7 +724,7 @@ impl<T, B: Bookmark> Peer<T, B, Async> {
                             // Re-arm for the next session: a fresh staging
                             // buffer (this preamble is consumed) and the new
                             // suppression token.
-                            drive.staged = remote::Staged::new();
+                            drive.staged = handshake::Staged::new();
                             drive.converged = Some(converged.clone());
                             Some((Ok(Gossiped { converged, led }), drive))
                         }
@@ -748,7 +745,7 @@ impl<T, B: Bookmark> Peer<T, B, Async> {
 /// Materialized so the racing borrows end before the session consumes the
 /// driver's transport halves.
 enum Trigger {
-    Arrival(Result<remote::Fill, Error>),
+    Arrival(Result<handshake::Fill, handshake::Error>),
     Tick(Option<()>),
 }
 
@@ -760,7 +757,7 @@ struct Drive<'a, T, B: BookmarkError, R, W, S> {
     read: &'a mut R,
     write: &'a mut W,
     when: Pin<Box<S>>,
-    staged: remote::Staged,
+    staged: handshake::Staged,
     /// The frontier this connection last converged on: a tick initiates
     /// only once the local frontier differs. `None` until the first
     /// session, so a fresh driver's first tick always initiates (the

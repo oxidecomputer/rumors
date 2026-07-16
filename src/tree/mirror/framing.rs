@@ -17,8 +17,6 @@
 //! socket can wrap it in [`tokio::io::BufReader`]; caller-owned buffering is
 //! safe because it outlives a session and rides into the next one.
 
-use std::{pin::Pin, task::Poll};
-
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 /// Bytes occupied by the big-endian `u32` payload-length header.
@@ -70,49 +68,6 @@ impl<R: AsyncRead + Unpin> FrameRead<R> {
         self.read.read_exact(&mut payload).await?;
         Ok(payload)
     }
-
-    /// Drive `buf` toward full from the stream, *cancel-safely*.
-    ///
-    /// All progress lives in (`buf`, `filled`), none in the returned future, so
-    /// a dropped future can resume on a later call. Resolves [`Fill::Closed`]
-    /// only if the stream ends before the first byte; EOF after any progress is
-    /// a truncated frame.
-    pub async fn fill_exact(
-        &mut self,
-        buf: &mut [u8],
-        filled: &mut usize,
-    ) -> std::io::Result<Fill> {
-        std::future::poll_fn(|cx| {
-            while *filled < buf.len() {
-                let mut chunk = tokio::io::ReadBuf::new(&mut buf[*filled..]);
-                match Pin::new(&mut self.read).poll_read(cx, &mut chunk) {
-                    Poll::Pending => return Poll::Pending,
-                    Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
-                    Poll::Ready(Ok(())) => match chunk.filled().len() {
-                        0 if *filled == 0 => return Poll::Ready(Ok(Fill::Closed)),
-                        0 => {
-                            return Poll::Ready(Err(std::io::Error::new(
-                                std::io::ErrorKind::UnexpectedEof,
-                                "peer closed mid-frame",
-                            )));
-                        }
-                        n => *filled += n,
-                    },
-                }
-            }
-            Poll::Ready(Ok(Fill::Filled))
-        })
-        .await
-    }
-}
-
-/// How a [`fill_exact`](FrameRead::fill_exact) drive ended.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Fill {
-    /// The buffer is full.
-    Filled,
-    /// The stream ended cleanly before the first byte of the buffer.
-    Closed,
 }
 
 /// The write half of a session's transport, shipping one frame at a time.

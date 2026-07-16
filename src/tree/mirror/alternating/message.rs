@@ -87,39 +87,6 @@ mod tests;
 /// receiver inserts each node directly at its named prefix.
 pub type Providing<T, H> = Vec<(Prefix<H>, Node<T, H>)>;
 
-/// A peer's declared session intent, carried in its [`Handshake`] greeting.
-///
-/// This is strictly about the *party hand-off*: it tells the receiver whether
-/// a trailing party frame will follow reconciliation. (Bootstrapping is the
-/// other special intent, but it is signalled by the placeholder
-/// [`Network::BOOTSTRAP`](crate::network::Network::BOOTSTRAP), not here: a
-/// bootstrapper participates in an ordinary session and *receives* a party,
-/// so it greets with [`Remain`].)
-///
-/// On the wire it is a borsh unit-enum: a single `u8` tag, `0x00` for
-/// [`Remain`] and `0x01` for [`Retire`].
-///
-/// [`Remain`]: Intent::Remain
-/// [`Retire`]: Intent::Retire
-#[derive(Debug, Clone, Copy, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub enum Intent {
-    /// The sender stays in (or, bootstrapping, joins) the universe: no party
-    /// will be handed over. Ordinary gossip and bootstrap greet with this.
-    Remain,
-    /// The sender is retiring: once reconciliation completes, it will ship its
-    /// party as a single trailing frame for the receiver to absorb (see
-    /// [`Peer::retire`](crate::Peer::retire)).
-    Retire,
-}
-
-impl Intent {
-    /// True iff this is a [`Retire`](Intent::Retire) greeting: the sender will
-    /// hand its party over after reconciliation.
-    pub fn retiring(self) -> bool {
-        self == Intent::Retire
-    }
-}
-
 /// The opening message of every session, exchanged by the `connect`/`accept`
 /// steps. It carries the sender's causal [`Version`].
 ///

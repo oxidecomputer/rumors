@@ -188,11 +188,11 @@
 //!
 //! # Wire compatibility
 //!
-//! Every session opens with a fixed-size preamble frame carrying
-//! [`PROTOCOL_MAGIC`] and [`PROTOCOL_VERSION`]; a counterparty that is not
-//! speaking `rumors`, or speaks an incompatible version, is rejected before any
-//! peer-declared frame length is trusted ([`Error::MagicMismatch`],
-//! [`Error::VersionMismatch`]).
+//! Every session opens with a fixed 25-byte preamble carrying
+//! [`PROTOCOL_MAGIC`], [`PROTOCOL_VERSION`], the network, and session intent.
+//! A counterparty that is not speaking `rumors`, or speaks an incompatible
+//! version, is rejected before any peer-declared frame length is trusted
+//! ([`Error::MagicMismatch`], [`Error::VersionMismatch`]).
 //!
 //! # Stability and testing
 //!

@@ -81,13 +81,9 @@ mod partition;
 /// The version state for an [`Exchange`] which has just been initialized but
 /// has not yet connected.
 ///
-/// Carries the fields the [`Connect`](protocol::Connect) /
-/// [`Accept`](protocol::Accept) step needs to build its outgoing
-/// [`message::Handshake`]: our universe [`Network`](crate::Network), our
-/// latest [`Version`], and
-/// our [`Intent`](message::Intent) ([`Retire`](message::Intent::Retire) iff we
-/// will hand the peer our party in a trailing frame once reconciliation
-/// completes).
+/// Carries the latest [`Version`] needed to build the outgoing
+/// [`message::Handshake`]. Network and intent have already crossed in the
+/// shared fixed preamble before this state is constructed.
 pub struct Start {
     our_version: Version,
 }

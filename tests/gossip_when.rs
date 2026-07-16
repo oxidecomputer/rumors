@@ -650,12 +650,9 @@ async fn truncated_initiation_is_a_terminal_error() {
 
     let mut a_sessions = a.gossip_when(stream::pending::<()>(), &mut a_r, &mut a_w);
 
-    // Four bytes of a preamble frame, then hang up mid-frame. (The whole
+    // Four bytes of a preamble, then hang up mid-preamble. (The whole
     // unsplit side drops, so the duplex signals end-of-stream.)
-    b_side
-        .write_all(&[0, 0, 0, 25])
-        .await
-        .expect("partial write");
+    b_side.write_all(b"RUMO").await.expect("partial write");
     drop(b_side);
 
     let item = timeout(DEADLINE, a_sessions.next())

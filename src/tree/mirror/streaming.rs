@@ -5,6 +5,11 @@
 //! around the version exchange); implementors backed by trees start with
 //! either [`materialized::Handshaking::start`] or
 //! [`remote::Handshaking::start`].
+//!
+//! On a wire connection, the peer-level driver first exchanges the shared
+//! fixed [`super::handshake`] preamble. Network and intent therefore resolve
+//! before the atomic tree snapshot/party fork; this module begins with the
+//! subsequent causal-version handshake, exactly as [`super::alternating`] does.
 
 // TODO: remove this when integrated
 #![allow(dead_code, unused_imports)]

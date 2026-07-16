@@ -26,13 +26,7 @@ use crate::{
     },
 };
 
-// The initial handshake message:
-
-pub enum Intent {
-    Remain,
-    Retire,
-}
-
+/// The version greeting exchanged after the fixed transport preamble.
 pub struct Handshake {
     pub version: Version,
 }
