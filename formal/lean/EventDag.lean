@@ -790,6 +790,8 @@ def runFuzz (n : Nat) : Array String := Id.run do
         let vErrs := validateSchedule sk cand
         if !vErrs.isEmpty then
           errs := errs.push s!"seed {seed}: candidate invalid ({vErrs.size} errors, first: {vErrs[0]!})"
+        else if Sched.schedule sk != cand.toList then
+          errs := errs.push s!"seed {seed}: Proofs/Sched.lean transcription diverges from candidate"
         else
           let (stuckAt, term) := replaySchedule sk cand
           if let some i := stuckAt then
@@ -882,6 +884,16 @@ def runAll (outDir : System.FilePath) : IO Bool := do
       for e in cErrs.toSubarray 0 (min cErrs.size 20) do
         IO.println s!"  CANDIDATE INVALID: {e}"
     IO.println s!"  candidate schedule: {cand.size} events, valid: {cErrs.isEmpty}"
+    -- transcription coherence: the proof layer's fold-and-fuel form
+    -- (Proofs/Sched.lean) must reproduce the candidate exactly
+    let schedF := Sched.schedule sk
+    if schedF != cand.toList then
+      allOk := false
+      match (schedF.zip cand.toList).findIdx? (fun (a, b) => a != b) with
+      | some i => IO.println s!"  TRANSCRIPTION DIVERGES at index {i}: Sched {evStr (schedF[i]!)} vs candidate {evStr cand[i]!}"
+      | none => IO.println s!"  TRANSCRIPTION DIVERGES in length: Sched {schedF.length} vs candidate {cand.size}"
+    else
+      IO.println "  Proofs/Sched.lean transcription matches the candidate: OK"
     -- replay: the candidate must be a genuine model run to terminal
     -- (guards adjudicate every ordering; E3 completeness check)
     let (stuckAt, term) := replaySchedule sk cand
