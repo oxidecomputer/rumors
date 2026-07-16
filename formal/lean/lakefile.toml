@@ -9,3 +9,11 @@ rev = "v4.32.0"
 
 [[lean_lib]]
 name = "StreamingMirror"
+
+# Analysis control, not part of the library: enumerates the event
+# dependency DAG per pinned skeleton, checks acyclicity, dumps
+# longest-path depths (the progress lemma's schedule oracle).
+# Run: lake exe eventdag [outDir]
+[[lean_exe]]
+name = "eventdag"
+root = "EventDag"

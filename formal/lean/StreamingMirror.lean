@@ -14,3 +14,5 @@ import StreamingMirror.Proofs.Preserve.WalkFire
 import StreamingMirror.Proofs.Preserve.Asm
 import StreamingMirror.Proofs.Preserve.AbsorbFin
 import StreamingMirror.Proofs.Preserve
+import StreamingMirror.Proofs.Counting
+import StreamingMirror.Proofs.Progress
