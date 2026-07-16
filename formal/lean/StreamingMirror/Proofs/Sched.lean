@@ -214,11 +214,323 @@ def mergeN : Nat → MState → MState
 /-- The whole event set's size — the merge's sufficient fuel. -/
 def totalEvents : Nat := ((procs sk).map List.length).sum
 
-/-- The canonical schedule: the merge run to fixpoint from empty
-counters. τ(e) = index in this list. Kept event-for-event equal to
-`EventDag.schedCandidate` by the eventdag gate. -/
-def schedule : List Ev :=
-  (mergeN sk (totalEvents sk)
-    ⟨[], fun _ => 0, fun _ => 0, procs sk⟩).out
+/-- The merge's final state: run to fixpoint from empty counters
+(total-event fuel; each step emits one event, so the fixpoint is
+reached). The lemmas below speak about this state — in particular its
+`rem`, the traces' unemitted suffixes, which completeness must show
+empty. -/
+def finalState : MState :=
+  mergeN sk (totalEvents sk) ⟨[], fun _ => 0, fun _ => 0, procs sk⟩
+
+/-- The canonical schedule: the final state's output. τ(e) = index in
+this list. Kept event-for-event equal to `EventDag.schedCandidate` by
+the eventdag gate. -/
+def schedule : List Ev := (finalState sk).out
+
+
+-- ================================== the by-construction lemmas (§5)
+-- Everything below is generic over the trace list `procs₀`: none of it
+-- looks inside a trace, so it holds for ANY merge input. The
+-- trace-structure layer (canonical per-channel seq numbering) and
+-- merge completeness are the separate, later obligations.
+
+/-- Pointwise relation between two lists (batteries ships no
+`Forall₂`; this is the fragment the merge invariant needs). -/
+inductive Forall2 {α β : Type _} (R : α → β → Prop) : List α → List β → Prop
+  | nil : Forall2 R [] []
+  | cons {a la b lb} : R a b → Forall2 R la lb → Forall2 R (a :: la) (b :: lb)
+
+/-- A reflexive-shaped instance: relate every element to itself. -/
+theorem Forall2.self {α : Type _} {R : α → α → Prop} :
+    ∀ {l : List α}, (∀ a ∈ l, R a a) → Forall2 R l l
+  | [], _ => .nil
+  | a :: _, h =>
+      .cons (h a (List.mem_cons_self ..))
+        (Forall2.self fun x hx => h x (List.mem_cons_of_mem a hx))
+
+/-- Weaken the relation pointwise. -/
+theorem Forall2.imp {α β : Type _} {R S : α → β → Prop}
+    (h : ∀ a b, R a b → S a b) :
+    ∀ {la : List α} {lb : List β}, Forall2 R la lb → Forall2 S la lb
+  | _, _, .nil => .nil
+  | _, _, .cons hab t => .cons (h _ _ hab) (t.imp h)
+
+/-- Every left element has a related right partner. -/
+theorem Forall2.exists_of_mem_left {α β : Type _} {R : α → β → Prop} :
+    ∀ {la : List α} {lb : List β}, Forall2 R la lb → ∀ {a}, a ∈ la →
+      ∃ b ∈ lb, R a b
+  | _, _, .cons hab t, a, ha => by
+      rcases List.mem_cons.1 ha with rfl | ha'
+      · exact ⟨_, List.mem_cons_self .., hab⟩
+      · obtain ⟨b, hb, hr⟩ := t.exists_of_mem_left ha'
+        exact ⟨b, List.mem_cons_of_mem _ hb, hr⟩
+
+/-- Taking at most the left part of an append never sees the right. -/
+private theorem take_append_le {α : Type _} :
+    ∀ (n : Nat) (l₁ l₂ : List α), n ≤ l₁.length →
+      (l₁ ++ l₂).take n = l₁.take n
+  | 0, _, _, _ => by simp
+  | n + 1, [], _, h => by simp at h
+  | n + 1, a :: l₁, l₂, h => by
+      simp only [List.cons_append, List.take_succ_cons]
+      rw [take_append_le n l₁ l₂ (by simpa using h)]
+
+/-- Taking exactly the left part of an append recovers it. -/
+private theorem take_len_append {α : Type _} (l₁ l₂ : List α) :
+    (l₁ ++ l₂).take l₁.length = l₁ := by
+  rw [take_append_le _ _ _ (Nat.le_refl _), List.take_length]
+
+/-- Sends on `c` in a prefix — the count the E1 guard consults. -/
+def sndCount (c : Chan) (l : List Ev) : Nat :=
+  (l.filter fun e => decide (e.1 = c) && e.2.1).length
+
+/-- Receives on `c` in a prefix — the count the E2 guard consults. -/
+def rcvCount (c : Chan) (l : List Ev) : Nat :=
+  (l.filter fun e => decide (e.1 = c) && !e.2.1).length
+
+/-- Appending a send bumps its own channel's send count and nothing
+else. -/
+theorem sndCount_append_snd (c c' : Chan) (l : List Ev) (n : Nat) :
+    sndCount c' (l ++ [(c, true, n)])
+      = sndCount c' l + (if c' = c then 1 else 0) := by
+  by_cases h : c' = c
+  · subst h; simp [sndCount, List.filter_append]
+  · have h' : ¬(c = c') := fun hh => h hh.symm
+    simp [sndCount, List.filter_append, h, h']
+
+theorem rcvCount_append_snd (c c' : Chan) (l : List Ev) (n : Nat) :
+    rcvCount c' (l ++ [(c, true, n)]) = rcvCount c' l := by
+  simp [rcvCount, List.filter_append]
+
+theorem sndCount_append_rcv (c c' : Chan) (l : List Ev) (n : Nat) :
+    sndCount c' (l ++ [(c, false, n)]) = sndCount c' l := by
+  simp [sndCount, List.filter_append]
+
+theorem rcvCount_append_rcv (c c' : Chan) (l : List Ev) (n : Nat) :
+    rcvCount c' (l ++ [(c, false, n)])
+      = rcvCount c' l + (if c' = c then 1 else 0) := by
+  by_cases h : c' = c
+  · subst h; simp [rcvCount, List.filter_append]
+  · have h' : ¬(c = c') := fun hh => h hh.symm
+    simp [rcvCount, List.filter_append, h, h']
+
+/-- The merge invariant, relative to the original trace list.
+
+`rem_struct` is trace monotonicity in structural form: each trace is
+its emitted prefix (an in-order subsequence of `out`) plus its
+remaining suffix — no event-distinctness assumption anywhere.
+`e1_hist`/`e2_hist` are edge-respect in positional form: at the index
+where a receive (send) sits, its guard's count inequality held over
+the strict prefix — exactly the τ-indexed facts the §6 blame lemmas
+consume. -/
+structure MInv (procs₀ : List (List Ev)) (st : MState) : Prop where
+  rem_struct : Forall2
+    (fun t r => ∃ pre, t = pre ++ r ∧ pre.Sublist st.out) procs₀ st.rem
+  sent_eq : ∀ c, st.sent c = sndCount c st.out
+  rcvd_eq : ∀ c, st.rcvd c = rcvCount c st.out
+  e1_hist : ∀ k c n, st.out[k]? = some (c, false, n) →
+    n < sndCount c (st.out.take k)
+  e2_hist : ∀ k c n, st.out[k]? = some (c, true, n) →
+    n < rcvCount c (st.out.take k) + sk.cap c
+
+/-- The initial merge state satisfies the invariant. -/
+theorem minv_init (procs₀ : List (List Ev)) :
+    MInv sk procs₀ ⟨[], fun _ => 0, fun _ => 0, procs₀⟩ := by
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩
+  · exact Forall2.self fun t _ => ⟨[], rfl, List.nil_sublist _⟩
+  · intro c; rfl
+  · intro c; rfl
+  · intro k c n h; simp at h
+  · intro k c n h; simp at h
+
+/-- What one successful `scan` does to the suffix structure: the
+emitted event is some trace's enabled head, that trace advances by
+one, and every emitted prefix stays a sublist of the grown output. -/
+theorem scan_step (out : List Ev) (sent rcvd : Chan → Nat)
+    {procs₀ ts ts' : List (List Ev)} {e : Ev}
+    (hrs : Forall2
+      (fun t r => ∃ pre, t = pre ++ r ∧ pre.Sublist out) procs₀ ts)
+    (hscan : scan sk sent rcvd ts = some (e, ts')) :
+    enabled sk sent rcvd e = true ∧
+    Forall2
+      (fun t r => ∃ pre, t = pre ++ r ∧ pre.Sublist (out ++ [e]))
+      procs₀ ts' := by
+  induction ts generalizing procs₀ ts' with
+  | nil => cases hrs; simp [scan] at hscan
+  | cons t₀ ts₁ ih =>
+      cases hrs with
+      | cons hpair htail =>
+        obtain ⟨pre, hpre, hsub⟩ := hpair
+        match t₀ with
+        | [] =>
+            cases hrec : scan sk sent rcvd ts₁ with
+            | none => rw [scan, hrec] at hscan; simp at hscan
+            | some pr =>
+                obtain ⟨e', ts₁'⟩ := pr
+                rw [scan, hrec] at hscan
+                simp only [Option.map] at hscan
+                cases hscan
+                obtain ⟨hen, hrest⟩ := ih htail hrec
+                exact ⟨hen, .cons
+                  ⟨pre, hpre, hsub.trans (List.sublist_append_left ..)⟩
+                  hrest⟩
+        | ev :: rest =>
+            by_cases hen : enabled sk sent rcvd ev = true
+            · rw [scan, if_pos hen] at hscan
+              cases hscan
+              refine ⟨hen, .cons ⟨pre ++ [e], by simp [hpre], ?_⟩ ?_⟩
+              · exact hsub.append (List.Sublist.refl [e])
+              · exact htail.imp fun t r ⟨pre', h', hs'⟩ =>
+                  ⟨pre', h', hs'.trans (List.sublist_append_left ..)⟩
+            · cases hrec : scan sk sent rcvd ts₁ with
+              | none =>
+                  rw [scan, if_neg hen, hrec] at hscan; simp at hscan
+              | some pr =>
+                  obtain ⟨e', ts₁'⟩ := pr
+                  rw [scan, if_neg hen, hrec] at hscan
+                  simp only [Option.map] at hscan
+                  cases hscan
+                  obtain ⟨hen', hrest⟩ := ih htail hrec
+                  exact ⟨hen', .cons
+                    ⟨pre, hpre, hsub.trans (List.sublist_append_left ..)⟩
+                    hrest⟩
+
+/-- One merge step preserves the invariant. -/
+theorem step_preserves {procs₀ : List (List Ev)} {st st' : MState}
+    (hinv : MInv sk procs₀ st) (hstep : step sk st = some st') :
+    MInv sk procs₀ st' := by
+  unfold step at hstep
+  cases hscan : scan sk st.sent st.rcvd st.rem with
+  | none => rw [hscan] at hstep; simp at hstep
+  | some pr =>
+    obtain ⟨e, rem'⟩ := pr
+    rw [hscan] at hstep
+    simp only [Option.map] at hstep
+    obtain ⟨hen, hrs'⟩ := scan_step sk st.out st.sent st.rcvd
+      hinv.rem_struct hscan
+    obtain ⟨c, sd, n⟩ := e
+    cases sd with
+    | true =>
+        cases hstep
+        refine ⟨hrs', ?_, ?_, ?_, ?_⟩
+        · intro c'
+          rw [sndCount_append_snd]
+          by_cases h : c' = c <;> simp [h, hinv.sent_eq]
+        · intro c'
+          rw [rcvCount_append_snd]
+          exact hinv.rcvd_eq c'
+        · intro k c' n' hk
+          rcases Nat.lt_or_ge k st.out.length with hlt | hge
+          · rw [List.getElem?_append_left hlt] at hk
+            rw [take_append_le _ _ _ (Nat.le_of_lt hlt)]
+            exact hinv.e1_hist k c' n' hk
+          · rw [List.getElem?_append_right hge] at hk
+            cases hm : k - st.out.length with
+            | zero => rw [hm] at hk; simp at hk
+            | succ m => rw [hm] at hk; simp at hk
+        · intro k c' n' hk
+          rcases Nat.lt_or_ge k st.out.length with hlt | hge
+          · rw [List.getElem?_append_left hlt] at hk
+            rw [take_append_le _ _ _ (Nat.le_of_lt hlt)]
+            exact hinv.e2_hist k c' n' hk
+          · rw [List.getElem?_append_right hge] at hk
+            cases hm : k - st.out.length with
+            | zero =>
+                rw [hm] at hk
+                simp only [List.getElem?_cons_zero, Option.some.injEq,
+                  Prod.mk.injEq] at hk
+                obtain ⟨hc, -, hn⟩ := hk
+                subst hc hn
+                have hkl : k = st.out.length := by omega
+                subst hkl
+                rw [take_len_append]
+                have hcnt := hinv.rcvd_eq c
+                simp only [enabled, decide_eq_true_eq] at hen
+                omega
+            | succ m => rw [hm] at hk; simp at hk
+    | false =>
+        cases hstep
+        refine ⟨hrs', ?_, ?_, ?_, ?_⟩
+        · intro c'
+          rw [sndCount_append_rcv]
+          exact hinv.sent_eq c'
+        · intro c'
+          rw [rcvCount_append_rcv]
+          by_cases h : c' = c <;> simp [h, hinv.rcvd_eq]
+        · intro k c' n' hk
+          rcases Nat.lt_or_ge k st.out.length with hlt | hge
+          · rw [List.getElem?_append_left hlt] at hk
+            rw [take_append_le _ _ _ (Nat.le_of_lt hlt)]
+            exact hinv.e1_hist k c' n' hk
+          · rw [List.getElem?_append_right hge] at hk
+            cases hm : k - st.out.length with
+            | zero =>
+                rw [hm] at hk
+                simp only [List.getElem?_cons_zero, Option.some.injEq,
+                  Prod.mk.injEq] at hk
+                obtain ⟨hc, -, hn⟩ := hk
+                subst hc hn
+                have hkl : k = st.out.length := by omega
+                subst hkl
+                rw [take_len_append]
+                have hcnt := hinv.sent_eq c
+                simp only [enabled, decide_eq_true_eq] at hen
+                omega
+            | succ m => rw [hm] at hk; simp at hk
+        · intro k c' n' hk
+          rcases Nat.lt_or_ge k st.out.length with hlt | hge
+          · rw [List.getElem?_append_left hlt] at hk
+            rw [take_append_le _ _ _ (Nat.le_of_lt hlt)]
+            exact hinv.e2_hist k c' n' hk
+          · rw [List.getElem?_append_right hge] at hk
+            cases hm : k - st.out.length with
+            | zero => rw [hm] at hk; simp at hk
+            | succ m => rw [hm] at hk; simp at hk
+
+/-- The invariant survives any amount of fuel. -/
+theorem mergeN_preserves {procs₀ : List (List Ev)} (fuel : Nat)
+    {st : MState} (hinv : MInv sk procs₀ st) :
+    MInv sk procs₀ (mergeN sk fuel st) := by
+  induction fuel generalizing st with
+  | zero => exact hinv
+  | succ f ih =>
+      unfold mergeN
+      cases hstep : step sk st with
+      | some st' => exact ih (step_preserves sk hinv hstep)
+      | none => exact hinv
+
+/-- The invariant at the merge's final state. -/
+theorem schedule_inv : MInv sk (procs sk) (finalState sk) :=
+  mergeN_preserves sk _ (minv_init sk (procs sk))
+
+-- ============================== the corollaries the blame lemmas use
+
+/-- Trace monotonicity, pinned to the final remainder: each trace is
+its emitted prefix — an in-order subsequence of the schedule, so τ is
+monotone along it — plus its ACTUAL unemitted suffix,
+`(finalState sk).rem`. Do not weaken the remainder to an existential:
+with the suffix unconstrained the split is trivially satisfiable at
+`pre = []`. Completeness (open, needs `Skel.schedulable`) is the claim
+that every remainder is empty, which specializes this to "every trace
+is a sublist of the schedule". -/
+theorem trace_monotone :
+    Forall2 (fun t r => ∃ pre, t = pre ++ r ∧ pre.Sublist (schedule sk))
+      (procs sk) (finalState sk).rem :=
+  (schedule_inv sk).rem_struct
+
+/-- E1-respect, counted: at every receive's position, strictly more
+sends than its seq have already happened on its channel. (The
+canonical per-channel numbering of the traces — the next layer — turns
+this into "`snd(c,n)` precedes `rcv(c,n)`".) -/
+theorem schedule_e1 (k : Nat) (c : Chan) (n : Nat)
+    (h : (schedule sk)[k]? = some (c, false, n)) :
+    n < sndCount c ((schedule sk).take k) :=
+  (schedule_inv sk).e1_hist k c n h
+
+/-- E2-respect, counted: every send fires into an open cap window. -/
+theorem schedule_e2 (k : Nat) (c : Chan) (n : Nat)
+    (h : (schedule sk)[k]? = some (c, true, n)) :
+    n < rcvCount c ((schedule sk).take k) + sk.cap c :=
+  (schedule_inv sk).e2_hist k c n h
 
 end StreamingMirror.Sched
