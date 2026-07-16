@@ -16,7 +16,7 @@ transcription; see `EventDag.weaveOrder`):
   That matches the cap-1 asked channel's E2 exactly — a query fires
   only after the previous scope of the consuming stage has received
   its own — and preserves the ISSUER's trace order, because the
-  recursion returns before the issuer's next chunk begins.
+  subtree is woven before the issuer's next chunk begins.
 - **Greedy pumps.** The linear traces (absorb, the asm towers, the
   floating `rootret` receive, fins) live in the weave state's `rem`
   and drain by `mergeN` — the SAME priority merge the schedule uses,
@@ -29,6 +29,15 @@ emission points are proven open, which is precisely where
 `Skel.schedulable` enters the completeness proof), and the pump is a
 `mergeN` run, so the whole `MInv` layer (provenance, canon, trace
 monotonicity) applies to weave states unchanged.
+
+The recursion itself is a fuel-indexed WORKLIST interpreter
+(`weaveGo`), not a well-founded mutual recursion: structural fuel
+keeps the definition kernel-reducible (the `decide` anchors below need
+iota, which `WellFounded.fix` does not provide) and gives the validity
+proofs one induction principle, `mergeN`-style. A `.scope` op expands
+to its prologue emissions and per-kid ops; a `.kid` op expands to the
+chunk emissions, the kid's feed query, and the kid's `.scope` op —
+worklist order IS emission order.
 
 # Relation to the schedule
 
@@ -72,69 +81,69 @@ def wPump (st : MState) : MState :=
 def wEmitP (st : MState) (e : Ev) : MState :=
   wPump sk (wEmit st e)
 
-/-- Emit a feed entry if present (`none` past the end is inert; feeds
-are sized one query per kid by the BFS alignment). -/
-def wFeed (st : MState) (feed : List Ev) (i : Nat) : MState :=
-  match feed[i]? with
-  | some q => wEmitP sk st q
-  | none => st
+/-- One weave instruction: emit an event, weave a scope, or weave one
+kid of a scope (`s`/`lastD`/`kidBase` are the scope's data, computed
+once at `.scope` expansion). -/
+inductive WOp
+  | emit (e : Ev)
+  | scope (h k : Nat) (feed : List Ev)
+  | kid (h k s : Nat) (lastD : Option Nat) (kidBase i : Nat) (feed : List Ev)
 
-mutual
-
-/-- The descent weave for scope `k` of stage `h`: the two-receive
-prologue, the parent summary when nothing disputes (the §5 splice puts
-it first), then the kids.
-
-`feed[i]` is the query event for kid `i`, owned by this scope's
-PARENT's trace and emitted here one per kid, in order. -/
-def weaveScope (h k : Nat) (feed : List Ev) (st : MState) : MState :=
+/-- Expand a `.scope` op: the two-receive prologue, the parent summary
+when nothing disputes (the §5 splice puts it first), then the kids. -/
+def wScopeOps (h k : Nat) (feed : List Ev) : List WOp :=
   let pk : Party × Nat := (if h % 2 == 1 then Party.I else Party.R, h)
-  let st := wEmitP sk st (wireIn pk, false, k)
-  let st := wEmitP sk st (askedIn pk, false, k)
   let s := sk.stageScope h k
   let n := sk.nChildren h s
   let lastD := ((List.range n).filter (fun i => sk.childIsD h s i)).getLast?
-  let st := if lastD == none then wEmitP sk st (upperOut pk, true, k) else st
   let kidBase := (List.range k).foldl
     (fun a k' => a + sk.nChildren h (sk.stageScope h k')) 0
-  weaveKids h k (List.range n) feed st (s := s) (lastD := lastD)
-    (kidBase := kidBase)
-termination_by (h, 1, 0)
+  [WOp.emit (wireIn pk, false, k), WOp.emit (askedIn pk, false, k)]
+    ++ (if lastD == none then [WOp.emit (upperOut pk, true, k)] else [])
+    ++ (List.range n).map fun i => WOp.kid h k s lastD kidBase i feed
 
-/-- One kid at a time: the wire; for a D kid the resolution, the
+/-- Expand a `.kid` op: the wire; for a D kid the resolution, the
 parent summary when this kid closes the dispute list, the kid's feed
-query, and the recursive descent with this scope's chunk queries as
-the kid's feed; for a W kid (or a leaf slot at `h = 0`) the feed query
-and — off the leaf stage — the descent of an undisputed subtree. -/
-def weaveKids (h k : Nat) (kids : List Nat) (feed : List Ev) (st : MState)
-    (s : Nat) (lastD : Option Nat) (kidBase : Nat) : MState :=
-  match kids with
-  | [] => st
-  | i :: rest =>
-      let pk : Party × Nat := (if h % 2 == 1 then Party.I else Party.R, h)
-      let st := wEmitP sk st (wireOut pk, true, sk.wiresBefore h k + i)
-      let st :=
-        if sk.childIsD h s i then
-          let dRank := ((List.range i).filter (fun i' => sk.childIsD h s i')).length
-          let st := wEmitP sk st (lowerOut pk, true, sk.dsBefore h k + dRank)
-          let st := if lastD == some i then
-            wEmitP sk st (upperOut pk, true, k) else st
-          if h = 0 then st  -- childIsD is hard-false at the leaf stage
-          else
-            let qBase := sk.qsBefore h k
-              + ((List.range i).map (fun i' => sk.qCount h s i')).sum
-            let myQ := (List.range (sk.qCount h s i)).map fun t =>
-              ((askedOut pk, true, qBase + t) : Ev)
-            let st := wFeed sk st feed i
-            weaveScope (h - 1) (kidBase + i) myQ st
-        else
-          let st := wFeed sk st feed i
-          if h = 0 then st
-          else weaveScope (h - 1) (kidBase + i) [] st
-      weaveKids h k rest feed st (s := s) (lastD := lastD) (kidBase := kidBase)
-termination_by (h, 0, kids.length)
+query, and the kid's `.scope` op with this scope's chunk queries as
+its feed; for a W kid (or a leaf slot at `h = 0`) the feed query and —
+off the leaf stage — the `.scope` op of an undisputed subtree. -/
+def wKidOps (h k s : Nat) (lastD : Option Nat) (kidBase i : Nat)
+    (feed : List Ev) : List WOp :=
+  let pk : Party × Nat := (if h % 2 == 1 then Party.I else Party.R, h)
+  let feedOp := match feed[i]? with
+    | some q => [WOp.emit q]
+    | none => []
+  [WOp.emit (wireOut pk, true, sk.wiresBefore h k + i)]
+    ++ if sk.childIsD h s i then
+        let dRank := ((List.range i).filter (fun i' => sk.childIsD h s i')).length
+        let qBase := sk.qsBefore h k
+          + ((List.range i).map (fun i' => sk.qCount h s i')).sum
+        let myQ := (List.range (sk.qCount h s i)).map fun t =>
+          ((askedOut pk, true, qBase + t) : Ev)
+        [WOp.emit (lowerOut pk, true, sk.dsBefore h k + dRank)]
+          ++ (if lastD == some i then [WOp.emit (upperOut pk, true, k)] else [])
+          -- childIsD is hard-false at the leaf stage, so h ≥ 1 here
+          ++ feedOp ++ [WOp.scope (h - 1) (kidBase + i) myQ]
+      else
+        feedOp ++ if h == 0 then [] else [WOp.scope (h - 1) (kidBase + i) []]
 
-end
+/-- The worklist interpreter: emits pump after every emission, expands
+scope/kid ops in place (worklist order is emission order). Structural
+on fuel, so the kernel can evaluate it — and each op expands to a
+bounded list, so `weaveFuel` below always suffices. -/
+def weaveGo : Nat → List WOp → MState → MState
+  | 0, _, st => st
+  | _ + 1, [], st => st
+  | fuel + 1, op :: rest, st =>
+      match op with
+      | .emit e => weaveGo fuel rest (wEmitP sk st e)
+      | .scope h k feed => weaveGo fuel (wScopeOps sk h k feed ++ rest) st
+      | .kid h k s lastD kidBase i feed =>
+          weaveGo fuel (wKidOps sk h k s lastD kidBase i feed ++ rest) st
+
+/-- Sufficient interpreter fuel: one step per emission plus one per
+scope/kid expansion, bounded generously by the event count. -/
+def weaveFuel : Nat := 4 * totalEvents sk + 8
 
 /-- The pump traces, in the merge's priority order: absorb, the asm
 towers bottom-up, the floating `rootret` receive, fins. -/
@@ -149,9 +158,24 @@ event set, kept event-for-event equal to `EventDag.weaveOrder` by the
 tool's gate. -/
 def weave : List Ev :=
   let st : MState := ⟨[], fun _ => 0, fun _ => 0, weavePumps sk⟩
-  let st := (iopenEvents sk).foldl (wEmitP sk) st
-  let st := ((ropenEvents sk).take 3).foldl (wEmitP sk) st
-  let st := weaveScope sk (sk.rootH - 1) 0 ((ropenEvents sk).drop 3) st
-  (wPump sk st).out
+  let ops := ((iopenEvents sk) ++ (ropenEvents sk).take 3).map WOp.emit
+    ++ [WOp.scope (sk.rootH - 1) 0 ((ropenEvents sk).drop 3)]
+  (wPump sk (weaveGo sk (weaveFuel sk) ops st)).out
+
+-- ===================================================== kernel anchors
+-- Non-vacuity for the definition above, in the kernel: on the
+-- smallest pin the weave emits the whole event set, exactly once.
+-- (The full validity claims are gated executably on every pin and
+-- acyclic fuzz seed; these anchors keep the Lean definition itself
+-- honest against a silently-degenerate recursion.)
+
+set_option maxRecDepth 16000 in
+/-- Kernel anchor: the smokeChain weave drains every event. -/
+theorem smokeChain_weave_length :
+    (weave Pin.smokeChain).length = totalEvents Pin.smokeChain := by decide
+
+set_option maxRecDepth 16000 in
+/-- Kernel anchor: the smokeChain weave never repeats an event. -/
+theorem smokeChain_weave_nodup : (weave Pin.smokeChain).Nodup := by decide
 
 end StreamingMirror.Sched
