@@ -821,8 +821,12 @@ and trace-WEAK — exactly what the completeness argmin consumes: at a
 stalled state, a blocked head's blame target holds an earlier-φ head,
 contradicting minimality. Exists iff the DAG is acyclic (`none` on
 cycles); as the pointwise-least valid potential it is the mining
-surface for a closed form. Returned as `evKey → φ`. -/
-def weakPotential (sk : Skel) : Option (Std.HashMap Nat Nat) := Id.run do
+surface for a closed form. Returns (`evKey → φ`, `evKey → critical
+in-edge`) — the second map names the parent that achieved each
+event's max (with its weight), so the `.phi.tsv` dump reads as the
+critical tree rather than bare numbers. -/
+def weakPotential (sk : Skel) :
+    Option (Std.HashMap Nat Nat × Std.HashMap Nat (Ev × Nat)) := Id.run do
   let procs := (Sched.procs sk).toArray.map List.toArray
   let mut nodes : Array Ev := #[]
   for t in procs do
@@ -859,6 +863,9 @@ def weakPotential (sk : Skel) : Option (Std.HashMap Nat Nat) := Id.run do
     indeg := indeg.set! v (indeg[v]! + 1)
     adj := adj.set! u (adj[u]!.push (v, w))
   let mut phi : Array Nat := Array.replicate nN 0
+  -- provenance: the in-edge that achieved each event's max, as
+  -- (parent id, weight); nN = no parent (a source)
+  let mut critP : Array (Nat × Nat) := Array.replicate nN (nN, 0)
   let mut queue : Array Nat := #[]
   for i in [0:nN] do
     if indeg[i]! == 0 then queue := queue.push i
@@ -870,7 +877,9 @@ def weakPotential (sk : Skel) : Option (Std.HashMap Nat Nat) := Id.run do
       head := head + 1
       emitted := emitted + 1
       for (v, w) in adj[u]! do
-        phi := phi.set! v (max phi[v]! (phi[u]! + w))
+        if phi[u]! + w > phi[v]! || critP[v]!.1 == nN then
+          phi := phi.set! v (max phi[v]! (phi[u]! + w))
+          critP := critP.set! v (u, w)
         indeg := indeg.set! v (indeg[v]! - 1)
         if indeg[v]! == 0 then queue := queue.push v
   if emitted != nN then
@@ -878,21 +887,31 @@ def weakPotential (sk : Skel) : Option (Std.HashMap Nat Nat) := Id.run do
   let mut out : Std.HashMap Nat Nat := {}
   for i in [0:nN] do
     out := out.insert (evKey nodes[i]!) phi[i]!
-  return some out
+  let mut crit : Std.HashMap Nat (Ev × Nat) := {}
+  for i in [0:nN] do
+    let (p, w) := critP[i]!
+    if p != nN then
+      crit := crit.insert (evKey nodes[i]!) (nodes[p]!, w)
+  return some (out, crit)
 
-/-- One line per event, sorted by φ then event key: the `.phi.tsv`
-mining dump for the §7 3b closed form. Empty when the DAG is cyclic. -/
+/-- One line per event, sorted by φ then event key, with the critical
+in-edge that forced the value (`<- w=1 [parent]`; sources bare): the
+`.phi.tsv` mining dump for the §7 3b closed form. Empty when the DAG
+is cyclic. -/
 def phiDump (sk : Skel) : Array String := Id.run do
   match weakPotential sk with
   | none => return #[]
-  | some phi =>
+  | some (phi, crit) =>
       let mut evs : Array (Nat × Ev) := #[]
       for t in Sched.procs sk do
         for e in t do
           evs := evs.push (phi.getD (evKey e) 0, e)
       let sorted := evs.qsort fun a b =>
         a.1 < b.1 || (a.1 == b.1 && evKey a.2 < evKey b.2)
-      return sorted.map fun (p, e) => s!"{p}\t{evStr e}"
+      return sorted.map fun (p, e) =>
+        match crit.get? (evKey e) with
+        | some (par, w) => s!"{p}\t{evStr e}\t<- w={w} [{evStr par}]"
+        | none => s!"{p}\t{evStr e}"
 
 /-- Trace labels in `Sched.procs` order, for the blame alphabet. -/
 def traceLabels (sk : Skel) : Array String :=
@@ -922,7 +941,7 @@ cyclic skeleton the merge stalls and (c) reports the blame cycle: the
 def blameProbe (sk : Skel) : Array String × Array String := Id.run do
   let procs := (Sched.procs sk).toArray.map List.toArray
   let labels := traceLabels sk
-  let phi? := weakPotential sk
+  let phi? := (weakPotential sk).map (·.1)
   let mut cur := Array.replicate procs.size 0
   let mut sent : Std.HashMap Nat Nat := {}
   let mut rcvd : Std.HashMap Nat Nat := {}
