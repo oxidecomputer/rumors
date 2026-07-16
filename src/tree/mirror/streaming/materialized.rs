@@ -87,20 +87,6 @@ use crate::tree::{
 use before::Version;
 use futures::{StreamExt, future::BoxFuture};
 
-/// Send a channel item or return when its consumer has been dropped.
-macro_rules! send_or_return {
-    ($sender:expr, $value:expr) => {
-        if $sender.send($value).await.is_err() {
-            return;
-        }
-    };
-    ($sender:expr, $value:expr => $result:expr) => {
-        if $sender.send($value).await.is_err() {
-            return $result;
-        }
-    };
-}
-
 /// Publish one disputed scope in its progress-critical order.
 ///
 /// The `yield` expression must be written inside the invocation so
@@ -121,11 +107,15 @@ macro_rules! yield_resolve_query {
         let resolution = $resolution;
         #[cfg(test)]
         progress::resolution($work, &resolution);
-        send_or_return!($resolutions, resolution);
+        if $resolutions.send(resolution).await.is_err() {
+            return;
+        }
         for query in $next_queries {
             #[cfg(test)]
             progress::dependent($work, &query);
-            send_or_return!($queries, query);
+            if $queries.send(query).await.is_err() {
+                return;
+            }
         }
     }};
     (
@@ -143,27 +133,6 @@ macro_rules! yield_resolve_query {
     }};
 }
 
-/// Construct a protocol-violation result for return or try-stream propagation.
-macro_rules! violation {
-    ($violation:ident) => {
-        core::result::Result::Err(
-            crate::tree::mirror::streaming::materialized::Error::Violation(
-                crate::tree::mirror::streaming::materialized::Violation::$violation,
-            ),
-        )
-    };
-}
-
-/// Await an optional next item, parking forever if its producer is gone.
-macro_rules! next_or_pending {
-    ($next:expr) => {
-        match $next.await {
-            Some(item) => item,
-            None => std::future::pending().await,
-        }
-    };
-}
-
 pub(super) mod channel;
 mod common;
 mod error;
@@ -175,6 +144,11 @@ use channel::{Receiver, Sender};
 use common::*;
 
 pub use error::{Error, Violation};
+
+/// Construct a typed protocol-violation result.
+fn violation<T, E>(violation: Violation) -> Result<T, Error<E>> {
+    Err(Error::Violation(violation))
+}
 
 /// A pending query, which we will resolve by a remote reply: the pairing
 /// queue between consecutive same-side stages, and the in-process twin of
@@ -576,7 +550,7 @@ where
     let mut requests = pin!(requests);
     while let Some(Reply { replies }) = requests.next().await {
         let Some(prefix) = queries.recv().await else {
-            return violation!(UnaskedReply);
+            return violation(Violation::UnaskedReply);
         };
 
         // The last radix of the prefix is the one we expect should be supplied.
@@ -586,18 +560,20 @@ where
         let supply = match replies.as_slice() {
             [] => None,
             [Reaction::Supply(radix, leaf)] if *radix == expected => Some(leaf.clone()),
-            [Reaction::Supply(_, _)] => return violation!(InvalidSupply),
-            _ => return violation!(UnfinishedReply),
+            [Reaction::Supply(_, _)] => return violation(Violation::InvalidSupply),
+            _ => return violation(Violation::UnfinishedReply),
         };
 
         // Then we send that (optional) leaf upwards.
-        send_or_return!(returns, supply => Ok(()));
+        if returns.send(supply).await.is_err() {
+            return Ok(());
+        }
     }
 
     // If there are more queries, something is wrong: we should have exhausted
     // all our queries in processing all the replies.
     if queries.recv().await.is_some() {
-        return violation!(UnansweredQuery);
+        return violation(Violation::UnansweredQuery);
     }
 
     Ok(())

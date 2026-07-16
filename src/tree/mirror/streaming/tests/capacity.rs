@@ -11,8 +11,11 @@ use crate::tree::{
     Root,
     arb::leaf_parent_dispute_pair,
     mirror::streaming::{
-        Handshaking, Local, Root as StreamingRoot,
-        materialized::channel::{QueueKind, with_kind_capacity, with_observation},
+        Local, Root as StreamingRoot,
+        materialized::{
+            Handshaking,
+            channel::{QueueKind, with_kind_capacity, with_observation},
+        },
         mirror as drive_streaming,
     },
 };
@@ -22,12 +25,9 @@ fn underbuffered_mirror_stalls(a: Root<()>, b: Root<()>, capacity: usize) -> boo
     let (a, b): (StreamingRoot<Local, ()>, StreamingRoot<Local, ()>) = (a.into(), b.into());
     let client = Handshaking::start(Local, a);
     let server = Handshaking::start(Local, b);
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .build()
-        .expect("the test runtime should build");
     with_kind_capacity(QueueKind::AssemblyLevelReturns, capacity, || {
         matches!(
-            run_to_quiescence(&runtime, drive_streaming(client, server)),
+            run_to_quiescence(drive_streaming(client, server)),
             Err(Quiescence::Stalled)
         )
     })

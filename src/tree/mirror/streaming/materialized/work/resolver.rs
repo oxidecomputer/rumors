@@ -3,7 +3,7 @@ use std::iter::Peekable;
 use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
-        materialized::{Error, Query, Resolution, Resolve},
+        materialized::{Error, Query, Resolution, Resolve, Violation, violation},
         message::Reaction,
     },
     typed::{
@@ -43,23 +43,27 @@ where
         match reaction {
             Reaction::Match => {
                 let Some((radix, node)) = self.fan.next() else {
-                    return violation!(UnexpectedMatch);
+                    return violation(Violation::UnexpectedMatch);
                 };
                 self.resolved.push((radix, Resolve::Ready(Some(node))));
             }
             Reaction::Supply(radix, node) => {
                 if self.resolved.last().is_some_and(|(last, _)| radix <= *last) {
-                    return violation!(InvalidSupply);
+                    return violation(Violation::InvalidSupply);
                 }
                 match self.fan.peek() {
-                    Some((next, _)) if radix == *next => return violation!(UnexpectedSupply),
-                    Some((next, _)) if radix > *next => return violation!(InvalidSupply),
+                    Some((next, _)) if radix == *next => {
+                        return violation(Violation::UnexpectedSupply);
+                    }
+                    Some((next, _)) if radix > *next => {
+                        return violation(Violation::InvalidSupply);
+                    }
                     _ => self.resolved.push((radix, Resolve::Ready(Some(node)))),
                 }
             }
             Reaction::Query(listing) => {
                 let Some((radix, node)) = self.fan.next() else {
-                    return violation!(UnexpectedQuery);
+                    return violation(Violation::UnexpectedQuery);
                 };
                 return Ok(Some((self.prefix, radix, node, listing)));
             }
@@ -78,7 +82,7 @@ where
 
     pub fn finish(mut self) -> Result<Resolution<B, T, H>, Error<B::Error>> {
         if self.fan.next().is_some() {
-            violation!(UnfinishedReply)
+            violation(Violation::UnfinishedReply)
         } else {
             Ok(Resolution {
                 prefix: self.prefix,

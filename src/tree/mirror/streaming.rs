@@ -3,7 +3,8 @@
 //! The drivers here run any two protocol implementors against each other
 //! ([`mirror`], or [`handshake`] then [`Handshaken::reconcile`] separately
 //! around the version exchange); implementors backed by trees start with
-//! [`Handshaking::start`].
+//! either [`materialized::Handshaking::start`] or
+//! [`remote::Handshaking::start`].
 
 // TODO: remove this when integrated
 #![allow(dead_code, unused_imports)]
@@ -11,128 +12,30 @@
 #![allow(clippy::type_complexity)]
 
 mod backend;
+mod channel;
 mod convert;
-mod materialized;
+mod driver;
+pub mod materialized;
 mod message;
 mod protocol;
-mod remote;
+pub mod remote;
+mod tasks;
 #[cfg(test)]
 mod testing;
 
 pub use backend::{Backend, Leaf, Local, Node, Root};
-pub use materialized::Handshaking;
 #[cfg(test)]
 pub use testing::{Failing, FailingNode, Failure, Faulting, Operation};
 
 use std::cmp::Ordering;
-use std::pin::pin;
-
-use async_stream::stream;
-use futures::{StreamExt, join};
-use seq_macro::seq;
-use tokio::sync::mpsc;
 
 use super::Error;
 use crate::{
     Version,
     tree::typed::height::{Height, Z},
 };
+use driver::{mirror_connected, try_join_mapped};
 use protocol::*;
-
-/// Expand the protocol phase schedule into the driver's whole body: one line
-/// per phase.
-///
-/// The expansion creates the shared one-error slot, threads each phase's
-/// outgoing stream to the counterparty's next phase, races the schedule against
-/// the first diverted fault, and resolves both terminals into the session's
-/// `Result`, early-returning the fault if the slot fires, so it must expand in
-/// tail position of a function with the session's return type.
-///
-/// Which party holds the last stage depends on the parity of the schedule, so
-/// `parties` carries the two party identifiers down the recursion: the terminal
-/// binds each result back to its own party's name, and the expansion yields
-/// them in the order the caller wrote them rather than the order they finish.
-macro_rules! mirror {
-    (@one $a:ident >> $b:ident.$m:ident) => {
-        let ((msgs, state), (tx, wrap)) = $a;
-        let msgs = divert(msgs, tx.clone(), wrap);
-        let $a = (state, (tx, wrap));
-        let $b = ($b.0.$m(msgs), $b.1);
-    };
-    (@pending($a:ident) parties($p:ident, $q:ident) $b:ident.$m:ident;) => {{
-        let ((msgs, state), (tx, wrap)) = $a;
-        let msgs = divert(msgs, tx, wrap);
-        let ($b, $a) = join!($b.0.$m(msgs), state);
-        ($p, $q)
-    }};
-    (@pending($a:ident) parties($p:ident, $q:ident) for _ in $lo:tt..$hi:tt { $($body:tt)* } $($rest:tt)*) => {{
-        seq!(_ in $lo..$hi {
-            mirror!(@step($a) $($body)*);
-        });
-        mirror!(@pending($a) parties($p, $q) $($rest)*)
-    }};
-    (@pending($a:ident) parties($p:ident, $q:ident) $b:ident.$m:ident; $($rest:tt)*) => {{
-        mirror!(@one $a >> $b.$m);
-        mirror!(@pending($b) parties($p, $q) $($rest)*)
-    }};
-    (@step($a:ident) $b:ident.$m:ident; $($rest:tt)*) => {
-        mirror!(@one $a >> $b.$m);
-        mirror!(@step($b) $($rest)*);
-    };
-    (@step($a:ident)) => {};
-    (@run parties($p:ident, $q:ident) $a:ident.$m:ident; $($rest:tt)*) => {{
-        let $a = ($a.0.$m(), $a.1);
-        mirror!(@pending($a) parties($p, $q) $($rest)*)
-    }};
-    ($a:ident.$m:ident; $b:ident.$n:ident; $($rest:tt)*) => {{
-        let (errors, mut first_error) = mpsc::channel(1);
-        let $a = ($a, (errors.clone(), Error::Client));
-        let $b = ($b, (errors, Error::Server));
-        let session = async { mirror!(@run parties($a, $b) $a.$m; $b.$n; $($rest)*) };
-        let (client, server) = tokio::select! {
-            results = session => results,
-            Some(error) = first_error.recv() => return Err(error),
-        };
-        Ok((
-            client.map_err(Error::Client)?,
-            server.map_err(Error::Server)?,
-        ))
-    }};
-}
-
-/// Drive the full protocol schedule between two connected peers.
-///
-/// The streaming traits expose each step as `(outgoing_stream, next_state)`, so
-/// unlike the alternating driver there is no per-message `Step` to inspect and
-/// no early return: the schedule is a straight line, each stage's outgoing
-/// stream handed to the counterparty's next one.
-///
-/// Both parties speak one backend `B`, so a message crosses the party boundary
-/// in the node types the receiver already reads. Errors never cross at all:
-/// each crossing [`divert`]s the producer's errors out of band into a shared
-/// one-error slot, and the driver races the session against the slot.
-async fn mirror_connected<B, I, R, T>(
-    i: I,
-    r: R,
-) -> Result<(I::Output, R::Output), Error<I::Error, R::Error>>
-where
-    T: Send + Sync + 'static,
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    I: Peer<B, T>,
-    R: Peer<B, T>,
-{
-    mirror! {
-        i.initiator;
-        r.responder;
-        for _ in 0..15 {
-            i.reply;
-            r.reply;
-        }
-        i.reply;
-        r.complete_responder;
-        i.complete_initiator;
-    }
-}
 
 type ClientConnected<C, B, T> = <<C as Connect<B, T>>::Next as CompleteConnect<B, T>>::Next;
 type ServerConnected<S, B, T> = <S as Accept<B, T>>::Next;
@@ -179,16 +82,11 @@ where
     }
 }
 
-/// Run two arbitrary protocol implementors against each other through the full
-/// streaming protocol, both parties polled concurrently on the current task,
-/// returning both sides' reconciled roots.
+/// Run two arbitrary protocol implementations through the full schedule.
 ///
-/// The two implementors share one backend `B`, whose node types are the wire
-/// vocabulary between them; they need not be the same implementor, only agree
-/// on how a node is represented.
-///
-/// Equal handshake versions resolve each connected state directly to its
-/// output without opening the descent.
+/// Both implementations share one backend `B`, whose node types are the
+/// vocabulary crossing between them. Equal handshake versions resolve both
+/// connected states without opening the descent.
 pub(crate) async fn mirror<C, S, B, T>(
     client: C,
     server: S,
@@ -202,9 +100,10 @@ where
     handshake(client, server).await?.reconcile().await
 }
 
+/// Exchange versions and return both connected protocol states.
 pub(crate) async fn handshake<C, S, B, T>(
-    c: C,
-    s: S,
+    client: C,
+    server: S,
 ) -> Result<Handshaken<C, S, B, T>, Error<C::Error, S::Error>>
 where
     T: Send + Sync + 'static,
@@ -212,24 +111,23 @@ where
     C: Client<B, T>,
     S: Server<B, T>,
 {
-    // The handshake carries only versions, so it crosses the party boundary
-    // without conversion; each side's errors wrap into its own arm here.
-    let (our_handshake, c) = c.connect().await.map_err(Error::Client)?;
+    let (our_handshake, client) = client.connect().await.map_err(Error::Client)?;
     let our_version = our_handshake.version.clone();
-    let (peer, s) = s.accept(our_handshake).await.map_err(Error::Server)?;
-    let c = c
+    let (peer, server) = server.accept(our_handshake).await.map_err(Error::Server)?;
+    let client = client
         .complete_connect(peer.version.clone())
         .await
         .map_err(Error::Client)?;
 
     Ok(Handshaken {
-        client: c,
-        server: s,
+        client,
+        server,
         our_version,
         peer,
     })
 }
 
+/// Elect the initiator from exchanged versions and reconcile or complete.
 pub(crate) async fn descend<L, R, B, T>(
     local: L,
     remote: R,
@@ -242,65 +140,23 @@ where
     L: Peer<B, T>,
     R: Peer<B, T>,
 {
-    // Their causal order is only partial (they may be concurrent), so to pick
-    // an initiator we compare canonical bytes lexicographically: an arbitrary
-    // but total, deterministic tiebreak (not a causal order).
+    // Causal versions are only partially ordered, so canonical bytes provide
+    // an arbitrary but total and deterministic role tiebreak.
     match remote_version.as_bytes().cmp(local_version.as_bytes()) {
         Ordering::Less => mirror_connected(local, remote).await,
-        // Running the remote as initiator, flip the roots and the error's
-        // sides back.
+        // Flip the remotely initiated result back into caller order.
         Ordering::Greater => mirror_connected(remote, local)
             .await
             .map(|(theirs, ours)| (ours, theirs))
             .map_err(Error::flip),
-        // Both parties compare the same two versions and conclude identically:
-        // no message needs to say that the trees are already converged. Still
-        // resolve each connected state so owned resources reach the caller.
         Ordering::Equal => {
-            let (local, remote) = join!(local.complete_equal(), remote.complete_equal());
-            Ok((
-                local.map_err(Error::Client)?,
-                remote.map_err(Error::Server)?,
-            ))
-        }
-    }
-}
-
-/// One direction of the party boundary: messages pass through unchanged,
-/// while the producer's errors leave the schedule out of band, into the
-/// driver's error slot.
-///
-/// This is what makes the incoming [`Requests`] streams structurally
-/// non-erroring: the consumer never has to represent the producer's error
-/// type. On an error the stream parks (`Pending` forever) rather than
-/// ending: end-of-stream means phase completion to the consumer, and a
-/// truncated phase would be misread, whereas a parked consumer merely stops —
-/// the driver has already been handed the error and abandons the session.
-fn divert<B, T, H, E, D, W>(
-    messages: impl Responses<B, T, H, E>,
-    slot: mpsc::Sender<D>,
-    wrap: W,
-) -> impl Requests<B, T, H>
-where
-    T: Send + Sync + 'static,
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    H: Height,
-    E: Send + 'static,
-    D: Send + 'static,
-    W: Fn(E) -> D + Send + 'static,
-{
-    stream! {
-        let mut messages = pin!(messages);
-        while let Some(item) = messages.next().await {
-            match item {
-                Ok(message) => yield message,
-                Err(error) => {
-                    // First error wins; a later crossing finding the slot
-                    // already claimed loses the race and is dropped.
-                    let _ = slot.try_send(wrap(error));
-                    std::future::pending::<()>().await;
-                }
-            }
+            try_join_mapped(
+                local.complete_equal(),
+                Error::Client,
+                remote.complete_equal(),
+                Error::Server,
+            )
+            .await
         }
     }
 }

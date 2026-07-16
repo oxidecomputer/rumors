@@ -6,11 +6,11 @@
 //! errors through unchanged. Counterparty-fault classification lives in
 //! [`violations`].
 
-use std::convert::Infallible;
+use std::{convert::Infallible, future};
 
 use futures::stream::{self, StreamExt, TryStreamExt};
 
-use super::assemble;
+use super::{Work, assembly::assemble};
 
 mod violations;
 
@@ -20,8 +20,9 @@ use crate::{
     tree::{
         arb::nth_party,
         mirror::streaming::{
-            Backend, Local,
+            Backend, Failing, Failure, Local, Operation,
             materialized::{Error, Resolution, Resolve, Violation},
+            testing::run_to_quiescence,
         },
         typed::{
             self, Path, Prefix,
@@ -60,6 +61,30 @@ fn parent_of(
 
 type Item = Result<Resolution<Local, (), Z>, Error<Infallible>>;
 type Level = Result<Option<typed::Node<(), Z>>, Error<Infallible>>;
+
+/// A work error cancels parked peers and retains its original error identity.
+#[test]
+fn work_failure_preempts_parked_tasks() {
+    let mut work: Work<Failing<Local>, ()> = Work::new(Failing::after(Local, usize::MAX));
+    for _ in 0..31 {
+        work.tasks.push(Box::pin(future::pending()));
+    }
+    work.tasks.push(Box::pin(async {
+        Err(Error::Backend(Failure::Injected(Operation::Children {
+            height: 1,
+        })))
+    }));
+
+    let finish = future::pending::<Result<(), Error<Failure<Infallible>>>>();
+    let result = run_to_quiescence(work.execute(Box::pin(finish)));
+    let error = result
+        .expect("a work failure must terminate the executor")
+        .expect_err("the injected task must fail");
+    assert!(matches!(
+        error,
+        Error::Backend(Failure::Injected(Operation::Children { height: 1 }))
+    ));
+}
 
 /// Drive [`assemble`] over in-memory streams and collect its outputs.
 fn assembled(

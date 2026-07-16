@@ -1,0 +1,383 @@
+//! Phase-specific materialized reconciliation walks.
+
+use std::pin::pin;
+
+use async_stream::try_stream;
+use before::Version;
+use futures::future::BoxFuture;
+use tokio_stream::StreamExt;
+
+use super::{Work, answer, assembly::assemble, queues::*, resolver::Resolver};
+#[cfg(test)]
+use crate::tree::mirror::streaming::materialized::progress;
+use crate::tree::{
+    mirror::streaming::{
+        Backend, Leaf, Node, Root,
+        materialized::{
+            Error, OkReceiverStream, Query, Resolution, Violation,
+            channel::{Receiver, Sender},
+            children_of,
+            unknown::{Unknown, unknown_providing},
+            violation,
+        },
+        message::{self, Reaction, Reply},
+        protocol::{BoxResponses, Requests},
+        tasks::next_or_cancelled,
+    },
+    typed::{
+        Prefix,
+        height::{self, Height, S, UnderRoot, UnderUnderRoot, Z},
+    },
+};
+
+impl<B, T> Work<B, T>
+where
+    B: Backend<T, Node<Z>: Leaf<T>>,
+    T: Send + Sync + 'static,
+{
+    /// Process the initiator level.
+    pub fn initiator_level(
+        &mut self,
+        ceiling: Version,
+        root: Root<B, T>,
+    ) -> (
+        BoxResponses<B, T, UnderRoot, Error<B::Error>>,
+        Receiver<Query<B, T, UnderRoot>>,
+        Sender<Option<B::Node<height::Root>>>,
+        BoxFuture<'static, Result<Root<B, T>, Error<B::Error>>>,
+    ) {
+        let (queries, queries_rx) = initiator_root_query();
+        let (returns, mut returns_rx) = initiator_root_return::<B, T>();
+        let backend = self.backend();
+        #[cfg(test)]
+        let trace_id = self.trace_id;
+
+        let responses = try_stream! {
+            let fan = match root.root {
+                Some(node) => children_of(&backend, Prefix::new(), node).await?,
+                None => Vec::new(),
+            };
+            #[cfg(test)]
+            progress::wire(trace_id, Prefix::new());
+            yield Reply {
+                replies: vec![message::Reaction::Query(
+                    fan.iter().map(|(radix, node)| (*radix, node.hash())).collect()
+                )],
+            };
+            let query = Query {
+                prefix: Prefix::new(),
+                ours: fan,
+            };
+            #[cfg(test)]
+            progress::initial_query(trace_id, &query);
+            if queries.send(query).await.is_err() {
+                return;
+            }
+        };
+
+        let finish = Box::pin(async move {
+            let root = next_or_cancelled(returns_rx.recv()).await;
+            Ok(Root { ceiling, root })
+        });
+
+        (self.respond(responses), queries_rx, returns, finish)
+    }
+
+    /// Process the responder level.
+    pub fn responder_level(
+        &mut self,
+        their_version: Version,
+        ceiling: Version,
+        root: Root<B, T>,
+        requests: impl Requests<B, T, UnderRoot>,
+    ) -> (
+        BoxResponses<B, T, UnderRoot, Error<B::Error>>,
+        Receiver<Query<B, T, UnderUnderRoot>>,
+        Sender<Option<B::Node<UnderRoot>>>,
+        BoxFuture<'static, Result<Root<B, T>, Error<B::Error>>>,
+    )
+    where
+        B: Sync,
+    {
+        let backend = self.backend();
+        let (asked, asked_rx) = responder_child_queries();
+        let (resolution, resolution_rx) = responder_root_resolution();
+        let assembling = backend.clone();
+        #[cfg(test)]
+        let trace_id = self.trace_id;
+
+        let responses = try_stream! {
+            let mut requests = pin!(requests);
+            let Some(Reply { replies }) = requests.next().await else {
+                return violation(Violation::UnansweredQuery)?;
+            };
+            let [message::Reaction::Query(theirs)] = replies.as_slice() else {
+                return violation(Violation::UnexpectedQuery)?;
+            };
+            let ours = match root.root {
+                Some(node) => children_of(&backend, Prefix::new(), node).await?,
+                None => Vec::new(),
+            };
+            let (reactions, next_queries, resolved) = answer::internal(
+                &backend,
+                &their_version,
+                Prefix::new(),
+                ours,
+                theirs.clone(),
+            )
+            .await?;
+            yield_resolve_query!(
+                trace_id, Prefix::new();
+                yield Reply { replies: reactions };
+                resolution => Resolution {
+                    prefix: Prefix::new(),
+                    resolved,
+                };
+                asked => next_queries;
+            );
+        };
+
+        let (returns, returns_rx) = responder_root_returns::<B, T>();
+        let assembled = assemble(assembling, resolution_rx, returns_rx);
+        let finish = Box::pin(async move {
+            let mut assembled = pin!(assembled);
+            let root = next_or_cancelled(assembled.next()).await;
+            Ok(Root {
+                ceiling,
+                root: root?,
+            })
+        });
+
+        (self.respond(responses), asked_rx, returns, finish)
+    }
+
+    /// Walk an internal level, where disputes recur into another internal level.
+    pub fn internal_level<H>(
+        &mut self,
+        their_version: Version,
+        requests: impl Requests<B, T, S<S<H>>>,
+        mut queries: Receiver<Query<B, T, S<S<H>>>>,
+    ) -> (
+        BoxResponses<B, T, S<H>, Error<B::Error>>,
+        Receiver<Query<B, T, H>>,
+        OkReceiverStream<Resolution<B, T, S<S<H>>>, Error<B::Error>>,
+        OkReceiverStream<Resolution<B, T, S<H>>, Error<B::Error>>,
+    )
+    where
+        B: Sync,
+        H: Unknown,
+        S<H>: Unknown,
+        S<S<H>>: Unknown,
+        S<S<S<H>>>: Height,
+    {
+        let backend = self.backend();
+        let (asked, asked_rx) = internal_child_queries();
+        let (upper, upper_rx) = internal_parent_resolutions();
+        let (lower, lower_rx) = internal_child_resolutions();
+        #[cfg(test)]
+        let trace_id = self.trace_id;
+
+        let responses = try_stream! {
+            let mut requests = pin!(requests);
+            while let Some(Reply { replies }) = requests.next().await {
+                let Some(query) = queries.recv().await else {
+                    return violation(Violation::UnaskedReply)?;
+                };
+
+                let mut resolver = Resolver::new(query);
+                for reaction in replies {
+                    let Some((prefix, radix, node, listing)) = resolver.react(reaction)? else {
+                        continue;
+                    };
+                    let child_prefix = prefix.push(radix);
+
+                    if listing.is_empty() {
+                        let (node, children) =
+                            unknown_providing(&backend, &their_version, child_prefix, node).await?;
+                        let replies = children
+                            .into_iter()
+                            .map(|(radix, child)| Reaction::Supply(radix, child))
+                            .collect();
+                        yield_resolve_query!(
+                            trace_id, child_prefix;
+                            yield Reply { replies };
+                            resolver.ready(radix, node);
+                        );
+                        continue;
+                    }
+
+                    let children = children_of(&backend, child_prefix, node).await?;
+                    let (reactions, next_queries, resolved) = answer::internal(
+                        &backend,
+                        &their_version,
+                        child_prefix,
+                        children,
+                        listing,
+                    )
+                    .await?;
+                    yield_resolve_query!(
+                        trace_id, child_prefix;
+                        yield Reply { replies: reactions };
+                        lower => Resolution {
+                            prefix: child_prefix,
+                            resolved,
+                        };
+                        asked => next_queries;
+                    );
+                    resolver.pending(radix);
+                }
+
+                // Launch every `Pending` slot's work before publishing its
+                // enclosing parent resolution.
+                let resolution = resolver.finish()?;
+                #[cfg(test)]
+                progress::parent_resolution(trace_id, &resolution);
+                if upper.send(resolution).await.is_err() {
+                    return;
+                }
+            }
+
+            if queries.recv().await.is_some() {
+                return violation(Violation::UnansweredQuery)?;
+            }
+        };
+
+        (self.respond(responses), asked_rx, upper_rx, lower_rx)
+    }
+
+    /// Walk leaf parents, where disputes compare content-addressed leaves.
+    pub fn leaf_parent_level(
+        &mut self,
+        their_version: Version,
+        requests: impl Requests<B, T, S<Z>>,
+        mut queries: Receiver<Query<B, T, S<Z>>>,
+    ) -> (
+        BoxResponses<B, T, Z, Error<B::Error>>,
+        Receiver<Prefix<Z>>,
+        OkReceiverStream<Resolution<B, T, S<Z>>, Error<B::Error>>,
+        OkReceiverStream<Resolution<B, T, Z>, Error<B::Error>>,
+    )
+    where
+        B: Sync,
+    {
+        let backend = self.backend();
+        let (asked, asked_rx) = leaf_requests();
+        let (upper, upper_rx) = leaf_parent_resolutions();
+        let (lower, lower_rx) = leaf_child_resolutions();
+        #[cfg(test)]
+        let trace_id = self.trace_id;
+
+        let responses = try_stream! {
+            let mut requests = pin!(requests);
+            while let Some(Reply { replies }) = requests.next().await {
+                let Some(query) = queries.recv().await else {
+                    return violation(Violation::UnaskedReply)?;
+                };
+
+                let mut resolver = Resolver::new(query);
+                for reaction in replies {
+                    let Some((prefix, radix, node, listing)) = resolver.react(reaction)? else {
+                        continue;
+                    };
+                    let child_prefix = prefix.push(radix);
+
+                    if listing.is_empty() {
+                        let (node, leaves) =
+                            unknown_providing(&backend, &their_version, child_prefix, node).await?;
+                        let replies = leaves
+                            .into_iter()
+                            .map(|(radix, leaf)| Reaction::Supply(radix, leaf))
+                            .collect();
+                        yield_resolve_query!(
+                            trace_id, child_prefix;
+                            yield Reply { replies };
+                            resolver.ready(radix, node);
+                        );
+                        continue;
+                    }
+
+                    let leaves = children_of(&backend, child_prefix, node).await?;
+                    let (replies, next_queries, resolved) =
+                        answer::leaf_parent(&their_version, child_prefix, leaves, listing);
+                    yield_resolve_query!(
+                        trace_id, child_prefix;
+                        yield Reply { replies };
+                        lower => Resolution {
+                            prefix: child_prefix,
+                            resolved,
+                        };
+                        asked => next_queries;
+                    );
+                    resolver.pending(radix);
+                }
+
+                // Launch every `Pending` slot's work before publishing its
+                // enclosing parent resolution.
+                let resolution = resolver.finish()?;
+                #[cfg(test)]
+                progress::parent_resolution(trace_id, &resolution);
+                if upper.send(resolution).await.is_err() {
+                    return;
+                }
+            }
+
+            if queries.recv().await.is_some() {
+                return violation(Violation::UnansweredQuery)?;
+            }
+        };
+
+        (self.respond(responses), asked_rx, upper_rx, lower_rx)
+    }
+
+    /// Walk leaves, where every query is a terminal request.
+    pub fn leaf_level(
+        &mut self,
+        their_version: Version,
+        requests: impl Requests<B, T, Z>,
+        mut queries: Receiver<Query<B, T, Z>>,
+    ) -> (
+        BoxResponses<B, T, Z, Error<B::Error>>,
+        OkReceiverStream<Resolution<B, T, Z>, Error<B::Error>>,
+    ) {
+        let (upper, upper_rx) = terminal_leaf_resolutions();
+        #[cfg(test)]
+        let trace_id = self.trace_id;
+
+        let responses = try_stream! {
+            let mut requests = pin!(requests);
+            while let Some(Reply { replies }) = requests.next().await {
+                let Some(query) = queries.recv().await else {
+                    return violation(Violation::UnaskedReply)?;
+                };
+
+                let mut resolver = Resolver::new(query);
+                for reaction in replies {
+                    let Some((prefix, radix, node, listing)) = resolver.react(reaction)? else {
+                        continue;
+                    };
+
+                    let (replies, node) = answer::leaf(&their_version, radix, node, listing)
+                        .map_err(Error::Violation)?;
+                    yield_resolve_query!(
+                        trace_id, prefix.push(radix);
+                        yield Reply { replies };
+                        resolver.ready(radix, node);
+                    );
+                }
+
+                let resolution = resolver.finish()?;
+                #[cfg(test)]
+                progress::parent_resolution(trace_id, &resolution);
+                if upper.send(resolution).await.is_err() {
+                    return;
+                }
+            }
+
+            if queries.recv().await.is_some() {
+                return violation(Violation::UnansweredQuery)?;
+            }
+        };
+
+        (self.respond(responses), upper_rx)
+    }
+}

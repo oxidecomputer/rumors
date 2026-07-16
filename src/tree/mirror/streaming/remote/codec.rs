@@ -44,7 +44,8 @@ pub use error::{
 };
 pub use frame::{Frame, Reaction, WireFrame};
 pub use signal::{
-    DecodeSignalError, End, Flow, InvalidSignalPlacement, Speaker, Stream, StreamClass, StreamError,
+    DecodeSignalError, End, Flow, InvalidSignalPlacement, InvalidWireSignal, Speaker, Stream,
+    StreamClass, StreamError,
 };
 
 #[cfg(test)]

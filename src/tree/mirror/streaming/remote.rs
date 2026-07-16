@@ -37,4 +37,9 @@
 
 mod adapter;
 mod codec;
+mod error;
+mod proxy;
 mod session;
+
+pub use error::*;
+pub use proxy::Handshaking;

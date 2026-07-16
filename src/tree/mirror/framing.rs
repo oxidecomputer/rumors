@@ -27,12 +27,12 @@ pub(crate) const LENGTH_HEADER_LEN: usize = std::mem::size_of::<u32>();
 /// A payload length which cannot be represented by the framing header.
 #[derive(Debug, thiserror::Error)]
 #[error("payload length {len} exceeds the u32 framing limit")]
-pub(crate) struct LengthOverflow {
+pub struct LengthOverflow {
     /// The unrepresentable payload length.
-    pub(crate) len: usize,
+    pub len: usize,
     /// The failed integer conversion.
     #[source]
-    source: std::num::TryFromIntError,
+    pub source: std::num::TryFromIntError,
 }
 
 /// Encode the checked big-endian length header shared by both wire codecs.

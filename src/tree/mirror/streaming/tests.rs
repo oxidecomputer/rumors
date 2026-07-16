@@ -4,19 +4,11 @@
 //! lifecycle checks in [`faults`], and deterministic tree builders in
 //! [`fixtures`].
 
-use std::{
-    future::Future,
-    pin::pin,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    task::{Context, Poll, Wake, Waker},
-};
+use std::{convert::Infallible, future};
 
 use proptest::prelude::*;
 
-use crate::tree::Root;
+use super::driver::try_join_mapped;
 use crate::tree::arb::{
     arb_divergent_pair, arb_tree_root, leaf_parent_dispute_pair, leaf_parent_redaction_pair,
 };
@@ -24,92 +16,46 @@ use crate::tree::mirror::alternating;
 use crate::tree::mirror::streaming::backend::with_local_schedule;
 use crate::tree::mirror::streaming::materialized::channel::with_schedule;
 use crate::tree::mirror::streaming::materialized::progress::with_trace;
+use crate::tree::mirror::streaming::testing::{Quiescence, run_to_quiescence};
 use crate::tree::mirror::streaming::{
-    Handshaking, Local, Root as StreamingRoot, mirror as drive_streaming,
+    Local, Root as StreamingRoot, materialized::Handshaking, mirror as drive_streaming,
 };
+use crate::tree::{Root, mirror::Error as MirrorError};
 
 mod capacity;
 mod faults;
 mod fixtures;
 
+/// Either terminal error preempts a peer which can no longer make progress.
+#[test]
+fn terminal_errors_preempt_parked_peers() {
+    let left = try_join_mapped(
+        future::ready(Err::<(), _>("left")),
+        MirrorError::<&str, Infallible>::Client,
+        future::pending::<Result<(), Infallible>>(),
+        MirrorError::Server,
+    );
+    assert!(matches!(
+        run_to_quiescence(left),
+        Ok(Err(MirrorError::Client("left")))
+    ));
+
+    let right = try_join_mapped(
+        future::pending::<Result<(), Infallible>>(),
+        MirrorError::Client,
+        future::ready(Err::<(), _>("right")),
+        MirrorError::<Infallible, &str>::Server,
+    );
+    assert!(matches!(
+        run_to_quiescence(right),
+        Ok(Err(MirrorError::Server("right")))
+    ));
+}
+
 /// Reconcile `a` and `b` through the streaming local backend, returning both
 /// sides' reconciled roots in argument order, with no convergence assertion.
 fn streaming_mirror_sides(a: Root<()>, b: Root<()>) -> (Root<()>, Root<()>) {
     streaming_mirror_sides_with_schedule(a, b, Vec::new())
-}
-
-/// Why polling stopped before the session completed.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Quiescence {
-    /// The future returned `Pending` without arranging another poll.
-    Stalled,
-    /// The future kept self-waking beyond the test's runaway guard.
-    PollBudget,
-}
-
-struct WakeFlag(AtomicBool);
-
-impl Wake for WakeFlag {
-    fn wake(self: Arc<Self>) {
-        self.0.store(true, Ordering::Release);
-    }
-
-    fn wake_by_ref(self: &Arc<Self>) {
-        self.0.store(true, Ordering::Release);
-    }
-}
-
-/// Poll a closed, in-memory session until it completes or becomes quiescent.
-///
-/// The local backend starts no external I/O: every legitimate suspension is
-/// paired with a synchronous channel wake or a test-injected self-wake. A
-/// `Pending` poll with no wake is therefore a deterministic deadlock witness,
-/// not a wall-clock guess that the machine has taken too long.
-fn run_to_quiescence<F: Future>(
-    runtime: &tokio::runtime::Runtime,
-    future: F,
-) -> Result<F::Output, Quiescence> {
-    const MAX_POLLS: usize = 1_000_000;
-
-    let _entered = runtime.enter();
-    let wake = Arc::new(WakeFlag(AtomicBool::new(true)));
-    let waker = Waker::from(wake.clone());
-    let mut cx = Context::from_waker(&waker);
-    let mut future = pin!(future);
-
-    for _ in 0..MAX_POLLS {
-        wake.0.store(false, Ordering::Release);
-        match future.as_mut().poll(&mut cx) {
-            Poll::Ready(output) => return Ok(output),
-            Poll::Pending if !wake.0.swap(false, Ordering::AcqRel) => {
-                return Err(Quiescence::Stalled);
-            }
-            Poll::Pending => {}
-        }
-    }
-    Err(Quiescence::PollBudget)
-}
-
-/// Quiescence distinguishes a legitimate self-wake from a permanently parked future.
-#[test]
-fn quiescence_detector_observes_wake_contract() {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .build()
-        .expect("the test runtime should build");
-    let mut first = true;
-    let self_waking = std::future::poll_fn(move |cx| {
-        if std::mem::take(&mut first) {
-            cx.waker().wake_by_ref();
-            Poll::Pending
-        } else {
-            Poll::Ready(7)
-        }
-    });
-    assert_eq!(run_to_quiescence(&runtime, self_waking), Ok(7));
-    assert_eq!(
-        run_to_quiescence(&runtime, std::future::pending::<()>()),
-        Err(Quiescence::Stalled),
-    );
 }
 
 /// Reconcile under an explicit, shrinkable channel-poll schedule.
@@ -131,13 +77,10 @@ fn streaming_mirror_sides_with_schedules(
     let (a, b): (StreamingRoot<Local, ()>, StreamingRoot<Local, ()>) = (a.into(), b.into());
     let client = Handshaking::start(Local, a.clone());
     let server = Handshaking::start(Local, b.clone());
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .build()
-        .expect("the test runtime should build");
     let (result, trace) = with_trace(|| {
         with_schedule(channel_schedule, || {
             with_local_schedule(backend_schedule, || {
-                run_to_quiescence(&runtime, drive_streaming(client, server))
+                run_to_quiescence(drive_streaming(client, server))
             })
         })
     });
