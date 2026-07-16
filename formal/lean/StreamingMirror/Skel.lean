@@ -212,11 +212,14 @@ structure AxMode where
   d1int : Bool    -- resolution before dependent queries, internal
   d2 : Bool       -- parent resolution after all D-child resolutions
   d3 : Bool       -- sibling contiguity (the ledger gap this work found)
+  d4 : Bool       -- wire sibling contiguity (the second ledger gap this
+                  -- work found: a wire may not depart while an earlier D
+                  -- sibling is unresolved or owes dependent queries)
   wireFirst : Bool -- control scaffolding, not an axiom (see Quint doc)
   deriving DecidableEq, Repr
 
 /-- All axioms on, scaffolding off: the assumed interface of the Rust
 implementation. -/
-def AxMode.full : AxMode := ⟨true, true, true, true, true, false⟩
+def AxMode.full : AxMode := ⟨true, true, true, true, true, true, false⟩
 
 end StreamingMirror

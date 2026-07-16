@@ -287,7 +287,7 @@ can never produce.
 one prologue recv (the opening wire message). `IOpen` has two ops:
 `wire-yield` then `send rootQuery` — the `InitialQuery` wire-ledger edge.
 
-## 6. The axioms: the three ledgers of `Trace::assert_valid`
+## 6. The axioms: the ledgers of `Trace::assert_valid`
 
 The axiom guards transcribe progress.rs:40-98 *exactly* — the ledgers, not
 the module doc's prose, are the assumed interface, because they are what the
@@ -334,10 +334,31 @@ trivially ordered.)
   reaction loop), and `Trace::assert_valid` now checks it (the
   sibling-contiguity rule, added 2026-07-15 as a result of this finding).
 
-`AxiomMode` switches: `W`, `D1root`, `D1internal`, `D2`, `D3` — each
+- **Axiom D4 (wire sibling contiguity).** A child's wire may be chosen
+  only once every earlier D sibling of the same scope is resolved and has
+  sent all its dependent queries. Like D3, the model surfaced it —
+  finding #6 (Phase C, 2026-07-16): D3 polices the *resolution* stream
+  but nothing ordered child i's queries before child i+1's **wire**, so a
+  publisher whose wire stream runs ahead of its query stream satisfies
+  {W, D1, D2, D3} and deadlocks a three-walk wait cycle at uneven fan
+  (`lean/StreamingMirror/Controls.lean`: walk (R,2) sends wires B1, B2
+  with B1's queries 1-of-4 done and commits wire B3, which jams behind an
+  unconsumed wire; the walk two stages down starves for the second asked;
+  the walk between them jams its fourth wire — kernel-checked stuck run,
+  `Control.jam_not_deadlockFree`). The Rust enforces contiguity
+  syntactically (the same `yield_resolve_query!` expansion whose doc
+  calls it "progress-critical order"), and `Trace::assert_valid` now
+  checks it (the wire-contiguity rule, added 2026-07-16 as a result of
+  this finding). Note that with W and D1, D4 forces the per-scope
+  publication order to be essentially the macro's own order — it subsumes
+  D3, which is kept as defense-in-depth.
+
+`AxiomMode` switches: `W`, `D1root`, `D1internal`, `D2`, `D3`, `D4` — each
 independently droppable, giving the negative controls N1 (drop W), N2 (drop
 D1 at the root), N3 (drop D1 internally), N4 (drop D2), N5/`ledgerGap`
-(drop D3). Dropping a guard removes those poset edges and nothing else; the
+(drop D3), and the Lean control `Control.jam` (drop D4; the Quint spec
+predates D4 and has no `AX_D4` const — the Lean model is the model of
+record for it). Dropping a guard removes those poset edges and nothing else; the
 checker then searches the freed linearizations for a stuck state. One
 scaffolding const, `WIRE_FIRST`, is **not an axiom**: because the wire
 ledger never constrains `DependentWork`, a bare D1 drop frees queries
@@ -418,6 +439,7 @@ proof.
 | dependent ledger (progress.rs:58-78, 90-93) | Axiom D1 guard |
 | lower ledger (progress.rs:60-62, 79-86) | Axiom D2 guard |
 | sibling-contiguity check (progress.rs, added 2026-07-15) | Axiom D3 guard |
+| wire-contiguity check (progress.rs, added 2026-07-16) | Axiom D4 guard |
 | radix-order check (progress.rs, added 2026-07-15) | per-channel in-order program structure (§5.3) |
 | `yield_resolve_query!` (materialized.rs:104-144) | the honest linearization (one refinement of the poset) |
 | `outgoing_responses` doc (queues.rs:38-42) | `wire` cap 1 + pump hand |

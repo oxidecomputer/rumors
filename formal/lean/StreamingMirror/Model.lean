@@ -231,7 +231,9 @@ def wkChoosable (pk : Party × Nat) (ws : WalkSt) (o : Oblig) : Bool :=
     match o with
     | .wire i =>
         (i < n) && !ws.wireDone i &&
-        (List.range i).all (fun j => ws.wireDone j)
+        (List.range i).all (fun j => ws.wireDone j) &&
+        (!ax.d4 || (List.range i).all fun j =>
+          !sk.childIsD h s j || (ws.resDone j && ws.qSent j == sk.qCount h s j))
     | .res i =>
         (i < n) && sk.childIsD h s i && !ws.resDone i &&
         (List.range i).all (fun j => !sk.childIsD h s j || ws.resDone j) &&

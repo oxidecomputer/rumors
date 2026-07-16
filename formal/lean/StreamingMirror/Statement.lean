@@ -52,9 +52,12 @@ open Model
 
 /-- Deadlock-freedom, the Phase C target: under axiom mode `ax`, no
 reachable state of the session is stuck — every interleaving either can
-still move or has completed. Proven for `AxMode.full` once the progress
-lemma lands; the negative controls show it FAILS for the drop-modes, so
-the mode index is load-bearing. -/
+still move or has completed. The target instance is `AxMode.full` (the
+six-ledger interface), pending the progress lemma. The mode index is
+load-bearing, and that is a THEOREM, not a promise:
+`Control.jam_not_deadlockFree` refutes this very statement for the
+pre-finding-#6 interface (`Control.fullNoD4` — everything but wire
+contiguity), by a kernel-checked stuck run on a well-formed skeleton. -/
 def DeadlockFree (sk : Skel) (ax : AxMode) : Prop :=
   ∀ s : State, Reachable sk ax s → stuck sk ax s = false
 

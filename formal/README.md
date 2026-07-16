@@ -26,6 +26,7 @@ state and every maximal run terminates.
 | dependent ledger ("preceded its resolution", exact count) | `AX_D1_ROOT` / `AX_D1_INT` |
 | lower ledger ("preceded its N lower resolutions") | `AX_D2` |
 | sibling contiguity ("still owes N dependent work items") | `AX_D3` |
+| wire contiguity ("departed while an earlier sibling was unresolved / owed dependent work") | `AxMode.d4` (Lean only — postdates the frozen Quint spec) |
 | radix order ("violates radix order") | the per-channel in-order program structure (always on) |
 
 The sibling-contiguity check **exists because of this model**: the original
@@ -33,6 +34,19 @@ three ledgers admitted a "publish all wires, then all resolutions, then all
 queries" implementation that passes `assert_valid` and deadlocks the cap-1
 child-resolution queue at fan ≥ 3. The `ledgerGap` instance is the durable
 witness; `assert_valid` was tightened the same day (2026-07-15).
+
+The wire-contiguity check exists because of this model **twice over**
+(finding #6, Phase C, 2026-07-16): D3 polices the resolution stream, but
+nothing ordered child i's queries before child i+1's *wire*, so a
+publisher whose wire stream outruns its query stream satisfies all four
+ledgers and deadlocks a three-walk wait cycle at uneven fan ≥ 3. The
+durable witness is `lean/StreamingMirror/Controls.lean` — a kernel-checked
+(`decide`, no native trust) stuck run on a well-formed skeleton, packaged
+as `Control.jam_not_deadlockFree : ¬ DeadlockFree jam fullNoD4`. The Rust
+publisher was never exposed (`yield_resolve_query!` publishes each child
+wire→resolution→queries contiguously, calling it "progress-critical
+order"), but the *checked* interface did not say so; `assert_valid` was
+tightened the same day (2026-07-16).
 
 Modeled-world premises (assumed, argued in MODEL.md §1/§5, not checked):
 error-free conforming peers, SPSC channels, sequential scopes per walk.
@@ -76,6 +90,17 @@ per instance, seconds) is the Phase A workhorse; Phase B replaces
 reachability-of-stuck with an *inductive* invariant — the workload Apalache
 is actually built for — and Phase C's Lean `decide` re-checks the small
 instances exhaustively inside the theorem artifact.
+
+**To be explicit about what the verify tier delivered:** no full-depth
+exhaustive stuck-freedom run ever completed. The `_apalache-out` artifacts
+show the deepest symbolic exploration anywhere in the campaign reached
+step 18 (of per-instance bounds 106–224) before the client died; the
+tier exists in `check.sh` and is honest about its cost, but exhaustiveness
+was never achieved on any instance. Finding #6 (below) is the consequence
+made concrete: its trap needs ~60 steps and a skeleton shape (uneven
+fan ≥ 3 with an early D child owing ≥ 2 queries) that no matrix instance
+has — `fanDepthPositive` misses it by exactly one query. Deadlock-freedom
+claims rest on Phase C's Lean artifact, nowhere else.
 
 ## The instance matrix (all currently passing)
 
@@ -122,6 +147,18 @@ schedules, and the pyramid family exercises backpressure (`blockedSend`).
    deadlock-free" prose in `materialized.rs` and the wire-adjacent
    constructor docs in `queues.rs` currently argue the root/opening case
    explicitly; candidate doc improvement is the per-level statement.
+6. **`assert_valid` wire-contiguity gap** (Phase C, 2026-07-16; the D3
+   finding's wire-stream twin) — the four ledgers admitted a publisher
+   whose wire stream runs ahead of its sibling queries, which deadlocks a
+   three-walk cycle at uneven fan (kernel-checked witness:
+   `lean/StreamingMirror/Controls.lean`). Found while constructing the
+   progress lemma: the blame-graph acyclicity argument has exactly one
+   cycle the axioms failed to cut, and the witness realizes it. Fixed the
+   same day: `AxMode.d4` in the model (on in `.full`; invariant shadow +
+   preservation re-proven) and the wire-contiguity rule in
+   `progress.rs::assert_valid` (with a `should_panic` regression). The
+   Rust publisher itself was never exposed — `yield_resolve_query!`
+   already enforces the order syntactically.
 
 ## Phase B: the inductive invariant and the open stage
 
@@ -259,6 +296,30 @@ transcription rule paid off structurally: in `walkCommit`, three of the
 four committed-obligation arms close by definitional equality with the
 guard, and only `.wire` needs real counting.
 
+**Finding #6 (2026-07-16), surfaced by the progress-lemma design.** While
+constructing the blame-graph acyclicity argument (blocked send ⇔ channel
+full, blocked recv ⇔ channel empty; every blame edge must decrease a
+potential), exactly one wait cycle refused to die: producer jammed on a
+wire, consumer starving for an asked, asked's owner committed to the
+jammed wire's sibling. No axiom cut it, and the cycle is realizable: the
+kernel-checked witness in `StreamingMirror/Controls.lean` runs a
+60-action schedule on a well-formed uneven-fan skeleton to a stuck state
+under the pre-finding interface (`Control.jam_not_deadlockFree`), while
+`Inv` holds throughout (safety was never at issue). The stuck state
+satisfies every ledger `assert_valid` then checked — the wire stream was
+simply never told to stay contiguous with its siblings' dependent work.
+Resolution: `AxMode.d4` (wire sibling contiguity), guard + invariant
+shadow + preservation re-proven; `Control.d4_rejects_trap` pins that the
+strengthened interface refuses the schedule, and
+`Control.jam_completes_full` pins that the skeleton still completes
+greedily under it. Why three verification tiers missed it: the trap shape
+is in no matrix instance (nearest miss `fanDepthPositive`, one query
+short), the exhaustive tier never ran past depth 18 (trap depth ~60),
+and 800-sample random simulation demonstrably misses narrow
+committed-choice linearizations (`checkStage.sh`'s own stageNoW note).
+Only the parametric progress *proof* was positioned to find it — and did,
+before a line of it was formalized.
+
 Next: the canonical-order progress lemma (`Inv ∧ ¬terminal → canStep`),
 `deadlock_free`, ITF-witness negative controls (incl. the
 level-parameterized DropW existential), termination.
@@ -275,8 +336,11 @@ level-parameterized DropW existential), termination.
 - **C (in progress)**: Lean 4 parametric safety theorem; core model built
   and cross-pinned to the Phase A matrix; **the inductive invariant is
   proven at every reachable state, parametrically (`inv_reachable`)**;
-  remaining: the progress lemma → `deadlock_free`, ITF traces from the
-  controls as constructive existentials.
+  **finding #6** (the wire-contiguity ledger gap) surfaced by the
+  progress-lemma design, kernel-checked in `Controls.lean`, healed by
+  `AxMode.d4` on both sides of the interface; remaining: the progress
+  lemma → `deadlock_free` under the strengthened `.full`, ITF traces from
+  the controls as constructive existentials.
 - **D**: Lean termination (fairness-free corollary of safety + the ρ-by-1
   ranking).
 - **E**: documentation closure; the findings above land as doc changes only

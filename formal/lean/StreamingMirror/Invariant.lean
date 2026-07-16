@@ -177,10 +177,18 @@ def wkLocalOk (s : State) (pk : Party × Nat) : Bool :=
        (!ax.wireFirst || ws.qSent j == 0 || ws.wireDone j) &&
        (!ax.d3 || !ws.resDone j || ws.qSent j == sk.qCount h sc j ||
          (List.range n).all fun j2 =>
-           j2 == j || !ws.resDone j2 || ws.qSent j2 == sk.qCount h sc j2)) &&
+           j2 == j || !ws.resDone j2 || ws.qSent j2 == sk.qCount h sc j2) &&
+       -- fired-fact shadow of the d4 wire guard (finding #6)
+       (!ax.d4 || !ws.wireDone j || (List.range j).all fun j2 =>
+         !sk.childIsD h sc j2 ||
+           (ws.resDone j2 && ws.qSent j2 == sk.qCount h sc j2))) &&
      (match ws.committed with
       | none => true
-      | some (.wire i) => (i == wkWireCount sk s pk) && decide (i < n)
+      | some (.wire i) =>
+          (i == wkWireCount sk s pk) && decide (i < n) &&
+          (!ax.d4 || (List.range i).all fun j =>
+            !sk.childIsD h sc j ||
+              (ws.resDone j && ws.qSent j == sk.qCount h sc j))
       | some (.res i) =>
           decide (i < n) && sk.childIsD h sc i && !ws.resDone i &&
           ((List.range i).all fun j => !sk.childIsD h sc j || ws.resDone j) &&

@@ -717,7 +717,7 @@ private theorem preserve_walkFire_parent (hwf : sk.wellFormed = true)
         = sk.nChildren pk.2 (sk.stageScope pk.2 (s.walk pk).scope) := by
       refine wireCount_of_complete hn ?_ (fun j hj => (hadv j hj).1)
       intro j hj hwd
-      rcases (hC j hj).1.1.1.1.1.1.1.1 with hf | ⟨hlt, -⟩
+      rcases (hC j hj).1.1.1.1.1.1.1.1.1 with hf | ⟨hlt, -⟩
       · rw [hwd] at hf; cases hf
       · exact hlt
     have hrc : ((List.range sk.fan).filter
@@ -725,7 +725,7 @@ private theorem preserve_walkFire_parent (hwf : sk.wellFormed = true)
         = sk.dOf pk.2 (sk.stageScope pk.2 (s.walk pk).scope) := by
       refine count_eq_dOf sk hn ?_ ?_
       · intro j hj hrd
-        rcases (hC j hj).1.1.1.1.1.1.1.2 with hf | h
+        rcases (hC j hj).1.1.1.1.1.1.1.1.2 with hf | h
         · rw [hrd] at hf; cases hf
         · exact h
       · intro j hj hd
@@ -736,7 +736,7 @@ private theorem preserve_walkFire_parent (hwf : sk.wellFormed = true)
         (fun acc j => acc + (s.walk pk).qSent j) 0
         = sk.qOf pk.2 (sk.stageScope pk.2 (s.walk pk).scope) := by
       refine qSum_of_complete sk hn
-        (fun j hj => (hC j hj).1.1.1.1.1.1.2) ?_
+        (fun j hj => (hC j hj).1.1.1.1.1.1.1.2) ?_
       intro j hj hd
       rcases (hadv j hj).2 with h | h
       · rw [hd] at h; cases h
@@ -848,7 +848,7 @@ private theorem preserve_walkFire_wire (hwf : sk.wellFormed = true)
   simp only [wkLocalOk] at hwk
   rw [hph2, hcm] at hwk
   simp at hwk
-  obtain ⟨hslt, ⟨-, hC⟩, hieq, hin⟩ := hwk
+  obtain ⟨hslt, ⟨-, hC⟩, ⟨hieq, hin⟩, hd4⟩ := hwk
   have hn : sk.nChildren pk.2 (sk.stageScope pk.2 (s.walk pk).scope)
       ≤ sk.fan := nChildren_le_fan hwf hslt
   -- the committed arm pins the ledger to the `< i` prefix
@@ -860,7 +860,7 @@ private theorem preserve_walkFire_wire (hwf : sk.wellFormed = true)
   have hclosed : ∀ j < sk.fan, (s.walk pk).wireDone j = true →
       j = 0 ∨ (s.walk pk).wireDone (j - 1) = true := by
     intro j hj hwd
-    rcases (hC j hj).1.1.1.1.1.1.1.1 with hf | ⟨-, h0⟩
+    rcases (hC j hj).1.1.1.1.1.1.1.1.1 with hf | ⟨-, h0⟩
     · rw [hwd] at hf; cases hf
     · exact h0
   have hfront := frontier_of_count hcnt hclosed
@@ -917,7 +917,7 @@ private theorem preserve_walkFire_wire (hwf : sk.wellFormed = true)
         = sk.dOf pk.2 (sk.stageScope pk.2 (s.walk pk).scope) := by
       refine count_eq_dOf sk hn ?_ ?_
       · intro j hj hrd
-        rcases (hC j hj).1.1.1.1.1.1.1.2 with hf | h
+        rcases (hC j hj).1.1.1.1.1.1.1.1.2 with hf | h
         · rw [hrd] at hf; cases hf
         · exact h
       · intro j hj hd
@@ -928,7 +928,7 @@ private theorem preserve_walkFire_wire (hwf : sk.wellFormed = true)
         (fun acc j => acc + (s.walk pk).qSent j) 0
         = sk.qOf pk.2 (sk.stageScope pk.2 (s.walk pk).scope) := by
       refine qSum_of_complete sk hn
-        (fun j hj => (hC j hj).1.1.1.1.1.1.2) ?_
+        (fun j hj => (hC j hj).1.1.1.1.1.1.1.2) ?_
       intro j hj hd
       rcases (hcompl j hj).2 with h | h
       · rw [hd] at h; cases h
@@ -1008,8 +1008,9 @@ private theorem preserve_walkFire_wire (hwf : sk.wellFormed = true)
         simp
         refine ⟨hslt, hadv', ?_⟩
         intro x hx
-        obtain ⟨⟨⟨⟨⟨⟨⟨⟨c1, c2⟩, c3⟩, c4⟩, c5⟩, c6⟩, c7⟩, c8⟩, c9⟩ := hC x hx
-        refine ⟨⟨⟨⟨⟨⟨⟨⟨?_, c2⟩, c3⟩, c4⟩, c5⟩, ?_⟩, c7⟩, ?_⟩, c9⟩
+        obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨c1, c2⟩, c3⟩, c4⟩, c5⟩, c6⟩, c7⟩, c8⟩, c9⟩, c10⟩ :=
+          hC x hx
+        refine ⟨⟨⟨⟨⟨⟨⟨⟨⟨?_, c2⟩, c3⟩, c4⟩, c5⟩, ?_⟩, c7⟩, ?_⟩, c9⟩, ?_⟩
         · -- the new frontier is prefix-closed at `i + 1`
           rcases Nat.lt_trichotomy x i with hxi | hxi | hxi
           · right
@@ -1044,6 +1045,16 @@ private theorem preserve_walkFire_wire (hwf : sk.wellFormed = true)
         · rcases c8 with h | h
           · exact Or.inl h
           · exact Or.inr (Or.inr h)
+        · -- d4 shadow: the committed clause covers the newly wired `i`
+          rcases c10 with (h | h) | h
+          · exact Or.inl (Or.inl h)
+          · by_cases hxi : x = i
+            · subst hxi
+              rcases hd4 with hd | hall
+              · exact Or.inl (Or.inl hd)
+              · exact Or.inr hall
+            · exact Or.inl (Or.inr ⟨hxi, h⟩)
+          · exact Or.inr h
       · have hw : s'.walk pk' = s.walk pk' := by
           rw [← hs']
           exact setWalk_walk_ne _ _ hpkeq
@@ -1125,7 +1136,7 @@ private theorem preserve_walkFire_res (hwf : sk.wellFormed = true)
         = sk.nChildren pk.2 (sk.stageScope pk.2 (s.walk pk).scope) := by
       refine wireCount_of_complete hn ?_ (fun j hj => (hcompl j hj).1)
       intro j hj hwd
-      rcases (hC j hj).1.1.1.1.1.1.1.1 with hf | ⟨hlt, -⟩
+      rcases (hC j hj).1.1.1.1.1.1.1.1.1 with hf | ⟨hlt, -⟩
       · rw [hwd] at hf; cases hf
       · exact hlt
     -- the fired ledger holds exactly the D children
@@ -1138,7 +1149,7 @@ private theorem preserve_walkFire_res (hwf : sk.wellFormed = true)
         rcases hpj with he | hr
         · subst he
           exact ⟨by omega, hDi⟩
-        · rcases (hC j hj).1.1.1.1.1.1.1.2 with hf | h
+        · rcases (hC j hj).1.1.1.1.1.1.1.1.2 with hf | h
           · rw [hr] at hf; cases hf
           · exact h
       · intro j hj hd
@@ -1151,7 +1162,7 @@ private theorem preserve_walkFire_res (hwf : sk.wellFormed = true)
         (fun acc j => acc + (s.walk pk).qSent j) 0
         = sk.qOf pk.2 (sk.stageScope pk.2 (s.walk pk).scope) := by
       refine qSum_of_complete sk hn
-        (fun j hj => (hC j hj).1.1.1.1.1.1.2) ?_
+        (fun j hj => (hC j hj).1.1.1.1.1.1.1.2) ?_
       intro j hj hd
       rcases (hcompl j hj).2 with h | h
       · rw [hd] at h; cases h
@@ -1233,8 +1244,9 @@ private theorem preserve_walkFire_res (hwf : sk.wellFormed = true)
         simp
         refine ⟨hslt, hadv', ?_⟩
         intro x hx
-        obtain ⟨⟨⟨⟨⟨⟨⟨⟨c1, c2⟩, c3⟩, c4⟩, c5⟩, c6⟩, c7⟩, c8⟩, c9⟩ := hC x hx
-        refine ⟨⟨⟨⟨⟨⟨⟨⟨c1, ?_⟩, c3⟩, c4⟩, ?_⟩, ?_⟩, ?_⟩, c8⟩, ?_⟩
+        obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨c1, c2⟩, c3⟩, c4⟩, c5⟩, c6⟩, c7⟩, c8⟩, c9⟩, c10⟩ :=
+          hC x hx
+        refine ⟨⟨⟨⟨⟨⟨⟨⟨⟨c1, ?_⟩, c3⟩, c4⟩, ?_⟩, ?_⟩, ?_⟩, c8⟩, ?_⟩, ?_⟩
         · -- res prefix: the new child is real and D
           by_cases hxi : x = i
           · exact Or.inr ⟨by omega, by rw [hxi]; exact hDi⟩
@@ -1287,6 +1299,14 @@ private theorem preserve_walkFire_res (hwf : sk.wellFormed = true)
                   · rcases hall x hxn with h | h
                     · rw [hrdx] at h; cases h
                     · exact Or.inl (Or.inr h)
+        · -- d4 shadow: resolutions only grow under a res fire
+          rcases c10 with h | hall
+          · exact Or.inl h
+          · right
+            intro x1 hx1
+            rcases hall x1 hx1 with h | ⟨hrd, hq⟩
+            · exact Or.inl h
+            · exact Or.inr ⟨Or.inr hrd, hq⟩
       · have hw : s'.walk pk' = s.walk pk' := by
           rw [← hs']
           exact setWalk_walk_ne _ _ hpkeq
@@ -1378,7 +1398,7 @@ private theorem preserve_walkFire_query (hwf : sk.wellFormed = true)
         = sk.nChildren pk.2 (sk.stageScope pk.2 (s.walk pk).scope) := by
       refine wireCount_of_complete hn ?_ (fun j hj => (hcompl j hj).1)
       intro j hj hwd
-      rcases (hC j hj).1.1.1.1.1.1.1.1 with hf | ⟨hlt, -⟩
+      rcases (hC j hj).1.1.1.1.1.1.1.1.1 with hf | ⟨hlt, -⟩
       · rw [hwd] at hf; cases hf
       · exact hlt
     have hrc : ((List.range sk.fan).filter
@@ -1386,7 +1406,7 @@ private theorem preserve_walkFire_query (hwf : sk.wellFormed = true)
         = sk.dOf pk.2 (sk.stageScope pk.2 (s.walk pk).scope) := by
       refine count_eq_dOf sk hn ?_ ?_
       · intro j hj hrd
-        rcases (hC j hj).1.1.1.1.1.1.1.2 with hf | h
+        rcases (hC j hj).1.1.1.1.1.1.1.1.2 with hf | h
         · rw [hrd] at hf; cases hf
         · exact h
       · intro j hj hd
@@ -1404,7 +1424,7 @@ private theorem preserve_walkFire_query (hwf : sk.wellFormed = true)
         · simp only [hji, if_pos]
           omega
         · rw [if_neg hji]
-          exact (hC j hj).1.1.1.1.1.1.2
+          exact (hC j hj).1.1.1.1.1.1.1.2
       · intro j hj hd
         rcases (hcompl j hj).2 with h | h
         · rw [hd] at h; cases h
@@ -1487,8 +1507,9 @@ private theorem preserve_walkFire_query (hwf : sk.wellFormed = true)
         simp
         refine ⟨hslt, hadv', ?_⟩
         intro x hx
-        obtain ⟨⟨⟨⟨⟨⟨⟨⟨c1, c2⟩, c3⟩, c4⟩, c5⟩, c6⟩, c7⟩, c8⟩, c9⟩ := hC x hx
-        refine ⟨⟨⟨⟨⟨⟨⟨⟨c1, c2⟩, ?_⟩, ?_⟩, c5⟩, c6⟩, ?_⟩, ?_⟩, ?_⟩
+        obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨c1, c2⟩, c3⟩, c4⟩, c5⟩, c6⟩, c7⟩, c8⟩, c9⟩, c10⟩ :=
+          hC x hx
+        refine ⟨⟨⟨⟨⟨⟨⟨⟨⟨c1, c2⟩, ?_⟩, ?_⟩, c5⟩, c6⟩, ?_⟩, ?_⟩, ?_⟩, ?_⟩
         · -- budget bound: strict at `i`, unchanged elsewhere
           by_cases hxi : x = i
           · rw [if_pos hxi, hxi]
@@ -1549,6 +1570,20 @@ private theorem preserve_walkFire_query (hwf : sk.wellFormed = true)
                 rw [hx1i] at h
                 omega
               · exact Or.inr (by rw [if_neg hx1i]; exact h)
+        · -- d4 shadow: a shadowed budget cannot be `i`'s (the arm is strict)
+          rcases c10 with h | hall
+          · exact Or.inl h
+          · right
+            intro x1 hx1
+            rcases hall x1 hx1 with h | ⟨hrd, hq⟩
+            · exact Or.inl h
+            · refine Or.inr ⟨hrd, ?_⟩
+              by_cases hx1i : x1 = i
+              · exfalso
+                rw [hx1i] at hq
+                omega
+              · rw [if_neg hx1i]
+                exact hq
       · have hw : s'.walk pk' = s.walk pk' := by
           rw [← hs']
           exact setWalk_walk_ne _ _ hpkeq

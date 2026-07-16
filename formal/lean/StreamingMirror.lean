@@ -3,6 +3,7 @@ import StreamingMirror.Skel
 import StreamingMirror.Model
 import StreamingMirror.Instances
 import StreamingMirror.Statement
+import StreamingMirror.Controls
 import StreamingMirror.Invariant
 import StreamingMirror.Proofs.Lemmas
 import StreamingMirror.Proofs.Wiring
