@@ -326,4 +326,128 @@ theorem qCount_eq_kid_nChildren (hwf : sk.wellFormed = true)
           omega
         simp [hb0]
 
+-- ================================================== segment algebra
+
+theorem walkSeg_empty (h' a : Nat) : walkSeg sk h' a a = [] := by
+  unfold walkSeg
+  rw [Nat.sub_self]
+  rfl
+
+theorem walkSeg_single (h' k : Nat) :
+    walkSeg sk h' k (k + 1) = scopeBlock sk (wpk h') k := by
+  unfold walkSeg
+  rw [Nat.add_sub_cancel_left, List.range'_one, List.flatMap_cons,
+    List.flatMap_nil, List.append_nil]
+
+/-- Abutting stage runs glue into one. -/
+theorem walkSeg_glue {h' a b c : Nat} (hab : a ≤ b) (hbc : b ≤ c) :
+    walkSeg sk h' a b ++ walkSeg sk h' b c = walkSeg sk h' a c := by
+  unfold walkSeg
+  rw [← List.flatMap_append,
+    show c - a = (b - a) + (c - b) from by omega,
+    ← List.range'_append,
+    show a + 1 * (b - a) = b from by omega]
+
+/-- `wiresBefore` is monotone in the cursor (past the stage's end the
+`take` saturates and the sum freezes). -/
+theorem wiresBefore_mono (h : Nat) : ∀ {k k' : Nat}, k ≤ k' →
+    sk.wiresBefore h k ≤ sk.wiresBefore h k' := by
+  intro k k' hkk
+  induction k' with
+  | zero =>
+      have hk0 : k = 0 := by omega
+      subst hk0
+      exact Nat.le_refl _
+  | succ k' ih =>
+      by_cases hlast : k = k' + 1
+      · subst hlast
+        exact Nat.le_refl _
+      · have hstep : sk.wiresBefore h k' ≤ sk.wiresBefore h (k' + 1) := by
+          by_cases hin : k' < sk.stageLen h
+          · rw [wiresBefore_succ sk hin]
+            omega
+          · unfold Skel.wiresBefore
+            rw [List.take_of_length_le (by
+                unfold Skel.stageLen at hin
+                omega),
+              List.take_of_length_le (by
+                unfold Skel.stageLen at hin
+                omega)]
+            exact Nat.le_refl _
+        exact Nat.le_trans (ih (by omega)) hstep
+
+theorem descIdx_zero (h' j : Nat) : descIdx sk h' 0 j = j := rfl
+
+theorem descIdx_succ (h' d j : Nat) :
+    descIdx sk h' (d + 1) j
+      = descIdx sk h' d (sk.wiresBefore (h' + d + 1) j) := rfl
+
+/-- Descent preserves cursor order. -/
+theorem descIdx_mono (h' : Nat) : ∀ (d : Nat) {j j' : Nat}, j ≤ j' →
+    descIdx sk h' d j ≤ descIdx sk h' d j' := by
+  intro d
+  induction d with
+  | zero => intro j j' hjj; exact hjj
+  | succ d ih =>
+      intro j j' hjj
+      rw [descIdx_succ, descIdx_succ]
+      exact ih (wiresBefore_mono sk _ hjj)
+
+-- ============================================== per-channel ownership
+-- The owner of every event shape the weave emits at stage `h`, as
+-- `evOwner` computations (the numbering layer's owner functions read
+-- back at the channels the recursion touches). `hh : h < rootH` keeps
+-- the stage real; `hwf` supplies rootH's evenness where the opener
+-- channels could collide.
+
+theorem evOwner_wireIn (hwf : sk.wellFormed = true) (h n : Nat) :
+    evOwner sk (wireIn (wpk h), false, n) = walkIdx sk h := by
+  have hev := (wf_rootH hwf).1
+  have hc1 : ¬((wpk h).1.other = Party.I ∧ h + 1 = sk.rootH) := by
+    rintro ⟨hpI, hh1⟩
+    have hodd : (h % 2 == 1) = true := by
+      have hm : h % 2 = 1 := by omega
+      simpa using hm
+    unfold wpk at hpI
+    rw [hodd] at hpI
+    simp [Party.other] at hpI
+  show rcvOwner sk (Chan.wire (wpk h).1.other (h + 1)) = walkIdx sk h
+  simp only [rcvOwner]
+  rw [if_neg hc1, if_neg (by omega : ¬(h + 1 = 0))]
+  have h11 : h + 1 - 1 = h := by omega
+  rw [h11]
+
+theorem evOwner_askedIn {h : Nat} (n : Nat) :
+    evOwner sk (askedIn (wpk h), false, n) = walkIdx sk h := rfl
+
+theorem evOwner_upperOut {h : Nat} (n : Nat) :
+    evOwner sk (upperOut (wpk h), true, n) = walkIdx sk h := rfl
+
+theorem evOwner_lowerOut {h : Nat} (n : Nat) :
+    evOwner sk (lowerOut (wpk h), true, n) = walkIdx sk h := rfl
+
+theorem evOwner_wireOut {h : Nat} (hh : h < sk.rootH) (n : Nat) :
+    evOwner sk (wireOut (wpk h), true, n) = walkIdx sk h := by
+  show sndOwner sk (Chan.wire (wpk h).1 h) = walkIdx sk h
+  simp only [sndOwner]
+  rw [if_neg (Nat.ne_of_lt hh)]
+
+theorem evOwner_askedOut {h : Nat} (h1 : 1 ≤ h) (hh : h < sk.rootH)
+    (n : Nat) :
+    evOwner sk (askedOut (wpk h), true, n) = walkIdx sk h := by
+  by_cases h2 : h < 2
+  · have hone : h = 1 := by omega
+    subst hone
+    rfl
+  · have ha : askedOut (wpk h) = Chan.asked (wpk h).1 (h - 2) :=
+      if_neg h2
+    show sndOwner sk (askedOut (wpk h)) = walkIdx sk h
+    rw [ha]
+    simp only [sndOwner]
+    rw [if_neg fun hcon => absurd hcon.2 (by omega),
+      if_neg fun hcon => absurd hcon.2 (by omega)]
+    unfold walkIdx
+    congr 1
+    omega
+
 end StreamingMirror.Sched
