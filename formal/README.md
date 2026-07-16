@@ -74,6 +74,12 @@ cd formal/quint
 ./check.sh            # simulator tier: ~2 min, run on every model edit
 ./check.sh verify     # exhaustive tier: Apalache BMC at full depth (slow)
 SAMPLES=5000 ./check.sh   # deeper random sweep
+
+cd formal/lean
+lake build            # the theorem artifact: all proofs, pins, controls
+lake exe eventdag     # event-DAG control: acyclicity + totals + depth
+                      # dumps per pinned skeleton (PROGRESS.md §3);
+                      # nonzero exit on any failed check
 ```
 
 `check.sh` encodes every expectation; a control instance passes only when
@@ -320,9 +326,29 @@ committed-choice linearizations (`checkStage.sh`'s own stageNoW note).
 Only the parametric progress *proof* was positioned to find it — and did,
 before a line of it was formalized.
 
-Next: the canonical-order progress lemma (`Inv ∧ ¬terminal → canStep`),
-`deadlock_free`, ITF-witness negative controls (incl. the
-level-parameterized DropW existential), termination.
+**The progress lemma is in flight; its design of record is
+[PROGRESS.md](PROGRESS.md)** — read that before touching it. Landed so
+far (2026-07-16): the enabledness pillar (`Proofs/Progress.lean`:
+phase-2 uncommitted walks always have a choosable obligation, every
+axiom mode — blocking is confined to channel operations); the counting
+layer (`Proofs/Counting.lean`: whole-sweep supply = demand for every
+channel family); the BFS-alignment conjunct in `wellFormed` (the
+docstring's promise made checkable — a proof-method requirement for
+positional timestamps, explicitly NOT a protocol finding: crossed-kid
+skeletons stay count-consistent and complete); and the `eventdag`
+control (`lake exe eventdag`), which checked the forced-order event DAG
+acyclic on the full pinned matrix + jam with totals cross-validated
+against `sentOf`/`recvdOf`. The central design fact, with its refuted
+alternatives, lives in PROGRESS.md §4: the progress potential is
+tree-recursive (a canonical schedule construction), not a closed-form
+lex formula — back-pressure injects consumer-timeline positions into
+producer sends, so per-scope role tables cannot express it.
+
+Next: the canonical schedule construction (PROGRESS.md §5 workflow:
+validate against eventdag, then prove), the blame lemmas (§6), the
+argmin assembly → `deadlock_free`; then ITF-witness negative controls
+(incl. the level-parameterized DropW existential) and termination —
+whose witness the schedule construction supplies for free.
 
 ## Phase map
 
@@ -338,9 +364,12 @@ level-parameterized DropW existential), termination.
   proven at every reachable state, parametrically (`inv_reachable`)**;
   **finding #6** (the wire-contiguity ledger gap) surfaced by the
   progress-lemma design, kernel-checked in `Controls.lean`, healed by
-  `AxMode.d4` on both sides of the interface; remaining: the progress
-  lemma → `deadlock_free` under the strengthened `.full`, ITF traces from
-  the controls as constructive existentials.
+  `AxMode.d4` on both sides of the interface; progress lemma in flight
+  per [PROGRESS.md](PROGRESS.md) — enabledness pillar and counting
+  layer proven, event DAG checked acyclic on the pinned matrix,
+  schedule construction open; then `deadlock_free` under the
+  strengthened `.full`, ITF traces from the controls as constructive
+  existentials.
 - **D**: Lean termination (fairness-free corollary of safety + the ρ-by-1
   ranking).
 - **E**: documentation closure; the findings above land as doc changes only

@@ -17,6 +17,15 @@ mis-wiring).
 Run: lake exe eventdag [outDir]   (dumps default to ./eventdag-out,
 which is gitignored; exit code is nonzero on any failed check, so the
 `just all` sweep can gate on it.)
+
+Role in the progress proof (PROGRESS.md §3, §5): this is the standing
+ORACLE for the schedule construction. Acyclicity of this DAG is "a
+valid timestamp exists"; the depth dumps are what any candidate
+construction must be fitted against, and the validate-then-prove
+workflow requires a candidate to pass this tool's edge check on every
+pinned skeleton BEFORE proof effort is spent on it. The depth tables
+already refuted the closed-form lex-timestamp design (PROGRESS.md §4):
+depths jump at subtree boundaries, so the potential is tree-recursive.
 -/
 import StreamingMirror
 import Std.Data.HashMap

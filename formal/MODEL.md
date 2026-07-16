@@ -88,6 +88,15 @@ skeletons**: the finite tree of scopes the session actually recurses into.
   answer.rs:112-115 — so height-0 leaves are never disputed; height-**1**
   scopes *are* disputable, via `answer::internal` instantiated at `H = Z`).
 - Fan bound: ≤ F children per scope (`FAN = 256` in Rust, queues.rs:36).
+- Ids are BFS order, and since 2026-07-16 `wellFormed` checks the
+  cross-parent consequence, not just per-scope ascending kids: each
+  stage's kid lists, flattened in scope order, ARE the next stage down
+  (`wf_bfs_aligned`). The conjunct exists for the progress proof, which
+  keys each channel's n-th message to the n-th scope of the consuming
+  stage (PROGRESS.md §2–3); a crossed-but-otherwise-well-formed
+  skeleton stays count-consistent and completes, so this narrows the
+  theorem's domain to the documented (and Rust-realized) class rather
+  than fixing a defect.
 
 Soundness: honest walks are deterministic given trees, so every real
 communication skeleton is a model path; unrealizable skeletons (e.g. shapes
