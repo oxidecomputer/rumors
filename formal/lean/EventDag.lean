@@ -913,6 +913,142 @@ def phiDump (sk : Skel) : Array String := Id.run do
         | some (par, w) => s!"{p}\t{evStr e}\t<- w={w} [{evStr par}]"
         | none => s!"{p}\t{evStr e}"
 
+-- ================== §7 3b: the tree-recursive weave (the phi witness)
+
+/-- Weave state: the emitted order, per-channel counts, and cursors
+into the linear pump traces (absorb, the asm towers, float, fin).
+`errs` records any weave emission whose E1/E2 guard does not hold at
+its position — the weave is CONSTRUCTED to be valid, and a violation
+here means the interleave design is wrong at that point. -/
+structure WV where
+  out : Array Ev
+  sent : Std.HashMap Nat Nat
+  rcvd : Std.HashMap Nat Nat
+  pumps : Array (Array Ev)
+  pumpCur : Array Nat
+  errs : Array String
+
+/-- Is `e` emittable now (E1 for receives, E2 cap window for sends)? -/
+def WV.ok (st : WV) (sk : Skel) (e : Ev) : Bool :=
+  let (c, sd, n) := e
+  if sd then n < st.rcvd.getD (chanKey c) 0 + sk.cap c
+  else n < st.sent.getD (chanKey c) 0
+
+/-- Emit one event, recording an error if its guard is closed. -/
+def WV.emit (st : WV) (sk : Skel) (e : Ev) : WV :=
+  let (c, sd, _n) := e
+  let st := if st.ok sk e then st else
+    { st with errs := st.errs.push s!"weave emitted disabled [{evStr e}]" }
+  if sd then
+    { st with out := st.out.push e
+              sent := st.sent.insert (chanKey c) (st.sent.getD (chanKey c) 0 + 1) }
+  else
+    { st with out := st.out.push e
+              rcvd := st.rcvd.insert (chanKey c) (st.rcvd.getD (chanKey c) 0 + 1) }
+
+/-- Greedily drain the pump traces: emit every enabled head until no
+trace can move. Pump emissions only raise counts, so greedy pumping is
+confluent — it reaches the unique maximal pumped state. -/
+def WV.pump (st : WV) (sk : Skel) : WV := Id.run do
+  let mut st := st
+  let fuel := (st.pumps.map (·.size)).foldl (· + ·) 0
+  for _ in [0:fuel + 1] do
+    let mut moved := false
+    for i in [0:st.pumps.size] do
+      let t := st.pumps[i]!
+      let mut c := st.pumpCur[i]!
+      for _ in [c:t.size] do
+        if c < t.size && st.ok sk t[c]! then
+          st := st.emit sk t[c]!
+          c := c + 1
+          moved := true
+      st := { st with pumpCur := st.pumpCur.set! i c }
+    if !moved then
+      return st
+  return st
+
+/-- Emit then pump: every weave emission may open assembly windows. -/
+def WV.emitP (st : WV) (sk : Skel) (e : Ev) : WV :=
+  (st.emit sk e).pump sk
+
+/-- The descent weave for scope `k` of stage `h` (§7 3b): prologue,
+then per kid — wire, resolution (D kids), the parent summary after
+the last resolution (or first, when nothing disputes), the FEED query
+for that kid, and the recursive descent, with this scope's own chunk
+queries passed down as the kid's feed. `feed[i]` is the query event
+for kid `i`, owned by this scope's parent's trace: emitting it here,
+one per kid in order, is exactly what the cap-1 asked channel's E2
+requires, and it preserves the parent's trace order (all of a chunk's
+queries precede the next chunk's wire). At `h = 0` the kids are leaf
+slots: the feed is the leaf-request and the absorb trace is pumped in
+place of a recursive call. -/
+partial def weaveScope (sk : Skel) (h k : Nat) (feed : Array Ev) (st : WV) : WV := Id.run do
+  let pk : Party × Nat := (if h % 2 == 1 then Party.I else Party.R, h)
+  let mut st := st
+  st := st.emitP sk (wireIn pk, false, k)
+  st := st.emitP sk (askedIn pk, false, k)
+  let s := sk.stageScope h k
+  let n := sk.nChildren h s
+  let lastD := ((List.range n).filter (fun i => sk.childIsD h s i)).getLast?
+  if lastD == none then
+    st := st.emitP sk (upperOut pk, true, k)
+  let kidBase := (List.range k).foldl
+    (fun a k' => a + sk.nChildren h (sk.stageScope h k')) 0
+  let mut dSeen := 0
+  let mut qSeen := 0
+  for i in [0:n] do
+    st := st.emitP sk (wireOut pk, true, sk.wiresBefore h k + i)
+    if sk.childIsD h s i then
+      st := st.emitP sk (lowerOut pk, true, sk.dsBefore h k + dSeen)
+      dSeen := dSeen + 1
+      if lastD == some i then
+        st := st.emitP sk (upperOut pk, true, k)
+      if h == 0 then
+        -- leaf slots dispute nothing; childIsD is hard-false at h = 0
+        st := { st with errs := st.errs.push s!"weave: D kid at h=0 (scope {k})" }
+      else
+        let myQ := (Array.range (sk.qCount h s i)).map fun t =>
+          ((askedOut pk, true, sk.qsBefore h k + qSeen + t) : Ev)
+        if i < feed.size then
+          st := st.emitP sk feed[i]!
+        st := weaveScope sk (h - 1) (kidBase + i) myQ st
+    else
+      if i < feed.size then
+        st := st.emitP sk feed[i]!
+      if h ≥ 1 then
+        st := weaveScope sk (h - 1) (kidBase + i) #[] st
+    -- childChunk's query base sums qCount over ALL earlier kids
+    qSeen := qSeen + sk.qCount h s i
+  return st
+
+/-- The §7 3b witness: a FULL topological order of the event DAG
+(E1/E2/E3-trace), built by structural recursion over the scope tree —
+openers, then the root scope's weave, then a final pump. Its position
+function is the potential the completeness argmin consumes: strict
+across every edge family (stronger than the weak potential needs).
+Validated by the same `validateSchedule` as the merge candidate; on a
+non-schedulable skeleton the weave emits through closed guards and is
+rejected (`pyramid 1` pins this). NOT the schedule: τ and the blame
+lemmas stay with the merge — the weave only witnesses that a valid
+completion exists, which is where `Skel.schedulable` will enter the
+Lean proof (the pump-progress lemmas at each emission point). -/
+def weaveOrder (sk : Skel) : Array Ev × Array String := Id.run do
+  let pumps : Array (Array Ev) :=
+    #[(Sched.absorbEvents sk).toArray]
+    ++ (sk.asmKeys.toArray.map fun pk => (Sched.asmEvents sk pk).toArray)
+    ++ #[#[(Chan.rootret, false, 0)], (Sched.finEvents sk).toArray]
+  let mut st : WV :=
+    { out := #[], sent := {}, rcvd := {}, pumps
+      pumpCur := Array.replicate pumps.size 0, errs := #[] }
+  for e in Sched.iopenEvents sk do
+    st := st.emitP sk e
+  for e in (Sched.ropenEvents sk).take 3 do
+    st := st.emitP sk e
+  let rootFeed := ((Sched.ropenEvents sk).drop 3).toArray
+  st := weaveScope sk (sk.rootH - 1) 0 rootFeed st
+  st := st.pump sk
+  return (st.out, st.errs)
+
 /-- Trace labels in `Sched.procs` order, for the blame alphabet. -/
 def traceLabels (sk : Skel) : Array String :=
   #["iopen", "ropen"]
@@ -1061,8 +1197,12 @@ def runFuzz (n : Nat) : Array String := Id.run do
           errs := errs.push s!"seed {seed}: {(numberingErrs sk)[0]!}"
         else
           let bErrs := (blameProbe sk).1
+          let (weave, wErrs0) := weaveOrder sk
+          let wErrs := wErrs0 ++ validateSchedule sk weave
           if !bErrs.isEmpty then
             errs := errs.push s!"seed {seed}: {bErrs[0]!}"
+          else if !wErrs.isEmpty then
+            errs := errs.push s!"seed {seed}: weave invalid ({wErrs.size} errors, first: {wErrs[0]!})"
           else
             let (stuckAt, term) := replaySchedule sk cand
             if let some i := stuckAt then
@@ -1185,6 +1325,21 @@ def runAll (outDir : System.FilePath) : IO Bool := do
         IO.println s!"  NUMBERING: {e}"
     else
       IO.println "  per-channel canonical numbering (traces + schedule): OK"
+    -- §7 3b: the tree-recursive weave must be a full valid
+    -- linearization (permutation + every E1/E2/E3 edge), independent
+    -- of the merge — it is the potential witness for completeness
+    let (weave, wErrs) := weaveOrder sk
+    let wvErrs := wErrs ++ validateSchedule sk weave
+    if !wvErrs.isEmpty then
+      allOk := false
+      for e in wvErrs.toSubarray 0 (min wvErrs.size 20) do
+        IO.println s!"  WEAVE INVALID: {e}"
+    IO.println s!"  weave order: {weave.size} events, valid: {wvErrs.isEmpty}"
+    if a.acyclic && wvErrs.isEmpty then
+      let f := outDir / s!"{name}.weave.tsv"
+      IO.FS.writeFile f (String.intercalate "\n"
+        ((weave.toList.zipIdx.map fun (e, i) => s!"{i}\t{evStr e}")) ++ "\n")
+      IO.println s!"  weave dump: {f}"
     -- §7 3b: weak potential + blame reduction, checked at every merge
     -- state; alphabet + phi dumps are the closed-form mining surface
     let (bErrs, bAlpha) := blameProbe sk
@@ -1247,6 +1402,12 @@ def runAll (outDir : System.FilePath) : IO Bool := do
   if !cycleFound then allOk := false
   IO.println s!"  pyramid1 weak potential absent: {(weakPotential pyr1).isNone} (want true)"
   if (weakPotential pyr1).isSome then allOk := false
+  -- the weave must be rejected on a non-schedulable skeleton: its
+  -- guards close and the emission errors / validator flag it
+  let (wNeg, wNegErrs) := weaveOrder pyr1
+  let wNegAll := wNegErrs ++ validateSchedule pyr1 wNeg
+  IO.println s!"  pyramid1 weave rejected: {!wNegAll.isEmpty} (want true)"
+  if wNegAll.isEmpty then allOk := false
   -- Mutation controls run on pyramid2: its channels carry multiple
   -- messages (smokeChain's all carry one, leaving E2 nothing to swap).
   let mutSk := Pin.pyramid 2
@@ -1300,12 +1461,17 @@ def runAll (outDir : System.FilePath) : IO Bool := do
     let aOver := analyze over
     let cand := schedCandidate onB
     let (stuckAt, term) := replaySchedule onB cand
+    let (wOn, wOnErrs) := weaveOrder onB
+    let (wOver, wOverErrs) := weaveOrder over
     let ok := onB.wellFormed && over.wellFormed
       && aOn.acyclic && onB.schedulable
       && !aOver.acyclic && !over.schedulable
       && (validateSchedule onB cand).isEmpty
       && stuckAt.isNone && term
       && (Sched.schedule onB == cand.toList)
+      -- the weave completes ON the boundary and fails one past it
+      && (wOnErrs ++ validateSchedule onB wOn).isEmpty
+      && !(wOverErrs ++ validateSchedule over wOver).isEmpty
     IO.println s!"    capLevel={cl}: {if ok then "OK" else "FAIL"}"
     if !ok then allOk := false
   IO.println "=== verdict table ==="

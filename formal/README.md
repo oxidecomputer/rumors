@@ -402,14 +402,23 @@ drops, chains terminate) on all pins and acyclic fuzz seeds;
 `pyramid 1` pins the negative (its probe finds the blame cycle, its
 potential does not exist).
 
-Next: the Lean φ — tree-recursive per-scope wavefront times (the
-minimal potential's subtree-boundary jumps rule out per-channel
-affine forms), to be fitted and gated executably before any Lean —
-then the three edge lemmas + argmin assembly closing merge
-completeness, the blame lemmas (§6), and `deadlock_free`; then
-ITF-witness negative controls (incl. the level-parameterized DropW
-existential) and termination — whose witness the schedule
-construction already supplies executably.
+The potential itself is the *weave* (`EventDag.weaveOrder`,
+tool-validated): a full topological order of the event DAG built by
+structural recursion over the scope tree — query feeds thread each
+scope's chunk queries down to its kids' descent, and the linear
+assembly traces pump greedily after every emission. Position in the
+weave is the potential; it validates (permutation + every edge) on
+all pins, all 300 acyclic fuzz seeds, and the capLevel boundary
+matrix, completing exactly ON `dCount = capLevel + 2` and failing one
+past.
+
+Next: transcribe the weave to Lean and prove it valid (permutation +
+edge-respect by induction over the recursion; `Skel.schedulable`
+enters only in the pump-progress lemmas), then the blame-reduction
+lemmas + argmin assembly closing merge completeness, the blame lemmas
+(§6), and `deadlock_free`; then ITF-witness negative controls (incl.
+the level-parameterized DropW existential) and termination — whose
+witness the schedule construction already supplies executably.
 
 ## Phase map
 

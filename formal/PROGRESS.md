@@ -448,20 +448,46 @@ bounds μ(Q), and both are bounded by the awaited send.
      cycle at its stall and its `weakPotential` must be `none`. The
      observed blame-edge alphabet (`.blame.tsv` per pin) matches the
      §6 table exactly.
-   - *Open: the Lean φ.* The minimal φ is NOT per-channel affine in
-     seq (`.phi.tsv` dumps: jam's `asked I 1` snds sit at φ 2, 5, 12
-     — jumps at subtree boundaries, §4's mechanism recurring at the
-     potential level), so the Lean φ will be TREE-RECURSIVE:
-     per-scope wavefront times by structural recursion over the
-     skeleton with subtree-sized slack (prefix sums), per-event
-     offsets within a scope. Next step, validate-then-prove: define
-     the candidate φ executably in EventDag, gate the three edge
-     families (E1-strict, E2-strict, trace-weak) on pins + seeds,
-     iterate until green, only then transcribe to Lean. The Lean
-     obligations after that: the three edge lemmas (E2-level-strict
-     consumes `schedulable`), per-channel totals (counting layer
-     style), the blame-reduction lemmas (mostly 3a corollaries), and
-     the small argmin assembly.
+   - *The φ witness: the tree-recursive WEAVE, validated
+     (2026-07-16, `EventDag.weaveOrder`).* The minimal φ is NOT
+     per-channel affine in seq (`.phi.tsv` + critical-edge
+     provenance: jam's `asked I 1` snds sit at φ 2, 5, 12 — jumps at
+     subtree boundaries, §4's mechanism recurring at the potential
+     level), and per-height linear forms are refuted analytically
+     (the level-window wrap forces per-block granularity). So φ is
+     not a formula at all: `weaveOrder` constructs a FULL topological
+     order of the event DAG by structural recursion over the scope
+     tree, and φ = position in it (strict everywhere ⊇ the weak
+     potential the argmin needs). Two mechanisms carry the whole
+     design: (1) QUERY FEEDS — a scope's chunk-`i` queries (for kid
+     `i`'s kids) pass down as kid `i`'s feed and are emitted one per
+     kid-chunk, matching the cap-1 asked-channel E2 exactly while
+     preserving the issuer's trace order (all of a chunk's queries
+     precede the next chunk's wire because the recursion returns
+     first); (2) GREEDY ASSEMBLY PUMPS — the linear traces (absorb,
+     asm towers, float, fin) drain greedily after every descent
+     emission; pump emissions only raise counts, so greedy pumping
+     is confluent. The parent summary follows the last resolution
+     (the §5 splice), before that kid's feed and descent. Validated:
+     permutation + every-edge-respected (`validateSchedule`, the
+     same checker as the merge candidate) on all six pins, all 300
+     acyclic fuzz seeds, and the capLevel boundary matrix (completes
+     ON `dCount = capLevel + 2` at every capLevel probed, is
+     rejected one past); `pyramid 1`'s weave is rejected (negative
+     control). The weave is NOT the schedule: τ and the blame
+     lemmas stay with the merge; the weave only witnesses that a
+     valid completion exists.
+   - *Remaining Lean obligations for (b), in order:* transcribe
+     `weaveOrder` as a total structural recursion (heights decrease;
+     fuel only for the pumps, Numbering-style); prove weave validity
+     — permutation (counting layer) and edge-respect by induction
+     over the recursion, with `schedulable` entering ONLY in the
+     pump-progress lemmas at the emission points (E2-lower/upper/
+     level windows open when the weave needs them); per-channel
+     totals (snd = rcv, counting style); the blame-reduction lemmas
+     (mostly 3a corollaries); the small argmin assembly (stalled
+     state ⟹ blame edge drops weave position ⟹ argmin
+     contradiction ⟹ `finalState.rem` all empty).
 4. Opener/asm enabledness mirrors of the pillar (small).
 5. The blame lemmas (§6 table), consuming §2 + Sched (trace
    monotonicity replaces most positional arithmetic).
