@@ -763,6 +763,241 @@ theorem nChildren_kid_notD (hwf : sk.wellFormed = true) {h k i : Nat}
   · rw [if_neg (by simpa using h0), hkids]
     rfl
 
+-- ============================================== root-stage uniqueness
+-- The weave descends from ONE root scope op; that this covers stage
+-- `rootH - 1` entirely is `wellFormed`'s kid accounting: kids are
+-- exactly the non-root ids (count + dedup + no-root-kid), each kid
+-- sits strictly above its parent's id and one height down, so nothing
+-- but the root reaches height `rootH`.
+
+private theorem eraseDupsBy_loop_nodup :
+    ∀ (l acc : List Nat), acc.Nodup →
+      (List.eraseDupsBy.loop (· == ·) l acc).Nodup := by
+  intro l
+  induction l with
+  | nil =>
+      intro acc hacc
+      show acc.reverse.Nodup
+      exact ((List.reverse_perm acc).nodup_iff).mpr hacc
+  | cons a l ih =>
+      intro acc hacc
+      show (match acc.any (fun b => a == b) with
+        | true => List.eraseDupsBy.loop (· == ·) l acc
+        | false => List.eraseDupsBy.loop (· == ·) l (a :: acc)).Nodup
+      cases hany : acc.any (fun b => a == b) with
+      | true => exact ih acc hacc
+      | false =>
+          refine ih (a :: acc) (List.nodup_cons.mpr ⟨?_, hacc⟩)
+          intro hmem
+          have hcon : acc.any (fun b => a == b) = true :=
+            List.any_eq_true.mpr ⟨a, hmem, beq_self_eq_true a⟩
+          rw [hany] at hcon
+          exact absurd hcon (by decide)
+
+private theorem eraseDups_nodup (l : List Nat) : l.eraseDups.Nodup :=
+  eraseDupsBy_loop_nodup l [] List.nodup_nil
+
+private theorem foldl_append_eq_flatMap {α β : Type _} (f : β → List α) :
+    ∀ (l : List β) (acc : List α),
+      l.foldl (fun acc b => acc ++ f b) acc = acc ++ l.flatMap f := by
+  intro l
+  induction l with
+  | nil =>
+      intro acc
+      rw [List.foldl_nil, List.flatMap_nil, List.append_nil]
+  | cons b l ih =>
+      intro acc
+      rw [List.foldl_cons, ih, List.flatMap_cons, List.append_assoc]
+
+/-- The kids-fold's ascending-chain half, read pointwise: every
+checked kid sits strictly above the fold's start. -/
+private theorem kids_fold_gt {n hgt : Nat} :
+    ∀ (kids : List Nat) (a : Nat) (b : Bool),
+      ((kids.foldl (fun (acc : Nat × Bool) k =>
+          (k, acc.2 && decide (k > acc.1) && decide (k < n) &&
+              ((sk.scope k).height == hgt))) (a, b)).2 = true) →
+      ∀ k ∈ kids, a < k := by
+  intro kids
+  induction kids with
+  | nil =>
+      intro a b _ k hk
+      cases hk
+  | cons k' l ih =>
+      intro a b h
+      rw [List.foldl_cons] at h
+      have hb := (kids_fold_facts sk l k' _ h).1
+      simp only [Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq] at hb
+      intro k hk
+      rcases List.mem_cons.1 hk with rfl | hk'
+      · exact hb.1.1.2
+      · exact Nat.lt_trans hb.1.1.2 (ih k' _ h k hk')
+
+/-- Kids sit strictly above their parent's id, extracted. -/
+private theorem wf_kid_gt {sk : Skel} (hwf : sk.wellFormed = true)
+    {j : Nat} (hj : j < sk.scopes.length) :
+    ∀ k ∈ (sk.scope j).kids, j < k := by
+  unfold Skel.wellFormed at hwf
+  simp only [Bool.and_eq_true, List.all_eq_true, decide_eq_true_eq,
+    beq_iff_eq] at hwf
+  have hper := hwf.1.1.1.1.1.2
+  have hfold := (hper j (List.mem_range.mpr hj)).2
+  exact kids_fold_gt sk _ _ _ hfold
+
+/-- The kid-accounting conjuncts, extracted: a root exists at
+`rootH`, the deduplicated kid list counts every non-root id, and the
+root is nobody's kid. -/
+private theorem wf_counts {sk : Skel} (hwf : sk.wellFormed = true) :
+    0 < sk.scopes.length
+      ∧ (sk.scope 0).height = sk.rootH
+      ∧ ((sk.scopes.flatMap (fun sc => sc.kids)).eraseDups).length
+          = sk.scopes.length - 1
+      ∧ 0 ∉ sk.scopes.flatMap (fun sc => sc.kids) := by
+  have hkid : sk.scopes.foldl (fun acc sc => acc ++ sc.kids) []
+      = sk.scopes.flatMap (fun sc => sc.kids) := by
+    rw [foldl_append_eq_flatMap _ _ [], List.nil_append]
+  unfold Skel.wellFormed at hwf
+  simp only [Bool.and_eq_true, List.all_eq_true, decide_eq_true_eq,
+    beq_iff_eq, Bool.not_eq_eq_eq_not, Bool.not_true] at hwf
+  refine ⟨hwf.1.1.1.1.1.1.1.1.1, hwf.1.1.1.1.1.1.1.1.2, ?_, ?_⟩
+  · rw [← hkid]
+    exact hwf.1.1.1.2
+  · intro h0
+    have hcont := hwf.1.1.2
+    rw [hkid] at hcont
+    rw [List.contains_eq_mem, decide_eq_false_iff_not] at hcont
+    exact hcont h0
+
+/-- Every non-root scope is some scope's kid: the dedup'd kid list is
+a `Nodup` sublist of the non-root ids of the same length, hence a
+permutation. -/
+private theorem wf_kid_coverage {sk : Skel} (hwf : sk.wellFormed = true)
+    {j : Nat} (h1 : 1 ≤ j) (hj : j < sk.scopes.length) :
+    ∃ p, p < sk.scopes.length ∧ j ∈ (sk.scope p).kids := by
+  obtain ⟨hn, -, hlen, hno0⟩ := wf_counts hwf
+  have hin : ∀ x ∈ (sk.scopes.flatMap (fun sc => sc.kids)).eraseDups,
+      x ∈ List.range' 1 (sk.scopes.length - 1) := by
+    intro x hx
+    rw [List.mem_eraseDups] at hx
+    obtain ⟨sc, hsc, hxk⟩ := List.mem_flatMap.1 hx
+    obtain ⟨p, hp, rfl⟩ := List.mem_iff_getElem.1 hsc
+    have hscope : sk.scope p = sk.scopes[p] := by
+      unfold Skel.scope
+      rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hp]
+      rfl
+    rw [← hscope] at hxk
+    have hxn := (wf_kid_facts hwf hp x hxk).1
+    have hx0 : x ≠ 0 := by
+      intro hx0
+      subst hx0
+      exact hno0 hx
+    rw [List.mem_range'_1]
+    omega
+  have hperm : ((sk.scopes.flatMap (fun sc => sc.kids)).eraseDups).Perm
+      (List.range' 1 (sk.scopes.length - 1)) := by
+    refine (List.subperm_of_subset
+      (eraseDups_nodup _) hin).perm_of_length_le ?_
+    rw [hlen, List.length_range']
+    exact Nat.le_refl _
+  have hjmem : j ∈ (sk.scopes.flatMap (fun sc => sc.kids)).eraseDups := by
+    rw [hperm.mem_iff, List.mem_range'_1]
+    omega
+  rw [List.mem_eraseDups] at hjmem
+  obtain ⟨sc, hsc, hjk⟩ := List.mem_flatMap.1 hjmem
+  obtain ⟨p, hp, rfl⟩ := List.mem_iff_getElem.1 hsc
+  have hscope : sk.scope p = sk.scopes[p] := by
+    unfold Skel.scope
+    rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hp]
+    rfl
+  rw [← hscope] at hjk
+  exact ⟨p, hp, hjk⟩
+
+/-- Only the root reaches the root height: every other scope descends
+from a strictly earlier id, so its height falls below `rootH` by the
+parent chain. -/
+private theorem wf_height_lt {sk : Skel} (hwf : sk.wellFormed = true) :
+    ∀ j, j < sk.scopes.length → j ≠ 0 →
+      (sk.scope j).height < sk.rootH := by
+  intro j
+  induction j using Nat.strongRecOn with
+  | _ j IH =>
+      intro hj hj0
+      obtain ⟨p, hpn, hpk⟩ := wf_kid_coverage hwf (by omega) hj
+      have hplt : p < j := wf_kid_gt hwf hpn j hpk
+      have hht := (wf_kid_facts hwf hpn j hpk).2
+      by_cases hp0 : p = 0
+      · subst hp0
+        have hr0 := (wf_counts hwf).2.1
+        have hge := (wf_rootH hwf).2
+        omega
+      · have hlt' := IH p hplt hpn hp0
+        omega
+
+/-- The root stage is the root alone. -/
+theorem wf_root_stage {sk : Skel} (hwf : sk.wellFormed = true) :
+    sk.scopesAt sk.rootH = [0] := by
+  obtain ⟨hn, h0, -, -⟩ := wf_counts hwf
+  unfold Skel.scopesAt
+  rw [range_splice hn]
+  simp only [List.range_zero, List.nil_append, Nat.zero_add,
+    Nat.sub_zero]
+  rw [List.filter_cons_of_pos (by
+    simp only [h0, beq_self_eq_true])]
+  have hnil : (List.range' 1 (sk.scopes.length - 1)).filter
+      (fun i => (sk.scope i).height == sk.rootH) = [] := by
+    rw [List.filter_eq_nil_iff]
+    intro a ha
+    have hmem := List.mem_range'_1.mp ha
+    have hlt := wf_height_lt hwf a (by omega) (by omega)
+    simp only [beq_iff_eq]
+    omega
+  rw [hnil]
+
+/-- The top stage has exactly one scope slot. -/
+theorem wf_stageLen_top (hwf : sk.wellFormed = true) :
+    sk.stageLen (sk.rootH - 1) = 1 := by
+  have hge := (wf_rootH hwf).2
+  unfold Skel.stageLen Skel.stageScopes
+  rw [show sk.rootH - 1 + 1 = sk.rootH from by omega, wf_root_stage hwf]
+  rfl
+
+/-- The top stage's scope is the root. -/
+theorem wf_stageScope_top (hwf : sk.wellFormed = true) :
+    sk.stageScope (sk.rootH - 1) 0 = 0 := by
+  have hge := (wf_rootH hwf).2
+  unfold Skel.stageScope Skel.stageScopes
+  rw [show sk.rootH - 1 + 1 = sk.rootH from by omega, wf_root_stage hwf]
+  rfl
+
+-- ================================================ telescope endpoints
+
+/-- Descent from index 0 stays at 0: empty prefixes sum to nothing. -/
+theorem descIdx_zero_arg (h' : Nat) : ∀ d, descIdx sk h' d 0 = 0 := by
+  intro d
+  induction d with
+  | zero => rfl
+  | succ d ihd =>
+      rw [descIdx_succ, show sk.wiresBefore (h' + d + 1) 0 = 0 from rfl,
+        ihd]
+
+/-- Descent from a stage's full length lands on the lower stage's full
+length: `wiresBefore_total`, telescoped. -/
+theorem descIdx_total (hwf : sk.wellFormed = true) :
+    ∀ (d h' : Nat), h' + d < sk.rootH →
+      descIdx sk h' d (sk.stageLen (h' + d)) = sk.stageLen h' := by
+  intro d
+  induction d with
+  | zero =>
+      intro h' _
+      rw [Nat.add_zero, descIdx_zero]
+  | succ d ihd =>
+      intro h' hd
+      rw [descIdx_succ,
+        show h' + (d + 1) = h' + d + 1 from by omega,
+        wiresBefore_total sk hwf (show 1 ≤ h' + d + 1 from by omega)
+          (show h' + d + 1 < sk.rootH from by omega),
+        show h' + d + 1 - 1 = h' + d from by omega]
+      exact ihd h' (by omega)
+
 -- ================================================ the master induction
 
 /-- The subtree alignment (the module doc's master induction): under
