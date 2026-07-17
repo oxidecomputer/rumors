@@ -115,6 +115,13 @@ where
     /// Drive all accumulated pumps, the terminal operation, and the session's
     /// stream supply to completion.
     ///
+    /// The protocol schedule is assembled synchronously before this point:
+    /// nothing — pumps, decode streams, the materialized walk, the accept
+    /// driver — is polled until this select. The accept driver therefore
+    /// starts with the first pump poll, which is why lazy claiming cannot
+    /// strand an earlier level: no claim is ever awaited before the driver
+    /// that fills it is running.
+    ///
     /// Poll order is deliberate: the protocol is observed first, so a
     /// completed reconciliation wins over an accept-side anomaly discovered
     /// in the same poll, and a protocol fault is reported as the cause it

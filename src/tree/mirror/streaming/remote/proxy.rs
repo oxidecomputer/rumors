@@ -1,4 +1,4 @@
-//! Type-level protocol proxy over the multiplexed transport session.
+//! Type-level protocol proxy over a link's per-stream transport session.
 //!
 //! [`Handshaking`] hides transport startup behind the same protocol boundary
 //! used by an in-process participant. Once the handshake elects wire roles,

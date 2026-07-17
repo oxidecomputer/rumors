@@ -6,8 +6,9 @@
 //! Every session entry point therefore erases the link's stream supply here
 //! — mirroring the `DynRead`/`DynWrite` erasure of the control halves — and
 //! the towers instantiate once per payload type. The price is one vtable
-//! call per stream open/accept and per `poll_read`/`poll_write` beneath the
-//! frame codec.
+//! call per `poll_read`/`poll_write` beneath the frame codec, and — per
+//! stream open/accept — a vtable call plus a fresh `Box::pin` allocation
+//! for the [`BoxFuture`] each erased `connect`/`accept` returns.
 
 use std::io;
 

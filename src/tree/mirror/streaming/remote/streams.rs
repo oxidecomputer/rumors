@@ -517,9 +517,14 @@ pub fn claims<Rx>() -> (ClaimSlots<Rx>, Claims<Rx>) {
 /// blocks, so a stalled logical stream cannot stall acceptance — the
 /// head-of-line coupling a shared reader would reintroduce is structurally
 /// absent. The driver runs until the protocol completes and is then
-/// dropped; a violating stream that arrives after teardown goes undetected,
-/// which is detection latitude, not a safety gap — unasked replies were
-/// never absorbable.
+/// dropped. Detection of an unasked stream is late, not prompt: a
+/// valid-label stream delivered into a claim slot whose receiver is alive
+/// but never polled sits there undetected until that level's claim
+/// receiver drops — nearly the whole session; [`AcceptError::Unexpected`]
+/// fires only when delivery finds the receiver already gone, late in the
+/// termination cascade. This is detection latitude, not a safety gap:
+/// unasked replies are never absorbable, and the parked stream's memory is
+/// bounded by its own link stream's buffers.
 pub struct AcceptDriver<A: Acceptor> {
     acceptor: A,
     epoch: u8,
@@ -559,9 +564,10 @@ impl<A: Acceptor> AcceptDriver<A> {
     /// that provably needed one then fails the session through the error
     /// route ([`StreamError::SupplyClosed`]), while a session that needed
     /// nothing more completes on the streams it holds. The failure's own
-    /// I/O detail is deliberately discarded with the parked driver: by
-    /// contract the supply fails only when the link is gone, which is what
-    /// `SupplyClosed` says.
+    /// I/O detail is deposited in the error route before the driver parks;
+    /// the first `SupplyClosed` reporter claims it as its `source`, so the
+    /// causal transport error survives the deferral (a second stream
+    /// failing on the same supply reports without it).
     pub async fn run(mut self) -> AcceptError {
         loop {
             match self.accept_one().await {

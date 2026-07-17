@@ -747,10 +747,15 @@ byte-identical to today per stream, preserving §8.6's snapshot
 re-derivation property; empty-stream capture groups are dropped
 deliberately. One validation softens: today an empty stream's
 explicit end is checked eagerly (`reject_extra`); lazily, "the peer
-opened a stream we expected vacuous" is detected only if it arrives
-before teardown. This is detection latitude, not safety — unasked
-replies were never absorbable — but it is a real loosening of the
-violation surface and worth stating.
+opened a stream we expected vacuous" is mostly not detected at all.
+A valid-label unasked stream delivered into a live-but-never-polled
+claim slot sits there undetected until that level's claim receiver
+drops — nearly the whole session; the `Unexpected` violation fires
+only when delivery finds the receiver already gone, late in the
+termination cascade. This is detection latitude, not safety — unasked
+replies were never absorbable, and the parked stream's memory is
+bounded by its own link stream's buffers — but it is a real loosening
+of the violation surface and worth stating.
 
 **Teardown:** the accept loop runs until every claimed stream has
 concluded and every level's scope flow has closed; at that point any
@@ -900,9 +905,14 @@ rustdoc as a hard rule and in the conformance suite as a test:
   defense-in-depth across caller-owned layer A: a router miswire, a
   pool lease crossing, or a claim-table bug surfaces at the first
   frame as a precise `labeled j / framed k` error instead of as
-  garbled protocol. It also keeps per-stream byte sequences identical
+  garbled protocol. It also keeps per-stream frame bytes identical
   to today's captures, so the snapshot corpus re-derives by
-  re-grouping with semantic content unchanged. A denser state-only
+  re-grouping. (The re-derivation audit confirmed populated streams
+  byte-identical, with exactly two deliberate wire deltas: empty-
+  stream capture groups are deleted outright — §8.3's lazy
+  establishment — and each opened stream gains the 2-byte
+  epoch/index label, which the snapshots do not hex-pin; the label
+  bytes are pinned by their own unit test.) A denser state-only
   byte would save zero bytes and delete the tripwire; that idea is
   retired. The conformance suite (§8.7) gains a deliberately
   miswiring `Link` asserting the mismatch error surfaces on frame
@@ -1076,6 +1086,17 @@ each is deliberate and the code documents it in place:
   local latch clears on local success alone were there no epilogue).
   Cheapest possible forms of each: one byte per session on the wire, two
   bytes of state on the link.
+- **The §8.9 llvm-lines freeze gate is satisfied.** Measured on the
+  branch: `cargo llvm-lines` on `--test pairwise` totals 2,040,751 lines,
+  unchanged from `design/height-erasure.md`'s 2.04M baseline. The
+  per-half erasure funnel (`Arc<dyn>` connector, borrowed `dyn` acceptor)
+  holds the monomorphization cap the trait freeze was gated on.
+- **The router never-block conformance test is deferred with the router
+  helper itself.** §8.7's suite ships without it because the helper it
+  would validate does not exist yet; the obligation travels with whichever
+  sibling crate ships the first shared-connection router
+  (`rumors-tcp`/`rumors-quic`), so the promise has a recorded owner
+  rather than a silent gap.
 
 ## Appendix: the throwaway repros
 

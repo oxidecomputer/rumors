@@ -45,9 +45,13 @@ The height parameter is phantom at every layer that matters:
 - `Prefix<H>` is `PhantomData<fn() -> H>` over an
   `ArrayVec<[u8; 32]>` whose length (`32 - H::HEIGHT`) is runtime data —
   `src/tree/typed/prefix.rs`.
-- The wire never sees `H`: the V2 codec multiplexes 17 logical streams
-  by a runtime signal byte (`state * 17 + stream`), and the channel
-  layer already threads `H::HEIGHT` as a runtime `u8` for diagnostics
+- The wire never sees `H`: the V2 codec's runtime signal byte
+  (`state * 17 + stream`) names the logical stream on every frame — no
+  longer a demux key, since under the Link transport nothing
+  multiplexes; it is per-stream redundancy validated to exact equality
+  with the claimed label (`streaming-wire-deadlock.md` §8.6) — and the
+  channel layer already threads `H::HEIGHT` as a runtime `u8` for
+  diagnostics
   (`QueueRole::new(kind, H::HEIGHT)` in
   `streaming/materialized/work/queues.rs`).
 
