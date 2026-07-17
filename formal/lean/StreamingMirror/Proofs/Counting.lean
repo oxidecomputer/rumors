@@ -367,6 +367,16 @@ theorem asmResList_answerer_length {sk : Skel} {p : Party} {j : Nat}
   unfold Skel.asmResList
   rw [if_neg (by simp [hna]), List.length_map]
 
+/-- An answerer's resolution list totals its stage's D prefix sum:
+`asmResList_answerer_length` met with `dsBefore_full`. -/
+theorem answerer_resList_total {sk : Skel} (hwf : sk.wellFormed = true)
+    {p : Party} {j : Nat} (hna : asks p j = false) (h1 : 1 ≤ j)
+    (hjr : j < sk.rootH) :
+    (sk.asmResList p j).length = sk.dsBefore j (sk.stageLen j) := by
+  obtain ⟨h, rfl⟩ : ∃ h, j = h + 1 := ⟨j - 1, by omega⟩
+  rw [asmResList_answerer_length hna]
+  exact (dsBefore_full hwf hjr).symm
+
 /-- Asker-side level demand at any cursor is the stage's own D prefix
 sum: the level returns an asker assembler needs through its first `k`
 resolutions are one per D child of the first `k` scopes — `dsBefore`,

@@ -524,6 +524,64 @@ theorem pends_cut_mid (hwf : sk.wellFormed = true) {p : Party}
   rw [← ds_wires_mid sk hwf h1 hjr hk hi]
   exact Model.pendsBefore_answerer hwf hna h1 _
 
+private theorem qs_wires_step (hwf : sk.wellFormed = true) {h : Nat}
+    (h1 : 1 ≤ h) (hh : h < sk.rootH) {k : Nat}
+    (hk : k < sk.stageLen h) :
+    ∀ {i : Nat}, i ≤ sk.nChildren h (sk.stageScope h k) →
+    sk.wiresBefore (h - 1) (sk.wiresBefore h k + i)
+      = sk.wiresBefore (h - 1) (sk.wiresBefore h k)
+        + qSum sk (wpk h) k i := by
+  intro i
+  induction i with
+  | zero =>
+      intro _
+      have h0 : qSum sk (wpk h) k 0 = 0 := rfl
+      rw [Nat.add_zero, h0]
+      omega
+  | succ i ih =>
+      intro hi1
+      have hilt : i < sk.nChildren h (sk.stageScope h k) := by omega
+      have hcur : sk.wiresBefore h k + i < sk.stageLen (h - 1) :=
+        kid_index_lt sk hwf h1 hh hk hilt
+      rw [show sk.wiresBefore h k + (i + 1)
+            = (sk.wiresBefore h k + i) + 1 from by omega,
+        wiresBefore_succ sk hcur, ih (by omega), qSum_succ,
+        show sk.qCount (wpk h).2 (sk.stageScope (wpk h).2 k) i
+          = sk.qCount h (sk.stageScope h k) i from rfl,
+        qCount_eq_kid_nChildren sk hwf h1 hh hk hilt]
+      omega
+
+/-- A stage's query numbering IS the kid stage's wire numbering: the
+whole-scope form. -/
+theorem qs_wires (hwf : sk.wellFormed = true) {h : Nat}
+    (h1 : 1 ≤ h) (hh : h < sk.rootH) :
+    ∀ {K : Nat}, K ≤ sk.stageLen h →
+    sk.qsBefore h K = sk.wiresBefore (h - 1) (sk.wiresBefore h K) := by
+  intro K
+  induction K with
+  | zero => intro _; rfl
+  | succ K ih =>
+      intro hK1
+      have hK : K < sk.stageLen h := by omega
+      have hstep := qs_wires_step sk hwf h1 hh hK
+        (i := sk.nChildren h (sk.stageScope h K)) (Nat.le_refl _)
+      have htot : qSum sk (wpk h) K
+          (sk.nChildren h (sk.stageScope h K))
+          = sk.qOf h (sk.stageScope h K) := qSum_total sk (wpk h) K
+      rw [qsBefore_succ sk hK, wiresBefore_succ sk hK, ih (by omega)]
+      omega
+
+/-- `qs_wires` at a mid-scope cursor: a partial query sum lands on
+the kid-stage wire cut at the same slot. -/
+theorem qs_wires_mid (hwf : sk.wellFormed = true) {h : Nat}
+    (h1 : 1 ≤ h) (hh : h < sk.rootH) {k i : Nat}
+    (hk : k < sk.stageLen h)
+    (hi : i ≤ sk.nChildren h (sk.stageScope h k)) :
+    sk.qsBefore h k + qSum sk (wpk h) k i
+      = sk.wiresBefore (h - 1) (sk.wiresBefore h k + i) := by
+  rw [qs_wires sk hwf h1 hh (Nat.le_of_lt hk),
+    qs_wires_step sk hwf h1 hh hk hi]
+
 theorem descIdx_zero (h' j : Nat) : descIdx sk h' 0 j = j := rfl
 
 theorem descIdx_succ (h' d j : Nat) :
