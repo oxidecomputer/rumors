@@ -1098,4 +1098,225 @@ theorem futLen_anc_lower {fut : List Ev} {g A jD t : Nat}
     dRank_succ_le_dOf sk (wpk g) hjD hD
   omega
 
+-- ==================================== the emission sites' own pins
+
+/-- The prologue summary site: an undisputed scope's future summary
+share spans the scope and everything past it. -/
+theorem futLen_site_upper_prologue {fut : List Ev} {h k : Nat}
+    (hk : k < sk.stageLen h)
+    (hlast : lastDOf sk h k = none)
+    (hfil : fut.filter (fun e => evOwner sk e == walkIdx sk h)
+      = ((upperOut (wpk h), true, k) : Ev)
+          :: ((List.range' 0
+                (sk.nChildren h (sk.stageScope h k))).flatMap
+                (splicedChunk sk h k (lastDOf sk h k))
+              ++ walkSeg sk h (k + 1) (sk.stageLen h))) :
+    futLen sk fut (walkIdx sk h) (upperOut (wpk h)) true
+      = sk.stageLen h - k := by
+  rw [futLen_of_filter sk hfil, proj_cons_self, proj_append,
+    chunks_proj_upper_none sk hlast,
+    walkSeg_proj_upper sk (show k + 1 ≤ sk.stageLen h by omega)]
+  simp only [List.nil_append, List.length_cons, seg_len]
+  omega
+
+/-- The splice summary site: a disputed scope's future summary share
+after the last resolution, before its feed chunk. -/
+theorem futLen_site_upper_splice {fut : List Ev} {h k jL : Nat}
+    (hk : k < sk.stageLen h)
+    (hlast : lastDOf sk h k = some jL)
+    (hfil : fut.filter (fun e => evOwner sk e == walkIdx sk h)
+      = ((upperOut (wpk h), true, k) : Ev)
+          :: (chunkQ sk h k jL
+              ++ (List.range' (jL + 1)
+                    (sk.nChildren h (sk.stageScope h k)
+                      - (jL + 1))).flatMap
+                   (splicedChunk sk h k (lastDOf sk h k))
+              ++ walkSeg sk h (k + 1) (sk.stageLen h))) :
+    futLen sk fut (walkIdx sk h) (upperOut (wpk h)) true
+      = sk.stageLen h - k := by
+  have hqne : proj (upperOut (wpk h)) true (chunkQ sk h k jL) = [] :=
+    chunkQ_proj_ne sk h k jL (by
+      rintro ⟨hc, -⟩
+      simp only [askedOut, upperOut] at hc
+      split at hc <;> exact Chan.noConfusion hc)
+  rw [futLen_of_filter sk hfil, proj_cons_self, proj_append,
+    proj_append, hqne,
+    chunks_proj_upper_past sk hlast (show jL < jL + 1 by omega),
+    walkSeg_proj_upper sk (show k + 1 ≤ sk.stageLen h by omega)]
+  simp only [List.nil_append, List.length_cons, seg_len]
+  omega
+
+/-- The resolution site: the walk's future resolution share past the
+emitted one, its in-range bound, and its still-unsent summary. -/
+theorem futLen_site_lower {fut : List Ev} {h k i : Nat}
+    (hk : k < sk.stageLen h)
+    (hi : i < sk.nChildren h (sk.stageScope h k))
+    (hD : sk.childIsD h (sk.stageScope h k) i = true)
+    (hfil : fut.filter (fun e => evOwner sk e == walkIdx sk h)
+      = ((lowerOut (wpk h), true,
+            sk.dsBefore h k + dRank sk (wpk h) k i) : Ev)
+          :: ((if lastDOf sk h k == some i
+                then [((upperOut (wpk h), true, k) : Ev)] else [])
+              ++ chunkQ sk h k i
+              ++ (List.range' (i + 1)
+                    (sk.nChildren h (sk.stageScope h k)
+                      - (i + 1))).flatMap
+                   (splicedChunk sk h k (lastDOf sk h k))
+              ++ walkSeg sk h (k + 1) (sk.stageLen h))) :
+    futLen sk fut (walkIdx sk h) (lowerOut (wpk h)) true
+        = sk.dsBefore h (sk.stageLen h)
+          - (sk.dsBefore h k + dRank sk (wpk h) k i)
+      ∧ sk.dsBefore h k + dRank sk (wpk h) k i
+          < sk.dsBefore h (sk.stageLen h)
+      ∧ futLen sk fut (walkIdx sk h) (upperOut (wpk h)) true
+        = sk.stageLen h - k := by
+  obtain ⟨j, hlast, hij⟩ := lastDOf_isSome_of_D sk hD hi
+  have hjn := (lastDOf_isD sk hlast).2
+  have htot : dRank sk (wpk h) k (sk.nChildren h (sk.stageScope h k))
+      = sk.dOf h (sk.stageScope h k) := dRank_total sk (wpk h) k
+  have hds := dRank_succ sk (wpk h) k i
+  rw [show sk.childIsD (wpk h).2 (sk.stageScope (wpk h).2 k) i
+      = sk.childIsD h (sk.stageScope h k) i from rfl, hD,
+    if_pos rfl] at hds
+  have hsc : sk.dsBefore h (k + 1)
+      = sk.dsBefore h k + sk.dOf h (sk.stageScope h k) :=
+    dsBefore_succ sk hk
+  have hmono : sk.dsBefore h (k + 1) ≤ sk.dsBefore h (sk.stageLen h) :=
+    dsBefore_mono sk h (by omega)
+  have hle : dRank sk (wpk h) k i + 1 ≤ sk.dOf h (sk.stageScope h k) :=
+    dRank_succ_le_dOf sk (wpk h) hi hD
+  have hidx : i + 1 + (sk.nChildren h (sk.stageScope h k) - (i + 1))
+      = sk.nChildren h (sk.stageScope h k) := by omega
+  refine ⟨?_, by omega, ?_⟩
+  · have hspl : proj (lowerOut (wpk h)) true
+        (if lastDOf sk h k == some i
+          then [((upperOut (wpk h), true, k) : Ev)] else []) = [] := by
+      split
+      · rw [proj_cons_ne_chan (by simp [upperOut, lowerOut]), proj_nil]
+      · rfl
+    have hqne : proj (lowerOut (wpk h)) true (chunkQ sk h k i) = [] :=
+      chunkQ_proj_ne sk h k i (by
+        rintro ⟨hc, -⟩
+        simp only [askedOut, lowerOut] at hc
+        split at hc <;> exact Chan.noConfusion hc)
+    rw [futLen_of_filter sk hfil, proj_cons_self, proj_append,
+      proj_append, proj_append, hspl, hqne,
+      chunks_proj_res sk h k (lastDOf sk h k) _ (i + 1),
+      walkSeg_proj_res sk (show k + 1 ≤ sk.stageLen h by omega)
+        (Nat.le_refl _)]
+    simp only [List.nil_append, List.length_cons, List.length_append,
+      seg_len]
+    rw [hidx]
+    omega
+  · have hqne : proj (upperOut (wpk h)) true (chunkQ sk h k i) = [] :=
+      chunkQ_proj_ne sk h k i (by
+        rintro ⟨hc, -⟩
+        simp only [askedOut, upperOut] at hc
+        split at hc <;> exact Chan.noConfusion hc)
+    rw [futLen_of_filter sk hfil,
+      proj_cons_ne_chan (by simp [lowerOut, upperOut]),
+      proj_append, proj_append, proj_append, hqne,
+      walkSeg_proj_upper sk (show k + 1 ≤ sk.stageLen h by omega)]
+    by_cases hji : j = i
+    · rw [hji] at hlast
+      rw [chunks_proj_upper_past sk hlast (show i < i + 1 by omega),
+        hlast, if_pos (beq_self_eq_true (some i)), proj_cons_self,
+        proj_nil]
+      simp only [List.append_nil, List.length_append, List.length_cons,
+        List.length_nil, seg_len]
+      omega
+    · rw [chunks_proj_upper_covered sk hlast
+          (show i + 1 ≤ j by omega)
+          (show j < i + 1 + (sk.nChildren h (sk.stageScope h k)
+            - (i + 1)) by omega),
+        hlast, if_neg (by simp [hji]), proj_nil]
+      simp only [List.nil_append, List.length_cons, List.length_nil,
+        List.length_append, seg_len]
+      omega
+
+/-- The wire site: at a kid-slot boundary the walk's future wire
+share spans the remaining slots and every later scope, with its
+in-range bound. -/
+theorem futLen_site_wire {fut : List Ev} {h k i : Nat}
+    (hk : k < sk.stageLen h)
+    (hi : i < sk.nChildren h (sk.stageScope h k))
+    (hfil : fut.filter (fun e => evOwner sk e == walkIdx sk h)
+      = (List.range' i
+            (sk.nChildren h (sk.stageScope h k) - i)).flatMap
+            (splicedChunk sk h k (lastDOf sk h k))
+          ++ walkSeg sk h (k + 1) (sk.stageLen h)) :
+    futLen sk fut (walkIdx sk h) (wireOut (wpk h)) true
+        = sk.wiresBefore h (sk.stageLen h) - (sk.wiresBefore h k + i)
+      ∧ sk.wiresBefore h k + i < sk.wiresBefore h (sk.stageLen h) := by
+  have hws : sk.wiresBefore h (k + 1)
+      = sk.wiresBefore h k + sk.nChildren h (sk.stageScope h k) :=
+    wiresBefore_succ sk hk
+  have hwm : sk.wiresBefore h (k + 1)
+      ≤ sk.wiresBefore h (sk.stageLen h) :=
+    wiresBefore_mono sk h (by omega)
+  refine ⟨?_, by omega⟩
+  rw [futLen_of_filter sk hfil, proj_append,
+    chunks_proj_wire sk h k (lastDOf sk h k) _ i,
+    walkSeg_proj_wire sk (show k + 1 ≤ sk.stageLen h by omega)
+      (Nat.le_refl _)]
+  simp only [List.length_append, seg_len]
+  omega
+
+/-- The query site: mid-feed, the walk's future query share past the
+emitted request, with its in-range bound. -/
+theorem futLen_site_q {fut : List Ev} {h K i t : Nat}
+    (hK : K < sk.stageLen h)
+    (hi : i < sk.nChildren h (sk.stageScope h K))
+    (ht : t < sk.qCount h (sk.stageScope h K) i)
+    (hfil : fut.filter (fun e => evOwner sk e == walkIdx sk h)
+      = (chunkQ sk h K i).drop t
+          ++ (List.range' (i + 1)
+                (sk.nChildren h (sk.stageScope h K)
+                  - (i + 1))).flatMap
+               (splicedChunk sk h K (lastDOf sk h K))
+          ++ walkSeg sk h (K + 1) (sk.stageLen h)) :
+    futLen sk fut (walkIdx sk h) (askedOut (wpk h)) true
+        = sk.qsBefore h (sk.stageLen h)
+          - (sk.qsBefore h K + qSum sk (wpk h) K i + t)
+      ∧ sk.qsBefore h K + qSum sk (wpk h) K i + t
+          < sk.qsBefore h (sk.stageLen h) := by
+  have hqs := qSum_succ sk (wpk h) K i
+  rw [show sk.qCount (wpk h).2 (sk.stageScope (wpk h).2 K) i
+      = sk.qCount h (sk.stageScope h K) i from rfl] at hqs
+  have hidx : i + 1 + (sk.nChildren h (sk.stageScope h K) - (i + 1))
+      = sk.nChildren h (sk.stageScope h K) := by omega
+  have htot : qSum sk (wpk h) K (sk.nChildren h (sk.stageScope h K))
+      = sk.qOf h (sk.stageScope h K) := qSum_total sk (wpk h) K
+  have hqm : qSum sk (wpk h) K (i + 1)
+      ≤ qSum sk (wpk h) K (i + 1
+          + (sk.nChildren h (sk.stageScope h K) - (i + 1))) :=
+    chain_le' (g := fun s => qSum sk (wpk h) K s)
+      (sk.nChildren h (sk.stageScope h K) - (i + 1)) (i + 1)
+      (fun s _ _ => by
+        have hstep := qSum_succ sk (wpk h) K s
+        omega)
+  rw [hidx] at hqm
+  have hsuc : sk.qsBefore h (K + 1)
+      = sk.qsBefore h K + sk.qOf h (sk.stageScope h K) :=
+    qsBefore_succ sk hK
+  have hqsm : sk.qsBefore h (K + 1)
+      ≤ sk.qsBefore h (K + 1 + (sk.stageLen h - (K + 1))) :=
+    chain_le' (g := fun s => sk.qsBefore h s)
+      (sk.stageLen h - (K + 1)) (K + 1)
+      (fun s hs1 hs2 => by
+        have hstep := qsBefore_succ sk
+          (show s < sk.stageLen h by omega)
+        omega)
+  rw [show K + 1 + (sk.stageLen h - (K + 1)) = sk.stageLen h
+      from by omega] at hqsm
+  refine ⟨?_, by omega⟩
+  rw [futLen_of_filter sk hfil, proj_append, proj_append,
+    chunkQ_drop_proj_q sk h K i (by omega),
+    chunks_proj_q sk h K (lastDOf sk h K) _ (i + 1),
+    walkSeg_proj_q sk (show K + 1 ≤ sk.stageLen h by omega)
+      (Nat.le_refl _)]
+  simp only [List.length_append, seg_len]
+  rw [hidx]
+  omega
+
 end StreamingMirror.Sched
