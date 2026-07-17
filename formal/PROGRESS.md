@@ -615,12 +615,33 @@ bounds μ(Q), and both are bounded by the awaited send.
      telescope counting steps in `Proofs/Counting.lean`
      (`take_flatMap_blocks`, `ds_wires`, `pendsBefore_answerer_ds`).
      The ascent BOUNDARY is resolved (the `AscCover`/`hself` rework
-     below, landed in the (e) layer); remaining is the cross-walk
-     position induction: per-walk position pins (mid-scope counts,
-     splice flag), the descent boundary memberships, `P1` per
-     ancestor, and `Φ` via the spine telescope (needing the one new
-     generic lemma `asm_pends_le_out`). Design of record (derived
-     2026-07-17):
+     below, landed in the (e) layer), and the position layer has a
+     COUNTING ROUTE that supersedes the membership induction
+     originally planned here (2026-07-17, second pass): every
+     window-lemma hypothesis — `DescSupply`, `Φ`, `P1`, `hsnd`,
+     `hroot`, the leaf locals — is a pure count fact, and every
+     needed count is derivable at any interpreter position from
+     `WCount.man_struct`: each manual trace is (emitted prefix) ++
+     (its owner filter of `fut`), so for a walk-owned channel
+     `sndCount c out = (proj c of the trace).length − (proj c of
+     the fut filter).length`. The trace totals are the `walk_canon`
+     segs; the fut side is computed from the worklist tail by the
+     `align_scope` clause-3 partition (a subtree's stage-`h'` events
+     are the `walkSeg` over `descIdx` windows) plus
+     per-partial-scope chunk shapes (`scopeSends_eq`/`splicedChunk`,
+     to de-privatize). Pump-owned counts (`level`) never need direct
+     pins: the `Φ` telescope bounds them through walk counts via
+     `asm_out_le_res` and the new `asm_pends_le_out` (landed).
+     So layer D carries NO extra position invariant — the worklist
+     shape it already inducts over determines every pin. Remaining
+     bricks: de-privatize the splice vocabulary; the fut-filter
+     segment computations per emission site; the `Φ`
+     spine-telescope lemma; `P1` from position + `schedulable`;
+     `DescSupply` from the counting telescope (`pendsBefore_asker`/
+     `pendsBefore_answerer_ds`/`ds_wires`, already landed). Original
+     design of record below (derived 2026-07-17; its
+     membership-flavored descent bullet is superseded by the
+     counting route — the cursor arithmetic is unchanged):
      - *The weave is depth-first with stage cursors in weave order*:
        `wKidOps` inlines a D kid's whole subtree (`WOp.scope (h-1)
        (kidBase+i)`) before the next kid, and the §5 splice puts the
