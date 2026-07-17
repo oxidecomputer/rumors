@@ -399,4 +399,120 @@ theorem descSupply_step_asker (hwf : sk.wellFormed = true)
         rw [pendsBefore_asker hasks (by omega)]
         exact hrec (by omega)
 
+/-- At a height-zero summary site the descent package is vacuous.
+
+Stage zero's asker is the responder, and the responder's stage-zero
+`DescSupply` arm is guarded on the initiator. -/
+theorem descSupply_upper_site_zero {st : MState} {p : Party}
+    (hasks : asks p 1 = true) (c : Nat) :
+    DescSupply sk st p 0 c := by
+  cases p with
+  | I => exact absurd hasks (by decide)
+  | R => exact descSupply_R_zero sk st c
+
+/-- The upper site's descent package: the summary demand converts to
+the walk's own D cursor and rides the assembled telescope. -/
+theorem descSupply_upper_site (hwf : sk.wellFormed = true)
+    {st : MState} {p : Party} {hh k : Nat} (h1 : 1 ≤ hh)
+    (hhr : hh < sk.rootH) (hasks : asks p (hh + 1) = true)
+    (hlow : ∀ g, 1 ≤ g → g ≤ hh → asks p g = false →
+      sk.dsBefore g (descIdx sk g (hh - g) k)
+        ≤ sndCount (Chan.lower p g) st.out)
+    (hup : ∀ g, g + 2 ≤ hh → asks p (g + 1) = true →
+      descIdx sk g (hh - g) k ≤ sndCount (Chan.upper p g) st.out)
+    (hbase : p = Party.I →
+      sk.wiresBefore 0 (descIdx sk 0 hh k)
+        ≤ sndCount (Chan.wire Party.R 0) st.out
+      ∧ sk.wiresBefore 0 (descIdx sk 0 hh k)
+        ≤ sndCount Chan.leafRequests st.out) :
+    DescSupply sk st p hh (sk.pendsBefore p (hh + 1) k) := by
+  have hna : asks p hh = false := by
+    have hs := asks_succ p hh
+    rw [hasks] at hs
+    simpa using hs.symm
+  rw [pendsBefore_asker hasks (by omega)]
+  exact descSupply_down sk hwf hh hna h1 hhr k hlow hup hbase
+
+/-- The lower site's descent package: the resolution demand converts
+through the mid-scope cut to the kid-slot wire cursor.
+
+The count feeds are stated at the site's completed-coverage cursors
+`descIdx g (hh - 1 - g) X` with `X` the in-flight kid's stage-below
+index — the geometry layer D reads off the worklist tail. The asker
+below the site consumes the summary feed (`descSupply_step_asker`);
+the telescope descends from there. -/
+theorem descSupply_lower_site (hwf : sk.wellFormed = true)
+    {st : MState} {p : Party} {hh k i : Nat}
+    (hna : asks p hh = false) (h1 : 1 ≤ hh) (hhr : hh < sk.rootH)
+    (hk : k < sk.stageLen hh)
+    (hi : i ≤ sk.nChildren hh (sk.stageScope hh k))
+    (hlow : ∀ g, 1 ≤ g → g ≤ hh - 2 → asks p g = false →
+      sk.dsBefore g
+          (descIdx sk g (hh - 1 - g) (sk.wiresBefore hh k + i))
+        ≤ sndCount (Chan.lower p g) st.out)
+    (hup : ∀ g, g + 2 ≤ hh → asks p (g + 1) = true →
+      descIdx sk g (hh - 1 - g) (sk.wiresBefore hh k + i)
+        ≤ sndCount (Chan.upper p g) st.out)
+    (hbase : p = Party.I →
+      sk.wiresBefore 0
+          (descIdx sk 0 (hh - 1) (sk.wiresBefore hh k + i))
+        ≤ sndCount (Chan.wire Party.R 0) st.out
+      ∧ sk.wiresBefore 0
+          (descIdx sk 0 (hh - 1) (sk.wiresBefore hh k + i))
+        ≤ sndCount Chan.leafRequests st.out) :
+    DescSupply sk st p (hh - 1)
+      (sk.pendsBefore p hh
+        (sk.dsBefore hh k + dRank sk (wpk hh) k i)) := by
+  rw [pends_cut_mid sk hwf hna h1 hhr hk hi]
+  obtain ⟨h2, rfl⟩ : ∃ h2, hh = h2 + 1 := ⟨hh - 1, by omega⟩
+  rcases Nat.lt_or_ge h2 1 with h20 | h21
+  · obtain rfl : h2 = 0 := by omega
+    cases p with
+    | R => exact absurd hna (by decide)
+    | I => exact fun _ => hbase rfl
+  · rcases Nat.lt_or_ge h2 2 with h21' | h22
+    · obtain rfl : h2 = 1 := by omega
+      cases p with
+      | I => exact absurd hna (by decide)
+      | R =>
+          refine descSupply_step_asker sk hwf (j := 0) (by decide)
+            ?_ ?_
+          · exact hup 0 (by omega) (by decide)
+          · exact fun hcon => absurd hcon (by omega)
+    · obtain ⟨m, rfl⟩ : ∃ m, h2 = m + 2 := ⟨h2 - 2, by omega⟩
+      have hasks2 : asks p (m + 2) = true := by
+        have hs := asks_succ p (m + 2)
+        rw [hna] at hs
+        simpa using hs.symm
+      have hna1 : asks p (m + 1) = false := by
+        have ht := asks_add_two p (m + 1)
+        rw [show m + 1 + 2 = m + 2 + 1 from rfl, hna] at ht
+        exact ht.symm
+      refine descSupply_step_asker sk hwf (j := m + 1) hasks2
+        ?_ ?_
+      · have h0 := hup (m + 1) (by omega) hasks2
+        rw [show m + 2 + 1 - 1 - (m + 1) = 1 from by omega] at h0
+        exact h0
+      · intro _
+        refine descSupply_down sk hwf (m + 1) hna1 (by omega)
+          (by omega) _ ?_ ?_ ?_
+        · intro g hg1 hgj hga
+          have h0 := hlow g hg1 (by omega) hga
+          rw [show m + 2 + 1 - 1 - g = m + 1 - g + 1 from by omega,
+            descIdx_succ, show g + (m + 1 - g) + 1 = m + 2
+              from by omega] at h0
+          exact h0
+        · intro g hg2 hga
+          have h0 := hup g (by omega) hga
+          rw [show m + 2 + 1 - 1 - g = m + 1 - g + 1 from by omega,
+            descIdx_succ, show g + (m + 1 - g) + 1 = m + 2
+              from by omega] at h0
+          exact h0
+        · intro hp
+          have h0 := hbase hp
+          rw [show m + 2 + 1 - 1 = m + 1 + 1 from rfl,
+            descIdx_succ, show 0 + (m + 1) + 1 = m + 2
+              from by omega] at h0
+          exact h0
+
 end StreamingMirror.Sched
