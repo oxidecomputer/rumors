@@ -104,6 +104,16 @@ theorem seg_append (c : Chan) (b : Bool) (lo d₁ d₂ : Nat) :
       rw [seg_succ, ← List.append_assoc, ih, Nat.add_assoc, ← seg_succ,
         Nat.add_assoc]
 
+theorem seg_drop (c : Chan) (b : Bool) (lo n t : Nat) (ht : t ≤ n) :
+    (seg c b lo n).drop t = seg c b (lo + t) (n - t) := by
+  have hsplit : seg c b lo t ++ seg c b (lo + t) (n - t)
+      = seg c b lo n := by
+    rw [seg_append, show t + (n - t) = n from by omega]
+  have hlen : (seg c b lo t).length = t := by
+    unfold seg
+    rw [List.length_map, List.length_range]
+  rw [← hsplit, List.drop_left' hlen]
+
 /-- Two abutting segments glue: the flatMap fold's step. -/
 private theorem seg_glue (c : Chan) (b : Bool) {x y z : Nat}
     (hxy : x ≤ y) (hyz : y ≤ z) :

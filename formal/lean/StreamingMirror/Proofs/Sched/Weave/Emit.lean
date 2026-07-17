@@ -974,4 +974,38 @@ theorem feed_rootres_silent {fut : List Ev} {i₀ : Nat}
   rw [hnil]
   rfl
 
+-- =============================== the query chunk's mid-feed windows
+
+/-- A partially delivered query chunk projects nil off its own
+channel-side. -/
+theorem chunkQ_drop_proj_ne (h k i t : Nat) {c : Chan} {b : Bool}
+    (hc : ¬(c = askedOut (wpk h) ∧ b = true)) :
+    proj c b ((chunkQ sk h k i).drop t) = [] :=
+  proj_eq_nil fun e he h1 h2 => by
+    have hmem : e ∈ chunkQ sk h k i := List.mem_of_mem_drop he
+    unfold chunkQ at hmem
+    obtain ⟨s, -, rfl⟩ := List.mem_map.1 hmem
+    exact hc ⟨h1.symm, h2.symm⟩
+
+/-- A whole query chunk projects nil off its own channel-side. -/
+theorem chunkQ_proj_ne (h k i : Nat) {c : Chan} {b : Bool}
+    (hc : ¬(c = askedOut (wpk h) ∧ b = true)) :
+    proj c b (chunkQ sk h k i) = [] := by
+  have hd := chunkQ_drop_proj_ne sk h k i 0 hc
+  rwa [List.drop_zero] at hd
+
+/-- A partially delivered query chunk's remaining queries: the seg
+from the feed cursor to the chunk's end. -/
+theorem chunkQ_drop_proj_q (h k i : Nat) {t : Nat}
+    (ht : t ≤ sk.qCount h (sk.stageScope h k) i) :
+    proj (askedOut (wpk h)) true ((chunkQ sk h k i).drop t)
+      = seg (askedOut (wpk h)) true
+          (sk.qsBefore h k + qSum sk (wpk h) k i + t)
+          (sk.qCount h (sk.stageScope h k) i - t) := by
+  have hcq : chunkQ sk h k i
+      = seg (askedOut (wpk h)) true
+          (sk.qsBefore h k + qSum sk (wpk h) k i)
+          (sk.qCount h (sk.stageScope h k) i) := rfl
+  rw [hcq, seg_drop _ _ _ _ _ ht, proj_seg_self]
+
 end StreamingMirror.Sched
