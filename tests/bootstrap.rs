@@ -2,7 +2,7 @@
 //! stateless peer obtaining a fully-formed `Peer` from a peer that drives
 //! `gossip` concurrently. Mirrors `async_wire.rs`'s setup — building peers
 //! from the shared `Insert`/`Redact` action shape and driving both ends over
-//! a `tokio::io::duplex` pipe with `tokio::join!`.
+//! an in-memory [`rumors::link`] pair with `tokio::join!`.
 
 mod common;
 
@@ -15,25 +15,23 @@ use crate::common::action::{arb_local_actions, arb_string_actions, build_local};
 use crate::common::oracle::readout;
 use crate::common::wire::{block_on, bootstrap_fork, wire_gossip};
 
-/// Capacity for the in-memory duplex pipe. Roomy enough that the bootstrap
+/// Capacity for each in-memory link stream. Roomy enough that the bootstrap
 /// descent's largest frames fit without the test depending on backpressure
 /// subtleties.
-const DUPLEX_BUF: usize = 64 * 1024;
+const LINK_BUF: usize = 64 * 1024;
 
-/// Drive a provider's `gossip` against a peer's `bootstrap` over a duplex
-/// pipe, returning whatever the bootstrapper produced.
+/// Drive a provider's `gossip` against a peer's `bootstrap` over an in-memory
+/// link, returning whatever the bootstrapper produced.
 fn wire_bootstrap<T>(provider: &Rumors<T>) -> Option<Rumors<T>>
 where
     T: borsh::BorshSerialize + borsh::BorshDeserialize + Send + Sync + 'static,
 {
     block_on(async move {
-        let (a_side, b_side) = tokio::io::duplex(DUPLEX_BUF);
-        let (mut a_r, mut a_w) = tokio::io::split(a_side);
-        let (mut b_r, mut b_w) = tokio::io::split(b_side);
+        let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
 
         let (provider_out, bootstrap_out) = tokio::join!(
-            provider.gossip(&mut a_r, &mut a_w),
-            Peer::<T>::bootstrap(&mut b_r, &mut b_w),
+            provider.gossip(&mut a_link),
+            Peer::<T>::bootstrap(&mut b_link),
         );
         provider_out.expect("provider gossip");
         bootstrap_out
@@ -116,13 +114,11 @@ proptest! {
 #[test]
 fn both_bootstrapping_bail_with_none() {
     let (a_out, b_out) = block_on(async {
-        let (a_side, b_side) = tokio::io::duplex(1024);
-        let (mut a_r, mut a_w) = tokio::io::split(a_side);
-        let (mut b_r, mut b_w) = tokio::io::split(b_side);
+        let (mut a_link, mut b_link) = rumors::link::memory();
 
         tokio::join!(
-            Peer::<u64>::bootstrap(&mut a_r, &mut a_w),
-            Peer::<u64>::bootstrap(&mut b_r, &mut b_w),
+            Peer::<u64>::bootstrap(&mut a_link),
+            Peer::<u64>::bootstrap(&mut b_link),
         )
     });
 
@@ -146,16 +142,10 @@ fn v1_bootstrap_selection_persists_into_gossip() {
     provider.send(1);
 
     let newcomer = block_on(async {
-        let (provider_side, newcomer_side) = tokio::io::duplex(DUPLEX_BUF);
-        let (mut provider_read, mut provider_write) = tokio::io::split(provider_side);
-        let (mut newcomer_read, mut newcomer_write) = tokio::io::split(newcomer_side);
+        let (mut provider_link, mut newcomer_link) = rumors::link::memory_with_capacity(LINK_BUF);
         let (served, joined) = tokio::join!(
-            provider.gossip(&mut provider_read, &mut provider_write),
-            Peer::<u64>::bootstrap_with_protocol(
-                Protocol::V1,
-                &mut newcomer_read,
-                &mut newcomer_write,
-            ),
+            provider.gossip(&mut provider_link),
+            Peer::<u64>::bootstrap_with_protocol(Protocol::V1, &mut newcomer_link),
         );
         served.expect("V1 provider serves bootstrap");
         joined
@@ -174,12 +164,10 @@ fn v1_bootstrap_selection_persists_into_gossip() {
             .try_into_peer()
             .await
             .expect("sole V1 handle reclaims its peer");
-        let (provider_side, newcomer_side) = tokio::io::duplex(DUPLEX_BUF);
-        let (mut provider_read, mut provider_write) = tokio::io::split(provider_side);
-        let (mut newcomer_read, mut newcomer_write) = tokio::io::split(newcomer_side);
+        let (mut provider_link, mut newcomer_link) = rumors::link::memory_with_capacity(LINK_BUF);
         let (served, retired) = tokio::join!(
-            provider.gossip(&mut provider_read, &mut provider_write),
-            newcomer.retire(&mut newcomer_read, &mut newcomer_write),
+            provider.gossip(&mut provider_link),
+            newcomer.retire(&mut newcomer_link),
         );
         served.expect("V1 provider absorbs retiree");
         retired

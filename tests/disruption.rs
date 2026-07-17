@@ -6,9 +6,10 @@
 //!   every gossip session, bootstrap, send, and redact spawned at once,
 //!   over in-memory wires that may be severed at arbitrary byte offsets.
 //! - **Inter-process**: peers split across genuinely separate OS
-//!   processes — the test binary re-executes itself as each child — over
-//!   real TCP sockets with the same fault injection on the child side,
-//!   children retiring home at the end so the id-space can be audited.
+//!   processes — the test binary re-executes itself as each child — over a
+//!   real TCP link (one socket per stream; see `common::tcp`) with the same
+//!   fault injection on the child side, children retiring home at the end
+//!   so the id-space can be audited.
 //!
 //! Both assert the same global properties, stated on each test below. Task
 //! and process interleavings are nondeterministic, so a counterexample may
@@ -33,6 +34,7 @@ use crate::common::sim::{
     arb_fault, arb_plan, assert_converged, assert_honest_error, assert_honest_gossip,
     assert_party_invariants, is_honest_error, probe_disjointness, quiesce, run_plan,
 };
+use crate::common::tcp;
 use crate::common::wire::bootstrap_fork_async;
 
 /// A fresh multi-thread runtime per simulation, so tasks interleave with
@@ -251,8 +253,16 @@ async fn run_proc_plan(plan: ProcPlan) {
                 let serve_errors = Arc::clone(&serve_errors);
                 let dishonest = Arc::clone(&dishonest);
                 sessions.spawn(async move {
-                    let (mut r, mut w) = tokio::io::split(socket);
-                    if let Err(e) = handle.gossip(&mut r, &mut w).await {
+                    // A child that dies before the listener-port swap is the
+                    // same honest severance as one that dies mid-session.
+                    let mut link = match tcp::link(socket).await {
+                        Ok(link) => link,
+                        Err(_) => {
+                            serve_errors.fetch_add(1, Ordering::Relaxed);
+                            return;
+                        }
+                    };
+                    if let Err(e) = handle.gossip(&mut link).await {
                         serve_errors.fetch_add(1, Ordering::Relaxed);
                         if !is_honest_error(&e) {
                             dishonest
@@ -408,8 +418,9 @@ async fn child_main(addr: String) -> i32 {
         let socket = TcpStream::connect(&addr)
             .await
             .expect("connect for faulty bootstrap");
-        let (mut r, mut w) = fault::faulty(socket, boot);
-        match Peer::<u64>::bootstrap(&mut r, &mut w).await {
+        let link = tcp::link(socket).await.expect("swap listener ports");
+        let mut link = fault::faulty_link(link, boot);
+        match Peer::<u64>::bootstrap(&mut link).await {
             Ok(Some(k)) => known = Some(k),
             Ok(None) => panic!("the parent never bootstraps"),
             Err(e) => {
@@ -424,8 +435,8 @@ async fn child_main(addr: String) -> i32 {
             let socket = TcpStream::connect(&addr)
                 .await
                 .expect("connect for bootstrap");
-            let (mut r, mut w) = tokio::io::split(socket);
-            Peer::<u64>::bootstrap(&mut r, &mut w)
+            let mut link = tcp::link(socket).await.expect("swap listener ports");
+            Peer::<u64>::bootstrap(&mut link)
                 .await
                 .expect("clean bootstrap")
                 .expect("the parent serves every bootstrap")
@@ -448,9 +459,10 @@ async fn child_main(addr: String) -> i32 {
         let socket = TcpStream::connect(&addr)
             .await
             .expect("connect for session");
-        let (mut r, mut w) = fault::faulty(socket, fault);
+        let link = tcp::link(socket).await.expect("swap listener ports");
+        let mut link = fault::faulty_link(link, fault);
         let handle = cast.clone();
-        assert_honest_gossip(&handle.gossip(&mut r, &mut w).await);
+        assert_honest_gossip(&handle.gossip(&mut link).await);
     }
     sender.await.expect("sender task");
 
@@ -460,10 +472,8 @@ async fn child_main(addr: String) -> i32 {
         let socket = TcpStream::connect(&addr)
             .await
             .expect("connect for final gossip");
-        let (mut r, mut w) = tokio::io::split(socket);
-        cast.gossip(&mut r, &mut w)
-            .await
-            .expect("clean final gossip");
+        let mut link = tcp::link(socket).await.expect("swap listener ports");
+        cast.gossip(&mut link).await.expect("clean final gossip");
     }
 
     // Retire home, possibly through a cut wire; a recovered retiree gets
@@ -475,8 +485,9 @@ async fn child_main(addr: String) -> i32 {
     let mut fault = retire_fault;
     for _attempt in 0..2 {
         let socket = TcpStream::connect(&addr).await.expect("connect for retire");
-        let (mut r, mut w) = fault::faulty(socket, fault);
-        match known.retire(&mut r, &mut w).await {
+        let link = tcp::link(socket).await.expect("swap listener ports");
+        let mut link = fault::faulty_link(link, fault);
+        match known.retire(&mut link).await {
             Retire::Retired => {
                 return if had_boot_loss {
                     EXIT_BOOT_LOSS

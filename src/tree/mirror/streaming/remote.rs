@@ -1,19 +1,25 @@
 //! Wire-bound proxy for the streaming mirror.
 //!
-//! The transport carries one interleaved byte stream containing 17 logical
-//! streams in each direction. [`codec`] defines the common frame grammar: the
-//! signal densely encodes the product of ten frame states and 17 stream ids as
-//! `state * 17 + stream`. The states are each of the four reaction forms
-//! (`Match`, empty/nonempty `Query`, and `Supply`) either continuing or ending
-//! its reply, plus bare `ReplyEnd` and `StreamEnd`. Values 170 through 255 are
-//! reserved. The phase schedule narrows that syntactic product further: the
-//! initiator admits 161 placements and the responder 163, rejecting the rest
-//! immediately after the signal byte, before any frame body is read.
+//! The transport is a [`Link`](crate::link): 17 logical streams in each
+//! direction, each carried by its own independently flow-controlled
+//! transport stream, lazily established as the descent needs it. [`codec`]
+//! defines the common frame grammar: the signal densely encodes the product
+//! of ten frame states and 17 stream ids as `state * 17 + stream`. The
+//! states are each of the four reaction forms (`Match`, empty/nonempty
+//! `Query`, and `Supply`) either continuing or ending its reply, plus bare
+//! `ReplyEnd` and `StreamEnd`. Values 170 through 255 are reserved. The
+//! phase schedule narrows that syntactic product further: the initiator
+//! admits 161 placements and the responder 163, rejecting the rest
+//! immediately after the signal byte, before any frame body is read. Each
+//! stream carries exactly one placement of that grammar, so the signal's
+//! stream component is redundant with the stream's label — deliberately:
+//! [`streams`] holds every frame to exact agreement with the label, so a
+//! miswired link surfaces at the first frame.
 //!
 //! Reply and stream ends are separate events. A reaction or bare `ReplyEnd`
-//! completes a reply; a later bare `StreamEnd` closes the logical stream. The
-//! session layer consumes that transport control instead of exposing it to the
-//! protocol adapter as an empty reply.
+//! completes a reply; a later bare `StreamEnd` closes the logical stream
+//! ahead of the transport-level half-close. The stream layer consumes that
+//! control instead of exposing it to the protocol adapter as an empty reply.
 //!
 //! An empty query occupies its signal alone; a nonempty query's one-byte
 //! count-minus-one admits every fan from 1 through 256. A supplied leaf is the
@@ -29,20 +35,29 @@
 //! the backend's existing conversion fold to reconstruct one node per ascending
 //! leaf run.
 //!
-//! [`session`] performs the physical multiplexing. Each logical stream has one
-//! incoming and one outgoing handoff slot; a full slot propagates pressure to
-//! the transport. Outgoing frames carry an exact, cancellation-safe
-//! acknowledgement which releases their attached question only after the
-//! frame is written and flushed.
+//! [`streams`] binds logical streams to the link's transport streams —
+//! lazy opening and claiming, session-epoch labels, and the accept driver
+//! that routes anonymous arrivals — and states why no scheduling layer sits
+//! between a producer and its stream: each write is flushed before the
+//! producer's attached question is published, and backpressure on one
+//! stream is invisible to every other by the link contract.
 
 mod adapter;
 mod codec;
 mod error;
 mod proxy;
-mod session;
+mod streams;
 
+#[cfg(any(test, feature = "test-internals"))]
+pub use codec::LinkCapture;
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use codec::render_v2_capture;
 pub use error::*;
+
+/// The codec's logical stream count, for cross-layer constant assertions.
+#[cfg(test)]
+pub(crate) fn codec_stream_count() -> u8 {
+    codec::Stream::COUNT
+}
 pub use proxy::Error;
 pub use proxy::Handshaking;

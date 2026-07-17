@@ -1,6 +1,6 @@
 //! Tests for the pure merge rule. (The networked paths are exercised by the
-//! owner's duplex tests and the manual smoke script; `decide` is the one
-//! piece both sides must agree on blind.)
+//! owner's in-memory link tests and the manual smoke script; `decide` is the
+//! one piece both sides must agree on blind.)
 
 use proptest::prelude::*;
 use rand::SeedableRng;

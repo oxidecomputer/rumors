@@ -8,6 +8,7 @@ use std::pin::pin;
 
 use futures::StreamExt;
 
+use crate::link::Connector;
 use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
@@ -17,7 +18,7 @@ use crate::tree::{
         remote::{
             adapter::{self, Encoded, Scope, encode_opening, encode_reply},
             proxy::{Error, send_or_cancel},
-            session::{FrameSender, ReplyFrame},
+            streams::{ReplyFrame, StreamSender},
         },
     },
     typed::height::{Height, S, UnderRoot, Z},
@@ -26,17 +27,18 @@ use crate::tree::{
 use super::progress::Progress;
 
 /// Encode local leaf replies, optionally publishing the leaf questions they ask.
-pub async fn terminal<B, T>(
+pub async fn terminal<B, T, C>(
     backend: B,
     requests: impl Requests<B, T, Z>,
     mut scopes: Receiver<Scope<Z>>,
-    mut outgoing: FrameSender<T>,
+    mut outgoing: StreamSender<C, T>,
     questions: Option<Sender<Scope<Z>>>,
     progress: Progress,
 ) -> Result<(), Error<B::Error>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
+    C: Connector,
 {
     let mut requests = pin!(requests);
     while let Some(request) = requests.next().await {
@@ -54,17 +56,18 @@ where
 }
 
 /// Encode non-leaf replies and publish each complete question batch.
-pub async fn replies<B, T, H>(
+pub async fn replies<B, T, C, H>(
     backend: B,
     requests: impl Requests<B, T, S<H>>,
     mut scopes: Receiver<Scope<S<H>>>,
-    mut outgoing: FrameSender<T>,
+    mut outgoing: StreamSender<C, T>,
     questions: Sender<Scope<H>>,
     progress: Progress,
 ) -> Result<(), Error<B::Error>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
+    C: Connector,
     H: Height,
     S<H>: Convert,
     S<S<H>>: Height,
@@ -81,15 +84,16 @@ where
 }
 
 /// Encode and close the local initiator's distinguished opening stream.
-pub async fn opening<B, T>(
+pub async fn opening<B, T, C>(
     requests: impl Requests<B, T, UnderRoot>,
-    mut outgoing: FrameSender<T>,
+    mut outgoing: StreamSender<C, T>,
     questions: Sender<Scope<UnderRoot>>,
     progress: Progress,
 ) -> Result<(), Error<B::Error>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
+    C: Connector,
 {
     let mut requests = pin!(requests);
     let request = requests.next().await.ok_or(Error::MissingOpening)?;
@@ -108,10 +112,13 @@ where
 }
 
 /// Flush every frame in one reply and retain its acknowledged questions.
-async fn write_reply<T, Q, E>(
-    outgoing: &mut FrameSender<T>,
+async fn write_reply<T, C, Q, E>(
+    outgoing: &mut StreamSender<C, T>,
     encoded: &mut (impl futures::Stream<Item = Result<Encoded<T, Q>, adapter::EncodeError<E>>> + Unpin),
-) -> Result<Vec<Q>, Error<E>> {
+) -> Result<Vec<Q>, Error<E>>
+where
+    C: Connector,
+{
     let mut batch = Vec::new();
     while let Some(frame) = encoded.next().await {
         if let Some(question) = write_encoded(outgoing, frame?).await? {
@@ -130,11 +137,12 @@ async fn publish<Q, H: Height>(questions: &Sender<Q>, batch: Vec<Q>, progress: P
 }
 
 /// Reject unanswered scopes, then close the outgoing logical stream.
-async fn finish<T, H, E>(
+async fn finish<T, C, H, E>(
     mut scopes: Receiver<Scope<H>>,
-    outgoing: FrameSender<T>,
+    outgoing: StreamSender<C, T>,
 ) -> Result<(), Error<E>>
 where
+    C: Connector,
     H: Height,
     S<H>: Height,
 {
@@ -146,10 +154,13 @@ where
 }
 
 /// Flush one adapter frame and release its optional question afterward.
-async fn write_encoded<T, Q, E>(
-    outgoing: &mut FrameSender<T>,
+async fn write_encoded<T, C, Q, E>(
+    outgoing: &mut StreamSender<C, T>,
     encoded: Encoded<T, Q>,
-) -> Result<Option<Q>, Error<E>> {
+) -> Result<Option<Q>, Error<E>>
+where
+    C: Connector,
+{
     encoded
         .write_with(|frame| async {
             let frame = ReplyFrame::try_from(frame).map_err(Error::ReplyFrame)?;

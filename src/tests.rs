@@ -15,13 +15,9 @@ use tokio::io::AsyncWrite;
 use tokio::sync::{Mutex, watch};
 
 use crate::bookmark::{Bookmarked, NoBookmark};
+use crate::link::{Connector, Link, MemoryAcceptor, MemoryConnector, MemoryLink, memory};
 use crate::tree::{Root, Tree};
 use crate::{Error, Inner, Peer, Retire};
-
-/// Capacity for the in-memory duplex pipe; every retiree here is already
-/// converged with its absorber, so the sessions move no content and the exact
-/// size is immaterial.
-const DUPLEX_BUF: usize = 64 * 1024;
 
 /// The preamble's wire length: magic(6) + proto_version(2) + network(16) +
 /// intent(1). The fault-injection budgets
@@ -48,17 +44,13 @@ fn party_of(k: &Peer<u64>) -> Party {
         .dangerously_alias()
 }
 
-/// Drive `child.retire` against `survivor.gossip` over a duplex pipe, asserting
+/// Drive `child.retire` against `survivor.gossip` over a memory link, asserting
 /// the child retired, and return the (party-grown) survivor.
 fn retire_child_into(survivor: Peer<u64>, child: Peer<u64>) -> Peer<u64> {
     pollster::block_on(async {
-        let (a_side, b_side) = tokio::io::duplex(DUPLEX_BUF);
-        let (mut a_r, mut a_w) = tokio::io::split(a_side);
-        let (mut b_r, mut b_w) = tokio::io::split(b_side);
-        let (child_out, survivor_out) = tokio::join!(
-            child.retire(&mut a_r, &mut a_w),
-            survivor.gossip(&mut b_r, &mut b_w),
-        );
+        let (mut a_link, mut b_link) = memory();
+        let (child_out, survivor_out) =
+            tokio::join!(child.retire(&mut a_link), survivor.gossip(&mut b_link),);
         assert!(
             matches!(child_out, Retire::Retired),
             "the survivor absorbs the child",
@@ -72,12 +64,10 @@ fn retire_child_into(survivor: Peer<u64>, child: Peer<u64>) -> Peer<u64> {
 /// post-serve provider and the bootstrapped peer.
 fn bootstrap_from(provider: Peer<u64>) -> (Peer<u64>, Peer<u64>) {
     pollster::block_on(async {
-        let (a_side, b_side) = tokio::io::duplex(DUPLEX_BUF);
-        let (mut a_r, mut a_w) = tokio::io::split(a_side);
-        let (mut b_r, mut b_w) = tokio::io::split(b_side);
+        let (mut a_link, mut b_link) = memory();
         let (provider_out, boot_out) = tokio::join!(
-            provider.gossip(&mut a_r, &mut a_w),
-            Peer::<u64>::bootstrap(&mut b_r, &mut b_w),
+            provider.gossip(&mut a_link),
+            Peer::<u64>::bootstrap(&mut b_link),
         );
         provider_out.expect("provider gossip");
         (
@@ -116,13 +106,8 @@ fn overlapping_retiree_party_is_rejected() {
     };
 
     let (_retire_out, survivor_out) = pollster::block_on(async {
-        let (a_side, b_side) = tokio::io::duplex(DUPLEX_BUF);
-        let (mut a_r, mut a_w) = tokio::io::split(a_side);
-        let (mut b_r, mut b_w) = tokio::io::split(b_side);
-        tokio::join!(
-            forged.retire(&mut a_r, &mut a_w),
-            survivor.gossip(&mut b_r, &mut b_w),
-        )
+        let (mut a_link, mut b_link) = memory();
+        tokio::join!(forged.retire(&mut a_link), survivor.gossip(&mut b_link))
     });
 
     assert!(
@@ -192,13 +177,8 @@ fn mutual_retire_declines_both() {
     let (survivor, child) = bootstrap_from(survivor);
 
     let (a_out, b_out) = pollster::block_on(async {
-        let (a_side, b_side) = tokio::io::duplex(DUPLEX_BUF);
-        let (mut a_r, mut a_w) = tokio::io::split(a_side);
-        let (mut b_r, mut b_w) = tokio::io::split(b_side);
-        tokio::join!(
-            survivor.retire(&mut a_r, &mut a_w),
-            child.retire(&mut b_r, &mut b_w),
-        )
+        let (mut a_link, mut b_link) = memory();
+        tokio::join!(survivor.retire(&mut a_link), child.retire(&mut b_link))
     });
     let (Retire::Declined { peer: survivor }, Retire::Declined { peer: child }) = (a_out, b_out)
     else {
@@ -219,13 +199,16 @@ fn mutual_retire_declines_both() {
 /// exhausted, then fails every write with [`BrokenPipe`]: a deterministic
 /// stand-in for a connection severed at a chosen point in the session.
 ///
-/// Reads are not budgeted; the counterparty observes the cut as EOF once the
-/// session's halves drop.
+/// The budget is shared across every fused writer of one link — the control
+/// half and each data stream — so the cut lands at a chosen point in the
+/// session's total outgoing byte count, wherever that byte travels. Reads
+/// are not budgeted; the counterparty observes the cut as EOF once the
+/// session's link drops.
 ///
 /// [`BrokenPipe`]: std::io::ErrorKind::BrokenPipe
 struct Fuse<W> {
     inner: W,
-    remaining: usize,
+    remaining: Arc<std::sync::Mutex<usize>>,
 }
 
 impl<W: AsyncWrite + Unpin> AsyncWrite for Fuse<W> {
@@ -235,7 +218,8 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for Fuse<W> {
         buf: &[u8],
     ) -> Poll<std::io::Result<usize>> {
         let this = self.get_mut();
-        if this.remaining == 0 {
+        let mut remaining = this.remaining.lock().expect("fuse budget lock");
+        if *remaining == 0 {
             return Poll::Ready(Err(std::io::Error::new(
                 std::io::ErrorKind::BrokenPipe,
                 "fuse blown",
@@ -243,10 +227,10 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for Fuse<W> {
         }
         // Admit at most the remaining budget; the writer's retry of the
         // unwritten tail then trips the exhausted fuse above.
-        let admitted = buf.len().min(this.remaining);
+        let admitted = buf.len().min(*remaining);
         match Pin::new(&mut this.inner).poll_write(cx, &buf[..admitted]) {
             Poll::Ready(Ok(n)) => {
-                this.remaining -= n;
+                *remaining -= n;
                 Poll::Ready(Ok(n))
             }
             other => other,
@@ -268,10 +252,52 @@ fn greeting_frame_len(retiree: &Peer<u64>) -> usize {
     crate::tree::mirror::framing::LENGTH_HEADER_LEN + retiree.snapshot().latest().as_bytes().len()
 }
 
-/// Drive `retiree.retire` against `peer.gossip` over a duplex whose
-/// retiree-side writer is fused to `budget` bytes.
+/// A connector whose opened streams draw on the link's shared fuse budget.
+#[derive(Clone)]
+struct FusedConnector {
+    inner: MemoryConnector,
+    remaining: Arc<std::sync::Mutex<usize>>,
+}
+
+impl Connector for FusedConnector {
+    type Tx = Fuse<tokio::io::DuplexStream>;
+
+    async fn connect(&self) -> std::io::Result<Self::Tx> {
+        let inner = self.inner.connect().await?;
+        Ok(Fuse {
+            inner,
+            remaining: Arc::clone(&self.remaining),
+        })
+    }
+}
+
+/// Fuse one link's whole outgoing side to a shared byte budget.
+fn fused_link(
+    link: MemoryLink,
+    budget: usize,
+) -> Link<tokio::io::DuplexStream, Fuse<tokio::io::DuplexStream>, FusedConnector, MemoryAcceptor> {
+    let remaining = Arc::new(std::sync::Mutex::new(budget));
+    let parts = link.into_parts();
+    crate::link::LinkParts {
+        control_read: parts.control_read,
+        control_write: Fuse {
+            inner: parts.control_write,
+            remaining: Arc::clone(&remaining),
+        },
+        connector: FusedConnector {
+            inner: parts.connector,
+            remaining,
+        },
+        acceptor: parts.acceptor,
+        epoch: parts.epoch,
+    }
+    .into_link()
+}
+
+/// Drive `retiree.retire` against `peer.gossip` over a link whose
+/// retiree-side outgoing bytes are fused to `budget`.
 ///
-/// Each side's I/O halves are owned by its future, so the failing side's drop
+/// Each side's link is owned by its future, so the failing side's drop
 /// surfaces as EOF to the other rather than deadlocking the join. Returns both
 /// outcomes.
 fn severed_retire(
@@ -280,21 +306,15 @@ fn severed_retire(
     budget: usize,
 ) -> (Retire<u64>, Result<(), Error>) {
     pollster::block_on(async move {
-        let (a_side, b_side) = tokio::io::duplex(DUPLEX_BUF);
-        let (a_r, a_w) = tokio::io::split(a_side);
-        let (b_r, b_w) = tokio::io::split(b_side);
+        let (a_link, b_link) = memory();
         tokio::join!(
             async move {
-                let mut a_r = a_r;
-                let mut a_w = Fuse {
-                    inner: a_w,
-                    remaining: budget,
-                };
-                retiree.retire(&mut a_r, &mut a_w).await
+                let mut a_link = fused_link(a_link, budget);
+                retiree.retire(&mut a_link).await
             },
             async move {
-                let (mut b_r, mut b_w) = (b_r, b_w);
-                peer.gossip(&mut b_r, &mut b_w).await
+                let mut b_link = b_link;
+                peer.gossip(&mut b_link).await
             },
         )
     })

@@ -175,6 +175,168 @@ pub fn arb_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate::tree
         .boxed()
 }
 
+/// [`arb_divergent_pair`] at a budget wide enough to reach the streaming
+/// wire deadlock's trigger geometry.
+///
+/// Wide roots whose opening reply mixes disputed children with outright
+/// provisions, with disputes that descend several levels — the shape the
+/// small budget rarely produces (see `design/streaming-wire-deadlock.md`
+/// §6–7).
+///
+/// The small-budget generator stays the default for properties where case
+/// count matters more than per-case breadth; wire-liveness properties run
+/// both.
+pub fn arb_wide_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate::tree::Root<()>)> {
+    use crate::tree::{Action, Tree};
+
+    (
+        0usize..12,                // shared inserts (the common base)
+        0usize..40,                // a-only inserts
+        0usize..40,                // b-only inserts
+        vec(any::<bool>(), 0..12), // which shared keys side a redacts
+        vec(any::<bool>(), 0..12), // which shared keys side b redacts
+    )
+        .prop_map(|(n_shared, n_a, n_b, a_redact, b_redact)| {
+            let p_s = nth_party(0);
+            let p_a = nth_party(1);
+            let p_b = nth_party(2);
+
+            let mut base = Tree::new();
+            base.act(
+                &p_s,
+                (0..n_shared).map(|_| Action::Insert(Message::new(()))),
+            );
+            let shared_keys: Vec<_> = base.iter().map(|(k, _, _)| k).collect();
+
+            let side = |party: &Party, n: usize, redact: &[bool]| {
+                let mut t = base.clone();
+                t.act(party, (0..n).map(|_| Action::Insert(Message::new(()))));
+                let forgets: Vec<_> = shared_keys
+                    .iter()
+                    .zip(redact)
+                    .filter_map(|(k, &r)| r.then_some(Action::Forget(*k)))
+                    .collect();
+                t.act(party, forgets);
+                t.root
+            };
+
+            (side(&p_a, n_a, &a_redact), side(&p_b, n_b, &b_redact))
+        })
+        .boxed()
+}
+
+/// A deterministic pair with the streaming deadlock's trigger geometry.
+///
+/// The radix-*first* root child is disputed (both sides hold divergent,
+/// branching content under it), while at least six higher-radix root
+/// children exist on one side only, queueing whole-subtree provisions
+/// behind the dispute on the same reply stream.
+///
+/// This is the counterexample skeleton of `design/streaming-wire-deadlock.md`
+/// §2, made permanent at the tier that should have owned it. Content
+/// addressing means the shape cannot be dictated, so it is *searched*: insert
+/// counts vary per attempt, each attempt's honestly-built pair is checked
+/// against the geometry, and the first satisfying pair wins. Hashing is
+/// deterministic, so the search — and therefore the fixture — is too.
+pub fn early_first_child_dispute_pair() -> (crate::tree::Root<()>, crate::tree::Root<()>) {
+    use crate::tree::{Action, Tree};
+
+    /// Leaves per side: enough on the left for wide roots with collisions,
+    /// few enough on the right that most left children are provisions.
+    const LEFT_LEAVES: usize = 32;
+    const RIGHT_LEAVES: usize = 8;
+
+    /// Window stride between attempts: larger than either window, so
+    /// successive attempts draw fully disjoint leaf populations.
+    const STRIDE: usize = 64;
+
+    /// Attempt budget; the assert below turns exhaustion into a loud failure.
+    const ATTEMPTS: usize = 4096;
+
+    // Paths are functions of (version, payload) and payloads are unit, so a
+    // candidate pair is fully determined by where each side's version chain
+    // *starts*: `Tree::act` ticks from the root ceiling, so seeding a built
+    // tree's ceiling with a pre-ticked version shifts every leaf's version —
+    // and therefore its whole path — while keeping version encodings small
+    // and the state legitimate (indistinguishable from a tree whose earlier
+    // content was redacted). The search therefore precomputes each party's
+    // whole first-byte sequence in one pass and examines disjoint windows of
+    // it; only the one winning attempt pays for real tree construction, and
+    // the equality assert below keeps the simulation honest against the
+    // builder.
+    let firsts = |party: &Party, ticks: usize| -> Vec<u8> {
+        let mut version = Version::new();
+        (0..ticks)
+            .map(|_| {
+                version.tick(party);
+                let path: [u8; 32] = Path::for_leaf(&version, Message::new(()).as_slice()).into();
+                path[0]
+            })
+            .collect()
+    };
+    let burnt = |party: &Party, ticks: usize| {
+        let mut version = Version::new();
+        for _ in 0..ticks {
+            version.tick(party);
+        }
+        version
+    };
+
+    let p_a = nth_party(1);
+    let p_b = nth_party(2);
+    let f_a = firsts(&p_a, ATTEMPTS * STRIDE + LEFT_LEAVES);
+    let f_b = firsts(&p_b, ATTEMPTS * STRIDE + RIGHT_LEAVES);
+
+    for attempt in 0..ATTEMPTS {
+        let at = attempt * STRIDE;
+        let left_firsts = &f_a[at..at + LEFT_LEAVES];
+        let right_firsts = &f_b[at..at + RIGHT_LEAVES];
+        let Some(&first) = left_firsts.iter().chain(right_firsts.iter()).min() else {
+            continue;
+        };
+
+        // The radix-first root child must be present on both sides (a
+        // dispute) with branching content on at least one (two or more
+        // leaves, so the dispute descends instead of resolving by an inline
+        // supply), and at least six higher-radix children must exist on one
+        // side only — whole-subtree provisions queued behind the dispute.
+        let left_under = left_firsts.iter().filter(|&&b| b == first).count();
+        let right_under = right_firsts.iter().filter(|&&b| b == first).count();
+        let provisions = {
+            let mut one_sided: Vec<u8> = left_firsts
+                .iter()
+                .filter(|b| !right_firsts.contains(b))
+                .chain(right_firsts.iter().filter(|b| !left_firsts.contains(b)))
+                .copied()
+                .filter(|b| *b > first)
+                .collect();
+            one_sided.sort_unstable();
+            one_sided.dedup();
+            one_sided.len()
+        };
+        if left_under.min(right_under) >= 1 && left_under.max(right_under) >= 2 && provisions >= 6 {
+            let build = |party: &Party, base: Version, live: usize| {
+                let mut tree = Tree::new();
+                tree.root.ceiling = base;
+                tree.act(party, (0..live).map(|_| Action::Insert(Message::new(()))));
+                tree
+            };
+            let left = build(&p_a, burnt(&p_a, at), LEFT_LEAVES);
+            let right = build(&p_b, burnt(&p_b, at), RIGHT_LEAVES);
+            let mut built: Vec<u8> = left.iter().map(|(k, _, _)| k.as_bytes()[0]).collect();
+            let mut simulated = left_firsts.to_vec();
+            built.sort_unstable();
+            simulated.sort_unstable();
+            assert_eq!(
+                built, simulated,
+                "the path simulation must agree with the tree builder",
+            );
+            return (left.root, right.root);
+        }
+    }
+    unreachable!("the deterministic geometry search must terminate");
+}
+
 /// A path all-zero except its final byte: siblings under a single leaf-parent
 /// (`S<Z>`) prefix.
 ///

@@ -27,9 +27,9 @@ use crate::common::action::{LocalAction, arb_local_actions, build_local};
 use crate::common::oracle::readout;
 use crate::common::wire::{block_on, bootstrap_fork, wire_gossip};
 
-/// Capacity for the in-memory duplex pipe. A divergent retiree's session moves
+/// Capacity for each in-memory link stream. A divergent retiree's session moves
 /// content through the gossip round, so keep the other wire tests' headroom.
-const DUPLEX_BUF: usize = 64 * 1024;
+const LINK_BUF: usize = 64 * 1024;
 
 // ---- builders ------------------------------------------------------------
 
@@ -42,8 +42,8 @@ fn async_known(peer: Rumors<u64>, vals: &[u64]) -> Rumors<u64> {
 
 // ---- wire harnesses ------------------------------------------------------
 
-/// Drive `retiree.retire` against `peer.gossip` concurrently over a duplex
-/// pipe, returning the retiree's outcome. The retiree arrives as the sole
+/// Drive `retiree.retire` against `peer.gossip` concurrently over an in-memory
+/// link, returning the retiree's outcome. The retiree arrives as the sole
 /// `Rumors` handle on its set and is converted into the unique `Peer`
 /// retirement requires.
 fn retire_into_gossip(retiree: Rumors<u64>, peer: &Rumors<u64>) -> Retire<u64> {
@@ -52,13 +52,9 @@ fn retire_into_gossip(retiree: Rumors<u64>, peer: &Rumors<u64>) -> Retire<u64> {
             .try_into_peer()
             .await
             .expect("the sole handle reclaims the Peer");
-        let (a_side, b_side) = tokio::io::duplex(DUPLEX_BUF);
-        let (mut a_r, mut a_w) = tokio::io::split(a_side);
-        let (mut b_r, mut b_w) = tokio::io::split(b_side);
-        let (retire_out, gossip_out) = tokio::join!(
-            retiree.retire(&mut a_r, &mut a_w),
-            peer.gossip(&mut b_r, &mut b_w),
-        );
+        let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
+        let (retire_out, gossip_out) =
+            tokio::join!(retiree.retire(&mut a_link), peer.gossip(&mut b_link),);
         gossip_out.expect("gossiping peer");
         retire_out
     })
@@ -79,10 +75,8 @@ fn retire_into_retire(a: Rumors<u64>, b: Rumors<u64>) -> (Retire<u64>, Retire<u6
     block_on(async move {
         let a = a.try_into_peer().await.expect("a's sole handle");
         let b = b.try_into_peer().await.expect("b's sole handle");
-        let (a_side, b_side) = tokio::io::duplex(DUPLEX_BUF);
-        let (mut a_r, mut a_w) = tokio::io::split(a_side);
-        let (mut b_r, mut b_w) = tokio::io::split(b_side);
-        tokio::join!(a.retire(&mut a_r, &mut a_w), b.retire(&mut b_r, &mut b_w))
+        let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
+        tokio::join!(a.retire(&mut a_link), b.retire(&mut b_link))
     })
 }
 
@@ -94,12 +88,10 @@ fn retire_into_bootstrap(retiree: Rumors<u64>) -> (Retire<u64>, Option<Rumors<u6
             .try_into_peer()
             .await
             .expect("the sole handle reclaims the Peer");
-        let (a_side, b_side) = tokio::io::duplex(DUPLEX_BUF);
-        let (mut a_r, mut a_w) = tokio::io::split(a_side);
-        let (mut b_r, mut b_w) = tokio::io::split(b_side);
+        let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
         let (retire_out, boot_out) = tokio::join!(
-            retiree.retire(&mut a_r, &mut a_w),
-            Peer::<u64>::bootstrap(&mut b_r, &mut b_w),
+            retiree.retire(&mut a_link),
+            Peer::<u64>::bootstrap(&mut b_link),
         );
         (
             retire_out,

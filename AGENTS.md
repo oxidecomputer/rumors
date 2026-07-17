@@ -13,6 +13,12 @@ Interval Tree Clock library (`crates/before-viz` visualizes the clocks).
 
 - The model (membership as custody), the `Peer`/`Rumors` split, the session
   contract, and bootstrap/retire semantics: crate docs (`src/lib.rs`).
+- The transport: sessions run over a `Link` — a control byte stream plus a
+  supply of independent, lazily opened data streams. The contract (which
+  the deadlock-freedom argument rests on) is in `src/link.rs`; the
+  `conformance` cargo feature ships the public validation suite for
+  caller-built links; `design/streaming-wire-deadlock.md` records why the
+  contract exists and the mux it replaced.
 - The tree (sparse Merkle radix trie, path compression, content-addressed
   leaves, the memo/version-bounds design): module docs in `src/tree.rs` and
   `src/tree/typed/`.

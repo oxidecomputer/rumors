@@ -1,7 +1,7 @@
 //! Wire helpers for the *asynchronous* gossip path: drive
-//! `rumors::Rumors::gossip` over an in-memory `tokio::io::duplex` pipe with
+//! `rumors::Rumors::gossip` over an in-memory [`rumors::link`] pair with
 //! both peers polled concurrently via `tokio::join!`. The two tasks progress
-//! directly against each other through the duplex transport; no runtime is
+//! directly against each other through the link's streams; no runtime is
 //! required unless a caller explicitly spawns a task.
 
 use std::cell::OnceCell;
@@ -45,17 +45,16 @@ pub fn tokio_block_on<F: Future>(fut: F) -> F::Output {
     })
 }
 
-/// Capacity in bytes for the in-memory duplex pipe. The mirror protocol
-/// strictly alternates within a session, so a modest buffer is sufficient
-/// and naturally exercises backpressure.
-const DUPLEX_BUF: usize = 8 * 1024;
+/// Capacity in bytes for each in-memory link stream. A modest buffer is
+/// sufficient and naturally exercises per-stream backpressure.
+pub const LINK_BUF: usize = 8 * 1024;
 
 /// Gossip two async `Rumors` through the on-wire protocol. After this
 /// returns, the two rumor sets hold the same live content and version.
 ///
-/// Both ends drive `gossip` concurrently over the two halves of a single
-/// `tokio::io::duplex` pipe, so the session makes real bidirectional
-/// progress rather than serializing one peer behind the other.
+/// Both ends drive `gossip` concurrently over the two ends of one in-memory
+/// link, so the session makes real bidirectional progress rather than
+/// serializing one peer behind the other.
 #[track_caller]
 pub fn wire_gossip<T>(a: &Rumors<T>, b: &Rumors<T>)
 where
@@ -70,18 +69,15 @@ pub async fn wire_gossip_async<T>(a: &Rumors<T>, b: &Rumors<T>)
 where
     T: BorshSerialize + BorshDeserialize + Send + Sync + 'static,
 {
-    let (a_side, b_side) = tokio::io::duplex(DUPLEX_BUF);
-    let (mut a_r, mut a_w) = tokio::io::split(a_side);
-    let (mut b_r, mut b_w) = tokio::io::split(b_side);
+    let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
 
-    let (a_result, b_result) =
-        tokio::join!(a.gossip(&mut a_r, &mut a_w), b.gossip(&mut b_r, &mut b_w),);
+    let (a_result, b_result) = tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link));
     a_result.expect("wire gossip A");
     b_result.expect("wire gossip B");
 }
 
 /// Mint a genuine, party-disjoint `Rumors` from `parent` by serving it a
-/// bootstrap over an in-memory pipe.
+/// bootstrap over an in-memory link.
 ///
 /// This is how a test obtains a second *originator*: the returned peer
 /// descends from `parent`'s universe (same [`Network`](rumors::Network))
@@ -114,13 +110,11 @@ pub async fn bootstrap_fork_async_with_protocol<T>(
 where
     T: BorshSerialize + BorshDeserialize + Send + Sync + Clone + 'static,
 {
-    let (a_side, b_side) = tokio::io::duplex(DUPLEX_BUF);
-    let (mut a_r, mut a_w) = tokio::io::split(a_side);
-    let (mut b_r, mut b_w) = tokio::io::split(b_side);
+    let (mut parent_link, mut boot_link) = rumors::link::memory_with_capacity(LINK_BUF);
 
     let (server_out, boot_out) = tokio::join!(
-        parent.gossip(&mut a_r, &mut a_w),
-        Peer::<T>::bootstrap_with_protocol(protocol, &mut b_r, &mut b_w),
+        parent.gossip(&mut parent_link),
+        Peer::<T>::bootstrap_with_protocol(protocol, &mut boot_link),
     );
     server_out.expect("bootstrap server gossip");
     boot_out

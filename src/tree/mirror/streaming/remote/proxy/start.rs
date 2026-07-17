@@ -7,6 +7,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::{
     Version,
+    link::{Acceptor, Connector, Link},
     tree::{
         mirror::{
             framing,
@@ -16,8 +17,11 @@ use crate::{
                 protocol::{self, Accept, CompleteConnect, Connect},
                 remote::{
                     codec::Speaker,
-                    proxy::{Connected, Error},
-                    session::Drivers,
+                    proxy::{
+                        Connected, Error,
+                        work::{Physical, Work},
+                    },
+                    streams::{AcceptDriver, claims, error_route},
                 },
             },
         },
@@ -26,29 +30,32 @@ use crate::{
 };
 
 /// A wire-bound protocol participant ready for the version handshake.
-pub struct Handshaking<B, T, R, W, V = Start>
+///
+/// Consumes a [`Link`] carrier for one session: the control halves host the
+/// causal-version handshake (and are the session's output), the connector
+/// and acceptor supply the descent's data streams, and the carrier's epoch
+/// labels every stream this session opens.
+pub struct Handshaking<B, T, R, W, C, A, V = Start>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
     backend: B,
-    read: R,
-    write: W,
+    link: Link<R, W, C, A>,
     versions: V,
     marker: PhantomData<fn() -> T>,
 }
 
-impl<B, T, R, W> Handshaking<B, T, R, W>
+impl<B, T, R, W, C, A> Handshaking<B, T, R, W, C, A>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    /// Bind the ordered transport halves before exchanging causal versions.
-    pub fn start(backend: B, read: R, write: W) -> Self {
+    /// Bind one session's link carrier before exchanging causal versions.
+    pub fn start(backend: B, link: Link<R, W, C, A>) -> Self {
         Self {
             backend,
-            read,
-            write,
+            link,
             versions: Start,
             marker: PhantomData,
         }
@@ -63,12 +70,14 @@ pub struct Connecting {
     remote: Version,
 }
 
-impl<B, T, R, W, V> protocol::Protocol for Handshaking<B, T, R, W, V>
+impl<B, T, R, W, C, A, V> protocol::Protocol for Handshaking<B, T, R, W, C, A, V>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     R: Send,
     W: Send,
+    C: Send,
+    A: Send,
     V: Send,
 {
     type Height = Root;
@@ -76,25 +85,26 @@ where
     type Output = (R, W);
 }
 
-impl<B, T, R, W> Connect<B, T> for Handshaking<B, T, R, W>
+impl<B, T, R, W, C, A> Connect<B, T> for Handshaking<B, T, R, W, C, A>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: borsh::BorshDeserialize + Send + Sync + 'static,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
+    C: Connector,
+    A: Acceptor,
 {
-    type Next = Handshaking<B, T, R, W, Connecting>;
+    type Next = Handshaking<B, T, R, W, C, A, Connecting>;
 
     /// Receive the remote greeting before asking the local server to answer it.
     async fn connect(mut self) -> Result<(Handshake, Self::Next), Self::Error> {
-        let remote = receive::<B::Error, _>(&mut self.read).await?;
+        let remote = receive::<B::Error, _>(&mut self.link.control_read).await?;
         let handshake = Handshake {
             version: remote.clone(),
         };
         let next = Handshaking {
             backend: self.backend,
-            read: self.read,
-            write: self.write,
+            link: self.link,
             versions: Connecting { remote },
             marker: PhantomData,
         };
@@ -102,46 +112,49 @@ where
     }
 }
 
-impl<B, T, R, W> CompleteConnect<B, T> for Handshaking<B, T, R, W, Connecting>
+impl<B, T, R, W, C, A> CompleteConnect<B, T> for Handshaking<B, T, R, W, C, A, Connecting>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: borsh::BorshDeserialize + Send + Sync + 'static,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
+    C: Connector,
+    A: Acceptor,
 {
-    type Next = Connected<B, T, R, W>;
+    type Next = Connected<B, T, R, W, C, A>;
 
     /// Send the local server's greeting, then open only if versions differ.
     async fn complete_connect(mut self, local_version: Version) -> Result<Self::Next, Self::Error> {
-        send::<B::Error, _>(&local_version, &mut self.write).await?;
+        send::<B::Error, _>(&local_version, &mut self.link.control_write).await?;
         Ok(connected(
             self.backend,
             local_version,
             self.versions.remote,
-            self.read,
-            self.write,
+            self.link,
         ))
     }
 }
 
-impl<B, T, R, W> Accept<B, T> for Handshaking<B, T, R, W>
+impl<B, T, R, W, C, A> Accept<B, T> for Handshaking<B, T, R, W, C, A>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: borsh::BorshDeserialize + Send + Sync + 'static,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
+    C: Connector,
+    A: Acceptor,
 {
-    type Next = Connected<B, T, R, W>;
+    type Next = Connected<B, T, R, W, C, A>;
 
     /// Exchange greetings concurrently, then open only if versions differ.
     async fn accept(mut self, request: Handshake) -> Result<(Handshake, Self::Next), Self::Error> {
-        let send = send::<B::Error, _>(&request.version, &mut self.write);
-        let receive = receive::<B::Error, _>(&mut self.read);
+        let send = send::<B::Error, _>(&request.version, &mut self.link.control_write);
+        let receive = receive::<B::Error, _>(&mut self.link.control_read);
         let (_, remote) = futures_util::future::try_join(send, receive).await?;
         let handshake = Handshake {
             version: remote.clone(),
         };
-        let next = connected(self.backend, request.version, remote, self.read, self.write);
+        let next = connected(self.backend, request.version, remote, self.link);
         Ok((handshake, next))
     }
 }
@@ -169,25 +182,24 @@ where
     Version::try_from_slice(&bytes).map_err(Error::HandshakeDecode)
 }
 
-/// Return untouched transport on equality, otherwise open the elected session.
-fn connected<B, T, R, W>(
+/// Return untouched control halves on equality, otherwise open the session.
+fn connected<B, T, R, W, C, A>(
     backend: B,
     local_version: Version,
     remote_version: Version,
-    read: R,
-    write: W,
-) -> Connected<B, T, R, W>
+    link: Link<R, W, C, A>,
+) -> Connected<B, T, R, W, C, A>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
-    R: AsyncRead + Unpin + Send,
-    W: AsyncWrite + Unpin + Send,
+    T: BorshDeserialize + Send + Sync + 'static,
+    C: Connector,
+    A: Acceptor,
 {
     if local_version == remote_version {
-        return Connected::equal(read, write);
+        return Connected::equal(link.control_read, link.control_write);
     }
     let local = local_speaker(&local_version, &remote_version);
-    open(backend, local, read, write)
+    open(backend, local, link)
 }
 
 /// Elect the local physical speaker from the total canonical version order.
@@ -199,14 +211,37 @@ fn local_speaker(local: &Version, remote: &Version) -> Speaker {
     }
 }
 
-/// Create logical endpoints and retain their drivers as protocol work.
-fn open<B, T, R, W>(backend: B, local: Speaker, read: R, write: W) -> Connected<B, T, R, W>
+/// Allocate one session's claim table, error route, and accept driver.
+fn open<B, T, R, W, C, A>(
+    backend: B,
+    local: Speaker,
+    link: Link<R, W, C, A>,
+) -> Connected<B, T, R, W, C, A>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
-    R: AsyncRead + Unpin + Send,
-    W: AsyncWrite + Unpin + Send,
+    T: BorshDeserialize + Send + Sync + 'static,
+    C: Connector,
+    A: Acceptor,
 {
-    let (drivers, incoming, outgoing) = Drivers::new(local, read, write);
-    Connected::new(backend, local.other(), incoming, outgoing, drivers)
+    let Link {
+        control_read,
+        control_write,
+        connector,
+        acceptor,
+        epoch,
+    } = link;
+    let remote = local.other();
+    let (slots, claims) = claims();
+    let (route, errors) = error_route();
+    let accept = AcceptDriver::new(acceptor, epoch, remote, slots, route.clone());
+    let work = Work::new(
+        backend,
+        Physical {
+            control_read,
+            control_write,
+            accept,
+            errors,
+        },
+    );
+    Connected::new(remote, epoch, connector, claims, route, work)
 }

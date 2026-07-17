@@ -61,12 +61,12 @@ use std::sync::{Arc, Mutex};
 
 use proptest::prelude::*;
 use rumors::{Bookmark, BookmarkError, Key, Peer, Retire, Rumors, Serialized};
-use tokio::io::{AsyncWrite, duplex, split};
+use tokio::io::AsyncWrite;
 
 use crate::common::wire::block_on;
 
-/// In-memory duplex capacity, comfortably larger than any session here ships.
-const DUPLEX_BUF: usize = 8 * 1024;
+/// In-memory link stream capacity, comfortably larger than any session here ships.
+const LINK_BUF: usize = 8 * 1024;
 
 // ---- the instrument --------------------------------------------------------
 
@@ -182,18 +182,13 @@ impl Instrument {
 // ---- session drivers -------------------------------------------------------
 //
 // Each runs one in-memory session between the bookmarked subject and a helper
-// over a clean duplex, both ends making concurrent progress via `join!` on the
+// over a clean link, both ends making concurrent progress via `join!` on the
 // current-thread runtime.
 
 /// Plain gossip: the subject reconciles content with `helper`. No party moves.
 async fn plain_gossip(subject: &Rumors<u64, Probe>, helper: &Rumors<u64>) {
-    let (s_side, h_side) = duplex(DUPLEX_BUF);
-    let (mut s_r, mut s_w) = split(s_side);
-    let (mut h_r, mut h_w) = split(h_side);
-    let (s, h) = tokio::join!(
-        subject.gossip(&mut s_r, &mut s_w),
-        helper.gossip(&mut h_r, &mut h_w),
-    );
+    let (mut s_link, mut h_link) = rumors::link::memory_with_capacity(LINK_BUF);
+    let (s, h) = tokio::join!(subject.gossip(&mut s_link), helper.gossip(&mut h_link),);
     s.expect("subject plain gossip");
     h.expect("helper plain gossip");
 }
@@ -201,12 +196,10 @@ async fn plain_gossip(subject: &Rumors<u64, Probe>, helper: &Rumors<u64>) {
 /// Serve a bootstrap: the subject donates a fresh fork of its identity to a
 /// newcomer, returning it as a new helper in the same universe.
 async fn serve_bootstrap(subject: &Rumors<u64, Probe>) -> Rumors<u64> {
-    let (s_side, n_side) = duplex(DUPLEX_BUF);
-    let (mut s_r, mut s_w) = split(s_side);
-    let (mut n_r, mut n_w) = split(n_side);
+    let (mut s_link, mut n_link) = rumors::link::memory_with_capacity(LINK_BUF);
     let (s, n) = tokio::join!(
-        subject.gossip(&mut s_r, &mut s_w),
-        Peer::<u64>::bootstrap(&mut n_r, &mut n_w),
+        subject.gossip(&mut s_link),
+        Peer::<u64>::bootstrap(&mut n_link),
     );
     s.expect("subject serve bootstrap");
     n.expect("bootstrap handshake")
@@ -218,12 +211,10 @@ async fn serve_bootstrap(subject: &Rumors<u64, Probe>) -> Rumors<u64> {
 /// [`Peer`] ready to have a `Probe` attached — the way a real process is born
 /// into an existing universe before it adopts its durable identity store.
 async fn bootstrap_fork_peer(origin: &Rumors<u64>) -> Peer<u64> {
-    let (o_side, n_side) = duplex(DUPLEX_BUF);
-    let (mut o_r, mut o_w) = split(o_side);
-    let (mut n_r, mut n_w) = split(n_side);
+    let (mut o_link, mut n_link) = rumors::link::memory_with_capacity(LINK_BUF);
     let (o, n) = tokio::join!(
-        origin.gossip(&mut o_r, &mut o_w),
-        Peer::<u64>::bootstrap(&mut n_r, &mut n_w),
+        origin.gossip(&mut o_link),
+        Peer::<u64>::bootstrap(&mut n_link),
     );
     o.expect("origin serves the bootstrap");
     n.expect("bootstrap handshake")
@@ -237,13 +228,8 @@ async fn absorb_retire(subject: &Rumors<u64, Probe>, retiree: Rumors<u64>) {
         .try_into_peer()
         .await
         .expect("the helper is the sole handle to its set");
-    let (s_side, r_side) = duplex(DUPLEX_BUF);
-    let (mut s_r, mut s_w) = split(s_side);
-    let (mut r_r, mut r_w) = split(r_side);
-    let (s, outcome) = tokio::join!(
-        subject.gossip(&mut s_r, &mut s_w),
-        retiree.retire(&mut r_r, &mut r_w),
-    );
+    let (mut s_link, mut r_link) = rumors::link::memory_with_capacity(LINK_BUF);
+    let (s, outcome) = tokio::join!(subject.gossip(&mut s_link), retiree.retire(&mut r_link),);
     s.expect("subject absorbs the retiree");
     match outcome {
         Retire::Retired => {}
@@ -258,13 +244,8 @@ async fn retire_subject(subject: Rumors<u64, Probe>, absorber: &Rumors<u64>) {
         .try_into_peer()
         .await
         .expect("the subject is the sole handle to its set");
-    let (s_side, a_side) = duplex(DUPLEX_BUF);
-    let (mut s_r, mut s_w) = split(s_side);
-    let (mut a_r, mut a_w) = split(a_side);
-    let (outcome, a) = tokio::join!(
-        subject.retire(&mut s_r, &mut s_w),
-        absorber.gossip(&mut a_r, &mut a_w),
-    );
+    let (mut s_link, mut a_link) = rumors::link::memory_with_capacity(LINK_BUF);
+    let (outcome, a) = tokio::join!(subject.retire(&mut s_link), absorber.gossip(&mut a_link),);
     a.expect("absorber gossip");
     match outcome {
         Retire::Retired => {}

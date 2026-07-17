@@ -18,8 +18,8 @@ use crate::tree::{
         streaming::{
             Failing, Local,
             remote::{
-                CodecDecodeErrorKind, CodecEncodeErrorKind, DemuxError, EncodeLeafError,
-                Error as RemoteError, MuxError,
+                CodecDecodeErrorKind, CodecEncodeErrorKind, EncodeLeafError, Error as RemoteError,
+                SendError, StreamError,
             },
         },
     },
@@ -29,12 +29,19 @@ use crate::tree::{
 fn injected<E>(error: &RemoteError<E>) -> Option<InjectedIo> {
     let source = match error {
         RemoteError::HandshakeRead(source) | RemoteError::HandshakeWrite(source) => source,
-        RemoteError::Incoming(DemuxError::Codec(error)) => match &error.kind {
+        RemoteError::Stream(StreamError::Decode(error)) => match &error.kind {
             CodecDecodeErrorKind::Read { source, .. }
             | CodecDecodeErrorKind::Truncated { source, .. } => source,
             _ => return None,
         },
-        RemoteError::Outgoing(MuxError::Codec(error)) => match &error.kind {
+        RemoteError::Stream(StreamError::SupplyClosed {
+            source: Some(source),
+            ..
+        }) => source,
+        RemoteError::Send(SendError::Connect { source, .. } | SendError::Label { source, .. }) => {
+            source
+        }
+        RemoteError::Send(SendError::Frame(error)) => match &error.kind {
             CodecEncodeErrorKind::Write { source, .. } | CodecEncodeErrorKind::Flush(source) => {
                 source
             }
@@ -70,18 +77,16 @@ fn injected_io(error: &io::Error) -> Option<InjectedIo> {
         .copied()
 }
 
-/// Transport direction errors must enter through their corresponding driver.
+/// Transport direction errors must enter through their corresponding surface.
 fn has_expected_surface(error: &RemoteError<Infallible>, operation: IoOperation) -> bool {
     match operation {
         IoOperation::Read => matches!(
             error,
-            RemoteError::HandshakeRead(_) | RemoteError::Incoming(DemuxError::Codec(_))
+            RemoteError::HandshakeRead(_)
+                | RemoteError::Stream(StreamError::Decode(_) | StreamError::SupplyClosed { .. })
         ),
         IoOperation::Write | IoOperation::Flush => {
-            matches!(
-                error,
-                RemoteError::HandshakeWrite(_) | RemoteError::Outgoing(MuxError::Codec(_))
-            )
+            matches!(error, RemoteError::HandshakeWrite(_) | RemoteError::Send(_))
         }
     }
 }

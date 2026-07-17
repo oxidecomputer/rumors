@@ -2,7 +2,7 @@
 //! [`rumors::Rumors`].
 //!
 //! Each test stages a scenario, drives one gossip session through the
-//! recording duplex in [`common::gossip_snapshot`], and pins every wire byte.
+//! recording link in [`common::gossip_snapshot`], and pins every wire byte.
 //! V2 frames are grouped by logical stream so nondeterministic cross-stream
 //! scheduling does not destabilize the snapshots, while ordering within each
 //! stream remains exact. A representative V1 case pins its strictly

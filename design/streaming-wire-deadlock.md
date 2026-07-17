@@ -1003,6 +1003,62 @@ Round-one scope and discipline, decided with Finch before execution:
 - The Lean-model retarget (§8.7 item 4) proceeds as its own track in
   `formal/`, not inside this Rust execution.
 
+### 8.10 Implementation addendum (2026-07-17, the `link-transport` branch)
+
+Deviations from §8's sketches, discovered and decided during execution;
+each is deliberate and the code documents it in place:
+
+- **`Link` is a concrete generic struct, not a trait.** The trait bought
+  nothing over a plain bundle `Link<CR, CW, C, A>` of four halves — every
+  instantiation constructs the struct from whatever it has — so only
+  `Connector` and `Acceptor` remain traits, and `split()` is unnecessary.
+  Wrappers (fault injection, capture, adversity harnesses) decompose and
+  reassemble via `LinkParts`, whose fields are public for exactly that.
+- **Control is two half type parameters, not one
+  `AsyncRead + AsyncWrite` object.** The preamble and the causal-version
+  handshake genuinely read and write concurrently — §8.2's own
+  halves-per-concurrency-role rationale, applied one level further down.
+- **`Connector: Clone + Send + Sync + 'static`.** The protocol layer's
+  response streams are `Send + 'static` throughout, so encoder tasks must
+  *own* their stream supply; each holds a clone. This supersedes §8.2's
+  "no `Clone` bound" note; the boxability that note protected survives via
+  `Arc<dyn>` erasure, which is `Clone` for free. The acceptor, single-
+  consumer by design, stays borrowed inside the session's one
+  non-`'static` driver seat — where the deleted mux/demux drivers sat.
+- **The epoch is a wrapping `u8` on the link.** It is a tripwire, not an
+  identity: correctness rests on serialized sessions plus every claimed
+  stream's observed end. Aliasing 256 sessions later requires either a
+  transport that held a stream undelivered across 256 serialized sessions
+  (contract violation) or a peer already inside the trust boundary, where
+  lying in-protocol is easier than epoch collision.
+- **Stream ends are double-checked.** After the explicit `End(Stream)`
+  control, the receiver requires transport end-of-stream; a peer that
+  keeps talking past its own end surfaces as `StreamError::AfterEnd`
+  rather than going unnoticed. Costs nothing against an honest peer (the
+  sender half-closes immediately after the control) and recovers the old
+  demux's frame-after-end detection, which §8.3's latitude had ceded.
+- **Stream-supply failures are deferred, not immediately fatal.** A peer
+  that completed its session cleanly has already delivered every stream
+  this side will claim, and may drop its link while this side finishes.
+  The accept driver therefore parks on transport-class failures (dropping
+  undelivered claim slots); a pump that provably needed one fails the
+  session with `StreamError::SupplyClosed`, carrying the deposited I/O
+  cause. Label/epoch/duplicate/unexpected violations remain immediate.
+- **Conformance shipped as a documented `conformance` cargo feature** on
+  the core crate (public module, panics-on-violation check functions plus
+  focused per-clause probes), validated against the in-memory link at
+  default and one-byte windows and under batched accept reordering. Two
+  real instantiations already exercise the seam: a per-stream TCP link in
+  the integration tests' inter-process disruption suite (one listener per
+  session side, ports swapped on the control stream — §8.4's
+  compatibility mapping minus the router), and rumormill's iroh/QUIC
+  binding (connection per link, streams one to one), which needed no
+  compatibility shims.
+- **Lazy establishment shipped from the start**, per the execution
+  decision: senders open on their first frame, receivers claim on their
+  first read, vacuous levels never touch the transport, and wire captures
+  are per-stream with empty-stream groups gone.
+
 ## Appendix: the throwaway repros
 
 Both probe files were deleted from the tree after diagnosis (the

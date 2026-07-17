@@ -11,6 +11,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{Mutex, watch};
 
 use crate::bookmark::{BookmarkError, Bookmarked, NoBookmark};
+use crate::link::{Acceptor, Connector, Link};
 use crate::tree::Tree;
 use crate::{
     Batch, Bookmark, CausalMessages, Error, Key, Network, Protocol, Rumors, Snapshot,
@@ -48,21 +49,19 @@ pub use gossip::{Gossiped, Led, PROTOCOL_MAGIC, Retire, Unbookmarked};
 /// #     .unwrap()
 /// #     .block_on(async {
 /// # // The counterparty this example talks to: the universe's seed, serving
-/// # // the bootstrap and later absorbing the retirement, over in-memory pipes.
+/// # // the bootstrap and later absorbing the retirement, over in-memory links.
 /// # let counterparty = Peer::<String>::seed().into_rumors();
-/// # let (near, far) = tokio::io::duplex(64 * 1024);
-/// # let (mut r, mut w) = tokio::io::split(near);
+/// # let (mut near, mut far) = rumors::link::memory();
 /// # let serve = counterparty.clone();
 /// # tokio::spawn(async move {
-/// #     let (mut r, mut w) = tokio::io::split(far);
-/// #     serve.gossip(&mut r, &mut w).await.unwrap();
+/// #     serve.gossip(&mut far).await.unwrap();
 /// # });
 /// # async fn bootstrap_from_another_peer() -> Result<Peer<String>, rumors::Error> {
 /// #     unreachable!("the example's counterparty is the established seed")
 /// # }
 /// // Join an existing universe through any connected peer. (The universe's
 /// // very first peer is created with `Peer::seed()` instead.)
-/// let peer = match Peer::<String>::bootstrap(&mut r, &mut w).await? {
+/// let peer = match Peer::<String>::bootstrap(&mut near).await? {
 ///     Some(peer) => peer,
 ///     // The counterparty was *itself* bootstrapping: neither side holds
 ///     // a universe to share yet, and nothing was exchanged. Connect to a
@@ -83,17 +82,15 @@ pub use gossip::{Gossiped, Led, PROTOCOL_MAGIC, Retire, Unbookmarked};
 ///
 /// // Leave the universe, donating our identity to any gossiping peer (it
 /// // does not need to be the one we bootstrapped from).
-/// # let (near, far) = tokio::io::duplex(64 * 1024);
-/// # let (mut r, mut w) = tokio::io::split(near);
+/// # let (mut near, mut far) = rumors::link::memory();
 /// # tokio::spawn(async move {
-/// #     let (mut r, mut w) = tokio::io::split(far);
-/// #     counterparty.gossip(&mut r, &mut w).await.unwrap();
+/// #     counterparty.gossip(&mut far).await.unwrap();
 /// # });
 /// //
 /// // Each outcome tells us whether our identity survived the attempt:
 /// // `Declined` and `Recovered` hand the peer back to retry elsewhere,
 /// // while `Retired` and `Uncertain` consume it.
-/// let retry = match peer.retire(&mut r, &mut w).await {
+/// let retry = match peer.retire(&mut near).await {
 ///     // The peer absorbed our identity; nothing more to do.
 ///     Retire::Retired => None,
 ///     // The peer was itself retiring, so it could not absorb us;
@@ -212,16 +209,17 @@ impl<T> Peer<T> {
     /// but not yet persisted, so a crash before it is recorded strands it. To
     /// make the received identity durable, attach a [`Bookmark`] with
     /// [`bookmark`](Peer::bookmark) immediately.
-    pub async fn bootstrap<'a, R, W>(
-        read: &'a mut R,
-        write: &'a mut W,
+    pub async fn bootstrap<CR, CW, C, A>(
+        link: &mut Link<CR, CW, C, A>,
     ) -> Result<Option<Self>, Error>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
-        R: AsyncRead + Unpin + Send,
-        W: AsyncWrite + Unpin + Send,
+        CR: AsyncRead + Unpin + Send,
+        CW: AsyncWrite + Unpin + Send,
+        C: Connector,
+        A: Acceptor,
     {
-        Self::bootstrap_with_protocol(Protocol::V2, read, write).await
+        Self::bootstrap_with_protocol(Protocol::V2, link).await
     }
 
     /// Bootstrap using an explicitly selected reconciliation protocol.
@@ -230,17 +228,18 @@ impl<T> Peer<T> {
     /// a provider which selected a non-default dialect such as `Protocol::V1`
     /// (behind the `protocol-v1` cargo feature). The returned peer retains
     /// `protocol` for all later sessions.
-    pub async fn bootstrap_with_protocol<'a, R, W>(
+    pub async fn bootstrap_with_protocol<CR, CW, C, A>(
         protocol: Protocol,
-        read: &'a mut R,
-        write: &'a mut W,
+        link: &mut Link<CR, CW, C, A>,
     ) -> Result<Option<Self>, Error>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
-        R: AsyncRead + Unpin + Send,
-        W: AsyncWrite + Unpin + Send,
+        CR: AsyncRead + Unpin + Send,
+        CW: AsyncWrite + Unpin + Send,
+        C: Connector,
+        A: Acceptor,
     {
-        Self::bootstrap_inner(protocol, read, write).await
+        Self::bootstrap_inner(protocol, link).await
     }
 
     /// Attach `bookmark` to this [`Peer`], persisting its identity before
@@ -281,13 +280,15 @@ impl<T, B: Bookmark> Peer<T, B> {
     /// [`Retire`] outcomes are handled; in brief, a session reconciles content
     /// exactly as [`gossip`](crate::Rumors::gossip) would and then the peer
     /// absorbs our identity, with the outcome reporting what survived.
-    pub async fn retire<'a, R, W>(self, read: &'a mut R, write: &'a mut W) -> Retire<T, B>
+    pub async fn retire<CR, CW, C, A>(self, link: &mut Link<CR, CW, C, A>) -> Retire<T, B>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
-        R: AsyncRead + Unpin + Send,
-        W: AsyncWrite + Unpin + Send,
+        CR: AsyncRead + Unpin + Send,
+        CW: AsyncWrite + Unpin + Send,
+        C: Connector,
+        A: Acceptor,
     {
-        self.retire_inner(read, write).await
+        self.retire_inner(link).await
     }
 }
 

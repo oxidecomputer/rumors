@@ -7,6 +7,7 @@ pub use changes::{Changes, TryTick};
 pub use unordered::{TryNext, UnorderedMessages};
 
 use crate::bookmark::{Bookmark, BookmarkError, NoBookmark};
+use crate::link::{Acceptor, Connector, Link};
 use crate::{Batch, Error, Gossiped, Key, Network, Peer, Snapshot, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
 use futures::Stream;
@@ -280,26 +281,30 @@ impl<T, B: Bookmark> Rumors<T, B> {
     }
 
     /// Run one reconciliation session with one remote peer over the given
-    /// transport.
+    /// [`Link`].
     ///
     /// On `Ok`, both replicas hold every message either one held when the
     /// session began (the full contract, including failure and cancellation
     /// semantics, is in the [crate docs](crate#what-a-session-promises)).
     ///
     /// Gossip sessions may run concurrently on different clones of the same
-    /// [`Rumors`]; each commits atomically when it completes.
+    /// [`Rumors`], each over its own link; each commits atomically when it
+    /// completes. Sessions on one link are serialized, which the `&mut`
+    /// borrow enforces.
     ///
-    /// On `Ok`, the transport rests exactly at the session boundary, ready to
-    /// host this pair's next session. On `Err`, the replica is unchanged, but
-    /// the transport is mid-frame garbage: discard the connection rather than
-    /// starting another session on it.
-    pub async fn gossip<'a, R, W>(&self, read: &'a mut R, write: &'a mut W) -> Result<(), Error<B>>
+    /// On `Ok`, the link rests exactly at the session boundary, ready to
+    /// host this pair's next session. On `Err`, the replica is unchanged,
+    /// but the link's control stream is mid-frame garbage: discard the link
+    /// rather than starting another session on it.
+    pub async fn gossip<CR, CW, C, A>(&self, link: &mut Link<CR, CW, C, A>) -> Result<(), Error<B>>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
-        R: AsyncRead + Unpin + Send,
-        W: AsyncWrite + Unpin + Send,
+        CR: AsyncRead + Unpin + Send,
+        CW: AsyncWrite + Unpin + Send,
+        C: Connector,
+        A: Acceptor,
     {
-        self.peer.gossip(read, write).await
+        self.peer.gossip(link).await
     }
 
     /// Drive a long-lived connection: run one gossip session per `when` tick
@@ -356,28 +361,24 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// #     .unwrap()
     /// #     .block_on(async {
     /// let alice = Peer::<String>::seed().into_rumors();
-    /// # let (near, far) = tokio::io::duplex(64 * 1024);
+    /// # let (mut near, mut far) = rumors::link::memory();
     /// # let serve = alice.clone();
     /// # let server = tokio::spawn(async move {
-    /// #     let (mut read, mut write) = tokio::io::split(far);
-    /// #     serve.gossip(&mut read, &mut write).await.unwrap();
+    /// #     serve.gossip(&mut far).await.unwrap();
     /// # });
-    /// # let (mut read, mut write) = tokio::io::split(near);
-    /// let bob = Peer::<String>::bootstrap(&mut read, &mut write)
+    /// let bob = Peer::<String>::bootstrap(&mut near)
     ///     .await?
     ///     .expect("alice is established")
     ///     .into_rumors();
     /// # server.await.unwrap();
     ///
-    /// // A long-lived connection between them, one driver per end.
-    /// let (alice_side, bob_side) = tokio::io::duplex(64 * 1024);
-    /// let (mut a_read, mut a_write) = tokio::io::split(alice_side);
-    /// let (mut b_read, mut b_write) = tokio::io::split(bob_side);
+    /// // A long-lived link between them, one driver per end.
+    /// let (mut alice_side, mut bob_side) = rumors::link::memory();
     ///
     /// alice.send("psst".to_string());
     ///
-    /// let mut alice_drive = alice.gossip_when(alice.changes(), &mut a_read, &mut a_write);
-    /// let mut bob_drive = bob.gossip_when(bob.changes(), &mut b_read, &mut b_write);
+    /// let mut alice_drive = alice.gossip_when(alice.changes(), &mut alice_side);
+    /// let mut bob_drive = bob.gossip_when(bob.changes(), &mut bob_side);
     ///
     /// // Alice's change signal initiates; Bob's driver serves. One session
     /// // converges the pair, and each driver reports it.
@@ -389,18 +390,19 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// # })?;
     /// # Ok::<(), rumors::Error>(())
     /// ```
-    pub fn gossip_when<'a, R, W, S>(
+    pub fn gossip_when<'a, CR, CW, C, A, S>(
         &'a self,
         when: S,
-        read: &'a mut R,
-        write: &'a mut W,
+        link: &'a mut Link<CR, CW, C, A>,
     ) -> impl Stream<Item = Result<Gossiped, Error<B>>> + Unpin + 'a
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
-        R: AsyncRead + Unpin + Send,
-        W: AsyncWrite + Unpin + Send,
+        CR: AsyncRead + Unpin + Send,
+        CW: AsyncWrite + Unpin + Send,
+        C: Connector,
+        A: Acceptor,
         S: Stream<Item = ()> + 'a,
     {
-        self.peer.gossip_when(when, read, write)
+        self.peer.gossip_when(when, link)
     }
 }

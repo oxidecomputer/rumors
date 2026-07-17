@@ -39,15 +39,13 @@ fn mint(rumors: &Rumors<Entry>, entries: Vec<Entry>) -> Vec<(Key, Version)> {
 }
 
 /// A party-disjoint fork of `rumors`, minted by serving a bootstrap over an
-/// in-memory duplex: the only honest source of genuinely concurrent
+/// in-memory link: the only honest source of genuinely concurrent
 /// versions.
 async fn bootstrap_empty_fork(rumors: &Rumors<Entry>) -> Rumors<Entry> {
-    let (sa, sb) = tokio::io::duplex(64 * 1024);
-    let (mut ar, mut aw) = tokio::io::split(sa);
-    let (mut br, mut bw) = tokio::io::split(sb);
+    let (mut parent_link, mut fork_link) = rumors::link::memory_with_capacity(64 * 1024);
     let (served, fork) = tokio::join!(
-        rumors.gossip(&mut ar, &mut aw),
-        Peer::<Entry>::bootstrap(&mut br, &mut bw),
+        rumors.gossip(&mut parent_link),
+        Peer::<Entry>::bootstrap(&mut fork_link),
     );
     served.expect("serve the fork's bootstrap");
     fork.expect("bootstrap handshake")

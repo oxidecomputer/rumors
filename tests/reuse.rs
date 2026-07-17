@@ -14,7 +14,6 @@ mod common;
 use std::time::Duration;
 
 use rumors::{Peer, Rumors};
-use tokio::io::duplex;
 use tokio::time::timeout;
 
 use crate::common::wire::bootstrap_fork_async;
@@ -24,17 +23,17 @@ use crate::common::wire::bootstrap_fork_async;
 /// not a slow machine.
 const DEADLINE: Duration = Duration::from_secs(10);
 
-/// Duplex capacity, comfortably larger than everything a round ships, so an
-/// eager side can finish a session and write its next preamble without
+/// Link stream capacity, comfortably larger than everything a round ships, so
+/// an eager side can finish a session and write its next preamble without
 /// waiting on the laggard — the exact interleaving the eager test pins.
-const DUPLEX_BUF: usize = 64 * 1024;
+const LINK_BUF: usize = 64 * 1024;
 
 /// How many sequential sessions each test drives over the one connection.
 const ROUNDS: u64 = 3;
 
 /// Mint a connected, party-disjoint pair: a freshly seeded peer and a
-/// bootstrap fork of it, plus the two ends of one duplex they will keep
-/// reusing.
+/// bootstrap fork of it. The two ends of one link they will keep reusing are
+/// minted per test.
 async fn pair() -> (Rumors<u64>, Rumors<u64>) {
     let a: Rumors<u64> = Peer::seed().into_rumors();
     let b = bootstrap_fork_async(&a).await;
@@ -48,15 +47,13 @@ async fn pair() -> (Rumors<u64>, Rumors<u64>) {
 async fn barriered_sessions_reuse_the_connection() {
     let (a, b) = pair().await;
 
-    let (a_side, b_side) = duplex(DUPLEX_BUF);
-    let (mut a_r, mut a_w) = tokio::io::split(a_side);
-    let (mut b_r, mut b_w) = tokio::io::split(b_side);
+    let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
 
     for round in 0..ROUNDS {
         a.send(round);
         b.send(round + 100);
         let (a_out, b_out) = timeout(DEADLINE, async {
-            tokio::join!(a.gossip(&mut a_r, &mut a_w), b.gossip(&mut b_r, &mut b_w),)
+            tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link))
         })
         .await
         .expect("barriered round deadlocked");
@@ -81,20 +78,18 @@ async fn barriered_sessions_reuse_the_connection() {
 async fn eager_reinitiation_reuses_the_connection() {
     let (a, b) = pair().await;
 
-    let (a_side, b_side) = duplex(DUPLEX_BUF);
-    let (mut a_r, mut a_w) = tokio::io::split(a_side);
-    let (mut b_r, mut b_w) = tokio::io::split(b_side);
+    let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
 
     let drive_a = async {
         for round in 0..ROUNDS {
             a.send(round);
-            a.gossip(&mut a_r, &mut a_w).await.expect("A's session");
+            a.gossip(&mut a_link).await.expect("A's session");
         }
     };
     let drive_b = async {
         for round in 0..ROUNDS {
             b.send(round + 100);
-            b.gossip(&mut b_r, &mut b_w).await.expect("B's session");
+            b.gossip(&mut b_link).await.expect("B's session");
         }
     };
     timeout(DEADLINE, async { tokio::join!(drive_a, drive_b) })

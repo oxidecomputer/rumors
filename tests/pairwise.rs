@@ -59,8 +59,8 @@ proptest! {
         prop_assert_eq!(fingerprint(&a), fingerprint(&b));
     }
 
-    /// The converged pair is independent of which peer sits on which side
-    /// of the duplex: gossiping `(a, b)` and gossiping `(b, a)` from
+    /// The converged pair is independent of which peer sits on which end
+    /// of the link: gossiping `(a, b)` and gossiping `(b, a)` from
     /// identically-built starting points yield the same content on both
     /// sides.
     #[test]

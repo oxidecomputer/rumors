@@ -48,6 +48,19 @@
 //! resolution each occur exactly once; leaf resolutions contain no `Pending`
 //! slots and can be assembled immediately.
 //!
+//! Every argument above additionally assumes each edge is *independent*: a
+//! full edge stalls only its own producer, never delivery on another edge.
+//! In process that holds by construction — every edge is its own channel.
+//! Over a wire it is a premise the transport must supply, which is why the
+//! [link contract](crate::link) demands independently flow-controlled
+//! streams: replies then travel edges with exactly the semantics assumed
+//! here, and this argument covers remote sessions verbatim. It is not a
+//! premise that can be quietly weakened: an earlier session layer
+//! multiplexed every stream onto one shared FIFO pipe — sound-looking
+//! per-edge, jointly a cross-stream wait cycle — and the composition
+//! deadlocked (`design/streaming-wire-deadlock.md`). Independence is now an
+//! interface obligation, supplied by contract or not at all.
+//!
 //! [`Work::assemble`]'s inter-level return queue is the one exception. A reply
 //! can dispute a full fan of children. While the walk is still examining those
 //! reactions and constructing their parent resolution, already-launched lower

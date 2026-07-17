@@ -12,9 +12,9 @@
 
 use async_stream::try_stream;
 use futures::StreamExt;
-use tokio::io::{AsyncRead, AsyncWrite};
 
 use super::Work;
+use crate::link::{Acceptor, Connector};
 use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
@@ -23,9 +23,8 @@ use crate::tree::{
         protocol::{BoxResponses, Requests},
         remote::{
             adapter::{Decoded, Scope, decode_leaf_reply, decode_opening, decode_reply},
-            codec::Frame,
             proxy::Error,
-            session::FrameSender,
+            streams::{ReceiverFinish, StreamReceiver, StreamSender},
         },
     },
     typed::height::{Height, S, UnderRoot, UnderUnderRoot, Z},
@@ -33,17 +32,18 @@ use crate::tree::{
 
 use super::{encode, queues};
 
-impl<B, T, R, W> Work<B, T, R, W>
+impl<B, T, R, W, A> Work<B, T, R, W, A>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: borsh::BorshDeserialize + Send + Sync + 'static,
-    R: AsyncRead + Unpin,
-    W: AsyncWrite + Unpin,
+    R: Send,
+    W: Send,
+    A: Acceptor,
 {
     /// Decode the remote initiator's distinguished opening question.
     pub fn initiator(
         &mut self,
-        mut incoming: tokio_stream::wrappers::ReceiverStream<Frame<T>>,
+        mut incoming: StreamReceiver<A::Rx, T>,
     ) -> (
         BoxResponses<B, T, UnderRoot, Error<B::Error>>,
         Receiver<Scope<UnderRoot>>,
@@ -64,11 +64,11 @@ where
     }
 
     /// Proxy the responder opening and return its lower scope queue.
-    pub fn opening_responder(
+    pub fn opening_responder<C: Connector>(
         &mut self,
         requests: impl Requests<B, T, UnderRoot>,
-        mut incoming: tokio_stream::wrappers::ReceiverStream<Frame<T>>,
-        outgoing: FrameSender<T>,
+        mut incoming: StreamReceiver<A::Rx, T>,
+        outgoing: StreamSender<C, T>,
     ) -> (
         BoxResponses<B, T, UnderRoot, Error<B::Error>>,
         Receiver<Scope<UnderUnderRoot>>,
@@ -101,12 +101,12 @@ where
     }
 
     /// Proxy one ordinary two-height transition and return its lower scopes.
-    pub fn internal_replies<H>(
+    pub fn internal_replies<C: Connector, H>(
         &mut self,
         requests: impl Requests<B, T, S<S<H>>>,
         scopes: Receiver<Scope<S<S<H>>>>,
-        mut incoming: tokio_stream::wrappers::ReceiverStream<Frame<T>>,
-        outgoing: FrameSender<T>,
+        mut incoming: StreamReceiver<A::Rx, T>,
+        outgoing: StreamSender<C, T>,
     ) -> (
         BoxResponses<B, T, S<H>, Error<B::Error>>,
         Receiver<Scope<H>>,
@@ -146,12 +146,12 @@ where
     }
 
     /// Proxy the leaf-parent transition and return its terminal leaf scopes.
-    pub fn leaf_replies(
+    pub fn leaf_replies<C: Connector>(
         &mut self,
         requests: impl Requests<B, T, S<Z>>,
         scopes: Receiver<Scope<S<Z>>>,
-        mut incoming: tokio_stream::wrappers::ReceiverStream<Frame<T>>,
-        outgoing: FrameSender<T>,
+        mut incoming: StreamReceiver<A::Rx, T>,
+        outgoing: StreamSender<C, T>,
     ) -> (BoxResponses<B, T, Z, Error<B::Error>>, Receiver<Scope<Z>>) {
         let progress = self.progress;
         let (local_questions, mut questions) = queues::local_questions::<_, Z>();
@@ -182,11 +182,11 @@ where
     }
 
     /// Drive the final local answers for a remote initiator to completion.
-    pub async fn complete_initiator(
+    pub async fn complete_initiator<C: Connector>(
         self,
         requests: impl Requests<B, T, Z>,
         scopes: Receiver<Scope<Z>>,
-        outgoing: FrameSender<T>,
+        outgoing: StreamSender<C, T>,
     ) -> Result<(R, W), Error<B::Error>> {
         let progress = self.progress;
         let finish = encode::terminal(self.backend(), requests, scopes, outgoing, None, progress);
@@ -195,12 +195,12 @@ where
     }
 
     /// Drive the responder's final bidirectional leaf exchange.
-    pub fn complete_responder(
+    pub fn complete_responder<C: Connector>(
         mut self,
         requests: impl Requests<B, T, Z>,
         scopes: Receiver<Scope<Z>>,
-        mut incoming: tokio_stream::wrappers::ReceiverStream<Frame<T>>,
-        outgoing: FrameSender<T>,
+        mut incoming: StreamReceiver<A::Rx, T>,
+        outgoing: StreamSender<C, T>,
     ) -> (
         BoxResponses<B, T, Z, Error<B::Error>>,
         impl Future<Output = Result<(R, W), Error<B::Error>>> + Send,
@@ -208,6 +208,7 @@ where
     where
         R: Send,
         W: Send,
+        A: Send,
     {
         let progress = self.progress;
         let (local_questions, mut questions) = queues::local_questions::<_, Z>();
@@ -242,13 +243,18 @@ where
     }
 }
 
-/// Require a completed incoming logical stream after all expected replies.
-async fn reject_extra<T, E>(
-    incoming: &mut tokio_stream::wrappers::ReceiverStream<Frame<T>>,
-) -> Result<(), Error<E>> {
-    if incoming.next().await.is_some() {
-        Err(Error::UnaskedReply)
-    } else {
-        Ok(())
+/// Require a finished incoming logical stream after all expected replies.
+///
+/// A stream that was never claimed — its level asked no question — is
+/// finished vacuously; a claimed stream must have delivered its end control
+/// with no reply to spare.
+async fn reject_extra<Rx, T, E>(incoming: &mut StreamReceiver<Rx, T>) -> Result<(), Error<E>>
+where
+    Rx: tokio::io::AsyncRead + Unpin + Send + 'static,
+    T: borsh::BorshDeserialize + Send + Sync + 'static,
+{
+    match incoming.finish().await {
+        ReceiverFinish::Clean => Ok(()),
+        ReceiverFinish::ExtraReply => Err(Error::UnaskedReply),
     }
 }

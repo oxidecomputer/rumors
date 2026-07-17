@@ -2,21 +2,21 @@
 //!
 //! Like the materialized implementation's work context, this stores every
 //! independently runnable pump as the type-level schedule advances. The final
-//! protocol operation drives all stored pumps, the final operation, and both
-//! physical transport directions concurrently.
+//! protocol operation drives all stored pumps, the final operation, the
+//! session's accept driver, and its incoming-stream error route concurrently.
 
 use std::pin::pin;
 
 use futures::{StreamExt, future::BoxFuture};
-use tokio::io::{AsyncRead, AsyncWrite};
 
+use crate::link::Acceptor;
 use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
         protocol::{BoxResponses, Responses},
         remote::{
             proxy::{Error, send_or_cancel},
-            session::{DriveError, Drivers},
+            streams::{AcceptDriver, FirstStreamError},
         },
         tasks::{complete, park_after_published_error},
     },
@@ -31,29 +31,42 @@ mod pump;
 mod queues;
 
 /// Deferred reply pumps and the physical session which drives them.
-pub struct Work<B, T, R, W>
+pub struct Work<B, T, R, W, A>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
+    A: Acceptor,
 {
     backend: B,
-    drivers: Drivers<R, W, T>,
+    physical: Physical<R, W, A>,
     tasks: Vec<BoxFuture<'static, Result<(), Error<B::Error>>>>,
     progress: Progress,
 }
 
-impl<B, T, R, W> Work<B, T, R, W>
+/// The session's transport residue: the control halves it must hand back,
+/// the accept driver routing incoming streams, and the error route through
+/// which those streams report.
+pub struct Physical<R, W, A>
+where
+    A: Acceptor,
+{
+    pub control_read: R,
+    pub control_write: W,
+    pub accept: AcceptDriver<A>,
+    pub errors: FirstStreamError,
+}
+
+impl<B, T, R, W, A> Work<B, T, R, W, A>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: borsh::BorshDeserialize + Send + Sync + 'static,
-    R: AsyncRead + Unpin,
-    W: AsyncWrite + Unpin,
+    A: Acceptor,
 {
     /// Begin accumulating work around an elected physical session.
-    pub fn new(backend: B, drivers: Drivers<R, W, T>) -> Self {
+    pub fn new(backend: B, physical: Physical<R, W, A>) -> Self {
         Self {
             backend,
-            drivers,
+            physical,
             tasks: Vec::new(),
             progress: Progress::new(),
         }
@@ -99,18 +112,36 @@ where
         responses
     }
 
-    /// Drive all accumulated pumps, the terminal operation, and the transport.
+    /// Drive all accumulated pumps, the terminal operation, and the session's
+    /// stream supply to completion.
+    ///
+    /// Poll order is deliberate: the protocol is observed first, so a
+    /// completed reconciliation wins over an accept-side anomaly discovered
+    /// in the same poll, and a protocol fault is reported as the cause it
+    /// is. The accept driver and the incoming error route resolve only to
+    /// errors, so neither can preempt a completion.
     async fn execute<O>(
         self,
         finish: impl Future<Output = Result<O, Error<B::Error>>> + Send,
     ) -> Result<(O, R, W), Error<B::Error>> {
-        let Self { drivers, tasks, .. } = self;
-        let protocol = Box::pin(complete(tasks, finish));
-        drivers.run(protocol).await.map_err(|error| match error {
-            DriveError::Protocol(error) => error,
-            DriveError::Incoming(error) => Error::Incoming(error),
-            DriveError::Outgoing(error) => Error::Outgoing(error),
-        })
+        let Self {
+            physical, tasks, ..
+        } = self;
+        let Physical {
+            control_read,
+            control_write,
+            accept,
+            mut errors,
+        } = physical;
+        let mut protocol = pin!(Box::pin(complete(tasks, finish)));
+        let mut accept = pin!(accept.run());
+        let mut stream_errors = pin!(errors.first());
+        tokio::select! {
+            biased;
+            output = &mut protocol => Ok((output?, control_read, control_write)),
+            error = &mut stream_errors => Err(Error::Stream(error)),
+            error = &mut accept => Err(Error::Accept(error)),
+        }
     }
 }
 

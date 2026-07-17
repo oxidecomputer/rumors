@@ -16,6 +16,10 @@ readme = "README.md"
 # Enabled for this crate's own tests via the self-referential dev-dependency
 # below; never enable it in an application.
 test-internals = ["tokio/rt"]
+# The public conformance suite for caller-built `Link` implementations:
+# enable from a dev-dependency to validate a custom transport against the
+# link contract. Documented; safe (though pointless) in an application.
+conformance = []
 # The original strictly alternating wire protocol (`Protocol::V1`), kept for
 # wire compatibility with V1 peers and comparative measurement. Off by
 # default: its per-height state machines are a large monomorphization

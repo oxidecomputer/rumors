@@ -39,6 +39,13 @@ pub enum FaultUnit {
 }
 
 /// One transport failure injected after a precise successful prefix.
+///
+/// A read fault fires in place of the first *payload-bearing* read beyond
+/// the prefix: end-of-stream probes pass through untouched. This keeps
+/// "would the fault fire?" a function of the clean run's successful-read
+/// counts alone — the link world checks for end-of-stream after every
+/// stream's end control, so attempts-after-last-success are structural and
+/// must not trip an operations-counted fault.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct IoFault {
     /// Surface which fails.
@@ -181,6 +188,34 @@ impl State {
         Some(io::Error::other(injected))
     }
 
+    /// Whether a read fault's successful prefix is exhausted, so the next
+    /// payload-bearing read must fire in its place.
+    fn read_fault_armed(&self) -> bool {
+        let Some(fault) = self.plan.fault else {
+            return false;
+        };
+        if fault.operation != Operation::Read {
+            return false;
+        }
+        match fault.unit {
+            FaultUnit::Operations => self.report.reads >= fault.after,
+            FaultUnit::Bytes => self.report.read_bytes >= fault.after,
+        }
+    }
+
+    /// Record the read fault as injected and mint its error.
+    fn inject_read(&mut self) -> io::Error {
+        let fault = self.plan.fault.expect("an armed fault is configured");
+        let injected = InjectedIo {
+            side: self.side,
+            operation: Operation::Read,
+            after: fault.after,
+            unit: fault.unit,
+        };
+        self.report.injected.get_or_insert(injected);
+        io::Error::other(self.report.injected.expect("just recorded"))
+    }
+
     /// Remaining byte prefix before a byte-counted fault must fire.
     fn remaining_bytes(&self, operation: Operation) -> usize {
         let Some(fault) = self.plan.fault else {
@@ -216,18 +251,30 @@ impl<R: AsyncRead + Unpin> AsyncRead for AdversarialRead<R> {
             return Poll::Pending;
         }
 
-        let limit = {
+        let (limit, armed) = {
             let mut state = this.state.lock().expect("transport state lock");
-            if let Some(error) = state.failure(Operation::Read) {
+            // An already-injected read fault keeps failing every read.
+            if state.report.injected.is_some()
+                && let Some(error) = state.failure(Operation::Read)
+            {
                 this.delay = None;
                 return Poll::Ready(Err(error));
             }
-            state
-                .plan
-                .read_chunk
-                .max(1)
-                .min(state.remaining_bytes(Operation::Read))
-                .min(buf.remaining())
+            let armed = state.read_fault_armed();
+            let limit = if armed {
+                // The budget is spent: read unclamped, so the next payload
+                // is observed (and replaced by the fault) rather than being
+                // zero-windowed into a spurious end-of-stream.
+                state.plan.read_chunk.max(1).min(buf.remaining())
+            } else {
+                state
+                    .plan
+                    .read_chunk
+                    .max(1)
+                    .min(state.remaining_bytes(Operation::Read))
+                    .min(buf.remaining())
+            };
+            (limit, armed)
         };
         let before = buf.filled().len();
         let window = buf.initialize_unfilled_to(limit);
@@ -235,15 +282,20 @@ impl<R: AsyncRead + Unpin> AsyncRead for AdversarialRead<R> {
         match Pin::new(&mut this.inner).poll_read(cx, &mut limited) {
             Poll::Ready(Ok(())) => {
                 let read = limited.filled().len();
-                buf.advance(read);
-                debug_assert_eq!(buf.filled().len() - before, read);
                 this.delay = None;
                 if read > 0 {
                     let mut state = this.state.lock().expect("transport state lock");
+                    if armed {
+                        // The payload beyond the budget is discarded with
+                        // the failing connection; nothing is advanced.
+                        return Poll::Ready(Err(state.inject_read()));
+                    }
                     state.report.reads += 1;
                     state.report.read_bytes += read;
                     state.report.largest_read = state.report.largest_read.max(read);
                 }
+                buf.advance(read);
+                debug_assert_eq!(buf.filled().len() - before, read);
                 Poll::Ready(Ok(()))
             }
             Poll::Ready(Err(error)) => {
@@ -387,16 +439,123 @@ pub fn wrap_io<R, W>(
             state: state.clone(),
             delay: None,
         },
-        AdversarialWrite {
-            inner: write,
-            state: state.clone(),
-            write_delay: None,
-            flush_delay: None,
-            buffered: Vec::new(),
-            sent: 0,
-        },
+        wrap_write(write, state.clone()),
         IoReportHandle(state),
     )
+}
+
+/// Build a writer wrapper sharing already-created adversity state.
+fn wrap_write<W>(write: W, state: Arc<Mutex<State>>) -> AdversarialWrite<W> {
+    AdversarialWrite {
+        inner: write,
+        state,
+        write_delay: None,
+        flush_delay: None,
+        buffered: Vec::new(),
+        sent: 0,
+    }
+}
+
+/// Wrap one endpoint's whole [`Link`](crate::link::Link): the control
+/// halves and every data
+/// stream the link ever supplies share one plan and one report.
+///
+/// Delay schedules and fault thresholds count operations across all of the
+/// side's streams in poll order, so a single plan exercises (or fails)
+/// whichever surface reaches the threshold first — exactly the coverage the
+/// single-pipe wrapper provided when every stream shared one pipe.
+pub fn wrap_link<CR, CW, C, A>(
+    side: Side,
+    plan: IoPlan,
+    link: crate::link::Link<CR, CW, C, A>,
+) -> (AdversarialLink<CR, CW, C, A>, IoReportHandle)
+where
+    CR: tokio::io::AsyncRead + Unpin + Send,
+    CW: tokio::io::AsyncWrite + Unpin + Send,
+    C: crate::link::Connector,
+    A: crate::link::Acceptor,
+{
+    let parts = link.into_parts();
+    let state = Arc::new(Mutex::new(State {
+        side,
+        plan,
+        report: IoReport::default(),
+        read_step: 0,
+        write_step: 0,
+        flush_step: 0,
+    }));
+    let wrapped = crate::link::LinkParts {
+        control_read: AdversarialRead {
+            inner: parts.control_read,
+            state: state.clone(),
+            delay: None,
+        },
+        control_write: wrap_write(parts.control_write, state.clone()),
+        connector: AdversarialConnector {
+            inner: parts.connector,
+            state: state.clone(),
+        },
+        acceptor: AdversarialAcceptor {
+            inner: parts.acceptor,
+            state: state.clone(),
+        },
+        epoch: parts.epoch,
+    }
+    .into_link();
+    (wrapped, IoReportHandle(state))
+}
+
+/// A link wholly wrapped in one side's shared adversity state.
+pub type AdversarialLink<CR, CW, C, A> = crate::link::Link<
+    AdversarialRead<CR>,
+    AdversarialWrite<CW>,
+    AdversarialConnector<C>,
+    AdversarialAcceptor<A>,
+>;
+
+/// A [`Connector`](crate::link::Connector) whose opened streams write
+/// through the side's shared adversity state.
+pub struct AdversarialConnector<C> {
+    inner: C,
+    state: Arc<Mutex<State>>,
+}
+
+impl<C: Clone> Clone for AdversarialConnector<C> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            state: self.state.clone(),
+        }
+    }
+}
+
+impl<C: crate::link::Connector> crate::link::Connector for AdversarialConnector<C> {
+    type Tx = AdversarialWrite<C::Tx>;
+
+    async fn connect(&self) -> io::Result<Self::Tx> {
+        let tx = self.inner.connect().await?;
+        Ok(wrap_write(tx, self.state.clone()))
+    }
+}
+
+/// An [`Acceptor`](crate::link::Acceptor) whose accepted streams read
+/// through the side's shared adversity state.
+pub struct AdversarialAcceptor<A> {
+    inner: A,
+    state: Arc<Mutex<State>>,
+}
+
+impl<A: crate::link::Acceptor> crate::link::Acceptor for AdversarialAcceptor<A> {
+    type Rx = AdversarialRead<A::Rx>;
+
+    async fn accept(&mut self) -> io::Result<Self::Rx> {
+        let rx = self.inner.accept().await?;
+        Ok(AdversarialRead {
+            inner: rx,
+            state: self.state.clone(),
+            delay: None,
+        })
+    }
 }
 
 /// Suspend one operation according to its next scheduled self-waking delay.

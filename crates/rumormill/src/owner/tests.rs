@@ -1,7 +1,7 @@
 //! Integration tests for the [`Owner`] actor: two real owners wired over
-//! in-memory duplex pipes (the same gossip protocol the iroh transport
-//! carries, minus the network), driven through the same [`Command`] channel
-//! production uses.
+//! in-memory links (the same gossip protocol the iroh transport carries,
+//! minus the network), driven through the same [`Command`] channel production
+//! uses.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -53,13 +53,8 @@ fn spawn_node(known: Peer<Entry>, me: PeerId, name: &str) -> Node {
 /// `try_into_peer` once the session is over.
 async fn bootstrap_from(a: Peer<Entry>) -> (Peer<Entry>, Peer<Entry>) {
     let a = a.into_rumors();
-    let (sa, sb) = tokio::io::duplex(64 * 1024);
-    let (mut ar, mut aw) = tokio::io::split(sa);
-    let (mut br, mut bw) = tokio::io::split(sb);
-    let (served, b) = tokio::join!(
-        a.gossip(&mut ar, &mut aw),
-        Peer::<Entry>::bootstrap(&mut br, &mut bw),
-    );
+    let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(64 * 1024);
+    let (served, b) = tokio::join!(a.gossip(&mut a_link), Peer::<Entry>::bootstrap(&mut b_link),);
     served.unwrap();
     let a = a.try_into_peer().await.expect("ours is the sole handle");
     (a, b.unwrap().expect("peer served the bootstrap"))
@@ -78,10 +73,8 @@ async fn handle(cmd: &mpsc::Sender<Command>) -> Rumors<Entry> {
 async fn gossip_pair(a: &Node, b: &Node) {
     let ha = handle(&a.cmd).await;
     let hb = handle(&b.cmd).await;
-    let (sa, sb) = tokio::io::duplex(64 * 1024);
-    let (mut ar, mut aw) = tokio::io::split(sa);
-    let (mut br, mut bw) = tokio::io::split(sb);
-    let (ra, rb) = tokio::join!(ha.gossip(&mut ar, &mut aw), hb.gossip(&mut br, &mut bw),);
+    let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(64 * 1024);
+    let (ra, rb) = tokio::join!(ha.gossip(&mut a_link), hb.gossip(&mut b_link));
     ra.unwrap();
     rb.unwrap();
     a.cmd
@@ -256,13 +249,8 @@ async fn network_merge_resets_the_loser() {
     let handle_b = handle(&b.cmd).await;
     let ours_a = (handle_a.snapshot().latest().min_ticks(), handle_a.network());
     let ours_b = (handle_b.snapshot().latest().min_ticks(), handle_b.network());
-    let (sa, sb) = tokio::io::duplex(64 * 1024);
-    let (mut ar, mut aw) = tokio::io::split(sa);
-    let (mut br, mut bw) = tokio::io::split(sb);
-    let (ra, rb) = tokio::join!(
-        handle_a.gossip(&mut ar, &mut aw),
-        handle_b.gossip(&mut br, &mut bw),
-    );
+    let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(64 * 1024);
+    let (ra, rb) = tokio::join!(handle_a.gossip(&mut a_link), handle_b.gossip(&mut b_link),);
     let theirs_a = match ra {
         Err(Error::NetworkMismatch {
             remote_network,
@@ -292,12 +280,10 @@ async fn network_merge_resets_the_loser() {
     // (The owner's fresh observer replays the adopted content; no
     // observation list rides the command.)
     let serve = winner_handle;
-    let (sw, sl) = tokio::io::duplex(64 * 1024);
-    let (mut wr, mut ww) = tokio::io::split(sw);
-    let (mut lr, mut lw) = tokio::io::split(sl);
+    let (mut winner_link, mut loser_link) = rumors::link::memory_with_capacity(64 * 1024);
     let (served, fresh) = tokio::join!(
-        serve.gossip(&mut wr, &mut ww),
-        Peer::<Entry>::bootstrap(&mut lr, &mut lw),
+        serve.gossip(&mut winner_link),
+        Peer::<Entry>::bootstrap(&mut loser_link),
     );
     served.unwrap();
     let fresh = fresh.unwrap().expect("winner served the bootstrap");
@@ -388,11 +374,8 @@ async fn departure_shrinks_the_survivors_roster() {
     let (known, candidates) = b.task.await.unwrap();
     assert_eq!(candidates, vec![ALICE]);
     let ha = handle(&a.cmd).await;
-    let (sb, sa) = tokio::io::duplex(64 * 1024);
-    let (mut br, mut bw) = tokio::io::split(sb);
-    let (mut ar, mut aw) = tokio::io::split(sa);
-    let (outcome, served) =
-        tokio::join!(known.retire(&mut br, &mut bw), ha.gossip(&mut ar, &mut aw),);
+    let (mut b_link, mut a_link) = rumors::link::memory_with_capacity(64 * 1024);
+    let (outcome, served) = tokio::join!(known.retire(&mut b_link), ha.gossip(&mut a_link));
     served.unwrap();
     assert!(matches!(outcome, rumors::Retire::Retired));
     a.cmd

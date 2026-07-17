@@ -1,6 +1,6 @@
 //! Failures surfaced by the remote protocol participant.
 
-use crate::tree::mirror::streaming::remote::{adapter, session};
+use crate::tree::mirror::streaming::remote::{adapter, streams};
 
 /// A protocol or adapter failure while proxying one remote counterparty.
 #[derive(Debug, thiserror::Error)]
@@ -28,18 +28,18 @@ pub enum Error<E> {
     Decode(#[from] adapter::DecodeError<E>),
     /// A frame constructed by the adapter violated the reply-only boundary.
     #[error(transparent)]
-    ReplyFrame(#[from] session::ReplyFrameError),
-    /// The physical session stopped before a local frame was flushed.
+    ReplyFrame(#[from] streams::ReplyFrameError),
+    /// An outgoing logical stream could not be opened, labeled, or written.
     #[error(transparent)]
-    Send(#[from] session::SendError),
-    /// Incoming decoding, lifecycle validation, or transport input failed.
+    Send(#[from] streams::SendError),
+    /// An incoming logical stream failed to decode or ended prematurely.
     #[error(transparent)]
-    Incoming(#[from] session::DemuxError),
-    /// Outgoing scheduling, encoding, or transport output failed.
+    Stream(#[from] streams::StreamError),
+    /// An incoming transport stream could not be accepted or routed.
     #[error(transparent)]
-    Outgoing(#[from] session::MuxError),
-    /// The local opening stream ended without its distinguished question.
-    #[error("local opening stream ended before its question")]
+    Accept(#[from] streams::AcceptError),
+    /// An opening stream, local or remote, omitted its distinguished question.
+    #[error("opening stream ended before its distinguished question")]
     MissingOpening,
     /// The local opening stream contained more than its distinguished question.
     #[error("local opening stream contained an additional reply")]

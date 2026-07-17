@@ -17,6 +17,10 @@ use tokio::{
     sync::{Mutex, watch},
 };
 
+use crate::link::{
+    Acceptor, Connector, Link,
+    erased::{DynAcceptor, DynConnector},
+};
 #[cfg(any(test, feature = "protocol-v1"))]
 use crate::tree::mirror::{
     alternating::{self, local as alternating_local, remote as alternating_remote},
@@ -38,23 +42,34 @@ use super::{Inner, Peer};
 /// Magic bytes that open every `rumors` gossip session's preamble frame.
 pub const PROTOCOL_MAGIC: [u8; 6] = *b"RUMORS";
 
-/// A session's read half with its concrete transport type erased.
+/// A session's control read half with its concrete transport type erased.
 ///
-/// Every session entry point coerces its caller's `&mut R` to this (and its
-/// `&mut W` to [`DynWrite`]) before entering a reconciliation protocol. The
-/// protocol state machines carry their transport type parameters through every
-/// height of the descent, so each distinct transport type would otherwise
-/// re-instantiate both towers — and, because generic code monomorphizes in the
-/// crate that supplies the concrete types, it would do so once per downstream
-/// binary per transport. Erasing here caps that at one instantiation per
-/// payload type. The price is one vtable call per `poll_read`/`poll_write`
-/// beneath the framing layers, which buffer whole frames on both sides.
+/// Every session entry point erases its caller's [`Link`] — the control
+/// halves to this and [`DynWrite`], the stream supply to
+/// [`DynConnector`]/[`DynAcceptor`] — before entering a reconciliation
+/// protocol. The protocol state machines carry their transport type
+/// parameters through every height of the descent, so each distinct link
+/// instantiation would otherwise re-instantiate both towers — and, because
+/// generic code monomorphizes in the crate that supplies the concrete types,
+/// it would do so once per downstream binary per instantiation. Erasing here
+/// caps that at one instantiation per payload type. The price is one vtable
+/// call per stream open/accept and per `poll_read`/`poll_write` beneath the
+/// framing layers, which buffer whole frames on both sides.
 type DynRead<'a> = &'a mut (dyn AsyncRead + Unpin + Send + 'a);
 
-/// A session's write half with its concrete transport type erased.
+/// A session's control write half with its concrete transport type erased.
 ///
 /// See [`DynRead`] for why the erasure exists and what it costs.
 type DynWrite<'a> = &'a mut (dyn AsyncWrite + Unpin + Send + 'a);
+
+/// One session's fully erased link parts, in [`Link`] field order: control
+/// halves, connector, acceptor, and the session epoch.
+///
+/// The funnels produce this (via [`erase`]) and [`Peer::gossip_inner`]
+/// consumes it; it stays a tuple of parts rather than an assembled [`Link`]
+/// so the `gossip_when` driver can reborrow its halves one session at a
+/// time.
+type DynLinkParts<'a> = (DynRead<'a>, DynWrite<'a>, DynConnector, DynAcceptor<'a>, u8);
 
 /// The outcome of [`Peer::retire`].
 ///
@@ -140,35 +155,36 @@ pub enum Led {
 }
 
 impl<T> Peer<T, NoBookmark> {
-    /// Run bootstrap over any asynchronous transport pair.
+    /// Run bootstrap over any link.
     ///
-    /// A thin generic funnel: the only monomorphized-per-transport code is
-    /// the unsized coercion to [`DynRead`]/[`DynWrite`] here.
-    pub(crate) fn bootstrap_inner<'a, R, W>(
+    /// A thin generic funnel: the only monomorphized-per-link code is the
+    /// erasure to [`DynLinkParts`] here.
+    pub(crate) fn bootstrap_inner<'a, CR, CW, C, A>(
         protocol: Protocol,
-        read: &'a mut R,
-        write: &'a mut W,
+        link: &'a mut Link<CR, CW, C, A>,
     ) -> BoxFuture<'a, Result<Option<Self>, Error>>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
-        R: AsyncRead + Unpin + Send,
-        W: AsyncWrite + Unpin + Send,
+        CR: AsyncRead + Unpin + Send,
+        CW: AsyncWrite + Unpin + Send,
+        C: Connector,
+        A: Acceptor,
     {
-        Self::bootstrap_erased(protocol, read, write)
+        Self::bootstrap_erased(protocol, erase(link))
     }
 
-    /// The transport-erased bootstrap body behind [`bootstrap_inner`].
+    /// The link-erased bootstrap body behind [`bootstrap_inner`].
     ///
     /// [`bootstrap_inner`]: Self::bootstrap_inner
     fn bootstrap_erased<'a>(
         protocol: Protocol,
-        read: DynRead<'a>,
-        write: DynWrite<'a>,
+        link: DynLinkParts<'a>,
     ) -> BoxFuture<'a, Result<Option<Self>, Error>>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
     {
         Box::pin(async move {
+            let (read, write, connector, acceptor, epoch) = link;
             // Magic/version/network/intent preamble first, before either protocol
             // is allowed to trust peer-declared frame lengths.
             let mut staged = handshake::Staged::new();
@@ -201,7 +217,8 @@ impl<T> Peer<T, NoBookmark> {
                 Protocol::V2 => Box::pin(async move {
                     let local_root: streaming::Root<Local, T> = tree::Root::default().into();
                     let local = materialized::Handshaking::start(Local, local_root);
-                    let proxy = streaming_remote::Handshaking::start(Local, read, write);
+                    let carrier = Link::for_session(read, write, connector, acceptor, epoch);
+                    let proxy = streaming_remote::Handshaking::start(Local, carrier);
                     let handshaken = streaming::handshake(local, proxy)
                         .await
                         .map_err(streaming_error)?;
@@ -317,19 +334,20 @@ impl<T, B: Persist> Peer<T, B> {
     /// state — everything the session learned included — before they end.
     ///
     /// The shared transactional body behind [`retire`](Peer::retire).
-    pub(crate) async fn retire_inner<'a, R, W>(
+    pub(crate) async fn retire_inner<CR, CW, C, A>(
         self,
-        read: &'a mut R,
-        write: &'a mut W,
+        link: &mut Link<CR, CW, C, A>,
     ) -> Retire<T, B>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
-        R: AsyncRead + Unpin + Send,
-        W: AsyncWrite + Unpin + Send,
+        CR: AsyncRead + Unpin + Send,
+        CW: AsyncWrite + Unpin + Send,
+        C: Connector,
+        A: Acceptor,
     {
         let mut staged = handshake::Staged::new();
         match self
-            .gossip_inner(Intent::Retire, &mut staged, read, write)
+            .gossip_inner(Intent::Retire, &mut staged, erase(link))
             .await
         {
             (Intent::Retire, Ok(_)) => Retire::Retired,
@@ -340,18 +358,19 @@ impl<T, B: Persist> Peer<T, B> {
     }
 
     /// Gossip with a remote peer to synchronize rumor sets.
-    pub(crate) async fn gossip<'a, R, W>(
+    pub(crate) async fn gossip<CR, CW, C, A>(
         &self,
-        read: &'a mut R,
-        write: &'a mut W,
+        link: &mut Link<CR, CW, C, A>,
     ) -> Result<(), Error<B>>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
-        R: AsyncRead + Unpin + Send,
-        W: AsyncWrite + Unpin + Send,
+        CR: AsyncRead + Unpin + Send,
+        CW: AsyncWrite + Unpin + Send,
+        C: Connector,
+        A: Acceptor,
     {
         let mut staged = handshake::Staged::new();
-        self.gossip_inner(Intent::Remain, &mut staged, read, write)
+        self.gossip_inner(Intent::Remain, &mut staged, erase(link))
             .await
             .1
             .map(|_converged| ())
@@ -462,19 +481,19 @@ impl<T, B: Persist> Peer<T, B> {
     ///
     /// [`gossip_when`]: crate::Rumors::gossip_when
     ///
-    /// Takes the transport pre-erased ([`DynRead`]/[`DynWrite`]): every
-    /// generic caller funnels through here, so the protocol towers this
-    /// drives instantiate once per payload type, not once per transport.
+    /// Takes the link pre-erased ([`DynLinkParts`]): every generic caller funnels
+    /// through here, so the protocol towers this drives instantiate once per
+    /// payload type, not once per link instantiation.
     async fn gossip_inner<'a>(
         &self,
         intent: Intent,
         staged: &mut handshake::Staged,
-        read: DynRead<'a>,
-        write: DynWrite<'a>,
+        link: DynLinkParts<'a>,
     ) -> (Intent, Result<Version, Error<B>>)
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
     {
+        let (read, write, connector, acceptor, epoch) = link;
         // Magic/version preamble: reject a non-rumors or incompatible peer
         // before the framing trusts any peer-supplied frame length.
         let remote =
@@ -550,7 +569,8 @@ impl<T, B: Persist> Peer<T, B> {
         > = match self.protocol {
             Protocol::V2 => Box::pin(async move {
                 let local = materialized::Handshaking::start(Local, prior_tree.root.into());
-                let proxy = streaming_remote::Handshaking::start(Local, read, write);
+                let carrier = Link::for_session(read, write, connector, acceptor, epoch);
+                let proxy = streaming_remote::Handshaking::start(Local, carrier);
                 let handshaken = streaming::handshake(local, proxy)
                     .await
                     .map_err(streaming_error)?;
@@ -709,25 +729,29 @@ impl<T, B: Bookmark> Peer<T, B> {
     /// Run the change-driven gossip driver behind
     /// [`Rumors::gossip_when`](crate::Rumors::gossip_when); the public
     /// contract lives there.
-    pub(crate) fn gossip_when<'a, R, W, S>(
+    pub(crate) fn gossip_when<'a, CR, CW, C, A, S>(
         &'a self,
         when: S,
-        read: &'a mut R,
-        write: &'a mut W,
+        link: &'a mut Link<CR, CW, C, A>,
     ) -> impl Stream<Item = Result<Gossiped, Error<B>>> + Unpin + 'a
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
-        R: AsyncRead + Unpin + Send,
-        W: AsyncWrite + Unpin + Send,
+        CR: AsyncRead + Unpin + Send,
+        CW: AsyncWrite + Unpin + Send,
+        C: Connector,
+        A: Acceptor,
         S: Stream<Item = ()> + 'a,
     {
-        // The transport erases here ([`DynRead`]'s contract); `when` stays
+        // The link erases here ([`DynRead`]'s contract); `when` stays
         // generic because erasing it would cost callers the stream's
         // auto-`Send`, and the driver below is all that re-instantiates.
         let drive = Drive {
             peer: self,
-            read: read as DynRead<'a>,
-            write: write as DynWrite<'a>,
+            read: &mut link.control_read as DynRead<'a>,
+            write: &mut link.control_write as DynWrite<'a>,
+            connector: DynConnector::new(link.connector.clone()),
+            acceptor: &mut link.acceptor as DynAcceptor<'a>,
+            epoch: &mut link.epoch,
             when: Box::pin(when),
             staged: handshake::Staged::new(),
             converged: None,
@@ -790,13 +814,20 @@ impl<T, B: Bookmark> Peer<T, B> {
                         }
                     };
 
+                    let epoch = *drive.epoch;
+                    *drive.epoch = epoch.wrapping_add(1);
                     let (_intent, result) = drive
                         .peer
                         .gossip_inner(
                             Intent::Remain,
                             &mut drive.staged,
-                            &mut *drive.read,
-                            &mut *drive.write,
+                            (
+                                &mut *drive.read,
+                                &mut *drive.write,
+                                drive.connector.clone(),
+                                &mut *drive.acceptor,
+                                epoch,
+                            ),
                         )
                         .await;
                     return match result {
@@ -819,6 +850,25 @@ impl<T, B: Bookmark> Peer<T, B> {
     }
 }
 
+/// Erase a caller's link into one session's [`DynLinkParts`], advancing the
+/// link's epoch: each call is exactly one session.
+fn erase<'a, CR, CW, C, A>(link: &'a mut Link<CR, CW, C, A>) -> DynLinkParts<'a>
+where
+    CR: AsyncRead + Unpin + Send,
+    CW: AsyncWrite + Unpin + Send,
+    C: Connector,
+    A: Acceptor,
+{
+    let epoch = link.next_epoch();
+    (
+        &mut link.control_read as DynRead<'a>,
+        &mut link.control_write as DynWrite<'a>,
+        DynConnector::new(link.connector.clone()),
+        &mut link.acceptor as DynAcceptor<'a>,
+        epoch,
+    )
+}
+
 /// What woke the [`gossip_when`](Peer::gossip_when) driver out of its idle
 /// select: the remote's preamble (or its absence), or the `when` stream.
 ///
@@ -830,12 +880,17 @@ enum Trigger {
 }
 
 /// The state a [`gossip_when`](Peer::gossip_when) driver carries between
-/// sessions: the transport halves, the policy stream, the preamble staging
+/// sessions: the erased link parts, the policy stream, the preamble staging
 /// buffer, and the suppression token.
 struct Drive<'a, T, B: BookmarkError, S> {
     peer: &'a Peer<T, B>,
     read: DynRead<'a>,
     write: DynWrite<'a>,
+    connector: DynConnector,
+    acceptor: DynAcceptor<'a>,
+    /// The long-lived link's session counter, advanced once per session so
+    /// stream labels stay in lockstep with the remote's counting.
+    epoch: &'a mut u8,
     when: Pin<Box<S>>,
     staged: handshake::Staged,
     /// The frontier this connection last converged on: a tick initiates

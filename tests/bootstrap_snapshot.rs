@@ -4,7 +4,7 @@
 //!
 //! The companion to `gossip_snapshot.rs` for the *bootstrap* leg of the
 //! protocol. Each test stages a provider, drives one bootstrap through the
-//! recording duplex in [`common::gossip_snapshot::capture_session`], and pins
+//! recording link in [`common::gossip_snapshot::capture_session`], and pins
 //! every wire byte. V2 traffic is grouped by logical stream while preserving
 //! its exact per-stream order; a representative V1 case pins its strictly
 //! alternating timeline. Drift in the preamble, reconciliation, or trailing
@@ -48,14 +48,11 @@ where
     T: BorshSerialize + BorshDeserialize + Send + Sync + 'static,
 {
     capture_session(
-        move |mut r, mut w| async move {
-            provider
-                .gossip(&mut r, &mut w)
-                .await
-                .expect("provider gossip");
+        move |mut link| async move {
+            provider.gossip(&mut link).await.expect("provider gossip");
         },
-        move |mut r, mut w| async move {
-            Peer::<T>::bootstrap(&mut r, &mut w)
+        move |mut link| async move {
+            Peer::<T>::bootstrap(&mut link)
                 .await
                 .expect("bootstrap handshake")
                 .expect("provider served the bootstrap");
@@ -93,14 +90,14 @@ fn v1_populated_provider() {
         .into_rumors();
     provider.batch().send(1).send(2).send(3);
     let capture = capture_session_v1(
-        move |mut r, mut w| async move {
+        move |mut link| async move {
             provider
-                .gossip(&mut r, &mut w)
+                .gossip(&mut link)
                 .await
                 .expect("V1 provider gossip");
         },
-        move |mut r, mut w| async move {
-            Peer::<u64>::bootstrap_with_protocol(Protocol::V1, &mut r, &mut w)
+        move |mut link| async move {
+            Peer::<u64>::bootstrap_with_protocol(Protocol::V1, &mut link)
                 .await
                 .expect("V1 bootstrap handshake")
                 .expect("V1 provider served the bootstrap");
@@ -130,8 +127,8 @@ fn string_payload() {
 #[test]
 fn mutual_bootstrap_bails() {
     let capture = capture_session(
-        |mut r, mut w| async move {
-            let out = Peer::<u64>::bootstrap(&mut r, &mut w)
+        |mut link| async move {
+            let out = Peer::<u64>::bootstrap(&mut link)
                 .await
                 .expect("handshake A");
             assert!(
@@ -139,8 +136,8 @@ fn mutual_bootstrap_bails() {
                 "a mutually-bootstrapping peer must bail with None"
             );
         },
-        |mut r, mut w| async move {
-            let out = Peer::<u64>::bootstrap(&mut r, &mut w)
+        |mut link| async move {
+            let out = Peer::<u64>::bootstrap(&mut link)
                 .await
                 .expect("handshake B");
             assert!(

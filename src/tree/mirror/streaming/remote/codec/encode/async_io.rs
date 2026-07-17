@@ -26,6 +26,7 @@ impl<W> FrameWrite<W> {
     }
 
     /// Recover the transport writer without buffered frame state.
+    #[cfg(test)]
     pub fn into_inner(self) -> W {
         self.write
     }

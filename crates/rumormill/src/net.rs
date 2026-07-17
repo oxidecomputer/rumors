@@ -1,11 +1,13 @@
 //! The iroh transport: long-lived change-driven connections, the
 //! partition-merge dance, and retirement.
 //!
-//! There is no application-level handshake. A connection feeds the raw QUIC
-//! bi-stream straight into [`Rumors::gossip_when`]; the rumors protocol's
-//! own preamble and greeting carry everything, including the one piece of
-//! information the merge needs: a gossip attempt against a *different
-//! universe* fails symmetrically on both ends with
+//! There is no application-level handshake. Each connection becomes one rumors
+//! [`Link`]: its persistent QUIC bi-stream is the control stream and the
+//! connection itself opens and accepts the session's unidirectional data
+//! streams (see [`quic_link`]). That link feeds [`Rumors::gossip_when`]; the
+//! rumors protocol's own preamble and greeting carry everything, including the
+//! one piece of information the merge needs: a gossip attempt against a
+//! *different universe* fails symmetrically on both ends with
 //! [`Error::NetworkMismatch`], which names the remote's [`Network`] and a
 //! floor on how many events it has ever recorded. Both sides plug those into
 //! the same pure [`decide`] rule, so both agree who wins without exchanging
@@ -31,14 +33,16 @@
 //! the connector's backoff then redials and the fresh handles re-arbitrate.
 
 use std::collections::{HashMap, HashSet};
+use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context as _;
 use futures::StreamExt;
-use iroh::endpoint::{Connection, presets};
+use iroh::endpoint::{Connection, QuicTransportConfig, RecvStream, SendStream, presets};
 use iroh::{Endpoint, EndpointId};
 use iroh_mdns_address_lookup::MdnsAddressLookup;
+use rumors::link::{Acceptor, Connector, Link};
 use rumors::{Error, Network, Peer, Retire, Rumors};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::{JoinHandle, JoinSet};
@@ -67,6 +71,15 @@ const MAX_INBOUND: usize = 256;
 /// letting the connection close anyway.
 const TEARDOWN_GRACE: Duration = Duration::from_secs(5);
 
+/// How many concurrent incoming unidirectional data streams a peer may open on
+/// one connection. A rumors session opens up to
+/// [`STREAM_COUNT`](rumors::link::STREAM_COUNT) (17) data streams per
+/// direction, and merge/retire can briefly overlap a fresh session's streams
+/// with a prior session's teardown, so we admit comfortably more than the 34
+/// the protocol can demand at once. The QUIC default (100) already clears this
+/// bar, but we pin it so the transport is never the throttle.
+const MAX_CONCURRENT_UNI_STREAMS: u32 = 64;
+
 /// Bind an endpoint with the default n0 infrastructure (relays + DNS
 /// discovery) *plus* mDNS address lookup: peers are dialable by
 /// `EndpointId` alone.
@@ -77,8 +90,16 @@ const TEARDOWN_GRACE: Duration = Duration::from_secs(5);
 /// resolve TXT record` — while same-LAN resolution never leaves the
 /// building. The n0 path remains for peers that are genuinely remote.
 pub async fn bind() -> anyhow::Result<Endpoint> {
+    // A rumors session maps each of its unidirectional data streams to a QUIC
+    // uni stream (see [`QuicConnector`]/[`QuicAcceptor`]); pin the incoming
+    // limit above what the protocol can demand so the transport never throttles
+    // a session's descent.
+    let transport = QuicTransportConfig::builder()
+        .max_concurrent_uni_streams(MAX_CONCURRENT_UNI_STREAMS.into())
+        .build();
     let endpoint = Endpoint::builder(presets::N0)
         .alpns(vec![ALPN.to_vec()])
+        .transport_config(transport)
         .bind()
         .await
         .context("binding the iroh endpoint")?;
@@ -90,6 +111,50 @@ pub async fn bind() -> anyhow::Result<Endpoint> {
         .context("registering the mdns address lookup")?
         .add(mdns);
     Ok(endpoint)
+}
+
+/// The [`Connector`] half of a native QUIC link: opens the session's outgoing
+/// unidirectional data streams on one iroh [`Connection`]. Cloneable, `Send`,
+/// and `Sync` because the connection handle is.
+#[derive(Clone)]
+struct QuicConnector(Connection);
+
+impl Connector for QuicConnector {
+    type Tx = SendStream;
+
+    async fn connect(&self) -> io::Result<Self::Tx> {
+        self.0.open_uni().await.map_err(io::Error::other)
+    }
+}
+
+/// The [`Acceptor`] half of a native QUIC link: yields the peer's incoming
+/// unidirectional data streams in arrival order.
+struct QuicAcceptor(Connection);
+
+impl Acceptor for QuicAcceptor {
+    type Rx = RecvStream;
+
+    async fn accept(&mut self) -> io::Result<Self::Rx> {
+        self.0.accept_uni().await.map_err(io::Error::other)
+    }
+}
+
+/// The link type one iroh connection carries: the connection's persistent
+/// bidirectional gossip stream pair is the control stream, and the connection
+/// itself opens and accepts every session's unidirectional data streams.
+type QuicLink = Link<RecvStream, SendStream, QuicConnector, QuicAcceptor>;
+
+/// Bundle one connection's gossip stream pair and its uni-stream supply into a
+/// [`Link`]. The `recv`/`send` pair — opened with `open_bi`/`accept_bi` — is
+/// the control stream; `conn` supplies the data streams for the session's
+/// mirror descent.
+fn quic_link(recv: RecvStream, send: SendStream, conn: &Connection) -> QuicLink {
+    Link::new(
+        recv,
+        send,
+        QuicConnector(conn.clone()),
+        QuicAcceptor(conn.clone()),
+    )
 }
 
 /// Who survives a meeting of two universes.
@@ -144,8 +209,8 @@ enum End {
 /// universe this drive's handle belongs to; see [`View::universe`].
 async fn drive_connection(
     conn: &Connection,
-    mut send: iroh::endpoint::SendStream,
-    mut recv: iroh::endpoint::RecvStream,
+    send: SendStream,
+    recv: RecvStream,
     cmd: &mpsc::Sender<Command>,
     mut view: watch::Receiver<Arc<View>>,
 ) -> anyhow::Result<()> {
@@ -155,7 +220,8 @@ async fn drive_connection(
             .universe
             .is_some_and(|u| u != handle.network())
     };
-    let mut sessions = handle.gossip_when(handle.changes(), &mut recv, &mut send);
+    let mut link = quic_link(recv, send, conn);
+    let mut sessions = handle.gossip_when(handle.changes(), &mut link);
     let end = loop {
         // The handle was current when requested; a reset since then makes
         // every further session wasted work in a dead universe.
@@ -184,6 +250,10 @@ async fn drive_connection(
         }
     };
     drop(sessions);
+    // Recover the control halves from the link now that no session borrows it;
+    // the clean-teardown path still needs them to exchange FINs.
+    let parts = link.into_parts();
+    let (mut send, mut recv) = (parts.control_write, parts.control_read);
 
     match end {
         End::Clean => {
@@ -263,14 +333,17 @@ async fn drive_connection(
 /// plain gossip, which hands a bootstrapper our whole tree and forks it a
 /// party transparently.
 async fn serve_merge(conn: &Connection, cmd: &mpsc::Sender<Command>) -> anyhow::Result<()> {
-    let (mut send, mut recv) = timeout(timers::SESSION_TIMEOUT, conn.accept_bi())
+    let (send, recv) = timeout(timers::SESSION_TIMEOUT, conn.accept_bi())
         .await
         .context("waiting for the loser's bootstrap stream")??;
     let handle = request_handle(cmd).await?;
+    let mut link = quic_link(recv, send, conn);
     handle
-        .gossip(&mut recv, &mut send)
+        .gossip(&mut link)
         .await
         .context("serving the merge bootstrap")?;
+    let parts = link.into_parts();
+    let (mut send, mut recv) = (parts.control_write, parts.control_read);
     settle(&mut send, &mut recv).await;
     Ok(())
 }
@@ -285,14 +358,17 @@ async fn request_merge(
     cmd: &mpsc::Sender<Command>,
     abandoned: Network,
 ) -> anyhow::Result<()> {
-    let (mut send, mut recv) = conn
+    let (send, recv) = conn
         .open_bi()
         .await
         .context("opening the bootstrap stream")?;
-    let known = Peer::<Entry>::bootstrap(&mut recv, &mut send)
+    let mut link = quic_link(recv, send, conn);
+    let known = Peer::<Entry>::bootstrap(&mut link)
         .await
         .context("bootstrapping into the winning universe")?
         .context("the winner was itself bootstrapping")?;
+    let parts = link.into_parts();
+    let (mut send, mut recv) = (parts.control_write, parts.control_read);
     settle(&mut send, &mut recv).await;
     cmd.send(Command::Reset {
         known: Box::new(known),
@@ -509,14 +585,16 @@ pub async fn retire(
         else {
             continue;
         };
-        let Ok((mut send, mut recv)) = conn.open_bi().await else {
+        let Ok((send, recv)) = conn.open_bi().await else {
             continue;
         };
+        let mut link = quic_link(recv, send, &conn);
 
-        match retiree.retire(&mut recv, &mut send).await {
+        match retiree.retire(&mut link).await {
             // Retired: we are gone; the peer holds our party.
             Retire::Retired => {
-                let _ = send.finish();
+                let mut parts = link.into_parts();
+                let _ = parts.control_write.finish();
                 conn.close(0u32.into(), b"retired");
                 return Departure::Retired { into: target };
             }

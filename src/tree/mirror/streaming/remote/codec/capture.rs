@@ -1,9 +1,6 @@
 //! Stable semantic rendering of captured V2 traffic.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fmt::Write as _,
-};
+use std::{collections::BTreeMap, fmt::Write as _};
 
 use borsh::BorshDeserialize;
 
@@ -21,19 +18,42 @@ const PREAMBLE_LEN: usize = 25;
 /// Bytes occupied by one exact-frame length header.
 const FRAME_LEN: usize = std::mem::size_of::<u32>();
 
-/// Render both physical V2 directions without retaining cross-stream order.
-///
-/// Preamble and causal-version frames remain byte-exact. Streaming frames are
-/// grouped by logical stream, retaining exact bytes and order within each
-/// stream while sorting the stream groups. Any trailing party hand-off remains
-/// a final exact byte block. Parsing accounts for every captured byte once.
-pub fn render_v2_capture(a_to_b: &[u8], b_to_a: &[u8]) -> String {
-    let a = Direction::parse(a_to_b);
-    let b = Direction::parse(b_to_a);
+/// Bytes occupied by a data stream's leading label: epoch, then stream index.
+const LABEL_LEN: usize = 2;
 
-    let (a_streams, b_streams) = match (&a.version, &b.version) {
+/// Everything one endpoint sent during a captured session.
+///
+/// The link keeps logical streams physically separate, so a capture is
+/// already demultiplexed: the control stream's exact bytes, plus each opened
+/// data stream's exact bytes (label included), in open order.
+pub struct LinkCapture {
+    /// The control stream's outgoing bytes: preamble, causal-version frame,
+    /// and any trailing party hand-off, in order.
+    pub control: Vec<u8>,
+    /// Each opened data stream's outgoing bytes: its two-byte label, then
+    /// its frames through the explicit end control.
+    pub streams: Vec<Vec<u8>>,
+}
+
+/// Render both endpoints' captures without retaining cross-stream order.
+///
+/// Control bytes remain byte-exact. Data streams are keyed by their labeled
+/// stream index — exact bytes and order within each stream, stream groups
+/// sorted — discarding the incidental order in which independent streams
+/// were opened. Parsing accounts for every captured byte once.
+pub fn render_v2_capture(a: &LinkCapture, b: &LinkCapture) -> String {
+    let a_control = Control::parse(&a.control);
+    let b_control = Control::parse(&b.control);
+
+    let (a_streams, b_streams) = match (&a_control.version, &b_control.version) {
         (None, None) => (None, None),
-        (Some(a_version), Some(b_version)) if a_version == b_version => (None, None),
+        (Some(a_version), Some(b_version)) if a_version == b_version => {
+            assert!(
+                a.streams.is_empty() && b.streams.is_empty(),
+                "equal versions open no data streams",
+            );
+            (None, None)
+        }
         (Some(a_version), Some(b_version)) => {
             let a_speaker = match b_version.as_bytes().cmp(a_version.as_bytes()) {
                 std::cmp::Ordering::Less => Speaker::Initiator,
@@ -41,30 +61,31 @@ pub fn render_v2_capture(a_to_b: &[u8], b_to_a: &[u8]) -> String {
                 std::cmp::Ordering::Equal => unreachable!("equal versions handled above"),
             };
             (
-                Some(Streams::parse(a_speaker, &a.body)),
-                Some(Streams::parse(a_speaker.other(), &b.body)),
+                Some(Streams::parse(a_speaker, &a.streams)),
+                Some(Streams::parse(a_speaker.other(), &b.streams)),
             )
         }
         _ => panic!("both directions must either carry or omit a version frame"),
     };
 
     let mut rendered = String::new();
-    render_direction("A -> B", &a, a_streams.as_ref(), &mut rendered);
+    render_direction("A -> B", &a_control, a_streams.as_ref(), &mut rendered);
     rendered.push('\n');
-    render_direction("B -> A", &b, b_streams.as_ref(), &mut rendered);
+    render_direction("B -> A", &b_control, b_streams.as_ref(), &mut rendered);
     rendered
 }
 
-/// The fixed prefix, optional version frame, and remaining session bytes.
-struct Direction {
+/// The control stream's fixed prefix, optional version frame, and trailing
+/// session bytes.
+struct Control {
     preamble: Vec<u8>,
     version_frame: Option<Vec<u8>>,
     version: Option<Version>,
-    body: Vec<u8>,
+    trailing: Vec<u8>,
 }
 
-impl Direction {
-    /// Split one captured physical direction at its exact fixed boundaries.
+impl Control {
+    /// Split one captured control direction at its exact fixed boundaries.
     fn parse(bytes: &[u8]) -> Self {
         assert!(bytes.len() >= PREAMBLE_LEN, "capture omitted the preamble");
         let (preamble, rest) = bytes.split_at(PREAMBLE_LEN);
@@ -73,7 +94,7 @@ impl Direction {
                 preamble: preamble.to_vec(),
                 version_frame: None,
                 version: None,
-                body: Vec::new(),
+                trailing: Vec::new(),
             };
         }
 
@@ -87,42 +108,55 @@ impl Direction {
             preamble: preamble.to_vec(),
             version_frame: Some(rest[..frame_end].to_vec()),
             version: Some(version),
-            body: rest[frame_end..].to_vec(),
+            trailing: rest[frame_end..].to_vec(),
         }
     }
 }
 
-/// Exact frames grouped by their logical stream, plus bytes after streaming.
+/// One direction's exact data streams, keyed by their labeled stream index.
 struct Streams {
     speaker: Speaker,
-    streams: BTreeMap<Stream, Vec<CapturedFrame>>,
-    trailing: Vec<u8>,
+    streams: BTreeMap<Stream, CapturedStream>,
+}
+
+/// One captured data stream: its label and its exact frames.
+struct CapturedStream {
+    epoch: u8,
+    frames: Vec<CapturedFrame>,
 }
 
 impl Streams {
-    /// Decode until every logical stream has emitted its stream-end control.
-    fn parse(speaker: Speaker, bytes: &[u8]) -> Self {
-        let mut rest = bytes;
-        let mut streams: BTreeMap<Stream, Vec<CapturedFrame>> = BTreeMap::new();
-        let mut ended = BTreeSet::new();
+    /// Decode every captured stream through its explicit end control.
+    fn parse(speaker: Speaker, streams: &[Vec<u8>]) -> Self {
+        let mut parsed = BTreeMap::new();
+        for bytes in streams {
+            assert!(
+                bytes.len() >= LABEL_LEN,
+                "captured stream omitted its label"
+            );
+            let (label, mut rest) = bytes.split_at(LABEL_LEN);
+            let [epoch, index] = label.try_into().expect("label width");
+            let labeled = Stream::new(index).expect("captured label names a logical stream");
 
-        while ended.len() < usize::from(Stream::COUNT) {
-            let (stream, signal, consumed) = raw_frame(speaker, rest);
-            let is_stream_end = matches!(signal, Signal::End(End::Stream));
-            streams.entry(stream).or_default().push(CapturedFrame {
-                semantic: format!("{signal:?}"),
-                bytes: rest[..consumed].to_vec(),
-            });
-            rest = &rest[consumed..];
-            if is_stream_end {
-                assert!(ended.insert(stream), "duplicate captured stream end");
+            let mut frames = Vec::new();
+            let mut ended = false;
+            while !ended {
+                let (stream, signal, consumed) = raw_frame(speaker, rest);
+                assert_eq!(stream, labeled, "captured frame contradicts its label");
+                ended = matches!(signal, Signal::End(End::Stream));
+                frames.push(CapturedFrame {
+                    semantic: format!("{signal:?}"),
+                    bytes: rest[..consumed].to_vec(),
+                });
+                rest = &rest[consumed..];
             }
+            assert!(rest.is_empty(), "captured bytes after the stream end");
+            let previous = parsed.insert(labeled, CapturedStream { epoch, frames });
+            assert!(previous.is_none(), "duplicate captured stream label");
         }
-
         Self {
             speaker,
-            streams,
-            trailing: rest.to_vec(),
+            streams: parsed,
         }
     }
 }
@@ -157,43 +191,37 @@ struct CapturedFrame {
 }
 
 /// Render one physical direction in stable logical order.
-fn render_direction(
-    label: &str,
-    direction: &Direction,
-    streams: Option<&Streams>,
-    out: &mut String,
-) {
+fn render_direction(label: &str, control: &Control, streams: Option<&Streams>, out: &mut String) {
     writeln!(out, "direction {label}").unwrap();
-    render_block("preamble", &direction.preamble, out);
-    if let Some(version) = &direction.version {
+    render_block("preamble", &control.preamble, out);
+    if let Some(version) = &control.version {
         writeln!(out, "version: {version}").unwrap();
         render_block(
             "version frame",
-            direction.version_frame.as_deref().expect("version frame"),
+            control.version_frame.as_deref().expect("version frame"),
             out,
         );
     }
 
     if let Some(streams) = streams {
-        for (stream, frames) in &streams.streams {
+        for (stream, captured) in &streams.streams {
             writeln!(
                 out,
-                "{:?} stream {} (height {})",
+                "{:?} stream {} (height {}), epoch {}",
                 streams.speaker,
                 stream.index(),
                 stream.height(streams.speaker),
+                captured.epoch,
             )
             .unwrap();
-            for (index, frame) in frames.iter().enumerate() {
+            for (index, frame) in captured.frames.iter().enumerate() {
                 writeln!(out, "  frame {index}: {}", frame.semantic).unwrap();
                 render_hex(&frame.bytes, "    ", out);
             }
         }
-        if !streams.trailing.is_empty() {
-            render_block("trailing frame", &streams.trailing, out);
-        }
-    } else if !direction.body.is_empty() {
-        render_block("trailing frame", &direction.body, out);
+    }
+    if !control.trailing.is_empty() {
+        render_block("trailing frame", &control.trailing, out);
     }
 }
 

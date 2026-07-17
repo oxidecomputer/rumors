@@ -6,7 +6,7 @@
 //! A retire opens with an ordinary mirror descent — the same reconciliation a
 //! plain gossip would run — and then the absorbing peer takes the retiree's
 //! party as a trailing frame. Each test stages the pair, drives one retire
-//! through the recording duplex in
+//! through the recording link in
 //! [`common::gossip_snapshot::capture_session`], and pins every wire byte. V2
 //! traffic is grouped by logical stream while preserving exact order within
 //! each stream; a representative V1 case pins its strictly alternating
@@ -50,18 +50,15 @@ fn seeded() -> Rumors<u64> {
 /// ([`Retire::Retired`]).
 fn capture_retire(absorber: Rumors<u64>, retiree: Rumors<u64>) -> String {
     capture_session(
-        move |mut r, mut w| async move {
-            absorber
-                .gossip(&mut r, &mut w)
-                .await
-                .expect("absorber gossip");
+        move |mut link| async move {
+            absorber.gossip(&mut link).await.expect("absorber gossip");
         },
-        move |mut r, mut w| async move {
+        move |mut link| async move {
             let retiree = retiree
                 .try_into_peer()
                 .await
                 .expect("the sole handle reclaims the Peer");
-            let outcome = retiree.retire(&mut r, &mut w).await;
+            let outcome = retiree.retire(&mut link).await;
             assert!(
                 matches!(outcome, Retire::Retired),
                 "the absorber dominates, so retire must commit; got {outcome:?}",
@@ -109,18 +106,15 @@ fn v1_divergent_retire() {
         (absorber, retiree)
     });
     let capture = capture_session_v1(
-        move |mut r, mut w| async move {
+        move |mut link| async move {
             absorber
-                .gossip(&mut r, &mut w)
+                .gossip(&mut link)
                 .await
                 .expect("V1 absorber gossip");
         },
-        move |mut r, mut w| async move {
+        move |mut link| async move {
             let retiree = retiree.try_into_peer().await.expect("sole V1 handle");
-            assert!(matches!(
-                retiree.retire(&mut r, &mut w).await,
-                Retire::Retired,
-            ));
+            assert!(matches!(retiree.retire(&mut link).await, Retire::Retired,));
         },
     );
     insta::assert_snapshot!(capture);
@@ -140,17 +134,17 @@ fn mutual_retire_declines() {
     b.batch().send(3).send(4);
 
     let capture = capture_session(
-        move |mut r, mut w| async move {
+        move |mut link| async move {
             let a = a.try_into_peer().await.expect("a's sole handle");
-            let outcome = a.retire(&mut r, &mut w).await;
+            let outcome = a.retire(&mut link).await;
             assert!(
                 matches!(outcome, Retire::Declined { .. }),
                 "mutual retirement must decline; got {outcome:?}",
             );
         },
-        move |mut r, mut w| async move {
+        move |mut link| async move {
             let b = b.try_into_peer().await.expect("b's sole handle");
-            let outcome = b.retire(&mut r, &mut w).await;
+            let outcome = b.retire(&mut link).await;
             assert!(
                 matches!(outcome, Retire::Declined { .. }),
                 "mutual retirement must decline; got {outcome:?}",
@@ -173,18 +167,18 @@ fn retire_into_bootstrapper() {
     retiree.batch().send(1).send(2);
 
     let capture = capture_session(
-        |mut r, mut w| async move {
-            Peer::<u64>::bootstrap(&mut r, &mut w)
+        |mut link| async move {
+            Peer::<u64>::bootstrap(&mut link)
                 .await
                 .expect("bootstrap handshake")
                 .expect("the retiree served the bootstrap");
         },
-        move |mut r, mut w| async move {
+        move |mut link| async move {
             let retiree = retiree
                 .try_into_peer()
                 .await
                 .expect("the sole handle reclaims the Peer");
-            let outcome = retiree.retire(&mut r, &mut w).await;
+            let outcome = retiree.retire(&mut link).await;
             assert!(
                 matches!(outcome, Retire::Retired),
                 "a bootstrapper absorbs the retiree; got {outcome:?}",

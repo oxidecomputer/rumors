@@ -40,10 +40,9 @@ fn handle_types_are_send_sync() {
 #[test]
 fn gossip_future_is_send() {
     let alice = Peer::<String>::seed();
-    let (_, b) = tokio::io::duplex(64);
-    let (mut r, mut w) = tokio::io::split(b);
+    let (mut link, _peer) = rumors::link::memory();
     let rumors = alice.into_rumors();
-    let fut = rumors.gossip(&mut r, &mut w);
+    let fut = rumors.gossip(&mut link);
     require_send(&fut);
     drop(fut);
 }
@@ -51,9 +50,8 @@ fn gossip_future_is_send() {
 /// `Peer::bootstrap`'s future is `Send`: joining can be `tokio::spawn`ed.
 #[test]
 fn bootstrap_future_is_send() {
-    let (_, b) = tokio::io::duplex(64);
-    let (mut r, mut w) = tokio::io::split(b);
-    let fut = Peer::<String>::bootstrap(&mut r, &mut w);
+    let (mut link, _peer) = rumors::link::memory();
+    let fut = Peer::<String>::bootstrap(&mut link);
     require_send(&fut);
     drop(fut);
 }
@@ -62,9 +60,8 @@ fn bootstrap_future_is_send() {
 #[test]
 fn retire_future_is_send() {
     let alice = Peer::<String>::seed();
-    let (_, b) = tokio::io::duplex(64);
-    let (mut r, mut w) = tokio::io::split(b);
-    let fut = alice.retire(&mut r, &mut w);
+    let (mut link, _peer) = rumors::link::memory();
+    let fut = alice.retire(&mut link);
     require_send(&fut);
     drop(fut);
 }

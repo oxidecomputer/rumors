@@ -249,13 +249,9 @@ fn retire_ends_the_observer() {
             .try_into_peer()
             .await
             .expect("the sole handle reclaims the Peer");
-        let (a_side, b_side) = tokio::io::duplex(64 * 1024);
-        let (mut a_r, mut a_w) = tokio::io::split(a_side);
-        let (mut b_r, mut b_w) = tokio::io::split(b_side);
-        let (retire_out, gossip_out) = tokio::join!(
-            retiree.retire(&mut a_r, &mut a_w),
-            survivor.gossip(&mut b_r, &mut b_w),
-        );
+        let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(64 * 1024);
+        let (retire_out, gossip_out) =
+            tokio::join!(retiree.retire(&mut a_link), survivor.gossip(&mut b_link),);
         gossip_out.expect("survivor gossip");
         retire_out
     });

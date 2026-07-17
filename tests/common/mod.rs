@@ -17,4 +17,5 @@ pub mod oracle;
 pub mod peer;
 pub mod schedule;
 pub mod sim;
+pub mod tcp;
 pub mod wire;

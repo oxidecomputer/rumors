@@ -12,11 +12,11 @@ pub use crate::tree::mirror::streaming::materialized::{
     Error as MaterializedError, Violation as MaterializedViolation,
 };
 pub use crate::tree::mirror::streaming::remote::{
-    CodecDecodeError, CodecDecodeErrorKind, CodecEncodeError, CodecEncodeErrorKind, DecodeError,
-    DecodeLeafError, DecodeSignalError, DemuxError, EncodeError, EncodeLeafError, FramePart,
-    InvalidSignalPlacement, InvalidWireSignal, LengthOverflow, MuxError, OpeningError, Origin,
+    AcceptError, CodecDecodeError, CodecDecodeErrorKind, CodecEncodeError, CodecEncodeErrorKind,
+    DecodeError, DecodeLeafError, DecodeSignalError, EncodeError, EncodeLeafError, FramePart,
+    InvalidSignalPlacement, InvalidWireSignal, LengthOverflow, OpeningError, Origin,
     QueryOrderError, RemoteError, ReplyFrameError, ScopeError, SendError, Speaker, Stream,
-    StreamClass,
+    StreamClass, StreamError,
 };
 
 /// The concrete production mirror failure, retaining its detecting side.

@@ -129,18 +129,17 @@
 //! // A bare `send` statement commits when its `Batch` drops, right here.
 //! alice.send("the meeting is at noon".to_string());
 //!
-//! // Any AsyncRead/AsyncWrite pair carries a session; here, an in-memory
-//! // duplex. Alice serves one gossip session...
-//! let (near, far) = tokio::io::duplex(64 * 1024);
+//! // A session runs over a [`Link`]: a control byte stream plus a supply of
+//! // per-level data streams (see [`link`]); here, the in-memory pair.
+//! // Alice serves one gossip session...
+//! let (mut near, mut far) = rumors::link::memory();
 //! let serve = alice.clone();
 //! tokio::spawn(async move {
-//!     let (mut read, mut write) = tokio::io::split(far);
-//!     serve.gossip(&mut read, &mut write).await.unwrap();
+//!     serve.gossip(&mut far).await.unwrap();
 //! });
 //!
 //! // ...and Bob joins the universe through it, arriving as a full replica.
-//! let (mut read, mut write) = tokio::io::split(near);
-//! let bob = Peer::<String>::bootstrap(&mut read, &mut write)
+//! let bob = Peer::<String>::bootstrap(&mut near)
 //!     .await?
 //!     .expect("alice is established, not herself bootstrapping");
 //! let bob = bob.into_rumors();
@@ -178,6 +177,18 @@
 //! the sound resume point for delivery across restarts. Its docs state exactly
 //! what a resume re-observes, and why folding the yielded versions yourself is
 //! not a substitute.
+//!
+//! # Transport: bring a [`Link`]
+//!
+//! A session's transport is a [`Link`]: one persistent bidirectional
+//! *control stream* plus a supply of independent, individually
+//! flow-controlled unidirectional *data streams*, opened lazily as
+//! reconciliation needs them. The [`link`] module states the contract,
+//! ships the in-memory instantiation ([`link::memory`]), and documents how
+//! to bind a real transport (QUIC connections map streams one to one; TCP
+//! can carry one stream per connection behind a routing listener) — with a
+//! [`conformance`] suite (behind the `conformance` cargo feature) to
+//! validate a custom implementation against the contract.
 //!
 //! # Runtime independence
 //!
@@ -220,7 +231,10 @@
 
 mod batch;
 mod bookmark;
+#[cfg(any(test, feature = "conformance"))]
+pub mod conformance;
 pub mod error;
+pub mod link;
 mod message;
 mod network;
 mod peer;
@@ -245,6 +259,7 @@ pub use bookmark::{
     Serialized,
 };
 pub use error::{Error, MirrorError};
+pub use link::{Acceptor, Connector, Link};
 pub use network::Network;
 pub(crate) use peer::Inner;
 pub use peer::{Gossiped, Led, Peer, Retire, Unbookmarked};

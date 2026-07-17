@@ -3,13 +3,16 @@
 mod transport;
 
 pub use transport::{
-    AdversarialRead, AdversarialWrite, FaultUnit as IoFaultUnit, InjectedIo, IoFault, IoPlan,
-    IoReport, IoReportHandle, Operation as IoOperation, Side as IoSide, wrap_io,
+    AdversarialAcceptor, AdversarialConnector, AdversarialRead, AdversarialWrite,
+    FaultUnit as IoFaultUnit, InjectedIo, IoFault, IoPlan, IoReport, IoReportHandle,
+    Operation as IoOperation, Side as IoSide, wrap_io, wrap_link,
 };
 
-/// Render captured V2 directions grouped by deterministic logical streams.
-pub fn render_v2_capture(a_to_b: &[u8], b_to_a: &[u8]) -> String {
-    crate::tree::mirror::streaming::remote::render_v2_capture(a_to_b, b_to_a)
+pub use crate::tree::mirror::streaming::remote::LinkCapture;
+
+/// Render captured V2 link traffic grouped by labeled logical streams.
+pub fn render_v2_capture(a: &LinkCapture, b: &LinkCapture) -> String {
+    crate::tree::mirror::streaming::remote::render_v2_capture(a, b)
 }
 
 use std::{

@@ -38,12 +38,11 @@ const PUBLIC_FUTURE_BUDGET: usize = 1024;
 /// caller's layout query.
 #[test]
 fn gossip_future_fits_budget() {
-    let (a, b) = tokio::io::duplex(64);
-    let (mut a_r, mut a_w) = tokio::io::split(a);
-    drop(b);
+    let (mut link, peer) = rumors::link::memory();
+    drop(peer);
 
     let alice: Rumors<()> = Peer::seed().into_rumors();
-    let fut = alice.gossip(&mut a_r, &mut a_w);
+    let fut = alice.gossip(&mut link);
     let size = size_of_val(&fut);
 
     assert!(
@@ -59,12 +58,11 @@ fn gossip_future_fits_budget() {
 /// boundary must keep it flat.
 #[test]
 fn retire_future_fits_budget() {
-    let (a, b) = tokio::io::duplex(64);
-    let (mut a_r, mut a_w) = tokio::io::split(a);
-    drop(b);
+    let (mut link, peer) = rumors::link::memory();
+    drop(peer);
 
     let alice: Peer<()> = Peer::seed();
-    let fut = alice.retire(&mut a_r, &mut a_w);
+    let fut = alice.retire(&mut link);
     let size = size_of_val(&fut);
 
     assert!(
@@ -78,11 +76,10 @@ fn retire_future_fits_budget() {
 /// Same erasure boundary as `gossip`.
 #[test]
 fn bootstrap_future_fits_budget() {
-    let (a, b) = tokio::io::duplex(64);
-    let (mut a_r, mut a_w) = tokio::io::split(a);
-    drop(b);
+    let (mut link, peer) = rumors::link::memory();
+    drop(peer);
 
-    let fut = Peer::<()>::bootstrap(&mut a_r, &mut a_w);
+    let fut = Peer::<()>::bootstrap(&mut link);
     let size = size_of_val(&fut);
 
     assert!(

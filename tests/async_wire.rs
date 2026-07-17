@@ -1,7 +1,7 @@
 //! Convergence test for the *asynchronous* gossip path:
-//! `rumors::Rumors::gossip` driven concurrently with `tokio::join!` over a
-//! `tokio::io::duplex` pipe must converge both peers on the union of their
-//! pre-session live content.
+//! `rumors::Rumors::gossip` driven concurrently with `tokio::join!` over an
+//! in-memory [`rumors::link`] pair must converge both peers on the union of
+//! their pre-session live content.
 //!
 //! (The old in-process `join` is gone — wire gossip *is* the merge —
 //! so the oracle is the abstract union of the two pre-session readouts:
@@ -30,8 +30,8 @@ fn assert_fingerprints_equal<T: Send + Sync>(a: &rumors::Rumors<T>, b: &rumors::
 }
 
 proptest! {
-    /// Driving two async `Rumors` through `Rumors::gossip` over a
-    /// `tokio::io::duplex` pipe converges both on the union of the two
+    /// Driving two async `Rumors` through `Rumors::gossip` over an in-memory
+    /// [`rumors::link`] pair converges both on the union of the two
     /// pre-session readouts — content already redacted on one side never
     /// reaches the other, and both sides end byte-identical (`hash`) and
     /// causally equal (`latest`).

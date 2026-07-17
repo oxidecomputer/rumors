@@ -46,10 +46,10 @@
 //!
 //! # Synchronization uses the wire protocol
 //!
-//! Syncs go through [`Rumors::gossip`] over an in-memory [`tokio::io::duplex`]
-//! pipe — the *same* bytes-on-the-wire path a TCP peer would drive. Both ends
-//! of a session run `gossip` concurrently on their own thread's
-//! current-thread runtime, exactly as two networked peers would.
+//! Syncs go through [`Rumors::gossip`] over an in-memory [`rumors::link`] pair
+//! — the *same* bytes-on-the-wire path a QUIC peer would drive. Both ends of a
+//! session run `gossip` concurrently on their own thread's current-thread
+//! runtime, exactly as two networked peers would.
 //!
 //! # Rendezvous without deadlock
 //!
@@ -134,6 +134,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Sparkline};
+use rumors::link::{Connector, Link, LinkParts, MemoryAcceptor, MemoryConnector, MemoryLink};
 use rumors::{Key, Peer, Retire, Rumors, UnorderedMessages};
 use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
 
@@ -141,19 +142,17 @@ use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
 ///
 /// Every party in the swarm — which independently `send`s, `redact`s, and
 /// `gossip`s — needs its own disjoint Interval Tree Clock region. We mint one
-/// by serving a bootstrap from `parent` over an in-memory duplex: the
+/// by serving a bootstrap from `parent` over an in-memory link: the
 /// newcomer pulls `parent`'s whole tree through the ordinary mirror descent
 /// and is handed a fresh disjoint party, forked in the same critical section
 /// that snapshots the served tree. Both halves run concurrently on
 /// `runtime`'s single current thread via [`tokio::join!`].
 fn bootstrap_fork(runtime: &tokio::runtime::Runtime, parent: &Rumors<Payload>) -> Rumors<Payload> {
-    let (a, b) = tokio::io::duplex(16 * 1024);
-    let (mut a_r, mut a_w) = tokio::io::split(a);
-    let (mut b_r, mut b_w) = tokio::io::split(b);
+    let (mut parent_link, mut newcomer_link) = rumors::link::memory_with_capacity(16 * 1024);
     let (served, newcomer) = runtime.block_on(async {
         tokio::join!(
-            parent.gossip(&mut a_r, &mut a_w),
-            Peer::<Payload>::bootstrap(&mut b_r, &mut b_w),
+            parent.gossip(&mut parent_link),
+            Peer::<Payload>::bootstrap(&mut newcomer_link),
         )
     });
     served.expect("serve bootstrap");
@@ -169,8 +168,9 @@ fn bootstrap_fork(runtime: &tokio::runtime::Runtime, parent: &Rumors<Payload>) -
 type Payload = Vec<u8>;
 
 /// One endpoint of a sync session, handed from an initiator to the responder
-/// it claimed. The responder splits it and drives `gossip` on its own thread.
-type SessionEnd = DuplexStream;
+/// it claimed. The responder decorates it for byte accounting and drives
+/// `gossip` on its own thread.
+type SessionEnd = MemoryLink;
 
 /// An interactive gossip swarm with a live throughput readout.
 #[derive(Parser, Debug)]
@@ -201,8 +201,9 @@ struct Args {
     #[arg(long, default_value_t = 256)]
     message_size: usize,
 
-    /// Capacity in bytes of each in-memory duplex pipe. Smaller values
-    /// exercise more backpressure; larger values fewer roundtrips.
+    /// Capacity in bytes of each in-memory link stream (control and every data
+    /// stream alike). Smaller values exercise more backpressure; larger values
+    /// fewer roundtrips.
     #[arg(long, default_value_t = 16 * 1024)]
     duplex_capacity: usize,
 
@@ -234,9 +235,11 @@ struct Controls {
 struct Metrics {
     /// Local inserts + redactions completed across all parties.
     local_ops: AtomicU64,
-    /// Total bytes written to every wire, both directions (each byte counted
-    /// once, on the writer that produced it).
-    wire_bytes: AtomicU64,
+    /// Total bytes written to every wire — control stream and every data
+    /// stream, both directions (each byte counted once, on the writer that
+    /// produced it). Shared into the link-decorating writers, which outlive
+    /// the borrow of `Metrics`, so it is an [`Arc`] rather than a bare field.
+    wire_bytes: Arc<AtomicU64>,
     /// Sum over completed sessions of `2 * duration_nanos`: one direction-span
     /// per direction. Pairs with `wire_bytes` to give a time-weighted mean
     /// per-direction bandwidth.
@@ -316,7 +319,7 @@ struct Net {
     peers: ArcSwap<Vec<Arc<SwarmPeer>>>,
     controls: Controls,
     metrics: Metrics,
-    /// Capacity of each in-memory duplex pipe. Immutable for the run.
+    /// Capacity of each in-memory link stream. Immutable for the run.
     duplex_capacity: usize,
     /// While true, parties may initiate new syncs. Cleared first at shutdown.
     running: AtomicBool,
@@ -588,8 +591,8 @@ fn try_initiate(
         return false;
     }
 
-    // Hand the peer one end of a fresh pipe and gossip the other.
-    let (mine, theirs) = tokio::io::duplex(net.duplex_capacity);
+    // Hand the peer one end of a fresh link and gossip the other.
+    let (mine, theirs) = rumors::link::memory_with_capacity(net.duplex_capacity);
     if peer.inbox.send(theirs).is_err() {
         peer.engaged.store(false, Ordering::Release);
         me.engaged.store(false, Ordering::Release);
@@ -597,17 +600,15 @@ fn try_initiate(
         return false;
     }
 
+    // Roundtrips are write→read flips on the *control* stream — the session's
+    // request→response turns — so only its halves carry the `Rounds`; the
+    // data streams tally bytes but never roundtrips.
     let rounds = Arc::new(Rounds::default());
-    let (read_half, write_half) = tokio::io::split(mine);
-    let mut reader = CountRead {
-        inner: read_half,
-        rounds: Some(Arc::clone(&rounds)),
-    };
-    let mut writer = CountWrite {
-        inner: write_half,
-        wire_bytes: &net.metrics.wire_bytes,
-        rounds: Some(Arc::clone(&rounds)),
-    };
+    let mut link = initiator_link(
+        mine,
+        Arc::clone(&net.metrics.wire_bytes),
+        Arc::clone(&rounds),
+    );
 
     // Latency is the wall-clock span of the gossip exchange itself: `start` is
     // taken immediately before the protocol runs and `elapsed` immediately
@@ -615,7 +616,7 @@ fn try_initiate(
     // (Learned keys surface through the party's observer on its next drain.)
     let start = Instant::now();
     runtime
-        .block_on(rumors.gossip(&mut reader, &mut writer))
+        .block_on(rumors.gossip(&mut link))
         .expect("initiator gossip");
     let elapsed = start.elapsed();
 
@@ -633,18 +634,13 @@ fn serve_sync(
     rumors: &Rumors<Payload>,
     end: SessionEnd,
 ) {
-    let (read_half, write_half) = tokio::io::split(end);
-    // The responder counts only the bytes it writes (its outbound direction);
-    // the initiator counts the other direction. Roundtrips are tallied by the
-    // initiator alone, so the responder needs no `Rounds`.
-    let mut reader = read_half;
-    let mut writer = CountWrite {
-        inner: write_half,
-        wire_bytes: &net.metrics.wire_bytes,
-        rounds: None,
-    };
+    // The responder counts only the bytes it writes (its outbound direction on
+    // the control stream and every data stream it opens); the initiator counts
+    // the other direction. Roundtrips are tallied by the initiator alone, so
+    // the responder attaches no `Rounds`.
+    let mut link = responder_link(end, Arc::clone(&net.metrics.wire_bytes));
     runtime
-        .block_on(rumors.gossip(&mut reader, &mut writer))
+        .block_on(rumors.gossip(&mut link))
         .expect("responder gossip");
 }
 
@@ -855,15 +851,9 @@ fn shrink(
     let retiree = runtime
         .block_on(db.rumors.try_into_peer())
         .expect("a wound-down party's handle is unique");
-    let (a_side, b_side) = tokio::io::duplex(net.duplex_capacity);
-    let (mut a_r, mut a_w) = tokio::io::split(a_side);
-    let (mut b_r, mut b_w) = tokio::io::split(b_side);
-    let (retired, survived) = runtime.block_on(async {
-        tokio::join!(
-            retiree.retire(&mut b_r, &mut b_w),
-            rumors.gossip(&mut a_r, &mut a_w),
-        )
-    });
+    let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(net.duplex_capacity);
+    let (retired, survived) = runtime
+        .block_on(async { tokio::join!(retiree.retire(&mut b_link), rumors.gossip(&mut a_link)) });
     survived.expect("survivor gossip");
     assert!(
         matches!(retired, Retire::Retired),
@@ -920,13 +910,17 @@ impl Rounds {
 
 /// `AsyncWrite` wrapper that tallies bytes into a shared counter and, when a
 /// `Rounds` is attached, records the write phase for roundtrip counting.
-struct CountWrite<'a, W> {
+///
+/// The counter is owned as an [`Arc`] rather than borrowed so this wrapper
+/// can back a [`Connector::Tx`], whose `'static` bound outlives any borrow of
+/// the metrics.
+struct CountWrite<W> {
     inner: W,
-    wire_bytes: &'a AtomicU64,
+    wire_bytes: Arc<AtomicU64>,
     rounds: Option<Arc<Rounds>>,
 }
 
-impl<W: AsyncWrite + Unpin> AsyncWrite for CountWrite<'_, W> {
+impl<W: AsyncWrite + Unpin> AsyncWrite for CountWrite<W> {
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -981,6 +975,92 @@ impl<R: AsyncRead + Unpin> AsyncRead for CountRead<R> {
             other => other,
         }
     }
+}
+
+/// A [`Connector`] that wraps each opened data stream's writer in a
+/// [`CountWrite`], so the bytes a session pushes down its data streams join
+/// the same tally as its control-stream bytes. Data-stream writes never carry
+/// a `Rounds`: roundtrips are a property of the bidirectional control stream.
+#[derive(Clone)]
+struct CountConnector {
+    inner: MemoryConnector,
+    wire_bytes: Arc<AtomicU64>,
+}
+
+impl Connector for CountConnector {
+    type Tx = CountWrite<DuplexStream>;
+
+    async fn connect(&self) -> io::Result<Self::Tx> {
+        let tx = self.inner.connect().await?;
+        Ok(CountWrite {
+            inner: tx,
+            wire_bytes: Arc::clone(&self.wire_bytes),
+            rounds: None,
+        })
+    }
+}
+
+/// The initiator's decorated link: both control halves count (writes tally
+/// bytes and roundtrips, reads tally roundtrips) and each opened data stream
+/// tallies its bytes. Incoming data streams are accepted unwrapped — their
+/// bytes are counted by the peer that wrote them.
+type InitiatorLink =
+    Link<CountRead<DuplexStream>, CountWrite<DuplexStream>, CountConnector, MemoryAcceptor>;
+
+/// The responder's decorated link: it counts only the bytes it writes (its
+/// control write half and each data stream it opens), so its control read half
+/// is left bare and no `Rounds` is attached anywhere.
+type ResponderLink = Link<DuplexStream, CountWrite<DuplexStream>, CountConnector, MemoryAcceptor>;
+
+/// Decorate an in-memory link end for the initiator's accounting: byte and
+/// roundtrip counting on the control stream, byte counting on opened data
+/// streams. `epoch` is preserved so the decorated link keeps counting sessions
+/// in lockstep with its peer.
+fn initiator_link(
+    link: MemoryLink,
+    wire_bytes: Arc<AtomicU64>,
+    rounds: Arc<Rounds>,
+) -> InitiatorLink {
+    let parts = link.into_parts();
+    LinkParts {
+        control_read: CountRead {
+            inner: parts.control_read,
+            rounds: Some(Arc::clone(&rounds)),
+        },
+        control_write: CountWrite {
+            inner: parts.control_write,
+            wire_bytes: Arc::clone(&wire_bytes),
+            rounds: Some(rounds),
+        },
+        connector: CountConnector {
+            inner: parts.connector,
+            wire_bytes,
+        },
+        acceptor: parts.acceptor,
+        epoch: parts.epoch,
+    }
+    .into_link()
+}
+
+/// Decorate an in-memory link end for the responder's accounting: byte
+/// counting on every stream it writes, nothing on the streams it reads.
+fn responder_link(link: MemoryLink, wire_bytes: Arc<AtomicU64>) -> ResponderLink {
+    let parts = link.into_parts();
+    LinkParts {
+        control_read: parts.control_read,
+        control_write: CountWrite {
+            inner: parts.control_write,
+            wire_bytes: Arc::clone(&wire_bytes),
+            rounds: None,
+        },
+        connector: CountConnector {
+            inner: parts.connector,
+            wire_bytes,
+        },
+        acceptor: parts.acceptor,
+        epoch: parts.epoch,
+    }
+    .into_link()
 }
 
 // --- interactive UI --------------------------------------------------------

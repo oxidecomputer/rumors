@@ -9,7 +9,7 @@ use crate::tree::{
     mirror::{
         Error as MirrorError,
         streaming::remote::{
-            CodecDecodeErrorKind, DecodeSignalError, DemuxError, Error as RemoteError,
+            CodecDecodeErrorKind, DecodeSignalError, Error as RemoteError, StreamError,
         },
     },
 };
@@ -40,7 +40,7 @@ fn broad_pair() -> (crate::tree::Root<()>, crate::tree::Root<()>) {
 
 /// Extract the reserved signal byte from a full incoming error chain.
 fn reserved_signal(error: &RemoteError<std::convert::Infallible>) -> Option<u8> {
-    let RemoteError::Incoming(DemuxError::Codec(error)) = error else {
+    let RemoteError::Stream(StreamError::Decode(error)) = error else {
         return None;
     };
     let CodecDecodeErrorKind::InvalidSignal(DecodeSignalError::Reserved(signal)) = &error.kind
@@ -115,7 +115,7 @@ fn phase_invalid_signal_propagates_through_the_full_proxy() {
     let error = receiving_error(corrupt_left, &left_result, &right_result);
     assert!(matches!(
         error,
-        RemoteError::Incoming(DemuxError::Codec(error))
+        RemoteError::Stream(StreamError::Decode(error))
             if matches!(
                 error.kind,
                 CodecDecodeErrorKind::InvalidSignal(DecodeSignalError::Placement(_))
@@ -142,7 +142,7 @@ fn unordered_query_propagates_through_the_full_proxy() {
         assert!(script.fired(), "no nonempty query reached the mutator");
         assert!(matches!(
             receiving_error(corrupt_left, &left_result, &right_result),
-            RemoteError::Incoming(DemuxError::Codec(error))
+            RemoteError::Stream(StreamError::Decode(error))
                 if matches!(error.kind, CodecDecodeErrorKind::QueryOutOfOrder(_))
         ));
         assert!(left_result.is_err());
@@ -194,7 +194,7 @@ fn duplicate_stream_end_is_rejected_by_the_session() {
         assert!(script.fired(), "no stream-end frame reached the mutator");
         assert!(matches!(
             receiving_error(corrupt_left, &left_result, &right_result),
-            RemoteError::Incoming(DemuxError::FrameAfterEnd { .. })
+            RemoteError::Stream(StreamError::AfterEnd { .. })
         ));
         assert!(left_result.is_err());
         assert!(right_result.is_err());

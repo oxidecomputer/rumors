@@ -55,17 +55,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use before::Party;
 use proptest::prelude::*;
 use rumors::error::{
-    CodecDecodeErrorKind, CodecEncodeErrorKind, DemuxError, EncodeLeafError, MuxError, RemoteError,
+    CodecDecodeErrorKind, CodecEncodeErrorKind, EncodeLeafError, RemoteError, SendError,
+    StreamError,
 };
 use rumors::{Error, Key, MirrorError, Peer, Retire, Rumors, Version};
-use tokio::io::duplex;
 
 use crate::common::fault::{self, FaultPlan};
 use crate::common::oracle::readout;
 use crate::common::wire::wire_gossip_async;
-
-/// In-memory channel capacity, matching `wire.rs`.
-const DUPLEX_BUF: usize = 8 * 1024;
 
 /// Upper bound on the byte offset at which a cut can land. Sessions in
 /// these plans are small, so this comfortably spans everything from the
@@ -242,11 +239,17 @@ pub fn is_honest_error(error: &Error) -> bool {
 }
 
 /// Whether an I/O source is one of the fault harness's severed-wire outcomes.
+///
+/// `ConnectionRefused` belongs here because of how a dead peer manifests to
+/// a stream *open*: on a per-connection transport (the inter-process TCP
+/// link), a peer that died mid-session takes its stream listener with it,
+/// and the next `connect` is refused rather than reset.
 fn honest_io(error: &std::io::Error) -> bool {
     matches!(
         error.kind(),
         std::io::ErrorKind::BrokenPipe
             | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::ConnectionRefused
             | std::io::ErrorKind::UnexpectedEof
     )
 }
@@ -257,13 +260,21 @@ fn honest_remote(error: &RemoteError<Infallible>) -> bool {
         RemoteError::HandshakeRead(source) | RemoteError::HandshakeWrite(source) => {
             honest_io(source)
         }
-        RemoteError::Incoming(DemuxError::PrematureEof { .. }) => true,
-        RemoteError::Incoming(DemuxError::Codec(error)) => match &error.kind {
+        // A stream truncated mid-frame, or a stream supply that died: both
+        // are the transport dying somewhere the protocol did not choose.
+        RemoteError::Stream(StreamError::Truncated { .. }) => true,
+        RemoteError::Stream(StreamError::SupplyClosed { source, .. }) => {
+            source.as_ref().is_none_or(honest_io)
+        }
+        RemoteError::Stream(StreamError::Decode(error)) => match &error.kind {
             CodecDecodeErrorKind::Read { source, .. }
             | CodecDecodeErrorKind::Truncated { source, .. } => honest_io(source),
             _ => false,
         },
-        RemoteError::Outgoing(MuxError::Codec(error)) => match &error.kind {
+        RemoteError::Send(SendError::Connect { source, .. } | SendError::Label { source, .. }) => {
+            honest_io(source)
+        }
+        RemoteError::Send(SendError::Frame(error)) => match &error.kind {
             CodecEncodeErrorKind::Write { source, .. } | CodecEncodeErrorKind::Flush(source) => {
                 honest_io(source)
             }
@@ -291,14 +302,14 @@ pub fn assert_honest_gossip(out: &Result<(), Error>) {
 /// failing side's drop surfaces as EOF to its counterparty instead of
 /// wedging the session.
 async fn run_session(a: Rumors<u64>, b: Rumors<u64>, fault_a: FaultPlan, fault_b: FaultPlan) {
-    let (side_a, side_b) = duplex(DUPLEX_BUF);
+    let (link_a, link_b) = rumors::link::memory();
     let task_a = tokio::spawn(async move {
-        let (mut r, mut w) = fault::faulty(side_a, fault_a);
-        a.gossip(&mut r, &mut w).await
+        let mut link = fault::faulty(link_a, fault_a);
+        a.gossip(&mut link).await
     });
     let task_b = tokio::spawn(async move {
-        let (mut r, mut w) = fault::faulty(side_b, fault_b);
-        b.gossip(&mut r, &mut w).await
+        let mut link = fault::faulty(link_b, fault_b);
+        b.gossip(&mut link).await
     });
     assert_honest_gossip(&task_a.await.expect("session task A"));
     assert_honest_gossip(&task_b.await.expect("session task B"));
@@ -321,14 +332,14 @@ async fn run_session(a: Rumors<u64>, b: Rumors<u64>, fault_a: FaultPlan, fault_b
 /// the server its donated fork, so it conservatively counts as a possible
 /// loss either way.
 async fn run_boot(server: Rumors<u64>, fault: FaultPlan) -> Option<Peer<u64>> {
-    let (boot_side, serve_side) = duplex(DUPLEX_BUF);
+    let (boot_side, serve_side) = rumors::link::memory();
     let serve = tokio::spawn(async move {
-        let (mut r, mut w) = fault::faulty(serve_side, FaultPlan::NONE);
-        server.gossip(&mut r, &mut w).await
+        let mut link = fault::faulty(serve_side, FaultPlan::NONE);
+        server.gossip(&mut link).await
     });
     let boot = tokio::spawn(async move {
-        let (mut r, mut w) = fault::faulty(boot_side, fault);
-        Peer::<u64>::bootstrap(&mut r, &mut w).await
+        let mut link = fault::faulty(boot_side, fault);
+        Peer::<u64>::bootstrap(&mut link).await
     });
     assert_honest_gossip(&serve.await.expect("bootstrap serve task"));
     match boot.await.expect("bootstrap join task") {
@@ -558,16 +569,16 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
         // The absorber's side of a retirement is plain gossip, which lives
         // on `Rumors`; it converts back the moment the session ends.
         let absorber = absorber.into_rumors();
-        let (retiree_side, absorber_side) = duplex(DUPLEX_BUF);
+        let (retiree_side, absorber_side) = rumors::link::memory();
         let fault = op.fault;
         let (outcome, absorbed) = tokio::join!(
             async move {
-                let (mut r, mut w) = fault::faulty(retiree_side, fault);
-                retiree.retire(&mut r, &mut w).await
+                let mut link = fault::faulty(retiree_side, fault);
+                retiree.retire(&mut link).await
             },
             async {
-                let (mut r, mut w) = fault::faulty(absorber_side, FaultPlan::NONE);
-                absorber.gossip(&mut r, &mut w).await
+                let mut link = fault::faulty(absorber_side, FaultPlan::NONE);
+                absorber.gossip(&mut link).await
             },
         );
         assert_honest_gossip(&absorbed);

@@ -39,7 +39,7 @@ mod frame;
 mod signal;
 
 #[cfg(any(test, feature = "test-internals"))]
-pub use capture::render_v2_capture;
+pub use capture::{LinkCapture, render_v2_capture};
 pub use decode::FrameRead;
 #[cfg(test)]
 pub use decode::{decode, decode_exact};

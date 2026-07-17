@@ -3,7 +3,7 @@
 //! Every fixture starts with a total universe size of `N = 10_000` possible
 //! actions and varies only where the work lands: shared pre-fork insertions,
 //! post-fork divergent insertions, or post-fork redactions. Each benchmark
-//! drives [`Rumors::gossip`] over one persistent in-memory duplex, so the timed
+//! drives [`Rumors::gossip`] over one persistent in-memory link, so the timed
 //! body pays for the gossip session rather than transport allocation.
 //!
 //! Each of the four Criterion groups measures [`Protocol::V2`] on the same

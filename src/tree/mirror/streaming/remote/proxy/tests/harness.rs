@@ -9,9 +9,10 @@ use std::{
 };
 
 use futures::join;
-use tokio::io::{AsyncRead, AsyncWrite, duplex, split};
+use tokio::io::AsyncWrite;
 
-use crate::testing::{IoPlan, IoReportHandle, IoSide, wrap_io};
+use crate::link::{Acceptor, Connector, Link, MemoryLink, memory_with_capacity};
+use crate::testing::{IoPlan, IoReportHandle, IoSide, wrap_link};
 use crate::tree::{
     Root as TreeRoot,
     mirror::{
@@ -30,6 +31,9 @@ const QUERY_STATES: std::ops::RangeInclusive<u8> = 4..=5;
 
 /// Dense states below this boundary carry reactions rather than bare ends.
 const REACTION_STATE_COUNT: u8 = 8;
+
+/// Bytes of stream label written ahead of a data stream's first frame.
+const LABEL_LEN: usize = 2;
 
 /// Failure returned by the materialized-left/proxy-right driver.
 pub type LeftError = MirrorError<MaterializedError<Infallible>, RemoteError<Infallible>>;
@@ -80,6 +84,10 @@ struct ScriptState {
 }
 
 /// Observation handle proving that a configured mutation was reached.
+///
+/// Shared across every data stream the scripted side opens: the mutation
+/// fires once, on the first frame — in deterministic poll order across
+/// streams — that matches the selector.
 #[derive(Clone)]
 pub struct Script(Arc<Mutex<ScriptState>>);
 
@@ -99,23 +107,32 @@ impl Script {
     }
 }
 
-/// A writer which edits one complete frame at its flush boundary.
+/// A data-stream writer which edits one complete frame at its flush boundary.
+///
+/// Every flush below the [`StreamSender`] carries exactly one frame, so the
+/// flush boundary is the frame boundary. The stream's first flush carries
+/// the two-byte label ahead of its frame; mutations offset past it and leave
+/// it intact.
+///
+/// [`StreamSender`]: crate::tree::mirror::streaming::remote::streams::StreamSender
 pub struct ScriptedWrite<W> {
     inner: W,
     script: Option<Script>,
-    handshake: bool,
+    /// Bytes of label still ahead of the frame in the next flush.
+    label: usize,
     frame: Vec<u8>,
     output: Vec<u8>,
     sent: usize,
 }
 
 impl<W> ScriptedWrite<W> {
-    /// Wrap `inner`, applying `script` once if it reaches its selector.
+    /// Wrap one stream's `inner`, applying `script` once if it reaches its
+    /// selector.
     fn new(inner: W, script: Option<Script>) -> Self {
         Self {
             inner,
             script,
-            handshake: true,
+            label: LABEL_LEN,
             frame: Vec::new(),
             output: Vec::new(),
             sent: 0,
@@ -128,19 +145,15 @@ impl<W> ScriptedWrite<W> {
             return;
         }
         self.output.clone_from(&self.frame);
-        // The first flush is the framed causal Version. Mutations target the
-        // multiplexed codec which begins only after that protocol handshake.
-        if self.handshake {
-            return;
-        }
+        let at = self.label;
         let Some(script) = &self.script else {
             return;
         };
         let mut script = script.0.lock().expect("frame script lock");
-        if script.fired || self.frame.is_empty() {
+        if script.fired || self.frame.len() <= at {
             return;
         }
-        let state = self.frame[0] / crate::tree::mirror::streaming::remote::codec::Stream::COUNT;
+        let state = self.frame[at] / crate::tree::mirror::streaming::remote::codec::Stream::COUNT;
         let selected = match script.selector {
             FrameSelector::First => true,
             FrameSelector::State(expected) => state == expected,
@@ -151,18 +164,18 @@ impl<W> ScriptedWrite<W> {
             return;
         }
         match script.mutation {
-            FrameMutation::Signal(signal) => self.output[0] = signal,
-            FrameMutation::Duplicate => self.output.extend_from_slice(&self.frame),
+            FrameMutation::Signal(signal) => self.output[at] = signal,
+            FrameMutation::Duplicate => self.output.extend_from_slice(&self.frame[at..]),
             FrameMutation::UnorderQuery => {
-                const QUERY_HEADER: usize = 2;
+                let query_header = at + 2;
                 const QUERY_CHILD_LEN: usize = 1 + crate::tree::typed::hash::MERKLE_HASH_LEN;
-                let first = self.output[QUERY_HEADER];
-                if self.output[1] == 0 {
-                    self.output[1] = 1;
+                let first = self.output[query_header];
+                if self.output[at + 1] == 0 {
+                    self.output[at + 1] = 1;
                     self.output
-                        .extend_from_within(QUERY_HEADER..QUERY_HEADER + QUERY_CHILD_LEN);
+                        .extend_from_within(query_header..query_header + QUERY_CHILD_LEN);
                 } else {
-                    self.output[QUERY_HEADER + QUERY_CHILD_LEN] = first;
+                    self.output[query_header + QUERY_CHILD_LEN] = first;
                 }
             }
         }
@@ -193,7 +206,7 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for ScriptedWrite<W> {
         }
         match Pin::new(&mut this.inner).poll_flush(cx) {
             Poll::Ready(Ok(())) => {
-                this.handshake = false;
+                this.label = 0;
                 this.frame.clear();
                 this.output.clear();
                 this.sent = 0;
@@ -211,7 +224,24 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for ScriptedWrite<W> {
     }
 }
 
-/// Reconcile one pair through two proxies over independently wrapped endpoints.
+/// A connector wrapping every opened data stream in a [`ScriptedWrite`]
+/// sharing one [`Script`].
+#[derive(Clone)]
+pub struct ScriptedConnector<C> {
+    inner: C,
+    script: Option<Script>,
+}
+
+impl<C: Connector> Connector for ScriptedConnector<C> {
+    type Tx = ScriptedWrite<C::Tx>;
+
+    async fn connect(&self) -> io::Result<Self::Tx> {
+        let tx = self.inner.connect().await?;
+        Ok(ScriptedWrite::new(tx, self.script.clone()))
+    }
+}
+
+/// Reconcile one pair through two proxies over independently wrapped links.
 pub async fn reconcile(
     left: TreeRoot<()>,
     right: TreeRoot<()>,
@@ -219,14 +249,11 @@ pub async fn reconcile(
     left_plan: IoPlan,
     right_plan: IoPlan,
 ) -> Outcome {
-    let (left_transport, right_transport) = duplex(capacity.max(1));
-    let (left_read, left_write) = split(left_transport);
-    let (right_read, right_write) = split(right_transport);
-    let (left_read, left_write, left_io) = wrap_io(IoSide::Left, left_plan, left_read, left_write);
-    let (right_read, right_write, right_io) =
-        wrap_io(IoSide::Right, right_plan, right_read, right_write);
+    let (left_link, right_link) = memory_with_capacity(capacity.max(1));
+    let (left_link, left_io) = wrap_link(IoSide::Left, left_plan, left_link);
+    let (right_link, right_io) = wrap_link(IoSide::Right, right_plan, right_link);
 
-    let (left, right) = drive(left, right, left_read, left_write, right_read, right_write).await;
+    let (left, right) = drive(left, right, left_link, right_link).await;
 
     Outcome {
         left,
@@ -236,7 +263,7 @@ pub async fn reconcile(
     }
 }
 
-/// Reconcile while mutating at most one flushed frame in each direction.
+/// Reconcile while mutating at most one data-stream frame on each side.
 pub async fn reconcile_scripted(
     left: TreeRoot<()>,
     right: TreeRoot<()>,
@@ -246,48 +273,70 @@ pub async fn reconcile_scripted(
     Result<TreeRoot<()>, LeftError>,
     Result<TreeRoot<()>, RightError>,
 ) {
-    let (left_transport, right_transport) = duplex(37);
-    let (left_read, left_write) = split(left_transport);
-    let (right_read, right_write) = split(right_transport);
+    let (left_link, right_link) = memory_with_capacity(37);
     drive(
         left,
         right,
-        left_read,
-        ScriptedWrite::new(left_write, left_script),
-        right_read,
-        ScriptedWrite::new(right_write, right_script),
+        scripted(left_link, left_script),
+        scripted(right_link, right_script),
     )
     .await
 }
 
-/// Drive the shared two-mirror topology over already-wrapped transport halves.
-async fn drive<LR, LW, RR, RW>(
+/// Wrap one link's outgoing data streams with a frame script.
+fn scripted(
+    link: MemoryLink,
+    script: Option<Script>,
+) -> Link<
+    tokio::io::DuplexStream,
+    tokio::io::DuplexStream,
+    ScriptedConnector<crate::link::MemoryConnector>,
+    crate::link::MemoryAcceptor,
+> {
+    let parts = link.into_parts();
+    crate::link::LinkParts {
+        control_read: parts.control_read,
+        control_write: parts.control_write,
+        connector: ScriptedConnector {
+            inner: parts.connector,
+            script,
+        },
+        acceptor: parts.acceptor,
+        epoch: parts.epoch,
+    }
+    .into_link()
+}
+
+/// Drive the shared two-mirror topology over already-wrapped links.
+async fn drive<LR, LW, LC, LA, RR, RW, RC, RA>(
     left: TreeRoot<()>,
     right: TreeRoot<()>,
-    left_read: LR,
-    left_write: LW,
-    right_read: RR,
-    right_write: RW,
+    left_link: Link<LR, LW, LC, LA>,
+    right_link: Link<RR, RW, RC, RA>,
 ) -> (
     Result<TreeRoot<()>, LeftError>,
     Result<TreeRoot<()>, RightError>,
 )
 where
-    LR: AsyncRead + Unpin + Send,
+    LR: tokio::io::AsyncRead + Unpin + Send,
     LW: AsyncWrite + Unpin + Send,
-    RR: AsyncRead + Unpin + Send,
+    LC: Connector,
+    LA: Acceptor,
+    RR: tokio::io::AsyncRead + Unpin + Send,
     RW: AsyncWrite + Unpin + Send,
+    RC: Connector,
+    RA: Acceptor,
 {
     let left = Handshaking::start(Local, Root::from(left));
     let right = Handshaking::start(Local, Root::from(right));
-    let remote_right = RemoteHandshaking::start(Local, left_read, left_write);
-    let remote_left = RemoteHandshaking::start(Local, right_read, right_write);
+    let remote_right = RemoteHandshaking::start(Local, left_link);
+    let remote_left = RemoteHandshaking::start(Local, right_link);
     let (left, right) = join!(
         Box::pin(mirror(left, remote_right)),
         Box::pin(mirror(remote_left, right)),
     );
     (
-        left.map(|(root, _transport)| root.into()),
-        right.map(|(_transport, root)| root.into()),
+        left.map(|(root, _control)| root.into()),
+        right.map(|(_control, root)| root.into()),
     )
 }
