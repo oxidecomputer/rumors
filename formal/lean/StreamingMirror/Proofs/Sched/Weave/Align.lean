@@ -2134,7 +2134,7 @@ private theorem walkSeg_glue_range' (h' : Nat) (g : Nat → Nat)
 
 /-- One kid op's per-stage filters: the ownership cover, the feeder's
 query, the own-stage spliced chunk, and the descendant windows. -/
-private theorem kid_filters (hwf : sk.wellFormed = true)
+theorem kid_filters (hwf : sk.wellFormed = true)
     {h k : Nat} (hh : h < sk.rootH) (hk : k < sk.stageLen h)
     {F : List Ev} {mF : Nat}
     (hF : F.length = sk.nChildren h (sk.stageScope h k))

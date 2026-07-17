@@ -1480,5 +1480,188 @@ theorem ready_leafreq (hwf : sk.wellFormed = true)
     hroot
   exact enabled_of_window sk hwf hwin (hW.rcvd_eq _)
 
+-- ====================================== the tree induction's plumbing
+
+/-- Walk indices are distinct across stages under the root. -/
+theorem walkIdx_inj {sk : Skel} {a b : Nat} (ha : a < sk.rootH)
+    (hb : b < sk.rootH) (h : walkIdx sk a = walkIdx sk b) : a = b := by
+  unfold walkIdx at h
+  omega
+
+/-- A subtree owns nothing at a foreign index: everything inside is
+the feeder's or a covered walk's. -/
+theorem scope_filter_ne (hwf : sk.wellFormed = true) {h k : Nat}
+    {F : List Ev} {mF M : Nat} (hh : h < sk.rootH)
+    (hk : k < sk.stageLen h)
+    (hF : F.length = sk.nChildren h (sk.stageScope h k))
+    (hFo : ∀ e ∈ F, evOwner sk e = mF) (hmF : mF < walkIdx sk h)
+    (hMne : mF ≠ M) (hMhigh : ∀ h', h' ≤ h → walkIdx sk h' ≠ M) :
+    (opEvents sk (.scope h k F)).filter
+      (fun e => evOwner sk e == M) = [] := by
+  rw [List.filter_eq_nil_iff]
+  intro e he
+  rcases (align_scope sk hwf h k F mF hh hk hF hFo hmF).1 e he with
+    ho | ⟨h', hle, ho⟩
+  · simp only [ho, beq_iff_eq]
+    exact hMne
+  · simp only [ho, beq_iff_eq]
+    exact hMhigh h' hle
+
+/-- A kid suffix owns nothing at a foreign index. -/
+theorem kids_filter_ne (hwf : sk.wellFormed = true) {h k : Nat}
+    {F : List Ev} {mF M : Nat} (hh : h < sk.rootH)
+    (hk : k < sk.stageLen h)
+    (hF : F.length = sk.nChildren h (sk.stageScope h k))
+    (hFo : ∀ e ∈ F, evOwner sk e = mF) (hmF : mF < walkIdx sk h)
+    {i : Nat} (hi : i ≤ sk.nChildren h (sk.stageScope h k))
+    (hMne : mF ≠ M) (hMhigh : ∀ h', h' ≤ h → walkIdx sk h' ≠ M) :
+    ((List.range' i (sk.nChildren h (sk.stageScope h k) - i)).flatMap
+        (fun i' => opEvents sk (.kid h k (sk.stageScope h k)
+          (lastDOf sk h k) (sk.wiresBefore h k) i' F))).filter
+      (fun e => evOwner sk e == M) = [] := by
+  rw [List.filter_eq_nil_iff]
+  intro e he
+  rcases (align_kids_suffix sk hwf hh hk hF hFo hmF hi).1 e he with
+    ho | ⟨h', hle, ho⟩
+  · simp only [ho, beq_iff_eq]
+    exact hMne
+  · simp only [ho, beq_iff_eq]
+    exact hMhigh h' hle
+
+/-- The consumed-head merge: a positional read glued back onto the
+remaining suffix is the suffix one shorter. -/
+theorem toList_drop_merge {α : Type _} {l : List α} {i : Nat}
+    (hi : i < l.length) :
+    l[i]?.toList ++ l.drop (i + 1) = l.drop i := by
+  rw [List.getElem?_eq_getElem hi, Option.toList_some,
+    List.singleton_append, ← List.drop_eq_getElem_cons hi]
+
+/-- Rebase the telescope across a local prefix: stages two or more up
+see nothing in the prefix, and the immediate parent's cursor moves to
+the prefix's feed position. -/
+theorem ancTele_rebase {h : Nat} {A j t : Nat → Nat}
+    {pre rest : List Ev} (hanc : AncTele sk h A j t rest)
+    (hnil : ∀ G, h + 2 ≤ G → G < sk.rootH →
+      pre.filter (fun e => evOwner sk e == walkIdx sk G) = [])
+    {c : Nat}
+    (hpar : h + 1 < sk.rootH →
+      (pre ++ rest).filter
+          (fun e => evOwner sk e == walkIdx sk (h + 1))
+        = (chunkQ sk (h + 1) (A (h + 1)) (j (h + 1))).drop c
+          ++ (List.range' (j (h + 1) + 1)
+                (sk.nChildren (h + 1)
+                    (sk.stageScope (h + 1) (A (h + 1)))
+                  - (j (h + 1) + 1))).flatMap
+               (splicedChunk sk (h + 1) (A (h + 1))
+                 (lastDOf sk (h + 1) (A (h + 1))))
+          ++ walkSeg sk (h + 1) (A (h + 1) + 1)
+              (sk.stageLen (h + 1))) :
+    AncTele sk h A j (fun G => if G = h + 1 then c else t G)
+      (pre ++ rest) := by
+  refine ⟨hanc.rng, hanc.isD, hanc.coh, ?_⟩
+  intro G hG hGr
+  by_cases hG1 : G = h + 1
+  · subst hG1
+    simp only [reduceIte]
+    exact hpar hGr
+  · simp only [if_neg hG1]
+    rw [List.filter_append, hnil G (by omega) hGr, List.nil_append]
+    exact hanc.fil G hG hGr
+
+/-- The deep windows at a mid-scope slot: the kid suffix's windows
+glued to the after-scope remainder. -/
+theorem deep_glue (hwf : sk.wellFormed = true) {h k : Nat}
+    (hhr : h < sk.rootH) (hk : k < sk.stageLen h) {i : Nat}
+    (hi : i ≤ sk.nChildren h (sk.stageScope h k))
+    {suffix rest : List Ev}
+    (hsuf : ∀ g', g' < h →
+      suffix.filter (fun e => evOwner sk e == walkIdx sk g')
+        = walkSeg sk g'
+            (descIdx sk g' (h - 1 - g') (sk.wiresBefore h k + i))
+            (descIdx sk g' (h - 1 - g')
+              (sk.wiresBefore h k
+                + sk.nChildren h (sk.stageScope h k))))
+    (hrest : ∀ g', g' ≤ h →
+      rest.filter (fun e => evOwner sk e == walkIdx sk g')
+        = walkSeg sk g' (descIdx sk g' (h - g') (k + 1))
+            (sk.stageLen g')) :
+    ∀ g', g' < h →
+      (suffix ++ rest).filter (fun e => evOwner sk e == walkIdx sk g')
+        = walkSeg sk g'
+            (descIdx sk g' (h - 1 - g') (sk.wiresBefore h k + i))
+            (sk.stageLen g') := by
+  intro g' hg'
+  rw [List.filter_append, hsuf g' hg', hrest g' (Nat.le_of_lt hg')]
+  have hbc : descIdx sk g' (h - g') (k + 1)
+      = descIdx sk g' (h - 1 - g')
+          (sk.wiresBefore h k
+            + sk.nChildren h (sk.stageScope h k)) := by
+    rw [show sk.wiresBefore h k + sk.nChildren h (sk.stageScope h k)
+        = sk.wiresBefore h (k + 1) from (wiresBefore_succ sk hk).symm,
+      show h - g' = h - 1 - g' + 1 from by omega, descIdx_succ,
+      show g' + (h - 1 - g') + 1 = h from by omega]
+  rw [hbc]
+  have hmono := descIdx_mono sk g' (h - 1 - g')
+    (show sk.wiresBefore h k + i
+        ≤ sk.wiresBefore h k + sk.nChildren h (sk.stageScope h k)
+      from by omega)
+  have hend : descIdx sk g' (h - 1 - g')
+      (sk.wiresBefore h k + sk.nChildren h (sk.stageScope h k))
+      ≤ sk.stageLen g' := by
+    rw [← hbc]
+    refine descIdx_le_stageLen sk hwf ?_ ?_
+    · rw [show g' + (h - g') = h from by omega]
+      exact hhr
+    · rw [show g' + (h - g') = h from by omega]
+      exact hk
+  exact walkSeg_glue sk hmono hend
+
+/-- A prologue wire receive discharges from its in-flight send. -/
+theorem head_rcv_wire (hwf : sk.wellFormed = true) {fut : List Ev}
+    {st : MState} (hW : WCount sk fut st) {p : Party} {hh n : Nat}
+    (hpred : ∀ d, manDep ((Chan.wire p hh, false, n) : Ev) = some d →
+      d ∈ st.out) :
+    enabled sk st.sent st.rcvd (Chan.wire p hh, false, n) = true :=
+  enabled_rcv_of_mem sk hwf hW (hpred _ (manDep_wire_rcv p hh n))
+
+/-- A prologue asked receive discharges from its in-flight send. -/
+theorem head_rcv_asked (hwf : sk.wellFormed = true) {fut : List Ev}
+    {st : MState} (hW : WCount sk fut st) {p : Party} {hh n : Nat}
+    (hpred : ∀ d, manDep ((Chan.asked p hh, false, n) : Ev) = some d →
+      d ∈ st.out) :
+    enabled sk st.sent st.rcvd (Chan.asked p hh, false, n) = true :=
+  enabled_rcv_of_mem sk hwf hW (hpred _ (manDep_asked_rcv p hh n))
+
+/-- A manual-consumed wire send discharges from its predecessor
+receive, or opens on a fresh window at seq zero. -/
+theorem head_snd_wire (hwf : sk.wellFormed = true) {fut : List Ev}
+    {st : MState} (hW : WCount sk fut st) {p : Party} {hh n : Nat}
+    (hh1 : 1 ≤ hh)
+    (hpred : ∀ d, manDep ((Chan.wire p hh, true, n) : Ev) = some d →
+      d ∈ st.out) :
+    enabled sk st.sent st.rcvd (Chan.wire p hh, true, n) = true := by
+  rcases Nat.eq_zero_or_pos n with rfl | hn
+  · exact enabled_snd_low sk (cap_pos hwf _)
+  · have hc : sk.cap (Chan.wire p hh) = 1 := rfl
+    refine enabled_snd_of_mem sk hwf hW ?_ (by omega)
+    have hmem := hpred _ (manDep_wire_snd_pos (by omega) (by omega))
+    rw [hc]
+    exact hmem
+
+/-- A manual-consumed query send discharges from its predecessor
+receive, or opens on a fresh window at seq zero. -/
+theorem head_snd_asked (hwf : sk.wellFormed = true) {fut : List Ev}
+    {st : MState} (hW : WCount sk fut st) {p : Party} {hh n : Nat}
+    (hpred : ∀ d, manDep ((Chan.asked p hh, true, n) : Ev) = some d →
+      d ∈ st.out) :
+    enabled sk st.sent st.rcvd (Chan.asked p hh, true, n) = true := by
+  rcases Nat.eq_zero_or_pos n with rfl | hn
+  · exact enabled_snd_low sk (cap_pos hwf _)
+  · have hc : sk.cap (Chan.asked p hh) = 1 := rfl
+    refine enabled_snd_of_mem sk hwf hW ?_ (by omega)
+    have hmem := hpred _ (manDep_asked_snd_pos (by omega))
+    rw [hc]
+    exact hmem
+
 end StreamingMirror.Sched
 

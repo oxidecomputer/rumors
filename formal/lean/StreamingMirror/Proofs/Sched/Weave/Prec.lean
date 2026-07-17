@@ -821,7 +821,7 @@ theorem dep_scope (hwf : sk.wellFormed = true) :
 -- ====================================================== top assembly
 
 /-- The root scope's feed is ropen's query tail. -/
-private theorem ropen_drop_eq_feed (hwf : sk.wellFormed = true) :
+theorem ropen_drop_eq_feed (hwf : sk.wellFormed = true) :
     (ropenEvents sk).drop 3 = scopeFeed sk (sk.rootH - 1) 0 := by
   have heven := (wf_rootH hwf).1
   have hge := (wf_rootH hwf).2
