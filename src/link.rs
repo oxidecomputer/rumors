@@ -157,9 +157,13 @@ pub struct Link<CR, CW, C, A> {
 /// latch.
 ///
 /// Owned by [`Link`] and exposed through [`LinkParts::session`], so a link
-/// wrapper can carry it across decoration. Both ends of a connection hold
-/// equal states: sessions are serialized and both ends run each session, so
-/// the fields advance in lockstep.
+/// wrapper can carry it across decoration. The epoch advances in lockstep
+/// at both ends of a connection — sessions are serialized and both ends run
+/// each session — but the poison latch is local by design: one end can
+/// conclude a session `Ok` while its peer fails post-commit
+/// ([`Error::Epilogue`](crate::Error::Epilogue)), so between sessions the
+/// two ends' latches may legitimately disagree. Never mirror or
+/// reconstruct one end's state from the other's.
 #[derive(Clone, Copy, Debug)]
 pub struct SessionState {
     /// The next session's epoch. Both ends count every session on the link

@@ -68,18 +68,24 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     #[error("retiring peer's party overlaps ours")]
     PartyOverlap,
 
-    /// The session's closing epilogue failed *after* the local replica
-    /// committed.
+    /// The session's closing epilogue failed *after* the session's local
+    /// work completed.
     ///
     /// Under [`Protocol::V2`] each side ends a session by
     /// exchanging a one-byte completion marker on the control stream, so `Ok`
     /// certifies the peer completed and committed too. This error is the
-    /// residue that exchange cannot eliminate (the two-generals problem): the
-    /// local replica **is** committed — every message and identity the session
-    /// moved is applied here — and only the confirmation of the *peer's*
-    /// completion failed. The source is the I/O failure that cut the exchange
-    /// short, or an invalid-data error if the peer wrote something other than
-    /// the marker where it belonged.
+    /// residue that exchange cannot eliminate (the two-generals problem):
+    /// only the confirmation of the *peer's* completion failed. For a
+    /// session on an existing replica — gossip, retire, or the side serving
+    /// a bootstrap — the local replica therefore **is** committed: every
+    /// message and identity the session moved is applied here. The
+    /// bootstrapping side is the exception: its epilogue runs before any
+    /// [`Peer`](crate::Peer) exists, so on this error the received identity
+    /// is dropped and nothing is applied locally, while the provider may
+    /// have committed and the forked id-region leaks (see
+    /// [`Peer::bootstrap`](crate::Peer::bootstrap)). The source is the I/O
+    /// failure that cut the exchange short, or an invalid-data error if the
+    /// peer wrote something other than the marker where it belonged.
     #[error("session epilogue failed after local commit: {0}")]
     Epilogue(#[source] std::io::Error),
 

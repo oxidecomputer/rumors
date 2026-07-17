@@ -219,6 +219,11 @@
 //! - **Cancellation: as `Err`, enforced the same way.** Dropping a session
 //!   future mid-flight never commits a partial session — the replica holds
 //!   either the session's full effect or none of it — and poisons the link.
+//!   One carve-out: a `retire` future owns its consumed [`Peer`], so
+//!   dropping it destroys the peer and leaks the identity (recoverable
+//!   later only through an attached bookmark) — where the corresponding
+//!   `Err` would have handed the peer back intact through [`Retire`]'s
+//!   variants.
 //!
 //! No session imposes its own deadline. Against a stalled or hostile peer a
 //! session can wait forever — including at the final marker exchange — so

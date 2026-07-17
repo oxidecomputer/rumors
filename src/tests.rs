@@ -498,9 +498,10 @@ fn severed_party_frame_is_uncertain() {
     let survivor = Peer::<u64>::seed();
     let (mut survivor, child) = bootstrap_from(survivor);
 
-    // Both empty and converged, so the session is exactly preamble + greeting
-    // + party frame. The fuse admits the first two to the byte, so the party
-    // frame is the write that fails.
+    // Both empty and converged, so the retiree's outgoing bytes are exactly
+    // preamble + greeting + party frame + epilogue marker. The fuse admits
+    // the first two to the byte, so the party frame is the write that fails
+    // (and the trailing marker is never reached).
     let budget = PREAMBLE_LEN + greeting_frame_len(&child);
     let (child_out, peer_out) = severed_retire(child, &mut survivor, budget);
 

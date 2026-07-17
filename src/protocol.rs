@@ -16,6 +16,11 @@ pub enum Protocol {
     /// with V1 peers and comparative measurement, and off by default because
     /// its state machines are a large monomorphization surface that every
     /// downstream binary would otherwise compile.
+    ///
+    /// V1 has no session epilogue, so its `Ok` is weaker than
+    /// [`V2`](Protocol::V2)'s: it certifies only the local commit, not the
+    /// peer's (see [what a session
+    /// promises](crate#what-a-session-promises)).
     #[cfg(any(test, feature = "protocol-v1"))]
     V1 = 1,
     /// Fixed-memory reconciliation over multiplexed logical streams.

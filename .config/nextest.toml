@@ -11,5 +11,16 @@
 # after its attempt budget was tightened), so three 60-second periods —
 # termination at 180 seconds — is generous headroom, and everything past
 # the first period is flagged as slow in the meantime.
+# One collision this budget knowingly accepts: proptest persists a failing
+# case's regression seed only after shrinking completes, so a genuinely
+# failing property whose shrink phase outruns the 180-second terminate
+# budget is killed mid-shrink and the reproducer is lost at exactly the
+# moment it matters. Passing runs are unaffected. If a property fails on a
+# loaded machine and dies here instead of reporting, rerun it with
+# PROPTEST_MAX_SHRINK_ITERS lowered (or PROPTEST_MAX_SHRINK_TIME set, in
+# milliseconds) so shrinking finishes inside the budget: the less-shrunk
+# failing case still persists to proptest-regressions/ and reproduces
+# deterministically. Raising terminate-after instead would stretch every
+# real hang by the same amount, which is the worse trade for CI.
 [profile.default]
 slow-timeout = { period = "60s", terminate-after = 3 }

@@ -336,16 +336,21 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// continue. It yields one [`Gossiped`] per completed gossip session. It
     /// terminates in one of three ways:
     ///
-    /// - the connection fails: one final `Err` (replica unchanged; the link
-    ///   is poisoned, and any later session on it fails fast with
-    ///   [`Error::LinkPoisoned`] — discard the link);
+    /// - the connection fails: one final `Err` — the replica unchanged,
+    ///   unless the error is the post-commit [`Error::Epilogue`], whose
+    ///   session is fully committed locally — and the link is poisoned on
+    ///   every error path, so any later session on it fails fast with
+    ///   [`Error::LinkPoisoned`]: discard the link;
     /// - `when` ends, cleanly, after finishing any session in flight;
     /// - the remote hangs up at a session boundary, cleanly.
     ///
-    /// After either clean termination the link rests at a session boundary
-    /// and stays usable: hand it to another driver or session. Each driven
-    /// session carries the [session contract](crate#what-a-session-promises)
-    /// of a one-shot [`gossip`](Self::gossip).
+    /// After either clean termination the link rests at a session boundary.
+    /// After `when`-exhaustion it stays usable: hand it to another driver
+    /// or session. After the remote's goodbye the peer is gone — a new
+    /// driver observes the same clean goodbye, but a one-shot session on
+    /// the link fails against the closed transport. Each driven session
+    /// carries the [session contract](crate#what-a-session-promises) of a
+    /// one-shot [`gossip`](Self::gossip).
     ///
     /// # Suppression
     ///

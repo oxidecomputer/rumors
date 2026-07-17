@@ -914,9 +914,11 @@ rustdoc as a hard rule and in the conformance suite as a test:
   epoch/index label, which the snapshots do not hex-pin; the label
   bytes are pinned by their own unit test.) A denser state-only
   byte would save zero bytes and delete the tripwire; that idea is
-  retired. The conformance suite (§8.7) gains a deliberately
-  miswiring `Link` asserting the mismatch error surfaces on frame
-  one.
+  retired. The miswiring coverage landed at the streams tier rather
+  than as a conformance-suite check: the mislabeled-frame unit tests
+  (`src/tree/mirror/streaming/remote/streams/tests.rs`) pin that a
+  wrong label surfaces as the precise mismatch error on frame one,
+  which discharges the obligation the suite was once promised.
 - **Public API:** `gossip(read, write)` → `gossip(link)`; likewise
   `bootstrap`, `retire`, `gossip_when`. The transport type erasure
   (`DynRead`/`DynWrite`) is rethought at the `Link` boundary — with
@@ -1084,8 +1086,8 @@ each is deliberate and the code documents it in place:
   that never ran to its own end (cancellation is invisible to the wire),
   and poisoning says nothing about whether the *peer* committed (the
   local latch clears on local success alone were there no epilogue).
-  Cheapest possible forms of each: one byte per session on the wire, two
-  bytes of state on the link.
+  Cheapest possible forms of each: one epilogue byte each way per session
+  (two on the wire), two bytes of state on the link.
 - **The §8.9 llvm-lines freeze gate is satisfied.** Measured on the
   branch: `cargo llvm-lines` on `--test pairwise` totals 2,040,751 lines,
   unchanged from `design/height-erasure.md`'s 2.04M baseline. The
