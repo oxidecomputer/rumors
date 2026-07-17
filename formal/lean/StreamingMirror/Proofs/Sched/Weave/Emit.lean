@@ -1008,4 +1008,94 @@ theorem chunkQ_drop_proj_q (h k i : Nat) {t : Nat}
           (sk.qCount h (sk.stageScope h k) i) := rfl
   rw [hcq, seg_drop _ _ _ _ _ ht, proj_seg_self]
 
+-- ================================= the in-flight ancestor's pins
+
+/-- An in-flight ancestor's future summary share: everything past
+its current scope, plus the current summary unless the splice
+already fired at the in-flight slot.
+
+The feed cursor `t` cancels — the pin is insensitive to feed
+progress, which is what keeps the ancestor form valid at every site
+inside the in-flight kid's subtree. -/
+theorem futLen_anc_upper {fut : List Ev} {g A jD t : Nat}
+    (hA : A < sk.stageLen g)
+    (hjD : jD < sk.nChildren g (sk.stageScope g A))
+    (hD : sk.childIsD g (sk.stageScope g A) jD = true)
+    (hfil : fut.filter (fun e => evOwner sk e == walkIdx sk g)
+      = (chunkQ sk g A jD).drop t
+        ++ (List.range' (jD + 1)
+              (sk.nChildren g (sk.stageScope g A) - (jD + 1))).flatMap
+             (splicedChunk sk g A (lastDOf sk g A))
+        ++ walkSeg sk g (A + 1) (sk.stageLen g)) :
+    futLen sk fut (walkIdx sk g) (upperOut (wpk g)) true
+      = sk.stageLen g - A
+        - (if lastDOf sk g A == some jD then 1 else 0) := by
+  obtain ⟨j, hlast, hij⟩ := lastDOf_isSome_of_D sk hD hjD
+  have hjn := (lastDOf_isD sk hlast).2
+  have hne : proj (upperOut (wpk g)) true
+      ((chunkQ sk g A jD).drop t) = [] :=
+    chunkQ_drop_proj_ne sk g A jD t (by
+      rintro ⟨hc, -⟩
+      simp only [askedOut, upperOut] at hc
+      split at hc <;> exact Chan.noConfusion hc)
+  rw [futLen_of_filter sk hfil, proj_append, proj_append, hne,
+    walkSeg_proj_upper sk (show A + 1 ≤ sk.stageLen g by omega)]
+  by_cases hjj : j = jD
+  · subst hjj
+    rw [chunks_proj_upper_past sk hlast (show j < j + 1 by omega),
+      hlast, if_pos (beq_self_eq_true (some j))]
+    simp only [List.nil_append, seg_len]
+    omega
+  · rw [chunks_proj_upper_covered sk hlast (show jD + 1 ≤ j by omega)
+        (show j < jD + 1 + (sk.nChildren g (sk.stageScope g A)
+          - (jD + 1)) by omega),
+      hlast, if_neg (by simp [hjj])]
+    simp only [List.nil_append, List.length_append, List.length_nil,
+      List.length_cons, seg_len]
+    omega
+
+/-- An in-flight ancestor's future resolution share: everything past
+the in-flight slot's own resolution. -/
+theorem futLen_anc_lower {fut : List Ev} {g A jD t : Nat}
+    (hA : A < sk.stageLen g)
+    (hjD : jD < sk.nChildren g (sk.stageScope g A))
+    (hD : sk.childIsD g (sk.stageScope g A) jD = true)
+    (hfil : fut.filter (fun e => evOwner sk e == walkIdx sk g)
+      = (chunkQ sk g A jD).drop t
+        ++ (List.range' (jD + 1)
+              (sk.nChildren g (sk.stageScope g A) - (jD + 1))).flatMap
+             (splicedChunk sk g A (lastDOf sk g A))
+        ++ walkSeg sk g (A + 1) (sk.stageLen g)) :
+    futLen sk fut (walkIdx sk g) (lowerOut (wpk g)) true
+      = sk.dsBefore g (sk.stageLen g)
+        - (sk.dsBefore g A + dRank sk (wpk g) A jD + 1) := by
+  have hne : proj (lowerOut (wpk g)) true
+      ((chunkQ sk g A jD).drop t) = [] :=
+    chunkQ_drop_proj_ne sk g A jD t (by
+      rintro ⟨hc, -⟩
+      simp only [askedOut, lowerOut] at hc
+      split at hc <;> exact Chan.noConfusion hc)
+  rw [futLen_of_filter sk hfil, proj_append, proj_append, hne,
+    chunks_proj_res sk g A (lastDOf sk g A) _ (jD + 1),
+    walkSeg_proj_res sk (show A + 1 ≤ sk.stageLen g by omega)
+      (Nat.le_refl _)]
+  simp only [List.nil_append, List.length_append, seg_len]
+  have hidx : jD + 1 + (sk.nChildren g (sk.stageScope g A) - (jD + 1))
+      = sk.nChildren g (sk.stageScope g A) := by omega
+  rw [hidx]
+  have htot : dRank sk (wpk g) A (sk.nChildren g (sk.stageScope g A))
+      = sk.dOf g (sk.stageScope g A) := dRank_total sk (wpk g) A
+  have hds := dRank_succ sk (wpk g) A jD
+  rw [show sk.childIsD (wpk g).2 (sk.stageScope (wpk g).2 A) jD
+      = sk.childIsD g (sk.stageScope g A) jD from rfl, hD,
+    if_pos rfl] at hds
+  have hsc : sk.dsBefore g (A + 1)
+      = sk.dsBefore g A + sk.dOf g (sk.stageScope g A) :=
+    dsBefore_succ sk hA
+  have hmono : sk.dsBefore g (A + 1) ≤ sk.dsBefore g (sk.stageLen g) :=
+    dsBefore_mono sk g (by omega)
+  have hle : dRank sk (wpk g) A jD + 1 ≤ sk.dOf g (sk.stageScope g A) :=
+    dRank_succ_le_dOf sk (wpk g) hjD hD
+  omega
+
 end StreamingMirror.Sched
