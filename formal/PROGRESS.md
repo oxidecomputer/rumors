@@ -563,15 +563,22 @@ bounds μ(Q), and both are bounded by the awaited send.
      (`PumpObl`/`CtxOK`, a pointwise list property like `DepOK` but
      with existential ancestor coordinates — no closed-form ascending
      index needed), established by a third tree induction carrying
-     the ancestor path. Bottom-up build order: (a) per-owner
-     projection collapse + head-seq (head of any remainder/future =
-     its channel-side count) + `rcvd ≤ sent`; (b) per-family trace
-     take/head structure (asm blocks, absorb, fins); (c) the asm/
-     absorb stuck-trichotomy at fixpoint; (d) `pendsBefore`
-     accounting; (e) the four discharge lemmas from explicit context
-     hypotheses; (f) the `CtxOK` tree induction; (g) layer D: the
-     fuel induction assembling `WEdge sk [] (weaveState sk)` under
-     `wellFormed ∧ schedulable`.
+     the ancestor path. Bottom-up build order, with status
+     (2026-07-17, `Weave/Pump.lean`): (a) ~~per-owner projection
+     collapse + head-seq + `rcvd ≤ sent`~~ done — `out_proj_owner`,
+     `cell_head_seq`, `cell_not_out`, `wedge_rcvd_le_sent`, plus the
+     `procs` positional reads at the pump slots; (b) per-family
+     trace take/head structure — asm DONE (`prefix_flatMap`,
+     block-run projections, `asm_cell_shape`: a nonempty cell heads
+     at res/level/out with all three prefix counts pinned); absorb
+     and fins analogs remain; (c) the asm/absorb stuck-trichotomy at
+     fixpoint (glue `asm_cell_shape` + `cell_head_seq` + per-cell
+     disabledness from `step = none`); (d) `pendsBefore` accounting
+     (asker `pendsBefore = dsBefore`, answerer pends = kid sums,
+     totals = producer totals); (e) the four discharge lemmas from
+     explicit context hypotheses; (f) the `CtxOK` tree induction;
+     (g) layer D: the fuel induction assembling
+     `WEdge sk [] (weaveState sk)` under `wellFormed ∧ schedulable`.
    - *Then, closing (b):* per-channel totals (snd = rcv, counting
      style); the blame-reduction lemmas (mostly 3a corollaries); the
      small argmin assembly (stalled state ⟹ blame edge drops weave
