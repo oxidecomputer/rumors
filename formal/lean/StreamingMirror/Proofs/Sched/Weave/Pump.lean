@@ -456,7 +456,7 @@ private theorem seg_take (c : Chan) (b : Bool) (lo n m : Nat) :
   unfold seg
   rw [← List.map_take, List.take_range]
 
-private theorem seg_len (c : Chan) (b : Bool) (lo n : Nat) :
+theorem seg_len (c : Chan) (b : Bool) (lo n : Nat) :
     (seg c b lo n).length = n := by
   simp [seg]
 
@@ -815,7 +815,7 @@ private theorem asm_owners (p : Party) {j : Nat} (h1 : 1 ≤ j) :
         rw [if_neg (by omega)]
 
 /-- The asm trace's whole-trace projections. -/
-private theorem asm_totals (pk : Party × Nat) :
+theorem asm_totals (pk : Party × Nat) :
     proj (asmResChan pk) false (asmEvents sk pk)
         = seg (asmResChan pk) false 0 (sk.asmResList pk.1 pk.2).length
     ∧ proj (asmLevelChan pk) false (asmEvents sk pk)
@@ -1029,7 +1029,7 @@ private theorem proj_run_alevel :
         seg_append, Nat.add_comm 1 m]
 
 /-- The absorb trace's whole-trace projections. -/
-private theorem absorb_totals :
+theorem absorb_totals :
     proj (Chan.wire Party.R 0) false (absorbEvents sk)
         = seg (Chan.wire Party.R 0) false 0 sk.totalLeafReqs
     ∧ proj Chan.leafRequests false (absorbEvents sk)
