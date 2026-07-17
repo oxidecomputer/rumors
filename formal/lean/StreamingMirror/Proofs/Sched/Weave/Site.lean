@@ -271,4 +271,108 @@ theorem spineLink_absorb_at (hwf : sk.wellFormed = true)
       (by omega), hreq]
   exact spine_nest sk hB hi0
 
+-- ================================================= descent assembly
+
+/-- Descent supplies are vacuous for the responder at stage zero.
+
+The level-0 arm of `DescSupply` is guarded on the initiator, so the
+responder owes nothing below its height-one asker. -/
+theorem descSupply_R_zero (st : MState) (c : Nat) :
+    DescSupply sk st Party.R 0 c :=
+  fun hc => nomatch hc
+
+/-- Two `descIdx` top-peels at once, addition-side: the cursor
+re-bases two coordinates in without touching the depth subtraction. -/
+private theorem descIdx_two (g m C : Nat) :
+    descIdx sk g (m + 2) C
+      = descIdx sk g m
+          (sk.wiresBefore (g + m + 1) (sk.wiresBefore (g + m + 2) C)) :=
+  rfl
+
+/-- THE DESCENT TELESCOPE, assembled: an answerer stage's demand in
+cursor form is supplied all the way down.
+
+Given each covered answerer's resolution count and each covered
+asker's summary count at its `descIdx` cursor, plus the absorber
+feeds at the bottom, the whole `DescSupply` package holds. Two stages
+per step (`descSupply_step`), bottoming at the party bases; the cut
+invariant `C_g = descIdx g (j - g) C` is carried by re-basing the
+cursor two coordinates in (`descIdx_two`). -/
+theorem descSupply_down (hwf : sk.wellFormed = true) {st : MState}
+    {p : Party} :
+    ∀ (j : Nat), asks p j = false → 1 ≤ j → j < sk.rootH →
+    ∀ (C : Nat),
+    (∀ g, 1 ≤ g → g ≤ j → asks p g = false →
+      sk.dsBefore g (descIdx sk g (j - g) C)
+        ≤ sndCount (Chan.lower p g) st.out) →
+    (∀ g, g + 2 ≤ j → asks p (g + 1) = true →
+      descIdx sk g (j - g) C ≤ sndCount (Chan.upper p g) st.out) →
+    (p = Party.I →
+      sk.wiresBefore 0 (descIdx sk 0 j C)
+        ≤ sndCount (Chan.wire Party.R 0) st.out
+      ∧ sk.wiresBefore 0 (descIdx sk 0 j C)
+        ≤ sndCount Chan.leafRequests st.out) →
+    DescSupply sk st p j (sk.dsBefore j C)
+  | 0, _, h1, _, _, _, _, _ => absurd h1 (by omega)
+  | 1, hj, _, hjr, C, hlow, _, hbase => by
+      cases p with
+      | R => exact absurd hj (by decide)
+      | I =>
+          refine descSupply_base_I sk hwf hjr ?_ ?_ ?_
+          · have h0 := hlow 1 (Nat.le_refl 1) (Nat.le_refl 1) hj
+            rw [Nat.sub_self] at h0
+            exact h0
+          · exact (hbase rfl).1
+          · exact (hbase rfl).2
+  | 2, hj, _, hjr, C, hlow, hup, _ => by
+      cases p with
+      | I => exact absurd hj (by decide)
+      | R =>
+          refine descSupply_base_R sk hwf hjr ?_ ?_
+          · have h0 := hlow 2 (by omega) (Nat.le_refl 2) hj
+            rw [Nat.sub_self] at h0
+            exact h0
+          · exact hup 0 (by omega) (by decide)
+  | j + 3, hj, _, hjr, C, hlow, hup, hbase => by
+      have hasker : asks p (j + 2) = true := by
+        have hs := asks_succ p (j + 2)
+        rw [show j + 2 + 1 = j + 3 from rfl, hj] at hs
+        simpa using hs.symm
+      have hna' : asks p (j + 1) = false := by
+        have ht := asks_add_two p (j + 1)
+        rw [show j + 1 + 2 = j + 3 from rfl, hj] at ht
+        exact ht.symm
+      have htrans : ∀ g, g ≤ j + 1 →
+          descIdx sk g (j + 3 - g) C
+            = descIdx sk g (j + 1 - g)
+                (sk.wiresBefore (j + 2) (sk.wiresBefore (j + 3) C)) := by
+        intro g hg
+        rw [show j + 3 - g = j + 1 - g + 2 from by omega, descIdx_two,
+          show g + (j + 1 - g) + 1 = j + 2 from by omega,
+          show g + (j + 1 - g) + 2 = j + 3 from by omega]
+      refine descSupply_step sk hwf hj (by omega) hjr ?_ ?_
+        (descSupply_down hwf (j + 1) hna' (by omega) (by omega)
+          (sk.wiresBefore (j + 2) (sk.wiresBefore (j + 3) C))
+          ?_ ?_ ?_)
+      · have h0 := hlow (j + 3) (by omega) (Nat.le_refl _) hj
+        rw [Nat.sub_self] at h0
+        exact h0
+      · have h0 := hup (j + 1) (by omega) hasker
+        rw [show j + 3 - (j + 1) = 2 from by omega] at h0
+        exact h0
+      · intro g hg1 hgj hga
+        have h0 := hlow g hg1 (by omega) hga
+        rw [htrans g (by omega)] at h0
+        exact h0
+      · intro g hg2 hga
+        have h0 := hup g (by omega) hga
+        rw [htrans g (by omega)] at h0
+        exact h0
+      · intro hp
+        have h0 := hbase hp
+        have ht0 := htrans 0 (by omega)
+        simp only [Nat.sub_zero] at ht0
+        rw [ht0] at h0
+        exact h0
+
 end StreamingMirror.Sched
