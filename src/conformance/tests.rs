@@ -95,20 +95,16 @@ fn reversing(
     .into_link()
 }
 
-/// Worst-case accept reordering is adversarial but legal: the labeled claim
-/// table absorbs it, so full sessions still converge.
-///
-/// A batched reversing acceptor can hold an accepted stream until another
-/// arrives, so the focused single-stream probes would deadlock against it by
-/// construction; the sessions check — where reordering is actually possible
-/// — is the meaningful clause and runs here.
+/// Worst-case accept reordering is adversarial but legal: streams are
+/// anonymous and arrival order is the transport's own, so the whole suite
+/// — the focused probes included — must stay live and convergent under it.
 #[test]
-fn reordered_accepts_still_converge() {
-    run_to_quiescence(async {
+fn reordered_accepts_conform() {
+    run_to_quiescence(super::check(async || {
         let (a, b) = memory();
-        super::check_sessions(reversing(a, 3), reversing(b, 3)).await;
-    })
-    .expect("sessions stay live under reordered accepts");
+        (reversing(a, 3), reversing(b, 3))
+    }))
+    .expect("the suite stays live under reordered accepts");
 }
 
 /// An acceptor that internally dequeues a delivery, then awaits once more
@@ -481,62 +477,76 @@ fn mux_pair() -> (MuxLink, MuxLink) {
     )
 }
 
-// ─── RED: the holes, demonstrated against today's checks ────────────────────
+// ─── Regressions: the suite's former soundness holes, kept caught ───────────
 //
-// These three assertions pin the *current, unsound* behavior of the suite:
-// they pass today, proving the holes are real, and the fix flips each of
-// them into a permanent regression test of the strengthened checks.
+// Each fixture above was first committed pinned to the suite's *unsound*
+// behavior (the mux and the lossy acceptor passed; the legal reordering
+// acceptor hung the independence check). The assertions below are those
+// same fixtures flipped by the strengthened checks, kept as permanent
+// proof that the suite catches what it once admitted.
 
-/// RED (hole H2b): the shared-FIFO mux passes today's independence check.
+/// Regression (hole H2b): the shared-FIFO mux — the deleted architecture of
+/// `design/streaming-wire-deadlock.md` §2 — is caught by the independence
+/// probe.
 ///
-/// The probe writes one stalled byte, once, before the live streams, so any
-/// per-stream buffer of at least one frame absorbs it and the shared reader
-/// is never forced to block while another stream has an undelivered frame.
-/// The exact architecture whose deadlock the suite exists to exclude
-/// (`design/streaming-wire-deadlock.md` §2) therefore conforms, by the
-/// suite's lights. The fix flips this assertion to a caught stall.
+/// The stalled stream's sustained writes fill its small per-stream queue,
+/// the shared reader parks routing the next stalled frame, live deliveries
+/// wedge behind it, and the deterministic harness witnesses the stall. The
+/// original probe wrote one stalled byte once, which any per-stream buffer
+/// absorbed: the mux passed.
 #[test]
-fn shared_mux_fifo_passes_independence() {
+fn shared_mux_coupling_is_caught() {
     let (a, b) = mux_pair();
     assert_eq!(
         run_to_quiescence(super::check_independence(a, b)),
-        Ok(()),
-        "RED: the mux architecture passes the independence check today",
-    );
-}
-
-/// RED (hole H2a): a conforming reordering acceptor hangs today's
-/// independence check.
-///
-/// The receive side assumes the first `accept` yields the stalled stream;
-/// under batched-reversing arrival order it holds a live stream unread
-/// instead and then waits forever for end-of-stream on the truly stalled
-/// one. The contract says an acceptor may yield streams in any order, so a
-/// legal implementation fails the check. The fix makes the probe classify
-/// streams by an in-band tag instead of by accept position.
-#[test]
-fn reordering_acceptor_stalls_independence() {
-    let (a, b) = memory();
-    assert_eq!(
-        run_to_quiescence(super::check_independence(reversing(a, 3), reversing(b, 3))),
         Err(Quiescence::Stalled),
-        "RED: a legal reordering acceptor hangs the independence check today",
+        "the mux's head-of-line coupling must surface as a stall",
     );
 }
 
-/// RED (hole H2c): the lossy dequeue-then-await acceptor passes today's
-/// cancellation check.
+/// Regression (hole H2a): a conforming reordering acceptor passes the
+/// independence probe.
 ///
-/// The check polls a pending accept only before any stream exists, so no
-/// delivery is ever in flight across the drop and the loss window is never
-/// exercised; the acceptor then loses streams at real session teardown.
-/// The fix runs poll-once-then-drop cycles with deliveries in flight.
+/// Streams are classified by their in-band first-byte tag, never by the
+/// order the acceptor yields them. The original probe assumed the first
+/// accept yielded the stalled stream, so this legal acceptor hung it.
 #[test]
-fn lossy_acceptor_passes_cancellation() {
+fn reordering_acceptor_passes_independence() {
+    let (a, b) = memory();
+    run_to_quiescence(super::check_independence(reversing(a, 3), reversing(b, 3)))
+        .expect("independence stays live under reordered accepts");
+}
+
+/// Regression (hole H2c): the lossy dequeue-then-await acceptor is caught
+/// by the cancellation probe.
+///
+/// With deliveries in flight, a poll-once-then-drop cycle catches the
+/// acceptor holding a dequeued stream in the cancelled future; the stream
+/// is lost with it and the collecting accept never resolves. The original
+/// check only dropped an accept polled before any delivery existed, so
+/// nothing could be lost and this acceptor passed.
+#[test]
+fn lossy_accept_cancellation_is_caught() {
     let (a, b) = memory();
     assert_eq!(
         run_to_quiescence(super::check_accept_cancellation(a, lossy(b))),
-        Ok(()),
-        "RED: the stream-losing acceptor passes the cancellation check today",
+        Err(Quiescence::Stalled),
+        "the lost delivery must surface as a stall at the collecting accept",
+    );
+}
+
+/// Regression (hole H2d): a violation confined to the b-to-a direction is
+/// still caught.
+///
+/// Every focused probe runs a role-swapped second pass, so a lossy
+/// acceptor on the a side — untouched by the a-to-b pass — hangs the
+/// cancellation probe's reverse direction.
+#[test]
+fn asymmetric_lossiness_is_caught() {
+    let (a, b) = memory();
+    assert_eq!(
+        run_to_quiescence(super::check_accept_cancellation(lossy(a), b)),
+        Err(Quiescence::Stalled),
+        "the reverse-direction pass must catch the a-side acceptor",
     );
 }
