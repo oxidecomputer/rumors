@@ -299,4 +299,126 @@ theorem wedge_rcvd_le_sent (hwf : sk.wellFormed = true) {fut : List Ev}
       have := sndCount_take_le c st.out k
       omega
 
+-- ============================================ pump positional reads
+-- Where each pump trace sits in `procs`: the indices the channel
+-- owner functions point at.
+
+private theorem procs_len_prefix :
+    ([iopenEvents sk, ropenEvents sk]
+      ++ ((List.range sk.rootH).map fun i =>
+        ((if (sk.rootH - 1 - i) % 2 == 1 then Party.I else Party.R,
+          sk.rootH - 1 - i) : Party × Nat)).map
+          (walkEvents sk)).length = 2 + sk.rootH := by
+  simp
+  omega
+
+/-- Absorb sits at slot `2 + rootH`. -/
+theorem procs_absorb :
+    (procs sk)[2 + sk.rootH]? = some (absorbEvents sk) := by
+  unfold procs
+  rw [List.getElem?_append_left (by
+      simp [Skel.asmKeys]
+      omega),
+    List.getElem?_append_left (by simp; omega),
+    List.getElem?_append_right (by simp; omega)]
+  simp
+  rw [show 2 + sk.rootH - (sk.rootH + 1 + 1) = 0 from by omega]
+  rfl
+
+private theorem asmKeys_I {j : Nat} (h1 : 1 ≤ j) (hj : j ≤ sk.rootH) :
+    sk.asmKeys[j - 1]? = some (Party.I, j) := by
+  unfold Skel.asmKeys
+  rw [List.getElem?_append_left (by simp; omega),
+    List.getElem?_map, List.getElem?_range (by omega)]
+  simp
+  omega
+
+private theorem asmKeys_R {j : Nat} (h1 : 1 ≤ j)
+    (hj : j ≤ sk.rootH - 1) :
+    sk.asmKeys[sk.rootH + j - 1]? = some (Party.R, j) := by
+  unfold Skel.asmKeys
+  rw [List.getElem?_append_right (by simp; omega),
+    List.getElem?_map, List.getElem?_range (by simp; omega)]
+  simp
+  omega
+
+private theorem procs_asm_at {q : Nat} {pk : Party × Nat}
+    (hq : sk.asmKeys[q]? = some pk) :
+    (procs sk)[3 + sk.rootH + q]? = some (asmEvents sk pk) := by
+  have hqlen : q < sk.asmKeys.length := by
+    by_contra hge
+    rw [List.getElem?_eq_none (by omega)] at hq
+    cases hq
+  unfold procs
+  rw [List.getElem?_append_left (by
+      simp [Skel.asmKeys] at hqlen ⊢
+      omega),
+    List.getElem?_append_right (by simp; omega)]
+  have hidx : 3 + sk.rootH + q
+      - (([iopenEvents sk, ropenEvents sk]
+        ++ ((List.range sk.rootH).map fun i =>
+          ((if (sk.rootH - 1 - i) % 2 == 1 then Party.I else Party.R,
+            sk.rootH - 1 - i) : Party × Nat)).map (walkEvents sk)
+        ++ [absorbEvents sk]).length) = q := by
+    simp
+    omega
+  rw [hidx, List.getElem?_map, hq]
+  rfl
+
+/-- The initiator tower at height `j` sits at slot `asmIdx I j`. -/
+theorem procs_asmI {j : Nat} (h1 : 1 ≤ j) (hj : j ≤ sk.rootH) :
+    (procs sk)[asmIdx sk Party.I j]? = some (asmEvents sk (Party.I, j)) := by
+  have h := procs_asm_at sk (asmKeys_I sk h1 hj)
+  have hidx : asmIdx sk Party.I j = 3 + sk.rootH + (j - 1) := rfl
+  rw [hidx]
+  exact h
+
+/-- The responder tower at height `j` sits at slot `asmIdx R j`. -/
+theorem procs_asmR {j : Nat} (h1 : 1 ≤ j) (hj : j ≤ sk.rootH - 1) :
+    (procs sk)[asmIdx sk Party.R j]? = some (asmEvents sk (Party.R, j)) := by
+  have h := procs_asm_at sk (asmKeys_R sk h1 hj)
+  have hidx : asmIdx sk Party.R j = 3 + sk.rootH + (sk.rootH + j - 1) := by
+    show 3 + 2 * sk.rootH + (j - 1) = _
+    omega
+  rw [hidx]
+  exact h
+
+/-- The floating `rootret` receive sits at slot `3·rootH + 2`. -/
+theorem procs_rootret (hge : 1 ≤ sk.rootH) :
+    (procs sk)[3 * sk.rootH + 2]? = some [(Chan.rootret, false, 0)] := by
+  unfold procs
+  rw [List.getElem?_append_right (by
+    simp [Skel.asmKeys]
+    omega)]
+  have hidx : 3 * sk.rootH + 2
+      - (([iopenEvents sk, ropenEvents sk]
+        ++ ((List.range sk.rootH).map fun i =>
+          ((if (sk.rootH - 1 - i) % 2 == 1 then Party.I else Party.R,
+            sk.rootH - 1 - i) : Party × Nat)).map (walkEvents sk)
+        ++ [absorbEvents sk]
+        ++ sk.asmKeys.map (asmEvents sk)).length) = 0 := by
+    simp [Skel.asmKeys]
+    omega
+  rw [hidx]
+  rfl
+
+/-- fins sit at slot `3·rootH + 3`. -/
+theorem procs_fin (hge : 1 ≤ sk.rootH) :
+    (procs sk)[3 * sk.rootH + 3]? = some (finEvents sk) := by
+  unfold procs
+  rw [List.getElem?_append_right (by
+    simp [Skel.asmKeys]
+    omega)]
+  have hidx : 3 * sk.rootH + 3
+      - (([iopenEvents sk, ropenEvents sk]
+        ++ ((List.range sk.rootH).map fun i =>
+          ((if (sk.rootH - 1 - i) % 2 == 1 then Party.I else Party.R,
+            sk.rootH - 1 - i) : Party × Nat)).map (walkEvents sk)
+        ++ [absorbEvents sk]
+        ++ sk.asmKeys.map (asmEvents sk)).length) = 1 := by
+    simp [Skel.asmKeys]
+    omega
+  rw [hidx]
+  rfl
+
 end StreamingMirror.Sched
