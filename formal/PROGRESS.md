@@ -598,16 +598,61 @@ bounds μ(Q), and both are bounded by the awaited send.
      closing exhaustion, and `cap_pos`/`wf_capLevel` the pure
      starving-vs-blocked contradictions.
      NEXT IN ORDER: (f) the `CtxOK` layer establishing the window
-     lemmas' hypotheses at each pump-facing manual emission of the
-     weave: `hsnd` via `cell_head_seq`, the in-range bounds from the
-     walk position, `DescSupply`/`AscSupply`/`hroot` by a third
-     master induction over the weave order (mirroring `dep_scope`) —
-     this is where the §5 splice placement and
-     `Skel.schedulable`'s `dCount ≤ capLevel + 2` actually bite (the
-     asker coverage `∃ r` at the ancestor's current rank); (g) layer
-     D: the fuel induction over `weaveGo` carrying `WEdge` +
-     `step = none` (init via all-receive pump heads) + `DepOK` +
-     `CtxOK`, discharging each emit's guard via
+     lemmas' hypotheses at each pump-facing manual emission. Design
+     of record (derived 2026-07-17):
+     - *The weave is depth-first with stage cursors in weave order*:
+       `wKidOps` inlines a D kid's whole subtree (`WOp.scope (h-1)
+       (kidBase+i)`) before the next kid, and the §5 splice puts the
+       parent upper right after the last D res. So at the emission
+       of `(upper p h, true, k)`: stage-h scopes `< k` have COMPLETE
+       subtrees, scope `k` has its prologue + kid chunks through
+       lastD (wire+res each) + full subtrees of kids `< lastD`; and
+       stage-`j'` scopes below are completed exactly `0..C_{j'}-1`
+       in stage order, where the COVERAGE TELESCOPE is
+       `C_h = k`, `C_{j-1} = wiresBefore j C_j`.
+     - *Descent side — mechanical*: `DescSupply p h (dsBefore h k)`
+       unfolds along the telescope: answerer level `j` cursor
+       `dsBefore j C_j`, asker level `j` cursor `C_{j-1}`, via
+       `pendsBefore_asker` and `pendsBefore_answerer` composed with
+       the NEW identity `ds_wires` (`dsBefore j K` = #D among the
+       first `wiresBefore j K` of `scopesAt j` — take-flatMap of
+       `wf_bfs_aligned`). The component obligations are memberships
+       of completed-scope boundary sends in the emitted prefix —
+       `(upper p j', true, t), t < C_{j'}` and
+       `(lower p j', true, t), t < dsBefore j' C_{j'}` for the
+       same-parity stages `j' = h-2, h-4, …`, bottoming (p = I) at
+       `C_0 ≤ snd(wire R 0), snd(leafRequests)` — turned into counts
+       by `wcount_mem_lt`. Own-stage facts (`hsnd` = k, `snd(lower
+       p h) ≥ dsBefore h k`) come from a WALK CELL SHAPE lemma
+       (asm_cell_shape's analog over `walkEvents`' scope blocks with
+       the splice; also yields the in-range bounds and the leaf
+       windows' `hreq`/`hwire` locals). `hroot` is the weave-prefix
+       fact that ropen's `rootres` (position ~4) precedes every
+       later pump-facing send.
+     - *Ascent side — the residue*: banked generic invariants
+       (`asm_out_le_res`, `asm_lvl_le_pends`,
+       `wedge_snd_le_rcv_cap`) give `AscSupply`'s `∃r` coverage up
+       to the boundary: chaining them yields
+       `snd(level in) ≤ pendsBefore r + capLevel` where strict `≤
+       pendsBefore r` is needed — equality IS realized by pyramid-1,
+       so position facts must close it. Derived boundary
+       configuration (the only surviving case, at an ancestor asker
+       tower `(p, j')` whose feeding walk `(p, j'-1)` sits mid-scope
+       `A` at pre-splice D-progress `ρ`): the pinned counts force
+       `ρ = capLevel + 1 = dOf(A) - 1` and put the full `capLevel`
+       window in flight on `level p (j'-1)` against res cursor `A` —
+       `Skel.schedulable` (`dOf ≤ capLevel + 2`) bites to force the
+       equality, and the contradiction must come from the SPINE: the
+       ancestor's in-flight kid is the one containing the emitting
+       scope, so the producer's consumed res indices sit inside the
+       spine allocation the descent has already drained. TO RESOLVE
+       next session with Align's spine machinery in context — either
+       sharpen `AscSupply`'s witness to the ancestor's rank
+       (`r+2 ≤ dOf ≤ capLevel+2` per the original case-tree) or add
+       the in-flight-window-vs-drained-allocation invariant.
+     (g) layer D: the fuel induction over `weaveGo` carrying
+     `WEdge` + `step = none` (init via all-receive pump heads) +
+     `DepOK` + `CtxOK`, discharging each emit's guard via
      `depOK_head`+conservation (manual classes, `manDep`) or the
      (e)-lemmas (pump classes), assembling
      `WEdge sk [] (weaveState sk)` under `wellFormed ∧ schedulable`.
