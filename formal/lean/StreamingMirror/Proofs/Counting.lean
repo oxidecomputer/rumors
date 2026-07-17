@@ -459,4 +459,64 @@ theorem pendsBefore_answerer {sk : Skel} (hwf : sk.wellFormed = true)
       rfl
   rw [List.map_congr_left hpt, sum_map_filter_of_zero hzero]
 
+/-- Taking a block-boundary prefix of a flattening is flattening the
+taken blocks. -/
+theorem take_flatMap_blocks {α β : Type} (f : α → List β) :
+    ∀ (l : List α) (K : Nat),
+      (l.flatMap f).take (((l.take K).map fun a => (f a).length).sum)
+        = (l.take K).flatMap f
+  | _, 0 => by simp
+  | [], _ + 1 => by simp
+  | a :: l, K + 1 => by
+      simp only [List.take_succ_cons, List.map_cons, List.sum_cons,
+        List.flatMap_cons]
+      rw [List.take_append,
+        List.take_of_length_le (by omega : (f a).length
+          ≤ (f a).length + ((List.take K l).map
+              fun a => (f a).length).sum),
+        Nat.add_sub_cancel_left, take_flatMap_blocks f l K]
+
+/-- The stage's D prefix sum, read one stage down: the D scopes among
+the kids of the first `K` scopes are `dsBefore` — the walk's own
+resolution-seq coordinate meets the kid stage's scope order. -/
+theorem ds_wires {sk : Skel} (hwf : sk.wellFormed = true)
+    {j : Nat} (h1 : 1 ≤ j) (hjr : j < sk.rootH) (K : Nat) :
+    (((sk.scopesAt j).take (sk.wiresBefore j K)).filter
+      (fun s => (sk.scope s).kind == Kind.D)).length
+      = sk.dsBefore j K := by
+  have halign := wf_bfs_aligned hwf hjr
+  have hwires : sk.wiresBefore j K
+      = (((sk.stageScopes j).take K).map
+          fun s => ((sk.scope s).kids).length).sum := by
+    unfold Skel.wiresBefore
+    rw [foldl_add_eq_sum, Nat.zero_add]
+    congr 1
+    apply List.map_congr_left
+    intro s _
+    unfold Skel.nChildren
+    rw [if_neg (by simp; omega)]
+  have htake : (sk.scopesAt j).take (sk.wiresBefore j K)
+      = ((sk.stageScopes j).take K).flatMap
+          fun s => (sk.scope s).kids := by
+    rw [← halign, hwires]
+    exact take_flatMap_blocks _ (sk.stageScopes j) K
+  rw [htake, List.filter_flatMap, List.length_flatMap]
+  unfold Skel.dsBefore
+  rw [foldl_add_eq_sum, Nat.zero_add]
+  congr 1
+  apply List.map_congr_left
+  intro s _
+  unfold Skel.dOf Skel.dCount
+  rw [if_neg (by simp; omega)]
+
+/-- The descent telescope's answerer step: pends through the covered D
+scopes are the kid-stage wires of the covered kids. -/
+theorem pendsBefore_answerer_ds {sk : Skel} (hwf : sk.wellFormed = true)
+    {p : Party} {j : Nat} (hna : asks p j = false) (h1 : 1 ≤ j)
+    (hjr : j < sk.rootH) (C : Nat) :
+    sk.pendsBefore p j (sk.dsBefore j C)
+      = sk.wiresBefore (j - 1) (sk.wiresBefore j C) := by
+  rw [← ds_wires hwf h1 hjr C]
+  exact pendsBefore_answerer hwf hna h1 (sk.wiresBefore j C)
+
 end StreamingMirror.Model
