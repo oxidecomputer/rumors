@@ -476,6 +476,37 @@ theorem take_flatMap_blocks {α β : Type} (f : α → List β) :
               fun a => (f a).length).sum),
         Nat.add_sub_cancel_left, take_flatMap_blocks f l K]
 
+/-- Taking into the middle of block `K` of a flattening is the taken
+blocks plus a prefix of block `K`. -/
+theorem take_flatMap_blocks_mid {α β : Type} (f : α → List β) (a₀ : α)
+    (l : List α) : ∀ (K : Nat), K < l.length → ∀ {i : Nat},
+      i ≤ (f (l.getD K a₀)).length →
+      (l.flatMap f).take ((((l.take K).map fun a => (f a).length).sum) + i)
+        = (l.take K).flatMap f ++ (f (l.getD K a₀)).take i := by
+  induction l with
+  | nil =>
+      intro K hK
+      simp at hK
+  | cons a l' ih =>
+      intro K hK i hi
+      cases K with
+      | zero =>
+          rw [List.getD_cons_zero] at hi ⊢
+          simp only [List.take_zero, List.map_nil, List.sum_nil,
+            Nat.zero_add, List.flatMap_cons, List.flatMap_nil,
+            List.nil_append]
+          rw [List.take_append,
+            show i - (f a).length = 0 from by omega, List.take_zero,
+            List.append_nil]
+      | succ K' =>
+          rw [List.getD_cons_succ] at hi ⊢
+          simp only [List.take_succ_cons, List.map_cons, List.sum_cons,
+            List.flatMap_cons]
+          rw [Nat.add_assoc, List.take_append,
+            List.take_of_length_le (by omega),
+            Nat.add_sub_cancel_left, ih K' (by simpa using hK) hi,
+            List.append_assoc]
+
 /-- The stage's D prefix sum, read one stage down: the D scopes among
 the kids of the first `K` scopes are `dsBefore` — the walk's own
 resolution-seq coordinate meets the kid stage's scope order. -/

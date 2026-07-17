@@ -56,6 +56,7 @@ checkable promise (`wf_bfs_aligned`) and the per-scope pass:
   it gets.
 -/
 import StreamingMirror.Proofs.Sched.Weave.Expand
+import StreamingMirror.Proofs.Counting
 
 namespace StreamingMirror.Sched
 
@@ -456,6 +457,72 @@ theorem spine_nest {g B t : Nat} (hB : B < sk.stageLen g)
     sk.wiresBefore g B + t < sk.wiresBefore g (B + 1) := by
   have hsucc := wiresBefore_succ sk hB
   omega
+
+/-- `ds_wires` at a mid-scope cursor: the D count through a partial
+kid window is the boundary D prefix plus the slot rank.
+
+At `i = nChildren` this recovers `ds_wires` at `k + 1` through
+`dRank_total` and the `succ` prefix-sum steps. -/
+theorem ds_wires_mid (hwf : sk.wellFormed = true) {j : Nat}
+    (h1 : 1 ≤ j) (hjr : j < sk.rootH) {k : Nat}
+    (hk : k < sk.stageLen j) :
+    ∀ {i : Nat}, i ≤ sk.nChildren j (sk.stageScope j k) →
+    (((sk.scopesAt j).take (sk.wiresBefore j k + i)).filter
+        (fun s => (sk.scope s).kind == Kind.D)).length
+      = sk.dsBefore j k + dRank sk (wpk j) k i := by
+  intro i
+  induction i with
+  | zero =>
+      intro _
+      have h0 : dRank sk (wpk j) k 0 = 0 := rfl
+      rw [Nat.add_zero, Model.ds_wires hwf h1 hjr k, h0]
+      omega
+  | succ i ih =>
+      intro hi1
+      have hilt : i < sk.nChildren j (sk.stageScope j k) := by omega
+      have hcur : sk.wiresBefore j k + i < sk.stageLen (j - 1) :=
+        kid_index_lt sk hwf h1 hjr hk hilt
+      have hlen : (sk.scopesAt j).length = sk.stageLen (j - 1) := by
+        unfold Skel.stageLen Skel.stageScopes
+        rw [show j - 1 + 1 = j from by omega]
+      have hcur' : sk.wiresBefore j k + i < (sk.scopesAt j).length := by
+        omega
+      have helem : (sk.scopesAt j)[sk.wiresBefore j k + i]
+          = sk.stageScope (j - 1) (sk.wiresBefore j k + i) := by
+        unfold Skel.stageScope Skel.stageScopes
+        rw [show j - 1 + 1 = j from by omega,
+          List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hcur']
+        rfl
+      rw [show sk.wiresBefore j k + (i + 1)
+            = (sk.wiresBefore j k + i) + 1 from by omega,
+        List.take_add_one, List.getElem?_eq_getElem hcur']
+      simp only [Option.toList_some, List.filter_append,
+        List.length_append]
+      rw [ih (by omega), dRank_succ,
+        show sk.childIsD (wpk j).2 (sk.stageScope (wpk j).2 k) i
+          = sk.childIsD j (sk.stageScope j k) i from rfl,
+        childIsD_eq_kid_kind sk hwf h1 hjr hk hilt, helem]
+      simp only [List.filter_cons, List.filter_nil]
+      by_cases hD : ((sk.scope (sk.stageScope (j - 1)
+          (sk.wiresBefore j k + i))).kind == Kind.D) = true
+      · rw [if_pos hD, if_pos hD]
+        simp only [List.length_cons, List.length_nil]
+        omega
+      · rw [if_neg hD, if_neg hD]
+        simp only [List.length_nil]
+        omega
+
+/-- The answerer pends line at a mid-scope resolution cursor is the
+kid-stage wire cut at the same slot: `pendsBefore_answerer` composed
+with `ds_wires_mid`. -/
+theorem pends_cut_mid (hwf : sk.wellFormed = true) {p : Party}
+    {j : Nat} (hna : asks p j = false) (h1 : 1 ≤ j)
+    (hjr : j < sk.rootH) {k i : Nat} (hk : k < sk.stageLen j)
+    (hi : i ≤ sk.nChildren j (sk.stageScope j k)) :
+    sk.pendsBefore p j (sk.dsBefore j k + dRank sk (wpk j) k i)
+      = sk.wiresBefore (j - 1) (sk.wiresBefore j k + i) := by
+  rw [← ds_wires_mid sk hwf h1 hjr hk hi]
+  exact Model.pendsBefore_answerer hwf hna h1 _
 
 theorem descIdx_zero (h' j : Nat) : descIdx sk h' 0 j = j := rfl
 
