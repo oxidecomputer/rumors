@@ -434,7 +434,7 @@ private theorem countP_range_getD {α : Type _} (q : α → Bool) (d : α) :
 
 /-- Within one scope, the D ranks total the scope's `dOf`: the inner
 chunk offsets meet the outer `dsBefore` telescope. -/
-private theorem dRank_total (pk : Party × Nat) (k : Nat) :
+theorem dRank_total (pk : Party × Nat) (k : Nat) :
     dRank sk pk k (sk.nChildren pk.2 (sk.stageScope pk.2 k))
       = sk.dOf pk.2 (sk.stageScope pk.2 k) := by
   unfold dRank Skel.dOf

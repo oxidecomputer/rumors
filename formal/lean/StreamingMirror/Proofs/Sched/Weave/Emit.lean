@@ -362,4 +362,553 @@ theorem rootres_pin (hwf : sk.wellFormed = true) {fut : List Ev}
   simp only [List.length_cons, List.length_nil] at hp
   omega
 
+-- ===================================== futLen over uniform segments
+
+/-- `futLen` splits across a future's concatenation. -/
+theorem futLen_append (fut₁ fut₂ : List Ev) (M : Nat) (c : Chan)
+    (bb : Bool) :
+    futLen sk (fut₁ ++ fut₂) M c bb
+      = futLen sk fut₁ M c bb + futLen sk fut₂ M c bb := by
+  unfold futLen
+  rw [List.filter_append, proj_append, List.length_append]
+
+/-- `futLen` through a computed owner filter: once layer D has read
+the future's owner share off the worklist syntax, the share's
+projection length is the whole `futLen`. -/
+theorem futLen_of_filter {fut l : List Ev} {M : Nat}
+    (hfil : fut.filter (fun e => evOwner sk e == M) = l)
+    (c : Chan) (bb : Bool) :
+    futLen sk fut M c bb = (proj c bb l).length := by
+  unfold futLen
+  rw [hfil]
+
+private theorem seg_glue' (c : Chan) (bb : Bool) {x y z : Nat}
+    (hxy : x ≤ y) (hyz : y ≤ z) :
+    seg c bb x (y - x) ++ seg c bb y (z - y) = seg c bb x (z - x) := by
+  have h1 : y = x + (y - x) := by omega
+  have h2 : (y - x) + (z - y) = z - x := by omega
+  calc seg c bb x (y - x) ++ seg c bb y (z - y)
+      = seg c bb x (y - x) ++ seg c bb (x + (y - x)) (z - y) := by
+        rw [← h1]
+    _ = seg c bb x ((y - x) + (z - y)) := seg_append ..
+    _ = seg c bb x (z - x) := by rw [h2]
+
+private theorem chain_le' {g : Nat → Nat} :
+    ∀ (n i : Nat), (∀ k, i ≤ k → k < i + n → g k ≤ g (k + 1)) →
+      g i ≤ g (i + n)
+  | 0, _, _ => Nat.le_refl _
+  | n + 1, i, h => by
+      have h1 : g i ≤ g (i + 1) := h i (Nat.le_refl i) (by omega)
+      have h2 : g (i + 1) ≤ g (i + 1 + n) :=
+        chain_le' n (i + 1) (fun k hk1 hk2 => h k (by omega) (by omega))
+      rw [show i + 1 + n = i + (n + 1) from by omega] at h2
+      exact Nat.le_trans h1 h2
+
+/-- The window-anchored gluer: contiguous blocks whose projections
+are consecutive segments concatenate to one segment over the window
+(`proj_flatMap_seg` freed from its zero anchor). -/
+private theorem proj_flatMap_seg' {f : Nat → List Ev} {c : Chan}
+    {bb : Bool} {g : Nat → Nat} :
+    ∀ (n i : Nat),
+      (∀ k, i ≤ k → k < i + n →
+        proj c bb (f k) = seg c bb (g k) (g (k + 1) - g k)) →
+      (∀ k, i ≤ k → k < i + n → g k ≤ g (k + 1)) →
+      proj c bb ((List.range' i n).flatMap f)
+        = seg c bb (g i) (g (i + n) - g i)
+  | 0, i, _, _ => by
+      simp [proj_nil, seg_zero]
+  | n + 1, i, hseg, hmono => by
+      have hrec := proj_flatMap_seg' n (i + 1)
+        (fun k hk1 hk2 => hseg k (by omega) (by omega))
+        (fun k hk1 hk2 => hmono k (by omega) (by omega))
+      rw [List.range'_succ, List.flatMap_cons, proj_append,
+        hseg i (Nat.le_refl i) (by omega), hrec,
+        show i + 1 + n = i + (n + 1) from by omega]
+      exact seg_glue' c bb (hmono i (Nat.le_refl i) (by omega))
+        (by
+          have h2 := chain_le' n (i + 1)
+            (fun k hk1 hk2 => hmono k (by omega) (by omega))
+          rw [show i + 1 + n = i + (n + 1) from by omega] at h2
+          exact h2)
+
+-- ============================== stage-window projections (walkSeg)
+
+/-- A stage window's summary sends: one per scope, seqs `[a, b)`. -/
+theorem walkSeg_proj_upper {h' a b : Nat} (hab : a ≤ b) :
+    proj (upperOut (wpk h')) true (walkSeg sk h' a b)
+      = seg (upperOut (wpk h')) true a (b - a) := by
+  unfold walkSeg
+  rw [proj_flatMap_seg' (g := fun k => k) (b - a) a
+      (fun k hk1 hk2 => by
+        rw [proj_block_upper, show k + 1 - k = 1 from by omega])
+      (fun k _ _ => by omega),
+    show a + (b - a) = b from by omega]
+
+/-- A stage window's resolution sends: the `dsBefore` slice. -/
+theorem walkSeg_proj_res {h' a b : Nat} (hab : a ≤ b)
+    (hb : b ≤ sk.stageLen h') :
+    proj (lowerOut (wpk h')) true (walkSeg sk h' a b)
+      = seg (lowerOut (wpk h')) true (sk.dsBefore h' a)
+          (sk.dsBefore h' b - sk.dsBefore h' a) := by
+  unfold walkSeg
+  rw [proj_flatMap_seg' (g := fun k => sk.dsBefore h' k) (b - a) a
+      (fun k hk1 hk2 => by
+        have hk : k < sk.stageLen h' := by omega
+        exact proj_block_res sk (wpk h') hk)
+      (fun k hk1 hk2 => by
+        have hk : k < sk.stageLen h' := by omega
+        have := dsBefore_succ sk (h := h') hk
+        omega),
+    show a + (b - a) = b from by omega]
+
+/-- A stage window's wire sends: the `wiresBefore` slice. -/
+theorem walkSeg_proj_wire {h' a b : Nat} (hab : a ≤ b)
+    (hb : b ≤ sk.stageLen h') :
+    proj (wireOut (wpk h')) true (walkSeg sk h' a b)
+      = seg (wireOut (wpk h')) true (sk.wiresBefore h' a)
+          (sk.wiresBefore h' b - sk.wiresBefore h' a) := by
+  unfold walkSeg
+  rw [proj_flatMap_seg' (g := fun k => sk.wiresBefore h' k) (b - a) a
+      (fun k hk1 hk2 => by
+        have hk : k < sk.stageLen h' := by omega
+        exact proj_block_wire sk (wpk h') hk)
+      (fun k hk1 hk2 => by
+        have hk : k < sk.stageLen h' := by omega
+        have := wiresBefore_succ sk (h := h') hk
+        omega),
+    show a + (b - a) = b from by omega]
+
+/-- A stage window's query sends: the `qsBefore` slice. -/
+theorem walkSeg_proj_q {h' a b : Nat} (hab : a ≤ b)
+    (hb : b ≤ sk.stageLen h') :
+    proj (askedOut (wpk h')) true (walkSeg sk h' a b)
+      = seg (askedOut (wpk h')) true (sk.qsBefore h' a)
+          (sk.qsBefore h' b - sk.qsBefore h' a) := by
+  unfold walkSeg
+  rw [proj_flatMap_seg' (g := fun k => sk.qsBefore h' k) (b - a) a
+      (fun k hk1 hk2 => by
+        have hk : k < sk.stageLen h' := by omega
+        exact proj_block_q sk (wpk h') hk)
+      (fun k hk1 hk2 => by
+        have hk : k < sk.stageLen h' := by omega
+        have := qsBefore_succ sk (h := h') hk
+        omega),
+    show a + (b - a) = b from by omega]
+
+/-- A stage window's wire receives: one per scope, seqs `[a, b)`. -/
+theorem walkSeg_proj_wireIn {h' a b : Nat} (hab : a ≤ b) :
+    proj (wireIn (wpk h')) false (walkSeg sk h' a b)
+      = seg (wireIn (wpk h')) false a (b - a) := by
+  unfold walkSeg
+  rw [proj_flatMap_seg' (g := fun k => k) (b - a) a
+      (fun k hk1 hk2 => by
+        rw [proj_block_wireIn, show k + 1 - k = 1 from by omega])
+      (fun k _ _ => by omega),
+    show a + (b - a) = b from by omega]
+
+/-- A stage window's query receives: one per scope, seqs `[a, b)`. -/
+theorem walkSeg_proj_askedIn {h' a b : Nat} (hab : a ≤ b) :
+    proj (askedIn (wpk h')) false (walkSeg sk h' a b)
+      = seg (askedIn (wpk h')) false a (b - a) := by
+  unfold walkSeg
+  rw [proj_flatMap_seg' (g := fun k => k) (b - a) a
+      (fun k hk1 hk2 => by
+        rw [proj_block_askedIn, show k + 1 - k = 1 from by omega])
+      (fun k _ _ => by omega),
+    show a + (b - a) = b from by omega]
+
+-- ============================ futLen at a stage-window owner share
+
+/-- `futLen` of the summaries a stage window still owes. -/
+theorem futLen_walkSeg_upper {fut : List Ev} {h' a b : Nat}
+    (hab : a ≤ b)
+    (hfil : fut.filter (fun e => evOwner sk e == walkIdx sk h')
+      = walkSeg sk h' a b) :
+    futLen sk fut (walkIdx sk h') (upperOut (wpk h')) true = b - a := by
+  rw [futLen_of_filter sk hfil, walkSeg_proj_upper sk hab, seg_len]
+
+/-- `futLen` of the resolutions a stage window still owes. -/
+theorem futLen_walkSeg_res {fut : List Ev} {h' a b : Nat}
+    (hab : a ≤ b) (hb : b ≤ sk.stageLen h')
+    (hfil : fut.filter (fun e => evOwner sk e == walkIdx sk h')
+      = walkSeg sk h' a b) :
+    futLen sk fut (walkIdx sk h') (lowerOut (wpk h')) true
+      = sk.dsBefore h' b - sk.dsBefore h' a := by
+  rw [futLen_of_filter sk hfil, walkSeg_proj_res sk hab hb, seg_len]
+
+/-- `futLen` of the wires a stage window still owes. -/
+theorem futLen_walkSeg_wire {fut : List Ev} {h' a b : Nat}
+    (hab : a ≤ b) (hb : b ≤ sk.stageLen h')
+    (hfil : fut.filter (fun e => evOwner sk e == walkIdx sk h')
+      = walkSeg sk h' a b) :
+    futLen sk fut (walkIdx sk h') (wireOut (wpk h')) true
+      = sk.wiresBefore h' b - sk.wiresBefore h' a := by
+  rw [futLen_of_filter sk hfil, walkSeg_proj_wire sk hab hb, seg_len]
+
+/-- `futLen` of the queries a stage window still owes. -/
+theorem futLen_walkSeg_q {fut : List Ev} {h' a b : Nat}
+    (hab : a ≤ b) (hb : b ≤ sk.stageLen h')
+    (hfil : fut.filter (fun e => evOwner sk e == walkIdx sk h')
+      = walkSeg sk h' a b) :
+    futLen sk fut (walkIdx sk h') (askedOut (wpk h')) true
+      = sk.qsBefore h' b - sk.qsBefore h' a := by
+  rw [futLen_of_filter sk hfil, walkSeg_proj_q sk hab hb, seg_len]
+
+/-- `futLen` of the wire receives a stage window still owes. -/
+theorem futLen_walkSeg_wireIn {fut : List Ev} {h' a b : Nat}
+    (hab : a ≤ b)
+    (hfil : fut.filter (fun e => evOwner sk e == walkIdx sk h')
+      = walkSeg sk h' a b) :
+    futLen sk fut (walkIdx sk h') (wireIn (wpk h')) false = b - a := by
+  rw [futLen_of_filter sk hfil, walkSeg_proj_wireIn sk hab, seg_len]
+
+/-- `futLen` of the query receives a stage window still owes. -/
+theorem futLen_walkSeg_askedIn {fut : List Ev} {h' a b : Nat}
+    (hab : a ≤ b)
+    (hfil : fut.filter (fun e => evOwner sk e == walkIdx sk h')
+      = walkSeg sk h' a b) :
+    futLen sk fut (walkIdx sk h') (askedIn (wpk h')) false = b - a := by
+  rw [futLen_of_filter sk hfil, walkSeg_proj_askedIn sk hab, seg_len]
+
+-- ======================= mid-scope projections (splicedChunk runs)
+
+private theorem proj_schunk_wire (h k : Nat) (lastD : Option Nat)
+    (i : Nat) :
+    proj (wireOut (wpk h)) true (splicedChunk sk h k lastD i)
+      = seg (wireOut (wpk h)) true (sk.wiresBefore h k + i) 1 := by
+  unfold splicedChunk
+  rw [proj_cons_self, seg_one]
+  by_cases hD : sk.childIsD h (sk.stageScope h k) i
+  · rw [if_pos hD, proj_cons_ne_chan (by simp [lowerOut, wireOut]),
+      proj_append]
+    have hspl : proj (wireOut (wpk h)) true
+        (if lastD == some i
+          then [((upperOut (wpk h), true, k) : Ev)] else []) = [] := by
+      split
+      · rw [proj_cons_ne_chan (by simp [upperOut, wireOut]), proj_nil]
+      · rfl
+    have hq : proj (wireOut (wpk h)) true (chunkQ sk h k i) = [] :=
+      proj_eq_nil fun e he h1 _ => by
+        unfold chunkQ at he
+        obtain ⟨t, -, rfl⟩ := List.mem_map.1 he
+        simp only [askedOut, wireOut] at h1
+        split at h1 <;> exact Chan.noConfusion h1
+    rw [hspl, hq]
+    rfl
+  · rw [if_neg hD, proj_nil]
+
+private theorem proj_schunk_res (h k : Nat) (lastD : Option Nat)
+    (i : Nat) :
+    proj (lowerOut (wpk h)) true (splicedChunk sk h k lastD i)
+      = seg (lowerOut (wpk h)) true
+          (sk.dsBefore h k + dRank sk (wpk h) k i)
+          (dRank sk (wpk h) k (i + 1) - dRank sk (wpk h) k i) := by
+  have hds := dRank_succ sk (wpk h) k i
+  rw [show sk.childIsD (wpk h).2 (sk.stageScope (wpk h).2 k) i
+      = sk.childIsD h (sk.stageScope h k) i from rfl] at hds
+  unfold splicedChunk
+  rw [proj_cons_ne_chan (by simp [wireOut, lowerOut])]
+  by_cases hD : sk.childIsD h (sk.stageScope h k) i
+  · rw [hD, if_pos rfl] at hds
+    rw [show dRank sk (wpk h) k (i + 1) - dRank sk (wpk h) k i = 1
+        from by omega]
+    rw [if_pos hD, proj_cons_self, seg_one]
+    have hspl : proj (lowerOut (wpk h)) true
+        (if lastD == some i
+          then [((upperOut (wpk h), true, k) : Ev)] else []) = [] := by
+      split
+      · rw [proj_cons_ne_chan (by simp [upperOut, lowerOut]), proj_nil]
+      · rfl
+    have hq : proj (lowerOut (wpk h)) true (chunkQ sk h k i) = [] :=
+      proj_eq_nil fun e he h1 _ => by
+        unfold chunkQ at he
+        obtain ⟨t, -, rfl⟩ := List.mem_map.1 he
+        simp only [askedOut, lowerOut] at h1
+        split at h1 <;> exact Chan.noConfusion h1
+    rw [proj_append, hspl, hq]
+    rfl
+  · have hDf : sk.childIsD h (sk.stageScope h k) i = false := by
+      simpa using hD
+    rw [hDf, if_neg (by simp)] at hds
+    rw [show dRank sk (wpk h) k (i + 1) - dRank sk (wpk h) k i = 0
+        from by omega]
+    rw [if_neg hD, proj_nil, seg_zero]
+
+private theorem proj_schunk_q (h k : Nat) (lastD : Option Nat)
+    (i : Nat) :
+    proj (askedOut (wpk h)) true (splicedChunk sk h k lastD i)
+      = seg (askedOut (wpk h)) true
+          (sk.qsBefore h k + qSum sk (wpk h) k i)
+          (qSum sk (wpk h) k (i + 1) - qSum sk (wpk h) k i) := by
+  have hqs := qSum_succ sk (wpk h) k i
+  rw [show sk.qCount (wpk h).2 (sk.stageScope (wpk h).2 k) i
+      = sk.qCount h (sk.stageScope h k) i from rfl] at hqs
+  have hw : qSum sk (wpk h) k (i + 1) - qSum sk (wpk h) k i
+      = sk.qCount h (sk.stageScope h k) i := by omega
+  rw [hw]
+  unfold splicedChunk
+  rw [proj_cons_ne_chan (by
+    unfold wireOut askedOut
+    split <;> simp)]
+  by_cases hD : sk.childIsD h (sk.stageScope h k) i
+  · rw [if_pos hD, proj_cons_ne_chan (by
+      unfold lowerOut askedOut
+      split <;> simp)]
+    have hspl : proj (askedOut (wpk h)) true
+        (if lastD == some i
+          then [((upperOut (wpk h), true, k) : Ev)] else []) = [] := by
+      split
+      · rw [proj_cons_ne_chan (by
+          unfold upperOut askedOut
+          split <;> simp), proj_nil]
+      · rfl
+    have hcq : chunkQ sk h k i
+        = seg (askedOut (wpk h)) true
+            (sk.qsBefore h k + qSum sk (wpk h) k i)
+            (sk.qCount h (sk.stageScope h k) i) := rfl
+    rw [proj_append, hspl, List.nil_append, hcq, proj_seg_self]
+  · have hDf : sk.childIsD h (sk.stageScope h k) i = false := by
+      simpa using hD
+    have hq0 : sk.qCount h (sk.stageScope h k) i = 0 := by
+      unfold Skel.qCount
+      rw [if_pos (by simp [hDf])]
+    rw [if_neg hD, proj_nil, hq0, seg_zero]
+
+private theorem proj_schunk_upper (h k i : Nat) :
+    proj (upperOut (wpk h)) true
+        (splicedChunk sk h k (lastDOf sk h k) i)
+      = if lastDOf sk h k == some i
+          then [((upperOut (wpk h), true, k) : Ev)] else [] := by
+  unfold splicedChunk
+  rw [proj_cons_ne_chan (by simp [wireOut, upperOut])]
+  by_cases hD : sk.childIsD h (sk.stageScope h k) i
+  · rw [if_pos hD, proj_cons_ne_chan (by simp [lowerOut, upperOut]),
+      proj_append]
+    have hq : proj (upperOut (wpk h)) true (chunkQ sk h k i) = [] :=
+      proj_eq_nil fun e he h1 _ => by
+        unfold chunkQ at he
+        obtain ⟨t, -, rfl⟩ := List.mem_map.1 he
+        simp only [askedOut, upperOut] at h1
+        split at h1 <;> exact Chan.noConfusion h1
+    rw [hq, List.append_nil]
+    split
+    · rw [proj_cons_self, proj_nil]
+    · rfl
+  · have hDf : sk.childIsD h (sk.stageScope h k) i = false := by
+      simpa using hD
+    have hne : (lastDOf sk h k == some i) = false := by
+      cases hlast : lastDOf sk h k with
+      | none => rfl
+      | some j =>
+          by_cases hji : j = i
+          · subst hji
+            exact absurd (lastDOf_isD sk hlast).1 (by simp [hDf])
+          · simpa using hji
+    rw [if_neg hD, proj_nil, hne]
+    rfl
+
+/-- A mid-scope kid suffix's wire sends: one per remaining slot. -/
+theorem chunks_proj_wire (h k : Nat) (lastD : Option Nat) (m i : Nat) :
+    proj (wireOut (wpk h)) true
+        ((List.range' i m).flatMap (splicedChunk sk h k lastD))
+      = seg (wireOut (wpk h)) true (sk.wiresBefore h k + i) m := by
+  rw [proj_flatMap_seg' (g := fun i' => sk.wiresBefore h k + i') m i
+      (fun i' _ _ => by
+        rw [proj_schunk_wire sk h k lastD i',
+          show sk.wiresBefore h k + (i' + 1) - (sk.wiresBefore h k + i')
+            = 1 from by omega])
+      (fun i' _ _ => by omega),
+    show sk.wiresBefore h k + (i + m) - (sk.wiresBefore h k + i) = m
+      from by omega]
+
+/-- A mid-scope kid suffix's resolution sends: the `dRank` slice. -/
+theorem chunks_proj_res (h k : Nat) (lastD : Option Nat) (m i : Nat) :
+    proj (lowerOut (wpk h)) true
+        ((List.range' i m).flatMap (splicedChunk sk h k lastD))
+      = seg (lowerOut (wpk h)) true
+          (sk.dsBefore h k + dRank sk (wpk h) k i)
+          (dRank sk (wpk h) k (i + m) - dRank sk (wpk h) k i) := by
+  rw [proj_flatMap_seg'
+      (g := fun i' => sk.dsBefore h k + dRank sk (wpk h) k i') m i
+      (fun i' _ _ => by
+        rw [proj_schunk_res sk h k lastD i',
+          show sk.dsBefore h k + dRank sk (wpk h) k (i' + 1)
+              - (sk.dsBefore h k + dRank sk (wpk h) k i')
+            = dRank sk (wpk h) k (i' + 1) - dRank sk (wpk h) k i'
+            from by omega])
+      (fun i' _ _ => by
+        have hds := dRank_succ sk (wpk h) k i'
+        split at hds <;> omega),
+    show sk.dsBefore h k + dRank sk (wpk h) k (i + m)
+        - (sk.dsBefore h k + dRank sk (wpk h) k i)
+      = dRank sk (wpk h) k (i + m) - dRank sk (wpk h) k i
+      from by omega]
+
+/-- A mid-scope kid suffix's query sends: the `qSum` slice. -/
+theorem chunks_proj_q (h k : Nat) (lastD : Option Nat) (m i : Nat) :
+    proj (askedOut (wpk h)) true
+        ((List.range' i m).flatMap (splicedChunk sk h k lastD))
+      = seg (askedOut (wpk h)) true
+          (sk.qsBefore h k + qSum sk (wpk h) k i)
+          (qSum sk (wpk h) k (i + m) - qSum sk (wpk h) k i) := by
+  rw [proj_flatMap_seg'
+      (g := fun i' => sk.qsBefore h k + qSum sk (wpk h) k i') m i
+      (fun i' _ _ => by
+        rw [proj_schunk_q sk h k lastD i',
+          show sk.qsBefore h k + qSum sk (wpk h) k (i' + 1)
+              - (sk.qsBefore h k + qSum sk (wpk h) k i')
+            = qSum sk (wpk h) k (i' + 1) - qSum sk (wpk h) k i'
+            from by omega])
+      (fun i' _ _ => by
+        have hqs := qSum_succ sk (wpk h) k i'
+        omega),
+    show sk.qsBefore h k + qSum sk (wpk h) k (i + m)
+        - (sk.qsBefore h k + qSum sk (wpk h) k i)
+      = qSum sk (wpk h) k (i + m) - qSum sk (wpk h) k i
+      from by omega]
+
+private theorem chunks_upper_some {h k j : Nat}
+    (hlast : lastDOf sk h k = some j) :
+    ∀ (m i : Nat),
+      proj (upperOut (wpk h)) true
+        ((List.range' i m).flatMap
+          (splicedChunk sk h k (lastDOf sk h k)))
+      = if i ≤ j ∧ j < i + m
+          then [((upperOut (wpk h), true, k) : Ev)] else []
+  | 0, i => by
+      rw [if_neg (by omega)]
+      rfl
+  | m + 1, i => by
+      rw [List.range'_succ, List.flatMap_cons, proj_append,
+        proj_schunk_upper sk h k i, chunks_upper_some hlast m (i + 1)]
+      by_cases hji : j = i
+      · subst hji
+        rw [show (lastDOf sk h k == some j) = true from by
+            rw [hlast]; simp,
+          if_pos rfl, if_neg (by omega), if_pos (by omega)]
+        rfl
+      · rw [show (lastDOf sk h k == some i) = false from by
+            rw [hlast]; simpa using hji,
+          if_neg (by simp), List.nil_append]
+        by_cases hc : i + 1 ≤ j ∧ j < i + 1 + m
+        · rw [if_pos hc, if_pos (by omega)]
+        · rw [if_neg hc, if_neg (by omega)]
+
+private theorem chunks_upper_nosplice {h k : Nat}
+    (hlast : lastDOf sk h k = none) :
+    ∀ (m i : Nat),
+      proj (upperOut (wpk h)) true
+        ((List.range' i m).flatMap
+          (splicedChunk sk h k (lastDOf sk h k)))
+      = []
+  | 0, _ => rfl
+  | m + 1, i => by
+      rw [List.range'_succ, List.flatMap_cons, proj_append,
+        proj_schunk_upper sk h k i, chunks_upper_nosplice hlast m (i + 1),
+        show (lastDOf sk h k == some i) = false from by rw [hlast]; rfl,
+        if_neg (by simp), List.nil_append]
+
+/-- A kid suffix still holding the splice: exactly the one parent
+summary rides it. -/
+theorem chunks_proj_upper_covered {h k j i m : Nat}
+    (hlast : lastDOf sk h k = some j) (hij : i ≤ j) (hjm : j < i + m) :
+    proj (upperOut (wpk h)) true
+        ((List.range' i m).flatMap
+          (splicedChunk sk h k (lastDOf sk h k)))
+      = [((upperOut (wpk h), true, k) : Ev)] := by
+  rw [chunks_upper_some sk hlast m i, if_pos ⟨hij, hjm⟩]
+
+/-- A kid suffix past the splice: the parent summary has left. -/
+theorem chunks_proj_upper_past {h k j i m : Nat}
+    (hlast : lastDOf sk h k = some j) (hji : j < i) :
+    proj (upperOut (wpk h)) true
+        ((List.range' i m).flatMap
+          (splicedChunk sk h k (lastDOf sk h k)))
+      = [] := by
+  rw [chunks_upper_some sk hlast m i, if_neg (by omega)]
+
+/-- An undisputed scope's kid suffix: no summary rides the kids (it
+was emitted in the prologue). -/
+theorem chunks_proj_upper_none {h k i m : Nat}
+    (hlast : lastDOf sk h k = none) :
+    proj (upperOut (wpk h)) true
+        ((List.range' i m).flatMap
+          (splicedChunk sk h k (lastDOf sk h k)))
+      = [] :=
+  chunks_upper_nosplice sk hlast m i
+
+-- ========================= futLen at a mid-scope kid-suffix share
+
+/-- `futLen` of the wires a mid-scope kid suffix still owes. -/
+theorem futLen_chunks_wire {fut : List Ev} {h k i : Nat}
+    (hfil : fut.filter (fun e => evOwner sk e == walkIdx sk h)
+      = (List.range' i (sk.nChildren h (sk.stageScope h k) - i)).flatMap
+          (splicedChunk sk h k (lastDOf sk h k))) :
+    futLen sk fut (walkIdx sk h) (wireOut (wpk h)) true
+      = sk.nChildren h (sk.stageScope h k) - i := by
+  rw [futLen_of_filter sk hfil, chunks_proj_wire, seg_len]
+
+/-- `futLen` of the resolutions a mid-scope kid suffix still owes. -/
+theorem futLen_chunks_res {fut : List Ev} {h k i : Nat}
+    (hi : i ≤ sk.nChildren h (sk.stageScope h k))
+    (hfil : fut.filter (fun e => evOwner sk e == walkIdx sk h)
+      = (List.range' i (sk.nChildren h (sk.stageScope h k) - i)).flatMap
+          (splicedChunk sk h k (lastDOf sk h k))) :
+    futLen sk fut (walkIdx sk h) (lowerOut (wpk h)) true
+      = sk.dOf h (sk.stageScope h k) - dRank sk (wpk h) k i := by
+  have hdt : dRank sk (wpk h) k (sk.nChildren h (sk.stageScope h k))
+      = sk.dOf h (sk.stageScope h k) := dRank_total sk (wpk h) k
+  rw [futLen_of_filter sk hfil, chunks_proj_res, seg_len,
+    show i + (sk.nChildren h (sk.stageScope h k) - i)
+      = sk.nChildren h (sk.stageScope h k) from by omega,
+    hdt]
+
+/-- `futLen` of the queries a mid-scope kid suffix still owes. -/
+theorem futLen_chunks_q {fut : List Ev} {h k i : Nat}
+    (hi : i ≤ sk.nChildren h (sk.stageScope h k))
+    (hfil : fut.filter (fun e => evOwner sk e == walkIdx sk h)
+      = (List.range' i (sk.nChildren h (sk.stageScope h k) - i)).flatMap
+          (splicedChunk sk h k (lastDOf sk h k))) :
+    futLen sk fut (walkIdx sk h) (askedOut (wpk h)) true
+      = sk.qOf h (sk.stageScope h k) - qSum sk (wpk h) k i := by
+  have hqt : qSum sk (wpk h) k (sk.nChildren h (sk.stageScope h k))
+      = sk.qOf h (sk.stageScope h k) := qSum_total sk (wpk h) k
+  rw [futLen_of_filter sk hfil, chunks_proj_q, seg_len,
+    show i + (sk.nChildren h (sk.stageScope h k) - i)
+      = sk.nChildren h (sk.stageScope h k) from by omega,
+    hqt]
+
+/-- `futLen` of a still-spliced parent summary: exactly one. -/
+theorem futLen_chunks_upper_covered {fut : List Ev} {h k j i : Nat}
+    (hlast : lastDOf sk h k = some j) (hij : i ≤ j)
+    (hjm : j < i + (sk.nChildren h (sk.stageScope h k) - i))
+    (hfil : fut.filter (fun e => evOwner sk e == walkIdx sk h)
+      = (List.range' i (sk.nChildren h (sk.stageScope h k) - i)).flatMap
+          (splicedChunk sk h k (lastDOf sk h k))) :
+    futLen sk fut (walkIdx sk h) (upperOut (wpk h)) true = 1 := by
+  rw [futLen_of_filter sk hfil,
+    chunks_proj_upper_covered sk hlast hij hjm]
+  rfl
+
+/-- `futLen` of a departed parent summary: none left. -/
+theorem futLen_chunks_upper_past {fut : List Ev} {h k j i : Nat}
+    (hlast : lastDOf sk h k = some j) (hji : j < i)
+    (hfil : fut.filter (fun e => evOwner sk e == walkIdx sk h)
+      = (List.range' i (sk.nChildren h (sk.stageScope h k) - i)).flatMap
+          (splicedChunk sk h k (lastDOf sk h k))) :
+    futLen sk fut (walkIdx sk h) (upperOut (wpk h)) true = 0 := by
+  rw [futLen_of_filter sk hfil, chunks_proj_upper_past sk hlast hji]
+  rfl
+
+/-- `futLen` of an undisputed scope's summary over its kid suffix:
+none. -/
+theorem futLen_chunks_upper_none {fut : List Ev} {h k i : Nat}
+    (hlast : lastDOf sk h k = none)
+    (hfil : fut.filter (fun e => evOwner sk e == walkIdx sk h)
+      = (List.range' i (sk.nChildren h (sk.stageScope h k) - i)).flatMap
+          (splicedChunk sk h k (lastDOf sk h k))) :
+    futLen sk fut (walkIdx sk h) (upperOut (wpk h)) true = 0 := by
+  rw [futLen_of_filter sk hfil, chunks_proj_upper_none sk hlast]
+  rfl
+
 end StreamingMirror.Sched
