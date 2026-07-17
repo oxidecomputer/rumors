@@ -49,6 +49,18 @@ pub const DIAL_TIMEOUT: Duration = Duration::from_secs(10);
 /// drive itself is unbounded — connections are long-lived by design.
 pub const SESSION_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Ceiling on one whole-tree session: a merge bootstrap (either side) or a
+/// retirement. These ship the entire rumor set rather than a delta, so they
+/// get a far longer leash than [`SESSION_TIMEOUT`]'s connection-start waits
+/// — but they must still end: the rumors library deliberately imposes no
+/// deadline of its own (the caller owns the timeout), retire runs on the
+/// daemon's shutdown path, and a merge holds a drive, so a live-but-stalled
+/// peer would otherwise hang either forever. Two minutes clears a demo-sized
+/// tree by orders of magnitude while keeping a wedged shutdown observably
+/// finite. A retire cut off by this timeout is reported as
+/// `Departure::Uncertain` and never retried.
+pub const RECONCILE_TIMEOUT: Duration = Duration::from_secs(120);
+
 /// After a connection ends — failed dial, failed drive, or the peer's own
 /// goodbye — leave the peer alone for this long before redialing.
 pub const PEER_BACKOFF: Duration = Duration::from_secs(15);

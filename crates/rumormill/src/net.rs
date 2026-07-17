@@ -6,13 +6,14 @@
 //! connection itself opens and accepts the session's unidirectional data
 //! streams (see [`quic_link`]). That link feeds [`Rumors::gossip_when`]; the
 //! rumors protocol's own preamble and greeting carry everything, including the
-//! one piece of information the merge needs: a gossip attempt against a
-//! *different universe* fails symmetrically on both ends with
-//! [`Error::NetworkMismatch`], which names the remote's [`Network`] and a
-//! floor on how many events it has ever recorded. Both sides plug those into
-//! the same pure [`decide`] rule, so both agree who wins without exchanging
-//! another byte: the loser opens a fresh stream and bootstraps into the
-//! winner's universe, resetting itself wholesale ([`Command::Reset`]).
+//! information the merge needs: a gossip attempt against a *different
+//! universe* fails symmetrically on both ends with
+//! [`Error::NetworkMismatch`], which carries the remote's [`Network`] and
+//! both sides' handshake-declared event floors. Both sides plug the same two
+//! floors into the same pure [`decide`] rule, so both agree who wins without
+//! exchanging another byte: the loser opens a fresh stream and bootstraps
+//! into the winner's universe, resetting itself wholesale
+//! ([`Command::Reset`]).
 //!
 //! Gossip is change-driven, with no debounce: every connection runs
 //! [`Rumors::gossip_when`] fed by [`Rumors::changes`], so a local commit is
@@ -72,12 +73,17 @@ const MAX_INBOUND: usize = 256;
 const TEARDOWN_GRACE: Duration = Duration::from_secs(5);
 
 /// How many concurrent incoming unidirectional data streams a peer may open on
-/// one connection. A rumors session opens up to
-/// [`STREAM_COUNT`](rumors::link::STREAM_COUNT) (17) data streams per
-/// direction, and merge/retire can briefly overlap a fresh session's streams
-/// with a prior session's teardown, so we admit comfortably more than the 34
-/// the protocol can demand at once. The QUIC default (100) already clears this
-/// bar, but we pin it so the transport is never the throttle.
+/// one connection. The limit binds *incoming* streams only, so the requirement
+/// is the 17 ([`STREAM_COUNT`](rumors::link::STREAM_COUNT)) data streams the
+/// peer's half of one session may open toward us — not 34: our own opens count
+/// against the peer's limit, not ours. Nor do sessions overlap on one
+/// connection: a link runs sessions strictly in turn, a mismatched session
+/// dies at the version handshake before any data stream opens (data streams
+/// open lazily, on first frame), and retire rides a fresh connection. 64 is
+/// simple headroom over 17 (it also absorbs any lag while a finished
+/// session's closed streams drain); the QUIC default (100) already clears the
+/// bar, but we pin it so a transport default change can never become the
+/// throttle.
 const MAX_CONCURRENT_UNI_STREAMS: u32 = 64;
 
 /// Bind an endpoint with the default n0 infrastructure (relays + DNS
@@ -168,10 +174,14 @@ pub enum Verdict {
 
 /// The merge rule: the universe with the greater event floor wins, ties
 /// broken by the greater [`Network`] id. Pure and symmetric — both sides
-/// evaluate it on the same `(min_events, network)` pair (each side's own
-/// versus the one [`Error::NetworkMismatch`] reported) and reach opposite
-/// verdicts, so exactly one side resets. The caller guarantees the networks
-/// differ (equal networks gossip normally and never raise the mismatch).
+/// evaluate it on the same two `(min_events, network)` pairs, both taken
+/// from [`Error::NetworkMismatch`] (the floors each side *declared* in the
+/// session's handshake), and reach opposite verdicts, so exactly one side
+/// resets. Feeding it a fresh local floor instead of the declared one breaks
+/// that symmetry: a commit landing mid-session can make both sides Win, and
+/// each then serves a merge the other never requests. The caller guarantees
+/// the networks differ (equal networks gossip normally and never raise the
+/// mismatch).
 pub fn decide(ours: (u64, Network), theirs: (u64, Network)) -> Verdict {
     debug_assert_ne!(ours.1, theirs.1, "same-universe peers never reach decide");
     if theirs > ours {
@@ -201,8 +211,9 @@ enum End {
 ///
 /// Sessions learned content reaches the owner through its observer; this
 /// loop only accounts for them. The driver's terminal `Err` ends it: the
-/// stream pair is garbage afterwards, but the QUIC *connection* is fine,
-/// which is what the merge dance rides on (it opens a fresh stream).
+/// link is poisoned afterwards, but the QUIC *connection* is fine, which is
+/// what the merge dance rides on (it opens a fresh stream pair and builds a
+/// fresh link).
 ///
 /// The drive also watches the owner's published universe and ends
 /// ([`End::Stale`]) when a reset on *another* connection abandons the
@@ -276,6 +287,7 @@ async fn drive_connection(
         End::Failed(Error::NetworkMismatch {
             remote_network,
             remote_min_events,
+            local_min_events,
             ..
         }) => {
             trace(|| {
@@ -289,12 +301,16 @@ async fn drive_connection(
                 network: Some(handle.network()),
             };
             let _ = cmd.send(outcome).await;
-            // Our side of the merge comparison: the universe this driver's
-            // handle belongs to, as it stands at the mismatch. (After a
-            // concurrent reset the handle can be a stale universe; the
-            // owner's reset guard refuses a double adoption, so the worst
-            // case is one wasted bootstrap.)
-            let ours = (handle.snapshot().latest().min_ticks(), handle.network());
+            // Our side of the merge comparison: the event floor this side
+            // declared in the session's handshake — exactly the value the
+            // peer's `decide` used as `theirs`. A fresh snapshot here would
+            // race local commits: one landing mid-session on each side lifts
+            // both fresh floors above both declared ones, both sides Win,
+            // and each waits out a merge accept the other never attempts.
+            // (After a concurrent reset the handle can be a stale universe;
+            // the owner's reset guard refuses a double adoption, so the
+            // worst case is one wasted bootstrap.)
+            let ours = (local_min_events, handle.network());
             let verdict = decide(ours, (remote_min_events, remote_network));
             trace(|| {
                 format!(
@@ -339,9 +355,12 @@ async fn serve_merge(conn: &Connection, cmd: &mpsc::Sender<Command>) -> anyhow::
         .context("waiting for the loser's bootstrap stream")??;
     let handle = request_handle(cmd).await?;
     let mut link = quic_link(recv, send, conn);
-    handle
-        .gossip(&mut link)
+    // Bounded: this serve holds a drive (and its accept-loop permit), and a
+    // live-but-stalled loser must not pin it forever. The whole-tree budget
+    // applies — a merge bootstrap ships our entire set, not a delta.
+    timeout(timers::RECONCILE_TIMEOUT, handle.gossip(&mut link))
         .await
+        .context("merge bootstrap serve timed out")?
         .context("serving the merge bootstrap")?;
     let parts = link.into_parts();
     let (mut send, mut recv) = (parts.control_write, parts.control_read);
@@ -359,15 +378,21 @@ async fn request_merge(
     cmd: &mpsc::Sender<Command>,
     abandoned: Network,
 ) -> anyhow::Result<()> {
-    let (send, recv) = conn
-        .open_bi()
+    // Bounded like every wait in the merge dance: a winner that saw the
+    // mismatch but never serves must not hang this drive forever.
+    let (send, recv) = timeout(timers::SESSION_TIMEOUT, conn.open_bi())
         .await
+        .context("opening the bootstrap stream timed out")?
         .context("opening the bootstrap stream")?;
     let mut link = quic_link(recv, send, conn);
-    let known = Peer::<Entry>::bootstrap(&mut link)
-        .await
-        .context("bootstrapping into the winning universe")?
-        .context("the winner was itself bootstrapping")?;
+    let known = timeout(
+        timers::RECONCILE_TIMEOUT,
+        Peer::<Entry>::bootstrap(&mut link),
+    )
+    .await
+    .context("merge bootstrap timed out")?
+    .context("bootstrapping into the winning universe")?
+    .context("the winner was itself bootstrapping")?;
     let parts = link.into_parts();
     let (mut send, mut recv) = (parts.control_write, parts.control_read);
     settle(&mut send, &mut recv).await;
@@ -565,7 +590,10 @@ pub enum Departure {
     },
     /// The failure struck during the party hand-off itself: the peer may
     /// hold our party, so we must not retry (two generals). At worst the
-    /// region leaks; it is never duplicated.
+    /// region leaks; it is never duplicated. A retire attempt that outruns
+    /// [`timers::RECONCILE_TIMEOUT`] lands here too: from outside the
+    /// dropped session we cannot tell which phase it stalled in, so the
+    /// timeout maps to `Uncertain` conservatively — never a retry.
     Uncertain,
     /// No candidate could absorb us; the region leaks with us.
     Leaked,
@@ -574,7 +602,9 @@ pub enum Departure {
 /// Retire into the first willing candidate, walking the list in presence
 /// recency order. The caller hands us the unique `Peer` — the
 /// `Peer`/`Rumors` XOR means no session can be using the set while we
-/// hold it, so retirement's exclusivity holds by construction.
+/// hold it, so retirement's exclusivity holds by construction. Every wait
+/// is bounded: retirement runs on the daemon's shutdown path, and a
+/// live-but-stalled absorber must not hang the exit forever.
 pub async fn retire(
     endpoint: &Endpoint,
     mut retiree: Peer<Entry>,
@@ -593,29 +623,45 @@ pub async fn retire(
         };
         let mut link = quic_link(recv, send, &conn);
 
-        match retiree.retire(&mut link).await {
-            // Retired: we are gone; the peer holds our party.
-            Retire::Retired => {
-                let mut parts = link.into_parts();
-                let _ = parts.control_write.finish();
+        // Bounded by the whole-tree budget: the retire session first
+        // reconciles the full sets, then hands the party over.
+        match timeout(timers::RECONCILE_TIMEOUT, retiree.retire(&mut link)).await {
+            // Retired: we are gone; the peer holds our party. Settle like
+            // every other clean teardown — an immediate close discards our
+            // still-in-flight final bytes (`Connection::close` drops them),
+            // which can cost the absorber a spurious post-commit
+            // `Error::Epilogue` on a perfectly clean retirement.
+            Ok(Retire::Retired) => {
+                let parts = link.into_parts();
+                let (mut send, mut recv) = (parts.control_write, parts.control_read);
+                settle(&mut send, &mut recv).await;
                 conn.close(0u32.into(), b"retired");
                 return Departure::Retired { into: target };
             }
             // Declined (the peer was itself retiring): intact, try the
             // next candidate.
-            Retire::Declined { peer: intact } => {
+            Ok(Retire::Declined { peer: intact }) => {
                 retiree = intact;
                 conn.close(0u32.into(), b"declined");
             }
             // Failed before the party frame: intact, try elsewhere.
-            Retire::Recovered { peer: intact, .. } => {
+            Ok(Retire::Recovered { peer: intact, .. }) => {
                 retiree = intact;
                 conn.close(0u32.into(), b"recovered");
             }
             // Failed during the party frame: the peer may hold our
             // party. Retrying could duplicate the region; stop here.
-            Retire::Uncertain { .. } => {
+            Ok(Retire::Uncertain { .. }) => {
                 conn.close(0u32.into(), b"uncertain");
+                return Departure::Uncertain;
+            }
+            // Timed out: the dropped session consumed the retiree, and from
+            // out here we cannot tell whether the party frame had crossed.
+            // Classify conservatively as Uncertain and never retry — a
+            // retry against a peer that did absorb us would duplicate the
+            // region, which is worse than leaking it.
+            Err(_) => {
+                conn.close(0u32.into(), b"retire timeout");
                 return Departure::Uncertain;
             }
         }

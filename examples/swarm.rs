@@ -146,9 +146,15 @@ use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
 /// newcomer pulls `parent`'s whole tree through the ordinary mirror descent
 /// and is handed a fresh disjoint party, forked in the same critical section
 /// that snapshots the served tree. Both halves run concurrently on
-/// `runtime`'s single current thread via [`tokio::join!`].
-fn bootstrap_fork(runtime: &tokio::runtime::Runtime, parent: &Rumors<Payload>) -> Rumors<Payload> {
-    let (mut parent_link, mut newcomer_link) = rumors::link::memory_with_capacity(16 * 1024);
+/// `runtime`'s single current thread via [`tokio::join!`]. `duplex_capacity`
+/// sizes each of the link's in-memory streams, same as every other link in
+/// the swarm.
+fn bootstrap_fork(
+    runtime: &tokio::runtime::Runtime,
+    parent: &Rumors<Payload>,
+    duplex_capacity: usize,
+) -> Rumors<Payload> {
+    let (mut parent_link, mut newcomer_link) = rumors::link::memory_with_capacity(duplex_capacity);
     let (served, newcomer) = runtime.block_on(async {
         tokio::join!(
             parent.gossip(&mut parent_link),
@@ -352,7 +358,7 @@ fn main() -> io::Result<()> {
     // bootstraps; its forks do all the gossiping.
     let initial: Vec<Donation> = (0..args.parties)
         .map(|_| Donation {
-            rumors: bootstrap_fork(&seed_runtime, &seed),
+            rumors: bootstrap_fork(&seed_runtime, &seed, args.duplex_capacity),
         })
         .collect();
     drop(seed);
@@ -456,7 +462,7 @@ fn run_party(
                     // so it can independently churn and gossip; its thread
                     // rebuilds the key pool by observer replay. We keep
                     // running unchanged.
-                    let child = bootstrap_fork(&runtime, &rumors);
+                    let child = bootstrap_fork(&runtime, &rumors, net.duplex_capacity);
                     let _ = reply.send(Donation { rumors: child });
                 }
                 Command::WindDown { reply } => {
@@ -615,6 +621,13 @@ fn try_initiate(
     // after it returns. It is never derived from the Poisson schedule.
     // (Learned keys surface through the party's observer on its next drain.)
     let start = Instant::now();
+    // The swarm's links are in-process and its parties one universe, so a
+    // failed session is a bug and panicking is honest. A real application
+    // matches on the error instead: `Error::LinkPoisoned` and
+    // `Error::Epilogue` call for a reconnect (the replica is intact — or,
+    // for `Epilogue`, already fully committed), `Error::NetworkMismatch`
+    // for a partition-merge decision, and I/O errors for discarding the
+    // link and retrying later.
     runtime
         .block_on(rumors.gossip(&mut link))
         .expect("initiator gossip");
@@ -639,6 +652,8 @@ fn serve_sync(
     // the other direction. Roundtrips are tallied by the initiator alone, so
     // the responder attaches no `Rounds`.
     let mut link = responder_link(end, Arc::clone(&net.metrics.wire_bytes));
+    // See `try_initiate`: a real application matches on the session error
+    // (poisoned / epilogue / mismatch) rather than panicking.
     runtime
         .block_on(rumors.gossip(&mut link))
         .expect("responder gossip");
@@ -854,6 +869,8 @@ fn shrink(
     let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(net.duplex_capacity);
     let (retired, survived) = runtime
         .block_on(async { tokio::join!(retiree.retire(&mut b_link), rumors.gossip(&mut a_link)) });
+    // See `try_initiate` for how a real application handles a session error
+    // instead of panicking.
     survived.expect("survivor gossip");
     assert!(
         matches!(retired, Retire::Retired),
@@ -1014,8 +1031,9 @@ type ResponderLink = Link<DuplexStream, CountWrite<DuplexStream>, CountConnector
 
 /// Decorate an in-memory link end for the initiator's accounting: byte and
 /// roundtrip counting on the control stream, byte counting on opened data
-/// streams. `epoch` is preserved so the decorated link keeps counting sessions
-/// in lockstep with its peer.
+/// streams. The [`SessionState`](rumors::link::SessionState) is carried
+/// through unchanged, so decoration neither resets the session counter that
+/// keeps the two ends in lockstep nor clears a poison latch.
 fn initiator_link(
     link: MemoryLink,
     wire_bytes: Arc<AtomicU64>,
