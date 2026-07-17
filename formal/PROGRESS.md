@@ -655,16 +655,61 @@ bounds μ(Q), and both are bounded by the awaited send.
      bites) and `splice_link` (`SpineLink.step`'s pends identity),
      `descSupply_step` (two descent stages per step, in cursor form)
      + `descSupply_base_I/R` (absorber feeds; pend-free `R` base).
-     Remaining, precisely: (1) the `futLen`-of-uniform-segment
-     family (collapse `futLen` over `walkSeg`/`splicedChunk` tails
-     via owner uniformity, then `seg` arithmetic); (2) the per-site
-     `descIdx` window-nesting inequalities feeding `SpineLink.base`
-     and `descSupply_step`'s supply bounds; (3) the assembled
-     `enabled_upper` and its lower/leaf siblings — blocked only on
-     (1)–(2); then the master induction threads them. (Build note:
-     the repo requires BATTERIES, not bare core — more List API is
-     available than the early sessions assumed.) Original design of
-     record below
+     The window-site brick campaign (2026-07-17, the residue's
+     items (1)–(3), spec'd by an adversarially-verified multi-agent
+     design pass, landed complete in four phases, `b94a73e6` …
+     `79c29dfd`): Phase 1 pure bricks — `asks_add_two`,
+     `dsBefore_mono`/`dRank_mono`, `kid_index_lt`/`spine_nest` (the
+     window-nesting inequalities' omega half),
+     `childIsD_eq_kid_kind`, `descIdx_peel`/`descIdx_le_stageLen`,
+     the `lastDOf` splice facts (`lastDOf_max`,
+     `lastDOf_isSome_of_D`, `dRank_lastD`, `dRank_below_lastD`),
+     `ds_wires_mid` → `pends_cut_mid` (THE mid-cursor pends
+     conversion), `qs_wires`/`qs_wires_mid` (a stage's query
+     numbering IS the kid stage's wire numbering),
+     `answerer_resList_total`. Phase 2 the futLen residue —
+     `asked_snd_pin`, `feed_rootres_silent`, the `chunkQ` mid-feed
+     windows, `futLen_anc_upper/lower` (the in-flight ancestor's
+     three-segment tail; the t-cursor cancels, so the pins are
+     insensitive to feed progress), the five `futLen_site_*` forms
+     carrying their strict in-range bounds as conjuncts; Site.lean
+     (NEW) with the four `*_site_hsnd` wrappers. Phase 3 the ascent
+     bottom — `absorb_out_le_req` (request-side: the wire-side
+     count touches the cut at the last request slot and is
+     uninhabitable there), `SpineLink.absorbBase` + a new
+     `phi_of_spine` arm (the campaign's one edit to landed code; a
+     constructor cannot specialize the uniform parameter `p`, hence
+     the `hp : p = Party.I` equation), `spineLink_absorb_at`. Phase
+     4 the assemblers — P1 (`p1_of_lower_site`,
+     `anc_position_counts`, `p1_of_anc`; every covered ancestor is
+     in the `+1` position shape, the only non-`+1` P1 is
+     `lower_window`'s own-stage `hp1`), the spine ladder
+     (`spineLink_base_at`/`spineLink_step_at` with ancestor
+     coordinates spelled inline, `ascCover_of_spine`; per ancestor
+     the σ discriminant is COMPUTED as `lastDOf g A == some jD`,
+     never carried), and the descent packages (`descSupply_down` —
+     the assembled telescope, whose two-peel cut re-basing is
+     `rfl`, which is why the feared subtraction arithmetic never
+     bit — `descSupply_step_asker`,
+     `descSupply_upper_site`/`_zero`/`descSupply_lower_site`,
+     concluding the windows' `hdesc` hypotheses verbatim).
+     Remaining, precisely — Phase 5, the master induction: thread
+     the RestCtx through the `weaveGo` recursion (`dep_scope`
+     template): per covered ancestor stage the payload is `(A_g,
+     jD_g` in range`, D-flag, hfil_g)` — the D-flag carried, not
+     derived (W subtrees are childless, so every in-flight slot ≥ 2
+     stages above a site is D, but that is geometry, not a landed
+     lemma); the per-stage `hfil` tail-partition instances
+     (`align_kids_suffix` at each frozen ancestor position) kept
+     alive across `wKidOps` descent, glued by `walkSeg_glue` +
+     `futLen_append` (adjacent windows abut definitionally along
+     the coverage telescope); the top-level `hfeed` clause feeding
+     `feed_rootres_silent` for `hroot`; the openers' five guards by
+     direct omega (seq-0 cap-≥1 sends, outside the window
+     machinery); then assemble `WEdge sk [] (weaveState sk)` and
+     the layer is closed. (Build note: the repo requires BATTERIES,
+     not bare core — more List API is available than the early
+     sessions assumed.) Original design of record below
      (derived 2026-07-17; its membership-flavored descent bullet is
      superseded by the counting route — the cursor arithmetic is
      unchanged):
