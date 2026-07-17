@@ -643,11 +643,28 @@ bounds μ(Q), and both are bounded by the awaited send.
      `SpineLink`/`phi_of_spine` (Ctx.lean — `Φ` by downward
      induction over per-stage count links, base links capping the
      producer asker by an unsent summary, step links refuted through
-     `asm_pends_le_out` twice). Remaining: instantiating the
-     packages per emission site — `SpineLink` links, `P1`/`hp1`,
-     `DescSupply`, `hsnd`/`hreq`/`hwire`/`hroot` — from
-     `man_struct` + the tail partitions (this is layer D's per-emit
-     work, not a separate layer). Original design of record below
+     `asm_pends_le_out` twice); `Emit.lean` (NEW — the per-emit
+     assembly layer, upper-emission prototype): `futLen` (an owner's
+     share of the future on a channel-side) with **the interface
+     finding that per-stage `futLen` values ARE the RestCtx** — no
+     monolithic predicate; `count_pin` (emitted + future share =
+     whole-trace total, through `man_struct` + `out_proj_owner`),
+     the trace totals and assembled pins
+     `upper/lower/wire_snd_pin` + `rootres_pin` (hsnd, hroot),
+     `p1_of_position` + `schedulable_dOf` (P1 — where `schedulable`
+     bites) and `splice_link` (`SpineLink.step`'s pends identity),
+     `descSupply_step` (two descent stages per step, in cursor form)
+     + `descSupply_base_I/R` (absorber feeds; pend-free `R` base).
+     Remaining, precisely: (1) the `futLen`-of-uniform-segment
+     family (collapse `futLen` over `walkSeg`/`splicedChunk` tails
+     via owner uniformity, then `seg` arithmetic); (2) the per-site
+     `descIdx` window-nesting inequalities feeding `SpineLink.base`
+     and `descSupply_step`'s supply bounds; (3) the assembled
+     `enabled_upper` and its lower/leaf siblings — blocked only on
+     (1)–(2); then the master induction threads them. (Build note:
+     the repo requires BATTERIES, not bare core — more List API is
+     available than the early sessions assumed.) Original design of
+     record below
      (derived 2026-07-17; its membership-flavored descent bullet is
      superseded by the counting route — the cursor arithmetic is
      unchanged):
