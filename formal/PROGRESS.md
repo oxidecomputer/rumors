@@ -598,8 +598,15 @@ bounds μ(Q), and both are bounded by the awaited send.
      closing exhaustion, and `cap_pos`/`wf_capLevel` the pure
      starving-vs-blocked contradictions.
      NEXT IN ORDER: (f) the `CtxOK` layer establishing the window
-     lemmas' hypotheses at each pump-facing manual emission. Design
-     of record (derived 2026-07-17):
+     lemmas' hypotheses at each pump-facing manual emission. Started
+     (`Weave/Ctx.lean`): `walk_prefix_lower` (the own-walk descent
+     brick — a cell headed at the scope-`k` parent summary carries
+     every earlier scope's resolution, via the de-privatized
+     `proj_block_*` family and `proj_flatMap_seg`), plus the
+     telescope counting steps in `Proofs/Counting.lean`
+     (`take_flatMap_blocks`, `ds_wires`, `pendsBefore_answerer_ds`).
+     Remaining: the cross-walk membership induction and the ascent
+     boundary. Design of record (derived 2026-07-17):
      - *The weave is depth-first with stage cursors in weave order*:
        `wKidOps` inlines a D kid's whole subtree (`WOp.scope (h-1)
        (kidBase+i)`) before the next kid, and the §5 splice puts the
