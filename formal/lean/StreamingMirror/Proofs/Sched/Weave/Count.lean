@@ -167,7 +167,7 @@ theorem manFilters_nil_mem {r : List Ev} (hr : r ∈ manFilters sk []) :
 -- ============================================== emittedCount algebra
 
 /-- `emittedCount` distributes over length-synced appends. -/
-private theorem emittedCount_append (p : Ev → Bool) :
+theorem emittedCount_append (p : Ev → Bool) :
     ∀ {ts₁ rs₁ : List (List Ev)} (ts₂ rs₂ : List (List Ev)),
       ts₁.length = rs₁.length →
       emittedCount p (ts₁ ++ ts₂) (rs₁ ++ rs₂)

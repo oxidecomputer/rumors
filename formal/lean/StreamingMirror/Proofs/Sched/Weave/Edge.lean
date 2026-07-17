@@ -334,4 +334,254 @@ theorem wEdge_emitP {fut : List Ev} {st : MState} {e : Ev}
     WEdge sk fut (wEmitP sk st e) :=
   wEdge_pump sk (wEdge_emit sk hen hinv)
 
+-- =========================== canonical projections of a weave state
+-- The discharge toolkit: at any state satisfying `WCount`, `out`'s
+-- per-channel-side projections are canonical, so every guard reduces
+-- to a MEMBERSHIP claim — the predecessor event is already out — and
+-- membership follows from conservation (it is in some trace, not in
+-- the remaining future, not in any pump remainder).
+
+/-- Every right-list member has a related left partner: the mirror of
+`Forall2.exists_of_mem_left`. -/
+theorem Forall2.exists_of_mem_right {α β : Type _} {R : α → β → Prop} :
+    ∀ {la : List α} {lb : List β}, Forall2 R la lb → ∀ {b}, b ∈ lb →
+      ∃ a ∈ la, R a b
+  | _, _, .cons hab t, b, hb => by
+      rcases List.mem_cons.1 hb with rfl | hb'
+      · exact ⟨_, List.mem_cons_self .., hab⟩
+      · obtain ⟨a, ha, hr⟩ := t.exists_of_mem_right hb'
+        exact ⟨a, List.mem_cons_of_mem _ ha, hr⟩
+
+/-- The counting invariant's two halves, glued back into one pointwise
+relation over the whole trace family. -/
+theorem wcount_glue {fut : List Ev} {st : MState} (h : WCount sk fut st) :
+    Forall2 (fun t r => ∃ pre, t = pre ++ r ∧ pre.Sublist st.out)
+      (procs sk) (manFilters sk fut ++ st.rem) := by
+  have hall := Forall2.append h.man_struct h.pump_struct
+  rwa [List.take_append_drop] at hall
+
+/-- `out_count`, read over the glued family. -/
+theorem wcount_out_glued {fut : List Ev} {st : MState}
+    (h : WCount sk fut st) (p : Ev → Bool) :
+    (st.out.filter p).length
+      = emittedCount p (procs sk) (manFilters sk fut ++ st.rem) := by
+  have hEC : emittedCount p (procs sk) (manFilters sk fut ++ st.rem)
+      = emittedCount p ((procs sk).take (manCount sk))
+          (manFilters sk fut)
+        + emittedCount p ((procs sk).drop (manCount sk)) st.rem := by
+    conv => lhs; rw [← List.take_append_drop (manCount sk) (procs sk)]
+    exact emittedCount_append p _ _ h.man_struct.length_eq
+  rw [hEC]
+  exact h.out_count p
+
+/-- Weave-state projections are CANONICAL: on every channel and side,
+`out` holds seqs `0, 1, …` in order — `schedule_proj_canon`
+transported from the merge's final state to every weave state. -/
+theorem wproj_canon (hwf : sk.wellFormed = true) {fut : List Ev}
+    {st : MState} (h : WCount sk fut st) (c : Chan) (b : Bool) :
+    proj c b st.out = canon c b (proj c b st.out).length := by
+  have howned : Owned (if b then sndOwner sk else rcvOwner sk) b 0
+      (procs sk) := by
+    cases b
+    · exact procs_rcv_owned sk hwf
+    · exact procs_snd_owned sk hwf
+  obtain ⟨pre, hsub, hpre⟩ :=
+    emitted_canon (wcount_glue sk h) howned (procs_canon sk c b)
+  have hcount : (proj c b st.out).length
+      = emittedCount (fun e => decide (e.1 = c) && (e.2.1 == b))
+          (procs sk) (manFilters sk fut ++ st.rem) :=
+    wcount_out_glued sk h _
+  have hlenpre : (proj c b pre).length
+      = emittedCount (fun e => decide (e.1 = c) && (e.2.1 == b))
+          (procs sk) (manFilters sk fut ++ st.rem) := by
+    rw [hpre]
+    simp [canon]
+  have heq : proj c b pre = proj c b st.out :=
+    (hsub.filter _).eq_of_length (by
+      show (proj c b pre).length = (proj c b st.out).length
+      rw [hlenpre, hcount])
+  rw [hcount, ← heq]
+  exact hpre
+
+/-- Membership bounds the count: an event in a canonical stream sits
+below the stream's length. -/
+theorem wcount_mem_lt (hwf : sk.wellFormed = true) {fut : List Ev}
+    {st : MState} (h : WCount sk fut st) {c : Chan} {b : Bool} {n : Nat}
+    (hmem : ((c, b, n) : Ev) ∈ st.out) :
+    n < (proj c b st.out).length := by
+  have hp : ((c, b, n) : Ev) ∈ proj c b st.out :=
+    List.mem_filter.2 ⟨hmem, by simp⟩
+  rw [wproj_canon sk hwf h c b] at hp
+  simp only [canon, List.mem_map] at hp
+  obtain ⟨j, hj, hje⟩ := hp
+  have hn : j = n := by
+    simpa using congrArg (fun e : Ev => e.2.2) hje
+  subst hn
+  exact List.mem_range.1 hj
+
+-- ================================================ guard discharges
+
+/-- E1 discharge: a receive is enabled once its own-seq send is out. -/
+theorem enabled_rcv_of_mem (hwf : sk.wellFormed = true) {fut : List Ev}
+    {st : MState} (h : WCount sk fut st) {c : Chan} {n : Nat}
+    (hmem : ((c, true, n) : Ev) ∈ st.out) :
+    enabled sk st.sent st.rcvd (c, false, n) = true := by
+  simp only [enabled, decide_eq_true_eq]
+  rw [h.sent_eq c, sndCount_eq_proj]
+  exact wcount_mem_lt sk hwf h hmem
+
+/-- E2 discharge, seq under the cap: the window opens unconditionally. -/
+theorem enabled_snd_low {st : MState} {c : Chan} {n : Nat}
+    (hn : n < sk.cap c) :
+    enabled sk st.sent st.rcvd (c, true, n) = true := by
+  simp only [enabled, decide_eq_true_eq]
+  omega
+
+/-- E2 discharge: a send is enabled once the receive sitting `cap`
+slots below its seq is out. -/
+theorem enabled_snd_of_mem (hwf : sk.wellFormed = true) {fut : List Ev}
+    {st : MState} (h : WCount sk fut st) {c : Chan} {n : Nat}
+    (hmem : ((c, false, n - sk.cap c) : Ev) ∈ st.out)
+    (hn : sk.cap c ≤ n) :
+    enabled sk st.sent st.rcvd (c, true, n) = true := by
+  simp only [enabled, decide_eq_true_eq]
+  rw [h.rcvd_eq c, rcvCount_eq_proj]
+  have := wcount_mem_lt sk hwf h hmem
+  omega
+
+/-- CONSERVATION: an event of some trace that is neither in the
+remaining future nor in any pump remainder has been emitted. -/
+theorem mem_out_of_elsewhere {fut : List Ev} {st : MState}
+    (h : WCount sk fut st) {e : Ev} {t : List Ev}
+    (ht : t ∈ procs sk) (het : e ∈ t)
+    (hfut : e ∉ fut) (hrem : ∀ r ∈ st.rem, e ∉ r) :
+    e ∈ st.out := by
+  obtain ⟨r, hr, pre, hpre, hsub⟩ :=
+    (wcount_glue sk h).exists_of_mem_left ht
+  rw [hpre] at het
+  rcases List.mem_append.1 het with hin | hin
+  · exact hsub.subset hin
+  · rcases List.mem_append.1 hr with hr' | hr'
+    · unfold manFilters at hr'
+      obtain ⟨m, -, rfl⟩ := List.mem_map.1 hr'
+      exact absurd (List.mem_filter.1 hin).1 hfut
+    · exact absurd hin (hrem r hr')
+
+-- ============================================== pump-family support
+-- Which channels the pump traces can touch at all: never a walk wire
+-- above the leaf stage, never an `asked` channel. These make every
+-- manual-vs-manual predecessor's "not in any pump remainder"
+-- obligation a support fact.
+
+private theorem asmOut_cases (pk : Party × Nat) :
+    sk.asmOutChan pk = Chan.rootret ∨ sk.asmOutChan pk = Chan.rootrets
+      ∨ ∃ p j, sk.asmOutChan pk = Chan.level p j := by
+  unfold Skel.asmOutChan
+  split
+  · exact Or.inl rfl
+  · split
+    · exact Or.inr (Or.inl rfl)
+    · exact Or.inr (Or.inr ⟨_, _, rfl⟩)
+
+private theorem asmRes_cases (pk : Party × Nat) :
+    (∃ p j, asmResChan pk = Chan.upper p j)
+      ∨ ∃ p j, asmResChan pk = Chan.lower p j := by
+  unfold asmResChan
+  split
+  · exact Or.inl ⟨_, _, rfl⟩
+  · exact Or.inr ⟨_, _, rfl⟩
+
+/-- Support of the pump family: a pump event's channel is never a
+walk wire above the leaf stage (the only pump wire traffic is
+absorb's `wire R 0` RECEIVES) and never an `asked` channel. -/
+theorem pump_support {t : List Ev}
+    (ht : t ∈ (procs sk).drop (manCount sk)) {e : Ev} (he : e ∈ t) :
+    (∀ p hh, e.1 = Chan.wire p hh → hh = 0 ∧ e.2.1 = false) ∧
+    ∀ p hh, e.1 ≠ Chan.asked p hh := by
+  rw [← weavePumps_eq] at ht
+  simp only [weavePumps, List.mem_append, List.mem_cons, List.mem_map,
+    List.not_mem_nil, or_false] at ht
+  rcases ht with (rfl | ⟨pk, -, rfl⟩) | rfl | rfl
+  · -- absorb
+    obtain ⟨j, -, he⟩ := List.mem_flatMap.1 he
+    rcases he with _ | ⟨_, he⟩
+    · refine ⟨fun p hh hw => ?_, fun p hh hw => nomatch hw⟩
+      injection hw with h1 h2
+      exact ⟨h2.symm, rfl⟩
+    · rcases he with _ | ⟨_, he⟩
+      · exact ⟨fun p hh hw => (nomatch hw), fun p hh hw => nomatch hw⟩
+      · rcases he with _ | ⟨_, he⟩
+        · exact ⟨fun p hh hw => (nomatch hw), fun p hh hw => nomatch hw⟩
+        · cases he
+  · -- an asm tower
+    have hsup := asmEvents_support sk pk e he
+    constructor
+    · intro p hh hw
+      cases hb : e.2.1 with
+      | true =>
+          have hc := hsup.1 hb
+          rw [hc] at hw
+          rcases asmOut_cases sk pk with h | h | ⟨p', j', h⟩ <;>
+            rw [h] at hw <;> exact nomatch hw
+      | false =>
+          rcases hsup.2 hb with hc | hc
+          · rw [hc] at hw
+            rcases asmRes_cases pk with ⟨p', j', h⟩ | ⟨p', j', h⟩ <;>
+              rw [h] at hw <;> exact nomatch hw
+          · rw [hc] at hw
+            exact nomatch hw
+    · intro p hh hw
+      cases hb : e.2.1 with
+      | true =>
+          have hc := hsup.1 hb
+          rw [hc] at hw
+          rcases asmOut_cases sk pk with h | h | ⟨p', j', h⟩ <;>
+            rw [h] at hw <;> exact nomatch hw
+      | false =>
+          rcases hsup.2 hb with hc | hc
+          · rw [hc] at hw
+            rcases asmRes_cases pk with ⟨p', j', h⟩ | ⟨p', j', h⟩ <;>
+              rw [h] at hw <;> exact nomatch hw
+          · rw [hc] at hw
+            exact nomatch hw
+  · -- the floating rootret receive
+    rcases he with _ | ⟨_, he⟩
+    · exact ⟨fun p hh hw => (nomatch hw), fun p hh hw => nomatch hw⟩
+    · cases he
+  · -- fins
+    unfold finEvents at he
+    rcases he with _ | ⟨_, he⟩
+    · exact ⟨fun p hh hw => (nomatch hw), fun p hh hw => nomatch hw⟩
+    · obtain ⟨j, -, rfl⟩ := List.mem_map.1 he
+      exact ⟨fun p hh hw => (nomatch hw), fun p hh hw => nomatch hw⟩
+
+/-- Pump remainders never hold a wire event above the leaf stage's
+receives. -/
+theorem pump_rem_no_wire {fut : List Ev} {st : MState}
+    (h : WCount sk fut st) {p : Party} {hh n : Nat} {b : Bool}
+    (hb : hh ≠ 0 ∨ b = true) :
+    ∀ r ∈ st.rem, ((Chan.wire p hh, b, n) : Ev) ∉ r := by
+  intro r hr hmem
+  obtain ⟨t, ht, pre, hpre, -⟩ :=
+    h.pump_struct.exists_of_mem_right hr
+  have het : ((Chan.wire p hh, b, n) : Ev) ∈ t := by
+    rw [hpre]; exact List.mem_append_right _ hmem
+  have hcl := (pump_support sk ht het).1 p hh rfl
+  rcases hb with h0 | h1
+  · exact h0 hcl.1
+  · rw [show ((Chan.wire p hh, b, n) : Ev).2.1 = b from rfl] at hcl
+    rw [h1] at hcl
+    exact Bool.noConfusion hcl.2
+
+/-- Pump remainders never hold an `asked` event. -/
+theorem pump_rem_no_asked {fut : List Ev} {st : MState}
+    (h : WCount sk fut st) {p : Party} {hh n : Nat} {b : Bool} :
+    ∀ r ∈ st.rem, ((Chan.asked p hh, b, n) : Ev) ∉ r := by
+  intro r hr hmem
+  obtain ⟨t, ht, pre, hpre, -⟩ :=
+    h.pump_struct.exists_of_mem_right hr
+  have het : ((Chan.asked p hh, b, n) : Ev) ∈ t := by
+    rw [hpre]; exact List.mem_append_right _ hmem
+  exact absurd rfl ((pump_support sk ht het).2 p hh)
+
 end StreamingMirror.Sched

@@ -1465,7 +1465,7 @@ private theorem emitted_nil {c : Chan} {b : Bool} {out : List Ev} :
 /-- The emitted prefixes of an owned, per-trace-canon family project
 to one canonical stream inside `out`: at most one trace feeds the
 channel-side, and its emitted prefix is a canon prefix. -/
-private theorem emitted_canon {c : Chan} {b : Bool} {out : List Ev}
+theorem emitted_canon {c : Chan} {b : Bool} {out : List Ev}
     {f : Chan → Nat} :
     ∀ {i : Nat} {ts rs : List (List Ev)},
       Forall2 (fun t r => ∃ pre, t = pre ++ r ∧ pre.Sublist out) ts rs →
