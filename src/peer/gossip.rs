@@ -93,9 +93,9 @@ pub enum Retire<T, B: BookmarkError = NoBookmark> {
     /// confirmed the absorption; this replica has left the universe. The
     /// link rests at a clean session boundary.
     Retired,
-    /// **Declined, unchanged.** The peer was itself retiring, so nothing our
-    /// replica is handed back intact, to try retiring elsewhere. The
-    /// session ended cleanly, so the link remains usable.
+    /// **Declined, unchanged.** The peer was itself retiring, so nothing
+    /// moved; our replica is handed back intact, to try retiring elsewhere.
+    /// The session ended cleanly, so the link remains usable.
     Declined {
         /// The intact retiree.
         peer: Peer<T, B>,
@@ -896,6 +896,14 @@ impl<T, B: Bookmark> Peer<T, B> {
                     };
                     let led = match trigger {
                         Trigger::Arrival(Err(e)) => {
+                            // Poison even when the staging buffer is empty
+                            // (zero bytes consumed): a transport that errored
+                            // is not a link a later session should trust, and
+                            // the contract promises every error terminal
+                            // leaves the link poisoned. `Drive::drop`'s
+                            // predicate covers the other case — a driver
+                            // dropped with staged bytes it never replayed.
+                            drive.state.poisoned = true;
                             drive.done = true;
                             return Some((Err(Error::from(e).widen()), drive));
                         }

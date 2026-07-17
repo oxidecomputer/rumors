@@ -618,7 +618,11 @@ pub async fn retire(
         else {
             continue;
         };
-        let Ok((send, recv)) = conn.open_bi().await else {
+        // Bounded like request_merge's identical wait: `open_bi` waits
+        // indefinitely for the peer's stream credit, so a live but
+        // withholding candidate would otherwise park the shutdown path
+        // here, before RECONCILE_TIMEOUT is ever armed.
+        let Ok(Ok((send, recv))) = timeout(timers::SESSION_TIMEOUT, conn.open_bi()).await else {
             continue;
         };
         let mut link = quic_link(recv, send, &conn);

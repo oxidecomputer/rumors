@@ -6,7 +6,7 @@ use tokio::io::AsyncWriteExt;
 use crate::link::{Acceptor, Connector, memory};
 use crate::testing::run_to_quiescence;
 use crate::tree::mirror::streaming::remote::codec::{
-    End, Flow, Frame, FrameWrite, Reaction, Speaker, Stream,
+    End, Flow, Frame, FrameWrite, Origin, Reaction, Speaker, Stream,
 };
 
 use super::{
@@ -325,8 +325,14 @@ fn truncated_stream_is_reported_not_ended() {
         join(send, receive).await.1
     })
     .expect("truncation detection resolves");
+    // The origin is pinned in full: it is the field an operator debugging a
+    // caller-built link reads first, so misattributing the speaker or the
+    // logical stream is itself a regression.
     assert!(
-        matches!(error, StreamError::Truncated { .. }),
+        matches!(
+            error,
+            StreamError::Truncated { origin } if origin == Origin::stream(Speaker::Initiator, stream)
+        ),
         "unexpected stream error: {error:?}",
     );
 }
@@ -393,8 +399,12 @@ fn frames_after_the_end_control_are_reported() {
         join(send, receive).await.1
     })
     .expect("after-end detection resolves");
+    // Pinned in full, origin included, like the truncation test above.
     assert!(
-        matches!(error, StreamError::AfterEnd { .. }),
+        matches!(
+            error,
+            StreamError::AfterEnd { origin } if origin == Origin::stream(Speaker::Initiator, stream)
+        ),
         "unexpected stream error: {error:?}",
     );
 }
@@ -430,8 +440,13 @@ fn accept_driver_rejects_duplicate_label() {
             driver.run().await
         };
         let ((), error) = join(send, receive).await;
+        // Pinned in full, origin included, like the stream-error tests.
         assert!(
-            matches!(error, AcceptError::Duplicate { .. }),
+            matches!(
+                error,
+                AcceptError::Duplicate { origin }
+                    if origin == Origin::stream(Speaker::Initiator, stream)
+            ),
             "unexpected accept outcome: {error:?}",
         );
     })

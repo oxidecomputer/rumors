@@ -34,7 +34,9 @@ const DIVERGENT_MESSAGES: u64 = 32;
 /// Polls granted to the joined in-flight sessions before they are dropped.
 ///
 /// Each poll is asserted still pending, so the cancellation provably lands
-/// mid-session; the byte reports separately prove wire traffic had begun.
+/// mid-session; the reports separately prove wire traffic had begun and a
+/// data stream was already open at each end — the descent itself, not just
+/// the handshake, was in flight.
 const MID_FLIGHT_POLLS: usize = 4;
 
 /// Mint a party-disjoint pair with [`DIVERGENT_MESSAGES`] unshared
@@ -79,9 +81,15 @@ fn a_session_cancelled_mid_descent_poisons_the_link() {
         }
         // Dropping the joined future here cancels both sessions mid-descent.
     }
+    let (a_cut, b_cut) = (a_report.snapshot(), b_report.snapshot());
     assert!(
-        a_report.snapshot().write_bytes > 0 && b_report.snapshot().write_bytes > 0,
+        a_cut.write_bytes > 0 && b_cut.write_bytes > 0,
         "the cancellation must land after wire traffic began on both ends"
+    );
+    assert!(
+        a_cut.connects + a_cut.accepts > 0 && b_cut.connects + b_cut.accepts > 0,
+        "the cancellation must land mid-descent: a data stream open at each end, \
+         not merely a handshake in flight"
     );
 
     // Reuse fails fast on both ends. The closed-world harness itself is the

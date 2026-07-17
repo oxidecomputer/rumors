@@ -13,6 +13,7 @@ mod common;
 
 use std::time::Duration;
 
+use rumors::testing::{IoPlan, IoSide, wrap_link};
 use rumors::{Peer, Rumors};
 use tokio::time::timeout;
 
@@ -115,7 +116,8 @@ async fn eager_reinitiation_reuses_the_connection() {
 
 /// An epilogue-only session still advances the link's session epoch on
 /// both ends: a converged pair runs a zero-data-stream session (nothing
-/// differs, so reconciliation opens no streams), then diverges and
+/// differs, so reconciliation opens no streams — asserted through the
+/// wrapped links' stream counters, not assumed), then diverges and
 /// reconciles again over the same link. The second session's data streams
 /// are labeled with each end's next epoch, so it converges only if the
 /// empty session advanced both counters in lockstep — catching any future
@@ -123,7 +125,9 @@ async fn eager_reinitiation_reuses_the_connection() {
 #[tokio::test(flavor = "current_thread")]
 async fn empty_sessions_advance_epochs_in_lockstep() {
     let (a, b) = pair().await;
-    let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
+    let (a_link, b_link) = rumors::link::memory_with_capacity(LINK_BUF);
+    let (mut a_link, a_report) = wrap_link(IoSide::Left, IoPlan::default(), a_link);
+    let (mut b_link, b_report) = wrap_link(IoSide::Right, IoPlan::default(), b_link);
 
     // Session 1: the pair is converged, so this is preamble, greeting, and
     // epilogue only — no data stream opens in either direction.
@@ -134,6 +138,23 @@ async fn empty_sessions_advance_epochs_in_lockstep() {
     .expect("the converged session deadlocked");
     a_out.expect("A's empty session");
     b_out.expect("B's empty session");
+
+    // The premise everything above rests on, asserted rather than assumed:
+    // the converged session opened no data streams. If a future change
+    // gives converged sessions a stream (an unconditional probe, say), the
+    // "epilogue-only session" coverage silently disappears — this catches
+    // that rot.
+    let (a_empty, b_empty) = (a_report.snapshot(), b_report.snapshot());
+    assert_eq!(
+        (
+            a_empty.connects,
+            a_empty.accepts,
+            b_empty.connects,
+            b_empty.accepts,
+        ),
+        (0, 0, 0, 0),
+        "the converged session must open no data streams in either direction",
+    );
 
     // Session 2, same link, real divergence: its streams carry epoch 1.
     a.send(1);

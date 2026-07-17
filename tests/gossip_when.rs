@@ -523,7 +523,10 @@ proptest! {
     /// recoverably: no hang, each driver ends after at most one terminal
     /// `Err`, each replica still holds its own sends and nothing beyond
     /// the union (a torn session commits all of a reconciliation or none
-    /// of it), and a fresh clean connection converges the pair fully.
+    /// of it), a session `Ok` from either driver certifies the pair had
+    /// already converged before any recovery (the epilogue's certification,
+    /// held under arbitrary cut geometry rather than only at pinned byte
+    /// boundaries), and a fresh clean connection converges the pair fully.
     #[test]
     fn severed_connections_fail_loudly_and_recover(
         a_write_cut in 0usize..400,
@@ -578,6 +581,21 @@ proptest! {
             assert!(b_snapshot.iter().any(|(_, _, m)| **m == 2));
             assert!(a_snapshot.len() <= 2);
             assert!(b_snapshot.len() <= 2);
+
+            // Certification: the epilogue's central promise, under a cut at
+            // an arbitrary offset. A driver yields `Ok` only after reading
+            // the peer's completion marker, which the peer writes only
+            // after its own commit — so any `Ok` on either side means both
+            // replicas already hold the session's full union, here, before
+            // the recovery gossip has run.
+            if a_items.iter().any(|i| i.is_ok()) || b_items.iter().any(|i| i.is_ok()) {
+                assert_eq!(
+                    a_snapshot.hash(),
+                    b_snapshot.hash(),
+                    "a session Ok certifies the peer committed: the pair must already be converged",
+                );
+                assert_eq!(a_snapshot.len(), 2, "the certified session moved both sends");
+            }
 
             // Recovery: a fresh, clean connection converges the pair.
             wire_gossip_async(&a, &b).await;
@@ -730,5 +748,54 @@ async fn truncated_initiation_is_a_terminal_error() {
             .expect("end after error deadlocked")
             .is_none(),
         "the stream must end after its terminal error"
+    );
+}
+
+/// A transport error on the idle boundary — the control read fails before
+/// one preamble byte arrives — is a terminal `Err` that poisons the link.
+///
+/// This is the error terminal's poisoning promise on its subtlest path:
+/// zero session bytes moved, so no misframing is even possible, but a
+/// transport that errored is not a link a later session should trust.
+/// Reuse must fail fast with [`Error::LinkPoisoned`] rather than retrying
+/// I/O against the dead transport. (The in-memory duplex can only EOF, so
+/// the read error comes from the fault harness with a zero-byte budget.)
+#[tokio::test(flavor = "current_thread")]
+async fn a_control_read_error_on_the_idle_boundary_poisons_the_link() {
+    let a: Rumors<u64> = Peer::seed().into_rumors();
+    let (a_link, _b_link) = links();
+    let mut a_link = faulty(
+        a_link,
+        FaultPlan {
+            write_cut: None,
+            read_cut: Some(0),
+        },
+    );
+
+    {
+        let mut a_sessions = a.gossip_when(stream::pending::<()>(), &mut a_link);
+        let item = timeout(DEADLINE, a_sessions.next())
+            .await
+            .expect("error never surfaced")
+            .expect("driver yielded its terminal item");
+        assert!(
+            matches!(item, Err(Error::Io(_))),
+            "a control read error is the driver's terminal Err, got {item:?}",
+        );
+        assert!(
+            timeout(DEADLINE, a_sessions.next())
+                .await
+                .expect("end after error deadlocked")
+                .is_none(),
+            "the stream must end after its terminal error"
+        );
+    }
+
+    // The staging buffer never held a byte, yet the link is poisoned: the
+    // fail-fast happens before any I/O, so no counterparty is needed.
+    let retry = a.gossip(&mut a_link).await;
+    assert!(
+        matches!(retry, Err(Error::LinkPoisoned)),
+        "reuse after an error terminal must fail fast, got {retry:?}",
     );
 }
