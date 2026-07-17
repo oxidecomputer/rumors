@@ -166,6 +166,36 @@ theorem level0_snd_le (hwf : sk.wellFormed = true) {fut : List Ev}
         hcount
     _ = sk.totalLeafReqs := by rw [(absorb_totals sk).2.2, seg_len]
 
+/-- The absorber's level output never outruns its request intake:
+each level-0 send follows its block's leaf-request receive. -/
+theorem absorb_out_le_req (hwf : sk.wellFormed = true) {fut : List Ev}
+    {st : MState} (h : WCount sk fut st) :
+    sndCount (Chan.level Party.I 0) st.out
+      ≤ rcvCount Chan.leafRequests st.out := by
+  obtain ⟨r, pre, hr, hpre, hsub⟩ :=
+    cell_of_owner sk h (procs_absorb sk)
+  have hRc : rcvCount Chan.leafRequests st.out
+      = (proj Chan.leafRequests false pre).length := by
+    rw [rcvCount_eq_proj,
+      out_proj_owner sk hwf h _ false (M := 2 + sk.rootH)
+        (by simp [rcvOwner]) (procs_absorb sk) hr hpre hsub]
+  have hOc : sndCount (Chan.level Party.I 0) st.out
+      = (proj (Chan.level Party.I 0) true pre).length := by
+    rw [sndCount_eq_proj,
+      out_proj_owner sk hwf h _ true (M := 2 + sk.rootH)
+        (by simp [sndOwner]) (procs_absorb sk) hr hpre hsub]
+  cases r with
+  | nil =>
+      rw [List.append_nil] at hpre
+      obtain ⟨-, ht2, ht3⟩ := absorb_totals sk
+      rw [hpre] at ht2 ht3
+      rw [hRc, hOc, ht2, ht3, seg_len, seg_len]
+      exact Nat.le_refl _
+  | cons e₀ rest₀ =>
+      obtain ⟨t, htN, hshape⟩ := absorb_cell_shape sk hpre (by simp)
+      rcases hshape with ⟨-, -, hc2, hc3⟩ | ⟨-, -, hc2, hc3⟩
+        | ⟨-, -, hc2, hc3⟩ <;> rw [hRc, hOc] <;> omega
+
 /-- Nobody sends the responder's phantom level-0 channel. -/
 theorem levelR0_snd_zero (hwf : sk.wellFormed = true) {fut : List Ev}
     {st : MState} (h : WCount sk fut st) :
