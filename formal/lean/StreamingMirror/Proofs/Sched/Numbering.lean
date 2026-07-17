@@ -914,26 +914,26 @@ theorem walk_canon (pk : Party × Nat) (c : Chan) (b : Bool) :
 
 -- =================================================== the asm family
 
-private theorem res_ne_level (pk : Party × Nat) :
+theorem res_ne_level (pk : Party × Nat) :
     asmResChan pk ≠ asmLevelChan pk := by
   unfold asmResChan asmLevelChan; split <;> simp
 
 /-- One asm block, restated with its level segment named. -/
-private theorem asmBlock_eq (pk : Party × Nat) (idx : Nat) :
+theorem asmBlock_eq (pk : Party × Nat) (idx : Nat) :
     asmBlock sk pk idx
       = (asmResChan pk, false, idx)
         :: seg (asmLevelChan pk) false (sk.pendsBefore pk.1 pk.2 idx)
             (sk.pendAt pk.1 pk.2 idx)
         ++ [(sk.asmOutChan pk, true, idx)] := rfl
 
-private theorem proj_asmBlock_res (pk : Party × Nat) (idx : Nat) :
+theorem proj_asmBlock_res (pk : Party × Nat) (idx : Nat) :
     proj (asmResChan pk) false (asmBlock sk pk idx)
       = seg (asmResChan pk) false idx 1 := by
   rw [asmBlock_eq, seg_one, proj_append, proj_cons_self,
     proj_seg_ne fun hh => res_ne_level pk hh.1.symm,
     proj_cons_ne_side (by simp), proj_nil, List.append_nil]
 
-private theorem proj_asmBlock_level (pk : Party × Nat) (idx : Nat) :
+theorem proj_asmBlock_level (pk : Party × Nat) (idx : Nat) :
     proj (asmLevelChan pk) false (asmBlock sk pk idx)
       = seg (asmLevelChan pk) false (sk.pendsBefore pk.1 pk.2 idx)
           (sk.pendAt pk.1 pk.2 idx) := by
@@ -941,7 +941,7 @@ private theorem proj_asmBlock_level (pk : Party × Nat) (idx : Nat) :
     proj_seg_self, proj_cons_ne_side (by simp), proj_nil,
     List.append_nil]
 
-private theorem proj_asmBlock_out (pk : Party × Nat) (idx : Nat) :
+theorem proj_asmBlock_out (pk : Party × Nat) (idx : Nat) :
     proj (sk.asmOutChan pk) true (asmBlock sk pk idx)
       = seg (sk.asmOutChan pk) true idx 1 := by
   rw [asmBlock_eq, seg_one, proj_append, proj_cons_ne_side (by simp),

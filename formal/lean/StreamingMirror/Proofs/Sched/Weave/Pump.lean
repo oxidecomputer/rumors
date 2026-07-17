@@ -23,6 +23,7 @@ projection IS the owner's prefix's (`out_proj_owner`). Consequences:
   guard-history plus canon.
 -/
 import StreamingMirror.Proofs.Sched.Weave.Edge
+import StreamingMirror.Proofs.Sched.Weave.Prec
 
 namespace StreamingMirror.Sched
 
@@ -401,6 +402,310 @@ theorem procs_rootret (hge : 1 ≤ sk.rootH) :
     omega
   rw [hidx]
   rfl
+
+/-- A nonempty suffix of a block run splits at a block: full blocks,
+then a split block whose right part heads the suffix. -/
+theorem prefix_flatMap {α : Type _} {f : Nat → List α} :
+    ∀ (m a : Nat) {pre r : List α},
+      (List.range' a m).flatMap f = pre ++ r → r ≠ [] →
+      ∃ t, a ≤ t ∧ t < a + m ∧ ∃ p₂ r₂,
+        f t = p₂ ++ r₂ ∧ r₂ ≠ []
+        ∧ pre = (List.range' a (t - a)).flatMap f ++ p₂
+        ∧ r = r₂ ++ (List.range' (t + 1) (a + m - t - 1)).flatMap f
+  | 0, a, pre, r, hsplit, hne => by
+      simp only [List.range'_zero, List.flatMap_nil] at hsplit
+      obtain ⟨-, hr⟩ := List.append_eq_nil_iff.1 hsplit.symm
+      exact absurd hr hne
+  | m + 1, a, pre, r, hsplit, hne => by
+      rw [List.range'_succ, List.flatMap_cons] at hsplit
+      rcases List.append_eq_append_iff.1 hsplit with
+        ⟨a', hpre, hrest⟩ | ⟨c', hfa, hr⟩
+      · -- the prefix swallows block `a`: recurse into the tail run
+        obtain ⟨t, hat, htm, p₂, r₂, hft, hr₂, hpre', hr'⟩ :=
+          prefix_flatMap m (a + 1) hrest hne
+        refine ⟨t, by omega, by omega, p₂, r₂, hft, hr₂, ?_, ?_⟩
+        · rw [hpre, hpre',
+            show t - a = (t - (a + 1)) + 1 from by omega]
+          rw [List.range'_succ, List.flatMap_cons, List.append_assoc]
+        · rw [hr', show a + (m + 1) - t - 1 = a + 1 + m - t - 1
+            from by omega]
+      · -- the suffix starts inside block `a`
+        cases c' with
+        | nil =>
+            -- boundary: block `a` is exactly the prefix; recurse
+            rw [List.append_nil] at hfa
+            rw [List.nil_append] at hr
+            obtain ⟨t, hat, htm, p₂, r₂, hft, hr₂, hpre', hr'⟩ :=
+              prefix_flatMap m (a + 1) (pre := [])
+                (by simpa using hr.symm) hne
+            refine ⟨t, by omega, by omega, p₂, r₂, hft, hr₂, ?_, ?_⟩
+            · rw [show t - a = (t - (a + 1)) + 1 from by omega,
+                List.range'_succ, List.flatMap_cons, ← hfa,
+                List.append_assoc, ← hpre', List.append_nil]
+            · rw [hr', show a + (m + 1) - t - 1 = a + 1 + m - t - 1
+                from by omega]
+        | cons x c'' =>
+            refine ⟨a, Nat.le_refl a, by omega, pre, x :: c'',
+              hfa, by simp, ?_, ?_⟩
+            · rw [Nat.sub_self]
+              rfl
+            · rw [hr, show a + (m + 1) - a - 1 = m from by omega]
+
+private theorem seg_take (c : Chan) (b : Bool) (lo n m : Nat) :
+    (seg c b lo n).take m = seg c b lo (min m n) := by
+  unfold seg
+  rw [← List.map_take, List.take_range]
+
+private theorem seg_len (c : Chan) (b : Bool) (lo n : Nat) :
+    (seg c b lo n).length = n := by
+  simp [seg]
+
+-- ============================================= asm block-run counts
+
+private theorem proj_run_res (pk : Party × Nat) :
+    ∀ (m a : Nat),
+      proj (asmResChan pk) false
+        ((List.range' a m).flatMap (asmBlock sk pk))
+      = seg (asmResChan pk) false a m
+  | 0, a => rfl
+  | m + 1, a => by
+      rw [List.range'_succ, List.flatMap_cons, proj_append,
+        proj_asmBlock_res, proj_run_res pk m (a + 1),
+        seg_append, Nat.add_comm 1 m]
+
+private theorem proj_run_out (pk : Party × Nat) :
+    ∀ (m a : Nat),
+      proj (sk.asmOutChan pk) true
+        ((List.range' a m).flatMap (asmBlock sk pk))
+      = seg (sk.asmOutChan pk) true a m
+  | 0, a => rfl
+  | m + 1, a => by
+      rw [List.range'_succ, List.flatMap_cons, proj_append,
+        proj_asmBlock_out, proj_run_out pk m (a + 1),
+        seg_append, Nat.add_comm 1 m]
+
+private theorem foldl_add_init_le : ∀ (l : List Nat) (acc : Nat),
+    acc ≤ l.foldl (· + ·) acc
+  | [], _ => Nat.le_refl _
+  | x :: l, acc => by
+      have := foldl_add_init_le l (acc + x)
+      simp only [List.foldl_cons]
+      omega
+
+/-- Pending prefix sums are monotone in the cursor. -/
+theorem pendsBefore_mono (p : Party) (j : Nat) {k k' : Nat}
+    (hkk : k ≤ k') :
+    sk.pendsBefore p j k ≤ sk.pendsBefore p j k' := by
+  unfold Skel.pendsBefore
+  rw [show k' = k + (k' - k) from by omega, List.take_add,
+    List.foldl_append]
+  exact foldl_add_init_le _ _
+
+private theorem proj_run_level (pk : Party × Nat) :
+    ∀ (m a : Nat),
+      a + m ≤ (sk.asmResList pk.1 pk.2).length →
+      proj (asmLevelChan pk) false
+        ((List.range' a m).flatMap (asmBlock sk pk))
+      = seg (asmLevelChan pk) false (sk.pendsBefore pk.1 pk.2 a)
+          (sk.pendsBefore pk.1 pk.2 (a + m)
+            - sk.pendsBefore pk.1 pk.2 a)
+  | 0, a, _ => by
+      rw [Nat.add_zero, Nat.sub_self]
+      rfl
+  | m + 1, a, h => by
+      have hsucc := pendsBefore_succ sk
+        (p := pk.1) (j := pk.2) (k := a) (by omega)
+      have hmono := pendsBefore_mono sk pk.1 pk.2
+        (show a + 1 ≤ a + 1 + m by omega)
+      rw [show a + (m + 1) = a + 1 + m from by omega,
+        List.range'_succ, List.flatMap_cons, proj_append,
+        proj_asmBlock_level, proj_run_level pk m (a + 1) (by omega),
+        show sk.pendsBefore pk.1 pk.2 (a + 1)
+          = sk.pendsBefore pk.1 pk.2 a + sk.pendAt pk.1 pk.2 a
+          from by omega,
+        seg_append]
+      congr 1
+      omega
+
+/-- THE ASM SUFFIX TRICHOTOMY: a nonempty unemitted cell of an asm
+trace heads at its next resolution, mid-pends, or its next out — and
+the block position pins all three channel-side counts of the emitted
+prefix. -/
+theorem asm_cell_shape (pk : Party × Nat) {pre r : List Ev}
+    (hsplit : asmEvents sk pk = pre ++ r) (hne : r ≠ []) :
+    ∃ idx, idx < (sk.asmResList pk.1 pk.2).length ∧
+      (((∃ rest, r = (asmResChan pk, false, idx) :: rest)
+        ∧ (proj (asmResChan pk) false pre).length = idx
+        ∧ (proj (asmLevelChan pk) false pre).length
+            = sk.pendsBefore pk.1 pk.2 idx
+        ∧ (proj (sk.asmOutChan pk) true pre).length = idx)
+      ∨ (∃ tlv rest, r = (asmLevelChan pk, false, tlv) :: rest
+        ∧ sk.pendsBefore pk.1 pk.2 idx ≤ tlv
+        ∧ tlv < sk.pendsBefore pk.1 pk.2 (idx + 1)
+        ∧ (proj (asmResChan pk) false pre).length = idx + 1
+        ∧ (proj (asmLevelChan pk) false pre).length = tlv
+        ∧ (proj (sk.asmOutChan pk) true pre).length = idx)
+      ∨ ((∃ rest, r = (sk.asmOutChan pk, true, idx) :: rest)
+        ∧ (proj (asmResChan pk) false pre).length = idx + 1
+        ∧ (proj (asmLevelChan pk) false pre).length
+            = sk.pendsBefore pk.1 pk.2 (idx + 1)
+        ∧ (proj (sk.asmOutChan pk) true pre).length = idx)) := by
+  unfold asmEvents at hsplit
+  rw [List.range_eq_range'] at hsplit
+  obtain ⟨t, -, htN, p₂, r₂, hblock, hr₂, hpre, hr⟩ :=
+    prefix_flatMap _ 0 hsplit hne
+  rw [Nat.zero_add] at htN
+  rw [Nat.sub_zero] at hpre
+  have hN := htN
+  -- prefix projections: the closed block run plus the split block part
+  have hres_run := proj_run_res sk pk t 0
+  have hout_run := proj_run_out sk pk t 0
+  have hlvl_run := proj_run_level sk pk t 0 (by omega)
+  rw [Nat.zero_add] at hlvl_run
+  have hp0 : sk.pendsBefore pk.1 pk.2 0 = 0 := rfl
+  rw [hp0, Nat.sub_zero] at hlvl_run
+  have hres_pre : proj (asmResChan pk) false pre
+      = seg (asmResChan pk) false 0 t ++ proj (asmResChan pk) false p₂ := by
+    rw [hpre, proj_append, hres_run]
+  have hout_pre : proj (sk.asmOutChan pk) true pre
+      = seg (sk.asmOutChan pk) true 0 t
+        ++ proj (sk.asmOutChan pk) true p₂ := by
+    rw [hpre, proj_append, hout_run]
+  have hlvl_pre : proj (asmLevelChan pk) false pre
+      = seg (asmLevelChan pk) false 0 (sk.pendsBefore pk.1 pk.2 t)
+        ++ proj (asmLevelChan pk) false p₂ := by
+    rw [hpre, proj_append, hlvl_run]
+  rw [asmBlock_eq] at hblock
+  refine ⟨t, htN, ?_⟩
+  match p₂, hblock with
+  | [], hblock =>
+      -- block boundary: the cell heads at the next resolution
+      rw [List.nil_append] at hblock
+      refine Or.inl ⟨⟨(seg (asmLevelChan pk) false
+          (sk.pendsBefore pk.1 pk.2 t) (sk.pendAt pk.1 pk.2 t)
+          ++ [(sk.asmOutChan pk, true, t)])
+          ++ (List.range' (t + 1)
+              (0 + (sk.asmResList pk.1 pk.2).length - t - 1)).flatMap
+              (asmBlock sk pk), ?_⟩, ?_, ?_, ?_⟩
+      · rw [hr, ← hblock]
+        rfl
+      · rw [hres_pre]
+        simp [seg_len, proj_nil]
+      · rw [hlvl_pre]
+        simp [seg_len, proj_nil]
+      · rw [hout_pre]
+        simp [seg_len, proj_nil]
+  | e :: p₃, hblock =>
+      rw [List.cons_append] at hblock
+      injection hblock with he1 hinner
+      subst he1
+      have hsucc := pendsBefore_succ sk
+        (p := pk.1) (j := pk.2) (k := t) (by omega)
+      rcases List.append_eq_append_iff.1 hinner with
+        ⟨a', hseg, hra⟩ | ⟨c', hp₃, hout⟩
+      · -- `[out] = a' ++ r₂`: the out heads the cell (a' must be nil)
+        cases a' with
+        | nil =>
+            rw [List.append_nil] at hseg
+            rw [List.nil_append] at hra
+            refine Or.inr (Or.inr ⟨⟨(List.range' (t + 1)
+                (0 + (sk.asmResList pk.1 pk.2).length - t - 1)).flatMap
+                (asmBlock sk pk), ?_⟩, ?_, ?_, ?_⟩)
+            · rw [hr, ← hra]
+              rfl
+            · rw [hres_pre]
+              simp only [proj_cons_self, List.length_append, seg_len]
+              rw [hseg, proj_seg_ne (fun hh => res_ne_level pk hh.1.symm)]
+              simp
+            · rw [hlvl_pre]
+              simp only [List.length_append, seg_len]
+              rw [proj_cons_ne_chan (res_ne_level pk), hseg,
+                proj_seg_self, hsucc, seg_len]
+            · rw [hout_pre]
+              simp only [List.length_append, seg_len]
+              rw [proj_cons_ne_side (by simp), hseg,
+                proj_seg_ne (by simp)]
+              simp
+        | cons x a'' =>
+            exfalso
+            have hlen := congrArg List.length hra
+            simp at hlen
+            cases r₂ with
+            | nil => exact hr₂ rfl
+            | cons z r₃ => simp at hlen
+      · -- `seg = p₃ ++ c'`: mid-pends when `c'` is inhabited
+        cases c' with
+        | nil =>
+            rw [List.append_nil] at hp₃
+            rw [List.nil_append] at hout
+            refine Or.inr (Or.inr ⟨⟨(List.range' (t + 1)
+                (0 + (sk.asmResList pk.1 pk.2).length - t - 1)).flatMap
+                (asmBlock sk pk), ?_⟩, ?_, ?_, ?_⟩)
+            · rw [hr, hout]
+              rfl
+            · rw [hres_pre]
+              simp only [proj_cons_self, List.length_append, seg_len]
+              rw [← hp₃, proj_seg_ne (fun hh => res_ne_level pk hh.1.symm)]
+              simp
+            · rw [hlvl_pre]
+              simp only [List.length_append, seg_len]
+              rw [proj_cons_ne_chan (res_ne_level pk), ← hp₃,
+                proj_seg_self, hsucc, seg_len]
+            · rw [hout_pre]
+              simp only [List.length_append, seg_len]
+              rw [proj_cons_ne_side (by simp), ← hp₃,
+                proj_seg_ne (by simp)]
+              simp
+        | cons x c'' =>
+            -- mid-pends: the cell heads at the next level return
+            have hp3take : p₃ = seg (asmLevelChan pk) false
+                (sk.pendsBefore pk.1 pk.2 t)
+                (min p₃.length (sk.pendAt pk.1 pk.2 t)) := by
+              have hthis := congrArg (List.take p₃.length) hp₃
+              rw [List.take_append_of_le_length (Nat.le_refl _),
+                List.take_of_length_le (Nat.le_refl _)] at hthis
+              rw [← seg_take]
+              exact hthis.symm
+            have hlen3 : p₃.length < sk.pendAt pk.1 pk.2 t := by
+              have hthis := congrArg List.length hp₃
+              simp [seg_len] at hthis
+              omega
+            have hmin : min p₃.length (sk.pendAt pk.1 pk.2 t)
+                = p₃.length := by omega
+            rw [hmin] at hp3take
+            have hx : x = (asmLevelChan pk, false,
+                sk.pendsBefore pk.1 pk.2 t + p₃.length) := by
+              have hread : (seg (asmLevelChan pk) false
+                  (sk.pendsBefore pk.1 pk.2 t)
+                  (sk.pendAt pk.1 pk.2 t))[p₃.length]? = some x := by
+                rw [hp₃, List.getElem?_append_right (Nat.le_refl _),
+                  Nat.sub_self]
+                rfl
+              rw [seg_getElem? _ _ _ _ _ hlen3] at hread
+              simp only [Option.some.injEq] at hread
+              exact hread.symm
+            refine Or.inr (Or.inl ⟨sk.pendsBefore pk.1 pk.2 t
+              + p₃.length, (c'' ++ [(sk.asmOutChan pk, true, t)])
+                ++ (List.range' (t + 1)
+                  (0 + (sk.asmResList pk.1 pk.2).length - t - 1)).flatMap
+                  (asmBlock sk pk), ?_, by omega, ?_, ?_, ?_, ?_⟩)
+            · rw [hr, hout, hx]
+              rfl
+            · rw [hsucc]
+              omega
+            · rw [hres_pre]
+              simp only [proj_cons_self, List.length_append, seg_len]
+              rw [hp3take, proj_seg_ne (fun hh => res_ne_level pk hh.1.symm)]
+              simp
+            · rw [hlvl_pre]
+              simp only [List.length_append, seg_len]
+              rw [proj_cons_ne_chan (res_ne_level pk), hp3take,
+                proj_seg_self, seg_len]
+            · rw [hout_pre]
+              simp only [List.length_append, seg_len]
+              rw [proj_cons_ne_side (by simp), hp3take,
+                proj_seg_ne (by simp)]
+              simp
 
 /-- fins sit at slot `3·rootH + 3`. -/
 theorem procs_fin (hge : 1 ≤ sk.rootH) :
