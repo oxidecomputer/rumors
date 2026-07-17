@@ -726,4 +726,246 @@ theorem procs_fin (hge : 1 ≤ sk.rootH) :
   rw [hidx]
   rfl
 
+-- ================================================ fixpoint stuckness
+
+/-- A failed scan means every cell's head is disabled. -/
+theorem scan_none_heads {sent rcvd : Chan → Nat} :
+    ∀ {ts : List (List Ev)}, scan sk sent rcvd ts = none →
+      ∀ {i : Nat} {e : Ev} {rest : List Ev},
+        ts[i]? = some (e :: rest) →
+        enabled sk sent rcvd e = false := by
+  intro ts
+  induction ts with
+  | nil => intro _ i e rest hi; simp at hi
+  | cons t ts ih =>
+      intro hscan i e rest hi
+      match t, i with
+      | [], 0 => simp at hi
+      | [], i + 1 =>
+          rw [scan] at hscan
+          cases hrec : scan sk sent rcvd ts with
+          | none =>
+              simp only [List.getElem?_cons_succ] at hi
+              exact ih hrec hi
+          | some pr => rw [hrec] at hscan; simp at hscan
+      | e₀ :: rest₀, 0 =>
+          simp only [List.getElem?_cons_zero, Option.some.injEq] at hi
+          cases hen : enabled sk sent rcvd e₀ with
+          | false =>
+              have : e = e₀ := by
+                have := congrArg (fun l : List Ev => l[0]?) hi
+                simpa using this.symm
+              rw [this]
+              exact hen
+          | true => rw [scan, if_pos hen] at hscan; cases hscan
+      | e₀ :: rest₀, i + 1 =>
+          cases hen : enabled sk sent rcvd e₀ with
+          | false =>
+              rw [scan, if_neg (by rw [hen]; simp)] at hscan
+              cases hrec : scan sk sent rcvd ts with
+              | none =>
+                  simp only [List.getElem?_cons_succ] at hi
+                  exact ih hrec hi
+              | some pr => rw [hrec] at hscan; simp at hscan
+          | true => rw [scan, if_pos hen] at hscan; cases hscan
+
+/-- The manual filter family has one cell per manual trace. -/
+private theorem manFilters_length (fut : List Ev) :
+    (manFilters sk fut).length = manCount sk := by
+  simp [manFilters]
+
+/-- Every asm slot sits past the manual prefix. -/
+private theorem asmIdx_ge (p : Party) {j : Nat} (h1 : 1 ≤ j) :
+    manCount sk < asmIdx sk p j := by
+  cases p <;> (show manCount sk < 3 + _ + (j - 1); unfold manCount) <;>
+    omega
+
+/-- The asm channels' owners all point at the tower's slot. -/
+private theorem asm_owners (p : Party) {j : Nat} (h1 : 1 ≤ j) :
+    rcvOwner sk (asmResChan (p, j)) = asmIdx sk p j
+    ∧ rcvOwner sk (asmLevelChan (p, j)) = asmIdx sk p j
+    ∧ sndOwner sk (sk.asmOutChan (p, j)) = asmIdx sk p j := by
+  refine ⟨?_, ?_, ?_⟩
+  · unfold asmResChan
+    split
+    · show rcvOwner sk (Chan.upper p ((p, j).2 - 1)) = _
+      simp only [rcvOwner]
+      rw [show ((p, j).2 - 1 + 1) = j from by omega]
+    · rfl
+  · show rcvOwner sk (Chan.level p ((p, j).2 - 1)) = _
+    simp only [rcvOwner]
+    rw [show ((p, j).2 - 1 + 1) = j from by omega]
+  · unfold Skel.asmOutChan
+    split
+    · rename_i hc
+      simp only [Bool.and_eq_true, beq_iff_eq] at hc
+      obtain ⟨hp, hj⟩ := hc
+      show sndOwner sk Chan.rootret = _
+      simp only [sndOwner]
+      rw [hp, hj]
+    · split
+      · rename_i hc
+        simp only [Bool.and_eq_true, beq_iff_eq] at hc
+        obtain ⟨hp, hj⟩ := hc
+        show sndOwner sk Chan.rootrets = _
+        simp only [sndOwner]
+        rw [hp, hj]
+      · show sndOwner sk (Chan.level p j) = _
+        simp only [sndOwner]
+        rw [if_neg (by omega)]
+
+/-- The asm trace's whole-trace projections. -/
+private theorem asm_totals (pk : Party × Nat) :
+    proj (asmResChan pk) false (asmEvents sk pk)
+        = seg (asmResChan pk) false 0 (sk.asmResList pk.1 pk.2).length
+    ∧ proj (asmLevelChan pk) false (asmEvents sk pk)
+        = seg (asmLevelChan pk) false 0
+            (sk.pendsBefore pk.1 pk.2 (sk.asmResList pk.1 pk.2).length)
+    ∧ proj (sk.asmOutChan pk) true (asmEvents sk pk)
+        = seg (sk.asmOutChan pk) true 0
+            (sk.asmResList pk.1 pk.2).length := by
+  unfold asmEvents
+  rw [List.range_eq_range']
+  refine ⟨proj_run_res sk pk _ 0, ?_, proj_run_out sk pk _ 0⟩
+  have := proj_run_level sk pk (sk.asmResList pk.1 pk.2).length 0
+    (by omega)
+  rw [Nat.zero_add] at this
+  rw [this, show sk.pendsBefore pk.1 pk.2 0 = 0 from rfl,
+    Nat.sub_zero]
+
+/-- THE STUCK TRICHOTOMY, in counts: at a pump fixpoint an asm tower
+is exhausted, res-starved at a block boundary, level-starved
+mid-window, or out-blocked — each with its three counts pinned and
+the starving/blocking guard recorded. -/
+theorem asm_stuck (hwf : sk.wellFormed = true) {fut : List Ev}
+    {st : MState} (h : WCount sk fut st)
+    (hfix : step sk st = none) {p : Party} {j : Nat} (h1 : 1 ≤ j)
+    (hIdx : (procs sk)[asmIdx sk p j]?
+      = some (asmEvents sk (p, j))) :
+    (rcvCount (asmResChan (p, j)) st.out
+        = (sk.asmResList p j).length
+      ∧ rcvCount (asmLevelChan (p, j)) st.out
+          = sk.pendsBefore p j (sk.asmResList p j).length
+      ∧ sndCount (sk.asmOutChan (p, j)) st.out
+          = (sk.asmResList p j).length)
+    ∨ (rcvCount (asmResChan (p, j)) st.out < (sk.asmResList p j).length
+      ∧ rcvCount (asmLevelChan (p, j)) st.out
+          = sk.pendsBefore p j (rcvCount (asmResChan (p, j)) st.out)
+      ∧ sndCount (sk.asmOutChan (p, j)) st.out
+          = rcvCount (asmResChan (p, j)) st.out
+      ∧ sndCount (asmResChan (p, j)) st.out
+          ≤ rcvCount (asmResChan (p, j)) st.out)
+    ∨ (rcvCount (asmResChan (p, j)) st.out ≤ (sk.asmResList p j).length
+      ∧ 1 ≤ rcvCount (asmResChan (p, j)) st.out
+      ∧ sk.pendsBefore p j (rcvCount (asmResChan (p, j)) st.out - 1)
+          ≤ rcvCount (asmLevelChan (p, j)) st.out
+      ∧ rcvCount (asmLevelChan (p, j)) st.out
+          < sk.pendsBefore p j (rcvCount (asmResChan (p, j)) st.out)
+      ∧ sndCount (sk.asmOutChan (p, j)) st.out
+          = rcvCount (asmResChan (p, j)) st.out - 1
+      ∧ sndCount (asmLevelChan (p, j)) st.out
+          ≤ rcvCount (asmLevelChan (p, j)) st.out)
+    ∨ (rcvCount (asmResChan (p, j)) st.out ≤ (sk.asmResList p j).length
+      ∧ 1 ≤ rcvCount (asmResChan (p, j)) st.out
+      ∧ rcvCount (asmLevelChan (p, j)) st.out
+          = sk.pendsBefore p j (rcvCount (asmResChan (p, j)) st.out)
+      ∧ sndCount (sk.asmOutChan (p, j)) st.out
+          = rcvCount (asmResChan (p, j)) st.out - 1
+      ∧ rcvCount (sk.asmOutChan (p, j)) st.out
+          + sk.cap (sk.asmOutChan (p, j))
+          ≤ sndCount (sk.asmOutChan (p, j)) st.out) := by
+  obtain ⟨hro, hlo, hoo⟩ := asm_owners sk p h1
+  obtain ⟨r, pre, hr, hpre, hsub⟩ := cell_of_owner sk h hIdx
+  have hRc : rcvCount (asmResChan (p, j)) st.out
+      = (proj (asmResChan (p, j)) false pre).length := by
+    rw [rcvCount_eq_proj,
+      out_proj_owner sk hwf h _ false (by simpa using hro)
+        hIdx hr hpre hsub]
+  have hLc : rcvCount (asmLevelChan (p, j)) st.out
+      = (proj (asmLevelChan (p, j)) false pre).length := by
+    rw [rcvCount_eq_proj,
+      out_proj_owner sk hwf h _ false (by simpa using hlo)
+        hIdx hr hpre hsub]
+  have hOc : sndCount (sk.asmOutChan (p, j)) st.out
+      = (proj (sk.asmOutChan (p, j)) true pre).length := by
+    rw [sndCount_eq_proj,
+      out_proj_owner sk hwf h _ true (by simpa using hoo)
+        hIdx hr hpre hsub]
+  cases r with
+  | nil =>
+      -- exhausted: the emitted prefix is the whole trace
+      rw [List.append_nil] at hpre
+      obtain ⟨ht1, ht2, ht3⟩ := asm_totals sk (p, j)
+      rw [hpre] at ht1 ht2 ht3
+      refine Or.inl ⟨?_, ?_, ?_⟩
+      · rw [hRc, ht1, seg_len]
+      · rw [hLc, ht2, seg_len]
+      · rw [hOc, ht3, seg_len]
+  | cons e₀ rest₀ =>
+      -- a live head, disabled at the fixpoint
+      have hrem : st.rem[asmIdx sk p j - manCount sk]?
+          = some (e₀ :: rest₀) := by
+        rw [List.getElem?_append_right
+          (by rw [manFilters_length]
+              exact Nat.le_of_lt (asmIdx_ge sk p h1)),
+          manFilters_length] at hr
+        exact hr
+      have hdis : enabled sk st.sent st.rcvd e₀ = false := by
+        unfold step at hfix
+        cases hscan : scan sk st.sent st.rcvd st.rem with
+        | some pr => rw [hscan] at hfix; simp at hfix
+        | none => exact scan_none_heads sk hscan hrem
+      obtain ⟨idx, hidxN, hshape⟩ :=
+        asm_cell_shape sk (p, j) hpre (by simp)
+      have hidxN' : idx < (sk.asmResList p j).length := hidxN
+      rcases hshape with ⟨⟨rest, hhead⟩, hc1, hc2, hc3⟩
+        | ⟨tlv, rest, hhead, htl, hth, hc1, hc2, hc3⟩
+        | ⟨⟨rest, hhead⟩, hc1, hc2, hc3⟩
+      · -- res-starved
+        have he₀ : e₀ = (asmResChan (p, j), false, idx) := by
+          have := congrArg (fun l : List Ev => l[0]?) hhead
+          simpa using this
+        rw [he₀] at hdis
+        simp only [enabled, decide_eq_false_iff_not] at hdis
+        rw [h.sent_eq] at hdis
+        refine Or.inr (Or.inl ⟨?_, ?_, ?_, ?_⟩)
+        · rw [hRc, hc1]; exact hidxN
+        · rw [hLc, hc2, hRc, hc1]
+        · rw [hOc, hc3, hRc, hc1]
+        · rw [hRc, hc1]
+          omega
+      · -- level-starved
+        have he₀ : e₀ = (asmLevelChan (p, j), false, tlv) := by
+          have := congrArg (fun l : List Ev => l[0]?) hhead
+          simpa using this
+        rw [he₀] at hdis
+        simp only [enabled, decide_eq_false_iff_not] at hdis
+        rw [h.sent_eq] at hdis
+        refine Or.inr (Or.inr (Or.inl ⟨?_, ?_, ?_, ?_, ?_, ?_⟩))
+        · rw [hRc, hc1]; omega
+        · rw [hRc, hc1]; omega
+        · rw [hLc, hc2, hRc, hc1]
+          simpa using htl
+        · rw [hLc, hc2, hRc, hc1]
+          simpa using hth
+        · rw [hOc, hc3, hRc, hc1]
+          omega
+        · rw [hLc, hc2]
+          omega
+      · -- out-blocked
+        have he₀ : e₀ = (sk.asmOutChan (p, j), true, idx) := by
+          have := congrArg (fun l : List Ev => l[0]?) hhead
+          simpa using this
+        rw [he₀] at hdis
+        simp only [enabled, decide_eq_false_iff_not] at hdis
+        rw [h.rcvd_eq] at hdis
+        refine Or.inr (Or.inr (Or.inr ⟨?_, ?_, ?_, ?_, ?_⟩))
+        · rw [hRc, hc1]; omega
+        · rw [hRc, hc1]; omega
+        · rw [hLc, hc2, hRc, hc1]
+        · rw [hOc, hc3, hRc, hc1]
+          omega
+        · rw [hOc, hc3]
+          omega
+
 end StreamingMirror.Sched
