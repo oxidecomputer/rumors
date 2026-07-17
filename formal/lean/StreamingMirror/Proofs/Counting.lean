@@ -324,4 +324,139 @@ theorem pendsBefore_answerer_leaf {sk : Skel}
     simp [hht]
   rw [List.map_congr_left hpt]
 
+-- ================================================== cursor accounting
+-- The per-cursor forms of the identities above: what an assembler's
+-- pending prefix sum means mid-sweep, in the walk layer's own
+-- coordinates (`dsBefore`/`wiresBefore`). The full-sweep totals are
+-- the `k = length` instances.
+
+/-- A prefix's fold never exceeds the whole's (Nat addition). -/
+theorem foldl_add_take_le (l : List Nat) (k : Nat) :
+    (l.take k).foldl (· + ·) 0 ≤ l.foldl (· + ·) 0 := by
+  have hsplit : l.sum = (l.take k).sum + (l.drop k).sum := by
+    rw [← List.sum_append, List.take_append_drop]
+  rw [foldl_add_sum, foldl_add_sum, hsplit]
+  omega
+
+/-- No scope lives at height zero. -/
+theorem wf_scopesAt_zero {sk : Skel} (hwf : sk.wellFormed = true) :
+    sk.scopesAt 0 = [] := by
+  unfold Skel.scopesAt
+  rw [List.filter_eq_nil_iff]
+  intro i hi
+  unfold Skel.wellFormed at hwf
+  simp only [Bool.and_eq_true, List.all_eq_true, decide_eq_true_eq]
+    at hwf
+  have hge1 := (hwf.1.1.1.1.1.2 i hi).1.1.1.1.1.1
+  simp only [beq_iff_eq]
+  omega
+
+/-- Asker resolutions enumerate the stage's scopes. -/
+theorem asmResList_asker_length {sk : Skel} {p : Party} {j : Nat}
+    (hasks : asks p j = true) :
+    (sk.asmResList p j).length = (sk.scopesAt j).length := by
+  unfold Skel.asmResList
+  rw [if_pos hasks, List.length_map]
+
+/-- Answerer resolutions enumerate the stage's D scopes. -/
+theorem asmResList_answerer_length {sk : Skel} {p : Party} {j : Nat}
+    (hna : asks p j = false) :
+    (sk.asmResList p j).length
+      = ((sk.scopesAt j).filter
+          (fun s => (sk.scope s).kind == Kind.D)).length := by
+  unfold Skel.asmResList
+  rw [if_neg (by simp [hna]), List.length_map]
+
+/-- Asker-side level demand at any cursor is the stage's own D prefix
+sum: the level returns an asker assembler needs through its first `k`
+resolutions are one per D child of the first `k` scopes — `dsBefore`,
+the coordinate the walk's resolution seqs are minted in. -/
+theorem pendsBefore_asker {sk : Skel} {p : Party} {j : Nat}
+    (hasks : asks p j = true) (h2 : 2 ≤ j) (k : Nat) :
+    sk.pendsBefore p j k = sk.dsBefore (j - 1) k := by
+  unfold Skel.pendsBefore Skel.asmResList Skel.dsBefore
+    Skel.stageScopes
+  rw [if_pos hasks, ← List.map_take, foldl_add_sum, foldl_add_eq_sum,
+    Nat.zero_add, show j - 1 + 1 = j from by omega]
+  congr 1
+  apply List.map_congr_left
+  intro s _
+  unfold Skel.dOf
+  rw [if_neg (by simp; omega)]
+
+/-- At height 1 the asker has nothing pending: height-1 scopes are
+childless (their kids would live at height 0), so every resolution's
+pending count is zero. -/
+theorem pendsBefore_asker_one {sk : Skel} (hwf : sk.wellFormed = true)
+    {p : Party} (hasks : asks p 1 = true) (k : Nat) :
+    sk.pendsBefore p 1 k = 0 := by
+  have h0 : 0 < sk.rootH := by have := wf_rootH hwf; omega
+  have htot : sk.pendsBefore p 1 (sk.asmResList p 1).length
+      = ((sk.scopesAt 0).filter
+          (fun s => (sk.scope s).kind == Kind.D)).length :=
+    pendsBefore_asker_full hwf (p := p) (j := 0) hasks h0
+  rw [wf_scopesAt_zero hwf] at htot
+  simp only [List.filter_nil, List.length_nil] at htot
+  unfold Skel.pendsBefore at htot ⊢
+  rw [List.take_length] at htot
+  have hle := foldl_add_take_le (sk.asmResList p 1) k
+  omega
+
+/-- Answerer-side level demand at any D-scope cursor, bridged one stage
+down: the pends of the first resolutions covering the stage's first `K`
+scopes (only their D scopes carry resolutions) are the kid-stage wires
+of those `K` scopes — `wiresBefore`, the coordinate the producing
+assembler's outputs are minted in. Non-D scopes are childless, so the
+filter drops only zeros. -/
+theorem pendsBefore_answerer {sk : Skel} (hwf : sk.wellFormed = true)
+    {p : Party} {j : Nat} (hna : asks p j = false) (h1 : 1 ≤ j)
+    (K : Nat) :
+    sk.pendsBefore p j
+        (((sk.scopesAt j).take K).filter
+          (fun s => (sk.scope s).kind == Kind.D)).length
+      = sk.wiresBefore (j - 1) K := by
+  have hcond : ¬ asks p j = true := by simp [hna]
+  unfold Skel.pendsBefore Skel.asmResList Skel.wiresBefore
+    Skel.stageScopes
+  rw [if_neg hcond, show j - 1 + 1 = j from by omega]
+  -- the taken filter is a prefix of the whole filter, cut at its
+  -- own length: taking that many resolutions is filtering the taken
+  -- stage prefix
+  have hcut : ((sk.scopesAt j).filter
+        (fun s => (sk.scope s).kind == Kind.D)).take
+        (((sk.scopesAt j).take K).filter
+          (fun s => (sk.scope s).kind == Kind.D)).length
+      = ((sk.scopesAt j).take K).filter
+          (fun s => (sk.scope s).kind == Kind.D) :=
+    (List.prefix_iff_eq_take.1
+      ((List.take_prefix K (sk.scopesAt j)).filter _)).symm
+  rw [← List.map_take, hcut, foldl_add_sum, foldl_add_eq_sum,
+    Nat.zero_add]
+  -- on D scopes the resolution entry IS the kid count; off D it is 0
+  have hpt : ∀ s ∈ ((sk.scopesAt j).take K).filter
+      (fun s => (sk.scope s).kind == Kind.D),
+      (if (sk.scope s).height == 1 then (sk.scope s).leafReqs
+       else (sk.scope s).kids.length) = sk.nChildren (j - 1) s := by
+    intro s hs
+    have hht := (mem_scopesAt
+      (List.mem_of_mem_take (List.mem_filter.mp hs).1)).2
+    unfold Skel.nChildren
+    by_cases hj1 : j = 1
+    · rw [if_pos (by simp [hht, hj1]), if_pos (by simp [hj1])]
+    · rw [if_neg (by simp [hht]; omega), if_neg (by simp; omega)]
+  have hzero : ∀ s ∈ (sk.scopesAt j).take K,
+      (fun s => (sk.scope s).kind == Kind.D) s = false →
+      (fun s => sk.nChildren (j - 1) s) s = 0 := by
+    intro s hs hnd
+    simp only [beq_eq_false_iff_ne] at hnd
+    have hnonD := wf_scope_nonD hwf
+      (mem_scopesAt (List.mem_of_mem_take hs)).1 hnd
+    unfold Skel.nChildren
+    split
+    · exact hnonD.2
+    · show (sk.scope s).kids.length = 0
+      rw [hnonD.1]
+      rfl
+  rw [List.map_congr_left hpt, sum_map_filter_of_zero hzero]
+
 end StreamingMirror.Model
