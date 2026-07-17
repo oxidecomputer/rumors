@@ -633,15 +633,24 @@ bounds μ(Q), and both are bounded by the awaited send.
      pins: the `Φ` telescope bounds them through walk counts via
      `asm_out_le_res` and the new `asm_pends_le_out` (landed).
      So layer D carries NO extra position invariant — the worklist
-     shape it already inducts over determines every pin. Remaining
-     bricks: de-privatize the splice vocabulary; the fut-filter
-     segment computations per emission site; the `Φ`
-     spine-telescope lemma; `P1` from position + `schedulable`;
-     `DescSupply` from the counting telescope (`pendsBefore_asker`/
-     `pendsBefore_answerer_ds`/`ds_wires`, already landed). Original
-     design of record below (derived 2026-07-17; its
-     membership-flavored descent bullet is superseded by the
-     counting route — the cursor arithmetic is unchanged):
+     shape it already inducts over determines every pin. Landed
+     bricks (2026-07-17): the splice vocabulary de-privatized;
+     `align_kids_suffix` (Align.lean — the tail partition: a
+     mid-scope worklist suffix's filters are the remaining
+     `splicedChunk` run at the own stage, `walkSeg` over `descIdx`
+     windows below, and `F.drop i` on the feeder; no new induction —
+     each unwoven kid subtree is whole, so `align_scope` covers it);
+     `SpineLink`/`phi_of_spine` (Ctx.lean — `Φ` by downward
+     induction over per-stage count links, base links capping the
+     producer asker by an unsent summary, step links refuted through
+     `asm_pends_le_out` twice). Remaining: instantiating the
+     packages per emission site — `SpineLink` links, `P1`/`hp1`,
+     `DescSupply`, `hsnd`/`hreq`/`hwire`/`hroot` — from
+     `man_struct` + the tail partitions (this is layer D's per-emit
+     work, not a separate layer). Original design of record below
+     (derived 2026-07-17; its membership-flavored descent bullet is
+     superseded by the counting route — the cursor arithmetic is
+     unchanged):
      - *The weave is depth-first with stage cursors in weave order*:
        `wKidOps` inlines a D kid's whole subtree (`WOp.scope (h-1)
        (kidBase+i)`) before the next kid, and the §5 splice puts the
