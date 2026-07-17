@@ -276,6 +276,7 @@ async fn drive_connection(
         End::Failed(Error::NetworkMismatch {
             remote_network,
             remote_min_events,
+            ..
         }) => {
             trace(|| {
                 format!(

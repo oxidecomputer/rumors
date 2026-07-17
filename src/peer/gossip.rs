@@ -641,6 +641,10 @@ impl<T, B: Persist> Peer<T, B> {
             guarded.party.is_some()
         });
         let prior_tree = prior_tree.expect("set in closure");
+        // The event floor this side's handshake declares: `prior_tree` is
+        // exactly the root the local protocol participant starts from, so
+        // its frontier is the version the greeting carries.
+        let local_min_events = prior_tree.latest().min_ticks();
 
         // Reconcile using this peer's selected protocol. Both branches meet at
         // the lifecycle boundary the surrounding transaction needs: a local
@@ -664,6 +668,7 @@ impl<T, B: Persist> Peer<T, B> {
                     return Err(Error::NetworkMismatch {
                         remote_network: remote.network,
                         remote_min_events: handshaken.peer().version.min_ticks(),
+                        local_min_events,
                     });
                 }
                 let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
@@ -684,6 +689,7 @@ impl<T, B: Persist> Peer<T, B> {
                     return Err(Error::NetworkMismatch {
                         remote_network: remote.network,
                         remote_min_events: handshaken.peer().version.min_ticks(),
+                        local_min_events,
                     });
                 }
                 let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());

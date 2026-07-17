@@ -255,6 +255,7 @@ async fn network_merge_resets_the_loser() {
         Err(Error::NetworkMismatch {
             remote_network,
             remote_min_events,
+            ..
         }) => (remote_min_events, remote_network),
         other => panic!("expected NetworkMismatch, got {other:?}"),
     };
@@ -262,6 +263,7 @@ async fn network_merge_resets_the_loser() {
         Err(Error::NetworkMismatch {
             remote_network,
             remote_min_events,
+            ..
         }) => (remote_min_events, remote_network),
         other => panic!("expected NetworkMismatch, got {other:?}"),
     };

@@ -54,6 +54,14 @@ pub enum Error<B: BookmarkError = NoBookmark> {
         remote_network: Network,
         /// A lower bound on events recorded in the remote universe.
         remote_min_events: u64,
+        /// A lower bound on events recorded in the local universe, as this
+        /// side declared it in the session's handshake.
+        ///
+        /// Together with `remote_min_events` this lets both sides of a
+        /// mismatch apply one deterministic dominance rule from the error
+        /// alone (see [`Peer`](crate::Peer)'s "Bootstrapping without
+        /// consensus").
+        local_min_events: u64,
     },
 
     /// A retiring peer offered an identity overlapping one already held here.
@@ -150,9 +158,11 @@ impl Error<NoBookmark> {
             Error::NetworkMismatch {
                 remote_network,
                 remote_min_events,
+                local_min_events,
             } => Error::NetworkMismatch {
                 remote_network,
                 remote_min_events,
+                local_min_events,
             },
             Error::PartyOverlap => Error::PartyOverlap,
             Error::Epilogue(error) => Error::Epilogue(error),
