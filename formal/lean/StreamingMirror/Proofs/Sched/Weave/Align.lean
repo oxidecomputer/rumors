@@ -1739,4 +1739,422 @@ theorem weave_wcount (hwf : sk.wellFormed = true) :
   exact weaveState_wcount sk (by rw [hgo]; exact halign)
     (by rw [hgo]; exact hown)
 
+-- ================================================ kid-suffix partition
+-- The tail-partition family (PROGRESS.md §7 3b (f), RestCtx): at a
+-- mid-scope worklist position — kid slots `i..n` of scope `(h, k)`
+-- still unwoven — the remaining events partition per stage exactly as
+-- `align_scope` partitions the whole subtree: the feeder's filter is
+-- the unconsumed feed suffix, the own stage's is the remaining spliced
+-- chunks, and each deeper stage's is a `descIdx` window suffix. Layer
+-- D reads these through `WCount.man_struct` to pin every walk-owned
+-- channel count at the position. No induction is needed here: each
+-- unwoven kid's subtree is a whole scope, covered by `align_scope`.
+
+private theorem drop_eq_flatMap_getElem? {α : Type _} :
+    ∀ (m i : Nat) (F : List α), F.length = i + m →
+      (List.range' i m).flatMap (fun j => F[j]?.toList) = F.drop i := by
+  intro m
+  induction m with
+  | zero =>
+      intro i F hlen
+      rw [show i = F.length from by omega, List.drop_length]
+      rfl
+  | succ m ihm =>
+      intro i F hlen
+      have hilt : i < F.length := by omega
+      rw [List.range'_succ, List.flatMap_cons, ihm (i + 1) F (by omega),
+        List.getElem?_eq_getElem hilt, Option.toList_some,
+        List.singleton_append]
+      exact (List.drop_eq_getElem_cons hilt).symm
+
+private theorem walkSeg_glue_range' (h' : Nat) (g : Nat → Nat)
+    (hmono : ∀ i, g i ≤ g (i + 1)) :
+    ∀ (m i : Nat),
+      (List.range' i m).flatMap
+          (fun j => walkSeg sk h' (g j) (g (j + 1)))
+        = walkSeg sk h' (g i) (g (i + m)) := by
+  have hchain : ∀ (d a : Nat), g a ≤ g (a + d) := by
+    intro d
+    induction d with
+    | zero => intro a; exact Nat.le_refl _
+    | succ d ihd => intro a; exact Nat.le_trans (ihd a) (hmono (a + d))
+  intro m
+  induction m with
+  | zero =>
+      intro i
+      rw [Nat.add_zero]
+      exact (walkSeg_empty sk h' (g i)).symm ▸ rfl
+  | succ m ihm =>
+      intro i
+      rw [List.range'_succ, List.flatMap_cons, ihm (i + 1),
+        walkSeg_glue sk (hmono i) (hchain m (i + 1)),
+        show i + 1 + m = i + (m + 1) from by omega]
+
+/-- One kid op's per-stage filters: the ownership cover, the feeder's
+query, the own-stage spliced chunk, and the descendant windows. -/
+private theorem kid_filters (hwf : sk.wellFormed = true)
+    {h k : Nat} (hh : h < sk.rootH) (hk : k < sk.stageLen h)
+    {F : List Ev} {mF : Nat}
+    (hF : F.length = sk.nChildren h (sk.stageScope h k))
+    (hFo : ∀ e ∈ F, evOwner sk e = mF)
+    (hmF : mF < walkIdx sk h)
+    {i : Nat} (hi : i < sk.nChildren h (sk.stageScope h k)) :
+    (∀ e ∈ opEvents sk (.kid h k (sk.stageScope h k) (lastDOf sk h k)
+        (sk.wiresBefore h k) i F),
+      evOwner sk e = mF ∨ ∃ h', h' ≤ h ∧ evOwner sk e = walkIdx sk h')
+    ∧ (opEvents sk (.kid h k (sk.stageScope h k) (lastDOf sk h k)
+        (sk.wiresBefore h k) i F)).filter
+          (fun e => evOwner sk e == mF) = F[i]?.toList
+    ∧ (opEvents sk (.kid h k (sk.stageScope h k) (lastDOf sk h k)
+        (sk.wiresBefore h k) i F)).filter
+          (fun e => evOwner sk e == walkIdx sk h)
+        = splicedChunk sk h k (lastDOf sk h k) i
+    ∧ ∀ h', h' < h →
+        (opEvents sk (.kid h k (sk.stageScope h k) (lastDOf sk h k)
+            (sk.wiresBefore h k) i F)).filter
+          (fun e => evOwner sk e == walkIdx sk h')
+        = walkSeg sk h'
+            (descIdx sk h' (h - 1 - h') (sk.wiresBefore h k + i))
+            (descIdx sk h' (h - 1 - h')
+              (sk.wiresBefore h k + (i + 1))) := by
+  cases h with
+  | zero =>
+      have hD0 : sk.childIsD 0 (sk.stageScope 0 k) i = false := rfl
+      have hkidE : opEvents sk (.kid 0 k (sk.stageScope 0 k)
+            (lastDOf sk 0 k) (sk.wiresBefore 0 k) i F)
+          = (wireOut (wpk 0), true, sk.wiresBefore 0 k + i)
+              :: F[i]?.toList := by
+        rw [opEvents_kid_eq,
+          if_neg (by rw [hD0]; exact Bool.false_ne_true),
+          if_pos (show ((0 : Nat) == 0) = true by rfl), List.append_nil]
+      refine ⟨?_, ?_, ?_, ?_⟩
+      · intro e he
+        rw [hkidE] at he
+        rcases he with _ | ⟨_, he⟩
+        · exact Or.inr ⟨0, Nat.le_refl 0, evOwner_wireOut sk hh _⟩
+        · exact Or.inl (hFo e
+            (List.mem_of_getElem? (Option.mem_toList.1 he)))
+      · rw [hkidE,
+          List.filter_cons_of_neg (by
+            simp only [evOwner_wireOut sk hh, beq_iff_eq]; omega)]
+        cases hfi : F[i]? with
+        | none => rfl
+        | some q =>
+            rw [Option.toList_some,
+              List.filter_cons_of_pos (by
+                simp only [hFo q (List.mem_of_getElem? hfi),
+                  beq_self_eq_true]),
+              List.filter_nil]
+      · rw [hkidE,
+          List.filter_cons_of_pos (by
+            simp only [evOwner_wireOut sk hh, beq_self_eq_true]),
+          splicedChunk,
+          if_neg (by rw [hD0]; exact Bool.false_ne_true)]
+        congr 1
+        cases hfi : F[i]? with
+        | none => rfl
+        | some q =>
+            rw [Option.toList_some,
+              List.filter_cons_of_neg (by
+                simp only [hFo q (List.mem_of_getElem? hfi), beq_iff_eq]
+                omega),
+              List.filter_nil]
+      · intro h' hlt
+        exact absurd hlt (Nat.not_lt_zero h')
+  | succ h =>
+      have hh' : h < sk.rootH := by omega
+      have h1 : (1 : Nat) ≤ h + 1 := by omega
+      have hsub : sk.wiresBefore (h + 1) k + i < sk.stageLen h := by
+        have htot := wiresBefore_total sk hwf h1 hh
+        simp only [Nat.add_sub_cancel] at htot
+        have hmono := wiresBefore_mono sk (h + 1)
+          (show k + 1 ≤ sk.stageLen (h + 1) from hk)
+        have hstep := wiresBefore_succ sk hk
+        omega
+      have hmF' : walkIdx sk (h + 1) < walkIdx sk h :=
+        walkIdx_lt sk (Nat.lt_succ_self h) hh
+      have hkidE : opEvents sk (.kid (h + 1) k (sk.stageScope (h + 1) k)
+            (lastDOf sk (h + 1) k) (sk.wiresBefore (h + 1) k) i F)
+          = (wireOut (wpk (h + 1)), true, sk.wiresBefore (h + 1) k + i)
+              :: (if sk.childIsD (h + 1) (sk.stageScope (h + 1) k) i then
+                    (lowerOut (wpk (h + 1)), true,
+                        sk.dsBefore (h + 1) k + dRank sk (wpk (h + 1)) k i)
+                      :: ((if lastDOf sk (h + 1) k == some i
+                            then [((upperOut (wpk (h + 1)), true, k) : Ev)]
+                            else [])
+                        ++ (F[i]?.toList
+                          ++ opEvents sk (.scope h
+                              (sk.wiresBefore (h + 1) k + i)
+                              (chunkQ sk (h + 1) k i))))
+                  else F[i]?.toList
+                    ++ opEvents sk (.scope h
+                        (sk.wiresBefore (h + 1) k + i) [])) := by
+        rw [opEvents_kid_eq]
+        simp only [Nat.add_sub_cancel,
+          show ((h + 1 : Nat) == 0) = false from rfl, Bool.false_eq_true,
+          if_false]
+      have hIHsub := align_scope sk hwf h (sk.wiresBefore (h + 1) k + i)
+        (chunkQ sk (h + 1) k i) (walkIdx sk (h + 1)) hh' hsub
+        (by
+          have hq := qCount_eq_kid_nChildren sk hwf h1 hh hk hi
+          simp only [Nat.add_sub_cancel] at hq
+          rw [chunkQ_length, hq])
+        (chunkQ_owner sk h1 hh k i) hmF'
+      have hIHW := fun
+          (hDf : sk.childIsD (h + 1) (sk.stageScope (h + 1) k) i
+            = false) =>
+        align_scope sk hwf h (sk.wiresBefore (h + 1) k + i) []
+          (walkIdx sk (h + 1)) hh' hsub
+          (by
+            have hz := nChildren_kid_notD sk hwf h1 hh hk hi hDf
+            simp only [Nat.add_sub_cancel] at hz
+            rw [List.length_nil, hz])
+          (fun e he => absurd he (by simp)) hmF'
+      have hFeedDropW : (F[i]?.toList).filter
+          (fun e => evOwner sk e == walkIdx sk (h + 1)) = [] := by
+        cases hfi : F[i]? with
+        | none => rfl
+        | some q =>
+            rw [Option.toList_some,
+              List.filter_cons_of_neg (by
+                simp only [hFo q (List.mem_of_getElem? hfi), beq_iff_eq]
+                omega),
+              List.filter_nil]
+      have hFeedKeep : (F[i]?.toList).filter
+          (fun e => evOwner sk e == mF) = F[i]?.toList := by
+        cases hfi : F[i]? with
+        | none => rfl
+        | some q =>
+            rw [Option.toList_some,
+              List.filter_cons_of_pos (by
+                simp only [hFo q (List.mem_of_getElem? hfi),
+                  beq_self_eq_true]),
+              List.filter_nil]
+      refine ⟨?_, ?_, ?_, ?_⟩
+      · -- ownership cover
+        intro e he
+        rw [hkidE] at he
+        rcases he with _ | ⟨_, he⟩
+        · exact Or.inr ⟨h + 1, Nat.le_refl _, evOwner_wireOut sk hh _⟩
+        by_cases hD : sk.childIsD (h + 1) (sk.stageScope (h + 1) k) i
+        · rw [if_pos hD] at he
+          rcases he with _ | ⟨_, he⟩
+          · exact Or.inr ⟨h + 1, Nat.le_refl _, evOwner_lowerOut sk _⟩
+          rcases List.mem_append.1 he with he | he
+          · have ho : evOwner sk e = walkIdx sk (h + 1) := by
+              revert he
+              split
+              · intro he
+                rcases he with _ | ⟨_, he⟩
+                · exact evOwner_upperOut sk k
+                · cases he
+              · intro he
+                cases he
+            exact Or.inr ⟨h + 1, Nat.le_refl _, ho⟩
+          rcases List.mem_append.1 he with he | he
+          · exact Or.inl (hFo e
+              (List.mem_of_getElem? (Option.mem_toList.1 he)))
+          · rcases hIHsub.1 e he with ho | ⟨h'', hle'', ho⟩
+            · exact Or.inr ⟨h + 1, Nat.le_refl _, ho⟩
+            · exact Or.inr ⟨h'', by omega, ho⟩
+        · rw [if_neg hD] at he
+          have hDf : sk.childIsD (h + 1) (sk.stageScope (h + 1) k) i
+              = false := by simpa using hD
+          rcases List.mem_append.1 he with he | he
+          · exact Or.inl (hFo e
+              (List.mem_of_getElem? (Option.mem_toList.1 he)))
+          · rcases (hIHW hDf).1 e he with ho | ⟨h'', hle'', ho⟩
+            · exact Or.inr ⟨h + 1, Nat.le_refl _, ho⟩
+            · exact Or.inr ⟨h'', by omega, ho⟩
+      · -- the feeder's filter is the feed query
+        rw [hkidE]
+        by_cases hD : sk.childIsD (h + 1) (sk.stageScope (h + 1) k) i
+        · have hUdrop : ((if lastDOf sk (h + 1) k == some i
+                then [((upperOut (wpk (h + 1)), true, k) : Ev)]
+                else []).filter
+              (fun e => evOwner sk e == mF)) = [] := by
+            split
+            · rw [List.filter_cons_of_neg (by
+                simp only [evOwner_upperOut, beq_iff_eq]; omega),
+                List.filter_nil]
+            · rfl
+          have hSubDrop : (opEvents sk (.scope h
+                (sk.wiresBefore (h + 1) k + i)
+                (chunkQ sk (h + 1) k i))).filter
+              (fun e => evOwner sk e == mF) = [] := by
+            rw [List.filter_eq_nil_iff]
+            intro e he
+            rcases hIHsub.1 e he with ho | ⟨h'', hle'', ho⟩
+            · simp only [ho, beq_iff_eq]
+              omega
+            · have hwlt := walkIdx_lt sk
+                (show h'' < h + 1 from by omega) hh
+              simp only [ho, beq_iff_eq]
+              omega
+          rw [if_pos hD,
+            List.filter_cons_of_neg (by
+              simp only [evOwner_wireOut sk hh, beq_iff_eq]; omega),
+            List.filter_cons_of_neg (by
+              simp only [evOwner_lowerOut, beq_iff_eq]; omega),
+            List.filter_append, List.filter_append, hUdrop, hFeedKeep,
+            hSubDrop, List.nil_append, List.append_nil]
+        · have hDf : sk.childIsD (h + 1) (sk.stageScope (h + 1) k) i
+              = false := by simpa using hD
+          have hSubDrop : (opEvents sk (.scope h
+                (sk.wiresBefore (h + 1) k + i) [])).filter
+              (fun e => evOwner sk e == mF) = [] := by
+            rw [List.filter_eq_nil_iff]
+            intro e he
+            rcases (hIHW hDf).1 e he with ho | ⟨h'', hle'', ho⟩
+            · simp only [ho, beq_iff_eq]
+              omega
+            · have hwlt := walkIdx_lt sk
+                (show h'' < h + 1 from by omega) hh
+              simp only [ho, beq_iff_eq]
+              omega
+          rw [if_neg hD,
+            List.filter_cons_of_neg (by
+              simp only [evOwner_wireOut sk hh, beq_iff_eq]; omega),
+            List.filter_append, hFeedKeep, hSubDrop, List.append_nil]
+      · -- the own-stage filter is the spliced chunk
+        rw [hkidE, splicedChunk]
+        by_cases hD : sk.childIsD (h + 1) (sk.stageScope (h + 1) k) i
+        · have hUkeep : ((if lastDOf sk (h + 1) k == some i
+                then [((upperOut (wpk (h + 1)), true, k) : Ev)]
+                else []).filter
+              (fun e => evOwner sk e == walkIdx sk (h + 1)))
+              = (if lastDOf sk (h + 1) k == some i
+                then [((upperOut (wpk (h + 1)), true, k) : Ev)]
+                else []) := by
+            split
+            · rw [List.filter_cons_of_pos (by
+                simp only [evOwner_upperOut, beq_self_eq_true]),
+                List.filter_nil]
+            · rfl
+          rw [if_pos hD, if_pos hD,
+            List.filter_cons_of_pos (by
+              simp only [evOwner_wireOut sk hh, beq_self_eq_true]),
+            List.filter_cons_of_pos (by
+              simp only [evOwner_lowerOut, beq_self_eq_true]),
+            List.filter_append, List.filter_append, hUkeep, hFeedDropW,
+            List.nil_append, hIHsub.2.1]
+        · have hDf : sk.childIsD (h + 1) (sk.stageScope (h + 1) k) i
+              = false := by simpa using hD
+          rw [if_neg hD, if_neg hD,
+            List.filter_cons_of_pos (by
+              simp only [evOwner_wireOut sk hh, beq_self_eq_true]),
+            List.filter_append, hFeedDropW, List.nil_append,
+            (hIHW hDf).2.1]
+      · -- the descendant-stage filter is the subtree's run
+        intro h' hlt
+        have hle : h' ≤ h := by omega
+        have hwlt : walkIdx sk (h + 1) < walkIdx sk h' :=
+          walkIdx_lt sk (by omega) hh
+        have hFeedDrop : (F[i]?.toList).filter
+            (fun e => evOwner sk e == walkIdx sk h') = [] := by
+          cases hfi : F[i]? with
+          | none => rfl
+          | some q =>
+              rw [Option.toList_some,
+                List.filter_cons_of_neg (by
+                  simp only [hFo q (List.mem_of_getElem? hfi), beq_iff_eq]
+                  omega),
+                List.filter_nil]
+        rw [hkidE, show h + 1 - 1 - h' = h - h' from by omega]
+        by_cases hD : sk.childIsD (h + 1) (sk.stageScope (h + 1) k) i
+        · have hUdrop : ((if lastDOf sk (h + 1) k == some i
+                then [((upperOut (wpk (h + 1)), true, k) : Ev)]
+                else []).filter
+              (fun e => evOwner sk e == walkIdx sk h')) = [] := by
+            split
+            · rw [List.filter_cons_of_neg (by
+                simp only [evOwner_upperOut, beq_iff_eq]; omega),
+                List.filter_nil]
+            · rfl
+          rw [if_pos hD,
+            List.filter_cons_of_neg (by
+              simp only [evOwner_wireOut sk hh, beq_iff_eq]; omega),
+            List.filter_cons_of_neg (by
+              simp only [evOwner_lowerOut, beq_iff_eq]; omega),
+            List.filter_append, List.filter_append, hUdrop, hFeedDrop,
+            List.nil_append, List.nil_append,
+            hIHsub.2.2 h' hle, Nat.add_assoc]
+        · have hDf : sk.childIsD (h + 1) (sk.stageScope (h + 1) k) i
+              = false := by simpa using hD
+          rw [if_neg hD,
+            List.filter_cons_of_neg (by
+              simp only [evOwner_wireOut sk hh, beq_iff_eq]; omega),
+            List.filter_append, hFeedDrop, List.nil_append,
+            (hIHW hDf).2.2 h' hle, Nat.add_assoc]
+
+/-- THE KID-SUFFIX PARTITION (RestCtx): a mid-scope position's
+unwoven kid slots partition per stage like the whole subtree.
+
+Under `align_scope`'s feed contract, the events of kid slots
+`i..nChildren` of scope `(h, k)`: (3) are each the feeder's or a
+covered walk's; (2) filter to the unconsumed feed suffix at the
+feeder; (1) filter to the remaining spliced chunks at the own stage
+and to the `descIdx` window suffix `[descIdx (wiresBefore h k + i),
+descIdx (wiresBefore h (k+1)))` at each deeper stage. Layer D reads
+the emitted-prefix counts off these through `WCount.man_struct`. -/
+theorem align_kids_suffix (hwf : sk.wellFormed = true)
+    {h k : Nat} (hh : h < sk.rootH) (hk : k < sk.stageLen h)
+    {F : List Ev} {mF : Nat}
+    (hF : F.length = sk.nChildren h (sk.stageScope h k))
+    (hFo : ∀ e ∈ F, evOwner sk e = mF)
+    (hmF : mF < walkIdx sk h)
+    {i : Nat} (hi : i ≤ sk.nChildren h (sk.stageScope h k)) :
+    (∀ e ∈ (List.range' i (sk.nChildren h (sk.stageScope h k) - i)).flatMap
+        (fun j => opEvents sk (.kid h k (sk.stageScope h k)
+          (lastDOf sk h k) (sk.wiresBefore h k) j F)),
+      evOwner sk e = mF ∨ ∃ h', h' ≤ h ∧ evOwner sk e = walkIdx sk h')
+    ∧ ((List.range' i (sk.nChildren h (sk.stageScope h k) - i)).flatMap
+        (fun j => opEvents sk (.kid h k (sk.stageScope h k)
+          (lastDOf sk h k) (sk.wiresBefore h k) j F))).filter
+          (fun e => evOwner sk e == mF) = F.drop i
+    ∧ ((List.range' i (sk.nChildren h (sk.stageScope h k) - i)).flatMap
+        (fun j => opEvents sk (.kid h k (sk.stageScope h k)
+          (lastDOf sk h k) (sk.wiresBefore h k) j F))).filter
+          (fun e => evOwner sk e == walkIdx sk h)
+        = (List.range' i (sk.nChildren h (sk.stageScope h k) - i)).flatMap
+            (splicedChunk sk h k (lastDOf sk h k))
+    ∧ ∀ h', h' < h →
+        ((List.range' i (sk.nChildren h (sk.stageScope h k) - i)).flatMap
+            (fun j => opEvents sk (.kid h k (sk.stageScope h k)
+              (lastDOf sk h k) (sk.wiresBefore h k) j F))).filter
+          (fun e => evOwner sk e == walkIdx sk h')
+        = walkSeg sk h'
+            (descIdx sk h' (h - 1 - h') (sk.wiresBefore h k + i))
+            (descIdx sk h' (h - 1 - h')
+              (sk.wiresBefore h k
+                + sk.nChildren h (sk.stageScope h k))) := by
+  have hjlt : ∀ j ∈ List.range' i
+      (sk.nChildren h (sk.stageScope h k) - i),
+      j < sk.nChildren h (sk.stageScope h k) := by
+    intro j hj
+    have := List.mem_range'_1.mp hj
+    omega
+  refine ⟨?_, ?_, ?_, ?_⟩
+  · intro e he
+    obtain ⟨j, hj, hej⟩ := List.mem_flatMap.1 he
+    exact (kid_filters sk hwf hh hk hF hFo hmF (hjlt j hj)).1 e hej
+  · simp only [List.filter_flatMap]
+    rw [flatMap_congr (fun j hj =>
+      (kid_filters sk hwf hh hk hF hFo hmF (hjlt j hj)).2.1)]
+    exact drop_eq_flatMap_getElem?
+      (sk.nChildren h (sk.stageScope h k) - i) i F (by omega)
+  · simp only [List.filter_flatMap]
+    exact flatMap_congr (fun j hj =>
+      (kid_filters sk hwf hh hk hF hFo hmF (hjlt j hj)).2.2.1)
+  · intro h' hlt
+    simp only [List.filter_flatMap]
+    rw [flatMap_congr (fun j hj =>
+        (kid_filters sk hwf hh hk hF hFo hmF (hjlt j hj)).2.2.2 h' hlt),
+      walkSeg_glue_range' sk h'
+        (fun j => descIdx sk h' (h - 1 - h') (sk.wiresBefore h k + j))
+        (fun j => descIdx_mono sk h' (h - 1 - h') (by omega))
+        (sk.nChildren h (sk.stageScope h k) - i) i,
+      show i + (sk.nChildren h (sk.stageScope h k) - i)
+        = sk.nChildren h (sk.stageScope h k) from by omega]
+
 end StreamingMirror.Sched
