@@ -755,5 +755,730 @@ theorem ancTele_cov_leaf (hwf : sk.wellFormed = true)
     · exact ancTele_p1 sk hwf hsched hW.toWCount hanc (by omega) hGr
         hna (hanc.isD G (by omega) hGr)
 
+-- ============================================ own-stage floor counts
+
+private theorem qSum_mono (pk : Party × Nat) (k : Nat) :
+    ∀ {i i' : Nat}, i ≤ i' → qSum sk pk k i ≤ qSum sk pk k i' := by
+  intro i i' hii
+  induction i' with
+  | zero =>
+      have h0 : i = 0 := by omega
+      subst h0
+      exact Nat.le_refl _
+  | succ i' ih =>
+      by_cases hlast : i = i' + 1
+      · subst hlast
+        exact Nat.le_refl _
+      · have hstep : qSum sk pk k i' ≤ qSum sk pk k (i' + 1) := by
+          have := qSum_succ sk pk k i'
+          omega
+        exact Nat.le_trans (ih (by omega)) hstep
+
+/-- The prologue-summary site's resolution floor: every resolution of
+this scope and later is still ahead. -/
+private theorem futLen_S1_res {fut : List Ev} {h k : Nat}
+    (hk : k < sk.stageLen h)
+    (hown : fut.filter (fun e => evOwner sk e == walkIdx sk h)
+      = ((upperOut (wpk h), true, k) : Ev)
+          :: ((List.range' 0 (sk.nChildren h (sk.stageScope h k))).flatMap
+                (splicedChunk sk h k (lastDOf sk h k))
+              ++ walkSeg sk h (k + 1) (sk.stageLen h))) :
+    futLen sk fut (walkIdx sk h) (lowerOut (wpk h)) true
+      = sk.dsBefore h (sk.stageLen h) - sk.dsBefore h k := by
+  rw [futLen_of_filter sk hown,
+    proj_cons_ne_chan (by simp [upperOut, lowerOut]),
+    proj_append, chunks_proj_res sk h k (lastDOf sk h k) _ 0,
+    walkSeg_proj_res sk (show k + 1 ≤ sk.stageLen h from hk)
+      (Nat.le_refl _)]
+  simp only [List.length_append, seg_len]
+  have h0 : dRank sk (wpk h) k 0 = 0 := rfl
+  have htot : dRank sk (wpk h) k
+      (0 + sk.nChildren h (sk.stageScope h k))
+      = sk.dOf h (sk.stageScope h k) := by
+    rw [Nat.zero_add]
+    exact dRank_total sk (wpk h) k
+  have hds := dsBefore_succ sk hk
+  have hmono := dsBefore_mono sk h
+    (show k + 1 ≤ sk.stageLen h from hk)
+  omega
+
+/-- The prologue-summary site's query floor. -/
+private theorem futLen_S1_q {fut : List Ev} {h k : Nat}
+    (hk : k < sk.stageLen h)
+    (hown : fut.filter (fun e => evOwner sk e == walkIdx sk h)
+      = ((upperOut (wpk h), true, k) : Ev)
+          :: ((List.range' 0 (sk.nChildren h (sk.stageScope h k))).flatMap
+                (splicedChunk sk h k (lastDOf sk h k))
+              ++ walkSeg sk h (k + 1) (sk.stageLen h))) :
+    futLen sk fut (walkIdx sk h) (askedOut (wpk h)) true
+      = sk.qsBefore h (sk.stageLen h) - sk.qsBefore h k := by
+  rw [futLen_of_filter sk hown,
+    proj_cons_ne_chan (by
+      unfold askedOut upperOut
+      split <;> simp),
+    proj_append, chunks_proj_q sk h k (lastDOf sk h k) _ 0,
+    walkSeg_proj_q sk (show k + 1 ≤ sk.stageLen h from hk)
+      (Nat.le_refl _)]
+  simp only [List.length_append, seg_len]
+  have h0 : qSum sk (wpk h) k 0 = 0 := rfl
+  have htot : qSum sk (wpk h) k
+      (0 + sk.nChildren h (sk.stageScope h k))
+      = sk.qOf h (sk.stageScope h k) := by
+    rw [Nat.zero_add]
+    exact qSum_total sk (wpk h) k
+  have hqs := qsBefore_succ sk hk
+  have hmono := qsBefore_mono sk h
+    (show k + 1 ≤ sk.stageLen h from hk)
+  omega
+
+/-- The splice-summary site's resolution floor: the resolutions
+through the last D slot's are already out. -/
+private theorem futLen_S2_res {fut : List Ev} {h k jL : Nat}
+    (hk : k < sk.stageLen h) (hlast : lastDOf sk h k = some jL)
+    (hown : fut.filter (fun e => evOwner sk e == walkIdx sk h)
+      = ((upperOut (wpk h), true, k) : Ev)
+          :: (chunkQ sk h k jL
+              ++ (List.range' (jL + 1)
+                    (sk.nChildren h (sk.stageScope h k)
+                      - (jL + 1))).flatMap
+                   (splicedChunk sk h k (lastDOf sk h k))
+              ++ walkSeg sk h (k + 1) (sk.stageLen h))) :
+    futLen sk fut (walkIdx sk h) (lowerOut (wpk h)) true
+      = sk.dsBefore h (sk.stageLen h)
+        - (sk.dsBefore h k + dRank sk (wpk h) k jL + 1) := by
+  obtain ⟨hD, hjn⟩ := lastDOf_isD sk hlast
+  have hqne : proj (lowerOut (wpk h)) true (chunkQ sk h k jL) = [] :=
+    chunkQ_proj_ne sk h k jL (by
+      rintro ⟨hc, -⟩
+      simp only [askedOut, lowerOut] at hc
+      split at hc <;> exact Chan.noConfusion hc)
+  rw [futLen_of_filter sk hown,
+    proj_cons_ne_chan (by simp [upperOut, lowerOut]),
+    proj_append, proj_append, hqne,
+    chunks_proj_res sk h k (lastDOf sk h k) _ (jL + 1),
+    walkSeg_proj_res sk (show k + 1 ≤ sk.stageLen h from hk)
+      (Nat.le_refl _)]
+  simp only [List.nil_append, List.length_append, seg_len]
+  have hidx : jL + 1 + (sk.nChildren h (sk.stageScope h k) - (jL + 1))
+      = sk.nChildren h (sk.stageScope h k) := by omega
+  rw [hidx]
+  have htot : dRank sk (wpk h) k (sk.nChildren h (sk.stageScope h k))
+      = sk.dOf h (sk.stageScope h k) := dRank_total sk (wpk h) k
+  have hds := dRank_succ sk (wpk h) k jL
+  rw [show sk.childIsD (wpk h).2 (sk.stageScope (wpk h).2 k) jL
+      = sk.childIsD h (sk.stageScope h k) jL from rfl, hD,
+    if_pos rfl] at hds
+  have hsc := dsBefore_succ sk hk
+  have hmono := dsBefore_mono sk h
+    (show k + 1 ≤ sk.stageLen h from hk)
+  have hle : dRank sk (wpk h) k jL + 1
+      ≤ sk.dOf h (sk.stageScope h k) :=
+    dRank_succ_le_dOf sk (wpk h) hjn hD
+  omega
+
+/-- The splice-summary site's query floor. -/
+private theorem futLen_S2_q {fut : List Ev} {h k jL : Nat}
+    (hk : k < sk.stageLen h) (hlast : lastDOf sk h k = some jL)
+    (hown : fut.filter (fun e => evOwner sk e == walkIdx sk h)
+      = ((upperOut (wpk h), true, k) : Ev)
+          :: (chunkQ sk h k jL
+              ++ (List.range' (jL + 1)
+                    (sk.nChildren h (sk.stageScope h k)
+                      - (jL + 1))).flatMap
+                   (splicedChunk sk h k (lastDOf sk h k))
+              ++ walkSeg sk h (k + 1) (sk.stageLen h))) :
+    futLen sk fut (walkIdx sk h) (askedOut (wpk h)) true
+      = sk.qsBefore h (sk.stageLen h)
+        - (sk.qsBefore h k + qSum sk (wpk h) k jL) := by
+  obtain ⟨hD, hjn⟩ := lastDOf_isD sk hlast
+  have hcq : chunkQ sk h k jL
+      = seg (askedOut (wpk h)) true
+          (sk.qsBefore h k + qSum sk (wpk h) k jL)
+          (sk.qCount h (sk.stageScope h k) jL) := rfl
+  rw [futLen_of_filter sk hown,
+    proj_cons_ne_chan (by
+      unfold askedOut upperOut
+      split <;> simp),
+    proj_append, proj_append, hcq, proj_seg_self,
+    chunks_proj_q sk h k (lastDOf sk h k) _ (jL + 1),
+    walkSeg_proj_q sk (show k + 1 ≤ sk.stageLen h from hk)
+      (Nat.le_refl _)]
+  simp only [List.length_append, seg_len]
+  have hidx : jL + 1 + (sk.nChildren h (sk.stageScope h k) - (jL + 1))
+      = sk.nChildren h (sk.stageScope h k) := by omega
+  rw [hidx]
+  have htot : qSum sk (wpk h) k (sk.nChildren h (sk.stageScope h k))
+      = sk.qOf h (sk.stageScope h k) := qSum_total sk (wpk h) k
+  have hqs1 : qSum sk (wpk h) k (jL + 1)
+      = qSum sk (wpk h) k jL
+        + sk.qCount h (sk.stageScope h k) jL :=
+    qSum_succ sk (wpk h) k jL
+  have hqsuc := qsBefore_succ sk hk
+  have hmono := qsBefore_mono sk h
+    (show k + 1 ≤ sk.stageLen h from hk)
+  have hqm : qSum sk (wpk h) k (jL + 1)
+      ≤ qSum sk (wpk h) k (sk.nChildren h (sk.stageScope h k)) :=
+    qSum_mono sk (wpk h) k hjn
+  omega
+
+/-- The resolution site's query floor: the slot's own queries are
+still ahead. -/
+private theorem futLen_SL_q {fut : List Ev} {h k i : Nat}
+    (hk : k < sk.stageLen h)
+    (hi : i < sk.nChildren h (sk.stageScope h k))
+    (hown : fut.filter (fun e => evOwner sk e == walkIdx sk h)
+      = ((lowerOut (wpk h), true,
+            sk.dsBefore h k + dRank sk (wpk h) k i) : Ev)
+          :: ((if lastDOf sk h k == some i
+                then [((upperOut (wpk h), true, k) : Ev)] else [])
+              ++ chunkQ sk h k i
+              ++ (List.range' (i + 1)
+                    (sk.nChildren h (sk.stageScope h k)
+                      - (i + 1))).flatMap
+                   (splicedChunk sk h k (lastDOf sk h k))
+              ++ walkSeg sk h (k + 1) (sk.stageLen h))) :
+    futLen sk fut (walkIdx sk h) (askedOut (wpk h)) true
+      = sk.qsBefore h (sk.stageLen h)
+        - (sk.qsBefore h k + qSum sk (wpk h) k i) := by
+  have hspl : proj (askedOut (wpk h)) true
+      (if lastDOf sk h k == some i
+        then [((upperOut (wpk h), true, k) : Ev)] else []) = [] := by
+    split
+    · rw [proj_cons_ne_chan (by
+        unfold askedOut upperOut
+        split <;> simp), proj_nil]
+    · rfl
+  have hcq : chunkQ sk h k i
+      = seg (askedOut (wpk h)) true
+          (sk.qsBefore h k + qSum sk (wpk h) k i)
+          (sk.qCount h (sk.stageScope h k) i) := rfl
+  rw [futLen_of_filter sk hown,
+    proj_cons_ne_chan (by
+      unfold askedOut lowerOut
+      split <;> simp),
+    proj_append, proj_append, proj_append, hspl,
+    hcq, proj_seg_self,
+    chunks_proj_q sk h k (lastDOf sk h k) _ (i + 1),
+    walkSeg_proj_q sk (show k + 1 ≤ sk.stageLen h from hk)
+      (Nat.le_refl _)]
+  simp only [List.nil_append, List.length_append, seg_len]
+  have hidx : i + 1 + (sk.nChildren h (sk.stageScope h k) - (i + 1))
+      = sk.nChildren h (sk.stageScope h k) := by omega
+  rw [hidx]
+  have htot : qSum sk (wpk h) k (sk.nChildren h (sk.stageScope h k))
+      = sk.qOf h (sk.stageScope h k) := qSum_total sk (wpk h) k
+  have hqs1 : qSum sk (wpk h) k (i + 1)
+      = qSum sk (wpk h) k i + sk.qCount h (sk.stageScope h k) i :=
+    qSum_succ sk (wpk h) k i
+  have hqsuc := qsBefore_succ sk hk
+  have hmono := qsBefore_mono sk h
+    (show k + 1 ≤ sk.stageLen h from hk)
+  have hqm : qSum sk (wpk h) k (i + 1)
+      ≤ qSum sk (wpk h) k (sk.nChildren h (sk.stageScope h k)) :=
+    qSum_mono sk (wpk h) k hi
+  omega
+
+/-- The leaf-request site's wire count: the slot's wire is already
+out. -/
+private theorem futLen_Q0_wire {fut : List Ev} {k i0 : Nat}
+    (hk : k < sk.stageLen 0)
+    (hi0 : i0 < sk.nChildren 0 (sk.stageScope 0 k))
+    (hown : fut.filter (fun e => evOwner sk e == walkIdx sk 0)
+      = (List.range' (i0 + 1)
+            (sk.nChildren 0 (sk.stageScope 0 k) - (i0 + 1))).flatMap
+            (splicedChunk sk 0 k (lastDOf sk 0 k))
+          ++ walkSeg sk 0 (k + 1) (sk.stageLen 0)) :
+    futLen sk fut (walkIdx sk 0) (wireOut (wpk 0)) true
+      = sk.wiresBefore 0 (sk.stageLen 0)
+        - (sk.wiresBefore 0 k + i0 + 1) := by
+  rw [futLen_of_filter sk hown, proj_append,
+    chunks_proj_wire sk 0 k (lastDOf sk 0 k) _ (i0 + 1),
+    walkSeg_proj_wire sk (show k + 1 ≤ sk.stageLen 0 from hk)
+      (Nat.le_refl _)]
+  simp only [List.length_append, seg_len]
+  have hws := wiresBefore_succ sk hk
+  have hmono := wiresBefore_mono sk 0
+    (show k + 1 ≤ sk.stageLen 0 from hk)
+  omega
+
+-- ================================= descent packages from the context
+
+/-- The upper sites' descent package: the deep windows at the summary
+cursor plus the site's own floor counts supply every level. -/
+theorem descSupply_upper_of_ctx (hwf : sk.wellFormed = true)
+    {fut : List Ev} {st : MState} (hW : WCount sk fut st) {h k : Nat}
+    (h1 : 1 ≤ h) (hhr : h < sk.rootH) (hk : k < sk.stageLen h)
+    (hasks : asks ((wpk h).1) (h + 1) = true)
+    (hdeep : ∀ g', g' < h →
+      fut.filter (fun e => evOwner sk e == walkIdx sk g')
+        = walkSeg sk g' (descIdx sk g' (h - g') k) (sk.stageLen g'))
+    (hlowh : sk.dsBefore h k ≤ sndCount (lowerOut (wpk h)) st.out)
+    (hq1 : h = 1 →
+      sk.qsBefore 1 k ≤ sndCount Chan.leafRequests st.out) :
+    DescSupply sk st ((wpk h).1) h
+      (sk.pendsBefore ((wpk h).1) (h + 1) k) := by
+  have hcle : ∀ g', g' < h →
+      descIdx sk g' (h - g') k ≤ sk.stageLen g' := by
+    intro g' hg'
+    refine descIdx_le_stageLen sk hwf ?_ ?_
+    · rw [show g' + (h - g') = h from by omega]
+      exact hhr
+    · rw [show g' + (h - g') = h from by omega]
+      exact Nat.le_of_lt hk
+  refine descSupply_upper_site sk hwf h1 hhr hasks ?_ ?_ ?_
+  · -- covered answerers' resolutions
+    intro g hg1 hgh hna_g
+    by_cases hgh' : g = h
+    · subst hgh'
+      rw [Nat.sub_self, descIdx_zero, lowerOut_eq_of_answerer hna_g]
+      exact hlowh
+    · have hlt : g < h := by omega
+      rw [lowerOut_eq_of_answerer hna_g,
+        deep_lower_count sk hwf hW (by omega) (hcle g hlt)
+          (hdeep g hlt)]
+      exact Nat.le_refl _
+  · -- covered askers' summaries
+    intro g hg2 hasker_g
+    have hna_g : asks ((wpk h).1) g = false := by
+      have hs := asks_succ ((wpk h).1) g
+      rw [hasker_g] at hs
+      simpa using hs.symm
+    rw [upperOut_eq_of_answerer hna_g,
+      deep_upper_count sk hwf hW (by omega) (hcle g (by omega))
+        (hdeep g (by omega))]
+    exact Nat.le_refl _
+  · -- the absorber feeds
+    intro _
+    constructor
+    · have hd0 := hdeep 0 h1
+      rw [Nat.sub_zero] at hd0
+      have hc0 := hcle 0 h1
+      rw [Nat.sub_zero] at hc0
+      rw [show Chan.wire Party.R 0 = wireOut (wpk 0) from rfl,
+        deep_wire_count sk hwf hW (by omega) hc0 hd0]
+      exact Nat.le_refl _
+    · by_cases h1' : h = 1
+      · subst h1'
+        have hpeel : descIdx sk 0 1 k = sk.wiresBefore 1 k :=
+          descIdx_peel sk 0 0 k
+        rw [hpeel,
+          ← qs_wires sk hwf (Nat.le_refl 1) hhr (Nat.le_of_lt hk)]
+        exact hq1 rfl
+      · have h2 : 2 ≤ h := by omega
+        have hd1 := hdeep 1 (by omega)
+        have hc1 := hcle 1 (by omega)
+        rw [show Chan.leafRequests = askedOut (wpk 1) from rfl,
+          deep_q_count sk hwf hW (Nat.le_refl 1) (by omega) hc1 hd1,
+          qs_wires sk hwf (Nat.le_refl 1) (by omega) hc1]
+        refine Nat.le_of_eq ?_
+        have hp := descIdx_peel sk (h - 1) 0 k
+        rw [show h - 1 + 1 = h from by omega] at hp
+        exact congrArg (sk.wiresBefore 0) hp
+
+/-- The lower site's descent package: the deep windows at the kid-slot
+cursor plus the site's own floor counts supply every level below. -/
+theorem descSupply_lower_of_ctx (hwf : sk.wellFormed = true)
+    {fut : List Ev} {st : MState} (hW : WCount sk fut st)
+    {h k i : Nat} (h1 : 1 ≤ h) (hhr : h < sk.rootH)
+    (hk : k < sk.stageLen h)
+    (hi : i ≤ sk.nChildren h (sk.stageScope h k))
+    (hna : asks ((wpk h).1) h = false)
+    (hdeep : ∀ g', g' < h →
+      fut.filter (fun e => evOwner sk e == walkIdx sk g')
+        = walkSeg sk g'
+            (descIdx sk g' (h - 1 - g') (sk.wiresBefore h k + i))
+            (sk.stageLen g'))
+    (hq1 : h = 1 →
+      sk.wiresBefore 0 (sk.wiresBefore 1 k + i)
+        ≤ sndCount Chan.leafRequests st.out) :
+    DescSupply sk st ((wpk h).1) (h - 1)
+      (sk.pendsBefore ((wpk h).1) h
+        (sk.dsBefore h k + dRank sk (wpk h) k i)) := by
+  have hXle : sk.wiresBefore h k + i ≤ sk.stageLen (h - 1) := by
+    have h1' := wiresBefore_succ sk hk
+    have h2' := wiresBefore_mono sk h
+      (show k + 1 ≤ sk.stageLen h from hk)
+    have h3' := wiresBefore_total sk hwf h1 hhr
+    omega
+  have hcle : ∀ g', g' < h →
+      descIdx sk g' (h - 1 - g') (sk.wiresBefore h k + i)
+        ≤ sk.stageLen g' := by
+    intro g' hg'
+    refine descIdx_le_stageLen sk hwf ?_ ?_
+    · rw [show g' + (h - 1 - g') = h - 1 from by omega]
+      omega
+    · rw [show g' + (h - 1 - g') = h - 1 from by omega]
+      exact hXle
+  refine descSupply_lower_site sk hwf hna h1 hhr hk hi ?_ ?_ ?_
+  · intro g hg1 hgh hna_g
+    rw [lowerOut_eq_of_answerer hna_g,
+      deep_lower_count sk hwf hW (by omega) (hcle g (by omega))
+        (hdeep g (by omega))]
+    exact Nat.le_refl _
+  · intro g hg2 hasker_g
+    have hna_g : asks ((wpk h).1) g = false := by
+      have hs := asks_succ ((wpk h).1) g
+      rw [hasker_g] at hs
+      simpa using hs.symm
+    rw [upperOut_eq_of_answerer hna_g,
+      deep_upper_count sk hwf hW (by omega) (hcle g (by omega))
+        (hdeep g (by omega))]
+    exact Nat.le_refl _
+  · intro _
+    constructor
+    · have hd0 := hdeep 0 h1
+      rw [Nat.sub_zero] at hd0
+      have hc0 := hcle 0 h1
+      rw [Nat.sub_zero] at hc0
+      rw [show Chan.wire Party.R 0 = wireOut (wpk 0) from rfl,
+        deep_wire_count sk hwf hW (by omega) hc0 hd0]
+      exact Nat.le_refl _
+    · by_cases h1' : h = 1
+      · subst h1'
+        exact hq1 rfl
+      · have h2 : 2 ≤ h := by omega
+        have hd1 := hdeep 1 (by omega)
+        rw [show h - 1 - 1 = h - 2 from by omega] at hd1
+        have hc1 := hcle 1 (by omega)
+        rw [show h - 1 - 1 = h - 2 from by omega] at hc1
+        rw [show Chan.leafRequests = askedOut (wpk 1) from rfl,
+          deep_q_count sk hwf hW (Nat.le_refl 1) (by omega) hc1 hd1,
+          qs_wires sk hwf (Nat.le_refl 1) (by omega) hc1]
+        refine Nat.le_of_eq ?_
+        have hp := descIdx_peel sk (h - 2) 0
+          (sk.wiresBefore h k + i)
+        rw [show h - 2 + 1 = h - 1 from by omega] at hp
+        exact congrArg (sk.wiresBefore 0) hp
+
+/-- Coverage extends one asker stage down vacuously. -/
+theorem ascCover_pred {st : MState} {p : Party} {j top : Nat}
+    (h : AscCover sk st p (j + 1) top) (hasker : asks p j = true) :
+    AscCover sk st p j top := by
+  intro g hjg hgt hna
+  by_cases hgj : g = j
+  · subst hgj
+    rw [hna] at hasker
+    exact Bool.noConfusion hasker
+  · exact h g (by omega) hgt hna
+
+-- ==================================================== window sites
+
+/-- A window conclusion opens the guard: the cap has a free slot. -/
+private theorem enabled_of_window {st : MState} {c : Chan} {n : Nat}
+    (hwf : sk.wellFormed = true) (hwin : n ≤ rcvCount c st.out)
+    (hrcvd : st.rcvd c = rcvCount c st.out) :
+    enabled sk st.sent st.rcvd (c, true, n) = true := by
+  simp only [enabled, decide_eq_true_eq]
+  have hcap := cap_pos hwf c
+  omega
+
+/-- The prologue-summary site (U1): an undisputed scope's parent
+summary is emittable through the upper window. -/
+theorem ready_upper_prologue (hwf : sk.wellFormed = true)
+    (hsched : sk.schedulable = true) {fut : List Ev} {h k : Nat}
+    {A j t : Nat → Nat} (hhr : h < sk.rootH) (hk : k < sk.stageLen h)
+    (hlast : lastDOf sk h k = none) (hanc : AncTele sk h A j t fut)
+    (hcoh0 : h + 1 < sk.rootH →
+      k = sk.wiresBefore (h + 1) (A (h + 1)) + j (h + 1))
+    (hfeed : ∃ i₀, fut.filter (fun e => evOwner sk e == 1)
+      = ((ropenEvents sk).drop 3).drop i₀)
+    (hdeep : ∀ g', g' < h →
+      fut.filter (fun e => evOwner sk e == walkIdx sk g')
+        = walkSeg sk g' (descIdx sk g' (h - g') k) (sk.stageLen g'))
+    (hown : fut.filter (fun e => evOwner sk e == walkIdx sk h)
+      = ((upperOut (wpk h), true, k) : Ev)
+          :: ((List.range' 0 (sk.nChildren h (sk.stageScope h k))).flatMap
+                (splicedChunk sk h k (lastDOf sk h k))
+              ++ walkSeg sk h (k + 1) (sk.stageLen h))) :
+    ∀ st : MState, WEdge sk fut st → step sk st = none →
+      enabled sk st.sent st.rcvd (upperOut (wpk h), true, k)
+        = true := by
+  intro st hW hfix
+  have hna : asks ((wpk h).1) h = false := asks_wpk_self h
+  have hasks : asks ((wpk h).1) (h + 1) = true := by
+    have hs := asks_succ ((wpk h).1) h
+    rw [hna] at hs
+    simpa using hs
+  have hfu := futLen_site_upper_prologue sk hk hlast hown
+  have hsnd : sndCount (Chan.upper ((wpk h).1) h) st.out = k :=
+    upper_site_hsnd sk hwf hW.toWCount hna hhr hk hfu
+  have hcov := ancTele_cov sk hwf hsched hW hanc hcoh0 hsnd
+  have hroot := root_banked sk hwf hW.toWCount hfeed
+  have hdesc : DescSupply sk st ((wpk h).1) h
+      (sk.pendsBefore ((wpk h).1) (h + 1) k) := by
+    rcases Nat.eq_zero_or_pos h with rfl | h1
+    · exact descSupply_upper_site_zero sk hasks _
+    · have hflow := futLen_S1_res sk hk hown
+      have hlpin := lower_snd_pin sk hwf hW.toWCount hhr
+      have hdmono := dsBefore_mono sk h
+        (show k ≤ sk.stageLen h from Nat.le_of_lt hk)
+      refine descSupply_upper_of_ctx sk hwf hW.toWCount h1 hhr hk
+        hasks hdeep (by omega) ?_
+      intro h1'
+      subst h1'
+      have hfq := futLen_S1_q sk hk hown
+      have hqpin := asked_snd_pin sk hwf hW.toWCount (Nat.le_refl 1)
+        hhr
+      have hqmono := qsBefore_mono sk 1
+        (show k ≤ sk.stageLen 1 from Nat.le_of_lt hk)
+      rw [show Chan.leafRequests = askedOut (wpk 1) from rfl]
+      omega
+  have hwin := upper_window sk hwf hW hfix (wpk_htop sk h) hasks
+    (wtop_ge hwf hhr) hk hsnd hdesc hcov hroot
+  exact enabled_of_window sk hwf hwin (hW.rcvd_eq _)
+
+/-- The splice-summary site (U2): a disputed scope's parent summary,
+emitted after its last resolution, is emittable through the upper
+window. -/
+theorem ready_upper_splice (hwf : sk.wellFormed = true)
+    (hsched : sk.schedulable = true) {fut : List Ev} {h k jL : Nat}
+    {A j t : Nat → Nat} (hhr : h < sk.rootH) (hk : k < sk.stageLen h)
+    (hlast : lastDOf sk h k = some jL) (hanc : AncTele sk h A j t fut)
+    (hcoh0 : h + 1 < sk.rootH →
+      k = sk.wiresBefore (h + 1) (A (h + 1)) + j (h + 1))
+    (hfeed : ∃ i₀, fut.filter (fun e => evOwner sk e == 1)
+      = ((ropenEvents sk).drop 3).drop i₀)
+    (hdeep : ∀ g', g' < h →
+      fut.filter (fun e => evOwner sk e == walkIdx sk g')
+        = walkSeg sk g' (descIdx sk g' (h - g') k) (sk.stageLen g'))
+    (hown : fut.filter (fun e => evOwner sk e == walkIdx sk h)
+      = ((upperOut (wpk h), true, k) : Ev)
+          :: (chunkQ sk h k jL
+              ++ (List.range' (jL + 1)
+                    (sk.nChildren h (sk.stageScope h k)
+                      - (jL + 1))).flatMap
+                   (splicedChunk sk h k (lastDOf sk h k))
+              ++ walkSeg sk h (k + 1) (sk.stageLen h))) :
+    ∀ st : MState, WEdge sk fut st → step sk st = none →
+      enabled sk st.sent st.rcvd (upperOut (wpk h), true, k)
+        = true := by
+  intro st hW hfix
+  obtain ⟨hDL, hjn⟩ := lastDOf_isD sk hlast
+  have h1 : 1 ≤ h := by
+    rcases Nat.eq_zero_or_pos h with rfl | h1
+    · exact Bool.noConfusion
+        ((show sk.childIsD 0 (sk.stageScope 0 k) jL = false from rfl)
+          ▸ hDL)
+    · exact h1
+  have hna : asks ((wpk h).1) h = false := asks_wpk_self h
+  have hasks : asks ((wpk h).1) (h + 1) = true := by
+    have hs := asks_succ ((wpk h).1) h
+    rw [hna] at hs
+    simpa using hs
+  have hfu := futLen_site_upper_splice sk hk hlast hown
+  have hsnd : sndCount (Chan.upper ((wpk h).1) h) st.out = k :=
+    upper_site_hsnd sk hwf hW.toWCount hna hhr hk hfu
+  have hcov := ancTele_cov sk hwf hsched hW hanc hcoh0 hsnd
+  have hroot := root_banked sk hwf hW.toWCount hfeed
+  have hdesc : DescSupply sk st ((wpk h).1) h
+      (sk.pendsBefore ((wpk h).1) (h + 1) k) := by
+    have hflow := futLen_S2_res sk hk hlast hown
+    have hlpin := lower_snd_pin sk hwf hW.toWCount hhr
+    have hdmono := dsBefore_mono sk h
+      (show k ≤ sk.stageLen h from Nat.le_of_lt hk)
+    refine descSupply_upper_of_ctx sk hwf hW.toWCount h1 hhr hk
+      hasks hdeep (by omega) ?_
+    intro h1'
+    subst h1'
+    have hfq := futLen_S2_q sk hk hlast hown
+    have hqpin := asked_snd_pin sk hwf hW.toWCount (Nat.le_refl 1)
+      hhr
+    have hqmono := qsBefore_mono sk 1
+      (show k ≤ sk.stageLen 1 from Nat.le_of_lt hk)
+    rw [show Chan.leafRequests = askedOut (wpk 1) from rfl]
+    omega
+  have hwin := upper_window sk hwf hW hfix (wpk_htop sk h) hasks
+    (wtop_ge hwf hhr) hk hsnd hdesc hcov hroot
+  exact enabled_of_window sk hwf hwin (hW.rcvd_eq _)
+
+/-- The resolution site (L): a disputed slot's resolution is
+emittable through the lower window. -/
+theorem ready_lower (hwf : sk.wellFormed = true)
+    (hsched : sk.schedulable = true) {fut : List Ev} {h k i : Nat}
+    {A j t : Nat → Nat} (hhr : h < sk.rootH) (hk : k < sk.stageLen h)
+    (hi : i < sk.nChildren h (sk.stageScope h k))
+    (hD : sk.childIsD h (sk.stageScope h k) i = true)
+    (hanc : AncTele sk h A j t fut)
+    (hcoh0 : h + 1 < sk.rootH →
+      k = sk.wiresBefore (h + 1) (A (h + 1)) + j (h + 1))
+    (hfeed : ∃ i₀, fut.filter (fun e => evOwner sk e == 1)
+      = ((ropenEvents sk).drop 3).drop i₀)
+    (hdeep : ∀ g', g' < h →
+      fut.filter (fun e => evOwner sk e == walkIdx sk g')
+        = walkSeg sk g'
+            (descIdx sk g' (h - 1 - g') (sk.wiresBefore h k + i))
+            (sk.stageLen g'))
+    (hown : fut.filter (fun e => evOwner sk e == walkIdx sk h)
+      = ((lowerOut (wpk h), true,
+            sk.dsBefore h k + dRank sk (wpk h) k i) : Ev)
+          :: ((if lastDOf sk h k == some i
+                then [((upperOut (wpk h), true, k) : Ev)] else [])
+              ++ chunkQ sk h k i
+              ++ (List.range' (i + 1)
+                    (sk.nChildren h (sk.stageScope h k)
+                      - (i + 1))).flatMap
+                   (splicedChunk sk h k (lastDOf sk h k))
+              ++ walkSeg sk h (k + 1) (sk.stageLen h))) :
+    ∀ st : MState, WEdge sk fut st → step sk st = none →
+      enabled sk st.sent st.rcvd
+        (lowerOut (wpk h), true,
+          sk.dsBefore h k + dRank sk (wpk h) k i) = true := by
+  intro st hW hfix
+  have h1 : 1 ≤ h := by
+    rcases Nat.eq_zero_or_pos h with rfl | h1
+    · exact Bool.noConfusion
+        ((show sk.childIsD 0 (sk.stageScope 0 k) i = false from rfl)
+          ▸ hD)
+    · exact h1
+  have hna : asks ((wpk h).1) h = false := asks_wpk_self h
+  have hasks : asks ((wpk h).1) (h + 1) = true := by
+    have hs := asks_succ ((wpk h).1) h
+    rw [hna] at hs
+    simpa using hs
+  obtain ⟨hfl, hbnd, hfu⟩ := futLen_site_lower sk hk hi hD hown
+  have hsnd := lower_site_hsnd sk hwf hW.toWCount hna hhr hfl hbnd
+  have hupk := upper_site_hsnd sk hwf hW.toWCount hna hhr hk hfu
+  have hp1full := p1_of_lower_site sk hsched hk hi hD hupk hsnd
+  have hroot := root_banked sk hwf hW.toWCount hfeed
+  have hcov : AscCover sk st ((wpk h).1) (h + 1) (wtop sk h) :=
+    ascCover_pred sk (ancTele_cov sk hwf hsched hW hanc hcoh0 hupk)
+      hasks
+  have hq1 : h = 1 →
+      sk.wiresBefore 0 (sk.wiresBefore 1 k + i)
+        ≤ sndCount Chan.leafRequests st.out := by
+    intro h1'
+    subst h1'
+    have hfq := futLen_SL_q sk hk hi hown
+    have hqpin := asked_snd_pin sk hwf hW.toWCount (Nat.le_refl 1)
+      hhr
+    have hqw := qs_wires_mid sk hwf (Nat.le_refl 1) hhr hk
+      (Nat.le_of_lt hi)
+    rw [show (1 : Nat) - 1 = 0 from rfl] at hqw
+    have hqs1 : qSum sk (wpk 1) k i
+        ≤ qSum sk (wpk 1) k (sk.nChildren 1 (sk.stageScope 1 k)) :=
+      qSum_mono sk (wpk 1) k (Nat.le_of_lt hi)
+    have htotq : qSum sk (wpk 1) k
+        (sk.nChildren 1 (sk.stageScope 1 k))
+        = sk.qOf 1 (sk.stageScope 1 k) := qSum_total sk (wpk 1) k
+    have hqsuc := qsBefore_succ sk hk
+    have hqmono := qsBefore_mono sk 1
+      (show k + 1 ≤ sk.stageLen 1 from hk)
+    rw [show Chan.leafRequests = askedOut (wpk 1) from rfl]
+    omega
+  have hdesc := descSupply_lower_of_ctx sk hwf hW.toWCount h1 hhr hk
+    (Nat.le_of_lt hi) hna hdeep hq1
+  have hd : sk.dsBefore h k + dRank sk (wpk h) k i
+      < (sk.asmResList ((wpk h).1) h).length := by
+    rw [answerer_resList_total hwf hna h1 hhr]
+    exact hbnd
+  rw [hsnd] at hp1full
+  have hwin := lower_window sk hwf hW hfix (wpk_htop sk h) hna h1
+    (show h < wtop sk h from by have := wtop_ge hwf hhr; omega)
+    hd hsnd hp1full hdesc hcov hroot
+  exact enabled_of_window sk hwf hwin (hW.rcvd_eq _)
+
+/-- The leaf-wire site (W0): a leaf slot's wire is emittable through
+the absorber's wire window. -/
+theorem ready_wire0 (hwf : sk.wellFormed = true)
+    (hsched : sk.schedulable = true) {fut : List Ev} {k i0 : Nat}
+    {A j t : Nat → Nat} (hr : 0 < sk.rootH) (hk : k < sk.stageLen 0)
+    (hi0 : i0 < sk.nChildren 0 (sk.stageScope 0 k))
+    (hanc : AncTele sk 0 A j t fut)
+    (hcoh0 : k = sk.wiresBefore 1 (A 1) + j 1) (ht1 : t 1 = i0)
+    (hfeed : ∃ i₀, fut.filter (fun e => evOwner sk e == 1)
+      = ((ropenEvents sk).drop 3).drop i₀)
+    (hown : fut.filter (fun e => evOwner sk e == walkIdx sk 0)
+      = (List.range' i0
+            (sk.nChildren 0 (sk.stageScope 0 k) - i0)).flatMap
+            (splicedChunk sk 0 k (lastDOf sk 0 k))
+          ++ walkSeg sk 0 (k + 1) (sk.stageLen 0)) :
+    ∀ st : MState, WEdge sk fut st → step sk st = none →
+      enabled sk st.sent st.rcvd
+        (wireOut (wpk 0), true, sk.wiresBefore 0 k + i0) = true := by
+  intro st hW hfix
+  have hr2 : 1 < sk.rootH := by have := (wf_rootH hwf).2; omega
+  obtain ⟨hA1, hj1⟩ := hanc.rng 1 (by omega) hr2
+  obtain ⟨hfw, hwbnd⟩ := futLen_site_wire sk hk hi0 hown
+  have hsnd := wire0_site_hsnd sk hwf hW.toWCount hr hfw hwbnd
+  have hw : sk.wiresBefore 0 k + i0 < sk.totalLeafReqs := by
+    have := wiresBefore_full_leaf hwf
+    omega
+  have hqc : sk.qCount 1 (sk.stageScope 1 (A 1)) (j 1)
+      = sk.nChildren 0 (sk.stageScope 0 k) := by
+    have hq := qCount_eq_kid_nChildren sk hwf (Nat.le_refl 1) hr2
+      hA1 hj1
+    rw [show (1 : Nat) - 1 = 0 from rfl, ← hcoh0] at hq
+    exact hq
+  obtain ⟨hfq, hqbnd⟩ := futLen_site_q sk hA1 hj1
+    (by rw [ht1, hqc]; exact hi0) (hanc.fil 1 (by omega) hr2)
+  have hsndq := leafreq_site_hsnd sk hwf hW.toWCount hr2 hfq hqbnd
+  have hqw := qs_wires_mid sk hwf (Nat.le_refl 1) hr2 hA1
+    (Nat.le_of_lt hj1)
+  rw [show (1 : Nat) - 1 = 0 from rfl] at hqw
+  rw [hqw, ← hcoh0, ht1] at hsndq
+  have hreq : sk.wiresBefore 0 k + i0
+      ≤ sndCount Chan.leafRequests st.out + 1 := by omega
+  have hcov := ancTele_cov_leaf sk hwf hsched hW hanc hr2 hk hcoh0
+    hi0 hsndq
+  have hroot := root_banked sk hwf hW.toWCount hfeed
+  have hwin := wire0_window sk hwf hW hfix hw hsnd hreq hcov hroot
+  exact enabled_of_window sk hwf hwin (hW.rcvd_eq _)
+
+/-- The leaf-request site (Q0): a leaf slot's feed query is emittable
+through the absorber's request window. -/
+theorem ready_leafreq (hwf : sk.wellFormed = true)
+    (hsched : sk.schedulable = true) {fut : List Ev} {k i0 : Nat}
+    {A j t : Nat → Nat} (hr : 0 < sk.rootH) (hk : k < sk.stageLen 0)
+    (hi0 : i0 < sk.nChildren 0 (sk.stageScope 0 k))
+    (hanc : AncTele sk 0 A j t fut)
+    (hcoh0 : k = sk.wiresBefore 1 (A 1) + j 1) (ht1 : t 1 = i0)
+    (hfeed : ∃ i₀, fut.filter (fun e => evOwner sk e == 1)
+      = ((ropenEvents sk).drop 3).drop i₀)
+    (hown : fut.filter (fun e => evOwner sk e == walkIdx sk 0)
+      = (List.range' (i0 + 1)
+            (sk.nChildren 0 (sk.stageScope 0 k) - (i0 + 1))).flatMap
+            (splicedChunk sk 0 k (lastDOf sk 0 k))
+          ++ walkSeg sk 0 (k + 1) (sk.stageLen 0)) :
+    ∀ st : MState, WEdge sk fut st → step sk st = none →
+      enabled sk st.sent st.rcvd
+        (askedOut (wpk 1), true, sk.wiresBefore 0 k + i0) = true := by
+  intro st hW hfix
+  have hr2 : 1 < sk.rootH := by have := (wf_rootH hwf).2; omega
+  obtain ⟨hA1, hj1⟩ := hanc.rng 1 (by omega) hr2
+  have hqc : sk.qCount 1 (sk.stageScope 1 (A 1)) (j 1)
+      = sk.nChildren 0 (sk.stageScope 0 k) := by
+    have hq := qCount_eq_kid_nChildren sk hwf (Nat.le_refl 1) hr2
+      hA1 hj1
+    rw [show (1 : Nat) - 1 = 0 from rfl, ← hcoh0] at hq
+    exact hq
+  obtain ⟨hfq, hqbnd⟩ := futLen_site_q sk hA1 hj1
+    (by rw [ht1, hqc]; exact hi0) (hanc.fil 1 (by omega) hr2)
+  have hsndq := leafreq_site_hsnd sk hwf hW.toWCount hr2 hfq hqbnd
+  have hqw := qs_wires_mid sk hwf (Nat.le_refl 1) hr2 hA1
+    (Nat.le_of_lt hj1)
+  rw [show (1 : Nat) - 1 = 0 from rfl] at hqw
+  rw [hqw, ← hcoh0, ht1] at hsndq
+  have hq : sk.wiresBefore 0 k + i0 < sk.totalLeafReqs := by
+    have hfull := qsBefore_full_leaf hwf
+    have hcong : sk.wiresBefore 0 k
+        = sk.wiresBefore 0 (sk.wiresBefore 1 (A 1) + j 1) := by
+      rw [hcoh0]
+    omega
+  have hfw := futLen_Q0_wire sk hk hi0 hown
+  have hwpin := wire_snd_pin sk hwf hW.toWCount hr
+  have hwire : sk.wiresBefore 0 k + i0
+      ≤ sndCount (Chan.wire Party.R 0) st.out := by
+    rw [show Chan.wire Party.R 0 = wireOut (wpk 0) from rfl]
+    have hws := wiresBefore_succ sk hk
+    have hmono := wiresBefore_mono sk 0
+      (show k + 1 ≤ sk.stageLen 0 from hk)
+    omega
+  have hcov := ancTele_cov_leaf sk hwf hsched hW hanc hr2 hk hcoh0
+    hi0 hsndq
+  have hroot := root_banked sk hwf hW.toWCount hfeed
+  have hwin := leafreq_window sk hwf hW hfix hq hsndq hwire hcov
+    hroot
+  exact enabled_of_window sk hwf hwin (hW.rcvd_eq _)
+
 end StreamingMirror.Sched
 
