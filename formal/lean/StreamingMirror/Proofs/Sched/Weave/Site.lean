@@ -375,4 +375,28 @@ theorem descSupply_down (hwf : sk.wellFormed = true) {st : MState}
         rw [ht0] at h0
         exact h0
 
+/-- One asker step of the descent: the ancestor summaries feed the
+asker level directly.
+
+The pends demand re-enters cursor form one stage down
+(`pendsBefore_asker`), vanishing at height one where the asker is
+pend-free. -/
+theorem descSupply_step_asker (hwf : sk.wellFormed = true)
+    {st : MState} {p : Party} {j C : Nat}
+    (hasks : asks p (j + 1) = true)
+    (hres : C ≤ sndCount (Chan.upper p j) st.out)
+    (hrec : 1 ≤ j → DescSupply sk st p j (sk.dsBefore j C)) :
+    DescSupply sk st p (j + 1) C := by
+  refine ⟨?_, ?_⟩
+  · rw [asmResChan_asker hasks]
+    exact hres
+  · cases j with
+    | zero =>
+        show DescSupply sk st p 0 (sk.pendsBefore p 1 C)
+        rw [pendsBefore_asker_one hwf hasks]
+        exact fun _ => ⟨Nat.zero_le _, Nat.zero_le _⟩
+    | succ jj =>
+        rw [pendsBefore_asker hasks (by omega)]
+        exact hrec (by omega)
+
 end StreamingMirror.Sched
