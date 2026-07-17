@@ -49,8 +49,8 @@ async fn reconcile(a: TreeRoot<()>, b: TreeRoot<()>) -> (TreeRoot<()>, TreeRoot<
     let b = Handshaking::start(Local, Root::from(b));
 
     let (a_link, b_link) = memory_with_capacity(TRANSPORT_CAPACITY);
-    let remote_b = RemoteHandshaking::start(Local, a_link);
-    let remote_a = RemoteHandshaking::start(Local, b_link);
+    let remote_b = RemoteHandshaking::start(Local, a_link.into_erased());
+    let remote_a = RemoteHandshaking::start(Local, b_link.into_erased());
 
     let (a, b) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(remote_a, b)));
     let (a, _control) = a.expect("endpoint A should reconcile through its proxy");
@@ -71,8 +71,8 @@ where
     let a = Handshaking::start(Local, Root::from(a));
     let b = Handshaking::start(Local, Root::from(b));
     let (a_link, b_link) = memory_with_capacity(transport_capacity);
-    let remote_b = RemoteHandshaking::start(Local, a_link);
-    let remote_a = RemoteHandshaking::start(Local, b_link);
+    let remote_b = RemoteHandshaking::start(Local, a_link.into_erased());
+    let remote_a = RemoteHandshaking::start(Local, b_link.into_erased());
 
     let (a, b) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(b, remote_a)),);
     let (a, _control) = a.expect("endpoint A should reconcile through its proxy");
@@ -100,8 +100,8 @@ where
     let (a_link, b_link) = memory_with_capacity(transport_capacity);
     let a_link = reorder_accepts(a_link, REORDER_BATCH);
     let b_link = reorder_accepts(b_link, REORDER_BATCH);
-    let remote_b = RemoteHandshaking::start(Local, a_link);
-    let remote_a = RemoteHandshaking::start(Local, b_link);
+    let remote_b = RemoteHandshaking::start(Local, a_link.into_erased());
+    let remote_a = RemoteHandshaking::start(Local, b_link.into_erased());
 
     let (a, b) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(b, remote_a)),);
     let (a, _control) = a.expect("endpoint A should reconcile through its proxy");
@@ -142,8 +142,8 @@ where
     seen_a.expect("A preamble");
     seen_b.expect("B preamble");
 
-    let remote_b = RemoteHandshaking::start(Local, a_link);
-    let remote_a = RemoteHandshaking::start(Local, b_link);
+    let remote_b = RemoteHandshaking::start(Local, a_link.into_erased());
+    let remote_a = RemoteHandshaking::start(Local, b_link.into_erased());
     let (a, b) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(b, remote_a)),);
     let (a, _control) = a.expect("endpoint A should reconcile through its proxy");
     let (b, _control) = b.expect("endpoint B should reconcile through its proxy");
@@ -223,8 +223,8 @@ async fn reconcile_with_stacked_failures(
     } else {
         failing
     };
-    let remote_b = RemoteHandshaking::start(left_backend, a_link);
-    let remote_a = RemoteHandshaking::start(right_backend, b_link);
+    let remote_b = RemoteHandshaking::start(left_backend, a_link.into_erased());
+    let remote_a = RemoteHandshaking::start(right_backend, b_link.into_erased());
 
     let (left, right) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(remote_a, b)));
     (

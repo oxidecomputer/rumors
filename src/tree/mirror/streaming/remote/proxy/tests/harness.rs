@@ -9,7 +9,7 @@ use std::{
 };
 
 use futures::join;
-use tokio::io::AsyncWrite;
+use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::link::{Acceptor, Connector, Link, MemoryLink, memory_with_capacity};
 use crate::testing::{IoPlan, IoReportHandle, IoSide, wrap_link};
@@ -318,19 +318,19 @@ async fn drive<LR, LW, LC, LA, RR, RW, RC, RA>(
     Result<TreeRoot<()>, RightError>,
 )
 where
-    LR: tokio::io::AsyncRead + Unpin + Send,
-    LW: AsyncWrite + Unpin + Send,
+    LR: AsyncRead + Unpin + Send + 'static,
+    LW: AsyncWrite + Unpin + Send + 'static,
     LC: Connector,
-    LA: Acceptor,
-    RR: tokio::io::AsyncRead + Unpin + Send,
-    RW: AsyncWrite + Unpin + Send,
+    LA: Acceptor + 'static,
+    RR: AsyncRead + Unpin + Send + 'static,
+    RW: AsyncWrite + Unpin + Send + 'static,
     RC: Connector,
-    RA: Acceptor,
+    RA: Acceptor + 'static,
 {
     let left = Handshaking::start(Local, Root::from(left));
     let right = Handshaking::start(Local, Root::from(right));
-    let remote_right = RemoteHandshaking::start(Local, left_link);
-    let remote_left = RemoteHandshaking::start(Local, right_link);
+    let remote_right = RemoteHandshaking::start(Local, left_link.into_erased());
+    let remote_left = RemoteHandshaking::start(Local, right_link.into_erased());
     let (left, right) = join!(
         Box::pin(mirror(left, remote_right)),
         Box::pin(mirror(remote_left, right)),

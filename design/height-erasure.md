@@ -206,6 +206,29 @@ move.
    so the GAT and the seam collapse into one shape. Bigger surface
    change; only worth it once 1–4 have settled.
 
+## Incident log
+
+- **2026-07-17: the lib test binary crossed the memwatch limit.** The link
+  axis, not the height axis: every distinct `Link` type driven into
+  `remote::Handshaking::start` instantiates the whole proxy tower, and the
+  in-crate tests had accumulated fixture-wrapped link types (memory,
+  adversarial, scripted; a reordering acceptor tipped it over). Measured
+  on the lib test target (stable 1.96.1, all features): one additional
+  tower instantiation cost +137k IR lines but **+0.7 GiB of rustc peak
+  memory** — the cost is type-tree and collector state, not codegen
+  volume — and under incremental CGU partitioning (every tower lands in
+  the proxy module's CGU) the same delta took the compile from ~7.3 GB to
+  the 9.4 GB memwatch kill. Fixed by `Link::into_erased` (test-only,
+  `src/link/erased.rs`): fixtures now funnel into one owned erased
+  carrier, mirroring the session funnels' erasure, dropping the tower
+  population from 7 to 4 (`internal_replies` 210 → 120 copies; peak
+  9.4+ → 7.7 GB cold-incremental). The erasure must be *owning*: a
+  borrowed carrier leaves the concrete connector alive in the caller and
+  the peer's supply never closes, which stalls every supply-closure test.
+  The residual four towers are the funnels' borrowed carrier plus the
+  payload/backend axes — exactly what this document's height erasure
+  would shrink from the inside.
+
 ## Open questions
 
 - Does any code rely on `B::Node<H>` being *distinct types* per height

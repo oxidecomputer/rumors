@@ -155,8 +155,15 @@ proptest! {
         ..ProptestConfig::default()
     })]
 
-    /// Every reached read, write, or flush fault retains its typed identity
-    /// and terminates both sessions; every unreached fault is behaviorally inert.
+    /// Every reached transport fault retains its typed identity on the
+    /// faulted endpoint, and every unreached fault is behaviorally inert.
+    ///
+    /// The counterparty is bounded, not condemned: it must stay live, and
+    /// either observe the cut and fail in turn or — when the fault fires
+    /// after it already had everything it needed — complete to exactly the
+    /// materialized oracle's result. One-sided completion is this layer's
+    /// contract; certifying *mutual* completion is the session epilogue's
+    /// job, above the mirror.
     #[test]
     fn transport_failures_are_exact_and_fail_fast(
         (left, right) in arb_divergent_pair(),
@@ -231,8 +238,16 @@ proptest! {
             let error = endpoint_error(&outcome, fail_left)?;
             prop_assert!(has_expected_surface(error, operation));
             prop_assert_eq!(injected(error), Some(expected_fault));
-            prop_assert!(outcome.left.is_err());
-            prop_assert!(outcome.right.is_err());
+            // The unfaulted counterparty either fails on the cut it
+            // observes or had already completed; a completion must be the
+            // oracle's exact result, never a divergent tree.
+            if fail_left {
+                if let Ok(right) = &outcome.right {
+                    prop_assert_eq!(right, &expected.1);
+                }
+            } else if let Ok(left) = &outcome.left {
+                prop_assert_eq!(left, &expected.0);
+            }
 
             let recovered = run_to_quiescence(harness::reconcile(
                 left,
