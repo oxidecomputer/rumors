@@ -122,7 +122,7 @@ private theorem range_split (n m : Nat) (hm : m < n) :
 /-- Consuming the head future advances exactly its owner's filter:
 the filter family splits as flanks that ignore `e` plus the owner's
 cell, which sheds its leading `e`. -/
-private theorem manFilters_cons {e : Ev} (fut : List Ev)
+theorem manFilters_cons {e : Ev} (fut : List Ev)
     (hm : evOwner sk e < manCount sk) :
     ∃ A r B,
       manFilters sk (e :: fut) = A ++ (e :: r) :: B

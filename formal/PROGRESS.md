@@ -503,19 +503,25 @@ bounds μ(Q), and both are bounded by the awaited send.
      layer to two open alignment hypotheses: the opening worklist's
      per-owner filters ARE the manual traces, and every future is
      manual-owned.*
-   - *Remaining Lean obligations for (b), in order:* the initial
-     alignment (`weaveState_wcount`'s two hypotheses: per-owner
-     filters of the opening worklist's futures = the manual traces —
-     the recursion emits each trace in trace order). Its design of
-     record is `Weave/Align.lean`'s module doc (the three-clause
-     subtree induction over `opEvents`: own-stage filter =
-     `scopeBlock`, descendant-stage filters = contiguous `descIdx`
-     runs, feed filter = the feed; fuel discharged by
-     `Expand.goEvents_weave`); the Skel-arithmetic base layer is
-     done (`kidBase_eq_wiresBefore`, `wiresBefore_total`,
-     `stageScope_kid`, `qCount_eq_kid_nChildren` — the BFS conjunct
-     consumed positionally), the master induction itself is next.
-     Then edge-respect (`e1_hist`/`e2_hist` for weave
+   - *~~Initial alignment~~ — done (`Proofs/Sched/Weave/Align.lean`,
+     2026-07-16): `weave_wcount` — the weave state satisfies `WCount`
+     with NO remaining hypotheses. The master induction
+     (`align_scope`, by stage): a subtree op's per-owner filters are
+     (1) each covered walk's contiguous `descIdx` run — at the own
+     stage the `scopeBlock` itself, the kid feeds resplicing the
+     chunk queries into `scopeSends`' §5 splice via clause (2) one
+     stage down — (2) the feeder's feed in order, (3) nothing else.
+     The top assembly instantiates at the root scope op: root-stage
+     uniqueness (`wf_root_stage`, from the kid accounting — dedup'd
+     kids ARE the non-root ids by `Subperm` pigeonhole, the parent
+     chain caps every non-root height) makes the telescope endpoints
+     (`descIdx_zero_arg`/`descIdx_total`) cover whole stages, and the
+     filter-partition length identity discharges `weaveFuel` through
+     `goEvents_weave`. The weave's output is a permutation of the
+     manual traces riding the pumps: the permutation half of weave
+     validity, closed.*
+   - *Remaining Lean obligations for (b), in order:*
+     edge-respect (`e1_hist`/`e2_hist` for weave
      states), with `schedulable` entering ONLY in the pump-progress
      lemmas at the emission points (E2-lower/upper/level windows
      open when the weave needs them) — including the final pump

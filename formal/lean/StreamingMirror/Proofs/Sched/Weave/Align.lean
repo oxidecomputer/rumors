@@ -1483,4 +1483,260 @@ theorem align_scope (hwf : sk.wellFormed = true) :
             descIdx_succ, show h' + (h - h') + 1 = h + 1 from by omega,
             wiresBefore_succ sk hk, Nat.add_zero]
 
+-- ==================================================== the top assembly
+-- Instantiate the master induction at the root scope op and read off
+-- `weaveState_wcount`'s two hypotheses: the openers cover iopen and
+-- ropen's head, clause 2 returns ropen's root queries, and clause 1
+-- covers each whole stage via the telescope endpoints.
+
+/-- A whole-stage run is the stage's walk trace. -/
+private theorem walkSeg_full (h' : Nat) :
+    walkSeg sk h' 0 (sk.stageLen h') = walkEvents sk (wpk h') := by
+  unfold walkSeg walkEvents
+  rw [Nat.sub_zero, ← List.range_eq_range']
+  rfl
+
+private theorem filter_owner_all (l : List Ev) (m : Nat)
+    (hall : ∀ e ∈ l, evOwner sk e = m) :
+    l.filter (fun e => evOwner sk e == m) = l := by
+  rw [List.filter_eq_self]
+  intro a ha
+  simp only [hall a ha, beq_self_eq_true]
+
+private theorem filter_owner_none (l : List Ev) {m m' : Nat}
+    (hall : ∀ e ∈ l, evOwner sk e = m) (hne : m ≠ m') :
+    l.filter (fun e => evOwner sk e == m') = [] := by
+  rw [List.filter_eq_nil_iff]
+  intro a ha
+  simp only [hall a ha, beq_iff_eq]
+  exact hne
+
+/-- iopen's events belong to `procs` slot 0. -/
+private theorem iopen_owner (hwf : sk.wellFormed = true) :
+    ∀ e ∈ iopenEvents sk, evOwner sk e = 0 := by
+  have hge := (wf_rootH hwf).2
+  intro e he
+  rcases he with _ | ⟨_, he⟩
+  · show sndOwner sk (Chan.wire Party.I sk.rootH) = 0
+    simp [sndOwner]
+  rcases he with _ | ⟨_, he⟩
+  · show sndOwner sk (Chan.asked Party.I (sk.rootH - 1)) = 0
+    have h11 : sk.rootH - 1 + 1 = sk.rootH := by omega
+    simp [sndOwner, h11]
+  · cases he
+
+/-- ropen's events belong to `procs` slot 1. -/
+private theorem ropen_owner (hwf : sk.wellFormed = true) :
+    ∀ e ∈ ropenEvents sk, evOwner sk e = 1 := by
+  have hge := (wf_rootH hwf).2
+  intro e he
+  rcases he with _ | ⟨_, he⟩
+  · show rcvOwner sk (Chan.wire Party.I sk.rootH) = 1
+    simp [rcvOwner]
+  rcases he with _ | ⟨_, he⟩
+  · show sndOwner sk (Chan.wire Party.R sk.rootH) = 1
+    simp [sndOwner]
+  rcases he with _ | ⟨_, he⟩
+  · rfl
+  · obtain ⟨j, -, rfl⟩ := List.mem_map.1 he
+    show sndOwner sk (Chan.asked Party.R (sk.rootH - 2)) = 1
+    have h22 : sk.rootH - 2 + 2 = sk.rootH := by omega
+    simp [sndOwner, h22]
+
+/-- The opening worklist's fuel-free events: the openers, then the
+root scope's subtree. -/
+private theorem weave_flatMap :
+    (weaveOps sk).flatMap (opEvents sk)
+      = (iopenEvents sk ++ (ropenEvents sk).take 3)
+        ++ opEvents sk
+            (.scope (sk.rootH - 1) 0 ((ropenEvents sk).drop 3)) := by
+  unfold weaveOps
+  rw [List.flatMap_append, List.flatMap_map, List.flatMap_singleton]
+  have hemit : (fun e => opEvents sk (WOp.emit e)) = fun e : Ev => [e] :=
+    funext fun e => opEvents_emit sk e
+  rw [hemit, List.flatMap_singleton']
+
+/-- THE INITIAL ALIGNMENT (PROGRESS.md §7 3b): the opening worklist's
+future events have in-range owners, and their per-owner filters ARE
+the manual traces — `weaveState_wcount`'s two hypotheses, discharged
+from the master induction at the root scope op. -/
+theorem weave_initial_alignment (hwf : sk.wellFormed = true) :
+    (∀ e ∈ (weaveOps sk).flatMap (opEvents sk),
+        evOwner sk e < manCount sk)
+      ∧ manFilters sk ((weaveOps sk).flatMap (opEvents sk))
+        = (procs sk).take (manCount sk) := by
+  have hge := (wf_rootH hwf).2
+  have hlen1 := wf_stageLen_top sk hwf
+  have hss := wf_stageScope_top sk hwf
+  have hF : ((ropenEvents sk).drop 3).length
+      = sk.nChildren (sk.rootH - 1) (sk.stageScope (sk.rootH - 1) 0) := by
+    rw [hss, nChildren_of_pos sk (by omega)]
+    simp [ropenEvents, Skel.rootPending]
+  have hFo : ∀ e ∈ (ropenEvents sk).drop 3, evOwner sk e = 1 :=
+    fun e he => ropen_owner sk hwf e (List.mem_of_mem_drop he)
+  obtain ⟨hown3, hfeed2, hwalk1⟩ := align_scope sk hwf (sk.rootH - 1) 0
+    ((ropenEvents sk).drop 3) 1 (by omega) (by omega) hF hFo
+    (by unfold walkIdx; omega)
+  have htk3 : ∀ e ∈ (ropenEvents sk).take 3, evOwner sk e = 1 :=
+    fun e he => ropen_owner sk hwf e (List.mem_of_mem_take he)
+  have hio := iopen_owner sk hwf
+  constructor
+  · -- owners in range
+    intro e he
+    rw [weave_flatMap] at he
+    rcases List.mem_append.1 he with he | he
+    · rcases List.mem_append.1 he with he | he
+      · rw [hio e he]
+        unfold manCount
+        omega
+      · rw [htk3 e he]
+        unfold manCount
+        omega
+    · rcases hown3 e he with ho | ⟨h', -, ho⟩
+      · rw [ho]
+        unfold manCount
+        omega
+      · rw [ho]
+        unfold walkIdx manCount
+        omega
+  · -- per-owner filters are the manual traces
+    have hrange : List.range (manCount sk)
+        = [0, 1] ++ List.range' 2 sk.rootH := by
+      have happ := List.range'_append
+        (s := 0) (m := 2) (n := sk.rootH) (step := 1)
+      rw [show 0 + 1 * 2 = 2 from by omega] at happ
+      rw [manCount, List.range_eq_range', ← happ]
+      rfl
+    have htake : (procs sk).take (manCount sk)
+        = [iopenEvents sk, ropenEvents sk]
+          ++ ((List.range sk.rootH).map fun i =>
+              walkEvents sk (wpk (sk.rootH - 1 - i))) := by
+      have hsplit : procs sk
+          = ([iopenEvents sk, ropenEvents sk]
+              ++ ((List.range sk.rootH).map fun i =>
+                  walkEvents sk (wpk (sk.rootH - 1 - i))))
+            ++ ([absorbEvents sk]
+              ++ sk.asmKeys.map (asmEvents sk)
+              ++ [[(Chan.rootret, false, 0)], finEvents sk]) := by
+        simp [procs, wpk, List.append_assoc, Function.comp]
+      rw [hsplit]
+      refine List.take_left' ?_
+      simp [manCount]
+      omega
+    rw [weave_flatMap, htake]
+    unfold manFilters
+    rw [hrange, List.map_append]
+    have h0 : ((iopenEvents sk ++ (ropenEvents sk).take 3)
+        ++ opEvents sk
+            (.scope (sk.rootH - 1) 0 ((ropenEvents sk).drop 3))).filter
+        (fun e => evOwner sk e == 0) = iopenEvents sk := by
+      have hs0 : (opEvents sk (.scope (sk.rootH - 1) 0
+          ((ropenEvents sk).drop 3))).filter
+          (fun e => evOwner sk e == 0) = [] := by
+        rw [List.filter_eq_nil_iff]
+        intro e he
+        rcases hown3 e he with ho | ⟨h', -, ho⟩
+        · simp only [ho, beq_iff_eq]
+          omega
+        · have : 2 ≤ walkIdx sk h' := by
+            unfold walkIdx
+            omega
+          simp only [ho, beq_iff_eq]
+          omega
+      rw [List.filter_append, List.filter_append,
+        filter_owner_all sk _ 0 hio,
+        filter_owner_none sk _ htk3 (by omega), hs0,
+        List.append_nil, List.append_nil]
+    have h1 : ((iopenEvents sk ++ (ropenEvents sk).take 3)
+        ++ opEvents sk
+            (.scope (sk.rootH - 1) 0 ((ropenEvents sk).drop 3))).filter
+        (fun e => evOwner sk e == 1) = ropenEvents sk := by
+      rw [List.filter_append, List.filter_append,
+        filter_owner_none sk _ hio (by omega),
+        filter_owner_all sk _ 1 htk3, hfeed2,
+        List.nil_append, List.take_append_drop]
+    congr 1
+    · rw [List.map_cons, List.map_cons, List.map_nil, h0, h1]
+    · rw [List.range'_eq_map_range, List.map_map]
+      refine List.map_congr_left fun i hi => ?_
+      rw [List.mem_range] at hi
+      show ((iopenEvents sk ++ (ropenEvents sk).take 3)
+          ++ opEvents sk
+              (.scope (sk.rootH - 1) 0 ((ropenEvents sk).drop 3))).filter
+          (fun e => evOwner sk e == 2 + i)
+        = walkEvents sk (wpk (sk.rootH - 1 - i))
+      have hwi : walkIdx sk (sk.rootH - 1 - i) = 2 + i := by
+        unfold walkIdx
+        omega
+      rw [← hwi]
+      have hseg := hwalk1 (sk.rootH - 1 - i) (by omega)
+      rw [show sk.rootH - 1 - (sk.rootH - 1 - i) = i from by omega,
+        descIdx_zero_arg] at hseg
+      have hend : descIdx sk (sk.rootH - 1 - i) i (0 + 1)
+          = sk.stageLen (sk.rootH - 1 - i) := by
+        have hd := descIdx_total sk hwf i (sk.rootH - 1 - i) (by omega)
+        rw [show sk.rootH - 1 - i + i = sk.rootH - 1 from by omega,
+          hlen1] at hd
+        rw [show (0 + 1 : Nat) = 1 from rfl]
+        exact hd
+      rw [hend, walkSeg_full] at hseg
+      rw [List.filter_append, List.filter_append,
+        filter_owner_none sk _ hio (by omega),
+        filter_owner_none sk _ htk3 (by omega), hseg,
+        List.nil_append, List.nil_append]
+
+-- ============================================ fuel, discharged
+
+/-- Per-owner filters partition an in-range future: the filter
+lengths sum to the future's length. -/
+private theorem manFilters_length_sum :
+    ∀ (fut : List Ev), (∀ e ∈ fut, evOwner sk e < manCount sk) →
+      ((manFilters sk fut).map List.length).sum = fut.length := by
+  intro fut
+  induction fut with
+  | nil =>
+      intro _
+      unfold manFilters
+      induction List.range (manCount sk) with
+      | nil => rfl
+      | cons m ms ih => simpa using ih
+  | cons e fut ih =>
+      intro hall
+      obtain ⟨A, r, B, hcons, hprev⟩ := manFilters_cons sk fut
+        (hall e (List.mem_cons_self ..))
+      have hsum := ih fun e' he' => hall e' (List.mem_cons_of_mem _ he')
+      rw [hprev] at hsum
+      rw [hcons]
+      simp only [List.map_append, List.map_cons, List.sum_append,
+        List.sum_cons, List.length_cons] at hsum ⊢
+      omega
+
+/-- The opening worklist's emission count is bounded by the event
+total: the emissions are exactly the manual traces' events, a prefix
+of `procs`. This is `goEvents_weave`'s missing hypothesis — the
+weave's fuel is sufficient. -/
+theorem weave_events_length (hwf : sk.wellFormed = true) :
+    ((weaveOps sk).flatMap (opEvents sk)).length ≤ totalEvents sk := by
+  obtain ⟨hown, halign⟩ := weave_initial_alignment sk hwf
+  have hsum := manFilters_length_sum sk _ hown
+  rw [halign] at hsum
+  have htot : totalEvents sk
+      = (((procs sk).take (manCount sk)).map List.length).sum
+        + (((procs sk).drop (manCount sk)).map List.length).sum := by
+    unfold totalEvents
+    conv => lhs; rw [← List.take_append_drop (manCount sk) (procs sk)]
+    rw [List.map_append, List.sum_append]
+  omega
+
+/-- The weave state satisfies the counting invariant, hypothesis-free:
+the initial alignment discharges `weaveState_wcount`. The weave's
+output is a permutation of the manual traces' events riding on the
+pump traces — the completeness witness's permutation half, closed. -/
+theorem weave_wcount (hwf : sk.wellFormed = true) :
+    WCount sk [] (weaveState sk) := by
+  have hgo := goEvents_weave sk (weave_events_length sk hwf)
+  obtain ⟨hown, halign⟩ := weave_initial_alignment sk hwf
+  exact weaveState_wcount sk (by rw [hgo]; exact halign)
+    (by rw [hgo]; exact hown)
+
 end StreamingMirror.Sched
