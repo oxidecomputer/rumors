@@ -547,6 +547,118 @@ theorem tower_deliver (hwf : sk.wellFormed = true) {fut : List Ev}
     omega
 termination_by j
 
+-- ==================================== generic tower-state invariants
+-- Free consequences of the cell shapes at ANY weave state: the pieces
+-- of the ascent coverage that need no position facts. (The residue —
+-- the strict coverage at a blocked boundary — is where the §5 splice
+-- and `Skel.schedulable` bite, in the CtxOK layer.)
+
+/-- A tower's output never outruns its resolutions. -/
+theorem asm_out_le_res (hwf : sk.wellFormed = true) {fut : List Ev}
+    {st : MState} (h : WCount sk fut st) {p : Party} {top j : Nat}
+    (htop : p = Party.I ∧ top = sk.rootH
+      ∨ p = Party.R ∧ top = sk.rootH - 1)
+    (h1 : 1 ≤ j) (hjt : j ≤ top) :
+    sndCount (sk.asmOutChan (p, j)) st.out
+      ≤ rcvCount (asmResChan (p, j)) st.out := by
+  have hIdx := asm_procs sk htop h1 hjt
+  obtain ⟨r, pre, hr, hpre, hsub⟩ := cell_of_owner sk h hIdx
+  obtain ⟨hro, hlo, hoo⟩ := asm_owners sk p h1
+  have hRc : rcvCount (asmResChan (p, j)) st.out
+      = (proj (asmResChan (p, j)) false pre).length := by
+    rw [rcvCount_eq_proj,
+      out_proj_owner sk hwf h _ false (by simpa using hro)
+        hIdx hr hpre hsub]
+  have hOc : sndCount (sk.asmOutChan (p, j)) st.out
+      = (proj (sk.asmOutChan (p, j)) true pre).length := by
+    rw [sndCount_eq_proj,
+      out_proj_owner sk hwf h _ true (by simpa using hoo)
+        hIdx hr hpre hsub]
+  cases r with
+  | nil =>
+      rw [List.append_nil] at hpre
+      obtain ⟨ht1, -, ht3⟩ := asm_totals sk (p, j)
+      rw [hpre] at ht1 ht3
+      rw [hRc, hOc, ht1, ht3, seg_len, seg_len]
+      exact Nat.le_refl _
+  | cons e₀ rest₀ =>
+      obtain ⟨idx, hidxN, hshape⟩ :=
+        asm_cell_shape sk (p, j) hpre (by simp)
+      rcases hshape with ⟨-, hc1, -, hc3⟩
+        | ⟨tlv, rest, -, -, -, hc1, -, hc3⟩ | ⟨-, hc1, -, hc3⟩ <;>
+        omega
+
+/-- A tower's level intake never outruns its resolutions' pending
+allocation. -/
+theorem asm_lvl_le_pends (hwf : sk.wellFormed = true) {fut : List Ev}
+    {st : MState} (h : WCount sk fut st) {p : Party} {top j : Nat}
+    (htop : p = Party.I ∧ top = sk.rootH
+      ∨ p = Party.R ∧ top = sk.rootH - 1)
+    (h1 : 1 ≤ j) (hjt : j ≤ top) :
+    rcvCount (asmLevelChan (p, j)) st.out
+      ≤ sk.pendsBefore p j (rcvCount (asmResChan (p, j)) st.out) := by
+  have hIdx := asm_procs sk htop h1 hjt
+  obtain ⟨r, pre, hr, hpre, hsub⟩ := cell_of_owner sk h hIdx
+  obtain ⟨hro, hlo, hoo⟩ := asm_owners sk p h1
+  have hRc : rcvCount (asmResChan (p, j)) st.out
+      = (proj (asmResChan (p, j)) false pre).length := by
+    rw [rcvCount_eq_proj,
+      out_proj_owner sk hwf h _ false (by simpa using hro)
+        hIdx hr hpre hsub]
+  have hLc : rcvCount (asmLevelChan (p, j)) st.out
+      = (proj (asmLevelChan (p, j)) false pre).length := by
+    rw [rcvCount_eq_proj,
+      out_proj_owner sk hwf h _ false (by simpa using hlo)
+        hIdx hr hpre hsub]
+  cases r with
+  | nil =>
+      rw [List.append_nil] at hpre
+      obtain ⟨ht1, ht2, -⟩ := asm_totals sk (p, j)
+      rw [hpre] at ht1 ht2
+      rw [hRc, hLc, ht1, ht2, seg_len, seg_len]
+      exact Nat.le_refl _
+  | cons e₀ rest₀ =>
+      obtain ⟨idx, hidxN, hshape⟩ :=
+        asm_cell_shape sk (p, j) hpre (by simp)
+      rcases hshape with ⟨-, hc1, hc2, -⟩
+        | ⟨tlv, rest, -, htl, hth, hc1, hc2, -⟩ | ⟨-, hc1, hc2, -⟩
+      · have hc2' : (proj (asmLevelChan (p, j)) false pre).length
+            = sk.pendsBefore p j idx := hc2
+        rw [hLc, hRc, hc1, hc2']
+        exact Nat.le_refl _
+      · have hth' : tlv < sk.pendsBefore p j (idx + 1) := hth
+        rw [hLc, hRc, hc1, hc2]
+        omega
+      · have hc2' : (proj (asmLevelChan (p, j)) false pre).length
+            = sk.pendsBefore p j (idx + 1) := hc2
+        rw [hLc, hRc, hc1, hc2']
+        exact Nat.le_refl _
+
+/-- A send never outruns its window: the emitted stream respected E2
+at every position, so the count is within `cap` of the receipts. -/
+theorem wedge_snd_le_rcv_cap (hwf : sk.wellFormed = true)
+    {fut : List Ev} {st : MState} (h : WEdge sk fut st) (c : Chan) :
+    sndCount c st.out ≤ rcvCount c st.out + sk.cap c := by
+  cases hz : sndCount c st.out with
+  | zero => omega
+  | succ q =>
+      have hcanon := wproj_canon sk hwf h.toWCount c true
+      have hmem : ((c, true, q) : Ev) ∈ proj c true st.out := by
+        rw [hcanon]
+        have hlen : (proj c true st.out).length = q + 1 := by
+          rw [← sndCount_eq_proj, hz]
+        rw [hlen]
+        unfold canon
+        exact List.mem_map.2 ⟨q, List.mem_range.2 (by omega), rfl⟩
+      have hmem' : ((c, true, q) : Ev) ∈ st.out :=
+        (List.mem_filter.1 hmem).1
+      obtain ⟨k, hk⟩ := List.mem_iff_getElem?.1 hmem'
+      have hguard := h.e2_hist k c q hk
+      have htake : rcvCount c (st.out.take k) ≤ rcvCount c st.out := by
+        rw [rcvCount_eq_proj, rcvCount_eq_proj]
+        exact ((List.take_sublist k st.out).filter _).length_le
+      omega
+
 -- ================================================ the four windows
 
 /-- THE UPPER WINDOW: at a pump fixpoint the asker above has consumed

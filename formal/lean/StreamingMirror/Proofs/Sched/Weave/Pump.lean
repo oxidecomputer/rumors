@@ -781,7 +781,7 @@ private theorem asmIdx_ge (p : Party) {j : Nat} (h1 : 1 ≤ j) :
     omega
 
 /-- The asm channels' owners all point at the tower's slot. -/
-private theorem asm_owners (p : Party) {j : Nat} (h1 : 1 ≤ j) :
+theorem asm_owners (p : Party) {j : Nat} (h1 : 1 ≤ j) :
     rcvOwner sk (asmResChan (p, j)) = asmIdx sk p j
     ∧ rcvOwner sk (asmLevelChan (p, j)) = asmIdx sk p j
     ∧ sndOwner sk (sk.asmOutChan (p, j)) = asmIdx sk p j := by
