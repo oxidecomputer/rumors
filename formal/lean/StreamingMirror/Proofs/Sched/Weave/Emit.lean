@@ -257,6 +257,95 @@ theorem splice_link {st : MState} {p : Party} {g A : Nat}
   rw [hup, hlow]
   simpa using hpb
 
+-- ================================== the descent's two-stage step
+
+/-- Two descent steps at once: an answerer-stage demand in cursor
+form hands the same shape two stages down.
+
+The demand `dsBefore (j+2) C` covers the answerer's resolutions, its
+pends line converts to the wire cut two coordinates in
+(`pendsBefore_answerer_ds`), the asker below consumes that against
+the ancestor summaries, and its own pends line re-enters cursor form
+(`pendsBefore_asker`) — the coverage telescope `C ↦ wiresBefore (j+2)
+C ↦ wiresBefore (j+1) …` in one bite. -/
+theorem descSupply_step (hwf : sk.wellFormed = true) {st : MState}
+    {p : Party} {j C : Nat} (hna : asks p (j + 2) = false)
+    (h1 : 1 ≤ j) (hjr : j + 2 < sk.rootH)
+    (hres1 : sk.dsBefore (j + 2) C
+      ≤ sndCount (Chan.lower p (j + 2)) st.out)
+    (hres2 : sk.wiresBefore (j + 1) (sk.wiresBefore (j + 2) C)
+      ≤ sndCount (Chan.upper p j) st.out)
+    (hrec : DescSupply sk st p j
+      (sk.dsBefore j
+        (sk.wiresBefore (j + 1) (sk.wiresBefore (j + 2) C)))) :
+    DescSupply sk st p (j + 2) (sk.dsBefore (j + 2) C) := by
+  have hasker : asks p (j + 1) = true := by
+    have hs := asks_succ p (j + 1)
+    rw [show j + 1 + 1 = j + 2 from rfl, hna] at hs
+    simpa using hs.symm
+  refine ⟨?_, ?_⟩
+  · rw [asmResChan_answerer hna]
+    exact hres1
+  · have hid1 : sk.pendsBefore p (j + 2) (sk.dsBefore (j + 2) C)
+        = sk.wiresBefore (j + 1) (sk.wiresBefore (j + 2) C) :=
+      pendsBefore_answerer_ds hwf hna (by omega) hjr C
+    rw [hid1]
+    refine ⟨?_, ?_⟩
+    · rw [asmResChan_asker hasker]
+      exact hres2
+    · have hid2 : sk.pendsBefore p (j + 1)
+          (sk.wiresBefore (j + 1) (sk.wiresBefore (j + 2) C))
+          = sk.dsBefore j
+              (sk.wiresBefore (j + 1) (sk.wiresBefore (j + 2) C)) :=
+        pendsBefore_asker hasker (by omega) _
+      rw [hid2]
+      exact hrec
+
+/-- The initiator descent's bottom: the stage-1 answerer hands its
+wire cut to the absorber's two feeds. -/
+theorem descSupply_base_I (hwf : sk.wellFormed = true) {st : MState}
+    {C : Nat} (hjr : 1 < sk.rootH)
+    (hres1 : sk.dsBefore 1 C
+      ≤ sndCount (Chan.lower Party.I 1) st.out)
+    (hwire : sk.wiresBefore 0 (sk.wiresBefore 1 C)
+      ≤ sndCount (Chan.wire Party.R 0) st.out)
+    (hreq : sk.wiresBefore 0 (sk.wiresBefore 1 C)
+      ≤ sndCount Chan.leafRequests st.out) :
+    DescSupply sk st Party.I 1 (sk.dsBefore 1 C) := by
+  refine ⟨?_, ?_⟩
+  · rw [asmResChan_answerer rfl]
+    exact hres1
+  · have hid : sk.pendsBefore Party.I 1 (sk.dsBefore 1 C)
+        = sk.wiresBefore 0 (sk.wiresBefore 1 C) :=
+      pendsBefore_answerer_ds hwf rfl (by omega) hjr C
+    rw [hid]
+    exact fun _ => ⟨hwire, hreq⟩
+
+/-- The responder descent's bottom: the stage-2 answerer hands its
+cut to the pend-free height-1 asker, below which nothing is owed. -/
+theorem descSupply_base_R (hwf : sk.wellFormed = true) {st : MState}
+    {C : Nat} (hjr : 2 < sk.rootH)
+    (hres1 : sk.dsBefore 2 C
+      ≤ sndCount (Chan.lower Party.R 2) st.out)
+    (hres2 : sk.wiresBefore 1 (sk.wiresBefore 2 C)
+      ≤ sndCount (Chan.upper Party.R 0) st.out) :
+    DescSupply sk st Party.R 2 (sk.dsBefore 2 C) := by
+  refine ⟨?_, ?_⟩
+  · rw [asmResChan_answerer rfl]
+    exact hres1
+  · have hid : sk.pendsBefore Party.R 2 (sk.dsBefore 2 C)
+        = sk.wiresBefore 1 (sk.wiresBefore 2 C) :=
+      pendsBefore_answerer_ds hwf rfl (by omega) hjr C
+    rw [hid]
+    refine ⟨?_, ?_⟩
+    · rw [asmResChan_asker rfl]
+      exact hres2
+    · have hz : sk.pendsBefore Party.R 1
+          (sk.wiresBefore 1 (sk.wiresBefore 2 C)) = 0 :=
+        pendsBefore_asker_one hwf rfl _
+      rw [hz]
+      exact fun hcon => Party.noConfusion hcon
+
 /-- The root resolution is banked once the opener's future is past
 it. -/
 theorem rootres_pin (hwf : sk.wellFormed = true) {fut : List Ev}
