@@ -564,40 +564,50 @@ bounds μ(Q), and both are bounded by the awaited send.
      with existential ancestor coordinates — no closed-form ascending
      index needed), established by a third tree induction carrying
      the ancestor path. Bottom-up build order, with status
-     (2026-07-17, `Weave/Pump.lean`): (a) ~~per-owner projection
-     collapse + head-seq + `rcvd ≤ sent`~~ done — `out_proj_owner`,
-     `cell_head_seq`, `cell_not_out`, `wedge_rcvd_le_sent`, plus the
-     `procs` positional reads at the pump slots; (b) per-family
-     trace take/head structure — asm DONE (`prefix_flatMap`,
-     block-run projections, `asm_cell_shape`: a nonempty cell heads
-     at res/level/out with all three prefix counts pinned); absorb
-     and fins analogs remain; (c) asm DONE — `asm_stuck`: at a pump
-     fixpoint an asm tower (slot given by `procs_asmI/R`) is
-     exhausted / res-starved / level-starved / out-blocked, each
-     disjunct pinning its three counts (`rcvCount res`,
-     `rcvCount level`, `sndCount out` against `pendsBefore`) and
-     recording the failed guard; helpers `scan_none_heads`,
-     `asm_owners`, `asm_totals`, `manFilters_length`, `asmIdx_ge`.
-     Absorb/fins stuck analogs remain (same recipe: cell shape via
-     `prefix_flatMap` over the 3-event absorb blocks, then the glue).
-     NEXT IN ORDER: (d) `pendsBefore` accounting — asker
-     `pendsBefore (p,h+1) k = dsBefore h k`, answerer pends = kid
-     sums bridged to `wiresBefore` one stage down, totals =
-     producer totals (`asmResList` lengths vs `stageLen`/D-counts;
-     some of this exists in `Proofs/Counting.lean` — check
-     `pendsBefore_asker_full` &c. first); (e) the four discharge
-     lemmas (upper/lower/leaf-wire/leafRequests windows) from
-     explicit context hypotheses, following the case-tree above —
-     each `asm_stuck` starvation disjunct meets a position fact or
-     accounting identity, blocking disjuncts chain to the neighbor
-     tower (descend: consumer starving ⟹ supplier's disjunction;
-     ascend: producer out-blocked ⟹ consumer's disjunction; the
-     pure contradictions are starving-vs-blocked and
-     exhausted-vs-needed); (f) the `CtxOK` tree induction supplying
-     the position facts (∃-packaged ancestor coordinates, mirroring
-     `dep_scope`); (g) layer D: the fuel induction over `weaveGo`
-     carrying `WEdge` + `step = none` (init via all-receive pump
-     heads) + `DepOK` + `CtxOK`, discharging each emit's guard via
+     (2026-07-17): (a)–(c) ~~state layer + cell shapes + stuck
+     trichotomies~~ done (`Weave/Pump.lean`) — `out_proj_owner`,
+     `cell_head_seq`, `cell_not_out`, `wedge_rcvd_le_sent`, the
+     `procs` positional reads, `prefix_flatMap`, and the four stuck
+     lemmas: `asm_stuck` (exhausted / res-starved / level-starved /
+     out-blocked, all counts pinned, failed guard recorded),
+     `absorb_stuck`, `fin_stuck`, `rootret_stuck`. (d) ~~cursor
+     accounting~~ done (`Proofs/Counting.lean`) — `pendsBefore_asker`
+     (= `dsBefore (j-1) k`, all cursors), `pendsBefore_asker_one`
+     (height-1 askers pend nothing), `pendsBefore_answerer`
+     (= `wiresBefore (j-1) K` at the D-filtered cursor), the
+     `asmResList` length lemmas, `wf_scopesAt_zero`,
+     `foldl_add_take_le`. (e) ~~the four window discharges~~ done
+     (`Weave/Window.lean`) — `upper_window`, `lower_window`,
+     `wire0_window`, `leafreq_window`, each concluding
+     `seq ≤ rcvCount` at a pump fixpoint from: `hsnd` (the seq about
+     to go out IS the send count — layer D reads it off
+     `cell_head_seq`), a bound placing the seq inside the trace
+     total, and the SUPPLY PACKAGES `DescSupply` (recursive: res
+     present through the demand each level hands down via
+     `pendsBefore`, bottoming at absorb's wire+request feeds) and
+     `AscSupply` (∀ tower above: ∃ r ≤ sndCount res with
+     level-in-so-far ≤ `pendsBefore r`) plus
+     `1 ≤ sndCount rootres`. The chains: `tower_deliver` (descent
+     recursion; `absorb_deliver` at the base; height-1 asker killed
+     by `pendsBefore_asker_one`), `tower_noblock` (ascent recursion;
+     `top_blocked` kills the two tops via the singleton `rootret`
+     total and `rootrets` total = `rootPending`), with
+     `pends_total_prod` (consumer pends total = producer res count)
+     and `level_snd_le`/`level0_snd_le`/`levelR0_snd_zero` (count ≤
+     owner trace total; the phantom responder level 0 is silent)
+     closing exhaustion, and `cap_pos`/`wf_capLevel` the pure
+     starving-vs-blocked contradictions.
+     NEXT IN ORDER: (f) the `CtxOK` layer establishing the window
+     lemmas' hypotheses at each pump-facing manual emission of the
+     weave: `hsnd` via `cell_head_seq`, the in-range bounds from the
+     walk position, `DescSupply`/`AscSupply`/`hroot` by a third
+     master induction over the weave order (mirroring `dep_scope`) —
+     this is where the §5 splice placement and
+     `Skel.schedulable`'s `dCount ≤ capLevel + 2` actually bite (the
+     asker coverage `∃ r` at the ancestor's current rank); (g) layer
+     D: the fuel induction over `weaveGo` carrying `WEdge` +
+     `step = none` (init via all-receive pump heads) + `DepOK` +
+     `CtxOK`, discharging each emit's guard via
      `depOK_head`+conservation (manual classes, `manDep`) or the
      (e)-lemmas (pump classes), assembling
      `WEdge sk [] (weaveState sk)` under `wellFormed ∧ schedulable`.
