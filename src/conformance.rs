@@ -39,8 +39,9 @@
 //! - **Cancellation mid-delivery.** The poll-and-drop cycles exercise a
 //!   dropped `accept` with deliveries in flight only when the acceptor
 //!   reports `Pending` at that moment. An acceptor that happens to resolve
-//!   on its first poll is never observed mid-wait — though at that moment it
-//!   also holds nothing a drop could lose.
+//!   on its first poll is never observed mid-wait: the probe consumes what
+//!   a resolved poll yields, so whatever a drop at that moment might lose
+//!   goes unexercised.
 //! - **Failure classification.** That `connect`/`accept` fail only for
 //!   transport reasons is unobservable from a healthy link.
 //!
@@ -49,7 +50,7 @@
 use std::pin::pin;
 use std::task::{Context, Poll};
 
-use futures::future::{Either, join, select};
+use futures::future::{Either, join, join_all, select};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::link::{Acceptor, Connector, Link, STREAM_COUNT};
@@ -303,6 +304,13 @@ async fn probe_independence<C: Connector, A: Acceptor>(connector: &C, acceptor: 
                     .flush()
                     .await
                     .expect("contract: a backpressured flush blocks rather than failing");
+                // Yield between fills: against an implementation that never
+                // backpressures (in the limit, an unbounded buffer), nothing
+                // above ever returns `Pending`, and without the yield this
+                // loop would spin inside a single poll — starving the live
+                // arm and any in-task timeout — instead of letting the live
+                // complement finish and the probe pass.
+                yield_once().await;
             }
         };
         // A full complement of further streams must flow meanwhile:
@@ -374,15 +382,34 @@ async fn probe_independence<C: Connector, A: Acceptor>(connector: &C, acceptor: 
     join(send, receive).await;
 }
 
+/// Yield to the executor exactly once: `Pending` with an immediate
+/// self-wake.
+///
+/// Runtime-agnostic (the suite runs on the caller's executor, which may be
+/// no runtime at all), unlike `tokio::task::yield_now`.
+async fn yield_once() {
+    let mut yielded = false;
+    std::future::poll_fn(|cx| {
+        if std::mem::replace(&mut yielded, true) {
+            Poll::Ready(())
+        } else {
+            cx.waker().wake_by_ref();
+            Poll::Pending
+        }
+    })
+    .await;
+}
+
 /// A pending `accept` dropped mid-wait does not lose a stream: every
 /// delivery still surfaces from later `accept` calls.
 ///
-/// With deliveries already in flight, the probe polls a fresh accept
-/// exactly once and drops it, several times — the shape session teardown
-/// produces — then collects every stream with real accepts. An acceptor
-/// that internally dequeues a delivery and then awaits before returning it
-/// drops the dequeued stream with the cancelled future and fails here as a
-/// hang on the collecting accept. Probed in both directions.
+/// The probe first puts deliveries genuinely in flight — the sender
+/// connects every stream and signals the receiving half before writing —
+/// then polls a fresh accept exactly once and drops it, several times: the
+/// shape session teardown produces. An acceptor that internally dequeues a
+/// delivery and then awaits before returning it drops the dequeued stream
+/// with the cancelled future and fails here as a hang on the collecting
+/// accept. Probed in both directions.
 pub async fn check_accept_cancellation<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
     a: Link<CRa, CWa, Ca, Aa>,
     b: Link<CRb, CWb, Cb, Ab>,
@@ -416,19 +443,41 @@ async fn probe_cancellation<C: Connector, A: Acceptor>(connector: &C, acceptor: 
             "no stream was opened yet",
         );
     }
+    // Orders the halves across any executor: the poll-drop cycles must not
+    // run until every delivery is connected, or a scheduler that lets the
+    // receiving half run first (real sockets, one RTT away) would drop its
+    // accepts before anything could be lost — and the probe would pass a
+    // lossy acceptor.
+    let (connected, in_flight) = futures::channel::oneshot::channel();
     let send = async {
+        // Connect every stream before writing to any. The signal goes out
+        // after the connects but before the writes: a write cannot finish
+        // through a one-byte window until the receiver drains it, and the
+        // receiver drains nothing until signalled — a post-write signal
+        // would deadlock the probe itself.
+        let mut streams = Vec::with_capacity(CANCELLED_DELIVERIES);
         for _ in 0..CANCELLED_DELIVERIES {
-            let mut tx = connector.connect().await.expect("contract: connect");
+            streams.push(connector.connect().await.expect("contract: connect"));
+        }
+        let _ = connected.send(());
+        // The writes run concurrently: the receiver drains streams in
+        // whatever order its acceptor yields them, and sequential writes
+        // through small windows would deadlock the probe against a
+        // conforming reordering acceptor.
+        join_all(streams.into_iter().map(|mut tx| async move {
             tx.write_all(PROBE).await.expect("contract: stream write");
             tx.flush().await.expect("contract: stream flush");
             drop(tx);
-        }
+        }))
+        .await;
     };
     let receive = async {
-        // Each collected stream is drained immediately: the sender opens its
-        // streams one after another through possibly one-byte windows, so
-        // holding an unread stream while waiting for the next would deadlock
-        // the probe itself, not the implementation.
+        in_flight
+            .await
+            .expect("the sending half signals after connecting");
+        // Each collected stream is drained immediately; the sender writes
+        // every stream concurrently, so draining in accept order cannot
+        // deadlock however the acceptor orders arrivals.
         let drain = |mut rx: A::Rx| async move {
             let mut bytes = Vec::new();
             rx.read_to_end(&mut bytes)

@@ -4,7 +4,10 @@ use std::{
     collections::VecDeque,
     io,
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
     task::{Context, Poll},
 };
 
@@ -621,15 +624,35 @@ impl<A: crate::link::Acceptor> crate::link::Acceptor for AdversarialAcceptor<A> 
     }
 }
 
+/// Cooperative yields an accept spends genuinely waiting for a further
+/// arrival to reorder before releasing what it already holds.
+///
+/// Each yield hands the whole closed-world topology one more poll, so the
+/// budget bounds the wait in peer progress rather than wall time. It must
+/// be generous enough for a concurrently working peer to open its next
+/// stream; expiring is always safe — the held batch releases, at worst
+/// unreordered.
+const REORDER_PATIENCE: u8 = 32;
+
 /// An [`Acceptor`](crate::link::Acceptor) delivering arrivals in reversed
 /// batches: worst-case-legal stream reordering.
 ///
 /// The link contract leaves cross-stream arrival order unspecified, so a
-/// session must pair streams by label alone; this decorator makes any
-/// positional pairing fail deterministically. Each accept awaits one
-/// arrival, then drains — without blocking, so a lone stream still flows —
-/// whatever else is immediately ready, up to `batch` in total, and releases
-/// the accumulated batch newest-first.
+/// session must pair streams by label alone; this decorator inverts arrival
+/// order whenever the traffic admits it. Each accept awaits one arrival and
+/// then *holds it*, genuinely waiting — bounded by a patience budget of
+/// cooperative yields (`REORDER_PATIENCE`), so a lone final stream still
+/// flows and a peer wedged behind the held stream cannot deadlock the
+/// harness — for further arrivals, up to `batch` in total, and releases the
+/// accumulated batch newest-first.
+///
+/// Every batch of two or more is a genuine inversion, recorded in the
+/// shared `reordered` counter so a test can assert the adversity's actual
+/// disposition instead of assuming it. (An earlier draft only drained
+/// arrivals already `Ready` under a noop-waker poll; under the
+/// deterministic scheduler a second arrival was never queued at that
+/// instant, so the decorator silently degenerated to pass-through — and
+/// nothing said so.)
 ///
 /// A sibling of the conformance suite's `ReversingAcceptor`
 /// (`src/conformance/tests.rs`), duplicated so this crate-internal seam does
@@ -639,6 +662,8 @@ pub struct ReorderingAcceptor<A: crate::link::Acceptor> {
     held: VecDeque<A::Rx>,
     /// Arrivals buffered before each reversed release.
     batch: usize,
+    /// Batches of two or more released: genuine inversions.
+    reordered: Arc<AtomicUsize>,
 }
 
 impl<A: crate::link::Acceptor> crate::link::Acceptor for ReorderingAcceptor<A> {
@@ -650,25 +675,63 @@ impl<A: crate::link::Acceptor> crate::link::Acceptor for ReorderingAcceptor<A> {
         }
         let first = self.inner.accept().await?;
         self.held.push_front(first);
-        for _ in 1..self.batch {
+        // Hold the arrival and genuinely wait for company: each round polls
+        // a fresh inner accept once — dropping it while pending is exactly
+        // the cancellation tolerance the link contract demands — then
+        // yields, giving the peer polls in which to open its next stream.
+        let mut patience = REORDER_PATIENCE;
+        while self.held.len() < self.batch {
             let mut next = std::pin::pin!(self.inner.accept());
-            let waker = futures::task::noop_waker();
-            let mut cx = Context::from_waker(&waker);
-            match std::future::Future::poll(next.as_mut(), &mut cx) {
-                Poll::Ready(Ok(rx)) => self.held.push_front(rx),
-                // Pending or errored: stop batching; a real error resurfaces
-                // from the next accept call.
-                _ => break,
+            match std::future::poll_fn(|cx| Poll::Ready(next.as_mut().poll(cx))).await {
+                Poll::Ready(Ok(rx)) => {
+                    self.held.push_front(rx);
+                    patience = REORDER_PATIENCE;
+                }
+                // Errored: stop batching and release what is held; a real
+                // error resurfaces from the next accept call.
+                Poll::Ready(Err(_)) => break,
+                Poll::Pending => {
+                    let Some(remaining) = patience.checked_sub(1) else {
+                        break;
+                    };
+                    patience = remaining;
+                    yield_once().await;
+                }
             }
+        }
+        if self.held.len() > 1 {
+            self.reordered.fetch_add(1, Ordering::Relaxed);
         }
         Ok(self.held.pop_front().expect("at least one arrival is held"))
     }
 }
 
-/// Wrap `link`'s acceptor so arrivals release in reversed batches of `batch`.
+/// Yield to the executor exactly once: `Pending` with an immediate
+/// self-wake.
+async fn yield_once() {
+    let mut yielded = false;
+    std::future::poll_fn(|cx| {
+        if std::mem::replace(&mut yielded, true) {
+            Poll::Ready(())
+        } else {
+            cx.waker().wake_by_ref();
+            Poll::Pending
+        }
+    })
+    .await;
+}
+
+/// Wrap `link`'s acceptor so arrivals release in reversed batches of `batch`,
+/// counting genuine inversions into `reordered`.
+///
+/// Always assert on the counter after the run: nonzero where the topology
+/// admits reordering (that is the proof the adversity fired), zero as a
+/// tripwire where it provably cannot — without either, the decorator is
+/// indistinguishable from pass-through and the test's claims rot silently.
 pub fn reorder_accepts<CR, CW, C, A>(
     link: crate::link::Link<CR, CW, C, A>,
     batch: usize,
+    reordered: Arc<AtomicUsize>,
 ) -> crate::link::Link<CR, CW, C, ReorderingAcceptor<A>>
 where
     CR: tokio::io::AsyncRead + Unpin + Send,
@@ -685,6 +748,7 @@ where
             inner: parts.acceptor,
             held: VecDeque::new(),
             batch,
+            reordered,
         },
         session: parts.session,
     }

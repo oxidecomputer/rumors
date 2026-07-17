@@ -1,6 +1,8 @@
 //! End-to-end sessions between materialized peers and protocol-start proxies.
 
 use std::convert::Infallible;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use futures::join;
 use proptest::collection::vec;
@@ -87,10 +89,14 @@ const REORDER_BATCH: usize = 3;
 
 /// [`reconcile_symmetric_accepts`] with both acceptors delivering arrivals
 /// in reversed batches: worst-case-legal stream reordering on both ends.
+///
+/// `reordered` counts the genuine inversions both ends release; the caller
+/// asserts its disposition across the run.
 async fn reconcile_symmetric_accepts_reordered<T>(
     a: TreeRoot<T>,
     b: TreeRoot<T>,
     transport_capacity: usize,
+    reordered: Arc<AtomicUsize>,
 ) -> (TreeRoot<T>, TreeRoot<T>)
 where
     T: borsh::BorshDeserialize + Send + Sync + 'static,
@@ -98,8 +104,8 @@ where
     let a = Handshaking::start(Local, Root::from(a));
     let b = Handshaking::start(Local, Root::from(b));
     let (a_link, b_link) = memory_with_capacity(transport_capacity);
-    let a_link = reorder_accepts(a_link, REORDER_BATCH);
-    let b_link = reorder_accepts(b_link, REORDER_BATCH);
+    let a_link = reorder_accepts(a_link, REORDER_BATCH, reordered.clone());
+    let b_link = reorder_accepts(b_link, REORDER_BATCH, reordered);
     let remote_b = RemoteHandshaking::start(Local, a_link);
     let remote_a = RemoteHandshaking::start(Local, b_link);
 
@@ -411,33 +417,64 @@ proptest! {
     }
 }
 
-proptest! {
-    #![proptest_config(ProptestConfig {
+/// Wide-budget divergence still matches the materialized oracle with both
+/// acceptors decorated for reversed-batch delivery at one-byte windows —
+/// with the honest caveat that the reordering provably never fires here.
+///
+/// In this topology no inversion is reachable: the deterministic driver
+/// joins two whole-endpoint futures, so while an accept holds its first
+/// arrival waiting for a second, this endpoint's own control writes are
+/// suspended — and the peer needs exactly those bytes before it opens its
+/// next stream. A second in-flight arrival can never materialize (verified
+/// empirically: zero batches across the run, at any patience budget and at
+/// one-byte and 37-byte windows alike), so as exercised this property pins
+/// no more than [`reconcile_symmetric_accepts`]; the decorator's inversion
+/// genuinely firing is proven instead by the conformance suite's
+/// `ReversingAcceptor` tests, whose probes connect streams concurrently.
+/// The final assertion is the tripwire keeping this caveat honest: if the
+/// topology ever admits a genuine inversion, it fails, and this doc's
+/// claims must be rewritten upward. Written against a manual
+/// [`proptest::test_runner::TestRunner`] rather than the `proptest!` macro
+/// so that assertion can run once, after the cases. Runs at 48 cases: the
+/// wide generator plus the decorator's added accept latency make each case
+/// expensive, and the trigger geometry is pinned separately by the
+/// deterministic [`early_first_child_dispute_pair`] fixture.
+#[test]
+fn wide_symmetric_accepts_reordered_match_local() {
+    let reordered = Arc::new(AtomicUsize::new(0));
+    let mut config = ProptestConfig {
         cases: 48,
         ..ProptestConfig::default()
-    })]
-
-    /// Wide-budget divergence still matches the materialized oracle when
-    /// both acceptors deliver streams in worst-case-legal reversed batches
-    /// at one-byte windows.
-    ///
-    /// The link contract guarantees nothing about cross-stream arrival
-    /// order, so the session must pair streams by label alone; batched
-    /// reversal makes any positional pairing fail deterministically. Runs
-    /// at 48 cases: the wide generator plus the reversal's added accept
-    /// latency make each case expensive, and the trigger geometry is
-    /// pinned separately by the deterministic
-    /// [`early_first_child_dispute_pair`] fixture.
-    #[test]
-    fn wide_symmetric_accepts_reordered_match_local((a, b) in arb_wide_divergent_pair()) {
+    };
+    config.source_file = Some(file!());
+    let mut runner = proptest::test_runner::TestRunner::new(config);
+    let counter = reordered.clone();
+    let cases = runner.run(&arb_wide_divergent_pair(), move |(a, b)| {
         let expected = run_to_quiescence(reconcile_locally(a.clone(), b.clone()))
             .expect("local reconciliation should remain live");
-        let actual = run_to_quiescence(reconcile_symmetric_accepts_reordered(a, b, 1))
-            .map_err(|stopped| TestCaseError::fail(format!(
+        let actual = run_to_quiescence(reconcile_symmetric_accepts_reordered(
+            a,
+            b,
+            1,
+            counter.clone(),
+        ))
+        .map_err(|stopped| {
+            TestCaseError::fail(format!(
                 "reordered symmetric proxy reconciliation became quiescent: {stopped:?}",
-            )))?;
+            ))
+        })?;
         prop_assert_eq!(actual, expected);
+        Ok(())
+    });
+    if let Err(failure) = cases {
+        panic!("{failure}\n{runner}");
     }
+    assert_eq!(
+        reordered.load(Ordering::Relaxed),
+        0,
+        "the topology now admits a genuine inversion: this test's doc \
+         undersells it — rewrite the claims and flip this tripwire to > 0",
+    );
 }
 
 /// The streaming wire deadlock's trigger geometry reconciles cleanly.

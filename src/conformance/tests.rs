@@ -5,7 +5,7 @@ use std::collections::{HashMap, VecDeque};
 use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::task::{Context, Poll};
 
 use futures::future::BoxFuture;
@@ -35,12 +35,18 @@ fn one_byte_windows_conform() {
 /// Legal under the contract — arrival order is whatever the transport says
 /// it is, and no cross-stream ordering may be assumed — so the protocol
 /// must tolerate it: the session's claim table pairs streams by label, not
-/// position.
+/// position. Each batch of two or more released is a genuine inversion,
+/// counted into the shared `reordered` counter; tests assert it is nonzero
+/// across their run, because a reordering decorator that never reorders
+/// silently degenerates to pass-through (the crate-internal sibling
+/// `ReorderingAcceptor` shipped exactly that way once).
 struct ReversingAcceptor<A: Acceptor> {
     inner: A,
     held: VecDeque<A::Rx>,
     /// Arrivals buffered before each reversed release.
     batch: usize,
+    /// Batches of two or more released: genuine inversions.
+    reordered: Arc<AtomicUsize>,
 }
 
 impl<A: Acceptor> Acceptor for ReversingAcceptor<A> {
@@ -66,14 +72,19 @@ impl<A: Acceptor> Acceptor for ReversingAcceptor<A> {
                 _ => break,
             }
         }
+        if self.held.len() > 1 {
+            self.reordered.fetch_add(1, Ordering::Relaxed);
+        }
         Ok(self.held.pop_front().expect("at least one arrival is held"))
     }
 }
 
-/// Reorder one memory end's arrivals in reversed batches.
+/// Reorder one memory end's arrivals in reversed batches, counting genuine
+/// inversions into `reordered`.
 fn reversing(
     link: MemoryLink,
     batch: usize,
+    reordered: Arc<AtomicUsize>,
 ) -> Link<
     tokio::io::DuplexStream,
     tokio::io::DuplexStream,
@@ -89,6 +100,7 @@ fn reversing(
             inner: parts.acceptor,
             held: VecDeque::new(),
             batch,
+            reordered,
         },
         session: parts.session,
     }
@@ -98,13 +110,27 @@ fn reversing(
 /// Worst-case accept reordering is adversarial but legal: streams are
 /// anonymous and arrival order is the transport's own, so the whole suite
 /// — the focused probes included — must stay live and convergent under it.
+///
+/// The final assertion proves the adversity fired: at least one batch was
+/// genuinely released in inverted order somewhere across the suite, so a
+/// pass certifies tolerance of real reordering, not of a decorator that
+/// silently degenerated to pass-through.
 #[test]
 fn reordered_accepts_conform() {
+    let reordered = Arc::new(AtomicUsize::new(0));
+    let counter = reordered.clone();
     run_to_quiescence(super::check(async || {
         let (a, b) = memory();
-        (reversing(a, 3), reversing(b, 3))
+        (
+            reversing(a, 3, counter.clone()),
+            reversing(b, 3, counter.clone()),
+        )
     }))
     .expect("the suite stays live under reordered accepts");
+    assert!(
+        reordered.load(Ordering::Relaxed) > 0,
+        "the reordering adversity never fired: every batch released a lone stream",
+    );
 }
 
 /// An acceptor that internally dequeues a delivery, then awaits once more
@@ -509,12 +535,23 @@ fn shared_mux_coupling_is_caught() {
 ///
 /// Streams are classified by their in-band first-byte tag, never by the
 /// order the acceptor yields them. The original probe assumed the first
-/// accept yielded the stalled stream, so this legal acceptor hung it.
+/// accept yielded the stalled stream, so this legal acceptor hung it. The
+/// final assertion proves the reordering genuinely fired — the probe's
+/// concurrently connected streams queue at the acceptor, so batches form —
+/// rather than the decorator degenerating to pass-through.
 #[test]
 fn reordering_acceptor_passes_independence() {
+    let reordered = Arc::new(AtomicUsize::new(0));
     let (a, b) = memory();
-    run_to_quiescence(super::check_independence(reversing(a, 3), reversing(b, 3)))
-        .expect("independence stays live under reordered accepts");
+    run_to_quiescence(super::check_independence(
+        reversing(a, 3, reordered.clone()),
+        reversing(b, 3, reordered.clone()),
+    ))
+    .expect("independence stays live under reordered accepts");
+    assert!(
+        reordered.load(Ordering::Relaxed) > 0,
+        "the reordering adversity never fired: every batch released a lone stream",
+    );
 }
 
 /// Regression (hole H2c): the lossy dequeue-then-await acceptor is caught
