@@ -247,24 +247,33 @@ async fn network_merge_resets_the_loser() {
     // with the other's network and event floor.
     let handle_a = handle(&a.cmd).await;
     let handle_b = handle(&b.cmd).await;
-    let ours_a = (handle_a.snapshot().latest().min_ticks(), handle_a.network());
-    let ours_b = (handle_b.snapshot().latest().min_ticks(), handle_b.network());
     let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(64 * 1024);
     let (ra, rb) = tokio::join!(handle_a.gossip(&mut a_link), handle_b.gossip(&mut b_link),);
-    let theirs_a = match ra {
+    // Model each side's comparison from the error's own declared floors,
+    // exactly as `drive_connection` does: `local_min_events` is what the
+    // peer saw, so both sides provably reason from the same pair.
+    let (ours_a, theirs_a) = match ra {
         Err(Error::NetworkMismatch {
             remote_network,
             remote_min_events,
+            local_min_events,
             ..
-        }) => (remote_min_events, remote_network),
+        }) => (
+            (local_min_events, handle_a.network()),
+            (remote_min_events, remote_network),
+        ),
         other => panic!("expected NetworkMismatch, got {other:?}"),
     };
-    let theirs_b = match rb {
+    let (ours_b, theirs_b) = match rb {
         Err(Error::NetworkMismatch {
             remote_network,
             remote_min_events,
+            local_min_events,
             ..
-        }) => (remote_min_events, remote_network),
+        }) => (
+            (local_min_events, handle_b.network()),
+            (remote_min_events, remote_network),
+        ),
         other => panic!("expected NetworkMismatch, got {other:?}"),
     };
     // Both sides see the same pair and the rule picks exactly one winner.
