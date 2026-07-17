@@ -158,7 +158,7 @@ fn lossy(
         acceptor: LossyAcceptor {
             inner: parts.acceptor,
         },
-        epoch: parts.epoch,
+        session: parts.session,
     }
     .into_link()
 }
