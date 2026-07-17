@@ -806,7 +806,7 @@ impl<T, B: Bookmark> Peer<T, B> {
             write: &mut link.control_write as DynWrite<'a>,
             connector: DynConnector::new(link.connector.clone()),
             acceptor: &mut link.acceptor as DynAcceptor<'a>,
-            epoch: &mut link.epoch,
+            epoch: &mut link.session.epoch,
             when: Box::pin(when),
             staged: handshake::Staged::new(),
             converged: None,

@@ -22,7 +22,7 @@ fn pump_failure_preempts_parked_pumps() {
         parts.control_read,
         parts.control_write,
         parts.acceptor,
-        parts.epoch,
+        parts.session.epoch,
     );
     let (slots, claims) = claims();
     let (route, errors) = error_route();

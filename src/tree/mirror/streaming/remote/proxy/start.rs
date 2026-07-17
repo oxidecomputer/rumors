@@ -228,8 +228,9 @@ where
         control_write,
         connector,
         acceptor,
-        epoch,
+        session,
     } = link;
+    let epoch = session.epoch;
     let remote = local.other();
     let (slots, claims) = claims();
     let (route, errors) = error_route();

@@ -82,7 +82,7 @@ fn reversing(
             held: VecDeque::new(),
             batch,
         },
-        epoch: parts.epoch,
+        session: parts.session,
     }
     .into_link()
 }

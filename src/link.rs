@@ -134,19 +134,40 @@ impl<A: Acceptor> Acceptor for &mut A {
 ///
 /// Construct one with [`Link::new`] around an implementation of the
 /// [module-level contract](self), or use [`memory`] for the in-memory
-/// instantiation. The link owns a session counter (the *epoch*) used to
-/// label data streams, which is why sessions take the link by `&mut`:
-/// serialized sessions are part of the contract, enforced by the borrow.
+/// instantiation. The link owns its [`SessionState`] — the session counter
+/// used to label data streams, and the poison latch — which is why sessions
+/// take the link by `&mut`: serialized sessions are part of the contract,
+/// enforced by the borrow.
 pub struct Link<CR, CW, C, A> {
     pub(crate) control_read: CR,
     pub(crate) control_write: CW,
     pub(crate) connector: C,
     pub(crate) acceptor: A,
+    /// This link's session counter and poison latch.
+    pub(crate) session: SessionState,
+}
+
+/// One link's session bookkeeping: the stream-label epoch and the poison
+/// latch.
+///
+/// Owned by [`Link`] and exposed through [`LinkParts::session`], so a link
+/// wrapper can carry it across decoration. Both ends of a connection hold
+/// equal states: sessions are serialized and both ends run each session, so
+/// the fields advance in lockstep.
+#[derive(Clone, Copy, Debug)]
+pub struct SessionState {
     /// The next session's epoch. Both ends count every session on the link
     /// (sessions are serialized, and both ends run each handshake), so the
     /// counters agree; it wraps, serving as a label tripwire rather than an
     /// identity.
-    pub(crate) epoch: u8,
+    pub epoch: u8,
+    /// Whether a session on this link was interrupted before its boundary.
+    ///
+    /// Set while a session is in flight and cleared when it completes
+    /// cleanly, so between sessions it reads true only on a link whose
+    /// control stream rests somewhere mid-frame — a link no further
+    /// session can trust.
+    pub poisoned: bool,
 }
 
 impl<CR, CW, C, A> Link<CR, CW, C, A>
@@ -167,14 +188,17 @@ where
             control_write,
             connector,
             acceptor,
-            epoch: 0,
+            session: SessionState {
+                epoch: 0,
+                poisoned: false,
+            },
         }
     }
 
     /// Advance to the next session, returning the epoch that labels it.
     pub(crate) fn next_epoch(&mut self) -> u8 {
-        let epoch = self.epoch;
-        self.epoch = self.epoch.wrapping_add(1);
+        let epoch = self.session.epoch;
+        self.session.epoch = self.session.epoch.wrapping_add(1);
         epoch
     }
 }
@@ -197,7 +221,13 @@ impl<CR, CW, C, A> Link<CR, CW, C, A> {
             control_write,
             connector,
             acceptor,
-            epoch,
+            // The carrier's own poison flag is inert: it lives for one
+            // session and is discarded; the long-lived link's state is the
+            // one the funnels consult and clear.
+            session: SessionState {
+                epoch,
+                poisoned: false,
+            },
         }
     }
 
@@ -206,7 +236,7 @@ impl<CR, CW, C, A> Link<CR, CW, C, A> {
     /// This is how a wrapper — fault injection, byte capture, an adversity
     /// harness — interposes on an existing link: decorate the parts, then
     /// reassemble with [`LinkParts::into_link`]. The parts carry the
-    /// session-epoch counter so a decorated link stays in lockstep with its
+    /// [`SessionState`] so a decorated link stays in lockstep with its
     /// remote peer's counting.
     pub fn into_parts(self) -> LinkParts<CR, CW, C, A> {
         LinkParts {
@@ -214,7 +244,7 @@ impl<CR, CW, C, A> Link<CR, CW, C, A> {
             control_write: self.control_write,
             connector: self.connector,
             acceptor: self.acceptor,
-            epoch: self.epoch,
+            session: self.session,
         }
     }
 }
@@ -229,12 +259,12 @@ pub struct LinkParts<CR, CW, C, A> {
     pub connector: C,
     /// The incoming stream supply.
     pub acceptor: A,
-    /// The next session's epoch; see [`Link`]'s field of the same name.
+    /// The link's session counter and poison latch; see [`SessionState`].
     ///
     /// Preserve it when reassembling a wrapped link — both ends of a
     /// connection count sessions in lockstep, and a reset counter would
     /// mislabel every stream of the next session.
-    pub epoch: u8,
+    pub session: SessionState,
 }
 
 impl<CR, CW, C, A> LinkParts<CR, CW, C, A>
@@ -251,7 +281,7 @@ where
             control_write: self.control_write,
             connector: self.connector,
             acceptor: self.acceptor,
-            epoch: self.epoch,
+            session: self.session,
         }
     }
 }

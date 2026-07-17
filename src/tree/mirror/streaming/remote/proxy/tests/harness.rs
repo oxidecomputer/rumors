@@ -302,7 +302,7 @@ fn scripted(
             script,
         },
         acceptor: parts.acceptor,
-        epoch: parts.epoch,
+        session: parts.session,
     }
     .into_link()
 }

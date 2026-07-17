@@ -1037,7 +1037,7 @@ fn initiator_link(
             wire_bytes,
         },
         acceptor: parts.acceptor,
-        epoch: parts.epoch,
+        session: parts.session,
     }
     .into_link()
 }
@@ -1058,7 +1058,7 @@ fn responder_link(link: MemoryLink, wire_bytes: Arc<AtomicU64>) -> ResponderLink
             wire_bytes,
         },
         acceptor: parts.acceptor,
-        epoch: parts.epoch,
+        session: parts.session,
     }
     .into_link()
 }

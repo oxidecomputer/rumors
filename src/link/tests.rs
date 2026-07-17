@@ -145,7 +145,7 @@ fn epochs_count_and_wrap() {
     let (mut a, _b) = memory();
     assert_eq!(a.next_epoch(), 0);
     assert_eq!(a.next_epoch(), 1);
-    a.epoch = u8::MAX;
+    a.session.epoch = u8::MAX;
     assert_eq!(a.next_epoch(), u8::MAX);
     assert_eq!(a.next_epoch(), 0);
 }

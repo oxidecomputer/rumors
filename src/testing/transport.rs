@@ -499,7 +499,7 @@ where
             inner: parts.acceptor,
             state: state.clone(),
         },
-        epoch: parts.epoch,
+        session: parts.session,
     }
     .into_link();
     (wrapped, IoReportHandle(state))
