@@ -27,3 +27,4 @@ import StreamingMirror.Proofs.Sched.Weave.Prec
 import StreamingMirror.Proofs.Sched.Weave.Pump
 import StreamingMirror.Proofs.Sched.Weave.Window
 import StreamingMirror.Proofs.Sched.Weave.Ctx
+import StreamingMirror.Proofs.Sched.Weave.Emit
