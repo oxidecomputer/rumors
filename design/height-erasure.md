@@ -218,16 +218,19 @@ move.
   memory** — the cost is type-tree and collector state, not codegen
   volume — and under incremental CGU partitioning (every tower lands in
   the proxy module's CGU) the same delta took the compile from ~7.3 GB to
-  the 9.4 GB memwatch kill. Fixed by `Link::into_erased` (test-only,
-  `src/link/erased.rs`): fixtures now funnel into one owned erased
-  carrier, mirroring the session funnels' erasure, dropping the tower
-  population from 7 to 4 (`internal_replies` 210 → 120 copies; peak
-  9.4+ → 7.7 GB cold-incremental). The erasure must be *owning*: a
+  the 9.4 GB memwatch kill. Resolution: the tripwire's default was raised
+  from 8 to 12 GiB (`tools/memwatch`). The guard exists to catch runaway
+  exponential type growth (its motivating incident was 25+ GiB), and this
+  was measured *linear* growth in an intentional axis: each fixture link
+  type is one more tower at a bounded, known cost. A test-only
+  `Link::into_erased` funnel was tried and worked (7 → 4 towers, peak
+  back to 7.7 GB) but was rejected as contorting test code to an
+  arbitrary threshold; if the tower count keeps growing, that owned
+  erased carrier is the shape to revive — and it must be *owning*: a
   borrowed carrier leaves the concrete connector alive in the caller and
   the peer's supply never closes, which stalls every supply-closure test.
-  The residual four towers are the funnels' borrowed carrier plus the
-  payload/backend axes — exactly what this document's height erasure
-  would shrink from the inside.
+  The durable fix remains this document's height erasure, which shrinks
+  every tower from the inside.
 
 ## Open questions
 

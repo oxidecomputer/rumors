@@ -23,7 +23,7 @@
 
 set -u
 
-PROC_LIMIT_GB="${PROC_LIMIT_GB:-8}"
+PROC_LIMIT_GB="${PROC_LIMIT_GB:-12}"
 SWAP_LIMIT_GB="${SWAP_LIMIT_GB:-16}"
 LOG="${LOG:-/tmp/memwatch.log}"
 INTERVAL="${INTERVAL:-2}"

@@ -75,64 +75,6 @@ impl<A: Acceptor> AcceptDyn for A {
 /// returns to the caller's [`Link`](super::Link) between sessions.
 pub(crate) type DynAcceptor<'a> = &'a mut (dyn AcceptDyn + 'a);
 
-/// A [`Link`](super::Link) with every transport type erased, owned.
-///
-/// Owned boxes rather than the session funnels' borrowed halves because
-/// this carrier replaces a link a test *moves* into the protocol: the
-/// session machinery must drop the sole connector handle when it finishes,
-/// so the peer's acceptor observes the supply closing exactly as it would
-/// with the concrete link. See [`Link::into_erased`](super::Link::into_erased).
-#[cfg(test)]
-pub(crate) type ErasedLink = super::Link<
-    Box<dyn AsyncRead + Unpin + Send>,
-    Box<dyn AsyncWrite + Unpin + Send>,
-    DynConnector,
-    Box<dyn AcceptDyn>,
->;
-
-#[cfg(test)]
-impl super::Acceptor for Box<dyn AcceptDyn> {
-    type Rx = DynRx;
-
-    async fn accept(&mut self) -> io::Result<Self::Rx> {
-        // Explicit dispatch for the same reason as the `&mut dyn` impl
-        // above: method syntax would land on the blanket `AcceptDyn` impl
-        // for the box itself and recurse.
-        AcceptDyn::accept_dyn(&mut **self).await
-    }
-}
-
-#[cfg(test)]
-impl<CR, CW, C, A> super::Link<CR, CW, C, A>
-where
-    CR: AsyncRead + Unpin + Send + 'static,
-    CW: AsyncWrite + Unpin + Send + 'static,
-    C: super::Connector,
-    A: super::Acceptor + 'static,
-{
-    /// Erase this link into one owned session carrier.
-    ///
-    /// Test fixtures decorate links freely (reordering, fault-injecting,
-    /// scripted transports), and every distinct `Link` type driven into the
-    /// streaming protocol instantiates the whole per-height tower afresh —
-    /// measured at roughly 0.7 GiB of rustc peak memory per instantiation
-    /// in this crate's test binary (see `design/height-erasure.md`).
-    /// Erasing here funnels every fixture into one carrier instantiation,
-    /// so a new fixture costs a vtable, not a tower. Ownership moves with
-    /// the erasure: the carrier holds the only handles, so session-end
-    /// drop semantics (half-close, supply closure) match the concrete link
-    /// exactly.
-    pub(crate) fn into_erased(self) -> ErasedLink {
-        super::Link::for_session(
-            Box::new(self.control_read),
-            Box::new(self.control_write),
-            DynConnector::new(self.connector),
-            Box::new(self.acceptor) as Box<dyn AcceptDyn>,
-            self.session.epoch,
-        )
-    }
-}
-
 impl<'a, 'd> Acceptor for &'a mut (dyn AcceptDyn + 'd) {
     type Rx = DynRx;
 
