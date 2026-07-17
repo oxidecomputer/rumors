@@ -520,16 +520,62 @@ bounds μ(Q), and both are bounded by the awaited send.
      `goEvents_weave`. The weave's output is a permutation of the
      manual traces riding the pumps: the permutation half of weave
      validity, closed.*
-   - *Remaining Lean obligations for (b), in order:*
-     edge-respect (`e1_hist`/`e2_hist` for weave
-     states), with `schedulable` entering ONLY in the pump-progress
-     lemmas at the emission points (E2-lower/upper/level windows
-     open when the weave needs them) — including the final pump
-     DRAIN (empty pump remainders); per-channel totals (snd = rcv,
-     counting style); the blame-reduction lemmas (mostly 3a
-     corollaries); the small argmin assembly (stalled state ⟹ blame
-     edge drops weave position ⟹ argmin contradiction ⟹
-     `finalState.rem` all empty).
+   - *~~Edge-respect, generic + discharge + manual-manual layers~~ —
+     done (2026-07-17, `Weave/Edge.lean` + `Weave/Prec.lean`):
+     `WEdge` (= `WCount` + `MInv`'s guard-history fields), preserved
+     freely by the pump (`scan` checks) and by manual emission under
+     an `enabled` hypothesis; `wPump_fixpoint` (sum-length fuel runs
+     the merge to a stuck state); the discharge toolkit —
+     `wproj_canon` (EVERY weave state's projections are canonical, so
+     each guard is a membership claim: predecessor ∈ `out`),
+     `mem_out_of_elsewhere` (conservation with no counting),
+     `pump_support` (pumps never touch wire-above-leaf or asked
+     channels); and `weave_goEvents_depOK` — `DepOK`, the dep-closure
+     of the initial ghost future (each manual-manual predecessor lies
+     strictly earlier), by a second `align_scope`-style master
+     induction (`dep_scope`) with the query-base identity
+     `queries_base` (chunk-query seqs = kid-stage scope indices).*
+   - *Remaining for edge-respect: the PUMP-WINDOW discharges* (E2 at
+     `upper`/`lower`/leaf-wire/`leafRequests` manual sends) *and the
+     layer-D assembly. Design of record for the pump case-tree
+     (derived 2026-07-17, all cases close):* at each such emission,
+     suppose the window shut; the consumer asm/absorb's remainder
+     head (its seq = the current count, by canon-suffix) is disabled
+     at the pump fixpoint, and the head trichotomy — res-starved /
+     level-starved / out-blocked / exhausted — closes as follows.
+     Starved-against-blocked and exhausted cases close purely or by
+     accounting (`pendsBefore` totals = producer totals). Res-starved
+     closes against POSITION FACTS: completed-subtree boundaries
+     below (`∈ past` memberships of boundary sends), ancestor
+     res/upper memberships above. The DESCENT (consumer's supplier
+     chain, downward) costs one boundary membership per two stages
+     and bottoms out at absorb (leaf wires/`leafRequests` of complete
+     subtrees). The ASCENT (out-blocked chain, upward) alternates
+     answerer/asker per stage; at each answerer the pends-coverage
+     accounting (`pendsBefore` through the ancestor's res ≥ the
+     descendant's stage index + 1) kills it; at each asker it needs
+     the ancestor's CURRENT rank `r`: if `r` is the scope's last
+     D-rank the §5 SPLICE has already emitted the ancestor's upper
+     (the load-bearing placement, again), else `r + 2 ≤ dCount ≤
+     capLevel + 2` — `Skel.schedulable`, biting exactly at the
+     boundary as in the executable matrix. Position facts are
+     supplied per position as an ∃-packaged ancestor context
+     (`PumpObl`/`CtxOK`, a pointwise list property like `DepOK` but
+     with existential ancestor coordinates — no closed-form ascending
+     index needed), established by a third tree induction carrying
+     the ancestor path. Bottom-up build order: (a) per-owner
+     projection collapse + head-seq (head of any remainder/future =
+     its channel-side count) + `rcvd ≤ sent`; (b) per-family trace
+     take/head structure (asm blocks, absorb, fins); (c) the asm/
+     absorb stuck-trichotomy at fixpoint; (d) `pendsBefore`
+     accounting; (e) the four discharge lemmas from explicit context
+     hypotheses; (f) the `CtxOK` tree induction; (g) layer D: the
+     fuel induction assembling `WEdge sk [] (weaveState sk)` under
+     `wellFormed ∧ schedulable`.
+   - *Then, closing (b):* per-channel totals (snd = rcv, counting
+     style); the blame-reduction lemmas (mostly 3a corollaries); the
+     small argmin assembly (stalled state ⟹ blame edge drops weave
+     position ⟹ argmin contradiction ⟹ `finalState.rem` all empty).
 4. Opener/asm enabledness mirrors of the pillar (small).
 5. The blame lemmas (§6 table), consuming §2 + Sched (trace
    monotonicity replaces most positional arithmetic).
