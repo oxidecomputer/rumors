@@ -911,4 +911,67 @@ theorem futLen_chunks_upper_none {fut : List Ev} {h k i : Nat}
   rw [futLen_of_filter sk hfil, chunks_proj_upper_none sk hlast]
   rfl
 
+-- ==================================== the query pin and root silence
+
+/-- A walk's query sends are the canonical run over its stage's query
+total. -/
+theorem walk_asked_total (pk : Party × Nat) :
+    proj (askedOut pk) true (walkEvents sk pk)
+      = canon (askedOut pk) true (sk.qsBefore pk.2 (sk.stageLen pk.2)) := by
+  unfold walkEvents
+  exact proj_flatMap_canon (g := sk.qsBefore pk.2) _ rfl
+    (fun k hk => proj_block_q sk pk hk)
+    (fun k hk => by rw [qsBefore_succ sk hk]; omega)
+
+/-- The query pin: emitted queries plus the future's share is the
+stage's query total.
+
+`h1` is essential: `askedOut (wpk 0)` is `leafRequests`, owned by the
+stage-1 walk — the leaf stage never emits queries of its own. -/
+theorem asked_snd_pin (hwf : sk.wellFormed = true) {fut : List Ev}
+    {st : MState} (h : WCount sk fut st) {hh : Nat}
+    (h1 : 1 ≤ hh) (hhr : hh < sk.rootH) :
+    sndCount (askedOut (wpk hh)) st.out
+        + futLen sk fut (walkIdx sk hh) (askedOut (wpk hh)) true
+      = sk.qsBefore hh (sk.stageLen hh) := by
+  have hM : sndOwner sk (askedOut (wpk hh)) = walkIdx sk hh := by
+    show sndOwner sk (if (wpk hh).2 < 2 then Chan.leafRequests
+      else Chan.asked (wpk hh).1 ((wpk hh).2 - 2)) = walkIdx sk hh
+    rw [show (wpk hh).2 = hh from rfl]
+    by_cases h2 : hh < 2
+    · rw [if_pos h2]
+      have hone : hh = 1 := by omega
+      rw [hone]
+      rfl
+    · rw [if_neg h2]
+      simp only [sndOwner]
+      rw [if_neg (by rintro ⟨-, habs⟩; omega),
+        if_neg (by rintro ⟨-, habs⟩; omega),
+        show hh - 2 + 2 = hh from by omega]
+  have hp := walk_snd_pin sk hwf h hhr (askedOut (wpk hh)) hM
+  have hlen : (proj (askedOut (wpk hh)) true
+      (walkEvents sk (wpk hh))).length
+      = sk.qsBefore hh (sk.stageLen hh) := by
+    rw [walk_asked_total]
+    simp [canon, wpk]
+  omega
+
+/-- The opener's future past the root queries carries no root
+resolution: `rootres` is banked before any window site fires. -/
+theorem feed_rootres_silent {fut : List Ev} {i₀ : Nat}
+    (hfeed : fut.filter (fun e => evOwner sk e == 1)
+      = ((ropenEvents sk).drop 3).drop i₀) :
+    futLen sk fut 1 Chan.rootres true = 0 := by
+  rw [futLen_of_filter sk hfeed]
+  have hnil : proj Chan.rootres true (((ropenEvents sk).drop 3).drop i₀)
+      = [] :=
+    proj_eq_nil fun e he h1 _ => by
+      have hmem : e ∈ (ropenEvents sk).drop 3 := List.mem_of_mem_drop he
+      unfold ropenEvents at hmem
+      simp only [List.drop_succ_cons, List.drop_zero] at hmem
+      obtain ⟨j, -, rfl⟩ := List.mem_map.1 hmem
+      exact Chan.noConfusion h1
+  rw [hnil]
+  rfl
+
 end StreamingMirror.Sched
