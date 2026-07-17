@@ -577,23 +577,32 @@ bounds μ(Q), and both are bounded by the awaited send.
      (= `wiresBefore (j-1) K` at the D-filtered cursor), the
      `asmResList` length lemmas, `wf_scopesAt_zero`,
      `foldl_add_take_le`. (e) ~~the four window discharges~~ done
-     (`Weave/Window.lean`) — `upper_window`, `lower_window`,
-     `wire0_window`, `leafreq_window`, each concluding
-     `seq ≤ rcvCount` at a pump fixpoint from: `hsnd` (the seq about
-     to go out IS the send count — layer D reads it off
-     `cell_head_seq`), a bound placing the seq inside the trace
-     total, and the SUPPLY PACKAGES `DescSupply` (recursive: res
+     (`Weave/Window.lean`; ascent package reworked 2026-07-17, see
+     the boundary resolution under (f)) — `upper_window`,
+     `lower_window`, `wire0_window`, `leafreq_window`, each
+     concluding `seq ≤ rcvCount` at a pump fixpoint from: `hsnd`
+     (the seq about to go out IS the send count — layer D reads it
+     off `cell_head_seq`), a bound placing the seq inside the trace
+     total, and the POSITION PACKAGES `DescSupply` (recursive: res
      present through the demand each level hands down via
      `pendsBefore`, bottoming at absorb's wire+request feeds) and
-     `AscSupply` (∀ tower above: ∃ r ≤ sndCount res with
-     level-in-so-far ≤ `pendsBefore r`) plus
-     `1 ≤ sndCount rootres`. The chains: `tower_deliver` (descent
+     `AscCover` (per ANSWERER stage in the ascent range, two count
+     facts: `Φ` — `snd(level below) < pendsBefore(snd lower)`, the
+     in-flight resolution's allocation not yet delivered from below —
+     and `P1` — `snd lower ≤ dsBefore(snd upper) + capLevel + 1`,
+     the walk's schedulable overhang bound) plus
+     `1 ≤ sndCount rootres`; `lower_window` additionally takes
+     `hp1`, the emitting walk's own `P1` at the unsent seq. All four
+     windows and `tower_noblock` now take `WEdge` (the ascent needs
+     `wedge_rcvd_le_sent`). The chains: `tower_deliver` (descent
      recursion; `absorb_deliver` at the base; height-1 asker killed
-     by `pendsBefore_asker_one`), `tower_noblock` (ascent recursion;
-     `top_blocked` kills the two tops via the singleton `rootret`
-     total and `rootrets` total = `rootPending`), with
-     `pends_total_prod` (consumer pends total = producer res count)
-     and `level_snd_le`/`level0_snd_le`/`levelR0_snd_zero` (count ≤
+     by `pendsBefore_asker_one`), `tower_noblock` (ascent recursion
+     carrying `hself` — the asker-entry fact `snd(level below) <
+     dsBefore(snd upper) + capLevel` — with `top_blocked` killing
+     the two tops via the singleton `rootret` total and `rootrets`
+     total = `rootPending`), with `pends_total_prod` (consumer pends
+     total = producer res count) and
+     `level_snd_le`/`level0_snd_le`/`levelR0_snd_zero` (count ≤
      owner trace total; the phantom responder level 0 is silent)
      closing exhaustion, and `cap_pos`/`wf_capLevel` the pure
      starving-vs-blocked contradictions.
@@ -605,8 +614,13 @@ bounds μ(Q), and both are bounded by the awaited send.
      `proj_block_*` family and `proj_flatMap_seg`), plus the
      telescope counting steps in `Proofs/Counting.lean`
      (`take_flatMap_blocks`, `ds_wires`, `pendsBefore_answerer_ds`).
-     Remaining: the cross-walk membership induction and the ascent
-     boundary. Design of record (derived 2026-07-17):
+     The ascent BOUNDARY is resolved (the `AscCover`/`hself` rework
+     below, landed in the (e) layer); remaining is the cross-walk
+     position induction: per-walk position pins (mid-scope counts,
+     splice flag), the descent boundary memberships, `P1` per
+     ancestor, and `Φ` via the spine telescope (needing the one new
+     generic lemma `asm_pends_le_out`). Design of record (derived
+     2026-07-17):
      - *The weave is depth-first with stage cursors in weave order*:
        `wKidOps` inlines a D kid's whole subtree (`WOp.scope (h-1)
        (kidBase+i)`) before the next kid, and the §5 splice puts the
@@ -636,27 +650,51 @@ bounds μ(Q), and both are bounded by the awaited send.
        windows' `hreq`/`hwire` locals). `hroot` is the weave-prefix
        fact that ropen's `rootres` (position ~4) precedes every
        later pump-facing send.
-     - *Ascent side — the residue*: banked generic invariants
-       (`asm_out_le_res`, `asm_lvl_le_pends`,
-       `wedge_snd_le_rcv_cap`) give `AscSupply`'s `∃r` coverage up
-       to the boundary: chaining them yields
-       `snd(level in) ≤ pendsBefore r + capLevel` where strict `≤
-       pendsBefore r` is needed — equality IS realized by pyramid-1,
-       so position facts must close it. Derived boundary
-       configuration (the only surviving case, at an ancestor asker
-       tower `(p, j')` whose feeding walk `(p, j'-1)` sits mid-scope
-       `A` at pre-splice D-progress `ρ`): the pinned counts force
-       `ρ = capLevel + 1 = dOf(A) - 1` and put the full `capLevel`
-       window in flight on `level p (j'-1)` against res cursor `A` —
-       `Skel.schedulable` (`dOf ≤ capLevel + 2`) bites to force the
-       equality, and the contradiction must come from the SPINE: the
-       ancestor's in-flight kid is the one containing the emitting
-       scope, so the producer's consumed res indices sit inside the
-       spine allocation the descent has already drained. TO RESOLVE
-       next session with Align's spine machinery in context — either
-       sharpen `AscSupply`'s witness to the ancestor's rank
-       (`r+2 ≤ dOf ≤ capLevel+2` per the original case-tree) or add
-       the in-flight-window-vs-drained-allocation invariant.
+     - *Ascent side — ~~the residue~~ RESOLVED (2026-07-17, landed
+       in `Weave/Window.lean`)*: working the boundary showed the old
+       `AscSupply` (`∃ r ≤ snd res` with `snd(level in) ≤
+       pendsBefore r`) is FALSE at reachable states — a completed
+       earlier sibling's returns legitimately overrun the coverage —
+       so the package was replaced, not established. The replacement
+       (`AscCover`, per answerer stage): `Φ` (`snd(level below) <
+       pendsBefore(snd lower)` — the in-flight resolution's
+       allocation cannot be delivered while its subtree is still
+       being woven) and `P1` (`snd lower ≤ dsBefore(snd upper) +
+       capLevel + 1` — the splice keeps the summary ahead of the
+       last D kid's subtree, and `schedulable`'s `dOf ≤ capLevel+2`
+       caps a pre-splice scope's overhang). `tower_noblock` climbs
+       carrying `hself` (`snd(level below) < dsBefore(snd upper) +
+       capLevel` at asker stages): asker res-starvation dies on
+       `hself` + `pendsBefore_asker` + `pendsBefore_mono`; answerer
+       res-starvation dies on `Φ` directly; the climb out of an
+       answerer's out-block re-derives `hself` one stage up from
+       the answerer's D4 pins (`L = pB(R)`, `O = R−1`) — if the
+       answerer consumed everything sent, `Φ` kills the pins
+       outright (`pB(snd lower) = L ≤ snd(level below) < pB(snd
+       lower)`); if it is a step behind, `P1` bounds `O ≤ snd lower
+       − 2` under the allocation line. Entries: upper/leaf windows
+       enter at answerer stages (`hself` vacuous); `lower_window`
+       enters at the asker over its own walk and derives `hself`
+       from its new `hp1` hypothesis plus the consumer's D4 pins.
+     - *Ascent side — what CtxOK still owes*: `P1_g` per ancestor
+       walk, a per-walk position fact (mid-scope `A`, in-flight
+       D rank `δ`, splice flag `σ`: pre-splice `δ ≤ dOf−2 ≤
+       capLevel`; post-splice `snd lower = dsBefore (A+1)`). `Φ_g`
+       by the SPINE TELESCOPE, a downward induction over same-party
+       ancestor stages `g → g−2`: the producer tower `(p, g−1)` is
+       an asker over spine walk `(p, g−2)`, so `snd(level p (g−1))
+       ≤ snd(upper p (g−2)) = A_{g−2} + σ_{g−2}`; the spine scope
+       `A_{g−2}` is a kid of the in-flight child, hence strictly
+       inside `Φ_g`'s allocation cut — pre-splice this closes
+       outright, post-splice descend via the NEW generic lemma
+       `asm_pends_le_out` (`pendsBefore(O) ≤ L`, same
+       `asm_cell_shape` template as `asm_out_le_res`) into
+       `Φ_{g−2}`. BASE: the emission's own unsent event (`hsnd`)
+       caps the bottom asker — `O ≤ snd(upper p h) = k`, and `k` is
+       a kid of the parent spine scope, strictly inside the cut; for
+       the leaf windows the base is absorb's output against the
+       unsent leaf wire. No descent below the emission is needed —
+       the telescope bottoms at the emission point itself.
      (g) layer D: the fuel induction over `weaveGo` carrying
      `WEdge` + `step = none` (init via all-receive pump heads) +
      `DepOK` + `CtxOK`, discharging each emit's guard via

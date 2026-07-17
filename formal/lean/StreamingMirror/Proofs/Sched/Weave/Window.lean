@@ -15,11 +15,13 @@ manual send into a pump-facing channel (`upper`/`lower`/leaf-wire/
   totals.
 - Out-blocked: ASCEND into the consumer stack (`tower_noblock`,
   recursion upward, topping at `rootret`/fins). Each consumer's res
-  starvation is refuted by the ascent coverage package (`AscSupply`),
+  starvation is refuted by the ascent coverage package (`AscCover`:
+  the `Φ` allocation-deficit and `P1` overhang facts, threaded
+  through the climb as the asker-entry fact `hself`),
   level-starvation purely against the blocking fact, exhaustion by
   totals plus the count-versus-trace bound.
 
-The supply packages are hypotheses here; establishing them at every
+The position packages are hypotheses here; establishing them at every
 weave position is the CtxOK tree induction (step (f)). `Skel.
 schedulable` and the §5 splice placement live INSIDE those packages'
 eventual proofs, not in this file.
@@ -252,14 +254,25 @@ theorem descSupply_mono {st : MState} {p : Party} :
       ⟨Nat.le_trans hle hsup.1,
         descSupply_mono (pendsBefore_mono sk p (j + 1) hle) hsup.2⟩
 
-/-- Ascent coverage above a channel: every tower from `j` to the top
-has resolutions present whose pending allocation covers everything its
-level-in channel has so far carried. -/
-def AscSupply (st : MState) (p : Party) (j top : Nat) : Prop :=
-  ∀ j', j ≤ j' → j' ≤ top →
-    ∃ r, r ≤ sndCount (asmResChan (p, j')) st.out
-      ∧ sndCount (asmLevelChan (p, j')) st.out
-          ≤ sk.pendsBefore p j' r
+/-- Ascent coverage above a channel, one pair of facts per answerer
+stage in the range.
+
+`Φ` (first conjunct): the level supply below the stage has NOT yet
+covered the allocation of the walk's last-sent resolution — the
+in-flight scope's subtree is still being woven, so its returns cannot
+all be present. `P1` (second conjunct): the walk's resolution sends
+run at most `capLevel + 1` past the allocation line of its last
+summary — the §5 splice keeps the parent summary ahead of the last
+D kid's subtree, and `Skel.schedulable` (`dOf ≤ capLevel + 2`) caps
+the overhang of a scope still short of its splice. The CtxOK layer
+derives both from the emission position; here they are hypotheses. -/
+def AscCover (st : MState) (p : Party) (j top : Nat) : Prop :=
+  ∀ g, j ≤ g → g ≤ top → asks p g = false →
+    sndCount (Chan.level p (g - 1)) st.out
+        < sk.pendsBefore p g (sndCount (Chan.lower p g) st.out)
+      ∧ sndCount (Chan.lower p g) st.out
+          ≤ sk.dsBefore g (sndCount (Chan.upper p g) st.out)
+            + sk.capLevel + 1
 
 -- ======================================================== the chains
 
@@ -388,15 +401,27 @@ theorem asmOutChan_of_lt {p : Party} {top j : Nat}
 
 /-- ASCENT: a blocked level window is absurd — every consumer above,
 covered by the ascent package, drains what the window carries, all the
-way to the root returns. -/
+way to the root returns.
+
+The climb carries `hself`, the asker-entry fact "the level below runs
+strictly under the last summary's allocation plus the window": at an
+asker it contradicts the res-starved pins outright, and the climb out
+of an answerer's out-block re-derives it for the asker above from the
+answerer's stuck pins plus the coverage package (`Φ` when the answerer
+consumed everything sent, `P1` when it is a step behind). -/
 theorem tower_noblock (hwf : sk.wellFormed = true) {fut : List Ev}
-    {st : MState} (h : WCount sk fut st) (hfix : step sk st = none)
+    {st : MState} (h : WEdge sk fut st) (hfix : step sk st = none)
     {p : Party} {top : Nat}
     (htop : p = Party.I ∧ top = sk.rootH
       ∨ p = Party.R ∧ top = sk.rootH - 1)
     (hroot : 1 ≤ sndCount Chan.rootres st.out)
     (j : Nat) (h1 : 1 ≤ j) (hjt : j ≤ top)
-    (hsup : AscSupply sk st p j top)
+    (hcov : AscCover sk st p j top)
+    (hself : asks p j = true →
+      sndCount (Chan.level p (j - 1)) st.out
+        < sk.dsBefore (j - 1)
+            (sndCount (Chan.upper p (j - 1)) st.out)
+          + sk.capLevel)
     (hblk : rcvCount (asmLevelChan (p, j)) st.out + sk.capLevel
       ≤ sndCount (asmLevelChan (p, j)) st.out) : False := by
   have hcap := wf_capLevel hwf
@@ -405,10 +430,10 @@ theorem tower_noblock (hwf : sk.wellFormed = true) {fut : List Ev}
   by_cases hR1 : p = Party.R ∧ j = 1
   · obtain ⟨rfl, rfl⟩ := hR1
     have hz : sndCount (asmLevelChan (Party.R, 1)) st.out = 0 :=
-      levelR0_snd_zero sk hwf h
+      levelR0_snd_zero sk hwf h.toWCount
     omega
   have hIdx := asm_procs sk htop h1 hjt
-  rcases asm_stuck sk hwf h hfix h1 hIdx with
+  rcases asm_stuck sk hwf h.toWCount hfix h1 hIdx with
     ⟨hRe, hLe, hOe⟩ | ⟨hRl, hLp, hOp, hres⟩
     | ⟨hRl, hR1', hLlo, hLhi, hOp, hlv⟩ | ⟨hRl, hR1', hLp, hOp, hoblk⟩
   · -- exhausted: demand total = supply total bounds the window shut
@@ -420,36 +445,99 @@ theorem tower_noblock (hwf : sk.wellFormed = true) {fut : List Ev}
         · exact absurd ⟨rfl, rfl⟩ hR1
       subst hpI
       have hS : sndCount (asmLevelChan (Party.I, 1)) st.out
-          ≤ sk.totalLeafReqs := level0_snd_le sk hwf h
+          ≤ sk.totalLeafReqs := level0_snd_le sk hwf h.toWCount
       have htot : sk.pendsBefore Party.I 1
           (sk.asmResList Party.I 1).length = sk.totalLeafReqs :=
         pendsBefore_answerer_leaf (hna := rfl)
       omega
     · have hS : sndCount (asmLevelChan (p, j)) st.out
           ≤ (sk.asmResList p (j - 1)).length :=
-        level_snd_le sk hwf h htop (by omega) (by omega)
+        level_snd_le sk hwf h.toWCount htop (by omega) (by omega)
       have htot := pends_total_prod hwf (p := p) (j := j)
         (by omega)
         (by rcases htop with ⟨-, ht⟩ | ⟨-, ht⟩ <;> omega)
       omega
-  · -- res-starved: the coverage package reaches past the window
-    obtain ⟨r, hr1, hr2⟩ := hsup j (Nat.le_refl j) hjt
-    have hmono := pendsBefore_mono sk p j
-      (show r ≤ rcvCount (asmResChan (p, j)) st.out from
-        Nat.le_trans hr1 hres)
-    omega
+  · -- res-starved: the position facts refute the shut window
+    cases hask : asks p j with
+    | true =>
+        -- asker: `hself` caps the level below under the very count
+        -- the starvation pins to the window
+        have h2 : 2 ≤ j := by
+          rcases Nat.lt_or_ge j 2 with hj2 | hj2
+          · exfalso
+            have hj1 : j = 1 := by omega
+            subst hj1
+            cases p with
+            | I => rw [show asks Party.I 1 = false from rfl] at hask
+                   cases hask
+            | R => exact hR1 ⟨rfl, rfl⟩
+          · exact hj2
+        rw [asmResChan_asker hask] at hres
+        rw [show asmLevelChan (p, j) = Chan.level p (j - 1) from rfl]
+          at hLp hblk
+        rw [asmResChan_asker hask] at hLp
+        have hpbR : sk.pendsBefore p j
+            (rcvCount (Chan.upper p (j - 1)) st.out)
+            = sk.dsBefore (j - 1)
+                (rcvCount (Chan.upper p (j - 1)) st.out) :=
+          pendsBefore_asker hask h2 _
+        have hpbS : sk.pendsBefore p j
+            (sndCount (Chan.upper p (j - 1)) st.out)
+            = sk.dsBefore (j - 1)
+                (sndCount (Chan.upper p (j - 1)) st.out) :=
+          pendsBefore_asker hask h2 _
+        have hmono := pendsBefore_mono sk p j hres
+        have hs := hself hask
+        omega
+    | false =>
+        -- answerer: `Φ` says the level below is short of the very
+        -- allocation the starvation pins to the window
+        obtain ⟨hphi, -⟩ := hcov j (Nat.le_refl j) hjt hask
+        rw [asmResChan_answerer hask] at hres
+        rw [show asmLevelChan (p, j) = Chan.level p (j - 1) from rfl]
+          at hLp hblk
+        rw [asmResChan_answerer hask] at hLp
+        have hmono := pendsBefore_mono sk p j hres
+        omega
   · -- level-starved against blocked: the window is both shut and dry
     omega
   · -- out-blocked: ascend
     by_cases hjtop : j = top
     · subst hjtop
-      exact top_blocked sk hwf h hfix htop hroot hoblk
+      exact top_blocked sk hwf h.toWCount hfix htop hroot hoblk
     · have hjlt : j < top := Nat.lt_of_le_of_ne hjt hjtop
       have hout := asmOutChan_of_lt sk htop hjlt
       rw [hout, cap_level] at hoblk
-      exact tower_noblock hwf h hfix htop hroot (j + 1) (by omega)
-        (by omega) (fun j' hj1' hj2' => hsup j' (by omega) hj2')
-        hoblk
+      refine tower_noblock hwf h hfix htop hroot (j + 1) (by omega)
+        (by omega) (fun g hg1 hg2 hna => hcov g (by omega) hg2 hna)
+        ?_ hoblk
+      -- re-establish `hself` one stage up: the asker above sits over
+      -- THIS answerer, whose stuck pins plus the package bound its
+      -- output under the allocation line
+      intro hask1
+      have hna : asks p j = false := by
+        have hs := asks_succ p j
+        rw [hask1] at hs
+        simpa using hs.symm
+      obtain ⟨hphi, hp1⟩ := hcov j (Nat.le_refl j) hjt hna
+      rw [asmResChan_answerer hna] at hRl hR1' hOp
+      rw [asmResChan_answerer hna] at hLp
+      rw [show asmLevelChan (p, j) = Chan.level p (j - 1) from rfl]
+        at hLp
+      rw [hout] at hOp
+      have hwedge := wedge_rcvd_le_sent sk hwf h (Chan.lower p j)
+      rw [Nat.add_sub_cancel]
+      rcases Nat.lt_or_ge (rcvCount (Chan.lower p j) st.out)
+          (sndCount (Chan.lower p j) st.out) with hlt | hge
+      · -- a step behind its walk: `P1` bounds the output directly
+        omega
+      · -- consumed everything sent: `Φ` kills the pins outright
+        exfalso
+        have hRe : rcvCount (Chan.lower p j) st.out
+            = sndCount (Chan.lower p j) st.out := by omega
+        rw [hRe] at hLp
+        have hwl := wedge_rcvd_le_sent sk hwf h (Chan.level p (j - 1))
+        omega
 termination_by top - j
 
 /-- DESCENT: at a pump fixpoint a drained interior tower with descent
@@ -673,7 +761,7 @@ theorem upper_window (hwf : sk.wellFormed = true) {fut : List Ev}
     (hk : k < sk.stageLen hh)
     (hsnd : sndCount (Chan.upper p hh) st.out = k)
     (hdesc : DescSupply sk st p hh (sk.pendsBefore p (hh + 1) k))
-    (hasc : AscSupply sk st p (hh + 2) top)
+    (hcov : AscCover sk st p (hh + 2) top)
     (hroot : 1 ≤ sndCount Chan.rootres st.out) :
     k ≤ rcvCount (Chan.upper p hh) st.out := by
   have hcap := wf_capLevel hwf
@@ -741,9 +829,13 @@ theorem upper_window (hwf : sk.wellFormed = true) {fut : List Ev}
     · have hout' := asmOutChan_of_lt sk htop
         (show hh + 1 < top from by omega)
       rw [hout', cap_level] at hoblk
-      exact tower_noblock sk hwf h.toWCount hfix htop hroot
-        (hh + 2) (by omega) (by omega)
-        (fun j' hj1' hj2' => hasc j' (by omega) hj2') hoblk
+      have hna2 : asks p (hh + 2) = false := by
+        have hs := asks_succ p (hh + 1)
+        rw [show hh + 1 + 1 = hh + 2 from by omega, hasks] at hs
+        simpa using hs
+      exact tower_noblock sk hwf h hfix htop hroot
+        (hh + 2) (by omega) (by omega) hcov
+        (fun hask => absurd hask (by rw [hna2]; simp)) hoblk
 
 /-- THE LOWER WINDOW: at a pump fixpoint the answerer has consumed
 every resolution before the one the walk is about to send. -/
@@ -756,8 +848,10 @@ theorem lower_window (hwf : sk.wellFormed = true) {fut : List Ev}
     (h1 : 1 ≤ hh) (hht : hh < top)
     (hd : d < (sk.asmResList p hh).length)
     (hsnd : sndCount (Chan.lower p hh) st.out = d)
+    (hp1 : d ≤ sk.dsBefore hh (sndCount (Chan.upper p hh) st.out)
+      + sk.capLevel + 1)
     (hdesc : DescSupply sk st p (hh - 1) (sk.pendsBefore p hh d))
-    (hasc : AscSupply sk st p (hh + 1) top)
+    (hcov : AscCover sk st p (hh + 1) top)
     (hroot : 1 ≤ sndCount Chan.rootres st.out) :
     d ≤ rcvCount (Chan.lower p hh) st.out := by
   have hcap := wf_capLevel hwf
@@ -836,26 +930,37 @@ theorem lower_window (hwf : sk.wellFormed = true) {fut : List Ev}
         (descSupply_mono sk hmono hdesc') hdrain'
       rw [hout'] at hdel
       omega
-  · -- out-blocked: the ascent refutes it
-    exfalso
-    have hout' := asmOutChan_of_lt sk htop hht
-    rw [hout', cap_level] at hoblk
-    exact tower_noblock sk hwf h.toWCount hfix htop hroot
-      (hh' + 1 + 1) (by omega) (by omega)
-      (fun j' hj1' hj2' => hasc j' (by omega) hj2') hoblk
+  · -- out-blocked: either the resolution is already consumed, or the
+    -- ascent refutes the block
+    by_cases hgoal : d ≤ rcvCount (Chan.lower p (hh' + 1)) st.out
+    · exact hgoal
+    · exfalso
+      have hout' := asmOutChan_of_lt sk htop hht
+      rw [hout'] at hOp
+      rw [hout', cap_level] at hoblk
+      refine tower_noblock sk hwf h hfix htop hroot
+        (hh' + 1 + 1) (by omega) (by omega)
+        (fun g hg1 hg2 hna => hcov g (by omega) hg2 hna)
+        ?_ hoblk
+      -- the asker above sits over THIS walk: its stuck consumer is a
+      -- step behind the unsent `d`, and `hp1` is the walk's own
+      -- schedulable overhang bound
+      intro _
+      rw [Nat.add_sub_cancel]
+      omega
 
 /-- THE LEAF-WIRE WINDOW: at a pump fixpoint the absorber has consumed
 every leaf wire before the one the walk is about to send. -/
 theorem wire0_window (hwf : sk.wellFormed = true) {fut : List Ev}
-    {st : MState} (h : WCount sk fut st) (hfix : step sk st = none)
+    {st : MState} (h : WEdge sk fut st) (hfix : step sk st = none)
     {w : Nat} (hw : w < sk.totalLeafReqs)
     (hsnd : sndCount (Chan.wire Party.R 0) st.out = w)
     (hreq : w ≤ sndCount Chan.leafRequests st.out + 1)
-    (hasc : AscSupply sk st Party.I 1 sk.rootH)
+    (hcov : AscCover sk st Party.I 1 sk.rootH)
     (hroot : 1 ≤ sndCount Chan.rootres st.out) :
     w ≤ rcvCount (Chan.wire Party.R 0) st.out := by
   have hcap := wf_capLevel hwf
-  rcases absorb_stuck sk hwf h hfix with
+  rcases absorb_stuck sk hwf h.toWCount hfix with
     ⟨hW, hL, hV⟩ | ⟨hWt, hLW, hVW, hsw⟩ | ⟨hLt, hWL, hVL, hsq⟩
     | ⟨hVt, hWV, hLV, hblk⟩
   · omega
@@ -865,21 +970,21 @@ theorem wire0_window (hwf : sk.wellFormed = true) {fut : List Ev}
     rw [cap_level] at hblk
     exact tower_noblock sk hwf h hfix (Or.inl ⟨rfl, rfl⟩) hroot
       1 (Nat.le_refl 1) (by have := (wf_rootH hwf).2; omega)
-      hasc hblk
+      hcov (fun hask => absurd hask (by decide)) hblk
 
 /-- THE LEAF-REQUEST WINDOW: at a pump fixpoint the absorber has
 consumed every leaf request before the one the walk is about to
 send. -/
 theorem leafreq_window (hwf : sk.wellFormed = true) {fut : List Ev}
-    {st : MState} (h : WCount sk fut st) (hfix : step sk st = none)
+    {st : MState} (h : WEdge sk fut st) (hfix : step sk st = none)
     {q : Nat} (hq : q < sk.totalLeafReqs)
     (hsnd : sndCount Chan.leafRequests st.out = q)
     (hwire : q ≤ sndCount (Chan.wire Party.R 0) st.out)
-    (hasc : AscSupply sk st Party.I 1 sk.rootH)
+    (hcov : AscCover sk st Party.I 1 sk.rootH)
     (hroot : 1 ≤ sndCount Chan.rootres st.out) :
     q ≤ rcvCount Chan.leafRequests st.out := by
   have hcap := wf_capLevel hwf
-  rcases absorb_stuck sk hwf h hfix with
+  rcases absorb_stuck sk hwf h.toWCount hfix with
     ⟨hW, hL, hV⟩ | ⟨hWt, hLW, hVW, hsw⟩ | ⟨hLt, hWL, hVL, hsq⟩
     | ⟨hVt, hWV, hLV, hblk⟩
   · omega
@@ -889,6 +994,6 @@ theorem leafreq_window (hwf : sk.wellFormed = true) {fut : List Ev}
     rw [cap_level] at hblk
     exact tower_noblock sk hwf h hfix (Or.inl ⟨rfl, rfl⟩) hroot
       1 (Nat.le_refl 1) (by have := (wf_rootH hwf).2; omega)
-      hasc hblk
+      hcov (fun hask => absurd hask (by decide)) hblk
 
 end StreamingMirror.Sched
