@@ -722,6 +722,52 @@ theorem asm_lvl_le_pends (hwf : sk.wellFormed = true) {fut : List Ev}
         rw [hLc, hRc, hc1, hc2']
         exact Nat.le_refl _
 
+/-- A tower's output allocation is covered by its level intake:
+`out i` departs only after item `i`'s pends are consumed. -/
+theorem asm_pends_le_out (hwf : sk.wellFormed = true) {fut : List Ev}
+    {st : MState} (h : WCount sk fut st) {p : Party} {top j : Nat}
+    (htop : p = Party.I ∧ top = sk.rootH
+      ∨ p = Party.R ∧ top = sk.rootH - 1)
+    (h1 : 1 ≤ j) (hjt : j ≤ top) :
+    sk.pendsBefore p j (sndCount (sk.asmOutChan (p, j)) st.out)
+      ≤ rcvCount (asmLevelChan (p, j)) st.out := by
+  have hIdx := asm_procs sk htop h1 hjt
+  obtain ⟨r, pre, hr, hpre, hsub⟩ := cell_of_owner sk h hIdx
+  obtain ⟨hro, hlo, hoo⟩ := asm_owners sk p h1
+  have hLc : rcvCount (asmLevelChan (p, j)) st.out
+      = (proj (asmLevelChan (p, j)) false pre).length := by
+    rw [rcvCount_eq_proj,
+      out_proj_owner sk hwf h _ false (by simpa using hlo)
+        hIdx hr hpre hsub]
+  have hOc : sndCount (sk.asmOutChan (p, j)) st.out
+      = (proj (sk.asmOutChan (p, j)) true pre).length := by
+    rw [sndCount_eq_proj,
+      out_proj_owner sk hwf h _ true (by simpa using hoo)
+        hIdx hr hpre hsub]
+  cases r with
+  | nil =>
+      rw [List.append_nil] at hpre
+      obtain ⟨-, ht2, ht3⟩ := asm_totals sk (p, j)
+      rw [hpre] at ht2 ht3
+      rw [hLc, hOc, ht2, ht3, seg_len, seg_len]
+      exact Nat.le_refl _
+  | cons e₀ rest₀ =>
+      obtain ⟨idx, hidxN, hshape⟩ :=
+        asm_cell_shape sk (p, j) hpre (by simp)
+      rcases hshape with ⟨-, -, hc2, hc3⟩
+        | ⟨tlv, rest, -, htl, -, -, hc2, hc3⟩ | ⟨-, -, hc2, hc3⟩
+      · have hc2' : (proj (asmLevelChan (p, j)) false pre).length
+            = sk.pendsBefore p j idx := hc2
+        rw [hLc, hOc, hc3, hc2']
+        exact Nat.le_refl _
+      · have htl' : sk.pendsBefore p j idx ≤ tlv := htl
+        rw [hLc, hOc, hc3, hc2]
+        exact htl'
+      · have hc2' : (proj (asmLevelChan (p, j)) false pre).length
+            = sk.pendsBefore p j (idx + 1) := hc2
+        rw [hLc, hOc, hc3, hc2']
+        exact pendsBefore_mono sk p j (Nat.le_succ idx)
+
 /-- A send never outruns its window: the emitted stream respected E2
 at every position, so the count is within `cap` of the receipts. -/
 theorem wedge_snd_le_rcv_cap (hwf : sk.wellFormed = true)
