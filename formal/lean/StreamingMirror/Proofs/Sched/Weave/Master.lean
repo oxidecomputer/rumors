@@ -1008,23 +1008,32 @@ cursor plus the site's own floor counts supply every level. -/
 theorem descSupply_upper_of_ctx (hwf : sk.wellFormed = true)
     {fut : List Ev} {st : MState} (hW : WCount sk fut st) {h k : Nat}
     (h1 : 1 ≤ h) (hhr : h < sk.rootH) (hk : k < sk.stageLen h)
-    (hasks : asks ((wpk h).1) (h + 1) = true)
+    (hasks : asks ((wpk h).1) (h + 1) = true) {X : Nat}
+    (hXW : sk.wiresBefore h k ≤ X)
+    (hXle : X ≤ sk.stageLen (h - 1))
     (hdeep : ∀ g', g' < h →
       fut.filter (fun e => evOwner sk e == walkIdx sk g')
-        = walkSeg sk g' (descIdx sk g' (h - g') k) (sk.stageLen g'))
+        = walkSeg sk g' (descIdx sk g' (h - 1 - g') X)
+            (sk.stageLen g'))
     (hlowh : sk.dsBefore h k ≤ sndCount (lowerOut (wpk h)) st.out)
     (hq1 : h = 1 →
       sk.qsBefore 1 k ≤ sndCount Chan.leafRequests st.out) :
     DescSupply sk st ((wpk h).1) h
       (sk.pendsBefore ((wpk h).1) (h + 1) k) := by
   have hcle : ∀ g', g' < h →
-      descIdx sk g' (h - g') k ≤ sk.stageLen g' := by
+      descIdx sk g' (h - 1 - g') X ≤ sk.stageLen g' := by
     intro g' hg'
     refine descIdx_le_stageLen sk hwf ?_ ?_
-    · rw [show g' + (h - g') = h from by omega]
-      exact hhr
-    · rw [show g' + (h - g') = h from by omega]
-      exact Nat.le_of_lt hk
+    · rw [show g' + (h - 1 - g') = h - 1 from by omega]
+      omega
+    · rw [show g' + (h - 1 - g') = h - 1 from by omega]
+      exact hXle
+  have hkX : ∀ g', g' < h →
+      descIdx sk g' (h - g') k ≤ descIdx sk g' (h - 1 - g') X := by
+    intro g' hg'
+    rw [show h - g' = h - 1 - g' + 1 from by omega, descIdx_succ,
+      show g' + (h - 1 - g') + 1 = h from by omega]
+    exact descIdx_mono sk g' (h - 1 - g') hXW
   refine descSupply_upper_site sk hwf h1 hhr hasks ?_ ?_ ?_
   · -- covered answerers' resolutions
     intro g hg1 hgh hna_g
@@ -1036,7 +1045,7 @@ theorem descSupply_upper_of_ctx (hwf : sk.wellFormed = true)
       rw [lowerOut_eq_of_answerer hna_g,
         deep_lower_count sk hwf hW (by omega) (hcle g hlt)
           (hdeep g hlt)]
-      exact Nat.le_refl _
+      exact dsBefore_mono sk g (hkX g hlt)
   · -- covered askers' summaries
     intro g hg2 hasker_g
     have hna_g : asks ((wpk h).1) g = false := by
@@ -1046,9 +1055,13 @@ theorem descSupply_upper_of_ctx (hwf : sk.wellFormed = true)
     rw [upperOut_eq_of_answerer hna_g,
       deep_upper_count sk hwf hW (by omega) (hcle g (by omega))
         (hdeep g (by omega))]
-    exact Nat.le_refl _
+    exact hkX g (by omega)
   · -- the absorber feeds
     intro _
+    have hk0 : descIdx sk 0 h k ≤ descIdx sk 0 (h - 1) X := by
+      have hx := hkX 0 h1
+      rw [Nat.sub_zero] at hx
+      exact hx
     constructor
     · have hd0 := hdeep 0 h1
       rw [Nat.sub_zero] at hd0
@@ -1056,7 +1069,7 @@ theorem descSupply_upper_of_ctx (hwf : sk.wellFormed = true)
       rw [Nat.sub_zero] at hc0
       rw [show Chan.wire Party.R 0 = wireOut (wpk 0) from rfl,
         deep_wire_count sk hwf hW (by omega) hc0 hd0]
-      exact Nat.le_refl _
+      exact wiresBefore_mono sk 0 hk0
     · by_cases h1' : h = 1
       · subst h1'
         have hpeel : descIdx sk 0 1 k = sk.wiresBefore 1 k :=
@@ -1066,13 +1079,16 @@ theorem descSupply_upper_of_ctx (hwf : sk.wellFormed = true)
         exact hq1 rfl
       · have h2 : 2 ≤ h := by omega
         have hd1 := hdeep 1 (by omega)
+        rw [show h - 1 - 1 = h - 2 from by omega] at hd1
         have hc1 := hcle 1 (by omega)
+        rw [show h - 1 - 1 = h - 2 from by omega] at hc1
         rw [show Chan.leafRequests = askedOut (wpk 1) from rfl,
           deep_q_count sk hwf hW (Nat.le_refl 1) (by omega) hc1 hd1,
           qs_wires sk hwf (Nat.le_refl 1) (by omega) hc1]
+        refine Nat.le_trans (wiresBefore_mono sk 0 hk0) ?_
         refine Nat.le_of_eq ?_
-        have hp := descIdx_peel sk (h - 1) 0 k
-        rw [show h - 1 + 1 = h from by omega] at hp
+        have hp := descIdx_peel sk (h - 2) 0 X
+        rw [show h - 2 + 1 = h - 1 from by omega] at hp
         exact congrArg (sk.wiresBefore 0) hp
 
 /-- The lower site's descent package: the deep windows at the kid-slot
@@ -1184,7 +1200,9 @@ theorem ready_upper_prologue (hwf : sk.wellFormed = true)
       = ((ropenEvents sk).drop 3).drop i₀)
     (hdeep : ∀ g', g' < h →
       fut.filter (fun e => evOwner sk e == walkIdx sk g')
-        = walkSeg sk g' (descIdx sk g' (h - g') k) (sk.stageLen g'))
+        = walkSeg sk g'
+            (descIdx sk g' (h - 1 - g') (sk.wiresBefore h k))
+            (sk.stageLen g'))
     (hown : fut.filter (fun e => evOwner sk e == walkIdx sk h)
       = ((upperOut (wpk h), true, k) : Ev)
           :: ((List.range' 0 (sk.nChildren h (sk.stageScope h k))).flatMap
@@ -1212,8 +1230,13 @@ theorem ready_upper_prologue (hwf : sk.wellFormed = true)
       have hlpin := lower_snd_pin sk hwf hW.toWCount hhr
       have hdmono := dsBefore_mono sk h
         (show k ≤ sk.stageLen h from Nat.le_of_lt hk)
+      have hXle : sk.wiresBefore h k ≤ sk.stageLen (h - 1) := by
+        have h2' := wiresBefore_mono sk h
+          (show k ≤ sk.stageLen h from Nat.le_of_lt hk)
+        have h3' := wiresBefore_total sk hwf h1 hhr
+        omega
       refine descSupply_upper_of_ctx sk hwf hW.toWCount h1 hhr hk
-        hasks hdeep (by omega) ?_
+        hasks (Nat.le_refl _) hXle hdeep (by omega) ?_
       intro h1'
       subst h1'
       have hfq := futLen_S1_q sk hk hown
@@ -1240,7 +1263,9 @@ theorem ready_upper_splice (hwf : sk.wellFormed = true)
       = ((ropenEvents sk).drop 3).drop i₀)
     (hdeep : ∀ g', g' < h →
       fut.filter (fun e => evOwner sk e == walkIdx sk g')
-        = walkSeg sk g' (descIdx sk g' (h - g') k) (sk.stageLen g'))
+        = walkSeg sk g'
+            (descIdx sk g' (h - 1 - g') (sk.wiresBefore h k + jL))
+            (sk.stageLen g'))
     (hown : fut.filter (fun e => evOwner sk e == walkIdx sk h)
       = ((upperOut (wpk h), true, k) : Ev)
           :: (chunkQ sk h k jL
@@ -1276,8 +1301,14 @@ theorem ready_upper_splice (hwf : sk.wellFormed = true)
     have hlpin := lower_snd_pin sk hwf hW.toWCount hhr
     have hdmono := dsBefore_mono sk h
       (show k ≤ sk.stageLen h from Nat.le_of_lt hk)
+    have hXle : sk.wiresBefore h k + jL ≤ sk.stageLen (h - 1) := by
+      have h1' := wiresBefore_succ sk hk
+      have h2' := wiresBefore_mono sk h
+        (show k + 1 ≤ sk.stageLen h from hk)
+      have h3' := wiresBefore_total sk hwf h1 hhr
+      omega
     refine descSupply_upper_of_ctx sk hwf hW.toWCount h1 hhr hk
-      hasks hdeep (by omega) ?_
+      hasks (by omega) hXle hdeep (by omega) ?_
     intro h1'
     subst h1'
     have hfq := futLen_S2_q sk hk hlast hown
