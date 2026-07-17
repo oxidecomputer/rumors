@@ -70,6 +70,20 @@ and `procs` both spell it. -/
 def wpk (h : Nat) : Party × Nat :=
   (if h % 2 == 1 then Party.I else Party.R, h)
 
+/-- A stage's walk never asks at its own stage: the walk is the
+answerer side of its own summaries. -/
+theorem asks_wpk_self (h : Nat) : asks (wpk h).1 h = false := by
+  rcases Nat.mod_two_eq_zero_or_one h with hm | hm <;>
+    simp [wpk, asks, hm]
+
+/-- The answerer party at a stage is the stage's own walk key. -/
+theorem wpk_fst_of_answerer {p : Party} {g : Nat}
+    (hna : asks p g = false) : (wpk g).1 = p := by
+  cases p <;>
+    rcases Nat.mod_two_eq_zero_or_one g with hm | hm <;>
+    simp [asks, hm] at hna <;>
+    simp [wpk, hm]
+
 /-- A contiguous run of stage-`h'` scope blocks: trace segment
 `[a, b)` of the stage's walk. -/
 def walkSeg (h' a b : Nat) : List Ev :=
@@ -326,6 +340,25 @@ theorem qCount_eq_kid_nChildren (hwf : sk.wellFormed = true)
           omega
         simp [hb0]
 
+/-- A slot's D flag is its kid scope's kind, read one stage down. -/
+theorem childIsD_eq_kid_kind (hwf : sk.wellFormed = true) {h k i : Nat}
+    (h1 : 1 ≤ h) (hh : h < sk.rootH) (hk : k < sk.stageLen h)
+    (hi : i < sk.nChildren h (sk.stageScope h k)) :
+    sk.childIsD h (sk.stageScope h k) i
+      = ((sk.scope (sk.stageScope (h - 1)
+            (sk.wiresBefore h k + i))).kind == Kind.D) := by
+  rw [stageScope_kid sk hwf h1 hh hk hi]
+  have hkl : i < ((sk.scope (sk.stageScope h k)).kids).length := by
+    rw [← nChildren_of_pos sk h1]
+    exact hi
+  have hsome : ((sk.scope (sk.stageScope h k)).kids)[i]?
+      = some (((sk.scope (sk.stageScope h k)).kids).getD i 0) := by
+    rw [List.getElem?_eq_getElem hkl, List.getD_eq_getElem?_getD,
+      List.getElem?_eq_getElem hkl]
+    rfl
+  unfold Skel.childIsD
+  rw [if_neg (by simp; omega), hsome]
+
 -- ================================================== segment algebra
 
 theorem walkSeg_empty (h' a : Nat) : walkSeg sk h' a a = [] := by
@@ -376,6 +409,54 @@ theorem wiresBefore_mono (h : Nat) : ∀ {k k' : Nat}, k ≤ k' →
             exact Nat.le_refl _
         exact Nat.le_trans (ih (by omega)) hstep
 
+/-- `dsBefore` is monotone in the cursor (same saturation argument as
+`wiresBefore_mono`). -/
+theorem dsBefore_mono (h : Nat) : ∀ {k k' : Nat}, k ≤ k' →
+    sk.dsBefore h k ≤ sk.dsBefore h k' := by
+  intro k k' hkk
+  induction k' with
+  | zero =>
+      have hk0 : k = 0 := by omega
+      subst hk0
+      exact Nat.le_refl _
+  | succ k' ih =>
+      by_cases hlast : k = k' + 1
+      · subst hlast
+        exact Nat.le_refl _
+      · have hstep : sk.dsBefore h k' ≤ sk.dsBefore h (k' + 1) := by
+          by_cases hin : k' < sk.stageLen h
+          · rw [dsBefore_succ sk hin]
+            omega
+          · unfold Skel.dsBefore
+            rw [List.take_of_length_le (by
+                unfold Skel.stageLen at hin
+                omega),
+              List.take_of_length_le (by
+                unfold Skel.stageLen at hin
+                omega)]
+            exact Nat.le_refl _
+        exact Nat.le_trans (ih (by omega)) hstep
+
+/-- A kid cursor stays inside the kid stage (the `Prec` induction's
+inline bound, named). -/
+theorem kid_index_lt (hwf : sk.wellFormed = true) {j : Nat}
+    (h1 : 1 ≤ j) (hjr : j < sk.rootH) {A i : Nat}
+    (hA : A < sk.stageLen j)
+    (hi : i < sk.nChildren j (sk.stageScope j A)) :
+    sk.wiresBefore j A + i < sk.stageLen (j - 1) := by
+  have htot := wiresBefore_total sk hwf h1 hjr
+  have hmono := wiresBefore_mono sk j
+    (show A + 1 ≤ sk.stageLen j from hA)
+  have hsucc := wiresBefore_succ sk hA
+  omega
+
+/-- A kid cursor sits strictly inside its parent's wire window. -/
+theorem spine_nest {g B t : Nat} (hB : B < sk.stageLen g)
+    (ht : t < sk.nChildren g (sk.stageScope g B)) :
+    sk.wiresBefore g B + t < sk.wiresBefore g (B + 1) := by
+  have hsucc := wiresBefore_succ sk hB
+  omega
+
 theorem descIdx_zero (h' j : Nat) : descIdx sk h' 0 j = j := rfl
 
 theorem descIdx_succ (h' d j : Nat) :
@@ -392,6 +473,21 @@ theorem descIdx_mono (h' : Nat) : ∀ (d : Nat) {j j' : Nat}, j ≤ j' →
       intro j j' hjj
       rw [descIdx_succ, descIdx_succ]
       exact ih (wiresBefore_mono sk _ hjj)
+
+/-- Peeling `descIdx` from the bottom: a full descent is a shallower
+descent followed by one wire hop — the bridge between the alignment's
+cursor form and the descent telescope's nested `wiresBefore`. -/
+theorem descIdx_peel : ∀ (d h' j : Nat),
+    descIdx sk h' (d + 1) j
+      = sk.wiresBefore (h' + 1) (descIdx sk (h' + 1) d j) := by
+  intro d
+  induction d with
+  | zero => intro h' j; rfl
+  | succ d ih =>
+      intro h' j
+      rw [descIdx_succ sk h' (d + 1) j, ih h' _,
+        descIdx_succ sk (h' + 1) d j,
+        show h' + 1 + d + 1 = h' + (d + 1) + 1 from by omega]
 
 -- ============================================== per-channel ownership
 -- The owner of every event shape the weave emits at stage `h`, as
@@ -625,6 +721,119 @@ theorem lastDOf_none {h k : Nat} (hn : lastDOf sk h k = none) :
   intro i hi
   have := List.filter_eq_nil_iff.mp hn i (List.mem_range.mpr hi)
   simpa using this
+
+/-- Equality along a step-frozen chain: if `g` is constant on every
+step of `[a, b)`, its endpoints agree. -/
+private theorem chain_eq {g : Nat → Nat} : ∀ {a b : Nat}, a ≤ b →
+    (∀ t, a ≤ t → t < b → g (t + 1) = g t) → g b = g a := by
+  intro a b
+  induction b with
+  | zero =>
+      intro hab _
+      have h0 : a = 0 := by omega
+      subst h0
+      rfl
+  | succ b ih =>
+      intro hab h
+      by_cases hb : a = b + 1
+      · subst hb
+        rfl
+      · rw [h b (by omega) (by omega)]
+        exact ih (by omega) (fun t ht htb => h t ht (by omega))
+
+/-- No disputed slot lies past the last one: the filtered range's
+`getLast?` dominates (the range survives filtering in order). -/
+theorem lastDOf_max {h k j i : Nat} (hj : lastDOf sk h k = some j)
+    (hgt : j < i) : sk.childIsD h (sk.stageScope h k) i = false := by
+  by_contra hDc
+  rw [Bool.not_eq_false] at hDc
+  have hin : i < sk.nChildren h (sk.stageScope h k) := by
+    by_cases h0 : h = 0
+    · exact absurd hDc (by simp [Skel.childIsD, h0])
+    · unfold Skel.childIsD at hDc
+      rw [if_neg (by simpa using h0)] at hDc
+      unfold Skel.nChildren
+      rw [if_neg (by simpa using h0)]
+      cases hg : (sk.scope (sk.stageScope h k)).kids[i]? with
+      | none => rw [hg] at hDc; exact absurd hDc (by simp)
+      | some c => exact (List.getElem?_eq_some_iff.mp hg).1
+  unfold lastDOf at hj
+  rw [List.getLast?_eq_some_iff] at hj
+  obtain ⟨ys, hys⟩ := hj
+  have hmem : i ∈ (List.range (sk.nChildren h (sk.stageScope h k))).filter
+      (fun i' => sk.childIsD h (sk.stageScope h k) i') :=
+    List.mem_filter.mpr ⟨List.mem_range.mpr hin, hDc⟩
+  have hpw : ((List.range (sk.nChildren h (sk.stageScope h k))).filter
+      (fun i' => sk.childIsD h (sk.stageScope h k) i')).Pairwise (· < ·) :=
+    List.pairwise_lt_range.sublist List.filter_sublist
+  rw [hys] at hmem hpw
+  rcases List.mem_append.mp hmem with hy | hone
+  · have := (List.pairwise_append.mp hpw).2.2 i hy j
+      (List.mem_singleton.mpr rfl)
+    omega
+  · have := List.mem_singleton.mp hone
+    omega
+
+/-- A disputed slot in range forces a last disputed slot at or past
+it. -/
+theorem lastDOf_isSome_of_D {h k i : Nat}
+    (hD : sk.childIsD h (sk.stageScope h k) i = true)
+    (hi : i < sk.nChildren h (sk.stageScope h k)) :
+    ∃ j, lastDOf sk h k = some j ∧ i ≤ j := by
+  cases hL : lastDOf sk h k with
+  | none =>
+      have hfalse := lastDOf_none sk hL i hi
+      rw [hD] at hfalse
+      exact absurd hfalse (by simp)
+  | some j =>
+      refine ⟨j, rfl, ?_⟩
+      by_contra hlt
+      have hji : j < i := by omega
+      have hfalse := lastDOf_max sk hL hji
+      rw [hD] at hfalse
+      exact absurd hfalse (by simp)
+
+/-- The last disputed slot's rank is the scope's D total, less one:
+the splice site closes the dispute list. -/
+theorem dRank_lastD {h k j : Nat} (hj : lastDOf sk h k = some j) :
+    dRank sk (wpk h) k j + 1 = sk.dOf h (sk.stageScope h k) := by
+  obtain ⟨hDj, hjn⟩ := lastDOf_isD sk hj
+  have hsucc := dRank_succ sk (wpk h) k j
+  rw [show sk.childIsD (wpk h).2 (sk.stageScope (wpk h).2 k) j
+      = sk.childIsD h (sk.stageScope h k) j from rfl,
+    if_pos hDj] at hsucc
+  have hchain : dRank sk (wpk h) k (sk.nChildren h (sk.stageScope h k))
+      = dRank sk (wpk h) k (j + 1) :=
+    chain_eq (by omega) (fun t ht htn => by
+      have hf := lastDOf_max sk hj (show j < t by omega)
+      have hst := dRank_succ sk (wpk h) k t
+      rw [show sk.childIsD (wpk h).2 (sk.stageScope (wpk h).2 k) t
+          = sk.childIsD h (sk.stageScope h k) t from rfl,
+        if_neg (by simp [hf])] at hst
+      omega)
+  have htot : dRank sk (wpk h) k (sk.nChildren h (sk.stageScope h k))
+      = sk.dOf h (sk.stageScope h k) := dRank_total sk (wpk h) k
+  omega
+
+/-- A disputed slot strictly before the last one leaves room for two:
+its rank plus the last slot's stay inside the D total. -/
+theorem dRank_below_lastD {h k i j : Nat} (hj : lastDOf sk h k = some j)
+    (hD : sk.childIsD h (sk.stageScope h k) i = true) (hne : i ≠ j) :
+    dRank sk (wpk h) k i + 2 ≤ sk.dOf h (sk.stageScope h k) := by
+  have hij : i < j := by
+    rcases Nat.lt_or_ge i j with hlt | hge
+    · exact hlt
+    · have hji : j < i := by omega
+      have hfalse := lastDOf_max sk hj hji
+      rw [hD] at hfalse
+      exact absurd hfalse (by simp)
+  have hsucc := dRank_succ sk (wpk h) k i
+  rw [show sk.childIsD (wpk h).2 (sk.stageScope (wpk h).2 k) i
+      = sk.childIsD h (sk.stageScope h k) i from rfl,
+    if_pos hD] at hsucc
+  have hmono := dRank_mono sk (wpk h) k (show i + 1 ≤ j from hij)
+  have hlast := dRank_lastD sk hj
+  omega
 
 /-- `childChunk` at a walk key, `let`s resolved. -/
 theorem childChunk_eq (h k i : Nat) :
@@ -997,6 +1206,14 @@ theorem descIdx_total (hwf : sk.wellFormed = true) :
           (show h' + d + 1 < sk.rootH from by omega),
         show h' + d + 1 - 1 = h' + d from by omega]
       exact ihd h' (by omega)
+
+/-- A descended in-range cursor stays in range. -/
+theorem descIdx_le_stageLen (hwf : sk.wellFormed = true) {h' d j : Nat}
+    (hd : h' + d < sk.rootH) (hj : j ≤ sk.stageLen (h' + d)) :
+    descIdx sk h' d j ≤ sk.stageLen h' := by
+  have hmono := descIdx_mono sk h' d hj
+  rw [descIdx_total sk hwf d h' hd] at hmono
+  exact hmono
 
 -- ================================================ the master induction
 

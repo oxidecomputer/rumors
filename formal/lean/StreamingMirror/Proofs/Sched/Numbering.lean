@@ -419,7 +419,23 @@ theorem qSum_succ (pk : Party × Nat) (k i : Nat) :
   rw [List.range_succ, List.map_append, List.sum_append]
   simp
 
-private theorem countP_range_getD {α : Type _} (q : α → Bool) (d : α) :
+/-- `dRank` is monotone in the slot cursor. -/
+theorem dRank_mono (pk : Party × Nat) (k : Nat) : ∀ {i i' : Nat},
+    i ≤ i' → dRank sk pk k i ≤ dRank sk pk k i' := by
+  intro i i' hii
+  induction i' with
+  | zero =>
+      have h0 : i = 0 := by omega
+      subst h0
+      exact Nat.le_refl _
+  | succ i' ih =>
+      by_cases hlast : i = i' + 1
+      · subst hlast
+        exact Nat.le_refl _
+      · exact Nat.le_trans (ih (by omega))
+          (by rw [dRank_succ]; exact Nat.le_add_right _ _)
+
+theorem countP_range_getD {α : Type _} (q : α → Bool) (d : α) :
     ∀ (l : List α) (p : Nat → Bool),
       (∀ i, i < l.length → p i = q (l.getD i d)) →
       (List.range l.length).countP p = l.countP q
@@ -453,6 +469,18 @@ theorem dRank_total (pk : Party × Nat) (k : Nat) :
       exact countP_range_getD _ 0 _ _ fun i hi => by
         simp [Skel.childIsD, hh, List.getElem?_eq_getElem hi,
           List.getD_eq_getElem?_getD]
+
+/-- A D slot's rank stays under the scope's D total. -/
+theorem dRank_succ_le_dOf (pk : Party × Nat) {k i : Nat}
+    (hi : i < sk.nChildren pk.2 (sk.stageScope pk.2 k))
+    (hD : sk.childIsD pk.2 (sk.stageScope pk.2 k) i = true) :
+    dRank sk pk k i + 1 ≤ sk.dOf pk.2 (sk.stageScope pk.2 k) := by
+  have hsucc := dRank_succ sk pk k i
+  rw [if_pos hD] at hsucc
+  have hmono := dRank_mono sk pk k
+    (show i + 1 ≤ sk.nChildren pk.2 (sk.stageScope pk.2 k) from hi)
+  have htot := dRank_total sk pk k
+  omega
 
 private theorem foldl_add_eq_map_sum (f : Nat → Nat) :
     ∀ (l : List Nat) (b : Nat),

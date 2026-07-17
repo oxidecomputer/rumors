@@ -43,6 +43,10 @@ theorem asks_succ (p : Party) (j : Nat) :
   rcases Nat.mod_two_eq_zero_or_one j with hm | hm <;>
     cases p <;> simp [asks, Nat.add_mod, hm]
 
+/-- Asking has period two in the level. -/
+theorem asks_add_two (p : Party) (j : Nat) : asks p (j + 2) = asks p j := by
+  rw [show j + 2 = j + 1 + 1 from rfl, asks_succ, asks_succ, Bool.not_not]
+
 /-- `wellFormed` puts at least one slot in every level window. -/
 theorem wf_capLevel {sk : Skel} (hwf : sk.wellFormed = true) :
     1 ≤ sk.capLevel := by
