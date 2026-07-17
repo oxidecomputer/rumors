@@ -77,8 +77,12 @@ walk's summary count sits strictly inside the cut (a pre-splice
 ancestor, or the emission's own unsent summary), `step` when the
 splice has fired below — the summary count touches the cut, the lower
 walk's pends line equals its resolution count (the splice identity),
-and the chain continues two stages down. Layer D reads each link off
-the worklist tail's `descIdx` windows (`align_kids_suffix`). -/
+and the chain continues two stages down. The initiator side bottoms
+out below stage 2 at `absorbBase`: the stage-1 allocation cut is fed
+by the absorber, so the unsent leaf request stands in for the unsent
+summary (`p` is a uniform parameter, hence the equation hypothesis).
+Layer D reads each link off the worklist tail's `descIdx` windows
+(`align_kids_suffix`). -/
 inductive SpineLink (st : MState) (p : Party) : Nat → Prop
   | base (g : Nat)
       (hlt : sndCount (Chan.upper p g) st.out
@@ -94,6 +98,10 @@ inductive SpineLink (st : MState) (p : Party) : Nat → Prop
           = sndCount (Chan.lower p g) st.out)
       (prev : SpineLink st p g) :
       SpineLink st p (g + 2)
+  | absorbBase (hp : p = Party.I)
+      (hlt : sndCount Chan.leafRequests st.out
+        < sk.pendsBefore p 1 (sndCount (Chan.lower p 1) st.out)) :
+      SpineLink st p 1
 
 /-- `Φ` from the spine chain: the level supply below an answerer
 stage stays strictly inside the in-flight allocation cut.
@@ -105,7 +113,9 @@ outright — resolution consumption cannot pass an unsent summary. At a
 its pends line (`asm_pends_le_out`) plus the splice identity force
 the answerer below to have delivered everything it was sent — which
 the induction hypothesis (its own `Φ`, again through
-`asm_pends_le_out`) refutes. -/
+`asm_pends_le_out`) refutes. At the `absorbBase` bottom the producer
+is the absorber, capped request-side (`absorb_out_le_req`) by the
+unsent leaf request strictly inside the cut. -/
 theorem phi_of_spine (hwf : sk.wellFormed = true) {fut : List Ev}
     {st : MState} (h : WEdge sk fut st)
     {p : Party} {top : Nat}
@@ -190,3 +200,12 @@ theorem phi_of_spine (hwf : sk.wellFormed = true) {fut : List Ev}
             = sndCount (Chan.upper p g) st.out := by omega
         rw [hOe, hpb] at hpo1
         omega
+  | absorbBase hp hlt =>
+      intro _ _
+      subst hp
+      have hor := absorb_out_le_req sk hwf h.toWCount
+      have hwr := wedge_rcvd_le_sent sk hwf h Chan.leafRequests
+      show sndCount (Chan.level Party.I 0) st.out
+        < sk.pendsBefore Party.I 1
+            (sndCount (Chan.lower Party.I 1) st.out)
+      omega
