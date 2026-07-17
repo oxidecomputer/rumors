@@ -836,6 +836,7 @@ impl<T, B: Bookmark> Peer<T, B> {
     /// Run the change-driven gossip driver behind
     /// [`Rumors::gossip_when`](crate::Rumors::gossip_when); the public
     /// contract lives there.
+    #[must_use = "the driver does nothing until the returned stream is polled"]
     pub(crate) fn gossip_when<'a, CR, CW, C, A, S>(
         &'a self,
         when: S,

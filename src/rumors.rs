@@ -343,7 +343,9 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// - the remote hangs up at a session boundary, cleanly.
     ///
     /// After either clean termination the link rests at a session boundary
-    /// and stays usable: hand it to another driver or session.
+    /// and stays usable: hand it to another driver or session. Each driven
+    /// session carries the [session contract](crate#what-a-session-promises)
+    /// of a one-shot [`gossip`](Self::gossip).
     ///
     /// # Suppression
     ///
@@ -405,6 +407,7 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// # })?;
     /// # Ok::<(), rumors::Error>(())
     /// ```
+    #[must_use = "the driver does nothing until the returned stream is polled"]
     pub fn gossip_when<'a, CR, CW, C, A, S>(
         &'a self,
         when: S,

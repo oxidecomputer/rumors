@@ -202,15 +202,18 @@ impl<T> Peer<T> {
     /// Bootstrap a brand-new rumor set from a remote peer.
     ///
     /// `Ok(None)` means the counterparty was itself still bootstrapping, so
-    /// neither side had anything to share and no identity moved. Connect to
-    /// another peer and try again.
+    /// neither side had anything to share and no identity moved. It is a
+    /// clean session boundary: the link remains usable. Connect to another
+    /// peer and try again.
     ///
     /// On `Ok(Some(peer))` the provider has confirmed committing its side of
     /// the donation. The confirmation exchange leaves one irreducible
     /// residue (the two-generals problem): if the session fails at the very
     /// end with [`Error::Epilogue`], the provider may have committed while
     /// our side reports an error, and the forked identity leaks — benignly,
-    /// like any fork lost in flight.
+    /// like any fork lost in flight. The full session contract, including
+    /// failure and cancellation semantics, is in the
+    /// [crate docs](crate#what-a-session-promises).
     ///
     /// The peer arrives unbookmarked: its identity has been forked away to us
     /// but not yet persisted, so a crash before it is recorded strands it. To
@@ -286,7 +289,9 @@ impl<T, B: Bookmark> Peer<T, B> {
     /// See the [type-level lifecycle example](Peer) for how the four
     /// [`Retire`] outcomes are handled; in brief, a session reconciles content
     /// exactly as [`gossip`](crate::Rumors::gossip) would and then the peer
-    /// absorbs our identity, with the outcome reporting what survived.
+    /// absorbs our identity, with the outcome reporting what survived. The
+    /// full session contract, including failure and cancellation semantics,
+    /// is in the [crate docs](crate#what-a-session-promises).
     pub async fn retire<CR, CW, C, A>(self, link: &mut Link<CR, CW, C, A>) -> Retire<T, B>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,

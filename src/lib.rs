@@ -190,6 +190,42 @@
 //! [`conformance`] suite (behind the `conformance` cargo feature) to
 //! validate a custom implementation against the contract.
 //!
+//! # What a session promises
+//!
+//! Every session — [`gossip`](Rumors::gossip), each session driven by
+//! [`gossip_when`](Rumors::gossip_when), [`bootstrap`](Peer::bootstrap), and
+//! [`retire`](Peer::retire) — resolves in one of three ways:
+//!
+//! - **`Ok`: both replicas committed.** Under the default [`Protocol::V2`],
+//!   each side ends its session work by exchanging a completion marker on
+//!   the control stream, so `Ok` certifies that the *peer* completed and
+//!   committed too — every message and identity the session moved is
+//!   applied on both ends — and the link rests at the session boundary,
+//!   ready for this pair's next session. One residue is irreducible (the
+//!   two-generals problem): the final marker itself can be lost, in which
+//!   case the peer observes the distinguished post-commit
+//!   [`Error::Epilogue`] — an `Err` whose replica is nonetheless fully
+//!   committed. The frozen `V1` oracle wire has no marker exchange, so its
+//!   `Ok` is weaker: it certifies only the local commit.
+//! - **`Err`: the local replica is unchanged** (with the qualified
+//!   exceptions stated on [`Rumors::gossip`]: the post-commit
+//!   [`Error::Epilogue`], and a donated bootstrap fork whose id-region is
+//!   deliberately leaked), **and the link is poisoned**: its control stream
+//!   rests mid-frame, so every further session on it fails fast with
+//!   [`Error::LinkPoisoned`]. Discard the link and reconnect. `retire`
+//!   reports failure through [`Retire`]'s variants — stating which side of
+//!   the identity hand-off the failure landed on — with the same link
+//!   consequences.
+//! - **Cancellation: as `Err`, enforced the same way.** Dropping a session
+//!   future mid-flight never commits a partial session — the replica holds
+//!   either the session's full effect or none of it — and poisons the link.
+//!
+//! No session imposes its own deadline. Against a stalled or hostile peer a
+//! session can wait forever — including at the final marker exchange — so
+//! the *caller* owns the timeout: wrap sessions in your runtime's timeout
+//! and treat expiry as any other cancellation (replica intact or fully
+//! committed, link poisoned, reconnect).
+//!
 //! # Runtime independence
 //!
 //! Sessions and observers are plain futures and streams, driven entirely by

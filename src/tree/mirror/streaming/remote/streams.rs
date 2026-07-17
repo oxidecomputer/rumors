@@ -638,6 +638,13 @@ impl From<AcceptError> for AcceptFate {
 #[derive(Debug, thiserror::Error)]
 pub enum AcceptError {
     /// A stream was labeled with another session's epoch.
+    ///
+    /// Between honest peers the common cause is a link reused after a
+    /// cancelled or failed session: the two ends' session counters no
+    /// longer agree, so the next session's streams arrive mislabeled. Link
+    /// poisoning fails such reuse fast before it reaches this diagnosis; a
+    /// wrapper that reassembles [`LinkParts`](crate::link::LinkParts)
+    /// without preserving its `session` state can still produce it.
     #[error("{origin}: stream labeled for session epoch {actual}, expected {expected}")]
     Epoch {
         origin: Origin,
