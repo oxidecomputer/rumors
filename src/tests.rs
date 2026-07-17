@@ -105,14 +105,32 @@ fn overlapping_retiree_party_is_rejected() {
         bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
     };
 
-    let (_retire_out, survivor_out) = pollster::block_on(async {
-        let (mut a_link, mut b_link) = memory();
-        tokio::join!(forged.retire(&mut a_link), survivor.gossip(&mut b_link))
+    // Each side's future owns its link: the absorber rejects the overlap
+    // *before* writing its epilogue marker, so only its link drop lets the
+    // forged retiree's marker read observe the abort as EOF.
+    let (retire_out, survivor_out) = pollster::block_on(async {
+        let (a_link, b_link) = memory();
+        tokio::join!(
+            async move {
+                let mut a_link = a_link;
+                forged.retire(&mut a_link).await
+            },
+            async move {
+                let mut b_link = b_link;
+                survivor.gossip(&mut b_link).await
+            },
+        )
     });
 
     assert!(
         matches!(survivor_out, Err(Error::PartyOverlap)),
         "absorbing an overlapping party must surface PartyOverlap, got {survivor_out:?}"
+    );
+    // The absorber aborted pre-marker, so the forged retiree's party is in
+    // limbo: `Uncertain`, never a false `Retired`.
+    assert!(
+        matches!(retire_out, Retire::Uncertain { .. }),
+        "an unconfirmed in-flight party must consume the retiree, got {retire_out:?}"
     );
 }
 
@@ -364,6 +382,48 @@ fn severed_descent_recovers_the_retiree() {
         Party::seed(),
         "a severed-then-retried retire must reconstitute the whole id-space",
     );
+}
+
+/// A session severed on the retiree's epilogue marker itself — the last byte
+/// of a clean retire session — still consumes the retiree.
+///
+/// The party frame was delivered whole, so the absorber may well hold the
+/// identity: [`Retire::Recovered`] here would let the same identity live
+/// twice, and [`Retire::Retired`] would overstate (the peer's commit was
+/// never confirmed). The only sound outcome is [`Retire::Uncertain`], and
+/// its error is the distinguished post-commit [`Error::Epilogue`]: the
+/// epilogue's failure return must preserve the retire outcome rather than
+/// mapping back to a recovery.
+#[test]
+fn severed_epilogue_marker_is_uncertain() {
+    let survivor = Peer::<u64>::seed();
+    let (mut survivor, child) = bootstrap_from(survivor);
+
+    // Both empty and converged, so the retiree's outgoing bytes are exactly
+    // preamble + greeting + party frame + epilogue marker. The budget is
+    // that full clean session minus one byte: everything through the party
+    // frame is delivered, and the marker write is the write that fails.
+    let party_frame_len = crate::tree::mirror::framing::LENGTH_HEADER_LEN
+        + borsh::to_vec(&party_of(&child))
+            .expect("a party serializes")
+            .len();
+    let budget = PREAMBLE_LEN + greeting_frame_len(&child) + party_frame_len;
+    let (child_out, peer_out) = severed_retire(child, &mut survivor, budget);
+
+    let Retire::Uncertain { error } = child_out else {
+        panic!("a failure on the epilogue marker must consume the retiree, got {child_out:?}");
+    };
+    assert!(
+        matches!(error, Error::Epilogue(_)),
+        "the post-hand-off failure is the distinguished post-commit error, got {error:?}"
+    );
+    // The absorber committed the party before its own epilogue read hit the
+    // severed wire: it reports the same post-commit residue.
+    assert!(
+        matches!(peer_out, Err(Error::Epilogue(_))),
+        "the absorber's confirmation of the retiree's completion fails, got {peer_out:?}"
+    );
+    drop(survivor);
 }
 
 /// A session severed on the trailing party frame itself is the irreducible

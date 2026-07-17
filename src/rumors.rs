@@ -284,8 +284,10 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// [`Link`].
     ///
     /// On `Ok`, both replicas hold every message either one held when the
-    /// session began (the full contract, including failure and cancellation
-    /// semantics, is in the [crate docs](crate#what-a-session-promises)).
+    /// session began, and the peer has confirmed that it completed and
+    /// committed the session too (the full contract, including failure and
+    /// cancellation semantics, is in the
+    /// [crate docs](crate#what-a-session-promises)).
     ///
     /// Gossip sessions may run concurrently on different clones of the same
     /// [`Rumors`], each over its own link; each commits atomically when it
@@ -293,9 +295,13 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// borrow enforces.
     ///
     /// On `Ok`, the link rests exactly at the session boundary, ready to
-    /// host this pair's next session. On `Err`, the replica is unchanged,
-    /// but the link's control stream is mid-frame garbage: discard the link
-    /// rather than starting another session on it.
+    /// host this pair's next session. On `Err`, discard the link: its
+    /// control stream is mid-frame garbage. The replica is unchanged by an
+    /// `Err`, with one distinguished exception: on [`Error::Epilogue`] every
+    /// local effect of the session is already committed, and only the
+    /// confirmation of the *peer's* completion failed — the residue the
+    /// closing marker exchange cannot eliminate, since the final marker
+    /// itself can be lost (the two-generals problem).
     pub async fn gossip<CR, CW, C, A>(&self, link: &mut Link<CR, CW, C, A>) -> Result<(), Error<B>>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,

@@ -42,6 +42,16 @@ use super::{Inner, Peer};
 /// Magic bytes that open every `rumors` gossip session's preamble frame.
 pub const PROTOCOL_MAGIC: [u8; 6] = *b"RUMORS";
 
+/// The one epilogue marker byte each side writes on the control stream after
+/// all of its session work, under [`Protocol::V2`].
+///
+/// Reading the peer's marker is what lets `Ok` certify that the peer
+/// completed and committed too. Deliberately distinct from
+/// [`PROTOCOL_MAGIC`]'s first byte (`b'R'`): a desynchronized peer that
+/// starts its next preamble where an epilogue belongs is diagnosed as a
+/// protocol violation, not mistaken for completion.
+const EPILOGUE_MARKER: u8 = b'.';
+
 /// A session's control read half with its concrete transport type erased.
 ///
 /// Every session entry point erases its caller's [`Link`] — the control
@@ -79,8 +89,8 @@ type DynLinkParts<'a> = (DynRead<'a>, DynWrite<'a>, DynConnector, DynAcceptor<'a
 #[must_use = "a declined or recovered retirement hands the Peer back; dropping it leaks the identity"]
 #[derive(Debug)]
 pub enum Retire<T, B: BookmarkError = NoBookmark> {
-    /// **Retired.** The peer reconciled with us and absorbed our identity;
-    /// this replica has left the universe.
+    /// **Retired.** The peer reconciled with us, absorbed our identity, and
+    /// confirmed the absorption; this replica has left the universe.
     Retired,
     /// **Declined, unchanged.** The peer was itself retiring, so nothing our
     /// replica is handed back intact, to try retiring elsewhere.
@@ -100,6 +110,10 @@ pub enum Retire<T, B: BookmarkError = NoBookmark> {
     /// **Uncertain.** The session failed while our identity itself was in
     /// flight: the peer may or may not hold it, so our peer is consumed
     /// rather than risk the same identity living twice.
+    ///
+    /// In flight covers the party frame itself and everything after it:
+    /// a failure while awaiting the peer's commit confirmation (the
+    /// two-generals residue) lands here too.
     Uncertain {
         /// What failed the session.
         error: Error<B>,
@@ -206,13 +220,13 @@ impl<T> Peer<T, NoBookmark> {
 
             // Reconcile from an empty tree using the selected wire protocol. Both
             // branches return the same lifecycle boundary: a materialized root and
-            // the raw reader positioned at the trailing party frame.
+            // the raw control halves positioned at the trailing party frame.
             // `BoxFuture` is the compile-time boundary: `Box::pin` alone would
             // allocate the state while still exposing its enormous concrete type.
             #[allow(clippy::type_complexity)]
             let reconcile: BoxFuture<
                 '_,
-                Result<Option<(tree::Root<T>, DynRead<'a>)>, Error>,
+                Result<Option<(tree::Root<T>, DynRead<'a>, DynWrite<'a>)>, Error>,
             > = match protocol {
                 Protocol::V2 => Box::pin(async move {
                     let local_root: streaming::Root<Local, T> = tree::Root::default().into();
@@ -222,12 +236,20 @@ impl<T> Peer<T, NoBookmark> {
                     let handshaken = streaming::handshake(local, proxy)
                         .await
                         .map_err(streaming_error)?;
-                    if remote.network.is_bootstrap() {
+                    // A counterparty that is itself bootstrapping has nothing
+                    // to hand us, but the session still ends with the
+                    // epilogue. Both trees are empty, so the versions are
+                    // equal and `reconcile` resolves to the untouched control
+                    // halves without opening a data stream; the marker
+                    // exchange then certifies the mutual bail to both sides.
+                    let both_bootstrapping = remote.network.is_bootstrap();
+                    let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
+                    let (root, (mut read, mut write)) = descent.await.map_err(streaming_error)?;
+                    if both_bootstrapping {
+                        epilogue(&mut read, &mut write).await?;
                         return Ok(None);
                     }
-                    let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
-                    let (root, (read, _write)) = descent.await.map_err(streaming_error)?;
-                    Ok(Some((root.into(), read)))
+                    Ok(Some((root.into(), read, write)))
                 }),
                 #[cfg(any(test, feature = "protocol-v1"))]
                 Protocol::V1 => Box::pin(async move {
@@ -239,18 +261,29 @@ impl<T> Peer<T, NoBookmark> {
                     let handshaken = alternating::handshake(local, proxy)
                         .await
                         .map_err(alternating_error)?;
+                    // The frozen V1 wire has no epilogue: a mutual bootstrap
+                    // bails right here, exactly as V1 always has.
                     if remote.network.is_bootstrap() {
                         return Ok(None);
                     }
                     let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
-                    let (root, (read, _write)) = descent.await.map_err(alternating_error)?;
-                    Ok(Some((root, read.into_inner())))
+                    let (root, (read, write)) = descent.await.map_err(alternating_error)?;
+                    Ok(Some((root, read.into_inner(), write.into_inner())))
                 }),
             };
-            let Some((root, read)) = reconcile.await? else {
+            let Some((root, mut read, mut write)) = reconcile.await? else {
                 return Ok(None);
             };
-            let party = party::receive(read).await?;
+            let party = party::receive(&mut read).await?;
+            // Our absorption of the received identity completes with the
+            // in-memory `Peer` construction below, which cannot fail: certify
+            // completion now, and require the provider's certificate so `Ok`
+            // means it committed its donation. (V2 only; the V1 wire is
+            // frozen.) On `Err` the received fork is dropped — its region
+            // leaks, benignly, like any fork lost in flight.
+            if protocol == Protocol::V2 {
+                epilogue(&mut read, &mut write).await?;
+            }
             let peer = Self {
                 network: remote.network,
                 protocol,
@@ -507,8 +540,15 @@ impl<T, B: Persist> Peer<T, B> {
         let self_retiring = intent == Intent::Retire;
         let peer_retiring = remote.intent == Intent::Retire;
 
-        // Stop cleanly, early if we're both trying to retire into each other
+        // Stop cleanly, early if we're both trying to retire into each other.
+        // Symmetric by construction: both sides take this same branch, so the
+        // epilogue markers pair up with no session body between them.
         if self_retiring && peer_retiring {
+            if self.protocol == Protocol::V2
+                && let Err(e) = epilogue(read, write).await
+            {
+                return (Intent::Remain, Err(e.widen()));
+            }
             let unchanged = self.inner.borrow().tree.latest().clone();
             return (Intent::Remain, Ok(unchanged));
         }
@@ -718,6 +758,21 @@ impl<T, B: Persist> Peer<T, B> {
             return (Intent::Remain, Err(Error::Bookmark(e)));
         }
 
+        // All local session work is done and committed: certify completion to
+        // the peer and require its certificate in return, so `Ok` below means
+        // the *peer* completed and committed too. This one insertion point
+        // covers every side — plain gossip, serving a bootstrap, the retiree
+        // (its party is sent above), and the absorber (its bookmark update is
+        // committed above; under `NoBookmark` that commit is in-memory only).
+        // The failure return must preserve `outcome`: a retiree whose party
+        // crossed the wire but whose epilogue failed is post-hand-off, and
+        // mapping it back to `Intent::Remain` would duplicate the identity.
+        if self.protocol == Protocol::V2
+            && let Err(e) = epilogue(read, write).await
+        {
+            return (outcome, Err(e.widen()));
+        }
+
         // In the case where we successfully retired (only callable on the
         // !Clone `Peer<T>`), we've given away our inner party and no more
         // actions are possible, so don't hand back the `Peer`.
@@ -867,6 +922,44 @@ where
         &mut link.acceptor as DynAcceptor<'a>,
         epoch,
     )
+}
+
+/// Exchange the V2 session epilogue: write our completion marker, flush, and
+/// read the peer's, concurrently (mirroring [`handshake::preamble`]).
+///
+/// Runs strictly after *all* local session work — the descent, any identity
+/// hand-off, and the local commit — so a received marker certifies the peer
+/// reached the same point. Both sides write and flush before either read
+/// resolves, so the exchange cannot deadlock. Failure is [`Error::Epilogue`]:
+/// post-commit by construction, with a non-marker byte surfaced as an
+/// invalid-data protocol violation rather than an honest wire cut.
+async fn epilogue(
+    read: &mut (dyn AsyncRead + Unpin + Send + '_),
+    write: &mut (dyn AsyncWrite + Unpin + Send + '_),
+) -> Result<(), Error> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let send = async {
+        write.write_all(&[EPILOGUE_MARKER]).await?;
+        write.flush().await
+    };
+    let receive = async {
+        let mut marker = [0u8; 1];
+        read.read_exact(&mut marker).await?;
+        if marker[0] != EPILOGUE_MARKER {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "peer wrote {:#04x} where the epilogue marker belongs",
+                    marker[0]
+                ),
+            ));
+        }
+        Ok(())
+    };
+    futures_util::future::try_join(send, receive)
+        .await
+        .map(|((), ())| ())
+        .map_err(Error::Epilogue)
 }
 
 /// What woke the [`gossip_when`](Peer::gossip_when) driver out of its idle

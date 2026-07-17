@@ -1,6 +1,5 @@
 ---
 source: tests/gossip_snapshot.rs
-assertion_line: 258
 expression: "capture_gossip(a, b)"
 ---
 direction A -> B
@@ -17,6 +16,8 @@ Responder stream 0 (height 31), epoch 0
     0000: 11
   frame 1: End(Stream)
     0000: 99
+trailing frame: 1 bytes
+  0000: 2e
 
 direction B -> A
 preamble: 25 bytes
@@ -34,3 +35,5 @@ Initiator stream 0 (height 31), epoch 0
     0010: ea 0c 12
   frame 1: End(Stream)
     0000: 99
+trailing frame: 1 bytes
+  0000: 2e

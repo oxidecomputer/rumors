@@ -11,6 +11,8 @@ preamble: 25 bytes
 version: 2
 version frame: 5 bytes
   0000: 00 00 00 01 30
+trailing frame: 1 bytes
+  0000: 2e
 
 direction B -> A
 preamble: 25 bytes
@@ -21,3 +23,5 @@ preamble: 25 bytes
 version: 2
 version frame: 5 bytes
   0000: 00 00 00 01 30
+trailing frame: 1 bytes
+  0000: 2e

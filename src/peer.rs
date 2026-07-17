@@ -202,8 +202,15 @@ impl<T> Peer<T> {
     /// Bootstrap a brand-new rumor set from a remote peer.
     ///
     /// `Ok(None)` means the counterparty was itself still bootstrapping, so
-    /// neither side had anything to share and nothing was exchanged. Connect to
+    /// neither side had anything to share and no identity moved. Connect to
     /// another peer and try again.
+    ///
+    /// On `Ok(Some(peer))` the provider has confirmed committing its side of
+    /// the donation. The confirmation exchange leaves one irreducible
+    /// residue (the two-generals problem): if the session fails at the very
+    /// end with [`Error::Epilogue`], the provider may have committed while
+    /// our side reports an error, and the forked identity leaks — benignly,
+    /// like any fork lost in flight.
     ///
     /// The peer arrives unbookmarked: its identity has been forked away to us
     /// but not yet persisted, so a crash before it is recorded strands it. To

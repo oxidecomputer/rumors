@@ -233,6 +233,10 @@ pub fn assert_honest_error(e: &Error) {
 pub fn is_honest_error(error: &Error) -> bool {
     match error {
         Error::Io(error) => honest_io(error),
+        // A cut that lands on the closing epilogue exchange is post-commit
+        // but still an honest severed wire; a non-marker byte there
+        // (`InvalidData`) stays dishonest, as everywhere.
+        Error::Epilogue(error) => honest_io(error),
         Error::Mirror(MirrorError::Server(error)) => honest_remote(error),
         _ => false,
     }

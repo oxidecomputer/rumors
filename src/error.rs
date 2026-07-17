@@ -60,6 +60,21 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     #[error("retiring peer's party overlaps ours")]
     PartyOverlap,
 
+    /// The session's closing epilogue failed *after* the local replica
+    /// committed.
+    ///
+    /// Under [`Protocol::V2`] each side ends a session by
+    /// exchanging a one-byte completion marker on the control stream, so `Ok`
+    /// certifies the peer completed and committed too. This error is the
+    /// residue that exchange cannot eliminate (the two-generals problem): the
+    /// local replica **is** committed — every message and identity the session
+    /// moved is applied here — and only the confirmation of the *peer's*
+    /// completion failed. The source is the I/O failure that cut the exchange
+    /// short, or an invalid-data error if the peer wrote something other than
+    /// the marker where it belonged.
+    #[error("session epilogue failed after local commit: {0}")]
+    Epilogue(#[source] std::io::Error),
+
     /// The peer's intent byte had no defined meaning.
     #[error("peer sent an invalid intent byte ({byte:#04x})")]
     IntentInvalid { byte: u8 },
@@ -126,6 +141,7 @@ impl Error<NoBookmark> {
                 remote_min_events,
             },
             Error::PartyOverlap => Error::PartyOverlap,
+            Error::Epilogue(error) => Error::Epilogue(error),
             Error::IntentInvalid { byte } => Error::IntentInvalid { byte },
             Error::BootstrapRetireConflict => Error::BootstrapRetireConflict,
             Error::Mirror(error) => Error::Mirror(error),

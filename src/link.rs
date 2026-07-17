@@ -11,8 +11,9 @@
 //! uses them concurrently:
 //!
 //! - a persistent bidirectional **control stream** (its two halves), carrying
-//!   each session's preamble, causal-version handshake, and trailing identity
-//!   hand-off, in order, for the life of the link;
+//!   each session's preamble, causal-version handshake, trailing identity
+//!   hand-off, and (under the default protocol) one closing epilogue marker
+//!   byte, in order, for the life of the link;
 //! - a [`Connector`], from which the session lazily opens outgoing
 //!   unidirectional data streams mid-descent;
 //! - an [`Acceptor`], from which the session receives the peer's incoming

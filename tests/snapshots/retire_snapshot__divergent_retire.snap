@@ -1,6 +1,5 @@
 ---
 source: tests/retire_snapshot.rs
-assertion_line: 94
 expression: "capture_retire(seed, retiree)"
 ---
 direction A -> B
@@ -20,6 +19,8 @@ Responder stream 0 (height 31), epoch 0
     0008: 00 00 00 00 00 00
   frame 2: End(Stream)
     0000: 99
+trailing frame: 1 bytes
+  0000: 2e
 
 direction B -> A
 preamble: 25 bytes
@@ -43,5 +44,5 @@ Initiator stream 1 (height 30), epoch 0
     0008: 00 00 00 00 00 00
   frame 1: End(Stream)
     0000: 9a
-trailing frame: 5 bytes
-  0000: 00 00 00 01 40
+trailing frame: 6 bytes
+  0000: 00 00 00 01 40 2e

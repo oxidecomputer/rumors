@@ -98,7 +98,18 @@ impl Control {
             };
         }
 
-        assert!(rest.len() >= FRAME_LEN, "truncated version frame header");
+        // A session that ends before its causal greeting (a mutual retire
+        // declining at the preamble) still closes with the one-byte session
+        // epilogue marker: control bytes too short to be a version frame
+        // header are that trailing marker, not a truncated frame.
+        if rest.len() < FRAME_LEN {
+            return Self {
+                preamble: preamble.to_vec(),
+                version_frame: None,
+                version: None,
+                trailing: rest.to_vec(),
+            };
+        }
         let len = u32::from_be_bytes(rest[..FRAME_LEN].try_into().expect("header width")) as usize;
         let frame_end = FRAME_LEN + len;
         assert!(rest.len() >= frame_end, "truncated version frame");

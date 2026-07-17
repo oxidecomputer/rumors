@@ -382,9 +382,11 @@ async fn request_merge(
 /// Conclude a session stream gracefully: send our FIN, then wait for the
 /// peer's. EOF from the peer proves it finished writing and QUIC delivered
 /// everything; only then is it safe for either side to close the
-/// connection (`Connection::close` discards in-flight data, so closing
-/// before the FIN exchange races the peer's final frames — the bootstrap
-/// party frame especially).
+/// connection. The in-session frames are already protected by the protocol's
+/// own epilogue exchange; this grace period exists so a clean teardown does
+/// not race the peer's still-draining final bytes into a spurious
+/// post-commit error on its side (`Connection::close` discards in-flight
+/// data).
 async fn settle(send: &mut iroh::endpoint::SendStream, recv: &mut iroh::endpoint::RecvStream) {
     let _ = send.finish();
     let _ = timeout(TEARDOWN_GRACE, recv.read_to_end(64)).await;
