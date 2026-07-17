@@ -1073,7 +1073,7 @@ private theorem owned_map_range {f : Chan → Nat} {b : Bool}
       rw [List.length_map, List.length_range]
       exact ⟨fun e he hs => h n (Nat.lt_succ_self n) e he hs, trivial⟩
 
-private theorem owned_ge {f : Chan → Nat} {b : Bool} :
+theorem owned_ge {f : Chan → Nat} {b : Bool} :
     ∀ {i : Nat} {ts : List (List Ev)}, Owned f b i ts →
       ∀ t ∈ ts, ∀ e ∈ t, e.2.1 = b → i ≤ f e.1 := by
   intro i ts
@@ -1416,7 +1416,7 @@ theorem procs_rcv_owned (hwf : sk.wellFormed = true) :
 
 /-- A prefix of a canonical projection is the canonical projection of
 its own length. -/
-private theorem prefix_canon {c : Chan} {b : Bool} {m : Nat} {l : List Ev}
+theorem prefix_canon {c : Chan} {b : Bool} {m : Nat} {l : List Ev}
     (h : l <+: canon c b m) : l = canon c b l.length := by
   obtain ⟨s, hs⟩ := h
   have htake : (canon c b m).take l.length = canon c b l.length := by
@@ -1437,7 +1437,7 @@ private theorem proj_prefix {c : Chan} {b : Bool} {pre r : List Ev} :
   exact List.prefix_append ..
 
 /-- All-empty traces emit nothing on the channel-side. -/
-private theorem emitted_nil {c : Chan} {b : Bool} {out : List Ev} :
+theorem emitted_nil {c : Chan} {b : Bool} {out : List Ev} :
     ∀ {ts rs : List (List Ev)},
       Forall2 (fun t r => ∃ pre, t = pre ++ r ∧ pre.Sublist out) ts rs →
       (∀ t ∈ ts, proj c b t = []) →
