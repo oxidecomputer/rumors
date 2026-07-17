@@ -472,7 +472,7 @@ def chunkQ (h k i : Nat) : List Ev :=
 /-- Kid `i`'s events as the own-stage filter sees them: the trace's
 chunk with the parent summary spliced in when this kid closes the
 dispute list. -/
-private def splicedChunk (h k : Nat) (lastD : Option Nat) (i : Nat) :
+def splicedChunk (h k : Nat) (lastD : Option Nat) (i : Nat) :
     List Ev :=
   (wireOut (wpk h), true, sk.wiresBefore h k + i)
     :: if sk.childIsD h (sk.stageScope h k) i then
@@ -603,7 +603,7 @@ private theorem range_splice {j n : Nat} (hj : j < n) :
 -- ================================================== the splice, named
 
 /-- A `some` last-disputed slot is a real disputed slot. -/
-private theorem lastDOf_isD {h k j : Nat} (hj : lastDOf sk h k = some j) :
+theorem lastDOf_isD {h k j : Nat} (hj : lastDOf sk h k = some j) :
     sk.childIsD h (sk.stageScope h k) j = true
       ∧ j < sk.nChildren h (sk.stageScope h k) := by
   unfold lastDOf at hj
@@ -617,7 +617,7 @@ private theorem lastDOf_isD {h k j : Nat} (hj : lastDOf sk h k = some j) :
   exact ⟨hmem.2, hmem.1⟩
 
 /-- A `none` last-disputed slot means no slot disputes. -/
-private theorem lastDOf_none {h k : Nat} (hn : lastDOf sk h k = none) :
+theorem lastDOf_none {h k : Nat} (hn : lastDOf sk h k = none) :
     ∀ i < sk.nChildren h (sk.stageScope h k),
       sk.childIsD h (sk.stageScope h k) i = false := by
   unfold lastDOf at hn
@@ -627,7 +627,7 @@ private theorem lastDOf_none {h k : Nat} (hn : lastDOf sk h k = none) :
   simpa using this
 
 /-- `childChunk` at a walk key, `let`s resolved. -/
-private theorem childChunk_eq (h k i : Nat) :
+theorem childChunk_eq (h k i : Nat) :
     childChunk sk (wpk h) k i
       = if sk.childIsD h (sk.stageScope h k) i then
           (wireOut (wpk h), true, sk.wiresBefore h k + i)
@@ -642,7 +642,7 @@ private theorem childChunk_eq (h k i : Nat) :
 summary rides the last disputed chunk (after its resolution, before
 its queries), or leads when nothing disputes — `splicedChunk` is that
 placement, kid by kid. -/
-private theorem scopeSends_eq (h k : Nat) :
+theorem scopeSends_eq (h k : Nat) :
     scopeSends sk (wpk h) k
       = (if lastDOf sk h k == none
             then [((upperOut (wpk h), true, k) : Ev)] else [])
@@ -1490,7 +1490,7 @@ theorem align_scope (hwf : sk.wellFormed = true) :
 -- covers each whole stage via the telescope endpoints.
 
 /-- A whole-stage run is the stage's walk trace. -/
-private theorem walkSeg_full (h' : Nat) :
+theorem walkSeg_full (h' : Nat) :
     walkSeg sk h' 0 (sk.stageLen h') = walkEvents sk (wpk h') := by
   unfold walkSeg walkEvents
   rw [Nat.sub_zero, ← List.range_eq_range']

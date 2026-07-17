@@ -551,7 +551,7 @@ private theorem chunk_no_upper (pk : Party × Nat) (k i : Nat) :
   · exact lower_ne_upper pk
   · exact asked_ne_upper pk
 
-private theorem proj_chunk_wire (pk : Party × Nat) (k i : Nat) :
+theorem proj_chunk_wire (pk : Party × Nat) (k i : Nat) :
     proj (wireOut pk) true (childChunk sk pk k i)
       = seg (wireOut pk) true (sk.wiresBefore pk.2 k + i) 1 := by
   rw [seg_one]
@@ -563,7 +563,7 @@ private theorem proj_chunk_wire (pk : Party × Nat) (k i : Nat) :
   | false =>
       rw [chunkR sk pk k i hD, proj_cons_self, proj_nil]
 
-private theorem proj_chunk_res (pk : Party × Nat) (k i : Nat) :
+theorem proj_chunk_res (pk : Party × Nat) (k i : Nat) :
     proj (lowerOut pk) true (childChunk sk pk k i)
       = seg (lowerOut pk) true (sk.dsBefore pk.2 k + dRank sk pk k i)
           (dRank sk pk k (i + 1) - dRank sk pk k i) := by
@@ -580,7 +580,7 @@ private theorem proj_chunk_res (pk : Party × Nat) (k i : Nat) :
       rw [hd, seg_zero, chunkR sk pk k i hD,
         proj_cons_ne_chan (wire_ne_lower pk), proj_nil]
 
-private theorem proj_chunk_q (pk : Party × Nat) (k i : Nat) :
+theorem proj_chunk_q (pk : Party × Nat) (k i : Nat) :
     proj (askedOut pk) true (childChunk sk pk k i)
       = seg (askedOut pk) true (sk.qsBefore pk.2 k + qSum sk pk k i)
           (qSum sk pk k (i + 1) - qSum sk pk k i) := by
