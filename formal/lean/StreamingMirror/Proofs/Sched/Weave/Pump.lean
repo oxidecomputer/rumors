@@ -968,4 +968,483 @@ theorem asm_stuck (hwf : sk.wellFormed = true) {fut : List Ev}
         · rw [hOc, hc3]
           omega
 
+-- ============================================ absorb block-run counts
+
+/-- Absorb's per-leaf block, named for the run machinery. -/
+private def absorbBlock (j : Nat) : List Ev :=
+  [(Chan.wire Party.R 0, false, j),
+   (Chan.leafRequests, false, j),
+   (Chan.level Party.I 0, true, j)]
+
+private theorem absorbEvents_eq :
+    absorbEvents sk
+      = (List.range sk.totalLeafReqs).flatMap absorbBlock := rfl
+
+private theorem proj_absorbBlock_wire (j : Nat) :
+    proj (Chan.wire Party.R 0) false (absorbBlock j)
+      = seg (Chan.wire Party.R 0) false j 1 := by
+  rw [seg_one]; rfl
+
+private theorem proj_absorbBlock_leaf (j : Nat) :
+    proj Chan.leafRequests false (absorbBlock j)
+      = seg Chan.leafRequests false j 1 := by
+  rw [seg_one]; rfl
+
+private theorem proj_absorbBlock_level (j : Nat) :
+    proj (Chan.level Party.I 0) true (absorbBlock j)
+      = seg (Chan.level Party.I 0) true j 1 := by
+  rw [seg_one]; rfl
+
+private theorem proj_run_awire :
+    ∀ (m a : Nat),
+      proj (Chan.wire Party.R 0) false
+        ((List.range' a m).flatMap absorbBlock)
+      = seg (Chan.wire Party.R 0) false a m
+  | 0, _ => rfl
+  | m + 1, a => by
+      rw [List.range'_succ, List.flatMap_cons, proj_append,
+        proj_absorbBlock_wire, proj_run_awire m (a + 1),
+        seg_append, Nat.add_comm 1 m]
+
+private theorem proj_run_aleaf :
+    ∀ (m a : Nat),
+      proj Chan.leafRequests false
+        ((List.range' a m).flatMap absorbBlock)
+      = seg Chan.leafRequests false a m
+  | 0, _ => rfl
+  | m + 1, a => by
+      rw [List.range'_succ, List.flatMap_cons, proj_append,
+        proj_absorbBlock_leaf, proj_run_aleaf m (a + 1),
+        seg_append, Nat.add_comm 1 m]
+
+private theorem proj_run_alevel :
+    ∀ (m a : Nat),
+      proj (Chan.level Party.I 0) true
+        ((List.range' a m).flatMap absorbBlock)
+      = seg (Chan.level Party.I 0) true a m
+  | 0, _ => rfl
+  | m + 1, a => by
+      rw [List.range'_succ, List.flatMap_cons, proj_append,
+        proj_absorbBlock_level, proj_run_alevel m (a + 1),
+        seg_append, Nat.add_comm 1 m]
+
+/-- The absorb trace's whole-trace projections. -/
+private theorem absorb_totals :
+    proj (Chan.wire Party.R 0) false (absorbEvents sk)
+        = seg (Chan.wire Party.R 0) false 0 sk.totalLeafReqs
+    ∧ proj Chan.leafRequests false (absorbEvents sk)
+        = seg Chan.leafRequests false 0 sk.totalLeafReqs
+    ∧ proj (Chan.level Party.I 0) true (absorbEvents sk)
+        = seg (Chan.level Party.I 0) true 0 sk.totalLeafReqs := by
+  rw [absorbEvents_eq, List.range_eq_range']
+  exact ⟨proj_run_awire _ 0, proj_run_aleaf _ 0, proj_run_alevel _ 0⟩
+
+/-- THE ABSORB SUFFIX TRICHOTOMY: a nonempty unemitted cell of the
+absorb trace heads at its next wire receive, leaf request, or level-0
+send — the block position pins all three channel-side counts of the
+emitted prefix. -/
+theorem absorb_cell_shape {pre r : List Ev}
+    (hsplit : absorbEvents sk = pre ++ r) (hne : r ≠ []) :
+    ∃ t, t < sk.totalLeafReqs ∧
+      (((∃ rest, r = (Chan.wire Party.R 0, false, t) :: rest)
+        ∧ (proj (Chan.wire Party.R 0) false pre).length = t
+        ∧ (proj Chan.leafRequests false pre).length = t
+        ∧ (proj (Chan.level Party.I 0) true pre).length = t)
+      ∨ ((∃ rest, r = (Chan.leafRequests, false, t) :: rest)
+        ∧ (proj (Chan.wire Party.R 0) false pre).length = t + 1
+        ∧ (proj Chan.leafRequests false pre).length = t
+        ∧ (proj (Chan.level Party.I 0) true pre).length = t)
+      ∨ ((∃ rest, r = (Chan.level Party.I 0, true, t) :: rest)
+        ∧ (proj (Chan.wire Party.R 0) false pre).length = t + 1
+        ∧ (proj Chan.leafRequests false pre).length = t + 1
+        ∧ (proj (Chan.level Party.I 0) true pre).length = t)) := by
+  rw [absorbEvents_eq, List.range_eq_range'] at hsplit
+  obtain ⟨t, -, htN, p₂, r₂, hblock, hr₂, hpre, hr⟩ :=
+    prefix_flatMap _ 0 hsplit hne
+  rw [Nat.zero_add] at htN
+  rw [Nat.sub_zero] at hpre
+  have hw_run := proj_run_awire t 0
+  have hl_run := proj_run_aleaf t 0
+  have hv_run := proj_run_alevel t 0
+  refine ⟨t, htN, ?_⟩
+  match p₂, hblock with
+  | [], hblock =>
+      -- block boundary: the cell heads at the wire receive
+      rw [List.nil_append] at hblock
+      rw [List.append_nil] at hpre
+      refine Or.inl ⟨⟨(Chan.leafRequests, false, t)
+          :: (Chan.level Party.I 0, true, t)
+          :: (List.range' (t + 1)
+              (0 + sk.totalLeafReqs - t - 1)).flatMap absorbBlock,
+        ?_⟩, ?_, ?_, ?_⟩
+      · rw [hr, ← hblock]
+        rfl
+      · rw [hpre, hw_run, seg_len]
+      · rw [hpre, hl_run, seg_len]
+      · rw [hpre, hv_run, seg_len]
+  | e :: p₃, hblock =>
+      rw [List.cons_append] at hblock
+      injection hblock with he1 hinner
+      subst he1
+      match p₃, hinner with
+      | [], hinner =>
+          -- the cell heads at the leaf request
+          rw [List.nil_append] at hinner
+          refine Or.inr (Or.inl ⟨⟨(Chan.level Party.I 0, true, t)
+              :: (List.range' (t + 1)
+                  (0 + sk.totalLeafReqs - t - 1)).flatMap absorbBlock,
+            ?_⟩, ?_, ?_, ?_⟩)
+          · rw [hr, ← hinner]
+            rfl
+          · rw [hpre, proj_append, hw_run, List.length_append, seg_len]
+            rfl
+          · rw [hpre, proj_append, hl_run, List.length_append, seg_len]
+            rfl
+          · rw [hpre, proj_append, hv_run, List.length_append, seg_len]
+            rfl
+      | e' :: p₄, hinner =>
+          rw [List.cons_append] at hinner
+          injection hinner with he2 hinner₂
+          subst he2
+          match p₄, hinner₂ with
+          | [], hinner₂ =>
+              -- the cell heads at the level-0 send
+              rw [List.nil_append] at hinner₂
+              refine Or.inr (Or.inr ⟨⟨(List.range' (t + 1)
+                  (0 + sk.totalLeafReqs - t - 1)).flatMap absorbBlock,
+                ?_⟩, ?_, ?_, ?_⟩)
+              · rw [hr, ← hinner₂]
+                rfl
+              · rw [hpre, proj_append, hw_run, List.length_append,
+                  seg_len]
+                rfl
+              · rw [hpre, proj_append, hl_run, List.length_append,
+                  seg_len]
+                rfl
+              · rw [hpre, proj_append, hv_run, List.length_append,
+                  seg_len]
+                rfl
+          | e'' :: p₅, hinner₂ =>
+              exfalso
+              rw [List.cons_append] at hinner₂
+              injection hinner₂ with he3 hinner₃
+              exact hr₂ (List.append_eq_nil_iff.1 hinner₃.symm).2
+
+/-- THE ABSORB STUCK TRICHOTOMY: at a pump fixpoint the absorber is
+exhausted, wire-starved, request-starved, or blocked on its level-0
+output — each with all three counts pinned and the failed guard
+recorded. -/
+theorem absorb_stuck (hwf : sk.wellFormed = true) {fut : List Ev}
+    {st : MState} (h : WCount sk fut st)
+    (hfix : step sk st = none) :
+    (rcvCount (Chan.wire Party.R 0) st.out = sk.totalLeafReqs
+      ∧ rcvCount Chan.leafRequests st.out = sk.totalLeafReqs
+      ∧ sndCount (Chan.level Party.I 0) st.out = sk.totalLeafReqs)
+    ∨ (rcvCount (Chan.wire Party.R 0) st.out < sk.totalLeafReqs
+      ∧ rcvCount Chan.leafRequests st.out
+          = rcvCount (Chan.wire Party.R 0) st.out
+      ∧ sndCount (Chan.level Party.I 0) st.out
+          = rcvCount (Chan.wire Party.R 0) st.out
+      ∧ sndCount (Chan.wire Party.R 0) st.out
+          ≤ rcvCount (Chan.wire Party.R 0) st.out)
+    ∨ (rcvCount Chan.leafRequests st.out < sk.totalLeafReqs
+      ∧ rcvCount (Chan.wire Party.R 0) st.out
+          = rcvCount Chan.leafRequests st.out + 1
+      ∧ sndCount (Chan.level Party.I 0) st.out
+          = rcvCount Chan.leafRequests st.out
+      ∧ sndCount Chan.leafRequests st.out
+          ≤ rcvCount Chan.leafRequests st.out)
+    ∨ (sndCount (Chan.level Party.I 0) st.out < sk.totalLeafReqs
+      ∧ rcvCount (Chan.wire Party.R 0) st.out
+          = sndCount (Chan.level Party.I 0) st.out + 1
+      ∧ rcvCount Chan.leafRequests st.out
+          = sndCount (Chan.level Party.I 0) st.out + 1
+      ∧ rcvCount (Chan.level Party.I 0) st.out
+          + sk.cap (Chan.level Party.I 0)
+          ≤ sndCount (Chan.level Party.I 0) st.out) := by
+  have hwo : rcvOwner sk (Chan.wire Party.R 0) = 2 + sk.rootH := by
+    simp [rcvOwner]
+  have hlo : rcvOwner sk Chan.leafRequests = 2 + sk.rootH := rfl
+  have hvo : sndOwner sk (Chan.level Party.I 0) = 2 + sk.rootH := by
+    simp [sndOwner]
+  have hIdx := procs_absorb sk
+  obtain ⟨r, pre, hr, hpre, hsub⟩ := cell_of_owner sk h hIdx
+  have hWc : rcvCount (Chan.wire Party.R 0) st.out
+      = (proj (Chan.wire Party.R 0) false pre).length := by
+    rw [rcvCount_eq_proj,
+      out_proj_owner sk hwf h _ false (by simpa using hwo)
+        hIdx hr hpre hsub]
+  have hLc : rcvCount Chan.leafRequests st.out
+      = (proj Chan.leafRequests false pre).length := by
+    rw [rcvCount_eq_proj,
+      out_proj_owner sk hwf h _ false (by simpa using hlo)
+        hIdx hr hpre hsub]
+  have hVc : sndCount (Chan.level Party.I 0) st.out
+      = (proj (Chan.level Party.I 0) true pre).length := by
+    rw [sndCount_eq_proj,
+      out_proj_owner sk hwf h _ true (by simpa using hvo)
+        hIdx hr hpre hsub]
+  cases r with
+  | nil =>
+      -- exhausted: the emitted prefix is the whole trace
+      rw [List.append_nil] at hpre
+      obtain ⟨ht1, ht2, ht3⟩ := absorb_totals sk
+      rw [hpre] at ht1 ht2 ht3
+      refine Or.inl ⟨?_, ?_, ?_⟩
+      · rw [hWc, ht1, seg_len]
+      · rw [hLc, ht2, seg_len]
+      · rw [hVc, ht3, seg_len]
+  | cons e₀ rest₀ =>
+      -- a live head, disabled at the fixpoint
+      have hrem : st.rem[2 + sk.rootH - manCount sk]?
+          = some (e₀ :: rest₀) := by
+        rw [List.getElem?_append_right
+          (by rw [manFilters_length]; exact Nat.le_refl _),
+          manFilters_length] at hr
+        exact hr
+      have hdis : enabled sk st.sent st.rcvd e₀ = false := by
+        unfold step at hfix
+        cases hscan : scan sk st.sent st.rcvd st.rem with
+        | some pr => rw [hscan] at hfix; simp at hfix
+        | none => exact scan_none_heads sk hscan hrem
+      obtain ⟨t, htN, hshape⟩ := absorb_cell_shape sk hpre (by simp)
+      rcases hshape with ⟨⟨rest, hhead⟩, hc1, hc2, hc3⟩
+        | ⟨⟨rest, hhead⟩, hc1, hc2, hc3⟩
+        | ⟨⟨rest, hhead⟩, hc1, hc2, hc3⟩
+      · -- wire-starved
+        have he₀ : e₀ = (Chan.wire Party.R 0, false, t) := by
+          have := congrArg (fun l : List Ev => l[0]?) hhead
+          simpa using this
+        rw [he₀] at hdis
+        simp only [enabled, decide_eq_false_iff_not] at hdis
+        rw [h.sent_eq] at hdis
+        refine Or.inr (Or.inl ⟨?_, ?_, ?_, ?_⟩)
+        · rw [hWc, hc1]; exact htN
+        · rw [hLc, hc2, hWc, hc1]
+        · rw [hVc, hc3, hWc, hc1]
+        · rw [hWc, hc1]; omega
+      · -- request-starved
+        have he₀ : e₀ = (Chan.leafRequests, false, t) := by
+          have := congrArg (fun l : List Ev => l[0]?) hhead
+          simpa using this
+        rw [he₀] at hdis
+        simp only [enabled, decide_eq_false_iff_not] at hdis
+        rw [h.sent_eq] at hdis
+        refine Or.inr (Or.inr (Or.inl ⟨?_, ?_, ?_, ?_⟩))
+        · rw [hLc, hc2]; exact htN
+        · rw [hWc, hc1, hLc, hc2]
+        · rw [hVc, hc3, hLc, hc2]
+        · rw [hLc, hc2]; omega
+      · -- level-blocked
+        have he₀ : e₀ = (Chan.level Party.I 0, true, t) := by
+          have := congrArg (fun l : List Ev => l[0]?) hhead
+          simpa using this
+        rw [he₀] at hdis
+        simp only [enabled, decide_eq_false_iff_not] at hdis
+        rw [h.rcvd_eq] at hdis
+        refine Or.inr (Or.inr (Or.inr ⟨?_, ?_, ?_, ?_⟩))
+        · rw [hVc, hc3]; exact htN
+        · rw [hWc, hc1, hVc, hc3]
+        · rw [hLc, hc2, hVc, hc3]
+        · rw [hVc, hc3]; omega
+
+-- ==================================================== fins stuckness
+
+private theorem finEvents_eq :
+    finEvents sk = (Chan.rootres, false, 0)
+      :: seg Chan.rootrets false 0 sk.rootPending := by
+  unfold finEvents seg
+  rw [List.range_eq_range']
+  simp
+
+private theorem rootres_ne_rootrets :
+    (Chan.rootres : Chan) ≠ Chan.rootrets := by simp
+
+/-- THE FINS SUFFIX SHAPE: a nonempty unemitted cell of the fins trace
+heads at the root resolution or at a root return, with both receive
+counts of the emitted prefix pinned. -/
+theorem fin_cell_shape {pre r : List Ev}
+    (hsplit : finEvents sk = pre ++ r) (hne : r ≠ []) :
+    ((∃ rest, r = (Chan.rootres, false, 0) :: rest)
+      ∧ (proj Chan.rootres false pre).length = 0
+      ∧ (proj Chan.rootrets false pre).length = 0)
+    ∨ (∃ t, t < sk.rootPending
+      ∧ (∃ rest, r = (Chan.rootrets, false, t) :: rest)
+      ∧ (proj Chan.rootres false pre).length = 1
+      ∧ (proj Chan.rootrets false pre).length = t) := by
+  rw [finEvents_eq] at hsplit
+  match pre, hsplit with
+  | [], hsplit =>
+      rw [List.nil_append] at hsplit
+      exact Or.inl ⟨⟨seg Chan.rootrets false 0 sk.rootPending,
+        hsplit.symm⟩, rfl, rfl⟩
+  | e :: pre', hsplit =>
+      rw [List.cons_append] at hsplit
+      injection hsplit with he1 hinner
+      subst he1
+      -- the cell is a suffix of the returns segment
+      have hlen : sk.rootPending = pre'.length + r.length := by
+        have := congrArg List.length hinner
+        simpa [seg_len] using this
+      have hrlen : 1 ≤ r.length := by
+        cases r with
+        | nil => exact absurd rfl hne
+        | cons _ _ => simp
+      have htN : pre'.length < sk.rootPending := by omega
+      have hp'take : pre' = seg Chan.rootrets false 0 pre'.length := by
+        have hthis := congrArg (List.take pre'.length) hinner
+        rw [List.take_append_of_le_length (Nat.le_refl _),
+          List.take_of_length_le (Nat.le_refl _), seg_take] at hthis
+        rw [show min pre'.length sk.rootPending = pre'.length
+          from by omega] at hthis
+        exact hthis.symm
+      have hhead : r[0]? = some (Chan.rootrets, false, pre'.length) := by
+        have hread := congrArg (fun l : List Ev => l[pre'.length]?)
+          hinner
+        rw [seg_getElem? _ _ _ _ _ htN,
+          List.getElem?_append_right (Nat.le_refl _), Nat.sub_self]
+          at hread
+        simpa using hread.symm
+      refine Or.inr ⟨pre'.length, htN, ?_, ?_, ?_⟩
+      · cases r with
+        | nil => exact absurd rfl hne
+        | cons x rest =>
+            refine ⟨rest, ?_⟩
+            simp only [List.getElem?_cons_zero, Option.some.injEq]
+              at hhead
+            rw [hhead]
+      · rw [proj_cons_self, hp'take,
+          proj_seg_ne (fun hh => rootres_ne_rootrets hh.1.symm)]
+        rfl
+      · rw [proj_cons_ne_chan rootres_ne_rootrets, hp'take,
+          proj_seg_self, seg_len]
+
+/-- FINS STUCKNESS: at a pump fixpoint the finisher is exhausted,
+starved of the root resolution, or starved of a root return — with
+both counts pinned and the failed guard recorded. -/
+theorem fin_stuck (hwf : sk.wellFormed = true) {fut : List Ev}
+    {st : MState} (h : WCount sk fut st)
+    (hfix : step sk st = none) (hge : 1 ≤ sk.rootH) :
+    (rcvCount Chan.rootres st.out = 1
+      ∧ rcvCount Chan.rootrets st.out = sk.rootPending)
+    ∨ (rcvCount Chan.rootres st.out = 0
+      ∧ rcvCount Chan.rootrets st.out = 0
+      ∧ sndCount Chan.rootres st.out = 0)
+    ∨ (rcvCount Chan.rootrets st.out < sk.rootPending
+      ∧ rcvCount Chan.rootres st.out = 1
+      ∧ sndCount Chan.rootrets st.out
+          ≤ rcvCount Chan.rootrets st.out) := by
+  have hIdx := procs_fin sk hge
+  obtain ⟨r, pre, hr, hpre, hsub⟩ := cell_of_owner sk h hIdx
+  have hAc : rcvCount Chan.rootres st.out
+      = (proj Chan.rootres false pre).length := by
+    rw [rcvCount_eq_proj,
+      out_proj_owner sk hwf h _ false (by simp [rcvOwner])
+        hIdx hr hpre hsub]
+  have hBc : rcvCount Chan.rootrets st.out
+      = (proj Chan.rootrets false pre).length := by
+    rw [rcvCount_eq_proj,
+      out_proj_owner sk hwf h _ false (by simp [rcvOwner])
+        hIdx hr hpre hsub]
+  cases r with
+  | nil =>
+      rw [List.append_nil] at hpre
+      rw [finEvents_eq] at hpre
+      refine Or.inl ⟨?_, ?_⟩
+      · rw [hAc, ← hpre, proj_cons_self,
+          proj_seg_ne (fun hh => rootres_ne_rootrets hh.1.symm)]
+        rfl
+      · rw [hBc, ← hpre, proj_cons_ne_chan rootres_ne_rootrets,
+          proj_seg_self, seg_len]
+  | cons e₀ rest₀ =>
+      have hrem : st.rem[3 * sk.rootH + 3 - manCount sk]?
+          = some (e₀ :: rest₀) := by
+        rw [List.getElem?_append_right
+          (by rw [manFilters_length]; show manCount sk ≤ _; unfold manCount; omega),
+          manFilters_length] at hr
+        exact hr
+      have hdis : enabled sk st.sent st.rcvd e₀ = false := by
+        unfold step at hfix
+        cases hscan : scan sk st.sent st.rcvd st.rem with
+        | some pr => rw [hscan] at hfix; simp at hfix
+        | none => exact scan_none_heads sk hscan hrem
+      rcases fin_cell_shape sk hpre (by simp) with
+        ⟨⟨rest, hhead⟩, hc1, hc2⟩ | ⟨t, htN, ⟨rest, hhead⟩, hc1, hc2⟩
+      · -- rootres-starved
+        have he₀ : e₀ = (Chan.rootres, false, 0) := by
+          have := congrArg (fun l : List Ev => l[0]?) hhead
+          simpa using this
+        rw [he₀] at hdis
+        simp only [enabled, decide_eq_false_iff_not] at hdis
+        rw [h.sent_eq] at hdis
+        refine Or.inr (Or.inl ⟨?_, ?_, ?_⟩)
+        · rw [hAc, hc1]
+        · rw [hBc, hc2]
+        · omega
+      · -- rootrets-starved
+        have he₀ : e₀ = (Chan.rootrets, false, t) := by
+          have := congrArg (fun l : List Ev => l[0]?) hhead
+          simpa using this
+        rw [he₀] at hdis
+        simp only [enabled, decide_eq_false_iff_not] at hdis
+        rw [h.sent_eq] at hdis
+        refine Or.inr (Or.inr ⟨?_, ?_, ?_⟩)
+        · rw [hBc, hc2]; exact htN
+        · rw [hAc, hc1]
+        · rw [hBc, hc2]; omega
+
+/-- ROOTRET STUCKNESS: at a pump fixpoint the floating `rootret`
+receive has either fired or is starved. -/
+theorem rootret_stuck (hwf : sk.wellFormed = true) {fut : List Ev}
+    {st : MState} (h : WCount sk fut st)
+    (hfix : step sk st = none) (hge : 1 ≤ sk.rootH) :
+    rcvCount Chan.rootret st.out = 1
+    ∨ (rcvCount Chan.rootret st.out = 0
+      ∧ sndCount Chan.rootret st.out = 0) := by
+  have hIdx := procs_rootret sk hge
+  obtain ⟨r, pre, hr, hpre, hsub⟩ := cell_of_owner sk h hIdx
+  have hAc : rcvCount Chan.rootret st.out
+      = (proj Chan.rootret false pre).length := by
+    rw [rcvCount_eq_proj,
+      out_proj_owner sk hwf h _ false (by simp [rcvOwner])
+        hIdx hr hpre hsub]
+  cases r with
+  | nil =>
+      rw [List.append_nil] at hpre
+      refine Or.inl ?_
+      rw [hAc, ← hpre]
+      rfl
+  | cons e₀ rest₀ =>
+      have hpre_nil : pre = [] := by
+        cases pre with
+        | nil => rfl
+        | cons p ps =>
+            exfalso
+            rw [List.cons_append] at hpre
+            injection hpre with hp1 hp2
+            have := congrArg List.length hp2
+            simp at this
+      have he₀ : e₀ = (Chan.rootret, false, 0) := by
+        rw [hpre_nil, List.nil_append] at hpre
+        have := congrArg (fun l : List Ev => l[0]?) hpre
+        simpa using this.symm
+      have hrem : st.rem[3 * sk.rootH + 2 - manCount sk]?
+          = some (e₀ :: rest₀) := by
+        rw [List.getElem?_append_right
+          (by rw [manFilters_length]; show manCount sk ≤ _; unfold manCount; omega),
+          manFilters_length] at hr
+        exact hr
+      have hdis : enabled sk st.sent st.rcvd e₀ = false := by
+        unfold step at hfix
+        cases hscan : scan sk st.sent st.rcvd st.rem with
+        | some pr => rw [hscan] at hfix; simp at hfix
+        | none => exact scan_none_heads sk hscan hrem
+      rw [he₀] at hdis
+      simp only [enabled, decide_eq_false_iff_not] at hdis
+      rw [h.sent_eq] at hdis
+      refine Or.inr ⟨?_, ?_⟩
+      · rw [hAc, hpre_nil]
+        rfl
+      · omega
+
 end StreamingMirror.Sched
