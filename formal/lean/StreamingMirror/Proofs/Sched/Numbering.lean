@@ -722,7 +722,7 @@ private theorem proj_scopeBlock_snd (pk : Party × Nat) (k : Nat)
   unfold scopeBlock
   rw [proj_cons_ne_side (by simp), proj_cons_ne_side (by simp)]
 
-private theorem proj_block_wire (pk : Party × Nat) {k : Nat}
+theorem proj_block_wire (pk : Party × Nat) {k : Nat}
     (hk : k < sk.stageLen pk.2) :
     proj (wireOut pk) true (scopeBlock sk pk k)
       = seg (wireOut pk) true (sk.wiresBefore pk.2 k)
@@ -741,7 +741,7 @@ private theorem proj_block_wire (pk : Party × Nat) {k : Nat}
   simp only [Nat.add_zero]
   rw [wiresBefore_succ sk hk]
 
-private theorem proj_block_res (pk : Party × Nat) {k : Nat}
+theorem proj_block_res (pk : Party × Nat) {k : Nat}
     (hk : k < sk.stageLen pk.2) :
     proj (lowerOut pk) true (scopeBlock sk pk k)
       = seg (lowerOut pk) true (sk.dsBefore pk.2 k)
@@ -764,7 +764,7 @@ private theorem proj_block_res (pk : Party × Nat) {k : Nat}
   rw [h0, dsBefore_succ sk hk, dRank_total sk pk k]
   simp
 
-private theorem proj_block_q (pk : Party × Nat) {k : Nat}
+theorem proj_block_q (pk : Party × Nat) {k : Nat}
     (hk : k < sk.stageLen pk.2) :
     proj (askedOut pk) true (scopeBlock sk pk k)
       = seg (askedOut pk) true (sk.qsBefore pk.2 k)
@@ -787,7 +787,7 @@ private theorem proj_block_q (pk : Party × Nat) {k : Nat}
   rw [h0, qsBefore_succ sk hk, qSum_total sk pk k]
   simp
 
-private theorem proj_block_upper (pk : Party × Nat) (k : Nat) :
+theorem proj_block_upper (pk : Party × Nat) (k : Nat) :
     proj (upperOut pk) true (scopeBlock sk pk k)
       = seg (upperOut pk) true k 1 := by
   rw [proj_scopeBlock_snd, proj_scopeSends, proj_cons_self, seg_one]
@@ -806,14 +806,14 @@ private theorem scopeSends_rcv_nil (pk : Party × Nat) (k : Nat)
     rw [(scopeSends_support sk he).1] at hcb
     exact Bool.noConfusion hcb
 
-private theorem proj_block_wireIn (pk : Party × Nat) (k : Nat) :
+theorem proj_block_wireIn (pk : Party × Nat) (k : Nat) :
     proj (wireIn pk) false (scopeBlock sk pk k)
       = seg (wireIn pk) false k 1 := by
   unfold scopeBlock
   rw [proj_cons_self, proj_cons_ne_chan (askedIn_ne_wireIn pk),
     scopeSends_rcv_nil, seg_one]
 
-private theorem proj_block_askedIn (pk : Party × Nat) (k : Nat) :
+theorem proj_block_askedIn (pk : Party × Nat) (k : Nat) :
     proj (askedIn pk) false (scopeBlock sk pk k)
       = seg (askedIn pk) false k 1 := by
   unfold scopeBlock
