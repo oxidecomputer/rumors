@@ -12,7 +12,11 @@
 //! Each budget is shared across every stream of its direction — the control
 //! half and each data stream draw on one counter — so the cut lands at a
 //! chosen offset in the endpoint's total traffic, wherever that byte
-//! happens to travel. The wrapped side observes the cut as an error; its
+//! happens to travel. A severed direction also refuses new streams: once
+//! its budget is exhausted, [`FaultConnector::connect`] fails alongside the
+//! writers and [`FaultAcceptor::accept`] alongside the readers, because a
+//! dead connection cannot open or deliver streams any more than it can
+//! carry bytes. The wrapped side observes the cut as an error; its
 //! counterparty observes it as end-of-stream (and a truncated frame) once
 //! the failing side's link drops, or as its own write error against the
 //! closed transport. Either way the session dies somewhere the protocol did
@@ -108,7 +112,8 @@ fn budget(cut: Option<usize>) -> Budget {
     Arc::new(Mutex::new(cut.unwrap_or(usize::MAX)))
 }
 
-/// A connector whose opened streams draw on the endpoint's write budget.
+/// A connector whose opened streams draw on the endpoint's write budget,
+/// and which itself fails once that budget is exhausted.
 pub struct FaultConnector<C> {
     inner: C,
     budget: Budget,
@@ -127,6 +132,15 @@ impl<C: Connector> Connector for FaultConnector<C> {
     type Tx = Fuse<C::Tx>;
 
     async fn connect(&self) -> io::Result<Self::Tx> {
+        // A dead write direction cannot open new streams either; this is
+        // what lets a cut exercise `SendError::Connect` deterministically
+        // instead of only through real-transport races.
+        if *self.budget.lock().expect("write budget lock") == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "fault injection: write budget exhausted",
+            ));
+        }
         let tx = self.inner.connect().await?;
         Ok(Fuse {
             inner: tx,
@@ -135,7 +149,8 @@ impl<C: Connector> Connector for FaultConnector<C> {
     }
 }
 
-/// An acceptor whose accepted streams draw on the endpoint's read budget.
+/// An acceptor whose accepted streams draw on the endpoint's read budget,
+/// and which itself fails once that budget is exhausted.
 pub struct FaultAcceptor<A> {
     inner: A,
     budget: Budget,
@@ -145,6 +160,15 @@ impl<A: Acceptor> Acceptor for FaultAcceptor<A> {
     type Rx = Cut<A::Rx>;
 
     async fn accept(&mut self) -> io::Result<Self::Rx> {
+        // A dead read direction cannot deliver new streams either; this
+        // reaches the session's deferred supply-failure path (the parked
+        // accept driver) deterministically rather than only via races.
+        if *self.budget.lock().expect("read budget lock") == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::ConnectionReset,
+                "fault injection: read budget exhausted",
+            ));
+        }
         let rx = self.inner.accept().await?;
         Ok(Cut {
             inner: rx,

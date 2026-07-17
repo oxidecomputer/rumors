@@ -186,6 +186,14 @@ pub fn arb_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate::tree
 /// The small-budget generator stays the default for properties where case
 /// count matters more than per-case breadth; wire-liveness properties run
 /// both.
+///
+/// This strategy supplies §7 item 3's *budget* only, deliberately not its
+/// *bias*: content addressing makes each child's radix a function of leaf
+/// hashes, so steering generation toward the early-radix-order deep-dispute
+/// shape would mean a per-case search inside the strategy. The geometry pin
+/// is instead the deterministic [`early_first_child_dispute_pair`] fixture,
+/// which performs that search once; this strategy provides breadth around
+/// it.
 pub fn arb_wide_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate::tree::Root<()>)> {
     use crate::tree::{Action, Tree};
 
@@ -251,7 +259,13 @@ pub fn early_first_child_dispute_pair() -> (crate::tree::Root<()>, crate::tree::
     const STRIDE: usize = 64;
 
     /// Attempt budget; the assert below turns exhaustion into a loud failure.
-    const ATTEMPTS: usize = 4096;
+    ///
+    /// The precompute below is proportional to this bound, so it directly
+    /// prices the fixture. Hashing is deterministic and the winning window
+    /// is attempt 622, so 1024 is exact headroom, not a guess; if hashing
+    /// or the leaf encoding ever changes, the search either finds another
+    /// window within the budget or fails loudly here.
+    const ATTEMPTS: usize = 1024;
 
     // Paths are functions of (version, payload) and payloads are unit, so a
     // candidate pair is fully determined by where each side's version chain
@@ -323,14 +337,18 @@ pub fn early_first_child_dispute_pair() -> (crate::tree::Root<()>, crate::tree::
             };
             let left = build(&p_a, burnt(&p_a, at), LEFT_LEAVES);
             let right = build(&p_b, burnt(&p_b, at), RIGHT_LEAVES);
-            let mut built: Vec<u8> = left.iter().map(|(k, _, _)| k.as_bytes()[0]).collect();
-            let mut simulated = left_firsts.to_vec();
-            built.sort_unstable();
-            simulated.sort_unstable();
-            assert_eq!(
-                built, simulated,
-                "the path simulation must agree with the tree builder",
-            );
+            // Both sides' geometry was judged from the simulation, so both
+            // sides must agree with the honestly built trees.
+            for (tree, firsts) in [(&left, left_firsts), (&right, right_firsts)] {
+                let mut built: Vec<u8> = tree.iter().map(|(k, _, _)| k.as_bytes()[0]).collect();
+                let mut simulated = firsts.to_vec();
+                built.sort_unstable();
+                simulated.sort_unstable();
+                assert_eq!(
+                    built, simulated,
+                    "the path simulation must agree with the tree builder",
+                );
+            }
             return (left.root, right.root);
         }
     }

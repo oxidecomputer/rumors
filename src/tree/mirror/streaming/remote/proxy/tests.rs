@@ -7,7 +7,9 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 
 use crate::link::memory_with_capacity;
-use crate::testing::{IoPlan, IoReportHandle, IoSide, Quiescence, run_to_quiescence, wrap_link};
+use crate::testing::{
+    IoPlan, IoReportHandle, IoSide, Quiescence, reorder_accepts, run_to_quiescence, wrap_link,
+};
 use crate::tree::mirror::handshake::{self, Intent};
 use crate::tree::mirror::streaming::channel::{
     ChannelReport, QueueKind, with_observation, with_schedule,
@@ -69,6 +71,35 @@ where
     let a = Handshaking::start(Local, Root::from(a));
     let b = Handshaking::start(Local, Root::from(b));
     let (a_link, b_link) = memory_with_capacity(transport_capacity);
+    let remote_b = RemoteHandshaking::start(Local, a_link);
+    let remote_a = RemoteHandshaking::start(Local, b_link);
+
+    let (a, b) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(b, remote_a)),);
+    let (a, _control) = a.expect("endpoint A should reconcile through its proxy");
+    let (b, _control) = b.expect("endpoint B should reconcile through its proxy");
+    (a.into(), b.into())
+}
+
+/// Arrivals held and released newest-first by the reordering acceptor: deep
+/// enough to invert most bursts, small enough that batching never starves a
+/// stream.
+const REORDER_BATCH: usize = 3;
+
+/// [`reconcile_symmetric_accepts`] with both acceptors delivering arrivals
+/// in reversed batches: worst-case-legal stream reordering on both ends.
+async fn reconcile_symmetric_accepts_reordered<T>(
+    a: TreeRoot<T>,
+    b: TreeRoot<T>,
+    transport_capacity: usize,
+) -> (TreeRoot<T>, TreeRoot<T>)
+where
+    T: borsh::BorshDeserialize + Send + Sync + 'static,
+{
+    let a = Handshaking::start(Local, Root::from(a));
+    let b = Handshaking::start(Local, Root::from(b));
+    let (a_link, b_link) = memory_with_capacity(transport_capacity);
+    let a_link = reorder_accepts(a_link, REORDER_BATCH);
+    let b_link = reorder_accepts(b_link, REORDER_BATCH);
     let remote_b = RemoteHandshaking::start(Local, a_link);
     let remote_a = RemoteHandshaking::start(Local, b_link);
 
@@ -287,7 +318,7 @@ proptest! {
         prop_assert_eq!(actual, expected);
     }
 
-    /// For arbitrary valid divergence, crossing the codec and multiplexed
+    /// For arbitrary valid divergence, crossing the codec and per-stream
     /// transport is observationally identical to the in-process protocol.
     #[test]
     fn wire_reconciliation_matches_local(
@@ -377,6 +408,35 @@ proptest! {
             prop_assert!(result.0.is_ok(), "left endpoint failed without injection: {:?}", result.0);
             prop_assert!(result.1.is_ok(), "right endpoint failed without injection: {:?}", result.1);
         }
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: 48,
+        ..ProptestConfig::default()
+    })]
+
+    /// Wide-budget divergence still matches the materialized oracle when
+    /// both acceptors deliver streams in worst-case-legal reversed batches
+    /// at one-byte windows.
+    ///
+    /// The link contract guarantees nothing about cross-stream arrival
+    /// order, so the session must pair streams by label alone; batched
+    /// reversal makes any positional pairing fail deterministically. Runs
+    /// at 48 cases: the wide generator plus the reversal's added accept
+    /// latency make each case expensive, and the trigger geometry is
+    /// pinned separately by the deterministic
+    /// [`early_first_child_dispute_pair`] fixture.
+    #[test]
+    fn wide_symmetric_accepts_reordered_match_local((a, b) in arb_wide_divergent_pair()) {
+        let expected = run_to_quiescence(reconcile_locally(a.clone(), b.clone()))
+            .expect("local reconciliation should remain live");
+        let actual = run_to_quiescence(reconcile_symmetric_accepts_reordered(a, b, 1))
+            .map_err(|stopped| TestCaseError::fail(format!(
+                "reordered symmetric proxy reconciliation became quiescent: {stopped:?}",
+            )))?;
+        prop_assert_eq!(actual, expected);
     }
 }
 

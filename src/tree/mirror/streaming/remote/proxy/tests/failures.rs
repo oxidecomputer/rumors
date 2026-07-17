@@ -88,6 +88,15 @@ fn has_expected_surface(error: &RemoteError<Infallible>, operation: IoOperation)
         IoOperation::Write | IoOperation::Flush => {
             matches!(error, RemoteError::HandshakeWrite(_) | RemoteError::Send(_))
         }
+        IoOperation::Connect => {
+            matches!(error, RemoteError::Send(SendError::Connect { .. }))
+        }
+        // A destroyed incoming stream surfaces from the receiver that
+        // provably needed it, after the parked accept driver deposits the
+        // cause (design/streaming-wire-deadlock.md §8.10).
+        IoOperation::Accept => {
+            matches!(error, RemoteError::Stream(StreamError::SupplyClosed { .. }))
+        }
     }
 }
 
@@ -111,6 +120,8 @@ fn completed(report: IoReport, fault: IoFault) -> usize {
         (IoOperation::Write, IoFaultUnit::Operations) => report.writes,
         (IoOperation::Write, IoFaultUnit::Bytes) => report.write_bytes,
         (IoOperation::Flush, _) => report.flushes,
+        (IoOperation::Connect, _) => report.connects,
+        (IoOperation::Accept, _) => report.accepts,
     }
 }
 
@@ -154,6 +165,8 @@ proptest! {
             Just(IoOperation::Read),
             Just(IoOperation::Write),
             Just(IoOperation::Flush),
+            Just(IoOperation::Connect),
+            Just(IoOperation::Accept),
         ],
         after in 0usize..256,
         bytes in any::<bool>(),
@@ -161,7 +174,8 @@ proptest! {
         delays in proptest::collection::vec(0_u8..=2, 0..32),
         buffered in any::<bool>(),
     ) {
-        let unit = if bytes && operation != IoOperation::Flush {
+        // Only the byte-moving surfaces have a byte-counted variant.
+        let unit = if bytes && matches!(operation, IoOperation::Read | IoOperation::Write) {
             IoFaultUnit::Bytes
         } else {
             IoFaultUnit::Operations
@@ -250,6 +264,8 @@ fn every_transport_fault_surface_is_reachable() {
         (IoOperation::Write, IoFaultUnit::Operations),
         (IoOperation::Write, IoFaultUnit::Bytes),
         (IoOperation::Flush, IoFaultUnit::Operations),
+        (IoOperation::Connect, IoFaultUnit::Operations),
+        (IoOperation::Accept, IoFaultUnit::Operations),
     ];
 
     for (operation, unit) in variants {

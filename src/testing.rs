@@ -5,7 +5,8 @@ mod transport;
 pub use transport::{
     AdversarialAcceptor, AdversarialConnector, AdversarialRead, AdversarialWrite,
     FaultUnit as IoFaultUnit, InjectedIo, IoFault, IoPlan, IoReport, IoReportHandle,
-    Operation as IoOperation, Side as IoSide, wrap_io, wrap_link,
+    Operation as IoOperation, ReorderingAcceptor, Side as IoSide, reorder_accepts, wrap_io,
+    wrap_link,
 };
 
 pub use crate::tree::mirror::streaming::remote::LinkCapture;

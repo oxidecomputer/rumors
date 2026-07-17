@@ -1,6 +1,7 @@
 //! Stackable, deterministic adversity for test transports across the crate.
 
 use std::{
+    collections::VecDeque,
     io,
     pin::Pin,
     sync::{Arc, Mutex},
@@ -27,6 +28,10 @@ pub enum Operation {
     Write,
     /// Flushing a complete frame.
     Flush,
+    /// Opening an outgoing data stream.
+    Connect,
+    /// Accepting an incoming data stream.
+    Accept,
 }
 
 /// Unit in which a transport failure threshold is measured.
@@ -46,6 +51,13 @@ pub enum FaultUnit {
 /// counts alone — the link world checks for end-of-stream after every
 /// stream's end control, so attempts-after-last-success are structural and
 /// must not trip an operations-counted fault.
+///
+/// Stream-supply faults follow the same discipline, counted in operations
+/// only. A connect fault fires in place of the call (a healthy supply's
+/// connects always succeed, so calls and successes coincide); an accept
+/// fault fires in place of the next *successful* accept, so the final
+/// forever-pending accept a session parks on against an honest peer is
+/// structural and cannot trip the threshold.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct IoFault {
     /// Surface which fails.
@@ -116,6 +128,10 @@ pub struct IoReport {
     pub write_bytes: usize,
     /// Successful flushes.
     pub flushes: usize,
+    /// Successfully opened outgoing data streams.
+    pub connects: usize,
+    /// Successfully accepted incoming data streams.
+    pub accepts: usize,
     /// Polls deliberately suspended by the test schedule.
     pub delayed_polls: usize,
     /// Largest successful read.
@@ -153,6 +169,8 @@ impl State {
             Operation::Read => (&self.plan.read_delays, &mut self.read_step),
             Operation::Write => (&self.plan.write_delays, &mut self.write_step),
             Operation::Flush => (&self.plan.flush_delays, &mut self.flush_step),
+            // Supply operations have no delay schedule.
+            Operation::Connect | Operation::Accept => return 0,
         };
         let delay = delays.get(*step).copied().unwrap_or(0).min(2);
         *step += 1;
@@ -174,6 +192,10 @@ impl State {
             (Operation::Write, FaultUnit::Operations) => self.report.writes,
             (Operation::Write, FaultUnit::Bytes) => self.report.write_bytes,
             (Operation::Flush, _) => self.report.flushes,
+            // Supply operations transfer no bytes; only operation counting
+            // is meaningful for them.
+            (Operation::Connect, _) => self.report.connects,
+            (Operation::Accept, _) => self.report.accepts,
         };
         if completed < fault.after {
             return None;
@@ -228,6 +250,9 @@ impl State {
             Operation::Read => self.report.read_bytes,
             Operation::Write => self.report.write_bytes,
             Operation::Flush => self.report.flushes,
+            // Supply operations transfer no bytes, so a byte-counted fault
+            // never constrains them.
+            Operation::Connect | Operation::Accept => return usize::MAX,
         };
         fault.after.saturating_sub(completed)
     }
@@ -533,7 +558,23 @@ impl<C: crate::link::Connector> crate::link::Connector for AdversarialConnector<
     type Tx = AdversarialWrite<C::Tx>;
 
     async fn connect(&self) -> io::Result<Self::Tx> {
+        // The fault fires in place of the call: a healthy supply's connects
+        // always succeed, so the clean run's success count is also its call
+        // count and "would the fault fire?" remains a function of it.
+        if let Some(error) = self
+            .state
+            .lock()
+            .expect("transport state lock")
+            .failure(Operation::Connect)
+        {
+            return Err(error);
+        }
         let tx = self.inner.connect().await?;
+        self.state
+            .lock()
+            .expect("transport state lock")
+            .report
+            .connects += 1;
         Ok(wrap_write(tx, self.state.clone()))
     }
 }
@@ -549,13 +590,105 @@ impl<A: crate::link::Acceptor> crate::link::Acceptor for AdversarialAcceptor<A> 
     type Rx = AdversarialRead<A::Rx>;
 
     async fn accept(&mut self) -> io::Result<Self::Rx> {
+        // An already-injected accept fault keeps failing without consuming
+        // further arrivals.
+        {
+            let mut state = self.state.lock().expect("transport state lock");
+            if state.report.injected.is_some()
+                && let Some(error) = state.failure(Operation::Accept)
+            {
+                return Err(error);
+            }
+        }
         let rx = self.inner.accept().await?;
+        let mut state = self.state.lock().expect("transport state lock");
+        // The fault fires in place of a successful accept, so the final
+        // forever-pending accept a session parks on against an honest peer
+        // cannot trip an operations-counted threshold (the same rule
+        // payload-bearing reads follow).
+        if let Some(error) = state.failure(Operation::Accept) {
+            // The arrival is discarded with the failing supply.
+            drop(rx);
+            return Err(error);
+        }
+        state.report.accepts += 1;
+        drop(state);
         Ok(AdversarialRead {
             inner: rx,
             state: self.state.clone(),
             delay: None,
         })
     }
+}
+
+/// An [`Acceptor`](crate::link::Acceptor) delivering arrivals in reversed
+/// batches: worst-case-legal stream reordering.
+///
+/// The link contract leaves cross-stream arrival order unspecified, so a
+/// session must pair streams by label alone; this decorator makes any
+/// positional pairing fail deterministically. Each accept awaits one
+/// arrival, then drains — without blocking, so a lone stream still flows —
+/// whatever else is immediately ready, up to `batch` in total, and releases
+/// the accumulated batch newest-first.
+///
+/// A sibling of the conformance suite's `ReversingAcceptor`
+/// (`src/conformance/tests.rs`), duplicated so this crate-internal seam does
+/// not depend on the public `conformance` feature.
+pub struct ReorderingAcceptor<A: crate::link::Acceptor> {
+    inner: A,
+    held: VecDeque<A::Rx>,
+    /// Arrivals buffered before each reversed release.
+    batch: usize,
+}
+
+impl<A: crate::link::Acceptor> crate::link::Acceptor for ReorderingAcceptor<A> {
+    type Rx = A::Rx;
+
+    async fn accept(&mut self) -> io::Result<Self::Rx> {
+        if let Some(held) = self.held.pop_front() {
+            return Ok(held);
+        }
+        let first = self.inner.accept().await?;
+        self.held.push_front(first);
+        for _ in 1..self.batch {
+            let mut next = std::pin::pin!(self.inner.accept());
+            let waker = futures::task::noop_waker();
+            let mut cx = Context::from_waker(&waker);
+            match std::future::Future::poll(next.as_mut(), &mut cx) {
+                Poll::Ready(Ok(rx)) => self.held.push_front(rx),
+                // Pending or errored: stop batching; a real error resurfaces
+                // from the next accept call.
+                _ => break,
+            }
+        }
+        Ok(self.held.pop_front().expect("at least one arrival is held"))
+    }
+}
+
+/// Wrap `link`'s acceptor so arrivals release in reversed batches of `batch`.
+pub fn reorder_accepts<CR, CW, C, A>(
+    link: crate::link::Link<CR, CW, C, A>,
+    batch: usize,
+) -> crate::link::Link<CR, CW, C, ReorderingAcceptor<A>>
+where
+    CR: tokio::io::AsyncRead + Unpin + Send,
+    CW: tokio::io::AsyncWrite + Unpin + Send,
+    C: crate::link::Connector,
+    A: crate::link::Acceptor,
+{
+    let parts = link.into_parts();
+    crate::link::LinkParts {
+        control_read: parts.control_read,
+        control_write: parts.control_write,
+        connector: parts.connector,
+        acceptor: ReorderingAcceptor {
+            inner: parts.acceptor,
+            held: VecDeque::new(),
+            batch,
+        },
+        epoch: parts.epoch,
+    }
+    .into_link()
 }
 
 /// Suspend one operation according to its next scheduled self-waking delay.
