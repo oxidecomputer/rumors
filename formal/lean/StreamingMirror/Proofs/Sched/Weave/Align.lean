@@ -457,14 +457,14 @@ theorem evOwner_askedOut {h : Nat} (h1 : 1 ≤ h) (hh : h < sk.rootH)
 
 /-- The last disputed child slot of stage scope `(h, k)`: the splice
 point `scopeSends` and the weave share. -/
-private def lastDOf (h k : Nat) : Option Nat :=
+def lastDOf (h k : Nat) : Option Nat :=
   ((List.range (sk.nChildren h (sk.stageScope h k))).filter fun i =>
     sk.childIsD h (sk.stageScope h k) i).getLast?
 
 /-- The chunk-`i` queries of stage scope `(h, k)`: the feed kid `i`'s
 subtree receives, in trace order (`dRank`/`qSum` are the numbering
 layer's named forms of the inline counters). -/
-private def chunkQ (h k i : Nat) : List Ev :=
+def chunkQ (h k i : Nat) : List Ev :=
   (List.range (sk.qCount h (sk.stageScope h k) i)).map fun t =>
     (askedOut (wpk h), true,
       sk.qsBefore h k + qSum sk (wpk h) k i + t)
@@ -482,13 +482,13 @@ private def splicedChunk (h k : Nat) (lastD : Option Nat) (i : Nat) :
             ++ chunkQ sk h k i)
       else []
 
-private theorem chunkQ_length (h k i : Nat) :
+theorem chunkQ_length (h k i : Nat) :
     (chunkQ sk h k i).length = sk.qCount h (sk.stageScope h k) i := by
   unfold chunkQ
   rw [List.length_map, List.length_range]
 
 /-- Every chunk query is owned by the issuing walk. -/
-private theorem chunkQ_owner {h : Nat} (h1 : 1 ≤ h) (hh : h < sk.rootH)
+theorem chunkQ_owner {h : Nat} (h1 : 1 ≤ h) (hh : h < sk.rootH)
     (k i : Nat) :
     ∀ e ∈ chunkQ sk h k i, evOwner sk e = walkIdx sk h := by
   intro e he
@@ -498,7 +498,7 @@ private theorem chunkQ_owner {h : Nat} (h1 : 1 ≤ h) (hh : h < sk.rootH)
 
 /-- A scope op's expansion, events flattened: prologue receives, the
 undisputed-parent summary, then the kid ops in slot order. -/
-private theorem opEvents_scope_eq {h k : Nat} (hk : k ≤ sk.stageLen h)
+theorem opEvents_scope_eq {h k : Nat} (hk : k ≤ sk.stageLen h)
     (feed : List Ev) :
     opEvents sk (.scope h k feed)
       = (wireIn (wpk h), false, k) :: (askedIn (wpk h), false, k)
@@ -522,7 +522,7 @@ private theorem opEvents_scope_eq {h k : Nat} (hk : k ≤ sk.stageLen h)
 resolution, the splice-point summary, the feed query, the subtree; for
 a W kid the feed query and — off the leaf stage — a childless
 subtree. -/
-private theorem opEvents_kid_eq (h k : Nat) (lastD : Option Nat)
+theorem opEvents_kid_eq (h k : Nat) (lastD : Option Nat)
     (kidBase i : Nat) (feed : List Ev) :
     opEvents sk (.kid h k (sk.stageScope h k) lastD kidBase i feed)
       = (wireOut (wpk h), true, sk.wiresBefore h k + i)
@@ -719,7 +719,7 @@ private theorem walkSeg_glue_range (h' : Nat) (g : Nat → Nat)
 
 /-- Deeper stages sit later in `procs`: `walkIdx` is strictly antitone
 on real stages. -/
-private theorem walkIdx_lt {h' h : Nat} (hlt : h' < h) (hh : h < sk.rootH) :
+theorem walkIdx_lt {h' h : Nat} (hlt : h' < h) (hh : h < sk.rootH) :
     walkIdx sk h < walkIdx sk h' := by
   unfold walkIdx
   omega
@@ -1526,7 +1526,7 @@ private theorem iopen_owner (hwf : sk.wellFormed = true) :
   · cases he
 
 /-- ropen's events belong to `procs` slot 1. -/
-private theorem ropen_owner (hwf : sk.wellFormed = true) :
+theorem ropen_owner (hwf : sk.wellFormed = true) :
     ∀ e ∈ ropenEvents sk, evOwner sk e = 1 := by
   have hge := (wf_rootH hwf).2
   intro e he
@@ -1545,7 +1545,7 @@ private theorem ropen_owner (hwf : sk.wellFormed = true) :
 
 /-- The opening worklist's fuel-free events: the openers, then the
 root scope's subtree. -/
-private theorem weave_flatMap :
+theorem weave_flatMap :
     (weaveOps sk).flatMap (opEvents sk)
       = (iopenEvents sk ++ (ropenEvents sk).take 3)
         ++ opEvents sk

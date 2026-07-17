@@ -465,7 +465,7 @@ private theorem foldl_add_eq_map_sum (f : Nat → Nat) :
 
 /-- Within one scope, the query counts total the scope's `qOf`: the
 inner chunk offsets meet the outer `qsBefore` telescope. -/
-private theorem qSum_total (pk : Party × Nat) (k : Nat) :
+theorem qSum_total (pk : Party × Nat) (k : Nat) :
     qSum sk pk k (sk.nChildren pk.2 (sk.stageScope pk.2 k))
       = sk.qOf pk.2 (sk.stageScope pk.2 k) := by
   unfold qSum Skel.qOf

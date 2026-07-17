@@ -23,3 +23,4 @@ import StreamingMirror.Proofs.Sched.Weave.Count
 import StreamingMirror.Proofs.Sched.Weave.Expand
 import StreamingMirror.Proofs.Sched.Weave.Align
 import StreamingMirror.Proofs.Sched.Weave.Edge
+import StreamingMirror.Proofs.Sched.Weave.Prec
