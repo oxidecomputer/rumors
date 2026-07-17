@@ -66,3 +66,127 @@ theorem walk_prefix_lower {pk : Party × Nat} {k : Nat}
     hrun, seg_len]
   have h0 : sk.dsBefore pk.2 0 = 0 := rfl
   omega
+
+-- ================================================ the spine telescope
+
+/-- The spine linking chain feeding the ascent coverage's `Φ` fact.
+
+Indexed by an answerer stage `g + 2`, each link relates the ancestor
+walk two stages down to the stage's allocation cut: `base` when that
+walk's summary count sits strictly inside the cut (a pre-splice
+ancestor, or the emission's own unsent summary), `step` when the
+splice has fired below — the summary count touches the cut, the lower
+walk's pends line equals its resolution count (the splice identity),
+and the chain continues two stages down. Layer D reads each link off
+the worklist tail's `descIdx` windows (`align_kids_suffix`). -/
+inductive SpineLink (st : MState) (p : Party) : Nat → Prop
+  | base (g : Nat)
+      (hlt : sndCount (Chan.upper p g) st.out
+        < sk.pendsBefore p (g + 2)
+            (sndCount (Chan.lower p (g + 2)) st.out)) :
+      SpineLink st p (g + 2)
+  | step (g : Nat) (hg1 : 1 ≤ g)
+      (hle : sndCount (Chan.upper p g) st.out
+        ≤ sk.pendsBefore p (g + 2)
+            (sndCount (Chan.lower p (g + 2)) st.out))
+      (hpb : sk.pendsBefore p (g + 1)
+            (sndCount (Chan.upper p g) st.out)
+          = sndCount (Chan.lower p g) st.out)
+      (prev : SpineLink st p g) :
+      SpineLink st p (g + 2)
+
+/-- `Φ` from the spine chain: the level supply below an answerer
+stage stays strictly inside the in-flight allocation cut.
+
+Downward induction along the links. At a `base` link the producer
+asker above the lower walk is capped by that walk's summary count
+outright — resolution consumption cannot pass an unsent summary. At a
+`step` link, if the producer consumed the summary touching the cut,
+its pends line (`asm_pends_le_out`) plus the splice identity force
+the answerer below to have delivered everything it was sent — which
+the induction hypothesis (its own `Φ`, again through
+`asm_pends_le_out`) refutes. -/
+theorem phi_of_spine (hwf : sk.wellFormed = true) {fut : List Ev}
+    {st : MState} (h : WEdge sk fut st)
+    {p : Party} {top : Nat}
+    (htop : p = Party.I ∧ top = sk.rootH
+      ∨ p = Party.R ∧ top = sk.rootH - 1)
+    {j : Nat} (hsl : SpineLink sk st p j) :
+    j ≤ top → asks p j = false →
+      sndCount (Chan.level p (j - 1)) st.out
+        < sk.pendsBefore p j (sndCount (Chan.lower p j) st.out) := by
+  induction hsl with
+  | base g hlt =>
+      intro hjt hna
+      have hasker : asks p (g + 1) = true := by
+        have hs := asks_succ p (g + 1)
+        rw [show g + 1 + 1 = g + 2 from rfl, hna] at hs
+        simpa using hs.symm
+      have hout : sk.asmOutChan (p, g + 1) = Chan.level p (g + 1) :=
+        asmOutChan_of_lt sk htop (by omega)
+      have hres : asmResChan (p, g + 1) = Chan.upper p g := by
+        have hr := asmResChan_asker (j := g + 1) hasker
+        simpa using hr
+      have hO := asm_out_le_res sk hwf h.toWCount htop
+        (show 1 ≤ g + 1 by omega) (show g + 1 ≤ top by omega)
+      rw [hout, hres] at hO
+      have hwr := wedge_rcvd_le_sent sk hwf h (Chan.upper p g)
+      show sndCount (Chan.level p (g + 1)) st.out
+        < sk.pendsBefore p (g + 2)
+            (sndCount (Chan.lower p (g + 2)) st.out)
+      omega
+  | step g hg1 hle hpb _prev ih =>
+      intro hjt hna
+      have hasker : asks p (g + 1) = true := by
+        have hs := asks_succ p (g + 1)
+        rw [show g + 1 + 1 = g + 2 from rfl, hna] at hs
+        simpa using hs.symm
+      have hnag : asks p g = false := by
+        have hs := asks_succ p g
+        rw [hasker] at hs
+        simpa using hs.symm
+      -- the answerer below has NOT delivered everything it was sent
+      have hphi := ih (by omega) hnag
+      have hpo := asm_pends_le_out sk hwf h.toWCount htop hg1
+        (show g ≤ top by omega)
+      have houtg : sk.asmOutChan (p, g) = Chan.level p g :=
+        asmOutChan_of_lt sk htop (by omega)
+      rw [houtg,
+        show asmLevelChan (p, g) = Chan.level p (g - 1) from rfl]
+        at hpo
+      have hwlg := wedge_rcvd_le_sent sk hwf h (Chan.level p (g - 1))
+      have hth : sndCount (Chan.level p g) st.out
+          < sndCount (Chan.lower p g) st.out := by
+        rcases Nat.lt_or_ge (sndCount (Chan.level p g) st.out)
+            (sndCount (Chan.lower p g) st.out) with hlt' | hge'
+        · exact hlt'
+        · exfalso
+          have hmono := pendsBefore_mono sk p g hge'
+          omega
+      -- the producer above
+      have hout : sk.asmOutChan (p, g + 1) = Chan.level p (g + 1) :=
+        asmOutChan_of_lt sk htop (by omega)
+      have hres : asmResChan (p, g + 1) = Chan.upper p g := by
+        have hr := asmResChan_asker (j := g + 1) hasker
+        simpa using hr
+      have hO := asm_out_le_res sk hwf h.toWCount htop
+        (show 1 ≤ g + 1 by omega) (show g + 1 ≤ top by omega)
+      rw [hout, hres] at hO
+      have hwr := wedge_rcvd_le_sent sk hwf h (Chan.upper p g)
+      have hpo1 := asm_pends_le_out sk hwf h.toWCount htop
+        (show 1 ≤ g + 1 by omega) (show g + 1 ≤ top by omega)
+      rw [hout,
+        show asmLevelChan (p, g + 1) = Chan.level p g from rfl]
+        at hpo1
+      have hwlg2 := wedge_rcvd_le_sent sk hwf h (Chan.level p g)
+      show sndCount (Chan.level p (g + 1)) st.out
+        < sk.pendsBefore p (g + 2)
+            (sndCount (Chan.lower p (g + 2)) st.out)
+      rcases Nat.lt_or_ge (sndCount (Chan.level p (g + 1)) st.out)
+          (sndCount (Chan.upper p g) st.out) with hcase | hcase
+      · omega
+      · exfalso
+        have hOe : sndCount (Chan.level p (g + 1)) st.out
+            = sndCount (Chan.upper p g) st.out := by omega
+        rw [hOe, hpb] at hpo1
+        omega
