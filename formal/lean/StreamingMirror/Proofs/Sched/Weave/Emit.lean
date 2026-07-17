@@ -192,6 +192,71 @@ theorem wire_snd_pin (hwf : sk.wellFormed = true) {fut : List Ev}
     simp [canon, wpk]
   omega
 
+-- =================================== position facts for the ascent
+
+/-- `schedulable` in per-scope form: no stage counts more than
+`capLevel + 2` D children. -/
+theorem schedulable_dOf (hsched : sk.schedulable = true) {g : Nat}
+    {A : Nat} (hA : A < sk.stageLen g) :
+    sk.dOf g (sk.stageScope g A) ≤ sk.capLevel + 2 := by
+  have hmem : sk.stageScope g A ∈ sk.scopesAt (g + 1) := by
+    unfold Skel.stageScope
+    have hlen : A < (sk.stageScopes g).length := hA
+    rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hlen]
+    exact List.getElem_mem _
+  have hs : sk.stageScope g A < sk.scopes.length := (mem_scopesAt hmem).1
+  unfold Skel.schedulable at hsched
+  rw [List.all_eq_true] at hsched
+  have hd := hsched (sk.stageScope g A) (List.mem_range.2 hs)
+  simp only [decide_eq_true_eq] at hd
+  unfold Skel.dOf
+  split
+  · omega
+  · exact hd
+
+/-- `P1` from a mid-scope position: with `schedulable`, a walk's
+resolution sends overhang its summary allocation line by at most the
+level window plus one. -/
+theorem p1_of_position (hsched : sk.schedulable = true)
+    {st : MState} {p : Party} {g A δ σ : Nat}
+    (hA : A < sk.stageLen g)
+    (hup : sndCount (Chan.upper p g) st.out = A + σ)
+    (hlow : sndCount (Chan.lower p g) st.out
+      = sk.dsBefore g A + δ + 1)
+    (hcase : (σ = 0 ∧ δ + 2 ≤ sk.dOf g (sk.stageScope g A))
+      ∨ (σ = 1 ∧ δ + 1 = sk.dOf g (sk.stageScope g A))) :
+    sndCount (Chan.lower p g) st.out
+      ≤ sk.dsBefore g (sndCount (Chan.upper p g) st.out)
+        + sk.capLevel + 1 := by
+  have hd := schedulable_dOf sk hsched hA
+  rcases hcase with ⟨hσ, hδ⟩ | ⟨hσ, hδ⟩
+  · subst hσ
+    have hup' : sndCount (Chan.upper p g) st.out = A := by
+      omega
+    have hgoal : sk.dsBefore g (sndCount (Chan.upper p g) st.out)
+        = sk.dsBefore g A := by
+      rw [hup']
+    rw [hgoal, hlow]
+    omega
+  · subst hσ
+    have hgoal : sk.dsBefore g (sndCount (Chan.upper p g) st.out)
+        = sk.dsBefore g A + sk.dOf g (sk.stageScope g A) := by
+      rw [hup, dsBefore_succ sk hA]
+    rw [hgoal, hlow]
+    omega
+
+/-- The splice identity: a post-splice ancestor's pends line meets its
+resolution count — the `step` obligation of `SpineLink`. -/
+theorem splice_link {st : MState} {p : Party} {g A : Nat}
+    (hg1 : 1 ≤ g) (hasker : asks p (g + 1) = true)
+    (hup : sndCount (Chan.upper p g) st.out = A + 1)
+    (hlow : sndCount (Chan.lower p g) st.out = sk.dsBefore g (A + 1)) :
+    sk.pendsBefore p (g + 1) (sndCount (Chan.upper p g) st.out)
+      = sndCount (Chan.lower p g) st.out := by
+  have hpb := pendsBefore_asker (sk := sk) hasker (by omega) (A + 1)
+  rw [hup, hlow]
+  simpa using hpb
+
 /-- The root resolution is banked once the opener's future is past
 it. -/
 theorem rootres_pin (hwf : sk.wellFormed = true) {fut : List Ev}
