@@ -11,7 +11,10 @@
 //! `when` stream ending and the peer hanging up, and the error terminal.
 //!
 //! The adversarial half pins the cancellation and reuse contract from the
-//! hostile side: a driver dropped mid-session commits nothing; a consumer
+//! hostile side: a driver dropped mid-session commits nothing and forfeits
+//! the connection — the price the crate docs' "What a session promises"
+//! section documents, enforced by link poisoning; a driver started on an
+//! already-poisoned link fails fast without waiting for a tick; a consumer
 //! that drops every `next()` future loses nothing (poll cancel-safety); a
 //! cleanly ended driver hands the connection back usable; and two proptest
 //! suites — random tick/commit/yield interleavings, and connections severed
@@ -298,8 +301,10 @@ async fn when_exhaustion_then_hangup_both_end_cleanly() {
 
 /// Dropping a driver mid-session commits nothing: both replicas are
 /// byte-identical to their pre-session state, and a fresh connection
-/// afterwards converges the pair from scratch. (The forfeited connection
-/// itself is gone — that is the documented price of the drop.)
+/// afterwards converges the pair from scratch. The drop forfeits the
+/// connection — the price the crate docs' "What a session promises"
+/// section documents — and poisoning enforces it: a reuse attempt on
+/// either end's link fails fast with [`Error::LinkPoisoned`].
 #[pollster::test]
 async fn dropping_a_driver_mid_session_commits_nothing() {
     let (a, b) = pair().await;
@@ -308,8 +313,8 @@ async fn dropping_a_driver_mid_session_commits_nothing() {
     let a_before = (a.snapshot().hash(), a.snapshot().latest().clone());
     let b_before = (b.snapshot().hash(), b.snapshot().latest().clone());
 
+    let (mut a_link, mut b_link) = links();
     {
-        let (mut a_link, mut b_link) = links();
         let (a_tx, a_when) = ticks();
         let mut a_sessions = a.gossip_when(a_when, &mut a_link);
         let mut b_sessions = b.gossip_when(stream::pending::<()>(), &mut b_link);
@@ -328,7 +333,7 @@ async fn dropping_a_driver_mid_session_commits_nothing() {
                 "session must still be in flight"
             );
         }
-        // Both drivers (and the connection) drop here, mid-session.
+        // Both drivers drop here, mid-session, forfeiting the connection.
     }
 
     assert_eq!(
@@ -340,10 +345,60 @@ async fn dropping_a_driver_mid_session_commits_nothing() {
         b_before
     );
 
+    // The forfeit is enforced, not just documented: both ends' links are
+    // poisoned, so reuse fails fast — with no counterparty driving, which
+    // the closed-world harness itself proves the fail-fast does not need.
+    let retry = run_to_quiescence(a.gossip(&mut a_link)).expect("fail-fast needs no peer");
+    assert!(
+        matches!(retry, Err(Error::LinkPoisoned)),
+        "reusing A's forfeited link must fail fast, got {retry:?}"
+    );
+    let retry = run_to_quiescence(b.gossip(&mut b_link)).expect("fail-fast needs no peer");
+    assert!(
+        matches!(retry, Err(Error::LinkPoisoned)),
+        "reusing B's forfeited link must fail fast, got {retry:?}"
+    );
+
     // A fresh connection converges the pair as if nothing had happened.
     wire_gossip_async(&a, &b).await;
     assert_eq!(a.snapshot().hash(), b.snapshot().hash());
     assert_eq!(a.snapshot().len(), 2);
+}
+
+/// A driver started on an already-poisoned link yields its terminal
+/// [`Error::LinkPoisoned`] immediately, even though its policy stream
+/// never ticks and no peer drives the other end: the poison check precedes
+/// the driver's idle select, so a dead link cannot masquerade as a live,
+/// quietly parked driver.
+#[test]
+fn a_driver_on_a_poisoned_link_fails_fast() {
+    let a: Rumors<u64> = Peer::seed().into_rumors();
+    let (mut a_link, _b_link) = links();
+
+    // Poison the link: cancel a one-shot session stalled on its silent
+    // counterparty (the bounded-poll harness reports the stall and drops
+    // the session future on the way out).
+    assert!(
+        run_to_quiescence(a.gossip(&mut a_link)).is_err(),
+        "the session must stall against a silent peer, then cancel"
+    );
+
+    // The policy stream is pending forever, and nothing drives the other
+    // end: only the pre-select fail-fast can resolve this, which the
+    // closed-world harness proves happens promptly rather than hanging.
+    let mut sessions = a.gossip_when(stream::pending::<()>(), &mut a_link);
+    let item = run_to_quiescence(sessions.next())
+        .expect("the fail-fast must not wait for a tick or a peer");
+    assert!(
+        matches!(item, Some(Err(Error::LinkPoisoned))),
+        "a driver on a poisoned link must yield LinkPoisoned, got {item:?}"
+    );
+    assert!(
+        run_to_quiescence(sessions.next())
+            .expect("the driver must end after its terminal error")
+            .is_none(),
+        "the stream must end after its terminal error"
+    );
 }
 
 /// Polling is cancel-safe, as documented: a consumer that creates and

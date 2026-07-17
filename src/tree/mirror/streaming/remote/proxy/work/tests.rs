@@ -1,5 +1,9 @@
 use std::future;
 
+use futures::StreamExt;
+use tokio::io::DuplexStream;
+use tokio::sync::oneshot;
+
 use super::{Physical, Work};
 use crate::link::memory;
 use crate::testing::run_to_quiescence;
@@ -7,9 +11,9 @@ use crate::tree::mirror::streaming::{
     Failing, Failure, Local, Operation,
     remote::{
         adapter::EncodeError,
-        codec::Speaker,
+        codec::{Speaker, Stream},
         proxy::Error,
-        streams::{AcceptDriver, claims, error_route},
+        streams::{AcceptDriver, StreamError, StreamReceiver, claims, error_route},
     },
 };
 
@@ -61,5 +65,65 @@ fn pump_failure_preempts_parked_pumps() {
         Error::Encode(EncodeError::Backend(Failure::Injected(
             Operation::Children { height: 1 },
         )))
+    ));
+}
+
+/// A published stream error resolves a session whose every future is parked.
+///
+/// The incoming-stream reporters publish to the error route and then park
+/// forever, so the session's liveness rests entirely on `execute`'s select
+/// observing the route: the protocol arm never completes (its pumps and
+/// terminal operation are parked), the biased poll order visits it first,
+/// and the error arm must still win the poll rather than hang. This is the
+/// property every publish-then-park path in the stream layer rests on.
+#[test]
+fn published_stream_error_preempts_a_parked_protocol() {
+    let (link, _peer) = memory();
+    let parts = link.into_parts();
+    let (control_read, control_write, acceptor, epoch) = (
+        parts.control_read,
+        parts.control_write,
+        parts.acceptor,
+        parts.session.epoch,
+    );
+    let (slots, claims) = claims();
+    let (route, errors) = error_route();
+    let accept = AcceptDriver::new(acceptor, epoch, Speaker::Responder, slots, route.clone());
+    let mut work: Work<_, (), _, _, _> = Work::new(
+        Failing::after(Local, usize::MAX),
+        Physical {
+            control_read,
+            control_write,
+            accept,
+            errors,
+        },
+    );
+
+    // A receiver whose claim sender is already gone: its first poll reports
+    // `SupplyClosed` to the error route and parks, never resolving — the
+    // pump driving it is the parked reporter the select must not wait for.
+    let (claim_send, claim_receive) = oneshot::channel::<DuplexStream>();
+    drop(claim_send);
+    let mut receiver: StreamReceiver<DuplexStream, ()> = StreamReceiver::new(
+        claim_receive,
+        Speaker::Initiator,
+        Stream::new(0).expect("stream index 0 exists"),
+        route,
+    );
+    work.spawn(async move {
+        receiver.next().await;
+        unreachable!("a reporter parks forever after publishing");
+    });
+
+    // The claim table stays alive, as in production: the parked accept
+    // driver must not be what surfaces the failure.
+    let _claims = claims;
+    let error = run_to_quiescence(work.execute(future::pending::<Result<(), _>>()))
+        .expect("a published stream error must resolve the parked session, not hang it")
+        .expect_err("the published stream error must surface");
+
+    assert!(matches!(
+        error,
+        Error::Stream(StreamError::SupplyClosed { source: None, .. })
     ));
 }
