@@ -571,13 +571,35 @@ bounds μ(Q), and both are bounded by the awaited send.
      trace take/head structure — asm DONE (`prefix_flatMap`,
      block-run projections, `asm_cell_shape`: a nonempty cell heads
      at res/level/out with all three prefix counts pinned); absorb
-     and fins analogs remain; (c) the asm/absorb stuck-trichotomy at
-     fixpoint (glue `asm_cell_shape` + `cell_head_seq` + per-cell
-     disabledness from `step = none`); (d) `pendsBefore` accounting
-     (asker `pendsBefore = dsBefore`, answerer pends = kid sums,
-     totals = producer totals); (e) the four discharge lemmas from
-     explicit context hypotheses; (f) the `CtxOK` tree induction;
-     (g) layer D: the fuel induction assembling
+     and fins analogs remain; (c) asm DONE — `asm_stuck`: at a pump
+     fixpoint an asm tower (slot given by `procs_asmI/R`) is
+     exhausted / res-starved / level-starved / out-blocked, each
+     disjunct pinning its three counts (`rcvCount res`,
+     `rcvCount level`, `sndCount out` against `pendsBefore`) and
+     recording the failed guard; helpers `scan_none_heads`,
+     `asm_owners`, `asm_totals`, `manFilters_length`, `asmIdx_ge`.
+     Absorb/fins stuck analogs remain (same recipe: cell shape via
+     `prefix_flatMap` over the 3-event absorb blocks, then the glue).
+     NEXT IN ORDER: (d) `pendsBefore` accounting — asker
+     `pendsBefore (p,h+1) k = dsBefore h k`, answerer pends = kid
+     sums bridged to `wiresBefore` one stage down, totals =
+     producer totals (`asmResList` lengths vs `stageLen`/D-counts;
+     some of this exists in `Proofs/Counting.lean` — check
+     `pendsBefore_asker_full` &c. first); (e) the four discharge
+     lemmas (upper/lower/leaf-wire/leafRequests windows) from
+     explicit context hypotheses, following the case-tree above —
+     each `asm_stuck` starvation disjunct meets a position fact or
+     accounting identity, blocking disjuncts chain to the neighbor
+     tower (descend: consumer starving ⟹ supplier's disjunction;
+     ascend: producer out-blocked ⟹ consumer's disjunction; the
+     pure contradictions are starving-vs-blocked and
+     exhausted-vs-needed); (f) the `CtxOK` tree induction supplying
+     the position facts (∃-packaged ancestor coordinates, mirroring
+     `dep_scope`); (g) layer D: the fuel induction over `weaveGo`
+     carrying `WEdge` + `step = none` (init via all-receive pump
+     heads) + `DepOK` + `CtxOK`, discharging each emit's guard via
+     `depOK_head`+conservation (manual classes, `manDep`) or the
+     (e)-lemmas (pump classes), assembling
      `WEdge sk [] (weaveState sk)` under `wellFormed ∧ schedulable`.
    - *Then, closing (b):* per-channel totals (snd = rcv, counting
      style); the blame-reduction lemmas (mostly 3a corollaries); the
