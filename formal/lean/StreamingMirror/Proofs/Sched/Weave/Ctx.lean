@@ -209,3 +209,56 @@ theorem phi_of_spine (hwf : sk.wellFormed = true) {fut : List Ev}
         < sk.pendsBefore Party.I 1
             (sndCount (Chan.lower Party.I 1) st.out)
       omega
+
+-- ================================================= the ladder rungs
+
+/-- A pre-splice ancestor position yields its stage's spine link.
+
+The answerer's cut sits at its in-flight D slot's resolution; one
+`dRank_succ` step and `pends_cut_mid` convert it to the wire prefix
+of the slot AFTER the in-flight one, and the ancestor two stages
+down — still mid-scope inside that slot's subtree — keeps its summary
+strictly below by `spine_nest`. -/
+theorem spineLink_base_at (hwf : sk.wellFormed = true) {st : MState}
+    {p : Party} {g : Nat}
+    (hna : asks p (g + 2) = false) (hg2r : g + 2 < sk.rootH)
+    {A2 i2 : Nat} (hA2 : A2 < sk.stageLen (g + 2))
+    (hi2 : i2 < sk.nChildren (g + 2) (sk.stageScope (g + 2) A2))
+    (hD2 : sk.childIsD (g + 2) (sk.stageScope (g + 2) A2) i2 = true)
+    {t : Nat}
+    (ht : t < sk.nChildren (g + 1)
+        (sk.stageScope (g + 1) (sk.wiresBefore (g + 2) A2 + i2)))
+    (hup : sndCount (Chan.upper p g) st.out
+      = sk.wiresBefore (g + 1) (sk.wiresBefore (g + 2) A2 + i2) + t)
+    (hlow : sndCount (Chan.lower p (g + 2)) st.out
+      = sk.dsBefore (g + 2) A2 + dRank sk (wpk (g + 2)) A2 i2 + 1) :
+    SpineLink sk st p (g + 2) := by
+  have hB : sk.wiresBefore (g + 2) A2 + i2 < sk.stageLen (g + 1) :=
+    kid_index_lt sk hwf (by omega) hg2r hA2 hi2
+  have hdr : dRank sk (wpk (g + 2)) A2 (i2 + 1)
+      = dRank sk (wpk (g + 2)) A2 i2
+        + (if sk.childIsD (g + 2) (sk.stageScope (g + 2) A2) i2
+            then 1 else 0) :=
+    dRank_succ sk (wpk (g + 2)) A2 i2
+  rw [hD2, if_pos rfl] at hdr
+  refine SpineLink.base g ?_
+  rw [hlow, Nat.add_assoc, ← hdr,
+    pends_cut_mid sk hwf hna (by omega) hg2r hA2 (by omega), hup]
+  exact spine_nest sk hB ht
+
+/-- The ascent coverage from a ladder of spine links and P1 facts:
+`Φ` per answerer stage is `phi_of_spine` at that stage's link. -/
+theorem ascCover_of_spine (hwf : sk.wellFormed = true) {fut : List Ev}
+    {st : MState} (h : WEdge sk fut st) {p : Party} {top : Nat}
+    (htop : p = Party.I ∧ top = sk.rootH
+      ∨ p = Party.R ∧ top = sk.rootH - 1) {j : Nat}
+    (hlink : ∀ G, j ≤ G → G ≤ top → asks p G = false →
+      SpineLink sk st p G)
+    (hp1 : ∀ G, j ≤ G → G ≤ top → asks p G = false →
+      sndCount (Chan.lower p G) st.out
+        ≤ sk.dsBefore G (sndCount (Chan.upper p G) st.out)
+          + sk.capLevel + 1) :
+    AscCover sk st p j top := by
+  intro g hjg hgt hna
+  exact ⟨phi_of_spine sk hwf h htop (hlink g hjg hgt hna) hgt hna,
+    hp1 g hjg hgt hna⟩
