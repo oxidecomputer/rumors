@@ -138,14 +138,43 @@ fn dropping_the_peer_fails_the_supply() {
     .expect("failed accept resolves");
 }
 
-/// Epochs advance one per session and wrap: the label tripwire never
-/// allocates, only counts.
+/// Epochs advance one per begun session and wrap: the label tripwire never
+/// allocates, only counts. `finish` marks each session's clean end.
 #[test]
 fn epochs_count_and_wrap() {
     let (mut a, _b) = memory();
-    assert_eq!(a.next_epoch(), 0);
-    assert_eq!(a.next_epoch(), 1);
+    assert_eq!(a.session.begin().expect("fresh link"), 0);
+    a.session.finish();
+    assert_eq!(a.session.begin().expect("clean boundary"), 1);
+    a.session.finish();
     a.session.epoch = u8::MAX;
-    assert_eq!(a.next_epoch(), u8::MAX);
-    assert_eq!(a.next_epoch(), 0);
+    assert_eq!(a.session.begin().expect("clean boundary"), u8::MAX);
+    a.session.finish();
+    assert_eq!(a.session.begin().expect("clean boundary"), 0);
+}
+
+/// `begin` latches the poison flag for the open session's whole duration
+/// and only `finish` clears it: a session that never finishes leaves the
+/// link failing every later `begin` fast, without burning further epochs.
+#[test]
+fn an_unfinished_session_poisons_every_later_begin() {
+    let (mut a, _b) = memory();
+    assert!(!a.session.poisoned);
+    assert_eq!(a.session.begin().expect("fresh link"), 0);
+    assert!(a.session.poisoned, "open sessions hold the latch");
+
+    // The interrupted session never finishes: both later attempts fail
+    // fast, and neither advances the counter past the interrupted session.
+    for _ in 0..2 {
+        assert!(
+            matches!(a.session.begin(), Err(crate::Error::LinkPoisoned)),
+            "a poisoned link must fail begin fast"
+        );
+    }
+    assert_eq!(a.session.epoch, 1, "failed begins burn no epochs");
+
+    // Clearing the latch (as a funnel does on clean completion) restores
+    // the link; the next session takes the next epoch in sequence.
+    a.session.finish();
+    assert_eq!(a.session.begin().expect("cleared latch"), 1);
 }

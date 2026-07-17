@@ -75,6 +75,20 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     #[error("session epilogue failed after local commit: {0}")]
     Epilogue(#[source] std::io::Error),
 
+    /// A session was started on a link whose previous session was
+    /// interrupted.
+    ///
+    /// A session that fails or is cancelled leaves the link's control
+    /// stream mid-frame, where a next session would misread its leftover
+    /// bytes as a preamble. The link records the interruption
+    /// ([`SessionState`](crate::link::SessionState)) and every subsequent
+    /// session fails here, before any wire traffic. Discard the link and
+    /// reconnect; the replica itself is unharmed.
+    #[error(
+        "link is poisoned: an earlier session on it was interrupted before completing; discard the link and reconnect"
+    )]
+    LinkPoisoned,
+
     /// The peer's intent byte had no defined meaning.
     #[error("peer sent an invalid intent byte ({byte:#04x})")]
     IntentInvalid { byte: u8 },
@@ -142,6 +156,7 @@ impl Error<NoBookmark> {
             },
             Error::PartyOverlap => Error::PartyOverlap,
             Error::Epilogue(error) => Error::Epilogue(error),
+            Error::LinkPoisoned => Error::LinkPoisoned,
             Error::IntentInvalid { byte } => Error::IntentInvalid { byte },
             Error::BootstrapRetireConflict => Error::BootstrapRetireConflict,
             Error::Mirror(error) => Error::Mirror(error),

@@ -426,6 +426,67 @@ fn severed_epilogue_marker_is_uncertain() {
     drop(survivor);
 }
 
+/// A gossip session cancelled mid-flight poisons the link: the next session
+/// on it fails fast with [`Error::LinkPoisoned`], before any wire traffic,
+/// instead of misreading the interrupted session's leftover control bytes.
+#[test]
+fn a_cancelled_session_poisons_the_link_for_gossip() {
+    use crate::testing::{Quiescence, run_to_quiescence};
+
+    let survivor = Peer::<u64>::seed();
+    let (_survivor, child) = bootstrap_from(survivor);
+    let (mut a_link, _b_link) = memory();
+
+    // Cancel a session mid-flight, deterministically: the counterparty
+    // never drives its end, so the session stalls awaiting the peer's
+    // preamble and the bounded-poll harness reports the stall — dropping
+    // (cancelling) the session future on its way out.
+    assert_eq!(
+        run_to_quiescence(child.gossip(&mut a_link)).err(),
+        Some(Quiescence::Stalled),
+    );
+
+    // The fail-fast needs no counterparty at all: it resolves before any
+    // wire traffic, which the closed-world harness itself proves.
+    let retry = run_to_quiescence(child.gossip(&mut a_link)).expect("fail-fast needs no peer");
+    assert!(
+        matches!(retry, Err(Error::LinkPoisoned)),
+        "a poisoned link must fail the next gossip fast, got {retry:?}"
+    );
+}
+
+/// A retire attempted on a poisoned link recovers the peer intact with
+/// [`Error::LinkPoisoned`]: the fail-fast happens before any wire traffic,
+/// so the identity was never at risk and remains free to retire elsewhere.
+#[test]
+fn retire_on_a_poisoned_link_recovers_the_peer() {
+    use crate::testing::{Quiescence, run_to_quiescence};
+
+    let survivor = Peer::<u64>::seed();
+    let (survivor, child) = bootstrap_from(survivor);
+    let (mut a_link, _b_link) = memory();
+
+    // Poison the link: cancel a gossip session stalled on its silent peer.
+    assert_eq!(
+        run_to_quiescence(child.gossip(&mut a_link)).err(),
+        Some(Quiescence::Stalled),
+    );
+
+    let out = run_to_quiescence(child.retire(&mut a_link)).expect("fail-fast needs no peer");
+    let Retire::Recovered { peer, error } = out else {
+        panic!("retire on a poisoned link must recover the peer, got {out:?}");
+    };
+    assert!(
+        matches!(error, Error::LinkPoisoned),
+        "the fail-fast error is the poison diagnosis, got {error:?}"
+    );
+
+    // The recovered peer is genuinely intact: over a fresh link it retires
+    // cleanly, reconstituting the seed's whole id-space in the survivor.
+    let survivor = retire_child_into(survivor, peer);
+    assert_eq!(party_of(&survivor), Party::seed());
+}
+
 /// A session severed on the trailing party frame itself is the irreducible
 /// two-generals window.
 ///

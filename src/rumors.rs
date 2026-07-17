@@ -295,13 +295,18 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// borrow enforces.
     ///
     /// On `Ok`, the link rests exactly at the session boundary, ready to
-    /// host this pair's next session. On `Err`, discard the link: its
-    /// control stream is mid-frame garbage. The replica is unchanged by an
-    /// `Err`, with one distinguished exception: on [`Error::Epilogue`] every
-    /// local effect of the session is already committed, and only the
-    /// confirmation of the *peer's* completion failed — the residue the
-    /// closing marker exchange cannot eliminate, since the final marker
-    /// itself can be lost (the two-generals problem).
+    /// host this pair's next session. On `Err`, discard the link — and this
+    /// is enforced, not advisory: a failed (or cancelled) session poisons
+    /// the link, and every subsequent session on it fails fast with
+    /// [`Error::LinkPoisoned`] rather than misreading its mid-frame control
+    /// stream. The replica is unchanged by an `Err`, with two qualified
+    /// exceptions: on [`Error::Epilogue`] every local effect of the session
+    /// is already committed, and only the confirmation of the *peer's*
+    /// completion failed — the residue the closing marker exchange cannot
+    /// eliminate, since the final marker itself can be lost (the
+    /// two-generals problem); and a failure while donating a bootstrap fork
+    /// leaks that fork's id-region (deliberately — the newcomer may hold
+    /// it), narrowing this replica's identity without touching its content.
     pub async fn gossip<CR, CW, C, A>(&self, link: &mut Link<CR, CW, C, A>) -> Result<(), Error<B>>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
@@ -331,10 +336,14 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// continue. It yields one [`Gossiped`] per completed gossip session. It
     /// terminates in one of three ways:
     ///
-    /// - the connection fails: one final `Err` (replica unchanged, the
-    ///   transport is now mid-frame garbage: discard the transport);
+    /// - the connection fails: one final `Err` (replica unchanged; the link
+    ///   is poisoned, and any later session on it fails fast with
+    ///   [`Error::LinkPoisoned`] — discard the link);
     /// - `when` ends, cleanly, after finishing any session in flight;
     /// - the remote hangs up at a session boundary, cleanly.
+    ///
+    /// After either clean termination the link rests at a session boundary
+    /// and stays usable: hand it to another driver or session.
     ///
     /// # Suppression
     ///

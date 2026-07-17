@@ -1058,6 +1058,24 @@ each is deliberate and the code documents it in place:
   decision: senders open on their first frame, receivers claim on their
   first read, vacuous levels never touch the transport, and wire captures
   are per-stream with empty-stream groups gone.
+- **Session-boundary integrity is enforced twice, by two mechanisms that
+  answer different questions.** The V2 *epilogue* — one marker byte each
+  way on the control stream after all local session work — is
+  peer-completion certification: it upgrades `Ok` from "my replica
+  committed" to "both replicas committed", leaving only the irreducible
+  two-generals residue (`Error::Epilogue`, distinguished as post-commit).
+  Link *poisoning* is local fail-fast: the link's `SessionState` latches
+  `poisoned` when a session begins and clears it only on clean
+  completion, so a session that failed or was cancelled mid-frame leaves
+  a latch that fails the next session immediately (`Error::LinkPoisoned`)
+  instead of misparsing leftover control bytes — turning the old
+  "discard the link on `Err`" documentation into an enforced contract.
+  Neither subsumes the other: the epilogue says nothing about a session
+  that never ran to its own end (cancellation is invisible to the wire),
+  and poisoning says nothing about whether the *peer* committed (the
+  local latch clears on local success alone were there no epilogue).
+  Cheapest possible forms of each: one byte per session on the wire, two
+  bytes of state on the link.
 
 ## Appendix: the throwaway repros
 

@@ -90,17 +90,23 @@ type DynLinkParts<'a> = (DynRead<'a>, DynWrite<'a>, DynConnector, DynAcceptor<'a
 #[derive(Debug)]
 pub enum Retire<T, B: BookmarkError = NoBookmark> {
     /// **Retired.** The peer reconciled with us, absorbed our identity, and
-    /// confirmed the absorption; this replica has left the universe.
+    /// confirmed the absorption; this replica has left the universe. The
+    /// link rests at a clean session boundary.
     Retired,
     /// **Declined, unchanged.** The peer was itself retiring, so nothing our
-    /// replica is handed back intact, to try retiring elsewhere.
+    /// replica is handed back intact, to try retiring elsewhere. The
+    /// session ended cleanly, so the link remains usable.
     Declined {
         /// The intact retiree.
         peer: Peer<T, B>,
     },
-    /// **Recovered, unchanged.** The session failed *before* our identity ever
-    /// crossed the wire; the replica is handed back intact, to try retiring
-    /// elsewhere.
+    /// **Recovered, unchanged.** The session failed *before* our identity
+    /// ever crossed the wire; the replica is handed back intact, to try
+    /// retiring elsewhere.
+    ///
+    /// Retry over a different link: this one is poisoned (or, on
+    /// [`Error::LinkPoisoned`], already was), and its next session fails
+    /// fast.
     Recovered {
         /// The intact retiree.
         peer: Peer<T, B>,
@@ -109,7 +115,8 @@ pub enum Retire<T, B: BookmarkError = NoBookmark> {
     },
     /// **Uncertain.** The session failed while our identity itself was in
     /// flight: the peer may or may not hold it, so our peer is consumed
-    /// rather than risk the same identity living twice.
+    /// rather than risk the same identity living twice. The link is
+    /// poisoned; discard it.
     ///
     /// In flight covers the party frame itself and everything after it:
     /// a failure while awaiting the peer's commit confirmation (the
@@ -184,7 +191,20 @@ impl<T> Peer<T, NoBookmark> {
         C: Connector,
         A: Acceptor,
     {
-        Self::bootstrap_erased(protocol, erase(link))
+        Box::pin(async move {
+            let parts = match erase(&mut *link) {
+                Ok(parts) => parts,
+                Err(error) => return Err(error),
+            };
+            let result = Self::bootstrap_erased(protocol, parts).await;
+            // Both `Ok` arms are clean session boundaries — a completed
+            // donation and a mutual-bootstrap bail alike end with the
+            // epilogue under V2 — so both un-poison the link.
+            if result.is_ok() {
+                link.session.finish();
+            }
+            result
+        })
     }
 
     /// The link-erased bootstrap body behind [`bootstrap_inner`].
@@ -379,10 +399,25 @@ impl<T, B: Persist> Peer<T, B> {
         A: Acceptor,
     {
         let mut staged = handshake::Staged::new();
-        match self
-            .gossip_inner(Intent::Retire, &mut staged, erase(link))
-            .await
-        {
+        let parts = match erase(link) {
+            Ok(parts) => parts,
+            // The fail-fast happened before any wire traffic: nothing of
+            // ours was ever in flight, so the retiree is recovered intact.
+            Err(error) => {
+                return Retire::Recovered {
+                    peer: self,
+                    error: error.widen(),
+                };
+            }
+        };
+        let (intent, result) = self.gossip_inner(Intent::Retire, &mut staged, parts).await;
+        // Un-poison on clean completion, before the outcome is shaped: every
+        // `Ok` — retired, or declined by a mutually retiring peer — leaves
+        // the control stream resting at the session boundary.
+        if result.is_ok() {
+            link.session.finish();
+        }
+        match (intent, result) {
             (Intent::Retire, Ok(_)) => Retire::Retired,
             (Intent::Retire, Err(error)) => Retire::Uncertain { error },
             (Intent::Remain, Ok(_)) => Retire::Declined { peer: self },
@@ -403,10 +438,21 @@ impl<T, B: Persist> Peer<T, B> {
         A: Acceptor,
     {
         let mut staged = handshake::Staged::new();
-        self.gossip_inner(Intent::Remain, &mut staged, erase(link))
+        let parts = match erase(link) {
+            Ok(parts) => parts,
+            Err(error) => return Err(error.widen()),
+        };
+        let result = self
+            .gossip_inner(Intent::Remain, &mut staged, parts)
             .await
-            .1
-            .map(|_converged| ())
+            .1;
+        // Un-poison strictly after the session's own `Ok`, which under V2
+        // is already epilogue-certified: the control stream rests at the
+        // session boundary.
+        if result.is_ok() {
+            link.session.finish();
+        }
+        result.map(|_converged| ())
     }
 
     /// Durably record this peer's *own* identity at its current version, without
@@ -806,7 +852,7 @@ impl<T, B: Bookmark> Peer<T, B> {
             write: &mut link.control_write as DynWrite<'a>,
             connector: DynConnector::new(link.connector.clone()),
             acceptor: &mut link.acceptor as DynAcceptor<'a>,
-            epoch: &mut link.session.epoch,
+            state: &mut link.session,
             when: Box::pin(when),
             staged: handshake::Staged::new(),
             converged: None,
@@ -823,6 +869,14 @@ impl<T, B: Bookmark> Peer<T, B> {
                     return None;
                 }
                 loop {
+                    // A driver started on a poisoned link must fail fast
+                    // here, before the idle select: its session would fail
+                    // the same way, but only once a trigger fired, leaving
+                    // a driver that looks live while parked on a dead link.
+                    if drive.state.poisoned {
+                        drive.done = true;
+                        return Some((Err(Error::LinkPoisoned.widen()), drive));
+                    }
                     // Wait for a reason to enter a session: the remote's
                     // preamble arriving, or the `when` stream yielding a tick.
                     // The staging buffer keeps the arrival's progress outside
@@ -869,8 +923,13 @@ impl<T, B: Bookmark> Peer<T, B> {
                         }
                     };
 
-                    let epoch = *drive.epoch;
-                    *drive.epoch = epoch.wrapping_add(1);
+                    let epoch = match drive.state.begin() {
+                        Ok(epoch) => epoch,
+                        Err(e) => {
+                            drive.done = true;
+                            return Some((Err(e.widen()), drive));
+                        }
+                    };
                     let (_intent, result) = drive
                         .peer
                         .gossip_inner(
@@ -887,9 +946,11 @@ impl<T, B: Bookmark> Peer<T, B> {
                         .await;
                     return match result {
                         Ok(converged) => {
-                            // Re-arm for the next session: a fresh staging
-                            // buffer (this preamble is consumed) and the new
-                            // suppression token.
+                            // Re-arm for the next session: un-poison the
+                            // link (this session completed cleanly), a
+                            // fresh staging buffer (this preamble is
+                            // consumed), and the new suppression token.
+                            drive.state.finish();
                             drive.staged = handshake::Staged::new();
                             drive.converged = Some(converged.clone());
                             Some((Ok(Gossiped { converged, led }), drive))
@@ -905,23 +966,28 @@ impl<T, B: Bookmark> Peer<T, B> {
     }
 }
 
-/// Erase a caller's link into one session's [`DynLinkParts`], advancing the
-/// link's epoch: each call is exactly one session.
-fn erase<'a, CR, CW, C, A>(link: &'a mut Link<CR, CW, C, A>) -> DynLinkParts<'a>
+/// Erase a caller's link into one session's [`DynLinkParts`], opening the
+/// session on the link's [`SessionState`](crate::link::SessionState): each
+/// call is exactly one session.
+///
+/// Fails fast with [`Error::LinkPoisoned`] on a link whose previous session
+/// was interrupted; on success the link is poisoned until its funnel
+/// observes the session's clean completion and clears the latch.
+fn erase<'a, CR, CW, C, A>(link: &'a mut Link<CR, CW, C, A>) -> Result<DynLinkParts<'a>, Error>
 where
     CR: AsyncRead + Unpin + Send,
     CW: AsyncWrite + Unpin + Send,
     C: Connector,
     A: Acceptor,
 {
-    let epoch = link.next_epoch();
-    (
+    let epoch = link.session.begin()?;
+    Ok((
         &mut link.control_read as DynRead<'a>,
         &mut link.control_write as DynWrite<'a>,
         DynConnector::new(link.connector.clone()),
         &mut link.acceptor as DynAcceptor<'a>,
         epoch,
-    )
+    ))
 }
 
 /// Exchange the V2 session epilogue: write our completion marker, flush, and
@@ -981,9 +1047,10 @@ struct Drive<'a, T, B: BookmarkError, S> {
     write: DynWrite<'a>,
     connector: DynConnector,
     acceptor: DynAcceptor<'a>,
-    /// The long-lived link's session counter, advanced once per session so
-    /// stream labels stay in lockstep with the remote's counting.
-    epoch: &'a mut u8,
+    /// The long-lived link's session state: the counter, advanced once per
+    /// session so stream labels stay in lockstep with the remote's
+    /// counting, and the poison latch the driver sets, clears, and obeys.
+    state: &'a mut crate::link::SessionState,
     when: Pin<Box<S>>,
     staged: handshake::Staged,
     /// The frontier this connection last converged on: a tick initiates
@@ -994,6 +1061,26 @@ struct Drive<'a, T, B: BookmarkError, S> {
     /// Terminal-state latch: set on error, clean remote goodbye, or `when`
     /// exhaustion, after which the stream yields nothing further.
     done: bool,
+}
+
+/// Dropping the driver poisons the link if the drop broke a session
+/// boundary; it never clears the latch.
+///
+/// A driver dropped *inside* a session is already covered: `begin` poisoned
+/// the link when the session opened. The case only this drop can see is a
+/// driver dropped while idling with staged preamble bytes — the remote's
+/// initiation was partially consumed out of the control stream, so a next
+/// session would misread its remainder. Every clean termination path
+/// (remote goodbye, `when` exhaustion at an empty boundary, a completed
+/// session's re-arm) reaches this drop with the staging buffer empty and
+/// leaves the latch alone, which is what keeps a cleanly ended connection
+/// reusable.
+impl<T, B: BookmarkError, S> Drop for Drive<'_, T, B, S> {
+    fn drop(&mut self) {
+        if !self.staged.is_empty() {
+            self.state.poisoned = true;
+        }
+    }
 }
 
 // To ensure that a speculatively forked party always snaps back in place, even

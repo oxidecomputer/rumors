@@ -138,6 +138,12 @@ impl<A: Acceptor> Acceptor for &mut A {
 /// used to label data streams, and the poison latch — which is why sessions
 /// take the link by `&mut`: serialized sessions are part of the contract,
 /// enforced by the borrow.
+///
+/// A session that fails, or is cancelled mid-flight, leaves the control
+/// stream mid-frame and *poisons* the link: every later session on it fails
+/// fast with [`Error::LinkPoisoned`](crate::Error::LinkPoisoned) rather
+/// than misreading leftover bytes. Discard a poisoned link and reconnect;
+/// there is no repair.
 pub struct Link<CR, CW, C, A> {
     pub(crate) control_read: CR,
     pub(crate) control_write: CW,
@@ -166,8 +172,35 @@ pub struct SessionState {
     /// Set while a session is in flight and cleared when it completes
     /// cleanly, so between sessions it reads true only on a link whose
     /// control stream rests somewhere mid-frame — a link no further
-    /// session can trust.
+    /// session can trust. Starting a session on such a link fails fast
+    /// with [`Error::LinkPoisoned`](crate::Error::LinkPoisoned).
     pub poisoned: bool,
+}
+
+impl SessionState {
+    /// Open one session, returning the epoch that labels its data streams.
+    ///
+    /// Fails fast with [`Error::LinkPoisoned`](crate::Error::LinkPoisoned)
+    /// if an earlier session was interrupted, without burning an epoch.
+    /// Otherwise the latch is set and the counter advanced *before* any
+    /// wire traffic, so a session that fails or is cancelled at any point —
+    /// even before its first byte — leaves the link poisoned; only the
+    /// session funnels' clean-completion [`finish`](Self::finish) clears it.
+    pub(crate) fn begin(&mut self) -> Result<u8, crate::Error> {
+        if self.poisoned {
+            return Err(crate::Error::LinkPoisoned);
+        }
+        self.poisoned = true;
+        let epoch = self.epoch;
+        self.epoch = self.epoch.wrapping_add(1);
+        Ok(epoch)
+    }
+
+    /// Record the open session's clean completion, clearing the poison
+    /// latch: the control stream rests exactly at the session boundary.
+    pub(crate) fn finish(&mut self) {
+        self.poisoned = false;
+    }
 }
 
 impl<CR, CW, C, A> Link<CR, CW, C, A>
@@ -193,13 +226,6 @@ where
                 poisoned: false,
             },
         }
-    }
-
-    /// Advance to the next session, returning the epoch that labels it.
-    pub(crate) fn next_epoch(&mut self) -> u8 {
-        let epoch = self.session.epoch;
-        self.session.epoch = self.session.epoch.wrapping_add(1);
-        epoch
     }
 }
 
@@ -261,9 +287,11 @@ pub struct LinkParts<CR, CW, C, A> {
     pub acceptor: A,
     /// The link's session counter and poison latch; see [`SessionState`].
     ///
-    /// Preserve it when reassembling a wrapped link — both ends of a
-    /// connection count sessions in lockstep, and a reset counter would
-    /// mislabel every stream of the next session.
+    /// Preserve it when reassembling a wrapped link: both ends of a
+    /// connection count sessions in lockstep, so a reset counter would
+    /// mislabel every stream of the next session — and a cleared
+    /// [`poisoned`](SessionState::poisoned) latch would let sessions run on
+    /// a link whose control stream rests mid-frame.
     pub session: SessionState,
 }
 
