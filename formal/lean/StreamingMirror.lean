@@ -29,3 +29,4 @@ import StreamingMirror.Proofs.Sched.Weave.Window
 import StreamingMirror.Proofs.Sched.Weave.Ctx
 import StreamingMirror.Proofs.Sched.Weave.Emit
 import StreamingMirror.Proofs.Sched.Weave.Site
+import StreamingMirror.Proofs.Sched.Weave.Master
