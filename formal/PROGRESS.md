@@ -718,10 +718,22 @@ bounds μ(Q), and both are bounded by the awaited send.
        the telescope bottoms at the emission point itself.
      (g) layer D: the fuel induction over `weaveGo` carrying
      `WEdge` + `step = none` (init via all-receive pump heads) +
-     `DepOK` + `CtxOK`, discharging each emit's guard via
+     `DepOK`, discharging each emit's guard via
      `depOK_head`+conservation (manual classes, `manDep`) or the
      (e)-lemmas (pump classes), assembling
      `WEdge sk [] (weaveState sk)` under `wellFormed ∧ schedulable`.
+     Under the counting route the induction's per-position context is
+     `RestCtx`, a statement about the SYNTACTIC TAIL, not the state:
+     at any worklist position, for every stage `g`, the tail's
+     stage-`g` event filter is a `walkSeg` SUFFIX from a cursor
+     (mid-scope positions add the current scope's remaining
+     `splicedChunk` run in front). This is exactly `dep_scope`'s
+     window-threading shape (`descIdx` cursors re-established per
+     kid), proven once as a tail-partition lemma family
+     (`align_scope` clause 3 restricted to kid suffixes) rather than
+     carried as state facts; `man_struct` then converts each tail
+     filter into the emitted-prefix count pin the window lemmas and
+     the `Φ`/`P1`/`DescSupply` derivations consume.
    - *Then, closing (b):* per-channel totals (snd = rcv, counting
      style); the blame-reduction lemmas (mostly 3a corollaries); the
      small argmin assembly (stalled state ⟹ blame edge drops weave
