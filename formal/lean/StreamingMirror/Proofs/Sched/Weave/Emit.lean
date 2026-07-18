@@ -34,7 +34,7 @@ theorem count_pin (hwf : sk.wellFormed = true) {fut : List Ev}
     (proj c b st.out).length + futLen sk fut M c b
       = (proj c b T).length := by
   obtain ⟨r, pre, hr, hpre, hsub⟩ := cell_of_owner sk h hT
-  have hout := out_proj_owner sk hwf h c b hM hT hr hpre hsub
+  have hout := out_proj_owner sk (famOK_procs sk hwf) h c b hM hT hr hpre hsub
   have hrf : fut.filter (fun e => evOwner sk e == M) = r := by
     have hlen : M < (manFilters sk fut).length := by
       unfold manFilters

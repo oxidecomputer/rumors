@@ -137,10 +137,10 @@ theorem phi_of_spine (hwf : sk.wellFormed = true) {fut : List Ev}
       have hres : asmResChan (p, g + 1) = Chan.upper p g := by
         have hr := asmResChan_asker (j := g + 1) hasker
         simpa using hr
-      have hO := asm_out_le_res sk hwf h.toWCountP htop
+      have hO := asm_out_le_res sk (famOK_procs sk hwf) h.toWCountP htop
         (show 1 ≤ g + 1 by omega) (show g + 1 ≤ top by omega)
       rw [hout, hres] at hO
-      have hwr := wedge_rcvd_le_sent sk hwf h (Chan.upper p g)
+      have hwr := wedge_rcvd_le_sent sk (famOK_procs sk hwf) h (Chan.upper p g)
       show sndCount (Chan.level p (g + 1)) st.out
         < sk.pendsBefore p (g + 2)
             (sndCount (Chan.lower p (g + 2)) st.out)
@@ -157,14 +157,14 @@ theorem phi_of_spine (hwf : sk.wellFormed = true) {fut : List Ev}
         simpa using hs.symm
       -- the answerer below has NOT delivered everything it was sent
       have hphi := ih (by omega) hnag
-      have hpo := asm_pends_le_out sk hwf h.toWCountP htop hg1
+      have hpo := asm_pends_le_out sk (famOK_procs sk hwf) h.toWCountP htop hg1
         (show g ≤ top by omega)
       have houtg : sk.asmOutChan (p, g) = Chan.level p g :=
         asmOutChan_of_lt sk htop (by omega)
       rw [houtg,
         show asmLevelChan (p, g) = Chan.level p (g - 1) from rfl]
         at hpo
-      have hwlg := wedge_rcvd_le_sent sk hwf h (Chan.level p (g - 1))
+      have hwlg := wedge_rcvd_le_sent sk (famOK_procs sk hwf) h (Chan.level p (g - 1))
       have hth : sndCount (Chan.level p g) st.out
           < sndCount (Chan.lower p g) st.out := by
         rcases Nat.lt_or_ge (sndCount (Chan.level p g) st.out)
@@ -179,16 +179,16 @@ theorem phi_of_spine (hwf : sk.wellFormed = true) {fut : List Ev}
       have hres : asmResChan (p, g + 1) = Chan.upper p g := by
         have hr := asmResChan_asker (j := g + 1) hasker
         simpa using hr
-      have hO := asm_out_le_res sk hwf h.toWCountP htop
+      have hO := asm_out_le_res sk (famOK_procs sk hwf) h.toWCountP htop
         (show 1 ≤ g + 1 by omega) (show g + 1 ≤ top by omega)
       rw [hout, hres] at hO
-      have hwr := wedge_rcvd_le_sent sk hwf h (Chan.upper p g)
-      have hpo1 := asm_pends_le_out sk hwf h.toWCountP htop
+      have hwr := wedge_rcvd_le_sent sk (famOK_procs sk hwf) h (Chan.upper p g)
+      have hpo1 := asm_pends_le_out sk (famOK_procs sk hwf) h.toWCountP htop
         (show 1 ≤ g + 1 by omega) (show g + 1 ≤ top by omega)
       rw [hout,
         show asmLevelChan (p, g + 1) = Chan.level p g from rfl]
         at hpo1
-      have hwlg2 := wedge_rcvd_le_sent sk hwf h (Chan.level p g)
+      have hwlg2 := wedge_rcvd_le_sent sk (famOK_procs sk hwf) h (Chan.level p g)
       show sndCount (Chan.level p (g + 1)) st.out
         < sk.pendsBefore p (g + 2)
             (sndCount (Chan.lower p (g + 2)) st.out)
@@ -203,8 +203,8 @@ theorem phi_of_spine (hwf : sk.wellFormed = true) {fut : List Ev}
   | absorbBase hp hlt =>
       intro _ _
       subst hp
-      have hor := absorb_out_le_req sk hwf h.toWCountP
-      have hwr := wedge_rcvd_le_sent sk hwf h Chan.leafRequests
+      have hor := absorb_out_le_req sk (famOK_procs sk hwf) h.toWCountP
+      have hwr := wedge_rcvd_le_sent sk (famOK_procs sk hwf) h Chan.leafRequests
       show sndCount (Chan.level Party.I 0) st.out
         < sk.pendsBefore Party.I 1
             (sndCount (Chan.lower Party.I 1) st.out)

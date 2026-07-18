@@ -71,7 +71,7 @@ theorem man_proj_full (hwf : sk.wellFormed = true) {st : MState}
   rw [hnil] at hr
   obtain ⟨pre, hpre, hsub⟩ :=
     Forall2.rel_of_getElem? (wcount_glue sk h) hT hr
-  have hcore := out_proj_owner sk hwf h c b hM hT hr hpre hsub
+  have hcore := out_proj_owner sk (famOK_procs sk hwf) h c b hM hT hr hpre hsub
   rw [hcore, hpre, List.append_nil]
 
 /-- A walk-owned channel's send count at a drained-manual state is the
@@ -217,7 +217,7 @@ theorem level_jam_up (hwf : sk.wellFormed = true) {st : MState}
   have hcap : 1 ≤ sk.cap (asmLevelChan (p, j)) := cap_pos hwf _
   have hres := asm_res_full sk hwf h htop h1 hjt
   have hIdx := asm_procs sk htop h1 hjt
-  rcases asm_stuck sk hwf h hfix h1 hIdx with
+  rcases asm_stuck sk (famOK_procs sk hwf) h hfix h1 hIdx with
     ⟨hr, hl, ho⟩ | ⟨hr, hl, ho, hsr⟩
       | ⟨hr, h1r, hlo, hl, ho, hsl⟩ | ⟨hr, h1r, hl, ho, hblk⟩
   · -- exhausted: the level feed is complete, contradicting the jam
@@ -250,7 +250,7 @@ theorem chain_no_jam (hwf : sk.wellFormed = true) {st : MState}
       intro j h1 hjt hd hle hjam
       have hj : j = top := by omega
       subst hj
-      exact top_blocked sk hwf h hfix htop hroot
+      exact top_blocked sk hwf (famOK_procs sk hwf) h hfix htop hroot
         (level_jam_up sk hwf h hfix htop h1 hjt hle hjam)
   | succ d ihd =>
       intro j h1 hjt hd hle hjam
@@ -271,13 +271,13 @@ theorem chain_no_jam (hwf : sk.wellFormed = true) {st : MState}
           show sndCount (Chan.level p j) st.out
             ≤ (sk.asmResList p (j + 1 - 1)).length
           rw [show j + 1 - 1 = j from by omega]
-          exact level_snd_le sk hwf h htop h1 hlt
+          exact level_snd_le sk (famOK_procs sk hwf) h htop h1 hlt
         refine ihd (j + 1) (by omega) (by omega) (by omega) hle' ?_
         rw [hnext]
         exact hup
       · have hj : j = top := by omega
         subst hj
-        exact top_blocked sk hwf h hfix htop hroot hup
+        exact top_blocked sk hwf (famOK_procs sk hwf) h hfix htop hroot hup
 
 /-- No assembler's OUTPUT is jammed either: one climb step in. -/
 theorem no_out_jam (hwf : sk.wellFormed = true) {st : MState}
@@ -306,14 +306,14 @@ theorem no_out_jam (hwf : sk.wellFormed = true) {st : MState}
       show sndCount (Chan.level p j) st.out
         ≤ (sk.asmResList p (j + 1 - 1)).length
       rw [show j + 1 - 1 = j from by omega]
-      exact level_snd_le sk hwf h htop h1 hlt
+      exact level_snd_le sk (famOK_procs sk hwf) h htop h1 hlt
     refine chain_no_jam sk hwf h hfix hroot htop
       (top - (j + 1)) (j + 1) (by omega) (by omega) (by omega) hle' ?_
     rw [hnext]
     exact hjam
   · have hj : j = top := by omega
     subst hj
-    exact top_blocked sk hwf h hfix htop hroot hjam
+    exact top_blocked sk hwf (famOK_procs sk hwf) h hfix htop hroot hjam
 
 -- ==================================================== the tower drain
 
@@ -335,7 +335,7 @@ theorem asm_counts_step (hwf : sk.wellFormed = true) {st : MState}
         = (sk.asmResList p j).length := by
   have hres := asm_res_full sk hwf h htop h1 hjt
   have hIdx := asm_procs sk htop h1 hjt
-  rcases asm_stuck sk hwf h hfix h1 hIdx with
+  rcases asm_stuck sk (famOK_procs sk hwf) h hfix h1 hIdx with
     ⟨hr, hl, ho⟩ | ⟨hr, hl, ho, hsr⟩
       | ⟨hr, h1r, hlo, hl, ho, hsl⟩ | ⟨hr, h1r, hl, ho, hblk⟩
   · exact ⟨hr, hl, ho⟩
@@ -358,7 +358,7 @@ theorem absorb_counts_full (hwf : sk.wellFormed = true) {st : MState}
   have hge2 := (wf_rootH hwf).2
   have hw := wire0_full sk hwf h
   have hl := leafreq_full sk hwf h
-  rcases absorb_stuck sk hwf h hfix with
+  rcases absorb_stuck sk (famOK_procs sk hwf) h hfix with
     ⟨h1, h2, h3⟩ | ⟨h1, h2, h3, h4⟩ | ⟨h1, h2, h3, h4⟩ | ⟨h1, h2, h3, h4⟩
   · exact ⟨h1, h2, h3⟩
   · -- wire-starved: the stage-0 walk has drained
@@ -374,7 +374,7 @@ theorem absorb_counts_full (hwf : sk.wellFormed = true) {st : MState}
     have hle : sndCount (asmLevelChan (Party.I, 1)) st.out
         ≤ sk.pendsBefore Party.I 1 (sk.asmResList Party.I 1).length := by
       rw [htot]
-      exact level0_snd_le sk hwf h
+      exact level0_snd_le sk (famOK_procs sk hwf) h
     exact chain_no_jam sk hwf h hfix hroot (Or.inl ⟨rfl, rfl⟩)
       (sk.rootH - 1) 1 (by omega) (by omega) (by omega) hle h4
 
@@ -472,7 +472,7 @@ theorem fin_counts_full (hwf : sk.wellFormed = true) {st : MState}
     ∧ rcvCount Chan.rootrets st.out = sk.rootPending := by
   have hge2 := (wf_rootH hwf).2
   have heven := (wf_rootH hwf).1
-  rcases fin_stuck sk hwf h hfix (by omega) with
+  rcases fin_stuck sk (famOK_procs sk hwf) h hfix (by omega) with
     h1 | ⟨ha, hb, hc⟩ | ⟨ha, hb, hc⟩
   · exact h1
   · -- rootres-starved: ropen has drained
@@ -509,7 +509,7 @@ theorem rootret_fired (hwf : sk.wellFormed = true) {st : MState}
     rcvCount Chan.rootret st.out = 1 := by
   have hge2 := (wf_rootH hwf).2
   have heven := (wf_rootH hwf).1
-  rcases rootret_stuck sk hwf h hfix (by omega) with h1 | ⟨h0, hs0⟩
+  rcases rootret_stuck sk (famOK_procs sk hwf) h hfix (by omega) with h1 | ⟨h0, hs0⟩
   · exact h1
   · exfalso
     have hI := (asmI_counts sk hwf h hfix hroot sk.rootH (by omega)
@@ -582,7 +582,7 @@ theorem asm_sublist (hwf : sk.wellFormed = true) {st : MState}
       rw [asmBlock_eq] at he
       rcases he with _ | ⟨_, he⟩
       · -- the resolution receive: seq below the drained res total
-        have hno := cell_not_out sk hwf h (asmResChan (p, j)) false
+        have hno := cell_not_out sk (famOK_procs sk hwf) h (asmResChan (p, j)) false
           (by simpa using hro) hIdx hr hpre hsub
           (List.mem_cons_self ..)
         rw [← rcvCount_eq_proj, hcnt.1] at hno
@@ -591,7 +591,7 @@ theorem asm_sublist (hwf : sk.wellFormed = true) {st : MState}
         · -- a pending level receive: seq below the drained pends total
           obtain ⟨hc, hb, hlon, hhi⟩ := mem_seg he
           subst hc hb
-          have hno := cell_not_out sk hwf h (asmLevelChan (p, j)) false
+          have hno := cell_not_out sk (famOK_procs sk hwf) h (asmLevelChan (p, j)) false
             (by simpa using hlo) hIdx hr hpre hsub
             (List.mem_cons_self ..)
           rw [← rcvCount_eq_proj, hcnt.2.1] at hno
@@ -607,7 +607,7 @@ theorem asm_sublist (hwf : sk.wellFormed = true) {st : MState}
           omega
         · -- the output send: seq below the drained out total
           rcases he with _ | ⟨_, he⟩
-          · have hno := cell_not_out sk hwf h (sk.asmOutChan (p, j))
+          · have hno := cell_not_out sk (famOK_procs sk hwf) h (sk.asmOutChan (p, j))
               true (by simpa using hoo) hIdx hr hpre hsub
               (List.mem_cons_self ..)
             rw [← sndCount_eq_proj, hcnt.2.2] at hno
@@ -636,19 +636,19 @@ theorem absorb_sublist (hwf : sk.wellFormed = true) {st : MState}
       obtain ⟨q, hq, he⟩ := List.mem_flatMap.1 hmem
       have hqlt := List.mem_range.1 hq
       rcases he with _ | ⟨_, he⟩
-      · have hno := cell_not_out sk hwf h (Chan.wire Party.R 0) false
+      · have hno := cell_not_out sk (famOK_procs sk hwf) h (Chan.wire Party.R 0) false
           (by simp [rcvOwner]) hIdx hr hpre hsub
           (List.mem_cons_self ..)
         rw [← rcvCount_eq_proj, hcnt.1] at hno
         omega
       · rcases he with _ | ⟨_, he⟩
-        · have hno := cell_not_out sk hwf h Chan.leafRequests false
+        · have hno := cell_not_out sk (famOK_procs sk hwf) h Chan.leafRequests false
             (by simp [rcvOwner]) hIdx hr hpre hsub
             (List.mem_cons_self ..)
           rw [← rcvCount_eq_proj, hcnt.2.1] at hno
           omega
         · rcases he with _ | ⟨_, he⟩
-          · have hno := cell_not_out sk hwf h (Chan.level Party.I 0)
+          · have hno := cell_not_out sk (famOK_procs sk hwf) h (Chan.level Party.I 0)
               true (by simp [sndOwner]) hIdx hr hpre hsub
               (List.mem_cons_self ..)
             rw [← sndCount_eq_proj, hcnt.2.2] at hno
@@ -674,7 +674,7 @@ theorem fin_sublist (hwf : sk.wellFormed = true) {st : MState}
         exact List.mem_append_right _ (List.mem_cons_self ..)
       unfold finEvents at hmem
       rcases hmem with _ | ⟨_, he⟩
-      · have hno := cell_not_out sk hwf h Chan.rootres false
+      · have hno := cell_not_out sk (famOK_procs sk hwf) h Chan.rootres false
           (by simp [rcvOwner]) hIdx hr hpre hsub
           (List.mem_cons_self ..)
         rw [← rcvCount_eq_proj, hcnt.1] at hno
@@ -682,7 +682,7 @@ theorem fin_sublist (hwf : sk.wellFormed = true) {st : MState}
       · obtain ⟨q, hq, hqe⟩ := List.mem_map.1 he
         have hqlt := List.mem_range.1 hq
         subst hqe
-        have hno := cell_not_out sk hwf h Chan.rootrets false
+        have hno := cell_not_out sk (famOK_procs sk hwf) h Chan.rootrets false
           (by simp [rcvOwner]) hIdx hr hpre hsub
           (List.mem_cons_self ..)
         rw [← rcvCount_eq_proj, hcnt.2] at hno
@@ -705,7 +705,7 @@ theorem rootret_sublist (hwf : sk.wellFormed = true) {st : MState}
         rw [hpre]
         exact List.mem_append_right _ (List.mem_cons_self ..)
       rcases hmem with _ | ⟨_, he⟩
-      · have hno := cell_not_out sk hwf h Chan.rootret false
+      · have hno := cell_not_out sk (famOK_procs sk hwf) h Chan.rootret false
           (by simp [rcvOwner]) hIdx hr hpre hsub
           (List.mem_cons_self ..)
         rw [← rcvCount_eq_proj, hcnt] at hno

@@ -152,21 +152,62 @@ private theorem emittedCount_owner {c : Chan} {b : Bool} {out : List Ev}
               (by rw [hfc]; omega) hpre]
           simp
 
+-- ================================================= the family bundle
+
+/-- The facts about a trace family that the pump/window layer consumes,
+bundled: canonical projections per trace, ownership of both channel
+sides by the `sndOwner`/`rcvOwner` index functions, and the pump half
+pinned to `weavePumps`. Both corners provide an instance
+(`famOK_procs`, `famOK_procsE` — the families differ only in the walk
+traces, whose per-channel projections agree), so every stuck/chain/
+window lemma generalized over a `FamOK` family serves the d5 weave and
+the eweave alike. -/
+structure FamOK (P : List (List Ev)) : Prop where
+  canon : ∀ (c : Chan) (b : Bool), ∀ t ∈ P, ∃ m, proj c b t = canon c b m
+  snd_owned : Owned (sndOwner sk) true 0 P
+  rcv_owned : Owned (rcvOwner sk) false 0 P
+  pumps : P.drop (manCount sk) = weavePumps sk
+
+/-- The d5 family carries the bundle. -/
+theorem famOK_procs (hwf : sk.wellFormed = true) :
+    FamOK sk (procs sk) :=
+  ⟨procs_canon sk, procs_snd_owned sk hwf, procs_rcv_owned sk hwf,
+    (weavePumps_eq sk).symm⟩
+
+/-- The encoder-order family carries the bundle. -/
+theorem famOK_procsE (hwf : sk.wellFormed = true) :
+    FamOK sk (procsE sk) :=
+  ⟨procsE_canon sk, procsE_snd_owned sk hwf, procsE_rcv_owned sk hwf,
+    procsE_drop_pumps sk⟩
+
+/-- Pump-half lookups are family-independent: past `manCount` every
+`FamOK` family reads `weavePumps`, exactly as `procs` does. -/
+theorem famOK_pump_lookup {P : List (List Ev)} (hfam : FamOK sk P)
+    {i : Nat} (hi : manCount sk ≤ i) :
+    P[i]? = (procs sk)[i]? := by
+  obtain ⟨m, rfl⟩ := Nat.exists_eq_add_of_le hi
+  rw [show P[manCount sk + m]? = (P.drop (manCount sk))[m]? from
+      (List.getElem?_drop ..).symm,
+    show (procs sk)[manCount sk + m]?
+        = ((procs sk).drop (manCount sk))[m]? from
+      (List.getElem?_drop ..).symm,
+    hfam.pumps, weavePumps_eq]
+
 /-- THE COLLAPSE: `out`'s projection on an owned channel-side is its
 owner's emitted prefix's projection — nothing else feeds it. -/
-theorem out_proj_owner (hwf : sk.wellFormed = true) {fut : List Ev}
-    {st : MState} (h : WCount sk fut st) (c : Chan) (b : Bool)
+theorem out_proj_owner {P : List (List Ev)} (hfam : FamOK sk P)
+    {fut : List Ev}
+    {st : MState} (h : WCountP sk P fut st) (c : Chan) (b : Bool)
     {M : Nat} (hM : (if b then sndOwner sk c else rcvOwner sk c) = M)
     {T r pre : List Ev}
-    (hT : (procs sk)[M]? = some T)
+    (hT : P[M]? = some T)
     (hr : (manFilters sk fut ++ st.rem)[M]? = some r)
     (hpre : T = pre ++ r) (hsub : pre.Sublist st.out) :
     proj c b st.out = proj c b pre := by
-  have howned : Owned (if b then sndOwner sk else rcvOwner sk) b 0
-      (procs sk) := by
+  have howned : Owned (if b then sndOwner sk else rcvOwner sk) b 0 P := by
     cases b
-    · exact procs_rcv_owned sk hwf
-    · exact procs_snd_owned sk hwf
+    · exact hfam.rcv_owned
+    · exact hfam.snd_owned
   have hEC := emittedCount_owner (out := st.out)
     (wcount_glue sk h) howned hT hr
     (by cases b <;> simpa using hM) hpre
@@ -182,9 +223,9 @@ theorem out_proj_owner (hwf : sk.wellFormed = true) {fut : List Ev}
 
 /-- The cell decomposition at an owned index: the trace, its emitted
 prefix, and its unemitted cell, with the collapse pre-applied. -/
-theorem cell_of_owner {fut : List Ev}
-    {st : MState} (h : WCount sk fut st) {M : Nat}
-    {T : List Ev} (hT : (procs sk)[M]? = some T) :
+theorem cell_of_owner {P : List (List Ev)} {fut : List Ev}
+    {st : MState} (h : WCountP sk P fut st) {M : Nat}
+    {T : List Ev} (hT : P[M]? = some T) :
     ∃ r pre, (manFilters sk fut ++ st.rem)[M]? = some r
       ∧ T = pre ++ r ∧ pre.Sublist st.out := by
   obtain ⟨r, hr, pre, hpre, hsub⟩ :=
@@ -193,17 +234,18 @@ theorem cell_of_owner {fut : List Ev}
 
 /-- THE HEAD-SEQ LAW: when a cell's head sits on a channel-side its
 trace owns, the head's seq is exactly the current count. -/
-theorem cell_head_seq (hwf : sk.wellFormed = true) {fut : List Ev}
-    {st : MState} (h : WCount sk fut st) (c : Chan) (b : Bool)
+theorem cell_head_seq {P : List (List Ev)} (hfam : FamOK sk P)
+    {fut : List Ev}
+    {st : MState} (h : WCountP sk P fut st) (c : Chan) (b : Bool)
     {M : Nat} (hM : (if b then sndOwner sk c else rcvOwner sk c) = M)
     {T r pre : List Ev} {n : Nat} {rest : List Ev}
-    (hT : (procs sk)[M]? = some T)
+    (hT : P[M]? = some T)
     (hr : (manFilters sk fut ++ st.rem)[M]? = some r)
     (hpre : T = pre ++ r) (hsub : pre.Sublist st.out)
     (hhead : r = (c, b, n) :: rest) :
     n = (proj c b st.out).length := by
-  have hTmem : T ∈ procs sk := List.mem_of_getElem? hT
-  obtain ⟨m, hcanon⟩ := procs_canon sk c b T hTmem
+  have hTmem : T ∈ P := List.mem_of_getElem? hT
+  obtain ⟨m, hcanon⟩ := hfam.canon c b T hTmem
   have hsplit : proj c b pre ++ proj c b r = canon c b m := by
     rw [← proj_append, ← hpre, hcanon]
   have hrhead : proj c b r = (c, b, n) :: proj c b rest := by
@@ -227,21 +269,22 @@ theorem cell_head_seq (hwf : sk.wellFormed = true) {fut : List Ev}
     have := congrArg (fun o : Option Ev =>
       (o.getD (c, b, 0)).2.2) hpos
     simpa using this.symm
-  rw [hn, out_proj_owner sk hwf h c b hM hT hr hpre hsub]
+  rw [hn, out_proj_owner sk hfam h c b hM hT hr hpre hsub]
 
 /-- FRESHNESS: an event still in a cell is unemitted — its seq sits at
 or past the current count, and the emitted stream is canonical. -/
-theorem cell_not_out (hwf : sk.wellFormed = true) {fut : List Ev}
-    {st : MState} (h : WCount sk fut st) (c : Chan) (b : Bool)
+theorem cell_not_out {P : List (List Ev)} (hfam : FamOK sk P)
+    {fut : List Ev}
+    {st : MState} (h : WCountP sk P fut st) (c : Chan) (b : Bool)
     {M : Nat} (hM : (if b then sndOwner sk c else rcvOwner sk c) = M)
     {T r pre : List Ev} {n : Nat}
-    (hT : (procs sk)[M]? = some T)
+    (hT : P[M]? = some T)
     (hr : (manFilters sk fut ++ st.rem)[M]? = some r)
     (hpre : T = pre ++ r) (hsub : pre.Sublist st.out)
     (hmem : ((c, b, n) : Ev) ∈ r) :
     (proj c b st.out).length ≤ n := by
-  have hTmem : T ∈ procs sk := List.mem_of_getElem? hT
-  obtain ⟨m, hcanon⟩ := procs_canon sk c b T hTmem
+  have hTmem : T ∈ P := List.mem_of_getElem? hT
+  obtain ⟨m, hcanon⟩ := hfam.canon c b T hTmem
   have hsplit : proj c b pre ++ proj c b r = canon c b m := by
     rw [← proj_append, ← hpre, hcanon]
   have hmemp : ((c, b, n) : Ev) ∈ proj c b r :=
@@ -265,7 +308,7 @@ theorem cell_not_out (hwf : sk.wellFormed = true) {fut : List Ev}
     have := congrArg (fun o : Option Ev =>
       (o.getD (c, b, 0)).2.2) hread
     simpa using this.symm
-  rw [out_proj_owner sk hwf h c b hM hT hr hpre hsub]
+  rw [out_proj_owner sk hfam h c b hM hT hr hpre hsub]
   omega
 
 -- ================================================== rcvd never leads
@@ -278,14 +321,16 @@ private theorem sndCount_take_le (c : Chan) (l : List Ev) (k : Nat) :
 
 /-- Consumption never outruns production: from guard-history plus
 canonical receives. -/
-theorem wedge_rcvd_le_sent (hwf : sk.wellFormed = true) {fut : List Ev}
-    {st : MState} (h : WEdge sk fut st) (c : Chan) :
+theorem wedge_rcvd_le_sent {P : List (List Ev)} (hfam : FamOK sk P)
+    {fut : List Ev}
+    {st : MState} (h : WEdgeP sk P fut st) (c : Chan) :
     rcvCount c st.out ≤ sndCount c st.out := by
   cases hz : rcvCount c st.out with
   | zero => omega
   | succ q =>
       -- the top receive is at seq q; its guard held over a prefix
-      have hcanon := wproj_canon sk hwf h.toWCountP c false
+      have hcanon := wproj_canonP sk h.toWCountP c false
+        (hfam.rcv_owned) (hfam.canon c false)
       have hmem : ((c, false, q) : Ev) ∈ proj c false st.out := by
         rw [hcanon]
         have hlen : (proj c false st.out).length = q + 1 := by
@@ -837,10 +882,11 @@ theorem asm_totals (pk : Party × Nat) :
 is exhausted, res-starved at a block boundary, level-starved
 mid-window, or out-blocked — each with its three counts pinned and
 the starving/blocking guard recorded. -/
-theorem asm_stuck (hwf : sk.wellFormed = true) {fut : List Ev}
-    {st : MState} (h : WCount sk fut st)
+theorem asm_stuck {P : List (List Ev)} (hfam : FamOK sk P)
+    {fut : List Ev}
+    {st : MState} (h : WCountP sk P fut st)
     (hfix : step sk st = none) {p : Party} {j : Nat} (h1 : 1 ≤ j)
-    (hIdx : (procs sk)[asmIdx sk p j]?
+    (hIdx : P[asmIdx sk p j]?
       = some (asmEvents sk (p, j))) :
     (rcvCount (asmResChan (p, j)) st.out
         = (sk.asmResList p j).length
@@ -879,17 +925,17 @@ theorem asm_stuck (hwf : sk.wellFormed = true) {fut : List Ev}
   have hRc : rcvCount (asmResChan (p, j)) st.out
       = (proj (asmResChan (p, j)) false pre).length := by
     rw [rcvCount_eq_proj,
-      out_proj_owner sk hwf h _ false (by simpa using hro)
+      out_proj_owner sk hfam h _ false (by simpa using hro)
         hIdx hr hpre hsub]
   have hLc : rcvCount (asmLevelChan (p, j)) st.out
       = (proj (asmLevelChan (p, j)) false pre).length := by
     rw [rcvCount_eq_proj,
-      out_proj_owner sk hwf h _ false (by simpa using hlo)
+      out_proj_owner sk hfam h _ false (by simpa using hlo)
         hIdx hr hpre hsub]
   have hOc : sndCount (sk.asmOutChan (p, j)) st.out
       = (proj (sk.asmOutChan (p, j)) true pre).length := by
     rw [sndCount_eq_proj,
-      out_proj_owner sk hwf h _ true (by simpa using hoo)
+      out_proj_owner sk hfam h _ true (by simpa using hoo)
         hIdx hr hpre hsub]
   cases r with
   | nil =>
@@ -1134,8 +1180,9 @@ theorem absorb_cell_shape {pre r : List Ev}
 exhausted, wire-starved, request-starved, or blocked on its level-0
 output — each with all three counts pinned and the failed guard
 recorded. -/
-theorem absorb_stuck (hwf : sk.wellFormed = true) {fut : List Ev}
-    {st : MState} (h : WCount sk fut st)
+theorem absorb_stuck {P : List (List Ev)} (hfam : FamOK sk P)
+    {fut : List Ev}
+    {st : MState} (h : WCountP sk P fut st)
     (hfix : step sk st = none) :
     (rcvCount (Chan.wire Party.R 0) st.out = sk.totalLeafReqs
       ∧ rcvCount Chan.leafRequests st.out = sk.totalLeafReqs
@@ -1167,22 +1214,25 @@ theorem absorb_stuck (hwf : sk.wellFormed = true) {fut : List Ev}
   have hlo : rcvOwner sk Chan.leafRequests = 2 + sk.rootH := rfl
   have hvo : sndOwner sk (Chan.level Party.I 0) = 2 + sk.rootH := by
     simp [sndOwner]
-  have hIdx := procs_absorb sk
+  have hIdx : P[2 + sk.rootH]? = some (absorbEvents sk) := by
+    rw [famOK_pump_lookup sk hfam
+      (show manCount sk ≤ 2 + sk.rootH from Nat.le_of_eq rfl)]
+    exact procs_absorb sk
   obtain ⟨r, pre, hr, hpre, hsub⟩ := cell_of_owner sk h hIdx
   have hWc : rcvCount (Chan.wire Party.R 0) st.out
       = (proj (Chan.wire Party.R 0) false pre).length := by
     rw [rcvCount_eq_proj,
-      out_proj_owner sk hwf h _ false (by simpa using hwo)
+      out_proj_owner sk hfam h _ false (by simpa using hwo)
         hIdx hr hpre hsub]
   have hLc : rcvCount Chan.leafRequests st.out
       = (proj Chan.leafRequests false pre).length := by
     rw [rcvCount_eq_proj,
-      out_proj_owner sk hwf h _ false (by simpa using hlo)
+      out_proj_owner sk hfam h _ false (by simpa using hlo)
         hIdx hr hpre hsub]
   have hVc : sndCount (Chan.level Party.I 0) st.out
       = (proj (Chan.level Party.I 0) true pre).length := by
     rw [sndCount_eq_proj,
-      out_proj_owner sk hwf h _ true (by simpa using hvo)
+      out_proj_owner sk hfam h _ true (by simpa using hvo)
         hIdx hr hpre hsub]
   cases r with
   | nil =>
@@ -1322,8 +1372,9 @@ theorem fin_cell_shape {pre r : List Ev}
 /-- FINS STUCKNESS: at a pump fixpoint the finisher is exhausted,
 starved of the root resolution, or starved of a root return — with
 both counts pinned and the failed guard recorded. -/
-theorem fin_stuck (hwf : sk.wellFormed = true) {fut : List Ev}
-    {st : MState} (h : WCount sk fut st)
+theorem fin_stuck {P : List (List Ev)} (hfam : FamOK sk P)
+    {fut : List Ev}
+    {st : MState} (h : WCountP sk P fut st)
     (hfix : step sk st = none) (hge : 1 ≤ sk.rootH) :
     (rcvCount Chan.rootres st.out = 1
       ∧ rcvCount Chan.rootrets st.out = sk.rootPending)
@@ -1334,17 +1385,22 @@ theorem fin_stuck (hwf : sk.wellFormed = true) {fut : List Ev}
       ∧ rcvCount Chan.rootres st.out = 1
       ∧ sndCount Chan.rootrets st.out
           ≤ rcvCount Chan.rootrets st.out) := by
-  have hIdx := procs_fin sk hge
+  have hIdx : P[3 * sk.rootH + 3]? = some (finEvents sk) := by
+    rw [famOK_pump_lookup sk hfam
+      (show manCount sk ≤ 3 * sk.rootH + 3 from by
+        show 2 + sk.rootH ≤ _
+        omega)]
+    exact procs_fin sk hge
   obtain ⟨r, pre, hr, hpre, hsub⟩ := cell_of_owner sk h hIdx
   have hAc : rcvCount Chan.rootres st.out
       = (proj Chan.rootres false pre).length := by
     rw [rcvCount_eq_proj,
-      out_proj_owner sk hwf h _ false (by simp [rcvOwner])
+      out_proj_owner sk hfam h _ false (by simp [rcvOwner])
         hIdx hr hpre hsub]
   have hBc : rcvCount Chan.rootrets st.out
       = (proj Chan.rootrets false pre).length := by
     rw [rcvCount_eq_proj,
-      out_proj_owner sk hwf h _ false (by simp [rcvOwner])
+      out_proj_owner sk hfam h _ false (by simp [rcvOwner])
         hIdx hr hpre hsub]
   cases r with
   | nil =>
@@ -1395,18 +1451,24 @@ theorem fin_stuck (hwf : sk.wellFormed = true) {fut : List Ev}
 
 /-- ROOTRET STUCKNESS: at a pump fixpoint the floating `rootret`
 receive has either fired or is starved. -/
-theorem rootret_stuck (hwf : sk.wellFormed = true) {fut : List Ev}
-    {st : MState} (h : WCount sk fut st)
+theorem rootret_stuck {P : List (List Ev)} (hfam : FamOK sk P)
+    {fut : List Ev}
+    {st : MState} (h : WCountP sk P fut st)
     (hfix : step sk st = none) (hge : 1 ≤ sk.rootH) :
     rcvCount Chan.rootret st.out = 1
     ∨ (rcvCount Chan.rootret st.out = 0
       ∧ sndCount Chan.rootret st.out = 0) := by
-  have hIdx := procs_rootret sk hge
+  have hIdx : P[3 * sk.rootH + 2]? = some [((Chan.rootret, false, 0) : Ev)] := by
+    rw [famOK_pump_lookup sk hfam
+      (show manCount sk ≤ 3 * sk.rootH + 2 from by
+        show 2 + sk.rootH ≤ _
+        omega)]
+    exact procs_rootret sk hge
   obtain ⟨r, pre, hr, hpre, hsub⟩ := cell_of_owner sk h hIdx
   have hAc : rcvCount Chan.rootret st.out
       = (proj Chan.rootret false pre).length := by
     rw [rcvCount_eq_proj,
-      out_proj_owner sk hwf h _ false (by simp [rcvOwner])
+      out_proj_owner sk hfam h _ false (by simp [rcvOwner])
         hIdx hr hpre hsub]
   cases r with
   | nil =>

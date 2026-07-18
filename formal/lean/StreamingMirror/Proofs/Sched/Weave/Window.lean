@@ -113,21 +113,67 @@ theorem asm_procs {p : Party} {top j : Nat}
   · exact procs_asmI sk h1 (by omega)
   · exact procs_asmR sk h1 (by omega)
 
+/-- `asm_procs`, any `FamOK` family: tower slots live in the shared
+pump half. -/
+theorem famOK_asm_procs {P : List (List Ev)} (hfam : FamOK sk P)
+    {p : Party} {top j : Nat}
+    (htop : p = Party.I ∧ top = sk.rootH
+      ∨ p = Party.R ∧ top = sk.rootH - 1)
+    (h1 : 1 ≤ j) (hjt : j ≤ top) :
+    P[asmIdx sk p j]? = some (asmEvents sk (p, j)) := by
+  rw [famOK_pump_lookup sk hfam
+    (show manCount sk ≤ asmIdx sk p j from by
+      cases p
+      · show 2 + sk.rootH ≤ 3 + sk.rootH + (j - 1)
+        omega
+      · show 2 + sk.rootH ≤ 3 + 2 * sk.rootH + (j - 1)
+        omega)]
+  exact asm_procs sk htop h1 hjt
+
+/-- `procs_absorb`, any `FamOK` family. -/
+theorem famOK_absorb {P : List (List Ev)} (hfam : FamOK sk P) :
+    P[2 + sk.rootH]? = some (absorbEvents sk) := by
+  rw [famOK_pump_lookup sk hfam
+    (show manCount sk ≤ 2 + sk.rootH from Nat.le_of_eq rfl)]
+  exact procs_absorb sk
+
+/-- `procs_asmR`, any `FamOK` family. -/
+theorem famOK_asmR {P : List (List Ev)} (hfam : FamOK sk P)
+    {j : Nat} (h1 : 1 ≤ j) (hj : j ≤ sk.rootH - 1) :
+    P[asmIdx sk Party.R j]? = some (asmEvents sk (Party.R, j)) := by
+  rw [famOK_pump_lookup sk hfam
+    (show manCount sk ≤ asmIdx sk Party.R j from by
+      show 2 + sk.rootH ≤ 3 + 2 * sk.rootH + (j - 1)
+      omega)]
+  exact procs_asmR sk h1 hj
+
+/-- `procs_asmI`, any `FamOK` family. -/
+theorem famOK_asmI {P : List (List Ev)} (hfam : FamOK sk P)
+    {j : Nat} (h1 : 1 ≤ j) (hj : j ≤ sk.rootH) :
+    P[asmIdx sk Party.I j]? = some (asmEvents sk (Party.I, j)) := by
+  rw [famOK_pump_lookup sk hfam
+    (show manCount sk ≤ asmIdx sk Party.I j from by
+      show 2 + sk.rootH ≤ 3 + sk.rootH + (j - 1)
+      omega)]
+  exact procs_asmI sk h1 hj
+
 /-- A channel-side count never exceeds its owner's whole-trace total. -/
-theorem count_le_owner (hwf : sk.wellFormed = true) {fut : List Ev}
-    {st : MState} (h : WCount sk fut st) (c : Chan) (b : Bool)
+theorem count_le_owner {P : List (List Ev)} (hfam : FamOK sk P)
+    {fut : List Ev}
+    {st : MState} (h : WCountP sk P fut st) (c : Chan) (b : Bool)
     {M : Nat} (hM : (if b then sndOwner sk c else rcvOwner sk c) = M)
-    {T : List Ev} (hT : (procs sk)[M]? = some T) :
+    {T : List Ev} (hT : P[M]? = some T) :
     (proj c b st.out).length ≤ (proj c b T).length := by
   obtain ⟨r, pre, hr, hpre, hsub⟩ := cell_of_owner sk h hT
-  rw [out_proj_owner sk hwf h c b hM hT hr hpre hsub, hpre,
+  rw [out_proj_owner sk hfam h c b hM hT hr hpre hsub, hpre,
     proj_append, List.length_append]
   omega
 
 /-- An interior tower's level output never exceeds its resolution
 count: the count-versus-trace bound through the owner collapse. -/
-theorem level_snd_le (hwf : sk.wellFormed = true) {fut : List Ev}
-    {st : MState} (h : WCount sk fut st) {p : Party} {top j : Nat}
+theorem level_snd_le {P : List (List Ev)} (hfam : FamOK sk P)
+    {fut : List Ev}
+    {st : MState} (h : WCountP sk P fut st) {p : Party} {top j : Nat}
     (htop : p = Party.I ∧ top = sk.rootH
       ∨ p = Party.R ∧ top = sk.rootH - 1)
     (h1 : 1 ≤ j) (hjt : j < top) :
@@ -143,9 +189,9 @@ theorem level_snd_le (hwf : sk.wellFormed = true) {fut : List Ev}
   have hout : sk.asmOutChan (p, j) = Chan.level p j :=
     asmOutChan_level sk hI hR
   have hnz : ¬(p = Party.I ∧ j = 0) := by rintro ⟨-, hj⟩; omega
-  have hcount := count_le_owner sk hwf h (Chan.level p j) true
+  have hcount := count_le_owner sk hfam h (Chan.level p j) true
     (M := asmIdx sk p j) (by simpa using sndOwner_level sk hnz)
-    (asm_procs sk htop h1 (by omega))
+    (famOK_asm_procs sk hfam htop h1 (by omega))
   rw [sndCount_eq_proj]
   calc (proj (Chan.level p j) true st.out).length
       ≤ (proj (Chan.level p j) true (asmEvents sk (p, j))).length :=
@@ -155,11 +201,12 @@ theorem level_snd_le (hwf : sk.wellFormed = true) {fut : List Ev}
 
 /-- The absorber's level-0 output never exceeds the leaf-request
 total. -/
-theorem level0_snd_le (hwf : sk.wellFormed = true) {fut : List Ev}
-    {st : MState} (h : WCount sk fut st) :
+theorem level0_snd_le {P : List (List Ev)} (hfam : FamOK sk P)
+    {fut : List Ev}
+    {st : MState} (h : WCountP sk P fut st) :
     sndCount (Chan.level Party.I 0) st.out ≤ sk.totalLeafReqs := by
-  have hcount := count_le_owner sk hwf h (Chan.level Party.I 0) true
-    (M := 2 + sk.rootH) (by simp [sndOwner]) (procs_absorb sk)
+  have hcount := count_le_owner sk hfam h (Chan.level Party.I 0) true
+    (M := 2 + sk.rootH) (by simp [sndOwner]) (famOK_absorb sk hfam)
   rw [sndCount_eq_proj]
   calc (proj (Chan.level Party.I 0) true st.out).length
       ≤ (proj (Chan.level Party.I 0) true (absorbEvents sk)).length :=
@@ -168,22 +215,23 @@ theorem level0_snd_le (hwf : sk.wellFormed = true) {fut : List Ev}
 
 /-- The absorber's level output never outruns its request intake:
 each level-0 send follows its block's leaf-request receive. -/
-theorem absorb_out_le_req (hwf : sk.wellFormed = true) {fut : List Ev}
-    {st : MState} (h : WCount sk fut st) :
+theorem absorb_out_le_req {P : List (List Ev)} (hfam : FamOK sk P)
+    {fut : List Ev}
+    {st : MState} (h : WCountP sk P fut st) :
     sndCount (Chan.level Party.I 0) st.out
       ≤ rcvCount Chan.leafRequests st.out := by
   obtain ⟨r, pre, hr, hpre, hsub⟩ :=
-    cell_of_owner sk h (procs_absorb sk)
+    cell_of_owner sk h (famOK_absorb sk hfam)
   have hRc : rcvCount Chan.leafRequests st.out
       = (proj Chan.leafRequests false pre).length := by
     rw [rcvCount_eq_proj,
-      out_proj_owner sk hwf h _ false (M := 2 + sk.rootH)
-        (by simp [rcvOwner]) (procs_absorb sk) hr hpre hsub]
+      out_proj_owner sk hfam h _ false (M := 2 + sk.rootH)
+        (by simp [rcvOwner]) (famOK_absorb sk hfam) hr hpre hsub]
   have hOc : sndCount (Chan.level Party.I 0) st.out
       = (proj (Chan.level Party.I 0) true pre).length := by
     rw [sndCount_eq_proj,
-      out_proj_owner sk hwf h _ true (M := 2 + sk.rootH)
-        (by simp [sndOwner]) (procs_absorb sk) hr hpre hsub]
+      out_proj_owner sk hfam h _ true (M := 2 + sk.rootH)
+        (by simp [sndOwner]) (famOK_absorb sk hfam) hr hpre hsub]
   cases r with
   | nil =>
       rw [List.append_nil] at hpre
@@ -197,15 +245,16 @@ theorem absorb_out_le_req (hwf : sk.wellFormed = true) {fut : List Ev}
         | ⟨-, -, hc2, hc3⟩ <;> rw [hRc, hOc] <;> omega
 
 /-- Nobody sends the responder's phantom level-0 channel. -/
-theorem levelR0_snd_zero (hwf : sk.wellFormed = true) {fut : List Ev}
-    {st : MState} (h : WCount sk fut st) :
+theorem levelR0_snd_zero (hwf : sk.wellFormed = true)
+    {P : List (List Ev)} (hfam : FamOK sk P) {fut : List Ev}
+    {st : MState} (h : WCountP sk P fut st) :
     sndCount (Chan.level Party.R 0) st.out = 0 := by
   have hge := (wf_rootH hwf).2
   have hM : sndOwner sk (Chan.level Party.R 0)
       = asmIdx sk Party.R 1 :=
     sndOwner_level sk (by simp)
-  have hT := procs_asmR sk (Nat.le_refl 1) (by omega)
-  have hcount := count_le_owner sk hwf h (Chan.level Party.R 0) true
+  have hT := famOK_asmR sk hfam (Nat.le_refl 1) (by omega)
+  have hcount := count_le_owner sk hfam h (Chan.level Party.R 0) true
     (by simpa using hM) hT
   have hne : sk.asmOutChan (Party.R, 1) ≠ Chan.level Party.R 0 := by
     unfold Skel.asmOutChan
@@ -313,8 +362,9 @@ def AscCover (st : MState) (p : Party) (j top : Nat) : Prop :=
 /-- ABSORBER DELIVERY: at a pump fixpoint a drained absorber with its
 wire and request feeds present through `c` has produced `c` level-0
 returns. -/
-theorem absorb_deliver (hwf : sk.wellFormed = true) {fut : List Ev}
-    {st : MState} (h : WCount sk fut st) (hfix : step sk st = none)
+theorem absorb_deliver (hwf : sk.wellFormed = true)
+    {P : List (List Ev)} (hfam : FamOK sk P) {fut : List Ev}
+    {st : MState} (h : WCountP sk P fut st) (hfix : step sk st = none)
     {c : Nat} (hcN : c ≤ sk.totalLeafReqs)
     (hw : c ≤ sndCount (Chan.wire Party.R 0) st.out)
     (hq : c ≤ sndCount Chan.leafRequests st.out)
@@ -322,7 +372,7 @@ theorem absorb_deliver (hwf : sk.wellFormed = true) {fut : List Ev}
       ≤ rcvCount (Chan.level Party.I 0) st.out) :
     c ≤ sndCount (Chan.level Party.I 0) st.out := by
   have hcap := wf_capLevel hwf
-  rcases absorb_stuck sk hwf h hfix with
+  rcases absorb_stuck sk hfam h hfix with
     ⟨hW, hL, hV⟩ | ⟨hWt, hLW, hVW, hsw⟩ | ⟨hLt, hWL, hVL, hsq⟩
     | ⟨hVt, hWV, hLV, hblk⟩
   · omega
@@ -334,8 +384,9 @@ theorem absorb_deliver (hwf : sk.wellFormed = true) {fut : List Ev}
 /-- TOP BLOCKING IS ABSURD: the two tower tops (`rootret`, the fins'
 `rootrets`) can never be the blocked window — their consumers drain
 everything the root resolution allows. -/
-theorem top_blocked (hwf : sk.wellFormed = true) {fut : List Ev}
-    {st : MState} (h : WCount sk fut st) (hfix : step sk st = none)
+theorem top_blocked (hwf : sk.wellFormed = true)
+    {P : List (List Ev)} (hfam : FamOK sk P) {fut : List Ev}
+    {st : MState} (h : WCountP sk P fut st) (hfix : step sk st = none)
     {p : Party} {top : Nat}
     (htop : p = Party.I ∧ top = sk.rootH
       ∨ p = Party.R ∧ top = sk.rootH - 1)
@@ -354,8 +405,8 @@ theorem top_blocked (hwf : sk.wellFormed = true) {fut : List Ev}
     have hasks : asks Party.I sk.rootH = true := by
       simp [asks, hev]
     have hsndle : sndCount Chan.rootret st.out ≤ 1 := by
-      have hT := procs_asmI sk (by omega) (Nat.le_refl _)
-      have hcount := count_le_owner sk hwf h Chan.rootret true
+      have hT := famOK_asmI sk hfam (by omega) (Nat.le_refl _)
+      have hcount := count_le_owner sk hfam h Chan.rootret true
         (M := asmIdx sk Party.I sk.rootH) (by rfl) hT
       have htot := (asm_totals sk (Party.I, sk.rootH)).2.2
       rw [hout] at htot
@@ -370,7 +421,7 @@ theorem top_blocked (hwf : sk.wellFormed = true) {fut : List Ev}
             rfl
     have hcapr : sk.cap Chan.rootret = 1 := rfl
     rw [hcapr] at hblk
-    rcases rootret_stuck sk hwf h hfix (by omega) with h1 | ⟨h0, hs0⟩
+    rcases rootret_stuck sk hfam h hfix (by omega) with h1 | ⟨h0, hs0⟩
     · omega
     · omega
   · -- responder top: the fins' root returns
@@ -394,8 +445,8 @@ theorem top_blocked (hwf : sk.wellFormed = true) {fut : List Ev}
       unfold Skel.rootPending
       omega
     have hsndle : sndCount Chan.rootrets st.out ≤ sk.rootPending := by
-      have hT := procs_asmR sk (by omega) (Nat.le_refl _)
-      have hcount := count_le_owner sk hwf h Chan.rootrets true
+      have hT := famOK_asmR sk hfam (by omega) (Nat.le_refl _)
+      have hcount := count_le_owner sk hfam h Chan.rootrets true
         (M := asmIdx sk Party.R (sk.rootH - 1)) (by rfl) hT
       have htot := (asm_totals sk (Party.R, sk.rootH - 1)).2.2
       rw [hout] at htot
@@ -409,7 +460,7 @@ theorem top_blocked (hwf : sk.wellFormed = true) {fut : List Ev}
             rw [asmResList_asker_length hasks, hpend]
     have hcapr : sk.cap Chan.rootrets = 1 := rfl
     rw [hcapr] at hblk
-    rcases fin_stuck sk hwf h hfix (by omega) with
+    rcases fin_stuck sk hfam h hfix (by omega) with
       ⟨ha, hb⟩ | ⟨ha, hb, hc⟩ | ⟨ha, hb, hc⟩
     · omega
     · omega
@@ -443,8 +494,9 @@ asker it contradicts the res-starved pins outright, and the climb out
 of an answerer's out-block re-derives it for the asker above from the
 answerer's stuck pins plus the coverage package (`Φ` when the answerer
 consumed everything sent, `P1` when it is a step behind). -/
-theorem tower_noblock (hwf : sk.wellFormed = true) {fut : List Ev}
-    {st : MState} (h : WEdge sk fut st) (hfix : step sk st = none)
+theorem tower_noblock (hwf : sk.wellFormed = true)
+    {P : List (List Ev)} (hfam : FamOK sk P) {fut : List Ev}
+    {st : MState} (h : WEdgeP sk P fut st) (hfix : step sk st = none)
     {p : Party} {top : Nat}
     (htop : p = Party.I ∧ top = sk.rootH
       ∨ p = Party.R ∧ top = sk.rootH - 1)
@@ -464,10 +516,10 @@ theorem tower_noblock (hwf : sk.wellFormed = true) {fut : List Ev}
   by_cases hR1 : p = Party.R ∧ j = 1
   · obtain ⟨rfl, rfl⟩ := hR1
     have hz : sndCount (asmLevelChan (Party.R, 1)) st.out = 0 :=
-      levelR0_snd_zero sk hwf h.toWCountP
+      levelR0_snd_zero sk hwf hfam h.toWCountP
     omega
-  have hIdx := asm_procs sk htop h1 hjt
-  rcases asm_stuck sk hwf h.toWCountP hfix h1 hIdx with
+  have hIdx := famOK_asm_procs sk hfam htop h1 hjt
+  rcases asm_stuck sk hfam h.toWCountP hfix h1 hIdx with
     ⟨hRe, hLe, hOe⟩ | ⟨hRl, hLp, hOp, hres⟩
     | ⟨hRl, hR1', hLlo, hLhi, hOp, hlv⟩ | ⟨hRl, hR1', hLp, hOp, hoblk⟩
   · -- exhausted: demand total = supply total bounds the window shut
@@ -479,14 +531,14 @@ theorem tower_noblock (hwf : sk.wellFormed = true) {fut : List Ev}
         · exact absurd ⟨rfl, rfl⟩ hR1
       subst hpI
       have hS : sndCount (asmLevelChan (Party.I, 1)) st.out
-          ≤ sk.totalLeafReqs := level0_snd_le sk hwf h.toWCountP
+          ≤ sk.totalLeafReqs := level0_snd_le sk hfam h.toWCountP
       have htot : sk.pendsBefore Party.I 1
           (sk.asmResList Party.I 1).length = sk.totalLeafReqs :=
         pendsBefore_answerer_leaf (hna := rfl)
       omega
     · have hS : sndCount (asmLevelChan (p, j)) st.out
           ≤ (sk.asmResList p (j - 1)).length :=
-        level_snd_le sk hwf h.toWCountP htop (by omega) (by omega)
+        level_snd_le sk hfam h.toWCountP htop (by omega) (by omega)
       have htot := pends_total_prod hwf (p := p) (j := j)
         (by omega)
         (by rcases htop with ⟨-, ht⟩ | ⟨-, ht⟩ <;> omega)
@@ -538,11 +590,11 @@ theorem tower_noblock (hwf : sk.wellFormed = true) {fut : List Ev}
   · -- out-blocked: ascend
     by_cases hjtop : j = top
     · subst hjtop
-      exact top_blocked sk hwf h.toWCountP hfix htop hroot hoblk
+      exact top_blocked sk hwf hfam h.toWCountP hfix htop hroot hoblk
     · have hjlt : j < top := Nat.lt_of_le_of_ne hjt hjtop
       have hout := asmOutChan_of_lt sk htop hjlt
       rw [hout, cap_level] at hoblk
-      refine tower_noblock hwf h hfix htop hroot (j + 1) (by omega)
+      refine tower_noblock hwf hfam h hfix htop hroot (j + 1) (by omega)
         (by omega) (fun g hg1 hg2 hna => hcov g (by omega) hg2 hna)
         ?_ hoblk
       -- re-establish `hself` one stage up: the asker above sits over
@@ -559,7 +611,7 @@ theorem tower_noblock (hwf : sk.wellFormed = true) {fut : List Ev}
       rw [show asmLevelChan (p, j) = Chan.level p (j - 1) from rfl]
         at hLp
       rw [hout] at hOp
-      have hwedge := wedge_rcvd_le_sent sk hwf h (Chan.lower p j)
+      have hwedge := wedge_rcvd_le_sent sk hfam h (Chan.lower p j)
       rw [Nat.add_sub_cancel]
       rcases Nat.lt_or_ge (rcvCount (Chan.lower p j) st.out)
           (sndCount (Chan.lower p j) st.out) with hlt | hge
@@ -570,14 +622,15 @@ theorem tower_noblock (hwf : sk.wellFormed = true) {fut : List Ev}
         have hRe : rcvCount (Chan.lower p j) st.out
             = sndCount (Chan.lower p j) st.out := by omega
         rw [hRe] at hLp
-        have hwl := wedge_rcvd_le_sent sk hwf h (Chan.level p (j - 1))
+        have hwl := wedge_rcvd_le_sent sk hfam h (Chan.level p (j - 1))
         omega
 termination_by top - j
 
 /-- DESCENT: at a pump fixpoint a drained interior tower with descent
 supplies through demand `c` has produced `c` outputs. -/
-theorem tower_deliver (hwf : sk.wellFormed = true) {fut : List Ev}
-    {st : MState} (h : WCount sk fut st) (hfix : step sk st = none)
+theorem tower_deliver (hwf : sk.wellFormed = true)
+    {P : List (List Ev)} (hfam : FamOK sk P) {fut : List Ev}
+    {st : MState} (h : WCountP sk P fut st) (hfix : step sk st = none)
     {p : Party} {top : Nat}
     (htop : p = Party.I ∧ top = sk.rootH
       ∨ p = Party.R ∧ top = sk.rootH - 1)
@@ -589,12 +642,12 @@ theorem tower_deliver (hwf : sk.wellFormed = true) {fut : List Ev}
     c ≤ sndCount (sk.asmOutChan (p, j)) st.out := by
   have hcap := wf_capLevel hwf
   have hge2 := (wf_rootH hwf).2
-  have hIdx := asm_procs sk htop h1 (by omega)
+  have hIdx := famOK_asm_procs sk hfam htop h1 (by omega)
   obtain ⟨j', rfl⟩ : ∃ j', j = j' + 1 := ⟨j - 1, by omega⟩
   have hsup1 : c ≤ sndCount (asmResChan (p, j' + 1)) st.out := hsup.1
   have hsup2 : DescSupply sk st p j'
       (sk.pendsBefore p (j' + 1) c) := hsup.2
-  rcases asm_stuck sk hwf h hfix h1 hIdx with
+  rcases asm_stuck sk hfam h hfix h1 hIdx with
     ⟨hRe, hLe, hOe⟩ | ⟨hRl, hLp, hOp, hres⟩
     | ⟨hRl, hR1', hLlo, hLhi, hOp, hlv⟩ | ⟨hRl, hR1', hLp, hOp, hoblk⟩
   · -- exhausted: the whole demand was met
@@ -631,7 +684,7 @@ theorem tower_deliver (hwf : sk.wellFormed = true) {fut : List Ev}
             have := pendsBefore_mono sk Party.I 1 hRl
             omega
           have hpair := hsup2 rfl
-          have hdel := absorb_deliver sk hwf h hfix hc₀N
+          have hdel := absorb_deliver sk hwf hfam h hfix hc₀N
             (Nat.le_trans hmono hpair.1)
             (Nat.le_trans hmono hpair.2) hlv
           omega
@@ -657,7 +710,7 @@ theorem tower_deliver (hwf : sk.wellFormed = true) {fut : List Ev}
           ≤ rcvCount (sk.asmOutChan (p, j'' + 1)) st.out := by
         rw [hout']
         exact hlv
-      have hdel := tower_deliver hwf h hfix htop (j'' + 1)
+      have hdel := tower_deliver hwf hfam h hfix htop (j'' + 1)
         (sk.pendsBefore p (j'' + 1 + 1)
           (rcvCount (asmResChan (p, j'' + 1 + 1)) st.out))
         (by omega) (by omega) hcN'
@@ -676,25 +729,26 @@ termination_by j
 -- and `Skel.schedulable` bite, in the CtxOK layer.)
 
 /-- A tower's output never outruns its resolutions. -/
-theorem asm_out_le_res (hwf : sk.wellFormed = true) {fut : List Ev}
-    {st : MState} (h : WCount sk fut st) {p : Party} {top j : Nat}
+theorem asm_out_le_res {P : List (List Ev)} (hfam : FamOK sk P)
+    {fut : List Ev}
+    {st : MState} (h : WCountP sk P fut st) {p : Party} {top j : Nat}
     (htop : p = Party.I ∧ top = sk.rootH
       ∨ p = Party.R ∧ top = sk.rootH - 1)
     (h1 : 1 ≤ j) (hjt : j ≤ top) :
     sndCount (sk.asmOutChan (p, j)) st.out
       ≤ rcvCount (asmResChan (p, j)) st.out := by
-  have hIdx := asm_procs sk htop h1 hjt
+  have hIdx := famOK_asm_procs sk hfam htop h1 hjt
   obtain ⟨r, pre, hr, hpre, hsub⟩ := cell_of_owner sk h hIdx
   obtain ⟨hro, hlo, hoo⟩ := asm_owners sk p h1
   have hRc : rcvCount (asmResChan (p, j)) st.out
       = (proj (asmResChan (p, j)) false pre).length := by
     rw [rcvCount_eq_proj,
-      out_proj_owner sk hwf h _ false (by simpa using hro)
+      out_proj_owner sk hfam h _ false (by simpa using hro)
         hIdx hr hpre hsub]
   have hOc : sndCount (sk.asmOutChan (p, j)) st.out
       = (proj (sk.asmOutChan (p, j)) true pre).length := by
     rw [sndCount_eq_proj,
-      out_proj_owner sk hwf h _ true (by simpa using hoo)
+      out_proj_owner sk hfam h _ true (by simpa using hoo)
         hIdx hr hpre hsub]
   cases r with
   | nil =>
@@ -712,25 +766,26 @@ theorem asm_out_le_res (hwf : sk.wellFormed = true) {fut : List Ev}
 
 /-- A tower's level intake never outruns its resolutions' pending
 allocation. -/
-theorem asm_lvl_le_pends (hwf : sk.wellFormed = true) {fut : List Ev}
-    {st : MState} (h : WCount sk fut st) {p : Party} {top j : Nat}
+theorem asm_lvl_le_pends {P : List (List Ev)} (hfam : FamOK sk P)
+    {fut : List Ev}
+    {st : MState} (h : WCountP sk P fut st) {p : Party} {top j : Nat}
     (htop : p = Party.I ∧ top = sk.rootH
       ∨ p = Party.R ∧ top = sk.rootH - 1)
     (h1 : 1 ≤ j) (hjt : j ≤ top) :
     rcvCount (asmLevelChan (p, j)) st.out
       ≤ sk.pendsBefore p j (rcvCount (asmResChan (p, j)) st.out) := by
-  have hIdx := asm_procs sk htop h1 hjt
+  have hIdx := famOK_asm_procs sk hfam htop h1 hjt
   obtain ⟨r, pre, hr, hpre, hsub⟩ := cell_of_owner sk h hIdx
   obtain ⟨hro, hlo, hoo⟩ := asm_owners sk p h1
   have hRc : rcvCount (asmResChan (p, j)) st.out
       = (proj (asmResChan (p, j)) false pre).length := by
     rw [rcvCount_eq_proj,
-      out_proj_owner sk hwf h _ false (by simpa using hro)
+      out_proj_owner sk hfam h _ false (by simpa using hro)
         hIdx hr hpre hsub]
   have hLc : rcvCount (asmLevelChan (p, j)) st.out
       = (proj (asmLevelChan (p, j)) false pre).length := by
     rw [rcvCount_eq_proj,
-      out_proj_owner sk hwf h _ false (by simpa using hlo)
+      out_proj_owner sk hfam h _ false (by simpa using hlo)
         hIdx hr hpre hsub]
   cases r with
   | nil =>
@@ -758,25 +813,26 @@ theorem asm_lvl_le_pends (hwf : sk.wellFormed = true) {fut : List Ev}
 
 /-- A tower's output allocation is covered by its level intake:
 `out i` departs only after item `i`'s pends are consumed. -/
-theorem asm_pends_le_out (hwf : sk.wellFormed = true) {fut : List Ev}
-    {st : MState} (h : WCount sk fut st) {p : Party} {top j : Nat}
+theorem asm_pends_le_out {P : List (List Ev)} (hfam : FamOK sk P)
+    {fut : List Ev}
+    {st : MState} (h : WCountP sk P fut st) {p : Party} {top j : Nat}
     (htop : p = Party.I ∧ top = sk.rootH
       ∨ p = Party.R ∧ top = sk.rootH - 1)
     (h1 : 1 ≤ j) (hjt : j ≤ top) :
     sk.pendsBefore p j (sndCount (sk.asmOutChan (p, j)) st.out)
       ≤ rcvCount (asmLevelChan (p, j)) st.out := by
-  have hIdx := asm_procs sk htop h1 hjt
+  have hIdx := famOK_asm_procs sk hfam htop h1 hjt
   obtain ⟨r, pre, hr, hpre, hsub⟩ := cell_of_owner sk h hIdx
   obtain ⟨hro, hlo, hoo⟩ := asm_owners sk p h1
   have hLc : rcvCount (asmLevelChan (p, j)) st.out
       = (proj (asmLevelChan (p, j)) false pre).length := by
     rw [rcvCount_eq_proj,
-      out_proj_owner sk hwf h _ false (by simpa using hlo)
+      out_proj_owner sk hfam h _ false (by simpa using hlo)
         hIdx hr hpre hsub]
   have hOc : sndCount (sk.asmOutChan (p, j)) st.out
       = (proj (sk.asmOutChan (p, j)) true pre).length := by
     rw [sndCount_eq_proj,
-      out_proj_owner sk hwf h _ true (by simpa using hoo)
+      out_proj_owner sk hfam h _ true (by simpa using hoo)
         hIdx hr hpre hsub]
   cases r with
   | nil =>
@@ -804,13 +860,14 @@ theorem asm_pends_le_out (hwf : sk.wellFormed = true) {fut : List Ev}
 
 /-- A send never outruns its window: the emitted stream respected E2
 at every position, so the count is within `cap` of the receipts. -/
-theorem wedge_snd_le_rcv_cap (hwf : sk.wellFormed = true)
-    {fut : List Ev} {st : MState} (h : WEdge sk fut st) (c : Chan) :
+theorem wedge_snd_le_rcv_cap {P : List (List Ev)} (hfam : FamOK sk P)
+    {fut : List Ev} {st : MState} (h : WEdgeP sk P fut st) (c : Chan) :
     sndCount c st.out ≤ rcvCount c st.out + sk.cap c := by
   cases hz : sndCount c st.out with
   | zero => omega
   | succ q =>
-      have hcanon := wproj_canon sk hwf h.toWCountP c true
+      have hcanon := wproj_canonP sk h.toWCountP c true
+        (hfam.snd_owned) (hfam.canon c true)
       have hmem : ((c, true, q) : Ev) ∈ proj c true st.out := by
         rw [hcanon]
         have hlen : (proj c true st.out).length = q + 1 := by
@@ -831,8 +888,9 @@ theorem wedge_snd_le_rcv_cap (hwf : sk.wellFormed = true)
 
 /-- THE UPPER WINDOW: at a pump fixpoint the asker above has consumed
 every resolution before the one the walk is about to send. -/
-theorem upper_window (hwf : sk.wellFormed = true) {fut : List Ev}
-    {st : MState} (h : WEdge sk fut st) (hfix : step sk st = none)
+theorem upper_window (hwf : sk.wellFormed = true)
+    {P : List (List Ev)} (hfam : FamOK sk P) {fut : List Ev}
+    {st : MState} (h : WEdgeP sk P fut st) (hfix : step sk st = none)
     {p : Party} {top hh k : Nat}
     (htop : p = Party.I ∧ top = sk.rootH
       ∨ p = Party.R ∧ top = sk.rootH - 1)
@@ -848,11 +906,11 @@ theorem upper_window (hwf : sk.wellFormed = true) {fut : List Ev}
   have hge2 := (wf_rootH hwf).2
   have hres : asmResChan (p, hh + 1) = Chan.upper p hh :=
     asmResChan_asker hasks
-  have hIdx := asm_procs sk htop (by omega) hht
+  have hIdx := famOK_asm_procs sk hfam htop (by omega) hht
   have hRk : rcvCount (Chan.upper p hh) st.out ≤ k := by
-    have := wedge_rcvd_le_sent sk hwf h (Chan.upper p hh)
+    have := wedge_rcvd_le_sent sk hfam h (Chan.upper p hh)
     omega
-  have hstuck := asm_stuck sk hwf h.toWCountP hfix
+  have hstuck := asm_stuck sk hfam h.toWCountP hfix
     (show 1 ≤ hh + 1 by omega) hIdx
   rw [hres, show asmLevelChan (p, hh + 1) = Chan.level p hh from rfl]
     at hstuck
@@ -893,7 +951,7 @@ theorem upper_window (hwf : sk.wellFormed = true) {fut : List Ev}
           ≤ rcvCount (sk.asmOutChan (p, hh' + 1)) st.out := by
         rw [hout']
         exact hlv
-      have hdel := tower_deliver sk hwf h.toWCountP hfix htop
+      have hdel := tower_deliver sk hwf hfam h.toWCountP hfix htop
         (hh' + 1)
         (sk.pendsBefore p (hh' + 1 + 1)
           (rcvCount (Chan.upper p (hh' + 1)) st.out))
@@ -905,7 +963,7 @@ theorem upper_window (hwf : sk.wellFormed = true) {fut : List Ev}
     exfalso
     by_cases htopc : hh + 1 = top
     · rw [htopc] at hoblk
-      exact top_blocked sk hwf h.toWCountP hfix htop hroot hoblk
+      exact top_blocked sk hwf hfam h.toWCountP hfix htop hroot hoblk
     · have hout' := asmOutChan_of_lt sk htop
         (show hh + 1 < top from by omega)
       rw [hout', cap_level] at hoblk
@@ -913,14 +971,15 @@ theorem upper_window (hwf : sk.wellFormed = true) {fut : List Ev}
         have hs := asks_succ p (hh + 1)
         rw [show hh + 1 + 1 = hh + 2 from by omega, hasks] at hs
         simpa using hs
-      exact tower_noblock sk hwf h hfix htop hroot
+      exact tower_noblock sk hwf hfam h hfix htop hroot
         (hh + 2) (by omega) (by omega) hcov
         (fun hask => absurd hask (by rw [hna2]; simp)) hoblk
 
 /-- THE LOWER WINDOW: at a pump fixpoint the answerer has consumed
 every resolution before the one the walk is about to send. -/
-theorem lower_window (hwf : sk.wellFormed = true) {fut : List Ev}
-    {st : MState} (h : WEdge sk fut st) (hfix : step sk st = none)
+theorem lower_window (hwf : sk.wellFormed = true)
+    {P : List (List Ev)} (hfam : FamOK sk P) {fut : List Ev}
+    {st : MState} (h : WEdgeP sk P fut st) (hfix : step sk st = none)
     {p : Party} {top hh d : Nat}
     (htop : p = Party.I ∧ top = sk.rootH
       ∨ p = Party.R ∧ top = sk.rootH - 1)
@@ -941,11 +1000,11 @@ theorem lower_window (hwf : sk.wellFormed = true) {fut : List Ev}
       (sk.pendsBefore p (hh' + 1) d) := hdesc
   have hres : asmResChan (p, hh' + 1) = Chan.lower p (hh' + 1) :=
     asmResChan_answerer hna
-  have hIdx := asm_procs sk htop (by omega) (by omega)
+  have hIdx := famOK_asm_procs sk hfam htop (by omega) (by omega)
   have hRd : rcvCount (Chan.lower p (hh' + 1)) st.out ≤ d := by
-    have := wedge_rcvd_le_sent sk hwf h (Chan.lower p (hh' + 1))
+    have := wedge_rcvd_le_sent sk hfam h (Chan.lower p (hh' + 1))
     omega
-  have hstuck := asm_stuck sk hwf h.toWCountP hfix
+  have hstuck := asm_stuck sk hfam h.toWCountP hfix
     (show 1 ≤ hh' + 1 by omega) hIdx
   rw [hres,
     show asmLevelChan (p, hh' + 1) = Chan.level p hh' from rfl]
@@ -979,7 +1038,7 @@ theorem lower_window (hwf : sk.wellFormed = true) {fut : List Ev}
         have := pendsBefore_mono sk Party.I 1 hRl
         omega
       have hpair := hdesc' rfl
-      have hdel := absorb_deliver sk hwf h.toWCountP hfix hc₀N
+      have hdel := absorb_deliver sk hwf hfam h.toWCountP hfix hc₀N
         (Nat.le_trans hmono hpair.1)
         (Nat.le_trans hmono hpair.2) hlv
       omega
@@ -1002,7 +1061,7 @@ theorem lower_window (hwf : sk.wellFormed = true) {fut : List Ev}
           ≤ rcvCount (sk.asmOutChan (p, hh'' + 1)) st.out := by
         rw [hout']
         exact hlv
-      have hdel := tower_deliver sk hwf h.toWCountP hfix htop
+      have hdel := tower_deliver sk hwf hfam h.toWCountP hfix htop
         (hh'' + 1)
         (sk.pendsBefore p (hh'' + 1 + 1)
           (rcvCount (Chan.lower p (hh'' + 1 + 1)) st.out))
@@ -1018,7 +1077,7 @@ theorem lower_window (hwf : sk.wellFormed = true) {fut : List Ev}
       have hout' := asmOutChan_of_lt sk htop hht
       rw [hout'] at hOp
       rw [hout', cap_level] at hoblk
-      refine tower_noblock sk hwf h hfix htop hroot
+      refine tower_noblock sk hwf hfam h hfix htop hroot
         (hh' + 1 + 1) (by omega) (by omega)
         (fun g hg1 hg2 hna => hcov g (by omega) hg2 hna)
         ?_ hoblk
@@ -1031,8 +1090,9 @@ theorem lower_window (hwf : sk.wellFormed = true) {fut : List Ev}
 
 /-- THE LEAF-WIRE WINDOW: at a pump fixpoint the absorber has consumed
 every leaf wire before the one the walk is about to send. -/
-theorem wire0_window (hwf : sk.wellFormed = true) {fut : List Ev}
-    {st : MState} (h : WEdge sk fut st) (hfix : step sk st = none)
+theorem wire0_window (hwf : sk.wellFormed = true)
+    {P : List (List Ev)} (hfam : FamOK sk P) {fut : List Ev}
+    {st : MState} (h : WEdgeP sk P fut st) (hfix : step sk st = none)
     {w : Nat} (hw : w < sk.totalLeafReqs)
     (hsnd : sndCount (Chan.wire Party.R 0) st.out = w)
     (hreq : w ≤ sndCount Chan.leafRequests st.out + 1)
@@ -1040,7 +1100,7 @@ theorem wire0_window (hwf : sk.wellFormed = true) {fut : List Ev}
     (hroot : 1 ≤ sndCount Chan.rootres st.out) :
     w ≤ rcvCount (Chan.wire Party.R 0) st.out := by
   have hcap := wf_capLevel hwf
-  rcases absorb_stuck sk hwf h.toWCountP hfix with
+  rcases absorb_stuck sk hfam h.toWCountP hfix with
     ⟨hW, hL, hV⟩ | ⟨hWt, hLW, hVW, hsw⟩ | ⟨hLt, hWL, hVL, hsq⟩
     | ⟨hVt, hWV, hLV, hblk⟩
   · omega
@@ -1048,15 +1108,16 @@ theorem wire0_window (hwf : sk.wellFormed = true) {fut : List Ev}
   · omega
   · exfalso
     rw [cap_level] at hblk
-    exact tower_noblock sk hwf h hfix (Or.inl ⟨rfl, rfl⟩) hroot
+    exact tower_noblock sk hwf hfam h hfix (Or.inl ⟨rfl, rfl⟩) hroot
       1 (Nat.le_refl 1) (by have := (wf_rootH hwf).2; omega)
       hcov (fun hask => absurd hask (by decide)) hblk
 
 /-- THE LEAF-REQUEST WINDOW: at a pump fixpoint the absorber has
 consumed every leaf request before the one the walk is about to
 send. -/
-theorem leafreq_window (hwf : sk.wellFormed = true) {fut : List Ev}
-    {st : MState} (h : WEdge sk fut st) (hfix : step sk st = none)
+theorem leafreq_window (hwf : sk.wellFormed = true)
+    {P : List (List Ev)} (hfam : FamOK sk P) {fut : List Ev}
+    {st : MState} (h : WEdgeP sk P fut st) (hfix : step sk st = none)
     {q : Nat} (hq : q < sk.totalLeafReqs)
     (hsnd : sndCount Chan.leafRequests st.out = q)
     (hwire : q ≤ sndCount (Chan.wire Party.R 0) st.out)
@@ -1064,7 +1125,7 @@ theorem leafreq_window (hwf : sk.wellFormed = true) {fut : List Ev}
     (hroot : 1 ≤ sndCount Chan.rootres st.out) :
     q ≤ rcvCount Chan.leafRequests st.out := by
   have hcap := wf_capLevel hwf
-  rcases absorb_stuck sk hwf h.toWCountP hfix with
+  rcases absorb_stuck sk hfam h.toWCountP hfix with
     ⟨hW, hL, hV⟩ | ⟨hWt, hLW, hVW, hsw⟩ | ⟨hLt, hWL, hVL, hsq⟩
     | ⟨hVt, hWV, hLV, hblk⟩
   · omega
@@ -1072,7 +1133,7 @@ theorem leafreq_window (hwf : sk.wellFormed = true) {fut : List Ev}
   · omega
   · exfalso
     rw [cap_level] at hblk
-    exact tower_noblock sk hwf h hfix (Or.inl ⟨rfl, rfl⟩) hroot
+    exact tower_noblock sk hwf hfam h hfix (Or.inl ⟨rfl, rfl⟩) hroot
       1 (Nat.le_refl 1) (by have := (wf_rootH hwf).2; omega)
       hcov (fun hask => absurd hask (by decide)) hblk
 

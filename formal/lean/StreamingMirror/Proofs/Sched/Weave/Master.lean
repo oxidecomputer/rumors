@@ -1252,7 +1252,7 @@ theorem ready_upper_prologue (hwf : sk.wellFormed = true)
         (show k ≤ sk.stageLen 1 from Nat.le_of_lt hk)
       rw [show Chan.leafRequests = askedOut (wpk 1) from rfl]
       omega
-  have hwin := upper_window sk hwf hW hfix (wpk_htop sk h) hasks
+  have hwin := upper_window sk hwf (famOK_procs sk hwf) hW hfix (wpk_htop sk h) hasks
     (wtop_ge hwf hhr) hk hsnd hdesc hcov hroot
   exact enabled_of_window sk hwf hwin (hW.rcvd_eq _)
 
@@ -1324,7 +1324,7 @@ theorem ready_upper_splice (hwf : sk.wellFormed = true)
       (show k ≤ sk.stageLen 1 from Nat.le_of_lt hk)
     rw [show Chan.leafRequests = askedOut (wpk 1) from rfl]
     omega
-  have hwin := upper_window sk hwf hW hfix (wpk_htop sk h) hasks
+  have hwin := upper_window sk hwf (famOK_procs sk hwf) hW hfix (wpk_htop sk h) hasks
     (wtop_ge hwf hhr) hk hsnd hdesc hcov hroot
   exact enabled_of_window sk hwf hwin (hW.rcvd_eq _)
 
@@ -1409,7 +1409,7 @@ theorem ready_lower (hwf : sk.wellFormed = true)
     rw [answerer_resList_total hwf hna h1 hhr]
     exact hbnd
   rw [hsnd] at hp1full
-  have hwin := lower_window sk hwf hW hfix (wpk_htop sk h) hna h1
+  have hwin := lower_window sk hwf (famOK_procs sk hwf) hW hfix (wpk_htop sk h) hna h1
     (show h < wtop sk h from by have := wtop_ge hwf hhr; omega)
     hd hsnd hp1full hdesc hcov hroot
   exact enabled_of_window sk hwf hwin (hW.rcvd_eq _)
@@ -1458,7 +1458,7 @@ theorem ready_wire0 (hwf : sk.wellFormed = true)
   have hcov := ancTele_cov_leaf sk hwf hsched hW hanc hr2 hk hcoh0
     hi0 hsndq
   have hroot := root_banked sk hwf hW.toWCountP hfeed
-  have hwin := wire0_window sk hwf hW hfix hw hsnd hreq hcov hroot
+  have hwin := wire0_window sk hwf (famOK_procs sk hwf) hW hfix hw hsnd hreq hcov hroot
   exact enabled_of_window sk hwf hwin (hW.rcvd_eq _)
 
 /-- The leaf-request site (Q0): a leaf slot's feed query is emittable
@@ -1513,7 +1513,7 @@ theorem ready_leafreq (hwf : sk.wellFormed = true)
   have hcov := ancTele_cov_leaf sk hwf hsched hW hanc hr2 hk hcoh0
     hi0 hsndq
   have hroot := root_banked sk hwf hW.toWCountP hfeed
-  have hwin := leafreq_window sk hwf hW hfix hq hsndq hwire hcov
+  have hwin := leafreq_window sk hwf (famOK_procs sk hwf) hW hfix hq hsndq hwire hcov
     hroot
   exact enabled_of_window sk hwf hwin (hW.rcvd_eq _)
 
