@@ -67,12 +67,15 @@ use crate::{
         self,
         traverse::unknown::Unknown,
         typed::{
-            Hash, Levels, Node, Prefix,
+            Levels, Node, Prefix,
             height::{Height, Root, S, UnderRoot, UnderUnderRoot, Z},
             levels::{Below, Top},
         },
     },
 };
+
+#[cfg(debug_assertions)]
+use crate::tree::typed::Hash;
 
 use super::super::{message, protocol};
 
