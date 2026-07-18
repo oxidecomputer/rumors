@@ -812,11 +812,86 @@ bounds μ(Q), and both are bounded by the awaited send.
        `∃ i j, i < j ∧ l[i]? = …` needs `: Nat` annotations or the
        `LT` instance sticks; `asmEvents`' `(p, j).fst`-spelled
        length atoms need type-ascribed `have`s before omega.
-4. Opener/asm enabledness mirrors of the pillar (small).
-5. The blame lemmas (§6 table), consuming §2 + Sched (trace
-   monotonicity replaces most positional arithmetic).
-6. Argmin assembly: `progress`, then `deadlock_free` in
-   Statement.lean's terms; the planned corollary "terminal ⟹ all
-   channels drained" falls out of `Inv` at terminal. The termination
-   theorem's witness is the §5 schedule via `replaySchedule`'s
-   compilation, already checked executably.
+4. ~~Opener/asm enabledness mirrors of the pillar~~ — done
+   (`Proofs/Progress.lean`, 2026-07-17): `iopen_unchosen_canStep` /
+   `ropen_unchosen_canStep` (the first unfired obligation in wire ≺
+   res ≺ query order passes every guard in every mode; the query
+   count stays choosable by `topLocalOk`'s `rootPending` bound). Asms,
+   absorb, and the finishes are linear — every action a channel op or
+   close determined by phase — so the pillar's content is vacuous for
+   them; nothing to state until the stuck analysis consumes it.
+5. **THE PARENT-DELAY FINDING (2026-07-17): `DeadlockFree sk .full`
+   is FALSE as stated — refuted executably. Items 5–6 are blocked on
+   a statement-layer adjudication, not on proof work.**
+   - *How it was found.* Transplanting the §6 argmin to model states
+     needs each blocked process's earliest unperformed trace event to
+     be the event it is blocked on. Under `.full` that holds for every
+     process EXCEPT a walk that commits past its floating parent: the
+     guards let a walk whose D children are all resolved commit (and
+     jam on) a last-chunk query or trailing W wire with the parent
+     still unsent — the parent is the ONLY event any process can owe
+     out of trace order (openers are forced linear by their guards;
+     asm/absorb/fins have no choices; every other walk deviation is
+     excluded by w/d1int/wireFirst/d4/in-order ledgers). At such a
+     state the argmin's blame has nothing below the hole to indict:
+     §6's step (3) fails, and `blameProbe` never saw the case because
+     merge-reachable states consume traces in order — hole-free.
+   - *The refutation.* `EventDag.advActions`/`drainAdv` (in both
+     gates): the greedy driver with each walk's `.parent` commit
+     moved after its child-obligation commits. On schedulable fuzz
+     seeds it reaches genuinely stuck states (`terminal = false`,
+     `canStep .full = false` — checked against the real `allActions`
+     enumeration; every adversary state is `Reachable` since only the
+     choice among enabled actions differs). First witness, seed 12,
+     carries BOTH flavors at once: `walk(R,2)` committed `.query 4`
+     with parent unsent jams the cap-1 asked channel; its unsent
+     parent starves `asm(R,3)`, the level tower backs up two heights,
+     `asm(R,1)` stops draining `upper(R,0)`, so `walk(R,0)`'s
+     committed `.parent` cannot fire and never reaches the next
+     scope's asked-receive — closing the cycle back at the asked
+     channel. (`walk(I,1)` sits in the trailing-wire flavor of the
+     same trap.) Pinned both ways: `runAll` asserts the six pins
+     complete under the adversary; `runFuzz` asserts the stalls
+     reproduce, so a model change cannot dissolve the finding without
+     a deliberate re-audit. The commit/fire split is load-bearing
+     here exactly as designed — the deadlock is real under committed
+     choice, and un-committing would hide it.
+   - *Why this is a model-tightness finding, finding-#6-shaped.* The
+     weave pins the parent immediately after the final resolution
+     (the §5 load-bearing placement), matching the Rust encoder's
+     order; the model's `wkChoosable` never encoded that. The
+     resolution is a seventh ordering ledger — working name
+     `parentFirst`/d5: *a walk with every D child resolved must send
+     the parent before committing any further wire or query* (the
+     fired-fact shadow: `parentDone` once a post-final-res
+     publication exists). TO ADJUDICATE with the statement owner
+     before minting: the exact guard form, the `AxMode` surgery
+     (`.full` gains the flag; the finding demotes today's `.full` to
+     a control), the README ledger-table row against
+     `Trace::assert_valid`, and a kernel-checked `Control.parentTrap`
+     stuck-run twin of `pyramid1_not_deadlockFree` (extract the
+     seed-12 action list, or hand-minimize: one D-heavy parent over a
+     capLevel-tight tower plus one asked-channel consumer suffices by
+     the cycle shape).
+   - *Why the finding UNBLOCKS the endgame.* Under `parentFirst` the
+     hole vanishes: every process's performed set is exactly a trace
+     prefix (provable by `Reachable` induction — the precise
+     "reachable state ↔ schedule position" bridge, now a per-process
+     cursor equation against `sentOf`/`recvdOf`). The §6 argmin then
+     simplifies below its original design: take the τ-least
+     unperformed event `e*`; its E1/E2 predecessors are performed
+     (they sit τ-below), so flow conservation puts data (resp. room)
+     on its channel — run-ahead receives only widen the window — and
+     its owner's cursor sits AT `e*`, so the owning action is enabled
+     outright: starving rcv, jammed snd, and choice points (the
+     pillar + item-4 mirrors) all close without any blame table; only
+     the all-events-performed endgame (closes and finishes, by the §2
+     totals) remains. `trace_monotone`, `schedule_e1_pos`, the E2
+     positional twin, `schedule_inj`, and `merge_complete`'s totality
+     of τ are exactly the facts this consumes.
+6. After the adjudication: the performed-set/cursor invariant, the
+   `e*`-argmin progress lemma, then `progress` and `deadlock_free` in
+   Statement.lean's (amended) terms; the planned corollary "terminal ⟹
+   all channels drained" falls out of `Inv` at terminal. The
+   termination theorem's witness is the §5 schedule via
+   `replaySchedule`'s compilation, already checked executably.
