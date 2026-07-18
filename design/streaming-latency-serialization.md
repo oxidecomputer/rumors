@@ -163,7 +163,11 @@ Follow one stage boundary [derived]:
    (`requests.next().await` before `queries.recv().await`,
    `levels.rs`; likewise `absorb` in `materialized.rs`). The reply
    to `C1` exists only after our `C1` message crossed the wire and
-   the peer's stage answered it: a full round trip.
+   the peer's stage answered it: a full round trip. (This
+   describes the code as diagnosed; rider (b) has since flipped
+   the pairing query-first — §5's shipped note — which does not
+   change this diagnosis: the serialization is the capacity, not
+   the order.)
 3. Stage *h* meanwhile has yielded the message for `C2` and now
    blocks in `asked.send(Query(C2))` — the slot is still occupied by
    `Query(C1)`. The walk stops consuming its own input stream. No
@@ -789,13 +793,14 @@ none blocks the landed work.
    where §5.1's minimum-over-the-chain argument makes each one
    individually necessary); the confirming sweep is not worth its
    run time.
-3. **Attribute the residual ~9 hops** — **in progress
-   2026-07-18**: delegated to a frame-tracing investigation over
-   the delayed pipe (instrumented worktree; report to be folded
-   in here). The floor hypothesis: 3 (opening) plus the leaf
-   request→supply round; anything above is candidate avoidable
-   serialization, and any wire-touching fix folds into §10 lever
-   A's format break.
+3. **Attribute the residual ~9 hops** — **done 2026-07-18, §11**:
+   byte-level tracing over the delayed pipe reconstructed the
+   full critical path. The old floor hypothesis was *refuted* —
+   there is no leaf request→supply round on the path; the
+   structure is 3 fixed hops + L ladder levels + 1 tail marker.
+   Three avoidable hops identified (§11), one of which folds
+   into §10 lever A's format break. The instrument landed as
+   `tests/hop_trace.rs`.
 4. **Land fix-space rider (b)** — **done 2026-07-18** (see §5's
    shipped note): all five stage loops dequeue query-first; the
    K-slot edges now admit exactly K in-flight scopes and §6.5's
@@ -867,6 +872,11 @@ counts unchanged) plus a green gate.
   and `Flow` byte, and most of the per-frame channel hops — the
   two largest ledger rows at once. V2's format is still ours to
   change; V1 interop is unaffected (separate formats).
+  Reinforced by the §11 trace [checked]: a 42 KB reply level left
+  the encoder as ~5 400 separate ~8 B writes — on a real
+  transport a syscall/packet storm the paused-clock bench never
+  charges — so batching (or at minimum a coalescing writer)
+  buys real-transport throughput beyond the compute estimate.
 - **B. Consume, don't clone, at the adapter boundary** [est.
   1–2 ms; no format change]. Encode does `ceiling().clone()` +
   `message().clone()` off a leaf node it then drops; an
@@ -910,3 +920,73 @@ Realistic outcome [derived]: A+B+C recover 6–8 of the 11 ms,
 putting V2 within ~15 % of V1 on equal-hop workloads with the
 remainder in the diffuse tail; D and E then move both protocols'
 absolute times rather than the gap.
+
+## 11. The hop ledger: where the nine hops live
+
+§9 item 3, measured 2026-07-18 with a byte-level tracer wrapping
+every pipe of a delayed link pair (`tests/hop_trace.rs`; 10 ms
+one-way, paused clock, production window). Under the paused clock
+compute is virtually instantaneous, so every traced event lands on
+an exact multiple of the delay: the per-bucket, per-stream traffic
+*is* the serialized critical path. The instrument reproduces the
+bench hop counts exactly (8.0 at its 512-per-side scale; the
+bench's I = 5000 fixture adds one ladder level for its 9.0;
+redactions 8.0 in both).
+
+The critical path for an insertion-shaped session (2 048 common,
+512 per side) [checked]:
+
+| hop | crossing | gated by |
+|---|---|---|
+| 1 | both preambles (magic/version/network/intent), control | session start |
+| 2 | both causal `Version` greetings, control | peer preamble: the snapshot critical section must see `peer_bootstrapping`/`peer_retiring` first |
+| 3 | opening question, data stream 0, ~4.3 KB | initiator election needs the peer `Version` (canonical-bytes tiebreak) |
+| 4 | opening reply (top level), ~42 KB | the question |
+| 5..4+L−1 | one reply level per hop, alternating directions | each level's replies answer queries carried in the previous level's replies |
+| 4+L | near-empty `End`s + initiator's epilogue marker | last level's queries |
+| 5+L | responder's epilogue marker, control | responder drains the last level |
+
+So **hops = 3 + L + 1**, with L the effective divergence depth
+(the bench fixtures reach L = 4–5). The redaction cell's 8.0 vs
+insertions' 9.0 is purely one fewer ladder level — its disputes
+bottom out shallower — not a different shape.
+
+**Refuted** [checked]: the old floor hypothesis's "leaf
+request→supply round". Leaf streams never open on these paths;
+supplies ride the interior reply streams, and no hop is spent on
+a leaf-specific round trip.
+
+Classification:
+
+- **Inherent: the L ladder hops.** Each level's replies answer
+  queries carried one level up — a true data dependency under
+  scope-per-reply framing. Only V1-style level batching (§5 fix
+  (c), rejected for its memory spike) changes this, and L grows
+  slowly with divergence.
+- **Avoidable: the version hop (hop 2)** [saves 1 on *every*
+  session, including empty; no wire-format change]. The greeting
+  waits for the peer preamble only so the snapshot critical
+  section can fork/donate a party atomically when the peer is
+  bootstrapping or retiring; for Remain↔Remain gossip the wait
+  buys nothing. Fix shape: speculate the plain-gossip critical
+  section and send the greeting with the preamble; recover with a
+  fresh fork if the arriving preamble reveals bootstrap/retire.
+  The recovery's atomicity argument (party linearity) is the
+  delicate part and must be re-derived before landing.
+- **Avoidable: the opening-question hop (hop 3)** [saves 1 on
+  every divergent session; control-stream wire-format change —
+  fold into §10 lever A's break]. Election needs the peer
+  `Version`, but the opening question's *content* (the root-fan
+  listing) is local-only: carrying the listing inside the
+  greeting lets the elected responder answer immediately. Costs
+  ~4 KB on every greeting unless gated on nonempty divergence.
+- **Semi-avoidable: the tail marker (hop 5+L)** [saves 1; no
+  bytes change, but a contract change]. The final hop is pure
+  completion certification. Deferring marker *verification* to
+  the next session's start lets the faster side return one hop
+  earlier, at the cost of moving where a truncation error is
+  attributed. Weigh before taking.
+
+Ceiling if all three land [derived]: I = 5000 drops 9 → 6 hops
+and the empty heartbeat session 3 → 2 — on top of §10's compute
+levers, which own the zero-latency story.
