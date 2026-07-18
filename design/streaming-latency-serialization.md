@@ -866,12 +866,25 @@ counts unchanged) plus a green gate.
 
 - **A. Batch supply runs into one wire frame** [est. 4–6 ms; wire
   format change, `gossip_snapshot` re-accept]. One `Supply` frame
-  carrying a count-prefixed run of leaves, chunked at fan size so
-  the fixed-memory decode story survives arbitrarily large
-  supplies. Kills, per leaf: a frame allocation, a borsh header
-  and `Flow` byte, and most of the per-frame channel hops — the
-  two largest ledger rows at once. V2's format is still ours to
-  change; V1 interop is unaffected (separate formats).
+  carrying a count-prefixed run of leaves. Kills, per leaf: a
+  frame allocation, a borsh header and `Flow` byte, and most of
+  the per-frame channel hops — the two largest ledger rows at
+  once. V2's format is still ours to change; V1 interop is
+  unaffected (separate formats).
+  Chunking [decision, 2026-07-18]: by *bytes*, not fan count — a
+  public knob `target_message_size` on `Peer` (the
+  `max_in_flight_nodes` pattern) bounds the encoded size of one
+  run. A run flushes when the next leaf record would overflow the
+  target; minimum one leaf per run, so a single oversized message
+  ships alone and may exceed the target. Runs never span a
+  `Supply` reaction — batching scope is the leaf run of one
+  supplied subtree — and therefore never span a protocol-level
+  `Reply`. Default: the byte size of the maximally disputed reply
+  (256 reactions × a full-fan query frame ≈ 2.06 MB), the wire's
+  existing largest message and the decode side's documented
+  memory unit — so default batching never raises the per-message
+  ceiling. Derive it as a named constant from the wire constants
+  (`FAN`, `QUERY_CHILD_LEN`, …), not a magic number.
   Reinforced by the §11 trace [checked]: a 42 KB reply level left
   the encoder as ~5 400 separate ~8 B writes — on a real
   transport a syscall/packet storm the paused-clock bench never
