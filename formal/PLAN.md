@@ -111,12 +111,14 @@ Last updated: 2026-07-18.
   (4) endgame (Pending decodes under d6 mirrors + argmin/cascade at
   `.impl`, flagship names; `schedulable` dropped — implied by
   margin 0).
-- **#17 (blocked by #15 — now unblocked)**: parent-first re-scope —
-  invert the d5 check into the epilogue check (minted spelling:
-  PROGRESS.md §8, "the parent summary is the scope's last
-  publication"), wire into `Trace::assert_valid`, proptests exercise
-  it (passes on real traces), keep capacity-floor pins, README ledger
-  row, full `just gate`.
+- **#17 (DONE, 2026-07-18)**: parent-first re-scoped to the epilogue
+  invariant — `Trace::assert_parent_last` wired into
+  `Trace::assert_valid` as the seventh check (commit `4407590b` on
+  parent-first), exercised positively by all streaming proptests and
+  negatively per-arm; the d5 probe kept as `assert_parent_early`
+  (unwired, documented design-space record); capacity-floor pins
+  intact; gate clean modulo the two known mux-deadlock failures at
+  the branch base (fixed on link-transport).
 - **#18 (blocked by #16)**: legibility pass. (1) Refactor/document the
   theorem statement so a human reviewer can verify the *claim* matches
   the desiderata and see explicitly which Rust proptest discharges
