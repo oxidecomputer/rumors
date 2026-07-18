@@ -6,7 +6,10 @@ by experiment. **Fix (a) landed the same day** as
 `Peer::max_in_flight_nodes` — see §5.2 for the shipped shape, §5.3
 for the per-leaf fan-buffer follow-up — and
 `tests/gossip_pipelining.rs` pins the pipelining behavior against
-regression. §9 lists what remains. Companion to
+regression. **The zero-latency compute gap was profiled and largely
+closed on 2026-07-18** (§5.4: bulk conversion at the `Local`
+backend boundary, 80.3 → 31.6 ms at I = 5000). §9 lists what
+remains. Companion to
 `design/streaming-wire-deadlock.md`: that
 document explains why the transport contract demands independent
 streams; this one explains why the protocol running *on* those
@@ -23,8 +26,10 @@ Question under test (the `gossip_latency_*` groups in
 
 Verdict:
 
-1. **Yes: V2 costs 2×–4× V1's compute at zero latency** [checked],
-   growing with divergence (details in §2).
+1. **Yes: as shipped, V2 cost 2×–4× V1's compute at zero latency**
+   [checked], growing with divergence (details in §2). §5.4's
+   conversion-boundary fix has since cut this to 1.5×–1.9× — a
+   flat ~11 ms premium at I = 5000 rather than a multiple.
 2. **No — as shipped, V2 is dramatically *more* latency-sensitive
    than V1** [checked]. V1's session time grows with latency at
    ~8–9 serialized one-way hops regardless of divergence; V2's grows
@@ -431,6 +436,79 @@ as the drift control: V2's I = 5000 zero-latency compute fell
 R = 2500 cell moved within drift, and hop counts were unchanged at
 9.0 — the clean signature of a compute-path-only fix.
 
+### 5.4 The conversion-boundary fix: stop unwrapping compressed spines
+
+§9's item 1 — profile the remaining 80 vs 20 ms — ran on
+2026-07-18 (samply over the paused-clock bench binary, both V1 and
+V2 `I = 5000, d = 0` cells, V1 as the subtraction baseline). The
+profile acquitted every §7 suspect and convicted one nobody had
+named:
+
+| per iteration, `I = 5000, d = 0` | V2 before | V1 | Δ |
+|---|---|---|---|
+| allocator self time              | ~26 ms  | ~3 ms   | **+23 ms** |
+| `async_stream` generator glue    | ~11.6 ms| ~0      | **+11.6 ms** |
+| blake3                           | ~7.6 ms | ~7.3 ms | ≈ 0 |
+| memcpy/memset + `Arc::make_mut`  | ~9 ms   | ~1.5 ms | +7.5 ms |
+
+Attributing the allocator time to its nearest crate-level caller
+put ~45 % under the conversion machinery (`into_children`,
+`Node::branch`, `beneath`, `fold_parents`, `explode`, `assemble`)
+and most of the rest under the encode/decode task closures those
+frames inline into. The mechanism [checked, then derived]: the
+conversion boundary un-did and re-did **path compression one byte
+at a time**. `Convert::explode` descends every *typed* height, so
+a supplied single-leaf subtree — the common case at I = 5000,
+where divergent keys sit alone under their 2-byte slot — had its
+~30-byte compressed spine unwrapped level by level on encode
+(each level: an `Arc::make_mut` clone of the node innards plus a
+fresh single-entry `OrdMap`), and rebuilt level by level through
+`fold_parents` on decode (each level: a one-entry child group, a
+map, a `beneath`). Roughly 600 000 virtual-level crossings per
+session, every one through a nested `try_stream` generator frame
+— which is also where the `async_stream` self time came from. The
+tree's path compression exists precisely to skip those levels; the
+conversion chain paid them anyway.
+
+The fix reads the seam the design had already left open:
+`Backend::leaves` was documented as overridable for backends that
+"can obtain this more efficiently", and `Local` now does — a
+direct owned leaf walk (`typed::Node::leaves`, built on the
+`RangeOwned` spine walk, which steps over compressed spans and
+clones one child handle at a time). Decode gained the symmetric
+seam: a new `Backend::assemble` method (default: the old
+level-by-level `Convert` fold, which `Failing` and any future
+database backend keep) that `Local` overrides by buffering each
+maximal same-prefix run and bulk-building its subtree
+(`typed::Node::from_sorted_leaves`): sorted input makes every
+divergence byte a first/last comparison, so construction is
+proportional to the *materialized* structure — one node per real
+branch point or leaf spine — not to virtual levels. The buffered
+run is transient state for a subtree the in-memory backend is
+about to hold whole anyway, so the §6 memory story is unchanged.
+Three property tests pin both overrides to observational
+equivalence with the default chain over deep-spine and multi-run
+inputs (`streaming/backend/local/tests.rs`).
+
+Measured [checked], same-session sweep, V1 cells as drift control
+(V1 moved < 3 %):
+
+| cell, d = 0        | before  | after   | vs V1 |
+|--------------------|---------|---------|-------|
+| insertions I = 5000| 80.3 ms | 31.6 ms | 20.7 ms → 1.52× (was 4.0×) |
+| redactions R = 2500| 17.3 ms | 12.3 ms | 6.5 ms → 1.89× (was 2.7×) |
+| empty session      | ~35 µs  | ~25 µs  | ≈ parity |
+
+Hop counts unchanged at every latency (9.0 at I = 5000, d = 100 ms
+for both protocols; 3 for the V2 empty session) — again the
+compute-only signature. The re-profile shows the conversion frames
+reduced to noise; the residual ~11 ms per session is diffuse:
+blake3 at near-parity with V1 (~8.4 ms, now the largest single
+item), branch-hash memoization for freshly assembled subtrees,
+per-frame codec and channel glue. Redaction break-even against V1
+drops from ~11 ms to ~6 ms one-way; insertion-only sync now costs
+a flat ~11 ms premium at equal hops, rather than 3× V1's compute.
+
 ## 6. The memory price of K
 
 What does a window of K actually cost, worst case? The answer
@@ -644,23 +722,19 @@ nothing but the envelope.
   register sized with K defensively. What remains empirical is
   confirming the decomposition: rerun the sweep with only §5.1's
   "scale with K" set widened and check the hop counts match §4's.
-- **[open, narrowed]** The remaining zero-latency compute gap:
-  80 ms vs 20 ms at I = 5000 after §5.3's leaf-channel
-  amortization. Two candidates are now excluded [checked/derived]:
-  the per-leaf channel waker cost (§5.3 recovered it: ~12 %) and
-  hash recomputation (decode performs exactly one
-  `Path::for_leaf` — three small blake3 calls, ≤0.5 µs — per
-  supplied leaf and never verifies reconstructed subtree hashes
-  in-session, bounding hashing at ~3 % of the gap; the 2–2.5×
-  ratio also persists in cells that ship no leaves at all).
-  Shipping precomputed leaf prefixes was considered and rejected:
-  its ceiling is that ~3 %, it costs 32 B per leaf on the wire,
-  and a trusted prefix breaks the content-address commitment (an
-  off-path leaf is permanent split-brain, `typed/path.rs`).
-  Remaining suspects, unprofiled: per-leaf frame codec and borsh,
-  `Message`/`Bytes` allocation, and the boxed-stream `explode`
-  chain on the encode side. A time profile of the I = 5000, d = 0
-  cell would attribute it.
+- **[resolved in §5.4]** The remaining zero-latency compute gap.
+  The earlier exclusions held up [checked]: waker cost (§5.3,
+  ~12 %) and hashing (≤3 %; prefix-shipping stays rejected — its
+  ceiling is that 3 %, it costs 32 B per leaf, and a trusted
+  prefix breaks the content-address commitment,
+  `typed/path.rs`). The profile pinned the bulk of the gap on
+  none of the named suspects but on the conversion boundary
+  unwrapping path-compressed spines one virtual level at a time;
+  §5.4's bulk `leaves`/`assemble` overrides removed ~82 % of the
+  gap. What remains (~11 ms at I = 5000) is diffuse — blake3 at
+  V1 parity, branch-hash memoization, per-frame codec — and is
+  tracked as ordinary optimization headroom, not an open
+  question.
 - **[open]** Whether redaction-heavy sessions (version-bound pruning
   on the leaf path) have a different optimal K than insertion-heavy
   ones; the R = 2500 cell pipelined slightly better (18 vs 27 at
@@ -683,19 +757,24 @@ nothing but the envelope.
     # Link conformance for the measurement transport:
     cargo nextest run -E 'binary(latency_link)'
 
+    # Time profile of one bench cell (§5.4; the bench profile carries
+    # line tables for symbolication). The paused clock serializes both
+    # peers onto one thread, so a single track holds the whole session:
+    cargo bench --features protocol-v1 --bench gossip_fixed --no-run
+    samply record -- target/release/deps/gossip_fixed-<hash> --bench \
+        --profile-time 15 'gossip_latency_bidir_insertions/V2/divergence=5000/0$'
+
 ## 9. Next steps
 
 Ordered by leverage, with each item's blocking relationship stated;
 none blocks the landed work.
 
-1. **Profile the compute gap** (from §7's narrowed question): one
-   time profile of the `I = 5000, d = 0` bench cell (xctrace or
-   samply) to attribute the remaining 80 ms vs 20 ms between
-   per-leaf frame codec/borsh, `Message`/`Bytes` allocation, and
-   the boxed-stream `explode` chain. This decides whether further
-   compute work is worth scheduling at all: the insertion-only
-   break-even against V1 is compute-bound at every realistic
-   latency, so this gap *is* V2's remaining cost story.
+1. **Profile the compute gap** — **done 2026-07-18, §5.4**: the
+   profile convicted the conversion boundary's virtual-level
+   unwrapping; the bulk `leaves`/`assemble` overrides landed and
+   cut the gap 82 % (80.3 → 31.6 ms at I = 5000, hop counts
+   unchanged). The residual ~11 ms is diffuse (§5.4) and no
+   single further fix is scheduled.
 2. **Isolate the §5.1 decomposition empirically**: rerun the sweep
    with only the analytically load-bearing edges widened (walk
    queues/resolutions + `local_questions`), confirming
