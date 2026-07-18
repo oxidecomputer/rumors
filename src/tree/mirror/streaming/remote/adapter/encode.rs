@@ -199,12 +199,16 @@ where
                         validate_leaf(expected, previous, prefix);
                         previous = Some(prefix);
 
-                        let version = leaf.ceiling().clone();
-                        let message = leaf.message().clone();
+                        // The leaf is consumed by serialization alone: the
+                        // run copies its version and message bytes straight
+                        // out of the borrowed node, so no Version clone (ITC
+                        // allocations) and no Arc bump is paid per leaf.
+                        let version = leaf.ceiling();
+                        let message = leaf.message();
                         if !run.is_empty()
                             && run
                                 .encoded_len()
-                                .saturating_add(LeafRun::record_len(&version, &message))
+                                .saturating_add(LeafRun::record_len(version, message))
                                 > budget.bytes()
                         {
                             let full = mem::take(&mut run);
@@ -217,7 +221,7 @@ where
                                 };
                             }
                         }
-                        run.push(&version, &message).map_err(EncodeError::Record)?;
+                        run.push(version, message).map_err(EncodeError::Record)?;
                     }
                     assert!(!run.is_empty(), "a backend node contains at least one leaf");
                     if let Some((ready, question)) =
