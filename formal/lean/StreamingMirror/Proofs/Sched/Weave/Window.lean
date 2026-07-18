@@ -25,6 +25,10 @@ The position packages are hypotheses here; establishing them at every
 weave position is the CtxOK tree induction (step (f)). `Skel.
 schedulable` and the §5 splice placement live INSIDE those packages'
 eventual proofs, not in this file.
+
+Chain (both corners, stage B): the four pump-window discharges consumed
+by the site packages (Site.lean/SiteE.lean) at every pump-facing
+emission. Map: Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Sched.Weave.Pump
 import StreamingMirror.Proofs.Counting

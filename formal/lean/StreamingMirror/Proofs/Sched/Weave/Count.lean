@@ -34,6 +34,10 @@ With the alignment in hand, the final `WCount` pins the weave's event
 multiset to the traces' (`out_count` excludes duplicates and
 inventions) and embeds every manual trace in order
 (`wcount_done_man_sublist`).
+
+Chain (both corners, stage B): the family-parameterized counting core
+(`WCountP`; `WCount` = the d5 abbrev); consumed by Edge/Align/Master and
+their E twins. Map: Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Sched.Weave
 import StreamingMirror.Proofs.Sched.Numbering

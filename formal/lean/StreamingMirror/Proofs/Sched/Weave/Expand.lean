@@ -18,6 +18,10 @@ the interpreter's step count (`opSteps`), the two semantics agree.
 emits at least one event, and each expansion layer costs one step —
 so `weaveFuel`'s `4 * totalEvents + 8` is sufficient as soon as the
 alignment pins the emission count to the manual traces' total.
+
+Chain (d5, stage B): provides the expansion ghost (`opEvents`) and the
+fuel bridge to Master.lean and Final.lean. E mirror: ExpandE.lean. Map:
+Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Sched.Weave.Count
 

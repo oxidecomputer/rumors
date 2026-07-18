@@ -9,6 +9,10 @@ of the remaining worklist (`align_kids_suffix` and the `descIdx`
 windows); the lemmas here convert those reads into the count pins the
 window lemmas' hypothesis packages consume (`hsnd`, `hroot`,
 `DescSupply`, `SpineLink`).
+
+Chain (d5, stage B): provides the futLen forms and count pins to
+Site.lean's packages; SiteE.lean re-exports them to the E side through
+its projection bridges. Map: Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Sched.Weave.Ctx
 

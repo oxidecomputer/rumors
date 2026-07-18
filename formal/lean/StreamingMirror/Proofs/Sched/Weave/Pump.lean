@@ -21,6 +21,9 @@ projection IS the owner's prefix's (`out_proj_owner`). Consequences:
   past the count) — the upper bounds the case-tree's ascent needs.
 - `wedge_rcvd_le_sent`: consumption never outruns production, from
   guard-history plus canon.
+
+Chain (both corners, stage B): the state-layer trichotomies consumed by
+Window.lean's four pump windows. Map: Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Sched.Weave.Edge
 import StreamingMirror.Proofs.Sched.Weave.Prec

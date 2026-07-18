@@ -54,6 +54,10 @@ checkable promise (`wf_bfs_aligned`) and the per-scope pass:
 - `qCount_eq_kid_nChildren`: the queries chunk `i` owes are exactly
   the kid scope's child count — the feed the kid needs is the feed
   it gets.
+
+Chain (d5, stage B): consumes Count.lean's invariant and Expand.lean's
+ghost; provides the initial alignment (`weaveState_wcount`) to
+Master.lean. E mirror: AlignE.lean. Map: Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Sched.Weave.Expand
 import StreamingMirror.Proofs.Counting

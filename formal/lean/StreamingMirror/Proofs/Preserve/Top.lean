@@ -4,6 +4,9 @@ processes). The `Choose` actions are the committed-choice halves: they
 move a guard's worth of facts into the `committed` field, and the
 invariant's obligation arms are the guards verbatim — the transcription
 rule "mirror the guards exactly" pays off here as `simp_all` closures.
+
+Chain (shared foundation): consumed by Preserve.lean's assembly. Map:
+Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Lemmas
 

@@ -10,6 +10,10 @@ supply (`DescSupply`'s top level); the cross-walk components (the
 completed-subtree boundary memberships along the coverage telescope)
 and the ascent coverage are the remaining CtxOK obligations, built by
 the weave-order induction (see the design of record in PROGRESS.md).
+
+Chain (both corners, stage B): the position layer's assemblies
+(SpineLink ladders, P1, DescSupply) consumed by Site.lean/TeleE.lean
+site packages. Map: Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Sched.Weave.Window
 

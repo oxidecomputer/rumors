@@ -48,6 +48,10 @@ The eventdag gate pins this definition event-for-event to the tool's
 `weaveOrder` on every pin and every acyclic fuzz seed, and validates
 it (permutation + every E1/E2/E3 edge) by the same `validateSchedule`
 that checks the merge candidate.
+
+Chain (d5, stage A): the witness schedule, executable-validated in
+EventDag; consumed by Align.lean and Master.lean. E mirror: WeaveE.lean.
+Map: Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Sched
 

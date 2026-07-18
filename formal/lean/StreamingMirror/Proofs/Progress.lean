@@ -6,6 +6,9 @@ unmet obligation of its current scope, taken in (res|query of the least
 undischarged D child, when its wire is done) ≺ wire ≺ parent order,
 passes every axiom guard in EVERY axiom mode — so blocking only ever
 happens at channel operations, never at obligation choice.
+
+Chain (shared): the pillar, mode-generic via `hmode`; consumed by both
+endgames' choice-point cases. Map: Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Lemmas
 

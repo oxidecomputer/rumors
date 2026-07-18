@@ -17,6 +17,10 @@ The ancestor-tail forms (`futLen_ancE_*`) mirror `futLen_anc_*` over
 the E in-flight shape — chunk-query residue, later kid chunks, the
 pending parent, the scope suffix — and are SIMPLER than d5's: the
 parent is always pending, so the upper share carries no `if`.
+
+Chain (.impl, stage B): mirrors Emit.lean + Site.lean through the
+`childChunk_spliced`/projection bridges; provides the E futLen and site
+forms to TeleE.lean and MasterE.lean. Map: Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Sched.Weave.Master
 import StreamingMirror.Proofs.Sched.Weave.AlignE

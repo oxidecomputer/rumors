@@ -5,6 +5,9 @@ guards exactly" is cashed in: three of the four obligation arms of
 the fourth (`.wire i`) is the frontier-counting argument
 (`length_filter_of_frontier`) — the only place preservation needs
 `wellFormed` (to fan-bound the child index).
+
+Chain (shared foundation): the walk-family preservation cases, consumed
+by Preserve.lean. Map: Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Lemmas
 import StreamingMirror.Proofs.Wiring

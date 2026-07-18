@@ -19,6 +19,10 @@ whole E re-derivation refunds the splice machinery.
 τ-comparison rides `scheduleE` through `merge_completeE`, so the
 schedule-glue lemmas here take the margin-0 capacity hypothesis where
 their d5 counterparts took `schedulable`.
+
+Chain (.impl, stage D): mirrors Pending.lean (walk decode restructured
+for d6 — the parent pends at the scope tail); provides the decodes to
+EndgameE.lean. Map: Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Pending
 import StreamingMirror.Proofs.Sched.Weave.FinalE

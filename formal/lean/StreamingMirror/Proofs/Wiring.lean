@@ -12,6 +12,9 @@ channels and the absorber, and a Nat-subtraction collision at `wire I 0`
 The alignment lemmas need the `walkKeys` bounds to steer the branch
 tests: initiator stages have `1 ≤ h ≤ rootH - 1`, responder stages
 `h ≤ rootH - 2`.
+
+Chain (shared foundation): channel routing and the frame lemma, consumed
+by the preservation files and the decode layers. Map: Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Lemmas
 

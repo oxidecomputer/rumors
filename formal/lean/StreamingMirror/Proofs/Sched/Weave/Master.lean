@@ -30,6 +30,10 @@ opening wire — `weaveState_wedge_of_emitOK` peels it by hand with
 Establishing `EmitOKOn` over the opening worklist — the tree
 induction threading the rolling ancestor context through the scope
 recursion — is the production half (see the RestCtx sections below).
+
+Chain (d5, stage B exit): consumes Align/Emit/Site/Ctx/Window; produces
+`EmitOKOn` site by site and concludes `weave_wedge` for Final.lean. E
+mirror: MasterE.lean. Map: Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Sched.Weave.Site
 

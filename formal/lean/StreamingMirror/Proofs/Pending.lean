@@ -29,6 +29,10 @@ or after the trace's pending split, so the pending head is τ-least —
 position-in-schedule order along a trace is genuine by
 `merge_complete` (every trace is a sublist of the schedule) and τ
 injectivity.
+
+Chain (d5, stage D): consumes `merge_complete` and the numbering layer;
+provides the per-family decodes to Endgame.lean. E mirror:
+PendingE.lean. Map: Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Progress
 import StreamingMirror.Proofs.Preserve

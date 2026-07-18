@@ -12,6 +12,10 @@ The tail of the file crosses back into the counting layer: the E
 interpreter preserves the family-generic `WCountP` exactly as the d5
 interpreter does — `weaveGo_preserves`' twin, dispatching to the E
 expanders.
+
+Chain (.impl, stage B): mirrors Expand.lean over the E ops; provides the
+E ghost and `weaveGoE_preserves` to MasterE.lean and FinalE.lean. Map:
+Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Sched.WeaveE
 import StreamingMirror.Proofs.Sched.Weave.Expand

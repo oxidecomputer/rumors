@@ -8,6 +8,10 @@ The capacity hypothesis appears exactly once: `weaveE_wedge`'s margin-0
 input. Everything downstream is the d5 argument verbatim — the drained
 witness, the τ ranking, the blame step, and the stall refutation are
 placement-independent once edge-respect of the witness is in hand.
+
+Chain (.impl, stage C): mirrors Final.lean through the `FamOK`/`ManRows`
+generalization; provides `merge_completeE` to PendingE.lean and
+EndgameE.lean. Map: Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Sched.Weave.Final
 import StreamingMirror.Proofs.Sched.Weave.MasterE

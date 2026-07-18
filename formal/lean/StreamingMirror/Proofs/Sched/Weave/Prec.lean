@@ -31,6 +31,10 @@ indices — the cap-1 asked channel's alternation, in prefix-sum form.
 The master induction (layer D) then consumes `DepOK` pointwise: each
 consumed head keeps the property (`depOK_tail`), and the head's
 predecessor is already in `out` (`depOK_head` + conservation).
+
+Chain (d5, stage B): provides `DepOK` (dep-closure of the future) to
+Master.lean's consumption induction. E mirror: PrecE.lean (a transfer,
+not a re-derivation). Map: Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Sched.Weave.Align
 

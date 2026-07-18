@@ -15,6 +15,10 @@ Three structural collapses versus the d5 telescope (`Master.lean`):
 - `P1` closes from margin 0 alone (`p1_of_ancE`): the slot's
   resolutions fit inside the level capacity outright, with no
   schedulable slack and no splice case.
+
+Chain (.impl, stage B): the E rolling context (`AncTeleE`) with its
+coverage and descent packages, consumed by MasterE.lean's ready sites.
+d5 mirror: the AncTele sections of Master.lean. Map: Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Sched.Weave.SiteE
 

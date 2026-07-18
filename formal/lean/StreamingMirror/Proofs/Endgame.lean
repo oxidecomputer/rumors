@@ -21,6 +21,11 @@ and only closes remain: closes cascade from the openers down (the
 producer of every close target is done, and its channel is drained by
 flow conservation against the supply = demand totals), ending at
 `terminal` — contradicting non-terminality.
+
+Chain (d5, stage E): consumes Pending.lean, `merge_complete`, and the
+pillar; concludes `progress_d5` and `deadlock_free_d5` (the
+Statement.lean counterpart). E mirror: EndgameE.lean. Map:
+Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Pending
 import StreamingMirror.Statement

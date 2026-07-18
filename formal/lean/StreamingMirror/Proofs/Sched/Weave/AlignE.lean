@@ -16,6 +16,10 @@ the tail-parent drop.
 The payoff at the bottom of the file: `weaveE_wcount` — the eweave's
 final state carries the counting invariant at the `procsE` family —
 which is the E consumption frame's entry fact (`MasterE.lean`).
+
+Chain (.impl, stage B): mirrors Align.lean (delta: own-walk filter arms
+only — the splice cases vanish); provides `weaveE_wcount` to
+MasterE.lean. Map: Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Sched.Weave.Align
 import StreamingMirror.Proofs.Sched.Weave.ExpandE

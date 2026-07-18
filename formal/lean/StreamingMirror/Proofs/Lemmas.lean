@@ -21,6 +21,9 @@ Conventions set here and used by every file under `Proofs/`:
   get named `have` equations (always with explicit types: an inline
   `(by rw [← hs'])` argument elaborates against metavariables and
   silently degenerates). See `preserve_finRet` for the template.
+
+Chain (shared foundation): the algebra under everything; no layer above
+is specific to it. Map: Proofs/Map.lean.
 -/
 import Batteries
 import StreamingMirror.Invariant

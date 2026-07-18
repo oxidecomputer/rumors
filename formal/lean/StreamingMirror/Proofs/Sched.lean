@@ -38,6 +38,10 @@ want and the gate certifies as behavior-preserving:
   content, and is where the `Skel.schedulable` hypothesis must enter:
   `Pin.pyramid 1` (well-formed, not schedulable) stalls the merge with
   events unemitted. Open; see PROGRESS.md §7.
+
+Chain (shared): the canonical schedule and tau for both corners (plus
+the `procsE` instances); consumed by Numbering.lean and stages C-E. Map:
+Proofs/Map.lean.
 -/
 import StreamingMirror.Model
 import StreamingMirror.Instances

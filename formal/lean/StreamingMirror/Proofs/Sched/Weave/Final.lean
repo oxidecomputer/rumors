@@ -25,6 +25,10 @@ sweeps:
 
 The cells are then literally empty (`cell_not_out` against the totals
 per head shape), giving `all_sublist_wfinal`.
+
+Chain (d5, stage C): consumes `weave_wedge` and the drained `WCount`;
+provides `merge_complete` to Pending.lean and Endgame.lean. E mirror:
+FinalE.lean. Map: Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Sched.Weave.Master
 

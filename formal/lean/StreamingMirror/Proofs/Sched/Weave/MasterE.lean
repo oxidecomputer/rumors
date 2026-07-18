@@ -10,6 +10,10 @@ position of the eweave's future, where the U-sites consume the margin-0
 capacity hypothesis — is unit 2b, the E master induction. This file
 only carries the generic consumption frame that turns that readiness
 into `WEdgeP sk (procsE sk) [] (weaveStateE sk)`.
+
+Chain (.impl, stage B exit): consumes AlignE/SiteE/TeleE/PrecE; the
+tail-parent site replaces d5's splice machinery, margin 0 discharges the
+U-site; concludes `weaveE_wedge` for FinalE.lean. Map: Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Sched.Weave.Master
 import StreamingMirror.Proofs.Sched.Weave.ExpandE

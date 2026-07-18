@@ -8,6 +8,9 @@ count is zero).
 Structure: projection lemmas keep `init sk` folded so the pointwise
 count lemmas (`*_init`) match syntactically; `inv_iff` glues the four
 `InvP` fields into the theorem.
+
+Chain (shared foundation): the induction's base case, consumed by
+Preserve.lean's assembly of `inv_reachable`. Map: Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Lemmas
 

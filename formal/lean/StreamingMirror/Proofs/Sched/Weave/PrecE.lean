@@ -13,6 +13,10 @@ relative order. The transfer lemma (`depOK_transfer`) makes that
 argument positional: it needs the E future duplicate-free, which the
 canon shapes supply (`trace_nodup` per trace, the E initial alignment
 to partition the future into traces by owner).
+
+Chain (.impl, stage B): transfers Prec.lean's `DepOK` to the E future
+(filter preservation + Nodup); provides `weaveE_goEvents_depOK` to
+MasterE.lean. Map: Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Sched.Weave.AlignE
 import StreamingMirror.Proofs.Sched.Weave.Prec

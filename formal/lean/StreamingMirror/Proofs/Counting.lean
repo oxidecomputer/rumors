@@ -9,6 +9,9 @@ reduce, through the BFS-alignment conjunct (`wf_bfs_aligned`), to
 `List.length_flatMap` — a stage's kid lists, flattened, ARE the next
 stage down — plus the per-scope facts that non-dispute scopes are
 childless and carry no leaf requests.
+
+Chain (shared): full-sweep supply totals consumed by Progress.lean's
+pillar and both endgames' flow arguments. Map: Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Lemmas
 

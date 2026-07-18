@@ -6,6 +6,10 @@ assembly re-targeted at the encoder-order traces under `AxMode.impl` —
 at `hmode := Or.inl rfl` (d5 is false at `.impl`), and the margin-0
 capacity hypothesis in place of `schedulable` (which it implies:
 `margin0_schedulable`).
+
+Chain (.impl, stage E): consumes PendingE.lean, `merge_completeE`, and
+the pillar at `hmode := Or.inl rfl`; concludes the flagship `progress`
+and `deadlock_free`. Map: Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.PendingE
 import StreamingMirror.Proofs.Endgame

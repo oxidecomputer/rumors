@@ -6,6 +6,10 @@ window site's emitted count equals the seq of the event being
 emitted, read as total minus the site's collapsed `futLen` share
 (`Emit.lean`'s site pins), with the channel bridged from the pins'
 `wpk` spelling to the windows' party-indexed spelling.
+
+Chain (d5, stage B): turns Emit.lean's pins into the window lemmas'
+hypothesis packages for Master.lean's ready sites. E mirror: SiteE.lean.
+Map: Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Sched.Weave.Emit
 

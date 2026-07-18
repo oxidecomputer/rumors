@@ -2,45 +2,126 @@
 The statement of record: what this artifact claims, in definitions small
 enough to audit by reading them.
 
-# The audit surface
+# The two theorems
 
-Two theorems share this statement shape, one per corner of the
-parent-placement design space (design/parent-placement.md):
-`DeadlockFree sk AxMode.full` — the `d5`/parent-early corner, proven as
-`Sched.deadlock_free_d5` (Proofs/Endgame.lean), on the three standard
-axioms only — and the implementation-facing flagship,
-`DeadlockFree sk AxMode.impl` under the margin-0 capacity hypothesis
-(the `d6`/epilogue corner, the shipping encoder's order), proven as
-`Sched.deadlock_free` (Proofs/EndgameE.lean), likewise on the three
-standard axioms only. A skeptical reader must read, in full:
+One statement shape, two theorems — one per corner of the
+parent-placement design space (design/parent-placement.md), each on the
+three standard axioms only (`propext`, `Classical.choice`,
+`Quot.sound`; no `sorry`, no `native_decide`):
 
-- `Skel.wellFormed` (Skel.lean, ~25 lines) — which dispute skeletons the
-  claim covers;
-- `Skel.schedulable` (Skel.lean, 2 lines) — the fan/back-pressure bound
-  the progress lemma additionally assumes (`dCount ≤ capLevel + 2` per
-  scope). It is not implied by `wellFormed`, and dropping it makes the
-  target false: `pyramid1_not_schedulable` below exhibits a well-formed
-  skeleton past the bound, and `Control.pyramid1_not_deadlockFree`
-  kernel-checks that its greedy run under `.full` jams. That the
-  hypothesis excludes ONLY sessions no interleaving whatsoever can
+- **The flagship** (the shipping implementation's discipline):
+  `Sched.deadlock_free : sk.wellFormed = true →
+  (∀ s, sk.dCount s ≤ sk.capLevel) → DeadlockFree sk AxMode.impl`
+  (Proofs/EndgameE.lean, via `Sched.progress`). The mode is the
+  encoder's real send order (parent summary LAST in its scope — `d6`);
+  the second hypothesis is the margin-0 capacity discipline the
+  shipping code enforces (assembler capacity ≥ every scope's dispute
+  count: `FAN ≥ kids`).
+- **The counterpart** (the priced alternative design point):
+  `Sched.deadlock_free_d5 : sk.wellFormed = true →
+  sk.schedulable = true → DeadlockFree sk AxMode.full`
+  (Proofs/Endgame.lean, via `Sched.progress_d5`). The mode is the
+  parent-EARLY discipline (`d5` — no shipping encoder follows it);
+  deadlock freedom holds at ANY assembler capacity, at the price of
+  descent/assembly serialization (design/parent-placement.md §4–5).
+
+# What a skeptical reader must read, in full
+
+- `Skel.wellFormed` (Skel.lean, ~25 lines) — which dispute skeletons
+  the claim covers: a real session shape (BFS-aligned scope stages,
+  consistent child/dispute/query tables, `capLevel ≥ 1`);
+- the capacity hypotheses. The flagship's `∀ s, dCount s ≤ capLevel`
+  is the shipping regime read off the Rust (`FAN = 256 ≥` children per
+  scope `≥` disputes per scope; `queues.rs`); it strictly implies
+  `Skel.schedulable` (`dCount ≤ capLevel + 2`, Skel.lean, 2 lines),
+  the counterpart's weaker bound, which is exactly the
+  no-interleaving-can-finish frontier: `pyramid1_not_schedulable`
+  below exhibits a well-formed skeleton one past it whose greedy run
+  `Control.pyramid1_not_deadlockFree` kernel-checks stuck. That
+  `schedulable` excludes ONLY sessions no interleaving whatsoever can
   finish is the event-DAG analysis's checked (not kernel-proven)
-  equivalence — formal/PROGRESS.md §5;
-- `AxMode`, `AxMode.full`, and `AxMode.impl` (Skel.lean, ~20 lines) —
-  which send-order axioms each corner assumes; the mapping to the Rust
-  `Trace::assert_valid` ledgers is the table in formal/README.md;
+  equivalence — formal/PROGRESS.md §5. The margin between the two
+  bounds is real and sharp: at `dCount = capLevel + 2` the
+  parent-late order deadlocks under an adversarial interleaving
+  (`Control.parentTrap`) even though the encoder's own poll schedules
+  complete — the −2 boundary is poll-schedule-specific, margin 0 is
+  the interleaving-robust line (design/parent-placement.md §2);
+- `AxMode`, `AxMode.full`, `AxMode.impl` (Skel.lean, ~40 lines) — the
+  send-order ledgers. In one sentence each: `w` — a child's wire
+  precedes its internal publications; `d1root`/`d1int` — a resolution
+  precedes its dependent queries (root/internal); `d2` — a parent
+  resolution follows all its D-child resolutions; `d3` — sibling
+  contiguity (child i's dependent work before child i+1's
+  resolution); `d4` — wire contiguity (no wire departs over an
+  earlier sibling's unresolved/unqueried debt); `d5` — parent-early
+  (once every D child is resolved, the parent summary precedes any
+  further wire or query); `d6` — parent-last (the parent summary is
+  its scope's final send); `wireFirst` — control scaffolding, never
+  asserted. `.full` = the first seven with `d5`; `.impl` = the first
+  seven with `d6`. `d5` and `d6` contradict and are never combined;
 - `Model.apply` (Model.lean, ~150 lines) — the protocol model itself:
-  every guard and every state delta. This is the irreducible core; it is
-  trusted not by inspection alone but by cross-pinning (the Phase A
-  matrix runs to completion inside Lean: `Pin.positives_complete`), by
-  the adversarial transcription review (formal/README.md, Phase C), and
+  every guard and every state delta, quantifying over COMMITTED
+  choice (a chosen action parks until it fires — the model of a task
+  awaiting a bounded send) under arbitrary cross-process
+  interleaving. This is the irreducible core; it is trusted not by
+  inspection alone but by cross-pinning (the Phase A matrix runs to
+  completion inside Lean: `Pin.positives_complete`), by the
+  adversarial transcription review (formal/README.md, Phase C), and
   by the must-fail regression `Pin.phantom_walk_rejected`;
 - `Model.Reachable`, `Model.stuck`, `Model.terminal`, `Model.canStep`
   (Model.lean, a few lines each) — reachability is init plus closure
   under `apply`; stuck is "not finished and nobody can move".
 
 The reader need NOT read: `Model.Inv` (the inductive invariant) or
-anything under `Proofs/` — those are proof scaffolding, absent from the
-statement.
+anything under `Proofs/` — those are proof scaffolding, absent from
+the statement. (The map of that scaffolding, for readers of the
+proofs, is Proofs/Map.lean.)
+
+# The chain to the Rust implementation
+
+The theorems are about any system obeying the ledgers; the Rust is
+tied to them by checks at both ends (branch `parent-first`,
+`src/tree/mirror/streaming/`):
+
+- **Ledgers ⇐ traces.** `Trace::assert_valid`
+  (`materialized/progress.rs`) checks every ledger of `AxMode.impl`
+  on every encoder trace the streaming proptests produce: the
+  wire/dependent/lower ledgers, sibling contiguity (`d3`), wire
+  contiguity (`d4`), radix order, and — since finding #7 —
+  `Trace::assert_parent_last` (= `d6`, mirrored verbatim from the
+  model's guard). The `d5` corner deliberately has NO Rust check:
+  `Trace::assert_parent_early` exists unwired, with a `should_panic`
+  pin documenting that the real encoder violates parent-early — the
+  design-space record, not a gap. The row-by-row mapping is the table
+  in formal/README.md.
+- **Margin 0 ⇐ configuration.** The capacity hypothesis is discharged
+  by the shipping constant `FAN = 256` (`materialized/work/queues.rs`,
+  the assembler channel's capacity) against the radix bound
+  `kids ≤ 256`, pinned from both sides by
+  `capacity_stress_witness_requires_inter_level_fan` (assembler
+  high-water ≥ 254 on the [32,256] pyramid: the slack is consumed)
+  and the `parent_delay_*` boundary probes (`tests/capacity.rs`).
+- **Transcription boundary.** That the Lean definitions mean what the
+  proofs need them to mean is the executable gate's job
+  (EventDag.lean, `lake exe eventdag`): transcription equality of the
+  proof-side schedules and both weave orders against an independent
+  imperative model, the schedulable ⟺ DAG-acyclicity conjecture
+  checked both directions, replay to terminal under both modes, and
+  the margin-0 adversarial drains asserted — per 300-seed sweep, on
+  every def-touching commit.
+
+# Assumed, not proven
+
+- **Capacity monotonicity**: the theorems fix walk channels at
+  capacity 1 and the assembler at `capLevel`; production configs only
+  WIDEN channels. That wider buffers cannot introduce a deadlock is
+  assumed informally (the Kahn argument: with per-walk order fixed,
+  processes are deterministic, and added capacity only relaxes
+  back-pressure) — design/parent-placement.md §6.
+- **Modeled-world premises** (MODEL.md §1/§5): error-free conforming
+  peers, SPSC channels, sequential scopes per walk, per-channel
+  in-order delivery (the last is now also `assert_valid`'s radix-order
+  rule).
 
 # Conservativity notes
 

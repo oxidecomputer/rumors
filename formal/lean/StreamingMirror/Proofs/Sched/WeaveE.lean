@@ -32,6 +32,10 @@ edge — the DAG's edge set is placement-agnostic, so the same oracle
 serves both corners) on every pin and every acyclic fuzz seed, at
 margin 0. Kernel anchors below keep the recursion honest against
 silent degeneracy.
+
+Chain (.impl, stage A): the encoder-order witness, executable-validated
+in EventDag; consumed by AlignE.lean and MasterE.lean. d5 mirror:
+Weave.lean. Map: Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Sched.Weave
 

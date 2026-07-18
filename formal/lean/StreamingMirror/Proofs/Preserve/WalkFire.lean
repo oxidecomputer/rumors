@@ -6,6 +6,9 @@ fresh walk at `scope + 1`. Staying re-establishes the per-child ledger
 invariants from the committed-arm facts; advancing telescopes the live
 ledger counts into the prefix sums (`wiresBefore`/`dsBefore`/`qsBefore`),
 which is where the completion-count lemmas below earn their keep.
+
+Chain (shared foundation): the walk fire-step preservation cases,
+consumed by Preserve.lean. Map: Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Wiring
 import StreamingMirror.Proofs.Preserve.Walk

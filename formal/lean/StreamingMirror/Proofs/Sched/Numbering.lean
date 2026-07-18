@@ -30,6 +30,10 @@ validate-then-prove discipline.
   index and each trace proves its own events point at itself, making
   "two traces on one channel-side" a Nat contradiction rather than a
   quadratic disjointness sweep.
+
+Chain (shared): the per-channel numbering and canon layer under both
+corners' stages B-E; consumed everywhere above Sched.lean. Map:
+Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Sched
 import StreamingMirror.Proofs.Lemmas

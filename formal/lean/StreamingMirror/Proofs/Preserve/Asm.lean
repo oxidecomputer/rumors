@@ -12,6 +12,9 @@ Proofs/Wiring.lean); `asmOutChan` is a three-way split (the root
 singletons vs `level`); and `asmSend`'s level-count invariance is the
 prefix-sum telescope `pendsBefore (idx+1) = pendsBefore idx + pendAt
 idx`.
+
+Chain (shared foundation): the assembler-family preservation cases,
+consumed by Preserve.lean. Map: Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Lemmas
 

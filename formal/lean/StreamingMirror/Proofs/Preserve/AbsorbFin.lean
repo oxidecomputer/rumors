@@ -5,6 +5,9 @@ the template proof for the whole `Proofs/Preserve/` tree: guard
 extraction by `split at hstep`, component equations by `rw [← hs']`,
 frame dispatch by the `*_congr`/`*_ext` lemmas, and the touched
 channel's flow equation by `omega` over the extracted counts.
+
+Chain (shared foundation): the absorber/finish preservation cases,
+consumed by Preserve.lean. Map: Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Lemmas
 

@@ -54,6 +54,10 @@ The layers above this file:
   manual point; top assembly yields `WEdge sk [] (weaveState sk)`
   under `wellFormed ∧ schedulable`, i.e. the weave is a VALID
   schedule, the potential the completeness argmin consumes.
+
+Chain (both corners, stage B): provides `WEdgeP` (+ `WEdge`, the d5
+abbrev) and its generic preservation to Master/MasterE; Final/FinalE
+read the drained invariant back out. Map: Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Sched.Weave.Count
 
