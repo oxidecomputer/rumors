@@ -129,19 +129,14 @@ Last updated: 2026-07-18.
   the E/d5 mirror table, the epistemic frame); all 38 `Proofs/`
   modules close with a uniform "Chain:" postscript. Record:
   PROGRESS.md §10. #19 is unblocked.
-- **#19 (blocked by #18)**: typeset exposition (typst default) for a
-  technically competent reader with no codebase familiarity: the
-  problem, the mechanism, the deadlock question and design space, then
-  a human-friendly but real proof, cross-referenced into the
-  (refactored) Lean artifact, with the epistemic frame (kernel-checked
-  / fuzz-validated / assumed) explicit. CENTRAL FRAME (Finch,
-  2026-07-18): present the TWO satisfying regimes as first-class peers
-  — parent-early/d5 (capacity-universal, the priced alternative;
-  `deadlock_free_d5`) and parent-late/epilogue (what the Rust
-  exercises; margin-0 floor; the flagship `deadlock_free` under
-  `.impl`) — including the discovery narrative, the borrowed-slots
-  mechanism, why −2 is poll-schedule-specific while margin 0 is
-  robust, and the criticality-ordering insight.
+- **#19 (DONE, 2026-07-19)**: the exposition —
+  `formal/doc/exposition.typ` (typst source tracked; PDF derived,
+  12 pages, compiles clean). The two regimes are first-class peers
+  from the opening box onward, per Finch's central-frame direction;
+  inline KERNEL/GATE/ASSUMED tags carry the epistemic frame; the
+  five-stage proof walk cross-references the post-legibility artifact
+  (Statement.lean, Proofs/Map.lean). Structure and elision decisions:
+  PROGRESS.md §11. #20 is unblocked.
 
 - **#20 (blocked by #19, written LAST)**: typst companion — the full
   development narrative, from Claude's own perspective, first person.

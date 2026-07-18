@@ -1561,3 +1561,35 @@ No new mathematics; the kernel content of every theorem is unchanged
   `AncTele`-in-Master vs `TeleE` standalone, is asymmetric because the
   d5 telescope is interleaved with the induction that owns it —
   recorded in the mirror table instead of forced into symmetry).
+
+## 11. The exposition (task #19, 2026-07-19)
+
+`formal/doc/exposition.typ` (new; the PDF is derived, not tracked;
+`typst compile` clean, 12 pages). Audience: technically competent,
+zero codebase familiarity. Structure: (1) what the document is + the
+three-tag epistemic key (KERNEL/GATE/ASSUMED, used inline throughout);
+(2) the problem (reconciliation with redaction, why streaming);
+(3) the machine (walk/scopes/D-R-M, the pipeline figure, a scope's
+traffic, the model abstraction with committed choice called out as
+load-bearing, the seven ledgers in one sentence each, the two-tier
+checking method); (4) the discovery as centerpiece — the parent-delay
+hole, the trap cycle in one paragraph, the not-a-bug reframing
+(criticality ordering), the capacity floor with the borrowed-slots
+mechanism per MODEL.md §8's authoritative account, and the
+design-space table; (5) the two theorems operationally + the
+statement→Rust chain; (6) the proof in five stages (witness,
+edge-respect with the margin-0 site and the d5-telescope contrast,
+merge completeness, decode, argmin), with the E/d5 refunds presented
+as the design trade restated as proof effort; (7) the trust ledger;
+(8) a reader's map. Framing choices per Finch's direction: the two
+regimes are first-class peers from the opening box onward; the
+discovery narrative is compressed but real (no invented history — the
+just-so allowance was not needed); every technical claim traces to a
+landed theorem, gate assertion, or recorded analysis, tagged inline.
+Elided, deliberately: party/height parity details, the R-directionality
+subtlety, pump/driver collapse, the opener/finisher/absorber op
+inventories, all tactic-level texture (pointed to Map.lean instead).
+For the narrative doc (#20): the exposition's §1 story arc
+(three surfaced invariants → refuted theorem → design trade → two
+theorems) is the compressed skeleton the narrative should expand
+faithfully.

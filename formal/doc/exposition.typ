@@ -1,0 +1,826 @@
+// The exposition of record for the streaming-mirror deadlock-freedom
+// artifact. Audience: technically competent, no familiarity with the
+// codebase, the data structure, or the algorithm assumed. The faithful
+// development history is the companion document (narrative.typ); this
+// document explains what is true and why, and may compress history
+// where compression aids understanding.
+//
+// Build: typst compile exposition.typ (the PDF is derived, not tracked).
+
+#set page(paper: "us-letter", numbering: "1", margin: (x: 1.15in, y: 1in))
+#set text(size: 10.5pt)
+#set heading(numbering: "1.1")
+#set par(justify: true)
+#show raw.where(block: true): set text(size: 8.75pt)
+#show raw.where(block: true): block.with(
+  fill: rgb("#f6f5f2"),
+  inset: 8pt,
+  radius: 3pt,
+  width: 100%,
+)
+#show link: underline
+
+// ---- Epistemic tags ------------------------------------------------
+// Every load-bearing claim in this document carries one of three tags.
+#let tag(body, fillc, strokec) = box(
+  fill: fillc, stroke: 0.5pt + strokec, inset: (x: 3.5pt, y: 1.5pt),
+  radius: 2pt, baseline: 20%,
+  text(size: 0.72em, weight: "bold", tracking: 0.4pt, body),
+)
+#let kernel = tag([KERNEL], rgb("#e7f2e7"), rgb("#5a8a5a"))
+#let gate = tag([GATE], rgb("#e7ecf5"), rgb("#5a6f9a"))
+#let assumed = tag([ASSUMED], rgb("#f7ecdd"), rgb("#a8814f"))
+
+// --------------------------------------------------------------------
+
+#align(center)[
+  #text(size: 20pt, weight: "bold")[Deadlock Freedom in the Streaming Mirror]
+  #v(2pt)
+  #text(size: 12.5pt)[Two disciplines, two theorems]
+  #v(6pt)
+  #text(size: 9.5pt, fill: rgb("#555555"))[
+    An exposition of the `rumors` formal artifact · 2026-07-19 \
+    Statement of record: `formal/lean/StreamingMirror/Statement.lean`
+  ]
+]
+
+#v(10pt)
+
+#block(
+  fill: rgb("#f6f5f2"), inset: 10pt, radius: 3pt, width: 100%,
+)[
+  *The result, in one box.* A streaming tree-reconciliation pipeline
+  can order its per-scope sends in two disciplines: publish each
+  scope's summary _early_ (the moment its disputed children resolve) or
+  _last_ (after all of the scope's other traffic). Both are
+  deadlock-free, under different hypotheses, and both facts are
+  machine-checked down to the Lean kernel:
+
+  #v(4pt)
+  #grid(columns: (1fr, 1fr), column-gutter: 10pt,
+    [
+      *Parent-late* — the shipping encoder. Deadlock-free given the
+      capacity discipline the code already enforces (assembler buffers
+      at least as deep as any scope's dispute count).
+      #v(2pt)
+      #raw(block: true, lang: "lean",
+"theorem deadlock_free :
+  sk.wellFormed = true →
+  (∀ s, sk.dCount s ≤ sk.capLevel) →
+  DeadlockFree sk AxMode.impl")
+    ],
+    [
+      *Parent-early* — the priced alternative. Deadlock-free at _any_
+      buffer capacity, at the cost of serializing descent against
+      assembly. No shipping encoder follows it; the theorem prices the
+      corner.
+      #v(2pt)
+      #raw(block: true, lang: "lean",
+"theorem deadlock_free_d5 :
+  sk.wellFormed = true →
+  sk.schedulable = true →
+  DeadlockFree sk AxMode.full")
+    ],
+  )
+  #v(2pt)
+  Each rests on Lean's three standard axioms only (`propext`,
+  `Classical.choice`, `Quot.sound`) — no `sorry`, no `native_decide`.
+  #kernel
+]
+
+#v(6pt)
+#outline(indent: auto, depth: 2)
+
+= What this document is
+
+This document explains a formal verification result for the _streaming
+mirror_, the tree-reconciliation protocol at the heart of `rumors`, a
+Rust library for gossip with redaction. It is written for a reader who
+knows systems programming and is comfortable with an invariant and an
+induction, but has never seen this codebase, this data structure, or
+this protocol. Everything needed is introduced.
+
+The story is worth telling as a story, because the result is not the
+one the effort set out to prove. The campaign began with a single
+theorem in mind — "the protocol cannot deadlock" — and the attempt to
+prove it produced, in order: three previously unwritten ordering
+invariants that the implementation had been relying on silently; a
+machine-checked counterexample showing the intended theorem was _false_
+as stated; the discovery that the falsity was not an implementation bug
+but an unarticulated _design trade_ with two defensible sides; and
+finally two theorems, one per side of that trade, of which one
+describes the implementation that ships and the other prices the
+alternative. The deadlock-freedom claims themselves are the headline,
+but the shape of the trade — and the exact capacity arithmetic on which
+it turns — is the part a designer of a similar system will want.
+
+Three epistemic tags appear throughout, because this artifact is
+honest about its trust boundaries:
+
+- #kernel — proved in Lean and checked by its kernel; the strongest
+  claim we know how to make.
+- #gate — established executably, on every gated commit, by an
+  independent implementation cross-checking the Lean definitions on
+  hundreds of randomized protocol instances. This is how we know the
+  _definitions_ mean what the theorems need them to mean; a kernel
+  cannot check that.
+- #assumed — stated, named, and argued for, but not proven. There are
+  exactly two such items (@trust).
+
+= The problem
+
+== Reconciliation with redaction
+
+`rumors` maintains a replicated set of messages across peers that
+gossip pairwise: two peers connect, discover what each is missing, and
+exchange exactly that. Deletion is by _redaction_ and leaves no
+tombstones — whether an absent message is "never seen" or "deleted" is
+decided by version bounds carried in the tree, not by markers — so the
+reconciliation structure must let two peers compare entire histories
+cheaply and locate their differences precisely.
+
+The structure is a Merkle radix trie: messages sit at content-addressed
+leaves; each interior node summarizes up to 256 children by hash. Two
+peers with equal root hashes hold equal sets and are done. Two peers
+with unequal roots recurse: exchange child summaries, discard matching
+subtrees, descend into differing ones. The recursion touches only the
+subtrees that differ — reconciliation cost scales with the difference,
+not the database.
+
+== Why streaming
+
+The straightforward implementation of that recursion is
+request/response per level: send the children of every disputed node,
+wait for the peer's reactions, recurse. `rumors` ships that protocol
+too (the _alternating_ mirror) and uses it as the behavioral oracle for
+the one this document is about. Its cost is latency: a 32-level trie
+means 32 round-trip phases, each fully drained before the next begins.
+
+The _streaming_ mirror instead runs the whole recursion as a pipeline.
+Each tree level is a stage; stages for different levels run
+concurrently; a subtree's descent begins the moment its dispute is
+known, while shallower levels are still being compared. Messages for
+all levels interleave on the wire. Memory stays fixed: no stage
+materializes a subtree; everything is bounded queues between stages.
+
+That design decision — deep pipelining over bounded queues — is where
+the deadlock question comes from. A pipeline of processes connected by
+bounded channels can wait in a cycle: A's send blocks on a full queue
+that B will drain only after receiving something C will produce only
+after A's send lands. The rest of this document is about why that
+cannot happen here — under either of two disciplines, for two different
+reasons.
+
+= The machine
+
+== The walk: scopes, disputes, requests
+
+Fix two peers with unequal roots. The session recurses over the
+_dispute skeleton_: the tree of nodes both sides actually descend into.
+A node in that tree is a _scope_. Comparing one scope's children, each
+child lands in one of three classes:
+
+- *Disputed* (D): both sides hold it, hashes differ. It becomes a
+  scope one level down; the recursion continues into it.
+- *Requested* (R): one side lacks it entirely and asks for the whole
+  subtree; the other side supplies it outright. No further recursion.
+- *Matched* (M): hashes agree (or the difference is one-sided in a way
+  the protocol absorbs). No traffic at all; dropped from the skeleton.
+
+The two parties play alternating roles by level — for a given scope,
+one party is the _asker_ (it sent the query that opened the scope) and
+the other the _answerer_ — and the roles flip at each level of descent.
+Both parties materialize their own copy of every reconciled subtree, so
+both run the full pipeline; the two sides are duals.
+
+== The pipeline: processes and channels
+
+Per party, the session is a fixed set of sequential processes wired by
+bounded single-producer/single-consumer FIFO channels
+(@fig-pipeline):
+
+- One *walk stage* per tree height: a loop over the scopes at that
+  height, in order. For each scope it receives the peer's child
+  listing (a _wire_ message) and the query that opened the scope, then
+  publishes its traffic for that scope (next section).
+- The *assembler tower*: one assembler per height, reuniting each
+  scope's resolution with the completed returns of its child subtrees
+  — positionally, in scope order — and passing the assembled subtree
+  up one level, toward the root return.
+- Openers, finishers, and a leaf *absorber* — fixed-shape processes at
+  the two ends of the session.
+
+#figure(
+  kind: image,
+  raw(block: true,
+"                     the peer (dual pipeline)
+                          ▲ ▲ ▲
+        wire channels (the ONLY cross-party edges, cap 1)
+                          │ │ │
+ ┌────────────────────────┴─┴─┴──────────────────────────────┐
+ │  Walk(h+2)  ──asked──▶  Walk(h)  ──asked──▶  Walk(h−2) …  │
+ │  (one walk stage per height; each walks its scopes in     │
+ │   order: recv wire, recv query, publish, next scope)      │
+ └───────┬──────────────────┬─────────────────┬──────────────┘
+         │ resolutions      │ parent          │
+         │ (cap 1)          │ summaries       │
+         ▼                  ▼ (cap 1)         ▼
+ ┌────────────────────────────────────────────────────────────┐
+ │  Asm(j) ──level(j)──▶ Asm(j+1) ──level(j+1)──▶ … ──▶ root  │
+ │  (the assembler tower; level channels have capacity        │
+ │   C = FAN = 256 — every other channel has capacity 1)      │
+ └────────────────────────────────────────────────────────────┘"),
+  caption: [
+    One party's slice of the pipeline, schematic. Queries (_asked_)
+    flow toward the leaves between walk stages; resolutions and parent
+    summaries flow from the walks into the assembler tower; assembled
+    subtrees flow up the _level_ channels toward the root. Wires are
+    the only channels that cross between the parties.
+  ],
+) <fig-pipeline>
+
+Two facts about this topology do most of the work in everything that
+follows. First, *only wire messages cross between the parties*;
+queries, resolutions, parent summaries, and assembled returns are all
+intra-party plumbing between pipeline stages. Second, *every channel
+has capacity 1 except the assembler tower's level channels*, whose
+capacity C is the one tunable that matters (the shipping code sets
+C = FAN = 256, the radix).
+
+== A scope's traffic
+
+When a walk stage processes one scope, it owes the following sends —
+this vocabulary recurs throughout:
+
+- per child, a *wire* message: its own summary of that child, sent to
+  the peer;
+- per _disputed_ child, a *resolution*: the local record that this
+  child becomes a subtree to assemble, sent to the assembler at that
+  height; and one *query* per grandchild under it, sent to the walk
+  stage two levels down — this is what launches the deeper descent;
+- exactly one *parent summary* for the scope itself, sent up to the
+  assembler one height above: "this scope resolves into the following
+  children; assemble me when their subtrees arrive."
+
+Within one channel the sends are in child order, always (positional
+pairing is the protocol's identity carrier: the $n$-th message on a
+channel is _about_ the $n$-th scope of the consuming stage — there are
+no per-message addresses). Across channels, the order is a real
+degree of freedom, and it is the subject of this entire document.
+
+== From code to model
+
+The Lean model abstracts this machine faithfully but finitely
+(`formal/MODEL.md` is the specification; `Skel.lean` and `Model.lean`
+transcribe it):
+
+- Sessions are quantified by *dispute skeletons* — the finite labeled
+  trees of scopes defined above. `Skel.wellFormed` (about 25 lines)
+  delimits the shape class: real session shapes, breadth-first-aligned
+  stages, consistent child tables. Payloads are erased; the protocol's
+  channel behavior depends only on each child's D/R/M class, which is
+  why erasing them is sound.
+- Each process is a finite partially ordered set of operations (sends
+  and receives); a state is the set of fired operations per process;
+  channel occupancies are derived. One step fires one enabled
+  operation.
+- Publication order within a scope is _not_ fixed to the Rust's order.
+  The model quantifies over every order permitted by a set of declared
+  ordering rules (next section), under *committed choice*: a publisher
+  chooses its next send when idle, and a chosen send _parks_ until its
+  channel has room — it cannot be retracted or reordered past. This
+  models a sequential implementation awaiting a bounded send, and it
+  is load-bearing: under retractable ("may-fire") semantics, no
+  ordering rule could ever cause a deadlock, because the checker would
+  simply fire some other send. Real programs cannot skip ahead;
+  commitment is what captures that.
+- Cross-process interleaving is fully adversarial: any enabled
+  operation, any process, any step.
+
+*Deadlock freedom* is then: from every reachable state, either the
+session is finished (`terminal`) or some operation is enabled
+(`canStep`). No fairness assumption is needed anywhere — every step
+fires an operation from a finite budget, so runs are finite and
+termination is a corollary of deadlock freedom rather than a separate
+liveness argument.
+
+== The ledgers
+
+The ordering rules — the model calls them _ledgers_, after the
+trace-validation facility in the Rust (`Trace::assert_valid`) that
+checks each of them on real encoder traces — are the load-bearing
+interface between implementation and theorem. In one sentence each
+(`Statement.lean` is the audit surface; `AxMode` in `Skel.lean` is the
+definition):
+
+/ w: a child's wire message precedes that child's internal
+  publications.
+/ d1: a resolution precedes its dependent queries.
+/ d2: a parent summary follows all its disputed children's
+  resolutions.
+/ d3: sibling contiguity — child $i$'s dependent work precedes child
+  $i+1$'s resolution.
+/ d4: wire contiguity — no wire departs over an earlier sibling's
+  unresolved or unqueried debt.
+/ d5: *parent-early* — once every disputed child is resolved, the
+  parent summary precedes any further wire or query of the scope.
+/ d6: *parent-last* — the parent summary is its scope's final send.
+
+Mode `.full` asserts the first five with `d5`; mode `.impl` asserts
+the first five with `d6`. The two placement rules contradict each
+other (at any scope with traffic left after the final disputed
+resolution) and are never combined.
+
+A historical note that doubles as a warranty: *d3, d4, and the d5/d6
+pair were not in the original interface*. Each was surfaced by this
+verification effort — in each case the model exhibited a publication
+order that satisfied every _written_ rule and deadlocked, and in each
+case the implementation was found to be enforcing the missing rule
+silently, by code structure rather than by contract
+(`MODEL.md` §6 records all three findings with their counterexamples).
+The Rust trace validator was tightened in step each time, so the
+checked interface and the assumed interface coincide. The third of
+these findings is @discovery, and it is the reason this document
+describes two theorems rather than one.
+
+== Two tiers of checking <two-tier>
+
+The artifact is verified at two tiers, and the distinction matters for
+what a reader should trust:
+
+- The *kernel tier*: every theorem in the Lean development —
+  938-odd lemmas across 38 proof modules, roughly 36,000 lines —
+  is checked by the Lean kernel, down to the three standard axioms.
+  #kernel
+- The *executable tier*: `lake exe eventdag` re-implements the
+  schedules and the model _independently_ and, on every gated commit,
+  cross-checks the two on 300 randomized skeletons plus a pinned
+  regression suite: transcription equality of the proof-side schedule
+  definitions against the imperative model, replay of the witness
+  schedules to session completion under both modes, adversarial drain
+  assertions (the margin-0 `.impl` drains must complete; the
+  sub-margin traps must still reproduce), and a boundary matrix around
+  the capacity law of @floor. #gate
+
+The kernel tier makes the theorems unimpeachable _given the
+definitions_. The executable tier is the answer to the question every
+formal-methods skeptic should ask — "how do you know your definitions
+describe the machine?" — and it is a real answer: a typo'd guard, a
+swapped index, or a mistranscribed schedule breaks gate assertions
+loudly, because an independent implementation disagrees on concrete
+instances. Where the Rust itself is the referent, the tie-off is the
+trace validator and the capacity pins of @chain.
+
+= The discovery <discovery>
+
+== One freedom too many
+
+The first campaign target was the natural one: deadlock freedom under
+the ledgers as then written — wire discipline, dependency order,
+sibling and wire contiguity — for every well-formed, schedulable
+skeleton. The proof strategy (an argmin argument; @proof) requires
+that at any blocked state there is a well-defined "earliest missing
+event," and the attempt to establish that property kept sliding off
+one specific freedom the written rules left open: *nothing forced the
+parent summary out of the walk*. A walk could resolve every disputed
+child of a scope and then keep publishing — the last child's queries,
+trailing wires for matched children — with the parent summary still in
+hand.
+
+Following the campaign's validate-before-prove discipline, the freedom
+was probed executably before any more proof effort was spent: drive
+the model with an adversary that always defers parent summaries behind
+every other legal send. On random skeletons, the adversary found
+genuinely stuck states. Minimization produced `Control.pdelay`, an
+eleven-scope skeleton whose stuck run is now a kernel-checked theorem
+(`Control.parentTrap_not_deadlockFree`): a well-formed, _schedulable_
+session, every rule of the then-current interface obeyed, deadlocked.
+#kernel The intended theorem was false.
+
+The cycle deserves one paragraph, because it is the heart of the whole
+design question. The parent-delaying walk commits to a last-chunk
+query and parks on a full capacity-1 query channel. The parent summary
+it is withholding is exactly what the assembler one level up needs to
+begin assembling the scope; starved, that assembler stops consuming
+its own level channel; the backlog propagates down the tower of level
+channels; eventually a _deeper_ assembler stops draining the parent
+summaries of a walk further down, and that walk — parked on its own
+committed parent-summary send — is the very process whose progress
+would have drained the query channel the first walk is parked on.
+Commitment closes the cycle: nobody can retract, nobody can proceed.
+
+== Not a bug: a trade
+
+The obvious reading — "the encoder must be re-ordered" — is wrong, and
+discovering _why_ it is wrong was the most valuable step of the
+campaign. The shipping encoder publishes the parent summary in the
+scope's _epilogue_, after all other traffic, and does so deliberately;
+the code comments call the order progress-critical: launch every
+pending subtree's work before publishing the enclosing summary. The
+placement is a _criticality ordering_. A parent summary is the least
+urgent message a walk ever sends — its consumer must wait for subtree
+returns that arrive far later anyway — while the sends it would
+preempt under parent-early are the most urgent in the protocol: the
+queries that launch deeper descents and the wires the peer is waiting
+on. Parent-early buys deadlock immunity by releasing the upward
+obligation before entering any send that can jam; parent-late buys
+maximal pipelining by deferring the deferrable. (Since parent
+summaries never cross the wire, neither placement changes the peer's
+logical dependencies or the session's round-trip structure; what
+parent-early costs is _overlap_ — a rendezvous with the assembler
+tower at every scope boundary, on the critical path of descent. The
+full analysis is `design/parent-placement.md`.)
+
+So the freedom the rules left open was not an oversight in the
+implementation; it was an oversight in the _interface_. There are two
+coherent disciplines. Each got a ledger (`d5` parent-early, `d6`
+parent-last), each got a mode, and each got its theorem. The rest of
+this document treats them as the peers they are.
+
+== The capacity floor <floor>
+
+Parent-late deadlocks only when the assembler tower can actually jam,
+which makes buffer capacity the other axis of the trade. The exact law
+— checked from both sides in both the model and the Rust — is:
+
+#align(center)[
+  _a parent scope disputing_ $N$ _children completes under every
+  schedule iff_ $N <= C + 2$,
+]
+
+where $C$ is the level-channel capacity. #gate The `+2` is real slack
+with a mechanical explanation: beyond the $C$ returns buffered in the
+channel, one return sits in the blocked assembler's _hand_ (its
+committed send, parked but holding its item), and one child resolution
+sits parked in the capacity-1 resolution slot — a child whose return
+has not been materialized yet and so needs no room until the parent
+summary frees the drain. Two borrowed positions, one at each end of
+the bounded channel. The law is pinned executably at the boundary from
+both directions: the Rust pipeline on a 256-fan stress tree stalls with
+the assembler channel at 253 and completes at 254, and the model's
+scaled instances reproduce the same threshold shape (`MODEL.md` §8).
+
+Two properties of this floor made the theorem-design decision for us:
+
++ *The tight floor is poll-schedule-specific.* At exactly
+  $N = C + 2$, the _deterministic_ Rust pipeline completes — but the
+  model, which quantifies over every cross-process interleaving,
+  exhibits an adversarial schedule that stalls even with the encoder's
+  own per-walk send order enforced. #kernel The empirical floor is a
+  fact about the runtime's actual poll orders, not about the
+  discipline.
++ *One more unit of slack ends the case analysis.* At margin 0 —
+  capacity at least the dispute count itself, $C >= N$, which is the
+  shipping configuration (`FAN = 256 >=` children per scope
+  $>=$ disputes per scope) — level-channel sends _never park at all_,
+  because a level channel's occupancy is bounded by the pending count
+  of the single in-flight parent resolution above it. The borrowed
+  slots, and their sensitivity to implementation details at the
+  channel's two ends, exit the argument entirely.
+
+The flagship theorem therefore takes margin 0 as its capacity
+hypothesis: it is simultaneously the robust bound (interleaving-proof,
+implementation-detail-proof) and the honest one (it is what the
+shipping code enforces, and what its author had proven to themselves —
+the interface-level argument that needs no borrowed-slot accounting).
+The tight $C + 2$ boundary stays characterized where fragile knowledge
+belongs: in kernel-checked counterexamples and executable pins, not in
+the hypotheses of the headline theorem.
+
+== The design space, priced
+
+#figure(
+  table(
+    columns: (auto, 1fr, 1fr),
+    align: (left, left, left),
+    stroke: 0.5pt + rgb("#cccccc"),
+    inset: 6pt,
+    [], [*parent-early (`d5`, mode `.full`)*],
+    [*parent-late (`d6`, mode `.impl`)*],
+    [who ships it],
+    [no one (the model's witness schedule; realizable as an encoder —
+     the needed lookahead is one scope's child classification, which
+     the protocol delivers before any of the scope's sends)],
+    [the `rumors` streaming encoder, deliberately],
+    [assembler floor],
+    [none — any capacity $>= 1$],
+    [capacity $>=$ max per-scope disputes (margin 0; the tight
+     adversarial floor sits 2 below, and is poll-schedule-specific)],
+    [pipelining],
+    [descent rendezvouses with the assembler tower at every scope
+     tail; worst case degrades toward level-by-level lockstep],
+    [fully decoupled; assembler backpressure lands on the one send
+     nothing downstream waits for],
+    [round-trips],
+    [unchanged], [unchanged],
+    [theorem],
+    [`deadlock_free_d5` #kernel],
+    [`deadlock_free` (the flagship) #kernel],
+  ),
+  caption: [
+    The parent-placement design space. Both corners are proven; the
+    implementation occupies the right one. Revisit the left corner
+    only if the capacity floor ever becomes untenable — e.g. a
+    memory-constrained peer that cannot afford radix-deep assembler
+    buffers (`design/parent-placement.md` §5).
+  ],
+) <fig-space>
+
+= The two theorems, precisely <theorems>
+
+Both theorems live behind a deliberately small audit surface: to check
+_what is claimed_, a skeptical reader reads `Statement.lean` and the
+handful of definitions it names (about 220 lines total), and nothing
+else. In prose:
+
+*The flagship* (`Sched.deadlock_free`, `Proofs/EndgameE.lean`, via
+`Sched.progress`): for every well-formed dispute skeleton whose
+per-scope dispute counts are all at most the assembler capacity, no
+state reachable under mode `.impl` — the encoder's real send order,
+parent summary last, under committed choice and fully adversarial
+cross-process interleaving — is stuck: every reachable state can step
+or is terminal. #kernel
+
+*The counterpart* (`Sched.deadlock_free_d5`, `Proofs/Endgame.lean`,
+via `Sched.progress_d5`): the same conclusion under mode `.full` —
+parent-early — with the capacity hypothesis weakened to
+`schedulable`: per-scope disputes at most capacity _plus two_. That
+bound is exactly the no-session-could-ever-finish frontier (one past
+it, `pyramid1_not_schedulable` exhibits a well-formed skeleton whose
+every interleaving jams — kernel-checked), so the counterpart is as
+capacity-general as any theorem could be. #kernel
+
+Three structural notes:
+
+- *The hypotheses are ordered by strength.* Margin 0 strictly implies
+  `schedulable`; the flagship's statement mentions only margin 0
+  because the weaker bound is subsumed, and the gap between the two —
+  exactly the two borrowed slots of @floor — is where the parent-late
+  trap lives.
+- *Every hypothesis is load-bearing, and each is a theorem, not a
+  promise.* Drop parent placement in either direction and
+  `Control.parentTrap_not_deadlockFree` refutes the statement on a
+  schedulable skeleton; drop wire contiguity and
+  `Control.jam_not_deadlockFree` refutes it; exceed `schedulable`
+  under `.full` and `Control.pyramid1_not_deadlockFree` refutes it.
+  The negative controls are kernel-checked stuck runs, so the
+  interface cannot silently rot: a model change that dissolves a trap
+  breaks a theorem. #kernel
+- *Termination rides along free.* Every operation comes from a finite
+  skeleton-derived budget and every step spends one, so there are no
+  infinite runs; "every maximal run ends terminal" is a corollary of
+  deadlock freedom, with no fairness hypothesis anywhere.
+
+== The chain to the implementation <chain>
+
+The theorems quantify over _any_ system whose traces obey the ledgers
+and whose configuration meets the capacity hypothesis. The shipping
+Rust is tied to those hypotheses at both ends, so the chain
+"prop-tested local invariants $arrow.r.double$ proven global theorem"
+closes:
+
+- *Ledgers $arrow.l.double$ traces.* `Trace::assert_valid`
+  (`src/tree/mirror/streaming/materialized/progress.rs`, branch
+  `parent-first`) checks every ledger of `AxMode.impl` on every
+  encoder trace the streaming property tests produce — including,
+  since the discovery, `Trace::assert_parent_last`, the `d6` check
+  mirrored verbatim from the model's guard, exercised positively by
+  the full streaming suite and negatively arm-by-arm. The `d5` corner
+  deliberately has _no_ wired Rust check: `assert_parent_early` exists
+  unwired with a `should_panic` pin documenting that the real encoder
+  violates parent-early — the design-space record, preserved so it
+  cannot rot silently.
+- *Margin 0 $arrow.l.double$ configuration.* The capacity hypothesis
+  is discharged by the shipping constant `FAN = 256` (the assembler
+  channel capacity) against the radix bound (children per scope
+  $<= 256$), pinned from both sides: a stress test that stalls at 253
+  and completes at 254 (the slack is genuinely consumed), and the
+  parent-delay boundary probes added during the discovery.
+- *Definitions $arrow.l.double$ the executable gate*, per @two-tier.
+
+= The proof, humanly <proof>
+
+This section presents the real argument for the flagship — the same
+argument the Lean artifact makes, at prose altitude. Cross-references
+name the actual modules and theorems; `Proofs/Map.lean` is the
+file-by-file navigation companion, including a table mapping each
+module of this proof to its counterpart in the `d5` proof. The
+argument has five stages.
+
+#block(inset: (left: 10pt), stroke: (left: 2pt + rgb("#cccccc")))[
+  *Stage A — a witness schedule.* Construct one concrete completion
+  order for the whole session. \
+  *Stage B — edge-respect.* Prove the witness never sends into a full
+  channel nor receives ahead of supply. \
+  *Stage C — merge completeness.* Prove every process's trace embeds
+  in the witness order, making "schedule position" a total potential
+  τ. \
+  *Stage D — decode.* Prove every process of every reachable state
+  sits _at_ a position of its trace. \
+  *Stage E — argmin.* At any non-terminal reachable state, the
+  τ-least pending event is enabled. Hence progress; hence deadlock
+  freedom.
+]
+
+== Stage A: the witness schedule
+
+The proof does not chase wait-cycles through arbitrary states.
+Instead it builds one distinguished global order of every operation in
+the session — the _eweave_ (`Sched/WeaveE.lean`): scope by scope in
+breadth-first order, each scope's traffic in the encoder's own
+per-child order, parent summary last, interleaved with the assembler
+and absorber operations that consume it. This is a ghost object — no
+scheduler is claimed or required to follow it — but it is a concrete
+one: before anything is proven about it, the executable gate replays
+it to session completion under `.impl` on every pinned and randomized
+skeleton, at margin 0, and checks the proof-side definition
+event-for-event against an independent construction. #gate The
+schedule assigns every operation a position; call the position of an
+event its τ. (The `d5` proof builds a different witness — the _weave_,
+parent summary spliced in immediately after the final disputed
+resolution — and everything downstream is parameterized so the two
+share machinery.)
+
+== Stage B: the witness is edge-respecting
+
+`weaveE_wedge` (`Weave/MasterE.lean`): walking the eweave from the
+start, every send lands in a channel with room and every receive finds
+its datum present, given only well-formedness and margin 0. #kernel
+
+This is the bulk of the artifact, and its shape is an induction with a
+strengthened invariant: a counting state (per channel-side, how many
+events have fired) plus, for each site class the schedule can be
+standing at, a _window_ — the precise arithmetic fact about the counts
+above and below that makes the next send admissible. Receives are the
+easy half: the schedule places every receive after its matching send
+(the message edge), and positional pairing plus a per-channel
+numbering theorem (on every channel-side, the family's events carry
+sequence numbers $0, 1, 2, dots$ in order — `Sched/Numbering.lean`)
+turns "the datum is present" into an inequality between two counts.
+Sends into capacity-1 channels between walks are similar: the previous
+occupant's receive sits between any two same-channel sends in the
+schedule, by construction.
+
+The interesting site — the one that distinguishes the two proofs — is
+the parent summary's send into the assembler tower. Here the flagship
+cashes its capacity hypothesis, once, in one inequality: _a level
+channel's occupancy never exceeds the pending count of the one parent
+resolution its consumer is currently assembling_ — at most the scope's
+dispute count — _which is at most_ $C$ _by margin 0_. So the send
+site's window closes by a counting lemma; the tower above the site
+literally cannot be full. The occupancy bound itself is where the
+schedule's structure earns its keep: assemblers consume positionally
+in scope order, so return backlog never spans two parents — the model
+twin of the queues-module doc comment "the bound does not multiply
+with tree width or depth."
+
+It is instructive to see what the `d5` proof must do at the same site,
+because the comparison _is_ the design trade, restated as proof
+effort. Under parent-early at capacity 1, the tower above a parent
+send can be nearly full, legitimately; admissibility of the send is a
+global fact about how far the whole tower above has drained, and the
+`d5` proof establishes it with telescoping ancestor sums — a chain of
+window facts walked up the spine of the tree (its `AscCover` /
+`DescSupply` telescopes), threaded through every site of the master
+induction as a rolling context. Margin 0 replaces all of that with
+the one inequality above. Symmetrically, the eweave's parent-last
+shape _simplifies_ every remaining site: a kid chunk of the eweave is
+literally the `d5` chunk shape with the spliced parent set to "none"
+(`childChunk_spliced`, `Weave/SiteE.lean`), so the entire chunk
+algebra transfers with the case analysis for "is the parent spliced
+here?" deleted; the ancestor counts lose their conditionals (an
+ancestor's parent summary is _always_ still pending at any interior
+site — no case split); the ascent ladders collapse from inductions to
+two-case analyses. The refunds recur so systematically that the
+mirror table in `Proofs/Map.lean` reads as a one-line-per-file
+summary of the design trade itself: _the two proofs differ exactly
+where the two encoders do._
+
+== Stage C: merge completeness
+
+`merge_completeE` (`Weave/FinalE.lean`): when the witness schedule is
+consumed to its end, every process's trace has been consumed
+completely — nothing remains pending anywhere. #kernel Consequently
+every event of every process occurs in the schedule, and τ restricted
+to any one process's trace is monotone (`trace_monotoneE`): the
+schedule is a _completion_ of the whole session, and τ is a total
+potential over its events. The argument is an argmin in miniature,
+run over the drained final state: if some process retained a pending
+event, rank the offenders by schedule position and examine the least;
+its blocking event belongs to some process strictly earlier in τ that
+must itself be blocked — descending past the least offender,
+contradiction. Notably, this stage is where the campaign discovered
+that completeness is _placement-independent_: once Stage B supplies
+edge-respect, the same argument text serves both corners, and the
+`d5`/`.impl` versions differ only in which witness they mention.
+
+== Stage D: the decode
+
+`Proofs/PendingE.lean`: in every reachable state, every process is
+either finished or sits _at_ a well-defined position of its trace —
+its performed events are exactly a prefix, and its unique _pending_
+event carries precisely the current count of its channel-side.
+#kernel
+
+What makes this stage remarkable is what it does _not_ contain: an
+induction over reachability. The session's inductive invariant
+(`Invariant.lean`, established once by preservation over every action)
+records, for each walk, guard mirrors of the committed choice — and
+under `.impl` the `d6` mirror says the committed parent summary's
+every predecessor within the scope is already fired. That pins the
+performed set to a prefix _statically_: the decode is a case analysis
+over the invariant's fields, not a new induction. The `d5` decode has
+the same shape with the mirrors reversed — and, once more, the
+parent-last direction is the cheaper one: the `.impl` walk decode
+replaces a 275-line analysis of "where in the chunk did the parent
+splice land?" with a two-case split at the scope tail.
+
+== Stage E: the argmin
+
+`Sched.progress` (`Proofs/EndgameE.lean`): a reachable, non-terminal
+state can step. #kernel The argument is four sentences. Collect every
+process's pending event — non-terminality makes the pool non-empty —
+and take $e^*$, the τ-least. Every event that must precede $e^*$
+(the matching send if $e^*$ is a receive, by the message edge; the
+slot-freeing receive if $e^*$ is a send into a bounded channel, by
+the back-pressure edge) sits strictly below it in τ, and any such
+event, were it unperformed, would be at-or-above its own process's
+pending event — which would then rank below $e^*$, contradicting
+minimality. So every predecessor of $e^*$ is performed; flow
+conservation on its channel then puts a datum (respectively, room)
+where $e^*$ needs it; and by the decode, $e^*$'s owner stands exactly
+at $e^*$, so the enabled operation is the owner's very next. If
+instead the pool is empty, every process has fired all its sends, and
+the end-of-stream close operations cascade to `terminal`.
+`Sched.deadlock_free` is then immediate: a reachable stuck state
+would be non-terminal with no enabled operation, contradicting
+`progress`.
+
+== What was hard, and where it went
+
+A fair summary of the proof's economy: Stages C–E are short and were
+largely written once, family-parameterized, and instantiated twice.
+Stage B is where the ~36,000 lines live — the counting algebra,
+numbering, alignment between the schedule and the walks' worklists,
+and the master induction's rolling context — and within Stage B, the
+capacity hypothesis is spent at exactly one site class. A reader who
+wants the full texture of that machinery should enter through
+`Proofs/Map.lean`, which orders the modules for reading and tables
+the `d5`/`.impl` correspondence file by file.
+
+= What to trust, and why <trust>
+
+The complete trust ledger of the artifact:
+
++ *Kernel-checked* #kernel — both flagship-and-counterpart theorem
+  pairs, every lemma below them, and every negative control
+  (`Control.parentTrap_not_deadlockFree`,
+  `Control.jam_not_deadlockFree`,
+  `Control.pyramid1_not_deadlockFree`), each on `propext`,
+  `Classical.choice`, `Quot.sound` only — no `sorry`, no
+  `native_decide`. The hypotheses are non-vacuous by kernel-checked
+  witnesses (`wellFormed_satisfiable`, `reachable_init`), and the
+  claim is conservatively shaped: an accidental omission from the
+  step enumeration could only make deadlock-freedom _harder_ to
+  prove, not easier (`Statement.lean`, "Conservativity notes").
++ *Executable, gate-pinned* #gate — that the Lean definitions
+  transcribe the specified machine: schedule-definition equality
+  against an independent implementation, witness replay to completion
+  under both modes, adversarial drain assertions at and below the
+  margin, the capacity boundary matrix, and the
+  schedulable-equals-DAG-acyclicity conjecture checked in both
+  directions, per 300-seed sweep on every def-touching commit.
++ *Assumed, named* #assumed — exactly two items.
+  _Capacity monotonicity_: the theorems fix walk channels at
+  capacity 1 and the assembler at `capLevel`; production only widens
+  channels, and that widening cannot introduce a deadlock is argued
+  (fixed per-walk order makes each process I/O-deterministic; in such
+  process networks added buffering only relaxes back-pressure) but
+  not proven. _Modeled-world premises_: conforming error-free peers,
+  single-producer/single-consumer channels, sequential scopes per
+  walk, per-channel in-order delivery — each anchored to the Rust
+  structure that realizes it (`MODEL.md` §1, §9), the last also
+  checked by the trace validator's radix-order rule.
+
+Nothing else is assumed. In particular, no fairness: the scheduler may
+be fully adversarial forever, and the theorems still hold.
+
+= A reader's map
+
+For the reader who wants to go deeper, in reading order:
+
+- `formal/lean/StreamingMirror/Statement.lean` — the audit surface:
+  what is claimed, in ~220 lines of definitions chosen to be read.
+- `formal/design/parent-placement.md` (branch `parent-first`) — the
+  design-space record: the two placements, the trap, the borrowed
+  slots, the pipelining analysis, the adopted resolution.
+- `formal/MODEL.md` — the model specification: the skeleton
+  abstraction, the channel graph, the obligation machine, the
+  ledgers' exact transcription, the capacity law.
+- `formal/lean/StreamingMirror/Proofs/Map.lean` — the proof map: the
+  five stages file by file, and the `d5`/`.impl` mirror table.
+- `formal/PROGRESS.md` — the campaign log: findings, refuted designs,
+  route decisions, and the accumulated proof-engineering lore.
+- The companion narrative (`formal/doc/narrative.typ`, forthcoming) —
+  the faithful history of how this development actually unfolded,
+  including the parts this exposition compresses.
