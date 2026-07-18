@@ -279,6 +279,48 @@ def drainFull (sk : Skel) : Nat → State → State
       | some s' => drainFull sk fuel s'
       | none => s
 
+/-- `allActions` with each walk's floating-parent commit moved AFTER its
+child-obligation commits: the parent-delaying adversary. The default
+enumeration lists `.parent` first, so the greedy drain sends every
+summary at its earliest legal point and never visits a
+committed-past-unsent-parent state; this ordering makes the driver
+commit a choosable wire/res/query first whenever one exists, steering
+every run through exactly those states — the progress argmin's residual
+case (PROGRESS.md §7 item 5): a walk jammed on a child obligation while
+its trace-earlier parent is still owed.
+
+THE PARENT-DELAY FINDING (2026-07-17): this drain STALLS on schedulable
+random seeds (first witness: seed 12 — two walks committed past unsent
+parents close a commit/back-pressure cycle through the level towers),
+so `DeadlockFree _ .full` is FALSE as stated: the `.full` ledger set is
+missing a parent-placement rule. The six pins still complete (their
+shapes never wedge both flavors at once), so `runAll` asserts pin
+completion while `runFuzz` asserts the stalls REPRODUCE — both
+directions pinned. Details and the proposed ledger: PROGRESS.md §7. -/
+def advActions (sk : Skel) : List Action :=
+  [.iopenChoose .wire, .iopenChoose .query, .iopenFire,
+   .ropenRecv, .ropenChoose .wire, .ropenChoose .res, .ropenChoose .query,
+   .ropenFire,
+   .absorbRecvWire, .absorbRecvAsked, .absorbSend, .absorbCloseWire,
+   .absorbCloseAsked, .finRet, .finRes, .finRets] ++
+  sk.walkKeys.flatMap (fun pk =>
+    [.walkRecvWire pk, .walkRecvAsked pk, .walkFire pk,
+     .walkCloseWire pk, .walkCloseAsked pk] ++
+    ((List.range sk.fan).flatMap fun i =>
+      [.walkCommit pk (.wire i), .walkCommit pk (.res i),
+       .walkCommit pk (.query i)]) ++
+    [.walkCommit pk .parent]) ++
+  sk.asmKeys.flatMap (fun pk =>
+    [.asmRecvRes pk, .asmRecvLevel pk, .asmSend pk, .asmClose pk])
+
+/-- Greedy drain over `advActions`: the parent-delaying adversarial run. -/
+def drainAdv (sk : Skel) : Nat → State → State
+  | 0, s => s
+  | fuel + 1, s =>
+      match (advActions sk).firstM (fun a => apply sk .full a s) with
+      | some s' => drainAdv sk fuel s'
+      | none => s
+
 /-- `Model.allChans`, deduplicated. -/
 def chanList (sk : Skel) : Array Chan := Id.run do
   let mut seen : Std.HashSet Nat := {}
@@ -1177,6 +1219,7 @@ terminal. Returns error lines (empty = clean sweep). -/
 def runFuzz (n : Nat) : Array String := Id.run do
   let mut errs : Array String := #[]
   let mut tested := 0
+  let mut advStalls : Array Nat := #[]
   for seed in [1:n+1] do
     let sk := genSkel seed
     if sk.wellFormed then
@@ -1185,6 +1228,20 @@ def runFuzz (n : Nat) : Array String := Id.run do
       if a.acyclic != sk.schedulable then
         errs := errs.push
           s!"seed {seed}: acyclic={a.acyclic} but schedulable={sk.schedulable}"
+      -- greedy + channel-total cross-checks must hold wherever a drain
+      -- can terminate (non-schedulable seeds stall under every driver)
+      if sk.schedulable && !a.totalErrs.isEmpty then
+        errs := errs.push s!"seed {seed}: {a.totalErrs[0]!}"
+      -- the parent-delay finding, pinned (see PROGRESS.md §7 item 5):
+      -- on SOME schedulable seeds the parent-delaying adversary
+      -- reaches a genuinely stuck model state (walks committed past
+      -- their unsent floating parent close a commit/back-pressure
+      -- cycle), so `DeadlockFree _ .full` is FALSE without a parent-
+      -- placement ledger. Count the stalls; the ≥ 1 assertion below
+      -- keeps the finding from silently dissolving under a model or
+      -- generator change without a deliberate re-audit.
+      if sk.schedulable && !(terminal sk (drainAdv sk 50000 (init sk))) then
+        advStalls := advStalls.push seed
       if a.acyclic then
         let cand := schedCandidate sk
         let vErrs := validateSchedule sk cand
@@ -1212,6 +1269,9 @@ def runFuzz (n : Nat) : Array String := Id.run do
               errs := errs.push s!"seed {seed}: replay missed terminal"
   if tested == 0 then
     errs := errs.push "fuzz generated zero well-formed skeletons"
+  if advStalls.isEmpty then
+    errs := errs.push
+      "adversarial probe found ZERO stalls on schedulable seeds (the parent-delay finding should reproduce; a model or generator change needs a deliberate re-audit)"
   return errs
 
 def skels : List (String × Skel) :=
@@ -1264,6 +1324,13 @@ def runAll (outDir : System.FilePath) : IO Bool := do
     IO.println s!"  totalsOk={totalsOk} acyclic={a.acyclic} nodes={a.nodes.size} edges={a.edgeCount} maxDepth={a.maxDepth}"
     table := table.push
       s!"{name}\ttotalsOk={totalsOk}\tacyclic={a.acyclic}\tnodes={a.nodes.size}\tedges={a.edgeCount}\tmaxDepth={a.maxDepth}"
+    -- the six pins complete even under the parent-delaying adversary
+    -- (the parent-delay stalls need random shapes; see runFuzz)
+    if !(terminal sk (drainAdv sk 50000 (init sk))) then
+      IO.println "  ADVERSARIAL (parent-delayed) drain did NOT reach terminal"
+      allOk := false
+    else
+      IO.println "  adversarial (parent-delayed) drain reaches terminal: OK"
     if !a.acyclic then
       IO.println "  CYCLE FOUND (listed along edge direction):"
       for l in a.cycle do
@@ -1412,6 +1479,12 @@ def runAll (outDir : System.FilePath) : IO Bool := do
   if !cycleFound then allOk := false
   IO.println s!"  pyramid1 weak potential absent: {(weakPotential pyr1).isNone} (want true)"
   if (weakPotential pyr1).isSome then allOk := false
+  -- the adversarial drain must ALSO stall there (any driver stalls on a
+  -- non-schedulable skeleton): pins that the parent-delayed probe is a
+  -- real run that can fail, not a vacuous pass
+  let advNegTerm := terminal pyr1 (drainAdv pyr1 50000 (init pyr1))
+  IO.println s!"  pyramid1 adversarial drain stuck: {!advNegTerm} (want true)"
+  if advNegTerm then allOk := false
   -- the weave must be rejected on a non-schedulable skeleton: its
   -- guards close and the emission errors / validator flag it
   let (wNeg, wNegErrs) := weaveOrder pyr1
@@ -1474,6 +1547,7 @@ def runAll (outDir : System.FilePath) : IO Bool := do
     let (wOn, wOnErrs) := weaveOrder onB
     let (wOver, wOverErrs) := weaveOrder over
     let ok := onB.wellFormed && over.wellFormed
+      && aOn.totalErrs.isEmpty
       && aOn.acyclic && onB.schedulable
       && !aOver.acyclic && !over.schedulable
       && (validateSchedule onB cand).isEmpty
