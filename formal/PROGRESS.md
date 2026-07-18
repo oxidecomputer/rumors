@@ -821,8 +821,13 @@ bounds μ(Q), and both are bounded by the awaited send.
    close determined by phase — so the pillar's content is vacuous for
    them; nothing to state until the stuck analysis consumes it.
 5. **THE PARENT-DELAY FINDING (2026-07-17): `DeadlockFree sk .full`
-   is FALSE as stated — refuted executably. Items 5–6 are blocked on
-   a statement-layer adjudication, not on proof work.**
+   was FALSE as stated — refuted executably, then RESOLVED the same
+   day by the `d5` (parent placement) ledger. The adjudication was
+   "amend and finish" (statement owner, 2026-07-17), with the Rust
+   trace proptests to be extended in tandem so the proptested local
+   invariants and the formal ledger set stay in lockstep; the
+   amendment is landed (see the resolution record after the finding),
+   and items 5–6 now target the amended `.full`.**
    - *How it was found.* Transplanting the §6 argmin to model states
      needs each blocked process's earliest unperformed trace event to
      be the event it is blocked on. Under `.full` that holds for every
@@ -860,20 +865,82 @@ bounds μ(Q), and both are bounded by the awaited send.
      weave pins the parent immediately after the final resolution
      (the §5 load-bearing placement), matching the Rust encoder's
      order; the model's `wkChoosable` never encoded that. The
-     resolution is a seventh ordering ledger — working name
-     `parentFirst`/d5: *a walk with every D child resolved must send
-     the parent before committing any further wire or query* (the
-     fired-fact shadow: `parentDone` once a post-final-res
-     publication exists). TO ADJUDICATE with the statement owner
-     before minting: the exact guard form, the `AxMode` surgery
-     (`.full` gains the flag; the finding demotes today's `.full` to
-     a control), the README ledger-table row against
-     `Trace::assert_valid`, and a kernel-checked `Control.parentTrap`
-     stuck-run twin of `pyramid1_not_deadlockFree` (extract the
-     seed-12 action list, or hand-minimize: one D-heavy parent over a
-     capLevel-tight tower plus one asked-channel consumer suffices by
-     the cycle shape).
-   - *Why the finding UNBLOCKS the endgame.* Under `parentFirst` the
+     resolution is a seventh ordering ledger — `AxMode.d5`, parent
+     placement: *a walk with every D child resolved must send the
+     parent before committing any further wire or query*.
+   - *The resolution, landed (2026-07-17).* The exact guard, as
+     minted (the conjunct appended to `wkChoosable`'s `.wire i` AND
+     `.query i` arms, `Model.lean`; mirrored verbatim in
+     `wkLocalOk`'s committed `.wire`/`.query` matches):
+
+     ```
+     (!ax.d5 || ws.parentDone ||
+       !(List.range n).all fun j => !sk.childIsD h s j || ws.resDone j)
+     ```
+
+     Plain-English local-invariant spelling for `Trace::assert_valid`
+     (the Rust twin): *scanning a walk's publication stream, once the
+     resolution of the scope's last disputed child has been emitted,
+     the next wire or query of that same scope before the parent
+     summary is a violation* — equivalently, the parent summary sits
+     immediately after the final resolution up to already-owed
+     queries of EARLIER children, and first in an undisputed scope
+     (no disputed children ⇒ no wire/query may precede the parent).
+     Note the guard binds from scope entry when the scope has no D
+     children at all — the weave sends such parents first, and the
+     `.res` arm is deliberately NOT guarded (resolutions are what
+     turn the condition on, and d2 already orders the parent after
+     them).
+     - `AxMode` surgery: `d5 : Bool` inserted after `d4` (before the
+       `wireFirst` scaffolding); `.full` gains it; the pre-finding
+       set survives as `Control.fullNoD5` (the control mode), and
+       `Control.fullNoD4` is now explicitly pre-BOTH findings.
+     - Kernel controls (`Controls.lean`, all `decide`, no native
+       trust): `Control.pdelay` — the hand-minimized 11-scope twin of
+       seed 12 (root─B(D,3 D kids: two childless + one with SIX R
+       kids)─six R leaves, capLevel 1; six is minimal, five
+       completes; two D kids complete at ANY chunk size, pinning the
+       `dCount = capLevel + 2` boundary role) — with
+       `parentTrap_stuck` (the 103-action parent-delaying schedule
+       runs to a stuck state under `fullNoD5`, BOTH stall flavors at
+       once), `parentTrap_not_deadlockFree :
+       ¬ DeadlockFree pdelay fullNoD5` (on a well-formed AND
+       schedulable skeleton — inside the target's hypothesis class,
+       unlike `pyramid 1`), `pdelay_on_boundary`,
+       `d5_rejects_parentTrap` (today's `.full` refuses the schedule
+       at its first parent-delaying commit), and
+       `pdelay_completes_full` (non-vacuity: `d5` removes schedules,
+       not sessions). `d4_rejects_trap` now pins the jam trap refused
+       under both `fullNoD5` and `.full`.
+     - Proof-side collateral of the guard change (all landed): the
+       pillar `walk_uncommitted_choosable` gained the `d5`-mandated
+       enumeration head — parent FIRST when every D child is resolved
+       and the parent is unsent (choosable in every mode via `d2`),
+       with a `D5Free` discharge (`parentDone ∨ some D unresolved`)
+       threaded through `wkChoosable_wire_intro`/`_query_intro`/
+       `_wire_of_undone` for the remaining cases; `preserve_walkCommit`
+       and the two `WalkFire` committed-arm destructures track the
+       extra conjunct. No per-child `d5` fired-fact shadow was added
+       to `wkLocalOk` — the committed-match mirror is enough for
+       preservation, and the cursor invariant item 6 needs is new
+       structure anyway (mint it there if required).
+     - Executable re-pins (`EventDag.lean`): `drainAdv` is now
+       mode-indexed; `runFuzz` asserts the adversary's stalls
+       REPRODUCE under `fullNoD5` (≥ 1 across the sweep) AND that
+       every schedulable seed drains to terminal under `.full` (a
+       stall there is a hard error again); `runAll` asserts the six
+       pins complete under the adversary in both modes, and the
+       boundary matrix gains a per-capLevel adversarial drain check
+       under `.full` (fork #12's residual). `replaySchedule` (under
+       `.full`) doubles as the weave⇔`d5` coherence check: the weave's
+       compiled actions pass the new guard on every fuzz seed and pin.
+     - Rust side (adjudicated to land with the proof, in the
+       campaign's own worktree, NOT yet done): extend
+       `Trace::assert_valid` with the seventh check per the
+       plain-English spelling above, plus its proptest coverage, so
+       the proptested local invariants again exactly match the
+       ledger set the theorem assumes.
+   - *Why the finding UNBLOCKS the endgame.* Under `d5` the
      hole vanishes: every process's performed set is exactly a trace
      prefix (provable by `Reachable` induction — the precise
      "reachable state ↔ schedule position" bridge, now a per-process
@@ -889,9 +956,12 @@ bounds μ(Q), and both are bounded by the awaited send.
      totals) remains. `trace_monotone`, `schedule_e1_pos`, the E2
      positional twin, `schedule_inj`, and `merge_complete`'s totality
      of τ are exactly the facts this consumes.
-6. After the adjudication: the performed-set/cursor invariant, the
+6. With the amendment landed: the performed-set/cursor invariant, the
    `e*`-argmin progress lemma, then `progress` and `deadlock_free` in
    Statement.lean's (amended) terms; the planned corollary "terminal ⟹
    all channels drained" falls out of `Inv` at terminal. The
    termination theorem's witness is the §5 schedule via
-   `replaySchedule`'s compilation, already checked executably.
+   `replaySchedule`'s compilation, already checked executably. The
+   d5 fired-fact/cursor invariant is minted HERE (per-walk: performed
+   set = trace prefix), not in `wkLocalOk` — see item 5's resolution
+   record for what the committed-match already carries.
