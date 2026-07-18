@@ -1030,6 +1030,18 @@ times rather than the V2−V1 gap, and it also speeds every
 non-gossip path that compares versions (range walks, joins,
 ceiling/floor memoization).
 
+**The ladder is complete** [checked, 2026-07-18]: an exhaustive
+sweep of `before`'s hot surface for further lever-D-class fruit
+(`design/before-lowhang-sweep.md`) found none at millisecond
+scale — the compare walks are allocation-free in practice,
+`Base`'s Big spills are already lazy, and `Batch` amortization
+is confirmed cheap. The sweep's five finds are API-quality wins
+(equality proving *in*equality via the full walk instead of the
+canonical-bytes memcmp; `is_empty` allocating for an O(1)
+question) and riders on D2/D3 (per-call parse stacks, bit-wise
+`encode_int`, lattice-identity short-circuits); its CLEAN list
+records the negative space so the surface needn't be re-audited.
+
 ## 11. The hop ledger: where the nine hops live
 
 §9 item 3, measured 2026-07-18 with a byte-level tracer wrapping
