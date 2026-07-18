@@ -119,9 +119,16 @@ Last updated: 2026-07-18.
 - **#19 (blocked by #18)**: typeset exposition (typst default) for a
   technically competent reader with no codebase familiarity: the
   problem, the mechanism, the deadlock question and design space, then
-  a human-friendly but real proof of the same theorem,
-  cross-referenced into the (refactored) Lean artifact, with the
-  epistemic frame (kernel-checked / fuzz-validated / assumed) explicit.
+  a human-friendly but real proof, cross-referenced into the
+  (refactored) Lean artifact, with the epistemic frame (kernel-checked
+  / fuzz-validated / assumed) explicit. CENTRAL FRAME (Finch,
+  2026-07-18): present the TWO satisfying regimes as first-class peers
+  — parent-early/d5 (capacity-universal, the priced alternative;
+  `deadlock_free_d5`) and parent-late/epilogue (what the Rust
+  exercises; margin-0 floor; the flagship `deadlock_free` under
+  `.impl`) — including the discovery narrative, the borrowed-slots
+  mechanism, why −2 is poll-schedule-specific while margin 0 is
+  robust, and the criticality-ordering insight.
 
 Serial order #18 → #19 is deliberate: the exposition's references must
 point at the refactored organization.
