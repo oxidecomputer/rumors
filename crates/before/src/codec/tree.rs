@@ -1,6 +1,6 @@
 use crate::error::{Decode, Parse};
 
-use super::{decode_int_from, Base, BitCursor, BitsSlice, SliceCursor};
+use super::{Base, BitCursor, BitsSlice, SliceCursor};
 
 /// While building a node bottom-up, what we still need from the stream.
 enum IdFrame {
@@ -113,7 +113,7 @@ where
     let mut stack: Vec<EvFrame> = Vec::new();
     loop {
         let flag = cursor.read_bit()?;
-        let base = decode_int_from(cursor)?;
+        let base = cursor.read_int()?;
 
         // `enc_ev(Leaf n) = 0, gamma(n)`; `enc_ev(Node n l r) = 1, gamma(n), l, r`.
         let mut summary = if flag {

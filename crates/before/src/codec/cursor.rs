@@ -2,7 +2,7 @@
 
 use crate::error::Decode;
 
-use super::BitsSlice;
+use super::{decode_int_from, gamma, Base, BitsSlice};
 
 /// The bit stream ended before the requested bit.
 ///
@@ -42,6 +42,23 @@ pub(crate) trait BitCursor {
 
     /// The position immediately after the last bit read.
     fn position(&self) -> usize;
+
+    /// Read one Elias-gamma-coded integer starting at the cursor.
+    ///
+    /// The provided default is the per-bit loop ([`decode_int_from`]); a
+    /// cursor with cheap access to its byte-backed window overrides it to
+    /// route through the word decoder ([`gamma::decode_int_window`]), which
+    /// reads a whole code in `O(1)` words. [`SliceCursor`] overrides; the
+    /// wire-side `ReaderCursor` (in `borsh_impls`) keeps the default until it
+    /// grows a byte window of its own, at which point its override plugs into
+    /// the same fast path.
+    fn read_int(&mut self) -> Result<Base, Decode>
+    where
+        Self: Sized,
+        Decode: From<Self::Error>,
+    {
+        decode_int_from(self)
+    }
 }
 
 /// A sequential cursor over an existing packed bit slice.
@@ -68,5 +85,16 @@ impl BitCursor for SliceCursor<'_> {
 
     fn position(&self) -> usize {
         self.position
+    }
+
+    fn read_int(&mut self) -> Result<Base, Decode> {
+        // Word fast path over the slice; anything the window cannot prove —
+        // every reject included — is decided by the default per-bit loop, so
+        // the two paths accept and reject identically by construction.
+        if let Some((n, next)) = gamma::decode_int_window(self.bits, self.position) {
+            self.position = next;
+            return Ok(Base::from(n));
+        }
+        decode_int_from(self)
     }
 }
