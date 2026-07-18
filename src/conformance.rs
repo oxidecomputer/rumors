@@ -439,7 +439,7 @@ async fn probe_cancellation<C: Connector, A: Acceptor>(connector: &C, acceptor: 
         let waker = futures::task::noop_waker();
         let mut cx = Context::from_waker(&waker);
         assert!(
-            std::future::Future::poll(pending.as_mut(), &mut cx).is_pending(),
+            pending.as_mut().poll(&mut cx).is_pending(),
             "no stream was opened yet",
         );
     }

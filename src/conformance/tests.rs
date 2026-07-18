@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::io;
-use std::pin::Pin;
+use std::pin::{Pin, pin};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::task::{Context, Poll};
@@ -12,7 +12,10 @@ use futures::future::BoxFuture;
 use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
 use tokio::sync::mpsc;
 
-use crate::link::{Acceptor, Connector, Link, LinkParts, MemoryLink, memory, memory_with_capacity};
+use crate::link::{
+    Acceptor, Connector, Link, LinkParts, MemoryAcceptor, MemoryConnector, MemoryLink, memory,
+    memory_with_capacity,
+};
 use crate::testing::{Quiescence, run_to_quiescence};
 
 /// The reference instantiation passes the whole suite under the
@@ -62,11 +65,11 @@ impl<A: Acceptor> Acceptor for ReversingAcceptor<A> {
         let first = self.inner.accept().await?;
         self.held.push_front(first);
         for _ in 1..self.batch {
-            let mut next = std::pin::pin!(self.inner.accept());
+            let mut next = pin!(self.inner.accept());
             let waker = futures::task::noop_waker();
-            let mut cx = std::task::Context::from_waker(&waker);
-            match std::future::Future::poll(next.as_mut(), &mut cx) {
-                std::task::Poll::Ready(Ok(rx)) => self.held.push_front(rx),
+            let mut cx = Context::from_waker(&waker);
+            match next.as_mut().poll(&mut cx) {
+                Poll::Ready(Ok(rx)) => self.held.push_front(rx),
                 // Pending or errored: stop batching; a real error resurfaces
                 // from the next accept call.
                 _ => break,
@@ -79,32 +82,37 @@ impl<A: Acceptor> Acceptor for ReversingAcceptor<A> {
     }
 }
 
+/// Decorate one memory end's acceptor, preserving every other part — the
+/// session state included, so the wrapped link stays in lockstep with its
+/// peer.
+fn with_acceptor<A: Acceptor>(
+    link: MemoryLink,
+    wrap: impl FnOnce(MemoryAcceptor) -> A,
+) -> Link<DuplexStream, DuplexStream, MemoryConnector, A> {
+    let parts = link.into_parts();
+    LinkParts {
+        control_read: parts.control_read,
+        control_write: parts.control_write,
+        connector: parts.connector,
+        acceptor: wrap(parts.acceptor),
+        session: parts.session,
+    }
+    .into_link()
+}
+
 /// Reorder one memory end's arrivals in reversed batches, counting genuine
 /// inversions into `reordered`.
 fn reversing(
     link: MemoryLink,
     batch: usize,
     reordered: Arc<AtomicUsize>,
-) -> Link<
-    tokio::io::DuplexStream,
-    tokio::io::DuplexStream,
-    crate::link::MemoryConnector,
-    ReversingAcceptor<crate::link::MemoryAcceptor>,
-> {
-    let parts = link.into_parts();
-    LinkParts {
-        control_read: parts.control_read,
-        control_write: parts.control_write,
-        connector: parts.connector,
-        acceptor: ReversingAcceptor {
-            inner: parts.acceptor,
-            held: VecDeque::new(),
-            batch,
-            reordered,
-        },
-        session: parts.session,
-    }
-    .into_link()
+) -> Link<DuplexStream, DuplexStream, MemoryConnector, ReversingAcceptor<MemoryAcceptor>> {
+    with_acceptor(link, |inner| ReversingAcceptor {
+        inner,
+        held: VecDeque::new(),
+        batch,
+        reordered,
+    })
 }
 
 /// Worst-case accept reordering is adversarial but legal: streams are
@@ -153,16 +161,7 @@ impl<A: Acceptor> Acceptor for LossyAcceptor<A> {
         let rx = self.inner.accept().await?;
         // The loss window: one self-waking yield with the dequeued stream
         // held only in this future's state.
-        let mut yielded = false;
-        std::future::poll_fn(|cx| {
-            if std::mem::replace(&mut yielded, true) {
-                Poll::Ready(())
-            } else {
-                cx.waker().wake_by_ref();
-                Poll::Pending
-            }
-        })
-        .await;
+        super::yield_once().await;
         Ok(rx)
     }
 }
@@ -170,23 +169,8 @@ impl<A: Acceptor> Acceptor for LossyAcceptor<A> {
 /// Wrap one memory end's acceptor in the lossy dequeue-then-await shape.
 fn lossy(
     link: MemoryLink,
-) -> Link<
-    DuplexStream,
-    DuplexStream,
-    crate::link::MemoryConnector,
-    LossyAcceptor<crate::link::MemoryAcceptor>,
-> {
-    let parts = link.into_parts();
-    LinkParts {
-        control_read: parts.control_read,
-        control_write: parts.control_write,
-        connector: parts.connector,
-        acceptor: LossyAcceptor {
-            inner: parts.acceptor,
-        },
-        session: parts.session,
-    }
-    .into_link()
+) -> Link<DuplexStream, DuplexStream, MemoryConnector, LossyAcceptor<MemoryAcceptor>> {
+    with_acceptor(link, |inner| LossyAcceptor { inner })
 }
 
 // ─── The shared-FIFO mux: the deleted architecture, rebuilt as a fixture ────
@@ -227,7 +211,7 @@ struct MuxDemux {
     wire: mpsc::Receiver<MuxFrame>,
     queues: HashMap<u64, mpsc::Sender<Vec<u8>>>,
     /// Streams announced but not yet accepted, in arrival order.
-    accepted: VecDeque<mpsc::Receiver<Vec<u8>>>,
+    announced: VecDeque<mpsc::Receiver<Vec<u8>>>,
 }
 
 /// The transport failure every mux operation maps peer loss to.
@@ -250,7 +234,7 @@ async fn mux_pump(demux: &Arc<tokio::sync::Mutex<MuxDemux>>) -> io::Result<()> {
         MuxFrame::Open(id) => {
             let (into_queue, queue) = mpsc::channel(MUX_STREAM_QUEUE);
             state.queues.insert(id, into_queue);
-            state.accepted.push_back(queue);
+            state.announced.push_back(queue);
         }
         MuxFrame::Data(id, bytes) => {
             if let Some(queue) = state.queues.get(&id).cloned() {
@@ -445,7 +429,7 @@ impl Acceptor for MuxAcceptor {
         loop {
             {
                 let mut state = self.demux.lock().await;
-                if let Some(queue) = state.accepted.pop_front() {
+                if let Some(queue) = state.announced.pop_front() {
                     return Ok(MuxRx {
                         queue,
                         demux: self.demux.clone(),
@@ -474,7 +458,7 @@ fn mux_pair() -> (MuxLink, MuxLink) {
         Arc::new(tokio::sync::Mutex::new(MuxDemux {
             wire,
             queues: HashMap::new(),
-            accepted: VecDeque::new(),
+            announced: VecDeque::new(),
         }))
     };
     (

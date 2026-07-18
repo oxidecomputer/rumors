@@ -166,10 +166,11 @@ pub struct Link<CR, CW, C, A> {
 /// reconstruct one end's state from the other's.
 #[derive(Clone, Copy, Debug)]
 pub struct SessionState {
-    /// The next session's epoch. Both ends count every session on the link
-    /// (sessions are serialized, and both ends run each handshake), so the
-    /// counters agree; it wraps, serving as a label tripwire rather than an
-    /// identity.
+    /// The next session's epoch.
+    ///
+    /// Both ends count every session on the link (sessions are serialized,
+    /// and both ends run each handshake), so the counters agree; it wraps,
+    /// serving as a label tripwire rather than an identity.
     pub epoch: u8,
     /// Whether a session on this link was interrupted before its boundary.
     ///
