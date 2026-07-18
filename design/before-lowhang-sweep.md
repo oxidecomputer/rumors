@@ -93,9 +93,13 @@ levers.
   deliberate (`dangerously_alias`); `rank.rs` `num.clone() << k` is
   BigUint-shift semantics, cold.
 
-## Suggested disposition
+## Disposition (landed 2026-07-18)
 
-Land finds 1–2 as one small `before` PR (API-quality; zero risk);
-attach 3 to the D3 branch and 5 to the D2 branch; take 4
-opportunistically. None of these move the gossip-session needle at
-I = 5000 — that story remains D1–D3 (§10.1).
+All five finds shipped, exactly as suggested: finds 1–2 as one
+commit (`0003ad4c`), find 4 as one commit (`1636f9d4`, which also
+had to give materialization-dependent tests a `Batch::materialize()`
+hook — the identity-join idiom they used to force working form is
+precisely what the short-circuit turns into a no-op), find 5 riding
+the D2 commit (`dcca3974`), find 3 riding the D3 commit
+(`6cab66f2`). Measured outcome of the whole D1–D3 + finds batch:
+§10.1's "Shipped" note.

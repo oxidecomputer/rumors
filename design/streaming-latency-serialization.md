@@ -1042,6 +1042,42 @@ question) and riders on D2/D3 (per-call parse stacks, bit-wise
 `encode_int`, lattice-identity short-circuits); its CLEAN list
 records the negative space so the surface needn't be re-audited.
 
+**Shipped** [checked, 2026-07-18]: D1–D3 and all five sweep finds
+landed as five commits, one per fan-out agent, in dependency
+order — `0003ad4c` (finds 1–2: same-form `Version` equality by
+canonical bytes; O(1) `is_empty`), `1636f9d4` (find 4:
+lattice-identity short-circuits in `join_view`/`meet_view`),
+`d01e08aa` (D1: `BitCursor` grows an associated `Error` type;
+the slice path fails with a `Copy` ZST and the release asm shows
+`drop_in_place<Decode>` gone from all four hot functions),
+`dcca3974` (D2 + find 5: `decode_int_window` — one 64-bit
+big-endian window, one `leading_zeros`, one shift per code, with
+the per-bit loop kept as the sole arbiter of every reject, so
+accept/reject sets are identical by construction; word-wise
+`encode_int`, byte-identical), `6cab66f2` (D3 + find 3:
+`ReaderCursor` accumulates raw bytes that serve as both the
+decode window and, zero-copy, the value's stored bits; smallvec
+parse stacks). Wire snapshots byte-identical throughout; the
+hop-trace suite pins hop counts unchanged.
+
+Two integration notes for future archaeology: the identity-join
+idiom `batch.join(&Version::new())` was how tests *forced*
+working-form materialization, which find 4 turns into a no-op —
+materialization-dependent tests now use the test-only
+`Batch::materialize()` hook. And D3's growing `BitVec` turned
+out to be the value under construction, not decode scratch, so
+the honest optimum was a byte buffer serving twice, not the
+discard-as-you-go ring first sketched.
+
+Measured (quiet machine, single sweep, vs the §5.4 numbers;
+drift band ±5 %): V2 insertions 31.6 → 29.0 ms, V1 20.7 → 19.2;
+V2 redactions 12.3 → 11.4, V1 6.5 → 5.9. Recovery −2.6/−1.5 ms
+per insertion session — inside the derived 2–2.5 ms band for V2,
+slightly under it for V1 — and the V2/V1 ratios moved 1.52× →
+1.51× and 1.89× → 1.93×: the gap is untouched, as predicted for
+parity-neutral levers. What remains of lever D is only D4
+(decode-less-often), still open pending its own measurement.
+
 ## 11. The hop ledger: where the nine hops live
 
 §9 item 3, measured 2026-07-18 with a byte-level tracer wrapping
