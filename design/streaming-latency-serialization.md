@@ -972,7 +972,11 @@ counts unchanged) plus a green gate.
   the largest absolute compute lever in the whole system, but it
   changes every tree hash — both protocols, all snapshots, any
   persisted state — so it moves total sync time, not the V2−V1
-  gap. A design note of its own, not a parity play.
+  gap. Design note written [2026-07-18]:
+  `design/spine-wrap-hash.md` — the three-rule convention, the
+  compression-invariance-becomes-canonicity argument, the
+  mixed-version pathology and its preamble gate, and the
+  acceptance envelope (~6 ± 1 ms/session for V2 at I = 5000).
 
 Fan-out protocol: each lever in its own worktree branched from a
 common baseline commit, measured against the same four §8 cells
