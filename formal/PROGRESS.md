@@ -1272,7 +1272,62 @@ first-try because the d5 transcriptions held):
   `¬ p a = true`, wrap `= false` facts in
   `(by rw [h]; exact Bool.false_ne_true)`.
 
-2b. **The eweave master induction — NEXT, a full fork on its own**
+**Unit 2b foundation, LANDED 2026-07-19** (fork #16f, commits
+`1df4109b` + `71126d01`):
+
+- **`FamOK` (Pump.lean): the pump/window layer is family-generic.**
+  The bundle (canon shapes, side ownership, pump half = `weavePumps`)
+  with instances `famOK_procs`/`famOK_procsE`; generalized IN PLACE:
+  `out_proj_owner`/`cell_of_owner`/`cell_head_seq`/`cell_not_out`/
+  `wedge_rcvd_le_sent` and all four stuck trichotomies (these now take
+  `hfam` INSTEAD of `hwf` — they never needed well-formedness), plus
+  Window.lean's chains and windows (`count_le_owner`… `upper_window`/
+  `lower_window`/`wire0_window`/`leafreq_window` — these KEEP `hwf`
+  and gain `hfam` right after it). Pump-half lookups transfer by
+  `famOK_pump_lookup`/`famOK_asm_procs`/`famOK_absorb`/`famOK_asmI`/
+  `famOK_asmR`. d5 call sites pass `(famOK_procs sk hwf)`.
+- **SiteE.lean: the E futLen layer.** `childChunk_spliced` (a kid
+  chunk is `splicedChunk … none` — every d5 `chunks_proj_*` serves the
+  E runs at the literal `none`), `walkSegE_proj_eq` (the per-channel
+  segment bridge), six `futLen_walkSegE_*` forms, `deep_lower/
+  upper_countE`, `schunkNone_proj_upper`/`chunksNone_proj_upper`,
+  `futLen_ancE_upper` (`= stageLen − A`, no `if` — the parent is
+  always pending), `futLen_ancE_lower`, and the tail-site pins
+  `futLen_siteE_upper/_res/_q`. `proj_flatMap_seg'` de-privatized.
+
+**2b remaining, for the successor fork** (route verified against the
+code this session): (i) **E count pins** — Emit.lean's `count_pin` is
+generic in the trace `T` but reads `(procs sk)[M]?`; generalize its
+lookup over the family (manual-index lookups at `procsE` hit
+`walkEventsE`, whose per-channel totals equal d5's by
+`proj_walkEventsE_eq`), then mint `upper/lower/wire/asked_snd_pinE`
+and `rootres_pinE`/`root_banked` E forms. (ii) **Ctx.lean/Site.lean
+famOK-generalization** — `SpineLink`/`phi_of_spine` and the
+`spineLink_*_at` rungs consume the layer at d5; sweep them over
+`FamOK` exactly as commit `1df4109b` did (mechanical; SpineLink's
+constructors are count-only). (iii) **AncTeleE** — d5's `AncTele`
+with the `fil` clause in `futLen_ancE_*`'s shape (chunkQ residue ++
+childChunk run ++ `(upperOut, true, A) :: walkSegE (A+1) L`); no σ.
+`ancTele_countsE`: snd upper = `A G` (no if), snd lower = `dsBefore +
+dRank + 1`, via the E pins + `futLen_ancE_*`. **P1 from margin 0**:
+`dRank jD + 1 ≤ dOf ≤ dCount ≤ capLevel` — no schedulable, no splice
+case. **The Φ ladder collapses**: every E rung is the pre-splice
+shape (upper count = A, never +1), so `ladder_rung`'s `by_cases`
+disappears — `spineLink_base_at` at every rung, no `prev` chaining;
+then `ancTele_covE` mirrors `ancTele_cov`. (iv) **DescSupply at E
+sites** — cursors sit at clean scope boundaries (`descIdx … (k+1)`,
+whole subtree emitted), so the supply facts are the
+`deep_*_countE` totals; transcribe `descSupply_upper_of_ctx` with
+`hdeep` over `walkSegE` (one bridge rewrite per stage). (v) **Ready
+sites** — `ready_upperE` at the scope tail via `upper_site_hsnd`
+(the E `hfu` = `stageLen − k` matches d5's prologue form exactly) +
+(iii)+(iv); wire/lower/query sites transfer with the parent-tail
+term contributing zero to their channels (the `futLen_chunks_*`
+family is already lastD-generic); head lemmas are fut-generic as-is.
+(vi) **The induction** — per the template below, with the site
+sequence per-kid chunks THEN the tail parent.
+
+2b. **The eweave master induction — the remaining climb**
    (scouted against the d5 statements 2026-07-19): produce
    `EmitOKOnP sk (procsE sk) ((weaveOps sk).flatMap (opEventsE sk))
    []`, then `weaveE_wedge : WEdgeP sk (procsE sk) []
