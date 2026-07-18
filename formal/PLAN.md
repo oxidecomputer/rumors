@@ -148,8 +148,12 @@ Last updated: 2026-07-18.
   (coordinator+forks, checkpoints, adjudication points, operational
   failure modes). Sources: PROGRESS.md + its git history (each
   checkpoint commit a dated belief snapshot), PLAN.md, design/ docs,
-  both branches' git logs, session transcripts if accessible.
-  Distinguish lived from reconstructed narrative.
+  both branches' git logs — and, EXPLICITLY AUTHORIZED by Finch
+  (2026-07-18), the Claude session transcripts on this machine
+  (~/.claude/projects/-Users-oxide-src-rumors/*.jsonl and sibling
+  project dirs) for process details predating this session or lost to
+  its compactions; mine them with targeted subagent sweeps, not
+  wholesale reads. Distinguish lived from reconstructed narrative.
 
 Serial order #18 → #19 → #20 is deliberate: the exposition's
 references must point at the refactored organization, and the
