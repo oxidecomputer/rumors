@@ -896,6 +896,42 @@ counts unchanged) plus a green gate.
   `into_parts(self)` on the `Leaf` trait saves a `Version` clone
   (ITC allocations) and an `Arc` bump per leaf per side. Touches
   the same adapter surface as A — natural rider.
+
+  **A+B shipped and measured [checked, 2026-07-18]** — commits
+  `ac6ad409` (runs + `Peer::target_message_size`, default
+  1 114 624 B per the maximally-disputed-reply derivation, which
+  with 16-byte Merkle hashes is half the ~2 MB sketched above),
+  `35bffd52` (lever B landed as borrow-based serialization: the
+  planned `into_parts` cannot work because encode-side leaf
+  handles are `Arc`-shared with the local tree, so consuming
+  never unwraps; the run builder needs only borrowed bytes),
+  `773ad56b` (adversarial-review round: whole-frame budget
+  accounting, eager record-header capacity check, the knob pinned
+  on the wire by frame counts, a multi-record run under the
+  snapshot pin). Outcome at the §8 cells: **no change beyond
+  drift** — every cell within noise of the post-§10.1 baselines,
+  with the V1 control itself +2 %. Cause, pinned empirically: the
+  batching scope (one supplied subtree, forced by positional
+  reply pairing) meets a dispute frontier where uniform
+  content-addressed divergence makes one-sided subtrees almost
+  always singleton — at I = 5000, 10 000 supplied leaves ship as
+  9 834 frames, a batching factor of 1.017. The 4–6 ms estimate
+  charged per-frame overhead to frame *count*, but the count
+  barely drops on this workload. The format stays: it is strictly
+  better where supplies cluster (bootstrap-shaped and one-sided
+  syncs collapse toward budget-sized frames; real transports then
+  coalesce writes per run), and the record framing is where lever
+  C's paths live. On fine-grained workloads the §11 write storm
+  therefore survives the run format — fixing it there wants a
+  coalescing writer at the transport seam, not a wire change.
+  Post-ship profile re-attribution [checked]: in-session blake3
+  is 27.9 % ≈ 8.3 ms/session (lever E's per-byte spine wrap plus
+  C's derivation) and malloc ≈ 20 % ≈ 5.9 ms, while the wire-glue
+  rows are already small (async_stream ≈ 0.9 ms, proxy encode
+  ≈ 0.5 ms per session); records still cross the assembly
+  channels one leaf at a time, so what survives batching is
+  per-leaf channel hops and decode allocations, not frames. The
+  live parity plays are C and the parity-neutral E.
 - **C. Ship leaf paths, skip derivation** [est. ~1 ms compute for
   ~5–15 B/leaf wire; format change, unlocked by the adversary
   decision]. The wire's flat leaf runs force decode to re-derive
@@ -948,6 +984,12 @@ Realistic outcome [derived]: A+B+C recover 6–8 of the 11 ms,
 putting V2 within ~15 % of V1 on equal-hop workloads with the
 remainder in the diffuse tail; D and E then move both protocols'
 absolute times rather than the gap.
+Revised [checked, 2026-07-18] after A+B measured null (see the
+shipped block above): the derived outcome overcharged frame
+count. What remains of the ~10 ms gap sits in per-leaf hashing
+and allocation, so the expectation is now C ≈ 1 ms of *gap* and
+E ≈ 7–8 ms of *absolute* time per protocol, with the rest in
+per-leaf channel hops and the diffuse tail.
 
 ### 10.1 Lever D, expanded: the version-decode path
 
