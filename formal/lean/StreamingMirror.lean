@@ -31,3 +31,4 @@ import StreamingMirror.Proofs.Sched.Weave.Emit
 import StreamingMirror.Proofs.Sched.Weave.Site
 import StreamingMirror.Proofs.Sched.Weave.Master
 import StreamingMirror.Proofs.Sched.Weave.Final
+import StreamingMirror.Proofs.Pending

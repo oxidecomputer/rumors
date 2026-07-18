@@ -543,7 +543,7 @@ private theorem childIsD_ne_zero {h s i : Nat}
     (hD : sk.childIsD h s i = true) : h ≠ 0 := by
   intro h0; subst h0; simp [Skel.childIsD] at hD
 
-private theorem chunkD (pk : Party × Nat) (k i : Nat)
+theorem chunkD (pk : Party × Nat) (k i : Nat)
     (hD : sk.childIsD pk.2 (sk.stageScope pk.2 k) i = true) :
     childChunk sk pk k i
       = (wireOut pk, true, sk.wiresBefore pk.2 k + i)
@@ -553,7 +553,7 @@ private theorem chunkD (pk : Party × Nat) (k i : Nat)
             (sk.qCount pk.2 (sk.stageScope pk.2 k) i) := by
   simp only [childChunk, seg, dRank, qSum, hD, if_true]
 
-private theorem chunkR (pk : Party × Nat) (k i : Nat)
+theorem chunkR (pk : Party × Nat) (k i : Nat)
     (hD : sk.childIsD pk.2 (sk.stageScope pk.2 k) i = false) :
     childChunk sk pk k i
       = [(wireOut pk, true, sk.wiresBefore pk.2 k + i)] := by
@@ -721,9 +721,11 @@ theorem proj_scopeSends (pk : Party × Nat) (k : Nat) (c : Chan) (b : Bool) :
       conv => rhs; rw [← List.take_append_drop 2 (childChunk sk pk k j)]
       simp only [proj_append, List.append_assoc]
 
-private theorem mem_scopeSends {pk : Party × Nat} {k : Nat} {e : Ev}
+theorem mem_scopeSends {pk : Party × Nat} {k : Nat} {e : Ev}
     (he : e ∈ scopeSends sk pk k) :
-    e = (upperOut pk, true, k) ∨ ∃ i, e ∈ childChunk sk pk k i := by
+    e = (upperOut pk, true, k)
+      ∨ ∃ i, i < sk.nChildren pk.2 (sk.stageScope pk.2 k)
+          ∧ e ∈ childChunk sk pk k i := by
   obtain ⟨c, b, n⟩ := e
   have hp : (c, b, n) ∈ proj c b (scopeSends sk pk k) := by
     unfold proj
@@ -735,8 +737,8 @@ private theorem mem_scopeSends {pk : Party × Nat} {k : Nat} {e : Ev}
   rcases hm with _ | ⟨_, hm⟩
   · exact Or.inl rfl
   · obtain ⟨l, hl, hel⟩ := List.mem_flatten.1 hm
-    obtain ⟨i, -, rfl⟩ := List.mem_map.1 hl
-    exact Or.inr ⟨i, hel⟩
+    obtain ⟨i, hir, rfl⟩ := List.mem_map.1 hl
+    exact Or.inr ⟨i, List.mem_range.1 hir, hel⟩
 
 /-- Support of a scope's sends: side true, on one of the four output
 channels (queries pin a non-leaf stage). -/
@@ -744,7 +746,7 @@ theorem scopeSends_support {pk : Party × Nat} {k : Nat} {e : Ev}
     (he : e ∈ scopeSends sk pk k) :
     e.2.1 = true ∧ (e.1 = upperOut pk ∨ e.1 = wireOut pk
       ∨ e.1 = lowerOut pk ∨ (e.1 = askedOut pk ∧ pk.2 ≠ 0)) := by
-  rcases mem_scopeSends sk he with rfl | ⟨i, hi⟩
+  rcases mem_scopeSends sk he with rfl | ⟨i, -, hi⟩
   · exact ⟨rfl, Or.inl rfl⟩
   · obtain ⟨hs, hc⟩ := chunk_support sk pk k i e hi
     rcases hc with h | h | h
