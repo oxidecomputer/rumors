@@ -878,6 +878,58 @@ proptest! {
 }
 
 proptest! {
+    /// `==` agrees with the full causal-compare walk in every form pairing.
+    ///
+    /// The equality cells decide same-form operands by a representation
+    /// compare (canonical normal form: representation equality ⟺ equality);
+    /// this pins that shortcut to the walk's verdict — packed/packed,
+    /// working/working (materialized batches), and the mixed pairings that
+    /// keep the walk — on arbitrary, typically *unequal* pairs (the
+    /// inequality direction the shortcut decides without walking) and on
+    /// equal same-form pairs (the equality direction).
+    #[test]
+    fn eq_matches_causal_walk(oa in arb_oracle_version(), ob in arb_oracle_version()) {
+        let a = from_oracle_version(&oa);
+        let b = from_oracle_version(&ob);
+        // The walk's verdict, taken from the compare entry point directly.
+        let walk_eq = a.view().causal_cmp(b.view()) == Some(Ordering::Equal);
+
+        prop_assert_eq!(a == b, walk_eq); // packed vs packed
+
+        let mut ca = a.clone();
+        let mut cb = b.clone();
+        let mut ba = ca.batch();
+        let mut bb = cb.batch();
+        ba.join(&Version::new()); // materialize the working form, value unchanged
+        bb.join(&Version::new());
+        prop_assert_eq!(ba == bb, walk_eq); // working vs working
+        prop_assert_eq!(ba == b, walk_eq); // working vs packed (mixed: the walk)
+        prop_assert_eq!(a == bb, walk_eq); // packed vs working (mixed: the walk)
+
+        // The equality direction, same-form: a version equals its own clone
+        // in both storage forms.
+        prop_assert!(a == a.clone()); // packed vs packed, equal
+        let mut ca2 = a.clone();
+        let mut ba2 = ca2.batch();
+        ba2.join(&Version::new());
+        prop_assert!(ba == ba2); // working vs working, equal
+    }
+}
+
+proptest! {
+    /// `is_empty` ⟺ `v == Version::new()`, over arbitrary normal-form trees.
+    ///
+    /// Pins the O(1) two-bit emptiness test to the definitional comparison it
+    /// replaced; `arb_oracle_version` generates the empty leaf too, so both
+    /// arms are exercised.
+    #[test]
+    fn is_empty_iff_new(ov in arb_oracle_version()) {
+        let v = from_oracle_version(&ov);
+        prop_assert_eq!(v.is_empty(), v == Version::new());
+    }
+}
+
+proptest! {
     /// `|` (merge / LUB) on arbitrary unrelated event trees agrees with the
     /// oracle's `join`, structurally. Exercises the join's arm selection on
     /// shapes the op pipeline never builds, with large bases threaded

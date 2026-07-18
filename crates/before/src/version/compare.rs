@@ -214,6 +214,24 @@ impl<'a> EvReader<'a> {
 }
 
 impl EvReader<'_> {
+    /// Whether `self` and `other` are causally equal, settled without a walk
+    /// when both share a storage form.
+    ///
+    /// The `==` entry point of the comparison matrix. Both storage forms are
+    /// canonical normal form, so same-form operands are equal *iff* their
+    /// representations match ([`trivially_eq`](EvReader::trivially_eq)) —
+    /// a mismatch already *is* inequality, with no `O(n + m)` decoding walk
+    /// to prove it. Mixed-form operands fall back to
+    /// [`causal_cmp`](EvReader::causal_cmp): deciding equality across forms
+    /// would mean transcoding, no cheaper than the walk.
+    pub(super) fn causal_eq(self, other: EvReader<'_>) -> bool {
+        match (&self, &other) {
+            (EvReader::Packed { .. }, EvReader::Packed { .. })
+            | (EvReader::Working { .. }, EvReader::Working { .. }) => self.trivially_eq(&other),
+            _ => self.causal_cmp(other) == Some(Ordering::Equal),
+        }
+    }
+
     /// The causal order of `self` and `other`, computed in one `O(n + m)` pass;
     /// `None` means concurrent.
     ///
