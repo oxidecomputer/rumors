@@ -1487,3 +1487,42 @@ needed for the per-head telescope re-basing.
    Estimated two fork-sized units: (4a) PendingE (walk decode the
    bulk), (4b) EndgameE + flagships + Statement prose + PLAN/task
    updates.
+5. **DONE (2026-07-19, fork #16j) — §9 COMPLETE: the campaign's proof
+   work is finished.** Both units landed in one pass; the audited
+   route held everywhere.
+   - `Proofs/PendingE.lean` (~2030 lines): the `.impl` decode layer.
+     Built exactly as audited — the placement-independent decodes and
+     their InvP helpers are mechanical twins (`.impl` literals; the
+     shared ledger fields normalize identically), and
+     `walk_committed_splitE` replaces the d5 decode's four-way
+     `lastDOf` splices with direct chunk splits: `isp` never contains
+     the parent (wire/res/query arms) and the `.parent` arm pins the
+     WHOLE chunk run performed from the `d6` everything-done mirror
+     (`isp` = all chunks, `ss = []` — `scopeSendsE`'s tail shape makes
+     the split definitional). New micro-brick `mem_scopeSendsE`. The
+     transcription needed five hand-fixes total (two destructure
+     nestings, one `x = x + 0` omega, two stray span cuts) — the
+     entire d5 seq/count layer (`sentOf_*`, `wkPend`, the family
+     `*Pend` defs) was reusable unchanged, since pend events are
+     state-derived and only their TRACE POSITIONS moved.
+   - `Proofs/EndgameE.lean` (~900 lines): `procsE_cases`,
+     `fixed_mem_procsE`, `walkEventsE_mem_procsE`,
+     `asmEvents_mem_procsE`, `pends_soundE`/`pends_coverE` (over
+     `scheduleE`, margin-0 hypothesis via `trace_sublistE`),
+     `close_cascadeE`, and the FLAGSHIPS:
+     `Sched.progress` (EndgameE.lean:~660) and
+     `Sched.deadlock_free` (EndgameE.lean:~905):
+     `sk.wellFormed = true → (∀ s, sk.dCount s ≤ sk.capLevel) →
+     StreamingMirror.DeadlockFree sk AxMode.impl`. The pillar consumed
+     at `hmode := Or.inl rfl`; the E1/E2 argmin steps ride
+     `scheduleE_e1`/`scheduleE_e2`; `schedulable` nowhere in the
+     statements (subsumed, `margin0_schedulable`). `#print axioms`:
+     `[propext, Classical.choice, Quot.sound]` for `progress`,
+     `deadlock_free`, and (unchanged) `deadlock_free_d5`.
+   - Statement.lean's audit surface now records BOTH corners proven.
+   - New traps: none — but two recurring ones re-confirmed for the
+     legibility pass: Bool-conjunction destructures keep LEFT-assoc
+     nesting on the last two conjuncts (`⟨⟨hnp, hd2⟩, hd6⟩` for the
+     `.parent` arm), and underscore-joined identifiers dodge
+     word-boundary renames (schedule_e1/walkEvents_mem_procs needed
+     explicit rules).

@@ -10,8 +10,9 @@ parent-placement design space (design/parent-placement.md):
 `Sched.deadlock_free_d5` (Proofs/Endgame.lean), on the three standard
 axioms only — and the implementation-facing flagship,
 `DeadlockFree sk AxMode.impl` under the margin-0 capacity hypothesis
-(the `d6`/epilogue corner, the shipping encoder's order; in progress,
-formal/PLAN.md task #16). A skeptical reader must read, in full:
+(the `d6`/epilogue corner, the shipping encoder's order), proven as
+`Sched.deadlock_free` (Proofs/EndgameE.lean), likewise on the three
+standard axioms only. A skeptical reader must read, in full:
 
 - `Skel.wellFormed` (Skel.lean, ~25 lines) — which dispute skeletons the
   claim covers;
@@ -67,14 +68,17 @@ open Model
 
 /-- Deadlock-freedom, the Phase C target: under axiom mode `ax`, no
 reachable state of the session is stuck — every interleaving either can
-still move or has completed. PROVEN for the `d5` corner:
+still move or has completed. PROVEN at both corners of
+the parent-placement design space: the implementation-facing flagship
+`sk.wellFormed → (∀ s, sk.dCount s ≤ sk.capLevel) → DeadlockFree sk
+AxMode.impl` (`Sched.deadlock_free`, Proofs/EndgameE.lean, via
+`Sched.progress`) — the shipping encoder's epilogue order at the
+shipping margin-0 capacity discipline, `schedulable` subsumed by the
+capacity hypothesis — and the capacity-universal counterpart
 `sk.wellFormed → sk.schedulable → DeadlockFree sk AxMode.full`
-(`Sched.deadlock_free_d5`, Proofs/Endgame.lean, via the progress lemma
+(`Sched.deadlock_free_d5`, Proofs/Endgame.lean, via
 `Sched.progress_d5`) — the weave's parent-early discipline, at any
-capacity. The implementation-facing flagship — `DeadlockFree sk
-AxMode.impl` under the margin-0 capacity hypothesis, the shipping
-encoder's epilogue order — is in progress (formal/PLAN.md task #16).
-The mode index and
+capacity. The mode index and
 the `schedulable` hypothesis are each load-bearing, and each is a
 THEOREM, not a promise: `Control.jam_not_deadlockFree` refutes this
 very statement for the pre-finding-#6 interface (`Control.fullNoD4` —
