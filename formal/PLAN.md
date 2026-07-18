@@ -119,13 +119,16 @@ Last updated: 2026-07-18.
   (unwired, documented design-space record); capacity-floor pins
   intact; gate clean modulo the two known mux-deadlock failures at
   the branch base (fixed on link-transport).
-- **#18 (blocked by #16)**: legibility pass. (1) Refactor/document the
-  theorem statement so a human reviewer can verify the *claim* matches
-  the desiderata and see explicitly which Rust proptest discharges
-  which hypothesis. (1a) Refactor proof organization so the layer
-  structure (counting → edge-respect → cursor invariant → argmin →
-  statement) is trackable even where bodies stay dense; module docs
-  state each layer's contract. No new mathematics.
+- **#18 (DONE, 2026-07-19)**: legibility pass, no new mathematics,
+  axioms re-verified unchanged. Statement.lean is now the audit
+  document (both corners side by side; per-ledger English; the
+  explicit statement→Rust chain naming `Trace::assert_parent_last`,
+  `FAN = 256`, and the capacity pins; the transcription boundary; a
+  named "Assumed, not proven" section). New `Proofs/Map.lean` carries
+  the proof map (shared foundation, the five-stage per-corner chain,
+  the E/d5 mirror table, the epistemic frame); all 38 `Proofs/`
+  modules close with a uniform "Chain:" postscript. Record:
+  PROGRESS.md §10. #19 is unblocked.
 - **#19 (blocked by #18)**: typeset exposition (typst default) for a
   technically competent reader with no codebase familiarity: the
   problem, the mechanism, the deadlock question and design space, then

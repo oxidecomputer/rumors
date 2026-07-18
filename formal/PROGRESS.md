@@ -1526,3 +1526,38 @@ needed for the per-head telescope re-basing.
      `.parent` arm), and underscore-joined identifiers dodge
      word-boundary renames (schedule_e1/walkEvents_mem_procs needed
      explicit rules).
+
+## 10. The legibility pass (task #18, 2026-07-19)
+
+No new mathematics; the kernel content of every theorem is unchanged
+(all four flagship/counterpart theorems re-checked at
+`[propext, Classical.choice, Quot.sound]` after the pass).
+
+- **Statement.lean is now the audit document**: the two theorems side
+  by side with their operational readings (what `.impl`'s mode means,
+  what margin 0 is and why it strictly implies `schedulable`, why the
+  −2 boundary between them is poll-schedule-specific); each ledger in
+  one English sentence; the explicit chain to the Rust — which
+  `Trace::assert_valid` check discharges which ledger (down to
+  `assert_parent_last` = `d6`, and `assert_parent_early` as the
+  deliberately unwired design-space record), which capacity
+  constants/pins discharge margin 0 (`FAN = 256`,
+  `capacity_stress_witness_requires_inter_level_fan`, the
+  `parent_delay_*` probes); the transcription boundary (what only the
+  eventdag gate establishes); and a named "Assumed, not proven"
+  section (capacity monotonicity with the Kahn rationale; the
+  modeled-world premises).
+- **Proofs/Map.lean** (new, documentation-only, the sharded-slab
+  pattern): the proof map — the shared foundation in reading order,
+  the five-stage per-corner chain (witness → edge-respect → merge
+  completeness → decode → argmin), the E/d5 mirror table with each
+  file's delta, and the three-tier epistemic frame
+  (kernel/executable/assumed).
+- **Every `Proofs/` module** (38 files) closes its docstring with a
+  uniform "Chain:" postscript — corner, stage, what it consumes, what
+  it provides, its mirror file, and a pointer to the map.
+- Nothing was moved or renamed: the file placement audit found the
+  existing layout faithful to the chain (the one candidate,
+  `AncTele`-in-Master vs `TeleE` standalone, is asymmetric because the
+  d5 telescope is interleaved with the induction that owns it —
+  recorded in the mirror table instead of forced into symmetry).
