@@ -1166,24 +1166,92 @@ event-for-event, and replays to terminal under `.impl` — in `runFuzz`
 kernel obligation: 300 random seeds + pins + boundary confirm the
 route before any proof spend.
 
-**Remaining, in order** (each a fork-sized unit):
-1. **Trace-shape bricks**: d6 variants of the Align/Emit segment
-   lemmas (`align_scope`/`align_kids_suffix` analogs for
-   `scopeSendsE`; the futLen family over epilogue-shaped tails). The
-   set-equality `scopeSendsE ~ scopeSends` (same events, parent moved)
-   may let many count-total lemmas transfer outright — scout before
-   re-deriving.
-2. **The eweave**: `weaveGoE` (the wKidOps recursion with the upper
-   emission at the scope tail) + its `WEdge`-analog master induction.
-   Reuse the layer-A/B/C machinery (Pump/Prec are order-light); the
-   U-site windows are the new content, discharged via margin 0 +
-   pump-fixpoint tower drainage (`asm_counts_full`-style, Final.lean
-   has the pattern).
+**Landed by fork #16b** (unit 1 + the eweave foundation of unit 2):
+
+- **The eweave, both sides, gate-validated.** Proof side
+  (`Proofs/Sched/WeaveE.lean`): `wScopeOpsE` (prologue, kids, parent
+  LAST — after every kid op, hence after the whole subtree, whose
+  descent carries the scope's last-chunk queries), `wKidOpsE` (no
+  splice; `WOp.kid`'s `lastD` field ignored), `weaveGoE` (the same
+  worklist interpreter dispatching to the E expanders), `weaveStateE`,
+  `weaveE`, smokeChain kernel anchors (length + nodup by `decide`).
+  Executable side: `weaveScopeE`/`weaveOrderE` (EventDag.lean),
+  validated by the SAME `validateSchedule` (the DAG's edge set is
+  placement-agnostic). Gates: margin-0 eweave validity + WeaveE
+  transcription asserted in `runAll` (all pins) and `runFuzz` (hard
+  error, all acyclic seeds); `pdelay` pinned both directions
+  (sub-margin the tail parent's guard closes — the capacity
+  hypothesis load-bearing at the witness itself; margin-0 valid).
+- **Unit 1 collapsed to a projection-equality bridge** — the scouting
+  bet paid off completely: the parent is the scope's sole `upperOut`
+  event and the chunks carry none, so the epilogue order projects
+  IDENTICALLY to the splice order per channel-side.
+  `proj_scopeSendsE`/`proj_scopeSendsE_eq`/`proj_scopeBlockE_eq`/
+  `proj_walkEventsE_eq` (Numbering.lean, reusing the existing
+  `proj_scopeSends` parent-first normal form + `chunk_no_upper`/
+  `lastD_mem`): every proj-based counting brick about
+  `scopeSends`/`walkEvents` transfers to the E layer by REWRITE, not
+  re-derivation. Plus the permutation bridge for non-proj totals:
+  `scopeSendsE_perm`, `walkEventsE_perm`, `totalEventsE_eq`. No
+  `align_scope`-style re-derivation happened and none should: consume
+  `proj_*E_eq` + the perms wherever the d5 proof used trace-shape
+  bricks; derive fresh shapes only where the FUTURE (fut tails)
+  genuinely differs — the parent's position inside each scope's
+  segment.
+
+**Remaining, in order** (unit 2 re-scoped by fork #16c's scout —
+sub-unit 2a discovered, load-bearing, must come first):
+
+2a. **Generalize the invariant layer over the trace family.**
+   `WCount` (Count.lean:198) bakes `procs sk` into `man_struct`,
+   `pump_struct`, and `out_count`; `WEdge` extends it; the whole
+   Edge/Pump preservation layer and every window/site lemma is stated
+   against it. The E master induction needs the SAME invariant at
+   `procsE` (per-owner filters of the E future are `walkEventsE`
+   traces — order-sensitive, so the unit-1 projection bridge cannot
+   substitute). Recommended route: extract a trace-family-parameterized
+   core (`WCountP P fut st` with `P` where `procs sk` appears;
+   `WCount := WCountP (procs sk)` as an abbrev or a thin structure
+   alias) so the d5 consumers keep compiling with at most mechanical
+   fixes (63 `toWCount` references across the Proofs tree are the
+   counted breakage candidates; no `unfold WCount` sites — fall back to
+   outright duplication of Count/Edge/Pump's ~900 generic lines at
+   `procsE` only if the shim breaks more than it saves). Everything
+   trace-generic in Edge.lean (hist_extend, wEdge_emitP, wEdge_pump,
+   wPump_fixpoint) then instantiates at both corners.
+   ALSO needed from this sub-unit: the E analogs of the interpreter
+   support layer — `opSpecE`/`opEventsE`/`opStepsE` +
+   `goEventsE`/`goEventsE_eq_of_fuel` (transcribe Expand.lean's
+   well-founded recursion over `wScopeOpsE`/`wKidOpsE`; the
+   `mem_wScopeOpsE`/`mem_wKidOpsE` membership shapes mirror the d5
+   ones, D-branch `h ≠ 0` again via `simp [Skel.childIsD]`),
+   `weaveGoE_wedge` (verbatim copy of the consumption induction —
+   `EmitOKOn`/`emitOKOn_*`/`mem_out_*` in Master.lean are already
+   list-generic and reusable as-is), `weaveE_initial_alignment`
+   (Align.lean's `weave_initial_alignment` analog: per-owner filters
+   of the E future = `procsE.take manCount` — walk arms are new,
+   non-walk arms identical), and `weaveE_goEvents_depOK` (Prec.lean
+   analog; scout whether any event's `manDep` is the parent — if none,
+   the derivation transfers; the parent's own dep only moved later,
+   which is the safe direction).
+2b. **The eweave master induction** (`WEdgeE`-analog over `weaveGoE`,
+   the bulk): reuse Master.lean's EmitOKOn + consumption
+   architecture. The U-site window moves to the scope tail, where the
+   whole subtree is emitted: discharge via margin 0
+   (`dCount ≤ capLevel`) + pump-fixpoint tower drainage
+   (`asm_counts_full`-style, Final.lean pattern) — all prior scopes'
+   uppers consumed, own dispute group ≤ capLevel in flight.
+   Wire/lower/query sites keep their seqs and relative order (the
+   projection bridge is the transfer vehicle); their futs carry the
+   parent at the tail instead of the splice point — expect the futLen
+   site forms to need only the parent term moved between segments.
 3. **`merge_completeE`**: Final.lean's argmin re-instantiated over the
-   eweave (mostly mechanical given 2).
+   eweave (mostly mechanical given 2; `totalEventsE_eq` + the
+   projection bridge supply the totals).
 4. **Endgame**: Pending decode lemmas for `walkEventsE` under the
-   `d6` mirrors + Endgame argmin/cascade at `.impl`; the flagship
-   `Sched.progress`/`Sched.deadlock_free` in Statement.lean's terms
-   with hypotheses `wellFormed`, margin 0 (`maxDCount ≤ capLevel` —
-   note `schedulable` is implied by margin 0: `dCount ≤ capLevel ≤
+   `d6` mirrors + Endgame argmin/cascade at `.impl` (pillar's
+   `hmode = Or.inl rfl`); the flagship `Sched.progress`/
+   `Sched.deadlock_free` in Statement.lean's terms with hypotheses
+   `wellFormed` + margin 0 (`∀ s, dCount s ≤ capLevel` — note
+   `schedulable` is implied by margin 0: `dCount ≤ capLevel ≤
    capLevel + 2`; drop it from the statement and say so).

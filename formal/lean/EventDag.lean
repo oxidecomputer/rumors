@@ -1165,6 +1165,69 @@ def weaveOrder (sk : Skel) : Array Ev × Array String := Id.run do
   st := st.pump sk
   return (st.out, st.errs)
 
+/-- The encoder-order descent for scope `k` of stage `h`: `weaveScope`
+with the parent summary at the scope TAIL — after every kid, hence
+after the whole subtree (whose descent carries this scope's last-chunk
+queries) — and no early-parent case for undisputed scopes. The
+per-walk projection is `walkTraceE`'s epilogue order, the `d6`
+placement. Sub-margin the tail parent's guard closes (`pdelay` pins
+the rejection); margin 0 is what `weaveOrderE`'s validity is asserted
+under. -/
+partial def weaveScopeE (sk : Skel) (h k : Nat) (feed : Array Ev) (st : WV) : WV := Id.run do
+  let pk : Party × Nat := (if h % 2 == 1 then Party.I else Party.R, h)
+  let mut st := st
+  st := st.emitP sk (wireIn pk, false, k)
+  st := st.emitP sk (askedIn pk, false, k)
+  let s := sk.stageScope h k
+  let n := sk.nChildren h s
+  let kidBase := (List.range k).foldl
+    (fun a k' => a + sk.nChildren h (sk.stageScope h k')) 0
+  let mut dSeen := 0
+  let mut qSeen := 0
+  for i in [0:n] do
+    st := st.emitP sk (wireOut pk, true, sk.wiresBefore h k + i)
+    if sk.childIsD h s i then
+      st := st.emitP sk (lowerOut pk, true, sk.dsBefore h k + dSeen)
+      dSeen := dSeen + 1
+      if h == 0 then
+        st := { st with errs := st.errs.push s!"eweave: D kid at h=0 (scope {k})" }
+      else
+        let myQ := (Array.range (sk.qCount h s i)).map fun t =>
+          ((askedOut pk, true, sk.qsBefore h k + qSeen + t) : Ev)
+        if i < feed.size then
+          st := st.emitP sk feed[i]!
+        st := weaveScopeE sk (h - 1) (kidBase + i) myQ st
+    else
+      if i < feed.size then
+        st := st.emitP sk feed[i]!
+      if h ≥ 1 then
+        st := weaveScopeE sk (h - 1) (kidBase + i) #[] st
+    qSeen := qSeen + sk.qCount h s i
+  st := st.emitP sk (upperOut pk, true, k)
+  return st
+
+/-- The `.impl` witness (PROGRESS.md §9): `weaveOrder` over the
+encoder-order descent. Valid (permutation + every E1/E2/E3 edge — the
+DAG's edge set is placement-agnostic, so `validateSchedule` serves
+both corners) only at margin 0, where the gates assert it; sub-margin
+the tail-parent guard closes and the emission errors flag it. -/
+def weaveOrderE (sk : Skel) : Array Ev × Array String := Id.run do
+  let pumps : Array (Array Ev) :=
+    #[(Sched.absorbEvents sk).toArray]
+    ++ (sk.asmKeys.toArray.map fun pk => (Sched.asmEvents sk pk).toArray)
+    ++ #[#[(Chan.rootret, false, 0)], (Sched.finEvents sk).toArray]
+  let mut st : WV :=
+    { out := #[], sent := {}, rcvd := {}, pumps
+      pumpCur := Array.replicate pumps.size 0, errs := #[] }
+  for e in Sched.iopenEvents sk do
+    st := st.emitP sk e
+  for e in (Sched.ropenEvents sk).take 3 do
+    st := st.emitP sk e
+  let rootFeed := ((Sched.ropenEvents sk).drop 3).toArray
+  st := weaveScopeE sk (sk.rootH - 1) 0 rootFeed st
+  st := st.pump sk
+  return (st.out, st.errs)
+
 /-- Trace labels in `Sched.procs` order, for the blame alphabet. -/
 def traceLabels (sk : Skel) : Array String :=
   #["iopen", "ropen"]
@@ -1385,6 +1448,15 @@ def runFuzz (n : Nat) : Array String := Id.run do
                 else if !termE then
                   errs := errs.push
                     s!"seed {seed}: impl replay missed terminal"
+                else
+                  let (weaveEv, weErrs0) := weaveOrderE skM
+                  let wevErrs := weErrs0 ++ validateSchedule skM weaveEv
+                  if !wevErrs.isEmpty then
+                    errs := errs.push
+                      s!"seed {seed}: margin-0 eweave invalid ({wevErrs.size} errors, first: {wevErrs[0]!})"
+                  else if Sched.weaveE skM != weaveEv.toList then
+                    errs := errs.push
+                      s!"seed {seed}: WeaveE.lean transcription diverges from the tool eweave"
   if tested == 0 then
     errs := errs.push "fuzz generated zero well-formed skeletons"
   if advStalls.isEmpty then
@@ -1605,6 +1677,24 @@ def runAll (outDir : System.FilePath) : IO Bool := do
             IO.println "  IMPL REPLAY did not reach terminal after close drain"
           else
             IO.println s!"  impl candidate (margin 0): {candE.size} events, drains, transcribes, replays: OK"
+    -- §9: the eweave — the `.impl` witness linearization — must be a
+    -- full valid linearization at margin 0, and the proof layer's
+    -- structural recursion (Proofs/Sched/WeaveE.lean) must reproduce
+    -- it exactly
+    let (weaveEv, weErrs0) := weaveOrderE skM
+    let wevErrs := weErrs0 ++ validateSchedule skM weaveEv
+    if !wevErrs.isEmpty then
+      allOk := false
+      for e in wevErrs.toSubarray 0 (min wevErrs.size 20) do
+        IO.println s!"  EWEAVE INVALID (margin 0): {e}"
+    IO.println s!"  eweave order (margin 0): {weaveEv.size} events, valid: {wevErrs.isEmpty}"
+    if Sched.weaveE skM != weaveEv.toList then
+      allOk := false
+      match ((Sched.weaveE skM).zip weaveEv.toList).findIdx? (fun (a, b) => a != b) with
+      | some i => IO.println s!"  EWEAVE TRANSCRIPTION DIVERGES at index {i}"
+      | none => IO.println s!"  EWEAVE TRANSCRIPTION DIVERGES in length: {(Sched.weaveE skM).length} vs {weaveEv.size}"
+    else
+      IO.println "  Proofs/Sched/WeaveE.lean transcription matches the eweave: OK"
     if a.acyclic && cErrs.isEmpty then
       let f := outDir / s!"{name}.cand.tsv"
       IO.FS.writeFile f (String.intercalate "\n"
@@ -1677,6 +1767,16 @@ def runAll (outDir : System.FilePath) : IO Bool := do
   let wNegAll := wNegErrs ++ validateSchedule pyr1 wNeg
   IO.println s!"  pyramid1 weave rejected: {!wNegAll.isEmpty} (want true)"
   if wNegAll.isEmpty then allOk := false
+  -- the eweave must be rejected SUB-margin (raw pdelay: the tail
+  -- parent's level guard closes — the capacity hypothesis is
+  -- load-bearing at the witness itself) and clean AT margin 0
+  let (_, weNegErrs) := weaveOrderE pdE
+  IO.println s!"  pdelay eweave rejected sub-margin: {!weNegErrs.isEmpty} (want true)"
+  if weNegErrs.isEmpty then allOk := false
+  let (weP, wePErrs0) := weaveOrderE pd0
+  let wePErrs := wePErrs0 ++ validateSchedule pd0 weP
+  IO.println s!"  pdelay margin-0 eweave valid: {wePErrs.isEmpty} (want true)"
+  if !wePErrs.isEmpty then allOk := false
   -- Mutation controls run on pyramid2: its channels carry multiple
   -- messages (smokeChain's all carry one, leaving E2 nothing to swap).
   let mutSk := Pin.pyramid 2

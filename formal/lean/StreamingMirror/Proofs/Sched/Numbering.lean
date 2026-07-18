@@ -1706,4 +1706,138 @@ theorem smokeChain_level_canon :
       = canon (Chan.level Party.I 0) false
           Pin.smokeChain.totalLeafReqs := by decide
 
+-- ============================= the encoder-order (`d6`) trace bridge
+-- Unit 1 of the `.impl` campaign (PROGRESS.md §9): the parent's
+-- position is invisible to every single-channel projection — it is the
+-- scope's sole `upperOut` event and the chunks carry none — so the
+-- epilogue order projects IDENTICALLY to the d5 splice order, and
+-- every proj-based counting brick about `scopeSends`/`walkEvents`
+-- transfers to the E layer by rewriting, not re-derivation.
+
+/-- The epilogue placement projects to the same parent-first normal
+form as the splice placement (`proj_scopeSends`): per channel-side,
+parent position is invisible. -/
+theorem proj_scopeSendsE (pk : Party × Nat) (k : Nat) (c : Chan) (b : Bool) :
+    proj c b (scopeSendsE sk pk k)
+      = proj c b ((upperOut pk, true, k)
+          :: ((List.range (sk.nChildren pk.2 (sk.stageScope pk.2 k))).map
+              (childChunk sk pk k)).flatten) := by
+  simp only [scopeSendsE]
+  generalize hchunks : (List.range
+    (sk.nChildren pk.2 (sk.stageScope pk.2 k))).map (childChunk sk pk k)
+    = chunks
+  have hmem : ∀ e ∈ chunks.flatten, e.1 ≠ upperOut pk := by
+    intro e he
+    obtain ⟨l, hl, hel⟩ := List.mem_flatten.1 he
+    rw [← hchunks] at hl
+    obtain ⟨i, -, rfl⟩ := List.mem_map.1 hl
+    exact chunk_no_upper sk pk k i e hel
+  by_cases hup : c = upperOut pk ∧ b = true
+  · obtain ⟨rfl, rfl⟩ := hup
+    have hF : proj (upperOut pk) true chunks.flatten = [] :=
+      proj_eq_nil fun e he h1 _ => absurd h1 (hmem e he)
+    simp only [proj_append, proj_cons_self, hF, proj_nil,
+      List.nil_append]
+  · have hpar : ∀ l : List Ev,
+        proj c b ((upperOut pk, true, k) :: l) = proj c b l := by
+      intro l
+      by_cases hcu : c = upperOut pk
+      · subst hcu
+        exact proj_cons_ne_side fun hb => hup ⟨rfl, hb.symm⟩
+      · exact proj_cons_ne_chan fun hh => hcu hh.symm
+    rw [proj_append, hpar, proj_nil, List.append_nil, hpar]
+
+/-- Per channel-side, the epilogue order and the splice order project
+identically: the whole proj-based counting layer is placement-blind. -/
+theorem proj_scopeSendsE_eq (pk : Party × Nat) (k : Nat) (c : Chan) (b : Bool) :
+    proj c b (scopeSendsE sk pk k) = proj c b (scopeSends sk pk k) :=
+  (proj_scopeSendsE sk pk k c b).trans (proj_scopeSends sk pk k c b).symm
+
+/-- Scope blocks project identically: the prologue receives are shared
+and the sends project identically. -/
+theorem proj_scopeBlockE_eq (pk : Party × Nat) (k : Nat) (c : Chan) (b : Bool) :
+    proj c b (scopeBlockE sk pk k) = proj c b (scopeBlock sk pk k) := by
+  have hE : scopeBlockE sk pk k
+      = [((wireIn pk, false, k) : Ev), (askedIn pk, false, k)]
+        ++ scopeSendsE sk pk k := rfl
+  have hD : scopeBlock sk pk k
+      = [((wireIn pk, false, k) : Ev), (askedIn pk, false, k)]
+        ++ scopeSends sk pk k := rfl
+  rw [hE, hD, proj_append, proj_append, proj_scopeSendsE_eq]
+
+/-- Walk traces project identically: per-scope projection equality,
+lifted over the stage's scopes. -/
+theorem proj_walkEventsE_eq (pk : Party × Nat) (c : Chan) (b : Bool) :
+    proj c b (walkEventsE sk pk) = proj c b (walkEvents sk pk) := by
+  simp only [walkEventsE, walkEvents]
+  induction (List.range (sk.stageLen pk.2)) with
+  | nil => rfl
+  | cons k ks ih =>
+      rw [List.flatMap_cons, List.flatMap_cons, proj_append, proj_append,
+        proj_scopeBlockE_eq, ih]
+
+-- The permutation bridge: for length/total facts not phrased through
+-- `proj` (e.g. `totalEvents`), the two orders are pointwise
+-- permutations.
+
+/-- The epilogue order is a permutation of the splice order. -/
+theorem scopeSendsE_perm (pk : Party × Nat) (k : Nat) :
+    (scopeSendsE sk pk k).Perm (scopeSends sk pk k) := by
+  simp only [scopeSendsE, scopeSends]
+  generalize hchunks : (List.range
+    (sk.nChildren pk.2 (sk.stageScope pk.2 k))).map (childChunk sk pk k)
+    = chunks
+  split
+  · exact List.perm_append_singleton _ _
+  · rename_i j hlast
+    have hj : j < sk.nChildren pk.2 (sk.stageScope pk.2 k) :=
+      (lastD_mem hlast).1
+    have hjc : j < chunks.length := by
+      rw [← hchunks, List.length_map, List.length_range]; exact hj
+    have hgetE : chunks[j] = chunks.getD j [] := by
+      rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hjc]
+      rfl
+    conv => lhs; rw [← List.take_append_drop j chunks,
+      List.drop_eq_getElem_cons hjc, hgetE]
+    rw [List.flatten_append, List.flatten_cons]
+    conv => lhs; rw [← List.take_append_drop 2 (chunks.getD j [])]
+    simp only [List.append_assoc]
+    refine List.Perm.append_left _ (List.Perm.append_left _ ?_)
+    rw [← List.append_assoc]
+    exact List.perm_append_singleton _ _
+
+/-- Walk traces are pointwise permutations. -/
+theorem walkEventsE_perm (pk : Party × Nat) :
+    (walkEventsE sk pk).Perm (walkEvents sk pk) := by
+  simp only [walkEventsE, walkEvents]
+  induction (List.range (sk.stageLen pk.2)) with
+  | nil => exact List.Perm.refl _
+  | cons k ks ih =>
+      rw [List.flatMap_cons, List.flatMap_cons]
+      refine List.Perm.append ?_ ih
+      have hE : scopeBlockE sk pk k
+          = ((wireIn pk, false, k) : Ev)
+            :: (askedIn pk, false, k) :: scopeSendsE sk pk k := rfl
+      have hD : scopeBlock sk pk k
+          = ((wireIn pk, false, k) : Ev)
+            :: (askedIn pk, false, k) :: scopeSends sk pk k := rfl
+      rw [hE, hD]
+      exact ((scopeSendsE_perm sk pk k).cons _).cons _
+
+/-- The encoder-order event set has the d5 event set's size: the merge
+fuel and every totals argument carry over unchanged. -/
+theorem totalEventsE_eq : totalEventsE sk = totalEvents sk := by
+  have hW : ∀ pks : List (Party × Nat),
+      ((pks.map (walkEventsE sk)).map List.length).sum
+        = ((pks.map (walkEvents sk)).map List.length).sum := by
+    intro pks
+    induction pks with
+    | nil => rfl
+    | cons p ps ih =>
+        simp only [List.map_cons, List.sum_cons, ih,
+          (walkEventsE_perm sk p).length_eq]
+  simp only [totalEventsE, totalEvents, procsE, procs,
+    List.map_append, List.sum_append]
+  rw [hW]
+
 end StreamingMirror.Sched

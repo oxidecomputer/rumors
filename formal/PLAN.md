@@ -11,11 +11,12 @@ Last updated: 2026-07-18.
 
 ## Working state (cold-start orientation)
 
-- All formal work: worktree `~/.cache/rumors-worktrees/main`, branch
+- All formal work: worktree `~/src/rumors-worktrees/main`, branch
   `main`, commits path-limited. NEVER touch the user's checkout at
   `/Users/oxide/src/rumors` (branch `link-transport`, dirty with their
-  work).
-- Rust-side work: worktree `~/.cache/rumors-worktrees/parent-first`,
+  work). (Worktrees relocated from `~/.cache/rumors-worktrees/` on
+  2026-07-18 for durability, per user instruction.)
+- Rust-side work: worktree `~/src/rumors-worktrees/parent-first`,
   branch `parent-first` (base 3fc9117a). Merges only when the
   implementation-facing theorem succeeds, together with the proof.
 - Gates: `just lean` ends "Build completed successfully" before every
@@ -83,19 +84,25 @@ Last updated: 2026-07-18.
   hypothesis. 5b CONFIRMED in-model (stuck-state accounting: full
   buffers + consumer hand + producer hands). Sweep outcomes in
   PROGRESS.md §8.
-- **#16 (in progress; foundation landed 2026-07-18)**: the
-  implementation-facing theorem (see adjudication 2). Scouting +
-  executable foundation landed: `Sched.scheduleE` (encoder-order
-  traces + merge, proof side) and `EventDag.schedCandidateE`
-  cross-checked and replay-validated under `.impl` at margin 0 across
-  the full gate (300 seeds + pins + boundary matrix) — the route is
-  executably confirmed. Route and remaining units (each fork-sized) in
-  PROGRESS.md §9: (1) d6 trace-shape bricks (Align/Emit variants),
-  (2) the eweave (`weaveGoE` + master induction; U-sites discharged
-  by margin 0 + tower drainage — the new content), (3)
-  `merge_completeE` (Final.lean argmin re-instantiated), (4) endgame
-  (Pending decodes under d6 mirrors + argmin/cascade at `.impl`,
-  flagship names; `schedulable` dropped — implied by margin 0).
+- **#16 (in progress; foundation + unit 1 landed 2026-07-18)**: the
+  implementation-facing theorem (see adjudication 2). Landed:
+  `Sched.scheduleE` + `EventDag.schedCandidateE` (encoder-order trace
+  layer, cross-checked and replay-validated under `.impl` at margin 0
+  across the full gate); the EWEAVE both sides
+  (`Proofs/Sched/WeaveE.lean` `weaveGoE`/`weaveE` with kernel
+  anchors; `EventDag.weaveOrderE`; margin-0 validity + transcription
+  gate-asserted on pins and all acyclic fuzz seeds; `pdelay` pinned
+  rejected sub-margin / valid at margin 0); unit 1 as a
+  projection-equality bridge (`proj_walkEventsE_eq` etc. — the E
+  order projects identically per channel-side, so proj-based
+  counting bricks transfer by rewrite; plus `walkEventsE_perm`/
+  `totalEventsE_eq` for non-proj totals). Remaining units in
+  PROGRESS.md §9: (2) the eweave master induction (U-sites at the
+  scope tail via margin 0 + tower drainage — the bulk and the new
+  content), (3) `merge_completeE` (Final.lean argmin re-instantiated),
+  (4) endgame (Pending decodes under d6 mirrors + argmin/cascade at
+  `.impl`, flagship names; `schedulable` dropped — implied by
+  margin 0).
 - **#17 (blocked by #15 — now unblocked)**: parent-first re-scope —
   invert the d5 check into the epilogue check (minted spelling:
   PROGRESS.md §8, "the parent summary is the scope's last
