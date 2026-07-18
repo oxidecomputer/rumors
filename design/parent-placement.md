@@ -67,9 +67,22 @@ The Rust side pins the same boundary from both directions: on the
 at 253 and completes at 254 = fan − 2
 (`capacity_stress_witness_requires_inter_level_fan`) **[checked]**.
 
+The −2 floor is **poll-schedule-specific, not interleaving-robust**
+**[checked]**: under the model's epilogue ledger (`AxMode.impl`, which
+*forces* the encoder's per-walk order), the boundary skeleton `pdelay`
+still stalls under adversarial cross-process interleaving — the
+stalling run is epilogue-legal by construction. The encoder's observed
+completion at the −2 boundary depends on the poll schedules its
+runtime actually produces. The interleaving-robust floor is margin 0
+(assembler ≥ max per-scope disputes), which is the theorem hypothesis
+adopted in §6.
+
 Why the floor is capacity − 2 rather than capacity: a bounded channel
 accommodates two in-flight items beyond its buffer, one borrowed at
-each end **[derived]**. A producer parked on `send` has already
+each end **[checked]** (in the Rust by the 253/254 pins; in the model
+by `pdelay`'s `.impl` stuck-state accounting — level occupancy 2, one
+assembler mid-collection, three walks parked on committed sends —
+exhibiting all three loci). A producer parked on `send` has already
 computed its item and holds it in hand (in the model, a committed-but-
 unfired send; in the Rust, the parked `Sender::send` future); the
 consumer holds one popped item while it works. So a scope with
