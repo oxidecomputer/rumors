@@ -661,4 +661,1351 @@ theorem phase2_child_facts {s : State} {pk : Party × Nat}
       · rw [hD2] at hDf; cases hDf
       · exact hdis
 
+-- =============================== per-phase walk-state extraction
+
+/-- The scope cursor against the stage length, per phase band. -/
+theorem walk_scope_bound {s : State} {pk : Party × Nat}
+    (hi : InvP sk .full s) (hpk : pk ∈ sk.walkKeys) :
+    ((s.walk pk).phase ≤ 2 → (s.walk pk).scope < sk.stageLen pk.2) ∧
+    (3 ≤ (s.walk pk).phase → (s.walk pk).scope = sk.stageLen pk.2) := by
+  have hwk := hi.wk pk hpk
+  simp only [wkLocalOk] at hwk
+  rcases Bool.and_eq_true .. ▸ hwk with ⟨hcur, -⟩
+  simp only [Bool.and_eq_true] at hcur
+  obtain ⟨⟨hsl, -⟩, -⟩ := hcur
+  constructor
+  · intro hph
+    rw [if_pos hph] at hsl
+    simpa using hsl
+  · intro hph
+    rw [if_neg (by omega)] at hsl
+    simpa using hsl
+
+/-- Outside phase 2 the publishing ledgers are all clear. -/
+theorem walk_ledgers_empty {s : State} {pk : Party × Nat}
+    (hi : InvP sk .full s) (hpk : pk ∈ sk.walkKeys)
+    (hph : (s.walk pk).phase ≠ 2) :
+    (∀ j, j < sk.fan → (s.walk pk).wireDone j = false
+      ∧ (s.walk pk).resDone j = false ∧ (s.walk pk).qSent j = 0)
+    ∧ (s.walk pk).parentDone = false
+    ∧ (s.walk pk).committed = none := by
+  have hwk := hi.wk pk hpk
+  simp only [wkLocalOk] at hwk
+  rcases Bool.and_eq_true .. ▸ hwk with ⟨hleft, -⟩
+  rcases Bool.and_eq_true .. ▸ hleft with ⟨-, hor⟩
+  simp only [Bool.or_eq_true, beq_iff_eq] at hor
+  rcases hor with hph2 | hemp
+  · exact absurd hph2 hph
+  · simp only [Bool.and_eq_true, List.all_eq_true, List.mem_range,
+      Bool.not_eq_true', beq_iff_eq] at hemp
+    obtain ⟨⟨hled, hpd⟩, hcm⟩ := hemp
+    refine ⟨fun j hj => ?_, hpd, hcm⟩
+    obtain ⟨⟨hw, hr⟩, hq⟩ := hled j hj
+    exact ⟨hw, hr, by simpa using hq⟩
+
+/-- Clear ledgers count to zero. -/
+theorem counts_of_empty {s : State} {pk : Party × Nat}
+    (hled : ∀ j, j < sk.fan → (s.walk pk).wireDone j = false
+      ∧ (s.walk pk).resDone j = false ∧ (s.walk pk).qSent j = 0) :
+    wkWireCount sk s pk = 0 ∧ wkResCount sk s pk = 0
+      ∧ wkQSum sk s pk = 0 := by
+  refine ⟨?_, ?_, ?_⟩
+  · simp only [wkWireCount]
+    rw [List.filter_eq_nil_iff.mpr fun j hj =>
+      by simp [(hled j (List.mem_range.1 hj)).1]]
+    rfl
+  · simp only [wkResCount]
+    rw [List.filter_eq_nil_iff.mpr fun j hj =>
+      by simp [(hled j (List.mem_range.1 hj)).2.1]]
+    rfl
+  · rw [wkQSum_eq_sum,
+      show (List.range sk.fan).map (s.walk pk).qSent
+        = (List.range sk.fan).map (fun _ => 0) from
+        List.map_congr_left fun j hj =>
+          (hled j (List.mem_range.1 hj)).2.2]
+    induction List.range sk.fan with
+    | nil => rfl
+    | cons x xs ih => simpa using ih
+
+-- ================================== derived-key channel memberships
+
+/-- The `walkKeys` converse: height below the root plus matching parity
+IS membership. -/
+theorem mem_walkKeys_of (hwf : sk.wellFormed = true) {p : Party} {k : Nat}
+    (hk : k < sk.rootH)
+    (hpar : (p = Party.I ∧ k % 2 = 1) ∨ (p = Party.R ∧ k % 2 = 0)) :
+    (p, k) ∈ sk.walkKeys := by
+  have hev : sk.rootH % 2 = 0 := (wf_rootH hwf).1
+  simp only [Skel.walkKeys, List.mem_append, List.mem_map,
+    List.mem_range]
+  rcases hpar with ⟨rfl, hodd⟩ | ⟨rfl, heven⟩
+  · refine Or.inl ⟨(sk.rootH - 1 - k) / 2, by omega, ?_⟩
+    rw [Prod.mk.injEq]
+    exact ⟨rfl, by omega⟩
+  · refine Or.inr ⟨(sk.rootH - 2 - k) / 2, by omega, ?_⟩
+    rw [Prod.mk.injEq]
+    exact ⟨rfl, by omega⟩
+
+/-- A walk's own four output channels and two inputs are flow channels. -/
+theorem walk_chans_mem {pk : Party × Nat} (hpk : pk ∈ sk.walkKeys) :
+    wireOut pk ∈ allChans sk ∧ askedIn pk ∈ allChans sk
+      ∧ upperOut pk ∈ allChans sk ∧ lowerOut pk ∈ allChans sk := by
+  refine ⟨?_, ?_, ?_, ?_⟩ <;>
+    · unfold allChans
+      refine List.mem_append.mpr (Or.inl (List.mem_append.mpr (Or.inl ?_)))
+      refine List.mem_flatMap.mpr ⟨pk, hpk, ?_⟩
+      simp
+
+/-- The prologue wire channel is a flow channel: the walk above's
+output, or a root wire. -/
+theorem wireIn_mem_allChans (hwf : sk.wellFormed = true)
+    {pk : Party × Nat} (hpk : pk ∈ sk.walkKeys) :
+    wireIn pk ∈ allChans sk := by
+  obtain ⟨p, k⟩ := pk
+  obtain ⟨hkr, hpar⟩ := walkKeys_parity sk hwf hpk
+  by_cases htop : k + 1 = sk.rootH
+  · unfold allChans
+    refine List.mem_append.mpr (Or.inr ?_)
+    show wireIn (p, k) ∈ _
+    unfold wireIn
+    simp only [htop]
+    rcases hpar with ⟨rfl, -⟩ | ⟨rfl, -⟩ <;> simp [Party.other]
+  · have hup : (p.other, k + 1) ∈ sk.walkKeys := by
+      refine mem_walkKeys_of sk hwf (by omega) ?_
+      rcases hpar with ⟨rfl, hodd⟩ | ⟨rfl, heven⟩
+      · exact Or.inr ⟨rfl, by omega⟩
+      · exact Or.inl ⟨rfl, by omega⟩
+    have : wireIn (p, k) = wireOut (p.other, k + 1) := by
+      unfold wireIn wireOut
+      rfl
+    rw [this]
+    exact (walk_chans_mem sk hup).1
+
+/-- The query-out channel is a flow channel: the leaf-request stream or
+the asked-in of the walk two stages down. -/
+theorem askedOut_mem_allChans (hwf : sk.wellFormed = true)
+    {pk : Party × Nat} (hpk : pk ∈ sk.walkKeys) (h1 : 1 ≤ pk.2) :
+    askedOut pk ∈ allChans sk := by
+  obtain ⟨p, k⟩ := pk
+  obtain ⟨hkr, hpar⟩ := walkKeys_parity sk hwf hpk
+  by_cases hlt : k < 2
+  · unfold askedOut allChans
+    rw [if_pos (by simpa using hlt)]
+    refine List.mem_append.mpr (Or.inr ?_)
+    simp
+  · have hdn : (p, k - 2) ∈ sk.walkKeys := by
+      refine mem_walkKeys_of sk hwf (by omega) ?_
+      rcases hpar with ⟨rfl, hodd⟩ | ⟨rfl, heven⟩
+      · exact Or.inl ⟨rfl, by omega⟩
+      · exact Or.inr ⟨rfl, by omega⟩
+    have : askedOut (p, k) = askedIn (p, k - 2) := by
+      unfold askedOut askedIn
+      rw [if_neg (by simpa using hlt)]
+    rw [this]
+    exact (walk_chans_mem sk hdn).2.1
+
+-- ======================== the in-scope prefix performedness (chunks)
+
+/-- Everything in the first `i` child chunks of the CURRENT scope is
+performed, given the committed-arm discharge facts: `i` counted wires,
+every D child below `i` resolved and at quota. This is the shared core
+of all four committed-case splits. -/
+theorem chunks_prefix_performed (hwf : sk.wellFormed = true) {s : State}
+    {pk : Party × Nat} (hi : InvP sk .full s) (hpk : pk ∈ sk.walkKeys)
+    (hph2 : (s.walk pk).phase = 2) {i : Nat}
+    (hin : i ≤ sk.nChildren pk.2 (sk.stageScope pk.2 (s.walk pk).scope))
+    (hwc : i ≤ wkWireCount sk s pk)
+    (hdis : ∀ j, j < i →
+      sk.childIsD pk.2 (sk.stageScope pk.2 (s.walk pk).scope) j = true →
+      (s.walk pk).resDone j = true ∧ (s.walk pk).qSent j
+        = sk.qCount pk.2 (sk.stageScope pk.2 (s.walk pk).scope) j) :
+    ∀ e ∈ (List.range i).flatMap (childChunk sk pk (s.walk pk).scope),
+      performed sk s e := by
+  obtain ⟨hscope, -, hqle, -, -, -, -, -, -⟩ :=
+    phase2_child_facts sk hi hpk hph2
+  have hn_fan : sk.nChildren pk.2 (sk.stageScope pk.2 (s.walk pk).scope)
+      ≤ sk.fan := nChildren_le_fan hwf hscope
+  -- every child below `i` is at quota (W children are quota-0)
+  have heq : ∀ j, j < i → (s.walk pk).qSent j
+      = sk.qCount pk.2 (sk.stageScope pk.2 (s.walk pk).scope) j := by
+    intro j hj
+    cases hD : sk.childIsD pk.2 (sk.stageScope pk.2 (s.walk pk).scope) j with
+    | true => exact (hdis j hj hD).2
+    | false =>
+        have hq0 : sk.qCount pk.2 (sk.stageScope pk.2 (s.walk pk).scope) j
+            = 0 := by
+          simp [Skel.qCount, hD]
+        have := hqle j (by omega)
+        omega
+  -- the resolution count dominates the D prefix
+  have hrc : dRank sk pk (s.walk pk).scope i ≤ wkResCount sk s pk := by
+    have h1 : ((List.range sk.fan).filter fun j =>
+        decide (j < i) && sk.childIsD pk.2
+          (sk.stageScope pk.2 (s.walk pk).scope) j).length
+        ≤ ((List.range sk.fan).filter fun j =>
+            (s.walk pk).resDone j).length := by
+      refine length_filter_le_of_imp fun x _ hx => ?_
+      simp only [Bool.and_eq_true, decide_eq_true_eq] at hx
+      exact (hdis x hx.1 hx.2).1
+    rw [filter_range_and_lt (by omega)] at h1
+    simp only [wkResCount]
+    exact h1
+  intro e he
+  obtain ⟨j, hjr, hje⟩ := List.mem_flatMap.1 he
+  rw [List.mem_range] at hjr
+  cases hD : sk.childIsD pk.2 (sk.stageScope pk.2 (s.walk pk).scope) j with
+  | true =>
+      rw [chunkD sk pk (s.walk pk).scope j hD] at hje
+      rcases List.mem_cons.1 hje with rfl | hje
+      · show sk.wiresBefore pk.2 (s.walk pk).scope + j
+            < sentOf sk s (wireOut pk)
+        rw [sentOf_wireOut hpk]
+        unfold wkWireSent
+        omega
+      rcases List.mem_cons.1 hje with rfl | hje
+      · show sk.dsBefore pk.2 (s.walk pk).scope + dRank sk pk (s.walk pk).scope j
+            < sentOf sk s (lowerOut pk)
+        rw [sentOf_lowerOut]
+        have hstep : dRank sk pk (s.walk pk).scope (j + 1)
+            = dRank sk pk (s.walk pk).scope j + 1 := by
+          rw [dRank_succ, if_pos hD]
+        have hmono := dRank_mono sk pk (s.walk pk).scope
+          (show j + 1 ≤ i by omega)
+        unfold wkResSent
+        omega
+      · obtain ⟨cc, bb, nn⟩ := e
+        obtain ⟨hc, hb, hlo, hhi⟩ := mem_seg hje
+        subst hc hb
+        have h1 : 1 ≤ pk.2 := by
+          cases hp2 : pk.2 with
+          | zero =>
+              rw [hp2] at hD
+              simp [Skel.childIsD] at hD
+          | succ m => omega
+        show nn < sentOf sk s (askedOut pk)
+        rw [sentOf_askedOut hwf hpk h1]
+        have hsum : qSum sk pk (s.walk pk).scope i ≤ wkQSum sk s pk := by
+          have hcongr : (List.range i).map
+              (fun i' => sk.qCount pk.2
+                (sk.stageScope pk.2 (s.walk pk).scope) i')
+              = (List.range i).map (s.walk pk).qSent := by
+            refine List.map_congr_left fun x hx => ?_
+            rw [List.mem_range] at hx
+            exact (heq x hx).symm
+          calc qSum sk pk (s.walk pk).scope i
+              = ((List.range i).map (s.walk pk).qSent).sum := by
+                unfold qSum
+                rw [hcongr]
+            _ ≤ wkQSum sk s pk := qsum_prefix_le sk s pk (by omega)
+        have hq1 : qSum sk pk (s.walk pk).scope j
+              + sk.qCount pk.2 (sk.stageScope pk.2 (s.walk pk).scope) j
+            = qSum sk pk (s.walk pk).scope (j + 1) :=
+          (qSum_succ sk pk (s.walk pk).scope j).symm
+        have hq2 := qSum_mono sk pk (s.walk pk).scope
+          (show j + 1 ≤ i by omega)
+        unfold wkQSentTot
+        omega
+  | false =>
+      rw [chunkR sk pk (s.walk pk).scope j hD] at hje
+      rcases List.mem_cons.1 hje with rfl | hje
+      · show sk.wiresBefore pk.2 (s.walk pk).scope + j
+            < sentOf sk s (wireOut pk)
+        rw [sentOf_wireOut hpk]
+        unfold wkWireSent
+        omega
+      · cases hje
+
+/-- The resolution count dominates the D-rank of any discharged
+prefix. -/
+theorem dRank_le_resCount {s : State} {pk : Party × Nat} {i : Nat}
+    (hif : i ≤ sk.fan)
+    (hdis : ∀ j, j < i →
+      sk.childIsD pk.2 (sk.stageScope pk.2 (s.walk pk).scope) j = true →
+      (s.walk pk).resDone j = true) :
+    dRank sk pk (s.walk pk).scope i ≤ wkResCount sk s pk := by
+  have h1 : ((List.range sk.fan).filter fun j =>
+      decide (j < i) && sk.childIsD pk.2
+        (sk.stageScope pk.2 (s.walk pk).scope) j).length
+      ≤ ((List.range sk.fan).filter fun j =>
+          (s.walk pk).resDone j).length := by
+    refine length_filter_le_of_imp fun x _ hx => ?_
+    simp only [Bool.and_eq_true, decide_eq_true_eq] at hx
+    exact hdis x hx.1 hx.2
+  rw [filter_range_and_lt hif] at h1
+  simp only [wkResCount]
+  exact h1
+
+/-- A fired wire at `i` puts the wire count past `i` (prefix closure). -/
+theorem wireCount_ge_succ {s : State} {pk : Party × Nat}
+    (hi : InvP sk .full s) (hpk : pk ∈ sk.walkKeys)
+    (hph2 : (s.walk pk).phase = 2) {i : Nat} (hif : i < sk.fan)
+    (hw : (s.walk pk).wireDone i = true) :
+    i + 1 ≤ wkWireCount sk s pk := by
+  obtain ⟨-, hc1, -, -, -, -, -, -, -⟩ := phase2_child_facts sk hi hpk hph2
+  have hclosed : ∀ j, j < sk.fan → (s.walk pk).wireDone j = true →
+      j = 0 ∨ (s.walk pk).wireDone (j - 1) = true :=
+    fun j hj hwj => (hc1 j hj hwj).2
+  have hlow : ∀ j, j < i + 1 → (s.walk pk).wireDone j = true := by
+    intro j hj
+    exact fired_below hclosed hif hw j (by omega)
+  simp only [wkWireCount]
+  exact count_ge_of_prefix (by omega) hlow
+
+/-- Map-flatten is flatMap, the form the chunk lemmas speak. -/
+theorem flatten_map {α β : Type _} (l : List α) (F : α → List β) :
+    (l.map F).flatten = l.flatMap F :=
+  (List.flatMap_def ..).symm
+
+/-- Sum of a pointwise-zero map. -/
+theorem sum_map_zero {α : Type _} {f : α → Nat} :
+    ∀ {l : List α}, (∀ x ∈ l, f x = 0) → (l.map f).sum = 0
+  | [], _ => rfl
+  | x :: xs, h => by
+      simp only [List.map_cons, List.sum_cons,
+        h x (List.mem_cons_self ..),
+        sum_map_zero fun y hy => h y (List.mem_cons_of_mem _ hy)]
+
+/-- `range` drops to a `range'` tail. -/
+theorem drop_range {m n : Nat} (h : m ≤ n) :
+    (List.range n).drop m = List.range' m (n - m) := by
+  rw [range_split h, List.drop_left' (by rw [List.length_range])]
+
+-- ============================================== the walk pending decode
+
+/-- The walk's pending event and action, per phase: the prologue
+receive it awaits, or the committed obligation's fire. Empty exactly at
+choice points (phase-2 uncommitted) and past the channel work
+(phase ≥ 3). -/
+def wkPend (s : State) (pk : Party × Nat) : List (Ev × Action) :=
+  let ws := s.walk pk
+  if ws.phase = 0 then
+    [((wireIn pk, false, ws.scope), .walkRecvWire pk)]
+  else if ws.phase = 1 then
+    [((askedIn pk, false, ws.scope), .walkRecvAsked pk)]
+  else if ws.phase = 2 then
+    match ws.committed with
+    | some (.wire i) =>
+        [((wireOut pk, true, sk.wiresBefore pk.2 ws.scope + i),
+          .walkFire pk)]
+    | some (.res i) =>
+        [((lowerOut pk, true,
+            sk.dsBefore pk.2 ws.scope + dRank sk pk ws.scope i),
+          .walkFire pk)]
+    | some (.query i) =>
+        [((askedOut pk, true,
+            sk.qsBefore pk.2 ws.scope + qSum sk pk ws.scope i
+              + ws.qSent i),
+          .walkFire pk)]
+    | some .parent => [((upperOut pk, true, ws.scope), .walkFire pk)]
+    | none => []
+  else []
+
+set_option maxHeartbeats 1000000 in
+/-- The committed-case split: the in-scope prefix below the committed
+obligation's event is performed, and the event carries the channel's
+current count. This is where the amended guards earn their keep — the
+`d5` mirrors force the parent into the performed prefix at exactly the
+positions the trace splices it. -/
+private theorem walk_committed_split (hwf : sk.wellFormed = true)
+    {s : State} {pk : Party × Nat} (hi : InvP sk .full s)
+    (hpk : pk ∈ sk.walkKeys) (hph2 : (s.walk pk).phase = 2)
+    {o : Oblig} (hcm : (s.walk pk).committed = some o) :
+    ∃ f isp ss,
+      wkPend sk s pk = [(f, .walkFire pk)]
+      ∧ scopeSends sk pk (s.walk pk).scope = isp ++ f :: ss
+      ∧ (∀ e ∈ isp, performed sk s e)
+      ∧ f.1 = obligChan pk o ∧ f.2.1 = true
+      ∧ f.2.2 = sentOf sk s f.1
+      ∧ f.1 ∈ allChans sk := by
+  obtain ⟨hscope, hwbc, hqle, hresD, hres5, hresw, hqres, hq4, hw10⟩ :=
+    phase2_child_facts sk hi hpk hph2
+  have hn_fan : sk.nChildren pk.2 (sk.stageScope pk.2 (s.walk pk).scope)
+      ≤ sk.fan := nChildren_le_fan hwf hscope
+  have hwk := hi.wk pk hpk
+  simp only [wkLocalOk] at hwk
+  rw [hph2, hcm] at hwk
+  -- shared chunk-membership transfer
+  have hsub_of_lt : ∀ {j i' : Nat}, j < i' →
+      ∀ e ∈ childChunk sk pk (s.walk pk).scope j,
+      e ∈ (List.range i').flatMap (childChunk sk pk (s.walk pk).scope) :=
+    fun {j i'} hj e he => List.mem_flatMap.mpr ⟨j, List.mem_range.mpr hj, he⟩
+  cases o with
+  | wire i =>
+      simp [AxMode.full] at hwk
+      obtain ⟨-, -, ⟨⟨hieq, hin⟩, hd4⟩, hd5⟩ := hwk
+      have hdis : ∀ j, j < i →
+          sk.childIsD pk.2 (sk.stageScope pk.2 (s.walk pk).scope) j = true →
+          (s.walk pk).resDone j = true ∧ (s.walk pk).qSent j
+            = sk.qCount pk.2 (sk.stageScope pk.2 (s.walk pk).scope) j := by
+        intro j hj hD
+        rcases hd4 j hj with hf | h
+        · rw [hD] at hf; cases hf
+        · exact h
+      have hperf := chunks_prefix_performed sk hwf hi hpk hph2
+        (show i ≤ _ by omega) (by omega) hdis
+      have hpend : wkPend sk s pk = [((wireOut pk, true,
+          sk.wiresBefore pk.2 (s.walk pk).scope + i), .walkFire pk)] := by
+        simp [wkPend, hph2, hcm]
+      have hseqf : sk.wiresBefore pk.2 (s.walk pk).scope + i
+          = sentOf sk s (wireOut pk) := by
+        rw [sentOf_wireOut hpk]
+        unfold wkWireSent
+        omega
+      have hpd_of : (∀ j, j < sk.nChildren pk.2
+          (sk.stageScope pk.2 (s.walk pk).scope) →
+          sk.childIsD pk.2 (sk.stageScope pk.2 (s.walk pk).scope) j = true →
+          (s.walk pk).resDone j = true) →
+          (s.walk pk).parentDone = true := by
+        intro hall2
+        rcases hd5 with hpd | ⟨x, hx, hDx, hrx⟩
+        · exact hpd
+        · rw [hall2 x hx hDx] at hrx
+          cases hrx
+      cases hlast : ((List.range (sk.nChildren pk.2
+          (sk.stageScope pk.2 (s.walk pk).scope))).filter fun i' =>
+          sk.childIsD pk.2 (sk.stageScope pk.2 (s.walk pk).scope) i').getLast?
+          with
+      | none =>
+          have hnoD : ∀ j, j < sk.nChildren pk.2
+              (sk.stageScope pk.2 (s.walk pk).scope) →
+              sk.childIsD pk.2 (sk.stageScope pk.2 (s.walk pk).scope) j
+                = false := by
+            intro j hj
+            by_contra hD
+            rw [Bool.not_eq_false] at hD
+            have hm : j ∈ (List.range (sk.nChildren pk.2
+                (sk.stageScope pk.2 (s.walk pk).scope))).filter fun i' =>
+                sk.childIsD pk.2 (sk.stageScope pk.2 (s.walk pk).scope) i' :=
+              List.mem_filter.2 ⟨List.mem_range.2 hj, hD⟩
+            rw [List.getLast?_eq_none_iff.1 hlast] at hm
+            cases hm
+          have hpd := hpd_of fun j hj hD => absurd hD (by simp [hnoD j hj])
+          refine ⟨(wireOut pk, true,
+              sk.wiresBefore pk.2 (s.walk pk).scope + i),
+            (upperOut pk, true, (s.walk pk).scope)
+              :: (List.range i).flatMap
+                (childChunk sk pk (s.walk pk).scope),
+            (List.range' (i + 1) (sk.nChildren pk.2
+              (sk.stageScope pk.2 (s.walk pk).scope) - i - 1)).flatMap
+              (childChunk sk pk (s.walk pk).scope),
+            hpend, ?_, ?_, rfl, rfl, hseqf, (walk_chans_mem sk hpk).1⟩
+          · simp only [scopeSends, hlast]
+            rw [flatten_map, range_split (show i ≤ _ by omega),
+              List.flatMap_append,
+              show sk.nChildren pk.2 (sk.stageScope pk.2 (s.walk pk).scope)
+                  - i = (sk.nChildren pk.2
+                    (sk.stageScope pk.2 (s.walk pk).scope) - i - 1) + 1
+                from by omega,
+              List.range'_succ, List.flatMap_cons,
+              chunkR sk pk (s.walk pk).scope i (hnoD i hin)]
+            simp [List.cons_append, List.append_assoc]
+          · intro e he
+            rcases List.mem_cons.1 he with rfl | he
+            · show (s.walk pk).scope < sentOf sk s (upperOut pk)
+              rw [sentOf_upperOut]
+              simp only [wkParentSent]
+              rw [if_pos (by simp [hph2, hpd])]
+              omega
+            · exact hperf e he
+      | some jL =>
+          have hjmem := List.mem_of_getLast? hlast
+          rw [List.mem_filter, List.mem_range] at hjmem
+          obtain ⟨hjLn, hjLD⟩ := hjmem
+          have hget : ((List.range (sk.nChildren pk.2
+              (sk.stageScope pk.2 (s.walk pk).scope))).map
+              (childChunk sk pk (s.walk pk).scope)).getD jL []
+              = childChunk sk pk (s.walk pk).scope jL := by
+            rw [List.getD_eq_getElem?_getD, List.getElem?_map,
+              List.getElem?_range hjLn]
+            rfl
+          have htake : ((List.range (sk.nChildren pk.2
+              (sk.stageScope pk.2 (s.walk pk).scope))).map
+              (childChunk sk pk (s.walk pk).scope)).take jL
+              = (List.range jL).map (childChunk sk pk (s.walk pk).scope) := by
+            rw [← List.map_take, List.take_range,
+              Nat.min_eq_left (by omega)]
+          have hdropfl : ((((List.range (sk.nChildren pk.2
+              (sk.stageScope pk.2 (s.walk pk).scope))).map
+              (childChunk sk pk (s.walk pk).scope)).drop (jL + 1)).flatten)
+              = (List.range' (jL + 1) (sk.nChildren pk.2
+                  (sk.stageScope pk.2 (s.walk pk).scope) - (jL + 1))).flatMap
+                  (childChunk sk pk (s.walk pk).scope) := by
+            rw [← List.map_drop, drop_range (by omega), flatten_map]
+          rcases Nat.lt_or_ge i (jL + 1) with hij | hij
+          · -- i ≤ jL: the wire precedes the splice; prefix is chunks < i
+            rcases Nat.lt_or_ge i jL with hilt | hieq2
+            · -- i < jL: the wire heads its own chunk inside the take
+              refine ⟨(wireOut pk, true,
+                  sk.wiresBefore pk.2 (s.walk pk).scope + i),
+                (List.range i).flatMap (childChunk sk pk (s.walk pk).scope),
+                (childChunk sk pk (s.walk pk).scope i).tail
+                  ++ ((List.range' (i + 1) (jL - i - 1)).flatMap
+                      (childChunk sk pk (s.walk pk).scope)
+                    ++ ((childChunk sk pk (s.walk pk).scope jL).take 2
+                      ++ (upperOut pk, true, (s.walk pk).scope)
+                        :: ((childChunk sk pk (s.walk pk).scope jL).drop 2
+                          ++ (List.range' (jL + 1) (sk.nChildren pk.2
+                              (sk.stageScope pk.2 (s.walk pk).scope)
+                                - (jL + 1))).flatMap
+                              (childChunk sk pk (s.walk pk).scope)))),
+                hpend, ?_, hperf,
+                rfl, rfl, hseqf, (walk_chans_mem sk hpk).1⟩
+              simp only [scopeSends, hlast]
+              rw [htake, hget, flatten_map, hdropfl,
+                range_split (show i ≤ jL by omega),
+                List.flatMap_append,
+                show jL - i = (jL - i - 1) + 1 from by omega,
+                List.range'_succ, List.flatMap_cons]
+              have hhead : childChunk sk pk (s.walk pk).scope i
+                  = (wireOut pk, true,
+                      sk.wiresBefore pk.2 (s.walk pk).scope + i)
+                    :: (childChunk sk pk (s.walk pk).scope i).tail := by
+                cases hD : sk.childIsD pk.2
+                    (sk.stageScope pk.2 (s.walk pk).scope) i with
+                | true => rw [chunkD sk pk (s.walk pk).scope i hD]; rfl
+                | false => rw [chunkR sk pk (s.walk pk).scope i hD]; rfl
+              conv => lhs; rw [hhead]
+              simp [List.cons_append, List.append_assoc]
+            · -- i = jL: the wire heads the take-2 pair
+              have hieq3 : i = jL := by omega
+              subst hieq3
+              refine ⟨(wireOut pk, true,
+                  sk.wiresBefore pk.2 (s.walk pk).scope + i),
+                (List.range i).flatMap (childChunk sk pk (s.walk pk).scope),
+                (lowerOut pk, true, sk.dsBefore pk.2 (s.walk pk).scope
+                    + dRank sk pk (s.walk pk).scope i)
+                  :: (upperOut pk, true, (s.walk pk).scope)
+                  :: (seg (askedOut pk) true
+                      (sk.qsBefore pk.2 (s.walk pk).scope
+                        + qSum sk pk (s.walk pk).scope i)
+                      (sk.qCount pk.2 (sk.stageScope pk.2 (s.walk pk).scope) i)
+                    ++ (List.range' (i + 1) (sk.nChildren pk.2
+                        (sk.stageScope pk.2 (s.walk pk).scope)
+                          - (i + 1))).flatMap
+                        (childChunk sk pk (s.walk pk).scope)),
+                hpend, ?_, hperf,
+                rfl, rfl, hseqf, (walk_chans_mem sk hpk).1⟩
+              simp only [scopeSends, hlast]
+              rw [htake, hget, flatten_map, hdropfl,
+                chunkD sk pk (s.walk pk).scope i hjLD]
+              simp [List.cons_append, List.append_assoc, seg]
+          · -- jL < i: the wire is past the splice; the parent is owed
+            have hnotDi : sk.childIsD pk.2
+                (sk.stageScope pk.2 (s.walk pk).scope) i = false :=
+              lastDOf_max sk (show lastDOf sk pk.2 (s.walk pk).scope
+                = some jL from hlast) (by omega)
+            have hpd : (s.walk pk).parentDone = true := by
+              refine hpd_of fun j hj hD => ?_
+              by_cases hji : j < i
+              · exact (hdis j hji hD).1
+              · have : sk.childIsD pk.2
+                    (sk.stageScope pk.2 (s.walk pk).scope) j = false :=
+                  lastDOf_max sk (show lastDOf sk pk.2 (s.walk pk).scope
+                    = some jL from hlast) (by omega)
+                rw [this] at hD
+                cases hD
+            refine ⟨(wireOut pk, true,
+                sk.wiresBefore pk.2 (s.walk pk).scope + i),
+              (List.range jL).flatMap (childChunk sk pk (s.walk pk).scope)
+                ++ (childChunk sk pk (s.walk pk).scope jL).take 2
+                ++ (upperOut pk, true, (s.walk pk).scope)
+                  :: ((childChunk sk pk (s.walk pk).scope jL).drop 2
+                    ++ (List.range' (jL + 1) (i - (jL + 1))).flatMap
+                        (childChunk sk pk (s.walk pk).scope)),
+              (List.range' (i + 1) (sk.nChildren pk.2
+                  (sk.stageScope pk.2 (s.walk pk).scope) - i - 1)).flatMap
+                  (childChunk sk pk (s.walk pk).scope),
+              hpend, ?_, ?_,
+              rfl, rfl, hseqf, (walk_chans_mem sk hpk).1⟩
+            · simp only [scopeSends, hlast]
+              rw [htake, hget, flatten_map, hdropfl,
+                show sk.nChildren pk.2 (sk.stageScope pk.2 (s.walk pk).scope)
+                    - (jL + 1) = (i - (jL + 1))
+                      + (sk.nChildren pk.2
+                        (sk.stageScope pk.2 (s.walk pk).scope) - i)
+                  from by omega,
+                ← List.range'_append, List.flatMap_append,
+                show jL + 1 + 1 * (i - (jL + 1)) = i from by omega,
+                show sk.nChildren pk.2 (sk.stageScope pk.2 (s.walk pk).scope)
+                    - i = (sk.nChildren pk.2
+                      (sk.stageScope pk.2 (s.walk pk).scope) - i - 1) + 1
+                  from by omega,
+                List.range'_succ, List.flatMap_cons,
+                chunkR sk pk (s.walk pk).scope i hnotDi]
+              simp [List.cons_append, List.append_assoc]
+            · intro e he
+              rcases List.mem_append.1 he with hL | hR
+              rcases List.mem_append.1 hL with hjls | htk2
+              · obtain ⟨j, hjm, hje⟩ := List.mem_flatMap.1 hjls
+                rw [List.mem_range] at hjm
+                exact hperf e (hsub_of_lt (by omega) e hje)
+              · exact hperf e (hsub_of_lt (by omega) e
+                  (List.mem_of_mem_take htk2))
+              rcases List.mem_cons.1 hR with rfl | hR2
+              · show (s.walk pk).scope < sentOf sk s (upperOut pk)
+                rw [sentOf_upperOut]
+                simp only [wkParentSent]
+                rw [if_pos (by simp [hph2, hpd])]
+                omega
+              rcases List.mem_append.1 hR2 with hdp | hmid
+              · exact hperf e (hsub_of_lt (by omega) e
+                  (List.mem_of_mem_drop hdp))
+              · obtain ⟨j, hjm, hje⟩ := List.mem_flatMap.1 hmid
+                have := List.mem_range'_1.1 hjm
+                exact hperf e (hsub_of_lt (by omega) e hje)
+  | res i =>
+      simp [AxMode.full] at hwk
+      obtain ⟨-, -, ⟨⟨⟨⟨hin, hDi⟩, hnr⟩, hpre⟩, hwi⟩, hd3⟩ := hwk
+      have h1 : 1 ≤ pk.2 := by
+        cases hp2 : pk.2 with
+        | zero => rw [hp2] at hDi; simp [Skel.childIsD] at hDi
+        | succ m => omega
+      have hpre' : ∀ j, j < i →
+          sk.childIsD pk.2 (sk.stageScope pk.2 (s.walk pk).scope) j = true →
+          (s.walk pk).resDone j = true := by
+        intro j hj hD
+        rcases hpre j hj with hf | h
+        · rw [hD] at hf; cases hf
+        · exact h
+      have hd3' : ∀ j, j < sk.nChildren pk.2
+          (sk.stageScope pk.2 (s.walk pk).scope) →
+          (s.walk pk).resDone j = true → (s.walk pk).qSent j
+            = sk.qCount pk.2 (sk.stageScope pk.2 (s.walk pk).scope) j := by
+        intro j hj hr
+        rcases hd3 j hj with hf | h
+        · rw [hr] at hf; cases hf
+        · exact h
+      have hdis : ∀ j, j < i →
+          sk.childIsD pk.2 (sk.stageScope pk.2 (s.walk pk).scope) j = true →
+          (s.walk pk).resDone j = true ∧ (s.walk pk).qSent j
+            = sk.qCount pk.2 (sk.stageScope pk.2 (s.walk pk).scope) j :=
+        fun j hj hD => ⟨hpre' j hj hD,
+          hd3' j (by omega) (hpre' j hj hD)⟩
+      have hwc := wireCount_ge_succ sk hi hpk hph2
+        (show i < sk.fan by omega) hwi
+      have hperf := chunks_prefix_performed sk hwf hi hpk hph2
+        (show i ≤ _ by omega) (by omega) hdis
+      have hpend : wkPend sk s pk = [((lowerOut pk, true,
+          sk.dsBefore pk.2 (s.walk pk).scope
+            + dRank sk pk (s.walk pk).scope i), .walkFire pk)] := by
+        simp [wkPend, hph2, hcm]
+      -- the resolution ledger is EXACTLY the D prefix below `i`
+      have hseteq : ∀ j, j < sk.fan → (s.walk pk).resDone j
+          = (decide (j < i) && sk.childIsD pk.2
+              (sk.stageScope pk.2 (s.walk pk).scope) j) := by
+        intro j hj
+        by_cases hji : j < i
+        · cases hD : sk.childIsD pk.2
+              (sk.stageScope pk.2 (s.walk pk).scope) j with
+          | true =>
+              rw [hpre' j hji hD]
+              simp [hji]
+          | false =>
+              cases hr : (s.walk pk).resDone j with
+              | false => simp [hji, hD]
+              | true =>
+                  have := hresD j hj hr
+                  rw [hD] at this
+                  cases this
+        · cases hr : (s.walk pk).resDone j with
+          | false => simp [hji]
+          | true =>
+              exfalso
+              rcases Nat.lt_or_ge i j with hij2 | hij2
+              · have := hres5 j hj hr i hij2 hDi
+                rw [hnr] at this
+                cases this
+              · have hje : j = i := by omega
+                subst hje
+                rw [hnr] at hr
+                cases hr
+      have hcnt : wkResCount sk s pk = dRank sk pk (s.walk pk).scope i := by
+        simp only [wkResCount]
+        rw [List.filter_congr fun j hj => hseteq j (List.mem_range.1 hj),
+          filter_range_and_lt (show i ≤ sk.fan by omega)]
+        rfl
+      have hseqf : sk.dsBefore pk.2 (s.walk pk).scope
+          + dRank sk pk (s.walk pk).scope i = sentOf sk s (lowerOut pk) := by
+        rw [sentOf_lowerOut]
+        unfold wkResSent
+        omega
+      cases hlast : ((List.range (sk.nChildren pk.2
+          (sk.stageScope pk.2 (s.walk pk).scope))).filter fun i' =>
+          sk.childIsD pk.2 (sk.stageScope pk.2 (s.walk pk).scope) i').getLast?
+          with
+      | none =>
+          exfalso
+          have hm : i ∈ (List.range (sk.nChildren pk.2
+              (sk.stageScope pk.2 (s.walk pk).scope))).filter fun i' =>
+              sk.childIsD pk.2 (sk.stageScope pk.2 (s.walk pk).scope) i' :=
+            List.mem_filter.2 ⟨List.mem_range.2 hin, hDi⟩
+          rw [List.getLast?_eq_none_iff.1 hlast] at hm
+          cases hm
+      | some jL =>
+          have hjmem := List.mem_of_getLast? hlast
+          rw [List.mem_filter, List.mem_range] at hjmem
+          obtain ⟨hjLn, hjLD⟩ := hjmem
+          have hijL : i ≤ jL := by
+            by_contra hgt
+            have := lastDOf_max sk (show lastDOf sk pk.2 (s.walk pk).scope
+              = some jL from hlast) (show jL < i by omega)
+            rw [this] at hDi
+            cases hDi
+          have hget : ((List.range (sk.nChildren pk.2
+              (sk.stageScope pk.2 (s.walk pk).scope))).map
+              (childChunk sk pk (s.walk pk).scope)).getD jL []
+              = childChunk sk pk (s.walk pk).scope jL := by
+            rw [List.getD_eq_getElem?_getD, List.getElem?_map,
+              List.getElem?_range hjLn]
+            rfl
+          have htake : ((List.range (sk.nChildren pk.2
+              (sk.stageScope pk.2 (s.walk pk).scope))).map
+              (childChunk sk pk (s.walk pk).scope)).take jL
+              = (List.range jL).map (childChunk sk pk (s.walk pk).scope) := by
+            rw [← List.map_take, List.take_range,
+              Nat.min_eq_left (by omega)]
+          have hdropfl : ((((List.range (sk.nChildren pk.2
+              (sk.stageScope pk.2 (s.walk pk).scope))).map
+              (childChunk sk pk (s.walk pk).scope)).drop (jL + 1)).flatten)
+              = (List.range' (jL + 1) (sk.nChildren pk.2
+                  (sk.stageScope pk.2 (s.walk pk).scope) - (jL + 1))).flatMap
+                  (childChunk sk pk (s.walk pk).scope) := by
+            rw [← List.map_drop, drop_range (by omega), flatten_map]
+          have hprefperf : ∀ e ∈ (List.range i).flatMap
+                (childChunk sk pk (s.walk pk).scope)
+              ++ [(wireOut pk, true,
+                  sk.wiresBefore pk.2 (s.walk pk).scope + i)],
+              performed sk s e := by
+            intro e he
+            rcases List.mem_append.1 he with hfm | hone
+            · exact hperf e hfm
+            · rw [List.mem_singleton] at hone
+              subst hone
+              show sk.wiresBefore pk.2 (s.walk pk).scope + i
+                  < sentOf sk s (wireOut pk)
+              rw [sentOf_wireOut hpk]
+              unfold wkWireSent
+              omega
+          rcases Nat.lt_or_ge i jL with hilt | hieq2
+          · refine ⟨(lowerOut pk, true,
+                sk.dsBefore pk.2 (s.walk pk).scope
+                  + dRank sk pk (s.walk pk).scope i),
+              (List.range i).flatMap (childChunk sk pk (s.walk pk).scope)
+                ++ [(wireOut pk, true,
+                    sk.wiresBefore pk.2 (s.walk pk).scope + i)],
+              seg (askedOut pk) true
+                  (sk.qsBefore pk.2 (s.walk pk).scope
+                    + qSum sk pk (s.walk pk).scope i)
+                  (sk.qCount pk.2 (sk.stageScope pk.2 (s.walk pk).scope) i)
+                ++ ((List.range' (i + 1) (jL - i - 1)).flatMap
+                    (childChunk sk pk (s.walk pk).scope)
+                  ++ ((childChunk sk pk (s.walk pk).scope jL).take 2
+                    ++ (upperOut pk, true, (s.walk pk).scope)
+                      :: ((childChunk sk pk (s.walk pk).scope jL).drop 2
+                        ++ (List.range' (jL + 1) (sk.nChildren pk.2
+                            (sk.stageScope pk.2 (s.walk pk).scope)
+                              - (jL + 1))).flatMap
+                            (childChunk sk pk (s.walk pk).scope)))),
+              hpend, ?_, hprefperf,
+              rfl, rfl, hseqf, (walk_chans_mem sk hpk).2.2.2⟩
+            simp only [scopeSends, hlast]
+            rw [htake, hget, flatten_map, hdropfl,
+              range_split (show i ≤ jL by omega),
+              List.flatMap_append,
+              show jL - i = (jL - i - 1) + 1 from by omega,
+              List.range'_succ, List.flatMap_cons,
+              chunkD sk pk (s.walk pk).scope i hDi]
+            simp [List.cons_append, List.append_assoc]
+          · have hieq3 : i = jL := by omega
+            subst hieq3
+            refine ⟨(lowerOut pk, true,
+                sk.dsBefore pk.2 (s.walk pk).scope
+                  + dRank sk pk (s.walk pk).scope i),
+              (List.range i).flatMap (childChunk sk pk (s.walk pk).scope)
+                ++ [(wireOut pk, true,
+                    sk.wiresBefore pk.2 (s.walk pk).scope + i)],
+              (upperOut pk, true, (s.walk pk).scope)
+                :: (seg (askedOut pk) true
+                    (sk.qsBefore pk.2 (s.walk pk).scope
+                      + qSum sk pk (s.walk pk).scope i)
+                    (sk.qCount pk.2 (sk.stageScope pk.2 (s.walk pk).scope) i)
+                  ++ (List.range' (i + 1) (sk.nChildren pk.2
+                      (sk.stageScope pk.2 (s.walk pk).scope) - (i + 1))).flatMap
+                      (childChunk sk pk (s.walk pk).scope)),
+              hpend, ?_, hprefperf,
+              rfl, rfl, hseqf, (walk_chans_mem sk hpk).2.2.2⟩
+            simp only [scopeSends, hlast]
+            rw [htake, hget, flatten_map, hdropfl,
+              chunkD sk pk (s.walk pk).scope i hjLD]
+            simp [List.cons_append, List.append_assoc]
+  | query i =>
+      simp [AxMode.full] at hwk
+      obtain ⟨-, -, ⟨⟨⟨⟨hin, hDi⟩, hqlt⟩, hqpre⟩, hres⟩, hd5⟩ := hwk
+      have h1 : 1 ≤ pk.2 := by
+        cases hp2 : pk.2 with
+        | zero => rw [hp2] at hDi; simp [Skel.childIsD] at hDi
+        | succ m => omega
+      have hwi : (s.walk pk).wireDone i = true :=
+        hresw i (by omega) hres
+      have hwc := wireCount_ge_succ sk hi hpk hph2
+        (show i < sk.fan by omega) hwi
+      have hdis : ∀ j, j < i →
+          sk.childIsD pk.2 (sk.stageScope pk.2 (s.walk pk).scope) j = true →
+          (s.walk pk).resDone j = true ∧ (s.walk pk).qSent j
+            = sk.qCount pk.2 (sk.stageScope pk.2 (s.walk pk).scope) j :=
+        fun j hj hD => ⟨hres5 i (by omega) hres j hj hD, hqpre j hj⟩
+      have hperf := chunks_prefix_performed sk hwf hi hpk hph2
+        (show i ≤ _ by omega) (by omega) hdis
+      have hpend : wkPend sk s pk = [((askedOut pk, true,
+          sk.qsBefore pk.2 (s.walk pk).scope
+            + qSum sk pk (s.walk pk).scope i + (s.walk pk).qSent i),
+          .walkFire pk)] := by
+        simp [wkPend, hph2, hcm]
+      -- the query ledger cuts exactly at `i`
+      have hqsum_exact : wkQSum sk s pk
+          = qSum sk pk (s.walk pk).scope i + (s.walk pk).qSent i := by
+        rw [wkQSum_eq_sum,
+          range_split (show i + 1 ≤ sk.fan by omega),
+          List.map_append, List.sum_append, List.range_succ,
+          List.map_append, List.sum_append]
+        have hz : ((List.range' (i + 1) (sk.fan - (i + 1))).map
+            (s.walk pk).qSent).sum = 0 := by
+          refine sum_map_zero fun j hj => ?_
+          have hjb := List.mem_range'_1.1 hj
+          by_contra hnz
+          have hq := hq4 j (by omega) (by omega) i (by omega)
+          omega
+        have hleft : ((List.range i).map (s.walk pk).qSent).sum
+            = qSum sk pk (s.walk pk).scope i := by
+          unfold qSum
+          congr 1
+          refine List.map_congr_left fun j hj => ?_
+          exact hqpre j (List.mem_range.1 hj)
+        rw [hz, hleft]
+        simp
+      have hseqf : sk.qsBefore pk.2 (s.walk pk).scope
+          + qSum sk pk (s.walk pk).scope i + (s.walk pk).qSent i
+          = sentOf sk s (askedOut pk) := by
+        rw [sentOf_askedOut hwf hpk h1]
+        unfold wkQSentTot
+        omega
+      -- the mid-chunk seg split at the query cursor
+      have hsegsplit : seg (askedOut pk) true
+          (sk.qsBefore pk.2 (s.walk pk).scope
+            + qSum sk pk (s.walk pk).scope i)
+          (sk.qCount pk.2 (sk.stageScope pk.2 (s.walk pk).scope) i)
+          = seg (askedOut pk) true
+              (sk.qsBefore pk.2 (s.walk pk).scope
+                + qSum sk pk (s.walk pk).scope i) ((s.walk pk).qSent i)
+            ++ (askedOut pk, true,
+                sk.qsBefore pk.2 (s.walk pk).scope
+                  + qSum sk pk (s.walk pk).scope i + (s.walk pk).qSent i)
+              :: seg (askedOut pk) true
+                (sk.qsBefore pk.2 (s.walk pk).scope
+                  + qSum sk pk (s.walk pk).scope i + (s.walk pk).qSent i + 1)
+                (sk.qCount pk.2 (sk.stageScope pk.2 (s.walk pk).scope) i
+                  - (s.walk pk).qSent i - 1) := by
+        conv => lhs; rw [show sk.qCount pk.2
+            (sk.stageScope pk.2 (s.walk pk).scope) i
+            = (s.walk pk).qSent i
+              + ((sk.qCount pk.2 (sk.stageScope pk.2 (s.walk pk).scope) i
+                - (s.walk pk).qSent i - 1) + 1) from by omega]
+        rw [← seg_append, seg_cons]
+      have hsegperf : ∀ e ∈ seg (askedOut pk) true
+          (sk.qsBefore pk.2 (s.walk pk).scope
+            + qSum sk pk (s.walk pk).scope i) ((s.walk pk).qSent i),
+          performed sk s e := by
+        intro e he
+        obtain ⟨cc, bb, nn⟩ := e
+        obtain ⟨hc, hb, hlo, hhi⟩ := mem_seg he
+        subst hc hb
+        show nn < sentOf sk s (askedOut pk)
+        rw [sentOf_askedOut hwf hpk h1]
+        unfold wkQSentTot
+        omega
+      -- prefix through the fired wire and resolution of chunk `i`
+      have hresperf : dRank sk pk (s.walk pk).scope i < wkResCount sk s pk := by
+        have hd' : ∀ j, j < i + 1 →
+            sk.childIsD pk.2 (sk.stageScope pk.2 (s.walk pk).scope) j = true →
+            (s.walk pk).resDone j = true := by
+          intro j hj hD
+          rcases Nat.lt_or_ge j i with hlt | hge
+          · exact (hdis j hlt hD).1
+          · have : j = i := by omega
+            subst this
+            exact hres
+        have := dRank_le_resCount sk (show i + 1 ≤ sk.fan by omega) hd'
+        have hstep : dRank sk pk (s.walk pk).scope (i + 1)
+            = dRank sk pk (s.walk pk).scope i + 1 := by
+          rw [dRank_succ, if_pos hDi]
+        omega
+      have hprefperf : ∀ e ∈ (List.range i).flatMap
+            (childChunk sk pk (s.walk pk).scope)
+          ++ ((wireOut pk, true, sk.wiresBefore pk.2 (s.walk pk).scope + i)
+            :: (lowerOut pk, true, sk.dsBefore pk.2 (s.walk pk).scope
+                + dRank sk pk (s.walk pk).scope i)
+            :: seg (askedOut pk) true
+              (sk.qsBefore pk.2 (s.walk pk).scope
+                + qSum sk pk (s.walk pk).scope i) ((s.walk pk).qSent i)),
+          performed sk s e := by
+        intro e he
+        rcases List.mem_append.1 he with hfm | hcons
+        · exact hperf e hfm
+        rcases List.mem_cons.1 hcons with rfl | hcons
+        · show sk.wiresBefore pk.2 (s.walk pk).scope + i
+              < sentOf sk s (wireOut pk)
+          rw [sentOf_wireOut hpk]
+          unfold wkWireSent
+          omega
+        rcases List.mem_cons.1 hcons with rfl | hseg
+        · show sk.dsBefore pk.2 (s.walk pk).scope
+              + dRank sk pk (s.walk pk).scope i < sentOf sk s (lowerOut pk)
+          rw [sentOf_lowerOut]
+          unfold wkResSent
+          omega
+        · exact hsegperf e hseg
+      cases hlast : ((List.range (sk.nChildren pk.2
+          (sk.stageScope pk.2 (s.walk pk).scope))).filter fun i' =>
+          sk.childIsD pk.2 (sk.stageScope pk.2 (s.walk pk).scope) i').getLast?
+          with
+      | none =>
+          exfalso
+          have hm : i ∈ (List.range (sk.nChildren pk.2
+              (sk.stageScope pk.2 (s.walk pk).scope))).filter fun i' =>
+              sk.childIsD pk.2 (sk.stageScope pk.2 (s.walk pk).scope) i' :=
+            List.mem_filter.2 ⟨List.mem_range.2 hin, hDi⟩
+          rw [List.getLast?_eq_none_iff.1 hlast] at hm
+          cases hm
+      | some jL =>
+          have hjmem := List.mem_of_getLast? hlast
+          rw [List.mem_filter, List.mem_range] at hjmem
+          obtain ⟨hjLn, hjLD⟩ := hjmem
+          have hijL : i ≤ jL := by
+            by_contra hgt
+            have := lastDOf_max sk (show lastDOf sk pk.2 (s.walk pk).scope
+              = some jL from hlast) (show jL < i by omega)
+            rw [this] at hDi
+            cases hDi
+          have hget : ((List.range (sk.nChildren pk.2
+              (sk.stageScope pk.2 (s.walk pk).scope))).map
+              (childChunk sk pk (s.walk pk).scope)).getD jL []
+              = childChunk sk pk (s.walk pk).scope jL := by
+            rw [List.getD_eq_getElem?_getD, List.getElem?_map,
+              List.getElem?_range hjLn]
+            rfl
+          have htake : ((List.range (sk.nChildren pk.2
+              (sk.stageScope pk.2 (s.walk pk).scope))).map
+              (childChunk sk pk (s.walk pk).scope)).take jL
+              = (List.range jL).map (childChunk sk pk (s.walk pk).scope) := by
+            rw [← List.map_take, List.take_range,
+              Nat.min_eq_left (by omega)]
+          have hdropfl : ((((List.range (sk.nChildren pk.2
+              (sk.stageScope pk.2 (s.walk pk).scope))).map
+              (childChunk sk pk (s.walk pk).scope)).drop (jL + 1)).flatten)
+              = (List.range' (jL + 1) (sk.nChildren pk.2
+                  (sk.stageScope pk.2 (s.walk pk).scope) - (jL + 1))).flatMap
+                  (childChunk sk pk (s.walk pk).scope) := by
+            rw [← List.map_drop, drop_range (by omega), flatten_map]
+          rcases Nat.lt_or_ge i jL with hilt | hieq2
+          · refine ⟨(askedOut pk, true,
+                sk.qsBefore pk.2 (s.walk pk).scope
+                  + qSum sk pk (s.walk pk).scope i + (s.walk pk).qSent i),
+              (List.range i).flatMap (childChunk sk pk (s.walk pk).scope)
+                ++ ((wireOut pk, true,
+                    sk.wiresBefore pk.2 (s.walk pk).scope + i)
+                  :: (lowerOut pk, true, sk.dsBefore pk.2 (s.walk pk).scope
+                      + dRank sk pk (s.walk pk).scope i)
+                  :: seg (askedOut pk) true
+                    (sk.qsBefore pk.2 (s.walk pk).scope
+                      + qSum sk pk (s.walk pk).scope i) ((s.walk pk).qSent i)),
+              seg (askedOut pk) true
+                  (sk.qsBefore pk.2 (s.walk pk).scope
+                    + qSum sk pk (s.walk pk).scope i
+                    + (s.walk pk).qSent i + 1)
+                  (sk.qCount pk.2 (sk.stageScope pk.2 (s.walk pk).scope) i
+                    - (s.walk pk).qSent i - 1)
+                ++ ((List.range' (i + 1) (jL - i - 1)).flatMap
+                    (childChunk sk pk (s.walk pk).scope)
+                  ++ ((childChunk sk pk (s.walk pk).scope jL).take 2
+                    ++ (upperOut pk, true, (s.walk pk).scope)
+                      :: ((childChunk sk pk (s.walk pk).scope jL).drop 2
+                        ++ (List.range' (jL + 1) (sk.nChildren pk.2
+                            (sk.stageScope pk.2 (s.walk pk).scope)
+                              - (jL + 1))).flatMap
+                            (childChunk sk pk (s.walk pk).scope)))),
+              hpend, ?_, hprefperf,
+              rfl, rfl, hseqf, askedOut_mem_allChans sk hwf hpk h1⟩
+            simp only [scopeSends, hlast]
+            rw [htake, hget, flatten_map, hdropfl,
+              range_split (show i ≤ jL by omega),
+              List.flatMap_append,
+              show jL - i = (jL - i - 1) + 1 from by omega,
+              List.range'_succ, List.flatMap_cons,
+              chunkD sk pk (s.walk pk).scope i hDi, hsegsplit]
+            simp [List.cons_append, List.append_assoc]
+          · have hieq3 : i = jL := by omega
+            subst hieq3
+            have hpd : (s.walk pk).parentDone = true := by
+              rcases hd5 with hpd | ⟨x, hx, hDx, hrx⟩
+              · exact hpd
+              · exfalso
+                have hxle : x ≤ i := by
+                  by_contra hgt
+                  have := lastDOf_max sk (i := x) (show lastDOf sk pk.2
+                    (s.walk pk).scope = some i from hlast)
+                    (show i < x by omega)
+                  rw [this] at hDx
+                  cases hDx
+                rcases Nat.lt_or_ge x i with hlt | hge
+                · rw [(hdis x hlt hDx).1] at hrx
+                  cases hrx
+                · have : x = i := by omega
+                  subst this
+                  rw [hres] at hrx
+                  cases hrx
+            refine ⟨(askedOut pk, true,
+                sk.qsBefore pk.2 (s.walk pk).scope
+                  + qSum sk pk (s.walk pk).scope i + (s.walk pk).qSent i),
+              (List.range i).flatMap (childChunk sk pk (s.walk pk).scope)
+                ++ ((wireOut pk, true,
+                    sk.wiresBefore pk.2 (s.walk pk).scope + i)
+                  :: (lowerOut pk, true, sk.dsBefore pk.2 (s.walk pk).scope
+                      + dRank sk pk (s.walk pk).scope i)
+                  :: (upperOut pk, true, (s.walk pk).scope)
+                  :: seg (askedOut pk) true
+                    (sk.qsBefore pk.2 (s.walk pk).scope
+                      + qSum sk pk (s.walk pk).scope i) ((s.walk pk).qSent i)),
+              seg (askedOut pk) true
+                  (sk.qsBefore pk.2 (s.walk pk).scope
+                    + qSum sk pk (s.walk pk).scope i
+                    + (s.walk pk).qSent i + 1)
+                  (sk.qCount pk.2 (sk.stageScope pk.2 (s.walk pk).scope) i
+                    - (s.walk pk).qSent i - 1)
+                ++ (List.range' (i + 1) (sk.nChildren pk.2
+                    (sk.stageScope pk.2 (s.walk pk).scope) - (i + 1))).flatMap
+                    (childChunk sk pk (s.walk pk).scope),
+              hpend, ?_, ?_,
+              rfl, rfl, hseqf, askedOut_mem_allChans sk hwf hpk h1⟩
+            · simp only [scopeSends, hlast]
+              rw [htake, hget, flatten_map, hdropfl,
+                chunkD sk pk (s.walk pk).scope i hjLD, hsegsplit]
+              simp [List.cons_append, List.append_assoc]
+            · intro e he
+              rcases List.mem_append.1 he with hfm | hcons
+              · exact hperf e hfm
+              rcases List.mem_cons.1 hcons with rfl | hcons
+              · show sk.wiresBefore pk.2 (s.walk pk).scope + i
+                    < sentOf sk s (wireOut pk)
+                rw [sentOf_wireOut hpk]
+                unfold wkWireSent
+                omega
+              rcases List.mem_cons.1 hcons with rfl | hcons
+              · show sk.dsBefore pk.2 (s.walk pk).scope
+                    + dRank sk pk (s.walk pk).scope i
+                    < sentOf sk s (lowerOut pk)
+                rw [sentOf_lowerOut]
+                unfold wkResSent
+                omega
+              rcases List.mem_cons.1 hcons with rfl | hseg
+              · show (s.walk pk).scope < sentOf sk s (upperOut pk)
+                rw [sentOf_upperOut]
+                simp only [wkParentSent]
+                rw [if_pos (by simp [hph2, hpd])]
+                omega
+              · exact hsegperf e hseg
+  | parent =>
+      simp [AxMode.full] at hwk
+      obtain ⟨-, -, hpd, hd2⟩ := hwk
+      have hd2' : ∀ j, j < sk.nChildren pk.2
+          (sk.stageScope pk.2 (s.walk pk).scope) →
+          sk.childIsD pk.2 (sk.stageScope pk.2 (s.walk pk).scope) j = true →
+          (s.walk pk).resDone j = true := by
+        intro j hj hD
+        rcases hd2 j hj with hf | h
+        · rw [hD] at hf; cases hf
+        · exact h
+      have hpend : wkPend sk s pk = [((upperOut pk, true,
+          (s.walk pk).scope), .walkFire pk)] := by
+        simp [wkPend, hph2, hcm]
+      have hseqf : (s.walk pk).scope = sentOf sk s (upperOut pk) := by
+        rw [sentOf_upperOut]
+        simp only [wkParentSent]
+        rw [if_neg (by simp [hpd])]
+        omega
+      cases hlast : ((List.range (sk.nChildren pk.2
+          (sk.stageScope pk.2 (s.walk pk).scope))).filter fun i' =>
+          sk.childIsD pk.2 (sk.stageScope pk.2 (s.walk pk).scope) i').getLast?
+          with
+      | none =>
+          refine ⟨(upperOut pk, true, (s.walk pk).scope), [],
+            ((List.range (sk.nChildren pk.2
+                (sk.stageScope pk.2 (s.walk pk).scope))).map
+                (childChunk sk pk (s.walk pk).scope)).flatten,
+            hpend, ?_, ?_,
+            rfl, rfl, hseqf, (walk_chans_mem sk hpk).2.2.1⟩
+          · simp only [scopeSends, hlast]
+            rfl
+          · intro e he
+            cases he
+      | some jL =>
+          have hjmem := List.mem_of_getLast? hlast
+          rw [List.mem_filter, List.mem_range] at hjmem
+          obtain ⟨hjLn, hjLD⟩ := hjmem
+          have hwjL : (s.walk pk).wireDone jL = true :=
+            hresw jL (by omega) (hd2' jL hjLn hjLD)
+          have hwc := wireCount_ge_succ sk hi hpk hph2
+            (show jL < sk.fan by omega) hwjL
+          have hdis : ∀ j, j < jL →
+              sk.childIsD pk.2 (sk.stageScope pk.2 (s.walk pk).scope) j
+                = true →
+              (s.walk pk).resDone j = true ∧ (s.walk pk).qSent j
+                = sk.qCount pk.2 (sk.stageScope pk.2 (s.walk pk).scope) j :=
+            fun j hj hD => hw10 jL (by omega) hwjL j hj hD
+          have hperf := chunks_prefix_performed sk hwf hi hpk hph2
+            (show jL ≤ _ by omega) (by omega) hdis
+          have hresperf : dRank sk pk (s.walk pk).scope jL
+              < wkResCount sk s pk := by
+            have hd' : ∀ j, j < jL + 1 →
+                sk.childIsD pk.2 (sk.stageScope pk.2 (s.walk pk).scope) j
+                  = true →
+                (s.walk pk).resDone j = true :=
+              fun j hj hD => hd2' j (by omega) hD
+            have := dRank_le_resCount sk (show jL + 1 ≤ sk.fan by omega) hd'
+            have hstep : dRank sk pk (s.walk pk).scope (jL + 1)
+                = dRank sk pk (s.walk pk).scope jL + 1 := by
+              rw [dRank_succ, if_pos hjLD]
+            omega
+          have hget : ((List.range (sk.nChildren pk.2
+              (sk.stageScope pk.2 (s.walk pk).scope))).map
+              (childChunk sk pk (s.walk pk).scope)).getD jL []
+              = childChunk sk pk (s.walk pk).scope jL := by
+            rw [List.getD_eq_getElem?_getD, List.getElem?_map,
+              List.getElem?_range hjLn]
+            rfl
+          have htake : ((List.range (sk.nChildren pk.2
+              (sk.stageScope pk.2 (s.walk pk).scope))).map
+              (childChunk sk pk (s.walk pk).scope)).take jL
+              = (List.range jL).map (childChunk sk pk (s.walk pk).scope) := by
+            rw [← List.map_take, List.take_range,
+              Nat.min_eq_left (by omega)]
+          have hdropfl : ((((List.range (sk.nChildren pk.2
+              (sk.stageScope pk.2 (s.walk pk).scope))).map
+              (childChunk sk pk (s.walk pk).scope)).drop (jL + 1)).flatten)
+              = (List.range' (jL + 1) (sk.nChildren pk.2
+                  (sk.stageScope pk.2 (s.walk pk).scope) - (jL + 1))).flatMap
+                  (childChunk sk pk (s.walk pk).scope) := by
+            rw [← List.map_drop, drop_range (by omega), flatten_map]
+          refine ⟨(upperOut pk, true, (s.walk pk).scope),
+            (List.range jL).flatMap (childChunk sk pk (s.walk pk).scope)
+              ++ [(wireOut pk, true,
+                  sk.wiresBefore pk.2 (s.walk pk).scope + jL),
+                (lowerOut pk, true, sk.dsBefore pk.2 (s.walk pk).scope
+                  + dRank sk pk (s.walk pk).scope jL)],
+            seg (askedOut pk) true
+                (sk.qsBefore pk.2 (s.walk pk).scope
+                  + qSum sk pk (s.walk pk).scope jL)
+                (sk.qCount pk.2 (sk.stageScope pk.2 (s.walk pk).scope) jL)
+              ++ (List.range' (jL + 1) (sk.nChildren pk.2
+                  (sk.stageScope pk.2 (s.walk pk).scope) - (jL + 1))).flatMap
+                  (childChunk sk pk (s.walk pk).scope),
+            hpend, ?_, ?_,
+            rfl, rfl, hseqf, (walk_chans_mem sk hpk).2.2.1⟩
+          · simp only [scopeSends, hlast]
+            rw [htake, hget, flatten_map, hdropfl,
+              chunkD sk pk (s.walk pk).scope jL hjLD]
+            simp [List.cons_append, List.append_assoc]
+          · intro e he
+            rcases List.mem_append.1 he with hfm | hcons
+            · exact hperf e hfm
+            rcases List.mem_cons.1 hcons with rfl | hcons
+            · show sk.wiresBefore pk.2 (s.walk pk).scope + jL
+                  < sentOf sk s (wireOut pk)
+              rw [sentOf_wireOut hpk]
+              unfold wkWireSent
+              omega
+            rcases List.mem_cons.1 hcons with rfl | hnil
+            · show sk.dsBefore pk.2 (s.walk pk).scope
+                  + dRank sk pk (s.walk pk).scope jL
+                  < sentOf sk s (lowerOut pk)
+              rw [sentOf_lowerOut]
+              unfold wkResSent
+              omega
+            · cases hnil
+
+/-- The walk decode: past its channel work with everything performed,
+or holding one pending event with the trace prefix below it performed.
+Choice points (phase-2 uncommitted) are excluded — the pillar owns
+them. -/
+theorem walk_pend_or_done (hwf : sk.wellFormed = true) {s : State}
+    {pk : Party × Nat} (hi : InvP sk .full s) (hpk : pk ∈ sk.walkKeys)
+    (hnc : ¬((s.walk pk).phase = 2 ∧ (s.walk pk).committed = none)) :
+    ((∀ e ∈ walkEvents sk pk, performed sk s e) ∧ wkPend sk s pk = [])
+    ∨ ∃ f a pre suf, wkPend sk s pk = [(f, a)]
+        ∧ walkEvents sk pk = pre ++ f :: suf
+        ∧ (∀ e ∈ pre, performed sk s e)
+        ∧ PendOk sk s f a := by
+  by_cases hph3 : 3 ≤ (s.walk pk).phase
+  · -- past the channel work: every block is a completed scope
+    left
+    constructor
+    · intro e he
+      obtain ⟨j, hjr, hje⟩ := List.mem_flatMap.1 he
+      rw [List.mem_range] at hjr
+      have hsc := (walk_scope_bound sk hi hpk).2 hph3
+      exact scopeBlock_performed sk hwf hi hpk (by omega) hjr e hje
+    · unfold wkPend
+      rw [if_neg (by omega), if_neg (by omega), if_neg (by omega)]
+  · have hsc := (walk_scope_bound sk hi hpk).1 (by omega)
+    -- the shared outer split at the current scope
+    have houter : walkEvents sk pk
+        = (List.range (s.walk pk).scope).flatMap (scopeBlock sk pk)
+          ++ scopeBlock sk pk (s.walk pk).scope
+          ++ (List.range' ((s.walk pk).scope + 1)
+              (sk.stageLen pk.2 - (s.walk pk).scope - 1)).flatMap
+              (scopeBlock sk pk) := by
+      unfold walkEvents
+      rw [range_split (show (s.walk pk).scope ≤ sk.stageLen pk.2
+        by omega), List.flatMap_append]
+      have hlen : sk.stageLen pk.2 - (s.walk pk).scope
+          = (sk.stageLen pk.2 - (s.walk pk).scope - 1) + 1 := by omega
+      rw [hlen, List.range'_succ, List.flatMap_cons]
+      simp [List.append_assoc]
+    have hprepre : ∀ e ∈ (List.range (s.walk pk).scope).flatMap
+        (scopeBlock sk pk), performed sk s e := by
+      intro e he
+      obtain ⟨j, hjr, hje⟩ := List.mem_flatMap.1 he
+      rw [List.mem_range] at hjr
+      exact scopeBlock_performed sk hwf hi hpk hjr (by omega) e hje
+    rcases Nat.lt_or_ge (s.walk pk).phase 2 with hph01 | hph2'
+    · -- a prologue receive is pending
+      right
+      rcases Nat.lt_or_ge (s.walk pk).phase 1 with hph0 | hph1
+      · have hph : (s.walk pk).phase = 0 := by omega
+        refine ⟨(wireIn pk, false, (s.walk pk).scope), .walkRecvWire pk,
+          (List.range (s.walk pk).scope).flatMap (scopeBlock sk pk),
+          ((askedIn pk, false, (s.walk pk).scope) ::
+            scopeSends sk pk (s.walk pk).scope)
+            ++ (List.range' ((s.walk pk).scope + 1)
+                (sk.stageLen pk.2 - (s.walk pk).scope - 1)).flatMap
+                (scopeBlock sk pk),
+          ?_, ?_, hprepre, ?_, ?_, ?_, ?_⟩
+        · unfold wkPend
+          rw [if_pos hph]
+        · rw [houter]
+          unfold scopeBlock
+          simp [List.cons_append, List.append_assoc]
+        · exact wireIn_mem_allChans sk hwf hpk
+        · show (s.walk pk).scope = recvdOf sk s (wireIn pk)
+          rw [recvdOf_wireIn hpk]
+          unfold wkWireRecvd
+          rw [if_neg (by omega)]
+          rw [hph]
+          simp
+        · exact walk_action_mem sk hpk (by simp)
+        · intro hch
+          simp only [Bool.false_eq_true, if_false] at hch
+          have happ : (apply sk .full (.walkRecvWire pk) s).isSome
+              = true := by
+            simp [apply, hpk, hph]
+            omega
+          exact happ
+      · have hph : (s.walk pk).phase = 1 := by omega
+        refine ⟨(askedIn pk, false, (s.walk pk).scope), .walkRecvAsked pk,
+          (List.range (s.walk pk).scope).flatMap (scopeBlock sk pk)
+            ++ [(wireIn pk, false, (s.walk pk).scope)],
+          scopeSends sk pk (s.walk pk).scope
+            ++ (List.range' ((s.walk pk).scope + 1)
+                (sk.stageLen pk.2 - (s.walk pk).scope - 1)).flatMap
+                (scopeBlock sk pk),
+          ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+        · unfold wkPend
+          rw [if_neg (by omega), if_pos hph]
+        · rw [houter]
+          unfold scopeBlock
+          simp [List.cons_append, List.append_assoc]
+        · intro e he
+          rcases List.mem_append.1 he with hp | hone
+          · exact hprepre e hp
+          · rw [List.mem_singleton] at hone
+            subst hone
+            show (s.walk pk).scope < recvdOf sk s (wireIn pk)
+            rw [recvdOf_wireIn hpk]
+            unfold wkWireRecvd
+            rw [if_neg (by omega), hph]
+            simp
+        · exact (walk_chans_mem sk hpk).2.1
+        · show (s.walk pk).scope = recvdOf sk s (askedIn pk)
+          rw [recvdOf_askedIn]
+          unfold wkAskedRecvd
+          rw [if_neg (by omega), hph]
+          simp
+        · exact walk_action_mem sk hpk (by simp)
+        · intro hch
+          simp only [Bool.false_eq_true, if_false] at hch
+          have happ : (apply sk .full (.walkRecvAsked pk) s).isSome
+              = true := by
+            simp [apply, hpk, hph]
+            omega
+          exact happ
+    · -- phase 2: committed (uncommitted is the pillar's case)
+      have hph2 : (s.walk pk).phase = 2 := by omega
+      cases hcm : (s.walk pk).committed with
+      | none => exact absurd ⟨hph2, hcm⟩ hnc
+      | some o =>
+          right
+          obtain ⟨f, isp, ss, hpend, hss, hisp, hchan, hside, hseq, hmem⟩ :=
+            walk_committed_split sk hwf hi hpk hph2 hcm
+          refine ⟨f, .walkFire pk,
+            (List.range (s.walk pk).scope).flatMap (scopeBlock sk pk)
+              ++ (wireIn pk, false, (s.walk pk).scope)
+              :: (askedIn pk, false, (s.walk pk).scope) :: isp,
+            ss ++ (List.range' ((s.walk pk).scope + 1)
+                (sk.stageLen pk.2 - (s.walk pk).scope - 1)).flatMap
+                (scopeBlock sk pk),
+            hpend, ?_, ?_, hmem, ?_, ?_, ?_⟩
+          · rw [houter]
+            unfold scopeBlock
+            rw [hss]
+            simp [List.cons_append, List.append_assoc]
+          · intro e he
+            rcases List.mem_append.1 he with hp | hcons
+            · exact hprepre e hp
+            rcases List.mem_cons.1 hcons with rfl | hcons
+            · show (s.walk pk).scope < recvdOf sk s (wireIn pk)
+              rw [recvdOf_wireIn hpk]
+              unfold wkWireRecvd
+              rw [if_neg (by omega), hph2]
+              simp
+            rcases List.mem_cons.1 hcons with rfl | hin
+            · show (s.walk pk).scope < recvdOf sk s (askedIn pk)
+              rw [recvdOf_askedIn]
+              unfold wkAskedRecvd
+              rw [if_neg (by omega), hph2]
+              simp
+            · exact hisp e hin
+          · rw [hside]
+            exact hseq
+          · exact walk_action_mem sk hpk (by simp)
+          · intro hch
+            rw [hside, if_pos rfl] at hch
+            have hcap : sk.cap f.1 = 1 := by
+              rw [hchan]
+              cases o with
+              | wire i => rfl
+              | res i => rfl
+              | query i =>
+                  show sk.cap (askedOut pk) = 1
+                  unfold askedOut
+                  split
+                  · rfl
+                  · rfl
+              | parent => rfl
+            have hlt : s.chan (obligChan pk o) < 1 := by
+              rw [← hchan, ← hcap]
+              exact hch
+            have happ : (apply sk .full (.walkFire pk) s).isSome
+                = true := by
+              simp [apply, hcm, hpk, hph2, hlt]
+            exact happ
+
 end StreamingMirror.Sched
