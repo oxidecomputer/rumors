@@ -25,6 +25,11 @@ Last updated: 2026-07-18.
   checkpoint otherwise. No sorries in commits.
 - Accumulated Lean traps: recorded in PROGRESS.md per-phase; read
   before writing proofs.
+- Harness bug (observed 2026-07-18): background-shell completion and
+  Monitor events sometimes never fire without user interaction. Forks
+  launching long sweeps must poll — bounded background waits, checking
+  the output file each wake — never park on a notification or Monitor
+  event alone.
 
 ## Standing adjudications (user decisions, 2026-07-17/18)
 
@@ -52,10 +57,16 @@ Last updated: 2026-07-18.
 
 ## The deck
 
-- **#12 (in flight)**: d5 endgame — cursor invariant, argmin,
-  `progress` + `deadlock_free` under amended `.full`. A fork is
-  proving this in the main worktree now; on its report: verify
-  commits, checkpoint PROGRESS.md with the adjudications above.
+- **#12 (DONE, 2026-07-18)**: d5 endgame closed. `Sched.deadlock_free`
+  and `Sched.progress` (Proofs/Endgame.lean:966/:728) proven on main
+  (`56844fbf`, record `5cbb42f1`), axioms independently verified as
+  `[propext, Classical.choice, Quot.sound]` only. Notable: the planned
+  Reachable-induction cursor invariant proved unnecessary — the
+  committed-arm mirrors already pin performed prefixes statically; the
+  endgame is per-family decode lemmas + the τ-least argmin + a close
+  cascade. Residual (non-load-bearing): "terminal ⟹ all channels
+  drained" corollary not minted (small assembly from Counting.lean
+  totals if ever wanted).
 - **#15 (next; blocked by #12)**: mint the epilogue ledger
   (MODEL.md §5's documented placement) as an AxMode field (sweep all
   literals/destructures incl. #12's landed code); margin-0 adversarial
