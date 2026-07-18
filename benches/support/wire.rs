@@ -1,8 +1,13 @@
 //! Runtime-free asynchronous wire harness shared by reconciliation benchmarks.
+//!
+//! Benchmarks measure what ships, so every peer minted here selects the
+//! production pipeline window explicitly: dev builds (the `test-internals`
+//! feature every bench inherits) default the window to the one-slot test
+//! floor, which is the deadlock-stress configuration, not the shipped one.
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use rumors::link::MemoryLink;
-use rumors::{Peer, Protocol, Rumors};
+use rumors::{DEFAULT_MAX_IN_FLIGHT_NODES, Peer, Protocol, Rumors};
 
 /// Bounded transport capacity; concurrent polling supplies the backpressure.
 const CAPACITY: usize = 64 * 1024;
@@ -49,6 +54,7 @@ where
         newcomer
             .expect("bootstrap newcomer")
             .expect("provider is established")
+            .max_in_flight_nodes(DEFAULT_MAX_IN_FLIGHT_NODES)
             .into_rumors()
     })
 }

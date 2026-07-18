@@ -48,7 +48,7 @@ async-stream = "0.3"
 rand = "0.8"
 
 [dev-dependencies]
-rumors = { path = ".", features = ["test-internals"] }
+rumors = { path = ".", features = ["test-internals", "conformance"] }
 before = { path = "crates/before", features = ["borsh"] }
 proptest = "1"
 criterion = { version = "0.5", features = ["html_reports"] }
@@ -60,6 +60,9 @@ tokio = { version = "1", features = [
     "io-util",
     "net",
     "time",
+    # Paused-clock runtimes: the latency benchmarks charge simulated wire
+    # delay to virtual time so sweeps cost wall-clock compute only.
+    "test-util",
 ] }
 clap = { version = "4", features = ["derive"] }
 rand = { version = "0.8", features = ["small_rng"] }

@@ -148,7 +148,10 @@ pub fn build(cell: Cell) -> (Rumors<()>, Rumors<()>) {
         redacted,
     } = cell;
 
-    let left: Rumors<()> = Peer::seed().into_rumors();
+    // Production window, not the dev builds' test floor; see `wire.rs`.
+    let left: Rumors<()> = Peer::seed()
+        .max_in_flight_nodes(rumors::DEFAULT_MAX_IN_FLIGHT_NODES)
+        .into_rumors();
     send_units(&left, common);
     // The shared prefix's keys, for carving the redaction blocks; order is
     // immaterial (the blocks only need to be disjoint and deterministic, and
