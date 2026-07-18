@@ -133,20 +133,23 @@ Last updated: 2026-07-18.
 - **#20 (blocked by #19, written LAST)**: typst companion — the full
   development narrative, from Claude's own perspective, first person.
   Division of labor: #19 is the WHAT (the system and theorems); #20 is
-  the close history of HOW the work took form, for detail-divers. Scope
-  runs from the Quint verification era (git history + the Quint
-  cross-references in Skel.lean/MODEL.md) through the Lean
-  transcription, the two-tier executable/kernel discipline, the
-  campaign phases, the finding-#7 arc (refutation → artifact question →
-  design-trade reframing → adjudications), the re-target campaign, and
-  the production of the documents themselves — including the
-  collaboration texture (coordinator+forks, checkpoint/handoff,
-  PROGRESS/PLAN as durable state, Finch's adjudication points) and the
-  failure modes honestly (credit exhaustion, harness notification
-  bugs, the killed-fork adoption, the trap lists as institutional
-  memory). Sources: PROGRESS.md + its git history, PLAN.md, design/
-  docs, both branches' full git logs, session transcripts if
-  accessible.
+  the close history of HOW the verification took form. PRIMARY
+  EMPHASIS (Finch): the proof development itself is the spine — the
+  Quint era; the Lean transcription and two-tier executable/kernel
+  discipline; the model's structure and why; the proof architecture
+  as it evolved (edge layers, counting routes, telescopes, windows,
+  master inductions, precedence, the endgame and its
+  cursor-invariant-unnecessary surprise); the finding-#7 arc as a
+  verification story; the d6 mint and margin-0/borrowed-slots
+  analysis; the E-side re-derivation's systematic refunds;
+  proof-engineering texture (trap lists, hard vs mechanical, where
+  scouting saved effort); the proptest⇒theorem chain to the Rust.
+  SECONDARY (one section, not the spine): the collaboration process
+  (coordinator+forks, checkpoints, adjudication points, operational
+  failure modes). Sources: PROGRESS.md + its git history (each
+  checkpoint commit a dated belief snapshot), PLAN.md, design/ docs,
+  both branches' git logs, session transcripts if accessible.
+  Distinguish lived from reconstructed narrative.
 
 Serial order #18 → #19 → #20 is deliberate: the exposition's
 references must point at the refactored organization, and the
