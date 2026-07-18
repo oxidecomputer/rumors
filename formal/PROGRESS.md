@@ -693,21 +693,86 @@ bounds μ(Q), and both are bounded by the awaited send.
      bit — `descSupply_step_asker`,
      `descSupply_upper_site`/`_zero`/`descSupply_lower_site`,
      concluding the windows' `hdesc` hypotheses verbatim).
-     Remaining, precisely — Phase 5, the master induction: thread
-     the RestCtx through the `weaveGo` recursion (`dep_scope`
-     template): per covered ancestor stage the payload is `(A_g,
-     jD_g` in range`, D-flag, hfil_g)` — the D-flag carried, not
-     derived (W subtrees are childless, so every in-flight slot ≥ 2
-     stages above a site is D, but that is geometry, not a landed
-     lemma); the per-stage `hfil` tail-partition instances
-     (`align_kids_suffix` at each frozen ancestor position) kept
-     alive across `wKidOps` descent, glued by `walkSeg_glue` +
-     `futLen_append` (adjacent windows abut definitionally along
-     the coverage telescope); the top-level `hfeed` clause feeding
-     `feed_rootres_silent` for `hroot`; the openers' five guards by
-     direct omega (seq-0 cap-≥1 sends, outside the window
-     machinery); then assemble `WEdge sk [] (weaveState sk)` and
-     the layer is closed. (Build note: the repo requires BATTERIES,
+     Phase 5 is now MOSTLY LANDED in `Weave/Master.lean` (commits
+     eb71f7cc..52199fb9). Landed: `EmitOKOn` (the pointwise
+     emission-readiness property of the ghost future) + its
+     cons/append algebra; `weaveGo_wedge` (the consumption fuel
+     induction: each guard from the property + DepOK + the pump
+     fixpoint); `weaveState_wedge_of_emitOK` (reduces
+     `WEdge sk [] (weaveState sk)` to `EmitOKOn` of the opening
+     future, first opener peeled by `enabled_snd_low`); `AncTele`
+     (the RestCtx: per-ancestor coordinates A/j/t as functions,
+     D-flags carried from two stages up, the coherence chain, the
+     per-ancestor three-segment filter tails); `parent_slot_isD`
+     (the immediate parent's flag re-derived from a nonempty
+     scope); the deep-window count pins; `ancTele_counts/_p1`; the
+     spine ladders (`ladder_rung`, `ancTele_ladder`,
+     `ancTele_ladder_leaf`) and coverage assemblies (`ancTele_cov`,
+     `ancTele_cov_leaf`); the own-stage floor counts
+     (futLen_S1/S2/SL/Q0 forms); the descent packages
+     (`descSupply_upper_of_ctx` at a generalized mid-scope cursor
+     X, `descSupply_lower_of_ctx`); the five site discharges
+     (`ready_upper_prologue/_splice`, `ready_lower`, `ready_wire0`,
+     `ready_leafreq`); the fold plumbing (`ancTele_rebase`,
+     `deep_glue`, `scope_filter_ne`/`kids_filter_ne`,
+     `toList_drop_merge`, manual-manual head discharges); and
+     `emitOK_scope_zero` — the master induction's LEAF CASE, fully
+     closed (prologue receives, U1 at stage 0, per-slot W0/Q0 via
+     telescope rebase and parent-cursor rebuild at each feed
+     position).
+
+     Remaining, precisely — the INTERIOR CASE of the tree
+     induction and the top assembly, all in Master.lean:
+     (a) `emitOK_kids` (mirror `Prec.dep_kids`, stage hp+1, feed :=
+     scopeFeed, mF := walkIdx (hp+2) interior / 1 at the root, with
+     the scope-level ctx clauses: rest-low windows at (k+1),
+     AncTele over rest, hcoh0, chunkQ-saturation of t (hp+2), the
+     owner-1 drop clause): per slot peel wire (manual,
+     `head_snd_wire`), lower (`ready_lower` — hdeep from
+     `align_scope` clause 3 of the SLOT'S OWN unwoven subtree glued
+     with clause-4-at-(i+1) + rest-low via `deep_glue`; hown from
+     the slot tail with the subtree's feeder filter = chunkQ h k i
+     by align clause 2), splice upper (`ready_upper_splice` at
+     coverage cursor X = wiresBefore h k + i with lastD = some i),
+     feedOp (manual, `head_snd_asked`; channel askedOut (wpk
+     (hp+2)) = asked for hp ≥ 0), then the SUBTREE via the outer
+     IH with the pushed context: kid's rest' := laterflat ++ rest;
+     kid's low from `deep_glue` at i+1; kid's tele = update
+     functions (A' = A[h ↦ k], j' = j[h ↦ i], t' = t[h ↦ qCount
+     h s i][h+1 ↦ i+1]) with rng at h positional, isD at h+1 from
+     `parent_slot_isD` (h+2.. from the old tele), coh at h from
+     hcoh0, fil at h = chunkRun(i+1) ++ walkSeg (chunkQ h k i
+     lives inside the subtree, cursor saturated — `chunkQ_length` +
+     `List.drop_length`-style), fil at h+1 = F.drop(i+1)-joined
+     (clause 2 + `chunkQ_eq_feed` + hcoh0), fil above unchanged
+     (foreign-owner nil); kid's hfd via `kids_filter_ne` at M := 1
+     (interior) or the root's F.drop continuation (mF = 1: rest.
+     filter 1 = [] invariant). W branch: wire + feedOp + childless
+     subtree (feed [], `nChildren_kid_notD`, `scopeFeed_nil`).
+     (b) `emitOK_scope`'s succ case: prologue receives
+     (`head_rcv_wire/asked`), the U1-if branch
+     (`ready_upper_prologue` at X := wiresBefore h k, hdeep from
+     align clause 4 at i=0 + rest-low glued), then the fold.
+     (c) The top assembly `emitOK_weave` : EmitOKOn of
+     `(weaveOps sk).flatMap (opEvents sk)` `[]` via `weave_flatMap`
+     + `ropen_drop_eq_feed` (now public): five opener cons-peels
+     (seq-0 sends by `enabled_snd_low`, the wire receive from its
+     `manDep` predecessor), then `emitOK_scope` at the root
+     (rest = [], junk telescope functions, every ctx clause
+     trivial: `walkSeg_empty` at descIdx-total endpoints, fil
+     guards vacuous at G < rootH with h+1 = rootH, hfd with
+     i₀ := full length); then
+     `weave_wedge : WEdge sk [] (weaveState sk)` :=
+     `weaveState_wedge_of_emitOK` ∘ `emitOK_weave`, and the layer
+     is closed. Watch: the fold's tail is spelled over the
+     induction variable m — rewrite `m = n − (i+1)` in the goal
+     BEFORE the append split and convert the ih instance
+     afterward; `generalize` the later-slots flatMap to a single
+     letter AFTER deriving all its filter facts (kids_filter_ne
+     instances die once generalized); `scopeFeed_getElem?` emits
+     `wpk (0+1)`-spellings — normalize immediately; provide
+     `ancTele_rebase`'s `pre` explicitly (unification will not
+     invert `pre ++ rest`). (Build note: the repo requires BATTERIES,
      not bare core — more List API is available than the early
      sessions assumed.) Original design of record below
      (derived 2026-07-17; its membership-flavored descent bullet is
