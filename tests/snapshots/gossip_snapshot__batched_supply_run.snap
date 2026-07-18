@@ -1,0 +1,47 @@
+---
+source: tests/gossip_snapshot.rs
+expression: "capture_gossip(a, b)"
+---
+direction A -> B
+preamble: 25 bytes
+  0000: 52 55 4d 4f 52 53 00 02
+  0008: 8c 18 96 68 c9 e4 83 72
+  0010: 37 bf 31 e0 2d 7f 6b 70
+  0018: 00
+version: (0, 2, 0)
+version frame: 5 bytes
+  0000: 00 00 00 01 cd
+Initiator stream 0 (height 31), epoch 0
+  frame 0: Query(End)
+    0000: 55 00 67 7f dc b9 0c c2
+    0008: a3 c8 79 83 28 fa 8e 9f
+    0010: 1c 4e 8c
+  frame 1: End(Stream)
+    0000: 99
+Initiator stream 1 (height 30), epoch 0
+  frame 0: Supply(End)
+    0000: 78 00 00 00 1a 00 00 00
+    0008: 09 cd 13 3b 00 00 00 00
+    0010: 00 00 00 00 00 09 c9 01
+    0018: 00 00 00 00 00 00 00
+  frame 1: End(Stream)
+    0000: 9a
+trailing frame: 1 bytes
+  0000: 2e
+
+direction B -> A
+preamble: 25 bytes
+  0000: 52 55 4d 4f 52 53 00 02
+  0008: 8c 18 96 68 c9 e4 83 72
+  0010: 37 bf 31 e0 2d 7f 6b 70
+  0018: 00
+version: 0
+version frame: 5 bytes
+  0000: 00 00 00 01 40
+Responder stream 0 (height 31), epoch 0
+  frame 0: QueryEmpty(End)
+    0000: 33
+  frame 1: End(Stream)
+    0000: 99
+trailing frame: 1 bytes
+  0000: 2e

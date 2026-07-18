@@ -57,16 +57,16 @@ pub type WireFrame<T> = (Stream, Frame<T>);
 /// records: each record is a [`LENGTH_HEADER_LEN`]-byte big-endian length
 /// followed by the canonical encodings of its version and message, back to
 /// back. The run stays encoded on both sides of the wire — the encoder
-/// [`push`](Self::push)es records from borrowed leaf data and the decoder
-/// [`records`](Self::records)s them out one at a time — so neither side
-/// materializes a decoded vector of leaves per frame; the bound is one run's
-/// bytes.
+/// appends records copied from borrowed leaf data ([`push`](Self::push)) and
+/// the decoder yields them one at a time ([`records`](Self::records)) — so
+/// neither side materializes a decoded vector of leaves per frame; the bound
+/// is one run's bytes.
 ///
-/// Construction guarantees record framing: [`push`] rejects a record whose
-/// length cannot be represented, and [`from_encoded`](Self::from_encoded)
-/// rejects wire bytes whose headers do not chain exactly to the end. A
-/// [`records`] iterator therefore never fails structurally, only on a
-/// record's canonical content.
+/// Construction guarantees record framing: [`push`] rejects a record no run
+/// body can carry within the wire's `u32` frame header, and
+/// [`from_encoded`](Self::from_encoded) rejects wire bytes whose headers do
+/// not chain exactly to the end. A [`records`] iterator therefore never
+/// fails structurally, only on a record's canonical content.
 ///
 /// [`push`]: Self::push
 /// [`records`]: Self::records
@@ -147,13 +147,14 @@ impl<T> LeafRun<T> {
     ///
     /// # Errors
     ///
-    /// Rejects a record whose combined encoding exceeds the `u32` record
-    /// header, leaving the run untouched.
+    /// Rejects a record no run can carry — one whose combined encoding plus
+    /// its own record header exceeds the `u32` run-body limit — leaving the
+    /// run untouched.
     pub fn push(&mut self, version: &Version, message: &Message<T>) -> Result<(), LengthOverflow> {
         let version = version.as_bytes();
         let message = message.as_slice();
         let len = version.len().saturating_add(message.len());
-        let header = length_header(len)?;
+        let header = checked_record_header(len)?;
         self.bytes.reserve(LENGTH_HEADER_LEN + len);
         self.bytes.extend_from_slice(&header);
         self.bytes.extend_from_slice(version);
@@ -227,6 +228,18 @@ impl<'a> Iterator for RecordSlices<'a> {
     }
 }
 
+/// The record header for a `len`-byte record, checked against the outer frame.
+///
+/// A record is only encodable if the smallest run body holding it — the
+/// record's bytes plus its own [`LENGTH_HEADER_LEN`]-byte header — fits the
+/// wire's `u32` frame header, so the check charges the record header too.
+/// [`LeafRun::push`] rejects on this boundary eagerly: an unshippable record
+/// fails at record level rather than later at the outer frame.
+fn checked_record_header(len: usize) -> Result<[u8; LENGTH_HEADER_LEN], LengthOverflow> {
+    length_header(len.saturating_add(LENGTH_HEADER_LEN))?;
+    Ok(length_header(len).expect("bounded by the header-charged check above"))
+}
+
 /// Read one record header; construction guarantees its width.
 fn record_header(header: &[u8]) -> usize {
     u32::from_be_bytes(
@@ -279,3 +292,6 @@ pub fn validate_children(children: &[(u8, Hash)]) -> Result<(), QueryOrderError>
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

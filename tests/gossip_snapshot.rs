@@ -74,6 +74,44 @@ fn one_sided_transfer() {
     insta::assert_snapshot!(capture_gossip(a, b));
 }
 
+/// Values whose two messages, batch-sent in this order into the seeded
+/// universe of [`batched_supply_run`], produce keys sharing their first two
+/// bytes (`67 99`; found by search over the second value). The empty peer's
+/// side of the dispute resolves one level under the root, so sharing two
+/// leading bytes places both leaves inside one supplied height-30 subtree.
+const COLLIDING_VALUES: (u64, u64) = (1, 15123);
+
+/// One supplied subtree holding two leaves pins a batched run on the wire.
+///
+/// Every other fixture supplies single-leaf subtrees, so no other snapshot
+/// contains a multi-record run body. Here the transfer's two keys share a
+/// two-byte prefix, so the populated peer ships them as a single Supply
+/// frame whose run carries two length-prefixed records back to back — the
+/// byte-for-byte pin of the batched wire form.
+#[test]
+fn batched_supply_run() {
+    let (a, b) = block_on(async {
+        let a: Rumors<u64> = seeded();
+        let b = bootstrap_fork_async(&a).await;
+        let (first, second) = COLLIDING_VALUES;
+        a.batch().send(first).send(second);
+        (a, b)
+    });
+    // Self-check the fixture: if hashing or version assignment drifts, fail
+    // here with a clear message rather than in the snapshot hex.
+    let prefixes: Vec<[u8; 2]> = a
+        .snapshot()
+        .iter()
+        .map(|(k, _, _)| [k.as_bytes()[0], k.as_bytes()[1]])
+        .collect();
+    assert_eq!(
+        prefixes.first(),
+        prefixes.last(),
+        "the fixture's two keys must share a two-byte prefix to share a supplied subtree"
+    );
+    insta::assert_snapshot!(capture_gossip(a, b));
+}
+
 /// V1 retains its original strict alternating transcript through the public
 /// selector, including content transfer rather than only an empty handshake.
 #[cfg(feature = "protocol-v1")]

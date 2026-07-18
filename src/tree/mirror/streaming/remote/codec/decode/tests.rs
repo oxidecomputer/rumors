@@ -193,6 +193,31 @@ fn malformed_run_structure_is_typed() {
     }
 }
 
+/// A zero-length record header inside a run body is structurally valid.
+///
+/// From raw wire bytes, a run body of one bare `00000000` header chains
+/// exactly, so the codec accepts the frame and defers the record's failure
+/// to its record iterator: the empty body cannot hold a version, and the
+/// iterator reports the version decoder's `UnexpectedEof`.
+#[test]
+fn a_zero_length_record_is_structurally_valid() {
+    let stream = stream(8);
+    let encoded = supply(stream, Flow::End, &[0, 0, 0, 0]);
+    for speaker in SPEAKERS {
+        let (decoded_stream, frame) = decode_exact::<u64>(speaker, &encoded).unwrap();
+        assert_eq!(decoded_stream, stream);
+        let Frame::Reaction(Reaction::Supply(run), Flow::End) = frame else {
+            panic!("a structurally valid run decodes as a supply reaction");
+        };
+        assert_eq!(run.record_count(), 1);
+        let error = run.records().next().unwrap().unwrap_err();
+        let DecodeLeafError::Version(source) = error else {
+            panic!("unexpected record error");
+        };
+        assert_eq!(source.kind(), borsh::io::ErrorKind::UnexpectedEof);
+    }
+}
+
 /// A record's canonical decoding is deferred to the run's record iterator,
 /// which types each failure and retains the Borsh source error.
 #[test]

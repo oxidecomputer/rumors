@@ -190,9 +190,9 @@ where
                     let mut leaves = pin!(backend.clone().leaves(expected, node));
                     let mut previous = None;
                     // One run accumulates this reaction's leaves; it flushes
-                    // when the next record would overflow the budget and
-                    // always at the end of the enumeration, so a run never
-                    // spans reactions.
+                    // when the next record would push its wire frame past
+                    // the budget and always at the end of the enumeration,
+                    // so a run never spans reactions.
                     let mut run = LeafRun::new();
                     while let Some(item) = leaves.next().await {
                         let (prefix, leaf) = item.map_err(EncodeError::Backend)?;
@@ -206,10 +206,8 @@ where
                         let version = leaf.ceiling();
                         let message = leaf.message();
                         if !run.is_empty()
-                            && run
-                                .encoded_len()
-                                .saturating_add(LeafRun::record_len(version, message))
-                                > budget.bytes()
+                            && !budget
+                                .admits(run.encoded_len(), LeafRun::record_len(version, message))
                         {
                             let full = mem::take(&mut run);
                             if let Some((ready, question)) =

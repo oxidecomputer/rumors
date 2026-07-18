@@ -172,6 +172,14 @@ where
                 read.skeleton.push(Skeleton::Query(listing));
             }
             WireReaction::Supply(records) => {
+                // An empty run is unreachable from wire bytes (the codec
+                // rejects it as `LeafRunError::Empty`) but constructible in
+                // process, and the record loop below would silently drop the
+                // reaction with it.
+                debug_assert!(
+                    !records.is_empty(),
+                    "the codec never yields an empty supply run",
+                );
                 // Records leave the run one at a time and flow straight into
                 // assembly: the whole-run bound is its encoded bytes, never a
                 // decoded vector of leaves.

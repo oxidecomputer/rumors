@@ -43,6 +43,8 @@ mod error;
 mod frame;
 mod signal;
 
+#[cfg(test)]
+pub use budget::SUPPLY_FRAME_OVERHEAD;
 pub use budget::{DEFAULT_TARGET_MESSAGE_SIZE, RunBudget};
 
 #[cfg(any(test, feature = "test-internals"))]

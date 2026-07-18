@@ -372,11 +372,11 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// When the default protocol supplies a subtree the counterparty lacks,
     /// its leaves ship as *runs*: one wire message carrying a delimited
     /// sequence of leaf records. Batching is chunked by bytes — a run
-    /// flushes once appending the next leaf would push its encoded size
-    /// past `bytes` — and every run carries at least one leaf, so a single
-    /// message larger than the target ships alone and exceeds it. Runs
-    /// never span reconciliation units: batching stops at each supplied
-    /// subtree's last leaf.
+    /// flushes once appending the next leaf would push the message's full
+    /// encoded size, framing included, past `bytes` — and every run carries
+    /// at least one leaf, so a message whose single leaf alone outgrows the
+    /// target ships anyway and exceeds it. Runs never span reconciliation
+    /// units: batching stops at each supplied subtree's last leaf.
     ///
     /// # Memory
     ///
@@ -390,10 +390,10 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// own setting, and each side decodes whatever the other sends.
     ///
     /// The default, [`DEFAULT_TARGET_MESSAGE_SIZE`], is the byte size of
-    /// the wire's maximally disputed reply — its largest pre-existing
-    /// message and the decode side's documented memory unit — so default
-    /// batching never raises the per-message ceiling. Any value is safe,
-    /// including zero, which degrades to one leaf per message.
+    /// the wire's maximally disputed reply — the decode side's documented
+    /// per-reply memory unit — so default batching never raises the wire's
+    /// established memory ceiling. Any value is safe, including zero, which
+    /// degrades to one leaf per message.
     ///
     /// Like [`protocol`](Self::protocol), the choice follows the peer
     /// through [`into_rumors`](Self::into_rumors), cloning and reunion,

@@ -25,7 +25,7 @@ use super::{
 };
 use crate::tree::mirror::streaming::message::{Reaction, Reply};
 use crate::tree::mirror::streaming::remote::codec::{
-    End, Flow, Frame, Reaction as WireReaction, RunBudget,
+    DecodeLeafError, End, Flow, Frame, LeafRun, Reaction as WireReaction, RunBudget,
 };
 
 /// A nonempty reply must end on its last reaction; a later bare end is ambiguous and invalid.
@@ -286,6 +286,101 @@ fn a_multi_leaf_run_is_one_supplied_subtree() {
         Flow::End,
     )];
     assert_eq!(reencoded, batched);
+}
+
+/// Leaf ordering is enforced between records inside one run, not only across frames.
+///
+/// The existing ordering rejections all place their two records in separate
+/// single-record frames; here one supply run carries both records with the
+/// second preceding the first in content-path order, and the decoder must
+/// still report `LeafOrder`.
+#[test]
+fn leaf_order_is_enforced_within_one_run() {
+    let leaves = under_root_pair();
+    let frames = vec![Frame::Reaction(
+        WireReaction::Supply(leaf_run(&[
+            (&leaves[1].0, &leaves[1].1),
+            (&leaves[0].0, &leaves[0].1),
+        ])),
+        Flow::End,
+    )];
+
+    let error = runtime().block_on(async {
+        let mut input = stream::iter(frames);
+        decode_reply::<Local, u64, UnderUnderRoot, _>(Local, Scope::opening(&[]), &mut input)
+            .await
+            .err()
+            .expect("descending records within one run violate leaf ordering")
+    });
+    let DecodeError::LeafOrder { previous, current } = error else {
+        panic!("expected LeafOrder, got {error:?}");
+    };
+    assert_eq!(previous, <[u8; 32]>::from(leaves[1].2));
+    assert_eq!(current, <[u8; 32]>::from(leaves[0].2));
+}
+
+/// Reply scope is enforced between records inside one run, not only across frames.
+///
+/// A single supply run whose first record sits inside the reply's scope and
+/// whose second escapes it must be rejected as `LeafOutsideScope` on that
+/// second record, not silently absorbed with its in-scope sibling.
+#[test]
+fn leaf_scope_is_enforced_within_one_run() {
+    let inside = LeafCase::new(0, 0);
+    let parent = Prefix::<Z>::containing(&inside.path()).pop().0;
+    let outside = (1..u64::MAX)
+        .map(|value| LeafCase::new(value, 0))
+        .find(|candidate| Prefix::<Z>::containing(&candidate.path()).pop().0 != parent)
+        .expect("content paths do not all share one leaf parent");
+    let frames = vec![Frame::Reaction(
+        WireReaction::Supply(leaf_run(&[
+            (&inside.version, &inside.message),
+            (&outside.version, &outside.message),
+        ])),
+        Flow::End,
+    )];
+
+    let error = runtime().block_on(async {
+        let mut input = stream::iter(frames);
+        decode_leaf_reply(Local, Scope::new(parent, &[]), &mut input)
+            .await
+            .err()
+            .expect("a record escaping the reply scope must fail")
+    });
+    let DecodeError::LeafOutsideScope { expected, actual } = error else {
+        panic!("expected LeafOutsideScope, got {error:?}");
+    };
+    assert_eq!(expected, parent.as_bytes().to_vec());
+    assert_eq!(actual, <[u8; 32]>::from(outside.path()));
+}
+
+/// The run body of a single zero-length record: one bare record header.
+const ZERO_LENGTH_RECORD_RUN: [u8; 4] = [0, 0, 0, 0];
+
+/// A zero-length record passes structural validation but fails canonically.
+///
+/// A `00000000` record header inside a run chains exactly, so the wire
+/// accepts the run's structure; the record's empty body cannot hold a
+/// version, so the reply decoder reports `DecodeError::Record` carrying the
+/// version decoder's `UnexpectedEof`.
+#[test]
+fn a_zero_length_record_fails_as_a_version_decode_error() {
+    let run = LeafRun::<u64>::from_encoded(ZERO_LENGTH_RECORD_RUN.to_vec())
+        .expect("a zero-length record header chains structurally");
+    assert_eq!(run.record_count(), 1);
+    let frames = vec![Frame::Reaction(WireReaction::Supply(run), Flow::End)];
+
+    let error = runtime().block_on(async {
+        let mut input = stream::iter(frames);
+        decode_reply::<Local, u64, UnderUnderRoot, _>(Local, Scope::opening(&[]), &mut input)
+            .await
+            .err()
+            .expect("an empty record body cannot decode a version")
+    });
+    let DecodeError::Record(DecodeLeafError::Version(source)) = error else {
+        panic!("expected a version decode error, got {error:?}");
+    };
+    assert_eq!(source.kind(), borsh::io::ErrorKind::UnexpectedEof);
 }
 
 /// Interrupting a supply run finalizes its radix, so later resumption is rejected as reordering.

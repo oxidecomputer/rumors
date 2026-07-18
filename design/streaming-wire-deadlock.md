@@ -137,7 +137,9 @@ bound, for two reasons **[derived]**:
 
 - **The handoff is denominated in frames, not replies.** A provision —
   the answer to an empty query — is one reply carried as a run of
-  leaf-supply frames, one frame per leaf in the subtree. A single
+  leaf-supply frames, one frame per leaf in the subtree (since
+  superseded: supply runs now batch many leaves per frame, see
+  `design/streaming-latency-serialization.md` §10 lever A). A single
   provision parked behind a blocked stream occupies as many slots as
   the subtree has leaves. No constant width covers it.
 - **The reply-count backlog is only fan-bounded at the opening level.**
