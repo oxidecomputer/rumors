@@ -535,10 +535,11 @@ bounds μ(Q), and both are bounded by the awaited send.
      strictly earlier), by a second `align_scope`-style master
      induction (`dep_scope`) with the query-base identity
      `queries_base` (chunk-query seqs = kid-stage scope indices).*
-   - *Remaining for edge-respect: the PUMP-WINDOW discharges* (E2 at
-     `upper`/`lower`/leaf-wire/`leafRequests` manual sends) *and the
-     layer-D assembly. Design of record for the pump case-tree
-     (derived 2026-07-17, all cases close):* at each such emission,
+   - *Edge-respect is COMPLETE [proven]*: the pump-window discharges
+     landed as the `Weave/Window.lean` window lemmas, and the layer-D
+     assembly as `Weave/Master.lean`'s `weave_wedge` (see the (f)
+     record below). Design of record for the pump case-tree, as
+     designed and landed (derived 2026-07-17, all cases closed): at each such emission,
      suppose the window shut; the consumer asm/absorb's remainder
      head (its seq = the current count, by canon-suffix) is disabled
      at the pump fixpoint, and the head trichotomy — res-starved /
@@ -693,187 +694,75 @@ bounds μ(Q), and both are bounded by the awaited send.
      bit — `descSupply_step_asker`,
      `descSupply_upper_site`/`_zero`/`descSupply_lower_site`,
      concluding the windows' `hdesc` hypotheses verbatim).
-     Phase 5 is now MOSTLY LANDED in `Weave/Master.lean` (commits
-     eb71f7cc..52199fb9). Landed: `EmitOKOn` (the pointwise
-     emission-readiness property of the ghost future) + its
-     cons/append algebra; `weaveGo_wedge` (the consumption fuel
-     induction: each guard from the property + DepOK + the pump
-     fixpoint); `weaveState_wedge_of_emitOK` (reduces
-     `WEdge sk [] (weaveState sk)` to `EmitOKOn` of the opening
-     future, first opener peeled by `enabled_snd_low`); `AncTele`
-     (the RestCtx: per-ancestor coordinates A/j/t as functions,
-     D-flags carried from two stages up, the coherence chain, the
-     per-ancestor three-segment filter tails); `parent_slot_isD`
-     (the immediate parent's flag re-derived from a nonempty
-     scope); the deep-window count pins; `ancTele_counts/_p1`; the
-     spine ladders (`ladder_rung`, `ancTele_ladder`,
-     `ancTele_ladder_leaf`) and coverage assemblies (`ancTele_cov`,
-     `ancTele_cov_leaf`); the own-stage floor counts
-     (futLen_S1/S2/SL/Q0 forms); the descent packages
-     (`descSupply_upper_of_ctx` at a generalized mid-scope cursor
-     X, `descSupply_lower_of_ctx`); the five site discharges
-     (`ready_upper_prologue/_splice`, `ready_lower`, `ready_wire0`,
-     `ready_leafreq`); the fold plumbing (`ancTele_rebase`,
-     `deep_glue`, `scope_filter_ne`/`kids_filter_ne`,
-     `toList_drop_merge`, manual-manual head discharges); and
-     `emitOK_scope_zero` — the master induction's LEAF CASE, fully
-     closed (prologue receives, U1 at stage 0, per-slot W0/Q0 via
-     telescope rebase and parent-cursor rebuild at each feed
-     position).
-
-     Remaining, precisely — the INTERIOR CASE of the tree
-     induction and the top assembly, all in Master.lean:
-     (a) `emitOK_kids` (mirror `Prec.dep_kids`, stage hp+1, feed :=
-     scopeFeed, mF := walkIdx (hp+2) interior / 1 at the root, with
-     the scope-level ctx clauses: rest-low windows at (k+1),
-     AncTele over rest, hcoh0, chunkQ-saturation of t (hp+2), the
-     owner-1 drop clause): per slot peel wire (manual,
-     `head_snd_wire`), lower (`ready_lower` — hdeep from
-     `align_scope` clause 3 of the SLOT'S OWN unwoven subtree glued
-     with clause-4-at-(i+1) + rest-low via `deep_glue`; hown from
-     the slot tail with the subtree's feeder filter = chunkQ h k i
-     by align clause 2), splice upper (`ready_upper_splice` at
-     coverage cursor X = wiresBefore h k + i with lastD = some i),
-     feedOp (manual, `head_snd_asked`; channel askedOut (wpk
-     (hp+2)) = asked for hp ≥ 0), then the SUBTREE via the outer
-     IH with the pushed context: kid's rest' := laterflat ++ rest;
-     kid's low from `deep_glue` at i+1; kid's tele = update
-     functions (A' = A[h ↦ k], j' = j[h ↦ i], t' = t[h ↦ qCount
-     h s i][h+1 ↦ i+1]) with rng at h positional, isD at h+1 from
-     `parent_slot_isD` (h+2.. from the old tele), coh at h from
-     hcoh0, fil at h = chunkRun(i+1) ++ walkSeg (chunkQ h k i
-     lives inside the subtree, cursor saturated — `chunkQ_length` +
-     `List.drop_length`-style), fil at h+1 = F.drop(i+1)-joined
-     (clause 2 + `chunkQ_eq_feed` + hcoh0), fil above unchanged
-     (foreign-owner nil); kid's hfd via `kids_filter_ne` at M := 1
-     (interior) or the root's F.drop continuation (mF = 1: rest.
-     filter 1 = [] invariant). W branch: wire + feedOp + childless
-     subtree (feed [], `nChildren_kid_notD`, `scopeFeed_nil`).
-     (b) `emitOK_scope`'s succ case: prologue receives
-     (`head_rcv_wire/asked`), the U1-if branch
-     (`ready_upper_prologue` at X := wiresBefore h k, hdeep from
-     align clause 4 at i=0 + rest-low glued), then the fold.
-     (c) The top assembly `emitOK_weave` : EmitOKOn of
-     `(weaveOps sk).flatMap (opEvents sk)` `[]` via `weave_flatMap`
-     + `ropen_drop_eq_feed` (now public): five opener cons-peels
-     (seq-0 sends by `enabled_snd_low`, the wire receive from its
-     `manDep` predecessor), then `emitOK_scope` at the root
-     (rest = [], junk telescope functions, every ctx clause
-     trivial: `walkSeg_empty` at descIdx-total endpoints, fil
-     guards vacuous at G < rootH with h+1 = rootH, hfd with
-     i₀ := full length); then
-     `weave_wedge : WEdge sk [] (weaveState sk)` :=
-     `weaveState_wedge_of_emitOK` ∘ `emitOK_weave`, and the layer
-     is closed. Watch: the fold's tail is spelled over the
-     induction variable m — rewrite `m = n − (i+1)` in the goal
-     BEFORE the append split and convert the ih instance
-     afterward; `generalize` the later-slots flatMap to a single
-     letter AFTER deriving all its filter facts (kids_filter_ne
-     instances die once generalized); `scopeFeed_getElem?` emits
-     `wpk (0+1)`-spellings — normalize immediately; provide
-     `ancTele_rebase`'s `pre` explicitly (unification will not
-     invert `pre ++ rest`). (Build note: the repo requires BATTERIES,
-     not bare core — more List API is available than the early
-     sessions assumed.) Original design of record below
-     (derived 2026-07-17; its membership-flavored descent bullet is
-     superseded by the counting route — the cursor arithmetic is
-     unchanged):
-     - *The weave is depth-first with stage cursors in weave order*:
-       `wKidOps` inlines a D kid's whole subtree (`WOp.scope (h-1)
-       (kidBase+i)`) before the next kid, and the §5 splice puts the
-       parent upper right after the last D res. So at the emission
-       of `(upper p h, true, k)`: stage-h scopes `< k` have COMPLETE
-       subtrees, scope `k` has its prologue + kid chunks through
-       lastD (wire+res each) + full subtrees of kids `< lastD`; and
-       stage-`j'` scopes below are completed exactly `0..C_{j'}-1`
-       in stage order, where the COVERAGE TELESCOPE is
-       `C_h = k`, `C_{j-1} = wiresBefore j C_j`.
-     - *Descent side — mechanical*: `DescSupply p h (dsBefore h k)`
-       unfolds along the telescope: answerer level `j` cursor
-       `dsBefore j C_j`, asker level `j` cursor `C_{j-1}`, via
-       `pendsBefore_asker` and `pendsBefore_answerer` composed with
-       the NEW identity `ds_wires` (`dsBefore j K` = #D among the
-       first `wiresBefore j K` of `scopesAt j` — take-flatMap of
-       `wf_bfs_aligned`). The component obligations are memberships
-       of completed-scope boundary sends in the emitted prefix —
-       `(upper p j', true, t), t < C_{j'}` and
-       `(lower p j', true, t), t < dsBefore j' C_{j'}` for the
-       same-parity stages `j' = h-2, h-4, …`, bottoming (p = I) at
-       `C_0 ≤ snd(wire R 0), snd(leafRequests)` — turned into counts
-       by `wcount_mem_lt`. Own-stage facts (`hsnd` = k, `snd(lower
-       p h) ≥ dsBefore h k`) come from a WALK CELL SHAPE lemma
-       (asm_cell_shape's analog over `walkEvents`' scope blocks with
-       the splice; also yields the in-range bounds and the leaf
-       windows' `hreq`/`hwire` locals). `hroot` is the weave-prefix
-       fact that ropen's `rootres` (position ~4) precedes every
-       later pump-facing send.
-     - *Ascent side — ~~the residue~~ RESOLVED (2026-07-17, landed
-       in `Weave/Window.lean`)*: working the boundary showed the old
-       `AscSupply` (`∃ r ≤ snd res` with `snd(level in) ≤
-       pendsBefore r`) is FALSE at reachable states — a completed
-       earlier sibling's returns legitimately overrun the coverage —
-       so the package was replaced, not established. The replacement
-       (`AscCover`, per answerer stage): `Φ` (`snd(level below) <
-       pendsBefore(snd lower)` — the in-flight resolution's
-       allocation cannot be delivered while its subtree is still
-       being woven) and `P1` (`snd lower ≤ dsBefore(snd upper) +
-       capLevel + 1` — the splice keeps the summary ahead of the
-       last D kid's subtree, and `schedulable`'s `dOf ≤ capLevel+2`
-       caps a pre-splice scope's overhang). `tower_noblock` climbs
-       carrying `hself` (`snd(level below) < dsBefore(snd upper) +
-       capLevel` at asker stages): asker res-starvation dies on
-       `hself` + `pendsBefore_asker` + `pendsBefore_mono`; answerer
-       res-starvation dies on `Φ` directly; the climb out of an
-       answerer's out-block re-derives `hself` one stage up from
-       the answerer's D4 pins (`L = pB(R)`, `O = R−1`) — if the
-       answerer consumed everything sent, `Φ` kills the pins
-       outright (`pB(snd lower) = L ≤ snd(level below) < pB(snd
-       lower)`); if it is a step behind, `P1` bounds `O ≤ snd lower
-       − 2` under the allocation line. Entries: upper/leaf windows
-       enter at answerer stages (`hself` vacuous); `lower_window`
-       enters at the asker over its own walk and derives `hself`
-       from its new `hp1` hypothesis plus the consumer's D4 pins.
-     - *Ascent side — what CtxOK still owes*: `P1_g` per ancestor
-       walk, a per-walk position fact (mid-scope `A`, in-flight
-       D rank `δ`, splice flag `σ`: pre-splice `δ ≤ dOf−2 ≤
-       capLevel`; post-splice `snd lower = dsBefore (A+1)`). `Φ_g`
-       by the SPINE TELESCOPE, a downward induction over same-party
-       ancestor stages `g → g−2`: the producer tower `(p, g−1)` is
-       an asker over spine walk `(p, g−2)`, so `snd(level p (g−1))
-       ≤ snd(upper p (g−2)) = A_{g−2} + σ_{g−2}`; the spine scope
-       `A_{g−2}` is a kid of the in-flight child, hence strictly
-       inside `Φ_g`'s allocation cut — pre-splice this closes
-       outright, post-splice descend via the NEW generic lemma
-       `asm_pends_le_out` (`pendsBefore(O) ≤ L`, same
-       `asm_cell_shape` template as `asm_out_le_res`) into
-       `Φ_{g−2}`. BASE: the emission's own unsent event (`hsnd`)
-       caps the bottom asker — `O ≤ snd(upper p h) = k`, and `k` is
-       a kid of the parent spine scope, strictly inside the cut; for
-       the leaf windows the base is absorb's output against the
-       unsent leaf wire. No descent below the emission is needed —
-       the telescope bottoms at the emission point itself.
-     (g) layer D: the fuel induction over `weaveGo` carrying
-     `WEdge` + `step = none` (init via all-receive pump heads) +
-     `DepOK`, discharging each emit's guard via
-     `depOK_head`+conservation (manual classes, `manDep`) or the
-     (e)-lemmas (pump classes), assembling
-     `WEdge sk [] (weaveState sk)` under `wellFormed ∧ schedulable`.
-     Under the counting route the induction's per-position context is
-     `RestCtx`, a statement about the SYNTACTIC TAIL, not the state:
-     at any worklist position, for every stage `g`, the tail's
-     stage-`g` event filter is a `walkSeg` SUFFIX from a cursor
-     (mid-scope positions add the current scope's remaining
-     `splicedChunk` run in front). This is exactly `dep_scope`'s
-     window-threading shape (`descIdx` cursors re-established per
-     kid), proven once as a tail-partition lemma family
-     (`align_scope` clause 3 restricted to kid suffixes) rather than
-     carried as state facts; `man_struct` then converts each tail
-     filter into the emitted-prefix count pin the window lemmas and
-     the `Φ`/`P1`/`DescSupply` derivations consume.
-   - *Then, closing (b):* per-channel totals (snd = rcv, counting
-     style); the blame-reduction lemmas (mostly 3a corollaries); the
-     small argmin assembly (stalled state ⟹ blame edge drops weave
-     position ⟹ argmin contradiction ⟹ `finalState.rem` all empty).
+     Phase 5 LANDED COMPLETE — LAYER D IS CLOSED (2026-07-17:
+     eb71f7cc..52199fb9 the consumption half, the telescope, the
+     ladders/coverage, the floor counts, the descent packages, the
+     five site discharges, and the leaf case; 2b812c92
+     `emitOK_kids`, the interior fold; 9a286b6a `emitOK_scope` +
+     the top assembly). The theorem:
+     `weave_wedge : wellFormed → schedulable →
+     WEdge sk [] (weaveState sk)` =
+     `weaveState_wedge_of_emitOK ∘ emitOK_weave`. The production
+     half as landed, in `Weave/Master.lean`: `EmitOKOn` (pointwise
+     emission-readiness of the ghost future) is established by
+     `emitOK_scope`, a structural induction over stages whose
+     entry context per scope `(h, k, rest)` is five clauses — the
+     after-scope low windows (`walkSeg` from `descIdx (k+1)`
+     cursors), the `AncTele` telescope over `rest` with the parent
+     feed cursor SATURATED (the un-consumed feed lives in the
+     scope's own expansion, rebuilt per site by `ancTele_rebase`),
+     the coherence link `hcoh0`, and the openers'-share clause
+     stated ABSTRACT over the consumed prefix (∀ pre c,
+     pre.filter mF = feed.drop c → foreign-uniform → ∃ i₀, …) so
+     it composes through the recursion — at the root the feed IS
+     ropen's tail (`ropen_drop_eq_feed`) and the clause discharges
+     itself, which is how one statement serves both the interior
+     scopes (mF = walkIdx (h+1)) and the root (mF = 1, guarded
+     `hmFeq` vacuous). `emitOK_kids` folds the slots: per D slot
+     wire (manual) → resolution (`ready_lower`) → splice summary
+     (`ready_upper_splice`, when `lastDOf == some i`) → feed query
+     (manual, `askedOut = asked` for interior stages) → subtree by
+     the stage-below IH with the pushed context (coordinates
+     `(k, i)` at the scope stage via positional if-updates, parent
+     cursor `i+1`, own chunk saturated by
+     `chunkQ_length`+`drop_length`, `isD` at h+2 re-derived by
+     `parent_slot_isD`, low windows by `deep_glue` at `i+1`, the
+     owner-1 clause composed through `hfd` at `pre := laterflat`);
+     W slots are the manual pair plus a childless subtree
+     (`nChildren_kid_notD` + `scopeFeed_nil`, same IH). The top
+     assembly `emitOK_weave` peels the five openers (seq-0
+     `enabled_snd_low` ×4 + the wire receive from its `manDep`
+     predecessor) and enters the root scope with the trivial
+     context: empty tail (every low window sits at its
+     `descIdx_total` endpoint = `stageLen`), vacuous telescope,
+     vacuous guards. New traps from the interior fold, beyond the
+     leaf case's list: the site's OWN event heads its `fut` — every
+     per-site filter computation (hown/hdeep/tele-rebase/hfeed)
+     must peel it too, not just the later heads; `head_snd_wire`'s
+     stage unifies as the opaque projection `(wpk (hp+1)).2`, so
+     its `1 ≤ hh` side goal needs `show 1 ≤ hp + 1` before omega
+     (same for `askedOut`'s if-condition: `show ¬(hp+1+1 < 2)`,
+     and close the `askedOut = asked` bridge with a trailing
+     `rfl` — the projection arithmetic is defeq but not
+     rfl-at-reducible); hown chains need TWO `filter_append`s
+     (`(subEv ++ L) ++ rest` after one assoc); a cons-headed
+     `pre ++ rest` is DEFEQ to the goal's fut (cons_append
+     reduces), so `ancTele_rebase (pre := lowEv :: … :: (subEv ++
+     L))` unifies against `lowEv :: … :: ((subEv ++ L) ++ rest)`
+     with no propositional assoc — only opaque-left appends need
+     `List.append_assoc` rewrites; `rw [h1]` with `h1 : (1:Nat) =
+     …` rewrites EVERY literal 1 including inside `rootH - 1 -
+     g'` — rewrite inside the lemma instance (`rwa … at h2`)
+     instead; pass `descIdx_total`'s depth explicitly (a `_` there
+     leaves a metavariable the `by omega` side goal cannot see).
+   - *Then, closing (b) — NEXT (task #11), from `weave_wedge`:*
+     per-channel totals at the weave's final state (snd = rcv per
+     channel, counting style — the whole-trace totals are already
+     the `walk_canon`/opener/pump segs, and the future is empty so
+     every `futLen` correction is zero); the blame-reduction lemmas
+     (mostly 3a corollaries); the small argmin assembly (stalled
+     state ⟹ blame edge drops weave position ⟹ argmin contradiction
+     ⟹ `finalState.rem` all empty).
 4. Opener/asm enabledness mirrors of the pillar (small).
 5. The blame lemmas (§6 table), consuming §2 + Sched (trace
    monotonicity replaces most positional arithmetic).
