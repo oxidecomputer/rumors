@@ -112,6 +112,24 @@ fn prefix_len_separates_boundary_shifts() {
     );
 }
 
+/// A saturated 256-child branch encodes its count as big-endian `0x01 0x00`
+/// — the u16's high byte, the entire reason the field is not a biased byte,
+/// carries through `Hash::branch` correctly.
+#[test]
+fn saturated_fan_count_uses_the_high_byte() {
+    let children: Vec<(u8, Hash)> = (0u8..=255)
+        .map(|radix| (radix, Hash([radix; MERKLE_HASH_LEN])))
+        .collect();
+
+    let mut expected = vec![BRANCH_TAG, 0, 0x01, 0x00];
+    for (radix, child) in &children {
+        expected.push(*radix);
+        expected.extend_from_slice(&child.0);
+    }
+
+    assert_eq!(Hash::branch(&[], children), Hash::of(&expected));
+}
+
 /// A Merkle hash is the prefix truncation of the full-width content hash of
 /// the same preimage: the leading `MERKLE_HASH_LEN` bytes, nothing
 /// rearranged or re-hashed.

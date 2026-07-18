@@ -267,8 +267,9 @@ where
 ///
 /// Distinct from [`Exchange`] by the absence of `uncertain`: at leaf height
 /// the dispute cell of the asymmetry matrix is empty — two parties holding a
-/// leaf at the same path hold the same leaf (both hash to the constant leaf
-/// hash) — so every leaf routes to `providing`, `requested`, or silence,
+/// leaf at the same path hold the same leaf, because leaves are
+/// content-addressed and the path *is* the content commitment — so every
+/// leaf routes to `providing`, `requested`, or silence,
 /// never to a finer round. Encoding the vacuity in the type system lets
 /// [`complete_initiator`](super::protocol::CompleteInitiator::complete_initiator)
 /// consume `Closing` directly, without a runtime check against an

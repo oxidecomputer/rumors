@@ -1,11 +1,11 @@
 # Single-preimage node hashing: one compression per node
 
-Status: agreed design, 2026-07-18 (revised from the two-rule
-spine-wrap draft after review; see §5 for the draft's shape and
-why this one won). This is the design note that
+Status: implemented 2026-07-18 (commit `51f6ecd1`; revised from
+the two-rule spine-wrap draft after review — see §5 for the
+draft's shape and why this one won). This is the design note that
 `design/streaming-latency-serialization.md` §10 lever E calls
 for; the measurements referenced here are that document's (§8
-cells, post-lever-A profile). Nothing below is implemented.
+cells, post-lever-A profile).
 
 ## 1. The problem
 

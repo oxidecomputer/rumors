@@ -85,6 +85,11 @@ impl Hash {
     /// content-addressed; see [`Path::for_leaf`](super::Path::for_leaf)),
     /// and each parent commits its child's radix byte, so a root-to-leaf
     /// chain of preimages commits the full 32-byte path.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `suffix` exceeds 255 bytes. Unreachable through the typed
+    /// tree, whose height cap bounds compressed spans at the 32-byte path.
     pub fn leaf(suffix: &[u8]) -> Self {
         let suffix_len =
             u8::try_from(suffix.len()).expect("a compressed span fits in one length byte");
@@ -131,7 +136,14 @@ impl Hash {
     /// rests on (see
     /// [`Node::serialize_to`](super::untyped::Node::serialize_to)); the
     /// canonicity proptests pin it so any future relaxation breaks loudly
-    /// rather than desynchronizing hashes silently.
+    /// rather than desynchronizing hashes silently. In debug builds this
+    /// function trips on a one-child fan and on out-of-order radixes at the
+    /// call site.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `prefix` exceeds 255 bytes. Unreachable through the typed
+    /// tree, whose height cap bounds compressed spans at the 32-byte path.
     pub fn branch(prefix: &[u8], children: impl IntoIterator<Item = (u8, Hash)>) -> Self {
         // Assemble the whole preimage contiguously, then hash it in one shot.
         // Handing BLAKE3 a single large slice lets it engage its multi-block
@@ -154,13 +166,29 @@ impl Hash {
         let count_at = buf.len();
         buf.extend_from_slice(&[0, 0]);
         let mut count: u16 = 0;
+        let mut previous: Option<u8> = None;
         for (radix, child) in children {
             count = count
                 .checked_add(1)
                 .expect("branch fan-out is bounded by the 256-way radix");
+            // The convention requires ascending radix order, but only the
+            // `OrdMap` caller guarantees it structurally: trip at the
+            // violation site rather than as a cross-peer hash desync.
+            debug_assert!(
+                previous.is_none_or(|previous| previous < radix),
+                "branch children must arrive in strictly ascending radix order",
+            );
+            previous = Some(radix);
             buf.push(radix);
             buf.extend_from_slice(child.as_bytes());
         }
+        // The convention defines no hash for a one-child branch (see
+        // `# Canonicity`); computing one here would surface three layers
+        // away as a silent cross-peer desync.
+        debug_assert!(
+            count != 1,
+            "a one-child branch is unrepresentable under the canonical-shape invariant",
+        );
         buf[count_at..count_at + 2].copy_from_slice(&count.to_be_bytes());
         Hash::of(&buf)
     }
