@@ -892,12 +892,24 @@ counts unchanged) plus a green gate.
   would live — so C should be designed with A, or explicitly
   after it. Keep derivation under `debug_assertions` as the bug
   tripwire.
-- **D. Cheapen the codec's speculative-parse error path** [est.
-  ~0.9 ms, shared with V1 so roughly parity-neutral; `before`
-  crate]. Both protocols burn ~0.9 ms/session constructing and
-  dropping `before::error::Decode` values on the happy path —
-  probe parses in the bit codec construct real error values.
-  Improves absolute time everywhere.
+- **D. Cheapen the bit codec's per-bit error construction** [est.
+  ~1–2 ms, shared with V1 so roughly parity-neutral; `before`
+  crate]. Mechanism corrected 2026-07-18 [checked]: not probe
+  parses — the per-bit hot path constructs and drops a real
+  error value on every *successful* read.
+  `SliceCursor::read_bit` uses `ok_or(Decode::Truncated)`, whose
+  argument is evaluated unconditionally; `Decode` carries an
+  `Io(std::io::Error)` variant, so the enum has drop glue and
+  the construct+drop pair survives optimization — one glue call
+  per bit, and version comparison gamma-decodes bit-by-bit on
+  every join/meet. The profile puts 100 % of the
+  `drop_in_place<Decode>` time under `gamma::decode_int_from` ←
+  `version::compare::EvReader::read`: a version-comparison cost,
+  not a wire cost, taxing every path that compares versions.
+  Fix: `ok_or_else` as the one-liner; better, a fieldless `Copy`
+  bit-level error enum converted to `Decode` only at the
+  `ReaderCursor` boundary where `Io` can occur (internal only —
+  the public `Decode` API is unchanged).
 - **E. Batch the spine-wrap hash** [est. ~7–8 ms *per protocol*,
   parity-neutral; a coordinated hash-format break]. `hash()`
   folds a compressed prefix one `Hash::branch` per byte: a
