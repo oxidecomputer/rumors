@@ -98,11 +98,32 @@ theorem exists_least_of_exists_lt {p : Nat → Bool} :
           cases hpj
         exact ⟨n, by omega, hjeq ▸ hpj, hnone⟩
 
+/-- The `d5` discharge shape shared by the wire/query introduction
+rules: the parent is already sent, or some D child of the scope is
+still unresolved (so the parent-placement ledger does not yet bind). -/
+def D5Free (ws : WalkSt) (n : Nat) (isD : Nat → Bool) : Prop :=
+  ws.parentDone = true ∨ ∃ j, j < n ∧ isD j = true ∧ ws.resDone j = false
+
+/-- Reduce the guard's `d5` conjunct to `D5Free`. -/
+private theorem d5_conjunct {ws : WalkSt} {n : Nat} {isD : Nat → Bool}
+    (hd5 : D5Free ws n isD) :
+    (ax.d5 = false ∨ ws.parentDone = true) ∨
+      ((List.range n).all fun j => !isD j || ws.resDone j) = false := by
+  rcases hd5 with hpd | ⟨j, hj, hD, hr⟩
+  · exact Or.inl (Or.inr hpd)
+  · refine Or.inr ?_
+    cases hall : (List.range n).all fun j => !isD j || ws.resDone j with
+    | false => rfl
+    | true =>
+        have := List.all_eq_true.mp hall j (List.mem_range.mpr hj)
+        rw [hD, hr] at this
+        cases this
+
 /-- Introduction rule for committing `.wire i` in phase 2: an undone
 wire whose earlier wires are all done and whose earlier D children are
 all discharged passes the wire guard outright — every `(!ax.flag || _)`
 conjunct is settled on the right, so the commit is choosable in every
-axiom mode. -/
+axiom mode (`hd5` settles the parent-placement conjunct). -/
 theorem wkChoosable_wire_intro {ws : WalkSt} {i : Nat}
     (hph : ws.phase = 2) (hco : ws.committed = none)
     (hin : i < sk.nChildren pk.2 (sk.stageScope pk.2 ws.scope))
@@ -111,17 +132,20 @@ theorem wkChoosable_wire_intro {ws : WalkSt} {i : Nat}
     (hdis : ∀ j, j < i →
       sk.childIsD pk.2 (sk.stageScope pk.2 ws.scope) j = true →
       ws.resDone j = true ∧
-        ws.qSent j = sk.qCount pk.2 (sk.stageScope pk.2 ws.scope) j) :
+        ws.qSent j = sk.qCount pk.2 (sk.stageScope pk.2 ws.scope) j)
+    (hd5 : D5Free ws (sk.nChildren pk.2 (sk.stageScope pk.2 ws.scope))
+      (sk.childIsD pk.2 (sk.stageScope pk.2 ws.scope))) :
     wkChoosable sk ax pk ws (.wire i) = true := by
   simp only [wkChoosable, hph, hco, bne_self_eq_false, Option.isSome_none,
     Bool.or_self, Bool.false_eq_true, if_false, Bool.and_eq_true,
     decide_eq_true_eq, Bool.not_eq_true', List.all_eq_true, List.mem_range,
     Bool.or_eq_true, beq_iff_eq]
-  refine ⟨⟨⟨hin, hund⟩, hpre⟩, Or.inr ?_⟩
-  intro j hj
-  cases hD : sk.childIsD pk.2 (sk.stageScope pk.2 ws.scope) j with
-  | false => exact Or.inl rfl
-  | true => exact Or.inr (hdis j hj hD)
+  refine ⟨⟨⟨⟨hin, hund⟩, hpre⟩, Or.inr ?_⟩, ?_⟩
+  · intro j hj
+    cases hD : sk.childIsD pk.2 (sk.stageScope pk.2 ws.scope) j with
+    | false => exact Or.inl rfl
+    | true => exact Or.inr (hdis j hj hD)
+  · simpa using d5_conjunct (ax := ax) hd5
 
 /-- Introduction rule for committing `.res i` in phase 2: an unresolved
 D child whose wire is done, whose earlier D children are all resolved,
@@ -165,13 +189,16 @@ theorem wkChoosable_query_intro {ws : WalkSt} {i : Nat}
     (hqpre : ∀ j, j < i →
       ws.qSent j = sk.qCount pk.2 (sk.stageScope pk.2 ws.scope) j)
     (hres : ws.resDone i = true)
-    (hwire : ws.wireDone i = true) :
+    (hwire : ws.wireDone i = true)
+    (hd5 : D5Free ws (sk.nChildren pk.2 (sk.stageScope pk.2 ws.scope))
+      (sk.childIsD pk.2 (sk.stageScope pk.2 ws.scope))) :
     wkChoosable sk ax pk ws (.query i) = true := by
   simp only [wkChoosable, hph, hco, bne_self_eq_false, Option.isSome_none,
     Bool.or_self, Bool.false_eq_true, if_false, Bool.and_eq_true,
     decide_eq_true_eq, Bool.not_eq_true', List.all_eq_true, List.mem_range,
     Bool.or_eq_true, beq_iff_eq]
-  exact ⟨⟨⟨⟨⟨hin, hD⟩, hq⟩, hqpre⟩, Or.inr hres⟩, Or.inr hwire⟩
+  refine ⟨⟨⟨⟨⟨⟨hin, hD⟩, hq⟩, hqpre⟩, Or.inr hres⟩, Or.inr hwire⟩, ?_⟩
+  simpa using d5_conjunct (ax := ax) hd5
 
 /-- Introduction rule for committing `.parent` in phase 2: when the
 parent is unsent and every D child of the scope is resolved, the parent
@@ -205,7 +232,9 @@ theorem wkChoosable_wire_of_undone {ws : WalkSt}
       sk.childIsD pk.2 (sk.stageScope pk.2 ws.scope) j = true →
       (ws.resDone j = true ∧
         ws.qSent j = sk.qCount pk.2 (sk.stageScope pk.2 ws.scope) j) ∨
-        ∃ k, k ≤ j ∧ ws.wireDone k = false) :
+        ∃ k, k ≤ j ∧ ws.wireDone k = false)
+    (hd5 : D5Free ws (sk.nChildren pk.2 (sk.stageScope pk.2 ws.scope))
+      (sk.childIsD pk.2 (sk.stageScope pk.2 ws.scope))) :
     ∃ i, i < sk.nChildren pk.2 (sk.stageScope pk.2 ws.scope) ∧
       wkChoosable sk ax pk ws (.wire i) = true := by
   have hWex' : ∃ j, j < sk.nChildren pk.2 (sk.stageScope pk.2 ws.scope) ∧
@@ -218,7 +247,7 @@ theorem wkChoosable_wire_of_undone {ws : WalkSt}
     intro k hk
     have hk' : (!ws.wireDone k) = false := hmin k hk
     simpa using hk'
-  refine ⟨w, hwn, wkChoosable_wire_intro hph hco hwn hwund hwpre ?_⟩
+  refine ⟨w, hwn, wkChoosable_wire_intro hph hco hwn hwund hwpre ?_ hd5⟩
   intro j hj hD
   rcases hdis_or j (by omega) hD with hd | ⟨k, hkj, hkw⟩
   · exact hd
@@ -227,10 +256,12 @@ theorem wkChoosable_wire_of_undone {ws : WalkSt}
     cases hkdone
 
 /-- A phase-2 walk that has not committed always has a choosable
-obligation, together with its enumeration witness: the least unmet
-obligation of the current scope, taken in (res|query of the least
-undischarged D child, when its wire is done) ≺ wire ≺ parent order,
-passes every axiom guard in EVERY axiom mode. -/
+obligation, together with its enumeration witness: the parent when
+every D child is resolved and the parent is unsent (the `d5` ledger's
+mandated placement), otherwise the least unmet obligation of the
+current scope, taken in (res|query of the least undischarged D child,
+when its wire is done) ≺ wire ≺ parent order — and each choice passes
+every axiom guard in EVERY axiom mode. -/
 theorem walk_uncommitted_choosable (hwf : sk.wellFormed = true)
     (hi : InvP sk ax s) (hpk : pk ∈ sk.walkKeys)
     (hph : (s.walk pk).phase = 2) (hco : (s.walk pk).committed = none) :
@@ -268,6 +299,34 @@ theorem walk_uncommitted_choosable (hwf : sk.wellFormed = true)
     · rcases hpre k hk with hDf | hres
       · rw [hDk] at hDf; cases hDf
       · exact hres
+  -- Parent placement first: when every D child is resolved and the
+  -- parent is unsent, the parent itself is choosable in every mode
+  -- (`d2` is settled by the resolutions) — and it is the only choice
+  -- the `d5` ledger leaves open there, so the enumeration must pick it.
+  -- Otherwise `D5Free` holds and the pre-`d5` enumeration below goes
+  -- through unchanged.
+  have hd5exit : (∃ o : Oblig, wkChoosable sk ax pk (s.walk pk) o = true ∧
+      Action.walkCommit pk o ∈ allActions sk) ∨
+      D5Free (s.walk pk)
+        (sk.nChildren pk.2 (sk.stageScope pk.2 (s.walk pk).scope))
+        (sk.childIsD pk.2 (sk.stageScope pk.2 (s.walk pk).scope)) := by
+    by_cases hAllD : (∀ j, j < sk.nChildren pk.2
+        (sk.stageScope pk.2 (s.walk pk).scope) →
+        sk.childIsD pk.2 (sk.stageScope pk.2 (s.walk pk).scope) j = true →
+        (s.walk pk).resDone j = true)
+    · cases hpdv : (s.walk pk).parentDone with
+      | true => exact Or.inr (Or.inl hpdv)
+      | false =>
+          exact Or.inl ⟨.parent, wkChoosable_parent_intro hph hco hpdv hAllD,
+            walkCommit_parent_mem hpk⟩
+    · refine Or.inr (Or.inr ?_)
+      by_contra hno
+      refine hAllD (fun j hj hD => ?_)
+      cases hr : (s.walk pk).resDone j with
+      | true => rfl
+      | false => exact absurd ⟨j, hj, hD, hr⟩ hno
+  rcases hd5exit with hdone | hd5
+  · exact hdone
   -- Split on whether the scope has an undischarged D child.
   by_cases hDex : ((List.range (sk.nChildren pk.2
       (sk.stageScope pk.2 (s.walk pk).scope))).any fun j =>
@@ -319,7 +378,7 @@ theorem walk_uncommitted_choosable (hwf : sk.wellFormed = true)
               have hle := hq_le k (by omega)
               omega
         exact ⟨.query js,
-          wkChoosable_query_intro hph hco hjs_n hjsD hq_lt hqpre hrd hwd,
+          wkChoosable_query_intro hph hco hjs_n hjsD hq_lt hqpre hrd hwd hd5,
           walkCommit_query_mem hpk (by omega)⟩
       · -- Case A1: `js` is unresolved. Choose `.res js`.
         have hnr : (s.walk pk).resDone js = false := by
@@ -360,7 +419,7 @@ theorem walk_uncommitted_choosable (hwf : sk.wellFormed = true)
         · exact Or.inl (hjs_dis j hjlt hDj)
         · exact Or.inr ⟨js, by omega, hwdf⟩
       obtain ⟨w, hwn, hch⟩ := wkChoosable_wire_of_undone hph hco
-        ⟨js, hjs_n, hwdf⟩ hdis_or
+        ⟨js, hjs_n, hwdf⟩ hdis_or hd5
       exact ⟨.wire w, hch, walkCommit_wire_mem hpk (by omega)⟩
   · -- Every D child is discharged.
     have hDall : ∀ j,
@@ -387,7 +446,7 @@ theorem walk_uncommitted_choosable (hwf : sk.wellFormed = true)
       rw [List.mem_range] at hj0
       have hw0' : (s.walk pk).wireDone j0 = false := by simpa using hw0
       obtain ⟨w, hwn, hch⟩ := wkChoosable_wire_of_undone hph hco
-        ⟨j0, hj0, hw0'⟩ (fun j hj hDj => Or.inl (hDall j hj hDj))
+        ⟨j0, hj0, hw0'⟩ (fun j hj hDj => Or.inl (hDall j hj hDj)) hd5
       exact ⟨.wire w, hch, walkCommit_wire_mem hpk (by omega)⟩
     · -- Case C: wires done, D children discharged; only the parent can
       -- be unmet, and `scopeComplete = false` says it is. Choose `.parent`.

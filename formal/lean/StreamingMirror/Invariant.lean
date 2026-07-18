@@ -188,7 +188,9 @@ def wkLocalOk (s : State) (pk : Party × Nat) : Bool :=
           (i == wkWireCount sk s pk) && decide (i < n) &&
           (!ax.d4 || (List.range i).all fun j =>
             !sk.childIsD h sc j ||
-              (ws.resDone j && ws.qSent j == sk.qCount h sc j))
+              (ws.resDone j && ws.qSent j == sk.qCount h sc j)) &&
+          (!ax.d5 || ws.parentDone ||
+            !(List.range n).all fun j => !sk.childIsD h sc j || ws.resDone j)
       | some (.res i) =>
           decide (i < n) && sk.childIsD h sc i && !ws.resDone i &&
           ((List.range i).all fun j => !sk.childIsD h sc j || ws.resDone j) &&
@@ -200,7 +202,9 @@ def wkLocalOk (s : State) (pk : Party × Nat) : Bool :=
           (ws.qSent i < sk.qCount h sc i) &&
           ((List.range i).all fun j => ws.qSent j == sk.qCount h sc j) &&
           (!ax.d1int || ws.resDone i) &&
-          (!ax.wireFirst || ws.wireDone i)
+          (!ax.wireFirst || ws.wireDone i) &&
+          (!ax.d5 || ws.parentDone ||
+            !(List.range n).all fun j => !sk.childIsD h sc j || ws.resDone j)
       | some .parent =>
           !ws.parentDone &&
           (!ax.d2 || (List.range n).all fun j =>

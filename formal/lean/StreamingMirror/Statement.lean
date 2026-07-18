@@ -63,15 +63,18 @@ open Model
 reachable state of the session is stuck — every interleaving either can
 still move or has completed. The target theorem is
 `sk.wellFormed → sk.schedulable → DeadlockFree sk AxMode.full` (the
-six-ledger interface), pending the progress lemma. The mode index and
+seven-ledger interface), pending the progress lemma. The mode index and
 the `schedulable` hypothesis are each load-bearing, and each is a
 THEOREM, not a promise: `Control.jam_not_deadlockFree` refutes this
 very statement for the pre-finding-#6 interface (`Control.fullNoD4` —
 everything but wire contiguity) by a kernel-checked stuck run on a
-well-formed skeleton, and `Control.pyramid1_not_deadlockFree` refutes
-it under `.full` for `Pin.pyramid 1` — well-formed, one D child past
-the `schedulable` bound (`pyramid1_not_schedulable` below), greedy run
-kernel-checked stuck. -/
+well-formed skeleton; `Control.parentTrap_not_deadlockFree` refutes it
+for the pre-finding-#7 interface (`Control.fullNoD5` — everything but
+parent placement) on a well-formed AND schedulable skeleton; and
+`Control.pyramid1_not_deadlockFree` refutes it under `.full` for
+`Pin.pyramid 1` — well-formed, one D child past the `schedulable`
+bound (`pyramid1_not_schedulable` below), greedy run kernel-checked
+stuck. -/
 def DeadlockFree (sk : Skel) (ax : AxMode) : Prop :=
   ∀ s : State, Reachable sk ax s → stuck sk ax s = false
 

@@ -221,7 +221,11 @@ def ropenChoosable (s : State) : ROblig → Bool
 Quint: `wkChoosable`. The in-order (child-order) conjuncts are program
 structure, never relaxed: positional pairing is the protocol's identity
 carrier (work.rs:512-515; checked in Rust by `assert_valid`'s radix-order
-rule). -/
+rule). The `d5` conjunct on the wire and query arms is the parent
+ledger (finding #7): once every D child of the scope is resolved, the
+parent summary must depart before any further wire or query — exactly
+the placement the weave pins (parent immediately after the final
+resolution; first in an undisputed scope). -/
 def wkChoosable (pk : Party × Nat) (ws : WalkSt) (o : Oblig) : Bool :=
   if ws.phase != 2 || ws.committed.isSome then false
   else
@@ -233,7 +237,9 @@ def wkChoosable (pk : Party × Nat) (ws : WalkSt) (o : Oblig) : Bool :=
         (i < n) && !ws.wireDone i &&
         (List.range i).all (fun j => ws.wireDone j) &&
         (!ax.d4 || (List.range i).all fun j =>
-          !sk.childIsD h s j || (ws.resDone j && ws.qSent j == sk.qCount h s j))
+          !sk.childIsD h s j || (ws.resDone j && ws.qSent j == sk.qCount h s j)) &&
+        (!ax.d5 || ws.parentDone ||
+          !(List.range n).all fun j => !sk.childIsD h s j || ws.resDone j)
     | .res i =>
         (i < n) && sk.childIsD h s i && !ws.resDone i &&
         (List.range i).all (fun j => !sk.childIsD h s j || ws.resDone j) &&
@@ -245,7 +251,9 @@ def wkChoosable (pk : Party × Nat) (ws : WalkSt) (o : Oblig) : Bool :=
         (ws.qSent i < sk.qCount h s i) &&
         (List.range i).all (fun j => ws.qSent j == sk.qCount h s j) &&
         (!ax.d1int || ws.resDone i) &&
-        (!ax.wireFirst || ws.wireDone i)
+        (!ax.wireFirst || ws.wireDone i) &&
+        (!ax.d5 || ws.parentDone ||
+          !(List.range n).all fun j => !sk.childIsD h s j || ws.resDone j)
     | .parent =>
         !ws.parentDone &&
         (!ax.d2 || (List.range n).all fun j =>

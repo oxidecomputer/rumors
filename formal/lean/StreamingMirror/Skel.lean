@@ -237,7 +237,8 @@ def schedulable : Bool :=
 end Skel
 
 /-- The axiom mode: which `Trace::assert_valid` ledgers guard the
-committed-choice publisher. Quint: the six `AX_*`/`WIRE_FIRST` consts. -/
+committed-choice publisher. Quint: the six `AX_*`/`WIRE_FIRST` consts
+(`d4` and `d5` postdate the frozen Quint spec). -/
 structure AxMode where
   w : Bool        -- wire before internal publication (wire ledger)
   d1root : Bool   -- root resolution before root child queries
@@ -247,11 +248,14 @@ structure AxMode where
   d4 : Bool       -- wire sibling contiguity (the second ledger gap this
                   -- work found: a wire may not depart while an earlier D
                   -- sibling is unresolved or owes dependent queries)
+  d5 : Bool       -- parent placement (the third ledger gap this work
+                  -- found: once every D child is resolved, no further
+                  -- wire or query may depart before the parent summary)
   wireFirst : Bool -- control scaffolding, not an axiom (see Quint doc)
   deriving DecidableEq, Repr
 
 /-- All axioms on, scaffolding off: the assumed interface of the Rust
 implementation. -/
-def AxMode.full : AxMode := ⟨true, true, true, true, true, true, false⟩
+def AxMode.full : AxMode := ⟨true, true, true, true, true, true, true, false⟩
 
 end StreamingMirror

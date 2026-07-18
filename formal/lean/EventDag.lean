@@ -285,18 +285,18 @@ enumeration lists `.parent` first, so the greedy drain sends every
 summary at its earliest legal point and never visits a
 committed-past-unsent-parent state; this ordering makes the driver
 commit a choosable wire/res/query first whenever one exists, steering
-every run through exactly those states — the progress argmin's residual
-case (PROGRESS.md §7 item 5): a walk jammed on a child obligation while
-its trace-earlier parent is still owed.
+every run through exactly those states.
 
-THE PARENT-DELAY FINDING (2026-07-17): this drain STALLS on schedulable
-random seeds (first witness: seed 12 — two walks committed past unsent
-parents close a commit/back-pressure cycle through the level towers),
-so `DeadlockFree _ .full` is FALSE as stated: the `.full` ledger set is
-missing a parent-placement rule. The six pins still complete (their
-shapes never wedge both flavors at once), so `runAll` asserts pin
-completion while `runFuzz` asserts the stalls REPRODUCE — both
-directions pinned. Details and the proposed ledger: PROGRESS.md §7. -/
+THE PARENT-DELAY FINDING (2026-07-17), now resolved by the `d5` ledger:
+under the pre-`d5` interface (`Control.fullNoD5`, what `.full` was at
+the time) this drain STALLS on schedulable random seeds (first witness:
+seed 12 — two walks committed past unsent parents close a
+commit/back-pressure cycle through the level towers); the minimized
+kernel-checked twin is `Control.parentTrap`. Under today's `.full` the
+`d5` guard forces the parent at its weave position even against this
+ordering, so the drain must TERMINATE. `runFuzz` pins both directions:
+stalls reproduce under `fullNoD5`, and every schedulable seed drains to
+terminal under `.full`. Details: PROGRESS.md §7 item 5. -/
 def advActions (sk : Skel) : List Action :=
   [.iopenChoose .wire, .iopenChoose .query, .iopenFire,
    .ropenRecv, .ropenChoose .wire, .ropenChoose .res, .ropenChoose .query,
@@ -313,12 +313,14 @@ def advActions (sk : Skel) : List Action :=
   sk.asmKeys.flatMap (fun pk =>
     [.asmRecvRes pk, .asmRecvLevel pk, .asmSend pk, .asmClose pk])
 
-/-- Greedy drain over `advActions`: the parent-delaying adversarial run. -/
-def drainAdv (sk : Skel) : Nat → State → State
+/-- Greedy drain over `advActions`: the parent-delaying adversarial run
+under axiom mode `ax` (stalls under `Control.fullNoD5`, terminates
+under `.full` — see `advActions`). -/
+def drainAdv (sk : Skel) (ax : AxMode) : Nat → State → State
   | 0, s => s
   | fuel + 1, s =>
-      match (advActions sk).firstM (fun a => apply sk .full a s) with
-      | some s' => drainAdv sk fuel s'
+      match (advActions sk).firstM (fun a => apply sk ax a s) with
+      | some s' => drainAdv sk ax fuel s'
       | none => s
 
 /-- `Model.allChans`, deduplicated. -/
@@ -1232,16 +1234,20 @@ def runFuzz (n : Nat) : Array String := Id.run do
       -- can terminate (non-schedulable seeds stall under every driver)
       if sk.schedulable && !a.totalErrs.isEmpty then
         errs := errs.push s!"seed {seed}: {a.totalErrs[0]!}"
-      -- the parent-delay finding, pinned (see PROGRESS.md §7 item 5):
-      -- on SOME schedulable seeds the parent-delaying adversary
-      -- reaches a genuinely stuck model state (walks committed past
-      -- their unsent floating parent close a commit/back-pressure
-      -- cycle), so `DeadlockFree _ .full` is FALSE without a parent-
-      -- placement ledger. Count the stalls; the ≥ 1 assertion below
-      -- keeps the finding from silently dissolving under a model or
-      -- generator change without a deliberate re-audit.
-      if sk.schedulable && !(terminal sk (drainAdv sk 50000 (init sk))) then
+      -- the parent-delay finding, pinned in both directions (see
+      -- PROGRESS.md §7 item 5): under the pre-d5 ledger set the
+      -- adversary reaches genuinely stuck states on SOME schedulable
+      -- seeds (the ≥ 1 assertion below keeps the finding from silently
+      -- dissolving under a model or generator change), while under
+      -- today's `.full` the d5 guard must defuse every such stall —
+      -- an adversarial stall under `.full` is a hard error again.
+      if sk.schedulable && !(terminal sk
+          (drainAdv sk Control.fullNoD5 50000 (init sk))) then
         advStalls := advStalls.push seed
+      if sk.schedulable && !(terminal sk
+          (drainAdv sk .full 50000 (init sk))) then
+        errs := errs.push
+          s!"seed {seed}: adversarial drain STALLS under .full (d5 should defuse the parent delay)"
       if a.acyclic then
         let cand := schedCandidate sk
         let vErrs := validateSchedule sk cand
@@ -1324,10 +1330,14 @@ def runAll (outDir : System.FilePath) : IO Bool := do
     IO.println s!"  totalsOk={totalsOk} acyclic={a.acyclic} nodes={a.nodes.size} edges={a.edgeCount} maxDepth={a.maxDepth}"
     table := table.push
       s!"{name}\ttotalsOk={totalsOk}\tacyclic={a.acyclic}\tnodes={a.nodes.size}\tedges={a.edgeCount}\tmaxDepth={a.maxDepth}"
-    -- the six pins complete even under the parent-delaying adversary
-    -- (the parent-delay stalls need random shapes; see runFuzz)
-    if !(terminal sk (drainAdv sk 50000 (init sk))) then
-      IO.println "  ADVERSARIAL (parent-delayed) drain did NOT reach terminal"
+    -- the six pins complete under the parent-delaying adversary in BOTH
+    -- modes: their shapes never wedge the trap even pre-d5 (the stalls
+    -- need random/parentTrap shapes; see runFuzz and Controls.lean)
+    if !(terminal sk (drainAdv sk .full 50000 (init sk))) then
+      IO.println "  ADVERSARIAL (parent-delayed) drain did NOT reach terminal under .full"
+      allOk := false
+    else if !(terminal sk (drainAdv sk Control.fullNoD5 50000 (init sk))) then
+      IO.println "  ADVERSARIAL (parent-delayed) drain did NOT reach terminal under fullNoD5"
       allOk := false
     else
       IO.println "  adversarial (parent-delayed) drain reaches terminal: OK"
@@ -1482,7 +1492,7 @@ def runAll (outDir : System.FilePath) : IO Bool := do
   -- the adversarial drain must ALSO stall there (any driver stalls on a
   -- non-schedulable skeleton): pins that the parent-delayed probe is a
   -- real run that can fail, not a vacuous pass
-  let advNegTerm := terminal pyr1 (drainAdv pyr1 50000 (init pyr1))
+  let advNegTerm := terminal pyr1 (drainAdv pyr1 .full 50000 (init pyr1))
   IO.println s!"  pyramid1 adversarial drain stuck: {!advNegTerm} (want true)"
   if advNegTerm then allOk := false
   -- the weave must be rejected on a non-schedulable skeleton: its
@@ -1556,6 +1566,8 @@ def runAll (outDir : System.FilePath) : IO Bool := do
       -- the weave completes ON the boundary and fails one past it
       && (wOnErrs ++ validateSchedule onB wOn).isEmpty
       && !(wOverErrs ++ validateSchedule over wOver).isEmpty
+      -- d5 defuses the parent-delaying adversary on the boundary shapes
+      && terminal onB (drainAdv onB .full 50000 (init onB))
     IO.println s!"    capLevel={cl}: {if ok then "OK" else "FAIL"}"
     if !ok then allOk := false
   IO.println "=== verdict table ==="

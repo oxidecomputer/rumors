@@ -26,6 +26,27 @@ strengthened interface refuses this schedule at the first non-contiguous
 wire, and `jam_completes_full` pins that the skeleton still completes
 greedily under the strengthened mode.
 
+# Finding #7: the parent-placement ledger gap (2026-07-17)
+
+The second refutation family (`pdelay`/`parentTrap` below) is the
+parent-delay finding: the six-ledger interface `{W, D1, D2, D3, D4}`
+(`fullNoD5` — what `AxMode.full` was between the findings) left exactly
+one out-of-trace-order freedom. A walk whose D children are all
+resolved could commit a last-chunk query or trailing W wire with its
+floating parent summary still unsent; the unsent parent starves the
+assembler two heights up, the level towers back up and stop draining
+the walk's own `upper` channel below, and the walk two stages down
+wedges on its parent fire — never reaching the asked-receive that would
+unjam the first walk's committed query. `parentTrap` wedges BOTH
+flavors at once (walk (R,2) on the last-chunk query, walk (I,1) on a
+trailing wire) on a well-formed, schedulable skeleton, so
+`parentTrap_not_deadlockFree` refutes the pre-finding target statement
+itself. The fix is the `d5` axiom (parent placement, on in today's
+`AxMode.full`), matching the weave's §5 parent position (immediately
+after the final resolution; first in an undisputed scope) — the order
+the Rust encoder always emitted, unchecked; `d5_rejects_parentTrap` and
+`pdelay_completes_full` pin refusal and non-vacuity exactly as for #6.
+
 Everything here is checked by kernel `decide` — no `native_decide`
 trust in any refutation.
 -/
@@ -55,9 +76,16 @@ def jam : Skel :=
         ⟨.R, 1, [], 0⟩ ],         -- 10: c6 (B3's kid)
     rootH := 4, fan := 4, capLevel := 1 }
 
-/-- The pre-finding interface: every axiom of the old ledger set, no
-wire contiguity. `⟨w, d1root, d1int, d2, d3, d4, wireFirst⟩`. -/
-def fullNoD4 : AxMode := ⟨true, true, true, true, true, false, false⟩
+/-- The pre-finding-#6 interface: every axiom of the old ledger set, no
+wire contiguity (and no parent placement, which postdates it too).
+`⟨w, d1root, d1int, d2, d3, d4, d5, wireFirst⟩`. -/
+def fullNoD4 : AxMode := ⟨true, true, true, true, true, false, false, false⟩
+
+/-- The pre-finding-#7 interface: what `AxMode.full` was from finding #6
+until the parent-delay finding — every ledger but parent placement.
+`parentTrap` below kernel-checks that this set does NOT imply
+deadlock-freedom. -/
+def fullNoD5 : AxMode := ⟨true, true, true, true, true, true, false, false⟩
 
 open Party in
 /-- The trap schedule. Under `fullNoD4` every guard passes and the run
@@ -153,11 +181,16 @@ theorem jam_not_deadlockFree : ¬ DeadlockFree jam fullNoD4 := by
       have hns := h s (run_reachable jam fullNoD4 hr)
       simp [hns] at key
 
-/-- The strengthened interface refuses the trap: under `AxMode.full`
-(with `d4`) the schedule's first contiguity-violating wire commit —
-(R,2)'s wire B2, while B1 is unresolved — fails its guard. -/
+/-- The strengthened interface refuses the trap: under `fullNoD5` (the
+ledger set as of finding #6, with `d4`) the schedule's first
+contiguity-violating wire commit — (R,2)'s wire B2, while B1 is
+unresolved — fails its guard. Under today's `AxMode.full` the refusal
+comes even earlier ((I,3)'s post-resolution query with the parent
+unsent, a `d5` violation), so the trap is rejected by both. -/
 theorem d4_rejects_trap :
-    run jam .full (init jam) trap = none := by decide
+    run jam fullNoD5 (init jam) trap = none ∧
+    run jam .full (init jam) trap = none := by
+  constructor <;> decide
 
 /-- Greedy scheduler, for completion pins: take the first enabled
 action until quiescent. -/
@@ -232,5 +265,186 @@ theorem pyramid1_not_deadlockFree :
     (Reachable.init (sk := Pin.pyramid 1) (ax := AxMode.full))
   rw [h _ hr] at hs
   exact Bool.false_ne_true hs
+
+-- =========================== finding #7: the parent-placement ledger gap
+
+/-- root(D,4)─B(D,3)─{t1(D,2, childless), t2(D,2, childless), t3(D,2,
+six R kids)}; every height-1 scope R-kind, no leaf requests. BFS ids;
+well-formed AND schedulable (`pdelay_on_boundary`) — the refutation
+sits inside the target theorem's hypothesis class. The shape is the
+minimal parent-delay wedge: three D siblings put B exactly ON the
+`dCount = capLevel + 2` bound (two D kids complete at ANY chunk size —
+the tower always unwinds), the childless t1/t2 make asm(R,2) block on
+its second summary send immediately, and the heavy LAST chunk (six is
+minimal at `capLevel = 1`; five completes) keeps walk (R,2) owing
+queries after the backed-up tower has wedged walk (R,0) on its parent
+fire. -/
+def pdelay : Skel :=
+  { scopes :=
+      [ ⟨.D, 4, [1], 0⟩,                -- 0: root
+        ⟨.D, 3, [2, 3, 4], 0⟩,          -- 1: B
+        ⟨.D, 2, [], 0⟩,                 -- 2: t1
+        ⟨.D, 2, [], 0⟩,                 -- 3: t2
+        ⟨.D, 2, [5, 6, 7, 8, 9, 10], 0⟩, -- 4: t3 (the heavy last chunk)
+        ⟨.R, 1, [], 0⟩, ⟨.R, 1, [], 0⟩, ⟨.R, 1, [], 0⟩,
+        ⟨.R, 1, [], 0⟩, ⟨.R, 1, [], 0⟩, ⟨.R, 1, [], 0⟩ ],
+    rootH := 4, fan := 6, capLevel := 1 }
+
+open Party in
+/-- The parent-delay schedule: the greedy parent-delaying adversary's
+run on `pdelay` (each walk commits any choosable wire/res/query before
+its parent), transcribed action-for-action. Under `fullNoD5` every
+guard passes and the run ends stuck (`parentTrap_stuck`): walk (R,2)
+committed t3's next chunk query with its parent unsent (jamming the
+cap-1 `asked R 0`), walk (I,1) committed a trailing W wire with its
+parent unsent, and walk (R,0) sits committed on a parent fire the
+backed-up level tower will never drain. Under today's `AxMode.full`
+the run is refused at (I,3)'s first root query — committed after the
+root's only D child resolved with the parent unsent, the first `d5`
+violation (`d5_rejects_parentTrap`). -/
+def parentTrap : List Action := [
+  -- openers run to completion
+  .iopenChoose .wire, .iopenFire,
+  .iopenChoose .query, .iopenFire,
+  .ropenRecv,
+  .ropenChoose .wire, .ropenFire,
+  .ropenChoose .res, .ropenFire,
+  .ropenChoose .query, .ropenFire,
+  .finRes,
+  -- walk (I,3): root scope — wire B, res B, then queries with the
+  -- parent delayed (the adversary's signature move)
+  .walkRecvWire (I, 3), .walkRecvAsked (I, 3),
+  .walkCommit (I, 3) (.wire 0), .walkFire (I, 3),
+  .walkCommit (I, 3) (.res 0), .walkFire (I, 3),
+  .walkCommit (I, 3) (.query 0), .walkFire (I, 3),
+  .walkCommit (I, 3) (.query 0),
+  -- walk (R,2): scope B — wire t1, res t1 (childless: no queries)
+  .walkRecvWire (R, 2), .walkRecvAsked (R, 2),
+  .walkCommit (R, 2) (.wire 0), .walkFire (R, 2),
+  -- walk (I,1): scope t1 — childless, parent only
+  .walkRecvWire (I, 1), .walkRecvAsked (I, 1),
+  .walkFire (I, 3),
+  .walkCommit (I, 3) (.query 0),
+  .walkCommit (I, 1) .parent, .walkFire (I, 1),
+  .walkCommit (R, 2) (.res 0), .walkFire (R, 2),
+  .walkCommit (R, 2) (.wire 1), .walkFire (R, 2),
+  -- walk (I,1): scope t2 — parent only again
+  .walkRecvWire (I, 1), .walkRecvAsked (I, 1),
+  .walkFire (I, 3),
+  -- (I,3)'s queries are done; its parent is its last obligation
+  .walkCommit (I, 3) .parent, .walkFire (I, 3),
+  .walkCloseWire (I, 3), .walkCloseAsked (I, 3),
+  .walkCommit (I, 1) .parent,
+  .walkCommit (R, 2) (.res 1),
+  -- the I-side tower drains what exists of the I material
+  .asmRecvRes (I, 2),
+  .walkFire (I, 1),
+  .asmSend (I, 2), .asmRecvRes (I, 2),
+  .asmRecvRes (I, 3), .asmRecvLevel (I, 3),
+  .asmSend (I, 2),
+  .asmRecvLevel (I, 3),
+  .asmRecvRes (I, 4),
+  .asmRecvRes (R, 2),
+  .walkFire (R, 2),
+  -- walk (R,2): wire t3, res t3 — now every D child is resolved and
+  -- the parent-delaying run enters t3's six-query chunk parentless
+  .walkCommit (R, 2) (.wire 2), .walkFire (R, 2),
+  .walkRecvWire (I, 1), .walkRecvAsked (I, 1),
+  .walkCommit (I, 1) (.wire 0), .walkFire (I, 1),
+  .walkCommit (I, 1) (.wire 1),
+  .walkCommit (R, 2) (.res 2),
+  .walkRecvWire (R, 0),
+  .walkFire (I, 1),
+  .walkCommit (I, 1) (.wire 2),
+  .asmSend (R, 2), .asmRecvRes (R, 2),
+  .walkFire (R, 2),
+  .walkCommit (R, 2) (.query 2), .walkFire (R, 2),
+  .walkCommit (R, 2) (.query 2),
+  -- walk (R,0)'s leaf scopes: recv wire + asked, then a parent fire
+  -- racing the level tower; asm(R,2) blocks on its second summary send
+  -- (asm(R,3) waits on (R,2)'s unsent parent), and the tower backs up
+  .walkRecvAsked (R, 0),
+  .walkFire (R, 2),
+  .walkCommit (R, 2) (.query 2),
+  .walkCommit (R, 0) .parent, .walkFire (R, 0),
+  .walkRecvWire (R, 0),
+  .walkFire (I, 1),
+  .walkCommit (I, 1) (.wire 3),
+  .walkRecvAsked (R, 0),
+  .walkFire (R, 2),
+  .walkCommit (R, 2) (.query 2),
+  .walkCommit (R, 0) .parent,
+  .asmRecvRes (R, 1),
+  .walkFire (R, 0),
+  .walkRecvWire (R, 0),
+  .walkFire (I, 1),
+  .walkCommit (I, 1) (.wire 4),
+  .walkRecvAsked (R, 0),
+  .walkFire (R, 2),
+  .walkCommit (R, 2) (.query 2),
+  .walkCommit (R, 0) .parent,
+  .asmSend (R, 1), .asmRecvRes (R, 1),
+  .walkFire (R, 0),
+  .walkRecvWire (R, 0),
+  .walkFire (I, 1),
+  -- walk (I,1)'s trailing-wire flavor: wire 5 committed, parent unsent
+  .walkCommit (I, 1) (.wire 5),
+  .walkRecvAsked (R, 0),
+  .walkFire (R, 2),
+  -- walk (R,2)'s last-chunk-query flavor: committed, `asked R 0` full
+  .walkCommit (R, 2) (.query 2),
+  -- walk (R,0): parent committed; `upper R 0` never drains again
+  .walkCommit (R, 0) .parent
+]
+
+/-- The trap skeleton is inside the theorem's skeleton class — AND
+inside the `schedulable` bound, exactly ON it (B disputes
+`capLevel + 2` children): unlike `pyramid 1`, nothing about `pdelay`'s
+capacity forces a jam, so the stuck run below indicts the ledger set,
+not the skeleton. -/
+theorem pdelay_on_boundary :
+    pdelay.wellFormed = true ∧ pdelay.schedulable = true ∧
+    pdelay.dCount 1 = pdelay.capLevel + 2 := by
+  refine ⟨by decide, by decide, by decide⟩
+
+set_option maxRecDepth 8000 in
+/-- Under the pre-finding interface (every ledger but parent placement)
+the parent-delay schedule executes fully and ends in a non-terminal
+state where no action is enabled. -/
+theorem parentTrap_stuck :
+    (match run pdelay fullNoD5 (init pdelay) parentTrap with
+     | some s => stuck pdelay fullNoD5 s && !terminal pdelay s
+     | none => false) = true := by decide
+
+/-- Finding #7, as a theorem: the six-ledger interface
+`{W, D1, D2, D3, D4}` — the exact `AxMode.full` between findings #6 and
+#7 — does NOT imply deadlock-freedom on schedulable skeletons: nothing
+forbade a walk from committing past its floating parent once its D
+children were resolved. This refutes the pre-finding target statement
+`wellFormed → schedulable → DeadlockFree sk full` at `sk := pdelay`. -/
+theorem parentTrap_not_deadlockFree : ¬ DeadlockFree pdelay fullNoD5 := by
+  intro h
+  have key := parentTrap_stuck
+  cases hr : run pdelay fullNoD5 (init pdelay) parentTrap with
+  | none => simp only [hr] at key; exact Bool.false_ne_true key
+  | some s =>
+      simp only [hr] at key
+      have hns := h s (run_reachable pdelay fullNoD5 hr)
+      simp [hns] at key
+
+set_option maxRecDepth 8000 in
+/-- The strengthened interface refuses the trap: under today's
+`AxMode.full` the schedule's first parent-delaying commit — (I,3)'s
+root query, after its only D child resolved with the parent unsent —
+fails the `d5` guard. -/
+theorem d5_rejects_parentTrap :
+    run pdelay .full (init pdelay) parentTrap = none := by decide
+
+set_option maxRecDepth 8000 in
+/-- Non-vacuity of the fix: the trap skeleton still completes under the
+strengthened mode — `d5` removes schedules, not sessions. -/
+theorem pdelay_completes_full :
+    terminal pdelay (drain pdelay .full 400 (init pdelay)) = true := by
+  decide
 
 end StreamingMirror.Control

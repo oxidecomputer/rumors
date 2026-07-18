@@ -112,7 +112,7 @@ theorem preserve_walkCommit (hwf : sk.wellFormed = true)
           | wire i =>
               simp only [Bool.and_eq_true, decide_eq_true_eq,
                 Bool.not_eq_true', List.all_eq_true, List.mem_range] at hch
-              obtain ⟨⟨⟨hin, hfront⟩, hlow⟩, hd4⟩ := hch
+              obtain ⟨⟨⟨⟨hin, hfront⟩, hlow⟩, hd4⟩, hd5⟩ := hch
               simp only [Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq]
               have hn : sk.nChildren pk'.snd
                   (sk.stageScope pk'.snd (s.walk pk').scope) ≤ sk.fan :=
@@ -124,7 +124,7 @@ theorem preserve_walkCommit (hwf : sk.wellFormed = true)
                 rcases (hC j hj).1.1.1.1.1.1.1.1.1 with hf | ⟨-, h0⟩
                 · rw [hwd] at hf; cases hf
                 · exact h0
-              refine ⟨⟨?_, hin⟩, hd4⟩
+              refine ⟨⟨⟨?_, hin⟩, hd4⟩, hd5⟩
               rw [wkWireCount]
               exact (length_filter_of_frontier (by omega) hlow hfront
                 hclosed).symm

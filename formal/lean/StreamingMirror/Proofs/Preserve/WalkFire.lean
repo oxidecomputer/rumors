@@ -848,7 +848,7 @@ private theorem preserve_walkFire_wire (hwf : sk.wellFormed = true)
   simp only [wkLocalOk] at hwk
   rw [hph2, hcm] at hwk
   simp at hwk
-  obtain ⟨hslt, ⟨-, hC⟩, ⟨hieq, hin⟩, hd4⟩ := hwk
+  obtain ⟨hslt, ⟨-, hC⟩, ⟨⟨hieq, hin⟩, hd4⟩, -⟩ := hwk
   have hn : sk.nChildren pk.2 (sk.stageScope pk.2 (s.walk pk).scope)
       ≤ sk.fan := nChildren_le_fan hwf hslt
   -- the committed arm pins the ledger to the `< i` prefix
@@ -1350,7 +1350,7 @@ private theorem preserve_walkFire_query (hwf : sk.wellFormed = true)
   simp only [wkLocalOk] at hwk
   rw [hph2, hcm] at hwk
   simp at hwk
-  obtain ⟨hslt, ⟨-, hC⟩, ⟨⟨⟨⟨hin, hDi⟩, hqlt⟩, hqpre⟩, hd1⟩, hwf1⟩ := hwk
+  obtain ⟨hslt, ⟨-, hC⟩, ⟨⟨⟨⟨⟨hin, hDi⟩, hqlt⟩, hqpre⟩, hd1⟩, hwf1⟩, -⟩ := hwk
   have hn : sk.nChildren pk.2 (sk.stageScope pk.2 (s.walk pk).scope)
       ≤ sk.fan := nChildren_le_fan hwf hslt
   have hifan : i < sk.fan := by omega

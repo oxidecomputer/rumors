@@ -27,6 +27,7 @@ state and every maximal run terminates.
 | lower ledger ("preceded its N lower resolutions") | `AX_D2` |
 | sibling contiguity ("still owes N dependent work items") | `AX_D3` |
 | wire contiguity ("departed while an earlier sibling was unresolved / owed dependent work") | `AxMode.d4` (Lean only — postdates the frozen Quint spec) |
+| parent placement ("wire or query departed after the final resolution with the parent summary unsent") | `AxMode.d5` (Lean only — postdates the frozen Quint spec) |
 | radix order ("violates radix order") | the per-channel in-order program structure (always on) |
 
 The sibling-contiguity check **exists because of this model**: the original
@@ -47,6 +48,23 @@ publisher was never exposed (`yield_resolve_query!` publishes each child
 wire→resolution→queries contiguously, calling it "progress-critical
 order"), but the *checked* interface did not say so; `assert_valid` was
 tightened the same day (2026-07-16).
+
+The parent-placement check is finding #7 (Phase C, 2026-07-17, the
+parent-delay finding): the six-ledger interface left exactly one
+out-of-trace-order freedom — a walk whose D children are all resolved
+could commit a last-chunk query or trailing wire with its floating
+parent summary unsent, and that delay closes a commit/back-pressure
+cycle through the level towers (the parent starves the assembler two
+heights up; the backed-up tower stops draining the walk's own `upper`
+channel below). The durable witness is
+`Control.parentTrap_not_deadlockFree : ¬ DeadlockFree pdelay fullNoD5`
+(kernel-checked stuck run on a well-formed, *schedulable* skeleton —
+the refutation sits inside the target theorem's hypothesis class); the
+fuzz sweep pins that the parent-delaying adversarial driver stalls
+under `fullNoD5` and drains to terminal under today's `.full`. The Rust
+publisher was again never exposed (the encoder emits the parent summary
+immediately after the final resolution — the weave's §5 placement);
+`assert_valid` gains the matching seventh check alongside this change.
 
 Modeled-world premises (assumed, argued in MODEL.md §1/§5, not checked):
 error-free conforming peers, SPSC channels, sequential scopes per walk.

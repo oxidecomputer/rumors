@@ -17,13 +17,15 @@ load-bearing citations are repeated here.
 ## 1. What is proved, what is assumed
 
 **Assumed (the bridge to Rust, proptest-verified there):** the send-order
-invariants, encoded *exactly* as the four checks of
+invariants, encoded *exactly* as the checks of
 `progress.rs::Trace::assert_valid` (§6) — the three original ledgers plus
-the sibling-contiguity check that **this modeling effort surfaced as
-missing**: the original three ledgers admitted a "publish all wires, then
-all resolutions, then all queries" implementation that passes `assert_valid`
-and deadlocks the cap-1 child-resolution queue at fan ≥ 3 (the `ledgerGap`
-instance). `assert_valid` was tightened on 2026-07-15 so that the checked
+the three checks that **this modeling effort surfaced as missing**:
+sibling contiguity (D3, 2026-07-15: the original three admitted a
+"publish all wires, then all resolutions, then all queries" implementation
+that passes `assert_valid` and deadlocks the cap-1 child-resolution queue
+at fan ≥ 3 — the `ledgerGap` instance), wire contiguity (D4, finding #6,
+2026-07-16), and parent placement (D5, finding #7, 2026-07-17).
+`assert_valid` is tightened alongside each finding so that the checked
 invariant and the assumed axiom set coincide. The Rust's hard-wired
 `yield_resolve_query!` order is one refinement of the guarded-
 nondeterministic publication relation; the theorems cover every
@@ -362,12 +364,31 @@ trivially ordered.)
   publication order to be essentially the macro's own order — it subsumes
   D3, which is kept as defense-in-depth.
 
-`AxiomMode` switches: `W`, `D1root`, `D1internal`, `D2`, `D3`, `D4` — each
-independently droppable, giving the negative controls N1 (drop W), N2 (drop
-D1 at the root), N3 (drop D1 internally), N4 (drop D2), N5/`ledgerGap`
-(drop D3), and the Lean control `Control.jam` (drop D4; the Quint spec
-predates D4 and has no `AX_D4` const — the Lean model is the model of
-record for it). Dropping a guard removes those poset edges and nothing else; the
+- **Axiom D5 (parent placement).** Once every D child of a scope is
+  resolved, the parent resolution must be sent before any further wire or
+  query of that scope — and first, when the scope has no D children at
+  all. Like D3 and D4 the model surfaced it — finding #7 (Phase C,
+  2026-07-17, the parent-delay finding): {W, D1, D2, D3, D4} never forced
+  the floating parent out, so a publisher could commit a last-chunk query
+  or trailing W wire with the parent unsent; the unsent parent starves
+  the assembler two heights up, the level towers back up and stop
+  draining the walk's own `upper` channel below, and the walk two stages
+  down wedges on its parent fire — a commit/back-pressure cycle
+  (`lean/StreamingMirror/Controls.lean`: `Control.pdelay`, a kernel-
+  checked stuck run on a well-formed, **schedulable** skeleton —
+  `Control.parentTrap_not_deadlockFree` refutes the pre-finding target
+  statement itself). The Rust encoder enforces the placement
+  syntactically (the parent summary departs immediately after the final
+  resolution — the weave's §5 position), and `Trace::assert_valid` gains
+  the matching check alongside this finding.
+
+`AxiomMode` switches: `W`, `D1root`, `D1internal`, `D2`, `D3`, `D4`, `D5` —
+each independently droppable, giving the negative controls N1 (drop W), N2
+(drop D1 at the root), N3 (drop D1 internally), N4 (drop D2), N5/`ledgerGap`
+(drop D3), and the Lean controls `Control.jam` (drop D4) and
+`Control.pdelay` (drop D5; the Quint spec predates both and has no
+`AX_D4`/`AX_D5` consts — the Lean model is the model of record for them).
+Dropping a guard removes those poset edges and nothing else; the
 checker then searches the freed linearizations for a stuck state. One
 scaffolding const, `WIRE_FIRST`, is **not an axiom**: because the wire
 ledger never constrains `DependentWork`, a bare D1 drop frees queries
