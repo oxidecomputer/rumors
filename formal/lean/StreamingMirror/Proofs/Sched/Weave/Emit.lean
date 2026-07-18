@@ -407,7 +407,7 @@ private theorem chain_le' {g : Nat → Nat} :
 /-- The window-anchored gluer: contiguous blocks whose projections
 are consecutive segments concatenate to one segment over the window
 (`proj_flatMap_seg` freed from its zero anchor). -/
-private theorem proj_flatMap_seg' {f : Nat → List Ev} {c : Chan}
+theorem proj_flatMap_seg' {f : Nat → List Ev} {c : Chan}
     {bb : Bool} {g : Nat → Nat} :
     ∀ (n i : Nat),
       (∀ k, i ≤ k → k < i + n →
