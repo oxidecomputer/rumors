@@ -302,11 +302,10 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// stream. The replica is unchanged by an `Err`, with two qualified
     /// exceptions: on [`Error::Epilogue`] every local effect of the session
     /// is already committed, and only the confirmation of the *peer's*
-    /// completion failed — the residue the closing marker exchange cannot
-    /// eliminate, since the final marker itself can be lost (the
-    /// two-generals problem); and a failure while donating a bootstrap fork
-    /// leaks that fork's id-region (deliberately — the newcomer may hold
-    /// it), narrowing this replica's identity without touching its content.
+    /// completion failed (the two-generals residue; the error's docs carry
+    /// the mechanism); and a failure while donating a bootstrap fork leaks
+    /// that fork's id-region (deliberately — the newcomer may hold it),
+    /// narrowing this replica's identity without touching its content.
     pub async fn gossip<CR, CW, C, A>(&self, link: &mut Link<CR, CW, C, A>) -> Result<(), Error<B>>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,

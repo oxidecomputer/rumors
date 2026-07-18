@@ -13,12 +13,12 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use futures::{Stream, future::BoxFuture};
 use futures_util::StreamExt;
 use tokio::{
-    io::{AsyncRead, AsyncWrite},
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     sync::{Mutex, watch},
 };
 
 use crate::link::{
-    Acceptor, Connector, Link,
+    Acceptor, Connector, Link, SessionState,
     erased::{DynAcceptor, DynConnector},
 };
 #[cfg(any(test, feature = "protocol-v1"))]
@@ -192,14 +192,11 @@ impl<T> Peer<T, NoBookmark> {
         A: Acceptor,
     {
         Box::pin(async move {
-            let parts = match erase(&mut *link) {
-                Ok(parts) => parts,
-                Err(error) => return Err(error),
-            };
+            let parts = erase(&mut *link)?;
             let result = Self::bootstrap_erased(protocol, parts).await;
-            // Both `Ok` arms are clean session boundaries — a completed
-            // donation and a mutual-bootstrap bail alike end with the
-            // epilogue under V2 — so both un-poison the link.
+            // Un-poison on clean completion: both `Ok` arms — a completed
+            // donation and a mutual-bootstrap bail — end with the epilogue
+            // under V2, leaving the control stream at the session boundary.
             if result.is_ok() {
                 link.session.finish();
             }
@@ -438,16 +435,10 @@ impl<T, B: Persist> Peer<T, B> {
         A: Acceptor,
     {
         let mut staged = handshake::Staged::new();
-        let parts = match erase(link) {
-            Ok(parts) => parts,
-            Err(error) => return Err(error.widen()),
-        };
-        let result = self
-            .gossip_inner(Intent::Remain, &mut staged, parts)
-            .await
-            .1;
-        // Un-poison strictly after the session's own `Ok`, which under V2
-        // is already epilogue-certified: the control stream rests at the
+        let parts = erase(link).map_err(Error::widen)?;
+        let (_intent, result) = self.gossip_inner(Intent::Remain, &mut staged, parts).await;
+        // Un-poison on clean completion: the session's own `Ok` under V2 is
+        // already epilogue-certified, so the control stream rests at the
         // session boundary.
         if result.is_ok() {
             link.session.finish();
@@ -982,8 +973,7 @@ impl<T, B: Bookmark> Peer<T, B> {
 }
 
 /// Erase a caller's link into one session's [`DynLinkParts`], opening the
-/// session on the link's [`SessionState`](crate::link::SessionState): each
-/// call is exactly one session.
+/// session on the link's [`SessionState`]: each call is exactly one session.
 ///
 /// Fails fast with [`Error::LinkPoisoned`] on a link whose previous session
 /// was interrupted; on success the link is poisoned until its funnel
@@ -1018,7 +1008,6 @@ async fn epilogue(
     read: &mut (dyn AsyncRead + Unpin + Send + '_),
     write: &mut (dyn AsyncWrite + Unpin + Send + '_),
 ) -> Result<(), Error> {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let send = async {
         write.write_all(&[EPILOGUE_MARKER]).await?;
         write.flush().await
@@ -1054,8 +1043,8 @@ enum Trigger {
 }
 
 /// The state a [`gossip_when`](Peer::gossip_when) driver carries between
-/// sessions: the erased link parts, the policy stream, the preamble staging
-/// buffer, and the suppression token.
+/// sessions: the erased link parts, the link's session state, the policy
+/// stream, the preamble staging buffer, and the suppression token.
 struct Drive<'a, T, B: BookmarkError, S> {
     peer: &'a Peer<T, B>,
     read: DynRead<'a>,
@@ -1065,7 +1054,7 @@ struct Drive<'a, T, B: BookmarkError, S> {
     /// The long-lived link's session state: the counter, advanced once per
     /// session so stream labels stay in lockstep with the remote's
     /// counting, and the poison latch the driver sets, clears, and obeys.
-    state: &'a mut crate::link::SessionState,
+    state: &'a mut SessionState,
     when: Pin<Box<S>>,
     staged: handshake::Staged,
     /// The frontier this connection last converged on: a tick initiates

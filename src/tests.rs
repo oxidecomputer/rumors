@@ -16,6 +16,7 @@ use tokio::sync::{Mutex, watch};
 
 use crate::bookmark::{Bookmarked, NoBookmark};
 use crate::link::{Connector, Link, MemoryAcceptor, MemoryConnector, MemoryLink, memory};
+use crate::testing::{Quiescence, run_to_quiescence};
 use crate::tree::{Root, Tree};
 use crate::{Error, Inner, Peer, Retire};
 
@@ -109,16 +110,10 @@ fn overlapping_retiree_party_is_rejected() {
     // *before* writing its epilogue marker, so only its link drop lets the
     // forged retiree's marker read observe the abort as EOF.
     let (retire_out, survivor_out) = pollster::block_on(async {
-        let (a_link, b_link) = memory();
+        let (mut a_link, mut b_link) = memory();
         tokio::join!(
-            async move {
-                let mut a_link = a_link;
-                forged.retire(&mut a_link).await
-            },
-            async move {
-                let mut b_link = b_link;
-                survivor.gossip(&mut b_link).await
-            },
+            async move { forged.retire(&mut a_link).await },
+            async move { survivor.gossip(&mut b_link).await },
         )
     });
 
@@ -270,6 +265,15 @@ fn greeting_frame_len(retiree: &Peer<u64>) -> usize {
     crate::tree::mirror::framing::LENGTH_HEADER_LEN + retiree.snapshot().latest().as_bytes().len()
 }
 
+/// The wire length of `retiree`'s trailing party frame, so a [`Fuse`] budget
+/// can land on an exact protocol boundary.
+fn party_frame_len(retiree: &Peer<u64>) -> usize {
+    crate::tree::mirror::framing::LENGTH_HEADER_LEN
+        + borsh::to_vec(&party_of(retiree))
+            .expect("a party serializes")
+            .len()
+}
+
 /// A connector whose opened streams draw on the link's shared fuse budget.
 #[derive(Clone)]
 struct FusedConnector {
@@ -324,16 +328,13 @@ fn severed_retire(
     budget: usize,
 ) -> (Retire<u64>, Result<(), Error>) {
     pollster::block_on(async move {
-        let (a_link, b_link) = memory();
+        let (a_link, mut b_link) = memory();
         tokio::join!(
             async move {
                 let mut a_link = fused_link(a_link, budget);
                 retiree.retire(&mut a_link).await
             },
-            async move {
-                let mut b_link = b_link;
-                peer.gossip(&mut b_link).await
-            },
+            async move { peer.gossip(&mut b_link).await },
         )
     })
 }
@@ -403,11 +404,7 @@ fn severed_epilogue_marker_is_uncertain() {
     // preamble + greeting + party frame + epilogue marker. The budget is
     // that full clean session minus one byte: everything through the party
     // frame is delivered, and the marker write is the write that fails.
-    let party_frame_len = crate::tree::mirror::framing::LENGTH_HEADER_LEN
-        + borsh::to_vec(&party_of(&child))
-            .expect("a party serializes")
-            .len();
-    let budget = PREAMBLE_LEN + greeting_frame_len(&child) + party_frame_len;
+    let budget = PREAMBLE_LEN + greeting_frame_len(&child) + party_frame_len(&child);
     let (child_out, peer_out) = severed_retire(child, &mut survivor, budget);
 
     let Retire::Uncertain { error } = child_out else {
@@ -431,8 +428,6 @@ fn severed_epilogue_marker_is_uncertain() {
 /// instead of misreading the interrupted session's leftover control bytes.
 #[test]
 fn a_cancelled_session_poisons_the_link_for_gossip() {
-    use crate::testing::{Quiescence, run_to_quiescence};
-
     let survivor = Peer::<u64>::seed();
     let (_survivor, child) = bootstrap_from(survivor);
     let (mut a_link, _b_link) = memory();
@@ -460,8 +455,6 @@ fn a_cancelled_session_poisons_the_link_for_gossip() {
 /// so the identity was never at risk and remains free to retire elsewhere.
 #[test]
 fn retire_on_a_poisoned_link_recovers_the_peer() {
-    use crate::testing::{Quiescence, run_to_quiescence};
-
     let survivor = Peer::<u64>::seed();
     let (survivor, child) = bootstrap_from(survivor);
     let (mut a_link, _b_link) = memory();
@@ -484,7 +477,11 @@ fn retire_on_a_poisoned_link_recovers_the_peer() {
     // The recovered peer is genuinely intact: over a fresh link it retires
     // cleanly, reconstituting the seed's whole id-space in the survivor.
     let survivor = retire_child_into(survivor, peer);
-    assert_eq!(party_of(&survivor), Party::seed());
+    assert_eq!(
+        party_of(&survivor),
+        Party::seed(),
+        "the recovered peer's clean retire must reconstitute the whole id-space",
+    );
 }
 
 /// A session severed on the trailing party frame itself is the irreducible
