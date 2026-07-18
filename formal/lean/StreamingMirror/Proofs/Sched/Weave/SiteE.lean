@@ -297,4 +297,159 @@ theorem futLen_siteE_upper_q {fut : List Ev} {h k : Nat}
     walkSeg_proj_q sk (show k + 1 ≤ sk.stageLen h by omega)
       (Nat.le_refl _), seg_len]
 
+-- ======================================== the E count pins (§9 (i))
+
+/-- The stage-`h` walk sits at slot `walkIdx h` of the encoder-order
+family too: the family swaps each walk's trace in place. -/
+theorem procsE_walk {h : Nat} (hh : h < sk.rootH) :
+    (procsE sk)[walkIdx sk h]? = some (walkEventsE sk (wpk h)) := by
+  unfold procsE
+  have hidx : walkIdx sk h = 2 + (sk.rootH - 1 - h) := rfl
+  rw [hidx]
+  simp only [List.cons_append, List.nil_append]
+  rw [show 2 + (sk.rootH - 1 - h) = sk.rootH - 1 - h + 1 + 1
+      from by omega,
+    List.getElem?_cons_succ, List.getElem?_cons_succ,
+    List.getElem?_append_left (by
+      simp only [List.length_append, List.length_map,
+        List.length_range, List.length_cons, List.length_nil]
+      omega),
+    List.getElem?_append_left (by
+      simp only [List.length_append, List.length_map,
+        List.length_range, List.length_cons, List.length_nil]
+      omega),
+    List.getElem?_append_left (by
+      simp only [List.length_map, List.length_range]
+      omega),
+    List.getElem?_map, List.getElem?_map,
+    List.getElem?_range (by omega)]
+  simp only [Option.map_some]
+  rw [show sk.rootH - 1 - (sk.rootH - 1 - h) = h from by omega]
+  rfl
+
+/-- The responder opener sits at slot 1 of the encoder-order family. -/
+theorem procsE_ropen : (procsE sk)[1]? = some (ropenEvents sk) := rfl
+
+/-- The walk-owned send channels' E pins, concluded against the d5
+totals: per channel-side the two orders project identically, so the
+right-hand sides never change. -/
+theorem walk_snd_pinE (hwf : sk.wellFormed = true) {fut : List Ev}
+    {st : MState} (h : WCountP sk (procsE sk) fut st) {hh : Nat}
+    (hhr : hh < sk.rootH) (c : Chan)
+    (hM : sndOwner sk c = walkIdx sk hh) :
+    sndCount c st.out + futLen sk fut (walkIdx sk hh) c true
+      = (proj c true (walkEvents sk (wpk hh))).length := by
+  have hMlt : walkIdx sk hh < manCount sk := by
+    unfold walkIdx manCount
+    omega
+  rw [sndCount_eq_proj]
+  have hp := count_pinP sk (famOK_procsE sk hwf) h c true
+    (by simpa using hM) hMlt (procsE_walk sk hhr)
+  rw [proj_walkEventsE_eq] at hp
+  exact hp
+
+/-- The E summary pin (cf. `upper_snd_pin`). -/
+theorem upper_snd_pinE (hwf : sk.wellFormed = true) {fut : List Ev}
+    {st : MState} (h : WCountP sk (procsE sk) fut st) {hh : Nat}
+    (hhr : hh < sk.rootH) :
+    sndCount (upperOut (wpk hh)) st.out
+        + futLen sk fut (walkIdx sk hh) (upperOut (wpk hh)) true
+      = sk.stageLen hh := by
+  have hp := walk_snd_pinE sk hwf h hhr (upperOut (wpk hh)) rfl
+  have hlen : (proj (upperOut (wpk hh)) true
+      (walkEvents sk (wpk hh))).length = sk.stageLen hh := by
+    rw [walk_upper_total]
+    simp [canon, wpk]
+  omega
+
+/-- The E resolution pin (cf. `lower_snd_pin`). -/
+theorem lower_snd_pinE (hwf : sk.wellFormed = true) {fut : List Ev}
+    {st : MState} (h : WCountP sk (procsE sk) fut st) {hh : Nat}
+    (hhr : hh < sk.rootH) :
+    sndCount (lowerOut (wpk hh)) st.out
+        + futLen sk fut (walkIdx sk hh) (lowerOut (wpk hh)) true
+      = sk.dsBefore hh (sk.stageLen hh) := by
+  have hp := walk_snd_pinE sk hwf h hhr (lowerOut (wpk hh)) rfl
+  have hlen : (proj (lowerOut (wpk hh)) true
+      (walkEvents sk (wpk hh))).length
+      = sk.dsBefore hh (sk.stageLen hh) := by
+    rw [walk_lower_total]
+    simp [canon, wpk]
+  omega
+
+/-- The E wire pin (cf. `wire_snd_pin`). -/
+theorem wire_snd_pinE (hwf : sk.wellFormed = true) {fut : List Ev}
+    {st : MState} (h : WCountP sk (procsE sk) fut st) {hh : Nat}
+    (hhr : hh < sk.rootH) :
+    sndCount (wireOut (wpk hh)) st.out
+        + futLen sk fut (walkIdx sk hh) (wireOut (wpk hh)) true
+      = sk.wiresBefore hh (sk.stageLen hh) := by
+  have hM : sndOwner sk (wireOut (wpk hh)) = walkIdx sk hh := by
+    have hwire : wireOut (wpk hh) = Chan.wire (wpk hh).1 hh := rfl
+    rw [hwire]
+    simp only [sndOwner]
+    rw [if_neg (by omega)]
+  have hp := walk_snd_pinE sk hwf h hhr (wireOut (wpk hh)) hM
+  have hlen : (proj (wireOut (wpk hh)) true
+      (walkEvents sk (wpk hh))).length
+      = sk.wiresBefore hh (sk.stageLen hh) := by
+    rw [walk_wire_total]
+    simp [canon, wpk]
+  omega
+
+/-- The E query pin (cf. `asked_snd_pin`; `h1` for the same reason —
+the leaf stage owns no queries). -/
+theorem asked_snd_pinE (hwf : sk.wellFormed = true) {fut : List Ev}
+    {st : MState} (h : WCountP sk (procsE sk) fut st) {hh : Nat}
+    (h1 : 1 ≤ hh) (hhr : hh < sk.rootH) :
+    sndCount (askedOut (wpk hh)) st.out
+        + futLen sk fut (walkIdx sk hh) (askedOut (wpk hh)) true
+      = sk.qsBefore hh (sk.stageLen hh) := by
+  have hM : sndOwner sk (askedOut (wpk hh)) = walkIdx sk hh := by
+    show sndOwner sk (if (wpk hh).2 < 2 then Chan.leafRequests
+      else Chan.asked (wpk hh).1 ((wpk hh).2 - 2)) = walkIdx sk hh
+    rw [show (wpk hh).2 = hh from rfl]
+    by_cases h2 : hh < 2
+    · rw [if_pos h2]
+      have hone : hh = 1 := by omega
+      rw [hone]
+      rfl
+    · rw [if_neg h2]
+      simp only [sndOwner]
+      rw [if_neg (by rintro ⟨-, habs⟩; omega),
+        if_neg (by rintro ⟨-, habs⟩; omega),
+        show hh - 2 + 2 = hh from by omega]
+  have hp := walk_snd_pinE sk hwf h hhr (askedOut (wpk hh)) hM
+  have hlen : (proj (askedOut (wpk hh)) true
+      (walkEvents sk (wpk hh))).length
+      = sk.qsBefore hh (sk.stageLen hh) := by
+    rw [walk_asked_total]
+    simp [canon, wpk]
+  omega
+
+/-- The E root-resolution bank (cf. `rootres_pin`): the opener trace
+is placement-independent. -/
+theorem rootres_pinE (hwf : sk.wellFormed = true) {fut : List Ev}
+    {st : MState} (h : WCountP sk (procsE sk) fut st)
+    (hsilent : futLen sk fut 1 Chan.rootres true = 0) :
+    1 ≤ sndCount Chan.rootres st.out := by
+  have hMlt : (1 : Nat) < manCount sk := by
+    unfold manCount
+    omega
+  have hp := count_pinP sk (famOK_procsE sk hwf) h Chan.rootres true
+    (M := 1) rfl hMlt (procsE_ropen sk)
+  rw [ropen_rootres_total] at hp
+  rw [sndCount_eq_proj]
+  simp only [List.length_cons, List.length_nil] at hp
+  omega
+
+/-- The E root bank at a feed suffix (cf. `root_banked`). -/
+theorem root_bankedE (hwf : sk.wellFormed = true) {fut : List Ev}
+    {st : MState} (hW : WCountP sk (procsE sk) fut st)
+    (hfeed : ∃ i₀, fut.filter (fun e => evOwner sk e == 1)
+      = ((ropenEvents sk).drop 3).drop i₀) :
+    1 ≤ sndCount Chan.rootres st.out := by
+  obtain ⟨i₀, hf⟩ := hfeed
+  exact rootres_pinE sk hwf hW (feed_rootres_silent sk hf)
+
 end StreamingMirror.Sched

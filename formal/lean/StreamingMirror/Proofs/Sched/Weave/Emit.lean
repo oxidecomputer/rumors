@@ -24,17 +24,19 @@ variable (sk : Skel)
 def futLen (fut : List Ev) (M : Nat) (c : Chan) (b : Bool) : Nat :=
   (proj c b (fut.filter fun e => evOwner sk e == M)).length
 
-/-- THE COUNT PIN: an owned channel-side's emitted count plus the
-future's share is the whole-trace total. -/
-theorem count_pin (hwf : sk.wellFormed = true) {fut : List Ev}
-    {st : MState} (h : WCount sk fut st) (c : Chan) (b : Bool)
+/-- THE COUNT PIN, family form: an owned channel-side's emitted count
+plus the future's share is the whole-trace total, over any trace
+family satisfying `FamOK`. -/
+theorem count_pinP {P : List (List Ev)} (hfam : FamOK sk P)
+    {fut : List Ev}
+    {st : MState} (h : WCountP sk P fut st) (c : Chan) (b : Bool)
     {M : Nat} (hM : (if b then sndOwner sk c else rcvOwner sk c) = M)
     (hMlt : M < manCount sk)
-    {T : List Ev} (hT : (procs sk)[M]? = some T) :
+    {T : List Ev} (hT : P[M]? = some T) :
     (proj c b st.out).length + futLen sk fut M c b
       = (proj c b T).length := by
   obtain ⟨r, pre, hr, hpre, hsub⟩ := cell_of_owner sk h hT
-  have hout := out_proj_owner sk (famOK_procs sk hwf) h c b hM hT hr hpre hsub
+  have hout := out_proj_owner sk hfam h c b hM hT hr hpre hsub
   have hrf : fut.filter (fun e => evOwner sk e == M) = r := by
     have hlen : M < (manFilters sk fut).length := by
       unfold manFilters
@@ -45,6 +47,16 @@ theorem count_pin (hwf : sk.wellFormed = true) {fut : List Ev}
     simpa using hr
   unfold futLen
   rw [hout, hpre, proj_append, List.length_append, hrf]
+
+/-- THE COUNT PIN, d5 corner: the family form at `procs`. -/
+theorem count_pin (hwf : sk.wellFormed = true) {fut : List Ev}
+    {st : MState} (h : WCount sk fut st) (c : Chan) (b : Bool)
+    {M : Nat} (hM : (if b then sndOwner sk c else rcvOwner sk c) = M)
+    (hMlt : M < manCount sk)
+    {T : List Ev} (hT : (procs sk)[M]? = some T) :
+    (proj c b st.out).length + futLen sk fut M c b
+      = (proj c b T).length :=
+  count_pinP sk (famOK_procs sk hwf) h c b hM hMlt hT
 
 -- ============================================= manual trace lookups
 
