@@ -755,14 +755,63 @@ bounds μ(Q), and both are bounded by the awaited send.
      g'` — rewrite inside the lemma instance (`rwa … at h2`)
      instead; pass `descIdx_total`'s depth explicitly (a `_` there
      leaves a metavariable the `by omega` side goal cannot see).
-   - *Then, closing (b) — NEXT (task #11), from `weave_wedge`:*
-     per-channel totals at the weave's final state (snd = rcv per
-     channel, counting style — the whole-trace totals are already
-     the `walk_canon`/opener/pump segs, and the future is empty so
-     every `futLen` correction is zero); the blame-reduction lemmas
-     (mostly 3a corollaries); the small argmin assembly (stalled
-     state ⟹ blame edge drops weave position ⟹ argmin contradiction
-     ⟹ `finalState.rem` all empty).
+   - *~~Closing (b)~~ — DONE (task #11, 2026-07-17,
+     `Weave/Final.lean`, a6786e05 + 72f772a5): MERGE COMPLETENESS
+     IS PROVEN — `merge_complete : wellFormed → schedulable →
+     (finalState sk).rem.all isEmpty`.* Two halves:
+     - *The drained weave* (`wFinal := wPump (weaveState)`, a merge
+       fixpoint by `wPump_fixpoint` — no weaveGo analysis needed):
+       every trace is a sublist of its output
+       (`all_sublist_wfinal`). Manual traces are whole because the
+       future is spent (`man_proj_full` via `out_proj_owner` at the
+       empty cells); the pump towers drain by a stall refutation at
+       the fixpoint — `chain_no_jam` (a level-feed jam forces, arm
+       by arm through `asm_stuck`, a jam on the tower's own output,
+       climbing into `top_blocked`), then the bottom-up
+       `asm_counts_full` induction collapsing each trichotomy to
+       its exhausted arm (absorber base from the drained stage-0/1
+       walks via `wiresBefore_full_leaf`/`qsBefore_full_leaf`;
+       level feeds bridged by `pends_total_prod`; responder base by
+       `pendsBefore_asker_one`), fins and the floating root return
+       last; cells are then literally empty (`cell_not_out` against
+       the totals per head shape).
+     - *The argmin* (`merge_complete`): heads of non-empty final
+       remainders are disabled (`scan_none_heads` at
+       `mergeN_fixpoint`); rank them by weave position (`evIdx` —
+       total by `all_sublist_wfinal`, unique by `count_canon`
+       through the canonical projections). The minimum head's
+       blocker is the send at the current count (starved receive)
+       or the receive its cap window awaits (jammed send); it
+       EXISTS by the weave's own edge-respect at the last seqs
+       (`hRS`/`hSR`: E1 on the last receive gives rcv-total ≤
+       snd-total, E2 on the last send gives snd-total ≤ rcv-total +
+       cap — exactly enough slack for both blame cases, so the
+       anticipated per-channel totals sweep was UNNECESSARY), is
+       unemitted by canonical freshness
+       (`not_mem_schedule_of_count`), and sits in its owner's final
+       remainder behind a head (`blame_head`) that E1/E2-in-the-
+       weave (`mem_take_snd`/`mem_take_rcv` reading counts off
+       canon prefixes) places strictly below the minimum —
+       contradiction. Consequences now available downstream: with
+       all remainders empty, `trace_monotone` specializes to "every
+       trace is a sublist of the schedule", and `schedule_count`
+       pins the schedule's per-channel totals to the whole-trace
+       totals; τ is total on the event set.
+     - *New traps:* a `rw [sndCount_eq_proj] at h` whose FIRST
+       match is a different instance than the intended one leaves
+       the target count unrewritten and later unification whnf-
+       diverges trying to defeq `sndCount` against a proj-length
+       inside `wFinal` (symbolically evaluating the weave) — pass
+       counts through `▸`-wrappers (`mem_take_snd`/`_rcv`) so atom
+       spellings stay consistent for `omega`; rewriting a
+       projection-shaped hypothesis whose event seq itself spells
+       `(proj …).length` duplicates the pattern inside the
+       replacement (use `proj_mem_of_lt`, which rewrites `← hcanon`
+       on a `canon_mem` fact instead); `List.Sublist`'s second
+       constructor is `cons_cons` (two binders) in this toolchain;
+       `∃ i j, i < j ∧ l[i]? = …` needs `: Nat` annotations or the
+       `LT` instance sticks; `asmEvents`' `(p, j).fst`-spelled
+       length atoms need type-ascribed `have`s before omega.
 4. Opener/asm enabledness mirrors of the pillar (small).
 5. The blame lemmas (§6 table), consuming §2 + Sched (trace
    monotonicity replaces most positional arithmetic).
