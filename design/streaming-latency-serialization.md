@@ -909,7 +909,10 @@ counts unchanged) plus a green gate.
   Fix: `ok_or_else` as the one-liner; better, a fieldless `Copy`
   bit-level error enum converted to `Decode` only at the
   `ReaderCursor` boundary where `Io` can occur (internal only —
-  the public `Decode` API is unchanged).
+  the public `Decode` API is unchanged). Expanded in §10.1: the
+  full decode-path footprint (~3 ms/session, both protocols) and
+  the rewrite ladder, of which the error value is only the first
+  rung.
 - **E. Batch the spine-wrap hash** [est. ~7–8 ms *per protocol*,
   parity-neutral; a coordinated hash-format break]. `hash()`
   folds a compressed prefix one `Hash::branch` per byte: a
@@ -932,6 +935,100 @@ Realistic outcome [derived]: A+B+C recover 6–8 of the 11 ms,
 putting V2 within ~15 % of V1 on equal-hop workloads with the
 remainder in the diffuse tail; D and E then move both protocols'
 absolute times rather than the gap.
+
+### 10.1 Lever D, expanded: the version-decode path
+
+The full accounting behind lever D, from AND-filtered profiles of
+both protocols' `I = 5000, d = 0` sessions [checked]. The
+`before` decode path is **~10 % of V2's session compute and ~16 %
+of V1's — ~3 ms/session in each** — making it the largest
+parity-neutral item after lever E, and unlike E it needs no
+format break.
+
+In-session footprint (share of each protocol's session samples;
+families overlap somewhat under inlining):
+
+| family | V2 | V1 | what it is |
+|---|---|---|---|
+| `version::compare` (whole walk) | 6.1 % | 8.2 % | causal compares over packed bits |
+| `gamma::decode_int_from` | 5.1 % | 12.2 % | per-bit Elias-gamma integer reads |
+| `parse_ev_from` | 3.6 % | 7.7 % | canonical event-tree validation |
+| `ReaderCursor` (wire cursor) | 2.7 % | 5.9 % | borsh-side bit feed, byte at a time |
+| `drop_in_place<Decode>` | 2.8 % | 3.2 % | the per-bit error construct+drop |
+| `bitvec` ops | 1.7 % | 1.7 % | `extend_from_bitslice`, `push` |
+| `Batch` repack | 0.5 % | 0.2 % | working-form amortization — *working as designed* |
+
+Consumers, by nearest `rumors` caller: ~55 % the `unknown`
+pruning traversals (version-bound subtree pruning — pure
+packed-bits compares), ~23 % `parse_supply` (decoding each
+supplied leaf's `Version` off the wire), ~22 % the level
+answering path (`answer::internal`'s version logic). V1 leans
+harder on the same machinery (more per-leaf versions shipped per
+message), which is why its share is higher.
+
+The pipeline, structurally: a `Version` at rest is a packed
+prefix-free bit stream (topology flag + gamma integer per node,
+`codec/gamma.rs`); comparison walks it in place through
+`SliceCursor` one bit at a time; mutation unpacks to the
+fixed-width `WorkingVersion` and repacks once per `Batch` (the
+18 ms `Batch` row says that amortization is doing its job); the
+wire side re-validates canonicality through `ReaderCursor`,
+which refills its `Bits` buffer one byte per `read_exact` call.
+The costs are therefore *per-bit machinery*, not algorithmic:
+each bit read pays an `Option` + bounds check + `bitvec` proxy
+deref + error construct/drop + `Result` wrap.
+
+The rewrite ladder, independently landable:
+
+- **D1 — kill the per-bit error value** (the §10 lever-D
+  one-liner/enum split; ~0.9 ms/session). Subsumed by D2 on the
+  slice path but still wanted on the wire path.
+- **D2 — word-window gamma decoder** [est. ~1–1.5 ms/session,
+  the big one]. The packed stream is byte-backed, so a decoder
+  can load a 64-bit window at the current bit offset, take
+  `leading_zeros` for the whole unary prefix in one instruction,
+  and shift/mask the mantissa — `O(1)` words per integer instead
+  of ~10 ops per *bit*, with no per-bit `Result` channel at all.
+  Normal form pushes magnitude toward the root and guarantees
+  ≥ half the stored integers are zero (a zero is one bit), so
+  the ≤ 64-bit window covers essentially every real integer;
+  `k` exceeding the window falls back to the existing bit loop
+  (which is also the `Base::Big` path). `skip_int` gets the same
+  treatment (prefix length alone suffices). Constraints: no
+  `unsafe` (bitvec's `BitField::load_be` or manual byte
+  arithmetic over `domain()`), and `EvReader::Packed`,
+  `WorkingVersion::unpack`, and `parse_ev_from` all route
+  through it, so one rewrite pays everywhere.
+- **D3 — wire-cursor refill** [est. ~0.5 ms/session]. The
+  prefix-free encoding means the borsh reader cannot over-read,
+  so byte-at-a-time consumption from the *reader* is forced —
+  but the per-byte `extend_from_bitslice` into a growing
+  `BitVec` is not: a fixed stack window feeding D2's word
+  decoder removes the per-byte allocation traffic and the
+  `BitCursor`-trait per-bit dispatch.
+- **D4 — decode less often** [open, needs its own measurement].
+  Compares re-decode the same packed `Version`s repeatedly (a
+  hot subtree's ceiling participates in every prune decision
+  above it). `EvReader::trivially_eq` already short-circuits
+  byte equality; whether further fast paths (root path-sum
+  screening) or per-session memoization pay must be measured
+  against the rest-form size trade `codec/gamma.rs` documents —
+  the packed form's 1–2 order heap reduction is load-bearing
+  for `rumors`' per-node memos and must not be given back.
+
+**Not on the table**: dropping wire-side canonical validation
+under the §10 trusted-counterparty decision. Canonicality is
+what lets `Eq`/`Hash` rest on byte equality (a `before` hard
+rule); a trusted-but-buggy peer shipping non-canonical bits
+would silently split equality, which is a correctness boundary,
+not an adversary defense. D2 makes validation cheap instead of
+absent.
+
+Ceiling if D1–D3 land [derived]: ~2–2.5 of the ~3 ms recovered
+per session, for both protocols — like lever E it moves absolute
+times rather than the V2−V1 gap, and it also speeds every
+non-gossip path that compares versions (range walks, joins,
+ceiling/floor memoization).
 
 ## 11. The hop ledger: where the nine hops live
 
