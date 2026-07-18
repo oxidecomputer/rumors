@@ -771,7 +771,7 @@ theorem all_sublist_wfinal (hwf : sk.wellFormed = true)
     (hsched : sk.schedulable = true) :
     ∀ T ∈ procs sk, T.Sublist (wFinal sk).out :=
   all_sublist_final sk hwf
-    (wfinal_wedge sk hwf hsched).toWCount (wfinal_fix sk)
+    (wfinal_wedge sk hwf hsched).toWCountP (wfinal_fix sk)
 
 -- ================================================ weave positions (φ)
 
@@ -890,7 +890,7 @@ theorem wfinal_count_le_one (hwf : sk.wellFormed = true)
     ∀ e : Ev, (wFinal sk).out.count e ≤ 1 := by
   intro ⟨c, b, n⟩
   have hcanon := wproj_canon sk hwf
-    (wfinal_wedge sk hwf hsched).toWCount c b
+    (wfinal_wedge sk hwf hsched).toWCountP c b
   have hfilter : (wFinal sk).out.count (c, b, n)
       = (proj c b (wFinal sk).out).count (c, b, n) := by
     unfold proj
@@ -1124,7 +1124,7 @@ theorem blame_head (hwf : sk.wellFormed = true)
     ∃ h', h' ∈ (finalState sk).rem.filterMap List.head?
       ∧ evIdx h' (wFinal sk).out ≤ evIdx g (wFinal sk).out := by
   obtain ⟨T', hT', hgT⟩ :=
-    mem_some_trace sk (wfinal_wedge sk hwf hsched).toWCount hgW
+    mem_some_trace sk (wfinal_wedge sk hwf hsched).toWCountP hgW
   obtain ⟨r', hr'mem, pre', hpre', hsub'⟩ :=
     (trace_monotone sk).exists_of_mem_left hT'
   have hg_r : g ∈ r' := by
@@ -1178,7 +1178,7 @@ theorem merge_complete (hwf : sk.wellFormed = true)
   have hWcanon : ∀ (c' : Chan) (b' : Bool),
       proj c' b' (wFinal sk).out
         = canon c' b' (proj c' b' (wFinal sk).out).length :=
-    fun c' b' => wproj_canon sk hwf hwedge.toWCount c' b'
+    fun c' b' => wproj_canon sk hwf hwedge.toWCountP c' b'
   have hminv := schedule_inv sk
   have hfix : step sk (finalState sk) = none :=
     mergeN_fixpoint sk (totalEvents sk)

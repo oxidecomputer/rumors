@@ -464,10 +464,10 @@ theorem tower_noblock (hwf : sk.wellFormed = true) {fut : List Ev}
   by_cases hR1 : p = Party.R ∧ j = 1
   · obtain ⟨rfl, rfl⟩ := hR1
     have hz : sndCount (asmLevelChan (Party.R, 1)) st.out = 0 :=
-      levelR0_snd_zero sk hwf h.toWCount
+      levelR0_snd_zero sk hwf h.toWCountP
     omega
   have hIdx := asm_procs sk htop h1 hjt
-  rcases asm_stuck sk hwf h.toWCount hfix h1 hIdx with
+  rcases asm_stuck sk hwf h.toWCountP hfix h1 hIdx with
     ⟨hRe, hLe, hOe⟩ | ⟨hRl, hLp, hOp, hres⟩
     | ⟨hRl, hR1', hLlo, hLhi, hOp, hlv⟩ | ⟨hRl, hR1', hLp, hOp, hoblk⟩
   · -- exhausted: demand total = supply total bounds the window shut
@@ -479,14 +479,14 @@ theorem tower_noblock (hwf : sk.wellFormed = true) {fut : List Ev}
         · exact absurd ⟨rfl, rfl⟩ hR1
       subst hpI
       have hS : sndCount (asmLevelChan (Party.I, 1)) st.out
-          ≤ sk.totalLeafReqs := level0_snd_le sk hwf h.toWCount
+          ≤ sk.totalLeafReqs := level0_snd_le sk hwf h.toWCountP
       have htot : sk.pendsBefore Party.I 1
           (sk.asmResList Party.I 1).length = sk.totalLeafReqs :=
         pendsBefore_answerer_leaf (hna := rfl)
       omega
     · have hS : sndCount (asmLevelChan (p, j)) st.out
           ≤ (sk.asmResList p (j - 1)).length :=
-        level_snd_le sk hwf h.toWCount htop (by omega) (by omega)
+        level_snd_le sk hwf h.toWCountP htop (by omega) (by omega)
       have htot := pends_total_prod hwf (p := p) (j := j)
         (by omega)
         (by rcases htop with ⟨-, ht⟩ | ⟨-, ht⟩ <;> omega)
@@ -538,7 +538,7 @@ theorem tower_noblock (hwf : sk.wellFormed = true) {fut : List Ev}
   · -- out-blocked: ascend
     by_cases hjtop : j = top
     · subst hjtop
-      exact top_blocked sk hwf h.toWCount hfix htop hroot hoblk
+      exact top_blocked sk hwf h.toWCountP hfix htop hroot hoblk
     · have hjlt : j < top := Nat.lt_of_le_of_ne hjt hjtop
       have hout := asmOutChan_of_lt sk htop hjlt
       rw [hout, cap_level] at hoblk
@@ -810,7 +810,7 @@ theorem wedge_snd_le_rcv_cap (hwf : sk.wellFormed = true)
   cases hz : sndCount c st.out with
   | zero => omega
   | succ q =>
-      have hcanon := wproj_canon sk hwf h.toWCount c true
+      have hcanon := wproj_canon sk hwf h.toWCountP c true
       have hmem : ((c, true, q) : Ev) ∈ proj c true st.out := by
         rw [hcanon]
         have hlen : (proj c true st.out).length = q + 1 := by
@@ -852,7 +852,7 @@ theorem upper_window (hwf : sk.wellFormed = true) {fut : List Ev}
   have hRk : rcvCount (Chan.upper p hh) st.out ≤ k := by
     have := wedge_rcvd_le_sent sk hwf h (Chan.upper p hh)
     omega
-  have hstuck := asm_stuck sk hwf h.toWCount hfix
+  have hstuck := asm_stuck sk hwf h.toWCountP hfix
     (show 1 ≤ hh + 1 by omega) hIdx
   rw [hres, show asmLevelChan (p, hh + 1) = Chan.level p hh from rfl]
     at hstuck
@@ -893,7 +893,7 @@ theorem upper_window (hwf : sk.wellFormed = true) {fut : List Ev}
           ≤ rcvCount (sk.asmOutChan (p, hh' + 1)) st.out := by
         rw [hout']
         exact hlv
-      have hdel := tower_deliver sk hwf h.toWCount hfix htop
+      have hdel := tower_deliver sk hwf h.toWCountP hfix htop
         (hh' + 1)
         (sk.pendsBefore p (hh' + 1 + 1)
           (rcvCount (Chan.upper p (hh' + 1)) st.out))
@@ -905,7 +905,7 @@ theorem upper_window (hwf : sk.wellFormed = true) {fut : List Ev}
     exfalso
     by_cases htopc : hh + 1 = top
     · rw [htopc] at hoblk
-      exact top_blocked sk hwf h.toWCount hfix htop hroot hoblk
+      exact top_blocked sk hwf h.toWCountP hfix htop hroot hoblk
     · have hout' := asmOutChan_of_lt sk htop
         (show hh + 1 < top from by omega)
       rw [hout', cap_level] at hoblk
@@ -945,7 +945,7 @@ theorem lower_window (hwf : sk.wellFormed = true) {fut : List Ev}
   have hRd : rcvCount (Chan.lower p (hh' + 1)) st.out ≤ d := by
     have := wedge_rcvd_le_sent sk hwf h (Chan.lower p (hh' + 1))
     omega
-  have hstuck := asm_stuck sk hwf h.toWCount hfix
+  have hstuck := asm_stuck sk hwf h.toWCountP hfix
     (show 1 ≤ hh' + 1 by omega) hIdx
   rw [hres,
     show asmLevelChan (p, hh' + 1) = Chan.level p hh' from rfl]
@@ -979,7 +979,7 @@ theorem lower_window (hwf : sk.wellFormed = true) {fut : List Ev}
         have := pendsBefore_mono sk Party.I 1 hRl
         omega
       have hpair := hdesc' rfl
-      have hdel := absorb_deliver sk hwf h.toWCount hfix hc₀N
+      have hdel := absorb_deliver sk hwf h.toWCountP hfix hc₀N
         (Nat.le_trans hmono hpair.1)
         (Nat.le_trans hmono hpair.2) hlv
       omega
@@ -1002,7 +1002,7 @@ theorem lower_window (hwf : sk.wellFormed = true) {fut : List Ev}
           ≤ rcvCount (sk.asmOutChan (p, hh'' + 1)) st.out := by
         rw [hout']
         exact hlv
-      have hdel := tower_deliver sk hwf h.toWCount hfix htop
+      have hdel := tower_deliver sk hwf h.toWCountP hfix htop
         (hh'' + 1)
         (sk.pendsBefore p (hh'' + 1 + 1)
           (rcvCount (Chan.lower p (hh'' + 1 + 1)) st.out))
@@ -1040,7 +1040,7 @@ theorem wire0_window (hwf : sk.wellFormed = true) {fut : List Ev}
     (hroot : 1 ≤ sndCount Chan.rootres st.out) :
     w ≤ rcvCount (Chan.wire Party.R 0) st.out := by
   have hcap := wf_capLevel hwf
-  rcases absorb_stuck sk hwf h.toWCount hfix with
+  rcases absorb_stuck sk hwf h.toWCountP hfix with
     ⟨hW, hL, hV⟩ | ⟨hWt, hLW, hVW, hsw⟩ | ⟨hLt, hWL, hVL, hsq⟩
     | ⟨hVt, hWV, hLV, hblk⟩
   · omega
@@ -1064,7 +1064,7 @@ theorem leafreq_window (hwf : sk.wellFormed = true) {fut : List Ev}
     (hroot : 1 ≤ sndCount Chan.rootres st.out) :
     q ≤ rcvCount Chan.leafRequests st.out := by
   have hcap := wf_capLevel hwf
-  rcases absorb_stuck sk hwf h.toWCount hfix with
+  rcases absorb_stuck sk hwf h.toWCountP hfix with
     ⟨hW, hL, hV⟩ | ⟨hWt, hLW, hVW, hsw⟩ | ⟨hLt, hWL, hVL, hsq⟩
     | ⟨hVt, hWV, hLV, hblk⟩
   · omega

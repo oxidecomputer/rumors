@@ -701,11 +701,11 @@ theorem ancTele_cov (hwf : sk.wellFormed = true)
     have hpar := asks_false_parity hna (asks_wpk_self h)
     obtain ⟨m, rfl⟩ : ∃ m, G = h + 2 + 2 * m :=
       ⟨(G - h - 2) / 2, by omega⟩
-    exact ancTele_ladder sk hwf hW.toWCount hanc (asks_wpk_self h)
+    exact ancTele_ladder sk hwf hW.toWCountP hanc (asks_wpk_self h)
       hcoh0 hup0 m hGr
   · intro G hG2 hGt hna
     have hGr : G < sk.rootH := answerer_lt_rootH sk hwf hGt hna
-    exact ancTele_p1 sk hwf hsched hW.toWCount hanc (by omega) hGr
+    exact ancTele_p1 sk hwf hsched hW.toWCountP hanc (by omega) hGr
       hna (hanc.isD G (by omega) hGr)
 
 /-- The leaf sites' ascent coverage: the initiator tower covered from
@@ -737,7 +737,7 @@ theorem ancTele_cov_leaf (hwf : sk.wellFormed = true)
       simp only [asks, beq_eq_false_iff_ne, ne_eq] at hna
       omega
     obtain ⟨m, rfl⟩ : ∃ m, G = 1 + 2 * m := ⟨(G - 1) / 2, by omega⟩
-    exact ancTele_ladder_leaf sk hwf hW.toWCount hanc hr hk hcoh0
+    exact ancTele_ladder_leaf sk hwf hW.toWCountP hanc hr hk hcoh0
       hi0 hreq0 m hGr
   · intro G hG1 hGt hna
     have hGr : G < sk.rootH := by
@@ -750,9 +750,9 @@ theorem ancTele_cov_leaf (hwf : sk.wellFormed = true)
     rcases Nat.lt_or_ge G 2 with hG2 | hG2
     · have hG1' : G = 1 := by omega
       subst hG1'
-      exact ancTele_p1 sk hwf hsched hW.toWCount hanc (by omega) hGr
+      exact ancTele_p1 sk hwf hsched hW.toWCountP hanc (by omega) hGr
         hna hD1
-    · exact ancTele_p1 sk hwf hsched hW.toWCount hanc (by omega) hGr
+    · exact ancTele_p1 sk hwf hsched hW.toWCountP hanc (by omega) hGr
         hna (hanc.isD G (by omega) hGr)
 
 -- ============================================ own-stage floor counts
@@ -1219,15 +1219,15 @@ theorem ready_upper_prologue (hwf : sk.wellFormed = true)
     simpa using hs
   have hfu := futLen_site_upper_prologue sk hk hlast hown
   have hsnd : sndCount (Chan.upper ((wpk h).1) h) st.out = k :=
-    upper_site_hsnd sk hwf hW.toWCount hna hhr hk hfu
+    upper_site_hsnd sk hwf hW.toWCountP hna hhr hk hfu
   have hcov := ancTele_cov sk hwf hsched hW hanc hcoh0 hsnd
-  have hroot := root_banked sk hwf hW.toWCount hfeed
+  have hroot := root_banked sk hwf hW.toWCountP hfeed
   have hdesc : DescSupply sk st ((wpk h).1) h
       (sk.pendsBefore ((wpk h).1) (h + 1) k) := by
     rcases Nat.eq_zero_or_pos h with rfl | h1
     · exact descSupply_upper_site_zero sk hasks _
     · have hflow := futLen_S1_res sk hk hown
-      have hlpin := lower_snd_pin sk hwf hW.toWCount hhr
+      have hlpin := lower_snd_pin sk hwf hW.toWCountP hhr
       have hdmono := dsBefore_mono sk h
         (show k ≤ sk.stageLen h from Nat.le_of_lt hk)
       have hXle : sk.wiresBefore h k ≤ sk.stageLen (h - 1) := by
@@ -1235,12 +1235,12 @@ theorem ready_upper_prologue (hwf : sk.wellFormed = true)
           (show k ≤ sk.stageLen h from Nat.le_of_lt hk)
         have h3' := wiresBefore_total sk hwf h1 hhr
         omega
-      refine descSupply_upper_of_ctx sk hwf hW.toWCount h1 hhr hk
+      refine descSupply_upper_of_ctx sk hwf hW.toWCountP h1 hhr hk
         hasks (Nat.le_refl _) hXle hdeep (by omega) ?_
       intro h1'
       subst h1'
       have hfq := futLen_S1_q sk hk hown
-      have hqpin := asked_snd_pin sk hwf hW.toWCount (Nat.le_refl 1)
+      have hqpin := asked_snd_pin sk hwf hW.toWCountP (Nat.le_refl 1)
         hhr
       have hqmono := qsBefore_mono sk 1
         (show k ≤ sk.stageLen 1 from Nat.le_of_lt hk)
@@ -1292,13 +1292,13 @@ theorem ready_upper_splice (hwf : sk.wellFormed = true)
     simpa using hs
   have hfu := futLen_site_upper_splice sk hk hlast hown
   have hsnd : sndCount (Chan.upper ((wpk h).1) h) st.out = k :=
-    upper_site_hsnd sk hwf hW.toWCount hna hhr hk hfu
+    upper_site_hsnd sk hwf hW.toWCountP hna hhr hk hfu
   have hcov := ancTele_cov sk hwf hsched hW hanc hcoh0 hsnd
-  have hroot := root_banked sk hwf hW.toWCount hfeed
+  have hroot := root_banked sk hwf hW.toWCountP hfeed
   have hdesc : DescSupply sk st ((wpk h).1) h
       (sk.pendsBefore ((wpk h).1) (h + 1) k) := by
     have hflow := futLen_S2_res sk hk hlast hown
-    have hlpin := lower_snd_pin sk hwf hW.toWCount hhr
+    have hlpin := lower_snd_pin sk hwf hW.toWCountP hhr
     have hdmono := dsBefore_mono sk h
       (show k ≤ sk.stageLen h from Nat.le_of_lt hk)
     have hXle : sk.wiresBefore h k + jL ≤ sk.stageLen (h - 1) := by
@@ -1307,12 +1307,12 @@ theorem ready_upper_splice (hwf : sk.wellFormed = true)
         (show k + 1 ≤ sk.stageLen h from hk)
       have h3' := wiresBefore_total sk hwf h1 hhr
       omega
-    refine descSupply_upper_of_ctx sk hwf hW.toWCount h1 hhr hk
+    refine descSupply_upper_of_ctx sk hwf hW.toWCountP h1 hhr hk
       hasks (by omega) hXle hdeep (by omega) ?_
     intro h1'
     subst h1'
     have hfq := futLen_S2_q sk hk hlast hown
-    have hqpin := asked_snd_pin sk hwf hW.toWCount (Nat.le_refl 1)
+    have hqpin := asked_snd_pin sk hwf hW.toWCountP (Nat.le_refl 1)
       hhr
     have hqmono := qsBefore_mono sk 1
       (show k ≤ sk.stageLen 1 from Nat.le_of_lt hk)
@@ -1367,10 +1367,10 @@ theorem ready_lower (hwf : sk.wellFormed = true)
     rw [hna] at hs
     simpa using hs
   obtain ⟨hfl, hbnd, hfu⟩ := futLen_site_lower sk hk hi hD hown
-  have hsnd := lower_site_hsnd sk hwf hW.toWCount hna hhr hfl hbnd
-  have hupk := upper_site_hsnd sk hwf hW.toWCount hna hhr hk hfu
+  have hsnd := lower_site_hsnd sk hwf hW.toWCountP hna hhr hfl hbnd
+  have hupk := upper_site_hsnd sk hwf hW.toWCountP hna hhr hk hfu
   have hp1full := p1_of_lower_site sk hsched hk hi hD hupk hsnd
-  have hroot := root_banked sk hwf hW.toWCount hfeed
+  have hroot := root_banked sk hwf hW.toWCountP hfeed
   have hcov : AscCover sk st ((wpk h).1) (h + 1) (wtop sk h) :=
     ascCover_pred sk (ancTele_cov sk hwf hsched hW hanc hcoh0 hupk)
       hasks
@@ -1380,7 +1380,7 @@ theorem ready_lower (hwf : sk.wellFormed = true)
     intro h1'
     subst h1'
     have hfq := futLen_SL_q sk hk hi hown
-    have hqpin := asked_snd_pin sk hwf hW.toWCount (Nat.le_refl 1)
+    have hqpin := asked_snd_pin sk hwf hW.toWCountP (Nat.le_refl 1)
       hhr
     have hqw := qs_wires_mid sk hwf (Nat.le_refl 1) hhr hk
       (Nat.le_of_lt hi)
@@ -1396,7 +1396,7 @@ theorem ready_lower (hwf : sk.wellFormed = true)
       (show k + 1 ≤ sk.stageLen 1 from hk)
     rw [show Chan.leafRequests = askedOut (wpk 1) from rfl]
     omega
-  have hdesc := descSupply_lower_of_ctx sk hwf hW.toWCount h1 hhr hk
+  have hdesc := descSupply_lower_of_ctx sk hwf hW.toWCountP h1 hhr hk
     (Nat.le_of_lt hi) hna hdeep hq1
   have hd : sk.dsBefore h k + dRank sk (wpk h) k i
       < (sk.asmResList ((wpk h).1) h).length := by
@@ -1430,7 +1430,7 @@ theorem ready_wire0 (hwf : sk.wellFormed = true)
   have hr2 : 1 < sk.rootH := by have := (wf_rootH hwf).2; omega
   obtain ⟨hA1, hj1⟩ := hanc.rng 1 (by omega) hr2
   obtain ⟨hfw, hwbnd⟩ := futLen_site_wire sk hk hi0 hown
-  have hsnd := wire0_site_hsnd sk hwf hW.toWCount hr hfw hwbnd
+  have hsnd := wire0_site_hsnd sk hwf hW.toWCountP hr hfw hwbnd
   have hw : sk.wiresBefore 0 k + i0 < sk.totalLeafReqs := by
     have := wiresBefore_full_leaf hwf
     omega
@@ -1442,7 +1442,7 @@ theorem ready_wire0 (hwf : sk.wellFormed = true)
     exact hq
   obtain ⟨hfq, hqbnd⟩ := futLen_site_q sk hA1 hj1
     (by rw [ht1, hqc]; exact hi0) (hanc.fil 1 (by omega) hr2)
-  have hsndq := leafreq_site_hsnd sk hwf hW.toWCount hr2 hfq hqbnd
+  have hsndq := leafreq_site_hsnd sk hwf hW.toWCountP hr2 hfq hqbnd
   have hqw := qs_wires_mid sk hwf (Nat.le_refl 1) hr2 hA1
     (Nat.le_of_lt hj1)
   rw [show (1 : Nat) - 1 = 0 from rfl] at hqw
@@ -1451,7 +1451,7 @@ theorem ready_wire0 (hwf : sk.wellFormed = true)
       ≤ sndCount Chan.leafRequests st.out + 1 := by omega
   have hcov := ancTele_cov_leaf sk hwf hsched hW hanc hr2 hk hcoh0
     hi0 hsndq
-  have hroot := root_banked sk hwf hW.toWCount hfeed
+  have hroot := root_banked sk hwf hW.toWCountP hfeed
   have hwin := wire0_window sk hwf hW hfix hw hsnd hreq hcov hroot
   exact enabled_of_window sk hwf hwin (hW.rcvd_eq _)
 
@@ -1484,7 +1484,7 @@ theorem ready_leafreq (hwf : sk.wellFormed = true)
     exact hq
   obtain ⟨hfq, hqbnd⟩ := futLen_site_q sk hA1 hj1
     (by rw [ht1, hqc]; exact hi0) (hanc.fil 1 (by omega) hr2)
-  have hsndq := leafreq_site_hsnd sk hwf hW.toWCount hr2 hfq hqbnd
+  have hsndq := leafreq_site_hsnd sk hwf hW.toWCountP hr2 hfq hqbnd
   have hqw := qs_wires_mid sk hwf (Nat.le_refl 1) hr2 hA1
     (Nat.le_of_lt hj1)
   rw [show (1 : Nat) - 1 = 0 from rfl] at hqw
@@ -1496,7 +1496,7 @@ theorem ready_leafreq (hwf : sk.wellFormed = true)
       rw [hcoh0]
     omega
   have hfw := futLen_Q0_wire sk hk hi0 hown
-  have hwpin := wire_snd_pin sk hwf hW.toWCount hr
+  have hwpin := wire_snd_pin sk hwf hW.toWCountP hr
   have hwire : sk.wiresBefore 0 k + i0
       ≤ sndCount (Chan.wire Party.R 0) st.out := by
     rw [show Chan.wire Party.R 0 = wireOut (wpk 0) from rfl]
@@ -1506,7 +1506,7 @@ theorem ready_leafreq (hwf : sk.wellFormed = true)
     omega
   have hcov := ancTele_cov_leaf sk hwf hsched hW hanc hr2 hk hcoh0
     hi0 hsndq
-  have hroot := root_banked sk hwf hW.toWCount hfeed
+  have hroot := root_banked sk hwf hW.toWCountP hfeed
   have hwin := leafreq_window sk hwf hW hfix hq hsndq hwire hcov
     hroot
   exact enabled_of_window sk hwf hwin (hW.rcvd_eq _)
@@ -1788,9 +1788,9 @@ theorem emitOK_scope_zero (hwf : sk.wellFormed = true)
   rw [List.drop_zero] at hks2
   -- peel the two prologue receives
   refine emitOKOn_cons sk
-    (fun st hW hfix hpred => head_rcv_wire sk hwf hW.toWCount hpred) ?_
+    (fun st hW hfix hpred => head_rcv_wire sk hwf hW.toWCountP hpred) ?_
   refine emitOKOn_cons sk
-    (fun st hW hfix hpred => head_rcv_asked sk hwf hW.toWCount hpred)
+    (fun st hW hfix hpred => head_rcv_asked sk hwf hW.toWCountP hpred)
     ?_
   -- the summary, then the slots
   refine emitOKOn_append sk ?_ ?_
@@ -2438,7 +2438,7 @@ private theorem emitOK_kids (hwf : sk.wellFormed = true)
           simp only [List.cons_append]
           -- W: the slot's wire, manual
           refine emitOKOn_cons sk (fun st hW hfix hpred =>
-            head_snd_wire sk hwf hW.toWCount (show 1 ≤ hp + 1 by omega) hpred) ?_
+            head_snd_wire sk hwf hW.toWCountP (show 1 ≤ hp + 1 by omega) hpred) ?_
           -- L: the resolution through the lower window
           refine emitOKOn_cons sk ?_ ?_
           · intro st hW hfix _
@@ -2745,7 +2745,7 @@ private theorem emitOK_kids (hwf : sk.wellFormed = true)
                     omega)]
                   rfl
                 rw [haq] at hpred ⊢
-                exact head_snd_asked sk hwf hW.toWCount hpred
+                exact head_snd_asked sk hwf hW.toWCountP hpred
               · -- the subtree, then the tail
                 exact emitOKOn_append sk hsubOK hih
         · -- the unspliced disputed slot
@@ -2758,7 +2758,7 @@ private theorem emitOK_kids (hwf : sk.wellFormed = true)
           rw [hkidE]
           simp only [List.cons_append]
           refine emitOKOn_cons sk (fun st hW hfix hpred =>
-            head_snd_wire sk hwf hW.toWCount (show 1 ≤ hp + 1 by omega) hpred) ?_
+            head_snd_wire sk hwf hW.toWCountP (show 1 ≤ hp + 1 by omega) hpred) ?_
           refine emitOKOn_cons sk ?_ ?_
           · intro st hW hfix _
             rw [List.cons_append] at hW
@@ -2904,7 +2904,7 @@ private theorem emitOK_kids (hwf : sk.wellFormed = true)
                   omega)]
                 rfl
               rw [haq] at hpred ⊢
-              exact head_snd_asked sk hwf hW.toWCount hpred
+              exact head_snd_asked sk hwf hW.toWCountP hpred
             · exact emitOKOn_append sk hsubOK hih
       · -- an undisputed slot: wire, query, childless subtree
         have hDf : sk.childIsD (hp + 1) (sk.stageScope (hp + 1) k) i
@@ -2927,7 +2927,7 @@ private theorem emitOK_kids (hwf : sk.wellFormed = true)
         rw [hkidE]
         simp only [List.cons_append]
         refine emitOKOn_cons sk (fun st hW hfix hpred =>
-          head_snd_wire sk hwf hW.toWCount (show 1 ≤ hp + 1 by omega) hpred) ?_
+          head_snd_wire sk hwf hW.toWCountP (show 1 ≤ hp + 1 by omega) hpred) ?_
         refine emitOKOn_cons sk ?_ ?_
         · intro st hW hfix hpred
           have haq : askedOut (wpk (hp + 1 + 1))
@@ -2938,7 +2938,7 @@ private theorem emitOK_kids (hwf : sk.wellFormed = true)
               omega)]
             rfl
           rw [haq] at hpred ⊢
-          exact head_snd_asked sk hwf hW.toWCount hpred
+          exact head_snd_asked sk hwf hW.toWCountP hpred
         · exact emitOKOn_append sk hsubOK hih
 
 -- ============================================== the master induction
@@ -2999,9 +2999,9 @@ theorem emitOK_scope (hwf : sk.wellFormed = true)
       rw [hE]
       -- the prologue receives, from their in-flight predecessors
       refine emitOKOn_cons sk (fun st hW hfix hpred =>
-        head_rcv_wire sk hwf hW.toWCount hpred) ?_
+        head_rcv_wire sk hwf hW.toWCountP hpred) ?_
       refine emitOKOn_cons sk (fun st hW hfix hpred =>
-        head_rcv_asked sk hwf hW.toWCount hpred) ?_
+        head_rcv_asked sk hwf hW.toWCountP hpred) ?_
       refine emitOKOn_append sk ?_ ?_
       · -- U1: the undisputed-scope summary
         by_cases hLn : lastDOf sk (hp + 1) k = none
@@ -3185,7 +3185,7 @@ theorem emitOK_weave (hwf : sk.wellFormed = true)
       (fun st _ _ _ => enabled_snd_low sk (cap_pos hwf _)) ?_
     refine emitOKOn_cons sk
       (fun st hW hfix hpred =>
-        head_rcv_wire sk hwf hW.toWCount hpred) ?_
+        head_rcv_wire sk hwf hW.toWCountP hpred) ?_
     refine emitOKOn_cons sk
       (fun st _ _ _ => enabled_snd_low sk (cap_pos hwf _)) ?_
     exact emitOKOn_cons sk

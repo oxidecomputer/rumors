@@ -1840,4 +1840,80 @@ theorem totalEventsE_eq : totalEventsE sk = totalEvents sk := by
     List.map_append, List.sum_append]
   rw [hW]
 
+-- The numbering layer at `procsE` (unit 2a, PROGRESS.md §9): the
+-- `WCountP` toolkit's family hypotheses — ownership and per-trace
+-- canon-shape — discharged for the encoder-order traces. Ownership is
+-- membership-based, so it rides the permutation bridge; canon-shape
+-- rides the projection bridge.
+
+/-- Positional ownership transfers to any memberwise-contained family:
+`Owned` only quantifies over members. -/
+theorem owned_of_forall2_mem {f : Chan → Nat} {b : Bool} :
+    ∀ {i : Nat} {ts ts' : List (List Ev)},
+      Owned f b i ts →
+      Forall2 (fun t t' => ∀ e ∈ t', e ∈ t) ts ts' →
+      Owned f b i ts'
+  | _, _, _, _, .nil => trivial
+  | i, _, _, h, .cons hmem hf =>
+      ⟨fun e he hs => h.1 e (hmem e he) hs,
+        owned_of_forall2_mem h.2 hf⟩
+
+/-- Mapping two functions over one list, related pointwise. -/
+theorem forall2_map_self {α β : Type _} {R : β → β → Prop}
+    {g g' : α → β} :
+    ∀ {l : List α}, (∀ x ∈ l, R (g x) (g' x)) →
+      Forall2 R (l.map g) (l.map g')
+  | [], _ => .nil
+  | x :: _, h =>
+      .cons (h x (List.mem_cons_self ..))
+        (forall2_map_self fun y hy => h y (List.mem_cons_of_mem x hy))
+
+/-- The encoder-order family is memberwise contained in the d5 family:
+walk entries are permutations, every other entry is shared. -/
+theorem procs_mem_procsE :
+    Forall2 (fun t t' => ∀ e ∈ t', e ∈ t) (procs sk) (procsE sk) := by
+  simp only [procs, procsE]
+  refine Forall2.append (Forall2.append (Forall2.append (Forall2.append
+    (Forall2.self fun t _ e he => he)
+    (forall2_map_self fun pk _ e he => (walkEventsE_perm sk pk).subset he))
+    (Forall2.self fun t _ e he => he))
+    (Forall2.self fun t _ e he => he))
+    (Forall2.self fun t _ e he => he)
+
+/-- Sends own their trace index at `procsE`: `procs_snd_owned` through
+the membership transfer. -/
+theorem procsE_snd_owned (hwf : sk.wellFormed = true) :
+    Owned (sndOwner sk) true 0 (procsE sk) :=
+  owned_of_forall2_mem (procs_snd_owned sk hwf) (procs_mem_procsE sk)
+
+/-- Receives own their trace index at `procsE`. -/
+theorem procsE_rcv_owned (hwf : sk.wellFormed = true) :
+    Owned (rcvOwner sk) false 0 (procsE sk) :=
+  owned_of_forall2_mem (procs_rcv_owned sk hwf) (procs_mem_procsE sk)
+
+/-- Every `procsE` trace's every channel-side projection is
+canon-shaped: the walk arm rides the projection bridge; every other
+arm is `procs_canon`'s. -/
+theorem procsE_canon (c : Chan) (b : Bool) :
+    ∀ t ∈ procsE sk, ∃ m, proj c b t = canon c b m := by
+  intro t ht
+  simp only [procsE, List.mem_append, List.mem_cons,
+    List.not_mem_nil, or_false, List.mem_map] at ht
+  rcases ht with ((((rfl | rfl) | ⟨pk, -, rfl⟩) | rfl) | ⟨pk, -, rfl⟩)
+    | rfl | rfl
+  · exact iopen_canon sk c b
+  · exact ropen_canon sk c b
+  · obtain ⟨m, hm⟩ := walk_canon sk pk c b
+    exact ⟨m, by rw [proj_walkEventsE_eq]; exact hm⟩
+  · exact absorb_canon sk c b
+  · exact asm_canon sk pk c b
+  · by_cases h1 : c = Chan.rootret ∧ b = false
+    · obtain ⟨rfl, rfl⟩ := h1
+      exact ⟨1, by rw [proj_cons_self, proj_nil, canon_one]⟩
+    · refine canon_nil fun e he hc hcb => ?_
+      rcases he with _ | ⟨_, he⟩
+      · exact h1 ⟨hc.symm, hcb.symm⟩
+      · cases he
+  · exact fin_canon sk c b
+
 end StreamingMirror.Sched

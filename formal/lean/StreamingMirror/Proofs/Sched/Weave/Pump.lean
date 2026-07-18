@@ -285,7 +285,7 @@ theorem wedge_rcvd_le_sent (hwf : sk.wellFormed = true) {fut : List Ev}
   | zero => omega
   | succ q =>
       -- the top receive is at seq q; its guard held over a prefix
-      have hcanon := wproj_canon sk hwf h.toWCount c false
+      have hcanon := wproj_canon sk hwf h.toWCountP c false
       have hmem : ((c, false, q) : Ev) ∈ proj c false st.out := by
         rw [hcanon]
         have hlen : (proj c false st.out).length = q + 1 := by

@@ -76,6 +76,26 @@ theorem weavePumps_eq : weavePumps sk = (procs sk).drop (manCount sk) := by
     omega
   rw [hsplit, ← hlen, List.drop_left]
 
+/-- The encoder-order family's pump half is ALSO `weavePumps`: only
+walk traces differ between the corners, and walks are manual. -/
+theorem procsE_drop_pumps :
+    (procsE sk).drop (manCount sk) = weavePumps sk := by
+  have hsplit : procsE sk
+      = ([iopenEvents sk, ropenEvents sk]
+          ++ ((List.range sk.rootH).map fun i =>
+            ((if (sk.rootH - 1 - i) % 2 == 1 then Party.I else Party.R,
+              sk.rootH - 1 - i) : Party × Nat)).map (walkEventsE sk))
+        ++ weavePumps sk := by
+    simp [procsE, weavePumps, List.append_assoc]
+  have hlen : ([iopenEvents sk, ropenEvents sk]
+      ++ ((List.range sk.rootH).map fun i =>
+        ((if (sk.rootH - 1 - i) % 2 == 1 then Party.I else Party.R,
+          sk.rootH - 1 - i) : Party × Nat)).map (walkEventsE sk)).length
+      = manCount sk := by
+    simp [manCount]
+    omega
+  rw [hsplit, ← hlen, List.drop_left]
+
 /-- The events a worklist will emit by hand, in order: the ghost twin
 of `weaveGo` — same fuel, same expansion, no state — so the counting
 induction can walk the two in lockstep. -/
@@ -195,38 +215,47 @@ future manual-owned, so consuming one always advances exactly one
 remainder and the counts stay balanced. Deliberately ABSENT: the
 `e1_hist`/`e2_hist` edge-respect fields — those need enabledness at
 the manual emission points, which is the next layer's content. -/
-structure WCount (fut : List Ev) (st : MState) : Prop where
+structure WCountP (P : List (List Ev)) (fut : List Ev) (st : MState) :
+    Prop where
   owners_lt : ∀ e ∈ fut, evOwner sk e < manCount sk
   man_struct : Forall2
     (fun t r => ∃ pre, t = pre ++ r ∧ pre.Sublist st.out)
-    ((procs sk).take (manCount sk)) (manFilters sk fut)
+    (P.take (manCount sk)) (manFilters sk fut)
   pump_struct : Forall2
     (fun t r => ∃ pre, t = pre ++ r ∧ pre.Sublist st.out)
-    ((procs sk).drop (manCount sk)) st.rem
+    (P.drop (manCount sk)) st.rem
   sent_eq : ∀ c, st.sent c = sndCount c st.out
   rcvd_eq : ∀ c, st.rcvd c = rcvCount c st.out
   out_count : ∀ p : Ev → Bool,
     (st.out.filter p).length
-      = emittedCount p ((procs sk).take (manCount sk)) (manFilters sk fut)
-        + emittedCount p ((procs sk).drop (manCount sk)) st.rem
+      = emittedCount p (P.take (manCount sk)) (manFilters sk fut)
+        + emittedCount p (P.drop (manCount sk)) st.rem
+
+/-- The d5 corner's instance: the invariant at the merge's own trace
+family. Every preservation lemma below is generic over the family
+(`WCountP`); this abbreviation keeps the d5 spelling and lets the
+`.impl` campaign instantiate the same layer at `procsE`. -/
+abbrev WCount (fut : List Ev) (st : MState) : Prop :=
+  WCountP sk (procs sk) fut st
 
 /-- The weave's starting state satisfies the counting invariant,
 given the initial alignment: the worklist's per-owner filters are
 exactly the manual traces (so nothing is emitted and every remainder
 is whole). -/
-theorem wcount_init {fut : List Ev}
-    (halign : manFilters sk fut = (procs sk).take (manCount sk))
+theorem wcount_init {P : List (List Ev)} {fut : List Ev}
+    (halign : manFilters sk fut = P.take (manCount sk))
+    (hpumps : P.drop (manCount sk) = weavePumps sk)
     (howners : ∀ e ∈ fut, evOwner sk e < manCount sk) :
-    WCount sk fut (weaveInit sk) := by
+    WCountP sk P fut (weaveInit sk) := by
   refine ⟨howners, ?_, ?_, fun c => rfl, fun c => rfl, ?_⟩
   · rw [halign]
     exact Forall2.self fun t _ => ⟨[], rfl, List.nil_sublist _⟩
   · show Forall2 _ _ (weavePumps sk)
-    rw [weavePumps_eq]
+    rw [← hpumps]
     exact Forall2.self fun t _ => ⟨[], rfl, List.nil_sublist _⟩
   · intro p
     show (0 : Nat) = _ + emittedCount p _ (weavePumps sk)
-    rw [halign, weavePumps_eq, emittedCount_refl, emittedCount_refl]
+    rw [halign, ← hpumps, emittedCount_refl, emittedCount_refl]
 
 -- ================================================ manual-emit shape
 
@@ -247,9 +276,10 @@ theorem wEmit_rem (st : MState) (e : Ev) :
 /-- Emitting the worklist's next future preserves the counting
 invariant: its owner's remainder advances by exactly that event;
 every other manual remainder, and every pump trace, is untouched. -/
-theorem wEmit_preserves {fut : List Ev} {st : MState} {e : Ev}
-    (hinv : WCount sk (e :: fut) st) :
-    WCount sk fut (wEmit st e) := by
+theorem wEmit_preserves {P : List (List Ev)} {fut : List Ev}
+    {st : MState} {e : Ev}
+    (hinv : WCountP sk P (e :: fut) st) :
+    WCountP sk P fut (wEmit st e) := by
   have hm : evOwner sk e < manCount sk :=
     hinv.owners_lt e (List.mem_cons_self ..)
   obtain ⟨A, r, B, hAe, hA⟩ := manFilters_cons sk fut hm
@@ -334,9 +364,10 @@ theorem wEmit_preserves {fut : List Ev} {st : MState} {e : Ev}
 touches the pump remainders, and `scan_step` accounts the emitted
 event against them; the manual side just extends its prefix
 sublists. -/
-theorem wStep_preserves {fut : List Ev} {st st' : MState}
-    (hinv : WCount sk fut st) (hstep : step sk st = some st') :
-    WCount sk fut st' := by
+theorem wStep_preserves {P : List (List Ev)} {fut : List Ev}
+    {st st' : MState}
+    (hinv : WCountP sk P fut st) (hstep : step sk st = some st') :
+    WCountP sk P fut st' := by
   unfold step at hstep
   cases hscan : scan sk st.sent st.rcvd st.rem with
   | none => rw [hscan] at hstep; simp at hstep
@@ -348,7 +379,7 @@ theorem wStep_preserves {fut : List Ev} {st st' : MState}
       hinv.pump_struct hscan
     have hman : Forall2
         (fun t r => ∃ pre, t = pre ++ r ∧ pre.Sublist (st.out ++ [e]))
-        ((procs sk).take (manCount sk)) (manFilters sk fut) :=
+        (P.take (manCount sk)) (manFilters sk fut) :=
       hinv.man_struct.imp fun _ _ ⟨pre, hp, hs⟩ =>
         ⟨pre, hp, hs.trans (List.sublist_append_left ..)⟩
     obtain ⟨c, sd, n⟩ := e
@@ -372,9 +403,9 @@ theorem wStep_preserves {fut : List Ev} {st st' : MState}
           have hold := hinv.out_count p
           have h1 := hone p
           show ((st.out ++ [((c, true, n) : Ev)]).filter p).length
-              = emittedCount p ((procs sk).take (manCount sk))
+              = emittedCount p (P.take (manCount sk))
                   (manFilters sk fut)
-                + emittedCount p ((procs sk).drop (manCount sk)) rem'
+                + emittedCount p (P.drop (manCount sk)) rem'
           rw [List.filter_append, List.length_append]
           omega
     | false =>
@@ -391,16 +422,17 @@ theorem wStep_preserves {fut : List Ev} {st st' : MState}
           have hold := hinv.out_count p
           have h1 := hone p
           show ((st.out ++ [((c, false, n) : Ev)]).filter p).length
-              = emittedCount p ((procs sk).take (manCount sk))
+              = emittedCount p (P.take (manCount sk))
                   (manFilters sk fut)
-                + emittedCount p ((procs sk).drop (manCount sk)) rem'
+                + emittedCount p (P.drop (manCount sk)) rem'
           rw [List.filter_append, List.length_append]
           omega
 
 /-- The counting invariant survives any amount of pump fuel. -/
-theorem wMergeN_preserves {fut : List Ev} (fuel : Nat) {st : MState}
-    (hinv : WCount sk fut st) :
-    WCount sk fut (mergeN sk fuel st) := by
+theorem wMergeN_preserves {P : List (List Ev)} {fut : List Ev}
+    (fuel : Nat) {st : MState}
+    (hinv : WCountP sk P fut st) :
+    WCountP sk P fut (mergeN sk fuel st) := by
   induction fuel generalizing st with
   | zero => exact hinv
   | succ f ih =>
@@ -410,14 +442,16 @@ theorem wMergeN_preserves {fut : List Ev} (fuel : Nat) {st : MState}
       | none => exact hinv
 
 /-- The counting invariant survives the greedy pump. -/
-theorem wPump_preserves {fut : List Ev} {st : MState}
-    (hinv : WCount sk fut st) : WCount sk fut (wPump sk st) :=
+theorem wPump_preserves {P : List (List Ev)} {fut : List Ev}
+    {st : MState}
+    (hinv : WCountP sk P fut st) : WCountP sk P fut (wPump sk st) :=
   wMergeN_preserves sk _ hinv
 
 /-- Emit-then-pump consumes exactly the worklist's next future. -/
-theorem wEmitP_preserves {fut : List Ev} {st : MState} {e : Ev}
-    (hinv : WCount sk (e :: fut) st) :
-    WCount sk fut (wEmitP sk st e) :=
+theorem wEmitP_preserves {P : List (List Ev)} {fut : List Ev}
+    {st : MState} {e : Ev}
+    (hinv : WCountP sk P (e :: fut) st) :
+    WCountP sk P fut (wEmitP sk st e) :=
   wPump_preserves sk (wEmit_preserves sk hinv)
 
 -- ================================================ the master induction
@@ -426,10 +460,10 @@ theorem wEmitP_preserves {fut : List Ev} {st : MState} {e : Ev}
 shrink in lockstep with the worklist — an emit consumes its head, an
 expansion rewrites both sides identically — so the fuel's end leaves
 no futures at all. -/
-theorem weaveGo_preserves (fuel : Nat) :
+theorem weaveGo_preserves {P : List (List Ev)} (fuel : Nat) :
     ∀ (ops : List WOp) (st : MState),
-      WCount sk (goEvents sk fuel ops) st →
-      WCount sk [] (weaveGo sk fuel ops st) := by
+      WCountP sk P (goEvents sk fuel ops) st →
+      WCountP sk P [] (weaveGo sk fuel ops st) := by
   induction fuel with
   | zero => intro ops st h; exact h
   | succ f ih =>
@@ -455,15 +489,17 @@ theorem weaveState_wcount
       evOwner sk e < manCount sk) :
     WCount sk [] (weaveState sk) :=
   wPump_preserves sk
-    (weaveGo_preserves sk _ _ _ (wcount_init sk halign howners))
+    (weaveGo_preserves sk _ _ _
+      (wcount_init sk halign (weavePumps_eq sk).symm howners))
 
 -- ======================================== corollaries of a drained run
 
 /-- With no futures left, every manual trace embeds in the output in
 order: its remainder filter is empty, so the trace IS its emitted
 prefix. -/
-theorem wcount_done_man_sublist {st : MState} (h : WCount sk [] st) :
-    ∀ t ∈ (procs sk).take (manCount sk), t.Sublist st.out := by
+theorem wcount_done_man_sublist {P : List (List Ev)} {st : MState}
+    (h : WCountP sk P [] st) :
+    ∀ t ∈ P.take (manCount sk), t.Sublist st.out := by
   intro t ht
   obtain ⟨r, hr, pre, hpre, hsub⟩ :=
     h.man_struct.exists_of_mem_left ht

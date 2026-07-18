@@ -193,12 +193,17 @@ events); a manual emission carries an `enabled` HYPOTHESIS
 (`wEdge_emit`) — discharging it at each of the weave's emission
 points, under `Skel.schedulable`, is the master induction's content
 (see the module doc). -/
-structure WEdge (fut : List Ev) (st : MState) : Prop
-    extends WCount sk fut st where
+structure WEdgeP (P : List (List Ev)) (fut : List Ev) (st : MState) :
+    Prop extends WCountP sk P fut st where
   e1_hist : ∀ k c n, st.out[k]? = some (c, false, n) →
     n < sndCount c (st.out.take k)
   e2_hist : ∀ k c n, st.out[k]? = some (c, true, n) →
     n < rcvCount c (st.out.take k) + sk.cap c
+
+/-- The d5 corner's instance of the validity invariant (cf. `WCount`):
+the same guard-history layer at the merge's own trace family. -/
+abbrev WEdge (fut : List Ev) (st : MState) : Prop :=
+  WEdgeP sk (procs sk) fut st
 
 /-- Taking at most the left part of an append never sees the right. -/
 private theorem take_append_le {α : Type _} :
@@ -266,35 +271,45 @@ private theorem hist_extend {out : List Ev} {e : Ev}
 
 -- ============================================== preservation lemmas
 
-/-- The weave's starting state: counting from the initial alignment,
-guard-history vacuously (nothing emitted). -/
+/-- The weave's starting state, generic over the trace family:
+counting from the initial alignment, guard-history vacuously (nothing
+emitted). -/
+theorem wEdge_initP {P : List (List Ev)} {fut : List Ev}
+    (halign : manFilters sk fut = P.take (manCount sk))
+    (hpumps : P.drop (manCount sk) = weavePumps sk)
+    (howners : ∀ e ∈ fut, evOwner sk e < manCount sk) :
+    WEdgeP sk P fut (weaveInit sk) := by
+  refine ⟨wcount_init sk halign hpumps howners, ?_, ?_⟩
+  · intro k c n h; simp [weaveInit] at h
+  · intro k c n h; simp [weaveInit] at h
+
+/-- The weave's starting state, d5 spelling. -/
 theorem wEdge_init {fut : List Ev}
     (halign : manFilters sk fut = (procs sk).take (manCount sk))
     (howners : ∀ e ∈ fut, evOwner sk e < manCount sk) :
-    WEdge sk fut (weaveInit sk) := by
-  refine ⟨wcount_init sk halign howners, ?_, ?_⟩
-  · intro k c n h; simp [weaveInit] at h
-  · intro k c n h; simp [weaveInit] at h
+    WEdge sk fut (weaveInit sk) :=
+  wEdge_initP sk halign (weavePumps_eq sk).symm howners
 
 /-- A manual emission preserves the full invariant, GIVEN its guard is
 open — the hypothesis the master induction discharges at each of the
 weave's emission points. -/
-theorem wEdge_emit {fut : List Ev} {st : MState} {e : Ev}
+theorem wEdge_emit {P : List (List Ev)} {fut : List Ev} {st : MState}
+    {e : Ev}
     (hen : enabled sk st.sent st.rcvd e = true)
-    (hinv : WEdge sk (e :: fut) st) :
-    WEdge sk fut (wEmit st e) := by
+    (hinv : WEdgeP sk P (e :: fut) st) :
+    WEdgeP sk P fut (wEmit st e) := by
   obtain ⟨h1, h2⟩ := hist_extend sk hinv.sent_eq hinv.rcvd_eq hen
     hinv.e1_hist hinv.e2_hist
-  refine ⟨wEmit_preserves sk hinv.toWCount, ?_, ?_⟩
+  refine ⟨wEmit_preserves sk hinv.toWCountP, ?_, ?_⟩
   · rw [wEmit_out]; exact h1
   · rw [wEmit_out]; exact h2
 
 /-- One pump step preserves the full invariant: the merge emits only
 enabled events, so its guard-history extends for free. -/
-theorem wEdge_step {fut : List Ev} {st st' : MState}
-    (hinv : WEdge sk fut st) (hstep : step sk st = some st') :
-    WEdge sk fut st' := by
-  have hcount := wStep_preserves sk hinv.toWCount hstep
+theorem wEdge_step {P : List (List Ev)} {fut : List Ev} {st st' : MState}
+    (hinv : WEdgeP sk P fut st) (hstep : step sk st = some st') :
+    WEdgeP sk P fut st' := by
+  have hcount := wStep_preserves sk hinv.toWCountP hstep
   unfold step at hstep
   cases hscan : scan sk st.sent st.rcvd st.rem with
   | none => rw [hscan] at hstep; simp at hstep
@@ -312,8 +327,10 @@ theorem wEdge_step {fut : List Ev} {st st' : MState}
       | false => cases hstep; exact ⟨hcount, h1, h2⟩
 
 /-- The full invariant survives any amount of pump fuel. -/
-theorem wEdge_mergeN {fut : List Ev} (fuel : Nat) {st : MState}
-    (hinv : WEdge sk fut st) : WEdge sk fut (mergeN sk fuel st) := by
+theorem wEdge_mergeN {P : List (List Ev)} {fut : List Ev} (fuel : Nat)
+    {st : MState}
+    (hinv : WEdgeP sk P fut st) :
+    WEdgeP sk P fut (mergeN sk fuel st) := by
   induction fuel generalizing st with
   | zero => exact hinv
   | succ f ih =>
@@ -323,15 +340,16 @@ theorem wEdge_mergeN {fut : List Ev} (fuel : Nat) {st : MState}
       | none => exact hinv
 
 /-- The full invariant survives the greedy pump. -/
-theorem wEdge_pump {fut : List Ev} {st : MState}
-    (hinv : WEdge sk fut st) : WEdge sk fut (wPump sk st) :=
+theorem wEdge_pump {P : List (List Ev)} {fut : List Ev} {st : MState}
+    (hinv : WEdgeP sk P fut st) : WEdgeP sk P fut (wPump sk st) :=
   wEdge_mergeN sk _ hinv
 
 /-- Emit-then-pump, under the emission's guard. -/
-theorem wEdge_emitP {fut : List Ev} {st : MState} {e : Ev}
+theorem wEdge_emitP {P : List (List Ev)} {fut : List Ev} {st : MState}
+    {e : Ev}
     (hen : enabled sk st.sent st.rcvd e = true)
-    (hinv : WEdge sk (e :: fut) st) :
-    WEdge sk fut (wEmitP sk st e) :=
+    (hinv : WEdgeP sk P (e :: fut) st) :
+    WEdgeP sk P fut (wEmitP sk st e) :=
   wEdge_pump sk (wEdge_emit sk hen hinv)
 
 -- =========================== canonical projections of a weave state
@@ -354,46 +372,45 @@ theorem Forall2.exists_of_mem_right {α β : Type _} {R : α → β → Prop} :
 
 /-- The counting invariant's two halves, glued back into one pointwise
 relation over the whole trace family. -/
-theorem wcount_glue {fut : List Ev} {st : MState} (h : WCount sk fut st) :
+theorem wcount_glue {P : List (List Ev)} {fut : List Ev} {st : MState}
+    (h : WCountP sk P fut st) :
     Forall2 (fun t r => ∃ pre, t = pre ++ r ∧ pre.Sublist st.out)
-      (procs sk) (manFilters sk fut ++ st.rem) := by
+      P (manFilters sk fut ++ st.rem) := by
   have hall := Forall2.append h.man_struct h.pump_struct
   rwa [List.take_append_drop] at hall
 
 /-- `out_count`, read over the glued family. -/
-theorem wcount_out_glued {fut : List Ev} {st : MState}
-    (h : WCount sk fut st) (p : Ev → Bool) :
+theorem wcount_out_glued {P : List (List Ev)} {fut : List Ev}
+    {st : MState}
+    (h : WCountP sk P fut st) (p : Ev → Bool) :
     (st.out.filter p).length
-      = emittedCount p (procs sk) (manFilters sk fut ++ st.rem) := by
-  have hEC : emittedCount p (procs sk) (manFilters sk fut ++ st.rem)
-      = emittedCount p ((procs sk).take (manCount sk))
+      = emittedCount p P (manFilters sk fut ++ st.rem) := by
+  have hEC : emittedCount p P (manFilters sk fut ++ st.rem)
+      = emittedCount p (P.take (manCount sk))
           (manFilters sk fut)
-        + emittedCount p ((procs sk).drop (manCount sk)) st.rem := by
-    conv => lhs; rw [← List.take_append_drop (manCount sk) (procs sk)]
+        + emittedCount p (P.drop (manCount sk)) st.rem := by
+    conv => lhs; rw [← List.take_append_drop (manCount sk) P]
     exact emittedCount_append p _ _ h.man_struct.length_eq
   rw [hEC]
   exact h.out_count p
 
-/-- Weave-state projections are CANONICAL: on every channel and side,
-`out` holds seqs `0, 1, …` in order — `schedule_proj_canon`
-transported from the merge's final state to every weave state. -/
-theorem wproj_canon (hwf : sk.wellFormed = true) {fut : List Ev}
-    {st : MState} (h : WCount sk fut st) (c : Chan) (b : Bool) :
+/-- Weave-state projections are CANONICAL, generic form: the family's
+ownership and per-trace canon-shape are hypotheses, discharged at each
+corner by its numbering layer (`procs_*`/`procsE_*`). -/
+theorem wproj_canonP {P : List (List Ev)} {fut : List Ev}
+    {st : MState} (h : WCountP sk P fut st) (c : Chan) (b : Bool)
+    (howned : Owned (if b then sndOwner sk else rcvOwner sk) b 0 P)
+    (hcanon : ∀ t ∈ P, ∃ m, proj c b t = canon c b m) :
     proj c b st.out = canon c b (proj c b st.out).length := by
-  have howned : Owned (if b then sndOwner sk else rcvOwner sk) b 0
-      (procs sk) := by
-    cases b
-    · exact procs_rcv_owned sk hwf
-    · exact procs_snd_owned sk hwf
   obtain ⟨pre, hsub, hpre⟩ :=
-    emitted_canon (wcount_glue sk h) howned (procs_canon sk c b)
+    emitted_canon (wcount_glue sk h) howned hcanon
   have hcount : (proj c b st.out).length
       = emittedCount (fun e => decide (e.1 = c) && (e.2.1 == b))
-          (procs sk) (manFilters sk fut ++ st.rem) :=
+          P (manFilters sk fut ++ st.rem) :=
     wcount_out_glued sk h _
   have hlenpre : (proj c b pre).length
       = emittedCount (fun e => decide (e.1 = c) && (e.2.1 == b))
-          (procs sk) (manFilters sk fut ++ st.rem) := by
+          P (manFilters sk fut ++ st.rem) := by
     rw [hpre]
     simp [canon]
   have heq : proj c b pre = proj c b st.out :=
@@ -403,15 +420,26 @@ theorem wproj_canon (hwf : sk.wellFormed = true) {fut : List Ev}
   rw [hcount, ← heq]
   exact hpre
 
-/-- Membership bounds the count: an event in a canonical stream sits
-below the stream's length. -/
-theorem wcount_mem_lt (hwf : sk.wellFormed = true) {fut : List Ev}
-    {st : MState} (h : WCount sk fut st) {c : Chan} {b : Bool} {n : Nat}
+/-- Weave-state projections are canonical, d5 spelling. -/
+theorem wproj_canon (hwf : sk.wellFormed = true) {fut : List Ev}
+    {st : MState} (h : WCount sk fut st) (c : Chan) (b : Bool) :
+    proj c b st.out = canon c b (proj c b st.out).length := by
+  refine wproj_canonP sk h c b ?_ (procs_canon sk c b)
+  cases b
+  · exact procs_rcv_owned sk hwf
+  · exact procs_snd_owned sk hwf
+
+/-- Membership bounds the count, generic form (cf. `wproj_canonP`). -/
+theorem wcount_mem_ltP {P : List (List Ev)} {fut : List Ev}
+    {st : MState} (h : WCountP sk P fut st) {c : Chan} {b : Bool}
+    {n : Nat}
+    (howned : Owned (if b then sndOwner sk else rcvOwner sk) b 0 P)
+    (hcanon : ∀ t ∈ P, ∃ m, proj c b t = canon c b m)
     (hmem : ((c, b, n) : Ev) ∈ st.out) :
     n < (proj c b st.out).length := by
   have hp : ((c, b, n) : Ev) ∈ proj c b st.out :=
     List.mem_filter.2 ⟨hmem, by simp⟩
-  rw [wproj_canon sk hwf h c b] at hp
+  rw [wproj_canonP sk h c b howned hcanon] at hp
   simp only [canon, List.mem_map] at hp
   obtain ⟨j, hj, hje⟩ := hp
   have hn : j = n := by
@@ -419,9 +447,31 @@ theorem wcount_mem_lt (hwf : sk.wellFormed = true) {fut : List Ev}
   subst hn
   exact List.mem_range.1 hj
 
+/-- Membership bounds the count, d5 spelling. -/
+theorem wcount_mem_lt (hwf : sk.wellFormed = true) {fut : List Ev}
+    {st : MState} (h : WCount sk fut st) {c : Chan} {b : Bool} {n : Nat}
+    (hmem : ((c, b, n) : Ev) ∈ st.out) :
+    n < (proj c b st.out).length := by
+  refine wcount_mem_ltP sk h ?_ (procs_canon sk c b) hmem
+  cases b
+  · exact procs_rcv_owned sk hwf
+  · exact procs_snd_owned sk hwf
+
 -- ================================================ guard discharges
 
-/-- E1 discharge: a receive is enabled once its own-seq send is out. -/
+/-- E1 discharge, generic form: a receive is enabled once its own-seq
+send is out. -/
+theorem enabled_rcv_of_memP {P : List (List Ev)} {fut : List Ev}
+    {st : MState} (h : WCountP sk P fut st) {c : Chan} {n : Nat}
+    (howned : Owned (sndOwner sk) true 0 P)
+    (hcanon : ∀ t ∈ P, ∃ m, proj c true t = canon c true m)
+    (hmem : ((c, true, n) : Ev) ∈ st.out) :
+    enabled sk st.sent st.rcvd (c, false, n) = true := by
+  simp only [enabled, decide_eq_true_eq]
+  rw [h.sent_eq c, sndCount_eq_proj]
+  exact wcount_mem_ltP sk h (by simpa using howned) hcanon hmem
+
+/-- E1 discharge, d5 spelling. -/
 theorem enabled_rcv_of_mem (hwf : sk.wellFormed = true) {fut : List Ev}
     {st : MState} (h : WCount sk fut st) {c : Chan} {n : Nat}
     (hmem : ((c, true, n) : Ev) ∈ st.out) :
@@ -437,8 +487,21 @@ theorem enabled_snd_low {st : MState} {c : Chan} {n : Nat}
   simp only [enabled, decide_eq_true_eq]
   omega
 
-/-- E2 discharge: a send is enabled once the receive sitting `cap`
-slots below its seq is out. -/
+/-- E2 discharge, generic form: a send is enabled once the receive
+sitting `cap` slots below its seq is out. -/
+theorem enabled_snd_of_memP {P : List (List Ev)} {fut : List Ev}
+    {st : MState} (h : WCountP sk P fut st) {c : Chan} {n : Nat}
+    (howned : Owned (rcvOwner sk) false 0 P)
+    (hcanon : ∀ t ∈ P, ∃ m, proj c false t = canon c false m)
+    (hmem : ((c, false, n - sk.cap c) : Ev) ∈ st.out)
+    (hn : sk.cap c ≤ n) :
+    enabled sk st.sent st.rcvd (c, true, n) = true := by
+  simp only [enabled, decide_eq_true_eq]
+  rw [h.rcvd_eq c, rcvCount_eq_proj]
+  have := wcount_mem_ltP sk h (by simpa using howned) hcanon hmem
+  omega
+
+/-- E2 discharge, d5 spelling. -/
 theorem enabled_snd_of_mem (hwf : sk.wellFormed = true) {fut : List Ev}
     {st : MState} (h : WCount sk fut st) {c : Chan} {n : Nat}
     (hmem : ((c, false, n - sk.cap c) : Ev) ∈ st.out)
@@ -451,9 +514,10 @@ theorem enabled_snd_of_mem (hwf : sk.wellFormed = true) {fut : List Ev}
 
 /-- CONSERVATION: an event of some trace that is neither in the
 remaining future nor in any pump remainder has been emitted. -/
-theorem mem_out_of_elsewhere {fut : List Ev} {st : MState}
-    (h : WCount sk fut st) {e : Ev} {t : List Ev}
-    (ht : t ∈ procs sk) (het : e ∈ t)
+theorem mem_out_of_elsewhere {P : List (List Ev)} {fut : List Ev}
+    {st : MState}
+    (h : WCountP sk P fut st) {e : Ev} {t : List Ev}
+    (ht : t ∈ P) (het : e ∈ t)
     (hfut : e ∉ fut) (hrem : ∀ r ∈ st.rem, e ∉ r) :
     e ∈ st.out := by
   obtain ⟨r, hr, pre, hpre, hsub⟩ :=
@@ -493,12 +557,12 @@ private theorem asmRes_cases (pk : Party × Nat) :
 
 /-- Support of the pump family: a pump event's channel is never a
 walk wire above the leaf stage (the only pump wire traffic is
-absorb's `wire R 0` RECEIVES) and never an `asked` channel. -/
+absorb's `wire R 0` RECEIVES) and never an `asked` channel. Stated
+over `weavePumps` — both corners' trace families drop to exactly it. -/
 theorem pump_support {t : List Ev}
-    (ht : t ∈ (procs sk).drop (manCount sk)) {e : Ev} (he : e ∈ t) :
+    (ht : t ∈ weavePumps sk) {e : Ev} (he : e ∈ t) :
     (∀ p hh, e.1 = Chan.wire p hh → hh = 0 ∧ e.2.1 = false) ∧
     ∀ p hh, e.1 ≠ Chan.asked p hh := by
-  rw [← weavePumps_eq] at ht
   simp only [weavePumps, List.mem_append, List.mem_cons, List.mem_map,
     List.not_mem_nil, or_false] at ht
   rcases ht with (rfl | ⟨pk, -, rfl⟩) | rfl | rfl
@@ -556,14 +620,19 @@ theorem pump_support {t : List Ev}
       exact ⟨fun p hh hw => (nomatch hw), fun p hh hw => nomatch hw⟩
 
 /-- Pump remainders never hold a wire event above the leaf stage's
-receives. -/
-theorem pump_rem_no_wire {fut : List Ev} {st : MState}
-    (h : WCount sk fut st) {p : Party} {hh n : Nat} {b : Bool}
+receives. Generic over the trace family: both corners' families have
+`weavePumps` as their pump half, which `hpumps` records. -/
+theorem pump_rem_no_wireP {P : List (List Ev)} {fut : List Ev}
+    {st : MState}
+    (h : WCountP sk P fut st)
+    (hpumps : P.drop (manCount sk) = weavePumps sk)
+    {p : Party} {hh n : Nat} {b : Bool}
     (hb : hh ≠ 0 ∨ b = true) :
     ∀ r ∈ st.rem, ((Chan.wire p hh, b, n) : Ev) ∉ r := by
   intro r hr hmem
   obtain ⟨t, ht, pre, hpre, -⟩ :=
     h.pump_struct.exists_of_mem_right hr
+  rw [hpumps] at ht
   have het : ((Chan.wire p hh, b, n) : Ev) ∈ t := by
     rw [hpre]; exact List.mem_append_right _ hmem
   have hcl := (pump_support sk ht het).1 p hh rfl
@@ -573,15 +642,32 @@ theorem pump_rem_no_wire {fut : List Ev} {st : MState}
     rw [h1] at hcl
     exact Bool.noConfusion hcl.2
 
-/-- Pump remainders never hold an `asked` event. -/
-theorem pump_rem_no_asked {fut : List Ev} {st : MState}
-    (h : WCount sk fut st) {p : Party} {hh n : Nat} {b : Bool} :
+/-- Pump remainders never hold a wire event, d5 spelling. -/
+theorem pump_rem_no_wire {fut : List Ev} {st : MState}
+    (h : WCount sk fut st) {p : Party} {hh n : Nat} {b : Bool}
+    (hb : hh ≠ 0 ∨ b = true) :
+    ∀ r ∈ st.rem, ((Chan.wire p hh, b, n) : Ev) ∉ r :=
+  pump_rem_no_wireP sk h (weavePumps_eq sk).symm hb
+
+/-- Pump remainders never hold an `asked` event, generic form. -/
+theorem pump_rem_no_askedP {P : List (List Ev)} {fut : List Ev}
+    {st : MState}
+    (h : WCountP sk P fut st)
+    (hpumps : P.drop (manCount sk) = weavePumps sk)
+    {p : Party} {hh n : Nat} {b : Bool} :
     ∀ r ∈ st.rem, ((Chan.asked p hh, b, n) : Ev) ∉ r := by
   intro r hr hmem
   obtain ⟨t, ht, pre, hpre, -⟩ :=
     h.pump_struct.exists_of_mem_right hr
+  rw [hpumps] at ht
   have het : ((Chan.asked p hh, b, n) : Ev) ∈ t := by
     rw [hpre]; exact List.mem_append_right _ hmem
   exact absurd rfl ((pump_support sk ht het).2 p hh)
+
+/-- Pump remainders never hold an `asked` event, d5 spelling. -/
+theorem pump_rem_no_asked {fut : List Ev} {st : MState}
+    (h : WCount sk fut st) {p : Party} {hh n : Nat} {b : Bool} :
+    ∀ r ∈ st.rem, ((Chan.asked p hh, b, n) : Ev) ∉ r :=
+  pump_rem_no_askedP sk h (weavePumps_eq sk).symm
 
 end StreamingMirror.Sched
