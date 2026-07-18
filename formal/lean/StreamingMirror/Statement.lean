@@ -4,8 +4,9 @@ enough to audit by reading them.
 
 # The audit surface
 
-To believe `DeadlockFree sk AxMode.full` (once proven), a skeptical
-reader must read, in full:
+To believe `DeadlockFree sk AxMode.full` — proven as
+`Sched.deadlock_free` (Proofs/Endgame.lean), on the three standard
+axioms only — a skeptical reader must read, in full:
 
 - `Skel.wellFormed` (Skel.lean, ~25 lines) — which dispute skeletons the
   claim covers;
@@ -61,9 +62,11 @@ open Model
 
 /-- Deadlock-freedom, the Phase C target: under axiom mode `ax`, no
 reachable state of the session is stuck — every interleaving either can
-still move or has completed. The target theorem is
+still move or has completed. The target theorem
 `sk.wellFormed → sk.schedulable → DeadlockFree sk AxMode.full` (the
-seven-ledger interface), pending the progress lemma. The mode index and
+seven-ledger interface) is PROVEN: `Sched.deadlock_free`
+(Proofs/Endgame.lean), via the progress lemma `Sched.progress`. The
+mode index and
 the `schedulable` hypothesis are each load-bearing, and each is a
 THEOREM, not a promise: `Control.jam_not_deadlockFree` refutes this
 very statement for the pre-finding-#6 interface (`Control.fullNoD4` —

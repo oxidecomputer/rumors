@@ -23,6 +23,7 @@ flow conservation against the supply = demand totals), ending at
 `terminal` — contradicting non-terminality.
 -/
 import StreamingMirror.Proofs.Pending
+import StreamingMirror.Statement
 
 namespace StreamingMirror.Sched
 
@@ -718,5 +719,259 @@ theorem close_cascade (hwf : sk.wellFormed = true) {s : State}
       have happ : (apply sk .full .absorbCloseAsked s).isSome = true := by
         simp [apply, hph4, hprod, hchan]
       exact canStep_of_action (fixed_action_mem sk (by simp)) happ
+
+-- ============================================ the top-level theorems
+
+/-- The progress lemma: a reachable, non-terminal state of a
+well-formed, schedulable session can always step under the full ledger
+set. -/
+theorem progress (hwf : sk.wellFormed = true)
+    (hsched : sk.schedulable = true) {s : State}
+    (hr : Reachable sk .full s) (hnt : terminal sk s = false) :
+    canStep sk .full s = true := by
+  have hi : InvP sk .full s :=
+    (inv_iff sk .full s).mp (inv_reachable hwf hr)
+  -- choice points first: the pillar and the opener mirrors
+  by_cases hwkc : ∃ pk ∈ sk.walkKeys,
+      (s.walk pk).phase = 2 ∧ (s.walk pk).committed = none
+  · obtain ⟨pk, hpk, h2, hn⟩ := hwkc
+    exact walk_uncommitted_canStep hwf hi hpk h2 hn
+  have hwkh : ∀ pk ∈ sk.walkKeys,
+      ¬((s.walk pk).phase = 2 ∧ (s.walk pk).committed = none) :=
+    fun pk hpk h => hwkc ⟨pk, hpk, h⟩
+  by_cases hioc : s.iopenCh = none ∧ doneIOpen s = false
+  · exact iopen_unchosen_canStep hioc.2 hioc.1
+  have hioh : s.iopenCh = none → doneIOpen s = true := by
+    intro h
+    cases hd : doneIOpen s with
+    | false => exact absurd ⟨h, hd⟩ hioc
+    | true => rfl
+  by_cases hroc : s.ropenGotWire = true ∧ s.ropenCh = none
+      ∧ doneROpen sk s = false
+  · exact ropen_unchosen_canStep hi hroc.1 hroc.2.2 hroc.2.1
+  have hroh : s.ropenGotWire = true → s.ropenCh = none →
+      doneROpen sk s = true := by
+    intro hg hc
+    cases hd : doneROpen sk s with
+    | false => exact absurd ⟨hg, hc, hd⟩ hroc
+    | true => rfl
+  -- the canonical projections of the schedule
+  have hcanon : ∀ c b, proj c b (schedule sk)
+      = canon c b (proj c b (schedule sk)).length := by
+    intro c b
+    obtain ⟨m, hm⟩ := schedule_proj_canon sk hwf c b
+    rw [hm]
+    congr 1
+    unfold canon
+    rw [List.length_map, List.length_range]
+  cases hp : pends sk s with
+  | nil =>
+      -- no channel work remains: the closes cascade to terminal
+      have hnil := hp
+      unfold pends at hnil
+      rw [List.append_eq_nil_iff, List.append_eq_nil_iff,
+        List.append_eq_nil_iff, List.append_eq_nil_iff,
+        List.append_eq_nil_iff, List.append_eq_nil_iff] at hnil
+      obtain ⟨⟨⟨⟨⟨⟨hio0, hro0⟩, hwk0⟩, hab0⟩, hasm0⟩, hrr0⟩, hfin0⟩ := hnil
+      have hIOd : doneIOpen s = true := by
+        refine hioh ?_
+        cases hc : s.iopenCh with
+        | none => rfl
+        | some o =>
+            rw [ioPend] at hio0
+            rw [hc] at hio0
+            cases o <;> cases hio0
+      have hgw : s.ropenGotWire = true := by
+        cases hg : s.ropenGotWire with
+        | true => rfl
+        | false =>
+            rw [roPend, if_pos hg] at hro0
+            cases hro0
+      have hROd : doneROpen sk s = true := by
+        refine hroh hgw ?_
+        cases hc : s.ropenCh with
+        | none => rfl
+        | some o =>
+            rw [roPend, if_neg (by rw [hgw]; simp), hc] at hro0
+            cases o <;> cases hro0
+      have hwkph : ∀ pk ∈ sk.walkKeys, 3 ≤ (s.walk pk).phase := by
+        intro pk hpk
+        have h0 := List.flatMap_eq_nil_iff.1 hwk0 pk hpk
+        by_cases hph0 : (s.walk pk).phase = 0
+        · rw [wkPend, if_pos hph0] at h0
+          cases h0
+        by_cases hph1 : (s.walk pk).phase = 1
+        · rw [wkPend, if_neg (by omega), if_pos hph1] at h0
+          cases h0
+        by_cases hph2 : (s.walk pk).phase = 2
+        · cases hcm : (s.walk pk).committed with
+          | none => exact absurd ⟨hph2, hcm⟩ (hwkh pk hpk)
+          | some o =>
+              rw [wkPend, if_neg (by omega), if_neg (by omega),
+                if_pos hph2, hcm] at h0
+              cases o <;> cases h0
+        omega
+      have habph : 3 ≤ s.absorbPhase := by
+        by_cases h0 : s.absorbPhase = 0
+        · rw [abPend, if_pos h0] at hab0
+          cases hab0
+        by_cases h1 : s.absorbPhase = 1
+        · rw [abPend, if_neg (by omega), if_pos h1] at hab0
+          cases hab0
+        by_cases h2 : s.absorbPhase = 2
+        · rw [abPend, if_neg (by omega), if_neg (by omega),
+            if_pos h2] at hab0
+          cases hab0
+        omega
+      have hasmph : ∀ pk ∈ sk.asmKeys, 3 ≤ (s.asm pk).phase := by
+        intro pk hpk
+        have h0 := List.flatMap_eq_nil_iff.1 hasm0 pk hpk
+        by_cases hph0 : (s.asm pk).phase = 0
+        · rw [asmPend, if_pos hph0] at h0
+          cases h0
+        by_cases hph1 : (s.asm pk).phase = 1
+        · rw [asmPend, if_neg (by omega), if_pos hph1] at h0
+          cases h0
+        by_cases hph2 : (s.asm pk).phase = 2
+        · rw [asmPend, if_neg (by omega), if_neg (by omega),
+            if_pos hph2] at h0
+          cases h0
+        omega
+      have hfin : s.ifin = true := by
+        cases hf : s.ifin with
+        | true => rfl
+        | false =>
+            rw [rrPend, if_pos hf] at hrr0
+            cases hrr0
+      have hres : s.rfinGotRes = true := by
+        cases hf : s.rfinGotRes with
+        | true => rfl
+        | false =>
+            rw [finPend, if_pos hf] at hfin0
+            cases hfin0
+      have hgot : s.rfinGot = sk.rootPending := by
+        have htop := hi.top
+        simp only [topLocalOk, Bool.and_eq_true, decide_eq_true_eq]
+          at htop
+        obtain ⟨-, hgle⟩ := htop
+        by_cases hlt : s.rfinGot < sk.rootPending
+        · exfalso
+          rw [finPend, if_neg (by rw [hres]; simp),
+            if_pos (by exact hlt)] at hfin0
+          cases hfin0
+        · omega
+      rcases close_cascade sk hwf hi (by simpa using hIOd)
+          (by simpa using hROd) hwkph habph hasmph hfin hres hgot with
+        hstep | hterm
+      · exact hstep
+      · rw [hterm] at hnt
+        cases hnt
+  | cons fa0 rest =>
+      -- the τ-least pending event fires
+      obtain ⟨fa, hfam, hfmin⟩ := exists_min_image
+        (fun fa : Ev × Action => evIdx fa.1 (schedule sk))
+        (l := pends sk s) (by rw [hp]; simp)
+      obtain ⟨hok, T, pre, suf, hT, hdec, hpre⟩ :=
+        pends_sound sk hwf hi hioh hroh hwkh fa hfam
+      have hfsched : fa.1 ∈ schedule sk := by
+        have hmemT : fa.1 ∈ T := by
+          rw [hdec]
+          exact List.mem_append.mpr (.inr (List.mem_cons_self ..))
+        exact (trace_sublist sk hwf hsched hT).mem hmemT
+      have hτget := evIdx_getElem? hfsched
+      obtain ⟨⟨c, b, n⟩, a⟩ := fa
+      have hflow := hi.flow c hok.chan_mem
+      have hseq := hok.seq
+      cases b with
+      | true =>
+          rw [if_pos rfl] at hseq
+          have hseq2 : n = sentOf sk s c := hseq
+          clear hseq
+          by_cases hroom : s.chan c < sk.cap c
+          · exact canStep_of_action hok.act
+              (hok.fire (by rw [if_pos rfl]; exact hroom))
+          · exfalso
+            have hE2 := schedule_e2 sk
+              (evIdx ((c, true, n) : Ev) (schedule sk)) c n hτget
+            have hrcvlt : rcvCount c ((schedule sk).take
+                (evIdx ((c, true, n) : Ev) (schedule sk)))
+                > recvdOf sk s c := by
+              omega
+            obtain ⟨j, hjlt, hjget⟩ :=
+              mem_take_rcv (hcanon c false) hrcvlt
+            have hgmem : ((c, false, recvdOf sk s c) : Ev)
+                ∈ schedule sk :=
+              List.mem_iff_getElem?.2 ⟨j, hjget⟩
+            have hgnp : ¬ performed sk s (c, false, recvdOf sk s c) := by
+              unfold performed
+              rw [if_neg (by simp)]
+              show ¬(recvdOf sk s c < recvdOf sk s c)
+              omega
+            obtain ⟨fa', hfam', hτle⟩ := pends_cover sk hwf hsched hi
+              hioh hroh hwkh hgmem hgnp
+            have hjeq : j = evIdx ((c, false, recvdOf sk s c) : Ev)
+                (schedule sk) :=
+              evIdx_unique (schedule_count_le_one sk hwf _) hjget
+            have hmin' : evIdx ((c, true, n) : Ev) (schedule sk)
+                ≤ evIdx fa'.1 (schedule sk) := hfmin fa' hfam'
+            have hchain : evIdx ((c, true, n) : Ev) (schedule sk) ≤ j :=
+              calc evIdx ((c, true, n) : Ev) (schedule sk)
+                  ≤ evIdx fa'.1 (schedule sk) := hmin'
+                _ ≤ evIdx ((c, false, recvdOf sk s c) : Ev)
+                    (schedule sk) := hτle
+                _ = j := hjeq.symm
+            omega
+      | false =>
+          rw [if_neg (by simp)] at hseq
+          have hseq2 : n = recvdOf sk s c := hseq
+          clear hseq
+          by_cases hdata : 0 < s.chan c
+          · exact canStep_of_action hok.act
+              (hok.fire (by rw [if_neg (by simp)]; exact hdata))
+          · exfalso
+            have hE1 := schedule_e1 sk
+              (evIdx ((c, false, n) : Ev) (schedule sk)) c n hτget
+            have hsndlt : sndCount c ((schedule sk).take
+                (evIdx ((c, false, n) : Ev) (schedule sk)))
+                > sentOf sk s c := by
+              omega
+            obtain ⟨j, hjlt, hjget⟩ :=
+              mem_take_snd (hcanon c true) hsndlt
+            have hgmem : ((c, true, sentOf sk s c) : Ev)
+                ∈ schedule sk :=
+              List.mem_iff_getElem?.2 ⟨j, hjget⟩
+            have hgnp : ¬ performed sk s (c, true, sentOf sk s c) := by
+              unfold performed
+              rw [if_pos rfl]
+              show ¬(sentOf sk s c < sentOf sk s c)
+              omega
+            obtain ⟨fa', hfam', hτle⟩ := pends_cover sk hwf hsched hi
+              hioh hroh hwkh hgmem hgnp
+            have hjeq : j = evIdx ((c, true, sentOf sk s c) : Ev)
+                (schedule sk) :=
+              evIdx_unique (schedule_count_le_one sk hwf _) hjget
+            have hmin' : evIdx ((c, false, n) : Ev) (schedule sk)
+                ≤ evIdx fa'.1 (schedule sk) := hfmin fa' hfam'
+            have hchain : evIdx ((c, false, n) : Ev) (schedule sk) ≤ j :=
+              calc evIdx ((c, false, n) : Ev) (schedule sk)
+                  ≤ evIdx fa'.1 (schedule sk) := hmin'
+                _ ≤ evIdx ((c, true, sentOf sk s c) : Ev)
+                    (schedule sk) := hτle
+                _ = j := hjeq.symm
+            omega
+
+/-- THE TOP-LEVEL THEOREM (Statement.lean's Phase C target): under
+the full ledger interface, every well-formed, schedulable session is
+deadlock-free — no reachable state is stuck. -/
+theorem deadlock_free (hwf : sk.wellFormed = true)
+    (hsched : sk.schedulable = true) :
+    StreamingMirror.DeadlockFree sk .full := by
+  intro s hr
+  unfold Model.stuck
+  cases ht : terminal sk s with
+  | true => simp
+  | false =>
+      rw [progress sk hwf hsched hr ht]
+      simp
 
 end StreamingMirror.Sched
