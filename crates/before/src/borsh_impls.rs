@@ -39,6 +39,11 @@ impl<'a, R> ReaderCursor<'a, R> {
 }
 
 impl<R: Read> BitCursor for ReaderCursor<'_, R> {
+    // The rich error type, not `cursor::Truncated`: this is the boundary
+    // where `Decode::Io` enters, and it is constructed only when a read
+    // actually fails — never on the per-bit success path.
+    type Error = Decode;
+
     fn read_bit(&mut self) -> Result<bool, Decode> {
         if self.position == self.bits.len() {
             let mut byte = [0];

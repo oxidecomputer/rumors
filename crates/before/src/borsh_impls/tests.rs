@@ -1,8 +1,64 @@
+use borsh::io::ErrorKind;
 use borsh::BorshDeserialize;
 use proptest::prelude::*;
 
+use crate::error::Decode;
 use crate::testing::optrace::{step_impl, world_strategy};
 use crate::{Clock, Party, Version};
+
+/// A borsh stream that ends mid-tree surfaces the reader's own I/O error
+/// (`UnexpectedEof`), never a masked decode error.
+///
+/// `Decode::Io` is the one rich variant the bit-level error split must still
+/// deliver losslessly through `ReaderCursor`: the prefix-free encodings pad
+/// only to the next byte boundary, so every proper byte prefix of a canonical
+/// encoding cuts mid-tree and the next per-bit refill hits end-of-input.
+#[test]
+fn truncated_borsh_stream_reports_unexpected_eof() {
+    let mut party = Party::seed();
+    for _ in 0..4 {
+        let _ = party.fork(); // deepen the id tree past one byte
+    }
+    let version: Version = "(1, 2, (0, (1, 0, 2), 0))".parse().unwrap();
+
+    let party_bytes = borsh::to_vec(&party).unwrap();
+    let version_bytes = borsh::to_vec(&version).unwrap();
+    assert!(
+        party_bytes.len() >= 2,
+        "the id tree must span several bytes"
+    );
+    assert!(
+        version_bytes.len() >= 2,
+        "the event tree must span several bytes"
+    );
+
+    for cut in 0..party_bytes.len() {
+        let err = Party::try_from_slice(&party_bytes[..cut]).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::UnexpectedEof, "cut at byte {cut}");
+    }
+    for cut in 0..version_bytes.len() {
+        let err = Version::try_from_slice(&version_bytes[..cut]).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::UnexpectedEof, "cut at byte {cut}");
+    }
+}
+
+/// A canonicality violation crosses the borsh boundary as `InvalidData`
+/// carrying the exact [`Decode`] variant, never conflated with truncation.
+///
+/// The input is the collapsible id `(1, 1)` — tag `11`, then two terminal
+/// `00`s — which id normal form forbids ([`Decode::NotCanonical`]).
+#[test]
+fn non_canonical_borsh_bytes_report_invalid_data() {
+    let err = Party::try_from_slice(&[0b1100_0000]).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::InvalidData);
+    let inner = err
+        .get_ref()
+        .expect("the io error carries the Decode error");
+    assert!(
+        matches!(inner.downcast_ref::<Decode>(), Some(Decode::NotCanonical)),
+        "expected NotCanonical, got: {inner:?}"
+    );
+}
 
 /// Regression: a `Party` grown by [`join`](Party::join) — the operation
 /// [`reclaim`](crate::bookmark) drives on a reboot — must survive the borsh

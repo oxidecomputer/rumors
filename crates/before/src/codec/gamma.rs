@@ -54,10 +54,19 @@ pub(crate) fn decode_int(bits: &BitsSlice, pos: usize) -> Result<(Base, usize), 
 }
 
 /// Read one Elias-gamma-coded integer from a sequential bit cursor.
-pub(crate) fn decode_int_from(cursor: &mut impl BitCursor) -> Result<Base, Decode> {
+pub(crate) fn decode_int_from<C: BitCursor>(cursor: &mut C) -> Result<Base, Decode>
+where
+    Decode: From<C::Error>,
+{
     let mut k = 0usize;
     while !cursor.read_bit()? {
-        k = k.checked_add(1).ok_or(Decode::NotCanonical)?;
+        // The match (rather than `ok_or`) keeps the error value — `Decode`
+        // has drop glue — from being constructed and dropped on every
+        // iteration of this per-bit loop; see `codec::cursor::Truncated`.
+        k = match k.checked_add(1) {
+            Some(k) => k,
+            None => return Err(Decode::NotCanonical),
+        };
     }
 
     // Common case: read small codes into a machine integer, then widen once.

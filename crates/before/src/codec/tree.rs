@@ -33,7 +33,10 @@ pub(crate) fn parse_id(bits: &BitsSlice, pos: usize) -> Result<usize, Decode> {
 }
 
 /// Parse and validate one id tree from a sequential bit cursor.
-pub(crate) fn parse_id_from(cursor: &mut impl BitCursor) -> Result<usize, Decode> {
+pub(crate) fn parse_id_from<C: BitCursor>(cursor: &mut C) -> Result<usize, Decode>
+where
+    Decode: From<C::Error>,
+{
     let mut stack: Vec<IdFrame> = Vec::new();
     loop {
         let left = cursor.read_bit()?;
@@ -103,7 +106,10 @@ pub(crate) fn parse_ev(bits: &BitsSlice, pos: usize) -> Result<usize, Decode> {
 }
 
 /// Parse and validate one event tree from a sequential bit cursor.
-pub(crate) fn parse_ev_from(cursor: &mut impl BitCursor) -> Result<usize, Decode> {
+pub(crate) fn parse_ev_from<C: BitCursor>(cursor: &mut C) -> Result<usize, Decode>
+where
+    Decode: From<C::Error>,
+{
     let mut stack: Vec<EvFrame> = Vec::new();
     loop {
         let flag = cursor.read_bit()?;
