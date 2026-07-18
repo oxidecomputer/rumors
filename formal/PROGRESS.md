@@ -956,12 +956,65 @@ bounds μ(Q), and both are bounded by the awaited send.
      totals) remains. `trace_monotone`, `schedule_e1_pos`, the E2
      positional twin, `schedule_inj`, and `merge_complete`'s totality
      of τ are exactly the facts this consumes.
-6. With the amendment landed: the performed-set/cursor invariant, the
-   `e*`-argmin progress lemma, then `progress` and `deadlock_free` in
-   Statement.lean's (amended) terms; the planned corollary "terminal ⟹
-   all channels drained" falls out of `Inv` at terminal. The
-   termination theorem's witness is the §5 schedule via
-   `replaySchedule`'s compilation, already checked executably. The
-   d5 fired-fact/cursor invariant is minted HERE (per-walk: performed
-   set = trace prefix), not in `wkLocalOk` — see item 5's resolution
-   record for what the committed-match already carries.
+6. **DONE (2026-07-18) — THE CAMPAIGN IS COMPLETE. The top-level
+   theorem is proven** (`Proofs/Endgame.lean`):
+
+   ```
+   theorem Sched.progress (hwf : sk.wellFormed = true)
+       (hsched : sk.schedulable = true) {s : State}
+       (hr : Reachable sk .full s) (hnt : terminal sk s = false) :
+       canStep sk .full s = true
+
+   theorem Sched.deadlock_free (hwf : sk.wellFormed = true)
+       (hsched : sk.schedulable = true) :
+       StreamingMirror.DeadlockFree sk .full
+   ```
+
+   `#print axioms deadlock_free`: `[propext, Classical.choice,
+   Quot.sound]` — the three standard axioms only; no `sorry`, no
+   `native_decide` trust anywhere on the path.
+
+   *How the endgame actually went — SIMPLER than planned.* The
+   planned "performed-set = trace-prefix invariant by `Reachable`
+   induction" turned out to need NO new induction at all: under the
+   amended `.full`, `wkLocalOk`'s committed-arm mirrors (with the
+   `d5` conjuncts of finding #7) pin, at every committed state,
+   exactly the facts that make the trace prefix below the committed
+   event performed — and choice-point states never consult a cursor,
+   because the pillar and the opener mirrors discharge them outright.
+   So the whole layer is static consequences of `InvP`:
+   - `Proofs/Pending.lean`: "performed" is count-based (`seq <
+     sentOf/recvdOf`); per process family, a decode lemma
+     (`walk_pend_or_done` &c.): either the whole trace is performed,
+     or the family holds one pending event, seq = the channel's
+     CURRENT count, with the trace prefix below it performed. The
+     walk's committed cases are the heart — the four obligation arms
+     re-derive the spliced-scope prefix (`chunks_prefix_performed` +
+     the `d5`/`d4`/`d3`/`w`/`d1int` shadows); the `.res` arm pins
+     `dRank i = wkResCount` exactly, the `.query` arm pins `wkQSum`
+     exactly, so pending seqs ARE the derived counts.
+   - `Proofs/Endgame.lean`: the pending pool `pends`, its soundness
+     and the τ-cover (`pends_cover`: an unperformed schedule event is
+     τ-dominated by some pending entry, via `tau_le_of_pend` —
+     merge completeness makes every trace a schedule sublist, and τ
+     injectivity makes position a timestamp). `progress` takes the
+     τ-least pending event: a jammed send finds, through the
+     schedule's E2 at its own position, an unperformed receive
+     strictly τ-below (contradiction with minimality); a starving
+     receive symmetrically through E1; so the least head's channel
+     guard is open and its action fires. With an empty pool the
+     close cascade (`close_cascade`) walks the producers top-down —
+     openers, walks by descending height, absorber, assemblers —
+     each close's channel drained by flow conservation against the
+     supply = demand totals (`wiresBefore_full`, `qsBefore_full`,
+     `wf_rootPending`, `answerer_resList_total`), ending at
+     `terminal`.
+
+   *Residual (not load-bearing for the theorem):* the planned
+   corollary "terminal ⟹ all channels drained" was not minted (the
+   close cascade only drains the closed channels; the level/root
+   totals needed for the rest exist in Counting.lean —
+   `pendsBefore_*_full` — so it is an afternoon's assembly if wanted).
+   The termination theorem stays executable-tier (`replaySchedule`
+   compiles and completes the schedule on every pin and fuzz seed);
+   its kernel twin was never in §7's scope.
