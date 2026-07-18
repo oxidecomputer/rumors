@@ -1,9 +1,17 @@
 //! Typed channel constructors for the remote proxy's three dataflow edges.
 //!
-//! Every edge has capacity one. A response is published before the scopes it
-//! releases, while a complete outgoing wire reply is flushed before its local
-//! question scopes are published. Those orderings let each consumer drain the
-//! occupied slot without requiring a second slot for progress.
+//! A response is published before the scopes it releases, while a complete
+//! outgoing wire reply is flushed before its local question scopes are
+//! published. Those orderings make one slot per edge the liveness floor.
+//! The two scope edges take their capacity from the session's
+//! [`Window`](crate::tree::mirror::streaming::window::Window):
+//! `local_questions` is the wire-facing question window itself — one slot
+//! there re-serializes the descent no matter how wide the walk's own
+//! channels are — and `next_scopes` is the decode-side register whose
+//! items are small enough to widen defensively. The response edge stays at
+//! one slot: it is an in-order relay pump, so a full slot only stalls when
+//! its consumer is itself stalled, and its single slot is what bounds
+//! decoded replies in flight per stage.
 
 use crate::tree::{
     mirror::streaming::channel::{QueueKind, QueueRole, Receiver, Sender, channel},
@@ -15,12 +23,24 @@ pub fn responses<T, H: Height>() -> (Sender<T>, Receiver<T>) {
     channel(QueueRole::new(QueueKind::ProxyResponses, H::HEIGHT), 1)
 }
 
-/// Carry questions whose complete outgoing wire reply has flushed.
-pub fn local_questions<T, H: Height>() -> (Sender<T>, Receiver<T>) {
-    channel(QueueRole::new(QueueKind::ProxyLocalQuestions, H::HEIGHT), 1)
+/// Carry flushed-but-unanswered questions, window-wide.
+///
+/// This queue's occupancy is the number of questions in flight on the wire
+/// at this height: the encoder publishes each question once its complete
+/// reply has flushed, and the decoder retires one per decoded wire reply —
+/// a full round trip later.
+pub fn local_questions<T, H: Height>(capacity: usize) -> (Sender<T>, Receiver<T>) {
+    channel(
+        QueueRole::new(QueueKind::ProxyLocalQuestions, H::HEIGHT),
+        capacity,
+    )
 }
 
-/// Carry scopes derived from a response already published locally.
-pub fn next_scopes<T, H: Height>() -> (Sender<T>, Receiver<T>) {
-    channel(QueueRole::new(QueueKind::ProxyNextScopes, H::HEIGHT), 1)
+/// Carry scopes derived from a response already published locally,
+/// window-wide.
+pub fn next_scopes<T, H: Height>(capacity: usize) -> (Sender<T>, Receiver<T>) {
+    channel(
+        QueueRole::new(QueueKind::ProxyNextScopes, H::HEIGHT),
+        capacity,
+    )
 }

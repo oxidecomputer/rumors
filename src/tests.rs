@@ -97,6 +97,7 @@ fn overlapping_retiree_party_is_rejected() {
     let forged = Peer::<u64> {
         network: survivor.network,
         protocol: survivor.protocol,
+        window: survivor.window,
         inner: watch::Sender::new(Inner {
             party: Some(party_of(&survivor)),
             tree: Tree {

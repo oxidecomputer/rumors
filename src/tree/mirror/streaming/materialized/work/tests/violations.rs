@@ -18,6 +18,7 @@ use crate::{
         },
         message::{Reaction, Reply},
         protocol::BoxResponses,
+        window::Window,
     },
     tree::typed::{
         self, Path, Prefix,
@@ -171,7 +172,7 @@ where
     H: Height,
     S<H>: Height,
 {
-    let (queries, queries_rx) = internal_child_queries::<Local, (), H>();
+    let (queries, queries_rx) = internal_child_queries::<Local, (), H>(1);
     if let Some(query) = query {
         pollster::block_on(queries.send(query)).expect("the walk is live");
     }
@@ -212,7 +213,7 @@ impl InjectHeight for Z {
     fn inject(injection: Injection, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
         let (query, requests) = violation_script::<Self>(injection, parent, radixes);
         let queries = query_receiver(query);
-        let mut work = Work::new(Local);
+        let mut work = Work::new(Local, Window::FLOOR);
         let (responses, _resolutions) =
             work.leaf_level(Version::new(), stream::iter(requests), queries);
         reported_violation(work, responses)
@@ -223,7 +224,7 @@ impl InjectHeight for S<Z> {
     fn inject(injection: Injection, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
         let (query, requests) = violation_script::<Self>(injection, parent, radixes);
         let queries = query_receiver(query);
-        let mut work = Work::new(Local);
+        let mut work = Work::new(Local, Window::FLOOR);
         let (responses, _asked, _upper, _lower) =
             work.leaf_parent_level(Version::new(), stream::iter(requests), queries);
         reported_violation(work, responses)
@@ -240,7 +241,7 @@ where
     fn inject(injection: Injection, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
         let (query, requests) = violation_script::<Self>(injection, parent, radixes);
         let queries = query_receiver(query);
-        let mut work = Work::new(Local);
+        let mut work = Work::new(Local, Window::FLOOR);
         let (responses, _asked, _upper, _lower) =
             work.internal_level::<H>(Version::new(), stream::iter(requests), queries);
         reported_violation(work, responses)

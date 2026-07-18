@@ -12,18 +12,15 @@
 pub enum Protocol {
     /// The original materialized, strictly alternating wire protocol.
     ///
-    /// Behind the `protocol-v1` cargo feature: kept for wire compatibility
-    /// with V1 peers and comparative measurement, and off by default because
-    /// its state machines are a large monomorphization surface that every
-    /// downstream binary would otherwise compile.
+    /// Behind the `protocol-v1` cargo feature: kept for comparative
+    /// measurement, and off by default.
     ///
     /// V1 has no session epilogue, so its `Ok` is weaker than
     /// [`V2`](Protocol::V2)'s: it certifies only the local commit, not the
-    /// peer's (see [what a session
-    /// promises](crate#what-a-session-promises)).
+    /// peer's (see [what a session promises](crate#what-a-session-promises)).
     #[cfg(any(test, feature = "protocol-v1"))]
     V1 = 1,
-    /// Fixed-memory reconciliation over multiplexed logical streams.
+    /// Bounded-memory reconciliation over multiplexed logical streams.
     #[default]
     V2 = 2,
 }

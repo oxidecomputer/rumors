@@ -10,6 +10,7 @@ use crate::tree::{
         backend::BoxNodeStream,
         convert::Convert,
         message::{Reaction as ProtocolReaction, Reply},
+        window::FAN,
     },
     typed::{
         Hash, Path, Prefix,
@@ -110,7 +111,12 @@ where
     F: Stream<Item = Frame<T>> + Unpin,
     Q: FnMut(&mut Scope<H>, &[(u8, Hash)]) -> Result<N, ScopeError>,
 {
-    let (tx, rx) = mpsc::channel::<Result<(Prefix<Z>, B::Node<Z>), B::Error>>(1);
+    // One fan of buffered leaves: a supply run belongs to one scope, whose
+    // full fan the session's memory model already charges, so this buffer
+    // adds no memory term of its own — it exists to amortize the
+    // reader/assembler waker round trip over runs of consecutive leaves
+    // instead of paying it per leaf.
+    let (tx, rx) = mpsc::channel::<Result<(Prefix<Z>, B::Node<Z>), B::Error>>(FAN);
     let read = read_reply::<B, T, H, _, _, _>(scope, frames, question, tx);
     let assemble = assemble_supplies::<B, T, H>(backend, rx);
     let (read, assembled) = futures::future::join(read, assemble).await;

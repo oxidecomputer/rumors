@@ -19,6 +19,7 @@ use crate::tree::{
             streams::{AcceptDriver, FirstStreamError},
         },
         tasks::{complete, park_after_published_error},
+        window::Window,
     },
     typed::height::{Height, Z},
 };
@@ -38,6 +39,8 @@ where
     A: Acceptor,
 {
     backend: B,
+    /// Per-edge capacity for the proxy's question and scope queues.
+    window: Window,
     physical: Physical<R, W, A>,
     tasks: Vec<BoxFuture<'static, Result<(), Error<B::Error>>>>,
     progress: Progress,
@@ -63,9 +66,10 @@ where
     A: Acceptor,
 {
     /// Begin accumulating work around an elected physical session.
-    pub fn new(backend: B, physical: Physical<R, W, A>) -> Self {
+    pub fn new(backend: B, window: Window, physical: Physical<R, W, A>) -> Self {
         Self {
             backend,
+            window,
             physical,
             tasks: Vec::new(),
             progress: Progress::new(),

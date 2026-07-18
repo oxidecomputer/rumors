@@ -42,11 +42,16 @@
 //! resolution available, while a blocked resolution sender is behind an older
 //! resolution whose dependent work is already in flight.
 //!
-//! This makes one slot sufficient for every query and resolution channel. A
-//! blocked response pump has likewise already published the response which
-//! releases it; the initiator's root query and return and the responder's root
-//! resolution each occur exactly once; leaf resolutions contain no `Pending`
-//! slots and can be assembled immediately.
+//! This makes one slot *sufficient* for every query and resolution channel: the
+//! liveness floor. Actual capacities come from the session's
+//! [`Window`](super::window) — one slot serializes the descent into a wire
+//! round trip per disputed scope, and widening only relaxes the wait graph, so
+//! the argument above covers every width (see
+//! `design/streaming-latency-serialization.md`). A blocked response pump has
+//! likewise already published the response which releases it; the initiator's
+//! root query and return and the responder's root resolution each occur exactly
+//! once; leaf resolutions contain no `Pending` slots and can be assembled
+//! immediately.
 //!
 //! Every argument above additionally assumes each edge is *independent*: a
 //! full edge stalls only its own producer, never delivery on another edge.
@@ -91,6 +96,7 @@ use crate::tree::{
         materialized::{unknown::Unknown, work::Work},
         message::{Handshake, Reaction, Reply},
         protocol::{self, BoxResponses, Requests, Responses},
+        window::Window,
     },
     typed::{
         Prefix,
@@ -221,6 +227,8 @@ pub struct Handshaking<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static
     backend: B,
     versions: V,
     root: Root<B, T>,
+    /// The session's pipeline window; see [`window`](super::window).
+    window: Window,
 }
 
 /// The version state of a stage that has been opened but has not yet sent its
@@ -286,7 +294,14 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> Handshaking<B, T
                 our_version: root.ceiling.clone(),
             },
             root,
+            window: Window::default(),
         }
+    }
+
+    /// Select this session's pipeline window; see [`window`](super::window).
+    pub fn window(mut self, window: Window) -> Self {
+        self.window = window;
+        self
     }
 }
 
@@ -313,6 +328,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Connec
             backend: self.backend,
             versions: Connecting { our_version },
             root: self.root,
+            window: self.window,
         };
         Ok((handshake, next))
     }
@@ -331,6 +347,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Comple
                 their_version,
             },
             root: self.root,
+            window: self.window,
         })
     }
 }
@@ -353,6 +370,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Accept
                 their_version: request.version,
             },
             root: self.root,
+            window: self.window,
         };
         Ok((handshake, next))
     }
@@ -375,7 +393,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol:
         let their_version = self.versions.their_version;
         let ceiling = self.versions.our_version | &their_version;
 
-        let mut work = Work::new(self.backend);
+        let mut work = Work::new(self.backend, self.window);
         let (responses, queries, returns, finish) = work.initiator_level(ceiling, self.root);
 
         (
@@ -403,7 +421,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol:
         let their_version = self.versions.their_version;
         let ceiling = self.versions.our_version | &their_version;
 
-        let mut work = Work::new(self.backend);
+        let mut work = Work::new(self.backend, self.window);
         let (responses, queries, returns, finish) =
             work.responder_level(their_version.clone(), ceiling, self.root, requests);
 

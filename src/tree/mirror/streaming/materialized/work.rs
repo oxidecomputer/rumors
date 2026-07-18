@@ -25,6 +25,7 @@ use crate::tree::{
         materialized::{Error, channel::Sender},
         protocol::{BoxResponses, Responses},
         tasks::{complete, park_after_published_error},
+        window::Window,
     },
     typed::height::{Height, Z},
 };
@@ -38,6 +39,8 @@ where
     T: Send + Sync + 'static,
 {
     backend: B,
+    /// Per-edge capacity for the recursive query and resolution queues.
+    window: Window,
     tasks: Vec<BoxFuture<'static, Result<(), Error<B::Error>>>>,
     #[cfg(test)]
     trace_id: usize,
@@ -48,10 +51,11 @@ where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    /// Construct a new work context.
-    pub fn new(backend: B) -> Self {
+    /// Construct a new work context with the session's pipeline window.
+    pub fn new(backend: B, window: Window) -> Self {
         Self {
             backend,
+            window,
             tasks: Vec::new(),
             #[cfg(test)]
             trace_id: progress::new_work(),

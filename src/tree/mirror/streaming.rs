@@ -26,6 +26,7 @@ pub mod remote;
 mod tasks;
 #[cfg(test)]
 mod testing;
+pub(crate) mod window;
 
 pub use backend::{Backend, Leaf, Local, Node, Root};
 #[cfg(test)]

@@ -7,6 +7,7 @@ use tokio::sync::oneshot;
 use super::{Physical, Work};
 use crate::link::{MemoryAcceptor, MemoryLink, memory};
 use crate::testing::run_to_quiescence;
+use crate::tree::mirror::streaming::window::Window;
 use crate::tree::mirror::streaming::{
     Failing, Failure, Local, Operation,
     remote::{
@@ -47,6 +48,7 @@ fn parked_session() -> ParkedSession {
     );
     let work = Work::new(
         Failing::after(Local, usize::MAX),
+        Window::FLOOR,
         Physical {
             control_read: parts.control_read,
             control_write: parts.control_write,
@@ -101,9 +103,9 @@ fn pump_failure_preempts_parked_pumps() {
 /// The incoming-stream reporters publish to the error route and then park
 /// forever, so the session's liveness rests entirely on `execute`'s select
 /// observing the route: the protocol arm never completes (its pumps and
-/// terminal operation are parked), the biased poll order visits it first,
-/// and the error arm must still win the poll rather than hang. This is the
-/// property every publish-then-park path in the stream layer rests on.
+/// terminal operation are parked), the biased poll order visits it first, and
+/// the error arm must still win the poll rather than hang. This is the property
+/// every publish-then-park path in the stream layer rests on.
 #[test]
 fn published_stream_error_preempts_a_parked_protocol() {
     let ParkedSession {

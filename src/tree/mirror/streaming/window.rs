@@ -1,0 +1,118 @@
+//! The pipeline window: how many disputed scopes a session keeps in flight.
+//!
+//! Every recursive edge in the streaming session — the walk's query and
+//! resolution queues, the proxy's flushed-question and next-scope queues —
+//! is a bounded channel. One slot per edge is the *liveness floor*: the
+//! ordering invariants in [`materialized`](super::materialized)'s module
+//! docs prove a session at capacity one never deadlocks. But one slot also
+//! admits only ~2 disputed scopes in flight per level, which serializes the
+//! descent into one wire round trip per disputed scope
+//! (`design/streaming-latency-serialization.md`). The window widens those
+//! edges so sibling scopes pipeline; capacity only relaxes the wait graph,
+//! so every schedule live at the floor stays live at any width.
+//!
+//! The public knob ([`Peer::max_in_flight_nodes`](crate::Peer::max_in_flight_nodes))
+//! is denominated in *node references* — the unit whose worst-case memory a
+//! deployment can price — and bounds the **session-global** in-flight
+//! total: the derivation charges each in-flight scope a full possible fan
+//! and admits [`SATURABLE_LEVELS`] level boundaries running at full
+//! occupancy at once, the realistic maximum against terabyte-scale sets
+//! (design doc §6.5).
+//!
+//! Two boundaries the window deliberately does not reach:
+//!
+//! - Capacity is a bound, not an allocation: the channels are
+//!   semaphore-bounded and allocate per queued item, so an idle wide window
+//!   costs nothing.
+//! - The assembly fan queues are **not** window edges. Their capacity of
+//!   one full fan is a *correctness* floor, not a tunable: below it, a
+//!   maximally disputed reply's child completions cannot all enqueue while
+//!   the walk finishes the reaction loop, and the session deadlocks —
+//!   demonstrated by `underbuffered_mirror_stalls` in the capacity tests.
+//!   No configuration, however memory-starved, may shrink them.
+
+/// The tree's maximum branching factor: one child per radix byte.
+///
+/// Also the hard capacity floor of the assembly fan queues (see the
+/// [module docs](self)): those channels must admit one *full* fan
+/// regardless of any window tuning.
+pub(crate) const FAN: usize = 256;
+
+/// Level boundaries a session can hold at full occupancy simultaneously.
+///
+/// Saturating `L` consecutive boundaries with `K` full-fan scopes each
+/// requires a disputed forest of `K × 256^L` leaves; against sets up to a
+/// terabyte this caps `L` at three (design doc §6.5). The node budget is
+/// divided by this, so the global charge stays inside the budget rather
+/// than multiplying per level.
+const SATURABLE_LEVELS: usize = 3;
+
+/// Node references a session may hold in flight by default, globally.
+///
+/// Derives a per-edge window of 65 536 scopes — a fully fanned level's
+/// entire cascade (256 scopes × 256 children) never blocks the walk — for
+/// a worst-case envelope near 10 GB at ~215 B per placeholder reference
+/// (`design/streaming-latency-serialization.md` §6.4–6.5), reached only
+/// against multi-gigabyte divergence; typical sessions hold kilobytes.
+/// Tune down via [`Peer::max_in_flight_nodes`](crate::Peer::max_in_flight_nodes)
+/// under hard memory budgets.
+pub const DEFAULT_MAX_IN_FLIGHT_NODES: usize = SATURABLE_LEVELS * FAN * FAN * FAN;
+
+/// Per-edge channel capacity for one session, in disputed scopes.
+///
+/// Constructed from a global node budget by [`from_nodes`](Self::from_nodes);
+/// consumed by the channel constructors of the materialized walk and the
+/// remote proxy. `Default` differs by build: production sessions get
+/// [`DEFAULT_MAX_IN_FLIGHT_NODES`], while test builds (`cfg(test)` and the
+/// `test-internals` feature) get the one-slot liveness floor so every
+/// schedule keeps being exercised at the capacity where a bad ordering
+/// *would* deadlock.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Window {
+    /// Scopes admitted per recursive channel edge.
+    scopes: usize,
+}
+
+impl Window {
+    /// The liveness floor: one scope per edge, the deadlock-proof minimum.
+    pub(crate) const FLOOR: Self = Self { scopes: 1 };
+
+    /// Derive a window from a global budget of in-flight node references.
+    ///
+    /// Each in-flight scope may pin up to a full fan of references and up
+    /// to [`SATURABLE_LEVELS`] boundaries can run at full occupancy at
+    /// once, so the per-edge capacity is `nodes / (256 × 3)`, rounded
+    /// down to stay inside the budget and floored at one slot (any budget
+    /// below one charged scope, including zero, yields the liveness
+    /// floor).
+    pub(crate) fn from_nodes(nodes: usize) -> Self {
+        Self {
+            scopes: (nodes / (FAN * SATURABLE_LEVELS)).max(Self::FLOOR.scopes),
+        }
+    }
+
+    /// The per-edge channel capacity this window grants, in scopes.
+    pub(crate) fn scopes(self) -> usize {
+        self.scopes
+    }
+
+}
+
+impl Default for Window {
+    fn default() -> Self {
+        // Tests run at the floor so the capacity-one orderings the
+        // deadlock-freedom argument certifies stay exercised; production
+        // sessions pipeline by default.
+        #[cfg(any(test, feature = "test-internals"))]
+        {
+            Self::FLOOR
+        }
+        #[cfg(not(any(test, feature = "test-internals")))]
+        {
+            Self::from_nodes(DEFAULT_MAX_IN_FLIGHT_NODES)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;

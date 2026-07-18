@@ -1,9 +1,9 @@
 //! Work-owned translation between typed reply streams and wire frames.
 //!
-//! The shape deliberately follows the materialized `Work`:
-//! every outbound encoder becomes an independently runnable task, and each
-//! method returns the receiver-side stream or next-phase scope queue fed by
-//! that task. No state outside this module handles an internal sender.
+//! The shape deliberately follows the materialized `Work`: every outbound
+//! encoder becomes an independently runnable task, and each method returns the
+//! receiver-side stream or next-phase scope queue fed by that task. No state
+//! outside this module handles an internal sender.
 //!
 //! Three one-slot channels carry acknowledged local questions into decoding,
 //! decoded replies outward through [`Work::respond`], and scopes derived from
@@ -48,7 +48,7 @@ where
         BoxResponses<B, T, UnderRoot, Error<B::Error>>,
         Receiver<Scope<UnderRoot>>,
     ) {
-        let (next_scopes, scopes) = queues::next_scopes::<_, UnderRoot>();
+        let (next_scopes, scopes) = queues::next_scopes::<_, UnderRoot>(self.window.scopes());
         let progress = self.progress;
         let responses = try_stream! {
             let frame = incoming.next().await.ok_or(Error::MissingOpening)?;
@@ -74,14 +74,15 @@ where
         Receiver<Scope<UnderUnderRoot>>,
     ) {
         let progress = self.progress;
-        let (local_questions, mut questions) = queues::local_questions::<_, UnderRoot>();
+        let (local_questions, mut questions) =
+            queues::local_questions::<_, UnderRoot>(self.window.scopes());
         self.spawn(encode::opening(
             requests,
             outgoing,
             local_questions,
             progress,
         ));
-        let (next_scopes, scopes) = queues::next_scopes::<_, UnderUnderRoot>();
+        let (next_scopes, scopes) = queues::next_scopes::<_, UnderUnderRoot>(self.window.scopes());
         let backend = self.backend();
         let responses = try_stream! {
             while let Some(scope) = questions.recv().await {
@@ -118,7 +119,8 @@ where
         S<S<S<H>>>: Height,
     {
         let progress = self.progress;
-        let (local_questions, mut questions) = queues::local_questions::<_, S<H>>();
+        let (local_questions, mut questions) =
+            queues::local_questions::<_, S<H>>(self.window.scopes());
         self.spawn(encode::replies(
             self.backend(),
             requests,
@@ -127,7 +129,7 @@ where
             local_questions,
             progress,
         ));
-        let (next_scopes, scopes) = queues::next_scopes::<_, H>();
+        let (next_scopes, scopes) = queues::next_scopes::<_, H>(self.window.scopes());
         let backend = self.backend();
         let responses = try_stream! {
             while let Some(scope) = questions.recv().await {
@@ -154,7 +156,8 @@ where
         outgoing: StreamSender<C, T>,
     ) -> (BoxResponses<B, T, Z, Error<B::Error>>, Receiver<Scope<Z>>) {
         let progress = self.progress;
-        let (local_questions, mut questions) = queues::local_questions::<_, Z>();
+        let (local_questions, mut questions) =
+            queues::local_questions::<_, Z>(self.window.scopes());
         self.spawn(encode::replies(
             self.backend(),
             requests,
@@ -163,7 +166,7 @@ where
             local_questions,
             progress,
         ));
-        let (next_scopes, scopes) = queues::next_scopes::<_, Z>();
+        let (next_scopes, scopes) = queues::next_scopes::<_, Z>(self.window.scopes());
         let backend = self.backend();
         let responses = try_stream! {
             while let Some(scope) = questions.recv().await {
@@ -211,7 +214,8 @@ where
         A: Send,
     {
         let progress = self.progress;
-        let (local_questions, mut questions) = queues::local_questions::<_, Z>();
+        let (local_questions, mut questions) =
+            queues::local_questions::<_, Z>(self.window.scopes());
         self.spawn(encode::terminal(
             self.backend(),
             requests,

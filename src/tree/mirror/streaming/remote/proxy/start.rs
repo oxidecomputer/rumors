@@ -23,6 +23,7 @@ use crate::{
                     },
                     streams::{AcceptDriver, claims, error_route},
                 },
+                window::Window,
             },
         },
         typed::height::{Root, Z},
@@ -43,6 +44,9 @@ where
     backend: B,
     link: Link<R, W, C, A>,
     versions: V,
+    /// The session's pipeline window; see
+    /// [`window`](crate::tree::mirror::streaming::window).
+    window: Window,
     marker: PhantomData<fn() -> T>,
 }
 
@@ -57,8 +61,16 @@ where
             backend,
             link,
             versions: Start,
+            window: Window::default(),
             marker: PhantomData,
         }
+    }
+
+    /// Select this session's pipeline window; see
+    /// [`window`](crate::tree::mirror::streaming::window).
+    pub fn window(mut self, window: Window) -> Self {
+        self.window = window;
+        self
     }
 }
 
@@ -106,6 +118,7 @@ where
             backend: self.backend,
             link: self.link,
             versions: Connecting { remote },
+            window: self.window,
             marker: PhantomData,
         };
         Ok((handshake, next))
@@ -128,6 +141,7 @@ where
         send::<B::Error, _>(&local_version, &mut self.link.control_write).await?;
         Ok(connected(
             self.backend,
+            self.window,
             local_version,
             self.versions.remote,
             self.link,
@@ -154,7 +168,13 @@ where
         let handshake = Handshake {
             version: remote.clone(),
         };
-        let next = connected(self.backend, request.version, remote, self.link);
+        let next = connected(
+            self.backend,
+            self.window,
+            request.version,
+            remote,
+            self.link,
+        );
         Ok((handshake, next))
     }
 }
@@ -185,6 +205,7 @@ where
 /// Return untouched control halves on equality, otherwise open the session.
 fn connected<B, T, R, W, C, A>(
     backend: B,
+    window: Window,
     local_version: Version,
     remote_version: Version,
     link: Link<R, W, C, A>,
@@ -199,7 +220,7 @@ where
         return Connected::equal(link.control_read, link.control_write);
     }
     let local = local_speaker(&local_version, &remote_version);
-    open(backend, local, link)
+    open(backend, window, local, link)
 }
 
 /// Elect the local physical speaker from the total canonical version order.
@@ -214,6 +235,7 @@ fn local_speaker(local: &Version, remote: &Version) -> Speaker {
 /// Allocate one session's claim table, error route, and accept driver.
 fn open<B, T, R, W, C, A>(
     backend: B,
+    window: Window,
     local: Speaker,
     link: Link<R, W, C, A>,
 ) -> Connected<B, T, R, W, C, A>
@@ -237,6 +259,7 @@ where
     let accept = AcceptDriver::new(acceptor, epoch, remote, slots, route.clone());
     let work = Work::new(
         backend,
+        window,
         Physical {
             control_read,
             control_write,

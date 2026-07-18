@@ -13,6 +13,8 @@ use tokio::sync::{Mutex, watch};
 use crate::bookmark::{BookmarkError, Bookmarked, NoBookmark};
 use crate::link::{Acceptor, Connector, Link};
 use crate::tree::Tree;
+pub use crate::tree::mirror::streaming::window::DEFAULT_MAX_IN_FLIGHT_NODES;
+use crate::tree::mirror::streaming::window::Window;
 use crate::{
     Batch, Bookmark, CausalMessages, Error, Key, Network, Protocol, Rumors, Snapshot,
     UnorderedMessages, Version,
@@ -139,6 +141,9 @@ pub use gossip::{Gossiped, Led, PROTOCOL_MAGIC, Retire, Unbookmarked};
 pub struct Peer<T, B: BookmarkError = NoBookmark> {
     pub(crate) network: Network,
     pub(crate) protocol: Protocol,
+    /// The reconciliation pipeline window derived from
+    /// [`max_in_flight_nodes`](Self::max_in_flight_nodes).
+    pub(crate) window: Window,
     pub(crate) inner: watch::Sender<Inner<T>>,
     /// The identity bookmark: persistence handle and its in-memory record,
     /// behind an async mutex and shared with every [`Rumors`] clone.
@@ -189,6 +194,7 @@ impl<T> Peer<T, NoBookmark> {
         Self {
             network: Network::from_rng(rng),
             protocol: Protocol::default(),
+            window: Window::default(),
             inner: watch::Sender::new(Inner {
                 party: Some(Party::seed()),
                 tree: Tree::new(),
@@ -319,6 +325,39 @@ impl<T, B: BookmarkError> Peer<T, B> {
     #[must_use]
     pub fn protocol(mut self, protocol: Protocol) -> Self {
         self.protocol = protocol;
+        self
+    }
+
+    /// Bound the node references this peer's sessions may hold in flight.
+    ///
+    /// The default protocol's reconciliation pipelines disputed subtrees so
+    /// wire latency is paid per tree *level* rather than per disputed node. The
+    /// depth of that pipeline is what this bounds: `nodes` caps the
+    /// session-global count of node references buffered across the pipeline's
+    /// queues, and each in-flight reference costs roughly the node's hash and
+    /// version bounds (a few hundred bytes; the tree content itself is shared,
+    /// not copied). The bound is a cap, not an allocation — an idle or small
+    /// session holds only what it disputes — and it is not wire-visible: peers
+    /// with different settings interoperate, each end pacing the questions it
+    /// asks.
+    ///
+    /// The default, [`DEFAULT_MAX_IN_FLIGHT_NODES`], admits a fully fanned
+    /// level's entire cascade without ever blocking the pipeline, for a
+    /// worst-case envelope near 10 GB that only terabyte-scale divergence can
+    /// approach. Tune down under hard memory budgets: throughput degrades
+    /// gracefully — halving the budget at most doubles the wire stalls of a
+    /// saturating session — and any value, including zero, keeps every session
+    /// deadlock-free (the floor is one disputed subtree in flight, the
+    /// pre-pipelining behavior). The measurements and sizing tables behind
+    /// these numbers are in `design/streaming-latency-serialization.md`.
+    ///
+    /// Like [`protocol`](Self::protocol), the choice follows the peer through
+    /// [`into_rumors`](Self::into_rumors), cloning and reunion, bookmarking,
+    /// and retirement. [`Protocol::V1`] sessions ignore it: the alternating
+    /// protocol batches whole levels instead of pipelining.
+    #[must_use]
+    pub fn max_in_flight_nodes(mut self, nodes: usize) -> Self {
+        self.window = Window::from_nodes(nodes);
         self
     }
 
