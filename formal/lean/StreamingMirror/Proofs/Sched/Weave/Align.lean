@@ -771,13 +771,13 @@ theorem opEvents_kid_eq (h k : Nat) (lastD : Option Nat)
 -- flatMap congruence, feed reconstruction from positional reads, and
 -- the take/getD/drop reads of a list spliced at a known index.
 
-private theorem flatMap_congr {α β : Type _} {l : List α}
+theorem flatMap_congr {α β : Type _} {l : List α}
     {f g : α → List β} (h : ∀ a ∈ l, f a = g a) :
     l.flatMap f = l.flatMap g := by
   rw [List.flatMap_def, List.flatMap_def, List.map_congr_left h]
 
 /-- A list is the flatMap of its positional reads. -/
-private theorem flatMap_getElem?_toList {α : Type _} :
+theorem flatMap_getElem?_toList {α : Type _} :
     ∀ (F : List α),
       (List.range F.length).flatMap (fun i => F[i]?.toList) = F := by
   intro F
@@ -1838,14 +1838,14 @@ theorem walkSeg_full (h' : Nat) :
   rw [Nat.sub_zero, ← List.range_eq_range']
   rfl
 
-private theorem filter_owner_all (l : List Ev) (m : Nat)
+theorem filter_owner_all (l : List Ev) (m : Nat)
     (hall : ∀ e ∈ l, evOwner sk e = m) :
     l.filter (fun e => evOwner sk e == m) = l := by
   rw [List.filter_eq_self]
   intro a ha
   simp only [hall a ha, beq_self_eq_true]
 
-private theorem filter_owner_none (l : List Ev) {m m' : Nat}
+theorem filter_owner_none (l : List Ev) {m m' : Nat}
     (hall : ∀ e ∈ l, evOwner sk e = m) (hne : m ≠ m') :
     l.filter (fun e => evOwner sk e == m') = [] := by
   rw [List.filter_eq_nil_iff]
@@ -1854,7 +1854,7 @@ private theorem filter_owner_none (l : List Ev) {m m' : Nat}
   exact hne
 
 /-- iopen's events belong to `procs` slot 0. -/
-private theorem iopen_owner (hwf : sk.wellFormed = true) :
+theorem iopen_owner (hwf : sk.wellFormed = true) :
     ∀ e ∈ iopenEvents sk, evOwner sk e = 0 := by
   have hge := (wf_rootH hwf).2
   intro e he
@@ -2031,7 +2031,7 @@ theorem weave_initial_alignment (hwf : sk.wellFormed = true) :
 
 /-- Per-owner filters partition an in-range future: the filter
 lengths sum to the future's length. -/
-private theorem manFilters_length_sum :
+theorem manFilters_length_sum :
     ∀ (fut : List Ev), (∀ e ∈ fut, evOwner sk e < manCount sk) →
       ((manFilters sk fut).map List.length).sum = fut.length := by
   intro fut

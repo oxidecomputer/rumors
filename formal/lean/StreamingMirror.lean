@@ -25,8 +25,10 @@ import StreamingMirror.Proofs.Sched.Weave.Expand
 import StreamingMirror.Proofs.Sched.Weave.ExpandE
 import StreamingMirror.Proofs.Sched.Weave.MasterE
 import StreamingMirror.Proofs.Sched.Weave.Align
+import StreamingMirror.Proofs.Sched.Weave.AlignE
 import StreamingMirror.Proofs.Sched.Weave.Edge
 import StreamingMirror.Proofs.Sched.Weave.Prec
+import StreamingMirror.Proofs.Sched.Weave.PrecE
 import StreamingMirror.Proofs.Sched.Weave.Pump
 import StreamingMirror.Proofs.Sched.Weave.Window
 import StreamingMirror.Proofs.Sched.Weave.Ctx
