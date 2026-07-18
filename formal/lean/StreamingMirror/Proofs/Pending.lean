@@ -1098,7 +1098,7 @@ private theorem walk_committed_split (hwf : sk.wellFormed = true)
                 from by omega,
               List.range'_succ, List.flatMap_cons,
               chunkR sk pk (s.walk pk).scope i (hnoD i hin)]
-            simp [List.cons_append, List.append_assoc]
+            simp [List.cons_append]
           · intro e he
             rcases List.mem_cons.1 he with rfl | he
             · show (s.walk pk).scope < sentOf sk s (upperOut pk)
@@ -1302,7 +1302,7 @@ private theorem walk_committed_split (hwf : sk.wellFormed = true)
               simp [hji]
           | false =>
               cases hr : (s.walk pk).resDone j with
-              | false => simp [hji, hD]
+              | false => simp [hji]
               | true =>
                   have := hresD j hj hr
                   rw [hD] at this
@@ -2007,5 +2007,702 @@ theorem walk_pend_or_done (hwf : sk.wellFormed = true) {s : State}
                 = true := by
               simp [apply, hcm, hpk, hph2, hlt]
             exact happ
+
+-- =========================================== the small-family decodes
+
+/-- The initiator opening's pending fire. -/
+def ioPend (s : State) : List (Ev × Action) :=
+  match s.iopenCh with
+  | some .wire => [((Chan.wire Party.I sk.rootH, true, 0), .iopenFire)]
+  | some .query =>
+      [((Chan.asked Party.I (sk.rootH - 1), true, 0), .iopenFire)]
+  | none => []
+
+/-- The responder opening's pending receive or fire. -/
+def roPend (s : State) : List (Ev × Action) :=
+  if s.ropenGotWire = false then
+    [((Chan.wire Party.I sk.rootH, false, 0), .ropenRecv)]
+  else match s.ropenCh with
+  | some .wire => [((Chan.wire Party.R sk.rootH, true, 0), .ropenFire)]
+  | some .res => [((Chan.rootres, true, 0), .ropenFire)]
+  | some .query =>
+      [((Chan.asked Party.R (sk.rootH - 2), true, s.ropenQ), .ropenFire)]
+  | none => []
+
+/-- The absorber's pending operation, by phase. -/
+def abPend (s : State) : List (Ev × Action) :=
+  if s.absorbPhase = 0 then
+    [((Chan.wire Party.R 0, false, s.absorbIdx), .absorbRecvWire)]
+  else if s.absorbPhase = 1 then
+    [((Chan.leafRequests, false, s.absorbIdx), .absorbRecvAsked)]
+  else if s.absorbPhase = 2 then
+    [((Chan.level Party.I 0, true, s.absorbIdx), .absorbSend)]
+  else []
+
+/-- An assembler's pending operation, by phase. -/
+def asmPend (s : State) (pk : Party × Nat) : List (Ev × Action) :=
+  let a := s.asm pk
+  if a.phase = 0 then [((asmResChan pk, false, a.idx), .asmRecvRes pk)]
+  else if a.phase = 1 then
+    [((asmLevelChan pk, false,
+        sk.pendsBefore pk.1 pk.2 a.idx + a.got), .asmRecvLevel pk)]
+  else if a.phase = 2 then
+    [((sk.asmOutChan pk, true, a.idx), .asmSend pk)]
+  else []
+
+/-- The floating root-return receive. -/
+def rrPend (s : State) : List (Ev × Action) :=
+  if s.ifin = false then [((Chan.rootret, false, 0), .finRet)] else []
+
+/-- The responder finish's pending receive. -/
+def finPend (s : State) : List (Ev × Action) :=
+  if s.rfinGotRes = false then [((Chan.rootres, false, 0), .finRes)]
+  else if s.rfinGot < sk.rootPending then
+    [((Chan.rootrets, false, s.rfinGot), .finRets)]
+  else []
+
+/-- The seven root-level channels are flow channels. -/
+theorem root_chans_mem : Chan.wire Party.I sk.rootH ∈ allChans sk
+    ∧ Chan.wire Party.R sk.rootH ∈ allChans sk
+    ∧ Chan.leafRequests ∈ allChans sk
+    ∧ Chan.level Party.I 0 ∈ allChans sk
+    ∧ Chan.rootret ∈ allChans sk ∧ Chan.rootrets ∈ allChans sk
+    ∧ Chan.rootres ∈ allChans sk := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;>
+    · unfold allChans
+      refine List.mem_append.mpr (Or.inr ?_)
+      simp
+
+/-- The initiator opening decode. -/
+theorem iopen_pend_or_done (hwf : sk.wellFormed = true) {s : State}
+    (hi : InvP sk .full s)
+    (hch : s.iopenCh = none → doneIOpen s = true) :
+    ((∀ e ∈ iopenEvents sk, performed sk s e) ∧ ioPend sk s = [])
+    ∨ ∃ f a pre suf, ioPend sk s = [(f, a)]
+        ∧ iopenEvents sk = pre ++ f :: suf
+        ∧ (∀ e ∈ pre, performed sk s e)
+        ∧ PendOk sk s f a := by
+  have hge : 2 ≤ sk.rootH := (wf_rootH hwf).2
+  have htop := hi.top
+  simp only [topLocalOk, Bool.and_eq_true] at htop
+  have hsw : sentOf sk s (Chan.wire Party.I sk.rootH)
+      = b2n s.iopenWire := by simp [sentOf]
+  have hsq : sentOf sk s (Chan.asked Party.I (sk.rootH - 1))
+      = b2n s.iopenQuery := by simp [sentOf]
+  cases hc : s.iopenCh with
+  | none =>
+      left
+      have hdone := hch hc
+      simp only [doneIOpen, Bool.and_eq_true] at hdone
+      obtain ⟨hw, hq⟩ := hdone
+      refine ⟨?_, by simp [ioPend, hc]⟩
+      intro e he
+      unfold iopenEvents at he
+      rcases List.mem_cons.1 he with rfl | he
+      · show (0 : Nat) < sentOf sk s (Chan.wire Party.I sk.rootH)
+        rw [hsw, hw]
+        simp [b2n]
+      rcases List.mem_cons.1 he with rfl | he
+      · show (0 : Nat) < sentOf sk s (Chan.asked Party.I (sk.rootH - 1))
+        rw [hsq, hq]
+        simp [b2n]
+      · cases he
+  | some o =>
+      right
+      -- the committed-arm mirrors of `topLocalOk`
+      obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hcw, hcq⟩, -⟩, -⟩, -⟩, -⟩, -⟩, -⟩, -⟩, -⟩, -⟩,
+        -⟩ := htop
+      cases o with
+      | wire =>
+          have hnw : s.iopenWire = false := by
+            rw [hc] at hcw
+            simpa using hcw
+          refine ⟨(Chan.wire Party.I sk.rootH, true, 0), .iopenFire,
+            [], [(Chan.asked Party.I (sk.rootH - 1), true, 0)],
+            by simp [ioPend, hc], rfl, ?_,
+            (root_chans_mem sk).1, ?_, fixed_action_mem sk (by simp), ?_⟩
+          · intro e he
+            cases he
+          · show (0 : Nat) = sentOf sk s (Chan.wire Party.I sk.rootH)
+            rw [hsw, hnw]
+            rfl
+          · intro hchan
+            rw [if_pos rfl] at hchan
+            have : (apply sk .full .iopenFire s).isSome = true := by
+              simp only [apply, hc]
+              rw [if_pos (by simpa [Skel.cap] using hchan)]
+              rfl
+            exact this
+      | query =>
+          have hq2 : s.iopenQuery = false ∧ s.iopenWire = true := by
+            rw [hc] at hcq
+            have := by simpa [AxMode.full] using hcq
+            exact this
+          refine ⟨(Chan.asked Party.I (sk.rootH - 1), true, 0), .iopenFire,
+            [(Chan.wire Party.I sk.rootH, true, 0)], [],
+            by simp [ioPend, hc], rfl, ?_,
+            ?_, ?_, fixed_action_mem sk (by simp), ?_⟩
+          · intro e he
+            rw [List.mem_singleton] at he
+            subst he
+            show (0 : Nat) < sentOf sk s (Chan.wire Party.I sk.rootH)
+            rw [hsw, hq2.2]
+            simp [b2n]
+          · have hkey : (Party.I, sk.rootH - 1) ∈ sk.walkKeys :=
+              mem_walkKeys_of sk hwf (by omega)
+                (Or.inl ⟨rfl, by
+                  have := (wf_rootH hwf).1
+                  omega⟩)
+            have : Chan.asked Party.I (sk.rootH - 1)
+                = askedIn (Party.I, sk.rootH - 1) := rfl
+            rw [this]
+            exact (walk_chans_mem sk hkey).2.1
+          · show (0 : Nat) = sentOf sk s (Chan.asked Party.I (sk.rootH - 1))
+            rw [hsq, hq2.1]
+            rfl
+          · intro hchan
+            rw [if_pos rfl] at hchan
+            have : (apply sk .full .iopenFire s).isSome = true := by
+              simp only [apply, hc]
+              rw [if_pos (by simpa [Skel.cap] using hchan)]
+              rfl
+            exact this
+
+/-- The floating root-return decode. -/
+theorem rootret_pend_or_done {s : State} :
+    ((∀ e ∈ [((Chan.rootret, false, 0) : Ev)], performed sk s e)
+      ∧ rrPend s = [])
+    ∨ ∃ f a pre suf, rrPend s = [(f, a)]
+        ∧ [((Chan.rootret, false, 0) : Ev)] = pre ++ f :: suf
+        ∧ (∀ e ∈ pre, performed sk s e)
+        ∧ PendOk sk s f a := by
+  cases hf : s.ifin with
+  | true =>
+      left
+      refine ⟨?_, by simp [rrPend, hf]⟩
+      intro e he
+      rw [List.mem_singleton] at he
+      subst he
+      show (0 : Nat) < recvdOf sk s Chan.rootret
+      show (0 : Nat) < b2n s.ifin
+      rw [hf]
+      simp [b2n]
+  | false =>
+      right
+      refine ⟨(Chan.rootret, false, 0), .finRet, [], [],
+        by simp [rrPend, hf], rfl, ?_,
+        (root_chans_mem sk).2.2.2.2.1, ?_, fixed_action_mem sk (by simp), ?_⟩
+      · intro e he
+        cases he
+      · show (0 : Nat) = recvdOf sk s Chan.rootret
+        show (0 : Nat) = b2n s.ifin
+        rw [hf]
+        rfl
+      · intro hchan
+        rw [if_neg (by simp)] at hchan
+        have : (apply sk .full .finRet s).isSome = true := by
+          simp [apply, hf]
+          omega
+        exact this
+
+/-- The responder finish decode. -/
+theorem fin_pend_or_done {s : State} (hi : InvP sk .full s) :
+    ((∀ e ∈ finEvents sk, performed sk s e) ∧ finPend sk s = [])
+    ∨ ∃ f a pre suf, finPend sk s = [(f, a)]
+        ∧ finEvents sk = pre ++ f :: suf
+        ∧ (∀ e ∈ pre, performed sk s e)
+        ∧ PendOk sk s f a := by
+  have htop := hi.top
+  simp only [topLocalOk, Bool.and_eq_true, decide_eq_true_eq] at htop
+  obtain ⟨-, hgle⟩ := htop
+  cases hgr : s.rfinGotRes with
+  | false =>
+      right
+      refine ⟨(Chan.rootres, false, 0), .finRes, [],
+        (List.range sk.rootPending).map fun j =>
+          (Chan.rootrets, false, j),
+        by simp [finPend, hgr], rfl, ?_,
+        (root_chans_mem sk).2.2.2.2.2.2, ?_,
+        fixed_action_mem sk (by simp), ?_⟩
+      · intro e he
+        cases he
+      · show (0 : Nat) = recvdOf sk s Chan.rootres
+        show (0 : Nat) = b2n s.rfinGotRes
+        rw [hgr]
+        rfl
+      · intro hchan
+        rw [if_neg (by simp)] at hchan
+        have : (apply sk .full .finRes s).isSome = true := by
+          simp [apply, hgr]
+          omega
+        exact this
+  | true =>
+      have hperf0 : performed sk s (Chan.rootres, false, 0) := by
+        show (0 : Nat) < b2n s.rfinGotRes
+        rw [hgr]
+        simp [b2n]
+      rcases Nat.lt_or_ge s.rfinGot sk.rootPending with hlt | hge
+      · right
+        refine ⟨(Chan.rootrets, false, s.rfinGot), .finRets,
+          (Chan.rootres, false, 0)
+            :: ((List.range s.rfinGot).map fun j =>
+              (Chan.rootrets, false, j)),
+          (List.range' (s.rfinGot + 1)
+            (sk.rootPending - s.rfinGot - 1)).map fun j =>
+            (Chan.rootrets, false, j),
+          by simp [finPend, hgr, hlt], ?_, ?_,
+          (root_chans_mem sk).2.2.2.2.2.1, ?_,
+          fixed_action_mem sk (by simp), ?_⟩
+        · unfold finEvents
+          rw [range_split (show s.rfinGot ≤ sk.rootPending by omega),
+            List.map_append,
+            show sk.rootPending - s.rfinGot
+              = (sk.rootPending - s.rfinGot - 1) + 1 from by omega,
+            List.range'_succ, List.map_cons]
+          simp [List.cons_append]
+        · intro e he
+          rcases List.mem_cons.1 he with rfl | he
+          · exact hperf0
+          · obtain ⟨j, hjm, rfl⟩ := List.mem_map.1 he
+            rw [List.mem_range] at hjm
+            show j < recvdOf sk s Chan.rootrets
+            show j < s.rfinGot
+            omega
+        · show s.rfinGot = recvdOf sk s Chan.rootrets
+          rfl
+        · intro hchan
+          rw [if_neg (by simp)] at hchan
+          have : (apply sk .full .finRets s).isSome = true := by
+            simp [apply, hgr, hlt]
+            omega
+          exact this
+      · left
+        have hgeq : s.rfinGot = sk.rootPending := by omega
+        refine ⟨?_, by simp [finPend, hgr, hgeq]⟩
+        intro e he
+        unfold finEvents at he
+        rcases List.mem_cons.1 he with rfl | he
+        · exact hperf0
+        · obtain ⟨j, hjm, rfl⟩ := List.mem_map.1 he
+          rw [List.mem_range] at hjm
+          show j < recvdOf sk s Chan.rootrets
+          show j < s.rfinGot
+          omega
+
+/-- The responder opening decode. -/
+theorem ropen_pend_or_done (hwf : sk.wellFormed = true) {s : State}
+    (hi : InvP sk .full s)
+    (hch : s.ropenGotWire = true → s.ropenCh = none →
+      doneROpen sk s = true) :
+    ((∀ e ∈ ropenEvents sk, performed sk s e) ∧ roPend sk s = [])
+    ∨ ∃ f a pre suf, roPend sk s = [(f, a)]
+        ∧ ropenEvents sk = pre ++ f :: suf
+        ∧ (∀ e ∈ pre, performed sk s e)
+        ∧ PendOk sk s f a := by
+  have hge : 2 ≤ sk.rootH := (wf_rootH hwf).2
+  have hev : sk.rootH % 2 = 0 := (wf_rootH hwf).1
+  have htop := hi.top
+  simp only [topLocalOk, Bool.and_eq_true, decide_eq_true_eq] at htop
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨-, -⟩, -⟩, hqle⟩, -⟩, hcw⟩, hcr⟩, hcq⟩, -⟩, -⟩, -⟩,
+    -⟩ := htop
+  have hrw : recvdOf sk s (Chan.wire Party.I sk.rootH)
+      = b2n s.ropenGotWire := by simp [recvdOf]
+  have hsw : sentOf sk s (Chan.wire Party.R sk.rootH)
+      = b2n s.ropenWire := by simp [sentOf]
+  have hsq : sentOf sk s (Chan.asked Party.R (sk.rootH - 2))
+      = s.ropenQ := by
+    simp [sentOf]
+  have hqmem : Chan.asked Party.R (sk.rootH - 2) ∈ allChans sk := by
+    have hkey : (Party.R, sk.rootH - 2) ∈ sk.walkKeys :=
+      mem_walkKeys_of sk hwf (by omega) (Or.inr ⟨rfl, by omega⟩)
+    have : Chan.asked Party.R (sk.rootH - 2)
+        = askedIn (Party.R, sk.rootH - 2) := rfl
+    rw [this]
+    exact (walk_chans_mem sk hkey).2.1
+  cases hgw : s.ropenGotWire with
+  | false =>
+      right
+      refine ⟨(Chan.wire Party.I sk.rootH, false, 0), .ropenRecv, [],
+        (Chan.wire Party.R sk.rootH, true, 0)
+          :: (Chan.rootres, true, 0)
+          :: ((List.range sk.rootPending).map fun j =>
+              (Chan.asked Party.R (sk.rootH - 2), true, j)),
+        by simp [roPend, hgw], rfl, ?_,
+        (root_chans_mem sk).1, ?_, fixed_action_mem sk (by simp), ?_⟩
+      · intro e he
+        cases he
+      · show (0 : Nat) = recvdOf sk s (Chan.wire Party.I sk.rootH)
+        rw [hrw, hgw]
+        rfl
+      · intro hchan
+        rw [if_neg (by simp)] at hchan
+        have : (apply sk .full .ropenRecv s).isSome = true := by
+          simp [apply, hgw]
+          omega
+        exact this
+  | true =>
+      have hperf0 : performed sk s (Chan.wire Party.I sk.rootH, false, 0) := by
+        show (0 : Nat) < recvdOf sk s (Chan.wire Party.I sk.rootH)
+        rw [hrw, hgw]
+        simp [b2n]
+      cases hc : s.ropenCh with
+      | none =>
+          left
+          have hdone := hch hgw hc
+          simp only [doneROpen, Bool.and_eq_true, beq_iff_eq] at hdone
+          obtain ⟨⟨⟨-, hw⟩, hr⟩, hq⟩ := hdone
+          refine ⟨?_, by simp [roPend, hgw, hc]⟩
+          intro e he
+          unfold ropenEvents at he
+          rcases List.mem_cons.1 he with rfl | he
+          · exact hperf0
+          rcases List.mem_cons.1 he with rfl | he
+          · show (0 : Nat) < sentOf sk s (Chan.wire Party.R sk.rootH)
+            rw [hsw, hw]
+            simp [b2n]
+          rcases List.mem_cons.1 he with rfl | he
+          · show (0 : Nat) < sentOf sk s Chan.rootres
+            show (0 : Nat) < b2n s.ropenRes
+            rw [hr]
+            simp [b2n]
+          · obtain ⟨j, hjm, rfl⟩ := List.mem_map.1 he
+            rw [List.mem_range] at hjm
+            show j < sentOf sk s (Chan.asked Party.R (sk.rootH - 2))
+            rw [hsq]
+            unfold Skel.rootPending at hjm
+            omega
+      | some o =>
+          right
+          cases o with
+          | wire =>
+              have hnw : s.ropenWire = false := by
+                rw [hc] at hcw
+                simpa using hcw
+              refine ⟨(Chan.wire Party.R sk.rootH, true, 0), .ropenFire,
+                [(Chan.wire Party.I sk.rootH, false, 0)],
+                (Chan.rootres, true, 0)
+                  :: ((List.range sk.rootPending).map fun j =>
+                    (Chan.asked Party.R (sk.rootH - 2), true, j)),
+                by simp [roPend, hgw, hc], rfl, ?_,
+                (root_chans_mem sk).2.1, ?_,
+                fixed_action_mem sk (by simp), ?_⟩
+              · intro e he
+                rw [List.mem_singleton] at he
+                subst he
+                exact hperf0
+              · show (0 : Nat) = sentOf sk s (Chan.wire Party.R sk.rootH)
+                rw [hsw, hnw]
+                rfl
+              · intro hchan
+                rw [if_pos rfl] at hchan
+                have : (apply sk .full .ropenFire s).isSome = true := by
+                  simp only [apply, hc]
+                  rw [if_pos (by simpa [Skel.cap] using hchan)]
+                  rfl
+                exact this
+          | res =>
+              have hnr : s.ropenRes = false ∧ s.ropenWire = true := by
+                rw [hc] at hcr
+                have := by simpa [AxMode.full] using hcr
+                exact this
+              refine ⟨(Chan.rootres, true, 0), .ropenFire,
+                [(Chan.wire Party.I sk.rootH, false, 0),
+                  (Chan.wire Party.R sk.rootH, true, 0)],
+                (List.range sk.rootPending).map fun j =>
+                  (Chan.asked Party.R (sk.rootH - 2), true, j),
+                by simp [roPend, hgw, hc], rfl, ?_,
+                (root_chans_mem sk).2.2.2.2.2.2, ?_,
+                fixed_action_mem sk (by simp), ?_⟩
+              · intro e he
+                rcases List.mem_cons.1 he with rfl | he
+                · exact hperf0
+                rcases List.mem_cons.1 he with rfl | he
+                · show (0 : Nat) < sentOf sk s (Chan.wire Party.R sk.rootH)
+                  rw [hsw, hnr.2]
+                  simp [b2n]
+                · cases he
+              · show (0 : Nat) = sentOf sk s Chan.rootres
+                show (0 : Nat) = b2n s.ropenRes
+                rw [hnr.1]
+                rfl
+              · intro hchan
+                rw [if_pos rfl] at hchan
+                have : (apply sk .full .ropenFire s).isSome = true := by
+                  simp only [apply, hc]
+                  rw [if_pos (by simpa [Skel.cap] using hchan)]
+                  rfl
+                exact this
+          | query =>
+              have hq3 : s.ropenQ < sk.rootPending ∧ s.ropenRes = true := by
+                rw [hc] at hcq
+                have := by simpa [AxMode.full] using hcq
+                exact this
+              have hwtrue : s.ropenWire = true := by
+                -- the topLocalOk w-shadow: res fired forces the wire
+                have htop2 := hi.top
+                simp only [topLocalOk, Bool.and_eq_true] at htop2
+                obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨-, -⟩, -⟩, -⟩, hsh⟩, -⟩, -⟩, -⟩, -⟩, -⟩,
+                  -⟩, -⟩ := htop2
+                rcases (by simpa [AxMode.full] using hsh :
+                    s.ropenRes = false ∨ s.ropenWire = true) with hf | h
+                · rw [hq3.2] at hf; cases hf
+                · exact h
+              refine ⟨(Chan.asked Party.R (sk.rootH - 2), true, s.ropenQ),
+                .ropenFire,
+                (Chan.wire Party.I sk.rootH, false, 0)
+                  :: (Chan.wire Party.R sk.rootH, true, 0)
+                  :: (Chan.rootres, true, 0)
+                  :: ((List.range s.ropenQ).map fun j =>
+                    (Chan.asked Party.R (sk.rootH - 2), true, j)),
+                (List.range' (s.ropenQ + 1)
+                  (sk.rootPending - s.ropenQ - 1)).map fun j =>
+                  (Chan.asked Party.R (sk.rootH - 2), true, j),
+                by simp [roPend, hgw, hc], ?_, ?_,
+                hqmem, ?_, fixed_action_mem sk (by simp), ?_⟩
+              · unfold ropenEvents
+                rw [range_split (show s.ropenQ ≤ sk.rootPending
+                    by omega),
+                  List.map_append,
+                  show sk.rootPending - s.ropenQ
+                    = (sk.rootPending - s.ropenQ - 1) + 1 from by omega,
+                  List.range'_succ, List.map_cons]
+                simp [List.cons_append]
+              · intro e he
+                rcases List.mem_cons.1 he with rfl | he
+                · exact hperf0
+                rcases List.mem_cons.1 he with rfl | he
+                · show (0 : Nat) < sentOf sk s (Chan.wire Party.R sk.rootH)
+                  rw [hsw, hwtrue]
+                  simp [b2n]
+                rcases List.mem_cons.1 he with rfl | he
+                · show (0 : Nat) < sentOf sk s Chan.rootres
+                  show (0 : Nat) < b2n s.ropenRes
+                  rw [hq3.2]
+                  simp [b2n]
+                · obtain ⟨j, hjm, rfl⟩ := List.mem_map.1 he
+                  rw [List.mem_range] at hjm
+                  show j < sentOf sk s (Chan.asked Party.R (sk.rootH - 2))
+                  rw [hsq]
+                  omega
+              · show s.ropenQ = sentOf sk s (Chan.asked Party.R (sk.rootH - 2))
+                rw [hsq]
+              · intro hchan
+                rw [if_pos rfl] at hchan
+                have : (apply sk .full .ropenFire s).isSome = true := by
+                  simp only [apply, hc]
+                  rw [if_pos (by simpa [Skel.cap] using hchan)]
+                  rfl
+                exact this
+
+/-- The absorber decode. -/
+theorem absorb_pend_or_done (hwf : sk.wellFormed = true) {s : State}
+    (hi : InvP sk .full s) :
+    ((∀ e ∈ absorbEvents sk, performed sk s e) ∧ abPend s = [])
+    ∨ ∃ f a pre suf, abPend s = [(f, a)]
+        ∧ absorbEvents sk = pre ++ f :: suf
+        ∧ (∀ e ∈ pre, performed sk s e)
+        ∧ PendOk sk s f a := by
+  have hge : 2 ≤ sk.rootH := (wf_rootH hwf).2
+  have htop := hi.top
+  simp only [topLocalOk, Bool.and_eq_true, decide_eq_true_eq] at htop
+  obtain ⟨⟨⟨⟨-, hcur⟩, -⟩, -⟩, -⟩ := htop
+  have hidx1 : s.absorbPhase ≤ 2 → s.absorbIdx < sk.totalLeafReqs := by
+    intro h
+    rw [if_pos h] at hcur
+    simpa using hcur
+  have hidx2 : 3 ≤ s.absorbPhase → s.absorbIdx = sk.totalLeafReqs := by
+    intro h
+    rw [if_neg (by omega)] at hcur
+    simpa using hcur
+  have hrw : recvdOf sk s (Chan.wire Party.R 0)
+      = absorbWireRecvd sk s := by
+    have hne : (0 == sk.rootH) = false := by
+      simp
+      omega
+    simp [recvdOf, hne]
+  have hrq : recvdOf sk s Chan.leafRequests = absorbAskedRecvd sk s := rfl
+  have hsl : sentOf sk s (Chan.level Party.I 0) = s.absorbIdx := by
+    simp [sentOf]
+  have hWa : s.absorbIdx ≤ absorbWireRecvd sk s := by
+    unfold absorbWireRecvd
+    by_cases h3 : 3 ≤ s.absorbPhase
+    · rw [if_pos (by omega)]
+      have := hidx2 h3
+      omega
+    · rw [if_neg (by omega)]
+      omega
+  have hAa : s.absorbIdx ≤ absorbAskedRecvd sk s := by
+    unfold absorbAskedRecvd
+    by_cases h3 : 3 ≤ s.absorbPhase
+    · rw [if_pos (by omega)]
+      have := hidx2 h3
+      omega
+    · rw [if_neg (by omega)]
+      omega
+  have hblock : ∀ j, j < s.absorbIdx →
+      ∀ e ∈ [((Chan.wire Party.R 0, false, j) : Ev),
+        (Chan.leafRequests, false, j), (Chan.level Party.I 0, true, j)],
+      performed sk s e := by
+    intro j hj e he
+    rcases List.mem_cons.1 he with rfl | he
+    · show j < recvdOf sk s (Chan.wire Party.R 0)
+      rw [hrw]
+      omega
+    rcases List.mem_cons.1 he with rfl | he
+    · show j < recvdOf sk s Chan.leafRequests
+      rw [hrq]
+      omega
+    rcases List.mem_cons.1 he with rfl | he
+    · show j < sentOf sk s (Chan.level Party.I 0)
+      rw [hsl]
+      omega
+    · cases he
+  have hwr0mem : Chan.wire Party.R 0 ∈ allChans sk := by
+    have hkey : (Party.R, 0) ∈ sk.walkKeys :=
+      mem_walkKeys_of sk hwf (by omega) (Or.inr ⟨rfl, by omega⟩)
+    have : Chan.wire Party.R 0 = wireOut (Party.R, 0) := rfl
+    rw [this]
+    exact (walk_chans_mem sk hkey).1
+  have hsplit : ∀ hlt : s.absorbIdx < sk.totalLeafReqs,
+      absorbEvents sk
+      = (List.range s.absorbIdx).flatMap (fun j =>
+          [((Chan.wire Party.R 0, false, j) : Ev),
+            (Chan.leafRequests, false, j), (Chan.level Party.I 0, true, j)])
+        ++ ((Chan.wire Party.R 0, false, s.absorbIdx)
+          :: (Chan.leafRequests, false, s.absorbIdx)
+          :: (Chan.level Party.I 0, true, s.absorbIdx)
+          :: (List.range' (s.absorbIdx + 1)
+              (sk.totalLeafReqs - s.absorbIdx - 1)).flatMap (fun j =>
+              [((Chan.wire Party.R 0, false, j) : Ev),
+                (Chan.leafRequests, false, j),
+                (Chan.level Party.I 0, true, j)])) := by
+    intro hlt
+    unfold absorbEvents
+    rw [range_split (show s.absorbIdx ≤ sk.totalLeafReqs by omega),
+      List.flatMap_append,
+      show sk.totalLeafReqs - s.absorbIdx
+        = (sk.totalLeafReqs - s.absorbIdx - 1) + 1 from by omega,
+      List.range'_succ, List.flatMap_cons]
+    rfl
+  have hpreperf : ∀ e ∈ (List.range s.absorbIdx).flatMap (fun j =>
+      [((Chan.wire Party.R 0, false, j) : Ev),
+        (Chan.leafRequests, false, j), (Chan.level Party.I 0, true, j)]),
+      performed sk s e := by
+    intro e he
+    obtain ⟨j, hjm, hje⟩ := List.mem_flatMap.1 he
+    rw [List.mem_range] at hjm
+    exact hblock j hjm e hje
+  rcases Nat.lt_or_ge s.absorbPhase 3 with hph | hph3
+  · right
+    have hlt := hidx1 (by omega)
+    rcases Nat.lt_or_ge s.absorbPhase 1 with hph0 | hph1
+    · have hph' : s.absorbPhase = 0 := by omega
+      refine ⟨(Chan.wire Party.R 0, false, s.absorbIdx), .absorbRecvWire,
+        _, _, by simp [abPend, hph'], hsplit hlt, hpreperf,
+        hwr0mem, ?_, fixed_action_mem sk (by simp), ?_⟩
+      · show s.absorbIdx = recvdOf sk s (Chan.wire Party.R 0)
+        rw [hrw]
+        unfold absorbWireRecvd
+        rw [if_neg (by omega), hph']
+        simp
+      · intro hchan
+        rw [if_neg (by simp)] at hchan
+        have : (apply sk .full .absorbRecvWire s).isSome = true := by
+          simp [apply, hph']
+          omega
+        exact this
+    · rcases Nat.lt_or_ge s.absorbPhase 2 with hph1' | hph2
+      · have hph' : s.absorbPhase = 1 := by omega
+        refine ⟨(Chan.leafRequests, false, s.absorbIdx), .absorbRecvAsked,
+          (List.range s.absorbIdx).flatMap (fun j =>
+            [((Chan.wire Party.R 0, false, j) : Ev),
+              (Chan.leafRequests, false, j),
+              (Chan.level Party.I 0, true, j)])
+            ++ [(Chan.wire Party.R 0, false, s.absorbIdx)],
+          (Chan.level Party.I 0, true, s.absorbIdx)
+            :: (List.range' (s.absorbIdx + 1)
+              (sk.totalLeafReqs - s.absorbIdx - 1)).flatMap (fun j =>
+              [((Chan.wire Party.R 0, false, j) : Ev),
+                (Chan.leafRequests, false, j),
+                (Chan.level Party.I 0, true, j)]),
+          by simp [abPend, hph'], ?_, ?_,
+          (root_chans_mem sk).2.2.1, ?_,
+          fixed_action_mem sk (by simp), ?_⟩
+        · rw [hsplit hlt]
+          simp [List.cons_append]
+        · intro e he
+          rcases List.mem_append.1 he with hp | hone
+          · exact hpreperf e hp
+          · rw [List.mem_singleton] at hone
+            subst hone
+            show s.absorbIdx < recvdOf sk s (Chan.wire Party.R 0)
+            rw [hrw]
+            unfold absorbWireRecvd
+            rw [if_neg (by omega), hph']
+            simp
+        · show s.absorbIdx = recvdOf sk s Chan.leafRequests
+          rw [hrq]
+          unfold absorbAskedRecvd
+          rw [if_neg (by omega), hph']
+          simp
+        · intro hchan
+          rw [if_neg (by simp)] at hchan
+          have : (apply sk .full .absorbRecvAsked s).isSome = true := by
+            simp [apply, hph']
+            omega
+          exact this
+      · have hph' : s.absorbPhase = 2 := by omega
+        refine ⟨(Chan.level Party.I 0, true, s.absorbIdx), .absorbSend,
+          (List.range s.absorbIdx).flatMap (fun j =>
+            [((Chan.wire Party.R 0, false, j) : Ev),
+              (Chan.leafRequests, false, j),
+              (Chan.level Party.I 0, true, j)])
+            ++ [(Chan.wire Party.R 0, false, s.absorbIdx),
+              (Chan.leafRequests, false, s.absorbIdx)],
+          (List.range' (s.absorbIdx + 1)
+            (sk.totalLeafReqs - s.absorbIdx - 1)).flatMap (fun j =>
+            [((Chan.wire Party.R 0, false, j) : Ev),
+              (Chan.leafRequests, false, j),
+              (Chan.level Party.I 0, true, j)]),
+          by simp [abPend, hph'], ?_, ?_,
+          (root_chans_mem sk).2.2.2.1, ?_,
+          fixed_action_mem sk (by simp), ?_⟩
+        · rw [hsplit hlt]
+          simp [List.cons_append]
+        · intro e he
+          rcases List.mem_append.1 he with hp | htwo
+          · exact hpreperf e hp
+          rcases List.mem_cons.1 htwo with rfl | htwo
+          · show s.absorbIdx < recvdOf sk s (Chan.wire Party.R 0)
+            rw [hrw]
+            unfold absorbWireRecvd
+            rw [if_neg (by omega), hph']
+            simp
+          rcases List.mem_cons.1 htwo with rfl | hnil
+          · show s.absorbIdx < recvdOf sk s Chan.leafRequests
+            rw [hrq]
+            unfold absorbAskedRecvd
+            rw [if_neg (by omega), hph']
+            simp
+          · cases hnil
+        · show s.absorbIdx = sentOf sk s (Chan.level Party.I 0)
+          rw [hsl]
+        · intro hchan
+          rw [if_pos rfl] at hchan
+          have : (apply sk .full .absorbSend s).isSome = true := by
+            simp [apply, hph']
+            omega
+          exact this
+  · left
+    have hidx := hidx2 hph3
+    have hpend0 : abPend s = [] := by
+      unfold abPend
+      rw [if_neg (by omega), if_neg (by omega), if_neg (by omega)]
+    refine ⟨?_, hpend0⟩
+    intro e he
+    unfold absorbEvents at he
+    obtain ⟨j, hjm, hje⟩ := List.mem_flatMap.1 he
+    rw [List.mem_range] at hjm
+    exact hblock j (by omega) e hje
 
 end StreamingMirror.Sched
