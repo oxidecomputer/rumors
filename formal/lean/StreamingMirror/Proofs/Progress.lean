@@ -439,4 +439,88 @@ theorem walk_uncommitted_canStep (hwf : sk.wellFormed = true)
     simp [apply, hpk, hch]
   exact canStep_of_action hmem happ
 
+-- ================================== opener mirrors of the pillar
+-- The openers are the only other committed-choice processes (asms,
+-- absorb, and the finishes are linear: every action is a channel
+-- operation or close determined by phase alone, so the pillar's
+-- content is vacuous for them). Their mirrors are direct: the guard
+-- order under any mode is wire ≺ query (initiator) and wire ≺ res ≺
+-- query (responder), and choosing the first unfired obligation settles
+-- every `(!ax.flag || _)` conjunct on the right.
+
+/-- The enumeration covers both initiator opening commits. -/
+theorem iopenChoose_mem {o : IOblig} :
+    Action.iopenChoose o ∈ allActions sk := by
+  rw [allActions]
+  refine List.mem_append.mpr (.inl (List.mem_append.mpr (.inl ?_)))
+  cases o <;> simp
+
+/-- The enumeration covers all three responder opening commits. -/
+theorem ropenChoose_mem {o : ROblig} :
+    Action.ropenChoose o ∈ allActions sk := by
+  rw [allActions]
+  refine List.mem_append.mpr (.inl (List.mem_append.mpr (.inl ?_)))
+  cases o <;> simp
+
+/-- An unfinished initiator opening at its choice point can always
+commit: the unfired wire first, else the query (whose `w` guard the
+fired wire settles) — in every axiom mode. The openers' mirror of
+`walk_uncommitted_canStep`. -/
+theorem iopen_unchosen_canStep (hnd : doneIOpen s = false)
+    (hch : s.iopenCh = none) : canStep sk ax s = true := by
+  rw [doneIOpen, Bool.and_eq_false_iff] at hnd
+  cases hw : s.iopenWire with
+  | false =>
+      have happ : (apply sk ax (.iopenChoose .wire) s).isSome = true := by
+        simp [apply, hch, iopenChoosable, hw]
+      exact canStep_of_action iopenChoose_mem happ
+  | true =>
+      have hq : s.iopenQuery = false := by
+        rcases hnd with h | h
+        · rw [hw] at h; cases h
+        · exact h
+      have happ : (apply sk ax (.iopenChoose .query) s).isSome = true := by
+        simp [apply, hch, iopenChoosable, hq, hw]
+      exact canStep_of_action iopenChoose_mem happ
+
+/-- An unfinished responder opening past its wire receive can always
+commit at its choice point: the first unfired obligation in wire ≺ res ≺
+query order passes every axiom guard in every mode (`w` and `wireFirst`
+settled by the fired wire, `d1root` by the fired res; the query count
+stays choosable because the invariant caps it at `rootPending`). The
+responder mirror of `walk_uncommitted_canStep`. -/
+theorem ropen_unchosen_canStep (hi : InvP sk ax s)
+    (hgw : s.ropenGotWire = true) (hnd : doneROpen sk s = false)
+    (hch : s.ropenCh = none) : canStep sk ax s = true := by
+  cases hw : s.ropenWire with
+  | false =>
+      have happ : (apply sk ax (.ropenChoose .wire) s).isSome = true := by
+        simp [apply, hch, ropenChoosable, hgw, hw]
+      exact canStep_of_action ropenChoose_mem happ
+  | true =>
+      cases hr : s.ropenRes with
+      | false =>
+          have happ : (apply sk ax (.ropenChoose .res) s).isSome = true := by
+            simp [apply, hch, ropenChoosable, hgw, hr, hw]
+          exact canStep_of_action ropenChoose_mem happ
+      | true =>
+          -- Wire and res fired: `doneROpen = false` leaves only the
+          -- query count short, and the invariant bounds it strictly.
+          have htop := hi.top
+          simp only [topLocalOk, Bool.and_eq_true, decide_eq_true_eq]
+            at htop
+          obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨-, hqle⟩, -⟩, -⟩, -⟩, -⟩, -⟩, -⟩, -⟩, -⟩ := htop
+          rw [doneROpen, hgw, hw, hr] at hnd
+          simp only [Bool.true_and] at hnd
+          have hqlt : s.ropenQ < (sk.scope 0).kids.length := by
+            have : ¬ (s.ropenQ = (sk.scope 0).kids.length) := by
+              intro heq
+              rw [heq] at hnd
+              simp at hnd
+            have hle : s.ropenQ ≤ (sk.scope 0).kids.length := hqle
+            omega
+          have happ : (apply sk ax (.ropenChoose .query) s).isSome = true := by
+            simp [apply, hch, ropenChoosable, hgw, hr, hw, hqlt]
+          exact canStep_of_action ropenChoose_mem happ
+
 end StreamingMirror.Model
