@@ -1629,7 +1629,7 @@ theorem schedule_e1_pos (hwf : sk.wellFormed = true) (k : Nat) (c : Chan)
   · rw [if_neg hjk] at hj
     cases hj
 
-private theorem count_canon (c : Chan) (b : Bool) (n : Nat) :
+theorem count_canon (c : Chan) (b : Bool) (n : Nat) :
     ∀ m, (canon c b m).count (c, b, n) = if n < m then 1 else 0
   | 0 => by simp [canon_zero]
   | m + 1 => by
