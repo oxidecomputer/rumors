@@ -701,7 +701,7 @@ theorem ancTele_cov (hwf : sk.wellFormed = true)
       k = sk.wiresBefore (h + 1) (A (h + 1)) + j (h + 1))
     (hup0 : sndCount (Chan.upper ((wpk h).1) h) st.out = k) :
     AscCover sk st ((wpk h).1) (h + 2) (wtop sk h) := by
-  refine ascCover_of_spine sk hwf hW (wpk_htop sk h) ?_ ?_
+  refine ascCover_of_spine sk (famOK_procs sk hwf) hW (wpk_htop sk h) ?_ ?_
   · intro G hG2 hGt hna
     have hGr : G < sk.rootH := answerer_lt_rootH sk hwf hGt hna
     have hpar := asks_false_parity hna (asks_wpk_self h)
@@ -730,7 +730,7 @@ theorem ancTele_cov_leaf (hwf : sk.wellFormed = true)
   obtain ⟨hA1, hj1⟩ := hanc.rng 1 (by omega) hr
   have hD1 : sk.childIsD 1 (sk.stageScope 1 (A 1)) (j 1) = true :=
     parent_slot_isD sk hwf hr hk hA1 hj1 hcoh0 (by omega)
-  refine ascCover_of_spine sk hwf hW (Or.inl ⟨rfl, rfl⟩) ?_ ?_
+  refine ascCover_of_spine sk (famOK_procs sk hwf) hW (Or.inl ⟨rfl, rfl⟩) ?_ ?_
   · intro G hG1 hGt hna
     have hGr : G < sk.rootH := by
       rcases Nat.lt_or_ge G sk.rootH with h' | h'
