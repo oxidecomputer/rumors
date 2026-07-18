@@ -1231,50 +1231,78 @@ E-frame commit following it):
   destructures split `([a,b] ++ map) ++ [parent]`, not
   `[a,b] ++ (map ++ [parent])`.
 
-**Remaining of unit 2a — the two big analogs** (next fork; each is
-fork-sized on its own):
+**Unit 2a COMPLETE, 2026-07-19** (commit `b927b963`, fork #16e —
+both analogs landed in one unit; the file pair compiled essentially
+first-try because the d5 transcriptions held):
 
-2a-align. **`weaveE_initial_alignment`** (AlignE): per-owner filters
-   of the E future = `(procsE sk).take (manCount sk)`. Same-shape
-   induction as `align_scope` with `walkSegE` (epilogue-order
-   segments) in the OWN-WALK arms only. KEY REDUCTION (verified
-   against the expanders, not yet formalized): within any scope's
-   expansion, the parent is the only event owning the scope's own walk
-   index that moves between the two orders, and every deeper/feeder
-   owner's filter is POSITIONALLY IDENTICAL between `opEvents` and
-   `opEventsE` — so the feeder and deeper-walk arms of the induction
-   should transfer verbatim (or via a shared generic core), and only
-   the own-walk filter needs the new epilogue-segment derivation.
-   Also needed: `weave_events_lengthE` (lengths only — derive via a
-   tree-induction `opEventsE_perm : (opEventsE sk op).Perm
-   (opEvents sk op)`, then `length_eq`; NOTE this perm is also the
-   clean route to `howners`, membership being perm-invariant).
-2a-dep. **`weaveE_goEvents_depOK`** (PrecE): SCOUT SETTLED — `manDep`
-   yields `some` only for wire/asked events and maps upper sends to
-   `none` (`manDep_upper_snd`), so NO event's dep is a parent and
-   parents have no deps; the E reorder moves only upper events, so
-   every (dep, event) pair keeps its relative order. Two routes,
-   next fork's choice: (i) a ~100-line transfer lemma —
-   `DepOK done l → l.filter isWireAsked = l'.filter isWireAsked →`
-   (all dep-carrying events and dep values are wire/asked) `→ Nodup →
-   DepOK done l'` — plus the futures' Nodup fact, which is NOT yet
-   landed (checked: only pin-level `decide` anchors exist); mint it
-   from ownership + per-trace canonical numbering, or from the E
-   alignment once landed (per-owner filters = the traces, each Nodup,
-   owners disjoint). Route (i) ≈ 200–300 lines including the mint;
-   (ii) transcribe Prec.lean's expansion induction over the E
-   expanders (mechanical, ~900 lines). Prefer (i).
-2b. **The eweave master induction** (`WEdgeE`-analog over `weaveGoE`,
-   the bulk): reuse Master.lean's EmitOKOn + consumption
-   architecture. The U-site window moves to the scope tail, where the
-   whole subtree is emitted: discharge via margin 0
-   (`dCount ≤ capLevel`) + pump-fixpoint tower drainage
-   (`asm_counts_full`-style, Final.lean pattern) — all prior scopes'
-   uppers consumed, own dispute group ≤ capLevel in flight.
-   Wire/lower/query sites keep their seqs and relative order (the
-   projection bridge is the transfer vehicle); their futs carry the
-   parent at the tail instead of the splice point — expect the futLen
-   site forms to need only the parent term moved between segments.
+- **2a-align landed** (`Weave/AlignE.lean`): `walkSegE` + its algebra
+  (`_single`/`_glue`/`_glue_range`/`_full`), `scopeSendsE_eq` (per-kid
+  flatMap, parent as tail), `opEventsE_scope_eq`/`opEventsE_kid_eq`,
+  `align_scopeE` (the master induction: the own-walk arm's per-kid
+  filter is `childChunk` — no splice case splits, the tail parent kept
+  by the own filter and dropped by feeder/descendant filters;
+  everything else transcribed verbatim from `align_scope`),
+  `weave_flatMapE`, `weaveE_initial_alignment`,
+  `weave_events_lengthE` (alignment route via `manFilters_length_sum`
+  + `totalEventsE_eq` — the `opEventsE_perm` tree induction was NOT
+  needed and was not built), `weaveE_wcount : WCountP sk (procsE sk)
+  [] (weaveStateE sk)`. Six Align.lean helpers de-privatized
+  (`flatMap_congr`, `flatMap_getElem?_toList`,
+  `manFilters_length_sum`, `filter_owner_all/none`, `iopen_owner`).
+- **2a-dep landed via route (i)** (`Weave/PrecE.lean`): `isWA` (the
+  wire/asked class), `manDep_isWA`, `nodup_of_class_filters` (a
+  count-free class-partition Nodup lifter — NOTE: core/Batteries here
+  has NO usable count↔Nodup bridge except `List.nodup_iff_count`,
+  which was found late; the structural route is self-contained),
+  `canon_nodup`, `trace_nodup` (canon shapes ⟹ per-trace Nodup),
+  `weaveE_future_nodup` (owner partition through the E alignment,
+  membership-in-`manFilters` route — no indexing needed),
+  `nodup_append_cons_left_inj` (unique split around a fixed element),
+  `depOK_transfer` (THE transfer: dep-closure survives any reorder
+  fixing the dep-carrying subsequence, target Nodup),
+  `opEventsE_filter_scope` (the parent-free filter equality, tree
+  induction), `weave_filter_isWA`, `weaveE_flatMap_depOK`,
+  `weaveE_goEvents_depOK`. Technique notes: rw-ambiguity on the
+  nested ifs is real — resolve by proving per-kid/mid-part equalities
+  as separate `have`s BEFORE `simp only [List.filter_cons]` on the
+  main goal (the singleton `[upper]`'s filter must be rewritten
+  before `filter_cons` unfolds it); `conv_lhs` is not available
+  (use `conv => lhs; rw [...]`); `List.mem_of_mem_filter` does not
+  exist (use `(List.mem_filter.mp h).1`); `filter_cons_of_neg` wants
+  `¬ p a = true`, wrap `= false` facts in
+  `(by rw [h]; exact Bool.false_ne_true)`.
+
+2b. **The eweave master induction — NEXT, a full fork on its own**
+   (scouted against the d5 statements 2026-07-19): produce
+   `EmitOKOnP sk (procsE sk) ((weaveOps sk).flatMap (opEventsE sk))
+   []`, then `weaveE_wedge : WEdgeP sk (procsE sk) []
+   (weaveStateE sk)` assembles from `weaveGoE_wedge` (MasterE.lean) +
+   `weaveE_wcount` + `weaveE_goEvents_depOK` (both landed) exactly as
+   d5's `weave_wedge` (Master.lean:3234) does. The d5 template is
+   Master.lean 1709–3239: `emitOK_scope_zero` → `emitOK_kids` →
+   `emitOK_scope` → `emitOK_weave`, threading `AncTele` + per-site
+   head lemmas (`head_snd_wire/asked/...`, Master.lean ~1400–1700).
+   The E deltas: (a) each scope's site sequence is per-kid chunks THEN
+   the parent — `opEventsE_scope_eq`/`opEventsE_kid_eq` (AlignE) are
+   the expansion authorities, and `emitOK_scope_zero`'s/`emitOK_kids`'
+   per-slot walks reorder accordingly (no mid-chunk upper splice; one
+   tail upper site per scope); (b) the U-site discharge is NEW: at the
+   scope tail the whole subtree is emitted, so the upper window's
+   supply is margin 0 (`∀ s, dCount s ≤ capLevel`) + pump-fixpoint
+   tower drainage (`asm_counts_full`-style, Final.lean pattern) — all
+   prior scopes' uppers consumed at the fixpoint, own dispute group
+   ≤ capLevel in flight — NOT the AscCover/DescSupply telescopes;
+   (c) wire/lower/query sites keep seqs and relative order — their
+   futs carry the parent at the tail, so the futLen site forms need
+   only the parent term moved between segments (the `hlow`-family
+   `rest`-filters should be stated over `walkSegE`, matching
+   `align_scopeE`'s clause (1)); (d) the capacity hypothesis enters
+   `emitOK_scopeE`'s signature (margin 0 replaces nothing — it is an
+   ADDITIONAL hypothesis alongside `schedulable`, or replaces it
+   given margin 0 ⟹ schedulable — decide at the flagship, keep both
+   locally); (e) the feed/`scopeFeed` threading and `AncTele`
+   carry over — the tele's own-stage chunk shapes come from
+   `childChunk` not `splicedChunk` (simpler: no σ discriminant).
 3. **`merge_completeE`**: Final.lean's argmin re-instantiated over the
    eweave (mostly mechanical given 2; `totalEventsE_eq` + the
    projection bridge supply the totals).
