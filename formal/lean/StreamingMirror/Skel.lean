@@ -238,7 +238,11 @@ end Skel
 
 /-- The axiom mode: which `Trace::assert_valid` ledgers guard the
 committed-choice publisher. Quint: the six `AX_*`/`WIRE_FIRST` consts
-(`d4` and `d5` postdate the frozen Quint spec). -/
+(`d4`, `d5`, and `d6` postdate the frozen Quint spec). `d5` and `d6`
+are the two corners of the parent-placement design space
+(design/parent-placement.md) and are never asserted together: their
+guards contradict at any scope with a send left after the final
+D-resolution, so a mode carrying both can wedge at the choice point. -/
 structure AxMode where
   w : Bool        -- wire before internal publication (wire ledger)
   d1root : Bool   -- root resolution before root child queries
@@ -248,14 +252,36 @@ structure AxMode where
   d4 : Bool       -- wire sibling contiguity (the second ledger gap this
                   -- work found: a wire may not depart while an earlier D
                   -- sibling is unresolved or owes dependent queries)
-  d5 : Bool       -- parent placement (the third ledger gap this work
-                  -- found: once every D child is resolved, no further
-                  -- wire or query may depart before the parent summary)
+  d5 : Bool       -- parent placement, early corner (the third ledger gap
+                  -- this work found: once every D child is resolved, no
+                  -- further wire or query may depart before the parent
+                  -- summary). The weave's discipline; deadlock-free at
+                  -- ANY capLevel. NOT the shipping encoder's order.
+  d6 : Bool       -- parent placement, epilogue corner: the parent
+                  -- summary departs only after every other send of its
+                  -- scope (all wires; every D child's resolution and
+                  -- full query quota). The shipping encoder's order;
+                  -- liveness additionally needs the capacity margin
+                  -- (capLevel ≥ per-scope dCount).
   wireFirst : Bool -- control scaffolding, not an axiom (see Quint doc)
   deriving DecidableEq, Repr
 
-/-- All axioms on, scaffolding off: the assumed interface of the Rust
-implementation. -/
-def AxMode.full : AxMode := ⟨true, true, true, true, true, true, true, false⟩
+/-- All axioms of the parent-EARLY corner on, scaffolding off: the
+`d5` (weave-placement) interface. Deadlock-free at any capacity
+(`Sched.deadlock_free_d5`) — the priced alternative encoder design
+point, NOT the shipping encoder's order (design/parent-placement.md).
+The shipping interface is `AxMode.impl`. -/
+def AxMode.full : AxMode :=
+  ⟨true, true, true, true, true, true, true, false, false⟩
+
+/-- The shipping Rust encoder's interface: the epilogue corner — `d6`
+(parent last) instead of `d5` (parent early), every other ledger as in
+`.full`. The implementation-facing target theorem is deadlock freedom
+under this mode given the margin-0 capacity hypothesis
+(`capLevel ≥` max per-scope dispute count — the encoder's
+`FAN ≥ kids` discipline); without that margin the parent-delay trap is
+real (`Control.parentTrap`, at `dCount = capLevel + 2`). -/
+def AxMode.impl : AxMode :=
+  ⟨true, true, true, true, true, true, false, true, false⟩
 
 end StreamingMirror

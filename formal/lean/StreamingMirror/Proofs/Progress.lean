@@ -104,12 +104,14 @@ still unresolved (so the parent-placement ledger does not yet bind). -/
 def D5Free (ws : WalkSt) (n : Nat) (isD : Nat → Bool) : Prop :=
   ws.parentDone = true ∨ ∃ j, j < n ∧ isD j = true ∧ ws.resDone j = false
 
-/-- Reduce the guard's `d5` conjunct to `D5Free`. -/
+/-- Reduce the guard's `d5` conjunct to `D5Free`, or discharge it
+outright when the mode does not assert `d5`. -/
 private theorem d5_conjunct {ws : WalkSt} {n : Nat} {isD : Nat → Bool}
-    (hd5 : D5Free ws n isD) :
+    (hd5 : ax.d5 = false ∨ D5Free ws n isD) :
     (ax.d5 = false ∨ ws.parentDone = true) ∨
       ((List.range n).all fun j => !isD j || ws.resDone j) = false := by
-  rcases hd5 with hpd | ⟨j, hj, hD, hr⟩
+  rcases hd5 with hax | hpd | ⟨j, hj, hD, hr⟩
+  · exact Or.inl (Or.inl hax)
   · exact Or.inl (Or.inr hpd)
   · refine Or.inr ?_
     cases hall : (List.range n).all fun j => !isD j || ws.resDone j with
@@ -133,8 +135,9 @@ theorem wkChoosable_wire_intro {ws : WalkSt} {i : Nat}
       sk.childIsD pk.2 (sk.stageScope pk.2 ws.scope) j = true →
       ws.resDone j = true ∧
         ws.qSent j = sk.qCount pk.2 (sk.stageScope pk.2 ws.scope) j)
-    (hd5 : D5Free ws (sk.nChildren pk.2 (sk.stageScope pk.2 ws.scope))
-      (sk.childIsD pk.2 (sk.stageScope pk.2 ws.scope))) :
+    (hd5 : ax.d5 = false ∨
+      D5Free ws (sk.nChildren pk.2 (sk.stageScope pk.2 ws.scope))
+        (sk.childIsD pk.2 (sk.stageScope pk.2 ws.scope))) :
     wkChoosable sk ax pk ws (.wire i) = true := by
   simp only [wkChoosable, hph, hco, bne_self_eq_false, Option.isSome_none,
     Bool.or_self, Bool.false_eq_true, if_false, Bool.and_eq_true,
@@ -190,8 +193,9 @@ theorem wkChoosable_query_intro {ws : WalkSt} {i : Nat}
       ws.qSent j = sk.qCount pk.2 (sk.stageScope pk.2 ws.scope) j)
     (hres : ws.resDone i = true)
     (hwire : ws.wireDone i = true)
-    (hd5 : D5Free ws (sk.nChildren pk.2 (sk.stageScope pk.2 ws.scope))
-      (sk.childIsD pk.2 (sk.stageScope pk.2 ws.scope))) :
+    (hd5 : ax.d5 = false ∨
+      D5Free ws (sk.nChildren pk.2 (sk.stageScope pk.2 ws.scope))
+        (sk.childIsD pk.2 (sk.stageScope pk.2 ws.scope))) :
     wkChoosable sk ax pk ws (.query i) = true := by
   simp only [wkChoosable, hph, hco, bne_self_eq_false, Option.isSome_none,
     Bool.or_self, Bool.false_eq_true, if_false, Bool.and_eq_true,
@@ -202,22 +206,41 @@ theorem wkChoosable_query_intro {ws : WalkSt} {i : Nat}
 
 /-- Introduction rule for committing `.parent` in phase 2: when the
 parent is unsent and every D child of the scope is resolved, the parent
-guard passes outright, in every axiom mode. -/
+guard passes — with the `d6` (epilogue) conjunct discharged either by
+the mode not asserting it or by the scope's every other send being
+done. -/
 theorem wkChoosable_parent_intro {ws : WalkSt}
     (hph : ws.phase = 2) (hco : ws.committed = none)
     (hnp : ws.parentDone = false)
     (hd2 : ∀ j, j < sk.nChildren pk.2 (sk.stageScope pk.2 ws.scope) →
       sk.childIsD pk.2 (sk.stageScope pk.2 ws.scope) j = true →
-      ws.resDone j = true) :
+      ws.resDone j = true)
+    (hd6 : ax.d6 = false ∨
+      (∀ j, j < sk.nChildren pk.2 (sk.stageScope pk.2 ws.scope) →
+        ws.wireDone j = true ∧
+          (sk.childIsD pk.2 (sk.stageScope pk.2 ws.scope) j = true →
+            ws.resDone j = true ∧
+              ws.qSent j =
+                sk.qCount pk.2 (sk.stageScope pk.2 ws.scope) j))) :
     wkChoosable sk ax pk ws .parent = true := by
   simp only [wkChoosable, hph, hco, bne_self_eq_false, Option.isSome_none,
     Bool.or_self, Bool.false_eq_true, if_false, Bool.and_eq_true,
-    Bool.not_eq_true', List.all_eq_true, List.mem_range, Bool.or_eq_true]
-  refine ⟨hnp, Or.inr ?_⟩
-  intro j hj
-  cases hDj : sk.childIsD pk.2 (sk.stageScope pk.2 ws.scope) j with
-  | false => exact Or.inl rfl
-  | true => exact Or.inr (hd2 j hj hDj)
+    Bool.not_eq_true', List.all_eq_true, List.mem_range, Bool.or_eq_true,
+    beq_iff_eq]
+  refine ⟨⟨hnp, ?_⟩, ?_⟩
+  · refine Or.inr ?_
+    intro j hj
+    cases hDj : sk.childIsD pk.2 (sk.stageScope pk.2 ws.scope) j with
+    | false => exact Or.inl rfl
+    | true => exact Or.inr (hd2 j hj hDj)
+  · rcases hd6 with hax | hall
+    · exact Or.inl hax
+    · refine Or.inr ?_
+      intro j hj
+      refine ⟨(hall j hj).1, ?_⟩
+      cases hDj : sk.childIsD pk.2 (sk.stageScope pk.2 ws.scope) j with
+      | false => exact Or.inl rfl
+      | true => exact Or.inr ((hall j hj).2 hDj)
 
 /-- Case B of the obligation choice: if some wire of the current scope
 is undone and every D child is either discharged or sits at-or-above an
@@ -233,8 +256,9 @@ theorem wkChoosable_wire_of_undone {ws : WalkSt}
       (ws.resDone j = true ∧
         ws.qSent j = sk.qCount pk.2 (sk.stageScope pk.2 ws.scope) j) ∨
         ∃ k, k ≤ j ∧ ws.wireDone k = false)
-    (hd5 : D5Free ws (sk.nChildren pk.2 (sk.stageScope pk.2 ws.scope))
-      (sk.childIsD pk.2 (sk.stageScope pk.2 ws.scope))) :
+    (hd5 : ax.d5 = false ∨
+      D5Free ws (sk.nChildren pk.2 (sk.stageScope pk.2 ws.scope))
+        (sk.childIsD pk.2 (sk.stageScope pk.2 ws.scope))) :
     ∃ i, i < sk.nChildren pk.2 (sk.stageScope pk.2 ws.scope) ∧
       wkChoosable sk ax pk ws (.wire i) = true := by
   have hWex' : ∃ j, j < sk.nChildren pk.2 (sk.stageScope pk.2 ws.scope) ∧
@@ -256,15 +280,19 @@ theorem wkChoosable_wire_of_undone {ws : WalkSt}
     cases hkdone
 
 /-- A phase-2 walk that has not committed always has a choosable
-obligation, together with its enumeration witness: the parent when
-every D child is resolved and the parent is unsent (the `d5` ledger's
-mandated placement), otherwise the least unmet obligation of the
-current scope, taken in (res|query of the least undischarged D child,
-when its wire is done) ≺ wire ≺ parent order — and each choice passes
-every axiom guard in EVERY axiom mode. -/
+obligation, together with its enumeration witness: under a `d5` mode,
+the parent when every D child is resolved and the parent is unsent
+(the `d5` ledger's mandated placement); otherwise the least unmet
+obligation of the current scope, taken in (res|query of the least
+undischarged D child, when its wire is done) ≺ wire ≺ parent order —
+and each choice passes every axiom guard in every mode that does not
+assert both parent-placement corners at once (`hmode`; asserting `d5`
+and `d6` together genuinely wedges the choice point, which is why no
+real mode does). -/
 theorem walk_uncommitted_choosable (hwf : sk.wellFormed = true)
     (hi : InvP sk ax s) (hpk : pk ∈ sk.walkKeys)
-    (hph : (s.walk pk).phase = 2) (hco : (s.walk pk).committed = none) :
+    (hph : (s.walk pk).phase = 2) (hco : (s.walk pk).committed = none)
+    (hmode : ax.d5 = false ∨ ax.d6 = false) :
     ∃ o : Oblig, wkChoosable sk ax pk (s.walk pk) o = true ∧
       Action.walkCommit pk o ∈ allActions sk := by
   -- Extract the phase-2 branch of the walk's local invariant.
@@ -299,27 +327,35 @@ theorem walk_uncommitted_choosable (hwf : sk.wellFormed = true)
     · rcases hpre k hk with hDf | hres
       · rw [hDk] at hDf; cases hDf
       · exact hres
-  -- Parent placement first: when every D child is resolved and the
-  -- parent is unsent, the parent itself is choosable in every mode
-  -- (`d2` is settled by the resolutions) — and it is the only choice
-  -- the `d5` ledger leaves open there, so the enumeration must pick it.
-  -- Otherwise `D5Free` holds and the pre-`d5` enumeration below goes
-  -- through unchanged.
+  -- Parent placement first: under a `d5` mode, when every D child is
+  -- resolved and the parent is unsent, the parent itself is choosable
+  -- (`d2` is settled by the resolutions, and `d6` is off by `hmode`) —
+  -- and it is the only choice the `d5` ledger leaves open there, so the
+  -- enumeration must pick it. Under a `d6` mode the `d5` conjuncts are
+  -- vacuous and the pre-`d5` enumeration below runs unchanged, ending
+  -- at the parent only when the epilogue guard's demands are all met.
   have hd5exit : (∃ o : Oblig, wkChoosable sk ax pk (s.walk pk) o = true ∧
       Action.walkCommit pk o ∈ allActions sk) ∨
-      D5Free (s.walk pk)
+      (ax.d5 = false ∨ D5Free (s.walk pk)
         (sk.nChildren pk.2 (sk.stageScope pk.2 (s.walk pk).scope))
-        (sk.childIsD pk.2 (sk.stageScope pk.2 (s.walk pk).scope)) := by
+        (sk.childIsD pk.2 (sk.stageScope pk.2 (s.walk pk).scope))) := by
     by_cases hAllD : (∀ j, j < sk.nChildren pk.2
         (sk.stageScope pk.2 (s.walk pk).scope) →
         sk.childIsD pk.2 (sk.stageScope pk.2 (s.walk pk).scope) j = true →
         (s.walk pk).resDone j = true)
     · cases hpdv : (s.walk pk).parentDone with
-      | true => exact Or.inr (Or.inl hpdv)
+      | true => exact Or.inr (Or.inr (Or.inl hpdv))
       | false =>
-          exact Or.inl ⟨.parent, wkChoosable_parent_intro hph hco hpdv hAllD,
-            walkCommit_parent_mem hpk⟩
-    · refine Or.inr (Or.inr ?_)
+          cases hd6v : ax.d6 with
+          | false =>
+              exact Or.inl ⟨.parent,
+                wkChoosable_parent_intro hph hco hpdv hAllD (Or.inl hd6v),
+                walkCommit_parent_mem hpk⟩
+          | true =>
+              rcases hmode with hd5f | hd6f
+              · exact Or.inr (Or.inl hd5f)
+              · rw [hd6v] at hd6f; cases hd6f
+    · refine Or.inr (Or.inr (Or.inr ?_))
       by_contra hno
       refine hAllD (fun j hj hD => ?_)
       cases hr : (s.walk pk).resDone j with
@@ -481,19 +517,23 @@ theorem walk_uncommitted_choosable (hwf : sk.wellFormed = true)
             cases hnsc
       exact ⟨.parent,
         wkChoosable_parent_intro hph hco hpd
-          (fun j hj hDj => (hDall j hj hDj).1),
+          (fun j hj hDj => (hDall j hj hDj).1)
+          (Or.inr fun j hj => ⟨hWall j hj, fun hDj => hDall j hj hDj⟩),
         walkCommit_parent_mem hpk⟩
 
 /-- A phase-2 walk that has not committed always has a choosable
 obligation — the least unmet obligation of its current scope, taken in
 (res|query of least undischarged D child if its wire is done) ≺ wire ≺
-parent order, passes every axiom guard in EVERY axiom mode. Hence the
+parent order, passes every axiom guard in every mode that does not
+assert both parent-placement corners (`hmode`). Hence the
 committed-choice split can never deadlock at the choice point. -/
 theorem walk_uncommitted_canStep (hwf : sk.wellFormed = true)
     (hi : InvP sk ax s) (hpk : pk ∈ sk.walkKeys)
-    (hph : (s.walk pk).phase = 2) (hco : (s.walk pk).committed = none) :
+    (hph : (s.walk pk).phase = 2) (hco : (s.walk pk).committed = none)
+    (hmode : ax.d5 = false ∨ ax.d6 = false) :
     canStep sk ax s = true := by
-  obtain ⟨o, hch, hmem⟩ := walk_uncommitted_choosable hwf hi hpk hph hco
+  obtain ⟨o, hch, hmem⟩ :=
+    walk_uncommitted_choosable hwf hi hpk hph hco hmode
   have happ : (apply sk ax (.walkCommit pk o) s).isSome = true := by
     simp [apply, hpk, hch]
   exact canStep_of_action hmem happ

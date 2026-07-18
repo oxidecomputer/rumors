@@ -315,13 +315,30 @@ def advActions (sk : Skel) : List Action :=
 
 /-- Greedy drain over `advActions`: the parent-delaying adversarial run
 under axiom mode `ax` (stalls under `Control.fullNoD5`, terminates
-under `.full` — see `advActions`). -/
+under `.full` — see `advActions`). Under `.impl` the `d6` guard FORCES
+the delayed placement, so any `.impl` drain — stalling or not — is an
+epilogue-legal run by construction: every step passed every `.impl`
+guard. -/
 def drainAdv (sk : Skel) (ax : AxMode) : Nat → State → State
   | 0, s => s
   | fuel + 1, s =>
       match (advActions sk).firstM (fun a => apply sk ax a s) with
       | some s' => drainAdv sk ax fuel s'
       | none => s
+
+/-- Max per-scope dispute count: the margin-0 capacity reference. -/
+def maxDCount (sk : Skel) : Nat :=
+  (List.range sk.scopes.length).foldl (fun m s => max m (sk.dCount s)) 0
+
+/-- The margin-0 capacity variant: `capLevel` raised to the max
+per-scope dispute count (the encoder's `FAN ≥ kids` discipline),
+topology unchanged. Well-formedness is preserved (`capLevel` only
+grows past its `≥ 1` floor) and `schedulable` holds by construction
+(`dCount ≤ capLevel` everywhere). This is the implementation-facing
+theorem's capacity hypothesis (PLAN.md task #16), exercised executably
+by the `.impl`-mode drains below. -/
+def margin0 (sk : Skel) : Skel :=
+  { sk with capLevel := max sk.capLevel (maxDCount sk) }
 
 /-- `Model.allChans`, deduplicated. -/
 def chanList (sk : Skel) : Array Chan := Id.run do
@@ -1222,6 +1239,7 @@ def runFuzz (n : Nat) : Array String := Id.run do
   let mut errs : Array String := #[]
   let mut tested := 0
   let mut advStalls : Array Nat := #[]
+  let mut implStalls : Array Nat := #[]
   for seed in [1:n+1] do
     let sk := genSkel seed
     if sk.wellFormed then
@@ -1248,6 +1266,20 @@ def runFuzz (n : Nat) : Array String := Id.run do
           (drainAdv sk .full 50000 (init sk))) then
         errs := errs.push
           s!"seed {seed}: adversarial drain STALLS under .full (d5 should defuse the parent delay)"
+      -- the impl (epilogue) mode, both directions: at the seed's own
+      -- capLevel the epilogue order may stall (those stalls are what
+      -- the capacity hypothesis exists for — counted below, ≥ 1
+      -- required so the hypothesis stays load-bearing), while at
+      -- margin 0 (capLevel ≥ max per-scope dCount) a stall falsifies
+      -- the re-targeted theorem's hypothesis and is a hard error
+      -- (PLAN.md task #15's falsifiable check).
+      if sk.schedulable && !(terminal sk
+          (drainAdv sk .impl 50000 (init sk))) then
+        implStalls := implStalls.push seed
+      if !(terminal (margin0 sk)
+          (drainAdv (margin0 sk) .impl 50000 (init (margin0 sk)))) then
+        errs := errs.push
+          s!"seed {seed}: adversarial drain STALLS under .impl at margin 0 (the capacity hypothesis should defuse the epilogue parent delay)"
       if a.acyclic then
         let cand := schedCandidate sk
         let vErrs := validateSchedule sk cand
@@ -1278,6 +1310,9 @@ def runFuzz (n : Nat) : Array String := Id.run do
   if advStalls.isEmpty then
     errs := errs.push
       "adversarial probe found ZERO stalls on schedulable seeds (the parent-delay finding should reproduce; a model or generator change needs a deliberate re-audit)"
+  if implStalls.isEmpty then
+    errs := errs.push
+      "impl-mode probe found ZERO sub-margin stalls on schedulable seeds (the capacity hypothesis should be load-bearing, not vacuous; a model or generator change needs a deliberate re-audit)"
   return errs
 
 def skels : List (String × Skel) :=
@@ -1341,6 +1376,14 @@ def runAll (outDir : System.FilePath) : IO Bool := do
       allOk := false
     else
       IO.println "  adversarial (parent-delayed) drain reaches terminal: OK"
+    -- the impl (epilogue) mode at margin 0: the re-targeted theorem's
+    -- hypothesis, on the pinned shapes
+    if !(terminal (margin0 sk)
+        (drainAdv (margin0 sk) .impl 50000 (init (margin0 sk)))) then
+      IO.println "  IMPL-MODE margin-0 adversarial drain did NOT reach terminal"
+      allOk := false
+    else
+      IO.println "  impl-mode margin-0 adversarial drain reaches terminal: OK"
     if !a.acyclic then
       IO.println "  CYCLE FOUND (listed along edge direction):"
       for l in a.cycle do
@@ -1495,6 +1538,34 @@ def runAll (outDir : System.FilePath) : IO Bool := do
   let advNegTerm := terminal pyr1 (drainAdv pyr1 .full 50000 (init pyr1))
   IO.println s!"  pyramid1 adversarial drain stuck: {!advNegTerm} (want true)"
   if advNegTerm then allOk := false
+  -- finding #7 under the impl (epilogue) mode, both directions: the
+  -- raw pdelay boundary (dCount = capLevel + 2) stalls — and because
+  -- `d6` forces the delayed placement, that stalling run is
+  -- epilogue-LEGAL by construction, settling PLAN.md #15(5a): the −2
+  -- floor fails adversarially even for the encoder's own per-walk
+  -- order, so the tight floor is poll-schedule-specific and the
+  -- theorem hypothesis is margin 0. Margin 0 defuses the same shape.
+  let pdE := Control.pdelay
+  let pdStuck := drainAdv pdE .impl 50000 (init pdE)
+  let pdStall := !(terminal pdE pdStuck)
+  IO.println s!"  pdelay adversarial drain under .impl stuck: {pdStall} (want true)"
+  if !pdStall then allOk := false
+  let pd0 := margin0 pdE
+  let pd0Term := terminal pd0 (drainAdv pd0 .impl 50000 (init pd0))
+  IO.println s!"  pdelay margin-0 drain under .impl terminal: {pd0Term} (want true)"
+  if !pd0Term then allOk := false
+  -- borrowed-slots accounting (design/parent-placement.md §2, PLAN.md
+  -- #15(5b)), read off pdelay's stuck state: the +2 the schedulable
+  -- bound allows over capLevel is one item in each hand — the level
+  -- buffers full (the channel proper), consumers mid-collection
+  -- (asm got > 0), and producers parked on committed sends.
+  let lvlOcc := (chanList pdE).foldl (fun acc c =>
+    match c with | .level _ _ => acc + pdStuck.chan c | _ => acc) 0
+  let asmHold := pdE.asmKeys.foldl (fun acc pk =>
+    acc + (if (pdStuck.asm pk).got > 0 then 1 else 0)) 0
+  let committedN := pdE.walkKeys.foldl (fun acc pk =>
+    acc + (if (pdStuck.walk pk).committed.isSome then 1 else 0)) 0
+  IO.println s!"  pdelay .impl stuck-state accounting (informational): level occupancy={lvlOcc} asms mid-collection={asmHold} walks committed={committedN}"
   -- the weave must be rejected on a non-schedulable skeleton: its
   -- guards close and the emission errors / validator flag it
   let (wNeg, wNegErrs) := weaveOrder pyr1
@@ -1568,6 +1639,9 @@ def runAll (outDir : System.FilePath) : IO Bool := do
       && !(wOverErrs ++ validateSchedule over wOver).isEmpty
       -- d5 defuses the parent-delaying adversary on the boundary shapes
       && terminal onB (drainAdv onB .full 50000 (init onB))
+      -- and margin 0 defuses it under the impl (epilogue) mode
+      && terminal (margin0 onB)
+          (drainAdv (margin0 onB) .impl 50000 (init (margin0 onB)))
     IO.println s!"    capLevel={cl}: {if ok then "OK" else "FAIL"}"
     if !ok then allOk := false
   IO.println "=== verdict table ==="

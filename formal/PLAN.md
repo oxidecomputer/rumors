@@ -67,24 +67,32 @@ Last updated: 2026-07-18.
   cascade. Residual (non-load-bearing): "terminal ⟹ all channels
   drained" corollary not minted (small assembly from Counting.lean
   totals if ever wanted).
-- **#15 (next; blocked by #12)**: mint the epilogue ledger
-  (MODEL.md §5's documented placement) as an AxMode field (sweep all
-  literals/destructures incl. #12's landed code); margin-0 adversarial
-  validation sweeps (fuzz + boundary matrix) — the falsifiable check
-  on the re-target; −2/−1 boundary runs to confirm the borrowed-slots
-  story (documentation-grade); determine whether pdelay's drainAdv
-  stalls at −2 are epilogue-legal; fix the incorrect D5 paragraph in
-  MODEL.md (contradicts MODEL.md §5 and the code); reorganize
-  Statement.lean flagship names. Def-touching: eventdag per commit.
+- **#15 (DONE, 2026-07-18)**: the `d6` (epilogue) ledger minted —
+  `AxMode.d6` + `AxMode.impl` (d6 instead of d5, all else as `.full`);
+  guard verbatim + the Rust `assert_valid` spelling in PROGRESS.md §8;
+  the pillar generalized with `hmode : ax.d5 = false ∨ ax.d6 = false`
+  (d5/d6 assert opposite corners and are never combined); theorems
+  renamed `progress_d5`/`deadlock_free_d5`, flagship names reserved
+  for the `.impl` theorem; MODEL.md D5 paragraph corrected + D6 added,
+  README ledger table re-rowed. Validation: margin-0 `.impl`
+  adversarial drains asserted in runFuzz (hard error on stall) + pins
+  + boundary matrix; sub-margin stalls required ≥ 1 (hypothesis
+  load-bearing). 5a SETTLED: pdelay stalls under `.impl` itself — the
+  −2 floor fails adversarially even for the encoder's per-walk order
+  (it is poll-schedule-specific); margin 0 confirmed as the theorem
+  hypothesis. 5b CONFIRMED in-model (stuck-state accounting: full
+  buffers + consumer hand + producer hands). Sweep outcomes in
+  PROGRESS.md §8.
 - **#16 (blocked by #15)**: the implementation-facing theorem (see
   adjudication 2). Counting/edge-respect layer re-derived for the
   encoder-order schedule; #12's cursor-invariant + argmin architecture
   re-instantiates (epilogue ledger also fully pins per-walk order).
-- **#17 (blocked by #15)**: parent-first re-scope — invert the d5
-  check into the epilogue check (minted spelling), wire into
-  `Trace::assert_valid`, proptests exercise it (passes on real
-  traces), keep capacity-floor pins, README ledger row, full
-  `just gate`.
+- **#17 (blocked by #15 — now unblocked)**: parent-first re-scope —
+  invert the d5 check into the epilogue check (minted spelling:
+  PROGRESS.md §8, "the parent summary is the scope's last
+  publication"), wire into `Trace::assert_valid`, proptests exercise
+  it (passes on real traces), keep capacity-floor pins, README ledger
+  row, full `just gate`.
 - **#18 (blocked by #16)**: legibility pass. (1) Refactor/document the
   theorem statement so a human reviewer can verify the *claim* matches
   the desiderata and see explicitly which Rust proptest discharges

@@ -225,7 +225,11 @@ rule). The `d5` conjunct on the wire and query arms is the parent
 ledger (finding #7): once every D child of the scope is resolved, the
 parent summary must depart before any further wire or query — exactly
 the placement the weave pins (parent immediately after the final
-resolution; first in an undisputed scope). -/
+resolution; first in an undisputed scope). The `d6` conjunct on the
+parent arm is the opposite corner — the shipping encoder's epilogue
+placement: the parent departs only after every other send of the scope
+(design/parent-placement.md; `d5` and `d6` are never asserted
+together). -/
 def wkChoosable (pk : Party × Nat) (ws : WalkSt) (o : Oblig) : Bool :=
   if ws.phase != 2 || ws.committed.isSome then false
   else
@@ -257,7 +261,11 @@ def wkChoosable (pk : Party × Nat) (ws : WalkSt) (o : Oblig) : Bool :=
     | .parent =>
         !ws.parentDone &&
         (!ax.d2 || (List.range n).all fun j =>
-          !sk.childIsD h s j || ws.resDone j)
+          !sk.childIsD h s j || ws.resDone j) &&
+        (!ax.d6 || (List.range n).all fun j =>
+          ws.wireDone j &&
+          (!sk.childIsD h s j ||
+            (ws.resDone j && ws.qSent j == sk.qCount h s j)))
 
 /-- The channel a committed obligation fires into. -/
 def obligChan (pk : Party × Nat) : Oblig → Chan

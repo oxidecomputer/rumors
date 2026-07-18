@@ -27,7 +27,8 @@ state and every maximal run terminates.
 | lower ledger ("preceded its N lower resolutions") | `AX_D2` |
 | sibling contiguity ("still owes N dependent work items") | `AX_D3` |
 | wire contiguity ("departed while an earlier sibling was unresolved / owed dependent work") | `AxMode.d4` (Lean only — postdates the frozen Quint spec) |
-| parent placement ("wire or query departed after the final resolution with the parent summary unsent") | `AxMode.d5` (Lean only — postdates the frozen Quint spec) |
+| epilogue placement ("parent summary departed while a wire of its scope was unsent, or a disputed child's resolution or query quota was outstanding") | `AxMode.d6` (Lean only — postdates the frozen Quint spec; the shipping encoder's parent order, mode `AxMode.impl`) |
+| — (no Rust check: the weave's parent-early discipline, an alternative encoder design point — design/parent-placement.md) | `AxMode.d5` (Lean only; mode `AxMode.full`, `Sched.deadlock_free_d5`) |
 | radix order ("violates radix order") | the per-channel in-order program structure (always on) |
 
 The sibling-contiguity check **exists because of this model**: the original
@@ -61,10 +62,20 @@ channel below). The durable witness is
 (kernel-checked stuck run on a well-formed, *schedulable* skeleton —
 the refutation sits inside the target theorem's hypothesis class); the
 fuzz sweep pins that the parent-delaying adversarial driver stalls
-under `fullNoD5` and drains to terminal under today's `.full`. The Rust
-publisher was again never exposed (the encoder emits the parent summary
-immediately after the final resolution — the weave's §5 placement);
-`assert_valid` gains the matching seventh check alongside this change.
+under `fullNoD5` and drains to terminal under the `d5` mode (`.full`).
+Finding #7's resolution (2026-07-18) is a two-corner design space, not
+a missing Rust check of the D3/D4 kind: the Rust publisher's real
+order is the *epilogue* placement (parent after the last chunk's
+queries and trailing wires — `AxMode.d6`, mode `AxMode.impl`), which
+is safe given the encoder's capacity discipline
+(`FAN ≥` per-scope kids; the parent-delay trap needs
+`dCount = capLevel + 2`) but violates the weave's `d5` placement the
+first minted check demanded. `assert_valid` gains the D6 (epilogue)
+check — the invariant the encoder actually maintains — and the
+implementation-facing theorem is deadlock freedom under `AxMode.impl`
+with the margin-0 capacity hypothesis; `Sched.deadlock_free_d5` under
+`.full` stands as the capacity-universal alternative-encoder corner
+(`design/parent-placement.md`).
 
 Modeled-world premises (assumed, argued in MODEL.md §1/§5, not checked):
 error-free conforming peers, SPSC channels, sequential scopes per walk.

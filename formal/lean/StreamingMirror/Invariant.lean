@@ -208,7 +208,11 @@ def wkLocalOk (s : State) (pk : Party × Nat) : Bool :=
       | some .parent =>
           !ws.parentDone &&
           (!ax.d2 || (List.range n).all fun j =>
-            !sk.childIsD h sc j || ws.resDone j))))
+            !sk.childIsD h sc j || ws.resDone j) &&
+          (!ax.d6 || (List.range n).all fun j =>
+            ws.wireDone j &&
+            (!sk.childIsD h sc j ||
+              (ws.resDone j && ws.qSent j == sk.qCount h sc j))))))
 
 /-- Per-assembler structural consistency. Quint: `asmLocalOk`. -/
 def asmLocalOk (s : State) (pk : Party × Nat) : Bool :=

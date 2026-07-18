@@ -722,10 +722,11 @@ theorem close_cascade (hwf : sk.wellFormed = true) {s : State}
 
 -- ============================================ the top-level theorems
 
-/-- The progress lemma: a reachable, non-terminal state of a
-well-formed, schedulable session can always step under the full ledger
-set. -/
-theorem progress (hwf : sk.wellFormed = true)
+/-- The `d5`-corner progress lemma: a reachable, non-terminal state of
+a well-formed, schedulable session can always step under the
+parent-early ledger set (`AxMode.full`). See `deadlock_free_d5` for the
+design-space framing. -/
+theorem progress_d5 (hwf : sk.wellFormed = true)
     (hsched : sk.schedulable = true) {s : State}
     (hr : Reachable sk .full s) (hnt : terminal sk s = false) :
     canStep sk .full s = true := by
@@ -735,7 +736,7 @@ theorem progress (hwf : sk.wellFormed = true)
   by_cases hwkc : ∃ pk ∈ sk.walkKeys,
       (s.walk pk).phase = 2 ∧ (s.walk pk).committed = none
   · obtain ⟨pk, hpk, h2, hn⟩ := hwkc
-    exact walk_uncommitted_canStep hwf hi hpk h2 hn
+    exact walk_uncommitted_canStep hwf hi hpk h2 hn (Or.inr rfl)
   have hwkh : ∀ pk ∈ sk.walkKeys,
       ¬((s.walk pk).phase = 2 ∧ (s.walk pk).committed = none) :=
     fun pk hpk h => hwkc ⟨pk, hpk, h⟩
@@ -960,10 +961,17 @@ theorem progress (hwf : sk.wellFormed = true)
                 _ = j := hjeq.symm
             omega
 
-/-- THE TOP-LEVEL THEOREM (Statement.lean's Phase C target): under
-the full ledger interface, every well-formed, schedulable session is
-deadlock-free — no reachable state is stuck. -/
-theorem deadlock_free (hwf : sk.wellFormed = true)
+/-- The `d5`-corner top-level theorem: under the parent-EARLY ledger
+interface (`AxMode.full`, the weave's placement), every well-formed,
+schedulable session is deadlock-free — no reachable state is stuck, at
+ANY `capLevel ≥ 1`. This is the capacity-universal corner of the
+parent-placement design space (design/parent-placement.md): the priced
+alternative encoder discipline, NOT the shipping encoder's order. The
+implementation-facing flagship theorem — deadlock freedom under
+`AxMode.impl` (the `d6`/epilogue corner, the order the Rust encoder
+actually has) given the margin-0 capacity hypothesis — is task #16 of
+formal/PLAN.md, in progress. -/
+theorem deadlock_free_d5 (hwf : sk.wellFormed = true)
     (hsched : sk.schedulable = true) :
     StreamingMirror.DeadlockFree sk .full := by
   intro s hr
@@ -971,7 +979,7 @@ theorem deadlock_free (hwf : sk.wellFormed = true)
   cases ht : terminal sk s with
   | true => simp
   | false =>
-      rw [progress sk hwf hsched hr ht]
+      rw [progress_d5 sk hwf hsched hr ht]
       simp
 
 end StreamingMirror.Sched

@@ -4,9 +4,14 @@ enough to audit by reading them.
 
 # The audit surface
 
-To believe `DeadlockFree sk AxMode.full` — proven as
-`Sched.deadlock_free` (Proofs/Endgame.lean), on the three standard
-axioms only — a skeptical reader must read, in full:
+Two theorems share this statement shape, one per corner of the
+parent-placement design space (design/parent-placement.md):
+`DeadlockFree sk AxMode.full` — the `d5`/parent-early corner, proven as
+`Sched.deadlock_free_d5` (Proofs/Endgame.lean), on the three standard
+axioms only — and the implementation-facing flagship,
+`DeadlockFree sk AxMode.impl` under the margin-0 capacity hypothesis
+(the `d6`/epilogue corner, the shipping encoder's order; in progress,
+formal/PLAN.md task #16). A skeptical reader must read, in full:
 
 - `Skel.wellFormed` (Skel.lean, ~25 lines) — which dispute skeletons the
   claim covers;
@@ -19,9 +24,9 @@ axioms only — a skeptical reader must read, in full:
   hypothesis excludes ONLY sessions no interleaving whatsoever can
   finish is the event-DAG analysis's checked (not kernel-proven)
   equivalence — formal/PROGRESS.md §5;
-- `AxMode` and `AxMode.full` (Skel.lean, 10 lines) — which send-order
-  axioms are assumed; the mapping to the Rust `Trace::assert_valid`
-  ledgers is the table in formal/README.md;
+- `AxMode`, `AxMode.full`, and `AxMode.impl` (Skel.lean, ~20 lines) —
+  which send-order axioms each corner assumes; the mapping to the Rust
+  `Trace::assert_valid` ledgers is the table in formal/README.md;
 - `Model.apply` (Model.lean, ~150 lines) — the protocol model itself:
   every guard and every state delta. This is the irreducible core; it is
   trusted not by inspection alone but by cross-pinning (the Phase A
@@ -62,18 +67,23 @@ open Model
 
 /-- Deadlock-freedom, the Phase C target: under axiom mode `ax`, no
 reachable state of the session is stuck — every interleaving either can
-still move or has completed. The target theorem
-`sk.wellFormed → sk.schedulable → DeadlockFree sk AxMode.full` (the
-seven-ledger interface) is PROVEN: `Sched.deadlock_free`
-(Proofs/Endgame.lean), via the progress lemma `Sched.progress`. The
-mode index and
+still move or has completed. PROVEN for the `d5` corner:
+`sk.wellFormed → sk.schedulable → DeadlockFree sk AxMode.full`
+(`Sched.deadlock_free_d5`, Proofs/Endgame.lean, via the progress lemma
+`Sched.progress_d5`) — the weave's parent-early discipline, at any
+capacity. The implementation-facing flagship — `DeadlockFree sk
+AxMode.impl` under the margin-0 capacity hypothesis, the shipping
+encoder's epilogue order — is in progress (formal/PLAN.md task #16).
+The mode index and
 the `schedulable` hypothesis are each load-bearing, and each is a
 THEOREM, not a promise: `Control.jam_not_deadlockFree` refutes this
 very statement for the pre-finding-#6 interface (`Control.fullNoD4` —
 everything but wire contiguity) by a kernel-checked stuck run on a
 well-formed skeleton; `Control.parentTrap_not_deadlockFree` refutes it
 for the pre-finding-#7 interface (`Control.fullNoD5` — everything but
-parent placement) on a well-formed AND schedulable skeleton; and
+parent placement, in either corner: the capacity hypothesis of the
+`d6` flagship is exactly what defuses its trap) on a well-formed AND
+schedulable skeleton; and
 `Control.pyramid1_not_deadlockFree` refutes it under `.full` for
 `Pin.pyramid 1` — well-formed, one D child past the `schedulable`
 bound (`pyramid1_not_schedulable` below), greedy run kernel-checked

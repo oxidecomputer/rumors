@@ -24,9 +24,13 @@ sibling contiguity (D3, 2026-07-15: the original three admitted a
 "publish all wires, then all resolutions, then all queries" implementation
 that passes `assert_valid` and deadlocks the cap-1 child-resolution queue
 at fan ≥ 3 — the `ledgerGap` instance), wire contiguity (D4, finding #6,
-2026-07-16), and parent placement (D5, finding #7, 2026-07-17).
-`assert_valid` is tightened alongside each finding so that the checked
-invariant and the assumed axiom set coincide. The Rust's hard-wired
+2026-07-16), and parent placement (finding #7, 2026-07-17 — resolved
+2026-07-18 as a two-corner design space: D5 is the weave's parent-early
+discipline, D6 the shipping encoder's epilogue discipline; §6 and
+`design/parent-placement.md`). `assert_valid` is tightened alongside
+each finding so that the checked invariant and the assumed axiom set
+coincide — for finding #7 the check is the D6 (epilogue) form, the
+order the encoder actually has. The Rust's hard-wired
 `yield_resolve_query!` order is one refinement of the guarded-
 nondeterministic publication relation; the theorems cover every
 implementation whose traces satisfy the tightened `assert_valid`.
@@ -377,17 +381,39 @@ trivially ordered.)
   (`lean/StreamingMirror/Controls.lean`: `Control.pdelay`, a kernel-
   checked stuck run on a well-formed, **schedulable** skeleton —
   `Control.parentTrap_not_deadlockFree` refutes the pre-finding target
-  statement itself). The Rust encoder enforces the placement
-  syntactically (the parent summary departs immediately after the final
-  resolution — the weave's §5 position), and `Trace::assert_valid` gains
-  the matching check alongside this finding.
+  statement itself). D5 is the *weave's* discipline — the placement the
+  §5 candidate schedule pins, deadlock-free at any `capLevel`
+  (`Sched.deadlock_free_d5`) — and NOT the shipping encoder's: the Rust
+  emits the parent in the scope *epilogue*, after the last chunk's
+  queries and trailing wires (§5 above lists parent-before-last-queries
+  among the orderings "the Rust scheduler can never produce";
+  `design/parent-placement.md` records the full design space and why
+  the epilogue order wins on pipelining). An earlier revision of this
+  paragraph claimed the encoder enforces the D5 placement; that was
+  wrong, caught 2026-07-18 when the Rust-side probe found the real
+  publication order violating the minted check.
 
-`AxiomMode` switches: `W`, `D1root`, `D1internal`, `D2`, `D3`, `D4`, `D5` —
-each independently droppable, giving the negative controls N1 (drop W), N2
-(drop D1 at the root), N3 (drop D1 internally), N4 (drop D2), N5/`ledgerGap`
-(drop D3), and the Lean controls `Control.jam` (drop D4) and
-`Control.pdelay` (drop D5; the Quint spec predates both and has no
-`AX_D4`/`AX_D5` consts — the Lean model is the model of record for them).
+- **Axiom D6 (epilogue placement).** The shipping encoder's corner of
+  the same design space, the mirror-image of D5: the parent summary of
+  a scope departs only after every other send of the scope — all
+  wires, and every D child's resolution and full query quota. This is
+  the order `materialized/levels.rs` produces ("Launch every `Pending`
+  slot's work before publishing its enclosing parent resolution").
+  Under D6 (mode `AxMode.impl`: D6 instead of D5, all else as `.full`)
+  deadlock freedom additionally requires the capacity margin
+  `capLevel ≥` max per-scope dispute count — the encoder's
+  `FAN ≥ kids` discipline; at `dCount = capLevel + 2` the parent-delay
+  trap is real (`Control.parentTrap`). D5 and D6 are never asserted
+  together: at any scope with a send left after the final
+  D-resolution, their guards contradict and the choice point wedges.
+
+`AxiomMode` switches: `W`, `D1root`, `D1internal`, `D2`, `D3`, `D4`, `D5`,
+`D6` — each independently droppable, giving the negative controls N1 (drop
+W), N2 (drop D1 at the root), N3 (drop D1 internally), N4 (drop D2),
+N5/`ledgerGap` (drop D3), and the Lean controls `Control.jam` (drop D4) and
+`Control.pdelay` (drop D5 with D6 unasserted; the Quint spec predates all
+three and has no `AX_D4`/`AX_D5`/`AX_D6` consts — the Lean model is the
+model of record for them).
 Dropping a guard removes those poset edges and nothing else; the
 checker then searches the freed linearizations for a stuck state. One
 scaffolding const, `WIRE_FIRST`, is **not an axiom**: because the wire

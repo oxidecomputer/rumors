@@ -79,13 +79,13 @@ def jam : Skel :=
 /-- The pre-finding-#6 interface: every axiom of the old ledger set, no
 wire contiguity (and no parent placement, which postdates it too).
 `⟨w, d1root, d1int, d2, d3, d4, d5, wireFirst⟩`. -/
-def fullNoD4 : AxMode := ⟨true, true, true, true, true, false, false, false⟩
+def fullNoD4 : AxMode := ⟨true, true, true, true, true, false, false, false, false⟩
 
 /-- The pre-finding-#7 interface: what `AxMode.full` was from finding #6
 until the parent-delay finding — every ledger but parent placement.
 `parentTrap` below kernel-checks that this set does NOT imply
 deadlock-freedom. -/
-def fullNoD5 : AxMode := ⟨true, true, true, true, true, true, false, false⟩
+def fullNoD5 : AxMode := ⟨true, true, true, true, true, true, false, false, false⟩
 
 open Party in
 /-- The trap schedule. Under `fullNoD4` every guard passes and the run

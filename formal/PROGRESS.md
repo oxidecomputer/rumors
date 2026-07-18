@@ -1018,3 +1018,93 @@ bounds μ(Q), and both are bounded by the awaited send.
    The termination theorem stays executable-tier (`replaySchedule`
    compiles and completes the schedule on every pin and fuzz seed);
    its kernel twin was never in §7's scope.
+
+## 8. The implementation-facing corner: the `d6` mint (task #15, 2026-07-18)
+
+Finding #7's post-script: the Rust-side proptest fork found the real
+encoder's publication order VIOLATING the `d5` check as minted, and the
+adjudication fork classified the divergence as model-over-constraint —
+`d5` is the *weave's* placement; the encoder deliberately emits the
+parent in the scope epilogue (`materialized/levels.rs`: "Launch every
+`Pending` slot's work before publishing its enclosing parent
+resolution"), and MODEL.md §5 had documented that order all along
+("orderings the Rust scheduler can never produce" includes the `d5`
+placement). Full analysis and the design-space record:
+`design/parent-placement.md` (parent-first branch). The user's
+adjudications: re-target the implementation-facing theorem at the
+encoder's real order; capacity hypothesis at margin 0
+(`capLevel ≥` max per-scope `dCount` — the robust bound provable
+against the channel interface, chosen over the tight −2 floor); walk
+channels stay cap 1; capacity monotonicity for wider production
+configs assumed informally (Kahn: per-walk order fixed ⇒ deterministic
+processes ⇒ added buffer capacity only relaxes back-pressure); the
+`d5` theorems kept as the capacity-universal counterpart.
+
+**The mint.** `AxMode` gains `d6` (epilogue placement), field after
+`d5`; literals are 9-tuples. The guard, appended to `wkChoosable`'s
+`.parent` arm and mirrored verbatim in `wkLocalOk`'s committed-parent
+arm (the commit-step preservation is `exact hch` — both sides
+identical):
+
+    (!ax.d6 || (List.range n).all fun j =>
+      ws.wireDone j &&
+      (!sk.childIsD h s j ||
+        (ws.resDone j && ws.qSent j == sk.qCount h s j)))
+
+Rust `Trace::assert_valid` spelling (for the parent-first fork, task
+#17): *scanning a walk's publications per scope, a parent summary that
+departs while any wire of its scope is unsent, or while any disputed
+child's resolution is unsent or its dependent-work quota not fully
+issued, is a violation — the parent summary is the scope's last
+publication.* Modes: `AxMode.impl` = `d6` instead of `d5`, all else as
+`.full` (⟨true×6, false, true, false⟩). `.full` keeps its name (the
+`d5` corner); its docstring no longer calls itself the Rust interface.
+`d5` and `d6` are never asserted together — at any scope with a send
+left after the final D-resolution their guards contradict and the
+choice point wedges; the pillar (`walk_uncommitted_choosable`) now
+carries `hmode : ax.d5 = false ∨ ax.d6 = false`, with the parent-first
+early exit taken only under `d6 = false` and the enumeration's final
+parent choice discharging the `d6` conjunct from the Case-C
+completeness facts (`wkChoosable_parent_intro` gained the `hd6`
+hypothesis; the `D5Free` discharge generalized to
+`ax.d5 = false ∨ D5Free`). Theorems renamed: `Sched.progress_d5` /
+`Sched.deadlock_free_d5`; the flagship names are reserved for the
+`.impl` theorem (task #16). MODEL.md's D5 paragraph corrected (it had
+claimed the encoder enforces the `d5` placement — wrong, caught by the
+Rust probe), D6 paragraph added, README ledger table re-rowed.
+
+**Validation (the falsifiable check on the re-target).** Gates
+extended: `runFuzz` drains every well-formed seed's `margin0` variant
+(`capLevel := max capLevel (maxDCount sk)`) under `.impl`
+adversarially — a stall is a hard error; sub-margin `.impl` stalls on
+schedulable seeds are counted and required ≥ 1 (the capacity
+hypothesis must stay load-bearing). `runAll`: the six pins drain under
+`.impl` at margin 0; the boundary matrix adds the margin-0 `.impl`
+drain per capLevel; `pdelay` pinned both ways (raw −2 boundary stalls
+under `.impl`, margin 0 drains).
+
+**5a settled — the −2 floor is poll-schedule-specific.** `pdelay`
+stalls under `.impl` itself, where `d6` FORCES the epilogue placement,
+so the stalling run is epilogue-legal by construction: the −2 boundary
+fails under adversarial cross-process interleaving even with the
+encoder's exact per-walk order. The Rust's observed completion at
+capacity = fan − 2 (`capacity_stress_witness_requires_inter_level_fan`)
+is a property of its actual poll schedules, not of the order alone.
+Margin 0 is therefore the right theorem hypothesis, and the tight
+floor stays characterized executably, not carried through the kernel.
+
+**5b confirmed in the model.** At `pdelay`'s `.impl` stuck state:
+level-channel occupancy 2 (the capLevel-1 buffers full), 1 assembler
+mid-collection (`got > 0` — the consumer's hand), 3 walks parked on
+committed sends (the producers' hands: last-chunk query, trailing
+wire, undrainable parent). The commit/fire split IS the producer-hand
+slot; `asmLocalOk`'s phase-1 collection IS the consumer-hand slot —
+the borrowed-slots mechanism of design/parent-placement.md §2, now
+[checked] in the model as well as in Rust.
+
+Task #16 consumes: `AxMode.impl`, the pillar under
+`hmode = Or.inl rfl` (`.impl.d5 = false` is rfl), the margin-0
+hypothesis as `maxDCount sk ≤ sk.capLevel` (spell it that way, or as
+`∀ s, sk.dCount s ≤ sk.capLevel`), and the schedule/weave machinery
+re-derived for the epilogue order (the weave itself VIOLATES `d6` —
+the `.impl` witness schedule must be the encoder-order transcription).
