@@ -3,13 +3,14 @@
 use std::{
     convert::Infallible,
     io,
+    ops::RangeInclusive,
     pin::Pin,
     sync::{Arc, Mutex},
     task::{Context, Poll},
 };
 
 use futures::join;
-use tokio::io::AsyncWrite;
+use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::link::{Acceptor, Connector, Link, MemoryLink, memory_with_capacity};
 use crate::testing::{IoPlan, IoReportHandle, IoSide, wrap_link};
@@ -27,7 +28,7 @@ use crate::tree::{
 };
 
 /// Dense states occupied by the two nonempty-query flow variants.
-const QUERY_STATES: std::ops::RangeInclusive<u8> = 4..=5;
+const QUERY_STATES: RangeInclusive<u8> = 4..=5;
 
 /// Dense states below this boundary carry reactions rather than bare ends.
 const REACTION_STATE_COUNT: u8 = 8;
@@ -318,11 +319,11 @@ async fn drive<LR, LW, LC, LA, RR, RW, RC, RA>(
     Result<TreeRoot<()>, RightError>,
 )
 where
-    LR: tokio::io::AsyncRead + Unpin + Send,
+    LR: AsyncRead + Unpin + Send,
     LW: AsyncWrite + Unpin + Send,
     LC: Connector,
     LA: Acceptor,
-    RR: tokio::io::AsyncRead + Unpin + Send,
+    RR: AsyncRead + Unpin + Send,
     RW: AsyncWrite + Unpin + Send,
     RC: Connector,
     RA: Acceptor,
