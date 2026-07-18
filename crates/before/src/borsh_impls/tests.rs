@@ -1,8 +1,15 @@
-use borsh::io::ErrorKind;
+use borsh::io::{Error, ErrorKind, Read};
 use borsh::BorshDeserialize;
 use proptest::prelude::*;
+use proptest::test_runner::TestCaseError;
 
+use super::decode_error;
+use crate::codec::{self, BitCursor, Bits, PARSE_STACK_INLINE};
 use crate::error::Decode;
+use crate::testing::bridge::{from_oracle_party, from_oracle_version};
+use crate::testing::generators::{
+    arb_oracle_party_nonempty, arb_oracle_version, deep_left_spine_party,
+};
 use crate::testing::optrace::{step_impl, world_strategy};
 use crate::{Clock, Party, Version};
 
@@ -12,7 +19,9 @@ use crate::{Clock, Party, Version};
 /// `Decode::Io` is the one rich variant the bit-level error split must still
 /// deliver losslessly through `ReaderCursor`: the prefix-free encodings pad
 /// only to the next byte boundary, so every proper byte prefix of a canonical
-/// encoding cuts mid-tree and the next per-bit refill hits end-of-input.
+/// encoding cuts mid-tree and the next per-bit refill hits end-of-input. The
+/// wide value's 129-bit gamma code exceeds the 64-bit decode window, so its
+/// cuts land inside the per-bit fallback's refill loop as well as around it.
 #[test]
 fn truncated_borsh_stream_reports_unexpected_eof() {
     let mut party = Party::seed();
@@ -20,9 +29,11 @@ fn truncated_borsh_stream_reports_unexpected_eof() {
         let _ = party.fork(); // deepen the id tree past one byte
     }
     let version: Version = "(1, 2, (0, (1, 0, 2), 0))".parse().unwrap();
+    let wide: Version = "(0, 18446744073709551615, 0)".parse().unwrap();
 
     let party_bytes = borsh::to_vec(&party).unwrap();
     let version_bytes = borsh::to_vec(&version).unwrap();
+    let wide_bytes = borsh::to_vec(&wide).unwrap();
     assert!(
         party_bytes.len() >= 2,
         "the id tree must span several bytes"
@@ -30,6 +41,10 @@ fn truncated_borsh_stream_reports_unexpected_eof() {
     assert!(
         version_bytes.len() >= 2,
         "the event tree must span several bytes"
+    );
+    assert!(
+        wide_bytes.len() >= 16,
+        "the wide gamma code must overrun one 64-bit window"
     );
 
     for cut in 0..party_bytes.len() {
@@ -40,6 +55,19 @@ fn truncated_borsh_stream_reports_unexpected_eof() {
         let err = Version::try_from_slice(&version_bytes[..cut]).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::UnexpectedEof, "cut at byte {cut}");
     }
+    for cut in 0..wide_bytes.len() {
+        let err = Version::try_from_slice(&wide_bytes[..cut]).unwrap_err();
+        assert_eq!(
+            err.kind(),
+            ErrorKind::UnexpectedEof,
+            "wide cut at byte {cut}"
+        );
+    }
+    // And uncut, the window-defying code still decodes through the fallback.
+    assert_eq!(
+        Version::try_from_slice(&wide_bytes).expect("the full wide code decodes"),
+        wide,
+    );
 }
 
 /// A canonicality violation crosses the borsh boundary as `InvalidData`
@@ -126,4 +154,260 @@ proptest! {
             prop_assert_eq!(back.version(), v);
         }
     }
+}
+
+// ─────────────── wire cursor ≡ per-bit reference (differential) ───────────────
+//
+// `ReaderCursor` reads bits by byte-index and integers through the word
+// window over its already-read bytes; the pre-window cursor below — a growing
+// bit buffer, per-bit reads only — is the specification. These tests pin the
+// wire decode to it differentially: same accepts, same rejects, same error
+// variants, and byte-for-byte identical consumption from the reader.
+
+/// The pre-window `ReaderCursor`, the wire decode's differential oracle.
+///
+/// Kept verbatim from before the word window: a growing `BitVec` refilled one
+/// byte at a time, per-bit reads only, and the default per-bit `read_int`.
+struct BitwiseReaderCursor<'a, R> {
+    reader: &'a mut R,
+    bits: Bits,
+    position: usize,
+}
+
+impl<R: Read> BitCursor for BitwiseReaderCursor<'_, R> {
+    type Error = Decode;
+
+    fn read_bit(&mut self) -> Result<bool, Decode> {
+        if self.position == self.bits.len() {
+            let mut byte = [0];
+            self.reader.read_exact(&mut byte).map_err(Decode::Io)?;
+            self.bits.extend_from_bitslice(codec::bytes_as_bits(&byte));
+        }
+        let bit = self.bits[self.position];
+        self.position += 1;
+        Ok(bit)
+    }
+
+    fn position(&self) -> usize {
+        self.position
+    }
+}
+
+/// Decode one event tree per-bit through [`BitwiseReaderCursor`].
+///
+/// Replicates the pre-window wire pipeline exactly: parse, padding check,
+/// truncate to the consumed bits.
+fn reference_version<R: Read>(reader: &mut R) -> Result<Version, Decode> {
+    let mut cursor = BitwiseReaderCursor {
+        reader,
+        bits: Bits::new(),
+        position: 0,
+    };
+    codec::parse_ev_from(&mut cursor)?;
+    codec::require_zero_padding(&cursor.bits, cursor.position)?;
+    let position = cursor.position;
+    let mut bits = cursor.bits;
+    bits.truncate(position);
+    Ok(Version::from_bits(bits))
+}
+
+/// Decode one id tree per-bit through [`BitwiseReaderCursor`].
+///
+/// Replicates the pre-window wire pipeline exactly, including the anonymity
+/// rejection of `Party::deserialize_reader`.
+fn reference_party<R: Read>(reader: &mut R) -> Result<Party, Decode> {
+    let mut cursor = BitwiseReaderCursor {
+        reader,
+        bits: Bits::new(),
+        position: 0,
+    };
+    codec::parse_id_from(&mut cursor)?;
+    codec::require_zero_padding(&cursor.bits, cursor.position)?;
+    let position = cursor.position;
+    let mut bits = cursor.bits;
+    bits.truncate(position);
+    if codec::id_is_empty(&bits) {
+        return Err(Decode::Anonymous);
+    }
+    Ok(Party::from_bits(bits))
+}
+
+/// Assert two wire decode errors agree on `ErrorKind` and, when both carry a
+/// [`Decode`], on its variant.
+fn assert_same_error(subject: &Error, oracle: &Error) -> Result<(), TestCaseError> {
+    prop_assert_eq!(subject.kind(), oracle.kind());
+    let variant = |e: &Error| {
+        e.get_ref()
+            .and_then(|inner| inner.downcast_ref::<Decode>())
+            .map(std::mem::discriminant)
+    };
+    prop_assert_eq!(variant(subject), variant(oracle));
+    Ok(())
+}
+
+/// Layer the adversarial wire shapes over a canonical-encoding strategy: raw
+/// noise, or an encoding optionally bit-flipped, truncated, and tailed with
+/// junk that only a speculative read would touch.
+fn arb_stream(encoding: impl Strategy<Value = Vec<u8>>) -> impl Strategy<Value = Vec<u8>> {
+    prop_oneof![
+        proptest::collection::vec(any::<u8>(), 0..24),
+        (
+            encoding,
+            proptest::option::of(any::<proptest::sample::Index>()),
+            proptest::option::of(any::<proptest::sample::Index>()),
+            proptest::collection::vec(any::<u8>(), 0..8),
+        )
+            .prop_map(|(mut bytes, flip, cut, tail)| {
+                if let Some(flip) = flip {
+                    let bit = flip.index(bytes.len() * 8);
+                    bytes[bit / 8] ^= 0x80u8 >> (bit % 8);
+                }
+                if let Some(cut) = cut {
+                    bytes.truncate(cut.index(bytes.len() + 1));
+                }
+                bytes.extend(tail);
+                bytes
+            }),
+    ]
+}
+
+proptest! {
+    /// The windowed wire cursor decodes a `Version` stream exactly like the
+    /// per-bit reference: same value or same error, same bytes consumed.
+    ///
+    /// Byte consumption is the wire contract — the bytes after the encoding
+    /// belong to the next borsh field — so it is asserted unconditionally,
+    /// on accepts and rejects alike. Streams cover canonical encodings, bit
+    /// flips, truncations, raw noise, and trailing junk.
+    #[test]
+    fn version_wire_decode_matches_bitwise_reference(
+        stream in arb_stream(arb_oracle_version().prop_map(|t| from_oracle_version(&t).encode())),
+    ) {
+        let mut subject_reader: &[u8] = &stream;
+        let subject = Version::deserialize_reader(&mut subject_reader);
+        let mut oracle_reader: &[u8] = &stream;
+        let oracle = reference_version(&mut oracle_reader).map_err(decode_error);
+        prop_assert_eq!(
+            subject_reader.len(),
+            oracle_reader.len(),
+            "byte consumption diverged",
+        );
+        match (subject, oracle) {
+            (Ok(s), Ok(o)) => prop_assert_eq!(s, o),
+            (Err(s), Err(o)) => assert_same_error(&s, &o)?,
+            (s, o) => prop_assert!(false, "accept/reject diverged: {:?} vs {:?}", s, o),
+        }
+    }
+}
+
+proptest! {
+    /// The windowed wire cursor decodes a `Party` stream exactly like the
+    /// per-bit reference: same value or same error, same bytes consumed.
+    ///
+    /// The id parse never reads integers, so this pins the byte-indexed
+    /// `read_bit` and its refill discipline in isolation from the window.
+    #[test]
+    fn party_wire_decode_matches_bitwise_reference(
+        stream in arb_stream(
+            arb_oracle_party_nonempty().prop_map(|t| from_oracle_party(&t).encode()),
+        ),
+    ) {
+        let mut subject_reader: &[u8] = &stream;
+        let subject = Party::deserialize_reader(&mut subject_reader);
+        let mut oracle_reader: &[u8] = &stream;
+        let oracle = reference_party(&mut oracle_reader).map_err(decode_error);
+        prop_assert_eq!(
+            subject_reader.len(),
+            oracle_reader.len(),
+            "byte consumption diverged",
+        );
+        match (subject, oracle) {
+            (Ok(s), Ok(o)) => prop_assert_eq!(s, o),
+            (Err(s), Err(o)) => assert_same_error(&s, &o)?,
+            (s, o) => prop_assert!(false, "accept/reject diverged: {:?} vs {:?}", s, o),
+        }
+    }
+}
+
+proptest! {
+    /// A canonical encoding embedded in a longer borsh stream decodes to its
+    /// value while consuming exactly the encoding's bytes.
+    ///
+    /// The encodings are prefix-free with no length prefix, so the decoder
+    /// must find its own end: the trailing bytes — the next borsh fields —
+    /// stay in the reader untouched, for every `Party`/`Version`/`Clock` an
+    /// impl-driven history reaches. A `Clock` doubles as the composition
+    /// witness: its `Version` decode starts wherever its `Party` decode
+    /// stopped.
+    #[test]
+    fn embedded_decode_consumes_exactly_the_encoding(
+        ops in world_strategy(),
+        trailing in proptest::collection::vec(any::<u8>(), 0..16),
+    ) {
+        let mut imp = vec![Clock::seed()];
+        for op in &ops {
+            step_impl(&mut imp, op);
+        }
+        for c in &imp {
+            let (p, v) = (c.party(), c.version());
+
+            let mut stream = borsh::to_vec(p).unwrap();
+            stream.extend_from_slice(&trailing);
+            let mut reader: &[u8] = &stream;
+            prop_assert_eq!(&Party::deserialize_reader(&mut reader).unwrap(), p);
+            prop_assert_eq!(reader, &trailing[..]);
+
+            let mut stream = borsh::to_vec(v).unwrap();
+            stream.extend_from_slice(&trailing);
+            let mut reader: &[u8] = &stream;
+            prop_assert_eq!(&Version::deserialize_reader(&mut reader).unwrap(), v);
+            prop_assert_eq!(reader, &trailing[..]);
+
+            let mut stream = borsh::to_vec(c).unwrap();
+            stream.extend_from_slice(&trailing);
+            let mut reader: &[u8] = &stream;
+            let back = Clock::deserialize_reader(&mut reader).unwrap();
+            prop_assert_eq!(back.party(), p);
+            prop_assert_eq!(back.version(), v);
+            prop_assert_eq!(reader, &trailing[..]);
+        }
+    }
+}
+
+/// Trees deeper than the parsers' inline stack capacity spill to the heap on
+/// the wire path with behavior unchanged.
+///
+/// A version and a party three times [`PARSE_STACK_INLINE`] deep round-trip
+/// through borsh with trailing bytes intact: the spill must disturb neither
+/// the normal-form checks the frames carry nor the cursor's byte consumption.
+#[test]
+fn deep_trees_roundtrip_through_borsh() {
+    const DEPTH: usize = 3 * PARSE_STACK_INLINE;
+    const TRAILING: &[u8] = &[0xA5, 0x5A, 0xFF];
+
+    // A right-spine event tree: every node has a base-0 left leaf, and the
+    // innermost pair of leaves differ, so the whole spine is canonical.
+    let mut spine = String::from("2");
+    for _ in 0..DEPTH {
+        spine = format!("(1, 0, {spine})");
+    }
+    let version: Version = spine.parse().expect("a deep right spine is canonical");
+    let mut stream = borsh::to_vec(&version).unwrap();
+    stream.extend_from_slice(TRAILING);
+    let mut reader: &[u8] = &stream;
+    assert_eq!(
+        Version::deserialize_reader(&mut reader).expect("deep version decodes"),
+        version,
+    );
+    assert_eq!(reader, TRAILING, "trailing bytes stay for the next field");
+
+    let party = deep_left_spine_party(DEPTH);
+    let mut stream = borsh::to_vec(&party).unwrap();
+    stream.extend_from_slice(TRAILING);
+    let mut reader: &[u8] = &stream;
+    assert_eq!(
+        Party::deserialize_reader(&mut reader).expect("deep party decodes"),
+        party,
+    );
+    assert_eq!(reader, TRAILING, "trailing bytes stay for the next field");
 }

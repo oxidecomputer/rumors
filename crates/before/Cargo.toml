@@ -13,6 +13,10 @@ num-bigint = "0.4.6"
 # trees; grow the stack onto the heap before a deep one can overflow. The crate
 # stays `#![forbid(unsafe_code)]`; the platform stack manipulation lives here.
 stacker = "0.1"
+# Inline-capacity stacks for the iterative tree parsers (`codec/tree.rs`):
+# real trees fit the inline frames, deeper ones spill to the heap. Default
+# features only — no `union`/unchecked APIs — so the no-unsafe policy holds.
+smallvec = "1.15"
 thiserror = "2"
 serde = { version = "1", optional = true, default-features = false, features = ["derive", "alloc"] }
 borsh = { version = "1", optional = true }

@@ -12,14 +12,16 @@ use proptest::test_runner::TestCaseError;
 
 use super::{
     bytes_as_bits, decode_int, decode_int_from, encode_int, skip_int, Base, BitCursor, Bits,
-    BitsSlice, SliceCursor,
+    BitsSlice, SliceCursor, PARSE_STACK_INLINE,
 };
 use crate::oracle;
 use crate::testing::bridge::{
     from_oracle_clock, from_oracle_party, from_oracle_version, to_oracle_clock, to_oracle_party,
     to_oracle_version,
 };
-use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
+use crate::testing::generators::{
+    arb_oracle_party_nonempty, arb_oracle_version, deep_left_spine_party,
+};
 use crate::testing::optrace::{run, versions, world_strategy};
 use crate::{error::Decode, Clock, Party, Version};
 
@@ -905,4 +907,41 @@ proptest! {
             );
         }
     }
+}
+
+// ───────────────────────────── parse stacks ─────────────────────────────
+
+/// Trees deeper than the parsers' inline stack capacity spill to the heap
+/// with behavior unchanged: they still validate, encode, and round-trip
+/// exactly.
+///
+/// The tree parsers keep their explicit stacks in [`PARSE_STACK_INLINE`]
+/// inline frames; a deeper tree moves the frames to the heap mid-parse. A
+/// right-spine event tree and a left-spine id tree three times that depth
+/// cross the spill boundary in both parsers (and, since the spill happens
+/// while ancestors are still open, the spilled frames must survive to
+/// complete the normal-form checks on the way back up).
+#[test]
+fn parse_stacks_spill_past_inline_capacity() {
+    const DEPTH: usize = 3 * PARSE_STACK_INLINE;
+
+    // Event tree: a right spine `(1, 0, (1, 0, … 2))`. Every node has a
+    // base-0 left leaf, and the innermost pair of leaves differ, so the
+    // whole spine is canonical.
+    let mut spine = String::from("2");
+    for _ in 0..DEPTH {
+        spine = format!("(1, 0, {spine})");
+    }
+    let version: Version = spine.parse().expect("a deep right spine is canonical");
+    assert_eq!(
+        Version::decode(&version.encode()[..]).expect("deep event tree decodes"),
+        version,
+    );
+
+    // Id tree: a left spine, one frame per level in `parse_id_from`.
+    let party = deep_left_spine_party(DEPTH);
+    assert_eq!(
+        Party::decode(&party.encode()[..]).expect("deep id tree decodes"),
+        party,
+    );
 }

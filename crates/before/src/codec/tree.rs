@@ -1,6 +1,19 @@
+use smallvec::SmallVec;
+
 use crate::error::{Decode, Parse};
 
 use super::{Base, BitCursor, BitsSlice, SliceCursor};
+
+/// Inline capacity, in frames, of the parsers' explicit stacks.
+///
+/// One frame per level of unfinished ancestors, so the stack is as deep as
+/// the tree; real id and event trees stay well under 16 levels, so a parse
+/// normally touches no heap at all — worth having because the wire path runs
+/// one parse per decoded `Version` (~10k per gossip session), where a fresh
+/// `Vec` per call was measured (jointly with the wire cursor's old buffer
+/// growth) at the profile's sampling floor. Deeper trees spill to the heap
+/// transparently; depth still never lands on the call stack.
+pub(crate) const PARSE_STACK_INLINE: usize = 16;
 
 /// While building a node bottom-up, what we still need from the stream.
 enum IdFrame {
@@ -37,7 +50,7 @@ pub(crate) fn parse_id_from<C: BitCursor>(cursor: &mut C) -> Result<usize, Decod
 where
     Decode: From<C::Error>,
 {
-    let mut stack: Vec<IdFrame> = Vec::new();
+    let mut stack: SmallVec<[IdFrame; PARSE_STACK_INLINE]> = SmallVec::new();
     loop {
         let left = cursor.read_bit()?;
         let right = cursor.read_bit()?;
@@ -110,7 +123,7 @@ pub(crate) fn parse_ev_from<C: BitCursor>(cursor: &mut C) -> Result<usize, Decod
 where
     Decode: From<C::Error>,
 {
-    let mut stack: Vec<EvFrame> = Vec::new();
+    let mut stack: SmallVec<[EvFrame; PARSE_STACK_INLINE]> = SmallVec::new();
     loop {
         let flag = cursor.read_bit()?;
         let base = cursor.read_int()?;

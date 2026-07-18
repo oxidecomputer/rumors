@@ -108,7 +108,7 @@ const WINDOW_BITS: usize = u64::BITS as usize;
 /// byte's dead bits are masked, missing bytes are zero-filled), which only
 /// ever *lengthens* the apparent prefix — pushing `2k+1` past the proven
 /// bits and into the fallback — never shortens it into a bogus accept.
-pub(super) fn decode_int_window(bits: &BitsSlice, pos: usize) -> Option<(u64, usize)> {
+pub(crate) fn decode_int_window(bits: &BitsSlice, pos: usize) -> Option<(u64, usize)> {
     // Bits of real stream between `pos` and the window's end.
     let proven = bits.len().checked_sub(pos)?.min(WINDOW_BITS);
     let window = load_window(bits, pos)?;

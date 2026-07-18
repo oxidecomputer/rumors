@@ -48,10 +48,11 @@ pub(crate) trait BitCursor {
     /// The provided default is the per-bit loop ([`decode_int_from`]); a
     /// cursor with cheap access to its byte-backed window overrides it to
     /// route through the word decoder ([`gamma::decode_int_window`]), which
-    /// reads a whole code in `O(1)` words. [`SliceCursor`] overrides; the
-    /// wire-side `ReaderCursor` (in `borsh_impls`) keeps the default until it
-    /// grows a byte window of its own, at which point its override plugs into
-    /// the same fast path.
+    /// reads a whole code in `O(1)` words. Both cursors override:
+    /// [`SliceCursor`] windows over its whole slice, and the wire-side
+    /// `ReaderCursor` (in `borsh_impls`) windows over the bytes it has
+    /// already pulled from its reader — never bytes beyond them — falling
+    /// back to this loop whenever the window cannot prove a whole code.
     fn read_int(&mut self) -> Result<Base, Decode>
     where
         Self: Sized,
