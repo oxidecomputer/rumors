@@ -1333,7 +1333,43 @@ first-try because the d5 transcriptions held):
   arm with `g+2`-last spellings; hoisting them above the split leaves
   non-defeq `h+1+2*m`-style spellings.
 
-**2b remaining, for the successor fork**: (v) **Ready sites** —
+**2b COMPLETE, 2026-07-19** (fork #16h, commits `06eb5341` +
+`56a46d2a`, both in MasterE.lean, ~2200 lines): **`weaveE_wedge :
+wellFormed → margin 0 → WEdgeP sk (procsE sk) [] (weaveStateE sk)`
+is closed** — the `.impl` completeness witness is edge-respecting.
+
+- Site layer (`06eb5341`): E head lemmas (`head_rcv_wireE/askedE`,
+  `head_snd_wireE/askedE` via `enabled_*_of_memP` + the `procsE`
+  numbering facts), `kid_filtersE`/`align_kids_suffixE` (per-kid and
+  suffix clauses off the landed `align_scopeE` — no new induction),
+  `scope/kids_filter_neE`, `ancTeleE_rebase`, `deep_glueE` (hrest
+  weakened to `g' < h`: the E tail's own-stage filter carries the
+  pending parent, so only strictly-deep clauses exist), the private
+  E futLen floors (`futLenE_site_lower/_SL_q/_site_wire/_Q0_wire/
+  _site_q` — all no-splice, via `childChunk_run_spliced` at `none`),
+  and the four ready sites (`ready_upperE` — the one NEW shape, at
+  the scope tail; `ready_lowerE`/`ready_wire0E`/`ready_leafreqE` —
+  d5 transcriptions with the parent-tail cons and margin 0 via
+  `margin0_schedulable` where a consumed lemma wants `schedulable`).
+- The induction (`56a46d2a`): `emitOK_scope_zeroE`, `emitOK_kidsE`
+  (private), `emitOK_scopeE`, `emitOK_weaveE`,
+  `weaveStateE_wedge_of_emitOK`, `weaveE_wedge`. THE structural
+  device: the fold's `rest` is `upper :: after-scope-rest` — the
+  scope expansion appends its parent at the tail, so `emitOK_kidsE`
+  takes the low windows SPLIT (`hlowD` for `g' ≤ hp` in pure
+  `walkSegE` form, `hlowO` for the own stage in `upper :: walkSegE`
+  form), every within-fold rest-filter picks the pending parent up
+  from `hlowO`, and the pushed subtree telescope's `fil` at
+  `G = hp+1` gets its required `upper :: walkSegE` tail for free.
+  The tail-parent site needs NO rebase — the telescope extends over
+  the upper cons by four `filter_cons_of_neg`s. The splice case
+  split of d5's `emitOK_kids` (~300 lines) is simply absent.
+- Compiled essentially first-try (three trivial fixes: a redundant
+  descIdx conversion, a missing PrecE import, nothing else) — the d5
+  template transcription discipline plus the pre-landed suppliers
+  made the climb mechanical, as scouted.
+
+**Superseded route notes** (kept for provenance): (v) **Ready sites** —
 `ready_upperE` at the scope tail: `hsnd` via `upper_site_hsndE` with
 `futLen_siteE_upper` (the E `hfu` = `stageLen − k`), `hdesc` via
 `descSupply_upper_of_ctxE` at `X := wiresBefore h (k+1)` (clean
@@ -1352,7 +1388,9 @@ site sequence per-kid chunks THEN the tail parent
 authorities); an `ancTeleE_rebase` mirroring `ancTele_rebase` will be
 needed for the per-head telescope re-basing.
 
-2b. **The eweave master induction — the remaining climb**
+2b. ~~**The eweave master induction — the remaining climb**~~ (DONE
+   2026-07-19, see the completion record above; the route below is
+   the pre-climb scouting, kept for provenance)
    (scouted against the d5 statements 2026-07-19): produce
    `EmitOKOnP sk (procsE sk) ((weaveOps sk).flatMap (opEventsE sk))
    []`, then `weaveE_wedge : WEdgeP sk (procsE sk) []
