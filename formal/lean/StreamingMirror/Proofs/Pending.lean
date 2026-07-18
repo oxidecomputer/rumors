@@ -2705,4 +2705,441 @@ theorem absorb_pend_or_done (hwf : sk.wellFormed = true) {s : State}
     rw [List.mem_range] at hjm
     exact hblock j (by omega) e hje
 
+-- ============================================== the assembler decode
+
+/-- Assembler key bounds. -/
+theorem asmKeys_bounds {pk : Party × Nat} (hpk : pk ∈ sk.asmKeys) :
+    1 ≤ pk.2 ∧ (pk.1 = Party.I → pk.2 ≤ sk.rootH)
+      ∧ (pk.1 = Party.R → pk.2 ≤ sk.rootH - 1) := by
+  obtain ⟨p, j⟩ := pk
+  simp only [Skel.asmKeys, List.mem_append, List.mem_map,
+    List.mem_range] at hpk
+  rcases hpk with ⟨t, ht, heq⟩ | ⟨t, ht, heq⟩ <;>
+    · rw [Prod.mk.injEq] at heq
+      obtain ⟨hp, hj⟩ := heq
+      subst hp
+      refine ⟨by omega, ?_, ?_⟩ <;>
+        · intro h
+          first
+          | omega
+          | cases h
+  
+/-- The responder's height-1 assembler never awaits level returns
+(height-1 scopes are childless). -/
+theorem pendAt_R_one (hwf : sk.wellFormed = true) (i : Nat) :
+    sk.pendAt Party.R 1 i = 0 := by
+  by_cases hin : i < (sk.asmResList Party.R 1).length
+  · have hsucc := pendsBefore_succ sk (p := Party.R) (j := 1) hin
+    have h1 := pendsBefore_asker_one hwf (p := Party.R) (by decide) i
+    have h2 := pendsBefore_asker_one hwf (p := Party.R) (by decide) (i + 1)
+    omega
+  · unfold Skel.pendAt
+    rw [List.getD_eq_getElem?_getD, List.getElem?_eq_none (by omega)]
+    rfl
+
+/-- An assembler's output count, on its own channel. -/
+theorem sentOf_asmOut {s : State} {pk : Party × Nat}
+    (hpk : pk ∈ sk.asmKeys) :
+    sentOf sk s (sk.asmOutChan pk) = asmOutSent s pk := by
+  obtain ⟨p, j⟩ := pk
+  obtain ⟨h1, hIb, hRb⟩ := asmKeys_bounds sk hpk
+  unfold Skel.asmOutChan
+  by_cases hIr : p = Party.I ∧ j = sk.rootH
+  · obtain ⟨rfl, rfl⟩ := hIr
+    rw [if_pos (by simp)]
+    rfl
+  · rw [if_neg (by
+      cases p <;> simp_all)]
+    by_cases hRr : p = Party.R ∧ j = sk.rootH - 1
+    · obtain ⟨rfl, rfl⟩ := hRr
+      rw [if_pos (by simp)]
+      rfl
+    · rw [if_neg (by
+        cases p <;> simp_all)]
+      have hnI0 : ¬(p == Party.I && j == 0) = true := by
+        simp
+        intro _
+        omega
+      have hct : sk.asmKeys.contains (p, j) = true := by
+        simpa using hpk
+      have hnroot : isRootOutKey sk (p, j) = false := by
+        unfold isRootOutKey
+        cases p <;> simp_all
+      show sentOf sk s (Chan.level p j) = asmOutSent s (p, j)
+      simp only [sentOf]
+      rw [if_neg hnI0, if_pos (by simp [hpk, hnroot])]
+
+/-- An assembler's resolution-intake count, on its own channel. -/
+theorem recvdOf_asmRes {s : State} {pk : Party × Nat}
+    (hpk : pk ∈ sk.asmKeys) :
+    recvdOf sk s (asmResChan pk) = asmResRecvd s pk := by
+  obtain ⟨p, j⟩ := pk
+  obtain ⟨h1, -, -⟩ := asmKeys_bounds sk hpk
+  unfold asmResChan
+  by_cases ha : asks p j = true
+  · rw [if_pos ha]
+    show recvdOf sk s (Chan.upper p (j - 1)) = asmResRecvd s (p, j)
+    simp only [recvdOf]
+    rw [show j - 1 + 1 = j from by omega]
+  · rw [if_neg ha]
+    show recvdOf sk s (Chan.lower p j) = asmResRecvd s (p, j)
+    simp only [recvdOf]
+    have hct : sk.asmKeys.contains (p, j) = true := by simpa using hpk
+    rw [if_pos hct]
+
+/-- An assembler's level-intake count, on its own channel. -/
+theorem recvdOf_asmLevel {s : State} {pk : Party × Nat}
+    (hpk : pk ∈ sk.asmKeys) :
+    recvdOf sk s (asmLevelChan pk) = asmLevelRecvd sk s pk := by
+  obtain ⟨p, j⟩ := pk
+  obtain ⟨h1, -, -⟩ := asmKeys_bounds sk hpk
+  unfold asmLevelChan
+  show recvdOf sk s (Chan.level p (j - 1)) = asmLevelRecvd sk s (p, j)
+  simp only [recvdOf]
+  have hct : sk.asmKeys.contains (p, j - 1 + 1) = true := by
+    rw [show j - 1 + 1 = j from by omega]
+    simpa using hpk
+  rw [if_pos hct, show j - 1 + 1 = j from by omega]
+
+/-- The resolution-intake channel is a flow channel. -/
+theorem asmResChan_mem (hwf : sk.wellFormed = true) {pk : Party × Nat}
+    (hpk : pk ∈ sk.asmKeys) : asmResChan pk ∈ allChans sk := by
+  obtain ⟨p, j⟩ := pk
+  obtain ⟨h1, hIb, hRb⟩ := asmKeys_bounds sk hpk
+  have hev : sk.rootH % 2 = 0 := (wf_rootH hwf).1
+  have hge : 2 ≤ sk.rootH := (wf_rootH hwf).2
+  unfold asmResChan
+  by_cases ha : asks p j = true
+  · rw [if_pos ha]
+    have hkey : (p, j - 1) ∈ sk.walkKeys := by
+      refine mem_walkKeys_of sk hwf ?_ ?_
+      · cases p
+        · have := hIb rfl
+          unfold asks at ha
+          simp at ha
+          omega
+        · have := hRb rfl
+          omega
+      · cases p
+        · unfold asks at ha
+          simp at ha
+          exact Or.inl ⟨rfl, by omega⟩
+        · unfold asks at ha
+          simp at ha
+          exact Or.inr ⟨rfl, by omega⟩
+    have : Chan.upper p (j - 1) = upperOut (p, j - 1) := rfl
+    rw [this]
+    exact (walk_chans_mem sk hkey).2.2.1
+  · rw [if_neg ha]
+    have hkey : (p, j) ∈ sk.walkKeys := by
+      refine mem_walkKeys_of sk hwf ?_ ?_
+      · cases p
+        · have := hIb rfl
+          unfold asks at ha
+          simp at ha
+          omega
+        · have := hRb rfl
+          omega
+      · cases p
+        · unfold asks at ha
+          simp at ha
+          exact Or.inl ⟨rfl, by omega⟩
+        · unfold asks at ha
+          simp at ha
+          exact Or.inr ⟨rfl, by omega⟩
+    have : Chan.lower p j = lowerOut (p, j) := rfl
+    rw [this]
+    exact (walk_chans_mem sk hkey).2.2.2
+
+/-- The level-intake channel is a flow channel wherever a level return
+is actually owed. -/
+theorem asmLevelChan_mem (hwf : sk.wellFormed = true) {s : State}
+    {pk : Party × Nat} (hpk : pk ∈ sk.asmKeys)
+    (hnz : 0 < sk.pendAt pk.1 pk.2 (s.asm pk).idx) :
+    asmLevelChan pk ∈ allChans sk := by
+  obtain ⟨p, j⟩ := pk
+  obtain ⟨h1, hIb, hRb⟩ := asmKeys_bounds sk hpk
+  unfold asmLevelChan
+  by_cases hj1 : j = 1
+  · subst hj1
+    cases p with
+    | I => exact (root_chans_mem sk).2.2.2.1
+    | R =>
+        rw [pendAt_R_one sk hwf] at hnz
+        omega
+  · have hkey : (p, j - 1) ∈ sk.asmKeys := by
+      simp only [Skel.asmKeys, List.mem_append, List.mem_map,
+        List.mem_range]
+      cases p with
+      | I =>
+          have := hIb rfl
+          exact Or.inl ⟨j - 2, by omega, by
+            rw [Prod.mk.injEq]
+            exact ⟨rfl, by omega⟩⟩
+      | R =>
+          have := hRb rfl
+          exact Or.inr ⟨j - 2, by omega, by
+            rw [Prod.mk.injEq]
+            exact ⟨rfl, by omega⟩⟩
+    unfold allChans
+    refine List.mem_append.mpr (Or.inl (List.mem_append.mpr (Or.inr ?_)))
+    exact List.mem_map.mpr ⟨(p, j - 1), hkey, rfl⟩
+
+/-- Every assembler key's trace is a merge input. -/
+theorem asmEvents_mem_procs {pk : Party × Nat} (hpk : pk ∈ sk.asmKeys) :
+    asmEvents sk pk ∈ procs sk := by
+  simp only [procs]
+  refine List.mem_append.mpr (Or.inl (List.mem_append.mpr (Or.inr ?_)))
+  exact List.mem_map.mpr ⟨pk, hpk, rfl⟩
+
+/-- The assembler decode. -/
+theorem asm_pend_or_done (hwf : sk.wellFormed = true) {s : State}
+    (hi : InvP sk .full s) {pk : Party × Nat} (hpk : pk ∈ sk.asmKeys) :
+    ((∀ e ∈ asmEvents sk pk, performed sk s e) ∧ asmPend sk s pk = [])
+    ∨ ∃ f a pre suf, asmPend sk s pk = [(f, a)]
+        ∧ asmEvents sk pk = pre ++ f :: suf
+        ∧ (∀ e ∈ pre, performed sk s e)
+        ∧ PendOk sk s f a := by
+  have hasm := hi.asm pk hpk
+  simp only [asmLocalOk, Bool.and_eq_true, decide_eq_true_eq,
+    beq_iff_eq, Bool.or_eq_true, bne_iff_ne, ne_eq,
+    Bool.not_eq_true'] at hasm
+  obtain ⟨⟨⟨⟨hcur, -⟩, hg1⟩, hg2⟩, hg0⟩ := hasm
+  have hidx1 : (s.asm pk).phase ≤ 2 →
+      (s.asm pk).idx < (sk.asmResList pk.1 pk.2).length := by
+    intro h
+    rw [if_pos h] at hcur
+    simpa using hcur
+  have hidx2 : 3 ≤ (s.asm pk).phase →
+      (s.asm pk).idx = (sk.asmResList pk.1 pk.2).length := by
+    intro h
+    rw [if_neg (by omega)] at hcur
+    simpa using hcur
+  have hRR := recvdOf_asmRes sk (s := s) hpk
+  have hRL := recvdOf_asmLevel sk (s := s) hpk
+  have hSO := sentOf_asmOut sk (s := s) hpk
+  -- a completed block's events are all performed
+  have hblock : ∀ j, j < (s.asm pk).idx →
+      ∀ e ∈ asmBlock sk pk j, performed sk s e := by
+    intro j hj e he
+    rw [asmBlock_eq] at he
+    rcases List.mem_cons.1 he with rfl | he
+    · show j < recvdOf sk s (asmResChan pk)
+      rw [hRR]
+      simp only [asmResRecvd]
+      omega
+    rcases List.mem_append.1 he with hseg | hone
+    · obtain ⟨cc, bb, nn⟩ := e
+      obtain ⟨hc, hb, hlo, hhi⟩ := mem_seg hseg
+      subst hc hb
+      show nn < recvdOf sk s (asmLevelChan pk)
+      rw [hRL]
+      simp only [asmLevelRecvd]
+      have hp1 : sk.pendsBefore pk.1 pk.2 j + sk.pendAt pk.1 pk.2 j
+          = sk.pendsBefore pk.1 pk.2 (j + 1) :=
+        (pendsBefore_succ sk (by omega)).symm
+      have hp2 := pendsBefore_mono sk pk.1 pk.2
+        (show j + 1 ≤ (s.asm pk).idx by omega)
+      omega
+    · rw [List.mem_singleton] at hone
+      subst hone
+      show j < sentOf sk s (sk.asmOutChan pk)
+      rw [hSO]
+      simp only [asmOutSent]
+      omega
+  have hpreperf : ∀ e ∈ (List.range (s.asm pk).idx).flatMap
+      (asmBlock sk pk), performed sk s e := by
+    intro e he
+    obtain ⟨j, hjm, hje⟩ := List.mem_flatMap.1 he
+    rw [List.mem_range] at hjm
+    exact hblock j hjm e hje
+  have hsplit : ∀ hlt : (s.asm pk).idx < (sk.asmResList pk.1 pk.2).length,
+      asmEvents sk pk
+      = (List.range (s.asm pk).idx).flatMap (asmBlock sk pk)
+        ++ ((asmResChan pk, false, (s.asm pk).idx)
+          :: (seg (asmLevelChan pk) false
+              (sk.pendsBefore pk.1 pk.2 (s.asm pk).idx)
+              (sk.pendAt pk.1 pk.2 (s.asm pk).idx)
+            ++ (sk.asmOutChan pk, true, (s.asm pk).idx)
+              :: (List.range' ((s.asm pk).idx + 1)
+                ((sk.asmResList pk.1 pk.2).length
+                  - (s.asm pk).idx - 1)).flatMap (asmBlock sk pk))) := by
+    intro hlt
+    unfold asmEvents
+    rw [range_split (show (s.asm pk).idx
+        ≤ (sk.asmResList pk.1 pk.2).length by omega),
+      List.flatMap_append,
+      show (sk.asmResList pk.1 pk.2).length - (s.asm pk).idx
+        = ((sk.asmResList pk.1 pk.2).length - (s.asm pk).idx - 1) + 1
+        from by omega,
+      List.range'_succ, List.flatMap_cons]
+    rw [asmBlock_eq]
+    simp [List.cons_append, List.append_assoc]
+  rcases Nat.lt_or_ge (s.asm pk).phase 3 with hph | hph3
+  · right
+    have hlt := hidx1 (by omega)
+    rcases Nat.lt_or_ge (s.asm pk).phase 1 with hph0 | hph1
+    · have hph' : (s.asm pk).phase = 0 := by omega
+      refine ⟨(asmResChan pk, false, (s.asm pk).idx), .asmRecvRes pk,
+        _, _, by simp [asmPend, hph'], hsplit hlt, hpreperf,
+        asmResChan_mem sk hwf hpk, ?_, asm_action_mem sk hpk (by simp), ?_⟩
+      · show (s.asm pk).idx = recvdOf sk s (asmResChan pk)
+        rw [hRR]
+        simp only [asmResRecvd]
+        rw [hph']
+        simp
+      · intro hchan
+        rw [if_neg (by simp)] at hchan
+        have : (apply sk .full (.asmRecvRes pk) s).isSome = true := by
+          simp [apply, hpk, hph']
+          omega
+        exact this
+    · rcases Nat.lt_or_ge (s.asm pk).phase 2 with hph1' | hph2
+      · have hph' : (s.asm pk).phase = 1 := by omega
+        have hgot : (s.asm pk).got < sk.pendAt pk.1 pk.2 (s.asm pk).idx := by
+          rcases hg1 with hne | h
+          · exact absurd hph' (by simpa using hne)
+          · exact h
+        have hsegsplit : seg (asmLevelChan pk) false
+            (sk.pendsBefore pk.1 pk.2 (s.asm pk).idx)
+            (sk.pendAt pk.1 pk.2 (s.asm pk).idx)
+            = seg (asmLevelChan pk) false
+                (sk.pendsBefore pk.1 pk.2 (s.asm pk).idx) (s.asm pk).got
+              ++ (asmLevelChan pk, false,
+                  sk.pendsBefore pk.1 pk.2 (s.asm pk).idx + (s.asm pk).got)
+                :: seg (asmLevelChan pk) false
+                  (sk.pendsBefore pk.1 pk.2 (s.asm pk).idx
+                    + (s.asm pk).got + 1)
+                  (sk.pendAt pk.1 pk.2 (s.asm pk).idx
+                    - (s.asm pk).got - 1) := by
+          conv => lhs; rw [show sk.pendAt pk.1 pk.2 (s.asm pk).idx
+              = (s.asm pk).got
+                + ((sk.pendAt pk.1 pk.2 (s.asm pk).idx
+                  - (s.asm pk).got - 1) + 1) from by omega]
+          rw [← seg_append, seg_cons]
+        refine ⟨(asmLevelChan pk, false,
+            sk.pendsBefore pk.1 pk.2 (s.asm pk).idx + (s.asm pk).got),
+          .asmRecvLevel pk,
+          (List.range (s.asm pk).idx).flatMap (asmBlock sk pk)
+            ++ ((asmResChan pk, false, (s.asm pk).idx)
+              :: seg (asmLevelChan pk) false
+                (sk.pendsBefore pk.1 pk.2 (s.asm pk).idx) (s.asm pk).got),
+          seg (asmLevelChan pk) false
+              (sk.pendsBefore pk.1 pk.2 (s.asm pk).idx
+                + (s.asm pk).got + 1)
+              (sk.pendAt pk.1 pk.2 (s.asm pk).idx - (s.asm pk).got - 1)
+            ++ (sk.asmOutChan pk, true, (s.asm pk).idx)
+              :: (List.range' ((s.asm pk).idx + 1)
+                ((sk.asmResList pk.1 pk.2).length
+                  - (s.asm pk).idx - 1)).flatMap (asmBlock sk pk),
+          by simp [asmPend, hph'], ?_, ?_,
+          asmLevelChan_mem sk hwf (s := s) hpk (by omega), ?_,
+          asm_action_mem sk hpk (by simp), ?_⟩
+        · rw [hsplit hlt, hsegsplit]
+          simp [List.cons_append, List.append_assoc]
+        · intro e he
+          rcases List.mem_append.1 he with hp | hcons
+          · exact hpreperf e hp
+          rcases List.mem_cons.1 hcons with rfl | hseg
+          · show (s.asm pk).idx < recvdOf sk s (asmResChan pk)
+            rw [hRR]
+            simp only [asmResRecvd]
+            rw [hph']
+            simp
+          · obtain ⟨cc, bb, nn⟩ := e
+            obtain ⟨hc, hb, hlo, hhi⟩ := mem_seg hseg
+            subst hc hb
+            show nn < recvdOf sk s (asmLevelChan pk)
+            rw [hRL]
+            simp only [asmLevelRecvd]
+            omega
+        · show sk.pendsBefore pk.1 pk.2 (s.asm pk).idx + (s.asm pk).got
+              = recvdOf sk s (asmLevelChan pk)
+          rw [hRL]
+          rfl
+        · intro hchan
+          rw [if_neg (by simp)] at hchan
+          have : (apply sk .full (.asmRecvLevel pk) s).isSome = true := by
+            simp [apply, hpk, hph']
+            omega
+          exact this
+      · have hph' : (s.asm pk).phase = 2 := by omega
+        have hgot : (s.asm pk).got = sk.pendAt pk.1 pk.2 (s.asm pk).idx := by
+          rcases hg2 with hne | h
+          · exact absurd hph' (by simpa using hne)
+          · exact h
+        refine ⟨(sk.asmOutChan pk, true, (s.asm pk).idx), .asmSend pk,
+          (List.range (s.asm pk).idx).flatMap (asmBlock sk pk)
+            ++ ((asmResChan pk, false, (s.asm pk).idx)
+              :: seg (asmLevelChan pk) false
+                (sk.pendsBefore pk.1 pk.2 (s.asm pk).idx)
+                (sk.pendAt pk.1 pk.2 (s.asm pk).idx)),
+          (List.range' ((s.asm pk).idx + 1)
+            ((sk.asmResList pk.1 pk.2).length
+              - (s.asm pk).idx - 1)).flatMap (asmBlock sk pk),
+          by simp [asmPend, hph'], ?_, ?_, ?_, ?_,
+          asm_action_mem sk hpk (by simp), ?_⟩
+        · rw [hsplit hlt]
+          simp [List.cons_append, List.append_assoc]
+        · intro e he
+          rcases List.mem_append.1 he with hp | hcons
+          · exact hpreperf e hp
+          rcases List.mem_cons.1 hcons with rfl | hseg
+          · show (s.asm pk).idx < recvdOf sk s (asmResChan pk)
+            rw [hRR]
+            simp only [asmResRecvd]
+            rw [hph']
+            simp
+          · obtain ⟨cc, bb, nn⟩ := e
+            obtain ⟨hc, hb, hlo, hhi⟩ := mem_seg hseg
+            subst hc hb
+            show nn < recvdOf sk s (asmLevelChan pk)
+            rw [hRL]
+            simp only [asmLevelRecvd]
+            omega
+        · -- asmOutChan is a flow channel
+          obtain ⟨p, j⟩ := pk
+          obtain ⟨h1, hIb, hRb⟩ := asmKeys_bounds sk hpk
+          unfold Skel.asmOutChan
+          by_cases hIr : p = Party.I ∧ j = sk.rootH
+          · obtain ⟨rfl, rfl⟩ := hIr
+            rw [if_pos (by simp)]
+            exact (root_chans_mem sk).2.2.2.2.1
+          · rw [if_neg (by cases p <;> simp_all)]
+            by_cases hRr : p = Party.R ∧ j = sk.rootH - 1
+            · obtain ⟨rfl, rfl⟩ := hRr
+              rw [if_pos (by simp)]
+              exact (root_chans_mem sk).2.2.2.2.2.1
+            · rw [if_neg (by cases p <;> simp_all)]
+              unfold allChans
+              refine List.mem_append.mpr (Or.inl
+                (List.mem_append.mpr (Or.inr ?_)))
+              exact List.mem_map.mpr ⟨(p, j), hpk, rfl⟩
+        · show (s.asm pk).idx = sentOf sk s (sk.asmOutChan pk)
+          rw [hSO]
+          rfl
+        · intro hchan
+          rw [if_pos rfl] at hchan
+          have : (apply sk .full (.asmSend pk) s).isSome = true := by
+            simp [apply, hpk, hph']
+            omega
+          exact this
+  · left
+    have hidx := hidx2 hph3
+    have hg0' : (s.asm pk).got = 0 := by
+      rcases hg0 with hne | h
+      · rw [Bool.or_eq_false_iff] at hne
+        obtain ⟨-, h3⟩ := hne
+        simp only [decide_eq_false_iff_not] at h3
+        omega
+      · exact h
+    refine ⟨?_, by
+      unfold asmPend
+      rw [if_neg (by omega), if_neg (by omega), if_neg (by omega)]⟩
+    intro e he
+    unfold asmEvents at he
+    obtain ⟨j, hjm, hje⟩ := List.mem_flatMap.1 he
+    rw [List.mem_range] at hjm
+    exact hblock j (by omega) e hje
+
 end StreamingMirror.Sched
