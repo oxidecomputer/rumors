@@ -1108,3 +1108,82 @@ hypothesis as `maxDCount sk ≤ sk.capLevel` (spell it that way, or as
 `∀ s, sk.dCount s ≤ sk.capLevel`), and the schedule/weave machinery
 re-derived for the epilogue order (the weave itself VIOLATES `d6` —
 the `.impl` witness schedule must be the encoder-order transcription).
+
+## 9. Task #16: the `.impl` flagship — route and state of play
+
+Scouting conclusions (2026-07-18, verified against the code, not the
+plan):
+
+- **The merge layer is generic.** `Sched.lean`'s by-construction
+  lemmas (E1/E2-respect of `enabled`-guarded emission, τ-monotonicity
+  along traces, injectivity, trace monotonicity) are explicitly
+  "generic over the trace list `procs₀`". They instantiate at the
+  encoder-order traces for free. The ONE schedule-side kernel
+  obligation is **merge completeness for `procsE`** —
+  `(finalStateE sk).rem.all List.isEmpty` under `wellFormed` and
+  margin 0.
+- **Completeness needs an external witness** (the d5 proof's shape:
+  `merge_complete` ranks stalled heads by WEAVE position and derives a
+  contradiction from the weave's edge-respect + totality). The `.impl`
+  analog needs an **eweave**: an explicitly-constructed, kernel-proven
+  edge-respecting, complete linearization whose per-walk order is the
+  epilogue order. The d5 weave cannot serve: τ along it inverts
+  parent-vs-last-chunk pairs, exactly where the argmin's
+  monotonicity-along-traces step needs the d6 direction.
+- **The endgame re-instantiates.** `Pending.lean`'s decode-lemma
+  architecture consumes the committed-arm mirrors; under `.impl` the
+  `d6` conjuncts pin the epilogue order, so walk decodes target
+  `walkEventsE` (trace deltas confined to the parent's position);
+  openers/asm/absorb/fins decodes are placement-independent.
+  `Endgame.lean`'s argmin + close cascade consume only the generic
+  schedule facts over `scheduleE` + completeness + the `.impl` pillar
+  (`hmode = Or.inl rfl`).
+- **The eweave construction is where the capacity hypothesis works.**
+  Delta vs the d5 weave, per scope: the upper emission moves from the
+  splice point to the scope tail. The wire/res/query sites' windows
+  are order-unchanged (same seqs, same relative order); the upper
+  site's window moves to the scope tail, where the scope's entire
+  subtree is emitted — the natural discharge is "all prior scopes'
+  uppers consumed at pump fixpoint + own scope's ≤ capLevel in
+  flight", which is margin 0 doing the work AscCover/DescSupply did
+  for d5 at capacity 1. Expect the futLen/Align segment lemmas to need
+  d6-variant spellings (mechanical; the parent moves within each
+  scope's segment), the U-sites to get SIMPLER, and W0/Q0/L sites to
+  transfer with shifted upper-counts in their futures.
+
+**Landed by this fork** (executable foundation, validated before proof
+effort): `Sched.scopeSendsE`/`scopeBlockE`/`walkEventsE`/`procsE`/
+`totalEventsE`/`finalStateE`/`scheduleE` (Proofs/Sched.lean — parallel
+defs; nothing d5-side changed); `EventDag.walkTraceE`/
+`schedCandidateE`; `drainMode` (drainFull generalized);
+`replaySchedule` gained the `ax` parameter. Gates now assert, at
+margin 0 (the seed itself if margin-0, else its `margin0` variant):
+the encoder-order merge DRAINS (a stall surfaces as
+`validateSchedule` size/missing errors), matches `Sched.scheduleE`
+event-for-event, and replays to terminal under `.impl` — in `runFuzz`
+(hard error), `runAll` (all six pins), and the boundary matrix
+(`implOk` conjunct). This is the executable forerunner of the central
+kernel obligation: 300 random seeds + pins + boundary confirm the
+route before any proof spend.
+
+**Remaining, in order** (each a fork-sized unit):
+1. **Trace-shape bricks**: d6 variants of the Align/Emit segment
+   lemmas (`align_scope`/`align_kids_suffix` analogs for
+   `scopeSendsE`; the futLen family over epilogue-shaped tails). The
+   set-equality `scopeSendsE ~ scopeSends` (same events, parent moved)
+   may let many count-total lemmas transfer outright — scout before
+   re-deriving.
+2. **The eweave**: `weaveGoE` (the wKidOps recursion with the upper
+   emission at the scope tail) + its `WEdge`-analog master induction.
+   Reuse the layer-A/B/C machinery (Pump/Prec are order-light); the
+   U-site windows are the new content, discharged via margin 0 +
+   pump-fixpoint tower drainage (`asm_counts_full`-style, Final.lean
+   has the pattern).
+3. **`merge_completeE`**: Final.lean's argmin re-instantiated over the
+   eweave (mostly mechanical given 2).
+4. **Endgame**: Pending decode lemmas for `walkEventsE` under the
+   `d6` mirrors + Endgame argmin/cascade at `.impl`; the flagship
+   `Sched.progress`/`Sched.deadlock_free` in Statement.lean's terms
+   with hypotheses `wellFormed`, margin 0 (`maxDCount ≤ capLevel` —
+   note `schedulable` is implied by margin 0: `dCount ≤ capLevel ≤
+   capLevel + 2`; drop it from the statement and say so).

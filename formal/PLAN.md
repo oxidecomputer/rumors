@@ -83,10 +83,19 @@ Last updated: 2026-07-18.
   hypothesis. 5b CONFIRMED in-model (stuck-state accounting: full
   buffers + consumer hand + producer hands). Sweep outcomes in
   PROGRESS.md §8.
-- **#16 (blocked by #15)**: the implementation-facing theorem (see
-  adjudication 2). Counting/edge-respect layer re-derived for the
-  encoder-order schedule; #12's cursor-invariant + argmin architecture
-  re-instantiates (epilogue ledger also fully pins per-walk order).
+- **#16 (in progress; foundation landed 2026-07-18)**: the
+  implementation-facing theorem (see adjudication 2). Scouting +
+  executable foundation landed: `Sched.scheduleE` (encoder-order
+  traces + merge, proof side) and `EventDag.schedCandidateE`
+  cross-checked and replay-validated under `.impl` at margin 0 across
+  the full gate (300 seeds + pins + boundary matrix) — the route is
+  executably confirmed. Route and remaining units (each fork-sized) in
+  PROGRESS.md §9: (1) d6 trace-shape bricks (Align/Emit variants),
+  (2) the eweave (`weaveGoE` + master induction; U-sites discharged
+  by margin 0 + tower drainage — the new content), (3)
+  `merge_completeE` (Final.lean argmin re-instantiated), (4) endgame
+  (Pending decodes under d6 mirrors + argmin/cascade at `.impl`,
+  flagship names; `schedulable` dropped — implied by margin 0).
 - **#17 (blocked by #15 — now unblocked)**: parent-first re-scope —
   invert the d5 check into the epilogue check (minted spelling:
   PROGRESS.md §8, "the parent summary is the scope's last

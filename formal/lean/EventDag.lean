@@ -271,13 +271,16 @@ def procTraces (sk : Skel) : Array Ev × Array (Ev × Ev) :=
 
 -- ============================================= empirical ground truth
 
-/-- Greedy drain under the full axiom mode (Controls.drain, relocal). -/
-def drainFull (sk : Skel) : Nat → State → State
+/-- Greedy drain under an arbitrary axiom mode. -/
+def drainMode (sk : Skel) (ax : AxMode) : Nat → State → State
   | 0, s => s
   | fuel + 1, s =>
-      match (allActions sk).firstM (fun a => apply sk .full a s) with
-      | some s' => drainFull sk fuel s'
+      match (allActions sk).firstM (fun a => apply sk ax a s) with
+      | some s' => drainMode sk ax fuel s'
       | none => s
+
+/-- Greedy drain under the full axiom mode (Controls.drain, relocal). -/
+def drainFull (sk : Skel) : Nat → State → State := drainMode sk .full
 
 /-- `allActions` with each walk's floating-parent commit moved AFTER its
 child-obligation commits: the parent-delaying adversary. The default
@@ -485,6 +488,59 @@ def schedCandidate (sk : Skel) : Array Ev :=
     ++ #[((finTrace sk).1.extract 0 1), ((finTrace sk).1.extract 1 ((finTrace sk).1.size))]
   (mergeAll sk procs ⟨#[], {}, {}, Array.replicate procs.size 0⟩).out
 
+/-- Walk `pk`'s encoder-order (`d6`) trace: `walkTrace`'s nodes with
+each scope's parent at the scope's end, not spliced after the final
+resolution.
+
+The epilogue placement is the shipping encoder's order (PROGRESS.md
+§8). It is exactly the placement `walkTrace`'s docstring warns
+deadlocks the merge — which the margin-0 capacity hypothesis defuses:
+`schedCandidateE`'s completeness is asserted only at margin 0. Only
+nodes are produced; the E3 edge set is placement-agnostic (`d2` gives
+res → parent; nothing forces the parent before any same-scope
+send). -/
+def walkTraceE (sk : Skel) (pk : Party × Nat) : Array Ev := Id.run do
+  let h := pk.2
+  let mut nodes : Array Ev := #[]
+  let mut wireCnt := 0
+  let mut resCnt := 0
+  let mut qCnt := 0
+  for k in [0:sk.stageLen h] do
+    let s := sk.stageScope h k
+    nodes := nodes.push (wireIn pk, false, k)
+    nodes := nodes.push (askedIn pk, false, k)
+    for i in [0:sk.nChildren h s] do
+      nodes := nodes.push (wireOut pk, true, wireCnt)
+      wireCnt := wireCnt + 1
+      if sk.childIsD h s i then
+        nodes := nodes.push (lowerOut pk, true, resCnt)
+        resCnt := resCnt + 1
+        for _t in [0:sk.qCount h s i] do
+          nodes := nodes.push (askedOut pk, true, qCnt)
+          qCnt := qCnt + 1
+    nodes := nodes.push (upperOut pk, true, k)
+  return nodes
+
+/-- The `.impl` candidate: `schedCandidate`'s priority merge over the
+encoder-order walk traces.
+
+Cross-checked against `Sched.scheduleE` (transcription) and replayed
+under `.impl` by the gates, at margin 0 — where its completeness is a
+hard assertion (the executable forerunner of task #16's central kernel
+obligation). -/
+def schedCandidateE (sk : Skel) : Array Ev :=
+  let walkOrder : List (Party × Nat) :=
+    (List.range sk.rootH).map fun i =>
+      let h := sk.rootH - 1 - i
+      (if h % 2 == 1 then Party.I else Party.R, h)
+  let procs : Array (Array Ev) :=
+    #[(iopenTrace sk).1, (ropenTrace sk).1]
+    ++ (walkOrder.toArray.map (walkTraceE sk))
+    ++ #[(absorbTrace sk).1]
+    ++ (sk.asmKeys.toArray.map (fun pk => (asmTrace sk pk).1))
+    ++ #[((finTrace sk).1.extract 0 1), ((finTrace sk).1.extract 1 ((finTrace sk).1.size))]
+  (mergeAll sk procs ⟨#[], {}, {}, Array.replicate procs.size 0⟩).out
+
 -- =================================================== the replay witness
 
 /-- Compile one event into the model actions that perform it, given the
@@ -582,7 +638,7 @@ enough that the schedule is a genuine execution. A `none` mid-replay
 trace layer allows was rejected by a real guard. The successful replay
 is also the shape of the Phase D termination witness: an explicit
 action list from `init` to `terminal`. -/
-def replaySchedule (sk : Skel) (sched : Array Ev) : Option Nat × Bool := Id.run do
+def replaySchedule (sk : Skel) (ax : AxMode) (sched : Array Ev) : Option Nat × Bool := Id.run do
   let mut st := init sk
   let mut walkScope : Std.HashMap (Nat × Nat) Nat := {}
   let key := fun (pk : Party × Nat) => (pn pk.1, pk.2)
@@ -591,13 +647,13 @@ def replaySchedule (sk : Skel) (sched : Array Ev) : Option Nat × Bool := Id.run
     -- the walk's scope cursor: rcvW #k enters scope k
     let lookup := fun pk => walkScope.getD (key pk) 0
     for a in evActions sk lookup e do
-      match apply sk .full a st with
+      match apply sk ax a st with
       | some st' => st := st'
       | none => return (some i, false)
     if let (Chan.wire p h, false, sq) := e then
       if h != sk.rootH && h != 0 then
         walkScope := walkScope.insert (key (p.other, h - 1)) sq
-  return (none, terminal sk (drainFull sk 10000 st))
+  return (none, terminal sk (drainMode sk ax 10000 st))
 
 /-- The §5 acceptance check for a candidate schedule: (a) it is a
 permutation of the event set, (b) every E1/E2/E3 edge `u ≺ v` has
@@ -1300,11 +1356,35 @@ def runFuzz (n : Nat) : Array String := Id.run do
           else if Sched.weave sk != weave.toList then
             errs := errs.push s!"seed {seed}: Weave.lean transcription diverges from the tool weave"
           else
-            let (stuckAt, term) := replaySchedule sk cand
+            let (stuckAt, term) := replaySchedule sk .full cand
             if let some i := stuckAt then
               errs := errs.push s!"seed {seed}: replay refused at event {i}"
             else if !term then
               errs := errs.push s!"seed {seed}: replay missed terminal"
+            else
+              -- the encoder-order (`d6`) candidate, at margin 0: the
+              -- merge must DRAIN (validateSchedule's size/missing
+              -- checks catch a stall), match the proof-side
+              -- transcription, and replay under `.impl` — the
+              -- executable forerunner of task #16's kernel obligation.
+              let skM := if maxDCount sk ≤ sk.capLevel then sk
+                         else margin0 sk
+              let candE := schedCandidateE skM
+              let vErrsE := validateSchedule skM candE
+              if !vErrsE.isEmpty then
+                errs := errs.push
+                  s!"seed {seed}: margin-0 impl candidate invalid ({vErrsE.size} errors, first: {vErrsE[0]!})"
+              else if Sched.scheduleE skM != candE.toList then
+                errs := errs.push
+                  s!"seed {seed}: Proofs/Sched.lean scheduleE transcription diverges from the impl candidate"
+              else
+                let (stuckAtE, termE) := replaySchedule skM .impl candE
+                if let some i := stuckAtE then
+                  errs := errs.push
+                    s!"seed {seed}: impl replay refused at event {i}"
+                else if !termE then
+                  errs := errs.push
+                    s!"seed {seed}: impl replay missed terminal"
   if tested == 0 then
     errs := errs.push "fuzz generated zero well-formed skeletons"
   if advStalls.isEmpty then
@@ -1489,7 +1569,7 @@ def runAll (outDir : System.FilePath) : IO Bool := do
       IO.println s!"  phi dump: {f}  blame alphabet: {g}"
     -- replay: the candidate must be a genuine model run to terminal
     -- (guards adjudicate every ordering; E3 completeness check)
-    let (stuckAt, term) := replaySchedule sk cand
+    let (stuckAt, term) := replaySchedule sk .full cand
     match stuckAt with
     | some i =>
         allOk := false
@@ -1500,6 +1580,31 @@ def runAll (outDir : System.FilePath) : IO Bool := do
           IO.println "  REPLAY did not reach terminal after close drain"
         else
           IO.println "  candidate replays to terminal as a real model run: OK"
+    -- the encoder-order (`d6`) candidate at margin 0: drained merge,
+    -- proof-side transcription, `.impl` replay — the executable
+    -- forerunner of task #16's kernel obligation, on the pinned shapes
+    let skM := if maxDCount sk ≤ sk.capLevel then sk else margin0 sk
+    let candE := schedCandidateE skM
+    let vErrsE := validateSchedule skM candE
+    if !vErrsE.isEmpty then
+      allOk := false
+      for e in vErrsE.toSubarray 0 (min vErrsE.size 20) do
+        IO.println s!"  IMPL CANDIDATE INVALID (margin 0): {e}"
+    else if Sched.scheduleE skM != candE.toList then
+      allOk := false
+      IO.println "  IMPL TRANSCRIPTION DIVERGES: Sched.scheduleE vs schedCandidateE"
+    else
+      let (stuckAtE, termE) := replaySchedule skM .impl candE
+      match stuckAtE with
+      | some i =>
+          allOk := false
+          IO.println s!"  IMPL REPLAY REFUSED at event {i}: {evStr candE[i]!}"
+      | none =>
+          if !termE then
+            allOk := false
+            IO.println "  IMPL REPLAY did not reach terminal after close drain"
+          else
+            IO.println s!"  impl candidate (margin 0): {candE.size} events, drains, transcribes, replays: OK"
     if a.acyclic && cErrs.isEmpty then
       let f := outDir / s!"{name}.cand.tsv"
       IO.FS.writeFile f (String.intercalate "\n"
@@ -1624,7 +1729,14 @@ def runAll (outDir : System.FilePath) : IO Bool := do
     let aOn := analyze onB
     let aOver := analyze over
     let cand := schedCandidate onB
-    let (stuckAt, term) := replaySchedule onB cand
+    let (stuckAt, term) := replaySchedule onB .full cand
+    -- the impl candidate on the boundary shape at margin 0
+    let onM := margin0 onB
+    let candE := schedCandidateE onM
+    let vErrsE := validateSchedule onM candE
+    let (stuckAtE, termE) := replaySchedule onM .impl candE
+    let implOk := vErrsE.isEmpty && Sched.scheduleE onM == candE.toList
+      && stuckAtE.isNone && termE
     let (wOn, wOnErrs) := weaveOrder onB
     let (wOver, wOverErrs) := weaveOrder over
     let ok := onB.wellFormed && over.wellFormed
@@ -1642,6 +1754,9 @@ def runAll (outDir : System.FilePath) : IO Bool := do
       -- and margin 0 defuses it under the impl (epilogue) mode
       && terminal (margin0 onB)
           (drainAdv (margin0 onB) .impl 50000 (init (margin0 onB)))
+      -- the encoder-order merge drains, transcribes, and replays at
+      -- margin 0 on the boundary shape
+      && implOk
     IO.println s!"    capLevel={cl}: {if ok then "OK" else "FAIL"}"
     if !ok then allOk := false
   IO.println "=== verdict table ==="

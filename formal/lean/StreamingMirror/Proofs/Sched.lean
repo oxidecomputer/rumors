@@ -229,6 +229,67 @@ the eventdag gate. -/
 def schedule : List Ev := (finalState sk).out
 
 
+-- =============================== the encoder-order (`d6`) trace layer
+
+/-- The encoder-order sends of scope `k`: every child chunk in order,
+the parent summary last.
+
+The `d6`/epilogue corner of the parent-placement design space
+(design/parent-placement.md, PROGRESS.md §8): where `scopeSends`
+splices the parent immediately after the scope's final resolution (the
+`d5` weave order), the shipping encoder defers it past the last
+chunk's queries and any trailing witness wires — the parent summary is
+the scope's last publication. Same event set, same seqs as
+`scopeSends`; only the parent's position differs. -/
+def scopeSendsE (pk : Party × Nat) (k : Nat) : List Ev :=
+  let h := pk.2
+  let s := sk.stageScope h k
+  let parent : Ev := (upperOut pk, true, k)
+  ((List.range (sk.nChildren h s)).map (childChunk sk pk k)).flatten
+    ++ [parent]
+
+/-- One scope of a walk's encoder-order trace: the two-receive
+prologue, then the epilogue-placed sends. -/
+def scopeBlockE (pk : Party × Nat) (k : Nat) : List Ev :=
+  (wireIn pk, false, k) :: (askedIn pk, false, k) :: scopeSendsE sk pk k
+
+/-- Walk `pk`'s full encoder-order trace: its stage's scopes in
+order. -/
+def walkEventsE (pk : Party × Nat) : List Ev :=
+  (List.range (sk.stageLen pk.2)).flatMap (scopeBlockE sk pk)
+
+/-- The encoder-order process traces: `procs` with every walk trace in
+epilogue order; every other family is placement-independent. -/
+def procsE : List (List Ev) :=
+  let walkOrder : List (Party × Nat) :=
+    (List.range sk.rootH).map fun i =>
+      let h := sk.rootH - 1 - i
+      (if h % 2 == 1 then Party.I else Party.R, h)
+  [iopenEvents sk, ropenEvents sk]
+    ++ walkOrder.map (walkEventsE sk)
+    ++ [absorbEvents sk]
+    ++ sk.asmKeys.map (asmEvents sk)
+    ++ [[(Chan.rootret, false, 0)], finEvents sk]
+
+/-- The encoder-order merge's fuel: the whole event set's size. -/
+def totalEventsE : Nat := ((procsE sk).map List.length).sum
+
+/-- The encoder-order merge's final state (cf. `finalState`). -/
+def finalStateE : MState :=
+  mergeN sk (totalEventsE sk) ⟨[], fun _ => 0, fun _ => 0, procsE sk⟩
+
+/-- The `.impl` canonical schedule: the encoder-order merge's output.
+
+Kept event-for-event equal to `EventDag.schedCandidateE` by the
+eventdag gate. Completeness — the merge drains every trace — is task
+#16's central kernel obligation, and it genuinely needs the margin-0
+capacity hypothesis: sub-margin, the greedy stalls (the last chunk's
+queries can require descent that requires assembly that requires this
+very parent — the `pdelay` cycle), which is why the `d5` weave spliced
+the parent early in the first place. -/
+def scheduleE : List Ev := (finalStateE sk).out
+
+
 -- ================================== the by-construction lemmas (§5)
 -- Everything below is generic over the trace list `procs₀`: none of it
 -- looks inside a trace, so it holds for ANY merge input. The
