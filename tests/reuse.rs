@@ -33,9 +33,9 @@ const LINK_BUF: usize = 64 * 1024;
 const ROUNDS: u64 = 3;
 
 /// Converged no-op sessions run before the divergent rounds in the epoch
-/// wrap test: with the six divergent rounds after them, the link's u8
-/// session counter crosses 255 and wraps to 0 mid-way through the
-/// divergent rounds.
+/// wrap test: with the [`WRAP_ROUNDS`] divergent rounds after them, the
+/// link's u8 session counter crosses 255 and wraps to 0 mid-way through
+/// the divergent rounds.
 const PRE_WRAP_SESSIONS: usize = 253;
 
 /// Divergent sessions bracketing the epoch wrap: with

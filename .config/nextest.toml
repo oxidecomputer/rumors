@@ -11,6 +11,7 @@
 # after its attempt budget was tightened), so three 60-second periods —
 # termination at 180 seconds — is generous headroom, and everything past
 # the first period is flagged as slow in the meantime.
+#
 # One collision this budget knowingly accepts: proptest persists a failing
 # case's regression seed only after shrinking completes, so a genuinely
 # failing property whose shrink phase outruns the 180-second terminate

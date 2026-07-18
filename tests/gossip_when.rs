@@ -793,7 +793,9 @@ async fn a_control_read_error_on_the_idle_boundary_poisons_the_link() {
 
     // The staging buffer never held a byte, yet the link is poisoned: the
     // fail-fast happens before any I/O, so no counterparty is needed.
-    let retry = a.gossip(&mut a_link).await;
+    let retry = timeout(DEADLINE, a.gossip(&mut a_link))
+        .await
+        .expect("the fail-fast must not wait for a peer");
     assert!(
         matches!(retry, Err(Error::LinkPoisoned)),
         "reuse after an error terminal must fail fast, got {retry:?}",
