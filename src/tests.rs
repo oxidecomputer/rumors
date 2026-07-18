@@ -98,6 +98,7 @@ fn overlapping_retiree_party_is_rejected() {
         network: survivor.network,
         protocol: survivor.protocol,
         window: survivor.window,
+        run_budget: survivor.run_budget,
         inner: watch::Sender::new(Inner {
             party: Some(party_of(&survivor)),
             tree: Tree {

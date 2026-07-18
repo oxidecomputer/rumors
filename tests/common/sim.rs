@@ -55,8 +55,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use before::Party;
 use proptest::prelude::*;
 use rumors::error::{
-    CodecDecodeErrorKind, CodecEncodeErrorKind, EncodeLeafError, RemoteError, SendError,
-    StreamError,
+    CodecDecodeErrorKind, CodecEncodeErrorKind, RemoteError, SendError, StreamError,
 };
 use rumors::{Error, Key, MirrorError, Peer, Retire, Rumors, Version};
 
@@ -280,10 +279,6 @@ fn honest_remote(error: &RemoteError<Infallible>) -> bool {
         }
         RemoteError::Send(SendError::Frame(error)) => match &error.kind {
             CodecEncodeErrorKind::Write { source, .. } | CodecEncodeErrorKind::Flush(source) => {
-                honest_io(source)
-            }
-            CodecEncodeErrorKind::InvalidLeaf(EncodeLeafError::Version(source))
-            | CodecEncodeErrorKind::InvalidLeaf(EncodeLeafError::Message(source)) => {
                 honest_io(source)
             }
             _ => false,

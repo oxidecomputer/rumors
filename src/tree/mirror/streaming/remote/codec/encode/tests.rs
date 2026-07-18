@@ -108,31 +108,33 @@ fn one_byte_frames_are_exhaustive() {
 }
 
 proptest! {
-    /// Supply framing is exact for arbitrary backend-neutral leaves.
+    /// Supply framing is exact for an arbitrary run of backend-neutral leaf
+    /// records: one run length header, then one length-prefixed record per
+    /// leaf, in push order.
     #[test]
-    fn supplied_leaf_is_framed_exactly(
+    fn supplied_run_is_framed_exactly(
         index in 1_u8..Stream::MAX,
         speaker in arb_speaker(),
         flow in arb_flow(),
-        version in arb_version(),
-        value in any::<u64>(),
+        records in proptest::collection::vec((arb_version(), any::<u64>()), 1..=4),
     ) {
         let stream = stream(index);
-        let message = Message::new(value);
-        let frame = (
-            stream,
-            Frame::Reaction(
-                Reaction::Supply(version.clone(), message.clone()),
-                flow,
-            ),
-        );
+        let mut run = super::LeafRun::new();
+        let mut body = Vec::new();
+        for (version, value) in &records {
+            let message = Message::new(*value);
+            run.push(version, &message).unwrap();
+            let mut record = Vec::new();
+            version.serialize(&mut record).unwrap();
+            message.serialize(&mut record).unwrap();
+            body.extend_from_slice(&(record.len() as u32).to_be_bytes());
+            body.extend_from_slice(&record);
+        }
+        let frame = (stream, Frame::Reaction(Reaction::Supply(run), flow));
 
         let mut encoded = Vec::new();
         encode(speaker, &frame, &mut encoded).unwrap();
         let mut expected = vec![signal(stream, Signal::Supply(flow))];
-        let mut body = Vec::new();
-        version.serialize(&mut body).unwrap();
-        message.serialize(&mut body).unwrap();
         expected.extend_from_slice(&(body.len() as u32).to_be_bytes());
         expected.extend_from_slice(&body);
         prop_assert_eq!(encoded, expected);

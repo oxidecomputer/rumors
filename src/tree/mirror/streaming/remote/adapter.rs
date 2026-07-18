@@ -4,8 +4,9 @@
 //! levels. In memory, one [`Reply`](super::super::message::Reply) contains
 //! backend node handles and omits its prefix because the receiver already knows
 //! which earlier question it answers. On the wire, a supplied node is flattened
-//! into backend-neutral `(Version, Message<T>)` leaves and still carries neither
-//! prefix nor radix. This module is the lossless boundary between them:
+//! into runs of backend-neutral `(Version, Message<T>)` leaf records which
+//! still carry neither prefix nor radix. This module is the lossless boundary
+//! between them:
 //!
 //! ```text
 //! Reply<B, T, H> -- encode + explode --> Frame<T> leaves
@@ -30,22 +31,29 @@
 //! writer reports success, making the materialized walk's “wire before internal
 //! publication” liveness rule the natural API order.
 //!
-//! # Supplying backend nodes as leaves
+//! # Supplying backend nodes as leaf runs
 //!
 //! Encoding asks [`Backend::leaves`](super::super::Backend::leaves) to flatten
-//! each `Supply(radix, node)`. Decoding recomputes every leaf's full path from
-//! its version and serialized message, rejects paths outside the retained
-//! scope, and groups consecutive leaves by their height-`H` prefix. Strict path
-//! and run ordering make those group boundaries unambiguous without another
-//! delimiter or a trusted peer-supplied key.
+//! each `Supply(radix, node)`, and batches the enumerated leaves into wire
+//! runs chunked by the session's [`RunBudget`](super::codec::RunBudget): a
+//! run flushes when the next record would overflow the budget, always holds
+//! at least one record, and never spans reactions. Decoding is
+//! batching-agnostic — it walks records, not frames: it recomputes every
+//! leaf's full path from its version and serialized message, rejects paths
+//! outside the retained scope, and groups consecutive leaves by their
+//! height-`H` prefix. Strict path and run ordering make those group
+//! boundaries unambiguous without another delimiter or a trusted
+//! peer-supplied key.
 //!
-//! The decoder feeds leaves through a one-slot channel into the existing
+//! The decoder yields each record as it is decoded through a fan-bounded
+//! channel into the existing
 //! [`Convert::assemble`](super::super::convert::Convert::assemble) fold. While
 //! that fold rebuilds backend nodes, the reader retains only the reply skeleton
 //! (`Match`, `Query`, or a supplied-prefix placeholder). Completed nodes fill
 //! those placeholders after the reply end arrives. Thus memory remains one
-//! finite reply, its completed node handles, and one leaf in flight; no subtree
-//! payload is accumulated merely to cross the backend boundary.
+//! finite reply, its completed node handles, one encoded run, and the
+//! buffered fan of decoded leaves; no subtree payload is accumulated merely
+//! to cross the backend boundary.
 //!
 //! # Why this is sufficient
 //!

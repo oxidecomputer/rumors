@@ -1,4 +1,4 @@
-use std::{future::Future, pin::Pin, pin::pin};
+use std::{future::Future, mem, pin::Pin, pin::pin};
 
 use async_stream::try_stream;
 use futures::{Stream, StreamExt};
@@ -16,7 +16,7 @@ use crate::tree::{
 };
 
 use super::{
-    super::codec::{End, Flow, Frame, Reaction as WireReaction},
+    super::codec::{End, Flow, Frame, LeafRun, Reaction as WireReaction, RunBudget},
     error::{EncodeError, OpeningError, ScopeError},
     scope::Scope,
 };
@@ -79,6 +79,7 @@ where
 /// Encode one non-leaf reply and derive the lower questions it asks.
 pub fn encode_reply<B, T, H>(
     backend: B,
+    budget: RunBudget,
     scope: Scope<S<H>>,
     reply: Reply<B, T, S<H>>,
 ) -> Frames<T, B::Error, Scope<H>>
@@ -89,22 +90,29 @@ where
     S<H>: Convert,
     S<S<H>>: Height,
 {
-    render(backend, scope, reply, |scope, reaction| match reaction {
-        ProtocolReaction::Match => {
-            let _ = scope.next();
-            Ok(None)
-        }
-        ProtocolReaction::Query(listing) => {
-            let (_, prefix) = scope.next().ok_or(ScopeError::UnpositionedQuery)?;
-            Ok(Some(Scope::new(prefix, listing)))
-        }
-        ProtocolReaction::Supply(_, _) => Ok(None),
-    })
+    render(
+        backend,
+        budget,
+        scope,
+        reply,
+        |scope, reaction| match reaction {
+            ProtocolReaction::Match => {
+                let _ = scope.next();
+                Ok(None)
+            }
+            ProtocolReaction::Query(listing) => {
+                let (_, prefix) = scope.next().ok_or(ScopeError::UnpositionedQuery)?;
+                Ok(Some(Scope::new(prefix, listing)))
+            }
+            ProtocolReaction::Supply(_, _) => Ok(None),
+        },
+    )
 }
 
 /// Encode one leaf-height reply, where only an empty request for the leaf is valid.
 pub fn encode_leaf_reply<B, T>(
     backend: B,
+    budget: RunBudget,
     scope: Scope<Z>,
     reply: Reply<B, T, Z>,
 ) -> Frames<T, B::Error, Scope<Z>>
@@ -112,24 +120,31 @@ where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    render(backend, scope, reply, |scope, reaction| match reaction {
-        ProtocolReaction::Match => {
-            let _ = scope.next();
-            Ok(None)
-        }
-        ProtocolReaction::Query(listing) if !listing.is_empty() => {
-            Err(ScopeError::NonemptyLeafQuery)
-        }
-        ProtocolReaction::Query(_) => {
-            let (_, prefix) = scope.next().ok_or(ScopeError::UnpositionedQuery)?;
-            Ok(Some(Scope::leaf(prefix)))
-        }
-        ProtocolReaction::Supply(_, _) => Ok(None),
-    })
+    render(
+        backend,
+        budget,
+        scope,
+        reply,
+        |scope, reaction| match reaction {
+            ProtocolReaction::Match => {
+                let _ = scope.next();
+                Ok(None)
+            }
+            ProtocolReaction::Query(listing) if !listing.is_empty() => {
+                Err(ScopeError::NonemptyLeafQuery)
+            }
+            ProtocolReaction::Query(_) => {
+                let (_, prefix) = scope.next().ok_or(ScopeError::UnpositionedQuery)?;
+                Ok(Some(Scope::leaf(prefix)))
+            }
+            ProtocolReaction::Supply(_, _) => Ok(None),
+        },
+    )
 }
 
 fn render<B, T, H, Q, D>(
     backend: B,
+    budget: RunBudget,
     mut scope: Scope<H>,
     reply: Reply<B, T, H>,
     mut derive: D,
@@ -174,25 +189,45 @@ where
                     let expected = scope.supplied(radix);
                     let mut leaves = pin!(backend.clone().leaves(expected, node));
                     let mut previous = None;
-                    let mut supplied = false;
+                    // One run accumulates this reaction's leaves; it flushes
+                    // when the next record would overflow the budget and
+                    // always at the end of the enumeration, so a run never
+                    // spans reactions.
+                    let mut run = LeafRun::new();
                     while let Some(item) = leaves.next().await {
                         let (prefix, leaf) = item.map_err(EncodeError::Backend)?;
                         validate_leaf(expected, previous, prefix);
                         previous = Some(prefix);
-                        supplied = true;
 
-                        let wire = WireReaction::Supply(
-                            leaf.ceiling().clone(),
-                            leaf.message().clone(),
-                        );
-                        if let Some((previous, question)) = pending.replace((wire, None)) {
-                            yield Encoded {
-                                frame: Frame::Reaction(previous, Flow::Continue),
-                                question,
-                            };
+                        let version = leaf.ceiling().clone();
+                        let message = leaf.message().clone();
+                        if !run.is_empty()
+                            && run
+                                .encoded_len()
+                                .saturating_add(LeafRun::record_len(&version, &message))
+                                > budget.bytes()
+                        {
+                            let full = mem::take(&mut run);
+                            if let Some((ready, question)) =
+                                pending.replace((WireReaction::Supply(full), None))
+                            {
+                                yield Encoded {
+                                    frame: Frame::Reaction(ready, Flow::Continue),
+                                    question,
+                                };
+                            }
                         }
+                        run.push(&version, &message).map_err(EncodeError::Record)?;
                     }
-                    assert!(supplied, "a backend node contains at least one leaf");
+                    assert!(!run.is_empty(), "a backend node contains at least one leaf");
+                    if let Some((ready, question)) =
+                        pending.replace((WireReaction::Supply(run), None))
+                    {
+                        yield Encoded {
+                            frame: Frame::Reaction(ready, Flow::Continue),
+                            question,
+                        };
+                    }
                 }
             }
         }

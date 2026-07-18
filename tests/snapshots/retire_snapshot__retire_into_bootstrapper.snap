@@ -41,11 +41,13 @@ Initiator stream 0 (height 31), epoch 0
     0000: 99
 Initiator stream 1 (height 30), epoch 0
   frame 0: Supply(End)
-    0000: 78 00 00 00 09 d2 01 00
-    0008: 00 00 00 00 00 00
+    0000: 78 00 00 00 0d 00 00 00
+    0008: 09 d2 01 00 00 00 00 00
+    0010: 00 00
   frame 1: Supply(End)
-    0000: 78 00 00 00 09 d3 02 00
-    0008: 00 00 00 00 00 00
+    0000: 78 00 00 00 0d 00 00 00
+    0008: 09 d3 02 00 00 00 00 00
+    0010: 00 00
   frame 2: End(Stream)
     0000: 9a
 trailing frame: 6 bytes

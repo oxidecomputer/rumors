@@ -12,7 +12,7 @@ use crate::tree::mirror::streaming::{
     Failing, Failure, Local, Operation,
     remote::{
         adapter::EncodeError,
-        codec::{Speaker, Stream},
+        codec::{RunBudget, Speaker, Stream},
         proxy::Error,
         streams::{
             AcceptDriver, Claims, ErrorRoute, StreamError, StreamReceiver, claims, error_route,
@@ -49,6 +49,7 @@ fn parked_session() -> ParkedSession {
     let work = Work::new(
         Failing::after(Local, usize::MAX),
         Window::FLOOR,
+        RunBudget::default(),
         Physical {
             control_read: parts.control_read,
             control_write: parts.control_write,

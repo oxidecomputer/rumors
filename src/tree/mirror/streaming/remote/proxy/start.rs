@@ -16,7 +16,7 @@ use crate::{
                 message::Handshake,
                 protocol::{self, Accept, CompleteConnect, Connect},
                 remote::{
-                    codec::Speaker,
+                    codec::{RunBudget, Speaker},
                     proxy::{
                         Connected, Error,
                         work::{Physical, Work},
@@ -47,6 +47,8 @@ where
     /// The session's pipeline window; see
     /// [`window`](crate::tree::mirror::streaming::window).
     window: Window,
+    /// The encoder's supply-run byte budget; see [`RunBudget`].
+    budget: RunBudget,
     marker: PhantomData<fn() -> T>,
 }
 
@@ -62,6 +64,7 @@ where
             link,
             versions: Start,
             window: Window::default(),
+            budget: RunBudget::default(),
             marker: PhantomData,
         }
     }
@@ -70,6 +73,12 @@ where
     /// [`window`](crate::tree::mirror::streaming::window).
     pub fn window(mut self, window: Window) -> Self {
         self.window = window;
+        self
+    }
+
+    /// Select this session's supply-run byte budget; see [`RunBudget`].
+    pub fn run_budget(mut self, budget: RunBudget) -> Self {
+        self.budget = budget;
         self
     }
 }
@@ -119,6 +128,7 @@ where
             link: self.link,
             versions: Connecting { remote },
             window: self.window,
+            budget: self.budget,
             marker: PhantomData,
         };
         Ok((handshake, next))
@@ -142,6 +152,7 @@ where
         Ok(connected(
             self.backend,
             self.window,
+            self.budget,
             local_version,
             self.versions.remote,
             self.link,
@@ -171,6 +182,7 @@ where
         let next = connected(
             self.backend,
             self.window,
+            self.budget,
             request.version,
             remote,
             self.link,
@@ -206,6 +218,7 @@ where
 fn connected<B, T, R, W, C, A>(
     backend: B,
     window: Window,
+    budget: RunBudget,
     local_version: Version,
     remote_version: Version,
     link: Link<R, W, C, A>,
@@ -220,7 +233,7 @@ where
         return Connected::equal(link.control_read, link.control_write);
     }
     let local = local_speaker(&local_version, &remote_version);
-    open(backend, window, local, link)
+    open(backend, window, budget, local, link)
 }
 
 /// Elect the local physical speaker from the total canonical version order.
@@ -236,6 +249,7 @@ fn local_speaker(local: &Version, remote: &Version) -> Speaker {
 fn open<B, T, R, W, C, A>(
     backend: B,
     window: Window,
+    budget: RunBudget,
     local: Speaker,
     link: Link<R, W, C, A>,
 ) -> Connected<B, T, R, W, C, A>
@@ -260,6 +274,7 @@ where
     let work = Work::new(
         backend,
         window,
+        budget,
         Physical {
             control_read,
             control_write,

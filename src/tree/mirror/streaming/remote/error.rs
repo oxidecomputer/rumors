@@ -9,7 +9,7 @@ pub use super::adapter::{DecodeError, EncodeError, OpeningError, ScopeError};
 pub use super::codec::{
     DecodeError as CodecDecodeError, DecodeErrorKind as CodecDecodeErrorKind, DecodeLeafError,
     DecodeSignalError, EncodeError as CodecEncodeError, EncodeErrorKind as CodecEncodeErrorKind,
-    EncodeLeafError, FramePart, InvalidSignalPlacement, InvalidWireSignal, Origin, QueryOrderError,
+    FramePart, InvalidSignalPlacement, InvalidWireSignal, LeafRunError, Origin, QueryOrderError,
     Speaker, Stream, StreamClass,
 };
 pub use super::proxy::Error as RemoteError;

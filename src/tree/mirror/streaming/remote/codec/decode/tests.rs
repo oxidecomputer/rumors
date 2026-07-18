@@ -2,10 +2,12 @@ use borsh::BorshSerialize;
 use proptest::prelude::*;
 
 use super::*;
+use crate::Version;
+use crate::message::Message;
 use crate::tree::arb::arb_version;
 
 use super::super::{
-    error::{Origin, QueryOrderError},
+    error::{DecodeLeafError, Origin, QueryOrderError},
     frame::{QUERY_COUNT_BIAS, QUERY_COUNT_LEN},
     signal::{DecodeSignalError, End, Flow, Speaker, Stream, StreamError},
 };
@@ -30,6 +32,16 @@ fn supply(stream: Stream, flow: Flow, body: &[u8]) -> Vec<u8> {
     encoded.extend_from_slice(&(body.len() as u32).to_be_bytes());
     encoded.extend_from_slice(body);
     encoded
+}
+
+/// One length-prefixed leaf record as it appears inside a run body.
+fn record(version: &Version, message: &Message<u64>) -> Vec<u8> {
+    let mut body = Vec::new();
+    version.serialize(&mut body).unwrap();
+    message.serialize(&mut body).unwrap();
+    let mut record = (body.len() as u32).to_be_bytes().to_vec();
+    record.extend_from_slice(&body);
+    record
 }
 
 fn arb_speaker() -> impl Strategy<Value = Speaker> {
@@ -97,7 +109,7 @@ fn truncated_bodies_are_rejected() {
                     frame.extend_from_slice(&1_u32.to_be_bytes());
                     frame
                 },
-                FramePart::SupplyLeaf,
+                FramePart::SupplyRun,
                 Origin::stream(speaker, stream),
             ),
         ];
@@ -118,70 +130,100 @@ fn truncated_bodies_are_rejected() {
 }
 
 proptest! {
-    /// Arbitrary supplied leaves decode once into their backend-neutral pair.
+    /// An arbitrary run of supplied records decodes into a frame carrying the
+    /// exact run body, without decoding any record eagerly.
     #[test]
-    fn supplied_leaf_is_decoded_immediately(
+    fn supplied_run_is_decoded_structurally(
         index in 1_u8..Stream::MAX,
         speaker in arb_speaker(),
         flow in arb_flow(),
-        version in arb_version(),
-        value in any::<u64>(),
+        records in proptest::collection::vec((arb_version(), any::<u64>()), 1..=4),
     ) {
         let stream = stream(index);
-        let message = Message::new(value);
         let mut body = Vec::new();
-        version.serialize(&mut body).unwrap();
-        message.serialize(&mut body).unwrap();
+        for (version, value) in &records {
+            body.extend_from_slice(&record(version, &Message::new(*value)));
+        }
         let encoded = supply(stream, flow, &body);
 
+        let expected = LeafRun::from_encoded(body).unwrap();
         prop_assert_eq!(
             decode_exact::<u64>(speaker, &encoded).unwrap(),
-            (
-                stream,
-                Frame::Reaction(Reaction::Supply(version, message), flow)
-            )
+            (stream, Frame::Reaction(Reaction::Supply(expected), flow))
         );
     }
 }
 
-/// Leaf failures identify their component and retain the Borsh source error.
+/// Structurally invalid runs are rejected at the wire with their exact cause:
+/// an empty run, a record header past the run's end, or a record body past
+/// the run's end.
 #[test]
-fn supplied_leaf_errors_are_typed() {
+fn malformed_run_structure_is_typed() {
+    use super::super::frame::LeafRunError;
+
     let stream = stream(8);
     for speaker in SPEAKERS {
-        let invalid_version =
-            decode_exact::<u64>(speaker, &supply(stream, Flow::Continue, TRUNCATED_VERSION))
-                .unwrap_err();
-        assert_eq!(invalid_version.origin, Origin::stream(speaker, stream));
-        let DecodeErrorKind::InvalidLeaf(DecodeLeafError::Version(source)) = invalid_version.kind
-        else {
-            panic!("unexpected error kind");
-        };
-        assert_eq!(source.kind(), borsh::io::ErrorKind::UnexpectedEof);
-
-        let mut version = Vec::new();
-        Version::new().serialize(&mut version).unwrap();
-        let invalid_message =
-            decode_exact::<u64>(speaker, &supply(stream, Flow::Continue, &version)).unwrap_err();
-        assert_eq!(invalid_message.origin, Origin::stream(speaker, stream));
-        let DecodeErrorKind::InvalidLeaf(DecodeLeafError::Message(source)) = invalid_message.kind
-        else {
-            panic!("unexpected error kind");
-        };
-        assert_eq!(source.kind(), borsh::io::ErrorKind::InvalidData);
-
-        0_u64.serialize(&mut version).unwrap();
-        version.push(u8::MIN);
-        let trailing =
-            decode_exact::<u64>(speaker, &supply(stream, Flow::Continue, &version)).unwrap_err();
-        assert_eq!(trailing.origin, Origin::stream(speaker, stream));
+        let empty = decode_exact::<u64>(speaker, &supply(stream, Flow::Continue, &[])).unwrap_err();
+        assert_eq!(empty.origin, Origin::stream(speaker, stream));
         assert!(matches!(
-            trailing.kind,
-            DecodeErrorKind::InvalidLeaf(DecodeLeafError::TrailingBytes {
-                count: WireSignal::ENCODED_LEN
+            empty.kind,
+            DecodeErrorKind::InvalidRun(LeafRunError::Empty)
+        ));
+
+        let short_header =
+            decode_exact::<u64>(speaker, &supply(stream, Flow::Continue, &[0, 0])).unwrap_err();
+        assert_eq!(short_header.origin, Origin::stream(speaker, stream));
+        assert!(matches!(
+            short_header.kind,
+            DecodeErrorKind::InvalidRun(LeafRunError::TruncatedHeader { remaining: 2 })
+        ));
+
+        let mut overrun = 2_u32.to_be_bytes().to_vec();
+        overrun.push(0);
+        let short_record =
+            decode_exact::<u64>(speaker, &supply(stream, Flow::Continue, &overrun)).unwrap_err();
+        assert_eq!(short_record.origin, Origin::stream(speaker, stream));
+        assert!(matches!(
+            short_record.kind,
+            DecodeErrorKind::InvalidRun(LeafRunError::TruncatedRecord {
+                len: 2,
+                remaining: 1
             })
         ));
     }
+}
+
+/// A record's canonical decoding is deferred to the run's record iterator,
+/// which types each failure and retains the Borsh source error.
+#[test]
+fn supplied_record_errors_are_typed() {
+    let mut truncated_version = (TRUNCATED_VERSION.len() as u32).to_be_bytes().to_vec();
+    truncated_version.extend_from_slice(TRUNCATED_VERSION);
+    let run = LeafRun::<u64>::from_encoded(truncated_version).unwrap();
+    let error = run.records().next().unwrap().unwrap_err();
+    let DecodeLeafError::Version(source) = error else {
+        panic!("unexpected record error");
+    };
+    assert_eq!(source.kind(), borsh::io::ErrorKind::UnexpectedEof);
+
+    let mut version = Vec::new();
+    Version::new().serialize(&mut version).unwrap();
+    let mut missing_message = (version.len() as u32).to_be_bytes().to_vec();
+    missing_message.extend_from_slice(&version);
+    let run = LeafRun::<u64>::from_encoded(missing_message).unwrap();
+    let error = run.records().next().unwrap().unwrap_err();
+    let DecodeLeafError::Message(source) = error else {
+        panic!("unexpected record error");
+    };
+    assert_eq!(source.kind(), borsh::io::ErrorKind::InvalidData);
+
+    0_u64.serialize(&mut version).unwrap();
+    version.push(u8::MIN);
+    let mut trailing = (version.len() as u32).to_be_bytes().to_vec();
+    trailing.extend_from_slice(&version);
+    let run = LeafRun::<u64>::from_encoded(trailing).unwrap();
+    let error = run.records().next().unwrap().unwrap_err();
+    assert!(matches!(error, DecodeLeafError::TrailingBytes { count: 1 }));
 }
 
 proptest! {
@@ -274,7 +316,7 @@ fn async_eof_distinguishes_close_from_truncation() {
                     frame.extend_from_slice(&1_u32.to_be_bytes());
                     frame
                 },
-                FramePart::SupplyLeaf,
+                FramePart::SupplyRun,
             ),
         ];
         for (encoded, missing) in cases {

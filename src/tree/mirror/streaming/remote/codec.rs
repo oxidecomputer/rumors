@@ -17,19 +17,24 @@
 //! to discover whether that item is also the stream's last.
 //!
 //! An empty query is wholly represented by its signal. A nonempty query carries
-//! `count - 1` in one byte, covering 1 through 256. A supply body is the
-//! backend-neutral `(Version, Message<T>)` pair behind an exact `u32` body
-//! length. The codec decodes that leaf once after its whole body arrives; the
-//! adapter constructs its backend-specific leaf and validates its
-//! content-addressed path.
+//! `count - 1` in one byte, covering 1 through 256. A supply body is a
+//! [`LeafRun`] behind an exact `u32` body length: one or more
+//! backend-neutral `(Version, Message<T>)` leaf records, each behind its own
+//! exact `u32` record length. The codec validates the run's record framing
+//! once its whole body arrives but leaves the records encoded; the adapter
+//! decodes them one at a time, constructs its backend-specific leaves, and
+//! validates their content-addressed paths. How many records share one run
+//! is the sender's choice, bounded by its [`RunBudget`]; the decoder accepts
+//! any batching.
 //!
 //! Encoding trusts the protocol and adapter to produce phase-correct,
 //! canonically ordered frames; it performs no redundant semantic validation.
 //! Decoding is the trust boundary and validates every peer-controlled signal,
-//! query, and supplied leaf before returning a frame. [`FrameRead`] and
-//! [`FrameWrite`] apply that same grammar directly to Tokio byte streams
+//! query, and supply-run structure before returning a frame. [`FrameRead`]
+//! and [`FrameWrite`] apply that same grammar directly to Tokio byte streams
 //! without buffering a complete outgoing frame.
 
+mod budget;
 #[cfg(any(test, feature = "test-internals"))]
 mod capture;
 mod decode;
@@ -37,6 +42,8 @@ mod encode;
 mod error;
 mod frame;
 mod signal;
+
+pub use budget::{DEFAULT_TARGET_MESSAGE_SIZE, RunBudget};
 
 #[cfg(any(test, feature = "test-internals"))]
 pub use capture::{LinkCapture, render_v2_capture};
@@ -47,12 +54,12 @@ pub use encode::FrameWrite;
 #[cfg(test)]
 pub use encode::encode;
 pub use error::{
-    DecodeError, DecodeErrorKind, DecodeLeafError, EncodeError, EncodeErrorKind, EncodeLeafError,
-    FramePart, Origin, QueryOrderError,
+    DecodeError, DecodeErrorKind, DecodeLeafError, EncodeError, EncodeErrorKind, FramePart, Origin,
+    QueryOrderError,
 };
 #[cfg(test)]
 pub use frame::WireFrame;
-pub use frame::{Frame, Reaction};
+pub use frame::{Frame, LeafRun, LeafRunError, Reaction};
 pub use signal::{
     DecodeSignalError, End, Flow, InvalidSignalPlacement, InvalidWireSignal, Speaker, Stream,
     StreamClass,

@@ -16,7 +16,7 @@ use crate::tree::{
 
 use super::{
     super::{OpeningError, Scope, decode_opening, encode_opening},
-    hash, runtime,
+    hash, leaf_run, runtime,
 };
 use crate::tree::mirror::streaming::remote::codec::{End, Flow, Frame, Reaction as WireReaction};
 
@@ -116,7 +116,7 @@ fn opening_rejections_are_exhaustive() {
         WireReaction::Match,
         WireReaction::Query(Vec::new()),
         WireReaction::Query(vec![(1, hash(1))]),
-        WireReaction::Supply(Version::new(), Message::new(())),
+        WireReaction::Supply(leaf_run(&[(&Version::new(), &Message::new(()))])),
     ];
     let mut checked = 0;
     for body in bodies {

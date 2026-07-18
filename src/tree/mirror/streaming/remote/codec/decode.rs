@@ -3,17 +3,14 @@
 #[cfg(test)]
 use std::slice;
 
+#[cfg(test)]
 use borsh::BorshDeserialize;
 #[cfg(test)]
 use borsh::io::{ErrorKind, Read};
 
 #[cfg(test)]
 use crate::tree::mirror::framing::LENGTH_HEADER_LEN;
-use crate::{
-    Version,
-    message::Message,
-    tree::typed::{Hash, hash::MERKLE_HASH_LEN},
-};
+use crate::tree::typed::{Hash, hash::MERKLE_HASH_LEN};
 
 mod async_io;
 
@@ -22,10 +19,10 @@ pub use async_io::FrameRead;
 #[cfg(test)]
 use super::{
     error::FramePart,
-    frame::{Frame, QUERY_COUNT_BIAS, Reaction, WireFrame},
+    frame::{Frame, LeafRun, QUERY_COUNT_BIAS, Reaction, WireFrame},
 };
 use super::{
-    error::{DecodeError, DecodeErrorKind, DecodeLeafError},
+    error::{DecodeError, DecodeErrorKind},
     frame::{QUERY_CHILD_LEN, validate_children},
     signal::{Signal, Speaker, Stream, WireSignal},
 };
@@ -91,10 +88,7 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
             Signal::Match(flow) => Frame::Reaction(Reaction::Match, flow),
             Signal::QueryEmpty(flow) => Frame::Reaction(Reaction::Query(Vec::new()), flow),
             Signal::Query(flow) => Frame::Reaction(Reaction::Query(self.query()?), flow),
-            Signal::Supply(flow) => {
-                let (version, message) = self.supply()?;
-                Frame::Reaction(Reaction::Supply(version, message), flow)
-            }
+            Signal::Supply(flow) => Frame::Reaction(Reaction::Supply(self.supply()?), flow),
             Signal::End(end) => Frame::End(end),
         };
         Ok(frame)
@@ -109,13 +103,13 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
         parse_query(&listing)
     }
 
-    fn supply<T: BorshDeserialize>(&mut self) -> Result<(Version, Message<T>), DecodeErrorKind> {
+    fn supply<T>(&mut self) -> Result<LeafRun<T>, DecodeErrorKind> {
         let mut header = [0; LENGTH_HEADER_LEN];
         self.read_exact(&mut header, FramePart::SupplyLength)?;
-        let mut leaf = vec![0; u32::from_be_bytes(header) as usize];
-        self.read_exact(&mut leaf, FramePart::SupplyLeaf)?;
+        let mut run = vec![0; u32::from_be_bytes(header) as usize];
+        self.read_exact(&mut run, FramePart::SupplyRun)?;
 
-        parse_supply(&leaf)
+        Ok(LeafRun::from_encoded(run)?)
     }
 
     fn byte(&mut self, part: FramePart) -> Result<u8, DecodeErrorKind> {
@@ -155,19 +149,6 @@ fn parse_query(listing: &[u8]) -> Result<Vec<(u8, Hash)>, DecodeErrorKind> {
     }
     validate_children(&children)?;
     Ok(children)
-}
-
-fn parse_supply<T: BorshDeserialize>(
-    leaf: &[u8],
-) -> Result<(Version, Message<T>), DecodeErrorKind> {
-    // The exact body makes both Borsh values a single, non-retrying parse.
-    let mut input = leaf;
-    let version = Version::deserialize(&mut input).map_err(DecodeLeafError::Version)?;
-    let message = Message::deserialize(&mut input).map_err(DecodeLeafError::Message)?;
-    if !input.is_empty() {
-        return Err(DecodeLeafError::TrailingBytes { count: input.len() }.into());
-    }
-    Ok((version, message))
 }
 
 #[cfg(test)]

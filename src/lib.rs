@@ -303,7 +303,10 @@ pub use error::{Error, MirrorError};
 pub use link::{Acceptor, Connector, Link};
 pub use network::Network;
 pub(crate) use peer::Inner;
-pub use peer::{DEFAULT_MAX_IN_FLIGHT_NODES, Gossiped, Led, Peer, Retire, Unbookmarked};
+pub use peer::{
+    DEFAULT_MAX_IN_FLIGHT_NODES, DEFAULT_TARGET_MESSAGE_SIZE, Gossiped, Led, Peer, Retire,
+    Unbookmarked,
+};
 pub use protocol::Protocol;
 pub use rumors::{CausalMessages, Changes, Rumors, TryNext, TryTick, UnorderedMessages};
 pub use snapshot::Snapshot;

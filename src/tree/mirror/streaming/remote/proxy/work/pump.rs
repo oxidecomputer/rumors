@@ -123,6 +123,7 @@ where
             queues::local_questions::<_, S<H>>(self.window.scopes());
         self.spawn(encode::replies(
             self.backend(),
+            self.budget,
             requests,
             scopes,
             outgoing,
@@ -160,6 +161,7 @@ where
             queues::local_questions::<_, Z>(self.window.scopes());
         self.spawn(encode::replies(
             self.backend(),
+            self.budget,
             requests,
             scopes,
             outgoing,
@@ -192,7 +194,15 @@ where
         outgoing: StreamSender<C, T>,
     ) -> Result<(R, W), Error<B::Error>> {
         let progress = self.progress;
-        let finish = encode::terminal(self.backend(), requests, scopes, outgoing, None, progress);
+        let finish = encode::terminal(
+            self.backend(),
+            self.budget,
+            requests,
+            scopes,
+            outgoing,
+            None,
+            progress,
+        );
         let ((), read, write) = self.execute(finish).await?;
         Ok((read, write))
     }
@@ -218,6 +228,7 @@ where
             queues::local_questions::<_, Z>(self.window.scopes());
         self.spawn(encode::terminal(
             self.backend(),
+            self.budget,
             requests,
             scopes,
             outgoing,

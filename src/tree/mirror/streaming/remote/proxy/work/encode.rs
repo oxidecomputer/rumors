@@ -17,6 +17,7 @@ use crate::tree::{
         protocol::Requests,
         remote::{
             adapter::{self, Encoded, Scope, encode_opening, encode_reply},
+            codec::RunBudget,
             proxy::{Error, send_or_cancel},
             streams::{ReplyFrame, StreamSender},
         },
@@ -29,6 +30,7 @@ use super::progress::Progress;
 /// Encode local leaf replies, optionally publishing the leaf questions they ask.
 pub async fn terminal<B, T, C>(
     backend: B,
+    budget: RunBudget,
     requests: impl Requests<B, T, Z>,
     mut scopes: Receiver<Scope<Z>>,
     mut outgoing: StreamSender<C, T>,
@@ -47,7 +49,7 @@ where
     // same choice; see the materialized module docs).
     while let Some(scope) = scopes.recv().await {
         let request = requests.next().await.ok_or(Error::UnansweredRemoteQuery)?;
-        let mut encoded = adapter::encode_leaf_reply(backend.clone(), scope, request);
+        let mut encoded = adapter::encode_leaf_reply(backend.clone(), budget, scope, request);
         let batch = write_reply(&mut outgoing, &mut encoded).await?;
         progress.wire_reply::<Z>(batch.len());
         if let Some(questions) = &questions {
@@ -62,6 +64,7 @@ where
 /// Encode non-leaf replies and publish each complete question batch.
 pub async fn replies<B, T, C, H>(
     backend: B,
+    budget: RunBudget,
     requests: impl Requests<B, T, S<H>>,
     mut scopes: Receiver<Scope<S<H>>>,
     mut outgoing: StreamSender<C, T>,
@@ -79,7 +82,7 @@ where
     let mut requests = pin!(requests);
     while let Some(scope) = scopes.recv().await {
         let request = requests.next().await.ok_or(Error::UnansweredRemoteQuery)?;
-        let mut encoded = encode_reply(backend.clone(), scope, request);
+        let mut encoded = encode_reply(backend.clone(), budget, scope, request);
         let batch = write_reply(&mut outgoing, &mut encoded).await?;
         progress.wire_reply::<H>(batch.len());
         publish::<_, H>(&questions, batch, progress).await;

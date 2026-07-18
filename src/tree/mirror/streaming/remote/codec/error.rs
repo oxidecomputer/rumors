@@ -4,6 +4,7 @@ use std::fmt;
 
 use crate::tree::mirror::framing::LengthOverflow;
 
+use super::frame::LeafRunError;
 use super::signal::{DecodeSignalError, Speaker, Stream};
 
 /// The speaker and, when known, logical stream which produced an error.
@@ -45,10 +46,10 @@ pub enum FramePart {
     QueryCount,
     #[error("query child listing")]
     QueryChildren,
-    #[error("supply length")]
+    #[error("supply run length")]
     SupplyLength,
-    #[error("supply leaf")]
-    SupplyLeaf,
+    #[error("supply run")]
+    SupplyRun,
 }
 
 /// A query listing that is not in canonical radix order.
@@ -57,15 +58,6 @@ pub enum FramePart {
 pub struct QueryOrderError {
     pub previous: u8,
     pub radix: u8,
-}
-
-/// A Borsh failure while encoding a supplied leaf.
-#[derive(Debug, thiserror::Error)]
-pub enum EncodeLeafError {
-    #[error("supplied version could not be encoded")]
-    Version(#[source] borsh::io::Error),
-    #[error("supplied message could not be encoded")]
-    Message(#[source] borsh::io::Error),
 }
 
 /// Why an outgoing frame could not be encoded.
@@ -79,15 +71,6 @@ pub enum EncodeErrorKind {
     },
     #[error("could not flush the completed frame")]
     Flush(#[source] borsh::io::Error),
-    #[error(transparent)]
-    InvalidLeaf(#[from] EncodeLeafError),
-    #[error(
-        "supplied Version ({version_len} bytes) and Message ({message_len} bytes) overflow usize"
-    )]
-    SupplyLengthOverflow {
-        version_len: usize,
-        message_len: usize,
-    },
     #[error(transparent)]
     SupplyTooLarge(#[from] LengthOverflow),
 }
@@ -111,7 +94,12 @@ impl EncodeError {
     }
 }
 
-/// A Borsh or canonicality failure while decoding a supplied leaf.
+/// A Borsh or canonicality failure while decoding a supplied leaf record.
+///
+/// Produced by the run's record iterator (`LeafRun::records`), which the
+/// incoming adapter drives record by record; run *structure* is instead
+/// validated when the frame's bytes enter from the wire
+/// ([`LeafRunError`]).
 #[derive(Debug, thiserror::Error)]
 pub enum DecodeLeafError {
     #[error("supplied Version could not be decoded")]
@@ -142,7 +130,7 @@ pub enum DecodeErrorKind {
     #[error(transparent)]
     QueryOutOfOrder(#[from] QueryOrderError),
     #[error(transparent)]
-    InvalidLeaf(#[from] DecodeLeafError),
+    InvalidRun(#[from] LeafRunError),
     #[error("{count} trailing bytes follow the frame")]
     TrailingBytes { count: usize },
 }

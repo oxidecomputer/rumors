@@ -17,11 +17,11 @@ use crate::tree::{
 
 use super::{
     super::{DecodeError, EncodeError, Scope, decode_reply, encode_reply},
-    LeafCase, hash, runtime,
+    LeafCase, hash, leaf_run, runtime,
 };
 use crate::tree::mirror::streaming::{
     convert::Convert,
-    remote::codec::{End, Flow, Frame, Reaction as WireReaction},
+    remote::codec::{End, Flow, Frame, Reaction as WireReaction, RunBudget},
 };
 
 /// Construct the same one-leaf subtree at any concrete reply height.
@@ -82,6 +82,7 @@ where
             };
             let mut encoded = encode_reply(
                 backend.clone(),
+                RunBudget::default(),
                 Scope::new(parent, &listing),
                 Reply { replies },
             );
@@ -122,7 +123,7 @@ where
             let sentinel = Frame::End(End::Reply);
             let mut frames = stream::iter([
                 Frame::Reaction(
-                    WireReaction::Supply(leaf.version.clone(), leaf.message.clone()),
+                    WireReaction::Supply(leaf_run(&[(&leaf.version, &leaf.message)])),
                     Flow::End,
                 ),
                 sentinel.clone(),

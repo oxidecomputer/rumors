@@ -1,15 +1,11 @@
 //! Canonical frame encoding.
 
 #[cfg(test)]
-use borsh::{BorshSerialize, io::Write};
+use borsh::io::Write;
 
-use crate::{
-    Version,
-    message::Message,
-    tree::{
-        mirror::framing::{LENGTH_HEADER_LEN, length_header},
-        typed::Hash,
-    },
+use crate::tree::{
+    mirror::framing::{LENGTH_HEADER_LEN, length_header},
+    typed::Hash,
 };
 
 mod async_io;
@@ -18,12 +14,12 @@ pub use async_io::FrameWrite;
 
 use super::{
     error::EncodeErrorKind,
-    frame::{Frame, QUERY_COUNT_BIAS, Reaction},
+    frame::{Frame, LeafRun, QUERY_COUNT_BIAS, Reaction},
     signal::{Signal, Stream, WireSignal},
 };
 #[cfg(test)]
 use super::{
-    error::{EncodeError, EncodeLeafError, FramePart},
+    error::{EncodeError, FramePart},
     frame::WireFrame,
     signal::Speaker,
 };
@@ -43,10 +39,10 @@ pub fn encode<T, W: Write>(
 
 /// A protocol-produced frame split into directly writable pieces.
 ///
-/// The encoder is not a trust boundary: phase placement and query ordering are
-/// guaranteed by its callers and checked only when bytes enter from the wire.
-/// Construction performs only the representational checks needed before any
-/// byte can be emitted.
+/// The encoder is not a trust boundary: phase placement, query ordering, and
+/// run record framing are guaranteed by its callers and checked only when
+/// bytes enter from the wire. Construction performs only the
+/// representational checks needed before any byte can be emitted.
 struct FrameEncoding<'a, T> {
     signal: [u8; WireSignal::ENCODED_LEN],
     body: BodyEncoding<'a, T>,
@@ -60,8 +56,7 @@ enum BodyEncoding<'a, T> {
     },
     Supply {
         header: [u8; LENGTH_HEADER_LEN],
-        version: &'a Version,
-        message: &'a Message<T>,
+        run: &'a LeafRun<T>,
     },
 }
 
@@ -83,24 +78,9 @@ impl<'a, T> FrameEncoding<'a, T> {
                     },
                 )
             }
-            Frame::Reaction(Reaction::Supply(version, message), flow) => {
-                let version_len = version.as_bytes().len();
-                let message_len = message.as_slice().len();
-                let len = version_len.checked_add(message_len).ok_or(
-                    EncodeErrorKind::SupplyLengthOverflow {
-                        version_len,
-                        message_len,
-                    },
-                )?;
-                let header = length_header(len)?;
-                (
-                    Signal::Supply(*flow),
-                    BodyEncoding::Supply {
-                        header,
-                        version,
-                        message,
-                    },
-                )
+            Frame::Reaction(Reaction::Supply(run), flow) => {
+                let header = length_header(run.encoded_len())?;
+                (Signal::Supply(*flow), BodyEncoding::Supply { header, run })
             }
             Frame::End(end) => (Signal::End(*end), BodyEncoding::Empty),
         };
@@ -120,18 +100,9 @@ impl<'a, T> FrameEncoding<'a, T> {
                     write(out, FramePart::QueryChildren, hash.as_bytes())?;
                 }
             }
-            BodyEncoding::Supply {
-                header,
-                version,
-                message,
-            } => {
+            BodyEncoding::Supply { header, run } => {
                 write(out, FramePart::SupplyLength, header)?;
-                version
-                    .serialize(&mut *out)
-                    .map_err(EncodeLeafError::Version)?;
-                message
-                    .serialize(&mut *out)
-                    .map_err(EncodeLeafError::Message)?;
+                write(out, FramePart::SupplyRun, run.as_bytes())?;
             }
         }
         Ok(())

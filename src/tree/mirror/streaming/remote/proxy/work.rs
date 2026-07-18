@@ -15,6 +15,7 @@ use crate::tree::{
         Backend, Leaf,
         protocol::{BoxResponses, Responses},
         remote::{
+            codec::RunBudget,
             proxy::{Error, send_or_cancel},
             streams::{AcceptDriver, FirstStreamError},
         },
@@ -41,6 +42,8 @@ where
     backend: B,
     /// Per-edge capacity for the proxy's question and scope queues.
     window: Window,
+    /// Byte budget for each outgoing supply run.
+    budget: RunBudget,
     physical: Physical<R, W, A>,
     tasks: Vec<BoxFuture<'static, Result<(), Error<B::Error>>>>,
     progress: Progress,
@@ -66,10 +69,11 @@ where
     A: Acceptor,
 {
     /// Begin accumulating work around an elected physical session.
-    pub fn new(backend: B, window: Window, physical: Physical<R, W, A>) -> Self {
+    pub fn new(backend: B, window: Window, budget: RunBudget, physical: Physical<R, W, A>) -> Self {
         Self {
             backend,
             window,
+            budget,
             physical,
             tasks: Vec::new(),
             progress: Progress::new(),

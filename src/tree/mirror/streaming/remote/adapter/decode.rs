@@ -63,7 +63,7 @@ pub async fn decode_reply<B, T, H, F>(
 ) -> Result<Decoded<B, T, S<H>, Vec<Scope<H>>>, DecodeError<B::Error>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    T: borsh::BorshDeserialize + Send + Sync + 'static,
     H: Height,
     S<H>: Convert,
     S<S<H>>: Height,
@@ -84,7 +84,7 @@ pub async fn decode_leaf_reply<B, T, F>(
 ) -> Result<Decoded<B, T, Z, Vec<Scope<Z>>>, DecodeError<B::Error>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    T: borsh::BorshDeserialize + Send + Sync + 'static,
     F: Stream<Item = Frame<T>> + Unpin,
 {
     decode(backend, scope, frames, |scope, listing| {
@@ -105,7 +105,7 @@ async fn decode<B, T, H, F, Q, N>(
 ) -> Result<Decoded<B, T, H, Vec<N>>, DecodeError<B::Error>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    T: borsh::BorshDeserialize + Send + Sync + 'static,
     H: Convert,
     S<H>: Height,
     F: Stream<Item = Frame<T>> + Unpin,
@@ -142,7 +142,7 @@ async fn read_reply<B, T, H, F, Q, N>(
 ) -> Result<Option<ReadReply<H, N>>, DecodeError<B::Error>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    T: borsh::BorshDeserialize + Send + Sync + 'static,
     H: Height,
     S<H>: Height,
     F: Stream<Item = Frame<T>> + Unpin,
@@ -171,16 +171,22 @@ where
                 read.questions.push(question(&mut scope, &listing)?);
                 read.skeleton.push(Skeleton::Query(listing));
             }
-            WireReaction::Supply(version, message) => {
-                let (leaf_prefix, run) =
-                    read.supplies
-                        .observe::<B::Error, T>(scope.parent(), &version, &message)?;
-                if let Some((radix, prefix)) = run {
-                    read.skeleton.push(Skeleton::Supply { radix, prefix });
-                }
-                let leaf = <B::Node<Z> as Leaf<T>>::leaf(version, message);
-                if leaves.send(Ok((leaf_prefix, leaf))).await.is_err() {
-                    return Ok(None);
+            WireReaction::Supply(records) => {
+                // Records leave the run one at a time and flow straight into
+                // assembly: the whole-run bound is its encoded bytes, never a
+                // decoded vector of leaves.
+                for record in records.records() {
+                    let (version, message) = record.map_err(DecodeError::Record)?;
+                    let (leaf_prefix, run) =
+                        read.supplies
+                            .observe::<B::Error, T>(scope.parent(), &version, &message)?;
+                    if let Some((radix, prefix)) = run {
+                        read.skeleton.push(Skeleton::Supply { radix, prefix });
+                    }
+                    let leaf = <B::Node<Z> as Leaf<T>>::leaf(version, message);
+                    if leaves.send(Ok((leaf_prefix, leaf))).await.is_err() {
+                        return Ok(None);
+                    }
                 }
             }
         }

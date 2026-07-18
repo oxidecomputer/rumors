@@ -33,7 +33,10 @@ use crate::{
     tree::mirror::{
         handshake::{self, Intent},
         party,
-        streaming::{self, Local, materialized, remote as streaming_remote, window::Window},
+        streaming::{
+            self, Local, materialized, remote as streaming_remote, remote::RunBudget,
+            window::Window,
+        },
     },
 };
 
@@ -251,7 +254,8 @@ impl<T> Peer<T, NoBookmark> {
                         .window(Window::default());
                     let carrier = Link::for_session(read, write, connector, acceptor, epoch);
                     let proxy = streaming_remote::Handshaking::start(Local, carrier)
-                        .window(Window::default());
+                        .window(Window::default())
+                        .run_budget(RunBudget::default());
                     let handshaken = streaming::handshake(local, proxy)
                         .await
                         .map_err(streaming_error)?;
@@ -307,6 +311,7 @@ impl<T> Peer<T, NoBookmark> {
                 network: remote.network,
                 protocol,
                 window: Window::default(),
+                run_budget: RunBudget::default(),
                 inner: watch::Sender::new(Inner {
                     party: Some(party),
                     tree: Tree { root },
@@ -326,6 +331,7 @@ impl<T> Peer<T, NoBookmark> {
             network,
             protocol,
             window,
+            run_budget,
             inner,
             ..
         } = self;
@@ -333,6 +339,7 @@ impl<T> Peer<T, NoBookmark> {
             network,
             protocol,
             window,
+            run_budget,
             inner,
             bookmark: Arc::new(Mutex::new(Bookmarked::new(bookmark))),
         };
@@ -360,6 +367,7 @@ impl<T> Peer<T, NoBookmark> {
                     network: peer.network,
                     protocol: peer.protocol,
                     window: peer.window,
+                    run_budget: peer.run_budget,
                     inner: peer.inner,
                     bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
                 },
@@ -650,6 +658,7 @@ impl<T, B: Persist> Peer<T, B> {
         // state machine from becoming part of this outer session future.
         let network = self.network;
         let window = self.window;
+        let run_budget = self.run_budget;
         #[allow(clippy::type_complexity)]
         let reconcile: BoxFuture<
             '_,
@@ -659,7 +668,9 @@ impl<T, B: Persist> Peer<T, B> {
                 let local =
                     materialized::Handshaking::start(Local, prior_tree.root.into()).window(window);
                 let carrier = Link::for_session(read, write, connector, acceptor, epoch);
-                let proxy = streaming_remote::Handshaking::start(Local, carrier).window(window);
+                let proxy = streaming_remote::Handshaking::start(Local, carrier)
+                    .window(window)
+                    .run_budget(run_budget);
                 let handshaken = streaming::handshake(local, proxy)
                     .await
                     .map_err(streaming_error)?;

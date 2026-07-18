@@ -19,9 +19,11 @@ use crate::tree::{
 
 use super::{
     super::{DecodeError, Scope, decode_leaf_reply, decode_reply, encode_leaf_reply, encode_reply},
-    LeafCase, hash, runtime,
+    LeafCase, hash, leaf_run, runtime,
 };
-use crate::tree::mirror::streaming::remote::codec::{End, Flow, Frame, Reaction as WireReaction};
+use crate::tree::mirror::streaming::remote::codec::{
+    End, Flow, Frame, Reaction as WireReaction, RunBudget,
+};
 
 #[derive(Clone, Debug)]
 struct PositionalCase {
@@ -108,7 +110,7 @@ impl AdapterHeight for Z {
         prop_assert!(decoded.questions.is_empty(), "height 0");
         assert_decoded_supply::<Z>(&decoded.reply, radix, leaf, runtime)?;
         let reencoded = runtime.block_on(async {
-            encode_leaf_reply(Local, scope, decoded.reply)
+            encode_leaf_reply(Local, RunBudget::default(), scope, decoded.reply)
                 .map_ok(|encoded| encoded.into_parts().0)
                 .try_collect::<Vec<_>>()
                 .await
@@ -129,7 +131,7 @@ impl AdapterHeight for Z {
             replies: radixes.iter().map(|_| Reaction::Match).collect(),
         };
         let encoded = runtime.block_on(async {
-            encode_leaf_reply(Local, scope.clone(), reply)
+            encode_leaf_reply(Local, RunBudget::default(), scope.clone(), reply)
                 .map_ok(|encoded| encoded.into_parts())
                 .try_collect::<Vec<_>>()
                 .await
@@ -197,7 +199,7 @@ impl AdapterHeight for Z {
         };
 
         let encoded = runtime.block_on(async {
-            encode_leaf_reply(Local, scope.clone(), reply)
+            encode_leaf_reply(Local, RunBudget::default(), scope.clone(), reply)
                 .map_ok(|encoded| encoded.into_parts())
                 .try_collect::<Vec<_>>()
                 .await
@@ -240,7 +242,7 @@ impl AdapterHeight for Z {
             .collect::<Vec<_>>();
 
         let encoded = runtime.block_on(async {
-            encode_leaf_reply(Local, scope.clone(), reply)
+            encode_leaf_reply(Local, RunBudget::default(), scope.clone(), reply)
                 .map_ok(|encoded| encoded.into_parts())
                 .try_collect::<Vec<_>>()
                 .await
@@ -342,7 +344,7 @@ where
         prop_assert!(decoded.questions.is_empty(), "height {}", Self::HEIGHT);
         assert_decoded_supply::<Self>(&decoded.reply, radix, leaf, runtime)?;
         let reencoded = runtime.block_on(async {
-            encode_reply(Local, scope, decoded.reply)
+            encode_reply(Local, RunBudget::default(), scope, decoded.reply)
                 .map_ok(|encoded| encoded.into_parts().0)
                 .try_collect::<Vec<_>>()
                 .await
@@ -363,7 +365,7 @@ where
             replies: radixes.iter().map(|_| Reaction::Match).collect(),
         };
         let encoded = runtime.block_on(async {
-            encode_reply(Local, scope.clone(), reply)
+            encode_reply(Local, RunBudget::default(), scope.clone(), reply)
                 .map_ok(|encoded| encoded.into_parts())
                 .try_collect::<Vec<_>>()
                 .await
@@ -432,7 +434,7 @@ where
         };
 
         let encoded = runtime.block_on(async {
-            encode_reply(Local, scope.clone(), reply)
+            encode_reply(Local, RunBudget::default(), scope.clone(), reply)
                 .map_ok(|encoded| encoded.into_parts())
                 .try_collect::<Vec<_>>()
                 .await
@@ -492,7 +494,7 @@ where
             .collect::<Vec<_>>();
 
         let encoded = runtime.block_on(async {
-            encode_reply(Local, scope.clone(), reply)
+            encode_reply(Local, RunBudget::default(), scope.clone(), reply)
                 .map_ok(|encoded| encoded.into_parts())
                 .try_collect::<Vec<_>>()
                 .await
@@ -587,7 +589,7 @@ where
 
 fn supplied_frame(leaf: &LeafCase, flow: Flow) -> Frame<u64> {
     Frame::Reaction(
-        WireReaction::Supply(leaf.version.clone(), leaf.message.clone()),
+        WireReaction::Supply(leaf_run(&[(&leaf.version, &leaf.message)])),
         flow,
     )
 }
@@ -639,10 +641,10 @@ fn expected_mixed_frames(
     let mut reactions = Vec::with_capacity(case.radixes.len() + 1);
     for position in 0..=case.radixes.len() {
         if position == supply_at {
-            reactions.push(WireReaction::Supply(
-                leaf.version.clone(),
-                leaf.message.clone(),
-            ));
+            reactions.push(WireReaction::Supply(leaf_run(&[(
+                &leaf.version,
+                &leaf.message,
+            )])));
         }
         if position < case.radixes.len() {
             reactions.push(if case.is_query(position) {

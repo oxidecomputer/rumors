@@ -2,7 +2,8 @@
 //!
 //! A framed body is a 4-byte big-endian length followed by exactly that many
 //! payload bytes. The streaming protocol uses it for its causal-version
-//! handshake, variable-width supplied leaves, and trailing identity hand-off;
+//! handshake, variable-width supply runs and their leaf records, and the
+//! trailing identity hand-off;
 //! signal-delimited fixed bodies remain bare. The reader never consumes a byte
 //! beyond the frame requested.
 //!

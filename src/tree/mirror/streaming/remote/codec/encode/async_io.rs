@@ -3,7 +3,7 @@
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 
 use super::super::{
-    error::{EncodeError, EncodeErrorKind, EncodeLeafError, FramePart},
+    error::{EncodeError, EncodeErrorKind, FramePart},
     frame::WireFrame,
     signal::Speaker,
 };
@@ -60,18 +60,9 @@ async fn write_encoding<T>(
                 write(out, FramePart::QueryChildren, hash.as_bytes()).await?;
             }
         }
-        BodyEncoding::Supply {
-            header,
-            version,
-            message,
-        } => {
+        BodyEncoding::Supply { header, run } => {
             write(out, FramePart::SupplyLength, header).await?;
-            out.write_all(version.as_bytes())
-                .await
-                .map_err(EncodeLeafError::Version)?;
-            out.write_all(message.as_slice())
-                .await
-                .map_err(EncodeLeafError::Message)?;
+            write(out, FramePart::SupplyRun, run.as_bytes()).await?;
         }
     }
     Ok(())

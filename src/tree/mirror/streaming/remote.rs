@@ -22,12 +22,15 @@
 //! control instead of exposing it to the protocol adapter as an empty reply.
 //!
 //! An empty query occupies its signal alone; a nonempty query's one-byte
-//! count-minus-one admits every fan from 1 through 256. A supplied leaf is the
-//! exact-length-delimited canonical borsh encoding of its
-//! [`Version`](crate::Version) and [`Message<T>`](crate::message::Message).
-//! Once its whole body arrives the frame codec decodes that backend-neutral
-//! pair exactly once; constructing a backend leaf and validating its
-//! content-derived path belong to the incoming adapter.
+//! count-minus-one admits every fan from 1 through 256. Supplied leaves ship
+//! in *runs*: one exact-length-delimited body carrying one or more leaf
+//! records, each itself an exact-length-delimited canonical borsh encoding
+//! of its [`Version`](crate::Version) and
+//! [`Message<T>`](crate::message::Message). The encoder chunks a supplied
+//! subtree's leaves into runs by a byte budget ([`RunBudget`]); once a run's
+//! whole body arrives, the frame codec validates its record framing and the
+//! incoming adapter decodes each backend-neutral pair exactly once,
+//! constructing a backend leaf and validating its content-derived path.
 //!
 //! [`adapter`] retains the question scope omitted from protocol replies. It
 //! attaches each newly asked scope to the exact outgoing frame which makes the
@@ -59,5 +62,6 @@ pub use error::*;
 pub(crate) fn codec_stream_count() -> u8 {
     codec::Stream::COUNT
 }
+pub use codec::{DEFAULT_TARGET_MESSAGE_SIZE, RunBudget};
 pub use proxy::Error;
 pub use proxy::Handshaking;

@@ -13,8 +13,8 @@ pub use crate::tree::mirror::streaming::materialized::{
 };
 pub use crate::tree::mirror::streaming::remote::{
     AcceptError, CodecDecodeError, CodecDecodeErrorKind, CodecEncodeError, CodecEncodeErrorKind,
-    DecodeError, DecodeLeafError, DecodeSignalError, EncodeError, EncodeLeafError, FramePart,
-    InvalidSignalPlacement, InvalidWireSignal, LengthOverflow, OpeningError, Origin,
+    DecodeError, DecodeLeafError, DecodeSignalError, EncodeError, FramePart,
+    InvalidSignalPlacement, InvalidWireSignal, LeafRunError, LengthOverflow, OpeningError, Origin,
     QueryOrderError, RemoteError, ReplyFrameError, ScopeError, SendError, Speaker, Stream,
     StreamClass, StreamError,
 };

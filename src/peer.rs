@@ -13,6 +13,8 @@ use tokio::sync::{Mutex, watch};
 use crate::bookmark::{BookmarkError, Bookmarked, NoBookmark};
 use crate::link::{Acceptor, Connector, Link};
 use crate::tree::Tree;
+pub use crate::tree::mirror::streaming::remote::DEFAULT_TARGET_MESSAGE_SIZE;
+use crate::tree::mirror::streaming::remote::RunBudget;
 pub use crate::tree::mirror::streaming::window::DEFAULT_MAX_IN_FLIGHT_NODES;
 use crate::tree::mirror::streaming::window::Window;
 use crate::{
@@ -144,6 +146,9 @@ pub struct Peer<T, B: BookmarkError = NoBookmark> {
     /// The reconciliation pipeline window derived from
     /// [`max_in_flight_nodes`](Self::max_in_flight_nodes).
     pub(crate) window: Window,
+    /// The supply-run byte budget selected by
+    /// [`target_message_size`](Self::target_message_size).
+    pub(crate) run_budget: RunBudget,
     pub(crate) inner: watch::Sender<Inner<T>>,
     /// The identity bookmark: persistence handle and its in-memory record,
     /// behind an async mutex and shared with every [`Rumors`] clone.
@@ -195,6 +200,7 @@ impl<T> Peer<T, NoBookmark> {
             network: Network::from_rng(rng),
             protocol: Protocol::default(),
             window: Window::default(),
+            run_budget: RunBudget::default(),
             inner: watch::Sender::new(Inner {
                 party: Some(Party::seed()),
                 tree: Tree::new(),
@@ -358,6 +364,44 @@ impl<T, B: BookmarkError> Peer<T, B> {
     #[must_use]
     pub fn max_in_flight_nodes(mut self, nodes: usize) -> Self {
         self.window = Window::from_nodes(nodes);
+        self
+    }
+
+    /// Bound the encoded size of the batched messages this peer sends.
+    ///
+    /// When the default protocol supplies a subtree the counterparty lacks,
+    /// its leaves ship as *runs*: one wire message carrying a delimited
+    /// sequence of leaf records. Batching is chunked by bytes — a run
+    /// flushes once appending the next leaf would push its encoded size
+    /// past `bytes` — and every run carries at least one leaf, so a single
+    /// message larger than the target ships alone and exceeds it. Runs
+    /// never span reconciliation units: batching stops at each supplied
+    /// subtree's last leaf.
+    ///
+    /// # Memory
+    ///
+    /// The target is the unit of wire-message buffering on both sides: this
+    /// peer's encoder accumulates at most one run per stream before writing
+    /// it, and the *receiving* peer buffers one run's bytes per message
+    /// while decoding its leaves one at a time — so raising the target
+    /// raises the counterparty's per-message decode buffering, not just
+    /// local memory. The setting is not wire-visible and peers with
+    /// different targets interoperate; each side's runs are sized by its
+    /// own setting, and each side decodes whatever the other sends.
+    ///
+    /// The default, [`DEFAULT_TARGET_MESSAGE_SIZE`], is the byte size of
+    /// the wire's maximally disputed reply — its largest pre-existing
+    /// message and the decode side's documented memory unit — so default
+    /// batching never raises the per-message ceiling. Any value is safe,
+    /// including zero, which degrades to one leaf per message.
+    ///
+    /// Like [`protocol`](Self::protocol), the choice follows the peer
+    /// through [`into_rumors`](Self::into_rumors), cloning and reunion,
+    /// bookmarking, and retirement. [`Protocol::V1`] sessions ignore it:
+    /// the alternating protocol's wire format is frozen.
+    #[must_use]
+    pub fn target_message_size(mut self, bytes: usize) -> Self {
+        self.run_budget = RunBudget::from_bytes(bytes);
         self
     }
 

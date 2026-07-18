@@ -8,14 +8,12 @@ use std::{
     task::{Context, Poll},
 };
 
-use borsh::BorshSerialize;
 use tokio::io::AsyncWrite;
 
 use super::super::{
-    DecodeError, DecodeErrorKind, DecodeLeafError, DecodeSignalError, EncodeError, EncodeErrorKind,
-    EncodeLeafError, Flow, Frame, FrameWrite, Reaction, Speaker, Stream, WireFrame, decode,
-    decode_exact, encode,
-    frame::QUERY_CHILD_LEN,
+    DecodeError, DecodeErrorKind, DecodeSignalError, EncodeError, EncodeErrorKind, Flow, Frame,
+    FrameWrite, LeafRunError, Reaction, Speaker, Stream, WireFrame, decode, decode_exact, encode,
+    frame::{LeafRun, QUERY_CHILD_LEN},
     signal::{Signal, WireSignal},
 };
 use crate::{Version, message::Message, tree::typed::Hash};
@@ -26,8 +24,13 @@ const INTERIOR_STREAM: u8 = 8;
 /// First reserved semantic-state byte.
 const FIRST_RESERVED_SIGNAL: u8 = WireSignal::BYTE_COUNT;
 
-/// A one-byte Version prefix whose gamma integer is incomplete.
-const TRUNCATED_VERSION: &[u8] = &[1];
+/// Build a supply run holding one leaf record.
+fn one_record_run<T: borsh::BorshSerialize>(version: Version, value: T) -> LeafRun<T> {
+    let mut run = LeafRun::new();
+    run.push(&version, &Message::new(value))
+        .expect("an atlas record fits the run framing");
+    run
+}
 
 /// Every feasible typed failure pins its origin, fields, and source chain.
 #[test]
@@ -51,7 +54,7 @@ fn encode_errors(atlas: &mut String) {
     let supply: WireFrame<u8> = (
         stream,
         Frame::Reaction(
-            Reaction::Supply(Version::new(), Message::new(7)),
+            Reaction::Supply(one_record_run(Version::new(), 7)),
             Flow::Continue,
         ),
     );
@@ -62,8 +65,7 @@ fn encode_errors(atlas: &mut String) {
             ("write/query-count", &query, 1),
             ("write/query-children", &query, 2),
             ("write/supply-length", &supply, 1),
-            ("leaf/version", &supply, 5),
-            ("leaf/message", &supply, 6),
+            ("write/supply-run", &supply, 5),
         ] {
             let error = encode(speaker, frame, &mut FailAfterWriter::new(offset)).unwrap_err();
             record_encode(atlas, &format!("{speaker:?}/{label}"), &error);
@@ -93,7 +95,7 @@ fn decode_errors(atlas: &mut String) {
         (
             stream,
             Frame::Reaction(
-                Reaction::Supply(Version::new(), Message::new(7_u8)),
+                Reaction::Supply(one_record_run(Version::new(), 7_u8)),
                 Flow::Continue,
             ),
         ),
@@ -116,7 +118,7 @@ fn decode_errors(atlas: &mut String) {
                 .unwrap_err();
             record_decode(atlas, &format!("{speaker:?}/read/{label}"), &error);
         }
-        for (label, offset) in [("supply-length", 1), ("supply-leaf", 5)] {
+        for (label, offset) in [("supply-length", 1), ("supply-run", 5)] {
             let error = decode::<u8>(speaker, &mut FailAfterReader::new(supply.clone(), offset))
                 .unwrap_err();
             record_decode(atlas, &format!("{speaker:?}/read/{label}"), &error);
@@ -127,7 +129,7 @@ fn decode_errors(atlas: &mut String) {
             ("query-count", &query[..1]),
             ("query-children", &query[..2]),
             ("supply-length", &supply[..1]),
-            ("supply-leaf", &supply[..5]),
+            ("supply-run", &supply[..5]),
         ] {
             let error = decode_exact::<u8>(speaker, bytes).unwrap_err();
             record_decode(atlas, &format!("{speaker:?}/truncated/{label}"), &error);
@@ -142,24 +144,19 @@ fn decode_errors(atlas: &mut String) {
         let error = decode_exact::<u8>(speaker, &unordered).unwrap_err();
         record_decode(atlas, &format!("{speaker:?}/query-out-of-order"), &error);
 
-        let error = decode_exact::<u64>(
-            speaker,
-            &raw_supply(stream, Flow::Continue, TRUNCATED_VERSION),
-        )
-        .unwrap_err();
-        record_decode(atlas, &format!("{speaker:?}/leaf/version"), &error);
-
-        let mut body = Vec::new();
-        Version::new().serialize(&mut body).unwrap();
         let error =
-            decode_exact::<u64>(speaker, &raw_supply(stream, Flow::Continue, &body)).unwrap_err();
-        record_decode(atlas, &format!("{speaker:?}/leaf/message"), &error);
+            decode_exact::<u64>(speaker, &raw_supply(stream, Flow::Continue, &[])).unwrap_err();
+        record_decode(atlas, &format!("{speaker:?}/run/empty"), &error);
 
-        0_u64.serialize(&mut body).unwrap();
-        body.push(0);
         let error =
-            decode_exact::<u64>(speaker, &raw_supply(stream, Flow::Continue, &body)).unwrap_err();
-        record_decode(atlas, &format!("{speaker:?}/leaf/trailing"), &error);
+            decode_exact::<u64>(speaker, &raw_supply(stream, Flow::Continue, &[0, 0])).unwrap_err();
+        record_decode(atlas, &format!("{speaker:?}/run/truncated-header"), &error);
+
+        let mut overrun = 2_u32.to_be_bytes().to_vec();
+        overrun.push(0);
+        let error = decode_exact::<u64>(speaker, &raw_supply(stream, Flow::Continue, &overrun))
+            .unwrap_err();
+        record_decode(atlas, &format!("{speaker:?}/run/truncated-record"), &error);
 
         let mut trailing = matched.clone();
         trailing.push(0);
@@ -221,7 +218,7 @@ fn frame_signal<T>(frame: &Frame<T>) -> Signal {
             Signal::QueryEmpty(*flow)
         }
         Frame::Reaction(Reaction::Query(_), flow) => Signal::Query(*flow),
-        Frame::Reaction(Reaction::Supply(_, _), flow) => Signal::Supply(*flow),
+        Frame::Reaction(Reaction::Supply(_), flow) => Signal::Supply(*flow),
         Frame::End(end) => Signal::End(*end),
     }
 }
@@ -242,20 +239,6 @@ fn describe_encode_kind(out: &mut String, kind: &EncodeErrorKind) {
             write!(out, "Write(part={part:?}, io={:?})", source.kind()).unwrap()
         }
         EncodeErrorKind::Flush(source) => write!(out, "Flush(io={:?})", source.kind()).unwrap(),
-        EncodeErrorKind::InvalidLeaf(EncodeLeafError::Version(source)) => {
-            write!(out, "InvalidLeaf::Version(io={:?})", source.kind()).unwrap()
-        }
-        EncodeErrorKind::InvalidLeaf(EncodeLeafError::Message(source)) => {
-            write!(out, "InvalidLeaf::Message(io={:?})", source.kind()).unwrap()
-        }
-        EncodeErrorKind::SupplyLengthOverflow {
-            version_len,
-            message_len,
-        } => write!(
-            out,
-            "SupplyLengthOverflow(version_len={version_len}, message_len={message_len})"
-        )
-        .unwrap(),
         EncodeErrorKind::SupplyTooLarge(error) => write!(out, "SupplyTooLarge({error})").unwrap(),
     }
 }
@@ -301,15 +284,17 @@ fn describe_decode_kind(out: &mut String, kind: &DecodeErrorKind) {
             error.previous, error.radix
         )
         .unwrap(),
-        DecodeErrorKind::InvalidLeaf(DecodeLeafError::Version(source)) => {
-            write!(out, "InvalidLeaf::Version(io={:?})", source.kind()).unwrap()
+        DecodeErrorKind::InvalidRun(LeafRunError::Empty) => {
+            write!(out, "InvalidRun::Empty").unwrap()
         }
-        DecodeErrorKind::InvalidLeaf(DecodeLeafError::Message(source)) => {
-            write!(out, "InvalidLeaf::Message(io={:?})", source.kind()).unwrap()
+        DecodeErrorKind::InvalidRun(LeafRunError::TruncatedHeader { remaining }) => {
+            write!(out, "InvalidRun::TruncatedHeader(remaining={remaining})").unwrap()
         }
-        DecodeErrorKind::InvalidLeaf(DecodeLeafError::TrailingBytes { count }) => {
-            write!(out, "InvalidLeaf::TrailingBytes(count={count})").unwrap()
-        }
+        DecodeErrorKind::InvalidRun(LeafRunError::TruncatedRecord { len, remaining }) => write!(
+            out,
+            "InvalidRun::TruncatedRecord(len={len}, remaining={remaining})"
+        )
+        .unwrap(),
         DecodeErrorKind::TrailingBytes { count } => {
             write!(out, "TrailingBytes(count={count})").unwrap()
         }

@@ -1,3 +1,7 @@
+use crate::tree::mirror::framing::LengthOverflow;
+
+use super::super::codec::DecodeLeafError;
+
 /// A prefix-free reaction could not be paired with the question it answers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum ScopeError {
@@ -32,6 +36,9 @@ pub enum EncodeError<E> {
     /// A positional reaction could not be scoped safely.
     #[error(transparent)]
     Scope(#[from] ScopeError),
+    /// A supplied leaf's encoding overflows the run's record framing.
+    #[error("a supplied leaf record overflows the run framing")]
+    Record(#[source] LengthOverflow),
 }
 
 /// Wire frames could not be reconstructed into one scoped protocol reply.
@@ -64,4 +71,7 @@ pub enum DecodeError<E> {
     /// A positional wire reaction cannot be scoped without another child.
     #[error(transparent)]
     Scope(#[from] ScopeError),
+    /// A leaf record inside a supply run failed canonical decoding.
+    #[error("a supplied leaf record is not canonical")]
+    Record(#[source] DecodeLeafError),
 }

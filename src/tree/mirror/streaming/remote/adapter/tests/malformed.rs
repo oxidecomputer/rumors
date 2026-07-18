@@ -21,10 +21,12 @@ use super::{
         DecodeError, EncodeError, Scope, ScopeError, decode_leaf_reply, decode_reply,
         encode_leaf_reply, encode_reply,
     },
-    LeafCase, hash, runtime,
+    LeafCase, hash, leaf_run, runtime,
 };
 use crate::tree::mirror::streaming::message::{Reaction, Reply};
-use crate::tree::mirror::streaming::remote::codec::{End, Flow, Frame, Reaction as WireReaction};
+use crate::tree::mirror::streaming::remote::codec::{
+    End, Flow, Frame, Reaction as WireReaction, RunBudget,
+};
 
 /// A nonempty reply must end on its last reaction; a later bare end is ambiguous and invalid.
 #[test]
@@ -89,7 +91,7 @@ fn an_unpositioned_query_is_rejected_in_both_directions() {
         replies: vec![Reaction::Query(listing)],
     };
     let encode_error = runtime().block_on(async {
-        encode_reply(Local, Scope::new(parent, &[]), reply)
+        encode_reply(Local, RunBudget::default(), Scope::new(parent, &[]), reply)
             .try_collect::<Vec<_>>()
             .await
             .err()
@@ -135,10 +137,15 @@ fn leaf_query_matrix_is_exhaustive() {
                 replies: vec![Reaction::Query(query_listing.clone())],
             };
             let encoded = runtime().block_on(async {
-                encode_leaf_reply(Local, Scope::new(parent, &scope_listing), reply)
-                    .map_ok(|encoded| encoded.into_parts())
-                    .try_collect::<Vec<_>>()
-                    .await
+                encode_leaf_reply(
+                    Local,
+                    RunBudget::default(),
+                    Scope::new(parent, &scope_listing),
+                    reply,
+                )
+                .map_ok(|encoded| encoded.into_parts())
+                .try_collect::<Vec<_>>()
+                .await
             });
             match expected_error {
                 Some(expected) => {
@@ -202,6 +209,7 @@ fn encode_scope_error(error: EncodeError<Infallible>) -> ScopeError {
     match error {
         EncodeError::Scope(error) => error,
         EncodeError::Backend(error) => match error {},
+        EncodeError::Record(error) => panic!("expected a scope error, got {error}"),
     }
 }
 
@@ -234,11 +242,11 @@ fn a_multi_leaf_run_is_one_supplied_subtree() {
     let leaves = under_root_pair();
     let frames = vec![
         Frame::Reaction(
-            WireReaction::Supply(leaves[0].0.clone(), leaves[0].1.clone()),
+            WireReaction::Supply(leaf_run(&[(&leaves[0].0, &leaves[0].1)])),
             Flow::Continue,
         ),
         Frame::Reaction(
-            WireReaction::Supply(leaves[1].0.clone(), leaves[1].1.clone()),
+            WireReaction::Supply(leaf_run(&[(&leaves[1].0, &leaves[1].1)])),
             Flow::End,
         ),
     ];
@@ -262,13 +270,22 @@ fn a_multi_leaf_run_is_one_supplied_subtree() {
             .expect("the local backend is infallible");
         assert_eq!(rebuilt.len(), 2);
 
-        encode_reply(Local, scope, decoded.reply)
+        encode_reply(Local, RunBudget::default(), scope, decoded.reply)
             .map_ok(|encoded| encoded.into_parts().0)
             .try_collect::<Vec<_>>()
             .await
             .expect("rebuilt subtree reexplodes")
     });
-    assert_eq!(reencoded, frames);
+    // Re-encoding batches the whole reaction's leaves into one default-budget
+    // run: the canonical wire form, regardless of how the input was chunked.
+    let batched = vec![Frame::Reaction(
+        WireReaction::Supply(leaf_run(&[
+            (&leaves[0].0, &leaves[0].1),
+            (&leaves[1].0, &leaves[1].1),
+        ])),
+        Flow::End,
+    )];
+    assert_eq!(reencoded, batched);
 }
 
 /// Interrupting a supply run finalizes its radix, so later resumption is rejected as reordering.
@@ -277,12 +294,12 @@ fn a_supply_run_cannot_resume_after_another_reaction() {
     let leaves = under_root_pair();
     let frames = vec![
         Frame::Reaction(
-            WireReaction::Supply(leaves[0].0.clone(), leaves[0].1.clone()),
+            WireReaction::Supply(leaf_run(&[(&leaves[0].0, &leaves[0].1)])),
             Flow::Continue,
         ),
         Frame::Reaction(WireReaction::Match, Flow::Continue),
         Frame::Reaction(
-            WireReaction::Supply(leaves[1].0.clone(), leaves[1].1.clone()),
+            WireReaction::Supply(leaf_run(&[(&leaves[1].0, &leaves[1].1)])),
             Flow::End,
         ),
     ];

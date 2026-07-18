@@ -18,8 +18,8 @@ use crate::tree::{
         streaming::{
             Failing, Local,
             remote::{
-                CodecDecodeErrorKind, CodecEncodeErrorKind, EncodeLeafError, Error as RemoteError,
-                SendError, StreamError,
+                CodecDecodeErrorKind, CodecEncodeErrorKind, Error as RemoteError, SendError,
+                StreamError,
             },
         },
     },
@@ -45,8 +45,6 @@ fn injected<E>(error: &RemoteError<E>) -> Option<InjectedIo> {
             CodecEncodeErrorKind::Write { source, .. } | CodecEncodeErrorKind::Flush(source) => {
                 source
             }
-            CodecEncodeErrorKind::InvalidLeaf(EncodeLeafError::Version(source))
-            | CodecEncodeErrorKind::InvalidLeaf(EncodeLeafError::Message(source)) => source,
             _ => return None,
         },
         _ => return None,

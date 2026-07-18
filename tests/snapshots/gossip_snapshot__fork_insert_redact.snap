@@ -15,8 +15,9 @@ Responder stream 0 (height 31), epoch 0
   frame 0: QueryEmpty(Continue)
     0000: 22
   frame 1: Supply(Continue)
-    0000: 66 00 00 00 0a b2 40 03
-    0008: 00 00 00 00 00 00 00
+    0000: 66 00 00 00 0e 00 00 00
+    0008: 0a b2 40 03 00 00 00 00
+    0010: 00 00 00
   frame 2: QueryEmpty(End)
     0000: 33
   frame 3: End(Stream)
@@ -46,8 +47,9 @@ Initiator stream 1 (height 30), epoch 0
   frame 0: End(Reply)
     0000: 89
   frame 1: Supply(End)
-    0000: 78 00 00 00 0a b4 80 04
-    0008: 00 00 00 00 00 00 00
+    0000: 78 00 00 00 0e 00 00 00
+    0008: 0a b4 80 04 00 00 00 00
+    0010: 00 00 00
   frame 2: End(Stream)
     0000: 9a
 trailing frame: 1 bytes
