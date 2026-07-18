@@ -191,6 +191,88 @@ impl<T> Node<T> {
         }
     }
 
+    /// Build the maximally-compressed subtree over one sorted leaf run.
+    ///
+    /// `leaves` pairs each full 32-byte path with its bare (prefix-free)
+    /// leaf node, **strictly ascending by path**, every path sharing its
+    /// first `depth` bytes; the run must be non-empty, and each node is
+    /// consumed exactly once (the `Option` lets the recursion move nodes
+    /// out of a shared slice). The result observes the tree from depth
+    /// `depth` — i.e. it sits at height `32 - depth`.
+    ///
+    /// This is the bulk inverse of a leaf walk: where composing
+    /// [`branch`](Self::branch)/[`beneath`](Self::beneath) level by level
+    /// costs an allocation per *virtual* level, this jumps straight to
+    /// each divergence byte (sorted input makes it the first/last path
+    /// comparison) and lays down every compressed span in one step, so
+    /// the work is proportional to the *materialized* structure: one node
+    /// per real branch point plus one per leaf spine.
+    pub(crate) fn from_sorted_leaves(
+        depth: usize,
+        leaves: &mut [([u8; 32], Option<Self>)],
+    ) -> Self {
+        debug_assert!(
+            leaves.windows(2).all(|pair| pair[0].0 < pair[1].0),
+            "a leaf run is strictly ascending by path",
+        );
+        if let [(path, node)] = leaves {
+            let mut node = node
+                .take()
+                .expect("each leaf node is consumed exactly once");
+            debug_assert!(
+                node.inner.prefix.is_empty() && node.is_leaf(),
+                "a leaf run supplies bare leaf nodes",
+            );
+            if depth < path.len() {
+                // A lone leaf compresses its whole remaining spine into the
+                // prefix (stored deepest-first), in one extension. The node
+                // now observes from a shallower level, so any memoized hash
+                // would be stale; freshly-built leaves have none, but a
+                // reused bare handle may.
+                let inner = Arc::make_mut(&mut node.inner);
+                inner.prefix.extend(path[depth..].iter().rev());
+                inner.hash = OnceLock::new();
+            }
+            return node;
+        }
+
+        // Two or more distinct sorted paths diverge at the first byte where
+        // the least and greatest differ; everything from `depth` up to that
+        // byte is common to the whole run and compresses into the prefix.
+        let first = leaves.first().expect("a leaf run is non-empty").0;
+        let last = leaves.last().expect("a leaf run is non-empty").0;
+        let branch_at = (depth..32)
+            .find(|&at| first[at] != last[at])
+            .expect("distinct 32-byte paths diverge before the bottom");
+
+        let count = leaves.len();
+        let mut children = OrdMap::new();
+        let mut rest = leaves;
+        while let Some(radix) = rest.first().map(|(path, _)| path[branch_at]) {
+            let split = rest
+                .iter()
+                .position(|(path, _)| path[branch_at] != radix)
+                .unwrap_or(rest.len());
+            let (group, tail) = mem::take(&mut rest).split_at_mut(split);
+            children.insert(radix, Self::from_sorted_leaves(branch_at + 1, group));
+            rest = tail;
+        }
+        debug_assert!(children.len() >= 2, "a branch point separates >= 2 runs");
+
+        Node {
+            inner: Arc::new(NodeInner {
+                prefix: first[depth..branch_at].iter().rev().copied().collect(),
+                hash: OnceLock::new(),
+                children: Children::Branch {
+                    ceiling: OnceLock::new(),
+                    floor: OnceLock::new(),
+                    leaves: count,
+                    children,
+                },
+            }),
+        }
+    }
+
     /// Construct a new leaf node.
     pub fn leaf(version: Version, value: Message<T>) -> Self {
         Node {

@@ -203,7 +203,7 @@ where
     H: Convert,
 {
     let leaves: BoxNodeStream<'_, B, T, Z> = Box::pin(ReceiverStream::new(leaves));
-    let mut assembled = pin!(H::assemble(backend, leaves));
+    let mut assembled = pin!(backend.assemble::<H>(leaves));
     let mut nodes = Vec::new();
     while let Some(item) = assembled.next().await {
         nodes.push(item.map_err(DecodeError::Backend)?);

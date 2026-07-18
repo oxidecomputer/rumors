@@ -480,19 +480,51 @@ impl<T> Leaf<T> {
             .expect("a Leaf wraps a leaf node, by construction")
             .as_arc()
     }
+
+    /// Unwrap into a bare height-zero leaf node.
+    ///
+    /// The walk yields the leaf as stored, which usually carries the
+    /// compressed spine above it; a height-zero view must shed that prefix
+    /// (its hash is `Hash::leaf()`, not the spine wrap). The stored handle
+    /// is reused when it is already bare; otherwise a fresh prefix-free
+    /// leaf is built around the same message handle.
+    pub(crate) fn into_node(self) -> Node<T> {
+        if self.0.inner.prefix.is_empty() {
+            return self.0;
+        }
+        match &self.0.inner.children {
+            Children::Leaf { version, message } => Node::leaf(version.clone(), message.clone()),
+            Children::Branch { .. } => {
+                unreachable!("a Leaf wraps a leaf node, by construction")
+            }
+        }
+    }
 }
 
 impl<T, R: RangeBounds<Version>> RangeOwned<T, R> {
     /// Walk the leaves of the (possibly absent) height-32 root `node` whose
     /// versions fall within the causal `range`.
     pub(crate) fn root(node: Option<Node<T>>, range: R) -> Self {
+        Self::within(node, &[], range)
+    }
+
+    /// Walk the leaves of a subtree rooted below the top of the tree.
+    ///
+    /// `path` carries the bytes already walked to reach `node` (the
+    /// ancestors' radixes, shallowest-first), which the descent extends so
+    /// each leaf still reconstructs a full 32-byte
+    /// [`Key`](crate::tree::key::Key). `path.len()` plus the height of
+    /// `node` must therefore be 32.
+    pub(crate) fn within(node: Option<Node<T>>, path: &[u8], range: R) -> Self {
+        let mut buf = ArrayVec::new();
+        buf.extend_from_slice(path);
         Self {
             start: node,
             // One level per materialized branch along a root-to-leaf path:
             // never more than the depth, so this is the walk's only
             // allocation.
             spine: Vec::with_capacity(32),
-            path: ArrayVec::new(),
+            path: buf,
             range,
         }
     }
@@ -506,7 +538,9 @@ impl<T, R: RangeBounds<Version>> RangeOwned<T, R> {
             // levels — remembering the path length to roll back to if it
             // proves not to descend.
             let (node, inherited, rollback) = match self.start.take() {
-                Some(root) => (root, false, 0),
+                // The starting node rolls back to the seed path it was
+                // entered with (empty only for a true root).
+                Some(root) => (root, false, self.path.len()),
                 None => loop {
                     let level = self.spine.last_mut()?;
                     let next_child = match &level.node.inner.children {

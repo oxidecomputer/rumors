@@ -1,15 +1,22 @@
 use std::convert::Infallible;
+use std::mem;
+use std::pin::pin;
 
-use futures::{future, stream};
+use async_stream::try_stream;
+use futures::{StreamExt, future, stream};
 
 use crate::{
     Version,
     message::Message,
     tree::{
         self,
-        mirror::streaming::{Backend, Leaf, Node, Root, backend::NodeStream},
+        mirror::streaming::{
+            Backend, Leaf, Node, Root,
+            backend::{BoxNodeStream, NodeStream},
+            convert::Convert,
+        },
         typed::{
-            self, Prefix,
+            self, Path, Prefix,
             height::{Height, S, Z},
         },
     },
@@ -17,6 +24,8 @@ use crate::{
 
 #[cfg(test)]
 mod adversarial;
+#[cfg(test)]
+mod tests;
 #[cfg(test)]
 pub use adversarial::with_schedule;
 
@@ -105,6 +114,58 @@ impl<T: Send + Sync + 'static> Backend<T> for Local {
         );
         #[cfg(not(test))]
         parent
+    }
+
+    fn leaves<H: Convert>(
+        self,
+        prefix: Prefix<H>,
+        node: Self::Node<H>,
+    ) -> impl NodeStream<Self, T, Z> {
+        // The default level-by-level explosion pays an allocation per
+        // *virtual* level — ruinous for path-compressed spines. In-memory
+        // nodes walk their own leaves directly, skipping compressed spans.
+        let leaves = stream::iter(node.leaves(&prefix).map(Ok));
+        #[cfg(test)]
+        return adversarial::stream(adversarial::Role::Children { height: H::HEIGHT }, leaves);
+        #[cfg(not(test))]
+        leaves
+    }
+
+    fn assemble<'a, H: Convert>(
+        self,
+        leaves: BoxNodeStream<'a, Self, T, Z>,
+    ) -> impl NodeStream<Self, T, H> + 'a {
+        // The bulk counterpart of `leaves`: buffer each maximal
+        // same-prefix run and build its subtree in one pass, rather than
+        // folding it up one virtual level at a time. The buffered run is
+        // transient state for a subtree this in-memory backend is about to
+        // hold whole anyway, so the streaming session's memory story is
+        // unchanged.
+        let assembled = try_stream! {
+            let mut leaves = pin!(leaves);
+            let mut current: Option<Prefix<H>> = None;
+            let mut run: Vec<(Prefix<Z>, typed::Node<T, Z>)> = Vec::new();
+            while let Some(item) = leaves.next().await {
+                let (prefix, leaf) = item?;
+                let target = Prefix::<H>::containing(&Path::from(prefix));
+                if current != Some(target)
+                    && let Some(finished) = current.replace(target)
+                {
+                    yield (
+                        finished,
+                        typed::Node::from_sorted_leaves(&finished, mem::take(&mut run)),
+                    );
+                }
+                run.push((prefix, leaf));
+            }
+            if let Some(finished) = current {
+                yield (finished, typed::Node::from_sorted_leaves(&finished, run));
+            }
+        };
+        #[cfg(test)]
+        return adversarial::stream(adversarial::Role::Parent { height: H::HEIGHT }, assembled);
+        #[cfg(not(test))]
+        assembled
     }
 }
 

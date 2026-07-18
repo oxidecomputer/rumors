@@ -95,7 +95,6 @@ impl Window {
     pub(crate) fn scopes(self) -> usize {
         self.scopes
     }
-
 }
 
 impl Default for Window {

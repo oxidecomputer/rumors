@@ -79,6 +79,21 @@ where
             Box::pin(stream::once(async move { Ok((prefix, node)) })),
         )
     }
+
+    /// Assemble a strictly ascending leaf stream into height-`H` nodes, one
+    /// node per maximal run of leaves sharing a height-`H` prefix, in run
+    /// order.
+    ///
+    /// The inverse of [`leaves`](Self::leaves), and the same kind of seam:
+    /// by default the leaves fold up through [`parent`](Self::parent) one
+    /// level at a time, but a backend whose nodes are directly
+    /// constructible may override it with a bulk builder.
+    fn assemble<'a, H: Convert>(
+        self,
+        leaves: BoxNodeStream<'a, Self, T, Z>,
+    ) -> impl NodeStream<Self, T, H> + 'a {
+        H::assemble(self, leaves)
+    }
 }
 
 /// The inspection operations of a backend's individual node type.
