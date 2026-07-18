@@ -724,17 +724,17 @@ nothing but the envelope.
   "scale with K" set widened and check the hop counts match §4's.
 - **[resolved in §5.4]** The remaining zero-latency compute gap.
   The earlier exclusions held up [checked]: waker cost (§5.3,
-  ~12 %) and hashing (≤3 %; prefix-shipping stays rejected — its
-  ceiling is that 3 %, it costs 32 B per leaf, and a trusted
-  prefix breaks the content-address commitment,
-  `typed/path.rs`). The profile pinned the bulk of the gap on
+  ~12 %) and hashing (≤3 %). Prefix-shipping was rejected here
+  partly on trust grounds ("a trusted prefix breaks the
+  content-address commitment") — that leg is retracted by the
+  §10 adversary-model decision: the counterparty is trusted, so
+  shipping paths is a wire-format trade, not a security question
+  (§10, lever C). The profile pinned the bulk of the gap on
   none of the named suspects but on the conversion boundary
   unwrapping path-compressed spines one virtual level at a time;
   §5.4's bulk `leaves`/`assemble` overrides removed ~82 % of the
-  gap. What remains (~11 ms at I = 5000) is diffuse — blake3 at
-  V1 parity, branch-hash memoization, per-frame codec — and is
-  tracked as ordinary optimization headroom, not an open
-  question.
+  gap. What remains (~11 ms at I = 5000) is itemized in §10 as
+  independent parity levers.
 - **[open]** Whether redaction-heavy sessions (version-bound pruning
   on the leaf path) have a different optimal K than insertion-heavy
   ones; the R = 2500 cell pipelined slightly better (18 vs 27 at
@@ -773,8 +773,8 @@ none blocks the landed work.
    profile convicted the conversion boundary's virtual-level
    unwrapping; the bulk `leaves`/`assemble` overrides landed and
    cut the gap 82 % (80.3 → 31.6 ms at I = 5000, hop counts
-   unchanged). The residual ~11 ms is diffuse (§5.4) and no
-   single further fix is scheduled.
+   unchanged). The residual ~11 ms is itemized as independent
+   levers in §10; the plan is to fan out and try each one.
 2. **Isolate the §5.1 decomposition empirically**: rerun the sweep
    with only the analytically load-bearing edges widened (walk
    queues/resolutions + `local_questions`), confirming
@@ -796,3 +796,88 @@ none blocks the landed work.
    pipelines slightly better than insertions at equal K, for
    unattributed reasons; revisit with field data once a deployment
    runs windows other than the default.
+
+## 10. Parity levers: the last ~11 ms
+
+After §5.4, V2 costs 31.6 ms against V1's 20.7 ms at
+`I = 5000, d = 0`, with identical hop counts — so on
+insertion-shaped workloads the residual is a flat compute premium
+at every latency, and closing it is the whole remaining parity
+story. (Redaction-shaped workloads are already past parity beyond
+~6 ms one-way.) Comparing the post-§5.4 V2 profile against V1's
+decomposes the premium [checked, per session, both sides summed]:
+
+| component | ≈ cost | mechanism |
+|---|---|---|
+| allocator traffic above V1  | ~2.7 ms | per-leaf `Frame` values on encode, twins on decode; branch-hash memo inputs |
+| stream/channel glue         | ~2.9 ms | `async_stream` layers plus waker/memcpy: each of ~10k supply frames crosses reader → assembler → walk → encoder |
+| blake3 above V1             | ~1.1 ms | `Path::for_leaf` ×3 per received leaf: V2 *derives* leaf paths because the wire ships flat leaf runs; V1's paths are implicit in shipped structure |
+| per-scope walk machinery    | ~1 ms   | ~2k disputed scopes × channel sends and scope bookkeeping across the 34 phases |
+| tail/noise                  | ~3 ms   | diffuse |
+
+**Adversary model [decision, 2026-07-18]**: the counterparty is
+*trusted*. A peer supplies the leaves themselves and can already
+corrupt state arbitrarily, so in-session hash verification defends
+against nothing in this model — path derivation and scope
+containment checks are bug tripwires, not security boundaries.
+This retracts the trust leg of §7's prefix-shipping rejection and
+unlocks lever C below. Cheap structural checks (leaf ordering,
+scope containment) stay: they protect the assembler's invariants
+against implementation bugs at negligible cost.
+
+The levers, each independently landable and measurable. Estimates
+are [derived] from the profile deltas above; every lever's
+acceptance test is the §8 sweep (V1 cells as drift control, hop
+counts unchanged) plus a green gate.
+
+- **A. Batch supply runs into one wire frame** [est. 4–6 ms; wire
+  format change, `gossip_snapshot` re-accept]. One `Supply` frame
+  carrying a count-prefixed run of leaves, chunked at fan size so
+  the fixed-memory decode story survives arbitrarily large
+  supplies. Kills, per leaf: a frame allocation, a borsh header
+  and `Flow` byte, and most of the per-frame channel hops — the
+  two largest ledger rows at once. V2's format is still ours to
+  change; V1 interop is unaffected (separate formats).
+- **B. Consume, don't clone, at the adapter boundary** [est.
+  1–2 ms; no format change]. Encode does `ceiling().clone()` +
+  `message().clone()` off a leaf node it then drops; an
+  `into_parts(self)` on the `Leaf` trait saves a `Version` clone
+  (ITC allocations) and an `Arc` bump per leaf per side. Touches
+  the same adapter surface as A — natural rider.
+- **C. Ship leaf paths, skip derivation** [est. ~1 ms compute for
+  ~5–15 B/leaf wire; format change, unlocked by the adversary
+  decision]. The wire's flat leaf runs force decode to re-derive
+  each path (3 blake3) purely for *placement*. Sorted runs
+  delta-compress paths well (shared-prefix length + suffix).
+  Interacts strongly with A — the run frame is where the paths
+  would live — so C should be designed with A, or explicitly
+  after it. Keep derivation under `debug_assertions` as the bug
+  tripwire.
+- **D. Cheapen the codec's speculative-parse error path** [est.
+  ~0.9 ms, shared with V1 so roughly parity-neutral; `before`
+  crate]. Both protocols burn ~0.9 ms/session constructing and
+  dropping `before::error::Decode` values on the happy path —
+  probe parses in the bit codec construct real error values.
+  Improves absolute time everywhere.
+- **E. Batch the spine-wrap hash** [est. ~7–8 ms *per protocol*,
+  parity-neutral; a coordinated hash-format break]. `hash()`
+  folds a compressed prefix one `Hash::branch` per byte: a
+  28-byte spine costs 28 blake3 calls at first read — the same
+  per-virtual-level disease §5.4 cured at the conversion
+  boundary, alive in the hash convention. A one-compression
+  spine wrap (`blake3(SPINE_TAG ‖ prefix ‖ child_hash)`) is now
+  the largest absolute compute lever in the whole system, but it
+  changes every tree hash — both protocols, all snapshots, any
+  persisted state — so it moves total sync time, not the V2−V1
+  gap. A design note of its own, not a parity play.
+
+Fan-out protocol: each lever in its own worktree branched from a
+common baseline commit, measured against the same four §8 cells
+before merging; A and B may share a branch (same surface), C
+declares its dependency on A's frame shape. Levers touching the
+wire re-accept snapshots deliberately and in isolation, so each
+diff's snapshot delta reads as exactly its own format change.
+Realistic outcome [derived]: A+B+C recover 6–8 of the 11 ms,
+putting V2 within ~15 % of V1 on equal-hop workloads with the
+remainder in the diffuse tail; D and E then move both protocols'
+absolute times rather than the gap.
