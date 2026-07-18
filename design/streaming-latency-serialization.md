@@ -979,6 +979,18 @@ counts unchanged) plus a green gate.
   compression-invariance-becomes-canonicity argument, and the
   acceptance envelope (~6 ± 1 ms/session for V2 at I = 5000). No
   version gate: nothing has deployed either protocol [decision].
+  **Shipped and measured [checked, 2026-07-18]**: `51f6ecd1`
+  (implementation + snapshot re-accept), `1b2770ab` (review
+  hardening: call-site debug_asserts, u16 high-byte pin). At
+  d = 0, I = 5000: V2 insertions 29.5 → **19.25 ms**, V1
+  19.6 → **9.20 ms** — beyond the envelope because the model
+  costed only the compressions, not the per-wrap `Vec` allocation
+  and per-call hash overhead the fold carried (the note's
+  Measured block has the re-profile accounting). Gap unchanged
+  (~10 ms), hops unchanged, both protocols' blake3 row now 8 % of
+  session. Post-E baselines for future comparisons, d = 0/1: V2
+  ins 19.25/28.64, V1 ins 9.20/18.16, V2 red 9.44/17.85, V1 red
+  3.80/12.78 ms.
 
 Fan-out protocol: each lever in its own worktree branched from a
 common baseline commit, measured against the same four §8 cells

@@ -237,6 +237,22 @@ Every hash value in every tree, in both protocols. Concretely:
   outside that envelope means the cost model is wrong; stop and
   re-profile before merging.
 
+  **Measured [checked, 2026-07-18]** — outside the envelope, on
+  the high side: V2 insertions d = 0 recovered **10.3 ms**
+  (29.5 → 19.25) and V1 **10.4 ms** (19.6 → 9.20); redactions
+  −2.3/−2.0 ms; the d = 1..100 insertion cells all shifted by the
+  same ~10 ms absolute. The V2−V1 gap is unchanged (9.9 → 10.1 ms)
+  — parity-neutral exactly as designed — though the *ratio* reads
+  worse (1.51× → 2.09×) because the shared term collapsed; the
+  gap, not the ratio, is the parity metric. The re-profile the
+  envelope rule demanded explains the excess: blake3 compression
+  fell 27.9 % → 8.0 % of the session (≈ 6.8 ms, in-envelope), and
+  the unmodeled ~3.5 ms was the fold's *freight* — one `Vec`
+  allocation per spine wrap (malloc ≈ −1.6 ms/session) plus
+  per-call hash setup/finalize beyond the compressions. Lesson
+  for future envelopes: cost a per-item loop by the whole call,
+  not the arithmetic inside it.
+
 ## 7. Open questions (deliverables for the implementation)
 
 1. `Hash::branch`/`Hash::leaf`'s public docs promise the
