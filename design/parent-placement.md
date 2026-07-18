@@ -66,6 +66,22 @@ The Rust side pins the same boundary from both directions: on the
 [32,256] dispute pyramid the pipeline stalls with the assembler channel
 at 253 and completes at 254 = fan − 2
 (`capacity_stress_witness_requires_inter_level_fan`) **[checked]**.
+
+Why the floor is capacity − 2 rather than capacity: a bounded channel
+accommodates two in-flight items beyond its buffer, one borrowed at
+each end **[derived]**. A producer parked on `send` has already
+computed its item and holds it in hand (in the model, a committed-but-
+unfired send; in the Rust, the parked `Sender::send` future); the
+consumer holds one popped item while it works. So a scope with
+`dCount ≤ C + 2` can have every return simultaneously in flight with
+no downstream progress required — C buffered, one in each hand — while
+the `C + 3`rd return needs the assembler to have disposed of one,
+which at the trap shapes transitively requires the walk's own further
+progress. Both borrowed slots are implementation-contingent, not
+interface facts (rendezvous-style parked senders; a pop-then-process
+consumer loop) — which is why `C ≥ dCount`, needing no borrows, is the
+bound one can prove against the channel *interface*, and the bound the
+shipping `FAN = 256` was chosen by.
 Hence the floor: **parent-late is live iff the assembler channel
 capacity is at least the maximum per-scope dispute count minus 2** —
 at radix 256, capacity 254; the shipping `FAN = 256` clears it with
@@ -150,8 +166,16 @@ The implementation-facing theorem is being re-targeted at the shipping
 order: deadlock freedom under the encoder's per-walk emission order
 (the epilogue placement, minted as a model ledger so `Trace::
 assert_valid` can pin it on real traces) with arbitrary cross-process
-interleaving, given the capacity floor of §2 — walk channels at
-capacity 1, matching the verification stress regime. Production
+interleaving, walk channels at capacity 1, matching the verification
+stress regime. The capacity hypothesis is deliberately the robust
+margin-0 bound — assembler capacity ≥ max per-scope dispute count,
+the shipping `FAN ≥ kids ≥ dCount` discipline — not §2's tight −2
+floor. Margin 0 means level sends never park at all, so the two
+borrowed slots (implementation-contingent) never enter the proof, the
+level-channel back-pressure edges never bind, and the boundary's
+interleaving-sensitivity questions dissolve; the tight floor remains
+characterized by the kernel counterexample and the executable pins of
+§2 rather than carried through the kernel proof. Production
 capacities only widen channels; coverage of widened configurations is
 by capacity monotonicity, **[assumed]** informally with the Kahn
 argument: with per-walk order fixed, each process is deterministic in
