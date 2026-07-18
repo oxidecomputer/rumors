@@ -1199,41 +1199,71 @@ route before any proof spend.
   genuinely differs — the parent's position inside each scope's
   segment.
 
-**Remaining, in order** (unit 2 re-scoped by fork #16c's scout —
-sub-unit 2a discovered, load-bearing, must come first):
+**Unit 2a, LANDED 2026-07-18** (fork #16d, commits `9376e2b0` + the
+E-frame commit following it):
 
-2a. **Generalize the invariant layer over the trace family.**
-   `WCount` (Count.lean:198) bakes `procs sk` into `man_struct`,
-   `pump_struct`, and `out_count`; `WEdge` extends it; the whole
-   Edge/Pump preservation layer and every window/site lemma is stated
-   against it. The E master induction needs the SAME invariant at
-   `procsE` (per-owner filters of the E future are `walkEventsE`
-   traces — order-sensitive, so the unit-1 projection bridge cannot
-   substitute). Recommended route: extract a trace-family-parameterized
-   core (`WCountP P fut st` with `P` where `procs sk` appears;
-   `WCount := WCountP (procs sk)` as an abbrev or a thin structure
-   alias) so the d5 consumers keep compiling with at most mechanical
-   fixes (63 `toWCount` references across the Proofs tree are the
-   counted breakage candidates; no `unfold WCount` sites — fall back to
-   outright duplication of Count/Edge/Pump's ~900 generic lines at
-   `procsE` only if the shim breaks more than it saves). Everything
-   trace-generic in Edge.lean (hist_extend, wEdge_emitP, wEdge_pump,
-   wPump_fixpoint) then instantiates at both corners.
-   ALSO needed from this sub-unit: the E analogs of the interpreter
-   support layer — `opSpecE`/`opEventsE`/`opStepsE` +
-   `goEventsE`/`goEventsE_eq_of_fuel` (transcribe Expand.lean's
-   well-founded recursion over `wScopeOpsE`/`wKidOpsE`; the
-   `mem_wScopeOpsE`/`mem_wKidOpsE` membership shapes mirror the d5
-   ones, D-branch `h ≠ 0` again via `simp [Skel.childIsD]`),
-   `weaveGoE_wedge` (verbatim copy of the consumption induction —
-   `EmitOKOn`/`emitOKOn_*`/`mem_out_*` in Master.lean are already
-   list-generic and reusable as-is), `weaveE_initial_alignment`
-   (Align.lean's `weave_initial_alignment` analog: per-owner filters
-   of the E future = `procsE.take manCount` — walk arms are new,
-   non-walk arms identical), and `weaveE_goEvents_depOK` (Prec.lean
-   analog; scout whether any event's `manDep` is the parent — if none,
-   the derivation transfers; the parent's own dep only moved later,
-   which is the safe direction).
+- **The invariant layer is trace-family-generic.** `WCountP P fut st`
+  / `WEdgeP P fut st` with `WCount`/`WEdge` as d5 abbrevs
+  (Count.lean/Edge.lean); every preservation lemma
+  (`wEmit/wStep/wMergeN/wPump/wEmitP_preserves`, `wEdge_emit/step/
+  mergeN/pump/emitP`) and the glue (`wcount_glue`/`wcount_out_glued`,
+  `mem_out_of_elsewhere`) generalized IN PLACE over `{P}` — d5 call
+  sites unify via the abbrev, only `toWCount → toWCountP` swept. The
+  canon/ownership-consuming toolkit got generic `*P` forms
+  (`wproj_canonP`, `wcount_mem_ltP`, `enabled_rcv_of_memP`,
+  `enabled_snd_of_memP`, `pump_rem_no_wireP/askedP`) taking the family
+  facts as hypotheses, with the d5 spellings kept as wrappers.
+  `pump_support` restated over `weavePumps` directly (both corners'
+  families drop to it: `weavePumps_eq`, `procsE_drop_pumps`).
+- **The `procsE` numbering facts**: `procsE_canon` (walk arm rides
+  `proj_walkEventsE_eq`), `procsE_snd_owned`/`procsE_rcv_owned` (via
+  `owned_of_forall2_mem` + `procs_mem_procsE` — ownership is
+  membership-based, so it rides the permutation bridge), all in
+  Numbering.lean.
+- **The E interpreter support**: `goEventsE` (WeaveE.lean);
+  ExpandE.lean — `mem_wScopeOpsE`/`mem_wKidOpsE`, `opSpecE`/
+  `opEventsE`/`opStepsE` + equations, `opStepsE_pos/le`,
+  `goEventsE_eq_of_fuel`, `goEventsE_weave`, `weaveGoE_preserves`,
+  `weaveStateE_wcount`; MasterE.lean — `weaveGoE_wedge` over the
+  parameterized `EmitOKOnP` (Master.lean's `EmitOKOn` is now the d5
+  abbrev of it; `emitOKOn_nil/cons/tail/append` generic in place).
+  Build trap: `++` is LEFT-associative — the E expanders' membership
+  destructures split `([a,b] ++ map) ++ [parent]`, not
+  `[a,b] ++ (map ++ [parent])`.
+
+**Remaining of unit 2a — the two big analogs** (next fork; each is
+fork-sized on its own):
+
+2a-align. **`weaveE_initial_alignment`** (AlignE): per-owner filters
+   of the E future = `(procsE sk).take (manCount sk)`. Same-shape
+   induction as `align_scope` with `walkSegE` (epilogue-order
+   segments) in the OWN-WALK arms only. KEY REDUCTION (verified
+   against the expanders, not yet formalized): within any scope's
+   expansion, the parent is the only event owning the scope's own walk
+   index that moves between the two orders, and every deeper/feeder
+   owner's filter is POSITIONALLY IDENTICAL between `opEvents` and
+   `opEventsE` — so the feeder and deeper-walk arms of the induction
+   should transfer verbatim (or via a shared generic core), and only
+   the own-walk filter needs the new epilogue-segment derivation.
+   Also needed: `weave_events_lengthE` (lengths only — derive via a
+   tree-induction `opEventsE_perm : (opEventsE sk op).Perm
+   (opEvents sk op)`, then `length_eq`; NOTE this perm is also the
+   clean route to `howners`, membership being perm-invariant).
+2a-dep. **`weaveE_goEvents_depOK`** (PrecE): SCOUT SETTLED — `manDep`
+   yields `some` only for wire/asked events and maps upper sends to
+   `none` (`manDep_upper_snd`), so NO event's dep is a parent and
+   parents have no deps; the E reorder moves only upper events, so
+   every (dep, event) pair keeps its relative order. Two routes,
+   next fork's choice: (i) a ~100-line transfer lemma —
+   `DepOK done l → l.filter isWireAsked = l'.filter isWireAsked →`
+   (all dep-carrying events and dep values are wire/asked) `→ Nodup →
+   DepOK done l'` — plus the futures' Nodup fact, which is NOT yet
+   landed (checked: only pin-level `decide` anchors exist); mint it
+   from ownership + per-trace canonical numbering, or from the E
+   alignment once landed (per-owner filters = the traces, each Nodup,
+   owners disjoint). Route (i) ≈ 200–300 lines including the mint;
+   (ii) transcribe Prec.lean's expansion induction over the E
+   expanders (mechanical, ~900 lines). Prefer (i).
 2b. **The eweave master induction** (`WEdgeE`-analog over `weaveGoE`,
    the bulk): reuse Master.lean's EmitOKOn + consumption
    architecture. The U-site window moves to the scope tail, where the

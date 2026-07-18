@@ -47,24 +47,30 @@ At every position of `l`, the event is emittable from any state that
 satisfies the edge invariant over the position's suffix (with `rest`
 appended), sits at a pump fixpoint, and has the event's manual
 predecessor already emitted. -/
-def EmitOKOn (l rest : List Ev) : Prop :=
+def EmitOKOnP (P : List (List Ev)) (l rest : List Ev) : Prop :=
   ∀ n e, l[n]? = some e →
-    ∀ st : MState, WEdge sk (l.drop n ++ rest) st →
+    ∀ st : MState, WEdgeP sk P (l.drop n ++ rest) st →
       step sk st = none →
       (∀ d, manDep e = some d → d ∈ st.out) →
       enabled sk st.sent st.rcvd e = true
 
-theorem emitOKOn_nil (rest : List Ev) : EmitOKOn sk [] rest := by
+/-- Pointwise emission-readiness at the d5 family (cf. `WCount`). -/
+abbrev EmitOKOn (l rest : List Ev) : Prop :=
+  EmitOKOnP sk (procs sk) l rest
+
+theorem emitOKOn_nil {P : List (List Ev)} (rest : List Ev) :
+    EmitOKOnP sk P [] rest := by
   intro n e h
   simp at h
 
 /-- Extend readiness by one head whose own discharge is supplied. -/
-theorem emitOKOn_cons {e : Ev} {l rest : List Ev}
-    (hhead : ∀ st : MState, WEdge sk (e :: (l ++ rest)) st →
+theorem emitOKOn_cons {P : List (List Ev)} {e : Ev} {l rest : List Ev}
+    (hhead : ∀ st : MState, WEdgeP sk P (e :: (l ++ rest)) st →
       step sk st = none →
       (∀ d, manDep e = some d → d ∈ st.out) →
       enabled sk st.sent st.rcvd e = true)
-    (htail : EmitOKOn sk l rest) : EmitOKOn sk (e :: l) rest := by
+    (htail : EmitOKOnP sk P l rest) :
+    EmitOKOnP sk P (e :: l) rest := by
   intro n e' hn st hW hfix hpred
   match n with
   | 0 =>
@@ -76,15 +82,15 @@ theorem emitOKOn_cons {e : Ev} {l rest : List Ev}
       exact htail n e' hn st hW hfix hpred
 
 /-- Consuming the head keeps the readiness of the tail. -/
-theorem emitOKOn_tail {e : Ev} {l rest : List Ev}
-    (h : EmitOKOn sk (e :: l) rest) : EmitOKOn sk l rest :=
+theorem emitOKOn_tail {P : List (List Ev)} {e : Ev} {l rest : List Ev}
+    (h : EmitOKOnP sk P (e :: l) rest) : EmitOKOnP sk P l rest :=
   fun n e' hn st hW hfix hpred =>
     h (n + 1) e' (by simpa using hn) st hW hfix hpred
 
 /-- Glue readiness: the left part sees the right as its tail. -/
-theorem emitOKOn_append {A B rest : List Ev}
-    (hA : EmitOKOn sk A (B ++ rest)) (hB : EmitOKOn sk B rest) :
-    EmitOKOn sk (A ++ B) rest := by
+theorem emitOKOn_append {P : List (List Ev)} {A B rest : List Ev}
+    (hA : EmitOKOnP sk P A (B ++ rest)) (hB : EmitOKOnP sk P B rest) :
+    EmitOKOnP sk P (A ++ B) rest := by
   intro n e hn st hW hfix hpred
   rcases Nat.lt_or_ge n A.length with hlt | hge
   · rw [List.getElem?_append_left hlt] at hn

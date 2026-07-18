@@ -90,6 +90,20 @@ def weaveGoE : Nat → List WOp → MState → MState
       | .kid h k s _lastD kidBase i feed =>
           weaveGoE fuel (wKidOpsE sk h k s kidBase i feed ++ rest) st
 
+/-- The events an E worklist will emit by hand, in order: `goEvents`'
+twin over the E expanders — same fuel, same expansion, no state — so
+the counting induction can walk `weaveGoE` and its futures in
+lockstep. -/
+def goEventsE : Nat → List WOp → List Ev
+  | 0, _ => []
+  | _ + 1, [] => []
+  | fuel + 1, op :: rest =>
+      match op with
+      | .emit e => e :: goEventsE fuel rest
+      | .scope h k feed => goEventsE fuel (wScopeOpsE sk h k feed ++ rest)
+      | .kid h k s _lastD kidBase i feed =>
+          goEventsE fuel (wKidOpsE sk h k s kidBase i feed ++ rest)
+
 /-- The eweave's final state: `weaveState`'s shape over the E
 interpreter — same opening worklist, same pumps, same fuel, one last
 pump. -/
