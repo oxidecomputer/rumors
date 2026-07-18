@@ -77,6 +77,76 @@ impl Trace {
         self.assert_valid_with_wire_contiguity(false);
     }
 
+    /// PROBE (finding #7, NOT wired into `assert_valid`): the
+    /// parent-placement check exactly as the Lean model's d5 ledger mints
+    /// it.
+    ///
+    /// D5 as minted: once the resolution of a scope's last disputed child
+    /// has been emitted, any further wire or query of that scope before
+    /// the parent summary is a violation; a scope with no disputed
+    /// children must emit its parent before any wire or query. The real
+    /// encoder VIOLATES this order by design (`yield_resolve_query!`
+    /// publishes each child's queries immediately after its resolution,
+    /// and the parent resolution departs only in the scope epilogue — see
+    /// the "Launch every `Pending` slot's work" comment in levels.rs), so
+    /// this check must NOT join `assert_valid` until the d5/encoder
+    /// divergence is adjudicated: either the encoder's order is proven
+    /// safe and the Lean d5 is reshaped to admit it, or the encoder moves
+    /// its parent send to the weave's placement and this check graduates.
+    /// The regression test pinning the divergence is
+    /// `real_encoder_order_violates_parent_placement_probe`.
+    #[cfg(test)]
+    fn assert_parent_placement(&self) {
+        // Like wire contiguity, the check needs the completed trace to
+        // know each scope's disputed-children set: disputed iff it ever
+        // resolves.
+        let mut disputed = BTreeMap::<(usize, Vec<u8>), usize>::new();
+        for event in &self.0 {
+            if let Kind::Resolution { .. } = event.kind
+                && let Some(scope_parent) = parent(&event.scope)
+            {
+                *disputed.entry((event.work, scope_parent)).or_default() += 1;
+            }
+        }
+
+        let mut resolved = BTreeMap::<(usize, Vec<u8>), usize>::new();
+        let mut parent_done = BTreeMap::<(usize, Vec<u8>), bool>::new();
+        for (index, event) in self.0.iter().enumerate() {
+            // The scope whose walk owns this event, per the model mapping:
+            // a wire at child c belongs to scope parent(c); a dependent
+            // query at grandchild g belongs to scope parent(parent(g)).
+            // Root-owned events (no such scope) are the openers' domain,
+            // outside d5.
+            let owner = match event.kind {
+                Kind::Wire => parent(&event.scope),
+                Kind::DependentWork => parent(&event.scope).as_deref().and_then(parent),
+                _ => None,
+            };
+            if let Some(scope) = owner {
+                let key = (event.work, scope);
+                let all_resolved = resolved.get(&key).copied().unwrap_or(0)
+                    == disputed.get(&key).copied().unwrap_or(0);
+                if all_resolved && !parent_done.get(&key).copied().unwrap_or(false) {
+                    panic!(
+                        "event {event:?} at trace index {index} departed after scope {:?}'s final resolution with the parent summary unsent",
+                        key.1,
+                    );
+                }
+            }
+            match event.kind {
+                Kind::Resolution { .. } => {
+                    if let Some(scope_parent) = parent(&event.scope) {
+                        *resolved.entry((event.work, scope_parent)).or_default() += 1;
+                    }
+                }
+                Kind::ParentResolution { .. } => {
+                    parent_done.insert((event.work, event.scope.clone()), true);
+                }
+                _ => {}
+            }
+        }
+    }
+
     /// Check the trace, optionally omitting the stronger wire-level check.
     fn assert_valid_with_wire_contiguity(&self, check_wire_contiguity: bool) {
         // Wire contiguity's "unresolved earlier sibling" arm needs to know

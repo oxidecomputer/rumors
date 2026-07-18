@@ -92,6 +92,27 @@ fn rejects_wire_before_earlier_sibling_resolution() {
     .assert_valid();
 }
 
+/// The real encoder's publication order violates the Lean d5 ledger as minted.
+///
+/// This trace is the encoder's own order (the same trace
+/// `accepts_wire_resolution_work_parent_order` accepts): the sole disputed
+/// child's dependent work departs after the final resolution and before the
+/// parent summary, exactly what d5 forbids. Pinned so the finding #7
+/// adjudication cannot be silently forgotten: if this test starts failing
+/// because the panic disappears, the encoder's order changed — graduate
+/// `assert_parent_placement` into `assert_valid` and delete this pin.
+#[test]
+#[should_panic(expected = "with the parent summary unsent")]
+fn real_encoder_order_violates_parent_placement_probe() {
+    Trace(vec![
+        event(&[1], Kind::Wire),
+        event(&[1], Kind::Resolution { pending: 1 }),
+        event(&[1, 2], Kind::DependentWork),
+        event(&[], Kind::ParentResolution { pending: 1 }),
+    ])
+    .assert_parent_placement();
+}
+
 /// Publications for one scope's children must leave in radix order.
 ///
 /// Positional pairing is the protocol's only correlation mechanism: no
