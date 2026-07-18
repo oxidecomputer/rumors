@@ -132,10 +132,13 @@ fn capacity_stress_covers_every_queue_role() {
             stats.receives > 0,
             "queue role {kind:?} received no test item"
         );
-        let expected = if kind == QueueKind::AssemblyLevelReturns {
-            256
-        } else {
-            1
+        let expected = match kind {
+            // The constant-fan queues hold a full fan even at the
+            // test-default one-slot window: assembly returns as a
+            // correctness floor, terminal leaf resolutions as a per-leaf
+            // amortization buffer (see `work::queues`).
+            QueueKind::AssemblyLevelReturns | QueueKind::TerminalLeafResolutions => 256,
+            _ => 1,
         };
         assert_eq!(
             stats.effective_capacity, expected,
