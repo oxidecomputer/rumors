@@ -1421,13 +1421,69 @@ needed for the per-head telescope re-basing.
    locally); (e) the feed/`scopeFeed` threading and `AncTele`
    carry over — the tele's own-stage chunk shapes come from
    `childChunk` not `splicedChunk` (simpler: no σ discriminant).
-3. **`merge_completeE`**: Final.lean's argmin re-instantiated over the
-   eweave (mostly mechanical given 2; `totalEventsE_eq` + the
-   projection bridge supply the totals).
-4. **Endgame**: Pending decode lemmas for `walkEventsE` under the
-   `d6` mirrors + Endgame argmin/cascade at `.impl` (pillar's
-   `hmode = Or.inl rfl`); the flagship `Sched.progress`/
-   `Sched.deadlock_free` in Statement.lean's terms with hypotheses
-   `wellFormed` + margin 0 (`∀ s, dCount s ≤ capLevel` — note
-   `schedulable` is implied by margin 0: `dCount ≤ capLevel ≤
-   capLevel + 2`; drop it from the statement and say so).
+3. ~~**`merge_completeE`**~~ (LANDED 2026-07-19, fork #16i, commit
+   `3890e0b1` — compiled first-try): Final.lean's drain ladder
+   generalized IN PLACE over the trace family — `{P}` +
+   `FamOK sk P` + the new `ManRows sk P` bundle (walk/ropen rows
+   proj-equal to the d5 traces; `manRows_procs` trivial,
+   `manRows_procsE` rides `proj_walkEventsE_eq`); `famOK_fin`/
+   `famOK_rootret` minted next to their Window.lean siblings; the
+   d5 instances (`all_sublist_final`, `all_sublist_wfinal`,
+   `wfinal_*`, `blame_head`, `merge_complete`) unchanged in
+   statement, passing `famOK_procs`/`manRows_procs`. E instances:
+   `scheduleE_inv`/`trace_monotoneE`/`scheduleE_e1`/`scheduleE_e2`/
+   `scheduleE_count` (Sched.lean, thin `MInv` wrappers);
+   `scheduleE_proj_canon`/`scheduleE_e1_pos`/`scheduleE_inj`
+   (Numbering.lean, d5-proof transcriptions). New
+   `Weave/FinalE.lean`: `wFinalE` + wedge/fix, `all_sublist_finalE`
+   (the `procsE` case analysis; walk arm at `procsE_walk`),
+   `wprojE_canon`, `wfinalE_count_le_one`,
+   `not_mem_scheduleE_of_count`, `blame_headE`, and
+   **`merge_completeE : wellFormed → (∀ s, dCount s ≤ capLevel) →
+   ((finalStateE sk).rem.all List.isEmpty) = true`** — the argmin
+   transcribed with every d5 input swapped for its E twin.
+4. **Endgame at `.impl`** — the remaining work, route audited
+   against the code (fork #16i, 2026-07-19). Pending.lean splits
+   three ways:
+   - *Mode-free helpers* (bulk of lines 49–1000): no change.
+   - *Placement-independent decodes* (`iopen/ropen/rootret/fin/
+     absorb/asm_pend_or_done`, lines 2014–3145) plus `PendOk`/
+     `tau_le_of_pend`: the mode enters ONLY as the `.full` literal
+     in `apply`/`InvP`/`simp [AxMode.full]` — none of their guards
+     consult `d5`/`d6`, so `.impl` twins compile from textual
+     transcription (`simp [AxMode.impl]` normalizes the shared
+     fields identically). Recommend a `PendingE.lean` with the
+     twins; `tau_le_of_pend`'s E form ranks by `scheduleE` and
+     needs `trace_sublistE : T ∈ procsE sk → T.Sublist (scheduleE
+     sk)` — one line from `trace_monotoneE` + `merge_completeE`,
+     mirroring Pending.lean:49.
+   - *The walk decode* (`walk_committed_split` 1009–1839 +
+     `walk_pend_or_done` + its committed-arm helpers): the genuinely
+     new work. Audit result: the four committed arms destructure the
+     mode-normalized `wkLocalOk` fact; under `.impl` the `.wire`/
+     `.query` arms LOSE their `hd5` conjunct (no parent-early guard)
+     and the `.parent` arm GAINS the d6 everything-done conjunct
+     (`wireDone` all + per-D `resDone`/`qSent` full) — which pins
+     the parent's pend position at the scope TAIL of `walkEventsE`.
+     The per-kid chunk machinery (`childChunk` arithmetic,
+     `chunks_prefix_performed`, `phase2_child_facts` shapes)
+     transfers; the d5 decode's parent-mid-scope case analysis
+     (~1442–1717) is REPLACED by the simpler tail case. Target the
+     decode at `walkEventsE` positions throughout.
+   - *EndgameE + flagships*: `pendsE`/`pends_liftE`/`pends_soundE`/
+     `pends_coverE` over `scheduleE` (the `procs_cases` analog for
+     `procsE` is the same membership destructure), `close_cascadeE`
+     (`.impl` literals; close guards consult no `d5`/`d6`), then in
+     Statement.lean's reserved names: `Sched.progress` and
+     `Sched.deadlock_free` under `AxMode.impl` with hypotheses
+     `wellFormed` + margin 0 ONLY — `schedulable` is implied
+     (`margin0_schedulable`) and dropped from the statements, with
+     the docstring saying so. The pillar consumes
+     `hmode := Or.inl rfl` (d5 = false at `.impl`). Verify
+     `inv_reachable`/`InvP` are mode-generic (they should be, post
+     fork #15's sweep). Statement.lean's audit-surface prose then
+     flips the flagship from "in progress" to proven; `#print
+     axioms` both flagships (expect the three standard axioms).
+   Estimated two fork-sized units: (4a) PendingE (walk decode the
+   bulk), (4b) EndgameE + flagships + Statement prose + PLAN/task
+   updates.
