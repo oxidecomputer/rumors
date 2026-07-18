@@ -279,11 +279,19 @@ can raise it; memory-starved ones can keep 1 and accept V1-era
 latency only if their divergence is small.
 
 **(b) Dequeue the query before awaiting its reply.** The stage loops
-pair `requests.next().await` then `queries.recv().await`; reversing
+paired `requests.next().await` then `queries.recv().await`; reversing
 the order frees each slot one reply earlier. Constant-factor only
 (~1 hop per scope of the 2–2.5 measured) and worthless alone, but it
 makes `K`'s accounting exact: with reply-first pairing, a K-slot
 queue admits only K−1 truly in-flight scopes [derived].
+**Shipped 2026-07-18**: all five pairing loops (the walk's three
+levels, the initiator's terminal absorb, the proxy encoder's two
+stages) now dequeue query-first, with the end-of-stream violation
+checks mirrored accordingly. Note the flip is *not* covered by the
+§9-item-5 capacity-monotonicity argument — it changes each stage's
+I/O order, not a capacity — so its evidence is the full suite at
+the floor window (adversarial schedules included) plus the module
+docs' pairing-order-indifferent k-th-item argument.
 
 **(c) Batch sibling scopes per message (V1's trick inside V2's
 schedule).** One wire message per level carrying every disputed
@@ -775,23 +783,44 @@ none blocks the landed work.
    cut the gap 82 % (80.3 → 31.6 ms at I = 5000, hop counts
    unchanged). The residual ~11 ms is itemized as independent
    levers in §10; the plan is to fan out and try each one.
-2. **Isolate the §5.1 decomposition empirically**: rerun the sweep
-   with only the analytically load-bearing edges widened (walk
-   queues/resolutions + `local_questions`), confirming
-   `next_scopes` is the defensive register the analysis says it is.
-   Cheap; firms the knob map before anyone builds on it.
-3. **Attribute the residual ~9 hops** via frame-level tracing over
-   the delayed pipe: the floor is 3 (opening) plus the leaf
-   request→supply round; if the remainder contains an avoidable
-   serialization, V2's latency edge over V1 widens further.
-4. **Land fix-space rider (b)**: flip the stage loops'
-   reply-then-query pairing so a K-slot queue admits exactly K
-   in-flight scopes rather than K−1. Constant-factor; makes the
-   §6.5 accounting exact.
-5. **Review the assembly-fan argument under K > 1** (flagged in
-   §5.1): the one-fan bound rests on returns arriving in
-   resolution order with resolutions preceding their dependent
-   work; a reviewer should re-derive it with the window in place.
+2. **Isolate the §5.1 decomposition empirically** — **closed
+   2026-07-18 [decision]**: the analytic decomposition stands on
+   its own (every "scale with K" edge sits on the question path,
+   where §5.1's minimum-over-the-chain argument makes each one
+   individually necessary); the confirming sweep is not worth its
+   run time.
+3. **Attribute the residual ~9 hops** — **in progress
+   2026-07-18**: delegated to a frame-tracing investigation over
+   the delayed pipe (instrumented worktree; report to be folded
+   in here). The floor hypothesis: 3 (opening) plus the leaf
+   request→supply round; anything above is candidate avoidable
+   serialization, and any wire-touching fix folds into §10 lever
+   A's format break.
+4. **Land fix-space rider (b)** — **done 2026-07-18** (see §5's
+   shipped note): all five stage loops dequeue query-first; the
+   K-slot edges now admit exactly K in-flight scopes and §6.5's
+   accounting is exact. Full suite green at the floor window;
+   production-window benchmarks unchanged within drift, as
+   expected at K ≫ scopes.
+5. **Review the assembly-fan argument under K > 1** — **resolved
+   2026-07-18 [derived]**: the session's stages are Kahn
+   processes — every data-path send and receive is a plain
+   blocking `.send().await`/`.recv().await` in fixed program
+   order; nothing observes channel fullness (`try_send` appears
+   only on the fire-and-forget first-error routes, which are in
+   the keep-at-1 set and capacity-invariant); channels are FIFO
+   and pairing is positional; the four `select!`s are
+   termination/error races, not data-path merges. For such a
+   network, raising any subset of channel capacities only
+   removes send-blocking edges from the wait-for graph, so every
+   schedule live at the K = 1 floor (proven in the materialized
+   module docs, stress-tested adversarially) stays live at any
+   K. This subsumes the assembly-fan question: the fan queues'
+   capacity is identical in both configurations, and the K > 1
+   network differs from the floor only by widened capacities
+   elsewhere — precisely the delta monotonicity covers.
+   (Monotonicity speaks to liveness, not to FAN's minimality at
+   K > 1; minimality is not a correctness property.)
 6. **Optimal K by workload** (from §7): the R = 2500 cell
    pipelines slightly better than insertions at equal K, for
    unattributed reasons; revisit with field data once a deployment
