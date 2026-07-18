@@ -58,7 +58,10 @@ children together, with every variable-width field length-tagged
 - `prefix` is the node's compressed prefix in **path order** —
   shallowest byte first, as the node serializer emits it
   (in-memory storage is shallowest-last). `prefix_len` is one
-  byte (a prefix spans at most 31 bytes of a 32-byte path).
+  byte. Correction from implementation [checked, 2026-07-18]: a
+  prefix spans up to **32** bytes, not 31 — a lone-leaf root
+  compresses the entire path (there is no radix byte above it);
+  the leaf preimage is then 34 bytes, still one block.
 - Children appear in ascending radix order as fixed 17-byte
   `radix ‖ hash` records. `child_count` is a big-endian `u16`:
   the count ranges over {0} ∪ [2, 256] — zero only for the empty
