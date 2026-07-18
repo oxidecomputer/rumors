@@ -84,7 +84,15 @@ Last updated: 2026-07-18.
   hypothesis. 5b CONFIRMED in-model (stuck-state accounting: full
   buffers + consumer hand + producer hands). Sweep outcomes in
   PROGRESS.md §8.
-- **#16 (in progress; foundation + unit 1 landed 2026-07-18)**: the
+- **#16 (DONE, 2026-07-19)**: the implementation-facing FLAGSHIP is
+  proven. `Sched.deadlock_free : sk.wellFormed = true →
+  (∀ s, sk.dCount s ≤ sk.capLevel) → DeadlockFree sk AxMode.impl`
+  (Proofs/EndgameE.lean, via `Sched.progress`), axioms
+  `[propext, Classical.choice, Quot.sound]` only; `schedulable`
+  subsumed by margin 0. Both design-space corners now carry
+  kernel-checked theorems (`deadlock_free_d5` unchanged); the complete
+  proof-route record is PROGRESS.md §9 items 1–5. #18 is unblocked.
+  Campaign record of the route (kept for the narrative doc): the
   implementation-facing theorem (see adjudication 2). Landed:
   `Sched.scheduleE` + `EventDag.schedCandidateE` (encoder-order trace
   layer, cross-checked and replay-validated under `.impl` at margin 0
