@@ -24,6 +24,7 @@ import StreamingMirror.Proofs.Sched.Weave.Count
 import StreamingMirror.Proofs.Sched.Weave.Expand
 import StreamingMirror.Proofs.Sched.Weave.ExpandE
 import StreamingMirror.Proofs.Sched.Weave.MasterE
+import StreamingMirror.Proofs.Sched.Weave.FinalE
 import StreamingMirror.Proofs.Sched.Weave.SiteE
 import StreamingMirror.Proofs.Sched.Weave.TeleE
 import StreamingMirror.Proofs.Sched.Weave.Align

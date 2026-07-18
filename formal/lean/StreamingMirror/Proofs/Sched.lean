@@ -709,6 +709,36 @@ theorem schedule_count (p : Ev → Bool) :
       = emittedCount p (procs sk) (finalState sk).rem :=
   (schedule_inv sk).out_count p
 
+-- ==================== the encoder-order merge's instances (`.impl`)
+
+/-- The invariant at the encoder-order merge's final state. -/
+theorem scheduleE_inv : MInv sk (procsE sk) (finalStateE sk) :=
+  mergeN_preserves sk _ (minv_init sk (procsE sk))
+
+/-- `trace_monotone` for the encoder-order merge. -/
+theorem trace_monotoneE :
+    Forall2 (fun t r => ∃ pre, t = pre ++ r ∧ pre.Sublist (scheduleE sk))
+      (procsE sk) (finalStateE sk).rem :=
+  (scheduleE_inv sk).rem_struct
+
+/-- E1-respect of the encoder-order schedule, counted. -/
+theorem scheduleE_e1 (k : Nat) (c : Chan) (n : Nat)
+    (h : (scheduleE sk)[k]? = some (c, false, n)) :
+    n < sndCount c ((scheduleE sk).take k) :=
+  (scheduleE_inv sk).e1_hist k c n h
+
+/-- E2-respect of the encoder-order schedule, counted. -/
+theorem scheduleE_e2 (k : Nat) (c : Chan) (n : Nat)
+    (h : (scheduleE sk)[k]? = some (c, true, n)) :
+    n < rcvCount c ((scheduleE sk).take k) + sk.cap c :=
+  (scheduleE_inv sk).e2_hist k c n h
+
+/-- `schedule_count` for the encoder-order merge. -/
+theorem scheduleE_count (p : Ev → Bool) :
+    ((scheduleE sk).filter p).length
+      = emittedCount p (procsE sk) (finalStateE sk).rem :=
+  (scheduleE_inv sk).out_count p
+
 -- ===================================== kernel-tier non-vacuity anchor
 -- Every theorem above is generic over the merge input and would hold
 -- vacuously if the merge never stepped: `schedule = []` satisfies all

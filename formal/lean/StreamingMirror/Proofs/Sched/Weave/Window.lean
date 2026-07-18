@@ -137,6 +137,26 @@ theorem famOK_absorb {P : List (List Ev)} (hfam : FamOK sk P) :
     (show manCount sk ≤ 2 + sk.rootH from Nat.le_of_eq rfl)]
   exact procs_absorb sk
 
+/-- `procs_fin`, any `FamOK` family. -/
+theorem famOK_fin {P : List (List Ev)} (hfam : FamOK sk P)
+    (hge : 1 ≤ sk.rootH) :
+    P[3 * sk.rootH + 3]? = some (finEvents sk) := by
+  rw [famOK_pump_lookup sk hfam
+    (show manCount sk ≤ 3 * sk.rootH + 3 from by
+      show 2 + sk.rootH ≤ 3 * sk.rootH + 3
+      omega)]
+  exact procs_fin sk hge
+
+/-- `procs_rootret`, any `FamOK` family. -/
+theorem famOK_rootret {P : List (List Ev)} (hfam : FamOK sk P)
+    (hge : 1 ≤ sk.rootH) :
+    P[3 * sk.rootH + 2]? = some [(Chan.rootret, false, 0)] := by
+  rw [famOK_pump_lookup sk hfam
+    (show manCount sk ≤ 3 * sk.rootH + 2 from by
+      show 2 + sk.rootH ≤ 3 * sk.rootH + 2
+      omega)]
+  exact procs_rootret sk hge
+
 /-- `procs_asmR`, any `FamOK` family. -/
 theorem famOK_asmR {P : List (List Ev)} (hfam : FamOK sk P)
     {j : Nat} (h1 : 1 ≤ j) (hj : j ≤ sk.rootH - 1) :

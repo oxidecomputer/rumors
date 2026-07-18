@@ -1916,4 +1916,79 @@ theorem procsE_canon (c : Chan) (b : Bool) :
       · cases he
   · exact fin_canon sk c b
 
+-- ================== the encoder-order schedule's blame corollaries
+
+/-- Canon shape of the encoder-order schedule's projections. -/
+theorem scheduleE_proj_canon (hwf : sk.wellFormed = true) (c : Chan)
+    (b : Bool) : ∃ m, proj c b (scheduleE sk) = canon c b m := by
+  have howned : Owned (if b then sndOwner sk else rcvOwner sk) b 0
+      (procsE sk) := by
+    cases b
+    · exact procsE_rcv_owned sk hwf
+    · exact procsE_snd_owned sk hwf
+  obtain ⟨pre, hsub, hpre⟩ :=
+    emitted_canon (trace_monotoneE sk) howned (procsE_canon sk c b)
+  refine ⟨emittedCount (fun e => decide (e.1 = c) && (e.2.1 == b))
+    (procsE sk) (finalStateE sk).rem, ?_⟩
+  have hcount : (proj c b (scheduleE sk)).length
+      = emittedCount (fun e => decide (e.1 = c) && (e.2.1 == b))
+        (procsE sk) (finalStateE sk).rem := scheduleE_count sk _
+  have hlenpre : (proj c b pre).length
+      = emittedCount (fun e => decide (e.1 = c) && (e.2.1 == b))
+        (procsE sk) (finalStateE sk).rem := by
+    rw [hpre]
+    simp [canon]
+  have hsubp : (proj c b pre).Sublist (proj c b (scheduleE sk)) :=
+    hsub.filter _
+  have heq : proj c b pre = proj c b (scheduleE sk) :=
+    hsubp.eq_of_length (by rw [hlenpre, hcount])
+  rw [← heq, hpre]
+
+/-- Positional E1 for the encoder-order schedule. -/
+theorem scheduleE_e1_pos (hwf : sk.wellFormed = true) (k : Nat) (c : Chan)
+    (n : Nat) (h : (scheduleE sk)[k]? = some (c, false, n)) :
+    ∃ j, j < k ∧ (scheduleE sk)[j]? = some (c, true, n) := by
+  have hcount := scheduleE_e1 sk k c n h
+  rw [sndCount_eq_proj] at hcount
+  obtain ⟨m, hm⟩ := scheduleE_proj_canon sk hwf c true
+  have hpref : proj c true ((scheduleE sk).take k) <+: canon c true m := by
+    rw [← hm]
+    conv => rhs; rw [← List.take_append_drop k (scheduleE sk)]
+    exact proj_prefix
+  have htake := prefix_canon hpref
+  have hmem : ((c, true, n) : Ev) ∈ proj c true ((scheduleE sk).take k) := by
+    rw [htake]
+    exact List.mem_map.2 ⟨n, List.mem_range.2 hcount, rfl⟩
+  have hmem' : ((c, true, n) : Ev) ∈ (scheduleE sk).take k :=
+    (List.mem_filter.1 hmem).1
+  obtain ⟨j, hj⟩ := List.mem_iff_getElem?.1 hmem'
+  rw [List.getElem?_take] at hj
+  by_cases hjk : j < k
+  · rw [if_pos hjk] at hj
+    exact ⟨j, hjk, hj⟩
+  · rw [if_neg hjk] at hj
+    cases hj
+
+/-- τ injectivity for the encoder-order schedule. -/
+theorem scheduleE_inj (hwf : sk.wellFormed = true) {i j : Nat} {e : Ev}
+    (hi : (scheduleE sk)[i]? = some e) (hj : (scheduleE sk)[j]? = some e) :
+    i = j := by
+  obtain ⟨c, b, n⟩ := e
+  obtain ⟨m, hm⟩ := scheduleE_proj_canon sk hwf c b
+  have hpred : (fun e : Ev => decide (e.1 = c) && (e.2.1 == b))
+      (c, b, n) = true := by simp
+  have hcle : (scheduleE sk).count (c, b, n) ≤ 1 := by
+    rw [← List.count_filter
+      (p := fun e : Ev => decide (e.1 = c) && (e.2.1 == b))
+      (l := scheduleE sk) hpred]
+    rw [show (scheduleE sk).filter _ = proj c b (scheduleE sk) from rfl, hm,
+      count_canon]
+    split <;> omega
+  by_contra hne
+  rcases Nat.lt_or_ge i j with hij | hij
+  · have := two_at_lt hij hi hj
+    omega
+  · have := two_at_lt (by omega : j < i) hj hi
+    omega
+
 end StreamingMirror.Sched
