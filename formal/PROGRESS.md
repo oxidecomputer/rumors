@@ -1295,37 +1295,62 @@ first-try because the d5 transcriptions held):
   always pending), `futLen_ancE_lower`, and the tail-site pins
   `futLen_siteE_upper/_res/_q`. `proj_flatMap_seg'` de-privatized.
 
-**2b remaining, for the successor fork** (route verified against the
-code this session): (i) **E count pins** — Emit.lean's `count_pin` is
-generic in the trace `T` but reads `(procs sk)[M]?`; generalize its
-lookup over the family (manual-index lookups at `procsE` hit
-`walkEventsE`, whose per-channel totals equal d5's by
-`proj_walkEventsE_eq`), then mint `upper/lower/wire/asked_snd_pinE`
-and `rootres_pinE`/`root_banked` E forms. (ii) **Ctx.lean/Site.lean
-famOK-generalization** — `SpineLink`/`phi_of_spine` and the
-`spineLink_*_at` rungs consume the layer at d5; sweep them over
-`FamOK` exactly as commit `1df4109b` did (mechanical; SpineLink's
-constructors are count-only). (iii) **AncTeleE** — d5's `AncTele`
-with the `fil` clause in `futLen_ancE_*`'s shape (chunkQ residue ++
-childChunk run ++ `(upperOut, true, A) :: walkSegE (A+1) L`); no σ.
-`ancTele_countsE`: snd upper = `A G` (no if), snd lower = `dsBefore +
-dRank + 1`, via the E pins + `futLen_ancE_*`. **P1 from margin 0**:
-`dRank jD + 1 ≤ dOf ≤ dCount ≤ capLevel` — no schedulable, no splice
-case. **The Φ ladder collapses**: every E rung is the pre-splice
-shape (upper count = A, never +1), so `ladder_rung`'s `by_cases`
-disappears — `spineLink_base_at` at every rung, no `prev` chaining;
-then `ancTele_covE` mirrors `ancTele_cov`. (iv) **DescSupply at E
-sites** — cursors sit at clean scope boundaries (`descIdx … (k+1)`,
-whole subtree emitted), so the supply facts are the
-`deep_*_countE` totals; transcribe `descSupply_upper_of_ctx` with
-`hdeep` over `walkSegE` (one bridge rewrite per stage). (v) **Ready
-sites** — `ready_upperE` at the scope tail via `upper_site_hsnd`
-(the E `hfu` = `stageLen − k` matches d5's prologue form exactly) +
-(iii)+(iv); wire/lower/query sites transfer with the parent-tail
-term contributing zero to their channels (the `futLen_chunks_*`
-family is already lastD-generic); head lemmas are fut-generic as-is.
-(vi) **The induction** — per the template below, with the site
-sequence per-kid chunks THEN the tail parent.
+**2b items (i)–(iv), LANDED 2026-07-19** (fork #16g, commits
+`4637e2a7` + `51132e43` + `ee7697ec`):
+
+- **(i) E count pins**: `count_pinP` (family-generic, `count_pin` the
+  d5 wrapper, Emit.lean) + SiteE.lean's `procsE_walk`/`procsE_ropen`
+  lookups and `walk/upper/lower/wire/asked_snd_pinE`,
+  `rootres_pinE`/`root_bankedE` — every RHS concluded against the d5
+  totals through `proj_walkEventsE_eq`.
+- **(ii) Ctx famOK sweep**: `phi_of_spine`/`ascCover_of_spine`
+  generalized over `{P} (hfam : FamOK sk P)` in place (their ONLY use
+  of `hwf` was building `famOK_procs`); the two Master.lean call
+  sites pass `(famOK_procs sk hwf)`. `spineLink_base/step/absorb_at`,
+  `descSupply_*` and `walk_prefix_lower` needed nothing — they are
+  count-only/family-free. SiteE.lean gained the margin-0 bricks
+  (`margin0_schedulable`, `margin0_dOf`), the four E hsnd wrappers,
+  and `anc_position_countsE`/`p1_of_ancE` (P1 from margin 0; no
+  `p1_of_position`, no σ).
+- **(iii)+(iv) TeleE.lean** (new, wired into the root): `deep_
+  lowerE/upperE/wireE/qE` (pin-consuming wraps), `AncTeleE` (fil in
+  the `futLen_ancE_*` shape), `ancTele_countsE`/`ancTele_p1E`,
+  `ancTele_ladderE`/`ancTele_ladder_leafE` (base-only rungs, `cases m`
+  not induction — no `prev` chaining, as scouted),
+  `ancTele_covE`/`ancTele_cov_leafE` (over `WEdgeP` at `procsE` with
+  `famOK_procsE`), `descSupply_upper_of_ctxE`/`descSupply_lower_of_
+  ctxE` (verbatim transcriptions over `walkSegE` + the deep E wraps).
+- **New traps**: when a lemma's implicit stage is solved by OFFSET
+  unification (e.g. `g` from `asks p (g+2) = false` against a
+  `… + 2 * m' + 2` spelling), the resulting goal spells the index
+  with `Nat.add`/`Nat.mul` heads that `rw` patterns spelled with
+  `+`/`*` will NOT match — normalize the goal first with
+  `simp only [Nat.add_eq, Nat.mul_eq]`. Telescope coherence facts
+  must be minted as type-ASCRIBED `have`s in the exact spelling the
+  goal uses (`A (g+1) = wiresBefore (g+2) (A (g+2)) + j (g+2)`) —
+  `kabstract` will not fold `x+1+1` into `x+2` when `x` is compound.
+  Ladder arms must derive ALL stage-indexed facts inside each `cases`
+  arm with `g+2`-last spellings; hoisting them above the split leaves
+  non-defeq `h+1+2*m`-style spellings.
+
+**2b remaining, for the successor fork**: (v) **Ready sites** —
+`ready_upperE` at the scope tail: `hsnd` via `upper_site_hsndE` with
+`futLen_siteE_upper` (the E `hfu` = `stageLen − k`), `hdesc` via
+`descSupply_upper_of_ctxE` at `X := wiresBefore h (k+1)` (clean
+boundary — the whole subtree emitted), `hcov` via `ancTele_covE`,
+`hroot` via `root_bankedE`, through the (now family-generic)
+`upper_window` at `famOK_procsE`; wire/lower/query sites transfer
+with the parent-tail term contributing zero to their channels (the
+`futLen_chunks_*` family is already lastD-generic at `none` via
+`childChunk_spliced`); head lemmas are fut-generic as-is. Mirror the
+d5 `ready_*` signatures (Master.lean 1199–1580) with `AncTeleE` and
+the margin-0 hypothesis in place of `schedulable` (derive
+`schedulable` via `margin0_schedulable` where a consumed d5 lemma
+wants it). (vi) **The induction** — per the template below, with the
+site sequence per-kid chunks THEN the tail parent
+(`opEventsE_scope_eq`/`opEventsE_kid_eq` are the expansion
+authorities); an `ancTeleE_rebase` mirroring `ancTele_rebase` will be
+needed for the per-head telescope re-basing.
 
 2b. **The eweave master induction — the remaining climb**
    (scouted against the d5 statements 2026-07-19): produce
