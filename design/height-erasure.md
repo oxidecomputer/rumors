@@ -46,13 +46,12 @@ The height parameter is phantom at every layer that matters:
   `ArrayVec<[u8; 32]>` whose length (`32 - H::HEIGHT`) is runtime data —
   `src/tree/typed/prefix.rs`.
 - The wire never sees `H`: the V2 codec's runtime signal byte
-  (`state * 17 + stream`) names the logical stream on every frame — no
-  longer a demux key, since under the Link transport nothing
-  multiplexes; it is per-stream redundancy validated to exact equality
-  with the claimed label (`streaming-wire-deadlock.md` §8.6) — and the
-  channel layer already threads `H::HEIGHT` as a runtime `u8` for
-  diagnostics
-  (`QueueRole::new(kind, H::HEIGHT)` in
+  (`state * 17 + stream`) names the logical stream on every frame —
+  under the Link transport nothing multiplexes, so it is no longer a
+  demux key but per-stream redundancy, validated to exact equality
+  against the claimed label (`streaming-wire-deadlock.md` §8.6) — and
+  the channel layer already threads `H::HEIGHT` as a runtime `u8` for
+  diagnostics (`QueueRole::new(kind, H::HEIGHT)` in
   `streaming/materialized/work/queues.rs`).
 
 So height erasure is **re-tagging, not re-representation**: every
@@ -208,29 +207,32 @@ move.
 
 ## Incident log
 
-- **2026-07-17: the lib test binary crossed the memwatch limit.** The link
-  axis, not the height axis: every distinct `Link` type driven into
-  `remote::Handshaking::start` instantiates the whole proxy tower, and the
-  in-crate tests had accumulated fixture-wrapped link types (memory,
-  adversarial, scripted; a reordering acceptor tipped it over). Measured
-  on the lib test target (stable 1.96.1, all features): one additional
-  tower instantiation cost +137k IR lines but **+0.7 GiB of rustc peak
-  memory** — the cost is type-tree and collector state, not codegen
-  volume — and under incremental CGU partitioning (every tower lands in
-  the proxy module's CGU) the same delta took the compile from ~7.3 GB to
-  the 9.4 GB memwatch kill. Resolution: the tripwire's default was raised
-  from 8 to 12 GiB (`tools/memwatch`). The guard exists to catch runaway
-  exponential type growth (its motivating incident was 25+ GiB), and this
-  was measured *linear* growth in an intentional axis: each fixture link
-  type is one more tower at a bounded, known cost. A test-only
-  `Link::into_erased` funnel was tried and worked (7 → 4 towers, peak
-  back to 7.7 GB) but was rejected as contorting test code to an
-  arbitrary threshold; if the tower count keeps growing, that owned
-  erased carrier is the shape to revive — and it must be *owning*: a
-  borrowed carrier leaves the concrete connector alive in the caller and
-  the peer's supply never closes, which stalls every supply-closure test.
-  The durable fix remains this document's height erasure, which shrinks
-  every tower from the inside.
+- **2026-07-17: the lib test binary crossed the memwatch limit.** The
+  link axis, not the height axis: every distinct `Link` type driven into
+  `remote::Handshaking::start` instantiates the whole proxy tower, and
+  the in-crate tests had accumulated fixture-wrapped link types (memory,
+  adversarial, scripted; a reordering acceptor tipped it over).
+
+  Measured on the lib test target (stable 1.96.1, all features): one
+  additional tower instantiation cost +137k IR lines but **+0.7 GiB of
+  rustc peak memory** — the cost is type-tree and collector state, not
+  codegen volume — and under incremental CGU partitioning (every tower
+  lands in the proxy module's CGU) the same delta took the compile from
+  ~7.3 GB to the 9.4 GB memwatch kill.
+
+  Resolution: the tripwire's default was raised from 8 to 12 GiB
+  (`tools/memwatch`). The guard exists to catch runaway exponential type
+  growth (its motivating incident was 25+ GiB); this was measured
+  *linear* growth in an intentional axis — each fixture link type is one
+  more tower at a bounded, known cost. A test-only `Link::into_erased`
+  funnel was tried and worked (7 → 4 towers, peak back to 7.7 GB) but
+  was rejected as contorting test code to an arbitrary threshold. If the
+  tower count keeps growing, that owned erased carrier is the shape to
+  revive — and it must be *owning*: a borrowed carrier leaves the
+  concrete connector alive in the caller, so the peer's supply never
+  closes and every supply-closure test stalls. The durable fix remains
+  this document's height erasure, which shrinks every tower from the
+  inside.
 
 ## Open questions
 

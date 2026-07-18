@@ -288,7 +288,6 @@ async fn drive_connection(
             remote_network,
             remote_min_events,
             local_min_events,
-            ..
         }) => {
             trace(|| {
                 format!(
@@ -352,7 +351,8 @@ async fn drive_connection(
 async fn serve_merge(conn: &Connection, cmd: &mpsc::Sender<Command>) -> anyhow::Result<()> {
     let (send, recv) = timeout(timers::SESSION_TIMEOUT, conn.accept_bi())
         .await
-        .context("waiting for the loser's bootstrap stream")??;
+        .context("waiting for the loser's bootstrap stream timed out")?
+        .context("accepting the loser's bootstrap stream")?;
     let handle = request_handle(cmd).await?;
     let mut link = quic_link(recv, send, conn);
     // Bounded: this serve holds a drive (and its accept-loop permit), and a
@@ -484,10 +484,7 @@ pub fn spawn_accept_loop(
                 // The dialer opens the connection's one gossip stream
                 // promptly; only that wait is bounded — the drive itself
                 // lives as long as the connection.
-                let Ok((send, recv)) = timeout(timers::SESSION_TIMEOUT, conn.accept_bi())
-                    .await
-                    .map_err(anyhow::Error::from)
-                    .and_then(|r| r.map_err(Into::into))
+                let Ok(Ok((send, recv))) = timeout(timers::SESSION_TIMEOUT, conn.accept_bi()).await
                 else {
                     return;
                 };

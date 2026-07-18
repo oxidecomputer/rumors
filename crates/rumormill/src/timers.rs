@@ -44,21 +44,23 @@ pub const ONLINE_GRACE: Duration = Duration::from_secs(15);
 /// How long a dial may take before we give up on the peer for this round.
 pub const DIAL_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Ceiling on the bounded waits around a connection's start: the dialer
-/// opening its gossip stream, and the merge dance's fresh stream. The
-/// drive itself is unbounded — connections are long-lived by design.
+/// Ceiling on the bounded waits for a stream at a connection's start: the
+/// acceptor awaiting the dialer's gossip stream, and the fresh stream the
+/// merge dance (both sides) or a retirement opens. The drive itself is
+/// unbounded — connections are long-lived by design.
 pub const SESSION_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Ceiling on one whole-tree session: a merge bootstrap (either side) or a
 /// retirement. These ship the entire rumor set rather than a delta, so they
-/// get a far longer leash than [`SESSION_TIMEOUT`]'s connection-start waits
-/// — but they must still end: the rumors library deliberately imposes no
-/// deadline of its own (the caller owns the timeout), retire runs on the
-/// daemon's shutdown path, and a merge holds a drive, so a live-but-stalled
-/// peer would otherwise hang either forever. Two minutes clears a demo-sized
-/// tree by orders of magnitude while keeping a wedged shutdown observably
+/// get a far longer leash than [`SESSION_TIMEOUT`]'s connection-start waits,
+/// but they must still end: the rumors library deliberately imposes no
+/// deadline of its own (the caller owns the timeout), and a live-but-stalled
+/// peer would otherwise pin a merge's drive — or, for retirement, the
+/// daemon's shutdown path — forever. Two minutes clears a demo-sized tree
+/// by orders of magnitude while keeping a wedged shutdown observably
 /// finite. A retire cut off by this timeout is reported as
-/// `Departure::Uncertain` and never retried.
+/// [`Departure::Uncertain`](crate::net::Departure::Uncertain) and never
+/// retried.
 pub const RECONCILE_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// After a connection ends — failed dial, failed drive, or the peer's own

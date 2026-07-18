@@ -257,7 +257,6 @@ async fn network_merge_resets_the_loser() {
             remote_network,
             remote_min_events,
             local_min_events,
-            ..
         }) => (
             (local_min_events, handle_a.network()),
             (remote_min_events, remote_network),
@@ -269,7 +268,6 @@ async fn network_merge_resets_the_loser() {
             remote_network,
             remote_min_events,
             local_min_events,
-            ..
         }) => (
             (local_min_events, handle_b.network()),
             (remote_min_events, remote_network),

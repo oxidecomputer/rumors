@@ -1042,34 +1042,9 @@ each is deliberate and the code documents it in place:
   stream's observed end. Aliasing 256 sessions later requires either a
   transport that held a stream undelivered across 256 serialized sessions
   (contract violation) or a peer already inside the trust boundary, where
-  lying in-protocol is easier than epoch collision.
-- **Stream ends are double-checked.** After the explicit `End(Stream)`
-  control, the receiver requires transport end-of-stream; a peer that
-  keeps talking past its own end surfaces as `StreamError::AfterEnd`
-  rather than going unnoticed. Costs nothing against an honest peer (the
-  sender half-closes immediately after the control) and recovers the old
-  demux's frame-after-end detection, which §8.3's latitude had ceded.
-- **Stream-supply failures are deferred, not immediately fatal.** A peer
-  that completed its session cleanly has already delivered every stream
-  this side will claim, and may drop its link while this side finishes.
-  The accept driver therefore parks on transport-class failures (dropping
-  undelivered claim slots); a pump that provably needed one fails the
-  session with `StreamError::SupplyClosed`, carrying the deposited I/O
-  cause. Label/epoch/duplicate/unexpected violations remain immediate.
-- **Conformance shipped as a documented `conformance` cargo feature** on
-  the core crate (public module, panics-on-violation check functions plus
-  focused per-clause probes), validated against the in-memory link at
-  default and one-byte windows and under batched accept reordering. Two
-  real instantiations already exercise the seam: a per-stream TCP link in
-  the integration tests' inter-process disruption suite (one listener per
-  session side, ports swapped on the control stream — §8.4's
-  compatibility mapping minus the router), and rumormill's iroh/QUIC
-  binding (connection per link, streams one to one), which needed no
-  compatibility shims.
-- **Lazy establishment shipped from the start**, per the execution
-  decision: senders open on their first frame, receivers claim on their
-  first read, vacuous levels never touch the transport, and wire captures
-  are per-stream with empty-stream groups gone.
+  lying in-protocol is easier than epoch collision. The counter now rides
+  inside the link's `SessionState`, alongside the poison latch the next
+  bullet introduces.
 - **Session-boundary integrity is enforced twice, by two mechanisms that
   answer different questions.** The V2 *epilogue* — one marker byte each
   way on the control stream after all local session work — is
@@ -1084,21 +1059,48 @@ each is deliberate and the code documents it in place:
   "discard the link on `Err`" documentation into an enforced contract.
   Neither subsumes the other: the epilogue says nothing about a session
   that never ran to its own end (cancellation is invisible to the wire),
-  and poisoning says nothing about whether the *peer* committed (the
-  local latch clears on local success alone were there no epilogue).
+  and poisoning says nothing about whether the *peer* committed (absent
+  the epilogue, the local latch would clear on local success alone).
   Cheapest possible forms of each: one epilogue byte each way per session
   (two on the wire), two bytes of state on the link.
-- **The §8.9 llvm-lines freeze gate is satisfied.** Measured on the
-  branch: `cargo llvm-lines` on `--test pairwise` totals 2,040,751 lines,
-  unchanged from `design/height-erasure.md`'s 2.04M baseline. The
-  per-half erasure funnel (`Arc<dyn>` connector, borrowed `dyn` acceptor)
-  holds the monomorphization cap the trait freeze was gated on.
+- **Stream ends are double-checked.** After the explicit `End(Stream)`
+  control, the receiver requires transport end-of-stream; a peer that
+  keeps talking past its own end surfaces as `StreamError::AfterEnd`
+  rather than going unnoticed. Costs nothing against an honest peer (the
+  sender half-closes immediately after the control) and recovers the old
+  demux's frame-after-end detection, which §8.3's latitude had ceded.
+- **Stream-supply failures are deferred, not immediately fatal.** A peer
+  that completed its session cleanly has already delivered every stream
+  this side will claim, and may drop its link while this side finishes.
+  The accept driver therefore parks on transport-class failures (dropping
+  undelivered claim slots); a pump that provably needed one fails the
+  session with `StreamError::SupplyClosed`, carrying the deposited I/O
+  cause. Label/epoch/duplicate/unexpected violations remain immediate.
+- **Lazy establishment shipped from the start**, per the execution
+  decision: senders open on their first frame, receivers claim on their
+  first read, vacuous levels never touch the transport, and wire captures
+  are per-stream with empty-stream groups gone.
+- **Conformance shipped as a documented `conformance` cargo feature** on
+  the core crate (public module, panics-on-violation check functions plus
+  focused per-clause probes), validated against the in-memory link at
+  default and one-byte windows and under batched accept reordering. Two
+  real instantiations already exercise the seam: a per-stream TCP link in
+  the integration tests' inter-process disruption suite (one listener per
+  session side, ports swapped on the control stream — §8.4's
+  compatibility mapping minus the router), and rumormill's iroh/QUIC
+  binding (connection per link, streams one to one), which needed no
+  compatibility shims.
 - **The router never-block conformance test is deferred with the router
   helper itself.** §8.7's suite ships without it because the helper it
   would validate does not exist yet; the obligation travels with whichever
   sibling crate ships the first shared-connection router
   (`rumors-tcp`/`rumors-quic`), so the promise has a recorded owner
   rather than a silent gap.
+- **The §8.9 llvm-lines freeze gate is satisfied.** Measured on the
+  branch: `cargo llvm-lines` on `--test pairwise` totals 2,040,751 lines,
+  unchanged from `design/height-erasure.md`'s 2.04M baseline. The
+  per-half erasure funnel (`Arc<dyn>` connector, borrowed `dyn` acceptor)
+  holds the monomorphization cap the trait freeze was gated on.
 
 ## Appendix: the throwaway repros
 

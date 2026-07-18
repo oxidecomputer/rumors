@@ -653,7 +653,7 @@ fn serve_sync(
     // the responder attaches no `Rounds`.
     let mut link = responder_link(end, Arc::clone(&net.metrics.wire_bytes));
     // See `try_initiate`: a real application matches on the session error
-    // (poisoned / epilogue / mismatch) rather than panicking.
+    // instead of panicking.
     runtime
         .block_on(rumors.gossip(&mut link))
         .expect("responder gossip");
@@ -869,7 +869,7 @@ fn shrink(
     let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(net.duplex_capacity);
     let (retired, survived) = runtime
         .block_on(async { tokio::join!(retiree.retire(&mut b_link), rumors.gossip(&mut a_link)) });
-    // See `try_initiate` for how a real application handles a session error
+    // See `try_initiate`: a real application matches on the session error
     // instead of panicking.
     survived.expect("survivor gossip");
     assert!(
