@@ -431,19 +431,24 @@ proptest! {
 /// no more than [`reconcile_symmetric_accepts`]; the decorator's inversion
 /// genuinely firing is proven instead by the conformance suite's
 /// `ReversingAcceptor` tests, whose probes connect streams concurrently.
+///
 /// The final assertion is the tripwire keeping this caveat honest: if the
 /// topology ever admits a genuine inversion, it fails, and this doc's
-/// claims must be rewritten upward. Written against a manual
+/// claims must be rewritten upward. The test runs against a manual
 /// [`proptest::test_runner::TestRunner`] rather than the `proptest!` macro
-/// so that assertion can run once, after the cases. Runs at 48 cases: the
-/// wide generator plus the decorator's added accept latency make each case
-/// expensive, and the trigger geometry is pinned separately by the
-/// deterministic [`early_first_child_dispute_pair`] fixture.
+/// so that assertion can run once, after every case.
 #[test]
 fn wide_symmetric_accepts_reordered_match_local() {
+    /// Cases for this property, fewer than the default.
+    ///
+    /// The wide generator plus the decorator's added accept latency make
+    /// each case expensive, and the trigger geometry is pinned separately
+    /// by the deterministic [`early_first_child_dispute_pair`] fixture.
+    const CASES: u32 = 48;
+
     let reordered = Arc::new(AtomicUsize::new(0));
     let mut config = ProptestConfig {
-        cases: 48,
+        cases: CASES,
         ..ProptestConfig::default()
     };
     config.source_file = Some(file!());

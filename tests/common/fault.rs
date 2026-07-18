@@ -112,6 +112,24 @@ fn budget(cut: Option<usize>) -> Budget {
     Arc::new(Mutex::new(cut.unwrap_or(usize::MAX)))
 }
 
+/// The failure every write-direction surface reports once its budget is
+/// exhausted: writers and the connector fail identically.
+fn write_severed() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::BrokenPipe,
+        "fault injection: write budget exhausted",
+    )
+}
+
+/// The failure every read-direction surface reports once its budget is
+/// exhausted: readers and the acceptor fail identically.
+fn read_severed() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::ConnectionReset,
+        "fault injection: read budget exhausted",
+    )
+}
+
 /// A connector whose opened streams draw on the endpoint's write budget,
 /// and which itself fails once that budget is exhausted.
 pub struct FaultConnector<C> {
@@ -136,16 +154,10 @@ impl<C: Connector> Connector for FaultConnector<C> {
         // what lets a cut exercise `SendError::Connect` deterministically
         // instead of only through real-transport races.
         if *self.budget.lock().expect("write budget lock") == 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::BrokenPipe,
-                "fault injection: write budget exhausted",
-            ));
+            return Err(write_severed());
         }
         let tx = self.inner.connect().await?;
-        Ok(Fuse {
-            inner: tx,
-            remaining: self.budget.clone(),
-        })
+        Ok(Fuse::new(tx, self.budget.clone()))
     }
 }
 
@@ -164,16 +176,10 @@ impl<A: Acceptor> Acceptor for FaultAcceptor<A> {
         // reaches the session's deferred supply-failure path (the parked
         // accept driver) deterministically rather than only via races.
         if *self.budget.lock().expect("read budget lock") == 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::ConnectionReset,
-                "fault injection: read budget exhausted",
-            ));
+            return Err(read_severed());
         }
         let rx = self.inner.accept().await?;
-        Ok(Cut {
-            inner: rx,
-            remaining: self.budget.clone(),
-        })
+        Ok(Cut::new(rx, self.budget.clone()))
     }
 }
 
@@ -202,10 +208,7 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for Fuse<W> {
         let this = self.get_mut();
         let mut remaining = this.remaining.lock().expect("write budget lock");
         if *remaining == 0 {
-            return Poll::Ready(Err(io::Error::new(
-                io::ErrorKind::BrokenPipe,
-                "fault injection: write budget exhausted",
-            )));
+            return Poll::Ready(Err(write_severed()));
         }
         // Admit at most the remaining budget; the writer's retry of the
         // unwritten tail then trips the exhausted fuse above.
@@ -254,10 +257,7 @@ impl<R: AsyncRead + Unpin> AsyncRead for Cut<R> {
         let this = self.get_mut();
         let mut remaining = this.remaining.lock().expect("read budget lock");
         if *remaining == 0 {
-            return Poll::Ready(Err(io::Error::new(
-                io::ErrorKind::ConnectionReset,
-                "fault injection: read budget exhausted",
-            )));
+            return Poll::Ready(Err(read_severed()));
         }
         // Read through a budget-limited window over `buf`'s unfilled
         // region, then advance `buf` by however much actually arrived.

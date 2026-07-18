@@ -189,6 +189,62 @@ fn accept_driver_rejects_unclaimed_delivery() {
     .expect("unclaimed delivery rejection resolves");
 }
 
+/// Open a raw transport stream bearing `stream`'s label and hand back its
+/// frame writer.
+///
+/// The escape hatch for wire violations an honest [`StreamSender`] cannot
+/// express: the caller writes whatever frames the violation needs from the
+/// codec pieces directly.
+async fn raw_labeled(
+    connector: &crate::link::MemoryConnector,
+    stream: Stream,
+) -> FrameWrite<tokio::io::DuplexStream> {
+    let mut tx = connector.connect().await.expect("stream opens");
+    tx.write_all(&label(EPOCH, stream))
+        .await
+        .expect("label writes");
+    FrameWrite::new(Speaker::Initiator, tx)
+}
+
+/// Claim `stream`, drive the accept loop beside its receiver, and return
+/// the first error published to the session error route.
+///
+/// Consumes (and asserts) the `leading` frames first: the well-formed
+/// prefix a violation legitimately delivers before it is detected. Panics
+/// if the receiver yields anything further, or if the accept driver
+/// resolves at all — the violation tests pin errors that surface through
+/// the route, not at the label.
+async fn first_reported_error(
+    acceptor: &mut crate::link::MemoryAcceptor,
+    stream: Stream,
+    leading: &[Frame<Unit>],
+) -> StreamError {
+    let (slots, mut claims) = claims();
+    let (route, mut errors) = error_route();
+    let driver = AcceptDriver::new(acceptor, EPOCH, Speaker::Initiator, slots, route.clone());
+    let mut receiver: StreamReceiver<_, Unit> =
+        StreamReceiver::new(claims.take(stream), Speaker::Initiator, stream, route);
+    let observe = async {
+        for expected in leading {
+            assert_eq!(receiver.next().await.as_ref(), Some(expected));
+        }
+        tokio::select! {
+            biased;
+            frame = receiver.next() => {
+                panic!("the receiver yielded instead of reporting: {frame:?}")
+            }
+            error = errors.first() => error,
+        }
+    };
+    tokio::select! {
+        biased;
+        error = observe => error,
+        error = driver.run() => {
+            panic!("the accept driver resolved instead of the error route: {error:?}")
+        }
+    }
+}
+
 /// A frame whose signal byte names a different logical stream than its
 /// label is reported as `Mislabeled` carrying both indices, never yielded.
 ///
@@ -208,48 +264,14 @@ fn mislabeled_frame_is_reported_not_yielded() {
     let error = run_to_quiescence(async {
         let send = async {
             // A deliberately miswiring transport: the label names one
-            // stream, the frame's signal byte another. `StreamSender`
-            // cannot express this, so the bytes come from the codec pieces
-            // directly.
-            let mut tx = a.connector.connect().await.expect("stream opens");
-            tx.write_all(&label(EPOCH, labeled))
-                .await
-                .expect("label writes");
-            let mut write = FrameWrite::new(Speaker::Initiator, tx);
+            // stream, the frame's signal byte another.
+            let mut write = raw_labeled(&a.connector, labeled).await;
             write
                 .frame(&(framed, Frame::<Unit>::End(End::Reply)))
                 .await
                 .expect("the miswired frame writes");
         };
-        let receive = async {
-            let (slots, mut claims) = claims();
-            let (route, mut errors) = error_route();
-            let driver = AcceptDriver::new(
-                &mut b.acceptor,
-                EPOCH,
-                Speaker::Initiator,
-                slots,
-                route.clone(),
-            );
-            let mut receiver: StreamReceiver<_, Unit> =
-                StreamReceiver::new(claims.take(labeled), Speaker::Initiator, labeled, route);
-            let observe = async {
-                tokio::select! {
-                    biased;
-                    frame = receiver.next() => {
-                        panic!("the mislabeled frame was yielded: {frame:?}")
-                    }
-                    error = errors.first() => error,
-                }
-            };
-            tokio::select! {
-                biased;
-                error = observe => error,
-                error = driver.run() => {
-                    panic!("the correctly labeled stream was rejected: {error:?}")
-                }
-            }
-        };
+        let receive = first_reported_error(&mut b.acceptor, labeled, &[]);
         join(send, receive).await.1
     })
     .expect("mislabel detection resolves");
@@ -288,40 +310,12 @@ fn truncated_stream_is_reported_not_ended() {
             // with no end control ahead of it.
             drop(sender);
         };
-        let receive = async {
-            let (slots, mut claims) = claims();
-            let (route, mut errors) = error_route();
-            let driver = AcceptDriver::new(
-                &mut b.acceptor,
-                EPOCH,
-                Speaker::Initiator,
-                slots,
-                route.clone(),
-            );
-            let mut receiver: StreamReceiver<_, Unit> =
-                StreamReceiver::new(claims.take(stream), Speaker::Initiator, stream, route);
-            let observe = async {
-                // The complete frame ahead of the truncation still arrives.
-                assert_eq!(
-                    receiver.next().await,
-                    Some(Frame::Reaction(Reaction::Match, Flow::End)),
-                );
-                tokio::select! {
-                    biased;
-                    frame = receiver.next() => {
-                        panic!("a truncated stream yielded: {frame:?}")
-                    }
-                    error = errors.first() => error,
-                }
-            };
-            tokio::select! {
-                biased;
-                error = observe => error,
-                error = driver.run() => {
-                    panic!("the truncated stream was rejected at its label: {error:?}")
-                }
-            }
-        };
+        // The complete frame ahead of the truncation still arrives.
+        let receive = first_reported_error(
+            &mut b.acceptor,
+            stream,
+            &[Frame::Reaction(Reaction::Match, Flow::End)],
+        );
         join(send, receive).await.1
     })
     .expect("truncation detection resolves");
@@ -350,14 +344,9 @@ fn frames_after_the_end_control_are_reported() {
     let stream = Stream::new(5).expect("stream 5 exists");
     let error = run_to_quiescence(async {
         let send = async {
-            // Raw bytes: an honest `StreamSender` half-closes right after
-            // its end control, so the violation is built from the codec
-            // pieces directly.
-            let mut tx = a.connector.connect().await.expect("stream opens");
-            tx.write_all(&label(EPOCH, stream))
-                .await
-                .expect("label writes");
-            let mut write = FrameWrite::new(Speaker::Initiator, tx);
+            // An honest `StreamSender` half-closes right after its end
+            // control, so the frame beyond it comes from the raw writer.
+            let mut write = raw_labeled(&a.connector, stream).await;
             write
                 .frame(&(stream, Frame::<Unit>::End(End::Stream)))
                 .await
@@ -367,35 +356,7 @@ fn frames_after_the_end_control_are_reported() {
                 .await
                 .expect("the frame beyond the end writes");
         };
-        let receive = async {
-            let (slots, mut claims) = claims();
-            let (route, mut errors) = error_route();
-            let driver = AcceptDriver::new(
-                &mut b.acceptor,
-                EPOCH,
-                Speaker::Initiator,
-                slots,
-                route.clone(),
-            );
-            let mut receiver: StreamReceiver<_, Unit> =
-                StreamReceiver::new(claims.take(stream), Speaker::Initiator, stream, route);
-            let observe = async {
-                tokio::select! {
-                    biased;
-                    frame = receiver.next() => {
-                        panic!("a stream past its end yielded: {frame:?}")
-                    }
-                    error = errors.first() => error,
-                }
-            };
-            tokio::select! {
-                biased;
-                error = observe => error,
-                error = driver.run() => {
-                    panic!("the overlong stream was rejected at its label: {error:?}")
-                }
-            }
-        };
+        let receive = first_reported_error(&mut b.acceptor, stream, &[]);
         join(send, receive).await.1
     })
     .expect("after-end detection resolves");
@@ -421,12 +382,9 @@ fn accept_driver_rejects_duplicate_label() {
     run_to_quiescence(async {
         let send = async {
             for _ in 0..2 {
-                let mut tx = a.connector.connect().await.expect("stream opens");
-                tx.write_all(&label(EPOCH, stream))
-                    .await
-                    .expect("label writes");
-                // The label stays readable after the drop; nothing more is
-                // needed to reach the duplicate check.
+                // The label stays readable after the writer drops; nothing
+                // more is needed to reach the duplicate check.
+                drop(raw_labeled(&a.connector, stream).await);
             }
         };
         let receive = async {
@@ -503,33 +461,7 @@ fn supply_failure_reaches_the_awaiting_receiver() {
         // The peer link is gone before any stream arrives, so the very
         // first accept observes the supply failure.
         drop(a);
-        let (slots, mut claims) = claims();
-        let (route, mut errors) = error_route();
-        let driver = AcceptDriver::new(
-            &mut b.acceptor,
-            EPOCH,
-            Speaker::Initiator,
-            slots,
-            route.clone(),
-        );
-        let mut receiver: StreamReceiver<_, Unit> =
-            StreamReceiver::new(claims.take(stream), Speaker::Initiator, stream, route);
-        let observe = async {
-            tokio::select! {
-                biased;
-                frame = receiver.next() => {
-                    panic!("no stream could have arrived: {frame:?}")
-                }
-                error = errors.first() => error,
-            }
-        };
-        tokio::select! {
-            biased;
-            error = observe => error,
-            error = driver.run() => {
-                panic!("a supply failure is not a peer violation: {error:?}")
-            }
-        }
+        first_reported_error(&mut b.acceptor, stream, &[]).await
     })
     .expect("deferred supply failure resolves");
     match error {

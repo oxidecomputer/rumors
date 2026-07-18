@@ -708,6 +708,11 @@ impl<A: crate::link::Acceptor> crate::link::Acceptor for ReorderingAcceptor<A> {
 
 /// Yield to the executor exactly once: `Pending` with an immediate
 /// self-wake.
+///
+/// Runtime-agnostic (the deterministic driver is no runtime at all), unlike
+/// `tokio::task::yield_now`; a copy of `conformance`'s helper, on the same
+/// feature seam that keeps [`ReorderingAcceptor`] separate from its
+/// `ReversingAcceptor` sibling.
 async fn yield_once() {
     let mut yielded = false;
     std::future::poll_fn(|cx| {
