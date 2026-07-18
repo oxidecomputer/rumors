@@ -4,9 +4,9 @@
 //! flushed. Publishing them any earlier could block the encoder before the
 //! reply end reaches the remote peer which must answer them.
 
-use std::pin::pin;
+use std::pin::{Pin, pin};
 
-use futures::StreamExt;
+use futures::{Stream, StreamExt};
 
 use crate::link::Connector;
 use crate::tree::{
@@ -41,8 +41,12 @@ where
     C: Connector,
 {
     let mut requests = pin!(requests);
-    while let Some(request) = requests.next().await {
-        let scope = scopes.recv().await.ok_or(Error::UnaskedLocalReply)?;
+    // Scope-first pairing: dequeuing the scope before awaiting the local
+    // reply frees its channel slot one reply earlier, so a K-slot edge
+    // admits K truly in-flight scopes (the walk's stage loops make the
+    // same choice; see the materialized module docs).
+    while let Some(scope) = scopes.recv().await {
+        let request = requests.next().await.ok_or(Error::UnansweredRemoteQuery)?;
         let mut encoded = adapter::encode_leaf_reply(backend.clone(), scope, request);
         let batch = write_reply(&mut outgoing, &mut encoded).await?;
         progress.wire_reply::<Z>(batch.len());
@@ -52,7 +56,7 @@ where
             return Err(Error::TerminalQuery);
         }
     }
-    finish(scopes, outgoing).await
+    finish(requests, outgoing).await
 }
 
 /// Encode non-leaf replies and publish each complete question batch.
@@ -73,14 +77,14 @@ where
     S<S<H>>: Height,
 {
     let mut requests = pin!(requests);
-    while let Some(request) = requests.next().await {
-        let scope = scopes.recv().await.ok_or(Error::UnaskedLocalReply)?;
+    while let Some(scope) = scopes.recv().await {
+        let request = requests.next().await.ok_or(Error::UnansweredRemoteQuery)?;
         let mut encoded = encode_reply(backend.clone(), scope, request);
         let batch = write_reply(&mut outgoing, &mut encoded).await?;
         progress.wire_reply::<H>(batch.len());
         publish::<_, H>(&questions, batch, progress).await;
     }
-    finish(scopes, outgoing).await
+    finish(requests, outgoing).await
 }
 
 /// Encode and close the local initiator's distinguished opening stream.
@@ -136,18 +140,17 @@ async fn publish<Q, H: Height>(questions: &Sender<Q>, batch: Vec<Q>, progress: P
     }
 }
 
-/// Reject unanswered scopes, then close the outgoing logical stream.
-async fn finish<T, C, H, E>(
-    mut scopes: Receiver<Scope<H>>,
+/// Reject unclaimed local replies, then close the outgoing logical stream.
+async fn finish<T, C, R, E>(
+    mut requests: Pin<&mut R>,
     outgoing: StreamSender<C, T>,
 ) -> Result<(), Error<E>>
 where
     C: Connector,
-    H: Height,
-    S<H>: Height,
+    R: Stream + ?Sized,
 {
-    if scopes.recv().await.is_some() {
-        return Err(Error::UnansweredRemoteQuery);
+    if requests.next().await.is_some() {
+        return Err(Error::UnaskedLocalReply);
     }
     outgoing.finish().await?;
     Ok(())

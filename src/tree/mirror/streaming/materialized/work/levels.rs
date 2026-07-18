@@ -179,9 +179,9 @@ where
 
         let responses = try_stream! {
             let mut requests = pin!(requests);
-            while let Some(Reply { replies }) = requests.next().await {
-                let Some(query) = queries.recv().await else {
-                    return violation(Violation::UnaskedReply)?;
+            while let Some(query) = queries.recv().await {
+                let Some(Reply { replies }) = requests.next().await else {
+                    return violation(Violation::UnansweredQuery)?;
                 };
 
                 let mut resolver = Resolver::new(query);
@@ -237,8 +237,8 @@ where
                 }
             }
 
-            if queries.recv().await.is_some() {
-                return violation(Violation::UnansweredQuery)?;
+            if requests.next().await.is_some() {
+                return violation(Violation::UnaskedReply)?;
             }
         };
 
@@ -269,9 +269,9 @@ where
 
         let responses = try_stream! {
             let mut requests = pin!(requests);
-            while let Some(Reply { replies }) = requests.next().await {
-                let Some(query) = queries.recv().await else {
-                    return violation(Violation::UnaskedReply)?;
+            while let Some(query) = queries.recv().await {
+                let Some(Reply { replies }) = requests.next().await else {
+                    return violation(Violation::UnansweredQuery)?;
                 };
 
                 let mut resolver = Resolver::new(query);
@@ -321,8 +321,8 @@ where
                 }
             }
 
-            if queries.recv().await.is_some() {
-                return violation(Violation::UnansweredQuery)?;
+            if requests.next().await.is_some() {
+                return violation(Violation::UnaskedReply)?;
             }
         };
 
@@ -345,9 +345,9 @@ where
 
         let responses = try_stream! {
             let mut requests = pin!(requests);
-            while let Some(Reply { replies }) = requests.next().await {
-                let Some(query) = queries.recv().await else {
-                    return violation(Violation::UnaskedReply)?;
+            while let Some(query) = queries.recv().await {
+                let Some(Reply { replies }) = requests.next().await else {
+                    return violation(Violation::UnansweredQuery)?;
                 };
 
                 let mut resolver = Resolver::new(query);
@@ -373,8 +373,8 @@ where
                 }
             }
 
-            if queries.recv().await.is_some() {
-                return violation(Violation::UnansweredQuery)?;
+            if requests.next().await.is_some() {
+                return violation(Violation::UnaskedReply)?;
             }
         };
 

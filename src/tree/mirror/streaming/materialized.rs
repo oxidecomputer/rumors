@@ -27,6 +27,12 @@
 //! order. Completeness travels *inside* message and item boundaries, never in
 //! their absence.
 //!
+//! Within one pairing loop, the query is dequeued *before* its wire reply is
+//! awaited. Either order pairs the same k-th items — the argument above is
+//! indifferent — but query-first frees the queue slot one wire round trip
+//! earlier, so a K-slot edge admits K truly in-flight scopes rather than
+//! K − 1 (`design/streaming-latency-serialization.md` §5, rider (b)).
+//!
 //! The first progress-critical ordering invariant is **wire before internal
 //! publication**. The walk yields every outgoing query or reply before
 //! enqueuing or recording its in-process twin. Backpressure on internal state
@@ -568,8 +574,8 @@ where
     }
 }
 
-/// The initiator's terminal loop: pair each final [`Reply`] with the next
-/// pending leaf request and pass its provision up, prefix-less, like every
+/// The initiator's terminal loop: pair each pending leaf request with its
+/// final [`Reply`] and pass its provision up, prefix-less, like every
 /// return.
 async fn absorb<B, T>(
     requests: impl Requests<B, T, Z>,
@@ -581,9 +587,9 @@ where
     T: Send + Sync + 'static,
 {
     let mut requests = pin!(requests);
-    while let Some(Reply { replies }) = requests.next().await {
-        let Some(prefix) = queries.recv().await else {
-            return violation(Violation::UnaskedReply);
+    while let Some(prefix) = queries.recv().await {
+        let Some(Reply { replies }) = requests.next().await else {
+            return violation(Violation::UnansweredQuery);
         };
 
         // The last radix of the prefix is the one we expect should be supplied.
@@ -603,10 +609,10 @@ where
         }
     }
 
-    // If there are more queries, something is wrong: we should have exhausted
-    // all our queries in processing all the replies.
-    if queries.recv().await.is_some() {
-        return violation(Violation::UnansweredQuery);
+    // If there are more replies, something is wrong: every reply should have
+    // been claimed by one of the now-exhausted queries.
+    if requests.next().await.is_some() {
+        return violation(Violation::UnaskedReply);
     }
 
     Ok(())
