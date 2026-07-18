@@ -25,10 +25,12 @@
 //!   expected-balanced with no adversarial input shape; depth bounds are
 //!   real bounds.
 //!
-//! Single-child spines are path-compressed away, and the branch hash rule
-//! is compression-invariant by construction (a one-child level hashes the
-//! same whether materialized or compressed; see
-//! [`Hash::branch`](typed::Hash::branch)).
+//! Single-child spines are path-compressed away, and each node's hash is a
+//! single preimage committing its compressed prefix and children together
+//! (see [`Hash::branch`](typed::Hash::branch)). Hash agreement across
+//! peers therefore rests on the tree's *canonical shape*: equal content
+//! yields equal compression, by the same ≥ 2-children maximal-compression
+//! invariant the node serializer relies on.
 //!
 //! # Memos and sharing
 //!

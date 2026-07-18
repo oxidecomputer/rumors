@@ -485,7 +485,7 @@ impl<T> Leaf<T> {
     ///
     /// The walk yields the leaf as stored, which usually carries the
     /// compressed spine above it; a height-zero view must shed that prefix
-    /// (its hash is `Hash::leaf()`, not the spine wrap). The stored handle
+    /// (its hash commits an empty suffix, not the stored spine). The stored handle
     /// is reused when it is already bare; otherwise a fresh prefix-free
     /// leaf is built around the same message handle.
     pub(crate) fn into_node(self) -> Node<T> {

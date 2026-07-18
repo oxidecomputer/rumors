@@ -78,8 +78,8 @@ fn leaves_local<H: Convert>(prefix: Prefix<H>, node: typed::Node<(), H>) -> Leaf
         .unwrap_or_else(|error| match error {})
 }
 
-/// The observable content of a leaf run: full path plus version (leaf
-/// *hashes* are the constant `Hash::leaf()` — content is committed by
+/// The observable content of a leaf run: full path plus version (bare leaf
+/// *hashes* commit nothing but their empty suffix — content is committed by
 /// path — so equality must compare versions, not hashes).
 fn content(run: &LeafRun) -> Vec<(Prefix<Z>, Version)> {
     run.iter()

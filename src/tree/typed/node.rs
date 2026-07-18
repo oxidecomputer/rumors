@@ -222,11 +222,12 @@ impl<T, H: Height> Node<T, H> {
     /// of a freshly-built subtree costs `O(nodes)` and every read thereafter is
     /// an `O(1)` field load.
     ///
-    /// The hashing convention (see [`Hash::branch`] and [`Hash::leaf`]): a leaf
-    /// hashes to `blake3(LEAF_TAG)`; a branch to `blake3(BRANCH_TAG ‖ r₀ ‖ h₀ ‖
-    /// …)` over its children in ascending radix order. Hashing does not depend
-    /// on path compression: a one-child branch and a node path-compressed by
-    /// one byte produce identical hashes.
+    /// The hashing convention (see [`Hash::leaf`] and [`Hash::branch`]): one
+    /// preimage per node, committing its kind, its compressed prefix in path
+    /// order, and, for a branch, its children as ascending `radix ‖ hash`
+    /// records. Equal content yields equal hashes because equal content
+    /// yields equal canonical shape; see [`Hash::branch`]'s canonicity
+    /// section.
     pub fn hash(&self) -> Hash {
         self.inner.hash()
     }
@@ -395,8 +396,9 @@ impl<T> Node<T, height::Root> {
 
     /// The observable hash of a possibly-absent root.
     pub fn root_hash(node: &Option<Root<T>>) -> Hash {
-        // An absent root is the empty tree, which hashes as a branch with no
-        // children (`blake3(BRANCH_TAG)`), not as the all-zero default.
+        // An absent root is the empty tree, which hashes as a prefixless
+        // branch with no children (`blake3(BRANCH_TAG ‖ 0 ‖ 0u16)`), not as
+        // the all-zero default.
         node.as_ref()
             .map(|n| n.hash())
             .unwrap_or_else(Hash::empty_root)

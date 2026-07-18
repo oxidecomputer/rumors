@@ -36,11 +36,11 @@ version frame: 6 bytes
   0000: 00 00 00 02 b4 c0
 Initiator stream 0 (height 31), epoch 0
   frame 0: Query(End)
-    0000: 55 01 b8 e2 69 03 f3 86
-    0008: d2 6a 4e 81 67 00 95 f9
-    0010: ea 34 75 ff f9 a9 37 b6
-    0018: bf a2 ab e2 32 9c ca cd
-    0020: d9 9f 99 8a
+    0000: 55 01 b8 8e 2c 08 13 c9
+    0008: ef 33 e2 13 aa cb dd cb
+    0010: b0 de 1f ff 12 da 2a e7
+    0018: d8 b7 34 9d 34 91 17 27
+    0020: d9 0c 1b ed
   frame 1: End(Stream)
     0000: 99
 Initiator stream 1 (height 30), epoch 0

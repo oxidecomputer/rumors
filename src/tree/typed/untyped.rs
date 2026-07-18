@@ -4,6 +4,7 @@ use std::sync::{Arc, OnceLock};
 
 use borsh::BorshSerialize;
 use imbl::OrdMap;
+use tinyvec::ArrayVec;
 
 use crate::{Version, message::Message, tree::typed::Hash};
 
@@ -33,21 +34,21 @@ struct NodeInner<T> {
     /// deepest byte at index 0 and the shallowest byte at the last index. An
     /// empty prefix means the node is not path-compressed above its level.
     ///
-    /// Only the path bytes are stored: every level's hash is recoverable by
-    /// wrapping the children's hash up through these bytes (see
-    /// [`Node::hash`]), and the cheap commitment makes that
-    /// recomputation negligible.
+    /// Only the path bytes are stored: the node's hash commits them as one
+    /// length-tagged field of its single preimage (see [`Node::hash`]), and
+    /// any virtual level's hash is recoverable by re-hashing with a
+    /// shortened prefix — one fresh preimage, not a per-byte refold.
     prefix: Vec<u8>,
     /// The node's observable hash (the hash of the subtree as seen from the top
     /// of its compressed prefix), computed lazily on first read and memoized.
     ///
     /// Unlike the ceiling/floor memos, this lives on `NodeInner` rather than
     /// inside [`Children::Branch`] so a path-compressed leaf memoizes its hash
-    /// too: a deep single-leaf spine costs the wrap only once. The memo is a
-    /// pure function of the subtree, so it is safe to share across the
-    /// structurally-shared (copy-on-write) clones a forked tree produces. It
-    /// folds in the compressed prefix, so any mutation of `prefix` *or*
-    /// `children` invalidates it and must reset this cell.
+    /// too: a deep single-leaf spine costs its preimage only once. The memo is
+    /// a pure function of the subtree, so it is safe to share across the
+    /// structurally-shared (copy-on-write) clones a forked tree produces. The
+    /// preimage commits the compressed prefix, so any mutation of `prefix`
+    /// *or* `children` invalidates it and must reset this cell.
     hash: OnceLock<Hash>,
     /// The children of this node: either a leaf, or a branch point.
     children: Children<T>,
@@ -344,36 +345,32 @@ impl<T> Node<T> {
         Arc::ptr_eq(&self.inner, &other.inner)
     }
 
-    /// Hash the subtree rooted at this node.
+    /// Hash the subtree rooted at this node, as observed from the top of its
+    /// compressed prefix.
     ///
     /// The hash is computed lazily on first call and memoized, so the first
-    /// read of a freshly-built subtree is `O(nodes)` and every read thereafter
-    /// is an `O(1)` field load. The convention (see [`Hash::branch`] and
-    /// [`Hash::leaf`]): a leaf hashes to `blake3(LEAF_TAG)`; a branch to
-    /// `blake3(BRANCH_TAG ‖ r₀ ‖ h₀ ‖ …)` over its children in ascending radix
-    /// order. Hashing does not depend on path compression: a one-child branch
-    /// and a node path-compressed by one byte produce identical hashes.
+    /// read of a freshly-built subtree is `O(nodes)` — one preimage and one
+    /// BLAKE3 pass per node — and every read thereafter is an `O(1)` field
+    /// load. The convention (see [`Hash::leaf`] and [`Hash::branch`]): a
+    /// single preimage commits the node's kind, its compressed prefix in
+    /// path order, and, for a branch, its children as ascending
+    /// `radix ‖ hash` records. Hash agreement between differently-built
+    /// trees rests on the tree's canonical shape; see [`Hash::branch`]'s
+    /// canonicity section.
     pub fn hash(&self) -> Hash {
         *self.inner.hash.get_or_init(|| {
-            // Start from the node's base hash at its own level: the `Hash::leaf()`
-            // constant for a leaf, or the branch commitment over the children's
-            // hashes for a branch.
-            let mut hash = match &self.inner.children {
-                Children::Leaf { .. } => Hash::leaf(),
-                Children::Branch { children, .. } => {
-                    Hash::branch(children.iter().map(|(radix, child)| (*radix, child.hash())))
-                }
-            };
-            // Wrap that base up through the compressed prefix one byte at a
-            // time, deepest byte first. `prefix[0]` is the deepest level
-            // (closest to the children), so folding front-to-back wraps from the
-            // bottom up to the observable top. A single-child wrap and a
-            // materialized one-child branch share this rule, so the result is
-            // independent of how the path is compressed.
-            for &byte in &self.inner.prefix {
-                hash = Hash::branch([(byte, hash)]);
+            // The preimage takes the prefix in path order — shallowest byte
+            // first — while storage is shallowest-last, so reverse into a
+            // stack buffer (a compressed span never exceeds the 32-byte
+            // path).
+            let prefix: ArrayVec<[u8; 32]> = self.inner.prefix.iter().rev().copied().collect();
+            match &self.inner.children {
+                Children::Leaf { .. } => Hash::leaf(&prefix),
+                Children::Branch { children, .. } => Hash::branch(
+                    &prefix,
+                    children.iter().map(|(radix, child)| (*radix, child.hash())),
+                ),
             }
-            hash
         })
     }
 

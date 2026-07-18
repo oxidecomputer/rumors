@@ -3,7 +3,7 @@ use std::collections::{BTreeSet, HashMap};
 use bytes::Bytes;
 use proptest::prelude::*;
 
-use super::typed::{Hash, Path, hash::Hasher};
+use super::typed::{Hash, Path, hash::Hasher, untyped};
 use super::*;
 use crate::message::Message;
 
@@ -112,38 +112,66 @@ fn insert_at(
     (leaf_path(party, scalar, &value), version, msg(value))
 }
 
-/// Compute the root hash of the fully-expanded (un-path-compressed) 256-ary
-/// trie over the given set of values, recomputed independently of the
-/// implementation as a ground truth.
+/// Compute the root hash of the canonical maximally-compressed trie over the
+/// given set of values, recomputed independently of the implementation as a
+/// ground truth.
 ///
-/// A leaf hashes to `blake3(LEAF_TAG)`; at
-/// each level above, a branch hashes `blake3(BRANCH_TAG ‖ r₀ ‖ h₀ ‖ …)` over
-/// its *present* children in ascending radix order (absent slots are omitted,
-/// not zero-filled), each hash truncated to its leading
+/// The canonical shape is derived directly from the sorted leaf-path set: a
+/// lone path below `depth` is a leaf committing its remaining suffix, and
+/// otherwise the run's shared span up to its first divergence byte is the
+/// branch's compressed prefix, with one child recursing per divergence
+/// radix — so every branch has >= 2 children and maximal prefixes by
+/// construction. Preimages are assembled with literal tag bytes,
+/// `LEAF_TAG ‖ len ‖ suffix` and
+/// `BRANCH_TAG ‖ len ‖ prefix ‖ count(u16 BE) ‖ (radix ‖ hash)*`, each hash
+/// truncated to its leading
 /// [`MERKLE_HASH_LEN`](crate::tree::typed::hash::MERKLE_HASH_LEN) bytes. The
-/// empty tree is the branch with no children. The compressed tree's root hash
-/// must match this regardless of how it compresses.
+/// empty tree is the prefixless branch with no children. The tree's root
+/// hash must match this however its content arrived.
 fn reference_hash(values: &[(Version, Bytes)]) -> Hash {
     const LEAF_TAG: u8 = 0;
     const BRANCH_TAG: u8 = 1;
 
-    let leaf_hash = || -> Hash {
-        let mut hasher = Hasher::new();
-        hasher.update(&[LEAF_TAG]);
-        hasher.finalize().truncate()
-    };
+    fn hash_at(depth: usize, paths: &[[u8; 32]]) -> Hash {
+        if let [path] = paths {
+            let mut hasher = Hasher::new();
+            hasher.update(&[LEAF_TAG, (32 - depth) as u8]);
+            hasher.update(&path[depth..]);
+            return hasher.finalize().truncate();
+        }
 
-    let hash_branch = |children: &HashMap<u8, Hash>| -> Hash {
-        let mut entries: Vec<(u8, Hash)> = children.iter().map(|(k, v)| (*k, *v)).collect();
-        entries.sort_by_key(|(radix, _)| *radix);
+        // Two or more distinct sorted paths diverge at the first byte where
+        // the least and greatest differ; the span from `depth` up to that
+        // byte is the branch's compressed prefix.
+        let first = paths.first().expect("a run is non-empty");
+        let last = paths.last().expect("a run is non-empty");
+        let branch_at = (depth..32)
+            .find(|&at| first[at] != last[at])
+            .expect("distinct 32-byte paths diverge before the bottom");
+
+        let mut records: Vec<(u8, Hash)> = Vec::new();
+        let mut rest = paths;
+        while let Some(radix) = rest.first().map(|path| path[branch_at]) {
+            let split = rest
+                .iter()
+                .position(|path| path[branch_at] != radix)
+                .unwrap_or(rest.len());
+            let (group, tail) = rest.split_at(split);
+            records.push((radix, hash_at(branch_at + 1, group)));
+            rest = tail;
+        }
+
         let mut hasher = Hasher::new();
-        hasher.update(&[BRANCH_TAG]);
-        for (radix, h) in entries {
+        hasher.update(&[BRANCH_TAG, (branch_at - depth) as u8]);
+        hasher.update(&first[depth..branch_at]);
+        let count = u16::try_from(records.len()).expect("fan-out is at most 256");
+        hasher.update(&count.to_be_bytes());
+        for (radix, hash) in records {
             hasher.update(&[radix]);
-            hasher.update(h.as_bytes());
+            hasher.update(hash.as_bytes());
         }
         hasher.finalize().truncate()
-    };
+    }
 
     // Level 32 (the value level): every distinct path maps to a leaf. The tree
     // hashes over the serialized `Message` bytes, not the raw inner value, so
@@ -153,38 +181,22 @@ fn reference_hash(values: &[(Version, Bytes)]) -> Hash {
         .map(|(version, value)| Path::for_leaf(version, msg(value.clone()).bytes()).into())
         .collect();
 
-    // The empty tree is a branch with no children.
     if paths.is_empty() {
-        return hash_branch(&HashMap::new());
+        // The empty tree: a prefixless branch with no children.
+        let mut hasher = Hasher::new();
+        hasher.update(&[BRANCH_TAG, 0, 0, 0]);
+        return hasher.finalize().truncate();
     }
 
-    let mut current: HashMap<Vec<u8>, Hash> = paths
+    let paths: Vec<[u8; 32]> = paths
         .into_iter()
-        .map(|p| (<[u8; 32]>::from(typed::Path::from(p)).to_vec(), leaf_hash()))
+        .map(|p| <[u8; 32]>::from(typed::Path::from(p)))
         .collect();
-
-    // Fold upward one level at a time: group entries by the prefix they share
-    // at the next-shallower depth, then hash each group as a 256-way branch.
-    for level in (0..32).rev() {
-        let mut groups: HashMap<Vec<u8>, HashMap<u8, Hash>> = HashMap::new();
-        for (prefix, hash) in current {
-            let new_prefix = prefix[..level].to_vec();
-            let byte = prefix[level];
-            groups.entry(new_prefix).or_default().insert(byte, hash);
-        }
-        current = groups
-            .into_iter()
-            .map(|(prefix, children)| (prefix, hash_branch(&children)))
-            .collect();
-    }
-
-    *current
-        .get(&Vec::<u8>::new())
-        .expect("exactly one root entry")
+    hash_at(0, &paths)
 }
 
-/// An empty tree's root hash must match the reference: the branch with no
-/// children, `blake3(BRANCH_TAG)`.
+/// An empty tree's root hash must match the reference: the prefixless branch
+/// with no children, `blake3(BRANCH_TAG ‖ 0 ‖ 0u16)`.
 #[test]
 fn empty_tree_hash_matches_reference() {
     let tree: Tree<Bytes> = Tree::new();
@@ -193,9 +205,9 @@ fn empty_tree_hash_matches_reference() {
     assert_eq!(&tree_hash, reference.as_bytes());
 }
 
-/// A single inserted value must hash identically to the uncompressed trie
-/// containing just that value. This exercises Leaf::hash path compression
-/// with a maximal 31-byte leaf prefix.
+/// A single inserted value must hash identically to the reference leaf whose
+/// suffix is its entire 32-byte path — the maximal compressed span, pinned
+/// so the length-tagged suffix commitment covers its extreme.
 #[test]
 fn single_value_hash_matches_reference() {
     let value = Bytes::from(&b"hello"[..]);
@@ -207,13 +219,15 @@ fn single_value_hash_matches_reference() {
 }
 
 proptest! {
-    /// The compressed tree's root hash must equal the hash computed over the
-    /// fully-expanded uncompressed trie, for any sequence of inserted values.
+    /// The tree's root hash must equal the reference hash derived
+    /// independently from the leaf-path set alone, for any sequence of
+    /// inserted values.
     ///
-    /// This is the ground-truth invariant for path compression: the hash
-    /// depends on the set of leaves, not on how the tree chooses to compress
-    /// them. Each insert in the batch claims a fresh scalar version, so the
-    /// reference input must mirror that per-insert numbering.
+    /// This is the ground-truth invariant for hashing: the hash is a pure
+    /// function of the set of leaves, reachable only through the canonical
+    /// compressed shape the reference re-derives from scratch. Each insert
+    /// in the batch claims a fresh scalar version, so the reference input
+    /// must mirror that per-insert numbering.
     #[test]
     fn compressed_hash_matches_reference(
         values in proptest::collection::vec(any::<Vec<u8>>(), 0..16)
@@ -228,6 +242,113 @@ proptest! {
             .collect();
         let reference = reference_hash(&reference_input);
         prop_assert_eq!(&tree.hash(), reference.as_bytes());
+    }
+
+    /// Canonicity: the tree's shape is a pure function of its live leaf set.
+    ///
+    /// The same final leaf set — reached by different insertion orders,
+    /// different react-batch partitionings, a join of two disjoint halves,
+    /// and a detour through extra leaves that are then redacted — must
+    /// produce byte-identical serialized root nodes (the serialization *is*
+    /// the structure: maximal prefixes, >= 2-child branches) and equal root
+    /// hashes, all matching the canonical bulk construction over the sorted
+    /// leaf set. The single-preimage hash rule commits the compressed shape
+    /// directly, so cross-peer hash agreement rests on exactly this
+    /// invariant (see `design/node-hash-preimage.md`, "Why it stays
+    /// correct").
+    ///
+    /// Every leaf rides its own disjoint party, so all versions are pairwise
+    /// concurrent: no reordering across react batches or join sides can
+    /// trip deletion honoring (a leaf whose version the tree already
+    /// dominates would be pruned as forgotten — real CRDT semantics, but
+    /// not the property under test here).
+    #[test]
+    fn tree_shape_is_canonical_in_the_leaf_set(
+        (kept, shuffled) in distinct_bytes_and_permutation(10),
+        extras in distinct_bytes(4),
+        split in any::<prop::sample::Index>(),
+    ) {
+        // One tick of the leaf's own disjoint party; kept leaf indices come
+        // from base order, extras continue the numbering beyond them.
+        let event = |index: usize, b: &Bytes| -> (Key, Version, Message<Bytes>) {
+            let mut version = Version::new();
+            version.tick(&crate::tree::arb::nth_party(index));
+            let message = msg(b.clone());
+            let key = Path::for_leaf(&version, message.bytes()).into();
+            (key, version, message)
+        };
+        let index_of: HashMap<Bytes, usize> = kept
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(i, b)| (b, i))
+            .collect();
+        let versioned = |b: &Bytes| event(index_of[b], b);
+        let cut = split.index(kept.len() + 1);
+
+        // Route A: one react batch, base order.
+        let mut direct = Tree::new();
+        direct.react(kept.iter().map(versioned));
+
+        // Route B: shuffled order, split into two batches, with the extra
+        // leaves inserted in between and redacted again afterwards.
+        let extra_events: Vec<(Key, Version, Message<Bytes>)> = extras
+            .iter()
+            .enumerate()
+            .map(|(i, b)| event(kept.len() + i, b))
+            .collect();
+        let mut detoured = Tree::new();
+        detoured.react(shuffled[..cut].iter().map(versioned));
+        detoured.react(extra_events.iter().map(|(k, v, m)| (*k, v.clone(), m.clone())));
+        detoured.react(shuffled[cut..].iter().map(versioned));
+        detoured.act(
+            &party_of("P"),
+            extra_events.iter().rev().map(|(k, _, _)| Action::Forget(*k)),
+        );
+
+        // Route C: two disjoint halves, merged in memory.
+        let mut joined = Tree::new();
+        joined.react(kept[..cut].iter().map(versioned));
+        let mut right = Tree::new();
+        right.react(kept[cut..].iter().map(versioned));
+        joined.join(right);
+
+        let serialize = |tree: &Tree<Bytes>| -> Option<Vec<u8>> {
+            tree.root
+                .root
+                .as_ref()
+                .map(|node| borsh::to_vec(node).expect("node serializes"))
+        };
+        let expected = serialize(&direct);
+        prop_assert_eq!(&serialize(&detoured), &expected);
+        prop_assert_eq!(&serialize(&joined), &expected);
+        prop_assert_eq!(detoured.hash(), direct.hash());
+        prop_assert_eq!(joined.hash(), direct.hash());
+
+        // The canonical bulk construction over the sorted live leaf set.
+        let mut entries: Vec<([u8; 32], Option<untyped::Node<Bytes>>)> = direct
+            .iter()
+            .map(|(key, version, value)| {
+                (
+                    key.0,
+                    Some(untyped::Node::leaf(
+                        version.clone(),
+                        Message::new((**value).clone()),
+                    )),
+                )
+            })
+            .collect();
+        let canonical =
+            (!entries.is_empty()).then(|| untyped::Node::from_sorted_leaves(0, &mut entries));
+        let canonical_bytes = canonical.as_ref().map(|node| {
+            let mut buf = Vec::new();
+            node.serialize_to(&mut buf).expect("node serializes");
+            buf
+        });
+        prop_assert_eq!(&canonical_bytes, &expected);
+        if let Some(node) = canonical {
+            prop_assert_eq!(*node.hash().as_bytes(), direct.hash());
+        }
     }
 
     /// A list of versioned actions applied through `react` must produce the

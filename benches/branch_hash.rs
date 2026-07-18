@@ -1,24 +1,27 @@
 //! Scratch microbenchmark: how should `Hash::branch` feed Blake3?
 //!
-//! The branch preimage is `BRANCH_TAG ‖ (radix ‖ 16-byte child hash)*` — each
-//! child is a 17-byte record, so several records share one of Blake3's
-//! 64-byte blocks.
+//! The children's contribution to a branch preimage is
+//! `(radix ‖ 16-byte child hash)*` — each child a 17-byte record, so several
+//! records share one of Blake3's 64-byte blocks. (The shipped preimage now
+//! also leads with a length-tagged prefix and a `u16` child count; those few
+//! extra bytes don't change the feeding-strategy question measured here.)
 //! The original implementation streamed two `update` calls per child (the radix
-//! byte alone, then the 32-byte hash); this bench asked whether assembling a
+//! byte alone, then the hash); this bench asked whether assembling a
 //! contiguous buffer first is faster, across realistic fan-outs — it is, and
-//! the shipped `Hash::branch` now uses the contiguous one-shot form.
+//! the shipped `Hash::branch` uses the contiguous one-shot form.
 //!
 //! Strategies:
 //!   - `stream2`: the original — `update(&[radix]); update(&hash)` per child.
 //!   - `stream1`: one `update` per child of a 17-byte stack record.
 //!   - `buffer_oneshot`: fill a reused contiguous buffer, then `blake3::hash`
-//!     (what `Hash::branch` ships today).
+//!     (the form `Hash::branch` ships today).
 //!
 //! `buffer_oneshot` is the only one that hands Blake3 a single contiguous slice,
 //! which is what lets its SIMD path compress multiple blocks at once. The
 //! question is whether that beats the per-call overhead + buffer fill at the
-//! fan-outs the tree actually produces (1 for compressed singletons, up to 256
-//! for a saturated branch).
+//! fan-outs the tree produces (up to 256 for a saturated branch; fan-out 1
+//! is kept from the era when the per-byte spine wrap hashed one-child
+//! levels, now unrepresentable).
 
 use std::hint::black_box;
 
