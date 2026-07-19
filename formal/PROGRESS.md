@@ -1593,3 +1593,32 @@ For the narrative doc (#20): the exposition's §1 story arc
 (three surfaced invariants → refuted theorem → design trade → two
 theorems) is the compressed skeleton the narrative should expand
 faithfully.
+
+## 12. The development narrative (task #20, 2026-07-19) — THE DECK IS COMPLETE
+
+`formal/doc/narrative.typ` (source tracked; PDF derived; `typst compile`
+clean, 13 pages). The companion's contract: the exposition is the WHAT;
+this is the close history of HOW the verification took form, first
+person (Claude), proof development as the spine, the collaboration
+process one section. Every load-bearing historical claim carries a
+provenance tag — [lived] (transcript/fork-report primary source; Finch
+authorized mining the machine's session transcripts, which made even
+the Quint era primary-sourced: the plan invocation, the TLA+→Quint
+reversal, the D3/radix adjudications, and the Phase B pivot are all in
+the transcripts), [artifact] (git history, this file's 43 revisions,
+the model files, pinned tests), [recon] (none needed — every claim
+found a primary source). Structure: origins (the muffin plan file, the
+bounded-runs insight) → Phase A (Quint; committed choice; ledgerGap→D3;
+the tightness law; Apalache honesty) → Phase B (the invariant; the two
+CTI transcription rules; the mid-flight Lean pivot) → the transcription
+and the two-tier discipline (findings #6 and schedulability as its
+proof) → the schedule (all three refuted designs, the merge, the weave,
+the seed-13 parent-placement origin of d5) → the edge campaign → the
+finding-#7 arc (with the provenance failure named and traced) → the
+254/256/borrowed-slots analysis → the d6 climb and its refund ledger →
+proof-engineering texture (48 files / 39,683 lines / 131 commits / 43
+PROGRESS revisions; trap lists as institutional memory; scouting
+economics) → the Rust chain → process (one section, honest failures) →
+a nine-entry errata ledger → closing reflections. §7 items 1–6, §8,
+§9, and tasks #12–#20 are hereby the complete campaign record; nothing
+remains open.

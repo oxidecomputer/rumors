@@ -138,7 +138,10 @@ Last updated: 2026-07-18.
   (Statement.lean, Proofs/Map.lean). Structure and elision decisions:
   PROGRESS.md §11. #20 is unblocked.
 
-- **#20 (blocked by #19, written LAST)**: typst companion — the full
+- **#20 (DONE, 2026-07-19 — THE DECK IS COMPLETE)**: typst companion
+  landed at `formal/doc/narrative.typ` (13 pages, compiles clean;
+  record: PROGRESS.md §12). Original directive kept below for the
+  record. Typst companion — the full
   development narrative, from Claude's own perspective, first person.
   Division of labor: #19 is the WHAT (the system and theorems); #20 is
   the close history of HOW the verification took form. PRIMARY
