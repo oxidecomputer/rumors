@@ -1273,15 +1273,21 @@ Classification:
   [decision, 2026-07-18; recorded here and in
   `design/node-hash-preimage.md` §4]. After first deployment,
   any future wire-format change will need one.
-- **Semi-avoidable: the tail marker (hop 5+L)** [saves 1; no
-  bytes change, but a contract change]. The final hop is pure
-  completion certification. Deferring marker *verification* to
-  the next session's start lets the faster side return one hop
-  earlier, at the cost of moving where a truncation error is
-  attributed. Weigh before taking.
+- **Retained: the tail marker (hop 5+L)** [decision, 2026-07-18
+  — declined without attempting]. Deferring marker
+  *verification* to the next session's start would let the
+  faster side return one hop earlier, but at the cost of moving
+  where a truncation error is attributed: `Ok` would no longer
+  certify that the peer completed and committed, weakening the
+  epilogue's contract (see `EPILOGUE_MARKER`'s docs) for one hop
+  on session-final latency only. Not worth it; the marker stays.
 
-Ceiling revised [2026-07-18, after the version-hop withdrawal]:
-with the opening-question fold landed and the tail marker still
-open, I = 5000 sits at 8 hops (floor 7 if the tail-marker trade
-is taken); the empty heartbeat stays at 3 — on top of §10's
-compute levers, which own the zero-latency story.
+Ledger closed [2026-07-18]: with the opening-question fold
+landed and both the version hop and the tail marker retained by
+decision, I = 5000 sits at 8 hops and the empty heartbeat at 3.
+The remaining hops are the L-level ladder (inherent under
+scope-per-reply framing) plus the three retained certification
+hops; further hop reduction would require the V1-style level
+batching rejected in §5 or a weakening of the completion
+contract, neither of which is on the table. Latency work from
+here is §10's compute levers, which own the zero-latency story.
