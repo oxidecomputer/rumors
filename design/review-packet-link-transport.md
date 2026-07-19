@@ -173,9 +173,20 @@ Measured: V2 29.5→19.25, V1 19.6→9.20 ms; gap unchanged ~10 ms.
   harness assert. The gate at `b4347628`: 812 tests, all green.
 - A final cross-interaction adversarial review (hash×listing,
   framing×budget, cursor×ingresses, drain×staging, shared
-  assumptions incl. the full-snapshot-diff attribution scan) was
-  run at pin `b4347628`; its findings are recorded in the merge
-  conversation and were dispositioned before merge.
+  assumptions incl. the full-snapshot-diff attribution scan) ran
+  at pin `b4347628`: **zero correctness findings at any
+  severity**. Verified along the way: the Merkle and
+  content-address hash families stayed disjoint (`path.rs` has
+  zero diff vs main); every snapshot hunk in `main...HEAD`
+  attributes to one of the three sanctioned re-accepts; the
+  gate's all-features passes do run the V1 cells; the
+  quiescence oracle cannot mask a livelock (poll-budget
+  failure). Its one actionable nit (`message.rs`'s "≈ 2 MB"
+  reply figure, right only when both encoded and decoded copies
+  are charged) is fixed in the closeout commit; its remaining
+  for-the-record risks were all already-recorded decisions (the
+  nothing-deployed assumption; the uncapped trusted-peer frame
+  lengths; quiescent-boundary-only conservation equalities).
 
 ## Measured outcome of the whole campaign (d=0, quiet machine)
 
