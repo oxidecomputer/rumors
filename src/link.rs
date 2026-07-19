@@ -38,7 +38,11 @@
 //!   stream never depends on any other stream's progress.
 //! - **Flow control.** Per-stream backpressure must be receiver-paced with a
 //!   bounded buffer: a sender that runs ahead of its receiver blocks, and
-//!   only that stream blocks with it.
+//!   only that stream blocks with it. Any positive capacity suffices: the
+//!   protocol never assumes a frame fits in flight — every phase either
+//!   alternates strictly or pairs its write with the peer's concurrent
+//!   read — so sessions stay live down to a one-byte window, where the
+//!   crate's own tests pin every session shape.
 //! - **Concurrency.** Up to [`STREAM_COUNT`] streams per direction may be
 //!   open at once, while [`Connector::connect`] calls arrive sparsely and
 //!   mid-session. An instantiation must not require a full complement of
