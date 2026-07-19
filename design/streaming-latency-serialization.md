@@ -1193,16 +1193,43 @@ Classification:
   scope-per-reply framing. Only V1-style level batching (§5 fix
   (c), rejected for its memory spike) changes this, and L grows
   slowly with divergence.
-- **Avoidable: the version hop (hop 2)** [saves 1 on *every*
-  session, including empty; no wire-format change]. The greeting
-  waits for the peer preamble only so the snapshot critical
+- **Retained: the version hop (hop 2)** [decision, 2026-07-18 —
+  attempted and withdrawn; commit `3677920c` on the deleted
+  `hop-version` branch holds the full implementation]. The
+  greeting waits for the peer preamble so the snapshot critical
   section can fork/donate a party atomically when the peer is
   bootstrapping or retiring; for Remain↔Remain gossip the wait
-  buys nothing. Fix shape: speculate the plain-gossip critical
-  section and send the greeting with the preamble; recover with a
-  fresh fork if the arriving preamble reveals bootstrap/retire.
-  The recovery's atomicity argument (party linearity) is the
-  delicate part and must be re-derived before landing.
+  buys nothing, and eliminating it would save one hop on every
+  session (empty heartbeats 3 → 2). Both known designs fail:
+  - *Speculate read-only, re-snapshot on recovery* (the shape
+    originally sketched here) is unsound [checked, from the
+    linearity re-derivation]: once the greeting may be on the
+    wire, a recovery re-snapshot after a concurrent tick either
+    desynchronizes the sent greeting from the gossiped snapshot
+    (breaking canonical-bytes election, and in the empty-donor
+    corner letting the equal-versions shortcut skip a pre-fork
+    tick whose stamp can occupy the donated id region — an
+    alias), or gossips the old snapshot with a late fork — the
+    snapshot/fork lag the critical section exists to forbid.
+  - *Fork the donation party up front, rejoin on discard* keeps
+    `{snapshot, fork}` atomic (hoisted before the peer preamble)
+    and restores the party bit-exactly on rejoin — but that
+    restore argument is session-*serial*. Under bootstrap
+    contention, speculative forks from concurrent sessions
+    interleave with genuine donations and concurrent local
+    ticks, so rejoins no longer recompose what was split: the
+    provider's id tree fragments into non-contiguous shards,
+    and ITC id/stamp size grows with fragmentation — a permanent
+    per-comparison and per-wire-byte tax on the whole universe
+    to save one hop. Rejected on those grounds.
+
+  The hop is the price of donation atomicity; treat it as
+  inherent unless a design appears that neither re-snapshots nor
+  pre-forks. (One salvageable finding from the attempt: the
+  greeting exchange can deadlock two peers on a narrow transport
+  if written sequentially after the preamble rather than joined
+  concurrently with the preamble legs — relevant to any future
+  handshake reshuffle.)
 - **Avoidable: the opening-question hop (hop 3)** [saves 1 on
   every divergent session; control-stream wire-format change —
   fold into §10 lever A's break]. Election needs the peer
@@ -1217,6 +1244,8 @@ Classification:
   earlier, at the cost of moving where a truncation error is
   attributed. Weigh before taking.
 
-Ceiling if all three land [derived]: I = 5000 drops 9 → 6 hops
-and the empty heartbeat session 3 → 2 — on top of §10's compute
-levers, which own the zero-latency story.
+Ceiling revised [2026-07-18, after the version-hop withdrawal]:
+with the opening-question fold landed and the tail marker still
+open, I = 5000 sits at 8 hops (floor 7 if the tail-marker trade
+is taken); the empty heartbeat stays at 3 — on top of §10's
+compute levers, which own the zero-latency story.
