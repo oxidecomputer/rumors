@@ -26,9 +26,34 @@ use crate::{
     },
 };
 
-/// The version greeting exchanged after the fixed transport preamble.
+/// The greeting exchanged after the fixed transport preamble: the sender's
+/// causal [`Version`] plus its root-fan listing.
+///
+/// The listing is the same radix-keyed hash listing the initiator's opening
+/// [`Reaction::Query`] carries — and that is the point: the opening
+/// question's content depends only on the sender's own tree, so carrying it
+/// here lets the elected responder answer immediately instead of waiting one
+/// wire hop for a standalone opening frame
+/// (`design/streaming-latency-serialization.md` §11, the opening-question
+/// hop). An empty tree carries an empty listing, which at the root means
+/// exactly what an empty opening `Query` means: "I lack this node, send
+/// everything."
+///
+/// Both sides carry a listing because neither knows at greeting time whether
+/// it will win the initiator election; the elected responder consumes the
+/// initiator's, and the responder's own listing is deliberately dead weight.
+/// Likewise a converged session (equal versions) ends at the greeting and
+/// consumes neither. That is the trade, made knowingly: the listing costs at
+/// most one root fan of hashes (~4.3 KB, and ~nothing for an empty tree) on
+/// a hop that exists anyway, versus saving a full one-way hop on every
+/// divergent session. Divergence is not knowable at greeting time, so there
+/// is nothing sound to gate the bytes on.
+#[derive(Clone)]
 pub struct Handshake {
     pub version: Version,
+    /// The sender's root children as `(radix, hash)` pairs in strictly
+    /// ascending radix order; empty when the sender's tree is empty.
+    pub listing: Vec<(u8, Hash)>,
 }
 
 /// The sole stream message.

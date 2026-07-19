@@ -16,7 +16,7 @@ use crate::tree::{
         convert::Convert,
         protocol::Requests,
         remote::{
-            adapter::{self, Encoded, Scope, encode_opening, encode_reply},
+            adapter::{self, Encoded, Scope, encode_reply, opening_scope},
             codec::RunBudget,
             proxy::{Error, send_or_cancel},
             streams::{ReplyFrame, StreamSender},
@@ -90,31 +90,31 @@ where
     finish(requests, outgoing).await
 }
 
-/// Encode and close the local initiator's distinguished opening stream.
-pub async fn opening<B, T, C>(
+/// Consume the local initiator's distinguished opening and publish its scope.
+///
+/// The opening writes nothing: its content — the local root-fan listing —
+/// already crossed inside the greeting, which flushed before the descent
+/// began, so the "wire before internal publication" order is satisfied
+/// vacuously and the question publishes immediately. The initiator-direction
+/// opening stream is never opened.
+pub async fn opening<B, T>(
     requests: impl Requests<B, T, UnderRoot>,
-    mut outgoing: StreamSender<C, T>,
     questions: Sender<Scope<UnderRoot>>,
     progress: Progress,
 ) -> Result<(), Error<B::Error>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
-    C: Connector,
 {
     let mut requests = pin!(requests);
     let request = requests.next().await.ok_or(Error::MissingOpening)?;
-    let encoded = encode_opening(request).map_err(Error::OpeningEncode)?;
-    let question = write_encoded(&mut outgoing, encoded).await?;
-    progress.wire_reply::<UnderRoot>(usize::from(question.is_some()));
-    if let Some(question) = question {
-        progress.local_question::<UnderRoot>();
-        send_or_cancel(&questions, question).await;
-    }
+    let question = opening_scope(request).map_err(Error::OpeningEncode)?;
+    progress.wire_reply::<UnderRoot>(1);
+    progress.local_question::<UnderRoot>();
+    send_or_cancel(&questions, question).await;
     if requests.next().await.is_some() {
         return Err(Error::ExtraOpening);
     }
-    outgoing.finish().await?;
     Ok(())
 }
 

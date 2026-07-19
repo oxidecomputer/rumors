@@ -32,6 +32,15 @@
 //! incoming adapter decodes each backend-neutral pair exactly once,
 //! constructing a backend leaf and validating its content-derived path.
 //!
+//! The initiator's distinguished opening question is the one protocol reply
+//! with no wire frame at all: its content — the initiator's root-fan
+//! listing — rides the greeting on the control stream (see
+//! [`message::Handshake`](super::message::Handshake) for the trade), so
+//! the elected responder answers one hop earlier and the
+//! initiator-direction opening stream never opens. Its signal placements
+//! remain defined in the grammar above but nothing sends them: a stream
+//! carrying one answers no question, and parks in a claim nothing takes.
+//!
 //! [`adapter`] retains the question scope omitted from protocol replies. It
 //! attaches each newly asked scope to the exact outgoing frame which makes the
 //! question publishable, derives supplied radices from leaf content, and uses

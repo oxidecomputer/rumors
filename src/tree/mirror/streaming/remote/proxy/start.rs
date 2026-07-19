@@ -16,7 +16,7 @@ use crate::{
                 message::Handshake,
                 protocol::{self, Accept, CompleteConnect, Connect},
                 remote::{
-                    codec::{RunBudget, Speaker},
+                    codec::{RunBudget, Speaker, validate_children},
                     proxy::{
                         Connected, Error,
                         work::{Physical, Work},
@@ -26,7 +26,10 @@ use crate::{
                 window::Window,
             },
         },
-        typed::height::{Root, Z},
+        typed::{
+            Hash,
+            height::{Root, Z},
+        },
     },
 };
 
@@ -86,9 +89,9 @@ where
 /// Handshake state before this participant has sent its version.
 pub struct Start;
 
-/// The peer version received before the local server produces its response.
+/// The peer greeting received before the local server produces its response.
 pub struct Connecting {
-    remote: Version,
+    remote: Handshake,
 }
 
 impl<B, T, R, W, C, A, V> protocol::Protocol for Handshaking<B, T, R, W, C, A, V>
@@ -121,7 +124,8 @@ where
     async fn connect(mut self) -> Result<(Handshake, Self::Next), Self::Error> {
         let remote = receive::<B::Error, _>(&mut self.link.control_read).await?;
         let handshake = Handshake {
-            version: remote.clone(),
+            version: remote.version.clone(),
+            listing: remote.listing.clone(),
         };
         let next = Handshaking {
             backend: self.backend,
@@ -147,13 +151,13 @@ where
     type Next = Connected<B, T, R, W, C, A>;
 
     /// Send the local server's greeting, then open only if versions differ.
-    async fn complete_connect(mut self, local_version: Version) -> Result<Self::Next, Self::Error> {
-        send::<B::Error, _>(&local_version, &mut self.link.control_write).await?;
+    async fn complete_connect(mut self, theirs: Handshake) -> Result<Self::Next, Self::Error> {
+        send::<B::Error, _>(&theirs, &mut self.link.control_write).await?;
         Ok(connected(
             self.backend,
             self.window,
             self.budget,
-            local_version,
+            theirs.version,
             self.versions.remote,
             self.link,
         ))
@@ -173,11 +177,12 @@ where
 
     /// Exchange greetings concurrently, then open only if versions differ.
     async fn accept(mut self, request: Handshake) -> Result<(Handshake, Self::Next), Self::Error> {
-        let send = send::<B::Error, _>(&request.version, &mut self.link.control_write);
+        let send = send::<B::Error, _>(&request, &mut self.link.control_write);
         let receive = receive::<B::Error, _>(&mut self.link.control_read);
         let (_, remote) = futures_util::future::try_join(send, receive).await?;
         let handshake = Handshake {
-            version: remote.clone(),
+            version: remote.version.clone(),
+            listing: remote.listing.clone(),
         };
         let next = connected(
             self.backend,
@@ -191,36 +196,54 @@ where
     }
 }
 
-/// Send one exactly bounded causal-version handshake frame.
-async fn send<E, W>(version: &Version, write: &mut W) -> Result<(), Error<E>>
+/// Send one greeting: an exactly bounded causal-version frame, then the
+/// root-fan listing frame.
+///
+/// Both frames flush on the same hop; the listing frame is the wire carriage
+/// of the opening question's content (see [`Handshake`] for the always-carry
+/// trade).
+async fn send<E, W>(greeting: &Handshake, write: &mut W) -> Result<(), Error<E>>
 where
     W: AsyncWrite + Unpin,
 {
-    framing::FrameWrite::new(write)
-        .frame(version.as_bytes())
+    let mut write = framing::FrameWrite::new(write);
+    write
+        .frame(greeting.version.as_bytes())
         .await
-        .map_err(Error::HandshakeWrite)
+        .map_err(Error::HandshakeWrite)?;
+    let listing = borsh::to_vec(&greeting.listing).map_err(Error::HandshakeWrite)?;
+    write.frame(&listing).await.map_err(Error::HandshakeWrite)
 }
 
-/// Receive and canonically decode one causal-version handshake frame.
-async fn receive<E, R>(read: &mut R) -> Result<Version, Error<E>>
+/// Receive and canonically decode one greeting: the causal-version frame,
+/// then the root-fan listing frame.
+///
+/// The listing is peer-controlled, so its canonical strictly-ascending radix
+/// order is enforced here — the same rule the frame codec applies to a wire
+/// query — before any scope is built from it.
+async fn receive<E, R>(read: &mut R) -> Result<Handshake, Error<E>>
 where
     R: AsyncRead + Unpin,
 {
-    let bytes = framing::FrameRead::new(read)
-        .frame()
-        .await
-        .map_err(Error::HandshakeRead)?;
-    Version::try_from_slice(&bytes).map_err(Error::HandshakeDecode)
+    let mut read = framing::FrameRead::new(read);
+    let bytes = read.frame().await.map_err(Error::HandshakeRead)?;
+    let version = Version::try_from_slice(&bytes).map_err(Error::HandshakeDecode)?;
+    let bytes = read.frame().await.map_err(Error::HandshakeRead)?;
+    let listing = Vec::<(u8, Hash)>::try_from_slice(&bytes).map_err(Error::HandshakeDecode)?;
+    validate_children(&listing).map_err(Error::HandshakeListing)?;
+    Ok(Handshake { version, listing })
 }
 
 /// Return untouched control halves on equality, otherwise open the session.
+///
+/// On equality both carried listings are dropped unused — the documented
+/// price of carrying them unconditionally.
 fn connected<B, T, R, W, C, A>(
     backend: B,
     window: Window,
     budget: RunBudget,
     local_version: Version,
-    remote_version: Version,
+    remote: Handshake,
     link: Link<R, W, C, A>,
 ) -> Connected<B, T, R, W, C, A>
 where
@@ -229,11 +252,11 @@ where
     C: Connector,
     A: Acceptor,
 {
-    if local_version == remote_version {
+    if local_version == remote.version {
         return Connected::equal(link.control_read, link.control_write);
     }
-    let local = local_speaker(&local_version, &remote_version);
-    open(backend, window, budget, local, link)
+    let local = local_speaker(&local_version, &remote.version);
+    open(backend, window, budget, local, remote.listing, link)
 }
 
 /// Elect the local physical speaker from the total canonical version order.
@@ -246,11 +269,16 @@ fn local_speaker(local: &Version, remote: &Version) -> Speaker {
 }
 
 /// Allocate one session's claim table, error route, and accept driver.
+///
+/// `peer_listing` is the remote greeting's root-fan listing: the remote's
+/// opening question, consumed only when the remote wins the initiator
+/// election (and dead weight otherwise, by design).
 fn open<B, T, R, W, C, A>(
     backend: B,
     window: Window,
     budget: RunBudget,
     local: Speaker,
+    peer_listing: Vec<(u8, Hash)>,
     link: Link<R, W, C, A>,
 ) -> Connected<B, T, R, W, C, A>
 where
@@ -275,6 +303,7 @@ where
         backend,
         window,
         budget,
+        peer_listing,
         Physical {
             control_read,
             control_write,

@@ -49,10 +49,14 @@ impl<T, Q> Encoded<T, Q> {
 pub type Frames<T, E, Q> =
     Pin<Box<dyn Stream<Item = Result<Encoded<T, Q>, EncodeError<E>>> + Send>>;
 
-/// Encode the initiator's distinguished opening question.
-pub fn encode_opening<B, T>(
-    reply: Reply<B, T, UnderRoot>,
-) -> Result<Encoded<T, Scope<UnderRoot>>, OpeningError>
+/// Validate the initiator's distinguished opening question and derive its
+/// root scope.
+///
+/// The opening writes no frame of its own — its content already crossed
+/// inside the greeting's root-fan listing — so all that remains of encoding
+/// it is checking the local reply's canonical one-query shape and retaining
+/// the scope which will interpret the responder's top-level reply.
+pub fn opening_scope<B, T>(reply: Reply<B, T, UnderRoot>) -> Result<Scope<UnderRoot>, OpeningError>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
@@ -69,11 +73,7 @@ where
     let ProtocolReaction::Query(listing) = reaction else {
         return Err(OpeningError::NotQuery);
     };
-    let scope = Scope::opening(&listing);
-    Ok(Encoded {
-        frame: Frame::Reaction(WireReaction::Query(listing), Flow::End),
-        question: Some(scope),
-    })
+    Ok(Scope::opening(&listing))
 }
 
 /// Encode one non-leaf reply and derive the lower questions it asks.

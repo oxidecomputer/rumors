@@ -14,6 +14,10 @@ pub enum ScopeError {
 }
 
 /// The initiator's distinguished opening reply did not contain its one query.
+///
+/// Local-only by construction: the peer's opening arrives as the greeting's
+/// listing, validated at greeting decode, so only the locally produced
+/// opening reply can still be malformed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum OpeningError {
     /// The opening reply must contain exactly one reaction.
@@ -22,9 +26,6 @@ pub enum OpeningError {
     /// The opening reaction must ask the implicit root question.
     #[error("the opening reply does not contain a query")]
     NotQuery,
-    /// The opening wire frame must end its one-reaction reply on that query.
-    #[error("the opening frame is not a reply-ending query")]
-    InvalidFrame,
 }
 
 /// A protocol reply could not be rendered faithfully as wire frames.

@@ -1,9 +1,9 @@
 //! Exact-read length-delimited framing shared by the mirror wire protocols.
 //!
 //! A framed body is a 4-byte big-endian length followed by exactly that many
-//! payload bytes. The streaming protocol uses it for its causal-version
-//! handshake, variable-width supply runs and their leaf records, and the
-//! trailing identity hand-off;
+//! payload bytes. The streaming protocol uses it for its greeting (the
+//! causal-version and root-fan listing frames), variable-width supply runs
+//! and their leaf records, and the trailing identity hand-off;
 //! signal-delimited fixed bodies remain bare. The reader never consumes a byte
 //! beyond the frame requested.
 //!

@@ -1,11 +1,9 @@
 //! Full-stack rejection of peer-controlled malformed frames.
 
 use super::harness::{self, FrameMutation, FrameSelector, Script};
-use crate::message::Message;
 use crate::testing::run_to_quiescence;
 use crate::tree::{
-    Action, Tree,
-    arb::nth_party,
+    arb::early_first_child_dispute_pair,
     mirror::{
         Error as MirrorError,
         streaming::remote::{
@@ -14,28 +12,19 @@ use crate::tree::{
     },
 };
 
-/// Construct a small divergent pair which necessarily opens the descent.
-fn divergent_pair() -> (crate::tree::Root<()>, crate::tree::Root<()>) {
-    let mut left = Tree::new();
-    left.act(&nth_party(0), [Action::Insert(Message::new(()))]);
-    let mut right = Tree::new();
-    right.act(&nth_party(1), [Action::Insert(Message::new(()))]);
-    (left.root, right.root)
-}
-
-/// Construct enough independent paths to guarantee a multi-child query.
-fn broad_pair() -> (crate::tree::Root<()>, crate::tree::Root<()>) {
-    let mut left = Tree::new();
-    left.act(
-        &nth_party(0),
-        (0..16).map(|_| Action::Insert(Message::new(()))),
-    );
-    let mut right = Tree::new();
-    right.act(
-        &nth_party(1),
-        (0..16).map(|_| Action::Insert(Message::new(()))),
-    );
-    (left.root, right.root)
+/// An honestly built, wire-valid pair whose first root child is deeply
+/// disputed on both sides.
+///
+/// Depth matters here: the corruptions below hit an *early* frame of the
+/// corrupt side, and with exchanges still owed at lower levels, the
+/// corruptor provably cannot complete once its receiver aborts — so both
+/// sessions must fail, not just the receiving one. (The opening question no
+/// longer crosses as a frame — its listing rides the greeting — so a
+/// corrupt side's first data frame is its first *reply*.) The divergent
+/// branching dispute also guarantees nonempty queries in both directions,
+/// which the unordered-query mutation needs to find.
+fn deep_pair() -> (crate::tree::Root<()>, crate::tree::Root<()>) {
+    early_first_child_dispute_pair()
 }
 
 /// Extract the reserved signal byte from a full incoming error chain.
@@ -74,7 +63,7 @@ fn receiving_error<'a>(
 #[test]
 fn reserved_signals_propagate_through_the_full_proxy() {
     for corrupt_left in [false, true] {
-        let (left, right) = divergent_pair();
+        let (left, right) = deep_pair();
         let script = Script::new(FrameSelector::First, FrameMutation::Signal(u8::MAX));
         let (left_result, right_result) = run_to_quiescence(harness::reconcile_scripted(
             left,
@@ -92,13 +81,17 @@ fn reserved_signals_propagate_through_the_full_proxy() {
     }
 }
 
-/// A syntactically valid signal in the initiator's forbidden opening phase is
-/// retained as a typed placement failure through the proxy.
+/// A signal placed in a forbidden stream phase is a typed placement failure.
+///
+/// The injected byte is a continuing `Match` aimed at the opening-question
+/// stream — which carries no frames at all now that the opening rides the
+/// greeting — and the receiving proxy retains the exact placement rejection
+/// through the full stack.
 #[test]
 fn phase_invalid_signal_propagates_through_the_full_proxy() {
     const OPENING_MATCH_CONTINUE_SIGNAL: u8 = 0;
 
-    let (left, right) = divergent_pair();
+    let (left, right) = deep_pair();
     let corrupt_left = right.ceiling.as_bytes() < left.ceiling.as_bytes();
     let script = Script::new(
         FrameSelector::First,
@@ -127,10 +120,25 @@ fn phase_invalid_signal_propagates_through_the_full_proxy() {
 
 /// Canonical query ordering is enforced when corruption occurs inside an
 /// otherwise honest, live proxy session.
+///
+/// The corrupt physical side is arranged to be the elected *responder*
+/// (the lesser canonical version): with the opening question riding the
+/// greeting rather than a wire frame, the responder's disputed-child
+/// listing is the one query frame every divergent session still carries.
 #[test]
 fn unordered_query_propagates_through_the_full_proxy() {
     for corrupt_left in [false, true] {
-        let (left, right) = broad_pair();
+        let (a, b) = deep_pair();
+        let (greater, lesser) = if a.ceiling.as_bytes() > b.ceiling.as_bytes() {
+            (a, b)
+        } else {
+            (b, a)
+        };
+        let (left, right) = if corrupt_left {
+            (lesser, greater)
+        } else {
+            (greater, lesser)
+        };
         let script = Script::new(FrameSelector::Query, FrameMutation::UnorderQuery);
         let (left_result, right_result) = run_to_quiescence(harness::reconcile_scripted(
             left,
@@ -154,7 +162,7 @@ fn unordered_query_propagates_through_the_full_proxy() {
 /// scope reaches the proxy's reply-accounting check.
 #[test]
 fn duplicated_reply_is_rejected_as_unasked() {
-    let (left, right) = divergent_pair();
+    let (left, right) = deep_pair();
     let script = Script::new(FrameSelector::EndingReaction, FrameMutation::Duplicate);
     let (left_result, right_result) = run_to_quiescence(harness::reconcile_scripted(
         left,
@@ -179,7 +187,7 @@ fn duplicate_stream_end_is_rejected_by_the_session() {
     const STREAM_END_STATE: u8 = 9;
 
     for corrupt_left in [false, true] {
-        let (left, right) = divergent_pair();
+        let (left, right) = deep_pair();
         let script = Script::new(
             FrameSelector::State(STREAM_END_STATE),
             FrameMutation::Duplicate,

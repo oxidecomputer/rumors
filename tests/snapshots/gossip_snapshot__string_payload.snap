@@ -11,6 +11,11 @@ preamble: 25 bytes
 version: (0, 1, 0)
 version frame: 5 bytes
   0000: 00 00 00 01 c9
+listing frame: 25 bytes
+  0000: 00 00 00 15 01 00 00 00
+  0008: 92 7e 11 fc c7 9b 44 5c
+  0010: 08 f4 28 6b 6d d1 25 57
+  0018: f9
 Responder stream 0 (height 31), epoch 0
   frame 0: Supply(Continue)
     0000: 66 00 00 00 0e 00 00 00
@@ -32,13 +37,11 @@ preamble: 25 bytes
 version: (0, 0, 1)
 version frame: 5 bytes
   0000: 00 00 00 01 d2
-Initiator stream 0 (height 31), epoch 0
-  frame 0: Query(End)
-    0000: 55 00 c6 be 58 7c 74 f2
-    0008: 3b 69 d8 26 ad e7 3c f4
-    0010: 08 65 f9
-  frame 1: End(Stream)
-    0000: 99
+listing frame: 25 bytes
+  0000: 00 00 00 15 01 00 00 00
+  0008: c6 be 58 7c 74 f2 3b 69
+  0010: d8 26 ad e7 3c f4 08 65
+  0018: f9
 Initiator stream 1 (height 30), epoch 0
   frame 0: Supply(End)
     0000: 78 00 00 00 0e 00 00 00

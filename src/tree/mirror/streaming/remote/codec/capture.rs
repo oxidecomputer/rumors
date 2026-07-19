@@ -27,8 +27,9 @@ const LABEL_LEN: usize = 2;
 /// already demultiplexed: the control stream's exact bytes, plus each opened
 /// data stream's exact bytes (label included), in open order.
 pub struct LinkCapture {
-    /// The control stream's outgoing bytes: preamble, causal-version frame,
-    /// and any trailing party hand-off, in order.
+    /// The control stream's outgoing bytes: preamble, the greeting's
+    /// causal-version and root-fan listing frames, and any trailing party
+    /// hand-off, in order.
     pub control: Vec<u8>,
     /// Each opened data stream's outgoing bytes: its two-byte label, then
     /// its frames through the explicit end control.
@@ -75,12 +76,14 @@ pub fn render_v2_capture(a: &LinkCapture, b: &LinkCapture) -> String {
     rendered
 }
 
-/// The control stream's fixed prefix, optional version frame, and trailing
+/// The control stream's fixed prefix, optional greeting frames, and trailing
 /// session bytes.
 struct Control {
     preamble: Vec<u8>,
     version_frame: Option<Vec<u8>>,
     version: Option<Version>,
+    /// The greeting's second frame: the sender's root-fan listing.
+    listing_frame: Option<Vec<u8>>,
     trailing: Vec<u8>,
 }
 
@@ -94,6 +97,7 @@ impl Control {
                 preamble: preamble.to_vec(),
                 version_frame: None,
                 version: None,
+                listing_frame: None,
                 trailing: Vec::new(),
             };
         }
@@ -107,21 +111,33 @@ impl Control {
                 preamble: preamble.to_vec(),
                 version_frame: None,
                 version: None,
+                listing_frame: None,
                 trailing: rest.to_vec(),
             };
         }
-        let len = u32::from_be_bytes(rest[..FRAME_LEN].try_into().expect("header width")) as usize;
-        let frame_end = FRAME_LEN + len;
-        assert!(rest.len() >= frame_end, "truncated version frame");
-        let version = Version::try_from_slice(&rest[FRAME_LEN..frame_end])
+        let (version_frame, rest) = split_frame(rest, "version");
+        let version = Version::try_from_slice(&version_frame[FRAME_LEN..])
             .expect("captured version frame is canonical");
+        // The greeting always carries its listing frame directly behind the
+        // version frame (empty tree = empty listing, still framed).
+        let (listing_frame, rest) = split_frame(rest, "listing");
         Self {
             preamble: preamble.to_vec(),
-            version_frame: Some(rest[..frame_end].to_vec()),
+            version_frame: Some(version_frame),
             version: Some(version),
-            trailing: rest[frame_end..].to_vec(),
+            listing_frame: Some(listing_frame),
+            trailing: rest.to_vec(),
         }
     }
+}
+
+/// Split one exact length-delimited frame (header included) off `bytes`.
+fn split_frame<'a>(bytes: &'a [u8], what: &str) -> (Vec<u8>, &'a [u8]) {
+    assert!(bytes.len() >= FRAME_LEN, "truncated {what} frame header");
+    let len = u32::from_be_bytes(bytes[..FRAME_LEN].try_into().expect("header width")) as usize;
+    let frame_end = FRAME_LEN + len;
+    assert!(bytes.len() >= frame_end, "truncated {what} frame");
+    (bytes[..frame_end].to_vec(), &bytes[frame_end..])
 }
 
 /// One direction's exact data streams, keyed by their labeled stream index.
@@ -210,6 +226,11 @@ fn render_direction(label: &str, control: &Control, streams: Option<&Streams>, o
         render_block(
             "version frame",
             control.version_frame.as_deref().expect("version frame"),
+            out,
+        );
+        render_block(
+            "listing frame",
+            control.listing_frame.as_deref().expect("listing frame"),
             out,
         );
     }

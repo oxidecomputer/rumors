@@ -61,7 +61,7 @@ pub use error::{
 };
 #[cfg(test)]
 pub use frame::WireFrame;
-pub use frame::{Frame, LeafRun, LeafRunError, Reaction};
+pub use frame::{Frame, LeafRun, LeafRunError, Reaction, validate_children};
 pub use signal::{
     DecodeSignalError, End, Flow, InvalidSignalPlacement, InvalidWireSignal, Speaker, Stream,
     StreamClass,

@@ -9,8 +9,11 @@
 //! On a wire connection, the peer-level driver first exchanges the shared
 //! fixed [`super::handshake`] preamble. Network and intent therefore resolve
 //! before the atomic tree snapshot/party fork; this module begins with the
-//! subsequent causal-version handshake. The selectable V1 alternating
-//! protocol is retained as an independent behavioral oracle.
+//! subsequent greeting exchange — each side's causal version plus its
+//! root-fan listing, the opening question's content carried one hop early
+//! (see [`message::Handshake`]). The selectable V1 alternating protocol is
+//! retained as an independent behavioral oracle; its greeting is its own
+//! and is unchanged by V2's.
 
 // Where we're going, we need to write some Complex Types.
 #![allow(clippy::type_complexity)]
@@ -125,7 +128,7 @@ where
     let our_version = our_handshake.version.clone();
     let (peer, server) = server.accept(our_handshake).await.map_err(Error::Server)?;
     let client = client
-        .complete_connect(peer.version.clone())
+        .complete_connect(peer.clone())
         .await
         .map_err(Error::Client)?;
 

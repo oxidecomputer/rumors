@@ -200,13 +200,13 @@ where
 {
     type Next = Faulting<P::Next>;
 
-    async fn complete_connect(self, their_version: Version) -> Result<Self::Next, Self::Error> {
+    async fn complete_connect(self, theirs: message::Handshake) -> Result<Self::Next, Self::Error> {
         let Faulting {
             inner,
             remaining,
             violation,
         } = self;
-        let next = inner.complete_connect(their_version).await?;
+        let next = inner.complete_connect(theirs).await?;
         Ok(Faulting::new(next, remaining, violation))
     }
 }

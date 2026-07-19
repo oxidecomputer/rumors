@@ -36,10 +36,15 @@ where
     T: Send + Sync + 'static,
 {
     /// Process the initiator level.
+    ///
+    /// `fan` is the greeting-time root fan: the opening question it derives
+    /// here is byte-for-byte the listing the greeting already carried, which
+    /// is what lets the remote proxy satisfy this stage from the greeting
+    /// instead of a wire frame.
     pub fn initiator_level(
         &mut self,
         ceiling: Version,
-        root: Root<B, T>,
+        fan: Vec<(u8, B::Node<UnderRoot>)>,
     ) -> (
         BoxResponses<B, T, UnderRoot, Error<B::Error>>,
         Receiver<Query<B, T, UnderRoot>>,
@@ -48,15 +53,10 @@ where
     ) {
         let (queries, queries_rx) = initiator_root_query();
         let (returns, mut returns_rx) = initiator_root_return::<B, T>();
-        let backend = self.backend();
         #[cfg(test)]
         let trace_id = self.trace_id;
 
         let responses = try_stream! {
-            let fan = match root.root {
-                Some(node) => children_of(&backend, Prefix::new(), node).await?,
-                None => Vec::new(),
-            };
             #[cfg(test)]
             progress::wire(trace_id, Prefix::new());
             yield Reply {
@@ -84,11 +84,14 @@ where
     }
 
     /// Process the responder level.
+    ///
+    /// `fan` is the greeting-time root fan, standing in for the root
+    /// children the pre-greeting protocol exploded here.
     pub fn responder_level(
         &mut self,
         their_version: Version,
         ceiling: Version,
-        root: Root<B, T>,
+        fan: Vec<(u8, B::Node<UnderRoot>)>,
         requests: impl Requests<B, T, UnderRoot>,
     ) -> (
         BoxResponses<B, T, UnderRoot, Error<B::Error>>,
@@ -114,10 +117,7 @@ where
             let [message::Reaction::Query(theirs)] = replies.as_slice() else {
                 return violation(Violation::UnexpectedQuery)?;
             };
-            let ours = match root.root {
-                Some(node) => children_of(&backend, Prefix::new(), node).await?,
-                None => Vec::new(),
-            };
+            let ours = fan;
             let (reactions, next_queries, resolved) = answer::internal(
                 &backend,
                 &their_version,

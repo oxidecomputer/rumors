@@ -11,7 +11,6 @@
 //! questions; a decoded reply precedes its dependent scopes.
 
 use async_stream::try_stream;
-use futures::StreamExt;
 
 use super::Work;
 use crate::link::{Acceptor, Connector};
@@ -22,7 +21,7 @@ use crate::tree::{
         convert::Convert,
         protocol::{BoxResponses, Requests},
         remote::{
-            adapter::{Decoded, Scope, decode_leaf_reply, decode_opening, decode_reply},
+            adapter::{Decoded, Scope, decode_leaf_reply, decode_reply, opening_reply},
             proxy::Error,
             streams::{ReceiverFinish, StreamReceiver, StreamSender},
         },
@@ -40,35 +39,37 @@ where
     W: Send,
     A: Acceptor,
 {
-    /// Decode the remote initiator's distinguished opening question.
+    /// Replay the remote initiator's opening question from its greeting.
+    ///
+    /// The question's content — the remote's root-fan listing — already
+    /// crossed inside the greeting, so no wire frame exists at this stage:
+    /// the reply and its root scope are synthesized from the retained
+    /// listing, and the initiator-direction opening stream is never claimed.
     pub fn initiator(
         &mut self,
-        mut incoming: StreamReceiver<A::Rx, T>,
     ) -> (
         BoxResponses<B, T, UnderRoot, Error<B::Error>>,
         Receiver<Scope<UnderRoot>>,
     ) {
         let (next_scopes, scopes) = queues::next_scopes::<_, UnderRoot>(self.window.scopes());
         let progress = self.progress;
+        let listing = std::mem::take(&mut self.peer_listing);
         let responses = try_stream! {
-            let frame = incoming.next().await.ok_or(Error::MissingOpening)?;
-            let (reply, scope) = decode_opening(frame).map_err(Error::OpeningDecode)?;
+            let (reply, scope) = opening_reply(listing);
             yield_reply_scopes!(
                 progress, UnderRoot, 1;
                 yield reply;
                 next_scopes => [scope];
             );
-            reject_extra(&mut incoming).await?;
         };
         (self.respond(responses), scopes)
     }
 
     /// Proxy the responder opening and return its lower scope queue.
-    pub fn opening_responder<C: Connector>(
+    pub fn opening_responder(
         &mut self,
         requests: impl Requests<B, T, UnderRoot>,
         mut incoming: StreamReceiver<A::Rx, T>,
-        outgoing: StreamSender<C, T>,
     ) -> (
         BoxResponses<B, T, UnderRoot, Error<B::Error>>,
         Receiver<Scope<UnderUnderRoot>>,
@@ -76,12 +77,7 @@ where
         let progress = self.progress;
         let (local_questions, mut questions) =
             queues::local_questions::<_, UnderRoot>(self.window.scopes());
-        self.spawn(encode::opening(
-            requests,
-            outgoing,
-            local_questions,
-            progress,
-        ));
+        self.spawn(encode::opening(requests, local_questions, progress));
         let (next_scopes, scopes) = queues::next_scopes::<_, UnderUnderRoot>(self.window.scopes());
         let backend = self.backend();
         let responses = try_stream! {

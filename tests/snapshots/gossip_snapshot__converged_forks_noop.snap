@@ -11,6 +11,13 @@ preamble: 25 bytes
 version: 2
 version frame: 5 bytes
   0000: 00 00 00 01 30
+listing frame: 42 bytes
+  0000: 00 00 00 26 02 00 00 00
+  0008: b8 8e 2c 08 13 c9 ef 33
+  0010: e2 13 aa cb dd cb b0 de
+  0018: 1f fe 80 a3 55 90 2f 7a
+  0020: 57 8f 97 d3 1a 5b 78 d8
+  0028: 24 a8
 trailing frame: 1 bytes
   0000: 2e
 
@@ -23,5 +30,12 @@ preamble: 25 bytes
 version: 2
 version frame: 5 bytes
   0000: 00 00 00 01 30
+listing frame: 42 bytes
+  0000: 00 00 00 26 02 00 00 00
+  0008: b8 8e 2c 08 13 c9 ef 33
+  0010: e2 13 aa cb dd cb b0 de
+  0018: 1f fe 80 a3 55 90 2f 7a
+  0020: 57 8f 97 d3 1a 5b 78 d8
+  0028: 24 a8
 trailing frame: 1 bytes
   0000: 2e

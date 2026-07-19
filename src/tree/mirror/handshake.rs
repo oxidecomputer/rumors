@@ -2,8 +2,11 @@
 //!
 //! Every wire session first exchanges one fixed-size [`Preamble`] carrying
 //! the wire dialect, network, and session intent. Only after it succeeds does
-//! either mirror exchange its causal [`Version`](crate::Version). Keeping
-//! these phases separate permits a provider to learn that its peer is
+//! either mirror exchange its greeting, whose format is the selected
+//! protocol's own: V1 sends its causal [`Version`](crate::Version) alone,
+//! while V2's greeting also carries the sender's root-fan listing (the
+//! streaming module's `Handshake` message documents the trade).
+//! Keeping these phases separate permits a provider to learn that its peer is
 //! bootstrapping before it atomically snapshots the tree and forks its party.
 //!
 //! ```text

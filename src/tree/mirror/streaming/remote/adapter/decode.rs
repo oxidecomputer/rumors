@@ -20,7 +20,7 @@ use crate::tree::{
 
 use super::{
     super::codec::{End, Flow, Frame, Reaction as WireReaction},
-    error::{DecodeError, OpeningError, ScopeError},
+    error::{DecodeError, ScopeError},
     scope::Scope,
 };
 
@@ -35,24 +35,25 @@ where
     pub questions: Q,
 }
 
-/// Decode the initiator's distinguished opening question.
-pub fn decode_opening<B, T>(
-    frame: Frame<T>,
-) -> Result<(Reply<B, T, UnderRoot>, Scope<UnderRoot>), OpeningError>
+/// Replay the initiator's distinguished opening question from the root-fan
+/// listing its greeting carried.
+///
+/// No wire frame exists for the opening: the greeting decode already
+/// validated the listing's canonical order, so synthesizing the one-query
+/// reply and its root scope is infallible. An empty listing replays an empty
+/// opening `Query` — the empty-tree initiator's "send everything".
+pub fn opening_reply<B, T>(listing: Vec<(u8, Hash)>) -> (Reply<B, T, UnderRoot>, Scope<UnderRoot>)
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
 {
-    let Frame::Reaction(WireReaction::Query(listing), Flow::End) = frame else {
-        return Err(OpeningError::InvalidFrame);
-    };
     let scope = Scope::opening(&listing);
-    Ok((
+    (
         Reply {
             replies: vec![ProtocolReaction::Query(listing)],
         },
         scope,
-    ))
+    )
 }
 
 /// Decode one non-leaf reply and derive the lower questions it asks.

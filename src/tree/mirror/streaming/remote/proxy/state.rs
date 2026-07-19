@@ -236,12 +236,15 @@ where
 {
     type Next = Descending<B, T, UnderRoot, R, W, C, A>;
 
-    /// Decode the remote initiator's distinguished opening question.
+    /// Replay the remote initiator's opening question from its greeting.
+    ///
+    /// No stream is claimed here: the opening's content already crossed
+    /// inside the greeting's listing, and the initiator-direction opening
+    /// stream never exists on the wire.
     fn initiator(self) -> (impl Responses<B, T, UnderRoot, Self::Error>, Self::Next) {
         let mut session = self.diverged();
         debug_assert_eq!(session.remote, Speaker::Initiator);
-        let incoming = session.incoming::<UnderRoot>();
-        let (responses, scopes) = session.work.initiator(incoming);
+        let (responses, scopes) = session.work.initiator();
         let next = Descending { session, scopes };
         (responses, next)
     }
@@ -259,7 +262,12 @@ where
 {
     type Next = Descending<B, T, UnderUnderRoot, R, W, C, A>;
 
-    /// Proxy the distinguished opening in both physical directions.
+    /// Proxy the opening: consume the local question, decode the remote's
+    /// top-level reply.
+    ///
+    /// Only the incoming (responder-spoken) opening-reply stream is bound;
+    /// the local opening question sends no frame of its own, its content
+    /// having ridden the greeting.
     fn responder(
         self,
         requests: impl Requests<B, T, UnderRoot>,
@@ -267,8 +275,7 @@ where
         let mut session = self.diverged();
         debug_assert_eq!(session.remote, Speaker::Responder);
         let incoming = session.incoming::<UnderRoot>();
-        let outgoing = session.outgoing::<UnderRoot>();
-        let (responses, next_scopes) = session.work.opening_responder(requests, incoming, outgoing);
+        let (responses, next_scopes) = session.work.opening_responder(requests, incoming);
         let next = Descending {
             session,
             scopes: next_scopes,

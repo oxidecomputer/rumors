@@ -38,6 +38,7 @@ type LeftFailure = MirrorError<LocalFailure, ProxyFailure>;
 type RightFailure = MirrorError<ProxyFailure, LocalFailure>;
 
 mod failures;
+mod greeting;
 mod harness;
 mod malformed;
 mod transport;

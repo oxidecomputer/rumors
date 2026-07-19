@@ -22,7 +22,10 @@ use crate::tree::{
         tasks::{complete, park_after_published_error},
         window::Window,
     },
-    typed::height::{Height, Z},
+    typed::{
+        Hash,
+        height::{Height, Z},
+    },
 };
 
 use self::progress::Progress;
@@ -44,6 +47,10 @@ where
     window: Window,
     /// Byte budget for each outgoing supply run.
     budget: RunBudget,
+    /// The remote greeting's root-fan listing: the remote's opening
+    /// question, taken by [`initiator`](Self::initiator) when the remote
+    /// wins the election and left as dead weight otherwise.
+    peer_listing: Vec<(u8, Hash)>,
     physical: Physical<R, W, A>,
     tasks: Vec<BoxFuture<'static, Result<(), Error<B::Error>>>>,
     progress: Progress,
@@ -69,11 +76,18 @@ where
     A: Acceptor,
 {
     /// Begin accumulating work around an elected physical session.
-    pub fn new(backend: B, window: Window, budget: RunBudget, physical: Physical<R, W, A>) -> Self {
+    pub fn new(
+        backend: B,
+        window: Window,
+        budget: RunBudget,
+        peer_listing: Vec<(u8, Hash)>,
+        physical: Physical<R, W, A>,
+    ) -> Self {
         Self {
             backend,
             window,
             budget,
+            peer_listing,
             physical,
             tasks: Vec::new(),
             progress: Progress::new(),

@@ -14,7 +14,9 @@
 //! protocol phase per `Stream::height` (`remote/codec/signal.rs`). The
 //! tracer captures each data pipe's label prefix and renders both speaker
 //! interpretations; which side is initiator is evident from the trace
-//! (the opening question is the session's first data-stream write).
+//! (the opening question rides the greeting, so the session's first
+//! data-stream write is the *responder's* opening reply on its index 0,
+//! and the initiator's first data stream is its index 1).
 //!
 //! Run with:
 //!
@@ -114,6 +116,27 @@ impl Trace {
             write: false,
             len,
         });
+    }
+
+    /// The session's serialized hop count: the last event's delay multiple.
+    ///
+    /// Under the paused clock every event lands on an exact multiple of the
+    /// one-way delay, so this is exact, not a rounding.
+    fn hops(&self) -> u64 {
+        let inner = self.0.lock().unwrap();
+        let last = inner
+            .events
+            .iter()
+            .map(|event| event.at)
+            .max()
+            .unwrap_or_default();
+        let millis = last.as_millis() as u64;
+        assert_eq!(
+            millis % DELAY.as_millis() as u64,
+            0,
+            "every traced event lands on an exact delay multiple"
+        );
+        millis / DELAY.as_millis() as u64
     }
 }
 
@@ -450,29 +473,35 @@ fn bootstrap_fork(parent: &Rumors<u64>) -> Rumors<u64> {
 }
 
 /// Traces the serialized hop structure of an insertion-shaped divergent
-/// session; the printed per-hop table is the deliverable, and the assert
-/// only pins that the session converged so the trace describes a real sync.
+/// session and pins its exact hop count: with the opening question riding
+/// the greeting, this shape completes in 7 serialized hops (one fewer than
+/// the pre-change 8; `design/streaming-latency-serialization.md` §11).
 #[test]
 fn trace_insertion_session() {
     let (left, right) = diverged_insertions();
     let trace = traced_session(left.clone(), right.clone());
     report("insertions: 2048 common + 512/side", &trace);
     assert_eq!(left.snapshot().len(), right.snapshot().len());
+    assert_eq!(trace.hops(), 7, "insertion-shaped session hop count");
 }
 
 /// Traces the serialized hop structure of a redaction-shaped divergent
-/// session; the printed per-hop table is the deliverable, and the assert
-/// only pins that the session converged so the trace describes a real sync.
+/// session and pins its exact hop count: 7 hops, like the insertion shape
+/// (the redaction ladder bottoms out at the same depth at this scale), one
+/// fewer than before the opening question moved into the greeting.
 #[test]
 fn trace_redaction_session() {
     let (left, right) = diverged_redactions();
     let trace = traced_session(left.clone(), right.clone());
     report("redactions: 2048 common, 256 redacted/side", &trace);
     assert_eq!(left.snapshot().len(), right.snapshot().len());
+    assert_eq!(trace.hops(), 7, "redaction-shaped session hop count");
 }
 
 /// Traces the empty session (identical peers): the protocol floor every
-/// divergent trace is read against.
+/// divergent trace is read against. Pinned at 3 hops, unchanged by the
+/// greeting carrying the root-fan listing: converged peers pay the listing
+/// bytes on the existing greeting hop and ask no question either way.
 #[test]
 fn trace_empty_session() {
     let left = Peer::seed()
@@ -484,4 +513,5 @@ fn trace_empty_session() {
     let trace = traced_session(left.clone(), right.clone());
     report("empty divergence: identical 64-message peers", &trace);
     assert_eq!(left.snapshot().len(), right.snapshot().len());
+    assert_eq!(trace.hops(), 3, "converged-session hop count is unchanged");
 }

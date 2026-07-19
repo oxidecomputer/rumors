@@ -261,10 +261,20 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for Fuse<W> {
     }
 }
 
-/// The wire length of `retiree`'s causal-version frame, so a [`Fuse`] budget
-/// can land on an exact protocol boundary.
+/// The wire length of `retiree`'s complete greeting — the causal-version
+/// frame plus the root-fan listing frame — so a [`Fuse`] budget can land on
+/// an exact protocol boundary.
 fn greeting_frame_len(retiree: &Peer<u64>) -> usize {
-    crate::tree::mirror::framing::LENGTH_HEADER_LEN + retiree.snapshot().latest().as_bytes().len()
+    use crate::tree::mirror::streaming::{self, Local, materialized};
+
+    let root: streaming::Root<Local, u64> = retiree.inner.borrow().tree.clone().root.into();
+    let fan = pollster::block_on(materialized::greeting_fan(&Local, root.root))
+        .unwrap_or_else(|never| match never {});
+    let listing = borsh::to_vec(&materialized::fan_listing(&fan)).expect("a listing serializes");
+    crate::tree::mirror::framing::LENGTH_HEADER_LEN
+        + retiree.snapshot().latest().as_bytes().len()
+        + crate::tree::mirror::framing::LENGTH_HEADER_LEN
+        + listing.len()
 }
 
 /// The wire length of `retiree`'s trailing party frame, so a [`Fuse`] budget

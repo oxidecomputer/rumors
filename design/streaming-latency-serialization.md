@@ -1237,6 +1237,30 @@ Classification:
   listing) is local-only: carrying the listing inside the
   greeting lets the elected responder answer immediately. Costs
   ~4 KB on every greeting unless gated on nonempty divergence.
+
+  **Shipped** [checked, 2026-07-18]: the V2 greeting now carries
+  each side's root-fan listing in a second control-stream frame
+  behind the version frame; the elected responder answers the
+  opening out of the greeting, the initiator-direction opening
+  stream never opens, and the standalone opening-question frame
+  is gone from the wire. The gate question resolved to *always
+  carry*: divergence isn't knowable at greeting time, an empty
+  tree's listing costs ~nothing (8 framed bytes), and the
+  nonempty-converged case pays at most one root fan of hashes
+  (~4.3 KB) on a hop that exists anyway — versus a full one-way
+  hop saved whenever there *is* divergence (the trade is
+  documented on `streaming::message::Handshake`). The hop table
+  above reads one lower from hop 3 on: the responder's top-level
+  reply now lands at hop 3 and **hops = 2 + L + 1**. The
+  hop-trace instrument pins the drop — insertions and redactions
+  8.0 → 7.0 at its 512-per-side scale, the empty heartbeat
+  session unchanged at 3.0 — and V1 wire snapshots are
+  byte-identical (its greeting is the alternating protocol's
+  own). One deliberate rough edge: the preamble's wire version
+  still reads 2, so a pre-change V2 peer desyncs at the greeting
+  rather than failing cleanly at the preamble — both ends ship
+  from this crate in lockstep, but a cross-version pair is not
+  gracefully rejected.
 - **Semi-avoidable: the tail marker (hop 5+L)** [saves 1; no
   bytes change, but a contract change]. The final hop is pure
   completion certification. Deferring marker *verification* to

@@ -13,12 +13,9 @@ use std::pin::Pin;
 
 use futures::Stream;
 
-use crate::{
-    Version,
-    tree::{
-        mirror::streaming::{Backend, Leaf, message},
-        typed::height::{Height, Root, S, UnderRoot, UnderUnderRoot, Z},
-    },
+use crate::tree::{
+    mirror::streaming::{Backend, Leaf, message},
+    typed::height::{Height, Root, S, UnderRoot, UnderUnderRoot, Z},
 };
 
 mod peer;
@@ -95,7 +92,7 @@ pub trait CompleteConnect<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'sta
 
     fn complete_connect(
         self,
-        their_version: Version,
+        theirs: message::Handshake,
     ) -> impl Future<Output = Result<Self::Next, Self::Error>> + Send;
 }
 
@@ -113,11 +110,15 @@ pub trait CompleteEqual<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'stati
 
 /// The opening burst: the initiator speaks first, and unprompted.
 ///
-/// Nothing precedes this stage on the wire. A root hash would be the natural
-/// thing to send, and it is exactly what the session never needs: two roots
-/// hash equal only when their versions are equal, and equal versions
+/// Nothing precedes this stage. A root hash would be the natural thing to
+/// send, and it is exactly what the session never needs: two roots hash
+/// equal only when their versions are equal, and equal versions
 /// short-circuit the session before it reaches the protocol at all. So the
-/// initiator skips straight to its root's children.
+/// initiator skips straight to its root's children — the same root-fan
+/// listing its [`Handshake`](message::Handshake) already carried. On the
+/// wire that makes this stage free: the remote proxy replays the greeting's
+/// listing instead of spending a hop on a standalone opening frame, and only
+/// the in-process message below actually flows.
 pub trait Initiator<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
     Protocol<Height = Root> + Sized
 {

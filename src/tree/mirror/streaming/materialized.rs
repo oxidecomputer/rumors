@@ -98,14 +98,14 @@ use std::pin::pin;
 
 use crate::tree::{
     mirror::streaming::{
-        Backend, Leaf, Root,
+        Backend, Leaf, Node, Root,
         materialized::{unknown::Unknown, work::Work},
         message::{Handshake, Reaction, Reply},
         protocol::{self, BoxResponses, Requests, Responses},
         window::Window,
     },
     typed::{
-        Prefix,
+        Hash, Prefix,
         height::{self, Height, S, UnderRoot, UnderUnderRoot, Z},
     },
 };
@@ -243,17 +243,25 @@ pub struct Start {
     our_version: Version,
 }
 
-/// The version state of a stage that has sent its version but not yet received
-/// the peer's.
-pub struct Connecting {
+/// The version state of a stage that has sent its greeting but not yet
+/// received the peer's.
+///
+/// Carries the root fan the greeting's listing was derived from, so the
+/// descent reuses it instead of asking the backend for the root's children a
+/// second time (the memory model's one-query-per-prefix rule).
+pub struct Connecting<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> {
     our_version: Version,
+    fan: Vec<(u8, B::Node<UnderRoot>)>,
 }
 
-/// The version state of a stage that has exchanged versions with its peer and
-/// can proceed with reconciliation.
-pub struct Connected {
+/// The version state of a stage that has exchanged greetings with its peer
+/// and can proceed with reconciliation.
+///
+/// Like [`Connecting`], retains the greeting-time root fan for the descent.
+pub struct Connected<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> {
     our_version: Version,
     their_version: Version,
+    fan: Vec<(u8, B::Node<UnderRoot>)>,
 }
 
 /// A mirror stage inside the descent, consuming [`Reply<B, T, H>`](Reply)
@@ -319,20 +327,50 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, V: Send> protoco
     type Error = Error<B::Error>;
 }
 
+/// Explode the root into the fan every greeting derives its listing from.
+///
+/// Runs unconditionally at greeting time — before versions compare — because
+/// the listing must ride the greeting regardless of how the session resolves
+/// (see [`Handshake`] for the trade). The fan itself is retained through
+/// [`Connecting`]/[`Connected`] so the descent never re-asks the backend for
+/// the root's children.
+pub(crate) async fn greeting_fan<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>(
+    backend: &B,
+    root: Option<B::Node<height::Root>>,
+) -> Result<Vec<(u8, B::Node<UnderRoot>)>, B::Error> {
+    match root {
+        Some(node) => children_of(backend, Prefix::new(), node).await,
+        None => Ok(Vec::new()),
+    }
+}
+
+/// Derive the greeting's `(radix, hash)` listing from a greeting-time fan.
+pub(crate) fn fan_listing<N: Node<T>, T: Send + Sync + 'static>(
+    fan: &[(u8, N)],
+) -> Vec<(u8, Hash)> {
+    fan.iter()
+        .map(|(radix, node)| (*radix, node.hash()))
+        .collect()
+}
+
 impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Connect<B, T>
     for Handshaking<B, T, Start>
 {
-    type Next = Handshaking<B, T, Connecting>;
+    type Next = Handshaking<B, T, Connecting<B, T>>;
 
     async fn connect(self) -> Result<(Handshake, Self::Next), Self::Error> {
         let Start { our_version } = self.versions;
 
+        let fan = greeting_fan(&self.backend, self.root.root.clone())
+            .await
+            .map_err(Error::Backend)?;
         let handshake = Handshake {
             version: our_version.clone(),
+            listing: fan_listing(&fan),
         };
         let next = Handshaking {
             backend: self.backend,
-            versions: Connecting { our_version },
+            versions: Connecting { our_version, fan },
             root: self.root,
             window: self.window,
         };
@@ -341,16 +379,17 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Connec
 }
 
 impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::CompleteConnect<B, T>
-    for Handshaking<B, T, Connecting>
+    for Handshaking<B, T, Connecting<B, T>>
 {
-    type Next = Handshaking<B, T, Connected>;
+    type Next = Handshaking<B, T, Connected<B, T>>;
 
-    async fn complete_connect(self, their_version: Version) -> Result<Self::Next, Self::Error> {
+    async fn complete_connect(self, theirs: Handshake) -> Result<Self::Next, Self::Error> {
         Ok(Handshaking {
             backend: self.backend,
             versions: Connected {
                 our_version: self.versions.our_version,
-                their_version,
+                their_version: theirs.version,
+                fan: self.versions.fan,
             },
             root: self.root,
             window: self.window,
@@ -361,19 +400,24 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Comple
 impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Accept<B, T>
     for Handshaking<B, T, Start>
 {
-    type Next = Handshaking<B, T, Connected>;
+    type Next = Handshaking<B, T, Connected<B, T>>;
 
     async fn accept(self, request: Handshake) -> Result<(Handshake, Self::Next), Self::Error> {
         let Start { our_version } = self.versions;
 
+        let fan = greeting_fan(&self.backend, self.root.root.clone())
+            .await
+            .map_err(Error::Backend)?;
         let handshake = Handshake {
             version: our_version.clone(),
+            listing: fan_listing(&fan),
         };
         let next = Handshaking {
             backend: self.backend,
             versions: Connected {
                 our_version,
                 their_version: request.version,
+                fan,
             },
             root: self.root,
             window: self.window,
@@ -383,7 +427,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Accept
 }
 
 impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::CompleteEqual<B, T>
-    for Handshaking<B, T, Connected>
+    for Handshaking<B, T, Connected<B, T>>
 {
     async fn complete_equal(self) -> Result<Root<B, T>, Self::Error> {
         Ok(self.root)
@@ -391,16 +435,20 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Comple
 }
 
 impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol::Initiator<B, T>
-    for Handshaking<B, T, Connected>
+    for Handshaking<B, T, Connected<B, T>>
 {
     type Next = Descending<B, T, UnderRoot>;
 
     fn initiator(self) -> (impl Responses<B, T, UnderRoot, Self::Error>, Self::Next) {
-        let their_version = self.versions.their_version;
-        let ceiling = self.versions.our_version | &their_version;
+        let Connected {
+            our_version,
+            their_version,
+            fan,
+        } = self.versions;
+        let ceiling = our_version | &their_version;
 
         let mut work = Work::new(self.backend, self.window);
-        let (responses, queries, returns, finish) = work.initiator_level(ceiling, self.root);
+        let (responses, queries, returns, finish) = work.initiator_level(ceiling, fan);
 
         (
             responses,
@@ -416,7 +464,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol:
 }
 
 impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol::Responder<B, T>
-    for Handshaking<B, T, Connected>
+    for Handshaking<B, T, Connected<B, T>>
 {
     type Next = Descending<B, T, UnderUnderRoot>;
 
@@ -424,12 +472,16 @@ impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol:
         self,
         requests: impl Requests<B, T, UnderRoot>,
     ) -> (BoxResponses<B, T, UnderRoot, Self::Error>, Self::Next) {
-        let their_version = self.versions.their_version;
-        let ceiling = self.versions.our_version | &their_version;
+        let Connected {
+            our_version,
+            their_version,
+            fan,
+        } = self.versions;
+        let ceiling = our_version | &their_version;
 
         let mut work = Work::new(self.backend, self.window);
         let (responses, queries, returns, finish) =
-            work.responder_level(their_version.clone(), ceiling, self.root, requests);
+            work.responder_level(their_version.clone(), ceiling, fan, requests);
 
         (
             responses,
