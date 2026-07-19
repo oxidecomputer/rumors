@@ -15,7 +15,7 @@ mod common;
 use rumors::{Error, PROTOCOL_MAGIC, Peer, Protocol, Rumors};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::common::wire::bootstrap_fork_async;
+use crate::common::wire::{assert_control_drained, bootstrap_fork_async};
 
 /// Length of the complete preamble: magic(6) + version(BE u16) + network(16)
 /// + intent(1).
@@ -66,6 +66,7 @@ async fn handshake_roundtrip_succeeds() {
 
     alice_out.expect("alice gossip");
     bob_out.expect("bob gossip");
+    assert_control_drained(a_link, b_link);
 }
 
 /// A peer that opens with the wrong magic is rejected with

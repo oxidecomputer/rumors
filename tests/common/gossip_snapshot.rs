@@ -301,11 +301,36 @@ where
     let log = Log::default();
     let (a_link, b_link) = rumors::link::memory();
     let (a_link, a_side) = Side::wrap(a_link, "A", log.clone());
-    let (b_link, b_side) = Side::wrap(b_link, "B", log);
+    let (b_link, b_side) = Side::wrap(b_link, "B", log.clone());
     block_on(async {
         tokio::join!(drive_a(a_link), drive_b(b_link));
     });
+    assert_control_drained(&log.0.lock().unwrap());
     (a_side.capture(), b_side.capture())
+}
+
+/// Assert the captured session drained the control stream in both
+/// directions: every byte each peer sent, the other received.
+///
+/// The same invariant `wire::assert_control_drained` probes on a bare
+/// memory link, in the form this harness's plumbing affords: the shared
+/// [`Log`] records both peers' control I/O, so per direction the received
+/// total must equal the sent total (delivery preserves order, so equal
+/// totals mean the streams rest at the session boundary). Every capture
+/// driver asserts a successful outcome, so the drain invariant applies to
+/// every captured session — V1's frozen wire included.
+fn assert_control_drained(events: &[Event]) {
+    for (sender, receiver) in [("A", "B"), ("B", "A")] {
+        let sent = sent(sender, events);
+        let received = received(receiver, events);
+        assert!(
+            sent.len() == received.len(),
+            "control stream not drained: {sender} sent {} byte(s) that {receiver} never read \
+             (leftover tail {:02x?})",
+            sent.len() - received.len(),
+            &sent[received.len()..],
+        );
+    }
 }
 
 /// Drive both roles and return the control-stream I/O event log.
@@ -327,8 +352,12 @@ where
         tokio::join!(drive_a(a_link), drive_b(b_link));
     });
 
-    let mut events = log.0.lock().unwrap();
-    std::mem::take(&mut *events)
+    let events = {
+        let mut events = log.0.lock().unwrap();
+        std::mem::take(&mut *events)
+    };
+    assert_control_drained(&events);
+    events
 }
 
 /// Gossip `a` and `b` through recording links (the gossip/gossip
@@ -376,6 +405,15 @@ fn sent(peer: &str, events: &[Event]) -> Vec<u8> {
     events
         .iter()
         .filter(|event| event.peer == peer && event.op == Op::Send)
+        .flat_map(|event| event.bytes.iter().copied())
+        .collect()
+}
+
+/// Concatenate every control byte one party received, erasing read chunking.
+fn received(peer: &str, events: &[Event]) -> Vec<u8> {
+    events
+        .iter()
+        .filter(|event| event.peer == peer && event.op == Op::Recv)
         .flat_map(|event| event.bytes.iter().copied())
         .collect()
 }

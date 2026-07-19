@@ -9,7 +9,7 @@ use rand::SeedableRng;
 use rand::rngs::SmallRng;
 use rumors::{Error, Peer};
 
-use crate::common::wire::block_on;
+use crate::common::wire::{assert_control_drained, block_on};
 
 /// A peer seeded deterministically, so two seeds with distinct stream ids get
 /// distinct (but reproducible) networks.
@@ -86,9 +86,11 @@ fn bootstrap_adopts_provider_network() {
             Peer::<u64>::bootstrap(&mut b_link),
         );
         provider_out.expect("provider gossip");
-        bootstrap_out
+        let minted = bootstrap_out
             .expect("bootstrap handshake")
-            .expect("provider served the bootstrap")
+            .expect("provider served the bootstrap");
+        assert_control_drained(a_link, b_link);
+        minted
     });
 
     assert_eq!(

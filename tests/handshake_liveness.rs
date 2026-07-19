@@ -26,7 +26,7 @@ mod common;
 
 use rumors::{Peer, Protocol, Retire, Rumors};
 
-use crate::common::wire::{block_on, bootstrap_fork_async_with_protocol};
+use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork_async_with_protocol};
 
 /// Per-stream byte capacity of the link every cell's session runs over: the
 /// harness minimum, so no frame of any phase fits in flight.
@@ -61,12 +61,14 @@ const GREETING_FLOOR: usize = 8;
 const DIVERGENT_MESSAGES: u64 = 8;
 
 /// Gossip `a` and `b` to completion over a fresh link pair of the given
-/// per-stream capacity, both sides polled concurrently.
+/// per-stream capacity, both sides polled concurrently. Every session is
+/// held to the clean-drain invariant at its boundary.
 async fn gossip_over(a: &Rumors<u64>, b: &Rumors<u64>, capacity: usize) {
     let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(capacity);
     let (a_out, b_out) = tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link));
     a_out.expect("gossip completes on side A");
     b_out.expect("gossip completes on side B");
+    assert_control_drained(a_link, b_link);
 }
 
 /// Widen `rumors`'s causal version over roomy links: fork [`ORIGINATORS`]
@@ -121,6 +123,7 @@ async fn season(rumors: &Rumors<u64>, protocol: Protocol, payload_base: u64) {
         matches!(retired, Retire::Retired),
         "fixture fork retires cleanly, got {retired:?}"
     );
+    assert_control_drained(fork_link, seed_link);
     // Fixture self-check: the greeting's version frame must dwarf the
     // minimal window, or the matrix stops exercising the hazard class. A
     // width bound only — cells never assert greeting contents.
@@ -220,6 +223,7 @@ async fn bootstrap(protocol: Protocol) {
         .expect("the provider serves the bootstrap")
         .into_rumors();
     assert_eq!(newcomer.snapshot().hash(), provider.snapshot().hash());
+    assert_control_drained(p_link, n_link);
 }
 
 /// Retire: a seasoned, divergent retiree hands its content and then its
@@ -243,6 +247,7 @@ async fn retire(protocol: Protocol) {
         converged_len + DIVERGENT_MESSAGES as usize,
         "nothing the retiree held is lost"
     );
+    assert_control_drained(r_link, p_link);
 }
 
 /// Mutual retire: both sides declare `Retire`, so the session early-outs
@@ -261,6 +266,7 @@ async fn mutual_retire(protocol: Protocol) {
         matches!(b_out, Retire::Declined { .. }),
         "a mutual retire declines side B, got {b_out:?}"
     );
+    assert_control_drained(a_link, b_link);
 }
 
 // ---- the matrix -----------------------------------------------------------

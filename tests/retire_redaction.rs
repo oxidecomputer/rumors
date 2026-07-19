@@ -11,7 +11,7 @@ mod common;
 
 use rumors::{Peer, Retire};
 
-use crate::common::wire::{block_on, bootstrap_fork, wire_gossip};
+use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork, wire_gossip};
 
 /// The absorber drops an entry the retiree redacted after their last
 /// ordinary gossip: the redaction rides the retire session itself.
@@ -41,6 +41,7 @@ fn retire_carries_last_minute_redactions() {
         let (mut b_link, mut a_link) = rumors::link::memory();
         let (outcome, served) = tokio::join!(retiree.retire(&mut b_link), a.gossip(&mut a_link),);
         served.expect("A serves the retire session");
+        assert_control_drained(b_link, a_link);
         outcome
     });
     assert!(matches!(outcome, Retire::Retired), "clean retirement");

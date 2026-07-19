@@ -15,9 +15,10 @@ use std::time::Duration;
 
 use rumors::testing::{IoPlan, IoSide, wrap_link};
 use rumors::{Peer, Rumors};
+use tokio::io::AsyncWriteExt;
 use tokio::time::timeout;
 
-use crate::common::wire::bootstrap_fork_async;
+use crate::common::wire::{assert_control_drained, bootstrap_fork_async};
 
 /// Generous wall-clock bound: these sessions are in-memory and finish in
 /// microseconds, so hitting the deadline means lost bytes wedged a session,
@@ -77,6 +78,9 @@ async fn barriered_sessions_reuse_the_connection() {
             "round {round} did not converge the pair"
         );
     }
+    // Reuse rests on each round ending at a clean boundary; after the last
+    // round the control stream must hold nothing in either direction.
+    assert_control_drained(a_link, b_link);
 }
 
 /// An eagerly re-initiating side loses nothing: each peer runs its
@@ -112,6 +116,7 @@ async fn eager_reinitiation_reuses_the_connection() {
     // the final states: converged, holding every message both sides sent.
     assert_eq!(a.snapshot().hash(), b.snapshot().hash());
     assert_eq!(a.snapshot().len(), 2 * ROUNDS as usize);
+    assert_control_drained(a_link, b_link);
 }
 
 /// An epilogue-only session still advances the link's session epoch on
@@ -209,4 +214,47 @@ async fn epoch_wrap_keeps_the_pair_in_lockstep() {
         );
     }
     assert_eq!(a.snapshot().len(), 2 * WRAP_ROUNDS as usize);
+    assert_control_drained(a_link, b_link);
+}
+
+/// Negative control for `assert_control_drained`: the assert must catch the
+/// class it gates.
+///
+/// A pre-drain bug leaves peer-sent control bytes the session never
+/// consumed — the hazard class reviews of the V2 second greeting frame had
+/// to rule out by hand-tracing every early-out path — buffered ahead of
+/// the next read. This test manufactures exactly that shape: a clean
+/// session runs to `Ok` on both sides, then one stray byte is planted on
+/// B's control write half (landing unread in front of A), and the drain
+/// assert must fail. If this test ever passes with the helper silent, the
+/// gate's drain coverage has rotted to a no-op.
+#[tokio::test(flavor = "current_thread")]
+async fn drain_assert_catches_a_planted_leftover_byte() {
+    let (a, b) = pair().await;
+    let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
+    let (a_out, b_out) = timeout(DEADLINE, async {
+        tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link))
+    })
+    .await
+    .expect("the clean session deadlocked");
+    a_out.expect("A's session");
+    b_out.expect("B's session");
+
+    // Plant one unread byte toward A: what a session that failed to drain
+    // a peer frame would leave resting on the control stream.
+    let mut b_parts = b_link.into_parts();
+    b_parts
+        .control_write
+        .write_all(&[0xAA])
+        .await
+        .expect("planting the leftover byte");
+    let b_link = b_parts.into_link();
+
+    let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        assert_control_drained(a_link, b_link);
+    }));
+    assert!(
+        caught.is_err(),
+        "the drain assert must fail on a planted leftover control byte"
+    );
 }

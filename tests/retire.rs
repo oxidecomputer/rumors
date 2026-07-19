@@ -25,7 +25,7 @@ use rumors::{Peer, Retire, Rumors, causally};
 
 use crate::common::action::{LocalAction, arb_local_actions, build_local};
 use crate::common::oracle::readout;
-use crate::common::wire::{block_on, bootstrap_fork, wire_gossip};
+use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork, wire_gossip};
 
 /// Capacity for each in-memory link stream. A divergent retiree's session moves
 /// content through the gossip round, so keep the other wire tests' headroom.
@@ -56,6 +56,7 @@ fn retire_into_gossip(retiree: Rumors<u64>, peer: &Rumors<u64>) -> Retire<u64> {
         let (retire_out, gossip_out) =
             tokio::join!(retiree.retire(&mut a_link), peer.gossip(&mut b_link),);
         gossip_out.expect("gossiping peer");
+        assert_control_drained(a_link, b_link);
         retire_out
     })
 }
@@ -76,7 +77,9 @@ fn retire_into_retire(a: Rumors<u64>, b: Rumors<u64>) -> (Retire<u64>, Retire<u6
         let a = a.try_into_peer().await.expect("a's sole handle");
         let b = b.try_into_peer().await.expect("b's sole handle");
         let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
-        tokio::join!(a.retire(&mut a_link), b.retire(&mut b_link))
+        let outcome = tokio::join!(a.retire(&mut a_link), b.retire(&mut b_link));
+        assert_control_drained(a_link, b_link);
+        outcome
     })
 }
 
@@ -93,6 +96,7 @@ fn retire_into_bootstrap(retiree: Rumors<u64>) -> (Retire<u64>, Option<Rumors<u6
             retiree.retire(&mut a_link),
             Peer::<u64>::bootstrap(&mut b_link),
         );
+        assert_control_drained(a_link, b_link);
         (
             retire_out,
             boot_out.expect("bootstrapper").map(Peer::into_rumors),

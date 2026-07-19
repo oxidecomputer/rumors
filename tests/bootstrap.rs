@@ -13,7 +13,7 @@ use rumors::{Protocol, Retire};
 
 use crate::common::action::{arb_local_actions, arb_string_actions, build_local};
 use crate::common::oracle::readout;
-use crate::common::wire::{block_on, bootstrap_fork, wire_gossip};
+use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork, wire_gossip};
 
 /// Capacity for each in-memory link stream. Roomy enough that the bootstrap
 /// descent's largest frames fit without the test depending on backpressure
@@ -34,9 +34,11 @@ where
             Peer::<T>::bootstrap(&mut b_link),
         );
         provider_out.expect("provider gossip");
-        bootstrap_out
+        let minted = bootstrap_out
             .expect("bootstrap handshake")
-            .map(Peer::into_rumors)
+            .map(Peer::into_rumors);
+        assert_control_drained(a_link, b_link);
+        minted
     })
 }
 
@@ -111,15 +113,19 @@ proptest! {
 /// When *both* peers declare bootstrapping, neither has state to give: both
 /// sides bail with `Ok(None)` after the handshake, and neither deadlocks
 /// (the watchdog-free `block_on` returning at all is the liveness proof).
+/// The mutual bail is a successful session, so it too must leave the
+/// control stream drained at the boundary.
 #[test]
 fn both_bootstrapping_bail_with_none() {
     let (a_out, b_out) = block_on(async {
         let (mut a_link, mut b_link) = rumors::link::memory();
 
-        tokio::join!(
+        let outcome = tokio::join!(
             Peer::<u64>::bootstrap(&mut a_link),
             Peer::<u64>::bootstrap(&mut b_link),
-        )
+        );
+        assert_control_drained(a_link, b_link);
+        outcome
     });
 
     assert!(
@@ -148,10 +154,12 @@ fn v1_bootstrap_selection_persists_into_gossip() {
             Peer::<u64>::bootstrap_with_protocol(Protocol::V1, &mut newcomer_link),
         );
         served.expect("V1 provider serves bootstrap");
-        joined
+        let minted = joined
             .expect("V1 bootstrap succeeds")
             .expect("provider is established")
-            .into_rumors()
+            .into_rumors();
+        assert_control_drained(provider_link, newcomer_link);
+        minted
     });
 
     newcomer.send(2);
@@ -170,6 +178,7 @@ fn v1_bootstrap_selection_persists_into_gossip() {
             newcomer.retire(&mut newcomer_link),
         );
         served.expect("V1 provider absorbs retiree");
+        assert_control_drained(provider_link, newcomer_link);
         retired
     });
     assert!(matches!(retired, Retire::Retired));

@@ -22,7 +22,7 @@ use rand::rngs::SmallRng;
 use rumors::{Key, Peer, Retire, Rumors, UnorderedMessages, Version, causally};
 
 use crate::common::action::minted_key;
-use crate::common::wire::{block_on, bootstrap_fork, wire_gossip};
+use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork, wire_gossip};
 
 /// One observer step, with the borrowed faces cloned out.
 #[derive(Debug, PartialEq)]
@@ -253,6 +253,7 @@ fn retire_ends_the_observer() {
         let (retire_out, gossip_out) =
             tokio::join!(retiree.retire(&mut a_link), survivor.gossip(&mut b_link),);
         gossip_out.expect("survivor gossip");
+        assert_control_drained(a_link, b_link);
         retire_out
     });
     assert!(matches!(outcome, Retire::Retired));

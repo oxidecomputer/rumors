@@ -46,7 +46,7 @@ use proptest::prelude::*;
 use rumors::{Peer, Retire, Rumors};
 
 use crate::common::action::{arb_local_actions, build_local};
-use crate::common::wire::{block_on, bootstrap_fork, wire_gossip};
+use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork, wire_gossip};
 
 /// Capacity for each in-memory link stream on the retirement path: a
 /// divergent retiree's session moves content through its gossip round, so
@@ -113,6 +113,7 @@ fn retire_into(retiree: Rumors<u64>, absorber: &Rumors<u64>) {
         let (retired, gossiped) =
             tokio::join!(retiree.retire(&mut r_link), absorber.gossip(&mut a_link));
         gossiped.expect("absorber gossip");
+        assert_control_drained(r_link, a_link);
         retired
     });
     assert!(
