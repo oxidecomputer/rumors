@@ -1256,7 +1256,13 @@ Classification:
   8.0 → 7.0 at its 512-per-side scale, the empty heartbeat
   session unchanged at 3.0 — and V1 wire snapshots are
   byte-identical (its greeting is the alternating protocol's
-  own). One deliberate rough edge: the preamble's wire version
+  own). Bench-measured [checked, 2026-07-18]: every delayed V2
+  cell dropped by exactly one one-way delay (insertions d=100:
+  919.4 → 820.5 ms ≈ 8 hops × 100 + compute, was 9; redactions
+  d=100: 809.8 → 710.3 ≈ 7 × 100 + compute, was 8; d=10 cells
+  −9.1/−9.5 ms; V1 controls flat). The cost side is visible and as documented:
+  converged zero-delay cells pay the carried listing (V2 d=0
+  redactions +~0.5 ms; the empty-session micro-cell ~20→28 µs). One deliberate rough edge: the preamble's wire version
   still reads 2, so a pre-change V2 peer meeting a post-change
   peer *hangs* at the greeting rather than failing cleanly at
   the preamble — the new side blocks forever on a listing frame
