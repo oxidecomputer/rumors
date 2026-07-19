@@ -12,11 +12,11 @@ use super::{Work, answer, assembly::assemble, queues::*, resolver::Resolver};
 use crate::tree::mirror::streaming::materialized::progress;
 use crate::tree::{
     mirror::streaming::{
-        Backend, Leaf, Node, Root,
+        Backend, Leaf, Root,
         materialized::{
             Error, OkReceiverStream, Query, Resolution, Violation,
             channel::{Receiver, Sender},
-            children_of,
+            children_of, fan_listing,
             unknown::{Unknown, unknown_providing},
             violation,
         },
@@ -37,10 +37,11 @@ where
 {
     /// Process the initiator level.
     ///
-    /// `fan` is the greeting-time root fan: the opening question it derives
-    /// here is byte-for-byte the listing the greeting already carried, which
-    /// is what lets the remote proxy satisfy this stage from the greeting
-    /// instead of a wire frame.
+    /// `fan` is the greeting-time root fan: the opening question is derived
+    /// from it by [`fan_listing`] — the same derivation the greeting itself
+    /// used — so it is structurally identical to the listing the greeting
+    /// already carried, which is what lets the remote proxy satisfy this
+    /// stage from the greeting instead of a wire frame.
     pub fn initiator_level(
         &mut self,
         ceiling: Version,
@@ -60,9 +61,7 @@ where
             #[cfg(test)]
             progress::wire(trace_id, Prefix::new());
             yield Reply {
-                replies: vec![message::Reaction::Query(
-                    fan.iter().map(|(radix, node)| (*radix, node.hash())).collect()
-                )],
+                replies: vec![message::Reaction::Query(fan_listing(&fan))],
             };
             let query = Query {
                 prefix: Prefix::new(),

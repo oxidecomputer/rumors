@@ -313,3 +313,6 @@ where
     );
     Connected::new(remote, epoch, connector, claims, route, work)
 }
+
+#[cfg(test)]
+mod tests;

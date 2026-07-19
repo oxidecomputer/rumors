@@ -1257,10 +1257,16 @@ Classification:
   session unchanged at 3.0 — and V1 wire snapshots are
   byte-identical (its greeting is the alternating protocol's
   own). One deliberate rough edge: the preamble's wire version
-  still reads 2, so a pre-change V2 peer desyncs at the greeting
-  rather than failing cleanly at the preamble — both ends ship
-  from this crate in lockstep, but a cross-version pair is not
-  gracefully rejected.
+  still reads 2, so a pre-change V2 peer meeting a post-change
+  peer *hangs* at the greeting rather than failing cleanly at
+  the preamble — the new side blocks forever on a listing frame
+  the old side never sends, a mutual stall with no typed error.
+  That is acceptable because **nothing has ever deployed either
+  protocol version — there are no existing peers, so no
+  wire-version bump or compatibility gate is required**
+  [decision, 2026-07-18; recorded here and in
+  `design/node-hash-preimage.md` §4]. After first deployment,
+  any future wire-format change will need one.
 - **Semi-avoidable: the tail marker (hop 5+L)** [saves 1; no
   bytes change, but a contract change]. The final hop is pure
   completion certification. Deferring marker *verification* to

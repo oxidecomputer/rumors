@@ -344,7 +344,14 @@ pub(crate) async fn greeting_fan<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync
     }
 }
 
-/// Derive the greeting's `(radix, hash)` listing from a greeting-time fan.
+/// Derive a `(radix, hash)` listing from a greeting-time fan.
+///
+/// This is the *single* derivation behind both the greeting's carried
+/// listing and the initiator's in-process opening question
+/// ([`Work::initiator_level`]). The remote
+/// proxy pairs the two positionally, so they must be byte-identical;
+/// routing both through this one function makes drift structurally
+/// impossible rather than a coincidence of two matching code bodies.
 pub(crate) fn fan_listing<N: Node<T>, T: Send + Sync + 'static>(
     fan: &[(u8, N)],
 ) -> Vec<(u8, Hash)> {
