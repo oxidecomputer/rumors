@@ -181,12 +181,17 @@ where
         request: message::Handshake,
     ) -> Result<protocol::Step<message::Handshake, Self::Next, Self::Output>, Self::Error> {
         // `request` is our local caller's handshake; ship it across to the
-        // peer, then read the peer's handshake reply. (If our caller is
-        // retiring, `request.intent` only announces the hand-off; the party
-        // itself travels as a trailing frame after reconciliation, via
-        // `send_party`.)
-        send_msg(&mut self.writer, &request).await?;
-        let peer: message::Handshake = recv_msg(&mut self.reader).await?;
+        // peer and read the peer's reply concurrently, mirroring the shared
+        // preamble and the V2 greeting. Both ends of a session run this same
+        // exchange, so a sequential write-then-read would deadlock the pair
+        // whenever the transport cannot absorb one full greeting frame in
+        // flight — and the version frame grows with party count, so "the
+        // greeting fits in the window" is a size assumption, not a contract.
+        // Only write/read concurrency changes here; the wire bytes are
+        // identical to the sequential form.
+        let send = send_msg(&mut self.writer, &request);
+        let receive = recv_msg::<message::Handshake, _>(&mut self.reader);
+        let ((), peer) = futures_util::future::try_join(send, receive).await?;
 
         // If the two versions are the same, both sides are immediately done.
         if request.version == peer.version {
