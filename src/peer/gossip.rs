@@ -1161,3 +1161,6 @@ fn alternating_error(error: tree::mirror::Error<std::convert::Infallible, Error>
         tree::mirror::Error::Server(error) => error,
     }
 }
+
+#[cfg(test)]
+mod tests;

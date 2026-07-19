@@ -33,3 +33,6 @@ where
     let bytes = FrameRead::new(reader).frame().await?;
     Party::try_from_slice(&bytes).map_err(Error::Io)
 }
+
+#[cfg(test)]
+mod tests;

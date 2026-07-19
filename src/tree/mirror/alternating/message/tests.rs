@@ -18,7 +18,7 @@ use proptest::prelude::*;
 use crate::Version;
 use crate::message::Message;
 use crate::tree::arb::{arb_root_node, arb_version, nth_party};
-use crate::tree::typed::height::{Height, Root, Z};
+use crate::tree::typed::height::{Height, Root, S, Z};
 use crate::tree::typed::{Hash, Node, Prefix, hash::MERKLE_HASH_LEN};
 
 use super as message;
@@ -232,4 +232,53 @@ fn uncertain_rejects_duplicate_prefix() {
     };
     let bytes = borsh::to_vec(&m).unwrap();
     assert!(message::Initiate::try_from_slice(&bytes).is_err());
+}
+
+// The `providing` channels carry whole wire-encoded nodes, so the node
+// decoder's structural checks (`src/tree/typed/node.rs`) are part of this
+// ingress. The three lies a wire node can tell about its own shape are
+// pinned here byte-by-byte; the elements of a valid encoding are pinned in
+// `mirror::wire_snapshot`.
+
+/// A node whose declared prefix length exceeds its typed height is rejected.
+///
+/// The first body byte is the path-compression count; at height 1 any value
+/// above 1 promises more singleton levels than the type admits, and the
+/// decoder must reject the byte itself (`InvalidData`) rather than recurse
+/// past the leaf floor.
+#[test]
+fn node_prefix_exceeding_height_is_rejected() {
+    let error = Node::<(), S<Z>>::try_from_slice(&[2]).unwrap_err();
+    assert_eq!(error.kind(), borsh::io::ErrorKind::InvalidData);
+}
+
+/// A branch declaring 257 children is rejected before any child is read.
+///
+/// The count byte stores `count - 2`, so its maximum (255) declares 257
+/// children — one more than the 256-ary radix alphabet admits. The decoder
+/// must reject the count (`InvalidData`) instead of reading children that
+/// cannot all be placed.
+#[test]
+fn node_child_count_overflow_is_rejected() {
+    let error = Node::<(), S<Z>>::try_from_slice(&[0, 255]).unwrap_err();
+    assert_eq!(error.kind(), borsh::io::ErrorKind::InvalidData);
+}
+
+/// Branch radices that fail to strictly ascend are rejected at the radix.
+///
+/// A two-child branch whose second radix repeats the first violates the
+/// canonical ascending order; the decoder must reject the second radix byte
+/// (`InvalidData`) rather than let one branch have two encodings.
+#[test]
+fn node_descending_radices_are_rejected() {
+    let leaf = borsh::to_vec(&Node::<(), Z>::leaf(one_version(), Message::new(()))).unwrap();
+    // prefix_len 0, count_minus_two 0 (two children), radix 5, its leaf,
+    // then a second radix that does not ascend.
+    let mut bytes = vec![0, 0, 5];
+    bytes.extend_from_slice(&leaf);
+    bytes.push(5);
+    bytes.extend_from_slice(&leaf);
+
+    let error = Node::<(), S<Z>>::try_from_slice(&bytes).unwrap_err();
+    assert_eq!(error.kind(), borsh::io::ErrorKind::InvalidData);
 }
