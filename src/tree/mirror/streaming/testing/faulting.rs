@@ -252,7 +252,7 @@ where
     fn initiator(
         self,
     ) -> (
-        impl Responses<B, (), height::UnderRoot, Self::Error>,
+        BoxResponses<B, (), height::UnderRoot, Self::Error>,
         Self::Next,
     ) {
         let (responses, next) = self.inner.initiator();

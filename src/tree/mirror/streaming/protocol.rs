@@ -124,7 +124,14 @@ pub trait Initiator<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
 {
     type Next: Protocol<Height = UnderRoot, Output = Self::Output, Error = Self::Error>;
 
-    fn initiator(self) -> (impl Responses<B, T, UnderRoot, Self::Error>, Self::Next);
+    fn initiator(
+        self,
+    ) -> (
+        // IMPORTANT: This must be boxed because otherwise `rustc` explodes on
+        // an exponentially-sized type!
+        BoxResponses<B, T, UnderRoot, Self::Error>,
+        Self::Next,
+    );
 }
 
 pub trait Responder<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:

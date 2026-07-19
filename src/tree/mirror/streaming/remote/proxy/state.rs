@@ -13,7 +13,7 @@ use crate::tree::{
         Backend, Leaf,
         channel::Receiver,
         convert::Convert,
-        protocol::{self, BoxResponses, Requests, Responses},
+        protocol::{self, BoxResponses, Requests},
         remote::{
             adapter::Scope,
             codec::{Speaker, Stream},
@@ -241,7 +241,7 @@ where
     /// No stream is claimed here: the opening's content already crossed
     /// inside the greeting's listing, and the initiator-direction opening
     /// stream never exists on the wire.
-    fn initiator(self) -> (impl Responses<B, T, UnderRoot, Self::Error>, Self::Next) {
+    fn initiator(self) -> (BoxResponses<B, T, UnderRoot, Self::Error>, Self::Next) {
         let mut session = self.diverged();
         debug_assert_eq!(session.remote, Speaker::Initiator);
         let (responses, scopes) = session.work.initiator();

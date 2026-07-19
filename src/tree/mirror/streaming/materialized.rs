@@ -101,7 +101,7 @@ use crate::tree::{
         Backend, Leaf, Node, Root,
         materialized::{unknown::Unknown, work::Work},
         message::{Handshake, Reaction, Reply},
-        protocol::{self, BoxResponses, Requests, Responses},
+        protocol::{self, BoxResponses, Requests},
         window::Window,
     },
     typed::{
@@ -446,7 +446,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol:
 {
     type Next = Descending<B, T, UnderRoot>;
 
-    fn initiator(self) -> (impl Responses<B, T, UnderRoot, Self::Error>, Self::Next) {
+    fn initiator(self) -> (BoxResponses<B, T, UnderRoot, Self::Error>, Self::Next) {
         let Connected {
             our_version,
             their_version,
