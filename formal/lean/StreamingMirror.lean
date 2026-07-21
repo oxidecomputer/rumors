@@ -8,6 +8,7 @@ import StreamingMirror.Invariant
 import StreamingMirror.Mux.Basic
 import StreamingMirror.Mux.Strategy
 import StreamingMirror.Mux.Instances
+import StreamingMirror.Mux.Controls
 import StreamingMirror.Proofs.Map
 import StreamingMirror.Proofs.Lemmas
 import StreamingMirror.Proofs.Wiring
