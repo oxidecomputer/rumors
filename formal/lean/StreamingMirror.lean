@@ -53,6 +53,13 @@ import StreamingMirror.Mux.Proofs.Chase.Closure
 import StreamingMirror.Mux.Proofs.Chase.Decode
 import StreamingMirror.Mux.Proofs.Chase.Keystone
 import StreamingMirror.Mux.Proofs.Chase
+import StreamingMirror.Mux.SigmaStar
+import StreamingMirror.Mux.Proofs.Steps
+import StreamingMirror.Mux.Proofs.Steps.Top
+import StreamingMirror.Mux.Proofs.Steps.WalkAsm
+import StreamingMirror.Mux.Proofs.Steps.Fire
+import StreamingMirror.Mux.Proofs.SigmaStarInv
+import StreamingMirror.Mux.Proofs.SigmaStarLive
 import StreamingMirror.Proofs.Endgame
 import StreamingMirror.Mux.Proofs.CommitTotality
 import StreamingMirror.Mux.Proofs.WcImpossibility
