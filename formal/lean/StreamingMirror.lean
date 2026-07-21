@@ -5,6 +5,7 @@ import StreamingMirror.Instances
 import StreamingMirror.Statement
 import StreamingMirror.Controls
 import StreamingMirror.Invariant
+import StreamingMirror.Mux.Basic
 import StreamingMirror.Proofs.Map
 import StreamingMirror.Proofs.Lemmas
 import StreamingMirror.Proofs.Wiring
