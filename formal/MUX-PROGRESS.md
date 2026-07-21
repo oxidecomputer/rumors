@@ -243,6 +243,56 @@ Dated entries accumulate here as phases complete; refuted approaches are
 recorded with their refutations, in the PROGRESS.md tradition of keeping
 the negative space on the record.
 
+### 2026-07-21 — σ\*-causal landed: charter-grain locality kernel-proven; the payload-erasure boundary named
+
+`Mux/Causal.lean` mints `sigmaStarCausal` — the Lean twin of the
+stage-0 probe's faulting view: the announced sub-skeleton accreted at
+arrivals (B5 positional decode, records, and the kid-label stratum the
+parent frame carries), truncating peer-endpoint trace layouts, the
+causal closure with every `istepOk` guard routed through the announced
+family, and the demand rule verbatim. **`sigmaStarCausal_charterLocal`
+is kernel-proven for both parties, definitionally** — the strategy's
+one skeleton read is `aviewOf`, so invariance at Finch's F3 grain
+(equal announced views at `.impl`-consistent observations;
+`ConsistentImpl` binds the mode per the phase-4 handoff) is a rewrite
+over a wf-free history-attribution induction. Per the F3 ruling the C1
+statement of record moved: `C1StatementCharter` quantifies
+`CharterLocal`, and `c1_charter_false` refutes it via
+⟨1, σ\*-causal, σ\*-causal⟩ with locality PROVEN and deadlock freedom
+the one named hypothesis — the residue inverts onto the probe-checked
+side (4,970/4,970; in-kernel: `smokeChain_sigmaStarCausal_completes`
+and **`wedge_sigmaStarCausal_completes`** — the causal pair drives the
+provision wall every work-conserving pair jams, frames 2..7 pushed on
+closure-proven demand, `decide`, ~6 min kernel time, accepted as the
+liveness anchor until coverage lands). FINDINGS: (i) **the two locality
+grains are INCOMPARABLE** — the expected a-fortiori transfer fails both
+ways (`LocalEq` erases announced content: answerer-side R kids,
+`leafReqs`; announced views omit unannounced view structure), so each
+C1 form keeps its own witness; the legacy `C1Statement`/
+`c1_literal_false` stay as internal artifacts. (ii) **Payload erasure
+is a hard boundary**: refute-c1 §1.2's minting rules are realizable
+only through B5 frame content — the labels a party's layouts need
+(peer-determined D/R/M of held children, `leafReqs`, answerer-side kid
+censuses) ride payloads the `MObs` alphabet erases, and the alternation
+parity keeps the peer-stage kind marks off the party's own commit
+ledger forever. A `viewEnc`+ledger surrogate (designed in full, then
+rejected for the record: d4/d6 commit pacing pins the p-asked-side data
+but not the peer-stage marks) under-derives and starves on the wedge —
+so an `MObs`-only "local" strategy is NOT a C1 witness at any grain,
+and the probe's B5 reads are essential, not a convenience. This is the
+code-vs-prose disagreement the relaunch charter anticipated: §1.2's
+"as soon as the parent's listing has arrived" is a statement about
+frame CONTENT; causal-reference.py implements it correctly, the prose
+just never says it is leaning on B5. RESIDUE (T8's critical path,
+unchanged in substance, sharpened in form): the causal coverage re-run
+— at stuck drained states every event τ-below the withheld push enters
+`inevitableA`, whose new content beyond T4's induction is exactly
+"every consulted announced record's minting arrival sits τ-below the
+consulting event" — plus the `inevitableA ⊆ inevitable` containment
+that re-uses the landed keystone for Step 1 (announced layouts are
+true-trace prefixes by construction, so both are trace-grammar lemmas,
+not new closure theory).
+
 ### 2026-07-21 — The locality residue adjudicated by Finch: σ\*-causal dispatched
 
 Finch's ruling on the `sigmaStar_local` residue, recorded for the
