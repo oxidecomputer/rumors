@@ -16,7 +16,7 @@ Three kinds of content:
   of record live on the margin-0 class, MUX-ADJUDICATION §2.6).
 - **executable-tier strategies** — `roundRobin` (the probe's `rr`
   policy: a second work-conserving entry, deliberately NOT in the
-  theorem modules) and `pushList`/`demandOrder` (the demand-order
+  theorem modules) and `pushList`/`piOrder` (the demand-order
   pusher of MUX-ADJUDICATION §1.3 run executably: pushes π_d in order,
   idles otherwise — the idle-capable matrix entry and the executable
   forerunner of T5's `ofSchedule (demandOrder …)`).
@@ -174,7 +174,7 @@ def pushList (frames : List Nat) : Strategy := fun _ tr =>
 the receive events on `d`'s wire channels, projected from the `.impl`
 canonical schedule (MUX-ADJUDICATION §1.3's π_d, run executably).
 
-`pushList (demandOrder sk d)` is the demand-order pusher — T5's
+`pushList (piOrder sk d)` is the demand-order pusher — T5's
 `ofSchedule (demandOrder …)` run exactly, not the state-feedback
 proxy. It completes the pinned and wedge families at every C ≥ 1, but
 it is NOT deadlock-free on the margin-0 class: muxprobe's `rand2`
@@ -184,8 +184,14 @@ of the state-feedback oracle" reading of §1.3 is executably false and
 T5 must take the adjudication's named fallback. The projection stays
 here, in the executable tier, precisely because it is now a refuted
 candidate: the matrix keeps both its positive shape and its wedge
-pinned. -/
-def demandOrder (sk : Skel) (d : Party) : List Nat :=
+pinned.
+
+Named `piOrder` (π_d as a frame list): the kernel twin is
+`demandOrder` (Oracle/Controls.lean, where `static_oracle_jams`
+consumes it), and this executable copy ceded the name at the stage-3
+merge — Muxprobe opens both namespaces, and the theorem-bearing
+definition keeps the adjudication's vocabulary. -/
+def piOrder (sk : Skel) (d : Party) : List Nat :=
   (Sched.scheduleE sk).filterMap fun e =>
     match e with
     | (.wire p h, false, _) => if p == d then some h else none

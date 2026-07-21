@@ -126,7 +126,7 @@ work-conserving entries only). `demand` closes over the precomputed
 def strategiesFor (sk : Skel) : List (String × Strategy × Strategy × Bool) :=
   [("bottom", bottomMostReady, bottomMostReady, true),
    ("rr", roundRobin, roundRobin, true),
-   ("demand", pushList (demandOrder sk .I), pushList (demandOrder sk .R),
+   ("demand", pushList (piOrder sk .I), pushList (piOrder sk .R),
     false)]
 
 /-- The interleaving axis for one skeleton. -/
@@ -274,8 +274,8 @@ def runRandom (n : Nat) : Array String × Nat × Nat × Nat := Id.run do
         errs := errs.push s!"seed {seed}: bottom C=1 exhausted fuel"
       if rb.outcome == .stuck then
         bottomJams := bottomJams + 1
-      let σI := pushList (demandOrder sk .I)
-      let σR := pushList (demandOrder sk .R)
+      let σI := pushList (piOrder sk .I)
+      let σR := pushList (piOrder sk .R)
       let mut wedged := false
       for c in [1, 2] do
         let rd := runProbe sk .impl c σI σR (orderGreedy sk) fuel false
@@ -339,8 +339,8 @@ def hcCommentary : IO Unit := do
     let fuel := fuelFor sk
     let (bo, base) := roundsBase sk .impl fuel
     let (mo, bottom) := roundsMux sk .impl 1 bottomMostReady bottomMostReady fuel
-    let σI := pushList (demandOrder sk .I)
-    let σR := pushList (demandOrder sk .R)
+    let σI := pushList (piOrder sk .I)
+    let σR := pushList (piOrder sk .R)
     let (dmo, demand) := roundsMux sk .impl 1 σI σR fuel
     IO.println
       s!"    {name}: base {base} ({bo.str}), bottom-mux {bottom} ({mo.str}), demand-mux {demand} ({dmo.str})"

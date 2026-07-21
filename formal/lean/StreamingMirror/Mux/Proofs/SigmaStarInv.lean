@@ -1663,6 +1663,23 @@ theorem sinv_reachable (hwf : sk.wellFormed = true) {C : Nat}
         rfl
   | step a hr' hstep ih => exact sinv_step hwf hstep ih
 
+/-- The transport ground facts hold at every reachable muxed state,
+for every strategy pair: the MUX-ADJUDICATION §4 stage-F obligation,
+discharged — both stage-3 assemblies (T4's σ* and T5's oracle)
+consume `MuxInv` through this.
+
+Integration note (stage 3): tracks E and F each closed stage F
+independently — E as a standalone `MuxInv`-only sweep
+(`muxInv_preserved`/`muxInv_reachable`, Preserve/), F as this file's
+`SInv` sweep, which carries `HistInv` alongside. The merge kept F's
+(strictly more is proven per step, and T4's stack already consumes
+it); E's theorem name survives as this projection so its consumers
+port verbatim. -/
+theorem muxInv_reachable (hwf : sk.wellFormed = true) {C : Nat}
+    {σI σR : Strategy} {s : MState}
+    (hr : MReachable sk .impl C σI σR s) : MuxInv sk s :=
+  (sinv_reachable hwf hr).mux
+
 -- ================================================ σ*'s push certificates
 
 /-- Extending a history by one observation keeps every push

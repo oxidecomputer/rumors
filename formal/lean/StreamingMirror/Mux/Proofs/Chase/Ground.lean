@@ -123,7 +123,16 @@ collision (Wiring.lean's note), so `delivered_eq` is FALSE there at any
 state where that walk has consumed — the unguarded form is not an
 invariant of the muxed system at all. Consumers recover the guard from
 `pushed_mem` (transport-side channels) or from trace membership
-(`evUniv_wire_mem`, Chase/Decode.lean). -/
+(`evUniv_wire_mem`, Chase/Decode.lean).
+
+Integration note (stage 3): tracks E and F each caught the unguarded
+`delivered_eq` breaking at the phantom channel and repaired it
+independently — F with the guards plus the `pushed_mem` field (this
+structure, load-bearing under T4's stack), E with the guards plus a
+`pushed_real` field, the contrapositive of `pushed_mem`. The merge
+kept F's field; E's spelling survives as the derived lemmas
+`pushed_real` and `delivered_real` below, which E's oracle consumers
+use for phantom-corner vacuity. -/
 structure MuxInv (sk : Skel) (s : MState) : Prop where
   invl : InvL sk .impl s.base
   slot : ∀ c ∈ allChans sk, s.base.chan c ≤ sk.cap c
@@ -182,6 +191,24 @@ theorem flow_wire (hm : MuxInv sk s) (p : Party) (h : Nat)
   have h1 := hm.pushed_eq p h hmem
   have h2 := hm.pushed_split p h
   have h3 := hm.delivered_eq p h hmem
+  omega
+
+/-- Phantom wire channels are never pushed: `pushed_mem` in the
+contrapositive spelling track E minted as a field — kept as a derived
+lemma after the merge picked F's `pushed_mem`. -/
+theorem pushed_real (hm : MuxInv sk s) (p : Party) (h : Nat)
+    (hph : Chan.wire p h ∉ allChans sk) :
+    pushedCount (s.hist p) h = 0 := by
+  by_contra hne
+  exact hph (hm.pushed_mem p h hne)
+
+/-- Phantom wire channels carry no deliveries: FIFO plus `pushed_real`
+— the vacuity door for every guarded wire fact. -/
+theorem delivered_real (hm : MuxInv sk s) (p : Party) (h : Nat)
+    (hph : Chan.wire p h ∉ allChans sk) :
+    deliveredCount (s.hist p.other) h = 0 := by
+  have h1 := hm.delivered_le_pushed p h
+  have h2 := hm.pushed_real p h hph
   omega
 
 /-- At the push time of the pipe head, every already-pushed frame is

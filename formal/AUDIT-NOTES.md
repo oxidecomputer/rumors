@@ -151,6 +151,31 @@ gadget's status deliberately). So F8 defends the totality boundary of
 state. No misalignment — recorded so nobody later reads the F8 control
 as evidence of a live protocol hazard.
 
+## A11. `MuxInv.delivered_eq` was falsifiable at reachable states — caught and repaired by the stage-F induction
+
+**[proven-adjacent, 2026-07-21, stage-3E]** The stage-2B ground-fact
+interface quantified `delivered_eq` over ALL `(party, height)` wire
+pairs, but `recvdOf`'s totalization aliases the phantom channel
+`wire I 0` onto walk `(R, 0)`'s prologue cursor (the `h - 1` Nat
+truncation): once that walk consumes its first frame — as it must in
+any completing run — the unguarded equation is false, so `MuxInv` was
+UNSATISFIABLE past early run prefixes. Nothing kernel-checked was
+wrong (preservation had not yet been proven; `muxInv_init` holds; the
+keystone/chase take `MuxInv` as a hypothesis), but any theorem
+consuming `MuxInv` through an ASSUMED preservation hypothesis would
+have been quietly vacuous at those states — exactly the failure mode
+the task's "try hard to close preservation, don't just assume it"
+discipline exists to catch, and it was caught by the per-arm delta
+extraction (the `walkRecvWire` arm's wire-sum conjunct is unprovable
+unguarded). Repair in Chase/Ground.lean: `delivered_eq` guarded to
+the real wire family, new `pushed_real` field, `flow_wire` guarded,
+phantom corners discharged by vacuity everywhere (keystone, oracle).
+Lesson for the suite: every totalized accessor (`Skel.scope`'s
+default, `recvdOf`/`sentOf` off-family arms, `askedOut`'s `h < 2`
+clamp) is a place where an ∀-quantified invariant can silently cross
+into junk territory; quantify invariants over the real family and
+carry a realness field, or prove the junk frames explicitly.
+
 ## A4. Reader-visible claims to spot-check opportunistically
 
 **[reported]** Low-priority, none currently believed wrong:

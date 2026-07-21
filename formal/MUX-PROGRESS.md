@@ -90,7 +90,13 @@ history).** The conjectures resolve as a trichotomy:
   direction d's wire channels (the send projection is FALSE in general:
   cross-stream skew is the protocol's pipelining). Necessity is
   class-relative: nonlocal information is necessary for liveness *under
-  work-conservation*, not for liveness alone.
+  work-conservation*, not for liveness alone. **[Superseded in stage
+  3: the receive projection was executably refuted (P2) and the
+  kernel oracle of record is the SEND projection — see the 2026-07-21
+  track-E log entry. The parenthetical above got it exactly backwards:
+  the send projection's cross-stream skew is absorbed by the
+  per-stream demux slots, and it is the receive projection that
+  jams.]**
 - **The mysterious third thing, named**: the announcement prefix the
   protocol already carries + FIFO positional arithmetic + the
   inevitability closure — nothing new on the wire. What credits smuggle
@@ -558,6 +564,53 @@ per-direction (K_I, K_R) parameterization.
   sharpens the trichotomy and is a statement-strength lesson: the
   receive-projection argument was [derived] and wrong on a corner the
   executable tier caught before any Lean was written.
+- **2026-07-21** Stage-3 track E landed (`lake build` green at 259
+  jobs, zero sorry, kernel decide only): **T5 `oracle_deadlock_free`
+  in full, unconditional generality** — the oracle completes every
+  wellFormed + margin-0 skeleton over the single-pipe transport at
+  every C ≥ 1 (C₀ = 1) — plus **T6 `necessity`** (the trichotomy
+  conjunction, per the adjudication template), the T9 locality
+  controls, and the `static_oracle_jams` kernel pin. **FINDING,
+  statement-strength (sharpens the track-C finding):** the
+  state-feedback fallback needs no state feedback — the oracle of
+  record is the STATIC send-projection pusher (`sendProj` = τ's wire
+  SEND projection, pushed in order, indexed by own flush count),
+  exactly as non-adaptive and as informed as the refuted
+  receive-projection pusher. "Adaptivity, not information, is the
+  liveness ingredient" is refuted at kernel tier: the ingredient is
+  the ORDER. Consumption-order pushing jams because ledger
+  dependencies can force a send early whose consumption comes late;
+  emission-order pushing is safe because per-stream demux slots absorb
+  exactly that skew. Proof: `OracleInv` (pushes = τ-prefix of the send
+  projection; history-only preservation) turns FIFO pipe positions
+  into τ positions, so at a stuck state the head-cycle argmin closes
+  with no drain lemma — burial would need τ(f) ≤ τ(r₀) < τ(head) <
+  τ(f) (cover, E2, τ-prefix). The drained case reuses track B's chase;
+  `oracle_names` shows the oracle takes the withheld push. **Stage-F
+  `MuxInv` preservation discharged strategy-parametrically**
+  (`muxInv_reachable`, all arms; per-arm InvL/delta extractions from
+  the monolithic base Preserve tree in
+  `Mux/Proofs/Preserve/{TopFin,WalkAsm,Fire}.lean` + Glue, monoliths
+  untouched) — T4's Step-1 hypothesis is in hand for track F.
+  **INTERFACE FINDING (soundness-critical, AUDIT-NOTES A11):** the
+  preservation induction caught `MuxInv.delivered_eq` unsatisfiable at
+  reachable states — `recvdOf` aliases the phantom `wire I 0` onto
+  walk `(R,0)`'s cursor (Nat `h−1` truncation) — repaired by guarding
+  the wire-family fields to `allChans` and adding `pushed_real`; had
+  preservation been left as an assumed hypothesis, T5 would have been
+  quietly vacuous past early prefixes. Controls (kernel decide):
+  `static_oracle_jams`/`static_oracle_not_deadlockFree` (the
+  receive-projection pusher jams `piWedge` = `genSkelM0 2859`
+  materialized, 19 scopes, C = 1; muxprobe's 240-scope `rand2` stays
+  executable-tier) vs `piWedge_oracle_completes`;
+  `wedge_oracle_completes` (the oracle completes the exact skeleton
+  that kills every WC pair) and `smokeChain_oracle_completes`, both
+  C = 1; T9 `localEq_nondegenerate`, `demandOrder_not_local`,
+  `oracle_not_local`, `oracle_not_local_behavioral` (responder-side
+  leafReqs-erasure pair; initiator-side view-invariance of both
+  projections on all searched instances recorded as an observation).
+  Executable cross-checks: oracle Terminal on rand2, wedge, piWedge,
+  w181 and the pins at C = 1 (greedy + push-first interleavings).
 - **2026-07-21** Stage 1 landed (three commits, `lake build` green at
   241 jobs, kernel-only trust): `Mux/Basic.lean` (the harness of
   record — hand + pipe(C) of Chan tags + demux slots, no staging cell,
