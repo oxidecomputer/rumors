@@ -300,3 +300,20 @@ the negative space on the record.
   incorporated as conditions. Alignment findings A5–A8 recorded.
   Dispatched next: stage 0 (blocking causal-σ* probe gates P1–P4) and
   stage 1 (the Mux/ Lean harness) in parallel.
+- **2026-07-21** Stage 1 landed (three commits, `lake build` green at
+  241 jobs, kernel-only trust): `Mux/Basic.lean` (the harness of
+  record — hand + pipe(C) of Chan tags + demux slots, no staging cell,
+  F8-strengthened wire close), `Mux/Strategy.lean` (observations with
+  slot-peek, `WorkConserving`, `LocalEq`/`LocalStrategy`),
+  `Mux/Instances.lean` (the `wedge` literal + T0 pins). Bonus beyond
+  plan: `wedge_bottomMostReady_jams` — the shipped discipline's jam on
+  wedge at C = 1 is already kernel-decided (~70 forced steps, also
+  verified jamming at C = 2). Deviations recorded in code comments
+  (MObs/Strategy placement, margin-0 soundness bridge, viewEnc token
+  serialization). Stage 2 dispatched: four parallel worktree tracks —
+  A: Mux controls + `commit_totality` (T1) + `wc_impossibility` (T3);
+  B: the repaired Keystone + τ-chase infrastructure (T2, shared by both
+  stage-3 theorems); C: the `muxprobe` executable tier + gate wiring;
+  D: the Rust proptest bridges (wedge realizability, LocalEq soundness,
+  B5 announced-skeleton reconstruction). Stage-0 causal-σ* gate still
+  running.
