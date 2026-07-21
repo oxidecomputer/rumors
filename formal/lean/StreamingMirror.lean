@@ -72,4 +72,5 @@ import StreamingMirror.Mux.Proofs.Oracle.Order
 import StreamingMirror.Mux.Proofs.Oracle
 import StreamingMirror.Mux.Proofs.Oracle.Controls
 import StreamingMirror.Mux.Proofs.Necessity
+import StreamingMirror.Mux.Proofs.Termination
 import StreamingMirror.Proofs.Wide

@@ -49,6 +49,12 @@ the state-feedback fallback form of record): the send-projection pusher
 completes every well-formed margin-0 skeleton over the single-pipe
 transport at every capacity C ≥ 1 — C₀ = 1 suffices.
 
+"Completes" is two kernel facts: no reachable stuck state (this
+theorem) and no infinite run (`mux_terminating`,
+Mux/Proofs/Termination.lean) — packaged there as
+`oracle_greedy_run_terminal`, the greedy oracle drain reaching
+`mterminal` within 2·ρ(init) steps.
+
 Capacity is denominated in messages (= scope replies); byte-level
 soundness of one-reply slots is design/streaming-wire-deadlock.md §5A's
 W = 1 structural argument, assumed at the model boundary
@@ -63,10 +69,13 @@ theorem oracle_deadlock_free (hwf : sk.wellFormed = true)
 /-- T6, `necessity` (MUX-ADJUDICATION §3): the trichotomy's two halves
 conjoined — the wedge kills every work-conserving pair at every
 capacity, while the oracle completes every margin-0 skeleton at
-capacity one.
+capacity one ("completes" in T5's grounded sense: stuck-freedom here,
+termination via `mux_terminating`, Mux/Proofs/Termination.lean).
 
 Read per the module doc: nonlocal information is necessary for
-liveness under work-conservation, and not for liveness alone. -/
+liveness under work-conservation, and not for liveness alone. The
+work-conserving class in the first conjunct is kernel-inhabited
+(`bottomMostReady_wc`, Mux/Proofs/Inhabitation.lean). -/
 theorem necessity (C : Nat) (hC : 1 ≤ C) :
     (∀ σI σR : Strategy, WorkConserving .I σI → WorkConserving .R σR →
         ¬ MuxDeadlockFree wedge .impl C σI σR)
