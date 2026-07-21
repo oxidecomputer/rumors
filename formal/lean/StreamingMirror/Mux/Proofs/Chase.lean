@@ -29,8 +29,13 @@ T4 (σ*): Step 1 uses the keystone (with `MuxInv.pushtime_delivered`
 discharging the FIFO wall at the pipe head's push time) to drain the
 pipes at any stuck candidate; Steps 2–3 are this chase; Step 4 (the
 coverage induction) shows the withheld frame's demand proof succeeds
-from the τ-below traffic, refuting σ*'s idling — the one genuinely new
-induction left to stage 3, gated on the stage-0 probe.
+from the τ-below traffic, refuting σ*'s idling. Stage 3 has LANDED all
+of it: the strategy is Mux/SigmaStar.lean, the `MuxInv`/`SInv`
+preservation induction (with the per-arm `InvL` extraction the plan
+flagged) is Mux/Proofs/Steps* + Mux/Proofs/SigmaStarInv.lean, and
+Steps 1–4 assemble into `sigmaStar_deadlock_free` in
+Mux/Proofs/SigmaStarLive.lean, with the C1 verdicts and the
+closure-is-load-bearing control in Mux/Proofs/C1.lean.
 -/
 import StreamingMirror.Mux.Proofs.Chase.Keystone
 
@@ -318,24 +323,26 @@ the stage-3 `MuxInv` preservation induction, and the interface's
 non-vacuity certificate. -/
 theorem muxInv_init (sk : Skel) : MuxInv sk (init sk) := by
   refine ⟨((inv_iff sk .impl (Model.init sk)).mp (inv_init sk .impl)).local,
-    ?_, ?_, ?_, ?_, ?_, ?_⟩
+    ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro c _
     exact Nat.zero_le _
   · intro c _ _
     rw [show (init sk).base = Model.init sk from rfl,
       sentOf_init, recvdOf_init]
     rfl
-  · intro p h
+  · intro p h _
     rw [show (init sk).base = Model.init sk from rfl, sentOf_init]
     rfl
   · intro p
     rfl
   · intro p
     rfl
-  · intro p h
+  · intro p h _
     rw [show (init sk).base = Model.init sk from rfl, recvdOf_init,
       chan_init]
     rfl
+  · intro p h hne
+    exact absurd rfl hne
 
 -- ================================= kernel-tier non-vacuity anchors
 -- The closure definitions would satisfy the keystone vacuously if they

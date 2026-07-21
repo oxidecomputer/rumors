@@ -74,21 +74,25 @@ theorem keystone (hwf : sk.wellFormed = true)
     (harr : ∀ h, deliveredCount tr h ≤ deliveredCount (s.hist p) h) :
     ∀ e ∈ inevitable sk p tr, performed sk s.base e := by
   -- grounded members are performed outright: the count walls meet the
-  -- slot equation and wire flow conservation
-  have hground_perf : ∀ x, groundedPush p tr x = true →
+  -- slot equation and wire flow conservation (the membership guard on
+  -- the count equations is discharged by trace realness: grounded
+  -- events live in the universe, whose wire channels are `allChans`
+  -- members — `evUniv_wire_mem`)
+  have hground_perf : ∀ x ∈ evUniv sk, groundedPush p tr x = true →
       performed sk s.base x := by
-    intro x hg
+    intro x hx hg
     obtain ⟨q, hh, n, rfl, hcase⟩ := groundedPush_inv hg
+    have hmem : Chan.wire q hh ∈ allChans sk := evUniv_wire_mem hwf hx
     rw [performed_snd_iff]
     rcases hcase with ⟨rfl, hlt⟩ | ⟨rfl, hlt⟩
     · have h1 := hfifo hh
-      have h2 := hm.delivered_eq q hh
-      have h3 := hm.flow_wire q hh
+      have h2 := hm.delivered_eq q hh hmem
+      have h3 := hm.flow_wire q hh hmem
       omega
     · have h1 := harr hh
-      have h2 := hm.delivered_eq p.other hh
+      have h2 := hm.delivered_eq p.other hh hmem
       rw [Party.other_other] at h2
-      have h3 := hm.flow_wire p.other hh
+      have h3 := hm.flow_wire p.other hh hmem
       omega
   intro e₀ he₀
   by_contra hnp₀
@@ -115,7 +119,7 @@ theorem keystone (hwf : sk.wellFormed = true)
       omega
   -- how did e enter the closure?
   rcases inevitable_inv heI with hg | hstep
-  · exact hnp (hground_perf e hg)
+  · exact hnp (hground_perf e (inevitable_subset_univ e heI) hg)
   -- I-step member: decode its trace
   obtain ⟨T, hT, heT⟩ := mem_evUniv.mp (inevitable_subset_univ e heI)
   have hL : InvL sk .impl s.base := hm.invl
@@ -188,12 +192,14 @@ theorem keystone (hwf : sk.wellFormed = true)
             obtain ⟨q', hh', n', heq, hcase⟩ := groundedPush_inv hpg
             simp only [Prod.mk.injEq, Chan.wire.injEq, true_and] at heq
             obtain ⟨⟨rfl, rfl⟩, rfl⟩ := heq
+            have hmemc : Chan.wire q hh ∈ allChans sk :=
+              evUniv_wire_mem hwf (inevitable_subset_univ _ heI)
             rcases hcase with ⟨rfl, hlt⟩ | ⟨rfl, hlt⟩
             · have h1 := hfifo hh
-              have h2 := hm.delivered_eq q hh
+              have h2 := hm.delivered_eq q hh hmemc
               omega
             · have h1 := harr hh
-              have h2 := hm.delivered_eq p.other hh
+              have h2 := hm.delivered_eq p.other hh hmemc
               rw [Party.other_other] at h2
               omega
           · -- internal receive: the send is τ-below, hence performed,
