@@ -7,25 +7,35 @@ items that turn out benign, with the reasoning that cleared them. Epistemic
 key as in PROGRESS.md; additionally **[reported]** = surfaced by a phase-1
 reader agent, not yet re-verified by the coordinator.
 
-## A1. Termination: prose claims a theorem, the artifact has a witness — RESOLVED, wording gap only
+## A1. Termination is not a kernel theorem — CONFIRMED, misalignment between prose and artifact
 
-**[reported, 2026-07-21]** MODEL.md §1 lists "(ii) Termination: every
-maximal run reaches `Terminal`" under "**Proved** about the model", with
-the ρ-decrease argument (§7). The phase-1 Lean reader found **no
-standalone kernel termination theorem**: termination evidence is (a) the
-ρ argument as prose, (b) `replaySchedule` running the canonical schedule
-to `terminal` on the pinned matrix, gate-checked executably. If accurate,
-"proved" in MODEL.md §1(ii) overstates the Lean artifact for the general
-statement (every maximal run, every well-formed schedulable skeleton),
-though the DeadlockFree flagships are unaffected.
+**[verified by coordinator, 2026-07-21]** MODEL.md §1 lists "(ii)
+Termination: every maximal run reaches `Terminal`" under "**Proved**
+about the model", via §7's ρ argument ("every step fires 1 op, so ρ
+strictly decreases; run length ≤ ρ(init)"). Verified directly: the Lean
+artifact contains **no ρ definition, no step-decreases-measure lemma,
+and no termination theorem** (grepped `Proofs/`, `Model.lean`,
+`EventDag.lean` for rho/decrease/measure/termination shapes — nothing).
+The termination evidence is: the §7 paper argument [derived]; Apalache
+BMC exhaustive at depth ρ(init)+1 on the Phase A instances [checked,
+per-instance]; schedule-replay-to-terminal witnesses [checked,
+per-instance]. The kernel-proven flagships (`Sched.deadlock_free`,
+`deadlock_free_d5`) claim progress only — "no reachable stuck state" —
+which is genuine deadlock-freedom, unaffected by this note.
 
-To verify: search for a lemma of shape `ρ`-decrease
-(`apply … → rho s' < rho s`) or `∀ run, maximal → terminal` in Proofs/;
-check whether MODEL.md §7's "no fairness hypothesis: every action strictly
-decreases ρ" is a Lean lemma or only a design argument. If confirmed,
-either (i) prove the ρ-decrease lemma (likely small: 23-case action
-analysis) and derive termination, or (ii) soften MODEL.md §1(ii) to
-[checked] status. Surfaced to Finch in the phase-1 report.
+So the honest statement of the artifact is: **deadlock-freedom
+kernel-proven for all well-formed schedulable skeletons; termination
+[derived] in general and [checked] per pinned instance.** MODEL.md §1's
+wording ("Proved") is accurate for the Quint/Apalache phase's exhaustive
+per-instance tier but overstates the Lean tier's general claim.
+
+Remedies, either sufficient: (i) prove the ρ-decrease lemma in Lean —
+likely small (define ρ as summed remaining program lengths; 23-case
+action analysis, each case a list-length computation) — and derive
+`terminating : ∀ runs, finite ∧ ends Terminal`; or (ii) soften MODEL.md
+§1(ii) to [checked]/[derived] status. NOTE: the mux campaign's C2
+positive half needs a "completes" (not just "never stuck") statement, so
+remedy (i) may fall out of phase 3 anyway — prefer it.
 
 ## A2. `schedulable ⟺ event-DAG acyclicity` is checked, not proven — documented, no misalignment
 
