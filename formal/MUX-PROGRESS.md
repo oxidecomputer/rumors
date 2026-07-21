@@ -241,7 +241,18 @@ work out of its own context and distills results here:
    arithmetic + inevitability closure; credits carry computation and
    timing, not information), and the engineering consequence (the
    single-socket design) each placed where understanding wants them,
-   not where we found them.
+   not where we found them. Fold in the recognition at the heart of
+   the C2 chapter (per Finch, 2026-07-21): the oracle was never a new
+   object — it is the send projection of τ, the deadlock-freedom
+   proof's own canonical witness schedule, built long before the
+   conjecture was posed and for an unrelated purpose. The order that
+   solves the single-channel problem is the order in which the
+   canonical unmuxed execution produced its frames; feasibility is
+   inherited from the witness execution — which is precisely why the
+   send projection lives where the receive (consumption-order)
+   projection jams. Nothing new had to exist; it had to be recognized.
+   The exposition should present C2 this way: recognition, not
+   construction.
 
 ## 4. Findings
 
@@ -249,7 +260,38 @@ Dated entries accumulate here as phases complete; refuted approaches are
 recorded with their refutations, in the PROGRESS.md tradition of keeping
 the negative space on the record.
 
-### 2026-07-21 — The locality residue adjudicated by Finch: σ\*-causal dispatched
+### 2026-07-21 — Stage-3 track E landed and merged: T5 and T6 CLOSED, stage 3 complete
+
+**`oracle_deadlock_free` and `necessity` are kernel-checked** (zero
+sorry, 265 jobs green at merge; axiom audit clean across all statements
+of record): the static SEND-projection pusher (`sendProj` = τ's wire
+send projection, consulted only through the machine's own flush count)
+completes every well-formed margin-0 skeleton at every C ≥ 1, and the
+trichotomy conjunction T6 rides on it plus T3. The statement-strength
+sharpening stands: the liveness ingredient is the ORDER, not adaptivity
+and not information (`static_oracle_jams` pins the receive-projection
+pusher's jam at kernel tier; T9's locality controls pin nonlocality).
+INTEGRATION DECISIONS (E was developed parallel to F, and two pieces of
+work were done twice): (1) the `MuxInv` phantom-channel repair — both
+tracks independently caught unguarded `delivered_eq` false at `wire I 0`
+(AUDIT-NOTES A11) — resolved to F's shape (`allChans` guards +
+`pushed_mem`), already load-bearing under T4's ~6.2k-line stack; E's
+`pushed_real` is its contrapositive and survives as a derived lemma
+(with `delivered_real`), so E's consumers ported without proof changes;
+E's three unguarded `pushed_eq` uses discharge the guard from schedule
+provenance (`scheduleE_wire_mem`, new in Oracle.lean). (2) The stage-F
+preservation sweep — E's strategy-parametric `muxInv_preserved` stack
+(Preserve/, ~5.8k lines) vs F's `sinv_reachable` (SigmaStarInv.lean) —
+resolved to F's: both are ∀-strategy, but F's proves strictly more per
+step (`HistInv` rides along) and was already consumed by T4; E's stack
+was retired unmerged and its `muxInv_reachable` kept as the thin
+`MuxInv` projection of `sinv_reachable`, which T5's assembly
+(Necessity.lean) consumes verbatim. T4 and T5 therefore stand on the
+one sweep. (3) `Gen.demandOrder` ceded its name to E's theorem-bearing
+`demandOrder` (Oracle/Controls.lean) and is now `Gen.piOrder` —
+Muxprobe opens both namespaces, and the adjudication's vocabulary
+belongs to the kernel object. Stage 3 is complete: T1–T7 closed, T8
+remains the named stretch, T10 scheduled.
 
 Finch's ruling on the `sigmaStar_local` residue, recorded for the
 negative space: the accept-the-hypothesis-with-a-Rust-bridge option is
@@ -592,6 +634,10 @@ per-direction (K_I, K_R) parameterization.
   the monolithic base Preserve tree in
   `Mux/Proofs/Preserve/{TopFin,WalkAsm,Fire}.lean` + Glue, monoliths
   untouched) — T4's Step-1 hypothesis is in hand for track F.
+  *[Integration note: track F closed the same obligation in parallel
+  (`sinv_reachable`); at the merge E's Preserve/ stack was retired in
+  favor of F's sweep and `muxInv_reachable` became its `MuxInv`
+  projection — see the stage-3 track-E merge entry in §4.]*
   **INTERFACE FINDING (soundness-critical, AUDIT-NOTES A11):** the
   preservation induction caught `MuxInv.delivered_eq` unsatisfiable at
   reachable states — `recvdOf` aliases the phantom `wire I 0` onto

@@ -176,6 +176,14 @@ clamp) is a place where an ∀-quantified invariant can silently cross
 into junk territory; quantify invariants over the real family and
 carry a realness field, or prove the junk frames explicitly.
 
+**Independently rediscovered by track F** (its own preservation sweep
+hit the same unprovable arm; MUX-PROGRESS §4, the track-F entry),
+which strengthens the finding: two agents running the induction from
+the same interface, with no shared context, both landed on the same
+phantom channel and the same guard-shaped repair. F's spelling
+(`pushed_mem`) won the merge; E's (`pushed_real`) survives as a
+derived lemma — the repair above reads per the merged Ground.lean.
+
 ## A4. Reader-visible claims to spot-check opportunistically
 
 **[reported]** Low-priority, none currently believed wrong:
