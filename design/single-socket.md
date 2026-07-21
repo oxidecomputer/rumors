@@ -49,6 +49,20 @@ byte-for-byte unchanged), by the campaign's two results:
   "W = K credits inferred instead of sent"
   (`MUX-ADJUDICATION.md` §1.3, generalized).
 
+The design's shape follows from a decomposition the campaign made
+exact. A credit scheme conflates three things a transport can sell:
+**information** (is the peer ready?), **timing** (knowing it early
+enough to overlap), and **custody** (somewhere for the bytes to land).
+Each resolved independently: the information was always inferable from
+the protocol's own announcements (σ\*, the refutation of the
+impossibility conjecture as literally stated); the timing is
+purchasable with parking depth (the K-dial law, §3.1 — K + 1 frames
+per round trip); and the custody was always the Backend's — the buffer
+a window guards turned out to be largely a fiction of representation,
+dissolved by decoding at arrival (§2). Link-transport buys all three
+from the transport; this design buys none of them from the wire. §6
+records what genuinely remains of the difference.
+
 ## 1. The end-state, and Link as scaffolding
 
 ### 1.1 The target external interface
@@ -429,6 +443,82 @@ unnecessary):
   one chunk), not its optimality. Optimality is measurement's job —
   and safety-free tuning is the point.
 
+### 3.4 Boundary behavior: a deliberate walk of the window's edges
+
+Windowed systems train the reader to expect cliffs, collapses, and
+resonances at the edges. This design's edges were each walked
+deliberately (the latency harness's K-sweep, `MUX-LATENCY.md` §7.2,
+plus the campaign's boundary analysis); what follows is every edge,
+its behavior, and — where one exists — the sharp part.
+
+- **The matching boundary (K near P\*) is smooth** [checked, the
+  54-run sweep]. The residual below parity is ≈ P\*/K round trips,
+  hyperbolic in K: no cliff, no collapse-restart cycle. The mechanism
+  is worth stating because it is an *absence*: the window only ever
+  **delays licenses**. Nothing retransmits, nothing times out, no
+  state is discarded and rebuilt — an undersized window makes deficit
+  frames join paced batches, and that is all it can do. There is no
+  congestion-collapse analogue to guard against.
+- **One quantization edge: the odd-width ceiling** [checked]. Costs
+  come in whole round trips — ⌈·/(K + 1)⌉ steps — so at K = 1 an
+  odd-width frontier pays the ceiling. Named here so a future
+  benchmarker who sees a one-scope sawtooth as tree width varies by
+  one recognizes an arithmetic artifact, not a regression. (This
+  ceiling is what an earlier revision of the latency analysis had
+  misattributed to cross-level coupling; the K-sweep explained it.)
+- **The sharp edge is the Violation boundary** [derived]. Inferred
+  credits deliberately move desynchronization failure from *slow* to
+  *fatal*: with explicit credits, a desynced sender merely stalls —
+  the credit never arrives; degraded, visible, recoverable. With
+  inferred credits, an occupancy ledger that **undercounts** starts
+  the (K + 1)-th reply and the receiver kills the session (§2 item 3).
+  The attributability is the point — bugs become loud — but the
+  texture is asymmetric: the edge fires only when a stream's window is
+  exactly full, so an undercounting bug can lurk unexercised at a
+  generous K and detonate under load or against a small-K peer. Two
+  consequences are load-bearing elsewhere in this document: the
+  inference must be conservative per audit finding A10 (§3.2 —
+  per-channel order only; a cross-stream ordering assumption
+  over-licenses *precisely at the full-window boundary*, the worst
+  possible place), and §5.1's asymmetric-window seed cells are
+  load-bearing, not combinatorial padding — K = 1 against production
+  is what exercises this edge at all.
+- **The storage edge** [derived; accounting checked,
+  `eager-absorption.md` §7.1]. Reply-denominated K is sound for RAM
+  (K·O(fan) parked handles, §1.4), but a parked reply's *backend
+  custody* is byte-unbounded: a peer operating entirely within its
+  advertised window can legally park K whole-subtree provisions per
+  stream — storage churn for data that never links if the session
+  aborts. Not a liveness issue, not a RAM issue; it is the one
+  resource an adversarial peer can lean on, bounded only by backend
+  storage and handle-drop reclamation. The byte-budget variant (§3.2)
+  is the mitigation, deferred (§7) with its scope now precise: a
+  policy for hostile deployments, not a correctness need.
+- **Two windows exist; conflating them is the pathology** [derived].
+  The transport's buffer (socket send/receive space — the formal
+  model's pipe capacity C) and the logical window K are different
+  axes. C is liveness-irrelevant above one frame (C₀ = 1 is the
+  campaign's liveness result) and latency-irrelevant above the
+  bandwidth-delay product; K is the protocol dial (§3.1). The
+  degenerate corner is instructive: at C = 1 *everything* is
+  stop-and-wait — the omniscient oracle included [checked,
+  `MUX-LATENCY.md` §5] — so a starved socket buffer masquerades as a
+  scheduling problem that no scheduler, ladder, or window change can
+  fix. Diagnose the two axes separately.
+- **The handshake is a non-edge** [checked]. The advertisement rides
+  the greeting; the greeting exchange is strictly alternating (the
+  handshake-liveness fix and its 12-cell one-byte-window pin,
+  `tests/handshake_liveness.rs`); nothing σ\*ₖ-governed is in flight
+  before the advertisement arrives. There is no pre-advertisement
+  window question to answer.
+- **Asymmetric windows compose without interaction** [checked at the
+  executable tier]. Each direction runs its own pacing recurrence at
+  its peer's advertised K; a descent alternates directions, so the
+  binding direction dominates each frontier's term — accounting, not
+  pathology. This independence is also exactly why T8's statement must
+  be two-parameter (K_I ≠ K_R, §4): a single-K theorem would prove a
+  configuration the advertisement mechanism never guarantees.
+
 ## 4. The theorem interface
 
 What is already kernel-proven on `mux-conjectures` [proven]:
@@ -451,7 +541,14 @@ What is already kernel-proven on `mux-conjectures` [proven]:
   (muxprobe's pinned `rand2` witness; stage-0 P2's independent
   11-scope counterexample). Adaptivity is necessary, information is
   not sufficient: the engine must consult live arrivals, which it
-  does by construction.
+  does by construction. The insight beneath, recorded because it
+  shapes the engine's architecture: **liveness here is feedback, not
+  knowledge**. A legal send order must respond to back-pressure
+  timing, which is decided by scheduler interleaving at both
+  endpoints, never by the trees — so no precomputation, however
+  informed, can substitute for the arrival intake. (The kernel control
+  pinning this, `static_oracle_jams`, is being minted in the
+  campaign's stage 3 alongside T5.)
 
 Pending, in dependency order (status lives in `MUX-PROGRESS.md` §5):
 
@@ -490,7 +587,11 @@ whole area exists. The socket transport must complete both **at every
 K, including K = 1** (`Window::FLOOR`), and at asymmetric
 advertisements (K = 1 one way, production the other), under the
 deterministic quiescence harness — the exact configuration whose stall
-condemned the old mux. Plus the standard sweep: full gate, capacity
+condemned the old mux. The asymmetric cells are **load-bearing, not
+combinatorial padding**: §3.4's Violation-boundary analysis shows the
+full-window edge — where an undercounting inference bug detonates — is
+exercised precisely by a small window facing a productive peer, and
+essentially never by matched generous windows. Plus the standard sweep: full gate, capacity
 floor tests, muxprobe cross-check, and a soak: extended
 randomized-schedule runs at mixed window sizes before Link deletion is
 irreversible-in-practice.
@@ -558,6 +659,20 @@ so it is a decision, not a surprise.
   coupling. Liveness at K > 1 remains **T8, pending kernel check** —
   the 54/54 sweep is executable-tier evidence, not a substitute.
   [checked at the model tier; parity claim scoped to the model]
+- **Adversarial storage lean** (§3.4's storage edge): within-window
+  peers can park K subtree provisions per stream in backend custody —
+  the one residual class that is neither latency nor liveness.
+  Mitigation (the byte-budget dial) deferred with its scope recorded
+  (§7). [derived]
+
+The trade, in its final honest form: multi-link never bought liveness
+(σ\* refuted that), and no longer buys round trips (§3.1's parity
+condition, met by the default window). What it still buys is
+byte-granularity interleaving under bulk, per-stream loss isolation
+under packet loss, and well-trodden machinery in place of a bespoke
+inference engine whose correctness is session-fatal at the window
+boundary (§3.4). Those are real — and they are smaller and more
+precise than "the mux deadlocks", which is where this area began.
 
 ## 7. Staged plan
 
@@ -611,7 +726,9 @@ Link carries production traffic until stage L.
   its module — its socket counterpart already says the opposite.
   Gated on V, including soak. Risk: low mechanically; irreversible
   externally — hence last, behind everything.
-- **Deferred, recorded:** the byte-budget variant (§3.2); a
+- **Deferred, recorded:** the byte-budget variant (§3.2; motivation
+  sharpened by §3.4's storage edge — hostile-deployment policy, not a
+  correctness need); a
   loss-coupling measurement against a QUIC single-stream baseline (§6
   is [derived]; a number would be better); ladder tuning under
   measurement (§3.3 makes it safety-free, so it never gates a stage);
