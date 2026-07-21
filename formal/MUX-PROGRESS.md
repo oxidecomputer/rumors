@@ -300,6 +300,25 @@ the negative space on the record.
   incorporated as conditions. Alignment findings A5–A8 recorded.
   Dispatched next: stage 0 (blocking causal-σ* probe gates P1–P4) and
   stage 1 (the Mux/ Lean harness) in parallel.
+- **2026-07-21** Suite extended by Finch's direction (T8 pair, the
+  K-deep parking regime): `sigmaStarK_deadlock_free` — σ\*ₖ (the
+  inferred-credit scheme at parking depth K in logical replies) is
+  deadlock-free for every K ≥ 1 under K-deep demux parking with
+  fan-bounded control residue; and `wc_impossibility_K` — the
+  widened-wedge family (provisions scaled past K) kills every
+  work-conserving pair at every fixed K. Scheduled after T4/T3
+  respectively (each reuses its parent's machinery). Motivating design
+  insight (Finch): conversion of wire frames to logical replies at
+  arrival is a CUSTODY change, not a semantics change — the Backend is
+  already a handle-based streaming constructor (`backend.rs`: nodes are
+  cheap handles; `parent()` folds radix groups bottom-up), so supplied
+  runs absorb at line rate into unlinked subtrees with O(1)-handle
+  parked descriptors, and linking stays at cursor time. K-deep
+  reply-denominated windows become sound with no new abstraction;
+  the RTT frontier law improves from 1 to K scopes/RTT/stream.
+  Feasibility assessment of the Rust refactor dispatched (plumbing: the
+  construction coroutines currently race walk-owned channels; the
+  version-bound filtering site; violation-check placement).
 - **2026-07-21** Stage 0 complete: **the causal σ\* survived P1** —
   4,970/4,970 runs Terminal (497 skeletons: 9 pins incl. wedge, 88
   adversarial-family, 400 random margin-0; C ∈ {1,2}; 5 interleavings;
