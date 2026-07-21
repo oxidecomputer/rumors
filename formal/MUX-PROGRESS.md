@@ -188,6 +188,21 @@ work out of its own context and distills results here:
    assumption verification), plus statement-strength audit: do the
    formal statements actually capture the charter's informal claims?
    Rust proptest bridge for any new model-level assumption.
+5. **Document** (per Finch, 2026-07-21). EXTEND `doc/narrative.typ` —
+   the campaign history stays first-person and discovery-ordered; the
+   mux campaign becomes its next chapter (the conjectures as posed, the
+   panel, the σ\* reversal, the executable tier refuting the static
+   oracle before Lean could, the no-peek surprise, the wedge theorem,
+   the eager-absorption design consequence). REWRITE
+   `doc/exposition.typ` — a coherent exposition over one strictly
+   linearly ordered in discovery order: organize around the resolved
+   trichotomy (eagerness is fatal on one small tree; patience with
+   inference suffices; omniscience buys only time), with the theorems,
+   the third-thing characterization (announcement prefix + FIFO
+   arithmetic + inevitability closure; credits carry computation and
+   timing, not information), and the engineering consequence (the
+   single-socket design) each placed where understanding wants them,
+   not where we found them.
 
 ## 4. Findings
 
