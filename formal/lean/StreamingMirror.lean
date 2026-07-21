@@ -49,3 +49,4 @@ import StreamingMirror.Proofs.PendingE
 import StreamingMirror.Proofs.EndgameE
 import StreamingMirror.Proofs.Endgame
 import StreamingMirror.Mux.Proofs.CommitTotality
+import StreamingMirror.Mux.Proofs.WcImpossibility
