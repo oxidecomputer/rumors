@@ -18,6 +18,10 @@ buffers are the decoded replies the adapter already produces is: a
 wider queue, a counter, one advertised integer, and a proof. That is
 this design.
 
+Execution companion: `single-socket-plan.md` — the staged,
+code-anchored task plan derived from this document (this file stays the
+rationale of record; start there to build).
+
 Epistemic key as in `streaming-wire-deadlock.md`: **[proven]** =
 kernel-checked in `formal/lean` on `mux-conjectures`; **[checked]** =
 verified by reading the cited code or by executable evidence;
