@@ -306,14 +306,10 @@ un-provably-consumed.
   adversarial families built to starve it (stage-0 gate P1,
   MUX-PROGRESS log 2026-07-21) [checked].
 
-Two engine-adjacent disciplines ride along:
-
-- **Control-frame priority**: the socket mux drains session-control
-  traffic (stream ends, the epilogue) ahead of data frames — the §8.5
-  router lesson applied to our own mux.
-- **Chunk granularity**: the bandwidth head-of-line term (an urgent
-  frame waiting behind a bulk chunk in transit) is bounded by
-  `RunBudget` and tunable; §6 prices it.
+The writer's cross-stream ordering — control-frame priority, chunk
+granularity, and everything else about *which* eligible frame goes
+next — is §3.3's subject: within the window discipline it is provably
+a latency-only concern.
 
 The byte-budget variant (§5A's "window dial", state-11 reserved
 bytes) remains the recorded alternative denomination for a deployment
@@ -321,6 +317,94 @@ whose parked-reply worst case (the ≈ 2 MB maximally disputed reply) is
 unaffordable ×17·K: it trades wire bytes for a tighter RAM bound. Not
 built here; the reservation and the sizing math stay in §5A. Its
 advertisement would ride the same greeting field family.
+
+### 3.3 Frame scheduling: order freedom and the priority ladder
+
+Between the window gate (§3.2) and the wire sits one remaining
+choice: which eligible frame the writer mux sends next. Within a
+stream the order is fixed — the wire is positional — so the choice is
+cross-stream interleaving plus chunk placement. The campaign's result
+here is the strongest foundation a scheduler can be given: the choice
+cannot affect correctness at all.
+
+**Order freedom [derived].** Under the advertised-window discipline —
+every sender within the peer's advertised K on every stream — **any**
+work-conserving order over window-eligible frames is deadlock-free and
+terminating:
+
+- *Safety is order-free.* The window gate is exactly what guarantees
+  the demux never blocks (§2 item 3: every arrival parks within a
+  bound the receiver chose), and a never-blocking demux makes the
+  socket composition a refinement of the independent-channel system,
+  whose liveness is the kernel-proven flagships. No step of that
+  argument mentions which eligible frame goes first. The theorem
+  dependencies are named plainly: the elastic-parking simulation
+  theorem and T8, both in flight (§4; status in
+  `formal/MUX-PROGRESS.md` §5), T8 with the asymmetric-window
+  (K_I ≠ K_R) parameterization §4 already flags.
+- *Starvation is impossible without fairness machinery.* Every pushed
+  frame fires a protocol operation and a session's total is finite
+  (the ρ argument, `formal/MODEL.md` §7, being minted as a kernel
+  theorem in the campaign's stage 3), so an order that neglects a
+  stream can only delay it, never strand it: eventually the neglected
+  stream's frames are the only eligible ones.
+
+Consequence, stated as policy: **frame ordering is a pure latency
+dial**. The scheduler carries no proof obligation — only the window
+gate does (S1's soundness hooks, §5.2) — so the ladder below may be
+tuned, rearranged, or replaced from measurement without
+re-verification. The order cannot be gotten wrong, only slow.
+
+**The recommended ladder [derived; rationale per `MUX-LATENCY.md`].**
+The latency analysis splits the socket's costs cleanly: small
+label-carrying frames sit on the δ (round-trip) critical path — each
+one delayed behind bulk adds directly to the fresh-dispute pacing law
+(`MUX-LATENCY.md` §2.2/§3.1), because it advances both the peer's walk
+and the peer's demand-proof inference — while bulk provision bytes sit
+only on the bandwidth term (§3.3 there) and pipeline unboundedly
+wherever they are placed. So: strict priority classes, round-robin
+within a class:
+
+1. **Session control** — preamble/greeting, `End` controls, the
+   epilogue: the §8.5 router lesson, unchanged.
+2. **Frontier control** — dispute-scope replies, queries,
+   resolutions: the small frames whose delay is priced in round
+   trips.
+3. **Active-descent data** — deepest-stream-first as the tiebreak.
+   (The old mux's bottom-most-ready heuristic aimed exactly here; its
+   fatal ingredient was eagerness — pushing without a window — not
+   the priority. The heuristic is rehabilitated one rung down the
+   ladder.)
+4. **Bulk provision runs**, chunked at `RunBudget`, with
+   **chunk-boundary preemption**: a pending higher-class frame may
+   interleave between chunks, never mid-frame. This bounds the byte
+   head-of-line term at one chunk's transmission time — the term's
+   floor (§6) — and leaves reply atomicity intact: preemption sits at
+   chunk boundaries *between* a run's frames, which still arrive in
+   order on their own stream.
+
+K-general pricing of the ladder — how the frontier term scales with
+the advertised window — is the latency doc's K-dial addendum
+[forthcoming]; this section's rationale stands on the committed base
+analysis.
+
+**What the scheduler must not be trusted with** (negative space,
+recorded so a future reader does not add machinery the theorems make
+unnecessary):
+
+- It cannot repair a window-gate bug — no ordering can create safety,
+  because the never-block property comes from the gate alone. And
+  symmetrically, no stall or violation is ever attributable to the
+  ladder: violations attribute to the gate or the peer (§3.1, §5.2);
+  the scheduler is exonerated by construction.
+- No fairness, aging, or anti-starvation machinery is warranted: the
+  finite-ρ argument makes starvation structurally impossible.
+  Priority aging here would be dead weight in front of a standing
+  liveness proof.
+- The §5.2 priority assertion tests the ladder's *observable class
+  behavior* (frontier control never queued behind bulk by more than
+  one chunk), not its optimality. Optimality is measurement's job —
+  and safety-free tuning is the point.
 
 ## 4. The theorem interface
 
@@ -399,7 +483,10 @@ transmute into socket-transport assertions, testable without a peer:
 - never-block: the demux reader is never blocked by any pump queue —
   over-window surfaces as `Violation` (§2 item 3), and the violation
   is attributable (§3.1: the peer knew the bound);
-- priority: control traffic is not queued behind data;
+- priority: the §3.3 ladder's observable class behavior — frontier
+  control is never queued behind bulk by more than one chunk's
+  transmission (chunk-boundary preemption visible in the write
+  order);
 - inference soundness hooks: the occupancy ledger's estimate never
   exceeds the true unconsumed count (under-estimation is a latency
   bug, over-estimation is the deadlock bug — assert the direction);
@@ -471,11 +558,13 @@ Link carries production traffic until stage L.
   on the pinned families. Gated on T8. Risk: **the** risk; bounded by
   the theorem it must refine.
 - **M1 — the socket transport (~400–700 lines):** the writer mux
-  (priority + chunking + the S1 gate), the reader demux (routing +
-  validation + over-window violation), the poison latch relocated to
-  the socket session, wired behind a transitional constructor switch
-  beside the Link path. Risk: moderate — mostly careful reuse of the
-  end/error discipline.
+  (the §3.3 ladder: priority classes + chunk-boundary preemption,
+  plus the S1 gate), the reader demux (routing + validation +
+  over-window violation), the poison latch relocated to the socket
+  session, wired behind a transitional constructor switch beside the
+  Link path. Risk: moderate — mostly careful reuse of the end/error
+  discipline; the scheduler itself is safety-free (§3.3) and tunable
+  after landing without re-verification.
 - **V — acceptance (§5):** seeds at K ∈ {1, floor+1, production} and
   asymmetric; the transmuted conformance assertions; gate +
   `just all`; soak; docs (`remote.rs`, `window.rs` — K's second
@@ -492,8 +581,10 @@ Link carries production traffic until stage L.
   externally — hence last, behind everything.
 - **Deferred, recorded:** the byte-budget variant (§3.2); a
   loss-coupling measurement against a QUIC single-stream baseline (§6
-  is [derived]; a number would be better); erasure interactions per
-  `height-erasure.md` if the socket session wants `dyn` seams.
+  is [derived]; a number would be better); ladder tuning under
+  measurement (§3.3 makes it safety-free, so it never gates a stage);
+  erasure interactions per `height-erasure.md` if the socket session
+  wants `dyn` seams.
 
 ## Appendix: relation to the campaign documents
 
@@ -507,5 +598,8 @@ Link carries production traffic until stage L.
   and sizing math remain authoritative for the byte-budget variant.
   §8's contract remains authoritative for the Link while the Link
   exists (through stage V), and becomes historical at stage L.
-- `MUX-LATENCY.md` (forthcoming) — the round-trip pricing §6 defers
-  to.
+- `formal/MUX-LATENCY.md` — the round-trip pricing §3.3's ladder
+  rationale cites and §6 defers to. The base analysis (the σ\* pacing
+  law, the width term, the shape table) is committed on the campaign's
+  `mux-latency` branch; the K-dial addendum (how the frontier term
+  scales with the advertised window) is forthcoming.
