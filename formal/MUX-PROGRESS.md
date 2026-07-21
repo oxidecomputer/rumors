@@ -188,6 +188,27 @@ work out of its own context and distills results here:
    assumption verification), plus statement-strength audit: do the
    formal statements actually capture the charter's informal claims?
    Rust proptest bridge for any new model-level assumption.
+4b. **T10: capacity monotonicity** (per Finch, 2026-07-21; scheduled
+   after track F merges — it touches the same shared proof layers B and
+   G refactored, and F is the last in-flight consumer; runs parallel to
+   phase-4 review). Target: `DeadlockFree` (and termination) at every
+   pointwise-widened capacity vector κ ≥ κ₀ — closing the [derived]
+   Kahn-argument gap (AUDIT-NOTES A7) between the floor-capacity
+   theorems and the deployed Window = 65536 configuration, and
+   licensing instantiation at arbitrary minimum-satisfying channel
+   bounds (per-family: widen levels, keep wires, any mix). Structure:
+   scoping audit first — classify every capacity mention in EndgameE's
+   stuck-state analysis and the trace lemmas it consumes as MONOTONE
+   (enabled-at-floor ⇒ enabled-wide; disabled-wide ⇒ the floor fact) or
+   EXACT (Sched E2 / borrowed-slots arithmetic, which does NOT
+   transfer) — then build by whichever route the audit licenses:
+   (1) commutation/deferral simulation (`applyW κ` beside `apply`,
+   never touching it; wide runs reorder-map to floor runs; diamond
+   lemmas over the 23 arms) — self-contained, medium-heavy, yields a
+   reusable run-reordering theorem; or (2) the InvPW route if the
+   enabledness core proves monotone-in-κ throughout (G's elastic
+   theorem — the κ = ∞ wire corner proven capacity-blind — is the
+   evidence this may be cheap). A7 then resolves by theorem, as A1 did.
 5. **Legibility** (per Finch, 2026-07-21; precedes the docs pass).
    Make the theorem statements clear, clean, and human-auditable, in
    the tradition of the base artifact's Statement.lean pass: a
