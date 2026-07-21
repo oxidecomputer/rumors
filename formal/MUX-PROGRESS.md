@@ -254,6 +254,41 @@ work out of its own context and distills results here:
    The exposition should present C2 this way: recognition, not
    construction.
 
+## 3b. Chartered follow-on: the latency conjectures (Finch, 2026-07-21)
+
+Not part of this campaign's exit criteria; recorded so the charter
+survives. Question: does an RTT-optimal scheduler exist that is
+computable from local causal information only — and is that formally
+decidable with a constructive witness?
+
+- **Settled at evidence tier already**: per-skeleton RTT-optimum = the
+  δ-weighted critical path of the event DAG (the multi-link baseline
+  achieves it; no scheduler can beat it — the deepest dispute path is
+  information-theoretically sequential). σ\*ₖ at K ≥ P\*+1 matches it
+  [checked, K-dial law 54/54], so a LOCAL optimal scheduler exists at
+  sufficient window.
+- **The conjecture** (at constrained K < P\*+1): no local strategy is
+  optimal; the local penalty is exactly one reverse-evidence leg per
+  pacing cycle — asymptotically a factor ~2 on the width term (the
+  probe's 50/50 omniscient/causal split on pyr3: 6 → 19 → 32 is the
+  motivating datum) — and σ\*ₖ is optimal among local strategies.
+  Locality costs nothing for liveness and one wire leg per cycle for
+  latency, vanishing when the window clears the frontier.
+- **The three-theorem plan**, after a timed-run semantics lands in Lean
+  (thin layer; the RTT-metered Python harness is its calibration
+  oracle, probe-first): (i) the DAG critical-path lower bound over all
+  schedulers (EventDag's depth machinery is the unweighted version);
+  (ii) the constructive optimal witness — σ\*ₖ at K ≥ P\*+1 via the
+  formalized K-dial law, or the timed send-projection oracle; (iii) the
+  local impossibility at constrained K — quantitative fooling over
+  LocalEq pairs (the two-witness structure of `oracle_not_local`,
+  upgraded from "orders differ" to "achievable times differ by ≥ the
+  proof-lag term"; the stage-2D LocalEq tree-pair bridge transfers).
+  The fooling argument C1 never needed finds its home in the latency
+  tier.
+- Sequencing per coordinator recommendation: after phases 4–6 close
+  this campaign.
+
 ## 4. Findings
 
 Dated entries accumulate here as phases complete; refuted approaches are
