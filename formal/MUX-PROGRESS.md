@@ -61,6 +61,60 @@ suffices for a deadlock-free schedule (the "mysterious third thing")? A
 positive answer sharpens both theorems and names precisely *what*
 information credits smuggle across.
 
+**Resolution (2026-07-21, phase-2 adjudication — MUX-ADJUDICATION.md is
+the ruling of record; the original conjecture text above is retained as
+history).** The conjectures resolve as a trichotomy:
+
+- **C1 as literally stated: FALSE** [derived, two named conditions] —
+  refuted by σ*, "demand-lockstep with forward derivation": push a frame
+  only when the receiver's consumption of its per-stream predecessor is
+  Certified ∪ Inevitable. σ* adds zero control messages, is
+  deterministic and local, and is deadlock-free at *every* C ≥ 1 per
+  direction on the `.impl`/margin-0 class. The right to *idle* — not
+  frame choice — is the whole frontier. Conditions: (A) the Keystone
+  Lemma restated over push-time derivation trees; (B) the causal
+  (A_p-limited) σ* probe sweep is a blocking stage-0 gate — if it
+  wedges, C1 flips TRUE with that skeleton as the fooling wedge, and
+  the suite is built so that outcome also lands as a theorem.
+- **C1-WC: TRUE** [derived + checked, Lean-ready] — one fixed,
+  tree-realizable skeleton (`wedge`, the regression shape at w = 4,
+  rootH = 6, realized by the committed proptest seeds) defeats every
+  *work-conserving* strategy pair — locality hypotheses dropped, even
+  omniscient WC dies — at every C ≥ 1, via a forced run whose every
+  strategy consultation is singleton-enabled (no fooling argument, no
+  pigeonhole). Mechanism: cap-1 slot occupation + FIFO burial under
+  commit-no-retract; capacity-flat [checked, w = 4 across C = 1..16].
+- **C2 positive: TRUE at C₀ = 1** per direction (message = reply
+  units) — the oracle of record pushes in `demandOrder sk d` = the
+  *receive*-event projection of the kernel-proven τ = `scheduleE` onto
+  direction d's wire channels (the send projection is FALSE in general:
+  cross-stream skew is the protocol's pipelining). Necessity is
+  class-relative: nonlocal information is necessary for liveness *under
+  work-conservation*, not for liveness alone.
+- **The mysterious third thing, named**: the announcement prefix the
+  protocol already carries + FIFO positional arithmetic + the
+  inevitability closure — nothing new on the wire. What credits smuggle
+  is per-stream consumption evidence one hop early (the per-stream E2
+  edge family the single pipe conflates): *computation and timing, not
+  information*. σ* is W = 1 credits inferred instead of sent.
+- **H-c (the performance price) demoted to executable tier**: in the
+  payload-erased, latency-free model σ* costs 0.99× the unmuxed
+  baseline; the real price lives in what the model erases (bytes, RTTs,
+  causal proof-lag). No quantitative overlap claim enters any theorem.
+
+Standing rulings adopted with the panel's recommendations (overridable
+by Finch; each changes what "local information" means): observation =
+slot-peek (frames observed at demux delivery, pre-consumption — the
+charter's "everything received", faithful to incoming.rs decoding every
+frame before routing; the no-peek variant is plausibly false via the
+two-height mutual proof-starvation gadget); consumption receipts stay
+OUT of the observation (flush-paced `pushed` only — admitting them
+smuggles credits in via the observation type); theorem domain =
+`.impl` + margin-0 (the shipping encoder's kernel-proven class), the
+`.full`/schedulable port recorded [open]; capacity denominated in
+messages (= replies), with the §5A W = 1 byte-soundness caveat stated in
+every positive theorem's docstring.
+
 ## 2. The mux model [open — to be fixed by the adjudication phase]
 
 Replace the independent per-channel transport with, per direction, a
@@ -235,3 +289,14 @@ the negative space on the record.
   dispatched: five independent lenses — prove-C1, refute-C1, C2-oracle,
   model-fixing, and an executable simulator probe — then adversarial
   cross-examination and synthesis into Lean-ready statements.
+- **2026-07-21** Phase 2 complete (8 agents, ~1.68M tokens; the probe's
+  Python transcription passed all 21 calibration gates, then ran ~2150
+  muxed sessions). Verdicts distilled into §1's Resolution;
+  MUX-ADJUDICATION.md committed as the ruling of record, including the
+  full theorem suite T0–T6 with proof skeletons, controls, and the
+  staged build plan (~7k–13k new Lean lines, two named risks each with
+  a fallback). Both cross-examinations returned zero fatal findings;
+  the Keystone delivery-case repair and the slot-peek dependency are
+  incorporated as conditions. Alignment findings A5–A8 recorded.
+  Dispatched next: stage 0 (blocking causal-σ* probe gates P1–P4) and
+  stage 1 (the Mux/ Lean harness) in parallel.

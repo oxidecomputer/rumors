@@ -58,6 +58,48 @@ hypotheses were simply false of the composition — but it is the sharpest
 known instance of "stated theorem true, system deadlocks", and the mux
 campaign's model must include exactly the two unmodeled couplings.
 
+## A5. Payload-independence is now the load-bearing boundary of C1's falsity — promote its verification
+
+**[panel finding, 2026-07-21]** MODEL.md §1's extraction premise
+("channel-op count and order depend only on each child's merge-join arm,
+never on payloads") was verified once, by reading `answer.rs`/
+`resolver.rs`. The mux adjudication makes it load-bearing in a new way:
+σ*'s locality (hence C1's falsity) rests on every consumption-order
+discriminator being announced in-band. If ANY receiver branching consumed
+content beyond labels, C1 would flip true. Remedy adopted into the
+phase-3 plan: Rust proptest bridge B5 — reconstruct the announced
+skeleton from a frame transcript alone and check it determines the
+session's channel-op structure. Until B5 lands, the premise stays
+[derived] with a single manual audit behind it.
+
+## A6. MODEL.md scope statement needs a cross-reference once the mux suite lands
+
+**[panel finding, 2026-07-21]** "The pump's capacity-1 channel IS the
+wire" is true of `mirror_connected` (Local) only; once `wc_impossibility`
+lands, the single-pipe transport the base model omits is formally
+indicted, and MODEL.md §1's "Explicitly not modeled" should point at the
+Mux/ subtree so nobody reads `DeadlockFree` as covering the old remote
+transport.
+
+## A7. Capacity monotonicity: assumed in prose, consumed by nothing — keep it that way
+
+**[panel finding, 2026-07-21]** The artifact's standing capacity-
+monotonicity claim (window.rs: "every schedule live at the floor stays
+live at any width"; the latency doc's Kahn argument) is consumed by NO
+theorem of record in the mux suite (σ*'s final formulation dropped it;
+the probe's early embedding remark that leaned on it is superseded). It
+is [derived]-tier only. If it reappears in any phase-3 proof, that is a
+finding — either prove it or reroute.
+
+## A8. Probe transcription deviation, reconciled by a theorem
+
+**[panel finding, 2026-07-21]** The Python probe fuses walkCommit +
+walkFire when driving σ*, while the model of record keeps commits
+adversarial. `commit_totality` (suite item T1: W/D1/D4/D6 totally order
+each scope's publications under `.impl`) proves the fusion WLOG.
+Recorded so the probe is not read as modeling a different system; if T1
+fails to close, the probe's σ* evidence weakens accordingly.
+
 ## A4. Reader-visible claims to spot-check opportunistically
 
 **[reported]** Low-priority, none currently believed wrong:
