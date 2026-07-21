@@ -243,6 +243,42 @@ Dated entries accumulate here as phases complete; refuted approaches are
 recorded with their refutations, in the PROGRESS.md tradition of keeping
 the negative space on the record.
 
+### 2026-07-21 — Stage-3 track F landed and merged: T4 CLOSED
+
+**`sigmaStar_deadlock_free` is kernel-checked** (zero sorry, 261 jobs
+green at merge): σ\* × σ\* is deadlock-free on every well-formed
+margin-0 skeleton at every C ≥ 1. Step 4 — `closure_coverage`, the
+campaign's one genuinely new induction — closed by stage-indexing the
+closure by τ (each event enters the sender's closure at its own τ
+stage; performed wire sends are push-grounded with pipes-empty making
+arrival grounding complete; everything else I-steps in off its
+strictly-τ-below past), eliminating any saturation lemma. Per the
+stage-0 lesson the proof never consults shared-FIFO order (slot E2 edge
+only), and capacity monotonicity is consumed nowhere. Supporting stack
+~6,200 lines including the Steps extraction (per-arm InvL/count/hand
+facts restating the monoliths' bullets without touching them) and the
+strategy-generic `sinv_reachable` (T5 inherits it). Companions:
+`C1Statement` minted verbatim from §1; **`c1_omniscient_false`
+unconditional**; `wedge_sigmaStar_deadlock_free` (σ\* completes the
+impossibility witness); `wedge_evidence_starves` [decide] (the
+Inevitable closure is load-bearing). HONEST RESIDUE:
+**`sigmaStar_local` is [open] at kernel tier** — σ\* runs the
+full-skeleton closure, and its locality is exactly the A_p-sufficiency
+statement (coverage of the announced projection at ALL reachable
+observations, not just stuck states); probe-checked 4,970/4,970, so
+`c1_literal_false` carries σ\*'s locality as an explicit NAMED
+hypothesis with the gap stated precisely in C1.lean's module doc
+(`wireHeights`/`committedInHist`/`rootH` are LocalEq-invariant by
+construction; `inevitable`/`scheduleE` not shown invariant). Phase 4
+must adjudicate: push A_p-sufficiency to kernel tier, or accept the
+named hypothesis with the probe bridge. FINDING (track F caught a
+track-B bug): the landed `MuxInv` was UNSATISFIABLE as stated —
+unguarded `delivered_eq` breaks at the phantom `wire I 0`
+(Nat-subtraction alias onto walk (R,0)'s consumer count); fixed by
+`allChans`-guarding both count fields + `pushed_mem` +
+`evUniv_wire_mem`. T8 not attempted (budget); its stub records the
+per-direction (K_I, K_R) parameterization.
+
 ### 2026-07-21 — Phase 1 (understand) complete
 
 - **The mux surface is exactly the wire family.** The only cross-party
