@@ -190,6 +190,17 @@ eventdag fuzz_seeds="100":
     PATH="$HOME/.elan/bin:$PATH" lake build eventdag
     PATH="$HOME/.elan/bin:$PATH" lake exe eventdag eventdag-out {{ fuzz_seeds }}
 
+# Run the mux executable-evidence matrix against the committed golden file
+# (formal/lean/muxprobe-expected.tsv): strategy × skeleton × capacity ×
+# interleaving on the real Mux semantics, plus the commit-singleton scan and
+# a random margin-0 sweep. Override seeds: `just muxprobe 100`. After a
+# deliberate model or matrix change, regenerate the golden inside formal/lean
+# with `lake exe muxprobe --update` and review the diff like a snapshot.
+[working-directory("formal/lean")]
+muxprobe rand_seeds="25":
+    PATH="$HOME/.elan/bin:$PATH" lake build muxprobe
+    PATH="$HOME/.elan/bin:$PATH" lake exe muxprobe {{ rand_seeds }}
+
 # ── conveniences ─────────────────────────────────────────────────────────────
 
 # Run benches, e.g. `just bench -p before party` or `just bench gossip_grid`.
@@ -212,10 +223,11 @@ rumormill *args:
 #
 # `all` is `ci` plus what CI cannot run: a short libFuzzer smoke (poor
 # per-commit spend) and the formal tier (the runner has no Lean toolchain) —
-# the kernel-checked proofs and the eventdag oracle/schedule gate.
+# the kernel-checked proofs, the eventdag oracle/schedule gate, and the
+# muxprobe matrix gate.
 
 # Build everything (no fuzz run): the no-rot sweep as CI runs it.
 ci: fmt-check doclint testdoc readme-check clippy features wasm-check docs docs-internal test-all doctest bench-build fuzz-build viz
 
 # Everything: the no-rot sweep, plus the fuzz smoke and the formal tier.
-all: ci (fuzz fuzz_smoke_secs) lean eventdag
+all: ci (fuzz fuzz_smoke_secs) lean eventdag muxprobe
