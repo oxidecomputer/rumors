@@ -18,7 +18,7 @@ mod queues;
 mod resolver;
 
 #[cfg(test)]
-use super::progress;
+use super::{progress, transcript};
 use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
@@ -74,9 +74,17 @@ where
         messages: impl Responses<B, T, H, Error<B::Error>>,
     ) -> BoxResponses<B, T, H, Error<B::Error>> {
         let (send, responses) = outgoing_responses();
+        #[cfg(test)]
+        let work = self.trace_id;
         self.tasks.push(Box::pin(async move {
             let mut messages = pin!(messages);
             while let Some(item) = messages.next().await {
+                // Capture the payload-erased wire transcript at the pump:
+                // per-stream pull order is exactly the wire order.
+                #[cfg(test)]
+                if let Ok(reply) = &item {
+                    transcript::reply(work, reply);
+                }
                 let failed = item.is_err();
                 if send.send(item).await.is_err() {
                     return Ok(());
