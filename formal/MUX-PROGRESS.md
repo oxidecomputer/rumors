@@ -421,3 +421,45 @@ the negative space on the record.
   D: the Rust proptest bridges (wedge realizability, LocalEq soundness,
   B5 announced-skeleton reconstruction). Stage-0 causal-σ* gate still
   running.
+- **2026-07-21** Stage-3 track G landed (three commits, `lake build`
+  green at 253 jobs, zero sorry, kernel decide only; every named
+  theorem on the three standard axioms). Three independent theorems:
+  (1) **Termination minted** (`Proofs/Termination.lean`, closing
+  AUDIT-NOTES A1 by remedy (i)): `Model.rho` + `rho_decreases` (the
+  23-case strict decrease; the `cAdj` committed-slot device prices the
+  phantom corners, so the only hypothesis is the `asmLevelsOk`
+  inductive invariant), `terminating` (run length ≤ ρ(init) — BMC
+  completeness at depth ρ(init)+1 per instance is now a theorem),
+  `maximal_run_terminal`(`_d5`), and `greedy_run_terminal`
+  (drain-to-Terminal at explicit fuel ρ(init)). MODEL.md §1(ii)/§7
+  updated. (2) **Elastic parking is deadlock-free by simulation**
+  (`Mux/Elastic.lean`): `elastic_deadlock_free` — under per-direction
+  UNBOUNDED reply parking, every pushes-when-nonempty pair
+  (`EWorkConserving`, the widest honest class) is live at every
+  C ≥ 1 on the well-formed margin-0 class, as a corollary of the
+  flagship progress engine: at a stuck state pipes drain, hands empty,
+  and the parked base state satisfies exactly `InvPW` — the progress
+  lemma's hypothesis WEAKENED to conservation-without-caps
+  (`progress_of_inv` re-typed; its argmin argument never consumed
+  `chan ≤ cap`, and `InvP.weak` restores all callers). The adjudicated
+  "projects to a reachable BASE state" phrasing is FALSE as literally
+  drafted — multi-parked states are base-unreachable — and the honest
+  route is this invariant-interface reduction; the `EMuxInv`
+  preservation sweep is carried as an explicit hypothesis (the stage-F
+  `MuxInv` obligation's elastic twin, to be adapted from that landing;
+  `eMuxInv_init` is its base case), matching the Chase's interface
+  posture. Kernel pin: `wedge_elastic_completes` (the unbounded-slot
+  control as a first-class semantics). (3) **`wc_impossibility_K`**
+  (`Mux/Proofs/WcImpossibilityK.lean`): at per-direction depths — the
+  single-socket advertisement, `deliver .I` gated by `KR`,
+  `deliver .R` by `KI` — `wedgeW (KR+5)` kills every `KWorkConserving`
+  pair for KR ∈ {1,2,3} anchored, ∀ KI ≥ 1 GENUINELY (the burial is
+  directional; the stuck certificate's reverse-deliver conjunct is
+  pipe-emptiness, and the executor's floor-depth reverse deliveries
+  lift by guard monotonicity), ∀ C ≥ 1 via T3's two-shape split
+  (12 kernel anchors, calibration perfectly uniform: pipe-full parks
+  at b ∈ {1,2,3}, `noHands` burial at b = 4, reverse pipe empty
+  everywhere). `(KI, KR) = (1,1)` degenerates to the record harness
+  (`deliverStepK_one`); KR ≥ 4 open at theorem tier (each depth needs
+  its own kernel replay), covered at [derived] tier by the widened
+  family.
