@@ -1,0 +1,21 @@
+calibration chain6: want 8 hops everywhere -> {'base': 8, 'w1': 8, 'sigC1': 8, 'oraC1': 8} PASS
+chain6     N=  6 wide=1 base=   8 w1=   8 sig(C1/C4/Cinf)=   8/   8/   8 omni(C1/Cinf)=   8/   8 ora(C1/Cinf)=   8/   8
+wedge      N= 12 wide=1 base=   8 w1=   9 sig(C1/C4/Cinf)=  13/   8/   8 omni(C1/Cinf)=  13/   8 ora(C1/Cinf)=  12/   8
+provwall8  N= 12 wide=1 base=   6 w1=  11 sig(C1/C4/Cinf)=  13/   6/   6 omni(C1/Cinf)=  13/   6 ora(C1/Cinf)=  12/   6
+dfan8      N= 10 wide=1 base=   4 w1=  11 sig(C1/C4/Cinf)=  11/   5/   4 omni(C1/Cinf)=  11/   4 ora(C1/Cinf)=  11/   4
+comb6      N=  8 wide=1 base=   8 w1=   9 sig(C1/C4/Cinf)=   9/   8/   8 omni(C1/Cinf)=   9/   8 ora(C1/Cinf)=   9/   8
+combW8     N= 18 wide=1 base=   5 w1=  12 sig(C1/C4/Cinf)=  12/  11/  11 omni(C1/Cinf)=  12/   8 ora(C1/Cinf)=  12/   5
+combW16    N= 34 wide=1 base=   5 w1=  20 sig(C1/C4/Cinf)=  20/  19/  19 omni(C1/Cinf)=  20/  12 ora(C1/Cinf)=  20/   5
+pyr2       N= 31 wide=1 base=   6 w1=  21 sig(C1/C4/Cinf)=  23/  13/  12 omni(C1/Cinf)=  23/   9 ora(C1/Cinf)=  24/  12
+pyr3       N=121 wide=1 base=   6 w1=  86 sig(C1/C4/Cinf)=  93/  32/  32 omni(C1/Cinf)=  93/  19 ora(C1/Cinf)=  94/  22
+chain6     N=  6 wide=0 base=   8 w1=   8 sig(C1/C4/Cinf)=   8/   8/   8 omni(C1/Cinf)=   8/   8 ora(C1/Cinf)=   8/   8
+wedge      N= 12 wide=0 base=   8 w1=   9 sig(C1/C4/Cinf)=  12/   8/   8 omni(C1/Cinf)=  12/   8 ora(C1/Cinf)=  12/   8
+provwall8  N= 12 wide=0 base=   6 w1=  11 sig(C1/C4/Cinf)=  12/   7/   6 omni(C1/Cinf)=  12/   6 ora(C1/Cinf)=  12/   6
+dfan8      N= 10 wide=0 base=   4 w1=  11 sig(C1/C4/Cinf)=  11/   5/   4 omni(C1/Cinf)=  11/   4 ora(C1/Cinf)=  11/   4
+comb6      N=  8 wide=0 base=   8 w1=   9 sig(C1/C4/Cinf)=   9/   8/   8 omni(C1/Cinf)=   9/   8 ora(C1/Cinf)=  10/   8
+combW8     N= 18 wide=0 base=  11 w1=  12 sig(C1/C4/Cinf)=  12/  11/  11 omni(C1/Cinf)=  12/  11 ora(C1/Cinf)=  12/  11
+combW16    N= 34 wide=0 base=  19 w1=  20 sig(C1/C4/Cinf)=  20/  19/  19 omni(C1/Cinf)=  20/  19 ora(C1/Cinf)=  20/  19
+pyr2       N= 31 wide=0 base=  20 w1=  21 sig(C1/C4/Cinf)=  24/  20/  20 omni(C1/Cinf)=  24/  20 ora(C1/Cinf)=  24/  20
+pyr3       N=121 wide=0 base=  58 w1=  86 sig(C1/C4/Cinf)=  94/  58/  58 omni(C1/Cinf)=  94/  58 ora(C1/Cinf)=  94/  58
+random pool (n=40): sigma*/base multipliers C=1 mean 4.57 max 21.33; C=inf mean 1.84 max 4.83
+wrote latency_results.json
