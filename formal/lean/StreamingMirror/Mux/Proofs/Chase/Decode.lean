@@ -390,6 +390,200 @@ theorem trace_frontier (hwf : sk.wellFormed = true) {s : State}
         hlfin _ (by rw [heq]; exact List.mem_singleton.2 rfl),
         hdec, hpre, hok⟩
 
+-- ================================== wire channels of the universe
+
+/-- A root wire channel is an `allChans` member. -/
+theorem mem_allChans_wire_root (p : Party) :
+    Chan.wire p sk.rootH ∈ allChans sk := by
+  cases p <;> simp [allChans]
+
+/-- A walk key's output wire is an `allChans` member. -/
+theorem mem_allChans_wireOut {pk : Party × Nat} (hpk : pk ∈ sk.walkKeys) :
+    Chan.wire pk.1 pk.2 ∈ allChans sk := by
+  rw [allChans]
+  refine List.mem_append.mpr (.inl (List.mem_append.mpr (.inl ?_)))
+  exact List.mem_flatMap.mpr ⟨pk, hpk, List.mem_cons_self ..⟩
+
+/-- A walk key's input wire is an `allChans` member: the top stages
+read the root wires, and every other stage's input is the next stage
+up's output (parity and the root-height bounds steer the split). -/
+theorem mem_allChans_wireIn (hwf : sk.wellFormed = true)
+    {pk : Party × Nat} (hpk : pk ∈ sk.walkKeys) :
+    wireIn pk ∈ allChans sk := by
+  have hev : sk.rootH % 2 = 0 := (Model.wf_rootH hwf).1
+  obtain ⟨p, k⟩ := pk
+  have hpar := walkKeys_parity hwf hpk
+  rcases Model.walkKeys_cases hpk with ⟨hp, h1, h2⟩ | ⟨hp, h2⟩
+  · -- initiator stage: input from (R, k + 1), or the root wire
+    by_cases hr : k + 1 = sk.rootH
+    · rw [show wireIn (p, k) = Chan.wire p.other sk.rootH from by
+        rw [wireIn]
+        simp only
+        rw [hr]]
+      exact mem_allChans_wire_root _
+    · have hodd : k % 2 = 1 := by
+        rcases hpar with ⟨-, h⟩ | ⟨hcon, -⟩
+        · exact h
+        · simp only at hp
+          rw [hp] at hcon
+          cases hcon
+      have hmem : (Party.R, k + 1) ∈ sk.walkKeys :=
+        Sched.mem_walkKeys_of sk hwf (by simp only at h2; omega)
+          (Or.inr ⟨rfl, by omega⟩)
+      have := mem_allChans_wireOut hmem
+      simp only at hp
+      rw [show wireIn (p, k) = Chan.wire Party.R (k + 1) from by
+        rw [wireIn]
+        simp only
+        rw [hp]
+        rfl]
+      exact this
+  · -- responder stage: input from (I, k + 1), never the root wire
+    have heven : k % 2 = 0 := by
+      rcases hpar with ⟨hcon, -⟩ | ⟨-, h⟩
+      · simp only at hp
+        rw [hp] at hcon
+        cases hcon
+      · exact h
+    have hmem : (Party.I, k + 1) ∈ sk.walkKeys :=
+      Sched.mem_walkKeys_of sk hwf (by simp only at h2; omega)
+        (Or.inl ⟨rfl, by omega⟩)
+    have := mem_allChans_wireOut hmem
+    simp only at hp
+    rw [show wireIn (p, k) = Chan.wire Party.I (k + 1) from by
+      rw [wireIn]
+      simp only
+      rw [hp]
+      rfl]
+    exact this
+
+/-- A wire channel appearing anywhere in the event universe is real —
+an `allChans` member. The phantom `wire I 0` (whose consumer count
+aliases walk `(R, 0)`'s by Nat subtraction) occurs in no trace, which
+is what lets `MuxInv`'s membership-guarded count equations serve every
+closure event. -/
+theorem evUniv_wire_mem (hwf : sk.wellFormed = true) {q : Party}
+    {g : Nat} {b : Bool} {n : Nat}
+    (he : ((Chan.wire q g, b, n) : Ev) ∈ evUniv sk) :
+    Chan.wire q g ∈ allChans sk := by
+  obtain ⟨T, hT, heT⟩ := mem_evUniv.mp he
+  rcases Sched.procsE_cases sk hT with rfl | rfl | ⟨i, hir, rfl⟩ | rfl
+    | ⟨pk, hpk, rfl⟩ | rfl | rfl
+  · -- iopen: the root wire or the root query channel
+    rw [Sched.iopenEvents] at heT
+    rcases List.mem_cons.mp heT with he1 | he2
+    · simp only [Prod.mk.injEq] at he1
+      rw [he1.1]
+      exact mem_allChans_wire_root _
+    · have he2' := List.mem_singleton.mp he2
+      simp only [Prod.mk.injEq] at he2'
+      exact Chan.noConfusion he2'.1
+  · -- ropen: the two root wires, rootres, root queries
+    rw [Sched.ropenEvents] at heT
+    rcases List.mem_cons.mp heT with he1 | he2
+    · simp only [Prod.mk.injEq] at he1
+      rw [he1.1]
+      exact mem_allChans_wire_root _
+    rcases List.mem_cons.mp he2 with he1 | he2
+    · simp only [Prod.mk.injEq] at he1
+      rw [he1.1]
+      exact mem_allChans_wire_root _
+    rcases List.mem_cons.mp he2 with he1 | he2
+    · simp only [Prod.mk.injEq] at he1
+      exact Chan.noConfusion he1.1
+    · obtain ⟨j, -, hj⟩ := List.mem_map.mp he2
+      simp only [Prod.mk.injEq] at hj
+      exact Chan.noConfusion hj.1
+  · -- a walk trace: prologue wires in, chunk wires out
+    have hpk : ((if (sk.rootH - 1 - i) % 2 == 1 then Party.I else Party.R),
+        sk.rootH - 1 - i) ∈ sk.walkKeys :=
+      Sched.walkOrder_mem_keys sk hwf hir
+    generalize hpk_def : ((if (sk.rootH - 1 - i) % 2 == 1 then Party.I
+        else Party.R), sk.rootH - 1 - i) = pk at hpk heT
+    rw [Sched.walkEventsE] at heT
+    obtain ⟨k, -, hek⟩ := List.mem_flatMap.mp heT
+    rw [Sched.scopeBlockE] at hek
+    rcases List.mem_cons.mp hek with he1 | he2
+    · simp only [Prod.mk.injEq] at he1
+      rw [he1.1]
+      exact mem_allChans_wireIn hwf hpk
+    rcases List.mem_cons.mp he2 with he1 | he2
+    · simp only [Prod.mk.injEq] at he1
+      exact Chan.noConfusion he1.1
+    rw [Sched.scopeSendsE] at he2
+    rcases List.mem_append.mp he2 with he3 | he4
+    · obtain ⟨l, hl, hel⟩ := List.mem_flatten.mp he3
+      obtain ⟨j, -, hj⟩ := List.mem_map.mp hl
+      subst hj
+      rw [Sched.childChunk] at hel
+      split at hel
+      · rcases List.mem_cons.mp hel with he1 | he5
+        · simp only [Prod.mk.injEq] at he1
+          rw [he1.1]
+          exact mem_allChans_wireOut hpk
+        rcases List.mem_cons.mp he5 with he1 | he6
+        · simp only [Prod.mk.injEq] at he1
+          exact Chan.noConfusion he1.1
+        · obtain ⟨t, -, ht⟩ := List.mem_map.mp he6
+          simp only [Prod.mk.injEq] at ht
+          have h1 := ht.1
+          rw [askedOut] at h1
+          split at h1 <;> exact Chan.noConfusion h1
+      · have he1 := List.mem_singleton.mp hel
+        simp only [Prod.mk.injEq] at he1
+        rw [he1.1]
+        exact mem_allChans_wireOut hpk
+    · have he1 := List.mem_singleton.mp he4
+      simp only [Prod.mk.injEq] at he1
+      exact Chan.noConfusion he1.1
+  · -- absorb: the leaf supply wire
+    rw [Sched.absorbEvents] at heT
+    obtain ⟨j, -, hj⟩ := List.mem_flatMap.mp heT
+    rcases List.mem_cons.mp hj with he1 | he2
+    · simp only [Prod.mk.injEq] at he1
+      rw [he1.1]
+      have hge : 2 ≤ sk.rootH := (Model.wf_rootH hwf).2
+      exact mem_allChans_wireOut
+        (Sched.mem_walkKeys_of sk hwf (by omega) (Or.inr ⟨rfl, rfl⟩))
+    rcases List.mem_cons.mp he2 with he1 | he2
+    · simp only [Prod.mk.injEq] at he1
+      exact Chan.noConfusion he1.1
+    · have he1 := List.mem_singleton.mp he2
+      simp only [Prod.mk.injEq] at he1
+      exact Chan.noConfusion he1.1
+  · -- assemblers: no wire channels at all
+    rw [Sched.asmEvents] at heT
+    obtain ⟨idx, -, hidx⟩ := List.mem_flatMap.mp heT
+    rw [Sched.asmBlock] at hidx
+    rcases List.mem_cons.mp hidx with he1 | he2
+    · simp only [Prod.mk.injEq] at he1
+      have h1 := he1.1
+      rw [asmResChan] at h1
+      split at h1 <;> exact Chan.noConfusion h1
+    rcases List.mem_append.mp he2 with he3 | he4
+    · obtain ⟨t, -, ht⟩ := List.mem_map.mp he3
+      simp only [Prod.mk.injEq] at ht
+      exact Chan.noConfusion ht.1
+    · have he1 := List.mem_singleton.mp he4
+      simp only [Prod.mk.injEq] at he1
+      have h1 := he1.1
+      rw [Skel.asmOutChan] at h1
+      split at h1
+      · exact Chan.noConfusion h1
+      · split at h1 <;> exact Chan.noConfusion h1
+  · -- the floating rootret receive
+    have he1 := List.mem_singleton.mp heT
+    simp only [Prod.mk.injEq] at he1
+    exact Chan.noConfusion he1.1
+  · -- fins: rootres and the root returns
+    rw [Sched.finEvents] at heT
+    rcases List.mem_cons.mp heT with he1 | he2
+    · simp only [Prod.mk.injEq] at he1
+      exact Chan.noConfusion he1.1
+    · obtain ⟨j, -, hj⟩ := List.mem_map.mp he2
+      simp only [Prod.mk.injEq] at hj
+      exact Chan.noConfusion hj.1
+
 -- ============================================ trace-prefix extraction
 
 /-- Lists satisfying the predicate throughout are their own
