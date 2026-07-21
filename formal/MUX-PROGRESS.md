@@ -137,9 +137,86 @@ work out of its own context and distills results here:
 
 ## 4. Findings
 
-(None yet. Dated entries accumulate here as phases complete; refuted
-approaches are recorded with their refutations, in the PROGRESS.md
-tradition of keeping the negative space on the record.)
+Dated entries accumulate here as phases complete; refuted approaches are
+recorded with their refutations, in the PROGRESS.md tradition of keeping
+the negative space on the record.
+
+### 2026-07-21 — Phase 1 (understand) complete
+
+- **The mux surface is exactly the wire family.** The only cross-party
+  channels are `wire(p,h)`: rootH/2 + 1 ≈ 17 cap-1 streams per direction
+  at Rust rootH = 32 (MODEL.md's channel table; exposition.typ). Every
+  other channel family (queries, resolutions, level returns, asked,
+  leafRequests) is endpoint-internal plumbing. "The channels being muxed"
+  is therefore a small statically-known set, and naive per-stream demux
+  reservation is bounded (≤ 17 slots/direction) — bounded endpoint state
+  is not by itself the obstruction. [proven-adjacent: read off the model]
+- **Prior art inside the repo, both directions.**
+  design/streaming-wire-deadlock.md §5D argues C1's core informally for
+  the *shipped eager* mux: the peer's demand order is a function of the
+  peer's tree, unknowable until its questions arrive, by which time
+  answers were already flushed; mid-reply withholding breaks the
+  atomic-reply decode; "this route needs a receiver-driven signal
+  anyway." §5A is a full credit-mux design of record (reserved signal
+  bytes, W = 1 structural soundness argument) — out of scope by charter
+  (§1), retained as the boundary marker: W = 1 reply is the unique sound
+  reply-denominated window (the unit-mismatch discontinuity), which any
+  impossibility statement should echo. [derived, in-repo]
+- **The crux for C1, now precisely named.** §5D does not obviously rule
+  out a *strategically withholding* scheduler. Candidate refutation σ*
+  ("demand-lockstep"): push exactly the frame the receiver's
+  deterministic consumption schedule demands next, else idle. It stands
+  or falls on one question: *is the receiver's consumption order a
+  deterministic function of information causally available to the sender
+  at push time* (own tree + questions received + answers already pushed,
+  FIFO delivery making delivered-order known)? Every receiver
+  skeleton-choice seems to be announced in its own questions; the
+  suspect residue is cross-height cursor interleaving and the reverse
+  direction's symmetric coupling (answerers blocked on the reverse pipe
+  feed back into question consumption). If σ* is sound, C1 is FALSE with
+  a delightful small-capacity witness; if a receiver choice is provably
+  invisible-until-too-late, that choice IS the fooling wedge and C1's
+  proof. Phase 2 adjudicates exactly this. [open — the campaign's hinge]
+- **C2's positive core already exists, kernel-proven.** τ =
+  `Sched.schedule`/`scheduleE`: total, injective, edge-respecting global
+  timestamp of all events, a pure function of the full skeleton;
+  completeness under `schedulable` (`merge_complete`) and margin-0
+  (`merge_completeE`); `replaySchedule` runs it to terminal. Remaining
+  C2 work: per-direction wire projection + single-FIFO embedding;
+  "τ's wire projection arrives in consumption order" is NOT yet a lemma
+  and is real work. [proven core / open embedding]
+- **Model decisions queued for phase 2** (with reader recommendations):
+  mux as a *separate state component* (`muxQ : Party → List (Chan × Nat)`
+  or a distinct event alphabet) — do NOT extend the `Chan` inductive
+  (ripples through the 23-way Preserve analysis); demux discipline fixed
+  to the shipped one (wire-order delivery into per-stream one-slot
+  handoffs, single blocking reader) with robustness across variants
+  argued; capacity units: model messages = replies (byte-unboundedness
+  of supply runs is the §5A unit-mismatch — state as scope limitation or
+  model chunk counts); the trace alphabet σ observes (protocol frames
+  only; flush receipts?); per-party knowledge as a projection of Skel —
+  the model has NO private trees, this is the genuinely new definition,
+  with a Rust proptest bridge for concrete witness tree pairs.
+- **Boundedness caveat for C1's statement.** The empirical stall
+  reproduces identically at 64 B and 16 MiB transport buffers: the cycle
+  is demux head-of-line + flush-paced receipts, not raw pipe capacity.
+  C1 must bound total endpoint demux state alongside pipe capacity, or
+  it is trivially false (unbounded per-stream demux buffers — the
+  design doc's rejected option C — absorb any misordering). [checked,
+  in-repo]
+- **Instruments available.** EventDag executable oracle (blameProbe,
+  weakPotential, capOne knob — capacity-collapse experiments were
+  anticipated); the Quint simulator; pinned adversarial skeletons (jam,
+  parentTrap, pyramid d, boundaryProbe families); the regression shape
+  (root fan ≥ 7, first radix child deep-disputed, ≥ 6 whole-subtree
+  provisions behind it, ≈ 3 frames/stream slack) with committed seeds;
+  `run_to_quiescence`'s no-wake Stalled witness as the operational
+  deadlock definition. Kernel-checked stuck-run technique (Controls.lean
+  run/drain + decide) copies to any new mux transition system.
+- **Alignment audit opened** (AUDIT-NOTES.md, per Finch's standing
+  request): A1 termination may be witness-checked rather than
+  kernel-proven while MODEL.md §1 lists it under "proved" — to verify;
+  A2/A3 documented-in-repo gaps recorded as campaign rules.
 
 ## 5. Log
 
@@ -149,3 +226,12 @@ tradition of keeping the negative space on the record.)
   `rumors-mux` (branch `mux-conjectures` off main) created;
   `lake build` verified green at 238 jobs before any new work.
   Phase 1 readers dispatched.
+- **2026-07-21** Phase 1 complete (4 parallel readers over the Lean
+  artifact, MODEL/PROGRESS docs, the deadlock design doc, and the Rust
+  on both branches; ~710k tokens). Findings distilled into §4; the
+  campaign's hinge identified: whether the receiver's consumption order
+  is causally computable at the sender (σ* demand-lockstep) or provably
+  not (the fooling wedge). AUDIT-NOTES.md opened. Phase 2 (adjudicate)
+  dispatched: five independent lenses — prove-C1, refute-C1, C2-oracle,
+  model-fixing, and an executable simulator probe — then adversarial
+  cross-examination and synthesis into Lean-ready statements.
