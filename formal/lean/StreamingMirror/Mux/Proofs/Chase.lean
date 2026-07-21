@@ -108,7 +108,7 @@ theorem chase (hwf : sk.wellFormed = true)
         List.append_eq_nil_iff, List.append_eq_nil_iff,
         List.append_eq_nil_iff, List.append_eq_nil_iff] at hnil
       obtain ⟨⟨⟨⟨⟨⟨hio0, hro0⟩, hwk0⟩, hab0⟩, hasm0⟩, hrr0⟩, hfin0⟩ := hnil
-      have hcan := Sched.progress_of_inv sk hwf hm0 hi hterm
+      have hcan := Sched.progress_of_inv sk hwf hm0 hi.weak hterm
       rw [Model.canStep, List.any_eq_true] at hcan
       obtain ⟨a, hmem, hsome'⟩ := hcan
       have hnf : isWireFire s.base a = false := by
