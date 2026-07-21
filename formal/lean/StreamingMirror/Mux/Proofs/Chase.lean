@@ -286,6 +286,33 @@ theorem chase_withheld (hwf : sk.wellFormed = true)
 
 -- ============================================== stage-3 bridging bricks
 
+/-- At a stuck state a nonempty pipe's head is slot-blocked: `deliver`
+is never strategy-gated, so only a full slot can hold it.
+
+This is T4-Step-1's opening move (refute-c1 §2.1): together with the
+`MuxInv` count fields it pins the head-of-line configuration — the
+slot frame is the head's per-stream predecessor at seq
+`recvdOf = deliveredCount − 1` — whose unconsumed-ness the keystone
+then contradicts. -/
+theorem mstuck_deliver_blocked {C : Nat} {σI σR : Strategy}
+    {s : MState} (hstuck : mstuck sk .impl C σI σR s = true)
+    {p : Party} {c : Chan} {rest : List Chan}
+    (hp : s.pipe p = c :: rest) : s.base.chan c ≠ 0 := by
+  intro h0
+  have hdis := mstuck_disabled hstuck (.deliver p)
+    (by rw [allMActions]
+        refine List.mem_append.mpr (.inr ?_)
+        cases p <;> simp)
+  simp [apply, hp, h0] at hdis
+
+/-- Pipe entries are wire frames of their own pipe's party. -/
+theorem MuxInv.pipe_mem_wire {s : MState} (hm : MuxInv sk s) {p : Party}
+    {c : Chan} (hc : c ∈ s.pipe p) : ∃ hh, c = Chan.wire p hh := by
+  rw [hm.hist_pipe p] at hc
+  obtain ⟨hh, -, rfl⟩ := List.exists_of_mem_map hc
+  exact ⟨hh, rfl⟩
+
+
 /-- The ground facts hold at the initial muxed state: the base case of
 the stage-3 `MuxInv` preservation induction, and the interface's
 non-vacuity certificate. -/
