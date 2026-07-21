@@ -905,4 +905,886 @@ theorem sinv_base (hwf : sk.wellFormed = true) {a : Action} {s s' : MState}
       exact SInv.base_assemble hm hL'
         (BaseFacts.of_recv hslot hflow hr) hh (fun h => rfl)
 
+-- ==================================================== the push arm
+
+private theorem party_other_ne (q : Party) : q.other ≠ q := by
+  cases q <;> simp [Party.other]
+
+/-- The push-side assembly: the flush receipt, the pipe append, and the
+sender's cursor advance rebuild every field. `hoffd` is the hand flip
+DOWN — the fired hand is cleared — and the guard's hand-was-held fact
+balances the ledger. -/
+theorem SInv.push_assemble {s : MState} {b : State} {p : Party} {h : Nat}
+    (hm : SInv sk s) (hL' : InvL sk .impl b)
+    (hmem_ch : Chan.wire p h ∈ allChans sk)
+    (hchan : b.chan = s.base.chan)
+    (hsw : ∀ q g, Chan.wire q g ∈ allChans sk →
+      sentOf sk b (Chan.wire q g) = sentOf sk s.base (Chan.wire q g)
+        + (if q = p ∧ g = h then 1 else 0))
+    (hsint : ∀ c ∈ allChans sk, isWire c = false →
+      sentOf sk b c = sentOf sk s.base c)
+    (hrecv : ∀ c ∈ allChans sk, recvdOf sk b c = recvdOf sk s.base c)
+    (hon : holdsWire sk p h s.base = true)
+    (hoffd : holdsWire sk p h b = false)
+    (hother : ∀ q g, ¬(q = p ∧ g = h) →
+      holdsWire sk q g b = holdsWire sk q g s.base) :
+    SInv sk { base := b
+              pipe := fun q => if q == p
+                then s.pipe q ++ [Chan.wire p h] else s.pipe q
+              hist := recordObs s.hist p (.pushed h) } := by
+  have hhist : ∀ q, recordObs s.hist p (.pushed h) q
+      = if q == p then s.hist q ++ [.pushed h] else s.hist q := by
+    intro q
+    rfl
+  have hnp : ∀ (g : Nat), (MObs.pushed h) ≠ .delivered g := by
+    intro g hcon
+    cases hcon
+  have hlen : delTotal (s.hist p.other) ≤ (pushHeights (s.hist p)).length := by
+    have := congrArg List.length (hm.mux.hist_del p)
+    rw [List.length_take] at this
+    have hdt : (delHeights (s.hist p.other)).length
+        = delTotal (s.hist p.other) := rfl
+    omega
+  have hne_other : ∀ q : Party, q ≠ p → ¬((q == p) = true) := by
+    intro q hq
+    simp [hq]
+  refine ⟨⟨hL', ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩, ?_, ?_⟩
+  · intro c hc
+    rw [hchan]
+    exact hm.mux.slot c hc
+  · intro c hc hw
+    rw [hchan, hsint c hc hw, hrecv c hc]
+    exact hm.mux.flow_int c hc hw
+  · -- pushed_eq
+    intro q g hc
+    rw [hsw q g hc]
+    show pushedCount (recordObs s.hist p (.pushed h) q) g = _
+    rw [hhist]
+    by_cases hq : q = p
+    · subst hq
+      rw [if_pos (by simp), pushedCount_append_pushed,
+        hm.mux.pushed_eq q g hc]
+      by_cases hg : g = h
+      · subst hg
+        rw [if_pos rfl, if_pos ⟨rfl, rfl⟩]
+      · rw [if_neg (fun hcon => hg hcon.symm),
+          if_neg (fun hcon => hg hcon.2)]
+    · rw [if_neg (hne_other q hq), hm.mux.pushed_eq q g hc,
+        if_neg (fun hcon => hq hcon.1)]
+      omega
+  · -- hist_del
+    intro q
+    show delHeights (recordObs s.hist p (.pushed h) q.other)
+      = (pushHeights (recordObs s.hist p (.pushed h) q)).take
+          (delTotal (recordObs s.hist p (.pushed h) q.other))
+    rw [hhist, hhist]
+    by_cases hq : q = p
+    · subst hq
+      rw [if_neg (hne_other q.other (party_other_ne q)),
+        if_pos (by simp)]
+      rw [pushHeights_append]
+      rw [List.take_append_of_le_length (by simpa using hlen)]
+      exact hm.mux.hist_del q
+    · by_cases hqo : q.other = p
+      · rw [if_neg (hne_other q hq), if_pos (by simp [hqo])]
+        rw [delHeights_append]
+        simp only [List.append_nil]
+        rw [show delTotal (s.hist q.other ++ [MObs.pushed h])
+            = delTotal (s.hist q.other) from
+          delTotal_append_other _ (fun g hcon => by cases hcon)]
+        exact hm.mux.hist_del q
+      · rw [if_neg (hne_other q hq), if_neg (hne_other q.other hqo)]
+        exact hm.mux.hist_del q
+  · -- hist_pipe
+    intro q
+    show (if q == p then s.pipe q ++ [Chan.wire p h] else s.pipe q)
+      = ((pushHeights (recordObs s.hist p (.pushed h) q)).drop
+          (delTotal (recordObs s.hist p (.pushed h) q.other))).map
+          (Chan.wire q)
+    rw [hhist, hhist]
+    by_cases hq : q = p
+    · subst hq
+      rw [if_pos (by simp),
+        if_neg (hne_other q.other (party_other_ne q)),
+        if_pos (by simp)]
+      rw [pushHeights_append]
+      rw [List.drop_append_of_le_length (by simpa using hlen)]
+      rw [List.map_append, hm.mux.hist_pipe q]
+      rfl
+    · by_cases hqo : q.other = p
+      · rw [if_neg (hne_other q hq), if_pos (by simp [hqo]),
+          if_neg (hne_other q hq)]
+        rw [show delTotal (s.hist q.other ++ [MObs.pushed h])
+            = delTotal (s.hist q.other) from
+          delTotal_append_other _ (fun g hcon => by cases hcon)]
+        exact hm.mux.hist_pipe q
+      · rw [if_neg (hne_other q hq), if_neg (hne_other q.other hqo),
+          if_neg (hne_other q hq)]
+        exact hm.mux.hist_pipe q
+  · -- delivered_eq
+    intro q g hc
+    rw [hchan, hrecv _ hc]
+    show deliveredCount (recordObs s.hist p (.pushed h) q.other) g = _
+    rw [hhist]
+    by_cases hqo : q.other = p
+    · rw [if_pos (by simp [hqo]),
+        deliveredCount_append_other _ hnp]
+      exact hm.mux.delivered_eq q g hc
+    · rw [if_neg (hne_other q.other hqo)]
+      exact hm.mux.delivered_eq q g hc
+  · -- pushed_mem
+    intro q g hne
+    revert hne
+    show pushedCount (recordObs s.hist p (.pushed h) q) g ≠ 0 → _
+    rw [hhist]
+    by_cases hq : q = p
+    · subst hq
+      rw [if_pos (by simp), pushedCount_append_pushed]
+      intro hne
+      by_cases hg : h = g
+      · subst hg
+        exact hmem_ch
+      · rw [if_neg hg] at hne
+        exact hm.mux.pushed_mem q g (by omega)
+    · rw [if_neg (hne_other q hq)]
+      exact hm.mux.pushed_mem q g
+  · -- hist_party
+    intro q a' hmem
+    have hmem' : MObs.act a' ∈ recordObs s.hist p (.pushed h) q := hmem
+    rw [hhist] at hmem'
+    by_cases hq : q = p
+    · subst hq
+      rw [if_pos (by simp)] at hmem'
+      rcases List.mem_append.mp hmem' with hold | hnew
+      · exact hm.hist.hist_party q a' hold
+      · have := List.mem_singleton.mp hnew
+        cases this
+    · rw [if_neg (hne_other q hq)] at hmem'
+      exact hm.hist.hist_party q a' hmem'
+  · -- hand_count
+    intro q g
+    show commitsOf sk.rootH (recordObs s.hist p (.pushed h) q) g
+      = pushesOf (recordObs s.hist p (.pushed h) q) g + _
+    rw [hhist]
+    have hold := hm.hist.hand_count q g
+    by_cases hq : q = p
+    · subst hq
+      rw [if_pos (by simp),
+        commitsOf_append_other _ _ (fun a hcon => by cases hcon),
+        pushesOf_append]
+      by_cases hg : g = h
+      · subst hg
+        rw [hon, if_pos rfl] at hold
+        rw [hoffd, if_neg Bool.false_ne_true]
+        have hms : (match (MObs.pushed g : MObs) with
+            | .pushed h' => if h' = g then 1 else 0
+            | _ => 0) = 1 := by
+          simp
+        omega
+      · rw [hother q g (fun hcon => hg hcon.2)]
+        have : (match (MObs.pushed h : MObs) with
+            | .pushed h' => if h' = g then 1 else 0
+            | _ => 0) = 0 := by
+          simp only
+          rw [if_neg (fun hcon => hg hcon.symm)]
+        omega
+    · rw [if_neg (hne_other q hq),
+        hother q g (fun hcon => hq hcon.1)]
+      exact hold
+
+/-- The initiator's opening fire, as base facts: only `iopenWire` and
+the choice slot move, so the root wire's producer count rises by one
+and everything else frames. -/
+private theorem iopen_fire_facts {s₀ : State}
+    (hch : s₀.iopenCh = some .wire) (hL : InvL sk ax s₀) :
+    InvL sk ax { s₀ with iopenWire := true, iopenCh := none }
+    ∧ (∀ q g, sentOf sk { s₀ with iopenWire := true, iopenCh := none }
+        (Chan.wire q g) = sentOf sk s₀ (Chan.wire q g)
+          + (if q = Party.I ∧ g = sk.rootH then 1 else 0))
+    ∧ (∀ c, isWire c = false →
+        sentOf sk { s₀ with iopenWire := true, iopenCh := none } c
+          = sentOf sk s₀ c)
+    ∧ (∀ c, recvdOf sk { s₀ with iopenWire := true, iopenCh := none } c
+        = recvdOf sk s₀ c)
+    ∧ holdsWire sk Party.I sk.rootH s₀ = true
+    ∧ holdsWire sk Party.I sk.rootH
+        { s₀ with iopenWire := true, iopenCh := none } = false
+    ∧ (∀ q g, ¬(q = Party.I ∧ g = sk.rootH) →
+        holdsWire sk q g { s₀ with iopenWire := true, iopenCh := none }
+          = holdsWire sk q g s₀) := by
+  have htop := hL.top
+  rw [topLocalOk] at htop
+  simp only [Bool.and_eq_true] at htop
+  have hiw : s₀.iopenWire = false := by
+    have h1 := htop.1.1.1.1.1.1.1.1.1.1.1
+    rw [hch] at h1
+    simpa using h1
+  refine ⟨⟨fun pk hpk => ?_, fun pk hpk => ?_, ?_⟩, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · rw [wkLocalOk_congr sk ax pk rfl]
+    exact hL.wk pk hpk
+  · rw [asmLocalOk_congr sk pk rfl]
+    exact hL.asm pk hpk
+  · have htop' := hL.top
+    rw [topLocalOk] at htop'
+    simp only [Bool.and_eq_true] at htop'
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨-, -⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, h8⟩, h9⟩, h10⟩,
+      h11⟩, h12⟩ := htop'
+    rw [topLocalOk]
+    simp only [Bool.and_eq_true]
+    exact ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨by simp, by simp⟩, h3⟩, h4⟩, h5⟩, h6⟩, h7⟩, h8⟩,
+      h9⟩, h10⟩, h11⟩, h12⟩
+  · intro q g
+    by_cases hqg : q = Party.I ∧ g = sk.rootH
+    · obtain ⟨rfl, rfl⟩ := hqg
+      rw [if_pos ⟨rfl, rfl⟩]
+      simp [sentOf, b2n, hiw]
+    · rw [if_neg hqg]
+      by_cases hg : g = sk.rootH
+      · have hq : q = Party.R := by
+          cases q
+          · exact absurd ⟨rfl, hg⟩ hqg
+          · rfl
+        subst hq
+        subst hg
+        simp [sentOf, b2n]
+      · simp [sentOf, hg, wkWireSent, wkWireCount]
+  · intro c hw
+    cases c with
+    | wire p h => simp [isWire] at hw
+    | _ => rfl
+  · intro c
+    cases c <;> rfl
+  · rw [holdsWire.eq_def, if_pos (by simp)]
+    simp [hch]
+  · rw [holdsWire.eq_def, if_pos (by simp)]
+    simp
+  · intro q g hqg
+    by_cases hg : g = sk.rootH
+    · have hq : q = Party.R := by
+        cases q
+        · exact absurd ⟨rfl, hg⟩ hqg
+        · rfl
+      subst hq
+      subst hg
+      rw [holdsWire.eq_def, holdsWire.eq_def]
+    · rw [holdsWire_eq_wireHand hg, holdsWire_eq_wireHand hg]
+
+/-- The responder's opening fire, as base facts. -/
+private theorem ropen_fire_facts {s₀ : State}
+    (hch : s₀.ropenCh = some .wire) (hL : InvL sk ax s₀) :
+    InvL sk ax { s₀ with ropenWire := true, ropenCh := none }
+    ∧ (∀ q g, sentOf sk { s₀ with ropenWire := true, ropenCh := none }
+        (Chan.wire q g) = sentOf sk s₀ (Chan.wire q g)
+          + (if q = Party.R ∧ g = sk.rootH then 1 else 0))
+    ∧ (∀ c, isWire c = false →
+        sentOf sk { s₀ with ropenWire := true, ropenCh := none } c
+          = sentOf sk s₀ c)
+    ∧ (∀ c, recvdOf sk { s₀ with ropenWire := true, ropenCh := none } c
+        = recvdOf sk s₀ c)
+    ∧ holdsWire sk Party.R sk.rootH s₀ = true
+    ∧ holdsWire sk Party.R sk.rootH
+        { s₀ with ropenWire := true, ropenCh := none } = false
+    ∧ (∀ q g, ¬(q = Party.R ∧ g = sk.rootH) →
+        holdsWire sk q g { s₀ with ropenWire := true, ropenCh := none }
+          = holdsWire sk q g s₀) := by
+  have htop := hL.top
+  rw [topLocalOk] at htop
+  simp only [Bool.and_eq_true] at htop
+  have hrw : s₀.ropenWire = false := by
+    have h1 := htop.1.1.1.1.1.1.2
+    rw [hch] at h1
+    simpa using h1
+  have hgw : s₀.ropenGotWire = true := by
+    have h3 := htop.1.1.1.1.1.1.1.1.1.2
+    rw [hch] at h3
+    simpa using h3
+  refine ⟨⟨fun pk hpk => ?_, fun pk hpk => ?_, ?_⟩, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · rw [wkLocalOk_congr sk ax pk rfl]
+    exact hL.wk pk hpk
+  · rw [asmLocalOk_congr sk pk rfl]
+    exact hL.asm pk hpk
+  · have htop' := hL.top
+    rw [topLocalOk] at htop'
+    simp only [Bool.and_eq_true] at htop'
+    obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, -⟩, h4⟩, -⟩, -⟩, -⟩, -⟩, h9⟩, h10⟩,
+      h11⟩, h12⟩ := htop'
+    rw [topLocalOk]
+    simp only [Bool.and_eq_true]
+    exact ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨h1, h2⟩, by simp [hgw]⟩, h4⟩, by simp⟩, by simp⟩,
+      by simp⟩, by simp⟩, h9⟩, h10⟩, h11⟩, h12⟩
+  · intro q g
+    by_cases hqg : q = Party.R ∧ g = sk.rootH
+    · obtain ⟨rfl, rfl⟩ := hqg
+      rw [if_pos ⟨rfl, rfl⟩]
+      simp [sentOf, b2n, hrw]
+    · rw [if_neg hqg]
+      by_cases hg : g = sk.rootH
+      · have hq : q = Party.I := by
+          cases q
+          · rfl
+          · exact absurd ⟨rfl, hg⟩ hqg
+        subst hq
+        subst hg
+        simp [sentOf, b2n]
+      · simp [sentOf, hg, wkWireSent, wkWireCount]
+  · intro c hw
+    cases c with
+    | wire p h => simp [isWire] at hw
+    | _ => rfl
+  · intro c
+    cases c <;> rfl
+  · rw [holdsWire.eq_def, if_pos (by simp)]
+    simp [hch]
+  · rw [holdsWire.eq_def, if_pos (by simp)]
+    simp
+  · intro q g hqg
+    by_cases hg : g = sk.rootH
+    · have hq : q = Party.I := by
+        cases q
+        · rfl
+        · exact absurd ⟨rfl, hg⟩ hqg
+      subst hq
+      subst hg
+      rw [holdsWire.eq_def, holdsWire.eq_def]
+    · rw [holdsWire_eq_wireHand hg, holdsWire_eq_wireHand hg]
+
+/-- A successful push preserves the invariant, and its only history
+effect is the flush receipt. -/
+theorem sinv_firePush (hwf : sk.wellFormed = true) {C : Nat} {p : Party}
+    {h : Nat} {s s' : MState}
+    (hfp : firePush sk C p h s = some s') (hm : SInv sk s) :
+    SInv sk s' ∧ s'.hist = recordObs s.hist p (.pushed h) := by
+  simp only [firePush] at hfp
+  split at hfp
+  case isFalse => cases hfp
+  case isTrue hroom =>
+    split at hfp
+    · -- the opening stream
+      next hr =>
+      have hr' : h = sk.rootH := by simpa using hr
+      subst hr'
+      cases p with
+      | I =>
+          cases hch : s.base.iopenCh with
+          | none => rw [hch] at hfp; cases hfp
+          | some o =>
+              cases o with
+              | query => rw [hch] at hfp; cases hfp
+              | wire =>
+                  rw [hch] at hfp
+                  injection hfp with hs'
+                  obtain ⟨hL', hsw, hsint, hrecv, hon, hoffd, hother⟩ :=
+                    iopen_fire_facts hch hm.mux.invl
+                  subst hs'
+                  refine ⟨SInv.push_assemble hm hL'
+                    (mem_allChans_wire_root _) rfl
+                    (fun q g _ => hsw q g)
+                    (fun c _ hw => hsint c hw)
+                    (fun c _ => hrecv c) hon hoffd hother, rfl⟩
+      | R =>
+          cases hch : s.base.ropenCh with
+          | none => rw [hch] at hfp; cases hfp
+          | some o =>
+              cases o with
+              | query => rw [hch] at hfp; cases hfp
+              | res => rw [hch] at hfp; cases hfp
+              | wire =>
+                  rw [hch] at hfp
+                  injection hfp with hs'
+                  obtain ⟨hL', hsw, hsint, hrecv, hon, hoffd, hother⟩ :=
+                    ropen_fire_facts hch hm.mux.invl
+                  subst hs'
+                  refine ⟨SInv.push_assemble hm hL'
+                    (mem_allChans_wire_root _) rfl
+                    (fun q g _ => hsw q g)
+                    (fun c _ hw => hsint c hw)
+                    (fun c _ => hrecv c) hon hoffd hother, rfl⟩
+    · -- a walk stream
+      next hr =>
+      have hr' : h ≠ sk.rootH := by simpa using hr
+      split at hfp
+      next i hcm =>
+        split at hfp
+        case isFalse => cases hfp
+        case isTrue hg =>
+          simp only [Bool.and_eq_true] at hg
+          obtain ⟨hcon, hph⟩ := hg
+          have hmem' : (p, h) ∈ sk.walkKeys :=
+            (List.contains_iff_mem ..).mp hcon
+          have hph2 : (s.base.walk (p, h)).phase = 2 := by
+            simpa using hph
+          injection hfp with hs'
+          obtain ⟨hL', hsent, hrecv, hchan, hoff, hhand'⟩ :=
+            step_fire (s' := setWalk s.base (p, h)
+              (normWalk sk h (fireOblig (s.base.walk (p, h))
+                (.wire i))))
+            hwf (p, h) (.wire i) hmem' hph2 hcm rfl hm.mux.invl
+          subst hs'
+          refine ⟨SInv.push_assemble hm hL'
+            (mem_allChans_wireOut hmem') hchan ?_ ?_
+            (fun c hc => hrecv c hc) ?_ ?_ ?_, rfl⟩
+          · intro q g hc
+            rw [hsent _ hc]
+            congr 1
+            rw [show obligChan (p, h) (Oblig.wire i) = Chan.wire p h
+              from rfl]
+            by_cases hqg : q = p ∧ g = h
+            · obtain ⟨rfl, rfl⟩ := hqg
+              rw [if_pos rfl, if_pos ⟨rfl, rfl⟩]
+            · have hne : Chan.wire q g ≠ Chan.wire p h := by
+                intro hcon2
+                apply hqg
+                have h1 := congrArg wireParty hcon2
+                have h2 := congrArg wireHeight hcon2
+                exact ⟨h1, h2⟩
+              rw [if_neg hne, if_neg hqg]
+          · intro c hc hw
+            have hne : c ≠ obligChan (p, h) (Oblig.wire i) := by
+              intro hcon2
+              rw [hcon2] at hw
+              simp [isWire, obligChan, wireOut] at hw
+            rw [hsent _ hc, if_neg hne]
+            omega
+          · rw [holdsWire_eq_wireHand hr']
+            rw [hcon]
+            rw [wireHand]
+            rw [hph, hcm]
+            rfl
+          · rw [holdsWire_eq_wireHand hr']
+            have hwk : (setWalk s.base (p, h)
+                (normWalk sk h (fireOblig (s.base.walk (p, h))
+                  (.wire i)))).walk (p, h)
+                = normWalk sk h (fireOblig (s.base.walk (p, h))
+                  (.wire i)) := setWalk_walk_self _ _ _
+            have := hhand'
+            rw [this]
+            simp
+          · intro q g hqg
+            refine hoff q g ?_
+            intro hcon2
+            apply hqg
+            exact ⟨congrArg Prod.fst hcon2, congrArg Prod.snd hcon2⟩
+      next hcm => cases hfp
+
+/-- Either the same party or the other: the two-point case split. -/
+private theorem party_cases (q p : Party) : q = p ∨ q = p.other := by
+  cases q <;> cases p <;> simp [Party.other]
+
+/-- A delivery preserves the invariant: the FIFO head moves to its
+slot, and the receipt extends the delivered prefix by exactly that
+frame. -/
+theorem sinv_deliver {C : Nat} {σI σR : Strategy} {p : Party}
+    {s s' : MState}
+    (hstep : apply sk .impl C σI σR (.deliver p) s = some s')
+    (hm : SInv sk s) : SInv sk s' := by
+  simp only [apply] at hstep
+  split at hstep
+  case h_2 => cases hstep
+  case h_1 c rest hp =>
+      split at hstep
+      next h0 =>
+        have hz : s.base.chan c = 0 := by simpa using h0
+        obtain ⟨g, rfl⟩ := hm.mux.pipe_mem_wire (p := p)
+          (c := c) (by rw [hp]; exact List.mem_cons_self ..)
+        injection hstep with hs'
+        subst hs'
+        -- the head frame's position in the push order
+        have hpipe := hm.mux.hist_pipe p
+        rw [hp] at hpipe
+        have hdrop : (pushHeights (s.hist p)).drop
+            (delTotal (s.hist p.other))
+            = g :: (rest.map wireHeight) := by
+          have h1 := congrArg (List.map wireHeight) hpipe
+          rw [List.map_map] at h1
+          rw [show wireHeight ∘ Chan.wire p = id from rfl,
+            List.map_id] at h1
+          simpa [wireHeight] using h1.symm
+        have hget : (pushHeights (s.hist p))[delTotal (s.hist p.other)]?
+            = some g := by
+          have h1 : ((pushHeights (s.hist p)).drop
+              (delTotal (s.hist p.other)))[0]? = some g := by
+            rw [hdrop]
+            rfl
+          rw [List.getElem?_drop] at h1
+          simpa using h1
+        have hpo : p ≠ p.other := fun hcon => party_other_ne p hcon.symm
+        have hoo : p.other.other = p := Party.other_other p
+        have hno_a : ∀ (a : Action),
+            (MObs.delivered g : MObs) ≠ .act a := fun a hcon => by
+          cases hcon
+        have hno_p2 : ∀ (h' : Nat),
+            (MObs.delivered g : MObs) ≠ .pushed h' := fun h' hcon => by
+          cases hcon
+        have hhist : ∀ q, recordObs s.hist p.other (.delivered g) q
+            = if q == p.other then s.hist q ++ [.delivered g]
+              else s.hist q := fun q => rfl
+        have hself : (p.other == p.other) = true := by simp
+        have hnp : (p == p.other) = false := by
+          cases hb : (p == p.other)
+          · rfl
+          · exact absurd (beq_iff_eq.mp hb) hpo
+        refine ⟨⟨InvL.chan_blind hm.mux.invl, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩,
+          ?_, ?_⟩
+        · -- slot
+          intro c' hc'
+          show bump s.base.chan (Chan.wire p g) 1 c' ≤ _
+          by_cases he : c' = Chan.wire p g
+          · subst he
+            rw [bump_one, hz]
+            show 1 ≤ sk.cap (Chan.wire p g)
+            exact Nat.le_refl _
+          · rw [bump_ne _ _ he]
+            exact hm.mux.slot c' hc'
+        · -- flow_int
+          intro c' hc' hw
+          show bump s.base.chan (Chan.wire p g) 1 c'
+              + recvdOf sk _ c' = sentOf sk _ c'
+          have hne : c' ≠ Chan.wire p g := by
+            intro he
+            rw [he] at hw
+            simp [isWire] at hw
+          rw [bump_ne _ _ hne, recvdOf_chan_blind, sentOf_chan_blind]
+          exact hm.mux.flow_int c' hc' hw
+        · -- pushed_eq
+          intro q g' hc'
+          show pushedCount (recordObs s.hist p.other (.delivered g) q) g'
+            = _
+          rw [hhist, sentOf_chan_blind]
+          by_cases hq : q = p.other
+          · rw [if_pos (by simp [hq]),
+              pushedCount_append_other _ hno_p2]
+            exact hm.mux.pushed_eq q g' hc'
+          · rw [if_neg (by simp [hq])]
+            exact hm.mux.pushed_eq q g' hc'
+        · -- hist_del
+          intro q
+          show delHeights (recordObs s.hist p.other (.delivered g) q.other)
+            = (pushHeights (recordObs s.hist p.other (.delivered g) q)).take
+                (delTotal (recordObs s.hist p.other (.delivered g) q.other))
+          rw [hhist, hhist]
+          rcases party_cases q p with rfl | rfl
+          · rw [if_pos hself, if_neg (by rw [hnp]; simp)]
+            rw [delHeights_append]
+            show delHeights (s.hist q.other) ++ [g] = _
+            rw [show delTotal (s.hist q.other ++ [MObs.delivered g])
+                = delTotal (s.hist q.other) + 1 from
+              delTotal_append_delivered _ g]
+            rw [List.take_add_one, hget, hm.mux.hist_del q]
+            rfl
+          · rw [hoo, if_neg (by rw [hnp]; simp), if_pos hself]
+            have hpe : pushHeights (s.hist p.other ++ [MObs.delivered g])
+                = pushHeights (s.hist p.other) := by
+              rw [pushHeights_append]
+              simp
+            rw [hpe]
+            have := hm.mux.hist_del p.other
+            rw [hoo] at this
+            exact this
+        · -- hist_pipe
+          intro q
+          show (if q == p then rest else s.pipe q)
+            = ((pushHeights (recordObs s.hist p.other (.delivered g) q)).drop
+                (delTotal (recordObs s.hist p.other (.delivered g) q.other))).map
+                (Chan.wire q)
+          rw [hhist, hhist]
+          rcases party_cases q p with rfl | rfl
+          · rw [if_pos (by simp), if_pos hself,
+              if_neg (by rw [hnp]; simp)]
+            rw [show delTotal (s.hist q.other ++ [MObs.delivered g])
+                = delTotal (s.hist q.other) + 1 from
+              delTotal_append_delivered _ g]
+            have hdd : (pushHeights (s.hist q)).drop
+                (delTotal (s.hist q.other) + 1)
+                = rest.map wireHeight := by
+              have h2 : (pushHeights (s.hist q)).drop
+                  (delTotal (s.hist q.other) + 1)
+                  = ((pushHeights (s.hist q)).drop
+                      (delTotal (s.hist q.other))).drop 1 := by
+                rw [List.drop_drop]
+              rw [h2, hdrop]
+              rfl
+            rw [hdd]
+            have hrest : rest.map (Chan.wire q ∘ wireHeight)
+                = rest := by
+              have hmem : ∀ c' ∈ rest, Chan.wire q (wireHeight c') = c' := by
+                intro c' hc'
+                obtain ⟨gg, rfl⟩ := hm.mux.pipe_mem_wire (p := q)
+                  (c := c') (by rw [hp]; exact List.mem_cons_of_mem _ hc')
+                rfl
+              calc rest.map (Chan.wire q ∘ wireHeight)
+                  = rest.map id := List.map_congr_left
+                    (fun c' hc' => hmem c' hc')
+                _ = rest := List.map_id rest
+            rw [List.map_map, hrest]
+          · rw [hoo]
+            rw [if_neg (by
+              intro hcon
+              exact hpo (beq_iff_eq.mp hcon).symm), if_pos hself,
+              if_neg (by rw [hnp]; simp)]
+            have hpe : pushHeights (s.hist p.other ++ [MObs.delivered g])
+                = pushHeights (s.hist p.other) := by
+              rw [pushHeights_append]
+              simp
+            rw [hpe]
+            have := hm.mux.hist_pipe p.other
+            rw [hoo] at this
+            exact this
+        · -- delivered_eq
+          intro q g' hc'
+          show deliveredCount (recordObs s.hist p.other
+            (.delivered g) q.other) g'
+            = recvdOf sk _ (Chan.wire q g')
+              + bump s.base.chan (Chan.wire p g) 1 (Chan.wire q g')
+          rw [hhist, recvdOf_chan_blind]
+          rcases party_cases q p with rfl | rfl
+          · rw [if_pos hself, deliveredCount_append_delivered]
+            by_cases hg' : g = g'
+            · subst hg'
+              rw [if_pos rfl, bump_one]
+              have := hm.mux.delivered_eq q g hc'
+              omega
+            · rw [if_neg hg', bump_ne _ _ (by
+                intro hcon
+                injection hcon with h1 h2
+                exact hg' h2.symm)]
+              have := hm.mux.delivered_eq q g' hc'
+              omega
+          · rw [hoo, if_neg (by rw [hnp]; simp), bump_ne _ _ (by
+              intro hcon
+              injection hcon with h1 h2
+              exact party_other_ne p (by rw [h1]))]
+            have := hm.mux.delivered_eq p.other g' hc'
+            rw [hoo] at this
+            exact this
+        · -- pushed_mem
+          intro q g' hne
+          revert hne
+          show pushedCount (recordObs s.hist p.other
+            (.delivered g) q) g' ≠ 0 → _
+          rw [hhist]
+          by_cases hq : q = p.other
+          · rw [if_pos (by simp [hq]),
+              pushedCount_append_other _ hno_p2]
+            exact hm.mux.pushed_mem q g'
+          · rw [if_neg (by simp [hq])]
+            exact hm.mux.pushed_mem q g'
+        · -- hist_party
+          intro q a' hmem
+          have hmem' : MObs.act a'
+              ∈ recordObs s.hist p.other (.delivered g) q := hmem
+          rw [hhist] at hmem'
+          by_cases hq : q = p.other
+          · rw [if_pos (by simp [hq])] at hmem'
+            rcases List.mem_append.mp hmem' with hold | hnew
+            · exact hm.hist.hist_party q a' hold
+            · cases List.mem_singleton.mp hnew
+          · rw [if_neg (by simp [hq])] at hmem'
+            exact hm.hist.hist_party q a' hmem'
+        · -- hand_count
+          intro q g'
+          show commitsOf sk.rootH (recordObs s.hist p.other
+            (.delivered g) q) g'
+            = pushesOf (recordObs s.hist p.other (.delivered g) q) g' + _
+          rw [hhist, show holdsWire sk q g'
+              { s.base with chan := bump s.base.chan (Chan.wire p g) 1 }
+              = holdsWire sk q g' s.base from holdsWire_chan_blind _ q g']
+          by_cases hq : q = p.other
+          · rw [if_pos (by simp [hq]),
+              commitsOf_append_other _ _ hno_a, pushesOf_append]
+            have := hm.hist.hand_count q g'
+            omega
+          · rw [if_neg (by simp [hq])]
+            exact hm.hist.hand_count q g'
+      next => cases hstep
+
+/-- The push arm, decomposed to the strategy verdict. -/
+theorem sinv_push (hwf : sk.wellFormed = true) {C : Nat}
+    {σI σR : Strategy} {p : Party} {s s' : MState}
+    (hstep : apply sk .impl C σI σR (.push p) s = some s')
+    (hm : SInv sk s) :
+    SInv sk s'
+    ∧ ∃ h, (match p with | .I => σI | .R => σR) sk (s.hist p) = some h
+        ∧ s'.hist = recordObs s.hist p (.pushed h) := by
+  cases p with
+  | I =>
+      simp only [apply] at hstep
+      cases hσ : σI sk (s.hist .I) with
+      | none => rw [hσ] at hstep; cases hstep
+      | some h =>
+          rw [hσ] at hstep
+          obtain ⟨hs, hh⟩ := sinv_firePush hwf hstep hm
+          exact ⟨hs, h, hσ, hh⟩
+  | R =>
+      simp only [apply] at hstep
+      cases hσ : σR sk (s.hist .R) with
+      | none => rw [hσ] at hstep; cases hstep
+      | some h =>
+          rw [hσ] at hstep
+          obtain ⟨hs, hh⟩ := sinv_firePush hwf hstep hm
+          exact ⟨hs, h, hσ, hh⟩
+
+/-- Every muxed step preserves the strategy-generic invariant. -/
+theorem sinv_step (hwf : sk.wellFormed = true) {C : Nat}
+    {σI σR : Strategy} {ma : MAction} {s s' : MState}
+    (hstep : apply sk .impl C σI σR ma s = some s')
+    (hm : SInv sk s) : SInv sk s' := by
+  cases ma with
+  | base a => exact sinv_base hwf hstep hm
+  | push p => exact (sinv_push hwf hstep hm).1
+  | deliver p => exact sinv_deliver hstep hm
+
+/-- No committed wire hand exists at the initial state. -/
+private theorem holdsWire_init (p : Party) (h : Nat) :
+    holdsWire sk p h (init sk).base = false := by
+  rw [holdsWire.eq_def]
+  split
+  · cases p <;> rfl
+  · show (sk.walkKeys.contains (p, h)
+      && ((Model.init sk).walk (p, h)).phase == 2
+      && _) = false
+    have hc : ((init sk).base.walk (p, h)).committed = none := by
+      show (freshWalk sk h 0).committed = none
+      rw [freshWalk]
+    rw [hc]
+    simp
+
+/-- The strategy-generic invariant holds at every reachable muxed
+state — the stage-3 preservation induction, discharged. -/
+theorem sinv_reachable (hwf : sk.wellFormed = true) {C : Nat}
+    {σI σR : Strategy} {s : MState}
+    (hr : MReachable sk .impl C σI σR s) : SInv sk s := by
+  induction hr with
+  | init =>
+      refine ⟨muxInv_init sk, ?_, ?_⟩
+      · intro p a hmem
+        cases hmem
+      · intro p h
+        rw [show (init sk).hist p = [] from rfl, holdsWire_init]
+        rfl
+  | step a hr' hstep ih => exact sinv_step hwf hstep ih
+
+-- ================================================ σ*'s push certificates
+
+/-- Extending a history by one observation keeps every push
+certificate, provided the new observation carries its own. -/
+private theorem certs_snoc {p : Party} {tr : List MObs} {o : MObs}
+    (hcert : ∀ i h, tr[i]? = some (.pushed h) →
+      pushedCount (tr.take i) h ≠ 0 →
+      (Chan.wire p h, false, pushedCount (tr.take i) h - 1)
+        ∈ inevitable sk p (tr.take i))
+    (hnew : ∀ h, o = .pushed h → pushedCount tr h ≠ 0 →
+      (Chan.wire p h, false, pushedCount tr h - 1)
+        ∈ inevitable sk p tr) :
+    ∀ i h, (tr ++ [o])[i]? = some (.pushed h) →
+      pushedCount ((tr ++ [o]).take i) h ≠ 0 →
+      (Chan.wire p h, false, pushedCount ((tr ++ [o]).take i) h - 1)
+        ∈ inevitable sk p ((tr ++ [o]).take i) := by
+  intro i h hget hcnt
+  rcases Nat.lt_trichotomy i tr.length with hlt | heq | hgt
+  · rw [List.getElem?_append_left hlt] at hget
+    rw [List.take_append_of_le_length (Nat.le_of_lt hlt)] at hcnt ⊢
+    exact hcert i h hget hcnt
+  · subst heq
+    rw [List.getElem?_concat_length] at hget
+    injection hget with hget
+    rw [List.take_append_of_le_length (Nat.le_refl _),
+      List.take_length] at hcnt ⊢
+    exact hnew h hget hcnt
+  · rw [List.getElem?_eq_none (by
+      rw [List.length_append, List.length_cons, List.length_nil]
+      omega)] at hget
+    cases hget
+
+/-- A history-only view of the certificates, per party. -/
+private theorem pushProven_iff {s : MState} :
+    PushProven sk s ↔ ∀ p, ∀ i h, (s.hist p)[i]? = some (.pushed h) →
+      pushedCount ((s.hist p).take i) h ≠ 0 →
+      (Chan.wire p h, false, pushedCount ((s.hist p).take i) h - 1)
+        ∈ inevitable sk p ((s.hist p).take i) := by
+  constructor
+  · intro hp p i h
+    exact hp p i h
+  · intro hp p i h
+    exact hp p i h
+
+/-- Every σ*-run step preserves the push certificates: base actions and
+deliveries append non-push observations, and a push observation carries
+the demand proof σ* itself computed. -/
+theorem pushProven_step (hwf : sk.wellFormed = true) {C : Nat}
+    {ma : MAction} {s s' : MState}
+    (hstep : apply sk .impl C sigmaStar sigmaStar ma s = some s')
+    (hm : SInv sk s) (hp : PushProven sk s) : PushProven sk s' := by
+  have hgen : ∀ (q₀ : Party) (o : MObs),
+      (∀ h, o = .pushed h → pushedCount (s.hist q₀) h ≠ 0 →
+        (Chan.wire q₀ h, false, pushedCount (s.hist q₀) h - 1)
+          ∈ inevitable sk q₀ (s.hist q₀)) →
+      s'.hist = recordObs s.hist q₀ o →
+      PushProven sk s' := by
+    intro q₀ o hnew hh
+    have hrec : ∀ q, s'.hist q
+        = if q == q₀ then s.hist q ++ [o] else s.hist q := by
+      intro q
+      rw [hh]
+      rfl
+    intro q i h
+    rw [hrec]
+    by_cases hq : q = q₀
+    · subst hq
+      rw [if_pos (by simp)]
+      exact certs_snoc (hp q) hnew i h
+    · rw [if_neg (by simp [hq])]
+      exact hp q i h
+  cases ma with
+  | base a =>
+      obtain ⟨-, b, -, hs'⟩ := applyBase_inv hstep
+      refine hgen (actionParty a) (.act a) ?_ (by rw [hs'])
+      intro h hcon
+      cases hcon
+  | deliver p =>
+      -- reuse the deliver decomposition only for the history shape
+      simp only [apply] at hstep
+      split at hstep
+      case h_2 => cases hstep
+      case h_1 c rest hpp =>
+          split at hstep
+          case isFalse => cases hstep
+          case isTrue h0 =>
+            injection hstep with hs'
+            refine hgen p.other (.delivered (wireHeight c)) ?_
+              (by rw [← hs'])
+            intro h hcon
+            cases hcon
+  | push p =>
+      obtain ⟨-, h, hσ, hh⟩ := sinv_push hwf hstep hm
+      have hσ' : sigmaStar sk (s.hist p) = some h := by
+        cases p <;> exact hσ
+      refine hgen p (.pushed h) ?_ hh
+      intro h' heq hcnt
+      have heq' : h = h' := by
+        injection heq
+      subst heq'
+      obtain ⟨p₀, hpo, -, -, hdem⟩ := sigmaStar_some_inv hσ'
+      have hpe : p₀ = p := partyOf_eq hm.hist hpo
+      subst hpe
+      rw [demanded, Bool.or_eq_true] at hdem
+      rcases hdem with hz | hmem
+      · exfalso
+        rw [Nat.beq_eq_true_eq] at hz
+        exact hcnt hz
+      · exact (List.contains_iff_mem ..).mp hmem
+
+/-- σ*'s push certificates hold along every σ*×σ* run: INV-A of
+refute-c1 §2.1, kernel form. -/
+theorem pushProven_reachable (hwf : sk.wellFormed = true) {C : Nat}
+    {s : MState}
+    (hr : MReachable sk .impl C sigmaStar sigmaStar s) :
+    PushProven sk s := by
+  induction hr with
+  | init =>
+      intro p i h hget
+      rw [show (init sk).hist p = [] from rfl] at hget
+      cases i <;> cases hget
+  | step a hr' hstep ih =>
+      exact pushProven_step hwf hstep (sinv_reachable hwf hr') ih
+
 end StreamingMirror.Mux
