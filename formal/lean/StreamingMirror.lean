@@ -50,4 +50,5 @@ import StreamingMirror.Mux.Proofs.Chase.Ground
 import StreamingMirror.Mux.Proofs.Chase.Closure
 import StreamingMirror.Mux.Proofs.Chase.Decode
 import StreamingMirror.Mux.Proofs.Chase.Keystone
+import StreamingMirror.Mux.Proofs.Chase
 import StreamingMirror.Proofs.Endgame
