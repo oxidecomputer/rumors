@@ -300,6 +300,27 @@ the negative space on the record.
   incorporated as conditions. Alignment findings A5–A8 recorded.
   Dispatched next: stage 0 (blocking causal-σ* probe gates P1–P4) and
   stage 1 (the Mux/ Lean harness) in parallel.
+- **2026-07-21** Stage-2 track C landed and merged (`muxprobe` exe,
+  golden 252-row matrix, `just muxprobe` in the formal tier; commit
+  consultations 3,524/3,524 singleton — the probe-fusion WLOG is
+  executably confirmed). **FINDING, T5-altering:** the static oracle is
+  executably FALSE — `ofSchedule(π_d)`, τ's receive projection pushed
+  as a precomputed list, deadlocks 4/25 random margin-0 skeletons
+  (witness `genSkelM0 2` pinned as the `rand2` matrix instance;
+  capacity- and interleaving-flat; independently cross-confirmed in the
+  Python probe). Mechanism: the static order demands a wire frame whose
+  producer walk is parked on a query into the full cap-1 `asked`
+  channel, which drains only after that very frame, while a ready
+  provision the absorber needs sits refused — π-eligibility fails as
+  drafted. T5's oracle of record becomes the STATE-FEEDBACK form (the
+  adjudication's named fallback, which completes everything tested);
+  the failed static form is retained as a new negative control to
+  formalize (`static_oracle_jams` on the pinned witness): even full
+  skeleton knowledge does not make a NON-ADAPTIVE schedule live —
+  adaptivity, not information, is the liveness ingredient. This
+  sharpens the trichotomy and is a statement-strength lesson: the
+  receive-projection argument was [derived] and wrong on a corner the
+  executable tier caught before any Lean was written.
 - **2026-07-21** Stage 1 landed (three commits, `lake build` green at
   241 jobs, kernel-only trust): `Mux/Basic.lean` (the harness of
   record — hand + pipe(C) of Chan tags + demux slots, no staging cell,
