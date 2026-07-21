@@ -100,7 +100,7 @@ indicted, and MODEL.md §1's "Explicitly not modeled" should point at the
 Mux/ subtree so nobody reads `DeadlockFree` as covering the old remote
 transport.
 
-## A7. Capacity monotonicity: assumed in prose, consumed by nothing — keep it that way
+## A7. Capacity monotonicity: assumed in prose, consumed by nothing — RESOLVED by theorem (T10, 2026-07-21)
 
 **[panel finding, 2026-07-21]** The artifact's standing capacity-
 monotonicity claim (window.rs: "every schedule live at the floor stays
@@ -109,6 +109,31 @@ theorem of record in the mux suite (σ*'s final formulation dropped it;
 the probe's early embedding remark that leaned on it is superseded). It
 is [derived]-tier only. If it reappears in any phase-3 proof, that is a
 finding — either prove it or reroute.
+
+**RESOLUTION [proven, 2026-07-21, track T10].** The Kahn argument is
+now a kernel theorem for the flagship corner:
+`Sched.deadlock_free_wide` (Proofs/Wide.lean) — under `.impl` and
+margin 0, `DeadlockFreeW` holds at EVERY pointwise capacity vector
+κ ≥ `sk.cap` (per channel: widen levels to the deployed window, keep
+wires at 1, widen wires, any mix), with termination riding along
+(`terminatingW`: wide runs are ρ(init)-bounded — ρ is chan-blind, so
+ρ_κ IS ρ). The route is the audit's route (2)
+(mux-notes-phase2/t10-audit.md): `applyW κ` minted beside the
+untouched `apply` (the eight push-guard literals are the model's
+entire capacity surface); `applyW_cap` pins κ = κ₀ recovering `apply`
+definitionally (the non-vacuity control); the track-G `InvPW`
+weakening lets `progress_of_inv` apply to wide states verbatim, with
+guard monotonicity (`applyW_of_apply`) lifting the enabled action; the
+one new obligation, `InvPW` preservation along wide runs, is assembled
+from the track-F Steps extraction through chan-doctored companion
+states — no preservation monolith touched, no diamond lemma minted.
+Kernel anchors: `wide_smoke_completes` (smokeChain drains to terminal
+at levels ×4 / everything else ×2) and `applyW_strictly_wider` (a
+doctored state the floor guard refuses and the wide guard accepts).
+HONEST RESIDUE: the d5/schedulable corner is not covered — Endgame's
+d5 chain still consumes full `InvP` (never re-typed to `InvPW`), so
+wire-widening under d5 stays on the Kahn argument; noted in
+Statement.lean and t10-audit.md §3.
 
 ## A8. Probe transcription deviation, reconciled by a theorem
 

@@ -595,3 +595,26 @@ per-direction (K_I, K_R) parameterization.
   walk (R,0)'s first wire receive (the track-F `delivered_eq` bug,
   reproduced) — now `allChans`-guarded, plus the `pipe_wire` content
   field the deliver arm needs (mux-notes-phase2/t10-audit.md §4).
+- **2026-07-21** T10 primary landed (§3.4b): **capacity monotonicity
+  is a kernel theorem** — `Sched.deadlock_free_wide`
+  (Proofs/Wide.lean): the `.impl` flagship at EVERY pointwise capacity
+  vector κ ≥ `sk.cap` (per channel: widened levels, wires at 1, any
+  mix), margin-0 hypothesis kept floor-denominated; termination rides
+  along (`terminatingW` — ρ is chan-blind, so ρ_κ IS ρ). Route (2) of
+  the scoping audit (mux-notes-phase2/t10-audit.md, committed first):
+  the audit found the enabledness core monotone in the strongest
+  sense — track G's `InvPW` re-typing means `progress_of_inv` holds at
+  wide states VERBATIM (the τ-least pending send provably has floor
+  room via the E2 contradiction), so wide progress is guard
+  monotonicity (`applyW_of_apply`) plus nothing. The one new
+  obligation, `InvPW` preservation under `applyW`, assembled from the
+  track-F Steps extraction via chan-doctored companion states
+  (`applyW_floor_shadow`) — no preservation monolith touched, no
+  diamond lemma; route (1) never needed. Anchors: `applyW_cap`
+  (κ = κ₀ recovers `apply` definitionally), `wide_smoke_completes`
+  [decide], `applyW_strictly_wider` [decide]. AUDIT-NOTES A7
+  RESOLVED-by-theorem; MODEL.md §1(iv), Statement.lean, EndgameE, and
+  design/parent-placement.md §6 updated. HONEST RESIDUE: the
+  d5/schedulable corner's wire-widening stays [derived] (Endgame's d5
+  chain consumes full `InvP`; re-typing it to `InvPW` is mechanical
+  but touches the d5 flagship's file — deferred, t10-audit.md §3).
