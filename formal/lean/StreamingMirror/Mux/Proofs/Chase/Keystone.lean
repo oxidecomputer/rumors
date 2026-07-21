@@ -210,7 +210,7 @@ theorem keystone (hwf : sk.wellFormed = true)
           cases hIF : isWireFire s.base a with
           | false => rfl
           | true =>
-              obtain ⟨q₂, hh₂, -, hfb, -⟩ := pends_wireFire hwf hfa hIF
+              obtain ⟨q₂, hh₂, -, hfb, -⟩ := pends_wireFire hfa hIF
               simp at hfb)
           (hok.fire (by simpa using hguard))
     | true =>
@@ -236,7 +236,7 @@ theorem keystone (hwf : sk.wellFormed = true)
           cases hIF : isWireFire s.base a with
           | false => rfl
           | true =>
-              obtain ⟨q₂, hh₂, hfc, -, -⟩ := pends_wireFire hwf hfa hIF
+              obtain ⟨q₂, hh₂, hfc, -, -⟩ := pends_wireFire hfa hIF
               simp only at hfc
               rw [hfc] at hw
               simp [isWire] at hw)

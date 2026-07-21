@@ -202,7 +202,7 @@ theorem pends_not_close {s : State} {f : Ev} {a : Action}
 /-- A pending wire fire decodes to a held stream: the event is that
 stream's send, and the hand is committed with the slot equation the
 `push` guard wants (the chase's withheld-push extractor). -/
-theorem pends_wireFire (hwf : sk.wellFormed = true) {s : State}
+theorem pends_wireFire {s : State}
     {f : Ev} {a : Action} (hfa : (f, a) ∈ pends sk s)
     (hfire : isWireFire s a = true) :
     ∃ q hh, f.1 = Chan.wire q hh ∧ f.2.1 = true

@@ -192,7 +192,7 @@ theorem chase (hwf : sk.wellFormed = true)
               | false => rfl
               | true =>
                   obtain ⟨q₂, hh₂, -, hfb, -⟩ :=
-                    pends_wireFire hwf hfam hIF
+                    pends_wireFire hfam hIF
                   simp at hfb
             exact hkill hok.act hnf hsome
           · have hE1 := Sched.scheduleE_e1 sk
@@ -226,7 +226,7 @@ theorem chase (hwf : sk.wellFormed = true)
             | false => exact absurd hsome (fun hs => hkill hok.act hIF hs)
             | true =>
                 obtain ⟨q, hh, hfc, -, hhold⟩ :=
-                  pends_wireFire hwf hfam hIF
+                  pends_wireFire hfam hIF
                 simp only at hfc
                 refine ⟨(c, true, n), a, q, hh, hfc, rfl, hseq2,
                   hfsched, hfnp, hcover, ?_, hfam, hok, hhold⟩
@@ -283,5 +283,52 @@ theorem chase_withheld (hwf : sk.wellFormed = true)
     simp only [List.length_nil]
     omega
   exact ⟨p, hh, ⟨hhold, hroom⟩, mstuck_withheld hstuck ⟨hhold, hroom⟩⟩
+
+-- ============================================== stage-3 bridging bricks
+
+/-- The ground facts hold at the initial muxed state: the base case of
+the stage-3 `MuxInv` preservation induction, and the interface's
+non-vacuity certificate. -/
+theorem muxInv_init (sk : Skel) : MuxInv sk (init sk) := by
+  refine ⟨((inv_iff sk .impl (Model.init sk)).mp (inv_init sk .impl)).local,
+    ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · intro c _
+    exact Nat.zero_le _
+  · intro c _ _
+    rw [show (init sk).base = Model.init sk from rfl,
+      sentOf_init, recvdOf_init]
+    rfl
+  · intro p h
+    rw [show (init sk).base = Model.init sk from rfl, sentOf_init]
+    rfl
+  · intro p
+    rfl
+  · intro p
+    rfl
+  · intro p h
+    rw [show (init sk).base = Model.init sk from rfl, recvdOf_init,
+      chan_init]
+    rfl
+
+-- ================================= kernel-tier non-vacuity anchors
+-- The closure definitions would satisfy the keystone vacuously if they
+-- never derived anything; the anchors pin, in the kernel, that the
+-- fixpoint is empty exactly when it must be (self-containment: zero
+-- evidence grounds zero events) and populated exactly when it can be
+-- (one arrival grounds the peer's opening receive and the forced
+-- query behind it).
+
+set_option maxRecDepth 100000 in
+/-- With no observations nothing is derivable: every session event
+waits, directly or through its trace past, on an unevidenced push. -/
+theorem smokeChain_inevitable_nil :
+    inevitable Pin.smokeChain .I [] = [] := by decide
+
+set_option maxRecDepth 100000 in
+/-- One delivered opening frame grounds the responder's first receive:
+the forward derivation genuinely derives. -/
+theorem smokeChain_inevitable_arrival :
+    ((Chan.wire .I 4, false, 0) : Sched.Ev)
+      ∈ inevitable Pin.smokeChain .R [.delivered 4] := by decide
 
 end StreamingMirror.Mux
