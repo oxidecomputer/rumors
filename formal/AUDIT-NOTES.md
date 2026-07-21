@@ -7,7 +7,7 @@ items that turn out benign, with the reasoning that cleared them. Epistemic
 key as in PROGRESS.md; additionally **[reported]** = surfaced by a phase-1
 reader agent, not yet re-verified by the coordinator.
 
-## A1. Termination is not a kernel theorem — CONFIRMED, misalignment between prose and artifact
+## A1. Termination is not a kernel theorem — RESOLVED by theorem (remedy (i), 2026-07-21)
 
 **[verified by coordinator, 2026-07-21]** MODEL.md §1 lists "(ii)
 Termination: every maximal run reaches `Terminal`" under "**Proved**
@@ -36,6 +36,25 @@ action analysis, each case a list-length computation) — and derive
 §1(ii) to [checked]/[derived] status. NOTE: the mux campaign's C2
 positive half needs a "completes" (not just "never stuck") statement, so
 remedy (i) may fall out of phase 3 anyway — prefer it.
+
+**RESOLUTION [proven, 2026-07-21, stage-3 track G].** Remedy (i) landed
+as `Proofs/Termination.lean`: `Model.rho` (the §7 measure, read off the
+state), `rho_decreases` (the 23-case strict decrease; each case fires
+≥ 1 op, phantom-commit corners priced by the `cAdj` device so no
+committed-consistency invariant is needed), `terminating` (every run
+from `init` has length ≤ ρ(init) — BMC completeness at depth ρ(init)+1
+is now a theorem, per instance), `maximal_run_terminal` /
+`maximal_run_terminal_d5` (a run that cannot be extended ends
+`Terminal`, under each flagship's hypotheses), and
+`greedy_run_terminal` (the constructive drain-to-Terminal with explicit
+fuel ρ(init)). One honest wrinkle, recorded in the module doc:
+`rho_decreases` carries the Boolean hypothesis `asmLevelsOk` (no
+assembler's level cursor has overshot its pending count), an inductive
+invariant from `init` (`asmLevelsOk_init`/`asmLevelsOk_preserved`) —
+at states outside it the overshooting `asmRecvLevel` consumes a message
+while moving no state the measure can see, so no state-only Nat measure
+decreases there; every run-level corollary is hypothesis-free. MODEL.md
+§1(ii) updated to cite the theorems.
 
 ## A2. `schedulable ⟺ event-DAG acyclicity` is checked, not proven — documented, no misalignment
 

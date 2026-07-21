@@ -48,6 +48,7 @@ import StreamingMirror.Proofs.Sched.Weave.Final
 import StreamingMirror.Proofs.Pending
 import StreamingMirror.Proofs.PendingE
 import StreamingMirror.Proofs.EndgameE
+import StreamingMirror.Proofs.Termination
 import StreamingMirror.Mux.Proofs.Chase.Ground
 import StreamingMirror.Mux.Proofs.Chase.Closure
 import StreamingMirror.Mux.Proofs.Chase.Decode
