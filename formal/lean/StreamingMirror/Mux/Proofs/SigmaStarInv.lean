@@ -1094,8 +1094,12 @@ theorem SInv.push_assemble {s : MState} {b : State} {p : Party} {h : Nat}
 
 /-- The initiator's opening fire, as base facts: only `iopenWire` and
 the choice slot move, so the root wire's producer count rises by one
-and everything else frames. -/
-private theorem iopen_fire_facts {s₀ : State}
+and everything else frames.
+
+Public (not `private`): the elastic preservation sweep
+(Mux/Elastic.lean, the stage-F obligation's elastic twin) consumes the
+same opener-fire facts for its push arm. -/
+theorem iopen_fire_facts {s₀ : State}
     (hch : s₀.iopenCh = some .wire) (hL : InvL sk ax s₀) :
     InvL sk ax { s₀ with iopenWire := true, iopenCh := none }
     ∧ (∀ q g, sentOf sk { s₀ with iopenWire := true, iopenCh := none }
@@ -1169,8 +1173,10 @@ private theorem iopen_fire_facts {s₀ : State}
       rw [holdsWire.eq_def, holdsWire.eq_def]
     · rw [holdsWire_eq_wireHand hg, holdsWire_eq_wireHand hg]
 
-/-- The responder's opening fire, as base facts. -/
-private theorem ropen_fire_facts {s₀ : State}
+/-- The responder's opening fire, as base facts.
+
+Public for the same consumer as `iopen_fire_facts`. -/
+theorem ropen_fire_facts {s₀ : State}
     (hch : s₀.ropenCh = some .wire) (hL : InvL sk ax s₀) :
     InvL sk ax { s₀ with ropenWire := true, ropenCh := none }
     ∧ (∀ q g, sentOf sk { s₀ with ropenWire := true, ropenCh := none }

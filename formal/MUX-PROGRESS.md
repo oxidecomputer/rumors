@@ -587,3 +587,11 @@ per-direction (K_I, K_R) parameterization.
   (`deliverStepK_one`); KR ≥ 4 open at theorem tier (each depth needs
   its own kernel replay), covered at [derived] tier by the widened
   family.
+- **2026-07-21** T10 secondary: `elastic_deadlock_free` is now
+  UNCONDITIONAL — the `EMuxInv` seam is discharged by
+  `eMuxInv_reachable` (the stage-F sweep's elastic twin, assembled
+  from the Steps files; deliver arm trivial as predicted). Repair en
+  route: the landed `flow_wire` was unguarded and unsatisfiable past
+  walk (R,0)'s first wire receive (the track-F `delivered_eq` bug,
+  reproduced) — now `allChans`-guarded, plus the `pipe_wire` content
+  field the deliver arm needs (mux-notes-phase2/t10-audit.md §4).
