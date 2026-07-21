@@ -16,15 +16,20 @@ use crate::tree::arb::{
 use crate::tree::mirror::alternating;
 use crate::tree::mirror::streaming::backend::with_local_schedule;
 use crate::tree::mirror::streaming::materialized::channel::with_schedule;
-use crate::tree::mirror::streaming::materialized::progress::with_trace;
+use crate::tree::mirror::streaming::materialized::progress::{Trace, with_trace};
+use crate::tree::mirror::streaming::materialized::transcript::{Transcript, with_transcript};
 use crate::tree::mirror::streaming::{
     Local, Root as StreamingRoot, materialized::Handshaking, mirror as drive_streaming,
 };
 use crate::tree::{Root, mirror::Error as MirrorError};
 
+mod announced;
 mod capacity;
 mod faults;
 mod fixtures;
+mod local_eq;
+mod skeleton;
+mod wedge;
 
 /// Either terminal error preempts a peer which can no longer make progress.
 #[test]
@@ -91,6 +96,28 @@ fn streaming_mirror_sides_with_schedules(
         .expect("local mirror speaks no violations");
     trace.assert_valid();
     (ours.into(), theirs.into())
+}
+
+/// Reconcile through the local backend, returning both roots, the validated
+/// progress trace, and the payload-erased wire transcript.
+///
+/// The skeleton-bridge harness ([`skeleton`]): generic over the payload type
+/// so payload-perturbation twins (same paths, different contents) can run
+/// through the identical machinery.
+fn transcribed_mirror_sides<T: Send + Sync + 'static>(
+    a: Root<T>,
+    b: Root<T>,
+) -> (Root<T>, Root<T>, Trace, Transcript) {
+    let (a, b): (StreamingRoot<Local, T>, StreamingRoot<Local, T>) = (a.into(), b.into());
+    let client = Handshaking::start(Local, a);
+    let server = Handshaking::start(Local, b);
+    let ((result, trace), transcript) =
+        with_transcript(|| with_trace(|| run_to_quiescence(drive_streaming(client, server))));
+    let (ours, theirs) = result
+        .expect("streaming mirror became quiescent before completion")
+        .expect("local mirror speaks no violations");
+    trace.assert_valid();
+    (ours.into(), theirs.into(), trace, transcript)
 }
 
 /// Reconcile `a` and `b` through the streaming local backend, asserting the

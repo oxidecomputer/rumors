@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc a8aaaeb051a6c54c669a7a57d7e7149c1907c9e01174fe9add66ee33f03fd212 # shrinks to spec = Divergence { cells: [CellSpec { cell: [], deep: false, shared: 1, local: true, remote: [true, true] }, CellSpec { cell: [], deep: true, shared: 1, local: true, remote: [true, false] }, CellSpec { cell: [2, 2, 1], deep: true, shared: 0, local: true, remote: [true, false] }] }
+cc d99e76c4ed5cc64247d157f838671fb64d11b3646dbb8381891f72635d98d4b4 # shrinks to spec = Divergence { cells: [CellSpec { cell: [], deep: false, shared: 1, local: true, remote: [true, true] }, CellSpec { cell: [], deep: true, shared: 1, local: true, remote: [false, false] }, CellSpec { cell: [1, 0, 3], deep: true, shared: 2, local: true, remote: [true, false] }, CellSpec { cell: [], deep: true, shared: 0, local: true, remote: [false, false] }, CellSpec { cell: [3], deep: false, shared: 2, local: false, remote: [false, true] }] }

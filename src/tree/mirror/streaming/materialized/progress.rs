@@ -16,27 +16,49 @@ use crate::tree::{
 
 /// The kind of one observable publication in a work graph.
 #[derive(Clone, Debug, Eq, PartialEq)]
-enum Kind {
+pub enum Kind {
+    /// An outgoing wire action for a scope, recorded before its internal twin.
     Wire,
+    /// The initiator's single root query.
     InitialQuery,
-    Resolution { pending: usize },
+    /// An answerer-side scope resolution, with its `Pending` slot count.
+    Resolution {
+        /// How many of the scope's children await lower stages.
+        pending: usize,
+    },
+    /// One dependent work item (a child query) issued below a resolution.
     DependentWork,
+    /// A whole-subtree provision resolved in place (the supplier's side of a
+    /// one-sided request).
     Ready,
-    ParentResolution { pending: usize },
+    /// An asker-side parent summary, with its `Pending` slot count.
+    ParentResolution {
+        /// How many of the scope's children await lower stages.
+        pending: usize,
+    },
 }
 
+/// One recorded publication: which endpoint, at which scope, of what kind.
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct Event {
-    work: usize,
-    scope: Vec<u8>,
-    kind: Kind,
+pub struct Event {
+    /// The endpoint-local work identity ([`new_work`]).
+    pub work: usize,
+    /// The scope's byte prefix (empty for the root).
+    pub scope: Vec<u8>,
+    /// The publication kind.
+    pub kind: Kind,
 }
 
 /// A completed positive session's ordering trace.
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct Trace(Vec<Event>);
 
 impl Trace {
+    /// The recorded publications, in publication order.
+    pub fn events(&self) -> &[Event] {
+        &self.0
+    }
+
     /// Check the publication-order invariants for every traced scope.
     ///
     /// Seven checks: every internal publication consumes a prior wire
