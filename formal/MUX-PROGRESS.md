@@ -76,6 +76,17 @@ history).** The conjectures resolve as a trichotomy:
   (A_p-limited) σ* probe sweep is a blocking stage-0 gate — if it
   wedges, C1 flips TRUE with that skeleton as the fooling wedge, and
   the suite is built so that outcome also lands as a theorem.
+  **[Superseded (phase 4): conditions A and B are both DISCHARGED —
+  the keystone landed in its push-time form (Chase/Keystone.lean) and
+  stage-0 P1 passed (4,970/4,970). The status is no longer "two named
+  conditions": the LIVE residue is σ*'s LOCALITY, kernel-unproven for
+  the merged σ* (the omniscient-closure formulation) — "is
+  deterministic and local" above overstates it. The kernel refutation
+  `c1_literal_false` (Mux/Proofs/C1.lean) carries that locality as two
+  named [open] hypotheses (the A_p-sufficiency residue — probe-checked
+  4,970/4,970, not kernel); the σ*-causal track, in flight, is
+  discharging it. `c1_omniscient_false` is the unconditional kernel
+  headline.]**
 - **C1-WC: TRUE** [derived + checked, Lean-ready] — one fixed,
   tree-realizable skeleton (`wedge`, the regression shape at w = 4,
   rootH = 6, realized by the committed proptest seeds) defeats every
@@ -84,6 +95,15 @@ history).** The conjectures resolve as a trichotomy:
   strategy consultation is singleton-enabled (no fooling argument, no
   pigeonhole). Mechanism: cap-1 slot occupation + FIFO burial under
   commit-no-retract; capacity-flat [checked, w = 4 across C = 1..16].
+  **[Superseded (phase 4), witness provenance: the LANDED `wedge`
+  literal (Mux/Instances.lean) has SIX provisions and root fan 7 — the
+  committed-regression shape — not w = 4, which is the probe's minimal
+  jamming width (still what the capacity-flat sweep used). And the
+  committed proptest seeds realize the wedge's JAM MECHANISM on the
+  old transport, not its byte-exact shape; the realizability bridge of
+  record is `src/tree/mirror/streaming/tests/wedge.rs`, which pins a
+  deterministic tree pair to the literal at rootH 6 and to the
+  generator at the protocol's real height 32.]**
 - **C2 positive: TRUE at C₀ = 1** per direction (message = reply
   units) — the oracle of record pushes in `demandOrder sk d` = the
   *receive*-event projection of the kernel-proven τ = `scheduleE` onto
@@ -113,13 +133,22 @@ by Finch; each changes what "local information" means): observation =
 slot-peek (frames observed at demux delivery, pre-consumption — the
 charter's "everything received", faithful to incoming.rs decoding every
 frame before routing; the no-peek variant is plausibly false via the
-two-height mutual proof-starvation gadget); consumption receipts stay
+two-height mutual proof-starvation gadget **[Superseded (phase 4) by
+stage-0 P4: the no-peek causal σ* did NOT wedge — Terminal 3,470/3,470
+including the F2 family — so slot-peek stands as a modeling decision,
+load-bearing for the landed coverage PROOF but not a demonstrated
+liveness necessity; the "plausibly false" clause is withdrawn]**);
+consumption receipts stay
 OUT of the observation (flush-paced `pushed` only — admitting them
 smuggles credits in via the observation type); theorem domain =
 `.impl` + margin-0 (the shipping encoder's kernel-proven class), the
 `.full`/schedulable port recorded [open]; capacity denominated in
 messages (= replies), with the §5A W = 1 byte-soundness caveat stated in
-every positive theorem's docstring.
+every positive theorem's docstring **[realized (phase 4) as one
+canonical statement — Mux/Basic.lean's module doc, "# The
+byte-denomination caveat" — with a one-line pointer in every positive
+statement of record's docstring, completion pins and the C1
+refutations included]**.
 
 ## 2. The mux model [open — to be fixed by the adjudication phase]
 
@@ -253,6 +282,26 @@ work out of its own context and distills results here:
    projection jams. Nothing new had to exist; it had to be recognized.
    The exposition should present C2 this way: recognition, not
    construction.
+   ADDENDUM (per Finch, phase 4): the exposition must also build up
+   the payload-locality finding intuitively (the σ*-causal track's
+   guard-audit result; summarize from its MUX-PROGRESS entry, commit
+   96cacc6b on mux-causal). The framing: the model's payload erasure
+   moved the peer's labels from the wire into the ambient skeleton
+   parameter — sound for the protocol machines' liveness, but it
+   deleted the labels from the OBSERVATION channel. A scheduler
+   reconstructing the skeleton from observations therefore cannot see
+   announcements in the arrival PATTERN in time — pattern reveals
+   structure only as descents unfold, too late, proven by the
+   erased-trace surrogate starving on the wedge — because the
+   announcements were always in the frame CONTENTS. Hence the three
+   grains: labels-in-view = too early (a causality violation, the
+   phase-4 F3 defect); labels-never (the erased trace) = starvation;
+   labels-at-arrival (payload decode) = exactly right. The two wrong
+   grains err in OPPOSITE directions, which is why the charter and
+   legacy locality classes are incomparable — and why B5 is
+   constitutive of locality, not a supporting bridge. The chapter's
+   thesis sentence: "the announcements were never in the message
+   pattern; they were in the messages."
 
 ## 3b. Chartered follow-on: the latency conjectures (Finch, 2026-07-21)
 
@@ -468,6 +517,114 @@ per-direction (K_I, K_R) parameterization.
   request): A1 termination may be witness-checked rather than
   kernel-proven while MODEL.md §1 lists it under "proved" — to verify;
   A2/A3 documented-in-repo gaps recorded as campaign rules.
+
+### 2026-07-21 — Phase 4 (adversarial review) closed: nine confirmed findings, all repaired or honestly retreated
+
+Seven review roles over the merged suite (two surface passes, one
+operational, two boundary/invariant passes, one assumption audit, one
+statement-strength audit — the full table graduated to
+MUX-STATEMENT-AUDIT.md), synthesized and re-verified by an independent
+judge. **Headline: zero kernel-checked theorems were false.** Every
+confirmed wrong-grade finding (9) was a FIDELITY defect — statements,
+hypotheses, docstrings, or documents of record diverging from what the
+kernel checked — with one exception that changed a theorem's worth:
+`elastic_deadlock_free` was quietly VACUOUS via an undischargeable
+`EMuxInv` hypothesis (the A11 phantom-channel alias recurring in the
+elastic twin — its FOURTH independent instance; AUDIT-NOTES A12, with
+the phase-5 source-fix directive).
+
+**The governing criterion (Finch's statement-faithfulness ruling,
+issued for F3 and adopted campaign-wide — this is also the phase-5
+legibility pass's acceptance standard):** theorem statements and
+docstrings must state claims entirely accurate to intent — never
+weaker than stated, never stronger than proven; non-uniform or messy
+proof IMPLEMENTATION is explicitly acceptable. Every disposition below
+applied it.
+
+Dispositions, per finding:
+
+- **F1 (elastic vacuity) — fixed by proof, by T10** (independently of
+  the review; the guard + `pipe_wire` field + `eMuxInv_reachable`
+  discharge the seam; `elastic_deadlock_free` is now unconditional).
+- **F2 (T9 locality overstated) — fixed by proof:** the
+  Consistent-certified pin LANDED (`oracle_not_localStrategy`,
+  Oracle/Controls.lean — one driving prefix, both replays, identical
+  responder histories, divergent outputs), so `¬ LocalStrategy .R
+  (oracle .R)` is kernel-checked at the definition's full strength;
+  `oracle_not_local` re-scoped to its honest projection grain,
+  `oracle_not_local_behavioral` now discloses its inconsistent trace.
+- **F3 (`LocalEq` finer than indistinguishability) — fixed by doc at
+  this tier, redesign routed:** the docstring re-scope names the
+  label-visibility residue exactly as the σ*-locality residue is
+  named; oracle-c2 §3.3's necessity claim marked REFUTED in place.
+  Per the same ruling, `C1Statement`'s locality grain is being moved
+  to the charter-honest `PView` class by the σ*-causal track
+  (statements bind the honest grain; legacy `LocalEq` demoted to an
+  internal artifact of the landed controls) — that track OWNS
+  C1.lean; this phase did not touch its statement semantics.
+- **F4 (byte-caveat ruling violated on the flagship) — fixed by doc:**
+  one canonical statement (Mux/Basic.lean module doc, "# The
+  byte-denomination caveat") + one-line pointers on every positive
+  statement of record, completion pins and C1 refutations included;
+  §1's ruling text carries the realization marker.
+- **F5 ("completes" ≠ stuck-freedom) — fixed by proof:** the mux-tier
+  termination theorem landed (Mux/Proofs/Termination.lean: `mrho` =
+  2·ρ(base) + Σ|pipe|, `mrho_decreases` + K/E variants,
+  `mux_terminating` ≤ 2·ρ(init), `mux_maximal_run_terminal`,
+  `mux_greedy_run_terminal`, `oracle_greedy_run_terminal`) — the
+  T5/T6 "completes" is now two kernel facts, and the docstrings say
+  which two. AUDIT-NOTES A1's remedy (i), landed at the tier it
+  aimed at.
+- **F6 (wedge provenance) — fixed by doc at four surfaces:** landed
+  literal is 6 provisions/fan 7 (w = 4 is the probe's minimal width);
+  the committed seeds realize the jam MECHANISM, not the shape; the
+  bridge of record is wedge.rs (heights 6 and 32). §1 and
+  MUX-ADJUDICATION T0 carry superseded-markers.
+- **F7 (§1 marker discipline breached twice) — fixed by doc:** the
+  slot-peek clause carries the P4 reversal marker (peek = modeling
+  decision + proof-load-bearing, NOT demonstrated liveness necessity;
+  the two Lean peek docstrings carry the same nuance), and the C1
+  bullet's stale condition list is superseded (A and B discharged;
+  the live residue is σ*'s locality, named, with the σ*-causal track
+  in flight).
+- **F8 (satisfiable-empty classes) — fixed by proof, at FULL
+  generality:** a mode- and well-formedness-generic `HistInv` sweep
+  (Mux/Proofs/Inhabitation.lean) certifies `bottomMostReady_wc`
+  (+ `_wcK`, `_wcE`) and `bottomMostReady_local` — the adjudication's
+  mandated names — plus the trivial `idler_local`. No narrowing of
+  `MReachableAny` was needed: the hand ledger reads nothing mode- or
+  shape-sensitive. Every ∀-class impossibility now cites its
+  non-vacuity certificate.
+- **F9 (tier-erasing cross-reference) — fixed by doc:** Elastic.lean
+  now attributes to `wc_impossibility_K` its kernel-anchored
+  KR ∈ {1,2,3} and the [derived] KR ≥ 4 tail separately.
+
+Also landed from the review's consider tier: `commit_unique` and its
+two feeders re-typed to `InvL` (the free weakening σ*-causal will
+want); `progress_of_inv`'s docstring says `InvPW`; `MuxInv.slot`'s
+"everywhere" is now "on `allChans`"; `f8_rejects_gadgetTrap` re-scoped
+to what `mrun = none` decides; the (1,1)-degeneration sentences state
+semantics-vs-theorem precisely; the T8 stub's argument order and dial
+assignment corrected against the landed K-harness; muxprobe's stale
+pre-track-E header repaired and the T5 oracle of record added to the
+golden matrix (completes every skeleton, `rand2` included — its first
+committed executable-tier coverage); MUX-ADJUDICATION §1.3 carries
+supersession markers (π_d primacy refuted; GKM 1-boundedness demoted
+to [derived]-pending re-derivation from the send projection); the
+`justfile` eventdag seed floor documented; `Consistent.of_obsOf`
+minted as the replay-to-certificate glue.
+
+Remaining for the targeted round 5 (per the synthesis; a full round is
+not warranted): re-verification of these repairs' NEW statements (the
+same statement-vs-English audit that caught their predecessors); the
+one unaudited design-brief pair (σ*'s `demanded`/`inevitable` vs
+refute-c1's specification); fresh-eyes review of the elastic
+preservation sweep; and the open consider items routed onward —
+`Consistent`'s ∃-AxMode vs `.impl`-only probe evidence (σ*-causal,
+in flight), the adjudicated controls' negative space (skip-scan demux,
+`prov C`, the σ* pin sweep), and the model-vs-Rust height gap
+(muxprobe tops at rootH 8; the largest-tractable-height matrix row
+remains unlanded).
 
 ## 5. Log
 
@@ -699,8 +856,9 @@ per-direction (K_I, K_R) parameterization.
   slot-peek, `WorkConserving`, `LocalEq`/`LocalStrategy`),
   `Mux/Instances.lean` (the `wedge` literal + T0 pins). Bonus beyond
   plan: `wedge_bottomMostReady_jams` — the shipped discipline's jam on
-  wedge at C = 1 is already kernel-decided (~70 forced steps, also
-  verified jamming at C = 2). Deviations recorded in code comments
+  wedge at C = 1 is already kernel-decided (~70 forced steps; the
+  C = 2 jam was verified dev-time only [checked] — the kernel pin is
+  C = 1, no C = 2 artifact exists). Deviations recorded in code comments
   (MObs/Strategy placement, margin-0 soundness bridge, viewEnc token
   serialization). Stage 2 dispatched: four parallel worktree tracks —
   A: Mux controls + `commit_totality` (T1) + `wc_impossibility` (T3);

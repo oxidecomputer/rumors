@@ -209,6 +209,39 @@ phantom channel and the same guard-shaped repair. F's spelling
 (`pushed_mem`) won the merge; E's (`pushed_real`) survives as a
 derived lemma — the repair above reads per the merged Ground.lean.
 
+## A12. The phantom-channel alias recurred in the elastic twin — the bug class's fourth independent instance
+
+**[proven-adjacent, 2026-07-21, phase 4 + T10]** The elastic ground
+facts' first-landed `EMuxInv.flow_wire` quantified over ALL `(p, hh)`
+wire pairs — exactly the unguarded shape A11 records — and was
+therefore unsatisfiable at every state past walk (R, 0)'s first
+advance: the phantom `wire I 0` consumer count aliases that walk's
+cursor by Nat truncation while the producer count stays zero. Since
+`elastic_deadlock_free` then carried `EMuxInv` preservation as an
+explicit `hinv` hypothesis, the theorem was quietly VACUOUS on every
+composition it was about — the suite's only vacuous theorem of record,
+and the only phase-4 finding that changed what a theorem is worth.
+
+Caught TWICE more, independently: the phase-4 review's F1 (executable
+probe: at the composition `wedge_elastic_completes` pins, the phantom
+row reads (1, 0) from fuel 120 on while the real `wire R 0` conserves)
+AND the T10 track, which hit the same unprovable arm running the
+elastic preservation sweep and landed the guard + the `pipe_wire`
+field before the review's fix could (Elastic.lean's REPAIR note;
+mux-notes-phase2/t10-audit.md §4). With E's and F's original catches
+(A11) that makes FOUR independent encounters with one bug class: an
+∀-quantified invariant crossing a totalized accessor's junk corner.
+
+DIRECTIVE for phase 5 (the source fix, so there is no fifth): stop
+repairing per-invariant. Either quantify every transport invariant
+over the real family via a shared guarded-quantifier idiom, or prove
+once, at the accessor layer, the junk-corner characterization lemmas
+(`recvdOf`/`sentOf` off-family behavior) that make unguarded forms
+provably-false-by-inspection at review time. A11's lesson text
+("quantify invariants over the real family and carry a realness
+field") is correct but has demonstrably failed to propagate by prose
+alone; phase 5 should make it structural.
+
 ## A4. Reader-visible claims to spot-check opportunistically
 
 **[reported]** Low-priority, none currently believed wrong:
