@@ -300,6 +300,24 @@ the negative space on the record.
   incorporated as conditions. Alignment findings A5–A8 recorded.
   Dispatched next: stage 0 (blocking causal-σ* probe gates P1–P4) and
   stage 1 (the Mux/ Lean harness) in parallel.
+- **2026-07-21** Stage-2 track A landed and merged (`lake build` green
+  at 245 jobs, zero sorry, kernel decide only): **T3
+  `wc_impossibility` in full ∀C generality** — every work-conserving
+  strategy pair deadlocks `wedge` at every C ≥ 1, via the σ-free
+  forced-run executor (deliver-R-last as the withholding adversary), a
+  b-bounded replay lift to arbitrary WC pairs (push guards monotone in
+  C), and four kernel anchors (C ∈ {1,2,3} pipe-full parks + the
+  capacity-blind `noHands` burial certificate covering all C ≥ 4 — no
+  C-induction). T1 `commit_totality` proven (unique choosable
+  obligation at every `.impl`-reachable state; Mathlib-free spelled-out
+  uniqueness). Full controls suite: `wedge_not_deadlockFree`,
+  `wedge_idler_completes` (work-conservation load-bearing),
+  `wedge_unboundedSlot_completes` (one-slot demux state load-bearing —
+  the formal echo of the eager-absorption design), C = 0 vacuity, and
+  the F8 must-fail pins. Boundary finding recorded as AUDIT-NOTES A9:
+  F8's conjunct is vacuous on well-formed skeletons (BFS alignment
+  forbids in-flight frames at close) — it hardens the `mstuck`
+  totality boundary, not a reachable protocol state.
 - **2026-07-21** Suite extended by Finch's direction (T8 pair, the
   K-deep parking regime): `sigmaStarK_deadlock_free` — σ\*ₖ (the
   inferred-credit scheme at parking depth K in logical replies) is

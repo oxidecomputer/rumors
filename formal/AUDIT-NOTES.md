@@ -100,6 +100,22 @@ each scope's publications under `.impl`) proves the fusion WLOG.
 Recorded so the probe is not read as modeling a different system; if T1
 fails to close, the probe's σ* evidence weakens accordingly.
 
+## A9. The F8 close-guard conjunct is vacuous on well-formed skeletons — boundary hardening, not a protocol fix
+
+**[proven-adjacent, 2026-07-21, stage-2A]** The adjudication required the
+strengthened wire `recvClose` guard (no in-flight frames for the channel
+in the producer's pipe) with a must-fail control showing the unstrength-
+ened guard admits a bogus terminal. Track A's formalization found the
+control necessarily lives on an ILL-FORMED gadget: on well-formed
+skeletons the conjunct never bites, because a wire close requires the
+consumer past its last scope, and BFS alignment equates consumer
+receives with producer sends — no frame can be in flight at close time
+(`Mux/Controls.lean` module doc; `gadget_not_wellFormed` pins the
+gadget's status deliberately). So F8 defends the totality boundary of
+`mstuck`/`mterminal` over arbitrary `Skel`, not a reachable protocol
+state. No misalignment — recorded so nobody later reads the F8 control
+as evidence of a live protocol hazard.
+
 ## A4. Reader-visible claims to spot-check opportunistically
 
 **[reported]** Low-priority, none currently believed wrong:
