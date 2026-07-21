@@ -37,6 +37,13 @@ modifications for the RTT-cost validation (timed.py):
        which with C large is the fully independent link-transport
        construction (per-stream windows). Pipes become a dict keyed by
        lane; `('demux', lane)` replaces `('demux', party)`.
+
+  [L3] `PARK` (sigma*_K, design/single-socket.md section 2): the wire
+       cells — receiver-side demux slots — widen from 1 to PARK decoded
+       replies per stream (the K-deep parking buffer), and the demux
+       delivers while the slot has room instead of only when empty. At
+       PARK = 1 every guard is byte-identical to the model of record.
+       Receiver-side buffering only: monotone, liveness-safe.
 """
 
 from __future__ import annotations
@@ -270,9 +277,12 @@ FULL_NO_D5 = AxMode(True, True, True, True, True, True, False, False, False,
 
 WIDE_INTERNAL = False    # [L1] emulate the shipped pipeline window
 _WIDE = 10 ** 9
+PARK = 1                 # [L3] sigma*_K receiver parking depth per stream
 
 
 def cap(sk, c):
+    if c[0] == 'w':
+        return PARK      # [L3] the demux slot is the K-deep parking buffer
     if WIDE_INTERNAL and c[0] in ('a', 'l', 'u', 'lv', 'lr'):
         return _WIDE
     return sk.capLevel if c[0] == 'lv' else 1
@@ -644,7 +654,7 @@ def apply(sk, ax, a, s, mux=None):
             return None
         lane = a[1]
         pipe = pipe_get(s, lane)
-        if pipe and s.ch(pipe[0]) == 0:
+        if pipe and s.ch(pipe[0]) < cap(sk, pipe[0]):   # [L3] room, not empty
             s2 = s.clone()
             c = s2.pipe[lane].pop(0)
             _bump(s2.chan, c, 1)

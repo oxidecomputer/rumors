@@ -92,17 +92,26 @@ def consumption_order(sk, ax):
 
 
 def timed_run(sk, ax, strategy='eager', C=1, lanes='direction', delta=1,
-              wide=True, oracle_order=None, max_iter=200000):
-    """Event-driven critical-path run. Returns dict(outcome, t, pushes)."""
+              wide=True, oracle_order=None, max_iter=200000, park=1):
+    """Event-driven critical-path run. Returns dict(outcome, t, pushes).
+
+    `park` is sigma*_K's receiver parking depth K ([L3] in model.py): the
+    wire slots hold up to K decoded replies per stream, and the causal
+    gate's arrears distance generalizes from k-2 to k-K-1 (the sender may
+    run K unproven replies past demand proof per stream,
+    design/single-socket.md section 3.2). park=1 is the sigma* of record."""
     model.WIDE_INTERNAL = wide
+    model.PARK = park
     try:
         return _timed_run(sk, ax, strategy, C, lanes, delta, oracle_order,
-                          max_iter)
+                          max_iter, park)
     finally:
         model.WIDE_INTERNAL = False
+        model.PARK = 1
 
 
-def _timed_run(sk, ax, strategy, C, lanes, delta, oracle_order, max_iter):
+def _timed_run(sk, ax, strategy, C, lanes, delta, oracle_order, max_iter,
+               park):
     mux = MuxCfg(C, lanes)
     s = init(sk)
     arr = {}                 # lane -> arrival times, parallel to s.pipe
@@ -126,9 +135,9 @@ def _timed_run(sk, ax, strategy, C, lanes, delta, oracle_order, max_iter):
         if strategy == 'sigma_causal':
             h = c[2]
             k = pushed.get(c, 0) + 1
-            if 1 <= h <= sk.rootH - 1 and k >= 3:
+            if 1 <= h <= sk.rootH - 1 and k >= park + 2:
                 rev = ('w', other(c[1]), h - 1)
-                if delivered.get(rev, 0) < prefix_kids(sk, h, k - 2):
+                if delivered.get(rev, 0) < prefix_kids(sk, h, k - park - 1):
                     return False
         # sigma_omni and sigma_causal both require the exit certificate
         return _certificate(sk, ax, mux, s, push_acts, 'exit', cl_fuel)
@@ -186,10 +195,10 @@ def _timed_run(sk, ax, strategy, C, lanes, delta, oracle_order, max_iter):
     return dict(outcome='iter', t=t, pushes=npush)
 
 
-def hops(sk, ax, strategy, C, lanes, wide=True, oracle_order=None):
+def hops(sk, ax, strategy, C, lanes, wide=True, oracle_order=None, park=1):
     """Completion time in one-way hops (delta = 1); asserts termination."""
     r = timed_run(sk, ax, strategy=strategy, C=C, lanes=lanes, wide=wide,
-                  oracle_order=oracle_order)
+                  oracle_order=oracle_order, park=park)
     if r['outcome'] != 'terminal':
         return ('!' + r['outcome'], r['t'])
     return r['t']

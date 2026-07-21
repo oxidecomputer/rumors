@@ -181,6 +181,51 @@ def random_expected(n=40, seed0=1000):
     return out, summ
 
 
+# ------------------------------------------------------- sigma*_K (parking)
+
+def paced_star(sk):
+    """P* = max over streams of the K=1 paced-frame count: frames k >= 3
+    whose scope k-2 at the stream's height is child-bearing."""
+    best = 0
+    for h in range(sk.rootH):
+        ss = sk.scopesAt(h)
+        if not ss:
+            continue
+        p = sum(1 for k in range(3, len(ss) + 1)
+                if sk.nChildren(h - 1, ss[k - 3]) > 0)
+        best = max(best, p)
+    return best
+
+
+def k_law(base, pstar, K):
+    """MUX-LATENCY.md section 7 law: width term = 2*ceil((P*-K+1)/(K+1)),
+    clamped at 0 (exact on single-frontier combs; +-eps elsewhere)."""
+    import math
+    return base + 2 * max(0, math.ceil((pstar - K + 1) / (K + 1)))
+
+
+def k_sweep(Ks=(1, 2, 4, 8, 16, 32)):
+    """sigma*_K validation: causal sigma* with parking depth K, C = inf,
+    wide regime, against the section 7 law. K=1 must reproduce the sigma*
+    rows; K >= n*-1 must reproduce the baseline."""
+    ax = IMPL
+    rows = []
+    for name, sk in shapes():
+        base = hops(sk, ax, 'eager', BIG, 'stream', True)
+        ps = paced_star(sk)
+        cells = {}
+        for K in Ks:
+            got = hops(sk, ax, 'sigma_causal', BIG, 'direction', True,
+                       park=K)
+            cells[K] = dict(probe=got, law=k_law(base, ps, K))
+        rows.append(dict(shape=name, scopes=len(sk.scopes), base=base,
+                         pstar=ps, cells=cells))
+        cell_s = ' '.join(f'K{K}={v["probe"]}(law {v["law"]})'
+                          for K, v in cells.items())
+        print(f'  ksweep {name:10s} base={base} P*={ps:2d}  {cell_s}')
+    return rows
+
+
 def main():
     results = {'rows': [], 'random': None}
     if not calibrate():
@@ -195,6 +240,8 @@ def main():
             results['rows'].append(r)
     pool, summ = random_expected()
     results['random'] = dict(pool=pool, summary=summ)
+    print('== sigma*_K parking sweep ==')
+    results['ksweep'] = k_sweep()
     with open('latency_results.json', 'w') as f:
         json.dump(results, f, indent=1, default=str)
     print('wrote latency_results.json')

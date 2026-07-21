@@ -11,7 +11,10 @@ here, not assumed), attack-refute.md F5/F9 (both resolved below), MODEL.md
 §2–§6, Mux/Basic.lean's module doc, and
 `design/streaming-latency-serialization.md`, whose vocabulary (one-way
 *hops*, `hops = (T(delay) − T(0)) / delay`, V1-vs-V2 framing) this
-document adopts so the two compose.
+document adopts so the two compose. §7 (same-day addendum) additionally
+consumes `design/single-socket.md` (branch `single-connection`) — the
+σ\*ₖ construction whose dial law it derives; that document's §6 defers
+its quantitative latency claims here.
 
 Epistemic key as in PROGRESS.md: **[derived]** paper argument with stated
 assumptions; **[checked]** validated by the RTT-costed probe in
@@ -67,6 +70,14 @@ F the per-direction frame count, δ = RTT/2 one one-way hop.
    factor on depth·RTT (that claim dies: F9 resolved as a
    descent-vs-completion conflation, §3.1); but a width-proportional term
    that on realistic divergence is one to two orders of magnitude.
+7. **The dial buys it all back (§7, addendum): σ\*ₖ at parking depth K
+   paces at K + 1 frames per RTT**, width term
+   2·⌈(P\* − K + 1)/(K + 1)⌉ hops — probe-exact at every tested (shape,
+   K) — recovering §2.2's σ\* at K = 1 and the baseline exactly at
+   K ≥ P\* + 1. At the single-socket design's default advertised window
+   the round-trip gap to independent links is **zero**; the residuals
+   are byte head-of-line and loss coupling (§7.5), pending T8 for
+   liveness at K > 1.
 
 ---
 
@@ -187,19 +198,23 @@ child-bearing} (≈ W_h − 2, clamped at 0). Levels trickle concurrently
 (the wavefront pipelines: level h's frame k enables level h−1's frames
 one hop later), so pacing is paid at the *widest* level, nearly alone:
 
-    T_σ*(C = ∞)  ≈  (L + 2)·δ  +  (max_h P_h)·δ  +  ε        ε ≤ O(L)·δ
+    T_σ*(C = ∞)  ≈  (L + 2)·δ  +  2·⌈P* / 2⌉·δ            P* = max_h P_h
     T_σ*(C)      ≈  max( T_σ*(∞),  (max_d F_d)·δ / C  +  overlap slack )
                   +  B_pipe                                     [derived]
 
-[checked, exact to ±1 hop]: combW8 = 5+6 = 11, combW16 = 5+14 = 19,
-pyr2 = 6+6 = 12, pyr3 = 6+25 = 31 predicted, 32 measured (ε = +1, the
-cross-level coupling); chain/dfan/comb6: max P_h = 0 ⇒ = base, measured
-= base; wedge/provwall: max P_h = 1 (the first provision behind the
-dispute head), law +1, measured +0 — an isolated paced frame's wait runs
-concurrently with the descent ladder and is absorbed. The width term is
-tight when the frontier is the bottleneck and an over-estimate by up to
-O(L) when it is not; both signs of slack are ≤ 1 hop on every probe
-shape. C-dependence [checked]: C = 4 already ≈ C = ∞ on every standard
+(The width term is the K = 1 instance of the general parking law of §7,
+2·⌈(P* − K + 1)/(K + 1)⌉·δ — the ceiling is real: pacing advances in
+whole-RTT bursts of K + 1 frames.)
+
+[checked, exact]: combW8 = 5+6 = 11, combW16 = 5+14 = 19, pyr2 = 6+6 =
+12, pyr3 = 6 + 2·⌈25/2⌉ = 32 — all four dense shapes on the nose. (An
+earlier draft used P*·δ without the ceiling and read pyr3's odd-P* +1 as
+cross-level coupling; §7's K-sweep exposed the ceiling, and the law is
+now exact.) chain/dfan/comb6: P* = 0 ⇒ = base, measured = base;
+wedge/provwall: P* = 1 (the first provision behind the dispute head),
+law +2, measured +0 — an isolated paced frame's wait runs concurrently
+with the descent ladder and is absorbed, so on descent-dominated shapes
+the law is an upper envelope. C-dependence [checked]: C = 4 already ≈ C = ∞ on every standard
 shape (σ\* never uses more window than its proof frontier — refute-c1
 §3's flatness claim survives *for C ≥ 2·active streams*); C = 1 is the
 stop-and-wait floor: pyr3 = 93 ≈ F_R = 91.
@@ -424,12 +439,13 @@ they pay the paced-frame law exactly.
 ## 5. The [checked] tier: harness and its honest limits
 
 `formal/mux-notes-phase2/latency/`: `model.py`, `gen.py`, `instances.py`,
-`mux.py` are the phase-2 probe copied verbatim with two marked
+`mux.py` are the phase-2 probe copied verbatim with three marked
 modifications ([L1] widen-internal flag, fixing three transcription sites
 that hardcoded the base model's cap-1 in fire guards; [L2] pipes keyed
-per direction or per stream); `timed.py` adds the §1 clock; `run_latency.py`
-is the sweep (`python3 run_latency.py`, deterministic,
-writes `latency_results.json`). This validates *algebra*: the same model
+per direction or per stream; [L3] the σ\*ₖ parking depth — wire slots K
+deep, demux delivers on room rather than empty, §7); `timed.py` adds the
+§1 clock; `run_latency.py` is the sweep (`python3 run_latency.py`,
+deterministic, writes `latency_results.json`). This validates *algebra*: the same model
 the panel argued over, plus a clock — no Rust was run.
 
 - **Calibration gate:** the chain completes in exactly rootH + 2 hops
@@ -450,12 +466,16 @@ the panel argued over, plus a clock — no Rust was run.
   not `scheduleE`'s projection. Per-channel it is the same sequence
   (consumption order is positional); across channels it may differ, so
   S_π values are indicative, its existence argument is §2.3's [derived].
-- **Discrepancies found and disposition:** pyr3 σ\* C=∞ measured 32 vs
-  law 31 — cross-level coupling inside the stated ε ≤ O(L) slack; no
-  other shape deviates. An earlier draft of the law charged Σ_h P_h
-  (additive compounding); the probe refuted it (pyr3: 38 predicted, 32
-  measured) and the pipelined form replaced it. That is the process
-  working as intended.
+- **Discrepancies found and disposition:** two drafts of the width law
+  were refuted by the probe and replaced. (i) Σ_h P_h (additive
+  compounding across levels): pyr3 predicted 38, measured 32 — the
+  pipelined single-widest-level form replaced it. (ii) P*·δ without the
+  ceiling: pyr3 predicted 31, measured 32, first misread as cross-level
+  coupling; the §7 K-sweep exposed the whole-RTT burst ceiling
+  (2·⌈P*/2⌉), after which every dense shape matches exactly at every K
+  tested. Residual known slack: descent-dominated shapes absorb an
+  isolated paced frame (wedge/provwall: law +2, probe +0 — upper
+  envelope). That is the process working as intended.
 - **Not validated here:** B-terms (message-counted model, §3.3);
   byte-denominated C; compute; the Rust transport. A hop-metered Rust
   measurement (the latency doc's §1 instrument pointed at a
@@ -505,8 +525,152 @@ zero proof-lag, per-stream windows, and per-stream byte ordering — which
 is the deadlock doc's design argument, now with its latency half
 quantified [derived + checked].
 
+**Amended same day by §7**: the paragraph above prices σ\* at its K = 1
+parking floor. The single-socket design's σ\*ₖ (parking dial K,
+advertised at handshake) buys back the first two terms at a
+receiver-RAM price, and at the shipped default window the width term
+vanishes entirely — the σ\*ₖ addendum below derives and validates the
+dial law and restates this conclusion for the construction that will
+actually be built. The third term (per-stream byte ordering, plus loss
+isolation) remains unpurchasable on one socket.
+
 **Residual items:** stage-0 P1's real causal σ\* should be run under this
 harness's clock to collapse the [measured, +width]-band to a point;
 `scheduleE`'s actual S_π on dense trees ([open], affects only how much
 worse the oracle is than the baseline, not any σ\* claim); byte-metered
 extension if a mux is ever seriously proposed.
+
+---
+
+## 7. Addendum (2026-07-21, same day): σ\*ₖ — the parking dial
+
+Added at the coordinator's request after the single-socket design landed
+(`design/single-socket.md`, branch `single-connection`): the practical
+construction is not σ\* at parking 1 but **σ\*ₖ** — the receiver eagerly
+converts arriving frames to decoded logical replies (payload custody
+streams through `Backend::parent` at line rate; a parked reply is an
+O(fan)-handle descriptor) and parks up to K replies per stream, so the
+sender may run K un-provably-consumed replies past demand proof per
+stream. K is per-direction, receiver-priced, advertised in the greeting,
+default `Window::scopes()`. In this document's model: the demux slot
+widens from 1 to K ([L3] in the harness), and σ\*'s demand rule
+generalizes from "rcv(c, k−1) provable" to "rcv(c, k−K) provable" — the
+causal gate's arrears distance becomes k − K − 1.
+
+### 7.1 The K-dial law
+
+Re-run the §2.2 derivation with the general distance. The demand proof
+for frame k must carry the consumer through scope (k−K−1)'s publication
+set; self-containment and label transport pin that to the arrival of the
+reverse frames covering scopes ≤ k − K − 1, which exist no earlier than
+one hop after frame k − K − 1 itself arrived:
+
+    T_push(c, k)  ≥  T_push(c, k − K − 1)  +  RTT                    (†K)
+
+— **K + 1 frames per RTT per fresh-dispute stream**. Frames 1..K+1 are
+gate-free, and the stream then advances in whole-RTT bursts of K + 1, so
+a stream with P paced frames (P = P_h of §2.2) costs
+2·⌈(P − K + 1)/(K + 1)⌉ hops, clamped at 0, and:
+
+    T_σ*K(C = ∞)  ≈  (L + 2)·δ  +  2·⌈max(0, P* − K + 1)/(K + 1)⌉·δ
+                                                        [derived; checked]
+
+Two circulating sketches are hereby corrected: the pacing is **K + 1**
+frames per RTT — not 2K (the dispatch sketch), and not K with "1 at the
+σ\* floor" (single-socket.md §6): at K = 1 the floor runs at *2* frames
+per RTT, which is what §2.2's measured tables already showed. All three
+agree at no point except that each reproduces some K = 1 reading; the
+probe adjudicated (§7.2).
+
+**Corners, as required.** K = 1: the law reads 2·⌈P*/2⌉ — exactly §2.2's
+σ\* law, and the K = 1 sweep column reproduces the §4 σ\* rows
+bit-for-bit [checked]. K → ∞: the term is 0 — exactly the §2.1 baseline
+[checked]. Both corners fall out of the derivation with no special
+casing, as demanded.
+
+**Matching condition, precisely.** In this model's resolution (whole
+hops): T_σ*K = T_base **exactly** iff the width term is 0, i.e.
+**K ≥ P\* + 1** — one more than the widest frontier stream's paced-frame
+count, equivalently ≥ n\* − 1 where n\* is that stream's total frame
+count. Within **one RTT** of baseline already at K ≥ P\*/2 — half the
+frontier suffices to be one round trip off. On
+descent-dominated shapes (wedge, provwall) even K = 1 matches, the law
+being an upper envelope there (§2.2).
+
+### 7.2 Validation [checked]
+
+Causal σ\*ₖ (label-arrival gate at distance k − K − 1, omniscient exit
+certificate against the K-deep slot), C = ∞, wide regime, all nine
+standard shapes × K ∈ {1, 2, 4, 8, 16, 32} — 54 runs, all terminal,
+pinned in `latency_results.json` (`ksweep`). Law vs probe, dense shapes
+(hops; law in parens where it differs — it never does):
+
+| shape | base | P\* | K=1 | K=2 | K=4 | K=8 | K=16 | K=32 |
+|---|---|---|---|---|---|---|---|---|
+| combW8 | 5 | 6 | 11 | 9 | 7 | 5 | 5 | 5 |
+| combW16 | 5 | 14 | 19 | 15 | 11 | 7 | 5 | 5 |
+| pyr2 | 6 | 6 | 12 | 10 | 8 | 6 | 6 | 6 |
+| pyr3 | 6 | 25 | 32 | 22 | 16 | 10 | 8 | 6 |
+
+**The law is exact on every dense cell** — including the K where each
+shape first touches baseline (combW8: K = 7 ⇒ probe-exact at K = 8;
+combW16: K = 15 ⇒ at K = 16; pyr3: K = 26 ⇒ at K = 32). The five
+zero-P\* / descent shapes sit at baseline for every K, with
+wedge/provwall confirming the upper-envelope reading (law +2 at K = 1,
+probe +0). Same lower-bound caveat as §5: the causal gate is a necessary
+condition, so true σ\*ₖ ∈ [these numbers, +width-term]; and liveness of
+σ\*ₖ at K > 1 is **T8, pending kernel check** — 54/54 terminal here is
+executable-tier evidence only, not a substitute.
+
+### 7.3 Sizing K
+
+The dial should cover the **widest frontier level, not the tree**: the
+statistic is max_h (child-bearing scopes at height h) ≈ dispute-density
+× effective fan at the widest active level — NOT total scopes, because
+levels pipeline and only the widest is paid (§3.1). Guidance, from the
+law [derived]:
+
+- **Exact parity:** K ≥ P\* + 1 ≈ the widest level's scope count.
+- **One RTT off:** K ≈ half of that.
+- **Residual at undersized K:** 2·(P\*/K) hops ≈ P\*/K round trips —
+  graceful, hyperbolic in K, never cliffed.
+- The shipped default `Window::scopes()` (65,536 = fan²) covers any
+  frontier up to fan² scopes; exceeding it takes a divergence of order
+  fan³ ≈ 16.7M disputed scopes, at which point the session is
+  bandwidth-bound anyway (the latency doc's §6.5 geometry argument). The
+  benchmark shape (P\* of order 10³) is matched exactly by K ≈ 1,300,
+  and to within ~2 RTT by K = 512 = 2·fan. Test builds' `Window::FLOOR`
+  (K = 1) deliberately runs the σ\* corner of §2.2.
+
+### 7.4 The byte axis, unchanged
+
+The reply-denominated dial is sound because the parked unit finally
+matches the grant unit: a parked reply is K·O(fan) handles plus backend
+custody the transfer was going to consume anyway — worst case ≈ fan²
+hashes ≈ 2 MB for a maximally disputed reply, O(fan) handles for the
+provision case the design exists for (`design/eager-absorption.md` §7.1
+via single-socket.md §1.4 [checked, in-repo]). So K prices receiver RAM
+linearly and honestly. What K does **not** touch: the §3.3 bandwidth
+head-of-line term is frame-granularity FIFO interleaving, K-independent
+— bounded by one `RunBudget` chunk's transmission ahead of an urgent
+frame (≈ 9 ms/1.1 MB at 1 Gbps, single-socket.md §6) and tunable by
+chunking only; and loss-recovery coupling is likewise untouched. The
+message-counted C of §3.2 dissolves into the socket's byte window at
+realistic sizes; the K dial replaces it as the binding message-level
+constraint.
+
+### 7.5 Engineering sentence, updated
+
+With σ\*ₖ at advertised windows (default `Window::scopes()`), **the
+single-socket construction's expected round-trip count matches the
+multi-link construction exactly in this model** — the width term is zero
+for every frontier the default can park (any realistic divergence), it
+degrades hyperbolically (≈ P\*/K round trips) rather than cliffing if a
+deployment undersizes K, and the K = 1 test floor recovers §2.2's σ\*
+exactly. The residual against multi-link is not round trips: it is the
+frame-granularity bandwidth head-of-line term (chunk-bounded, tunable,
+K-independent) and loss-recovery coupling under packet loss — plus the
+engineering weight of the inference engine itself (T8 before merge). The
+remaining multi-link advantages are **loss isolation and boringness**;
+everything else this document priced against σ\* is bought back by K
+[derived; law probe-exact at every tested K].

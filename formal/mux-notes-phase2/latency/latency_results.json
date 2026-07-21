@@ -624,5 +624,295 @@
    "sigCinf_max": 4.833333333333333
   }
  },
- "calibration": "PASS"
+ "calibration": "PASS",
+ "ksweep": [
+  {
+   "shape": "chain6",
+   "scopes": 6,
+   "base": 8,
+   "pstar": 0,
+   "cells": {
+    "1": {
+     "probe": 8,
+     "law": 8
+    },
+    "2": {
+     "probe": 8,
+     "law": 8
+    },
+    "4": {
+     "probe": 8,
+     "law": 8
+    },
+    "8": {
+     "probe": 8,
+     "law": 8
+    },
+    "16": {
+     "probe": 8,
+     "law": 8
+    },
+    "32": {
+     "probe": 8,
+     "law": 8
+    }
+   }
+  },
+  {
+   "shape": "wedge",
+   "scopes": 12,
+   "base": 8,
+   "pstar": 1,
+   "cells": {
+    "1": {
+     "probe": 8,
+     "law": 10
+    },
+    "2": {
+     "probe": 8,
+     "law": 8
+    },
+    "4": {
+     "probe": 8,
+     "law": 8
+    },
+    "8": {
+     "probe": 8,
+     "law": 8
+    },
+    "16": {
+     "probe": 8,
+     "law": 8
+    },
+    "32": {
+     "probe": 8,
+     "law": 8
+    }
+   }
+  },
+  {
+   "shape": "provwall8",
+   "scopes": 12,
+   "base": 6,
+   "pstar": 1,
+   "cells": {
+    "1": {
+     "probe": 6,
+     "law": 8
+    },
+    "2": {
+     "probe": 6,
+     "law": 6
+    },
+    "4": {
+     "probe": 6,
+     "law": 6
+    },
+    "8": {
+     "probe": 6,
+     "law": 6
+    },
+    "16": {
+     "probe": 6,
+     "law": 6
+    },
+    "32": {
+     "probe": 6,
+     "law": 6
+    }
+   }
+  },
+  {
+   "shape": "dfan8",
+   "scopes": 10,
+   "base": 4,
+   "pstar": 0,
+   "cells": {
+    "1": {
+     "probe": 4,
+     "law": 4
+    },
+    "2": {
+     "probe": 4,
+     "law": 4
+    },
+    "4": {
+     "probe": 4,
+     "law": 4
+    },
+    "8": {
+     "probe": 4,
+     "law": 4
+    },
+    "16": {
+     "probe": 4,
+     "law": 4
+    },
+    "32": {
+     "probe": 4,
+     "law": 4
+    }
+   }
+  },
+  {
+   "shape": "comb6",
+   "scopes": 8,
+   "base": 8,
+   "pstar": 0,
+   "cells": {
+    "1": {
+     "probe": 8,
+     "law": 8
+    },
+    "2": {
+     "probe": 8,
+     "law": 8
+    },
+    "4": {
+     "probe": 8,
+     "law": 8
+    },
+    "8": {
+     "probe": 8,
+     "law": 8
+    },
+    "16": {
+     "probe": 8,
+     "law": 8
+    },
+    "32": {
+     "probe": 8,
+     "law": 8
+    }
+   }
+  },
+  {
+   "shape": "combW8",
+   "scopes": 18,
+   "base": 5,
+   "pstar": 6,
+   "cells": {
+    "1": {
+     "probe": 11,
+     "law": 11
+    },
+    "2": {
+     "probe": 9,
+     "law": 9
+    },
+    "4": {
+     "probe": 7,
+     "law": 7
+    },
+    "8": {
+     "probe": 5,
+     "law": 5
+    },
+    "16": {
+     "probe": 5,
+     "law": 5
+    },
+    "32": {
+     "probe": 5,
+     "law": 5
+    }
+   }
+  },
+  {
+   "shape": "combW16",
+   "scopes": 34,
+   "base": 5,
+   "pstar": 14,
+   "cells": {
+    "1": {
+     "probe": 19,
+     "law": 19
+    },
+    "2": {
+     "probe": 15,
+     "law": 15
+    },
+    "4": {
+     "probe": 11,
+     "law": 11
+    },
+    "8": {
+     "probe": 7,
+     "law": 7
+    },
+    "16": {
+     "probe": 5,
+     "law": 5
+    },
+    "32": {
+     "probe": 5,
+     "law": 5
+    }
+   }
+  },
+  {
+   "shape": "pyr2",
+   "scopes": 31,
+   "base": 6,
+   "pstar": 6,
+   "cells": {
+    "1": {
+     "probe": 12,
+     "law": 12
+    },
+    "2": {
+     "probe": 10,
+     "law": 10
+    },
+    "4": {
+     "probe": 8,
+     "law": 8
+    },
+    "8": {
+     "probe": 6,
+     "law": 6
+    },
+    "16": {
+     "probe": 6,
+     "law": 6
+    },
+    "32": {
+     "probe": 6,
+     "law": 6
+    }
+   }
+  },
+  {
+   "shape": "pyr3",
+   "scopes": 121,
+   "base": 6,
+   "pstar": 25,
+   "cells": {
+    "1": {
+     "probe": 32,
+     "law": 32
+    },
+    "2": {
+     "probe": 22,
+     "law": 22
+    },
+    "4": {
+     "probe": 16,
+     "law": 16
+    },
+    "8": {
+     "probe": 10,
+     "law": 10
+    },
+    "16": {
+     "probe": 8,
+     "law": 8
+    },
+    "32": {
+     "probe": 6,
+     "law": 6
+    }
+   }
+  }
+ ]
 }
