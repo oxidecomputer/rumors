@@ -100,6 +100,22 @@ each scope's publications under `.impl`) proves the fusion WLOG.
 Recorded so the probe is not read as modeling a different system; if T1
 fails to close, the probe's σ* evidence weakens accordingly.
 
+## A10. Global publication order is not a function of the trees — A5's premise holds per channel only
+
+**[checked, 2026-07-21, stage-2D]** B5's first formulation ("the trace
+is a function of the skeleton") is FALSE at global-interleaving
+granularity even for identical inputs run back-to-back:
+`complete_initiator`'s terminal `tokio::select!` is unbiased, so branch
+order draws tokio's thread-local RNG. Discovered by committed regression
+seeds (`proptest-regressions/tree/mirror/streaming/tests/announced.txt`).
+The landed B5 bridge states payload-independence PER CHANNEL — which is
+the granularity MODEL.md §1's premise actually uses; cross-channel
+interleaving is scheduler freedom the model quantifies over
+adversarially. No Lean misalignment; recorded so A5's phrase
+"channel-op count and order" is never read globally. Corollary for the
+mux campaign: any σ\* implementation's inference must likewise never
+assume a deterministic global interleaving, only per-channel order.
+
 ## A9. The F8 close-guard conjunct is vacuous on well-formed skeletons — boundary hardening, not a protocol fix
 
 **[proven-adjacent, 2026-07-21, stage-2A]** The adjudication required the

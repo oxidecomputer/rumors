@@ -300,6 +300,31 @@ the negative space on the record.
   incorporated as conditions. Alignment findings A5–A8 recorded.
   Dispatched next: stage 0 (blocking causal-σ* probe gates P1–P4) and
   stage 1 (the Mux/ Lean harness) in parallel.
+- **2026-07-21** Stage-2 track D landed and merged (6 bridge tests
+  green; full gate green except the two historical single-pipe stall
+  replays, verified failing identically at the base commit — this
+  main-based branch still carries the old transport, by design): wedge
+  realizability (deterministic tree pair whose trace-decoded skeleton
+  equals `wedge(32)` structurally; the committed integration seeds pin
+  the jam mechanism, not the literal shape — adjudication F4 repair
+  honored), LocalEq soundness + nondegeneracy (free-insertion
+  invisibility at asserted 100% frequency), and B5 announced-skeleton
+  reconstruction from payload-erased transcripts. Alignment findings:
+  A10 (global publication order draws tokio RNG — payload-independence
+  is honest per channel only) recorded; A5 wording qualified.
+- **2026-07-21** Eager-absorption feasibility landed and merged
+  (design/eager-absorption.md): verdict MODERATE (receiver) / INVASIVE
+  (sender), no blockers, and the plumbing crux DISSOLVED — supplied-run
+  construction is already demux-driven pre-cursor (`decode_reply` in
+  per-stream pumps → `Convert::assemble` → `Backend::parent`, unlinked
+  handles; the `Scope` FIFO is the context ledger). Context-registration
+  causality verified arm-by-arm across the message vocabulary and named;
+  proptest specified. Version-bound filtering is entirely sender-side at
+  answer time, so eager absorption cannot resurrect redacted content.
+  Receiver half ≈ 360 lines (widen three cap-1 proxy gates to K + a
+  Window-style knob; parked descriptor = the existing `Reply` handle);
+  sender σ\*ₖ inference ≈ 1–2.2k lines whose liveness spec IS T8 —
+  house posture: the theorem lands first.
 - **2026-07-21** Stage-2 track A landed and merged (`lake build` green
   at 245 jobs, zero sorry, kernel decide only): **T3
   `wc_impossibility` in full ∀C generality** — every work-conserving
