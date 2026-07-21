@@ -109,8 +109,9 @@ F2's restatement). A work-conserving strategy may still *wait* on a full
 pipe (the room conjunct lives in `enabledPushes`); it may never idle
 with room and a committed hand. This is T3's hypothesis class — the
 shipped mux's `bottomMostReady` (Mux/Instances.lean) is the pinned
-concrete instance, and σ* is definitionally outside it (the right to
-idle is the entire frontier, MUX-ADJUDICATION §1.2). -/
+concrete instance (`bottomMostReady_wc`, Mux/Proofs/Inhabitation.lean),
+and σ* is definitionally outside it (the right to idle is the entire
+frontier, MUX-ADJUDICATION §1.2). -/
 def WorkConserving (p : Party) (σ : Strategy) : Prop :=
   ∀ (sk : Skel) (C : Nat) (s : MState), MReachableAny sk s →
     enabledPushes sk C p s ≠ [] →

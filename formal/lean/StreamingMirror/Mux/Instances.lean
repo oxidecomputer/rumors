@@ -138,10 +138,12 @@ committed hand wins — outgoing.rs:199-224's reverse-index poll, the
 shipped mux's policy and the T3 faithfulness pin's strategy.
 
 Memoryless in spirit: a function of the hand occupancies, reconstructed
-from the observation history (`committedInHist`). Work-conserving —
-whenever any hand is committed it names the deepest such stream, which
-is held — and local (its `WorkConserving`/`LocalStrategy` theorems are
-stage-2 obligations, MUX-ADJUDICATION §2.4). -/
+from the observation history (`committedInHist`). Work-conserving and
+local, kernel-checked: `bottomMostReady_wc` (with the K/E-universe
+twins `bottomMostReady_wcK`/`bottomMostReady_wcE`) and
+`bottomMostReady_local` in Mux/Proofs/Inhabitation.lean discharge the
+MUX-ADJUDICATION §2.4 obligations — the non-vacuity certificates for
+every ∀-class impossibility over `WorkConserving`. -/
 def bottomMostReady : Strategy := fun sk tr =>
   (List.range (sk.rootH + 1)).find? fun h =>
     committedInHist sk.rootH tr h

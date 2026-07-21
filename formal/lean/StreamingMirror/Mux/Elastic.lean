@@ -1045,7 +1045,9 @@ unbounded depth no sender inference is needed at all).
 Unconditional (T10, MUX-PROGRESS §3.4b's secondary deliverable): the
 former explicit `hinv` seam is discharged by `eMuxInv_reachable`, the
 stage-F sweep's elastic twin. Nothing about the composition is
-assumed beyond the class hypotheses. -/
+assumed beyond the class hypotheses, and the `EWorkConserving` class
+is kernel-inhabited (`bottomMostReady_wcE`,
+Mux/Proofs/Inhabitation.lean). -/
 theorem elastic_deadlock_free (sk : Skel) (hwf : sk.wellFormed = true)
     (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel) {C : Nat} (hC : 1 ≤ C)
     {σI σR : Strategy}

@@ -556,7 +556,12 @@ when idling is allowed). The un-muxed `wedge` session is inside the
 kernel-proven `Sched.deadlock_free` class (`wedge_wellFormed`,
 `wedge_margin0`), so the stuck state indicts the mux transport alone;
 the Rust corollary rides the committed seed pair
-(`tests/pairwise.proptest-regressions`), which realizes the shape. -/
+(`tests/pairwise.proptest-regressions`), which realizes the shape.
+
+The hypothesis class is kernel-inhabited: the shipped policy is a
+member (`bottomMostReady_wc`, Mux/Proofs/Inhabitation.lean — and a
+`LocalStrategy` member at that, `bottomMostReady_local`), so this
+∀-class impossibility is not satisfiable-empty. -/
 theorem wc_impossibility (C : Nat) (hC : 1 ≤ C) (σI σR : Strategy)
     (hWI : WorkConserving .I σI) (hWR : WorkConserving .R σR) :
     ¬ MuxDeadlockFree wedge .impl C σI σR := by
