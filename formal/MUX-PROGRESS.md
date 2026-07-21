@@ -315,6 +315,27 @@ the negative space on the record.
   incorporated as conditions. Alignment findings A5–A8 recorded.
   Dispatched next: stage 0 (blocking causal-σ* probe gates P1–P4) and
   stage 1 (the Mux/ Lean harness) in parallel.
+- **2026-07-21** Latency analysis landed and merged (MUX-LATENCY.md +
+  addendum; harness pinned in mux-notes-phase2/latency/). Baseline
+  (independent links) = (L+2)·δ, depth-only, probe-exact. σ\* (K = 1)
+  adds the width term: expected 1.84× (max 4.8×) on the random pool,
+  unbounded in width — class degradation depth·RTT → scopes·RTT via
+  the widest frontier level (levels pipeline; the widest is paid once);
+  silent runs pipeline free, so chains and the historical wedge cost
+  σ\* zero RTTs; maximizing shape is wide shallow combs. C = 1 is
+  stop-and-wait for every scheduler including the oracle: C₀ = 1 is
+  liveness-only. **The K-dial law** ([derived] then [checked],
+  probe-exact 54/54 with both corners reproducing): pacing K+1
+  frames/RTT per frontier stream; T ≈ (L+2)·δ +
+  2·⌈max(0, P\*−K+1)/(K+1)⌉·δ; round-trip parity with multi-link iff
+  K ≥ P\*+1; residual hyperbolic below, no cliff. Sizing: the dial
+  covers the widest frontier LEVEL (dispute-density × fan); the default
+  Window::scopes() = fan² zeroes the term short of ~fan³-scope
+  divergence. Conclusion of record: single-socket σ\*ₖ at advertised
+  windows matches multi-link exactly in round trips in the model;
+  residuals are byte HOL (chunk-bounded, K-independent) and TCP
+  loss-recovery coupling — loss isolation and boringness are what
+  multi-link still buys. K > 1 liveness remains T8 [pending kernel].
 - **2026-07-21** Stage-2 track B landed and merged (~1,900 lines,
   kernel-only): **T2 `keystone`** (over push-time derivation trees, the
   F1 repair route; delivery events excluded from the closure vocabulary
