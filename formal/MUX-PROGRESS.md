@@ -300,6 +300,27 @@ the negative space on the record.
   incorporated as conditions. Alignment findings A5–A8 recorded.
   Dispatched next: stage 0 (blocking causal-σ* probe gates P1–P4) and
   stage 1 (the Mux/ Lean harness) in parallel.
+- **2026-07-21** Stage 0 complete: **the causal σ\* survived P1** —
+  4,970/4,970 runs Terminal (497 skeletons: 9 pins incl. wedge, 88
+  adversarial-family, 400 random margin-0; C ∈ {1,2}; 5 interleavings;
+  symmetric composition), causality structurally enforced (the strategy
+  is a pure function of own pushes + arrivals; skeleton access through
+  an announced-set view that faults on overreach), zero soundness
+  violations vs the omniscient certificate. Condition B discharged;
+  C1-literal stays FALSE; T4 unblocked. P2 independently reconfirms the
+  static-oracle failure (π-eligibility FALSE, minimal 11-scope
+  counterexample recorded; state-feedback fallback verified Terminal on
+  all 8 wedging skeletons). P3 mechanizes the wedge singleton-
+  consultation property at C ∈ {1,2,3} with decide-anchor traces
+  dumped. P4 REVERSES a panel expectation: no-peek causal σ\* also
+  survives (3,470/3,470 incl. the F2 family) — slot-peek stands as a
+  modeling decision, NOT a demonstrated liveness necessity; the
+  refutation is stronger than adjudicated. Lean-relevant lesson from
+  one fixed probe artifact: the Inevitable closure must gate deliveries
+  by the slot E2 edge only — importing shared-FIFO head order into the
+  derivation manufactures spurious HOL wedges. Ambiguities resolved to
+  least-information readings, flagged as Lean divergence risks in
+  STAGE0-GATES.md.
 - **2026-07-21** Stage-2 track C landed and merged (`muxprobe` exe,
   golden 252-row matrix, `just muxprobe` in the formal tier; commit
   consultations 3,524/3,524 singleton — the probe-fusion WLOG is
