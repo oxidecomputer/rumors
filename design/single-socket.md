@@ -241,9 +241,29 @@ A peer advertising K = 1 degenerates the counterparty's sender to
 demand-lockstep — exactly σ\* — and the session remains live at every
 capacity [T4, gated theorem; probe-cleared 4,970/4,970 at the causal
 tier]. General K is T8's statement. Liveness never depends on the
-*value* advertised, only on the sender honoring it; performance scales
-as the frontier law (K scopes per RTT per stream — `MUX-LATENCY.md`,
-forthcoming).
+*value* advertised, only on the sender honoring it; performance
+follows the K-dial law (`MUX-LATENCY.md` §7.1 [checked]: probe-exact
+on every dense cell of a 54-run sweep, both corners reproducing the
+σ\* and baseline laws with no special casing):
+
+    T  ≈  (L + 2)·δ  +  2·⌈max(0, P\* − K + 1)/(K + 1)⌉·δ
+
+with P\* the widest fresh-dispute stream's paced-frame count. The
+pacing is **K + 1 frames per RTT** per fresh-dispute stream — the
+demand proof for frame k reaches back to scope k − K − 1, whose
+reverse frames return one RTT after that frame was pushed — so K = 1
+runs the 2-per-RTT σ\* floor. Matching condition, exactly: round-trip
+parity with multi-link **iff K ≥ P\* + 1**; within one RTT at
+K ≥ P\*/2; residual ≈ P\*/K round trips below that — hyperbolic in K,
+never cliffed.
+
+Sizing (`MUX-LATENCY.md` §7.3): the dial must cover the **widest
+frontier level** — dispute-density × effective fan — not total scopes:
+levels pipeline, only the widest is paid. The default advertisement
+`Window::scopes()` = fan² therefore zeroes the width term for any
+divergence short of ~fan³ disputed scopes, by which point the session
+is bandwidth-bound long before it is window-bound. At the shipped
+default, the width term is zero for every realistic divergence.
 
 Consequences, recorded plainly:
 
@@ -383,10 +403,13 @@ within a class:
    chunk boundaries *between* a run's frames, which still arrive in
    order on their own stream.
 
-K-general pricing of the ladder — how the frontier term scales with
-the advertised window — is the latency doc's K-dial addendum
-[forthcoming]; this section's rationale stands on the committed base
-analysis.
+K-general pricing of the ladder is the latency doc's K-dial addendum
+(`MUX-LATENCY.md` §7, landed [checked]): the frontier term the ladder
+protects scales as 2·⌈max(0, P\* − K + 1)/(K + 1)⌉ hops (§3.1 quotes
+the full law), so the ladder matters most exactly when K is
+undersized — at the shipped default the width term is already zero and
+the ladder's remaining job is the byte head-of-line bound, which is
+K-independent (§7.4 there).
 
 **What the scheduler must not be trusted with** (negative space,
 recorded so a future reader does not add machinery the theorems make
@@ -518,14 +541,23 @@ so it is a decision, not a surprise.
   purchasable at any configuration — the accepted price of §1.3,
   restated where it bites: it costs tail latency under loss, nothing
   on clean links. [derived]
-- **Latency parity**: in round-trip counting the socket transport at
-  production window matches the multi-link construction — the
-  frontier law (K scopes per RTT per stream, vs 1 at the σ\* floor)
-  and the full derivation land in the campaign's latency analysis
-  (`MUX-LATENCY.md`, forthcoming); no quantitative claim is made here
-  beyond the structure. At K = 1 the width cost is §5A's honestly
-  recorded ~n·RTT per n-wide level — the floor exists for tests, not
-  deployments. [derived, pending that doc]
+- **Latency parity, now quantified** (`MUX-LATENCY.md` §7, landed):
+  with σ\*ₖ at advertised windows, the single-socket construction's
+  expected round-trip count **matches the multi-link construction
+  exactly in the model** — the width term is zero whenever
+  K ≥ P\* + 1, which the default `Window::scopes()` = fan² satisfies
+  for any divergence short of ~fan³ disputed scopes (bandwidth-bound
+  long before). Undersized K degrades hyperbolically (≈ P\*/K round
+  trips), never cliffs. An earlier revision's pacing sketch ("K per
+  RTT, 1 at the floor") is corrected by the addendum: the true pacing
+  is **K + 1 frames per RTT** per fresh-dispute stream, so the K = 1
+  test floor runs σ\*'s 2-per-RTT law (§5A's honestly recorded
+  width cost — the floor exists for tests, not deployments). The
+  residuals are exactly the two above: byte head-of-line
+  (chunk-bounded, K-independent — §7.4 there) and loss-recovery
+  coupling. Liveness at K > 1 remains **T8, pending kernel check** —
+  the 54/54 sweep is executable-tier evidence, not a substitute.
+  [checked at the model tier; parity claim scoped to the model]
 
 ## 7. Staged plan
 
@@ -598,8 +630,9 @@ Link carries production traffic until stage L.
   and sizing math remain authoritative for the byte-budget variant.
   §8's contract remains authoritative for the Link while the Link
   exists (through stage V), and becomes historical at stage L.
-- `formal/MUX-LATENCY.md` — the round-trip pricing §3.3's ladder
-  rationale cites and §6 defers to. The base analysis (the σ\* pacing
-  law, the width term, the shape table) is committed on the campaign's
-  `mux-latency` branch; the K-dial addendum (how the frontier term
-  scales with the advertised window) is forthcoming.
+- `formal/MUX-LATENCY.md` — the round-trip pricing §3.1 quotes,
+  §3.3's ladder rationale cites, and §6 defers to. Complete on the
+  campaign's `mux-latency` branch (merged to `mux-conjectures`): the
+  base analysis (§§1–6 there: the σ\* pacing law, the width term, the
+  shape table) plus the §7 K-dial addendum (the parking-dial law, its
+  54-run validation, and the sizing guidance §3.1 adopts).
