@@ -17,3 +17,14 @@ name = "StreamingMirror"
 [[lean_exe]]
 name = "eventdag"
 root = "EventDag"
+
+# The mux campaign's executable evidence tier: runs the real Mux
+# semantics across the strategy × skeleton × capacity × interleaving
+# matrix, asserts the adjudicated shape (positives complete, the wedge
+# family jams C-flat under work conservation, the demand-order pusher
+# is live at C = 1, commit consultations are singletons), and pins the
+# full table against the committed muxprobe-expected.tsv.
+# Run: lake exe muxprobe [randSeeds] [--update]
+[[lean_exe]]
+name = "muxprobe"
+root = "Muxprobe"
