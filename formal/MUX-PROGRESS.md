@@ -188,7 +188,19 @@ work out of its own context and distills results here:
    assumption verification), plus statement-strength audit: do the
    formal statements actually capture the charter's informal claims?
    Rust proptest bridge for any new model-level assumption.
-5. **Document** (per Finch, 2026-07-21). EXTEND `doc/narrative.typ` —
+5. **Legibility** (per Finch, 2026-07-21; precedes the docs pass).
+   Make the theorem statements clear, clean, and human-auditable, in
+   the tradition of the base artifact's Statement.lean pass: a
+   `Mux/Statement.lean` audit surface collecting the suite's final
+   statements in definitions small enough to audit by reading them,
+   with the "what a skeptical reader must read, and need not read"
+   contract stated; names revisited for the reader rather than the
+   prover; hypotheses stated in their weakest honest form; every
+   statement's docstring carrying its charter provenance (which
+   conjecture it settles, which controls pin its hypotheses) and the
+   byte-denomination scope caveat where applicable; a proof-map
+   update; doclint/testdoc clean.
+6. **Document** (per Finch, 2026-07-21). EXTEND `doc/narrative.typ` —
    the campaign history stays first-person and discovery-ordered; the
    mux campaign becomes its next chapter (the conjectures as posed, the
    panel, the σ\* reversal, the executable tier refuting the static
