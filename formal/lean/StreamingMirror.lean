@@ -6,6 +6,7 @@ import StreamingMirror.Statement
 import StreamingMirror.Controls
 import StreamingMirror.Invariant
 import StreamingMirror.Mux.Basic
+import StreamingMirror.Mux.Strategy
 import StreamingMirror.Proofs.Map
 import StreamingMirror.Proofs.Lemmas
 import StreamingMirror.Proofs.Wiring
