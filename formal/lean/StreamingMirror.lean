@@ -9,6 +9,7 @@ import StreamingMirror.Mux.Basic
 import StreamingMirror.Mux.Strategy
 import StreamingMirror.Mux.Instances
 import StreamingMirror.Mux.Gen
+import StreamingMirror.Mux.Controls
 import StreamingMirror.Proofs.Map
 import StreamingMirror.Proofs.Lemmas
 import StreamingMirror.Proofs.Wiring
@@ -48,3 +49,5 @@ import StreamingMirror.Proofs.Pending
 import StreamingMirror.Proofs.PendingE
 import StreamingMirror.Proofs.EndgameE
 import StreamingMirror.Proofs.Endgame
+import StreamingMirror.Mux.Proofs.CommitTotality
+import StreamingMirror.Mux.Proofs.WcImpossibility
