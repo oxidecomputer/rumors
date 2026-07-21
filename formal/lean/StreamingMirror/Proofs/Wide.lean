@@ -55,6 +55,12 @@ else ×2). `applyW_strictly_wider`: a state (synthetic, not claimed
 reachable) where the floor guard refuses the opening push and the
 wide guard accepts it — the semantics is genuinely wider, so
 `applyW_cap` is not an identity of identical functions.
+
+Chain (wide capstone, T10): consumes `Sched.progress_of_inv` at
+`InvPW` (EndgameE), the Steps extraction (Mux/Proofs/Steps/*) and the
+opener fire facts (Mux/Proofs/SigmaStarInv), and Termination's ρ
+stack; concludes `deadlock_free_wide` / `terminatingW`. Map:
+Proofs/Map.lean.
 -/
 import StreamingMirror.Proofs.Termination
 import StreamingMirror.Mux.Proofs.SigmaStarInv
