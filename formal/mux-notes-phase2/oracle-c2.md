@@ -496,9 +496,29 @@ Decidable, kernel-`decide`-friendly on pinned instances.
 
 ### 3.3 What Indist is and is not — and why the strategy signature collapses
 
+> **Correction (phase-4 F3, 2026-07-21).** The necessity claim in the
+> next paragraph is **falsified by §3.1's own ground-truth table**: with
+> P's tree held fixed, a P-held child at an asker-role scope ranges over
+> {D, R-cut, M-absent} as a function of the *peer's* tree, and the view
+> encodes those labels distinctly (`held` vs `heldCut` vs omission). So
+> "same P-tree realizes both" does **not** imply equal views: `Indist`
+> (and the landed `LocalEq`) is strictly FINER than session-start
+> indistinguishability, not implied by it. Consequences: the landed
+> nonlocality refutations survive a fortiori (their witness pair differs
+> only in `leafReqs`, erased under any honest coarsening), but the
+> `LocalStrategy` class is larger than charter-local, and the asker-side
+> fooling moves of §3.1 are unusable through this view. The
+> charter-honest re-grounding (the `PView` class binding statements to
+> the honest grain) is owned by the σ*-causal track per Finch's
+> statement-faithfulness ruling; `LocalEq` remains the landed controls'
+> vocabulary (Strategy.lean's `LocalEq` docstring records the same
+> residue).
+
 `Indist` is a **necessary** condition for "some single P-tree realizes
 both" — same P-tree ⇒ same held-child structure at every commonly-reached
-scope ⇒ equal views [derived; the proptest below makes it empirical]. It is
+scope ⇒ equal views [derived; the proptest below makes it empirical]
+**[REFUTED — see the correction above: the held-child *labels* are
+peer-determined, so same-tree pairs need not be view-equal]**. It is
 **not sufficient**: view-equal skeletons might demand incompatible P-trees
 (radix-gap arithmetic, path-compression constraints — MODEL.md §2 soundness
 note says unrealizable skeletons exist). This does not weaken C1, because of

@@ -41,9 +41,14 @@ by `Consistent` (added by the synthesis): without the guard, an
 unreachable trace that announces the skeletons' difference would break a
 genuinely local strategy's invariance vacuously-wrongly.
 
-The mandatory controls (LocalEq nondegeneracy [decide], the oracle is
-not local [decide], the Rust same-p-tree proptest bridge) are stage-2/4
-obligations (MUX-ADJUDICATION §2.4, §4).
+The mandatory controls are landed: `LocalEq` nondegeneracy
+(`localEq_nondegenerate`) and the strategy-level oracle refutation
+(`oracle_not_localStrategy`, with `Consistent` certificates) in
+Oracle/Controls.lean; the Rust same-p-tree proptest bridge in track D
+(MUX-ADJUDICATION §2.4, §4). `LocalEq`'s label-visibility residue —
+the relation is finer than session-start indistinguishability — is
+recorded on its docstring; the σ*-causal track owns the charter-honest
+`PView` re-grounding.
 -/
 import StreamingMirror.Mux.Basic
 
@@ -76,6 +81,20 @@ general statement (MUX-ADJUDICATION §2.4). -/
 def Consistent (p : Party) (sk : Skel) (tr : List MObs) : Prop :=
   ∃ (ax : AxMode) (C : Nat) (σI σR : Strategy) (s : MState),
     MReachable sk ax C σI σR s ∧ s.hist p = tr
+
+/-- A kernel-checked replay certifies consistency: if `obsOf` computes
+the trace, some reachable state carries it — the glue that turns a
+`decide`-checked `mrun` into a `Consistent` witness. -/
+theorem Consistent.of_obsOf (ax : AxMode) (C : Nat) (σI σR : Strategy)
+    (acts : List MAction) {p : Party} {sk : Skel} {tr : List MObs}
+    (h : obsOf sk ax C σI σR acts p = some tr) : Consistent p sk tr := by
+  rw [obsOf] at h
+  cases hm : mrun sk ax C σI σR (init sk) acts with
+  | none => rw [hm] at h; cases h
+  | some s =>
+      rw [hm] at h
+      injection h with h
+      exact ⟨ax, C, σI, σR, s, mrun_reachable hm, h⟩
 
 -- ======================================================== work conservation
 
@@ -149,17 +168,33 @@ def viewEnc (p : Party) (sk : Skel) : Nat → Nat → List Nat
         else if asks p sc.height then [4]
         else []
 
-/-- Skeletons `sk` and `sk'` are indistinguishable to party `p` at
-session start: equal session parameters and equal p-views.
+/-- Equality of the oracle-c2 §3.2 view projections: equal session
+parameters and equal `viewEnc` token lists for party `p`.
 
 The parameters (`rootH`, `fan`, `capLevel`) are commonly-known
-configuration, not remote information, so they belong to the view. This
-relation is where C1's meaning lives — too coarse and the impossibility
-is trivial, too fine and strategies see remote structure; the definition
-of record is the oracle-c2 §3.2 projection with the adjudicated
-corrections (module doc). Nondegeneracy (two DISTINCT LocalEq skeletons
-exist) is a mandatory stage-2 `decide` control — without it
-`LocalStrategy` would be vacuous. -/
+configuration, not remote information, so they belong to the view.
+Nondegeneracy (two DISTINCT LocalEq skeletons exist) is the
+`localEq_nondegenerate` kernel control — without it `LocalStrategy`
+would be vacuous.
+
+# The label-visibility residue (phase-4 F3)
+
+This relation is provably FINER than "indistinguishable to `p` at
+session start": per p-held child, `viewEnc` emits the SKELETON's label
+(D recursed, asker-side R-cut as `[4]`), and with `p`'s own tree held
+fixed a held child's label ranges over {D, R-cut, absent} as a function
+of the PEER's tree (oracle-c2 §3.1's ground-truth table). So skeleton
+pairs realizable by one common p-tree exist that `LocalEq` refuses to
+relate: every `LocalEq`-related pair is indistinguishable, not
+conversely. Consequently `LocalStrategy` is a LARGER class than
+charter-local — a member may still condition on pre-announcement
+peer-possession labels — which weakens no landed refutation (a
+non-member fails a fortiori; the T9 witnesses differ only in
+`leafReqs`, erased under any honest coarsening) but means positive
+"σ is local" claims through this definition are weaker than the
+charter's sense. The charter-honest re-grounding (the `PView` class)
+is owned by the σ*-causal track per the statement-faithfulness ruling;
+this definition stays as the landed controls' vocabulary. -/
 def LocalEq (p : Party) (sk sk' : Skel) : Bool :=
   sk.rootH == sk'.rootH && sk.fan == sk'.fan &&
   sk.capLevel == sk'.capLevel &&
@@ -173,9 +208,13 @@ cannot tell apart, on every trace both skeletons can produce.
 the quantification honest: a trace only one skeleton can produce already
 announces the difference, and demanding invariance there would wrongly
 disqualify strategies that are local in every reachable situation. The
-C2 oracle is then literally a `Strategy` that is NOT `LocalStrategy`
-(the `oracle_not_local` pin, stage 3), so the necessity corollary T6 is
-a statement about this one hypothesis. -/
+C2 oracle is then literally a `Strategy` that is NOT `LocalStrategy` —
+`oracle_not_localStrategy` (Oracle/Controls.lean) refutes it at this
+definition's full strength, `Consistent` certificates included — so
+the necessity corollary T6 is a statement about this one hypothesis.
+Membership caveat: per `LocalEq`'s label-visibility residue this class
+is larger than charter-local, so refutations transfer to the charter
+sense a fortiori while memberships do not. -/
 def LocalStrategy (p : Party) (σ : Strategy) : Prop :=
   ∀ (sk sk' : Skel) (tr : List MObs), LocalEq p sk sk' = true →
     Consistent p sk tr → Consistent p sk' tr →

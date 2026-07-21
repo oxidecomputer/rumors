@@ -13,10 +13,13 @@ the oracle theorem from every side the adjudication names.
   skeleton on which T3 kills every work-conserving pair — the
   trichotomy's positive half on the impossibility's own witness);
 - **T9, locality** — `LocalEq` is nondegenerate (two distinct skeletons
-  with equal views on BOTH sides), and neither the demand order nor the
-  oracle of record is view-invariant (`demandOrder_not_local`,
-  `oracle_not_local`): the oracle genuinely consumes remote structure,
-  so T6's necessity reading is about a real hypothesis.
+  with equal views on BOTH sides); neither the demand order nor the
+  oracle of record is view-invariant at projection strength
+  (`demandOrder_not_local`, `oracle_not_local`); and the oracle fails
+  `LocalStrategy` itself, `Consistent` certificates included
+  (`oracle_not_localStrategy`, phase-4 F2): the oracle genuinely
+  consumes remote structure, so T6's necessity reading is about a real
+  hypothesis.
 
 # Which witness carries the static jam
 
@@ -226,10 +229,12 @@ theorem demandOrder_not_local :
       ∧ demandOrder sk .R ≠ demandOrder sk' .R :=
   ⟨viewPair, viewPair', by decide, by decide⟩
 
-/-- The oracle of record consumes remote structure: on the same
-`LocalEq` pair, the send projections differ — so the oracle is NOT a
-`LocalStrategy`, and T6's necessity conjunct quantifies over a real
-hypothesis. -/
+/-- The oracle of record consumes remote structure at PROJECTION
+strength: on the same `LocalEq` pair, the send projections differ.
+
+This pin is about the lists, not the strategy Prop — the strategy-level
+refutation `¬ LocalStrategy .R (oracle .R)`, with its `Consistent`
+certificates, is `oracle_not_localStrategy` below. -/
 theorem oracle_not_local :
     ∃ sk sk', LocalEq .R sk sk' = true
       ∧ sendProj sk .R ≠ sendProj sk' .R :=
@@ -238,9 +243,90 @@ theorem oracle_not_local :
 /-- The non-locality is behavioral, not just structural: an observation
 history (two flush receipts) on which the oracle's outputs differ
 across the view pair — one side idles where the other pushes its
-third frame. -/
+third frame.
+
+The history here is NOT `Consistent` (a reachable push carries earlier
+`.act` entries), so this pin does not by itself refute
+`LocalStrategy`; the certified form is `oracle_not_localStrategy`. -/
 theorem oracle_not_local_behavioral :
     ∃ tr : List MObs, oracle .R viewPair tr ≠ oracle .R viewPair' tr :=
   ⟨[.pushed 2, .pushed 0], by decide⟩
+
+-- ============================== T9, at strategy strength (phase-4 F2)
+
+/-- One driving prefix, enabled on BOTH halves of the view pair: open
+both ends, exchange the openings, walk the single dispute down to the
+responder's first supply commit, and push it. Every responder-visible
+event along the way is identical on the two skeletons — the leaf-count
+mutation only lengthens the supply run that comes AFTER. -/
+def nonlocalActs : List MAction :=
+  [.base (.iopenChoose .wire),
+   .push .I,
+   .base (.iopenChoose .query),
+   .base .iopenFire,
+   .deliver .I,
+   .base .ropenRecv,
+   .base (.ropenChoose .wire),
+   .push .R,
+   .base (.ropenChoose .res),
+   .base .ropenFire,
+   .base (.ropenChoose .query),
+   .base .ropenFire,
+   .base .finRes,
+   .deliver .R,
+   .base (.walkRecvWire (.I, 1)),
+   .base (.walkRecvAsked (.I, 1)),
+   .base (.walkCommit (.I, 1) (.wire 0)),
+   .push .I,
+   .base (.walkCommit (.I, 1) (.res 0)),
+   .base (.walkFire (.I, 1)),
+   .base (.walkCommit (.I, 1) (.query 0)),
+   .base (.walkFire (.I, 1)),
+   .deliver .I,
+   .base (.walkRecvWire (.R, 0)),
+   .base (.walkRecvAsked (.R, 0)),
+   .base (.walkCommit (.R, 0) (.wire 0)),
+   .push .R]
+
+/-- The responder history `nonlocalActs` produces — verbatim the same
+on `viewPair` and `viewPair'` (the two `decide`s inside
+`oracle_not_localStrategy` check both replays), with two flush
+receipts: exactly where the send projections part ways. -/
+def nonlocalTrace : List MObs :=
+  [.delivered 2,
+   .act .ropenRecv,
+   .act (.ropenChoose .wire),
+   .pushed 2,
+   .act (.ropenChoose .res),
+   .act .ropenFire,
+   .act (.ropenChoose .query),
+   .act .ropenFire,
+   .act .finRes,
+   .delivered 1,
+   .act (.walkRecvWire (.R, 0)),
+   .act (.walkRecvAsked (.R, 0)),
+   .act (.walkCommit (.R, 0) (.wire 0)),
+   .pushed 0]
+
+set_option maxRecDepth 100000 in
+/-- The oracle is not a `LocalStrategy`, at the definition's full
+strength: a trace `Consistent` with BOTH skeletons of a `LocalEq` pair
+on which the oracle's outputs differ — after the same two pushes, the
+`viewPair` oracle is done while the `viewPair'` oracle names a third
+frame the responder's own view cannot see coming.
+
+Both consistency certificates are kernel replays of the SAME driving
+prefix (`nonlocalActs`), so the divergence survives the `Consistent`
+guards that were added to protect σ*'s locality: T6's necessity
+conjunct quantifies over a hypothesis the oracle genuinely fails. -/
+theorem oracle_not_localStrategy : ¬ LocalStrategy .R (oracle .R) := by
+  intro hloc
+  have h := hloc viewPair viewPair' nonlocalTrace
+    (by decide)
+    (Consistent.of_obsOf .impl 1 bottomMostReady bottomMostReady
+      nonlocalActs (by decide))
+    (Consistent.of_obsOf .impl 1 bottomMostReady bottomMostReady
+      nonlocalActs (by decide))
+  exact absurd h (by decide)
 
 end StreamingMirror.Mux

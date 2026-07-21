@@ -30,7 +30,8 @@ asymmetry is exactly where the impossibility class splits
 Track E's sharpening: the oracle in the positive conjunct is a FIXED
 send-order list (`sendProj`), consulted only through the machine's own
 push count — non-adaptive, and nonlocal only through the skeleton
-(`oracle_not_local`). So within the work-conservation reading, what the
+(`oracle_not_localStrategy`, the strategy-level refutation with
+`Consistent` certificates). So within the work-conservation reading, what the
 oracle buys with remote structure is the ORDER, and the receive-order
 static pusher shows the wrong order is fatal even with the same
 knowledge (`static_oracle_jams`). Neither adaptivity nor extra wire
