@@ -300,6 +300,25 @@ the negative space on the record.
   incorporated as conditions. Alignment findings A5–A8 recorded.
   Dispatched next: stage 0 (blocking causal-σ* probe gates P1–P4) and
   stage 1 (the Mux/ Lean harness) in parallel.
+- **2026-07-21** Stage-2 track B landed and merged (~1,900 lines,
+  kernel-only): **T2 `keystone`** (over push-time derivation trees, the
+  F1 repair route; delivery events excluded from the closure vocabulary
+  — the broken case is unstatable by construction) and **`chase`** (at
+  any stuck non-terminal state with pipes empty, the τ-least
+  unperformed event is a withheld wire push with all DAG predecessors
+  performed), over the new `MuxInv` ground-fact interface with
+  `muxInv_init`. Enabling refactor: `InvL` (the flow-free local
+  invariant) minted so the decode layer runs at muxed states with
+  frames in flight. Five argued deviations from refute-c1 §2 recorded
+  in module docs; `MuxInv` preservation is stage-F's obligation. Two
+  A+B integration fixes at merge (InvL projection at
+  `commit_totality`'s call site; `mem_enabledPushes_intro` rename) —
+  build green at 250 jobs. **Stage 3 dispatched on three worktree
+  tracks**: E (T5 state-feedback oracle + `static_oracle_jams` + T9
+  controls + T6 necessity), F (T4 σ\* — the coverage induction — +
+  T7 companions; T8 σ\*ₖ stretch), G (ρ-decrease termination closing
+  AUDIT-NOTES A1 + the elastic-parking simulation theorem +
+  `wc_impossibility_K`).
 - **2026-07-21** Stage-2 track D landed and merged (6 bridge tests
   green; full gate green except the two historical single-pipe stall
   replays, verified failing identically at the base commit — this
