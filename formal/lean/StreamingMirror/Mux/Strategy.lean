@@ -14,7 +14,9 @@ invariance.
 
 Included: every base action the machine executed (`.act`), its own flush
 receipts (`.pushed`), its demux's deliveries (`.delivered` — at delivery,
-pre-consumption: the slot-peek ruling, ratified per attack-refute F2;
+pre-consumption: the slot-peek ruling, ratified per attack-refute F2 and
+load-bearing for the landed coverage proof, though stage-0 P4 showed it
+is not a demonstrated liveness necessity;
 decision-for-Finch #1). Excluded: remote delivery, remote consumption,
 own-pipe occupancy drain — a consumption receipt is a covert credit and
 would dissolve the frozen-message-set charter from inside the observation

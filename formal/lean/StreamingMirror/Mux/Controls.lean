@@ -113,7 +113,8 @@ strategy completes wedge").
 
 With `wedge_not_deadlockFree` this splits the deadlock's cause off the
 skeleton and onto the strategy class: `wc_impossibility`'s hypothesis
-is not decoration. -/
+is not decoration. Message-denominated (Mux/Basic.lean, # The
+byte-denomination caveat). -/
 theorem wedge_idler_completes :
     muxCompletes wedge .impl 1 wedgeIdlerI wedgeIdlerR 800 = true := by
   decide
@@ -162,10 +163,12 @@ unbounded-slot variant the SAME work-conserving pair that jams `wedge`
 (MUX-ADJUDICATION §3, T3 controls: "unbounded-slot variant completes
 wedge under bottomMostReady").
 
-With capacity flatness (the probe's w = 4 across C ∈ {1..16}, §1.2
-point 2) this pins the jam mechanism as slot occupation + FIFO burial:
-relax the slot and the impossibility dissolves; widen the pipe and it
-does not. -/
+With capacity flatness (the probe's minimal w = 4 instance across
+C ∈ {1..16}, §1.2 point 2 — the landed `wedge` literal is the
+6-provision committed-regression shape) this pins the jam mechanism as
+slot occupation + FIFO burial: relax the slot and the impossibility
+dissolves; widen the pipe and it does not. Message-denominated
+(Mux/Basic.lean, # The byte-denomination caveat). -/
 theorem wedge_unboundedSlot_completes :
     mterminal wedge
       (mdrainU wedge .impl 1 bottomMostReady bottomMostReady 800
@@ -361,10 +364,17 @@ theorem noF8_bogus_mterminal :
   decide
 
 /-- The strengthened close refuses the trap: under the harness of
-record the schedule fails exactly at the absorber's wire close — the
-F8 conjunct sees the in-flight `wire R 0` frame in the producer's pipe.
-The must-fail half of the pin: remove the conjunct and both bogus
-verdicts above come back. -/
+record the trap schedule is disabled — some action of the script fails
+its guard, where the F8-free variant runs it to a bogus terminal.
+
+What the kernel decides here is only `mrun … = none` (the script
+contains two F8-guarded closes, and this pin does not name which one
+refuses); that the refusal is the F8 conjunct — an in-flight
+`wire R 0` frame visible in the producer's pipe — is pinned by the
+CONTRAST with `noF8_bogus_terminal`/`noF8_bogus_mterminal`: same
+script, close guard weakened, run completes bogusly. The must-fail
+half of the pin: remove the conjunct and both bogus verdicts above
+come back. -/
 theorem f8_rejects_gadgetTrap :
     mrun gadget .impl 1 gadgetI gadgetR (init gadget) gadgetTrap
       = none := by

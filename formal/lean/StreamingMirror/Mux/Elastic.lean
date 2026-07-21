@@ -28,9 +28,12 @@ pointers), worst-case `fan²` hashes for a maximally disputed reply
 REPLIES, not bytes — the same reply denomination as the pipe capacity
 (MUX-ADJUDICATION.md §2.5), so byte soundness sits at the same model
 boundary, and what the model leaves unbounded is exactly the number of
-parked replies, which is what `wc_impossibility_K`
-(Mux/Proofs/WcImpossibilityK.lean) shows no FIXED bound survives under
-work conservation. Per-direction window advertisement (the
+parked replies. That no FIXED parking bound survives work conservation
+is `wc_impossibility_K` (Mux/Proofs/WcImpossibilityK.lean) at its
+kernel-anchored responder depths KR ∈ {1, 2, 3}; for KR ≥ 4 the claim
+is [derived] only (the widened-family argument — each further depth
+needs its own kernel replay, per that theorem's own status note).
+Per-direction window advertisement (the
 single-socket design's K_I ≠ K_R) is moot here: this variant is
 per-direction unbounded, so both advertised depths are ∞; the bounded
 per-direction form lives with the K-variant.
@@ -1047,7 +1050,9 @@ former explicit `hinv` seam is discharged by `eMuxInv_reachable`, the
 stage-F sweep's elastic twin. Nothing about the composition is
 assumed beyond the class hypotheses, and the `EWorkConserving` class
 is kernel-inhabited (`bottomMostReady_wcE`,
-Mux/Proofs/Inhabitation.lean). -/
+Mux/Proofs/Inhabitation.lean). Capacity and parking are
+message-denominated; the byte caveat of record is Mux/Basic.lean's
+module doc (# The byte-denomination caveat). -/
 theorem elastic_deadlock_free (sk : Skel) (hwf : sk.wellFormed = true)
     (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel) {C : Nat} (hC : 1 ≤ C)
     {σI σR : Strategy}
@@ -1066,7 +1071,8 @@ kills under one-slot demux completes under elastic parking at the
 minimum capacity: bounded demux state, not scheduling, is what the
 impossibility indicts — the option-C escape as a first-class
 semantics (the Mux/Controls.lean unbounded-slot control, transported;
-kernel-decided). -/
+kernel-decided). Message-denominated (Mux/Basic.lean, # The
+byte-denomination caveat). -/
 theorem wedge_elastic_completes :
     mterminal wedge
       (mdrainE wedge .impl 1 bottomMostReady bottomMostReady 800

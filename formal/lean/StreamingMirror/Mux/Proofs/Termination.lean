@@ -537,7 +537,8 @@ theorem mux_maximal_run_terminal {ax : AxMode} {C : Nat}
 /-- The constructive completion package: under any deadlock-free pair
 the greedy strategy-driven drain reaches `mterminal` within
 `2·ρ(init)` steps — termination with an explicit fuel bound, no
-fairness hypothesis anywhere. -/
+fairness hypothesis anywhere. Message-denominated (Mux/Basic.lean,
+# The byte-denomination caveat). -/
 theorem mux_greedy_run_terminal {ax : AxMode} {C : Nat}
     {σI σR : Strategy} (hdf : MuxDeadlockFree sk ax C σI σR) :
     mterminal sk
@@ -557,7 +558,8 @@ theorem mux_greedy_run_terminal {ax : AxMode} {C : Nat}
 every capacity C ≥ 1, the oracle pair's greedy drain reaches
 `mterminal` within `2·ρ(init)` steps — the kernel content of "the
 send-projection pusher completes every well-formed margin-0
-skeleton". -/
+skeleton". Message-denominated (Mux/Basic.lean, # The
+byte-denomination caveat). -/
 theorem oracle_greedy_run_terminal (hwf : sk.wellFormed = true)
     (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel) (C : Nat) (hC : 1 ≤ C) :
     mterminal sk

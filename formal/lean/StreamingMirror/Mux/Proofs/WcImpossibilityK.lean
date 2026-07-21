@@ -51,15 +51,20 @@ symbolic-in-KR run script, which the `decide`-only discipline does not
 reach. Honest status: `KR ≥ 4` is [open] at theorem tier and covered
 by the family argument at [derived] tier; `wedgeW`'s width formula
 gives slack past the probe's minimal jamming width at every anchored
-depth. At `(KI, KR) = (1, 1)` the variant IS the record harness
-(`deliverStepK_one`), so the family degenerates to T3's
-`wc_impossibility` exactly.
+depth. At `(KI, KR) = (1, 1)` the variant's SEMANTICS degenerates to
+the record harness exactly (`deliverStepK_one` — the deliver arms
+coincide), and the witness is `wedge` itself (`wedgeW_six`); the
+THEOREM does not degenerate to T3's `wc_impossibility`, because
+`KWorkConserving` demands the push obligation over the larger
+`KMReachableAny` universe — a strictly stronger hypothesis on the
+strategy — so the (1, 1) instance is a weaker statement than T3, not
+the same one.
 
 The `KWorkConserving` class quantifies over the K-variant's own
 reachable universe (`KMReachableAny`), mirroring the record class —
 a strategy is constrained only where the composition can actually put
-it. The right to idle stays the entire frontier: these are the same
-strategies T3 kills, meeting a deeper wall.
+it. The right to idle stays the entire frontier: the class hypothesis
+has the same shape as T3's, met at a deeper wall.
 -/
 import StreamingMirror.Mux.Proofs.WcImpossibility
 

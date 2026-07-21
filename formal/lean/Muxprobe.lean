@@ -8,7 +8,8 @@ the Python probe calibrated, and pins the outcomes.
 
 The matrix: {bottomMostReady (the shipped policy), roundRobin (a second
 work-conserving entry), demand (the idle-capable demand-order pusher,
-π_d run executably)} × {the pinned positives, the margin-0-lifted
+π_d run executably), oracle (the T5 oracle of record, the static
+send-projection pusher)} × {the pinned positives, the margin-0-lifted
 Controls shapes, the wedge family at growing provisions} × C ∈ {1,2,4}
 × two deterministic interleavings (greedy = the kernel pins' order;
 pushfirst = sender-runs-ahead). Expected shape, asserted:
@@ -20,9 +21,12 @@ pushfirst = sender-runs-ahead). Expected shape, asserted:
 - the demand-order pusher completes the pinned and wedge families at
   every C ≥ 1 (C₀ = 1 included — §1.3's positive SHAPE, tier 1) but
   WEDGES on the committed `rand2` instance at every C: the π-wedge
-  finding (see `piWedge`) — π_d run exactly is NOT the state-feedback
-  oracle it was adjudicated as the precomputed form of, and T5 must
-  take §1.3's named fallback (or repair π-eligibility);
+  finding (see `piWedge`) — π_d run exactly is NOT a live oracle.
+  [Stale-header repair, phase 4: T5 LANDED with the static SEND
+  projection (`oracle` = `sendProj` indexed by own flush count,
+  Oracle/Order.lean) — neither π_d nor a state-feedback form — and
+  the oracle rows below are its executable coverage: it must complete
+  EVERY matrix skeleton, `rand2` included, at every C;]
 - along every bottomMostReady cell, every commit consultation is a
   SINGLETON (`commitScan`): the executable echo of `commit_totality`
   (T1), reconciling the Python probe's fused commit+push with this
@@ -121,13 +125,18 @@ def caps : List Nat := [1, 2, 4]
 
 /-- The strategy axis for one skeleton: name, the pair, and whether
 the entry is work-conserving (the jam expectations quantify over the
-work-conserving entries only). `demand` closes over the precomputed
-π_d projections so a consultation is one count and one index. -/
+work-conserving entries only). `demand` and `oracle` close over their
+precomputed projections so a consultation is one count and one index —
+`oracle` is extensionally the T5 `Mux.oracle` (which recomputes
+`sendProj` per consultation; the height list here is the same list,
+computed once). -/
 def strategiesFor (sk : Skel) : List (String × Strategy × Strategy × Bool) :=
   [("bottom", bottomMostReady, bottomMostReady, true),
    ("rr", roundRobin, roundRobin, true),
    ("demand", pushList (piOrder sk .I), pushList (piOrder sk .R),
-    false)]
+    false),
+   ("oracle", pushList ((sendProj sk .I).map fun e => wireHeight e.1),
+    pushList ((sendProj sk .R).map fun e => wireHeight e.1), false)]
 
 /-- The interleaving axis for one skeleton. -/
 def ordersFor (sk : Skel) : List (String × List MAction) :=
@@ -222,6 +231,12 @@ def expectations (cells : Array Cell) : Array String := Id.run do
     if x.strat == "demand" && x.skel != "rand2" &&
         x.res.outcome != .terminal then
       errs := errs.push s!"demand pusher should complete: {x.line}"
+  -- the oracle of record completes EVERY matrix skeleton at every C
+  -- and interleaving — T5's executable-tier coverage, rand2 included
+  -- (the instance that wedges the demand-order pusher)
+  for x in cells do
+    if x.strat == "oracle" && x.res.outcome != .terminal then
+      errs := errs.push s!"T5 oracle should complete: {x.line}"
   -- the π-wedge: the demand-order pusher must KEEP deadlocking on the
   -- committed rand2 instance at every capacity (C-flat by the same
   -- loop) — the P2 finding stays load-bearing; if a model change makes

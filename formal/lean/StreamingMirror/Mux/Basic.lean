@@ -70,6 +70,19 @@ enumeration cannot silently weaken a claim (the Statement.lean:127-131
 argument, verbatim). `mterminal`'s pipes-empty conjuncts are redundant
 given flow conservation but stating them avoids needing that lemma before
 the definition exists (`terminal_drained`, a stage-2 door).
+
+# The byte-denomination caveat (canonical statement)
+
+Every capacity in this harness is denominated in MESSAGES: one pipe
+entry = one scope-level reply. Byte-level soundness of one-reply slots
+is design/streaming-wire-deadlock.md §5A's W = 1 structural argument,
+ASSUMED at the model boundary and not re-proven here
+(MUX-ADJUDICATION §2.5). The direction that does not transfer for
+free is liveness: a positive (deadlock-freedom or completion) theorem
+at message denomination says less than its byte-level reading, so
+every positive statement of record carries a one-line pointer to this
+section — this is the §1 ruling's canonical home. Impossibilities
+transfer unweakened (a jam at message grain is a jam at byte grain).
 -/
 import StreamingMirror.Model
 
@@ -89,8 +102,11 @@ completion, never the remote drain (a consumption receipt would be a
 covert credit; excluded, decision-for-Finch #2); `.delivered` fires at
 demux delivery, pre-consumption — the slot-peek ruling of
 MUX-ADJUDICATION §2.3, ratified per attack-refute F2 (peek is
-load-bearing for σ*'s coverage step, and faithful to the Rust demux,
-which decodes every frame before routing). -/
+load-bearing for the LANDED coverage proof — `groundedPush` grounds
+arrivals in `.delivered` — and faithful to the Rust demux, which
+decodes every frame before routing; stage-0 P4 showed it is NOT a
+demonstrated liveness necessity: no-peek causal σ* also survived the
+probe sweep). -/
 inductive MObs
   | act (a : Action)
   | pushed (h : Nat)

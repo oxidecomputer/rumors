@@ -104,9 +104,10 @@ reachability induction"). The fields:
 - `invl`: the base state's cursors decode (the `InvL` fragment — flow
   is deliberately absent, because a muxed state with frames in flight
   does not satisfy the unmuxed conservation law).
-- `slot`/`flow_int`: occupancy is capacity-bounded everywhere, and
-  off the wire family the unmuxed conservation law still holds (the
-  pipe carries wire frames only).
+- `slot`/`flow_int`: occupancy is capacity-bounded on `allChans` (the
+  field is guarded, like every count field here — the phantom corner
+  admits no unrelativized bound), and off the wire family the unmuxed
+  conservation law still holds (the pipe carries wire frames only).
 - `pushed_eq`: flush receipts are the wire send counts — a wire send
   IS a push.
 - `hist_del`/`hist_pipe`: FIFO, in count-free form — the delivered

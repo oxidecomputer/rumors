@@ -16,6 +16,12 @@ smokeChain	demand	C=2	greedy	terminal	96
 smokeChain	demand	C=2	pushfirst	terminal	96
 smokeChain	demand	C=4	greedy	terminal	96
 smokeChain	demand	C=4	pushfirst	terminal	96
+smokeChain	oracle	C=1	greedy	terminal	96
+smokeChain	oracle	C=1	pushfirst	terminal	96
+smokeChain	oracle	C=2	greedy	terminal	96
+smokeChain	oracle	C=2	pushfirst	terminal	96
+smokeChain	oracle	C=4	greedy	terminal	96
+smokeChain	oracle	C=4	pushfirst	terminal	96
 rMix	bottom	C=1	greedy	terminal	141
 rMix	bottom	C=1	pushfirst	terminal	141
 rMix	bottom	C=2	greedy	terminal	141
@@ -34,6 +40,12 @@ rMix	demand	C=2	greedy	terminal	141
 rMix	demand	C=2	pushfirst	terminal	141
 rMix	demand	C=4	greedy	terminal	141
 rMix	demand	C=4	pushfirst	terminal	141
+rMix	oracle	C=1	greedy	terminal	141
+rMix	oracle	C=1	pushfirst	terminal	141
+rMix	oracle	C=2	greedy	terminal	141
+rMix	oracle	C=2	pushfirst	terminal	141
+rMix	oracle	C=4	greedy	terminal	141
+rMix	oracle	C=4	pushfirst	terminal	141
 comb6	bottom	C=1	greedy	terminal	176
 comb6	bottom	C=1	pushfirst	terminal	176
 comb6	bottom	C=2	greedy	terminal	176
@@ -52,6 +64,12 @@ comb6	demand	C=2	greedy	terminal	176
 comb6	demand	C=2	pushfirst	terminal	176
 comb6	demand	C=4	greedy	terminal	176
 comb6	demand	C=4	pushfirst	terminal	176
+comb6	oracle	C=1	greedy	terminal	176
+comb6	oracle	C=1	pushfirst	terminal	176
+comb6	oracle	C=2	greedy	terminal	176
+comb6	oracle	C=2	pushfirst	terminal	176
+comb6	oracle	C=4	greedy	terminal	176
+comb6	oracle	C=4	pushfirst	terminal	176
 pyramid4	bottom	C=1	greedy	terminal	206
 pyramid4	bottom	C=1	pushfirst	terminal	206
 pyramid4	bottom	C=2	greedy	terminal	206
@@ -70,6 +88,12 @@ pyramid4	demand	C=2	greedy	terminal	206
 pyramid4	demand	C=2	pushfirst	terminal	206
 pyramid4	demand	C=4	greedy	terminal	206
 pyramid4	demand	C=4	pushfirst	terminal	206
+pyramid4	oracle	C=1	greedy	terminal	206
+pyramid4	oracle	C=1	pushfirst	terminal	206
+pyramid4	oracle	C=2	greedy	terminal	206
+pyramid4	oracle	C=2	pushfirst	terminal	206
+pyramid4	oracle	C=4	greedy	terminal	206
+pyramid4	oracle	C=4	pushfirst	terminal	206
 jam+m0	bottom	C=1	greedy	terminal	190
 jam+m0	bottom	C=1	pushfirst	terminal	190
 jam+m0	bottom	C=2	greedy	terminal	190
@@ -88,6 +112,12 @@ jam+m0	demand	C=2	greedy	terminal	190
 jam+m0	demand	C=2	pushfirst	terminal	190
 jam+m0	demand	C=4	greedy	terminal	190
 jam+m0	demand	C=4	pushfirst	terminal	190
+jam+m0	oracle	C=1	greedy	terminal	190
+jam+m0	oracle	C=1	pushfirst	terminal	190
+jam+m0	oracle	C=2	greedy	terminal	190
+jam+m0	oracle	C=2	pushfirst	terminal	190
+jam+m0	oracle	C=4	greedy	terminal	190
+jam+m0	oracle	C=4	pushfirst	terminal	190
 pdelay+m0	bottom	C=1	greedy	terminal	176
 pdelay+m0	bottom	C=1	pushfirst	terminal	176
 pdelay+m0	bottom	C=2	greedy	terminal	176
@@ -106,6 +136,12 @@ pdelay+m0	demand	C=2	greedy	terminal	176
 pdelay+m0	demand	C=2	pushfirst	terminal	176
 pdelay+m0	demand	C=4	greedy	terminal	176
 pdelay+m0	demand	C=4	pushfirst	terminal	176
+pdelay+m0	oracle	C=1	greedy	terminal	176
+pdelay+m0	oracle	C=1	pushfirst	terminal	176
+pdelay+m0	oracle	C=2	greedy	terminal	176
+pdelay+m0	oracle	C=2	pushfirst	terminal	176
+pdelay+m0	oracle	C=4	greedy	terminal	176
+pdelay+m0	oracle	C=4	pushfirst	terminal	176
 wedge w=1	bottom	C=1	greedy	terminal	150
 wedge w=1	bottom	C=1	pushfirst	terminal	150
 wedge w=1	bottom	C=2	greedy	terminal	150
@@ -124,6 +160,12 @@ wedge w=1	demand	C=2	greedy	terminal	150
 wedge w=1	demand	C=2	pushfirst	terminal	150
 wedge w=1	demand	C=4	greedy	terminal	150
 wedge w=1	demand	C=4	pushfirst	terminal	150
+wedge w=1	oracle	C=1	greedy	terminal	150
+wedge w=1	oracle	C=1	pushfirst	terminal	150
+wedge w=1	oracle	C=2	greedy	terminal	150
+wedge w=1	oracle	C=2	pushfirst	terminal	150
+wedge w=1	oracle	C=4	greedy	terminal	150
+wedge w=1	oracle	C=4	pushfirst	terminal	150
 wedge w=2	bottom	C=1	greedy	terminal	162
 wedge w=2	bottom	C=1	pushfirst	terminal	162
 wedge w=2	bottom	C=2	greedy	terminal	162
@@ -142,6 +184,12 @@ wedge w=2	demand	C=2	greedy	terminal	162
 wedge w=2	demand	C=2	pushfirst	terminal	162
 wedge w=2	demand	C=4	greedy	terminal	162
 wedge w=2	demand	C=4	pushfirst	terminal	162
+wedge w=2	oracle	C=1	greedy	terminal	162
+wedge w=2	oracle	C=1	pushfirst	terminal	162
+wedge w=2	oracle	C=2	greedy	terminal	162
+wedge w=2	oracle	C=2	pushfirst	terminal	162
+wedge w=2	oracle	C=4	greedy	terminal	162
+wedge w=2	oracle	C=4	pushfirst	terminal	162
 wedge w=3	bottom	C=1	greedy	terminal	174
 wedge w=3	bottom	C=1	pushfirst	terminal	174
 wedge w=3	bottom	C=2	greedy	terminal	174
@@ -160,6 +208,12 @@ wedge w=3	demand	C=2	greedy	terminal	174
 wedge w=3	demand	C=2	pushfirst	terminal	174
 wedge w=3	demand	C=4	greedy	terminal	174
 wedge w=3	demand	C=4	pushfirst	terminal	174
+wedge w=3	oracle	C=1	greedy	terminal	174
+wedge w=3	oracle	C=1	pushfirst	terminal	174
+wedge w=3	oracle	C=2	greedy	terminal	174
+wedge w=3	oracle	C=2	pushfirst	terminal	174
+wedge w=3	oracle	C=4	greedy	terminal	174
+wedge w=3	oracle	C=4	pushfirst	terminal	174
 wedge w=4	bottom	C=1	greedy	stuck	68
 wedge w=4	bottom	C=1	pushfirst	stuck	68
 wedge w=4	bottom	C=2	greedy	stuck	77
@@ -178,6 +232,12 @@ wedge w=4	demand	C=2	greedy	terminal	186
 wedge w=4	demand	C=2	pushfirst	terminal	186
 wedge w=4	demand	C=4	greedy	terminal	186
 wedge w=4	demand	C=4	pushfirst	terminal	186
+wedge w=4	oracle	C=1	greedy	terminal	186
+wedge w=4	oracle	C=1	pushfirst	terminal	186
+wedge w=4	oracle	C=2	greedy	terminal	186
+wedge w=4	oracle	C=2	pushfirst	terminal	186
+wedge w=4	oracle	C=4	greedy	terminal	186
+wedge w=4	oracle	C=4	pushfirst	terminal	186
 wedge w=6	bottom	C=1	greedy	stuck	66
 wedge w=6	bottom	C=1	pushfirst	stuck	66
 wedge w=6	bottom	C=2	greedy	stuck	68
@@ -196,6 +256,12 @@ wedge w=6	demand	C=2	greedy	terminal	210
 wedge w=6	demand	C=2	pushfirst	terminal	210
 wedge w=6	demand	C=4	greedy	terminal	210
 wedge w=6	demand	C=4	pushfirst	terminal	210
+wedge w=6	oracle	C=1	greedy	terminal	210
+wedge w=6	oracle	C=1	pushfirst	terminal	210
+wedge w=6	oracle	C=2	greedy	terminal	210
+wedge w=6	oracle	C=2	pushfirst	terminal	210
+wedge w=6	oracle	C=4	greedy	terminal	210
+wedge w=6	oracle	C=4	pushfirst	terminal	210
 wedge w=8	bottom	C=1	greedy	stuck	66
 wedge w=8	bottom	C=1	pushfirst	stuck	66
 wedge w=8	bottom	C=2	greedy	stuck	68
@@ -214,6 +280,12 @@ wedge w=8	demand	C=2	greedy	terminal	234
 wedge w=8	demand	C=2	pushfirst	terminal	234
 wedge w=8	demand	C=4	greedy	terminal	234
 wedge w=8	demand	C=4	pushfirst	terminal	234
+wedge w=8	oracle	C=1	greedy	terminal	234
+wedge w=8	oracle	C=1	pushfirst	terminal	234
+wedge w=8	oracle	C=2	greedy	terminal	234
+wedge w=8	oracle	C=2	pushfirst	terminal	234
+wedge w=8	oracle	C=4	greedy	terminal	234
+wedge w=8	oracle	C=4	pushfirst	terminal	234
 wedge8x8	bottom	C=1	greedy	stuck	66
 wedge8x8	bottom	C=1	pushfirst	stuck	66
 wedge8x8	bottom	C=2	greedy	stuck	68
@@ -232,6 +304,12 @@ wedge8x8	demand	C=2	greedy	terminal	276
 wedge8x8	demand	C=2	pushfirst	terminal	276
 wedge8x8	demand	C=4	greedy	terminal	276
 wedge8x8	demand	C=4	pushfirst	terminal	276
+wedge8x8	oracle	C=1	greedy	terminal	276
+wedge8x8	oracle	C=1	pushfirst	terminal	276
+wedge8x8	oracle	C=2	greedy	terminal	276
+wedge8x8	oracle	C=2	pushfirst	terminal	276
+wedge8x8	oracle	C=4	greedy	terminal	276
+wedge8x8	oracle	C=4	pushfirst	terminal	276
 rand2	bottom	C=1	greedy	stuck	294
 rand2	bottom	C=1	pushfirst	stuck	294
 rand2	bottom	C=2	greedy	stuck	296
@@ -250,3 +328,9 @@ rand2	demand	C=2	greedy	stuck	531
 rand2	demand	C=2	pushfirst	stuck	531
 rand2	demand	C=4	greedy	stuck	531
 rand2	demand	C=4	pushfirst	stuck	531
+rand2	oracle	C=1	greedy	terminal	6233
+rand2	oracle	C=1	pushfirst	terminal	6233
+rand2	oracle	C=2	greedy	terminal	6233
+rand2	oracle	C=2	pushfirst	terminal	6233
+rand2	oracle	C=4	greedy	terminal	6233
+rand2	oracle	C=4	pushfirst	terminal	6233

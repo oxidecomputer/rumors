@@ -58,7 +58,7 @@ exactly C2's chartered input (MUX-ADJUDICATION §1.3) — and NON-adaptive
 in the same sense as the refuted receive-projection pusher: entry `k`
 of a fixed list names the `k`-th push. What the receive projection got
 wrong was the ORDER, not the information; see `static_oracle_jams`
-(Oracle.lean) and the module doc. -/
+(Oracle/Controls.lean) and the module doc. -/
 def oracle (p : Party) : Strategy := fun sk tr =>
   ((sendProj sk p)[(pushHeights tr).length]?).map fun e => wireHeight e.1
 

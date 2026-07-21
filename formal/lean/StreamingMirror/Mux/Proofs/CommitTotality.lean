@@ -52,7 +52,7 @@ variable {sk : Skel} {s : State} {pk : Party × Nat}
 /-- Fired wires form an initial segment of the child list: the walk's
 wire ledger conjunct (`wireDone j` steps down to `wireDone (j-1)`),
 closed downward. -/
-theorem wireDone_prefix (hi : InvP sk .impl s) (hpk : pk ∈ sk.walkKeys)
+theorem wireDone_prefix (hi : InvL sk .impl s) (hpk : pk ∈ sk.walkKeys)
     (hph : (s.walk pk).phase = 2) (hco : (s.walk pk).committed = none) :
     ∀ j, j < sk.fan → (s.walk pk).wireDone j = true →
       ∀ i, i < j → (s.walk pk).wireDone i = true := by
@@ -84,7 +84,7 @@ theorem wireDone_prefix (hi : InvP sk .impl s) (hpk : pk ∈ sk.walkKeys)
 
 /-- The W ledger's fired-fact shadow at walks: a resolved child's wire
 is done (the invariant conjunct the first Phase B CTI demanded). -/
-theorem resDone_wireDone (hi : InvP sk .impl s) (hpk : pk ∈ sk.walkKeys)
+theorem resDone_wireDone (hi : InvL sk .impl s) (hpk : pk ∈ sk.walkKeys)
     (hph : (s.walk pk).phase = 2) (hco : (s.walk pk).committed = none) :
     ∀ j, j < sk.fan → (s.walk pk).resDone j = true →
       (s.walk pk).wireDone j = true := by
@@ -206,11 +206,14 @@ end Elim
 /-- Uniqueness of the choosable obligation under `.impl`: the ledger
 set W/D1/D3/D4/D6 plus child order admits at most one passing guard.
 
-Stated against the invariant (`InvP`), which supplies the two fired-
-fact closures the cross-index cases need; `commit_totality` below
-instantiates it at reachable states. -/
+Stated against the LOCAL fragment (`InvL`) — the fired-fact closures
+the cross-index cases need live in `wkLocalOk`, and nothing here reads
+channel occupancy, so demanding `InvP` was a free over-ask (phase-4
+sweep: the weakening matters at in-flight muxed states, where `InvP`
+is false but `InvL` holds); `commit_totality` below instantiates it at
+reachable states through `InvP.local`. -/
 theorem commit_unique (hwf : sk.wellFormed = true)
-    (hi : InvP sk .impl s) (hpk : pk ∈ sk.walkKeys)
+    (hi : InvL sk .impl s) (hpk : pk ∈ sk.walkKeys)
     (hph : (s.walk pk).phase = 2) (hco : (s.walk pk).committed = none)
     {o o' : Oblig}
     (h : wkChoosable sk .impl pk (s.walk pk) o = true)
@@ -357,6 +360,7 @@ theorem commit_totality (hwf : sk.wellFormed = true) :
   have hi : InvP sk .impl s := (inv_iff sk .impl s).mp (inv_reachable hwf hr)
   obtain ⟨o, hch, -⟩ :=
     walk_uncommitted_choosable hwf hi.local hpk hph hco (Or.inl rfl)
-  exact ⟨o, hch, fun o' hch' => commit_unique hwf hi hpk hph hco hch' hch⟩
+  exact ⟨o, hch, fun o' hch' =>
+    commit_unique hwf hi.local hpk hph hco hch' hch⟩
 
 end StreamingMirror.Model

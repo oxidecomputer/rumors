@@ -163,7 +163,9 @@ set_option maxRecDepth 400000 in
 set_option maxHeartbeats 16000000 in
 /-- The paired positive: the oracle of record completes the very
 skeleton the receive-projection pusher jams, at the same capacity —
-same information, same non-adaptivity, different order. -/
+same information, same non-adaptivity, different order.
+Message-denominated (Mux/Basic.lean, # The byte-denomination
+caveat). -/
 theorem piWedge_oracle_completes :
     muxCompletes piWedge .impl 1 (oracle .I) (oracle .R) 900 = true := by
   decide
@@ -172,7 +174,9 @@ theorem piWedge_oracle_completes :
 
 set_option maxRecDepth 100000 in
 /-- The oracle completes the positive smoke skeleton at the minimum
-capacity: the T5 statement is not vacuous on the smallest pin. -/
+capacity: the T5 statement is not vacuous on the smallest pin.
+Message-denominated (Mux/Basic.lean, # The byte-denomination
+caveat). -/
 theorem smokeChain_oracle_completes :
     muxCompletes Pin.smokeChain .impl 1 (oracle .I) (oracle .R) 300
       = true := by
@@ -185,7 +189,8 @@ every work-conserving pair deadlocks at every capacity
 (`wc_impossibility`): the trichotomy's two halves pinned on one
 witness. The oracle is not work-conserving precisely where it counts —
 it idles the provision wall until the deep exchange's sends have gone
-out in τ order. -/
+out in τ order. Message-denominated (Mux/Basic.lean, # The
+byte-denomination caveat). -/
 theorem wedge_oracle_completes :
     muxCompletes wedge .impl 1 (oracle .I) (oracle .R) 500 = true := by
   decide

@@ -184,7 +184,10 @@ fuzz secs=fuzz_smoke_secs:
 lean:
     PATH="$HOME/.elan/bin:$PATH" lake build
 
-# Run the event-DAG oracle + schedule gate; override seeds: `just eventdag 300`.
+# Run the event-DAG oracle + schedule gate; override seeds UPWARD only:
+# `just eventdag 300`. Small seed counts fail BY DESIGN — the vacuity
+# meta-controls demand enough runs to reproduce the known adversarial
+# stalls, so the default 100 is a floor, not a suggestion.
 [working-directory("formal/lean")]
 eventdag fuzz_seeds="100":
     PATH="$HOME/.elan/bin:$PATH" lake build eventdag

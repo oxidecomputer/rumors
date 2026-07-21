@@ -45,10 +45,12 @@ namespace StreamingMirror.Mux
 
 variable {sk : Skel}
 
-/-- T5, `oracle_deadlock_free`, unconditional (MUX-ADJUDICATION §3 T5,
-the state-feedback fallback form of record): the send-projection pusher
-completes every well-formed margin-0 skeleton over the single-pipe
-transport at every capacity C ≥ 1 — C₀ = 1 suffices.
+/-- T5, `oracle_deadlock_free`, unconditional (MUX-ADJUDICATION §3 T5 —
+the adjudication's fallback SLOT, realized as the static
+send-projection pusher: no state feedback needed, the track-E
+sharpening): the send-projection pusher completes every well-formed
+margin-0 skeleton over the single-pipe transport at every capacity
+C ≥ 1 — C₀ = 1 suffices.
 
 "Completes" is two kernel facts: no reachable stuck state (this
 theorem) and no infinite run (`mux_terminating`,
@@ -76,7 +78,9 @@ termination via `mux_terminating`, Mux/Proofs/Termination.lean).
 Read per the module doc: nonlocal information is necessary for
 liveness under work-conservation, and not for liveness alone. The
 work-conserving class in the first conjunct is kernel-inhabited
-(`bottomMostReady_wc`, Mux/Proofs/Inhabitation.lean). -/
+(`bottomMostReady_wc`, Mux/Proofs/Inhabitation.lean). Capacities are
+message-denominated; the byte caveat of record is Mux/Basic.lean's
+module doc (# The byte-denomination caveat). -/
 theorem necessity (C : Nat) (hC : 1 ≤ C) :
     (∀ σI σR : Strategy, WorkConserving .I σI → WorkConserving .R σR →
         ¬ MuxDeadlockFree wedge .impl C σI σR)

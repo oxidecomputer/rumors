@@ -45,9 +45,15 @@ six whole-subtree provisions behind it on the same stream.
 
 BFS ids; well-formed and margin-0 (`wedge_wellFormed`, `wedge_margin0`),
 so the un-muxed `.impl` system is inside the kernel-proven
-`Sched.deadlock_free`. Realized by the committed Rust seed pair
-(`tests/pairwise.proptest-regressions`) — the T3 Rust corollary's
-bridge. -/
+`Sched.deadlock_free`.
+
+Realizability bridge (stage-2 track D, corrected provenance): the
+committed proptest seeds realize the wedge's *jam mechanism* on the old
+transport, NOT its byte-exact shape. The bridge of record is
+`src/tree/mirror/streaming/tests/wedge.rs`, which constructs a
+deterministic tree pair and pins the decoded skeleton to this literal —
+generator against the rootH-6 literal, session against the generator at
+the protocol's real root height 32. -/
 def wedge : Skel :=
   { scopes :=
       [ sc .D 6 [1, 2, 3, 4, 5, 6, 7], -- 0: root
@@ -173,7 +179,8 @@ closes (a close fires only after its stream's last frame has left the
 pipe), and the pipes-drained terminal — so a definition drifting from
 the probe's calibrated semantics fails the build here first. The
 capacity is the tight one (C = 1): completion at the minimum pipe is
-the strongest smoke. -/
+the strongest smoke. Message-denominated (Mux/Basic.lean, # The
+byte-denomination caveat). -/
 theorem smokeChain_mux_completes :
     muxCompletes Pin.smokeChain .impl 1 bottomMostReady bottomMostReady 300
       = true := by

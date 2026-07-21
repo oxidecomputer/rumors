@@ -115,6 +115,15 @@ cross-examination it is **stronger than briefed** (attack-prove F1):
 > capacity C ≥ 1 and **every** pair of work-conserving strategies — local
 > or not — the muxed composition reaches a stuck non-terminal state.
 
+**[Superseded (phase 4), witness numbers: the LANDED `wedge` literal
+(Mux/Instances.lean) is the 6-provision, root-fan-7
+committed-regression shape — w = 4/fan ≥ 5 above describes the probe's
+minimal instance, which stage 1 did not transcribe. The theorem is an
+∃-witness, unaffected; the realizability bridge of record is
+`src/tree/mirror/streaming/tests/wedge.rs` (deterministic pair pinned
+to the literal; the committed proptest seeds realize the jam mechanism,
+not the byte-exact shape).]**
+
 Decisive arguments:
 
 1. **The forced run needs no fooling argument** (prove-c1 §4.3, verified
@@ -168,7 +177,20 @@ instance and for the demux-variant budget lemmas; it is not the flagship.
 
 ### 1.3 C2: positive half TRUE at C₀ = 1 per direction; necessity half class-relative [derived; machinery kernel-proven; C=1 probe-checked]
 
-**Positive half.** The oracle of record is the **demand-order pusher**:
+**Positive half.** **[Superseded in stage 3 (P2 + track E; see the
+MUX-PROGRESS log): every π_d-primacy claim in this paragraph and the
+two below is REFUTED or retired. π_d — run exactly as specified here —
+deadlocks a generator instance at every capacity
+(`static_oracle_jams`, kernel); "the demand-order pusher is its
+precomputed form" is false (the state-feedback oracle is live where
+π_d jams, so they are different objects); π-eligibility fails, and its
+D4 engine argument below with it; and the landed oracle of record is
+neither π_d nor the state-feedback fallback but the static SEND
+projection (`sendProj`, Oracle/Order.lean) — the direction this
+section's "false for the send projection in general" ruled out. The
+prose is retained as the adjudication's history.]**
+
+The oracle of record is the **demand-order pusher**:
 π_d(sk) = the subsequence of τ (= `scheduleE sk`) consisting of the
 receive events on direction d's wire channels (a filterMap; totality =
 `merge_completeE`, per-channel seq order = `scheduleE_proj_canon`, all
@@ -246,6 +268,12 @@ the single-FIFO serialization via π_d), and not universally bounded
 it). σ* shows even "no locally computable existential linearization" fails
 as an impossibility — the protocol's own frames carry the full causal
 structure in-band — so the true residue is exactly work-conservation.
+**[Phase-4 caution: the "lifts via π_d" clause rode the refuted
+π-eligibility argument. Existential 1-boundedness now rests on the
+SEND-projection serialization (`oracle_deadlock_free` at C = 1), but
+that re-derivation has not been written; treat GKM 1-boundedness as
+[derived]-pending until phase 6 re-derives it from the send
+projection.]**
 
 ### 1.4 The hinge, answered
 

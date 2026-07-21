@@ -418,7 +418,11 @@ Steps: the push certificates drain the pipes at any stuck candidate
 (`sigmaStar_pipes_empty`); the chase exhibits the τ-least withheld push
 with everything τ-below it performed; coverage puts the predecessor's
 consumption in the sender's closure, so the frame is proven-demanded,
-σ* names a push, and the stuck state cannot exist. -/
+σ* names a push, and the stuck state cannot exist.
+
+Capacity is message-denominated; the W = 1 byte-soundness caveat of
+record is Mux/Basic.lean's module doc (# The byte-denomination
+caveat). -/
 theorem sigmaStar_deadlock_free (hwf : sk.wellFormed = true)
     (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel) (C : Nat) (hC : 1 ≤ C) :
     MuxDeadlockFree sk .impl C sigmaStar sigmaStar := by

@@ -621,8 +621,9 @@ theorem oracle_mstuck_eq_false (hwf : sk.wellFormed = true)
 -- ============================================================== T5
 
 /-- T5, `oracle_deadlock_free`, over the `MuxInv` ground facts as an
-explicit reachability hypothesis (MUX-ADJUDICATION §3 T5, in the
-state-feedback fallback form of record — see the module doc).
+explicit reachability hypothesis (MUX-ADJUDICATION §3 T5 — the
+adjudication's fallback SLOT, realized as the static send-projection
+pusher: no state feedback needed — see the module doc).
 
 The hypothesis `hpres` is the MUX-ADJUDICATION §4 stage-F obligation
 (`MuxInv` preservation along `MReachable`; `muxInv_init` is its landed

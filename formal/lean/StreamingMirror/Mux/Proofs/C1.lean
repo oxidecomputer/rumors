@@ -44,23 +44,35 @@ the residue as an explicit hypothesis instead of forcing it.
   proven-demanded, which is refute-c1 §5's boundary observation: the
   Inevitable closure is what C1's falsity rests on, not evidence.
 
-# T8 stub (NOT attempted; the intended statement, for its builder)
+# T8 stub (positive half NOT attempted; corrected against the landed K-harness)
 
 The K-deep parking generalization needs per-direction depths: the
 single-socket design (design/single-socket.md) advertises windows per
 direction, so the two parties may run different parking bounds
-(K_I ≠ K_R), each direction's demux parking exactly what its sender
-was told. The intended theorem, over a K-slot demux variant semantics
-`applyK` whose `deliver p` parks up to `K_p` frames per stream and a
-lookahead strategy `sigmaStarK K` demanding `rcv(c, k−K)`:
+(K_I ≠ K_R). The K-harness LANDED with the impossibility half
+(`applyK`/`MuxDeadlockFreeK`/`wc_impossibility_K`,
+WcImpossibilityK.lean); a builder of the positive half must match its
+conventions, which this stub originally got backwards on two counts:
+
+- argument order is `MuxDeadlockFreeK sk ax KI KR C σI σR`
+  (depths BEFORE capacity, matching `applyK`);
+- the deliver dial is the RECEIVING party's advertised depth:
+  `deliver .I` fills the responder's cells at depth `KR`,
+  `deliver .R` the initiator's at depth `KI` (`recvDepth`) — not
+  "deliver p parks up to K_p".
+
+The intended positive theorem, over a lookahead strategy
+`sigmaStarK K` demanding `rcv(c, k−K)`:
 
   theorem sigmaStarK_deadlock_free (KI KR : Nat)
       (hKI : 1 ≤ KI) (hKR : 1 ≤ KR)
       (hwf : sk.wellFormed = true)
       (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel) (C : Nat) (hC : 1 ≤ C) :
-      MuxDeadlockFreeK sk .impl C KI KR (sigmaStarK KI) (sigmaStarK KR)
+      MuxDeadlockFreeK sk .impl KI KR C (sigmaStarK KR) (sigmaStarK KI)
 
-A single-K statement would not cover the deployed configuration.
+(each party's lookahead is the depth its PEER's demux parks — the
+depth its own sends were advertised). A single-K statement would not
+cover the deployed configuration.
 -/
 import StreamingMirror.Mux.Proofs.SigmaStarLive
 import StreamingMirror.Mux.Controls
@@ -95,7 +107,11 @@ def C1StatementOmniscient : Prop :=
 
 /-- The wide form of C1 is false: ⟨1, σ*, σ*⟩ + T4. No skeleton of the
 class jams the demand-lockstep pair at any capacity — already at the
-minimum pipe. -/
+minimum pipe.
+
+Rests on σ*'s (message-denominated) liveness; the W = 1 byte caveat of
+record is Mux/Basic.lean's module doc (# The byte-denomination
+caveat). -/
 theorem c1_omniscient_false : ¬ C1StatementOmniscient := by
   intro hc1
   obtain ⟨sk, hwf, hm0, hnd⟩ := hc1 1 (Nat.le_refl 1) sigmaStar sigmaStar
@@ -104,7 +120,11 @@ theorem c1_omniscient_false : ¬ C1StatementOmniscient := by
 /-- C1 as literally chartered is false, GIVEN σ*'s locality — the one
 hypothesis this artifact does not discharge (module doc: it is the
 A_p-sufficiency theorem, probe-checked at 4,970/4,970 and recorded
-[open] at kernel tier). Every other ingredient is kernel-proven. -/
+[open] at kernel tier). Every other ingredient is kernel-proven.
+
+Rests on σ*'s (message-denominated) liveness; the W = 1 byte caveat of
+record is Mux/Basic.lean's module doc (# The byte-denomination
+caveat). -/
 theorem c1_literal_false
     (hlocI : LocalStrategy .I sigmaStar)
     (hlocR : LocalStrategy .R sigmaStar) : ¬ C1Statement := by
@@ -120,7 +140,8 @@ every work-conserving pair (`wc_impossibility`) is live under
 demand-lockstep at the minimum capacity — T4 instantiated, no drain
 needed. With `Control.wedge_not_deadlockFree` this pins the trichotomy
 on one skeleton: the class hypothesis, not the topology, is what
-deadlocks. -/
+deadlocks. Message-denominated (Mux/Basic.lean, # The
+byte-denomination caveat). -/
 theorem wedge_sigmaStar_deadlock_free :
     MuxDeadlockFree wedge .impl 1 sigmaStar sigmaStar :=
   sigmaStar_deadlock_free wedge_wellFormed wedge_margin0 1 (Nat.le_refl 1)
@@ -129,7 +150,8 @@ set_option maxRecDepth 1000000 in
 /-- The σ*-driven drain completes the smoke pin in the kernel: party
 inference, ledger reconstruction, the demand closure, and the τ argmin
 all execute end to end — the strategy is a real scheduler, not only a
-proof object. -/
+proof object. Message-denominated (Mux/Basic.lean, # The
+byte-denomination caveat). -/
 theorem smokeChain_sigmaStar_completes :
     muxCompletes Pin.smokeChain .impl 1 sigmaStar sigmaStar 400
       = true := by

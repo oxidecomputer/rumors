@@ -665,10 +665,12 @@ Rust encoder actually has. The capacity hypothesis is margin 0
 (assembler capacity at least every scope's dispute count, the shipping
 `FAN ≥ kids` discipline); it subsumes `schedulable`
 (`margin0_schedulable`), so no `schedulable` hypothesis appears. See
-`deadlock_free` for the design-space framing. Stated over `InvP` rather
-than `Reachable` so callers with a differently-derived invariant — the
-muxed chase (Mux/Proofs/Chase), whose states are not unmuxed-reachable —
-can consume it; `progress` is the reachable form. -/
+`deadlock_free` for the design-space framing. Stated over `InvPW` —
+conservation WITHOUT the capacity half — rather than `Reachable`, so
+callers with a differently-derived invariant — the muxed chase
+(Mux/Proofs/Chase), whose states are not unmuxed-reachable, and the
+elastic reduction, whose parked replies over-fill wire cells — can
+consume it; `progress` is the reachable form. -/
 theorem progress_of_inv (hwf : sk.wellFormed = true)
     (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel) {s : State}
     (hi : InvPW sk .impl s) (hnt : terminal sk s = false) :
