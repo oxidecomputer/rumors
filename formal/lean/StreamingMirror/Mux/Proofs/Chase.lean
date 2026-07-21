@@ -318,7 +318,7 @@ the stage-3 `MuxInv` preservation induction, and the interface's
 non-vacuity certificate. -/
 theorem muxInv_init (sk : Skel) : MuxInv sk (init sk) := by
   refine ⟨((inv_iff sk .impl (Model.init sk)).mp (inv_init sk .impl)).local,
-    ?_, ?_, ?_, ?_, ?_, ?_⟩
+    ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro c _
     exact Nat.zero_le _
   · intro c _ _
@@ -332,9 +332,11 @@ theorem muxInv_init (sk : Skel) : MuxInv sk (init sk) := by
     rfl
   · intro p
     rfl
-  · intro p h
+  · intro p h _
     rw [show (init sk).base = Model.init sk from rfl, recvdOf_init,
       chan_init]
+    rfl
+  · intro p h _
     rfl
 
 -- ================================= kernel-tier non-vacuity anchors

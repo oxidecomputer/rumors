@@ -221,11 +221,19 @@ theorem pipe_first_frame_pos {s : MState} {q : Party}
             ++ ((pushHeights (s.hist q)).drop
                 (delTotal (s.hist q.other))).take j :=
         List.take_add ..
+      have hreal : Chan.wire q hc' ∈ allChans sk := by
+        by_contra hph
+        have h0 := hm.pushed_real q hc' hph
+        have hmemH : hc' ∈ pushHeights (s.hist q) :=
+          List.mem_of_getElem? hget
+        have h1 := List.one_le_count_iff.mpr hmemH
+        unfold pushedCount at h0
+        omega
       have hcnt1 : ((pushHeights (s.hist q)).take
           (delTotal (s.hist q.other))).count hc'
           = recvdOf sk s.base c + s.base.chan c := by
         rw [← hm.hist_del q, ← hceq]
-        exact hm.delivered_eq q hc'
+        exact hm.delivered_eq q hc' hreal
       have hcnt2 : (((pushHeights (s.hist q)).drop
           (delTotal (s.hist q.other))).take j).count hc' = 0 := by
         have hmap : (s.pipe q).take j
@@ -420,7 +428,7 @@ theorem oracle_stuck_nonempty (hwf : sk.wellFormed = true)
         by_cases hw : isWire c = true
         · -- a wire receive with its frame in flight: the head cycle
           obtain ⟨w, h_c, rfl⟩ := isWire_eq hw
-          have hflow := hm.flow_wire w h_c
+          have hflow := hm.flow_wire w h_c hok.chan_mem
           have hcmem : Chan.wire w h_c ∈ s.pipe w := by
             refine List.one_le_count_iff.mp ?_
             have : 1 ≤ pipeCount s (Chan.wire w h_c) := by omega
@@ -532,7 +540,7 @@ theorem oracle_stuck_nonempty (hwf : sk.wellFormed = true)
               (evIdx ((c, true, n) : Ev) (scheduleE sk))) := by
           by_cases hw : isWire c = true
           · obtain ⟨w, h_c, rfl⟩ := isWire_eq hw
-            have hflow := hm.flow_wire w h_c
+            have hflow := hm.flow_wire w h_c hok.chan_mem
             have hcap : sk.cap (Chan.wire w h_c) = 1 := rfl
             omega
           · have hflow := hm.flow_int c hok.chan_mem (by simpa using hw)

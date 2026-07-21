@@ -80,16 +80,27 @@ theorem keystone (hwf : sk.wellFormed = true)
     intro x hg
     obtain ⟨q, hh, n, rfl, hcase⟩ := groundedPush_inv hg
     rw [performed_snd_iff]
-    rcases hcase with ⟨rfl, hlt⟩ | ⟨rfl, hlt⟩
-    · have h1 := hfifo hh
-      have h2 := hm.delivered_eq q hh
-      have h3 := hm.flow_wire q hh
-      omega
-    · have h1 := harr hh
-      have h2 := hm.delivered_eq p.other hh
-      rw [Party.other_other] at h2
-      have h3 := hm.flow_wire p.other hh
-      omega
+    by_cases hreal : Chan.wire q hh ∈ allChans sk
+    · rcases hcase with ⟨rfl, hlt⟩ | ⟨rfl, hlt⟩
+      · have h1 := hfifo hh
+        have h2 := hm.delivered_eq q hh hreal
+        have h3 := hm.flow_wire q hh hreal
+        omega
+      · have h1 := harr hh
+        have h2 := hm.delivered_eq p.other hh hreal
+        rw [Party.other_other] at h2
+        have h3 := hm.flow_wire p.other hh hreal
+        omega
+    · -- phantom stream: the evidence walls are zero, the counts vacuous
+      exfalso
+      rcases hcase with ⟨rfl, hlt⟩ | ⟨rfl, hlt⟩
+      · have h1 := hfifo hh
+        have h2 := hm.delivered_real q hh hreal
+        omega
+      · have h1 := harr hh
+        have h2 := hm.delivered_real p.other hh hreal
+        rw [Party.other_other] at h2
+        omega
   intro e₀ he₀
   by_contra hnp₀
   -- the τ-least unperformed closure member
@@ -188,14 +199,24 @@ theorem keystone (hwf : sk.wellFormed = true)
             obtain ⟨q', hh', n', heq, hcase⟩ := groundedPush_inv hpg
             simp only [Prod.mk.injEq, Chan.wire.injEq, true_and] at heq
             obtain ⟨⟨rfl, rfl⟩, rfl⟩ := heq
-            rcases hcase with ⟨rfl, hlt⟩ | ⟨rfl, hlt⟩
-            · have h1 := hfifo hh
-              have h2 := hm.delivered_eq q hh
-              omega
-            · have h1 := harr hh
-              have h2 := hm.delivered_eq p.other hh
-              rw [Party.other_other] at h2
-              omega
+            by_cases hreal : Chan.wire q hh ∈ allChans sk
+            · rcases hcase with ⟨rfl, hlt⟩ | ⟨rfl, hlt⟩
+              · have h1 := hfifo hh
+                have h2 := hm.delivered_eq q hh hreal
+                omega
+              · have h1 := harr hh
+                have h2 := hm.delivered_eq p.other hh hreal
+                rw [Party.other_other] at h2
+                omega
+            · exfalso
+              rcases hcase with ⟨rfl, hlt⟩ | ⟨rfl, hlt⟩
+              · have h1 := hfifo hh
+                have h2 := hm.delivered_real q hh hreal
+                omega
+              · have h1 := harr hh
+                have h2 := hm.delivered_real p.other hh hreal
+                rw [Party.other_other] at h2
+                omega
           · -- internal receive: the send is τ-below, hence performed,
             -- and internal channels never ride the pipe
             have hmem_e : ((c, false, n) : Ev) ∈ scheduleE sk :=

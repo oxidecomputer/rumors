@@ -113,7 +113,15 @@ reachability induction"). The fields:
   heights are a prefix of the pushed heights, and the pipe is exactly
   the undelivered suffix, tagged.
 - `delivered_eq`: a delivered frame is consumed or sitting in its
-  slot — the receiver-side split. -/
+  slot — the receiver-side split. Guarded to the REAL wire family:
+  `recvdOf`'s totalization aliases the phantom channel `wire I 0`
+  onto walk `(R, 0)`'s prologue cursor (an `h - 1` Nat truncation),
+  so the unguarded form is falsified at every reachable state past
+  that walk's first receive — caught by the stage-3 preservation
+  induction (track E integration finding).
+- `pushed_real`: only real wire channels are ever pushed — the field
+  that makes the phantom corner of every guarded statement vacuous
+  (deliveries inherit realness through `delivered_le_pushed`). -/
 structure MuxInv (sk : Skel) (s : MState) : Prop where
   invl : InvL sk .impl s.base
   slot : ∀ c ∈ allChans sk, s.base.chan c ≤ sk.cap c
@@ -126,8 +134,11 @@ structure MuxInv (sk : Skel) (s : MState) : Prop where
   hist_pipe : ∀ p, s.pipe p
     = ((pushHeights (s.hist p)).drop (delTotal (s.hist p.other))).map
         (Chan.wire p)
-  delivered_eq : ∀ p h, deliveredCount (s.hist p.other) h
+  delivered_eq : ∀ p h, Chan.wire p h ∈ allChans sk →
+    deliveredCount (s.hist p.other) h
     = recvdOf sk s.base (Chan.wire p h) + s.base.chan (Chan.wire p h)
+  pushed_real : ∀ p h, Chan.wire p h ∉ allChans sk →
+    pushedCount (s.hist p) h = 0
 
 namespace MuxInv
 
@@ -161,13 +172,23 @@ theorem delivered_le_pushed (hm : MuxInv sk s) (p : Party) (h : Nat) :
 
 /-- Wire flow conservation through the pipe: slot occupancy plus
 in-flight frames plus consumption is production. -/
-theorem flow_wire (hm : MuxInv sk s) (p : Party) (h : Nat) :
+theorem flow_wire (hm : MuxInv sk s) (p : Party) (h : Nat)
+    (hmem : Chan.wire p h ∈ allChans sk) :
     s.base.chan (Chan.wire p h) + pipeCount s (Chan.wire p h)
       + recvdOf sk s.base (Chan.wire p h)
       = sentOf sk s.base (Chan.wire p h) := by
   have h1 := hm.pushed_eq p h
   have h2 := hm.pushed_split p h
-  have h3 := hm.delivered_eq p h
+  have h3 := hm.delivered_eq p h hmem
+  omega
+
+/-- Phantom wire channels carry no deliveries: FIFO plus the
+pushed-real field — the vacuity door for every guarded wire fact. -/
+theorem delivered_real (hm : MuxInv sk s) (p : Party) (h : Nat)
+    (hph : Chan.wire p h ∉ allChans sk) :
+    deliveredCount (s.hist p.other) h = 0 := by
+  have h1 := hm.delivered_le_pushed p h
+  have h2 := hm.pushed_real p h hph
   omega
 
 /-- At the push time of the pipe head, every already-pushed frame is
@@ -203,7 +224,7 @@ theorem invP (hm : MuxInv sk s) (hI : s.pipe .I = [])
   | false => exact hm.flow_int c hc hw
   | true =>
       obtain ⟨p, h, rfl⟩ := isWire_eq hw
-      have hflow := hm.flow_wire p h
+      have hflow := hm.flow_wire p h hc
       have hpipe : pipeCount s (Chan.wire p h) = 0 := by
         have hempty : s.pipe (wireParty (Chan.wire p h)) = [] := by
           show s.pipe p = []

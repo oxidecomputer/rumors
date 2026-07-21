@@ -60,3 +60,8 @@ import StreamingMirror.Mux.Proofs.Oracle.Order
 import StreamingMirror.Mux.Proofs.Oracle
 import StreamingMirror.Mux.Proofs.Oracle.Controls
 import StreamingMirror.Mux.Proofs.Preserve.Glue
+import StreamingMirror.Mux.Proofs.Preserve.TopFin
+import StreamingMirror.Mux.Proofs.Preserve.WalkAsm
+import StreamingMirror.Mux.Proofs.Preserve.Fire
+import StreamingMirror.Mux.Proofs.Preserve
+import StreamingMirror.Mux.Proofs.Necessity
