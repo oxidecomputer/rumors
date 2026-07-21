@@ -303,6 +303,15 @@ work out of its own context and distills results here:
    thesis sentence: "the announcements were never in the message
    pattern; they were in the messages."
 
+## 3c. Chartered follow-on: tracecheck (Finch, 2026-07-21)
+
+The executable trace validator — Rust proptests calling the compiled
+Lean definitions to close the formality gap between `assert_valid`'s
+local checks and the theorems' preconditions. Detailed plan of record:
+TRACECHECK.md (four validation tiers, trust posture, codec design,
+staging). Sequencing per Finch: the single-R/W refactor lands first;
+tier (d) — the σ\*ₖ-engine judge — is hard-blocked on it.
+
 ## 3b. Chartered follow-on: the latency conjectures (Finch, 2026-07-21)
 
 Not part of this campaign's exit criteria; recorded so the charter
