@@ -540,43 +540,68 @@ What is already kernel-proven on `mux-conjectures` [proven]:
 - `commit_totality` (T1) and the harness pins (`wedge_wellFormed`,
   `wedge_margin0`, `wedge_bottomMostReady_jams`,
   `smokeChain_mux_completes`).
-- The static-oracle refutation [checked, doubly]: pushing a
-  *precomputed* schedule — even one computed from both trees — jams
-  (muxprobe's pinned `rand2` witness; stage-0 P2's independent
-  11-scope counterexample). Adaptivity is necessary, information is
-  not sufficient: the engine must consult live arrivals, which it
-  does by construction. The insight beneath, recorded because it
-  shapes the engine's architecture: **liveness here is feedback, not
-  knowledge**. A legal send order must respond to back-pressure
-  timing, which is decided by scheduler interleaving at both
-  endpoints, never by the trees — so no precomputation, however
-  informed, can substitute for the arrival intake. (The kernel control
-  pinning this, `static_oracle_jams`, is being minted in the
-  campaign's stage 3 alongside T5.)
+- The oracle, with a statement-strength REVERSAL the campaign's
+  stage-3 track E kernel-checked (superseding two earlier
+  adjudications — the panel's projections were backwards; the
+  superseded-marker lives in `MUX-PROGRESS.md`):
+  `oracle_deadlock_free` holds for the **static send-projection
+  pusher** — a *fixed, non-adaptive* send order computed from the
+  full skeleton (τ's send projection), live at C₀ = 1 on every
+  well-formed margin-0 skeleton at every C ≥ 1, unconditional
+  [kernel; landed on `mux-s3e`, integration in flight]. The
+  receive-projection pusher still jams (`static_oracle_jams` stands,
+  narrowed): what that control pins is that **the consumption order
+  is the wrong order to push in** — the per-stream demux slots absorb
+  exactly the send/receive skew — NOT that staticness or
+  non-adaptivity fails. The corrected insight, recorded because it
+  shapes the engine's architecture: liveness is available **two
+  ways** — locally, with adaptive inference (σ\*/σ\*ₖ, adaptive by
+  nature since the announcements it infers from arrive over time), or
+  omnisciently, with a fixed order — and available to **no eager
+  scheduler at any capacity** (T3). And the receive-projection jam's
+  real lesson is exactly why §3.3's order-freedom result matters:
+  within the window discipline you *cannot pick a wrong order*, which
+  is strictly stronger than needing the right one that provably
+  exists.
 
-Pending, in dependency order (status lives in `MUX-PROGRESS.md` §5):
+Landed since the list above was first written (refresh of
+2026-07-21; live status is always `MUX-PROGRESS.md` §4/§5):
 
-- **T2** (the keystone/chase infrastructure): landing at time of
-  writing.
-- **T4** `sigmaStar_deadlock_free`: σ\* live at K = 1, every C ≥ 1 —
-  probe-cleared (stage-0 P1) and unblocked. This is also the K = 1
-  advertisement's liveness theorem (§3.1).
-- **T8** `sigmaStarK_deadlock_free` / `wc_impossibility_K`: the
-  K-deep generalization — **T8's statement is this engine's
-  specification**, and per house posture (the deadlock doc §4's
-  closing lesson: the last "derived, obvious" liveness argument
-  shipped a deadlock) the sender engine does not merge before T8 is
-  kernel-checked. Asymmetric advertised windows (K_I ≠ K_R) must be
-  covered by T8's statement — flag to the campaign [open].
-- **The elastic simulation theorem**: unbounded parking makes the
-  muxed system a refinement of the independent-channel system, so the
-  receive half alone inherits the base flagships — the cheap theorem
-  that lets receiver work proceed while T8 cooks.
+- **T2** keystone/chase infrastructure ✓ kernel (track B, merged).
+- **T4** `sigmaStar_deadlock_free` ✓ kernel (track F, merged): σ\*
+  live at K = 1, every C ≥ 1 — the K = 1 advertisement's liveness
+  theorem (§3.1). `c1_omniscient_false` unconditional;
+  `c1_literal_false` carries σ\*-locality as a named hypothesis
+  pending σ\*-causal.
+- **Termination** ✓ kernel (`rho_decreases`, `maximal_run_terminal` —
+  track G, merged; audit A1 resolved by theorem).
+- **The elastic simulation theorem** ✓ kernel
+  (`elastic_deadlock_free`, track G, merged; its `EMuxInv` seam
+  closure in flight on `mux-t10`) — the receive half alone inherits
+  the base flagships, which is why R1 proceeds independently.
+- **`wc_impossibility_K`** ✓ kernel for KR ∈ {1,2,3}, ∀KI, ∀C
+  (track G, merged); KR ≥ 4 [derived].
+- **T5** `oracle_deadlock_free` (static send-projection form, the
+  reversal above), **T6** necessity, **T9** locality controls, and
+  strategy-parametric `MuxInv` preservation: kernel-checked, landed
+  on `mux-s3e`, integration in flight.
 
-Sequencing consequence, stated as policy: **receiver half first** (§2
-— safe under both transports, inert under Link, covered by the
-simulation argument), **socket transport + engine second, gated on
-T8**, **Link removal last, gated on §5**. The Rust bridges from the
+Still in flight: **T8** `sigmaStarK_deadlock_free` (stubbed, with the
+per-direction (K_I, K_R) parameterization recorded — the asymmetric
+statement shape §3.4 requires); **σ\*-causal** (`mux-causal`) — the
+causal closure that is the S1 engine's inference spec; **T10**
+capacity monotonicity (`mux-t10`).
+
+Sequencing, stated as policy (the execution plan,
+`single-socket-plan.md` §3, is the posture of record): implementation
+proceeds **now, concurrently** with the theorem workstream on
+evidence-tier confidence — no stage waits on a theorem; landed
+theorems are reconciliation events, not gates. **Receiver half first**
+(§2 — safe under both transports, inert under Link, covered by the
+landed simulation theorem), **socket transport + engine concurrent
+with T8** (reconciling against σ\*-causal's guard set when it lands),
+**Link removal last, gated on §5's acceptance** — a system gate, not a
+theorem gate. The Rust bridges from the
 campaign (wedge realizability, LocalEq, B5 announced-skeleton
 reconstruction — landed on `mux-conjectures`) transfer with the suite.
 
