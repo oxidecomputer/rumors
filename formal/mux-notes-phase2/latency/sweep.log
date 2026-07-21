@@ -1,0 +1,31 @@
+calibration chain6: want 8 hops everywhere -> {'base': 8, 'w1': 8, 'sigC1': 8, 'oraC1': 8} PASS
+chain6     N=  6 wide=1 base=   8 w1=   8 sig(C1/C4/Cinf)=   8/   8/   8 omni(C1/Cinf)=   8/   8 ora(C1/Cinf)=   8/   8
+wedge      N= 12 wide=1 base=   8 w1=   9 sig(C1/C4/Cinf)=  13/   8/   8 omni(C1/Cinf)=  13/   8 ora(C1/Cinf)=  12/   8
+provwall8  N= 12 wide=1 base=   6 w1=  11 sig(C1/C4/Cinf)=  13/   6/   6 omni(C1/Cinf)=  13/   6 ora(C1/Cinf)=  12/   6
+dfan8      N= 10 wide=1 base=   4 w1=  11 sig(C1/C4/Cinf)=  11/   5/   4 omni(C1/Cinf)=  11/   4 ora(C1/Cinf)=  11/   4
+comb6      N=  8 wide=1 base=   8 w1=   9 sig(C1/C4/Cinf)=   9/   8/   8 omni(C1/Cinf)=   9/   8 ora(C1/Cinf)=   9/   8
+combW8     N= 18 wide=1 base=   5 w1=  12 sig(C1/C4/Cinf)=  12/  11/  11 omni(C1/Cinf)=  12/   8 ora(C1/Cinf)=  12/   5
+combW16    N= 34 wide=1 base=   5 w1=  20 sig(C1/C4/Cinf)=  20/  19/  19 omni(C1/Cinf)=  20/  12 ora(C1/Cinf)=  20/   5
+pyr2       N= 31 wide=1 base=   6 w1=  21 sig(C1/C4/Cinf)=  23/  13/  12 omni(C1/Cinf)=  23/   9 ora(C1/Cinf)=  24/  12
+pyr3       N=121 wide=1 base=   6 w1=  86 sig(C1/C4/Cinf)=  93/  32/  32 omni(C1/Cinf)=  93/  19 ora(C1/Cinf)=  94/  22
+chain6     N=  6 wide=0 base=   8 w1=   8 sig(C1/C4/Cinf)=   8/   8/   8 omni(C1/Cinf)=   8/   8 ora(C1/Cinf)=   8/   8
+wedge      N= 12 wide=0 base=   8 w1=   9 sig(C1/C4/Cinf)=  12/   8/   8 omni(C1/Cinf)=  12/   8 ora(C1/Cinf)=  12/   8
+provwall8  N= 12 wide=0 base=   6 w1=  11 sig(C1/C4/Cinf)=  12/   7/   6 omni(C1/Cinf)=  12/   6 ora(C1/Cinf)=  12/   6
+dfan8      N= 10 wide=0 base=   4 w1=  11 sig(C1/C4/Cinf)=  11/   5/   4 omni(C1/Cinf)=  11/   4 ora(C1/Cinf)=  11/   4
+comb6      N=  8 wide=0 base=   8 w1=   9 sig(C1/C4/Cinf)=   9/   8/   8 omni(C1/Cinf)=   9/   8 ora(C1/Cinf)=  10/   8
+combW8     N= 18 wide=0 base=  11 w1=  12 sig(C1/C4/Cinf)=  12/  11/  11 omni(C1/Cinf)=  12/  11 ora(C1/Cinf)=  12/  11
+combW16    N= 34 wide=0 base=  19 w1=  20 sig(C1/C4/Cinf)=  20/  19/  19 omni(C1/Cinf)=  20/  19 ora(C1/Cinf)=  20/  19
+pyr2       N= 31 wide=0 base=  20 w1=  21 sig(C1/C4/Cinf)=  24/  20/  20 omni(C1/Cinf)=  24/  20 ora(C1/Cinf)=  24/  20
+pyr3       N=121 wide=0 base=  58 w1=  86 sig(C1/C4/Cinf)=  94/  58/  58 omni(C1/Cinf)=  94/  58 ora(C1/Cinf)=  94/  58
+random pool (n=40): sigma*/base multipliers C=1 mean 4.57 max 21.33; C=inf mean 1.84 max 4.83
+== sigma*_K parking sweep ==
+  ksweep chain6     base=8 P*= 0  K1=8(law 8) K2=8(law 8) K4=8(law 8) K8=8(law 8) K16=8(law 8) K32=8(law 8)
+  ksweep wedge      base=8 P*= 1  K1=8(law 10) K2=8(law 8) K4=8(law 8) K8=8(law 8) K16=8(law 8) K32=8(law 8)
+  ksweep provwall8  base=6 P*= 1  K1=6(law 8) K2=6(law 6) K4=6(law 6) K8=6(law 6) K16=6(law 6) K32=6(law 6)
+  ksweep dfan8      base=4 P*= 0  K1=4(law 4) K2=4(law 4) K4=4(law 4) K8=4(law 4) K16=4(law 4) K32=4(law 4)
+  ksweep comb6      base=8 P*= 0  K1=8(law 8) K2=8(law 8) K4=8(law 8) K8=8(law 8) K16=8(law 8) K32=8(law 8)
+  ksweep combW8     base=5 P*= 6  K1=11(law 11) K2=9(law 9) K4=7(law 7) K8=5(law 5) K16=5(law 5) K32=5(law 5)
+  ksweep combW16    base=5 P*=14  K1=19(law 19) K2=15(law 15) K4=11(law 11) K8=7(law 7) K16=5(law 5) K32=5(law 5)
+  ksweep pyr2       base=6 P*= 6  K1=12(law 12) K2=10(law 10) K4=8(law 8) K8=6(law 6) K16=6(law 6) K32=6(law 6)
+  ksweep pyr3       base=6 P*=25  K1=32(law 32) K2=22(law 22) K4=16(law 16) K8=10(law 10) K16=8(law 8) K32=6(law 6)
+wrote latency_results.json
