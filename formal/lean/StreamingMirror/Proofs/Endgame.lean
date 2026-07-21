@@ -741,7 +741,7 @@ theorem progress_d5 (hwf : sk.wellFormed = true)
   by_cases hwkc : ∃ pk ∈ sk.walkKeys,
       (s.walk pk).phase = 2 ∧ (s.walk pk).committed = none
   · obtain ⟨pk, hpk, h2, hn⟩ := hwkc
-    exact walk_uncommitted_canStep hwf hi hpk h2 hn (Or.inr rfl)
+    exact walk_uncommitted_canStep hwf hi.local hpk h2 hn (Or.inr rfl)
   have hwkh : ∀ pk ∈ sk.walkKeys,
       ¬((s.walk pk).phase = 2 ∧ (s.walk pk).committed = none) :=
     fun pk hpk h => hwkc ⟨pk, hpk, h⟩
@@ -754,7 +754,7 @@ theorem progress_d5 (hwf : sk.wellFormed = true)
     | true => rfl
   by_cases hroc : s.ropenGotWire = true ∧ s.ropenCh = none
       ∧ doneROpen sk s = false
-  · exact ropen_unchosen_canStep hi hroc.1 hroc.2.2 hroc.2.1
+  · exact ropen_unchosen_canStep hi.local hroc.1 hroc.2.2 hroc.2.1
   have hroh : s.ropenGotWire = true → s.ropenCh = none →
       doneROpen sk s = true := by
     intro hg hc

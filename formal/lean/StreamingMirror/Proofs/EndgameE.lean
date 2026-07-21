@@ -80,7 +80,7 @@ theorem asmEvents_mem_procsE {pk : Party × Nat} (hpk : pk ∈ sk.asmKeys) :
 /-- Soundness of the pool: every pending entry is `PendOkE` and sits at
 its trace's performed frontier. -/
 theorem pends_soundE (hwf : sk.wellFormed = true) {s : State}
-    (hi : InvP sk .impl s)
+    (hi : InvL sk .impl s)
     (hioh : s.iopenCh = none → doneIOpen s = true)
     (hroh : s.ropenGotWire = true → s.ropenCh = none →
       doneROpen sk s = true)
@@ -153,7 +153,7 @@ theorem pends_soundE (hwf : sk.wellFormed = true) {s : State}
 pending entry — its own trace's frontier sits at or before it. -/
 theorem pends_coverE (hwf : sk.wellFormed = true)
     (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel) {s : State}
-    (hi : InvP sk .impl s)
+    (hi : InvL sk .impl s)
     (hioh : s.iopenCh = none → doneIOpen s = true)
     (hroh : s.ropenGotWire = true → s.ropenCh = none →
       doneROpen sk s = true)
@@ -238,8 +238,8 @@ theorem close_cascadeE (hwf : sk.wellFormed = true) {s : State}
       ∧ wkAskedRecvd sk s pk = sk.stageLen pk.2 := by
     intro pk hpk
     have hph := hwkph pk hpk
-    have hsc := (walk_scope_boundE sk hi hpk).2 hph
-    obtain ⟨hled, hpd, -⟩ := walk_ledgers_emptyE sk hi hpk (by omega)
+    have hsc := (walk_scope_boundE sk hi.local hpk).2 hph
+    obtain ⟨hled, hpd, -⟩ := walk_ledgers_emptyE sk hi.local hpk (by omega)
     obtain ⟨hw0, hr0, hq0⟩ := counts_of_emptyE sk hled
     refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩
     · unfold wkWireSent
@@ -657,26 +657,27 @@ theorem close_cascadeE (hwf : sk.wellFormed = true) {s : State}
 
 -- ============================================ the top-level theorems
 
-/-- The flagship progress lemma: a reachable, non-terminal state can
-always step under the shipping encoder's ledger set.
+/-- The progress lemma's engine: an invariant-satisfying, non-terminal
+state can always step under the shipping encoder's ledger set.
 
 `AxMode.impl` is the `d6`/epilogue interface — the per-walk order the
 Rust encoder actually has. The capacity hypothesis is margin 0
 (assembler capacity at least every scope's dispute count, the shipping
 `FAN ≥ kids` discipline); it subsumes `schedulable`
 (`margin0_schedulable`), so no `schedulable` hypothesis appears. See
-`deadlock_free` for the design-space framing. -/
-theorem progress (hwf : sk.wellFormed = true)
+`deadlock_free` for the design-space framing. Stated over `InvP` rather
+than `Reachable` so callers with a differently-derived invariant — the
+muxed chase (Mux/Proofs/Chase), whose states are not unmuxed-reachable —
+can consume it; `progress` is the reachable form. -/
+theorem progress_of_inv (hwf : sk.wellFormed = true)
     (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel) {s : State}
-    (hr : Reachable sk .impl s) (hnt : terminal sk s = false) :
+    (hi : InvP sk .impl s) (hnt : terminal sk s = false) :
     canStep sk .impl s = true := by
-  have hi : InvP sk .impl s :=
-    (inv_iff sk .impl s).mp (inv_reachable hwf hr)
   -- choice points first: the pillar and the opener mirrors
   by_cases hwkc : ∃ pk ∈ sk.walkKeys,
       (s.walk pk).phase = 2 ∧ (s.walk pk).committed = none
   · obtain ⟨pk, hpk, h2, hn⟩ := hwkc
-    exact walk_uncommitted_canStep hwf hi hpk h2 hn (Or.inl rfl)
+    exact walk_uncommitted_canStep hwf hi.local hpk h2 hn (Or.inl rfl)
   have hwkh : ∀ pk ∈ sk.walkKeys,
       ¬((s.walk pk).phase = 2 ∧ (s.walk pk).committed = none) :=
     fun pk hpk h => hwkc ⟨pk, hpk, h⟩
@@ -689,7 +690,7 @@ theorem progress (hwf : sk.wellFormed = true)
     | true => rfl
   by_cases hroc : s.ropenGotWire = true ∧ s.ropenCh = none
       ∧ doneROpen sk s = false
-  · exact ropen_unchosen_canStep hi hroc.1 hroc.2.2 hroc.2.1
+  · exact ropen_unchosen_canStep hi.local hroc.1 hroc.2.2 hroc.2.1
   have hroh : s.ropenGotWire = true → s.ropenCh = none →
       doneROpen sk s = true := by
     intro hg hc
@@ -813,7 +814,7 @@ theorem progress (hwf : sk.wellFormed = true)
         (fun fa : Ev × Action => evIdx fa.1 (scheduleE sk))
         (l := pends sk s) (by rw [hp]; simp)
       obtain ⟨hok, T, pre, suf, hT, hdec, hpre⟩ :=
-        pends_soundE sk hwf hi hioh hroh hwkh fa hfam
+        pends_soundE sk hwf hi.local hioh hroh hwkh fa hfam
       have hfsched : fa.1 ∈ scheduleE sk := by
         have hmemT : fa.1 ∈ T := by
           rw [hdec]
@@ -848,7 +849,7 @@ theorem progress (hwf : sk.wellFormed = true)
               rw [if_neg (by simp)]
               show ¬(recvdOf sk s c < recvdOf sk s c)
               omega
-            obtain ⟨fa', hfam', hτle⟩ := pends_coverE sk hwf hm0 hi
+            obtain ⟨fa', hfam', hτle⟩ := pends_coverE sk hwf hm0 hi.local
               hioh hroh hwkh hgmem hgnp
             have hjeq : j = evIdx ((c, false, recvdOf sk s c) : Ev)
                 (scheduleE sk) :=
@@ -886,7 +887,7 @@ theorem progress (hwf : sk.wellFormed = true)
               rw [if_pos rfl]
               show ¬(sentOf sk s c < sentOf sk s c)
               omega
-            obtain ⟨fa', hfam', hτle⟩ := pends_coverE sk hwf hm0 hi
+            obtain ⟨fa', hfam', hτle⟩ := pends_coverE sk hwf hm0 hi.local
               hioh hroh hwkh hgmem hgnp
             have hjeq : j = evIdx ((c, true, sentOf sk s c) : Ev)
                 (scheduleE sk) :=
@@ -900,6 +901,15 @@ theorem progress (hwf : sk.wellFormed = true)
                     (scheduleE sk) := hτle
                 _ = j := hjeq.symm
             omega
+
+/-- The flagship progress lemma at reachable states: the invariant
+holds by preservation, and `progress_of_inv` does the rest. -/
+theorem progress (hwf : sk.wellFormed = true)
+    (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel) {s : State}
+    (hr : Reachable sk .impl s) (hnt : terminal sk s = false) :
+    canStep sk .impl s = true :=
+  progress_of_inv sk hwf hm0
+    ((inv_iff sk .impl s).mp (inv_reachable hwf hr)) hnt
 
 /-- THE implementation-facing theorem: the shipping encoder's order is
 deadlock-free at the shipping capacities.

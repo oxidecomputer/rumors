@@ -293,7 +293,7 @@ assert both parent-placement corners at once (`hmode`; asserting `d5`
 and `d6` together genuinely wedges the choice point, which is why no
 real mode does). -/
 theorem walk_uncommitted_choosable (hwf : sk.wellFormed = true)
-    (hi : InvP sk ax s) (hpk : pk ∈ sk.walkKeys)
+    (hi : InvL sk ax s) (hpk : pk ∈ sk.walkKeys)
     (hph : (s.walk pk).phase = 2) (hco : (s.walk pk).committed = none)
     (hmode : ax.d5 = false ∨ ax.d6 = false) :
     ∃ o : Oblig, wkChoosable sk ax pk (s.walk pk) o = true ∧
@@ -531,7 +531,7 @@ parent order, passes every axiom guard in every mode that does not
 assert both parent-placement corners (`hmode`). Hence the
 committed-choice split can never deadlock at the choice point. -/
 theorem walk_uncommitted_canStep (hwf : sk.wellFormed = true)
-    (hi : InvP sk ax s) (hpk : pk ∈ sk.walkKeys)
+    (hi : InvL sk ax s) (hpk : pk ∈ sk.walkKeys)
     (hph : (s.walk pk).phase = 2) (hco : (s.walk pk).committed = none)
     (hmode : ax.d5 = false ∨ ax.d6 = false) :
     canStep sk ax s = true := by
@@ -591,7 +591,7 @@ query order passes every axiom guard in every mode (`w` and `wireFirst`
 settled by the fired wire, `d1root` by the fired res; the query count
 stays choosable because the invariant caps it at `rootPending`). The
 responder mirror of `walk_uncommitted_canStep`. -/
-theorem ropen_unchosen_canStep (hi : InvP sk ax s)
+theorem ropen_unchosen_canStep (hi : InvL sk ax s)
     (hgw : s.ropenGotWire = true) (hnd : doneROpen sk s = false)
     (hch : s.ropenCh = none) : canStep sk ax s = true := by
   cases hw : s.ropenWire with

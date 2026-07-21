@@ -153,7 +153,7 @@ events all sit below its own prefix boundary. Serves every walk phase
 (for phases `≤ 2` the current scope is past `j`; past phase 2 every
 scope is). -/
 theorem scopeBlock_performedE (hwf : sk.wellFormed = true) {s : State}
-    {pk : Party × Nat} (hi : InvP sk .impl s) (hpk : pk ∈ sk.walkKeys)
+    {pk : Party × Nat} (hi : InvL sk .impl s) (hpk : pk ∈ sk.walkKeys)
     {j : Nat} (hj : j < (s.walk pk).scope) (hjs : j < sk.stageLen pk.2) :
     ∀ e ∈ scopeBlockE sk pk j, performed sk s e := by
   -- the six count dominations
@@ -276,7 +276,7 @@ fired-fact shadows `wkLocalOk` carries, named for the committed-case
 splits. `hDdis` is the `d4` shadow (a fired wire discharges every
 earlier D child), `hqres` the `d1int` shadow, `hrw` the `w` shadow. -/
 theorem phase2_child_factsE {s : State} {pk : Party × Nat}
-    (hi : InvP sk .impl s) (hpk : pk ∈ sk.walkKeys)
+    (hi : InvL sk .impl s) (hpk : pk ∈ sk.walkKeys)
     (hph2 : (s.walk pk).phase = 2) :
     (s.walk pk).scope < sk.stageLen pk.2 ∧
     (∀ j, j < sk.fan → (s.walk pk).wireDone j = true →
@@ -355,7 +355,7 @@ theorem phase2_child_factsE {s : State} {pk : Party × Nat}
 
 /-- The scope cursor against the stage length, per phase band. -/
 theorem walk_scope_boundE {s : State} {pk : Party × Nat}
-    (hi : InvP sk .impl s) (hpk : pk ∈ sk.walkKeys) :
+    (hi : InvL sk .impl s) (hpk : pk ∈ sk.walkKeys) :
     ((s.walk pk).phase ≤ 2 → (s.walk pk).scope < sk.stageLen pk.2) ∧
     (3 ≤ (s.walk pk).phase → (s.walk pk).scope = sk.stageLen pk.2) := by
   have hwk := hi.wk pk hpk
@@ -373,7 +373,7 @@ theorem walk_scope_boundE {s : State} {pk : Party × Nat}
 
 /-- Outside phase 2 the publishing ledgers are all clear. -/
 theorem walk_ledgers_emptyE {s : State} {pk : Party × Nat}
-    (hi : InvP sk .impl s) (hpk : pk ∈ sk.walkKeys)
+    (hi : InvL sk .impl s) (hpk : pk ∈ sk.walkKeys)
     (hph : (s.walk pk).phase ≠ 2) :
     (∀ j, j < sk.fan → (s.walk pk).wireDone j = false
       ∧ (s.walk pk).resDone j = false ∧ (s.walk pk).qSent j = 0)
@@ -426,7 +426,7 @@ performed, given the committed-arm discharge facts: `i` counted wires,
 every D child below `i` resolved and at quota. This is the shared core
 of all four committed-case splits. -/
 theorem chunks_prefix_performedE (hwf : sk.wellFormed = true) {s : State}
-    {pk : Party × Nat} (hi : InvP sk .impl s) (hpk : pk ∈ sk.walkKeys)
+    {pk : Party × Nat} (hi : InvL sk .impl s) (hpk : pk ∈ sk.walkKeys)
     (hph2 : (s.walk pk).phase = 2) {i : Nat}
     (hin : i ≤ sk.nChildren pk.2 (sk.stageScope pk.2 (s.walk pk).scope))
     (hwc : i ≤ wkWireCount sk s pk)
@@ -532,7 +532,7 @@ theorem chunks_prefix_performedE (hwf : sk.wellFormed = true) {s : State}
 
 /-- A fired wire at `i` puts the wire count past `i` (prefix closure). -/
 theorem wireCount_ge_succE {s : State} {pk : Party × Nat}
-    (hi : InvP sk .impl s) (hpk : pk ∈ sk.walkKeys)
+    (hi : InvL sk .impl s) (hpk : pk ∈ sk.walkKeys)
     (hph2 : (s.walk pk).phase = 2) {i : Nat} (hif : i < sk.fan)
     (hw : (s.walk pk).wireDone i = true) :
     i + 1 ≤ wkWireCount sk s pk := by
@@ -556,7 +556,7 @@ spliced parent, here the parent is the scope's tail send — it never
 enters a committed prefix, and the `.parent` arm's `d6` mirror instead
 pins the entire chunk run performed. -/
 private theorem walk_committed_splitE (hwf : sk.wellFormed = true)
-    {s : State} {pk : Party × Nat} (hi : InvP sk .impl s)
+    {s : State} {pk : Party × Nat} (hi : InvL sk .impl s)
     (hpk : pk ∈ sk.walkKeys) (hph2 : (s.walk pk).phase = 2)
     {o : Oblig} (hcm : (s.walk pk).committed = some o) :
     ∃ f isp ss,
@@ -967,7 +967,7 @@ or holding one pending event with the trace prefix below it performed.
 Choice points (phase-2 uncommitted) are excluded — the pillar owns
 them. -/
 theorem walk_pend_or_doneE (hwf : sk.wellFormed = true) {s : State}
-    {pk : Party × Nat} (hi : InvP sk .impl s) (hpk : pk ∈ sk.walkKeys)
+    {pk : Party × Nat} (hi : InvL sk .impl s) (hpk : pk ∈ sk.walkKeys)
     (hnc : ¬((s.walk pk).phase = 2 ∧ (s.walk pk).committed = none)) :
     ((∀ e ∈ walkEventsE sk pk, performed sk s e) ∧ wkPend sk s pk = [])
     ∨ ∃ f a pre suf, wkPend sk s pk = [(f, a)]
@@ -1139,7 +1139,7 @@ theorem walk_pend_or_doneE (hwf : sk.wellFormed = true) {s : State}
             exact happ
 /-- The initiator opening decode. -/
 theorem iopen_pend_or_doneE (hwf : sk.wellFormed = true) {s : State}
-    (hi : InvP sk .impl s)
+    (hi : InvL sk .impl s)
     (hch : s.iopenCh = none → doneIOpen s = true) :
     ((∀ e ∈ iopenEvents sk, performed sk s e) ∧ ioPend sk s = [])
     ∨ ∃ f a pre suf, ioPend sk s = [(f, a)]
@@ -1270,7 +1270,7 @@ theorem rootret_pend_or_doneE {s : State} :
         exact this
 
 /-- The responder finish decode. -/
-theorem fin_pend_or_doneE {s : State} (hi : InvP sk .impl s) :
+theorem fin_pend_or_doneE {s : State} (hi : InvL sk .impl s) :
     ((∀ e ∈ finEvents sk, performed sk s e) ∧ finPend sk s = [])
     ∨ ∃ f a pre suf, finPend sk s = [(f, a)]
         ∧ finEvents sk = pre ++ f :: suf
@@ -1355,7 +1355,7 @@ theorem fin_pend_or_doneE {s : State} (hi : InvP sk .impl s) :
 
 /-- The responder opening decode. -/
 theorem ropen_pend_or_doneE (hwf : sk.wellFormed = true) {s : State}
-    (hi : InvP sk .impl s)
+    (hi : InvL sk .impl s)
     (hch : s.ropenGotWire = true → s.ropenCh = none →
       doneROpen sk s = true) :
     ((∀ e ∈ ropenEvents sk, performed sk s e) ∧ roPend sk s = [])
@@ -1560,7 +1560,7 @@ theorem ropen_pend_or_doneE (hwf : sk.wellFormed = true) {s : State}
 
 /-- The absorber decode. -/
 theorem absorb_pend_or_doneE (hwf : sk.wellFormed = true) {s : State}
-    (hi : InvP sk .impl s) :
+    (hi : InvL sk .impl s) :
     ((∀ e ∈ absorbEvents sk, performed sk s e) ∧ abPend s = [])
     ∨ ∃ f a pre suf, abPend s = [(f, a)]
         ∧ absorbEvents sk = pre ++ f :: suf
@@ -1773,7 +1773,7 @@ theorem absorb_pend_or_doneE (hwf : sk.wellFormed = true) {s : State}
 
 /-- The assembler decode. -/
 theorem asm_pend_or_doneE (hwf : sk.wellFormed = true) {s : State}
-    (hi : InvP sk .impl s) {pk : Party × Nat} (hpk : pk ∈ sk.asmKeys) :
+    (hi : InvL sk .impl s) {pk : Party × Nat} (hpk : pk ∈ sk.asmKeys) :
     ((∀ e ∈ asmEvents sk pk, performed sk s e) ∧ asmPend sk s pk = [])
     ∨ ∃ f a pre suf, asmPend sk s pk = [(f, a)]
         ∧ asmEvents sk pk = pre ++ f :: suf

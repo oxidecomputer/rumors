@@ -235,6 +235,27 @@ structure InvP (sk : Skel) (ax : AxMode) (s : State) : Prop where
   flow : ∀ c ∈ allChans sk,
     s.chan c + recvdOf sk s c = sentOf sk s c ∧ s.chan c ≤ sk.cap c
 
+/-- The local fragment of the invariant: per-process cursor sanity
+without the flow field.
+
+This is the exact hypothesis of the decode layer (Pending/PendingE and
+the pillar's choice-point lemmas): those lemmas read state only through
+cursors and ledgers, never through channel occupancies, so they hold at
+states whose flow discipline is NOT the unmuxed one. The muxed chase
+(Mux/Proofs/Chase) is the consumer that needs this weakening: a muxed
+state with frames in flight satisfies a pipe-mediated conservation law
+(`Mux.MuxInv`), not `InvP.flow`, yet its cursors decode exactly as the
+unmuxed model's do. -/
+structure InvL (sk : Skel) (ax : AxMode) (s : State) : Prop where
+  wk : ∀ pk ∈ sk.walkKeys, wkLocalOk sk ax s pk = true
+  asm : ∀ pk ∈ sk.asmKeys, asmLocalOk sk s pk = true
+  top : topLocalOk sk ax s = true
+
+/-- The full invariant projects onto its local fragment. -/
+theorem InvP.local {sk : Skel} {ax : AxMode} {s : State}
+    (hi : InvP sk ax s) : InvL sk ax s :=
+  ⟨hi.wk, hi.asm, hi.top⟩
+
 theorem inv_iff (sk : Skel) (ax : AxMode) (s : State) :
     Inv sk ax s = true ↔ InvP sk ax s := by
   constructor
