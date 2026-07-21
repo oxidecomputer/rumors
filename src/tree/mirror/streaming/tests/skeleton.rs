@@ -380,7 +380,6 @@ pub(super) fn decode(trace: &Trace) -> Decoded {
     let (skel, prefixes) = assemble(&d, &r, &leaf_requests);
 
     // Audit every publication against the model's laws.
-    let ids: BTreeMap<&Vec<u8>, usize> = prefixes.iter().enumerate().map(|(i, p)| (p, i)).collect();
     for (i, prefix) in prefixes.iter().enumerate() {
         let scope = &skel.scopes[i];
         let h = scope.height;
@@ -429,7 +428,6 @@ pub(super) fn decode(trace: &Trace) -> Decoded {
                 "scope {prefix:02x?} was asked exactly once, by its parent's answerer"
             );
         }
-        let _ = ids;
     }
     assert!(
         !dependents.contains_key(&Vec::new()),
