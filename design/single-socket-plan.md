@@ -9,29 +9,37 @@ anchor below was re-derived from the code on this branch
 drifted, the code wins and §8 records the discrepancy.
 
 Theorem-status snapshot (2026-07-21, from `formal/MUX-PROGRESS.md` on
-`mux-conjectures`; **refresh §4's table before starting any gated
-stage**): T3 `wc_impossibility` ✓ kernel; T4 `sigmaStar_deadlock_free` ✓
-kernel; termination ✓ kernel; `elastic_deadlock_free` ✓ kernel (seam
+`mux-conjectures`; sweep §3's reconciliation table at each stage
+boundary): T3 `wc_impossibility` ✓ kernel; T4 `sigmaStar_deadlock_free`
+✓ kernel; termination ✓ kernel; `elastic_deadlock_free` ✓ kernel (seam
 closure in flight, track T10); `wc_impossibility_K` ✓ kernel for
-KR ∈ {1,2,3}, ∀KI, KR ≥ 4 [derived]; **T8 `sigmaStarK_deadlock_free`
-STUBBED, not attempted** — gates stage S1's merge; σ\*-causal (the
-local witness whose closure S1 transcribes) in flight; T5/T6 in flight.
+KR ∈ {1,2,3}, ∀KI, KR ≥ 4 [derived]; T8 `sigmaStarK_deadlock_free`
+stubbed, in the campaign's queue — reconciles with S1 (§3); σ\*-causal
+(the local witness whose closure S1 transcribes) in flight; T5/T6 in
+flight. **No stage waits on any of these** — see §3 for the stance.
 
 ## 0. The stage DAG
 
+Edges below are **code dependencies only** — a stage needs another's
+artifacts in the tree, nothing else. Theorem work runs concurrently
+(§3) and gates nothing.
+
 ```
-R0 (spikes/decisions)
- └─> R1 (receiver widening + advertisement; inert under Link)
-      ├─> S1 (σ*ₖ engine)  ⟵ gated on S0/T8 (external: the formal campaign)
-      │     └─> M1 (socket transport)
-      │           └─> V (acceptance)
-      │                 └─> L (Link removal; irreversible)
-      └─> A (acceptance-harness workstream: builds from R1 onward,
-             consumed by V — no reason to wait for M1 to write it)
+start now, in parallel:   R0    R1    S1.1 (ledger + parity tests)    A (harness)
+                                 │        │
+   R1.4 peer_window field ───────┼────> S1.2 (send gate)
+   R1.2 widened queues ──────────┼────────┼────> M1 (socket transport)
+                                 │        │        └─> V (acceptance runs)
+                                 │        │              └─> L (Link removal;
+                                 │        │                   irreversible)
 ```
 
-Link carries all traffic until L. R1 and A are useful and safe even if
-everything after them stalled forever.
+**Start now, zero dependency on anything in flight:** R0.1 (one
+question), R1.1, R1.2 — and S1.1's ledger scaffolding plus A's
+socket-pair harness helper are equally unblocked (file-disjoint from
+R1; §9's parallelism table). Link carries all traffic until L. R1, A,
+and S1.1 are useful and safe even if everything after them stalled
+forever.
 
 ## 1. Stage R0 — spikes and decisions (no production code)
 
@@ -64,10 +72,11 @@ churning the greeting twice.
   the current `remote/` instantiation cost, so M1's socket module has
   a number to hold (the design doc's §8.9 concern). Record in the
   spike note; re-run in V.6.
-- **R0.5 — theorem-status refresh ritual.** One-liner: before S1 and
-  before L, re-read `MUX-PROGRESS.md` §5 and update this plan's
-  snapshot; a stage that starts against a stale table is the plan's
-  only self-inflicted failure mode.
+- **R0.5 — reconciliation ritual.** One-liner: at each stage
+  boundary, re-read `MUX-PROGRESS.md` §4/§5 and sweep §3's
+  reconciliation table — reconcile, don't wait. A landed theorem with
+  a different shape is a diff to apply, not a blocker that was
+  secretly there all along.
 
 ## 2. Stage R1 — receiver widening + window advertisement (~150–300 lines + ~400 test)
 
@@ -150,31 +159,54 @@ Tasks, in order:
   invariant sentence; `readme-check` catches the crate-doc drift if
   R1.3's docs touch `lib.rs`.
 
-## 3. Stage S0 — the theorems (external; consume-only)
+## 3. The concurrent verification workstream (reconciliation points, not gates)
 
-Not this branch's work; the formal campaign owns it
-(`MUX-PROGRESS.md`). This plan consumes:
+The stance of record, verbatim from Finch: **"We want to assume the
+verification will work and implement the algorithm we just realized can
+possibly work."** Implementation starts now and proceeds concurrently
+with the theorem effort; no stage's entry waits on a theorem landing.
+The basis for proceeding is the **evidence tier**: the 4,970-run causal
+σ\* sweep (stage-0 gate P1), the 54-cell K-dial validation
+(probe-exact, both corners), and the 2,150-run structural sweep. The
+kernel proofs harden certainty — their landing is *expected, not
+awaited*.
 
-| Theorem | Gates | Status at writing |
+Where the workstream lives: branch `mux-conjectures`, worktree
+`/Users/oxide/src/rumors-mux`; status source
+`formal/MUX-PROGRESS.md` §4 (findings) and §5 (log). In flight at
+writing: **T8** `sigmaStarK_deadlock_free` (stubbed, with the
+per-direction `(K_I, K_R)` parameterization already recorded);
+**σ\*-causal** (branch `mux-causal`) — the causal closure that *is*
+the S1 engine's inference spec; **T10** capacity monotonicity + the
+elastic seam closure (branch `mux-t10`); **track E** oracle/necessity
+(branch `mux-s3e`).
+
+Reconciliation points — what gets revisited **if** a theorem lands
+with a different shape, or a probe/proof finds a wedge:
+
+| Implementation stage | Reconciles against | Action on landing / on a wedge |
 |---|---|---|
-| T8 `sigmaStarK_deadlock_free` (K_I ≠ K_R form) | **S1 merge** | stubbed, pending |
-| σ\*-causal (`sigmaStarCausal` + coverage) | S1.1's transcription source | in flight |
-| elastic seam closure (T10) | nothing here (R1 rests on the landed `elastic_deadlock_free` + controls) | in flight |
-| T5/T6 | nothing here (campaign completeness) | in flight |
+| S1.1 ledger inference rules | σ\*-causal's `inevitableA` guard set | adopt the landed guard set **verbatim**; any divergence between it and S1.1's transcription is a bug on whichever side diverged, adjudicated against the probe traces |
+| S1.2 send gate + R1.4 `peer_window` | T8's final statement shape | the per-direction form is already the spec here; if T8 lands narrower, the theorem widens, not the code |
+| M1.3 admission/Violation logic | any late-arriving correction to admission rules | the fail-fast design contains the blast radius: an admission bug is a loud, attributable `Violation`, never a silent wedge — a correction is a local rule change plus a regression test |
+| R1 widening | T10's elastic seam closure | none expected (R1 rests on the landed `elastic_deadlock_free` + controls); if the seam closure surprises, R1 is still Link-safe (inert parking) |
+| any stage | a wedge found against σ\*ₖ anywhere (probe or proof) | the wedging skeleton becomes a committed regression test on this branch; the design doc's §4 posture note is updated; S1's gate rules amended per the finding |
 
 The Lean names, once final after the campaign's legibility pass, get
 cited in S1/M1 doc comments — by name only, never restated.
 
 ## 4. Stage S1 — the σ\*ₖ engine (~1–2.2k lines + test apparatus)
 
-Entry: R1 merged; **T8 kernel-checked** (house posture: the engine's
-liveness spec lands before the engine). Exit: engine green under Link
+Entry: S1.1 has none — new files plus tests, start now. S1.2 needs
+R1.4's `peer_window` field in the tree (a code dependency, one field).
+Reconciliation: §3's table, first two rows. Exit: engine green under Link
 (it gates sends identically under either transport — develop and test
 it against the Link path, where a bug stalls rather than corrupts);
 transcription-parity suite green. Risk: **the** stage risk — an
 occupancy ledger that undercounts is the session-fatal Violation edge
-(`single-socket.md` §3.4c); bounded by the theorem it refines and by
-S1.3's direction-asserted hooks.
+(`single-socket.md` §3.4c); mitigated by S1.3's direction-asserted
+hooks, the fail-fast containment (§3 table, row 3), and reconciliation
+against σ\*-causal's guard set when it lands.
 
 - **S1.1 — the occupancy ledger.** New module
   `remote/proxy/work/ledger.rs` (sibling of `progress.rs`, which
@@ -184,9 +216,9 @@ S1.3's direction-asserted hooks.
   consumption evidence (arrivals whose content is causally downstream
   of a consumption — **per-channel order only**, audit finding A10),
   and the inevitability closure for silent consumptions — transcribed
-  from the campaign's `sigmaStarCausal` definition (Lean) and its
-  Python reference (`causal.py`, stage-0 probe), whichever the
-  campaign's legibility pass blesses as the statement of record.
+  today from the stage-0 probe's Python reference (`causal.py`, the
+  4,970-run-validated implementation), reconciled verbatim against the
+  Lean `inevitableA` guard set when σ\*-causal lands (§3).
   Test-first: transcription-parity — replay the campaign's pinned
   families (wedge, combs, all-M tails, provision walls) through the
   Rust ledger and assert decision agreement with the pinned
@@ -210,7 +242,9 @@ S1.3's direction-asserted hooks.
 
 ## 5. Stage M1 — the socket transport (~400–700 lines)
 
-Entry: S1 merged. Exit: a full session completes end-to-end over one
+Entry: R1.2's widened queues and S1.2's gate interface in the tree
+(code dependencies; the writer mux consults the gate — a stub gate
+compiles M1 earlier if sessions overlap). Exit: a full session completes end-to-end over one
 in-memory duplex at K ∈ {1, default}; gate green. Risk: moderate —
 mostly careful reuse of the end/error discipline; the scheduler is
 safety-free (`single-socket.md` §3.3) and tunable post-landing.
@@ -340,9 +374,29 @@ README regenerated (`readme-check` — `link` is in the crate docs).
 | V | ~300–600 test | 1–2 | low |
 | L | ~−1.5k, +docs | 1 | low, irreversible |
 
-Critical path: **R0.1 → R1 → [T8 lands] → S1 → M1 → V → L**. R1 and
-the V-harness work (A) are T8-independent; if T8 stalls, everything
-except S1/M1/L still lands and is useful under Link.
+Critical path (code dependencies only): **R1.4 → S1.2 → M1 → V → L**,
+with R0.1 feeding R1.3's version choice. No theorem appears on it.
+
+Honest parallelism — what runs in concurrent agent-sessions without
+merge conflicts, by file-disjointness:
+
+- **R0** (notes only) ∥ everything.
+- **R1** (`queues.rs`, `work.rs:120` + its doc comment, `message.rs`,
+  `start.rs`, `state.rs`, snapshots, adapter tests) ∥ **S1.1**
+  (`ledger.rs` NEW + its parity tests; reads `progress.rs`, touches
+  nothing R1 touches) ∥ **A** (`tests/common/wire.rs` + new test
+  files only).
+- The one deliberate serialization: **S1.2** (`pump.rs`/`encode.rs`)
+  waits for R1.4's `peer_window` field to exist — a one-field code
+  dependency, not a review boundary.
+- **M1** (`remote/socket.rs` NEW + entry points in `peer.rs`) overlaps
+  S1's tail if S1.2's gate trait is stubbed first.
+- **V** runs against whatever is merged; **L** alone is strictly
+  serial and last.
+
+If the theorem workstream stalls entirely, every stage still lands on
+evidence-tier confidence; §3's table says what to revisit when it
+unstalls.
 
 ## 10. Parking lot (deferred ≠ lost)
 
