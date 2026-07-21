@@ -58,3 +58,4 @@ import StreamingMirror.Mux.Proofs.CommitTotality
 import StreamingMirror.Mux.Proofs.WcImpossibility
 import StreamingMirror.Mux.Proofs.Oracle.Order
 import StreamingMirror.Mux.Proofs.Oracle
+import StreamingMirror.Mux.Proofs.Oracle.Controls
