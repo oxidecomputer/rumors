@@ -243,6 +243,36 @@ Dated entries accumulate here as phases complete; refuted approaches are
 recorded with their refutations, in the PROGRESS.md tradition of keeping
 the negative space on the record.
 
+### 2026-07-21 — The locality residue adjudicated by Finch: σ\*-causal dispatched
+
+Finch's ruling on the `sigmaStar_local` residue, recorded for the
+negative space: the accept-the-hypothesis-with-a-Rust-bridge option is
+NONSENSICAL — a Rust function cannot be handed the remote skeleton, so
+any Rust proptest of "locality" is either vacuously true (the function
+is local by construction of its inputs) or tests a different statement.
+Locality of a model definition that mentions the global `Skel` is a
+model-internal claim, unbridgeable from Rust in principle. The honest
+resolution is DEFINITIONAL: mint `sigmaStarCausal` — the closure run
+over the announced sub-skeleton A_p by construction (the Lean twin of
+the stage-0 probe's faulting view), tie-break by a local order
+(stream-index-then-position; any proven-demanded push serves, since the
+chase witness is one) — so locality holds by definition, and prove IT
+live via the guard-containment/coverage lemma (the causal closure
+certifies everything the chase needs, at stuck states). This upgrades
+`c1_literal_false` to unconditional and IS the charter's constructive
+witness of a local deterministic schedule function.
+
+LOAD-BEARING for the single-socket refactor, not just the headline:
+the shipped σ\*ₖ engine = window gate (safety; elastic machinery) +
+inference progress (window slots free only when the CAUSAL closure
+certifies consumption from announcements — too-weak inference deadlocks
+by starvation, the shape `wedge_evidence_starves` already pins). T8 =
+window discipline + causal-closure coverage, so σ\*-causal sits on
+T8's critical path, and T8 gates the engine's implementation. A theorem
+about the omniscient closure proves liveness of a strategy the
+implementation cannot compute; the correspondence runs through
+A_p-sufficiency or not at all.
+
 ### 2026-07-21 — Stage-3 track F landed and merged: T4 CLOSED
 
 **`sigmaStar_deadlock_free` is kernel-checked** (zero sorry, 261 jobs
