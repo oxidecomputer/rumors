@@ -214,7 +214,7 @@ theorem pends_coverE (hwf : sk.wellFormed = true)
 
 /-- Root fan-out = the stage two below the root, positionally. -/
 theorem close_cascadeE (hwf : sk.wellFormed = true) {s : State}
-    (hi : InvP sk .impl s)
+    (hi : InvPW sk .impl s)
     (hIOd : doneIOpen s = true) (hROd : doneROpen sk s = true)
     (hwkph : ∀ pk ∈ sk.walkKeys, 3 ≤ (s.walk pk).phase)
     (habph : 3 ≤ s.absorbPhase)
@@ -262,7 +262,7 @@ theorem close_cascadeE (hwf : sk.wellFormed = true) {s : State}
   have hchan0 : ∀ c ∈ allChans sk, sentOf sk s c = recvdOf sk s c →
       s.chan c = 0 := by
     intro c hc heq
-    have := (hi.flow c hc).1
+    have := hi.flow c hc
     omega
   -- descending sweep: the highest undone walk can close
   have hdesc : ∀ d, canStep sk .impl s = true
@@ -671,7 +671,7 @@ muxed chase (Mux/Proofs/Chase), whose states are not unmuxed-reachable —
 can consume it; `progress` is the reachable form. -/
 theorem progress_of_inv (hwf : sk.wellFormed = true)
     (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel) {s : State}
-    (hi : InvP sk .impl s) (hnt : terminal sk s = false) :
+    (hi : InvPW sk .impl s) (hnt : terminal sk s = false) :
     canStep sk .impl s = true := by
   -- choice points first: the pillar and the opener mirrors
   by_cases hwkc : ∃ pk ∈ sk.walkKeys,
@@ -909,7 +909,7 @@ theorem progress (hwf : sk.wellFormed = true)
     (hr : Reachable sk .impl s) (hnt : terminal sk s = false) :
     canStep sk .impl s = true :=
   progress_of_inv sk hwf hm0
-    ((inv_iff sk .impl s).mp (inv_reachable hwf hr)) hnt
+    ((inv_iff sk .impl s).mp (inv_reachable hwf hr)).weak hnt
 
 /-- THE implementation-facing theorem: the shipping encoder's order is
 deadlock-free at the shipping capacities.

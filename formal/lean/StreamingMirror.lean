@@ -57,3 +57,4 @@ import StreamingMirror.Mux.Proofs.Chase
 import StreamingMirror.Proofs.Endgame
 import StreamingMirror.Mux.Proofs.CommitTotality
 import StreamingMirror.Mux.Proofs.WcImpossibility
+import StreamingMirror.Mux.Elastic
