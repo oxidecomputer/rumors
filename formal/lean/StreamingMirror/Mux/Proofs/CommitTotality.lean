@@ -356,7 +356,7 @@ theorem commit_totality (hwf : sk.wellFormed = true) :
   intro s hr pk hpk hph hco
   have hi : InvP sk .impl s := (inv_iff sk .impl s).mp (inv_reachable hwf hr)
   obtain ⟨o, hch, -⟩ :=
-    walk_uncommitted_choosable hwf hi hpk hph hco (Or.inl rfl)
+    walk_uncommitted_choosable hwf hi.local hpk hph hco (Or.inl rfl)
   exact ⟨o, hch, fun o' hch' => commit_unique hwf hi hpk hph hco hch' hch⟩
 
 end StreamingMirror.Model

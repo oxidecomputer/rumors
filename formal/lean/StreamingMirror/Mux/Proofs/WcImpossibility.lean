@@ -156,7 +156,7 @@ theorem firePush_isSome_sound {sk : Skel} {C : Nat} {p : Party}
 
 /-- Membership introduction for the enabled-push set: room plus a held
 stream the party produces. -/
-theorem mem_enabledPushes {sk : Skel} {C : Nat} {p : Party} {h : Nat}
+theorem mem_enabledPushes_intro {sk : Skel} {C : Nat} {p : Party} {h : Nat}
     {s : MState} (hroom : (s.pipe p).length < C)
     (hmem : h ∈ wireHeights sk p)
     (hhold : holdsWire sk p h s.base = true) :
@@ -411,7 +411,7 @@ theorem push_none_of_enabledPushes_nil {sk : Skel} {ax : AxMode}
           exfalso
           obtain ⟨hroom, hmem, hhold⟩ :=
             firePush_isSome_sound (C := C) (by rw [hf]; rfl)
-          have := mem_enabledPushes hroom hmem hhold
+          have := mem_enabledPushes_intro hroom hmem hhold
           rw [hE] at this
           cases this
 
