@@ -54,6 +54,17 @@ implementation whose traces satisfy the tightened `assert_valid`.
   fuel bound ρ(init).
 - (iii) *Validation property, not a theorem*: the capacity-tightness law
   N ≤ C + 2 for the inter-level return boundary (§8).
+- (iv) **Capacity monotonicity** (for the `.impl` flagship): (i) and
+  (ii) hold not just at the model capacities (walk channels at 1, the
+  assembler at `capLevel`) but at EVERY pointwise-widened capacity
+  vector κ ≥ that floor — widen levels to the deployed window, keep
+  wires at 1, or any mix. Kernel-proven since 2026-07-21
+  (`Sched.deadlock_free_wide` and `terminatingW`,
+  `lean/StreamingMirror/Proofs/Wide.lean`; AUDIT-NOTES.md A7): the
+  widened transition function `applyW κ` recovers `apply` at κ = floor
+  definitionally, and ρ never reads occupancy, so the run bound is the
+  floor's. The `d5` corner's wire-widening remains on the informal
+  Kahn argument (Statement.lean, "Assumed, not proven").
 
 **Explicitly not modeled** (modeled-world premises, each with its Rust
 anchor):

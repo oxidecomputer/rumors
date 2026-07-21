@@ -59,20 +59,29 @@ engine, not a new induction:
   is enabled in the elastic system too (`applyBase_isSome_of_empty`),
   contradicting stuckness.
 
-# The invariant seam (deliberate, precedented)
+# The invariant is proven, not assumed (the seam, closed by T10)
 
-`elastic_deadlock_free` takes the ground facts `EMuxInv` — the base
-cursors decode (`InvL`) plus the pipe-mediated conservation law — as a
-reachability-invariant hypothesis, exactly as the chase does with
-`MuxInv` (Mux/Proofs/Chase/Ground.lean: "stating the chase over this
-interface … keeps stage 2 free of the 28-arm preservation sweep").
-`eMuxInv_init` is the interface's non-vacuity certificate and the base
-case of the preservation induction, which is the stage-F `MuxInv`
-obligation's elastic twin: the two differ only in the deliver arm
-(which preserves conservation trivially — it moves one frame from the
-pipe term to the cell term) and in `EMuxInv` carrying no slot bound at
-all, so the preservation sweep should land once, against the record
-harness, and be adapted here — not duplicated ahead of it.
+`elastic_deadlock_free` originally carried the ground facts `EMuxInv` —
+the base cursors decode (`InvL`) plus the pipe-mediated conservation
+law — as an explicit reachability-invariant hypothesis, matching the
+chase's `MuxInv` interface posture. The preservation sweep now lands
+here (`eMuxInv_reachable`), adapted from the stage-F sweep
+(`sinv_reachable`, Mux/Proofs/SigmaStarInv.lean): the 23 base arms
+assemble the same Steps-file deltas minus every occupancy-bound and
+history field, the push arm reuses the opener/walk fire facts, and the
+deliver arm — the one place the two systems differ — preserves
+conservation trivially (one frame moves from the pipe term to the cell
+term, no slot guard to respect). `eMuxInv_init` remains the base case.
+
+REPAIR recorded (T10 audit, mux-notes-phase2/t10-audit.md §4): the
+first-landed `EMuxInv.flow_wire` was unguarded (`∀ p hh`) and therefore
+unsatisfiable past walk (R,0)'s first wire receive — `recvdOf` at the
+phantom `wire I 0` Nat-subtraction-aliases that walk's consumer count
+while its producer count stays zero, the exact `delivered_eq` bug the
+stage-F landing fixed in `MuxInv`. The field is now `allChans`-guarded
+(its consumer `EMuxInv.invPW` only ever reads it at `allChans`
+members), and the sweep needs the pipe-content fact the record system
+kept in `hist_pipe`, so `EMuxInv` carries it directly as `pipe_wire`.
 
 The kernel-decided completion pin at the bottom (`wedge` completes
 under the shipped work-conserving policy at C = 1 with elastic
@@ -84,6 +93,7 @@ now attached to a first-class semantics).
 -/
 import StreamingMirror.Mux.Proofs.WcImpossibility
 import StreamingMirror.Mux.Proofs.Chase.Ground
+import StreamingMirror.Mux.Proofs.SigmaStarInv
 import StreamingMirror.Proofs.EndgameE
 
 namespace StreamingMirror.Mux
@@ -182,20 +192,30 @@ def mdrainE (sk : Skel) (ax : AxMode) (C : Nat) (σI σR : Strategy) :
 -- ================================================== the elastic ground facts
 
 /-- The elastic ground facts: base cursors decode, internal channels
-obey the unmuxed conservation law, and wire flow is conserved through
-the pipe. The elastic twin of `MuxInv` (Chase/Ground.lean), minus every
-occupancy bound — parked replies are unbounded by design, so there is
-no slot field to state. Preservation along `EMReachable` is the
-stage-F obligation's elastic twin (module doc); `eMuxInv_init` is the
-base case and non-vacuity certificate. -/
+obey the unmuxed conservation law, wire flow is conserved through the
+pipe, and pipes carry only own-direction wire tags.
+
+The elastic twin of `MuxInv` (Chase/Ground.lean), minus every occupancy
+bound — parked replies are unbounded by design, so there is no slot
+field to state — and minus the history ledger (nothing here reads
+`hist`). `flow_wire` is `allChans`-guarded, NOT `∀ p hh`: at the
+phantom `wire I 0` the consumer count aliases walk (R,0)'s by Nat
+subtraction while the producer count stays zero, so the unguarded form
+is unsatisfiable at reachable states (module doc REPAIR note; the
+track-F `delivered_eq` lesson). `pipe_wire` is `hist_pipe`'s residue
+once the ledger is gone: the deliver arm needs to know the frame it
+lands is a wire tag of the delivering direction. Preserved along
+`EMReachable` by `eMuxInv_reachable`; `eMuxInv_init` is the base
+case. -/
 structure EMuxInv (sk : Skel) (s : MState) : Prop where
   invl : InvL sk .impl s.base
   flow_int : ∀ c ∈ allChans sk, isWire c = false →
     s.base.chan c + recvdOf sk s.base c = sentOf sk s.base c
-  flow_wire : ∀ (p : Party) (hh : Nat),
+  flow_wire : ∀ (p : Party) (hh : Nat), Chan.wire p hh ∈ allChans sk →
     s.base.chan (Chan.wire p hh) + pipeCount s (Chan.wire p hh)
       + recvdOf sk s.base (Chan.wire p hh)
       = sentOf sk s.base (Chan.wire p hh)
+  pipe_wire : ∀ (p : Party), ∀ c ∈ s.pipe p, ∃ h, c = Chan.wire p h
 
 /-- With both pipes drained, the elastic conservation law collapses to
 the base's weak invariant: conservation without the capacity half —
@@ -210,7 +230,7 @@ theorem EMuxInv.invPW {sk : Skel} {s : MState} (hm : EMuxInv sk s)
   | false => exact hm.flow_int c hc hw
   | true =>
       obtain ⟨p, hh, rfl⟩ := isWire_eq hw
-      have hflow := hm.flow_wire p hh
+      have hflow := hm.flow_wire p hh hc
       have hpipe : pipeCount s (Chan.wire p hh) = 0 := by
         have hempty : s.pipe (wireParty (Chan.wire p hh)) = [] := by
           show s.pipe p = []
@@ -224,17 +244,552 @@ theorem EMuxInv.invPW {sk : Skel} {s : MState} (hm : EMuxInv sk s)
 /-- The elastic ground facts hold initially. -/
 theorem eMuxInv_init (sk : Skel) : EMuxInv sk (init sk) := by
   refine ⟨((inv_iff sk .impl (Model.init sk)).mp (inv_init sk .impl)).local,
-    ?_, ?_⟩
+    ?_, ?_, ?_⟩
   · intro c _ _
     rw [show (init sk).base = Model.init sk from rfl,
       sentOf_init, recvdOf_init]
     rfl
-  · intro p hh
+  · intro p hh _
     rw [show (init sk).base = Model.init sk from rfl,
       sentOf_init, recvdOf_init, chan_init]
     show 0 + pipeCount (init sk) (Chan.wire p hh) + 0 = 0
     rw [pipeCount]
     rfl
+  · intro p c hc
+    exact (List.not_mem_nil hc).elim
+
+-- ============================================ the preservation assemblers
+
+/-!
+The stage-F sweep (`sinv_reachable`, SigmaStarInv.lean), re-assembled
+for the elastic system: the same Steps-file per-arm deltas
+(`QuietStep`/`RecvStep`/`SendStep`), met by `EMuxInv`'s three flow-side
+fields instead of `MuxInv`'s eight — no slot bound to maintain (parked
+replies are unbounded by design) and no history ledger (nothing here
+reads `hist`, so every observation append is invisible). The deliver
+arm is the one place the systems differ, and its delta is trivial:
+one frame moves from the pipe term to the cell term of `flow_wire`.
+-/
+
+variable {sk : Skel}
+
+/-- A hand-and-channel-neutral base arm preserves the elastic ground
+facts: every count and occupancy is framed, and the pipes are
+untouched. -/
+theorem EMuxInv.quiet {s : MState} {b : State}
+    {hist' : Party → List MObs}
+    (hm : EMuxInv sk s) (hL' : InvL sk .impl b)
+    (hq : QuietStep sk s.base b) :
+    EMuxInv sk { s with base := b, hist := hist' } := by
+  refine ⟨hL', ?_, ?_, hm.pipe_wire⟩
+  · intro c hc hw
+    show b.chan c + recvdOf sk b c = sentOf sk b c
+    rw [hq.chan, hq.sent c hc, hq.recvd c hc]
+    exact hm.flow_int c hc hw
+  · intro p hh hc
+    show b.chan (Chan.wire p hh) + pipeCount s (Chan.wire p hh)
+      + recvdOf sk b (Chan.wire p hh) = sentOf sk b (Chan.wire p hh)
+    rw [hq.chan, hq.sent _ hc, hq.recvd _ hc]
+    exact hm.flow_wire p hh hc
+
+/-- One receive on `c₀` preserves the elastic ground facts: the
+occupancy drop balances the consumer-count rise, on the internal law
+and (when `c₀` is a wire cell) on the pipe-mediated one alike. -/
+theorem EMuxInv.recv {s : MState} {b : State} {c₀ : Chan}
+    {hist' : Party → List MObs}
+    (hm : EMuxInv sk s) (hL' : InvL sk .impl b)
+    (hr : RecvStep sk s.base b c₀) :
+    EMuxInv sk { s with base := b, hist := hist' } := by
+  have hpos := hr.hpos
+  refine ⟨hL', ?_, ?_, hm.pipe_wire⟩
+  · intro c hc hw
+    show b.chan c + recvdOf sk b c = sentOf sk b c
+    have h0 := hm.flow_int c hc hw
+    rw [hr.chan, hr.sent c hc, hr.recvd c hc]
+    by_cases he : c = c₀
+    · subst he
+      rw [bump_neg_one, if_pos rfl]
+      omega
+    · rw [bump_ne _ _ he, if_neg he]
+      omega
+  · intro p hh hc
+    show b.chan (Chan.wire p hh) + pipeCount s (Chan.wire p hh)
+      + recvdOf sk b (Chan.wire p hh) = sentOf sk b (Chan.wire p hh)
+    have h0 := hm.flow_wire p hh hc
+    rw [hr.chan, hr.sent _ hc, hr.recvd _ hc]
+    by_cases he : Chan.wire p hh = c₀
+    · rw [he] at h0 ⊢
+      rw [bump_neg_one, if_pos rfl]
+      omega
+    · rw [bump_ne _ _ he, if_neg he]
+      omega
+
+/-- One send into an INTERNAL channel preserves the elastic ground
+facts. Stated on the raw occupancy/count equations rather than
+`SendStep` so the walk-fire arm (whose Steps fact is chan-free) can
+call it without minting the floor-capacity field it does not need. -/
+theorem EMuxInv.send {s : MState} {b : State} {c₀ : Chan}
+    {hist' : Party → List MObs}
+    (hm : EMuxInv sk s) (hL' : InvL sk .impl b)
+    (hw₀ : isWire c₀ = false)
+    (hchan : b.chan = bump s.base.chan c₀ 1)
+    (hsent : ∀ c ∈ allChans sk,
+      sentOf sk b c = sentOf sk s.base c + (if c = c₀ then 1 else 0))
+    (hrecv : ∀ c ∈ allChans sk, recvdOf sk b c = recvdOf sk s.base c) :
+    EMuxInv sk { s with base := b, hist := hist' } := by
+  refine ⟨hL', ?_, ?_, hm.pipe_wire⟩
+  · intro c hc hw
+    show b.chan c + recvdOf sk b c = sentOf sk b c
+    have h0 := hm.flow_int c hc hw
+    rw [hchan, hsent c hc, hrecv c hc]
+    by_cases he : c = c₀
+    · subst he
+      rw [bump_one, if_pos rfl]
+      omega
+    · rw [bump_ne _ _ he, if_neg he]
+      omega
+  · intro p hh hc
+    have hne : Chan.wire p hh ≠ c₀ := by
+      intro he
+      rw [← he] at hw₀
+      simp [isWire] at hw₀
+    show b.chan (Chan.wire p hh) + pipeCount s (Chan.wire p hh)
+      + recvdOf sk b (Chan.wire p hh) = sentOf sk b (Chan.wire p hh)
+    rw [hchan, hsent _ hc, hrecv _ hc, bump_ne _ _ hne, if_neg hne]
+    exact hm.flow_wire p hh hc
+
+/-- The push-side assembly: the sender's cursor advance raises the
+pushed stream's producer count by exactly the frame the pipe gains, so
+`flow_wire` balances; nothing internal moves. -/
+theorem EMuxInv.push_assemble {s : MState} {b : State} {p : Party}
+    {h : Nat}
+    (hm : EMuxInv sk s) (hL' : InvL sk .impl b)
+    (hchan : b.chan = s.base.chan)
+    (hsw : ∀ q g, Chan.wire q g ∈ allChans sk →
+      sentOf sk b (Chan.wire q g) = sentOf sk s.base (Chan.wire q g)
+        + (if q = p ∧ g = h then 1 else 0))
+    (hsint : ∀ c ∈ allChans sk, isWire c = false →
+      sentOf sk b c = sentOf sk s.base c)
+    (hrecv : ∀ c ∈ allChans sk, recvdOf sk b c = recvdOf sk s.base c) :
+    EMuxInv sk { base := b
+                 pipe := fun q => if q == p
+                   then s.pipe q ++ [Chan.wire p h] else s.pipe q
+                 hist := recordObs s.hist p (.pushed h) } := by
+  refine ⟨hL', ?_, ?_, ?_⟩
+  · intro c hc hw
+    show b.chan c + recvdOf sk b c = sentOf sk b c
+    rw [hchan, hsint c hc hw, hrecv c hc]
+    exact hm.flow_int c hc hw
+  · intro q g hc
+    have hpc : (if (q == p) = true
+          then s.pipe q ++ [Chan.wire p h] else s.pipe q).count
+            (Chan.wire q g)
+        = (s.pipe q).count (Chan.wire q g)
+          + (if q = p ∧ g = h then 1 else 0) := by
+      by_cases hq : q = p
+      · subst hq
+        rw [if_pos (by simp), List.count_append]
+        by_cases hg : g = h
+        · subst hg
+          rw [if_pos ⟨rfl, rfl⟩]
+          simp
+        · rw [if_neg (fun hcon => hg hcon.2), List.count_cons,
+            List.count_nil,
+            if_neg (by
+              simp only [beq_iff_eq, Chan.wire.injEq]
+              exact fun hcon => hg hcon.2.symm)]
+      · rw [if_neg (by simp [hq]), if_neg (fun hcon => hq hcon.1)]
+        omega
+    show b.chan (Chan.wire q g)
+        + (if (q == p) = true
+            then s.pipe q ++ [Chan.wire p h] else s.pipe q).count
+              (Chan.wire q g)
+        + recvdOf sk b (Chan.wire q g) = sentOf sk b (Chan.wire q g)
+    rw [hchan, hsw q g hc, hrecv _ hc, hpc]
+    have h0 := hm.flow_wire q g hc
+    have hpcs : pipeCount s (Chan.wire q g)
+        = (s.pipe q).count (Chan.wire q g) := rfl
+    rw [hpcs] at h0
+    omega
+  · intro q c hc
+    have hc' : c ∈ (if (q == p) = true
+        then s.pipe q ++ [Chan.wire p h] else s.pipe q) := hc
+    by_cases hq : q = p
+    · subst hq
+      rw [if_pos (by simp)] at hc'
+      rcases List.mem_append.mp hc' with hold | hnew
+      · exact hm.pipe_wire q c hold
+      · exact ⟨h, List.mem_singleton.mp hnew⟩
+    · rw [if_neg (by simp [hq])] at hc'
+      exact hm.pipe_wire q c hc'
+
+-- ================================================ the preservation sweep
+
+/-- Every enabled base arm preserves the elastic ground facts: the
+23-arm dispatch through the Steps files, assembling `EMuxInv`'s three
+flow-side fields where the stage-F sweep assembled `MuxInv`'s eight. -/
+theorem eMuxInv_base (hwf : sk.wellFormed = true) {a : Action}
+    {s s' : MState} (hstep : applyBase sk .impl a s = some s')
+    (hm : EMuxInv sk s) : EMuxInv sk s' := by
+  obtain ⟨hnf, b, hb, hs'⟩ := applyBase_inv hstep
+  have hL := hm.invl
+  subst hs'
+  cases a with
+  | iopenChoose o =>
+      cases o with
+      | wire =>
+          obtain ⟨hL', hq, -, -, -⟩ := step_iopenChoose_wire hb hL
+          exact hm.quiet hL' hq
+      | query =>
+          obtain ⟨hL', hq, -⟩ := step_iopenChoose_query hb hL
+          exact hm.quiet hL' hq
+  | iopenFire =>
+      have hch : s.base.iopenCh = some .query := by
+        rw [Model.apply] at hb
+        cases hio : s.base.iopenCh with
+        | none => rw [hio] at hb; cases hb
+        | some o =>
+            cases o with
+            | wire =>
+                exfalso
+                rw [isWireFire, hio] at hnf
+                simp at hnf
+            | query => rfl
+      obtain ⟨hL', hsend, -⟩ := step_iopenFire_query hch hb hL
+      exact hm.send hL' rfl hsend.chan hsend.sent hsend.recvd
+  | ropenRecv =>
+      obtain ⟨hL', hr, -⟩ := step_ropenRecv hb hL
+      exact hm.recv hL' hr
+  | ropenChoose o =>
+      cases o with
+      | wire =>
+          obtain ⟨hL', hq, -, -, -⟩ := step_ropenChoose_wire hb hL
+          exact hm.quiet hL' hq
+      | res =>
+          obtain ⟨hL', hq, -⟩ := step_ropenChoose_res hb hL
+          exact hm.quiet hL' hq
+      | query =>
+          obtain ⟨hL', hq, -⟩ := step_ropenChoose_query hb hL
+          exact hm.quiet hL' hq
+  | ropenFire =>
+      have hch : s.base.ropenCh = some .res
+          ∨ s.base.ropenCh = some .query := by
+        rw [Model.apply] at hb
+        cases hro : s.base.ropenCh with
+        | none => rw [hro] at hb; cases hb
+        | some o =>
+            cases o with
+            | wire =>
+                exfalso
+                rw [isWireFire, hro] at hnf
+                simp at hnf
+            | res => exact Or.inl rfl
+            | query => exact Or.inr rfl
+      rcases hch with hch | hch
+      · obtain ⟨hL', hsend, -⟩ := step_ropenFire_res hch hb hL
+        exact hm.send hL' rfl hsend.chan hsend.sent hsend.recvd
+      · obtain ⟨hL', hsend, -⟩ := step_ropenFire_query hch hb hL
+        exact hm.send hL' rfl hsend.chan hsend.sent hsend.recvd
+  | walkRecvWire pk =>
+      obtain ⟨hL', hr, -⟩ := step_walkRecvWire hwf pk hb hL
+      exact hm.recv hL' hr
+  | walkRecvAsked pk =>
+      obtain ⟨hL', hr, -⟩ := step_walkRecvAsked hwf pk hb hL
+      exact hm.recv hL' hr
+  | walkCommit pk o =>
+      cases o with
+      | wire i =>
+          obtain ⟨hL', hq, -, -, -, -⟩ := step_walkCommit_wire hwf pk i hb hL
+          exact hm.quiet hL' hq
+      | res i =>
+          obtain ⟨hL', hq, -⟩ := step_walkCommit_res pk i hb hL
+          exact hm.quiet hL' hq
+      | query i =>
+          obtain ⟨hL', hq, -⟩ := step_walkCommit_query pk i hb hL
+          exact hm.quiet hL' hq
+      | parent =>
+          obtain ⟨hL', hq, -⟩ := step_walkCommit_parent pk hb hL
+          exact hm.quiet hL' hq
+  | walkFire pk =>
+      -- decompose the fire; the wire obligation is barred by `hnf`
+      simp only [Model.apply] at hb
+      split at hb
+      next o hcm =>
+        split at hb
+        case isFalse => cases hb
+        case isTrue hg =>
+          simp only [Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq]
+            at hg
+          obtain ⟨⟨hmem, hph2⟩, -⟩ := hg
+          have hmem' : pk ∈ sk.walkKeys := by simpa using hmem
+          have hnw : ∀ i, o ≠ Oblig.wire i := by
+            intro i hcon
+            subst hcon
+            rw [isWireFire, hcm] at hnf
+            cases hnf
+          injection hb with hbeq
+          obtain ⟨hL', hsent, hrecv, -, -, -⟩ :=
+            step_fire (s' := setWalk s.base pk
+              (normWalk sk pk.2 (fireOblig (s.base.walk pk) o)))
+              hwf pk o hmem' hph2 hcm rfl hL
+          have hbt : b = { setWalk s.base pk
+              (normWalk sk pk.2 (fireOblig (s.base.walk pk) o)) with
+              chan := bump s.base.chan (obligChan pk o) 1 } := by
+            rw [← hbeq]
+            rfl
+          have hL'' : InvL sk .impl b := by
+            rw [hbt]
+            exact InvL.chan_blind hL'
+          refine hm.send hL'' (isWire_obligChan_nonwire pk hnw) ?_ ?_ ?_
+          · rw [hbt]
+          · intro c hc
+            rw [hbt, sentOf_chan_blind]
+            exact hsent c hc
+          · intro c hc
+            rw [hbt, recvdOf_chan_blind]
+            exact hrecv c hc
+      next hcm => cases hb
+  | walkCloseWire pk =>
+      obtain ⟨hL', hq, -⟩ := step_walkCloseWire hwf pk hb hL
+      exact hm.quiet hL' hq
+  | walkCloseAsked pk =>
+      obtain ⟨hL', hq, -⟩ := step_walkCloseAsked hwf pk hb hL
+      exact hm.quiet hL' hq
+  | asmRecvRes pk =>
+      obtain ⟨hL', hr, -⟩ := step_asmRecvRes hwf pk hb hL
+      exact hm.recv hL' hr
+  | asmRecvLevel pk =>
+      obtain ⟨hL', hr, -⟩ := step_asmRecvLevel hwf pk hb hL
+      exact hm.recv hL' hr
+  | asmSend pk =>
+      obtain ⟨hL', hsend, -⟩ := step_asmSend hwf pk hb hL
+      refine hm.send hL' ?_ hsend.chan hsend.sent hsend.recvd
+      rw [Skel.asmOutChan]
+      split
+      · rfl
+      · split <;> rfl
+  | asmClose pk =>
+      obtain ⟨hL', hq, -⟩ := step_asmClose hwf pk hb hL
+      exact hm.quiet hL' hq
+  | absorbRecvWire =>
+      obtain ⟨hL', hr, -⟩ := step_absorbRecvWire hwf hb hL
+      exact hm.recv hL' hr
+  | absorbRecvAsked =>
+      obtain ⟨hL', hr, -⟩ := step_absorbRecvAsked hb hL
+      exact hm.recv hL' hr
+  | absorbSend =>
+      obtain ⟨hL', hsend, -⟩ := step_absorbSend hb hL
+      exact hm.send hL' rfl hsend.chan hsend.sent hsend.recvd
+  | absorbCloseWire =>
+      obtain ⟨hL', hq, -⟩ := step_absorbCloseWire hb hL
+      exact hm.quiet hL' hq
+  | absorbCloseAsked =>
+      obtain ⟨hL', hq, -⟩ := step_absorbCloseAsked hb hL
+      exact hm.quiet hL' hq
+  | finRet =>
+      obtain ⟨hL', hr, -⟩ := step_finRet hb hL
+      exact hm.recv hL' hr
+  | finRes =>
+      obtain ⟨hL', hr, -⟩ := step_finRes hb hL
+      exact hm.recv hL' hr
+  | finRets =>
+      obtain ⟨hL', hr, -⟩ := step_finRets hb hL
+      exact hm.recv hL' hr
+
+/-- A successful push preserves the elastic ground facts. -/
+theorem eMuxInv_firePush (hwf : sk.wellFormed = true) {C : Nat}
+    {p : Party} {h : Nat} {s s' : MState}
+    (hfp : firePush sk C p h s = some s') (hm : EMuxInv sk s) :
+    EMuxInv sk s' := by
+  simp only [firePush] at hfp
+  split at hfp
+  case isFalse => cases hfp
+  case isTrue hroom =>
+    split at hfp
+    · -- the opening stream
+      next hr =>
+      have hr' : h = sk.rootH := by simpa using hr
+      subst hr'
+      cases p with
+      | I =>
+          cases hch : s.base.iopenCh with
+          | none => rw [hch] at hfp; cases hfp
+          | some o =>
+              cases o with
+              | query => rw [hch] at hfp; cases hfp
+              | wire =>
+                  rw [hch] at hfp
+                  injection hfp with hs'
+                  obtain ⟨hL', hsw, hsint, hrecv, -, -, -⟩ :=
+                    iopen_fire_facts hch hm.invl
+                  subst hs'
+                  exact hm.push_assemble hL' rfl
+                    (fun q g _ => hsw q g)
+                    (fun c _ hw => hsint c hw)
+                    (fun c _ => hrecv c)
+      | R =>
+          cases hch : s.base.ropenCh with
+          | none => rw [hch] at hfp; cases hfp
+          | some o =>
+              cases o with
+              | query => rw [hch] at hfp; cases hfp
+              | res => rw [hch] at hfp; cases hfp
+              | wire =>
+                  rw [hch] at hfp
+                  injection hfp with hs'
+                  obtain ⟨hL', hsw, hsint, hrecv, -, -, -⟩ :=
+                    ropen_fire_facts hch hm.invl
+                  subst hs'
+                  exact hm.push_assemble hL' rfl
+                    (fun q g _ => hsw q g)
+                    (fun c _ hw => hsint c hw)
+                    (fun c _ => hrecv c)
+    · -- a walk stream
+      next hr =>
+      split at hfp
+      next i hcm =>
+        split at hfp
+        case isFalse => cases hfp
+        case isTrue hg =>
+          simp only [Bool.and_eq_true] at hg
+          obtain ⟨hcon, hph⟩ := hg
+          have hmem' : (p, h) ∈ sk.walkKeys :=
+            (List.contains_iff_mem ..).mp hcon
+          have hph2 : (s.base.walk (p, h)).phase = 2 := by
+            simpa using hph
+          injection hfp with hs'
+          obtain ⟨hL', hsent, hrecv, hchan, -, -⟩ :=
+            step_fire (s' := setWalk s.base (p, h)
+              (normWalk sk h (fireOblig (s.base.walk (p, h))
+                (.wire i))))
+            hwf (p, h) (.wire i) hmem' hph2 hcm rfl hm.invl
+          subst hs'
+          refine hm.push_assemble hL' hchan ?_
+            (fun c hc hw => ?_) (fun c hc => hrecv c hc)
+          · intro q g hc
+            rw [hsent _ hc]
+            congr 1
+            rw [show obligChan (p, h) (Oblig.wire i) = Chan.wire p h
+              from rfl]
+            by_cases hqg : q = p ∧ g = h
+            · obtain ⟨rfl, rfl⟩ := hqg
+              rw [if_pos rfl, if_pos ⟨rfl, rfl⟩]
+            · have hne : Chan.wire q g ≠ Chan.wire p h := by
+                intro hcon2
+                apply hqg
+                have h1 := congrArg wireParty hcon2
+                have h2 := congrArg wireHeight hcon2
+                exact ⟨h1, h2⟩
+              rw [if_neg hne, if_neg hqg]
+          · have hne : c ≠ obligChan (p, h) (Oblig.wire i) := by
+              intro hcon2
+              rw [hcon2] at hw
+              simp [isWire, obligChan, wireOut] at hw
+            rw [hsent _ hc, if_neg hne]
+            omega
+      next hcm => cases hfp
+
+/-- The elastic delivery preserves the ground facts: the FIFO head
+moves from the pipe term of `flow_wire` to the cell term, everything
+else framed — the arm whose slot guard the elastic semantics dropped,
+and whose invariant delta was trivial all along (module doc). -/
+theorem eMuxInv_deliver {p : Party} {s s' : MState}
+    (hstep : deliverStepE p s = some s') (hm : EMuxInv sk s) :
+    EMuxInv sk s' := by
+  unfold deliverStepE at hstep
+  split at hstep
+  next c rest hp =>
+    injection hstep with hs'
+    obtain ⟨g, rfl⟩ := hm.pipe_wire p c (by rw [hp]; exact List.mem_cons_self ..)
+    subst hs'
+    refine ⟨InvL.chan_blind hm.invl, ?_, ?_, ?_⟩
+    · intro c' hc' hw'
+      have hne : c' ≠ Chan.wire p g := by
+        intro he
+        rw [he] at hw'
+        cases hw'
+      show bump s.base.chan (Chan.wire p g) 1 c'
+          + recvdOf sk _ c' = sentOf sk _ c'
+      rw [bump_ne _ _ hne, recvdOf_chan_blind, sentOf_chan_blind]
+      exact hm.flow_int c' hc' hw'
+    · intro q hh hc'
+      have h0 := hm.flow_wire q hh hc'
+      have hpcount : pipeCount s (Chan.wire q hh)
+          = (s.pipe q).count (Chan.wire q hh) := rfl
+      rw [hpcount] at h0
+      show bump s.base.chan (Chan.wire p g) 1 (Chan.wire q hh)
+          + (if (q == p) = true then rest else s.pipe q).count
+              (Chan.wire q hh)
+          + recvdOf sk { s.base with
+              chan := bump s.base.chan (Chan.wire p g) 1 } (Chan.wire q hh)
+          = sentOf sk { s.base with
+              chan := bump s.base.chan (Chan.wire p g) 1 } (Chan.wire q hh)
+      rw [recvdOf_chan_blind, sentOf_chan_blind]
+      by_cases hq : q = p
+      · subst hq
+        rw [if_pos (by simp)]
+        rw [hp, List.count_cons] at h0
+        by_cases hg : Chan.wire q hh = Chan.wire q g
+        · rw [hg] at h0 ⊢
+          rw [bump_one]
+          rw [if_pos (by simp)] at h0
+          omega
+        · rw [bump_ne _ _ hg]
+          rw [if_neg (by
+            simp only [beq_iff_eq]
+            exact fun hcon => hg hcon.symm)] at h0
+          omega
+      · have hne : Chan.wire q hh ≠ Chan.wire p g := by
+          intro hcon
+          apply hq
+          exact congrArg wireParty hcon
+        rw [if_neg (by simp [hq]), bump_ne _ _ hne]
+        exact h0
+    · intro q c' hc'
+      have hc'' : c' ∈ (if (q == p) = true then rest else s.pipe q) := hc'
+      by_cases hq : q = p
+      · subst hq
+        rw [if_pos (by simp)] at hc''
+        exact hm.pipe_wire q c'
+          (by rw [hp]; exact List.mem_cons_of_mem _ hc'')
+      · rw [if_neg (by simp [hq])] at hc''
+        exact hm.pipe_wire q c' hc''
+  next => cases hstep
+
+/-- Every elastic step preserves the ground facts, under every
+strategy pair: the strategy only selects which pushes happen, never
+what a step does. -/
+theorem eMuxInv_step (hwf : sk.wellFormed = true) {C : Nat}
+    {σI σR : Strategy} {a : MAction} {s s' : MState}
+    (hstep : applyE sk .impl C σI σR a s = some s')
+    (hm : EMuxInv sk s) : EMuxInv sk s' := by
+  cases a with
+  | base a =>
+      exact eMuxInv_base hwf
+        (show applyBase sk .impl a s = some s' from hstep) hm
+  | push p =>
+      have hstep' : (match (match p with | .I => σI | .R => σR)
+            sk (s.hist p) with
+          | some h => firePush sk C p h s
+          | none => none) = some s' := hstep
+      cases hσ : (match p with | .I => σI | .R => σR) sk (s.hist p) with
+      | none => rw [hσ] at hstep'; cases hstep'
+      | some h =>
+          rw [hσ] at hstep'
+          exact eMuxInv_firePush hwf hstep' hm
+  | deliver p =>
+      exact eMuxInv_deliver
+        (show deliverStepE p s = some s' from hstep) hm
+
+/-- The elastic ground facts hold at every elastically reachable
+state: the preservation sweep the seam hypothesis stood in for, now
+discharged (module doc). -/
+theorem eMuxInv_reachable (hwf : sk.wellFormed = true) {C : Nat}
+    {σI σR : Strategy} {s : MState}
+    (hr : EMReachable sk .impl C σI σR s) : EMuxInv sk s := by
+  induction hr with
+  | init => exact eMuxInv_init sk
+  | step a _ hstep ih => exact eMuxInv_step hwf hstep ih
 
 -- =============================================== push-guard completeness
 
@@ -487,18 +1042,18 @@ induction (module doc; design/eager-absorption.md §7.4: receiver
 parking supplies the buffer a credit window grants explicitly, and at
 unbounded depth no sender inference is needed at all).
 
-The `hinv` hypothesis is the invariant seam (module doc): the ground
-facts along elastic runs, whose preservation induction is the stage-F
-obligation's elastic twin. `eMuxInv_init` certifies its base case;
-nothing else about the composition is assumed. -/
+Unconditional (T10, MUX-PROGRESS §3.4b's secondary deliverable): the
+former explicit `hinv` seam is discharged by `eMuxInv_reachable`, the
+stage-F sweep's elastic twin. Nothing about the composition is
+assumed beyond the class hypotheses. -/
 theorem elastic_deadlock_free (sk : Skel) (hwf : sk.wellFormed = true)
     (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel) {C : Nat} (hC : 1 ≤ C)
     {σI σR : Strategy}
-    (hWI : EWorkConserving .I σI) (hWR : EWorkConserving .R σR)
-    (hinv : ∀ s, EMReachable sk .impl C σI σR s → EMuxInv sk s) :
+    (hWI : EWorkConserving .I σI) (hWR : EWorkConserving .R σR) :
     MuxDeadlockFreeE sk .impl C σI σR := by
   intro s hr
-  exact elastic_no_stuck sk hwf hm0 hC hWI hWR hr (hinv s hr)
+  exact elastic_no_stuck sk hwf hm0 hC hWI hWR hr
+    (eMuxInv_reachable hwf hr)
 
 -- ============================================== the executable pin
 

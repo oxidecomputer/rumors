@@ -926,8 +926,10 @@ capacity-UNIVERSAL corner of the design space — deadlock freedom at
 any `capLevel ≥ 1` under the parent-early `d5` discipline the weave
 uses (not the encoder) — is `deadlock_free_d5`
 (design/parent-placement.md has the trade). Wider production
-capacities are covered by the capacity-monotonicity assumption
-recorded there (§6). -/
+capacities are covered by `deadlock_free_wide` (Proofs/Wide.lean):
+this theorem at every pointwise capacity vector κ ≥ `sk.cap`, the
+former capacity-monotonicity assumption made kernel (AUDIT-NOTES.md
+A7). -/
 theorem deadlock_free (hwf : sk.wellFormed = true)
     (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel) :
     StreamingMirror.DeadlockFree sk .impl := by

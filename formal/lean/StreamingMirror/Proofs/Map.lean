@@ -25,6 +25,14 @@ into the reachability closure. The two proofs share every layer below
 the trace family and differ exactly where the two encoder orders do:
 the placement of each scope's parent summary.
 
+The flagship additionally holds at every pointwise-widened capacity
+vector: `Sched.deadlock_free_wide` (Proofs/Wide.lean) — `applyW κ`
+beside the untouched `apply`, the track-G `InvPW` progress engine
+consumed verbatim, the preservation sweep assembled from the mux
+campaign's Steps extraction via chan-doctored companions, termination
+transferred because ρ is chan-blind. AUDIT-NOTES.md A7's resolution;
+mux-notes-phase2/t10-audit.md is its scoping audit.
+
 # The shared foundation (order of reading)
 
 1. **Model layer** — Basic, Skel, Model, Invariant, Instances,
@@ -144,9 +152,11 @@ two proofs differ exactly where the two encoders do.
   terminal under both modes, the adversarial drains (margin-0 `.impl`
   must complete; sub-margin stalls must reproduce), and the pinned
   skeletons and capLevel boundary matrix.
-- **Assumed** (named, not proven): capacity monotonicity for
-  wider-than-verified channel capacities, and the modeled-world
-  premises — see Statement.lean's "Assumed, not proven" section.
+- **Assumed** (named, not proven): capacity monotonicity for the `d5`
+  corner only (the `.impl` flagship's widening is
+  `Sched.deadlock_free_wide`, Proofs/Wide.lean), and the
+  modeled-world premises — see Statement.lean's "Assumed, not proven"
+  section.
 -/
 
 namespace StreamingMirror.ProofMap

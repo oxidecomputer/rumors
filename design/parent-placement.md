@@ -190,9 +190,13 @@ interleaving-sensitivity questions dissolve; the tight floor remains
 characterized by the kernel counterexample and the executable pins of
 §2 rather than carried through the kernel proof. Production
 capacities only widen channels; coverage of widened configurations is
-by capacity monotonicity, **[assumed]** informally with the Kahn
-argument: with per-walk order fixed, each process is deterministic in
+by capacity monotonicity — **[proven]** for this flagship since
+2026-07-21 (`Sched.deadlock_free_wide`, formal/lean/StreamingMirror/
+Proofs/Wide.lean: deadlock freedom and the run-length bound at every
+pointwise capacity vector κ ≥ the floor; AUDIT-NOTES.md A7). The Kahn
+argument (with per-walk order fixed, each process is deterministic in
 its I/O behavior, and in such process networks added buffer capacity
-only relaxes back-pressure and cannot introduce deadlock. The `d5`
+only relaxes back-pressure and cannot introduce deadlock) remains the
+informal coverage for the `d5` corner only. The `d5`
 theorem is retained as the capacity-universal counterpart documenting
 the other corner. Campaign state of record: `formal/PROGRESS.md` §7.
