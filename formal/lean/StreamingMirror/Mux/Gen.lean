@@ -176,21 +176,23 @@ canonical schedule (MUX-ADJUDICATION §1.3's π_d, run executably).
 
 `pushList (piOrder sk d)` is the demand-order pusher — T5's
 `ofSchedule (demandOrder …)` run exactly, not the state-feedback
-proxy. It completes the pinned and wedge families at every C ≥ 1, but
-it is NOT deadlock-free on the margin-0 class: muxprobe's `rand2`
-instance wedges it at every C (the π-wedge finding, cross-confirmed in
-the Python probe — see `Muxprobe.piWedge`), so the "precomputed form
-of the state-feedback oracle" reading of §1.3 is executably false and
-T5 must take the adjudication's named fallback. The projection stays
-here, in the executable tier, precisely because it is now a refuted
-candidate: the matrix keeps both its positive shape and its wedge
-pinned.
+proxy. Matrix-tier evidence (the muxprobe golden matrix, C ∈ {1, 2, 4};
+the kernel form is `static_oracle_jams` at C = 1): it completes the
+pinned and wedge families at every matrix capacity, but it is NOT
+deadlock-free on the margin-0 class — the committed `rand2` instance
+wedges it at every matrix capacity (the π-wedge finding,
+cross-confirmed in the Python probe — see `Muxprobe.piWedge`), so the
+"precomputed form of the state-feedback oracle" reading of §1.3 is
+executably false and T5 takes the adjudication's fallback slot. The
+projection stays here, in the executable tier, precisely because it is
+a refuted candidate: the matrix keeps both its positive shape and its
+wedge pinned.
 
-Named `piOrder` (π_d as a frame list): the kernel twin is
-`demandOrder` (Oracle/Controls.lean, where `static_oracle_jams`
-consumes it), and this executable copy ceded the name at the stage-3
-merge — Muxprobe opens both namespaces, and the theorem-bearing
-definition keeps the adjudication's vocabulary. -/
+Named `piOrder` (π_d as a frame list): the theorem-bearing definition
+is `demandOrder` (Oracle/Controls.lean, where `static_oracle_jams`
+consumes it) and carries the adjudication's vocabulary; the two are
+one definition (`piOrder_eq_demandOrder`, Mux/Proofs/Twins.lean — the
+drift guard), and Muxprobe opens both namespaces. -/
 def piOrder (sk : Skel) (d : Party) : List Nat :=
   (Sched.scheduleE sk).filterMap fun e =>
     match e with

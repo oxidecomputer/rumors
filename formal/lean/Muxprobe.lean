@@ -19,14 +19,15 @@ pushfirst = sender-runs-ahead). Expected shape, asserted:
   member's jam verdict is C-FLAT — the mechanism is slot occupation +
   FIFO burial, not pipe exhaustion (MUX-ADJUDICATION §1.2 point 2);
 - the demand-order pusher completes the pinned and wedge families at
-  every C ≥ 1 (C₀ = 1 included — §1.3's positive SHAPE, tier 1) but
-  WEDGES on the committed `rand2` instance at every C: the π-wedge
-  finding (see `piWedge`) — π_d run exactly is NOT a live oracle.
-  [Stale-header repair, phase 4: T5 LANDED with the static SEND
-  projection (`oracle` = `sendProj` indexed by own flush count,
-  Oracle/Order.lean) — neither π_d nor a state-feedback form — and
-  the oracle rows below are its executable coverage: it must complete
-  EVERY matrix skeleton, `rand2` included, at every C;]
+  every matrix capacity (C = 1, the tight one, included — §1.3's
+  positive SHAPE, tier 1) but WEDGES on the committed `rand2`
+  instance at every matrix capacity: the π-wedge finding (see `piWedge`) — π_d run
+  exactly is NOT a live oracle. T5's oracle of record is instead the
+  static SEND projection (`oracle` = `sendProj` indexed by own flush
+  count, Oracle/Order.lean) — neither π_d nor a state-feedback
+  form — and the oracle rows below are its executable coverage: it
+  must complete EVERY matrix skeleton, `rand2` included, at every
+  matrix capacity;
 - along every bottomMostReady cell, every commit consultation is a
   SINGLETON (`commitScan`): the executable echo of `commit_totality`
   (T1), reconciling the Python probe's fused commit+push with this
@@ -189,6 +190,13 @@ def expectations (cells : Array Cell) : Array String := Id.run do
        (wedgeFam 6).fan == wedge.fan &&
        (wedgeFam 6).capLevel == wedge.capLevel) then
     errs := errs.push "wedgeFam 6 diverges from the wedge witness literal"
+  -- provenance: the kernel piWedge literal (Oracle/Controls.lean) IS the
+  -- asserted genSkelM0 2859 materialization (phase-4 consider #12)
+  if !(decide (Mux.piWedge.scopes = (genSkelM0 2859).scopes) &&
+       Mux.piWedge.rootH == (genSkelM0 2859).rootH &&
+       Mux.piWedge.fan == (genSkelM0 2859).fan &&
+       Mux.piWedge.capLevel == (genSkelM0 2859).capLevel) then
+    errs := errs.push "piWedge diverges from genSkelM0 2859"
   -- no cell may exhaust fuel: every run must decide terminal-or-stuck
   for x in cells do
     if x.res.outcome == .fuel then

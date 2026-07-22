@@ -68,9 +68,10 @@ def ofSchedule (ord : List Nat) : Strategy := fun _ tr =>
 /-- Direction `d`'s wire frames in receiver-consumption order: the
 RECEIVE projection of the canonical schedule, as stream heights —
 MUX-ADJUDICATION §1.3's demand order π_d, the oracle form the P2 gate
-executably refuted (`Gen.piOrder` is the executable-tier twin, which
-ceded this name at the stage-3 merge — the theorem-bearing definition
-keeps the adjudication's vocabulary).
+executably refuted (`Gen.piOrder` is the executable-tier twin,
+definitionally equal: `piOrder_eq_demandOrder`, Mux/Proofs/Twins.lean;
+the theorem-bearing definition carries the adjudication's
+vocabulary).
 
 Retained as a refuted candidate: `static_oracle_jams` pins its failure
 in the kernel, and `sendProj` (Oracle/Order.lean) is the projection
