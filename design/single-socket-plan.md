@@ -18,6 +18,24 @@ stubbed, in the campaign's queue — reconciles with S1 (§3); σ\*-causal
 (the local witness whose closure S1 transcribes) in flight; T5/T6 in
 flight. **No stage waits on any of these** — see §3 for the stance.
 
+## 0a. Standing note (2026-07-22): the contingency posture
+
+Per the conclusion of record (main: `formal/doc/exposition.typ`
+@consequence; `formal/MUX-PROGRESS.md` §3e; `single-socket.md`'s
+revision of record), the `Link` contract stands as the library's
+product surface and this plan is the CONTINGENCY plan. The stages were
+built independently valuable and remain so under that posture: R0's
+decisions, R1's receiver widening and greeting window advertisement,
+and the acceptance harness benefit `link-transport` itself
+(heterogeneous-window interop on any transport; the K-dial law —
+`formal/MUX-LATENCY.md` §7 — is now the principled tuning guide for
+`Window::scopes`). S1, the σ\*ₖ engine, is the shelf's one unbuilt
+component, with its liveness theorem already landed ahead of it
+(`sigmaStarK_deadlock_free`); M1/V/L execute only if a deployment
+without multi-stream transports materializes. Stage L's gate is
+expected never to fire; that expectation is the plan succeeding, not
+stalling.
+
 ## 0. The stage DAG
 
 Edges below are **code dependencies only** — a stage needs another's

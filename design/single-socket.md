@@ -67,6 +67,28 @@ dissolved by decoding at arrival (§2). Link-transport buys all three
 from the transport; this design buys none of them from the wire. §6
 records what genuinely remains of the difference.
 
+**Revision of record (2026-07-22, per Finch's closing ruling — read
+this before §1):** the *library* is the product; `rumormill` is a
+demonstration artifact. The product surface is therefore the `Link`
+contract itself — the library *requires* independent streams and ships
+no transport; users discharge the requirement with whatever their
+environment tunes best (QUIC, HTTP/2, separate TCP connections). With
+the mux campaign complete, the conclusion of record (main:
+`formal/doc/exposition.typ`, the engineering-consequence section;
+`formal/MUX-PROGRESS.md` §3e) is that the `Link` contract STANDS:
+every kernel result brackets the same mechanism finding — a correct
+single-channel scheduler effectively re-implements per-stream
+windowing from application-level signals ([derived]; its kernel form
+is chartered as T11) — so the choice was never windowing versus not,
+but whose implementation, and the tuned implementations win on loss
+isolation, packet granularity, and decades of tuning. This document is
+accordingly the **contingency of record**, not a successor: it serves
+the library user whose environment cannot supply multi-stream
+transports. Everything below stands as designed; stage L's gate is now
+*expected never to fire*, and that is this design working as
+intended — finished, shelved, theorem-backed
+(`sigmaStarK_deadlock_free`, every T8-SPEC clause EXACT).
+
 ## 1. The end-state, and Link as scaffolding
 
 ### 1.1 The target external interface
