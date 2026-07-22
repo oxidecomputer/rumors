@@ -52,6 +52,16 @@ workspace has a recipe there; `just --list` shows them all. The tiers:
 
 ## Hard rules
 
+- Nothing in the codebase refers to code that no longer exists — no
+  "formerly", "superseded", "was removed", no deleted API names in any
+  prose. Excise or re-denominate; provenance lives in git history and
+  the design plans' decision records.
+- The model of record is uniform-hash, authenticated-honest-peer:
+  transport is pre-authenticated and authorized, and an authorized peer
+  already holds write authority over the set, so hostile-peer regimes
+  are off-model — no design or pricing argument may rest on adversary
+  economics. Violation/fail-fast machinery is a conformance bug
+  detector, not a security boundary.
 - Never let two independently-`seed`ed universes interact; within a universe,
   linearity of parties is the invariant everything rests on (see the crate
   docs' safety rules).
