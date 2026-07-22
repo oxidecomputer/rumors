@@ -93,7 +93,13 @@ pipes at any stuck candidate through the causal keystone, and the
 chase exhibits the τ-least withheld push with everything τ-below it
 performed. `hcov` supplies exactly Step 4 — the withheld frame is
 proven-demanded under the announced closure — and σ*-causal then names
-a push, refuting stuckness. -/
+a push, refuting stuckness.
+
+"Completes" is two kernel facts: no reachable stuck state (this
+theorem, given `hcov`) and no infinite run (`mux_terminating`,
+Mux/Proofs/Termination.lean — strategy-generic). Capacity is
+message-denominated; the byte caveat of record is Mux/Basic.lean's
+module doc (# The byte-denomination caveat). -/
 theorem sigmaStarCausal_deadlock_free_of_coverage
     (hwf : sk.wellFormed = true)
     (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel)

@@ -20,7 +20,9 @@ therefore THE literal conjecture of record; `C1Statement` (the legacy
 grain) is retained as an internal artifact for its landed consumers.
 
 NOTE the two grains are INCOMPARABLE, not nested — the a-fortiori
-transfer fails in BOTH directions. `LocalEq` pairs may differ in
+transfer fails in BOTH directions [derived: argued from the two
+erasures below; the per-direction kernel witness pins are phase-5
+queue, not yet landed]. `LocalEq` pairs may differ in
 announced content (answerer-side R children and `leafReqs` of announced
 scopes are `viewEnc`-erased yet frame-announced), so a charter-local
 strategy need not be legacy-local; announced-view pairs may differ in
@@ -56,9 +58,9 @@ charter-local. Each statement carries its own refutation witness.
 
 # Controls
 
-- `wedge_sigmaStar_deadlock_free`: σ* completes the impossibility
-  witness itself — the same skeleton every work-conserving pair jams —
-  by pure instantiation of T4 (no decide).
+- `wedge_sigmaStar_deadlock_free`: σ* is deadlock-free on the
+  impossibility witness itself — the same skeleton every
+  work-conserving pair jams — by pure instantiation of T4 (no decide).
 - `smokeChain_sigmaStar_completes` [decide]: the σ*-driven drain
   reaches `mterminal` in the kernel, so the strategy's executable
   spine (party inference, ledger reconstruction, closure, τ argmin) is
@@ -198,10 +200,10 @@ theorem c1_literal_false
 
 -- ========================================================= the controls
 
-/-- σ* completes the impossibility witness: the skeleton that jams
-every work-conserving pair (`wc_impossibility`) is live under
-demand-lockstep at the minimum capacity — T4 instantiated, no drain
-needed. With `Control.wedge_not_deadlockFree` this pins the trichotomy
+/-- σ* is deadlock-free on the impossibility witness: the skeleton
+that jams every work-conserving pair (`wc_impossibility`) is stuck-free
+under demand-lockstep at the minimum capacity — T4 instantiated, no
+drain needed (termination, as everywhere, is `mux_terminating`). With `Control.wedge_not_deadlockFree` this pins the trichotomy
 on one skeleton: the class hypothesis, not the topology, is what
 deadlocks. Message-denominated (Mux/Basic.lean, # The
 byte-denomination caveat). -/

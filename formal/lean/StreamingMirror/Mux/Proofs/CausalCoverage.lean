@@ -1,17 +1,18 @@
 /-
 The causal coverage layer (MUX-PROGRESS §4, the σ*-locality residue's
-liveness half): what the ANNOUNCED closure (`Mux/Causal.lean`) proves at
-a stuck, drained state — every event τ-below the chase's withheld push
-enters `inevitableA`, so the withheld frame is `demandedA` and σ*-causal
-cannot be idling.
+liveness half): the announced-closure lemma suite and the trace-grammar
+ground facts everything above it consumes — the announced layouts are
+honest prefixes of the true traces, the causal evidence at a stuck
+state is performed, and σ*-causal's pushes drain the pipes.
 
-# The plan (refute-c1 §2 re-run at the causal grain)
+# The map (refute-c1 §2 re-run at the causal grain, post-split)
 
 The omniscient liveness proof (Proofs/SigmaStarLive.lean) runs: push
 certificates drain the pipes through the keystone (Step 1), the chase
 names the τ-least withheld push (Steps 2–3), and the coverage induction
-proves it demanded (Step 4). This file re-runs Steps 1 and 4 with every
-closure read routed through the announced view:
+proves it demanded (Step 4). This file supplies Step 1 and the
+groundwork every later step reads, with every closure read routed
+through the announced view:
 
 - **The A-closure theory** mirrors Chase/Closure.lean verbatim: the
   saturation chain is monotone, and members invert to grounded evidence
@@ -23,9 +24,9 @@ closure read routed through the announced view:
   strategy-generic and rides the same per-arm Steps decomposition as
   `SInv`.
 - **The transcription lemmas** cash the module-doc claim of
-  Mux/Causal.lean that announced traces are literal prefixes of the
-  true `.impl` traces: each `announcedProcs` entry is a prefix of its
-  peer process's `procsE` trace, because the layouts read the true
+  Mux/Causal.lean that announced traces are literal prefixes of true
+  `.impl` traces: each `announcedProcs` entry is a prefix of a peer
+  process's `procsE` trace, because the layouts read the true
   records (`aviewOf` stores `sk.scope u` verbatim) and truncate at the
   first unannounced quantity.
 - **The causal keystone** re-runs Chase/Keystone.lean over
@@ -33,18 +34,19 @@ closure read routed through the announced view:
   closure has been performed. The grounded walls gain the receive
   ledger; the I-step trace decode routes through the announced-prefix
   property instead of `evUniv` membership.
-- **The minting ladder and coverage** re-run SigmaStarLive's Step 4:
-  at a drained stuck state every peer-trace event τ-below the withheld
-  push is announced-laid — every consulted record's minting arrival
-  sits τ-below the consulting event, walked as E1/trace-order hops up
-  the stage ladder — and then enters `inevitableA` by its own τ stage.
+- **Step 1** — `PushProvenA` certificates ride every σ*-causal push
+  (`pushProvenA_reachable`) and the pipes drain at any stuck state.
 
-The deliverable at the bottom is `causal_coverage`: at any reachable
-`mstuck` state of the σ*-causal×σ*-causal composition with pipes
-drained, the chase's withheld push is `demandedA`. CausalLive.lean
-assembles it with Steps 1–3 into `sigmaStarCausal_deadlock_free`; C1's
-charter refutation then drops its liveness hypothesis (the F3 statement
-of record becomes unconditional).
+This file's bottoms are `announcedProcs_prefix` (the announced-prefix
+property assembled over the whole family) and
+`sigmaStarCausal_pipes_empty` (Step 1's drain). Step 4 — the minting
+ladder and the coverage induction, discharged as `causalStuckCoverage`
+— lives in Proofs/CausalMint.lean, together with the unconditional
+assembly `sigmaStarCausal_deadlock_free` at its foot; CausalLive.lean
+holds the conditional assembly
+`sigmaStarCausal_deadlock_free_of_coverage` (Steps 1–3 plus the
+names-a-push inversion). C1's charter refutation is therefore
+unconditional (`c1_charter_false`, Proofs/C1.lean).
 -/
 import StreamingMirror.Mux.Causal
 

@@ -82,7 +82,8 @@ the initiator's top stream).
 Kernel-proven in Proofs/CausalCoverage.lean, Proofs/CausalLive.lean,
 and Proofs/CausalMint.lean (the liveness track, now CLOSED): the
 announced-prefix property — every `announcedProcs` trace is a literal
-prefix of its true `.impl` process trace (`announcedProcs_prefix`) —
+prefix of a true `.impl` process trace (`announcedProcs_prefix`, an
+∃-pairing against `procsE`) —
 the receive ledger (`RecvLedger`), the causal keystone (`keystoneA`),
 σ*-causal's push certificates (`pushProvenA_reachable`), Step 1's
 pipes-drain (`sigmaStarCausal_pipes_empty`), the liveness assembly
@@ -122,9 +123,13 @@ structure AView where
   kinds : List (Nat × Kind)
   deriving DecidableEq, Repr
 
-/-- The scope ids announced to party `p` by the arrivals in `tr`,
-in arrival order with multiplicity (deduplication happens at the
-record table): the positional decode of refute-c1 §1.2 —
+/-- The scope ids announced to party `p` by the arrivals in `tr`, in
+a canonical enumeration order — root branch first, then per peer
+height in stream-major position order — with multiplicity
+(deduplication happens at the record table). Deliberately NOT arrival
+order: the enumeration reads the trace only through per-stream
+delivered counts, so the view is interleaving-independent. The
+positional decode of refute-c1 §1.2 —
 
 - the opening frame announces the root, and its initiator-side arrival
   (the responder's reply rides `wire R rootH`) also mints the root's
@@ -711,8 +716,9 @@ theorem partyOf_consistentImpl {p : Party} {sk : Skel} {tr : List MObs}
 computation: its verdict factors through the announced view and the
 history, equal views rewrite, and `ConsistentImpl` pins the
 self-identification. This is the definitional half of the locality
-residue's discharge; the liveness half (the coverage re-run) is the
-recorded follow-up. -/
+residue's discharge; the liveness half landed too
+(`causalStuckCoverage`, Proofs/CausalMint.lean), making
+`sigmaStarCausal_deadlock_free` unconditional. -/
 theorem sigmaStarCausal_charterLocal (p : Party) :
     CharterLocal p sigmaStarCausal := by
   intro sk sk' tr hav hc hc'
@@ -728,10 +734,13 @@ theorem sigmaStarCausal_charterLocal (p : Party) :
 -- ==================================================== the executable pins
 
 set_option maxRecDepth 1000000 in
-/-- The σ*-causal-driven drain completes the smoke pin in the kernel:
-announce decode, census, layouts, closure, and selection all execute
-end to end — the strategy is a real scheduler, not only a proof
-object. -/
+/-- The σ*-causal-driven drain completes the smoke pin in the kernel
+(`muxCompletes`: the drain reaches `mterminal` within the stated fuel
+— completion in the literal kernel sense): announce decode, census,
+layouts, closure, and selection all execute end to end — the strategy
+is a real scheduler, not only a proof object. Capacity is
+message-denominated; the byte caveat of record is Mux/Basic.lean's
+module doc (# The byte-denomination caveat). -/
 theorem smokeChain_sigmaStarCausal_completes :
     muxCompletes Pin.smokeChain .impl 1 sigmaStarCausal sigmaStarCausal
       400 = true := by
@@ -746,9 +755,14 @@ stream, so frames 2..7 push only on closure-proven demand (every
 work-conserving pair jams here, `wc_impossibility`). This is the
 in-kernel companion of the stage-0 probe's 4,970 terminal causal runs,
 on the campaign's canonical adversarial shape. Kernel cost: minutes,
-not seconds (the closure re-derives per push decision); accepted
-because this single pin is the charter-grain strategy's liveness
-anchor until the coverage theorem lands. -/
+not seconds (the closure re-derives per push decision); with the
+coverage theorem landed (`causalStuckCoverage`,
+Proofs/CausalMint.lean) the pin stands as an executable witness
+behind `sigmaStarCausal_deadlock_free`, not as the claim's support
+(`muxCompletes` = the drain reaches `mterminal` within the stated
+fuel, completion in the literal kernel sense). Capacity is
+message-denominated; the byte caveat of record is Mux/Basic.lean's
+module doc (# The byte-denomination caveat). -/
 theorem wedge_sigmaStarCausal_completes :
     muxCompletes wedge .impl 1 sigmaStarCausal sigmaStarCausal 800
       = true := by

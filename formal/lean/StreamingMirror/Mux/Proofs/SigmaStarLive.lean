@@ -1,10 +1,13 @@
 /-
 T4 — σ* is deadlock-free (MUX-ADJUDICATION.md §3 T4; the campaign's
-centerpiece): the demand-lockstep strategy pair completes every
-well-formed margin-0 session over the single-pipe transport, at every
-capacity C ≥ 1. This is the constructive refutation of C1 as literally
-chartered — no fixed capacity, no control messages, only the right to
-idle.
+centerpiece): the demand-lockstep strategy pair is deadlock-free on
+every well-formed margin-0 session over the single-pipe transport, at
+every capacity C ≥ 1 ("completes" in the grounded sense: stuck-freedom
+here, termination via `mux_terminating`, Proofs/Termination.lean).
+This is the liveness half of C1's refutation — the charter-grain
+refutation of record is `c1_charter_false` via σ*-causal
+(Proofs/C1.lean) — with no fixed capacity, no control messages, only
+the right to idle.
 
 # The four steps (refute-c1 §2, as formalized)
 
@@ -409,8 +412,9 @@ theorem closure_coverage (hwf : sk.wellFormed = true)
 
 -- ============================================================= T4
 
-/-- T4, the campaign's centerpiece (MUX-ADJUDICATION §3; the
-constructive refutation of C1 as literally chartered): the σ*×σ*
+/-- T4, the campaign's centerpiece (MUX-ADJUDICATION §3; the liveness
+half of C1's refutation — the charter-grain refutation of record is
+`c1_charter_false` via σ*-causal, Proofs/C1.lean): the σ*×σ*
 composition is deadlock-free on the shipping encoder's class at every
 capacity C ≥ 1 per direction.
 

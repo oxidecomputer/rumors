@@ -58,11 +58,10 @@ Mux/Proofs/Termination.lean) — packaged there as
 `oracle_greedy_run_terminal`, the greedy oracle drain reaching
 `mterminal` within 2·ρ(init) steps.
 
-Capacity is denominated in messages (= scope replies); byte-level
-soundness of one-reply slots is design/streaming-wire-deadlock.md §5A's
-W = 1 structural argument, assumed at the model boundary
-(MUX-ADJUDICATION §2.5). Overlap/latency optimality is NOT claimed
-(H-c is executable-tier only). -/
+Capacity is message-denominated; the byte caveat of record is
+Mux/Basic.lean's module doc (# The byte-denomination caveat).
+Overlap/latency optimality is NOT claimed (H-c is executable-tier
+only). -/
 theorem oracle_deadlock_free (hwf : sk.wellFormed = true)
     (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel) (C : Nat) (hC : 1 ≤ C) :
     MuxDeadlockFree sk .impl C (oracle .I) (oracle .R) :=

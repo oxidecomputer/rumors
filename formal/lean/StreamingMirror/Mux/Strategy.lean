@@ -49,8 +49,10 @@ The mandatory controls are landed: `LocalEq` nondegeneracy
 Oracle/Controls.lean; the Rust same-p-tree proptest bridge in track D
 (MUX-ADJUDICATION §2.4, §4). `LocalEq`'s label-visibility residue —
 the relation is finer than session-start indistinguishability — is
-recorded on its docstring; the σ*-causal track owns the charter-honest
-`PView` re-grounding.
+recorded on its docstring; the charter-honest re-grounding landed as
+`CharterLocal` (Mux/Causal.lean, the σ*-causal track), a grain
+INCOMPARABLE to this one — Proofs/C1.lean's module doc is the finding
+of record.
 -/
 import StreamingMirror.Mux.Basic
 
@@ -188,15 +190,19 @@ fixed a held child's label ranges over {D, R-cut, absent} as a function
 of the PEER's tree (oracle-c2 §3.1's ground-truth table). So skeleton
 pairs realizable by one common p-tree exist that `LocalEq` refuses to
 relate: every `LocalEq`-related pair is indistinguishable, not
-conversely. Consequently `LocalStrategy` is a LARGER class than
-charter-local — a member may still condition on pre-announcement
-peer-possession labels — which weakens no landed refutation (a
-non-member fails a fortiori; the T9 witnesses differ only in
-`leafReqs`, erased under any honest coarsening) but means positive
-"σ is local" claims through this definition are weaker than the
-charter's sense. The charter-honest re-grounding (the `PView` class)
-is owned by the σ*-causal track per the statement-faithfulness ruling;
-this definition stays as the landed controls' vocabulary. -/
+conversely. The charter-honest re-grounding landed as `CharterLocal`
+(Mux/Causal.lean): invariance across equal ANNOUNCED views. The two
+grains are INCOMPARABLE, not nested — `LocalEq` pairs may differ in
+announced content (answerer-side R children and `leafReqs` of
+announced scopes are `viewEnc`-erased yet frame-announced), while
+announced-view pairs may differ in unannounced view structure, so the
+a-fortiori transfer fails in BOTH directions [derived; the
+per-direction witness pins are phase-5 queue — Proofs/C1.lean's
+module doc is the finding of record]. In particular refutations do
+NOT transfer: the T9 witnesses differ only in `leafReqs`, which
+`AView.recs` carries, so `oracle_not_localStrategy` says nothing
+about `CharterLocal`. This definition stays as the landed controls'
+vocabulary. -/
 def LocalEq (p : Party) (sk sk' : Skel) : Bool :=
   sk.rootH == sk'.rootH && sk.fan == sk'.fan &&
   sk.capLevel == sk'.capLevel &&
@@ -214,9 +220,11 @@ C2 oracle is then literally a `Strategy` that is NOT `LocalStrategy` —
 `oracle_not_localStrategy` (Oracle/Controls.lean) refutes it at this
 definition's full strength, `Consistent` certificates included — so
 the necessity corollary T6 is a statement about this one hypothesis.
-Membership caveat: per `LocalEq`'s label-visibility residue this class
-is larger than charter-local, so refutations transfer to the charter
-sense a fortiori while memberships do not. -/
+Grain caveat: this class is INCOMPARABLE to the charter-grain
+`CharterLocal` (Mux/Causal.lean) — neither memberships nor
+refutations transfer in either direction (Proofs/C1.lean's module doc
+records why), so every claim through this definition is about THIS
+grain only. -/
 def LocalStrategy (p : Party) (σ : Strategy) : Prop :=
   ∀ (sk sk' : Skel) (tr : List MObs), LocalEq p sk sk' = true →
     Consistent p sk tr → Consistent p sk' tr →
