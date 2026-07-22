@@ -4369,11 +4369,11 @@ private theorem tau_rcv_lt (hwf : sk.wellFormed = true) {c : Chan}
     have hmap : ([((c, false, k) : Ev), ((c, false, n) : Ev)]).Sublist
         (Sched.canon c false (Sched.proj c false (scheduleE sk)).length) := by
       unfold Sched.canon
-      exact hpairN.map _
+      simpa using hpairN.map (fun j => ((c, false, j) : Ev))
     rw [← hcanon] at hmap
     refine hmap.trans ?_
     unfold Sched.proj
-    exact List.filter_sublist _
+    exact List.filter_sublist
   exact ⟨hpair.mem (List.mem_cons_self ..),
     Sched.pos_lt_of_pair (Sched.scheduleE_count_le_oneE sk hwf) hpair⟩
 
@@ -4541,7 +4541,8 @@ theorem stuck_coverage_arrears {B : Chan → Nat}
           = sentOf sk s.base (Chan.wire p hh) - 1
       · rw [heq]
         exact ⟨hrmem, hrτ⟩
-      · obtain ⟨hm', hlt'⟩ := tau_rcv_lt hwf hrmem (by omega)
+      · obtain ⟨hm', hlt'⟩ := tau_rcv_lt
+          (k := sentOf sk s.base (Chan.wire p hh) - K) hwf hrmem (by omega)
         exact ⟨hm', by omega⟩
     have hfl := flatten_of_own_wire_recv W p hjmem hjτ
     have hcov := causal_closure_coverage W p
