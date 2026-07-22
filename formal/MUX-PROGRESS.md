@@ -1215,12 +1215,14 @@ realized marker.
   REORGANIZATION: formal/README.md rewritten as the directory of
   record (two campaigns, where-to-start by persona, the file map with
   the epistemic key, trust posture in brief; the base artifact's
-  record kept as written in part II). Physical moves: NONE — judged
-  against the citation graph, the flat layout plus the directory
-  README achieves navigability, and every substantial file is cited by
-  doc/*.typ (concurrently under revision), so moves are both
-  unwarranted and presently forbidden; no deferred move plan is
-  recommended.
+  record kept as written in part II). Physical moves: NONE, on the
+  merits — the campaign docs are cited by NAME from dozens of Lean
+  docstrings (robust to location; the MUX- prefix is the namespace),
+  path-form citations exist in design-doc copies on sibling branches
+  this pass cannot update (moves would mint cross-branch ghosts),
+  AUDIT-NOTES spans both campaigns so the clean grouping does not
+  exist, and the directory README supplies the navigation a move
+  would have bought. No deferred move plan.
 
 - **2026-07-22** Phase 6 (document) complete: narrative part two and
   exposition act two landed, compile-verified; the campaign plan's
