@@ -273,3 +273,9 @@ change.
 - lean-model reader: `lake build` warm ≈ 40s was inferred from olean
   mtimes, not a clean build — measure before scheduling decide-heavy new
   modules.
+- base-artifact docstring (mux phase 4 consider tier, REPAIRED in
+  phase 5): `close_cascadeE`'s docstring read "Root fan-out = the
+  stage two below the root, positionally" — a stray copy from a
+  positional lemma, describing nothing about the theorem. Repaired to
+  the `close_cascade` counterpart phrasing; recorded here per the
+  not-a-silent-fix rule for base-artifact surfaces.

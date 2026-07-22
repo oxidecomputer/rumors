@@ -62,29 +62,27 @@ engine, not a new induction:
   is enabled in the elastic system too (`applyBase_isSome_of_empty`),
   contradicting stuckness.
 
-# The invariant is proven, not assumed (the seam, closed by T10)
+# The invariant is proven, not assumed
 
-`elastic_deadlock_free` originally carried the ground facts `EMuxInv` —
-the base cursors decode (`InvL`) plus the pipe-mediated conservation
-law — as an explicit reachability-invariant hypothesis, matching the
-chase's `MuxInv` interface posture. The preservation sweep now lands
-here (`eMuxInv_reachable`), adapted from the stage-F sweep
-(`sinv_reachable`, Mux/Proofs/SigmaStarInv.lean): the 23 base arms
-assemble the same Steps-file deltas minus every occupancy-bound and
-history field, the push arm reuses the opener/walk fire facts, and the
-deliver arm — the one place the two systems differ — preserves
-conservation trivially (one frame moves from the pipe term to the cell
-term, no slot guard to respect). `eMuxInv_init` remains the base case.
+The ground facts `EMuxInv` — the base cursors decode (`InvL`) plus the
+pipe-mediated conservation law — are preserved along `EMReachable` by
+`eMuxInv_reachable`, adapted from the stage-F sweep (`sinv_reachable`,
+Mux/Proofs/SigmaStarInv.lean): the 23 base arms assemble the same
+Steps-file deltas minus every occupancy-bound and history field, the
+push arm reuses the opener/walk fire facts, and the deliver arm — the
+one place the two systems differ — preserves conservation trivially
+(one frame moves from the pipe term to the cell term, no slot guard to
+respect). `eMuxInv_init` is the base case, so `elastic_deadlock_free`
+is unconditional.
 
-REPAIR recorded (T10 audit, mux-notes-phase2/t10-audit.md §4): the
-first-landed `EMuxInv.flow_wire` was unguarded (`∀ p hh`) and therefore
-unsatisfiable past walk (R,0)'s first wire receive — `recvdOf` at the
-phantom `wire I 0` Nat-subtraction-aliases that walk's consumer count
-while its producer count stays zero, the exact `delivered_eq` bug the
-stage-F landing fixed in `MuxInv`. The field is now `allChans`-guarded
-(its consumer `EMuxInv.invPW` only ever reads it at `allChans`
-members), and the sweep needs the pipe-content fact the record system
-kept in `hist_pipe`, so `EMuxInv` carries it directly as `pipe_wire`.
+`EMuxInv.flow_wire` carries the `RealWire` guard (the mandatory shape
+for wire-count fields — `recvdOf_phantom_alias`, Chase/Ground.lean,
+characterizes the trap it closes), and `pipe_wire` carries the
+pipe-content fact the record system keeps in `hist_pipe` (the deliver
+arm must know the landing frame is a wire tag of its direction). This
+theorem's history with the phantom corner — the suite's one
+vacuous-theorem episode — is AUDIT-NOTES A12 and
+mux-notes-phase2/t10-audit.md §4.
 
 The kernel-decided completion pin at the bottom (`wedge` completes
 under the shipped work-conserving policy at C = 1 with elastic
@@ -205,8 +203,8 @@ field to state — and minus the history ledger (nothing here reads
 the mandatory shape): at the phantom `wire I 0` the consumer count
 aliases walk (R,0)'s by Nat subtraction while the producer count stays
 zero (`recvdOf_phantom_alias`), so the unguarded form is unsatisfiable
-at reachable states (module doc REPAIR note; the track-F
-`delivered_eq` lesson). `pipe_wire` is `hist_pipe`'s residue
+at reachable states (AUDIT-NOTES A12; the track-F `delivered_eq`
+lesson). `pipe_wire` is `hist_pipe`'s residue
 once the ledger is gone: the deliver arm needs to know the frame it
 lands is a wire tag of the delivering direction. Preserved along
 `EMReachable` by `eMuxInv_reachable`; `eMuxInv_init` is the base

@@ -563,7 +563,10 @@ its own kernel replay — with the widened-family argument at [derived]
 tier; the un-muxed witnesses are inside the flagship's proven class
 (`wedgeW_wellFormed`, `wedgeW_margin0`, `Sched.deadlock_free`). The
 `KWorkConserving` class is kernel-inhabited (`bottomMostReady_wcK`,
-Mux/Proofs/Inhabitation.lean). -/
+Mux/Proofs/Inhabitation.lean). Capacity and depths are
+message-denominated, and the impossibility transfers to byte
+denomination unweakened (Mux/Basic.lean, # The byte-denomination
+caveat). -/
 theorem wc_impossibility_K (KI KR : Nat) (hKI : 1 ≤ KI)
     (hKR : KR = 1 ∨ KR = 2 ∨ KR = 3) (C : Nat) (hC : 1 ≤ C)
     (σI σR : Strategy)

@@ -563,7 +563,10 @@ pins the decoded skeleton to the `wedge` literal, heights 6 and 32).
 The hypothesis class is kernel-inhabited: the shipped policy is a
 member (`bottomMostReady_wc`, Mux/Proofs/Inhabitation.lean — and a
 `LocalStrategy` member at that, `bottomMostReady_local`), so this
-∀-class impossibility is not satisfiable-empty. -/
+∀-class impossibility is not satisfiable-empty. Capacity is
+message-denominated, and the impossibility transfers to byte
+denomination unweakened (Mux/Basic.lean, # The byte-denomination
+caveat). -/
 theorem wc_impossibility (C : Nat) (hC : 1 ≤ C) (σI σR : Strategy)
     (hWI : WorkConserving .I σI) (hWR : WorkConserving .R σR) :
     ¬ MuxDeadlockFree wedge .impl C σI σR := by

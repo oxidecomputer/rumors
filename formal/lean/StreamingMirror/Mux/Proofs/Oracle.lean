@@ -50,9 +50,9 @@ the keystone and chase consume them; the MUX-ADJUDICATION §4 stage-F
 obligation is discharged by the strategy-generic sweep in
 Proofs/SigmaStarInv.lean (`muxInv_reachable`, the `MuxInv` projection
 of `sinv_reachable`), which closes `oracle_deadlock_free`
-unconditionally in Proofs/Necessity.lean. Track E's own stage-F sweep
-was retired at the stage-3 merge in favor of that one — see the
-integration notes in Chase/Ground.lean and SigmaStarInv.lean.
+unconditionally in Proofs/Necessity.lean; the one sweep serves both
+stage-3 consumers (the integration notes in Chase/Ground.lean and
+SigmaStarInv.lean record the merge decision).
 -/
 import StreamingMirror.Mux.Proofs.Oracle.Order
 

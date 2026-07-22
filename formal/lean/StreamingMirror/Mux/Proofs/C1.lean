@@ -86,7 +86,7 @@ direction, so the two parties may run different parking bounds
 (K_I ≠ K_R). The K-harness LANDED with the impossibility half
 (`applyK`/`MuxDeadlockFreeK`/`wc_impossibility_K`,
 WcImpossibilityK.lean); a builder of the positive half must match its
-conventions, which this stub originally got backwards on two counts:
+conventions — two counts a builder would otherwise wire backwards:
 
 - argument order is `MuxDeadlockFreeK sk ax KI KR C σI σR`
   (depths BEFORE capacity, matching `applyK`);

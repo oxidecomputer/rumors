@@ -212,7 +212,9 @@ theorem pends_coverE (hwf : sk.wellFormed = true)
 
 -- ================================================== the close cascade
 
-/-- Root fan-out = the stage two below the root, positionally. -/
+/-- With every process past its channel work, either a close fires or
+the session is terminal — the `.impl` counterpart of `close_cascade`,
+over the weak invariant (`InvPW`). -/
 theorem close_cascadeE (hwf : sk.wellFormed = true) {s : State}
     (hi : InvPW sk .impl s)
     (hIOd : doneIOpen s = true) (hROd : doneROpen sk s = true)
