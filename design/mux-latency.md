@@ -5,9 +5,9 @@ analysis, verbatim from the charter: *what is the real latency cost of the
 σ\* scheduler, if it were to be implemented — the expected number of round
 trips compared with the fully independent link construction?* This is an
 analytic derivation with a step-counted simulation check, not a benchmark
-of real code. Inputs: MUX-ADJUDICATION.md (σ* of record, the H-c demotion,
-`ofSchedule`), mux-notes-phase2/refute-c1.md §2/§4 (claims re-examined
-here, not assumed), attack-refute.md F5/F9 (both resolved below), MODEL.md
+of real code. Inputs: the phase-2 panel record (σ* of record, the H-c
+demotion, `ofSchedule`; its claims are re-examined here, not assumed —
+two of its side-claims are resolved below), MODEL.md
 §2–§6, Mux/Basic.lean's module doc, and
 `design/streaming-latency-serialization.md`, whose vocabulary (one-way
 *hops*, `hops = (T(delay) − T(0)) / delay`, V1-vs-V2 framing) this
@@ -18,7 +18,7 @@ its quantitative latency claims here.
 
 Epistemic key as in PROGRESS.md: **[derived]** paper argument with stated
 assumptions; **[checked]** validated by the RTT-costed probe in
-`mux-notes-phase2/latency/` (step-counted simulation of the phase-2 model,
+`design/mux-latency/` (step-counted simulation of the phase-2 model,
 §5 — algebra-checking, not benchmarking); **[checked, in-repo]** measured
 numbers already committed in `design/streaming-latency-serialization.md`;
 **[open]** known unknown.
@@ -108,7 +108,7 @@ construction:
 - **Bandwidth.** Message counting is primary, per the charter. Bytes
   enter as an additive head-of-line term: B(x) = (bytes queued ahead of
   frame x in its pipe)/bandwidth. This is exactly the unit-mismatch
-  (MUX-ADJUDICATION §2.5: one "message" = one reply of unbounded bytes,
+  (the adjudicated reply denomination: one "message" = one reply of unbounded bytes,
   §5A's W = 1 argument), so every mux number below is a **lower bound**
   on the byte-real cost; independent links bound B(x) by x's own stream's
   backlog instead of the whole direction's [derived]. §3.3 locates where
@@ -169,11 +169,11 @@ scope k−2's complete publication set (E3: the scope-(k−1) prologue recv
 sits after it). Two independent reasons pin that to a *physical reverse
 arrival* at p:
 
-1. **Self-containment** (attack-refute §4.5): the closures never cite an
+1. **Self-containment**: the closures never cite an
    unperformed push by either side, and W′'s scope-(k−2) publications
    include its wire frames (whenever scope k−2 has children) — peer
    pushes, admissible only via C-arr, i.e. after they arrive at p.
-2. **Label transport** (attack-refute §2): the asked-quota counts the
+2. **Label transport**: the asked-quota counts the
    derivation needs for scope k−2 are minted by ¬p and ride exactly those
    same frames.
 
@@ -187,8 +187,8 @@ the publication takes another δ to return, so:
 scope-(k−2) predecessor is childless (provision runs, all-M/childless-D
 scopes, leaf boundaries) exempt: those consumptions are I-step-derivable
 with zero reverse evidence, and σ\* streams them at pipe speed. This
-replaces refute-c1 §3's "per-stream in-flight ≤ 2" side-claim with the
-correct statement (attack-refute F5, resolved): in-flight is bounded by
+replaces the panel brief's "per-stream in-flight ≤ 2" side-claim with
+the correct statement: in-flight is bounded by
 the slot plus the *forward-derivable silent horizon*, which is unbounded
 on silent runs and exactly 2 on fresh-dispute runs.
 
@@ -215,7 +215,7 @@ wedge/provwall: P* = 1 (the first provision behind the dispute head),
 law +2, measured +0 — an isolated paced frame's wait runs concurrently
 with the descent ladder and is absorbed, so on descent-dominated shapes
 the law is an upper envelope. C-dependence [checked]: C = 4 already ≈ C = ∞ on every standard
-shape (σ\* never uses more window than its proof frontier — refute-c1
+shape (σ\* never uses more window than its proof frontier — the brief's
 §3's flatness claim survives *for C ≥ 2·active streams*); C = 1 is the
 stop-and-wait floor: pyr3 = 93 ≈ F_R = 91.
 
@@ -326,9 +326,9 @@ single-widest-level prediction]. But that is no comfort: the widest level
 of a geometric dispute tree carries Θ(N) scopes, so completion is
 **Θ(#scopes·RTT), not Θ(depth·RTT)** — σ\* degrades in class, not in
 constant. The critical *descent* (time-to-deepest-leaf) does stay
-Θ(depth·RTT) with constant ≤ 2; refute-c1 §4.4's "constant factor on
+Θ(depth·RTT) with constant ≤ 2; the panel brief's "constant factor on
 depth·RTT" conflated that descent with session completion, which is what
-attack-refute F9 flagged as unmetered. F9 is resolved: the claim was
+the cross-examination flagged as unmetered. It is resolved: the claim was
 wrong for completion, right for the descent [derived + checked].
 **Maximizing shape:** the wide shallow comb/broom — one level of m
 child-bearing D scopes (combW16: 3.8× at m = 16; multiplier
@@ -438,7 +438,7 @@ they pay the paced-frame law exactly.
 
 ## 5. The [checked] tier: harness and its honest limits
 
-`formal/mux-notes-phase2/latency/`: `model.py`, `gen.py`, `instances.py`,
+`design/mux-latency/`: `model.py`, `gen.py`, `instances.py`,
 `mux.py` are the phase-2 probe copied verbatim with three marked
 modifications ([L1] widen-internal flag, fixing three transcription sites
 that hardcoded the base model's cap-1 in fire guards; [L2] pipes keyed

@@ -284,7 +284,7 @@ demand-lockstep — exactly σ\* — and the session remains live at every
 capacity [T4, gated theorem; probe-cleared 4,970/4,970 at the causal
 tier]. General K is T8's statement. Liveness never depends on the
 *value* advertised, only on the sender honoring it; performance
-follows the K-dial law (`MUX-LATENCY.md` §7.1 [checked]: probe-exact
+follows the K-dial law (`mux-latency.md` §7.1 [checked]: probe-exact
 on every dense cell of a 54-run sweep, both corners reproducing the
 σ\* and baseline laws with no special casing):
 
@@ -299,7 +299,7 @@ parity with multi-link **iff K ≥ P\* + 1**; within one RTT at
 K ≥ P\*/2; residual ≈ P\*/K round trips below that — hyperbolic in K,
 never cliffed.
 
-Sizing (`MUX-LATENCY.md` §7.3): the dial must cover the **widest
+Sizing (`mux-latency.md` §7.3): the dial must cover the **widest
 frontier level** — dispute-density × effective fan — not total scopes:
 levels pipeline, only the widest is paid. The default advertisement
 `Window::scopes()` = fan² therefore zeroes the width term for any
@@ -417,11 +417,11 @@ gate does (S1's soundness hooks, §5.2) — so the ladder below may be
 tuned, rearranged, or replaced from measurement without
 re-verification. The order cannot be gotten wrong, only slow.
 
-**The recommended ladder [derived; rationale per `MUX-LATENCY.md`].**
+**The recommended ladder [derived; rationale per `mux-latency.md`].**
 The latency analysis splits the socket's costs cleanly: small
 label-carrying frames sit on the δ (round-trip) critical path — each
 one delayed behind bulk adds directly to the fresh-dispute pacing law
-(`MUX-LATENCY.md` §2.2/§3.1), because it advances both the peer's walk
+(`mux-latency.md` §2.2/§3.1), because it advances both the peer's walk
 and the peer's demand-proof inference — while bulk provision bytes sit
 only on the bandwidth term (§3.3 there) and pipeline unboundedly
 wherever they are placed. So: strict priority classes, round-robin
@@ -446,7 +446,7 @@ within a class:
    order on their own stream.
 
 K-general pricing of the ladder is the latency doc's K-dial addendum
-(`MUX-LATENCY.md` §7, landed [checked]): the frontier term the ladder
+(`mux-latency.md` §7, landed [checked]): the frontier term the ladder
 protects scales as 2·⌈max(0, P\* − K + 1)/(K + 1)⌉ hops (§3.1 quotes
 the full law), so the ladder matters most exactly when K is
 undersized — at the shipped default the width term is already zero and
@@ -475,7 +475,7 @@ unnecessary):
 
 Windowed systems train the reader to expect cliffs, collapses, and
 resonances at the edges. This design's edges were each walked
-deliberately (the latency harness's K-sweep, `MUX-LATENCY.md` §7.2,
+deliberately (the latency harness's K-sweep, `mux-latency.md` §7.2,
 plus the campaign's boundary analysis); what follows is every edge,
 its behavior, and — where one exists — the sharp part.
 
@@ -535,7 +535,7 @@ its behavior, and — where one exists — the sharp part.
   bandwidth-delay product; K is the protocol dial (§3.1). The
   degenerate corner is instructive: at C = 1 *everything* is
   stop-and-wait — the omniscient oracle included [checked,
-  `MUX-LATENCY.md` §5] — so a starved socket buffer masquerades as a
+  `mux-latency.md` §5] — so a starved socket buffer masquerades as a
   scheduling problem that no scheduler, ladder, or window change can
   fix. Diagnose the two axes separately.
 - **The handshake is a non-edge** [checked]. The advertisement rides
@@ -701,7 +701,7 @@ so it is a decision, not a surprise.
   purchasable at any configuration — the accepted price of §1.3,
   restated where it bites: it costs tail latency under loss, nothing
   on clean links. [derived]
-- **Latency parity, now quantified** (`MUX-LATENCY.md` §7, landed):
+- **Latency parity, now quantified** (`mux-latency.md` §7, landed):
   with σ\*ₖ at advertised windows, the single-socket construction's
   expected round-trip count **matches the multi-link construction
   exactly in the model** — the width term is zero whenever
@@ -806,7 +806,7 @@ Link carries production traffic until stage L.
   and sizing math remain authoritative for the byte-budget variant.
   §8's contract remains authoritative for the Link while the Link
   exists (through stage V), and becomes historical at stage L.
-- `formal/MUX-LATENCY.md` — the round-trip pricing §3.1 quotes,
+- `mux-latency.md` — the round-trip pricing §3.1 quotes,
   §3.3's ladder rationale cites, and §6 defers to. Complete on the
   campaign's `mux-latency` branch (merged to `mux-conjectures`): the
   base analysis (§§1–6 there: the σ\* pacing law, the width term, the

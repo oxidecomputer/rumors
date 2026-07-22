@@ -30,7 +30,7 @@ built independently valuable and remain so under that posture: R0's
 decisions, R1's receiver widening and greeting window advertisement,
 and the acceptance harness benefit `link-transport` itself
 (heterogeneous-window interop on any transport; the K-dial law —
-`formal/MUX-LATENCY.md` §7 — is now the principled tuning guide for
+`mux-latency.md` §7 — is now the principled tuning guide for
 `Window::scopes`). S1, the σ\*ₖ engine, is the shelf's one unbuilt
 component, with its liveness theorem already landed ahead of it
 (`sigmaStarK_deadlock_free`); M1/V/L execute only if a deployment

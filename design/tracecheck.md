@@ -5,8 +5,8 @@ document is the deliverable. Sequencing is first-class and §6 states
 it: the single-R/W transport refactor (design/single-socket-plan.md)
 lands before this work begins, and tier (d) is hard-blocked on it.
 Companions: formal/README.md (the assumption/theorem interface this
-mechanizes), formal/MUX-PROGRESS.md (the campaign whose definitions it
-reuses), formal/lean/Muxprobe.lean and EventDag.lean (the two existing
+mechanizes — its correspondence table), formal/lean/Muxprobe.lean and
+EventDag.lean (the two existing
 executables whose patterns it copies — tracecheck is the third
 sibling).
 
