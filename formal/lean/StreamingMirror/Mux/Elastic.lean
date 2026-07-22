@@ -201,11 +201,12 @@ pipe, and pipes carry only own-direction wire tags.
 The elastic twin of `MuxInv` (Chase/Ground.lean), minus every occupancy
 bound — parked replies are unbounded by design, so there is no slot
 field to state — and minus the history ledger (nothing here reads
-`hist`). `flow_wire` is `allChans`-guarded, NOT `∀ p hh`: at the
-phantom `wire I 0` the consumer count aliases walk (R,0)'s by Nat
-subtraction while the producer count stays zero, so the unguarded form
-is unsatisfiable at reachable states (module doc REPAIR note; the
-track-F `delivered_eq` lesson). `pipe_wire` is `hist_pipe`'s residue
+`hist`). `flow_wire` carries the `RealWire` guard (Chase/Ground.lean,
+the mandatory shape): at the phantom `wire I 0` the consumer count
+aliases walk (R,0)'s by Nat subtraction while the producer count stays
+zero (`recvdOf_phantom_alias`), so the unguarded form is unsatisfiable
+at reachable states (module doc REPAIR note; the track-F
+`delivered_eq` lesson). `pipe_wire` is `hist_pipe`'s residue
 once the ledger is gone: the deliver arm needs to know the frame it
 lands is a wire tag of the delivering direction. Preserved along
 `EMReachable` by `eMuxInv_reachable`; `eMuxInv_init` is the base
@@ -214,7 +215,7 @@ structure EMuxInv (sk : Skel) (s : MState) : Prop where
   invl : InvL sk .impl s.base
   flow_int : ∀ c ∈ allChans sk, isWire c = false →
     s.base.chan c + recvdOf sk s.base c = sentOf sk s.base c
-  flow_wire : ∀ (p : Party) (hh : Nat), Chan.wire p hh ∈ allChans sk →
+  flow_wire : ∀ p hh, RealWire sk p hh →
     s.base.chan (Chan.wire p hh) + pipeCount s (Chan.wire p hh)
       + recvdOf sk s.base (Chan.wire p hh)
       = sentOf sk s.base (Chan.wire p hh)

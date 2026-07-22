@@ -551,7 +551,10 @@ This is the ground fact behind the C-own arm of `groundedA` (the causal
 closure's own-receive evidence): at a stuck state a receive the ledger
 recorded really was consumed, so the evidence is performed. It is
 strategy-generic; `recvLedger_reachable` runs the preservation
-induction. -/
+induction. `bound`'s membership guard is the `RealWire` discipline
+(Chase/Ground.lean) in peer-indexed form: the family is indexed by the
+PEER's channel `wire p.other h` (`RealWire sk p.other h`, spelled as
+its membership), so the guard rides the peer index. -/
 structure RecvLedger (sk : Skel) (s : MState) : Prop where
   bound : ∀ p h, Chan.wire p.other h ∈ allChans sk →
     ownRecvs sk.rootH p (s.hist p) h

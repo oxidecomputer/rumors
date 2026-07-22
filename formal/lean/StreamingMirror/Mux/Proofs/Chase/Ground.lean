@@ -36,7 +36,7 @@ every such enabled base action is a contradiction — which is how the
 keystone and the chase convert "some process could act" into falsity,
 leaving wire fires (withheld pushes) as the only survivors.
 -/
-import StreamingMirror.Mux.Strategy
+import StreamingMirror.Mux.Instances
 import StreamingMirror.Proofs.Progress
 
 namespace StreamingMirror.Mux
@@ -89,6 +89,61 @@ theorem count_map_wire (p : Party) (h : Nat) (l : List Nat) :
       · simp [hx]
       · simp [hx, Chan.wire.injEq]
 
+-- ============================================== the real wire family
+
+/-- Stream `(p, h)` is in the REAL wire family: the session actually
+wires its channel (`allChans` membership).
+
+This is the mandatory guard for transport-invariant fields about wire
+counts — the shape is `∀ p h, RealWire sk p h → …` (AUDIT-NOTES
+A11/A12; this definition is the phase-5 source fix). The unguarded
+form `∀ p h, …` crosses the accessor layer's junk corner —
+`recvdOf_phantom_alias` below characterizes it — and count equations
+quantified that way have been unsatisfiable at reachable states in
+four independent landings. A new invariant field about wire counts
+either carries this guard or explains, at the field, why its
+off-family instances hold. Definitionally transparent: any `allChans`
+membership fact discharges it, and consumers destructure it as one. -/
+def RealWire (sk : Skel) (p : Party) (h : Nat) : Prop :=
+  Chan.wire p h ∈ allChans sk
+
+/-- The phantom-channel alias, characterized once at the accessor
+layer: at the off-family channel `wire I 0` — never an `allChans`
+member once the skeleton has real height (Wiring.lean's
+`wire_I_zero_not_mem`) — the total accessor `recvdOf` falls through
+its wire arm's Nat subtraction (`h - 1` at `h = 0`) to walk `(R, 0)`'s
+consumer count, while `sentOf` there stays zero.
+
+Consequence, and why `RealWire` is mandatory: an UNGUARDED wire-family
+count equation asserts at `wire I 0` that a real walk's consumption is
+zero, which turns false the moment that walk consumes — the equation
+is then not an invariant of the muxed system at all (the pin below
+decides a reachable counterexample). The bug class this lemma exists
+to end: AUDIT-NOTES A11 (tracks E and F, independently) and A12 (the
+elastic twin, caught twice more). -/
+theorem recvdOf_phantom_alias (sk : Skel)
+    (hroot : (0 == sk.rootH) = false) (s : State) :
+    recvdOf sk s (Chan.wire .I 0) = wkWireRecvd sk s (.R, 0) := by
+  simp only [recvdOf, hroot, Bool.false_and, if_neg (by decide :
+    ¬((Party.I == Party.R && (0 : Nat) == 0) = true))]
+  rfl
+
+set_option maxRecDepth 16000 in
+/-- The unguarded `delivered_eq` shape is FALSE at a reachable state,
+kernel-decided: at the smoke run's terminal state, the receiver-side
+split equation read at the phantom `wire I 0` fails — nothing was ever
+delivered on a channel that does not exist, while the aliased accessor
+reports walk `(R, 0)`'s real consumption. This is the phase-4 review's
+F1 probe, kernel-checked: a reviewer meeting an unguarded wire-family
+field refutes it by inspection plus this one `decide`. -/
+theorem phantom_refutes_unguarded_delivered_eq :
+    (let s := mdrain Pin.smokeChain .impl 1 bottomMostReady
+        bottomMostReady 300 (init Pin.smokeChain)
+     decide (deliveredCount (s.hist .R) 0
+       ≠ recvdOf Pin.smokeChain s.base (Chan.wire .I 0)
+         + s.base.chan (Chan.wire .I 0))) = true := by
+  decide
+
 -- ================================================== the ground facts
 
 /-- The muxed ground facts: what the keystone and the chase consume at
@@ -118,12 +173,11 @@ reachability induction"). The fields:
 - `pushed_mem`: pushed streams are real channels — what lets a consumer
   discharge the membership guards from history facts alone.
 
-The two count equations are `allChans`-relativized: the phantom channel
-`wire I 0` reads walk `(R, 0)`'s consumer count by Nat-subtraction
-collision (Wiring.lean's note), so `delivered_eq` is FALSE there at any
-state where that walk has consumed — the unguarded form is not an
-invariant of the muxed system at all. Consumers recover the guard from
-`pushed_mem` (transport-side channels) or from trace membership
+The two count equations carry the `RealWire` guard (the mandatory
+shape — `recvdOf_phantom_alias` above is the trap it guards, and
+`phantom_refutes_unguarded_delivered_eq` decides a reachable
+counterexample to the unguarded form). Consumers recover the guard
+from `pushed_mem` (transport-side channels) or from trace membership
 (`evUniv_wire_mem`, Chase/Decode.lean).
 
 Integration note (stage 3): tracks E and F each caught the unguarded
@@ -139,14 +193,14 @@ structure MuxInv (sk : Skel) (s : MState) : Prop where
   slot : ∀ c ∈ allChans sk, s.base.chan c ≤ sk.cap c
   flow_int : ∀ c ∈ allChans sk, isWire c = false →
     s.base.chan c + recvdOf sk s.base c = sentOf sk s.base c
-  pushed_eq : ∀ p h, Chan.wire p h ∈ allChans sk →
+  pushed_eq : ∀ p h, RealWire sk p h →
     pushedCount (s.hist p) h = sentOf sk s.base (Chan.wire p h)
   hist_del : ∀ p, delHeights (s.hist p.other)
     = (pushHeights (s.hist p)).take (delTotal (s.hist p.other))
   hist_pipe : ∀ p, s.pipe p
     = ((pushHeights (s.hist p)).drop (delTotal (s.hist p.other))).map
         (Chan.wire p)
-  delivered_eq : ∀ p h, Chan.wire p h ∈ allChans sk →
+  delivered_eq : ∀ p h, RealWire sk p h →
     deliveredCount (s.hist p.other) h
       = recvdOf sk s.base (Chan.wire p h) + s.base.chan (Chan.wire p h)
   pushed_mem : ∀ p h, pushedCount (s.hist p) h ≠ 0 →

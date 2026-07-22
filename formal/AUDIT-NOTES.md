@@ -242,6 +242,26 @@ provably-false-by-inspection at review time. A11's lesson text
 field") is correct but has demonstrably failed to propagate by prose
 alone; phase 5 should make it structural.
 
+RESOLVED (phase 5, 2026-07-22) — both branches of the directive,
+structurally: `RealWire` (Mux/Proofs/Chase/Ground.lean) is the shared
+guard idiom — the mandatory field shape is `∀ p h, RealWire sk p h →
+…`, mandated by its docstring for every transport-invariant wire-count
+field; `recvdOf_phantom_alias` is the accessor-layer characterization
+(the `wire I 0` → walk `(R, 0)` Nat-truncation collision, as an
+equation); and `phantom_refutes_unguarded_delivered_eq` kernel-decides
+the phase-4 F1 probe (the unguarded form false at a reachable state),
+so a reviewer refutes any future unguarded field by inspection plus
+one `decide`. The three historical wire-pair guard sites
+(`MuxInv.pushed_eq`, `MuxInv.delivered_eq`, `EMuxInv.flow_wire`) are
+re-typed onto the guard (definitionally transparent — zero proof
+changes); `RecvLedger.bound` keeps its inline guard (peer-indexed
+family) with the discipline cited at the field. Design note for future
+maintainers: a quantifier-wrapper shape (`AllWires sk fun p h => …`)
+was tried first and REJECTED — field applications then carry
+beta-redex types, which breaks `rw`-at-hypothesis consumers; the guard
+alias gives the same greppable discipline with zero behavioral
+change.
+
 ## A4. Reader-visible claims to spot-check opportunistically
 
 **[reported]** Low-priority, none currently believed wrong:
