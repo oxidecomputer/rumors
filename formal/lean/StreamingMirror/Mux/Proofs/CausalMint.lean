@@ -1881,4 +1881,350 @@ private theorem goA_mem (hwf : sk.wellFormed = true)
           (by omega) (by simp at hklen ⊢; omega) hkst
           (fun j hj hjk => hoks j (by omega) hjk) hmem
 
+
+/-- Embed a chunk-layer sublist into the scope block (under the
+prologue and before the parent). -/
+private theorem sublist_scopeBlockE_of_chunks {q : Party} {h k : Nat}
+    {l : List Ev}
+    (hl : l.Sublist ((List.range (sk.nChildren h (sk.stageScope h k))).flatMap
+      (Sched.childChunk sk (q, h) k))) :
+    l.Sublist (Sched.scopeBlockE sk (q, h) k) := by
+  unfold Sched.scopeBlockE Sched.scopeSendsE
+  refine List.Sublist.trans ?_ (List.sublist_cons_self ..)
+  refine List.Sublist.trans ?_ (List.sublist_cons_self ..)
+  refine List.Sublist.trans ?_ (List.sublist_append_left ..)
+  rw [← List.flatMap_def]
+  exact hl
+
+/-- Pair a chunk's wire head strictly before a later event of the same
+block, inside the stage trace. -/
+private theorem chunk_pair_walk (hwf : sk.wellFormed = true)
+    {q : Party} {h : Nat} (hq : (q, h) ∈ sk.walkKeys) {k : Nat}
+    (hk : k < sk.stageLen h) {j : Nat}
+    (hj : j < sk.nChildren h (sk.stageScope h k)) {e : Ev}
+    (hcases : (∃ i', j < i' ∧ i' < sk.nChildren h (sk.stageScope h k)
+        ∧ e ∈ Sched.childChunk sk (q, h) k i')
+      ∨ (e ∈ Sched.childChunk sk (q, h) k j
+          ∧ e ≠ ((wireOut (q, h), true, sk.wiresBefore h k + j) : Ev))
+      ∨ e = ((upperOut (q, h), true, k) : Ev)) :
+    ([((wireOut (q, h), true, sk.wiresBefore h k + j) : Ev), e]
+        : List Ev).Sublist (Sched.walkEventsE sk (q, h)) := by
+  have hwmem := wire_mem_childChunk (sk := sk) (q, h) k j
+  have hhead : Sched.childChunk sk (q, h) k j
+      = ((wireOut (q, h), true, sk.wiresBefore h k + j) : Ev)
+        :: (Sched.childChunk sk (q, h) k j).tail := by
+    unfold Sched.childChunk
+    by_cases hD : sk.childIsD h (sk.stageScope h k) j = true
+    · rw [if_pos hD]
+      rfl
+    · rw [if_neg hD]
+      rfl
+  have hblock : ([((wireOut (q, h), true, sk.wiresBefore h k + j) : Ev),
+      e] : List Ev).Sublist (Sched.scopeBlockE sk (q, h) k) := by
+    rcases hcases with ⟨i', hji, hi'n, hei⟩ | ⟨hej, hne⟩ | hpar
+    · exact sublist_scopeBlockE_of_chunks
+        (sublist_flatMap_pair hji hi'n hwmem hei)
+    · have hej' : e ∈ ((wireOut (q, h), true,
+          sk.wiresBefore h k + j) : Ev)
+          :: (Sched.childChunk sk (q, h) k j).tail := by
+        rw [← hhead]
+        exact hej
+      rcases pair_of_mem_cons hej' with heq | hsub
+      · exact absurd heq hne
+      · refine sublist_scopeBlockE_of_chunks
+          (sublist_flatMap_block hj ?_)
+        rw [hhead]
+        exact hsub
+    · subst hpar
+      have hs : ([((wireOut (q, h), true,
+          sk.wiresBefore h k + j) : Ev),
+          ((upperOut (q, h), true, k) : Ev)] : List Ev).Sublist
+          (Sched.scopeSendsE sk (q, h) k) := by
+        show List.Sublist _
+          (((List.range (sk.nChildren h (sk.stageScope h k))).map
+              (Sched.childChunk sk (q, h) k)).flatten
+            ++ [((upperOut (q, h), true, k) : Ev)])
+        rw [← List.flatMap_def]
+        exact List.Sublist.append
+          (sublist_flatMap_block hj (List.singleton_sublist.mpr hwmem))
+          (List.Sublist.refl _)
+      unfold Sched.scopeBlockE
+      refine List.Sublist.trans ?_ (List.sublist_cons_self ..)
+      refine List.Sublist.trans ?_ (List.sublist_cons_self ..)
+      exact hs
+  unfold Sched.walkEventsE
+  exact sublist_flatMap_block hk hblock
+
+/-- A D kid's record is announced once its own wire frame's send is
+scheduled below the wall (rule 2, kid-position form). -/
+private theorem Wall.kid_minted {s : MState} {N : Nat} (W : Wall sk s N)
+    (p : Party) {h : Nat} (hpk : (p.other, h) ∈ sk.walkKeys)
+    {k j : Nat} (hk : k < sk.stageLen h)
+    (hj : j < (sk.scope (sk.stageScope h k)).kids.length)
+    (h0 : h ≠ 0)
+    (hmem : ((Chan.wire p.other h, true, sk.wiresBefore h k + j) : Ev)
+      ∈ scheduleE sk)
+    (hτ : evIdx ((Chan.wire p.other h, true, sk.wiresBefore h k + j)
+      : Ev) (scheduleE sk) < N) :
+    (sk.scope (sk.stageScope h k)).kids.getD j 0
+      ∈ announcedIds sk p (s.hist p) := by
+  have hh : h < sk.rootH := (walkKeys_stageParty W.wf hpk).2
+  have hnc : sk.nChildren h (sk.stageScope h k)
+      = (sk.scope (sk.stageScope h k)).kids.length := by
+    unfold Skel.nChildren
+    rw [if_neg (by simpa using h0)]
+  have hlt1 : sk.wiresBefore h k + j < sk.wiresBefore h (k + 1) := by
+    have := Sched.wiresBefore_succ sk hk
+    omega
+  have hlen : sk.wiresBefore h k + j < (sk.scopesAt h).length := by
+    have h1 := Sched.wiresBefore_mono (sk := sk) h
+      (show k + 1 ≤ sk.stageLen h by omega)
+    have h2 := wiresBefore_le_scopesAt W.wf (show 1 ≤ h by omega) hh
+      (Nat.le_refl (sk.stageLen h))
+    omega
+  have hmint := W.minted_of_send p hpk h0 hmem hτ hlen
+  have hkid := stageScope_kid W.wf (show 1 ≤ h by omega) hh hk
+    (show j < (sk.scope (sk.stageScope h k)).kids.length from hj)
+  rw [hkid] at hmint
+  exact hmint.1
+
+/-- The leaf stage's chunk pass emits every supply wire at once. -/
+private theorem leaf_chunks_mem {p : Party} {tr : List MObs}
+    (q : Party) {k : Nat} (hk : k < sk.stageLen 0)
+    (hann : sk.stageScope 0 k ∈ announcedIds sk p tr) {i : Nat}
+    (hi : i < sk.nChildren 0 (sk.stageScope 0 k)) (d qa : Nat) :
+    ((Chan.wire q 0, true, sk.wiresBefore 0 k + i) : Ev)
+      ∈ (peerBlockA.chunks (aviewOf sk p tr) q 0 (sk.wiresBefore 0 k)
+          (sk.scope (sk.stageScope 0 k))
+          (if ((0 : Nat) == 0) = true then
+            (sk.scope (sk.stageScope 0 k)).leafReqs
+          else (sk.scope (sk.stageScope 0 k)).kids.length)
+          0 (sk.wiresBefore 0 k) d qa
+          ((sk.scope (sk.stageScope 0 k)).kids.length + 1)).1 := by
+  have hz : ((0 : Nat) == 0) = true := rfl
+  have hn : sk.nChildren 0 (sk.stageScope 0 k)
+      = (sk.scope (sk.stageScope 0 k)).leafReqs := by
+    unfold Skel.nChildren
+    rw [if_pos hz]
+  have hnf : (if ((0 : Nat) == 0) = true then
+      (sk.scope (sk.stageScope 0 k)).leafReqs
+    else (sk.scope (sk.stageScope 0 k)).kids.length)
+      = (sk.scope (sk.stageScope 0 k)).leafReqs := by
+    rw [if_pos hz]
+  have hstep : peerBlockA.chunks (aviewOf sk p tr) q 0
+      (sk.wiresBefore 0 k) (sk.scope (sk.stageScope 0 k))
+      (if ((0 : Nat) == 0) = true then
+        (sk.scope (sk.stageScope 0 k)).leafReqs
+      else (sk.scope (sk.stageScope 0 k)).kids.length)
+      0 (sk.wiresBefore 0 k) d qa
+      ((sk.scope (sk.stageScope 0 k)).kids.length + 1)
+      = ((List.range (sk.scope (sk.stageScope 0 k)).leafReqs).map
+          fun j => ((Chan.wire q 0 : Chan), true,
+            sk.wiresBefore 0 k + j),
+         (sk.wiresBefore 0 k + (sk.scope (sk.stageScope 0 k)).leafReqs,
+          d, qa), true) := by
+    simp only [peerBlockA.chunks, hnf]
+    rw [if_pos hz]
+  rw [hstep]
+  refine List.mem_map.mpr ⟨i, ?_, rfl⟩
+  rw [hn] at hi
+  exact List.mem_range.mpr hi
+
+
+/-- A disputed child names a real kid above the leaf stage. -/
+private theorem childIsD_facts {h s i : Nat}
+    (hD : sk.childIsD h s i = true) :
+    h ≠ 0 ∧ i < (sk.scope s).kids.length := by
+  unfold Skel.childIsD at hD
+  by_cases h0 : (h == 0) = true
+  · rw [if_pos h0] at hD
+    cases hD
+  · rw [if_neg h0] at hD
+    refine ⟨by simpa using h0, ?_⟩
+    cases hget : (sk.scope s).kids[i]? with
+    | none => rw [hget] at hD; cases hD
+    | some v => exact (List.getElem?_eq_some_iff.mp hget).1
+
+/-- The walk minting lemma: every stage-trace event scheduled below the
+wall is announced-laid — the census reaches its block, the records its
+layout consults were all minted by frame sends strictly τ-below it, and
+the announced walk trace therefore contains it. -/
+theorem walk_laid {s : MState} {N : Nat} (W : Wall sk s N) (p : Party)
+    {h : Nat} (hpk : (p.other, h) ∈ sk.walkKeys) {e : Ev}
+    (he : e ∈ Sched.walkEventsE sk (p.other, h))
+    (hτ : evIdx e (scheduleE sk) < N) :
+    e ∈ peerWalkTraceA (aviewOf sk p (s.hist p)) h := by
+  obtain ⟨hsp, hh⟩ := walkKeys_stageParty W.wf hpk
+  have hTmem := Sched.walkEventsE_mem_procsE sk W.wf hpk
+  have hemem : e ∈ scheduleE sk :=
+    (Sched.trace_sublistE sk W.wf W.m0 hTmem).mem he
+  unfold Sched.walkEventsE at he
+  obtain ⟨k, hkr0, hek⟩ := List.mem_flatMap.mp he
+  have hkr : k < sk.stageLen h := List.mem_range.mp hkr0
+  -- the block prologue sits at or before e in τ
+  have hek' : e ∈ ((wireIn (p.other, h), false, k) : Ev)
+      :: (((askedIn (p.other, h), false, k) : Ev)
+        :: Sched.scopeSendsE sk (p.other, h) k) := hek
+  have hrfacts : ((wireIn (p.other, h), false, k) : Ev) ∈ scheduleE sk
+      ∧ evIdx ((wireIn (p.other, h), false, k) : Ev) (scheduleE sk)
+          ≤ evIdx e (scheduleE sk) := by
+    rcases pair_of_mem_cons hek' with heq | hpair
+    · subst heq
+      exact ⟨hemem, Nat.le_refl _⟩
+    · have hlift : ([((wireIn (p.other, h), false, k) : Ev), e]
+          : List Ev).Sublist (Sched.walkEventsE sk (p.other, h)) := by
+        unfold Sched.walkEventsE
+        exact sublist_flatMap_block hkr hpair
+      obtain ⟨hm, hlt⟩ := tau_prior W.wf W.m0 hTmem hlift
+      exact ⟨hm, by omega⟩
+  -- the census reaches block k
+  have hconv : (Chan.wire (stageParty h).other (h + 1) : Chan)
+      = wireIn (p.other, h) := by
+    rw [← hsp]
+    rfl
+  have hcen := census_reach W p
+    (evIdx ((wireIn (p.other, h), false, k) : Ev) (scheduleE sk) + 1)
+    h k hh hkr
+    (by rw [hconv]; exact hrfacts.1)
+    (by rw [hconv]; omega)
+    (by rw [hconv]; omega)
+  obtain ⟨hclen, hsc, -⟩ := hcen
+  -- the kid-record harvest, against any pair reason
+  have hkidrec : ∀ k' j, k' ≤ k → sk.childIsD h (sk.stageScope h k') j
+        = true →
+      ((k' < k) ∨ ((∃ i', j < i'
+          ∧ i' < sk.nChildren h (sk.stageScope h k')
+          ∧ e ∈ Sched.childChunk sk (p.other, h) k' i')
+        ∨ (e ∈ Sched.childChunk sk (p.other, h) k' j
+            ∧ e ≠ ((wireOut (p.other, h), true,
+                sk.wiresBefore h k' + j) : Ev))
+        ∨ e = ((upperOut (p.other, h), true, k') : Ev))) →
+      (sk.scope (sk.stageScope h k')).kids.getD j 0
+        ∈ announcedIds sk p (s.hist p) := by
+    intro k' j hk' hD hreason
+    obtain ⟨h0, hjlen⟩ := childIsD_facts hD
+    have hk'st : k' < sk.stageLen h := by omega
+    have hnc : sk.nChildren h (sk.stageScope h k')
+        = (sk.scope (sk.stageScope h k')).kids.length := by
+      unfold Skel.nChildren
+      rw [if_neg (by simpa using h0)]
+    have hjn : j < sk.nChildren h (sk.stageScope h k') := by omega
+    have hpair : ([((wireOut (p.other, h), true,
+        sk.wiresBefore h k' + j) : Ev), e] : List Ev).Sublist
+        (Sched.walkEventsE sk (p.other, h)) := by
+      rcases hreason with hlt | hcases
+      · -- cross-block pair
+        have hwmem := wire_mem_childChunk (sk := sk) (p.other, h) k' j
+        have hwblk : ((wireOut (p.other, h), true,
+            sk.wiresBefore h k' + j) : Ev)
+            ∈ Sched.scopeBlockE sk (p.other, h) k' :=
+          chunk_mem_scopeBlockE hjn hwmem
+        unfold Sched.walkEventsE
+        exact sublist_flatMap_pair hlt hkr hwblk hek
+      · exact chunk_pair_walk W.wf hpk hk'st hjn hcases
+    obtain ⟨hwm, hwlt⟩ := tau_prior W.wf W.m0 hTmem hpair
+    have hwm' : ((Chan.wire p.other h, true, sk.wiresBefore h k' + j)
+        : Ev) ∈ scheduleE sk := hwm
+    have hwlt' : evIdx ((Chan.wire p.other h, true,
+        sk.wiresBefore h k' + j) : Ev) (scheduleE sk)
+        < evIdx e (scheduleE sk) := hwlt
+    exact W.kid_minted p hpk hk'st hjlen h0 hwm' (by omega)
+  -- every earlier block completes
+  have hoks : ∀ j, 0 ≤ j → j < k →
+      (peerBlockA (aviewOf sk p (s.hist p)) p.other h j
+        (sk.stageScope h j) (sk.wiresBefore h j) (sk.dsBefore h j)
+        (sk.qsBefore h j)).2.2 = true := by
+    intro j _ hj
+    refine peerBlockA_ok W.wf p.other (by omega) (hsc j (by omega))
+      (fun j' hD' => ?_) _ _ _
+    exact hkidrec j j' (by omega) hD' (Or.inl hj)
+  -- block k's announced layout contains e
+  have hblockmem : e ∈ (peerBlockA (aviewOf sk p (s.hist p)) p.other h k
+      (sk.stageScope h k) (sk.wiresBefore h k) (sk.dsBefore h k)
+      (sk.qsBefore h k)).1 := by
+    rcases pair_of_mem_cons hek' with heq | -
+    · subst heq
+      exact prologue_mem_peerBlockA p.other h k _ _ _ _ (Or.inl rfl)
+    rcases List.mem_cons.mp hek' with heq | hek2
+    · subst heq
+      exact prologue_mem_peerBlockA p.other h k _ _ _ _ (Or.inl rfl)
+    rcases List.mem_cons.mp hek2 with heq | hek3
+    · subst heq
+      exact prologue_mem_peerBlockA p.other h k _ _ _ _ (Or.inr rfl)
+    -- e is one of the block's sends
+    have hann := hsc k (Nat.le_refl _)
+    unfold Sched.scopeSendsE at hek3
+    rcases List.mem_append.mp hek3 with hflat | hpar
+    · -- a chunk event
+      rw [← List.flatMap_def] at hflat
+      obtain ⟨it, hitr, heit⟩ := List.mem_flatMap.mp hflat
+      rw [List.mem_range] at hitr
+      by_cases h0 : h = 0
+      · -- the leaf stage: the whole supply run is laid at once
+        subst h0
+        have hDi : sk.childIsD 0 (sk.stageScope 0 k) it = false := rfl
+        have hcc : Sched.childChunk sk (p.other, 0) k it
+            = [((wireOut (p.other, 0), true,
+                sk.wiresBefore 0 k + it) : Ev)] := by
+          unfold Sched.childChunk
+          rw [if_neg (by simp [hDi])]
+        rw [hcc, List.mem_singleton] at heit
+        subst heit
+        exact chunkOut_mem_peerBlockA p.other hkr hann
+          (leaf_chunks_mem p.other hkr hann hitr _ _)
+      · -- an interior stage: cover the target chunk
+        have h0' : (h == 0) = false := by simpa using h0
+        have hnc : sk.nChildren h (sk.stageScope h k)
+            = (sk.scope (sk.stageScope h k)).kids.length := by
+          unfold Skel.nChildren
+          rw [if_neg (by simpa using h0)]
+        have hitr' : it < sk.nChildren h (sk.stageScope h k) := hitr
+        have hit : it < (sk.scope (sk.stageScope h k)).kids.length := by
+          omega
+        have hbelow : ∀ j, 0 ≤ j → j < it →
+            sk.childIsD h (sk.stageScope h k) j = true →
+            (sk.scope (sk.stageScope h k)).kids.getD j 0
+              ∈ announcedIds sk p (s.hist p) := by
+          intro j _ hjit hD
+          exact hkidrec k j (Nat.le_refl _) hD
+            (Or.inr (Or.inl ⟨it, hjit, hitr, heit⟩))
+        have hcov := chunksA_covers W.wf p.other hkr h0' hann
+          (sk.wiresBefore h k) it hit
+          ((sk.scope (sk.stageScope h k)).kids.length + 1) 0
+          (sk.wiresBefore h k) (sk.dsBefore h k) (sk.qsBefore h k)
+          (Nat.zero_le _) (by omega) (by omega) (by simp) (by simp)
+          hbelow
+        by_cases hwire : e = ((wireOut (p.other, h), true,
+            sk.wiresBefore h k + it) : Ev)
+        · subst hwire
+          exact chunkOut_mem_peerBlockA p.other hkr hann hcov.1
+        · refine chunkOut_mem_peerBlockA p.other hkr hann
+            (hcov.2 (fun hD => ?_) e heit)
+          exact hkidrec k it (Nat.le_refl _) hD
+            (Or.inr (Or.inr (Or.inl ⟨heit, hwire⟩)))
+    · -- the parent summary: the whole block is complete
+      rw [List.mem_singleton] at hpar
+      subst hpar
+      have hok := peerBlockA_ok W.wf p.other hkr hann
+        (fun j' hD' => hkidrec k j' (Nat.le_refl _) hD'
+          (Or.inr (Or.inr (Or.inr rfl))))
+        (sk.wiresBefore h k) (sk.dsBefore h k) (sk.qsBefore h k)
+      exact parent_mem_peerBlockA p.other hann hok
+  -- assemble through the go loop
+  have hpre := stageScopesA_prefix W.wf p (s.hist p) hh
+  show e ∈ peerWalkTraceA.go (aviewOf sk p (s.hist p)) h
+    ((aviewOf sk p (s.hist p)).party).other
+    (stageScopesA (aviewOf sk p (s.hist p)) h).1 0 0 0 0
+  have hgo := goA_mem (p := p) (tr := s.hist p) W.wf hh
+    (stageScopesA (aviewOf sk p (s.hist p)) h).1 0 k
+    (fun j hj => by
+      have := prefix_getD hpre.1 hj 0
+      rw [← this]
+      show _ = sk.stageScope h (0 + j)
+      rw [Nat.zero_add]
+      rfl)
+    (Nat.zero_le _) (by omega) hkr
+    (fun j hj hjk => hoks j hj hjk) hblockmem
+  exact hgo
+
 end StreamingMirror.Mux
