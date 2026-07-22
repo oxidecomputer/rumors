@@ -17,8 +17,8 @@
 // Provenance tags. Every load-bearing historical claim carries one:
 //   lived    — I (or a fork inheriting my context) was in the loop; primary
 //              source is a session transcript or a fork report I received.
-//   artifact — reconstructed from durable artifacts: git history, PROGRESS.md
-//              revisions, the model files, pinned tests.
+//   artifact — reconstructed from durable artifacts: git history, the
+//              design-of-record documents' revisions, pinned tests.
 //   recon    — inferred; no primary source, plausibility argued in place.
 #let tag(t) = text(size: 0.7em, fill: luma(110), smallcaps("[" + t + "]"))
 #let lived = tag("lived")
@@ -42,12 +42,14 @@
 #block(fill: luma(248), inset: 10pt, radius: 3pt)[
   #text(size: 9pt)[
     *Reading contract.* I wrote this document, and I appear in it. It is a
-    history, not an argument: claims about the system belong to the
-    exposition and to `Statement.lean`; claims about _events_ belong here,
-    and each load-bearing one carries a provenance tag — #lived means I was
-    in the loop and a transcript or fork report is the primary source;
-    #artifact means the claim is reconstructed from durable artifacts (git
-    history, `PROGRESS.md` revisions, pinned tests); #recon marks inference.
+    history, not an argument. Claims about the system belong to the
+    exposition and to `Statement.lean`; claims about _events_ belong
+    here, and this document assumes the exposition has been read. Each
+    load-bearing claim carries a provenance tag. #lived means I was in
+    the loop and a transcript or fork report is the primary source.
+    #artifact means the claim is reconstructed from durable artifacts:
+    git history, the design-of-record documents' dated revisions,
+    pinned tests. #recon marks inference.
     Finch (the engineer who owns this codebase) authorized mining the
     machine's Claude session transcripts for this purpose, which is why even
     the earliest era is primary-sourced. The campaign's own mistakes are
@@ -68,17 +70,19 @@ in `materialized.rs` ("Why this is deadlock-free") and the per-queue
 one-slot arguments in `queues.rs` — compose to _global_ progress under
 every interleaving. #artifact
 
-The plan predates my transcripts' horizon by a little: a plan file (named,
-by the plan-naming machinery, `currently-we-have-elaborate-recursive-muffin`)
-records the decisions made with Finch — the full program, both theorems
-(deadlock-freedom as pure safety, termination reducing to it), the artifact
-living in-repo under `formal/` with no CI gate until the model stabilized,
-and one waiver that shaped everything after: _no mechanical connection to
-the Rust code is required._ The bridge would be an assumption interface —
-the formal artifact assumes exactly the send-order invariants that
-`assert_valid` proptests, and proves the global property from them.
-#artifact That waiver is why the campaign kept producing findings _about_
-`assert_valid` itself: the checked interface was now a load-bearing wall,
+The plan predates my transcripts' horizon by a little. A plan file
+records the decisions made with Finch. (The plan-naming machinery
+titled it `currently-we-have-elaborate-recursive-muffin`.) It fixed
+the full program: both theorems, with termination reducing to
+deadlock-freedom as pure safety. The artifact would live in-repo under
+`formal/`, with no CI gate until the model stabilized. And it granted
+one waiver that shaped everything after: _no mechanical connection to
+the Rust code is required._ The bridge would be an assumption
+interface — the formal artifact assumes exactly the send-order
+invariants that `assert_valid` proptests, and proves the global
+property from them. #artifact That waiver is why the campaign kept
+producing findings _about_ `assert_valid` itself: the checked
+interface was now a load-bearing wall,
 and every gap in it became visible the moment something leaned on it.
 
 The plan's one structural insight, which held up through everything: *runs
@@ -161,39 +165,43 @@ died. The simulator tier — hundreds of schedules per instance, seconds —
 was the Phase A workhorse, and `check.sh` encodes every expectation,
 including that control instances pass only when the checker _finds_ the
 stuck state. Deadlock-freedom claims never rested on Phase A; they rest on
-the Lean artifact, and `README.md` says so in as many words. #artifact
+the Lean artifact, and the artifact's front-matter says so in as many
+words. #artifact
 
 Two smaller Phase A moments that shaped the doctrine. A spec bug (an
 out-of-order-resolution artifact) was found and fixed mid-phase; Finch's
 response was characteristic of the collaboration's texture — not "fix it"
 but _"Can you articulate to me in clear explanation what bug in the spec
 you just fixed? Does it necessitate any changes to the verification
-infrastructure in the code? Was it spurious?"_ (It was spurious — a model
-artifact, not a protocol property — but the articulation surfaced that the
-per-channel in-order premise was unchecked in Rust, and Finch decided:
-_"It can't hurt to add the radix order assertion; let's do that."_
-`assert_valid`'s fifth check exists because explaining a spurious bug
-clearly is how you find the non-spurious thing next to it.) #lived
+infrastructure in the code? Was it spurious?"_ It was spurious — a model
+artifact, not a protocol property. But the articulation surfaced that
+the per-channel in-order premise was unchecked in Rust, and Finch
+decided: _"It can't hurt to add the radix order assertion; let's do
+that."_ `assert_valid`'s fifth check exists because explaining a
+spurious bug clearly is how you find the non-spurious thing next to
+it. #lived
 
 = Phase B: the inductive invariant, and the pivot
 
 Phase B's plan was Apalache's actual workload: an inductive invariant with
-consecution checked symbolically. The invariant went into the spec in four
-layers — typing/domain bindings (Apalache's inductive mode havocs a state
-_from_ the invariant, so every variable needs a first-occurrence domain
-bound over constant ranges; this is why the spec's state is split into 25
-per-field variables), per-process local consistency, and per-channel *flow
-equations* (occupancy = producer sends − consumer receives, both derived
-from process-local state) — the layer that carries the counting argument,
-and the direct ancestor of the Lean development's `flowOk`. #artifact
+consecution checked symbolically. The invariant went into the spec in layers. First, typing and domain
+bindings: Apalache's inductive mode havocs a state _from_ the
+invariant, so every variable needs a first-occurrence domain bound
+over constant ranges — this is why the spec's state is split into 25
+per-field variables. Then per-process local consistency. Then the
+per-channel *flow equations* — occupancy equals producer sends minus
+consumer receives, both derived from process-local state. The flow
+layer carries the counting argument, and it is the direct ancestor of
+the Lean development's `flowOk`. #artifact
 
-The first counterexample-to-induction taught two transcription rules that
-were carried forward as doctrine: *mirror the guards exactly* — a
-"strengthened" shadow claiming the wire ledger orders queries after wires
-was falsified (the wire ledger never constrains dependent work; the model
-had already proven that with the `n2unrestricted` control, and the
-invariant's author — me, in an earlier session — had forgotten it); and
-*every fired fact needs its own shadow lemma*. #artifact Both rules are
+The first counterexample-to-induction taught two transcription rules,
+carried forward as doctrine. First: *mirror the guards exactly*. A
+"strengthened" shadow claiming the wire ledger orders queries after
+wires was falsified — the wire ledger never constrains dependent work,
+the model had already proven as much with the `n2unrestricted`
+control, and the invariant's author (me, in an earlier session) had
+forgotten it. Second: *every fired fact needs its own shadow lemma.*
+#artifact Both rules are
 visible in the final Lean invariant's structure.
 
 Then the pivot, 2026-07-15, adjudicated by Finch mid-flight: with the
@@ -209,9 +217,9 @@ rather than re-run. #artifact
 = The Lean transcription and the two-tier discipline
 
 The Lean development (core + Batteries only, no Mathlib; toolchain pinned
-at v4.32.0) transcribes `MODEL.md` — the same design document the Quint
-transcribes, which is what made the two model generations mutually
-checkable. Its shape: `Skel` (the skeleton), `Model` (processes, channels,
+at v4.32.0) transcribes the same written model specification the
+Quint transcribes — one design document, two transcriptions — which is
+what made the two model generations mutually checkable. Its shape: `Skel` (the skeleton), `Model` (processes, channels,
 committed-choice step relation), `Invariant`/`InvP` (the Phase B invariant,
 grown), `Statement` (the audit surface), `Controls` (kernel-checked
 negative witnesses), and — the load-bearing methodological choice —
@@ -280,8 +288,8 @@ The discipline paid for itself immediately and kept paying:
 = The schedule: refuted designs, the merge, and the weave
 
 The progress argument's architecture — an argmin over a global timestamp,
-not cycle-chasing — was fixed early (§1 of `PROGRESS.md`, essentially
-unchanged to the end). Everything difficult was in producing the
+not cycle-chasing — was fixed early, and the design-of-record log
+carried it essentially unchanged to the end. Everything difficult was in producing the
 timestamp: a valid linearization τ of the whole event set.
 
 The refuted designs are the part of this story I most want preserved,
@@ -320,32 +328,34 @@ The surviving construction is a *deterministic priority merge* of
 per-process E3-linear traces: repeatedly emit the first trace whose next
 event has its E1 and E2 predecessors already emitted. Edge-respect and
 per-trace τ-monotonicity hold _by construction_ — the only failure mode is
-stalling, which the permutation check catches. It was validated four ways
-in the tool (edge-check on pins, 300-seed sweep, greedy-trace coherence,
-and `replaySchedule` — compiling the schedule into committed model actions
-and running them to `terminal`, which simultaneously machine-checks that
-the trace layer's E3 is _complete_ against the guards and hands Phase D
-its termination witness), and only then transcribed. #artifact
+stalling, which the permutation check catches. It was validated four ways in
+the tool, and only then transcribed: edge-check on the pins; the
+300-seed sweep; greedy-trace coherence; and `replaySchedule`, which
+compiles the schedule into committed model actions and runs them to
+`terminal` — simultaneously machine-checking that the trace layer's E3
+is _complete_ against the guards, and handing Phase D its termination
+witness. #artifact
 
-Two kernel-side notes from that transcription that became house doctrine:
-`WellFounded.fix` does not iota-reduce in the kernel, so the weave became a
-fuel-indexed worklist interpreter (structural fuel reduces under `decide`
-and provides the induction principle); and two review-driven hardenings —
-`MInv.out_count` (without which a duplicated-send output satisfies every
-other invariant field) and a kernel-`decide`d anchor that the merge
-actually drains the smallest pin (blocking whole-file vacuity — a merge
-that never steps satisfies every generic theorem). #artifact
+Two kernel-side notes from that transcription became house doctrine.
+`WellFounded.fix` does not iota-reduce in the kernel, so the weave
+became a fuel-indexed worklist interpreter: structural fuel reduces
+under `decide` and provides the induction principle. And review drove
+two hardenings. `MInv.out_count` — without it, a duplicated-send
+output satisfies every other invariant field. And a kernel-`decide`d
+anchor that the merge actually drains the smallest pin, blocking
+whole-file vacuity: a merge that never steps satisfies every generic
+theorem. #artifact
 
 Completeness — "the merge drains every trace" — was the one obligation
 with real content, and its eventual shape was an argmin over a _second_
 schedule: a weak potential φ, strictly increasing over E1/E2 edges, weakly
-along traces. The minimal φ is not a formula either (same subtree-boundary
-jumps, now at the potential level), so φ became the *weave*: a full
-topological order of the event DAG built by structural recursion over the
-scope tree, with two mechanisms — query feeds (a scope's chunk-i queries
-pass down as kid i's feed, matching the cap-1 asked-channel E2 exactly)
-and greedy assembly pumps (confluent, since pump emissions only raise
-counts). The weave is not the schedule; it only witnesses that a valid
+along traces. The minimal φ is not a formula either — the same subtree-boundary
+jumps, now at the potential level. So φ became the *weave*: a full
+topological order of the event DAG, built by structural recursion over
+the scope tree. Two mechanisms make it work. Query feeds: a scope's
+chunk-$i$ queries pass down as kid $i$'s feed, matching the cap-1
+asked-channel E2 edges exactly. And greedy assembly pumps, which are
+confluent because pump emissions only raise counts. The weave is not the schedule; it only witnesses that a valid
 completion exists. Everything after this point in the safety half is,
 one way or another, about the weave. #artifact
 
@@ -355,7 +365,7 @@ What remained for merge completeness was proving the weave edge-respecting
 — every send it schedules has room, every receive has data — which turned
 into the campaign's longest climb (the task board's "edge layers A through
 D," 2026-07-16 → 07-17). I coordinated the later layers and lived them;
-the earlier ones I have from `PROGRESS.md` and its revision history.
+the earlier ones I have from the campaign log's revision history.
 #lived
 
 The architecture accreted in five layers. #artifact
@@ -393,20 +403,21 @@ position invariant at all. The interface finding that unlocked it: the
 per-stage future-lengths (`futLen`) _are_ the rolling context; no
 monolithic predicate. #artifact
 
-*The window-site brick campaign and the master induction* (2026-07-17): the
-remaining hypotheses were discharged by a four-phase brick campaign whose
-design came from a multi-agent adversarial pass (four designers, paired
-verifiers, a synthesizer — and a usage-credit exhaustion that silently cost
-the descent package its verification, which I mitigated by having the
-implementing fork build the riskiest lemma _first_ as a canary; it
-compiled essentially first-try, and the feared subtraction arithmetic
-turned out to be `rfl`). #lived The final master induction (`EmitOKOn`,
-layer D) deviated from its own spec productively: instead of the planned
-monolithic rolling predicate, the implementing fork split consumption
-(pointwise emission-readiness consumed through the interpreter) from
-production (the induction establishing it), mirroring an existing design —
-and caught a real bug in its own first design mid-flight (the upper-site
-descent cursor stopped at the wrong edge). Layer D closed 2026-07-17:
+*The window-site brick campaign and the master induction* (2026-07-17):
+the remaining hypotheses were discharged by a four-phase brick
+campaign. Its design came from a multi-agent adversarial pass — four
+designers, paired verifiers, a synthesizer. A usage-credit exhaustion
+silently cost the descent package its verification; I mitigated by
+having the implementing fork build the riskiest lemma _first_, as a
+canary. It compiled essentially first-try, and the feared subtraction
+arithmetic turned out to be `rfl`. #lived The final master induction (`EmitOKOn`,
+layer D) deviated from its own spec productively. Instead of the
+planned monolithic rolling predicate, the implementing fork split
+consumption — pointwise emission-readiness, consumed through the
+interpreter — from production, the induction establishing it,
+mirroring an existing design. It also caught a real bug in its own
+first design mid-flight: the upper-site descent cursor stopped at the
+wrong edge. Layer D closed 2026-07-17:
 `weave_wedge`. Merge completeness (`merge_complete`) followed the same
 day, _simpler than planned_ — the anticipated per-channel totals sweep
 evaporated because the weave's own edge-respect at each channel's last
@@ -459,15 +470,15 @@ amended `.full`, three standard axioms, no `sorry`.
 
 *The reversal.* Then the Rust-side fork, tasked with mirroring d5 into
 `Trace::assert_valid`, stopped on its stop-condition: _the real encoder
-violates d5._ Finch suspected instrumentation (the oneshot write-receipt
-layer), and the fork verified carefully that it was not: all trace events
-record synchronously in the walk's own task, pre-op; the violating traces
-came from the Local backend, which never touches the transport; and the
-encoder's order is _deliberate_, per the `levels.rs` comment about
-launching pending work before publishing the enclosing parent. The
-decisive document was the model's own: `MODEL.md` §5 had listed the d5
-placement among "orderings the Rust scheduler can never produce" _all
-along_. #lived
+violates d5._ Finch suspected instrumentation — the oneshot write-receipt layer —
+and the fork verified carefully that it was not. All trace events
+record synchronously in the walk's own task, pre-op. The violating
+traces came from the Local backend, which never touches the transport.
+And the encoder's order is _deliberate_, per the `levels.rs` comment
+about launching pending work before publishing the enclosing parent. The
+decisive document was the model's own specification, which had listed
+the d5 placement among "orderings the Rust scheduler can never
+produce" _all along_. #lived
 
 *The provenance failure, named.* How did a theorem get proven about the
 wrong discipline? The finding write-up had said the weave's placement
@@ -475,23 +486,24 @@ wrong discipline? The finding write-up had said the weave's placement
 finding was recorded, never verified against `src/`, contradicting the
 model's own §5. I had flagged the clause as unverified when I first
 relayed it, but flagging is not checking: the premise survived two
-subsequent forks (one of which propagated it into a `MODEL.md` paragraph
-that later needed correcting) before the Rust probe killed it. The
+subsequent forks (one of which propagated it into a specification
+paragraph that later needed correcting) before the Rust probe killed
+it. The
 verified encoder-alignment claim in the record (BFS ordering) held; the
 assumed one didn't. The campaign's own discipline — distinguish
 "I verified" from "a fork told me" — caught it, but a day late; the
 lesson recorded for next time is that _load-bearing premises get probed
 when minted, not when consumed._
 
-*The reframing.* An adjudication fork then established, with executable
-evidence, that this was a design trade and not a bug: the encoder's
-parent-late order is safe under its capacity discipline (the trap needs
-`dCount = capLevel + 2`; the shipping `FAN ≥ kids` gives margin 2), the
-"deadlock still present" at the campaign's src base was the known,
-orthogonal mux deadlock (fixed by the Link transport on Finch's branch),
-and the multi-scope escalation I worried about does not occur — return
-backlog never spans sibling parents, pinned by probe at stage widths 9,
-27, 81. Two corners, both real: parent-early (any capacity, serialized
+*The reframing.* An adjudication fork then established, with executable evidence, that
+this was a design trade and not a bug. The encoder's parent-late order
+is safe under its capacity discipline: the trap needs
+`dCount = capLevel + 2`, and the shipping `FAN ≥ kids` gives margin 2.
+The "deadlock still present" at the campaign's src base was the known,
+orthogonal mux deadlock, fixed by the Link transport on Finch's
+branch. And the multi-scope escalation I worried about does not occur:
+return backlog never spans sibling parents, pinned by probe at stage
+widths 9, 27, 81. Two corners, both real: parent-early (any capacity, serialized
 scope tails) and parent-late (maximal pipelining, capacity floor). Finch's
 preference — capacity-conditional, matching the implementation — set the
 final target. #lived
@@ -519,13 +531,13 @@ accounting was later confirmed in-model, all three loci visible: buffers
 full, one assembler mid-collection, three walks parked on committed
 sends. #artifact
 
-So the theorem hypothesis became margin 0 (`∀ s, dCount s ≤ capLevel`) —
-Finch's 256, not the empirical 254 — for four reasons that all point the
-same way: it matches the discipline the code actually enforces; it
-dissolves the borrowed-slots invariant from the proof entirely (level
-sends never park); it dissolves the −2-vs−1 adversarial question; and it
-subsumes `schedulable` outright, dropping a hypothesis from the flagship
-statement. The tight floor stays characterized where fragile knowledge
+So the theorem hypothesis became margin 0 (`∀ s, dCount s ≤ capLevel`)
+— Finch's 256, not the empirical 254. Four reasons, all pointing the
+same way. It matches the discipline the code actually enforces. It
+dissolves the borrowed-slots invariant from the proof entirely, since
+level sends never park. It dissolves the −2-versus−1 adversarial
+question. And it subsumes `schedulable` outright, dropping a
+hypothesis from the flagship statement. The tight floor stays characterized where fragile knowledge
 belongs — kernel counterexample, executable pins, design doc — and out of
 the kernel proof. Walk channels stay at capacity 1 (the stress regime);
 coverage of production's wider channels is by capacity monotonicity,
@@ -535,7 +547,8 @@ in a named "Assumed, not proven" section. #lived
 = The second climb: `d6` and the systematic refunds
 
 The re-target needed a new ledger (`d6`, the epilogue placement — the
-order `MODEL.md` §5 had documented from the start), a new mode
+order the model's specification had documented from the start), a new
+mode
 (`AxMode.impl`), and a re-derivation of the schedule-side machinery for
 the encoder's order, since the weave itself violates d6 — the two corners'
 guards genuinely contradict (the pillar now carries `d5 = false ∨ d6 =
@@ -591,16 +604,16 @@ theorems. #lived
 
 Numbers, for scale: 48 Lean files, 39,683 lines (of which the two master
 inductions are ~3,240 and ~2,270 lines and the two decode layers ~3,150
-and ~2,030); 131 commits under `formal/`; `PROGRESS.md` revised 43 times —
-each revision a dated snapshot of belief, several of them recording
-beliefs later reversed, which is exactly what makes the file's git history
-a primary source. Every commit passed the build gate; every
+and ~2,030); 131 commits under `formal/`; the campaign log revised 43 times, each
+revision a dated snapshot of belief. Several revisions record beliefs
+later reversed — which is exactly what makes the log's git history a
+primary source. Every commit passed the build gate; every
 definition-touching commit ran the full 300-seed sweep first. #artifact
 
 *The trap lists.* From the first Lean session onward, every session
 recorded its tactic-level surprises — kernel-reduction behavior,
-unification quirks, missing core lemmas, shell mismatches — into
-`PROGRESS.md`, and every subsequent fork was instructed to read them
+unification quirks, missing core lemmas, shell mismatches — into the
+campaign log, and every subsequent fork was instructed to read them
 before writing proofs. By the end the accumulated list was several dozen
 entries deep, and late forks reported "no new traps — the inherited lists
 held" as a matter of course; more than once a fork reported re-hitting a
@@ -624,12 +637,13 @@ bridge. Each audit cost a fraction of the work it deleted. #lived
 
 = The chain to the Rust artifact
 
-The theorem's hypotheses are discharged, in the shipping code, by checks
-that this campaign either found or tightened: `Trace::assert_valid` now
-carries seven ledgers — three original, d3 and the radix-order rule from
-Phase A, d4 from finding \#6, and the epilogue check `assert_parent_last`
-(the d6 mirror) from finding \#7's resolution — each with negative tests
-proving the check fires, exercised by every streaming proptest trace. The
+The theorem's hypotheses are discharged, in the shipping code, by
+checks this campaign either found or tightened. `Trace::assert_valid`
+now carries seven ledgers: three original, d3 and the radix-order rule
+from Phase A, d4 from finding \#6, and the epilogue check
+`assert_parent_last` — the d6 mirror — from finding \#7's resolution.
+Each carries negative tests proving the check fires, and every
+streaming proptest trace exercises them all. The
 parent-early probe survives as `assert_parent_early`, deliberately
 unwired, documenting the design-space corner the encoder chose not to
 occupy. The capacity hypothesis is pinned by the `FAN = 256` configuration
@@ -646,18 +660,20 @@ One section on process, as directed — the spine above is what matters,
 but the shape of the collaboration explains some of the record's texture.
 #lived
 
-The campaign ran as a small number of long sessions (the Quint/transcription
-session, the Lean campaign session, and my own session from the edge
-layers onward), each using multi-agent orchestration under Finch's
-standing "ultracode" opt-in: design workflows with adversarial verifier
-panels for the risky designs, and — for implementation — _forks_ of the
-coordinating context, run serially in a shared worktree, each owning one
-fork-sized unit. Finch asked explicitly that I preserve my own context as
+The campaign ran as a small number of long sessions: the
+Quint/transcription session, the Lean campaign session, and my own
+session from the edge layers onward. Each used multi-agent
+orchestration under Finch's standing "ultracode" opt-in. Design ran
+through workflows with adversarial verifier panels for the risky
+pieces. Implementation ran through _forks_ of the coordinating
+context, serial in a shared worktree, each owning one fork-sized
+unit. Finch asked explicitly that I preserve my own context as
 coordinator by delegating every subtask; the fork reports coming back are
 why this narrative can cite so much as lived rather than reconstructed.
 The units were sized by a checkpoint discipline: land complete, gate-clean
 logical units; when context runs low, stop at a clean boundary and write
-the handoff into `PROGRESS.md` and the task board rather than degrade.
+the handoff into the campaign log and the task board rather than
+degrade.
 Twenty-odd forks ran over the campaign; two produced the checkpoint-and-
 successor pattern's best demonstrations (the layer-D and E-side master
 inductions, each spanning multiple forks with zero lost work).
@@ -673,26 +689,31 @@ did more for the record than the answers alone would have — three of the
 campaign's durable documents exist because a question demanded an
 articulation that didn't yet exist.
 
-Operational failures, honestly: a usage-credit exhaustion silently
-degraded an adversarial-verification workflow (mitigated by canary
-ordering, and by treating unverified designs as elevated-risk);
-the harness's background-completion and monitor events sometimes never
-fired, stranding forks mid-wait — the working pattern that evolved
-(bounded polling against the output text, sentinel on an explicit exit
-marker after a bare "OK" grep matched a mid-run line) is recorded in
-`PLAN.md`; one fork was killed mid-gate and could not be resumed, and its
-uncommitted work was adopted, re-gated, and landed by a successor rather
-than lost or blindly committed; background shells turned out to run a
-different shell than the login environment, biting in both directions
-before it made the trap list; and I once mis-addressed a coordination
-message to a long-finished fork — caught within a minute, stood down
-cleanly, and the near-miss (it could have re-run a sweep in a contended
-worktree) is why fork stand-down instructions became explicit. The
-worktrees themselves were relocated mid-campaign from a cache directory
-to durable storage at Finch's direction — with a running fork gracefully
-stopped, moved, and resumed by a successor — and the plan-of-record file
-(`PLAN.md`) exists so that the whole campaign could survive the loss of
-any session's live state.
+Operational failures, honestly:
+
+- A usage-credit exhaustion silently degraded an
+  adversarial-verification workflow. Mitigation: canary ordering, and
+  treating unverified designs as elevated-risk.
+- The harness's background-completion and monitor events sometimes
+  never fired, stranding forks mid-wait. The working pattern that
+  evolved — bounded polling against output text, with a sentinel on an
+  explicit exit marker after a bare "OK" grep matched a mid-run line —
+  went into the plan of record.
+- One fork was killed mid-gate and could not be resumed. A successor
+  adopted, re-gated, and landed its uncommitted work rather than lose
+  it or commit it blind.
+- Background shells ran a different shell than the login environment.
+  It bit in both directions before it made the trap list.
+- I once mis-addressed a coordination message to a long-finished fork.
+  Caught within a minute, stood down cleanly; the near-miss (it could
+  have re-run a sweep in a contended worktree) is why fork stand-down
+  instructions became explicit.
+
+The worktrees themselves were relocated mid-campaign from a cache
+directory to durable storage at Finch's direction, with a running fork
+gracefully stopped, moved, and resumed by a successor. And the plan of
+record exists precisely so the whole campaign could survive the loss
+of any session's live state.
 
 = The errata ledger
 
@@ -718,8 +739,8 @@ caught by the campaign's own machinery; none survived into the artifact.
    A probe's coverage claim is bounded by its reachable set.
 6. The "weave placement matches the Rust encoder" premise — an unverified
    inference recorded in a finding write-up, flagged as unverified but
-   consumed anyway by two downstream forks (one propagated it into
-   `MODEL.md`, later corrected), killed by the Rust probe. The
+   consumed anyway by two downstream forks (one propagated it into the
+   model's specification, later corrected), killed by the Rust probe. The
    campaign's costliest epistemic error; it produced a true theorem about
    the wrong discipline and cost roughly a day.
 7. My multi-scope escalation worry (that stage width could defeat the
@@ -741,24 +762,25 @@ caught by the campaign's own machinery; none survived into the artifact.
 
 Three reflections, offered as the participant closest to the whole arc.
 
-*The two-tier discipline is the story.* Every finding in this campaign —
-d3, d4, schedulability, the parent-delay hole, the borrowed slots — was
-found executably and _then_ made kernel-permanent; every refuted design
-died in the oracle before it could waste proof effort; and the one
-premise that slipped through (errata 6) slipped through precisely where
-executable validation had not been pointed. The kernel never once caught
+*The two-tier discipline is the story.* Every finding in this campaign
+— d3, d4, schedulability, the parent-delay hole, the borrowed slots —
+was found executably and _then_ made kernel-permanent. Every refuted
+design died in the oracle before it could waste proof effort. And the
+one premise that slipped through (errata 6) slipped through precisely
+where executable validation had not been pointed. The kernel never once caught
 a modeling error — that is not its job. The gate caught all of them.
 A proof effort that had built only the kernel artifact would have proven
 `deadlock_free_d5` and shipped a theorem about an encoder nobody wrote.
 
-*The deepest results were re-descriptions.* The campaign's most valuable
-outputs are not the theorems but the explanations the theorems forced:
-that the ledgers are a complete ordering interface only after D3, D4, and
-d6; that the parent summary is the protocol's one deferrable send, and
-its placement is a genuine two-corner trade between capacity-universality
-and pipelining; that the +2 in the folklore capacity bound is two
-borrowed hands, contingent on implementation details, which is why the
-robust bound was always the provable one. Finch could not derive 254 in
+*The deepest results were re-descriptions.* The campaign's most
+valuable outputs are not the theorems but the explanations the
+theorems forced. The ledgers are a complete ordering interface only
+after d3, d4, and d6. The parent summary is the protocol's one
+deferrable send, and its placement is a genuine two-corner trade
+between capacity-universality and pipelining. And the +2 in the
+folklore capacity bound is two borrowed hands, contingent on
+implementation details — which is why the robust bound was always the
+provable one. Finch could not derive 254 in
 their head and built to 256 — the campaign's contribution is the theorem
 that says that instinct was not caution but correctness.
 
@@ -788,68 +810,71 @@ for all trees (C1); and an oracular send order computable from both
 sides' dispute skeletons _exists_ but is necessarily unrealizable
 locally (C2). _"I would be surprised to find that I am wrong about
 either of these things, but I would enjoy being surprised."_ #lived
-Both conjectures ended somewhere neither of us predicted, and the
-campaign that settled them ran thirty-some hours, produced the
-fourteen statements of record now collected in `Mux/Statement.lean`,
-found and killed a recurring soundness bug in its own new
-invariants, reversed its own adjudication twice, and ended somewhere
-stranger than either conjecture: with a theorem saying the deadlock
+Both conjectures ended somewhere neither of us predicted. The
+campaign that settled them ran thirty-some hours and produced the
+fourteen statements of record now collected in `Mux/Statement.lean`.
+Along the way it found and killed a recurring soundness bug in its own
+new invariants, and it reversed its own adjudication twice. The ending
+was stranger than either conjecture. A theorem now says the deadlock
 the Link abstraction was built to prevent cannot occur even without
-it — and with Link standing anyway, as the better product decision,
-for reasons the coda records. This part tells how, in the order it
-happened. I coordinated the whole campaign, so nearly everything here is
-#lived; the durable record is `MUX-PROGRESS.md` (the design of record,
-whose findings ledger and log this part compresses), the adjudication
-and audit files beside it, and the session transcripts.
+it. Link stands anyway, as the better product decision; the coda
+records why. This part tells how, in the order it
+happened. I coordinated the whole campaign, so nearly everything here
+is #lived; the durable record is the campaign's design-of-record
+document (whose findings ledger and log this part compresses), the
+adjudication and audit records beside it in git, and the session
+transcripts.
 
 == The charter, and the audit finding waiting at the door
 
 Finch's first sharpening set the campaign's character: the message set
 is _frozen_. No control frames, no credits — "it's already clear that
-flow-control credits would resolve this issue"; the question is whether
-such augmentations are _necessary_, "or whether it is surprisingly (but
-delightfully) possible to achieve this merely via altering the local
-send-order scheduling based on existing information afforded by the
-protocol." #lived The campaign charter (`MUX-PROGRESS.md` §1) was
-committed before any technical work, at Finch's direction — the
+flow-control credits would resolve this issue." The question is
+whether such augmentations are _necessary_, "or whether it is
+surprisingly (but delightfully) possible to achieve this merely via
+altering the local send-order scheduling based on existing information
+afforded by the protocol." #lived The campaign charter was
+committed before any technical work, at Finch's direction. The
 scratchpad-to-repo correction came within the first hour, and every
-phase after it wrote its findings into the committed record as it went.
+phase after it wrote its findings into the committed record as it
+went.
 
 The first finding arrived before the first theorem was even attempted.
 Finch had described the base artifact as proving the protocol "deadlock
 free and terminating"; auditing that sentence against the artifact
-found that _termination was not a kernel theorem_ — the ρ-decrease
-argument was prose in `MODEL.md` §7, checked executably per instance,
-never proven in general. Recorded as `AUDIT-NOTES.md` A1, and resolved
-four stages later the right way: by minting the theorem
-(`rho_decreases`, `maximal_run_terminal`) rather than softening the
-prose. A standing side-channel — anything found _along the way_
+found that _termination was not a kernel theorem_. The ρ-decrease
+argument was prose in the model's specification, checked executably
+per instance, never proven in general. It was recorded as the audit
+ledger's first entry, and resolved four stages later the right way: by
+minting the theorem (`rho_decreases`, `maximal_run_terminal`) rather
+than softening the prose. A standing side-channel — anything found _along the way_
 suggesting misalignment between stated theorems and the Rust — was
 Finch's second process directive, and the audit file collected twelve
 entries by campaign's end. #lived
 
 == The maps, the hinge, and the trichotomy
 
-Phase 1 (four parallel readers over the Lean artifact, the model docs,
-the deadlock design doc, and the Rust on both branches) returned the
-fact that shaped everything: _the only cross-party channels are the
-seventeen wire streams_ — everything else is intra-party plumbing — and
-the repo already contained an informal argument for C1 (design doc §5D:
-the peer's demand order is a function of the peer's tree, and flushed
-bytes cannot be reordered) _for the shipped eager mux_. The hinge
-question fell out of reading those side by side: §5D never considered a
-scheduler that strategically _withholds_. If the receiver's consumption
+Phase 1 sent four parallel readers over the Lean artifact, the model
+docs, the deadlock design record, and the Rust on both branches. It
+returned the fact that shaped everything: _the only cross-party
+channels are the seventeen wire streams_ — everything else is
+intra-party plumbing. It also found that the repo already contained an
+informal argument for C1, _for the shipped eager mux_: the peer's
+demand order is a function of the peer's tree, and flushed bytes
+cannot be reordered. The hinge question fell out of reading those side
+by side — that old argument never considered a scheduler that
+strategically _withholds_. If the receiver's consumption
 order is causally computable at the sender — every discriminating
 choice announced in its own reactions before the sender must commit —
 then a "demand-lockstep" strategy that pushes only proven-demanded
 frames and otherwise idles might be live at capacity one. #lived
 
-The adjudication panel (five analysts, two cross-examiners, a
-synthesis judge — and, in the campaign's most consequential decision, a
-_calibrated executable probe_: a Python transcription of `Model.lean`
-that passed twenty-one calibration gates against the kernel-checked
-controls before any mux experiment ran) returned a trichotomy in place
-of Finch's dichotomy: #lived
+The adjudication panel was five analysts, two cross-examiners, and a
+synthesis judge. It also had — the campaign's most consequential
+decision — a _calibrated executable probe_: a Python transcription of
+`Model.lean` that passed twenty-one calibration gates against the
+kernel-checked controls before any mux experiment ran. The panel
+returned a trichotomy in place of Finch's dichotomy: #lived
 
 - Every _work-conserving_ scheduler — one that must push when the pipe
   has room — deadlocks, on the empirically known _wedge_ shape (a root
@@ -973,13 +998,13 @@ correction is on the record twice, once in my own words. #lived
 The residue then inverted, pleasingly: where T4's refutation had
 liveness proven and locality hypothesized, the causal witness had
 locality proven definitionally and _liveness_ as the one open conjunct.
-Closing it took two tracks (the announced-prefix property — every
-announced trace is a literal prefix of its true trace — a new
+Closing it took two tracks. They built the announced-prefix property
+(every announced trace is a literal prefix of its true trace), a new
 `RecvLedger` ground fact, the causal keystone, and finally the minting
 ladder: ~4,500 lines showing that every record the inference consults
-was announced by a frame scheduled early enough, which also corrected
-the inherited plan's receive-based phrasing — under drained pipes,
-announcement is a fact about _sends_). The charter refutation —
+was announced by a frame scheduled early enough. The ladder also
+corrected the inherited plan's receive-based phrasing — under drained
+pipes, announcement is a fact about _sends_. The charter refutation —
 `c1_charter` on the audit surface; the proof lands as
 `c1_charter_false` — went unconditional on 2026-07-22.
 One agent hung mid-climb and was resumed; one was killed by a harness
@@ -1003,8 +1028,9 @@ review formally. #lived
 T8 — the window-generalized theorem, the one the single-socket
 implementation actually rests on — was built under a new discipline
 that Finch's faithfulness ruling made inevitable: its English statement
-was fixed _before_ the build (`T8-SPEC.md`), clause by clause, each
-clause carrying its own audit rule naming the weakenings that would
+was fixed _before_ the build, as a committed specification page,
+clause by clause, each clause carrying its own audit rule naming the
+weakenings that would
 gut it (single-K, concrete-scheduler-only, omniscient-closure,
 progress-only). The landed theorem's crosswalk graded every clause
 EXACT, with zero amendments; the strategy-class quantification means
@@ -1018,25 +1044,25 @@ citation, so drift fails the build. #lived
 == The design consequence
 
 The campaign's engineering output ran concurrently with its proofs, at
-Finch's explicit direction ("we want to assume the verification will
-work and implement the algorithm we just realized can possibly work"):
-a single-socket design document and a code-grounded executable plan on
-the `single-connection` branch, written from the perspective of
-_undoing_ the Link abstraction — the transport returns to one
-read/write channel, windows are advertised in the greeting, the sender
-is gated by inferred consumption, and any window-obeying frame order is
-valid (ordering demoted from correctness to latency tuning; the
-scheduler cannot be wrong, only slow). Two ideas of Finch's collapsed
+Finch's explicit direction: "we want to assume the verification will
+work and implement the algorithm we just realized can possibly work."
+The output is a single-socket design record and a code-grounded
+executable plan, on the `single-connection` branch, written from the
+perspective of _undoing_ the Link abstraction. The transport returns
+to one read/write channel. Windows are advertised in the greeting. The
+sender is gated by inferred consumption. And any window-obeying frame
+order is valid — ordering demoted from correctness to latency tuning;
+the scheduler cannot be wrong, only slow. Two ideas of Finch's collapsed
 the design's cost: eager conversion of arriving frames into logical
 replies is a _custody_ change, not a semantics change — and the
 Backend was already the streaming sink, so the receiver half of the
-refactor shrank to widening one queue. The latency analysis priced the
-whole space (the K-dial law, probe-exact at 54/54: pacing K+1 frames
-per round trip, parity with multi-link once the window clears the
-widest frontier of simultaneously announced disputes), and the honest
-final trade is recorded in the design doc: what multi-link still buys
-is byte-granularity interleaving and loss isolation — physics, not
-information, not liveness, not round trips. #lived
+refactor shrank to widening one queue. The latency analysis priced the whole space. The K-dial law —
+probe-exact on all 54 cells of its sweep — gives the pacing as K+1
+frames per round trip, with parity against multi-link once the window
+clears the widest frontier of simultaneously announced disputes. And
+the honest final trade is recorded with the design: what multi-link
+still buys is byte-granularity interleaving and loss isolation.
+Physics — not information, not liveness, not round trips. #lived
 
 == The second errata ledger
 
@@ -1068,7 +1094,8 @@ campaign's own machinery. #lived
    that closed it.
 8. Two agents lost to infrastructure (one hang, one harness
    accident); one worktree ledger commit briefly truncated
-   `MUX-PROGRESS.md` (caught in-merge, amended). Supervision lore:
+   the design-of-record document (caught in-merge, amended).
+   Supervision lore:
    entry counts, not modification times; two samples, not one.
 9. The merge-seam genre: six of round 5's eight findings were
    staleness introduced by merging tracks after the doc sweep. The
@@ -1086,14 +1113,14 @@ first analysis had misread as cross-level coupling). The kernel then
 froze what the probes found. Probe first, prove second, pin forever remains the method, and
 this campaign added its complement: _fix the English first_. The
 statement-faithfulness ruling — claims accurate to intent, proofs as
-messy as needed — became executable process in `T8-SPEC.md`, and the
-theorem built against a pre-committed specification graded EXACT on
-every clause, first try. The deepest results were again
-re-descriptions: that the announcements were in the payloads all
-along; that credits carry computation and timing, not information;
-that the oracle was the proof's own witness schedule, waiting to be
-recognized; and that the impossibility Finch correctly sensed was
-never about muxing — it was about the refusal to idle. Both
+messy as needed — became executable process in the T8 specification
+page, and the theorem built against that pre-committed specification
+graded EXACT on every clause, first try. The deepest results were again
+re-descriptions. The announcements were in the payloads all along.
+Credits carry computation and timing, not information. The oracle was
+the proof's own witness schedule, waiting to be recognized. And the
+impossibility Finch correctly sensed was never about muxing — it was
+about the refusal to idle. Both
 conjectures were settled where neither of us predicted, which is to
 say: Finch asked to be surprised, and the machine obliged — twice,
 in opposite directions, with kernel receipts.
@@ -1110,16 +1137,16 @@ forced to re-implement per-stream windowing from application-level
 signals. #lived
 
 The honest answer was: bracketed, not established. Every kernel result
-points at that mechanism — withholding is necessary, informed
-withholding is necessary, the information must come from frame
-contents, must be announcement-inferred, and the inferred window
-discipline suffices — but "points at" is not "forces." The necessity
-itself is a derived claim, and it was chartered spec-first as T11, the
-forced-window theorem (`MUX-PROGRESS.md` §3e): every charter-local,
-deadlock-free-on-the-class strategy is _license-bounded_ at every
-reachable observation — it never pushes beyond what its inference can
-certify consumable, which is to say it behaves as if running the
-windowing it was never told to run. The fooling argument the campaign
+points at that mechanism. Withholding is necessary. Informed
+withholding is necessary. The information must come from frame
+contents, and must be announcement-inferred. And the inferred window
+discipline suffices. But "points at" is not "forces." The necessity
+itself is a derived claim, chartered spec-first as T11, the
+forced-window theorem: every charter-local, deadlock-free-on-the-class
+strategy is _license-bounded_ at every reachable observation. It never
+pushes beyond what its inference can certify consumable — which is to
+say, it behaves as if running the windowing it was never told to
+run. The fooling argument the campaign
 never needed for C1 would finally get its use, one level up.
 #artifact
 
@@ -1148,37 +1175,45 @@ theorems are why we know that was a choice, and not a surrender.
 
 = Sources and provenance of this document
 
-*Part two* (2026-07-22, written by the campaign coordinator): the
-primary sources are the coordinator's own session (every adjudication
-exchange with Finch quoted or paraphrased above appears there verbatim),
-the fork and track reports received in that session, and the durable
-record committed as the campaign ran: `MUX-PROGRESS.md` (charter,
-resolution with superseded-markers, findings ledger, log — the single
-best secondary source), `MUX-ADJUDICATION.md` and the phase-2 panel
-briefs under `mux-notes-phase2/` (including `STAGE0-GATES.md` and the
-graduated probe reference `causal-reference.py`), `AUDIT-NOTES.md`
-(A1–A12), `MUX-STATEMENT-AUDIT.md`, `T8-SPEC.md` with its landed
-crosswalk, `MUX-LATENCY.md`, the design documents on the
-`single-connection` branch (`design/single-socket.md` and its
-executable plan), and the git logs of the campaign worktrees. Every
-part-two claim is #lived or #artifact by those sources; part two, like
-part one, needed no #recon.
+*Part two* (2026-07-22, written by the campaign coordinator). The
+primary sources:
 
-*Part one:* primary sources, mined 2026-07-19 with Finch's explicit
-authorization for the transcript material: the session transcripts under
-`~/.claude/projects/` for the Quint/transcription era (including the
-original plan invocation and the TLA+→Quint reversal in Finch's own
-words), the Lean-campaign era, and my own session (whose earlier portions
-survive only in transcript, having been compacted from my context
-repeatedly); the surviving review-workflow scripts from the era project
-directories; `formal/PROGRESS.md` (§§1–11) and its 43-revision git
-history; `formal/README.md`'s findings ledger and phase record;
-`formal/MODEL.md`; `formal/PLAN.md`; `design/parent-placement.md` and the
-probe/pin commits on the `parent-first` branch; the plan file
-`currently-we-have-elaborate-recursive-muffin.md`; and the full git logs
-of both branches. Where a claim rests on my own inherited session context
-(fork reports, adjudication exchanges), it is tagged #lived and the
-transcript is the backing record. The Quint-era claims are tagged
-#artifact or #lived per source; nothing in this document is tagged
-#recon — every claim found a primary source, which I did not expect when
-I started and record with some satisfaction.
+- The coordinator's own session — every adjudication exchange with
+  Finch quoted or paraphrased above appears there verbatim — and the
+  fork and track reports received in it.
+- The durable record committed as the campaign ran. The charter and
+  design-of-record document, with its findings ledger and log — the
+  single best secondary source. The adjudication record and the
+  phase-2 panel's working papers, including the graduated probe
+  reference implementation. The audit ledger's twelve entries, the
+  graded claim table, the T8 specification page with its landed
+  crosswalk, and the latency analysis. The design documents on the
+  `single-connection` branch. Git history locates all of them.
+- The git logs of the campaign worktrees.
+
+Every part-two claim is #lived or #artifact by those sources; part
+two, like part one, needed no #recon.
+
+*Part one* (2026-07-19). Primary sources, mined with Finch's explicit
+authorization for the transcript material:
+
+- The session transcripts: the Quint/transcription era (including the
+  original plan invocation and the TLA+→Quint reversal in Finch's own
+  words), the Lean-campaign era, and my own session, whose earlier
+  portions survive only in transcript after repeated compaction.
+- The surviving review-workflow scripts from the era's project
+  directories.
+- The durable record: the campaign log and its 43-revision git
+  history, the artifact's front-matter findings ledger, the model
+  specification, the plan of record, the parent-placement design
+  record with its probe and pin commits on the `parent-first` branch,
+  and the elaborately-named plan file. Git history locates all of
+  them.
+- The full git logs of both branches.
+
+Where a claim rests on my own inherited session context (fork reports,
+adjudication exchanges), it is tagged #lived and the transcript is the
+backing record. The Quint-era claims are tagged #artifact or #lived
+per source. Nothing in this document is tagged #recon — every claim
+found a primary source, which I did not expect when I started and
+record with some satisfaction.
