@@ -344,6 +344,52 @@ act two). The follow-on charters §3b/§3c remain open by design.]**
    thesis sentence: "the announcements were never in the message
    pattern; they were in the messages."
 
+## 3e. Chartered follow-on: T11, the forced-window theorem (Finch, 2026-07-22)
+
+Chartered spec-first per the T8 method (§3d); NOT dispatched. The
+question, as Finch posed it at campaign close: is the σ\*ₖ mechanism —
+track the trace, infer each receiver buffer's maximum occupancy,
+impose conservative cooperative backpressure on yourself per logical
+outbound wire channel — *necessary* for any non-deadlocking locally
+causal scheduler, not merely sufficient?
+
+- **What is already kernel-proven brackets the mechanism without
+  pinning it**: some withholding is necessary (`wc_impossibility` —
+  work conservation is fatal); the withholding must be informed
+  (`static_oracle_jams` — the wrong static order dies); the
+  information must come from frame contents (the payload finding —
+  erased-trace inference starves); the information must be
+  announcement-inferred (`oracle_not_local` — the omniscient license
+  is not locally computable); and the announcement-inferred window
+  discipline suffices (T8). Every proven constraint points at the
+  mechanism; none yet forces it.
+- **The statement shape** (extensional — no theorem can constrain how
+  a function computes, only what it computes): every charter-local
+  strategy pair that is deadlock-free on the full skeleton class is
+  LICENSE-BOUNDED at every reachable observation — its pushes never
+  exceed the inevitability closure's license by more than the harness
+  slack. License-boundedness is the honest formal reading of "must
+  effectively track occupancy and self-impose backpressure."
+- **Ingredients in hand**: charter-grain indistinguishability with its
+  nondegeneracy pins (Grains.lean), the parameterized burial gadget
+  family (`wedgeW`), the closure and coverage machinery. **The new
+  work**: the adversarial extension lemma — given any reachable
+  observation and any unlicensed push, realize a skeleton extension
+  consistent with the observation on which that push initiates an
+  inescapable burial — plus the slack accounting (how many unlicensed
+  frames the pipe floats harmlessly), which is where the theorem's
+  teeth live. T4-grade effort: the quantifier ranges over all
+  reachable observations and cannot be dodged definitionally.
+- **Scope caveat, to be carried into the spec**: necessity is relative
+  to liveness on ALL skeletons; a scheduler tuned to a restricted
+  workload class may legitimately over-push.
+- **Value**: converts the product conclusion of record
+  (doc/exposition.typ, the engineering-consequence section) from
+  theorem-backed to theorem-stated — windowing is not just the
+  sufficient mechanism but what correctness *means* over a shared
+  channel. Until T11 lands, the necessity claim is [derived] and must
+  be written as such everywhere it appears.
+
 ## 3d. T8's specification of record (Finch, 2026-07-21)
 
 T8's English statement is fixed BEFORE the build, as T8-SPEC.md: the
