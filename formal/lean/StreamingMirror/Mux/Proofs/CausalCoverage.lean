@@ -1935,4 +1935,758 @@ theorem peerWalkTraceA_prefix (hwf : sk.wellFormed = true)
   rw [h0w, h0d, h0q, Nat.sub_zero] at hgo
   exact hgo
 
+
+-- ==================== the opener, finale, and absorber transcriptions
+
+/-- The announced opener trace is a prefix of the peer opener's true
+trace. -/
+theorem peerOpenTraceA_prefix (hwf : sk.wellFormed = true)
+    (p : Party) (tr : List MObs) :
+    peerOpenTraceA (aviewOf sk p tr)
+      <+: (if p = Party.I then Sched.ropenEvents sk
+           else Sched.iopenEvents sk) := by
+  cases p with
+  | I =>
+      rw [if_pos rfl]
+      show ([((Chan.wire Party.I sk.rootH : Chan), false, 0),
+        ((Chan.wire Party.R sk.rootH : Chan), true, 0),
+        ((Chan.rootres : Chan), true, 0)]
+          ++ (match (aviewOf sk Party.I tr).rec? 0 with
+              | none => []
+              | some sc =>
+                  (List.range sc.kids.length).map fun j =>
+                    ((Chan.asked Party.R (sk.rootH - 2) : Chan), true, j)))
+        <+: _
+      unfold Sched.ropenEvents
+      cases hrec : (aviewOf sk Party.I tr).rec? 0 with
+      | none =>
+          refine ⟨(List.range sk.rootPending).map fun j =>
+            ((Chan.asked Party.R (sk.rootH - 2) : Chan), true, j), ?_⟩
+          rfl
+      | some sc =>
+          obtain ⟨hsc, -⟩ := rec?_some_inv hrec
+          refine ⟨[], ?_⟩
+          rw [List.append_nil]
+          show _ = (Chan.wire Party.I sk.rootH, false, 0)
+            :: (Chan.wire Party.R sk.rootH, true, 0)
+            :: (Chan.rootres, true, 0)
+            :: ((List.range sk.rootPending).map fun j =>
+                (Chan.asked Party.R (sk.rootH - 2), true, j))
+          rw [show sk.rootPending = sc.kids.length from by
+            rw [hsc]; rfl]
+          rfl
+  | R =>
+      rw [if_neg (by simp)]
+      show [((Chan.wire Party.I sk.rootH : Chan), true, 0),
+        ((Chan.asked Party.I (sk.rootH - 1) : Chan), true, 0)] <+: _
+      exact List.prefix_refl _
+
+/-- Each announced finale trace is a prefix of its true finale trace. -/
+theorem peerFinTracesA_prefix (hwf : sk.wellFormed = true)
+    (p : Party) (tr : List MObs) :
+    ∀ T ∈ peerFinTracesA (aviewOf sk p tr),
+      T <+: (if p = Party.I then Sched.finEvents sk
+             else [((Chan.rootret : Chan), false, 0)]) := by
+  intro T hT
+  cases p with
+  | I =>
+      rw [if_pos rfl]
+      have hT' : T = ((Chan.rootres : Chan), false, 0)
+          :: (match (aviewOf sk Party.I tr).rec? 0 with
+              | none => []
+              | some sc =>
+                  (List.range sc.kids.length).map fun j =>
+                    ((Chan.rootrets : Chan), false, j)) := by
+        have : T ∈ [((Chan.rootres : Chan), false, 0)
+            :: (match (aviewOf sk Party.I tr).rec? 0 with
+                | none => []
+                | some sc =>
+                    (List.range sc.kids.length).map fun j =>
+                      ((Chan.rootrets : Chan), false, j))] := hT
+        simpa using this
+      subst hT'
+      unfold Sched.finEvents
+      cases hrec : (aviewOf sk Party.I tr).rec? 0 with
+      | none =>
+          exact ⟨(List.range sk.rootPending).map fun j =>
+            ((Chan.rootrets : Chan), false, j), rfl⟩
+      | some sc =>
+          obtain ⟨hsc, -⟩ := rec?_some_inv hrec
+          refine ⟨[], ?_⟩
+          rw [List.append_nil]
+          rw [show sk.rootPending = sc.kids.length from by
+            rw [hsc]; rfl]
+  | R =>
+      rw [if_neg (by simp)]
+      have hT' : T = [((Chan.rootret : Chan), false, 0)] := by
+        have : T ∈ [[((Chan.rootret : Chan), false, 0)]] := hT
+        simpa using this
+      subst hT'
+      exact List.prefix_refl _
+
+/-- Nat list sums grow along sublists. -/
+private theorem sublist_sum_le :
+    ∀ {l₁ l₂ : List Nat}, l₁.Sublist l₂ → l₁.sum ≤ l₂.sum := by
+  intro l₁ l₂ hs
+  induction hs with
+  | slnil => exact Nat.le_refl _
+  | cons a hs ih =>
+      rw [List.sum_cons]
+      omega
+  | cons_cons a hs ih =>
+      rw [List.sum_cons, List.sum_cons]
+      omega
+
+/-- The absorber's announced total against a kind-known list: at most
+the list's own D-request sum. -/
+private theorem totalA_le_filter {p : Party} {tr : List MObs} :
+    ∀ (l : List Nat),
+      (∀ u ∈ l, (aviewOf sk p tr).kind? u
+        = some ((sk.scope u).kind)) →
+      (peerAbsorbTraceA.total (aviewOf sk p tr) l).1
+        ≤ ((l.filter (fun s => (sk.scope s).kind == Kind.D)).map
+            (fun s => (sk.scope s).leafReqs)).sum := by
+  intro l
+  induction l with
+  | nil =>
+      intro _
+      show (0 : Nat) ≤ _
+      omega
+  | cons u rest ih =>
+      intro hkinds
+      have hrest := ih (fun v hv => hkinds v (List.mem_cons_of_mem _ hv))
+      rw [peerAbsorbTraceA.total]
+      by_cases hD : ((aviewOf sk p tr).kind? u == some Kind.D) = true
+      · have hkindu : (sk.scope u).kind = Kind.D := by
+          have := hkinds u (List.mem_cons_self ..)
+          rw [this] at hD
+          simpa using hD
+        rw [if_pos hD, List.filter_cons, if_pos (by simp [hkindu]),
+          List.map_cons, List.sum_cons]
+        cases hrec : (aviewOf sk p tr).rec? u with
+        | none =>
+            show (0 : Nat) ≤ _
+            omega
+        | some sc =>
+            obtain ⟨hsc, -⟩ := rec?_some_inv hrec
+            show sc.leafReqs
+              + (peerAbsorbTraceA.total (aviewOf sk p tr) rest).1 ≤ _
+            rw [hsc]
+            omega
+      · have hkindu : (sk.scope u).kind ≠ Kind.D := by
+          intro hc
+          have := hkinds u (List.mem_cons_self ..)
+          rw [this, hc] at hD
+          simp at hD
+        rw [if_neg hD, List.filter_cons,
+          if_neg (by simpa using hkindu)]
+        exact hrest
+
+/-- The absorber's announced supply total never exceeds the true
+one. -/
+private theorem totalA_le (hwf : sk.wellFormed = true)
+    {p : Party} {tr : List MObs} {l : List Nat}
+    (hsub : l.Sublist (sk.scopesAt 1))
+    (hkinds : ∀ u ∈ l, (aviewOf sk p tr).kind? u
+      = some ((sk.scope u).kind)) :
+    (peerAbsorbTraceA.total (aviewOf sk p tr) l).1
+      ≤ sk.totalLeafReqs := by
+  have htotal : sk.totalLeafReqs
+      = (((sk.scopesAt 1).filter
+          (fun s => (sk.scope s).kind == Kind.D)).map
+            (fun s => (sk.scope s).leafReqs)).sum := by
+    unfold Skel.totalLeafReqs
+    rw [foldl_add_eq_sum, Nat.zero_add]
+  rw [htotal]
+  exact Nat.le_trans (totalA_le_filter l hkinds)
+    (sublist_sum_le ((hsub.filter _).map _))
+
+/-- The announced absorber trace is a prefix of the true one: the
+blocks are shape-constant, so the count bound is the whole story. -/
+theorem peerAbsorbTraceA_prefix (hwf : sk.wellFormed = true)
+    (p : Party) (tr : List MObs) :
+    peerAbsorbTraceA (aviewOf sk p tr) <+: Sched.absorbEvents sk := by
+  unfold peerAbsorbTraceA
+  by_cases hp : (p == Party.I) = true
+  · rw [if_pos (show ((aviewOf sk p tr).party == Party.I) = true
+      from hp)]
+    exact List.nil_prefix
+  · rw [if_neg (show ¬ ((aviewOf sk p tr).party == Party.I) = true
+      from hp)]
+    have hge := (wf_rootH hwf).2
+    have hlvl := levelA_spec hwf p tr (sk.rootH - 1) (by omega)
+    have hsteps : sk.rootH - (sk.rootH - 1) = 1 := by omega
+    rw [hsteps] at hlvl
+    have hle := totalA_le hwf (hlvl.1.sublist)
+      (fun u hu => hlvl.2.1 u hu)
+    unfold Sched.absorbEvents
+    have hpre : List.range ((peerAbsorbTraceA.total (aviewOf sk p tr)
+        (levelA (aviewOf sk p tr) (sk.rootH - 1)).1).1)
+        <+: List.range sk.totalLeafReqs := by
+      rw [show List.range ((peerAbsorbTraceA.total (aviewOf sk p tr)
+          (levelA (aviewOf sk p tr) (sk.rootH - 1)).1).1)
+          = (List.range sk.totalLeafReqs).take
+              ((peerAbsorbTraceA.total (aviewOf sk p tr)
+                (levelA (aviewOf sk p tr) (sk.rootH - 1)).1).1) from by
+        rw [List.take_range, Nat.min_eq_left hle]]
+      exact List.take_prefix _ _
+    show (List.range ((peerAbsorbTraceA.total (aviewOf sk p tr)
+        (levelA (aviewOf sk p tr)
+          ((aviewOf sk p tr).rootH - 1)).1).1)).flatMap _ <+: _
+    exact prefix_flatMap _ hpre
+
+
+-- ================================== the assembler transcription
+
+/-- The announced pending entries name the true resolution list: every
+`some` entry is `pendAt`, and the list never outruns the true one. -/
+private theorem asmPendsA_spec (hwf : sk.wellFormed = true)
+    (p : Party) (tr : List MObs) {j : Nat}
+    (hj1 : 1 ≤ j) (hjr : j ≤ sk.rootH) :
+    (asmPendsA (aviewOf sk p tr) j).length
+      ≤ (sk.asmResList p.other j).length
+    ∧ (∀ m v, (asmPendsA (aviewOf sk p tr) j).getD m none = some v →
+        v = sk.pendAt p.other j m) := by
+  -- the census the entries are read off
+  have hitems : (if (j == (aviewOf sk p tr).rootH) = true
+        then ([0], true)
+        else levelA (aviewOf sk p tr) ((aviewOf sk p tr).rootH - j)).1
+        <+: sk.scopesAt j
+      ∧ ∀ u ∈ (if (j == (aviewOf sk p tr).rootH) = true
+        then (([0] : List Nat), true)
+        else levelA (aviewOf sk p tr) ((aviewOf sk p tr).rootH - j)).1,
+        (aviewOf sk p tr).kind? u = some ((sk.scope u).kind) := by
+    by_cases hj : (j == (aviewOf sk p tr).rootH) = true
+    · rw [if_pos hj]
+      have hj' : j = sk.rootH := beq_iff_eq.mp hj
+      subst hj'
+      refine ⟨?_, ?_⟩
+      · rw [Sched.wf_root_stage hwf]
+        exact List.prefix_refl _
+      · intro u hu
+        have hu' : u ∈ [(0 : Nat)] := hu
+        rw [List.mem_singleton] at hu'
+        subst hu'
+        show (aviewOf sk p tr).kind? 0 = _
+        rw [AView.kind?, if_pos (show ((0 : Nat) == 0) = true from rfl),
+          wf_root_kind hwf]
+    · rw [if_neg hj]
+      have hj' : j ≠ sk.rootH := fun hc => hj (beq_iff_eq.mpr hc)
+      have hlvl := levelA_spec hwf p tr (sk.rootH - j) (by omega)
+      have hsteps : sk.rootH - (sk.rootH - j) = j := by omega
+      rw [hsteps] at hlvl
+      exact ⟨hlvl.1, hlvl.2.1⟩
+  obtain ⟨hpre, hkinds⟩ := hitems
+  -- positional identification of the census items
+  have hgetd : ∀ m, m < (if (j == (aviewOf sk p tr).rootH) = true
+        then (([0] : List Nat), true)
+        else levelA (aviewOf sk p tr) ((aviewOf sk p tr).rootH - j)).1.length →
+      (if (j == (aviewOf sk p tr).rootH) = true
+        then (([0] : List Nat), true)
+        else levelA (aviewOf sk p tr) ((aviewOf sk p tr).rootH - j)).1.getD m 0
+        = (sk.scopesAt j).getD m 0 := by
+    intro m hm
+    obtain ⟨t, ht⟩ := hpre
+    rw [← ht, List.getD_eq_getElem?_getD, List.getD_eq_getElem?_getD,
+      List.getElem?_append_left hm]
+  cases hside : asks p.other j with
+  | true =>
+      -- asker side: one entry per level scope, pending its D count
+      have hshape : asmPendsA (aviewOf sk p tr) j
+          = (if (j == (aviewOf sk p tr).rootH) = true
+              then (([0] : List Nat), true)
+              else levelA (aviewOf sk p tr)
+                ((aviewOf sk p tr).rootH - j)).1.map
+              (fun u => match (aviewOf sk p tr).rec? u with
+                | none => none
+                | some sc => some (sc.kids.countP
+                    fun v => (aviewOf sk p tr).kind? v == some Kind.D)) := by
+        have hraw : asmPendsA (aviewOf sk p tr) j
+            = if asks p.other j = true then
+                (if (j == (aviewOf sk p tr).rootH) = true
+                  then (([0] : List Nat), true)
+                  else levelA (aviewOf sk p tr)
+                    ((aviewOf sk p tr).rootH - j)).1.map
+                  (fun u => match (aviewOf sk p tr).rec? u with
+                    | none => none
+                    | some sc => some (sc.kids.countP
+                        fun v => (aviewOf sk p tr).kind? v
+                          == some Kind.D))
+              else
+                ((if (j == (aviewOf sk p tr).rootH) = true
+                  then (([0] : List Nat), true)
+                  else levelA (aviewOf sk p tr)
+                    ((aviewOf sk p tr).rootH - j)).1.filter
+                  (fun u => (aviewOf sk p tr).kind? u
+                    == some Kind.D)).map
+                  (fun u => match (aviewOf sk p tr).rec? u with
+                    | none => none
+                    | some sc => some (if (j == 1) = true
+                        then sc.leafReqs else sc.kids.length)) := rfl
+        rw [hraw, if_pos hside]
+      have hres : sk.asmResList p.other j
+          = (sk.scopesAt j).map (fun s => sk.dCount s) := by
+        unfold Skel.asmResList
+        rw [if_pos hside]
+      constructor
+      · rw [hshape, hres, List.length_map, List.length_map]
+        exact hpre.length_le
+      · intro m v hv
+        rw [hshape] at hv
+        have hm : m < (if (j == (aviewOf sk p tr).rootH) = true
+            then (([0] : List Nat), true)
+            else levelA (aviewOf sk p tr)
+              ((aviewOf sk p tr).rootH - j)).1.length := by
+          by_contra hge
+          rw [List.getD_eq_getElem?_getD,
+            List.getElem?_eq_none (by
+              rw [List.length_map]; omega)] at hv
+          cases hv
+        rw [List.getD_eq_getElem?_getD, List.getElem?_map,
+          List.getElem?_eq_getElem hm] at hv
+        simp only [Option.map_some, Option.getD_some] at hv
+        cases hrec : (aviewOf sk p tr).rec?
+            ((if (j == (aviewOf sk p tr).rootH) = true
+              then (([0] : List Nat), true)
+              else levelA (aviewOf sk p tr)
+                ((aviewOf sk p tr).rootH - j)).1[m]) with
+        | none => rw [hrec] at hv; cases hv
+        | some sc =>
+            rw [hrec] at hv
+            injection hv with hv
+            obtain ⟨hsc, hann⟩ := rec?_some_inv hrec
+            have hcnt : sc.kids.countP
+                (fun v => (aviewOf sk p tr).kind? v == some Kind.D)
+                = sk.dCount ((if (j == (aviewOf sk p tr).rootH) = true
+                    then (([0] : List Nat), true)
+                    else levelA (aviewOf sk p tr)
+                      ((aviewOf sk p tr).rootH - j)).1[m]) := by
+              unfold Skel.dCount
+              rw [← List.countP_eq_length_filter, hsc]
+              refine List.countP_congr ?_
+              intro v hvk
+              rw [kind?_aviewOf_of_kid hwf hann hvk]
+              cases (sk.scope v).kind <;> simp
+            have hm2 : m < (sk.scopesAt j).length := by
+              have := hpre.length_le
+              omega
+            have hq2 : (sk.scopesAt j)[m]?
+                = (if (j == (aviewOf sk p tr).rootH) = true
+                  then (([0] : List Nat), true)
+                  else levelA (aviewOf sk p tr)
+                    ((aviewOf sk p tr).rootH - j)).1[m]? := by
+              obtain ⟨t, ht⟩ := hpre
+              rw [← ht, List.getElem?_append_left hm]
+            rw [List.getElem?_eq_getElem hm2,
+              List.getElem?_eq_getElem hm] at hq2
+            injection hq2 with hq2
+            rw [← hv, hcnt]
+            unfold Skel.pendAt
+            rw [hres, List.getD_eq_getElem?_getD, List.getElem?_map,
+              List.getElem?_eq_getElem hm2]
+            simp only [Option.map_some, Option.getD_some]
+            rw [hq2]
+  | false =>
+      -- answerer side: one entry per D scope, pending its census
+      have hfilter : (if (j == (aviewOf sk p tr).rootH) = true
+            then (([0] : List Nat), true)
+            else levelA (aviewOf sk p tr)
+              ((aviewOf sk p tr).rootH - j)).1.filter
+            (fun u => (aviewOf sk p tr).kind? u == some Kind.D)
+          <+: (sk.scopesAt j).filter
+            (fun s => (sk.scope s).kind == Kind.D) := by
+        rw [List.filter_congr (fun u hu => by rw [hkinds u hu])]
+        exact hpre.filter _
+      have hshape : asmPendsA (aviewOf sk p tr) j
+          = ((if (j == (aviewOf sk p tr).rootH) = true
+              then (([0] : List Nat), true)
+              else levelA (aviewOf sk p tr)
+                ((aviewOf sk p tr).rootH - j)).1.filter
+                (fun u => (aviewOf sk p tr).kind? u == some Kind.D)).map
+              (fun u => match (aviewOf sk p tr).rec? u with
+                | none => none
+                | some sc => some (if (j == 1) = true then sc.leafReqs
+                    else sc.kids.length)) := by
+        have hraw : asmPendsA (aviewOf sk p tr) j
+            = if asks p.other j = true then
+                (if (j == (aviewOf sk p tr).rootH) = true
+                  then (([0] : List Nat), true)
+                  else levelA (aviewOf sk p tr)
+                    ((aviewOf sk p tr).rootH - j)).1.map
+                  (fun u => match (aviewOf sk p tr).rec? u with
+                    | none => none
+                    | some sc => some (sc.kids.countP
+                        fun v => (aviewOf sk p tr).kind? v
+                          == some Kind.D))
+              else
+                ((if (j == (aviewOf sk p tr).rootH) = true
+                  then (([0] : List Nat), true)
+                  else levelA (aviewOf sk p tr)
+                    ((aviewOf sk p tr).rootH - j)).1.filter
+                  (fun u => (aviewOf sk p tr).kind? u
+                    == some Kind.D)).map
+                  (fun u => match (aviewOf sk p tr).rec? u with
+                    | none => none
+                    | some sc => some (if (j == 1) = true
+                        then sc.leafReqs else sc.kids.length)) := rfl
+        rw [hraw, if_neg (by rw [hside]; simp)]
+      have hres : sk.asmResList p.other j
+          = ((sk.scopesAt j).filter
+              (fun s => (sk.scope s).kind == Kind.D)).map
+              (fun s => if (sk.scope s).height == 1
+                then (sk.scope s).leafReqs
+                else (sk.scope s).kids.length) := by
+        unfold Skel.asmResList
+        rw [if_neg (by rw [hside]; simp)]
+      constructor
+      · rw [hshape, hres, List.length_map, List.length_map]
+        exact hfilter.length_le
+      · intro m v hv
+        rw [hshape] at hv
+        have hm : m < ((if (j == (aviewOf sk p tr).rootH) = true
+            then (([0] : List Nat), true)
+            else levelA (aviewOf sk p tr)
+              ((aviewOf sk p tr).rootH - j)).1.filter
+              (fun u => (aviewOf sk p tr).kind? u
+                == some Kind.D)).length := by
+          by_contra hge
+          rw [List.getD_eq_getElem?_getD,
+            List.getElem?_eq_none (by
+              rw [List.length_map]; omega)] at hv
+          cases hv
+        rw [List.getD_eq_getElem?_getD, List.getElem?_map,
+          List.getElem?_eq_getElem hm] at hv
+        simp only [Option.map_some, Option.getD_some] at hv
+        cases hrec : (aviewOf sk p tr).rec?
+            (((if (j == (aviewOf sk p tr).rootH) = true
+              then (([0] : List Nat), true)
+              else levelA (aviewOf sk p tr)
+                ((aviewOf sk p tr).rootH - j)).1.filter
+                (fun u => (aviewOf sk p tr).kind? u
+                  == some Kind.D))[m]) with
+        | none => rw [hrec] at hv; cases hv
+        | some sc =>
+            rw [hrec] at hv
+            injection hv with hv
+            obtain ⟨hsc, hann⟩ := rec?_some_inv hrec
+            have hm2 : m < ((sk.scopesAt j).filter
+                (fun s => (sk.scope s).kind == Kind.D)).length := by
+              have := hfilter.length_le
+              omega
+            have hgd : ((if (j == (aviewOf sk p tr).rootH) = true
+                then (([0] : List Nat), true)
+                else levelA (aviewOf sk p tr)
+                  ((aviewOf sk p tr).rootH - j)).1.filter
+                  (fun u => (aviewOf sk p tr).kind? u
+                    == some Kind.D))[m]
+                = ((sk.scopesAt j).filter
+                    (fun s => (sk.scope s).kind == Kind.D))[m] := by
+              have hq : ((sk.scopesAt j).filter
+                  (fun s => (sk.scope s).kind == Kind.D))[m]?
+                  = ((if (j == (aviewOf sk p tr).rootH) = true
+                    then (([0] : List Nat), true)
+                    else levelA (aviewOf sk p tr)
+                      ((aviewOf sk p tr).rootH - j)).1.filter
+                      (fun u => (aviewOf sk p tr).kind? u
+                        == some Kind.D))[m]? := by
+                obtain ⟨t, ht⟩ := hfilter
+                rw [← ht, List.getElem?_append_left hm]
+              rw [List.getElem?_eq_getElem hm,
+                List.getElem?_eq_getElem hm2] at hq
+              injection hq with hq
+              exact hq.symm
+            unfold Skel.pendAt
+            rw [hres, List.getD_eq_getElem?_getD, List.getElem?_map,
+              List.getElem?_eq_getElem hm2]
+            simp only [Option.map_some, Option.getD_some]
+            have hheight : (sk.scope (((sk.scopesAt j).filter
+                (fun s => (sk.scope s).kind == Kind.D))[m])).height
+                = j := by
+              have hmem := List.getElem_mem hm2
+              exact (mem_scopesAt (List.mem_filter.mp hmem).1).2
+            rw [← hv, hsc, hgd]
+            by_cases h1 : j = 1
+            · rw [if_pos (by rw [h1]; rfl),
+                if_pos (by rw [hheight, h1]; rfl)]
+            · rw [if_neg (by simpa using h1),
+                if_neg (by rw [hheight]; simpa using h1)]
+
+/-- The announced assembler layout from resolution `idx` onward is a
+prefix of the true remaining blocks. -/
+private theorem goAsm_spec (hwf : sk.wellFormed = true)
+    {p : Party} {tr : List MObs} {j : Nat} :
+    ∀ (ps : List (Option Nat)) (idx got : Nat),
+      (∀ m v, ps.getD m none = some v →
+        v = sk.pendAt p.other j (idx + m)) →
+      idx + ps.length ≤ (sk.asmResList p.other j).length →
+      got = sk.pendsBefore p.other j idx →
+      peerAsmTraceA.go (asmResChan (p.other, j))
+          (asmLevelChan (p.other, j)) (sk.asmOutChan (p.other, j))
+          ps idx got
+        <+: (List.range' idx ((sk.asmResList p.other j).length - idx)).flatMap
+            (Sched.asmBlock sk (p.other, j)) := by
+  intro ps
+  induction ps with
+  | nil =>
+      intro idx got _ _ _
+      show ([] : List Ev) <+: _
+      exact List.nil_prefix
+  | cons e rest ih =>
+      intro idx got hvals hlen hgot
+      cases e with
+      | none =>
+          show ([] : List Ev) <+: _
+          exact List.nil_prefix
+      | some pend =>
+          have hpend : pend = sk.pendAt p.other j idx := by
+            have := hvals 0 pend (by simp)
+            simpa using this
+          have hidx : idx < (sk.asmResList p.other j).length := by
+            simp only [List.length_cons] at hlen
+            omega
+          have hrange : List.range' idx
+              ((sk.asmResList p.other j).length - idx)
+              = idx :: List.range' (idx + 1)
+                  ((sk.asmResList p.other j).length - (idx + 1)) := by
+            rw [show (sk.asmResList p.other j).length - idx
+              = ((sk.asmResList p.other j).length - (idx + 1)) + 1
+              from by omega]
+            rfl
+          have hstep : peerAsmTraceA.go (asmResChan (p.other, j))
+              (asmLevelChan (p.other, j)) (sk.asmOutChan (p.other, j))
+              (some pend :: rest) idx got
+              = (asmResChan (p.other, j), false, idx)
+                :: ((List.range pend).map fun t =>
+                    (asmLevelChan (p.other, j), false, got + t))
+                ++ (sk.asmOutChan (p.other, j), true, idx)
+                :: peerAsmTraceA.go (asmResChan (p.other, j))
+                    (asmLevelChan (p.other, j))
+                    (sk.asmOutChan (p.other, j))
+                    rest (idx + 1) (got + pend) := by
+            simp only [peerAsmTraceA.go]
+          have hblock : Sched.asmBlock sk (p.other, j) idx
+              = (asmResChan (p.other, j), false, idx)
+                :: ((List.range (sk.pendAt p.other j idx)).map fun t =>
+                    (asmLevelChan (p.other, j), false,
+                      sk.pendsBefore p.other j idx + t))
+                ++ [(sk.asmOutChan (p.other, j), true, idx)] := rfl
+          rw [hstep, hrange, List.flatMap_cons, hblock, hpend, hgot]
+          have hrec := ih (idx + 1) (got + pend)
+            (fun m v hv => by
+              have := hvals (m + 1) v (by simpa using hv)
+              rw [this]
+              congr 1
+              omega)
+            (by simp only [List.length_cons] at hlen; omega)
+            (by rw [hgot, hpend, Sched.pendsBefore_succ sk hidx])
+          obtain ⟨t, ht⟩ := hrec
+          refine ⟨t, ?_⟩
+          rw [hgot, hpend] at ht
+          show (asmResChan (p.other, j), false, idx)
+            :: (((List.range (sk.pendAt p.other j idx)).map fun t =>
+                (asmLevelChan (p.other, j), false,
+                  sk.pendsBefore p.other j idx + t))
+              ++ (sk.asmOutChan (p.other, j), true, idx)
+                :: peerAsmTraceA.go (asmResChan (p.other, j))
+                    (asmLevelChan (p.other, j))
+                    (sk.asmOutChan (p.other, j)) rest (idx + 1)
+                    (sk.pendsBefore p.other j idx
+                      + sk.pendAt p.other j idx)) ++ t = _
+          simp only [List.cons_append, List.append_assoc,
+            List.singleton_append, List.nil_append]
+          rw [ht]
+
+
+/-- The announced assembler trace is a prefix of the true one. -/
+theorem peerAsmTraceA_prefix (hwf : sk.wellFormed = true)
+    (p : Party) (tr : List MObs) {j : Nat}
+    (hj1 : 1 ≤ j) (hjr : j ≤ sk.rootH) :
+    peerAsmTraceA (aviewOf sk p tr) j
+      <+: Sched.asmEvents sk (p.other, j) := by
+  obtain ⟨hlen, hvals⟩ := asmPendsA_spec hwf p tr hj1 hjr
+  show peerAsmTraceA.go (asmResChan (p.other, j))
+      (asmLevelChan (p.other, j)) (sk.asmOutChan (p.other, j))
+      (asmPendsA (aviewOf sk p tr) j) 0 0 <+: _
+  have hgo := goAsm_spec (p := p) (tr := tr) hwf
+    (asmPendsA (aviewOf sk p tr) j) 0 0
+    (fun m v hv => by rw [Nat.zero_add]; exact hvals m v hv)
+    (by omega) rfl
+  unfold Sched.asmEvents
+  rw [List.range_eq_range']
+  rw [Nat.sub_zero] at hgo
+  exact hgo
+
+-- ============================== the announced family, paired and prefixed
+
+/-- Every announced trace is a prefix of a true `.impl` process trace:
+the transcription lemmas assembled over the whole family — the deferred
+containment input named by Mux/Causal.lean's module doc. -/
+theorem announcedProcs_prefix (hwf : sk.wellFormed = true)
+    (p : Party) (tr : List MObs) :
+    ∀ T ∈ announcedProcs (aviewOf sk p tr),
+      ∃ T' ∈ Sched.procsE sk, T <+: T' := by
+  have hev : sk.rootH % 2 = 0 := (wf_rootH hwf).1
+  have hge : 2 ≤ sk.rootH := (wf_rootH hwf).2
+  intro T hT
+  unfold announcedProcs at hT
+  rcases List.mem_append.mp hT with hT | hfin
+  rcases List.mem_append.mp hT with hT | hasm
+  rcases List.mem_append.mp hT with hT | habs
+  rcases List.mem_append.mp hT with hopen | hwalk
+  · -- the peer opener
+    have hTo : T = peerOpenTraceA (aviewOf sk p tr) := by
+      simpa using hopen
+    subst hTo
+    cases p with
+    | I =>
+        refine ⟨Sched.ropenEvents sk, ?_, ?_⟩
+        · unfold Sched.procsE
+          refine List.mem_append.mpr (.inl ?_)
+          refine List.mem_append.mpr (.inl ?_)
+          refine List.mem_append.mpr (.inl ?_)
+          refine List.mem_append.mpr (.inl ?_)
+          simp
+        · have := peerOpenTraceA_prefix hwf Party.I tr
+          rwa [if_pos rfl] at this
+    | R =>
+        refine ⟨Sched.iopenEvents sk, ?_, ?_⟩
+        · unfold Sched.procsE
+          refine List.mem_append.mpr (.inl ?_)
+          refine List.mem_append.mpr (.inl ?_)
+          refine List.mem_append.mpr (.inl ?_)
+          refine List.mem_append.mpr (.inl ?_)
+          simp
+        · have := peerOpenTraceA_prefix hwf Party.R tr
+          rwa [if_neg (by simp)] at this
+  · -- a peer walk stage
+    obtain ⟨h, hh, hTe⟩ := List.mem_map.mp hwalk
+    have hbound : h < sk.rootH ∧ (h % 2 == 1) = (p.other == Party.I) := by
+      unfold peerStagesA at hh
+      cases p with
+      | I =>
+          rw [if_pos (show ((aviewOf sk Party.I tr).party == Party.I)
+            = true from rfl)] at hh
+          obtain ⟨k, hk, hke⟩ := List.mem_map.mp hh
+          rw [List.mem_range,
+            show (aviewOf sk Party.I tr).rootH / 2 = sk.rootH / 2
+              from rfl] at hk
+          rw [show (aviewOf sk Party.I tr).rootH = sk.rootH
+            from rfl] at hke
+          constructor
+          · omega
+          · rw [← hke]
+            have : (sk.rootH - 2 - 2 * k) % 2 = 0 := by omega
+            rw [show ((sk.rootH - 2 - 2 * k) % 2 == 1) = false from by
+              simp [this]]
+            rfl
+      | R =>
+          rw [if_neg (show ¬ ((aviewOf sk Party.R tr).party == Party.I)
+            = true from fun hc => nomatch hc)] at hh
+          obtain ⟨k, hk, hke⟩ := List.mem_map.mp hh
+          rw [List.mem_range,
+            show (aviewOf sk Party.R tr).rootH / 2 = sk.rootH / 2
+              from rfl] at hk
+          rw [show (aviewOf sk Party.R tr).rootH = sk.rootH
+            from rfl] at hke
+          constructor
+          · omega
+          · rw [← hke]
+            have : (sk.rootH - 1 - 2 * k) % 2 = 1 := by omega
+            rw [show ((sk.rootH - 1 - 2 * k) % 2 == 1) = true from by
+              simp [this]]
+            rfl
+    refine ⟨Sched.walkEventsE sk (p.other, h), ?_, ?_⟩
+    · unfold Sched.procsE
+      refine List.mem_append.mpr (.inl ?_)
+      refine List.mem_append.mpr (.inl ?_)
+      refine List.mem_append.mpr (.inl ?_)
+      refine List.mem_append.mpr (.inr ?_)
+      refine List.mem_map.mpr ⟨(p.other, h), ?_, rfl⟩
+      refine List.mem_map.mpr ⟨sk.rootH - 1 - h, ?_, ?_⟩
+      · rw [List.mem_range]
+        omega
+      · rw [show sk.rootH - 1 - (sk.rootH - 1 - h) = h from by omega]
+        rw [Prod.mk.injEq]
+        refine ⟨?_, rfl⟩
+        cases hpo : p.other with
+        | I =>
+            rw [hpo] at hbound
+            rw [show ((h % 2 == 1) = true) from by
+              rw [hbound.2]; rfl]
+            rfl
+        | R =>
+            rw [hpo] at hbound
+            have : (h % 2 == 1) = false := by
+              rw [hbound.2]
+              rfl
+            rw [this]
+            rfl
+    · rw [← hTe]
+      exact peerWalkTraceA_prefix hwf p tr hbound.1
+  · -- the absorber
+    have hTa : T = peerAbsorbTraceA (aviewOf sk p tr) := by
+      simpa using habs
+    subst hTa
+    refine ⟨Sched.absorbEvents sk, ?_, peerAbsorbTraceA_prefix hwf p tr⟩
+    unfold Sched.procsE
+    refine List.mem_append.mpr (.inl ?_)
+    refine List.mem_append.mpr (.inl ?_)
+    refine List.mem_append.mpr (.inr ?_)
+    simp
+  · -- a peer assembler
+    obtain ⟨j, hj, hTe⟩ := List.mem_map.mp hasm
+    have hbound : 1 ≤ j ∧ j ≤ sk.rootH
+        ∧ (p.other, j) ∈ sk.asmKeys := by
+      unfold peerAsmHeightsA at hj
+      cases p with
+      | I =>
+          rw [if_pos (show ((aviewOf sk Party.I tr).party == Party.I)
+            = true from rfl)] at hj
+          obtain ⟨m, hm, hme⟩ := List.mem_map.mp hj
+          rw [List.mem_range,
+            show (aviewOf sk Party.I tr).rootH - 1 = sk.rootH - 1
+              from rfl] at hm
+          refine ⟨by omega, by omega, ?_⟩
+          unfold Skel.asmKeys
+          refine List.mem_append.mpr (.inr ?_)
+          refine List.mem_map.mpr ⟨m, List.mem_range.mpr hm, ?_⟩
+          rw [← hme]
+          rfl
+      | R =>
+          rw [if_neg (show ¬ ((aviewOf sk Party.R tr).party == Party.I)
+            = true from fun hc => nomatch hc)] at hj
+          obtain ⟨m, hm, hme⟩ := List.mem_map.mp hj
+          rw [List.mem_range,
+            show (aviewOf sk Party.R tr).rootH = sk.rootH
+              from rfl] at hm
+          refine ⟨by omega, by omega, ?_⟩
+          unfold Skel.asmKeys
+          refine List.mem_append.mpr (.inl ?_)
+          refine List.mem_map.mpr ⟨m, List.mem_range.mpr hm, ?_⟩
+          rw [← hme]
+          rfl
+    refine ⟨Sched.asmEvents sk (p.other, j), ?_, ?_⟩
+    · unfold Sched.procsE
+      refine List.mem_append.mpr (.inl ?_)
+      refine List.mem_append.mpr (.inr ?_)
+      exact List.mem_map.mpr ⟨(p.other, j), hbound.2.2, rfl⟩
+    · rw [← hTe]
+      exact peerAsmTraceA_prefix hwf p tr hbound.1 hbound.2.1
+  · -- the peer finale
+    cases p with
+    | I =>
+        refine ⟨Sched.finEvents sk, ?_, ?_⟩
+        · unfold Sched.procsE
+          refine List.mem_append.mpr (.inr ?_)
+          simp
+        · have := peerFinTracesA_prefix hwf Party.I tr T hfin
+          rwa [if_pos rfl] at this
+    | R =>
+        refine ⟨[((Chan.rootret : Chan), false, 0)], ?_, ?_⟩
+        · unfold Sched.procsE
+          refine List.mem_append.mpr (.inr ?_)
+          simp
+        · have := peerFinTracesA_prefix hwf Party.R tr T hfin
+          rwa [if_neg (by simp)] at this
+
 end StreamingMirror.Mux
