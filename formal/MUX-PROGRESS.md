@@ -1194,6 +1194,34 @@ realized marker.
 
 ## 5. Log
 
+- **2026-07-22** Estate audit and reorganization (Finch's directive).
+  VERDICTS: living records kept and refreshed (this file gains the
+  campaign-closed header; §2's heading no longer reads open);
+  MUX-ADJUDICATION and the six surviving mux-notes-phase2 files
+  (refute-c1, attack-prove, attack-refute, oracle-c2, STAGE0-GATES,
+  t10-audit, plus causal-reference.py and latency/) marked FROZEN
+  records with one-line keep-reasons; CONSIGNED to git history:
+  prove-c1.md, model-fixer.md, probe.md (adopted content restated in
+  MUX-ADJUDICATION at every citation site), the SYNTHESIS.md duplicate
+  of MUX-ADJUDICATION, COORDINATOR-NOTE-eventdag.md (content in §4),
+  and latency/sweep.log (derivable). The last commit with the complete
+  set: 6e00b79f. Citation graph repaired in the same chain (four Lean
+  docstrings rerouted to MUX-ADJUDICATION §§; the adjudication header
+  carries the provenance marker). RE-DENOMINATION per AGENTS.md's
+  authenticated-honest-peer hard rule: design/single-socket.md §3.4(d)
+  and the deferred byte-budget scoping restated in on-model terms
+  (storage accounting for conforming peers; sizing policy for
+  storage-constrained deployments) — the technical content unchanged.
+  REORGANIZATION: formal/README.md rewritten as the directory of
+  record (two campaigns, where-to-start by persona, the file map with
+  the epistemic key, trust posture in brief; the base artifact's
+  record kept as written in part II). Physical moves: NONE — judged
+  against the citation graph, the flat layout plus the directory
+  README achieves navigability, and every substantial file is cited by
+  doc/*.typ (concurrently under revision), so moves are both
+  unwarranted and presently forbidden; no deferred move plan is
+  recommended.
+
 - **2026-07-22** Phase 6 (document) complete: narrative part two and
   exposition act two landed, compile-verified; the campaign plan's
   phases are all complete (§3 header, §4 entry). The campaign closes
