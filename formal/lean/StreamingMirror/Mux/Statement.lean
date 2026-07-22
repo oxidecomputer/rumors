@@ -8,6 +8,13 @@ claim, so any drift between the audit surface and the proofs fails the
 build. All on the three standard axioms (`propext`, `Classical.choice`,
 `Quot.sound`); no `sorry`, no `native_decide`.
 
+THIS FILE IS THE AUDIT MECHANISM: every statement of record is
+restated here inline, fully quantified, and proved by citation, so the
+kernel re-certifies on every build that the restatement IS the theorem
+— drift between claim and proof is a build failure, not a review
+finding. (An external claim-grading table once played this role; the
+kernel-tied form supersedes it.)
+
 # The resolved trichotomy (the campaign's charter, restated)
 
 The campaign's question: does the single-pipe transport NEED
