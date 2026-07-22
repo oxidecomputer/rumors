@@ -4,120 +4,39 @@
 Claude models, and has not been checked by a human expert in any of these
 verification tools for correctness. It exists primarily as an experiment.
 
-This directory holds two completed campaigns and their records. This
-README is the directory: part I tells you where to start; part II is the
-base artifact's record, kept as written.
+Two completed campaigns live here: deadlock-freedom of the streaming
+mirror protocol over independent channels, and the mux conjectures —
+whether a single bounded channel can replace them by local send-order
+scheduling alone (settled both ways: eagerness provably fatal, an
+inference-gated local scheduler provably live, the oracle recognized in
+the base proof's own witness schedule).
 
-**Campaign one — deadlock-freedom of the streaming mirror protocol.**
-Machine-checked deadlock-freedom for `src/tree/mirror/streaming/` over
-independent channels: two kernel-checked flagship theorems
-(`Sched.deadlock_free`, `Sched.deadlock_free_d5`), a Quint/Apalache
-validation tier, and the send-order axiom interface bridged to the Rust
-by proptests. The model is MODEL.md; the proof's design of record is
-PROGRESS.md.
+The documentation of record is the Lean. Start here:
 
-**Campaign two — the mux conjectures.** Whether a single bounded channel
-can replace the independent streams by local send-order scheduling
-alone. Settled both ways at kernel tier (T1–T8 + T10): every
-work-conserving scheduler deadlocks on one small real tree
-(`wc_impossibility`), yet a charter-local inference-gated scheduler is
-live at every capacity and window pairing (`sigmaStarK_deadlock_free`,
-`c1_charter_false`), and the oracle order was the base proof's own
-witness schedule all along (`oracle_deadlock_free`). Ledger:
-MUX-PROGRESS.md (closed 2026-07-22). Conclusion of record: the `Link`
-contract stands as the library's product surface; the single-channel
-design is the contingency, finished and shelved.
+- **The claims** — `lean/StreamingMirror/Statement.lean` (campaign one)
+  and `lean/StreamingMirror/Mux/Statement.lean` (campaign two): every
+  statement of record restated inline and kernel-re-certified on every
+  build. `lean/StreamingMirror/Mux/Charters.lean` holds the two
+  chartered follow-ons.
+- **The human story** — `doc/exposition.typ` (by argument) and
+  `doc/narrative.typ` (by discovery, errata and all); both
+  self-contained.
+- **The engineering records** — the repo's `design/` directory:
+  `single-socket.md` and its plan (the contingency of record),
+  `eager-absorption.md`, `mux-latency.md` (the K-dial law and its
+  harness), `tracecheck.md`.
+- **The models and proofs** — MODEL.md (the protocol model),
+  PROGRESS.md and PLAN.md (campaign one's records), the proof maps
+  (`lean/StreamingMirror/Proofs/Map.lean`, `Mux/Proofs/Map.lean`).
+- **Running the checks** — part II below (`check.sh`, `lake build`,
+  `lake exe eventdag`), plus `lake exe muxprobe` / `just muxprobe`
+  (the mux campaign's golden-pinned executable matrix).
 
-## Where to start
-
-- **I want to understand the results** — `doc/exposition.typ`
-  (argument-ordered, self-contained; act one is campaign one, act two
-  the trichotomy of campaign two).
-- **I want the history** — `doc/narrative.typ` (first-person,
-  discovery-ordered, errata and all).
-- **I want to audit the claims** — the kernel-tied audit surfaces:
-  `lean/StreamingMirror/Statement.lean` (campaign one) and
-  `lean/StreamingMirror/Mux/Statement.lean` (campaign two, statements
-  restated inline and proved by citation — drift fails the build), with
-  MUX-STATEMENT-AUDIT.md grading every Lean statement against its
-  English claim.
-- **I want to build on the model** — MODEL.md first (the protocol
-  model and its soundness argument), then MUX-PROGRESS.md (the mux
-  campaign's model decisions, findings, and open charters), then the
-  proof maps (`lean/StreamingMirror/Proofs/Map.lean`,
-  `lean/StreamingMirror/Mux/Proofs/Map.lean`).
-- **I want to run the checks** — part II's "Toolchain" and "Running
-  the checks" below, plus `lake exe muxprobe` (the mux campaign's
-  executable matrix; golden-pinned) and `just muxprobe` / `just all`.
-
-## The file map
-
-Epistemic key, used across every document here: **[proven]** =
-kernel-checked in-repo; **[checked]** = validated executably on a
-pinned matrix; **[derived]** = paper argument; **[open]** = known
-unknown.
-
-Base artifact (campaign one):
-
-- `MODEL.md` — the protocol model and what is assumed vs proved.
-- `PROGRESS.md` — the progress lemma's design of record.
-- `PLAN.md` — the base campaign's plan ledger.
-- `quint/`, `tla/` — the Phase A/B model-checking tier and its pins.
-- `lean/StreamingMirror/` (minus `Mux/`) — the theorem artifact;
-  `Statement.lean` is its audit surface; `EventDag.lean` the
-  executable oracle.
-- `design/parent-placement.md` (repo root `design/`) — the edge
-  campaign's record.
-
-Mux campaign, living records:
-
-- `MUX-PROGRESS.md` — the campaign ledger (CLOSED; charters §3b/§3c/§3e
-  remain live).
-- `AUDIT-NOTES.md` — the alignment audit (A1–A12, each resolved or
-  ruled).
-- `MUX-STATEMENT-AUDIT.md` — the graded claim table + addenda.
-- `MUX-LATENCY.md` — the latency analysis and the K-dial law
-  [checked].
-- `lean/StreamingMirror/Mux/` — the mux theorem artifact;
-  `Mux/Statement.lean` is its audit surface.
-- Repo root `design/single-socket.md`, `design/single-socket-plan.md`,
-  `design/eager-absorption.md` — the contingency design of record and
-  its execution plan.
-
-Mux campaign, specs and charters:
-
-- `T8-SPEC.md` — the spec-first English statement of T8, with its
-  landed crosswalk (every clause EXACT).
-- `TRACECHECK.md` — the executable trace-validator plan (chartered,
-  sequenced after the single-R/W refactor).
-
-Mux campaign, frozen decision records (kept verbatim, errors and
-markers included — the negative space is the record):
-
-- `MUX-ADJUDICATION.md` — the phase-2 ruling of record.
-- `mux-notes-phase2/` — the surviving evidence set: `refute-c1.md`
-  (the σ* formulation the Lean transcribes), `attack-prove.md` /
-  `attack-refute.md` (the cross-examinations the proofs cite),
-  `oracle-c2.md` (the view-projection ground truth), `STAGE0-GATES.md`
-  (stage 0's evidence record), `t10-audit.md` (A7's resolution
-  warrant), `causal-reference.py` (the causal probe's reference
-  semantics — T11/tracecheck's calibration source), and `latency/`
-  (the RTT-metered harness and pinned results behind MUX-LATENCY.md).
-  Consigned working notes live in git history; MUX-PROGRESS §5's
-  2026-07-22 estate entry names the last complete commit.
-
-## Trust posture, in brief
-
-Deadlock-freedom and every mux-campaign statement of record are
-kernel-checked, axioms ⊆ {propext, Classical.choice, Quot.sound}, zero
-`sorry`; `native_decide` is banned from proofs (three cross-validation
-pins are the only non-kernel positive-side trust, named in
-Statement.lean). Termination is a kernel theorem at base and mux tiers.
-The Quint/Apalache tier validates, never carries, the claims (see
-part II's honesty notes). The bridge to the Rust is the proptest suite
-(`Trace::assert_valid`'s seven checks, wedge realizability, LocalEq,
-B5) — the kernel guarantees the model; the bridges argue the model is
-the Rust. Detail: the Statement.lean module docs.
+Archaeology: the mux campaign's full coordination record (ledger,
+adjudication, audit notes, statement audit, spec, panel briefs) was
+last complete in the tree at commit `a5cf8e3b`; it lives in git
+history, and everything load-bearing from it is folded into the Lean
+doc comments.
 
 ---
 
