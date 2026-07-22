@@ -240,7 +240,9 @@ child lands in one of three classes:
 - *Disputed* (D): both sides hold it, hashes differ. It becomes a
   scope one level down; the recursion continues into it.
 - *Requested* (R): one side lacks it entirely and asks for the whole
-  subtree; the other side supplies it outright. No further recursion.
+  subtree; the other side supplies it outright — the supplied subtree,
+  a run of frames with no interaction, is a _provision_. No further
+  recursion.
 - *Matched* (M): hashes agree (or the difference is one-sided in a way
   the protocol absorbs). No traffic at all; dropped from the skeleton.
 
@@ -602,9 +604,11 @@ or is terminal. #kernel
 via `Sched.progress_d5`): the same conclusion under mode `.full` —
 parent-early — with the capacity hypothesis weakened to
 `schedulable`: per-scope disputes at most capacity _plus two_. That
-bound is exactly the no-session-could-ever-finish frontier (one past
+bound is exactly the no-session-could-ever-finish frontier — one past
 it, `pyramid1_not_schedulable` exhibits a well-formed skeleton whose
-every interleaving jams — kernel-checked), so the counterpart is as
+greedy run jams (kernel-checked, `pyramid1_not_deadlockFree`), and
+that _no_ interleaving whatsoever completes it is the executable
+tier's checked equivalence (@two-tier) — so the counterpart is as
 capacity-general as any theorem could be. #kernel
 
 Three structural notes:
@@ -888,9 +892,10 @@ For the reader who wants to go deeper, in reading order:
 = The question <mux-question>
 
 The theorems of act one carry a premise so structural it is easy to
-read past: the seventeen wire streams between the two parties are
-_independent_ — a full or slow stream never prevents another from
-delivering. The deployed system honors that premise with the `Link`
+read past: the wire streams between the two parties — one per compared
+tree height, seventeen of them at the shipping depth of thirty-two,
+since the walk descends two levels at a time — are _independent_: a
+full or slow stream never prevents another from delivering. The deployed system honors that premise with the `Link`
 transport contract: a remote connection must supply genuinely
 non-interfering streams (QUIC streams, HTTP/2 streams, separate TCP
 connections). The contract exists because its absence had already been
@@ -1027,8 +1032,9 @@ that consumption needs nothing further from this side). It pushes a
 frame only when the consumption of that stream's previous frame is in
 the set; otherwise it idles and lets the reverse traffic grow the set.
 The liveness proof's engine is a coverage theorem: at any drained
-stuck candidate, every event below the missing push enters the causal
-certificate set at its own stage — so the strategy would have pushed,
+stuck candidate, every event that precedes the missing push in act
+one's witness order τ enters the causal certificate set by its own
+position in that order — so the strategy would have pushed,
 contradiction.
 
 == Where the announcements live
@@ -1145,15 +1151,21 @@ the design space:
   (`sigmaLadderK_windowDisciplined`), and frame ordering is thereby
   demoted from a correctness concern to a latency heuristic. You
   cannot pick a wrong order, only a slow one.
-- *The latency law is exact at the evidence tier* #gate: pacing on a
-  fresh-dispute frontier is $K + 1$ frames per round trip per stream,
-  and completion matches independent channels _exactly in round
-  trips_ once $K$ exceeds the widest frontier — with the shipped
-  default window ($"fan"^2$) above any frontier a realistic divergence
-  produces. Below that, the residual is hyperbolic in $K$: no cliff.
-  (`MUX-LATENCY.md` §7; validated 54/54 probe-exact with both corners
-  reproducing. Latency claims are deliberately not theorems — the
-  model is untimed; a chartered follow-on campaign owns that.)
+- *The latency law is exact at the evidence tier* #gate. Call a
+  _fresh-dispute frontier_ the scopes at one height whose dispute
+  classes the peer's replies are announcing for the first time — the
+  places where the sender's inference must wait for evidence rather
+  than derive it. Pacing on such a frontier is $K + 1$ frames per
+  round trip per stream, and completion matches independent channels
+  _exactly in round trips_ once $K$ exceeds the widest frontier's
+  width — with the shipped default window ($"fan"^2$) above any
+  frontier a realistic divergence produces. Below that, the residual
+  is hyperbolic in $K$: no cliff. (`MUX-LATENCY.md` §7; validated
+  54/54 probe-exact, with the two ends of the dial reproducing known
+  ground truth — $K = 1$ recovers demand-lockstep's measured pacing,
+  large $K$ the independent-channel baseline.
+  Latency claims are deliberately not theorems — the model is untimed;
+  a chartered follow-on campaign owns that.)
 
 This theorem was also the campaign's methodological capstone: its
 English statement was fixed _before_ construction (`T8-SPEC.md`),
@@ -1183,12 +1195,13 @@ price list reads differently than the original deadlock suggested:
   information. It was about _eagerness_ — a scheduler denied the right
   to idle (@answer-wc) — against bounded per-stream parking.
 - Liveness over one channel needs either elasticity (unbounded
-  parking; proven as `elastic_deadlock_free` #kernel, with the
-  observation that eager conversion of arriving frames into logical
-  replies makes parking cost handles, not buffers — the storage
-  backend was always the sink), or inference-gated sending at any
-  window (@window). Neither needs a wire byte the protocol doesn't
-  already send.
+  parking; proven as `elastic_deadlock_free` #kernel — and parking is
+  cheaper than it sounds: the receiver can decode each frame on
+  arrival and stream a provision's payload straight into its tree
+  store, which was that data's destination anyway, so a parked reply
+  costs a small descriptor rather than buffered bytes), or
+  inference-gated sending at any window (@window). Neither needs a
+  wire byte the protocol doesn't already send.
 - Round-trip parity with independent channels is reached at the
   default window #gate. What independent channels still buy is
   physics: per-stream loss isolation and packet-granularity
@@ -1233,9 +1246,10 @@ The single-socket design (`design/single-socket.md` on the
 thereby the _contingency of record_, not a successor: finished,
 shelved, theorem-backed, serving exactly the library user whose
 environment cannot supply multi-stream transports — window depths ride
-the greeting, the sender's engine is the inference of @answer-sigma at
-the window of @window, over-window arrival is an attributable protocol
-violation, and any window-obeying frame order is valid. Its final
+the _greeting_ (the session's opening handshake), the sender's engine
+is the inference of @answer-sigma at the window of @window,
+over-window arrival is an attributable protocol violation, and any
+window-obeying frame order is valid. Its final
 stage — removing `Link` — sits behind a gate now expected never to
 fire, and that is the design working as intended.
 
