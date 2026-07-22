@@ -344,6 +344,28 @@ proptest! {
         prop_assert_eq!(actual, expected);
     }
 
+    /// No wire reply ever arrives before the question that scopes it was
+    /// flushed.
+    ///
+    /// Across arbitrary divergence and adversarial channel schedules,
+    /// every decode finds its scope already registered by a prior local
+    /// emission — the FIFO head, never a scope that is not.
+    /// This is the receive-side complement of the send-side ordering
+    /// `Trace::assert_valid` pins: registration happens at encode time,
+    /// attached to the exact outgoing frame which makes the question
+    /// publishable, and this pins that ordering against drift.
+    #[test]
+    fn context_registration_is_causal(
+        (a, b) in arb_divergent_pair(),
+        schedule in vec(0_u8..=2, 0..128),
+    ) {
+        let (result, _channels, trace) = instrumented_reconcile(a, b, schedule);
+        result.map_err(|stopped| TestCaseError::fail(format!(
+            "wire reconciliation became quiescent: {stopped:?}",
+        )))?;
+        trace.assert_registration_causality();
+    }
+
     /// The wide-budget generator matches the in-process protocol too.
     ///
     /// Wide budgets reach the streaming deadlock's trigger geometry — wide
