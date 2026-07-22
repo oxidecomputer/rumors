@@ -104,7 +104,8 @@
   #v(4pt)
   - *Eagerness is fatal.* One fixed, tree-realizable skeleton defeats
     _every_ scheduler that must send when the pipe has room — at every
-    capacity, every parking depth, locality not even assumed
+    capacity, at every _parking depth_ (how many frames a receiver
+    will hold per stream), locality not even assumed
     (`wc_impossibility`, `wc_impossibility_K`). #kernel
   - *Patience and inference suffice.* A deterministic strategy that is
     local by construction — its every decision a function of the
@@ -121,10 +122,10 @@
   would build on. At any advertised per-direction window depths, _any_
   window-obeying frame order is deadlock-free and completes
   (`sigmaStarK_deadlock_free`, `sigmaStarK_completes`). Its
-  specification was fixed in English before the theorem was built —
-  `T8-SPEC.md`, named for the campaign's numbering of its theorem
-  targets — and the landed statement matches it clause for clause.
-  #kernel
+  specification was fixed in English before the theorem was built, and
+  the landed statement matches it clause for clause; the crosswalk
+  lives with the theorem's entry on the audit surface
+  (`Mux/Statement.lean`). #kernel
 ]
 
 #v(6pt)
@@ -141,15 +142,14 @@ this protocol. Everything needed is introduced.
 
 The story is worth telling as a story, because the result is not the
 one the effort set out to prove. The campaign began with a single
-theorem in mind — "the protocol cannot deadlock" — and the attempt to
-prove it produced, in order: three previously unwritten ordering
-invariants that the implementation had been relying on silently; a
-machine-checked counterexample showing the intended theorem was _false_
-as stated; the discovery that the falsity was not an implementation bug
-but an unarticulated _design trade_ with two defensible sides; and
-finally two theorems, one per side of that trade, of which one
-describes the implementation that ships and the other prices the
-alternative. The deadlock-freedom claims themselves are the headline,
+theorem in mind: the protocol cannot deadlock. The attempt to prove it
+produced four things, in order. First, three ordering invariants the
+implementation had been relying on silently. Then a machine-checked
+counterexample: the intended theorem was _false_ as stated. Then the
+discovery that the falsity was not a bug but an unarticulated _design
+trade_, with two defensible sides. And finally two theorems, one per
+side. One describes the implementation that ships; the other prices
+the alternative. The deadlock-freedom claims themselves are the headline,
 but the shape of the trade — and the exact capacity arithmetic on which
 it turns — is the part a designer of a similar system will want.
 
@@ -159,11 +159,11 @@ under two send disciplines. Act two removes the transport
 assumption and asks the question the first act leaves standing: the
 theorems assume the cross-party wire streams cannot block one
 another; the deployed system once muxed them over a single pipe and
-deadlocked; _is that deadlock fundamental?_ The answer reorganized
-itself, under proof, into the trichotomy of the second box — and into
-an engineering consequence with a twist: the single channel is
-provably viable, and the transport contract that forbids it stands
-anyway, as the better product decision — theorem-backed, not
+deadlocked; _is that deadlock fundamental?_ Under proof, the answer
+reorganized itself into the trichotomy of the second box. It also
+produced an engineering consequence with a twist. The single channel
+is provably viable — and the transport contract that forbids it stands
+anyway, as the better product decision. Theorem-backed, not
 theorem-forced (@consequence). This document presents each result
 where the argument wants it, not in the order it was discovered; the
 companion narrative preserves the discovery order, which was
@@ -192,8 +192,10 @@ honest about its trust boundaries:
 `rumors` maintains a replicated set of messages across peers that
 gossip pairwise: two peers connect, discover what each is missing, and
 exchange exactly that. Deletion is by _redaction_ and leaves no
-tombstones — whether an absent message is "never seen" or "deleted" is
-decided by version bounds carried in the tree, not by markers — so the
+tombstones. Whether an absent message is "never seen" or "deleted" is
+decided by _version bounds_ carried in the tree — per-subtree version
+ceilings that let a peer conclude "anything this old here was
+deliberately removed" without a marker per message. So the
 reconciliation structure must let two peers compare entire histories
 cheaply and locate their differences precisely.
 
@@ -244,8 +246,9 @@ child lands in one of three classes:
   subtree; the other side supplies it outright — the supplied subtree,
   a run of frames with no interaction, is a _provision_. No further
   recursion.
-- *Matched* (M): hashes agree (or the difference is one-sided in a way
-  the protocol absorbs). No traffic at all; dropped from the skeleton.
+- *Matched* (M): hashes agree, or the difference is one-sided content
+  the receiving side's version bounds let it absorb without asking. No
+  traffic at all; dropped from the skeleton.
 
 The two parties play alternating roles by level — for a given scope,
 one party is the _asker_ (it sent the query that opened the scope) and
@@ -269,8 +272,10 @@ bounded single-producer/single-consumer FIFO channels
   scope's resolution with the completed returns of its child subtrees
   — positionally, in scope order — and passing the assembled subtree
   up one level, toward the root return.
-- Openers, finishers, and a leaf *absorber* — fixed-shape processes at
-  the two ends of the session.
+- Fixed-shape processes at the session's two ends: the *openers*
+  launch the root exchange, the *finishers* run each stream's
+  end-of-stream close, and the leaf *absorber* consumes leaf-level
+  provisions.
 
 #figure(
   kind: image,
@@ -332,14 +337,15 @@ degree of freedom, and it is the subject of this entire document.
 
 == From code to model
 
-The Lean model abstracts this machine faithfully but finitely
-(`formal/MODEL.md` is the specification; `Skel.lean` and `Model.lean`
-transcribe it):
+The Lean model abstracts this machine faithfully but finitely; its
+definitions of record are `Skel.lean` and `Model.lean`, whose module
+docs carry the specification:
 
 - Sessions are quantified by *dispute skeletons* — the finite labeled
   trees of scopes defined above. `Skel.wellFormed` (about 25 lines)
-  delimits the shape class: real session shapes, breadth-first-aligned
-  stages, consistent child tables. Payloads are erased; the protocol's
+  delimits the shape class to real session shapes: each stage's scopes
+  are exactly the previous stage's disputed children, in order, and
+  the per-scope child tables agree between levels. Payloads are erased; the protocol's
   channel behavior depends only on each child's D/R/M class, which is
   why erasing them is sound.
 - Each process is a finite partially ordered set of operations (sends
@@ -397,11 +403,12 @@ resolution) and are never combined.
 
 A historical note that doubles as a warranty: *d3, d4, and the d5/d6
 pair were not in the original interface*. Each was surfaced by this
-verification effort — in each case the model exhibited a publication
-order that satisfied every _written_ rule and deadlocked, and in each
+verification effort. In each case the model exhibited a publication
+order that satisfied every _written_ rule and deadlocked. And in each
 case the implementation was found to be enforcing the missing rule
-silently, by code structure rather than by contract
-(`MODEL.md` §6 records all three findings with their counterexamples).
+silently, by code structure rather than by contract. (All three
+survive as pinned counterexamples, in `Controls.lean` and the
+executable gate's pinned matrix.)
 The Rust trace validator was tightened in step each time, so the
 checked interface and the assumed interface coincide. The third of
 these findings is @discovery, and it is the reason this document
@@ -422,9 +429,10 @@ what a reader should trust:
   regression suite: transcription equality of the proof-side schedule
   definitions against the imperative model, replay of the witness
   schedules to session completion under both modes, adversarial drain
-  assertions (the margin-0 `.impl` drains must complete; the
-  sub-margin traps must still reproduce), and a boundary matrix around
-  the capacity law of @floor. #gate
+  assertions (the margin-0 `.impl` drains must complete — margin 0 is
+  the capacity discipline defined at @floor — and the sub-margin traps
+  must still reproduce), and a boundary matrix around the capacity law
+  of @floor. #gate
 
 The kernel tier makes the theorems unimpeachable _given the
 definitions_. The executable tier is the answer to the question every
@@ -463,15 +471,15 @@ session, every rule of the then-current interface obeyed, deadlocked.
 
 The cycle deserves one paragraph, because it is the heart of the whole
 design question. The parent-delaying walk commits to a last-chunk
-query and parks on a full capacity-1 query channel. The parent summary
-it is withholding is exactly what the assembler one level up needs to
-begin assembling the scope; starved, that assembler stops consuming
-its own level channel; the backlog propagates down the tower of level
-channels; eventually a _deeper_ assembler stops draining the parent
-summaries of a walk further down, and that walk — parked on its own
-committed parent-summary send — is the very process whose progress
-would have drained the query channel the first walk is parked on.
-Commitment closes the cycle: nobody can retract, nobody can proceed.
+query and parks on a full capacity-1 query channel. The summary it
+withholds is exactly what the assembler one level up needs to begin
+assembling the scope. Starved, that assembler stops consuming its own
+level channel. The backlog propagates down the tower. Eventually a
+_deeper_ assembler stops draining a lower walk's parent summaries.
+That lower walk is parked on its own committed parent-summary send.
+And its progress is what would have drained the query channel the
+first walk is parked on. Commitment closes the cycle: nobody can
+retract, nobody can proceed.
 
 == Not a bug: a trade
 
@@ -482,18 +490,16 @@ scope's _epilogue_, after all other traffic, and does so deliberately;
 the code comments call the order progress-critical: launch every
 pending subtree's work before publishing the enclosing summary. The
 placement is a _criticality ordering_. A parent summary is the least
-urgent message a walk ever sends — its consumer must wait for subtree
-returns that arrive far later anyway — while the sends it would
-preempt under parent-early are the most urgent in the protocol: the
-queries that launch deeper descents and the wires the peer is waiting
-on. Parent-early buys deadlock immunity by releasing the upward
+urgent message a walk ever sends: its consumer must wait for subtree
+returns that arrive far later anyway. The sends it would preempt under
+parent-early are the most urgent in the protocol — the queries that
+launch deeper descents and the wires the peer is waiting on. Parent-early buys deadlock immunity by releasing the upward
 obligation before entering any send that can jam; parent-late buys
 maximal pipelining by deferring the deferrable. (Since parent
 summaries never cross the wire, neither placement changes the peer's
 logical dependencies or the session's round-trip structure; what
 parent-early costs is _overlap_ — a rendezvous with the assembler
-tower at every scope boundary, on the critical path of descent. The
-full analysis is `design/parent-placement.md`.)
+tower at every scope boundary, on the critical path of descent.)
 
 So the freedom the rules left open was not an oversight in the
 implementation; it was an oversight in the _interface_. There are two
@@ -513,16 +519,17 @@ which makes buffer capacity the other axis of the trade. The exact law
 ]
 
 where $C$ is the level-channel capacity. #gate The `+2` is real slack
-with a mechanical explanation: beyond the $C$ returns buffered in the
-channel, one return sits in the blocked assembler's _hand_ (its
-committed send, parked but holding its item), and one child resolution
-sits parked in the capacity-1 resolution slot — a child whose return
-has not been materialized yet and so needs no room until the parent
+with a mechanical explanation. Beyond the $C$ returns buffered in the
+channel, one return sits in the blocked assembler's _hand_ — its
+committed send, parked but still holding its item. One more child
+resolution sits parked in the capacity-1 resolution slot. That child's
+return is not materialized yet, so it needs no room until the parent
 summary frees the drain. Two borrowed positions, one at each end of
 the bounded channel. The law is pinned executably at the boundary from
 both directions: the Rust pipeline on a 256-fan stress tree stalls with
 the assembler channel at 253 and completes at 254, and the model's
-scaled instances reproduce the same threshold shape (`MODEL.md` §8).
+scaled instances reproduce the same threshold shape (the executable
+gate's boundary matrix pins it).
 
 Two properties of this floor made the theorem-design decision for us:
 
@@ -596,7 +603,7 @@ the hypotheses of the headline theorem.
     implementation occupies the right one. Revisit the left corner
     only if the capacity floor ever becomes untenable — e.g. a
     memory-constrained peer that cannot afford radix-deep assembler
-    buffers (`design/parent-placement.md` §5).
+    buffers.
   ],
 ) <fig-space>
 
@@ -619,12 +626,13 @@ or is terminal. #kernel
 via `Sched.progress_d5`): the same conclusion under mode `.full` —
 parent-early — with the capacity hypothesis weakened to
 `schedulable`: per-scope disputes at most capacity _plus two_. That
-bound is exactly the no-session-could-ever-finish frontier — one past
-it, `pyramid1_not_schedulable` exhibits a well-formed skeleton whose
-greedy run jams (kernel-checked, `pyramid1_not_deadlockFree`), and
-that _no_ interleaving whatsoever completes it is the executable
-tier's checked equivalence (@two-tier) — so the counterpart is as
-capacity-general as any theorem could be. #kernel
+bound is exactly the frontier past which no session could ever finish.
+One past it, `pyramid1_not_schedulable` exhibits a well-formed
+skeleton — from the _pyramid_ family, a single scope disputing many
+children at once — whose greedy run jams, kernel-checked as
+`pyramid1_not_deadlockFree`. That no interleaving whatsoever completes
+it is checked at the executable tier (@two-tier). The counterpart is
+therefore as capacity-general as any theorem could be. #kernel
 
 Three structural notes:
 
@@ -705,11 +713,11 @@ Instead it builds one distinguished global order of every operation in
 the session — the _eweave_ (`Sched/WeaveE.lean`): scope by scope in
 breadth-first order, each scope's traffic in the encoder's own
 per-child order, parent summary last, interleaved with the assembler
-and absorber operations that consume it. This is a ghost object — no
-scheduler is claimed or required to follow it — but it is a concrete
-one: before anything is proven about it, the executable gate replays
+and absorber operations that consume it. This is a ghost object: no
+scheduler is claimed or required to follow it. But it is a concrete
+one. Before anything is proven about it, the executable gate replays
 it to session completion under `.impl` on every pinned and randomized
-skeleton, at margin 0, and checks the proof-side definition
+skeleton, at margin 0. The gate also checks the proof-side definition
 event-for-event against an independent construction. #gate The
 schedule assigns every operation a position; call the position of an
 event its τ.
@@ -733,11 +741,14 @@ share machinery. "Spliced versus last" is exactly where they differ.
 start, every send lands in a channel with room and every receive finds
 its datum present, given only well-formedness and margin 0. #kernel
 
-This is the bulk of the artifact, and its shape is an induction with a
-strengthened invariant: a counting state (per channel-side, how many
-events have fired) plus, for each site class the schedule can be
-standing at, a _window_ — the precise arithmetic fact about the counts
-above and below that makes the next send admissible. Receives are the
+This is the bulk of the artifact. Its shape is an induction with a
+strengthened invariant. The invariant carries a counting state — per
+channel-side, how many events have fired — plus one _window_ for each
+_site class_, meaning each kind of send the schedule can be standing
+at (a wire, a resolution, a query, a parent summary). A window is the
+arithmetic fact about the counts above and below that makes the next
+send admissible. (These proof-side windows are unrelated to act two's
+flow-control windows; the collision is historical.) Receives are the
 easy half: the schedule places every receive after its matching send
 (the message edge), and positional pairing plus a per-channel
 numbering theorem (on every channel-side, the family's events carry
@@ -763,21 +774,21 @@ with tree width or depth."
 It is instructive to see what the `d5` proof must do at the same site,
 because the comparison _is_ the design trade, restated as proof
 effort. Under parent-early at capacity 1, the tower above a parent
-send can be nearly full, legitimately; admissibility of the send is a
-global fact about how far the whole tower above has drained, and the
-`d5` proof establishes it with telescoping ancestor sums — a chain of
-window facts walked up the spine of the tree (its `AscCover` /
-`DescSupply` telescopes), threaded through every site of the master
-induction as a rolling context. Margin 0 replaces all of that with
-the one inequality above. Symmetrically, the eweave's parent-last
-shape _simplifies_ every remaining site: a kid chunk of the eweave is
-literally the `d5` chunk shape with the spliced parent set to "none"
-(`childChunk_spliced`, `Weave/SiteE.lean`), so the entire chunk
-algebra transfers with the case analysis for "is the parent spliced
-here?" deleted; the ancestor counts lose their conditionals (an
-ancestor's parent summary is _always_ still pending at any interior
-site — no case split); the ascent ladders collapse from inductions to
-two-case analyses. The refunds recur so systematically that the
+send can be nearly full, legitimately. Admissibility of the send
+becomes a global fact about how far the whole tower above has drained.
+The `d5` proof establishes it with telescoping ancestor sums — chains
+of window facts walked up the spine of the tree (its `AscCover` and
+`DescSupply` telescopes: ascending coverage of drained capacity,
+descending supply of completed returns) — threaded through every site
+of the master induction as a rolling context. Margin 0 replaces all of
+that with the one inequality above. Symmetrically, the eweave's
+parent-last shape _simplifies_ every remaining site. A kid chunk of
+the eweave is the `d5` chunk with the spliced parent set to "none"
+(`childChunk_spliced`, `Weave/SiteE.lean`). The whole chunk algebra
+therefore transfers, minus the "is the parent spliced here?" case
+analysis. The ancestor counts lose their conditionals: an ancestor's
+parent summary is always still pending at an interior site. And the
+ascent ladders collapse from inductions to two-case analyses. The refunds recur so systematically that the
 mirror table in `Proofs/Map.lean` reads as a one-line-per-file
 summary of the design trade itself: _the two proofs differ exactly
 where the two encoders do._
@@ -811,9 +822,11 @@ event carries precisely the current count of its channel-side.
 What makes this stage remarkable is what it does _not_ contain: an
 induction over reachability. The session's inductive invariant
 (`Invariant.lean`, established once by preservation over every action)
-records, for each walk, guard mirrors of the committed choice — and
-under `.impl` the `d6` mirror says the committed parent summary's
-every predecessor within the scope is already fired. That pins the
+records, for each walk, a _mirror_ of its committed choice: the fact,
+implied by the commit guard, about which of the walk's other
+operations must already have fired. Under `.impl` the `d6` mirror says
+the committed parent summary's every predecessor within the scope is
+already fired. That pins the
 performed set to a prefix _statically_: the decode is a case analysis
 over the invariant's fields, not a new induction. The `d5` decode has
 the same shape with the mirrors reversed — and, once more, the
@@ -826,13 +839,13 @@ splice land?" with a two-case split at the scope tail.
 `Sched.progress` (`Proofs/EndgameE.lean`): a reachable, non-terminal
 state can step. #kernel The argument is four sentences. Collect every
 process's pending event — non-terminality makes the pool non-empty —
-and take $e^*$, the τ-least. Every event that must precede $e^*$
-(the matching send if $e^*$ is a receive, by the message edge; the
-slot-freeing receive if $e^*$ is a send into a bounded channel, by
-the back-pressure edge) sits strictly below it in τ, and any such
-event, were it unperformed, would be at-or-above its own process's
-pending event — which would then rank below $e^*$, contradicting
-minimality. So every predecessor of $e^*$ is performed; flow
+and take $e^*$, the τ-least. Every event that must precede $e^*$ sits
+strictly below it in τ. For a receive, that predecessor is the
+matching send, by the message edge. For a send into a bounded channel,
+it is the slot-freeing receive, by the back-pressure edge. Suppose
+some predecessor were unperformed. It would sit at or above its own
+process's pending event, which would then rank below $e^*$ —
+contradicting minimality. So every predecessor of $e^*$ is performed; flow
 conservation on its channel then puts a datum (respectively, room)
 where $e^*$ needs it; and by the decode, $e^*$'s owner stands exactly
 at $e^*$, so the enabled operation is the owner's very next. If
@@ -874,8 +887,10 @@ The complete trust ledger of the artifact:
   against an independent implementation, witness replay to completion
   under both modes, adversarial drain assertions at and below the
   margin, the capacity boundary matrix, and the
-  schedulable-equals-DAG-acyclicity conjecture checked in both
-  directions, per 300-seed sweep on every def-touching commit.
+  conjecture that `schedulable` coincides with acyclicity of the event
+  DAG (the dependency graph over all sends and receives; the narrative
+  defines it) checked in both directions, per 300-seed sweep on every
+  def-touching commit.
 + *Assumed, named* #assumed — exactly two items.
   _Capacity monotonicity_: the theorems fix walk channels at
   capacity 1 and the assembler at `capLevel`; production only widens
@@ -885,8 +900,9 @@ The complete trust ledger of the artifact:
   not proven. _Modeled-world premises_: conforming error-free peers,
   single-producer/single-consumer channels, sequential scopes per
   walk, per-channel in-order delivery — each anchored to the Rust
-  structure that realizes it (`MODEL.md` §1, §9), the last also
-  checked by the trace validator's radix-order rule.
+  structure that realizes it (the model's module docs name each
+  anchor), the last also checked by the trace validator's radix-order
+  rule.
 
 Nothing else is assumed. In particular, no fairness: the scheduler may
 be fully adversarial forever, and the theorems still hold.
@@ -897,16 +913,15 @@ For the reader who wants to go deeper, in reading order:
 
 - `formal/lean/StreamingMirror/Statement.lean` — the audit surface:
   what is claimed, in ~220 lines of definitions chosen to be read.
-- `formal/design/parent-placement.md` (branch `parent-first`) — the
-  design-space record: the two placements, the trap, the borrowed
-  slots, the pipelining analysis, the adopted resolution.
-- `formal/MODEL.md` — the model specification: the skeleton
-  abstraction, the channel graph, the obligation machine, the
-  ledgers' exact transcription, the capacity law.
+- `formal/lean/StreamingMirror/Skel.lean` and `Model.lean` — the model
+  of record, with the specification in their module docs: the skeleton
+  abstraction, the channel graph, the obligation machine, the ledgers.
+- `formal/lean/StreamingMirror/Controls.lean` — the negative controls:
+  every trap in this act as a kernel-checked stuck run.
 - `formal/lean/StreamingMirror/Proofs/Map.lean` — the proof map: the
   five stages file by file, and the `d5`/`.impl` mirror table.
-- `formal/PROGRESS.md` — the campaign log: findings, refuted designs,
-  route decisions, and the accumulated proof-engineering lore.
+- `lake exe eventdag` — the executable gate; its output is the
+  pinned-matrix and boundary evidence this act tags #gate.
 - The companion narrative (`formal/doc/narrative.typ`) — the faithful
   history of how both campaigns actually unfolded, including the
   parts this exposition compresses.
@@ -924,12 +939,14 @@ heights at a time, so a depth-32 trie has sixteen interior stages,
 plus one stream for the leaf level — seventeen.) The deployed system honors that premise with the `Link`
 transport contract: a remote connection must supply genuinely
 non-interfering streams (QUIC streams, HTTP/2 streams, separate TCP
-connections). The contract exists because its absence had already been
-paid for: an earlier remote transport muxed all seventeen streams over
-one pipe, and wide trees deadlocked it — a six-link wait cycle through
-the demultiplexer's one-slot handoffs, reproduced identically at
-64-byte and 16-megabyte transport buffers, because the cycle was never
-about buffer capacity (`design/streaming-wire-deadlock.md`).
+connections). The contract exists because its absence had already been paid for.
+An earlier remote transport muxed all seventeen streams over one
+pipe, and wide trees deadlocked it. The shape, in one sentence: a walk
+waited on a deep answer that sat buried behind bulk provisions in the
+pipe, behind a demultiplexer blocked on a one-slot handoff whose
+consumer was that same waiting walk. The cycle reproduced identically
+at 64-byte and 16-megabyte transport buffers; it was never about
+buffer capacity.
 
 The owner of this codebase conjectured that the deadlock was
 fundamental, and posed it precisely. Freeze the message set — no new
@@ -947,13 +964,13 @@ so is unrealizable.
 
 Both conjectures were settled in Lean, on top of act one's artifact,
 and neither survived in the form posed — each resolved into something
-sharper. This act presents the results in their logical order: the
-model (@mux-model), the impossibility that is true (@answer-wc), the
-possibility that refutes C1 as posed (@answer-sigma), the oracle that
-proves C2's existence half in a stronger-than-conjectured form
-(@answer-oracle), the window generalization any single-channel
-implementation would rest on (@window), and the engineering
-consequence (@consequence). The
+sharper. This act presents the results in their logical order. First
+the model (@mux-model). Then the three answers: the impossibility that
+is true (@answer-wc), the possibility that refutes C1 as posed
+(@answer-sigma), and the oracle that proves C2's existence half in a
+stronger-than-conjectured form (@answer-oracle). Then the window
+generalization an implementation would rest on (@window), and the
+engineering consequence (@consequence). The
 statement of record for everything in this act is
 `formal/lean/StreamingMirror/Mux/Statement.lean` — like act one's, it
 restates every claim inline and proves each by citation, so the audit
@@ -1009,23 +1026,30 @@ The proof is notable for what it does not contain. There is no
 counting argument about capacity, and no information-theoretic fooling
 of the scheduler. On the wedge, the protocol's own ordering ledgers
 funnel any work-conserving scheduler down a corridor in which _every
-decision point offers exactly one legal push_ — so all strategies in
-the class, omniscient ones included, walk the same forced run, and the
-theorem is a replay of that run to a stuck state, kernel-checked. The
+decision point offers exactly one legal push_. All strategies in the
+class — omniscient ones included — therefore walk the same forced run,
+and the theorem is a replay of that run to a stuck state,
+kernel-checked. The corridor's end is the production stall in
+miniature: the handoff slot holds a provision its consumer will not
+take until a deeper dispute resolves, and the frame that would resolve
+it sits behind further provisions in the pipe. Burial, under
+commitment. The
 jam mechanism is act two's echo of act one's borrowed slots: a
 one-slot demultiplexer handoff occupied by a frame its consumer will
 not take yet, and the frame it needs buried behind that occupant in
-FIFO order. Capacity never enters — anchors at $C in {1,2,3}$ plus one
-capacity-blind certificate cover every $C >= 4$ — which is the formal
-restatement of the production observation that the stall was identical
-at 64 bytes and 16 megabytes.
+FIFO order. Capacity never enters. Kernel anchors at $C in {1,2,3}$ plus one
+_capacity-blind_ certificate — a final stuck state that is stuck for
+the same reason at every capacity, because the jam lives in the
+one-slot handoff rather than the pipe — cover every $C >= 4$. That is
+the formal restatement of the production observation that the stall
+was identical at 64 bytes and 16 megabytes.
 
-Two negative controls pin that each hypothesis earns its keep
-#kernel: a hand-built _idling_ strategy completes the wedge (so
-work-conservation, the right to refuse the pipe, is the entire
-frontier), and an unbounded-slot demultiplexer lets even the jamming
-scheduler complete (so the bounded per-stream state is load-bearing —
-elasticity is a cure, and @consequence spends it deliberately).
+Two negative controls pin that each hypothesis earns its keep.
+#kernel A hand-built _idling_ strategy completes the wedge: work
+conservation — the right to refuse the pipe — is the entire frontier.
+And an unbounded-slot demultiplexer lets even the jamming scheduler
+complete: the bounded per-stream state is load-bearing. Elasticity is
+a cure, and @consequence spends it deliberately.
 
 The generalization (`wc_impossibility_K` #kernel) closes the obvious
 escape: give the demultiplexer $K$-deep parking per stream and the
@@ -1086,8 +1110,8 @@ the very wedge σ\*-causal completes. The announcements were never in
 the message pattern; they were in the messages.
 
 So there are three candidate grains for "what a local scheduler may
-see," ordered by _when the peer's classes arrive_, and the two wrong
-ones err in opposite directions:
+see," ordered by _when the peer's classes arrive_. The two wrong ones
+err in opposite directions:
 
 + *In the view* — the strategy is born knowing classes it was never
   sent: too early, a causality violation dressed as locality (this was
@@ -1148,11 +1172,11 @@ it before the kernel did, which is the campaign's methodological story
 in one sentence.
 
 The necessity half of C2 lands class-relatively (`necessity`
-#kernel): the oracle order is not computable from any single party's
-view (`oracle_not_local` — the projections differ across view-equal
-skeletons), and under work-conservation nonlocal information cannot
-save you anyway (@answer-wc), but — because of answer two — nonlocal
-information is _not necessary for liveness at all_. What the
+#kernel). The oracle order is not computable from any single party's
+view: the projections differ across view-equal skeletons
+(`oracle_not_local`). Under work-conservation, nonlocal information
+cannot save you anyway (@answer-wc). But because of answer two,
+nonlocal information is _not necessary for liveness at all_. What the
 conjecture's intuition was tracking is now stated exactly: what
 credits (or an oracle, or true channel independence) buy over local
 inference is _computation and timing_, never information the protocol
@@ -1185,19 +1209,21 @@ the design space:
   than derive it. Pacing on such a frontier is $K + 1$ frames per
   round trip per stream, and completion matches independent channels
   _exactly in round trips_ once $K$ exceeds the widest frontier's
-  width — with the shipped default window ($"fan"^2$) above any
+  width — and the shipped default window is $"fan"^2$ scopes
+  ($256^2$, the deployed configuration's advertisement), above any
   frontier a realistic divergence produces. Below that, the residual
-  is hyperbolic in $K$: no cliff. (`MUX-LATENCY.md` §7; validated
-  54/54 probe-exact, with the two ends of the dial reproducing known
-  ground truth — $K = 1$ recovers demand-lockstep's measured pacing,
-  large $K$ the independent-channel baseline.
+  is hyperbolic in $K$: no cliff. (Validated probe-exact on all 54
+  cells of a nine-shape, six-depth sweep by the campaign's timed
+  harness, with the two ends of the dial reproducing known ground
+  truth — $K = 1$ recovers demand-lockstep's measured pacing, large
+  $K$ the independent-channel baseline.
   Latency claims are deliberately not theorems — the model is untimed;
   a chartered follow-on campaign owns that.)
 
 This theorem was also the campaign's methodological capstone: its
-English statement was fixed _before_ construction (`T8-SPEC.md`),
-clause by clause, each clause carrying the audit rule naming the
-weakenings that would gut it — single-window, concrete-scheduler-only,
+English statement was fixed _before_ construction, clause by clause,
+each clause carrying the audit rule naming the weakenings that would
+gut it — single-window, concrete-scheduler-only,
 omniscient-inference, progress-without-termination. The landed
 theorem's crosswalk grades every clause EXACT, and the discipline —
 specification first, statement graded against it — is now house
@@ -1238,21 +1264,21 @@ price list reads differently than the original deadlock suggested:
 
 One further reading of the suite, weaker in tier but decisive in
 consequence, deserves its own paragraph. The kernel results bracket a
-_mechanism_ claim without yet pinning it: any live local scheduler
-must withhold (@answer-wc), must withhold on information
-(`static_oracle_jams` — the wrong fixed order dies with full
-knowledge), must draw that information from frame _contents_ (the
-payload finding of @answer-sigma — pattern-only inference starves),
-must infer it from announcements (`oracle_not_local` — the omniscient
-license is not locally computable), and the announcement-inferred
-window discipline suffices (@window). Every proven constraint points
+_mechanism_ claim without yet pinning it. Any live local scheduler
+must withhold (@answer-wc). It must withhold on information: the
+wrong fixed order dies with full knowledge (`static_oracle_jams`).
+The information must come from frame _contents_, because pattern-only
+inference starves (@answer-sigma). It must be inferred from
+announcements, since the omniscient license is not locally computable
+(`oracle_not_local`). And the announcement-inferred window discipline
+suffices (@window). Every proven constraint points
 at one mechanism: a correct single-channel scheduler effectively
 re-implements per-stream windowing from application-level signals —
 tracks the trace, infers each receiver buffer's occupancy, and imposes
 backpressure on itself. That this is _necessary_ and not merely
 sufficient is at present a derived claim #assumed, chartered
 spec-first as T11 — the campaign's last numbered theorem target — the
-forced-window theorem (`MUX-PROGRESS.md` §3e):
+forced-window theorem:
 every charter-local strategy that is deadlock-free on the class is
 license-bounded at every reachable observation.
 
@@ -1270,9 +1296,9 @@ the campaign proved the alternative exists and priced it exactly — but
 theorem-backed: we verified the alternative, identified what it must
 implement, and chose the tuned implementation of that same mechanism.
 
-The single-socket design (`design/single-socket.md` on the
-`single-connection` branch, with its code-grounded executable plan) is
-thereby the _contingency of record_, not a successor: finished,
+The single-socket design — maintained, with its code-grounded
+executable plan, on the `single-connection` branch — is thereby the
+_contingency of record_, not a successor: finished,
 shelved, theorem-backed, serving exactly the library user whose
 environment cannot supply multi-stream transports — window depths ride
 the _greeting_ (the session's opening handshake), the sender's engine
@@ -1318,32 +1344,29 @@ The trust ledger, act two:
   pointer), and the bridge premises tying model to Rust (the trace
   validator's ledgers, the wedge realizability test, and B5 — which
   the payload finding of @answer-sigma promotes to constitutive).
-  The planned `tracecheck` validator (`TRACECHECK.md`) exists to
+  A chartered trace validator — Rust proptests replaying their
+  traces through the compiled Lean definitions — exists as a plan to
   shrink this category mechanically.
 
 = A reader's map: act two
 
 - `formal/lean/StreamingMirror/Mux/Statement.lean` — the audit
   surface: every claim of this act, restated inline, proof by
-  citation.
-- `formal/MUX-PROGRESS.md` — the campaign's design of record: the
-  charter, the resolution with its superseded-markers preserved, the
-  findings ledger, the merge-seam checklist, the follow-on charters.
-- `formal/T8-SPEC.md` — the specification-first method's artifact:
-  the English claim, the audit rules, the landed crosswalk.
-- `formal/MUX-STATEMENT-AUDIT.md` — the graded claim table: every
-  English claim against its Lean statement.
-- `formal/MUX-ADJUDICATION.md` and `formal/mux-notes-phase2/` — the
-  adjudication of record and the panel's working papers, including
-  the probe reference implementation.
-- `formal/MUX-LATENCY.md` — the latency analysis and the K-dial law.
-- `formal/AUDIT-NOTES.md` — the alignment audit: twelve entries,
-  each resolved or honestly scoped.
-- `design/single-socket.md` and `design/single-socket-plan.md`
-  (branch `single-connection`) — the contingency of record for the
-  no-multi-stream-transport environment, with its code-grounded
-  executable plan; its final stage sits behind a gate expected never
-  to fire (@consequence).
+  citation; each entry's docstring carries its provenance and its
+  load-bearing controls.
+- `formal/lean/StreamingMirror/Mux/Causal.lean` and `SigmaStarK.lean`
+  — the strategies of record, with the announced view and the
+  licensing discipline in their module docs.
+- The controls — `Mux/Controls.lean`,
+  `Mux/Proofs/Oracle/Controls.lean`, and the refutation ledger in
+  `Mux/Proofs/C1.lean` — every hypothesis pinned load-bearing by a
+  kernel-checked witness.
+- `formal/lean/StreamingMirror/Mux/Proofs/Map.lean` — the proof map
+  for this act: the invariant family, the transport dial, the
+  discharge map.
+- `lake exe muxprobe` and `lake exe eventdag` — the executable gates
+  behind every #gate tag; `lake build` re-certifies the audit surface
+  against the theorems.
 - The companion narrative (`formal/doc/narrative.typ`, part two) —
   how all of this actually happened, including the reversals this
   exposition presents as if they were always known.
