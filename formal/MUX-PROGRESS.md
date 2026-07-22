@@ -910,6 +910,18 @@ commits' own text and runs the checklist mechanically; wrong-grade
 findings outside the sweep's text falsify the seam diagnosis and go
 to Finch.
 
+### 2026-07-21 — Round 6 (narrow terminal): the adversarial review of this campaign is CLOSED
+
+All eight round-5 dispositions verified textually accurate in the
+sweep commits (`1775d43e`, `73249b40`); the merge-seam checklist
+passes mechanically (no naked "completes" on stuck-freedom theorems;
+every positive statement of record carries the byte pointer; markers
+coherent, class-relation claims match the incomparability finding of
+record with its [derived] tag, ledgers and manifest current); only
+consider-grade observations remain — so, per the pre-committed stop
+rule (round-5 synthesis §3, Finch's criterion), the review is CLOSED
+and phase 5 proceeds on the queue.
+
 ## 5. Log
 
 - **2026-07-21** Campaign opened. Charter fixed (§1): message set
