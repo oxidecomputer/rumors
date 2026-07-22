@@ -527,4 +527,255 @@ theorem mem_allChans_of_wireHeights {q : Party} {g : Nat}
     · rw [if_neg hq] at hval
       cases hval
 
+-- ================================================= the mint bridges
+-- From a frame send scheduled below the wall to an announced record:
+-- performed ⇒ sent ⇒ (pipes empty) delivered ⇒ minted.
+
+namespace Wall
+
+variable {s : MState} {N : Nat}
+
+/-- A peer frame send below the wall is delivered: the drained decode
+turns the send counter into the announced view's delivery count. -/
+theorem delivered_of_send (W : Wall sk s N) (p : Party) {g n : Nat}
+    (hch : Chan.wire p.other g ∈ allChans sk)
+    (hmem : ((Chan.wire p.other g, true, n) : Ev) ∈ scheduleE sk)
+    (hτ : evIdx ((Chan.wire p.other g, true, n) : Ev) (scheduleE sk)
+      < N) :
+    n < deliveredCount (s.hist p) g := by
+  have hsent := W.sent_of_below hmem hτ
+  have hdel := W.drained_delivered p.other g hch
+  rw [Party.other_other] at hdel
+  omega
+
+/-- A peer walk frame send below the wall mints its about-scope and
+that scope's kids (rule 2 cashed at the stuck state). -/
+theorem minted_of_send (W : Wall sk s N) (p : Party) {g n : Nat}
+    (hpk : (p.other, g) ∈ sk.walkKeys) (hg0 : g ≠ 0)
+    (hmem : ((Chan.wire p.other g, true, n) : Ev) ∈ scheduleE sk)
+    (hτ : evIdx ((Chan.wire p.other g, true, n) : Ev) (scheduleE sk)
+      < N)
+    (hlen : n < (sk.scopesAt g).length) :
+    (sk.scopesAt g).getD n 0 ∈ announcedIds sk p (s.hist p)
+      ∧ ∀ v ∈ (sk.scope ((sk.scopesAt g).getD n 0)).kids,
+          v ∈ announcedIds sk p (s.hist p) :=
+  announced_of_delivered (mem_peerMintHeights W.wf p hpk) hg0
+    (W.delivered_of_send p (mem_allChans_wireOut hpk) hmem hτ) hlen
+
+/-- The peer's opening frame send below the wall delivers the session's
+first arrival (rule 1's currency). -/
+theorem root_delivered (W : Wall sk s N) (p : Party)
+    (hmem : ((Chan.wire p.other sk.rootH, true, 0) : Ev) ∈ scheduleE sk)
+    (hτ : evIdx ((Chan.wire p.other sk.rootH, true, 0) : Ev)
+      (scheduleE sk) < N) :
+    0 < deliveredCount (s.hist p) sk.rootH :=
+  W.delivered_of_send p (mem_allChans_wire_root _) hmem hτ
+
+end Wall
+
+-- ============================================ BFS positional reading
+-- The alignment conjunct read positionally: above the leaf stage a
+-- stage's kid lists flattened are the level below, so wire seqs
+-- decompose into (parent block, child index) and back.
+
+/-- The BFS split at a stage cursor: the level below decomposes as the
+first `n` blocks' kids — whose flattened length is the wire prefix
+sum — plus a remainder. -/
+private theorem bfs_split (hwf : sk.wellFormed = true)
+    {h : Nat} (h1 : 1 ≤ h) (hh : h < sk.rootH) :
+    ∀ n, n ≤ sk.stageLen h →
+      ∃ rest, sk.scopesAt h
+          = ((sk.stageScopes h).take n).flatMap
+              (fun u => (sk.scope u).kids) ++ rest
+        ∧ (((sk.stageScopes h).take n).flatMap
+              (fun u => (sk.scope u).kids)).length
+            = sk.wiresBefore h n := by
+  intro n
+  induction n with
+  | zero =>
+      intro _
+      exact ⟨sk.scopesAt h, rfl, rfl⟩
+  | succ n ih =>
+      intro hn
+      have hn' : n < sk.stageLen h := by omega
+      obtain ⟨rest, hsplit, hlen⟩ := ih (by omega)
+      have htake : (sk.stageScopes h).take (n + 1)
+          = (sk.stageScopes h).take n ++ [sk.stageScope h n] := by
+        unfold Skel.stageLen at hn'
+        rw [List.take_succ, List.getElem?_eq_getElem hn']
+        unfold Skel.stageScope
+        rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hn']
+        rfl
+      -- the full BFS split pins the remainder's head segment
+      have hfull : sk.scopesAt h
+          = ((sk.stageScopes h).take (n + 1)).flatMap
+              (fun u => (sk.scope u).kids)
+            ++ ((sk.stageScopes h).drop (n + 1)).flatMap
+              (fun u => (sk.scope u).kids) := by
+        rw [← List.flatMap_append, List.take_append_drop]
+        exact (wf_bfs_aligned hwf hh).symm
+      rw [htake, List.flatMap_append] at hfull
+      rw [List.append_assoc] at hfull
+      have hrest : rest
+          = (sk.scope (sk.stageScope h n)).kids
+              ++ ((sk.stageScopes h).drop (n + 1)).flatMap
+                (fun u => (sk.scope u).kids) := by
+        have h2 := hsplit.symm.trans hfull
+      -- kids ++ dropFlat, flatMap over singleton reduces
+        rwa [List.flatMap_cons, List.flatMap_nil, List.append_nil,
+          List.append_cancel_left_eq] at h2
+      refine ⟨((sk.stageScopes h).drop (n + 1)).flatMap
+        (fun u => (sk.scope u).kids), ?_, ?_⟩
+      · rw [htake, List.flatMap_append, List.flatMap_cons,
+          List.flatMap_nil, List.append_nil, List.append_assoc,
+          ← hrest]
+        exact hsplit
+      · rw [htake, List.flatMap_append, List.flatMap_cons,
+          List.flatMap_nil, List.append_nil, List.length_append, hlen,
+          Sched.wiresBefore_succ sk hn']
+        congr 1
+        unfold Skel.nChildren
+        rw [if_neg (by simpa using show h ≠ 0 by omega)]
+
+/-- Wire prefix sums stay inside the level below. -/
+private theorem wiresBefore_le_scopesAt (hwf : sk.wellFormed = true)
+    {h : Nat} (h1 : 1 ≤ h) (hh : h < sk.rootH) {n : Nat}
+    (hn : n ≤ sk.stageLen h) :
+    sk.wiresBefore h n ≤ (sk.scopesAt h).length := by
+  obtain ⟨rest, hsplit, hlen⟩ := bfs_split hwf h1 hh n hn
+  have := congrArg List.length hsplit
+  rw [List.length_append, hlen] at this
+  omega
+
+/-- The `k`-th scope of the level below stage `h` is the `i`-th kid of
+its parent block `n`, positionally: `k = wiresBefore h n + i`. -/
+private theorem stageScope_kid (hwf : sk.wellFormed = true)
+    {h : Nat} (h1 : 1 ≤ h) (hh : h < sk.rootH) {n i : Nat}
+    (hn : n < sk.stageLen h)
+    (hi : i < (sk.scope (sk.stageScope h n)).kids.length) :
+    (sk.scopesAt h).getD (sk.wiresBefore h n + i) 0
+      = (sk.scope (sk.stageScope h n)).kids.getD i 0 := by
+  obtain ⟨rest, hsplit, hlen⟩ := bfs_split hwf h1 hh n (by omega)
+  have hfull : sk.scopesAt h
+      = ((sk.stageScopes h).take n).flatMap
+          (fun u => (sk.scope u).kids)
+        ++ ((sk.scope (sk.stageScope h n)).kids
+          ++ ((sk.stageScopes h).drop (n + 1)).flatMap
+            (fun u => (sk.scope u).kids)) := by
+    have htake : (sk.stageScopes h).take (n + 1)
+        = (sk.stageScopes h).take n ++ [sk.stageScope h n] := by
+      unfold Skel.stageLen at hn
+      rw [List.take_succ, List.getElem?_eq_getElem hn]
+      unfold Skel.stageScope
+      rw [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hn]
+      rfl
+    calc sk.scopesAt h
+        = ((sk.stageScopes h).take (n + 1)
+            ++ (sk.stageScopes h).drop (n + 1)).flatMap
+            (fun u => (sk.scope u).kids) := by
+          rw [List.take_append_drop]
+          exact (wf_bfs_aligned hwf hh).symm
+      _ = _ := by
+          rw [List.flatMap_append, htake, List.flatMap_append,
+            List.flatMap_cons, List.flatMap_nil, List.append_nil,
+            List.append_assoc]
+  rw [hfull, List.getD_eq_getElem?_getD,
+    List.getElem?_append_right (by rw [hlen]; omega), hlen,
+    show sk.wiresBefore h n + i - sk.wiresBefore h n = i from by omega,
+    List.getElem?_append_left hi]
+  rw [List.getD_eq_getElem?_getD]
+
+/-- Locate a wire seq's parent block: the least block whose prefix sum
+exceeds it. -/
+private theorem exists_parent_block {h k : Nat}
+    (hk : k < sk.wiresBefore h (sk.stageLen h)) :
+    ∃ n, n < sk.stageLen h ∧ sk.wiresBefore h n ≤ k
+      ∧ k < sk.wiresBefore h (n + 1) := by
+  suffices hgen : ∀ M, M ≤ sk.stageLen h → k < sk.wiresBefore h M →
+      ∃ n, n < M ∧ sk.wiresBefore h n ≤ k
+        ∧ k < sk.wiresBefore h (n + 1) by
+    obtain ⟨n, hn, hle, hlt⟩ := hgen (sk.stageLen h) (Nat.le_refl _) hk
+    exact ⟨n, hn, hle, hlt⟩
+  intro M
+  induction M with
+  | zero =>
+      intro _ hlt
+      exact absurd hlt (by unfold Skel.wiresBefore; simp)
+  | succ M ih =>
+      intro hM hlt
+      by_cases hin : k < sk.wiresBefore h M
+      · obtain ⟨n, hn, h1, h2⟩ := ih (by omega) hin
+        exact ⟨n, by omega, h1, h2⟩
+      · exact ⟨M, by omega, by omega, hlt⟩
+
+/-- A chunk's wire event is its head. -/
+private theorem wire_mem_childChunk (pk : Party × Nat) (k i : Nat) :
+    ((wireOut pk, true, sk.wiresBefore pk.2 k + i) : Ev)
+      ∈ Sched.childChunk sk pk k i := by
+  unfold Sched.childChunk
+  by_cases hD : sk.childIsD pk.2 (sk.stageScope pk.2 k) i = true
+  · rw [if_pos hD]
+    exact List.mem_cons_self ..
+  · rw [if_neg hD]
+    exact List.mem_cons_self ..
+
+/-- A chunk member is a scope-block member (encoder order). -/
+private theorem chunk_mem_scopeBlockE {pk : Party × Nat} {k i : Nat}
+    {x : Ev} (hi : i < sk.nChildren pk.2 (sk.stageScope pk.2 k))
+    (hx : x ∈ Sched.childChunk sk pk k i) :
+    x ∈ Sched.scopeBlockE sk pk k := by
+  unfold Sched.scopeBlockE
+  refine List.mem_cons_of_mem _ (List.mem_cons_of_mem _ ?_)
+  unfold Sched.scopeSendsE
+  refine List.mem_append.mpr (.inl ?_)
+  exact List.mem_flatten.mpr ⟨Sched.childChunk sk pk k i,
+    List.mem_map.mpr ⟨i, List.mem_range.mpr hi, rfl⟩, hx⟩
+
+/-- A scope block's prologue receive pairs before any other member. -/
+private theorem prologue_pair {pk : Party × Nat} {k : Nat} {x : Ev}
+    (hx : x ∈ Sched.scopeBlockE sk pk k)
+    (hne : x ≠ ((wireIn pk, false, k) : Ev)) :
+    ([((wireIn pk, false, k) : Ev), x] : List Ev).Sublist
+      (Sched.scopeBlockE sk pk k) := by
+  unfold Sched.scopeBlockE at hx ⊢
+  rcases pair_of_mem_cons hx with heq | hpair
+  · exact absurd heq hne
+  · exact hpair
+
+/-- Locate a wire send inside its stage's encoder trace, paired after
+its parent block's prologue receive: the ladder's hop-B engine. -/
+theorem wire_send_locate (hwf : sk.wellFormed = true)
+    {q : Party} {h : Nat} (hq : (q, h) ∈ sk.walkKeys) {m : Nat}
+    (hm : m < sk.wiresBefore h (sk.stageLen h)) :
+    ∃ n, n < sk.stageLen h ∧ sk.wiresBefore h n ≤ m
+      ∧ m < sk.wiresBefore h (n + 1)
+      ∧ ([((wireIn (q, h), false, n) : Ev),
+          ((Chan.wire q h, true, m) : Ev)] : List Ev).Sublist
+          (Sched.walkEventsE sk (q, h)) := by
+  obtain ⟨n, hn, hle, hlt⟩ := exists_parent_block hm
+  refine ⟨n, hn, hle, hlt, ?_⟩
+  have hi : m - sk.wiresBefore h n
+      < sk.nChildren h (sk.stageScope h n) := by
+    have := Sched.wiresBefore_succ sk hn
+    omega
+  have hwmem : ((Chan.wire q h, true, m) : Ev)
+      ∈ Sched.childChunk sk (q, h) n (m - sk.wiresBefore h n) := by
+    have := wire_mem_childChunk (sk := sk) (q, h) n
+      (m - sk.wiresBefore h n)
+    rw [show sk.wiresBefore h n + (m - sk.wiresBefore h n) = m from by
+      omega] at this
+    exact this
+  have hblock : ((Chan.wire q h, true, m) : Ev)
+      ∈ Sched.scopeBlockE sk (q, h) n :=
+    chunk_mem_scopeBlockE hi hwmem
+  have hpair : ([((wireIn (q, h), false, n) : Ev),
+      ((Chan.wire q h, true, m) : Ev)] : List Ev).Sublist
+      (Sched.scopeBlockE sk (q, h) n) := by
+    refine prologue_pair hblock ?_
+    intro hc
+    have := congrArg (fun e : Ev => e.2.1) hc
+    simp at this
+  unfold Sched.walkEventsE
+  exact sublist_flatMap_block hn hpair
+
 end StreamingMirror.Mux
