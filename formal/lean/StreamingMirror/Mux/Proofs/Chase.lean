@@ -326,10 +326,11 @@ theorem MuxInvB.pipe_mem_wire {B : Chan → Nat} {s : MState}
   exact ⟨hh, rfl⟩
 
 
-/-- The ground facts hold at the initial muxed state: the base case of
-the stage-3 `MuxInv` preservation induction, and the interface's
-non-vacuity certificate. -/
-theorem muxInv_init (sk : Skel) : MuxInv sk (init sk) := by
+/-- The ground facts hold at the initial muxed state at EVERY occupancy
+bound (nothing occupies anything): the base case of every preservation
+sweep, record and K-parked alike. -/
+theorem muxInvB_init (B : Chan → Nat) (sk : Skel) :
+    MuxInvB B sk (init sk) := by
   refine ⟨((inv_iff sk .impl (Model.init sk)).mp (inv_init sk .impl)).local,
     ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro c _
@@ -351,6 +352,11 @@ theorem muxInv_init (sk : Skel) : MuxInv sk (init sk) := by
     rfl
   · intro p h hne
     exact absurd rfl hne
+
+/-- The record instantiation of `muxInvB_init`, under its landed
+name. -/
+theorem muxInv_init (sk : Skel) : MuxInv sk (init sk) :=
+  muxInvB_init sk.cap sk
 
 -- ================================= kernel-tier non-vacuity anchors
 -- The closure definitions would satisfy the keystone vacuously if they

@@ -1671,8 +1671,10 @@ theorem sinv_step (hwf : sk.wellFormed = true) {C : Nat}
   | push p => exact (sinv_push hwf hstep hm).1
   | deliver p => exact sinv_deliver hstep hm
 
-/-- No committed wire hand exists at the initial state. -/
-private theorem holdsWire_init (p : Party) (h : Nat) :
+/-- No committed wire hand exists at the initial state. Public: the
+K-variant sweep's base case (Mux/Proofs/SigmaStarKInv.lean) shares
+it. -/
+theorem holdsWire_init (p : Party) (h : Nat) :
     holdsWire sk p h (init sk).base = false := by
   rw [holdsWire.eq_def]
   split
