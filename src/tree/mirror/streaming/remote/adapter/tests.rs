@@ -5,6 +5,8 @@
 //! be rejected before those laws can apply. [`opening`] covers the one
 //! deliberately exceptional reply in the protocol. [`runs`] states the
 //! supply-run batching contract the byte budget imposes on the encoder.
+//! [`parking`] pins the memory accounting that makes a parked decoded reply
+//! O(fan) handles rather than a subtree.
 
 use before::Version;
 
@@ -19,6 +21,7 @@ use crate::{
 mod backend_errors;
 mod malformed;
 mod opening;
+mod parking;
 mod properties;
 mod runs;
 
