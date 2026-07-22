@@ -554,6 +554,216 @@ theorem mux_greedy_run_terminal {ax : AxMode} {C : Nat}
   rw [hq] at hstuck
   simpa using hstuck
 
+-- ================================================ the K-variant spine
+-- T8's termination half (the round-5 tripwire: K "completes" claims
+-- need mux_terminatingK first). `mrho_decreasesK` landed above; here
+-- the run bounds and maximal-run closure re-assemble over `applyK`.
+
+/-- Run a list of K-variant actions from a state, failing on the first
+disabled one — the K executable spine. -/
+def mrunK (sk : Skel) (ax : AxMode) (KI KR C : Nat) (σI σR : Strategy)
+    (s : MState) : List MAction → Option MState
+  | [] => some s
+  | a :: rest =>
+      match applyK sk ax KI KR C σI σR a s with
+      | some s' => mrunK sk ax KI KR C σI σR s' rest
+      | none => none
+
+/-- A successful `mrunK` from init lands on a K-reachable state. -/
+theorem mrunK_reachable {sk : Skel} {ax : AxMode} {KI KR C : Nat}
+    {σI σR : Strategy} {acts : List MAction} {s' : MState}
+    (h : mrunK sk ax KI KR C σI σR (init sk) acts = some s') :
+    KMReachable sk ax KI KR C σI σR s' := by
+  suffices general : ∀ (acts : List MAction) (s s' : MState),
+      KMReachable sk ax KI KR C σI σR s →
+      mrunK sk ax KI KR C σI σR s acts = some s' →
+      KMReachable sk ax KI KR C σI σR s' by
+    exact general acts _ _ (.init) h
+  intro acts
+  induction acts with
+  | nil =>
+      intro s s' hr hrun
+      simp only [mrunK, Option.some.injEq] at hrun
+      exact hrun ▸ hr
+  | cons a rest ih =>
+      intro s s' hr hrun
+      unfold mrunK at hrun
+      cases happ : applyK sk ax KI KR C σI σR a s with
+      | none => simp [happ] at hrun
+      | some s₁ =>
+          exact ih s₁ s' (.step a hr happ) (by simpa [happ] using hrun)
+
+/-- Greedy K-variant drain: first enabled action until quiescent. -/
+def mdrainK (sk : Skel) (ax : AxMode) (KI KR C : Nat)
+    (σI σR : Strategy) : Nat → MState → MState
+  | 0, s => s
+  | fuel + 1, s =>
+      match (allMActions sk).firstM
+          (fun a => applyK sk ax KI KR C σI σR a s) with
+      | some s' => mdrainK sk ax KI KR C σI σR fuel s'
+      | none => s
+
+/-- The greedy K drain preserves K-reachability. -/
+theorem mdrainK_reachable (sk : Skel) (ax : AxMode) (KI KR C : Nat)
+    (σI σR : Strategy) (fuel : Nat) :
+    ∀ {s : MState}, KMReachable sk ax KI KR C σI σR s →
+      KMReachable sk ax KI KR C σI σR
+        (mdrainK sk ax KI KR C σI σR fuel s) := by
+  induction fuel with
+  | zero => intro s h; exact h
+  | succ n ih =>
+      intro s h
+      unfold mdrainK
+      cases hf : (allMActions sk).firstM
+          (fun a => applyK sk ax KI KR C σI σR a s) with
+      | none => exact h
+      | some s' =>
+          obtain ⟨a, -, ha⟩ := firstM_eq_some hf
+          exact ih (.step a h ha)
+
+/-- The level invariant survives every K-variant step: base and push
+arms are the record harness's, and the K deliver touches no cursor. -/
+theorem asmLevelsOk_mstepK {sk : Skel} {ax : AxMode} {KI KR C : Nat}
+    {σI σR : Strategy} {a : MAction} {s s' : MState}
+    (hstep : applyK sk ax KI KR C σI σR a s = some s')
+    (hlv : asmLevelsOk sk s.base = true) :
+    asmLevelsOk sk s'.base = true := by
+  cases a with
+  | base a =>
+      have hstep' : apply sk ax C σI σR (.base a) s = some s' := hstep
+      exact asmLevelsOk_mstep hstep' hlv
+  | push p =>
+      have hstep' : apply sk ax C σI σR (.push p) s = some s' := hstep
+      exact asmLevelsOk_mstep hstep' hlv
+  | deliver p =>
+      have hstep' : deliverStepK KI KR p s = some s' := hstep
+      unfold deliverStepK at hstep'
+      split at hstep'
+      next c rest hp =>
+          split at hstep'
+          case isFalse => cases hstep'
+          case isTrue =>
+            injection hstep' with hs'
+            rw [← hs']
+            exact hlv
+      next => cases hstep'
+
+/-- Along any successful K run, the measure pays for every step. -/
+theorem mrunK_length_le {sk : Skel} {ax : AxMode} {KI KR C : Nat}
+    {σI σR : Strategy} :
+    ∀ {acts : List MAction} {s s' : MState},
+      asmLevelsOk sk s.base = true →
+      mrunK sk ax KI KR C σI σR s acts = some s' →
+      acts.length + mrho sk s' ≤ mrho sk s := by
+  intro acts
+  induction acts with
+  | nil =>
+      intro s s' _ hrun
+      simp only [mrunK, Option.some.injEq] at hrun
+      subst hrun
+      simp
+  | cons a rest ih =>
+      intro s s' hlv hrun
+      unfold mrunK at hrun
+      cases happ : applyK sk ax KI KR C σI σR a s with
+      | none => simp [happ] at hrun
+      | some s₁ =>
+          have hrun' : mrunK sk ax KI KR C σI σR s₁ rest = some s' := by
+            simpa [happ] using hrun
+          have hd := mrho_decreasesK happ hlv
+          have hlv' := asmLevelsOk_mstepK happ hlv
+          have := ih hlv' hrun'
+          simp only [List.length_cons]
+          omega
+
+/-- K-variant termination: every K run from `init` has length at most
+`2·ρ(init)` — no infinite K runs exist, under any strategy pair, any
+depths, any mode, any capacity. T8's bounded-step half ("completes",
+T8-SPEC clause 6): `MuxDeadlockFreeK` says a maximal run cannot stall;
+this says every run ends within the bound. -/
+theorem mux_terminatingK {sk : Skel} {ax : AxMode} {KI KR C : Nat}
+    {σI σR : Strategy} {acts : List MAction} {s' : MState}
+    (hrun : mrunK sk ax KI KR C σI σR (init sk) acts = some s') :
+    acts.length ≤ 2 * rho sk (Model.init sk) := by
+  have hlv : asmLevelsOk sk (init sk).base = true := asmLevelsOk_init sk
+  have := mrunK_length_le hlv hrun
+  have hinit : mrho sk (init sk) = 2 * rho sk (Model.init sk) := by
+    rw [mrho]
+    rfl
+  omega
+
+/-- The greedy K drain with fuel at least `mrho` reaches quiescence. -/
+theorem mdrainK_quiescent {sk : Skel} {ax : AxMode} {KI KR C : Nat}
+    {σI σR : Strategy} :
+    ∀ (fuel : Nat) (s : MState), asmLevelsOk sk s.base = true →
+      mrho sk s ≤ fuel →
+      mcanStepK sk ax KI KR C σI σR
+        (mdrainK sk ax KI KR C σI σR fuel s) = false := by
+  intro fuel
+  induction fuel with
+  | zero =>
+      intro s hlv hle
+      unfold mdrainK
+      rw [mcanStepK, List.any_eq_false]
+      intro a _
+      cases happ : applyK sk ax KI KR C σI σR a s with
+      | none => simp
+      | some s₁ =>
+          have := mrho_decreasesK happ hlv
+          omega
+  | succ n ih =>
+      intro s hlv hle
+      unfold mdrainK
+      cases hf : (allMActions sk).firstM
+          (fun a => applyK sk ax KI KR C σI σR a s) with
+      | none =>
+          rw [mcanStepK, List.any_eq_false]
+          intro a ha
+          rw [firstM_eq_none hf a ha]
+          simp
+      | some s₁ =>
+          obtain ⟨a, -, ha⟩ := firstM_eq_some hf
+          have hd := mrho_decreasesK ha hlv
+          exact ih s₁ (asmLevelsOk_mstepK ha hlv) (by omega)
+
+/-- A maximal K run under a K-deadlock-free pair ends complete: the
+run cannot stall and cannot go on forever (`mux_terminatingK`), so its
+final quiescent state is `mterminal`. -/
+theorem muxK_maximal_run_terminal {sk : Skel} {ax : AxMode}
+    {KI KR C : Nat} {σI σR : Strategy}
+    (hdf : MuxDeadlockFreeK sk ax KI KR C σI σR)
+    {acts : List MAction} {s' : MState}
+    (hrun : mrunK sk ax KI KR C σI σR (init sk) acts = some s')
+    (hmax : mcanStepK sk ax KI KR C σI σR s' = false) :
+    mterminal sk s' = true := by
+  have hr := mrunK_reachable hrun
+  have hstuck := hdf s' hr
+  unfold mstuckK at hstuck
+  rw [hmax] at hstuck
+  simpa using hstuck
+
+/-- The constructive K completion package: under any K-deadlock-free
+pair the greedy drain reaches `mterminal` within `2·ρ(init)` steps —
+termination with an explicit fuel bound, no fairness hypothesis
+anywhere. Message-denominated (Mux/Basic.lean, # The
+byte-denomination caveat). -/
+theorem muxK_greedy_run_terminal {sk : Skel} {ax : AxMode}
+    {KI KR C : Nat} {σI σR : Strategy}
+    (hdf : MuxDeadlockFreeK sk ax KI KR C σI σR) :
+    mterminal sk
+      (mdrainK sk ax KI KR C σI σR (2 * rho sk (Model.init sk))
+        (init sk)) = true := by
+  have hq := mdrainK_quiescent (sk := sk) (ax := ax) (KI := KI)
+    (KR := KR) (C := C) (σI := σI) (σR := σR)
+    (2 * rho sk (Model.init sk)) (init sk)
+    (asmLevelsOk_init sk) (Nat.le_refl _)
+  have hr := mdrainK_reachable sk ax KI KR C σI σR
+    (2 * rho sk (Model.init sk)) (KMReachable.init)
+  have hstuck := hdf _ hr
+  unfold mstuckK at hstuck
+  rw [hq] at hstuck
+  simpa using hstuck
+
 /-- T5 in completion form: on every well-formed margin-0 skeleton, at
 every capacity C ≥ 1, the oracle pair's greedy drain reaches
 `mterminal` within `2·ρ(init)` steps — the kernel content of "the

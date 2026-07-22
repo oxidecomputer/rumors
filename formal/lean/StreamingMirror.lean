@@ -72,6 +72,7 @@ import StreamingMirror.Mux.Elastic
 import StreamingMirror.Mux.Proofs.WcImpossibilityK
 import StreamingMirror.Mux.SigmaStarK
 import StreamingMirror.Mux.Proofs.SigmaStarKInv
+import StreamingMirror.Mux.Proofs.SigmaStarKLive
 import StreamingMirror.Mux.Proofs.Inhabitation
 import StreamingMirror.Mux.Proofs.Oracle.Order
 import StreamingMirror.Mux.Proofs.Oracle

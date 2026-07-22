@@ -3146,9 +3146,9 @@ theorem pushProvenA_reachable (hwf : sk.wellFormed = true) {C : Nat}
   | step a hr' hstep ih =>
       exact pushProvenA_step hwf hstep (sinv_reachable hwf hr') ih
 
-/-- Locate the `n`-th hit of a `filterMap` inside its source (private
-copy of SigmaStarLive's device). -/
-private theorem filterMapA_take_index {α β : Type _} (f : α → Option β) :
+/-- Locate the `n`-th hit of a `filterMap` inside its source (copy of
+SigmaStarLive's device; public — the K-variant Step 1 shares it). -/
+theorem filterMapA_take_index {α β : Type _} (f : α → Option β) :
     ∀ (l : List α) (n : Nat) (b : β),
       (l.filterMap f)[n]? = some b →
       ∃ i a, l[i]? = some a ∧ f a = some b
@@ -3186,7 +3186,7 @@ private theorem filterMapA_take_index {α β : Type _} (f : α → Option β) :
                 hfm, List.take_succ_cons]
 
 /-- The push-tag extractor only hits `.pushed` observations. -/
-private theorem pushedA_of_extract {a : MObs} {g : Nat}
+theorem pushedA_of_extract {a : MObs} {g : Nat}
     (h : (match a with
           | MObs.pushed h => some h
           | _ => none) = some g) : a = .pushed g := by
