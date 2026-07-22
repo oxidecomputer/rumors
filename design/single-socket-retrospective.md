@@ -6,8 +6,8 @@ byte stream and sender-inferred windows — was explored to a working
 prototype tier and **declined**. The Link stays. This document is the
 record of what was explored, what was learned, and why the trade
 resolved the way it did, so the question is answered by reading rather
-than re-derivation. The archive is branch `single-connection`
-(`wave1/integration`); the campaign's design documents there
+than re-derivation. The archive is branch `wave1/integration`
+(which grew from `single-connection` and holds the full trail); the campaign's design documents there
 (`single-socket.md`, `single-socket-plan.md`, `byte-window-plan.md`,
 `pooled-budget-spike.md`, `b05-uniformity-envelope.md`) carry the full
 decision trail, B0.1–B0.9.
@@ -27,8 +27,8 @@ counts (a ~5,000× per-slot spread between sparse and dense replies
 made count windows price thin replies at fat cost); a
 uniform-occupancy envelope derivation with a smooth
 element-declaration divisor; and finally a pooled budget across
-streams with per-stream floors, probed deadlock-free across 3,340
-runs. A parallel Lean campaign proved the static count-window form
+streams with per-stream floors, probed across 3,340 runs with zero pool-attributable
+wedges (every hard-stuck reproduced by the uncoupled control). A parallel Lean campaign proved the static count-window form
 (T8, per-direction, asymmetric) and the floor base case
 (`sigmaStarCausal_deadlock_free`, unconditional).
 
