@@ -51,7 +51,7 @@ import StreamingMirror.Mux.Causal
 namespace StreamingMirror.Mux
 
 open Model
-open Sched (Ev)
+open Sched (Ev performed pends PendOkE)
 
 variable {sk : Skel}
 
@@ -2688,5 +2688,593 @@ theorem announcedProcs_prefix (hwf : sk.wellFormed = true)
           simp
         · have := peerFinTracesA_prefix hwf Party.R tr T hfin
           rwa [if_neg (by simp)] at this
+
+
+-- ======================================================= the causal keystone
+
+/-- Non-evidence universe members are announced-trace events. -/
+private theorem evUnivA_flatten {av : AView} {tr : List MObs} {e : Ev}
+    (he : e ∈ evUnivA av tr) (hng : groundedA av tr e = false) :
+    e ∈ (announcedProcs av).flatten := by
+  unfold evUnivA at he
+  rcases List.mem_append.mp he with he | hfl
+  rcases List.mem_append.mp he with he | hrecv
+  rcases List.mem_append.mp he with hown | hdel
+  · exfalso
+    obtain ⟨h, -, hin⟩ := List.mem_flatMap.mp hown
+    obtain ⟨n, hn, rfl⟩ := List.mem_map.mp hin
+    rw [List.mem_range] at hn
+    have : groundedA av tr (Chan.wire av.party h, true, n) = true := by
+      refine groundedA_of_push ?_
+      rw [groundedPush]
+      simp only [isWire, wireParty, wireHeight, Bool.true_and]
+      rw [if_pos (by simp)]
+      exact decide_eq_true hn
+    rw [hng] at this
+    cases this
+  · exfalso
+    obtain ⟨h, -, hin⟩ := List.mem_flatMap.mp hdel
+    obtain ⟨n, hn, rfl⟩ := List.mem_map.mp hin
+    rw [List.mem_range] at hn
+    have : groundedA av tr (Chan.wire av.party.other h, true, n)
+        = true := by
+      refine groundedA_of_push ?_
+      rw [groundedPush]
+      simp only [isWire, wireParty, wireHeight, Bool.true_and]
+      rw [if_neg (by cases av.party <;> simp [Party.other])]
+      exact decide_eq_true hn
+    rw [hng] at this
+    cases this
+  · exfalso
+    obtain ⟨h, -, hin⟩ := List.mem_flatMap.mp hrecv
+    obtain ⟨n, hn, rfl⟩ := List.mem_map.mp hin
+    rw [List.mem_range] at hn
+    have : groundedA av tr (Chan.wire av.party.other h, false, n)
+        = true := by
+      unfold groundedA
+      rw [Bool.or_eq_true]
+      refine Or.inr ?_
+      show (av.party.other == av.party.other
+        && decide (n < ownRecvCount av tr h)) = true
+      rw [Bool.and_eq_true]
+      exact ⟨by simp, decide_eq_true hn⟩
+    rw [hng] at this
+    cases this
+  · exact hfl
+
+/-- Members of a `takeWhile` satisfy its predicate. -/
+private theorem pred_of_mem_takeWhile {α : Type _} {p' : α → Bool} :
+    ∀ {l : List α} {x}, x ∈ l.takeWhile p' → p' x = true := by
+  intro l
+  induction l with
+  | nil =>
+      intro x h
+      cases h
+  | cons a t ih =>
+      intro x h
+      rw [List.takeWhile_cons] at h
+      by_cases hpa : p' a = true
+      · rw [if_pos hpa] at h
+        rcases List.mem_cons.mp h with rfl | h'
+        · exact hpa
+        · exact ih h'
+      · rw [if_neg hpa] at h
+        cases h
+
+/-- Inside a prefix that holds the pivot, the pivot's `takeWhile` past
+agrees with the full list's. -/
+private theorem takeWhile_prefix_eq {T₁ T : List Ev} {e : Ev}
+    (hpre : T₁ <+: T) (he : e ∈ T₁) :
+    T.takeWhile (fun x => !(x == e))
+      = T₁.takeWhile (fun x => !(x == e)) := by
+  obtain ⟨t, rfl⟩ := hpre
+  rw [List.takeWhile_append, if_neg (fun hc => ?_)]
+  have heq : T₁.takeWhile (fun x => !(x == e)) = T₁ :=
+    (List.takeWhile_prefix _).eq_of_length hc
+  have hmem : e ∈ T₁.takeWhile (fun x => !(x == e)) := by
+    rw [heq]
+    exact he
+  have := pred_of_mem_takeWhile hmem
+  simp at this
+
+/-- The causal keystone (T2 re-run at the announced grain): at a stuck
+muxed state, every event of a push-time CAUSAL closure has been
+performed.
+
+`tr` is the observation at push time; the count walls are the landed
+keystone's (`hfifo`, `harr`) plus the receive ledger's
+(`hrecv` — recorded receives never outrun the base consumer counts,
+which grounds the C-own evidence arm) and the membership walls that
+replace `evUniv` lookups for count-grounded events. -/
+theorem keystoneA (hwf : sk.wellFormed = true)
+    (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel)
+    {C : Nat} {σI σR : Strategy} {s : MState}
+    (hm : MuxInv sk s)
+    (hstuck : mstuck sk .impl C σI σR s = true)
+    (p : Party) (tr : List MObs)
+    (hfifo : ∀ h, pushedCount tr h ≤ deliveredCount (s.hist p.other) h)
+    (harr : ∀ h, deliveredCount tr h ≤ deliveredCount (s.hist p) h)
+    (hrecv : ∀ h, ownRecvs sk.rootH p tr h
+      ≤ recvdOf sk s.base (Chan.wire p.other h))
+    (hpmem : ∀ h, pushedCount tr h ≠ 0 → Chan.wire p h ∈ allChans sk)
+    (hdmem : ∀ h, deliveredCount tr h ≠ 0 →
+      Chan.wire p.other h ∈ allChans sk) :
+    ∀ e ∈ inevitableA (aviewOf sk p tr) tr, performed sk s.base e := by
+  -- causal evidence is performed outright, against the count walls
+  have hground_perf : ∀ x, groundedA (aviewOf sk p tr) tr x = true →
+      performed sk s.base x := by
+    intro x hg
+    rcases groundedA_inv hg with hp | ⟨h, n, rfl, hlt⟩
+    · obtain ⟨q, hh, n, rfl, hcase⟩ := groundedPush_inv hp
+      rw [performed_snd_iff]
+      rcases hcase with ⟨hq, hlt⟩ | ⟨hq, hlt⟩
+      · have hq' : q = p := by
+          rw [hq]
+          rfl
+        subst hq'
+        have hmem : Chan.wire q hh ∈ allChans sk :=
+          hpmem hh (by omega)
+        have h1 := hfifo hh
+        have h2 := hm.delivered_eq q hh hmem
+        have h3 := hm.flow_wire q hh hmem
+        omega
+      · have hq' : q = p.other := by
+          rw [hq]
+          rfl
+        subst hq'
+        have hmem : Chan.wire p.other hh ∈ allChans sk :=
+          hdmem hh (by omega)
+        have h1 := harr hh
+        have h2 := hm.delivered_eq p.other hh hmem
+        rw [Party.other_other] at h2
+        have h3 := hm.flow_wire p.other hh hmem
+        omega
+    · -- an own performed receive: the receive ledger's wall
+      rw [performed_rcv_iff]
+      rw [ownRecvCount_aviewOf] at hlt
+      have := hrecv h
+      show n < recvdOf sk s.base
+        (Chan.wire ((aviewOf sk p tr).party).other h)
+      have hpp : ((aviewOf sk p tr).party).other = p.other := rfl
+      rw [hpp]
+      omega
+  intro e₀ he₀
+  by_contra hnp₀
+  -- the τ-least unperformed closure member
+  have hne : (inevitableA (aviewOf sk p tr) tr).filter
+      (fun x => !decide (performed sk s.base x)) ≠ [] := by
+    intro hnil
+    have hmem : e₀ ∈ (inevitableA (aviewOf sk p tr) tr).filter
+        (fun x => !decide (performed sk s.base x)) :=
+      List.mem_filter.mpr ⟨he₀, by simp [hnp₀]⟩
+    rw [hnil] at hmem
+    cases hmem
+  obtain ⟨e, heU, hmin⟩ :=
+    Sched.exists_min_image (fun x => Sched.evIdx x (Sched.scheduleE sk))
+      hne
+  obtain ⟨heI, hnpb⟩ := List.mem_filter.mp heU
+  have hnp : ¬ performed sk s.base e := by simpa using hnpb
+  have hperf_lt : ∀ x ∈ inevitableA (aviewOf sk p tr) tr,
+      Sched.evIdx x (Sched.scheduleE sk)
+        < Sched.evIdx e (Sched.scheduleE sk) →
+      performed sk s.base x := by
+    intro x hx hlt
+    by_cases hperf : performed sk s.base x
+    · exact hperf
+    · have := hmin x (List.mem_filter.mpr ⟨hx, by simp [hperf]⟩)
+      omega
+  -- how did e enter the closure?
+  rcases inevitableA_inv heI with hg | hstep
+  · exact hnp (hground_perf e hg)
+  -- I-step member: it is an announced-trace event; decode its true trace
+  have hng : groundedA (aviewOf sk p tr) tr e = false := by
+    cases hgb : groundedA (aviewOf sk p tr) tr e with
+    | false => rfl
+    | true => exact absurd (hground_perf e hgb) hnp
+  obtain ⟨TA, hTA, heTA⟩ := List.mem_flatten.mp
+    (evUnivA_flatten (inevitableA_subset_univ e heI) hng)
+  obtain ⟨T, hT, hpreT⟩ := announcedProcs_prefix hwf p tr TA hTA
+  have heT : e ∈ T := hpreT.sublist.mem heTA
+  have hL : InvL sk .impl s.base := hm.invl
+  have hioh := mstuck_ioh (sk := sk) hstuck
+  have hroh := mstuck_roh (sk := sk) hL hstuck
+  have hwkh := mstuck_wkh hwf hL hstuck rfl
+  rcases trace_frontier hwf hL hioh hroh hwkh hT with hall | hfr
+  · exact hnp (hall e heT)
+  obtain ⟨f, a, pre, suf, hfa, hdec, hpre, hok⟩ := hfr
+  have heT' := heT
+  rw [hdec] at heT'
+  rcases List.mem_append.1 heT' with hepre | hecons
+  · exact hnp (hpre e hepre)
+  rcases List.mem_cons.1 hecons with heqf | hesuf
+  case inr =>
+    -- e sits above the frontier: the frontier is in e's announced past
+    have hfmem : f ∈ T.takeWhile (fun x => !(x == e)) :=
+      frontier_mem_takeWhile hdec (trace_count_le_one hT e) hesuf
+    rw [takeWhile_prefix_eq hpreT heTA] at hfmem
+    have hfI : f ∈ inevitableA (aviewOf sk p tr) tr :=
+      istepOkA_prefix hstep hTA heTA f hfmem
+    have hfnp : ¬ performed sk s.base f :=
+      Sched.pend_not_performedE sk hok
+    have hτ : Sched.evIdx f (Sched.scheduleE sk)
+        < Sched.evIdx e (Sched.scheduleE sk) := by
+      refine tau_lt_of_trace_pair hwf hm0 hT ?_
+      rw [hdec]
+      refine List.Sublist.trans ?_ (List.sublist_append_right ..)
+      exact List.cons_sublist_cons.2 (List.singleton_sublist.2 hesuf)
+    have := hmin f (List.mem_filter.mpr ⟨hfI, by simp [hfnp]⟩)
+    omega
+  case inl =>
+    -- e IS the frontier: open its guard and fire, against stuckness
+    subst heqf
+    have hkill : isWireFire s.base a = false →
+        (Model.apply sk .impl a s.base).isSome = true → False := by
+      intro hnf hsome
+      obtain ⟨hncw, hnab⟩ := pends_not_close hfa
+      have hbase : (applyBase sk .impl a s).isSome = true := by
+        rw [applyBase_isSome_of_not_close hnf hncw hnab]
+        exact hsome
+      have hen := mcanStep_of_base (C := C) (σI := σI) (σR := σR)
+        hok.act hbase
+      have hno : mcanStep sk .impl C σI σR s = false := by
+        rw [mstuck, Bool.and_eq_true, Bool.not_eq_true',
+          Bool.not_eq_true'] at hstuck
+        exact hstuck.2
+      rw [hen] at hno
+      cases hno
+    have hmem_e : e ∈ Sched.scheduleE sk :=
+      (Sched.trace_sublistE sk hwf hm0 hT).mem heT
+    obtain ⟨c, b, n⟩ := e
+    cases b with
+    | false =>
+        -- a receive: data is present
+        have hseq : n = recvdOf sk s.base c := by simpa using hok.seq
+        have hpred : ((c, true, n) : Ev)
+            ∈ inevitableA (aviewOf sk p tr) tr :=
+          istepOkA_e1 hstep rfl
+        have hguard : 0 < s.base.chan c := by
+          by_cases hw : isWire c = true
+          · -- wire receive: the send is grounded evidence, and
+            -- grounded sends are DELIVERED, not merely pushed
+            obtain ⟨q, hh, rfl⟩ := isWire_eq hw
+            have hpg : groundedPush p tr (Chan.wire q hh, true, n)
+                = true := by
+              rcases inevitableA_inv hpred with hg | hst
+              · rcases groundedA_inv hg with hp | ⟨h', n', heq, -⟩
+                · exact hp
+                · exact absurd heq (by simp)
+              · have h2 := istepOkA_not_push hst
+                simp [isWire] at h2
+            obtain ⟨q', hh', n', heq, hcase⟩ := groundedPush_inv hpg
+            simp only [Prod.mk.injEq, Chan.wire.injEq, true_and] at heq
+            obtain ⟨⟨rfl, rfl⟩, rfl⟩ := heq
+            have hmemc : Chan.wire q hh ∈ allChans sk :=
+              evUniv_wire_mem hwf (mem_evUniv.mpr ⟨T, hT, heT⟩)
+            rcases hcase with ⟨rfl, hlt⟩ | ⟨rfl, hlt⟩
+            · have h1 := hfifo hh
+              have h2 := hm.delivered_eq q hh hmemc
+              omega
+            · have h1 := harr hh
+              have h2 := hm.delivered_eq p.other hh hmemc
+              rw [Party.other_other] at h2
+              omega
+          · -- internal receive: the send is τ-below, hence performed
+            obtain ⟨-, hτlt⟩ := tau_e1 hwf hmem_e
+            have hpp := hperf_lt _ hpred hτlt
+            rw [performed_snd_iff] at hpp
+            have hflow := hm.flow_int c hok.chan_mem
+              (by simpa using hw)
+            omega
+        exact hkill (by
+          cases hIF : isWireFire s.base a with
+          | false => rfl
+          | true =>
+              obtain ⟨q₂, hh₂, -, hfb, -⟩ := pends_wireFire hfa hIF
+              simp at hfb)
+          (hok.fire (by simpa using hguard))
+    | true =>
+        -- a send: never a push (I-step), so an internal channel
+        have hw : isWire c = false := by
+          have := istepOkA_not_push hstep
+          simpa using this
+        have hseq : n = sentOf sk s.base c := by simpa using hok.seq
+        have hflow := hm.flow_int c hok.chan_mem hw
+        have hguard : s.base.chan c < sk.cap c := by
+          by_cases hcap : n < sk.cap c
+          · omega
+          · have hpred : ((c, false, n - sk.cap c) : Ev)
+                ∈ inevitableA (aviewOf sk p tr) tr := by
+              have := istepOkA_e2 hstep rfl
+                (by rw [capA_aviewOf]; exact hcap)
+              rwa [capA_aviewOf] at this
+            obtain ⟨-, hτlt⟩ := tau_e2 hwf hmem_e (by omega)
+            have hpp := hperf_lt _ hpred hτlt
+            rw [performed_rcv_iff] at hpp
+            omega
+        exact hkill (by
+          cases hIF : isWireFire s.base a with
+          | false => rfl
+          | true =>
+              obtain ⟨q₂, hh₂, hfc, -, -⟩ := pends_wireFire hfa hIF
+              simp only at hfc
+              rw [hfc] at hw
+              simp [isWire] at hw)
+          (hok.fire (by simpa using hguard))
+
+
+-- ============================== the causal certificates and Step 1
+
+/-- σ*-causal's push certificates: every recorded push was
+proven-demanded against its own push-time ANNOUNCED closure (INV-A at
+the causal grain). -/
+def PushProvenA (sk : Skel) (s : MState) : Prop :=
+  ∀ p i h, (s.hist p)[i]? = some (.pushed h) →
+    pushedCount ((s.hist p).take i) h ≠ 0 →
+    (Chan.wire p h, false, pushedCount ((s.hist p).take i) h - 1)
+      ∈ inevitableA (aviewOf sk p ((s.hist p).take i))
+          ((s.hist p).take i)
+
+/-- What a σ*-causal verdict means: the named stream is history-held
+and proven-demanded under the announced closure, for the history's own
+party. -/
+theorem sigmaStarCausal_some_inv {sk : Skel} {tr : List MObs} {h : Nat}
+    (hs : sigmaStarCausal sk tr = some h) :
+    ∃ p, partyOf tr = some p
+      ∧ committedInHist sk.rootH tr h = true
+      ∧ demandedA (aviewOf sk p tr) tr h = true := by
+  rw [sigmaStarCausal] at hs
+  cases hp : partyOf tr with
+  | none => rw [hp] at hs; cases hs
+  | some p =>
+      rw [hp] at hs
+      have hfind := List.find?_some hs
+      rw [Bool.and_eq_true] at hfind
+      exact ⟨p, rfl, hfind.1, hfind.2⟩
+
+/-- Extending a history by one observation keeps every causal push
+certificate, provided the new observation carries its own. -/
+private theorem certsA_snoc {p : Party} {tr : List MObs} {o : MObs}
+    (hcert : ∀ i h, tr[i]? = some (.pushed h) →
+      pushedCount (tr.take i) h ≠ 0 →
+      (Chan.wire p h, false, pushedCount (tr.take i) h - 1)
+        ∈ inevitableA (aviewOf sk p (tr.take i)) (tr.take i))
+    (hnew : ∀ h, o = .pushed h → pushedCount tr h ≠ 0 →
+      (Chan.wire p h, false, pushedCount tr h - 1)
+        ∈ inevitableA (aviewOf sk p tr) tr) :
+    ∀ i h, (tr ++ [o])[i]? = some (.pushed h) →
+      pushedCount ((tr ++ [o]).take i) h ≠ 0 →
+      (Chan.wire p h, false, pushedCount ((tr ++ [o]).take i) h - 1)
+        ∈ inevitableA (aviewOf sk p ((tr ++ [o]).take i))
+            ((tr ++ [o]).take i) := by
+  intro i h hget hcnt
+  rcases Nat.lt_trichotomy i tr.length with hlt | heq | hgt
+  · rw [List.getElem?_append_left hlt] at hget
+    rw [List.take_append_of_le_length (Nat.le_of_lt hlt)] at hcnt ⊢
+    exact hcert i h hget hcnt
+  · subst heq
+    rw [List.getElem?_concat_length] at hget
+    injection hget with hget
+    rw [List.take_append_of_le_length (Nat.le_refl _),
+      List.take_length] at hcnt ⊢
+    exact hnew h hget hcnt
+  · rw [List.getElem?_eq_none (by
+      rw [List.length_append, List.length_cons, List.length_nil]
+      omega)] at hget
+    cases hget
+
+/-- Every σ*-causal-run step preserves the causal push certificates:
+non-push observations are neutral, and a push observation carries the
+demand proof σ*-causal itself computed. -/
+theorem pushProvenA_step (hwf : sk.wellFormed = true) {C : Nat}
+    {ma : MAction} {s s' : MState}
+    (hstep : apply sk .impl C sigmaStarCausal sigmaStarCausal ma s
+      = some s')
+    (hm : SInv sk s) (hp : PushProvenA sk s) : PushProvenA sk s' := by
+  have hgen : ∀ (q₀ : Party) (o : MObs),
+      (∀ h, o = .pushed h → pushedCount (s.hist q₀) h ≠ 0 →
+        (Chan.wire q₀ h, false, pushedCount (s.hist q₀) h - 1)
+          ∈ inevitableA (aviewOf sk q₀ (s.hist q₀)) (s.hist q₀)) →
+      s'.hist = recordObs s.hist q₀ o →
+      PushProvenA sk s' := by
+    intro q₀ o hnew hh
+    have hrec : ∀ q, s'.hist q
+        = if q == q₀ then s.hist q ++ [o] else s.hist q := by
+      intro q
+      rw [hh]
+      rfl
+    intro q i h
+    rw [hrec]
+    by_cases hq : q = q₀
+    · subst hq
+      rw [if_pos (by simp)]
+      exact certsA_snoc (hp q) hnew i h
+    · rw [if_neg (by simp [hq])]
+      exact hp q i h
+  cases ma with
+  | base a =>
+      obtain ⟨-, b, -, hs'⟩ := applyBase_inv hstep
+      refine hgen (actionParty a) (.act a) ?_ (by rw [hs'])
+      intro h hcon
+      cases hcon
+  | deliver p =>
+      simp only [apply] at hstep
+      split at hstep
+      case h_2 => cases hstep
+      case h_1 c rest hpp =>
+          split at hstep
+          case isFalse => cases hstep
+          case isTrue h0 =>
+            injection hstep with hs'
+            refine hgen p.other (.delivered (wireHeight c)) ?_
+              (by rw [← hs'])
+            intro h hcon
+            cases hcon
+  | push p =>
+      obtain ⟨-, h, hσ, hh⟩ := sinv_push hwf hstep hm
+      have hσ' : sigmaStarCausal sk (s.hist p) = some h := by
+        cases p <;> exact hσ
+      refine hgen p (.pushed h) ?_ hh
+      intro h' heq hcnt
+      have heq' : h = h' := by
+        injection heq
+      subst heq'
+      obtain ⟨p₀, hpo, -, hdem⟩ := sigmaStarCausal_some_inv hσ'
+      have hpe : p₀ = p := partyOf_eq hm.hist hpo
+      subst hpe
+      rw [demandedA, Bool.or_eq_true] at hdem
+      rcases hdem with hz | hmem
+      · exfalso
+        rw [Nat.beq_eq_true_eq] at hz
+        exact hcnt hz
+      · exact (List.contains_iff_mem ..).mp hmem
+
+/-- σ*-causal's push certificates hold along every σ*-causal×σ*-causal
+run. -/
+theorem pushProvenA_reachable (hwf : sk.wellFormed = true) {C : Nat}
+    {s : MState}
+    (hr : MReachable sk .impl C sigmaStarCausal sigmaStarCausal s) :
+    PushProvenA sk s := by
+  induction hr with
+  | init =>
+      intro p i h hget
+      rw [show (init sk).hist p = [] from rfl] at hget
+      cases i <;> cases hget
+  | step a hr' hstep ih =>
+      exact pushProvenA_step hwf hstep (sinv_reachable hwf hr') ih
+
+/-- Locate the `n`-th hit of a `filterMap` inside its source (private
+copy of SigmaStarLive's device). -/
+private theorem filterMapA_take_index {α β : Type _} (f : α → Option β) :
+    ∀ (l : List α) (n : Nat) (b : β),
+      (l.filterMap f)[n]? = some b →
+      ∃ i a, l[i]? = some a ∧ f a = some b
+        ∧ (l.take i).filterMap f = (l.filterMap f).take n := by
+  intro l
+  induction l with
+  | nil =>
+      intro n b hget
+      simp at hget
+  | cons x t ih =>
+      intro n b hget
+      cases hfx : f x with
+      | none =>
+          have hfm : (x :: t).filterMap f = t.filterMap f := by
+            simp [hfx]
+          rw [hfm] at hget
+          obtain ⟨i, a, hia, hfa, htake⟩ := ih n b hget
+          refine ⟨i + 1, a, by simpa using hia, hfa, ?_⟩
+          rw [List.take_succ_cons, List.filterMap_cons, hfx, htake, hfm]
+      | some c =>
+          have hfm : (x :: t).filterMap f = c :: t.filterMap f := by
+            simp [hfx]
+          rw [hfm] at hget
+          cases n with
+          | zero =>
+              simp only [List.getElem?_cons_zero, Option.some.injEq]
+                at hget
+              subst hget
+              exact ⟨0, x, rfl, hfx, by simp⟩
+          | succ m =>
+              simp only [List.getElem?_cons_succ] at hget
+              obtain ⟨i, a, hia, hfa, htake⟩ := ih m b hget
+              refine ⟨i + 1, a, by simpa using hia, hfa, ?_⟩
+              rw [List.take_succ_cons, List.filterMap_cons, hfx, htake,
+                hfm, List.take_succ_cons]
+
+/-- The push-tag extractor only hits `.pushed` observations. -/
+private theorem pushedA_of_extract {a : MObs} {g : Nat}
+    (h : (match a with
+          | MObs.pushed h => some h
+          | _ => none) = some g) : a = .pushed g := by
+  cases a with
+  | pushed h' =>
+      injection h with h
+      rw [h]
+  | act a' => cases h
+  | delivered h' => cases h
+
+/-- Step 1 at the causal grain: at a σ*-causal-stuck state both pipes
+are empty — the causal push certificate derived the head's
+predecessor-consumption at push time, and the causal keystone performs
+it. -/
+theorem sigmaStarCausal_pipes_empty (hwf : sk.wellFormed = true)
+    (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel) {C : Nat} {s : MState}
+    (hm : SInv sk s) (hrl : RecvLedger sk s) (hpp : PushProvenA sk s)
+    (hstuck : mstuck sk .impl C sigmaStarCausal sigmaStarCausal s
+      = true)
+    (p : Party) : s.pipe p = [] := by
+  cases hp : s.pipe p with
+  | nil => rfl
+  | cons c rest =>
+      exfalso
+      obtain ⟨g, rfl⟩ := hm.mux.pipe_mem_wire (p := p) (c := c)
+        (by rw [hp]; exact List.mem_cons_self ..)
+      have hz : s.base.chan (Chan.wire p g) ≠ 0 :=
+        mstuck_deliver_blocked hstuck hp
+      have hpipe := hm.mux.hist_pipe p
+      rw [hp] at hpipe
+      have hget : (pushHeights (s.hist p))[delTotal (s.hist p.other)]?
+          = some g := by
+        have h1 : ((pushHeights (s.hist p)).drop
+            (delTotal (s.hist p.other)))[0]? = some g := by
+          have h2 := congrArg (List.map wireHeight) hpipe
+          rw [List.map_map,
+            show wireHeight ∘ Chan.wire p = id from rfl,
+            List.map_id] at h2
+          rw [← h2]
+          rfl
+        rw [List.getElem?_drop] at h1
+        simpa using h1
+      have hmem_ch : Chan.wire p g ∈ allChans sk := by
+        refine hm.mux.pushed_mem p g ?_
+        intro hcz
+        have : g ∈ pushHeights (s.hist p) :=
+          List.mem_of_getElem? hget
+        rw [pushedCount] at hcz
+        exact absurd (List.count_pos_iff.mpr this) (by omega)
+      obtain ⟨i₀, a₀, hi₀, hfa₀, htake₀⟩ := filterMapA_take_index _
+        (s.hist p) (delTotal (s.hist p.other)) g hget
+      have ha₀ : a₀ = .pushed g := pushedA_of_extract hfa₀
+      subst ha₀
+      have hkeq : pushedCount ((s.hist p).take i₀) g
+          = deliveredCount (s.hist p.other) g := by
+        rw [pushedCount, deliveredCount, hm.mux.hist_del p]
+        show ((s.hist p).take i₀ |>.filterMap _).count g = _
+        rw [htake₀]
+        rfl
+      have hslot := hm.mux.delivered_eq p g hmem_ch
+      have hcap := hm.mux.slot (Chan.wire p g) hmem_ch
+      have hcap1 : sk.cap (Chan.wire p g) = 1 := rfl
+      have hkpos : pushedCount ((s.hist p).take i₀) g ≠ 0 := by
+        omega
+      have hcert := hpp p i₀ g hi₀ hkpos
+      -- the causal keystone performs the certified receive
+      have htkpre : (s.hist p).take i₀ <+: s.hist p :=
+        List.take_prefix i₀ (s.hist p)
+      have hperf := keystoneA hwf hm0 hm.mux hstuck p
+        ((s.hist p).take i₀)
+        (hm.mux.pushtime_delivered p htake₀)
+        (fun h' => deliveredCount_le_of_prefix htkpre h')
+        (fun h' => by
+          by_cases hz' : ownRecvs sk.rootH p ((s.hist p).take i₀) h' = 0
+          · rw [hz']
+            exact Nat.zero_le _
+          · have hle := ownRecvs_le_of_prefix
+              (rootH := sk.rootH) (p := p) htkpre h'
+            have hmem := hrl.mem p h' (by omega)
+            have := hrl.bound p h' hmem
+            omega)
+        (fun h' hz' => hm.mux.pushed_mem p h' (fun hc => hz'
+          (Nat.le_antisymm
+            (hc ▸ pushedCount_le_of_prefix htkpre h') (Nat.zero_le _))))
+        (fun h' hz' => by
+          have hle := deliveredCount_le_of_prefix htkpre h'
+          have hlp := hm.mux.delivered_le_pushed p.other h'
+          rw [Party.other_other] at hlp
+          refine hm.mux.pushed_mem p.other h' ?_
+          omega)
+        _ hcert
+      rw [performed_rcv_iff] at hperf
+      omega
 
 end StreamingMirror.Mux
