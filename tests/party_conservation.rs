@@ -2,8 +2,7 @@
 //! donated-exactly-once, and the fragmentation bound, over the peer
 //! lifecycle.
 //!
-//! Motivation: the version-hop attempt
-//! (`design/streaming-latency-serialization.md` §11, withdrawn 2026-07-18)
+//! Motivation: the withdrawn version-hop attempt
 //! passed every identity test it carried, yet was rejected in design review
 //! because its speculative pre-forks would fragment a bootstrap provider's
 //! id tree into non-contiguous shards under contention — a party
@@ -293,10 +292,9 @@ proptest! {
     /// retire it back into `P`), `P`'s party is bit-for-bit its pre-cycle
     /// baseline — the ITC join renormalizes the returned fork — so its
     /// encoded size is constant, independent of `k`. This is the shape
-    /// regression that sank the withdrawn version-hop design
-    /// (`design/streaming-latency-serialization.md` §11): its speculative
-    /// forks would have left non-contiguous shards that grow this measure
-    /// permanently.
+    /// regression that sank the withdrawn version-hop design: its
+    /// speculative forks would have left non-contiguous shards that grow
+    /// this measure permanently.
     #[test]
     fn party_returns_to_baseline_under_sequential_cycles(k in 1usize..=12) {
         let seed = Peer::<u64>::seed().into_rumors();

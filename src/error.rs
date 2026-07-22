@@ -69,20 +69,37 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     PartyOverlap,
 
     /// The session's closing epilogue failed *after* the session's local
-    /// work completed.
+    /// work committed.
     ///
-    /// Under [`Protocol::V2`] each side ends a session by
-    /// exchanging a one-byte completion marker on the control stream, so `Ok`
-    /// certifies the peer completed and committed too. This error is the
-    /// residue that exchange cannot eliminate (the two-generals problem):
-    /// only the confirmation of the *peer's* completion failed. For a
-    /// session on an existing replica — gossip, retire, or the side serving
-    /// a bootstrap — the local replica therefore **is** committed: every
-    /// message and identity the session moved is applied here. The
-    /// bootstrapping side is the exception: its epilogue runs before any
-    /// [`Peer`](crate::Peer) exists, so on this error the received identity
-    /// is dropped and nothing is applied locally, while the provider may
-    /// have committed and the forked id-region leaks (see
+    /// A [`Protocol::V2`] session ends with a completion exchange on the
+    /// control stream: each side commits all of its session work, then
+    /// writes one marker byte and reads the peer's. Returning `Ok` requires
+    /// having read the peer's marker, so `Ok` certifies that the peer
+    /// committed too. This error means the exchange itself failed: the
+    /// local side committed, but the peer's confirmation never arrived, so
+    /// the peer may have committed or may have failed. That uncertainty is
+    /// irreducible (the two-generals problem); the exchange pins it to this
+    /// one distinguished error instead of letting it hide behind `Ok`.
+    ///
+    /// What the exchange buys is precise. Replica *state* does not need it:
+    /// message content converges by CRDT join whatever either side believes,
+    /// and party linearity is preserved by ordering — a donated identity
+    /// region is committed out of the donor before it crosses the wire, so
+    /// a failed session can leave a region held by no one, never by both
+    /// sides. The soundness hole it closes is in what a session *reports*:
+    /// unconfirmed, a donor completing an identity hand-off (retire, or
+    /// serving a bootstrap) would report success while its counterparty
+    /// could still fail before committing the donated region — identity
+    /// space irreparably lost behind an `Ok`. Confirmed, a region can be
+    /// lost only inside this explicitly reported window.
+    ///
+    /// For a session on an existing replica — gossip, retire, or the side
+    /// serving a bootstrap — the local replica **is** committed on this
+    /// error: every message and identity the session moved is applied here.
+    /// The bootstrapping side is the exception: its epilogue runs before
+    /// any [`Peer`](crate::Peer) exists, so the received identity is
+    /// dropped and nothing is applied locally, while the provider may have
+    /// committed — the forked id-region is then lost (see
     /// [`Peer::bootstrap`](crate::Peer::bootstrap)). The source is the I/O
     /// failure that cut the exchange short, or an invalid-data error if the
     /// peer wrote something other than the marker where it belonged.

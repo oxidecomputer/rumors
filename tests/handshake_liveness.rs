@@ -9,8 +9,7 @@
 //! symmetrically before reading deadlocks the pair the moment its frame
 //! outgrows the transport's window. That hazard class is invisible over the
 //! roomy links the rest of the suite uses; these cells force every session
-//! shape through the window that hides nothing (the finding that motivates
-//! them is recorded in `design/streaming-latency-serialization.md` §11).
+//! shape through the window that hides nothing.
 //!
 //! The fixtures make the version frames non-trivial on purpose — several
 //! disjoint originators plus bootstrap→retire cycles, self-checked to exceed

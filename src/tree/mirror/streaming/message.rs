@@ -34,9 +34,7 @@ use crate::{
 /// [`Reaction::Query`] carries — and that is the point: the opening
 /// question's content depends only on the sender's own tree, so carrying it
 /// here lets the elected responder answer immediately instead of waiting one
-/// wire hop for a standalone opening frame
-/// (`design/streaming-latency-serialization.md` §11, the opening-question
-/// hop). An empty tree carries an empty listing, which at the root means
+/// wire hop for a standalone opening frame. An empty tree carries an empty listing, which at the root means
 /// exactly what an empty opening `Query` means: "I lack this node, send
 /// everything."
 ///

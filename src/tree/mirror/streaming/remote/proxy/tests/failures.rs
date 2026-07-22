@@ -91,7 +91,7 @@ fn has_expected_surface(error: &RemoteError<Infallible>, operation: IoOperation)
         }
         // A destroyed incoming stream surfaces from the receiver that
         // provably needed it, after the parked accept driver deposits the
-        // cause (design/streaming-wire-deadlock.md §8.10).
+        // cause.
         IoOperation::Accept => {
             matches!(error, RemoteError::Stream(StreamError::SupplyClosed { .. }))
         }

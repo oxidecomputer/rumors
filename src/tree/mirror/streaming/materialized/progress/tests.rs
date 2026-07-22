@@ -99,10 +99,10 @@ fn rejects_wire_before_earlier_sibling_resolution() {
 /// child's dependent work departs after the final resolution and before the
 /// parent summary, exactly what the weave's d5 placement forbids. Pinned as
 /// the design-space record (finding #7, adjudicated: the encoder keeps the
-/// epilogue placement and the `d6`/`assert_parent_last` check instead —
-/// `design/parent-placement.md`): if this test starts failing because the
-/// panic disappears, the encoder's order changed corners — re-audit against
-/// the design doc before accepting.
+/// epilogue placement and the `d6`/`assert_parent_last` check instead): if
+/// this test starts failing because the panic disappears, the encoder's
+/// order changed corners — re-audit the parent-placement trade before
+/// accepting.
 #[test]
 #[should_panic(expected = "with the parent summary unsent")]
 fn real_encoder_order_violates_parent_early_discipline() {

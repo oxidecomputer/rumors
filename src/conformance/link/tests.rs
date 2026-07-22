@@ -1,5 +1,9 @@
-//! The conformance suite validated against the in-memory instantiation —
-//! including adversarial-but-legal variants the contract admits.
+//! The conformance suite validated in both directions.
+//!
+//! The in-memory instantiation passes — including adversarial-but-legal
+//! variants the contract admits — and negative controls prove the suite
+//! still catches what it claims to (see the regressions section:
+//! contract-violating fixtures asserted to *fail* the checks).
 
 use std::collections::{HashMap, VecDeque};
 use std::io;
@@ -144,8 +148,8 @@ fn reordered_accepts_conform() {
 /// An acceptor that internally dequeues a delivery, then awaits once more
 /// before returning it.
 ///
-/// This is the router-helper shape `design/streaming-wire-deadlock.md`
-/// §8.5 warns about: if the `accept` future is dropped between the internal
+/// This is the router-helper shape the cancellation clause exists to
+/// exclude: if the `accept` future is dropped between the internal
 /// dequeue and the final yield — exactly what session teardown does to a
 /// pending accept — the dequeued stream is dropped with it. The delivery is
 /// silently lost while the link stays healthy, violating the contract's
@@ -175,7 +179,7 @@ fn lossy(
 
 // ─── The shared-FIFO mux: the deleted architecture, rebuilt as a fixture ────
 //
-// A minimal reconstruction of the design doc's §2 wire: every stream's
+// A minimal reconstruction of the mux wire: every stream's
 // frames ride one shared ordered FIFO per direction, and a single reader
 // (driven cooperatively by whoever needs data) distributes them into small
 // bounded per-stream queues. Routing into a full queue blocks the shared
@@ -495,9 +499,9 @@ fn mux_pair() -> (MuxLink, MuxLink) {
 // same fixtures flipped by the strengthened checks, kept as permanent
 // proof that the suite catches what it once admitted.
 
-/// Regression (hole H2b): the shared-FIFO mux — the deleted architecture of
-/// `design/streaming-wire-deadlock.md` §2 — is caught by the independence
-/// probe.
+/// Regression (hole H2b): the shared-FIFO mux — the architecture whose
+/// deadlock the independence clause exists to exclude — is caught by the
+/// independence probe.
 ///
 /// The stalled stream's sustained writes fill its small per-stream queue,
 /// the shared reader parks routing the next stalled frame, live deliveries

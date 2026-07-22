@@ -2,7 +2,7 @@
 //!
 //! `benches/support/latency.rs` builds the delayed-pipe link the latency
 //! benchmarks sweep; these tests run it through the public
-//! [`rumors::conformance`] suite so the sweep measures the protocols, not
+//! [`rumors::conformance::link`] suite so the sweep measures the protocols, not
 //! an accidentally nonconforming transport. Delays live in virtual time
 //! (paused-clock runtimes), so the nonzero-delay pass costs no wall time.
 
@@ -23,7 +23,8 @@ const CAPACITY: usize = 64;
 /// accept cancellation — holds.
 #[tokio::test(start_paused = true)]
 async fn conforms_at_zero_delay() {
-    rumors::conformance::check(async || latency::delayed_pair(CAPACITY, Duration::ZERO)).await;
+    rumors::conformance::link::check(async || latency::delayed_pair(CAPACITY, Duration::ZERO))
+        .await;
 }
 
 /// The contract holds with latency injected: delaying every byte by a
@@ -31,6 +32,8 @@ async fn conforms_at_zero_delay() {
 /// stay independent, receiver-paced, and half-close clean.
 #[tokio::test(start_paused = true)]
 async fn conforms_at_nonzero_delay() {
-    rumors::conformance::check(async || latency::delayed_pair(CAPACITY, Duration::from_millis(3)))
-        .await;
+    rumors::conformance::link::check(async || {
+        latency::delayed_pair(CAPACITY, Duration::from_millis(3))
+    })
+    .await;
 }

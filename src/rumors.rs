@@ -260,7 +260,7 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     }
 
     /// Alias this set's live party for invariant assertions in tests; see
-    /// [`Peer::dangerously_alias_party`] for the contract.
+    /// [`Peer::dangerously_alias_party`] for what the caller must uphold.
     #[cfg(any(test, feature = "test-internals"))]
     #[doc(hidden)]
     pub fn dangerously_alias_party(&self) -> Option<before::Party> {
@@ -287,9 +287,9 @@ impl<T, B: Bookmark> Rumors<T, B> {
     ///
     /// On `Ok`, both replicas hold every message either one held when the
     /// session began, and the peer has confirmed that it completed and
-    /// committed the session too (the full contract, including failure and
-    /// cancellation semantics, is in the
-    /// [crate docs](crate#what-a-session-promises)).
+    /// committed the session too. What `Err` and cancellation leave behind
+    /// is stated in [what a session
+    /// promises](crate::link::Link#what-a-session-promises).
     ///
     /// Gossip sessions may run concurrently on different clones of the same
     /// [`Rumors`], each over its own link; each commits atomically when it
@@ -345,13 +345,14 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// - `when` ends, cleanly, after finishing any session in flight;
     /// - the remote hangs up at a session boundary, cleanly.
     ///
-    /// After either clean termination the link rests at a session boundary.
-    /// After `when`-exhaustion it stays usable: hand it to another driver
-    /// or session. After the remote's goodbye the peer is gone — a new
-    /// driver observes the same clean goodbye, but a one-shot session on
-    /// the link fails against the closed transport. Each driven session
-    /// carries the [session contract](crate#what-a-session-promises) of a
-    /// one-shot [`gossip`](Self::gossip).
+    /// Either clean termination leaves the link at a session boundary, but
+    /// they differ in what the link is still good for. When `when` ends,
+    /// the connection is intact: hand the link to another driver or
+    /// session. When the remote hangs up, the peer is gone: a new driver on
+    /// the same link only observes the goodbye again, and a one-shot
+    /// session fails against the closed transport. Each driven session
+    /// promises exactly what a one-shot [`gossip`](Self::gossip) does
+    /// ([what a session promises](crate::link::Link#what-a-session-promises)).
     ///
     /// # Suppression
     ///

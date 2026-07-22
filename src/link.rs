@@ -1,30 +1,25 @@
 //! The transport contract: independent per-session streams for wire gossip.
 //!
-//! A [`Link`] is one long-lived connection between two replicas: one
-//! [`Rumors`](crate::Rumors) handle on this side, one remote peer on the
-//! other. Every wire session — [`gossip`](crate::Rumors::gossip),
-//! [`bootstrap`](crate::Peer::bootstrap), [`retire`](crate::Peer::retire),
-//! and each session driven by [`gossip_when`](crate::Rumors::gossip_when) —
-//! runs *on* a link, and successive sessions on one link are serialized.
+//! A [`Link`] is one long-lived connection between two replicas. Every wire
+//! session — [`gossip`](crate::Rumors::gossip), each session driven by
+//! [`gossip_when`](crate::Rumors::gossip_when),
+//! [`bootstrap`](crate::Peer::bootstrap), and
+//! [`retire`](crate::Peer::retire) — runs on a link, one session at a time.
 //!
-//! The link is a bundle of three transport roles, split by how the session
-//! uses them concurrently:
+//! A link bundles three transport roles:
 //!
-//! - a persistent bidirectional **control stream** (its two halves), carrying
-//!   each session's preamble, its greeting (the causal version and, under
-//!   the default protocol, the sender's root-fan listing), trailing
-//!   identity hand-off, and (under the default protocol) one closing
-//!   epilogue marker byte, in order, for the life of the link;
-//! - a [`Connector`], from which the session lazily opens outgoing
-//!   unidirectional data streams mid-descent;
-//! - an [`Acceptor`], from which the session receives the peer's incoming
-//!   unidirectional data streams, in arrival order.
+//! - the **control stream**: one persistent bidirectional byte stream,
+//!   carrying every session's framing — preamble and greeting through
+//!   closing epilogue — in order, for the life of the link;
+//! - a [`Connector`]: opens outgoing unidirectional **data streams**,
+//!   lazily, mid-session;
+//! - an [`Acceptor`]: yields the peer's incoming data streams, in arrival
+//!   order.
 //!
-//! Data streams are session-scoped and cheap: a session opens up to
-//! [`STREAM_COUNT`] outgoing streams (typically far fewer — streams are
-//! opened only when reconciliation has something to say at that level), and
-//! every data stream is closed before the session completes. Only the
-//! control stream survives from one session to the next.
+//! Data streams are session-scoped and cheap. A session opens one only when
+//! reconciliation has something to say at that tree level — up to
+//! [`STREAM_COUNT`], typically far fewer — and closes every one before it
+//! completes. Only the control stream survives into the next session.
 //!
 //! # The contract
 //!
@@ -141,14 +136,48 @@ impl<A: Acceptor> Acceptor for &mut A {
 /// [module-level contract](self), or use [`memory`] for the in-memory
 /// instantiation. The link owns its [`SessionState`] — the session counter
 /// used to label data streams, and the poison latch — which is why sessions
-/// take the link by `&mut`: serialized sessions are part of the contract,
-/// enforced by the borrow.
+/// take the link by `&mut`: sessions on one link must be serialized, and
+/// the borrow enforces it.
 ///
-/// A session that fails, or is cancelled mid-flight, leaves the control
-/// stream mid-frame and *poisons* the link: every later session on it fails
-/// fast with [`Error::LinkPoisoned`](crate::Error::LinkPoisoned) rather
-/// than misreading leftover bytes. Discard a poisoned link and reconnect;
-/// there is no repair.
+/// # What a session promises
+///
+/// Every session on a link resolves in one of three ways:
+///
+/// - **`Ok`: both replicas committed.** Under the default
+///   [`Protocol::V2`](crate::Protocol::V2) the session ends with each side
+///   exchanging a completion marker on the control stream, so `Ok`
+///   certifies that the *peer* completed and committed too — every message
+///   and identity the session moved is applied on both ends. The link rests
+///   at the session boundary, ready for this pair's next session. One
+///   residue is irreducible (the two-generals problem): the confirmation
+///   itself can be lost, in which case that side observes
+///   [`Error::Epilogue`](crate::Error::Epilogue) — an `Err` whose local
+///   replica is nonetheless fully committed. (The frozen `V1` oracle wire
+///   has no marker exchange; its `Ok` certifies only the local commit.)
+/// - **`Err`: the local replica is unchanged, and the link is poisoned.**
+///   The failed session leaves the control stream mid-frame, so every later
+///   session on the link fails fast with
+///   [`Error::LinkPoisoned`](crate::Error::LinkPoisoned) rather than
+///   misreading leftover bytes: discard the link and reconnect; there is no
+///   repair. "Unchanged" has two qualified exceptions, stated where they
+///   arise: the post-commit [`Error::Epilogue`](crate::Error::Epilogue)
+///   above, and a bootstrap donation lost in flight, which costs the
+///   donated id-region ([`Peer::bootstrap`](crate::Peer::bootstrap)).
+///   `retire` reports failure through [`Retire`](crate::Retire)'s variants
+///   — stating which side of the identity hand-off the failure landed on —
+///   with the same link consequences.
+/// - **Cancellation: as `Err`.** Dropping a session future mid-flight never
+///   commits a partial session — the replica holds the session's full
+///   effect or none of it — and poisons the link the same way. One
+///   carve-out: a `retire` future owns its consumed [`Peer`](crate::Peer),
+///   so dropping it destroys the peer and loses the identity (recoverable
+///   only through an attached bookmark), where `retire`'s `Err` would have
+///   handed the peer back through [`Retire`](crate::Retire)'s variants.
+///
+/// No session imposes its own deadline: against a stalled peer a session
+/// waits forever, so the *caller* owns the timeout. Wrap sessions in your
+/// runtime's timeout and treat expiry as any other cancellation — replica
+/// intact or fully committed, link poisoned, reconnect.
 pub struct Link<CR, CW, C, A> {
     pub(crate) control_read: CR,
     pub(crate) control_write: CW,
@@ -346,7 +375,8 @@ const MEMORY_STREAM_BACKLOG: usize = STREAM_COUNT;
 /// bounded channel, so sessions driven over it work under any executor —
 /// including the deterministic single-poll harness the crate's own tests
 /// use. Each stream buffers 8 KiB; use [`memory_with_capacity`] to pick
-/// the buffer size (down to one byte, the contract still holds).
+/// the buffer size (down to one byte: sessions stay live at any positive
+/// capacity).
 pub fn memory() -> (MemoryLink, MemoryLink) {
     memory_with_capacity(MEMORY_STREAM_CAPACITY)
 }

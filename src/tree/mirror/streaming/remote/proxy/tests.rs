@@ -370,8 +370,7 @@ proptest! {
     ///
     /// Wide budgets reach the streaming deadlock's trigger geometry — wide
     /// roots mixing disputes and provisions — which the small budget rarely
-    /// does (see `design/streaming-wire-deadlock.md` §6–7); this drives it
-    /// at the smallest per-stream buffers.
+    /// does; this drives it at the smallest per-stream buffers.
     #[test]
     fn wide_symmetric_accepts_match_local((a, b) in arb_wide_divergent_pair()) {
         let expected = run_to_quiescence(reconcile_locally(a.clone(), b.clone()))
@@ -512,8 +511,8 @@ fn wide_symmetric_accepts_reordered_match_local() {
 /// reconcile to the materialized oracle's result under closed-world
 /// polling.
 ///
-/// This is `design/streaming-wire-deadlock.md` §2's counterexample made
-/// permanent at the tier that should have owned it: under the deleted
+/// This is the streaming wire deadlock's counterexample made permanent
+/// at the tier that should have owned it: under the deleted
 /// mux/demux session layer this exact shape deadlocked (independently of
 /// buffer size — the original stall reproduced from 64-byte to 16 MiB
 /// buffers, so the standard small capacity here loses no coverage).

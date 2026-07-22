@@ -121,9 +121,7 @@ impl Trace {
     /// enclosing parent resolution" placement in levels.rs), and the
     /// local invariant the `AxMode.impl` deadlock-freedom theorem
     /// consumes. Its deliberate opposite, the weave's parent-early
-    /// discipline, is documented by [`Self::assert_parent_early`]; the
-    /// design trade between the two corners is
-    /// `design/parent-placement.md`.
+    /// discipline, is documented by [`Self::assert_parent_early`].
     fn assert_parent_last(&self) {
         // Like wire contiguity, the check needs the completed trace: a
         // scope's wire and resolution sets are known only in hindsight
@@ -203,10 +201,9 @@ impl Trace {
     /// and the parent resolution departs only in the scope epilogue),
     /// trading the d5 corner's any-capacity deadlock freedom for maximal
     /// descent/assembly pipelining under the assembler capacity floor —
-    /// the adjudicated design decision recorded in
-    /// `design/parent-placement.md`, with the capacity-universal theorem
-    /// for this discipline kept as `Sched.deadlock_free_d5` in the
-    /// formal model. Retained as the design-space record; the pin
+    /// the adjudicated design decision, with the capacity-universal
+    /// theorem for this discipline kept as `Sched.deadlock_free_d5` in
+    /// the formal model. Retained as the design-space record; the pin
     /// documenting that the encoder's order rejects it is
     /// `real_encoder_order_violates_parent_early_discipline`.
     #[cfg(test)]

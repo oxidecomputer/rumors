@@ -180,8 +180,7 @@ pub fn arb_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate::tree
 ///
 /// Wide roots whose opening reply mixes disputed children with outright
 /// provisions, with disputes that descend several levels — the shape the
-/// small budget rarely produces (see `design/streaming-wire-deadlock.md`
-/// §6–7).
+/// small budget rarely produces.
 ///
 /// The small-budget generator stays the default for properties where case
 /// count matters more than per-case breadth; wire-liveness properties run
@@ -240,8 +239,8 @@ pub fn arb_wide_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate:
 /// children exist on one side only, queueing whole-subtree provisions
 /// behind the dispute on the same reply stream.
 ///
-/// This is the counterexample skeleton of `design/streaming-wire-deadlock.md`
-/// §2, made permanent at the tier that should have owned it. Content
+/// This is the streaming wire deadlock's counterexample skeleton, made
+/// permanent at the tier that should have owned it. Content
 /// addressing means the shape cannot be dictated, so it is *searched*: insert
 /// counts vary per attempt, each attempt's honestly-built pair is checked
 /// against the geometry, and the first satisfying pair wins. Hashing is

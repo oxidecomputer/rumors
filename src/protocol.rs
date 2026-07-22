@@ -17,7 +17,7 @@ pub enum Protocol {
     ///
     /// V1 has no session epilogue, so its `Ok` is weaker than
     /// [`V2`](Protocol::V2)'s: it certifies only the local commit, not the
-    /// peer's (see [what a session promises](crate#what-a-session-promises)).
+    /// peer's (see [what a session promises](crate::link::Link#what-a-session-promises)).
     #[cfg(any(test, feature = "protocol-v1"))]
     V1 = 1,
     /// Bounded-memory reconciliation over multiplexed logical streams.

@@ -31,7 +31,7 @@
 //! awaited. Either order pairs the same k-th items — the argument above is
 //! indifferent — but query-first frees the queue slot one wire round trip
 //! earlier, so a K-slot edge admits K truly in-flight scopes rather than
-//! K − 1 (`design/streaming-latency-serialization.md` §5, rider (b)).
+//! K − 1.
 //!
 //! The first progress-critical ordering invariant is **wire before internal
 //! publication**. The walk yields every outgoing query or reply before
@@ -52,8 +52,7 @@
 //! liveness floor. Actual capacities come from the session's
 //! [`Window`](super::window) — one slot serializes the descent into a wire
 //! round trip per disputed scope, and widening only relaxes the wait graph, so
-//! the argument above covers every width (see
-//! `design/streaming-latency-serialization.md`). A blocked response pump has
+//! the argument above covers every width. A blocked response pump has
 //! likewise already published the response which releases it; the initiator's
 //! root query and return and the responder's root resolution each occur exactly
 //! once; leaf resolutions contain no `Pending` slots and can be assembled
@@ -68,10 +67,10 @@
 //! here, and this argument covers remote sessions verbatim. It is not a
 //! premise that can be quietly weakened: multiplexing every stream onto
 //! one shared FIFO pipe looks sound edge-by-edge yet composes into a
-//! cross-stream wait cycle and deadlocks
-//! (`design/streaming-wire-deadlock.md` records the construction).
-//! Independence is an interface obligation, supplied by contract or not
-//! at all.
+//! cross-stream wait cycle and deadlocks — the conformance suite's mux
+//! fixture rebuilds exactly that construction and pins that the probes
+//! catch it. Independence is an interface obligation, supplied by the
+//! link or not at all.
 //!
 //! [`Work::assemble`]'s inter-level return queue is the one exception. A reply
 //! can dispute a full fan of children. While the walk is still examining those

@@ -222,10 +222,12 @@ impl<T> Peer<T> {
     /// the donation. The confirmation exchange leaves one irreducible
     /// residue (the two-generals problem): if the session fails at the very
     /// end with [`Error::Epilogue`], the provider may have committed while
-    /// our side reports an error, and the forked identity leaks — benignly,
-    /// like any fork lost in flight. The full session contract, including
-    /// failure and cancellation semantics, is in the
-    /// [crate docs](crate#what-a-session-promises).
+    /// our side reports an error, and the forked identity is lost. Losing a
+    /// fork is safe — no invariant depends on it arriving — but not free:
+    /// its id-region is identity space gone for good, unless coordination
+    /// outside this library reclaims it. What `Err` and cancellation leave
+    /// behind is stated in [what a session
+    /// promises](crate::link::Link#what-a-session-promises).
     ///
     /// The peer arrives unbookmarked: its identity has been forked away to us
     /// but not yet persisted, so a crash before it is recorded strands it. To
@@ -301,9 +303,9 @@ impl<T, B: Bookmark> Peer<T, B> {
     /// See the [type-level lifecycle example](Peer) for how the four
     /// [`Retire`] outcomes are handled; in brief, a session reconciles content
     /// exactly as [`gossip`](crate::Rumors::gossip) would and then the peer
-    /// absorbs our identity, with the outcome reporting what survived. The
-    /// full session contract, including failure and cancellation semantics,
-    /// is in the [crate docs](crate#what-a-session-promises).
+    /// absorbs our identity, with the outcome reporting what survived. What
+    /// `Ok`, `Err`, and cancellation promise is stated in [what a session
+    /// promises](crate::link::Link#what-a-session-promises).
     pub async fn retire<CR, CW, C, A>(self, link: &mut Link<CR, CW, C, A>) -> Retire<T, B>
     where
         T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,

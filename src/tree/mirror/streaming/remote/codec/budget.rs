@@ -2,8 +2,7 @@
 //!
 //! The streaming wire ships the leaves of a supplied subtree as *runs* — one
 //! [`Supply`](super::frame::Reaction::Supply) frame carrying a delimited
-//! sequence of leaf records — instead of one frame per leaf
-//! (`design/streaming-latency-serialization.md` §10, lever A). Batching is
+//! sequence of leaf records — instead of one frame per leaf. Batching is
 //! chunked by **bytes**, not record count: the encoder accumulates records
 //! into the current run and flushes it when appending the next record would
 //! push the frame's full wire size — its [`SUPPLY_FRAME_OVERHEAD`]-byte

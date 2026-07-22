@@ -254,8 +254,7 @@ proptest! {
     /// hashes, all matching the canonical bulk construction over the sorted
     /// leaf set. The single-preimage hash rule commits the compressed shape
     /// directly, so cross-peer hash agreement rests on exactly this
-    /// invariant (see `design/node-hash-preimage.md`, "Why it stays
-    /// correct").
+    /// invariant.
     ///
     /// Every leaf rides its own disjoint party, so all versions are pairwise
     /// concurrent: no reordering across react batches or join sides can

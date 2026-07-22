@@ -248,8 +248,7 @@ async fn first_reported_error(
 /// A frame whose signal byte names a different logical stream than its
 /// label is reported as `Mislabeled` carrying both indices, never yielded.
 ///
-/// This is the label-equality tripwire of
-/// `design/streaming-wire-deadlock.md` §8.6: a routing mistake in a
+/// This is the label-equality tripwire: a routing mistake in a
 /// caller-built link — a miswired router, a pool lease crossing streams —
 /// surfaces at the first frame as a precise `labeled`/`framed` pair on the
 /// session error route instead of as garbled protocol.
@@ -335,9 +334,8 @@ fn truncated_stream_is_reported_not_ended() {
 /// `AfterEnd`: a peer that keeps talking past its own end is caught.
 ///
 /// After `End(Stream)` the receiver requires transport end-of-stream
-/// before ending cleanly (`design/streaming-wire-deadlock.md` §8.10's
-/// double-checked stream ends), recovering the deleted demux's
-/// frame-after-end detection.
+/// before ending cleanly (the double-checked stream end), recovering the
+/// deleted demux's frame-after-end detection.
 #[test]
 fn frames_after_the_end_control_are_reported() {
     let (a, mut b) = memory();
@@ -449,8 +447,8 @@ fn accept_driver_rejects_unknown_stream_index() {
 /// A supply failure reaches the one receiver still awaiting its claim as
 /// `SupplyClosed` carrying the deposited I/O cause.
 ///
-/// This pins `design/streaming-wire-deadlock.md` §8.10's deferred-supply
-/// semantics deterministically: the parked accept driver deposits the
+/// This pins the deferred-supply semantics deterministically: the parked
+/// accept driver deposits the
 /// transport failure, and the first `SupplyClosed` reporter — the consumer
 /// that provably needed a stream — claims it as its `source`.
 #[test]
@@ -480,7 +478,7 @@ fn supply_failure_reaches_the_awaiting_receiver() {
 /// A supply failure after every needed stream was delivered leaves the
 /// session to complete cleanly on the streams it holds.
 ///
-/// The park path of `design/streaming-wire-deadlock.md` §8.10: a peer that
+/// The park path: a peer that
 /// finished cleanly may drop its link while this side still reads, so the
 /// accept driver parks on the failure instead of failing the session, and
 /// nothing surfaces through the error route.

@@ -35,9 +35,9 @@
 //! hop count. `I = 0` is the identical corner — the steady-state "nothing
 //! changed" handshake a production peer pays every gossip round.
 //!
-//! `design/streaming-latency-serialization.md` records what these groups
-//! found on their first run: the V2 hop count scales with disputed scopes
-//! (capacity-1 inter-stage channels), not tree depth, and the fix space.
+//! On their first run these groups measured the V2 hop count scaling with
+//! disputed scopes rather than tree depth — the capacity-one inter-stage
+//! channels — which is the finding behind the session window.
 
 use std::hint::black_box;
 use std::time::Duration;
