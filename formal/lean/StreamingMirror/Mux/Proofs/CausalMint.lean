@@ -4219,4 +4219,274 @@ theorem causal_closure_coverage {s : MState} {N : Nat} (W : Wall sk s N)
         rw [Bool.or_eq_true, Bool.or_eq_true]
         exact Or.inr hstep
 
+
+-- ======================================= the coverage theorem itself
+
+/-- A scheduled receive on the party's own stream is announced-laid:
+its consumer is a peer process (the responder opening, the stage below,
+or the absorber), and the corresponding laid lemma covers it. -/
+private theorem flatten_of_own_wire_recv {s : MState} {N : Nat}
+    (W : Wall sk s N) (p : Party) {g n : Nat}
+    (hmem : ((Chan.wire p g, false, n) : Ev) ∈ scheduleE sk)
+    (hτ : evIdx ((Chan.wire p g, false, n) : Ev) (scheduleE sk) < N) :
+    ((Chan.wire p g, false, n) : Ev)
+      ∈ (announcedProcs (aviewOf sk p (s.hist p))).flatten := by
+  obtain ⟨T, hT, heT⟩ := mem_evUniv.mp (mem_evUniv_of_mem_scheduleE hmem)
+  rcases Sched.procsE_cases sk hT with rfl | rfl | ⟨i, hir, rfl⟩ | rfl
+    | ⟨pk, hpk, rfl⟩ | rfl | rfl
+  · -- iopen holds no wire receives
+    exfalso
+    unfold Sched.iopenEvents at heT
+    rcases List.mem_cons.mp heT with heq | he2
+    · have := congrArg (fun ev : Ev => ev.2.1) heq
+      simp at this
+    rcases List.mem_cons.mp he2 with heq | he3
+    · have := congrArg (fun ev : Ev => ev.2.1) heq
+      simp at this
+    · cases he3
+  · -- ropen consumes the initiator's opening
+    have hp : p = Party.I := by
+      unfold Sched.ropenEvents at heT
+      rcases List.mem_cons.mp heT with heq | he2
+      · have hc : Chan.wire p g = Chan.wire Party.I sk.rootH := by
+          injection heq
+        exact (Chan.wire.inj hc).1
+      · exfalso
+        rcases List.mem_cons.mp he2 with heq | he3
+        · have := congrArg (fun ev : Ev => ev.2.1) heq
+          simp at this
+        rcases List.mem_cons.mp he3 with heq | he4
+        · have := congrArg (fun ev : Ev => ev.2.1) heq
+          simp at this
+        · obtain ⟨t, -, heq⟩ := List.mem_map.mp he4
+          have := congrArg (fun ev : Ev => ev.2.1) heq.symm
+          simp at this
+    subst hp
+    refine flatten_of_open W Party.I ?_ hτ
+    rw [if_pos rfl]
+    exact heT
+  · -- a walk stage: its input is the stage above's output stream
+    have hpk := Sched.walkOrder_mem_keys sk W.wf hir
+    generalize hpk_def : ((if (sk.rootH - 1 - i) % 2 == 1 then Party.I
+        else Party.R), sk.rootH - 1 - i) = pk at hpk heT
+    obtain ⟨q', h'⟩ := pk
+    have hsupp := (Sched.walkEvents_support sk (q', h')) _
+      ((Sched.walkEventsE_perm sk (q', h')).mem_iff.mp heT)
+    have hq' : q' = p.other := by
+      rcases hsupp.2 rfl with hc | hc
+      · rw [show ((Chan.wire p g, false, n) : Ev).1 = Chan.wire p g
+          from rfl] at hc
+        rw [show wireIn (q', h') = Chan.wire q'.other (h' + 1)
+          from rfl] at hc
+        have hqq := (Chan.wire.inj hc).1
+        cases q' <;> cases p <;>
+          first
+            | rfl
+            | (exact absurd hqq (by decide))
+      · exfalso
+        rw [show ((Chan.wire p g, false, n) : Ev).1 = Chan.wire p g
+          from rfl] at hc
+        rw [show askedIn (q', h') = Chan.asked q' h' from rfl] at hc
+        cases hc
+    subst hq'
+    exact flatten_of_walk W p hpk heT hτ
+  · -- the absorber consumes the responder's supplies
+    have hp : p = Party.R := by
+      unfold Sched.absorbEvents at heT
+      obtain ⟨jj, -, hj⟩ := List.mem_flatMap.mp heT
+      rcases List.mem_cons.mp hj with heq | hj2
+      · have hc : Chan.wire p g = Chan.wire Party.R 0 := by
+          injection heq
+        exact (Chan.wire.inj hc).1
+      · exfalso
+        rcases List.mem_cons.mp hj2 with heq | hj3
+        · have hc : Chan.wire p g = Chan.leafRequests := by
+            injection heq
+          cases hc
+        rcases List.mem_cons.mp hj3 with heq | hj4
+        · have := congrArg (fun ev : Ev => ev.2.1) heq
+          simp at this
+        · cases hj4
+    subst hp
+    exact flatten_of_absorb W rfl heT hτ
+  · -- assemblers touch no wires
+    exfalso
+    obtain ⟨q', j⟩ := pk
+    have hsupp := (Sched.asmEvents_support sk (q', j)) _ heT
+    rcases hsupp.2 rfl with hc | hc
+    · rw [show ((Chan.wire p g, false, n) : Ev).1 = Chan.wire p g
+        from rfl] at hc
+      rw [asmResChan] at hc
+      by_cases ha : asks q' j = true
+      · rw [if_pos ha] at hc
+        cases hc
+      · rw [if_neg ha] at hc
+        cases hc
+    · rw [show ((Chan.wire p g, false, n) : Ev).1 = Chan.wire p g
+        from rfl] at hc
+      rw [show asmLevelChan (q', j) = Chan.level q' (j - 1)
+        from rfl] at hc
+      cases hc
+  · -- nor the floating rootret receive
+    exfalso
+    have heq := List.mem_singleton.mp heT
+    have hc : Chan.wire p g = Chan.rootret := by injection heq
+    cases hc
+  · -- nor the finale
+    exfalso
+    unfold Sched.finEvents at heT
+    rcases List.mem_cons.mp heT with heq | he2
+    · have hc : Chan.wire p g = Chan.rootres := by injection heq
+      cases hc
+    · obtain ⟨t, -, heq⟩ := List.mem_map.mp he2
+      have hc : Chan.wire p g = Chan.rootrets := by injection heq.symm
+      cases hc
+
+/-- Step 4, discharged: `CausalStuckCoverage` holds for every
+well-formed margin-0 skeleton — at a reachable stuck drained
+σ*-causal×σ*-causal state, a held stream whose τ-prefix is performed
+is proven-demanded under the ANNOUNCED closure.
+
+The withheld frame's predecessor receive is scheduled τ-below the
+withheld send (the wire's unit-capacity E2 edge), the minting ladder
+lays it in the announced family, the coverage induction walks it into
+the causal closure by its own τ stage, and saturation absorbs the
+stage into `inevitableA`. A root-height hold is vacuous here: a
+committed opener hand means the opening frame has not flushed, so
+nothing was ever pushed on that stream. -/
+theorem causalStuckCoverage (hwf : sk.wellFormed = true)
+    (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel) :
+    CausalStuckCoverage sk := by
+  intro C s hr hstuck hpI hpR p hh hhold hcover
+  have hm := sinv_reachable hwf hr
+  have W : Wall sk s (evIdx ((Chan.wire p hh, true,
+      sentOf sk s.base (Chan.wire p hh)) : Ev) (scheduleE sk)) :=
+    ⟨hwf, hm0, hm.mux, hpI, hpR, hcover⟩
+  rw [demandedA, Bool.or_eq_true]
+  by_cases hK : pushedCount (s.hist p) hh = 0
+  · exact Or.inl (by simpa using hK)
+  refine Or.inr ((List.contains_iff_mem ..).mpr ?_)
+  have hL : InvL sk .impl s.base := hm.mux.invl
+  have hch : Chan.wire p hh ∈ allChans sk :=
+    mem_allChans_of_wireHeights (holdsWire_mem_wireHeights hhold)
+  have hKs : pushedCount (s.hist p) hh
+      = sentOf sk s.base (Chan.wire p hh) := W.drained_pushed p hh hch
+  -- the held stream is a walk stream: an opener hand pins sentOf = 0
+  rw [holdsWire.eq_def] at hhold
+  by_cases hhr : (hh == sk.rootH) = true
+  · exfalso
+    rw [if_pos hhr] at hhold
+    have hhr' : hh = sk.rootH := beq_iff_eq.mp hhr
+    have htop := hL.top
+    unfold topLocalOk at htop
+    simp only [Bool.and_eq_true] at htop
+    cases p with
+    | I =>
+        have hio : s.base.iopenCh = some IOblig.wire :=
+          beq_iff_eq.mp hhold
+        have hc1 := htop.1.1.1.1.1.1.1.1.1.1.1
+        rw [Bool.or_eq_true, bne_iff_ne] at hc1
+        have hnw : s.base.iopenWire = false := by
+          rcases hc1 with hne | hnw
+          · exact absurd hio hne
+          · rwa [Bool.not_eq_true'] at hnw
+        have hz : sentOf sk s.base (Chan.wire Party.I hh) = 0 := by
+          show (if (hh == sk.rootH) = true then
+            (if (Party.I == Party.I) = true then b2n s.base.iopenWire
+             else b2n s.base.ropenWire)
+          else wkWireSent sk s.base (Party.I, hh)) = 0
+          rw [if_pos hhr,
+            if_pos (show ((Party.I == Party.I) = true) from rfl), hnw]
+          rfl
+        rw [hz] at hKs
+        exact hK (by omega)
+    | R =>
+        have hro : s.base.ropenCh = some ROblig.wire :=
+          beq_iff_eq.mp hhold
+        have hc6 := htop.1.1.1.1.1.1.2
+        rw [Bool.or_eq_true, bne_iff_ne] at hc6
+        have hnw : s.base.ropenWire = false := by
+          rcases hc6 with hne | hnw
+          · exact absurd hro hne
+          · rwa [Bool.not_eq_true'] at hnw
+        have hz : sentOf sk s.base (Chan.wire Party.R hh) = 0 := by
+          show (if (hh == sk.rootH) = true then
+            (if (Party.R == Party.I) = true then b2n s.base.iopenWire
+             else b2n s.base.ropenWire)
+          else wkWireSent sk s.base (Party.R, hh)) = 0
+          rw [if_pos hhr,
+            if_neg (show ¬ ((Party.R == Party.I) = true) by decide),
+            hnw]
+          rfl
+        rw [hz] at hKs
+        exact hK (by omega)
+  · -- the walk hand's pending fire places the withheld send
+    rw [if_neg hhr] at hhold
+    simp only [Bool.and_eq_true] at hhold
+    obtain ⟨⟨hcon, hph⟩, hcm⟩ := hhold
+    have hpk : (p, hh) ∈ sk.walkKeys :=
+      (List.contains_iff_mem ..).mp hcon
+    have hph2 : (s.base.walk (p, hh)).phase = 2 := by
+      simpa using hph
+    obtain ⟨i, hcmi⟩ : ∃ i, (s.base.walk (p, hh)).committed
+        = some (Oblig.wire i) := by
+      cases hcmv : (s.base.walk (p, hh)).committed with
+      | none => rw [hcmv] at hcm; cases hcm
+      | some o =>
+          cases o with
+          | wire i => exact ⟨i, rfl⟩
+          | res i => rw [hcmv] at hcm; cases hcm
+          | query i => rw [hcmv] at hcm; cases hcm
+          | parent => rw [hcmv] at hcm; cases hcm
+    have hwk : Sched.wkPend sk s.base (p, hh)
+        = [((wireOut (p, hh), true,
+            sk.wiresBefore hh (s.base.walk (p, hh)).scope + i),
+           Action.walkFire (p, hh))] := by
+      simp [Sched.wkPend, hph2, hcmi]
+    have hpmem : ((wireOut (p, hh), true,
+        sk.wiresBefore hh (s.base.walk (p, hh)).scope + i),
+        Action.walkFire (p, hh)) ∈ Sched.pends sk s.base := by
+      refine (Sched.pends_lift sk).2.2.1 (p, hh) hpk _ ?_
+      rw [hwk]
+      exact List.mem_singleton.mpr rfl
+    have hioh := mstuck_ioh (sk := sk) hstuck
+    have hroh := mstuck_roh (sk := sk) hL hstuck
+    have hwkh := mstuck_wkh hwf hL hstuck rfl
+    obtain ⟨hok, T, pre, suf, hT, hdec, -⟩ :=
+      Sched.pends_soundE sk hwf hL hioh hroh hwkh _ hpmem
+    have hseq : sk.wiresBefore hh (s.base.walk (p, hh)).scope + i
+        = sentOf sk s.base (Chan.wire p hh) := by
+      have hs := hok.seq
+      simp only [] at hs
+      exact hs
+    have hfmem : ((Chan.wire p hh, true,
+        sentOf sk s.base (Chan.wire p hh)) : Ev) ∈ scheduleE sk := by
+      have hfT : ((wireOut (p, hh), true,
+          sk.wiresBefore hh (s.base.walk (p, hh)).scope + i) : Ev)
+          ∈ T := by
+        rw [hdec]
+        exact List.mem_append.mpr (.inr (List.mem_cons_self ..))
+      have := (Sched.trace_sublistE sk hwf hm0 hT).mem hfT
+      rw [show ((wireOut (p, hh), true,
+          sk.wiresBefore hh (s.base.walk (p, hh)).scope + i) : Ev)
+          = ((Chan.wire p hh, true,
+              sentOf sk s.base (Chan.wire p hh)) : Ev) from by
+        rw [Prod.mk.injEq, Prod.mk.injEq]
+        exact ⟨rfl, rfl, hseq⟩] at this
+      exact this
+    -- the predecessor receive, τ-below the withheld send
+    have hcap1 : sk.cap (Chan.wire p hh) = 1 := rfl
+    obtain ⟨hrmem, hrτ⟩ := tau_e2 hwf hfmem (by
+      rw [hcap1]
+      omega)
+    rw [hcap1] at hrmem hrτ
+    have hfl := flatten_of_own_wire_recv W p hrmem hrτ
+    have hcov := causal_closure_coverage W p
+      (evIdx ((Chan.wire p hh, false,
+        sentOf sk s.base (Chan.wire p hh) - 1) : Ev) (scheduleE sk) + 1)
+      _ hrmem hrτ (by omega) hfl
+    have hinev := mem_inevitableA_of_closureNA hcov
+    rw [show (aviewOf sk p (s.hist p)).party = p from rfl, hKs]
+    exact hinev
+
 end StreamingMirror.Mux
