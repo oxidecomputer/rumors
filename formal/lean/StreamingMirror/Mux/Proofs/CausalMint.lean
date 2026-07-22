@@ -3350,4 +3350,314 @@ theorem asm_laid {s : MState} {N : Nat} (W : Wall sk s N) (p : Party)
   · exact asm_laid_answerer W p hpk (by simpa using hside) hidx heidx
       hrfacts.1 (by omega)
 
+
+-- ================================ the announced-flatten dispatcher
+
+/-- Is this channel internal to party `p`'s PEER endpoint? The closure's
+I-step predecessors live on exactly these: no internal channel crosses
+the link, so a peer trace's E1/E2 past stays at the peer. -/
+def PeerInternal (p : Party) : Chan → Prop
+  | .asked q _ => q = p.other
+  | .upper q _ => q = p.other
+  | .lower q _ => q = p.other
+  | .level q _ => q = p.other
+  | .leafRequests => p = Party.R
+  | .rootres => p = Party.I
+  | .rootrets => p = Party.I
+  | .rootret => p = Party.R
+  | .wire _ _ => False
+
+/-- Lift a laid walk-stage event into the announced flatten. -/
+private theorem flatten_of_walk {s : MState} {N : Nat} (W : Wall sk s N)
+    (p : Party) {h : Nat} (hpk : (p.other, h) ∈ sk.walkKeys) {e : Ev}
+    (he : e ∈ Sched.walkEventsE sk (p.other, h))
+    (hτ : evIdx e (scheduleE sk) < N) :
+    e ∈ (announcedProcs (aviewOf sk p (s.hist p))).flatten := by
+  refine List.mem_flatten.mpr
+    ⟨peerWalkTraceA (aviewOf sk p (s.hist p)) h, ?_,
+      walk_laid W p hpk he hτ⟩
+  unfold announcedProcs
+  refine List.mem_append.mpr (.inl (List.mem_append.mpr (.inl
+    (List.mem_append.mpr (.inl (List.mem_append.mpr (.inr ?_)))))))
+  exact List.mem_map.mpr ⟨h, mem_peerStagesA W.wf p (s.hist p) hpk, rfl⟩
+
+/-- Lift a laid assembler event into the announced flatten. -/
+private theorem flatten_of_asm {s : MState} {N : Nat} (W : Wall sk s N)
+    (p : Party) {j : Nat} (hpk : (p.other, j) ∈ sk.asmKeys) {e : Ev}
+    (he : e ∈ Sched.asmEvents sk (p.other, j))
+    (hτ : evIdx e (scheduleE sk) < N) :
+    e ∈ (announcedProcs (aviewOf sk p (s.hist p))).flatten := by
+  refine List.mem_flatten.mpr
+    ⟨peerAsmTraceA (aviewOf sk p (s.hist p)) j, ?_,
+      asm_laid W p hpk he hτ⟩
+  unfold announcedProcs
+  refine List.mem_append.mpr (.inl (List.mem_append.mpr (.inr ?_)))
+  exact List.mem_map.mpr ⟨j, mem_peerAsmHeightsA p (s.hist p) hpk, rfl⟩
+
+/-- Lift a laid opener event into the announced flatten. -/
+private theorem flatten_of_open {s : MState} {N : Nat} (W : Wall sk s N)
+    (p : Party) {e : Ev}
+    (he : e ∈ (if p = Party.I then Sched.ropenEvents sk
+      else Sched.iopenEvents sk))
+    (hτ : evIdx e (scheduleE sk) < N) :
+    e ∈ (announcedProcs (aviewOf sk p (s.hist p))).flatten := by
+  refine List.mem_flatten.mpr
+    ⟨peerOpenTraceA (aviewOf sk p (s.hist p)), ?_, open_laid W p he hτ⟩
+  unfold announcedProcs
+  refine List.mem_append.mpr (.inl (List.mem_append.mpr (.inl
+    (List.mem_append.mpr (.inl (List.mem_append.mpr (.inl ?_)))))))
+  exact List.mem_singleton.mpr rfl
+
+/-- Lift a laid absorber event into the announced flatten. -/
+private theorem flatten_of_absorb {s : MState} {N : Nat}
+    (W : Wall sk s N) (hp : Party.R = Party.R) {e : Ev}
+    (he : e ∈ Sched.absorbEvents sk)
+    (hτ : evIdx e (scheduleE sk) < N) :
+    e ∈ (announcedProcs (aviewOf sk Party.R
+      (s.hist Party.R))).flatten := by
+  refine List.mem_flatten.mpr
+    ⟨peerAbsorbTraceA (aviewOf sk Party.R (s.hist Party.R)), ?_,
+      absorb_laid W rfl he hτ⟩
+  unfold announcedProcs
+  refine List.mem_append.mpr (.inl (List.mem_append.mpr (.inl
+    (List.mem_append.mpr (.inr ?_)))))
+  exact List.mem_singleton.mpr rfl
+
+/-- Lift a laid finale event into the announced flatten. -/
+private theorem flatten_of_fin {s : MState} {N : Nat} (W : Wall sk s N)
+    (p : Party) {e : Ev}
+    (he : e ∈ (if p = Party.I then Sched.finEvents sk
+      else [((Chan.rootret : Chan), false, 0)]))
+    (hτ : evIdx e (scheduleE sk) < N) :
+    e ∈ (announcedProcs (aviewOf sk p (s.hist p))).flatten := by
+  obtain ⟨T, hT, heT⟩ := fin_laid W p he hτ
+  refine List.mem_flatten.mpr ⟨T, ?_, heT⟩
+  unfold announcedProcs
+  exact List.mem_append.mpr (.inr hT)
+
+/-- The flatten dispatcher: any scheduled event below the wall on a
+peer-internal channel is announced-laid — the trace decode routes it to
+its owning family's laid lemma, and the channel's party pins the family
+to the peer endpoint. -/
+theorem flatten_of_sched {s : MState} {N : Nat} (W : Wall sk s N)
+    (p : Party) {c : Chan} {b : Bool} {n : Nat}
+    (hmem : ((c, b, n) : Ev) ∈ scheduleE sk)
+    (hτ : evIdx ((c, b, n) : Ev) (scheduleE sk) < N)
+    (hchan : PeerInternal p c) :
+    ((c, b, n) : Ev)
+      ∈ (announcedProcs (aviewOf sk p (s.hist p))).flatten := by
+  obtain ⟨T, hT, heT⟩ := mem_evUniv.mp (mem_evUniv_of_mem_scheduleE hmem)
+  rcases Sched.procsE_cases sk hT with rfl | rfl | ⟨i, hir, rfl⟩ | rfl
+    | ⟨pk, hpk, rfl⟩ | rfl | rfl
+  · -- iopen: the root query is the responder's peer opener
+    unfold Sched.iopenEvents at heT
+    rcases List.mem_cons.mp heT with heq | he2
+    · injection heq with h1 h2
+      rw [h1] at hchan
+      cases hchan
+    rcases List.mem_cons.mp he2 with heq | he3
+    · have hc : c = Chan.asked Party.I (sk.rootH - 1) := by
+        injection heq
+      rw [hc] at hchan
+      have hp : p = Party.R := by
+        cases p
+        · exact absurd hchan (fun hc => nomatch hc)
+        · rfl
+      subst hp
+      refine flatten_of_open W Party.R ?_ hτ
+      rw [if_neg (by decide)]
+      exact heT
+    · cases he3
+  · -- ropen: the reply-side events are the initiator's peer opener
+    have hropen : ∀ x ∈ Sched.ropenEvents sk,
+        x.2.1 = false → x.1 = Chan.wire Party.I sk.rootH := by
+      intro x hx
+      unfold Sched.ropenEvents at hx
+      rcases List.mem_cons.mp hx with rfl | hx2
+      · intro _; rfl
+      rcases List.mem_cons.mp hx2 with rfl | hx3
+      · intro hc; cases hc
+      rcases List.mem_cons.mp hx3 with rfl | hx4
+      · intro hc; cases hc
+      · obtain ⟨t, -, rfl⟩ := List.mem_map.mp hx4
+        intro hc; cases hc
+    have hp : p = Party.I := by
+      unfold Sched.ropenEvents at heT
+      rcases List.mem_cons.mp heT with heq | he2
+      · injection heq with h1 h2
+        rw [h1] at hchan
+        cases hchan
+      rcases List.mem_cons.mp he2 with heq | he3
+      · injection heq with h1 h2
+        rw [h1] at hchan
+        cases hchan
+      rcases List.mem_cons.mp he3 with heq | he4
+      · have hc : c = Chan.rootres := by injection heq
+        rw [hc] at hchan
+        exact hchan
+      · obtain ⟨t, -, heq⟩ := List.mem_map.mp he4
+        have hc : c = Chan.asked Party.R (sk.rootH - 2) := by
+          injection heq.symm
+        rw [hc] at hchan
+        cases hp2 : p
+        · rfl
+        · rw [hp2] at hchan
+          exact absurd hchan (fun hc => nomatch hc)
+    subst hp
+    refine flatten_of_open W Party.I ?_ hτ
+    rw [if_pos rfl]
+    exact heT
+  · -- a walk stage: the channel's party is the stage's owner
+    have hpk := Sched.walkOrder_mem_keys sk W.wf hir
+    generalize hpk_def : ((if (sk.rootH - 1 - i) % 2 == 1 then Party.I
+        else Party.R), sk.rootH - 1 - i) = pk at hpk heT
+    obtain ⟨q', h'⟩ := pk
+    have hsupp := (Sched.walkEvents_support sk (q', h')) _
+      ((Sched.walkEventsE_perm sk (q', h')).mem_iff.mp heT)
+    have hq' : q' = p.other := by
+      cases b with
+      | true =>
+          rcases hsupp.1 rfl with hc | hc | hc | ⟨hc, hne⟩
+          · rw [show upperOut (q', h') = Chan.upper q' h' from rfl]
+              at hc
+            rw [show ((c, true, n) : Ev).1 = c from rfl] at hc
+            rw [hc] at hchan
+            exact hchan
+          · rw [show wireOut (q', h') = Chan.wire q' h' from rfl] at hc
+            rw [show ((c, true, n) : Ev).1 = c from rfl] at hc
+            rw [hc] at hchan
+            cases hchan
+          · rw [show lowerOut (q', h') = Chan.lower q' h' from rfl]
+              at hc
+            rw [show ((c, true, n) : Ev).1 = c from rfl] at hc
+            rw [hc] at hchan
+            exact hchan
+          · rw [show ((c, true, n) : Ev).1 = c from rfl] at hc
+            rw [askedOut] at hc
+            by_cases h2 : h' < 2
+            · rw [if_pos h2] at hc
+              -- leafRequests: the query stage is (I, 1)
+              rw [hc] at hchan
+              have hI : q' = Party.I := by
+                obtain ⟨h1, hpar⟩ := Sched.walkKeys_parity sk W.wf hpk
+                rcases hpar with ⟨hq, -⟩ | ⟨hq, hpar⟩
+                · exact hq
+                · -- (R, 0): the leaf stage launches no queries
+                  exfalso
+                  have h0 : h' = 0 := by omega
+                  exact hne h0
+              rw [hchan, hI]
+              rfl
+            · rw [if_neg h2] at hc
+              rw [hc] at hchan
+              exact hchan
+      | false =>
+          rcases hsupp.2 rfl with hc | hc
+          · rw [show wireIn (q', h')
+              = Chan.wire q'.other (h' + 1) from rfl] at hc
+            rw [show ((c, false, n) : Ev).1 = c from rfl] at hc
+            rw [hc] at hchan
+            cases hchan
+          · rw [show askedIn (q', h') = Chan.asked q' h' from rfl] at hc
+            rw [show ((c, false, n) : Ev).1 = c from rfl] at hc
+            rw [hc] at hchan
+            exact hchan
+    subst hq'
+    exact flatten_of_walk W p hpk heT hτ
+  · -- the absorber: initiator-side, the responder's peer process
+    have hp : p = Party.R := by
+      unfold Sched.absorbEvents at heT
+      obtain ⟨jj, -, hj⟩ := List.mem_flatMap.mp heT
+      rcases List.mem_cons.mp hj with heq | hj2
+      · injection heq with h1 h2
+        rw [h1] at hchan
+        cases hchan
+      rcases List.mem_cons.mp hj2 with heq | hj3
+      · have hc : c = Chan.leafRequests := by injection heq
+        rw [hc] at hchan
+        exact hchan
+      rcases List.mem_cons.mp hj3 with heq | hj4
+      · have hc : c = Chan.level Party.I 0 := by injection heq
+        rw [hc] at hchan
+        cases hp2 : p
+        · rw [hp2] at hchan
+          exact absurd hchan (fun hc => nomatch hc)
+        · rfl
+      · cases hj4
+    subst hp
+    exact flatten_of_absorb W rfl heT hτ
+  · -- an assembler: the channel's party is the assembler's owner
+    obtain ⟨q', j⟩ := pk
+    have hsupp := (Sched.asmEvents_support sk (q', j)) _ heT
+    have hq' : q' = p.other := by
+      cases b with
+      | true =>
+          have hc := hsupp.1 rfl
+          rw [show ((c, true, n) : Ev).1 = c from rfl] at hc
+          rw [Skel.asmOutChan] at hc
+          by_cases h1 : (q' == Party.I && j == sk.rootH) = true
+          · rw [if_pos h1] at hc
+            rw [hc] at hchan
+            simp only [Bool.and_eq_true, beq_iff_eq] at h1
+            rw [h1.1]
+            cases hp2 : p
+            · rw [hp2] at hchan
+              exact absurd hchan (fun hc => nomatch hc)
+            · rfl
+          · rw [if_neg h1] at hc
+            by_cases h2 : (q' == Party.R && j == sk.rootH - 1) = true
+            · rw [if_pos h2] at hc
+              rw [hc] at hchan
+              simp only [Bool.and_eq_true, beq_iff_eq] at h2
+              rw [h2.1]
+              cases hp2 : p
+              · rfl
+              · rw [hp2] at hchan
+                exact absurd hchan (fun hc => nomatch hc)
+            · rw [if_neg h2] at hc
+              rw [hc] at hchan
+              exact hchan
+      | false =>
+          rcases hsupp.2 rfl with hc | hc
+          · rw [show ((c, false, n) : Ev).1 = c from rfl] at hc
+            rw [asmResChan] at hc
+            by_cases ha : asks q' j = true
+            · rw [if_pos ha] at hc
+              rw [hc] at hchan
+              exact hchan
+            · rw [if_neg ha] at hc
+              rw [hc] at hchan
+              exact hchan
+          · rw [show ((c, false, n) : Ev).1 = c from rfl] at hc
+            rw [show asmLevelChan (q', j) = Chan.level q' (j - 1)
+              from rfl] at hc
+            rw [hc] at hchan
+            exact hchan
+    subst hq'
+    exact flatten_of_asm W p hpk heT hτ
+  · -- the floating rootret receive: the responder's peer finale
+    have heq := List.mem_singleton.mp heT
+    have hc : c = Chan.rootret := by injection heq
+    rw [hc] at hchan
+    have hp : p = Party.R := hchan
+    subst hp
+    refine flatten_of_fin W Party.R ?_ hτ
+    rw [if_neg (by decide)]
+    exact heT
+  · -- fins: the initiator's peer finale
+    have hp : p = Party.I := by
+      unfold Sched.finEvents at heT
+      rcases List.mem_cons.mp heT with heq | he2
+      · have hc : c = Chan.rootres := by injection heq
+        rw [hc] at hchan
+        exact hchan
+      · obtain ⟨t, -, heq⟩ := List.mem_map.mp he2
+        have hc : c = Chan.rootrets := by injection heq.symm
+        rw [hc] at hchan
+        exact hchan
+    subst hp
+    refine flatten_of_fin W Party.I ?_ hτ
+    rw [if_pos rfl]
+    exact heT
+
 end StreamingMirror.Mux
