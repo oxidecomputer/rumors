@@ -922,8 +922,92 @@ consider-grade observations remain — so, per the pre-committed stop
 rule (round-5 synthesis §3, Finch's criterion), the review is CLOSED
 and phase 5 proceeds on the queue.
 
+### 2026-07-22 — Phase 5 (legibility) complete: the audit surface minted, the accumulated queue drained
+
+Per §3 item 5, governed by the phase-4 statement-faithfulness
+criterion. Deliverables, each committed `lake build` green:
+
+- **`Mux/Statement.lean`** — the audit surface, on the base
+  Statement.lean pattern: every statement of record restated INLINE,
+  fully quantified, proof by citation, so the kernel certifies the
+  surface IS the claim and drift fails the build (`c1_charter`,
+  `c1_omniscient`, `wc_impossibility`(`_K`),
+  `sigmaStarCausal_deadlock_free` + `_charterLocal`,
+  `sigmaStar_deadlock_free`, `oracle_deadlock_free`, `necessity`,
+  `elastic_deadlock_free`, `mux_terminating`, `mreachable_init`).
+  Module doc: the skeptical-reader contract (must-read: the harness,
+  the classes, the announced view — named as the charter grain's
+  honest audit cost — and the witness shapes; need-not-read:
+  Proofs/**, the strategy definitions), the Rust chain, the
+  assumed-not-proven ledger, conservativity, non-vacuity. A marked T8
+  SECTION STUB keyed to T8-SPEC.md's six clauses awaits the in-flight
+  track. Reader-facing names frozen: σ*-causal is the strategy of
+  record, σ* the omniscient proof vehicle (recorded at both
+  definition sites).
+- **The A12 source fix** (the directive's both branches, structural):
+  `RealWire` (Chase/Ground.lean) is the mandatory guard shape for
+  wire-count invariant fields; `recvdOf_phantom_alias` characterizes
+  the Nat-truncation trap at the accessor layer; and
+  `phantom_refutes_unguarded_delivered_eq` [decide] is the phase-4 F1
+  probe kernel-checked. The three wire-pair guard sites re-typed onto
+  the guard, zero proof changes (a quantifier-wrapper shape was tried
+  and rejected — beta-redex hypothesis types break `rw`-at consumers;
+  AUDIT-NOTES A12 RESOLVED records the design note).
+- **The charter-grain controls** (Mux/Proofs/Grains.lean; round-5
+  queue): `charterView_nondegenerate` (the CharterLocal analog of
+  `localEq_nondegenerate`), `oracle_not_charterLocal` (closing R5-1's
+  "established nowhere" gap), and the incomparability finding
+  upgraded from [derived] to kernel at BOTH tiers — relation
+  (`legacyEq_announced_differ`, `announcedEq_legacy_differ`) and
+  class (`announcedLeafProbe` charter-not-legacy, `viewProbe`
+  legacy-not-charter). Tags updated at C1.lean, Strategy.lean, and
+  the audit addendum.
+- **Drift guards** (Mux/Proofs/Twins.lean): `piOrder_eq_demandOrder`,
+  `wedgeFam_eq_wedgeW`, `applyU_eq_applyE` — the executable tier runs
+  the kernel objects, definitionally; muxprobe's self-test gains the
+  `piWedge` = `genSkelM0 2859` provenance pin.
+- **Naming and prose**: the probe relationship re-framed twin →
+  counterpart with the divergence-axes paragraph and every P1
+  citation qualified (round-5 mandatory consider #1); the no-ghost
+  sweep (Lean prose re-denominated in what IS — Oracle.lean,
+  Elastic.lean, C1.lean, Gen.lean, Muxprobe.lean; hazards kept, dead
+  code unnamed); Gen.lean's π-order claims qualified to matrix tier
+  (round-6 consider #1); byte pointers on both impossibilities
+  (round-6 consider #3); `close_cascadeE`'s stray docstring repaired
+  (AUDIT-NOTES A4 records the base-artifact find).
+- **`Mux/Proofs/Map.lean`** — the proof map (the Proofs/Map.lean
+  pattern extended): the transport dial (record = K(1,1), K-deep,
+  elastic = K = ∞, with the pins), the invariant family's canonical
+  map (InvP/InvPW/InvL; MuxInv/HistInv/SInv/EMuxInv/RecvLedger/
+  OracleInv with the drained-pipe collapse arrows), the per-statement
+  discharge map.
+- **Ledger**: MUX-STATEMENT-AUDIT ADDENDUM 2 (rows → Statement.lean
+  names; E4's tag retired; the twins pinned).
+
+Verified along the way (the phase-4/round-5 docstring-gap lists):
+every previously-swept item confirmed fixed in the tree —
+Instances/WcImpossibilityK/Elastic/CommitTotality/EndgameE/Ground/
+Controls/Muxprobe/C1/justfile/Order.lean; survivors fixed here are
+listed above. Gates: `lake build` green per commit (272 → 276 jobs),
+`lake exe muxprobe` verdict OK (piWedge pin live), doclint/testdoc
+clean (the Lean tier has no rustdoc pass; the justfile's docs gates
+cover the Rust crates, untouched).
+
+Remaining queue, recorded and deliberately routed onward: the
+height-gap matrix row (largest-tractable-height muxprobe row); the
+`Sched`/`Model` same-name dedup (`frontier_of_count`); the K/E
+run-level termination consumers (T8's tripwire — its track owns
+them); `necessity`'s cosmetic ∀C restatement of the positive conjunct
+(phase-4 consider #6).
+
 ## 5. Log
 
+- **2026-07-22** Phase 5 (legibility) complete — see §4's entry:
+  Mux/Statement.lean (the audit surface + T8 stub), the A12 source
+  fix (`RealWire`), Grains.lean (charter controls; incomparability
+  kernel-pinned), Twins.lean (drift guards), the counterpart
+  re-framing, the no-ghost sweep, Mux/Proofs/Map.lean, the audit
+  ADDENDUM 2. Build green at 276 jobs; muxprobe OK.
 - **2026-07-21** Campaign opened. Charter fixed (§1): message set
   frozen, credits out of scope, both conjectures to be settled in Lean
   atop the completed deadlock-freedom artifact. Worktree

@@ -326,3 +326,43 @@ record, the omniscient σ* as the proof vehicle) is now decidable and
 queued for `Mux/Statement.lean` (phase 5), which must inherit the
 round-5 fixes (the incomparability statement, not the retracted
 nesting claim; no `PView` ghost).
+
+---
+
+# ADDENDUM 2 — the phase-5 audit surface (2026-07-22)
+
+Phase 5 minted `Mux/Statement.lean`: every statement of record
+restated INLINE, fully quantified, with proof by citation, so the
+kernel checks that the audit surface IS the claim (drift between the
+surface and the proofs fails the build). The tables above map onto it
+as follows; grades are unchanged except where noted. All names below
+are in the `StreamingMirror.Mux.Statement` namespace.
+
+| Row(s) | Statement.lean name |
+|---|---|
+| A1 / E1 (C1 at the charter grain, refuted) | `c1_charter` |
+| A2 (the no-locality companion) | `c1_omniscient` |
+| A3 (C2 positive, T5) | `oracle_deadlock_free` |
+| A4 (necessity, T6) | `necessity` |
+| A5 / E2 / E4 (the constructive witness) | `sigmaStarCausal_deadlock_free`, `sigmaStarCausal_charterLocal`; the omniscient proof vehicle `sigmaStar_deadlock_free` |
+| B2 (C1-WC, T3) | `wc_impossibility`; the K-parking half `wc_impossibility_K` |
+| (the F5 completion companion) | `mux_terminating` |
+| (the elastic endpoint) | `elastic_deadlock_free` |
+
+Grade revisions this phase:
+
+- **E4's incomparability tag is retired**: the "[derived;
+  per-direction witness pins are phase-5 queue]" clause is now
+  kernel-pinned at relation AND class strength
+  (Mux/Proofs/Grains.lean: `legacyEq_announced_differ`,
+  `announcedEq_legacy_differ`; `announcedLeafProbe` charter-local but
+  not legacy-local, `viewProbe` legacy-local but not charter-local).
+- **The charter grain gained its mandated non-triviality controls**
+  (the round-5 consider #2 gap): `charterView_nondegenerate` and
+  `oracle_not_charterLocal` — the R5-1 consequence ("the oracle's
+  nonlocality at the grain of record is established nowhere") is
+  closed.
+- **The executable twins are pinned** (`piOrder_eq_demandOrder`,
+  `wedgeFam_eq_wedgeW`, `applyU_eq_applyE`, Mux/Proofs/Twins.lean),
+  and muxprobe's self-test pins `piWedge` = `genSkelM0 2859` per run —
+  the D5 row's provenance assertion now has an executable check.
