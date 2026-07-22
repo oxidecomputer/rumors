@@ -80,4 +80,5 @@ import StreamingMirror.Mux.Proofs.Twins
 import StreamingMirror.Mux.Proofs.Map
 import StreamingMirror.Mux.Proofs.Necessity
 import StreamingMirror.Mux.Proofs.Termination
+import StreamingMirror.Mux.Statement
 import StreamingMirror.Proofs.Wide
