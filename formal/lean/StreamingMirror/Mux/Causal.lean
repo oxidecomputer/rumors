@@ -77,13 +77,26 @@ Kernel-proven here: `sigmaStarCausal_charterLocal` (both parties,
 definitional), the wf-free `partyOf` pinning it rests on, and the
 executable pins (`smokeChain` and — the real derivation exercise —
 `wedge`, whose provision wall demands closure-proven frames 2..7 on
-the initiator's top stream). The liveness transfer — containment of
-`inevitableA` in the omniscient `inevitable` (Step 1's pipes-drain via
-the landed keystone) and the causal `closure_coverage` re-run (an
-A_p-sufficiency-at-stuck-states induction: announced records cover the
-τ-prefix because every consulted record's announcing arrival sits
-τ-below the consulting event) — is the recorded follow-up; T8 consumes
-exactly that coverage as its "inference progress" conjunct.
+the initiator's top stream).
+
+Kernel-proven in Proofs/CausalCoverage.lean and Proofs/CausalLive.lean
+(the liveness track): the announced-prefix property — every
+`announcedProcs` trace is a literal prefix of its true `.impl` process
+trace (`announcedProcs_prefix`, via the census/walk/assembler/absorber
+transcriptions) — the receive ledger (`RecvLedger`, the C-own evidence
+arm's ground fact, preserved strategy-generically), the causal
+keystone (`keystoneA`, T2 re-run over `inevitableA`), σ*-causal's push
+certificates (`pushProvenA_reachable`), Step 1's pipes-drain
+(`sigmaStarCausal_pipes_empty`), and the liveness assembly
+`sigmaStarCausal_deadlock_free_of_coverage`, which needs exactly ONE
+remaining conjunct: `CausalStuckCoverage` — Step 4's τ-staged coverage
+of the announced closure at stuck drained states. Its content is the
+minting lemma (every consulted record's minting arrival sits τ-below
+the consulting event, so the announced layouts extend past every
+performed event) composed with the `closure_coverage` induction re-run
+over `inevitableA`; `c1_charter_false` carries it as its one
+hypothesis, and T8 consumes the same fact as its "inference progress"
+conjunct.
 -/
 import StreamingMirror.Mux.Proofs.SigmaStarInv
 import StreamingMirror.Mux.Strategy

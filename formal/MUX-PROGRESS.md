@@ -243,6 +243,50 @@ Dated entries accumulate here as phases complete; refuted approaches are
 recorded with their refutations, in the PROGRESS.md tradition of keeping
 the negative space on the record.
 
+### 2026-07-21 — σ\*-causal liveness: Steps 1–3 kernel-proven; C1's charter hypothesis shrinks to the Step-4 coverage conjunct
+
+The causal-coverage track lands `Mux/Proofs/CausalCoverage.lean` and
+`Mux/Proofs/CausalLive.lean` (~2,900 lines, zero sorry). Kernel-proven:
+(i) **the announced-prefix property** — every `announcedProcs` trace is
+a literal prefix of its true `.impl` process trace
+(`announcedProcs_prefix`), via the census (`levelA` against the BFS
+level slices, with `collect`'s truncation discipline), the walk
+transcription (`chunksA_spec`/`peerBlockA_spec`/`goA_spec`: the chunk
+loop against `childChunk` with the prefix-sum counters threaded, leaf
+stage included), and the assembler/absorber/opener/finale families —
+the module-doc claim of Mux/Causal.lean is now a theorem, not prose;
+(ii) **the receive ledger** (`RecvLedger`): recorded wire-receive
+actions never outrun the base consumer counts and name real channels —
+the ground fact that makes `groundedA`'s C-own evidence arm sound;
+strategy-generic, preserved by the same per-arm Steps decomposition as
+`SInv` (a genuinely new invariant — the landed `MuxInv`/`HistInv`
+fields track pushes and deliveries but not receives); (iii) **the
+causal keystone** (`keystoneA`): T2 re-run over `inevitableA` — causal
+evidence performed against the count walls plus the receive ledger,
+I-step members decoded through the announced-prefix property instead
+of `evUniv`; (iv) **Step 1** — `PushProvenA` certificates ride every
+σ\*-causal push (`pushProvenA_reachable`) and
+`sigmaStarCausal_pipes_empty` drains both pipes at any stuck state;
+(v) **the liveness assembly**
+(`sigmaStarCausal_deadlock_free_of_coverage`): Steps 1–3 plus the
+final σ\*-causal-names-a-push inversion, needing exactly ONE conjunct:
+`CausalStuckCoverage` — Step 4, the τ-staged coverage of the announced
+closure at stuck drained states. `c1_charter_false` now carries THAT
+as its hypothesis instead of full deadlock freedom — a strictly
+stronger refutation; the hypothesis is verbatim T8's "inference
+progress" conjunct. REMAINING (recorded, not discharged): the
+minting-lemma induction — at a stuck drained state every peer-trace
+event τ-below the withheld push is announced-laid, walked as
+E1/trace-order τ-hops up the stage ladder (the τ-route needs no cursor
+decode: each consulted record's minting frame is delivered because its
+send is τ-below the consulting event and pipes are empty), plus the
+`closure_coverage` re-run over `inevitableA` and the same-party wiring
+dispatch (internal channels never cross the link, per-family). No
+counterexample surfaced anywhere in the transcription: every layout
+matched its true trace exactly at the announced frontier, so the
+minting lemma stands unrefuted with the wedge pin still its living
+witness.
+
 ### 2026-07-21 — σ\*-causal landed: charter-grain locality kernel-proven; the payload-erasure boundary named
 
 `Mux/Causal.lean` mints `sigmaStarCausal` — the Lean twin of the

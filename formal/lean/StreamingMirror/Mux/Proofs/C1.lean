@@ -33,13 +33,17 @@ charter-local. Each statement carries its own refutation witness.
   OUTRIGHT by ⟨1, σ*, σ*⟩ + T4 (`c1_omniscient_false`), unconditional.
 - `C1StatementCharter` (the statement of record): refuted by
   ⟨1, σ*-causal, σ*-causal⟩ with `sigmaStarCausal_charterLocal`
-  KERNEL-PROVEN (`c1_charter_false`). The one hypothesis is σ*-causal's
-  deadlock freedom — the probe-checked side of the ledger (4,970/4,970
-  terminal causal runs, STAGE0-GATES.md P1; in-kernel anchors
-  `smokeChain_sigmaStarCausal_completes` and
+  KERNEL-PROVEN (`c1_charter_false`). The one hypothesis is
+  `CausalStuckCoverage` — Step 4 of the liveness argument alone; Steps
+  1–3 are kernel-proven (Proofs/CausalCoverage.lean's causal keystone
+  and pipes-drain, Proofs/CausalLive.lean's assembly), as is the
+  announced-prefix property Step 4 rests on
+  (`announcedProcs_prefix`). The probe-checked evidence for the
+  conjunct: 4,970/4,970 terminal causal runs (STAGE0-GATES.md P1);
+  in-kernel anchors `smokeChain_sigmaStarCausal_completes` and
   `wedge_sigmaStarCausal_completes`, the latter driving the provision
-  wall every work-conserving pair jams). Its kernel discharge is the
-  causal coverage re-run recorded in Mux/Causal.lean's module doc —
+  wall every work-conserving pair jams. Its kernel discharge is the
+  minting-lemma induction recorded in Mux/Causal.lean's module doc —
   the same theorem T8's window-sliding needs as its "inference
   progress" conjunct, so the residue sits on T8's critical path, not
   beside it.
@@ -86,7 +90,7 @@ lookahead strategy `sigmaStarK K` demanding `rcv(c, k−K)`:
 A single-K statement would not cover the deployed configuration.
 -/
 import StreamingMirror.Mux.Proofs.SigmaStarLive
-import StreamingMirror.Mux.Causal
+import StreamingMirror.Mux.Proofs.CausalLive
 import StreamingMirror.Mux.Controls
 
 namespace StreamingMirror.Mux
@@ -139,25 +143,31 @@ theorem c1_omniscient_false : ¬ C1StatementOmniscient := by
   obtain ⟨sk, hwf, hm0, hnd⟩ := hc1 1 (Nat.le_refl 1) sigmaStar sigmaStar
   exact hnd (sigmaStar_deadlock_free hwf hm0 1 (Nat.le_refl 1))
 
-/-- The statement of record is false, GIVEN σ*-causal's deadlock
-freedom — the one hypothesis this artifact does not discharge, and the
-PROBE-CHECKED side of the ledger (4,970/4,970 terminal causal runs;
-kernel anchors `smokeChain_sigmaStarCausal_completes` and
-`wedge_sigmaStarCausal_completes`). Locality is kernel-proven
-(`sigmaStarCausal_charterLocal`), inverting the legacy form's residue:
-there the liveness was proven and the locality hypothesized; here the
-locality is proven and the liveness awaits the causal coverage re-run
-(Mux/Causal.lean module doc — T8's "inference progress" conjunct). -/
+/-- The statement of record is false, GIVEN the Step-4 coverage
+conjunct (`CausalStuckCoverage`) — a strictly smaller hypothesis than
+the deadlock freedom this refutation previously carried. Locality is
+kernel-proven (`sigmaStarCausal_charterLocal`); the liveness assembly
+is kernel-proven through Steps 1–3
+(`sigmaStarCausal_deadlock_free_of_coverage`: causal push certificates
+drain the pipes via the causal keystone, the chase names the withheld
+push, and σ*-causal is shown to push whenever coverage proves the
+frame demanded). What remains hypothesized is exactly refute-c1 §2.4
+re-run over the ANNOUNCED closure — the minting lemma plus the
+τ-staged induction, the same fact T8's window-sliding consumes as its
+"inference progress" conjunct — with the announced-prefix property it
+rests on kernel-proven (`announcedProcs_prefix`) and the probe/wedge
+evidence standing behind the rest (4,970/4,970 terminal causal runs;
+`wedge_sigmaStarCausal_completes`). -/
 theorem c1_charter_false
-    (hlive : ∀ (sk : Skel), sk.wellFormed = true →
-      (∀ sc, sk.dCount sc ≤ sk.capLevel) →
-      MuxDeadlockFree sk .impl 1 sigmaStarCausal sigmaStarCausal) :
+    (hcov : ∀ (sk : Skel), sk.wellFormed = true →
+      (∀ sc, sk.dCount sc ≤ sk.capLevel) → CausalStuckCoverage sk) :
     ¬ C1StatementCharter := by
   intro hc1
   obtain ⟨sk, hwf, hm0, hnd⟩ :=
     hc1 1 (Nat.le_refl 1) sigmaStarCausal sigmaStarCausal
       (sigmaStarCausal_charterLocal .I) (sigmaStarCausal_charterLocal .R)
-  exact hnd (hlive sk hwf hm0)
+  exact hnd (sigmaStarCausal_deadlock_free_of_coverage hwf hm0
+    (hcov sk hwf hm0) 1 (Nat.le_refl 1))
 
 /-- The LEGACY-grain statement is false, GIVEN σ*'s legacy locality —
 the hypothesis exactly as landed at stage 3 (module doc: it is the
