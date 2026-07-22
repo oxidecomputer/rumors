@@ -1224,4 +1224,426 @@ theorem census_reach {s : MState} {N : Nat} (W : Wall sk s N)
             hj2).2
           exact this v hv
 
+
+-- =================================================== the walk family
+-- Block-level membership in the announced walk layout: the chunk loop
+-- covers every true chunk whose D-kid records are announced, and the
+-- whole block completes when all of them are.
+
+/-- The chunk loop completes once every remaining D kid's record is
+announced (the `ok` flag half of the transcription; exactness then
+comes from `peerBlockA_spec`). -/
+private theorem chunksA_ok (hwf : sk.wellFormed = true)
+    {p : Party} {tr : List MObs} (q : Party) {h k : Nat}
+    (hk : k < sk.stageLen h)
+    (hann : sk.stageScope h k ∈ announcedIds sk p tr) (wires : Nat) :
+    ∀ (fuel i w d qacc : Nat),
+      i ≤ (sk.scope (sk.stageScope h k)).kids.length →
+      (sk.scope (sk.stageScope h k)).kids.length - i < fuel →
+      (∀ j, i ≤ j → sk.childIsD h (sk.stageScope h k) j = true →
+        (sk.scope (sk.stageScope h k)).kids.getD j 0
+          ∈ announcedIds sk p tr) →
+      (peerBlockA.chunks (aviewOf sk p tr) q h wires
+          (sk.scope (sk.stageScope h k))
+          (if (h == 0) = true then
+            (sk.scope (sk.stageScope h k)).leafReqs
+          else (sk.scope (sk.stageScope h k)).kids.length)
+          i w d qacc fuel).2.2 = true := by
+  intro fuel
+  induction fuel with
+  | zero =>
+      intro i w d qacc hi hfuel
+      omega
+  | succ fuel ih =>
+      intro i w d qacc hi hfuel hrecs
+      by_cases h0 : (h == 0) = true
+      · rw [peerBlockA.chunks, if_pos h0]
+      · by_cases hin : i = (sk.scope (sk.stageScope h k)).kids.length
+        · have hnone : (sk.scope (sk.stageScope h k)).kids[i]? = none := by
+            rw [hin]
+            exact List.getElem?_eq_none (Nat.le_refl _)
+          rw [peerBlockA.chunks, if_neg h0]
+          simp only [hnone]
+        · have hilt : i < (sk.scope (sk.stageScope h k)).kids.length := by
+            omega
+          have hget : (sk.scope (sk.stageScope h k)).kids[i]?
+              = some ((sk.scope (sk.stageScope h k)).kids[i]) :=
+            List.getElem?_eq_getElem hilt
+          have hvmem : (sk.scope (sk.stageScope h k)).kids[i]
+              ∈ (sk.scope (sk.stageScope h k)).kids :=
+            List.getElem_mem hilt
+          have hkind := kind?_aviewOf_of_kid (p := p) (tr := tr) hwf hann
+            hvmem
+          cases hkindv : (sk.scope
+              ((sk.scope (sk.stageScope h k)).kids[i])).kind with
+          | R =>
+              have hrec := ih (i + 1) (w + 1) d qacc (by omega) (by omega)
+                (fun j hj hD => hrecs j (by omega) hD)
+              rcases hcall : peerBlockA.chunks (aviewOf sk p tr) q h wires
+                  (sk.scope (sk.stageScope h k))
+                  (if (h == 0) = true then
+                    (sk.scope (sk.stageScope h k)).leafReqs
+                  else (sk.scope (sk.stageScope h k)).kids.length)
+                  (i + 1) (w + 1) d qacc fuel with ⟨evs, cnts, ok⟩
+              rw [hcall] at hrec
+              rw [peerBlockA.chunks, if_neg h0]
+              simp only [hget, hkind, hkindv, hcall]
+              exact hrec
+          | D =>
+              have hD : sk.childIsD h (sk.stageScope h k) i = true := by
+                unfold Skel.childIsD
+                rw [if_neg h0, hget]
+                show ((sk.scope
+                  ((sk.scope (sk.stageScope h k)).kids[i])).kind
+                    == Kind.D) = true
+                rw [hkindv]
+                rfl
+              have hannv := hrecs i (Nat.le_refl _) hD
+              rw [List.getD_eq_getElem?_getD,
+                List.getElem?_eq_getElem hilt, Option.getD_some] at hannv
+              have hrecv : (aviewOf sk p tr).rec?
+                  ((sk.scope (sk.stageScope h k)).kids[i])
+                  = some (sk.scope
+                      ((sk.scope (sk.stageScope h k)).kids[i])) := by
+                rw [rec?_aviewOf, if_pos hannv]
+              have hrec := ih (i + 1) (w + 1) (d + 1)
+                (qacc + (if ((h : Nat) == 1) = true then
+                  (sk.scope
+                    ((sk.scope (sk.stageScope h k)).kids[i])).leafReqs
+                else (sk.scope
+                  ((sk.scope (sk.stageScope h k)).kids[i])).kids.length))
+                (by omega) (by omega)
+                (fun j hj hDj => hrecs j (by omega) hDj)
+              rcases hcall : peerBlockA.chunks (aviewOf sk p tr) q h wires
+                  (sk.scope (sk.stageScope h k))
+                  (if (h == 0) = true then
+                    (sk.scope (sk.stageScope h k)).leafReqs
+                  else (sk.scope (sk.stageScope h k)).kids.length)
+                  (i + 1) (w + 1) (d + 1)
+                  (qacc + (if ((h : Nat) == 1) = true then
+                    (sk.scope
+                      ((sk.scope (sk.stageScope h k)).kids[i])).leafReqs
+                  else (sk.scope
+                    ((sk.scope (sk.stageScope h k)).kids[i])).kids.length))
+                  fuel with ⟨evs, cnts, ok⟩
+              rw [hcall] at hrec
+              rw [peerBlockA.chunks, if_neg h0]
+              simp only [hget, hkind, hkindv, qCountA, hrecv, Option.map,
+                hcall]
+              exact hrec
+
+
+/-- The chunk loop covers a target chunk: with the counters aligned and
+the D-kid records announced strictly below the target, the target's
+wire is emitted; with the target's own record too (when disputed), its
+whole true chunk is. -/
+private theorem chunksA_covers (hwf : sk.wellFormed = true)
+    {p : Party} {tr : List MObs} (q : Party) {h k : Nat}
+    (hk : k < sk.stageLen h) (h0 : (h == 0) = false)
+    (hann : sk.stageScope h k ∈ announcedIds sk p tr) (wires : Nat)
+    (it : Nat) (hit : it < (sk.scope (sk.stageScope h k)).kids.length) :
+    ∀ (fuel i w d qacc : Nat),
+      i ≤ it →
+      (sk.scope (sk.stageScope h k)).kids.length - i < fuel →
+      w = sk.wiresBefore h k + i →
+      d = sk.dsBefore h k
+        + ((List.range i).filter
+            (sk.childIsD h (sk.stageScope h k))).length →
+      qacc = sk.qsBefore h k
+        + ((List.range i).map
+            (sk.qCount h (sk.stageScope h k))).sum →
+      (∀ j, i ≤ j → j < it → sk.childIsD h (sk.stageScope h k) j = true →
+        (sk.scope (sk.stageScope h k)).kids.getD j 0
+          ∈ announcedIds sk p tr) →
+      (((Chan.wire q h, true, sk.wiresBefore h k + it) : Ev)
+          ∈ (peerBlockA.chunks (aviewOf sk p tr) q h wires
+              (sk.scope (sk.stageScope h k))
+              (if (h == 0) = true then
+                (sk.scope (sk.stageScope h k)).leafReqs
+              else (sk.scope (sk.stageScope h k)).kids.length)
+              i w d qacc fuel).1)
+      ∧ ((sk.childIsD h (sk.stageScope h k) it = true →
+            (sk.scope (sk.stageScope h k)).kids.getD it 0
+              ∈ announcedIds sk p tr) →
+          ∀ x ∈ Sched.childChunk sk (q, h) k it,
+            x ∈ (peerBlockA.chunks (aviewOf sk p tr) q h wires
+                (sk.scope (sk.stageScope h k))
+                (if (h == 0) = true then
+                  (sk.scope (sk.stageScope h k)).leafReqs
+                else (sk.scope (sk.stageScope h k)).kids.length)
+                i w d qacc fuel).1) := by
+  have h0' : h ≠ 0 := by simpa using h0
+  intro fuel
+  induction fuel with
+  | zero =>
+      intro i w d qacc hi hfuel
+      omega
+  | succ fuel ih =>
+      intro i w d qacc hi hfuel hw hd hq hrecs
+      have hilt : i < (sk.scope (sk.stageScope h k)).kids.length := by
+        omega
+      have hget : (sk.scope (sk.stageScope h k)).kids[i]?
+          = some ((sk.scope (sk.stageScope h k)).kids[i]) :=
+        List.getElem?_eq_getElem hilt
+      have hvmem : (sk.scope (sk.stageScope h k)).kids[i]
+          ∈ (sk.scope (sk.stageScope h k)).kids :=
+        List.getElem_mem hilt
+      have hkind := kind?_aviewOf_of_kid (p := p) (tr := tr) hwf hann
+        hvmem
+      have hureal : sk.stageScope h k < sk.scopes.length :=
+        stageScope_lt_scopes sk hk
+      have hheight : (sk.scope
+          ((sk.scope (sk.stageScope h k)).kids[i])).height = h := by
+        have hkf := (Sched.wf_kid_facts hwf hureal _ hvmem).2
+        have hsh := Sched.stageScope_height sk (h := h) (k := k) hk
+        omega
+      -- range prefix-sum steps
+      have hdrank : ((List.range (i + 1)).filter
+          (sk.childIsD h (sk.stageScope h k))).length
+          = ((List.range i).filter
+              (sk.childIsD h (sk.stageScope h k))).length
+            + (if sk.childIsD h (sk.stageScope h k) i then 1 else 0) := by
+        rw [List.range_succ, List.filter_append, List.length_append]
+        congr 1
+        by_cases hDi : sk.childIsD h (sk.stageScope h k) i = true
+        · rw [List.filter_cons, if_pos hDi, if_pos hDi]
+          rfl
+        · rw [List.filter_cons, if_neg (by simpa using hDi),
+            if_neg (by simpa using hDi)]
+          rfl
+      have hqsum : ((List.range (i + 1)).map
+          (sk.qCount h (sk.stageScope h k))).sum
+          = ((List.range i).map
+              (sk.qCount h (sk.stageScope h k))).sum
+            + sk.qCount h (sk.stageScope h k) i := by
+        rw [List.range_succ, List.map_append, List.sum_append]
+        rfl
+      cases hkindv : (sk.scope
+          ((sk.scope (sk.stageScope h k)).kids[i])).kind with
+      | R =>
+          have hDi : sk.childIsD h (sk.stageScope h k) i = false := by
+            unfold Skel.childIsD
+            rw [if_neg (by simpa using h0'), hget]
+            show ((sk.scope
+              ((sk.scope (sk.stageScope h k)).kids[i])).kind
+                == Kind.D) = false
+            rw [hkindv]
+            rfl
+          have hq0 : sk.qCount h (sk.stageScope h k) i = 0 := by
+            unfold Skel.qCount
+            rw [if_pos (by simp [hDi])]
+          rcases hcall : peerBlockA.chunks (aviewOf sk p tr) q h wires
+              (sk.scope (sk.stageScope h k))
+              (if (h == 0) = true then
+                (sk.scope (sk.stageScope h k)).leafReqs
+              else (sk.scope (sk.stageScope h k)).kids.length)
+              (i + 1) (w + 1) d qacc fuel with ⟨evs, cnts, ok⟩
+          have hstep : peerBlockA.chunks (aviewOf sk p tr) q h wires
+              (sk.scope (sk.stageScope h k))
+              (if (h == 0) = true then
+                (sk.scope (sk.stageScope h k)).leafReqs
+              else (sk.scope (sk.stageScope h k)).kids.length)
+              i w d qacc (fuel + 1)
+              = ((Chan.wire q h, true, w) :: evs, cnts, ok) := by
+            rw [peerBlockA.chunks, if_neg (by simpa using h0')]
+            simp only [hget, hkind, hkindv, hcall]
+          by_cases hii : i = it
+          · -- the target is an R chunk: its wire is the whole chunk
+            subst hii
+            rw [hstep]
+            constructor
+            · rw [hw]
+              exact List.mem_cons_self ..
+            · intro _ x hx
+              have hcc : Sched.childChunk sk (q, h) k i
+                  = [((Chan.wire q h, true,
+                      sk.wiresBefore h k + i) : Ev)] := by
+                unfold Sched.childChunk
+                rw [if_neg (by simp [hDi])]
+                rfl
+              rw [hcc, List.mem_singleton] at hx
+              subst hx
+              rw [hw]
+              exact List.mem_cons_self ..
+          · have hlt : i < it := by omega
+            have hrec := ih (i + 1) (w + 1) d qacc (by omega) (by omega)
+              (by omega)
+              (by rw [hd, hdrank, hDi]; simp)
+              (by rw [hq, hqsum, hq0]; omega)
+              (fun j hj hjt hD => hrecs j (by omega) hjt hD)
+            rw [hcall] at hrec
+            rw [hstep]
+            exact ⟨List.mem_cons_of_mem _ hrec.1,
+              fun hr x hx => List.mem_cons_of_mem _ (hrec.2 hr x hx)⟩
+      | D =>
+          have hDi : sk.childIsD h (sk.stageScope h k) i = true := by
+            unfold Skel.childIsD
+            rw [if_neg (by simpa using h0'), hget]
+            show ((sk.scope
+              ((sk.scope (sk.stageScope h k)).kids[i])).kind
+                == Kind.D) = true
+            rw [hkindv]
+            rfl
+          have hqc : sk.qCount h (sk.stageScope h k) i
+              = (if ((h : Nat) == 1) = true then
+                  (sk.scope
+                    ((sk.scope (sk.stageScope h k)).kids[i])).leafReqs
+                else (sk.scope
+                  ((sk.scope (sk.stageScope h k)).kids[i])).kids.length)
+              := by
+            unfold Skel.qCount
+            rw [if_neg (by simp [hDi])]
+            simp only [hget, hheight]
+          by_cases hii : i = it
+          · -- the target chunk itself
+            subst hii
+            constructor
+            · -- the wire departs whether or not the record arrived
+              cases hrecv : (aviewOf sk p tr).rec?
+                  ((sk.scope (sk.stageScope h k)).kids[i]) with
+              | none =>
+                  have hstep : peerBlockA.chunks (aviewOf sk p tr) q h
+                      wires (sk.scope (sk.stageScope h k))
+                      (if (h == 0) = true then
+                        (sk.scope (sk.stageScope h k)).leafReqs
+                      else (sk.scope (sk.stageScope h k)).kids.length)
+                      i w d qacc (fuel + 1)
+                      = ([(Chan.wire q h, true, w)],
+                         (w + 1, d, qacc), false) := by
+                    rw [peerBlockA.chunks, if_neg (by simpa using h0')]
+                    simp only [hget, hkind, hkindv, qCountA, hrecv,
+                      Option.map]
+                  rw [hstep, hw]
+                  exact List.mem_cons_self ..
+              | some sc =>
+                  obtain ⟨hsc, -⟩ := rec?_some_inv hrecv
+                  rcases hcall : peerBlockA.chunks (aviewOf sk p tr) q h
+                      wires (sk.scope (sk.stageScope h k))
+                      (if (h == 0) = true then
+                        (sk.scope (sk.stageScope h k)).leafReqs
+                      else (sk.scope (sk.stageScope h k)).kids.length)
+                      (i + 1) (w + 1) (d + 1)
+                      (qacc + sk.qCount h (sk.stageScope h k) i)
+                      fuel with ⟨evs, cnts, ok⟩
+                  have hstep : peerBlockA.chunks (aviewOf sk p tr) q h
+                      wires (sk.scope (sk.stageScope h k))
+                      (if (h == 0) = true then
+                        (sk.scope (sk.stageScope h k)).leafReqs
+                      else (sk.scope (sk.stageScope h k)).kids.length)
+                      i w d qacc (fuel + 1)
+                      = ((Chan.wire q h, true, w)
+                          :: (Chan.lower q h, true, d)
+                          :: ((List.range (sk.qCount h
+                                (sk.stageScope h k) i)).map fun t =>
+                              (askedOut (q, h), true, qacc + t))
+                          ++ evs,
+                         cnts, ok) := by
+                    rw [peerBlockA.chunks, if_neg (by simpa using h0')]
+                    simp only [hget, hkind, hkindv, qCountA, hrecv,
+                      Option.map, hsc, ← hqc, hcall]
+                  rw [hstep, hw]
+                  exact List.mem_cons_self ..
+            · -- with the record, the whole chunk is emitted
+              intro hr x hx
+              have hannv := hr hDi
+              rw [List.getD_eq_getElem?_getD,
+                List.getElem?_eq_getElem hilt, Option.getD_some] at hannv
+              have hrecv : (aviewOf sk p tr).rec?
+                  ((sk.scope (sk.stageScope h k)).kids[i])
+                  = some (sk.scope
+                      ((sk.scope (sk.stageScope h k)).kids[i])) := by
+                rw [rec?_aviewOf, if_pos hannv]
+              rcases hcall : peerBlockA.chunks (aviewOf sk p tr) q h
+                  wires (sk.scope (sk.stageScope h k))
+                  (if (h == 0) = true then
+                    (sk.scope (sk.stageScope h k)).leafReqs
+                  else (sk.scope (sk.stageScope h k)).kids.length)
+                  (i + 1) (w + 1) (d + 1)
+                  (qacc + sk.qCount h (sk.stageScope h k) i)
+                  fuel with ⟨evs, cnts, ok⟩
+              have hstep : peerBlockA.chunks (aviewOf sk p tr) q h
+                  wires (sk.scope (sk.stageScope h k))
+                  (if (h == 0) = true then
+                    (sk.scope (sk.stageScope h k)).leafReqs
+                  else (sk.scope (sk.stageScope h k)).kids.length)
+                  i w d qacc (fuel + 1)
+                  = ((Chan.wire q h, true, w)
+                      :: (Chan.lower q h, true, d)
+                      :: ((List.range (sk.qCount h
+                            (sk.stageScope h k) i)).map fun t =>
+                          (askedOut (q, h), true, qacc + t))
+                      ++ evs,
+                     cnts, ok) := by
+                rw [peerBlockA.chunks, if_neg (by simpa using h0')]
+                simp only [hget, hkind, hkindv, qCountA, hrecv,
+                  Option.map, ← hqc, hcall]
+              have hcc : Sched.childChunk sk (q, h) k i
+                  = ((Chan.wire q h, true, w) : Ev)
+                    :: (Chan.lower q h, true, d)
+                    :: ((List.range (sk.qCount h
+                          (sk.stageScope h k) i)).map fun t =>
+                        (askedOut (q, h), true, qacc + t)) := by
+                unfold Sched.childChunk
+                rw [if_pos hDi]
+                rw [hw, hd, hq]
+                rfl
+              rw [hcc] at hx
+              rw [hstep]
+              rcases List.mem_cons.mp hx with rfl | hx2
+              · exact List.mem_cons_self ..
+              rcases List.mem_cons.mp hx2 with rfl | hx3
+              · refine List.mem_cons_of_mem _ ?_
+                show _ ∈ (Chan.lower q h, true, d)
+                  :: (_ ++ evs)
+                exact List.mem_cons_self ..
+              · refine List.mem_cons_of_mem _ (List.mem_cons_of_mem _ ?_)
+                exact List.mem_append.mpr (.inl hx3)
+          · -- below the target: the record is available, recurse
+            have hlt : i < it := by omega
+            have hannv := hrecs i (Nat.le_refl _) hlt hDi
+            rw [List.getD_eq_getElem?_getD,
+              List.getElem?_eq_getElem hilt, Option.getD_some] at hannv
+            have hrecv : (aviewOf sk p tr).rec?
+                ((sk.scope (sk.stageScope h k)).kids[i])
+                = some (sk.scope
+                    ((sk.scope (sk.stageScope h k)).kids[i])) := by
+              rw [rec?_aviewOf, if_pos hannv]
+            rcases hcall : peerBlockA.chunks (aviewOf sk p tr) q h
+                wires (sk.scope (sk.stageScope h k))
+                (if (h == 0) = true then
+                  (sk.scope (sk.stageScope h k)).leafReqs
+                else (sk.scope (sk.stageScope h k)).kids.length)
+                (i + 1) (w + 1) (d + 1)
+                (qacc + sk.qCount h (sk.stageScope h k) i)
+                fuel with ⟨evs, cnts, ok⟩
+            have hstep : peerBlockA.chunks (aviewOf sk p tr) q h
+                wires (sk.scope (sk.stageScope h k))
+                (if (h == 0) = true then
+                  (sk.scope (sk.stageScope h k)).leafReqs
+                else (sk.scope (sk.stageScope h k)).kids.length)
+                i w d qacc (fuel + 1)
+                = ((Chan.wire q h, true, w)
+                    :: (Chan.lower q h, true, d)
+                    :: ((List.range (sk.qCount h
+                          (sk.stageScope h k) i)).map fun t =>
+                        (askedOut (q, h), true, qacc + t))
+                    ++ evs,
+                   cnts, ok) := by
+              rw [peerBlockA.chunks, if_neg (by simpa using h0')]
+              simp only [hget, hkind, hkindv, qCountA, hrecv,
+                Option.map, ← hqc, hcall]
+            have hrec := ih (i + 1) (w + 1) (d + 1)
+              (qacc + sk.qCount h (sk.stageScope h k) i)
+              (by omega) (by omega) (by omega)
+              (by rw [hd, hdrank, hDi, if_pos rfl]; omega)
+              (by rw [hq, hqsum]; omega)
+              (fun j hj hjt hD => hrecs j (by omega) hjt hD)
+            rw [hcall] at hrec
+            rw [hstep]
+            refine ⟨?_, fun hr x hx => ?_⟩
+            · refine List.mem_cons_of_mem _ (List.mem_cons_of_mem _ ?_)
+              exact List.mem_append.mpr (.inr hrec.1)
+            · refine List.mem_cons_of_mem _ (List.mem_cons_of_mem _ ?_)
+              exact List.mem_append.mpr (.inr (hrec.2 hr x hx))
+
 end StreamingMirror.Mux

@@ -1610,7 +1610,7 @@ private theorem qOf_zero (u : Nat) : sk.qOf 0 u = 0 := by
 /-- One announced block against its true block: a prefix of
 `scopeBlockE`, exact — with the counters advanced one scope — when the
 layout saw every record it needed. -/
-private theorem peerBlockA_spec (hwf : sk.wellFormed = true)
+theorem peerBlockA_spec (hwf : sk.wellFormed = true)
     {p : Party} {tr : List MObs} (q : Party) {h k : Nat}
     (hh : h < sk.rootH) (hk : k < sk.stageLen h) :
     (peerBlockA (aviewOf sk p tr) q h k (sk.stageScope h k)
@@ -2140,7 +2140,7 @@ theorem peerAbsorbTraceA_prefix (hwf : sk.wellFormed = true)
 
 /-- The announced pending entries name the true resolution list: every
 `some` entry is `pendAt`, and the list never outruns the true one. -/
-private theorem asmPendsA_spec (hwf : sk.wellFormed = true)
+theorem asmPendsA_spec (hwf : sk.wellFormed = true)
     (p : Party) (tr : List MObs) {j : Nat}
     (hj1 : 1 ≤ j) (hjr : j ≤ sk.rootH) :
     (asmPendsA (aviewOf sk p tr) j).length
