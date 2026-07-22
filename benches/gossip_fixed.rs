@@ -304,7 +304,10 @@ fn redact_all(rumors: &Rumors<u8>, keys: &[Key]) {
 fn production_seed(protocol: Protocol) -> Rumors<u8> {
     Peer::seed()
         .protocol(protocol)
-        .max_in_flight_nodes(rumors::DEFAULT_MAX_IN_FLIGHT_NODES)
+        .sync_memory_budget(
+            rumors::DEFAULT_EXPECTED_MESSAGES,
+            rumors::DEFAULT_SYNC_MEMORY_BUDGET,
+        )
         .into_rumors()
 }
 

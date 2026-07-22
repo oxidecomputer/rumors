@@ -102,7 +102,8 @@ where
         B: Sync,
     {
         let backend = self.backend();
-        let (asked, asked_rx) = responder_child_queries(self.window.scopes());
+        let (asked, asked_rx) =
+            responder_child_queries(self.window.capacity(UnderUnderRoot::HEIGHT));
         let (resolution, resolution_rx) = responder_root_resolution();
         let assembling = backend.clone();
         #[cfg(test)]
@@ -170,9 +171,10 @@ where
         S<S<S<H>>>: Height,
     {
         let backend = self.backend();
-        let (asked, asked_rx) = internal_child_queries(self.window.scopes());
-        let (upper, upper_rx) = internal_parent_resolutions(self.window.scopes());
-        let (lower, lower_rx) = internal_child_resolutions(self.window.scopes());
+        let (asked, asked_rx) = internal_child_queries(self.window.capacity(H::HEIGHT));
+        let (upper, upper_rx) =
+            internal_parent_resolutions(self.window.capacity(<S<S<H>>>::HEIGHT));
+        let (lower, lower_rx) = internal_child_resolutions(self.window.capacity(<S<H>>::HEIGHT));
         #[cfg(test)]
         let trace_id = self.trace_id;
 
@@ -260,9 +262,9 @@ where
         B: Sync,
     {
         let backend = self.backend();
-        let (asked, asked_rx) = leaf_requests(self.window.scopes());
-        let (upper, upper_rx) = leaf_parent_resolutions(self.window.scopes());
-        let (lower, lower_rx) = leaf_child_resolutions(self.window.scopes());
+        let (asked, asked_rx) = leaf_requests(self.window.capacity(Z::HEIGHT));
+        let (upper, upper_rx) = leaf_parent_resolutions(self.window.capacity(<S<Z>>::HEIGHT));
+        let (lower, lower_rx) = leaf_child_resolutions(self.window.capacity(Z::HEIGHT));
         #[cfg(test)]
         let trace_id = self.trace_id;
 

@@ -16,6 +16,48 @@ pub fn render_v2_capture(a: &LinkCapture, b: &LinkCapture) -> String {
     crate::tree::mirror::streaming::remote::render_v2_capture(a, b)
 }
 
+/// A snapshot of the crate-wide census of live tree-node handles.
+#[derive(Clone, Copy, Debug)]
+pub struct NodeCensus {
+    /// Handles alive at the snapshot.
+    pub live: usize,
+    /// The most handles ever concurrently alive since the last
+    /// [`node_census_reset`].
+    pub peak: usize,
+}
+
+/// Read the census of live tree-node handles.
+///
+/// Every constructed or cloned node handle counts one and every drop
+/// releases one, so `peak` is exact concurrent residency: the measurable
+/// shadow of the memory bound
+/// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) derives.
+/// The counters are process-global; tests that assert on them must own
+/// the process (one test per process under nextest).
+pub fn node_census() -> NodeCensus {
+    let (live, peak) = crate::tree::typed::untyped::census::read();
+    NodeCensus { live, peak }
+}
+
+/// Restart the census high-water mark from the current live count.
+pub fn node_census_reset() {
+    crate::tree::typed::untyped::census::reset_peak();
+}
+
+/// The per-height channel capacities `sync_memory_budget`'s parameters
+/// derive, indexed by typed height (`0` = leaves, `32` = root).
+///
+/// Exposed so integration suites can compute, from the same derivation
+/// sessions use, where a divergence must saturate and serialize.
+pub fn window_capacities(expected_messages: u64, budget_bytes: usize) -> Vec<usize> {
+    let window = crate::tree::mirror::streaming::window::Window::from_budget(
+        expected_messages,
+        budget_bytes,
+        crate::tree::mirror::streaming::Local::NODE_BYTES,
+    );
+    (0..=32).map(|height| window.capacity(height)).collect()
+}
+
 use std::{
     future::Future,
     pin::pin,

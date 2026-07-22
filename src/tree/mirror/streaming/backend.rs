@@ -31,6 +31,18 @@ where
     /// The type of errors returned by this backend.
     type Error: Send + 'static;
 
+    /// Bytes one node value keeps resident beyond the replica's own
+    /// storage, excluding its children.
+    ///
+    /// This prices the session window's in-flight references
+    /// ([`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget)):
+    /// [`Local`]'s nodes are handles into a tree that is resident
+    /// regardless, so its rate is one pointer; a backend without an
+    /// always-resident tree must charge everything its `Node` values own
+    /// — at minimum the hash and the two version bounds its [`Node`]
+    /// accessors return by reference.
+    const NODE_BYTES: usize;
+
     /// Assemble one parent node at `prefix` from one radix-keyed child group.
     ///
     /// The group is the parent's entire child set, in strictly increasing radix

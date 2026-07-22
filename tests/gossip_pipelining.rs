@@ -3,7 +3,7 @@
 //! With one-slot channels, the streaming descent pays one wire round trip per
 //! disputed scope, so a session's wire-stall time scales with divergence
 //! instead of tree depth. The window (set through
-//! [`Peer::max_in_flight_nodes`]) is the fix, and this test asserts it
+//! [`Peer::sync_memory_budget`]) is the fix, and this test asserts it
 //! end-to-end — from the public knob, through both protocol implementations, to
 //! the channels — by gossiping over a delayed-pipe link on a paused-clock
 //! runtime, where wire stalls are measured in exact virtual time.
@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
-use rumors::{DEFAULT_MAX_IN_FLIGHT_NODES, Peer, Protocol, Rumors};
+use rumors::{DEFAULT_EXPECTED_MESSAGES, DEFAULT_SYNC_MEMORY_BUDGET, Peer, Protocol, Rumors};
 
 /// Messages both peers share before the fork.
 const COMMON: usize = 2_048;
@@ -62,7 +62,7 @@ fn window_pipelines_disputed_scopes() {
 /// Two production-window peers with a shared prefix and heavy divergence.
 fn diverged_pair() -> (Rumors<u64>, Rumors<u64>) {
     let left = Peer::seed()
-        .max_in_flight_nodes(DEFAULT_MAX_IN_FLIGHT_NODES)
+        .sync_memory_budget(DEFAULT_EXPECTED_MESSAGES, DEFAULT_SYNC_MEMORY_BUDGET)
         .into_rumors();
     let mut rng = SmallRng::seed_from_u64(0x9e37_79b9_7f4a_7c15);
     send_random(&left, COMMON, &mut rng);
@@ -77,7 +77,7 @@ fn diverged_pair() -> (Rumors<u64>, Rumors<u64>) {
         joined
             .expect("bootstrap newcomer")
             .expect("provider is established")
-            .max_in_flight_nodes(DEFAULT_MAX_IN_FLIGHT_NODES)
+            .sync_memory_budget(DEFAULT_EXPECTED_MESSAGES, DEFAULT_SYNC_MEMORY_BUDGET)
             .into_rumors()
     });
 

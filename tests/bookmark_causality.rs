@@ -241,7 +241,9 @@ struct Node {
 }
 
 enum NodeState {
-    Live(Rumors<Msg, FlakyInMemoryBookmark>),
+    // Boxed: a live handle carries the peer's whole configuration,
+    // hundreds of bytes wide against the dataless `Dormant`.
+    Live(Box<Rumors<Msg, FlakyInMemoryBookmark>>),
     Dormant,
 }
 
@@ -284,7 +286,7 @@ impl World {
                     .expect("a pristine seed attaches its bookmark without touching storage");
                 let network = peer.network();
                 Node {
-                    state: NodeState::Live(peer.into_rumors()),
+                    state: NodeState::Live(Box::new(peer.into_rumors())),
                     store,
                     faults,
                     network,
@@ -323,7 +325,7 @@ impl World {
             .expect("a pristine seed attaches its bookmark without touching storage");
         let network = peer.network();
         let mut nodes = vec![Node {
-            state: NodeState::Live(peer.into_rumors()),
+            state: NodeState::Live(Box::new(peer.into_rumors())),
             store,
             faults,
             network,
@@ -586,7 +588,7 @@ impl World {
         match booted {
             Some(peer) => {
                 self.nodes[who].network = peer.network();
-                self.nodes[who].state = NodeState::Live(peer.into_rumors());
+                self.nodes[who].state = NodeState::Live(Box::new(peer.into_rumors()));
                 // The eager bootstrap persist secures `who`'s reclaimed identity;
                 // the server's donating persist secures its emissions too.
                 self.secure(who);
@@ -621,7 +623,7 @@ impl World {
         let peer = block_on(Peer::<Msg>::seed().bookmark(bookmark))
             .expect("a pristine seed attaches its bookmark without touching storage");
         self.nodes[who].network = peer.network();
-        self.nodes[who].state = NodeState::Live(peer.into_rumors());
+        self.nodes[who].state = NodeState::Live(Box::new(peer.into_rumors()));
     }
 
     /// Retire `retiree` into `absorber`, donating its identity. Same-network
@@ -701,7 +703,7 @@ impl World {
             // Unchanged: hand the intact peer back to life; its persisted
             // emissions are durable, its unpersisted ones remain pending.
             Retire::Declined { peer } | Retire::Recovered { peer, .. } => {
-                self.nodes[retiree].state = NodeState::Live(peer.into_rumors());
+                self.nodes[retiree].state = NodeState::Live(Box::new(peer.into_rumors()));
                 self.secure(retiree);
             }
         }

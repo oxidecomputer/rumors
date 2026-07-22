@@ -15,8 +15,10 @@ use crate::link::{Acceptor, Connector, Link};
 use crate::tree::Tree;
 pub use crate::tree::mirror::streaming::remote::DEFAULT_TARGET_MESSAGE_SIZE;
 use crate::tree::mirror::streaming::remote::RunBudget;
-pub use crate::tree::mirror::streaming::window::DEFAULT_MAX_IN_FLIGHT_NODES;
 use crate::tree::mirror::streaming::window::Window;
+pub use crate::tree::mirror::streaming::window::{
+    DEFAULT_EXPECTED_MESSAGES, DEFAULT_SYNC_MEMORY_BUDGET,
+};
 use crate::{
     Batch, Bookmark, CausalMessages, Error, Key, Network, Protocol, Rumors, Snapshot,
     UnorderedMessages, Version,
@@ -144,7 +146,7 @@ pub struct Peer<T, B: BookmarkError = NoBookmark> {
     pub(crate) network: Network,
     pub(crate) protocol: Protocol,
     /// The reconciliation pipeline window derived from
-    /// [`max_in_flight_nodes`](Self::max_in_flight_nodes).
+    /// [`sync_memory_budget`](Self::sync_memory_budget).
     pub(crate) window: Window,
     /// The supply-run byte budget selected by
     /// [`target_message_size`](Self::target_message_size).
@@ -336,36 +338,48 @@ impl<T, B: BookmarkError> Peer<T, B> {
         self
     }
 
-    /// Bound the node references this peer's sessions may hold in flight.
+    /// Bound the memory this peer's sessions may spend on pipelining.
     ///
-    /// The default protocol's reconciliation pipelines disputed subtrees so
-    /// wire latency is paid per tree *level* rather than per disputed node. The
-    /// depth of that pipeline is what this bounds: `nodes` caps the
-    /// session-global count of node references buffered across the pipeline's
-    /// queues, and each in-flight reference costs roughly the node's hash and
-    /// version bounds (a few hundred bytes; the tree content itself is shared,
-    /// not copied). The bound is a cap, not an allocation — an idle or small
-    /// session holds only what it disputes — and it is not wire-visible: peers
-    /// with different settings interoperate, each end pacing the questions it
-    /// asks.
+    /// Reconciliation pipelines disputed subtrees so wire latency is paid
+    /// per tree level rather than per disputed node; the pipeline's depth
+    /// is what costs memory. This knob sizes it from what a deployment can
+    /// state: the message count the set may reach (`expected_messages`)
+    /// and the most memory one synchronization of such a set may spend
+    /// (`budget_bytes`).
     ///
-    /// The default, [`DEFAULT_MAX_IN_FLIGHT_NODES`], admits a fully fanned
-    /// level's entire cascade without ever blocking the pipeline, for a
-    /// worst-case envelope near 10 GB that only terabyte-scale divergence can
-    /// approach. Tune down under hard memory budgets: throughput degrades
-    /// gracefully — halving the budget at most doubles the wire stalls of a
-    /// saturating session — and any value, including zero, keeps every session
-    /// deadlock-free (the floor is one disputed subtree in flight, the
-    /// pre-pipelining behavior). The measurements and sizing tables behind
-    /// these numbers are in `design/streaming-latency-serialization.md`.
+    /// Both become static per-level channel capacities, fixed here.
+    /// Content addresses are uniform hashes, so each level's population
+    /// of disputed scopes is bounded by closed-form occupancy statistics
+    /// of `expected_messages` keys; a level's capacity never exceeds its
+    /// population, and the budget buys width only where population can
+    /// exist. The budget is an envelope, not an allocation: sessions hold
+    /// only what they dispute — typically kilobytes — plus a few MB of
+    /// in-hand reply batches this setting does not govern
+    /// ([`target_message_size`](Self::target_message_size) bounds that
+    /// unit). Peers with different settings interoperate; the setting is
+    /// not wire-visible.
     ///
-    /// Like [`protocol`](Self::protocol), the choice follows the peer through
-    /// [`into_rumors`](Self::into_rumors), cloning and reunion, bookmarking,
-    /// and retirement. [`Protocol::V1`] sessions ignore it: the alternating
-    /// protocol batches whole levels instead of pipelining.
+    /// Mis-estimation degrades to latency, never to memory growth or
+    /// deadlock. A level whose real population outruns its bound — a set
+    /// beyond the estimate, or the sub-2⁻⁴⁰ tail uniform hashing leaves —
+    /// simply serializes behind its channel. Any budget, including zero,
+    /// keeps sessions live: the floor is one disputed subtree in flight
+    /// per level. The defaults ([`DEFAULT_EXPECTED_MESSAGES`],
+    /// [`DEFAULT_SYNC_MEMORY_BUDGET`]) size a terabyte-scale set within
+    /// 10 GiB.
+    ///
+    /// Like [`protocol`](Self::protocol), the choice follows the peer
+    /// through [`into_rumors`](Self::into_rumors), cloning and reunion,
+    /// bookmarking, and retirement. [`Protocol::V1`] sessions ignore it:
+    /// the alternating protocol batches whole levels instead of
+    /// pipelining.
     #[must_use]
-    pub fn max_in_flight_nodes(mut self, nodes: usize) -> Self {
-        self.window = Window::from_nodes(nodes);
+    pub fn sync_memory_budget(mut self, expected_messages: u64, budget_bytes: usize) -> Self {
+        self.window = Window::from_budget(
+            expected_messages,
+            budget_bytes,
+            crate::tree::mirror::streaming::Local::NODE_BYTES,
+        );
         self
     }
 

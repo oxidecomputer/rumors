@@ -63,9 +63,24 @@ impl<T: Send + Sync + 'static> Leaf<T> for typed::Node<T, Z> {
 #[derive(Default, Clone, Copy, Debug)]
 pub struct Local;
 
+impl Local {
+    /// One in-flight `Local` reference costs one pointer.
+    ///
+    /// A node is an `Arc` handle into the session-resident tree, verified
+    /// against the node type below; the height-typed veneer is
+    /// `repr(transparent)` over that handle, so every height costs the
+    /// same.
+    pub(crate) const NODE_BYTES: usize = std::mem::size_of::<typed::Node<(), Z>>();
+}
+
+/// The handle really is pointer-sized: the window's per-reference price
+/// rests on it.
+const _: () = assert!(Local::NODE_BYTES == std::mem::size_of::<*const ()>());
+
 impl<T: Send + Sync + 'static> Backend<T> for Local {
     type Node<H: Height> = typed::Node<T, H>;
     type Error = Infallible;
+    const NODE_BYTES: usize = Local::NODE_BYTES;
 
     fn children<H>(
         self,

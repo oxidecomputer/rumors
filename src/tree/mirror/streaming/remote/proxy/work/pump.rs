@@ -51,7 +51,8 @@ where
         BoxResponses<B, T, UnderRoot, Error<B::Error>>,
         Receiver<Scope<UnderRoot>>,
     ) {
-        let (next_scopes, scopes) = queues::next_scopes::<_, UnderRoot>(self.window.scopes());
+        let (next_scopes, scopes) =
+            queues::next_scopes::<_, UnderRoot>(self.window.capacity(UnderRoot::HEIGHT));
         let progress = self.progress;
         let listing = std::mem::take(&mut self.peer_listing);
         let responses = try_stream! {
@@ -76,9 +77,10 @@ where
     ) {
         let progress = self.progress;
         let (local_questions, mut questions) =
-            queues::local_questions::<_, UnderRoot>(self.window.scopes());
+            queues::local_questions::<_, UnderRoot>(self.window.capacity(UnderRoot::HEIGHT));
         self.spawn(encode::opening(requests, local_questions, progress));
-        let (next_scopes, scopes) = queues::next_scopes::<_, UnderUnderRoot>(self.window.scopes());
+        let (next_scopes, scopes) =
+            queues::next_scopes::<_, UnderUnderRoot>(self.window.capacity(UnderUnderRoot::HEIGHT));
         let backend = self.backend();
         let responses = try_stream! {
             while let Some(scope) = questions.recv().await {
@@ -116,7 +118,7 @@ where
     {
         let progress = self.progress;
         let (local_questions, mut questions) =
-            queues::local_questions::<_, S<H>>(self.window.scopes());
+            queues::local_questions::<_, S<H>>(self.window.capacity(<S<H>>::HEIGHT));
         self.spawn(encode::replies(
             self.backend(),
             self.budget,
@@ -126,7 +128,7 @@ where
             local_questions,
             progress,
         ));
-        let (next_scopes, scopes) = queues::next_scopes::<_, H>(self.window.scopes());
+        let (next_scopes, scopes) = queues::next_scopes::<_, H>(self.window.capacity(H::HEIGHT));
         let backend = self.backend();
         let responses = try_stream! {
             while let Some(scope) = questions.recv().await {
@@ -154,7 +156,7 @@ where
     ) -> (BoxResponses<B, T, Z, Error<B::Error>>, Receiver<Scope<Z>>) {
         let progress = self.progress;
         let (local_questions, mut questions) =
-            queues::local_questions::<_, Z>(self.window.scopes());
+            queues::local_questions::<_, Z>(self.window.capacity(Z::HEIGHT));
         self.spawn(encode::replies(
             self.backend(),
             self.budget,
@@ -164,7 +166,7 @@ where
             local_questions,
             progress,
         ));
-        let (next_scopes, scopes) = queues::next_scopes::<_, Z>(self.window.scopes());
+        let (next_scopes, scopes) = queues::next_scopes::<_, Z>(self.window.capacity(Z::HEIGHT));
         let backend = self.backend();
         let responses = try_stream! {
             while let Some(scope) = questions.recv().await {
@@ -221,7 +223,7 @@ where
     {
         let progress = self.progress;
         let (local_questions, mut questions) =
-            queues::local_questions::<_, Z>(self.window.scopes());
+            queues::local_questions::<_, Z>(self.window.capacity(Z::HEIGHT));
         self.spawn(encode::terminal(
             self.backend(),
             self.budget,

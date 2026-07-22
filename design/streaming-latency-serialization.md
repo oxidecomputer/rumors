@@ -425,6 +425,35 @@ unit question — charged in node references, the quantity §6 prices:
   0.99 s against V1's 0.92 s, and R = 2500 in 0.82 s against V1's
   0.91 s [checked].
 
+**Amendment (2026-07-22): the knob re-denominated; capacities are
+per-height population caps.** The tunable is now
+`Peer::sync_memory_budget(expected_messages, budget_bytes)` — the
+two quantities a deployment can state directly, replacing the
+node-reference denomination — and the window is no longer one
+uniform per-edge width: each channel's capacity is a **static
+per-height bound** `min(K, S(depth))`, where `S` is the integer
+stage-population envelope imported from
+`design/b05-uniformity-envelope.md` §7 (deterministic occupied-slot
+caps, the joint-occupancy birthday quantile, and the per-parent
+children quantile, all in the sweep-certified integer forms; 2⁻⁴⁰
+per session jointly). Deep, sparse levels get capacities no budget
+can widen, because their populations cannot exist; the budget buys
+width only where population can. `K` is solved by binary search on
+the sum of per-level populations, each priced at the backend's
+per-node rate — a new `Backend::NODE_BYTES` const (`Local`: one
+pointer, 8 B) plus 49 B of container slots — so the same budget
+buys ~3× more width on `Local` than the flat 215 B planning rate
+priced. A population that exceeds its envelope (off-model keys, or
+the sub-2⁻⁴⁰ tail) serializes behind its channel: latency, never
+memory growth or deadlock, which is what licenses probabilistic
+math in a static bound. Code-verified along the way: a listing
+entry is 17 B (`(u8, Hash)` with the 16-byte Merkle hash) — §6.3's
+33 B figure assumed a 32-byte hash and was stale. Proptests pin the
+budget envelope, the envelopes' internal consistency, structural
+near-root caps, deep-level sparsity, and bounded movement across
+256^k set-estimate crossings (the integer quantiles ripple by ≤ ~¼
+at bit boundaries; whole-level charges would step 33–50%).
+
 ### 5.3 The per-leaf compute follow-up
 
 Chasing the zero-latency compute gap (§2, §7) surfaced a second

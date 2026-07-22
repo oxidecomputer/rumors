@@ -39,7 +39,7 @@ use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
 use rand::{RngCore, SeedableRng};
 use rumors::link::{Acceptor, Connector, Link, STREAM_COUNT};
-use rumors::{DEFAULT_MAX_IN_FLIGHT_NODES, Key, Peer, Protocol, Rumors};
+use rumors::{DEFAULT_EXPECTED_MESSAGES, DEFAULT_SYNC_MEMORY_BUDGET, Key, Peer, Protocol, Rumors};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::mpsc;
 use tokio::time::Instant;
@@ -411,7 +411,7 @@ fn diverged_insertions() -> (Rumors<u64>, Rumors<u64>) {
     const DIVERGENT_PER_SIDE: usize = 512;
 
     let left = Peer::seed()
-        .max_in_flight_nodes(DEFAULT_MAX_IN_FLIGHT_NODES)
+        .sync_memory_budget(DEFAULT_EXPECTED_MESSAGES, DEFAULT_SYNC_MEMORY_BUDGET)
         .into_rumors();
     let mut rng = SmallRng::seed_from_u64(0x9e37_79b9_7f4a_7c15);
     send_random(&left, COMMON, &mut rng);
@@ -428,7 +428,7 @@ fn diverged_redactions() -> (Rumors<u64>, Rumors<u64>) {
     const REDACT_PER_SIDE: usize = 256;
 
     let left = Peer::seed()
-        .max_in_flight_nodes(DEFAULT_MAX_IN_FLIGHT_NODES)
+        .sync_memory_budget(DEFAULT_EXPECTED_MESSAGES, DEFAULT_SYNC_MEMORY_BUDGET)
         .into_rumors();
     let mut rng = SmallRng::seed_from_u64(0x2545_f491_4f6c_dd1d);
     send_random(&left, COMMON, &mut rng);
@@ -467,15 +467,14 @@ fn bootstrap_fork(parent: &Rumors<u64>) -> Rumors<u64> {
         newcomer
             .expect("bootstrap newcomer")
             .expect("provider is established")
-            .max_in_flight_nodes(DEFAULT_MAX_IN_FLIGHT_NODES)
+            .sync_memory_budget(DEFAULT_EXPECTED_MESSAGES, DEFAULT_SYNC_MEMORY_BUDGET)
             .into_rumors()
     })
 }
 
 /// Traces the serialized hop structure of an insertion-shaped divergent
 /// session and pins its exact hop count: with the opening question riding
-/// the greeting, this shape completes in 7 serialized hops (one fewer than
-/// the pre-change 8; `design/streaming-latency-serialization.md` §11).
+/// the greeting, this shape completes in 7 serialized hops.
 #[test]
 fn trace_insertion_session() {
     let (left, right) = diverged_insertions();
@@ -505,7 +504,7 @@ fn trace_redaction_session() {
 #[test]
 fn trace_empty_session() {
     let left = Peer::seed()
-        .max_in_flight_nodes(DEFAULT_MAX_IN_FLIGHT_NODES)
+        .sync_memory_budget(DEFAULT_EXPECTED_MESSAGES, DEFAULT_SYNC_MEMORY_BUDGET)
         .into_rumors();
     let mut rng = SmallRng::seed_from_u64(0x1234_5678_9abc_def0);
     send_random(&left, 64, &mut rng);

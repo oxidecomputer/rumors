@@ -7,7 +7,7 @@
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use rumors::link::MemoryLink;
-use rumors::{DEFAULT_MAX_IN_FLIGHT_NODES, Peer, Protocol, Rumors};
+use rumors::{DEFAULT_EXPECTED_MESSAGES, DEFAULT_SYNC_MEMORY_BUDGET, Peer, Protocol, Rumors};
 
 /// Bounded transport capacity; concurrent polling supplies the backpressure.
 const CAPACITY: usize = 64 * 1024;
@@ -54,7 +54,7 @@ where
         newcomer
             .expect("bootstrap newcomer")
             .expect("provider is established")
-            .max_in_flight_nodes(DEFAULT_MAX_IN_FLIGHT_NODES)
+            .sync_memory_budget(DEFAULT_EXPECTED_MESSAGES, DEFAULT_SYNC_MEMORY_BUDGET)
             .into_rumors()
     })
 }

@@ -1,23 +1,27 @@
 use proptest::prelude::*;
 
-use super::{DEFAULT_MAX_IN_FLIGHT_NODES, FAN, SATURABLE_LEVELS, Window};
+use super::{
+    DEFAULT_EXPECTED_MESSAGES, DEFAULT_SYNC_MEMORY_BUDGET, FAN, KEY_DEPTH, LEAF_REQUEST_BYTES,
+    REFERENCE_SLOT_BYTES, SCOPE_FIXED_BYTES, Window, children_quantile, jointly_occupied, occupied,
+    stage_population,
+};
 
-/// The production default admits two fully fanned levels per edge: a full
-/// level of 256 scopes opening full fans yields 256² next-level scopes,
-/// and the derived per-edge capacity holds exactly that many.
-#[test]
-fn default_nodes_admit_a_full_cascade() {
-    assert_eq!(
-        Window::from_nodes(DEFAULT_MAX_IN_FLIGHT_NODES).scopes(),
-        FAN * FAN
-    );
-}
+/// The in-memory backend's per-reference price, for tests that recompute
+/// the charge the solve stayed inside.
+const LOCAL_NODE_BYTES: usize = std::mem::size_of::<*const ()>();
 
-/// A zero node budget still yields the one-slot liveness floor: capacity
-/// zero would be a channel that can never carry an item, not a window.
-#[test]
-fn zero_budget_is_the_floor() {
-    assert_eq!(Window::from_nodes(0), Window::FLOOR);
+/// The worst case a derived window admits, recomputed exactly as the
+/// solve charges it: each level's population clamped to its capacity,
+/// priced at its occupancy-thinned fan, plus the leaf-request edge.
+fn charge(window: &Window, n: u128, node_bytes: usize) -> u128 {
+    let reference = (node_bytes + REFERENCE_SLOT_BYTES) as u128;
+    let mut total = 0u128;
+    for depth in 1..=KEY_DEPTH {
+        let capacity = window.capacity(KEY_DEPTH - depth) as u128;
+        let held = stage_population(n, depth).min(capacity);
+        total += held * (children_quantile(n, depth - 1) * reference + SCOPE_FIXED_BYTES as u128);
+    }
+    total + n.min(window.capacity(0) as u128) * LEAF_REQUEST_BYTES as u128
 }
 
 /// Test builds default to the liveness floor, keeping every schedule
@@ -27,17 +31,135 @@ fn test_default_is_the_floor() {
     assert_eq!(Window::default(), Window::FLOOR);
 }
 
+/// A zero memory budget yields the one-slot liveness floor at every
+/// height: capacity zero would be a channel that can never carry an item,
+/// and liveness outranks the budget.
+#[test]
+fn zero_budget_is_the_floor() {
+    assert_eq!(
+        Window::from_budget(DEFAULT_EXPECTED_MESSAGES, 0, LOCAL_NODE_BYTES),
+        Window::FLOOR
+    );
+}
+
+/// An empty or tiny expected set floors every capacity regardless of
+/// budget: with no population, no width can ever be occupied.
+#[test]
+fn tiny_set_is_the_floor() {
+    assert_eq!(
+        Window::from_budget(0, usize::MAX, LOCAL_NODE_BYTES),
+        Window::FLOOR
+    );
+}
+
+/// The structural near-root caps hold at any set size and any budget.
+///
+/// The level under the root fans one scope into at most 256, and the next
+/// at most 256², so their capacities never exceed those populations
+/// however much budget is offered.
+#[test]
+fn near_root_capacities_are_structural() {
+    let window = Window::from_budget(u64::MAX, usize::MAX, LOCAL_NODE_BYTES);
+    // Height KEY_DEPTH−2 discusses depth-2 children: at most one full fan
+    // of queried entries under the single jointly-known root.
+    assert!(window.capacity(KEY_DEPTH - 2) <= FAN);
+    // Height KEY_DEPTH−3 discusses depth-3 children: at most 256².
+    assert!(window.capacity(KEY_DEPTH - 3) <= FAN * FAN);
+}
+
+/// The default pairing pipelines where population lives: every mid-depth
+/// level whose population exceeds one gets capacity well past the
+/// serialization floor.
+#[test]
+fn default_budget_pipelines_the_fat_stages() {
+    let window = Window::from_budget(
+        DEFAULT_EXPECTED_MESSAGES,
+        DEFAULT_SYNC_MEMORY_BUDGET,
+        LOCAL_NODE_BYTES,
+    );
+    // Depth 4 is the first boundary whose population outgrows the
+    // structural caps at the default declaration; its height must carry
+    // real width.
+    assert!(window.capacity(KEY_DEPTH - 4) > FAN);
+}
+
+/// Deep levels are population-capped to a sliver at realistic set sizes.
+///
+/// A depth-10 dispute needs jointly occupied depth-8 slots, whose
+/// expected count N²/256⁸ is far below one at a million messages — the
+/// increasing-sparsity-by-depth shape the derivation encodes. The caps
+/// stay small but nonzero: the 2⁻⁴⁸ envelope grants a few slots rather
+/// than claiming an impossibility it cannot certify.
+#[test]
+fn deep_levels_are_sparse() {
+    let window = Window::from_budget(1_000_000, usize::MAX, LOCAL_NODE_BYTES);
+    for height in 0..=(KEY_DEPTH - 10) {
+        assert!(
+            window.capacity(height) <= 16,
+            "height {height} got capacity {}",
+            window.capacity(height),
+        );
+    }
+}
+
 proptest! {
-    /// The derivation stays inside its global budget, tightly.
-    ///
-    /// The admitted scopes, priced at a full fan across every saturable
-    /// level, never exceed the requested node budget (once it covers the
-    /// one-slot liveness floor), and one more scope per edge would exceed
-    /// it.
+    /// The derived window's worst-case charge stays inside the stated
+    /// budget, except where the one-slot floor alone exceeds it
+    /// (liveness outranks the budget).
     #[test]
-    fn scopes_stay_inside_the_budget_tightly(nodes in (FAN * SATURABLE_LEVELS)..=1usize << 40) {
-        let scopes = Window::from_nodes(nodes).scopes();
-        prop_assert!(scopes * FAN * SATURABLE_LEVELS <= nodes);
-        prop_assert!((scopes + 1) * FAN * SATURABLE_LEVELS > nodes);
+    fn window_stays_inside_the_budget(
+        messages in 1u64..,
+        budget in 0usize..=1 << 44,
+    ) {
+        let window = Window::from_budget(messages, budget, LOCAL_NODE_BYTES);
+        prop_assert!(
+            window == Window::FLOOR
+                || charge(&window, u128::from(messages), LOCAL_NODE_BYTES)
+                    <= budget as u128
+        );
+    }
+
+    /// Population envelopes are internally consistent: joint occupancy
+    /// never exceeds single-corpus occupancy, per-parent fans never
+    /// exceed the structural fan, and every stage population respects its
+    /// occupied-slot cap.
+    #[test]
+    fn envelopes_are_consistent(messages in 0u64.., depth in 1usize..=KEY_DEPTH) {
+        let n = u128::from(messages);
+        prop_assert!(jointly_occupied(n, depth) <= occupied(n, depth));
+        prop_assert!(children_quantile(n, depth) <= FAN as u128);
+        prop_assert!(stage_population(n, depth) <= occupied(n, depth - 1));
+    }
+
+    /// Capacities move smoothly as the set estimate crosses a tree-height
+    /// boundary (a power of 256).
+    ///
+    /// A small drift in the estimate moves each capacity by at most its
+    /// own drift plus a bounded ripple from the integer quantiles'
+    /// bit-length granularity — multiplicatively at most a quarter of the
+    /// width, plus a small absolute corner where a sparse quantile is
+    /// itself only tens of slots. That ripple is the price of keeping the
+    /// quantiles in their dominance-certified integer form. The bound
+    /// still has teeth against the failure it exists to exclude: a charge
+    /// quantized in whole saturable levels would step every fat stage by
+    /// a third to a half of its width — tens of thousands of slots —
+    /// exactly at these boundaries.
+    #[test]
+    fn capacities_are_smooth_across_height_boundaries(
+        level in 2u32..=4,
+        offset in 1u64..=1024,
+        budget in (1usize << 24)..=(1 << 40),
+    ) {
+        let boundary = 256u64.pow(level);
+        let below = Window::from_budget(boundary - offset, budget, LOCAL_NODE_BYTES);
+        let above = Window::from_budget(boundary + offset, budget, LOCAL_NODE_BYTES);
+        for height in 0..=KEY_DEPTH {
+            let (b, a) = (below.capacity(height), above.capacity(height));
+            let step = b.abs_diff(a) as u64;
+            prop_assert!(
+                step <= 2 * offset + (b as u64) / 4 + 32,
+                "height {height}: {b} vs {a} across {boundary}±{offset}",
+            );
+        }
     }
 }

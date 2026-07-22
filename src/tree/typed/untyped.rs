@@ -23,9 +23,54 @@ pub struct Node<T> {
 
 impl<T> Clone for Node<T> {
     fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-        }
+        Self::from_inner(self.inner.clone())
+    }
+}
+
+/// Handles are counted, so a dropped one must check out; see [`census`].
+#[cfg(any(test, feature = "test-internals"))]
+impl<T> Drop for Node<T> {
+    fn drop(&mut self) {
+        census::dropped();
+    }
+}
+
+/// Test-only census of live node handles, crate-wide.
+///
+/// Every [`Node`] any code holds was constructed by
+/// [`Node::from_inner`] or [`Clone`] and released by [`Drop`], so the
+/// pair of counters here is an exact concurrent-residency measure: `live`
+/// handles exist right now, and `peak` is the most that ever existed
+/// since the last reset. The session window's memory bound is stated in
+/// in-flight references; this is the instrument that lets tests check the
+/// bound against reality. Read through
+/// [`testing::node_census`](crate::testing::node_census).
+#[cfg(any(test, feature = "test-internals"))]
+pub(crate) mod census {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// Handles alive right now.
+    static LIVE: AtomicUsize = AtomicUsize::new(0);
+    /// The most handles ever concurrently alive since the last reset.
+    static PEAK: AtomicUsize = AtomicUsize::new(0);
+
+    pub(crate) fn created() {
+        let live = LIVE.fetch_add(1, Ordering::Relaxed) + 1;
+        PEAK.fetch_max(live, Ordering::Relaxed);
+    }
+
+    pub(crate) fn dropped() {
+        LIVE.fetch_sub(1, Ordering::Relaxed);
+    }
+
+    /// `(live, peak)` at this instant.
+    pub(crate) fn read() -> (usize, usize) {
+        (LIVE.load(Ordering::Relaxed), PEAK.load(Ordering::Relaxed))
+    }
+
+    /// Restart the high-water mark from the current live count.
+    pub(crate) fn reset_peak() {
+        PEAK.store(LIVE.load(Ordering::Relaxed), Ordering::Relaxed);
     }
 }
 
@@ -131,6 +176,17 @@ impl<T> Clone for Children<T> {
 }
 
 impl<T> Node<T> {
+    /// Wrap built node state as a handle.
+    ///
+    /// Every handle in the crate passes through here or [`Clone`] — the
+    /// funnel that makes the test-only [`census`] an exact residency
+    /// count.
+    fn from_inner(inner: Arc<NodeInner<T>>) -> Self {
+        #[cfg(any(test, feature = "test-internals"))]
+        census::created();
+        Node { inner }
+    }
+
     /// Construct a new branch node from a list of children with distinct
     /// indices (inverse to [`Node::into_children`]).
     pub fn branch(children: OrdMap<u8, Node<T>>) -> Option<Self> {
@@ -142,18 +198,16 @@ impl<T> Node<T> {
                 };
                 Some(node.beneath(index))
             }
-            _ => Some(Node {
-                inner: Arc::new(NodeInner {
-                    prefix: Vec::new(),
-                    hash: OnceLock::new(),
-                    children: Children::Branch {
-                        ceiling: OnceLock::new(),
-                        floor: OnceLock::new(),
-                        leaves: children.values().map(Node::len).sum(),
-                        children,
-                    },
-                }),
-            }),
+            _ => Some(Node::from_inner(Arc::new(NodeInner {
+                prefix: Vec::new(),
+                hash: OnceLock::new(),
+                children: Children::Branch {
+                    ceiling: OnceLock::new(),
+                    floor: OnceLock::new(),
+                    leaves: children.values().map(Node::len).sum(),
+                    children,
+                },
+            }))),
         }
     }
 
@@ -260,32 +314,28 @@ impl<T> Node<T> {
         }
         debug_assert!(children.len() >= 2, "a branch point separates >= 2 runs");
 
-        Node {
-            inner: Arc::new(NodeInner {
-                prefix: first[depth..branch_at].iter().rev().copied().collect(),
-                hash: OnceLock::new(),
-                children: Children::Branch {
-                    ceiling: OnceLock::new(),
-                    floor: OnceLock::new(),
-                    leaves: count,
-                    children,
-                },
-            }),
-        }
+        Node::from_inner(Arc::new(NodeInner {
+            prefix: first[depth..branch_at].iter().rev().copied().collect(),
+            hash: OnceLock::new(),
+            children: Children::Branch {
+                ceiling: OnceLock::new(),
+                floor: OnceLock::new(),
+                leaves: count,
+                children,
+            },
+        }))
     }
 
     /// Construct a new leaf node.
     pub fn leaf(version: Version, value: Message<T>) -> Self {
-        Node {
-            inner: Arc::new(NodeInner {
-                prefix: Vec::new(),
-                hash: OnceLock::new(),
-                children: Children::Leaf {
-                    message: value,
-                    version,
-                },
-            }),
-        }
+        Node::from_inner(Arc::new(NodeInner {
+            prefix: Vec::new(),
+            hash: OnceLock::new(),
+            children: Children::Leaf {
+                message: value,
+                version,
+            },
+        }))
     }
 
     /// Get a reference to the leaf at this node, if it is a leaf.

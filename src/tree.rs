@@ -59,7 +59,7 @@ use std::sync::Arc;
 
 mod key;
 mod traverse;
-mod typed;
+pub(crate) mod typed;
 
 use crate::{Version, message::Message, tree::typed::Node};
 
