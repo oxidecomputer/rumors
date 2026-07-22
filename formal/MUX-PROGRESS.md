@@ -303,6 +303,16 @@ work out of its own context and distills results here:
    thesis sentence: "the announcements were never in the message
    pattern; they were in the messages."
 
+## 3d. T8's specification of record (Finch, 2026-07-21)
+
+T8's English statement is fixed BEFORE the build, as T8-SPEC.md: the
+claim, each hypothesis clause with its audit rule (any WEAKER grade is
+a wrong-grade finding by definition — including single-K, concrete-
+scheduler-only, omniscient-closure, and progress-only weakenings), and
+the boundaries. The T8 track transcribes it; review passes grade
+against it; amendments land here and there, dated, before the theorem
+does.
+
 ## 3c. Chartered follow-on: tracecheck (Finch, 2026-07-21)
 
 The executable trace validator — Rust proptests calling the compiled
