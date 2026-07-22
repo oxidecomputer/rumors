@@ -126,6 +126,19 @@ def licensedK (sk : Skel) (K : Nat) (p : Party) (tr : List MObs) :
 
 -- ========================================================== the inhabitants
 
+/-- The canonical selector core over a view: the first licensed held
+stream in the view's order — `causalCore` at gate depth `K`. -/
+def kCore (K : Nat) (av : AView) (tr : List MObs) : Option Nat :=
+  (wireHeightsA av av.party).find? fun h =>
+    committedInHist av.rootH tr h && demandedAK K av tr h
+
+/-- The ladder selector core over a view: the DEEPEST licensed held
+stream — the `bottomMostReady` reverse-index poll among licensed
+frames. -/
+def kLadderCore (K : Nat) (av : AView) (tr : List MObs) : Option Nat :=
+  (wireHeightsA av av.party).reverse.find? fun h =>
+    committedInHist av.rootH tr h && demandedAK K av tr h
+
 /-- σ*ₖ, the canonical window-disciplined selector: the first licensed
 held stream in the view's order (`rootH` first, then the walk stages
 top down) — `sigmaStarCausal`'s selection rule with the demand rule at
@@ -133,10 +146,7 @@ gate depth `K`. `sigmaStarK 1 = sigmaStarCausal` (`sigmaStarK_one`). -/
 def sigmaStarK (K : Nat) : Strategy := fun sk tr =>
   match partyOf tr with
   | none => none
-  | some p =>
-      let av := aviewOf sk p tr
-      (wireHeightsA av av.party).find? fun h =>
-        committedInHist av.rootH tr h && demandedAK K av tr h
+  | some p => kCore K (aviewOf sk p tr) tr
 
 /-- The priority-ladder inhabitant: the shipped mux's reverse-index
 poll (`bottomMostReady`, Mux/Instances.lean — deepest ready stream
@@ -146,10 +156,7 @@ theorem (`sigmaLadderK_windowDisciplined`) rather than an intention. -/
 def sigmaLadderK (K : Nat) : Strategy := fun sk tr =>
   match partyOf tr with
   | none => none
-  | some p =>
-      let av := aviewOf sk p tr
-      (wireHeightsA av av.party).reverse.find? fun h =>
-        committedInHist av.rootH tr h && demandedAK K av tr h
+  | some p => kLadderCore K (aviewOf sk p tr) tr
 
 /-- The K = 1 degeneration, definitional up to the `n < 1 ↔ n = 0`
 spelling: σ*ₖ at the demand-lockstep depth IS the landed σ*-causal —
@@ -160,9 +167,8 @@ theorem sigmaStarK_one : sigmaStarK 1 = sigmaStarCausal := by
   cases partyOf tr with
   | none => rfl
   | some p =>
-      show (wireHeightsA (aviewOf sk p tr) (aviewOf sk p tr).party).find?
-          _ = causalCore (aviewOf sk p tr) tr
-      rw [causalCore]
+      show kCore 1 (aviewOf sk p tr) tr = causalCore (aviewOf sk p tr) tr
+      rw [kCore, causalCore]
       congr 1
       funext h
       rw [demandedAK_one]
@@ -181,11 +187,11 @@ private theorem applyK_hist_cases {sk : Skel} {ax : AxMode}
       ∨ (∃ o, s₁.hist p = s₀.hist p ++ [o] ∧ ∀ b, o ≠ MObs.act b) := by
   cases ma with
   | base a =>
-      exact apply_hist_cases (ma := .base a) (σI := σI) (σR := σR)
-        (C := C) hstep p
+      have hstep' : apply sk ax C σI σR (.base a) s₀ = some s₁ := hstep
+      exact apply_hist_cases hstep' p
   | push q =>
-      exact apply_hist_cases (ma := .push q) (σI := σI) (σR := σR)
-        (C := C) hstep p
+      have hstep' : apply sk ax C σI σR (.push q) s₀ = some s₁ := hstep
+      exact apply_hist_cases hstep' p
   | deliver q =>
       have hrec : ∀ (q₀ : Party) (o : MObs),
           s₁.hist = recordObs s₀.hist q₀ o →
@@ -301,7 +307,8 @@ private theorem partyOf_isSome_of_licensed {sk : Skel} {K : Nat}
   have hcm := hpred.1
   rw [show (aviewOf sk p (s.hist p)).rootH = sk.rootH from rfl,
     committedInHist_eq, decide_eq_true_eq] at hcm
-  exact partyOf_isSome_of_commits (h := h₀) (by omega)
+  refine partyOf_isSome_of_commits (sk := sk) (h := h₀) ?_
+  omega
 
 /-- σ*ₖ inhabits its class: the canonical least-frame selector is
 window-disciplined at its own gate depth, for both parties — the
@@ -321,8 +328,11 @@ theorem sigmaStarK_windowDisciplined (K : Nat) (p : Party) :
         rw [hq] at hσ
         have hqp : q = p := partyOf_kConsistent hc hq
         subst hqp
-        exact List.mem_filter.mpr
-          ⟨List.mem_of_find?_eq_some hσ, List.find?_some hσ⟩
+        have hσ' : kCore K (aviewOf sk q tr) tr = some h := hσ
+        rw [kCore] at hσ'
+        have hmem := List.mem_of_find?_eq_some hσ'
+        have hpred := List.find?_some hσ'
+        exact List.mem_filter.mpr ⟨hmem, hpred⟩
   · -- progress: a licensed member makes the selector fire
     intro hne
     obtain ⟨h₀, hh₀⟩ := List.exists_mem_of_ne_nil _ hne
@@ -334,7 +344,9 @@ theorem sigmaStarK_windowDisciplined (K : Nat) (p : Party) :
       partyOf_kConsistent ⟨ax, KI, KR, C, σI, σR, s, hr, rfl⟩ hq
     subst hqp
     obtain ⟨hmem, hpred⟩ := List.mem_filter.mp hh₀
-    rw [sigmaStarK, hq, List.find?_isSome]
+    rw [sigmaStarK, hq]
+    show (kCore K (aviewOf sk q (s.hist q)) (s.hist q)).isSome = true
+    rw [kCore, List.find?_isSome]
     exact ⟨h₀, hmem, hpred⟩
 
 /-- The shipped ladder inhabits the class: the `bottomMostReady`
@@ -358,9 +370,11 @@ theorem sigmaLadderK_windowDisciplined (K : Nat) (p : Party) :
         rw [hq] at hσ
         have hqp : q = p := partyOf_kConsistent hc hq
         subst hqp
-        exact List.mem_filter.mpr
-          ⟨List.mem_reverse.mp (List.mem_of_find?_eq_some hσ),
-            List.find?_some hσ⟩
+        have hσ' : kLadderCore K (aviewOf sk q tr) tr = some h := hσ
+        rw [kLadderCore] at hσ'
+        have hmem := List.mem_of_find?_eq_some hσ'
+        have hpred := List.find?_some hσ'
+        exact List.mem_filter.mpr ⟨List.mem_reverse.mp hmem, hpred⟩
   · -- progress: a licensed member makes the selector fire
     intro hne
     obtain ⟨h₀, hh₀⟩ := List.exists_mem_of_ne_nil _ hne
@@ -372,7 +386,9 @@ theorem sigmaLadderK_windowDisciplined (K : Nat) (p : Party) :
       partyOf_kConsistent ⟨ax, KI, KR, C, σI, σR, s, hr, rfl⟩ hq
     subst hqp
     obtain ⟨hmem, hpred⟩ := List.mem_filter.mp hh₀
-    rw [sigmaLadderK, hq, List.find?_isSome]
+    rw [sigmaLadderK, hq]
+    show (kLadderCore K (aviewOf sk q (s.hist q)) (s.hist q)).isSome = true
+    rw [kLadderCore, List.find?_isSome]
     exact ⟨h₀, List.mem_reverse.mpr hmem, hpred⟩
 
 end StreamingMirror.Mux
