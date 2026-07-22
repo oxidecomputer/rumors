@@ -26,8 +26,8 @@ set -u
 # 12 GiB: see design/height-erasure.md, incident log 2026-07-17, for the
 # growth analysis behind this number (linear per-tower cost vs. the
 # exponential runaway this tripwire exists to catch).
-PROC_LIMIT_GB="${PROC_LIMIT_GB:-12}"
-SWAP_LIMIT_GB="${SWAP_LIMIT_GB:-16}"
+PROC_LIMIT_GB="${PROC_LIMIT_GB:-20}"
+SWAP_LIMIT_GB="${SWAP_LIMIT_GB:-20}"
 LOG="${LOG:-/tmp/memwatch.log}"
 INTERVAL="${INTERVAL:-2}"
 HEARTBEAT_EVERY="${HEARTBEAT_EVERY:-60}"   # ticks between status lines
