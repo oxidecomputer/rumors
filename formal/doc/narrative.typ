@@ -421,9 +421,9 @@ once — a walk jammed on a last-chunk query into the cap-1 asked channel
 with its parent unsent, starving an assembler two heights up, backing the
 tower onto the very channel the walk's _own_ parent needs. So
 `DeadlockFree sk .full` was _false as stated_, refuted inside its own
-hypothesis class. The statement owner's adjudication: amend and finish —
-and extend the Rust trace proptests in tandem, so the proptested local
-invariants and the formal ledger set stay in lockstep.
+hypothesis class. Finch, adjudicating as the statement's owner: amend
+and finish — and extend the Rust trace proptests in tandem, so the
+proptested local invariants and the formal ledger set stay in lockstep.
 
 *The amendment.* A seventh ledger, `d5` (parent placement): once a scope's
 last disputed child is resolved, the parent summary precedes any further
@@ -771,8 +771,9 @@ sides' dispute skeletons _exists_ but is necessarily unrealizable
 locally (C2). _"I would be surprised to find that I am wrong about
 either of these things, but I would enjoy being surprised."_ #lived
 Both conjectures ended somewhere neither of us predicted, and the
-campaign that settled them ran thirty-some hours, produced ten kernel
-theorems, found and killed a recurring soundness bug in its own new
+campaign that settled them ran thirty-some hours, produced the
+fourteen statements of record now collected in `Mux/Statement.lean`,
+found and killed a recurring soundness bug in its own new
 invariants, reversed its own adjudication twice, and ended somewhere
 stranger than either conjecture: with a theorem saying the deadlock
 the Link abstraction was built to prevent cannot occur even without
@@ -833,9 +834,11 @@ controls before any mux experiment ran) returned a trichotomy in place
 of Finch's dichotomy: #lived
 
 - Every _work-conserving_ scheduler — one that must push when the pipe
-  has room — deadlocks, on the empirically known wedge shape, at every
-  capacity tested. The right to idle, not frame choice, is the whole
-  frontier. C1's spirit: true.
+  has room — deadlocks, on the empirically known _wedge_ shape (a root
+  whose first child opens a deep dispute while whole-subtree
+  provisions queue behind it on the same stream), at every capacity
+  tested. The right to idle, not frame choice, is the whole frontier.
+  C1's spirit: true.
 - The idling strategy σ\* survived every probe sweep. C1's letter:
   false, conditionally — the panel named two conditions, one a proof
   repair (the "Keystone" lemma's delivery case was broken as drafted;
@@ -951,9 +954,11 @@ locality proven definitionally and _liveness_ as the one open conjunct.
 Closing it took two tracks (the announced-prefix property — every
 announced trace is a literal prefix of its true trace — a new
 `RecvLedger` ground fact, the causal keystone, and finally the minting
-ladder, ~4,500 lines, which also corrected the inherited plan's
-receive-based phrasing: under drained pipes, announcement is a fact
-about _sends_). `c1_charter_false` went unconditional on 2026-07-22.
+ladder: ~4,500 lines showing that every record the inference consults
+was announced by a frame scheduled early enough, which also corrected
+the inherited plan's receive-based phrasing — under drained pipes,
+announcement is a fact about _sends_). `c1_charter_false` went
+unconditional on 2026-07-22.
 One agent hung mid-climb and was resumed; one was killed by a harness
 accident and relaunched; the liveness diagnostic that matters — a
 transcript's _entry count_, not its modification time — went into the
@@ -1004,7 +1009,8 @@ replies is a _custody_ change, not a semantics change — and the
 Backend was already the streaming sink, so the receiver half of the
 refactor shrank to widening one queue. The latency analysis priced the
 whole space (the K-dial law, probe-exact at 54/54: pacing K+1 frames
-per round trip, parity with multi-link at K ≥ P\*+1), and the honest
+per round trip, parity with multi-link once the window clears the
+widest frontier of simultaneously announced disputes), and the honest
 final trade is recorded in the design doc: what multi-link still buys
 is byte-granularity interleaving and loss isolation — physics, not
 information, not liveness, not round trips. #lived
@@ -1052,8 +1058,9 @@ and the kernel caught none — that the two-tier discipline was the
 story. Part two sharpens it: _the executable tier out-caught the paper
 tier every single time they disagreed_ — the projections, the no-peek
 ruling, the pacing law (both circulating sketches wrong; the harness
-exact), the odd-width ceiling. The kernel then froze what the probes
-found. Probe first, prove second, pin forever remains the method, and
+exact), the odd-width ceiling (a whole-round-trip quantization the
+first analysis had misread as cross-level coupling). The kernel then
+froze what the probes found. Probe first, prove second, pin forever remains the method, and
 this campaign added its complement: _fix the English first_. The
 statement-faithfulness ruling — claims accurate to intent, proofs as
 messy as needed — became executable process in `T8-SPEC.md`, and the
@@ -1086,9 +1093,12 @@ contents, must be announcement-inferred, and the inferred window
 discipline suffices — but "points at" is not "forces." The necessity
 itself is a derived claim, and it was chartered spec-first as T11, the
 forced-window theorem (`MUX-PROGRESS.md` §3e): every charter-local,
-deadlock-free-on-the-class strategy is license-bounded at every
-reachable observation. The fooling argument the campaign never needed
-for C1 would finally get its use, one level up. #artifact
+deadlock-free-on-the-class strategy is _license-bounded_ at every
+reachable observation — it never pushes beyond what its inference can
+certify consumable, which is to say it behaves as if running the
+windowing it was never told to run. The fooling argument the campaign
+never needed for C1 would finally get its use, one level up.
+#artifact
 
 Two clarifications from Finch then reframed the engineering ending.
 First: the _library_ is the product — `rumormill` is a demo — so the
