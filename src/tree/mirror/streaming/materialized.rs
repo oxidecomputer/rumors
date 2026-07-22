@@ -66,11 +66,12 @@
 //! [link contract](crate::link) demands independently flow-controlled
 //! streams: replies then travel edges with exactly the semantics assumed
 //! here, and this argument covers remote sessions verbatim. It is not a
-//! premise that can be quietly weakened: an earlier session layer
-//! multiplexed every stream onto one shared FIFO pipe — sound-looking
-//! per-edge, jointly a cross-stream wait cycle — and the composition
-//! deadlocked (`design/streaming-wire-deadlock.md`). Independence is now an
-//! interface obligation, supplied by contract or not at all.
+//! premise that can be quietly weakened: multiplexing every stream onto
+//! one shared FIFO pipe looks sound edge-by-edge yet composes into a
+//! cross-stream wait cycle and deadlocks
+//! (`design/streaming-wire-deadlock.md` records the construction).
+//! Independence is an interface obligation, supplied by contract or not
+//! at all.
 //!
 //! [`Work::assemble`]'s inter-level return queue is the one exception. A reply
 //! can dispute a full fan of children. While the walk is still examining those

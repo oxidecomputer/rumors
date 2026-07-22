@@ -150,9 +150,10 @@ impl Batch<'_> {
     /// Test-only.
     ///
     /// The parity tests use this to drive Working-form views through the
-    /// comparison and combine surfaces. The identity-join idiom they once
-    /// used (`join(&Version::new())`) no longer materializes: it is exactly
-    /// the lattice short-circuit in [`join_view`](Self::join_view).
+    /// comparison and combine surfaces. An identity join
+    /// (`join(&Version::new())`) cannot serve: it is exactly the lattice
+    /// short-circuit in [`join_view`](Self::join_view), and leaves the
+    /// working form untouched.
     #[cfg(test)]
     pub(super) fn materialize(&mut self) -> &mut Self {
         if self.work.is_none() {

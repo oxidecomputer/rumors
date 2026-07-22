@@ -24,8 +24,8 @@ fn admission_charges_the_frame_envelope() {
     assert!(!exact.admits(body + 1, record));
     assert!(!exact.admits(body, record + 1));
 
-    // A body-only budget (the pre-fix accounting) no longer admits: the
-    // envelope is charged too.
+    // A budget covering only body and record undercounts the frame and
+    // must not admit: the envelope is charged too.
     let body_only = RunBudget::from_bytes(body + record);
     assert!(!body_only.admits(body, record));
 }

@@ -185,7 +185,7 @@ fn capacity_stress_witness_requires_inter_level_fan() {
     );
     assert!(
         underbuffered_mirror_stalls(a.clone(), b.clone(), 253),
-        "the stress witness no longer stalls just below its required return capacity",
+        "the stress witness must stall just below its required return capacity",
     );
     assert!(
         !underbuffered_mirror_stalls(a, b, 254),
