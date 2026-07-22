@@ -387,4 +387,41 @@ theorem sigmaStarK_completes (hwf : sk.wellFormed = true)
   muxK_greedy_run_terminal
     (sigmaStarK_deadlock_free hwf hm0 KI KR hKI hKR C hC hWI hWR)
 
+-- ==================================================== the executable pins
+
+/-- One K-composition completion verdict: the greedy K drain reaches
+`mterminal` within `fuel` steps (`muxCompletes` over the K spine). -/
+def muxCompletesK (sk : Skel) (ax : AxMode) (KI KR C : Nat)
+    (σI σR : Strategy) (fuel : Nat) : Bool :=
+  mterminal sk (mdrainK sk ax KI KR C σI σR fuel (init sk))
+
+set_option maxRecDepth 1000000 in
+/-- The asymmetric smoke pin, end to end in the kernel: the σ*ₖ pair at
+advertised depths (K_I, K_R) = (1, 4) — the initiator gated at 4, the
+responder at 1, per-direction and UNEQUAL, exercising exactly the
+pairing clause 3 exists for — drains `smokeChain` to `mterminal` at
+C = 1. The K semantics, the arrears-K licensing, and both gate depths
+execute for real. -/
+theorem smokeChain_sigmaStarK_completes_1_4 :
+    muxCompletesK Pin.smokeChain .impl 1 4 1
+      (sigmaStarK 4) (sigmaStarK 1) 400 = true := by
+  decide
+
+set_option maxRecDepth 4000000 in
+set_option maxHeartbeats 4000000 in
+/-- The σ*ₖ pair completes the WEDGE at depths (2, 2) and C = 1: the
+campaign's canonical adversarial shape — six whole-subtree provisions
+behind the deep dispute, the skeleton `wc_impossibility_K` kills every
+work-conserving pair on at K_R ∈ {1,2,3} — under the two-deep window:
+the first two frames of each stream ride the free window, frames
+beyond push only on closure-proven arrears-2 demand. The in-kernel
+companion of the K-dial law's checked corner, and the derivation
+machinery's liveness anchor at a depth the landed K = 1 pin never
+exercises. Kernel cost: minutes (the closure re-derives per gated push
+decision), accepted as for the K = 1 wedge pin. -/
+theorem wedge_sigmaStarK_completes_2_2 :
+    muxCompletesK wedge .impl 2 2 1
+      (sigmaStarK 2) (sigmaStarK 2) 800 = true := by
+  decide
+
 end StreamingMirror.Mux
