@@ -72,8 +72,14 @@ fn binding_capacity() -> usize {
 
 /// Serialized one-way hops one divergent session spends on the wire.
 fn hops(divergent_per_side: usize) -> u32 {
+    hops_over(divergent_per_side, LINK_CAPACITY)
+}
+
+/// [`hops`], with the pipe's per-stream in-flight window chosen by the
+/// caller: `pipe_capacity / DELAY` is the modeled link bandwidth.
+fn hops_over(divergent_per_side: usize, pipe_capacity: usize) -> u32 {
     let (left, right) = diverged(divergent_per_side);
-    let mut wire = latency::DelayedWire::new(LINK_CAPACITY, DELAY);
+    let mut wire = latency::DelayedWire::new(pipe_capacity, DELAY);
     let (_pair, elapsed) = wire.round_trip(left, right);
     u32::try_from(elapsed.as_millis() / DELAY.as_millis()).expect("bounded hop count")
 }
@@ -132,6 +138,75 @@ fn below_the_knee_hops_are_flat() {
         full <= half + 4,
         "doubling a below-knee divergence may deepen the ladder, not \
          serialize: {half} -> {full}",
+    );
+}
+
+/// Above the knee, cost is linear in divergence: constant hops per
+/// message, not a growing cliff.
+///
+/// The wave model says a session above the knee drains in
+/// binding-capacity-sized waves, one round trip each, so time grows by a
+/// *constant* increment per message — which is what makes a fixed window
+/// a throughput ceiling with a fixed slowdown factor rather than a
+/// latency penalty that compounds with divergence. Measured on a
+/// latency-only link (roomy pipe), the marginal hops per message between
+/// consecutive divergence doublings must agree with each other within a
+/// factor of two; their absolute scale is reported for calibration
+/// against the predicted `2 / capacity`.
+#[test]
+fn above_the_knee_cost_is_linear_in_divergence() {
+    let capacity = binding_capacity();
+    let divergences = [4, 8, 16, 32].map(|factor| factor * capacity);
+    let times: Vec<u32> = divergences.iter().map(|&d| hops(d)).collect();
+    let slopes: Vec<f64> = times
+        .windows(2)
+        .zip(divergences.windows(2))
+        .map(|(t, d)| f64::from(t[1] - t[0]) / (d[1] - d[0]) as f64)
+        .collect();
+    eprintln!(
+        "capacity {capacity}: divergences {divergences:?}, hops {times:?}, \
+         marginal hops/message {slopes:?} (wave model predicts {:.4})",
+        2.0 / capacity as f64,
+    );
+    let (min, max) = slopes
+        .iter()
+        .fold((f64::MAX, f64::MIN), |(lo, hi), &s| (lo.min(s), hi.max(s)));
+    assert!(
+        min > 0.0 && max / min <= 2.0,
+        "marginal cost per message must be constant in divergence: \
+         slopes {slopes:?} spread more than 2x",
+    );
+}
+
+/// A window at or above the link's bandwidth-delay product in messages
+/// hides serialization entirely.
+///
+/// With the pipe's in-flight window tightened until bandwidth (pipe
+/// capacity over delay) is the binding constraint — a
+/// bandwidth-delay product in messages below the window's binding
+/// capacity — the transfer itself costs more time than the window's
+/// waves, so the latency-only session time (pure window stall, roomy
+/// pipe) must sit at or below the bandwidth-bound time for the same
+/// divergence. This is the amortization that lets one well-picked
+/// constant serve every divergence on links up to its design BDP.
+#[test]
+fn window_stall_hides_under_bandwidth_bound_transfer() {
+    let capacity = binding_capacity();
+    let divergence = 16 * capacity;
+    // 2 KiB in flight at 10 ms one-way models ~200 KB/s per stream: a
+    // BDP of ~2 KiB, tens of messages at the ~100 B floor — at or below
+    // the binding capacity, so bandwidth binds before the window does.
+    let bandwidth_bound = hops_over(divergence, 2 * 1024);
+    let stall_bound = hops(divergence);
+    eprintln!(
+        "capacity {capacity}, divergence {divergence}: \
+         latency-only {stall_bound} hops, bandwidth-bound {bandwidth_bound} hops",
+    );
+    assert!(
+        stall_bound <= bandwidth_bound + bandwidth_bound / 4 + 4,
+        "window stall ({stall_bound} hops) must hide inside the \
+         bandwidth-bound transfer ({bandwidth_bound} hops) once the pipe's \
+         BDP in messages is below the window",
     );
 }
 
